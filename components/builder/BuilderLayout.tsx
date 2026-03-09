@@ -97,6 +97,30 @@ export function BuilderLayout({ buildId }: { buildId: string }) {
     }
   }
 
+  const handleDownloadJson = async () => {
+    if (!builder.blueprint) return
+    try {
+      const res = await fetch('/api/compile/json', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ blueprint: builder.blueprint }),
+      })
+      if (!res.ok) {
+        console.error('JSON export failed:', await res.text())
+        return
+      }
+      const blob = await res.blob()
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `${builder.blueprint.app_name || 'app'}.json`
+      a.click()
+      URL.revokeObjectURL(url)
+    } catch (err) {
+      console.error('JSON export failed:', err)
+    }
+  }
+
   const handleValidate = async () => {
     if (!builder.blueprint) return
     try {
@@ -153,6 +177,9 @@ export function BuilderLayout({ buildId }: { buildId: string }) {
             <>
               <Button variant="ghost" size="sm" onClick={handleValidate}>
                 Validate
+              </Button>
+              <Button variant="secondary" size="sm" onClick={handleDownloadJson}>
+                Download JSON
               </Button>
               <Button variant="secondary" size="sm" onClick={handleCompile}>
                 Download .ccz
