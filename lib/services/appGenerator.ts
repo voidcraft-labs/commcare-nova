@@ -15,8 +15,8 @@ import { FORM_PROMPT } from '../prompts/formPrompt'
 import { FORM_FIXER_PROMPT } from '../prompts/formFixerPrompt'
 import {
   scaffoldSchema, moduleContentSchema, formContentSchema,
-  assembleBlueprint, unflattenQuestions, flattenQuestions, closeCaseToFlat,
-  type Scaffold, type ModuleContent, type FormContent, type AppBlueprint, type BlueprintForm, type BlueprintQuestion,
+  assembleBlueprint, deriveCaseConfig, unflattenQuestions, flattenQuestions, closeCaseToFlat,
+  type Scaffold, type ModuleContent, type FormContent, type AppBlueprint, type BlueprintForm,
 } from '../schemas/blueprint'
 import { expandBlueprint, validateBlueprint } from './hqJsonExpander'
 
@@ -52,9 +52,6 @@ export async function scaffoldBlueprint(
     const formContents: FormContent[][] = scaffold.modules.map(m =>
       m.forms.map(() => ({
         questions: [],
-        case_name_field: null,
-        case_properties: null,
-        case_preload: null,
         close_case: null,
         child_cases: null,
       }))
@@ -154,7 +151,6 @@ Design the case list columns for this module.`
 
     // Tier 3: Form content (depth-first within this module)
     const moduleForms: FormContent[] = []
-    let registrationCaseProps: Record<string, string> | null = null
 
     for (let fIdx = 0; fIdx < sm.forms.length; fIdx++) {
       const sf = sm.forms[fIdx]
@@ -164,19 +160,13 @@ Design the case list columns for this module.`
 Module: "${sm.name}" (${sm.purpose})
 Case type: ${sm.case_type ?? 'none'}${propsDesc}
 
-Module's case list columns: ${mc.case_list_columns ? JSON.stringify(mc.case_list_columns) : 'none'}
-
 Form: "${sf.name}"
 Type: ${sf.type}
 Purpose: ${sf.purpose}
 
 Sibling forms in this module: ${sm.forms.map(f => `"${f.name}" (${f.type})`).join(', ')}`
 
-      if (sf.type === 'followup' && registrationCaseProps) {
-        formMessage += `\n\nThe registration form's case_properties mapping (property -> question_id): ${JSON.stringify(registrationCaseProps)}\nUse case_preload to pre-fill questions with these case properties where appropriate.`
-      }
-
-      formMessage += '\n\nDesign the questions and case configuration for this form.'
+      formMessage += '\n\nDesign the questions for this form.'
 
       let fc: FormContent
       try {
@@ -188,10 +178,6 @@ Sibling forms in this module: ${sm.forms.map(f => `"${f.name}" (${f.type})`).joi
       } catch (err) {
         const errMsg = err instanceof Error ? err.message : String(err)
         return { success: false, errors: [`Form "${sf.name}" failed: ${errMsg}`] }
-      }
-
-      if (sf.type === 'registration' && fc.case_properties) {
-        registrationCaseProps = fc.case_properties
       }
 
       moduleForms.push(fc)
@@ -262,9 +248,6 @@ async function validateAndFix(
 
       const form = blueprint.modules[mIdx].forms[fIdx]
       const currentContent = {
-        case_name_field: form.case_name_field ?? null,
-        case_properties: form.case_properties ?? null,
-        case_preload: form.case_preload ?? null,
         close_case: closeCaseToFlat(form.close_case),
         child_cases: form.child_cases?.map(c => ({
           case_type: c.case_type,
@@ -295,6 +278,8 @@ async function validateAndFix(
 
 /** Reassemble a FormContent back into a BlueprintForm */
 function reassembleForm(name: string, type: 'registration' | 'followup' | 'survey', fc: FormContent): BlueprintForm {
+  const { case_name_field, case_properties, case_preload } = deriveCaseConfig(fc.questions, type)
+
   const closeCase = fc.close_case == null ? undefined : {
     ...(fc.close_case.question != null && { question: fc.close_case.question }),
     ...(fc.close_case.answer != null && { answer: fc.close_case.answer }),
@@ -311,9 +296,9 @@ function reassembleForm(name: string, type: 'registration' | 'followup' | 'surve
   return {
     name,
     type,
-    ...(fc.case_name_field != null && { case_name_field: fc.case_name_field }),
-    ...(fc.case_properties != null && { case_properties: fc.case_properties }),
-    ...(fc.case_preload != null && { case_preload: fc.case_preload }),
+    ...(case_name_field != null && { case_name_field }),
+    ...(case_properties != null && { case_properties }),
+    ...(case_preload != null && { case_preload }),
     ...(closeCase !== undefined && { close_case: closeCase }),
     ...(childCases !== undefined && { child_cases: childCases }),
     questions: unflattenQuestions(fc.questions),

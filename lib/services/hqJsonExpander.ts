@@ -117,16 +117,37 @@ function escapeXml(s: string): string {
   return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&apos;')
 }
 
+/** Vellum hashtag transform prefixes — tells HQ how to expand #case/ and #user/ shorthand. */
+const VELLUM_HASHTAG_TRANSFORMS = {
+  prefixes: {
+    '#case/': "instance('casedb')/casedb/case[@case_id = instance('commcaresession')/session/data/case_id]/",
+    '#user/': "instance('casedb')/casedb/case[@case_type = 'commcare-user'][hq_user_id = instance('commcaresession')/session/context/userid]/",
+  }
+}
+
+/** Extract #case/... and #user/... hashtag references from XPath expressions. */
+function extractHashtags(exprs: string[]): string[] {
+  const hashtags = new Set<string>()
+  for (const expr of exprs) {
+    const matches = expr.matchAll(/#(?:case|user)\/[\w-]+/g)
+    for (const m of matches) {
+      hashtags.add(m[0])
+    }
+  }
+  return [...hashtags]
+}
+
 /** Build complete XForm XML from question definitions. */
 function buildXForm(form: BlueprintForm, xmlns: string): string {
   const questions = form.questions || []
   const dataElements: string[] = []
   const binds: string[] = []
+  const setvalues: string[] = []
   const itextEntries: string[] = []
   const bodyElements: string[] = []
 
   for (const q of questions) {
-    buildQuestionParts(q, '/data', dataElements, binds, itextEntries, bodyElements)
+    buildQuestionParts(q, '/data', dataElements, binds, setvalues, itextEntries, bodyElements)
   }
 
   const dataContent = dataElements.length > 0
@@ -137,18 +158,22 @@ function buildXForm(form: BlueprintForm, xmlns: string): string {
     ? '\n' + binds.map(b => `      ${b}`).join('\n')
     : ''
 
+  const setvalueContent = setvalues.length > 0
+    ? '\n' + setvalues.map(s => `      ${s}`).join('\n')
+    : ''
+
   const itextContent = itextEntries.map(e => `          ${e}`).join('\n')
 
   const bodyContent = bodyElements.map(e => `    ${e}`).join('\n')
 
   return `<?xml version="1.0"?>
-<h:html xmlns:h="http://www.w3.org/1999/xhtml" xmlns="http://www.w3.org/2002/xforms" xmlns:xsd="http://www.w3.org/2001/XMLSchema" xmlns:jr="http://openrosa.org/javarosa">
+<h:html xmlns:h="http://www.w3.org/1999/xhtml" xmlns="http://www.w3.org/2002/xforms" xmlns:xsd="http://www.w3.org/2001/XMLSchema" xmlns:jr="http://openrosa.org/javarosa" xmlns:vellum="http://commcarehq.org/xforms/vellum">
   <h:head>
     <h:title>${escapeXml(form.name)}</h:title>
     <model>
       <instance>
         <data xmlns="${xmlns}" xmlns:jrm="http://dev.commcarehq.org/jr/xforms" uiVersion="1" version="1" name="${escapeXml(form.name.toLowerCase().replace(/[^a-z0-9]+/g, '_'))}">${dataContent}</data>
-      </instance>${bindContent}
+      </instance>${bindContent}${setvalueContent}
       <itext>
         <translation lang="en" default="">
 ${itextContent}
@@ -176,6 +201,7 @@ function buildQuestionParts(
   parentPath: string,
   dataElements: string[],
   binds: string[],
+  setvalues: string[],
   itextEntries: string[],
   bodyElements: string[]
 ): void {
@@ -194,6 +220,18 @@ function buildQuestionParts(
   if (q.constraint_msg) bindParts.push(`jr:constraintMsg="${escapeXml(q.constraint_msg)}"`)
   if (q.relevant) bindParts.push(`relevant="${escapeXml(q.relevant)}"`)
   if (q.calculate) bindParts.push(`calculate="${escapeXml(q.calculate)}"`)
+  // Setvalue for default_value
+  if (q.default_value) {
+    setvalues.push(`<setvalue event="xforms-ready" ref="${nodePath}" value="${escapeXml(q.default_value)}"/>`)
+  }
+  // Add Vellum hashtag metadata for #case/ and #user/ references
+  const xpathExprs = [q.relevant, q.constraint, q.calculate, q.default_value].filter(Boolean) as string[]
+  const hashtags = extractHashtags(xpathExprs)
+  if (hashtags.length > 0) {
+    const hashtagMap = Object.fromEntries(hashtags.map(h => [h, null]))
+    bindParts.push(`vellum:hashtags="${escapeXml(JSON.stringify(hashtagMap))}"`)
+    bindParts.push(`vellum:hashtagTransforms="${escapeXml(JSON.stringify(VELLUM_HASHTAG_TRANSFORMS))}"`)
+  }
   binds.push(`<bind ${bindParts.join(' ')}/>`)
 
   // itext (hidden questions have no body element, so no label to reference)
@@ -222,7 +260,7 @@ function buildQuestionParts(
     const childItext: string[] = []
     const childBody: string[] = []
     for (const child of (q.children || [])) {
-      buildQuestionParts(child, nodePath, childData, childBinds, childItext, childBody)
+      buildQuestionParts(child, nodePath, childData, childBinds, setvalues, childItext, childBody)
     }
     // Replace the self-closing data element with a proper parent element wrapping children
     dataElements.pop()
