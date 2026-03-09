@@ -1,6 +1,6 @@
 # CommCare Nova
 
-Next.js web app that generates CommCare mobile apps from natural language conversation.
+Next.js web app that generates CommCare apps from natural language conversation.
 
 ## Stack
 
@@ -78,6 +78,19 @@ Runs in three tiers to stay within Anthropic's schema compilation limits:
 
 Each tier uses its own slim Zod schema with `sendOneShotStructured()`. Results are assembled into a full `AppBlueprint` via `assembleBlueprint()`.
 
+### Per-Question Case Property Mapping
+
+The LLM doesn't manage form-level case wiring. Instead, each question has:
+- **`case_property`** — which case property this question maps to (or null)
+- **`is_case_name`** — true if this question's value becomes the case name (registration forms)
+
+The assembler (`deriveCaseConfig()`) derives form-level `case_name_field`, `case_properties`, and `case_preload` automatically:
+- **Registration**: all questions with `case_property` → `case_properties` map. Question with `is_case_name` → `case_name_field`.
+- **Followup**: questions with `case_property` → `case_preload` (load from case). Non-readonly ones also → `case_properties` (save back).
+- **Survey**: no case config derived.
+
+The assembled `BlueprintForm` still has form-level fields for the expander — the change is only in what the LLM outputs.
+
 ### Bring-Your-Own-API-Key
 
 No auth layer. The user's Anthropic API key is stored in localStorage and sent per request via the AI SDK's `body` option. Never persisted server-side.
@@ -100,6 +113,13 @@ No auth layer. The user's Anthropic API key is stored in localStorage and sent p
 - Tier 3 outputs flat questions with `parent_id` for nesting
 - Assembled blueprint uses recursive `children` arrays
 - `unflattenQuestions()` and `flattenQuestions()` convert between formats
+- Questions carry `case_property` and `is_case_name` — `deriveCaseConfig()` handles the rest
+- `default_value` generates `<setvalue event="xforms-ready">` in the XForm (one-time on load, unlike `calculate` which recalculates)
+
+### XPath in Questions
+- `relevant`, `calculate`, `constraint` — reference other questions by full path: `/data/question_id` or `/data/group_id/question_id`
+- `#case/property_name` — references existing case data (expander adds Vellum hashtag metadata automatically)
+- `default_value` — XPath expression set once on form open via `<setvalue>`, also supports `#case/`
 
 ### Close Case
 - `{}` = unconditional close

@@ -10,35 +10,25 @@ export const FORM_FIXER_PROMPT = `You fix CommCare form definitions. You will re
 ## Common Errors and Fixes
 
 ### "has no questions"
-Every form must have at least one question. For close/discharge/exit forms, add 3-5 focused questions: a reason for closure (select1 with domain-relevant options), a closure date (date), and optional final notes (text). If using conditional close, include a confirmation question (select1 yes/no). Do NOT replicate the full registration form — keep it short and focused on documenting the closure.
+Every form must have at least one question. Add questions appropriate to the form's purpose.
 
-### "is a registration form but has no case_name_field"
-Registration forms MUST have case_name_field set to a question id whose value becomes the case name.
+### "is a registration form but no question has is_case_name"
+Registration forms must have exactly one question with is_case_name: true.
 
-### "case_name_field doesn't match any question id"
-The case_name_field value must exactly match one of the question ids in the form.
+### "multiple questions have is_case_name"
+Only one question per form can have is_case_name: true. Remove it from all but the most appropriate one.
 
-### "case property maps to question which doesn't exist"
-A case_properties value references a question id not present in the form. Either add the question or fix the reference.
-
-### "uses reserved case property name"
-These property names are RESERVED and cannot be used as keys in case_properties:
+### "question case_property uses a reserved name"
+These property names are RESERVED and cannot be used as case_property values:
 case_id, case_name, case_type, closed, closed_by, closed_on, date, date_modified, date_opened, doc_type, domain, external_id, index, indices, modified_on, name, opened_by, opened_on, owner_id, server_modified_on, status, type, user_id, xform_id
 
-RENAME the property to something descriptive (e.g. "status" → "case_status", "name" → "full_name", "date" → "visit_date", "type" → "case_category").
+RENAME the case_property to something descriptive (e.g. "status" → "case_status", "name" → "full_name", "date" → "visit_date").
 
-### "case_preload references question which doesn't exist"
-A case_preload key references a question id not present in the form. Add the question or fix the reference.
+### "media question has case_property set"
+Media questions (image, audio, video, signature) cannot be saved as case properties. Remove the case_property from the question.
 
 ### "is a select but has no options"
 select1/select questions must have at least 2 options with {value, label}.
-
-### "case_preload uses reserved property"
-Reserved words cannot be used in case_preload values either. Remove the preload entry.
-Do NOT preload case_name — the case name is already shown when the user selects the case.
-
-### "case property maps to a media/binary question"
-Media questions (image, audio, video, signature) cannot be saved as case properties — CommCare cannot store binary data in case properties. Remove the mapping.
 
 ### "close_case references question which doesn't exist"
 The close_case condition's "question" field must match a question id in the form. Fix the question reference.
@@ -47,22 +37,22 @@ The close_case condition's "question" field must match a question id in the form
 Conditional close_case needs both "question" and "answer" fields. Add the missing "answer" value.
 
 ### "child_cases case_name_field doesn't match any question"
-Each child_case's case_name_field must point to a valid question id in the form. Fix the reference or add the question.
+Each child_case's case_name_field must point to a valid question id in the form.
 
 ### "child_cases case property maps to nonexistent question"
-A child_case's case_properties value references a question id not in the form. Fix the reference or add the question.
+A child_case's case_properties value references a question id not in the form.
 
 ### "child_cases uses reserved case property name"
-Child case properties follow the same reserved word rules. Rename the property (e.g. "status" → "referral_status").
+Child case properties follow the same reserved word rules. Rename the property.
 
 ### "child_cases repeat_context is not a repeat group"
-The repeat_context must reference a question id of type "repeat" in the form. Fix the reference.
+The repeat_context must reference a question id of type "repeat" in the form.
 
 ## Key Rules
 - Flat question format: use parent_id for nesting (null for top-level, group/repeat id for nested)
 - Groups/repeats must appear BEFORE their children in the array
-- Use "text" with "readonly": true for display-only preloaded fields, NOT "trigger"
+- Use case_property on questions to link them to case properties
+- Use is_case_name: true on exactly one question in registration forms
 - Labels should be clear and professional
-- NEVER use reserved words in case_properties keys OR case_preload values
 
 Output the corrected form content as JSON matching the schema.`
