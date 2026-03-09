@@ -76,11 +76,11 @@ async function doGenerate(
 
   const allUsage: ClaudeUsage[] = []
 
-  // Build case type property lookup
-  const caseTypeProps = new Map<string, Array<{ name: string; label: string }>>()
+  // Build case type lookup (properties + case name property)
+  const caseTypeLookup = new Map<string, { properties: Array<{ name: string; label: string }>; case_name_property: string }>()
   if (scaffold.case_types) {
     for (const ct of scaffold.case_types) {
-      caseTypeProps.set(ct.name, ct.properties)
+      caseTypeLookup.set(ct.name, { properties: ct.properties, case_name_property: ct.case_name_property })
     }
   }
 
@@ -92,10 +92,11 @@ async function doGenerate(
   for (let mIdx = 0; mIdx < scaffold.modules.length; mIdx++) {
     const sm = scaffold.modules[mIdx]
 
-    // Get case type properties for this module
-    const props = sm.case_type ? (caseTypeProps.get(sm.case_type) ?? []) : []
+    // Get case type info for this module
+    const ctInfo = sm.case_type ? caseTypeLookup.get(sm.case_type) : undefined
+    const props = ctInfo?.properties ?? []
     const propsDesc = props.length > 0
-      ? `\n\nCase type "${sm.case_type}" has these properties:\n${props.map(p => `- ${p.name}: ${p.label}`).join('\n')}`
+      ? `\n\nCase type "${sm.case_type}" has these properties:\n${props.map(p => `- ${p.name}: ${p.label}`).join('\n')}\n\nCase name property: ${ctInfo!.case_name_property}`
       : ''
 
     // Tier 2: Module content

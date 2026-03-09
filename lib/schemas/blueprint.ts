@@ -35,6 +35,9 @@ export const scaffoldSchema = z.object({
   description: z.string().describe('Brief description of the app purpose and target users'),
   case_types: z.array(z.object({
     name: z.string().describe('Case type name in snake_case (e.g., "patient", "household")'),
+    case_name_property: z.string().describe(
+      'Which property identifies this case (used as the case name). Must match one of the property names below.'
+    ),
     properties: z.array(z.object({
       name: z.string().describe(
         'Property name in snake_case. ' +

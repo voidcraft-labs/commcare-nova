@@ -1,27 +1,13 @@
 /**
- * System prompt for the module content step (Tier 2, Sonnet).
+ * System prompt for the module content step (Tier 2).
  *
- * Guides Claude to design case list columns for a module, given the
- * module's case type properties from the scaffold.
+ * Designs case list columns. The message provides the module's case type,
+ * its properties, and the case name property from the scaffold.
  */
-export const MODULE_PROMPT = `You design case list configurations for CommCare modules.
+export const MODULE_PROMPT = `You design the case list — the screen users see when they open a module and need to find the right case. They might be scrolling through hundreds of records on a phone, so the columns you pick determine whether they can quickly find who they're looking for.
 
-## Your Task
+Choose whichever columns help users find the right case quickly. Column headers should be short and scannable.
 
-Given a module's case type and its available properties, design which columns to show in the case list.
-
-## Case List Design
-
-- The case list is what users see when they open a module to select a case
-- Choose the most important properties to display as columns
-- Column headers should be clear, short labels
-- Use "case_name" as the field when displaying the case name
-
-## Rules
-
-- Only reference properties defined in the case type's property list
-- For survey-only modules (no case_type), set case_list_columns to null
-- Pick 2-4 of the most useful properties for quick identification
-- Order columns by importance (most useful first)
+Use "case_name" as the field to display the case name. For survey-only modules (no case type), set case_list_columns to null.
 
 Output the module content as JSON matching the schema.`

@@ -7,7 +7,7 @@ import {
   hasToolCall,
 } from 'ai'
 import { z } from 'zod'
-import { SYSTEM_PROMPT } from '@/lib/prompts/system'
+import { CHAT_PROMPT } from '@/lib/prompts/chatPrompt'
 import { MODEL_CHAT } from '@/lib/models'
 
 export const maxDuration = 300
@@ -36,7 +36,8 @@ const scaffoldBlueprintSchema = z.object({
   appSpecification: z
     .string()
     .describe(
-      'Comprehensive specification incorporating all requirements and Q&A answers'
+      'Plain English description of the app: business workflows, data to collect, user roles, and requirements. ' +
+      'Do NOT include technical details like property names, case types, or form structures — the generation pipeline decides those.'
     ),
 })
 
@@ -70,7 +71,7 @@ export async function POST(req: Request) {
 
   const result = streamText({
     model: anthropic(MODEL_CHAT),
-    system: SYSTEM_PROMPT,
+    system: CHAT_PROMPT,
     messages: convertedMessages,
     stopWhen: [hasToolCall('scaffoldBlueprint'), stepCountIs(10)],
     tools: chatTools,
@@ -81,7 +82,7 @@ export async function POST(req: Request) {
       if (part.type === 'start') {
         return {
           input: {
-            system: SYSTEM_PROMPT,
+            system: CHAT_PROMPT,
             messages: convertedMessages,
             tools: toolSchemas,
           },
