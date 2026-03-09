@@ -4,29 +4,11 @@
  * so the validator ideally passes on the first attempt.
  */
 
-const RESERVED_CASE_PROPERTIES = new Set([
-  'actions', 'case_id', 'case_name', 'case_type', 'case_type_id',
-  'create', 'closed', 'closed_by', 'closed_on', 'commtrack',
-  'computed_', 'computed_modified_on_', 'date', 'date_modified',
-  'date-opened', 'date_opened', 'doc_type', 'domain',
-  'external-id', 'index', 'indices', 'initial_processing_complete',
-  'last_modified', 'modified_on', 'modified_by', 'opened_by', 'opened_on',
-  'parent', 'referrals', 'server_modified_on', 'server_opened_on',
-  'status', 'type', 'user_id', 'userid', 'version', 'xform_id', 'xform_ids'
-])
-
-const RESERVED_RENAME_MAP: Record<string, string> = {
-  date: 'visit_date',
-  status: 'case_status',
-  type: 'case_category',
-  parent: 'parent_case',
-  index: 'case_index',
-  version: 'form_version',
-  domain: 'case_domain',
-  closed: 'is_closed',
-  actions: 'case_actions',
-  create: 'create_info'
-}
+import {
+  RESERVED_CASE_PROPERTIES, RESERVED_RENAME_MAP,
+  CASE_TYPE_REGEX, XFORM_PATH_REGEX, XML_ELEMENT_NAME_REGEX,
+} from './commcare'
+import { escapeXml, escapeRegex } from './commcare'
 
 export class AutoFixer {
   /**
@@ -162,7 +144,7 @@ export class AutoFixer {
         const id = `${entry.questionId}-hint`
         itextEntries.set(id, entry.text)
         fixedBody = fixedBody.replace(
-          new RegExp(`(<hint>)${this.escapeRegex(entry.text)}(</hint>)`),
+          new RegExp(`(<hint>)${escapeRegex(entry.text)}(</hint>)`),
           `<hint ref="jr:itext('${id}')"/>`
         )
       } else if (entry.type === 'item-label') {
@@ -187,7 +169,7 @@ export class AutoFixer {
     // Build or augment the itext block
     if (itextEntries.size > 0) {
       const textElements = [...itextEntries.entries()]
-        .map(([id, text]) => `          <text id="${id}">\n            <value>${this.escapeXml(text)}</value>\n          </text>`)
+        .map(([id, text]) => `          <text id="${id}">\n            <value>${escapeXml(text)}</value>\n          </text>`)
         .join('\n')
 
       if (existingItextMatch) {
@@ -273,10 +255,10 @@ export class AutoFixer {
   private replaceQuestionLabel(body: string, questionId: string, text: string, itextId: string): string {
     // Replace <label>Text</label> that directly follows ref="/data/questionId"
     // We need to be careful not to replace item labels
-    const escapedText = this.escapeRegex(text)
+    const escapedText = escapeRegex(text)
     // Match the question opening tag and its label
     const pattern = new RegExp(
-      `((?:input|select1?|trigger|upload)\\s+ref="/data/${this.escapeRegex(questionId)}"[^>]*>[\\s\\S]*?)<label>${escapedText}</label>`,
+      `((?:input|select1?|trigger|upload)\\s+ref="/data/${escapeRegex(questionId)}"[^>]*>[\\s\\S]*?)<label>${escapedText}</label>`,
     )
     const replaced = body.replace(pattern, `$1<label ref="jr:itext('${itextId}')"/>`)
     if (replaced !== body) return replaced
@@ -287,8 +269,8 @@ export class AutoFixer {
 
   private replaceItemLabel(body: string, text: string, value: string, itextId: string): string {
     // Replace <item><label>Text</label><value>val</value></item>
-    const escapedText = this.escapeRegex(text)
-    const escapedValue = this.escapeRegex(value)
+    const escapedText = escapeRegex(text)
+    const escapedValue = escapeRegex(value)
     const pattern = new RegExp(
       `<item>\\s*<label>${escapedText}</label>\\s*<value>${escapedValue}</value>\\s*</item>`
     )
@@ -348,7 +330,7 @@ export class AutoFixer {
     if (!(/nodeset="\/data\/case\/create\/case_type"\s+calculate=/.test(xml))) {
       // Try to infer case type from context
       const caseType = this.inferCaseType(xml) || 'case'
-      if (this.isValidCaseType(caseType)) {
+      if (CASE_TYPE_REGEX.test(caseType)) {
         const bind = `\n      <bind nodeset="/data/case/create/case_type" calculate="'${caseType}'"/>`
         result = this.insertBindBefore(result, bind)
         applied.push(`${path}: Added missing case_type calculate bind`)
@@ -360,7 +342,7 @@ export class AutoFixer {
     if (!(/nodeset="\/data\/case\/create\/case_name"\s+calculate=/.test(xml))) {
       // Use the first question as case name
       const firstQuestion = this.findFirstQuestion(xml)
-      if (firstQuestion && this.isValidPropertyName(firstQuestion)) {
+      if (firstQuestion && XML_ELEMENT_NAME_REGEX.test(firstQuestion)) {
         const bind = `\n      <bind nodeset="/data/case/create/case_name" calculate="/data/${firstQuestion}"/>`
         result = this.insertBindBefore(result, bind)
         applied.push(`${path}: Added missing case_name calculate bind (using /data/${firstQuestion})`)
@@ -397,7 +379,7 @@ export class AutoFixer {
         const prop = tagMatch[1]
         if (prop === 'update') continue
 
-        if (!this.isValidPropertyName(prop)) continue
+        if (!XML_ELEMENT_NAME_REGEX.test(prop)) continue
         const bindPattern = new RegExp(`nodeset="/data/case/update/${prop}"\\s+calculate=`)
         if (!bindPattern.test(result)) {
           // Try to find a matching question in the instance data
@@ -450,33 +432,6 @@ export class AutoFixer {
   // -------------------------------------------------------------------
   // Helpers
   // -------------------------------------------------------------------
-
-  private escapeRegex(str: string): string {
-    return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-  }
-
-  /** Check if a string is a valid CommCare case type identifier */
-  private isValidCaseType(ct: string): boolean {
-    return /^[a-zA-Z][a-zA-Z0-9_-]*$/.test(ct)
-  }
-
-  /** Check if a string is a valid XForm data path */
-  private isValidXFormPath(p: string): boolean {
-    return /^\/data\/[a-zA-Z0-9_/]+$/.test(p)
-  }
-
-  /** Check if a string is a valid XML element / case property name */
-  private isValidPropertyName(name: string): boolean {
-    return /^[a-zA-Z_][a-zA-Z0-9_]*$/.test(name)
-  }
-
-  private escapeXml(str: string): string {
-    return str
-      .replace(/&/g, '&amp;')
-      .replace(/</g, '&lt;')
-      .replace(/>/g, '&gt;')
-      .replace(/"/g, '&quot;')
-  }
 
   /** Convert an itext ID to a human-readable label. e.g. "patient_name-label" -> "Patient Name" */
   private idToLabel(id: string): string {

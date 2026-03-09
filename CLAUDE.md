@@ -37,9 +37,10 @@ lib/
     claude.ts           # Stateless Anthropic SDK functions (generation pipeline only)
     appGenerator.ts     # Three-tier generation pipeline (scaffoldBlueprint, fillBlueprint)
     hqJsonExpander.ts   # Blueprint → HQ import JSON (XForm XML, form actions, Vellum metadata)
-    hqJsonConverter.ts  # CCZ XML files → HQ import JSON (for re-import)
     cczCompiler.ts      # HQ import JSON → .ccz archive (adds case blocks, suite.xml)
-    __tests__/          # Vitest tests for expander + compiler
+    autoFixer.ts        # Programmatic fixes for common CommCare app issues
+    commcare/           # Shared CommCare platform module (constants, XML, hashtags, HQ types/shells)
+    __tests__/          # Vitest tests for expander, compiler, and commcare module
   schemas/              # Zod schemas for AppBlueprint, tier outputs
   prompts/              # Chat + tier prompts for Claude (chatPrompt, scaffoldPrompt, etc.)
   types/                # TypeScript type definitions
@@ -193,5 +194,6 @@ All Claude API calls log token usage, cost estimates, and full request/response 
 - `claude.ts`: Stateless functions, API key per-call. `sendOneShotStructured` returns `{ data, usage }` with full I/O for logging. Used by generation pipeline only.
 - `appGenerator.ts`: `scaffoldBlueprint()` returns raw `Scaffold`. `fillBlueprint(apiKey, scaffold)` accepts scaffold, runs tiers 2+3 only. Pure functions returning `GenerationResult` (includes `usage` array).
 - `hqJsonExpander.ts`: `expandBlueprint()` converts `AppBlueprint` → HQ import JSON. Generates XForm XML with proper Vellum dual-attribute hashtag expansion, form actions, case details. `validateBlueprint()` checks semantic rules.
-- `hqJsonConverter.ts`: `HqJsonConverter` class parses CCZ XML files back into HQ import JSON for re-import. Extracts case references from XForm binds.
 - `cczCompiler.ts`: `CczCompiler` class takes HQ import JSON → `.ccz` Buffer. Generates suite.xml, profile.ccpr, app_strings.txt. Injects case blocks (create/update/close/subcases) back into XForm XML.
+- `autoFixer.ts`: `AutoFixer` class applies programmatic fixes (itext, reserved properties, missing binds) to generated files before validation.
+- `commcare/`: Shared module — `constants.ts` (reserved words, regex), `xml.ts` (escapeXml), `hashtags.ts` (Vellum expansion), `ids.ts` (hex ID gen), `hqTypes.ts` (HQ JSON interfaces), `hqShells.ts` (factory functions), `validate.ts` (identifier validation).

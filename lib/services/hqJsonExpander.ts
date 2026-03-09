@@ -1,17 +1,12 @@
-import { randomBytes } from 'crypto'
 import type { AppBlueprint, BlueprintForm, BlueprintQuestion } from '../schemas/blueprint'
-
-/** Reserved case property names — HQ rejects these in update_case */
-const RESERVED_CASE_PROPERTIES = new Set([
-  'case_id', 'case_name', 'case_type', 'closed', 'closed_by', 'closed_on',
-  'date', 'date_modified', 'date_opened', 'doc_type', 'domain',
-  'external_id', 'index', 'indices', 'modified_on', 'opened_by',
-  'opened_on', 'owner_id', 'server_modified_on', 'status', 'type',
-  'user_id', 'xform_id', 'name'
-])
-
-/** Media/binary question types — cannot be saved as case properties */
-const MEDIA_QUESTION_TYPES = new Set(['image', 'audio', 'video', 'signature'])
+import {
+  RESERVED_CASE_PROPERTIES, MEDIA_QUESTION_TYPES,
+  escapeXml, genHexId, genShortId,
+  VELLUM_HASHTAG_TRANSFORMS, expandHashtags, hasHashtags, extractHashtags,
+  emptyFormActions, alwaysCondition, neverCondition, ifCondition,
+  detailColumn, detailPair, applicationShell, formShell, moduleShell,
+} from './commcare'
+import type { FormActions, HqApplication, OpenSubCaseAction } from './commcare'
 
 /**
  * Expand an AppBlueprint into the full HQ import JSON.
@@ -20,140 +15,36 @@ const MEDIA_QUESTION_TYPES = new Set(['image', 'audio', 'video', 'signature'])
  * xmlns, XForm XML with itext/binds/body, form actions, case details, etc.
  * The output can be imported directly into HQ or compiled into a .ccz.
  */
-export function expandBlueprint(blueprint: AppBlueprint): Record<string, any> {
+export function expandBlueprint(blueprint: AppBlueprint): HqApplication {
   const attachments: Record<string, string> = {}
-  const modules: any[] = []
-
-  for (let mIdx = 0; mIdx < blueprint.modules.length; mIdx++) {
-    const bm = blueprint.modules[mIdx]
-    const moduleUniqueId = genHexId()
+  const modules = blueprint.modules.map((bm) => {
     const hasCases = bm.case_type && bm.forms.some(f => f.type !== 'survey')
     const caseType = hasCases ? bm.case_type! : ''
 
-    const forms: any[] = []
-
-    for (let fIdx = 0; fIdx < bm.forms.length; fIdx++) {
-      const bf = bm.forms[fIdx]
+    const forms = bm.forms.map((bf) => {
       const formUniqueId = genHexId()
       const xmlns = `http://openrosa.org/formdesigner/${genShortId()}`
 
-      const xform = buildXForm(bf, xmlns)
-      attachments[`${formUniqueId}.xml`] = xform
+      attachments[`${formUniqueId}.xml`] = buildXForm(bf, xmlns)
 
-      const actions = buildFormActions(bf, caseType)
-      const caseRefsLoad = buildCaseReferencesLoad(bf.questions || [])
-
-      forms.push({
-        doc_type: 'Form',
-        form_type: 'module_form',
-        unique_id: formUniqueId,
-        name: { en: bf.name },
-        xmlns,
-        requires: bf.type === 'followup' ? 'case' : 'none',
-        version: null,
-        actions,
-        case_references_data: { load: caseRefsLoad, save: {}, doc_type: 'CaseReferences' },
-        form_filter: null,
-        post_form_workflow: 'default',
-        no_vellum: false,
-        media_image: {}, media_audio: {}, custom_icons: [],
-        custom_assertions: [], custom_instances: [], form_links: [],
-        comment: ''
-      })
-    }
-
-    const caseDetails = hasCases ? buildCaseDetails(bm.case_list_columns || []) : buildEmptyCaseDetails()
-
-    modules.push({
-      doc_type: 'Module',
-      module_type: 'basic',
-      unique_id: moduleUniqueId,
-      name: { en: bm.name },
-      case_type: caseType,
-      put_in_root: false,
-      root_module_id: null,
-      forms,
-      case_details: caseDetails,
-      case_list: { doc_type: 'CaseList', show: false, label: {}, media_image: {}, media_audio: {}, custom_icons: [] },
-      case_list_form: { doc_type: 'CaseListForm', form_id: null, label: {} },
-      search_config: { doc_type: 'CaseSearch', properties: [], default_properties: [], include_closed: false },
-      display_style: 'list',
-      media_image: {}, media_audio: {}, custom_icons: [],
-      is_training_module: false, module_filter: null, auto_select_case: false,
-      parent_select: { active: false, module_id: null },
-      comment: ''
+      return formShell(
+        formUniqueId, bf.name, xmlns,
+        bf.type === 'followup' ? 'case' : 'none',
+        buildFormActions(bf, caseType),
+        buildCaseReferencesLoad(bf.questions || []),
+      )
     })
-  }
 
-  return {
-    doc_type: 'Application',
-    application_version: '2.0',
-    name: blueprint.app_name,
-    langs: ['en'],
-    build_spec: { doc_type: 'BuildSpec', version: '2.53.0', build_number: null },
-    profile: { doc_type: 'Profile', features: {}, properties: {} },
-    vellum_case_management: true,
-    cloudcare_enabled: false,
-    case_sharing: false,
-    secure_submissions: false,
-    multimedia_map: {},
-    translations: {},
-    modules,
-    _attachments: attachments
-  }
-}
+    const caseDetails = hasCases
+      ? detailPair((bm.case_list_columns || []).map(col => detailColumn(col.field, col.header)))
+      : detailPair([])
 
-/** Generate a 40-char hex ID for HQ unique_id fields. */
-function genHexId(): string {
-  return randomBytes(20).toString('hex')
-}
-
-/** Generate a 16-char hex ID for xmlns URIs. */
-function genShortId(): string {
-  return randomBytes(8).toString('hex')
-}
-
-/** Escape special XML characters in attribute values and text content. */
-function escapeXml(s: string): string {
-  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&apos;')
-}
-
-/** Vellum hashtag transform prefixes — tells HQ how to expand #case/ and #user/ shorthand. */
-const VELLUM_HASHTAG_TRANSFORMS = {
-  prefixes: {
-    '#case/': "instance('casedb')/casedb/case[@case_id = instance('commcaresession')/session/data/case_id]/",
-    '#user/': "instance('casedb')/casedb/case[@case_type = 'commcare-user'][hq_user_id = instance('commcaresession')/session/context/userid]/",
-  }
-}
-
-/**
- * Expand #case/ and #user/ hashtags to full XPath in an expression.
- * The XForm runtime doesn't understand hashtag shorthand — it needs the full
- * instance() XPath. Vellum attributes preserve the shorthand for the editor.
- */
-function expandHashtags(expr: string): string {
-  return expr.replace(/#(case|user)\/([\w-]+)/g, (match, type) => {
-    const prefix = VELLUM_HASHTAG_TRANSFORMS.prefixes[`#${type}/` as keyof typeof VELLUM_HASHTAG_TRANSFORMS.prefixes]
-    return prefix ? match.replace(`#${type}/`, prefix) : match
+    return moduleShell(genHexId(), bm.name, caseType, forms, caseDetails)
   })
+
+  return applicationShell(blueprint.app_name, modules, attachments)
 }
 
-/** Returns true if the expression contains any #case/ or #user/ hashtags. */
-function hasHashtags(expr: string): boolean {
-  return /#(?:case|user)\//.test(expr)
-}
-
-/** Extract #case/... and #user/... hashtag references from XPath expressions. */
-function extractHashtags(exprs: string[]): string[] {
-  const hashtags = new Set<string>()
-  for (const expr of exprs) {
-    const matches = expr.matchAll(/#(?:case|user)\/[\w-]+/g)
-    for (const m of matches) {
-      hashtags.add(m[0])
-    }
-  }
-  return [...hashtags]
-}
 
 /**
  * Build the case_references_data.load map for a form.
@@ -447,38 +338,16 @@ function resolveQuestionPath(questions: BlueprintQuestion[], questionId: string,
  * Silently filters reserved property names and media questions.
  * All question paths are resolved through the group/repeat hierarchy.
  */
-function buildFormActions(form: BlueprintForm, caseType: string): any {
-  const neverCondition: Record<string, any> = { type: 'never', question: null, answer: null, operator: null, doc_type: 'FormActionCondition' }
-  const alwaysCondition: Record<string, any> = { type: 'always', question: null, answer: null, operator: null, doc_type: 'FormActionCondition' }
-
-  const base = {
-    doc_type: 'FormActions',
-    open_case: {
-      doc_type: 'OpenCaseAction',
-      name_update: { question_path: '' },
-      external_id: null,
-      condition: { ...neverCondition }
-    },
-    update_case: {
-      doc_type: 'UpdateCaseAction',
-      update: {},
-      condition: { ...neverCondition }
-    },
-    close_case: { doc_type: 'FormAction', condition: { ...neverCondition } },
-    case_preload: { doc_type: 'PreloadAction', preload: {}, condition: { ...neverCondition } },
-    subcases: [] as any[],
-    usercase_preload: { doc_type: 'PreloadAction', preload: {}, condition: { ...neverCondition } },
-    usercase_update: { doc_type: 'UpdateCaseAction', update: {}, condition: { ...neverCondition } },
-    load_from_form: { doc_type: 'PreloadAction', preload: {}, condition: { ...neverCondition } }
-  }
+function buildFormActions(form: BlueprintForm, caseType: string): FormActions {
+  const base = emptyFormActions()
 
   if (form.type === 'survey' || !caseType) {
     return base
   }
 
   // Build a safe update map, filtering out reserved property names and media questions
-  function buildSafeUpdateMap(caseProperties: Record<string, string> | undefined): Record<string, any> {
-    const updateMap: Record<string, any> = {}
+  function buildSafeUpdateMap(caseProperties: Record<string, string> | undefined): Record<string, { question_path: string; update_mode: string }> {
+    const updateMap: Record<string, { question_path: string; update_mode: string }> = {}
     if (!caseProperties) return updateMap
     // Build a lookup of question id -> type for media filtering
     function getQuestionType(questions: BlueprintQuestion[], id: string): string | undefined {
@@ -503,14 +372,14 @@ function buildFormActions(form: BlueprintForm, caseType: string): any {
 
   if (form.type === 'registration') {
     // Open case
-    base.open_case.condition = { ...alwaysCondition }
+    base.open_case.condition = alwaysCondition()
     const nameFieldId = form.case_name_field || form.questions[0]?.id || 'name'
     base.open_case.name_update.question_path = resolveQuestionPath(form.questions || [], nameFieldId) || `/data/${nameFieldId}`
 
     // Update case properties (filtered)
     const updateMap = buildSafeUpdateMap(form.case_properties)
     if (Object.keys(updateMap).length > 0) {
-      base.update_case.condition = { ...alwaysCondition }
+      base.update_case.condition = alwaysCondition()
       base.update_case.update = updateMap
     }
   }
@@ -519,7 +388,7 @@ function buildFormActions(form: BlueprintForm, caseType: string): any {
     // Update case (filtered)
     const updateMap = buildSafeUpdateMap(form.case_properties)
     if (Object.keys(updateMap).length > 0) {
-      base.update_case.condition = { ...alwaysCondition }
+      base.update_case.condition = alwaysCondition()
       base.update_case.update = updateMap
     }
 
@@ -532,7 +401,7 @@ function buildFormActions(form: BlueprintForm, caseType: string): any {
         preloadMap[qPath] = caseProp
       }
       if (Object.keys(preloadMap).length > 0) {
-        base.case_preload.condition = { ...alwaysCondition }
+        base.case_preload.condition = alwaysCondition()
         base.case_preload.preload = preloadMap
       }
     }
@@ -544,24 +413,21 @@ function buildFormActions(form: BlueprintForm, caseType: string): any {
       // Conditional close
       base.close_case = {
         doc_type: 'FormAction',
-        condition: {
-          type: 'if',
-          question: resolveQuestionPath(form.questions || [], form.close_case.question) || `/data/${form.close_case.question}`,
-          answer: form.close_case.answer,
-          operator: '=',
-          doc_type: 'FormActionCondition'
-        }
+        condition: ifCondition(
+          resolveQuestionPath(form.questions || [], form.close_case.question) || `/data/${form.close_case.question}`,
+          form.close_case.answer,
+        ),
       }
     } else {
       // Unconditional close
-      base.close_case = { doc_type: 'FormAction', condition: { ...alwaysCondition } }
+      base.close_case = { doc_type: 'FormAction', condition: alwaysCondition() }
     }
   }
 
   // Child cases / subcases
   if (form.child_cases && form.child_cases.length > 0) {
-    base.subcases = form.child_cases.map((child) => {
-      const childProps: Record<string, any> = {}
+    base.subcases = form.child_cases.map((child): OpenSubCaseAction => {
+      const childProps: Record<string, { question_path: string; update_mode: string }> = {}
       if (child.case_properties) {
         for (const [caseProp, questionId] of Object.entries(child.case_properties)) {
           if (RESERVED_CASE_PROPERTIES.has(caseProp)) continue
@@ -580,8 +446,8 @@ function buildFormActions(form: BlueprintForm, caseType: string): any {
         case_properties: childProps,
         repeat_context: child.repeat_context ? resolveQuestionPath(form.questions || [], child.repeat_context) || `/data/${child.repeat_context}` : '',
         relationship: child.relationship || 'child',
-        close_condition: { ...neverCondition },
-        condition: { ...alwaysCondition }
+        close_condition: neverCondition(),
+        condition: alwaysCondition(),
       }
     })
   }
@@ -589,70 +455,6 @@ function buildFormActions(form: BlueprintForm, caseType: string): any {
   return base
 }
 
-/** Build the HQ DetailPair for case list/detail views from blueprint columns. */
-function buildCaseDetails(columns: { field: string; header: string }[]): any {
-
-  const shortColumns = columns.map(col => ({
-    doc_type: 'DetailColumn',
-    header: { en: col.header },
-    field: col.field,
-    model: 'case',
-    format: 'plain',
-    calc_xpath: '.', filter_xpath: '', advanced: '',
-    late_flag: 30, time_ago_interval: 365.25,
-    useXpathExpression: false, hasNodeset: false, hasAutocomplete: false,
-    isTab: false, enum: [], graph_configuration: null,
-    relevant: '', case_tile_field: null, nodeset: ''
-  }))
-
-
-  const detailBase = {
-    sort_elements: [], tabs: [], filter: null,
-    lookup_enabled: false, lookup_autolaunch: false, lookup_display_results: false,
-    lookup_name: null, lookup_image: null, lookup_action: null,
-    lookup_field_template: null, lookup_field_header: {},
-    lookup_extras: [], lookup_responses: [],
-    persist_case_context: null, persistent_case_context_xml: 'case_name',
-    persist_tile_on_forms: null, persistent_case_tile_from_module: null,
-    pull_down_tile: null, case_tile_template: null,
-    custom_xml: null, custom_variables: null
-  }
-
-  return {
-    doc_type: 'DetailPair',
-    short: {
-      doc_type: 'Detail', display: 'short',
-      columns: shortColumns,
-      ...detailBase
-    },
-    long: {
-      doc_type: 'Detail', display: 'long',
-      columns: [],
-      ...detailBase
-    }
-  }
-}
-
-/** Build an empty DetailPair for survey-only modules (no case list). */
-function buildEmptyCaseDetails(): any {
-  const detailBase = {
-    sort_elements: [], tabs: [], filter: null,
-    lookup_enabled: false, lookup_autolaunch: false, lookup_display_results: false,
-    lookup_name: null, lookup_image: null, lookup_action: null,
-    lookup_field_template: null, lookup_field_header: {},
-    lookup_extras: [], lookup_responses: [],
-    persist_case_context: null, persistent_case_context_xml: 'case_name',
-    persist_tile_on_forms: null, persistent_case_tile_from_module: null,
-    pull_down_tile: null, case_tile_template: null,
-    custom_xml: null, custom_variables: null
-  }
-
-  return {
-    doc_type: 'DetailPair',
-    short: { doc_type: 'Detail', display: 'short', columns: [], ...detailBase },
-    long: { doc_type: 'Detail', display: 'long', columns: [], ...detailBase }
-  }
-}
 
 /**
  * Validate an AppBlueprint's cross-field semantic rules before expanding.
