@@ -55,17 +55,21 @@ lib/
 The chat uses `streamText()` on the server and `useChat()` on the client. Two tools:
 
 - **`askQuestions`** (client-side, no `execute`) — Claude asks structured multiple-choice questions. The tool part renders as a `QuestionCard` stepper in chat. User clicks answers, component calls `addToolOutput` when all questions are answered, `sendAutomaticallyWhen` re-sends to continue the conversation.
-- **`scaffoldBlueprint`** (client-side, no `execute`) — Claude calls this when it has enough info. `stopWhen: hasToolCall('scaffoldBlueprint')` halts the stream immediately — Claude never gets a turn to output text after calling it. The client reads the tool input (appName + appSpecification), calls `/api/blueprint/scaffold` to run tier 1, and shows the scaffold in the builder tree.
+- **`scaffoldBlueprint`** (client-side, no `execute`) — Claude calls this when it has enough info. `stopWhen: hasToolCall('scaffoldBlueprint')` halts the stream. Claude outputs a brief confirmation ("Got it — generating your app now.") before calling the tool. The client reacts to the tool call's streaming states:
+  - `input-streaming` → `builder.startPlanning()` — shows "Generating plan..." while Claude writes the appSpecification
+  - `input-available` → `builder.startScaffolding()` — shows "Generating blueprint structure...", fires `/api/blueprint/scaffold`
 
 No SSE wiring, no session coordination, no separate respond endpoint. The AI SDK handles the full message lifecycle via `UIMessage` parts.
 
 ### Builder Class
 
-`lib/services/builder.ts` exports a `Builder` class — a singleton state machine shared across components via `useBuilder()`. Phases: `Idle → Scaffolding → Modules → Forms → Validating → Fixing → Done | Error`.
+`lib/services/builder.ts` exports a `Builder` class — a singleton state machine shared across components via `useBuilder()`. Phases: `Idle → Planning → Scaffolding → Modules → Forms → Validating → Fixing → Done | Error`.
 
+- `builder.startPlanning()` — transitions to Planning phase ("Generating plan...")
+- `builder.startScaffolding()` — updates Planning message ("Generating blueprint structure...")
 - `builder.setScaffold(bp, conversation, appName)` — shows the scaffold blueprint in AppTree, stores context for filling
 - `builder.fillBlueprint(apiKey)` — calls `/api/blueprint/fill` (all tiers), updates blueprint when done
-- `builder.bind(onUpdate)` — triggers React re-renders on state changes
+- `builder.subscribe(listener)` — triggers React re-renders on state changes
 
 ### Two-Step Blueprint Generation
 

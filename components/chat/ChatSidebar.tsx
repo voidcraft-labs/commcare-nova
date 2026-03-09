@@ -30,14 +30,7 @@ export function ChatSidebar({
   const builder = useBuilder()
   const isLoading = status === 'submitted' || status === 'streaming'
 
-  // Check if scaffoldBlueprint tool is in-flight (called but not returned yet)
-  const scaffoldInFlight = messages.some(msg =>
-    msg.role === 'assistant' && msg.parts.some(part =>
-      part.type === 'tool-scaffoldBlueprint' && part.state !== 'output-available'
-    )
-  )
-
-  const showThinking = isLoading && builder.phase === BuilderPhase.Idle && !scaffoldInFlight
+  const showThinking = isLoading && builder.phase === BuilderPhase.Idle
   const scrollRef = useRef<HTMLDivElement>(null)
 
   // Auto-scroll on new messages

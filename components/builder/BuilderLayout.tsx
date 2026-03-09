@@ -38,13 +38,22 @@ export function BuilderLayout({ buildId }: { buildId: string }) {
     if (loaded && !apiKey) router.push('/')
   }, [loaded, apiKey, router])
 
-  // When scaffoldBlueprint tool is called, run scaffold and show it
+  // React to scaffoldBlueprint tool call as it streams in
+  const planningRef = useRef(new Set<string>())
   useEffect(() => {
     for (const msg of messages) {
       if (msg.role !== 'assistant') continue
       for (const part of msg.parts) {
+        if (part.type !== 'tool-scaffoldBlueprint') continue
+
+        // input-streaming: Claude is writing the plan → show "Generating plan..."
+        if (part.state === 'input-streaming' && !planningRef.current.has(part.toolCallId)) {
+          planningRef.current.add(part.toolCallId)
+          builder.startPlanning()
+        }
+
+        // input-available: plan is complete → fire scaffold API
         if (
-          part.type === 'tool-scaffoldBlueprint' &&
           (part.state === 'input-available' || part.state === 'output-available') &&
           !triggeredRef.current.has(part.toolCallId)
         ) {
@@ -52,8 +61,8 @@ export function BuilderLayout({ buildId }: { buildId: string }) {
           if (!input?.appName || !input?.appSpecification) continue
 
           triggeredRef.current.add(part.toolCallId)
+          builder.startScaffolding()
 
-          // Run scaffold and set it on the builder
           ;(async () => {
             try {
               const res = await fetch('/api/blueprint/scaffold', {
@@ -171,13 +180,6 @@ export function BuilderLayout({ buildId }: { buildId: string }) {
 
   const isGenerating = [BuilderPhase.Modules, BuilderPhase.Forms, BuilderPhase.Validating, BuilderPhase.Fixing].includes(builder.phase)
 
-  // Scaffold tool has been called but hasn't returned yet
-  const scaffoldInFlight = builder.phase === BuilderPhase.Idle && messages.some(msg =>
-    msg.role === 'assistant' && msg.parts.some(part =>
-      part.type === 'tool-scaffoldBlueprint' && part.state !== 'output-available'
-    )
-  )
-
   return (
     <div className="h-screen flex flex-col bg-nova-void overflow-hidden">
       <header className="flex items-center justify-between px-4 py-2.5 border-b border-nova-border shrink-0">
@@ -243,11 +245,11 @@ export function BuilderLayout({ buildId }: { buildId: string }) {
             </button>
           )}
 
-          {scaffoldInFlight ? (
+          {builder.phase === BuilderPhase.Planning ? (
             <div className="flex items-center justify-center h-full">
               <div className="flex items-center gap-3 text-sm text-nova-text-muted">
                 <span className="inline-block w-2 h-2 rounded-full bg-nova-violet animate-pulse" />
-                Generating blueprint...
+                {builder.statusMessage}
               </div>
             </div>
           ) : builder.phase === BuilderPhase.Idle && !builder.blueprint ? (
