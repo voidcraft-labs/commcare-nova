@@ -91,14 +91,18 @@ Each tier uses its own slim Zod schema with `sendOneShotStructured()`. Results a
 
 The LLM doesn't manage form-level case wiring. Instead, each question has:
 - **`case_property`** — which case property this question maps to (or null)
-- **`is_case_name`** — true if this question's value becomes the case name (registration forms)
+- **`is_case_name`** — true if this question's value becomes the case name (registration or followup forms)
 
 The assembler (`deriveCaseConfig()`) derives form-level `case_name_field`, `case_properties`, and `case_preload` automatically:
 - **Registration**: all questions with `case_property` → `case_properties` map. Question with `is_case_name` → `case_name_field`.
-- **Followup**: questions with `case_property` → `case_preload` (load from case). Non-readonly ones also → `case_properties` (save back).
+- **Followup**: questions with `case_property` → `case_preload` (load from case). Non-readonly ones also → `case_properties` (save back). Question with `is_case_name` → `case_name_field`.
 - **Survey**: no case config derived.
 
 The assembled `BlueprintForm` still has form-level fields for the expander — the change is only in what the LLM outputs.
+
+### Case List Columns
+
+Case list columns are fully controlled by the LLM — no columns are auto-prepended or filtered by the expander/compiler. The LLM can use any case property as a column field, including `case_name`. Reserved property restrictions only apply to `case_properties` (the update block), not to display columns.
 
 ### Bring-Your-Own-API-Key
 
@@ -122,7 +126,7 @@ No auth layer. The user's Anthropic API key is stored in localStorage and sent p
 - Tier 3 outputs flat questions with `parent_id` for nesting
 - Assembled blueprint uses recursive `children` arrays
 - `unflattenQuestions()` and `flattenQuestions()` convert between formats
-- Questions carry `case_property` and `is_case_name` — `deriveCaseConfig()` handles the rest
+- Questions carry `case_property` and `is_case_name` — `deriveCaseConfig()` derives form-level case wiring
 - `default_value` generates `<setvalue event="xforms-ready">` in the XForm (one-time on load, unlike `calculate` which recalculates)
 
 ### XPath and Vellum Hashtags

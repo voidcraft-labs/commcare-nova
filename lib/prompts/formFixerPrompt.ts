@@ -20,7 +20,7 @@ Only one question per form can have is_case_name: true. Remove it from all but t
 
 ### "question case_property uses a reserved name"
 These property names are RESERVED and cannot be used as case_property values:
-case_id, case_name, case_type, closed, closed_by, closed_on, date, date_modified, date_opened, doc_type, domain, external_id, index, indices, modified_on, name, opened_by, opened_on, owner_id, server_modified_on, status, type, user_id, xform_id
+case_id, case_type, closed, closed_by, closed_on, date, date_modified, date_opened, doc_type, domain, external_id, index, indices, modified_on, name, opened_by, opened_on, owner_id, server_modified_on, status, type, user_id, xform_id
 
 RENAME the case_property to something descriptive (e.g. "status" → "case_status", "name" → "full_name", "date" → "visit_date").
 

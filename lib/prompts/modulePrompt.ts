@@ -14,10 +14,8 @@ Given a module's case type and its available properties, design which columns to
 
 - The case list is what users see when they open a module to select a case
 - Choose the most important properties to display as columns
-- "Name" is shown automatically — do NOT include it
 - Column headers should be clear, short labels
-- Do NOT use reserved property names as column fields
-- Reserved: case_id, case_name, case_type, closed, closed_by, closed_on, date, date_modified, date_opened, doc_type, domain, external_id, index, indices, modified_on, name, opened_by, opened_on, owner_id, server_modified_on, status, type, user_id, xform_id
+- Use "case_name" as the field when displaying the case name
 
 ## Rules
 
