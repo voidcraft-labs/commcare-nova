@@ -1,11 +1,10 @@
 import AdmZip from 'adm-zip'
 import { randomUUID } from 'crypto'
+import { escapeXml, validateCaseType, validateXFormPath, validatePropertyName } from './commcare'
 
 /**
- * Compiles HQ import JSON into a .ccz archive for mobile deployment.
+ * Compiles HQ import JSON into a .ccz archive for deployment.
  * Generates suite.xml, profile.ccpr, app_strings.txt, and adds case blocks to XForms.
- *
- * Adapted for Next.js: returns a Buffer instead of writing to disk.
  */
 export class CczCompiler {
 
@@ -78,7 +77,7 @@ export class CczCompiler {
 
         if (requires === 'case' && caseType) {
           entry += `\n    <instance id="casedb" src="jr://instance/casedb"/>`
-          entry += `\n    <session>\n      <datum id="case_id" nodeset="instance('casedb')/casedb/case[@case_type='${this.validateCaseType(caseType)}'][@status='open']" value="./@case_id" detail-select="m${mIdx}_case_short"/>\n    </session>`
+          entry += `\n    <session>\n      <datum id="case_id" nodeset="instance('casedb')/casedb/case[@case_type='${validateCaseType(caseType)}'][@status='open']" value="./@case_id" detail-select="m${mIdx}_case_short"/>\n    </session>`
         }
 
         entry += `\n  </entry>`
@@ -110,9 +109,9 @@ export class CczCompiler {
 <profile xmlns="http://cihi.commcarehq.org/jad"
          version="1"
          uniqueid="${randomUUID()}"
-         name="${this.escapeXml(appName)}"
+         name="${escapeXml(appName)}"
          update="http://localhost/update">
-  <property key="CommCare App Name" value="${this.escapeXml(appName)}"/>
+  <property key="CommCare App Name" value="${escapeXml(appName)}"/>
   <property key="cc-content-version" value="1"/>
   <property key="cc-app-version" value="1"/>
   <features>
@@ -167,21 +166,21 @@ export class CczCompiler {
 
     if (isCreate) {
       caseChildren += '\n            <create>\n              <case_type/>\n              <case_name/>\n              <owner_id/>\n            </create>'
-      binds.push(`      <bind nodeset="/data/case/create/case_type" calculate="'${this.validateCaseType(caseType)}'"/>`)
+      binds.push(`      <bind nodeset="/data/case/create/case_type" calculate="'${validateCaseType(caseType)}'"/>`)
       const namePath = openCase.name_update?.question_path || '/data/name'
-      binds.push(`      <bind nodeset="/data/case/create/case_name" calculate="${this.validateXFormPath(namePath)}"/>`)
+      binds.push(`      <bind nodeset="/data/case/create/case_name" calculate="${validateXFormPath(namePath)}"/>`)
       binds.push(`      <bind nodeset="/data/case/create/owner_id" calculate="instance('commcaresession')/session/context/userid"/>`)
     }
 
     if (isUpdate && updateCase.update) {
       const props = Object.keys(updateCase.update)
       if (props.length > 0) {
-        const propElements = props.map(p => `              <${this.validatePropertyName(p)}/>`).join('\n')
+        const propElements = props.map(p => `              <${validatePropertyName(p)}/>`).join('\n')
         caseChildren += `\n            <update>\n${propElements}\n            </update>`
         for (const [prop, mapping] of Object.entries(updateCase.update)) {
-          const validProp = this.validatePropertyName(prop)
+          const validProp = validatePropertyName(prop)
           const qPath = (mapping as any).question_path || `/data/${prop}`
-          binds.push(`      <bind nodeset="/data/case/update/${validProp}" calculate="${this.validateXFormPath(qPath)}"/>`)
+          binds.push(`      <bind nodeset="/data/case/update/${validProp}" calculate="${validateXFormPath(qPath)}"/>`)
         }
       }
     }
@@ -189,7 +188,7 @@ export class CczCompiler {
     if (isClose) {
       caseChildren += '\n            <close/>'
       if (closeCase.condition.type === 'if' && closeCase.condition.question) {
-        const qPath = this.validateXFormPath(closeCase.condition.question)
+        const qPath = validateXFormPath(closeCase.condition.question)
         const answer = closeCase.condition.answer || ''
         binds.push(`      <bind nodeset="/data/case/close" relevant="${qPath} = '${answer}'"/>`)
       }
@@ -211,23 +210,23 @@ export class CczCompiler {
 
       let scChildren = ''
       scChildren += '\n            <create>\n              <case_type/>\n              <case_name/>\n              <owner_id/>\n            </create>'
-      binds.push(`      <bind nodeset="${basePath}/create/case_type" calculate="'${this.validateCaseType(sc.case_type)}'"/>`)
+      binds.push(`      <bind nodeset="${basePath}/create/case_type" calculate="'${validateCaseType(sc.case_type)}'"/>`)
       const namePath = sc.name_update?.question_path || `${basePath}/name`
-      binds.push(`      <bind nodeset="${basePath}/create/case_name" calculate="${this.validateXFormPath(namePath)}"/>`)
+      binds.push(`      <bind nodeset="${basePath}/create/case_name" calculate="${validateXFormPath(namePath)}"/>`)
       binds.push(`      <bind nodeset="${basePath}/create/owner_id" calculate="instance('commcaresession')/session/context/userid"/>`)
 
       // Parent index
-      scChildren += `\n            <index>\n              <parent case_type="${this.validateCaseType(caseType)}" relationship="${sc.relationship || 'child'}"/>\n            </index>`
+      scChildren += `\n            <index>\n              <parent case_type="${validateCaseType(caseType)}" relationship="${sc.relationship || 'child'}"/>\n            </index>`
 
       // Child case properties
       if (sc.case_properties && Object.keys(sc.case_properties).length > 0) {
         const props = Object.entries(sc.case_properties)
-        const propElements = props.map(([p]) => `              <${this.validatePropertyName(p)}/>`).join('\n')
+        const propElements = props.map(([p]) => `              <${validatePropertyName(p)}/>`).join('\n')
         scChildren += `\n            <update>\n${propElements}\n            </update>`
         for (const [prop, mapping] of props) {
-          const validProp = this.validatePropertyName(prop)
+          const validProp = validatePropertyName(prop)
           const qPath = (mapping as any).question_path || `/data/${prop}`
-          binds.push(`      <bind nodeset="${basePath}/update/${validProp}" calculate="${this.validateXFormPath(qPath)}"/>`)
+          binds.push(`      <bind nodeset="${basePath}/update/${validProp}" calculate="${validateXFormPath(qPath)}"/>`)
         }
       }
 
@@ -268,31 +267,4 @@ export class CczCompiler {
     return zip.toBuffer()
   }
 
-  private escapeXml(s: string): string {
-    return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
-  }
-
-  /** Validate a CommCare case type identifier */
-  private validateCaseType(ct: string): string {
-    if (!/^[a-zA-Z][a-zA-Z0-9_-]*$/.test(ct)) {
-      throw new Error(`Invalid case type: "${ct}"`)
-    }
-    return ct
-  }
-
-  /** Validate an XForm data path (e.g. /data/name) */
-  private validateXFormPath(p: string): string {
-    if (!/^\/data\/[a-zA-Z0-9_/]+$/.test(p)) {
-      throw new Error(`Invalid XForm path: "${p}"`)
-    }
-    return p
-  }
-
-  /** Validate an XML element / case property name */
-  private validatePropertyName(name: string): string {
-    if (!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(name)) {
-      throw new Error(`Invalid property name: "${name}"`)
-    }
-    return name
-  }
 }
