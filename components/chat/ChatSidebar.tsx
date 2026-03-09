@@ -82,7 +82,7 @@ export function ChatSidebar({
 
       {/* Input */}
       <div className="shrink-0">
-        <ChatInput onSend={onSend} disabled={isLoading} />
+        <ChatInput onSend={onSend} disabled={isLoading || builder.phase === BuilderPhase.Planning || builder.phase === BuilderPhase.Scaffolding} />
       </div>
     </motion.div>
   )
