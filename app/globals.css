@@ -1,26 +1,89 @@
 @import "tailwindcss";
 
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  /* Nova color system */
+  --nova-void: #050510;
+  --nova-deep: #0a0a1a;
+  --nova-surface: #12122a;
+  --nova-elevated: #1a1a3e;
+  --nova-border: rgba(139, 92, 246, 0.15);
+  --nova-border-bright: rgba(139, 92, 246, 0.3);
+
+  --nova-text: #e8e8ff;
+  --nova-text-secondary: #8888aa;
+  --nova-text-muted: #555577;
+
+  --nova-violet: #8b5cf6;
+  --nova-violet-bright: #a78bfa;
+  --nova-cyan: #06b6d4;
+  --nova-cyan-bright: #22d3ee;
+  --nova-emerald: #10b981;
+  --nova-amber: #f59e0b;
+  --nova-rose: #f43f5e;
+
+  --nova-glow-violet: 0 0 40px rgba(139, 92, 246, 0.15);
+  --nova-glow-cyan: 0 0 40px rgba(6, 182, 212, 0.15);
+
+  --background: var(--nova-void);
+  --foreground: var(--nova-text);
 }
 
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+  --color-nova-void: var(--nova-void);
+  --color-nova-deep: var(--nova-deep);
+  --color-nova-surface: var(--nova-surface);
+  --color-nova-elevated: var(--nova-elevated);
+  --color-nova-border: var(--nova-border);
+  --color-nova-border-bright: var(--nova-border-bright);
+  --color-nova-text: var(--nova-text);
+  --color-nova-text-secondary: var(--nova-text-secondary);
+  --color-nova-text-muted: var(--nova-text-muted);
+  --color-nova-violet: var(--nova-violet);
+  --color-nova-violet-bright: var(--nova-violet-bright);
+  --color-nova-cyan: var(--nova-cyan);
+  --color-nova-cyan-bright: var(--nova-cyan-bright);
+  --color-nova-emerald: var(--nova-emerald);
+  --color-nova-amber: var(--nova-amber);
+  --color-nova-rose: var(--nova-rose);
+  --font-sans: var(--font-nova-sans);
+  --font-display: var(--font-nova-display);
+  --font-mono: var(--font-nova-mono);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
-}
-
+/* Global styles */
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  background: var(--nova-void);
+  color: var(--nova-text);
+  font-family: var(--font-sans);
+}
+
+/* Custom scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--nova-border-bright);
+  border-radius: 3px;
+}
+
+/* Selection color */
+::selection {
+  background: rgba(139, 92, 246, 0.3);
+  color: white;
+}
+
+/* Subtle noise texture overlay */
+.nova-noise::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  opacity: 0.015;
+  pointer-events: none;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  z-index: 9999;
 }
