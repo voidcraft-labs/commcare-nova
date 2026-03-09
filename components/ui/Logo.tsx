@@ -12,7 +12,7 @@ export function Logo({ size = 'md' }: { size?: 'sm' | 'md' | 'lg' }) {
         <div className="absolute inset-0 w-2 h-2 rounded-full bg-nova-violet animate-ping opacity-30" />
       </div>
       <span className="bg-gradient-to-r from-nova-text to-nova-violet-bright bg-clip-text text-transparent">
-        nova
+        commcare nova
       </span>
     </div>
   )
