@@ -21,7 +21,7 @@ app/                    # Next.js App Router pages and API routes
     chat/               # Chat endpoint (Vercel AI SDK streamText)
     blueprint/
       scaffold/         # Tier 1 scaffold endpoint
-      fill/             # Full blueprint generation (all tiers)
+      fill/             # Tiers 2+3 generation (accepts scaffold, skips tier 1)
     validate/           # Blueprint validation
     compile/            # CCZ compilation + download
   build/[id]/           # Main builder view (3-panel layout)
@@ -67,14 +67,15 @@ No SSE wiring, no session coordination, no separate respond endpoint. The AI SDK
 
 - `builder.startPlanning()` — transitions to Planning phase ("Generating plan...")
 - `builder.startScaffolding()` — updates Planning message ("Generating blueprint structure...")
-- `builder.setScaffold(bp, conversation, appName)` — shows the scaffold blueprint in AppTree, stores context for filling
-- `builder.fillBlueprint(apiKey)` — calls `/api/blueprint/fill` (all tiers), updates blueprint when done
+- `builder.setScaffold(scaffold)` — stores raw `Scaffold`, shows it in AppTree via `treeData` getter
+- `builder.treeData` — getter returning `TreeData` (blueprint if available, otherwise scaffold) for AppTree rendering
+- `builder.fillBlueprint(apiKey)` — sends scaffold to `/api/blueprint/fill` (tiers 2+3), updates blueprint when done
 - `builder.subscribe(listener)` — triggers React re-renders on state changes
 
 ### Two-Step Blueprint Generation
 
-1. **Scaffold** (`/api/blueprint/scaffold` → `scaffoldBlueprint()`) — Tier 1 only. Returns app structure + data model with empty form content. Shows immediately in the builder tree so the user can review the architecture.
-2. **Fill** (`/api/blueprint/fill` → `fillBlueprint()`) — All three tiers from scratch. Triggered by the "Generate" button in the header after scaffold is visible. Replaces the scaffold with the full blueprint.
+1. **Scaffold** (`/api/blueprint/scaffold` → `scaffoldBlueprint()`) — Tier 1 only. Returns the raw `Scaffold` type (not assembled into `AppBlueprint`). The builder stores it and the `treeData` getter maps it to a `TreeData` shape for AppTree rendering.
+2. **Fill** (`/api/blueprint/fill` → `fillBlueprint(apiKey, scaffold)`) — Accepts the stored scaffold, runs tiers 2+3 only (does NOT re-run tier 1). The fill route validates the incoming scaffold with `scaffoldSchema.safeParse()`. Triggered by the "Generate" button after scaffold is visible. Replaces the scaffold with the full assembled `AppBlueprint`.
 
 ### Three-Tiered Generation Pipeline
 
@@ -184,9 +185,9 @@ All Claude API calls log token usage, cost estimates, and full request/response 
 
 ## Service Layer Notes
 
-- `builder.ts`: `Builder` class — singleton via `useBuilder()`. Manages phase, blueprint, selected element. `bind()` hooks into React re-renders.
+- `builder.ts`: `Builder` class — singleton via `useBuilder()`. Holds both `scaffold: Scaffold | null` and `blueprint: AppBlueprint | null`. `treeData` getter provides a `TreeData` union for AppTree. Manages phase, selected element.
 - `claude.ts`: Stateless functions, API key per-call. `sendOneShotStructured` returns `{ data, usage }` with full I/O for logging. Used by generation pipeline only.
-- `appGenerator.ts`: `scaffoldBlueprint()` for tier 1 only, `fillBlueprint()` for all tiers. Pure functions — take inputs, return `GenerationResult` (includes `usage` array).
+- `appGenerator.ts`: `scaffoldBlueprint()` returns raw `Scaffold`. `fillBlueprint(apiKey, scaffold)` accepts scaffold, runs tiers 2+3 only. Pure functions returning `GenerationResult` (includes `usage` array).
 - `hqJsonExpander.ts`: `expandBlueprint()` converts `AppBlueprint` → HQ import JSON. Generates XForm XML with proper Vellum dual-attribute hashtag expansion, form actions, case details. `validateBlueprint()` checks semantic rules.
 - `hqJsonConverter.ts`: `HqJsonConverter` class parses CCZ XML files back into HQ import JSON for re-import. Extracts case references from XForm binds.
 - `cczCompiler.ts`: `CczCompiler` class takes HQ import JSON → `.ccz` Buffer. Generates suite.xml, profile.ccpr, app_strings.txt. Injects case blocks (create/update/close/subcases) back into XForm XML.

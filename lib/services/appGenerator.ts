@@ -1,12 +1,13 @@
 /**
- * Orchestrates the three-tiered app generation pipeline:
+ * Two-phase app generation pipeline:
  *
- *   Tier 1: Scaffold — plan app structure + data model (Sonnet, structured output)
- *   Tier 2: Module content — case list columns per module (Sonnet, structured output)
- *   Tier 3: Form content — questions + case config per form (Sonnet, structured output)
- *   Assembly — combine tiers into a full AppBlueprint
- *   Validate — check semantic rules; if errors, re-generate failing forms (Haiku)
- *   Expand — convert to HQ JSON
+ *   scaffoldBlueprint() — Tier 1: plan app structure + data model (returns raw Scaffold)
+ *   fillBlueprint()     — Tiers 2+3: module content + form content (accepts Scaffold, skips Tier 1)
+ *     Tier 2: Case list columns per module (Sonnet, structured output)
+ *     Tier 3: Questions + case config per form (Sonnet, structured output)
+ *     Assembly — combine scaffold + tier outputs into a full AppBlueprint
+ *     Validate — check semantic rules; if errors, re-generate failing forms (Haiku)
+ *     Expand — convert to HQ JSON
  */
 import { sendOneShotStructured, type ClaudeUsage } from './claude'
 import { MODEL_FIXER } from '../models'
@@ -31,13 +32,13 @@ export interface GenerationResult {
 
 /**
  * Tier 1 only: scaffold the app structure + data model.
- * Returns a partial AppBlueprint (modules have no form content yet).
+ * Returns the raw Scaffold (not assembled into an AppBlueprint).
  */
 export async function scaffoldBlueprint(
   apiKey: string,
   conversationContext: string,
   appName: string,
-): Promise<{ success: boolean; blueprint?: AppBlueprint; errors?: string[]; usage?: ClaudeUsage[] }> {
+): Promise<{ success: boolean; scaffold?: Scaffold; errors?: string[]; usage?: ClaudeUsage[] }> {
   const resolvedAppName = appName || inferAppName(conversationContext)
   const scaffoldMessage = `Here is the specification for the app to build:\n\n${conversationContext}\n\nBased on this specification, plan the app structure. App name: "${resolvedAppName}".`
 
@@ -49,18 +50,7 @@ export async function scaffoldBlueprint(
     )
     scaffold.app_name = resolvedAppName
 
-    // Assemble with empty module/form content to get a valid AppBlueprint shape
-    const moduleContents: ModuleContent[] = scaffold.modules.map(() => ({ case_list_columns: null }))
-    const formContents: FormContent[][] = scaffold.modules.map(m =>
-      m.forms.map(() => ({
-        questions: [],
-        close_case: null,
-        child_cases: null,
-      }))
-    )
-
-    const blueprint = assembleBlueprint(scaffold, moduleContents, formContents)
-    return { success: true, blueprint, usage: [usage] }
+    return { success: true, scaffold, usage: [usage] }
   } catch (err) {
     const errMsg = err instanceof Error ? err.message : String(err)
     return { success: false, errors: [`Scaffold failed: ${errMsg}`] }
@@ -69,13 +59,10 @@ export async function scaffoldBlueprint(
 
 export async function fillBlueprint(
   apiKey: string,
-  conversationContext: string,
-  appName: string,
+  scaffold: Scaffold,
 ): Promise<GenerationResult> {
-  const resolvedAppName = appName || inferAppName(conversationContext)
-
   try {
-    return await doGenerate(apiKey, conversationContext, resolvedAppName)
+    return await doGenerate(apiKey, scaffold)
   } catch (err) {
     const errMsg = err instanceof Error ? err.message : String(err)
     return { success: false, errors: [errMsg] }
@@ -84,31 +71,10 @@ export async function fillBlueprint(
 
 async function doGenerate(
   apiKey: string,
-  conversationContext: string,
-  resolvedAppName: string,
+  scaffold: Scaffold,
 ): Promise<GenerationResult> {
 
   const allUsage: ClaudeUsage[] = []
-
-  // ── Tier 1: Scaffold ──────────────────────────────────────────────
-
-  const scaffoldMessage = `Here is the specification for the app to build:\n\n${conversationContext}\n\nBased on this specification, plan the app structure. App name: "${resolvedAppName}".`
-
-  let scaffold: Scaffold
-  try {
-    const result = await sendOneShotStructured(
-      apiKey, SCAFFOLD_PROMPT, scaffoldMessage, scaffoldSchema,
-      () => {},
-      { maxTokens: 16384 }
-    )
-    scaffold = result.data
-    allUsage.push(result.usage)
-  } catch (err) {
-    const errMsg = err instanceof Error ? err.message : String(err)
-    return { success: false, errors: [`Scaffold failed: ${errMsg}`] }
-  }
-
-  scaffold.app_name = resolvedAppName
 
   // Build case type property lookup
   const caseTypeProps = new Map<string, Array<{ name: string; label: string }>>()

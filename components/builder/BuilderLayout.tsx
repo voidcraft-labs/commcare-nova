@@ -75,9 +75,9 @@ export function BuilderLayout({ buildId }: { buildId: string }) {
                 }),
               })
               const result = await res.json()
-              if (result.success && result.blueprint) {
+              if (result.success && result.scaffold) {
                 if (result.usage) logUsage('Scaffold', result.usage)
-                builder.setScaffold(result.blueprint, input.appSpecification, input.appName)
+                builder.setScaffold(result.scaffold)
               }
             } catch (err) {
               console.error('Scaffold failed:', err)
@@ -220,11 +220,11 @@ export function BuilderLayout({ buildId }: { buildId: string }) {
                 {builder.statusMessage}
               </div>
             </div>
-          ) : builder.phase === BuilderPhase.Idle && !builder.blueprint ? (
+          ) : builder.phase === BuilderPhase.Idle && !builder.treeData ? (
             <EmptyState onOpenChat={() => setChatOpen(true)} />
           ) : (
             <AppTree
-              blueprint={builder.blueprint}
+              data={builder.treeData}
               selected={builder.selected}
               onSelect={(s) => builder.select(s)}
               phase={builder.phase}

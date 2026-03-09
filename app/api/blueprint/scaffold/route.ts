@@ -9,5 +9,5 @@ export async function POST(req: NextRequest) {
   }
 
   const result = await scaffoldBlueprint(apiKey, appSpecification, appName || 'CommCare App')
-  return Response.json(result)
+  return Response.json(result)  // { success, scaffold?, errors?, usage? }
 }
