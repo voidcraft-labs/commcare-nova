@@ -43,6 +43,8 @@ lib/
   schemas/              # Zod schemas for AppBlueprint, tier outputs
   prompts/              # System/tier prompts for Claude
   types/                # TypeScript type definitions
+  models.ts             # Central model ID + pricing config
+  usage.ts              # ClaudeUsage type + logUsage() browser console logger
   store.ts              # JSON file persistence in .data/ (builds + ccz files)
 ```
 
@@ -150,11 +152,33 @@ Dark "Stellar Minimalism" theme. CSS custom properties defined in `globals.css`:
 - Accents: `--nova-violet`, `--nova-cyan`, `--nova-emerald`, `--nova-amber`, `--nova-rose`
 - Fonts: Outfit (display), Plus Jakarta Sans (body), JetBrains Mono (code)
 
+## Model Configuration
+
+`lib/models.ts` is the single source of truth for model IDs and pricing. Never hardcode model IDs elsewhere.
+
+- `MODEL_GENERATION` — structured generation (tiers 1-3), currently `claude-sonnet-4-6`
+- `MODEL_FIXER` — validation fixer (cheap/fast), currently `claude-haiku-4-5-20251001`
+- `MODEL_CHAT` — chat conversation (Vercel AI SDK alias), currently `claude-sonnet-4-6`
+- `MODEL_PRICING` — cost lookup keyed by model ID (per million tokens)
+
+## Usage Logging
+
+All Claude API calls log token usage, cost estimates, and full request/response data to the **browser console** for inspection.
+
+- **`lib/usage.ts`** — `ClaudeUsage` interface + `logUsage()` function. Client-safe (no server-only imports). Logs as `console.groupCollapsed` with a summary table, then per-call expandable groups showing:
+  - `Input (system)` — system prompt (~estimated tokens)
+  - `Input (message)` — user message / conversation (~estimated tokens)
+  - `Input (tools)` — tool schemas or structured output schema (~estimated tokens)
+  - `Output` — parsed response (~estimated tokens)
+- **Generation pipeline** — `claude.ts` returns `{ data, usage }` from `sendOneShotStructured`. `appGenerator.ts` accumulates `ClaudeUsage[]` across all tier calls and returns it in `GenerationResult`. `builder.ts` calls `logUsage()` client-side.
+- **Chat** — `chat/route.ts` sends input (system + messages + tool JSON schemas) via `messageMetadata` at stream start, and usage totals at stream finish. `BuilderLayout` logs via `logUsage()` when messages complete.
+- Token estimates use `~4 chars/token` heuristic. Actual `input_tokens`/`output_tokens` from the API are in the summary table.
+
 ## Service Layer Notes
 
 - `builder.ts`: `Builder` class — singleton via `useBuilder()`. Manages phase, blueprint, selected element. `bind()` hooks into React re-renders.
-- `claude.ts`: Stateless functions, API key per-call. `sendOneShotStructured` for single-message structured output. Used by generation pipeline only.
-- `appGenerator.ts`: `scaffoldBlueprint()` for tier 1 only, `fillBlueprint()` for all tiers. Pure functions — take inputs, return `GenerationResult`.
+- `claude.ts`: Stateless functions, API key per-call. `sendOneShotStructured` returns `{ data, usage }` with full I/O for logging. Used by generation pipeline only.
+- `appGenerator.ts`: `scaffoldBlueprint()` for tier 1 only, `fillBlueprint()` for all tiers. Pure functions — take inputs, return `GenerationResult` (includes `usage` array).
 - `hqJsonExpander.ts`: `expandBlueprint()` converts `AppBlueprint` → HQ import JSON. Generates XForm XML with proper Vellum dual-attribute hashtag expansion, form actions, case details. `validateBlueprint()` checks semantic rules.
 - `hqJsonConverter.ts`: `HqJsonConverter` class parses CCZ XML files back into HQ import JSON for re-import. Extracts case references from XForm binds.
 - `cczCompiler.ts`: `CczCompiler` class takes HQ import JSON → `.ccz` Buffer. Generates suite.xml, profile.ccpr, app_strings.txt. Injects case blocks (create/update/close/subcases) back into XForm XML.

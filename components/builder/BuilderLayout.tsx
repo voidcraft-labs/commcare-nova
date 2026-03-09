@@ -6,6 +6,7 @@ import { DefaultChatTransport, lastAssistantMessageIsCompleteWithToolCalls } fro
 import { useApiKey } from '@/hooks/useApiKey'
 import { useBuilder } from '@/hooks/useBuilder'
 import { BuilderPhase } from '@/lib/services/builder'
+import { logUsage } from '@/lib/usage'
 import { Logo } from '@/components/ui/Logo'
 import { Button } from '@/components/ui/Button'
 import { Badge } from '@/components/ui/Badge'
@@ -66,6 +67,7 @@ export function BuilderLayout({ buildId }: { buildId: string }) {
               })
               const result = await res.json()
               if (result.success && result.blueprint) {
+                if (result.usage) logUsage('Scaffold', result.usage)
                 builder.setScaffold(result.blueprint, input.appSpecification, input.appName)
               }
             } catch (err) {
@@ -76,6 +78,34 @@ export function BuilderLayout({ buildId }: { buildId: string }) {
       }
     }
   }, [messages, apiKey, builder])
+
+  // Log chat token usage when assistant messages finish
+  const loggedChatRef = useRef(new Set<string>())
+  useEffect(() => {
+    if (status !== 'ready') return
+    for (const msg of messages) {
+      if (msg.role !== 'assistant' || loggedChatRef.current.has(msg.id)) continue
+      const meta = (msg as any).metadata
+      if (meta?.usage) {
+        loggedChatRef.current.add(msg.id)
+        // Extract output text + tool calls from message parts
+        const output = msg.parts.map((p: any) => {
+          if (p.type === 'text') return p.text
+          if (p.type?.startsWith('tool-')) return { tool: p.type, input: p.input }
+          return null
+        }).filter(Boolean)
+
+        logUsage('Chat', [{
+          model: meta.usage.model,
+          input_tokens: meta.usage.inputTokens,
+          output_tokens: meta.usage.outputTokens,
+          stop_reason: null,
+          input: meta.input ?? undefined,
+          output,
+        }])
+      }
+    }
+  }, [messages, status])
 
   const handleSend = useCallback((text: string) => {
     if (!text.trim() || !apiKey) return

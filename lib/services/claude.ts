@@ -4,7 +4,11 @@ import { PDFDocument } from 'pdf-lib'
 import mammoth from 'mammoth'
 import * as XLSX from 'xlsx'
 import type { FileAttachment } from '../types'
+import { MODEL_GENERATION } from '../models'
+import type { ClaudeUsage } from '../usage'
 import type { z } from 'zod'
+
+export type { ClaudeUsage }
 
 /**
  * Stateless Claude service — accepts API key per-call.
@@ -22,15 +26,17 @@ export async function sendOneShotStructured<S extends z.ZodType>(
   schema: S,
   onChunk?: (chunk: string) => void,
   options?: { model?: string; maxTokens?: number }
-): Promise<z.infer<S>> {
+): Promise<{ data: z.infer<S>; usage: ClaudeUsage }> {
   const client = getClient(apiKey)
+  const model = options?.model || MODEL_GENERATION
+  const outputFormat = zodOutputFormat(schema)
   const stream = client.messages.stream({
-    model: options?.model || 'claude-sonnet-4-5-20250929',
+    model,
     max_tokens: options?.maxTokens || 16384,
     system: systemPrompt,
     messages: [{ role: 'user', content: message }],
     output_config: {
-      format: zodOutputFormat(schema),
+      format: outputFormat,
     },
   })
 
@@ -44,7 +50,17 @@ export async function sendOneShotStructured<S extends z.ZodType>(
     throw new Error('Claude did not return parsed structured output')
   }
 
-  return finalMessage.parsed_output
+  return {
+    data: finalMessage.parsed_output,
+    usage: {
+      model: finalMessage.model,
+      input_tokens: finalMessage.usage.input_tokens,
+      output_tokens: finalMessage.usage.output_tokens,
+      stop_reason: finalMessage.stop_reason,
+      input: { system: systemPrompt, message, tools: outputFormat },
+      output: finalMessage.parsed_output,
+    },
+  }
 }
 
 export async function sendOneShot(
@@ -56,7 +72,7 @@ export async function sendOneShot(
 ): Promise<string> {
   const client = getClient(apiKey)
   const stream = client.messages.stream({
-    model: options?.model || 'claude-sonnet-4-5-20250929',
+    model: options?.model || MODEL_GENERATION,
     max_tokens: options?.maxTokens || 16384,
     system: systemPrompt,
     messages: [{ role: 'user', content: message }],
@@ -83,7 +99,7 @@ export async function sendStructured<S extends z.ZodType>(
 ): Promise<z.infer<S>> {
   const client = getClient(apiKey)
   const stream = client.messages.stream({
-    model: options?.model || 'claude-sonnet-4-5-20250929',
+    model: options?.model || MODEL_GENERATION,
     max_tokens: options?.maxTokens || 8192,
     system: systemPrompt,
     messages,
@@ -109,7 +125,7 @@ export async function streamMessage(
 ): Promise<string> {
   const client = getClient(apiKey)
   const stream = client.messages.stream({
-    model: 'claude-sonnet-4-5-20250929',
+    model: MODEL_GENERATION,
     max_tokens: 8192,
     system: systemPrompt,
     messages,

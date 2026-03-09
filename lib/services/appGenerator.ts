@@ -8,7 +8,8 @@
  *   Validate — check semantic rules; if errors, re-generate failing forms (Haiku)
  *   Expand — convert to HQ JSON
  */
-import { sendOneShotStructured } from './claude'
+import { sendOneShotStructured, type ClaudeUsage } from './claude'
+import { MODEL_FIXER } from '../models'
 import { SCAFFOLD_PROMPT } from '../prompts/scaffoldPrompt'
 import { MODULE_PROMPT } from '../prompts/modulePrompt'
 import { FORM_PROMPT } from '../prompts/formPrompt'
@@ -25,6 +26,7 @@ export interface GenerationResult {
   blueprint?: AppBlueprint
   hqJson?: Record<string, any>
   errors?: string[]
+  usage?: ClaudeUsage[]
 }
 
 /**
@@ -35,12 +37,12 @@ export async function scaffoldBlueprint(
   apiKey: string,
   conversationContext: string,
   appName: string,
-): Promise<{ success: boolean; blueprint?: AppBlueprint; errors?: string[] }> {
+): Promise<{ success: boolean; blueprint?: AppBlueprint; errors?: string[]; usage?: ClaudeUsage[] }> {
   const resolvedAppName = appName || inferAppName(conversationContext)
   const scaffoldMessage = `Here is the specification for the app to build:\n\n${conversationContext}\n\nBased on this specification, plan the app structure. App name: "${resolvedAppName}".`
 
   try {
-    const scaffold = await sendOneShotStructured(
+    const { data: scaffold, usage } = await sendOneShotStructured(
       apiKey, SCAFFOLD_PROMPT, scaffoldMessage, scaffoldSchema,
       () => {},
       { maxTokens: 16384 }
@@ -58,7 +60,7 @@ export async function scaffoldBlueprint(
     )
 
     const blueprint = assembleBlueprint(scaffold, moduleContents, formContents)
-    return { success: true, blueprint }
+    return { success: true, blueprint, usage: [usage] }
   } catch (err) {
     const errMsg = err instanceof Error ? err.message : String(err)
     return { success: false, errors: [`Scaffold failed: ${errMsg}`] }
@@ -86,17 +88,21 @@ async function doGenerate(
   resolvedAppName: string,
 ): Promise<GenerationResult> {
 
+  const allUsage: ClaudeUsage[] = []
+
   // ── Tier 1: Scaffold ──────────────────────────────────────────────
 
   const scaffoldMessage = `Here is the specification for the app to build:\n\n${conversationContext}\n\nBased on this specification, plan the app structure. App name: "${resolvedAppName}".`
 
   let scaffold: Scaffold
   try {
-    scaffold = await sendOneShotStructured(
+    const result = await sendOneShotStructured(
       apiKey, SCAFFOLD_PROMPT, scaffoldMessage, scaffoldSchema,
       () => {},
       { maxTokens: 16384 }
     )
+    scaffold = result.data
+    allUsage.push(result.usage)
   } catch (err) {
     const errMsg = err instanceof Error ? err.message : String(err)
     return { success: false, errors: [`Scaffold failed: ${errMsg}`] }
@@ -138,11 +144,13 @@ Design the case list columns for this module.`
 
     let mc: ModuleContent
     try {
-      mc = await sendOneShotStructured(
+      const result = await sendOneShotStructured(
         apiKey, MODULE_PROMPT, moduleMessage, moduleContentSchema,
         () => {},
         { maxTokens: 4096 }
       )
+      mc = result.data
+      allUsage.push(result.usage)
     } catch {
       mc = { case_list_columns: null }
     }
@@ -170,11 +178,13 @@ Sibling forms in this module: ${sm.forms.map(f => `"${f.name}" (${f.type})`).joi
 
       let fc: FormContent
       try {
-        fc = await sendOneShotStructured(
+        const result = await sendOneShotStructured(
           apiKey, FORM_PROMPT, formMessage, formContentSchema,
           () => {},
           { maxTokens: 32768 }
         )
+        fc = result.data
+        allUsage.push(result.usage)
       } catch (err) {
         const errMsg = err instanceof Error ? err.message : String(err)
         return { success: false, errors: [`Form "${sf.name}" failed: ${errMsg}`] }
@@ -192,12 +202,13 @@ Sibling forms in this module: ${sm.forms.map(f => `"${f.name}" (${f.type})`).joi
 
   // ── Validate + Fix Loop ──────────────────────────────────────────
 
-  return await validateAndFix(apiKey, blueprint)
+  return await validateAndFix(apiKey, blueprint, allUsage)
 }
 
 async function validateAndFix(
   apiKey: string,
   blueprint: AppBlueprint,
+  allUsage: ClaudeUsage[],
 ): Promise<GenerationResult> {
   const recentErrorSignatures: string[] = []
   const MAX_STUCK_REPEATS = 3
@@ -211,7 +222,7 @@ async function validateAndFix(
     if (errors.length === 0) {
       const hqJson = expandBlueprint(blueprint)
 
-      return { success: true, blueprint, hqJson }
+      return { success: true, blueprint, hqJson, usage: allUsage }
     }
 
     // Stuck detection
@@ -221,9 +232,9 @@ async function validateAndFix(
     if (recentErrorSignatures.length === MAX_STUCK_REPEATS && recentErrorSignatures.every(s => s === sig)) {
       try {
         const hqJson = expandBlueprint(blueprint)
-        return { success: false, blueprint, hqJson, errors }
+        return { success: false, blueprint, hqJson, errors, usage: allUsage }
       } catch {
-        return { success: false, blueprint, errors }
+        return { success: false, blueprint, errors, usage: allUsage }
       }
     }
 
@@ -262,13 +273,14 @@ async function validateAndFix(
       const fixMessage = `## Validation Errors\n${formErrs.join('\n')}\n\n## Current Form Content\n${JSON.stringify(currentContent, null, 2)}`
 
       try {
-        const fixed = await sendOneShotStructured(
+        const result = await sendOneShotStructured(
           apiKey, FORM_FIXER_PROMPT, fixMessage, formContentSchema,
           () => {},
-          { model: 'claude-haiku-4-5-20251001', maxTokens: 32768 }
+          { model: MODEL_FIXER, maxTokens: 32768 }
         )
+        allUsage.push(result.usage)
 
-        blueprint.modules[mIdx].forms[fIdx] = reassembleForm(form.name, form.type, fixed)
+        blueprint.modules[mIdx].forms[fIdx] = reassembleForm(form.name, form.type, result.data)
       } catch {
         // Fix failed, continue to next attempt
       }

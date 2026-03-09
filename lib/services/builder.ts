@@ -1,4 +1,5 @@
 import type { AppBlueprint } from '@/lib/schemas/blueprint'
+import { logUsage } from '@/lib/usage'
 
 export enum BuilderPhase {
   Idle = 'idle',
@@ -71,6 +72,9 @@ export class Builder {
         return
       }
 
+      if (result.usage) {
+        logUsage('Blueprint Fill', result.usage)
+      }
       this.blueprint = result.blueprint
       this.phase = BuilderPhase.Done
       this.statusMessage = ''
