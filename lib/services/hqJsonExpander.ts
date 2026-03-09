@@ -41,6 +41,7 @@ export function expandBlueprint(blueprint: AppBlueprint): Record<string, any> {
       attachments[`${formUniqueId}.xml`] = xform
 
       const actions = buildFormActions(bf, caseType)
+      const caseRefsLoad = buildCaseReferencesLoad(bf.questions || [])
 
       forms.push({
         doc_type: 'Form',
@@ -51,7 +52,7 @@ export function expandBlueprint(blueprint: AppBlueprint): Record<string, any> {
         requires: bf.type === 'followup' ? 'case' : 'none',
         version: null,
         actions,
-        case_references_data: { load: {}, save: {}, doc_type: 'CaseReferences' },
+        case_references_data: { load: caseRefsLoad, save: {}, doc_type: 'CaseReferences' },
         form_filter: null,
         post_form_workflow: 'default',
         no_vellum: false,
@@ -125,6 +126,23 @@ const VELLUM_HASHTAG_TRANSFORMS = {
   }
 }
 
+/**
+ * Expand #case/ and #user/ hashtags to full XPath in an expression.
+ * The XForm runtime doesn't understand hashtag shorthand — it needs the full
+ * instance() XPath. Vellum attributes preserve the shorthand for the editor.
+ */
+function expandHashtags(expr: string): string {
+  return expr.replace(/#(case|user)\/([\w-]+)/g, (match, type) => {
+    const prefix = VELLUM_HASHTAG_TRANSFORMS.prefixes[`#${type}/` as keyof typeof VELLUM_HASHTAG_TRANSFORMS.prefixes]
+    return prefix ? match.replace(`#${type}/`, prefix) : match
+  })
+}
+
+/** Returns true if the expression contains any #case/ or #user/ hashtags. */
+function hasHashtags(expr: string): boolean {
+  return /#(?:case|user)\//.test(expr)
+}
+
 /** Extract #case/... and #user/... hashtag references from XPath expressions. */
 function extractHashtags(exprs: string[]): string[] {
   const hashtags = new Set<string>()
@@ -135,6 +153,30 @@ function extractHashtags(exprs: string[]): string[] {
     }
   }
   return [...hashtags]
+}
+
+/**
+ * Build the case_references_data.load map for a form.
+ *
+ * Scans all questions for #case/ and #user/ references in XPath expressions
+ * (calculate, relevant, constraint, default_value) and maps each question's
+ * full path to the array of hashtag references it uses. CommCare's Vellum
+ * editor uses this to resolve hashtag shorthand at build time.
+ */
+function buildCaseReferencesLoad(questions: BlueprintQuestion[], parentPath = '/data'): Record<string, string[]> {
+  const load: Record<string, string[]> = {}
+  for (const q of questions) {
+    const nodePath = `${parentPath}/${q.id}`
+    const xpathExprs = [q.relevant, q.constraint, q.calculate, q.default_value].filter(Boolean) as string[]
+    const hashtags = extractHashtags(xpathExprs)
+    if (hashtags.length > 0) {
+      load[nodePath] = hashtags
+    }
+    if ((q.type === 'group' || q.type === 'repeat') && q.children) {
+      Object.assign(load, buildCaseReferencesLoad(q.children, nodePath))
+    }
+  }
+  return load
 }
 
 /** Build complete XForm XML from question definitions. */
@@ -210,19 +252,32 @@ function buildQuestionParts(
   // Data element
   dataElements.push(`<${q.id}/>`)
 
-  // Bind
+  // Bind — real attributes get expanded XPath, vellum: attributes keep shorthand
   const bindParts = [`nodeset="${nodePath}"`]
   const xsdType = getXsdType(q.type)
   if (xsdType) bindParts.push(`type="${xsdType}"`)
   if (q.required) bindParts.push(`required="true()"`)
   if (q.readonly) bindParts.push(`readonly="true()"`)
-  if (q.constraint) bindParts.push(`constraint="${escapeXml(q.constraint)}"`)
+  if (q.constraint) {
+    if (hasHashtags(q.constraint)) bindParts.push(`vellum:constraint="${escapeXml(q.constraint)}"`)
+    bindParts.push(`constraint="${escapeXml(expandHashtags(q.constraint))}"`)
+  }
   if (q.constraint_msg) bindParts.push(`jr:constraintMsg="${escapeXml(q.constraint_msg)}"`)
-  if (q.relevant) bindParts.push(`relevant="${escapeXml(q.relevant)}"`)
-  if (q.calculate) bindParts.push(`calculate="${escapeXml(q.calculate)}"`)
-  // Setvalue for default_value
+  if (q.relevant) {
+    if (hasHashtags(q.relevant)) bindParts.push(`vellum:relevant="${escapeXml(q.relevant)}"`)
+    bindParts.push(`relevant="${escapeXml(expandHashtags(q.relevant))}"`)
+  }
+  if (q.calculate) {
+    if (hasHashtags(q.calculate)) bindParts.push(`vellum:calculate="${escapeXml(q.calculate)}"`)
+    bindParts.push(`calculate="${escapeXml(expandHashtags(q.calculate))}"`)
+  }
+  // Setvalue for default_value — same dual-attribute pattern
   if (q.default_value) {
-    setvalues.push(`<setvalue event="xforms-ready" ref="${nodePath}" value="${escapeXml(q.default_value)}"/>`)
+    const expandedValue = expandHashtags(q.default_value)
+    const vellumAttrs = hasHashtags(q.default_value)
+      ? ` vellum:value="${escapeXml(q.default_value)}"`
+      : ''
+    setvalues.push(`<setvalue event="xforms-ready" ref="${nodePath}"${vellumAttrs} value="${escapeXml(expandedValue)}"/>`)
   }
   // Add Vellum hashtag metadata for #case/ and #user/ references
   const xpathExprs = [q.relevant, q.constraint, q.calculate, q.default_value].filter(Boolean) as string[]
