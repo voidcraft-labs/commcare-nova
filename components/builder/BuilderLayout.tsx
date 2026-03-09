@@ -4,7 +4,6 @@ import { useRouter } from 'next/navigation'
 import { useApiKey } from '@/hooks/useApiKey'
 import { useBuilder } from '@/hooks/useBuilder'
 import { useChat } from '@/hooks/useChat'
-import { useSSE } from '@/hooks/useSSE'
 import { Logo } from '@/components/ui/Logo'
 import { Button } from '@/components/ui/Button'
 import { Badge } from '@/components/ui/Badge'
@@ -17,14 +16,9 @@ import { GenerationProgress } from '@/components/builder/GenerationProgress'
 export function BuilderLayout({ buildId }: { buildId: string }) {
   const router = useRouter()
   const { apiKey, loaded } = useApiKey()
-  const { state, handleSSEEvent, startGeneration, select, updateBlueprint } = useBuilder()
+  const { state, startGeneration, select, updateBlueprint, reset } = useBuilder()
   const chat = useChat(apiKey)
   const [chatOpen, setChatOpen] = useState(true)
-
-  // SSE connection for active generation
-  useSSE(state.sseUrl, {
-    onEvent: handleSSEEvent,
-  })
 
   // Redirect if no API key
   useEffect(() => {
@@ -33,15 +27,27 @@ export function BuilderLayout({ buildId }: { buildId: string }) {
     }
   }, [loaded, apiKey, router])
 
-  const handleGenerate = async (appName: string) => {
-    if (!apiKey) return
-    // Build conversation context from chat messages
-    const conversationContext = chat.messages
-      .map(m => `${m.role === 'user' ? 'User' : 'Assistant'}: ${m.content}`)
-      .join('\n\n')
+  // Auto-trigger generation when chat detects a generate intent
+  useEffect(() => {
+    if (
+      chat.pendingGeneration &&
+      !chat.isLoading &&
+      (state.phase === 'idle' || state.phase === 'done')
+    ) {
+      const { appName } = chat.pendingGeneration
+      chat.clearPendingGeneration()
 
-    await startGeneration(apiKey, conversationContext, appName)
-  }
+      if (state.phase === 'done') {
+        reset()
+      }
+
+      const conversationContext = chat.messages
+        .map(m => `${m.role === 'user' ? 'User' : 'Assistant'}: ${m.content}`)
+        .join('\n\n')
+
+      startGeneration(apiKey, conversationContext, appName)
+    }
+  }, [chat.pendingGeneration, chat.isLoading, state.phase, chat.messages, apiKey, startGeneration, reset, chat.clearPendingGeneration])
 
   const handleCompile = async () => {
     if (!state.blueprint) return
@@ -123,12 +129,9 @@ export function BuilderLayout({ buildId }: { buildId: string }) {
         {chatOpen && (
           <ChatSidebar
             messages={chat.messages}
-            isStreaming={chat.isStreaming}
+            isLoading={chat.isLoading}
             onSend={chat.sendMessage}
             onClose={() => setChatOpen(false)}
-            onGenerate={handleGenerate}
-            hasBlueprint={!!state.blueprint}
-            isGenerating={isGenerating}
           />
         )}
 

@@ -3,6 +3,7 @@ import path from 'path'
 import type { Build } from './types'
 
 const DATA_DIR = path.join(process.cwd(), '.data', 'builds')
+const CCZ_DIR = path.join(process.cwd(), '.data', 'ccz')
 
 async function ensureDir() {
   await fs.mkdir(DATA_DIR, { recursive: true })
@@ -46,5 +47,18 @@ export async function deleteBuild(id: string): Promise<void> {
     await fs.unlink(path.join(DATA_DIR, `${id}.json`))
   } catch {
     // Already deleted
+  }
+}
+
+export async function saveCcz(id: string, buffer: Buffer): Promise<void> {
+  await fs.mkdir(CCZ_DIR, { recursive: true })
+  await fs.writeFile(path.join(CCZ_DIR, `${id}.ccz`), buffer)
+}
+
+export async function getCcz(id: string): Promise<Buffer | null> {
+  try {
+    return await fs.readFile(path.join(CCZ_DIR, `${id}.ccz`))
+  } catch {
+    return null
   }
 }

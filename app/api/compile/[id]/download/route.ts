@@ -1,12 +1,12 @@
 import { type NextRequest } from 'next/server'
-import { getCczBuffer } from '@/lib/generation-manager'
+import { getCcz } from '@/lib/store'
 
 export async function GET(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
   const { id } = await params
-  const buffer = getCczBuffer(id)
+  const buffer = await getCcz(id)
 
   if (!buffer) {
     return new Response('CCZ not found or expired', { status: 404 })

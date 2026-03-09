@@ -4,7 +4,7 @@ import { expandBlueprint } from '@/lib/services/hqJsonExpander'
 import { AutoFixer } from '@/lib/services/autoFixer'
 import { CczCompiler } from '@/lib/services/cczCompiler'
 import { appBlueprintSchema } from '@/lib/schemas/blueprint'
-import { storeCczBuffer } from '@/lib/generation-manager'
+import { saveCcz } from '@/lib/store'
 
 export async function POST(req: NextRequest) {
   try {
@@ -44,7 +44,7 @@ export async function POST(req: NextRequest) {
 
     // Store buffer for download
     const compileId = uuidv4()
-    storeCczBuffer(compileId, buffer)
+    await saveCcz(compileId, buffer)
 
     return NextResponse.json({
       success: true,
