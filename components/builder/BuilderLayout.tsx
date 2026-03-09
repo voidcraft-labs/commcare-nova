@@ -27,11 +27,10 @@ export function BuilderLayout({ buildId }: { buildId: string }) {
     }
   }, [loaded, apiKey, router])
 
-  // Auto-trigger generation when chat detects a generate intent
+  // Auto-trigger generation when user confirms via GenerationCard
   useEffect(() => {
     if (
       chat.pendingGeneration &&
-      !chat.isLoading &&
       (state.phase === 'idle' || state.phase === 'done')
     ) {
       const { appName } = chat.pendingGeneration
@@ -47,7 +46,7 @@ export function BuilderLayout({ buildId }: { buildId: string }) {
 
       startGeneration(apiKey, conversationContext, appName)
     }
-  }, [chat.pendingGeneration, chat.isLoading, state.phase, chat.messages, apiKey, startGeneration, reset, chat.clearPendingGeneration])
+  }, [chat.pendingGeneration, state.phase, chat.messages, apiKey, startGeneration, reset, chat.clearPendingGeneration])
 
   const handleCompile = async () => {
     if (!state.blueprint) return
@@ -130,8 +129,14 @@ export function BuilderLayout({ buildId }: { buildId: string }) {
           <ChatSidebar
             messages={chat.messages}
             isLoading={chat.isLoading}
+            isThinking={chat.isThinking}
+            isGenerating={isGenerating}
+            activeQuestions={chat.activeQuestions}
             onSend={chat.sendMessage}
             onClose={() => setChatOpen(false)}
+            onSelectOption={chat.selectOption}
+            onGenerate={chat.confirmGeneration}
+            onCancelGeneration={chat.cancelGeneration}
           />
         )}
 

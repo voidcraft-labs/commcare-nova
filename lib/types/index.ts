@@ -8,8 +8,11 @@ export interface FileAttachment {
 export interface ConversationMessage {
   role: 'user' | 'assistant'
   content: string
-  type?: 'text' | 'generation'
+  type?: 'text' | 'generation' | 'questions'
   appName?: string
+  appDescription?: string
+  questions?: import('../schemas/chat').ClarifyingQuestion[]
+  cancelled?: boolean
   attachments?: FileAttachment[]
   timestamp: number
 }

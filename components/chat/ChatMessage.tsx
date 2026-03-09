@@ -1,38 +1,57 @@
 'use client'
 import type { ConversationMessage } from '@/lib/types'
+import type { ActiveQuestionState } from '@/hooks/useChat'
+import { QuestionCard } from '@/components/chat/QuestionCard'
+import { GenerationCard } from '@/components/chat/GenerationCard'
 
-export function ChatMessage({ message }: { message: ConversationMessage }) {
-  const isUser = message.role === 'user'
+interface ChatMessageProps {
+  message: ConversationMessage
+  activeQuestions: ActiveQuestionState | null
+  isGenerating: boolean
+  onSelectOption: (questionText: string, optionLabel: string) => void
+  onGenerate: () => void
+  onCancelGeneration: () => void
+}
 
-  // Generation card for "generate" intent
-  if (message.type === 'generation') {
+export function ChatMessage({
+  message,
+  activeQuestions,
+  isGenerating,
+  onSelectOption,
+  onGenerate,
+  onCancelGeneration,
+}: ChatMessageProps) {
+  // Question card
+  if (message.type === 'questions' && message.questions) {
+    // activeQuestions is non-null only if this is the current question card
+    const isThisCardActive =
+      activeQuestions !== null &&
+      activeQuestions.questions === message.questions
+
     return (
-      <div className="flex justify-start">
-        <div className="max-w-[85%] rounded-xl border border-nova-violet/20 bg-nova-violet/5 overflow-hidden">
-          <div className="px-3.5 py-2.5 border-b border-nova-violet/10 flex items-center gap-2">
-            <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
-              <path d="M7 1v12M1 7h12" stroke="var(--nova-violet)" strokeWidth="1.5" strokeLinecap="round" />
-            </svg>
-            <span className="text-sm font-medium text-nova-text">
-              {message.appName}
-            </span>
-          </div>
-          {message.content && (
-            <div className="px-3.5 py-2.5 text-xs leading-relaxed text-nova-text-secondary whitespace-pre-wrap">
-              {message.content}
-            </div>
-          )}
-          <div className="px-3.5 py-2 bg-nova-violet/5 border-t border-nova-violet/10">
-            <span className="text-xs text-nova-violet flex items-center gap-1.5">
-              <span className="inline-block w-1.5 h-1.5 rounded-full bg-nova-violet animate-pulse" />
-              Starting generation...
-            </span>
-          </div>
-        </div>
-      </div>
+      <QuestionCard
+        questions={message.questions}
+        activeState={isThisCardActive ? activeQuestions : null}
+        completedAnswers={!isThisCardActive ? activeQuestions?.answers : undefined}
+        onSelectOption={onSelectOption}
+      />
     )
   }
 
+  // Generation card
+  if (message.type === 'generation') {
+    return (
+      <GenerationCard
+        message={message}
+        isGenerating={isGenerating}
+        onGenerate={onGenerate}
+        onCancel={onCancelGeneration}
+      />
+    )
+  }
+
+  // Regular text bubble
+  const isUser = message.role === 'user'
   const displayContent = message.content.trim()
 
   return (
