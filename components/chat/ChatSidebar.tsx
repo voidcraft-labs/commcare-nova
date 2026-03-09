@@ -1,45 +1,51 @@
 'use client'
 import { useRef, useEffect } from 'react'
 import { motion, AnimatePresence } from 'motion/react'
-import type { ConversationMessage } from '@/lib/types'
-import type { ActiveQuestionState } from '@/hooks/useChat'
+import type { UIMessage } from 'ai'
+import { useBuilder } from '@/hooks/useBuilder'
+import { BuilderPhase } from '@/lib/services/builder'
 import { ChatMessage } from '@/components/chat/ChatMessage'
 import { ChatInput } from '@/components/chat/ChatInput'
 import { ThinkingIndicator } from '@/components/chat/ThinkingIndicator'
 
 interface ChatSidebarProps {
-  messages: ConversationMessage[]
-  isLoading: boolean
-  isThinking: boolean
-  isGenerating: boolean
-  activeQuestions: ActiveQuestionState | null
+  messages: UIMessage[]
+  status: 'submitted' | 'streaming' | 'ready' | 'error'
   onSend: (message: string) => void
   onClose: () => void
-  onSelectOption: (questionText: string, optionLabel: string) => void
-  onGenerate: () => void
-  onCancelGeneration: () => void
+  addToolOutput: (params: {
+    tool: string
+    toolCallId: string
+    output: unknown
+  }) => void
 }
 
 export function ChatSidebar({
   messages,
-  isLoading,
-  isThinking,
-  isGenerating,
-  activeQuestions,
+  status,
   onSend,
   onClose,
-  onSelectOption,
-  onGenerate,
-  onCancelGeneration,
+  addToolOutput,
 }: ChatSidebarProps) {
+  const builder = useBuilder()
+  const isLoading = status === 'submitted' || status === 'streaming'
+
+  // Check if scaffoldBlueprint tool is in-flight (called but not returned yet)
+  const scaffoldInFlight = messages.some(msg =>
+    msg.role === 'assistant' && msg.parts.some(part =>
+      part.type === 'tool-scaffoldBlueprint' && part.state !== 'output-available'
+    )
+  )
+
+  const showThinking = isLoading && builder.phase === BuilderPhase.Idle && !scaffoldInFlight
   const scrollRef = useRef<HTMLDivElement>(null)
 
-  // Auto-scroll on new messages or thinking state change
+  // Auto-scroll on new messages
   useEffect(() => {
     if (scrollRef.current) {
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight
     }
-  }, [messages, activeQuestions?.currentIndex, isThinking])
+  }, [messages])
 
   return (
     <motion.div
@@ -62,32 +68,28 @@ export function ChatSidebar({
 
       {/* Messages */}
       <div ref={scrollRef} className="flex-1 overflow-y-auto p-4 space-y-4">
-        {messages.length === 0 && !isThinking && (
+        {messages.length === 0 && !isLoading && (
           <div className="text-center py-8">
             <p className="text-sm text-nova-text-muted">
               Describe the CommCare app you want to build.
             </p>
           </div>
         )}
-        {messages.map((msg, i) => (
+        {messages.map((msg) => (
           <ChatMessage
-            key={i}
+            key={msg.id}
             message={msg}
-            activeQuestions={activeQuestions}
-            isGenerating={isGenerating}
-            onSelectOption={onSelectOption}
-            onGenerate={onGenerate}
-            onCancelGeneration={onCancelGeneration}
+            addToolOutput={addToolOutput}
           />
         ))}
         <AnimatePresence>
-          {isThinking && <ThinkingIndicator />}
+          {showThinking && <ThinkingIndicator />}
         </AnimatePresence>
       </div>
 
       {/* Input */}
       <div className="shrink-0">
-        <ChatInput onSend={onSend} disabled={isLoading && !activeQuestions} />
+        <ChatInput onSend={onSend} disabled={isLoading} />
       </div>
     </motion.div>
   )

@@ -1,20 +1,10 @@
+import type { UIMessage } from 'ai'
+
 export interface FileAttachment {
   name: string
   type: string
   data: string // base64 encoded
   size: number
-}
-
-export interface ConversationMessage {
-  role: 'user' | 'assistant'
-  content: string
-  type?: 'text' | 'generation' | 'questions'
-  appName?: string
-  appDescription?: string
-  questions?: import('../schemas/chat').ClarifyingQuestion[]
-  cancelled?: boolean
-  attachments?: FileAttachment[]
-  timestamp: number
 }
 
 export interface AppDefinition {
@@ -66,7 +56,7 @@ export interface Build {
   createdAt: number
   updatedAt: number
   blueprint?: import('../schemas/blueprint').AppBlueprint
-  conversation: ConversationMessage[]
+  conversation: UIMessage[]
   errors: string[]
 }
 

@@ -11,9 +11,11 @@
     "test:watch": "vitest"
   },
   "dependencies": {
-    "@anthropic-ai/claude-agent-sdk": "^0.2.71",
+    "@ai-sdk/anthropic": "^3.0.58",
+    "@ai-sdk/react": "^3.0.118",
     "@anthropic-ai/sdk": "^0.78.0",
     "adm-zip": "^0.5.16",
+    "ai": "^6.0.116",
     "mammoth": "^1.11.0",
     "motion": "^12.35.1",
     "next": "16.1.6",
