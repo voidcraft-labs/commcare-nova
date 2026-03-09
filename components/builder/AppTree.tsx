@@ -106,26 +106,32 @@ function ModuleCard({
             )}
           </div>
         </div>
-        <div className="flex items-center gap-2">
-          {mod.case_list_columns && mod.case_list_columns.length > 0 && (
-            <Badge variant="cyan">
-              {mod.case_list_columns.length} col{mod.case_list_columns.length !== 1 ? 's' : ''}
-            </Badge>
-          )}
-          <Badge variant="muted">
-            {mod.forms.length} form{mod.forms.length !== 1 ? 's' : ''}
-          </Badge>
-        </div>
+        <Badge variant="muted">
+          {mod.forms.length} form{mod.forms.length !== 1 ? 's' : ''}
+        </Badge>
       </div>
 
       {/* Case list columns */}
       {mod.case_list_columns && mod.case_list_columns.length > 0 && (
-        <div className="px-4 pb-2">
-          <div className="flex gap-1.5 flex-wrap">
+        <div className="mx-4 mb-3 rounded-lg border border-nova-cyan/12 bg-nova-cyan/[0.03] overflow-hidden">
+          <div className="flex items-center gap-1.5 px-3 py-1.5 border-b border-nova-cyan/8">
+            <svg width="12" height="12" viewBox="0 0 12 12" fill="none" className="text-nova-cyan/50">
+              <rect x="1" y="2" width="10" height="1.5" rx="0.5" fill="currentColor"/>
+              <rect x="1" y="5.5" width="10" height="1" rx="0.5" fill="currentColor" opacity="0.5"/>
+              <rect x="1" y="8" width="10" height="1" rx="0.5" fill="currentColor" opacity="0.5"/>
+            </svg>
+            <span className="text-[10px] font-medium text-nova-cyan/50 uppercase tracking-widest">Case List</span>
+          </div>
+          <div className="flex">
             {mod.case_list_columns.map((col, i) => (
-              <span key={i} className="text-xs px-1.5 py-0.5 bg-nova-cyan/5 text-nova-cyan-bright rounded border border-nova-cyan/10">
+              <div
+                key={i}
+                className={`flex-1 px-3 py-2 text-xs font-medium text-nova-cyan-bright ${
+                  i > 0 ? 'border-l border-nova-cyan/8' : ''
+                }`}
+              >
                 {col.header}
-              </span>
+              </div>
             ))}
           </div>
         </div>

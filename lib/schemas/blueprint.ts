@@ -26,7 +26,7 @@ const selectOptionSchema = z.object({
   label: z.string().describe('Option label (shown to user)')
 })
 
-const RESERVED_CASE_PROPERTIES = 'case_id, case_name, case_type, closed, closed_by, closed_on, date, date_modified, date_opened, doc_type, domain, external_id, index, indices, modified_on, name, opened_by, opened_on, owner_id, server_modified_on, status, type, user_id, xform_id'
+const RESERVED_CASE_PROPERTIES = 'case_id, case_type, closed, closed_by, closed_on, date, date_modified, date_opened, doc_type, domain, external_id, index, indices, modified_on, name, opened_by, opened_on, owner_id, server_modified_on, status, type, user_id, xform_id'
 
 // ── Tier 1: Scaffold Schema ────────────────────────────────────────────
 
@@ -132,7 +132,7 @@ const flatQuestionSchema = z.object({
     'Must NOT be set on media questions (image, audio, video, signature).'
   ),
   is_case_name: z.boolean().nullable().describe(
-    'True if this question\'s value becomes the case name. Exactly one question per registration form must have this set. null/false otherwise.'
+    'True if this question provides the case name. Registration and followup forms that set or update the case name must have exactly one. null otherwise.'
   ),
 })
 
@@ -198,7 +198,7 @@ const blueprintQuestionSchema = z.object({
     'Required for select1/select questions. At least 2 options.'
   ),
   case_property: z.string().optional().describe('Case property name this question maps to'),
-  is_case_name: z.boolean().optional().describe('True if this question provides the case name (registration forms)'),
+  is_case_name: z.boolean().optional().describe('True if this question provides the case name'),
   get children() {
     return z.array(blueprintQuestionSchema).optional().describe(
       'Nested questions for group/repeat types'
@@ -264,7 +264,7 @@ const blueprintModuleSchema = z.object({
   ),
   forms: z.array(blueprintFormSchema).describe('Array of forms in this module'),
   case_list_columns: z.array(caseListColumnSchema).optional().describe(
-    'Columns shown in the case list. Each has "field" (case property) and "header" (display text). Do NOT include "name" — it is shown automatically. Do NOT use reserved property names.'
+    'Columns shown in the case list. Each has "field" (case property) and "header" (display text). Use "case_name" to display the case name.'
   ),
 }).describe('A module (menu) in the app')
 
@@ -402,7 +402,6 @@ function assembleChildCases(cases: FormContent['child_cases']): BlueprintForm['c
 
 /**
  * Derive form-level case config from per-question case_property / is_case_name fields.
- * This bridges the gap between the LLM output (per-question) and the assembled blueprint (form-level).
  */
 export function deriveCaseConfig(questions: FlatQuestion[], formType: 'registration' | 'followup' | 'survey') {
   let case_name_field: string | undefined
@@ -423,7 +422,6 @@ export function deriveCaseConfig(questions: FlatQuestion[], formType: 'registrat
           props[q.case_property] = q.id
         }
       } else {
-        // registration: always save
         props[q.case_property] = q.id
       }
     }

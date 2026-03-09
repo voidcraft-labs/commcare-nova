@@ -591,9 +591,8 @@ function buildFormActions(form: BlueprintForm, caseType: string): any {
 
 /** Build the HQ DetailPair for case list/detail views from blueprint columns. */
 function buildCaseDetails(columns: { field: string; header: string }[]): any {
-  const safeColumns = columns.filter(col => !RESERVED_CASE_PROPERTIES.has(col.field))
 
-  const shortColumns = safeColumns.map(col => ({
+  const shortColumns = columns.map(col => ({
     doc_type: 'DetailColumn',
     header: { en: col.header },
     field: col.field,
@@ -606,21 +605,6 @@ function buildCaseDetails(columns: { field: string; header: string }[]): any {
     relevant: '', case_tile_field: null, nodeset: ''
   }))
 
-  // Always ensure case_name is the first column in the case list
-  if (!shortColumns.some(col => col.field === 'case_name' || col.field === 'name')) {
-    shortColumns.unshift({
-      doc_type: 'DetailColumn',
-      header: { en: 'Name' },
-      field: 'case_name',
-      model: 'case',
-      format: 'plain',
-      calc_xpath: '.', filter_xpath: '', advanced: '',
-      late_flag: 30, time_ago_interval: 365.25,
-      useXpathExpression: false, hasNodeset: false, hasAutocomplete: false,
-      isTab: false, enum: [], graph_configuration: null,
-      relevant: '', case_tile_field: null, nodeset: ''
-    })
-  }
 
   const detailBase = {
     sort_elements: [], tabs: [], filter: null,
@@ -839,14 +823,6 @@ export function validateBlueprint(blueprint: AppBlueprint): string[] {
         }
       }
 
-      // Check case_list_columns don't use reserved words
-      if (mod.case_list_columns) {
-        for (const col of mod.case_list_columns) {
-          if (RESERVED_CASE_PROPERTIES.has(col.field)) {
-            errors.push(`Case list column "${col.field}" in "${mod.name}" uses a reserved property name`)
-          }
-        }
-      }
     }
   }
 

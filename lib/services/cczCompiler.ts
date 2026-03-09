@@ -36,7 +36,6 @@ export class CczCompiler {
       // Case detail definitions (if module uses cases)
       if (caseType) {
         appStrings['case_list_title'] = appStrings['case_list_title'] || `${modName}`
-        appStrings['case_name_header'] = appStrings['case_name_header'] || 'Name'
 
         suiteDetails.push(this.generateDetail(`m${mIdx}_case_short`, 'short', mod.case_details?.short?.columns || []))
         suiteDetails.push(this.generateDetail(`m${mIdx}_case_long`, 'long', mod.case_details?.long?.columns || []))
@@ -143,12 +142,6 @@ export class CczCompiler {
       return `    <field>\n      <header><text><locale id="${id}_${field}_header"/></text></header>\n      <template><text><xpath function="${field}"/></text></template>\n    </field>`
     })
 
-    // Always include case_name as first field if not already present
-    if (!columns.some((c: any) => c.field === 'name' || c.field === 'case_name')) {
-      fields.unshift(
-        `    <field>\n      <header><text><locale id="case_name_header"/></text></header>\n      <template><text><xpath function="case_name"/></text></template>\n    </field>`
-      )
-    }
 
     return `  <detail id="${id}">\n    <title><text><locale id="case_list_title"/></text></title>\n${fields.join('\n')}\n  </detail>`
   }

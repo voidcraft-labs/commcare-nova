@@ -71,12 +71,26 @@ export function DetailPanel({ blueprint, selected, onUpdate, onClose }: DetailPa
             )}
             {mod.case_list_columns && mod.case_list_columns.length > 0 && (
               <div>
-                <label className="text-xs text-nova-text-muted uppercase tracking-wider mb-1 block">Case List Columns</label>
-                <div className="space-y-1">
+                <label className="text-xs text-nova-text-muted uppercase tracking-wider mb-2 block">Case List Columns</label>
+                <div className="rounded-lg border border-nova-cyan/10 overflow-hidden">
+                  {/* Table header */}
+                  <div className="grid grid-cols-[1fr_auto] bg-nova-cyan/[0.04]">
+                    <div className="px-3 py-1.5 text-[11px] font-medium tracking-wide text-nova-cyan-bright uppercase">
+                      Header
+                    </div>
+                    <div className="px-3 py-1.5 text-[11px] font-medium tracking-wide text-nova-text-muted uppercase border-l border-nova-cyan/10">
+                      Field
+                    </div>
+                  </div>
+                  {/* Column rows */}
                   {mod.case_list_columns.map((col, i) => (
-                    <div key={i} className="flex items-center justify-between text-sm px-2 py-1 bg-nova-surface rounded">
-                      <span className="text-nova-text-secondary">{col.header}</span>
-                      <span className="font-mono text-xs text-nova-text-muted">{col.field}</span>
+                    <div key={i} className="grid grid-cols-[1fr_auto] border-t border-nova-border/40">
+                      <div className="px-3 py-1.5 text-sm text-nova-text-secondary">
+                        {col.header}
+                      </div>
+                      <div className="px-3 py-1.5 text-xs font-mono text-nova-text-muted border-l border-nova-border/30">
+                        {col.field}
+                      </div>
                     </div>
                   ))}
                 </div>
@@ -177,6 +191,15 @@ export function DetailPanel({ blueprint, selected, onUpdate, onClose }: DetailPa
               <label className="text-xs text-nova-text-muted uppercase tracking-wider mb-1 block">Type</label>
               <Badge variant="violet">{question.type}</Badge>
             </div>
+            {question.case_property && (
+              <div>
+                <label className="text-xs text-nova-text-muted uppercase tracking-wider mb-1 block">Case Property</label>
+                <div className="flex items-center gap-2">
+                  <p className="text-sm font-mono text-nova-cyan-bright">{question.case_property}</p>
+                  {question.is_case_name && <Badge variant="emerald">case name</Badge>}
+                </div>
+              </div>
+            )}
             {question.hint && (
               <div>
                 <label className="text-xs text-nova-text-muted uppercase tracking-wider mb-1 block">Hint</label>
