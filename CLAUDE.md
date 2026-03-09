@@ -41,7 +41,7 @@ lib/
     cczCompiler.ts      # HQ import JSON → .ccz archive (adds case blocks, suite.xml)
     __tests__/          # Vitest tests for expander + compiler
   schemas/              # Zod schemas for AppBlueprint, tier outputs
-  prompts/              # System/tier prompts for Claude
+  prompts/              # Chat + tier prompts for Claude (chatPrompt, scaffoldPrompt, etc.)
   types/                # TypeScript type definitions
   models.ts             # Central model ID + pricing config
   usage.ts              # ClaudeUsage type + logUsage() browser console logger
@@ -55,7 +55,7 @@ lib/
 The chat uses `streamText()` on the server and `useChat()` on the client. Two tools:
 
 - **`askQuestions`** (client-side, no `execute`) — Claude asks structured multiple-choice questions. The tool part renders as a `QuestionCard` stepper in chat. User clicks answers, component calls `addToolOutput` when all questions are answered, `sendAutomaticallyWhen` re-sends to continue the conversation.
-- **`scaffoldBlueprint`** (client-side, no `execute`) — Claude calls this when it has enough info. `stopWhen: hasToolCall('scaffoldBlueprint')` halts the stream. Claude outputs a brief confirmation ("Got it — generating your app now.") before calling the tool. The client reacts to the tool call's streaming states:
+- **`scaffoldBlueprint`** (client-side, no `execute`) — Claude calls this when it has enough info. `stopWhen: hasToolCall('scaffoldBlueprint')` halts the stream. Claude outputs a brief confirmation ("Got it — generating your app now.") before calling the tool. The `appSpecification` is plain English — business workflows and requirements, no technical details. The client reacts to the tool call's streaming states:
   - `input-streaming` → `builder.startPlanning()` — shows "Generating plan..." while Claude writes the appSpecification
   - `input-available` → `builder.startScaffolding()` — shows "Generating blueprint structure...", fires `/api/blueprint/scaffold`
 
@@ -77,12 +77,16 @@ No SSE wiring, no session coordination, no separate respond endpoint. The AI SDK
 1. **Scaffold** (`/api/blueprint/scaffold` → `scaffoldBlueprint()`) — Tier 1 only. Returns the raw `Scaffold` type (not assembled into `AppBlueprint`). The builder stores it and the `treeData` getter maps it to a `TreeData` shape for AppTree rendering.
 2. **Fill** (`/api/blueprint/fill` → `fillBlueprint(apiKey, scaffold)`) — Accepts the stored scaffold, runs tiers 2+3 only (does NOT re-run tier 1). The fill route validates the incoming scaffold with `scaffoldSchema.safeParse()`. Triggered by the "Generate" button after scaffold is visible. Replaces the scaffold with the full assembled `AppBlueprint`.
 
+### Chat → Generation Handoff
+
+The chat model acts as a requirements analyst — it gathers business requirements and writes a plain English `appSpecification`. It does NOT make technical decisions (property names, case types, form structures). That responsibility belongs to Tier 1, which translates the plain English spec into CommCare architecture. This separation means reserved property names, naming conventions, and structural rules are enforced once in the generation pipeline, not in the conversational chat.
+
 ### Three-Tiered Generation Pipeline
 
 The generation pipeline uses the raw Anthropic SDK — structured output for schema generation, not interactive conversation.
 
 Runs in three tiers to stay within Anthropic's schema compilation limits:
-1. **Scaffold** (Tier 1): App structure + data model (case types, modules, forms)
+1. **Scaffold** (Tier 1): Translates plain English spec → app structure + data model (case types, property names, modules, forms). All technical naming decisions happen here. Reserved property constraints are in the schema's `.describe()` strings.
 2. **Module Content** (Tier 2): Case list columns per module
 3. **Form Content** (Tier 3): Questions + case config per form
 
