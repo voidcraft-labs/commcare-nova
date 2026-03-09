@@ -27,7 +27,48 @@ export interface GenerationResult {
   errors?: string[]
 }
 
-export async function generateApp(
+/**
+ * Tier 1 only: scaffold the app structure + data model.
+ * Returns a partial AppBlueprint (modules have no form content yet).
+ */
+export async function scaffoldBlueprint(
+  apiKey: string,
+  conversationContext: string,
+  appName: string,
+): Promise<{ success: boolean; blueprint?: AppBlueprint; errors?: string[] }> {
+  const resolvedAppName = appName || inferAppName(conversationContext)
+  const scaffoldMessage = `Here is the specification for the app to build:\n\n${conversationContext}\n\nBased on this specification, plan the app structure. App name: "${resolvedAppName}".`
+
+  try {
+    const scaffold = await sendOneShotStructured(
+      apiKey, SCAFFOLD_PROMPT, scaffoldMessage, scaffoldSchema,
+      () => {},
+      { maxTokens: 16384 }
+    )
+    scaffold.app_name = resolvedAppName
+
+    // Assemble with empty module/form content to get a valid AppBlueprint shape
+    const moduleContents: ModuleContent[] = scaffold.modules.map(() => ({ case_list_columns: null }))
+    const formContents: FormContent[][] = scaffold.modules.map(m =>
+      m.forms.map(() => ({
+        questions: [],
+        case_name_field: null,
+        case_properties: null,
+        case_preload: null,
+        close_case: null,
+        child_cases: null,
+      }))
+    )
+
+    const blueprint = assembleBlueprint(scaffold, moduleContents, formContents)
+    return { success: true, blueprint }
+  } catch (err) {
+    const errMsg = err instanceof Error ? err.message : String(err)
+    return { success: false, errors: [`Scaffold failed: ${errMsg}`] }
+  }
+}
+
+export async function fillBlueprint(
   apiKey: string,
   conversationContext: string,
   appName: string,
@@ -50,7 +91,7 @@ async function doGenerate(
 
   // ── Tier 1: Scaffold ──────────────────────────────────────────────
 
-  const scaffoldMessage = `Here is the full conversation with the user about the app they want:\n\n${conversationContext}\n\nBased on this conversation, plan the app structure. App name: "${resolvedAppName}".`
+  const scaffoldMessage = `Here is the specification for the app to build:\n\n${conversationContext}\n\nBased on this specification, plan the app structure. App name: "${resolvedAppName}".`
 
   let scaffold: Scaffold
   try {

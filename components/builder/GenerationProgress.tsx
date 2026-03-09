@@ -1,14 +1,12 @@
 'use client'
 import { motion } from 'motion/react'
-import type { BuilderPhase } from '@/lib/types'
+import { BuilderPhase } from '@/lib/services/builder'
 
 const stages: { key: BuilderPhase; label: string }[] = [
-  { key: 'scaffolding', label: 'Scaffold' },
-  { key: 'modules', label: 'Modules' },
-  { key: 'forms', label: 'Forms' },
-  { key: 'validating', label: 'Validate' },
-  { key: 'fixing', label: 'Fix' },
-  { key: 'compiling', label: 'Compile' },
+  { key: BuilderPhase.Modules, label: 'Modules' },
+  { key: BuilderPhase.Forms, label: 'Forms' },
+  { key: BuilderPhase.Validating, label: 'Validate' },
+  { key: BuilderPhase.Fixing, label: 'Fix' },
 ]
 
 function getStageStatus(stage: BuilderPhase, currentPhase: BuilderPhase): 'done' | 'active' | 'pending' {
@@ -25,18 +23,18 @@ function getStageStatus(stage: BuilderPhase, currentPhase: BuilderPhase): 'done'
 export function GenerationProgress({ phase, message }: { phase: BuilderPhase; message: string }) {
   return (
     <motion.div
-      initial={{ y: 40, opacity: 0 }}
+      initial={{ y: 20, opacity: 0 }}
       animate={{ y: 0, opacity: 1 }}
-      className="border-t border-nova-border bg-nova-deep px-4 py-3 flex items-center gap-4 shrink-0"
+      className="rounded-xl border border-nova-violet/20 bg-nova-deep/95 backdrop-blur-sm px-5 py-3 shadow-lg shadow-nova-void/50"
     >
-      <div className="flex items-center gap-1.5">
-        {stages.map((stage) => {
+      <div className="flex items-center gap-2">
+        {stages.map((stage, i) => {
           const status = getStageStatus(stage.key, phase)
           return (
-            <div key={stage.key} className="flex items-center gap-1.5">
-              <div className={`flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium transition-colors ${
+            <div key={stage.key} className="flex items-center gap-2">
+              <div className={`flex items-center gap-1.5 text-xs font-medium transition-colors ${
                 status === 'done' ? 'text-nova-emerald' :
-                status === 'active' ? 'text-nova-violet-bright bg-nova-violet/10' :
+                status === 'active' ? 'text-nova-violet-bright' :
                 'text-nova-text-muted'
               }`}>
                 {status === 'done' && (
@@ -49,17 +47,16 @@ export function GenerationProgress({ phase, message }: { phase: BuilderPhase; me
                 )}
                 {stage.label}
               </div>
-              {stage.key !== 'compiling' && (
-                <span className="text-nova-text-muted text-xs">&rarr;</span>
+              {i < stages.length - 1 && (
+                <span className="text-nova-text-muted/40 text-xs">&rarr;</span>
               )}
             </div>
           )
         })}
       </div>
-
-      <div className="flex-1 text-right">
-        <span className="text-xs text-nova-text-secondary">{message}</span>
-      </div>
+      {message && (
+        <p className="text-[10px] text-nova-text-muted mt-1.5">{message}</p>
+      )}
     </motion.div>
   )
 }

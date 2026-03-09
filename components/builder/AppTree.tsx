@@ -1,7 +1,7 @@
 'use client'
 import { motion, AnimatePresence } from 'motion/react'
 import type { AppBlueprint, BlueprintModule, BlueprintForm, BlueprintQuestion } from '@/lib/schemas/blueprint'
-import type { BuilderPhase } from '@/lib/types'
+import { BuilderPhase } from '@/lib/services/builder'
 import { Badge } from '@/components/ui/Badge'
 
 interface AppTreeProps {

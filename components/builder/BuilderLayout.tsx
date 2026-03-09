@@ -1,9 +1,11 @@
 'use client'
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
+import { useChat } from '@ai-sdk/react'
+import { DefaultChatTransport, lastAssistantMessageIsCompleteWithToolCalls } from 'ai'
 import { useApiKey } from '@/hooks/useApiKey'
 import { useBuilder } from '@/hooks/useBuilder'
-import { useChat } from '@/hooks/useChat'
+import { BuilderPhase } from '@/lib/services/builder'
 import { Logo } from '@/components/ui/Logo'
 import { Button } from '@/components/ui/Button'
 import { Badge } from '@/components/ui/Badge'
@@ -16,69 +18,96 @@ import { GenerationProgress } from '@/components/builder/GenerationProgress'
 export function BuilderLayout({ buildId }: { buildId: string }) {
   const router = useRouter()
   const { apiKey, loaded } = useApiKey()
-  const { state, startGeneration, select, updateBlueprint, reset } = useBuilder()
-  const chat = useChat(apiKey)
+  const builder = useBuilder()
   const [chatOpen, setChatOpen] = useState(true)
+  const triggeredRef = useRef(new Set<string>())
 
-  // Redirect if no API key
+  const apiKeyRef = useRef(apiKey)
+  apiKeyRef.current = apiKey
+
+  const { messages, sendMessage, addToolOutput, status } = useChat({
+    transport: new DefaultChatTransport({
+      api: '/api/chat',
+      body: () => ({ apiKey: apiKeyRef.current }),
+    }),
+    sendAutomaticallyWhen: lastAssistantMessageIsCompleteWithToolCalls,
+  })
+
   useEffect(() => {
-    if (loaded && !apiKey) {
-      router.push('/')
-    }
+    if (loaded && !apiKey) router.push('/')
   }, [loaded, apiKey, router])
 
-  // Auto-trigger generation when user confirms via GenerationCard
+  // When scaffoldBlueprint tool is called, run scaffold and show it
   useEffect(() => {
-    if (
-      chat.pendingGeneration &&
-      (state.phase === 'idle' || state.phase === 'done')
-    ) {
-      const { appName } = chat.pendingGeneration
-      chat.clearPendingGeneration()
+    for (const msg of messages) {
+      if (msg.role !== 'assistant') continue
+      for (const part of msg.parts) {
+        if (
+          part.type === 'tool-scaffoldBlueprint' &&
+          (part.state === 'input-available' || part.state === 'output-available') &&
+          !triggeredRef.current.has(part.toolCallId)
+        ) {
+          const input = part.input as { appName: string; appSpecification: string }
+          if (!input?.appName || !input?.appSpecification) continue
 
-      if (state.phase === 'done') {
-        reset()
+          triggeredRef.current.add(part.toolCallId)
+
+          // Run scaffold and set it on the builder
+          ;(async () => {
+            try {
+              const res = await fetch('/api/blueprint/scaffold', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  apiKey,
+                  appName: input.appName,
+                  appSpecification: input.appSpecification,
+                }),
+              })
+              const result = await res.json()
+              if (result.success && result.blueprint) {
+                builder.setScaffold(result.blueprint, input.appSpecification, input.appName)
+              }
+            } catch (err) {
+              console.error('Scaffold failed:', err)
+            }
+          })()
+        }
       }
-
-      const conversationContext = chat.messages
-        .map(m => `${m.role === 'user' ? 'User' : 'Assistant'}: ${m.content}`)
-        .join('\n\n')
-
-      startGeneration(apiKey, conversationContext, appName)
     }
-  }, [chat.pendingGeneration, state.phase, chat.messages, apiKey, startGeneration, reset, chat.clearPendingGeneration])
+  }, [messages, apiKey, builder])
+
+  const handleSend = useCallback((text: string) => {
+    if (!text.trim() || !apiKey) return
+    sendMessage({ text })
+  }, [apiKey, sendMessage])
 
   const handleCompile = async () => {
-    if (!state.blueprint) return
+    if (!builder.blueprint) return
     try {
       const res = await fetch('/api/compile', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ blueprint: state.blueprint }),
+        body: JSON.stringify({ blueprint: builder.blueprint }),
       })
       const data = await res.json()
-      if (data.downloadUrl) {
-        window.open(data.downloadUrl, '_blank')
-      }
+      if (data.downloadUrl) window.open(data.downloadUrl, '_blank')
     } catch (err) {
       console.error('Compile failed:', err)
     }
   }
 
   const handleValidate = async () => {
-    if (!state.blueprint) return
+    if (!builder.blueprint) return
     try {
       const res = await fetch('/api/validate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ blueprint: state.blueprint }),
+        body: JSON.stringify({ blueprint: builder.blueprint }),
       })
       const data = await res.json()
-      if (data.valid) {
-        alert('Blueprint is valid!')
-      } else {
-        alert(`Validation errors:\n${data.errors.join('\n')}`)
-      }
+      if (data.valid) alert('Blueprint is valid!')
+      else alert(`Validation errors:\n${data.errors.join('\n')}`)
     } catch (err) {
       console.error('Validate failed:', err)
     }
@@ -86,19 +115,25 @@ export function BuilderLayout({ buildId }: { buildId: string }) {
 
   if (!loaded) return null
 
-  const isGenerating = ['scaffolding', 'modules', 'forms', 'validating', 'fixing', 'compiling'].includes(state.phase)
+  const isGenerating = [BuilderPhase.Modules, BuilderPhase.Forms, BuilderPhase.Validating, BuilderPhase.Fixing].includes(builder.phase)
+
+  // Scaffold tool has been called but hasn't returned yet
+  const scaffoldInFlight = builder.phase === BuilderPhase.Idle && messages.some(msg =>
+    msg.role === 'assistant' && msg.parts.some(part =>
+      part.type === 'tool-scaffoldBlueprint' && part.state !== 'output-available'
+    )
+  )
 
   return (
     <div className="h-screen flex flex-col bg-nova-void overflow-hidden">
-      {/* Header */}
       <header className="flex items-center justify-between px-4 py-2.5 border-b border-nova-border shrink-0">
         <div className="flex items-center gap-4">
           <div className="cursor-pointer" onClick={() => router.push('/')}>
             <Logo size="sm" />
           </div>
-          {state.blueprint && (
+          {builder.blueprint && (
             <span className="text-sm text-nova-text-secondary font-medium">
-              {state.blueprint.app_name}
+              {builder.blueprint.app_name}
             </span>
           )}
           {isGenerating && (
@@ -109,7 +144,12 @@ export function BuilderLayout({ buildId }: { buildId: string }) {
           )}
         </div>
         <div className="flex items-center gap-2">
-          {state.blueprint && (
+          {builder.phase === BuilderPhase.Scaffolding && (
+            <Button variant="primary" size="sm" onClick={() => builder.fillBlueprint(apiKey)}>
+              Generate
+            </Button>
+          )}
+          {builder.phase === BuilderPhase.Done && builder.blueprint && (
             <>
               <Button variant="ghost" size="sm" onClick={handleValidate}>
                 Validate
@@ -122,25 +162,17 @@ export function BuilderLayout({ buildId }: { buildId: string }) {
         </div>
       </header>
 
-      {/* Main content */}
       <div className="flex flex-1 overflow-hidden">
-        {/* Chat sidebar */}
         {chatOpen && (
           <ChatSidebar
-            messages={chat.messages}
-            isLoading={chat.isLoading}
-            isThinking={chat.isThinking}
-            isGenerating={isGenerating}
-            activeQuestions={chat.activeQuestions}
-            onSend={chat.sendMessage}
+            messages={messages}
+            status={status}
+            onSend={handleSend}
             onClose={() => setChatOpen(false)}
-            onSelectOption={chat.selectOption}
-            onGenerate={chat.confirmGeneration}
-            onCancelGeneration={chat.cancelGeneration}
+            addToolOutput={addToolOutput}
           />
         )}
 
-        {/* Main stage - App Tree */}
         <div className="flex-1 overflow-auto relative">
           {!chatOpen && (
             <button
@@ -154,36 +186,43 @@ export function BuilderLayout({ buildId }: { buildId: string }) {
             </button>
           )}
 
-          {state.phase === 'idle' && !state.blueprint ? (
+          {scaffoldInFlight ? (
+            <div className="flex items-center justify-center h-full">
+              <div className="flex items-center gap-3 text-sm text-nova-text-muted">
+                <span className="inline-block w-2 h-2 rounded-full bg-nova-violet animate-pulse" />
+                Generating blueprint...
+              </div>
+            </div>
+          ) : builder.phase === BuilderPhase.Idle && !builder.blueprint ? (
             <EmptyState onOpenChat={() => setChatOpen(true)} />
           ) : (
             <AppTree
-              blueprint={state.blueprint}
-              selected={state.selected}
-              onSelect={select}
-              phase={state.phase}
+              blueprint={builder.blueprint}
+              selected={builder.selected}
+              onSelect={(s) => builder.select(s)}
+              phase={builder.phase}
             />
+          )}
+
+          {isGenerating && (
+            <div className="absolute bottom-4 left-1/2 -translate-x-1/2 z-10">
+              <GenerationProgress
+                phase={builder.phase}
+                message={builder.statusMessage}
+              />
+            </div>
           )}
         </div>
 
-        {/* Detail panel */}
-        {state.selected && state.blueprint && (
+        {builder.selected && builder.blueprint && (
           <DetailPanel
-            blueprint={state.blueprint}
-            selected={state.selected}
-            onUpdate={updateBlueprint}
-            onClose={() => select(null)}
+            blueprint={builder.blueprint}
+            selected={builder.selected}
+            onUpdate={(bp) => builder.updateBlueprint(bp)}
+            onClose={() => builder.select(null)}
           />
         )}
       </div>
-
-      {/* Progress bar */}
-      {isGenerating && (
-        <GenerationProgress
-          phase={state.phase}
-          message={state.statusMessage}
-        />
-      )}
     </div>
   )
 }

@@ -1,121 +1,66 @@
-import { NextRequest } from 'next/server'
-import { query } from '@anthropic-ai/claude-agent-sdk'
-import { createChatToolServer } from '@/lib/services/chatTools'
+import { createAnthropic } from '@ai-sdk/anthropic'
+import {
+  convertToModelMessages,
+  streamText,
+  UIMessage,
+  stepCountIs,
+  hasToolCall,
+} from 'ai'
+import { z } from 'zod'
 import { SYSTEM_PROMPT } from '@/lib/prompts/system'
-import * as sessions from '@/lib/services/session'
 
-export const runtime = 'nodejs'
 export const maxDuration = 300
 
-export async function POST(req: NextRequest) {
-  const body = await req.json()
-  const { apiKey, message, sessionId, isResume } = body
+export async function POST(req: Request) {
+  const { messages, apiKey }: { messages: UIMessage[]; apiKey: string } =
+    await req.json()
 
-  if (!apiKey || !message || !sessionId) {
-    return Response.json(
-      { error: 'apiKey, message, and sessionId are required' },
-      { status: 400 }
-    )
-  }
+  const anthropic = createAnthropic({ apiKey })
 
-  const encoder = new TextEncoder()
-  const { readable, writable } = new TransformStream()
-  const writer = writable.getWriter()
-  let closed = false
-
-  function sendEvent(event: Record<string, unknown>) {
-    if (closed) return
-    writer.write(encoder.encode(`data: ${JSON.stringify(event)}\n\n`))
-  }
-
-  const waitForClient = (event: Record<string, unknown>): Promise<unknown> => {
-    sendEvent(event)
-    return new Promise((resolve) => {
-      sessions.setPending(sessionId, resolve)
-    })
-  }
-
-  const chatServer = createChatToolServer(waitForClient)
-
-  ;(async () => {
-    try {
-      const queryOptions: Record<string, unknown> = {
-        env: { ...process.env, ANTHROPIC_API_KEY: apiKey },
-        systemPrompt: SYSTEM_PROMPT,
-        model: 'claude-sonnet-4-5-20250929',
-        mcpServers: { commcare: chatServer },
-        allowedTools: ['mcp__commcare__generate_app'],
-        includePartialMessages: true,
-        maxTurns: 10,
-        canUseTool: async (
-          toolName: string,
-          input: Record<string, unknown>,
-        ) => {
-          if (toolName === 'AskUserQuestion') {
-            const response = await waitForClient({
-              type: 'questions',
-              data: input,
-            }) as Record<string, unknown>
-            return {
-              behavior: 'allow',
-              updatedInput: { ...input, answers: response.answers, freeText: response.freeText },
-            }
-          }
-          return { behavior: 'deny', message: 'Tool not available' }
-        },
-      }
-
-      if (isResume) {
-        queryOptions.resume = sessionId
-      } else {
-        queryOptions.sessionId = sessionId
-      }
-
-      for await (const msg of query({
-        prompt: message,
-        options: queryOptions as any,
-      })) {
-        const msgType = (msg as any).type
-
-        if (msgType === 'stream_event') {
-          const event = (msg as any).event
-          if (
-            event?.type === 'content_block_delta' &&
-            event?.delta?.type === 'text_delta'
-          ) {
-            sendEvent({ type: 'text_delta', content: event.delta.text })
-          } else if (
-            event?.type === 'content_block_start' &&
-            event?.content_block?.type === 'tool_use'
-          ) {
-            // Tool call starting — tell client to show thinking indicator
-            sendEvent({ type: 'processing' })
-          }
-        } else if (msgType === 'result') {
-          if ((msg as any).subtype === 'error') {
-            sendEvent({
-              type: 'error',
-              message: (msg as any).error || 'Agent error',
+  const result = streamText({
+    model: anthropic('claude-sonnet-4-6'),
+    system: SYSTEM_PROMPT,
+    messages: await convertToModelMessages(messages),
+    stopWhen: [hasToolCall('scaffoldBlueprint'), stepCountIs(10)],
+    tools: {
+      askQuestions: {
+        description:
+          'Ask the user clarifying questions about their app requirements. Each call can hold up to 5 questions.',
+        inputSchema: z.object({
+          header: z
+            .string()
+            .describe('Short header for this group of questions'),
+          questions: z.array(
+            z.object({
+              question: z.string(),
+              options: z.array(
+                z.object({
+                  label: z.string(),
+                  description: z.string().optional(),
+                })
+              ),
             })
-          }
-        }
-      }
-    } catch (err) {
-      const errMessage = err instanceof Error ? err.message : 'Chat failed'
-      sendEvent({ type: 'error', message: errMessage })
-    } finally {
-      sendEvent({ type: 'done' })
-      closed = true
-      sessions.removePending(sessionId)
-      writer.close()
-    }
-  })()
-
-  return new Response(readable, {
-    headers: {
-      'Content-Type': 'text/event-stream',
-      'Cache-Control': 'no-cache',
-      Connection: 'keep-alive',
+          ),
+        }),
+        // No execute → client-side tool
+      },
+      scaffoldBlueprint: {
+        description:
+          'Scaffold the CommCare app blueprint. Call when you have enough information.',
+        inputSchema: z.object({
+          appName: z
+            .string()
+            .describe('Short app name (2-5 words)'),
+          appSpecification: z
+            .string()
+            .describe(
+              'Comprehensive specification incorporating all requirements and Q&A answers'
+            ),
+        }),
+        // No execute → client-side tool. stopWhen halts the loop here.
+      },
     },
   })
+
+  return result.toUIMessageStreamResponse()
 }
