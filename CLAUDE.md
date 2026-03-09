@@ -16,22 +16,20 @@ Next.js web app that generates CommCare mobile apps from natural language conver
 
 ```
 app/                    # Next.js App Router pages and API routes
-  api/                  # REST + SSE endpoints (generate, validate, compile, chat)
+  api/                  # REST endpoints (generate, validate, compile, chat)
   build/[id]/           # Main builder view (3-panel layout)
   builds/               # Build history
 components/
   builder/              # AppTree, DetailPanel, GenerationProgress, EmptyState
   chat/                 # ChatSidebar, ChatMessage, ChatInput
   ui/                   # Button, Input, Badge, Logo
-hooks/                  # useBuilder (state machine), useSSE, useChat, useApiKey, useBuilds
+hooks/                  # useBuilder, useChat, useApiKey, useBuilds
 lib/
-  services/             # Core generation pipeline (copied from commcare-forge-mcp)
-  schemas/              # Zod schemas for AppBlueprint and tier outputs
+  services/             # Core generation pipeline
+  schemas/              # Zod schemas for AppBlueprint, tier outputs, chat response
   prompts/              # System/tier prompts for Claude
   types/                # TypeScript type definitions
-  sse.ts                # SSE encoding helpers
-  store.ts              # JSON file persistence in .data/
-  generation-manager.ts # In-memory job tracking with subscriber pattern
+  store.ts              # JSON file persistence in .data/ (builds + ccz files)
 ```
 
 ## Key Architecture Decisions
@@ -44,11 +42,24 @@ The AI generation runs in three tiers to stay within Anthropic's schema compilat
 
 Each tier uses its own slim Zod schema with `sendOneShotStructured()`. Results are assembled into a full `AppBlueprint` via `assembleBlueprint()`.
 
-### Stateless Claude Service
-Unlike the Electron app's class-based `ClaudeService`, Nova uses stateless functions that accept an API key per-call. No conversation history is stored server-side.
+### Structured Output Everywhere
+All Claude interactions use Zod schemas with `zodOutputFormat` for typed, validated responses:
+- **Generation tiers**: `sendOneShotStructured()` with scaffold/module/form schemas
+- **Chat**: `sendStructured()` with `ChatResponseSchema` — returns `{ intent, app_name, app_description, question }`
+- Schema `.describe()` annotations guide Claude's behavior — no redundant prompt instructions
 
-### SSE Streaming
-Generation progress streams to the client via Server-Sent Events. The `generation-manager.ts` maintains a subscriber map; the SSE route handler subscribes and forwards events.
+### Chat-Driven Auto-Generation
+User describes app in chat → Claude returns structured `ChatResponse` with intent:
+- `intent: "generate"` + `app_name` + `app_description` → auto-triggers generation pipeline
+- `intent: "clarify"` + `question` → asks the user for more info
+- No manual "Build" button — generation starts automatically when Claude has enough info
+- Chat renders generation intents as styled cards (app name + architecture preview)
+
+### Direct API Calls (No Job System)
+Generation runs inline in the POST handler. The client calls `/api/generate`, waits for the result, and gets the blueprint back directly. No background jobs, no SSE streaming, no pub/sub.
+
+### Stateless Claude Service
+Stateless functions that accept an API key per-call. No conversation history stored server-side.
 
 ### Bring-Your-Own-API-Key
 No auth layer. The user's Anthropic API key is stored in localStorage and sent per request. Never persisted server-side.
@@ -59,6 +70,9 @@ No auth layer. The user's Anthropic API key is stored in localStorage and sent p
 - **Tier schemas** (for Claude's structured output): use `.nullable()` — required by the API
 - **Assembled blueprint** (for validation/expansion): use `.optional()` — more natural for TS
 - Assembly strips nulls via spread: `...(value != null && { key: value })`
+
+### Chat Response Schema
+Defined in `lib/schemas/chat.ts`. Field descriptions on the Zod schema guide Claude — the system prompt doesn't repeat schema instructions.
 
 ### Question Format
 - Tier 3 outputs flat questions with `parent_id` for nesting
@@ -90,7 +104,6 @@ Dark "Stellar Minimalism" theme. CSS custom properties defined in `globals.css`:
 ## Service Layer Notes
 
 Key design choices in `lib/services/`:
-- `claude.ts`: Stateless functions, API key per-call (no class instance)
-- `appGenerator.ts`: Event emitter callbacks for SSE streaming, no disk I/O
-- `cczCompiler.ts`: Returns `Buffer` for in-memory download
-- `system.ts`: Embedded prompt constant (no filesystem reads)
+- `claude.ts`: Stateless functions, API key per-call. `sendOneShotStructured` for single-message structured output, `sendStructured` for multi-turn structured output.
+- `appGenerator.ts`: Pure function — takes inputs, returns `GenerationResult`. No events, no callbacks, no I/O.
+- `cczCompiler.ts`: Returns `Buffer`, stored to disk via `store.ts` for download

@@ -8,6 +8,8 @@ export interface FileAttachment {
 export interface ConversationMessage {
   role: 'user' | 'assistant'
   content: string
+  type?: 'text' | 'generation'
+  appName?: string
   attachments?: FileAttachment[]
   timestamp: number
 }

@@ -1,15 +1,19 @@
-import { NextRequest, NextResponse } from 'next/server'
-import { startGeneration } from '@/lib/generation-manager'
+import { NextRequest } from 'next/server'
+import { generateApp } from '@/lib/services/appGenerator'
 
 export async function POST(req: NextRequest) {
   const body = await req.json()
   const { apiKey, conversation, appName } = body
 
   if (!apiKey || !conversation) {
-    return NextResponse.json({ error: 'apiKey and conversation are required' }, { status: 400 })
+    return Response.json({ error: 'apiKey and conversation are required' }, { status: 400 })
   }
 
-  const buildId = await startGeneration(apiKey, conversation, appName || 'CommCare App')
+  const result = await generateApp(apiKey, conversation, appName || 'CommCare App')
 
-  return NextResponse.json({ buildId })
+  if (result.success) {
+    return Response.json(result)
+  } else {
+    return Response.json(result, { status: 500 })
+  }
 }

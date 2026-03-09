@@ -74,6 +74,33 @@ export async function sendOneShot(
   return fullText
 }
 
+export async function sendStructured<S extends z.ZodType>(
+  apiKey: string,
+  systemPrompt: string,
+  messages: Array<{ role: 'user' | 'assistant'; content: any }>,
+  schema: S,
+  options?: { model?: string; maxTokens?: number }
+): Promise<z.infer<S>> {
+  const client = getClient(apiKey)
+  const stream = client.messages.stream({
+    model: options?.model || 'claude-sonnet-4-5-20250929',
+    max_tokens: options?.maxTokens || 8192,
+    system: systemPrompt,
+    messages,
+    output_config: {
+      format: zodOutputFormat(schema),
+    },
+  })
+
+  const finalMessage = await stream.finalMessage()
+
+  if (!finalMessage.parsed_output) {
+    throw new Error('Claude did not return parsed structured output')
+  }
+
+  return finalMessage.parsed_output
+}
+
 export async function streamMessage(
   apiKey: string,
   systemPrompt: string,

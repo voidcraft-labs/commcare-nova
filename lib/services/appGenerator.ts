@@ -7,13 +7,6 @@
  *   Assembly — combine tiers into a full AppBlueprint
  *   Validate — check semantic rules; if errors, re-generate failing forms (Haiku)
  *   Expand — convert to HQ JSON
- *
- * Each tier uses its own slim structured output schema, keeping well within
- * Anthropic's schema compilation limits. Data flows top-down: the scaffold's
- * case_types define the "contract" that modules and forms build against.
- *
- * Adapted for Next.js: no disk I/O, no BuildLogger/AppExporter. Returns data
- * in-memory and emits events for SSE streaming.
  */
 import { sendOneShotStructured } from './claude'
 import { SCAFFOLD_PROMPT } from '../prompts/scaffoldPrompt'
@@ -27,28 +20,24 @@ import {
 } from '../schemas/blueprint'
 import { expandBlueprint, validateBlueprint } from './hqJsonExpander'
 
-export interface GenerationEvents {
-  onScaffold: (scaffold: Scaffold) => void
-  onModule: (moduleIndex: number, content: ModuleContent) => void
-  onForm: (moduleIndex: number, formIndex: number, content: FormContent) => void
-  onStatus: (phase: string, message: string) => void
-  onBlueprint: (blueprint: AppBlueprint) => void
-  onError: (message: string, recoverable: boolean) => void
+export interface GenerationResult {
+  success: boolean
+  blueprint?: AppBlueprint
+  hqJson?: Record<string, any>
+  errors?: string[]
 }
 
 export async function generateApp(
   apiKey: string,
   conversationContext: string,
   appName: string,
-  events: GenerationEvents
-): Promise<{ success: boolean; blueprint?: AppBlueprint; hqJson?: Record<string, any>; errors?: string[] }> {
+): Promise<GenerationResult> {
   const resolvedAppName = appName || inferAppName(conversationContext)
 
   try {
-    return await doGenerate(apiKey, conversationContext, resolvedAppName, events)
+    return await doGenerate(apiKey, conversationContext, resolvedAppName)
   } catch (err) {
     const errMsg = err instanceof Error ? err.message : String(err)
-    events.onError(`Generation failed: ${errMsg}`, false)
     return { success: false, errors: [errMsg] }
   }
 }
@@ -57,12 +46,9 @@ async function doGenerate(
   apiKey: string,
   conversationContext: string,
   resolvedAppName: string,
-  events: GenerationEvents
-): Promise<{ success: boolean; blueprint?: AppBlueprint; hqJson?: Record<string, any>; errors?: string[] }> {
+): Promise<GenerationResult> {
 
   // ── Tier 1: Scaffold ──────────────────────────────────────────────
-
-  events.onStatus('scaffolding', 'Planning app structure...')
 
   const scaffoldMessage = `Here is the full conversation with the user about the app they want:\n\n${conversationContext}\n\nBased on this conversation, plan the app structure. App name: "${resolvedAppName}".`
 
@@ -75,17 +61,10 @@ async function doGenerate(
     )
   } catch (err) {
     const errMsg = err instanceof Error ? err.message : String(err)
-    events.onError(`Scaffold failed: ${errMsg}`, false)
     return { success: false, errors: [`Scaffold failed: ${errMsg}`] }
   }
 
   scaffold.app_name = resolvedAppName
-  events.onScaffold(scaffold)
-
-  // Calculate total steps for progress tracking
-  const totalSteps = scaffold.modules.length +
-    scaffold.modules.reduce((sum, m) => sum + m.forms.length, 0)
-  let completedSteps = 0
 
   // Build case type property lookup
   const caseTypeProps = new Map<string, Array<{ name: string; label: string }>>()
@@ -102,7 +81,6 @@ async function doGenerate(
 
   for (let mIdx = 0; mIdx < scaffold.modules.length; mIdx++) {
     const sm = scaffold.modules[mIdx]
-    events.onStatus('modules', `Building ${sm.name}...`)
 
     // Get case type properties for this module
     const props = sm.case_type ? (caseTypeProps.get(sm.case_type) ?? []) : []
@@ -127,27 +105,19 @@ Design the case list columns for this module.`
         () => {},
         { maxTokens: 4096 }
       )
-    } catch (err) {
-      const errMsg = err instanceof Error ? err.message : String(err)
-      events.onError(`Module content generation failed for "${sm.name}": ${errMsg}, using defaults`, true)
+    } catch {
       mc = { case_list_columns: null }
     }
 
     moduleContents.push(mc)
-    events.onModule(mIdx, mc)
-    completedSteps++
 
     // Tier 3: Form content (depth-first within this module)
     const moduleForms: FormContent[] = []
-    // Track registration form's case_properties for followup forms
     let registrationCaseProps: Record<string, string> | null = null
 
     for (let fIdx = 0; fIdx < sm.forms.length; fIdx++) {
       const sf = sm.forms[fIdx]
-      const formStepName = `${sm.name} > ${sf.name}`
-      events.onStatus('forms', `Building ${formStepName}...`)
 
-      // Build context for the form
       let formMessage = `App: "${scaffold.app_name}" — ${scaffold.description}
 
 Module: "${sm.name}" (${sm.purpose})
@@ -161,7 +131,6 @@ Purpose: ${sf.purpose}
 
 Sibling forms in this module: ${sm.forms.map(f => `"${f.name}" (${f.type})`).join(', ')}`
 
-      // For followup forms, provide the registration form's case_properties
       if (sf.type === 'followup' && registrationCaseProps) {
         formMessage += `\n\nThe registration form's case_properties mapping (property -> question_id): ${JSON.stringify(registrationCaseProps)}\nUse case_preload to pre-fill questions with these case properties where appropriate.`
       }
@@ -177,18 +146,14 @@ Sibling forms in this module: ${sm.forms.map(f => `"${f.name}" (${f.type})`).joi
         )
       } catch (err) {
         const errMsg = err instanceof Error ? err.message : String(err)
-        events.onError(`Form "${sf.name}" failed: ${errMsg}`, false)
         return { success: false, errors: [`Form "${sf.name}" failed: ${errMsg}`] }
       }
 
-      // Track registration form's case_properties for subsequent followup forms
       if (sf.type === 'registration' && fc.case_properties) {
         registrationCaseProps = fc.case_properties
       }
 
       moduleForms.push(fc)
-      events.onForm(mIdx, fIdx, fc)
-      completedSteps++
     }
 
     formContents.push(moduleForms)
@@ -196,45 +161,29 @@ Sibling forms in this module: ${sm.forms.map(f => `"${f.name}" (${f.type})`).joi
 
   // ── Assembly ──────────────────────────────────────────────────────
 
-  events.onStatus('validating', 'Assembling blueprint...')
   const blueprint = assembleBlueprint(scaffold, moduleContents, formContents)
-  events.onBlueprint(blueprint)
 
   // ── Validate + Fix Loop ──────────────────────────────────────────
 
-  return await validateAndFix(apiKey, blueprint, resolvedAppName, events)
+  return await validateAndFix(apiKey, blueprint)
 }
 
 async function validateAndFix(
   apiKey: string,
   blueprint: AppBlueprint,
-  resolvedAppName: string,
-  events: GenerationEvents,
-): Promise<{ success: boolean; blueprint?: AppBlueprint; hqJson?: Record<string, any>; errors?: string[] }> {
+): Promise<GenerationResult> {
   const recentErrorSignatures: string[] = []
   const MAX_STUCK_REPEATS = 3
   let attempt = 0
 
   while (true) {
     attempt++
-    events.onStatus('validating', `Validating app definition (attempt ${attempt})...`)
 
     const errors = validateBlueprint(blueprint)
 
     if (errors.length === 0) {
-      events.onStatus('compiling', 'Expanding to HQ format...')
-
       const hqJson = expandBlueprint(blueprint)
 
-      const hqErrors = validateHqJson(hqJson)
-      if (hqErrors.length > 0) {
-        // Log but don't fail — these are warnings
-        for (const err of hqErrors) {
-          events.onError(`HQ JSON warning: ${err}`, true)
-        }
-      }
-
-      events.onStatus('done', 'App generated and validated!')
       return { success: true, blueprint, hqJson }
     }
 
@@ -243,7 +192,6 @@ async function validateAndFix(
     recentErrorSignatures.push(sig)
     if (recentErrorSignatures.length > MAX_STUCK_REPEATS) recentErrorSignatures.shift()
     if (recentErrorSignatures.length === MAX_STUCK_REPEATS && recentErrorSignatures.every(s => s === sig)) {
-      events.onError(`Unable to resolve: ${errors[0]?.substring(0, 200)}`, false)
       try {
         const hqJson = expandBlueprint(blueprint)
         return { success: false, blueprint, hqJson, errors }
@@ -265,16 +213,11 @@ async function validateAndFix(
     }
 
     // Group errors by form and fix per-form
-    events.onStatus('fixing', `Fixing validation errors (attempt ${attempt})...`)
     const formErrors = groupErrorsByForm(errors, blueprint)
 
     for (const [formName, formErrs] of formErrors) {
-      events.onStatus('fixing', `Fixing ${formName} (attempt ${attempt})...`)
-
       const [mIdx, fIdx] = findFormIndices(blueprint, formName)
-      if (mIdx === -1) {
-        continue
-      }
+      if (mIdx === -1) continue
 
       const form = blueprint.modules[mIdx].forms[fIdx]
       const currentContent = {
@@ -301,11 +244,9 @@ async function validateAndFix(
           { model: 'claude-haiku-4-5-20251001', maxTokens: 32768 }
         )
 
-        // Reassemble the fixed form back into the blueprint
         blueprint.modules[mIdx].forms[fIdx] = reassembleForm(form.name, form.type, fixed)
-      } catch (err) {
-        const errMsg = err instanceof Error ? err.message : String(err)
-        events.onError(`Fix failed for "${formName}": ${errMsg}`, true)
+      } catch {
+        // Fix failed, continue to next attempt
       }
     }
   }
@@ -349,10 +290,8 @@ function groupErrorsByForm(errors: string[], blueprint: AppBlueprint): Map<strin
       if (isForm) {
         if (!grouped.has(name)) grouped.set(name, [])
         grouped.get(name)!.push(err)
-        continue
       }
     }
-    // Module-level or unrecognized errors are handled programmatically above
   }
   return grouped
 }
@@ -369,78 +308,10 @@ function findFormIndices(blueprint: AppBlueprint, formName: string): [number, nu
   return [-1, -1]
 }
 
-/** Validate HQ JSON structure after expansion. Safety net for expander bugs. */
-function validateHqJson(json: any): string[] {
-  const errors: string[] = []
-
-  if (json.doc_type !== 'Application') {
-    errors.push('Missing or invalid doc_type (expected "Application")')
-  }
-
-  const modules = json.modules || []
-  const attachments = json._attachments || {}
-
-  for (let mIdx = 0; mIdx < modules.length; mIdx++) {
-    const mod = modules[mIdx]
-    const modName = mod.name?.en || `Module ${mIdx}`
-    const forms = mod.forms || []
-
-    const usesCases = forms.some((f: any) => {
-      const a = f.actions || {}
-      return (a.open_case?.condition?.type === 'always') ||
-             (a.update_case?.condition?.type === 'always')
-    })
-
-    if (usesCases && !mod.case_type) {
-      errors.push(`${modName} uses cases but doesn't have a case_type defined`)
-    }
-
-    for (let fIdx = 0; fIdx < forms.length; fIdx++) {
-      const form = forms[fIdx]
-      const formName = form.name?.en || `Form ${fIdx}`
-
-      if (!form.unique_id) {
-        errors.push(`${formName} in ${modName} has no unique_id`)
-      } else {
-        const attachKey = `${form.unique_id}.xml`
-        if (!attachments[attachKey]) {
-          errors.push(`${formName} in ${modName}: no _attachment for unique_id "${form.unique_id}"`)
-        } else {
-          const xform = attachments[attachKey]
-
-          if (!/<(input|select1?|group|repeat|trigger|upload)\s/.test(xform)) {
-            errors.push(`"${formName}" has no question elements in its XForm`)
-          }
-
-          if (!/<itext>/.test(xform)) {
-            errors.push(`${formName} XForm is missing <itext> block`)
-          }
-
-          if (/<label>[^<]+<\/label>/.test(xform)) {
-            errors.push(`${formName} XForm has inline labels — must use jr:itext() references`)
-          }
-        }
-      }
-
-      if (!form.xmlns) {
-        errors.push(`${formName} in ${modName} has no xmlns`)
-      }
-    }
-  }
-
-  return errors
-}
-
-/**
- * Best-effort app name extraction from the first user message.
- * Strips common request prefixes ("Build me a...", "Create a...") and
- * takes the first 5 words as the app name.
- */
 function inferAppName(context: string): string {
   const firstLine = context.split('\n').find(l => l.startsWith('User:'))
   if (firstLine) {
     let desc = firstLine.replace('User:', '').trim()
-    // Strip common request prefixes to get to the actual app description
     desc = desc.replace(
       /^(I need|I want|Create|Build|Make|Generate|Design|Develop|Help me build|Help me create|Can you build|Can you create|Please create|Please build)\s+(a|an|the|me a|me an)?\s*/i,
       ''
