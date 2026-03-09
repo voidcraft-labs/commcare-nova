@@ -92,8 +92,9 @@ const flatQuestionSchema = z.object({
     '"group"/"repeat" for nesting. ' +
     'Only use "text" for genuinely free-text fields: names, addresses, notes.'
   ),
-  label: z.string().describe(
-    'Human-readable question text. Write clear, professional labels like "Patient Name", "Date of Birth".'
+  label: z.string().nullable().describe(
+    'Human-readable question text. Write clear, professional labels like "Patient Name", "Date of Birth". ' +
+    'null for hidden questions — they have no visible label.'
   ),
   parent_id: z.string().nullable().describe(
     'ID of the parent group/repeat question this belongs to, or null for top-level. Parent groups/repeats must appear BEFORE their children in the array.'
@@ -182,8 +183,8 @@ const blueprintQuestionSchema = z.object({
   type: z.enum(QUESTION_TYPES).describe(
     'Question type. Use the most specific type: "phone" for phone numbers (not "text"), "date" for dates, "int" for counts, "decimal" for measurements, "select1" for single-choice, "select" for multi-choice, "hidden" with "calculate" for computed values, "group"/"repeat" for nested questions.'
   ),
-  label: z.string().describe(
-    'Human-readable question text. Write clear, natural labels like "Patient Name", "Date of Birth". Never put technical notes in labels.'
+  label: z.string().optional().describe(
+    'Human-readable question text. Write clear, natural labels like "Patient Name", "Date of Birth". Omitted for hidden questions.'
   ),
   hint: z.string().optional().describe('Help text shown below the question'),
   required: z.boolean().optional().describe('True if the question must be answered'),
@@ -308,7 +309,7 @@ export function unflattenQuestions(flat: FlatQuestion[]): BlueprintQuestion[] {
     const q: BlueprintQuestion = {
       id: fq.id,
       type: fq.type,
-      label: fq.label,
+      ...(fq.label != null && { label: fq.label }),
       ...(fq.hint != null && { hint: fq.hint }),
       ...(fq.required != null && { required: fq.required }),
       ...(fq.readonly != null && { readonly: fq.readonly }),
@@ -351,7 +352,7 @@ export function flattenQuestions(questions: BlueprintQuestion[], parentId: strin
     result.push({
       id: q.id,
       type: q.type,
-      label: q.label,
+      label: q.label ?? null,
       parent_id: parentId,
       hint: q.hint ?? null,
       required: q.required ?? null,

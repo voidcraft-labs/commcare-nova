@@ -290,7 +290,7 @@ function buildQuestionParts(
   binds.push(`<bind ${bindParts.join(' ')}/>`)
 
   // itext (hidden questions have no body element, so no label to reference)
-  if (q.type !== 'hidden') {
+  if (q.type !== 'hidden' && q.label) {
     itextEntries.push(`<text id="${q.id}-label"><value>${escapeXml(q.label)}</value></text>`)
     if (q.hint) {
       itextEntries.push(`<text id="${q.id}-hint"><value>${escapeXml(q.hint)}</value></text>`)
