@@ -9,9 +9,10 @@ interface AppTreeProps {
   selected: { type: string; moduleIndex: number; formIndex?: number; questionPath?: string } | null
   onSelect: (selected: any) => void
   phase: BuilderPhase
+  actions?: React.ReactNode
 }
 
-export function AppTree({ blueprint, selected, onSelect, phase }: AppTreeProps) {
+export function AppTree({ blueprint, selected, onSelect, phase, actions }: AppTreeProps) {
   if (!blueprint) {
     return (
       <div className="h-full flex items-center justify-center text-nova-text-muted">
@@ -22,16 +23,23 @@ export function AppTree({ blueprint, selected, onSelect, phase }: AppTreeProps) 
 
   return (
     <div className="p-6 space-y-4 max-w-3xl mx-auto">
-      {/* App name header */}
+      {/* App name header + actions */}
       <motion.div
         initial={{ opacity: 0, y: -10 }}
         animate={{ opacity: 1, y: 0 }}
-        className="mb-6"
+        className="mb-6 flex items-start justify-between gap-4"
       >
-        <h1 className="text-2xl font-display font-semibold">{blueprint.app_name}</h1>
-        <p className="text-sm text-nova-text-secondary mt-1">
-          {blueprint.modules.length} module{blueprint.modules.length !== 1 ? 's' : ''}
-        </p>
+        <div>
+          <h1 className="text-2xl font-display font-semibold">{blueprint.app_name}</h1>
+          <p className="text-sm text-nova-text-secondary mt-1">
+            {blueprint.modules.length} module{blueprint.modules.length !== 1 ? 's' : ''}
+          </p>
+        </div>
+        {actions && (
+          <div className="flex items-center gap-2 shrink-0">
+            {actions}
+          </div>
+        )}
       </motion.div>
 
       {/* Module cards */}

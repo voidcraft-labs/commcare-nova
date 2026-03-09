@@ -183,42 +183,10 @@ export function BuilderLayout({ buildId }: { buildId: string }) {
   return (
     <div className="h-screen flex flex-col bg-nova-void overflow-hidden">
       <header className="flex items-center justify-between px-4 py-2.5 border-b border-nova-border shrink-0">
-        <div className="flex items-center gap-4">
-          <div className="cursor-pointer" onClick={() => router.push('/')}>
-            <Logo size="sm" />
-          </div>
-          {builder.blueprint && (
-            <span className="text-sm text-nova-text-secondary font-medium">
-              {builder.blueprint.app_name}
-            </span>
-          )}
-          {isGenerating && (
-            <Badge variant="violet">
-              <span className="inline-block w-1.5 h-1.5 rounded-full bg-nova-violet-bright animate-pulse mr-1.5" />
-              Generating
-            </Badge>
-          )}
+        <div className="cursor-pointer" onClick={() => router.push('/')}>
+          <Logo size="sm" />
         </div>
-        <div className="flex items-center gap-2">
-          {builder.phase === BuilderPhase.Scaffolding && (
-            <Button variant="primary" size="sm" onClick={() => builder.fillBlueprint(apiKey)}>
-              Generate
-            </Button>
-          )}
-          {builder.phase === BuilderPhase.Done && builder.blueprint && (
-            <>
-              <Button variant="ghost" size="sm" onClick={handleValidate}>
-                Validate
-              </Button>
-              <Button variant="secondary" size="sm" onClick={handleDownloadJson}>
-                Download JSON
-              </Button>
-              <Button variant="secondary" size="sm" onClick={handleCompile}>
-                Download .ccz
-              </Button>
-            </>
-          )}
-        </div>
+        <div />
       </header>
 
       <div className="flex flex-1 overflow-hidden">
@@ -260,6 +228,34 @@ export function BuilderLayout({ buildId }: { buildId: string }) {
               selected={builder.selected}
               onSelect={(s) => builder.select(s)}
               phase={builder.phase}
+              actions={
+                <>
+                  {builder.phase === BuilderPhase.Scaffolding && (
+                    <Button variant="primary" size="sm" onClick={() => builder.fillBlueprint(apiKey)}>
+                      Generate
+                    </Button>
+                  )}
+                  {isGenerating && (
+                    <Badge variant="violet">
+                      <span className="inline-block w-1.5 h-1.5 rounded-full bg-nova-violet-bright animate-pulse mr-1.5" />
+                      Generating
+                    </Badge>
+                  )}
+                  {builder.phase === BuilderPhase.Done && builder.blueprint && (
+                    <>
+                      <Button variant="ghost" size="sm" onClick={handleValidate}>
+                        Validate
+                      </Button>
+                      <Button variant="secondary" size="sm" onClick={handleDownloadJson}>
+                        Download JSON
+                      </Button>
+                      <Button variant="secondary" size="sm" onClick={handleCompile}>
+                        Download .ccz
+                      </Button>
+                    </>
+                  )}
+                </>
+              }
             />
           )}
 
