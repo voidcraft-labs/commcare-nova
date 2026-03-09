@@ -1,4 +1,4 @@
-import type { AppBlueprint } from '@/lib/schemas/blueprint'
+import type { AppBlueprint, Scaffold } from '@/lib/schemas/blueprint'
 import { logUsage } from '@/lib/usage'
 
 export enum BuilderPhase {
@@ -20,14 +20,30 @@ export interface SelectedElement {
   questionPath?: string
 }
 
+/** Common shape for AppTree rendering — satisfied by both Scaffold and AppBlueprint */
+export interface TreeData {
+  app_name: string
+  modules: Array<{
+    name: string
+    case_type?: string | null
+    purpose?: string
+    forms: Array<{
+      name: string
+      type: string
+      purpose?: string
+      questions?: Array<any>
+    }>
+    case_list_columns?: Array<{ field: string; header: string }> | null
+  }>
+}
+
 export class Builder {
   phase = BuilderPhase.Idle
+  scaffold: Scaffold | null = null
   blueprint: AppBlueprint | null = null
   statusMessage = ''
   selected: SelectedElement | null = null
   private listeners = new Set<() => void>()
-  private _conversation = ''
-  private _appName = ''
 
   subscribe(listener: () => void) {
     this.listeners.add(listener)
@@ -51,14 +67,20 @@ export class Builder {
     this.notify()
   }
 
-  /** Show the scaffold blueprint in the tree. Stores context for /api/blueprint/fill. */
-  setScaffold(bp: AppBlueprint, conversation: string, appName: string) {
-    this.blueprint = bp
-    this._conversation = conversation
-    this._appName = appName
+  /** Store the raw scaffold for tree display. Blueprint is set later after fill. */
+  setScaffold(scaffold: Scaffold) {
+    this.scaffold = scaffold
+    this.blueprint = null
     this.phase = BuilderPhase.Scaffolding
     this.statusMessage = ''
     this.notify()
+  }
+
+  /** Provides a common shape for AppTree — uses blueprint if available, otherwise scaffold. */
+  get treeData(): TreeData | null {
+    if (this.blueprint) return this.blueprint
+    if (this.scaffold) return this.scaffold
+    return null
   }
 
   /** Fill the blueprint (tiers 2+3 via /api/blueprint/fill). Called after scaffold is visible. */
@@ -73,8 +95,7 @@ export class Builder {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           apiKey,
-          conversation: this._conversation,
-          appName: this._appName,
+          scaffold: this.scaffold,
         }),
       })
       const result = await res.json()
@@ -112,11 +133,10 @@ export class Builder {
 
   reset() {
     this.phase = BuilderPhase.Idle
+    this.scaffold = null
     this.blueprint = null
     this.statusMessage = ''
     this.selected = null
-    this._conversation = ''
-    this._appName = ''
     this.notify()
   }
 }

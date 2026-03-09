@@ -1,19 +1,19 @@
 'use client'
 import { motion, AnimatePresence } from 'motion/react'
-import type { AppBlueprint, BlueprintModule, BlueprintForm, BlueprintQuestion } from '@/lib/schemas/blueprint'
-import { BuilderPhase } from '@/lib/services/builder'
+import type { BlueprintQuestion } from '@/lib/schemas/blueprint'
+import { BuilderPhase, type TreeData } from '@/lib/services/builder'
 import { Badge } from '@/components/ui/Badge'
 
 interface AppTreeProps {
-  blueprint: AppBlueprint | null
+  data: TreeData | null
   selected: { type: string; moduleIndex: number; formIndex?: number; questionPath?: string } | null
   onSelect: (selected: any) => void
   phase: BuilderPhase
   actions?: React.ReactNode
 }
 
-export function AppTree({ blueprint, selected, onSelect, phase, actions }: AppTreeProps) {
-  if (!blueprint) {
+export function AppTree({ data, selected, onSelect, phase, actions }: AppTreeProps) {
+  if (!data) {
     return (
       <div className="h-full flex items-center justify-center text-nova-text-muted">
         Waiting for generation...
@@ -30,9 +30,9 @@ export function AppTree({ blueprint, selected, onSelect, phase, actions }: AppTr
         className="mb-6 flex items-start justify-between gap-4"
       >
         <div>
-          <h1 className="text-2xl font-display font-semibold">{blueprint.app_name}</h1>
+          <h1 className="text-2xl font-display font-semibold">{data.app_name}</h1>
           <p className="text-sm text-nova-text-secondary mt-1">
-            {blueprint.modules.length} module{blueprint.modules.length !== 1 ? 's' : ''}
+            {data.modules.length} module{data.modules.length !== 1 ? 's' : ''}
           </p>
         </div>
         {actions && (
@@ -44,7 +44,7 @@ export function AppTree({ blueprint, selected, onSelect, phase, actions }: AppTr
 
       {/* Module cards */}
       <AnimatePresence mode="sync">
-        {blueprint.modules.map((mod, mIdx) => (
+        {data.modules.map((mod, mIdx) => (
           <ModuleCard
             key={mIdx}
             module={mod}
@@ -66,7 +66,7 @@ function ModuleCard({
   onSelect,
   delay,
 }: {
-  module: BlueprintModule
+  module: TreeData['modules'][number]
   moduleIndex: number
   selected: AppTreeProps['selected']
   onSelect: AppTreeProps['onSelect']
@@ -163,7 +163,7 @@ function FormCard({
   onSelect,
   delay,
 }: {
-  form: BlueprintForm
+  form: TreeData['modules'][number]['forms'][number]
   moduleIndex: number
   formIndex: number
   selected: AppTreeProps['selected']
@@ -194,7 +194,7 @@ function FormCard({
         <div className="flex-1">
           <div className="flex items-center gap-2">
             <span className="text-sm font-medium">{form.name}</span>
-            <Badge variant={typeColors[form.type]}>{form.type}</Badge>
+            <Badge variant={typeColors[form.type as keyof typeof typeColors] ?? 'muted'}>{form.type}</Badge>
           </div>
         </div>
         {form.questions && form.questions.length > 0 && (
