@@ -206,6 +206,12 @@ export function DetailPanel({ blueprint, selected, onUpdate, onClose }: DetailPa
                 <p className="text-sm font-mono text-nova-text-secondary">{question.relevant}</p>
               </div>
             )}
+            {question.default_value && (
+              <div>
+                <label className="text-xs text-nova-text-muted uppercase tracking-wider mb-1 block">Default Value</label>
+                <p className="text-sm font-mono text-nova-text-secondary">{question.default_value}</p>
+              </div>
+            )}
             {question.calculate && (
               <div>
                 <label className="text-xs text-nova-text-muted uppercase tracking-wider mb-1 block">Calculate</label>
