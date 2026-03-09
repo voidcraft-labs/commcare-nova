@@ -17,7 +17,7 @@ const followupBlueprint: AppBlueprint = {
         { id: 'client_info', type: 'group', label: 'Client Info', children: [
           { id: 'display_name', type: 'text', label: 'Name', readonly: true },
         ]},
-        { id: 'visit_number', type: 'hidden', label: 'Visit Number', calculate: '#case/total_visits + 1' },
+        { id: 'visit_number', type: 'hidden', calculate: '#case/total_visits + 1' },
         { id: 'notes', type: 'text', label: 'Notes' },
       ],
     }],
@@ -39,7 +39,7 @@ const registrationBlueprint: AppBlueprint = {
       questions: [
         { id: 'full_name', type: 'text', label: 'Full Name', required: true, is_case_name: true },
         { id: 'patient_age', type: 'int', label: 'Age', constraint: '. > 0 and . < 150' },
-        { id: 'risk', type: 'hidden', label: 'Risk', calculate: "if(/data/patient_age > 65, 'high', 'low')" },
+        { id: 'risk', type: 'hidden', calculate: "if(/data/patient_age > 65, 'high', 'low')" },
       ],
     }],
   }],
@@ -72,7 +72,7 @@ describe('expandBlueprint', () => {
           case_preload: { nested_q: 'some_prop' },
           questions: [{
             id: 'grp', type: 'group', label: 'G', children: [
-              { id: 'nested_q', type: 'hidden', label: 'X', calculate: '#case/some_prop + #user/role' },
+              { id: 'nested_q', type: 'hidden', calculate: '#case/some_prop + #user/role' },
             ],
           }],
         }],
@@ -123,7 +123,7 @@ describe('expandBlueprint', () => {
       app_name: 'DV', modules: [{
         name: 'M', forms: [{
           name: 'F', type: 'survey',
-          questions: [{ id: 'status', type: 'hidden', label: 'Status', default_value: "'pending'" }],
+          questions: [{ id: 'status', type: 'hidden', default_value: "'pending'" }],
         }],
       }],
     }
@@ -152,6 +152,15 @@ describe('expandBlueprint', () => {
     expect(xform).toContain('/full_name"')
     // Vellum value preserves shorthand
     expect(xform).toContain('vellum:value="#case/full_name"')
+  })
+
+  it('omits itext label for hidden questions without a label', () => {
+    const hq = expandBlueprint(followupBlueprint)
+    const xform: string = Object.values(hq._attachments)[0] as string
+    // Hidden question 'visit_number' has no label — should not get an itext entry
+    expect(xform).not.toContain("id=\"visit_number-label\"")
+    // Visible question 'notes' should still get one
+    expect(xform).toContain("id=\"notes-label\"")
   })
 
   it('handles close_case — conditional and unconditional', () => {

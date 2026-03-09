@@ -163,10 +163,12 @@ export function DetailPanel({ blueprint, selected, onUpdate, onClose }: DetailPa
         {/* Question details */}
         {selected.type === 'question' && question && (
           <>
-            <div>
-              <label className="text-xs text-nova-text-muted uppercase tracking-wider mb-1 block">Label</label>
-              <p className="text-sm font-medium">{question.label}</p>
-            </div>
+            {question.label && (
+              <div>
+                <label className="text-xs text-nova-text-muted uppercase tracking-wider mb-1 block">Label</label>
+                <p className="text-sm font-medium">{question.label}</p>
+              </div>
+            )}
             <div>
               <label className="text-xs text-nova-text-muted uppercase tracking-wider mb-1 block">ID</label>
               <p className="text-sm font-mono text-nova-violet-bright">{question.id}</p>
