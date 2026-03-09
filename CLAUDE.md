@@ -36,7 +36,10 @@ lib/
     builder.ts          # Builder class — singleton state machine for the build lifecycle
     claude.ts           # Stateless Anthropic SDK functions (generation pipeline only)
     appGenerator.ts     # Three-tier generation pipeline (scaffoldBlueprint, fillBlueprint)
-    cczCompiler.ts      # CCZ compilation
+    hqJsonExpander.ts   # Blueprint → HQ import JSON (XForm XML, form actions, Vellum metadata)
+    hqJsonConverter.ts  # CCZ XML files → HQ import JSON (for re-import)
+    cczCompiler.ts      # HQ import JSON → .ccz archive (adds case blocks, suite.xml)
+    __tests__/          # Vitest tests for expander + compiler
   schemas/              # Zod schemas for AppBlueprint, tier outputs
   prompts/              # System/tier prompts for Claude
   types/                # TypeScript type definitions
@@ -116,10 +119,14 @@ No auth layer. The user's Anthropic API key is stored in localStorage and sent p
 - Questions carry `case_property` and `is_case_name` — `deriveCaseConfig()` handles the rest
 - `default_value` generates `<setvalue event="xforms-ready">` in the XForm (one-time on load, unlike `calculate` which recalculates)
 
-### XPath in Questions
-- `relevant`, `calculate`, `constraint` — reference other questions by full path: `/data/question_id` or `/data/group_id/question_id`
-- `#case/property_name` — references existing case data (expander adds Vellum hashtag metadata automatically)
-- `default_value` — XPath expression set once on form open via `<setvalue>`, also supports `#case/`
+### XPath and Vellum Hashtags
+
+Questions can use `#case/property_name` and `#user/property_name` shorthand in XPath expressions (`relevant`, `calculate`, `constraint`, `default_value`). The expander handles these with a dual-attribute pattern matching CommCare's Vellum editor:
+
+- **Real attributes** (`calculate`, `relevant`, `constraint`, `value`) — `#case/` expanded to full `instance('casedb')/casedb/case[@case_id = instance('commcaresession')/session/data/case_id]/property` XPath. This is what the XForm runtime evaluates.
+- **Vellum attributes** (`vellum:calculate`, `vellum:relevant`, `vellum:value`) — original shorthand preserved for the Vellum editor. Only added when hashtags are present.
+- **Vellum metadata** (`vellum:hashtags`, `vellum:hashtagTransforms`) — JSON metadata on each bind telling Vellum which hashtags are used and how to expand them.
+- **`case_references_data.load`** — form-level JSON mapping each question path to its array of `#case/` references. Required by CommCare HQ to resolve hashtags during app builds.
 
 ### Close Case
 - `{}` = unconditional close
@@ -148,4 +155,6 @@ Dark "Stellar Minimalism" theme. CSS custom properties defined in `globals.css`:
 - `builder.ts`: `Builder` class — singleton via `useBuilder()`. Manages phase, blueprint, selected element. `bind()` hooks into React re-renders.
 - `claude.ts`: Stateless functions, API key per-call. `sendOneShotStructured` for single-message structured output. Used by generation pipeline only.
 - `appGenerator.ts`: `scaffoldBlueprint()` for tier 1 only, `fillBlueprint()` for all tiers. Pure functions — take inputs, return `GenerationResult`.
-- `cczCompiler.ts`: Returns `Buffer`, stored to disk via `store.ts` for download.
+- `hqJsonExpander.ts`: `expandBlueprint()` converts `AppBlueprint` → HQ import JSON. Generates XForm XML with proper Vellum dual-attribute hashtag expansion, form actions, case details. `validateBlueprint()` checks semantic rules.
+- `hqJsonConverter.ts`: `HqJsonConverter` class parses CCZ XML files back into HQ import JSON for re-import. Extracts case references from XForm binds.
+- `cczCompiler.ts`: `CczCompiler` class takes HQ import JSON → `.ccz` Buffer. Generates suite.xml, profile.ccpr, app_strings.txt. Injects case blocks (create/update/close/subcases) back into XForm XML.

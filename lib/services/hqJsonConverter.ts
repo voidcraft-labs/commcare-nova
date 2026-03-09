@@ -84,7 +84,7 @@ export class HqJsonConverter {
         if (caseInfo.caseType) caseType = caseInfo.caseType
 
         const uniqueId = randomBytes(20).toString('hex')
-        const form = this.buildFormJson(uniqueId, formName, xmlns, caseInfo)
+        const form = this.buildFormJson(uniqueId, formName, xmlns, caseInfo, xformContent)
         forms.push(form)
       }
 
@@ -178,7 +178,35 @@ export class HqJsonConverter {
     return result
   }
 
-  private buildFormJson(uniqueId: string, name: string, xmlns: string, caseInfo: ReturnType<typeof this.parseCaseInfo>): any {
+  /**
+   * Extract #case/ and #user/ hashtag references from XForm binds.
+   * Returns a map of question path -> array of hashtag references used in
+   * calculate, relevant, constraint expressions for that question.
+   */
+  private extractCaseReferencesLoad(xform: string): Record<string, string[]> {
+    const load: Record<string, string[]> = {}
+    // Match all binds that have hashtag references in their XPath attributes
+    const bindPattern = /<bind\s+[^>]*nodeset="([^"]*)"[^>]*>/g
+    for (const match of xform.matchAll(bindPattern)) {
+      const nodeset = match[1]
+      const bindStr = match[0]
+      // Skip case-internal binds
+      if (nodeset.startsWith('/data/case/')) continue
+      // Extract all XPath-containing attributes
+      const hashtags = new Set<string>()
+      for (const attrMatch of bindStr.matchAll(/(?:calculate|relevant|constraint)="([^"]*)"/g)) {
+        for (const h of attrMatch[1].matchAll(/#(?:case|user)\/[\w-]+/g)) {
+          hashtags.add(h[0])
+        }
+      }
+      if (hashtags.size > 0) {
+        load[nodeset] = [...hashtags]
+      }
+    }
+    return load
+  }
+
+  private buildFormJson(uniqueId: string, name: string, xmlns: string, caseInfo: ReturnType<typeof this.parseCaseInfo>, xformContent = ''): any {
     const neverCondition = { type: 'never', question: null, answer: null, operator: null, doc_type: 'FormActionCondition' }
     const alwaysCondition = { type: 'always', question: null, answer: null, operator: null, doc_type: 'FormActionCondition' }
     const neverAction = { doc_type: 'FormAction', condition: neverCondition }
@@ -239,7 +267,7 @@ export class HqJsonConverter {
         usercase_update: neverUpdate,
         load_from_form: neverPreload
       },
-      case_references_data: { load: {}, save: {}, doc_type: 'CaseReferences' },
+      case_references_data: { load: this.extractCaseReferencesLoad(xformContent), save: {}, doc_type: 'CaseReferences' },
       form_filter: null,
       post_form_workflow: 'default',
       no_vellum: false,
