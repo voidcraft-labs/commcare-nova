@@ -3,6 +3,7 @@ import { logUsage } from '@/lib/usage'
 
 export enum BuilderPhase {
   Idle = 'idle',
+  Planning = 'planning',
   Scaffolding = 'scaffolding',
   Modules = 'modules',
   Forms = 'forms',
@@ -35,6 +36,19 @@ export class Builder {
 
   private notify() {
     this.listeners.forEach(fn => fn())
+  }
+
+  /** Transition to planning phase (Claude is generating the plan). */
+  startPlanning() {
+    this.phase = BuilderPhase.Planning
+    this.statusMessage = 'Generating plan...'
+    this.notify()
+  }
+
+  /** Update planning message when scaffold API call begins. */
+  startScaffolding() {
+    this.statusMessage = 'Generating blueprint structure...'
+    this.notify()
   }
 
   /** Show the scaffold blueprint in the tree. Stores context for /api/blueprint/fill. */
