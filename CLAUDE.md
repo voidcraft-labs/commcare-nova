@@ -87,10 +87,10 @@ Dark "Stellar Minimalism" theme. CSS custom properties defined in `globals.css`:
 - Accents: `--nova-violet`, `--nova-cyan`, `--nova-emerald`, `--nova-amber`, `--nova-rose`
 - Fonts: Outfit (display), Plus Jakarta Sans (body), JetBrains Mono (code)
 
-## Origin
+## Service Layer Notes
 
-Backend services in `lib/` were copied and adapted from `../commcare-forge-mcp/backend/src/`. Key adaptations:
-- `claude.ts`: Stateless functions instead of class, API key per-call
-- `appGenerator.ts`: Event emitter callbacks instead of BuildLogger/AppExporter, no disk I/O
-- `cczCompiler.ts`: Returns `Buffer` instead of writing to filesystem
-- `system.ts`: Embedded prompt constant instead of `fs.readFileSync` for reference docs
+Key design choices in `lib/services/`:
+- `claude.ts`: Stateless functions, API key per-call (no class instance)
+- `appGenerator.ts`: Event emitter callbacks for SSE streaming, no disk I/O
+- `cczCompiler.ts`: Returns `Buffer` for in-memory download
+- `system.ts`: Embedded prompt constant (no filesystem reads)
