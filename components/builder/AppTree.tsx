@@ -44,6 +44,7 @@ export function AppTree({ data, selected, onSelect, phase, actions }: AppTreePro
       <motion.div
         initial={{ opacity: 0, y: -10 }}
         animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.4, ease: [0.16, 1, 0.3, 1] }}
         className="mb-6 flex items-start justify-between gap-4"
       >
         <div>
@@ -68,7 +69,6 @@ export function AppTree({ data, selected, onSelect, phase, actions }: AppTreePro
             moduleIndex={mIdx}
             selected={selected}
             onSelect={onSelect}
-            delay={mIdx * 0.1}
           />
         ))}
       </AnimatePresence>
@@ -81,21 +81,19 @@ function ModuleCard({
   moduleIndex,
   selected,
   onSelect,
-  delay,
 }: {
   module: TreeData['modules'][number]
   moduleIndex: number
   selected: AppTreeProps['selected']
   onSelect: AppTreeProps['onSelect']
-  delay: number
 }) {
   const isSelected = selected?.type === 'module' && selected.moduleIndex === moduleIndex
 
   return (
     <motion.div
-      initial={{ opacity: 0, y: 20 }}
+      initial={{ opacity: 0, y: 24 }}
       animate={{ opacity: 1, y: 0 }}
-      transition={{ delay, duration: 0.4, ease: [0.16, 1, 0.3, 1] }}
+      transition={{ duration: 0.5, ease: [0.16, 1, 0.3, 1] }}
       className={`rounded-xl border transition-colors ${
         isSelected ? 'border-nova-violet bg-nova-surface' : 'border-nova-border bg-nova-deep hover:border-nova-border-bright'
       }`}
@@ -147,17 +145,19 @@ function ModuleCard({
 
       {/* Forms */}
       <div className="border-t border-nova-border">
-        {mod.forms.map((form, fIdx) => (
-          <FormCard
-            key={fIdx}
-            form={form}
-            moduleIndex={moduleIndex}
-            formIndex={fIdx}
-            selected={selected}
-            onSelect={onSelect}
-            delay={delay + (fIdx + 1) * 0.05}
-          />
-        ))}
+        <AnimatePresence mode="sync">
+          {mod.forms.map((form, fIdx) => (
+            <FormCard
+              key={`${moduleIndex}-${fIdx}`}
+              form={form}
+              moduleIndex={moduleIndex}
+              formIndex={fIdx}
+              selected={selected}
+              onSelect={onSelect}
+              delay={fIdx * 0.08}
+            />
+          ))}
+        </AnimatePresence>
       </div>
     </motion.div>
   )
@@ -187,9 +187,9 @@ function FormCard({
 
   return (
     <motion.div
-      initial={{ opacity: 0 }}
-      animate={{ opacity: 1 }}
-      transition={{ delay, duration: 0.3 }}
+      initial={{ opacity: 0, x: -8 }}
+      animate={{ opacity: 1, x: 0 }}
+      transition={{ delay, duration: 0.35, ease: [0.16, 1, 0.3, 1] }}
       className={`border-b border-nova-border last:border-b-0 ${
         isSelected ? 'bg-nova-surface/50' : ''
       }`}

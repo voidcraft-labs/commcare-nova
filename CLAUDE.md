@@ -10,7 +10,7 @@ Next.js web app that generates CommCare apps from natural language conversation.
 - **Animation**: Motion (imported as `motion/react`, NOT `framer-motion`)
 - **Validation**: Zod v4
 - **AI (Chat)**: Vercel AI SDK (`ai` + `@ai-sdk/react` + `@ai-sdk/anthropic`) — `streamText`, `useChat`, client-side tools
-- **AI (Generation)**: Anthropic SDK (`@anthropic-ai/sdk`) with structured output via `zodOutputFormat`
+- **AI (Generation)**: Anthropic SDK (`@anthropic-ai/sdk`) with structured output via `zodOutputFormat` and streaming via `strict` tool use + `inputJson`
 - **Icons**: Coolicons (`@iconify-icons/ci`) + Tabler (`@iconify-icons/tabler`) via `@iconify/react`
 - **Testing**: Vitest
 
@@ -58,7 +58,7 @@ The chat uses `streamText()` on the server and `useChat()` on the client. Two to
 - **`askQuestions`** (client-side, no `execute`) — Claude asks structured multiple-choice questions. The tool part renders as a `QuestionCard` stepper in chat. User clicks answers, component calls `addToolOutput` when all questions are answered, `sendAutomaticallyWhen` re-sends to continue the conversation.
 - **`scaffoldBlueprint`** (client-side, no `execute`) — Claude calls this when it has enough info. `stopWhen: hasToolCall('scaffoldBlueprint')` halts the stream. Claude outputs a brief confirmation ("Got it — generating your app now.") before calling the tool. The `appSpecification` is plain English — business workflows and requirements, no technical details. The client reacts to the tool call's streaming states:
   - `input-streaming` → `builder.startPlanning()` — shows "Generating plan..." while Claude writes the appSpecification
-  - `input-available` → `builder.startScaffolding()` — shows "Generating blueprint structure...", fires `/api/blueprint/scaffold`
+  - `input-available` → `builder.streamScaffold()` — streams scaffold from `/api/blueprint/scaffold`, modules appear incrementally in tree
 
 No SSE wiring, no session coordination, no separate respond endpoint. The AI SDK handles the full message lifecycle via `UIMessage` parts.
 
@@ -71,16 +71,17 @@ Chat is the hero experience. When `builder.phase === Idle && !builder.treeData`,
 `lib/services/builder.ts` exports a `Builder` class — a singleton state machine shared across components via `useBuilder()`. Phases: `Idle → Planning → Scaffolding → Modules → Forms → Validating → Fixing → Done | Error`.
 
 - `builder.startPlanning()` — transitions to Planning phase ("Generating plan...")
-- `builder.startScaffolding()` — updates Planning message ("Generating blueprint structure...")
-- `builder.setScaffold(scaffold)` — stores raw `Scaffold`, shows it in AppTree via `treeData` getter
-- `builder.treeData` — getter returning `TreeData` (blueprint if available, otherwise scaffold) for AppTree rendering
-- `builder.fillBlueprint(apiKey)` — sends scaffold to `/api/blueprint/fill` (tiers 2+3), updates blueprint when done
+- `builder.streamScaffold(apiKey, appName, spec)` — streams tier 1 via NDJSON from `/api/blueprint/scaffold`. Modules appear incrementally in the tree as they arrive. Uses `partialScaffold` for progressive rendering.
+- `builder.fillBlueprint(apiKey)` — streams tiers 2+3 via NDJSON from `/api/blueprint/fill`. Updates tree incrementally as modules and forms complete via `partialModules`.
+- `builder.treeData` — getter with four-level fallback: `blueprint` > `partialModules` merged with scaffold > `scaffold` > `partialScaffold`
 - `builder.subscribe(listener)` — triggers React re-renders on state changes
 
-### Two-Step Blueprint Generation
+### Two-Step Blueprint Generation (NDJSON Streaming)
 
-1. **Scaffold** (`/api/blueprint/scaffold` → `scaffoldBlueprint()`) — Tier 1 only. Returns the raw `Scaffold` type (not assembled into `AppBlueprint`). The builder stores it and the `treeData` getter maps it to a `TreeData` shape for AppTree rendering.
-2. **Fill** (`/api/blueprint/fill` → `fillBlueprint(apiKey, scaffold)`) — Accepts the stored scaffold, runs tiers 2+3 only (does NOT re-run tier 1). The fill route validates the incoming scaffold with `scaffoldSchema.safeParse()`. Triggered by the "Generate" button after scaffold is visible. Replaces the scaffold with the full assembled `AppBlueprint`.
+Both endpoints stream NDJSON events via `TransformStream` for incremental UI updates.
+
+1. **Scaffold** (`/api/blueprint/scaffold` → `scaffoldBlueprint()`) — Tier 1 only. Uses `sendOneShotStructuredStream()` with `strict: true` tool use to get `inputJson` events (incremental parsed snapshots). Emits `scaffold_meta`, `scaffold_module`, `scaffold_case_type`, and `scaffold_done` events as the JSON builds up. The scaffold schema orders `modules` before `case_types` so modules stream to the UI while case types are still generating.
+2. **Fill** (`/api/blueprint/fill` → `fillBlueprint(apiKey, scaffold)`) — Accepts the stored scaffold, runs tiers 2+3 only (does NOT re-run tier 1). Streams `phase`, `progress`, `module_done`, `form_done`, and `done` events. The builder merges partial results with the scaffold for progressive tree rendering. Triggered by the "Generate" button after scaffold is visible.
 
 ### Chat → Generation Handoff
 
@@ -95,7 +96,7 @@ Runs in three tiers to stay within Anthropic's schema compilation limits:
 2. **Module Content** (Tier 2): Case list columns per module
 3. **Form Content** (Tier 3): Questions + case config per form
 
-Each tier uses its own slim Zod schema with `sendOneShotStructured()`. Results are assembled into a full `AppBlueprint` via `assembleBlueprint()`.
+Tier 1 uses `sendOneShotStructuredStream()` (strict tool use + `inputJson` for incremental streaming). Tiers 2+3 use `sendOneShotStructured()` (output_config structured output). Results are assembled into a full `AppBlueprint` via `assembleBlueprint()`.
 
 ### Per-Question Case Property Mapping
 
@@ -203,9 +204,9 @@ All Claude API calls log token usage, cost estimates, and full request/response 
 
 ## Service Layer Notes
 
-- `builder.ts`: `Builder` class — singleton via `useBuilder()`. Holds both `scaffold: Scaffold | null` and `blueprint: AppBlueprint | null`. `treeData` getter provides a `TreeData` union for AppTree. Manages phase, selected element.
-- `claude.ts`: Stateless functions, API key per-call. `sendOneShotStructured` returns `{ data, usage }` with full I/O for logging. Used by generation pipeline only.
-- `appGenerator.ts`: `scaffoldBlueprint()` returns raw `Scaffold`. `fillBlueprint(apiKey, scaffold)` accepts scaffold, runs tiers 2+3 only. Pure functions returning `GenerationResult` (includes `usage` array).
+- `builder.ts`: `Builder` class — singleton via `useBuilder()`. Holds `scaffold`, `blueprint`, `partialScaffold` (tier 1 streaming), and `partialModules` (tiers 2+3 streaming). `treeData` getter merges partial data with scaffold for progressive rendering. `streamScaffold()` and `fillBlueprint()` consume NDJSON streams and update UI incrementally via `notify()`.
+- `claude.ts`: Stateless functions, API key per-call. `sendOneShotStructured` returns `{ data, usage }` with full I/O for logging. `sendOneShotStructuredStream` uses `strict: true` tool use + `inputJson` for incremental parsed snapshots during generation. Used by generation pipeline only.
+- `appGenerator.ts`: `scaffoldBlueprint()` accepts `onEvent` callback, streams `ScaffoldStreamEvent`s as modules complete. `fillBlueprint(apiKey, scaffold, onEvent)` streams `FillStreamEvent`s for progress, module, and form completion. Both accept optional event callbacks; routes wire these to NDJSON `TransformStream`s.
 - `hqJsonExpander.ts`: `expandBlueprint()` converts `AppBlueprint` → HQ import JSON. Generates XForm XML with proper Vellum dual-attribute hashtag expansion, form actions, case details. `validateBlueprint()` checks semantic rules.
 - `cczCompiler.ts`: `CczCompiler` class takes HQ import JSON → `.ccz` Buffer. Generates suite.xml, profile.ccpr, app_strings.txt. Injects case blocks (create/update/close/subcases) back into XForm XML.
 - `autoFixer.ts`: `AutoFixer` class applies programmatic fixes (itext, reserved properties, missing binds) to generated files before validation.

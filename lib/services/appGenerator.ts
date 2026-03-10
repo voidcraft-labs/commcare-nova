@@ -9,7 +9,7 @@
  *     Validate — check semantic rules; if errors, re-generate failing forms (Haiku)
  *     Expand — convert to HQ JSON
  */
-import { sendOneShotStructured, type ClaudeUsage } from './claude'
+import { sendOneShotStructured, sendOneShotStructuredStream, type ClaudeUsage } from './claude'
 import { MODEL_FIXER } from '../models'
 import { SCAFFOLD_PROMPT } from '../prompts/scaffoldPrompt'
 import { MODULE_PROMPT } from '../prompts/modulePrompt'
@@ -21,6 +21,7 @@ import {
   type Scaffold, type ModuleContent, type FormContent, type AppBlueprint, type BlueprintForm,
 } from '../schemas/blueprint'
 import { expandBlueprint, validateBlueprint } from './hqJsonExpander'
+import type { FillStreamEvent, ScaffoldStreamEvent } from '../types'
 
 export interface GenerationResult {
   success: boolean
@@ -38,21 +39,78 @@ export async function scaffoldBlueprint(
   apiKey: string,
   conversationContext: string,
   appName: string,
+  onEvent?: (event: ScaffoldStreamEvent) => void,
 ): Promise<{ success: boolean; scaffold?: Scaffold; errors?: string[]; usage?: ClaudeUsage[] }> {
   const resolvedAppName = appName || inferAppName(conversationContext)
+  const emit = onEvent ?? (() => {})
   const scaffoldMessage = `Here is the specification for the app to build:\n\n${conversationContext}\n\nBased on this specification, plan the app structure. App name: "${resolvedAppName}".`
 
+  // Track what we've already emitted so we only emit new items
+  let emittedMeta = false
+  let emittedCaseTypes = 0
+  let emittedModules = 0
+
   try {
-    const { data: scaffold, usage } = await sendOneShotStructured(
+    const { data: scaffold, usage } = await sendOneShotStructuredStream(
       apiKey, SCAFFOLD_PROMPT, scaffoldMessage, scaffoldSchema,
-      () => {},
-      { maxTokens: 16384 }
+      (snapshot: unknown) => {
+        const s = snapshot as any
+        if (!s) return
+
+        // Emit app name + description once available
+        if (!emittedMeta && s.app_name && s.description) {
+          emittedMeta = true
+          emit({ type: 'scaffold_meta', appName: resolvedAppName, description: s.description })
+        }
+
+        // Emit case types as they complete
+        if (Array.isArray(s.case_types)) {
+          while (emittedCaseTypes < s.case_types.length) {
+            const ct = s.case_types[emittedCaseTypes]
+            if (ct?.name && ct?.case_name_property && Array.isArray(ct?.properties)) {
+              emit({ type: 'scaffold_case_type', caseTypeIndex: emittedCaseTypes, caseType: ct })
+              emittedCaseTypes++
+            } else {
+              break
+            }
+          }
+        }
+
+        // Emit modules as soon as they look complete (name + forms with name/type).
+        // scaffold_done overwrites with the final validated scaffold, so early emission is safe.
+        if (Array.isArray(s.modules)) {
+          while (emittedModules < s.modules.length) {
+            const mod = s.modules[emittedModules]
+            if (
+              mod?.name && Array.isArray(mod?.forms) && mod.forms.length > 0 &&
+              mod.forms.every((f: any) => f?.name && f?.type)
+            ) {
+              emit({ type: 'scaffold_module', moduleIndex: emittedModules, module: mod })
+              emittedModules++
+            } else {
+              break
+            }
+          }
+        }
+      },
+      {
+        maxTokens: 16384,
+        toolName: 'generate_scaffold',
+        toolDescription: 'Generate the application scaffold with all modules, case types, and forms.',
+      }
     )
     scaffold.app_name = resolvedAppName
 
+    // Emit any remaining modules that were held back
+    for (let i = emittedModules; i < scaffold.modules.length; i++) {
+      emit({ type: 'scaffold_module', moduleIndex: i, module: scaffold.modules[i] as any })
+    }
+
+    emit({ type: 'scaffold_done', scaffold, usage: [usage] })
     return { success: true, scaffold, usage: [usage] }
   } catch (err) {
     const errMsg = err instanceof Error ? err.message : String(err)
+    emit({ type: 'error', message: `Scaffold failed: ${errMsg}` })
     return { success: false, errors: [`Scaffold failed: ${errMsg}`] }
   }
 }
@@ -60,11 +118,14 @@ export async function scaffoldBlueprint(
 export async function fillBlueprint(
   apiKey: string,
   scaffold: Scaffold,
+  onEvent?: (event: FillStreamEvent) => void,
 ): Promise<GenerationResult> {
+  const emit = onEvent ?? (() => {})
   try {
-    return await doGenerate(apiKey, scaffold)
+    return await doGenerate(apiKey, scaffold, emit)
   } catch (err) {
     const errMsg = err instanceof Error ? err.message : String(err)
+    emit({ type: 'error', message: errMsg })
     return { success: false, errors: [errMsg] }
   }
 }
@@ -72,9 +133,15 @@ export async function fillBlueprint(
 async function doGenerate(
   apiKey: string,
   scaffold: Scaffold,
+  emit: (event: FillStreamEvent) => void,
 ): Promise<GenerationResult> {
 
   const allUsage: ClaudeUsage[] = []
+
+  // Pre-compute total forms for progress tracking
+  const totalForms = scaffold.modules.reduce((sum, m) => sum + m.forms.length, 0)
+  const totalSteps = scaffold.modules.length + totalForms // modules + forms
+  let completedSteps = 0
 
   // Build case type lookup (properties + case name property)
   const caseTypeLookup = new Map<string, { properties: Array<{ name: string; label: string }>; case_name_property: string }>()
@@ -88,6 +155,8 @@ async function doGenerate(
 
   const moduleContents: ModuleContent[] = []
   const formContents: FormContent[][] = []
+
+  emit({ type: 'phase', phase: 'modules' })
 
   for (let mIdx = 0; mIdx < scaffold.modules.length; mIdx++) {
     const sm = scaffold.modules[mIdx]
@@ -118,16 +187,30 @@ Design the case list columns for this module.`
       )
       mc = result.data
       allUsage.push(result.usage)
+      emit({ type: 'usage', usage: result.usage })
     } catch {
       mc = { case_list_columns: null }
     }
 
     moduleContents.push(mc)
+    completedSteps++
+
+    emit({ type: 'module_done', moduleIndex: mIdx, caseListColumns: mc.case_list_columns ?? null })
+    emit({ type: 'progress', message: `Module ${mIdx + 1}/${scaffold.modules.length}: ${sm.name}`, completed: completedSteps, total: totalSteps })
 
     // Tier 3: Form content (depth-first within this module)
     const moduleForms: FormContent[] = []
 
+    if (mIdx === 0 && sm.forms.length > 0) {
+      emit({ type: 'phase', phase: 'forms' })
+    }
+
     for (let fIdx = 0; fIdx < sm.forms.length; fIdx++) {
+      // Emit phase transition to forms on first form overall
+      if (mIdx > 0 && fIdx === 0 && formContents.every(mf => mf.length === 0)) {
+        // Edge case: first module had no forms, emit phase on first form we encounter
+      }
+
       const sf = sm.forms[fIdx]
 
       let formMessage = `App: "${scaffold.app_name}" — ${scaffold.description}
@@ -152,12 +235,20 @@ Sibling forms in this module: ${sm.forms.map(f => `"${f.name}" (${f.type})`).joi
         )
         fc = result.data
         allUsage.push(result.usage)
+        emit({ type: 'usage', usage: result.usage })
       } catch (err) {
         const errMsg = err instanceof Error ? err.message : String(err)
+        emit({ type: 'error', message: `Form "${sf.name}" failed: ${errMsg}` })
         return { success: false, errors: [`Form "${sf.name}" failed: ${errMsg}`] }
       }
 
       moduleForms.push(fc)
+      completedSteps++
+
+      // Emit the assembled form for incremental tree updates
+      const assembledForm = reassembleForm(sf.name, sf.type as 'registration' | 'followup' | 'survey', fc)
+      emit({ type: 'form_done', moduleIndex: mIdx, formIndex: fIdx, form: assembledForm })
+      emit({ type: 'progress', message: `Form ${completedSteps - scaffold.modules.length}/${totalForms}: ${sf.name}`, completed: completedSteps, total: totalSteps })
     }
 
     formContents.push(moduleForms)
@@ -169,17 +260,20 @@ Sibling forms in this module: ${sm.forms.map(f => `"${f.name}" (${f.type})`).joi
 
   // ── Validate + Fix Loop ──────────────────────────────────────────
 
-  return await validateAndFix(apiKey, blueprint, allUsage)
+  return await validateAndFix(apiKey, blueprint, allUsage, emit)
 }
 
 async function validateAndFix(
   apiKey: string,
   blueprint: AppBlueprint,
   allUsage: ClaudeUsage[],
+  emit: (event: FillStreamEvent) => void,
 ): Promise<GenerationResult> {
   const recentErrorSignatures: string[] = []
   const MAX_STUCK_REPEATS = 3
   let attempt = 0
+
+  emit({ type: 'phase', phase: 'validating' })
 
   while (true) {
     attempt++
@@ -189,6 +283,7 @@ async function validateAndFix(
     if (errors.length === 0) {
       const hqJson = expandBlueprint(blueprint)
 
+      emit({ type: 'done', blueprint, hqJson, usage: allUsage })
       return { success: true, blueprint, hqJson, usage: allUsage }
     }
 
@@ -199,11 +294,16 @@ async function validateAndFix(
     if (recentErrorSignatures.length === MAX_STUCK_REPEATS && recentErrorSignatures.every(s => s === sig)) {
       try {
         const hqJson = expandBlueprint(blueprint)
+        emit({ type: 'done', blueprint, hqJson, usage: allUsage })
         return { success: false, blueprint, hqJson, errors, usage: allUsage }
       } catch {
+        emit({ type: 'error', message: errors.join('; ') })
         return { success: false, blueprint, errors, usage: allUsage }
       }
     }
+
+    emit({ type: 'phase', phase: 'fixing' })
+    emit({ type: 'fix_attempt', attempt, errorCount: errors.length })
 
     // Fix module-level errors programmatically
     for (const err of errors) {
@@ -246,8 +346,11 @@ async function validateAndFix(
           { model: MODEL_FIXER, maxTokens: 32768 }
         )
         allUsage.push(result.usage)
+        emit({ type: 'usage', usage: result.usage })
 
-        blueprint.modules[mIdx].forms[fIdx] = reassembleForm(form.name, form.type, result.data)
+        const fixedForm = reassembleForm(form.name, form.type, result.data)
+        blueprint.modules[mIdx].forms[fIdx] = fixedForm
+        emit({ type: 'form_done', moduleIndex: mIdx, formIndex: fIdx, form: fixedForm })
       } catch {
         // Fix failed, continue to next attempt
       }
@@ -256,7 +359,7 @@ async function validateAndFix(
 }
 
 /** Reassemble a FormContent back into a BlueprintForm */
-function reassembleForm(name: string, type: 'registration' | 'followup' | 'survey', fc: FormContent): BlueprintForm {
+export function reassembleForm(name: string, type: 'registration' | 'followup' | 'survey', fc: FormContent): BlueprintForm {
   const { case_name_field, case_properties, case_preload } = deriveCaseConfig(fc.questions, type)
 
   const closeCase = fc.close_case == null ? undefined : {

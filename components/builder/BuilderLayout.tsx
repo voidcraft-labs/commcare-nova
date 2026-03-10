@@ -26,6 +26,7 @@ export function BuilderLayout({ buildId }: { buildId: string }) {
   const { apiKey, loaded } = useApiKey()
   const builder = useBuilder()
   const [chatOpen, setChatOpen] = useState(true)
+  const [progressDismissed, setProgressDismissed] = useState(false)
   const triggeredRef = useRef(new Set<string>())
 
   const apiKeyRef = useRef(apiKey)
@@ -68,28 +69,7 @@ export function BuilderLayout({ buildId }: { buildId: string }) {
           if (!input?.appName || !input?.appSpecification) continue
 
           triggeredRef.current.add(part.toolCallId)
-          builder.startScaffolding()
-
-          ;(async () => {
-            try {
-              const res = await fetch('/api/blueprint/scaffold', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                  apiKey,
-                  appName: input.appName,
-                  appSpecification: input.appSpecification,
-                }),
-              })
-              const result = await res.json()
-              if (result.success && result.scaffold) {
-                if (result.usage) logUsage('Scaffold', result.usage)
-                builder.setScaffold(result.scaffold)
-              }
-            } catch (err) {
-              console.error('Scaffold failed:', err)
-            }
-          })()
+          builder.streamScaffold(apiKeyRef.current, input.appName, input.appSpecification)
         }
       }
     }
@@ -122,6 +102,9 @@ export function BuilderLayout({ buildId }: { buildId: string }) {
       }
     }
   }, [messages, status])
+
+  const isGenerating = [BuilderPhase.Modules, BuilderPhase.Forms, BuilderPhase.Validating, BuilderPhase.Fixing].includes(builder.phase)
+  if (isGenerating && progressDismissed) setProgressDismissed(false)
 
   const handleSend = useCallback((text: string) => {
     if (!text.trim() || !apiKey) return
@@ -170,7 +153,7 @@ export function BuilderLayout({ buildId }: { buildId: string }) {
 
   if (!loaded) return null
 
-  const isGenerating = [BuilderPhase.Modules, BuilderPhase.Forms, BuilderPhase.Validating, BuilderPhase.Fixing].includes(builder.phase)
+  const showProgress = (isGenerating || builder.phase === BuilderPhase.Done) && !progressDismissed
 
   return (
     <div className="h-screen flex flex-col bg-nova-void overflow-hidden">
@@ -223,7 +206,7 @@ export function BuilderLayout({ buildId }: { buildId: string }) {
                   </button>
                 )}
 
-                {builder.phase === BuilderPhase.Planning ? (
+                {builder.phase === BuilderPhase.Planning && !builder.treeData ? (
                   <div className="flex items-center justify-center h-full">
                     <div className="flex items-center gap-3 text-sm text-nova-text-muted">
                       <span className="inline-block w-2 h-2 rounded-full bg-nova-violet animate-pulse" />
@@ -274,14 +257,21 @@ export function BuilderLayout({ buildId }: { buildId: string }) {
                   />
                 )}
 
-                {isGenerating && (
-                  <div className="absolute bottom-4 left-1/2 -translate-x-1/2 z-10">
-                    <GenerationProgress
-                      phase={builder.phase}
-                      message={builder.statusMessage}
-                    />
-                  </div>
-                )}
+                <AnimatePresence>
+                  {showProgress && (
+                    <div className="absolute bottom-4 inset-x-0 z-10 flex justify-center pointer-events-none">
+                      <div className="pointer-events-auto">
+                        <GenerationProgress
+                          phase={builder.phase}
+                          message={builder.statusMessage}
+                          completed={builder.progressCompleted}
+                          total={builder.progressTotal}
+                          onDismiss={() => setProgressDismissed(true)}
+                        />
+                      </div>
+                    </div>
+                  )}
+                </AnimatePresence>
               </motion.div>
             )}
           </AnimatePresence>
