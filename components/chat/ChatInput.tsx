@@ -38,7 +38,7 @@ export function ChatInput({ onSend, disabled, centered }: ChatInputProps) {
   }
 
   return (
-    <div className={centered ? 'p-3' : 'border-t border-nova-border p-3'}>
+    <div className={centered ? 'px-3' : 'border-t border-nova-border p-3'}>
       <div className={`flex items-center bg-nova-surface border border-nova-border rounded-lg transition-shadow ${centered ? 'ring-1 ring-nova-violet/20 focus-within:ring-nova-violet/40' : 'focus-within:border-nova-violet'}`}>
         <textarea
           ref={textareaRef}

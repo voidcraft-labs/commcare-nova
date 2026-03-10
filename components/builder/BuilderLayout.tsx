@@ -156,26 +156,52 @@ export function BuilderLayout({ buildId }: { buildId: string }) {
   const showProgress = (isGenerating || builder.phase === BuilderPhase.Done) && !progressDismissed
 
   return (
+    <LayoutGroup>
     <div className="h-screen flex flex-col bg-nova-void overflow-hidden">
-      <header className="flex items-center justify-between px-4 py-2.5 border-b border-nova-border shrink-0">
-        <div className="cursor-pointer" onClick={() => router.push('/')}>
-          <Logo size="sm" />
+      {/* Header — collapses to zero height in hero mode, reveals with border on transition */}
+      <motion.header
+        className="overflow-hidden shrink-0"
+        initial={false}
+        animate={{
+          height: isCentered ? 0 : 'auto',
+        }}
+        transition={{ duration: 0.45, ease: [0.4, 0, 0.2, 1] }}
+      >
+        <div className="flex items-center justify-between px-4 py-2.5 border-b border-nova-border">
+          {!isCentered && (
+            <motion.div
+              layoutId="nova-logo"
+              className="cursor-pointer"
+              onClick={() => router.push('/')}
+              transition={{ layout: { duration: 0.45, ease: [0.4, 0, 0.2, 1] } }}
+            >
+              <Logo size="sm" />
+            </motion.div>
+          )}
+          <div />
         </div>
-        <div />
-      </header>
+      </motion.header>
 
-      <LayoutGroup>
         <div className="flex flex-1 overflow-hidden">
           {chatOpen && (
             <motion.div
               layout
               className={
                 isCentered
-                  ? 'flex-1 flex items-center justify-center'
+                  ? 'flex-1 flex flex-col items-center justify-center gap-6'
                   : 'shrink-0'
               }
               transition={{ layout: { duration: 0.45, ease: [0.4, 0, 0.2, 1] } }}
             >
+              {/* Hero logo — animates to header on transition */}
+              {isCentered && (
+                <motion.div
+                  layoutId="nova-logo"
+                  transition={{ layout: { duration: 0.45, ease: [0.4, 0, 0.2, 1] } }}
+                >
+                  <Logo size="hero" />
+                </motion.div>
+              )}
               <ChatSidebar
                 mode={isCentered ? 'centered' : 'sidebar'}
                 messages={messages}
@@ -285,7 +311,7 @@ export function BuilderLayout({ buildId }: { buildId: string }) {
             />
           )}
         </div>
-      </LayoutGroup>
     </div>
+    </LayoutGroup>
   )
 }
