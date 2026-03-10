@@ -23,7 +23,6 @@ app/                    # Next.js App Router pages and API routes
     blueprint/
       scaffold/         # Tier 1 scaffold endpoint
       fill/             # Tiers 2+3 generation (accepts scaffold, skips tier 1)
-    validate/           # Blueprint validation
     compile/            # CCZ compilation + download
   build/[id]/           # Main builder view (3-panel layout)
   builds/               # Build history

@@ -167,21 +167,6 @@ export function BuilderLayout({ buildId }: { buildId: string }) {
     }
   }
 
-  const handleValidate = async () => {
-    if (!builder.blueprint) return
-    try {
-      const res = await fetch('/api/validate', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ blueprint: builder.blueprint }),
-      })
-      const data = await res.json()
-      if (data.valid) alert('Blueprint is valid!')
-      else alert(`Validation errors:\n${data.errors.join('\n')}`)
-    } catch (err) {
-      console.error('Validate failed:', err)
-    }
-  }
 
   if (!loaded) return null
 
@@ -266,9 +251,6 @@ export function BuilderLayout({ buildId }: { buildId: string }) {
                         )}
                         {builder.phase === BuilderPhase.Done && builder.blueprint && (
                           <>
-                            <Button variant="ghost" size="sm" onClick={handleValidate}>
-                              Validate
-                            </Button>
                             <DownloadDropdown
                               options={[
                                 {
