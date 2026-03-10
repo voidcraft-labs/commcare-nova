@@ -10,8 +10,9 @@ import { z } from 'zod'
 import { buildProductManagerPrompt } from '@/lib/prompts/productManagerPrompt'
 import { MODEL_PM } from '@/lib/models'
 import { GenerationContext } from '@/lib/services/generationContext'
-import { createArchitectAgent, BlueprintAccumulator } from '@/lib/services/architectAgent'
-import type { AppBlueprint } from '@/lib/schemas/blueprint'
+import { createArchitectAgent, createEditArchitectAgent, BlueprintAccumulator } from '@/lib/services/architectAgent'
+import { MutableBlueprint } from '@/lib/services/mutableBlueprint'
+import { summarizeBlueprint, type AppBlueprint } from '@/lib/schemas/blueprint'
 
 export const maxDuration = 300
 
@@ -76,17 +77,33 @@ function summarizeGeneration(appName: string, accumulator: BlueprintAccumulator)
   return lines.join('\n')
 }
 
-/** Build the edit prompt for the architect when editing an existing app. */
-function buildEditPrompt(blueprint: AppBlueprint, editInstructions: string): string {
-  return `Edit the existing CommCare app "${blueprint.app_name}".
+/** Build the edit task prompt for the edit-mode architect. */
+function buildEditTaskPrompt(editInstructions: string, blueprintSummary: string): string {
+  return `Edit the existing CommCare app.
 
-## Current Blueprint
-${JSON.stringify(blueprint, null, 2)}
+## Current App Structure
+${blueprintSummary}
 
 ## Edit Instructions
 ${editInstructions}
 
-Redesign the scaffold incorporating these changes, then regenerate all modules and forms.`
+Search the blueprint to find the relevant elements, make the required changes, then validate.`
+}
+
+/** Summarize the edited blueprint so the PM knows what changed. */
+function summarizeEditResult(blueprint: AppBlueprint): string {
+  const lines = [`Edited "${blueprint.app_name}": ${blueprint.modules.length} modules.`]
+  for (let mIdx = 0; mIdx < blueprint.modules.length; mIdx++) {
+    const mod = blueprint.modules[mIdx]
+    const colCount = mod.case_list_columns?.length ?? 0
+    lines.push(`  Module ${mIdx} "${mod.name}" (${mod.case_type ?? 'survey'}): ${colCount} columns, ${mod.forms.length} forms`)
+    for (let fIdx = 0; fIdx < mod.forms.length; fIdx++) {
+      const form = mod.forms[fIdx]
+      const qCount = form.questions?.length ?? 0
+      lines.push(`    Form "${form.name}" (${form.type}): ${qCount} questions`)
+    }
+  }
+  return lines.join('\n')
 }
 
 /** Consume a ReadableStream to drive execution to completion. */
@@ -140,14 +157,14 @@ export async function POST(req: Request) {
             execute: async ({ editInstructions }, { abortSignal }) => {
               if (!blueprint) return 'Error: No blueprint available to edit.'
               ctx.emit('data-editing', {})
-              const accumulator = new BlueprintAccumulator()
-              const architect = createArchitectAgent(ctx, accumulator)
-              const result = await architect.stream({
-                prompt: buildEditPrompt(blueprint, editInstructions),
+              const mutableBp = new MutableBlueprint(blueprint)
+              const editArchitect = createEditArchitectAgent(ctx, mutableBp)
+              const result = await editArchitect.stream({
+                prompt: buildEditTaskPrompt(editInstructions, summarizeBlueprint(blueprint)),
                 abortSignal,
               })
               await drainStream(result.toUIMessageStream())
-              return summarizeGeneration(blueprint.app_name, accumulator)
+              return summarizeEditResult(mutableBp.getBlueprint())
             },
           }),
         },
