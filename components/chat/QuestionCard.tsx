@@ -1,6 +1,8 @@
 'use client'
 import { useState } from 'react'
 import { motion, AnimatePresence } from 'motion/react'
+import { Icon } from '@iconify/react'
+import ciCheck from '@iconify-icons/ci/check'
 import { Badge } from '@/components/ui/Badge'
 
 interface QuestionInput {
@@ -85,9 +87,7 @@ export function QuestionCard({
                 {/* Answered question */}
                 {(isComplete || isPast) && answer && (
                   <div className="flex items-start gap-2 text-xs">
-                    <svg width="14" height="14" viewBox="0 0 14 14" fill="none" className="mt-0.5 shrink-0">
-                      <path d="M2.5 7.5l3 3 6-7" stroke="var(--nova-emerald)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
-                    </svg>
+                    <Icon icon={ciCheck} width="14" height="14" className="mt-0.5 shrink-0" style={{ color: 'var(--nova-emerald)' }} />
                     <div>
                       <span className="text-nova-text-muted">{q.question}</span>
                       <span className="ml-1.5 text-nova-text">{answer}</span>

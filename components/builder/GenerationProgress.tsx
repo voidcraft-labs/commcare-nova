@@ -1,5 +1,7 @@
 'use client'
 import { motion } from 'motion/react'
+import { Icon } from '@iconify/react'
+import ciCheck from '@iconify-icons/ci/check'
 import { BuilderPhase } from '@/lib/services/builder'
 
 const stages: { key: BuilderPhase; label: string }[] = [
@@ -38,9 +40,7 @@ export function GenerationProgress({ phase, message }: { phase: BuilderPhase; me
                 'text-nova-text-muted'
               }`}>
                 {status === 'done' && (
-                  <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
-                    <path d="M2 5l2.5 2.5L8 3" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
-                  </svg>
+                  <Icon icon={ciCheck} width="10" height="10" />
                 )}
                 {status === 'active' && (
                   <span className="inline-block w-1.5 h-1.5 rounded-full bg-nova-violet-bright animate-pulse" />

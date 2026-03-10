@@ -2,6 +2,8 @@
 import { useRef, useEffect } from 'react'
 import { motion, AnimatePresence } from 'motion/react'
 import type { UIMessage } from 'ai'
+import { Icon } from '@iconify/react'
+import ciChevronLeft from '@iconify-icons/ci/chevron-left'
 import { useBuilder } from '@/hooks/useBuilder'
 import { BuilderPhase } from '@/lib/services/builder'
 import { ChatMessage } from '@/components/chat/ChatMessage'
@@ -63,9 +65,7 @@ export function ChatSidebar({
               onClick={onClose}
               className="text-nova-text-muted hover:text-nova-text transition-colors p-1"
             >
-              <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
-                <path d="M10 2L4 7l6 5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
-              </svg>
+              <Icon icon={ciChevronLeft} width="14" height="14" />
             </button>
           )}
         </div>
