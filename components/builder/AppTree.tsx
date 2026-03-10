@@ -252,7 +252,7 @@ function QuestionRow({
   depth: number
   delay: number
 }) {
-  const isSelected = selected?.type === 'question' && selected.questionPath === q.id
+  const isSelected = selected?.type === 'question' && selected.moduleIndex === moduleIndex && selected.formIndex === formIndex && selected.questionPath === q.id
   const typeIcons: Record<string, React.ReactNode> = {
     text: <Icon icon={ciText} width="14" height="14" />,
     int: <Icon icon={tabler123} width="14" height="14" />,
