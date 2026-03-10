@@ -2,7 +2,6 @@ import Anthropic from '@anthropic-ai/sdk'
 import { zodOutputFormat } from '@anthropic-ai/sdk/helpers/zod'
 import { PDFDocument } from 'pdf-lib'
 import mammoth from 'mammoth'
-import * as XLSX from 'xlsx'
 import type { FileAttachment } from '../types'
 import { MODEL_GENERATION } from '../models'
 import type { ClaudeUsage } from '../usage'
@@ -189,25 +188,6 @@ export async function buildUserContent(message: string, attachments?: FileAttach
         content.push({
           type: 'text',
           text: `[Attached file: ${attachment.name}]\n(Failed to parse DOCX content)`
-        })
-      }
-    } else if (attachment.type === 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' || attachment.name.endsWith('.xlsx')) {
-      try {
-        const buffer = Buffer.from(attachment.data, 'base64')
-        const workbook = XLSX.read(buffer, { type: 'buffer' })
-        const sheets: string[] = []
-        for (const sheetName of workbook.SheetNames) {
-          const csv = XLSX.utils.sheet_to_csv(workbook.Sheets[sheetName])
-          sheets.push(`--- Sheet: ${sheetName} ---\n${csv}`)
-        }
-        content.push({
-          type: 'text',
-          text: `[Attached spreadsheet: ${attachment.name}]\n${sheets.join('\n\n')}`
-        })
-      } catch {
-        content.push({
-          type: 'text',
-          text: `[Attached file: ${attachment.name}]\n(Failed to parse XLSX content)`
         })
       }
     } else {
