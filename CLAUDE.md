@@ -27,7 +27,7 @@ app/                    # Next.js App Router pages and API routes
   build/[id]/           # Main builder view (3-panel layout)
   builds/               # Build history
 components/
-  builder/              # AppTree, DetailPanel, GenerationProgress, EmptyState
+  builder/              # AppTree, DetailPanel, GenerationProgress
   chat/                 # ChatSidebar, ChatMessage, ChatInput, QuestionCard, ThinkingIndicator
   ui/                   # Button, Input, Badge, Logo
 hooks/                  # useBuilder, useApiKey, useBuilds
@@ -61,6 +61,10 @@ The chat uses `streamText()` on the server and `useChat()` on the client. Two to
   - `input-available` → `builder.startScaffolding()` — shows "Generating blueprint structure...", fires `/api/blueprint/scaffold`
 
 No SSE wiring, no session coordination, no separate respond endpoint. The AI SDK handles the full message lifecycle via `UIMessage` parts.
+
+### Chat-Centered Landing
+
+Chat is the hero experience. When `builder.phase === Idle && !builder.treeData`, the chat fills the center of the screen (`isCentered = true`). When generation starts (Planning phase), a `motion.div` with `layout` prop animates the chat to its 380px sidebar position while the builder panels fade in via `AnimatePresence` (150ms delay). `LayoutGroup` coordinates the animation. No DOM re-parenting — messages and input state are preserved throughout the transition.
 
 ### Builder Class
 
@@ -116,7 +120,7 @@ No auth layer. The user's Anthropic API key is stored in localStorage and sent p
 
 ## Chat Components
 
-- **`ChatSidebar`** — Message list + input. Reads `builder.phase` to suppress thinking indicator when the builder is active.
+- **`ChatSidebar`** — Message list + input. Accepts `mode: 'centered' | 'sidebar'`. Centered mode fills the screen as the hero experience (welcome heading, no header/border); sidebar mode is the 380px docked panel. Uses `layout` + `layoutId` for animated transition between modes. Reads `builder.phase` to suppress thinking indicator when the builder is active.
 - **`ChatMessage`** — Iterates `message.parts`: renders text bubbles for `text` parts, `QuestionCard` for `tool-askQuestions` parts. `tool-scaffoldBlueprint` parts are ignored in chat (handled by BuilderLayout).
 - **`QuestionCard`** — Animated stepper with local state. Shows questions one at a time with option buttons. Answered questions display as checkmark + answer. Calls `addToolOutput` when all questions are answered.
 - **`ThinkingIndicator`** — Orbital violet dot animation. Shown when chat status is `submitted`/`streaming` AND builder phase is `Idle` AND scaffold is not in-flight.
