@@ -305,6 +305,24 @@ export function getAppBlueprintJsonSchema(): Record<string, unknown> {
   return z.toJSONSchema(appBlueprintSchema)
 }
 
+// ── Summary utility ────────────────────────────────────────────────────
+
+/** Generate a concise text summary of an AppBlueprint for chat context. */
+export function summarizeBlueprint(bp: AppBlueprint): string {
+  const lines = [`App: "${bp.app_name}"`]
+  for (const mod of bp.modules) {
+    lines.push(`  Module: "${mod.name}" (case_type: ${mod.case_type ?? 'none'})`)
+    if (mod.case_list_columns?.length) {
+      lines.push(`    Columns: ${mod.case_list_columns.map(c => c.header).join(', ')}`)
+    }
+    for (const form of mod.forms) {
+      const qCount = form.questions?.length ?? 0
+      lines.push(`    Form: "${form.name}" (${form.type}, ${qCount} questions)`)
+    }
+  }
+  return lines.join('\n')
+}
+
 // ── Assembly utilities ─────────────────────────────────────────────────
 
 /**

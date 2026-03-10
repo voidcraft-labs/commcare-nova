@@ -11,8 +11,8 @@ export const MODEL_GENERATION = 'claude-sonnet-4-6'
 /** Model for the validation fixer (cheap, fast). */
 export const MODEL_FIXER = 'claude-haiku-4-5-20251001'
 
-/** Model for the chat conversation (Vercel AI SDK alias). */
-export const MODEL_CHAT = 'claude-sonnet-4-6'
+/** Model for the Product Manager agent (Tier 0). */
+export const MODEL_PM = 'claude-sonnet-4-6'
 
 /** Pricing per million tokens, keyed by model ID (either full or alias). */
 export const MODEL_PRICING: Record<string, { input: number; output: number }> = {

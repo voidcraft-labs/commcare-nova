@@ -49,7 +49,7 @@ export function ChatMessage({
           )
         }
 
-        // tool-scaffoldBlueprint parts are rendered in the builder area, not chat
+        // Non-chat parts (tool-generateApp, tool-editApp, data-*, etc.) are handled by BuilderLayout
         return null
       })}
     </>

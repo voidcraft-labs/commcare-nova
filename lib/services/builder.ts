@@ -4,12 +4,12 @@ export enum BuilderPhase {
   Idle = 'idle',
   Planning = 'planning',
   Designing = 'designing',
-  Scaffolding = 'scaffolding',
   Modules = 'modules',
   Forms = 'forms',
   Validating = 'validating',
   Fixing = 'fixing',
   Done = 'done',
+  Editing = 'editing',
   Error = 'error',
 }
 
@@ -107,6 +107,14 @@ export class Builder {
     this.notify()
   }
 
+  /** Transition to editing phase (edit pipeline started). */
+  startEditing() {
+    this.phase = BuilderPhase.Editing
+    this.statusMessage = 'Applying changes...'
+    this.partialModules.clear()
+    this.notify()
+  }
+
   /** Update partial scaffold from streaming tool call args. */
   setPartialScaffold(partial: any) {
     if (!partial?.modules?.length) return
@@ -163,6 +171,7 @@ export class Builder {
   setPhase(phase: string) {
     const phaseMap: Record<string, BuilderPhase> = {
       designing: BuilderPhase.Designing,
+      editing: BuilderPhase.Editing,
       modules: BuilderPhase.Modules,
       forms: BuilderPhase.Forms,
       validating: BuilderPhase.Validating,
@@ -170,6 +179,7 @@ export class Builder {
     }
     const statusMap: Record<string, string> = {
       designing: 'Designing app architecture...',
+      editing: 'Applying changes...',
       modules: 'Generating module content...',
       forms: 'Generating form content...',
       validating: 'Validating blueprint...',
