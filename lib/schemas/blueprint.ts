@@ -33,6 +33,22 @@ const RESERVED_CASE_PROPERTIES = 'case_id, case_type, closed, closed_by, closed_
 export const scaffoldSchema = z.object({
   app_name: z.string().describe('Name of the CommCare application'),
   description: z.string().describe('Brief description of the app purpose and target users'),
+  modules: z.array(z.object({
+    name: z.string().describe('Display name for the module/menu'),
+    case_type: z.string().nullable().describe(
+      'References a case_type name from the case_types array. Required if any form is "registration" or "followup". null for survey-only modules.'
+    ),
+    purpose: z.string().describe("Brief description of this module's role in the app"),
+    forms: z.array(z.object({
+      name: z.string().describe('Display name for the form'),
+      type: z.enum(['registration', 'followup', 'survey']).describe(
+        '"registration" creates a new case (module must have case_type). ' +
+        '"followup" updates an existing case (module must have case_type). ' +
+        '"survey" is standalone data collection with no case management.'
+      ),
+      purpose: z.string().describe('Brief description of what this form collects and why'),
+    })),
+  })),
   case_types: z.array(z.object({
     name: z.string().describe('Case type name in snake_case (e.g., "patient", "household")'),
     case_name_property: z.string().describe(
@@ -48,22 +64,6 @@ export const scaffoldSchema = z.object({
       label: z.string().describe('Human-readable label (e.g., "Patient Age", "Gender")'),
     })).describe('Case properties to track. Forms will create questions to capture these.'),
   })).nullable().describe('Case types and their properties. null if all modules are survey-only.'),
-  modules: z.array(z.object({
-    name: z.string().describe('Display name for the module/menu'),
-    case_type: z.string().nullable().describe(
-      'References a case_type name above. Required if any form is "registration" or "followup". null for survey-only modules.'
-    ),
-    purpose: z.string().describe("Brief description of this module's role in the app"),
-    forms: z.array(z.object({
-      name: z.string().describe('Display name for the form'),
-      type: z.enum(['registration', 'followup', 'survey']).describe(
-        '"registration" creates a new case (module must have case_type). ' +
-        '"followup" updates an existing case (module must have case_type). ' +
-        '"survey" is standalone data collection with no case management.'
-      ),
-      purpose: z.string().describe('Brief description of what this form collects and why'),
-    })),
-  })),
 })
 
 // ── Tier 2: Module Content Schema ──────────────────────────────────────

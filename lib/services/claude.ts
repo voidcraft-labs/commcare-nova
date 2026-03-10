@@ -1,11 +1,12 @@
 import Anthropic from '@anthropic-ai/sdk'
 import { zodOutputFormat } from '@anthropic-ai/sdk/helpers/zod'
+import { transformJSONSchema } from '@anthropic-ai/sdk/lib/transform-json-schema'
 import { PDFDocument } from 'pdf-lib'
 import mammoth from 'mammoth'
 import type { FileAttachment } from '../types'
 import { MODEL_GENERATION } from '../models'
 import type { ClaudeUsage } from '../usage'
-import type { z } from 'zod'
+import { z } from 'zod'
 
 export type { ClaudeUsage }
 
@@ -58,6 +59,71 @@ export async function sendOneShotStructured<S extends z.ZodType>(
       stop_reason: finalMessage.stop_reason,
       input: { system: systemPrompt, message, tools: outputFormat },
       output: finalMessage.parsed_output,
+    },
+  }
+}
+
+/**
+ * Like sendOneShotStructured but uses strict tool use instead of output_config.
+ * This enables the `inputJson` event which provides incremental parsed snapshots
+ * as the JSON is generated — same schema guarantee via constrained decoding.
+ */
+export async function sendOneShotStructuredStream<S extends z.ZodType>(
+  apiKey: string,
+  systemPrompt: string,
+  message: string,
+  schema: S,
+  onSnapshot: (snapshot: unknown) => void,
+  options?: { model?: string; maxTokens?: number; toolName?: string; toolDescription?: string }
+): Promise<{ data: z.infer<S>; usage: ClaudeUsage }> {
+  const client = getClient(apiKey)
+  const model = options?.model || MODEL_GENERATION
+  const toolName = options?.toolName || 'generate_output'
+  const toolDescription = options?.toolDescription || 'Generate the structured output.'
+
+  let jsonSchema = z.toJSONSchema(schema, { reused: 'ref' })
+  jsonSchema = transformJSONSchema(jsonSchema as any) as any
+
+  const stream = client.messages.stream({
+    model,
+    max_tokens: options?.maxTokens || 16384,
+    system: systemPrompt,
+    messages: [{ role: 'user', content: message }],
+    tool_choice: { type: 'tool', name: toolName },
+    tools: [{
+      name: toolName,
+      description: toolDescription,
+      strict: true,
+      input_schema: jsonSchema as Anthropic.Tool.InputSchema,
+    }],
+  })
+
+  stream.on('inputJson', (_delta: string, snapshot: unknown) => {
+    onSnapshot(snapshot)
+  })
+
+  const finalMessage = await stream.finalMessage()
+
+  const toolBlock = finalMessage.content.find(
+    (b): b is Anthropic.ToolUseBlock => b.type === 'tool_use'
+  )
+
+  if (!toolBlock) {
+    throw new Error('Claude did not return a tool use block')
+  }
+
+  // Validate with Zod for type safety
+  const data = schema.parse(toolBlock.input) as z.infer<S>
+
+  return {
+    data,
+    usage: {
+      model: finalMessage.model,
+      input_tokens: finalMessage.usage.input_tokens,
+      output_tokens: finalMessage.usage.output_tokens,
+      stop_reason: finalMessage.stop_reason,
+      input: { system: systemPrompt, message, tools: { toolName, schema: jsonSchema } },
+      output: data,
     },
   }
 }
