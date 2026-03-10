@@ -1,19 +1,19 @@
 /**
- * Supervisor Agent — orchestrates the full blueprint generation pipeline.
+ * Solutions Architect Agent (Tier 1) — orchestrates the full blueprint generation pipeline.
  *
- * A ToolLoopAgent (tier 1 solutions architect) that:
- *   1. Designs the app scaffold (data model + structure)
- *   2. Delegates module content generation to subagents
- *   3. Delegates form content generation to subagents
- *   4. Reviews subagent output and can request revisions
+ * A ToolLoopAgent that:
+ *   1. Delegates scaffold generation (data model + structure) to a focused sub-call
+ *   2. Delegates module content generation to sub-calls
+ *   3. Delegates form content generation to sub-calls
+ *   4. Reviews sub-call output and can request revisions
  *   5. Finalizes the blueprint (assembly + validation + fix)
  */
-import { ToolLoopAgent, generateText, Output, tool, hasToolCall, stepCountIs } from 'ai'
-import type { UIMessageStreamWriter } from 'ai'
-import { createAnthropic } from '@ai-sdk/anthropic'
+import { ToolLoopAgent, tool, hasToolCall, stepCountIs } from 'ai'
 import { z } from 'zod'
 import { MODEL_GENERATION, MODEL_FIXER } from '../models'
-import { SUPERVISOR_PROMPT } from '../prompts/supervisorPrompt'
+import { GenerationContext } from './generationContext'
+import { ARCHITECT_PROMPT } from '../prompts/architectPrompt'
+import { SCAFFOLD_PROMPT } from '../prompts/scaffoldPrompt'
 import { MODULE_PROMPT } from '../prompts/modulePrompt'
 import { FORM_PROMPT } from '../prompts/formPrompt'
 import { FORM_FIXER_PROMPT } from '../prompts/formFixerPrompt'
@@ -80,7 +80,7 @@ function reassembleForm(
   }
 }
 
-// ── Helper: build prompts for subagents ───────────────────────────────
+// ── Helper: build prompts for sub-calls ──────────────────────────────
 
 function buildModulePrompt(scaffold: Scaffold, moduleIndex: number, feedback?: string): string {
   const sm = scaffold.modules[moduleIndex]
@@ -135,19 +135,17 @@ Design the questions for this form.`
   return prompt
 }
 
-// ── Helper: validate + fix loop ───────────────────────────────────────
+// ── Validate + fix loop ──────────────────────────────────────────────
 
 async function validateAndFix(
-  apiKey: string,
+  ctx: GenerationContext,
   blueprint: AppBlueprint,
-  writer: UIMessageStreamWriter,
 ): Promise<{ success: boolean; blueprint: AppBlueprint; hqJson?: Record<string, any> }> {
-  const anthropic = createAnthropic({ apiKey })
   const recentErrorSignatures: string[] = []
   const MAX_STUCK_REPEATS = 3
   let attempt = 0
 
-  writer.write({ type: 'data-phase', data: { phase: 'validating' } })
+  ctx.emit('data-phase', { phase: 'validating' })
 
   while (true) {
     attempt++
@@ -171,8 +169,8 @@ async function validateAndFix(
       }
     }
 
-    writer.write({ type: 'data-phase', data: { phase: 'fixing' } })
-    writer.write({ type: 'data-fix-attempt', data: { attempt, errorCount: errors.length } })
+    ctx.emit('data-phase', { phase: 'fixing' })
+    ctx.emit('data-fix-attempt', { attempt, errorCount: errors.length })
 
     // Fix module-level errors programmatically
     for (const err of errors) {
@@ -209,18 +207,18 @@ async function validateAndFix(
       const fixMessage = `## Validation Errors\n${formErrs.join('\n')}\n\n## Current Form Content\n${JSON.stringify(currentContent, null, 2)}`
 
       try {
-        const result = await generateText({
-          model: anthropic(MODEL_FIXER),
-          output: Output.object({ schema: formContentSchema }),
-          prompt: fixMessage,
+        const fixed = await ctx.generate(formContentSchema, {
           system: FORM_FIXER_PROMPT,
+          prompt: fixMessage,
+          label: `Fixer "${form.name}"`,
+          model: MODEL_FIXER,
           maxOutputTokens: 32768,
         })
 
-        if (result.output) {
-          const fixedForm = reassembleForm(form.name, form.type, result.output)
+        if (fixed) {
+          const fixedForm = reassembleForm(form.name, form.type, fixed)
           blueprint.modules[mIdx].forms[fIdx] = fixedForm
-          writer.write({ type: 'data-form-fixed', data: { moduleIndex: mIdx, formIndex: fIdx, form: fixedForm } })
+          ctx.emit('data-form-fixed', { moduleIndex: mIdx, formIndex: fIdx, form: fixedForm })
         }
       } catch {
         // Fix failed, continue to next attempt
@@ -256,28 +254,46 @@ function findFormIndices(blueprint: AppBlueprint, formName: string): [number, nu
   return [-1, -1]
 }
 
-// ── Create Supervisor Agent ───────────────────────────────────────────
+// ── Create Solutions Architect Agent ──────────────────────────────────
 
-export function createSupervisorAgent(
-  apiKey: string,
+export function createArchitectAgent(
+  ctx: GenerationContext,
   accumulator: BlueprintAccumulator,
-  writer: UIMessageStreamWriter,
 ) {
-  const anthropic = createAnthropic({ apiKey })
 
   const agent = new ToolLoopAgent({
-    model: anthropic(MODEL_GENERATION),
-    instructions: SUPERVISOR_PROMPT,
+    model: ctx.model(MODEL_GENERATION),
+    instructions: ARCHITECT_PROMPT,
     stopWhen: [hasToolCall('finalize'), stepCountIs(50)],
+    onStepFinish: ({ usage, text, toolCalls, toolResults }) => {
+      if (usage) {
+        ctx.emitUsage('Solutions Architect', MODEL_GENERATION, usage, { system: ARCHITECT_PROMPT, message: '(orchestration step)' }, { text, toolCalls, toolResults })
+      }
+    },
     tools: {
-      submitScaffold: tool({
-        description: 'Submit the designed app scaffold with modules, forms, and case types.',
-        inputSchema: scaffoldSchema,
-        execute: async (scaffold) => {
-          console.log(`[supervisor] Scaffold submitted: ${scaffold.modules.length} modules, ${scaffold.case_types?.length ?? 0} case types`)
+      generateScaffold: tool({
+        description: 'Generate the app scaffold (data model + structure) from the specification.',
+        inputSchema: z.object({
+          specification: z.string().describe('Full app specification including app name, description, and all requirements'),
+        }),
+        execute: async ({ specification }) => {
+          ctx.emit('data-phase', { phase: 'designing' })
+
+          const scaffold = await ctx.streamGenerate(scaffoldSchema, {
+            system: SCAFFOLD_PROMPT,
+            prompt: specification,
+            label: 'Scaffold',
+            maxOutputTokens: 16384,
+            onPartial: (partial) => ctx.emit('data-partial-scaffold', partial),
+          })
+
+          if (!scaffold) return 'Error: Scaffold generation returned no output.'
+
           accumulator.setScaffold(scaffold)
-          writer.write({ type: 'data-phase', data: { phase: 'modules' } })
-          return `Scaffold accepted. ${scaffold.modules.length} modules, ${scaffold.case_types?.length ?? 0} case types. Now generate content for each module and form.`
+          ctx.emit('data-scaffold', scaffold)
+          ctx.emit('data-phase', { phase: 'modules' })
+
+          return `Scaffold generated: ${scaffold.modules.length} modules, ${scaffold.case_types?.length ?? 0} case types. Modules: ${scaffold.modules.map(m => `"${m.name}"`).join(', ')}. Now generate content for each module and form.`
         },
       }),
 
@@ -296,31 +312,27 @@ export function createSupervisorAgent(
           if (!sm.case_type) {
             const mc = { case_list_columns: null }
             accumulator.setModuleContent(moduleIndex, mc)
-            writer.write({ type: 'data-module-done', data: { moduleIndex, caseListColumns: null } })
+            ctx.emit('data-module-done', { moduleIndex, caseListColumns: null })
             return `Module ${moduleIndex} "${sm.name}": survey-only, no columns needed.`
           }
 
-          console.log(`[supervisor] Generating module ${moduleIndex} "${sm.name}"...`)
-
           try {
-            const result = await generateText({
-              model: anthropic(MODEL_GENERATION),
-              output: Output.object({ schema: moduleContentSchema }),
+            const mc = await ctx.generate(moduleContentSchema, {
               system: MODULE_PROMPT,
               prompt: buildModulePrompt(scaffold, moduleIndex, feedback),
+              label: `Module ${moduleIndex} "${sm.name}"`,
               maxOutputTokens: 4096,
-            })
+            }) ?? { case_list_columns: null }
 
-            const mc = result.output ?? { case_list_columns: null }
             accumulator.setModuleContent(moduleIndex, mc)
-            writer.write({ type: 'data-module-done', data: { moduleIndex, caseListColumns: mc.case_list_columns ?? null } })
+            ctx.emit('data-module-done', { moduleIndex, caseListColumns: mc.case_list_columns ?? null })
 
             const cols = mc.case_list_columns
             return `Module ${moduleIndex} "${sm.name}": ${cols ? `${cols.length} columns — ${cols.map(c => c.header).join(', ')}` : 'no columns'}.`
           } catch (err) {
             const mc = { case_list_columns: null }
             accumulator.setModuleContent(moduleIndex, mc)
-            writer.write({ type: 'data-module-done', data: { moduleIndex, caseListColumns: null } })
+            ctx.emit('data-module-done', { moduleIndex, caseListColumns: null })
             return `Module ${moduleIndex} "${sm.name}": generation failed (${err instanceof Error ? err.message : String(err)}), using empty columns.`
           }
         },
@@ -345,34 +357,26 @@ export function createSupervisorAgent(
             return `Form [${moduleIndex}][${formIndex}] "${sf.name}" already generated. Pass feedback to revise.`
           }
 
-          writer.write({ type: 'data-phase', data: { phase: 'forms' } })
-
-          console.log(`[supervisor] Generating form [${moduleIndex}][${formIndex}] "${sf.name}" (${sf.type})...`)
+          ctx.emit('data-phase', { phase: 'forms' })
 
           try {
-            const result = await generateText({
-              model: anthropic(MODEL_GENERATION),
-              output: Output.object({ schema: formContentSchema }),
+            const fc = await ctx.generate(formContentSchema, {
               system: FORM_PROMPT,
               prompt: buildFormPrompt(scaffold, moduleIndex, formIndex, feedback),
+              label: `Form [${moduleIndex}][${formIndex}] "${sf.name}"`,
               maxOutputTokens: 32768,
             })
-
-            console.log(`[supervisor] Form [${moduleIndex}][${formIndex}] complete: output=${!!result.output}, usage=${result.usage?.totalTokens}`)
-
-            const fc = result.output
             if (!fc) return `Form "${sf.name}": generation returned no output. This is unexpected — try again.`
 
             accumulator.setFormContent(moduleIndex, formIndex, fc)
             const assembledForm = reassembleForm(sf.name, sf.type as 'registration' | 'followup' | 'survey', fc)
-            writer.write({ type: 'data-form-done', data: { moduleIndex, formIndex, form: assembledForm } })
+            ctx.emit('data-form-done', { moduleIndex, formIndex, form: assembledForm })
 
             const questionCount = fc.questions.length
             const caseProps = fc.questions.filter(q => q.case_property).map(q => q.case_property)
             const hasCaseName = fc.questions.some(q => q.is_case_name)
             return `Form [${moduleIndex}][${formIndex}] "${sf.name}" (${sf.type}): ${questionCount} questions, ${caseProps.length} mapped to case properties${hasCaseName ? ', has case name' : ''}. Properties: ${caseProps.join(', ') || 'none'}.`
           } catch (err) {
-            console.error(`[supervisor] Form [${moduleIndex}][${formIndex}] error:`, err)
             return `Form "${sf.name}": generation failed — ${err instanceof Error ? err.message : String(err)}. Do NOT retry — call finalize to proceed with what we have.`
           }
         },
@@ -382,17 +386,13 @@ export function createSupervisorAgent(
         description: 'Finalize the blueprint after all module and form content is generated. Assembles, validates, and fixes the blueprint.',
         inputSchema: z.object({}),
         execute: async () => {
-          console.log(`[supervisor] Finalizing blueprint...`)
           const scaffold = accumulator.scaffold!
           const blueprint = assembleBlueprint(scaffold, accumulator.moduleContents, accumulator.formContents)
-          const result = await validateAndFix(apiKey, blueprint, writer)
-          writer.write({
-            type: 'data-done',
-            data: {
-              blueprint: result.blueprint,
-              hqJson: result.hqJson ?? {},
-              success: result.success,
-            },
+          const result = await validateAndFix(ctx, blueprint)
+          ctx.emit('data-done', {
+            blueprint: result.blueprint,
+            hqJson: result.hqJson ?? {},
+            success: result.success,
           })
           return result.success ? 'Blueprint finalized successfully.' : 'Blueprint finalized with some validation issues.'
         },

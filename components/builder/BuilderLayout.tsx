@@ -2,7 +2,7 @@
 import { useEffect, useRef, useState, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
 import { useChat } from '@ai-sdk/react'
-import { DefaultChatTransport, lastAssistantMessageIsCompleteWithToolCalls } from 'ai'
+import { DefaultChatTransport, type UIMessage } from 'ai'
 import { motion, AnimatePresence, LayoutGroup } from 'motion/react'
 import { Icon } from '@iconify/react'
 import ciHamburgerMd from '@iconify-icons/ci/hamburger-md'
@@ -11,6 +11,7 @@ import ciDownloadPackage from '@iconify-icons/ci/download-package'
 import { useApiKey } from '@/hooks/useApiKey'
 import { useBuilder } from '@/hooks/useBuilder'
 import { BuilderPhase } from '@/lib/services/builder'
+import { summarizeBlueprint } from '@/lib/schemas/blueprint'
 import { logUsage } from '@/lib/usage'
 import { Logo } from '@/components/ui/Logo'
 import { Badge } from '@/components/ui/Badge'
@@ -20,158 +21,65 @@ import { DetailPanel } from '@/components/builder/DetailPanel'
 import { GenerationProgress } from '@/components/builder/GenerationProgress'
 import { DownloadDropdown } from '@/components/ui/DownloadDropdown'
 
+/** Only auto-resend for askQuestions (client-side tool). Server-side tools complete on their own. */
+function shouldAutoResend({ messages }: { messages: UIMessage[] }): boolean {
+  const last = messages[messages.length - 1]
+  if (!last || last.role !== 'assistant') return false
+  const askParts = last.parts.filter((p: any) => p.type === 'tool-askQuestions')
+  return askParts.length > 0 && askParts.every((p: any) => p.state === 'output-available')
+}
+
 export function BuilderLayout({ buildId }: { buildId: string }) {
   const router = useRouter()
   const { apiKey, loaded } = useApiKey()
   const builder = useBuilder()
   const [chatOpen, setChatOpen] = useState(true)
   const [progressDismissed, setProgressDismissed] = useState(false)
-  const triggeredRef = useRef(new Set<string>())
 
   const apiKeyRef = useRef(apiKey)
   apiKeyRef.current = apiKey
 
   const isCentered = builder.phase === BuilderPhase.Idle && !builder.treeData
 
-  // ── Chat useChat (conversation) ─────────────────────────────────────
+  // ── Stable ref for builder so onData callback doesn't go stale ──────
+  const builderRef = useRef(builder)
+  builderRef.current = builder
+
+  // ── Single useChat — handles chat + generation + editing ────────────
   const { messages, sendMessage, addToolOutput, status } = useChat({
     transport: new DefaultChatTransport({
       api: '/api/chat',
-      body: () => ({ apiKey: apiKeyRef.current }),
-    }),
-    sendAutomaticallyWhen: lastAssistantMessageIsCompleteWithToolCalls,
-  })
-
-  // ── Generation useChat (blueprint pipeline) ─────────────────────────
-  const generationParamsRef = useRef<{ appName: string; appSpecification: string } | null>(null)
-
-  const generation = useChat({
-    id: 'generation',
-    transport: new DefaultChatTransport({
-      api: '/api/blueprint/generate',
       body: () => ({
         apiKey: apiKeyRef.current,
-        appName: generationParamsRef.current?.appName,
-        appSpecification: generationParamsRef.current?.appSpecification,
+        blueprint: builder.blueprint ?? undefined,
+        blueprintSummary: builder.blueprint ? summarizeBlueprint(builder.blueprint) : undefined,
       }),
     }),
+    sendAutomaticallyWhen: shouldAutoResend,
+    onData: (part: any) => {
+      const b = builderRef.current
+      switch (part.type) {
+        case 'data-planning': b.startPlanning(); break
+        case 'data-editing': b.startEditing(); break
+        case 'data-partial-scaffold': b.setPartialScaffold(part.data); break
+        case 'data-scaffold': b.setScaffold(part.data); break
+        case 'data-phase': b.setPhase(part.data.phase); break
+        case 'data-module-done': b.setModuleContent(part.data.moduleIndex, part.data.caseListColumns); break
+        case 'data-form-done': b.setFormContent(part.data.moduleIndex, part.data.formIndex, part.data.form); break
+        case 'data-form-fixed': b.setFormContent(part.data.moduleIndex, part.data.formIndex, part.data.form); break
+        case 'data-fix-attempt': b.setFixAttempt(part.data.attempt, part.data.errorCount); break
+        case 'data-done': b.setDone(part.data); break
+        case 'data-error': b.setError(part.data.message); break
+        case 'data-usage': logUsage(part.data.label, part.data.calls); break
+      }
+    },
   })
 
   useEffect(() => {
     if (loaded && !apiKey) router.push('/')
   }, [loaded, apiKey, router])
 
-  // ── React to scaffoldBlueprint tool in chat → trigger generation ────
-  const planningRef = useRef(new Set<string>())
-  useEffect(() => {
-    for (const msg of messages) {
-      if (msg.role !== 'assistant') continue
-      for (const part of msg.parts) {
-        if (part.type !== 'tool-scaffoldBlueprint') continue
-
-        // input-streaming: Claude is writing the plan → show "Generating plan..."
-        if (part.state === 'input-streaming' && !planningRef.current.has(part.toolCallId)) {
-          planningRef.current.add(part.toolCallId)
-          builder.startPlanning()
-        }
-
-        // input-available: plan is complete → fire generation via second useChat
-        if (
-          (part.state === 'input-available' || part.state === 'output-available') &&
-          !triggeredRef.current.has(part.toolCallId)
-        ) {
-          const input = part.input as { appName: string; appSpecification: string }
-          if (!input?.appName || !input?.appSpecification) continue
-
-          triggeredRef.current.add(part.toolCallId)
-          builder.startDesigning()
-          generationParamsRef.current = { appName: input.appName, appSpecification: input.appSpecification }
-          generation.sendMessage({ text: input.appSpecification })
-        }
-      }
-    }
-  }, [messages, apiKey, builder, generation])
-
-  // ── Read generation stream: tool invocations + custom data parts ────
-  useEffect(() => {
-    for (const msg of generation.messages) {
-      if (msg.role !== 'assistant') continue
-      for (const part of msg.parts) {
-        const p = part as any
-
-        // Scaffold tool — progressive streaming of tool call args
-        if (p.type === 'tool-submitScaffold') {
-          if (p.state === 'input-streaming') {
-            builder.setPartialScaffold(p.input)
-          } else if (p.state === 'input-available' || p.state === 'output-available') {
-            builder.setScaffold(p.input)
-          }
-        }
-
-        // Custom data parts from writer.write()
-        switch (p.type) {
-          case 'data-phase':
-            builder.setPhase(p.data.phase)
-            break
-          case 'data-module-done':
-            builder.setModuleContent(p.data.moduleIndex, p.data.caseListColumns)
-            break
-          case 'data-form-done':
-            builder.setFormContent(p.data.moduleIndex, p.data.formIndex, p.data.form)
-            break
-          case 'data-form-fixed':
-            builder.setFormContent(p.data.moduleIndex, p.data.formIndex, p.data.form)
-            break
-          case 'data-fix-attempt':
-            builder.setFixAttempt(p.data.attempt, p.data.errorCount)
-            break
-          case 'data-done':
-            builder.setDone(p.data)
-            break
-          case 'data-error':
-            builder.setError(p.data.message)
-            break
-        }
-      }
-    }
-  }, [generation.messages, builder])
-
-  // ── Generation error handling ───────────────────────────────────────
-  useEffect(() => {
-    if (generation.error) {
-      builder.setError(generation.error.message)
-    }
-  }, [generation.error, builder])
-
-  // Log chat token usage when assistant messages finish
-  const loggedChatRef = useRef(new Set<string>())
-  useEffect(() => {
-    if (status !== 'ready') return
-    for (const msg of messages) {
-      if (msg.role !== 'assistant' || loggedChatRef.current.has(msg.id)) continue
-      const meta = (msg as any).metadata
-      if (meta?.usage) {
-        loggedChatRef.current.add(msg.id)
-        // Extract output text + tool calls from message parts
-        const output = msg.parts.map((p: any) => {
-          if (p.type === 'text') return p.text
-          if (p.type?.startsWith('tool-')) return { tool: p.type, input: p.input }
-          return null
-        }).filter(Boolean)
-
-        logUsage('Chat', [{
-          model: meta.usage.model,
-          input_tokens: meta.usage.inputTokens,
-          output_tokens: meta.usage.outputTokens,
-          stop_reason: null,
-          input: meta.input ?? undefined,
-          output,
-        }])
-      }
-    }
-  }, [messages, status])
-
-  const isGenerating = [BuilderPhase.Designing, BuilderPhase.Modules, BuilderPhase.Forms, BuilderPhase.Validating, BuilderPhase.Fixing].includes(builder.phase)
+  const isGenerating = [BuilderPhase.Designing, BuilderPhase.Modules, BuilderPhase.Forms, BuilderPhase.Validating, BuilderPhase.Fixing, BuilderPhase.Editing].includes(builder.phase)
   if (isGenerating && progressDismissed) setProgressDismissed(false)
 
   const handleSend = useCallback((text: string) => {
@@ -217,7 +125,6 @@ export function BuilderLayout({ buildId }: { buildId: string }) {
       console.error('JSON export failed:', err)
     }
   }
-
 
   if (!loaded) return null
 
@@ -300,7 +207,7 @@ export function BuilderLayout({ buildId }: { buildId: string }) {
                   </button>
                 )}
 
-                {(builder.phase === BuilderPhase.Planning || (builder.phase === BuilderPhase.Designing && !builder.treeData)) ? (
+                {(builder.phase === BuilderPhase.Planning || builder.phase === BuilderPhase.Editing || (builder.phase === BuilderPhase.Designing && !builder.treeData)) ? (
                   <div className="flex items-center justify-center h-full">
                     <div className="flex items-center gap-3 text-sm text-nova-text-muted">
                       <span className="inline-block w-2 h-2 rounded-full bg-nova-violet animate-pulse" />
