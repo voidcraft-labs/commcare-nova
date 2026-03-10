@@ -199,7 +199,7 @@ export class Builder {
     this.notify()
   }
 
-  /** Finalize generation with the completed blueprint. */
+  /** Set the completed blueprint after validation. */
   setDone(result: { blueprint: AppBlueprint; hqJson: Record<string, any>; success: boolean }) {
     this.blueprint = result.blueprint
     this.partialModules.clear()

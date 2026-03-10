@@ -30,15 +30,16 @@ hooks/                  # useBuilder, useApiKey
 lib/
   services/
     builder.ts          # Builder class — singleton state machine for the build lifecycle
-    architectAgent.ts   # Solutions Architect agent (Tier 1) — orchestrates scaffold → modules → forms → validate
+    architectAgent.ts   # Solutions Architect agent — generation mode (scaffold → modules → forms → assemble → validate) and edit mode (search → get → edit → validate)
+    mutableBlueprint.ts # MutableBlueprint class — wraps AppBlueprint for in-place search, read, and mutation during editing
     generationContext.ts # GenerationContext class — shared LLM abstraction for all pipeline calls
     hqJsonExpander.ts   # Blueprint → HQ import JSON (XForm XML, form actions, Vellum metadata)
     cczCompiler.ts      # HQ import JSON → .ccz archive (adds case blocks, suite.xml)
     autoFixer.ts        # Programmatic fixes for common CommCare app issues
     commcare/           # Shared CommCare platform module (constants, XML, hashtags, HQ types/shells)
-    __tests__/          # Vitest tests for expander, compiler, and commcare module
+    __tests__/          # Vitest tests for expander, compiler, commcare module, and mutableBlueprint
   schemas/              # Zod schemas for AppBlueprint, tier outputs
-  prompts/              # Agent prompts (productManagerPrompt, architectPrompt, scaffoldPrompt, modulePrompt, formPrompt, formFixerPrompt)
+  prompts/              # Agent prompts (productManagerPrompt, architectPrompt, editArchitectPrompt, scaffoldPrompt, modulePrompt, formPrompt, formFixerPrompt)
   types/                # TypeScript type definitions
   models.ts             # Central model ID + pricing config
   usage.ts              # ClaudeUsage type + logUsage() browser console logger
@@ -54,13 +55,25 @@ A single `POST /api/chat` endpoint runs the entire pipeline: conversation, gener
 1. **Product Manager** (Tier 0) — A `ToolLoopAgent` that gathers requirements via conversation and delegates to the Solutions Architect for generation. Tools:
    - **`askQuestions`** (client-side, no `execute`) — structured multiple-choice questions rendered as `QuestionCard` in chat. `sendAutomaticallyWhen` re-sends when all questions are answered.
    - **`generateApp`** (server-side) — called when the PM has enough info. Emits `data-planning`, creates the Solutions Architect, drains the architect stream, returns a rich summary.
-   - **`editApp`** (server-side) — called when the user requests changes to a generated app. Emits `data-editing`, re-runs the architect with edit context.
+   - **`editApp`** (server-side) — called when the user requests changes to a generated app. Emits `data-editing`, creates a `MutableBlueprint` + edit-mode architect for surgical edits, returns a summary.
 
-2. **Solutions Architect** (Tier 1) — A `ToolLoopAgent` that orchestrates the full generation pipeline inside the PM's `generateApp`/`editApp` tool executors. Tools:
+2. **Solutions Architect** (Tier 1) — A `ToolLoopAgent` that orchestrates generation or editing inside the PM's tool executors. Two modes:
+
+   **Generation mode** (`createArchitectAgent`):
    - **`generateScaffold`** — designs app structure + data model via `streamGenerate()` with `onPartial` for progressive streaming
    - **`generateModuleContent`** — case list columns per module via `generate()`
    - **`generateFormContent`** — questions + case config per form via `generate()`
-   - **`finalize`** — assembles blueprint, runs `validateAndFix` loop
+   - **`assembleBlueprint`** — combines scaffold + module/form results into a full `AppBlueprint`
+   - **`validateApp`** — runs `validateAndFix` loop on the assembled blueprint
+
+   **Edit mode** (`createEditArchitectAgent`):
+   - **`searchBlueprint`** — keyword search across question IDs, labels, case properties, XPath, module/form names, columns
+   - **`getModule`** / **`getForm`** / **`getQuestion`** — retrieve full details of specific elements
+   - **`editQuestion`** / **`addQuestion`** / **`removeQuestion`** — question-level mutations with auto case config re-derivation
+   - **`updateModule`** / **`updateForm`** / **`addForm`** / **`removeForm`** / **`addModule`** / **`removeModule`** — structural mutations
+   - **`renameCaseProperty`** — renames a case property with automatic propagation across all forms, columns, and XPath expressions
+   - **`regenerateForm`** — LLM-powered full form regeneration for major restructuring
+   - **`validateApp`** — runs `validateAndFix` loop on the mutated blueprint
 
 The PM does NOT make technical decisions (property names, case types, form structures). It writes a plain English `appSpecification`. The Solutions Architect translates that into CommCare architecture.
 
@@ -86,7 +99,8 @@ Data parts emitted by the pipeline:
 - `data-scaffold` → `builder.setScaffold()`
 - `data-phase` → `builder.setPhase()` (designing, modules, forms, validating, fixing)
 - `data-module-done` → `builder.setModuleContent()`
-- `data-form-done` / `data-form-fixed` → `builder.setFormContent()`
+- `data-form-done` / `data-form-fixed` / `data-form-updated` → `builder.setFormContent()`
+- `data-blueprint-updated` → `builder.updateBlueprint()` (structural edits)
 - `data-fix-attempt` → `builder.setFixAttempt()`
 - `data-done` → `builder.setDone()` (blueprint + hqJson)
 - `data-error` → `builder.setError()`
@@ -235,7 +249,8 @@ All Claude API calls log token usage, cost estimates, and full request/response 
 ## Service Layer Notes
 
 - `builder.ts`: `Builder` class — singleton via `useBuilder()`. Holds `scaffold`, `blueprint`, `partialScaffold` (streaming structured output), and `partialModules` (module/form results). `treeData` getter merges partial data with scaffold for progressive rendering. Setter methods are called from `onData` callback in BuilderLayout. `updateProgress()` derives completed/total counts from the `partialModules` map.
-- `architectAgent.ts`: `createArchitectAgent(ctx, accumulator)` returns a `ToolLoopAgent`. Takes a `GenerationContext` (shared with the PM). Tools: `generateScaffold` (streaming structured output via `ctx.streamGenerate()`), `generateModuleContent` (via `ctx.generate()`), `generateFormContent` (via `ctx.generate()`), `finalize` (assembles + validates + fixes). `onStepFinish` logs full I/O for each orchestration step. `BlueprintAccumulator` class collects results across tool calls. `validateAndFix()` is a programmatic loop — rule-based validation + Haiku fixer for remediation.
+- `architectAgent.ts`: Two factory functions. `createArchitectAgent(ctx, accumulator)` returns a generation-mode `ToolLoopAgent` with tools: `generateScaffold`, `generateModuleContent`, `generateFormContent`, `assembleBlueprint`, `validateApp`. `createEditArchitectAgent(ctx, mutableBp)` returns an edit-mode `ToolLoopAgent` with search/get/edit/validate tools operating on a `MutableBlueprint`. Both share `validateAndFix()` (programmatic loop — rule-based validation + Haiku fixer). `BlueprintAccumulator` collects generation results; `MutableBlueprint` wraps an existing blueprint for surgical edits.
+- `mutableBlueprint.ts`: `MutableBlueprint` class — wraps `AppBlueprint` (deep-cloned) for in-place search, read, and mutation. `search()` finds matches across question IDs/labels/case_properties/XPath/module names/form names/columns. Mutation methods (`updateQuestion`, `addQuestion`, `removeQuestion`, etc.) auto-derive case config after changes. `renameCaseProperty()` propagates renames across all questions, columns, and XPath expressions.
 - `generationContext.ts`: `GenerationContext` class — wraps Anthropic client + UI stream writer. Provides `generate()` (one-shot structured), `streamGenerate()` (streaming structured with `onPartial`), `emit()` (transient data parts), `emitUsage()` (full I/O logging). Used by the route handler, architect agent, and validator.
 - `hqJsonExpander.ts`: `expandBlueprint()` converts `AppBlueprint` → HQ import JSON. Generates XForm XML with proper Vellum dual-attribute hashtag expansion, form actions, case details. `validateBlueprint()` checks semantic rules.
 - `cczCompiler.ts`: `CczCompiler` class takes HQ import JSON → `.ccz` Buffer. Generates suite.xml, profile.ccpr, app_strings.txt. Injects case blocks (create/update/close/subcases) back into XForm XML.

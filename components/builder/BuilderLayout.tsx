@@ -67,6 +67,8 @@ export function BuilderLayout({ buildId }: { buildId: string }) {
         case 'data-module-done': b.setModuleContent(part.data.moduleIndex, part.data.caseListColumns); break
         case 'data-form-done': b.setFormContent(part.data.moduleIndex, part.data.formIndex, part.data.form); break
         case 'data-form-fixed': b.setFormContent(part.data.moduleIndex, part.data.formIndex, part.data.form); break
+        case 'data-form-updated': b.setFormContent(part.data.moduleIndex, part.data.formIndex, part.data.form); break
+        case 'data-blueprint-updated': b.updateBlueprint(part.data.blueprint); break
         case 'data-fix-attempt': b.setFixAttempt(part.data.attempt, part.data.errorCount); break
         case 'data-done': b.setDone(part.data); break
         case 'data-error': b.setError(part.data.message); break
@@ -207,7 +209,7 @@ export function BuilderLayout({ buildId }: { buildId: string }) {
                   </button>
                 )}
 
-                {(builder.phase === BuilderPhase.Planning || builder.phase === BuilderPhase.Editing || (builder.phase === BuilderPhase.Designing && !builder.treeData)) ? (
+                {(builder.phase === BuilderPhase.Planning || (builder.phase === BuilderPhase.Editing && !builder.treeData) || (builder.phase === BuilderPhase.Designing && !builder.treeData)) ? (
                   <div className="flex items-center justify-center h-full">
                     <div className="flex items-center gap-3 text-sm text-nova-text-muted">
                       <span className="inline-block w-2 h-2 rounded-full bg-nova-violet animate-pulse" />
@@ -225,7 +227,7 @@ export function BuilderLayout({ buildId }: { buildId: string }) {
                         {isGenerating && (
                           <Badge variant="violet">
                             <span className="inline-block w-1.5 h-1.5 rounded-full bg-nova-violet-bright animate-pulse mr-1.5" />
-                            Generating
+                            {builder.phase === BuilderPhase.Editing ? 'Editing' : 'Generating'}
                           </Badge>
                         )}
                         {builder.phase === BuilderPhase.Done && builder.blueprint && (

@@ -1,18 +1,16 @@
 /**
- * Solutions Architect Agent (Tier 1) — orchestrates the full blueprint generation pipeline.
+ * Solutions Architect Agent — orchestrates blueprint generation and editing.
  *
- * A ToolLoopAgent that:
- *   1. Delegates scaffold generation (data model + structure) to a focused sub-call
- *   2. Delegates module content generation to sub-calls
- *   3. Delegates form content generation to sub-calls
- *   4. Reviews sub-call output and can request revisions
- *   5. Finalizes the blueprint (assembly + validation + fix)
+ * Two agent constructors:
+ *   - createArchitectAgent: Generation mode — scaffold → modules → forms → assemble → validate
+ *   - createEditArchitectAgent: Edit mode — search → get → edit → validate (operates on MutableBlueprint)
  */
 import { ToolLoopAgent, tool, hasToolCall, stepCountIs } from 'ai'
 import { z } from 'zod'
 import { MODEL_GENERATION, MODEL_FIXER } from '../models'
 import { GenerationContext } from './generationContext'
 import { ARCHITECT_PROMPT } from '../prompts/architectPrompt'
+import { EDIT_ARCHITECT_PROMPT } from '../prompts/editArchitectPrompt'
 import { SCAFFOLD_PROMPT } from '../prompts/scaffoldPrompt'
 import { MODULE_PROMPT } from '../prompts/modulePrompt'
 import { FORM_PROMPT } from '../prompts/formPrompt'
@@ -23,6 +21,7 @@ import {
   type Scaffold, type ModuleContent, type FormContent, type AppBlueprint, type BlueprintForm,
 } from '../schemas/blueprint'
 import { expandBlueprint, validateBlueprint } from './hqJsonExpander'
+import { MutableBlueprint, type NewQuestion } from './mutableBlueprint'
 
 // ── BlueprintAccumulator ──────────────────────────────────────────────
 
@@ -30,6 +29,7 @@ export class BlueprintAccumulator {
   scaffold: Scaffold | null = null
   moduleContents: ModuleContent[] = []
   formContents: FormContent[][] = []
+  assembled: AppBlueprint | null = null
 
   setScaffold(s: Scaffold) {
     this.scaffold = s
@@ -48,7 +48,7 @@ export class BlueprintAccumulator {
 
 // ── Helper: reassemble a FormContent into a BlueprintForm ─────────────
 
-function reassembleForm(
+export function reassembleForm(
   name: string,
   type: 'registration' | 'followup' | 'survey',
   fc: FormContent,
@@ -137,7 +137,7 @@ Design the questions for this form.`
 
 // ── Validate + fix loop ──────────────────────────────────────────────
 
-async function validateAndFix(
+export async function validateAndFix(
   ctx: GenerationContext,
   blueprint: AppBlueprint,
 ): Promise<{ success: boolean; blueprint: AppBlueprint; hqJson?: Record<string, any> }> {
@@ -264,7 +264,7 @@ export function createArchitectAgent(
   const agent = new ToolLoopAgent({
     model: ctx.model(MODEL_GENERATION),
     instructions: ARCHITECT_PROMPT,
-    stopWhen: [hasToolCall('finalize'), stepCountIs(50)],
+    stopWhen: stepCountIs(50),
     onStepFinish: ({ usage, text, toolCalls, toolResults }) => {
       if (usage) {
         ctx.emitUsage('Solutions Architect', MODEL_GENERATION, usage, { system: ARCHITECT_PROMPT, message: '(orchestration step)' }, { text, toolCalls, toolResults })
@@ -287,13 +287,17 @@ export function createArchitectAgent(
             onPartial: (partial) => ctx.emit('data-partial-scaffold', partial),
           })
 
-          if (!scaffold) return 'Error: Scaffold generation returned no output.'
+          if (!scaffold) return { error: 'Scaffold generation returned no output' }
 
           accumulator.setScaffold(scaffold)
           ctx.emit('data-scaffold', scaffold)
           ctx.emit('data-phase', { phase: 'modules' })
 
-          return `Scaffold generated: ${scaffold.modules.length} modules, ${scaffold.case_types?.length ?? 0} case types. Modules: ${scaffold.modules.map(m => `"${m.name}"`).join(', ')}. Now generate content for each module and form.`
+          return {
+            moduleCount: scaffold.modules.length,
+            caseTypeCount: scaffold.case_types?.length ?? 0,
+            modules: scaffold.modules.map(m => ({ name: m.name, case_type: m.case_type, formCount: m.forms.length })),
+          }
         },
       }),
 
@@ -306,14 +310,14 @@ export function createArchitectAgent(
         execute: async ({ moduleIndex, feedback }) => {
           const scaffold = accumulator.scaffold!
           const sm = scaffold.modules[moduleIndex]
-          if (!sm) return `Error: Module index ${moduleIndex} out of range.`
+          if (!sm) return { error: `Module index ${moduleIndex} out of range` }
 
           // Survey-only modules don't need columns
           if (!sm.case_type) {
             const mc = { case_list_columns: null }
             accumulator.setModuleContent(moduleIndex, mc)
             ctx.emit('data-module-done', { moduleIndex, caseListColumns: null })
-            return `Module ${moduleIndex} "${sm.name}": survey-only, no columns needed.`
+            return { moduleIndex, name: sm.name, columns: null }
           }
 
           try {
@@ -327,13 +331,12 @@ export function createArchitectAgent(
             accumulator.setModuleContent(moduleIndex, mc)
             ctx.emit('data-module-done', { moduleIndex, caseListColumns: mc.case_list_columns ?? null })
 
-            const cols = mc.case_list_columns
-            return `Module ${moduleIndex} "${sm.name}": ${cols ? `${cols.length} columns — ${cols.map(c => c.header).join(', ')}` : 'no columns'}.`
+            return { moduleIndex, name: sm.name, columns: mc.case_list_columns ?? null }
           } catch (err) {
             const mc = { case_list_columns: null }
             accumulator.setModuleContent(moduleIndex, mc)
             ctx.emit('data-module-done', { moduleIndex, caseListColumns: null })
-            return `Module ${moduleIndex} "${sm.name}": generation failed (${err instanceof Error ? err.message : String(err)}), using empty columns.`
+            return { error: `Module ${moduleIndex} "${sm.name}": generation failed (${err instanceof Error ? err.message : String(err)})`, moduleIndex, name: sm.name, columns: null }
           }
         },
       }),
@@ -348,13 +351,13 @@ export function createArchitectAgent(
         execute: async ({ moduleIndex, formIndex, feedback }) => {
           const scaffold = accumulator.scaffold!
           const sm = scaffold.modules[moduleIndex]
-          if (!sm) return `Error: Module index ${moduleIndex} out of range.`
+          if (!sm) return { error: `Module index ${moduleIndex} out of range` }
           const sf = sm.forms[formIndex]
-          if (!sf) return `Error: Form index ${formIndex} out of range in module ${moduleIndex}.`
+          if (!sf) return { error: `Form index ${formIndex} out of range in module ${moduleIndex}` }
 
           // Skip if already generated (unless feedback = revision request)
           if (!feedback && accumulator.formContents[moduleIndex]?.[formIndex]) {
-            return `Form [${moduleIndex}][${formIndex}] "${sf.name}" already generated. Pass feedback to revise.`
+            return { moduleIndex, formIndex, name: sf.name, alreadyGenerated: true }
           }
 
           ctx.emit('data-phase', { phase: 'forms' })
@@ -366,35 +369,498 @@ export function createArchitectAgent(
               label: `Form [${moduleIndex}][${formIndex}] "${sf.name}"`,
               maxOutputTokens: 32768,
             })
-            if (!fc) return `Form "${sf.name}": generation returned no output. This is unexpected — try again.`
+            if (!fc) return { error: `Form "${sf.name}": generation returned no output` }
 
             accumulator.setFormContent(moduleIndex, formIndex, fc)
             const assembledForm = reassembleForm(sf.name, sf.type as 'registration' | 'followup' | 'survey', fc)
             ctx.emit('data-form-done', { moduleIndex, formIndex, form: assembledForm })
 
-            const questionCount = fc.questions.length
-            const caseProps = fc.questions.filter(q => q.case_property).map(q => q.case_property)
-            const hasCaseName = fc.questions.some(q => q.is_case_name)
-            return `Form [${moduleIndex}][${formIndex}] "${sf.name}" (${sf.type}): ${questionCount} questions, ${caseProps.length} mapped to case properties${hasCaseName ? ', has case name' : ''}. Properties: ${caseProps.join(', ') || 'none'}.`
+            return {
+              moduleIndex,
+              formIndex,
+              name: sf.name,
+              type: sf.type,
+              questionCount: fc.questions.length,
+              caseProperties: fc.questions.filter(q => q.case_property).map(q => q.case_property!),
+              hasCaseName: fc.questions.some(q => q.is_case_name),
+            }
           } catch (err) {
-            return `Form "${sf.name}": generation failed — ${err instanceof Error ? err.message : String(err)}. Do NOT retry — call finalize to proceed with what we have.`
+            return { error: `Form "${sf.name}": generation failed — ${err instanceof Error ? err.message : String(err)}` }
           }
         },
       }),
 
-      finalize: tool({
-        description: 'Finalize the blueprint after all module and form content is generated. Assembles, validates, and fixes the blueprint.',
+      assembleBlueprint: tool({
+        description: 'Assemble the full blueprint from the generated scaffold, module content, and form content. Call this after all modules and forms have been generated.',
         inputSchema: z.object({}),
         execute: async () => {
           const scaffold = accumulator.scaffold!
           const blueprint = assembleBlueprint(scaffold, accumulator.moduleContents, accumulator.formContents)
+          accumulator.assembled = blueprint
+          return {
+            app_name: blueprint.app_name,
+            moduleCount: blueprint.modules.length,
+            modules: blueprint.modules.map((m, i) => ({
+              moduleIndex: i,
+              name: m.name,
+              case_type: m.case_type ?? null,
+              formCount: m.forms.length,
+            })),
+          }
+        },
+      }),
+
+      validateApp: tool({
+        description: 'Validate the assembled blueprint against CommCare platform rules and fix any issues. Call this after assembling the blueprint to ensure the app is valid and produce the final output.',
+        inputSchema: z.object({}),
+        execute: async () => {
+          const blueprint: AppBlueprint = accumulator.assembled
+            ?? assembleBlueprint(accumulator.scaffold!, accumulator.moduleContents, accumulator.formContents)
           const result = await validateAndFix(ctx, blueprint)
           ctx.emit('data-done', {
             blueprint: result.blueprint,
             hqJson: result.hqJson ?? {},
             success: result.success,
           })
-          return result.success ? 'Blueprint finalized successfully.' : 'Blueprint finalized with some validation issues.'
+          return { success: result.success }
+        },
+      }),
+    },
+  })
+
+  return agent
+}
+
+// ── Edit-mode Solutions Architect Agent ────────────────────────────────
+
+const QUESTION_TYPES = [
+  'text', 'int', 'date', 'select1', 'select', 'geopoint', 'image',
+  'barcode', 'decimal', 'long', 'trigger', 'phone', 'time', 'datetime',
+  'audio', 'video', 'signature', 'hidden', 'secret', 'group', 'repeat',
+] as const
+
+const selectOptionSchema = z.object({
+  value: z.string().describe('Option value (stored in data)'),
+  label: z.string().describe('Option label (shown to user)'),
+})
+
+/** Build a form-generation prompt from the current blueprint context (for regenerateForm). */
+function buildRegenerateFormPrompt(blueprint: AppBlueprint, moduleIndex: number, formIndex: number, instructions: string): string {
+  const mod = blueprint.modules[moduleIndex]
+  const form = mod.forms[formIndex]
+
+  // Gather case type info from sibling forms
+  const caseProps: string[] = []
+  if (mod.case_type) {
+    for (const f of mod.forms) {
+      if (f.case_properties) {
+        for (const cp of f.case_properties) {
+          if (!caseProps.includes(cp.case_property)) caseProps.push(cp.case_property)
+        }
+      }
+    }
+  }
+
+  const propsDesc = caseProps.length > 0
+    ? `\n\nKnown case properties for "${mod.case_type}": ${caseProps.join(', ')}`
+    : ''
+
+  return `App: "${blueprint.app_name}"
+
+Module: "${mod.name}"
+Case type: ${mod.case_type ?? 'none'}${propsDesc}
+
+Form: "${form.name}"
+Type: ${form.type}
+
+Sibling forms in this module: ${mod.forms.map(f => `"${f.name}" (${f.type})`).join(', ')}
+
+## Instructions
+${instructions}`
+}
+
+export function createEditArchitectAgent(
+  ctx: GenerationContext,
+  mutableBp: MutableBlueprint,
+) {
+  const agent = new ToolLoopAgent({
+    model: ctx.model(MODEL_GENERATION),
+    instructions: EDIT_ARCHITECT_PROMPT,
+    stopWhen: stepCountIs(50),
+    onStepFinish: ({ usage, text, toolCalls, toolResults }) => {
+      if (usage) {
+        ctx.emitUsage('Edit Architect', MODEL_GENERATION, usage, { system: EDIT_ARCHITECT_PROMPT, message: '(edit step)' }, { text, toolCalls, toolResults })
+      }
+    },
+    tools: {
+
+      // ── Search ────────────────────────────────────────────────────
+
+      searchBlueprint: tool({
+        description: 'Search the blueprint for questions, forms, modules, or case properties matching a query. Search by property names, question labels, IDs, case types, or any keyword.',
+        inputSchema: z.object({
+          query: z.string().describe('Search term: case property name, question id, label text, case type, XPath fragment, or module/form name'),
+        }),
+        execute: async ({ query }) => {
+          const results = mutableBp.search(query)
+          return { query, results }
+        },
+      }),
+
+      // ── Get ───────────────────────────────────────────────────────
+
+      getModule: tool({
+        description: 'Get a module by index. Returns module metadata, case list columns, and a summary of its forms (without full question trees).',
+        inputSchema: z.object({
+          moduleIndex: z.number().describe('0-based module index'),
+        }),
+        execute: async ({ moduleIndex }) => {
+          const mod = mutableBp.getModule(moduleIndex)
+          if (!mod) return { error: `Module ${moduleIndex} not found` }
+          return {
+            moduleIndex,
+            name: mod.name,
+            case_type: mod.case_type ?? null,
+            case_list_columns: mod.case_list_columns ?? null,
+            forms: mod.forms.map((f, i) => ({
+              formIndex: i,
+              name: f.name,
+              type: f.type,
+              questionCount: f.questions?.length ?? 0,
+            })),
+          }
+        },
+      }),
+
+      getForm: tool({
+        description: 'Get a form by module and form index. Returns the full form including all questions, case config, and metadata.',
+        inputSchema: z.object({
+          moduleIndex: z.number().describe('0-based module index'),
+          formIndex: z.number().describe('0-based form index'),
+        }),
+        execute: async ({ moduleIndex, formIndex }) => {
+          const form = mutableBp.getForm(moduleIndex, formIndex)
+          if (!form) return { error: `Form m${moduleIndex}-f${formIndex} not found` }
+          return { moduleIndex, formIndex, form }
+        },
+      }),
+
+      getQuestion: tool({
+        description: 'Get a single question by ID within a form. Returns the question and its path within the form.',
+        inputSchema: z.object({
+          moduleIndex: z.number().describe('0-based module index'),
+          formIndex: z.number().describe('0-based form index'),
+          questionId: z.string().describe('Question id'),
+        }),
+        execute: async ({ moduleIndex, formIndex, questionId }) => {
+          const result = mutableBp.getQuestion(moduleIndex, formIndex, questionId)
+          if (!result) return { error: `Question "${questionId}" not found in m${moduleIndex}-f${formIndex}` }
+          return { moduleIndex, formIndex, questionId, path: result.path, question: result.question }
+        },
+      }),
+
+      // ── Question mutations ────────────────────────────────────────
+
+      editQuestion: tool({
+        description: 'Update fields on an existing question. Only include fields you want to change. Use null to clear a field.',
+        inputSchema: z.object({
+          moduleIndex: z.number().describe('0-based module index'),
+          formIndex: z.number().describe('0-based form index'),
+          questionId: z.string().describe('Question id to update'),
+          updates: z.object({
+            label: z.string().nullable().optional(),
+            type: z.enum(QUESTION_TYPES).optional(),
+            hint: z.string().nullable().optional(),
+            required: z.boolean().optional(),
+            readonly: z.boolean().optional(),
+            constraint: z.string().nullable().optional().describe('XPath constraint expression'),
+            constraint_msg: z.string().nullable().optional().describe('Error message when constraint fails'),
+            relevant: z.string().nullable().optional().describe('XPath display condition'),
+            calculate: z.string().nullable().optional().describe('XPath computed value'),
+            default_value: z.string().nullable().optional().describe('XPath initial value'),
+            options: z.array(selectOptionSchema).nullable().optional(),
+            case_property: z.string().nullable().optional(),
+            is_case_name: z.boolean().optional(),
+          }).describe('Fields to update. Only include fields you want to change.'),
+        }),
+        execute: async ({ moduleIndex, formIndex, questionId, updates }) => {
+          try {
+            const question = mutableBp.updateQuestion(moduleIndex, formIndex, questionId, updates)
+            const form = mutableBp.getForm(moduleIndex, formIndex)!
+            ctx.emit('data-form-updated', { moduleIndex, formIndex, form })
+            return { moduleIndex, formIndex, questionId, question }
+          } catch (err) {
+            return { error: err instanceof Error ? err.message : String(err) }
+          }
+        },
+      }),
+
+      addQuestion: tool({
+        description: 'Add a new question to an existing form. Optionally specify afterQuestionId to insert after a specific question, or parentId to nest inside a group/repeat.',
+        inputSchema: z.object({
+          moduleIndex: z.number().describe('0-based module index'),
+          formIndex: z.number().describe('0-based form index'),
+          question: z.object({
+            id: z.string().describe('Unique question id in snake_case'),
+            type: z.enum(QUESTION_TYPES),
+            label: z.string().optional().describe('Question label (omit for hidden)'),
+            hint: z.string().optional(),
+            required: z.boolean().optional(),
+            readonly: z.boolean().optional(),
+            constraint: z.string().optional(),
+            constraint_msg: z.string().optional(),
+            relevant: z.string().optional(),
+            calculate: z.string().optional(),
+            default_value: z.string().optional(),
+            options: z.array(selectOptionSchema).optional(),
+            case_property: z.string().optional(),
+            is_case_name: z.boolean().optional(),
+          }),
+          afterQuestionId: z.string().optional().describe('Insert after this question ID. Omit to append at end.'),
+          parentId: z.string().optional().describe('ID of a group/repeat to nest inside'),
+        }),
+        execute: async ({ moduleIndex, formIndex, question, afterQuestionId, parentId }) => {
+          try {
+            mutableBp.addQuestion(moduleIndex, formIndex, question as NewQuestion, { afterId: afterQuestionId, parentId })
+            const form = mutableBp.getForm(moduleIndex, formIndex)!
+            ctx.emit('data-form-updated', { moduleIndex, formIndex, form })
+            return { moduleIndex, formIndex, addedQuestionId: question.id, parentId: parentId ?? null, afterQuestionId: afterQuestionId ?? null }
+          } catch (err) {
+            return { error: err instanceof Error ? err.message : String(err) }
+          }
+        },
+      }),
+
+      removeQuestion: tool({
+        description: 'Remove a question from a form. Also cleans up any close_case or child_case references to the removed question.',
+        inputSchema: z.object({
+          moduleIndex: z.number().describe('0-based module index'),
+          formIndex: z.number().describe('0-based form index'),
+          questionId: z.string().describe('Question id to remove'),
+        }),
+        execute: async ({ moduleIndex, formIndex, questionId }) => {
+          try {
+            mutableBp.removeQuestion(moduleIndex, formIndex, questionId)
+            const form = mutableBp.getForm(moduleIndex, formIndex)!
+            ctx.emit('data-form-updated', { moduleIndex, formIndex, form })
+            return { moduleIndex, formIndex, removedQuestionId: questionId }
+          } catch (err) {
+            return { error: err instanceof Error ? err.message : String(err) }
+          }
+        },
+      }),
+
+      // ── Structural mutations ──────────────────────────────────────
+
+      updateModule: tool({
+        description: 'Update module metadata: name or case list columns.',
+        inputSchema: z.object({
+          moduleIndex: z.number().describe('0-based module index'),
+          name: z.string().optional().describe('New module name'),
+          case_list_columns: z.array(z.object({
+            field: z.string().describe('Case property name'),
+            header: z.string().describe('Column header text'),
+          })).optional().describe('New case list columns'),
+        }),
+        execute: async ({ moduleIndex, name, case_list_columns }) => {
+          try {
+            mutableBp.updateModule(moduleIndex, {
+              ...(name !== undefined && { name }),
+              ...(case_list_columns !== undefined && { case_list_columns }),
+            })
+            ctx.emit('data-blueprint-updated', { blueprint: mutableBp.getBlueprint() })
+            const mod = mutableBp.getModule(moduleIndex)!
+            return { moduleIndex, name: mod.name, case_list_columns: mod.case_list_columns ?? null }
+          } catch (err) {
+            return { error: err instanceof Error ? err.message : String(err) }
+          }
+        },
+      }),
+
+      updateForm: tool({
+        description: 'Update form metadata: name or close_case config.',
+        inputSchema: z.object({
+          moduleIndex: z.number().describe('0-based module index'),
+          formIndex: z.number().describe('0-based form index'),
+          name: z.string().optional().describe('New form name'),
+          close_case: z.object({
+            question: z.string().optional().describe('Question id for conditional close'),
+            answer: z.string().optional().describe('Value that triggers closure'),
+          }).nullable().optional().describe('Set close_case config. null to remove. {} for unconditional. {question, answer} for conditional.'),
+        }),
+        execute: async ({ moduleIndex, formIndex, name, close_case }) => {
+          try {
+            mutableBp.updateForm(moduleIndex, formIndex, {
+              ...(name !== undefined && { name }),
+              ...(close_case !== undefined && { close_case }),
+            })
+            const form = mutableBp.getForm(moduleIndex, formIndex)!
+            ctx.emit('data-form-updated', { moduleIndex, formIndex, form })
+            return { moduleIndex, formIndex, name: form.name, type: form.type, close_case: form.close_case ?? null }
+          } catch (err) {
+            return { error: err instanceof Error ? err.message : String(err) }
+          }
+        },
+      }),
+
+      addForm: tool({
+        description: 'Add a new empty form to a module. Use regenerateForm after to populate it with questions.',
+        inputSchema: z.object({
+          moduleIndex: z.number().describe('0-based module index'),
+          name: z.string().describe('Form display name'),
+          type: z.enum(['registration', 'followup', 'survey']).describe('Form type'),
+        }),
+        execute: async ({ moduleIndex, name, type }) => {
+          try {
+            const form: BlueprintForm = { name, type, questions: [] }
+            mutableBp.addForm(moduleIndex, form)
+            ctx.emit('data-blueprint-updated', { blueprint: mutableBp.getBlueprint() })
+            const mod = mutableBp.getModule(moduleIndex)!
+            return { moduleIndex, formIndex: mod.forms.length - 1, name, type }
+          } catch (err) {
+            return { error: err instanceof Error ? err.message : String(err) }
+          }
+        },
+      }),
+
+      removeForm: tool({
+        description: 'Remove a form from a module.',
+        inputSchema: z.object({
+          moduleIndex: z.number().describe('0-based module index'),
+          formIndex: z.number().describe('0-based form index'),
+        }),
+        execute: async ({ moduleIndex, formIndex }) => {
+          try {
+            const form = mutableBp.getForm(moduleIndex, formIndex)
+            const name = form?.name ?? null
+            mutableBp.removeForm(moduleIndex, formIndex)
+            ctx.emit('data-blueprint-updated', { blueprint: mutableBp.getBlueprint() })
+            return { moduleIndex, removedFormIndex: formIndex, removedFormName: name }
+          } catch (err) {
+            return { error: err instanceof Error ? err.message : String(err) }
+          }
+        },
+      }),
+
+      addModule: tool({
+        description: 'Add a new module to the app.',
+        inputSchema: z.object({
+          name: z.string().describe('Module display name'),
+          case_type: z.string().optional().describe('Case type (required if module will have registration/followup forms)'),
+          case_list_columns: z.array(z.object({
+            field: z.string().describe('Case property name'),
+            header: z.string().describe('Column header text'),
+          })).optional().describe('Case list columns'),
+        }),
+        execute: async ({ name, case_type, case_list_columns }) => {
+          try {
+            mutableBp.addModule({
+              name,
+              ...(case_type && { case_type }),
+              forms: [],
+              ...(case_list_columns && { case_list_columns }),
+            })
+            ctx.emit('data-blueprint-updated', { blueprint: mutableBp.getBlueprint() })
+            const bp = mutableBp.getBlueprint()
+            return { moduleIndex: bp.modules.length - 1, name, case_type: case_type ?? null }
+          } catch (err) {
+            return { error: err instanceof Error ? err.message : String(err) }
+          }
+        },
+      }),
+
+      removeModule: tool({
+        description: 'Remove a module from the app.',
+        inputSchema: z.object({
+          moduleIndex: z.number().describe('0-based module index'),
+        }),
+        execute: async ({ moduleIndex }) => {
+          try {
+            const mod = mutableBp.getModule(moduleIndex)
+            const name = mod?.name ?? null
+            mutableBp.removeModule(moduleIndex)
+            ctx.emit('data-blueprint-updated', { blueprint: mutableBp.getBlueprint() })
+            return { removedModuleIndex: moduleIndex, removedModuleName: name }
+          } catch (err) {
+            return { error: err instanceof Error ? err.message : String(err) }
+          }
+        },
+      }),
+
+      renameCaseProperty: tool({
+        description: 'Rename a case property across the entire app. Automatically propagates to all questions, case list columns, and XPath expressions that reference it.',
+        inputSchema: z.object({
+          caseType: z.string().describe('The case type that owns this property'),
+          oldName: z.string().describe('Current property name'),
+          newName: z.string().describe('New property name'),
+        }),
+        execute: async ({ caseType, oldName, newName }) => {
+          try {
+            const result = mutableBp.renameCaseProperty(caseType, oldName, newName)
+            ctx.emit('data-blueprint-updated', { blueprint: mutableBp.getBlueprint() })
+            return { caseType, oldName, newName, formsChanged: result.formsChanged, columnsChanged: result.columnsChanged }
+          } catch (err) {
+            return { error: err instanceof Error ? err.message : String(err) }
+          }
+        },
+      }),
+
+      // ── Generation ────────────────────────────────────────────────
+
+      regenerateForm: tool({
+        description: 'Fully regenerate a form using AI. Use for major restructuring or when adding many questions at once. More efficient than many individual addQuestion calls.',
+        inputSchema: z.object({
+          moduleIndex: z.number().describe('0-based module index'),
+          formIndex: z.number().describe('0-based form index'),
+          instructions: z.string().describe('What this form should contain or how to change it'),
+        }),
+        execute: async ({ moduleIndex, formIndex, instructions }) => {
+          const blueprint = mutableBp.getBlueprint()
+          const mod = blueprint.modules[moduleIndex]
+          if (!mod) return { error: `Module index ${moduleIndex} out of range` }
+          const form = mod.forms[formIndex]
+          if (!form) return { error: `Form index ${formIndex} out of range in module ${moduleIndex}` }
+
+          try {
+            const fc = await ctx.generate(formContentSchema, {
+              system: FORM_PROMPT,
+              prompt: buildRegenerateFormPrompt(blueprint, moduleIndex, formIndex, instructions),
+              label: `Regenerate "${form.name}"`,
+              maxOutputTokens: 32768,
+            })
+            if (!fc) return { error: `Form "${form.name}": generation returned no output` }
+
+            const newForm = reassembleForm(form.name, form.type as 'registration' | 'followup' | 'survey', fc)
+            mutableBp.replaceForm(moduleIndex, formIndex, newForm)
+            ctx.emit('data-form-updated', { moduleIndex, formIndex, form: newForm })
+
+            return {
+              moduleIndex,
+              formIndex,
+              name: form.name,
+              questionCount: fc.questions.length,
+              caseProperties: fc.questions.filter(q => q.case_property).map(q => q.case_property!),
+            }
+          } catch (err) {
+            return { error: err instanceof Error ? err.message : String(err) }
+          }
+        },
+      }),
+
+      // ── Validation ────────────────────────────────────────────────
+
+      validateApp: tool({
+        description: 'Validate the edited blueprint against CommCare platform rules and fix any issues. Call this when you are done making edits to ensure the app is valid.',
+        inputSchema: z.object({}),
+        execute: async () => {
+          const blueprint = mutableBp.getBlueprint()
+          const result = await validateAndFix(ctx, blueprint)
+          ctx.emit('data-done', {
+            blueprint: result.blueprint,
+            hqJson: result.hqJson ?? {},
+            success: result.success,
+          })
+          return { success: result.success }
         },
       }),
     },
