@@ -13,7 +13,6 @@ import { useBuilder } from '@/hooks/useBuilder'
 import { BuilderPhase } from '@/lib/services/builder'
 import { logUsage } from '@/lib/usage'
 import { Logo } from '@/components/ui/Logo'
-import { Button } from '@/components/ui/Button'
 import { Badge } from '@/components/ui/Badge'
 import { ChatSidebar } from '@/components/chat/ChatSidebar'
 import { AppTree } from '@/components/builder/AppTree'
@@ -34,6 +33,7 @@ export function BuilderLayout({ buildId }: { buildId: string }) {
 
   const isCentered = builder.phase === BuilderPhase.Idle && !builder.treeData
 
+  // ── Chat useChat (conversation) ─────────────────────────────────────
   const { messages, sendMessage, addToolOutput, status } = useChat({
     transport: new DefaultChatTransport({
       api: '/api/chat',
@@ -42,11 +42,26 @@ export function BuilderLayout({ buildId }: { buildId: string }) {
     sendAutomaticallyWhen: lastAssistantMessageIsCompleteWithToolCalls,
   })
 
+  // ── Generation useChat (blueprint pipeline) ─────────────────────────
+  const generationParamsRef = useRef<{ appName: string; appSpecification: string } | null>(null)
+
+  const generation = useChat({
+    id: 'generation',
+    transport: new DefaultChatTransport({
+      api: '/api/blueprint/generate',
+      body: () => ({
+        apiKey: apiKeyRef.current,
+        appName: generationParamsRef.current?.appName,
+        appSpecification: generationParamsRef.current?.appSpecification,
+      }),
+    }),
+  })
+
   useEffect(() => {
     if (loaded && !apiKey) router.push('/')
   }, [loaded, apiKey, router])
 
-  // React to scaffoldBlueprint tool call as it streams in
+  // ── React to scaffoldBlueprint tool in chat → trigger generation ────
   const planningRef = useRef(new Set<string>())
   useEffect(() => {
     for (const msg of messages) {
@@ -60,7 +75,7 @@ export function BuilderLayout({ buildId }: { buildId: string }) {
           builder.startPlanning()
         }
 
-        // input-available: plan is complete → fire scaffold API
+        // input-available: plan is complete → fire generation via second useChat
         if (
           (part.state === 'input-available' || part.state === 'output-available') &&
           !triggeredRef.current.has(part.toolCallId)
@@ -69,11 +84,64 @@ export function BuilderLayout({ buildId }: { buildId: string }) {
           if (!input?.appName || !input?.appSpecification) continue
 
           triggeredRef.current.add(part.toolCallId)
-          builder.streamScaffold(apiKeyRef.current, input.appName, input.appSpecification)
+          builder.startDesigning()
+          generationParamsRef.current = { appName: input.appName, appSpecification: input.appSpecification }
+          generation.sendMessage({ text: input.appSpecification })
         }
       }
     }
-  }, [messages, apiKey, builder])
+  }, [messages, apiKey, builder, generation])
+
+  // ── Read generation stream: tool invocations + custom data parts ────
+  useEffect(() => {
+    for (const msg of generation.messages) {
+      if (msg.role !== 'assistant') continue
+      for (const part of msg.parts) {
+        const p = part as any
+
+        // Scaffold tool — progressive streaming of tool call args
+        if (p.type === 'tool-submitScaffold') {
+          if (p.state === 'input-streaming') {
+            builder.setPartialScaffold(p.input)
+          } else if (p.state === 'input-available' || p.state === 'output-available') {
+            builder.setScaffold(p.input)
+          }
+        }
+
+        // Custom data parts from writer.write()
+        switch (p.type) {
+          case 'data-phase':
+            builder.setPhase(p.data.phase)
+            break
+          case 'data-module-done':
+            builder.setModuleContent(p.data.moduleIndex, p.data.caseListColumns)
+            break
+          case 'data-form-done':
+            builder.setFormContent(p.data.moduleIndex, p.data.formIndex, p.data.form)
+            break
+          case 'data-form-fixed':
+            builder.setFormContent(p.data.moduleIndex, p.data.formIndex, p.data.form)
+            break
+          case 'data-fix-attempt':
+            builder.setFixAttempt(p.data.attempt, p.data.errorCount)
+            break
+          case 'data-done':
+            builder.setDone(p.data)
+            break
+          case 'data-error':
+            builder.setError(p.data.message)
+            break
+        }
+      }
+    }
+  }, [generation.messages, builder])
+
+  // ── Generation error handling ───────────────────────────────────────
+  useEffect(() => {
+    if (generation.error) {
+      builder.setError(generation.error.message)
+    }
+  }, [generation.error, builder])
 
   // Log chat token usage when assistant messages finish
   const loggedChatRef = useRef(new Set<string>())
@@ -103,7 +171,7 @@ export function BuilderLayout({ buildId }: { buildId: string }) {
     }
   }, [messages, status])
 
-  const isGenerating = [BuilderPhase.Modules, BuilderPhase.Forms, BuilderPhase.Validating, BuilderPhase.Fixing].includes(builder.phase)
+  const isGenerating = [BuilderPhase.Designing, BuilderPhase.Modules, BuilderPhase.Forms, BuilderPhase.Validating, BuilderPhase.Fixing].includes(builder.phase)
   if (isGenerating && progressDismissed) setProgressDismissed(false)
 
   const handleSend = useCallback((text: string) => {
@@ -232,7 +300,7 @@ export function BuilderLayout({ buildId }: { buildId: string }) {
                   </button>
                 )}
 
-                {builder.phase === BuilderPhase.Planning && !builder.treeData ? (
+                {(builder.phase === BuilderPhase.Planning || (builder.phase === BuilderPhase.Designing && !builder.treeData)) ? (
                   <div className="flex items-center justify-center h-full">
                     <div className="flex items-center gap-3 text-sm text-nova-text-muted">
                       <span className="inline-block w-2 h-2 rounded-full bg-nova-violet animate-pulse" />
@@ -247,11 +315,6 @@ export function BuilderLayout({ buildId }: { buildId: string }) {
                     phase={builder.phase}
                     actions={
                       <>
-                        {builder.phase === BuilderPhase.Scaffolding && (
-                          <Button variant="primary" size="sm" onClick={() => builder.fillBlueprint(apiKey)}>
-                            Generate
-                          </Button>
-                        )}
                         {isGenerating && (
                           <Badge variant="violet">
                             <span className="inline-block w-1.5 h-1.5 rounded-full bg-nova-violet-bright animate-pulse mr-1.5" />

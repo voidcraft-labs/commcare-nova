@@ -131,27 +131,27 @@ export function DetailPanel({ blueprint, selected, onUpdate, onClose }: DetailPa
                 <p className="text-sm font-mono text-nova-cyan-bright">{form.case_name_field}</p>
               </div>
             )}
-            {form.case_properties && Object.keys(form.case_properties).length > 0 && (
+            {form.case_properties && form.case_properties.length > 0 && (
               <div>
                 <label className="text-xs text-nova-text-muted uppercase tracking-wider mb-1 block">Case Properties</label>
                 <div className="space-y-1">
-                  {Object.entries(form.case_properties).map(([prop, qId]) => (
-                    <div key={prop} className="flex items-center justify-between text-xs px-2 py-1 bg-nova-surface rounded">
-                      <span className="text-nova-text-secondary">{prop}</span>
-                      <span className="font-mono text-nova-text-muted">&larr; {qId}</span>
+                  {form.case_properties.map(({ case_property, question_id }) => (
+                    <div key={case_property} className="flex items-center justify-between text-xs px-2 py-1 bg-nova-surface rounded">
+                      <span className="text-nova-text-secondary">{case_property}</span>
+                      <span className="font-mono text-nova-text-muted">&larr; {question_id}</span>
                     </div>
                   ))}
                 </div>
               </div>
             )}
-            {form.case_preload && Object.keys(form.case_preload).length > 0 && (
+            {form.case_preload && form.case_preload.length > 0 && (
               <div>
                 <label className="text-xs text-nova-text-muted uppercase tracking-wider mb-1 block">Case Preload</label>
                 <div className="space-y-1">
-                  {Object.entries(form.case_preload).map(([qId, prop]) => (
-                    <div key={qId} className="flex items-center justify-between text-xs px-2 py-1 bg-nova-surface rounded">
-                      <span className="font-mono text-nova-text-muted">{qId}</span>
-                      <span className="text-nova-text-secondary">&larr; {prop}</span>
+                  {form.case_preload.map(({ question_id, case_property }) => (
+                    <div key={question_id} className="flex items-center justify-between text-xs px-2 py-1 bg-nova-surface rounded">
+                      <span className="font-mono text-nova-text-muted">{question_id}</span>
+                      <span className="text-nova-text-secondary">&larr; {case_property}</span>
                     </div>
                   ))}
                 </div>

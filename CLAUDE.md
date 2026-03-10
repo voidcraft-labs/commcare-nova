@@ -10,7 +10,7 @@ Next.js web app that generates CommCare apps from natural language conversation.
 - **Animation**: Motion (imported as `motion/react`, NOT `framer-motion`)
 - **Validation**: Zod v4
 - **AI (Chat)**: Vercel AI SDK (`ai` + `@ai-sdk/react` + `@ai-sdk/anthropic`) — `streamText`, `useChat`, client-side tools
-- **AI (Generation)**: Anthropic SDK (`@anthropic-ai/sdk`) with structured output via `zodOutputFormat` and streaming via `strict` tool use + `inputJson`
+- **AI (Generation)**: Vercel AI SDK `ToolLoopAgent` + `generateText` with structured output. Streamed to client via `createUIMessageStream` + `createAgentUIStream`.
 - **Icons**: Coolicons (`@iconify-icons/ci`) + Tabler (`@iconify-icons/tabler`) via `@iconify/react`
 - **Testing**: Vitest
 
@@ -21,8 +21,7 @@ app/                    # Next.js App Router pages and API routes
   api/
     chat/               # Chat endpoint (Vercel AI SDK streamText)
     blueprint/
-      scaffold/         # Tier 1 scaffold endpoint
-      fill/             # Tiers 2+3 generation (accepts scaffold, skips tier 1)
+      generate/         # Unified generation endpoint (supervisor agent via createUIMessageStream)
     compile/            # CCZ compilation + download
   build/[id]/           # Main builder view (3-panel layout)
   builds/               # Build history
@@ -34,15 +33,15 @@ hooks/                  # useBuilder, useApiKey, useBuilds
 lib/
   services/
     builder.ts          # Builder class — singleton state machine for the build lifecycle
-    claude.ts           # Stateless Anthropic SDK functions (generation pipeline only)
-    appGenerator.ts     # Three-tier generation pipeline (scaffoldBlueprint, fillBlueprint)
+    supervisorAgent.ts  # ToolLoopAgent that orchestrates scaffold → modules → forms → validate
+    claude.ts           # Stateless Anthropic SDK helpers (sendOneShotStructured, etc.)
     hqJsonExpander.ts   # Blueprint → HQ import JSON (XForm XML, form actions, Vellum metadata)
     cczCompiler.ts      # HQ import JSON → .ccz archive (adds case blocks, suite.xml)
     autoFixer.ts        # Programmatic fixes for common CommCare app issues
     commcare/           # Shared CommCare platform module (constants, XML, hashtags, HQ types/shells)
     __tests__/          # Vitest tests for expander, compiler, and commcare module
   schemas/              # Zod schemas for AppBlueprint, tier outputs
-  prompts/              # Chat + tier prompts for Claude (chatPrompt, scaffoldPrompt, etc.)
+  prompts/              # Chat + tier prompts for Claude (chatPrompt, supervisorPrompt, etc.)
   types/                # TypeScript type definitions
   models.ts             # Central model ID + pricing config
   usage.ts              # ClaudeUsage type + logUsage() browser console logger
@@ -58,7 +57,7 @@ The chat uses `streamText()` on the server and `useChat()` on the client. Two to
 - **`askQuestions`** (client-side, no `execute`) — Claude asks structured multiple-choice questions. The tool part renders as a `QuestionCard` stepper in chat. User clicks answers, component calls `addToolOutput` when all questions are answered, `sendAutomaticallyWhen` re-sends to continue the conversation.
 - **`scaffoldBlueprint`** (client-side, no `execute`) — Claude calls this when it has enough info. `stopWhen: hasToolCall('scaffoldBlueprint')` halts the stream. Claude outputs a brief confirmation ("Got it — generating your app now.") before calling the tool. The `appSpecification` is plain English — business workflows and requirements, no technical details. The client reacts to the tool call's streaming states:
   - `input-streaming` → `builder.startPlanning()` — shows "Generating plan..." while Claude writes the appSpecification
-  - `input-available` → `builder.streamScaffold()` — streams scaffold from `/api/blueprint/scaffold`, modules appear incrementally in tree
+  - `input-available` → triggers generation via a second `useChat` instance targeting `/api/blueprint/generate`
 
 No SSE wiring, no session coordination, no separate respond endpoint. The AI SDK handles the full message lifecycle via `UIMessage` parts.
 
@@ -68,35 +67,49 @@ Chat is the hero experience. When `builder.phase === Idle && !builder.treeData`,
 
 ### Builder Class
 
-`lib/services/builder.ts` exports a `Builder` class — a singleton state machine shared across components via `useBuilder()`. Phases: `Idle → Planning → Scaffolding → Modules → Forms → Validating → Fixing → Done | Error`.
+`lib/services/builder.ts` exports a `Builder` class — a singleton state machine shared across components via `useBuilder()`. Phases: `Idle → Planning → Designing → Modules → Forms → Validating → Fixing → Done | Error`.
 
 - `builder.startPlanning()` — transitions to Planning phase ("Generating plan...")
-- `builder.streamScaffold(apiKey, appName, spec)` — streams tier 1 via NDJSON from `/api/blueprint/scaffold`. Modules appear incrementally in the tree as they arrive. Uses `partialScaffold` for progressive rendering.
-- `builder.fillBlueprint(apiKey)` — streams tiers 2+3 via NDJSON from `/api/blueprint/fill`. Updates tree incrementally as modules and forms complete via `partialModules`.
+- `builder.startDesigning()` — transitions to Designing phase, clears partial state
+- `builder.setPartialScaffold(partial)` — updates tree progressively from streaming tool call args
+- `builder.setScaffold(scaffold)` — stores completed scaffold
+- `builder.setModuleContent(moduleIndex, columns)` / `builder.setFormContent(moduleIndex, formIndex, form)` — updates partial modules, auto-derives progress counts
+- `builder.setPhase(phase)` / `builder.setFixAttempt(attempt, errorCount)` — phase transitions from data parts
+- `builder.setDone(result)` / `builder.setError(message)` — terminal states
 - `builder.treeData` — getter with four-level fallback: `blueprint` > `partialModules` merged with scaffold > `scaffold` > `partialScaffold`
 - `builder.subscribe(listener)` — triggers React re-renders on state changes
+- Progress counters (`progressCompleted`/`progressTotal`) are derived from the `partialModules` map against the scaffold — no server-emitted counts needed.
 
-### Two-Step Blueprint Generation (NDJSON Streaming)
+### Supervisor Agent Generation (AI SDK Streaming)
 
-Both endpoints stream NDJSON events via `TransformStream` for incremental UI updates.
+A single `POST /api/blueprint/generate` endpoint handles the full generation pipeline. Uses `createUIMessageStream` + `createAgentUIStream` from the AI SDK — no custom NDJSON, TransformStream, or manual chunk parsing.
 
-1. **Scaffold** (`/api/blueprint/scaffold` → `scaffoldBlueprint()`) — Tier 1 only. Uses `sendOneShotStructuredStream()` with `strict: true` tool use to get `inputJson` events (incremental parsed snapshots). Emits `scaffold_meta`, `scaffold_module`, `scaffold_case_type`, and `scaffold_done` events as the JSON builds up. The scaffold schema orders `modules` before `case_types` so modules stream to the UI while case types are still generating.
-2. **Fill** (`/api/blueprint/fill` → `fillBlueprint(apiKey, scaffold)`) — Accepts the stored scaffold, runs tiers 2+3 only (does NOT re-run tier 1). Streams `phase`, `progress`, `module_done`, `form_done`, and `done` events. The builder merges partial results with the scaffold for progressive tree rendering. Triggered by the "Generate" button after scaffold is visible.
+**Server**: The route creates a `UIMessageStream`, instantiates a `ToolLoopAgent` (the supervisor), and merges the agent stream via `writer.merge()`. Custom data parts (phase transitions, module/form results) are sent via `writer.write()` from inside tool executors.
+
+**Client**: A second `useChat` instance (separate from chat conversation) targets `/api/blueprint/generate`. A `useEffect` reads `generation.messages` parts:
+- `tool-submitScaffold` with `input-streaming` → `builder.setPartialScaffold()` (scaffold appears progressively as tool call args stream)
+- `tool-submitScaffold` with `input-available` → `builder.setScaffold()`
+- `data-phase`, `data-module-done`, `data-form-done`, `data-fix-attempt`, `data-done`, `data-error` → corresponding builder setters
+
+The supervisor agent (`lib/services/supervisorAgent.ts`) orchestrates:
+1. **Scaffold** — designs app structure + data model, calls `submitScaffold` tool (args stream progressively to client)
+2. **Modules** — calls `generateModuleContent` per module (delegates to `generateText` with structured output)
+3. **Forms** — calls `generateFormContent` per form (delegates to `generateText` with structured output)
+4. **Review** — reviews tool result summaries, can re-call with feedback for revisions
+5. **Finalize** — calls `finalize` tool which runs programmatic `validateAndFix` loop (not LLM validation — rule-based checks + cheap Haiku fixer for remediation)
 
 ### Chat → Generation Handoff
 
-The chat model acts as a requirements analyst — it gathers business requirements and writes a plain English `appSpecification`. It does NOT make technical decisions (property names, case types, form structures). That responsibility belongs to Tier 1, which translates the plain English spec into CommCare architecture. This separation means reserved property names, naming conventions, and structural rules are enforced once in the generation pipeline, not in the conversational chat.
+The chat model acts as a requirements analyst — it gathers business requirements and writes a plain English `appSpecification`. It does NOT make technical decisions (property names, case types, form structures). That responsibility belongs to the supervisor agent's scaffold step, which translates the plain English spec into CommCare architecture. This separation means reserved property names, naming conventions, and structural rules are enforced once in the generation pipeline, not in the conversational chat.
 
-### Three-Tiered Generation Pipeline
+### Three-Tiered Generation (within the Supervisor Agent)
 
-The generation pipeline uses the raw Anthropic SDK — structured output for schema generation, not interactive conversation.
-
-Runs in three tiers to stay within Anthropic's schema compilation limits:
+The supervisor agent runs generation in three tiers to stay within Anthropic's schema compilation limits:
 1. **Scaffold** (Tier 1): Translates plain English spec → app structure + data model (case types, property names, modules, forms). All technical naming decisions happen here. Reserved property constraints are in the schema's `.describe()` strings.
-2. **Module Content** (Tier 2): Case list columns per module
-3. **Form Content** (Tier 3): Questions + case config per form
+2. **Module Content** (Tier 2): Case list columns per module — delegated via `generateText` with `moduleContentSchema`
+3. **Form Content** (Tier 3): Questions + case config per form — delegated via `generateText` with `formContentSchema`
 
-Tier 1 uses `sendOneShotStructuredStream()` (strict tool use + `inputJson` for incremental streaming). Tiers 2+3 use `sendOneShotStructured()` (output_config structured output). Results are assembled into a full `AppBlueprint` via `assembleBlueprint()`.
+Results are assembled into a full `AppBlueprint` via `assembleBlueprint()`.
 
 ### Per-Question Case Property Mapping
 
@@ -184,7 +197,7 @@ Dark "Stellar Minimalism" theme. CSS custom properties defined in `globals.css`:
 
 `lib/models.ts` is the single source of truth for model IDs and pricing. Never hardcode model IDs elsewhere.
 
-- `MODEL_GENERATION` — structured generation (tiers 1-3), currently `claude-sonnet-4-6`
+- `MODEL_GENERATION` — structured generation (scaffold + modules + forms), currently `claude-sonnet-4-6`
 - `MODEL_FIXER` — validation fixer (cheap/fast), currently `claude-haiku-4-5-20251001`
 - `MODEL_CHAT` — chat conversation (Vercel AI SDK alias), currently `claude-sonnet-4-6`
 - `MODEL_PRICING` — cost lookup keyed by model ID (per million tokens)
@@ -198,15 +211,14 @@ All Claude API calls log token usage, cost estimates, and full request/response 
   - `Input (message)` — user message / conversation (~estimated tokens)
   - `Input (tools)` — tool schemas or structured output schema (~estimated tokens)
   - `Output` — parsed response (~estimated tokens)
-- **Generation pipeline** — `claude.ts` returns `{ data, usage }` from `sendOneShotStructured`. `appGenerator.ts` accumulates `ClaudeUsage[]` across all tier calls and returns it in `GenerationResult`. `builder.ts` calls `logUsage()` client-side.
 - **Chat** — `chat/route.ts` sends input (system + messages + tool JSON schemas) via `messageMetadata` at stream start, and usage totals at stream finish. `BuilderLayout` logs via `logUsage()` when messages complete.
 - Token estimates use `~4 chars/token` heuristic. Actual `input_tokens`/`output_tokens` from the API are in the summary table.
 
 ## Service Layer Notes
 
-- `builder.ts`: `Builder` class — singleton via `useBuilder()`. Holds `scaffold`, `blueprint`, `partialScaffold` (tier 1 streaming), and `partialModules` (tiers 2+3 streaming). `treeData` getter merges partial data with scaffold for progressive rendering. `streamScaffold()` and `fillBlueprint()` consume NDJSON streams and update UI incrementally via `notify()`.
-- `claude.ts`: Stateless functions, API key per-call. `sendOneShotStructured` returns `{ data, usage }` with full I/O for logging. `sendOneShotStructuredStream` uses `strict: true` tool use + `inputJson` for incremental parsed snapshots during generation. Used by generation pipeline only.
-- `appGenerator.ts`: `scaffoldBlueprint()` accepts `onEvent` callback, streams `ScaffoldStreamEvent`s as modules complete. `fillBlueprint(apiKey, scaffold, onEvent)` streams `FillStreamEvent`s for progress, module, and form completion. Both accept optional event callbacks; routes wire these to NDJSON `TransformStream`s.
+- `builder.ts`: `Builder` class — singleton via `useBuilder()`. Holds `scaffold`, `blueprint`, `partialScaffold` (streaming tool args), and `partialModules` (module/form results). `treeData` getter merges partial data with scaffold for progressive rendering. Setter methods (`setPartialScaffold`, `setScaffold`, `setModuleContent`, `setFormContent`, `setPhase`, `setDone`, `setError`) are called from BuilderLayout's `useEffect` that reads generation message parts. `updateProgress()` derives completed/total counts from the `partialModules` map.
+- `supervisorAgent.ts`: `createSupervisorAgent(apiKey, accumulator, writer)` returns a `ToolLoopAgent`. Tools: `submitScaffold` (scaffold schema), `generateModuleContent` (delegates to `generateText`), `generateFormContent` (delegates to `generateText`), `finalize` (assembles + validates + fixes). Tool executors send custom data parts via `writer.write()` and return text summaries for the agent. `validateAndFix()` is a programmatic loop — rule-based validation + Haiku fixer, not LLM validation.
+- `claude.ts`: Stateless functions, API key per-call. `sendOneShotStructured` returns `{ data, usage }` with full I/O for logging. Used by generation subagent calls.
 - `hqJsonExpander.ts`: `expandBlueprint()` converts `AppBlueprint` → HQ import JSON. Generates XForm XML with proper Vellum dual-attribute hashtag expansion, form actions, case details. `validateBlueprint()` checks semantic rules.
 - `cczCompiler.ts`: `CczCompiler` class takes HQ import JSON → `.ccz` Buffer. Generates suite.xml, profile.ccpr, app_strings.txt. Injects case blocks (create/update/close/subcases) back into XForm XML.
 - `autoFixer.ts`: `AutoFixer` class applies programmatic fixes (itext, reserved properties, missing binds) to generated files before validation.
