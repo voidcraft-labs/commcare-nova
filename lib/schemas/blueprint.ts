@@ -26,6 +26,12 @@ const selectOptionSchema = z.object({
   label: z.string().describe('Option label (shown to user)')
 })
 
+/** Typed pair for case property ↔ question mappings (replaces Record<string, string>). */
+const casePropertyMappingSchema = z.object({
+  case_property: z.string().describe('Case property name'),
+  question_id: z.string().describe('Question id in the form'),
+})
+
 const RESERVED_CASE_PROPERTIES = 'case_id, case_type, closed, closed_by, closed_on, date, date_modified, date_opened, doc_type, domain, external_id, index, indices, modified_on, name, opened_by, opened_on, owner_id, server_modified_on, status, type, user_id, xform_id'
 
 // ── Tier 1: Scaffold Schema ────────────────────────────────────────────
@@ -99,12 +105,12 @@ const flatQuestionSchema = z.object({
     'Human-readable question text. Write clear, professional labels like "Patient Name", "Date of Birth". ' +
     'null for hidden questions — they have no visible label.'
   ),
-  parent_id: z.string().nullable().describe(
-    'ID of the parent group/repeat question this belongs to, or null for top-level. Parent groups/repeats must appear BEFORE their children in the array.'
+  parent_id: z.string().describe(
+    'ID of the parent group/repeat question this belongs to, or empty string "" for top-level. Parent groups/repeats must appear BEFORE their children in the array.'
   ),
   hint: z.string().nullable().describe('Help text shown below the question'),
-  required: z.boolean().nullable().describe('True if the question must be answered'),
-  readonly: z.boolean().nullable().describe('True if visible but not editable (use for display-only preloaded values in followup forms)'),
+  required: z.boolean().describe('True if the question must be answered, false otherwise'),
+  readonly: z.boolean().describe('True if visible but not editable (use for display-only preloaded values in followup forms), false otherwise'),
   constraint: z.string().nullable().describe('XPath constraint expression, e.g. ". > 0 and . < 150"'),
   constraint_msg: z.string().nullable().describe('Error message when constraint fails'),
   relevant: z.string().nullable().describe(
@@ -134,8 +140,8 @@ const flatQuestionSchema = z.object({
     `Must NOT be a reserved name: ${RESERVED_CASE_PROPERTIES}. ` +
     'Must NOT be set on media questions (image, audio, video, signature).'
   ),
-  is_case_name: z.boolean().nullable().describe(
-    'True if this question provides the case name. Registration and followup forms that set or update the case name must have exactly one. null otherwise.'
+  is_case_name: z.boolean().describe(
+    'True if this question provides the case name. Registration and followup forms that set or update the case name must have exactly one. false otherwise.'
   ),
 })
 
@@ -146,8 +152,8 @@ const formChildCaseSchema = z.object({
   case_name_field: z.string().describe(
     'Question id whose value becomes the child case name'
   ),
-  case_properties: z.record(z.string(), z.string()).nullable().describe(
-    'Map of child case property name -> question id. Do NOT use reserved property names as keys.'
+  case_properties: z.array(casePropertyMappingSchema).nullable().describe(
+    'Child case property-to-question mappings. Do NOT use reserved property names.'
   ),
   relationship: z.enum(['child', 'extension']).nullable().describe(
     '"child" (default) or "extension". Use "extension" when the child should prevent the parent from being closed.'
@@ -216,8 +222,8 @@ const blueprintChildCaseSchema = z.object({
   case_name_field: z.string().describe(
     'Question id whose value becomes the child case name'
   ),
-  case_properties: z.record(z.string(), z.string()).optional().describe(
-    'Map of child case property name -> question id. Do NOT use reserved property names as keys.'
+  case_properties: z.array(casePropertyMappingSchema).optional().describe(
+    'Child case property-to-question mappings. Do NOT use reserved property names.'
   ),
   relationship: z.enum(['child', 'extension']).optional().describe(
     '"child" (default) or "extension". Use "extension" when the child should prevent the parent from being closed.'
@@ -235,11 +241,11 @@ const blueprintFormSchema = z.object({
   case_name_field: z.string().optional().describe(
     'Registration forms only: question id whose value becomes the case name. Required for registration forms.'
   ),
-  case_properties: z.record(z.string(), z.string()).optional().describe(
-    'Map of case property name -> question id. These question values get saved to the case. Do NOT include case_name_field here. NEVER use reserved property names (case_id, case_name, case_type, status, name, date, type, etc.) as keys. NEVER map media questions (image, audio, video, signature) to case properties.'
+  case_properties: z.array(casePropertyMappingSchema).optional().describe(
+    'Case property-to-question mappings. These question values get saved to the case. Do NOT include case_name_field here. NEVER use reserved property names. NEVER map media questions (image, audio, video, signature).'
   ),
-  case_preload: z.record(z.string(), z.string()).optional().describe(
-    'Followup forms only: map of question id -> case property name. Pre-fills form questions with existing case data. To load case name use "case_name" as the value. If user should edit and save back, include same field in BOTH case_preload AND case_properties.'
+  case_preload: z.array(casePropertyMappingSchema).optional().describe(
+    'Followup forms only: question-to-case-property mappings for pre-filling form questions with existing case data. To load case name use "case_name" as the case_property. If user should edit and save back, include same mapping in BOTH case_preload AND case_properties.'
   ),
   close_case: z.object({
     question: z.string().optional().describe('Question id to check for conditional close'),
@@ -287,6 +293,7 @@ export type BlueprintForm = z.infer<typeof blueprintFormSchema>
 export type BlueprintQuestion = z.infer<typeof blueprintQuestionSchema>
 export type BlueprintChildCase = z.infer<typeof blueprintChildCaseSchema>
 
+export type CasePropertyMapping = z.infer<typeof casePropertyMappingSchema>
 export type Scaffold = z.infer<typeof scaffoldSchema>
 export type ModuleContent = z.infer<typeof moduleContentSchema>
 export type FormContent = z.infer<typeof formContentSchema>
@@ -314,8 +321,8 @@ export function unflattenQuestions(flat: FlatQuestion[]): BlueprintQuestion[] {
       type: fq.type,
       ...(fq.label != null && { label: fq.label }),
       ...(fq.hint != null && { hint: fq.hint }),
-      ...(fq.required != null && { required: fq.required }),
-      ...(fq.readonly != null && { readonly: fq.readonly }),
+      ...(fq.required && { required: fq.required }),
+      ...(fq.readonly && { readonly: fq.readonly }),
       ...(fq.constraint != null && { constraint: fq.constraint }),
       ...(fq.constraint_msg != null && { constraint_msg: fq.constraint_msg }),
       ...(fq.relevant != null && { relevant: fq.relevant }),
@@ -323,12 +330,12 @@ export function unflattenQuestions(flat: FlatQuestion[]): BlueprintQuestion[] {
       ...(fq.default_value != null && { default_value: fq.default_value }),
       ...(fq.options != null && { options: fq.options }),
       ...(fq.case_property != null && { case_property: fq.case_property }),
-      ...(fq.is_case_name != null && fq.is_case_name && { is_case_name: fq.is_case_name }),
+      ...(fq.is_case_name && { is_case_name: fq.is_case_name }),
     }
 
     byId.set(fq.id, q)
 
-    if (fq.parent_id == null) {
+    if (!fq.parent_id) {
       result.push(q)
     } else {
       const parent = byId.get(fq.parent_id)
@@ -356,10 +363,10 @@ export function flattenQuestions(questions: BlueprintQuestion[], parentId: strin
       id: q.id,
       type: q.type,
       label: q.label ?? null,
-      parent_id: parentId,
+      parent_id: parentId ?? '',
       hint: q.hint ?? null,
-      required: q.required ?? null,
-      readonly: q.readonly ?? null,
+      required: q.required ?? false,
+      readonly: q.readonly ?? false,
       constraint: q.constraint ?? null,
       constraint_msg: q.constraint_msg ?? null,
       relevant: q.relevant ?? null,
@@ -367,7 +374,7 @@ export function flattenQuestions(questions: BlueprintQuestion[], parentId: strin
       default_value: q.default_value ?? null,
       options: q.options ?? null,
       case_property: q.case_property ?? null,
-      is_case_name: q.is_case_name ?? null,
+      is_case_name: q.is_case_name ?? false,
     })
     if (q.children) {
       result.push(...flattenQuestions(q.children, q.id))
@@ -397,7 +404,7 @@ function assembleChildCases(cases: FormContent['child_cases']): BlueprintForm['c
   return cases.map(c => ({
     case_type: c.case_type,
     case_name_field: c.case_name_field,
-    ...(c.case_properties != null && { case_properties: c.case_properties }),
+    ...(c.case_properties != null && c.case_properties.length > 0 && { case_properties: c.case_properties }),
     ...(c.relationship != null && { relationship: c.relationship }),
     ...(c.repeat_context != null && { repeat_context: c.repeat_context }),
   }))
@@ -408,30 +415,30 @@ function assembleChildCases(cases: FormContent['child_cases']): BlueprintForm['c
  */
 export function deriveCaseConfig(questions: FlatQuestion[], formType: 'registration' | 'followup' | 'survey') {
   let case_name_field: string | undefined
-  let case_properties: Record<string, string> | undefined
-  let case_preload: Record<string, string> | undefined
+  let case_properties: CasePropertyMapping[] | undefined
+  let case_preload: CasePropertyMapping[] | undefined
 
   if (formType === 'survey') return { case_name_field, case_properties, case_preload }
 
-  const props: Record<string, string> = {}
-  const preload: Record<string, string> = {}
+  const props: CasePropertyMapping[] = []
+  const preload: CasePropertyMapping[] = []
 
   for (const q of questions) {
     if (q.is_case_name) case_name_field = q.id
     if (q.case_property) {
       if (formType === 'followup') {
-        preload[q.id] = q.case_property
+        preload.push({ case_property: q.case_property, question_id: q.id })
         if (!q.readonly) {
-          props[q.case_property] = q.id
+          props.push({ case_property: q.case_property, question_id: q.id })
         }
       } else {
-        props[q.case_property] = q.id
+        props.push({ case_property: q.case_property, question_id: q.id })
       }
     }
   }
 
-  if (Object.keys(props).length > 0) case_properties = props
-  if (Object.keys(preload).length > 0) case_preload = preload
+  if (props.length > 0) case_properties = props
+  if (preload.length > 0) case_preload = preload
 
   return { case_name_field, case_properties, case_preload }
 }

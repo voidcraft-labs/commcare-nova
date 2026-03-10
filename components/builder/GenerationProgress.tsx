@@ -14,13 +14,14 @@ interface GenerationProgressProps {
 }
 
 const baseStages: { key: BuilderPhase; label: string }[] = [
+  { key: BuilderPhase.Designing, label: 'Design' },
   { key: BuilderPhase.Modules, label: 'Modules' },
   { key: BuilderPhase.Forms, label: 'Forms' },
   { key: BuilderPhase.Validating, label: 'Validate' },
 ]
 
 function getStageStatus(stage: BuilderPhase, currentPhase: BuilderPhase): 'done' | 'active' | 'pending' {
-  const order = [BuilderPhase.Modules, BuilderPhase.Forms, BuilderPhase.Validating, BuilderPhase.Fixing, BuilderPhase.Done]
+  const order = [BuilderPhase.Designing, BuilderPhase.Modules, BuilderPhase.Forms, BuilderPhase.Validating, BuilderPhase.Fixing, BuilderPhase.Done]
   const stageIdx = order.indexOf(stage)
   const currentIdx = order.indexOf(currentPhase)
 

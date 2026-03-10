@@ -11,8 +11,8 @@ const followupBlueprint: AppBlueprint = {
     forms: [{
       name: 'Follow-up Visit',
       type: 'followup',
-      case_properties: { total_visits: 'visit_number' },
-      case_preload: { visit_number: 'total_visits', display_name: 'full_name' },
+      case_properties: [{ case_property: 'total_visits', question_id: 'visit_number' }],
+      case_preload: [{ question_id: 'visit_number', case_property: 'total_visits' }, { question_id: 'display_name', case_property: 'full_name' }],
       questions: [
         { id: 'client_info', type: 'group', label: 'Client Info', children: [
           { id: 'display_name', type: 'text', label: 'Name', readonly: true },
@@ -35,7 +35,7 @@ const registrationBlueprint: AppBlueprint = {
       name: 'Register Patient',
       type: 'registration',
       case_name_field: 'full_name',
-      case_properties: { age: 'patient_age' },
+      case_properties: [{ case_property: 'age', question_id: 'patient_age' }],
       questions: [
         { id: 'full_name', type: 'text', label: 'Full Name', required: true, is_case_name: true },
         { id: 'patient_age', type: 'int', label: 'Age', constraint: '. > 0 and . < 150' },
@@ -69,7 +69,7 @@ describe('expandBlueprint', () => {
       modules: [{
         name: 'M', case_type: 'case', forms: [{
           name: 'F', type: 'followup',
-          case_preload: { nested_q: 'some_prop' },
+          case_preload: [{ question_id: 'nested_q', case_property: 'some_prop' }],
           questions: [{
             id: 'grp', type: 'group', label: 'G', children: [
               { id: 'nested_q', type: 'hidden', calculate: '#case/some_prop + #user/role' },
@@ -140,7 +140,7 @@ describe('expandBlueprint', () => {
       app_name: 'DV', modules: [{
         name: 'M', case_type: 'c', forms: [{
           name: 'F', type: 'followup',
-          case_preload: { display_name: 'full_name' },
+          case_preload: [{ question_id: 'display_name', case_property: 'full_name' }],
           questions: [{ id: 'display_name', type: 'text', label: 'Name', readonly: true, default_value: '#case/full_name' }],
         }],
       }],
@@ -236,7 +236,7 @@ describe('validateBlueprint', () => {
       app_name: 'Bad', modules: [{
         name: 'M', case_type: 'c', forms: [{
           name: 'F', type: 'registration', case_name_field: 'q',
-          case_properties: { name: 'q' },
+          case_properties: [{ case_property: 'name', question_id: 'q' }],
           questions: [{ id: 'q', type: 'text', label: 'Q' }],
         }],
       }],
@@ -250,7 +250,7 @@ describe('validateBlueprint', () => {
       app_name: 'Bad', modules: [{
         name: 'M', case_type: 'c', forms: [{
           name: 'F', type: 'registration', case_name_field: 'q',
-          case_properties: { foo: 'nonexistent' },
+          case_properties: [{ case_property: 'foo', question_id: 'nonexistent' }],
           questions: [{ id: 'q', type: 'text', label: 'Q' }],
         }],
       }],

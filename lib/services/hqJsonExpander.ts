@@ -346,7 +346,7 @@ function buildFormActions(form: BlueprintForm, caseType: string): FormActions {
   }
 
   // Build a safe update map, filtering out reserved property names and media questions
-  function buildSafeUpdateMap(caseProperties: Record<string, string> | undefined): Record<string, { question_path: string; update_mode: string }> {
+  function buildSafeUpdateMap(caseProperties: Array<{ case_property: string; question_id: string }> | undefined): Record<string, { question_path: string; update_mode: string }> {
     const updateMap: Record<string, { question_path: string; update_mode: string }> = {}
     if (!caseProperties) return updateMap
     // Build a lookup of question id -> type for media filtering
@@ -360,7 +360,7 @@ function buildFormActions(form: BlueprintForm, caseType: string): FormActions {
       }
       return undefined
     }
-    for (const [caseProp, questionId] of Object.entries(caseProperties)) {
+    for (const { case_property: caseProp, question_id: questionId } of caseProperties) {
       if (RESERVED_CASE_PROPERTIES.has(caseProp)) continue // skip reserved words
       const qType = getQuestionType(form.questions || [], questionId)
       if (qType && MEDIA_QUESTION_TYPES.has(qType)) continue // skip media/binary questions
@@ -393,9 +393,9 @@ function buildFormActions(form: BlueprintForm, caseType: string): FormActions {
     }
 
     // Preload case data — filter reserved words (HQ rejects them in preloads too)
-    if (form.case_preload && Object.keys(form.case_preload).length > 0) {
+    if (form.case_preload && form.case_preload.length > 0) {
       const preloadMap: Record<string, string> = {}
-      for (const [questionId, caseProp] of Object.entries(form.case_preload)) {
+      for (const { question_id: questionId, case_property: caseProp } of form.case_preload) {
         if (RESERVED_CASE_PROPERTIES.has(caseProp)) continue // HQ rejects reserved words in preloads
         const qPath = resolveQuestionPath(form.questions || [], questionId) || `/data/${questionId}`
         preloadMap[qPath] = caseProp
@@ -429,7 +429,7 @@ function buildFormActions(form: BlueprintForm, caseType: string): FormActions {
     base.subcases = form.child_cases.map((child): OpenSubCaseAction => {
       const childProps: Record<string, { question_path: string; update_mode: string }> = {}
       if (child.case_properties) {
-        for (const [caseProp, questionId] of Object.entries(child.case_properties)) {
+        for (const { case_property: caseProp, question_id: questionId } of child.case_properties) {
           if (RESERVED_CASE_PROPERTIES.has(caseProp)) continue
           const qPath = resolveQuestionPath(form.questions || [], questionId) || `/data/${questionId}`
           childProps[caseProp] = { question_path: qPath, update_mode: 'always' }
@@ -531,19 +531,13 @@ export function validateBlueprint(blueprint: AppBlueprint): string[] {
         }
       }
 
-      // Check case_properties keys are not reserved words
+      // Check case_properties are not reserved words and refer to valid questions
       if (form.case_properties) {
-        for (const prop of Object.keys(form.case_properties)) {
+        const questionIds = collectQuestionIds(form.questions || [])
+        for (const { case_property: prop, question_id: qId } of form.case_properties) {
           if (RESERVED_CASE_PROPERTIES.has(prop)) {
             errors.push(`"${form.name}" uses reserved case property name "${prop}" — use a different name`)
           }
-        }
-      }
-
-      // Check case_properties values refer to valid question ids and are not media types
-      if (form.case_properties) {
-        const questionIds = collectQuestionIds(form.questions || [])
-        for (const [prop, qId] of Object.entries(form.case_properties)) {
           if (!questionIds.includes(qId)) {
             errors.push(`"${form.name}" case property "${prop}" maps to question "${qId}" which doesn't exist`)
           } else {
@@ -555,10 +549,10 @@ export function validateBlueprint(blueprint: AppBlueprint): string[] {
         }
       }
 
-      // Check case_preload keys refer to valid question ids and values aren't reserved
+      // Check case_preload entries refer to valid question ids and aren't reserved
       if (form.case_preload) {
         const questionIds = collectQuestionIds(form.questions || [])
-        for (const [qId, caseProp] of Object.entries(form.case_preload)) {
+        for (const { question_id: qId, case_property: caseProp } of form.case_preload) {
           if (!questionIds.includes(qId)) {
             errors.push(`"${form.name}" case_preload references question "${qId}" which doesn't exist`)
           }
@@ -605,7 +599,7 @@ export function validateBlueprint(blueprint: AppBlueprint): string[] {
             errors.push(`${prefix} case_name_field "${child.case_name_field}" doesn't match any question id`)
           }
           if (child.case_properties) {
-            for (const [prop, qId] of Object.entries(child.case_properties)) {
+            for (const { case_property: prop, question_id: qId } of child.case_properties) {
               if (RESERVED_CASE_PROPERTIES.has(prop)) {
                 errors.push(`${prefix} uses reserved case property name "${prop}"`)
               }

@@ -13,7 +13,7 @@ const blueprint: AppBlueprint = {
       {
         name: 'Register', type: 'registration',
         case_name_field: 'name',
-        case_properties: { age: 'age' },
+        case_properties: [{ case_property: 'age', question_id: 'age' }],
         questions: [
           { id: 'name', type: 'text', label: 'Name', is_case_name: true },
           { id: 'age', type: 'int', label: 'Age' },
@@ -21,8 +21,8 @@ const blueprint: AppBlueprint = {
       },
       {
         name: 'Visit', type: 'followup',
-        case_properties: { total_visits: 'visit_count' },
-        case_preload: { visit_count: 'total_visits' },
+        case_properties: [{ case_property: 'total_visits', question_id: 'visit_count' }],
+        case_preload: [{ question_id: 'visit_count', case_property: 'total_visits' }],
         questions: [
           { id: 'visit_count', type: 'hidden', label: 'Visits', calculate: '#case/total_visits + 1' },
           { id: 'notes', type: 'text', label: 'Notes' },
