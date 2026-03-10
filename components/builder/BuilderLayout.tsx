@@ -3,6 +3,7 @@ import { useEffect, useRef, useState, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
 import { useChat } from '@ai-sdk/react'
 import { DefaultChatTransport, lastAssistantMessageIsCompleteWithToolCalls } from 'ai'
+import { motion, AnimatePresence, LayoutGroup } from 'motion/react'
 import { useApiKey } from '@/hooks/useApiKey'
 import { useBuilder } from '@/hooks/useBuilder'
 import { BuilderPhase } from '@/lib/services/builder'
@@ -13,7 +14,6 @@ import { Badge } from '@/components/ui/Badge'
 import { ChatSidebar } from '@/components/chat/ChatSidebar'
 import { AppTree } from '@/components/builder/AppTree'
 import { DetailPanel } from '@/components/builder/DetailPanel'
-import { EmptyState } from '@/components/builder/EmptyState'
 import { GenerationProgress } from '@/components/builder/GenerationProgress'
 
 export function BuilderLayout({ buildId }: { buildId: string }) {
@@ -25,6 +25,8 @@ export function BuilderLayout({ buildId }: { buildId: string }) {
 
   const apiKeyRef = useRef(apiKey)
   apiKeyRef.current = apiKey
+
+  const isCentered = builder.phase === BuilderPhase.Idle && !builder.treeData
 
   const { messages, sendMessage, addToolOutput, status } = useChat({
     transport: new DefaultChatTransport({
@@ -189,95 +191,116 @@ export function BuilderLayout({ buildId }: { buildId: string }) {
         <div />
       </header>
 
-      <div className="flex flex-1 overflow-hidden">
-        {chatOpen && (
-          <ChatSidebar
-            messages={messages}
-            status={status}
-            onSend={handleSend}
-            onClose={() => setChatOpen(false)}
-            addToolOutput={addToolOutput}
-          />
-        )}
-
-        <div className="flex-1 overflow-auto relative">
-          {!chatOpen && (
-            <button
-              onClick={() => setChatOpen(true)}
-              className="absolute top-3 left-3 z-10 p-2 bg-nova-surface border border-nova-border rounded-lg hover:border-nova-border-bright transition-colors"
-              title="Open chat"
+      <LayoutGroup>
+        <div className="flex flex-1 overflow-hidden">
+          {chatOpen && (
+            <motion.div
+              layout
+              className={
+                isCentered
+                  ? 'flex-1 flex items-center justify-center'
+                  : 'shrink-0'
+              }
+              transition={{ layout: { duration: 0.45, ease: [0.4, 0, 0.2, 1] } }}
             >
-              <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-                <path d="M2 4h12M2 8h12M2 12h8" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
-              </svg>
-            </button>
+              <ChatSidebar
+                mode={isCentered ? 'centered' : 'sidebar'}
+                messages={messages}
+                status={status}
+                onSend={handleSend}
+                onClose={() => setChatOpen(false)}
+                addToolOutput={addToolOutput}
+              />
+            </motion.div>
           )}
 
-          {builder.phase === BuilderPhase.Planning ? (
-            <div className="flex items-center justify-center h-full">
-              <div className="flex items-center gap-3 text-sm text-nova-text-muted">
-                <span className="inline-block w-2 h-2 rounded-full bg-nova-violet animate-pulse" />
-                {builder.statusMessage}
-              </div>
-            </div>
-          ) : builder.phase === BuilderPhase.Idle && !builder.treeData ? (
-            <EmptyState onOpenChat={() => setChatOpen(true)} />
-          ) : (
-            <AppTree
-              data={builder.treeData}
+          <AnimatePresence>
+            {!isCentered && (
+              <motion.div
+                className="flex-1 overflow-auto relative"
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                transition={{ duration: 0.3, delay: 0.15 }}
+              >
+                {!chatOpen && (
+                  <button
+                    onClick={() => setChatOpen(true)}
+                    className="absolute top-3 left-3 z-10 p-2 bg-nova-surface border border-nova-border rounded-lg hover:border-nova-border-bright transition-colors"
+                    title="Open chat"
+                  >
+                    <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+                      <path d="M2 4h12M2 8h12M2 12h8" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
+                    </svg>
+                  </button>
+                )}
+
+                {builder.phase === BuilderPhase.Planning ? (
+                  <div className="flex items-center justify-center h-full">
+                    <div className="flex items-center gap-3 text-sm text-nova-text-muted">
+                      <span className="inline-block w-2 h-2 rounded-full bg-nova-violet animate-pulse" />
+                      {builder.statusMessage}
+                    </div>
+                  </div>
+                ) : (
+                  <AppTree
+                    data={builder.treeData}
+                    selected={builder.selected}
+                    onSelect={(s) => builder.select(s)}
+                    phase={builder.phase}
+                    actions={
+                      <>
+                        {builder.phase === BuilderPhase.Scaffolding && (
+                          <Button variant="primary" size="sm" onClick={() => builder.fillBlueprint(apiKey)}>
+                            Generate
+                          </Button>
+                        )}
+                        {isGenerating && (
+                          <Badge variant="violet">
+                            <span className="inline-block w-1.5 h-1.5 rounded-full bg-nova-violet-bright animate-pulse mr-1.5" />
+                            Generating
+                          </Badge>
+                        )}
+                        {builder.phase === BuilderPhase.Done && builder.blueprint && (
+                          <>
+                            <Button variant="ghost" size="sm" onClick={handleValidate}>
+                              Validate
+                            </Button>
+                            <Button variant="secondary" size="sm" onClick={handleDownloadJson}>
+                              Download JSON
+                            </Button>
+                            <Button variant="secondary" size="sm" onClick={handleCompile}>
+                              Download .ccz
+                            </Button>
+                          </>
+                        )}
+                      </>
+                    }
+                  />
+                )}
+
+                {isGenerating && (
+                  <div className="absolute bottom-4 left-1/2 -translate-x-1/2 z-10">
+                    <GenerationProgress
+                      phase={builder.phase}
+                      message={builder.statusMessage}
+                    />
+                  </div>
+                )}
+              </motion.div>
+            )}
+          </AnimatePresence>
+
+          {builder.selected && builder.blueprint && (
+            <DetailPanel
+              blueprint={builder.blueprint}
               selected={builder.selected}
-              onSelect={(s) => builder.select(s)}
-              phase={builder.phase}
-              actions={
-                <>
-                  {builder.phase === BuilderPhase.Scaffolding && (
-                    <Button variant="primary" size="sm" onClick={() => builder.fillBlueprint(apiKey)}>
-                      Generate
-                    </Button>
-                  )}
-                  {isGenerating && (
-                    <Badge variant="violet">
-                      <span className="inline-block w-1.5 h-1.5 rounded-full bg-nova-violet-bright animate-pulse mr-1.5" />
-                      Generating
-                    </Badge>
-                  )}
-                  {builder.phase === BuilderPhase.Done && builder.blueprint && (
-                    <>
-                      <Button variant="ghost" size="sm" onClick={handleValidate}>
-                        Validate
-                      </Button>
-                      <Button variant="secondary" size="sm" onClick={handleDownloadJson}>
-                        Download JSON
-                      </Button>
-                      <Button variant="secondary" size="sm" onClick={handleCompile}>
-                        Download .ccz
-                      </Button>
-                    </>
-                  )}
-                </>
-              }
+              onUpdate={(bp) => builder.updateBlueprint(bp)}
+              onClose={() => builder.select(null)}
             />
           )}
-
-          {isGenerating && (
-            <div className="absolute bottom-4 left-1/2 -translate-x-1/2 z-10">
-              <GenerationProgress
-                phase={builder.phase}
-                message={builder.statusMessage}
-              />
-            </div>
-          )}
         </div>
-
-        {builder.selected && builder.blueprint && (
-          <DetailPanel
-            blueprint={builder.blueprint}
-            selected={builder.selected}
-            onUpdate={(bp) => builder.updateBlueprint(bp)}
-            onClose={() => builder.select(null)}
-          />
-        )}
-      </div>
+      </LayoutGroup>
     </div>
   )
 }
