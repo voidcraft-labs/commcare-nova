@@ -348,7 +348,7 @@ export function BuilderLayout({ buildId }: { buildId: string }) {
 
                 <AnimatePresence>
                   {showProgress && (
-                    <div className="absolute bottom-4 inset-x-0 z-10 flex justify-center pointer-events-none">
+                    <div className="fixed bottom-4 inset-x-0 z-10 flex justify-center pointer-events-none">
                       <div className="pointer-events-auto">
                         <GenerationProgress
                           phase={builder.phase}
