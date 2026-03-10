@@ -4,6 +4,10 @@ import { useRouter } from 'next/navigation'
 import { useChat } from '@ai-sdk/react'
 import { DefaultChatTransport, lastAssistantMessageIsCompleteWithToolCalls } from 'ai'
 import { motion, AnimatePresence, LayoutGroup } from 'motion/react'
+import { Icon } from '@iconify/react'
+import ciHamburgerMd from '@iconify-icons/ci/hamburger-md'
+import ciFileDocument from '@iconify-icons/ci/file-document'
+import ciDownloadPackage from '@iconify-icons/ci/download-package'
 import { useApiKey } from '@/hooks/useApiKey'
 import { useBuilder } from '@/hooks/useBuilder'
 import { BuilderPhase } from '@/lib/services/builder'
@@ -230,9 +234,7 @@ export function BuilderLayout({ buildId }: { buildId: string }) {
                     className="absolute top-3 left-3 z-10 p-2 bg-nova-surface border border-nova-border rounded-lg hover:border-nova-border-bright transition-colors"
                     title="Open chat"
                   >
-                    <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-                      <path d="M2 4h12M2 8h12M2 12h8" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
-                    </svg>
+                    <Icon icon={ciHamburgerMd} width="16" height="16" />
                   </button>
                 )}
 
@@ -272,13 +274,13 @@ export function BuilderLayout({ buildId }: { buildId: string }) {
                                 {
                                   label: 'JSON',
                                   description: 'For CommCare HQ',
-                                  icon: <svg width="28" height="28" viewBox="0 0 16 16" fill="none"><path d="M4 2h5.172L12 4.828V13a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V3a1 1 0 0 1 1-1z" stroke="currentColor" strokeWidth="1.1" strokeLinejoin="round"/><path d="M5.5 8.5h4M5.5 11h2.5" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round"/></svg>,
+                                  icon: <Icon icon={ciFileDocument} width="28" height="28" />,
                                   onClick: handleDownloadJson,
                                 },
                                 {
                                   label: 'CCZ',
                                   description: 'For CommCare mobile',
-                                  icon: <svg width="28" height="28" viewBox="-1 0 18 16" fill="none"><path d="M2.5 6.5h11v7a1 1 0 0 1-1 1h-9a1 1 0 0 1-1-1v-7z" stroke="currentColor" strokeWidth="1.24" strokeLinejoin="round"/><path d="M2.5 6.5l2-4h7l2 4" stroke="currentColor" strokeWidth="1.24" strokeLinejoin="round"/><path d="M6.5 10h3" stroke="currentColor" strokeWidth="1.24" strokeLinecap="round"/></svg>,
+                                  icon: <Icon icon={ciDownloadPackage} width="28" height="28" />,
                                   onClick: handleCompile,
                                 },
                               ]}

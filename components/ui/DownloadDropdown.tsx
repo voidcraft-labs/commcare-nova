@@ -1,6 +1,9 @@
 'use client'
 import { useState, useRef, useEffect } from 'react'
 import { motion, AnimatePresence } from 'motion/react'
+import { Icon } from '@iconify/react'
+import ciDownload from '@iconify-icons/ci/download'
+import ciChevronDown from '@iconify-icons/ci/chevron-down'
 
 interface DownloadOption {
   label: string
@@ -32,17 +35,13 @@ export function DownloadDropdown({ options }: DownloadDropdownProps) {
         onClick={() => setOpen(!open)}
         className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium rounded-lg bg-nova-surface text-nova-text border border-nova-border hover:border-nova-border-bright hover:bg-nova-elevated transition-all duration-200 cursor-pointer"
       >
-        <svg width="14" height="14" viewBox="0 0 14 14" fill="none" className="opacity-70">
-          <path d="M7 1.75v7.5M3.5 6.25L7 9.75l3.5-3.5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"/>
-          <path d="M2.25 11.25h9.5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"/>
-        </svg>
+        <Icon icon={ciDownload} width="14" height="14" className="opacity-70" />
         Download
-        <svg
-          width="10" height="10" viewBox="0 0 10 10" fill="none"
+        <Icon
+          icon={ciChevronDown}
+          width="10" height="10"
           className={`opacity-50 transition-transform duration-200 ${open ? 'rotate-180' : ''}`}
-        >
-          <path d="M2.5 3.75L5 6.25l2.5-2.5" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/>
-        </svg>
+        />
       </motion.button>
 
       <AnimatePresence>

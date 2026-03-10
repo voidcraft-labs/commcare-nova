@@ -1,5 +1,7 @@
 'use client'
 import { useState, useRef, useCallback } from 'react'
+import { Icon } from '@iconify/react'
+import ciArrowRightMd from '@iconify-icons/ci/arrow-right-md'
 
 interface ChatInputProps {
   onSend: (message: string) => void
@@ -53,9 +55,7 @@ export function ChatInput({ onSend, disabled, centered }: ChatInputProps) {
           disabled={!value.trim() || disabled}
           className="shrink-0 p-2 mr-1 text-nova-violet-bright hover:text-white transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
         >
-          <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-            <path d="M2 8h12M9 3l5 5-5 5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
-          </svg>
+          <Icon icon={ciArrowRightMd} width="16" height="16" />
         </button>
       </div>
     </div>

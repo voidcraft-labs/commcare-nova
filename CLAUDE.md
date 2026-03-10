@@ -11,6 +11,7 @@ Next.js web app that generates CommCare apps from natural language conversation.
 - **Validation**: Zod v4
 - **AI (Chat)**: Vercel AI SDK (`ai` + `@ai-sdk/react` + `@ai-sdk/anthropic`) — `streamText`, `useChat`, client-side tools
 - **AI (Generation)**: Anthropic SDK (`@anthropic-ai/sdk`) with structured output via `zodOutputFormat`
+- **Icons**: Coolicons (`@iconify-icons/ci`) + Tabler (`@iconify-icons/tabler`) via `@iconify/react`
 - **Testing**: Vitest
 
 ## Project Structure
@@ -161,6 +162,15 @@ npm run build        # Production build
 npm test             # Run tests (vitest)
 npm run test:watch   # Watch mode tests
 ```
+
+## Icons
+
+Coolicons (`ci` prefix) via `unplugin-icons`. No inline SVGs — all icons are imported as React components.
+
+- **Import pattern**: `import ciIconName from '@iconify-icons/ci/icon-name'`
+- **Usage**: `<Icon icon={ciIconName} width="16" height="16" className="..." />`
+- **Browse available icons**: `node_modules/@iconify-icons/ci/` (one file per icon)
+- No build plugin needed — pure ESM, works with Turbopack
 
 ## Theme
 

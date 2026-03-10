@@ -2,6 +2,8 @@
 import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { motion } from 'motion/react'
+import { Icon } from '@iconify/react'
+import ciCheck from '@iconify-icons/ci/check'
 import { Logo } from '@/components/ui/Logo'
 import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
@@ -71,7 +73,7 @@ export default function LandingPage() {
             />
             {saved && apiKey && (
               <div className="absolute right-3 top-[38px] text-nova-emerald text-xs flex items-center gap-1">
-                <svg width="12" height="12" viewBox="0 0 12 12" fill="none"><path d="M2 6l3 3 5-5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>
+                <Icon icon={ciCheck} width="12" height="12" />
                 Saved
               </div>
             )}

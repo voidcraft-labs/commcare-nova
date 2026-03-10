@@ -1,5 +1,7 @@
 'use client'
 import { motion } from 'motion/react'
+import { Icon } from '@iconify/react'
+import ciCloseMd from '@iconify-icons/ci/close-md'
 import type { AppBlueprint, BlueprintForm, BlueprintQuestion } from '@/lib/schemas/blueprint'
 import { Badge } from '@/components/ui/Badge'
 
@@ -49,9 +51,7 @@ export function DetailPanel({ blueprint, selected, onUpdate, onClose }: DetailPa
           onClick={onClose}
           className="text-nova-text-muted hover:text-nova-text transition-colors p-1"
         >
-          <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
-            <path d="M3 3l8 8M11 3l-8 8" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
-          </svg>
+          <Icon icon={ciCloseMd} width="14" height="14" />
         </button>
       </div>
 
