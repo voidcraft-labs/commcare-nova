@@ -51,7 +51,7 @@ export function ChatSidebar({
       layoutId="chat-panel"
       className={
         isCentered
-          ? 'w-full max-w-2xl max-h-[min(700px,80vh)] flex flex-col'
+          ? 'w-full max-w-2xl max-h-[min(700px,80vh)] flex flex-col gap-6'
           : 'w-[380px] border-r border-nova-border bg-nova-deep flex flex-col shrink-0 h-full'
       }
       transition={{ layout: { duration: 0.45, ease: [0.4, 0, 0.2, 1] } }}
@@ -72,12 +72,12 @@ export function ChatSidebar({
       )}
 
       {/* Messages */}
-      <div ref={scrollRef} className="flex-1 overflow-y-auto p-4 space-y-4">
+      <div ref={scrollRef} className={`${isCentered ? '' : 'flex-1'} overflow-y-auto ${isCentered ? 'px-4' : 'p-4'} space-y-4`}>
         {messages.length === 0 && !isLoading && (
-          <div className={isCentered ? 'text-center py-12' : 'text-center py-8'}>
+          <div className={isCentered ? 'text-center' : 'text-center py-8'}>
             {isCentered ? (
               <>
-                <h1 className="text-2xl font-display font-semibold text-nova-text mb-2">
+                <h1 className="text-xl font-display font-medium text-nova-text mb-1.5">
                   What do you want to build?
                 </h1>
                 <p className="text-nova-text-secondary text-sm leading-relaxed">
