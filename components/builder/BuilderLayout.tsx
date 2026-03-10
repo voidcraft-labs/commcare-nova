@@ -15,6 +15,7 @@ import { ChatSidebar } from '@/components/chat/ChatSidebar'
 import { AppTree } from '@/components/builder/AppTree'
 import { DetailPanel } from '@/components/builder/DetailPanel'
 import { GenerationProgress } from '@/components/builder/GenerationProgress'
+import { DownloadDropdown } from '@/components/ui/DownloadDropdown'
 
 export function BuilderLayout({ buildId }: { buildId: string }) {
   const router = useRouter()
@@ -266,12 +267,22 @@ export function BuilderLayout({ buildId }: { buildId: string }) {
                             <Button variant="ghost" size="sm" onClick={handleValidate}>
                               Validate
                             </Button>
-                            <Button variant="secondary" size="sm" onClick={handleDownloadJson}>
-                              Download JSON
-                            </Button>
-                            <Button variant="secondary" size="sm" onClick={handleCompile}>
-                              Download .ccz
-                            </Button>
+                            <DownloadDropdown
+                              options={[
+                                {
+                                  label: 'JSON',
+                                  description: 'For CommCare HQ',
+                                  icon: <svg width="28" height="28" viewBox="0 0 16 16" fill="none"><path d="M4 2h5.172L12 4.828V13a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V3a1 1 0 0 1 1-1z" stroke="currentColor" strokeWidth="1.1" strokeLinejoin="round"/><path d="M5.5 8.5h4M5.5 11h2.5" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round"/></svg>,
+                                  onClick: handleDownloadJson,
+                                },
+                                {
+                                  label: 'CCZ',
+                                  description: 'For CommCare mobile',
+                                  icon: <svg width="28" height="28" viewBox="-1 0 18 16" fill="none"><path d="M2.5 6.5h11v7a1 1 0 0 1-1 1h-9a1 1 0 0 1-1-1v-7z" stroke="currentColor" strokeWidth="1.24" strokeLinejoin="round"/><path d="M2.5 6.5l2-4h7l2 4" stroke="currentColor" strokeWidth="1.24" strokeLinejoin="round"/><path d="M6.5 10h3" stroke="currentColor" strokeWidth="1.24" strokeLinecap="round"/></svg>,
+                                  onClick: handleCompile,
+                                },
+                              ]}
+                            />
                           </>
                         )}
                       </>
