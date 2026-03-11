@@ -54,14 +54,12 @@ export class ConfluenceClient {
 
   /** Paginate through all results for a v2 endpoint */
   private async paginate<T>(url: string): Promise<T[]> {
+    interface Page { results: T[]; _links?: { next?: string } }
     const results: T[] = []
     let nextUrl: string | null = url
     while (nextUrl) {
       await this.delay()
-      const data = await this.request<{
-        results: T[]
-        _links?: { next?: string }
-      }>(nextUrl)
+      const data: Page = await this.request<Page>(nextUrl)
       results.push(...data.results)
       const next = data._links?.next ?? null
       nextUrl = next ? this.resolveNextLink(next) : null
