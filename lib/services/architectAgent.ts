@@ -15,7 +15,7 @@ import { scaffoldPrompt } from '../prompts/scaffoldPrompt'
 import { modulePrompt } from '../prompts/modulePrompt'
 import { formPrompt } from '../prompts/formPrompt'
 import { FORM_FIXER_PROMPT } from '../prompts/formFixerPrompt'
-import { loadKnowledge, SCAFFOLD_KNOWLEDGE, MODULE_KNOWLEDGE, FORM_KNOWLEDGE } from './commcare/knowledge/loadKnowledge'
+import { loadKnowledge, resolveConditionalKnowledge, FORM_KNOWLEDGE_ALL } from './commcare/knowledge/loadKnowledge'
 import {
   scaffoldSchema, moduleContentSchema, formContentSchema,
   assembleBlueprint, deriveCaseConfig, unflattenQuestions, flattenQuestions, closeCaseToFlat,
@@ -28,6 +28,7 @@ import { MutableBlueprint, type NewQuestion } from './mutableBlueprint'
 
 export class BlueprintAccumulator {
   scaffold: Scaffold | null = null
+  specification: string = ''
   moduleContents: ModuleContent[] = []
   formContents: FormContent[][] = []
   assembled: AppBlueprint | null = null
@@ -288,8 +289,10 @@ export function createArchitectAgent(
         }),
         execute: async ({ specification }) => {
           ctx.emit('data-phase', { phase: 'designing' })
+          accumulator.specification = specification
 
-          const knowledge = await loadKnowledge(...SCAFFOLD_KNOWLEDGE)
+          const files = resolveConditionalKnowledge('scaffold', { specification })
+          const knowledge = await loadKnowledge(...files)
           const scaffold = await ctx.streamGenerate(scaffoldSchema, {
             system: scaffoldPrompt(knowledge),
             prompt: specification,
@@ -332,7 +335,11 @@ export function createArchitectAgent(
           }
 
           try {
-            const knowledge = await loadKnowledge(...MODULE_KNOWLEDGE)
+            const files = resolveConditionalKnowledge('module', {
+              specification: accumulator.specification,
+              formPurpose: sm.purpose,
+            })
+            const knowledge = await loadKnowledge(...files)
             const mc = await ctx.generate(moduleContentSchema, {
               system: modulePrompt(knowledge),
               prompt: buildModulePrompt(scaffold, moduleIndex, feedback),
@@ -375,7 +382,11 @@ export function createArchitectAgent(
           ctx.emit('data-phase', { phase: 'forms' })
 
           try {
-            const knowledge = await loadKnowledge(...FORM_KNOWLEDGE)
+            const files = resolveConditionalKnowledge('form', {
+              specification: accumulator.specification,
+              formPurpose: sf.purpose,
+            })
+            const knowledge = await loadKnowledge(...files)
             const fc = await ctx.generate(formContentSchema, {
               system: formPrompt(knowledge),
               prompt: buildFormPrompt(scaffold, moduleIndex, formIndex, feedback),
@@ -844,7 +855,7 @@ export function createEditArchitectAgent(
           if (!form) return { error: `Form index ${formIndex} out of range in module ${moduleIndex}` }
 
           try {
-            const knowledge = await loadKnowledge(...FORM_KNOWLEDGE)
+            const knowledge = await loadKnowledge(...FORM_KNOWLEDGE_ALL)
             const fc = await ctx.generate(formContentSchema, {
               system: formPrompt(knowledge),
               prompt: buildRegenerateFormPrompt(blueprint, moduleIndex, formIndex, instructions),

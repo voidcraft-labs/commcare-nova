@@ -35,25 +35,9 @@ export async function loadKnowledge(...names: string[]): Promise<string> {
 
 // ── Phase-to-knowledge mappings ──────────────────────────────────────
 
-export const SCAFFOLD_KNOWLEDGE = [
-  'case-types-and-properties',
-  'parent-child-cases',
-  'case-design-patterns',
-  'case-sharing-ownership',
-  'module-configuration',
-  'app-design-soft-limits',
-  'form-navigation-end-of-form',
-] as const
-
-export const MODULE_KNOWLEDGE = [
-  'case-list-configuration',
-  'case-search-claim',
-  'xpath-function-reference',
-  'xpath-performance-optimization',
-  'multimedia-icons-formatting',
-] as const
-
-export const FORM_KNOWLEDGE = [
+// Full form knowledge set — used by regenerateForm (edit mode) where
+// correctness matters more than token savings.
+export const FORM_KNOWLEDGE_ALL = [
   'question-types-reference',
   'form-logic-expressions',
   'instance-declarations-reference',
@@ -66,6 +50,113 @@ export const FORM_KNOWLEDGE = [
   'xpath-function-reference',
   'xpath-performance-optimization',
 ] as const
+
+// ── Core/conditional knowledge sets ─────────────────────────────────
+
+type Phase = 'scaffold' | 'module' | 'form'
+
+const CORE: Record<Phase, string[]> = {
+  scaffold: ['case-types-and-properties', 'module-configuration'],
+  module: ['case-list-configuration'],
+  form: ['question-types-reference', 'form-logic-expressions', 'form-submission-validation'],
+}
+
+interface ConditionalEntry {
+  files: string[]
+  keywords: string[]
+}
+
+const CONDITIONAL: Record<Phase, Record<string, ConditionalEntry>> = {
+  scaffold: {
+    hierarchy: {
+      files: ['parent-child-cases', 'case-design-patterns'],
+      keywords: ['parent', 'child', 'subcase', 'household', 'hierarchy', 'referral', 'supervisor'],
+    },
+    sharing: {
+      files: ['case-sharing-ownership'],
+      keywords: ['shar', 'ownership', 'team', 'group', 'assign', 'transfer'],
+    },
+    formLinking: {
+      files: ['form-navigation-end-of-form'],
+      keywords: ['navigation', 'form link', 'end of form', 'redirect', 'workflow', 'menu'],
+    },
+    scale: {
+      files: ['app-design-soft-limits'],
+      keywords: ['scale', 'large', 'performance', 'limit', 'thousand', 'million', 'volume', 'many'],
+    },
+  },
+  module: {
+    caseSearch: {
+      files: ['case-search-claim'],
+      keywords: ['search', 'claim', 'lookup', 'find case', 'deduplicate', 'dedup', 'registry'],
+    },
+    calculatedColumns: {
+      files: ['xpath-function-reference'],
+      keywords: ['calculat', 'formula', 'xpath', 'expression', 'computed', 'derived', 'days since', 'age'],
+    },
+    icons: {
+      files: ['multimedia-icons-formatting'],
+      keywords: ['icon', 'badge', 'image', 'multimedia', 'color', 'format', 'emoji'],
+    },
+  },
+  form: {
+    instances: {
+      files: ['instance-declarations-reference', 'lookup-tables-fixtures'],
+      keywords: ['lookup', 'fixture', 'instance', 'reference', 'table', 'cascad', 'dropdown', 'list of'],
+    },
+    repeats: {
+      files: ['repeat-groups'],
+      keywords: ['repeat', 'multiple', 'add more', 'list of items', 'dynamic list', 'loop'],
+    },
+    saveToCase: {
+      files: ['save-to-case'],
+      keywords: ['save to case', 'create case', 'subcase', 'child case', 'open case', 'new case from'],
+    },
+    userProperties: {
+      files: ['user-properties-session-data'],
+      keywords: ['user property', 'user data', 'role-based', 'supervisor visibility', 'user role', 'custom user'],
+    },
+    gps: {
+      files: ['gps-distance-patterns'],
+      keywords: ['gps', 'coordinate', 'distance', 'geolocation', 'map pin', 'track location', 'latitude', 'longitude', 'lat/lon'],
+    },
+    xpathRef: {
+      files: ['xpath-function-reference', 'xpath-performance-optimization'],
+      keywords: ['xpath', 'calculat', 'formula', 'expression', 'if(', 'selected(', 'date(', 'index', 'sum(', 'count('],
+    },
+  },
+}
+
+// ── Resolver ────────────────────────────────────────────────────────
+
+export interface ResolverContext {
+  specification: string
+  formPurpose?: string
+}
+
+/**
+ * Resolve which knowledge files to load for a generation phase.
+ * Starts with core files, then adds conditional files when keyword
+ * triggers match against the specification + form purpose.
+ *
+ * Errs on the side of inclusion — false positives cost tokens,
+ * false negatives cost output quality.
+ */
+export function resolveConditionalKnowledge(phase: Phase, context: ResolverContext): string[] {
+  const files = new Set(CORE[phase])
+  const conditionals = CONDITIONAL[phase]
+
+  // Combine spec + form purpose for keyword matching
+  const haystack = `${context.specification} ${context.formPurpose ?? ''}`.toLowerCase()
+
+  for (const entry of Object.values(conditionals)) {
+    if (entry.keywords.some(kw => haystack.includes(kw))) {
+      for (const f of entry.files) files.add(f)
+    }
+  }
+
+  return [...files]
+}
 
 // ── Knowledge index for edit mode ────────────────────────────────────
 
