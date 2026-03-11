@@ -268,7 +268,16 @@ export function createArchitectAgent(
     stopWhen: stepCountIs(50),
     onStepFinish: ({ usage, text, toolCalls, toolResults }) => {
       if (usage) {
-        ctx.emitUsage('Solutions Architect', MODEL_GENERATION, usage, { system: ARCHITECT_PROMPT, message: '(orchestration step)' }, { text, toolCalls, toolResults })
+        ctx.logger.logEvent({
+          type: 'orchestration',
+          agent: 'Solutions Architect',
+          label: 'Orchestration step',
+          model: MODEL_GENERATION,
+          input_tokens: usage.inputTokens ?? 0,
+          output_tokens: usage.outputTokens ?? 0,
+          output: { text, toolResults },
+          tool_calls: toolCalls?.map((tc: any) => ({ name: tc.toolName, args: tc.args })),
+        })
       }
     },
     tools: {
@@ -493,7 +502,16 @@ export function createEditArchitectAgent(
     stopWhen: stepCountIs(50),
     onStepFinish: ({ usage, text, toolCalls, toolResults }) => {
       if (usage) {
-        ctx.emitUsage('Edit Architect', MODEL_GENERATION, usage, { system: EDIT_ARCHITECT_PROMPT, message: '(edit step)' }, { text, toolCalls, toolResults })
+        ctx.logger.logEvent({
+          type: 'orchestration',
+          agent: 'Edit Architect',
+          label: 'Edit step',
+          model: MODEL_GENERATION,
+          input_tokens: usage.inputTokens ?? 0,
+          output_tokens: usage.outputTokens ?? 0,
+          output: { text, toolResults },
+          tool_calls: toolCalls?.map((tc: any) => ({ name: tc.toolName, args: tc.args })),
+        })
       }
     },
     tools: {

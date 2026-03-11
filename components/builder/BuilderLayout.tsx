@@ -12,7 +12,6 @@ import { useApiKey } from '@/hooks/useApiKey'
 import { useBuilder } from '@/hooks/useBuilder'
 import { BuilderPhase } from '@/lib/services/builder'
 import { summarizeBlueprint } from '@/lib/schemas/blueprint'
-import { logUsage } from '@/lib/usage'
 import { Logo } from '@/components/ui/Logo'
 import { Badge } from '@/components/ui/Badge'
 import { ChatSidebar } from '@/components/chat/ChatSidebar'
@@ -72,7 +71,6 @@ export function BuilderLayout({ buildId }: { buildId: string }) {
         case 'data-fix-attempt': b.setFixAttempt(part.data.attempt, part.data.errorCount); break
         case 'data-done': b.setDone(part.data); break
         case 'data-error': b.setError(part.data.message); break
-        case 'data-usage': logUsage(part.data.label, part.data.calls); break
       }
     },
   })

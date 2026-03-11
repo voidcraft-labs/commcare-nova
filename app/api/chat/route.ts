@@ -10,6 +10,7 @@ import { z } from 'zod'
 import { buildProductManagerPrompt } from '@/lib/prompts/productManagerPrompt'
 import { MODEL_PM } from '@/lib/models'
 import { GenerationContext } from '@/lib/services/generationContext'
+import { RunLogger } from '@/lib/services/runLogger'
 import { createArchitectAgent, createEditArchitectAgent, BlueprintAccumulator } from '@/lib/services/architectAgent'
 import { MutableBlueprint } from '@/lib/services/mutableBlueprint'
 import { summarizeBlueprint, type AppBlueprint } from '@/lib/schemas/blueprint'
@@ -124,7 +125,9 @@ export async function POST(req: Request) {
 
   const stream = createUIMessageStream({
     execute: async ({ writer }) => {
-      const ctx = new GenerationContext(apiKey, writer)
+      const logger = new RunLogger()
+      logger.setAgent('Product Manager')
+      const ctx = new GenerationContext(apiKey, writer, logger)
       const pmInstructions = buildProductManagerPrompt(blueprintSummary)
 
       const productManager = new ToolLoopAgent({
@@ -140,7 +143,9 @@ export async function POST(req: Request) {
             description: 'Generate the CommCare app from the specification. Call when you have enough information.',
             inputSchema: generateAppSchema,
             execute: async ({ appName, appSpecification }, { abortSignal }) => {
+              logger.setAppName(appName)
               ctx.emit('data-planning', {})
+              logger.setAgent('Solutions Architect')
               const accumulator = new BlueprintAccumulator()
               const architect = createArchitectAgent(ctx, accumulator)
               const result = await architect.stream({
@@ -156,7 +161,9 @@ export async function POST(req: Request) {
             inputSchema: editAppSchema,
             execute: async ({ editInstructions }, { abortSignal }) => {
               if (!blueprint) return 'Error: No blueprint available to edit.'
+              logger.setAppName(blueprint.app_name)
               ctx.emit('data-editing', {})
+              logger.setAgent('Edit Architect')
               const mutableBp = new MutableBlueprint(blueprint)
               const editArchitect = createEditArchitectAgent(ctx, mutableBp)
               const result = await editArchitect.stream({
@@ -175,11 +182,24 @@ export async function POST(req: Request) {
         uiMessages: messages,
         onStepFinish: ({ usage, text, toolCalls, toolResults }) => {
           if (usage) {
-            ctx.emitUsage('Product Manager', MODEL_PM, usage, { system: pmInstructions, message: messages }, { text, toolCalls, toolResults })
+            logger.logEvent({
+              type: 'orchestration',
+              agent: 'Product Manager',
+              label: 'PM step',
+              model: MODEL_PM,
+              input_tokens: usage.inputTokens ?? 0,
+              output_tokens: usage.outputTokens ?? 0,
+              output: { text, toolResults },
+              tool_calls: toolCalls?.map((tc: any) => ({ name: tc.toolName, args: tc.args })),
+            })
           }
         },
       })
-      writer.merge(agentStream)
+      try {
+        writer.merge(agentStream)
+      } finally {
+        logger.finalize()
+      }
     },
     onError: (error) => error instanceof Error ? error.message : String(error),
   })

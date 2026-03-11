@@ -16,6 +16,10 @@ bun dev
 
 Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
 
+### Run Logging
+
+Set `RUN_LOGGER=1` in your `.env` to enable disk-based run logging. Each pipeline run writes a JSON file to `.log/` with all LLM calls, token usage, cost estimates, and full request/response data. The file is updated incrementally after every event, so it's always valid JSON even if the process crashes mid-run.
+
 You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
 
 This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
