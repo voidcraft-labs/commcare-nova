@@ -37,9 +37,10 @@ lib/
     cczCompiler.ts      # HQ import JSON → .ccz archive (adds case blocks, suite.xml)
     autoFixer.ts        # Programmatic fixes for common CommCare app issues
     commcare/           # Shared CommCare platform module (constants, XML, hashtags, HQ types/shells)
+    commcare/knowledge/ # Distilled CommCare platform knowledge (.md) + loadKnowledge.ts loader
     __tests__/          # Vitest tests for expander, compiler, commcare module, and mutableBlueprint
   schemas/              # Zod schemas for AppBlueprint, tier outputs
-  prompts/              # Agent prompts (productManagerPrompt, architectPrompt, editArchitectPrompt, scaffoldPrompt, modulePrompt, formPrompt, formFixerPrompt)
+  prompts/              # Agent prompts (productManagerPrompt, architectPrompt, editArchitectPrompt, scaffoldPrompt, modulePrompt, formPrompt, formFixerPrompt) — generation prompts accept knowledge param
   types/                # TypeScript type definitions
   models.ts             # Central model ID + pricing config
   usage.ts              # ClaudeUsage type + logUsage() browser console logger
@@ -47,7 +48,6 @@ lib/
 scripts/
   sync-knowledge.ts       # Knowledge sync pipeline entry point
   knowledge/              # Pipeline phases: discover, crawl, triage, distill, reorganize
-lib/services/commcare/knowledge/  # Distilled + reorganized CommCare platform knowledge (.md files)
 ```
 
 ## Key Architecture Decisions
@@ -73,10 +73,11 @@ A single `POST /api/chat` endpoint runs the entire pipeline: conversation, gener
    **Edit mode** (`createEditArchitectAgent`):
    - **`searchBlueprint`** — keyword search across question IDs, labels, case properties, XPath, module/form names, columns
    - **`getModule`** / **`getForm`** / **`getQuestion`** — retrieve full details of specific elements
+   - **`loadKnowledge`** — on-demand CommCare platform knowledge loading (the knowledge index is always in the edit architect's system prompt)
    - **`editQuestion`** / **`addQuestion`** / **`removeQuestion`** — question-level mutations with auto case config re-derivation
    - **`updateModule`** / **`updateForm`** / **`addForm`** / **`removeForm`** / **`addModule`** / **`removeModule`** — structural mutations
    - **`renameCaseProperty`** — renames a case property with automatic propagation across all forms, columns, and XPath expressions
-   - **`regenerateForm`** — LLM-powered full form regeneration for major restructuring
+   - **`regenerateForm`** — LLM-powered full form regeneration for major restructuring (loads FORM_KNOWLEDGE)
    - **`validateApp`** — runs `validateAndFix` loop on the mutated blueprint
 
 The PM does NOT make technical decisions (property names, case types, form structures). It writes a plain English `appSpecification`. The Solutions Architect translates that into CommCare architecture.
@@ -145,6 +146,19 @@ The architect runs generation in three tiers to stay within Anthropic's schema c
 3. **Form Content** (Tier 3): Questions + case config per form — delegated via `generate()` with `formContentSchema`
 
 Results are assembled into a full `AppBlueprint` via `assembleBlueprint()`.
+
+### Knowledge Injection
+
+CommCare platform knowledge from `lib/services/commcare/knowledge/*.md` is loaded into generation prompts so the SA produces idiomatic CommCare patterns instead of structurally-valid-but-naive solutions.
+
+**Generation mode** — knowledge is pre-loaded per phase via mappings in `loadKnowledge.ts`:
+- `SCAFFOLD_KNOWLEDGE` (7 files): case types, parent-child, design patterns, sharing, modules, limits, navigation
+- `MODULE_KNOWLEDGE` (5 files): case list config, search/claim, XPath functions, performance, multimedia
+- `FORM_KNOWLEDGE` (11 files): question types, form logic, instances, fixtures, repeats, save-to-case, validation, user properties, GPS, XPath functions, performance
+
+Each prompt function (`scaffoldPrompt`, `modulePrompt`, `formPrompt`) accepts an optional `knowledge` string and embeds it in a `<knowledge>` block. The architect agent loads the right set before each `generate()`/`streamGenerate()` call.
+
+**Edit mode** — on-demand via a `loadKnowledge` tool. The edit architect's system prompt always includes a `KNOWLEDGE_INDEX` (one-liner per file) so it knows what's available. Feature-specific files (multilingual, alerts, scheduler, registry, UCR, encryption, etc.) are excluded from default generation sets but available on-demand in edit mode.
 
 ### Per-Question Case Property Mapping
 
@@ -253,14 +267,14 @@ All Claude API calls log token usage, cost estimates, and full request/response 
 ## Service Layer Notes
 
 - `builder.ts`: `Builder` class — singleton via `useBuilder()`. Holds `scaffold`, `blueprint`, `partialScaffold` (streaming structured output), and `partialModules` (module/form results). `treeData` getter merges partial data with scaffold for progressive rendering. Setter methods are called from `onData` callback in BuilderLayout. `updateProgress()` derives completed/total counts from the `partialModules` map.
-- `architectAgent.ts`: Two factory functions. `createArchitectAgent(ctx, accumulator)` returns a generation-mode `ToolLoopAgent` with tools: `generateScaffold`, `generateModuleContent`, `generateFormContent`, `assembleBlueprint`, `validateApp`. `createEditArchitectAgent(ctx, mutableBp)` returns an edit-mode `ToolLoopAgent` with search/get/edit/validate tools operating on a `MutableBlueprint`. Both share `validateAndFix()` (programmatic loop — rule-based validation + Haiku fixer). `BlueprintAccumulator` collects generation results; `MutableBlueprint` wraps an existing blueprint for surgical edits.
+- `architectAgent.ts`: Two factory functions. `createArchitectAgent(ctx, accumulator)` returns a generation-mode `ToolLoopAgent` with tools: `generateScaffold`, `generateModuleContent`, `generateFormContent`, `assembleBlueprint`, `validateApp`. Each generation tool loads phase-appropriate knowledge via `loadKnowledge()`. `createEditArchitectAgent(ctx, mutableBp)` returns an edit-mode `ToolLoopAgent` with search/get/edit/validate/loadKnowledge tools operating on a `MutableBlueprint`. Both share `validateAndFix()` (programmatic loop — rule-based validation + Haiku fixer). `BlueprintAccumulator` collects generation results; `MutableBlueprint` wraps an existing blueprint for surgical edits.
 - `mutableBlueprint.ts`: `MutableBlueprint` class — wraps `AppBlueprint` (deep-cloned) for in-place search, read, and mutation. `search()` finds matches across question IDs/labels/case_properties/XPath/module names/form names/columns. Mutation methods (`updateQuestion`, `addQuestion`, `removeQuestion`, etc.) auto-derive case config after changes. `renameCaseProperty()` propagates renames across all questions, columns, and XPath expressions.
 - `generationContext.ts`: `GenerationContext` class — wraps Anthropic client + UI stream writer. Provides `generate()` (one-shot structured), `streamGenerate()` (streaming structured with `onPartial`), `emit()` (transient data parts), `emitUsage()` (full I/O logging). Used by the route handler, architect agent, and validator.
 - `hqJsonExpander.ts`: `expandBlueprint()` converts `AppBlueprint` → HQ import JSON. Generates XForm XML with proper Vellum dual-attribute hashtag expansion, form actions, case details. `validateBlueprint()` checks semantic rules.
 - `cczCompiler.ts`: `CczCompiler` class takes HQ import JSON → `.ccz` Buffer. Generates suite.xml, profile.ccpr, app_strings.txt. Injects case blocks (create/update/close/subcases) back into XForm XML.
 - `autoFixer.ts`: `AutoFixer` class applies programmatic fixes (itext, reserved properties, missing binds) to generated files before validation.
 - `commcare/`: Shared module — `constants.ts` (reserved words, regex), `xml.ts` (escapeXml), `hashtags.ts` (Vellum expansion), `ids.ts` (hex ID gen), `hqTypes.ts` (HQ JSON interfaces), `hqShells.ts` (factory functions), `validate.ts` (identifier validation).
-- `commcare/knowledge/`: Distilled CommCare platform knowledge files (`.md`). Generated by `scripts/sync-knowledge.ts` from Confluence docs. Used to give the Solutions Architect deep platform knowledge beyond what's in its schema descriptions.
+- `commcare/knowledge/`: Distilled CommCare platform knowledge files (`.md`) + `loadKnowledge.ts` (loader utility, phase mappings, knowledge index). Generated by `scripts/sync-knowledge.ts` from Confluence docs. Loaded into SA prompts at generation time via phase mappings (`SCAFFOLD_KNOWLEDGE`, `MODULE_KNOWLEDGE`, `FORM_KNOWLEDGE`) and available on-demand in edit mode via the `loadKnowledge` tool.
 
 ## Knowledge Sync Pipeline
 

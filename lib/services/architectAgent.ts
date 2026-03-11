@@ -11,10 +11,11 @@ import { MODEL_GENERATION, MODEL_FIXER } from '../models'
 import { GenerationContext } from './generationContext'
 import { ARCHITECT_PROMPT } from '../prompts/architectPrompt'
 import { EDIT_ARCHITECT_PROMPT } from '../prompts/editArchitectPrompt'
-import { SCAFFOLD_PROMPT } from '../prompts/scaffoldPrompt'
-import { MODULE_PROMPT } from '../prompts/modulePrompt'
-import { FORM_PROMPT } from '../prompts/formPrompt'
+import { scaffoldPrompt } from '../prompts/scaffoldPrompt'
+import { modulePrompt } from '../prompts/modulePrompt'
+import { formPrompt } from '../prompts/formPrompt'
 import { FORM_FIXER_PROMPT } from '../prompts/formFixerPrompt'
+import { loadKnowledge, SCAFFOLD_KNOWLEDGE, MODULE_KNOWLEDGE, FORM_KNOWLEDGE } from './commcare/knowledge/loadKnowledge'
 import {
   scaffoldSchema, moduleContentSchema, formContentSchema,
   assembleBlueprint, deriveCaseConfig, unflattenQuestions, flattenQuestions, closeCaseToFlat,
@@ -279,8 +280,9 @@ export function createArchitectAgent(
         execute: async ({ specification }) => {
           ctx.emit('data-phase', { phase: 'designing' })
 
+          const knowledge = await loadKnowledge(...SCAFFOLD_KNOWLEDGE)
           const scaffold = await ctx.streamGenerate(scaffoldSchema, {
-            system: SCAFFOLD_PROMPT,
+            system: scaffoldPrompt(knowledge),
             prompt: specification,
             label: 'Scaffold',
             maxOutputTokens: 16384,
@@ -321,8 +323,9 @@ export function createArchitectAgent(
           }
 
           try {
+            const knowledge = await loadKnowledge(...MODULE_KNOWLEDGE)
             const mc = await ctx.generate(moduleContentSchema, {
-              system: MODULE_PROMPT,
+              system: modulePrompt(knowledge),
               prompt: buildModulePrompt(scaffold, moduleIndex, feedback),
               label: `Module ${moduleIndex} "${sm.name}"`,
               maxOutputTokens: 4096,
@@ -363,8 +366,9 @@ export function createArchitectAgent(
           ctx.emit('data-phase', { phase: 'forms' })
 
           try {
+            const knowledge = await loadKnowledge(...FORM_KNOWLEDGE)
             const fc = await ctx.generate(formContentSchema, {
-              system: FORM_PROMPT,
+              system: formPrompt(knowledge),
               prompt: buildFormPrompt(scaffold, moduleIndex, formIndex, feedback),
               label: `Form [${moduleIndex}][${formIndex}] "${sf.name}"`,
               maxOutputTokens: 32768,
@@ -822,8 +826,9 @@ export function createEditArchitectAgent(
           if (!form) return { error: `Form index ${formIndex} out of range in module ${moduleIndex}` }
 
           try {
+            const knowledge = await loadKnowledge(...FORM_KNOWLEDGE)
             const fc = await ctx.generate(formContentSchema, {
-              system: FORM_PROMPT,
+              system: formPrompt(knowledge),
               prompt: buildRegenerateFormPrompt(blueprint, moduleIndex, formIndex, instructions),
               label: `Regenerate "${form.name}"`,
               maxOutputTokens: 32768,
@@ -844,6 +849,19 @@ export function createEditArchitectAgent(
           } catch (err) {
             return { error: err instanceof Error ? err.message : String(err) }
           }
+        },
+      }),
+
+      // ── Knowledge ─────────────────────────────────────────────────
+
+      loadKnowledge: tool({
+        description: 'Load CommCare platform knowledge files for reference. Use this before making design decisions that involve case model changes, expression patterns, instance references, or any non-trivial CommCare feature. The knowledge index in your system prompt lists available files and when to consult them.',
+        inputSchema: z.object({
+          files: z.array(z.string()).describe('Knowledge file names to load (without .md extension). Check the knowledge index for available files.'),
+        }),
+        execute: async ({ files }) => {
+          const content = await loadKnowledge(...files)
+          return content
         },
       }),
 
