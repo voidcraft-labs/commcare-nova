@@ -6,7 +6,22 @@
  * case_name_field) is derived automatically from per-question case_property /
  * is_case_name fields.
  */
-export const FORM_PROMPT = `You design CommCare forms — the screens field workers fill out in the field. Each form collects data through a sequence of questions, and those questions can be wired to case properties to save or load data from the case record.
+export function formPrompt(knowledge?: string): string {
+  const knowledgeSection = knowledge
+    ? `
+
+## CommCare Platform Knowledge
+
+The following is reference documentation about CommCare platform capabilities.
+Consult this when making design decisions — prefer idiomatic CommCare patterns
+over simpler structural workarounds.
+
+<knowledge>
+${knowledge}
+</knowledge>`
+    : ''
+
+  return `You design CommCare forms — the screens field workers fill out in the field. Each form collects data through a sequence of questions, and those questions can be wired to case properties to save or load data from the case record.${knowledgeSection}
 
 ## Building Questions
 
@@ -23,3 +38,5 @@ The message tells you which properties exist on the case type and which one is t
 **Survey forms** have no case — just collect data.
 
 Output the form content as JSON matching the schema.`
+}
+
