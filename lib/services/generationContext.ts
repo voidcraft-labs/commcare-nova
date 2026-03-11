@@ -1,23 +1,26 @@
 /**
  * GenerationContext — shared abstraction for all LLM calls in the pipeline.
  *
- * Wraps an Anthropic client + UI stream writer. Provides structured generation
- * (one-shot and streaming) with automatic usage logging, plus transient data
- * part emission. Used by both the Product Manager and Solutions Architect agents.
+ * Wraps an Anthropic client + UI stream writer + RunLogger. Provides structured
+ * generation (one-shot and streaming) with automatic run logging, plus transient
+ * data part emission. Used by both the Product Manager and Solutions Architect agents.
  */
 import { streamText, generateText, Output } from 'ai'
 import type { UIMessageStreamWriter } from 'ai'
 import { createAnthropic } from '@ai-sdk/anthropic'
 import { z } from 'zod'
 import { MODEL_GENERATION } from '../models'
+import { RunLogger } from './runLogger'
 
 export class GenerationContext {
   private anthropic: ReturnType<typeof createAnthropic>
   readonly writer: UIMessageStreamWriter
+  readonly logger: RunLogger
 
-  constructor(apiKey: string, writer: UIMessageStreamWriter) {
+  constructor(apiKey: string, writer: UIMessageStreamWriter, logger: RunLogger) {
     this.anthropic = createAnthropic({ apiKey })
     this.writer = writer
+    this.logger = logger
   }
 
   /** Get the Anthropic model provider for a given model ID. */
@@ -30,28 +33,7 @@ export class GenerationContext {
     this.writer.write({ type, data, transient: true })
   }
 
-  /** Log usage with full input/output for debugging. */
-  emitUsage(
-    label: string,
-    model: string,
-    usage: { inputTokens?: number; outputTokens?: number },
-    input: { system: string; message: unknown },
-    output: unknown,
-  ) {
-    this.emit('data-usage', {
-      label,
-      calls: [{
-        model,
-        input_tokens: usage.inputTokens ?? 0,
-        output_tokens: usage.outputTokens ?? 0,
-        stop_reason: null,
-        input,
-        output,
-      }],
-    })
-  }
-
-  /** One-shot structured generation with automatic usage logging. */
+  /** One-shot structured generation with automatic run logging. */
   async generate<T>(
     schema: z.ZodType<T>,
     opts: { system: string; prompt: string; label: string; model?: string; maxOutputTokens?: number },
@@ -65,12 +47,18 @@ export class GenerationContext {
       maxOutputTokens: opts.maxOutputTokens,
     })
     if (result.usage) {
-      this.emitUsage(opts.label, model, result.usage, { system: opts.system, message: opts.prompt }, result.output)
+      this.logger.logSubResult(opts.label, {
+        model,
+        input_tokens: result.usage.inputTokens ?? 0,
+        output_tokens: result.usage.outputTokens ?? 0,
+        input: { system: opts.system, message: opts.prompt },
+        output: result.output,
+      })
     }
     return result.output ?? null
   }
 
-  /** Streaming structured generation with partial callbacks and automatic usage logging. */
+  /** Streaming structured generation with partial callbacks and automatic run logging. */
   async streamGenerate<T>(
     schema: z.ZodType<T>,
     opts: { system: string; prompt: string; label: string; model?: string; maxOutputTokens?: number; onPartial?: (partial: Partial<T>) => void },
@@ -92,7 +80,13 @@ export class GenerationContext {
 
     const usage = await result.usage
     if (usage) {
-      this.emitUsage(opts.label, model, usage, { system: opts.system, message: opts.prompt }, last)
+      this.logger.logSubResult(opts.label, {
+        model,
+        input_tokens: usage.inputTokens ?? 0,
+        output_tokens: usage.outputTokens ?? 0,
+        input: { system: opts.system, message: opts.prompt },
+        output: last,
+      })
     }
     return last
   }

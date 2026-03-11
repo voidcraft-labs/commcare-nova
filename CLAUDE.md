@@ -33,6 +33,7 @@ lib/
     architectAgent.ts   # Solutions Architect agent — generation mode (scaffold → modules → forms → assemble → validate) and edit mode (search → get → edit → validate)
     mutableBlueprint.ts # MutableBlueprint class — wraps AppBlueprint for in-place search, read, and mutation during editing
     generationContext.ts # GenerationContext class — shared LLM abstraction for all pipeline calls
+    runLogger.ts        # RunLogger class — disk-based run logger (writes JSON to .log/ when RUN_LOGGER=1)
     hqJsonExpander.ts   # Blueprint → HQ import JSON (XForm XML, form actions, Vellum metadata)
     cczCompiler.ts      # HQ import JSON → .ccz archive (adds case blocks, suite.xml)
     autoFixer.ts        # Programmatic fixes for common CommCare app issues
@@ -43,7 +44,6 @@ lib/
   prompts/              # Agent prompts (productManagerPrompt, architectPrompt, editArchitectPrompt, scaffoldPrompt, modulePrompt, formPrompt, formFixerPrompt) — generation prompts accept knowledge param
   types/                # TypeScript type definitions
   models.ts             # Central model ID + pricing config
-  usage.ts              # ClaudeUsage type + logUsage() browser console logger
   store.ts              # CCZ file persistence in .data/
 scripts/
   sync-knowledge.ts       # Knowledge sync pipeline entry point
@@ -84,15 +84,15 @@ The PM does NOT make technical decisions (property names, case types, form struc
 
 ### GenerationContext
 
-`lib/services/generationContext.ts` exports a `GenerationContext` class — the shared LLM abstraction used by both agents. Wraps an Anthropic client + UI stream writer.
+`lib/services/generationContext.ts` exports a `GenerationContext` class — the shared LLM abstraction used by both agents. Wraps an Anthropic client + UI stream writer + RunLogger.
 
 - **`model(id)`** — returns the Anthropic model provider
 - **`emit(type, data)`** — writes a transient data part to the client stream (`writer.write({ type, data, transient: true })`)
-- **`emitUsage(label, model, usage, input, output)`** — logs full I/O for every LLM call
-- **`generate(schema, opts)`** — one-shot structured generation via `generateText` + `Output.object()` with automatic usage logging
-- **`streamGenerate(schema, opts)`** — streaming structured generation via `streamText` + `Output.object()` + `partialOutputStream` with `onPartial` callback and automatic usage logging
+- **`logger`** — the `RunLogger` instance, accessible by agents for logging orchestration events
+- **`generate(schema, opts)`** — one-shot structured generation via `generateText` + `Output.object()` with automatic run logging via `logger.logSubResult()`
+- **`streamGenerate(schema, opts)`** — streaming structured generation via `streamText` + `Output.object()` + `partialOutputStream` with `onPartial` callback and automatic run logging
 
-Both the PM (via `emitUsage` in `onStepFinish`) and the architect (via `generate`/`streamGenerate`/`emitUsage`) use the same `GenerationContext` instance, created once in the route handler.
+The PM (via `logger.logEvent` in `onStepFinish`) and the architect (via `generate`/`streamGenerate` which call `logger.logSubResult`) use the same `GenerationContext` instance, created once in the route handler.
 
 ### Client State via `onData` (No useEffect Scanning)
 
@@ -109,7 +109,6 @@ Data parts emitted by the pipeline:
 - `data-fix-attempt` → `builder.setFixAttempt()`
 - `data-done` → `builder.setDone()` (blueprint + hqJson)
 - `data-error` → `builder.setError()`
-- `data-usage` → `logUsage()` (browser console)
 
 ### Single useChat
 
@@ -251,25 +250,26 @@ Dark "Stellar Minimalism" theme. CSS custom properties defined in `globals.css`:
 - `MODEL_PM` — Product Manager agent (Tier 0), currently `claude-sonnet-4-6`
 - `MODEL_PRICING` — cost lookup keyed by model ID (per million tokens)
 
-## Usage Logging
+## Run Logging
 
-All Claude API calls log token usage, cost estimates, and full request/response data to the **browser console** for inspection. Every LLM call in the pipeline — PM steps, architect orchestration steps, scaffold/module/form/fixer sub-calls — emits a `data-usage` transient data part from the server.
+Set `RUN_LOGGER=1` in `.env` to enable disk-based run logging. When enabled, each pipeline run writes a JSON file to `.log/` that is updated incrementally after every event (always valid JSON, even on crash).
 
-- **`lib/usage.ts`** — `ClaudeUsage` interface + `logUsage()` function. Client-safe (no server-only imports). Logs as `console.groupCollapsed` with a summary table, then per-call expandable groups showing:
-  - `Input (system)` — system prompt (~estimated tokens)
-  - `Input (message)` — user message / conversation (~estimated tokens)
-  - `Input (tools)` — tool schemas or structured output schema (~estimated tokens)
-  - `Output` — parsed response (~estimated tokens)
-- **Server**: `GenerationContext.emitUsage()` is called automatically by `generate()`/`streamGenerate()`, and explicitly in `onStepFinish` callbacks for agent orchestration steps. Full input (system prompt + message) and output (text + tool calls + tool results) are included.
-- **Client**: `BuilderLayout`'s `onData` handler catches `data-usage` parts and calls `logUsage()`.
-- Token estimates use `~4 chars/token` heuristic. Actual `input_tokens`/`output_tokens` from the API are in the summary table.
+- **`lib/services/runLogger.ts`** — `RunLogger` class. Created once per request in the route handler. Key methods:
+  - `setAgent(name)` — tracks the current agent (`'Product Manager'`, `'Solutions Architect'`, `'Edit Architect'`)
+  - `setAppName(name)` — renames the log file from `*_unnamed.json` to `*_{app_name}.json`
+  - `logEvent(event)` — appends an orchestration/generation/fix event with token counts and cost estimate
+  - `logSubResult(label, result)` — stitches a sub-generation result onto the most recent orchestration event's matching tool call (e.g. "Scaffold" generation result attaches to the `generateScaffold` tool call entry)
+  - `finalize()` — sets `finished_at` and recomputes totals
+- **Integration**: `GenerationContext.generate()`/`streamGenerate()` call `logger.logSubResult()` automatically. Agent `onStepFinish` callbacks call `logger.logEvent()` for orchestration steps.
+- **Output**: `.log/{timestamp}_{app_name}.json` — contains run metadata, per-event token usage + cost estimates, full request/response I/O, and roll-up totals.
 
 ## Service Layer Notes
 
 - `builder.ts`: `Builder` class — singleton via `useBuilder()`. Holds `scaffold`, `blueprint`, `partialScaffold` (streaming structured output), and `partialModules` (module/form results). `treeData` getter merges partial data with scaffold for progressive rendering. Setter methods are called from `onData` callback in BuilderLayout. `updateProgress()` derives completed/total counts from the `partialModules` map.
 - `architectAgent.ts`: Two factory functions. `createArchitectAgent(ctx, accumulator)` returns a generation-mode `ToolLoopAgent` with tools: `generateScaffold`, `generateModuleContent`, `generateFormContent`, `assembleBlueprint`, `validateApp`. Each generation tool loads phase-appropriate knowledge via `loadKnowledge()`. `createEditArchitectAgent(ctx, mutableBp)` returns an edit-mode `ToolLoopAgent` with search/get/edit/validate/loadKnowledge tools operating on a `MutableBlueprint`. Both share `validateAndFix()` (programmatic loop — rule-based validation + Haiku fixer). `BlueprintAccumulator` collects generation results; `MutableBlueprint` wraps an existing blueprint for surgical edits.
 - `mutableBlueprint.ts`: `MutableBlueprint` class — wraps `AppBlueprint` (deep-cloned) for in-place search, read, and mutation. `search()` finds matches across question IDs/labels/case_properties/XPath/module names/form names/columns. Mutation methods (`updateQuestion`, `addQuestion`, `removeQuestion`, etc.) auto-derive case config after changes. `renameCaseProperty()` propagates renames across all questions, columns, and XPath expressions.
-- `generationContext.ts`: `GenerationContext` class — wraps Anthropic client + UI stream writer. Provides `generate()` (one-shot structured), `streamGenerate()` (streaming structured with `onPartial`), `emit()` (transient data parts), `emitUsage()` (full I/O logging). Used by the route handler, architect agent, and validator.
+- `generationContext.ts`: `GenerationContext` class — wraps Anthropic client + UI stream writer + RunLogger. Provides `generate()` (one-shot structured), `streamGenerate()` (streaming structured with `onPartial`), `emit()` (transient data parts). Sub-generation calls auto-log via `logger.logSubResult()`. Used by the route handler, architect agent, and validator.
+- `runLogger.ts`: `RunLogger` class — disk-based run logger. Writes incremental JSON to `.log/` after every mutation when `RUN_LOGGER=1`. Tracks current agent, stitches sub-generation results onto orchestration tool calls, computes per-event cost estimates and roll-up totals.
 - `hqJsonExpander.ts`: `expandBlueprint()` converts `AppBlueprint` → HQ import JSON. Generates XForm XML with proper Vellum dual-attribute hashtag expansion, form actions, case details. `validateBlueprint()` checks semantic rules.
 - `cczCompiler.ts`: `CczCompiler` class takes HQ import JSON → `.ccz` Buffer. Generates suite.xml, profile.ccpr, app_strings.txt. Injects case blocks (create/update/close/subcases) back into XForm XML.
 - `autoFixer.ts`: `AutoFixer` class applies programmatic fixes (itext, reserved properties, missing binds) to generated files before validation.
