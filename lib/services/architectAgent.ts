@@ -297,6 +297,7 @@ export function createArchitectAgent(
             system: scaffoldPrompt(knowledge),
             prompt: specification,
             label: 'Scaffold',
+            knowledge: files,
             maxOutputTokens: 16384,
             onPartial: (partial) => ctx.emit('data-partial-scaffold', partial),
           })
@@ -344,6 +345,7 @@ export function createArchitectAgent(
               system: modulePrompt(knowledge),
               prompt: buildModulePrompt(scaffold, moduleIndex, feedback),
               label: `Module ${moduleIndex} "${sm.name}"`,
+              knowledge: files,
               maxOutputTokens: 4096,
             }) ?? { case_list_columns: null }
 
@@ -391,6 +393,7 @@ export function createArchitectAgent(
               system: formPrompt(knowledge),
               prompt: buildFormPrompt(scaffold, moduleIndex, formIndex, feedback),
               label: `Form [${moduleIndex}][${formIndex}] "${sf.name}"`,
+              knowledge: files,
               maxOutputTokens: 32768,
             })
             if (!fc) return { error: `Form "${sf.name}": generation returned no output` }
@@ -860,6 +863,7 @@ export function createEditArchitectAgent(
               system: formPrompt(knowledge),
               prompt: buildRegenerateFormPrompt(blueprint, moduleIndex, formIndex, instructions),
               label: `Regenerate "${form.name}"`,
+              knowledge: [...FORM_KNOWLEDGE_ALL],
               maxOutputTokens: 32768,
             })
             if (!fc) return { error: `Form "${form.name}": generation returned no output` }

@@ -36,6 +36,7 @@ export interface RunEvent {
   input_tokens: number
   output_tokens: number
   cost_estimate: number
+  knowledge?: string[]
   input?: { system: string; message: unknown; tools?: unknown }
   output?: unknown
   tool_calls?: Array<{
@@ -110,6 +111,7 @@ export class RunLogger {
       output_tokens: number
       input?: { system: string; message: unknown }
       output?: unknown
+      knowledge?: string[]
     },
   ) {
     // Search backwards for an orchestration event with a tool call whose
@@ -129,6 +131,7 @@ export class RunLogger {
             cost_estimate: estimateCost(result.model, result.input_tokens, result.output_tokens),
             input: result.input,
             output: result.output,
+            ...(result.knowledge && { knowledge: result.knowledge }),
           }
           if (this.enabled) this.flush()
           return
@@ -146,6 +149,7 @@ export class RunLogger {
       output_tokens: result.output_tokens,
       input: result.input,
       output: result.output,
+      ...(result.knowledge && { knowledge: result.knowledge }),
     })
   }
 

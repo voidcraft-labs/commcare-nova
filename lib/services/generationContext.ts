@@ -36,7 +36,7 @@ export class GenerationContext {
   /** One-shot structured generation with automatic run logging. */
   async generate<T>(
     schema: z.ZodType<T>,
-    opts: { system: string; prompt: string; label: string; model?: string; maxOutputTokens?: number },
+    opts: { system: string; prompt: string; label: string; model?: string; maxOutputTokens?: number; knowledge?: string[] },
   ): Promise<T | null> {
     const model = opts.model ?? MODEL_GENERATION
     const result = await generateText({
@@ -53,6 +53,7 @@ export class GenerationContext {
         output_tokens: result.usage.outputTokens ?? 0,
         input: { system: opts.system, message: opts.prompt },
         output: result.output,
+        ...(opts.knowledge && { knowledge: opts.knowledge }),
       })
     }
     return result.output ?? null
@@ -61,7 +62,7 @@ export class GenerationContext {
   /** Streaming structured generation with partial callbacks and automatic run logging. */
   async streamGenerate<T>(
     schema: z.ZodType<T>,
-    opts: { system: string; prompt: string; label: string; model?: string; maxOutputTokens?: number; onPartial?: (partial: Partial<T>) => void },
+    opts: { system: string; prompt: string; label: string; model?: string; maxOutputTokens?: number; knowledge?: string[]; onPartial?: (partial: Partial<T>) => void },
   ): Promise<T | null> {
     const model = opts.model ?? MODEL_GENERATION
     const result = streamText({
@@ -86,6 +87,7 @@ export class GenerationContext {
         output_tokens: usage.outputTokens ?? 0,
         input: { system: opts.system, message: opts.prompt },
         output: last,
+        ...(opts.knowledge && { knowledge: opts.knowledge }),
       })
     }
     return last
