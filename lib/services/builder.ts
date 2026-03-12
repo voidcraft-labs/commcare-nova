@@ -1,4 +1,4 @@
-import type { AppBlueprint, Scaffold, BlueprintForm } from '@/lib/schemas/blueprint'
+import type { AppBlueprint, Scaffold, BlueprintForm, LocalizedString } from '@/lib/schemas/blueprint'
 
 export enum BuilderPhase {
   Idle = 'idle',
@@ -20,26 +20,28 @@ export interface SelectedElement {
   questionPath?: string
 }
 
-/** Common shape for AppTree rendering — satisfied by both Scaffold and AppBlueprint */
+/** Common shape for AppTree rendering — satisfied by both Scaffold (plain strings) and AppBlueprint (LocalizedString arrays) */
 export interface TreeData {
   app_name: string
+  languages?: string[] | null
   modules: Array<{
-    name: string
+    name: LocalizedString
     case_type?: string | null
     purpose?: string
     forms: Array<{
-      name: string
+      name: LocalizedString
       type: string
       purpose?: string
       questions?: Array<any>
     }>
-    case_list_columns?: Array<{ field: string; header: string }> | null
+    case_list_columns?: Array<{ field: string; header: LocalizedString }> | null
+    case_detail_columns?: Array<{ field: string; header: LocalizedString }> | null
   }>
 }
 
 /** Partial module data being built during streaming generation */
 interface PartialModule {
-  caseListColumns?: Array<{ field: string; header: string }> | null
+  caseListColumns?: Array<{ field: string; header: LocalizedString }> | null
   forms: Map<number, any> // formIndex → assembled BlueprintForm
 }
 
@@ -144,7 +146,7 @@ export class Builder {
   }
 
   /** Update module content (case list columns). */
-  setModuleContent(moduleIndex: number, caseListColumns: Array<{ field: string; header: string }> | null) {
+  setModuleContent(moduleIndex: number, caseListColumns: Array<{ field: string; header: LocalizedString }> | null) {
     let partial = this.partialModules.get(moduleIndex)
     if (!partial) {
       partial = { forms: new Map() }

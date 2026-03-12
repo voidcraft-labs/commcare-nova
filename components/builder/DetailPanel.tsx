@@ -3,6 +3,7 @@ import { motion } from 'motion/react'
 import { Icon } from '@iconify/react'
 import ciCloseMd from '@iconify-icons/ci/close-md'
 import type { AppBlueprint, BlueprintForm, BlueprintQuestion } from '@/lib/schemas/blueprint'
+import { displayText } from '@/lib/schemas/blueprint'
 import { Badge } from '@/components/ui/Badge'
 
 interface DetailPanelProps {
@@ -61,7 +62,7 @@ export function DetailPanel({ blueprint, selected, onUpdate, onClose }: DetailPa
           <>
             <div>
               <label className="text-xs text-nova-text-muted uppercase tracking-wider mb-1 block">Name</label>
-              <p className="text-sm font-medium">{mod.name}</p>
+              <p className="text-sm font-medium">{displayText(mod.name)}</p>
             </div>
             {mod.case_type && (
               <div>
@@ -86,7 +87,7 @@ export function DetailPanel({ blueprint, selected, onUpdate, onClose }: DetailPa
                   {mod.case_list_columns.map((col, i) => (
                     <div key={i} className="grid grid-cols-[1fr_auto] border-t border-nova-border/40">
                       <div className="px-3 py-1.5 text-sm text-nova-text-secondary">
-                        {col.header}
+                        {displayText(col.header)}
                       </div>
                       <div className="px-3 py-1.5 text-xs font-mono text-nova-text-muted border-l border-nova-border/30">
                         {col.field}
@@ -104,7 +105,7 @@ export function DetailPanel({ blueprint, selected, onUpdate, onClose }: DetailPa
                     <Badge variant={f.type === 'registration' ? 'emerald' : f.type === 'followup' ? 'cyan' : 'amber'}>
                       {f.type}
                     </Badge>
-                    <span>{f.name}</span>
+                    <span>{displayText(f.name)}</span>
                   </div>
                 ))}
               </div>
@@ -117,7 +118,7 @@ export function DetailPanel({ blueprint, selected, onUpdate, onClose }: DetailPa
           <>
             <div>
               <label className="text-xs text-nova-text-muted uppercase tracking-wider mb-1 block">Name</label>
-              <p className="text-sm font-medium">{form.name}</p>
+              <p className="text-sm font-medium">{displayText(form.name)}</p>
             </div>
             <div>
               <label className="text-xs text-nova-text-muted uppercase tracking-wider mb-1 block">Type</label>
@@ -180,7 +181,7 @@ export function DetailPanel({ blueprint, selected, onUpdate, onClose }: DetailPa
             {question.label && (
               <div>
                 <label className="text-xs text-nova-text-muted uppercase tracking-wider mb-1 block">Label</label>
-                <p className="text-sm font-medium">{question.label}</p>
+                <p className="text-sm font-medium">{displayText(question.label)}</p>
               </div>
             )}
             <div>
@@ -203,12 +204,12 @@ export function DetailPanel({ blueprint, selected, onUpdate, onClose }: DetailPa
             {question.hint && (
               <div>
                 <label className="text-xs text-nova-text-muted uppercase tracking-wider mb-1 block">Hint</label>
-                <p className="text-sm text-nova-text-secondary">{question.hint}</p>
+                <p className="text-sm text-nova-text-secondary">{displayText(question.hint)}</p>
               </div>
             )}
             {question.required && (
               <div>
-                <Badge variant="amber">Required</Badge>
+                <Badge variant="amber">{question.required !== 'true()' ? `Required when: ${question.required}` : 'Required'}</Badge>
               </div>
             )}
             {question.readonly && (
@@ -221,7 +222,7 @@ export function DetailPanel({ blueprint, selected, onUpdate, onClose }: DetailPa
                 <label className="text-xs text-nova-text-muted uppercase tracking-wider mb-1 block">Constraint</label>
                 <p className="text-sm font-mono text-nova-text-secondary">{question.constraint}</p>
                 {question.constraint_msg && (
-                  <p className="text-xs text-nova-amber mt-1">{question.constraint_msg}</p>
+                  <p className="text-xs text-nova-amber mt-1">{displayText(question.constraint_msg)}</p>
                 )}
               </div>
             )}
@@ -249,7 +250,7 @@ export function DetailPanel({ blueprint, selected, onUpdate, onClose }: DetailPa
                 <div className="space-y-1">
                   {question.options.map((opt, i) => (
                     <div key={i} className="flex items-center justify-between text-xs px-2 py-1 bg-nova-surface rounded">
-                      <span>{opt.label}</span>
+                      <span>{displayText(opt.label)}</span>
                       <span className="font-mono text-nova-text-muted">{opt.value}</span>
                     </div>
                   ))}

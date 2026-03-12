@@ -25,6 +25,8 @@ Choose whichever columns help users find the right case quickly. Column headers 
 
 Use "case_name" as the field to display the case name. For survey-only modules (no case type), set case_list_columns to null.
 
+For case_detail_columns (the detail view when a user taps on a case), include more fields than the list view — this is where users see the full case record. Set to null to auto-mirror case_list_columns if the same fields work for both views.
+
 Output the module content as JSON matching the schema.`
 }
 

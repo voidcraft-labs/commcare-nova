@@ -17,8 +17,8 @@ import { formPrompt } from '../prompts/formPrompt'
 import { FORM_FIXER_PROMPT } from '../prompts/formFixerPrompt'
 import { loadKnowledge, resolveConditionalKnowledge, FORM_KNOWLEDGE_ALL } from './commcare/knowledge/loadKnowledge'
 import {
-  scaffoldSchema, moduleContentSchema, formContentSchema,
-  assembleBlueprint, deriveCaseConfig, unflattenQuestions, flattenQuestions, closeCaseToFlat,
+  scaffoldSchema, moduleContentSchema, formContentSchema, localizedStringSchema,
+  assembleBlueprint, deriveCaseConfig, unflattenQuestions, flattenQuestions, closeCaseToFlat, displayText,
   type Scaffold, type ModuleContent, type FormContent, type AppBlueprint, type BlueprintForm,
 } from '../schemas/blueprint'
 import { expandBlueprint, validateBlueprint } from './hqJsonExpander'
@@ -35,7 +35,7 @@ export class BlueprintAccumulator {
 
   setScaffold(s: Scaffold) {
     this.scaffold = s
-    this.moduleContents = new Array(s.modules.length).fill({ case_list_columns: null })
+    this.moduleContents = new Array(s.modules.length).fill({ case_list_columns: null, case_detail_columns: null })
     this.formContents = s.modules.map(m => new Array(m.forms.length))
   }
 
@@ -51,7 +51,7 @@ export class BlueprintAccumulator {
 // ── Helper: reassemble a FormContent into a BlueprintForm ─────────────
 
 export function reassembleForm(
-  name: string,
+  name: BlueprintForm['name'],
   type: 'registration' | 'followup' | 'survey',
   fc: FormContent,
 ): BlueprintForm {
@@ -179,7 +179,7 @@ export async function validateAndFix(
       const match = err.match(/"([^"]+)" has case forms but no case_type/)
       if (match) {
         const modName = match[1]
-        const mod = blueprint.modules.find(m => m.name === modName)
+        const mod = blueprint.modules.find(m => displayText(m.name) === modName)
         if (mod && !mod.case_type) {
           mod.case_type = modName.toLowerCase().replace(/\s+/g, '_')
         }
@@ -235,7 +235,7 @@ function groupErrorsByForm(errors: string[], blueprint: AppBlueprint): Map<strin
     const match = err.match(/^"([^"]+)"/)
     if (match) {
       const name = match[1]
-      const isForm = blueprint.modules.some(m => m.forms.some(f => f.name === name))
+      const isForm = blueprint.modules.some(m => m.forms.some(f => displayText(f.name) === name))
       if (isForm) {
         if (!grouped.has(name)) grouped.set(name, [])
         grouped.get(name)!.push(err)
@@ -248,7 +248,7 @@ function groupErrorsByForm(errors: string[], blueprint: AppBlueprint): Map<strin
 function findFormIndices(blueprint: AppBlueprint, formName: string): [number, number] {
   for (let mIdx = 0; mIdx < blueprint.modules.length; mIdx++) {
     for (let fIdx = 0; fIdx < blueprint.modules[mIdx].forms.length; fIdx++) {
-      if (blueprint.modules[mIdx].forms[fIdx].name === formName) {
+      if (displayText(blueprint.modules[mIdx].forms[fIdx].name) === formName) {
         return [mIdx, fIdx]
       }
     }
@@ -329,7 +329,7 @@ export function createArchitectAgent(
 
           // Survey-only modules don't need columns
           if (!sm.case_type) {
-            const mc = { case_list_columns: null }
+            const mc = { case_list_columns: null, case_detail_columns: null }
             accumulator.setModuleContent(moduleIndex, mc)
             ctx.emit('data-module-done', { moduleIndex, caseListColumns: null })
             return { moduleIndex, name: sm.name, columns: null }
@@ -347,14 +347,14 @@ export function createArchitectAgent(
               label: `Module ${moduleIndex} "${sm.name}"`,
               knowledge: files,
               maxOutputTokens: 4096,
-            }) ?? { case_list_columns: null }
+            }) ?? { case_list_columns: null, case_detail_columns: null }
 
             accumulator.setModuleContent(moduleIndex, mc)
             ctx.emit('data-module-done', { moduleIndex, caseListColumns: mc.case_list_columns ?? null })
 
             return { moduleIndex, name: sm.name, columns: mc.case_list_columns ?? null }
           } catch (err) {
-            const mc = { case_list_columns: null }
+            const mc = { case_list_columns: null, case_detail_columns: null }
             accumulator.setModuleContent(moduleIndex, mc)
             ctx.emit('data-module-done', { moduleIndex, caseListColumns: null })
             return { error: `Module ${moduleIndex} "${sm.name}": generation failed (${err instanceof Error ? err.message : String(err)})`, moduleIndex, name: sm.name, columns: null }
@@ -390,7 +390,7 @@ export function createArchitectAgent(
             })
             const knowledge = await loadKnowledge(...files)
             const fc = await ctx.generate(formContentSchema, {
-              system: formPrompt(knowledge),
+              system: formPrompt(knowledge, scaffold.languages ?? undefined),
               prompt: buildFormPrompt(scaffold, moduleIndex, formIndex, feedback),
               label: `Form [${moduleIndex}][${formIndex}] "${sf.name}"`,
               knowledge: files,
@@ -468,7 +468,7 @@ const QUESTION_TYPES = [
 
 const selectOptionSchema = z.object({
   value: z.string().describe('Option value (stored in data)'),
-  label: z.string().describe('Option label (shown to user)'),
+  label: localizedStringSchema.describe('Option label (shown to user)'),
 })
 
 /** Build a form-generation prompt from the current blueprint context (for regenerateForm). */
@@ -604,13 +604,13 @@ export function createEditArchitectAgent(
           formIndex: z.number().describe('0-based form index'),
           questionId: z.string().describe('Question id to update'),
           updates: z.object({
-            label: z.string().nullable().optional(),
+            label: localizedStringSchema.optional().describe('Question label text'),
             type: z.enum(QUESTION_TYPES).optional(),
-            hint: z.string().nullable().optional(),
-            required: z.boolean().optional(),
+            hint: localizedStringSchema.optional().describe('Hint text'),
+            required: z.string().optional().describe('"true()" if always required. XPath for conditional. Empty string to clear.'),
             readonly: z.boolean().optional(),
-            constraint: z.string().nullable().optional().describe('XPath constraint expression'),
-            constraint_msg: z.string().nullable().optional().describe('Error message when constraint fails'),
+            constraint: z.string().optional().describe('XPath constraint expression. Empty string to clear.'),
+            constraint_msg: localizedStringSchema.optional().describe('Error message when constraint fails. Empty array to clear.'),
             relevant: z.string().nullable().optional().describe('XPath display condition'),
             calculate: z.string().nullable().optional().describe('XPath computed value'),
             default_value: z.string().nullable().optional().describe('XPath initial value'),
@@ -639,12 +639,12 @@ export function createEditArchitectAgent(
           question: z.object({
             id: z.string().describe('Unique question id in snake_case'),
             type: z.enum(QUESTION_TYPES),
-            label: z.string().optional().describe('Question label (omit for hidden)'),
-            hint: z.string().optional(),
-            required: z.boolean().optional(),
+            label: localizedStringSchema.optional().describe('Question label (omit for hidden)'),
+            hint: localizedStringSchema.optional(),
+            required: z.string().optional().describe('"true()" if always required. XPath for conditional. Omit if not required.'),
             readonly: z.boolean().optional(),
             constraint: z.string().optional(),
-            constraint_msg: z.string().optional(),
+            constraint_msg: localizedStringSchema.optional(),
             relevant: z.string().optional(),
             calculate: z.string().optional(),
             default_value: z.string().optional(),
@@ -689,24 +689,29 @@ export function createEditArchitectAgent(
       // ── Structural mutations ──────────────────────────────────────
 
       updateModule: tool({
-        description: 'Update module metadata: name or case list columns.',
+        description: 'Update module metadata: name, case list columns, or case detail columns.',
         inputSchema: z.object({
           moduleIndex: z.number().describe('0-based module index'),
-          name: z.string().optional().describe('New module name'),
+          name: localizedStringSchema.optional().describe('New module name'),
           case_list_columns: z.array(z.object({
             field: z.string().describe('Case property name'),
-            header: z.string().describe('Column header text'),
+            header: localizedStringSchema.describe('Column header text'),
           })).optional().describe('New case list columns'),
+          case_detail_columns: z.array(z.object({
+            field: z.string().describe('Case property name'),
+            header: localizedStringSchema.describe('Display label for this detail field'),
+          })).nullable().optional().describe('Columns for case detail view (when tapping a case). null to remove explicit detail columns.'),
         }),
-        execute: async ({ moduleIndex, name, case_list_columns }) => {
+        execute: async ({ moduleIndex, name, case_list_columns, case_detail_columns }) => {
           try {
             mutableBp.updateModule(moduleIndex, {
               ...(name !== undefined && { name }),
               ...(case_list_columns !== undefined && { case_list_columns }),
+              ...(case_detail_columns !== undefined && { case_detail_columns }),
             })
             ctx.emit('data-blueprint-updated', { blueprint: mutableBp.getBlueprint() })
             const mod = mutableBp.getModule(moduleIndex)!
-            return { moduleIndex, name: mod.name, case_list_columns: mod.case_list_columns ?? null }
+            return { moduleIndex, name: mod.name, case_list_columns: mod.case_list_columns ?? null, case_detail_columns: mod.case_detail_columns ?? null }
           } catch (err) {
             return { error: err instanceof Error ? err.message : String(err) }
           }
@@ -718,7 +723,7 @@ export function createEditArchitectAgent(
         inputSchema: z.object({
           moduleIndex: z.number().describe('0-based module index'),
           formIndex: z.number().describe('0-based form index'),
-          name: z.string().optional().describe('New form name'),
+          name: localizedStringSchema.optional().describe('New form name'),
           close_case: z.object({
             question: z.string().optional().describe('Question id for conditional close'),
             answer: z.string().optional().describe('Value that triggers closure'),
@@ -743,7 +748,7 @@ export function createEditArchitectAgent(
         description: 'Add a new empty form to a module. Use regenerateForm after to populate it with questions.',
         inputSchema: z.object({
           moduleIndex: z.number().describe('0-based module index'),
-          name: z.string().describe('Form display name'),
+          name: localizedStringSchema.describe('Form display name'),
           type: z.enum(['registration', 'followup', 'survey']).describe('Form type'),
         }),
         execute: async ({ moduleIndex, name, type }) => {
@@ -781,11 +786,11 @@ export function createEditArchitectAgent(
       addModule: tool({
         description: 'Add a new module to the app.',
         inputSchema: z.object({
-          name: z.string().describe('Module display name'),
+          name: localizedStringSchema.describe('Module display name'),
           case_type: z.string().optional().describe('Case type (required if module will have registration/followup forms)'),
           case_list_columns: z.array(z.object({
             field: z.string().describe('Case property name'),
-            header: z.string().describe('Column header text'),
+            header: localizedStringSchema.describe('Column header text'),
           })).optional().describe('Case list columns'),
         }),
         execute: async ({ name, case_type, case_list_columns }) => {
@@ -860,7 +865,7 @@ export function createEditArchitectAgent(
           try {
             const knowledge = await loadKnowledge(...FORM_KNOWLEDGE_ALL)
             const fc = await ctx.generate(formContentSchema, {
-              system: formPrompt(knowledge),
+              system: formPrompt(knowledge, blueprint.languages),
               prompt: buildRegenerateFormPrompt(blueprint, moduleIndex, formIndex, instructions),
               label: `Regenerate "${form.name}"`,
               knowledge: [...FORM_KNOWLEDGE_ALL],

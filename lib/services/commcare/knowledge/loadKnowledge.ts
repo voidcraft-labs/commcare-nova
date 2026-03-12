@@ -68,6 +68,10 @@ interface ConditionalEntry {
 
 const CONDITIONAL: Record<Phase, Record<string, ConditionalEntry>> = {
   scaffold: {
+    multilingual: {
+      files: ['multilingual-apps'],
+      keywords: ['language', 'multilingual', 'translation', 'hindi', 'french', 'swahili', 'spanish', 'arabic', 'bilingual', 'trilingual', 'locale'],
+    },
     hierarchy: {
       files: ['parent-child-cases', 'case-design-patterns'],
       keywords: ['parent', 'child', 'subcase', 'household', 'hierarchy', 'referral', 'supervisor'],

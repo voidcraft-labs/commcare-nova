@@ -1,4 +1,5 @@
-import type { AppBlueprint, BlueprintForm, BlueprintQuestion } from '../schemas/blueprint'
+import type { AppBlueprint, BlueprintForm, BlueprintQuestion, BlueprintModule, LocalizedString } from '../schemas/blueprint'
+import { resolveLocalizedText, toHqLocalizedRecord, displayText } from '../schemas/blueprint'
 import {
   RESERVED_CASE_PROPERTIES, MEDIA_QUESTION_TYPES,
   escapeXml, genHexId, genShortId,
@@ -9,6 +10,25 @@ import {
 import type { FormActions, HqApplication, OpenSubCaseAction } from './commcare'
 
 /**
+ * Process label/hint/help text that may contain <output value="..."/> tags.
+ * Plain text segments are XML-escaped. <output> tags are preserved as raw XML
+ * with hashtag expansion on the value attribute.
+ */
+function processLabelText(text: string): string {
+  // Split on <output value="..."/> tags, preserving the tags
+  const parts = text.split(/(<output\s+value="[^"]*"\s*\/>)/g)
+  return parts.map(part => {
+    const outputMatch = part.match(/^<output\s+value="([^"]*)"\s*\/>$/)
+    if (outputMatch) {
+      const expandedValue = expandHashtags(outputMatch[1])
+      return `<output value="${escapeXml(expandedValue)}"/>`
+    }
+    return escapeXml(part)
+  }).join('')
+}
+
+
+/**
  * Expand an AppBlueprint into the full HQ import JSON.
  *
  * Generates all boilerplate that CommCare HQ expects: doc_types, unique_ids,
@@ -16,6 +36,7 @@ import type { FormActions, HqApplication, OpenSubCaseAction } from './commcare'
  * The output can be imported directly into HQ or compiled into a .ccz.
  */
 export function expandBlueprint(blueprint: AppBlueprint): HqApplication {
+  const languages = blueprint.languages ?? ['en']
   const attachments: Record<string, string> = {}
   const modules = blueprint.modules.map((bm) => {
     const hasCases = bm.case_type && bm.forms.some(f => f.type !== 'survey')
@@ -25,24 +46,38 @@ export function expandBlueprint(blueprint: AppBlueprint): HqApplication {
       const formUniqueId = genHexId()
       const xmlns = `http://openrosa.org/formdesigner/${genShortId()}`
 
-      attachments[`${formUniqueId}.xml`] = buildXForm(bf, xmlns)
+      attachments[`${formUniqueId}.xml`] = buildXForm(bf, xmlns, languages)
 
+      const formName = displayText(bf.name)
       return formShell(
-        formUniqueId, bf.name, xmlns,
+        formUniqueId, formName, xmlns,
         bf.type === 'followup' ? 'case' : 'none',
         buildFormActions(bf, caseType),
         buildCaseReferencesLoad(bf.questions || []),
+        languages.length > 1 ? toHqLocalizedRecord(bf.name, languages) : undefined,
       )
     })
 
+    const resolveHeader = (header: LocalizedString) =>
+      languages.length > 1 ? toHqLocalizedRecord(header, languages) : displayText(header)
+    const shortColumns = (bm.case_list_columns || []).map(col => detailColumn(col.field, resolveHeader(col.header)))
+    const longColumns = bm.case_detail_columns
+      ? bm.case_detail_columns.map(col => detailColumn(col.field, resolveHeader(col.header)))
+      : bm.case_list_columns
+        ? shortColumns // mirror short columns when no explicit long columns
+        : undefined
     const caseDetails = hasCases
-      ? detailPair((bm.case_list_columns || []).map(col => detailColumn(col.field, col.header)))
+      ? detailPair(shortColumns, longColumns)
       : detailPair([])
 
-    return moduleShell(genHexId(), bm.name, caseType, forms, caseDetails)
+    const modName = displayText(bm.name)
+    return moduleShell(
+      genHexId(), modName, caseType, forms, caseDetails,
+      languages.length > 1 ? toHqLocalizedRecord(bm.name, languages) : undefined,
+    )
   })
 
-  return applicationShell(blueprint.app_name, modules, attachments)
+  return applicationShell(blueprint.app_name, modules, attachments, languages)
 }
 
 
@@ -58,7 +93,7 @@ function buildCaseReferencesLoad(questions: BlueprintQuestion[], parentPath = '/
   const load: Record<string, string[]> = {}
   for (const q of questions) {
     const nodePath = `${parentPath}/${q.id}`
-    const xpathExprs = [q.relevant, q.constraint, q.calculate, q.default_value].filter(Boolean) as string[]
+    const xpathExprs = [q.relevant, q.constraint, q.calculate, q.default_value, q.required].filter(Boolean) as string[]
     const hashtags = extractHashtags(xpathExprs)
     if (hashtags.length > 0) {
       load[nodePath] = hashtags
@@ -71,16 +106,29 @@ function buildCaseReferencesLoad(questions: BlueprintQuestion[], parentPath = '/
 }
 
 /** Build complete XForm XML from question definitions. */
-function buildXForm(form: BlueprintForm, xmlns: string): string {
+function buildXForm(form: BlueprintForm, xmlns: string, languages: string[] = ['en']): string {
   const questions = form.questions || []
+  const defaultLang = languages[0]
   const dataElements: string[] = []
   const binds: string[] = []
   const setvalues: string[] = []
-  const itextEntries: string[] = []
   const bodyElements: string[] = []
 
+  // Collect itext entries per language: Map<lang, string[]>
+  const itextPerLang = new Map<string, string[]>()
+  for (const lang of languages) itextPerLang.set(lang, [])
+
+  // We need to collect itext entries for all languages, so we pass a callback
+  const addItext = (id: string, field: LocalizedString | undefined) => {
+    if (!field || field.length === 0) return
+    for (const lang of languages) {
+      const text = resolveLocalizedText(field, lang, defaultLang)
+      itextPerLang.get(lang)!.push(`<text id="${id}"><value>${processLabelText(text)}</value></text>`)
+    }
+  }
+
   for (const q of questions) {
-    buildQuestionParts(q, '/data', dataElements, binds, setvalues, itextEntries, bodyElements)
+    buildQuestionParts(q, '/data', dataElements, binds, setvalues, bodyElements, false, addItext)
   }
 
   const dataContent = dataElements.length > 0
@@ -95,22 +143,28 @@ function buildXForm(form: BlueprintForm, xmlns: string): string {
     ? '\n' + setvalues.map(s => `      ${s}`).join('\n')
     : ''
 
-  const itextContent = itextEntries.map(e => `          ${e}`).join('\n')
+  const formName = displayText(form.name)
+
+  // Build itext translations
+  const translations = languages.map((lang, idx) => {
+    const entries = itextPerLang.get(lang)!
+    const defaultAttr = idx === 0 ? ' default=""' : ''
+    const content = entries.map(e => `          ${e}`).join('\n')
+    return `        <translation lang="${lang}"${defaultAttr}>\n${content}\n        </translation>`
+  }).join('\n')
 
   const bodyContent = bodyElements.map(e => `    ${e}`).join('\n')
 
   return `<?xml version="1.0"?>
 <h:html xmlns:h="http://www.w3.org/1999/xhtml" xmlns="http://www.w3.org/2002/xforms" xmlns:xsd="http://www.w3.org/2001/XMLSchema" xmlns:jr="http://openrosa.org/javarosa" xmlns:vellum="http://commcarehq.org/xforms/vellum">
   <h:head>
-    <h:title>${escapeXml(form.name)}</h:title>
+    <h:title>${escapeXml(formName)}</h:title>
     <model>
       <instance>
-        <data xmlns="${xmlns}" xmlns:jrm="http://dev.commcarehq.org/jr/xforms" uiVersion="1" version="1" name="${escapeXml(form.name.toLowerCase().replace(/[^a-z0-9]+/g, '_'))}">${dataContent}</data>
+        <data xmlns="${xmlns}" xmlns:jrm="http://dev.commcarehq.org/jr/xforms" uiVersion="1" version="1" name="${escapeXml(formName.toLowerCase().replace(/[^a-z0-9]+/g, '_'))}">${dataContent}</data>
       </instance>${bindContent}${setvalueContent}
       <itext>
-        <translation lang="en" default="">
-${itextContent}
-        </translation>
+${translations}
       </itext>
     </model>
   </h:head>
@@ -135,8 +189,9 @@ function buildQuestionParts(
   dataElements: string[],
   binds: string[],
   setvalues: string[],
-  itextEntries: string[],
-  bodyElements: string[]
+  bodyElements: string[],
+  insideRepeat: boolean,
+  addItext: (id: string, field: LocalizedString | undefined) => void
 ): void {
   const nodePath = `${parentPath}/${q.id}`
 
@@ -147,13 +202,20 @@ function buildQuestionParts(
   const bindParts = [`nodeset="${nodePath}"`]
   const xsdType = getXsdType(q.type)
   if (xsdType) bindParts.push(`type="${xsdType}"`)
-  if (q.required) bindParts.push(`required="true()"`)
+  if (q.required) {
+    const expandedReq = expandHashtags(q.required)
+    if (hasHashtags(q.required)) bindParts.push(`vellum:required="${escapeXml(q.required)}"`)
+    bindParts.push(`required="${escapeXml(expandedReq)}"`)
+  }
   if (q.readonly) bindParts.push(`readonly="true()"`)
   if (q.constraint) {
     if (hasHashtags(q.constraint)) bindParts.push(`vellum:constraint="${escapeXml(q.constraint)}"`)
     bindParts.push(`constraint="${escapeXml(expandHashtags(q.constraint))}"`)
   }
-  if (q.constraint_msg) bindParts.push(`jr:constraintMsg="${escapeXml(q.constraint_msg)}"`)
+  if (q.constraint_msg && q.constraint_msg.length > 0) {
+    const msgText = displayText(q.constraint_msg)
+    if (msgText) bindParts.push(`jr:constraintMsg="${escapeXml(msgText)}"`)
+  }
   if (q.relevant) {
     if (hasHashtags(q.relevant)) bindParts.push(`vellum:relevant="${escapeXml(q.relevant)}"`)
     bindParts.push(`relevant="${escapeXml(expandHashtags(q.relevant))}"`)
@@ -163,15 +225,17 @@ function buildQuestionParts(
     bindParts.push(`calculate="${escapeXml(expandHashtags(q.calculate))}"`)
   }
   // Setvalue for default_value — same dual-attribute pattern
+  // Inside repeats, use jr-insert event so defaults fire per iteration, not just on form load
   if (q.default_value) {
     const expandedValue = expandHashtags(q.default_value)
     const vellumAttrs = hasHashtags(q.default_value)
       ? ` vellum:value="${escapeXml(q.default_value)}"`
       : ''
-    setvalues.push(`<setvalue event="xforms-ready" ref="${nodePath}"${vellumAttrs} value="${escapeXml(expandedValue)}"/>`)
+    const event = insideRepeat ? 'jr-insert' : 'xforms-ready'
+    setvalues.push(`<setvalue event="${event}" ref="${nodePath}"${vellumAttrs} value="${escapeXml(expandedValue)}"/>`)
   }
   // Add Vellum hashtag metadata for #case/ and #user/ references
-  const xpathExprs = [q.relevant, q.constraint, q.calculate, q.default_value].filter(Boolean) as string[]
+  const xpathExprs = [q.relevant, q.constraint, q.calculate, q.default_value, q.required].filter(Boolean) as string[]
   const hashtags = extractHashtags(xpathExprs)
   if (hashtags.length > 0) {
     const hashtagMap = Object.fromEntries(hashtags.map(h => [h, null]))
@@ -181,17 +245,16 @@ function buildQuestionParts(
   binds.push(`<bind ${bindParts.join(' ')}/>`)
 
   // itext (hidden questions have no body element, so no label to reference)
-  if (q.type !== 'hidden' && q.label) {
-    itextEntries.push(`<text id="${q.id}-label"><value>${escapeXml(q.label)}</value></text>`)
-    if (q.hint) {
-      itextEntries.push(`<text id="${q.id}-hint"><value>${escapeXml(q.hint)}</value></text>`)
-    }
+  if (q.type !== 'hidden' && q.label && q.label.length > 0) {
+    addItext(`${q.id}-label`, q.label)
+    addItext(`${q.id}-hint`, q.hint)
+    addItext(`${q.id}-help`, q.help)
   }
 
   // itext for select options
   if (q.options) {
     for (const opt of q.options) {
-      itextEntries.push(`<text id="${q.id}-${opt.value}-label"><value>${escapeXml(opt.label)}</value></text>`)
+      addItext(`${q.id}-${opt.value}-label`, opt.label)
     }
   }
 
@@ -203,21 +266,21 @@ function buildQuestionParts(
     // Group/repeat: contains nested child questions
     const childData: string[] = []
     const childBinds: string[] = []
-    const childItext: string[] = []
     const childBody: string[] = []
+    const childInsideRepeat = q.type === 'repeat' ? true : insideRepeat
     for (const child of (q.children || [])) {
-      buildQuestionParts(child, nodePath, childData, childBinds, setvalues, childItext, childBody)
+      buildQuestionParts(child, nodePath, childData, childBinds, setvalues, childBody, childInsideRepeat, addItext)
     }
     // Replace the self-closing data element with a proper parent element wrapping children
     dataElements.pop()
-    dataElements.push(`<${q.id}>${childData.join('')}</${q.id}>`)
+    const templateAttr = q.type === 'repeat' ? ' jr:template=""' : ''
+    dataElements.push(`<${q.id}${templateAttr}>${childData.join('')}</${q.id}>`)
     // Replace the group bind with just a relevant bind if needed
     binds.pop()
     if (q.relevant) {
       binds.push(`<bind nodeset="${nodePath}" relevant="${escapeXml(q.relevant)}"/>`)
     }
     binds.push(...childBinds)
-    itextEntries.push(...childItext)
     // Re-indent ALL lines of child body elements for proper nesting.
     // Child elements have: line 0 at 0 indent (relative), subsequent lines with absolute indent.
     // For group: line 0 needs +6 (4 base + 2 nesting), subsequent lines need +2.
@@ -249,16 +312,19 @@ function buildQuestionParts(
     ).join('\n    ')
     let el = `<${tag} ref="${nodePath}">\n      <label ref="jr:itext('${q.id}-label')"/>`
     if (q.hint) el += `\n      <hint ref="jr:itext('${q.id}-hint')"/>`
+    if (q.help) el += `\n      <help ref="jr:itext('${q.id}-help')"/>`
     el += `\n    ${items}\n    </${tag}>`
     bodyElements.push(el)
   } else if (q.type === 'trigger') {
     let el = `<trigger ref="${nodePath}">\n      <label ref="jr:itext('${q.id}-label')"/>`
     if (q.hint) el += `\n      <hint ref="jr:itext('${q.id}-hint')"/>`
+    if (q.help) el += `\n      <help ref="jr:itext('${q.id}-help')"/>`
     el += `\n    </trigger>`
     bodyElements.push(el)
   } else if (q.type === 'secret') {
     let el = `<secret ref="${nodePath}">\n      <label ref="jr:itext('${q.id}-label')"/>`
     if (q.hint) el += `\n      <hint ref="jr:itext('${q.id}-hint')"/>`
+    if (q.help) el += `\n      <help ref="jr:itext('${q.id}-help')"/>`
     el += `\n    </secret>`
     bodyElements.push(el)
   } else if (q.type === 'image' || q.type === 'audio' || q.type === 'video' || q.type === 'signature') {
@@ -266,6 +332,7 @@ function buildQuestionParts(
     const appearance = q.type === 'signature' ? ' appearance="signature"' : ''
     let el = `<upload ref="${nodePath}" mediatype="${mediatype}"${appearance}>\n      <label ref="jr:itext('${q.id}-label')"/>`
     if (q.hint) el += `\n      <hint ref="jr:itext('${q.id}-hint')"/>`
+    if (q.help) el += `\n      <help ref="jr:itext('${q.id}-help')"/>`
     el += `\n    </upload>`
     bodyElements.push(el)
   } else {
@@ -274,6 +341,7 @@ function buildQuestionParts(
     const appearanceAttr = appearance ? ` appearance="${appearance}"` : ''
     let el = `<input ref="${nodePath}"${appearanceAttr}>\n      <label ref="jr:itext('${q.id}-label')"/>`
     if (q.hint) el += `\n      <hint ref="jr:itext('${q.id}-hint')"/>`
+    if (q.help) el += `\n      <help ref="jr:itext('${q.id}-help')"/>`
     el += `\n    </input>`
     bodyElements.push(el)
   }
@@ -468,22 +536,23 @@ function buildFormActions(form: BlueprintForm, caseType: string): FormActions {
  */
 export function validateBlueprint(blueprint: AppBlueprint): string[] {
   const errors: string[] = []
+  const str = displayText
 
   for (let mIdx = 0; mIdx < blueprint.modules.length; mIdx++) {
     const mod = blueprint.modules[mIdx]
 
     const hasCaseForms = mod.forms?.some(f => f.type !== 'survey')
     if (hasCaseForms && !mod.case_type) {
-      errors.push(`"${mod.name}" has case forms but no case_type`)
+      errors.push(`"${str(mod.name)}" has case forms but no case_type`)
     }
 
     for (let fIdx = 0; fIdx < mod.forms.length; fIdx++) {
       const form = mod.forms[fIdx]
       if (!form.questions || form.questions.length === 0) {
-        errors.push(`"${form.name}" in "${mod.name}" has no questions`)
+        errors.push(`"${str(form.name)}" in "${str(mod.name)}" has no questions`)
       }
       if (form.type === 'registration' && !form.case_name_field) {
-        errors.push(`"${form.name}" is a registration form but has no case_name_field`)
+        errors.push(`"${str(form.name)}" is a registration form but has no case_name_field`)
       }
 
       // Validate select questions have options (recursively for group/repeat children)
@@ -497,7 +566,8 @@ export function validateBlueprint(blueprint: AppBlueprint): string[] {
           }
         }
       }
-      validateQuestions(form.questions || [], form.name)
+      const fn = str(form.name)
+      validateQuestions(form.questions || [], fn)
 
       // Collect all question IDs including those inside groups/repeats
       function collectQuestionIds(questions: BlueprintQuestion[]): string[] {
@@ -527,7 +597,7 @@ export function validateBlueprint(blueprint: AppBlueprint): string[] {
       if (form.type === 'registration' && form.case_name_field) {
         const questionIds = collectQuestionIds(form.questions || [])
         if (!questionIds.includes(form.case_name_field)) {
-          errors.push(`"${form.name}" case_name_field "${form.case_name_field}" doesn't match any question id`)
+          errors.push(`"${fn}" case_name_field "${form.case_name_field}" doesn't match any question id`)
         }
       }
 
@@ -536,14 +606,14 @@ export function validateBlueprint(blueprint: AppBlueprint): string[] {
         const questionIds = collectQuestionIds(form.questions || [])
         for (const { case_property: prop, question_id: qId } of form.case_properties) {
           if (RESERVED_CASE_PROPERTIES.has(prop)) {
-            errors.push(`"${form.name}" uses reserved case property name "${prop}" — use a different name`)
+            errors.push(`"${fn}" uses reserved case property name "${prop}" — use a different name`)
           }
           if (!questionIds.includes(qId)) {
-            errors.push(`"${form.name}" case property "${prop}" maps to question "${qId}" which doesn't exist`)
+            errors.push(`"${fn}" case property "${prop}" maps to question "${qId}" which doesn't exist`)
           } else {
             const q = findQuestionById(form.questions || [], qId)
             if (q && MEDIA_QUESTION_TYPES.has(q.type)) {
-              errors.push(`"${form.name}" case property "${prop}" maps to a ${q.type} question — media/binary questions cannot be saved as case properties`)
+              errors.push(`"${fn}" case property "${prop}" maps to a ${q.type} question — media/binary questions cannot be saved as case properties`)
             }
           }
         }
@@ -554,10 +624,10 @@ export function validateBlueprint(blueprint: AppBlueprint): string[] {
         const questionIds = collectQuestionIds(form.questions || [])
         for (const { question_id: qId, case_property: caseProp } of form.case_preload) {
           if (!questionIds.includes(qId)) {
-            errors.push(`"${form.name}" case_preload references question "${qId}" which doesn't exist`)
+            errors.push(`"${fn}" case_preload references question "${qId}" which doesn't exist`)
           }
           if (RESERVED_CASE_PROPERTIES.has(caseProp)) {
-            errors.push(`"${form.name}" case_preload uses reserved property "${caseProp}" — use a custom property name instead`)
+            errors.push(`"${fn}" case_preload uses reserved property "${caseProp}" — use a custom property name instead`)
           }
         }
       }
@@ -565,20 +635,20 @@ export function validateBlueprint(blueprint: AppBlueprint): string[] {
       // Validate close_case
       if (form.close_case) {
         if (form.type !== 'followup') {
-          errors.push(`"${form.name}" has close_case but is not a followup form — only followup forms can close cases`)
+          errors.push(`"${fn}" has close_case but is not a followup form — only followup forms can close cases`)
         }
         const cc = form.close_case
         // If one of question/answer is set, both must be
         if (cc.question && !cc.answer) {
-          errors.push(`"${form.name}" close_case condition is missing "answer"`)
+          errors.push(`"${fn}" close_case condition is missing "answer"`)
         }
         if (!cc.question && cc.answer) {
-          errors.push(`"${form.name}" close_case condition is missing "question"`)
+          errors.push(`"${fn}" close_case condition is missing "question"`)
         }
         if (cc.question) {
           const questionIds = collectQuestionIds(form.questions || [])
           if (!questionIds.includes(cc.question)) {
-            errors.push(`"${form.name}" close_case references question "${cc.question}" which doesn't exist`)
+            errors.push(`"${fn}" close_case references question "${cc.question}" which doesn't exist`)
           }
         }
       }
@@ -588,7 +658,7 @@ export function validateBlueprint(blueprint: AppBlueprint): string[] {
         const questionIds = collectQuestionIds(form.questions || [])
         for (let cIdx = 0; cIdx < form.child_cases.length; cIdx++) {
           const child = form.child_cases[cIdx]
-          const prefix = `"${form.name}" child_cases[${cIdx}]`
+          const prefix = `"${fn}" child_cases[${cIdx}]`
 
           if (!child.case_type) {
             errors.push(`${prefix} is missing case_type`)

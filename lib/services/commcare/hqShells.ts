@@ -60,10 +60,11 @@ function detailBase(): DetailBase {
   }
 }
 
-export function detailColumn(field: string, header: string): DetailColumn {
+export function detailColumn(field: string, header: string | Record<string, string>): DetailColumn {
+  const headerRecord: Record<string, string> = typeof header === 'string' ? { en: header } : header
   return {
     doc_type: 'DetailColumn',
-    header: { en: header },
+    header: headerRecord,
     field,
     model: 'case',
     format: 'plain',
@@ -75,12 +76,12 @@ export function detailColumn(field: string, header: string): DetailColumn {
   }
 }
 
-/** Build a DetailPair from short columns. Long detail is always empty. */
-export function detailPair(shortColumns: DetailColumn[]): DetailPair {
+/** Build a DetailPair from short columns and optional long (detail view) columns. */
+export function detailPair(shortColumns: DetailColumn[], longColumns?: DetailColumn[]): DetailPair {
   return {
     doc_type: 'DetailPair',
     short: { doc_type: 'Detail', display: 'short', columns: shortColumns, ...detailBase() },
-    long: { doc_type: 'Detail', display: 'long', columns: [], ...detailBase() },
+    long: { doc_type: 'Detail', display: 'long', columns: longColumns ?? [], ...detailBase() },
   }
 }
 
@@ -90,12 +91,13 @@ export function applicationShell(
   appName: string,
   modules: HqModule[],
   attachments: Record<string, string>,
+  languages?: string[],
 ): HqApplication {
   return {
     doc_type: 'Application',
     application_version: '2.0',
     name: appName,
-    langs: ['en'],
+    langs: languages ?? ['en'],
     build_spec: { doc_type: 'BuildSpec', version: '2.53.0', build_number: null },
     profile: { doc_type: 'Profile', features: {}, properties: {} },
     vellum_case_management: true,
@@ -116,12 +118,13 @@ export function formShell(
   requires: string,
   actions: FormActions,
   caseRefsLoad: Record<string, string[]>,
+  localizedName?: Record<string, string>,
 ): HqForm {
   return {
     doc_type: 'Form',
     form_type: 'module_form',
     unique_id: uniqueId,
-    name: { en: name },
+    name: localizedName ?? { en: name },
     xmlns,
     requires,
     version: null,
@@ -142,12 +145,13 @@ export function moduleShell(
   caseType: string,
   forms: HqForm[],
   caseDetails: DetailPair,
+  localizedName?: Record<string, string>,
 ): HqModule {
   return {
     doc_type: 'Module',
     module_type: 'basic',
     unique_id: uniqueId,
-    name: { en: name },
+    name: localizedName ?? { en: name },
     case_type: caseType,
     put_in_root: false,
     root_module_id: null,

@@ -6,7 +6,7 @@
  */
 import {
   type AppBlueprint, type BlueprintModule, type BlueprintForm, type BlueprintQuestion,
-  type CasePropertyMapping, flattenQuestions, unflattenQuestions, deriveCaseConfig,
+  type CasePropertyMapping, type LocalizedString, flattenQuestions, unflattenQuestions, deriveCaseConfig, displayText,
 } from '../schemas/blueprint'
 
 // ── Result types ────────────────────────────────────────────────────────
@@ -29,17 +29,18 @@ export interface RenameResult {
 // ── QuestionUpdate type ─────────────────────────────────────────────────
 
 export interface QuestionUpdate {
-  label: string | null
+  label: LocalizedString
   type: BlueprintQuestion['type']
-  hint: string | null
-  required: boolean
+  hint: LocalizedString
+  help: LocalizedString
+  required: string
   readonly: boolean
   constraint: string | null
-  constraint_msg: string | null
+  constraint_msg: LocalizedString
   relevant: string | null
   calculate: string | null
   default_value: string | null
-  options: Array<{ value: string; label: string }> | null
+  options: Array<{ value: string; label: LocalizedString }> | null
   case_property: string | null
   is_case_name: boolean
 }
@@ -49,16 +50,17 @@ export interface QuestionUpdate {
 export interface NewQuestion {
   id: string
   type: BlueprintQuestion['type']
-  label?: string
-  hint?: string
-  required?: boolean
+  label?: LocalizedString
+  hint?: LocalizedString
+  help?: LocalizedString
+  required?: string
   readonly?: boolean
   constraint?: string
-  constraint_msg?: string
+  constraint_msg?: LocalizedString
   relevant?: string
   calculate?: string
   default_value?: string
-  options?: Array<{ value: string; label: string }>
+  options?: Array<{ value: string; label: LocalizedString }>
   case_property?: string
   is_case_name?: boolean
   children?: NewQuestion[]
@@ -99,23 +101,26 @@ export class MutableBlueprint {
     const results: SearchResult[] = []
     const q = query.toLowerCase()
 
+    const str = displayText
+
     for (let mIdx = 0; mIdx < this.blueprint.modules.length; mIdx++) {
       const mod = this.blueprint.modules[mIdx]
+      const modName = str(mod.name)
 
       // Module name
-      if (mod.name.toLowerCase().includes(q)) {
-        results.push({ type: 'module', moduleIndex: mIdx, field: 'name', value: mod.name, context: `Module ${mIdx} "${mod.name}"` })
+      if (modName.toLowerCase().includes(q)) {
+        results.push({ type: 'module', moduleIndex: mIdx, field: 'name', value: modName, context: `Module ${mIdx} "${modName}"` })
       }
       // Case type
       if (mod.case_type?.toLowerCase().includes(q)) {
-        results.push({ type: 'module', moduleIndex: mIdx, field: 'case_type', value: mod.case_type, context: `Module ${mIdx} "${mod.name}" case_type` })
+        results.push({ type: 'module', moduleIndex: mIdx, field: 'case_type', value: mod.case_type, context: `Module ${mIdx} "${modName}" case_type` })
       }
       // Case list columns
-      if (mod.case_list_columns) {
-        for (const col of mod.case_list_columns) {
-          if (col.field.toLowerCase().includes(q) || col.header.toLowerCase().includes(q)) {
-            results.push({ type: 'case_list_column', moduleIndex: mIdx, field: 'column', value: `${col.field} (${col.header})`, context: `Module ${mIdx} "${mod.name}" column "${col.header}"` })
-          }
+      const allColumns = [...(mod.case_list_columns || []), ...(mod.case_detail_columns || [])]
+      for (const col of allColumns) {
+        const headerStr = displayText(col.header)
+        if (col.field.toLowerCase().includes(q) || headerStr.toLowerCase().includes(q)) {
+          results.push({ type: 'case_list_column', moduleIndex: mIdx, field: 'column', value: `${col.field} (${headerStr})`, context: `Module ${mIdx} "${modName}" column "${headerStr}"` })
         }
       }
 
@@ -124,8 +129,9 @@ export class MutableBlueprint {
         const form = mod.forms[fIdx]
 
         // Form name
-        if (form.name.toLowerCase().includes(q)) {
-          results.push({ type: 'form', moduleIndex: mIdx, formIndex: fIdx, field: 'name', value: form.name, context: `m${mIdx}-f${fIdx} "${form.name}" (${form.type})` })
+        const formName = str(form.name)
+        if (formName.toLowerCase().includes(q)) {
+          results.push({ type: 'form', moduleIndex: mIdx, formIndex: fIdx, field: 'name', value: formName, context: `m${mIdx}-f${fIdx} "${formName}" (${form.type})` })
         }
 
         // Questions (recursive)
@@ -142,20 +148,26 @@ export class MutableBlueprint {
       const matchFields: Array<{ field: string; value: string }> = []
 
       if (q.id.toLowerCase().includes(query)) matchFields.push({ field: 'id', value: q.id })
-      if (q.label?.toLowerCase().includes(query)) matchFields.push({ field: 'label', value: q.label })
+      const labelStr = displayText(q.label)
+      if (labelStr && labelStr.toLowerCase().includes(query)) matchFields.push({ field: 'label', value: labelStr })
       if (q.case_property?.toLowerCase().includes(query)) matchFields.push({ field: 'case_property', value: q.case_property })
       if (q.constraint?.toLowerCase().includes(query)) matchFields.push({ field: 'constraint', value: q.constraint })
       if (q.relevant?.toLowerCase().includes(query)) matchFields.push({ field: 'relevant', value: q.relevant })
       if (q.calculate?.toLowerCase().includes(query)) matchFields.push({ field: 'calculate', value: q.calculate })
       if (q.default_value?.toLowerCase().includes(query)) matchFields.push({ field: 'default_value', value: q.default_value })
-      if (q.constraint_msg?.toLowerCase().includes(query)) matchFields.push({ field: 'constraint_msg', value: q.constraint_msg })
-      if (q.hint?.toLowerCase().includes(query)) matchFields.push({ field: 'hint', value: q.hint })
+      const cmStr = displayText(q.constraint_msg)
+      if (cmStr && cmStr.toLowerCase().includes(query)) matchFields.push({ field: 'constraint_msg', value: cmStr })
+      const hintStr = displayText(q.hint)
+      if (hintStr && hintStr.toLowerCase().includes(query)) matchFields.push({ field: 'hint', value: hintStr })
+      const helpStr = displayText(q.help)
+      if (helpStr && helpStr.toLowerCase().includes(query)) matchFields.push({ field: 'help', value: helpStr })
 
       // Search options
       if (q.options) {
         for (const opt of q.options) {
-          if (opt.value.toLowerCase().includes(query) || opt.label.toLowerCase().includes(query)) {
-            matchFields.push({ field: 'option', value: `${opt.value}: ${opt.label}` })
+          const optLabel = displayText(opt.label)
+          if (opt.value.toLowerCase().includes(query) || optLabel.toLowerCase().includes(query)) {
+            matchFields.push({ field: 'option', value: `${opt.value}: ${optLabel}` })
             break // one match per question is enough for options
           }
         }
@@ -252,7 +264,11 @@ export class MutableBlueprint {
 
   // ── Structural mutations ────────────────────────────────────────────
 
-  updateModule(mIdx: number, updates: { name?: string; case_list_columns?: Array<{ field: string; header: string }> }): void {
+  updateModule(mIdx: number, updates: {
+    name?: LocalizedString
+    case_list_columns?: Array<{ field: string; header: LocalizedString }>
+    case_detail_columns?: Array<{ field: string; header: LocalizedString }> | null
+  }): void {
     const mod = this.blueprint.modules[mIdx]
     if (!mod) throw new Error(`Module ${mIdx} not found`)
 
@@ -260,9 +276,16 @@ export class MutableBlueprint {
     if (updates.case_list_columns !== undefined) {
       mod.case_list_columns = updates.case_list_columns
     }
+    if (updates.case_detail_columns !== undefined) {
+      if (updates.case_detail_columns === null) {
+        delete mod.case_detail_columns
+      } else {
+        mod.case_detail_columns = updates.case_detail_columns
+      }
+    }
   }
 
-  updateForm(mIdx: number, fIdx: number, updates: { name?: string; close_case?: { question?: string; answer?: string } | null }): void {
+  updateForm(mIdx: number, fIdx: number, updates: { name?: LocalizedString; close_case?: { question?: string; answer?: string } | null }): void {
     const form = this.blueprint.modules[mIdx]?.forms[fIdx]
     if (!form) throw new Error(`Form m${mIdx}-f${fIdx} not found`)
 
@@ -315,12 +338,14 @@ export class MutableBlueprint {
       const mod = this.blueprint.modules[mIdx]
       if (mod.case_type !== caseType) continue
 
-      // Case list columns
-      if (mod.case_list_columns) {
-        for (const col of mod.case_list_columns) {
-          if (col.field === oldName) {
-            col.field = newName
-            columnsChanged.push(`m${mIdx}`)
+      // Case list columns and case detail columns
+      for (const columns of [mod.case_list_columns, mod.case_detail_columns]) {
+        if (columns) {
+          for (const col of columns) {
+            if (col.field === oldName) {
+              col.field = newName
+              if (!columnsChanged.includes(`m${mIdx}`)) columnsChanged.push(`m${mIdx}`)
+            }
           }
         }
       }
@@ -431,6 +456,7 @@ export class MutableBlueprint {
       type: nq.type,
       ...(nq.label != null && { label: nq.label }),
       ...(nq.hint != null && { hint: nq.hint }),
+      ...(nq.help != null && { help: nq.help }),
       ...(nq.required && { required: nq.required }),
       ...(nq.readonly && { readonly: nq.readonly }),
       ...(nq.constraint != null && { constraint: nq.constraint }),
