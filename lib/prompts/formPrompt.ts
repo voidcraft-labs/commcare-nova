@@ -6,7 +6,7 @@
  * case_name_field) is derived automatically from per-question case_property /
  * is_case_name fields.
  */
-export function formPrompt(knowledge?: string): string {
+export function formPrompt(knowledge?: string, languages?: string[]): string {
   const knowledgeSection = knowledge
     ? `
 
@@ -25,7 +25,7 @@ ${knowledge}
 
 ## Building Questions
 
-Write labels the way a clear, well-designed form would — concise and unambiguous. Use the most specific question type for the data being collected; the schema describes what each type is for.
+Write labels the way a clear, well-designed form would — concise and unambiguous. Use the most specific question type for the data being collected; the schema describes what each type is for. Labels can contain dynamic references using \`<output value="/data/question_id"/>\` to display calculated values inline (e.g. \`"Your BMI is <output value="/data/bmi_calc"/>"\`).
 
 ## Case Wiring
 
@@ -36,6 +36,10 @@ The message tells you which properties exist on the case type and which one is t
 **Followup forms** update an existing case. Any question that displays or edits a case property needs case_property set — that's what wires it to the case record. Without it, the data won't load from the case or save back. Read-only questions preload but don't save back; editable questions do both. Set is_case_name on the question that maps to the case name property if the form can update it.
 
 **Survey forms** have no case — just collect data.
+
+${languages && languages.length > 1
+    ? `\n## Multilingual\n\nThis app supports languages: ${languages.join(', ')}. For all labels, hints, help text, constraint messages, and option labels, include a translation entry for each language (e.g. [{"lang": "en", "text": "Patient Name"}, {"lang": "${languages[1]}", "text": "..."}]).`
+    : `\n## Labels\n\nAll labels, hints, help text, constraint messages, and option labels use the translations array format with a single entry: [{"lang": "en", "text": "..."}].`}
 
 Output the form content as JSON matching the schema.`
 }

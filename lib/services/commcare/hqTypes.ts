@@ -1,7 +1,6 @@
 /** TypeScript interfaces for CommCare HQ import JSON structures. */
 
 export interface LocalizedString {
-  en: string
   [lang: string]: string
 }
 

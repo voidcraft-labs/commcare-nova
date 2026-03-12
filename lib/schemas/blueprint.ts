@@ -21,9 +21,22 @@ const QUESTION_TYPES = [
   'audio', 'video', 'signature', 'hidden', 'secret', 'group', 'repeat'
 ] as const
 
+/** Single translation entry for multilingual strings. */
+const translationSchema = z.object({
+  lang: z.string().describe('Language code (e.g. "en", "hin", "fra")'),
+  text: z.string().describe('Text in this language'),
+})
+
+/**
+ * Localized string — array of per-language translations.
+ * e.g. [{"lang": "en", "text": "Patient Name"}] or [{"lang": "en", "text": "Patient Name"}, {"lang": "hin", "text": "रोगी का नाम"}]
+ * Single-language apps still use the array format with one entry.
+ */
+export const localizedStringSchema = z.array(translationSchema)
+
 const selectOptionSchema = z.object({
   value: z.string().describe('Option value (stored in data)'),
-  label: z.string().describe('Option label (shown to user)')
+  label: localizedStringSchema.describe('Option label (shown to user)'),
 })
 
 /** Typed pair for case property ↔ question mappings (replaces Record<string, string>). */
@@ -39,14 +52,17 @@ const RESERVED_CASE_PROPERTIES = 'case_id, case_type, closed, closed_by, closed_
 export const scaffoldSchema = z.object({
   app_name: z.string().describe('Name of the CommCare application'),
   description: z.string().describe('Brief description of the app purpose and target users'),
+  languages: z.array(z.string()).nullable().describe(
+    'Language codes (e.g. ["en", "hin", "fra"]). First is the default language. null for English-only apps.'
+  ),
   modules: z.array(z.object({
-    name: z.string().describe('Display name for the module/menu'),
+    name: localizedStringSchema.describe('Display name for the module/menu'),
     case_type: z.string().nullable().describe(
       'References a case_type name from the case_types array. Required if any form is "registration" or "followup". null for survey-only modules.'
     ),
     purpose: z.string().describe("Brief description of this module's role in the app"),
     forms: z.array(z.object({
-      name: z.string().describe('Display name for the form'),
+      name: localizedStringSchema.describe('Display name for the form'),
       type: z.enum(['registration', 'followup', 'survey']).describe(
         '"registration" creates a new case (module must have case_type). ' +
         '"followup" updates an existing case (module must have case_type). ' +
@@ -77,8 +93,14 @@ export const scaffoldSchema = z.object({
 export const moduleContentSchema = z.object({
   case_list_columns: z.array(z.object({
     field: z.string().describe('Case property name to display'),
-    header: z.string().describe('Column header text'),
+    header: localizedStringSchema.describe('Column header text'),
   })).nullable().describe('Columns for the case list. null for survey-only modules.'),
+  case_detail_columns: z.array(z.object({
+    field: z.string().describe('Case property name'),
+    header: localizedStringSchema.describe('Display label for this detail field'),
+  })).nullable().describe(
+    'Columns shown in the case detail view (when a user taps on a case). null to auto-mirror case_list_columns.'
+  ),
 })
 
 // ── Tier 3: Form Content Schema ────────────────────────────────────────
@@ -101,18 +123,21 @@ const flatQuestionSchema = z.object({
     '"group"/"repeat" for nesting. ' +
     'Only use "text" for genuinely free-text fields: names, addresses, notes.'
   ),
-  label: z.string().nullable().describe(
+  label: localizedStringSchema.describe(
     'Human-readable question text. Write clear, professional labels like "Patient Name", "Date of Birth". ' +
-    'null for hidden questions — they have no visible label.'
+    'Empty array [] for hidden questions — they have no visible label.'
   ),
   parent_id: z.string().describe(
     'ID of the parent group/repeat question this belongs to, or empty string "" for top-level. Parent groups/repeats must appear BEFORE their children in the array.'
   ),
-  hint: z.string().nullable().describe('Help text shown below the question'),
-  required: z.boolean().describe('True if the question must be answered, false otherwise'),
+  hint: localizedStringSchema.describe('Help text shown below the question. Empty array [] if none.'),
+  help: localizedStringSchema.describe('Extended help text accessible via help icon. Empty array [] if none.'),
+  required: z.string().describe(
+    '"true()" if always required. An XPath expression for conditional requirement (e.g. "/data/age >= 18"). Empty string "" if never required.'
+  ),
   readonly: z.boolean().describe('True if visible but not editable (use for display-only preloaded values in followup forms), false otherwise'),
   constraint: z.string().nullable().describe('XPath constraint expression, e.g. ". > 0 and . < 150"'),
-  constraint_msg: z.string().nullable().describe('Error message when constraint fails'),
+  constraint_msg: localizedStringSchema.describe('Error message when constraint fails. Empty array [] if none.'),
   relevant: z.string().nullable().describe(
     'XPath expression — question only shows when true. ' +
     'Use the full path: /data/question_id for top-level, /data/group_id/question_id for nested. ' +
@@ -192,14 +217,15 @@ const blueprintQuestionSchema = z.object({
   type: z.enum(QUESTION_TYPES).describe(
     'Question type. Use the most specific type: "phone" for phone numbers (not "text"), "date" for dates, "int" for counts, "decimal" for measurements, "select1" for single-choice, "select" for multi-choice, "hidden" with "calculate" for computed values, "group"/"repeat" for nested questions.'
   ),
-  label: z.string().optional().describe(
+  label: localizedStringSchema.optional().describe(
     'Human-readable question text. Write clear, natural labels like "Patient Name", "Date of Birth". Omitted for hidden questions.'
   ),
-  hint: z.string().optional().describe('Help text shown below the question'),
-  required: z.boolean().optional().describe('True if the question must be answered'),
+  hint: localizedStringSchema.optional().describe('Help text shown below the question'),
+  help: localizedStringSchema.optional().describe('Extended help text accessible via help icon'),
+  required: z.string().optional().describe('"true()" if always required. XPath expression for conditional requirement. Omit or empty string if not required.'),
   readonly: z.boolean().optional().describe('True if visible but not editable (use for display-only preloaded values)'),
   constraint: z.string().optional().describe('XPath constraint expression, e.g. ". > 0 and . < 150"'),
-  constraint_msg: z.string().optional().describe('Error message when constraint fails'),
+  constraint_msg: localizedStringSchema.optional().describe('Error message when constraint fails. Omit if none.'),
   relevant: z.string().optional().describe('XPath expression — question only shows when true, e.g. "/data/age > 18"'),
   calculate: z.string().optional().describe('XPath expression for auto-computed value (use with type "hidden")'),
   default_value: z.string().optional().describe('XPath expression for the initial value set when the form opens'),
@@ -234,7 +260,7 @@ const blueprintChildCaseSchema = z.object({
 }).describe('Creates a child/sub-case linked to the parent case')
 
 const blueprintFormSchema = z.object({
-  name: z.string().describe('Display name for the form'),
+  name: localizedStringSchema.describe('Display name for the form'),
   type: z.enum(['registration', 'followup', 'survey']).describe(
     '"registration" creates a new case (MUST have case_name_field). "followup" updates an existing case (should have case_preload). "survey" has no case management.'
   ),
@@ -263,11 +289,11 @@ const blueprintFormSchema = z.object({
 
 const caseListColumnSchema = z.object({
   field: z.string().describe('Case property name'),
-  header: z.string().describe('Column header display text')
+  header: localizedStringSchema.describe('Column header display text'),
 })
 
 const blueprintModuleSchema = z.object({
-  name: z.string().describe('Display name for the module/menu'),
+  name: localizedStringSchema.describe('Display name for the module/menu'),
   case_type: z.string().optional().describe(
     'Required if any form is "registration" or "followup". Use short snake_case (e.g. "patient", "household_visit"). Only letters, digits, underscores, hyphens.'
   ),
@@ -275,11 +301,17 @@ const blueprintModuleSchema = z.object({
   case_list_columns: z.array(caseListColumnSchema).optional().describe(
     'Columns shown in the case list. Each has "field" (case property) and "header" (display text). Use "case_name" to display the case name.'
   ),
+  case_detail_columns: z.array(caseListColumnSchema).optional().describe(
+    'Columns shown in the case detail view (when a user taps on a case). Omit to auto-mirror case_list_columns.'
+  ),
 }).describe('A module (menu) in the app')
 
 /** Top-level schema for a complete CommCare app in blueprint format. */
 export const appBlueprintSchema = z.object({
   app_name: z.string().describe('Name of the CommCare application'),
+  languages: z.array(z.string()).optional().describe(
+    'Language codes (e.g. ["en", "hin"]). First is the default. Omit for English-only.'
+  ),
   modules: z.array(blueprintModuleSchema).describe(
     'Array of modules. Each module is a menu containing forms.'
   ),
@@ -299,6 +331,32 @@ export type ModuleContent = z.infer<typeof moduleContentSchema>
 export type FormContent = z.infer<typeof formContentSchema>
 export type FlatQuestion = z.infer<typeof flatQuestionSchema>
 
+/** A localized string: array of per-language {lang, text} translations. */
+export type LocalizedString = Array<{ lang: string; text: string }>
+
+/** Resolve a localized string (or plain string) to plain text. */
+export function displayText(value: string | LocalizedString | undefined | null): string {
+  if (value == null) return ''
+  if (typeof value === 'string') return value
+  if (value.length === 0) return ''
+  return value[0].text
+}
+
+/** Resolve a localized string for a specific language, with fallback. */
+export function resolveLocalizedText(field: LocalizedString | undefined | null, lang: string, defaultLang: string): string {
+  if (!field || field.length === 0) return ''
+  return field.find(t => t.lang === lang)?.text ?? field.find(t => t.lang === defaultLang)?.text ?? field[0]?.text ?? ''
+}
+
+/** Convert a LocalizedString to an HQ-style Record<string, string>. */
+export function toHqLocalizedRecord(field: LocalizedString, languages: string[]): Record<string, string> {
+  const result: Record<string, string> = {}
+  for (const l of languages) {
+    result[l] = field.find(t => t.lang === l)?.text ?? field.find(t => t.lang === languages[0])?.text ?? field[0]?.text ?? ''
+  }
+  return result
+}
+
 // ── JSON Schema export ─────────────────────────────────────────────────
 
 export function getAppBlueprintJsonSchema(): Record<string, unknown> {
@@ -309,15 +367,19 @@ export function getAppBlueprintJsonSchema(): Record<string, unknown> {
 
 /** Generate a concise text summary of an AppBlueprint for chat context. */
 export function summarizeBlueprint(bp: AppBlueprint): string {
+  const str = displayText
   const lines = [`App: "${bp.app_name}"`]
+  if (bp.languages && bp.languages.length > 1) {
+    lines.push(`  Languages: ${bp.languages.join(', ')}`)
+  }
   for (const mod of bp.modules) {
-    lines.push(`  Module: "${mod.name}" (case_type: ${mod.case_type ?? 'none'})`)
+    lines.push(`  Module: "${str(mod.name)}" (case_type: ${mod.case_type ?? 'none'})`)
     if (mod.case_list_columns?.length) {
-      lines.push(`    Columns: ${mod.case_list_columns.map(c => c.header).join(', ')}`)
+      lines.push(`    Columns: ${mod.case_list_columns.map(c => str(c.header)).join(', ')}`)
     }
     for (const form of mod.forms) {
       const qCount = form.questions?.length ?? 0
-      lines.push(`    Form: "${form.name}" (${form.type}, ${qCount} questions)`)
+      lines.push(`    Form: "${str(form.name)}" (${form.type}, ${qCount} questions)`)
     }
   }
   return lines.join('\n')
@@ -337,12 +399,13 @@ export function unflattenQuestions(flat: FlatQuestion[]): BlueprintQuestion[] {
     const q: BlueprintQuestion = {
       id: fq.id,
       type: fq.type,
-      ...(fq.label != null && { label: fq.label }),
-      ...(fq.hint != null && { hint: fq.hint }),
+      ...(fq.label.length > 0 && { label: fq.label }),
+      ...(fq.hint.length > 0 && { hint: fq.hint }),
+      ...(fq.help.length > 0 && { help: fq.help }),
       ...(fq.required && { required: fq.required }),
       ...(fq.readonly && { readonly: fq.readonly }),
       ...(fq.constraint != null && { constraint: fq.constraint }),
-      ...(fq.constraint_msg != null && { constraint_msg: fq.constraint_msg }),
+      ...(fq.constraint_msg.length > 0 && { constraint_msg: fq.constraint_msg }),
       ...(fq.relevant != null && { relevant: fq.relevant }),
       ...(fq.calculate != null && { calculate: fq.calculate }),
       ...(fq.default_value != null && { default_value: fq.default_value }),
@@ -380,13 +443,14 @@ export function flattenQuestions(questions: BlueprintQuestion[], parentId: strin
     result.push({
       id: q.id,
       type: q.type,
-      label: q.label ?? null,
+      label: q.label ?? [],
       parent_id: parentId ?? '',
-      hint: q.hint ?? null,
-      required: q.required ?? false,
+      hint: q.hint ?? [],
+      help: q.help ?? [],
+      required: q.required ?? '',
       readonly: q.readonly ?? false,
       constraint: q.constraint ?? null,
-      constraint_msg: q.constraint_msg ?? null,
+      constraint_msg: q.constraint_msg ?? [],
       relevant: q.relevant ?? null,
       calculate: q.calculate ?? null,
       default_value: q.default_value ?? null,
@@ -475,6 +539,7 @@ export function assembleBlueprint(
 ): AppBlueprint {
   return {
     app_name: scaffold.app_name,
+    ...(scaffold.languages != null && { languages: scaffold.languages }),
     modules: scaffold.modules.map((sm, mIdx) => {
       const mc = moduleContents[mIdx]
       const forms: BlueprintForm[] = sm.forms.map((sf, fIdx) => {
@@ -500,6 +565,7 @@ export function assembleBlueprint(
         ...(sm.case_type != null && { case_type: sm.case_type }),
         forms,
         ...(mc.case_list_columns != null && { case_list_columns: mc.case_list_columns }),
+        ...(mc.case_detail_columns != null && { case_detail_columns: mc.case_detail_columns }),
       }
     }),
   }

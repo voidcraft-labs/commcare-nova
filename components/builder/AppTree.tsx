@@ -18,6 +18,7 @@ import ciPhone from '@iconify-icons/ci/phone'
 import ciBarcode from '@iconify-icons/ci/barcode'
 import ciCircleWarning from '@iconify-icons/ci/circle-warning'
 import type { BlueprintQuestion } from '@/lib/schemas/blueprint'
+import { displayText } from '@/lib/schemas/blueprint'
 import { BuilderPhase, type TreeData } from '@/lib/services/builder'
 import { Badge } from '@/components/ui/Badge'
 
@@ -108,7 +109,7 @@ function ModuleCard({
             <Icon icon={ciMoreGridBig} width="16" height="16" className="text-nova-violet-bright" />
           </div>
           <div>
-            <h3 className="font-medium text-sm">{mod.name}</h3>
+            <h3 className="font-medium text-sm">{displayText(mod.name)}</h3>
             {mod.case_type && (
               <span className="text-xs text-nova-text-muted font-mono">
                 case: {mod.case_type}
@@ -136,7 +137,7 @@ function ModuleCard({
                   i > 0 ? 'border-l border-nova-cyan/8' : ''
                 }`}
               >
-                {col.header}
+                {displayText(col.header)}
               </div>
             ))}
           </div>
@@ -201,7 +202,7 @@ function FormCard({
         <div className="w-1 h-6 rounded-full bg-nova-border" />
         <div className="flex-1">
           <div className="flex items-center gap-2">
-            <span className="text-sm font-medium">{form.name}</span>
+            <span className="text-sm font-medium">{displayText(form.name)}</span>
             <Badge variant={typeColors[form.type as keyof typeof typeColors] ?? 'muted'}>{form.type}</Badge>
           </div>
         </div>
@@ -289,7 +290,7 @@ function QuestionRow({
         <span className="w-6 text-center text-xs font-mono text-nova-text-muted shrink-0 flex items-center justify-center">
           {typeIcons[q.type] || '?'}
         </span>
-        <span className="truncate">{q.label || q.id}</span>
+        <span className="truncate">{displayText(q.label) || q.id}</span>
         <span className="text-xs text-nova-text-muted font-mono shrink-0 ml-auto">
           {q.type}
         </span>

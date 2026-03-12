@@ -39,11 +39,13 @@ export class CczCompiler {
         suiteDetails.push(this.generateDetail(`m${mIdx}_case_short`, 'short', mod.case_details?.short?.columns || []))
         suiteDetails.push(this.generateDetail(`m${mIdx}_case_long`, 'long', mod.case_details?.long?.columns || []))
 
-        // Add column headers to app_strings
-        const columns = mod.case_details?.short?.columns || []
-        for (const col of columns) {
-          const headerKey = `m${mIdx}_${col.field}_header`
-          appStrings[headerKey] = col.header?.en || col.field
+        // Add column headers to app_strings (short + long details)
+        for (const detail of [mod.case_details?.short, mod.case_details?.long]) {
+          const columns = detail?.columns || []
+          for (const col of columns) {
+            const headerKey = `m${mIdx}_${col.field}_header`
+            appStrings[headerKey] = col.header?.en || col.field
+          }
         }
       }
 
@@ -90,15 +92,23 @@ export class CczCompiler {
       )
     }
 
-    // Build suite.xml
-    const localeResource = `  <locale language="default">\n    <resource id="app_strings" version="1">\n      <location authority="local">./default/app_strings.txt</location>\n    </resource>\n  </locale>`
+    // Build locale resources and app_strings for each language
+    const langs: string[] = hqJson.langs || ['en']
+    const localeResources = langs.map(lang => {
+      const langDir = lang === langs[0] ? 'default' : lang
+      return `  <locale language="${lang === langs[0] ? 'default' : lang}">\n    <resource id="app_strings_${lang}" version="1">\n      <location authority="local">./${langDir}/app_strings.txt</location>\n    </resource>\n  </locale>`
+    })
 
-    files['suite.xml'] = `<?xml version="1.0"?>\n<suite version="1">\n${suiteResources.join('\n')}\n${localeResource}\n${suiteDetails.join('\n')}\n${suiteEntries.join('\n')}\n${suiteMenus.join('\n')}\n</suite>`
+    files['suite.xml'] = `<?xml version="1.0"?>\n<suite version="1">\n${suiteResources.join('\n')}\n${localeResources.join('\n')}\n${suiteDetails.join('\n')}\n${suiteEntries.join('\n')}\n${suiteMenus.join('\n')}\n</suite>`
 
-    // Build app_strings.txt
-    files['default/app_strings.txt'] = Object.entries(appStrings)
-      .map(([k, v]) => `${k}=${v}`)
-      .join('\n')
+    // Build per-language app_strings.txt files
+    for (const lang of langs) {
+      const langDir = lang === langs[0] ? 'default' : lang
+      const langStrings = Object.entries(appStrings)
+        .map(([k, v]) => `${k}=${v}`)
+        .join('\n')
+      files[`${langDir}/app_strings.txt`] = langStrings
+    }
 
     // Package into CCZ and return as Buffer
     return this.packageCcz(files, appName)

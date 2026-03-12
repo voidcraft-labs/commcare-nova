@@ -191,10 +191,14 @@ No auth layer. The user's Anthropic API key is stored in localStorage and sent p
 
 ## Schemas
 
+### LocalizedString
+All user-facing text (labels, hints, help, constraint messages, option labels, module/form names, column headers) uses `LocalizedString` — always an array of `{lang, text}` objects: `[{lang: "en", text: "Patient Name"}]`. This applies everywhere: scaffold schemas, tier schemas, assembled blueprint, edit tool schemas, TreeData, and tests. Never use plain strings for translatable fields. `displayText()` extracts display text from a `LocalizedString`. The schema is exported as `localizedStringSchema` from `blueprint.ts`.
+
 ### Nullable vs Optional
-- **Tier schemas** (for Claude's structured output): use `.nullable()` — required by the API
+- **Tier schemas** (for Claude's structured output): use `.nullable()` for fields that can be absent (e.g. `constraint`, `relevant`, `options`). Localized string fields use empty array `[]` instead of null.
 - **Assembled blueprint** (for validation/expansion): use `.optional()` — more natural for TS
 - Assembly strips nulls via spread: `...(value != null && { key: value })`
+- **`required`** is always a string: `"true()"` for always required, XPath expression for conditional, empty string `""` for not required. Never a boolean.
 
 ### Question Format
 - Tier 3 outputs flat questions with `parent_id` for nesting

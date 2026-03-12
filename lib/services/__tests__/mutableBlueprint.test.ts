@@ -2,21 +2,26 @@ import { describe, it, expect } from 'vitest'
 import { MutableBlueprint } from '../mutableBlueprint'
 import type { AppBlueprint } from '../../schemas/blueprint'
 
+/** Helper to create a localized string from plain text. */
+function L(text: string): Array<{ lang: string; text: string }> {
+  return [{ lang: 'en', text }]
+}
+
 /** Minimal test blueprint with two modules, two forms each. */
 function makeBlueprint(): AppBlueprint {
   return {
     app_name: 'Test App',
     modules: [
       {
-        name: 'Client Management',
+        name: L('Client Management'),
         case_type: 'client',
         case_list_columns: [
-          { field: 'full_name', header: 'Name' },
-          { field: 'email_address', header: 'Email' },
+          { field: 'full_name', header: L('Name') },
+          { field: 'email_address', header: L('Email') },
         ],
         forms: [
           {
-            name: 'Register Client',
+            name: L('Register Client'),
             type: 'registration',
             case_name_field: 'client_name',
             case_properties: [
@@ -24,13 +29,13 @@ function makeBlueprint(): AppBlueprint {
               { case_property: 'email_address', question_id: 'client_email' },
             ],
             questions: [
-              { id: 'client_name', type: 'text' as const, label: 'Client Name', is_case_name: true, case_property: 'full_name', required: true },
-              { id: 'client_email', type: 'text' as const, label: 'Client Email', case_property: 'email_address', constraint: "regex(., '[^@]+@[^@]+\\.[^@]+')", constraint_msg: 'Please enter a valid email' },
-              { id: 'client_phone', type: 'phone' as const, label: 'Phone Number' },
+              { id: 'client_name', type: 'text' as const, label: L('Client Name'), is_case_name: true, case_property: 'full_name', required: 'true()' },
+              { id: 'client_email', type: 'text' as const, label: L('Client Email'), case_property: 'email_address', constraint: "regex(., '[^@]+@[^@]+\\.[^@]+')", constraint_msg: L('Please enter a valid email') },
+              { id: 'client_phone', type: 'phone' as const, label: L('Phone Number') },
             ],
           },
           {
-            name: 'Update Client',
+            name: L('Update Client'),
             type: 'followup',
             case_name_field: 'edit_name',
             case_properties: [
@@ -42,21 +47,21 @@ function makeBlueprint(): AppBlueprint {
               { case_property: 'email_address', question_id: 'edit_email' },
             ],
             questions: [
-              { id: 'edit_name', type: 'text' as const, label: 'Client Name', is_case_name: true, case_property: 'full_name' },
-              { id: 'edit_email', type: 'text' as const, label: 'Email', case_property: 'email_address' },
+              { id: 'edit_name', type: 'text' as const, label: L('Client Name'), is_case_name: true, case_property: 'full_name' },
+              { id: 'edit_email', type: 'text' as const, label: L('Email'), case_property: 'email_address' },
               { id: 'risk_score', type: 'hidden' as const, calculate: "#case/email_address", case_property: 'risk_level' },
             ],
           },
         ],
       },
       {
-        name: 'Surveys',
+        name: L('Surveys'),
         forms: [
           {
-            name: 'Satisfaction Survey',
+            name: L('Satisfaction Survey'),
             type: 'survey',
             questions: [
-              { id: 'rating', type: 'select1' as const, label: 'How satisfied are you?', options: [{ value: 'good', label: 'Good' }, { value: 'bad', label: 'Bad' }] },
+              { id: 'rating', type: 'select1' as const, label: L('How satisfied are you?'), options: [{ value: 'good', label: L('Good') }, { value: 'bad', label: L('Bad') }] },
             ],
           },
         ],
@@ -127,7 +132,7 @@ describe('MutableBlueprint', () => {
     it('getModule returns module', () => {
       const mb = new MutableBlueprint(makeBlueprint())
       const mod = mb.getModule(0)
-      expect(mod?.name).toBe('Client Management')
+      expect(mod?.name).toEqual(L('Client Management'))
     })
 
     it('getModule returns null for invalid index', () => {
@@ -138,13 +143,13 @@ describe('MutableBlueprint', () => {
     it('getForm returns form', () => {
       const mb = new MutableBlueprint(makeBlueprint())
       const form = mb.getForm(0, 1)
-      expect(form?.name).toBe('Update Client')
+      expect(form?.name).toEqual(L('Update Client'))
     })
 
     it('getQuestion returns question with path', () => {
       const mb = new MutableBlueprint(makeBlueprint())
       const result = mb.getQuestion(0, 0, 'client_email')
-      expect(result?.question.label).toBe('Client Email')
+      expect(result?.question.label).toEqual(L('Client Email'))
       expect(result?.path).toBe('client_email')
     })
   })
@@ -154,10 +159,10 @@ describe('MutableBlueprint', () => {
       const mb = new MutableBlueprint(makeBlueprint())
       const updated = mb.updateQuestion(0, 0, 'client_email', {
         constraint: "regex(., '^[a-zA-Z0-9._%+-]+@gmail\\.com$')",
-        constraint_msg: 'Please enter a Gmail address',
+        constraint_msg: L('Please enter a Gmail address'),
       })
       expect(updated.constraint).toBe("regex(., '^[a-zA-Z0-9._%+-]+@gmail\\.com$')")
-      expect(updated.constraint_msg).toBe('Please enter a Gmail address')
+      expect(updated.constraint_msg).toEqual(L('Please enter a Gmail address'))
     })
 
     it('clears a field when set to null', () => {
@@ -176,21 +181,21 @@ describe('MutableBlueprint', () => {
 
     it('throws for nonexistent question', () => {
       const mb = new MutableBlueprint(makeBlueprint())
-      expect(() => mb.updateQuestion(0, 0, 'nonexistent', { label: 'X' })).toThrow()
+      expect(() => mb.updateQuestion(0, 0, 'nonexistent', { label: L('X') })).toThrow()
     })
   })
 
   describe('addQuestion', () => {
     it('appends question at end', () => {
       const mb = new MutableBlueprint(makeBlueprint())
-      mb.addQuestion(0, 0, { id: 'new_q', type: 'text', label: 'New Question' })
+      mb.addQuestion(0, 0, { id: 'new_q', type: 'text', label: L('New Question') })
       const form = mb.getForm(0, 0)!
       expect(form.questions[form.questions.length - 1].id).toBe('new_q')
     })
 
     it('inserts after specific question', () => {
       const mb = new MutableBlueprint(makeBlueprint())
-      mb.addQuestion(0, 0, { id: 'inserted', type: 'text', label: 'Inserted' }, { afterId: 'client_name' })
+      mb.addQuestion(0, 0, { id: 'inserted', type: 'text', label: L('Inserted') }, { afterId: 'client_name' })
       const form = mb.getForm(0, 0)!
       const ids = form.questions.map(q => q.id)
       expect(ids.indexOf('inserted')).toBe(ids.indexOf('client_name') + 1)
@@ -198,7 +203,7 @@ describe('MutableBlueprint', () => {
 
     it('adds question with case_property and re-derives config', () => {
       const mb = new MutableBlueprint(makeBlueprint())
-      mb.addQuestion(0, 0, { id: 'client_age', type: 'int', label: 'Age', case_property: 'age' })
+      mb.addQuestion(0, 0, { id: 'client_age', type: 'int', label: L('Age'), case_property: 'age' })
       const form = mb.getForm(0, 0)!
       expect(form.case_properties?.some(cp => cp.case_property === 'age')).toBe(true)
     })
@@ -228,19 +233,19 @@ describe('MutableBlueprint', () => {
   describe('structural mutations', () => {
     it('updateModule changes name', () => {
       const mb = new MutableBlueprint(makeBlueprint())
-      mb.updateModule(0, { name: 'Patient Management' })
-      expect(mb.getModule(0)?.name).toBe('Patient Management')
+      mb.updateModule(0, { name: L('Patient Management') })
+      expect(mb.getModule(0)?.name).toEqual(L('Patient Management'))
     })
 
     it('updateModule changes case_list_columns', () => {
       const mb = new MutableBlueprint(makeBlueprint())
-      mb.updateModule(0, { case_list_columns: [{ field: 'full_name', header: 'Full Name' }] })
+      mb.updateModule(0, { case_list_columns: [{ field: 'full_name', header: L('Full Name') }] })
       expect(mb.getModule(0)?.case_list_columns?.length).toBe(1)
     })
 
     it('addForm adds a form', () => {
       const mb = new MutableBlueprint(makeBlueprint())
-      mb.addForm(0, { name: 'New Form', type: 'followup', questions: [] })
+      mb.addForm(0, { name: L('New Form'), type: 'followup', questions: [] })
       expect(mb.getModule(0)?.forms.length).toBe(3)
     })
 
@@ -248,12 +253,12 @@ describe('MutableBlueprint', () => {
       const mb = new MutableBlueprint(makeBlueprint())
       mb.removeForm(0, 1)
       expect(mb.getModule(0)?.forms.length).toBe(1)
-      expect(mb.getModule(0)?.forms[0].name).toBe('Register Client')
+      expect(mb.getModule(0)?.forms[0].name).toEqual(L('Register Client'))
     })
 
     it('addModule adds a module', () => {
       const mb = new MutableBlueprint(makeBlueprint())
-      mb.addModule({ name: 'New Module', forms: [] })
+      mb.addModule({ name: L('New Module'), forms: [] })
       expect(mb.getBlueprint().modules.length).toBe(3)
     })
 
@@ -316,7 +321,7 @@ describe('MutableBlueprint', () => {
       mb.renameCaseProperty('client', 'email_address', 'contact_email')
       // Survey module should be unchanged
       const surveyModule = mb.getModule(1)!
-      expect(surveyModule.name).toBe('Surveys')
+      expect(surveyModule.name).toEqual(L('Surveys'))
     })
 
     it('returns empty results for nonexistent case type', () => {
@@ -332,8 +337,8 @@ describe('MutableBlueprint', () => {
       const original = makeBlueprint()
       const originalName = original.modules[0].forms[0].questions[0].label
       const mb = new MutableBlueprint(original)
-      mb.updateQuestion(0, 0, 'client_name', { label: 'CHANGED' })
-      expect(original.modules[0].forms[0].questions[0].label).toBe(originalName)
+      mb.updateQuestion(0, 0, 'client_name', { label: L('CHANGED') })
+      expect(original.modules[0].forms[0].questions[0].label).toEqual(originalName)
     })
   })
 })
