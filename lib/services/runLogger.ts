@@ -113,6 +113,7 @@ export class RunLogger {
       output_tokens: number
       input?: { system: string; message: unknown }
       output?: unknown
+      reasoningText?: string
       knowledge?: string[]
     },
   ) {
@@ -133,6 +134,7 @@ export class RunLogger {
             cost_estimate: estimateCost(result.model, result.input_tokens, result.output_tokens),
             input: result.input,
             output: result.output,
+            ...(result.reasoningText && { reasoningText: result.reasoningText }),
             ...(result.knowledge && { knowledge: result.knowledge }),
           }
           if (this.enabled) this.flush()

@@ -397,7 +397,7 @@ export function createArchitectAgent(
     instructions: ARCHITECT_PROMPT,
     stopWhen: stepCountIs(50),
     ...withPromptCaching,
-    onStepFinish: ({ usage, text, toolCalls, toolResults, warnings }) => {
+    onStepFinish: ({ usage, text, reasoningText, toolCalls, toolResults, warnings }) => {
       logWarnings('Solutions Architect', warnings)
       if (usage) {
         ctx.logger.logEvent({
@@ -409,7 +409,7 @@ export function createArchitectAgent(
           output_tokens: usage.outputTokens ?? 0,
           cache_read_tokens: usage.inputTokenDetails?.cacheReadTokens ?? undefined,
           cache_write_tokens: usage.inputTokenDetails?.cacheWriteTokens ?? undefined,
-          output: { text, toolResults },
+          output: { text, ...(reasoningText && { reasoningText }), toolResults },
           tool_calls: toolCalls?.map((tc: any) => ({ name: tc.toolName, args: tc.input })),
         })
       }
@@ -653,7 +653,7 @@ export function createEditArchitectAgent(
     instructions: EDIT_ARCHITECT_PROMPT,
     stopWhen: stepCountIs(50),
     ...withPromptCaching,
-    onStepFinish: ({ usage, text, toolCalls, toolResults, warnings }) => {
+    onStepFinish: ({ usage, text, reasoningText, toolCalls, toolResults, warnings }) => {
       logWarnings('Edit Architect', warnings)
       if (usage) {
         ctx.logger.logEvent({
@@ -665,7 +665,7 @@ export function createEditArchitectAgent(
           output_tokens: usage.outputTokens ?? 0,
           cache_read_tokens: usage.inputTokenDetails?.cacheReadTokens ?? undefined,
           cache_write_tokens: usage.inputTokenDetails?.cacheWriteTokens ?? undefined,
-          output: { text, toolResults },
+          output: { text, ...(reasoningText && { reasoningText }), toolResults },
           tool_calls: toolCalls?.map((tc: any) => ({ name: tc.toolName, args: tc.input })),
         })
       }

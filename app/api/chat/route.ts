@@ -180,7 +180,7 @@ export async function POST(req: Request) {
       const agentStream = await createAgentUIStream({
         agent: productManager,
         uiMessages: messages,
-        onStepFinish: ({ usage, text, toolCalls, toolResults, warnings }) => {
+        onStepFinish: ({ usage, text, reasoningText, toolCalls, toolResults, warnings }) => {
           if (warnings?.length) {
             for (const w of warnings) console.warn('[PM step] warning:', w)
           }
@@ -192,7 +192,7 @@ export async function POST(req: Request) {
               model: MODEL_PM,
               input_tokens: usage.inputTokens ?? 0,
               output_tokens: usage.outputTokens ?? 0,
-              output: { text, toolResults },
+              output: { text, ...(reasoningText && { reasoningText }), toolResults },
               tool_calls: toolCalls?.map((tc: any) => ({ name: tc.toolName, args: tc.args })),
             })
           }
