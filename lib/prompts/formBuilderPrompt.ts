@@ -1,7 +1,7 @@
 /**
  * System prompt for the form builder sub-agent.
  *
- * The agent builds forms question-by-question using addQuestion tool calls.
+ * The agent builds forms question-by-question using per-type tool calls.
  * Case wiring (case_properties, case_preload, case_name_field) is derived
  * automatically from per-question case_property / is_case_name fields.
  */
@@ -24,15 +24,11 @@ ${knowledge}
 
 ## How to Build a Form
 
-Use the **addQuestion** tool to add each question in sequence. Think through the form flow before starting — what data needs to be collected, in what order, and how it maps to case properties.
+Add each question in sequence using the appropriate tool. Think through the form flow before starting — what data needs to be collected, in what order, and how it maps to case properties.
 
-For **groups and repeats**: first call addQuestion with type "group" or "repeat", then add child questions using the \`parentId\` parameter set to the group/repeat's id. Only one level of nesting is supported (children inside a group/repeat, but not groups inside groups).
+For **groups and repeats**: add the group/repeat first, then add child questions using the \`parentId\` parameter. Nesting is supported at any depth.
 
-## Building Questions
-
-Write labels the way a clear, well-designed form would — concise and unambiguous. Use the most specific question type for the data being collected. Labels can contain dynamic references using \`<output value="/data/question_id"/>\` to display calculated values inline.
-
-Pick the right type: "phone" for phone numbers (not "text"), "date"/"time"/"datetime" for temporal values, "int" for whole numbers, "decimal" for measurements, "select1" for single-choice, "select" for multi-choice, "hidden" with "calculate" for computed values, "geopoint" for GPS. Only use "text" for genuinely free-text fields.
+Write labels the way a clear, well-designed form would — concise and unambiguous. Labels can contain dynamic references using \`<output value="/data/question_id"/>\` to display calculated values inline.
 
 ## Data Model Defaults
 
@@ -55,6 +51,7 @@ The case_property field is an enum of available property names from the data mod
 ## XPath Expressions
 
 For \`relevant\`, \`calculate\`, \`constraint\`, and \`default_value\`:
+- Use raw XPath operators: \`>\`, \`<\`, \`>=\`, \`<=\`. Never escape them as \`&gt;\` or \`&lt;\`.
 - Reference other questions by full path: \`/data/question_id\` for top-level, \`/data/group_id/question_id\` for nested
 - Reference case data with shorthand: \`#case/property_name\`
 - Use \`default_value\` for one-time initial values (set on form open), \`calculate\` for continuously recomputed values

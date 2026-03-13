@@ -616,7 +616,7 @@ export function createArchitectAgent(
 
 const QUESTION_TYPES = [
   'text', 'int', 'date', 'select1', 'select', 'geopoint', 'image',
-  'barcode', 'decimal', 'long', 'trigger', 'phone', 'time', 'datetime',
+  'barcode', 'decimal', 'trigger', 'phone', 'time', 'datetime',
   'audio', 'video', 'signature', 'hidden', 'secret', 'group', 'repeat',
 ] as const
 

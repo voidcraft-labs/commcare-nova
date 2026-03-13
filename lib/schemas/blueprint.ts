@@ -14,7 +14,7 @@ import { z } from 'zod'
 
 const QUESTION_TYPES = [
   'text', 'int', 'date', 'select1', 'select', 'geopoint', 'image',
-  'barcode', 'decimal', 'long', 'trigger', 'phone', 'time', 'datetime',
+  'barcode', 'decimal', 'trigger', 'phone', 'time', 'datetime',
   'audio', 'video', 'signature', 'hidden', 'secret', 'group', 'repeat'
 ] as const
 
@@ -35,7 +35,7 @@ const RESERVED_CASE_PROPERTIES = 'case_id, case_type, closed, closed_by, closed_
 
 const CASE_PROPERTY_DATA_TYPES = [
   'text', 'int', 'decimal', 'date', 'time', 'datetime',
-  'select1', 'select', 'phone', 'geopoint', 'long',
+  'select1', 'select', 'phone', 'geopoint',
 ] as const
 
 // ── Case property + case type schemas ────────────────────────────────

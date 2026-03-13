@@ -320,7 +320,7 @@ function buildQuestionParts(
     el += `\n    </upload>`
     bodyElements.push(el)
   } else {
-    // Input types: text, int, decimal, long, date, time, datetime, geopoint, barcode, phone
+    // Input types: text, int, decimal, date, time, datetime, geopoint, barcode, phone
     const appearance = getAppearance(q.type)
     const appearanceAttr = appearance ? ` appearance="${appearance}"` : ''
     let el = `<input ref="${nodePath}"${appearanceAttr}>\n      <label ref="jr:itext('${q.id}-label')"/>`
@@ -345,7 +345,6 @@ function getXsdType(type: string): string | null {
     case 'text': return 'xsd:string'
     case 'phone': return 'xsd:string'
     case 'int': return 'xsd:int'
-    case 'long': return 'xsd:long'
     case 'decimal': return 'xsd:decimal'
     case 'date': return 'xsd:date'
     case 'time': return 'xsd:time'
