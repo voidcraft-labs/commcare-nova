@@ -37,6 +37,7 @@ export const withPromptCaching = {
   }),
 }
 
+
 export class GenerationContext {
   private anthropic: ReturnType<typeof createAnthropic>
   readonly writer: UIMessageStreamWriter
@@ -53,9 +54,41 @@ export class GenerationContext {
     return this.anthropic(id)
   }
 
+  /** Get the Anthropic code execution tool for programmatic tool calling. */
+  codeExecutionTool() {
+    return this.anthropic.tools.codeExecution_20260120()
+  }
+
+
   /** Emit a transient data part to the client stream. */
   emit(type: `data-${string}`, data: unknown) {
     this.writer.write({ type, data, transient: true })
+  }
+
+  /** Text-only generation (no schema) with automatic run logging. */
+  async generatePlainText(
+    opts: { system: string; prompt: string; label: string; model?: string; maxOutputTokens?: number; knowledge?: string[] },
+  ): Promise<string> {
+    const model = opts.model ?? MODEL_GENERATION
+    const result = await generateText({
+      model: this.anthropic(model),
+      system: opts.system,
+      prompt: opts.prompt,
+      maxOutputTokens: opts.maxOutputTokens,
+    })
+    logWarnings(`generatePlainText:${opts.label}`, result.warnings)
+    if (result.usage) {
+      this.logger.logSubResult(opts.label, {
+        model,
+        input_tokens: result.usage.inputTokens ?? 0,
+        output_tokens: result.usage.outputTokens ?? 0,
+        input: { system: opts.system, message: opts.prompt },
+        output: result.text,
+        ...(result.reasoningText && { reasoningText: result.reasoningText }),
+        ...(opts.knowledge && { knowledge: opts.knowledge }),
+      })
+    }
+    return result.text
   }
 
   /** One-shot structured generation with automatic run logging. */

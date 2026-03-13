@@ -86,6 +86,11 @@ export const scaffoldSchema = z.object({
         '"survey" is standalone data collection with no case management.'
       ),
       purpose: z.string().describe('Brief description of what this form collects and why'),
+      formDesign: z.string().optional().describe(
+        'Free-text UX design spec for this form. Describe the intended question flow, ' +
+        'grouping, skip logic patterns, calculated fields, and how this form relates to ' +
+        'sibling forms. Think about the end user experience, not just data capture.'
+      ),
     })),
   })),
   case_types: z.array(caseTypeSchema).nullable().describe('Case types and their properties. null if all modules are survey-only.'),
