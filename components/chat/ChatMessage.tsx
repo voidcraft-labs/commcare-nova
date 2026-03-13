@@ -1,6 +1,7 @@
 'use client'
 import type { UIMessage } from 'ai'
 import { QuestionCard } from '@/components/chat/QuestionCard'
+import { renderMarkdown } from '@/lib/markdown'
 
 interface ChatMessageProps {
   message: UIMessage
@@ -30,7 +31,11 @@ export function ChatMessage({
                   ? 'bg-nova-violet/15 text-nova-text border border-nova-violet/10'
                   : 'bg-nova-surface text-nova-text-secondary border border-nova-border'
               }`}>
-                <div className="whitespace-pre-wrap break-words">{text}</div>
+                {isUser ? (
+                  <div className="whitespace-pre-wrap break-words">{text}</div>
+                ) : (
+                  <div className="chat-markdown" dangerouslySetInnerHTML={{ __html: renderMarkdown(text) }} />
+                )}
               </div>
             </div>
           )
