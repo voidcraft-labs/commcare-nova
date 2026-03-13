@@ -1,8 +1,8 @@
 'use client'
+import { useEffect, useState } from 'react'
 import { motion, AnimatePresence } from 'motion/react'
 import { Icon } from '@iconify/react'
 import ciCheck from '@iconify-icons/ci/check'
-import ciCloseSm from '@iconify-icons/ci/close-sm'
 import { BuilderPhase } from '@/lib/services/builder'
 
 interface GenerationProgressProps {
@@ -10,84 +10,88 @@ interface GenerationProgressProps {
   message: string
   completed: number
   total: number
-  onDismiss?: () => void
+  mode: 'centered' | 'compact'
+  onDone?: () => void
 }
 
-const baseStages: { key: BuilderPhase; label: string }[] = [
-  { key: BuilderPhase.Designing, label: 'Design' },
-  { key: BuilderPhase.Modules, label: 'Modules' },
-  { key: BuilderPhase.Forms, label: 'Forms' },
-  { key: BuilderPhase.Validating, label: 'Validate' },
+/** Display stages — Modules+Forms are combined into "Build" */
+const baseStages: { key: string; phases: BuilderPhase[]; label: string }[] = [
+  { key: 'planning', phases: [BuilderPhase.Planning], label: 'Planning' },
+  { key: 'structure', phases: [BuilderPhase.Designing], label: 'Structure' },
+  { key: 'build', phases: [BuilderPhase.Modules, BuilderPhase.Forms], label: 'Build' },
+  { key: 'validate', phases: [BuilderPhase.Validating], label: 'Validate' },
 ]
 
-function getStageStatus(stage: BuilderPhase, currentPhase: BuilderPhase): 'done' | 'active' | 'pending' {
-  const order = [BuilderPhase.Designing, BuilderPhase.Modules, BuilderPhase.Forms, BuilderPhase.Validating, BuilderPhase.Fixing, BuilderPhase.Done]
-  const stageIdx = order.indexOf(stage)
-  const currentIdx = order.indexOf(currentPhase)
+const phaseOrder = [BuilderPhase.Planning, BuilderPhase.Designing, BuilderPhase.Modules, BuilderPhase.Forms, BuilderPhase.Validating, BuilderPhase.Fixing, BuilderPhase.Done]
 
+function getStageStatus(stagePhases: BuilderPhase[], currentPhase: BuilderPhase): 'done' | 'active' | 'pending' {
+  const currentIdx = phaseOrder.indexOf(currentPhase)
   if (currentIdx < 0) return 'pending'
-  if (stageIdx < currentIdx) return 'done'
-  if (stageIdx === currentIdx) return 'active'
+
+  // Stage is active if current phase is any of its phases
+  if (stagePhases.includes(currentPhase)) return 'active'
+
+  // Stage is done if current phase is past all of its phases
+  const lastPhaseIdx = Math.max(...stagePhases.map(p => phaseOrder.indexOf(p)))
+  if (currentIdx > lastPhaseIdx) return 'done'
+
   return 'pending'
 }
 
-/** Get the counter text for the active stage */
-function getCounter(stage: BuilderPhase, currentPhase: BuilderPhase, completed: number, total: number): string | null {
-  if (stage !== currentPhase || total === 0) return null
-
-  if (stage === BuilderPhase.Modules) {
-    return `(${Math.min(completed, total)}/${total})`
-  }
-  if (stage === BuilderPhase.Forms) {
-    return `(${Math.min(completed, total)}/${total})`
-  }
-  return null
-}
-
-export function GenerationProgress({ phase, message, completed, total, onDismiss }: GenerationProgressProps) {
+export function GenerationProgress({ phase, message, completed, total, mode, onDone }: GenerationProgressProps) {
   const isDone = phase === BuilderPhase.Done
   const pct = isDone ? 100 : total > 0 ? Math.min((completed / total) * 100, 100) : 0
+  const isCentered = mode === 'centered'
+  const [dismissing, setDismissing] = useState(false)
+
+  // Auto-dismiss: 3s after done, trigger the pulse→slide-out sequence
+  useEffect(() => {
+    if (!isDone) {
+      setDismissing(false)
+      return
+    }
+    const timer = setTimeout(() => setDismissing(true), 3000)
+    return () => clearTimeout(timer)
+  }, [isDone])
 
   // Only show Fix stage if we've reached it
   const stages = phase === BuilderPhase.Fixing
-    ? [...baseStages, { key: BuilderPhase.Fixing, label: 'Fix' }]
+    ? [...baseStages, { key: 'fix', phases: [BuilderPhase.Fixing], label: 'Fix' }]
     : baseStages
 
   return (
     <motion.div
-      initial={{ y: 20, opacity: 0 }}
-      animate={{ y: 0, opacity: 1 }}
-      exit={{ y: 8, opacity: 0, scale: 0.97, transition: { duration: 0.25, ease: 'easeIn' } }}
-      transition={{ duration: 0.3, ease: 'easeOut' }}
-      className="relative rounded-xl border border-nova-violet/20 bg-nova-deep/95 backdrop-blur-sm px-5 py-3 shadow-lg shadow-nova-void/50 min-w-[320px]"
+      layout
+      layoutId="generation-progress"
+      animate={dismissing
+        ? { opacity: 0, y: 30, scale: 0.97 }
+        : { opacity: 1, y: 0, scale: 1 }
+      }
+      transition={dismissing
+        ? { duration: 0.5, ease: [0.4, 0, 0.2, 1] }
+        : { layout: { duration: 0.5, ease: [0.4, 0, 0.2, 1] } }
+      }
+      onAnimationComplete={() => {
+        if (dismissing) onDone?.()
+      }}
+      className={`relative rounded-xl shadow-lg backdrop-blur-sm ${
+        isCentered
+          ? 'border border-nova-violet/30 bg-nova-surface/90 px-8 py-5 shadow-nova-violet/10 min-w-[400px]'
+          : 'border border-nova-violet/20 bg-nova-deep/95 px-5 py-3 shadow-nova-void/50 min-w-[360px]'
+      }`}
     >
-      {/* Dismiss button — absolutely positioned, no layout impact */}
-      <AnimatePresence>
-        {isDone && onDismiss && (
-          <motion.button
-            initial={{ opacity: 0, scale: 0.8 }}
-            animate={{ opacity: 1, scale: 1 }}
-            exit={{ opacity: 0, scale: 0.8 }}
-            transition={{ duration: 0.2, delay: 0.3 }}
-            onClick={onDismiss}
-            className="absolute -top-2 -right-2 w-5 h-5 flex items-center justify-center rounded-full bg-nova-surface border border-nova-border hover:border-nova-violet/40 text-nova-text-muted hover:text-nova-text transition-colors cursor-pointer"
-          >
-            <Icon icon={ciCloseSm} width="12" height="12" />
-          </motion.button>
-        )}
-      </AnimatePresence>
-
       {/* Stage indicators */}
-      <div className="flex items-center gap-2">
-        {stages.map((stage, i) => {
-          const status = getStageStatus(stage.key, phase)
-          const counter = getCounter(stage.key, phase, completed, total)
+      <div className={`flex items-center ${isCentered ? 'gap-3' : 'gap-2'}`}>
+        {stages.map((stage) => {
+          const status = getStageStatus(stage.phases, phase)
 
           return (
             <div key={stage.key} className="flex items-center gap-2">
-              <div className={`flex items-center gap-1.5 text-xs font-medium transition-colors duration-300 ${
+              <div className={`flex items-center gap-1.5 font-medium transition-colors duration-300 ${
+                isCentered ? 'text-sm' : 'text-xs'
+              } ${
                 status === 'done' ? 'text-nova-cyan-bright' :
-                status === 'active' ? 'text-nova-violet-bright' :
+                status === 'active' ? (isCentered ? 'text-nova-text' : 'text-nova-violet-bright') :
                 'text-nova-text-muted'
               }`}>
                 {status === 'done' && (
@@ -96,7 +100,7 @@ export function GenerationProgress({ phase, message, completed, total, onDismiss
                     animate={{ scale: 1 }}
                     transition={{ type: 'spring', stiffness: 500, damping: 25 }}
                   >
-                    <Icon icon={ciCheck} width="10" height="10" />
+                    <Icon icon={ciCheck} width={isCentered ? 12 : 10} height={isCentered ? 12 : 10} />
                   </motion.span>
                 )}
                 {status === 'active' && (
@@ -104,44 +108,45 @@ export function GenerationProgress({ phase, message, completed, total, onDismiss
                     initial={{ scale: 0 }}
                     animate={{ scale: 1 }}
                     transition={{ type: 'spring', stiffness: 500, damping: 25 }}
-                    className="inline-block w-1.5 h-1.5 rounded-full bg-nova-violet-bright animate-pulse"
+                    className={`inline-block rounded-full bg-nova-violet-bright animate-pulse ${
+                      isCentered ? 'w-2 h-2' : 'w-1.5 h-1.5'
+                    }`}
                   />
                 )}
                 {stage.label}
-                {counter && (
-                  <span className="text-nova-violet-bright/70 font-normal">{counter}</span>
-                )}
               </div>
-              <span className={`text-xs transition-colors duration-300 ${
+              <span className={`transition-colors duration-300 ${
+                isCentered ? 'text-sm' : 'text-xs'
+              } ${
                 status === 'done' ? 'text-nova-cyan/40' : 'text-nova-text-muted/40'
               }`}>&mdash;</span>
             </div>
           )
         })}
 
-        {/* Done dot */}
-        <AnimatePresence>
-          {isDone ? (
+        {/* Done — always present, lights up when complete */}
+        <div className={`flex items-center gap-1.5 font-medium transition-colors duration-300 ${
+          isCentered ? 'text-sm' : 'text-xs'
+        } ${
+          isDone ? 'text-nova-cyan-bright' : 'text-nova-text-muted'
+        }`}>
+          {isDone && (
             <motion.span
-              key="done-check"
-              initial={{ scale: 0, opacity: 0 }}
-              animate={{ scale: 1, opacity: 1 }}
+              initial={{ scale: 0 }}
+              animate={{ scale: 1 }}
               transition={{ type: 'spring', stiffness: 400, damping: 20, delay: 0.15 }}
-              className="text-nova-cyan-bright"
             >
-              <Icon icon={ciCheck} width="12" height="12" />
+              <Icon icon={ciCheck} width={isCentered ? 14 : 12} height={isCentered ? 14 : 12} />
             </motion.span>
-          ) : (
-            <motion.span
-              key="done-pending"
-              className="inline-block w-1.5 h-1.5 rounded-full bg-nova-text-muted/30"
-            />
           )}
-        </AnimatePresence>
+          Done
+        </div>
       </div>
 
-      {/* Progress bar */}
-      <div className="mt-2 h-[2px] rounded-full bg-nova-surface overflow-hidden">
+      {/* Progress bar — pulses once before dismissing */}
+      <div className={`rounded-full bg-nova-surface overflow-hidden ${
+        isCentered ? 'mt-3 h-[3px]' : 'mt-2 h-[2px]'
+      }`}>
         <motion.div
           className="h-full rounded-full"
           style={{
@@ -153,13 +158,19 @@ export function GenerationProgress({ phase, message, completed, total, onDismiss
               : '0 0 8px var(--nova-violet)',
           }}
           initial={{ width: '0%' }}
-          animate={{ width: `${pct}%` }}
-          transition={{ type: 'spring', stiffness: 100, damping: 20 }}
+          animate={dismissing
+            ? { width: '100%', opacity: [1, 0.4, 1] }
+            : { width: `${pct}%` }
+          }
+          transition={dismissing
+            ? { opacity: { duration: 0.4, ease: 'easeInOut' } }
+            : { type: 'spring', stiffness: 100, damping: 20 }
+          }
         />
       </div>
 
       {/* Status message */}
-      <div className="mt-1.5 h-4 overflow-hidden">
+      <div className={`overflow-hidden ${isCentered ? 'mt-2 h-5' : 'mt-1.5 h-4'}`}>
         <AnimatePresence mode="wait">
           <motion.p
             key={isDone ? '__done__' : message || '__empty__'}
@@ -167,7 +178,9 @@ export function GenerationProgress({ phase, message, completed, total, onDismiss
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -4 }}
             transition={{ duration: 0.15 }}
-            className={`text-[10px] truncate ${
+            className={`truncate ${
+              isCentered ? 'text-xs' : 'text-[10px]'
+            } ${
               isDone ? 'text-nova-cyan-bright/70' : 'text-nova-text-muted'
             }`}
           >
