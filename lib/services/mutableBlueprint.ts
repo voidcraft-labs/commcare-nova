@@ -6,7 +6,7 @@
  */
 import {
   type AppBlueprint, type BlueprintModule, type BlueprintForm, type Question,
-  type BlueprintChildCase,
+  type BlueprintChildCase, type CaseType, type CaseProperty,
 } from '../schemas/blueprint'
 
 // ── Result types ────────────────────────────────────────────────────────
@@ -93,6 +93,23 @@ export class MutableBlueprint {
     const form = this.getForm(mIdx, fIdx)
     if (!form) return null
     return this.findQuestionWithPath(form.questions, questionId, '')
+  }
+
+  getCaseType(name: string): CaseType | null {
+    return this.blueprint.case_types?.find(ct => ct.name === name) ?? null
+  }
+
+  getCaseProperty(caseTypeName: string, propertyName: string): CaseProperty | null {
+    const ct = this.getCaseType(caseTypeName)
+    return ct?.properties.find(p => p.name === propertyName) ?? null
+  }
+
+  updateCaseProperty(caseTypeName: string, propertyName: string, updates: Partial<Omit<CaseProperty, 'name'>>): void {
+    const ct = this.blueprint.case_types?.find(c => c.name === caseTypeName)
+    if (!ct) throw new Error(`Case type "${caseTypeName}" not found`)
+    const prop = ct.properties.find(p => p.name === propertyName)
+    if (!prop) throw new Error(`Property "${propertyName}" not found on case type "${caseTypeName}"`)
+    Object.assign(prop, updates)
   }
 
   // ── Search ──────────────────────────────────────────────────────────
@@ -325,6 +342,16 @@ export class MutableBlueprint {
   renameCaseProperty(caseType: string, oldName: string, newName: string): RenameResult {
     const formsChanged: string[] = []
     const columnsChanged: string[] = []
+
+    // Rename in case_types definition
+    if (this.blueprint.case_types) {
+      const ct = this.blueprint.case_types.find(c => c.name === caseType)
+      if (ct) {
+        const prop = ct.properties.find(p => p.name === oldName)
+        if (prop) prop.name = newName
+        if (ct.case_name_property === oldName) ct.case_name_property = newName
+      }
+    }
 
     for (let mIdx = 0; mIdx < this.blueprint.modules.length; mIdx++) {
       const mod = this.blueprint.modules[mIdx]

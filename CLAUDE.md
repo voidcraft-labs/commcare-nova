@@ -78,22 +78,25 @@ A single `POST /api/chat` endpoint runs the entire pipeline: conversation, gener
    - **`editQuestion`** / **`addQuestion`** / **`removeQuestion`** — question-level mutations with auto case config re-derivation
    - **`updateModule`** / **`updateForm`** / **`addForm`** / **`removeForm`** / **`addModule`** / **`removeModule`** — structural mutations
    - **`renameCaseProperty`** — renames a case property with automatic propagation across all forms, columns, and XPath expressions
-   - **`regenerateForm`** — full form regeneration via Form Builder sub-agent for major restructuring (loads FORM_KNOWLEDGE_ALL)
+   - **`regenerateForm`** — full form regeneration via Form Builder sub-agent for major restructuring
    - **`validateApp`** — runs `validateAndFix` loop on the mutated blueprint
 
 The PM does NOT make technical decisions (property names, case types, form structures). It writes a plain English `appSpecification`. The Solutions Architect translates that into CommCare architecture.
 
 ### GenerationContext
 
-`lib/services/generationContext.ts` exports a `GenerationContext` class — the shared LLM abstraction used by both agents. Wraps an Anthropic client + UI stream writer + RunLogger.
+`lib/services/generationContext.ts` exports a `GenerationContext` class — the **single place** all LLM calls flow through. Wraps an Anthropic client + UI stream writer + RunLogger.
 
 - **`model(id)`** — returns the Anthropic model provider
 - **`emit(type, data)`** — writes a transient data part to the client stream (`writer.write({ type, data, transient: true })`)
 - **`logger`** — the `RunLogger` instance, accessible by agents for logging orchestration events
 - **`generate(schema, opts)`** — one-shot structured generation via `generateText` + `Output.object()` with automatic run logging via `logger.logSubResult()`
 - **`streamGenerate(schema, opts)`** — streaming structured generation via `streamText` + `Output.object()` + `partialOutputStream` with `onPartial` callback and automatic run logging
+- **`runAgent(agent, opts)`** — runs a `ToolLoopAgent` to completion with centralized step logging (token counts, cache metrics, knowledge attribution, tool call args). Reads the agent's system prompt from `agent.settings.instructions` for the log. All sub-agents (Form Builder, future agents) go through this method.
 
-The PM (via `logger.logEvent` in `onStepFinish`) and the architect (via `generate`/`streamGenerate` which call `logger.logSubResult`) use the same `GenerationContext` instance, created once in the route handler.
+Also exports **`withPromptCaching`** — a shared `prepareStep` config that marks the last message with Anthropic's `cache_control: ephemeral`. Spread into all `ToolLoopAgent` constructors via `...withPromptCaching` so prior conversation turns are cached across steps.
+
+The PM (via `logger.logEvent` in `onStepFinish`) and the architect (via `generate`/`streamGenerate` which call `logger.logSubResult`) use the same `GenerationContext` instance, created once in the route handler. The Form Builder goes through `ctx.runAgent()` which handles step logging centrally.
 
 ### Client State via `onData` (No useEffect Scanning)
 
@@ -155,19 +158,29 @@ CommCare platform knowledge from `lib/services/commcare/knowledge/*.md` is loade
 **Generation mode** — knowledge is conditionally loaded per phase via `resolveConditionalKnowledge(phase, context)` in `loadKnowledge.ts`. Each phase has a small **core** set (always loaded) and **conditional** sets triggered by keyword matches against `specification + formPurpose`:
 - Scaffold core (2 files): case types, modules. Conditional: hierarchy, sharing, form linking, scale
 - Module core (1 file): case list config. Conditional: case search, calculated columns, icons
-- Form core (3 files): question types, form logic, validation. Conditional: instances/fixtures, repeats, save-to-case, user properties, GPS, XPath ref
+- **Form Builder: no knowledge loaded.** The model already knows CommCare question types and form patterns well enough. Removing knowledge from the form builder cut input tokens by ~80% per form with no quality loss. The tool schemas (with `case_property` enum from the data model) provide sufficient guidance.
 
-`FORM_KNOWLEDGE_ALL` (11 files) is the full unconditional form set, used only by `regenerateForm` in edit mode where correctness outweighs token savings.
-
-Each prompt function (`scaffoldPrompt`, `modulePrompt`, `formBuilderPrompt`) accepts an optional `knowledge` string and embeds it in a `<knowledge>` block. The architect agent resolves the appropriate files before each `generate()`/`streamGenerate()` call or Form Builder sub-agent invocation.
+Each prompt function (`scaffoldPrompt`, `modulePrompt`, `formBuilderPrompt`) accepts an optional `knowledge` string and embeds it in a `<knowledge>` block. The architect agent resolves the appropriate files before each `generate()`/`streamGenerate()` call.
 
 **Edit mode** — on-demand via a `loadKnowledge` tool. The edit architect's system prompt always includes a `KNOWLEDGE_INDEX` (one-liner per file) so it knows what's available. Feature-specific files (alerts, scheduler, registry, UCR, encryption, etc.) are excluded from default generation sets but available on-demand in edit mode.
+
+### Data Model Defaults (Case Properties as Source of Truth)
+
+`case_types` on the blueprint carry rich property metadata: `label`, `data_type`, `hint`, `help`, `required`, `constraint`, `constraint_msg`, `options`. This makes case properties the single source of truth for shared question metadata.
+
+**Questions are sparse** — when a question maps to a case property via `case_property`, it only needs to carry overrides (e.g. `relevant`, `calculate`, `default_value`, `readonly`). Defaults are merged at two points:
+1. **Form Builder agent** — `addQuestion`'s execute function auto-merges from the case type at build time (type, label, hint, help, required, constraint, options, is_case_name)
+2. **Expander** — `mergeQuestionDefaults()` / `mergeFormQuestions()` merge before XForm generation and validation
+
+The Form Builder's `addQuestion` tool uses a **dynamic schema**: `case_property` becomes a `z.enum()` of available property names when the case type is known, and `type` descriptions reference data model defaults. Module content's column `field` also uses a dynamic enum.
+
+`is_case_name` is auto-derived from `case_name_property` in the case type definition — the LLM only sets it explicitly to override.
 
 ### Per-Question Case Property Mapping
 
 The LLM doesn't manage form-level case wiring. Instead, each question has:
 - **`case_property`** — which case property this question maps to (or null)
-- **`is_case_name`** — true if this question's value becomes the case name (registration or followup forms)
+- **`is_case_name`** — auto-derived from `case_name_property` in the case type, or explicitly set to override
 
 The assembler (`deriveCaseConfig()`) derives form-level `case_name_field`, `case_properties`, and `case_preload` automatically:
 - **Registration**: all questions with `case_property` → `case_properties` map. Question with `is_case_name` → `case_name_field`.
@@ -249,7 +262,7 @@ Dark "Stellar Minimalism" theme. CSS custom properties defined in `globals.css`:
 - `MODEL_GENERATION` — structured generation (scaffold + modules + forms), currently `claude-sonnet-4-6`
 - `MODEL_FIXER` — available for cheap/fast fixes, currently `claude-haiku-4-5-20251001` (validation uses programmatic fixes + Form Builder fallback instead)
 - `MODEL_PM` — Product Manager agent (Tier 0), currently `claude-sonnet-4-6`
-- `MODEL_PRICING` — cost lookup keyed by model ID (per million tokens)
+- `MODEL_PRICING` — cost lookup keyed by model ID (per million tokens: input, output, cacheWrite, cacheRead)
 
 ## Run Logging
 
@@ -262,16 +275,16 @@ Set `RUN_LOGGER=1` in `.env` to enable disk-based run logging. When enabled, eac
   - `logSubResult(label, result)` — stitches a sub-generation result onto the most recent orchestration event's matching tool call (e.g. "Scaffold" generation result attaches to the `generateScaffold` tool call entry)
   - `finalize()` — sets `finished_at` and recomputes totals
 - **Integration**: `GenerationContext.generate()`/`streamGenerate()` call `logger.logSubResult()` automatically. Agent `onStepFinish` callbacks call `logger.logEvent()` for orchestration steps.
-- **Output**: `.log/{timestamp}_{app_name}.json` — contains run metadata, per-event token usage + cost estimates, full request/response I/O, and roll-up totals.
+- **Output**: `.log/{timestamp}_{app_name}.json` — contains run metadata, per-event token usage (including `cache_read_tokens` / `cache_write_tokens`) + cache-aware cost estimates, full request/response I/O, and roll-up totals.
 
 ## Service Layer Notes
 
 - `builder.ts`: `Builder` class — singleton via `useBuilder()`. Holds `scaffold`, `blueprint`, `partialScaffold` (streaming structured output), and `partialModules` (module/form results). `treeData` getter merges partial data with scaffold for progressive rendering. Setter methods are called from `onData` callback in BuilderLayout. `updateProgress()` derives completed/total counts from the `partialModules` map.
 - `architectAgent.ts`: Two factory functions. `createArchitectAgent(ctx, accumulator)` returns a generation-mode `ToolLoopAgent` with tools: `generateScaffold`, `generateModuleContent`, `generateFormContent`, `assembleBlueprint`, `validateApp`. `generateFormContent` spawns a Form Builder sub-agent. `createEditArchitectAgent(ctx, mutableBp)` returns an edit-mode `ToolLoopAgent` with search/get/edit/validate/loadKnowledge tools operating on a `MutableBlueprint`. `regenerateForm` also spawns a Form Builder sub-agent. Both share `validateAndFix()` (programmatic loop — rule-based validation + programmatic fixes, with Form Builder fallback for empty forms). `BlueprintAccumulator` collects generation results; `MutableBlueprint` wraps an existing blueprint for surgical edits.
-- `formBuilderAgent.ts`: `createFormBuilderAgent(ctx, mb, opts)` factory returning a `ToolLoopAgent` that builds forms question-by-question. Tools: `addQuestion` (flat schema), `setCloseCaseCondition`, `addChildCase`. Operates on a `MutableBlueprint` shell at indices [0,0]. Used by `generateFormContent`, `regenerateForm`, and `validateAndFix` (empty form fallback).
+- `formBuilderAgent.ts`: `createFormBuilderAgent(ctx, mb, opts)` factory returning a `ToolLoopAgent` that builds forms question-by-question. Tools: `addQuestion` (flat schema with dynamic `case_property` enum), `setCloseCaseCondition`, `addChildCase`. Operates on a `MutableBlueprint` shell at indices [0,0]. No knowledge loaded — relies on the model's built-in knowledge + dynamic tool schemas. Executed via `ctx.runAgent()` for centralized logging. Used by `generateFormContent`, `regenerateForm`, and `validateAndFix` (empty form fallback).
 - `mutableBlueprint.ts`: `MutableBlueprint` class — wraps `AppBlueprint` (deep-cloned) for in-place search, read, and mutation. `search()` finds matches across question IDs/labels/case_properties/XPath/module names/form names/columns. Mutation methods (`updateQuestion`, `addQuestion`, `removeQuestion`, etc.) auto-derive case config after changes. `renameCaseProperty()` propagates renames across all questions, columns, and XPath expressions.
-- `generationContext.ts`: `GenerationContext` class — wraps Anthropic client + UI stream writer + RunLogger. Provides `generate()` (one-shot structured), `streamGenerate()` (streaming structured with `onPartial`), `emit()` (transient data parts). Sub-generation calls auto-log via `logger.logSubResult()`. Used by the route handler, architect agent, and validator.
-- `runLogger.ts`: `RunLogger` class — disk-based run logger. Writes incremental JSON to `.log/` after every mutation when `RUN_LOGGER=1`. Tracks current agent, stitches sub-generation results onto orchestration tool calls, computes per-event cost estimates and roll-up totals.
+- `generationContext.ts`: `GenerationContext` class — wraps Anthropic client + UI stream writer + RunLogger. Provides `generate()` (one-shot structured), `streamGenerate()` (streaming structured with `onPartial`), `runAgent()` (ToolLoopAgent execution with centralized step logging), `emit()` (transient data parts). All LLM calls go through this class. Also exports `withPromptCaching` — spread into ToolLoopAgent constructors for Anthropic prompt caching.
+- `runLogger.ts`: `RunLogger` class — disk-based run logger. Writes incremental JSON to `.log/` after every mutation when `RUN_LOGGER=1`. Tracks current agent, stitches sub-generation results onto orchestration tool calls, computes cache-aware per-event cost estimates (using `cache_read_tokens` / `cache_write_tokens`) and roll-up totals.
 - `hqJsonExpander.ts`: `expandBlueprint()` converts `AppBlueprint` → HQ import JSON. Generates XForm XML with proper Vellum dual-attribute hashtag expansion, form actions, case details. `validateBlueprint()` checks semantic rules.
 - `cczCompiler.ts`: `CczCompiler` class takes HQ import JSON → `.ccz` Buffer. Generates suite.xml, profile.ccpr, app_strings.txt. Injects case blocks (create/update/close/subcases) back into XForm XML.
 - `autoFixer.ts`: `AutoFixer` class applies programmatic fixes (itext, reserved properties, missing binds) to generated files before validation.

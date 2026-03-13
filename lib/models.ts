@@ -15,9 +15,9 @@ export const MODEL_FIXER = 'claude-haiku-4-5-20251001'
 export const MODEL_PM = 'claude-sonnet-4-6'
 
 /** Pricing per million tokens, keyed by model ID (either full or alias). */
-export const MODEL_PRICING: Record<string, { input: number; output: number }> = {
-  'claude-sonnet-4-6': { input: 3, output: 15 },
-  'claude-haiku-4-5-20251001': { input: 1, output: 5 },
+export const MODEL_PRICING: Record<string, { input: number; output: number; cacheWrite: number; cacheRead: number }> = {
+  'claude-sonnet-4-6': { input: 3, output: 15, cacheWrite: 3.75, cacheRead: 0.30 },
+  'claude-haiku-4-5-20251001': { input: 1, output: 5, cacheWrite: 1.25, cacheRead: 0.10 },
 }
 
-export const DEFAULT_PRICING = { input: 3, output: 15 }
+export const DEFAULT_PRICING = { input: 3, output: 15, cacheWrite: 3.75, cacheRead: 0.30 }

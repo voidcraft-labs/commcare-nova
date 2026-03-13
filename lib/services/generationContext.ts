@@ -6,11 +6,27 @@
  * data part emission. Used by both the Product Manager and Solutions Architect agents.
  */
 import { streamText, generateText, Output } from 'ai'
-import type { UIMessageStreamWriter } from 'ai'
+import type { ModelMessage, ToolLoopAgent, UIMessageStreamWriter } from 'ai'
 import { createAnthropic } from '@ai-sdk/anthropic'
 import { z } from 'zod'
 import { MODEL_GENERATION } from '../models'
 import { RunLogger } from './runLogger'
+
+const ANTHROPIC_CACHE_CONTROL = { anthropic: { cacheControl: { type: 'ephemeral' as const } } }
+
+/**
+ * prepareStep that marks the last message with cache_control: ephemeral.
+ * Reuse this in all ToolLoopAgent constructors so prior conversation turns are cached.
+ */
+export const withPromptCaching = {
+  prepareStep: ({ messages }: { messages: ModelMessage[] }) => ({
+    messages: messages.map((msg, i) =>
+      i === messages.length - 1
+        ? { ...msg, providerOptions: { ...msg.providerOptions, ...ANTHROPIC_CACHE_CONTROL } }
+        : msg,
+    ),
+  }),
+}
 
 export class GenerationContext {
   private anthropic: ReturnType<typeof createAnthropic>
@@ -91,5 +107,54 @@ export class GenerationContext {
       })
     }
     return last
+  }
+
+  /**
+   * Run a ToolLoopAgent to completion with centralized step logging.
+   *
+   * All agent execution (form builder, future agents) should go through this
+   * method so logging, token tracking, and knowledge attribution happen in one place.
+   */
+  async runAgent<CO, T extends Record<string, any>>(
+    agent: ToolLoopAgent<CO, T>,
+    opts: {
+      prompt: string
+      label: string
+      agentName: string
+      model?: string
+      knowledge?: string[]
+    },
+  ): Promise<void> {
+    const model = opts.model ?? MODEL_GENERATION
+    let stepNumber = 0
+
+    const result = await agent.stream({
+      prompt: opts.prompt,
+      onStepFinish: ({ usage, text, toolCalls, toolResults }) => {
+        if (usage) {
+          const isFirst = stepNumber === 0
+          this.logger.logEvent({
+            type: 'orchestration',
+            agent: opts.agentName,
+            label: `${opts.label} step`,
+            model,
+            input_tokens: usage.inputTokens ?? 0,
+            output_tokens: usage.outputTokens ?? 0,
+            cache_read_tokens: usage.inputTokenDetails?.cacheReadTokens ?? undefined,
+            cache_write_tokens: usage.inputTokenDetails?.cacheWriteTokens ?? undefined,
+            // Log the full input context on the first step for debuggability
+            ...(isFirst && { input: { system: (agent as any).settings?.instructions, message: opts.prompt } }),
+            output: { text, toolResults },
+            tool_calls: toolCalls?.map((tc: any) => ({ name: tc.toolName, args: tc.input })),
+            ...(isFirst && opts.knowledge && { knowledge: opts.knowledge }),
+          })
+          stepNumber++
+        }
+      },
+    })
+
+    // Drain the stream to drive execution to completion
+    const reader = result.toUIMessageStream().getReader()
+    while (!(await reader.read()).done) {}
   }
 }

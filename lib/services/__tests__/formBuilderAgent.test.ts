@@ -18,6 +18,9 @@ function makeShell(type: 'registration' | 'followup' | 'survey' = 'registration'
       case_type: type !== 'survey' ? 'patient' : undefined,
       forms: [{ name: 'Test Form', type, questions: [] }],
     }],
+    case_types: type !== 'survey'
+      ? [{ name: 'patient', case_name_property: 'full_name', properties: [{ name: 'full_name', label: 'Full Name' }] }]
+      : null,
   }
 }
 

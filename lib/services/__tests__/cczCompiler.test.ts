@@ -27,6 +27,7 @@ const blueprint: AppBlueprint = {
     ],
     case_list_columns: [{ field: 'age', header: 'Age' }],
   }],
+  case_types: [{ name: 'patient', case_name_property: 'name', properties: [{ name: 'name', label: 'Name' }, { name: 'age', label: 'Age' }, { name: 'total_visits', label: 'Total Visits' }] }],
 }
 
 describe('CczCompiler', () => {

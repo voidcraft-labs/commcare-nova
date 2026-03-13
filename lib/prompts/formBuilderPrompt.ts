@@ -34,9 +34,17 @@ Write labels the way a clear, well-designed form would — concise and unambiguo
 
 Pick the right type: "phone" for phone numbers (not "text"), "date"/"time"/"datetime" for temporal values, "int" for whole numbers, "decimal" for measurements, "select1" for single-choice, "select" for multi-choice, "hidden" with "calculate" for computed values, "geopoint" for GPS. Only use "text" for genuinely free-text fields.
 
+## Data Model Defaults
+
+When a question maps to a case property (via the case_property field), the data model
+provides default values for label, hint, help, required, constraint, and options.
+Do NOT send these fields unless you need to override the default. They are applied
+automatically. Only include fields that are form-context-specific: relevant, calculate,
+default_value, readonly.
+
 ## Case Wiring
 
-The message tells you which properties exist on the case type and which one is the case name.
+The case_property field is an enum of available property names from the data model.
 
 **Registration forms** create a new case. Set \`case_property\` on questions that save to case properties. Set \`is_case_name: true\` on the question that maps to the case name property.
 
