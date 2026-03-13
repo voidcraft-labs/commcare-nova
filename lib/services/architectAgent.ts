@@ -1,52 +1,21 @@
 /**
- * Solutions Architect Agent — orchestrates blueprint generation and editing.
+ * Solutions Architect — edit mode agent + shared validation.
  *
- * Two agent constructors:
- *   - createArchitectAgent: Generation mode — scaffold → modules → forms → assemble → validate
- *   - createEditArchitectAgent: Edit mode — search → get → edit → validate (operates on MutableBlueprint)
+ * Generation mode uses a programmatic pipeline (generationPipeline.ts).
+ * Edit mode uses a ToolLoopAgent with search/get/edit/validate tools.
  */
-import { ToolLoopAgent, tool, hasToolCall, stepCountIs } from 'ai'
+import { ToolLoopAgent, tool, stepCountIs } from 'ai'
 import { z } from 'zod'
 import { MODEL_GENERATION } from '../models'
 import { GenerationContext, logWarnings, withPromptCaching } from './generationContext'
-import { ARCHITECT_PROMPT } from '../prompts/architectPrompt'
 import { EDIT_ARCHITECT_PROMPT } from '../prompts/editArchitectPrompt'
-import { scaffoldPrompt } from '../prompts/scaffoldPrompt'
-import { modulePrompt } from '../prompts/modulePrompt'
-import { loadKnowledge, resolveConditionalKnowledge } from './commcare/knowledge/loadKnowledge'
-import { createFormBuilderAgent } from './formBuilderAgent'
-import { formDesignPrompt } from '../prompts/formDesignPrompt'
+import { loadKnowledge } from './commcare/knowledge/loadKnowledge'
+import { generateSingleFormContent } from './generationPipeline'
 import {
-  scaffoldSchema, moduleContentSchema,
-  assembleBlueprint,
-  type Scaffold, type ModuleContent, type AppBlueprint, type BlueprintForm, type Question, type CaseType,
+  type AppBlueprint, type BlueprintForm, type Question,
 } from '../schemas/blueprint'
 import { expandBlueprint, validateBlueprint } from './hqJsonExpander'
 import { MutableBlueprint, type NewQuestion } from './mutableBlueprint'
-
-// ── BlueprintAccumulator ──────────────────────────────────────────────
-
-export class BlueprintAccumulator {
-  scaffold: Scaffold | null = null
-  specification: string = ''
-  moduleContents: ModuleContent[] = []
-  formContents: BlueprintForm[][] = []
-  assembled: AppBlueprint | null = null
-
-  setScaffold(s: Scaffold) {
-    this.scaffold = s
-    this.moduleContents = new Array(s.modules.length).fill({ case_list_columns: null, case_detail_columns: null })
-    this.formContents = s.modules.map(m => new Array(m.forms.length))
-  }
-
-  setModuleContent(moduleIndex: number, mc: ModuleContent) {
-    this.moduleContents[moduleIndex] = mc
-  }
-
-  setFormContent(moduleIndex: number, formIndex: number, form: BlueprintForm) {
-    this.formContents[moduleIndex][formIndex] = form
-  }
-}
 
 // ── Helper: count questions recursively ───────────────────────────────
 
@@ -66,84 +35,6 @@ function collectCaseProperties(questions: Question[]): string[] {
     if (q.children) props.push(...collectCaseProperties(q.children))
   }
   return props
-}
-
-function hasCaseNameQuestion(questions: Question[]): boolean {
-  for (const q of questions) {
-    if (q.is_case_name) return true
-    if (q.children && hasCaseNameQuestion(q.children)) return true
-  }
-  return false
-}
-
-// ── Helper: build prompts for sub-calls ──────────────────────────────
-
-function buildModulePrompt(scaffold: Scaffold, moduleIndex: number, feedback?: string): string {
-  const sm = scaffold.modules[moduleIndex]
-
-  let prompt = `App: "${scaffold.app_name}" — ${scaffold.description}
-
-Module: "${sm.name}"
-Case type: ${sm.case_type ?? 'none (survey-only)'}
-Purpose: ${sm.purpose}
-Forms: ${sm.forms.map(f => `"${f.name}" (${f.type})`).join(', ')}
-
-Design the case list columns for this module.`
-
-  if (feedback) {
-    prompt += `\n\n## Revision Feedback\n${feedback}`
-  }
-
-  return prompt
-}
-
-function buildFormPrompt(scaffold: Scaffold, moduleIndex: number, formIndex: number, feedback?: string): string {
-  const sm = scaffold.modules[moduleIndex]
-  const sf = sm.forms[formIndex]
-
-  let prompt = `App: "${scaffold.app_name}" — ${scaffold.description}
-
-Module: "${sm.name}" (${sm.purpose})
-
-Form: "${sf.name}"
-Type: ${sf.type}
-Purpose: ${sf.purpose}
-
-Sibling forms in this module: ${sm.forms.map(f => `"${f.name}" (${f.type})`).join(', ')}
-
-Design the questions for this form.`
-
-  if (feedback) {
-    prompt += `\n\n## Revision Feedback\n${feedback}`
-  }
-
-  return prompt
-}
-
-function buildAllFormsPrompt(scaffold: Scaffold): string {
-  const formSections: string[] = []
-
-  for (let mIdx = 0; mIdx < scaffold.modules.length; mIdx++) {
-    const sm = scaffold.modules[mIdx]
-    for (let fIdx = 0; fIdx < sm.forms.length; fIdx++) {
-      const sf = sm.forms[fIdx]
-      const lines = [
-        `### m${mIdx}-f${fIdx}: "${sf.name}"`,
-        `Module: "${sm.name}" (${sm.purpose})`,
-        `Type: ${sf.type}`,
-        `Purpose: ${sf.purpose}`,
-        `Case type: ${sm.case_type ?? 'none (survey)'}`,
-        `Sibling forms: ${sm.forms.map(f => `"${f.name}" (${f.type})`).join(', ')}`,
-      ]
-      formSections.push(lines.join('\n'))
-    }
-  }
-
-  return `App: "${scaffold.app_name}" — ${scaffold.description}
-
-Build all ${formSections.length} forms below. Use selectForm to switch between forms, then add questions for each.
-
-${formSections.join('\n\n')}`
 }
 
 // ── Validate + fix loop ──────────────────────────────────────────────
@@ -204,27 +95,14 @@ export async function validateAndFix(
 
       const form = blueprint.modules[mIdx].forms[fIdx]
 
-      // "has no questions" — rebuild with form builder agent
+      // "has no questions" — regenerate with Opus structured output
       if (formErrs.some(e => e.includes('has no questions'))) {
         try {
-          const mod = blueprint.modules[mIdx]
-          const shell: AppBlueprint = {
-            app_name: blueprint.app_name,
-            case_types: blueprint.case_types,
-            modules: [{
-              name: mod.name,
-              forms: [{ name: form.name, type: form.type, questions: [] }],
-              ...(mod.case_type && { case_type: mod.case_type }),
-            }],
-          }
-          const mb = new MutableBlueprint(shell)
-          const formAgent = createFormBuilderAgent(ctx, mb, { forms: [{ moduleIndex: 0, formIndex: 0 }] })
-          await ctx.runAgent(formAgent, {
-            prompt: `Form "${form.name}" (${form.type}) has no questions. Generate appropriate questions for this form.`,
-            label: 'Form builder',
-            agentName: 'Form Builder',
-          })
-          blueprint.modules[mIdx].forms[fIdx] = mb.getForm(0, 0)!
+          const newForm = await generateSingleFormContent(
+            ctx, blueprint, mIdx, fIdx,
+            `Form "${form.name}" (${form.type}) has no questions. Generate appropriate questions for this form.`,
+          )
+          blueprint.modules[mIdx].forms[fIdx] = newForm
         } catch {
           // Rebuild failed, will be caught on next attempt
         }
@@ -411,270 +289,6 @@ function findQuestionById(questions: Question[], id: string): Question | null {
 }
 
 
-// ── Create Solutions Architect Agent ──────────────────────────────────
-
-export function createArchitectAgent(
-  ctx: GenerationContext,
-  accumulator: BlueprintAccumulator,
-) {
-
-  const agent = new ToolLoopAgent({
-    model: ctx.model(MODEL_GENERATION),
-    instructions: ARCHITECT_PROMPT,
-    stopWhen: stepCountIs(50),
-    ...withPromptCaching,
-    onStepFinish: ({ usage, text, reasoningText, toolCalls, toolResults, warnings }) => {
-      logWarnings('Solutions Architect', warnings)
-      if (usage) {
-        ctx.logger.logEvent({
-          type: 'orchestration',
-          agent: 'Solutions Architect',
-          label: 'Orchestration step',
-          model: MODEL_GENERATION,
-          input_tokens: usage.inputTokens ?? 0,
-          output_tokens: usage.outputTokens ?? 0,
-          cache_read_tokens: usage.inputTokenDetails?.cacheReadTokens ?? undefined,
-          cache_write_tokens: usage.inputTokenDetails?.cacheWriteTokens ?? undefined,
-          output: { text, ...(reasoningText && { reasoningText }), toolResults },
-          tool_calls: toolCalls?.map((tc: any) => ({ name: tc.toolName, args: tc.input })),
-        })
-      }
-    },
-    tools: {
-      generateScaffold: tool({
-        description: 'Generate the app scaffold (data model + structure) from the specification.',
-        inputSchema: z.object({
-          specification: z.string().describe('Full app specification including app name, description, and all requirements'),
-        }),
-        execute: async ({ specification }) => {
-          ctx.emit('data-phase', { phase: 'designing' })
-          accumulator.specification = specification
-
-          const files = resolveConditionalKnowledge('scaffold', { specification })
-          const knowledge = await loadKnowledge(...files)
-          const scaffold = await ctx.streamGenerate(scaffoldSchema, {
-            system: scaffoldPrompt(knowledge),
-            prompt: specification,
-            label: 'Scaffold',
-            knowledge: files,
-            maxOutputTokens: 16384,
-            onPartial: (partial) => ctx.emit('data-partial-scaffold', partial),
-          })
-
-          if (!scaffold) return { error: 'Scaffold generation returned no output' }
-
-          accumulator.setScaffold(scaffold)
-          ctx.emit('data-scaffold', scaffold)
-          ctx.emit('data-phase', { phase: 'modules' })
-
-          return {
-            moduleCount: scaffold.modules.length,
-            caseTypeCount: scaffold.case_types?.length ?? 0,
-            modules: scaffold.modules.map(m => ({ name: m.name, case_type: m.case_type, formCount: m.forms.length })),
-          }
-        },
-      }),
-
-      generateModuleContent: tool({
-        description: 'Generate case list columns for a module. Pass moduleIndex (0-based). Optionally pass feedback to request revision.',
-        inputSchema: z.object({
-          moduleIndex: z.number().describe('0-based index of the module in the scaffold'),
-          feedback: z.string().optional().describe('Feedback for revision if re-calling'),
-        }),
-        execute: async ({ moduleIndex, feedback }) => {
-          const scaffold = accumulator.scaffold!
-          const sm = scaffold.modules[moduleIndex]
-          if (!sm) return { error: `Module index ${moduleIndex} out of range` }
-
-          // Survey-only modules don't need columns
-          if (!sm.case_type) {
-            const mc = { case_list_columns: null, case_detail_columns: null }
-            accumulator.setModuleContent(moduleIndex, mc)
-            ctx.emit('data-module-done', { moduleIndex, caseListColumns: null })
-            return { moduleIndex, name: sm.name, columns: null }
-          }
-
-          try {
-            const files = resolveConditionalKnowledge('module', {
-              specification: accumulator.specification,
-              formPurpose: sm.purpose,
-            })
-            const knowledge = await loadKnowledge(...files)
-
-            // Dynamically constrain the column field to valid property names
-            const ctInfo = scaffold.case_types?.find(ct => ct.name === sm.case_type)
-            const propertyNames = ctInfo?.properties.map(p => p.name) ?? []
-            const columnSchema = z.object({
-              field: propertyNames.length > 0
-                ? z.enum(['case_name', ...propertyNames] as [string, ...string[]])
-                    .describe('Case property name to display')
-                : z.string().describe('Case property name to display'),
-              header: z.string().describe('Column header text'),
-            })
-            const dynamicModuleSchema = z.object({
-              case_list_columns: z.array(columnSchema).nullable().describe('Columns for the case list. null for survey-only modules.'),
-              case_detail_columns: z.array(columnSchema).nullable().describe(
-                'Columns shown in the case detail view (when a user taps on a case). null to auto-mirror case_list_columns.'
-              ),
-            })
-
-            const mc = await ctx.generate(dynamicModuleSchema, {
-              system: modulePrompt(knowledge),
-              prompt: buildModulePrompt(scaffold, moduleIndex, feedback),
-              label: `Module ${moduleIndex} "${sm.name}"`,
-              knowledge: files,
-              maxOutputTokens: 4096,
-            }) ?? { case_list_columns: null, case_detail_columns: null }
-
-            accumulator.setModuleContent(moduleIndex, mc)
-            ctx.emit('data-module-done', { moduleIndex, caseListColumns: mc.case_list_columns ?? null })
-
-            return { moduleIndex, name: sm.name, columns: mc.case_list_columns ?? null }
-          } catch (err) {
-            const mc = { case_list_columns: null, case_detail_columns: null }
-            accumulator.setModuleContent(moduleIndex, mc)
-            ctx.emit('data-module-done', { moduleIndex, caseListColumns: null })
-            return { error: `Module ${moduleIndex} "${sm.name}": generation failed (${err instanceof Error ? err.message : String(err)})`, moduleIndex, name: sm.name, columns: null }
-          }
-        },
-      }),
-
-      generateAllForms: tool({
-        description: 'Generate questions and case config for all forms in the scaffold. Runs a design phase (UX planning) followed by a build phase (code execution). Call this after all modules have been generated.',
-        inputSchema: z.object({}),
-        execute: async () => {
-          const scaffold = accumulator.scaffold!
-
-          ctx.emit('data-phase', { phase: 'forms' })
-
-          try {
-            // ── Phase 1: Design ──────────────────────────────────────
-            // Load form design examples and conditional knowledge
-            const [examples, formKnowledge] = await Promise.all([
-              loadKnowledge('form-design-examples'),
-              (async () => {
-                const files = resolveConditionalKnowledge('form', {
-                  specification: accumulator.specification,
-                })
-                return files.length > 0 ? await loadKnowledge(...files) : undefined
-              })(),
-            ])
-
-            const designSystemPrompt = formDesignPrompt({
-              scaffold,
-              knowledge: formKnowledge,
-              examples,
-            })
-
-            const formDesign = await ctx.generatePlainText({
-              system: designSystemPrompt,
-              prompt: `Design all forms for "${scaffold.app_name}". For each form, produce a complete implementation plan with exact question IDs, types, grouping structure, all XPath expressions, and case property mappings. Explain your UX reasoning.`,
-              label: 'Form Design',
-              maxOutputTokens: 16384,
-            })
-
-            ctx.logger.logEvent({
-              type: 'generation',
-              agent: 'Solutions Architect',
-              label: 'Form Design document',
-              model: MODEL_GENERATION,
-              input_tokens: 0,
-              output_tokens: 0,
-              output: { formDesign },
-            })
-
-            // ── Phase 2: Build ───────────────────────────────────────
-            // Build a shell with all modules/forms (empty questions)
-            const shell: AppBlueprint = {
-              app_name: scaffold.app_name,
-              case_types: scaffold.case_types,
-              modules: scaffold.modules.map(sm => ({
-                name: sm.name,
-                forms: sm.forms.map(sf => ({ name: sf.name, type: sf.type, questions: [] })),
-                ...(sm.case_type != null && { case_type: sm.case_type }),
-              })),
-            }
-            const mb = new MutableBlueprint(shell)
-
-            // Collect all form targets
-            const forms: Array<{ moduleIndex: number; formIndex: number }> = []
-            for (let mIdx = 0; mIdx < scaffold.modules.length; mIdx++) {
-              for (let fIdx = 0; fIdx < scaffold.modules[mIdx].forms.length; fIdx++) {
-                forms.push({ moduleIndex: mIdx, formIndex: fIdx })
-              }
-            }
-
-            const formAgent = createFormBuilderAgent(ctx, mb, { forms, formDesign })
-            await ctx.runAgent(formAgent, {
-              prompt: buildAllFormsPrompt(scaffold),
-              label: 'Form builder',
-              agentName: 'Form Builder',
-            })
-
-            // Extract results from the MutableBlueprint (UI already has them via data-question-added)
-            const results = []
-            for (const { moduleIndex, formIndex } of forms) {
-              const form = mb.getForm(moduleIndex, formIndex)!
-              accumulator.setFormContent(moduleIndex, formIndex, form)
-              results.push({
-                moduleIndex,
-                formIndex,
-                name: scaffold.modules[moduleIndex].forms[formIndex].name,
-                type: scaffold.modules[moduleIndex].forms[formIndex].type,
-                questionCount: countQuestionsRecursive(form.questions),
-                caseProperties: collectCaseProperties(form.questions),
-                hasCaseName: hasCaseNameQuestion(form.questions),
-              })
-            }
-
-            return { formCount: forms.length, forms: results }
-          } catch (err) {
-            return { error: `Form generation failed — ${err instanceof Error ? err.message : String(err)}` }
-          }
-        },
-      }),
-
-      assembleBlueprint: tool({
-        description: 'Assemble the full blueprint from the generated scaffold, module content, and form content. Call this after all modules and forms have been generated.',
-        inputSchema: z.object({}),
-        execute: async () => {
-          const scaffold = accumulator.scaffold!
-          const blueprint = assembleBlueprint(scaffold, accumulator.moduleContents, accumulator.formContents)
-          accumulator.assembled = blueprint
-          return {
-            app_name: blueprint.app_name,
-            moduleCount: blueprint.modules.length,
-            modules: blueprint.modules.map((m, i) => ({
-              moduleIndex: i,
-              name: m.name,
-              case_type: m.case_type ?? null,
-              formCount: m.forms.length,
-            })),
-          }
-        },
-      }),
-
-      validateApp: tool({
-        description: 'Validate the assembled blueprint against CommCare platform rules and fix any issues. Call this after assembling the blueprint to ensure the app is valid and produce the final output.',
-        inputSchema: z.object({}),
-        execute: async () => {
-          const blueprint: AppBlueprint = accumulator.assembled
-            ?? assembleBlueprint(accumulator.scaffold!, accumulator.moduleContents, accumulator.formContents)
-          const result = await validateAndFix(ctx, blueprint)
-          ctx.emit('data-done', {
-            blueprint: result.blueprint,
-            hqJson: result.hqJson ?? {},
-            success: result.success,
-          })
-          return { success: result.success }
-        },
-      }),
-    },
-  })
-
-  return agent
-}
-
 // ── Edit-mode Solutions Architect Agent ────────────────────────────────
 
 const QUESTION_TYPES = [
@@ -687,24 +301,6 @@ const selectOptionSchema = z.object({
   value: z.string().describe('Option value (stored in data)'),
   label: z.string().describe('Option label (shown to user)'),
 })
-
-/** Build a form-generation prompt from the current blueprint context (for regenerateForm). */
-function buildRegenerateFormPrompt(blueprint: AppBlueprint, moduleIndex: number, formIndex: number, instructions: string): string {
-  const mod = blueprint.modules[moduleIndex]
-  const form = mod.forms[formIndex]
-
-  return `App: "${blueprint.app_name}"
-
-Module: "${mod.name}"
-
-Form: "${form.name}"
-Type: ${form.type}
-
-Sibling forms in this module: ${mod.forms.map(f => `"${f.name}" (${f.type})`).join(', ')}
-
-## Instructions
-${instructions}`
-}
 
 export function createEditArchitectAgent(
   ctx: GenerationContext,
@@ -1067,24 +663,9 @@ export function createEditArchitectAgent(
           if (!form) return { error: `Form index ${formIndex} out of range in module ${moduleIndex}` }
 
           try {
-            const shell: AppBlueprint = {
-              app_name: blueprint.app_name,
-              case_types: blueprint.case_types,
-              modules: [{
-                name: mod.name,
-                forms: [{ name: form.name, type: form.type, questions: [] }],
-                ...(mod.case_type && { case_type: mod.case_type }),
-              }],
-            }
-            const mb = new MutableBlueprint(shell)
-            const formAgent = createFormBuilderAgent(ctx, mb, { forms: [{ moduleIndex: 0, formIndex: 0 }] })
-            await ctx.runAgent(formAgent, {
-              prompt: buildRegenerateFormPrompt(blueprint, moduleIndex, formIndex, instructions),
-              label: 'Regenerate form',
-              agentName: 'Form Builder',
-            })
-
-            const newForm = mb.getForm(0, 0)!
+            const newForm = await generateSingleFormContent(
+              ctx, blueprint, moduleIndex, formIndex, instructions,
+            )
             mutableBp.replaceForm(moduleIndex, formIndex, newForm)
             ctx.emit('data-form-updated', { moduleIndex, formIndex, form: newForm })
 

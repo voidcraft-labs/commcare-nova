@@ -153,6 +153,7 @@ export class RunLogger {
       output_tokens: result.output_tokens,
       input: result.input,
       output: result.output,
+      ...(result.reasoningText && { reasoningText: result.reasoningText }),
       ...(result.knowledge && { knowledge: result.knowledge }),
     })
   }

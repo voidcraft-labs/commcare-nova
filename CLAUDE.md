@@ -18,7 +18,7 @@ Next.js web app that generates CommCare apps from natural language conversation.
 ```
 app/                    # Next.js App Router pages and API routes
   api/
-    chat/               # Single autonomous endpoint (PM + Architect agents)
+    chat/               # Single autonomous endpoint (PM + generation pipeline + edit agent)
     compile/            # CCZ compilation + download
   build/[id]/           # Main builder view (3-panel layout)
   builds/               # Build history
@@ -30,19 +30,19 @@ hooks/                  # useBuilder, useApiKey
 lib/
   services/
     builder.ts          # Builder class — singleton state machine for the build lifecycle
-    architectAgent.ts   # Solutions Architect agent — generation mode (scaffold → modules → forms → assemble → validate) and edit mode (search → get → edit → validate)
+    architectAgent.ts   # Edit-mode Solutions Architect agent (search → get → edit → validate) + shared validateAndFix
+    generationPipeline.ts # Programmatic generation pipeline: scaffold → content → assemble → validate (no agent loop)
     mutableBlueprint.ts # MutableBlueprint class — wraps AppBlueprint for in-place search, read, and mutation during editing
-    generationContext.ts # GenerationContext class — shared LLM abstraction for all pipeline calls
+    generationContext.ts # GenerationContext class — shared LLM abstraction for all pipeline calls (supports extended thinking)
     runLogger.ts        # RunLogger class — disk-based run logger (writes JSON to .log/ when RUN_LOGGER=1)
     hqJsonExpander.ts   # Blueprint → HQ import JSON (XForm XML, form actions, Vellum metadata)
     cczCompiler.ts      # HQ import JSON → .ccz archive (adds case blocks, suite.xml)
     autoFixer.ts        # Programmatic fixes for common CommCare app issues
     commcare/           # Shared CommCare platform module (constants, XML, hashtags, HQ types/shells)
     commcare/knowledge/ # Distilled CommCare platform knowledge (.md) + loadKnowledge.ts loader
-    formBuilderAgent.ts # Form Builder sub-agent — builds forms via per-type tool calls (addTextQuestion, addSingleSelectQuestion, etc.) on a MutableBlueprint shell
-    __tests__/          # Vitest tests for expander, compiler, commcare module, mutableBlueprint, and formBuilderAgent
-  schemas/              # Zod schemas for AppBlueprint, tier outputs
-  prompts/              # Agent prompts (productManagerPrompt, architectPrompt, editArchitectPrompt, scaffoldPrompt, modulePrompt, formDesignPrompt, formBuilderPrompt) — generation prompts accept knowledge param
+    __tests__/          # Vitest tests for expander, compiler, commcare module, mutableBlueprint
+  schemas/              # Zod schemas for AppBlueprint, appContentSchema (unified content output)
+  prompts/              # Agent prompts (productManagerPrompt, editArchitectPrompt, scaffoldPrompt, appContentPrompt) — generation prompts accept knowledge param
   types/                # TypeScript type definitions
   models.ts             # Central model ID + pricing config
   store.ts              # CCZ file persistence in .data/
@@ -53,35 +53,32 @@ scripts/
 
 ## Key Architecture Decisions
 
-### Two-Agent Pipeline (Single Endpoint)
+### PM + Programmatic Pipeline + Edit Agent (Single Endpoint)
 
-A single `POST /api/chat` endpoint runs the entire pipeline: conversation, generation, and editing. Two agents, named by job title:
+A single `POST /api/chat` endpoint runs the entire pipeline: conversation, generation, and editing.
 
-1. **Product Manager** (Tier 0) — A `ToolLoopAgent` that gathers requirements via conversation and delegates to the Solutions Architect for generation. Tools:
+1. **Product Manager** — A `ToolLoopAgent` that gathers requirements via conversation and delegates to generation or editing. Tools:
    - **`askQuestions`** (client-side, no `execute`) — structured multiple-choice questions rendered as `QuestionCard` in chat. `sendAutomaticallyWhen` re-sends when all questions are answered.
-   - **`generateApp`** (server-side) — called when the PM has enough info. Emits `data-planning`, creates the Solutions Architect, drains the architect stream, returns a rich summary.
+   - **`generateApp`** (server-side) — called when the PM has enough info. Emits `data-planning`, runs `runGenerationPipeline()` directly (no agent loop), returns a rich summary.
    - **`editApp`** (server-side) — called when the user requests changes to a generated app. Emits `data-editing`, creates a `MutableBlueprint` + edit-mode architect for surgical edits, returns a summary.
 
-2. **Solutions Architect** (Tier 1) — A `ToolLoopAgent` that orchestrates generation or editing inside the PM's tool executors. Two modes:
+2. **Generation Pipeline** (`runGenerationPipeline`) — A programmatic sequence (not an agent loop) that runs four steps in code:
+   - **Scaffold** (Sonnet, `streamGenerate`) — designs app structure + data model
+   - **App Content** (Opus with adaptive thinking, `streamGenerate`) — produces case list columns + all form questions for every module in one call. Uses `appContentSchema` — a static Zod schema with no `nullable()` or `optional()` (empty string/array/false instead, required by the Anthropic schema compiler). Questions use a flat structure (parentId + sortOrder), converted to nested trees in post-processing.
+   - **Assemble** (pure function) — `processContentOutput()` applies data model defaults, unescapes XPath, converts flat→nested, then `assembleBlueprint()` combines scaffold + content into a full `AppBlueprint`
+   - **Validate** (programmatic) — `validateAndFix()` loop with rule-based fixes
 
-   **Generation mode** (`createArchitectAgent`):
-   - **`generateScaffold`** — designs app structure + data model via `streamGenerate()` with `onPartial` for progressive streaming
-   - **`generateModuleContent`** — case list columns per module via `generate()`
-   - **`generateAllForms`** — two-phase form generation: (1) design phase produces a UX-focused implementation plan via `generatePlainText()`, (2) build phase runs a Form Builder sub-agent with the design injected into its system prompt
-   - **`assembleBlueprint`** — combines scaffold + module/form results into a full `AppBlueprint`
-   - **`validateApp`** — runs `validateAndFix` loop on the assembled blueprint
-
-   **Edit mode** (`createEditArchitectAgent`):
+3. **Edit Architect** (`createEditArchitectAgent`) — A `ToolLoopAgent` for editing mode where decisions are genuinely dynamic:
    - **`searchBlueprint`** — keyword search across question IDs, labels, case properties, XPath, module/form names, columns
    - **`getModule`** / **`getForm`** / **`getQuestion`** — retrieve full details of specific elements
    - **`loadKnowledge`** — on-demand CommCare platform knowledge loading (the knowledge index is always in the edit architect's system prompt)
    - **`editQuestion`** / **`addQuestion`** / **`removeQuestion`** — question-level mutations with auto case config re-derivation
    - **`updateModule`** / **`updateForm`** / **`addForm`** / **`removeForm`** / **`addModule`** / **`removeModule`** — structural mutations
    - **`renameCaseProperty`** — renames a case property with automatic propagation across all forms, columns, and XPath expressions
-   - **`regenerateForm`** — full form regeneration via Form Builder sub-agent for major restructuring
+   - **`regenerateForm`** — full form regeneration via Opus structured output (`generateSingleFormContent`)
    - **`validateApp`** — runs `validateAndFix` loop on the mutated blueprint
 
-The PM does NOT make technical decisions (property names, case types, form structures). It writes a plain English `appSpecification`. The Solutions Architect translates that into CommCare architecture.
+The PM does NOT make technical decisions (property names, case types, form structures). It writes a plain English `appSpecification`. The generation pipeline translates that into CommCare architecture.
 
 ### GenerationContext
 
@@ -90,14 +87,14 @@ The PM does NOT make technical decisions (property names, case types, form struc
 - **`model(id)`** — returns the Anthropic model provider
 - **`emit(type, data)`** — writes a transient data part to the client stream (`writer.write({ type, data, transient: true })`)
 - **`logger`** — the `RunLogger` instance, accessible by agents for logging orchestration events
-- **`generatePlainText(opts)`** — text-only generation (no schema) via `generateText` with automatic run logging. Used by the form design phase.
-- **`generate(schema, opts)`** — one-shot structured generation via `generateText` + `Output.object()` with automatic run logging via `logger.logSubResult()`
-- **`streamGenerate(schema, opts)`** — streaming structured generation via `streamText` + `Output.object()` + `partialOutputStream` with `onPartial` callback and automatic run logging
-- **`runAgent(agent, opts)`** — runs a `ToolLoopAgent` to completion with centralized step logging (token counts, cache metrics, knowledge attribution, tool call args). Reads the agent's system prompt from `agent.settings.instructions` for the log. All sub-agents (Form Builder, future agents) go through this method.
+- **`generatePlainText(opts)`** — text-only generation (no schema) via `generateText` with automatic run logging
+- **`generate(schema, opts)`** — one-shot structured generation via `generateText` + `Output.object()` with automatic run logging via `logger.logSubResult()`. Supports `thinkingBudget` for extended thinking.
+- **`streamGenerate(schema, opts)`** — streaming structured generation via `streamText` + `Output.object()` + `partialOutputStream` with `onPartial` callback and automatic run logging. Supports `thinkingBudget` for extended thinking.
+- **`runAgent(agent, opts)`** — runs a `ToolLoopAgent` to completion with centralized step logging (token counts, cache metrics, knowledge attribution, tool call args). Used by the edit architect.
 
 Also exports **`withPromptCaching`** — a shared `prepareStep` config that marks the last message with Anthropic's `cache_control: ephemeral`. Spread into all `ToolLoopAgent` constructors via `...withPromptCaching` so prior conversation turns are cached across steps.
 
-The PM (via `logger.logEvent` in `onStepFinish`) and the architect (via `generate`/`streamGenerate` which call `logger.logSubResult`) use the same `GenerationContext` instance, created once in the route handler. The Form Builder goes through `ctx.runAgent()` which handles step logging centrally.
+The PM (via `logger.logEvent` in `onStepFinish`) and the generation pipeline (via `streamGenerate` which calls `logger.logSubResult`) use the same `GenerationContext` instance, created once in the route handler.
 
 ### Client State via `onData` (No useEffect Scanning)
 
@@ -109,8 +106,7 @@ Data parts emitted by the pipeline:
 - `data-scaffold` → `builder.setScaffold()`
 - `data-phase` → `builder.setPhase()` (designing, modules, forms, validating, fixing)
 - `data-module-done` → `builder.setModuleContent()`
-- `data-question-added` → `builder.setFormContent()` (progressive streaming — emitted after each question tool call during form building)
-- `data-form-done` / `data-form-fixed` / `data-form-updated` → `builder.setFormContent()`
+- `data-form-done` / `data-form-fixed` / `data-form-updated` → `builder.setFormContent()` (data-form-done emitted progressively as questions stream in during content generation)
 - `data-blueprint-updated` → `builder.updateBlueprint()` (structural edits)
 - `data-fix-attempt` → `builder.setFixAttempt()`
 - `data-done` → `builder.setDone()` (blueprint + hqJson)
@@ -143,28 +139,23 @@ Chat is the hero experience. When `builder.phase === Idle && !builder.treeData`,
 - `builder.subscribe(listener)` — triggers React re-renders on state changes
 - Progress counters (`progressCompleted`/`progressTotal`) are derived from the `partialModules` map against the scaffold — no server-emitted counts needed.
 
-### Three-Tiered Generation (within the Solutions Architect)
+### Two-Step Generation (Programmatic Pipeline)
 
-The architect runs generation in three tiers:
-1. **Scaffold** (Tier 1): Translates plain English spec → app structure + data model (case types, property names, modules, forms) + per-form `formDesign` UX specs. All technical naming decisions happen here. Reserved property constraints are in the schema's `.describe()` strings. Uses `streamGenerate()` with `onPartial` for progressive scaffold streaming to the client.
-2. **Module Content** (Tier 2): Case list columns per module — delegated via `generate()` with `moduleContentSchema`
-3. **Form Content** (Tier 3): Two-phase design → build pipeline:
-   - **Design phase**: A text-only `generatePlainText()` call produces a detailed UX implementation plan for all forms. The design prompt includes the full scaffold (with `formDesign` specs from the architect), the data model, conditional CommCare knowledge, and gold-standard form examples (`form-design-examples.md`). This phase reasons about grouping, skip logic, calculated fields, cross-form coordination, and end-user workflow — producing a design document with exact question IDs, types, XPath expressions, and rationale.
-   - **Build phase**: A **Form Builder sub-agent** (`createFormBuilderAgent`) implements the design. The design document is injected into the agent's system prompt so it executes faithfully rather than improvising. The sub-agent builds forms question-by-question using **per-type tools** — one tool per question type (e.g. `addTextQuestion`, `addSingleSelectQuestion`, `addHiddenQuestion`). Each tool's schema is a self-documenting contract with only the fields relevant to that type. A `FieldCategory` system (`data`, `date`, `select`, `geopoint`, `barcode`, `media`, `trigger`, `hidden`, `structural`) drives which fields appear. The sub-agent also has `setCloseCaseCondition` and `addChildCase` (with `strict: true` + dynamic `z.enum()` of known case types to prevent hallucination).
+The generation pipeline runs two LLM calls in code — no agent loop, no orchestration tokens:
+1. **Scaffold** (Sonnet, `streamGenerate`): Translates plain English spec → app structure + data model (case types, property names, modules, forms) + per-form `formDesign` UX specs. All technical naming decisions happen here. Reserved property constraints are in the schema's `.describe()` strings. Streamed with `onPartial` for progressive tree rendering.
+2. **App Content** (Opus with extended thinking, `streamGenerate`): Produces case list columns + all form questions for every module in a single call. Uses `createAppContentSchema()` — a factory function that builds a `z.tuple()` of per-module schemas with dynamic `z.enum()` values for case properties and column fields. Questions use a flat structure (parentId + sortOrder) to avoid recursive schemas in structured output. Opus thinks through the design in extended thinking tokens (formDesign specs, gold-standard examples, and CommCare knowledge inform the thinking), then produces the structured output. Streamed with `onPartial` for progressive module/form rendering.
 
-Results are assembled into a full `AppBlueprint` via `assembleBlueprint()`.
+Post-processing (`processContentOutput`): strips empty values back to undefined/null, applies data model defaults from case properties, unescapes XPath HTML entities, converts flat questions to nested trees, then `assembleBlueprint()` combines scaffold + processed content into a full `AppBlueprint`.
 
 ### Knowledge Injection
 
-CommCare platform knowledge from `lib/services/commcare/knowledge/*.md` is loaded into generation prompts so the SA produces idiomatic CommCare patterns instead of structurally-valid-but-naive solutions.
+CommCare platform knowledge from `lib/services/commcare/knowledge/*.md` is loaded into generation prompts so the pipeline produces idiomatic CommCare patterns instead of structurally-valid-but-naive solutions.
 
-**Generation mode** — knowledge is conditionally loaded per phase via `resolveConditionalKnowledge(phase, context)` in `loadKnowledge.ts`. Each phase has a small **core** set (always loaded) and **conditional** sets triggered by keyword matches against `specification + formPurpose`:
-- Scaffold core (2 files): case types, modules. Conditional: hierarchy, sharing, form linking, scale
-- Module core (1 file): case list config. Conditional: case search, calculated columns, icons
-- **Form design phase**: loads conditional form knowledge + `form-design-examples.md` (gold-standard annotated examples). The design prompt (`formDesignPrompt`) receives the full scaffold, data model, knowledge, and examples.
-- **Form Builder build phase: no knowledge loaded.** The model already knows CommCare question types and form patterns well enough. The design document (from the design phase) provides all the UX guidance. The tool schemas (with `case_property` enum from the data model) provide sufficient structural guidance.
+**Generation mode** — knowledge is conditionally loaded per step via `resolveConditionalKnowledge(phase, context)` in `loadKnowledge.ts`. Each phase has a small **core** set (always loaded) and **conditional** sets triggered by keyword matches against `specification + formPurpose`:
+- **Scaffold**: core (2 files): case types, modules. Conditional: hierarchy, sharing, form linking, scale
+- **App Content**: combines module + form conditional sets into a single knowledge injection. Also loads `form-design-examples.md` (gold-standard annotated examples). Opus gets the full scaffold (with `formDesign` specs), data model, knowledge, and examples — extended thinking handles the design reasoning.
 
-Each prompt function (`scaffoldPrompt`, `modulePrompt`, `formBuilderPrompt`, `formDesignPrompt`) accepts an optional `knowledge` string and embeds it in a `<knowledge>` block. The architect agent resolves the appropriate files before each `generate()`/`streamGenerate()`/`generatePlainText()` call.
+Each prompt function (`scaffoldPrompt`, `appContentPrompt`) accepts an optional `knowledge` string and embeds it in a `<knowledge>` block. The pipeline resolves the appropriate files before each `streamGenerate()` call.
 
 **Edit mode** — on-demand via a `loadKnowledge` tool. The edit architect's system prompt always includes a `KNOWLEDGE_INDEX` (one-liner per file) so it knows what's available. Feature-specific files (alerts, scheduler, registry, UCR, encryption, etc.) are excluded from default generation sets but available on-demand in edit mode.
 
@@ -173,10 +164,10 @@ Each prompt function (`scaffoldPrompt`, `modulePrompt`, `formBuilderPrompt`, `fo
 `case_types` on the blueprint carry rich property metadata: `label`, `data_type`, `hint`, `help`, `required`, `constraint`, `constraint_msg`, `options`. This makes case properties the single source of truth for shared question metadata.
 
 **Questions are sparse** — when a question maps to a case property via `case_property`, it only needs to carry overrides (e.g. `relevant`, `calculate`, `default_value`, `readonly`). Defaults are merged at two points:
-1. **Form Builder agent** — each per-type tool's shared executor auto-merges from the case type at build time (type, label, hint, help, required, constraint, options, is_case_name). Also runs `unescapeXPath()` on all XPath fields to sanitize HTML entities (`&gt;` → `>`) that LLMs sometimes emit.
+1. **Content post-processing** (`processContentOutput` in `appContentSchema.ts`) — `applyDefaults()` auto-merges from the case type at assembly time (type, label, hint, help, required, constraint, options, is_case_name). Also runs `unescapeXPath()` on all XPath fields to sanitize HTML entities (`&gt;` → `>`) that LLMs sometimes emit.
 2. **Expander** — `mergeQuestionDefaults()` / `mergeFormQuestions()` merge before XForm generation and validation
 
-The Form Builder uses **dynamic schemas**: `case_property` becomes a `z.enum()` of available property names when the case type is known. `addChildCase` uses a dynamic `z.enum()` of case type names from the blueprint (with `strict: true` for constrained decoding). Module content's column `field` also uses a dynamic enum.
+The app content schema (`appContentSchema`) is a **static Zod schema with no `nullable()` or `optional()`** — the Anthropic schema compiler times out on `anyOf` unions these generate. Instead, every field is always present: empty string `""` for absent strings, empty array `[]` for absent arrays, `false` for absent booleans. The `processContentOutput` post-processing step strips these empty values back to undefined before assembly. Question `type` uses a `z.enum()` of the 20 CommCare types. `relationship` on child cases uses `z.enum(['child', 'extension'])`. All other string fields (case_property, case_type, column field) are plain `z.string()` — Opus handles correctness from prompt context.
 
 `is_case_name` is auto-derived from `case_name_property` in the case type definition — the LLM only sets it explicitly to override.
 
@@ -227,6 +218,7 @@ Questions can use `#case/property_name` and `#user/property_name` shorthand in X
 - **Vellum attributes** (`vellum:calculate`, `vellum:relevant`, `vellum:value`) — original shorthand preserved for the Vellum editor. Only added when hashtags are present.
 - **Vellum metadata** (`vellum:hashtags`, `vellum:hashtagTransforms`) — JSON metadata on each bind telling Vellum which hashtags are used and how to expand them.
 - **`case_references_data.load`** — form-level JSON mapping each question path to its array of `#case/` references. Required by CommCare HQ to resolve hashtags during app builds.
+- **Secondary instance declarations** — when any question uses `#case/` or `#user/` hashtags, the expander adds `<instance src="jr://instance/casedb" id="casedb" />` and `<instance src="jr://instance/session" id="commcaresession" />` to the XForm `<model>`. Without these, CommCare HQ rejects the form at build time.
 
 ### Close Case
 - `{}` = unconditional close
@@ -263,8 +255,9 @@ Dark "Stellar Minimalism" theme. CSS custom properties defined in `globals.css`:
 
 `lib/models.ts` is the single source of truth for model IDs and pricing. Never hardcode model IDs elsewhere.
 
-- `MODEL_GENERATION` — structured generation (scaffold + modules + forms), currently `claude-sonnet-4-6`
-- `MODEL_FIXER` — available for cheap/fast fixes, currently `claude-haiku-4-5-20251001` (validation uses programmatic fixes + Form Builder fallback instead)
+- `MODEL_GENERATION` — scaffold structured generation, currently `claude-sonnet-4-6`
+- `MODEL_APP_CONTENT` — app content generation (columns + all forms), currently `claude-opus-4-6` (uses extended thinking)
+- `MODEL_FIXER` — available for cheap/fast fixes, currently `claude-haiku-4-5-20251001` (validation uses programmatic fixes + Opus fallback instead)
 - `MODEL_PM` — Product Manager agent (Tier 0), currently `claude-sonnet-4-6`
 - `MODEL_PRICING` — cost lookup keyed by model ID (per million tokens: input, output, cacheWrite, cacheRead)
 
@@ -273,7 +266,7 @@ Dark "Stellar Minimalism" theme. CSS custom properties defined in `globals.css`:
 Set `RUN_LOGGER=1` in `.env` to enable disk-based run logging. When enabled, each pipeline run writes a JSON file to `.log/` that is updated incrementally after every event (always valid JSON, even on crash).
 
 - **`lib/services/runLogger.ts`** — `RunLogger` class. Created once per request in the route handler. Key methods:
-  - `setAgent(name)` — tracks the current agent (`'Product Manager'`, `'Solutions Architect'`, `'Edit Architect'`)
+  - `setAgent(name)` — tracks the current agent (`'Product Manager'`, `'Generation Pipeline'`, `'Edit Architect'`)
   - `setAppName(name)` — renames the log file from `*_unnamed.json` to `*_{app_name}.json`
   - `logEvent(event)` — appends an orchestration/generation/fix event with token counts and cost estimate
   - `logSubResult(label, result)` — stitches a sub-generation result onto the most recent orchestration event's matching tool call (e.g. "Scaffold" generation result attaches to the `generateScaffold` tool call entry)
@@ -284,16 +277,16 @@ Set `RUN_LOGGER=1` in `.env` to enable disk-based run logging. When enabled, eac
 ## Service Layer Notes
 
 - `builder.ts`: `Builder` class — singleton via `useBuilder()`. Holds `scaffold`, `blueprint`, `partialScaffold` (streaming structured output), and `partialModules` (module/form results). `treeData` getter merges partial data with scaffold for progressive rendering. Setter methods are called from `onData` callback in BuilderLayout. `updateProgress()` derives completed/total counts from the `partialModules` map.
-- `architectAgent.ts`: Two factory functions. `createArchitectAgent(ctx, accumulator)` returns a generation-mode `ToolLoopAgent` with tools: `generateScaffold`, `generateModuleContent`, `generateAllForms`, `assembleBlueprint`, `validateApp`. `generateAllForms` runs a two-phase pipeline: (1) design phase via `ctx.generatePlainText()` with `formDesignPrompt` (loads conditional knowledge + gold-standard examples), (2) build phase via Form Builder sub-agent with the design injected. `createEditArchitectAgent(ctx, mutableBp)` returns an edit-mode `ToolLoopAgent` with search/get/edit/validate/loadKnowledge tools operating on a `MutableBlueprint`. `regenerateForm` also spawns a Form Builder sub-agent. Both share `validateAndFix()` (programmatic loop — rule-based validation + programmatic fixes, with Form Builder fallback for empty forms). `BlueprintAccumulator` collects generation results; `MutableBlueprint` wraps an existing blueprint for surgical edits.
-- `formBuilderAgent.ts`: `createFormBuilderAgent(ctx, mb, opts)` factory returning a `ToolLoopAgent` that builds forms question-by-question via **per-type tools** (17 question tools + `setCloseCaseCondition` + `addChildCase`). Each question type has its own tool with only relevant fields, driven by a `FieldCategory` system and `buildSchema()` helper. A shared `createExecutor()` handles data model default merging and `unescapeXPath()` sanitization. `addChildCase` uses `strict: true` with a dynamic `z.enum()` of known case types to prevent hallucination. Operates on a `MutableBlueprint` shell at indices [0,0]. Accepts an optional `formDesign` string (from the design phase) injected into the system prompt for faithful implementation. No knowledge loaded — relies on the design document + self-documenting tool schemas. Executed via `ctx.runAgent()` for centralized logging. Used by `generateAllForms`, `regenerateForm`, and `validateAndFix` (empty form fallback).
+- `architectAgent.ts`: Exports `createEditArchitectAgent(ctx, mutableBp)` — edit-mode `ToolLoopAgent` with search/get/edit/validate/loadKnowledge tools operating on a `MutableBlueprint`. `regenerateForm` uses `generateSingleFormContent()` (Opus structured output). Also exports `validateAndFix()` — shared programmatic validation + fix loop (rule-based fixes + Opus structured output fallback for empty forms).
+- `generationPipeline.ts`: Exports `runGenerationPipeline(ctx, specification, appName)` — programmatic sequence: scaffold (Sonnet `streamGenerate`) → app content (Opus `streamGenerate` with adaptive thinking + `appContentSchema`) → assemble (`processContentOutput` + `assembleBlueprint`) → validate (`validateAndFix`). Also exports `generateSingleFormContent()` for edit-mode `regenerateForm` and empty form fallback.
 - `mutableBlueprint.ts`: `MutableBlueprint` class — wraps `AppBlueprint` (deep-cloned) for in-place search, read, and mutation. `search()` finds matches across question IDs/labels/case_properties/XPath/module names/form names/columns. Mutation methods (`updateQuestion`, `addQuestion`, `removeQuestion`, etc.) auto-derive case config after changes. `renameCaseProperty()` propagates renames across all questions, columns, and XPath expressions.
-- `generationContext.ts`: `GenerationContext` class — wraps Anthropic client + UI stream writer + RunLogger. Provides `generatePlainText()` (text-only, no schema), `generate()` (one-shot structured), `streamGenerate()` (streaming structured with `onPartial`), `runAgent()` (ToolLoopAgent execution with centralized step logging), `emit()` (transient data parts). All LLM calls go through this class. Also exports `withPromptCaching` — spread into ToolLoopAgent constructors for Anthropic prompt caching.
+- `generationContext.ts`: `GenerationContext` class — wraps Anthropic client + UI stream writer + RunLogger. Provides `generatePlainText()` (text-only, no schema), `generate()` (one-shot structured, supports `thinkingBudget`), `streamGenerate()` (streaming structured with `onPartial`, supports `thinkingBudget`), `runAgent()` (ToolLoopAgent execution with centralized step logging), `emit()` (transient data parts). All LLM calls go through this class. Extended thinking is enabled via `thinking: true` parameter which sets Anthropic adaptive thinking provider options (`type: 'adaptive', effort: 'high'`). Also exports `withPromptCaching` — spread into ToolLoopAgent constructors for Anthropic prompt caching.
 - `runLogger.ts`: `RunLogger` class — disk-based run logger. Writes incremental JSON to `.log/` after every mutation when `RUN_LOGGER=1`. Tracks current agent, stitches sub-generation results onto orchestration tool calls, computes cache-aware per-event cost estimates (using `cache_read_tokens` / `cache_write_tokens`) and roll-up totals.
-- `hqJsonExpander.ts`: `expandBlueprint()` converts `AppBlueprint` → HQ import JSON. Generates XForm XML with proper Vellum dual-attribute hashtag expansion, form actions, case details. `validateBlueprint()` checks semantic rules.
+- `hqJsonExpander.ts`: `expandBlueprint()` converts `AppBlueprint` → HQ import JSON. Generates XForm XML with proper Vellum dual-attribute hashtag expansion, secondary instance declarations (casedb, commcaresession), form actions, case details. `validateBlueprint()` checks semantic rules.
 - `cczCompiler.ts`: `CczCompiler` class takes HQ import JSON → `.ccz` Buffer. Generates suite.xml, profile.ccpr, app_strings.txt. Injects case blocks (create/update/close/subcases) back into XForm XML.
 - `autoFixer.ts`: `AutoFixer` class applies programmatic fixes (itext, reserved properties, missing binds) to generated files before validation.
 - `commcare/`: Shared module — `constants.ts` (reserved words, regex), `xml.ts` (escapeXml), `hashtags.ts` (Vellum expansion), `ids.ts` (hex ID gen), `hqTypes.ts` (HQ JSON interfaces), `hqShells.ts` (factory functions), `validate.ts` (identifier validation).
-- `commcare/knowledge/`: Distilled CommCare platform knowledge files (`.md`) + `loadKnowledge.ts` (loader utility, conditional knowledge resolver, knowledge index). Generated by `scripts/sync-knowledge.ts` from Confluence docs. Loaded into SA prompts at generation time via `resolveConditionalKnowledge()` (core + keyword-triggered conditional sets) and available on-demand in edit mode via the `loadKnowledge` tool.
+- `commcare/knowledge/`: Distilled CommCare platform knowledge files (`.md`) + `loadKnowledge.ts` (loader utility, conditional knowledge resolver, knowledge index). Generated by `scripts/sync-knowledge.ts` from Confluence docs. Loaded into pipeline prompts at generation time via `resolveConditionalKnowledge()` (core + keyword-triggered conditional sets) and available on-demand in edit mode via the `loadKnowledge` tool.
 
 ## Knowledge Sync Pipeline
 
