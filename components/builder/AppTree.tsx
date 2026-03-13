@@ -17,6 +17,9 @@ import ciImage from '@iconify-icons/ci/image'
 import ciPhone from '@iconify-icons/ci/phone'
 import ciBarcode from '@iconify-icons/ci/barcode'
 import ciCircleWarning from '@iconify-icons/ci/circle-warning'
+import ciFileAdd from '@iconify-icons/ci/file-add'
+import ciFileEdit from '@iconify-icons/ci/file-edit'
+import ciFileBlank from '@iconify-icons/ci/file-blank'
 import type { Question } from '@/lib/schemas/blueprint'
 import { BuilderPhase, type TreeData } from '@/lib/services/builder'
 import { Badge } from '@/components/ui/Badge'
@@ -179,11 +182,12 @@ function FormCard({
   delay: number
 }) {
   const isSelected = selected?.type === 'form' && selected.moduleIndex === moduleIndex && selected.formIndex === formIndex
-  const typeColors = {
-    registration: 'emerald',
-    followup: 'cyan',
-    survey: 'amber',
+  const formTypeIcons = {
+    registration: ciFileAdd,
+    followup: ciFileEdit,
+    survey: ciFileBlank,
   } as const
+  const formIcon = formTypeIcons[form.type as keyof typeof formTypeIcons] ?? ciFileBlank
 
   return (
     <motion.div
@@ -201,8 +205,8 @@ function FormCard({
         <div className="w-1 h-6 rounded-full bg-nova-border" />
         <div className="flex-1">
           <div className="flex items-center gap-2">
+            <Icon icon={formIcon} width="14" height="14" className="text-nova-text-muted shrink-0" />
             <span className="text-sm font-medium">{form.name}</span>
-            <Badge variant={typeColors[form.type as keyof typeof typeColors] ?? 'muted'}>{form.type}</Badge>
           </div>
         </div>
         {form.questions && form.questions.length > 0 && (
