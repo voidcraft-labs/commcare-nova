@@ -100,6 +100,20 @@ function buildCaseReferencesLoad(questions: Question[], parentPath = '/data'): R
   return load
 }
 
+/** Collect all XPath expressions from a question tree (pre-expansion). */
+function collectAllXPaths(questions: Question[]): string[] {
+  const exprs: string[] = []
+  for (const q of questions) {
+    if (q.relevant) exprs.push(q.relevant)
+    if (q.constraint) exprs.push(q.constraint)
+    if (q.calculate) exprs.push(q.calculate)
+    if (q.default_value) exprs.push(q.default_value)
+    if (q.required) exprs.push(q.required)
+    if (q.children) exprs.push(...collectAllXPaths(q.children))
+  }
+  return exprs
+}
+
 /** Build complete XForm XML from question definitions. */
 function buildXForm(form: BlueprintForm, xmlns: string): string {
   const questions = form.questions || []
@@ -140,6 +154,17 @@ function buildXForm(form: BlueprintForm, xmlns: string): string {
 
   const bodyContent = bodyElements.map(e => `    ${e}`).join('\n')
 
+  // Check if any XPath references need secondary instances
+  const allXPaths = collectAllXPaths(questions)
+  const needsCasedb = allXPaths.some(x => x.includes('#case/') || x.includes('#user/') || x.includes("instance('casedb')"))
+  const needsSession = needsCasedb || allXPaths.some(x => x.includes("instance('commcaresession')"))
+
+  const secondaryInstances = [
+    ...(needsCasedb ? ['      <instance src="jr://instance/casedb" id="casedb" />'] : []),
+    ...(needsSession ? ['      <instance src="jr://instance/session" id="commcaresession" />'] : []),
+  ]
+  const secondaryContent = secondaryInstances.length > 0 ? '\n' + secondaryInstances.join('\n') : ''
+
   return `<?xml version="1.0"?>
 <h:html xmlns:h="http://www.w3.org/1999/xhtml" xmlns="http://www.w3.org/2002/xforms" xmlns:xsd="http://www.w3.org/2001/XMLSchema" xmlns:jr="http://openrosa.org/javarosa" xmlns:vellum="http://commcarehq.org/xforms/vellum">
   <h:head>
@@ -147,7 +172,7 @@ function buildXForm(form: BlueprintForm, xmlns: string): string {
     <model>
       <instance>
         <data xmlns="${xmlns}" xmlns:jrm="http://dev.commcarehq.org/jr/xforms" uiVersion="1" version="1" name="${escapeXml(formName.toLowerCase().replace(/[^a-z0-9]+/g, '_'))}">${dataContent}</data>
-      </instance>${bindContent}${setvalueContent}
+      </instance>${secondaryContent}${bindContent}${setvalueContent}
       <itext>
 ${translations}
       </itext>

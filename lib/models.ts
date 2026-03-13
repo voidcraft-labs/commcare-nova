@@ -5,8 +5,11 @@
  * Vercel AI SDK calls use short aliases (e.g. "claude-sonnet-4-6") resolved by the provider.
  */
 
-/** Default model for structured generation (tiers 1-3). */
+/** Default model for structured generation (scaffold). */
 export const MODEL_GENERATION = 'claude-sonnet-4-6'
+
+/** Model for app content generation (columns + all forms). */
+export const MODEL_APP_CONTENT = 'claude-opus-4-6'
 
 /** Model for the validation fixer (cheap, fast). */
 export const MODEL_FIXER = 'claude-haiku-4-5-20251001'
@@ -17,6 +20,7 @@ export const MODEL_PM = 'claude-sonnet-4-6'
 /** Pricing per million tokens, keyed by model ID (either full or alias). */
 export const MODEL_PRICING: Record<string, { input: number; output: number; cacheWrite: number; cacheRead: number }> = {
   'claude-sonnet-4-6': { input: 3, output: 15, cacheWrite: 3.75, cacheRead: 0.30 },
+  'claude-opus-4-6': { input: 5, output: 25, cacheWrite: 6.25, cacheRead: 0.50 },
   'claude-haiku-4-5-20251001': { input: 1, output: 5, cacheWrite: 1.25, cacheRead: 0.10 },
 }
 

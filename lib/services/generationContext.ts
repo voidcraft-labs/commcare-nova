@@ -37,6 +37,14 @@ export const withPromptCaching = {
   }),
 }
 
+/** Anthropic provider options for adaptive extended thinking. */
+function thinkingProviderOptions() {
+  return {
+    anthropic: {
+      thinking: { type: 'adaptive' as const, effort: 'high' as const },
+    },
+  }
+}
 
 export class GenerationContext {
   private anthropic: ReturnType<typeof createAnthropic>
@@ -94,7 +102,11 @@ export class GenerationContext {
   /** One-shot structured generation with automatic run logging. */
   async generate<T>(
     schema: z.ZodType<T>,
-    opts: { system: string; prompt: string; label: string; model?: string; maxOutputTokens?: number; knowledge?: string[] },
+    opts: {
+      system: string; prompt: string; label: string; model?: string;
+      maxOutputTokens?: number; knowledge?: string[];
+      thinking?: boolean;
+    },
   ): Promise<T | null> {
     const model = opts.model ?? MODEL_GENERATION
     const result = await generateText({
@@ -103,6 +115,7 @@ export class GenerationContext {
       system: opts.system,
       prompt: opts.prompt,
       maxOutputTokens: opts.maxOutputTokens,
+      ...(opts.thinking && { providerOptions: thinkingProviderOptions() }),
     })
     logWarnings(`generate:${opts.label}`, result.warnings)
     if (result.usage) {
@@ -122,7 +135,12 @@ export class GenerationContext {
   /** Streaming structured generation with partial callbacks and automatic run logging. */
   async streamGenerate<T>(
     schema: z.ZodType<T>,
-    opts: { system: string; prompt: string; label: string; model?: string; maxOutputTokens?: number; knowledge?: string[]; onPartial?: (partial: Partial<T>) => void },
+    opts: {
+      system: string; prompt: string; label: string; model?: string;
+      maxOutputTokens?: number; knowledge?: string[];
+      onPartial?: (partial: Partial<T>) => void;
+      thinking?: boolean;
+    },
   ): Promise<T | null> {
     const model = opts.model ?? MODEL_GENERATION
     const result = streamText({
@@ -131,6 +149,7 @@ export class GenerationContext {
       system: opts.system,
       prompt: opts.prompt,
       maxOutputTokens: opts.maxOutputTokens,
+      ...(opts.thinking && { providerOptions: thinkingProviderOptions() }),
       onError({ error }) {
         console.error(`[streamGenerate:${opts.label}] error:`, error)
       },
@@ -161,8 +180,8 @@ export class GenerationContext {
   /**
    * Run a ToolLoopAgent to completion with centralized step logging.
    *
-   * All agent execution (form builder, future agents) should go through this
-   * method so logging, token tracking, and knowledge attribution happen in one place.
+   * All agent execution should go through this method so logging, token
+   * tracking, and knowledge attribution happen in one place.
    */
   async runAgent<CO, T extends Record<string, any>>(
     agent: ToolLoopAgent<CO, T>,

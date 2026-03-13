@@ -11,7 +11,8 @@ import { buildProductManagerPrompt } from '@/lib/prompts/productManagerPrompt'
 import { MODEL_PM } from '@/lib/models'
 import { GenerationContext } from '@/lib/services/generationContext'
 import { RunLogger } from '@/lib/services/runLogger'
-import { createArchitectAgent, createEditArchitectAgent, BlueprintAccumulator } from '@/lib/services/architectAgent'
+import { createEditArchitectAgent } from '@/lib/services/architectAgent'
+import { runGenerationPipeline } from '@/lib/services/generationPipeline'
 import { MutableBlueprint } from '@/lib/services/mutableBlueprint'
 import { summarizeBlueprint, type AppBlueprint } from '@/lib/schemas/blueprint'
 
@@ -50,28 +51,22 @@ const editAppSchema = z.object({
 
 // ── Helpers ─────────────────────────────────────────────────────────────
 
-/** Summarize what the architect generated so the PM knows what was built. */
-function summarizeGeneration(appName: string, accumulator: BlueprintAccumulator): string {
-  const scaffold = accumulator.scaffold
-  if (!scaffold) return 'Generation completed but no scaffold was produced.'
+/** Summarize what the pipeline generated so the PM knows what was built. */
+function summarizePipelineResult(appName: string, blueprint: AppBlueprint): string {
+  const lines = [`Generated "${appName}": ${blueprint.modules.length} modules, ${blueprint.case_types?.length ?? 0} case types.`]
 
-  const lines = [`Generated "${appName}": ${scaffold.modules.length} modules, ${scaffold.case_types?.length ?? 0} case types.`]
-
-  for (const ct of scaffold.case_types ?? []) {
+  for (const ct of blueprint.case_types ?? []) {
     lines.push(`  Case type "${ct.name}": ${ct.properties.length} properties, name field: ${ct.case_name_property}`)
   }
 
-  for (let mIdx = 0; mIdx < scaffold.modules.length; mIdx++) {
-    const sm = scaffold.modules[mIdx]
-    const mc = accumulator.moduleContents[mIdx]
-    const colCount = mc?.case_list_columns?.length ?? 0
-    lines.push(`  Module ${mIdx} "${sm.name}" (${sm.case_type ?? 'survey'}): ${colCount} columns, ${sm.forms.length} forms`)
+  for (let mIdx = 0; mIdx < blueprint.modules.length; mIdx++) {
+    const mod = blueprint.modules[mIdx]
+    const colCount = mod.case_list_columns?.length ?? 0
+    lines.push(`  Module ${mIdx} "${mod.name}" (${mod.case_type ?? 'survey'}): ${colCount} columns, ${mod.forms.length} forms`)
 
-    for (let fIdx = 0; fIdx < sm.forms.length; fIdx++) {
-      const sf = sm.forms[fIdx]
-      const fc = accumulator.formContents[mIdx]?.[fIdx]
-      const qCount = fc?.questions?.length ?? 0
-      lines.push(`    Form "${sf.name}" (${sf.type}): ${qCount} questions`)
+    for (const form of mod.forms) {
+      const qCount = form.questions?.length ?? 0
+      lines.push(`    Form "${form.name}" (${form.type}): ${qCount} questions`)
     }
   }
 
@@ -142,18 +137,14 @@ export async function POST(req: Request) {
           generateApp: tool({
             description: 'Generate the CommCare app from the specification. Call when you have enough information.',
             inputSchema: generateAppSchema,
-            execute: async ({ appName, appSpecification }, { abortSignal }) => {
+            execute: async ({ appName, appSpecification }) => {
               logger.setAppName(appName)
               ctx.emit('data-planning', {})
-              logger.setAgent('Solutions Architect')
-              const accumulator = new BlueprintAccumulator()
-              const architect = createArchitectAgent(ctx, accumulator)
-              const result = await architect.stream({
-                prompt: `Design and generate a CommCare app called "${appName}".\n\nSpecification:\n${appSpecification}`,
-                abortSignal,
-              })
-              await drainStream(result.toUIMessageStream())
-              return summarizeGeneration(appName, accumulator)
+              logger.setAgent('Generation Pipeline')
+
+              const result = await runGenerationPipeline(ctx, appSpecification, appName)
+
+              return summarizePipelineResult(appName, result.blueprint)
             },
           }),
           editApp: tool({
