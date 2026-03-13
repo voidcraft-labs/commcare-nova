@@ -39,9 +39,10 @@ lib/
     autoFixer.ts        # Programmatic fixes for common CommCare app issues
     commcare/           # Shared CommCare platform module (constants, XML, hashtags, HQ types/shells)
     commcare/knowledge/ # Distilled CommCare platform knowledge (.md) + loadKnowledge.ts loader
-    __tests__/          # Vitest tests for expander, compiler, commcare module, and mutableBlueprint
+    formBuilderAgent.ts # Form Builder sub-agent — builds forms question-by-question via addQuestion tool calls on a MutableBlueprint shell
+    __tests__/          # Vitest tests for expander, compiler, commcare module, mutableBlueprint, and formBuilderAgent
   schemas/              # Zod schemas for AppBlueprint, tier outputs
-  prompts/              # Agent prompts (productManagerPrompt, architectPrompt, editArchitectPrompt, scaffoldPrompt, modulePrompt, formPrompt, formFixerPrompt) — generation prompts accept knowledge param
+  prompts/              # Agent prompts (productManagerPrompt, architectPrompt, editArchitectPrompt, scaffoldPrompt, modulePrompt, formBuilderPrompt) — generation prompts accept knowledge param
   types/                # TypeScript type definitions
   models.ts             # Central model ID + pricing config
   store.ts              # CCZ file persistence in .data/
@@ -66,7 +67,7 @@ A single `POST /api/chat` endpoint runs the entire pipeline: conversation, gener
    **Generation mode** (`createArchitectAgent`):
    - **`generateScaffold`** — designs app structure + data model via `streamGenerate()` with `onPartial` for progressive streaming
    - **`generateModuleContent`** — case list columns per module via `generate()`
-   - **`generateFormContent`** — questions + case config per form via `generate()`
+   - **`generateFormContent`** — questions + case config per form via a Form Builder sub-agent (tool-based, one `addQuestion` call per question)
    - **`assembleBlueprint`** — combines scaffold + module/form results into a full `AppBlueprint`
    - **`validateApp`** — runs `validateAndFix` loop on the assembled blueprint
 
@@ -77,7 +78,7 @@ A single `POST /api/chat` endpoint runs the entire pipeline: conversation, gener
    - **`editQuestion`** / **`addQuestion`** / **`removeQuestion`** — question-level mutations with auto case config re-derivation
    - **`updateModule`** / **`updateForm`** / **`addForm`** / **`removeForm`** / **`addModule`** / **`removeModule`** — structural mutations
    - **`renameCaseProperty`** — renames a case property with automatic propagation across all forms, columns, and XPath expressions
-   - **`regenerateForm`** — LLM-powered full form regeneration for major restructuring (loads FORM_KNOWLEDGE_ALL)
+   - **`regenerateForm`** — full form regeneration via Form Builder sub-agent for major restructuring (loads FORM_KNOWLEDGE_ALL)
    - **`validateApp`** — runs `validateAndFix` loop on the mutated blueprint
 
 The PM does NOT make technical decisions (property names, case types, form structures). It writes a plain English `appSpecification`. The Solutions Architect translates that into CommCare architecture.
@@ -104,6 +105,7 @@ Data parts emitted by the pipeline:
 - `data-scaffold` → `builder.setScaffold()`
 - `data-phase` → `builder.setPhase()` (designing, modules, forms, validating, fixing)
 - `data-module-done` → `builder.setModuleContent()`
+- `data-question-added` → `builder.setFormContent()` (progressive streaming — emitted after each `addQuestion` during form building)
 - `data-form-done` / `data-form-fixed` / `data-form-updated` → `builder.setFormContent()`
 - `data-blueprint-updated` → `builder.updateBlueprint()` (structural edits)
 - `data-fix-attempt` → `builder.setFixAttempt()`
@@ -139,10 +141,10 @@ Chat is the hero experience. When `builder.phase === Idle && !builder.treeData`,
 
 ### Three-Tiered Generation (within the Solutions Architect)
 
-The architect runs generation in three tiers to stay within Anthropic's schema compilation limits:
+The architect runs generation in three tiers:
 1. **Scaffold** (Tier 1): Translates plain English spec → app structure + data model (case types, property names, modules, forms). All technical naming decisions happen here. Reserved property constraints are in the schema's `.describe()` strings. Uses `streamGenerate()` with `onPartial` for progressive scaffold streaming to the client.
 2. **Module Content** (Tier 2): Case list columns per module — delegated via `generate()` with `moduleContentSchema`
-3. **Form Content** (Tier 3): Questions + case config per form — delegated via `generate()` with `formContentSchema`
+3. **Form Content** (Tier 3): Questions + case config per form — delegated to a **Form Builder sub-agent** (`createFormBuilderAgent`). The sub-agent builds forms question-by-question using `addQuestion` tool calls on a `MutableBlueprint` shell. Each tool schema is flat (~15 optional fields, no nesting), avoiding grammar compiler size limits. The sub-agent also has `setCloseCaseCondition` and `addChildCase` tools.
 
 Results are assembled into a full `AppBlueprint` via `assembleBlueprint()`.
 
@@ -157,9 +159,9 @@ CommCare platform knowledge from `lib/services/commcare/knowledge/*.md` is loade
 
 `FORM_KNOWLEDGE_ALL` (11 files) is the full unconditional form set, used only by `regenerateForm` in edit mode where correctness outweighs token savings.
 
-Each prompt function (`scaffoldPrompt`, `modulePrompt`, `formPrompt`) accepts an optional `knowledge` string and embeds it in a `<knowledge>` block. The architect agent resolves the appropriate files before each `generate()`/`streamGenerate()` call.
+Each prompt function (`scaffoldPrompt`, `modulePrompt`, `formBuilderPrompt`) accepts an optional `knowledge` string and embeds it in a `<knowledge>` block. The architect agent resolves the appropriate files before each `generate()`/`streamGenerate()` call or Form Builder sub-agent invocation.
 
-**Edit mode** — on-demand via a `loadKnowledge` tool. The edit architect's system prompt always includes a `KNOWLEDGE_INDEX` (one-liner per file) so it knows what's available. Feature-specific files (multilingual, alerts, scheduler, registry, UCR, encryption, etc.) are excluded from default generation sets but available on-demand in edit mode.
+**Edit mode** — on-demand via a `loadKnowledge` tool. The edit architect's system prompt always includes a `KNOWLEDGE_INDEX` (one-liner per file) so it knows what's available. Feature-specific files (alerts, scheduler, registry, UCR, encryption, etc.) are excluded from default generation sets but available on-demand in edit mode.
 
 ### Per-Question Case Property Mapping
 
@@ -172,7 +174,7 @@ The assembler (`deriveCaseConfig()`) derives form-level `case_name_field`, `case
 - **Followup**: questions with `case_property` → `case_preload` (load from case). Non-readonly ones also → `case_properties` (save back). Question with `is_case_name` → `case_name_field`.
 - **Survey**: no case config derived.
 
-The assembled `BlueprintForm` still has form-level fields for the expander — the change is only in what the LLM outputs.
+`deriveCaseConfig()` is called on-demand by the expander and validator — no form-level case fields are stored.
 
 ### Case List Columns
 
@@ -191,20 +193,13 @@ No auth layer. The user's Anthropic API key is stored in localStorage and sent p
 
 ## Schemas
 
-### LocalizedString
-All user-facing text (labels, hints, help, constraint messages, option labels, module/form names, column headers) uses `LocalizedString` — always an array of `{lang, text}` objects: `[{lang: "en", text: "Patient Name"}]`. This applies everywhere: scaffold schemas, tier schemas, assembled blueprint, edit tool schemas, TreeData, and tests. Never use plain strings for translatable fields. `displayText()` extracts display text from a `LocalizedString`. The schema is exported as `localizedStringSchema` from `blueprint.ts`.
-
-### Nullable vs Optional
-- **Tier schemas** (for Claude's structured output): use `.nullable()` for fields that can be absent (e.g. `constraint`, `relevant`, `options`). Localized string fields use empty array `[]` instead of null.
-- **Assembled blueprint** (for validation/expansion): use `.optional()` — more natural for TS
-- Assembly strips nulls via spread: `...(value != null && { key: value })`
-- **`required`** is always a string: `"true()"` for always required, XPath expression for conditional, empty string `""` for not required. Never a boolean.
+### Question Fields
+Only `id` and `type` are required on a `Question`. All other fields (`label`, `hint`, `help`, `required`, `readonly`, `constraint`, `constraint_msg`, `relevant`, `calculate`, `default_value`, `options`, `case_property`, `is_case_name`, `children`) are optional — present only when set. All text fields are plain `string`.
 
 ### Question Format
-- Tier 3 outputs flat questions with `parent_id` for nesting
-- Assembled blueprint uses recursive `children` arrays
-- `unflattenQuestions()` and `flattenQuestions()` convert between formats
-- Questions carry `case_property` and `is_case_name` — `deriveCaseConfig()` derives form-level case wiring
+- One `Question` type with nested `children` arrays for groups/repeats
+- The stored schema supports one level of nesting, but the Form Builder agent's `addQuestion` with `parentId` can build arbitrarily deep structures
+- Questions carry `case_property` and `is_case_name` — `deriveCaseConfig()` derives form-level case wiring on-demand
 - `default_value` generates `<setvalue event="xforms-ready">` in the XForm (one-time on load, unlike `calculate` which recalculates)
 
 ### XPath and Vellum Hashtags
@@ -252,7 +247,7 @@ Dark "Stellar Minimalism" theme. CSS custom properties defined in `globals.css`:
 `lib/models.ts` is the single source of truth for model IDs and pricing. Never hardcode model IDs elsewhere.
 
 - `MODEL_GENERATION` — structured generation (scaffold + modules + forms), currently `claude-sonnet-4-6`
-- `MODEL_FIXER` — validation fixer (cheap/fast), currently `claude-haiku-4-5-20251001`
+- `MODEL_FIXER` — available for cheap/fast fixes, currently `claude-haiku-4-5-20251001` (validation uses programmatic fixes + Form Builder fallback instead)
 - `MODEL_PM` — Product Manager agent (Tier 0), currently `claude-sonnet-4-6`
 - `MODEL_PRICING` — cost lookup keyed by model ID (per million tokens)
 
@@ -272,7 +267,8 @@ Set `RUN_LOGGER=1` in `.env` to enable disk-based run logging. When enabled, eac
 ## Service Layer Notes
 
 - `builder.ts`: `Builder` class — singleton via `useBuilder()`. Holds `scaffold`, `blueprint`, `partialScaffold` (streaming structured output), and `partialModules` (module/form results). `treeData` getter merges partial data with scaffold for progressive rendering. Setter methods are called from `onData` callback in BuilderLayout. `updateProgress()` derives completed/total counts from the `partialModules` map.
-- `architectAgent.ts`: Two factory functions. `createArchitectAgent(ctx, accumulator)` returns a generation-mode `ToolLoopAgent` with tools: `generateScaffold`, `generateModuleContent`, `generateFormContent`, `assembleBlueprint`, `validateApp`. Each generation tool loads phase-appropriate knowledge via `loadKnowledge()`. `createEditArchitectAgent(ctx, mutableBp)` returns an edit-mode `ToolLoopAgent` with search/get/edit/validate/loadKnowledge tools operating on a `MutableBlueprint`. Both share `validateAndFix()` (programmatic loop — rule-based validation + Haiku fixer). `BlueprintAccumulator` collects generation results; `MutableBlueprint` wraps an existing blueprint for surgical edits.
+- `architectAgent.ts`: Two factory functions. `createArchitectAgent(ctx, accumulator)` returns a generation-mode `ToolLoopAgent` with tools: `generateScaffold`, `generateModuleContent`, `generateFormContent`, `assembleBlueprint`, `validateApp`. `generateFormContent` spawns a Form Builder sub-agent. `createEditArchitectAgent(ctx, mutableBp)` returns an edit-mode `ToolLoopAgent` with search/get/edit/validate/loadKnowledge tools operating on a `MutableBlueprint`. `regenerateForm` also spawns a Form Builder sub-agent. Both share `validateAndFix()` (programmatic loop — rule-based validation + programmatic fixes, with Form Builder fallback for empty forms). `BlueprintAccumulator` collects generation results; `MutableBlueprint` wraps an existing blueprint for surgical edits.
+- `formBuilderAgent.ts`: `createFormBuilderAgent(ctx, mb, opts)` factory returning a `ToolLoopAgent` that builds forms question-by-question. Tools: `addQuestion` (flat schema), `setCloseCaseCondition`, `addChildCase`. Operates on a `MutableBlueprint` shell at indices [0,0]. Used by `generateFormContent`, `regenerateForm`, and `validateAndFix` (empty form fallback).
 - `mutableBlueprint.ts`: `MutableBlueprint` class — wraps `AppBlueprint` (deep-cloned) for in-place search, read, and mutation. `search()` finds matches across question IDs/labels/case_properties/XPath/module names/form names/columns. Mutation methods (`updateQuestion`, `addQuestion`, `removeQuestion`, etc.) auto-derive case config after changes. `renameCaseProperty()` propagates renames across all questions, columns, and XPath expressions.
 - `generationContext.ts`: `GenerationContext` class — wraps Anthropic client + UI stream writer + RunLogger. Provides `generate()` (one-shot structured), `streamGenerate()` (streaming structured with `onPartial`), `emit()` (transient data parts). Sub-generation calls auto-log via `logger.logSubResult()`. Used by the route handler, architect agent, and validator.
 - `runLogger.ts`: `RunLogger` class — disk-based run logger. Writes incremental JSON to `.log/` after every mutation when `RUN_LOGGER=1`. Tracks current agent, stitches sub-generation results onto orchestration tool calls, computes per-event cost estimates and roll-up totals.

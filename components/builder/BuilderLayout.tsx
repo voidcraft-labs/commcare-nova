@@ -64,6 +64,7 @@ export function BuilderLayout({ buildId }: { buildId: string }) {
         case 'data-scaffold': b.setScaffold(part.data); break
         case 'data-phase': b.setPhase(part.data.phase); break
         case 'data-module-done': b.setModuleContent(part.data.moduleIndex, part.data.caseListColumns); break
+        case 'data-question-added': b.setFormContent(part.data.moduleIndex, part.data.formIndex, part.data.form); break
         case 'data-form-done': b.setFormContent(part.data.moduleIndex, part.data.formIndex, part.data.form); break
         case 'data-form-fixed': b.setFormContent(part.data.moduleIndex, part.data.formIndex, part.data.form); break
         case 'data-form-updated': b.setFormContent(part.data.moduleIndex, part.data.formIndex, part.data.form); break

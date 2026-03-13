@@ -7,19 +7,18 @@
  */
 import { ToolLoopAgent, tool, hasToolCall, stepCountIs } from 'ai'
 import { z } from 'zod'
-import { MODEL_GENERATION, MODEL_FIXER } from '../models'
+import { MODEL_GENERATION } from '../models'
 import { GenerationContext } from './generationContext'
 import { ARCHITECT_PROMPT } from '../prompts/architectPrompt'
 import { EDIT_ARCHITECT_PROMPT } from '../prompts/editArchitectPrompt'
 import { scaffoldPrompt } from '../prompts/scaffoldPrompt'
 import { modulePrompt } from '../prompts/modulePrompt'
-import { formPrompt } from '../prompts/formPrompt'
-import { FORM_FIXER_PROMPT } from '../prompts/formFixerPrompt'
 import { loadKnowledge, resolveConditionalKnowledge, FORM_KNOWLEDGE_ALL } from './commcare/knowledge/loadKnowledge'
+import { createFormBuilderAgent } from './formBuilderAgent'
 import {
-  scaffoldSchema, moduleContentSchema, formContentSchema, localizedStringSchema,
-  assembleBlueprint, deriveCaseConfig, unflattenQuestions, flattenQuestions, closeCaseToFlat, displayText,
-  type Scaffold, type ModuleContent, type FormContent, type AppBlueprint, type BlueprintForm,
+  scaffoldSchema, moduleContentSchema,
+  assembleBlueprint,
+  type Scaffold, type ModuleContent, type AppBlueprint, type BlueprintForm, type Question,
 } from '../schemas/blueprint'
 import { expandBlueprint, validateBlueprint } from './hqJsonExpander'
 import { MutableBlueprint, type NewQuestion } from './mutableBlueprint'
@@ -30,7 +29,7 @@ export class BlueprintAccumulator {
   scaffold: Scaffold | null = null
   specification: string = ''
   moduleContents: ModuleContent[] = []
-  formContents: FormContent[][] = []
+  formContents: BlueprintForm[][] = []
   assembled: AppBlueprint | null = null
 
   setScaffold(s: Scaffold) {
@@ -43,43 +42,37 @@ export class BlueprintAccumulator {
     this.moduleContents[moduleIndex] = mc
   }
 
-  setFormContent(moduleIndex: number, formIndex: number, fc: FormContent) {
-    this.formContents[moduleIndex][formIndex] = fc
+  setFormContent(moduleIndex: number, formIndex: number, form: BlueprintForm) {
+    this.formContents[moduleIndex][formIndex] = form
   }
 }
 
-// ── Helper: reassemble a FormContent into a BlueprintForm ─────────────
+// ── Helper: count questions recursively ───────────────────────────────
 
-export function reassembleForm(
-  name: BlueprintForm['name'],
-  type: 'registration' | 'followup' | 'survey',
-  fc: FormContent,
-): BlueprintForm {
-  const { case_name_field, case_properties, case_preload } = deriveCaseConfig(fc.questions, type)
-
-  const closeCase = fc.close_case == null ? undefined : {
-    ...(fc.close_case.question != null && { question: fc.close_case.question }),
-    ...(fc.close_case.answer != null && { answer: fc.close_case.answer }),
+function countQuestionsRecursive(questions: Question[]): number {
+  let count = 0
+  for (const q of questions) {
+    count++
+    if (q.children) count += countQuestionsRecursive(q.children)
   }
+  return count
+}
 
-  const childCases = fc.child_cases?.map(c => ({
-    case_type: c.case_type,
-    case_name_field: c.case_name_field,
-    ...(c.case_properties != null && { case_properties: c.case_properties }),
-    ...(c.relationship != null && { relationship: c.relationship }),
-    ...(c.repeat_context != null && { repeat_context: c.repeat_context }),
-  }))
-
-  return {
-    name,
-    type,
-    ...(case_name_field != null && { case_name_field }),
-    ...(case_properties != null && { case_properties }),
-    ...(case_preload != null && { case_preload }),
-    ...(closeCase !== undefined && { close_case: closeCase }),
-    ...(childCases !== undefined && { child_cases: childCases }),
-    questions: unflattenQuestions(fc.questions),
+function collectCaseProperties(questions: Question[]): string[] {
+  const props: string[] = []
+  for (const q of questions) {
+    if (q.case_property) props.push(q.case_property)
+    if (q.children) props.push(...collectCaseProperties(q.children))
   }
+  return props
+}
+
+function hasCaseNameQuestion(questions: Question[]): boolean {
+  for (const q of questions) {
+    if (q.is_case_name) return true
+    if (q.children && hasCaseNameQuestion(q.children)) return true
+  }
+  return false
 }
 
 // ── Helper: build prompts for sub-calls ──────────────────────────────
@@ -179,7 +172,7 @@ export async function validateAndFix(
       const match = err.match(/"([^"]+)" has case forms but no case_type/)
       if (match) {
         const modName = match[1]
-        const mod = blueprint.modules.find(m => displayText(m.name) === modName)
+        const mod = blueprint.modules.find(m => m.name === modName)
         if (mod && !mod.case_type) {
           mod.case_type = modName.toLowerCase().replace(/\s+/g, '_')
         }
@@ -194,37 +187,36 @@ export async function validateAndFix(
       if (mIdx === -1) continue
 
       const form = blueprint.modules[mIdx].forms[fIdx]
-      const currentContent = {
-        close_case: closeCaseToFlat(form.close_case),
-        child_cases: form.child_cases?.map(c => ({
-          case_type: c.case_type,
-          case_name_field: c.case_name_field,
-          case_properties: c.case_properties ?? null,
-          relationship: c.relationship ?? null,
-          repeat_context: c.repeat_context ?? null,
-        })) ?? null,
-        questions: flattenQuestions(form.questions),
-      }
 
-      const fixMessage = `## Validation Errors\n${formErrs.join('\n')}\n\n## Current Form Content\n${JSON.stringify(currentContent, null, 2)}`
-
-      try {
-        const fixed = await ctx.generate(formContentSchema, {
-          system: FORM_FIXER_PROMPT,
-          prompt: fixMessage,
-          label: `Fixer "${form.name}"`,
-          model: MODEL_FIXER,
-          maxOutputTokens: 32768,
-        })
-
-        if (fixed) {
-          const fixedForm = reassembleForm(form.name, form.type, fixed)
-          blueprint.modules[mIdx].forms[fIdx] = fixedForm
-          ctx.emit('data-form-fixed', { moduleIndex: mIdx, formIndex: fIdx, form: fixedForm })
+      // "has no questions" — rebuild with form builder agent
+      if (formErrs.some(e => e.includes('has no questions'))) {
+        try {
+          const knowledge = await loadKnowledge(...FORM_KNOWLEDGE_ALL)
+          const shell: AppBlueprint = {
+            app_name: blueprint.app_name,
+            modules: [{
+              name: blueprint.modules[mIdx].name,
+              forms: [{ name: form.name, type: form.type, questions: [] }],
+              ...(blueprint.modules[mIdx].case_type && { case_type: blueprint.modules[mIdx].case_type }),
+            }],
+          }
+          const mb = new MutableBlueprint(shell)
+          const formAgent = createFormBuilderAgent(ctx, mb, { knowledge })
+          const result = await formAgent.stream({
+            prompt: `Form "${form.name}" (${form.type}) has no questions. Generate appropriate questions for this form.`,
+          })
+          await drainStream(result.toUIMessageStream())
+          blueprint.modules[mIdx].forms[fIdx] = mb.getForm(0, 0)!
+        } catch {
+          // Rebuild failed, will be caught on next attempt
         }
-      } catch {
-        // Fix failed, continue to next attempt
+        ctx.emit('data-form-fixed', { moduleIndex: mIdx, formIndex: fIdx, form: blueprint.modules[mIdx].forms[fIdx] })
+        continue
       }
+
+      // Apply programmatic fixes for all other errors
+      applyProgrammaticFixes(form, formErrs)
+      ctx.emit('data-form-fixed', { moduleIndex: mIdx, formIndex: fIdx, form })
     }
   }
 }
@@ -235,7 +227,7 @@ function groupErrorsByForm(errors: string[], blueprint: AppBlueprint): Map<strin
     const match = err.match(/^"([^"]+)"/)
     if (match) {
       const name = match[1]
-      const isForm = blueprint.modules.some(m => m.forms.some(f => displayText(f.name) === name))
+      const isForm = blueprint.modules.some(m => m.forms.some(f => f.name === name))
       if (isForm) {
         if (!grouped.has(name)) grouped.set(name, [])
         grouped.get(name)!.push(err)
@@ -248,12 +240,162 @@ function groupErrorsByForm(errors: string[], blueprint: AppBlueprint): Map<strin
 function findFormIndices(blueprint: AppBlueprint, formName: string): [number, number] {
   for (let mIdx = 0; mIdx < blueprint.modules.length; mIdx++) {
     for (let fIdx = 0; fIdx < blueprint.modules[mIdx].forms.length; fIdx++) {
-      if (displayText(blueprint.modules[mIdx].forms[fIdx].name) === formName) {
+      if (blueprint.modules[mIdx].forms[fIdx].name === formName) {
         return [mIdx, fIdx]
       }
     }
   }
   return [-1, -1]
+}
+
+// ── Programmatic form fixes ──────────────────────────────────────────
+
+function applyProgrammaticFixes(form: BlueprintForm, errors: string[]): void {
+  for (const err of errors) {
+    // "is a registration form but has no case_name_field" — find best candidate and set is_case_name
+    if (err.includes('has no case_name_field')) {
+      const candidate = findCaseNameCandidate(form.questions)
+      if (candidate) candidate.is_case_name = true
+      continue
+    }
+
+    // "multiple questions have is_case_name" — keep first, clear rest
+    if (err.includes('multiple questions have is_case_name')) {
+      let found = false
+      clearDuplicateCaseNames(form.questions, { found })
+      continue
+    }
+
+    // "uses reserved case property name" — rename it
+    const reservedMatch = err.match(/reserved case property name "(\w+)"/)
+    if (reservedMatch) {
+      const reserved = reservedMatch[1]
+      renameReservedProperty(form.questions, reserved)
+      continue
+    }
+
+    // "media question cannot be saved as case properties" — remove case_property
+    if (err.includes('media/binary questions cannot be saved as case properties')) {
+      const mediaMatch = err.match(/case property "(\w+)" maps to a (\w+) question/)
+      if (mediaMatch) {
+        const qWithProp = findQuestionByCaseProperty(form.questions, mediaMatch[1])
+        if (qWithProp) delete qWithProp.case_property
+      }
+      continue
+    }
+
+    // "is a select but has no options" — add placeholder options
+    const selectMatch = err.match(/Question "(\w+)".*is a select but has no options/)
+    if (selectMatch) {
+      const q = findQuestionById(form.questions, selectMatch[1])
+      if (q) {
+        q.options = [
+          { value: 'option_1', label: 'Option 1' },
+          { value: 'option_2', label: 'Option 2' },
+        ]
+      }
+      continue
+    }
+
+    // "close_case references question which doesn't exist" — remove close_case
+    if (err.includes('close_case references question') && err.includes("doesn't exist")) {
+      delete form.close_case
+      continue
+    }
+
+    // "close_case condition is missing" — remove close_case
+    if (err.includes('close_case condition is missing')) {
+      delete form.close_case
+      continue
+    }
+
+    // "close_case but is not a followup form" — remove close_case
+    if (err.includes('has close_case but is not a followup form')) {
+      delete form.close_case
+      continue
+    }
+
+    // child_cases errors — remove broken entries
+    if (err.includes('child_cases')) {
+      const idxMatch = err.match(/child_cases\[(\d+)\]/)
+      if (idxMatch && form.child_cases) {
+        const cIdx = parseInt(idxMatch[1])
+        form.child_cases.splice(cIdx, 1)
+        if (form.child_cases.length === 0) delete form.child_cases
+      }
+      continue
+    }
+  }
+}
+
+function findCaseNameCandidate(questions: Question[]): Question | null {
+  // Prefer a question with case_property that looks like a name
+  for (const q of questions) {
+    if (q.case_property && /name/i.test(q.case_property) && q.type === 'text') return q
+    if (q.children) {
+      const found = findCaseNameCandidate(q.children)
+      if (found) return found
+    }
+  }
+  // Fallback: first question with a case_property
+  for (const q of questions) {
+    if (q.case_property) return q
+    if (q.children) {
+      const found = findCaseNameCandidate(q.children)
+      if (found) return found
+    }
+  }
+  return null
+}
+
+function clearDuplicateCaseNames(questions: Question[], state: { found: boolean }): void {
+  for (const q of questions) {
+    if (q.is_case_name) {
+      if (state.found) {
+        q.is_case_name = false
+      } else {
+        state.found = true
+      }
+    }
+    if (q.children) clearDuplicateCaseNames(q.children, state)
+  }
+}
+
+function renameReservedProperty(questions: Question[], reserved: string): void {
+  for (const q of questions) {
+    if (q.case_property === reserved) {
+      q.case_property = `${reserved}_value`
+    }
+    if (q.children) renameReservedProperty(q.children, reserved)
+  }
+}
+
+function findQuestionByCaseProperty(questions: Question[], prop: string): Question | null {
+  for (const q of questions) {
+    if (q.case_property === prop) return q
+    if (q.children) {
+      const found = findQuestionByCaseProperty(q.children, prop)
+      if (found) return found
+    }
+  }
+  return null
+}
+
+function findQuestionById(questions: Question[], id: string): Question | null {
+  for (const q of questions) {
+    if (q.id === id) return q
+    if (q.children) {
+      const found = findQuestionById(q.children, id)
+      if (found) return found
+    }
+  }
+  return null
+}
+
+/** Consume a ReadableStream to drive execution to completion. */
+async function drainStream(stream: ReadableStream): Promise<void> {
+  const reader = stream.getReader()
+  while (!(await reader.read()).done) {}
 }
 
 // ── Create Solutions Architect Agent ──────────────────────────────────
@@ -389,27 +531,30 @@ export function createArchitectAgent(
               formPurpose: sf.purpose,
             })
             const knowledge = await loadKnowledge(...files)
-            const fc = await ctx.generate(formContentSchema, {
-              system: formPrompt(knowledge, scaffold.languages ?? undefined),
-              prompt: buildFormPrompt(scaffold, moduleIndex, formIndex, feedback),
-              label: `Form [${moduleIndex}][${formIndex}] "${sf.name}"`,
-              knowledge: files,
-              maxOutputTokens: 32768,
-            })
-            if (!fc) return { error: `Form "${sf.name}": generation returned no output` }
 
-            accumulator.setFormContent(moduleIndex, formIndex, fc)
-            const assembledForm = reassembleForm(sf.name, sf.type as 'registration' | 'followup' | 'survey', fc)
-            ctx.emit('data-form-done', { moduleIndex, formIndex, form: assembledForm })
+            const shell: AppBlueprint = {
+              app_name: scaffold.app_name,
+              modules: [{ name: sm.name, forms: [{ name: sf.name, type: sf.type, questions: [] }] }],
+            }
+            const mb = new MutableBlueprint(shell)
+            const formAgent = createFormBuilderAgent(ctx, mb, { knowledge, moduleIndex, formIndex })
+            const result = await formAgent.stream({
+              prompt: buildFormPrompt(scaffold, moduleIndex, formIndex, feedback),
+            })
+            await drainStream(result.toUIMessageStream())
+
+            const form = mb.getForm(0, 0)!
+            accumulator.setFormContent(moduleIndex, formIndex, form)
+            ctx.emit('data-form-done', { moduleIndex, formIndex, form })
 
             return {
               moduleIndex,
               formIndex,
               name: sf.name,
               type: sf.type,
-              questionCount: fc.questions.length,
-              caseProperties: fc.questions.filter(q => q.case_property).map(q => q.case_property!),
-              hasCaseName: fc.questions.some(q => q.is_case_name),
+              questionCount: countQuestionsRecursive(form.questions),
+              caseProperties: collectCaseProperties(form.questions),
+              hasCaseName: hasCaseNameQuestion(form.questions),
             }
           } catch (err) {
             return { error: `Form "${sf.name}": generation failed — ${err instanceof Error ? err.message : String(err)}` }
@@ -468,7 +613,7 @@ const QUESTION_TYPES = [
 
 const selectOptionSchema = z.object({
   value: z.string().describe('Option value (stored in data)'),
-  label: localizedStringSchema.describe('Option label (shown to user)'),
+  label: z.string().describe('Option label (shown to user)'),
 })
 
 /** Build a form-generation prompt from the current blueprint context (for regenerateForm). */
@@ -480,10 +625,9 @@ function buildRegenerateFormPrompt(blueprint: AppBlueprint, moduleIndex: number,
   const caseProps: string[] = []
   if (mod.case_type) {
     for (const f of mod.forms) {
-      if (f.case_properties) {
-        for (const cp of f.case_properties) {
-          if (!caseProps.includes(cp.case_property)) caseProps.push(cp.case_property)
-        }
+      const props = collectCaseProperties(f.questions || [])
+      for (const cp of props) {
+        if (!caseProps.includes(cp)) caseProps.push(cp)
       }
     }
   }
@@ -604,13 +748,13 @@ export function createEditArchitectAgent(
           formIndex: z.number().describe('0-based form index'),
           questionId: z.string().describe('Question id to update'),
           updates: z.object({
-            label: localizedStringSchema.optional().describe('Question label text'),
+            label: z.string().optional().describe('Question label text'),
             type: z.enum(QUESTION_TYPES).optional(),
-            hint: localizedStringSchema.optional().describe('Hint text'),
-            required: z.string().optional().describe('"true()" if always required. XPath for conditional. Empty string to clear.'),
+            hint: z.string().optional().describe('Hint text'),
+            required: z.string().optional().describe('"true()" if always required, or XPath for conditional.'),
             readonly: z.boolean().optional(),
-            constraint: z.string().optional().describe('XPath constraint expression. Empty string to clear.'),
-            constraint_msg: localizedStringSchema.optional().describe('Error message when constraint fails. Empty array to clear.'),
+            constraint: z.string().optional().describe('XPath constraint expression'),
+            constraint_msg: z.string().optional().describe('Error message when constraint fails'),
             relevant: z.string().nullable().optional().describe('XPath display condition'),
             calculate: z.string().nullable().optional().describe('XPath computed value'),
             default_value: z.string().nullable().optional().describe('XPath initial value'),
@@ -639,12 +783,12 @@ export function createEditArchitectAgent(
           question: z.object({
             id: z.string().describe('Unique question id in snake_case'),
             type: z.enum(QUESTION_TYPES),
-            label: localizedStringSchema.optional().describe('Question label (omit for hidden)'),
-            hint: localizedStringSchema.optional(),
+            label: z.string().optional().describe('Question label (omit for hidden)'),
+            hint: z.string().optional(),
             required: z.string().optional().describe('"true()" if always required. XPath for conditional. Omit if not required.'),
             readonly: z.boolean().optional(),
             constraint: z.string().optional(),
-            constraint_msg: localizedStringSchema.optional(),
+            constraint_msg: z.string().optional(),
             relevant: z.string().optional(),
             calculate: z.string().optional(),
             default_value: z.string().optional(),
@@ -692,14 +836,14 @@ export function createEditArchitectAgent(
         description: 'Update module metadata: name, case list columns, or case detail columns.',
         inputSchema: z.object({
           moduleIndex: z.number().describe('0-based module index'),
-          name: localizedStringSchema.optional().describe('New module name'),
+          name: z.string().optional().describe('New module name'),
           case_list_columns: z.array(z.object({
             field: z.string().describe('Case property name'),
-            header: localizedStringSchema.describe('Column header text'),
+            header: z.string().describe('Column header text'),
           })).optional().describe('New case list columns'),
           case_detail_columns: z.array(z.object({
             field: z.string().describe('Case property name'),
-            header: localizedStringSchema.describe('Display label for this detail field'),
+            header: z.string().describe('Display label for this detail field'),
           })).nullable().optional().describe('Columns for case detail view (when tapping a case). null to remove explicit detail columns.'),
         }),
         execute: async ({ moduleIndex, name, case_list_columns, case_detail_columns }) => {
@@ -723,7 +867,7 @@ export function createEditArchitectAgent(
         inputSchema: z.object({
           moduleIndex: z.number().describe('0-based module index'),
           formIndex: z.number().describe('0-based form index'),
-          name: localizedStringSchema.optional().describe('New form name'),
+          name: z.string().optional().describe('New form name'),
           close_case: z.object({
             question: z.string().optional().describe('Question id for conditional close'),
             answer: z.string().optional().describe('Value that triggers closure'),
@@ -748,7 +892,7 @@ export function createEditArchitectAgent(
         description: 'Add a new empty form to a module. Use regenerateForm after to populate it with questions.',
         inputSchema: z.object({
           moduleIndex: z.number().describe('0-based module index'),
-          name: localizedStringSchema.describe('Form display name'),
+          name: z.string().describe('Form display name'),
           type: z.enum(['registration', 'followup', 'survey']).describe('Form type'),
         }),
         execute: async ({ moduleIndex, name, type }) => {
@@ -786,11 +930,11 @@ export function createEditArchitectAgent(
       addModule: tool({
         description: 'Add a new module to the app.',
         inputSchema: z.object({
-          name: localizedStringSchema.describe('Module display name'),
+          name: z.string().describe('Module display name'),
           case_type: z.string().optional().describe('Case type (required if module will have registration/followup forms)'),
           case_list_columns: z.array(z.object({
             field: z.string().describe('Case property name'),
-            header: localizedStringSchema.describe('Column header text'),
+            header: z.string().describe('Column header text'),
           })).optional().describe('Case list columns'),
         }),
         execute: async ({ name, case_type, case_list_columns }) => {
@@ -864,16 +1008,23 @@ export function createEditArchitectAgent(
 
           try {
             const knowledge = await loadKnowledge(...FORM_KNOWLEDGE_ALL)
-            const fc = await ctx.generate(formContentSchema, {
-              system: formPrompt(knowledge, blueprint.languages),
-              prompt: buildRegenerateFormPrompt(blueprint, moduleIndex, formIndex, instructions),
-              label: `Regenerate "${form.name}"`,
-              knowledge: [...FORM_KNOWLEDGE_ALL],
-              maxOutputTokens: 32768,
-            })
-            if (!fc) return { error: `Form "${form.name}": generation returned no output` }
 
-            const newForm = reassembleForm(form.name, form.type as 'registration' | 'followup' | 'survey', fc)
+            const shell: AppBlueprint = {
+              app_name: blueprint.app_name,
+              modules: [{
+                name: mod.name,
+                forms: [{ name: form.name, type: form.type, questions: [] }],
+                ...(mod.case_type && { case_type: mod.case_type }),
+              }],
+            }
+            const mb = new MutableBlueprint(shell)
+            const formAgent = createFormBuilderAgent(ctx, mb, { knowledge, moduleIndex, formIndex })
+            const result = await formAgent.stream({
+              prompt: buildRegenerateFormPrompt(blueprint, moduleIndex, formIndex, instructions),
+            })
+            await drainStream(result.toUIMessageStream())
+
+            const newForm = mb.getForm(0, 0)!
             mutableBp.replaceForm(moduleIndex, formIndex, newForm)
             ctx.emit('data-form-updated', { moduleIndex, formIndex, form: newForm })
 
@@ -881,8 +1032,8 @@ export function createEditArchitectAgent(
               moduleIndex,
               formIndex,
               name: form.name,
-              questionCount: fc.questions.length,
-              caseProperties: fc.questions.filter(q => q.case_property).map(q => q.case_property!),
+              questionCount: countQuestionsRecursive(newForm.questions),
+              caseProperties: collectCaseProperties(newForm.questions),
             }
           } catch (err) {
             return { error: err instanceof Error ? err.message : String(err) }

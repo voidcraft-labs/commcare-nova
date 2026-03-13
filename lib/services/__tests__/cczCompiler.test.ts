@@ -4,37 +4,28 @@ import { CczCompiler } from '../cczCompiler'
 import { expandBlueprint } from '../hqJsonExpander'
 import type { AppBlueprint } from '../../schemas/blueprint'
 
-/** Helper to create a localized string from plain text. */
-function L(text: string): Array<{ lang: string; text: string }> {
-  return [{ lang: 'en', text }]
-}
-
 const blueprint: AppBlueprint = {
   app_name: 'CHW App',
   modules: [{
-    name: L('Patients'),
+    name: 'Patients',
     case_type: 'patient',
     forms: [
       {
-        name: L('Register'), type: 'registration',
-        case_name_field: 'name',
-        case_properties: [{ case_property: 'age', question_id: 'age' }],
+        name: 'Register', type: 'registration',
         questions: [
-          { id: 'name', type: 'text', label: L('Name'), is_case_name: true },
-          { id: 'age', type: 'int', label: L('Age') },
+          { id: 'name', type: 'text', label: 'Name', is_case_name: true },
+          { id: 'age', type: 'int', label: 'Age', case_property: 'age' },
         ],
       },
       {
-        name: L('Visit'), type: 'followup',
-        case_properties: [{ case_property: 'total_visits', question_id: 'visit_count' }],
-        case_preload: [{ question_id: 'visit_count', case_property: 'total_visits' }],
+        name: 'Visit', type: 'followup',
         questions: [
-          { id: 'visit_count', type: 'hidden', label: L('Visits'), calculate: '#case/total_visits + 1' },
-          { id: 'notes', type: 'text', label: L('Notes') },
+          { id: 'visit_count', type: 'hidden', calculate: '#case/total_visits + 1', case_property: 'total_visits' },
+          { id: 'notes', type: 'text', label: 'Notes' },
         ],
       },
     ],
-    case_list_columns: [{ field: 'age', header: L('Age') }],
+    case_list_columns: [{ field: 'age', header: 'Age' }],
   }],
 }
 

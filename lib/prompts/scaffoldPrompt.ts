@@ -35,7 +35,7 @@ For each case type, decide which property identifies the case — that's the cas
 
 Modules are menus that group related work. A module with a case type shows a list of cases and lets the user open forms against them. Forms are either registration (create a new case), followup (update an existing case), or survey (standalone, no case). Structure the app around how the work actually flows — if different roles or workflows touch the same case type differently, that might warrant separate modules.
 
-If the brief mentions specific languages or multilingual requirements, set \`languages\` to the appropriate language codes (e.g. ["en", "hin", "fra"]). The first language is the default. Set to null for English-only apps.
+Give every form a specific, descriptive name that reflects what it actually does — not just its type. For example, "Register Patient" or "Prenatal Visit" instead of "Registration Form" or "Follow-Up Form". The name should tell the user what happens when they open it.
 
 Output the scaffold as JSON matching the schema.`
 }
