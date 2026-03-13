@@ -1,11 +1,11 @@
 /**
  * System prompt for the form builder sub-agent.
  *
- * The agent builds forms question-by-question using per-type tool calls.
+ * The agent builds forms using per-type tool calls.
  * Case wiring (case_properties, case_preload, case_name_field) is derived
  * automatically from per-question case_property / is_case_name fields.
  */
-export function formBuilderPrompt(knowledge?: string): string {
+export function formBuilderPrompt(knowledge?: string, formDesign?: string): string {
   const knowledgeSection = knowledge
     ? `
 
@@ -20,11 +20,27 @@ ${knowledge}
 </knowledge>`
     : ''
 
-  return `You design CommCare forms — the screens field workers fill out in the field. Each form collects data through a sequence of questions, and those questions can be wired to case properties to save or load data from the case record.${knowledgeSection}
+  const designSection = formDesign
+    ? `
+
+## Form Design Document
+
+You are implementing a pre-designed form. Follow the design document below precisely —
+it specifies the exact questions, types, grouping, XPath expressions, and case mappings
+to use. Your job is faithful implementation, not redesign. If the design specifies a
+calculated field, implement it exactly. If it specifies skip logic, implement the exact
+XPath condition.
+
+<form-design>
+${formDesign}
+</form-design>`
+    : ''
+
+  return `You design CommCare forms — the screens field workers fill out in the field. Each form collects data through a sequence of questions, and those questions can be wired to case properties to save or load data from the case record.${knowledgeSection}${designSection}
 
 ## How to Build a Form
 
-Add each question in sequence using the appropriate tool. Think through the form flow before starting — what data needs to be collected, in what order, and how it maps to case properties.
+Think through the form flow before starting — what data needs to be collected, in what order, and how it maps to case properties. Then write a **single Python script** using code execution that calls all the question tools for all forms. Use selectForm to switch between forms within the script. Do NOT call tools one at a time — batch everything into one code execution block.
 
 For **groups and repeats**: add the group/repeat first, then add child questions using the \`parentId\` parameter. Nesting is supported at any depth.
 
@@ -62,5 +78,9 @@ If the form should close the case, use **setCloseCaseCondition**. Only followup 
 
 If the form should create child/sub-cases, use **addChildCase** after adding the relevant questions.
 
-Build the form now. Add questions one at a time.`
+## Building Multiple Forms
+
+When building multiple forms, use **selectForm** to switch to each form before adding its questions. Build each form completely before moving to the next. The first form is selected by default.
+
+Build all forms now.`
 }

@@ -1,14 +1,18 @@
 /**
- * Form Builder Agent — builds a form question-by-question via per-type tool calls.
+ * Form Builder Agent — builds forms question-by-question via per-type tool calls.
  *
- * Operates on a MutableBlueprint shell (single module, single form) at indices [0,0].
+ * Operates on a MutableBlueprint containing one or more modules/forms. Tracks an
+ * "active form" context that question tools target. For multi-form builds, a
+ * selectForm tool switches context between forms.
+ *
  * Each question type has its own tool with only the relevant fields, making schemas
  * self-documenting contracts that guide the LLM without prompt-based type guidance.
  */
-import { ToolLoopAgent, tool, stepCountIs } from 'ai'
+import { ToolLoopAgent, tool, stepCountIs, type ToolSet } from 'ai'
 import { z } from 'zod'
 import { MODEL_GENERATION } from '../models'
-import { GenerationContext, withPromptCaching } from './generationContext'
+import { forwardAnthropicContainerIdFromLastStep } from '@ai-sdk/anthropic'
+import { GenerationContext } from './generationContext'
 import { MutableBlueprint, type NewQuestion } from './mutableBlueprint'
 import { type BlueprintChildCase, type CaseType } from '../schemas/blueprint'
 import { formBuilderPrompt } from '../prompts/formBuilderPrompt'
@@ -135,12 +139,15 @@ function unescapeXPath(s: string): string {
 function createExecutor(
   questionType: string | null,
   mb: MutableBlueprint,
-  caseType: CaseType | null | undefined,
+  getActiveIndices: () => { mIdx: number; fIdx: number },
+  getActiveCaseType: () => CaseType | null,
   emitQuestion: () => void,
 ) {
   return async ({ afterQuestionId, parentId, mediaType, ...fields }: any) => {
     try {
       const question = { ...fields, type: mediaType ?? questionType }
+      const { mIdx, fIdx } = getActiveIndices()
+      const caseType = getActiveCaseType()
 
       // Unescape HTML entities in XPath fields (LLMs sometimes emit &gt; instead of >)
       for (const f of XPATH_FIELDS) {
@@ -164,7 +171,7 @@ function createExecutor(
         question.is_case_name ??= caseType.case_name_property === question.case_property ? true : undefined
       }
 
-      mb.addQuestion(0, 0, question as NewQuestion, { afterId: afterQuestionId, parentId })
+      mb.addQuestion(mIdx, fIdx, question as NewQuestion, { afterId: afterQuestionId, parentId })
       emitQuestion()
       return { added: question.id, parentId: parentId ?? null }
     } catch (err) {
@@ -177,12 +184,20 @@ function createExecutor(
 // Per-type tool factory
 // ---------------------------------------------------------------------------
 
+/** Provider options for programmatic tool calling: callable from code execution sandbox. */
+const PROGRAMMATIC_TOOL_OPTIONS = {
+  anthropic: {
+    allowedCallers: ['code_execution_20260120'],
+  },
+}
+
 function defineQuestionTool(
   type: string | null,
   description: string,
   category: FieldCategory,
   mb: MutableBlueprint,
-  caseType: CaseType | null | undefined,
+  getActiveIndices: () => { mIdx: number; fIdx: number },
+  getActiveCaseType: () => CaseType | null,
   casePropertyField: z.ZodTypeAny | null,
   emitQuestion: () => void,
   extra?: Record<string, z.ZodTypeAny>,
@@ -190,7 +205,8 @@ function defineQuestionTool(
   return tool({
     description,
     inputSchema: buildSchema(category, casePropertyField, extra),
-    execute: createExecutor(type, mb, caseType, emitQuestion),
+    execute: createExecutor(type, mb, getActiveIndices, getActiveCaseType, emitQuestion),
+    providerOptions: PROGRAMMATIC_TOOL_OPTIONS,
   })
 }
 
@@ -198,13 +214,17 @@ function defineQuestionTool(
 // Exports
 // ---------------------------------------------------------------------------
 
+export interface FormBuildTarget {
+  moduleIndex: number
+  formIndex: number
+}
+
 export interface FormBuilderOptions {
   knowledge?: string
-  /** Case type definition for data model defaults. */
-  caseType?: CaseType | null
-  /** Real module/form indices for streaming progress back to the client. */
-  moduleIndex?: number
-  formIndex?: number
+  /** Pre-designed form plan from the design phase. Injected into the system prompt. */
+  formDesign?: string
+  /** Forms to build. For single-form builds, pass one entry. */
+  forms: FormBuildTarget[]
 }
 
 export function createFormBuilderAgent(
@@ -212,17 +232,37 @@ export function createFormBuilderAgent(
   mb: MutableBlueprint,
   opts: FormBuilderOptions,
 ) {
-  const { caseType } = opts
+  // Active form tracking
+  let activeMIdx = opts.forms[0].moduleIndex
+  let activeFIdx = opts.forms[0].formIndex
 
-  const emitQuestion = () => {
-    if (opts.moduleIndex != null && opts.formIndex != null) {
-      ctx.emit('data-question-added', { moduleIndex: opts.moduleIndex, formIndex: opts.formIndex, form: mb.getForm(0, 0)! })
-    }
+  const getActiveIndices = () => ({ mIdx: activeMIdx, fIdx: activeFIdx })
+
+  const getActiveCaseType = (): CaseType | null => {
+    const mod = mb.getModule(activeMIdx)
+    if (!mod?.case_type) return null
+    return mb.getCaseType(mod.case_type) ?? null
   }
 
-  // Build case_property field as an enum of available property names when case type is known
-  const casePropertyField = caseType
-    ? z.enum(caseType.properties.map(p => p.name) as [string, ...string[]]).optional()
+  const emitQuestion = () => {
+    ctx.emit('data-question-added', {
+      moduleIndex: activeMIdx,
+      formIndex: activeFIdx,
+      form: mb.getForm(activeMIdx, activeFIdx)!,
+    })
+  }
+
+  // Collect all unique case property names across all relevant case types for the enum
+  const allPropertyNames = new Set<string>()
+  for (const f of opts.forms) {
+    const mod = mb.getModule(f.moduleIndex)
+    if (!mod?.case_type) continue
+    const ct = mb.getCaseType(mod.case_type)
+    if (ct) ct.properties.forEach(p => allPropertyNames.add(p.name))
+  }
+
+  const casePropertyField = allPropertyNames.size > 0
+    ? z.enum([...allPropertyNames] as [string, ...string[]]).optional()
         .describe('Case property this question maps to. Defaults (label, hint, constraint, etc.) are applied automatically from the data model.')
     : z.string().optional().describe('Case property name this question maps to.')
 
@@ -234,13 +274,41 @@ export function createFormBuilderAgent(
 
   // Helper with common args bound
   const dt = (type: string | null, description: string, category: FieldCategory, extra?: Record<string, z.ZodTypeAny>) =>
-    defineQuestionTool(type, description, category, mb, caseType, casePropertyField, emitQuestion, extra)
+    defineQuestionTool(type, description, category, mb, getActiveIndices, getActiveCaseType, casePropertyField, emitQuestion, extra)
+
+  // selectForm tool — only for multi-form builds
+  const selectFormTools: ToolSet = {}
+  if (opts.forms.length > 1) {
+    selectFormTools.selectForm = tool({
+      description: 'Switch to a different form before adding questions to it. Call this before building each form.',
+      inputSchema: z.object({
+        moduleIndex: z.number().describe('Module index (0-based)'),
+        formIndex: z.number().describe('Form index within the module (0-based)'),
+      }),
+      execute: async ({ moduleIndex, formIndex }: { moduleIndex: number; formIndex: number }) => {
+        const found = opts.forms.find(f => f.moduleIndex === moduleIndex && f.formIndex === formIndex)
+        if (!found) return { error: `Form m${moduleIndex}-f${formIndex} is not in the build list` }
+        activeMIdx = moduleIndex
+        activeFIdx = formIndex
+        const mod = mb.getModule(moduleIndex)
+        const form = mb.getForm(moduleIndex, formIndex)
+        return {
+          selected: `m${moduleIndex}-f${formIndex}`,
+          moduleName: mod?.name,
+          formName: form?.name,
+          formType: form?.type,
+          caseType: mod?.case_type ?? null,
+        }
+      },
+      providerOptions: PROGRAMMATIC_TOOL_OPTIONS,
+    })
+  }
 
   const agent = new ToolLoopAgent({
     model: ctx.model(MODEL_GENERATION),
-    instructions: formBuilderPrompt(opts.knowledge),
+    instructions: formBuilderPrompt(opts.knowledge, opts.formDesign),
     stopWhen: stepCountIs(40),
-    ...withPromptCaching,
+    prepareStep: forwardAnthropicContainerIdFromLastStep,
     tools: {
       // --- Data types ---
       addTextQuestion: dt('text',
@@ -309,24 +377,24 @@ export function createFormBuilderAgent(
 
       // --- Non-question tools ---
       setCloseCaseCondition: tool({
-        description: 'Set close_case config on the form. Empty object {} = always close. {question, answer} = conditional close. Only for followup forms.',
+        description: 'Set close_case config on the current form. Empty object {} = always close. {question, answer} = conditional close. Only for followup forms.',
         inputSchema: z.object({
           question: z.string().optional().describe('Question id for conditional close'),
           answer: z.string().optional().describe('Value that triggers case closure'),
         }),
         execute: async (config) => {
           try {
-            mb.updateForm(0, 0, { close_case: config })
+            mb.updateForm(activeMIdx, activeFIdx, { close_case: config })
             return { close_case: config }
           } catch (err) {
             return { error: err instanceof Error ? err.message : String(err) }
           }
         },
+        providerOptions: PROGRAMMATIC_TOOL_OPTIONS,
       }),
 
       addChildCase: tool({
-        description: 'Add a child/sub-case that will be created when the form is submitted. Used for creating linked cases (e.g. referrals from a patient form). Case type must be one defined in the data model.',
-        strict: true,
+        description: 'Add a child/sub-case that will be created when the current form is submitted. Used for creating linked cases (e.g. referrals from a patient form). Case type must be one defined in the data model.',
         inputSchema: z.object({
           case_type: caseTypeField,
           case_name_field: z.string().describe('Question id whose value becomes the child case name'),
@@ -336,13 +404,20 @@ export function createFormBuilderAgent(
         }),
         execute: async (childCase) => {
           try {
-            mb.addChildCase(0, 0, childCase as BlueprintChildCase)
+            mb.addChildCase(activeMIdx, activeFIdx, childCase as BlueprintChildCase)
             return { added_child_case: childCase.case_type }
           } catch (err) {
             return { error: err instanceof Error ? err.message : String(err) }
           }
         },
+        providerOptions: PROGRAMMATIC_TOOL_OPTIONS,
       }),
+
+      // --- Form selection (multi-form builds only) ---
+      ...selectFormTools,
+
+      // --- Programmatic tool calling ---
+      code_execution: ctx.codeExecutionTool(),
     },
   })
 
