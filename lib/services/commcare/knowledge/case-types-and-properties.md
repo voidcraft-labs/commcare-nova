@@ -74,17 +74,6 @@ All three of `case_name`, `owner_id`, `case_type` are **mandatory** at creation.
 | `external_id` | Optional external system identifier |
 | `parent_id` | In exports: `case_id` of parent case |
 
-### Messaging-Required Properties
-
-For a case to receive SMS:
-
-| Property | Requirement |
-|----------|------------|
-| `contact_phone_number` | e.164 format, no spaces/dashes, include country code |
-| `contact_phone_number_is_verified` | Must be set to `"1"` |
-
-Optional: `time_zone`, `language_code`, `contact_backend_id`, `commcare_email_address`.
-
 ---
 
 ## Case Property Naming Rules
@@ -158,14 +147,6 @@ instance('casedb')/casedb/case[@case_type='commcare-user'][hq_user_id=instance('
 - Only mapped answers persist on the case; unmapped answers exist only in form submission data
 - Properties not included in an update are **unchanged**, not cleared. To clear a property, explicitly save an empty string.
 - **Save minimally**: Only save properties needed for future form logic, case list display, or case list filtering. Excessive properties degrade sync performance.
-
-### Increment/Counter Pattern
-
-```xpath
-coalesce(#case/visit_count, 0) + 1
-```
-
-Save result to case property `visit_count`. `coalesce` handles the blank-on-first-visit case.
 
 ---
 
@@ -259,20 +240,3 @@ instance('casedb')/casedb/case[@case_type='commcare-user'][hq_user_id=instance('
 - To clear a property, explicitly save an empty string
 - History of property changes is preserved in form submissions but **not** on the case record itself — only the latest value survives
 - Changing a case property name in the form configuration creates a **new** property; old data stays under the old name
-
----
-
-## Common Mistakes
-
-| Mistake | Consequence |
-|---------|------------|
-| Spaces in property names | Invalid; silently dropped or errors |
-| Leading digit in property name | Invalid |
-| Case mismatch (`Village` vs `village`) | Creates two separate properties with partial data |
-| Not casting types (`#case/count > 5` without `int()`) | String comparison — incorrect results |
-| Changing property name mid-project | Old data orphaned under old name; new property starts empty |
-| Not saving a needed value to a case property | Value inaccessible in future forms |
-| Saving too many properties | Sync performance degradation |
-| Changing case type name after data collection | Splits case list into two types |
-| Assuming omitted properties are cleared | They persist with their previous value |
-| Using `owner_id` of a web user | Cases won't appear in standard reports |
