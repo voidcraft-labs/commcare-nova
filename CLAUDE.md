@@ -48,8 +48,9 @@ lib/
   models.ts             # Central model ID + pricing config
   store.ts              # CCZ file persistence in .data/
 scripts/
-  sync-knowledge.ts       # Knowledge sync pipeline entry point
-  knowledge/              # Pipeline phases: discover, crawl, triage, distill, reorganize
+  test-schema.ts            # Structured output schema test (sends schema to Haiku, verifies round-trip)
+  sync-knowledge.ts         # Knowledge sync pipeline entry point
+  knowledge/                # Pipeline phases: discover, crawl, triage, distill, reorganize
 ```
 
 ## Key Architecture Decisions
@@ -233,6 +234,7 @@ npm run dev          # Start dev server (Turbopack)
 npm run build        # Production build
 npm test             # Run tests (vitest)
 npm run test:watch   # Watch mode tests
+npx tsx scripts/test-schema.ts  # Test structured output schema against Haiku (requires ANTHROPIC_API_KEY)
 ```
 
 ## Icons
