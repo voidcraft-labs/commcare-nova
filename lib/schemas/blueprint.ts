@@ -31,6 +31,42 @@ const casePropertyMappingSchema = z.object({
 
 const RESERVED_CASE_PROPERTIES = 'case_id, case_type, closed, closed_by, closed_on, date, date_modified, date_opened, doc_type, domain, external_id, index, indices, modified_on, name, opened_by, opened_on, owner_id, server_modified_on, status, type, user_id, xform_id'
 
+// ── Case property data types (excludes media, structural, hidden/secret) ──
+
+const CASE_PROPERTY_DATA_TYPES = [
+  'text', 'int', 'decimal', 'date', 'time', 'datetime',
+  'select1', 'select', 'phone', 'geopoint', 'long',
+] as const
+
+// ── Case property + case type schemas ────────────────────────────────
+
+const casePropertySchema = z.object({
+  name: z.string().describe(
+    'Property name in snake_case. ' +
+    `Must NOT be a reserved word: ${RESERVED_CASE_PROPERTIES}. ` +
+    'Must NOT be media/binary (photos, audio, video, signatures). ' +
+    'Use descriptive alternatives (e.g. "visit_date" not "date", "full_name" not "name").'
+  ),
+  label: z.string().describe('Human-readable label for this property. Used as the default question label in all forms.'),
+  data_type: z.enum(CASE_PROPERTY_DATA_TYPES).optional().describe(
+    'Data type. Determines the default question type. Omit for "text".'
+  ),
+  hint: z.string().optional().describe('Hint text shown below questions collecting this property.'),
+  help: z.string().optional().describe('Extended help text accessible via help icon.'),
+  required: z.string().optional().describe('"true()" if always required. Omit if optional.'),
+  constraint: z.string().optional().describe('XPath constraint, e.g. ". > 0 and . < 150"'),
+  constraint_msg: z.string().optional().describe('Error message when constraint fails.'),
+  options: z.array(selectOptionSchema).optional().describe('Options for select1/select properties.'),
+})
+
+const caseTypeSchema = z.object({
+  name: z.string().describe('Case type name in snake_case (e.g., "patient", "household")'),
+  case_name_property: z.string().describe(
+    'Which property identifies this case (used as the case name). Must match one of the property names below.'
+  ),
+  properties: z.array(casePropertySchema).describe('Case properties to track. Forms will create questions to capture these.'),
+})
+
 // ── Tier 1: Scaffold Schema ────────────────────────────────────────────
 
 export const scaffoldSchema = z.object({
@@ -52,21 +88,7 @@ export const scaffoldSchema = z.object({
       purpose: z.string().describe('Brief description of what this form collects and why'),
     })),
   })),
-  case_types: z.array(z.object({
-    name: z.string().describe('Case type name in snake_case (e.g., "patient", "household")'),
-    case_name_property: z.string().describe(
-      'Which property identifies this case (used as the case name). Must match one of the property names below.'
-    ),
-    properties: z.array(z.object({
-      name: z.string().describe(
-        'Property name in snake_case. ' +
-        `Must NOT be a reserved word: ${RESERVED_CASE_PROPERTIES}. ` +
-        'Must NOT be media/binary (photos, audio, video, signatures). ' +
-        'Use descriptive alternatives (e.g. "visit_date" not "date", "full_name" not "name").'
-      ),
-      label: z.string().describe('Human-readable label (e.g., "Patient Age", "Gender")'),
-    })).describe('Case properties to track. Forms will create questions to capture these.'),
-  })).nullable().describe('Case types and their properties. null if all modules are survey-only.'),
+  case_types: z.array(caseTypeSchema).nullable().describe('Case types and their properties. null if all modules are survey-only.'),
 })
 
 // ── Tier 2: Module Content Schema ──────────────────────────────────────
@@ -223,6 +245,9 @@ export const appBlueprintSchema = z.object({
   modules: z.array(blueprintModuleSchema).describe(
     'Array of modules. Each module is a menu containing forms.'
   ),
+  case_types: z.array(caseTypeSchema).nullable().describe(
+    'Case type definitions with property metadata. null if all modules are survey-only.'
+  ),
 }).describe('A CommCare application definition in blueprint format')
 
 // ── Types ──────────────────────────────────────────────────────────────
@@ -232,6 +257,8 @@ export type BlueprintModule = z.infer<typeof blueprintModuleSchema>
 export type BlueprintForm = z.infer<typeof blueprintFormSchema>
 export type Question = z.infer<typeof questionSchema>
 export type BlueprintChildCase = z.infer<typeof childCaseSchema>
+export type CaseProperty = z.infer<typeof casePropertySchema>
+export type CaseType = z.infer<typeof caseTypeSchema>
 
 export type CasePropertyMapping = z.infer<typeof casePropertyMappingSchema>
 export type Scaffold = z.infer<typeof scaffoldSchema>
@@ -248,6 +275,11 @@ export function getAppBlueprintJsonSchema(): Record<string, unknown> {
 /** Generate a concise text summary of an AppBlueprint for chat context. */
 export function summarizeBlueprint(bp: AppBlueprint): string {
   const lines = [`App: "${bp.app_name}"`]
+  if (bp.case_types) {
+    for (const ct of bp.case_types) {
+      lines.push(`  Case type "${ct.name}": ${ct.properties.map(p => p.name).join(', ')}`)
+    }
+  }
   for (const mod of bp.modules) {
     lines.push(`  Module: "${mod.name}" (case_type: ${mod.case_type ?? 'none'})`)
     if (mod.case_list_columns?.length) {
@@ -259,6 +291,50 @@ export function summarizeBlueprint(bp: AppBlueprint): string {
     }
   }
   return lines.join('\n')
+}
+
+// ── Data model defaults merge ──────────────────────────────────────────
+
+/** Merge data model defaults from case property metadata into a question. */
+export function mergeQuestionDefaults(
+  question: Question,
+  caseTypes: CaseType[] | null,
+  moduleCaseType: string | undefined,
+): Question {
+  if (!question.case_property || !caseTypes || !moduleCaseType) return question
+  const ct = caseTypes.find(c => c.name === moduleCaseType)
+  const prop = ct?.properties.find(p => p.name === question.case_property)
+  if (!prop) return question
+
+  // Auto-derive is_case_name when this question maps to the case name property
+  const isCaseName = question.is_case_name ?? (ct!.case_name_property === question.case_property ? true : undefined)
+
+  return {
+    ...question,
+    label: question.label ?? prop.label,
+    hint: question.hint ?? prop.hint,
+    help: question.help ?? prop.help,
+    required: question.required ?? prop.required,
+    constraint: question.constraint ?? prop.constraint,
+    constraint_msg: question.constraint_msg ?? prop.constraint_msg,
+    options: question.options ?? prop.options,
+    ...(isCaseName != null && { is_case_name: isCaseName }),
+  }
+}
+
+/** Recursively merge data model defaults into a form's question tree. */
+export function mergeFormQuestions(
+  questions: Question[],
+  caseTypes: CaseType[] | null,
+  moduleCaseType: string | undefined,
+): Question[] {
+  return questions.map(q => {
+    const merged = mergeQuestionDefaults(q, caseTypes, moduleCaseType)
+    if (q.children) {
+      return { ...merged, children: mergeFormQuestions(q.children, caseTypes, moduleCaseType) }
+    }
+    return merged
+  })
 }
 
 // ── Case config derivation ─────────────────────────────────────────────
@@ -328,6 +404,7 @@ export function assembleBlueprint(
 ): AppBlueprint {
   return {
     app_name: scaffold.app_name,
+    case_types: scaffold.case_types,
     modules: scaffold.modules.map((sm, mIdx) => {
       const mc = moduleContents[mIdx]
 

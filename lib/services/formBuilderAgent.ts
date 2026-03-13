@@ -8,9 +8,9 @@
 import { ToolLoopAgent, tool, stepCountIs } from 'ai'
 import { z } from 'zod'
 import { MODEL_GENERATION } from '../models'
-import { GenerationContext } from './generationContext'
+import { GenerationContext, withPromptCaching } from './generationContext'
 import { MutableBlueprint, type NewQuestion } from './mutableBlueprint'
-import { type BlueprintChildCase } from '../schemas/blueprint'
+import { type BlueprintChildCase, type CaseType } from '../schemas/blueprint'
 import { formBuilderPrompt } from '../prompts/formBuilderPrompt'
 
 const QUESTION_TYPES = [
@@ -30,7 +30,9 @@ const casePropertyMappingSchema = z.object({
 })
 
 export interface FormBuilderOptions {
-  knowledge: string
+  knowledge?: string
+  /** Case type definition for data model defaults. */
+  caseType?: CaseType | null
   /** Real module/form indices for streaming progress back to the client. */
   moduleIndex?: number
   formIndex?: number
@@ -41,37 +43,36 @@ export function createFormBuilderAgent(
   mb: MutableBlueprint,
   opts: FormBuilderOptions,
 ) {
+  const { caseType } = opts
+
   const emitQuestion = () => {
     if (opts.moduleIndex != null && opts.formIndex != null) {
       ctx.emit('data-question-added', { moduleIndex: opts.moduleIndex, formIndex: opts.formIndex, form: mb.getForm(0, 0)! })
     }
   }
 
+  // Build case_property field as an enum of available property names when case type is known
+  const casePropertyField = caseType
+    ? z.enum(caseType.properties.map(p => p.name) as [string, ...string[]]).optional()
+        .describe('Case property this question maps to. Defaults (label, hint, constraint, etc.) are applied automatically from the data model.')
+    : z.string().optional().describe('Case property name this question maps to.')
+
   const agent = new ToolLoopAgent({
     model: ctx.model(MODEL_GENERATION),
     instructions: formBuilderPrompt(opts.knowledge),
     stopWhen: stepCountIs(40),
-    onStepFinish: ({ usage, text, toolCalls, toolResults }) => {
-      if (usage) {
-        ctx.logger.logEvent({
-          type: 'orchestration',
-          agent: 'Form Builder',
-          label: 'Form builder step',
-          model: MODEL_GENERATION,
-          input_tokens: usage.inputTokens ?? 0,
-          output_tokens: usage.outputTokens ?? 0,
-          output: { text, toolResults },
-          tool_calls: toolCalls?.map((tc: any) => ({ name: tc.toolName, args: tc.args })),
-        })
-      }
-    },
+    ...withPromptCaching,
     tools: {
       addQuestion: tool({
         description: 'Add a question to the form. For groups/repeats, add the group first, then add children using parentId. Questions are appended at the end unless afterQuestionId is specified.',
         inputSchema: z.object({
           id: z.string().describe('Unique question id in snake_case'),
-          type: z.enum(QUESTION_TYPES),
-          label: z.string().optional().describe('Question label (omit for hidden)'),
+          type: z.enum(QUESTION_TYPES).describe(
+            'Question type.' + (caseType
+              ? ' When mapping to a case property, defaults to the property\'s data_type.'
+              : ' Pick the most specific type for the data being collected.')
+          ),
+          label: z.string().optional().describe('Question label (omit for hidden). When mapping to a case property, defaults to the property label.'),
           hint: z.string().optional(),
           help: z.string().optional(),
           required: z.string().optional().describe('"true()" if always required. XPath for conditional. Omit if not required.'),
@@ -82,13 +83,33 @@ export function createFormBuilderAgent(
           calculate: z.string().optional(),
           default_value: z.string().optional(),
           options: z.array(selectOptionSchema).optional(),
-          case_property: z.string().optional(),
-          is_case_name: z.boolean().optional(),
+          case_property: casePropertyField,
+          is_case_name: z.boolean().optional().describe(
+            caseType
+              ? 'Auto-derived from case_name_property in the data model. Only set explicitly to override.'
+              : 'True if this question provides the case name.'
+          ),
           afterQuestionId: z.string().optional().describe('Insert after this question ID. Omit to append at end.'),
           parentId: z.string().optional().describe('ID of a group/repeat to nest inside'),
         }),
         execute: async ({ afterQuestionId, parentId, ...question }) => {
           try {
+            // Auto-merge data model defaults from case type
+            if (question.case_property && caseType) {
+              const prop = caseType.properties.find(p => p.name === question.case_property)
+              if (prop) {
+                question.type ??= (prop.data_type ?? 'text') as any
+                question.label ??= prop.label
+                question.hint ??= prop.hint
+                question.help ??= prop.help
+                question.required ??= prop.required
+                question.constraint ??= prop.constraint
+                question.constraint_msg ??= prop.constraint_msg
+                question.options ??= prop.options
+              }
+              // Auto-derive is_case_name when mapping to the case name property
+              question.is_case_name ??= caseType.case_name_property === question.case_property ? true : undefined
+            }
             mb.addQuestion(0, 0, question as NewQuestion, { afterId: afterQuestionId, parentId })
             emitQuestion()
             return { added: question.id, parentId: parentId ?? null }

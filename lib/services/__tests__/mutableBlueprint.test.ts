@@ -48,6 +48,7 @@ function makeBlueprint(): AppBlueprint {
         ],
       },
     ],
+    case_types: [{ name: 'client', case_name_property: 'full_name', properties: [{ name: 'full_name', label: 'Full Name' }, { name: 'email_address', label: 'Email Address' }] }],
   }
 }
 
@@ -298,6 +299,66 @@ describe('MutableBlueprint', () => {
       const result = mb.renameCaseProperty('nonexistent', 'foo', 'bar')
       expect(result.formsChanged).toEqual([])
       expect(result.columnsChanged).toEqual([])
+    })
+  })
+
+  describe('case type access', () => {
+    it('getCaseType returns the case type', () => {
+      const mb = new MutableBlueprint(makeBlueprint())
+      const ct = mb.getCaseType('client')
+      expect(ct?.name).toBe('client')
+      expect(ct?.properties.length).toBe(2)
+    })
+
+    it('getCaseType returns null for nonexistent case type', () => {
+      const mb = new MutableBlueprint(makeBlueprint())
+      expect(mb.getCaseType('nonexistent')).toBeNull()
+    })
+
+    it('getCaseProperty returns a property', () => {
+      const mb = new MutableBlueprint(makeBlueprint())
+      const prop = mb.getCaseProperty('client', 'full_name')
+      expect(prop?.label).toBe('Full Name')
+    })
+
+    it('getCaseProperty returns null for nonexistent property', () => {
+      const mb = new MutableBlueprint(makeBlueprint())
+      expect(mb.getCaseProperty('client', 'nonexistent')).toBeNull()
+    })
+
+    it('updateCaseProperty updates property metadata', () => {
+      const mb = new MutableBlueprint(makeBlueprint())
+      mb.updateCaseProperty('client', 'full_name', { label: 'Client Full Name', hint: 'Enter legal name' })
+      const prop = mb.getCaseProperty('client', 'full_name')
+      expect(prop?.label).toBe('Client Full Name')
+      expect(prop?.hint).toBe('Enter legal name')
+    })
+
+    it('updateCaseProperty throws for nonexistent case type', () => {
+      const mb = new MutableBlueprint(makeBlueprint())
+      expect(() => mb.updateCaseProperty('bad', 'full_name', { label: 'X' })).toThrow()
+    })
+
+    it('updateCaseProperty throws for nonexistent property', () => {
+      const mb = new MutableBlueprint(makeBlueprint())
+      expect(() => mb.updateCaseProperty('client', 'bad', { label: 'X' })).toThrow()
+    })
+  })
+
+  describe('renameCaseProperty propagates to case_types', () => {
+    it('renames property in case_types definition', () => {
+      const mb = new MutableBlueprint(makeBlueprint())
+      mb.renameCaseProperty('client', 'email_address', 'contact_email')
+      const ct = mb.getCaseType('client')
+      expect(ct?.properties.some(p => p.name === 'contact_email')).toBe(true)
+      expect(ct?.properties.some(p => p.name === 'email_address')).toBe(false)
+    })
+
+    it('renames case_name_property when it matches', () => {
+      const mb = new MutableBlueprint(makeBlueprint())
+      mb.renameCaseProperty('client', 'full_name', 'legal_name')
+      const ct = mb.getCaseType('client')
+      expect(ct?.case_name_property).toBe('legal_name')
     })
   })
 

@@ -35,6 +35,8 @@ export interface RunEvent {
   model: string
   input_tokens: number
   output_tokens: number
+  cache_read_tokens?: number
+  cache_write_tokens?: number
   cost_estimate: number
   knowledge?: string[]
   input?: { system: string; message: unknown; tools?: unknown }
@@ -94,7 +96,7 @@ export class RunLogger {
       ...event,
       index: this.log.events.length,
       timestamp: new Date().toISOString(),
-      cost_estimate: estimateCost(event.model, event.input_tokens, event.output_tokens),
+      cost_estimate: estimateCost(event.model, event.input_tokens, event.output_tokens, event.cache_read_tokens, event.cache_write_tokens),
     })
     if (this.enabled) this.flush()
   }
@@ -211,9 +213,21 @@ export class RunLogger {
 
 // ── Helpers ─────────────────────────────────────────────────────────────
 
-function estimateCost(model: string, inputTokens: number, outputTokens: number): number {
+function estimateCost(
+  model: string,
+  inputTokens: number,
+  outputTokens: number,
+  cacheReadTokens?: number,
+  cacheWriteTokens?: number,
+): number {
   const pricing = MODEL_PRICING[model] ?? DEFAULT_PRICING
-  return (inputTokens * pricing.input + outputTokens * pricing.output) / 1_000_000
+  const uncachedInput = inputTokens - (cacheReadTokens ?? 0) - (cacheWriteTokens ?? 0)
+  return (
+    uncachedInput * pricing.input +
+    (cacheReadTokens ?? 0) * pricing.cacheRead +
+    (cacheWriteTokens ?? 0) * pricing.cacheWrite +
+    outputTokens * pricing.output
+  ) / 1_000_000
 }
 
 /** Check if a tool call name matches a generation label. */
