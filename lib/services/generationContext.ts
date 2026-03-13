@@ -79,6 +79,7 @@ export class GenerationContext {
         output_tokens: result.usage.outputTokens ?? 0,
         input: { system: opts.system, message: opts.prompt },
         output: result.output,
+        ...(result.reasoningText && { reasoningText: result.reasoningText }),
         ...(opts.knowledge && { knowledge: opts.knowledge }),
       })
     }
@@ -109,7 +110,7 @@ export class GenerationContext {
     }
 
     logWarnings(`streamGenerate:${opts.label}`, await result.warnings)
-    const usage = await result.usage
+    const [usage, reasoningText] = await Promise.all([result.usage, result.reasoningText])
     if (usage) {
       this.logger.logSubResult(opts.label, {
         model,
@@ -117,6 +118,7 @@ export class GenerationContext {
         output_tokens: usage.outputTokens ?? 0,
         input: { system: opts.system, message: opts.prompt },
         output: last,
+        ...(reasoningText && { reasoningText }),
         ...(opts.knowledge && { knowledge: opts.knowledge }),
       })
     }
@@ -144,7 +146,7 @@ export class GenerationContext {
 
     const result = await agent.stream({
       prompt: opts.prompt,
-      onStepFinish: ({ usage, text, toolCalls, toolResults, warnings }) => {
+      onStepFinish: ({ usage, text, reasoningText, toolCalls, toolResults, warnings }) => {
         logWarnings(`runAgent:${opts.label}`, warnings)
         if (usage) {
           const isFirst = stepNumber === 0
@@ -159,7 +161,7 @@ export class GenerationContext {
             cache_write_tokens: usage.inputTokenDetails?.cacheWriteTokens ?? undefined,
             // Log the full input context on the first step for debuggability
             ...(isFirst && { input: { system: (agent as any).settings?.instructions, message: opts.prompt } }),
-            output: { text, toolResults },
+            output: { text, ...(reasoningText && { reasoningText }), toolResults },
             tool_calls: toolCalls?.map((tc: any) => ({ name: tc.toolName, args: tc.input })),
             ...(isFirst && opts.knowledge && { knowledge: opts.knowledge }),
           })
