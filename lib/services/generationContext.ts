@@ -6,11 +6,20 @@
  * data part emission. Used by both the Product Manager and Solutions Architect agents.
  */
 import { streamText, generateText, Output } from 'ai'
-import type { ModelMessage, ToolLoopAgent, UIMessageStreamWriter } from 'ai'
+import type { CallWarning, ModelMessage, ToolLoopAgent, UIMessageStreamWriter } from 'ai'
 import { createAnthropic } from '@ai-sdk/anthropic'
 import { z } from 'zod'
 import { MODEL_GENERATION } from '../models'
 import { RunLogger } from './runLogger'
+
+/** Log AI SDK warnings to the console if present. */
+export function logWarnings(label: string, warnings: CallWarning[] | undefined) {
+  if (warnings?.length) {
+    for (const w of warnings) {
+      console.warn(`[${label}] warning:`, w)
+    }
+  }
+}
 
 const ANTHROPIC_CACHE_CONTROL = { anthropic: { cacheControl: { type: 'ephemeral' as const } } }
 
@@ -62,6 +71,7 @@ export class GenerationContext {
       prompt: opts.prompt,
       maxOutputTokens: opts.maxOutputTokens,
     })
+    logWarnings(`generate:${opts.label}`, result.warnings)
     if (result.usage) {
       this.logger.logSubResult(opts.label, {
         model,
@@ -87,6 +97,9 @@ export class GenerationContext {
       system: opts.system,
       prompt: opts.prompt,
       maxOutputTokens: opts.maxOutputTokens,
+      onError({ error }) {
+        console.error(`[streamGenerate:${opts.label}] error:`, error)
+      },
     })
 
     let last: T | null = null
@@ -95,6 +108,7 @@ export class GenerationContext {
       last = partial as T
     }
 
+    logWarnings(`streamGenerate:${opts.label}`, await result.warnings)
     const usage = await result.usage
     if (usage) {
       this.logger.logSubResult(opts.label, {
@@ -130,7 +144,8 @@ export class GenerationContext {
 
     const result = await agent.stream({
       prompt: opts.prompt,
-      onStepFinish: ({ usage, text, toolCalls, toolResults }) => {
+      onStepFinish: ({ usage, text, toolCalls, toolResults, warnings }) => {
+        logWarnings(`runAgent:${opts.label}`, warnings)
         if (usage) {
           const isFirst = stepNumber === 0
           this.logger.logEvent({

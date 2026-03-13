@@ -8,7 +8,7 @@
 import { ToolLoopAgent, tool, hasToolCall, stepCountIs } from 'ai'
 import { z } from 'zod'
 import { MODEL_GENERATION } from '../models'
-import { GenerationContext, withPromptCaching } from './generationContext'
+import { GenerationContext, logWarnings, withPromptCaching } from './generationContext'
 import { ARCHITECT_PROMPT } from '../prompts/architectPrompt'
 import { EDIT_ARCHITECT_PROMPT } from '../prompts/editArchitectPrompt'
 import { scaffoldPrompt } from '../prompts/scaffoldPrompt'
@@ -397,7 +397,8 @@ export function createArchitectAgent(
     instructions: ARCHITECT_PROMPT,
     stopWhen: stepCountIs(50),
     ...withPromptCaching,
-    onStepFinish: ({ usage, text, toolCalls, toolResults }) => {
+    onStepFinish: ({ usage, text, toolCalls, toolResults, warnings }) => {
+      logWarnings('Solutions Architect', warnings)
       if (usage) {
         ctx.logger.logEvent({
           type: 'orchestration',
@@ -652,7 +653,8 @@ export function createEditArchitectAgent(
     instructions: EDIT_ARCHITECT_PROMPT,
     stopWhen: stepCountIs(50),
     ...withPromptCaching,
-    onStepFinish: ({ usage, text, toolCalls, toolResults }) => {
+    onStepFinish: ({ usage, text, toolCalls, toolResults, warnings }) => {
+      logWarnings('Edit Architect', warnings)
       if (usage) {
         ctx.logger.logEvent({
           type: 'orchestration',

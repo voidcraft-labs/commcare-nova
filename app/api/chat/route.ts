@@ -180,7 +180,10 @@ export async function POST(req: Request) {
       const agentStream = await createAgentUIStream({
         agent: productManager,
         uiMessages: messages,
-        onStepFinish: ({ usage, text, toolCalls, toolResults }) => {
+        onStepFinish: ({ usage, text, toolCalls, toolResults, warnings }) => {
+          if (warnings?.length) {
+            for (const w of warnings) console.warn('[PM step] warning:', w)
+          }
           if (usage) {
             logger.logEvent({
               type: 'orchestration',
@@ -201,7 +204,10 @@ export async function POST(req: Request) {
         logger.finalize()
       }
     },
-    onError: (error) => error instanceof Error ? error.message : String(error),
+    onError: (error) => {
+      console.error('[chat] stream error:', error)
+      return error instanceof Error ? error.message : String(error)
+    },
   })
 
   return createUIMessageStreamResponse({ stream })
