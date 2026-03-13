@@ -13,7 +13,6 @@ import { useBuilder } from '@/hooks/useBuilder'
 import { BuilderPhase } from '@/lib/services/builder'
 import { summarizeBlueprint } from '@/lib/schemas/blueprint'
 import { Logo } from '@/components/ui/Logo'
-import { Badge } from '@/components/ui/Badge'
 import { ChatSidebar } from '@/components/chat/ChatSidebar'
 import { AppTree } from '@/components/builder/AppTree'
 import { DetailPanel } from '@/components/builder/DetailPanel'
@@ -33,7 +32,7 @@ export function BuilderLayout({ buildId }: { buildId: string }) {
   const { apiKey, loaded } = useApiKey()
   const builder = useBuilder()
   const [chatOpen, setChatOpen] = useState(true)
-  const [progressDismissed, setProgressDismissed] = useState(false)
+  const [progressHidden, setProgressHidden] = useState(false)
 
   const apiKeyRef = useRef(apiKey)
   apiKeyRef.current = apiKey
@@ -80,8 +79,11 @@ export function BuilderLayout({ buildId }: { buildId: string }) {
     if (loaded && !apiKey) router.push('/')
   }, [loaded, apiKey, router])
 
-  const isGenerating = [BuilderPhase.Designing, BuilderPhase.Modules, BuilderPhase.Forms, BuilderPhase.Validating, BuilderPhase.Fixing, BuilderPhase.Editing].includes(builder.phase)
-  if (isGenerating && progressDismissed) setProgressDismissed(false)
+  const isGenerating = [BuilderPhase.Planning, BuilderPhase.Designing, BuilderPhase.Modules, BuilderPhase.Forms, BuilderPhase.Validating, BuilderPhase.Fixing, BuilderPhase.Editing].includes(builder.phase)
+
+  // Progress is centered when there's no tree data yet, compact once the tree appears
+  const progressMode = builder.treeData ? 'compact' as const : 'centered' as const
+  if (isGenerating && progressHidden) setProgressHidden(false)
 
   const handleSend = useCallback((text: string) => {
     if (!text.trim() || !apiKey) return
@@ -129,7 +131,7 @@ export function BuilderLayout({ buildId }: { buildId: string }) {
 
   if (!loaded) return null
 
-  const showProgress = (isGenerating || builder.phase === BuilderPhase.Done) && !progressDismissed
+  const showProgress = (isGenerating || builder.phase === BuilderPhase.Done) && !progressHidden
 
   return (
     <LayoutGroup>
@@ -192,81 +194,75 @@ export function BuilderLayout({ buildId }: { buildId: string }) {
           <AnimatePresence>
             {!isCentered && (
               <motion.div
-                className="flex-1 overflow-auto relative"
+                className="flex-1 relative"
                 initial={{ opacity: 0 }}
                 animate={{ opacity: 1 }}
                 exit={{ opacity: 0 }}
                 transition={{ duration: 0.3, delay: 0.15 }}
               >
-                {!chatOpen && (
-                  <button
-                    onClick={() => setChatOpen(true)}
-                    className="absolute top-3 left-3 z-10 p-2 bg-nova-surface border border-nova-border rounded-lg hover:border-nova-border-bright transition-colors"
-                    title="Open chat"
-                  >
-                    <Icon icon={ciHamburgerMd} width="16" height="16" />
-                  </button>
-                )}
+                <div className="absolute inset-0 overflow-auto">
+                  {!chatOpen && (
+                    <button
+                      onClick={() => setChatOpen(true)}
+                      className="absolute top-3 left-3 z-10 p-2 bg-nova-surface border border-nova-border rounded-lg hover:border-nova-border-bright transition-colors"
+                      title="Open chat"
+                    >
+                      <Icon icon={ciHamburgerMd} width="16" height="16" />
+                    </button>
+                  )}
 
-                {(builder.phase === BuilderPhase.Planning || (builder.phase === BuilderPhase.Editing && !builder.treeData) || (builder.phase === BuilderPhase.Designing && !builder.treeData)) ? (
-                  <div className="flex items-center justify-center h-full">
-                    <div className="flex items-center gap-3 text-sm text-nova-text-muted">
-                      <span className="inline-block w-2 h-2 rounded-full bg-nova-violet animate-pulse" />
-                      {builder.statusMessage}
-                    </div>
-                  </div>
-                ) : (
-                  <AppTree
-                    data={builder.treeData}
-                    selected={builder.selected}
-                    onSelect={(s) => builder.select(s)}
-                    phase={builder.phase}
-                    actions={
-                      <>
-                        {isGenerating && (
-                          <Badge variant="violet">
-                            <span className="inline-block w-1.5 h-1.5 rounded-full bg-nova-violet-bright animate-pulse mr-1.5" />
-                            {builder.phase === BuilderPhase.Editing ? 'Editing' : 'Generating'}
-                          </Badge>
-                        )}
-                        {builder.phase === BuilderPhase.Done && builder.blueprint && (
-                          <>
-                            <DownloadDropdown
-                              options={[
-                                {
-                                  label: 'JSON',
-                                  description: 'For CommCare HQ',
-                                  icon: <Icon icon={ciFileDocument} width="28" height="28" />,
-                                  onClick: handleDownloadJson,
-                                },
-                                {
-                                  label: 'CCZ',
-                                  description: 'For CommCare mobile',
-                                  icon: <Icon icon={ciDownloadPackage} width="28" height="28" />,
-                                  onClick: handleCompile,
-                                },
-                              ]}
-                            />
-                          </>
-                        )}
-                      </>
-                    }
-                  />
-                )}
+                  {builder.treeData ? (
+                    <AppTree
+                      data={builder.treeData}
+                      selected={builder.selected}
+                      onSelect={(s) => builder.select(s)}
+                      phase={builder.phase}
+                      actions={
+                        builder.phase === BuilderPhase.Done && builder.blueprint ? (
+                          <DownloadDropdown
+                            options={[
+                              {
+                                label: 'JSON',
+                                description: 'For CommCare HQ',
+                                icon: <Icon icon={ciFileDocument} width="28" height="28" />,
+                                onClick: handleDownloadJson,
+                              },
+                              {
+                                label: 'CCZ',
+                                description: 'For CommCare mobile',
+                                icon: <Icon icon={ciDownloadPackage} width="28" height="28" />,
+                                onClick: handleCompile,
+                              },
+                            ]}
+                          />
+                        ) : undefined
+                      }
+                    />
+                  ) : null}
+                </div>
 
                 <AnimatePresence>
                   {showProgress && (
-                    <div className="fixed bottom-4 inset-x-0 z-10 flex justify-center pointer-events-none">
+                    <motion.div
+                      layout
+                      className={`absolute z-10 pointer-events-none ${
+                        progressMode === 'centered'
+                          ? 'inset-0 flex items-center justify-center'
+                          : 'bottom-4 inset-x-0 flex justify-center'
+                      }`}
+                      transition={{ layout: { duration: 0.5, ease: [0.4, 0, 0.2, 1] } }}
+                    >
                       <div className="pointer-events-auto">
                         <GenerationProgress
                           phase={builder.phase}
                           message={builder.statusMessage}
                           completed={builder.progressCompleted}
                           total={builder.progressTotal}
-                          onDismiss={() => setProgressDismissed(true)}
+                          mode={progressMode}
+                          onDone={() => setProgressHidden(true)}
                         />
                       </div>
-                    </div>
+                    </motion.div>
                   )}
                 </AnimatePresence>
               </motion.div>

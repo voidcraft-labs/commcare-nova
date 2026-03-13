@@ -66,29 +66,24 @@ export class Builder {
     this.listeners.forEach(fn => fn())
   }
 
-  /** Derive progress counts from the scaffold and partialModules state. */
+  /** Derive progress counts from the scaffold and partialModules state.
+   *  Modules + Forms are a single "Build" phase — count all content items together. */
   private updateProgress() {
-    if (!this.scaffold) {
+    if (!this.scaffold || (this.phase !== BuilderPhase.Modules && this.phase !== BuilderPhase.Forms)) {
       this.progressCompleted = 0
       this.progressTotal = 0
       return
     }
 
-    if (this.phase === BuilderPhase.Modules) {
-      this.progressTotal = this.scaffold.modules.length
-      this.progressCompleted = 0
-      for (const [, partial] of this.partialModules) {
-        if (partial.caseListColumns !== undefined) this.progressCompleted++
-      }
-    } else if (this.phase === BuilderPhase.Forms) {
-      this.progressTotal = this.scaffold.modules.reduce((sum, m) => sum + m.forms.length, 0)
-      this.progressCompleted = 0
-      for (const [, partial] of this.partialModules) {
-        this.progressCompleted += partial.forms.size
-      }
-    } else {
-      this.progressCompleted = 0
-      this.progressTotal = 0
+    // Total = modules + all forms across modules
+    this.progressTotal = this.scaffold.modules.length +
+      this.scaffold.modules.reduce((sum, m) => sum + m.forms.length, 0)
+
+    // Completed = modules with columns + forms with content
+    this.progressCompleted = 0
+    for (const [, partial] of this.partialModules) {
+      if (partial.caseListColumns !== undefined) this.progressCompleted++
+      this.progressCompleted += partial.forms.size
     }
   }
 
@@ -181,8 +176,8 @@ export class Builder {
     const statusMap: Record<string, string> = {
       designing: 'Designing app architecture...',
       editing: 'Applying changes...',
-      modules: 'Generating module content...',
-      forms: 'Generating form content...',
+      modules: 'Building app content...',
+      forms: 'Building app content...',
       validating: 'Validating blueprint...',
       fixing: 'Fixing validation errors...',
     }
