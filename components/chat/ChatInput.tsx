@@ -45,7 +45,7 @@ export function ChatInput({ onSend, disabled, centered }: ChatInputProps) {
           value={value}
           onChange={(e) => { setValue(e.target.value); handleInput() }}
           onKeyDown={handleKeyDown}
-          placeholder={centered ? 'Tell me about the app you want to build...' : 'Describe your app...'}
+          placeholder={centered ? 'Tell me about the app you want to build...' : 'Ask for changes...'}
           disabled={disabled}
           rows={1}
           className={`flex-1 resize-none bg-transparent border-none text-sm text-nova-text placeholder:text-nova-text-muted focus:outline-none disabled:opacity-50 ${centered ? 'px-4 py-3' : 'px-3 py-2'}`}

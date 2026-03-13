@@ -4,14 +4,14 @@ import { motion } from 'motion/react'
 export function ThinkingIndicator() {
   return (
     <motion.div
-      initial={{ opacity: 0, y: 6 }}
-      animate={{ opacity: 1, y: 0 }}
-      exit={{ opacity: 0, y: -4 }}
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
       transition={{ duration: 0.25, ease: 'easeOut' }}
       className="flex items-center gap-2.5 px-1 py-1"
     >
       {/* Orbital dot animation */}
-      <div className="relative w-5 h-5">
+      <div className="relative w-5 h-5 overflow-hidden">
         <motion.div
           className="absolute inset-0 rounded-full border border-nova-violet/25"
           animate={{ rotate: 360 }}
