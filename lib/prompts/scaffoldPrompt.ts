@@ -37,6 +37,8 @@ For each property, define the full metadata that forms will use as defaults:
 - **hint/help**: Guidance text
 - **options**: Choices for select properties
 
+All XPath expressions (constraint, required) must use raw operators (>, <, >=, <=). Never HTML-escape them.
+
 This metadata is the app-wide standard for every question that maps to this property. Forms inherit these defaults automatically — only form-specific overrides need to differ.
 
 For each case type, decide which property identifies the case — that's the case_name_property. Pick whatever field a user would scan for when looking through a list of cases.
