@@ -2,8 +2,8 @@
 import { motion } from 'motion/react'
 import { Icon } from '@iconify/react'
 import ciCloseMd from '@iconify-icons/ci/close-md'
-import type { AppBlueprint, BlueprintForm, BlueprintQuestion } from '@/lib/schemas/blueprint'
-import { displayText } from '@/lib/schemas/blueprint'
+import type { AppBlueprint, BlueprintForm, Question } from '@/lib/schemas/blueprint'
+import { deriveCaseConfig } from '@/lib/schemas/blueprint'
 import { Badge } from '@/components/ui/Badge'
 
 interface DetailPanelProps {
@@ -20,7 +20,7 @@ export function DetailPanel({ blueprint, selected, onUpdate, onClose }: DetailPa
   const form = selected.formIndex !== undefined ? mod.forms[selected.formIndex] : undefined
 
   // Find question by ID (recursively)
-  function findQuestion(questions: BlueprintQuestion[], id: string): BlueprintQuestion | undefined {
+  function findQuestion(questions: Question[], id: string): Question | undefined {
     for (const q of questions) {
       if (q.id === id) return q
       if (q.children) {
@@ -62,7 +62,7 @@ export function DetailPanel({ blueprint, selected, onUpdate, onClose }: DetailPa
           <>
             <div>
               <label className="text-xs text-nova-text-muted uppercase tracking-wider mb-1 block">Name</label>
-              <p className="text-sm font-medium">{displayText(mod.name)}</p>
+              <p className="text-sm font-medium">{mod.name}</p>
             </div>
             {mod.case_type && (
               <div>
@@ -87,7 +87,7 @@ export function DetailPanel({ blueprint, selected, onUpdate, onClose }: DetailPa
                   {mod.case_list_columns.map((col, i) => (
                     <div key={i} className="grid grid-cols-[1fr_auto] border-t border-nova-border/40">
                       <div className="px-3 py-1.5 text-sm text-nova-text-secondary">
-                        {displayText(col.header)}
+                        {col.header}
                       </div>
                       <div className="px-3 py-1.5 text-xs font-mono text-nova-text-muted border-l border-nova-border/30">
                         {col.field}
@@ -105,7 +105,7 @@ export function DetailPanel({ blueprint, selected, onUpdate, onClose }: DetailPa
                     <Badge variant={f.type === 'registration' ? 'emerald' : f.type === 'followup' ? 'cyan' : 'amber'}>
                       {f.type}
                     </Badge>
-                    <span>{displayText(f.name)}</span>
+                    <span>{f.name}</span>
                   </div>
                 ))}
               </div>
@@ -118,7 +118,7 @@ export function DetailPanel({ blueprint, selected, onUpdate, onClose }: DetailPa
           <>
             <div>
               <label className="text-xs text-nova-text-muted uppercase tracking-wider mb-1 block">Name</label>
-              <p className="text-sm font-medium">{displayText(form.name)}</p>
+              <p className="text-sm font-medium">{form.name}</p>
             </div>
             <div>
               <label className="text-xs text-nova-text-muted uppercase tracking-wider mb-1 block">Type</label>
@@ -126,38 +126,45 @@ export function DetailPanel({ blueprint, selected, onUpdate, onClose }: DetailPa
                 {form.type}
               </Badge>
             </div>
-            {form.case_name_field && (
-              <div>
-                <label className="text-xs text-nova-text-muted uppercase tracking-wider mb-1 block">Case Name Field</label>
-                <p className="text-sm font-mono text-nova-cyan-bright">{form.case_name_field}</p>
-              </div>
-            )}
-            {form.case_properties && form.case_properties.length > 0 && (
-              <div>
-                <label className="text-xs text-nova-text-muted uppercase tracking-wider mb-1 block">Case Properties</label>
-                <div className="space-y-1">
-                  {form.case_properties.map(({ case_property, question_id }) => (
-                    <div key={case_property} className="flex items-center justify-between text-xs px-2 py-1 bg-nova-surface rounded">
-                      <span className="text-nova-text-secondary">{case_property}</span>
-                      <span className="font-mono text-nova-text-muted">&larr; {question_id}</span>
+            {(() => {
+              const { case_name_field, case_properties, case_preload } = deriveCaseConfig(form.questions || [], form.type)
+              return (
+                <>
+                  {case_name_field && (
+                    <div>
+                      <label className="text-xs text-nova-text-muted uppercase tracking-wider mb-1 block">Case Name Field</label>
+                      <p className="text-sm font-mono text-nova-cyan-bright">{case_name_field}</p>
                     </div>
-                  ))}
-                </div>
-              </div>
-            )}
-            {form.case_preload && form.case_preload.length > 0 && (
-              <div>
-                <label className="text-xs text-nova-text-muted uppercase tracking-wider mb-1 block">Case Preload</label>
-                <div className="space-y-1">
-                  {form.case_preload.map(({ question_id, case_property }) => (
-                    <div key={question_id} className="flex items-center justify-between text-xs px-2 py-1 bg-nova-surface rounded">
-                      <span className="font-mono text-nova-text-muted">{question_id}</span>
-                      <span className="text-nova-text-secondary">&larr; {case_property}</span>
+                  )}
+                  {case_properties && case_properties.length > 0 && (
+                    <div>
+                      <label className="text-xs text-nova-text-muted uppercase tracking-wider mb-1 block">Case Properties</label>
+                      <div className="space-y-1">
+                        {case_properties.map(({ case_property, question_id }) => (
+                          <div key={case_property} className="flex items-center justify-between text-xs px-2 py-1 bg-nova-surface rounded">
+                            <span className="text-nova-text-secondary">{case_property}</span>
+                            <span className="font-mono text-nova-text-muted">&larr; {question_id}</span>
+                          </div>
+                        ))}
+                      </div>
                     </div>
-                  ))}
-                </div>
-              </div>
-            )}
+                  )}
+                  {case_preload && case_preload.length > 0 && (
+                    <div>
+                      <label className="text-xs text-nova-text-muted uppercase tracking-wider mb-1 block">Case Preload</label>
+                      <div className="space-y-1">
+                        {case_preload.map(({ question_id, case_property }) => (
+                          <div key={question_id} className="flex items-center justify-between text-xs px-2 py-1 bg-nova-surface rounded">
+                            <span className="font-mono text-nova-text-muted">{question_id}</span>
+                            <span className="text-nova-text-secondary">&larr; {case_property}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </>
+              )
+            })()}
             {form.close_case && (
               <div>
                 <label className="text-xs text-nova-text-muted uppercase tracking-wider mb-1 block">Close Case</label>
@@ -181,7 +188,7 @@ export function DetailPanel({ blueprint, selected, onUpdate, onClose }: DetailPa
             {question.label && (
               <div>
                 <label className="text-xs text-nova-text-muted uppercase tracking-wider mb-1 block">Label</label>
-                <p className="text-sm font-medium">{displayText(question.label)}</p>
+                <p className="text-sm font-medium">{question.label}</p>
               </div>
             )}
             <div>
@@ -204,7 +211,7 @@ export function DetailPanel({ blueprint, selected, onUpdate, onClose }: DetailPa
             {question.hint && (
               <div>
                 <label className="text-xs text-nova-text-muted uppercase tracking-wider mb-1 block">Hint</label>
-                <p className="text-sm text-nova-text-secondary">{displayText(question.hint)}</p>
+                <p className="text-sm text-nova-text-secondary">{question.hint}</p>
               </div>
             )}
             {question.required && (
@@ -222,7 +229,7 @@ export function DetailPanel({ blueprint, selected, onUpdate, onClose }: DetailPa
                 <label className="text-xs text-nova-text-muted uppercase tracking-wider mb-1 block">Constraint</label>
                 <p className="text-sm font-mono text-nova-text-secondary">{question.constraint}</p>
                 {question.constraint_msg && (
-                  <p className="text-xs text-nova-amber mt-1">{displayText(question.constraint_msg)}</p>
+                  <p className="text-xs text-nova-amber mt-1">{question.constraint_msg}</p>
                 )}
               </div>
             )}
@@ -250,7 +257,7 @@ export function DetailPanel({ blueprint, selected, onUpdate, onClose }: DetailPa
                 <div className="space-y-1">
                   {question.options.map((opt, i) => (
                     <div key={i} className="flex items-center justify-between text-xs px-2 py-1 bg-nova-surface rounded">
-                      <span>{displayText(opt.label)}</span>
+                      <span>{opt.label}</span>
                       <span className="font-mono text-nova-text-muted">{opt.value}</span>
                     </div>
                   ))}
