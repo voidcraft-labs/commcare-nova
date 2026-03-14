@@ -129,6 +129,7 @@ When a question maps to a case property (via case_property), the data model prov
 - **Prefer calculated fields** over asking the user for derived data.
 - **Use relevant** for conditional visibility to keep forms short. One decision point, then conditional detail.
 - **Use constraint** with human-friendly constraint_msg on fields where invalid input is possible.
+- **Labels as warnings/alerts**: A label without relevant shows unconditionally — useless as a warning. To show a warning when a condition is met (e.g. age < 18), set relevant to that condition so the label only appears when triggered. To also block form submission until the condition is resolved, add constraint="false()" — this always fails validation while the label is visible. There is no need to duplicate the condition in both relevant and constraint: if relevant evaluates to false the element does not exist, so its constraint is never evaluated.
 - **Default the common case**: Use default_value (e.g. today()) when 90%+ of submissions will use the same value.
 - **Choose the right type**: phone for phone numbers, date for dates, select1 for yes/no, hidden+calculate for derived values.
 
