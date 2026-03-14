@@ -13,7 +13,7 @@ const followupBlueprint: AppBlueprint = {
       type: 'followup',
       questions: [
         { id: 'client_info', type: 'group', label: 'Client Info', children: [
-          { id: 'display_name', type: 'text', label: 'Name', readonly: true, case_property: 'full_name' },
+          { id: 'display_name', type: 'text', label: 'Name', case_property: 'full_name' },
         ]},
         { id: 'visit_number', type: 'hidden', calculate: '#case/total_visits + 1', case_property: 'total_visits' },
         { id: 'notes', type: 'text', label: 'Notes' },
@@ -138,7 +138,7 @@ describe('expandBlueprint', () => {
       app_name: 'DV', modules: [{
         name: 'M', case_type: 'c', forms: [{
           name: 'F', type: 'followup',
-          questions: [{ id: 'display_name', type: 'text', label: 'Name', readonly: true, default_value: '#case/full_name', case_property: 'full_name' }],
+          questions: [{ id: 'display_name', type: 'text', label: 'Name', default_value: '#case/full_name', case_property: 'full_name' }],
         }],
       }],
       case_types: [{ name: 'c', case_name_property: 'full_name', properties: [{ name: 'full_name', label: 'Full Name' }] }],
@@ -288,7 +288,7 @@ describe('output references in labels', () => {
         name: 'M', case_type: 'c', forms: [{
           name: 'F', type: 'followup',
           questions: [
-            { id: 'n', type: 'text', label: 'Name', readonly: true, case_property: 'full_name' },
+            { id: 'n', type: 'text', label: 'Name', case_property: 'full_name' },
             { id: 'msg', type: 'trigger', label: 'Patient: <output value="#case/full_name"/>' },
           ],
         }],
@@ -386,7 +386,7 @@ describe('conditional required', () => {
         name: 'M', case_type: 'c', forms: [{
           name: 'F', type: 'followup',
           questions: [
-            { id: 'q', type: 'text', label: 'Q', readonly: true, case_property: 'risk' },
+            { id: 'q', type: 'text', label: 'Q', case_property: 'risk' },
             { id: 'notes', type: 'text', label: 'Notes', required: "#case/risk = 'high'" },
           ],
         }],

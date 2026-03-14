@@ -35,7 +35,6 @@ export interface FlatQuestion {
   hint?: string
   help?: string
   required?: string
-  readonly?: boolean
   constraint?: string
   constraint_msg?: string
   relevant?: string
@@ -126,9 +125,6 @@ const questionSchema = z.object({
   required: z.string().describe(
     '"true()" if always required. An XPath expression for conditional requirement (e.g. "/data/age >= 18"). Empty string if not required.'
   ),
-  readonly: z.boolean().describe(
-    'True if visible but not editable. Use for display-only preloaded values in followup forms. False if editable.'
-  ),
   constraint: z.string().optional().describe(
     'XPath constraint expression (e.g. ". > 0 and . < 150"). Use raw operators (>, <, >=, <=), never HTML-escaped. Omit if none.'
   ),
@@ -152,7 +148,7 @@ const questionSchema = z.object({
   case_property: z.string().describe(
     'Case property this question maps to. Must match a property name from the module\'s case type. ' +
     'On registration forms, the answer is saved to this property. ' +
-    'On followup forms, the property value is preloaded and saved back (unless readonly). ' +
+    'On followup forms, the property value is preloaded and saved back. ' +
     'Defaults (label, hint, constraint, etc.) are applied automatically from the data model. ' +
     'Empty string if this question does not map to a case property. ' +
     'Must NOT be set on media questions (image, audio, video, signature).'

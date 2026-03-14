@@ -68,18 +68,17 @@ GROUP: "contact" (label: "Contact Details")
   - village (text, case_property: village)
 
 GROUP: "enrollment" (label: "Enrollment")
-  - enrollment_date (date, case_property: enrollment_date, readonly)
-    Readonly — enrollment date shouldn't change after registration.
-  - referred_by (select, case_property: referred_by, readonly)
-    Also readonly in followup — historical fact, not editable.
+  - enrollment_info (trigger, label: "Enrolled: <output value="#case/enrollment_date"/> | Referred by: <output value="#case/referred_by"/>")
+    Display-only context — uses a trigger with output references to show
+    historical facts that shouldn't change after registration.
 ```
 
 Key coordination rules:
 - Same question order as registration
 - Same groups with same labels
 - Same question IDs where possible (so case property mapping is identical)
-- Fields that shouldn't change after registration are readonly in followup
-- All fields preload from the case (this happens automatically via formType: followup + case_property mapping)
+- Fields that shouldn't change after registration use trigger questions with <output value="#case/..."/> for display-only context
+- Editable fields preload from the case (this happens automatically via formType: followup + case_property mapping)
 
 ---
 
@@ -89,10 +88,8 @@ Design rationale: A case manager opens a referral from the case list. They see t
 
 ```
 GROUP: "context" (label: "Referral Details")
-  - client_name (text, case_property: client_name, readonly)
-    Preloaded and readonly. Confirms the worker opened the right record.
-  - waitlisted_facility (text, case_property: waitlisted_facility, readonly)
-  - referral_date (date, case_property: referral_date, readonly)
+  - referral_info (trigger, label: "Client: <output value="#case/client_name"/> | Facility: <output value="#case/waitlisted_facility"/> | Date: <output value="#case/referral_date"/>")
+    Display-only context using trigger with output references. Confirms the worker opened the right record without creating editable inputs.
   - service_type (hidden, case_property: service_type)
     Hidden — needed for filtering facilities below but not shown to the worker.
 
@@ -130,7 +127,7 @@ CHILD CASE: none (the placement updates the referral case, doesn't create new ca
 ```
 
 Why this design is good:
-- Readonly context group confirms the record without re-asking
+- Context group with trigger/output references confirms the record without re-asking
 - One decision point (placement_action) drives all conditional logic
 - Each action path has its own group — the form reshapes itself based on the worker's intent
 - Barriers are structured (select) with an escape hatch (other + notes)

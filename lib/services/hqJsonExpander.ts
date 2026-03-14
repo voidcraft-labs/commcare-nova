@@ -248,7 +248,6 @@ function buildQuestionParts(
     if (hasHashtags(q.required)) bindParts.push(`vellum:required="${escapeXml(q.required)}"`)
     bindParts.push(`required="${escapeXml(expandedReq)}"`)
   }
-  if (q.readonly) bindParts.push(`readonly="true()"`)
   if (q.constraint) {
     if (hasHashtags(q.constraint)) bindParts.push(`vellum:constraint="${escapeXml(q.constraint)}"`)
     bindParts.push(`constraint="${escapeXml(expandHashtags(q.constraint))}"`)

@@ -140,7 +140,6 @@ const questionFields = {
   required: z.string().optional().describe(
     '"true()" if always required. An XPath expression for conditional requirement (e.g. "/data/age >= 18").'
   ),
-  readonly: z.boolean().optional().describe('True if visible but not editable (use for display-only preloaded values in followup forms).'),
   constraint: z.string().optional().describe('XPath constraint expression, e.g. ". > 0 and . < 150"'),
   constraint_msg: z.string().optional().describe('Error message when constraint fails.'),
   relevant: z.string().optional().describe(
@@ -165,7 +164,7 @@ const questionFields = {
   ),
   case_property: z.string().optional().describe(
     'Case property name this question maps to. On registration forms, the answer is saved to this property. ' +
-    'On followup forms, the property value is preloaded into the question AND saved back (unless readonly). ' +
+    'On followup forms, the property value is preloaded into the question AND saved back. ' +
     'Omit if this question does not map to a case property. ' +
     `Must NOT be a reserved name: ${RESERVED_CASE_PROPERTIES}. ` +
     'Must NOT be set on media questions (image, audio, video, signature).'
@@ -352,7 +351,6 @@ interface CaseConfigQuestion {
   id: string
   case_property?: string
   is_case_name?: boolean
-  readonly?: boolean
   children?: CaseConfigQuestion[]
 }
 
@@ -372,12 +370,8 @@ export function deriveCaseConfig(questions: CaseConfigQuestion[], formType: 'reg
       if (q.case_property) {
         if (formType === 'followup') {
           preload.push({ case_property: q.case_property, question_id: q.id })
-          if (!q.readonly) {
-            props.push({ case_property: q.case_property, question_id: q.id })
-          }
-        } else {
-          props.push({ case_property: q.case_property, question_id: q.id })
         }
+        props.push({ case_property: q.case_property, question_id: q.id })
       }
       if (q.children) walk(q.children)
     }

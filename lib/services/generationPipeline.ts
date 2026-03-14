@@ -220,7 +220,6 @@ const singleFormSchema = z.object({
     hint: z.string().optional(),
     help: z.string().optional(),
     required: z.string().optional(),
-    readonly: z.boolean().optional(),
     constraint: z.string().optional(),
     constraint_msg: z.string().optional(),
     relevant: z.string().optional(),
@@ -278,7 +277,7 @@ export async function generateSingleFormContent(
 Questions use a flat structure: parentId (null for top-level, group id for nested). Array order determines display order.
 
 For case wiring: registration forms save to case properties, followup forms preload from case using default_value with #case/property_name.
-Use readonly: true for display-only preloaded values. Use groups for visual sections. Calculate don't ask for derived values.
+For display-only context in followups, use trigger questions with <output value="#case/property_name"/> labels. Use groups for visual sections. Calculate don't ask for derived values.
 Use raw XPath operators (>, <), never HTML-escaped. Reference questions by /data/question_id.`,
     prompt: `App: "${blueprint.app_name}"
 Module: "${mod.name}"

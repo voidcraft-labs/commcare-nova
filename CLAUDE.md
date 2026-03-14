@@ -165,7 +165,7 @@ Each prompt function (`scaffoldPrompt`, `appContentPrompt`) accepts an optional 
 
 `case_types` on the blueprint carry rich property metadata: `label`, `data_type`, `hint`, `help`, `required`, `constraint`, `constraint_msg`, `options`. This makes case properties the single source of truth for shared question metadata.
 
-**Questions are sparse** — when a question maps to a case property via `case_property`, it only needs to carry overrides (e.g. `relevant`, `calculate`, `default_value`, `readonly`). Defaults are merged at two points:
+**Questions are sparse** — when a question maps to a case property via `case_property`, it only needs to carry overrides (e.g. `relevant`, `calculate`, `default_value`). Defaults are merged at two points:
 1. **Content post-processing** (`processContentOutput` in `appContentSchema.ts`) — `applyDefaults()` auto-merges from the case type at assembly time (type, label, hint, help, required, constraint, options, is_case_name). Also runs `unescapeXPath()` on all XPath fields to sanitize HTML entities (`&gt;` → `>`) that LLMs sometimes emit.
 2. **Expander** — `mergeQuestionDefaults()` / `mergeFormQuestions()` merge before XForm generation and validation
 
@@ -181,7 +181,7 @@ The LLM doesn't manage form-level case wiring. Instead, each question has:
 
 The assembler (`deriveCaseConfig()`) derives form-level `case_name_field`, `case_properties`, and `case_preload` automatically:
 - **Registration**: all questions with `case_property` → `case_properties` map. Question with `is_case_name` → `case_name_field`.
-- **Followup**: questions with `case_property` → `case_preload` (load from case). Non-readonly ones also → `case_properties` (save back). Question with `is_case_name` → `case_name_field`.
+- **Followup**: questions with `case_property` → `case_preload` (load from case) AND `case_properties` (save back). Question with `is_case_name` → `case_name_field`.
 - **Survey**: no case config derived.
 
 `deriveCaseConfig()` is called on-demand by the expander and validator — no form-level case fields are stored.
@@ -204,7 +204,7 @@ No auth layer. The user's Anthropic API key is stored in localStorage and sent p
 ## Schemas
 
 ### Question Fields
-Only `id` and `type` are required on a `Question`. All other fields (`label`, `hint`, `help`, `required`, `readonly`, `constraint`, `constraint_msg`, `relevant`, `calculate`, `default_value`, `options`, `case_property`, `is_case_name`, `children`) are optional — present only when set. All text fields are plain `string`.
+Only `id` and `type` are required on a `Question`. All other fields (`label`, `hint`, `help`, `required`, `constraint`, `constraint_msg`, `relevant`, `calculate`, `default_value`, `options`, `case_property`, `is_case_name`, `children`) are optional — present only when set. All text fields are plain `string`.
 
 ### Question Format
 - One `Question` type with nested `children` arrays for groups/repeats
