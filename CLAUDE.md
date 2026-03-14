@@ -106,8 +106,8 @@ Data parts emitted by the pipeline:
 - `data-planning` / `data-editing` → `builder.startPlanning()` / `builder.startEditing()`
 - `data-partial-scaffold` → `builder.setPartialScaffold()` (progressive scaffold streaming)
 - `data-scaffold` → `builder.setScaffold()`
-- `data-phase` → `builder.setPhase()` (designing, modules, forms, validating, fixing)
-- `data-module-done` → `builder.setModuleContent()`
+- `data-phase` → `builder.setPhase()` (designing, forms, validating, fixing)
+- `data-module-done` → `builder.setModuleContent()` (emitted progressively as column objects become complete in the partial stream — columns and forms are one phase/call)
 - `data-form-done` / `data-form-fixed` / `data-form-updated` → `builder.setFormContent()` (data-form-done emitted progressively as questions stream in during content generation)
 - `data-blueprint-updated` → `builder.updateBlueprint()` (structural edits)
 - `data-fix-attempt` → `builder.setFixAttempt()`
@@ -128,7 +128,7 @@ Chat is the hero experience. When `builder.phase === Idle && !builder.treeData`,
 
 ### Builder Class
 
-`lib/services/builder.ts` exports a `Builder` class — a singleton state machine shared across components via `useBuilder()`. Phases: `Idle → Planning → Designing → Modules → Forms → Validating → Fixing → Done | Error`. Also `Editing` for edit flows.
+`lib/services/builder.ts` exports a `Builder` class — a singleton state machine shared across components via `useBuilder()`. Phases: `Idle → Planning → Designing → Forms → Validating → Fixing → Done | Error`. Also `Editing` for edit flows. (The `Modules` phase enum value exists but is unused — columns and forms are generated in one call and share the `Forms` phase.)
 
 - `builder.startPlanning()` — transitions to Planning phase ("Generating plan...")
 - `builder.startEditing()` — transitions to Editing phase ("Applying changes...")
