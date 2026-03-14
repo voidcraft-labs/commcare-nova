@@ -47,6 +47,15 @@ For each case type, decide which property identifies the case — that's the cas
 
 Modules are menus that group related work. A module with a case type shows a list of cases and lets the user open forms against them. Forms are either registration (create a new case), followup (update an existing case), or survey (standalone, no case). Structure the app around how the work actually flows — if different roles or workflows touch the same case type differently, that might warrant separate modules.
 
+### Case creation rules
+
+Every case type must have a way to create cases — either a **registration form** or a **child case** created from another module's form:
+
+- **Standalone case types** (e.g. patient, household): need a registration form in their module.
+- **Child case types** (e.g. referral, visit, child): cases are created from a parent case module's form via child_cases. The child case type's module only needs followup forms. In the formDesign of the creating form, explicitly state which child case type it creates and which questions map to the child case's properties — the content step uses this to wire up child_cases.
+
+Do NOT put a registration form in a child case module — child cases must be created in the context of their parent.
+
 Give every form a specific, descriptive name that reflects what it actually does — not just its type. For example, "Register Patient" or "Prenatal Visit" instead of "Registration Form" or "Follow-Up Form". The name should tell the user what happens when they open it.
 
 ## Form Design Specs
