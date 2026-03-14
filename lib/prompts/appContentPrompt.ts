@@ -103,10 +103,10 @@ The architect provided a formDesign spec for each form describing the intended U
 
 ### Question Structure
 
-Questions use a flat structure with parentId and sortOrder:
-- **parentId** is null for top-level questions. For questions inside a group or repeat, set parentId to the group's id.
-- **sortOrder** determines display order within a parent context. Start at 0, increment by 1.
-- Add group/repeat questions first (with parentId null or the outer group), then add child questions pointing to the group's id.
+Questions use a flat structure with parentId:
+- **parentId** is empty string for top-level questions. For questions inside a group or repeat, set parentId to the group's id.
+- **Array order** determines display order — emit questions in the order they should appear within each parent context.
+- Add group/repeat questions first (with parentId empty or the outer group), then add child questions pointing to the group's id.
 
 ### Data Model Defaults
 

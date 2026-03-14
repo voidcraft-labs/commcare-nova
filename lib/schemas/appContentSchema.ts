@@ -5,9 +5,10 @@
  * Use empty string "" for absent string fields, empty array [] for absent arrays,
  * false for absent booleans.
  *
- * Questions use a flat shape (parentId + sortOrder) to avoid recursive schemas.
- * After generation, flat questions are converted to nested trees via
- * buildQuestionTree() and defaults are merged via processContentOutput().
+ * Questions use a flat shape (parentId) to avoid recursive schemas.
+ * Array order determines display order. After generation, flat questions are
+ * converted to nested trees via buildQuestionTree() and defaults are merged
+ * via processContentOutput().
  */
 import { z } from 'zod'
 import type { CaseType, Scaffold, ModuleContent, BlueprintForm, Question } from './blueprint'
@@ -30,7 +31,6 @@ export interface FlatQuestion {
   id: string
   type: string
   parentId: string
-  sortOrder: number
   label?: string
   hint?: string
   help?: string
@@ -112,9 +112,6 @@ const questionSchema = z.object({
   parentId: z.string().describe(
     'ID of the parent group or repeat question. Empty string for top-level questions.'
   ),
-  sortOrder: z.number().describe(
-    'Display order within the parent context. Start at 0, increment by 1.'
-  ),
   label: z.string().describe(
     'Human-readable question text. Write clear labels like "Patient Name", "Date of Birth". ' +
     'Empty string when mapping to a case property to use the property label as default. ' +
@@ -181,7 +178,7 @@ const childCaseSchema = z.object({
 
 const formSchema = z.object({
   formIndex: z.number().describe('0-based, matching scaffold order'),
-  questions: z.array(questionSchema).describe('All questions using parentId for nesting and sortOrder for ordering'),
+  questions: z.array(questionSchema).describe('All questions using parentId for nesting, in display order'),
   close_case: z.object({
     question: z.string().describe('Question id for conditional close, empty if unconditional or no close'),
     answer: z.string().describe('Value that triggers closure, empty if unconditional or no close'),
@@ -222,13 +219,12 @@ export function stripEmpty(q: FlatQuestion): Partial<FlatQuestion> {
 // ── Post-processing: flat → nested tree ──────────────────────────────
 
 /**
- * Convert flat questions (parentId + sortOrder) to a nested tree (children arrays).
+ * Convert flat questions (parentId) to a nested tree (children arrays).
+ * Array order is preserved — questions appear in the order they were generated.
  */
 export function buildQuestionTree(flat: Array<Partial<FlatQuestion>>): Question[] {
-  const sorted = [...flat].sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0))
-
   const byParent = new Map<string | null, Array<Partial<FlatQuestion>>>()
-  for (const q of sorted) {
+  for (const q of flat) {
     const parent = q.parentId || null
     if (!byParent.has(parent)) byParent.set(parent, [])
     byParent.get(parent)!.push(q)
@@ -237,7 +233,7 @@ export function buildQuestionTree(flat: Array<Partial<FlatQuestion>>): Question[
   function buildLevel(parentId: string | null): Question[] {
     const children = byParent.get(parentId) ?? []
     return children.map(q => {
-      const { parentId: _, sortOrder: __, ...rest } = q
+      const { parentId: _, ...rest } = q
       const nested = buildLevel(q.id!)
       if (nested.length > 0) {
         return { ...rest, children: nested } as Question
