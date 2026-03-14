@@ -1,4 +1,4 @@
-import { Marked, type RendererObject } from 'marked'
+import { Marked, type RendererObject, type Tokens } from 'marked'
 
 /**
  * Allowlist-based markdown renderer for chat messages.
@@ -24,7 +24,7 @@ const renderer: RendererObject = {
     return `<${tag}>\n${body}</${tag}>\n`
   },
   listitem(item) {
-    const text = this.parser.parseInline(item.tokens)
+    const text = this.parser.parse(item.tokens)
     return `<li>${text}</li>\n`
   },
   table(token) {
@@ -59,8 +59,11 @@ const renderer: RendererObject = {
   br() {
     return '<br />'
   },
-  text({ text }) {
-    return text
+  text(token: Tokens.Text | Tokens.Escape) {
+    if (token.type === 'text' && token.tokens) {
+      return this.parser.parseInline(token.tokens)
+    }
+    return token.text
   },
   space() {
     return ''
