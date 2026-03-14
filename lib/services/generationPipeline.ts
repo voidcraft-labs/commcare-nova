@@ -277,7 +277,7 @@ export async function generateSingleFormContent(
 Questions use a flat structure: parentId (null for top-level, group id for nested). Array order determines display order.
 
 For case wiring: registration forms save to case properties, followup forms preload from case using default_value with #case/property_name.
-For display-only context in followups, use trigger questions with <output value="#case/property_name"/> labels. Use groups for visual sections. Calculate don't ask for derived values.
+For display-only context in followups, use label questions with <output value="#case/property_name"/> labels (labels support markdown formatting). Use groups for visual sections. Calculate don't ask for derived values.
 Use raw XPath operators (>, <), never HTML-escaped. Reference questions by /data/question_id.`,
     prompt: `App: "${blueprint.app_name}"
 Module: "${mod.name}"

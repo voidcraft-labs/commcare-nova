@@ -77,7 +77,7 @@ export interface AppContentOutput {
 
 const QUESTION_TYPES = [
   'text', 'int', 'date', 'select1', 'select', 'geopoint', 'image',
-  'barcode', 'decimal', 'trigger', 'phone', 'time', 'datetime',
+  'barcode', 'decimal', 'label', 'phone', 'time', 'datetime',
   'audio', 'video', 'signature', 'hidden', 'secret', 'group', 'repeat',
 ] as const
 

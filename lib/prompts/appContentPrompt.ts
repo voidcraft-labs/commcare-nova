@@ -117,7 +117,7 @@ When a question maps to a case property (via case_property), the data model prov
 ### Case Wiring
 
 - **Registration forms** create a new case. Set case_property on questions that save to case properties. Set is_case_name: true on the question that maps to the case_name_property.
-- **Followup forms** update an existing case. Set case_property on questions that display or edit case data. For display-only context (e.g. showing the client name at the top of a followup), use a "trigger" type question with a label containing an <output value="#case/property_name"/> reference — this renders as static text without an input field. Use default_value with #case/property_name to preload editable values from the case. Set is_case_name: true on the question that maps to the case_name_property if the form can update it.
+- **Followup forms** update an existing case. Set case_property on questions that display or edit case data. For display-only context (e.g. showing the client name at the top of a followup), use a "label" type question with a label containing an <output value="#case/property_name"/> reference — this renders as read-only text without an input field. Label questions support markdown in their label text (e.g. **bold**, _italic_, ## headings, - lists) for richer formatting. Use default_value with #case/property_name to preload editable values from the case. Set is_case_name: true on the question that maps to the case_name_property if the form can update it.
 - **Survey forms** have no case — just collect data. Don't set case_property or is_case_name.
 
 ### Design Principles
@@ -125,7 +125,7 @@ When a question maps to a case property (via case_property), the data model prov
 - **Use groups** to create visual sections that help the worker understand the form's structure. Label them meaningfully.
 - **Calculate, don't ask**: If a value can be derived (age from DOB, BMI from height+weight), use a hidden calculated field.
 - **Coordinate sibling forms**: Registration and followup forms for the same case type should use the same question IDs, the same group structure, and the same question order for shared fields. Followups preload values from the case using default_value with #case/property_name.
-- **Confirm context in followups**: Start followup forms with a context group showing key case details using trigger questions with <output value="#case/property_name"/> labels so the worker confirms they opened the right record.
+- **Confirm context in followups**: Start followup forms with a context group showing key case details using label questions with <output value="#case/property_name"/> labels so the worker confirms they opened the right record. Labels support markdown for formatting.
 - **Prefer calculated fields** over asking the user for derived data.
 - **Use relevant** for conditional visibility to keep forms short. One decision point, then conditional detail.
 - **Use constraint** with human-friendly constraint_msg on fields where invalid input is possible.
