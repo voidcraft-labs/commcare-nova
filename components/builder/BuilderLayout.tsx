@@ -75,6 +75,17 @@ export function BuilderLayout({ buildId }: { buildId: string }) {
     },
   })
 
+  // ── Detect tool calls from message parts (immediate, no server round-trip) ──
+  useEffect(() => {
+    if (builderRef.current.phase !== BuilderPhase.Idle) return
+    const last = messages[messages.length - 1]
+    if (!last || last.role !== 'assistant') return
+    for (const part of last.parts) {
+      if (part.type === 'tool-generateApp') { builderRef.current.startPlanning(); return }
+      if (part.type === 'tool-editApp') { builderRef.current.startEditing(); return }
+    }
+  }, [messages])
+
   useEffect(() => {
     if (loaded && !apiKey) router.push('/')
   }, [loaded, apiKey, router])
