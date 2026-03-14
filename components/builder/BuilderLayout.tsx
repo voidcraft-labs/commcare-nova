@@ -19,11 +19,19 @@ import { DetailPanel } from '@/components/builder/DetailPanel'
 import { GenerationProgress } from '@/components/builder/GenerationProgress'
 import { DownloadDropdown } from '@/components/ui/DownloadDropdown'
 
-/** Only auto-resend for askQuestions (client-side tool). Server-side tools complete on their own. */
+/** Only auto-resend when the assistant's LAST step is askQuestions with all outputs available.
+ *  If the PM continued past tool calls to ask a freeform text question, don't auto-resend —
+ *  the user needs to reply manually first. */
 function shouldAutoResend({ messages }: { messages: UIMessage[] }): boolean {
   const last = messages[messages.length - 1]
   if (!last || last.role !== 'assistant') return false
-  const askParts = last.parts.filter((p: any) => p.type === 'tool-askQuestions')
+
+  // Only look at the last step — earlier answered questions don't matter
+  const lastStepIdx = last.parts.reduce((idx: number, p: any, i: number) =>
+    p.type === 'step-start' ? i : idx, -1)
+  const lastStepParts = last.parts.slice(lastStepIdx + 1)
+
+  const askParts = lastStepParts.filter((p: any) => p.type === 'tool-askQuestions')
   return askParts.length > 0 && askParts.every((p: any) => p.state === 'output-available')
 }
 
