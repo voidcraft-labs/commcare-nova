@@ -141,7 +141,7 @@ export async function runGenerationPipeline(
     prompt: specification,
     label: 'Scaffold',
     knowledge: scaffoldFiles,
-    maxOutputTokens: 65536,
+    maxOutputTokens: 128000,
     onPartial: (partial) => ctx.emit('data-partial-scaffold', partial),
   })
 
@@ -183,7 +183,7 @@ export async function runGenerationPipeline(
     prompt: `Build complete content for all ${scaffold.modules.length} modules in "${scaffold.app_name}".`,
     label: 'App Content',
     knowledge: allContentFiles.length > 0 ? allContentFiles : undefined,
-    maxOutputTokens: 65536,
+    maxOutputTokens: 128000,
     onPartial: (partial) => emitContentProgress(ctx, partial, scaffold, progressState),
   })
 
