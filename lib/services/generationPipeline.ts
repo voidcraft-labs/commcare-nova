@@ -216,7 +216,6 @@ const singleFormSchema = z.object({
     id: z.string(),
     type: z.string(),
     parentId: z.string(),
-    sortOrder: z.number(),
     label: z.string().optional(),
     hint: z.string().optional(),
     help: z.string().optional(),
@@ -276,7 +275,7 @@ export async function generateSingleFormContent(
     thinking: true,
     system: `You are a senior CommCare form builder. Build the questions for a single form.
 
-Questions use a flat structure: parentId (null for top-level, group id for nested) and sortOrder (0-based within parent).
+Questions use a flat structure: parentId (null for top-level, group id for nested). Array order determines display order.
 
 For case wiring: registration forms save to case properties, followup forms preload from case using default_value with #case/property_name.
 Use readonly: true for display-only preloaded values. Use groups for visual sections. Calculate don't ask for derived values.
