@@ -112,6 +112,8 @@ Questions use a flat structure with parentId and sortOrder:
 
 When a question maps to a case property (via case_property), the data model provides default values for label, hint, help, required, constraint, constraint_msg, and options. Do NOT send these fields unless you need to override the default. They are applied automatically. Only include fields that are form-context-specific: relevant, calculate, default_value, readonly.
 
+**Important: calculate and default_value are NEVER auto-derived.** The system cannot infer XPath expressions — you must always provide them explicitly. Every hidden question MUST have either a calculate expression or a default_value. A hidden question with neither is broken — it will save blank data to the case property. For example: initialization fields need default_value ("0", "active", etc.), computed fields need calculate (XPath expression), and preloaded fields need default_value (#case/property_name).
+
 ### Case Wiring
 
 - **Registration forms** create a new case. Set case_property on questions that save to case properties. Set is_case_name: true on the question that maps to the case_name_property.
