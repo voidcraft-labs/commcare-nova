@@ -65,7 +65,7 @@ For each form, write a \`formDesign\` that describes the UX design — not just 
 - **Purpose context**: Who uses this form, when, under what conditions (e.g. "field worker registers a new patient during a home visit, phone-based, low connectivity")
 - **Planned question flow**: Sections/groups and rationale for grouping. What order, what goes together.
 - **UX decisions**: Which properties should be calculated vs entered directly, which should be preloaded in followups, where skip logic applies
-- **Cross-form coordination**: How this form relates to sibling forms (e.g. "followup mirrors registration question order, preloads all values, makes enrollment_date readonly")
+- **Cross-form coordination**: How this form relates to sibling forms (e.g. "followup mirrors registration question order, preloads all values, shows enrollment_date as display-only context")
 - **Conditional workflows**: Any branching logic (e.g. "if placement_action is 'place_at_other', show facility picker")
 
 Think like a senior CommCare app builder designing for the field worker, not a schema-to-form converter. A great form isn't a list of inputs — it's a workflow with sections, conditional flows, smart defaults, and empathy for the person using it on a phone in the field.

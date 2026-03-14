@@ -110,14 +110,14 @@ Questions use a flat structure with parentId:
 
 ### Data Model Defaults
 
-When a question maps to a case property (via case_property), the data model provides default values for label, hint, help, required, constraint, constraint_msg, and options. Do NOT send these fields unless you need to override the default. They are applied automatically. Only include fields that are form-context-specific: relevant, calculate, default_value, readonly.
+When a question maps to a case property (via case_property), the data model provides default values for label, hint, help, required, constraint, constraint_msg, and options. Do NOT send these fields unless you need to override the default. They are applied automatically. Only include fields that are form-context-specific: relevant, calculate, default_value.
 
 **Important: calculate and default_value are NEVER auto-derived.** The system cannot infer XPath expressions — you must always provide them explicitly. Every hidden question MUST have either a calculate expression or a default_value. A hidden question with neither is broken — it will save blank data to the case property. For example: initialization fields need default_value ("0", "active", etc.), computed fields need calculate (XPath expression), and preloaded fields need default_value (#case/property_name).
 
 ### Case Wiring
 
 - **Registration forms** create a new case. Set case_property on questions that save to case properties. Set is_case_name: true on the question that maps to the case_name_property.
-- **Followup forms** update an existing case. Set case_property on questions that display or edit case data. Use readonly: true for display-only preloaded values. Use default_value with #case/property_name to preload from the case. Set is_case_name: true on the question that maps to the case_name_property if the form can update it.
+- **Followup forms** update an existing case. Set case_property on questions that display or edit case data. For display-only context (e.g. showing the client name at the top of a followup), use a "trigger" type question with a label containing an <output value="#case/property_name"/> reference — this renders as static text without an input field. Use default_value with #case/property_name to preload editable values from the case. Set is_case_name: true on the question that maps to the case_name_property if the form can update it.
 - **Survey forms** have no case — just collect data. Don't set case_property or is_case_name.
 
 ### Design Principles
@@ -125,7 +125,7 @@ When a question maps to a case property (via case_property), the data model prov
 - **Use groups** to create visual sections that help the worker understand the form's structure. Label them meaningfully.
 - **Calculate, don't ask**: If a value can be derived (age from DOB, BMI from height+weight), use a hidden calculated field.
 - **Coordinate sibling forms**: Registration and followup forms for the same case type should use the same question IDs, the same group structure, and the same question order for shared fields. Followups preload values from the case using default_value with #case/property_name.
-- **Confirm context in followups**: Start followup forms with a readonly group showing key case details so the worker confirms they opened the right record.
+- **Confirm context in followups**: Start followup forms with a context group showing key case details using trigger questions with <output value="#case/property_name"/> labels so the worker confirms they opened the right record.
 - **Prefer calculated fields** over asking the user for derived data.
 - **Use relevant** for conditional visibility to keep forms short. One decision point, then conditional detail.
 - **Use constraint** with human-friendly constraint_msg on fields where invalid input is possible.

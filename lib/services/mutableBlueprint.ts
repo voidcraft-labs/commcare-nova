@@ -34,7 +34,6 @@ export interface QuestionUpdate {
   hint: string | null
   help: string | null
   required: string | null
-  readonly: boolean | null
   constraint: string | null
   constraint_msg: string | null
   relevant: string | null
@@ -54,7 +53,6 @@ export interface NewQuestion {
   hint?: string
   help?: string
   required?: string
-  readonly?: boolean
   constraint?: string
   constraint_msg?: string
   relevant?: string
@@ -458,7 +456,7 @@ export class MutableBlueprint {
       ...(nq.hint != null && { hint: nq.hint }),
       ...(nq.help != null && { help: nq.help }),
       ...(nq.required != null && { required: nq.required }),
-      ...(nq.readonly != null && { readonly: nq.readonly }),
+
       ...(nq.constraint != null && { constraint: nq.constraint }),
       ...(nq.constraint_msg != null && { constraint_msg: nq.constraint_msg }),
       ...(nq.relevant != null && { relevant: nq.relevant }),

@@ -219,11 +219,7 @@ export function DetailPanel({ blueprint, selected, onUpdate, onClose }: DetailPa
                 <Badge variant="amber">{question.required !== 'true()' ? `Required when: ${question.required}` : 'Required'}</Badge>
               </div>
             )}
-            {question.readonly && (
-              <div>
-                <Badge variant="muted">Read-only</Badge>
-              </div>
-            )}
+
             {question.constraint && (
               <div>
                 <label className="text-xs text-nova-text-muted uppercase tracking-wider mb-1 block">Constraint</label>
