@@ -39,6 +39,7 @@ export function QuestionCard({
   const isComplete = state === 'output-available'
   const displayAnswers = isComplete ? (output || {}) : answers
   const questions = input?.questions ?? []
+  const isLoading = !isWaiting && !isComplete
 
   const handleSelect = (questionText: string, optionLabel: string) => {
     const newAnswers = { ...answers, [questionText]: optionLabel }
@@ -62,7 +63,11 @@ export function QuestionCard({
       <div className="max-w-[85%] w-full rounded-xl border border-nova-violet/20 bg-nova-violet/5 overflow-hidden">
         {/* Header */}
         <div className="px-3.5 py-2.5 border-b border-nova-violet/10">
-          {isWaiting && (
+          {isLoading ? (
+            <span className="text-[10px] uppercase tracking-widest text-nova-violet font-medium">
+              Questions loading...
+            </span>
+          ) : isWaiting && (
             <span className="text-[10px] uppercase tracking-widest text-nova-violet font-medium">
               Question {currentIndex + 1} of {questions.length}
             </span>
@@ -74,6 +79,18 @@ export function QuestionCard({
 
         {/* Questions */}
         <div className="px-3.5 py-3 space-y-3">
+          {isLoading && (
+            <div className="space-y-2.5 animate-pulse">
+              {/* Question text skeleton */}
+              <div className="h-4 w-3/4 rounded bg-nova-violet/10" />
+              {/* Option skeletons */}
+              <div className="space-y-1.5">
+                <div className="h-10 w-full rounded-lg border border-nova-border bg-nova-surface/50" />
+                <div className="h-10 w-full rounded-lg border border-nova-border bg-nova-surface/50" />
+                <div className="h-10 w-full rounded-lg border border-nova-border bg-nova-surface/50" />
+              </div>
+            </div>
+          )}
           {questions.map((q, i) => {
             const answer = displayAnswers[q.question]
             const isCurrent = isWaiting && i === currentIndex
