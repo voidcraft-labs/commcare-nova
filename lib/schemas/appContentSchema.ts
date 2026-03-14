@@ -204,7 +204,7 @@ export const appContentSchema = z.object({
 
 /** Convert empty strings to undefined, empty arrays to undefined, false booleans to undefined.
  *  With optional schema fields, values may already be undefined — pass through as-is. */
-function stripEmpty(q: FlatQuestion): Partial<FlatQuestion> {
+export function stripEmpty(q: FlatQuestion): Partial<FlatQuestion> {
   const result: any = {}
   for (const [k, v] of Object.entries(q)) {
     if (v === undefined) continue
@@ -254,7 +254,7 @@ export function buildQuestionTree(flat: Array<Partial<FlatQuestion>>): Question[
 /**
  * Apply data model defaults from case type metadata and sanitize XPath.
  */
-function applyDefaults(q: Partial<FlatQuestion>, caseType: CaseType | null): Partial<FlatQuestion> {
+export function applyDefaults(q: Partial<FlatQuestion>, caseType: CaseType | null): Partial<FlatQuestion> {
   const result = { ...q }
 
   // Unescape HTML entities in XPath fields
