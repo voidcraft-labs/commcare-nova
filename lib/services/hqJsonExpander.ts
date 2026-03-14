@@ -37,6 +37,22 @@ function processLabelText(text: string): string {
  */
 export function expandBlueprint(blueprint: AppBlueprint): HqApplication {
   const attachments: Record<string, string> = {}
+
+  // Build child case type map: child_case_type → parent module index
+  // Used to set parent_select on child case modules after expansion.
+  const childCaseParents = new Map<string, number>()
+  for (let mIdx = 0; mIdx < blueprint.modules.length; mIdx++) {
+    for (const bf of blueprint.modules[mIdx].forms) {
+      if (bf.child_cases) {
+        for (const cc of bf.child_cases) {
+          if (!childCaseParents.has(cc.case_type)) {
+            childCaseParents.set(cc.case_type, mIdx)
+          }
+        }
+      }
+    }
+  }
+
   const modules = blueprint.modules.map((bm) => {
     const hasCases = bm.case_type && bm.forms.some(f => f.type !== 'survey')
     const caseType = hasCases ? bm.case_type! : ''
@@ -71,6 +87,21 @@ export function expandBlueprint(blueprint: AppBlueprint): HqApplication {
 
     return moduleShell(genHexId(), bm.name, caseType, forms, caseDetails)
   })
+
+  // Activate parent_select on modules whose case_type is created as a child case elsewhere
+  for (let mIdx = 0; mIdx < modules.length; mIdx++) {
+    const bm = blueprint.modules[mIdx]
+    if (bm.case_type) {
+      const parentIdx = childCaseParents.get(bm.case_type)
+      if (parentIdx !== undefined && parentIdx !== mIdx) {
+        modules[mIdx].parent_select = {
+          active: true,
+          relationship: 'parent',
+          module_id: modules[parentIdx].unique_id,
+        }
+      }
+    }
+  }
 
   return applicationShell(blueprint.app_name, modules, attachments)
 }
@@ -573,11 +604,14 @@ export function validateBlueprint(blueprint: AppBlueprint): string[] {
         errors.push(`"${form.name}" is a registration form but has no case_name_field`)
       }
 
-      // Validate select questions have options (recursively for group/repeat children)
+      // Validate questions recursively
       function validateQuestions(questions: Question[], formName: string) {
         for (const q of questions) {
           if ((q.type === 'select1' || q.type === 'select') && (!q.options || q.options.length === 0)) {
             errors.push(`Question "${q.id}" in "${formName}" is a select but has no options`)
+          }
+          if (q.type === 'hidden' && !q.calculate && !q.default_value) {
+            errors.push(`Question "${q.id}" in "${formName}" is hidden but has no calculate or default_value — it will save blank data`)
           }
           if ((q.type === 'group' || q.type === 'repeat') && q.children) {
             validateQuestions(q.children, formName)
