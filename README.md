@@ -20,6 +20,10 @@ Open [http://localhost:3000](http://localhost:3000) with your browser to see the
 
 Set `RUN_LOGGER=1` in your `.env` to enable disk-based run logging. Each pipeline run writes a JSON file to `.log/` with all LLM calls, token usage, cost estimates, and full request/response data. The file is updated incrementally after every event, so it's always valid JSON even if the process crashes mid-run.
 
+### Validation Delay
+
+The validate stage (`validateAndFix` in `lib/services/architectAgent.ts`) has an artificial 3-second delay when validation passes on the first attempt with no errors. Our validation is currently purely deterministic/rule-based and completes near-instantly, which feels jarring in the UI. This delay should be removed once we integrate the CommCare core `.jar` for full validation — that will take real time and the artificial delay won't be needed. Search for the `TODO` comment in `architectAgent.ts` to find it.
+
 You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
 
 This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.

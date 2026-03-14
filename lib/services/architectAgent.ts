@@ -54,6 +54,12 @@ export async function validateAndFix(
     const errors = validateBlueprint(blueprint)
 
     if (errors.length === 0) {
+      // TODO: Remove this artificial delay once we integrate CommCare core .jar
+      // validation. Currently our validation is purely deterministic/rule-based and
+      // completes near-instantly when there are no issues, which feels jarring in
+      // the UI. Once we run the full CommCare .jar validator this will take real
+      // time and the delay can be removed.
+      if (attempt === 1) await new Promise(r => setTimeout(r, 3000))
       const hqJson = expandBlueprint(blueprint)
       return { success: true, blueprint, hqJson }
     }
