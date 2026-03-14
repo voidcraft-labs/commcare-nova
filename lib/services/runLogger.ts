@@ -13,6 +13,7 @@
  *
  * Enabled by setting RUN_LOGGER=1 in .env. When disabled, all methods are no-ops.
  */
+import type { UIMessage } from 'ai'
 import { writeFileSync, readFileSync, mkdirSync, renameSync, existsSync } from 'fs'
 import path from 'path'
 import { MODEL_PRICING, DEFAULT_PRICING } from '../models'
@@ -28,6 +29,7 @@ export interface RunLog {
   total_input_tokens: number
   total_output_tokens: number
   total_cost_estimate: number
+  conversation: UIMessage[]
   events: RunEvent[]
 }
 
@@ -92,6 +94,7 @@ export class RunLogger {
       total_input_tokens: 0,
       total_output_tokens: 0,
       total_cost_estimate: 0,
+      conversation: [],
       events: [],
     }
     this.filePath = path.join(LOG_DIR, `${runId}.json`)
@@ -108,6 +111,16 @@ export class RunLogger {
 
   setAgent(agent: string) {
     this.currentAgent = agent
+  }
+
+  /**
+   * Update the conversation log with the latest messages from the client.
+   * Called at the start of each request — overwrites with the latest (most complete)
+   * messages array so the log always has the full conversation history.
+   */
+  logConversation(messages: UIMessage[]) {
+    this.log.conversation = messages
+    if (this.enabled) this.flush()
   }
 
   logEvent(event: Omit<RunEvent, 'index' | 'timestamp' | 'cost_estimate'>) {

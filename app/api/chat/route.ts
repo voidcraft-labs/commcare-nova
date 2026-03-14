@@ -123,6 +123,7 @@ export async function POST(req: Request) {
     execute: async ({ writer }) => {
       const logger = new RunLogger(runId)
       logger.setAgent('Product Manager')
+      logger.logConversation(messages)
       // Send runId to client so it can send it back on subsequent requests
       writer.write({ type: 'data-run-id', data: { runId: logger.runId }, transient: true })
       const ctx = new GenerationContext(apiKey, writer, logger)
@@ -192,7 +193,7 @@ export async function POST(req: Request) {
               input_tokens: usage.inputTokens ?? 0,
               output_tokens: usage.outputTokens ?? 0,
               output: { text, ...(reasoningText && { reasoningText }), toolResults },
-              tool_calls: toolCalls?.map((tc: any) => ({ name: tc.toolName, args: tc.args })),
+              tool_calls: toolCalls?.map((tc: any) => ({ name: tc.toolName, args: tc.input })),
             })
           }
         },
