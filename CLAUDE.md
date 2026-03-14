@@ -271,11 +271,12 @@ Set `RUN_LOGGER=1` in `.env` to enable disk-based run logging. When enabled, eac
 - **`lib/services/runLogger.ts`** — `RunLogger` class. Created once per request in the route handler. Key methods:
   - `setAgent(name)` — tracks the current agent (`'Product Manager'`, `'Generation Pipeline'`, `'Edit Architect'`)
   - `setAppName(name)` — renames the log file from `*_unnamed.json` to `*_{app_name}.json`
+  - `logConversation(messages)` — overwrites the `conversation` field with the latest `UIMessage[]` from the client (called at the start of each request so the log always has the full chat history including user messages, PM responses, askQuestions tool calls, and user-chosen answers)
   - `logEvent(event)` — appends an orchestration/generation/fix event with token counts and cost estimate
   - `logSubResult(label, result)` — stitches a sub-generation result onto the most recent orchestration event's matching tool call (e.g. "Scaffold" generation result attaches to the `generateScaffold` tool call entry)
   - `finalize()` — sets `finished_at` and recomputes totals
 - **Integration**: `GenerationContext.generate()`/`streamGenerate()` call `logger.logSubResult()` automatically. Agent `onStepFinish` callbacks call `logger.logEvent()` for orchestration steps.
-- **Output**: `.log/{timestamp}_{app_name}.json` — contains run metadata, per-event token usage (including `cache_read_tokens` / `cache_write_tokens`) + cache-aware cost estimates, full request/response I/O, and roll-up totals.
+- **Output**: `.log/{timestamp}_{app_name}.json` — contains run metadata, full conversation history (`UIMessage[]`), per-event token usage (including `cache_read_tokens` / `cache_write_tokens`) + cache-aware cost estimates, full request/response I/O, and roll-up totals.
 
 ## Service Layer Notes
 
