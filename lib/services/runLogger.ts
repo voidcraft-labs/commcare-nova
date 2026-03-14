@@ -6,9 +6,14 @@
  * callbacks carry tool_calls; sub-generation results from ctx.generate()/streamGenerate()
  * are stitched onto matching tool calls via logSubResult().
  *
+ * Persistence across requests: the log file is `.log/{runId}.json` while active.
+ * The client sends back the `runId` from previous requests, so the RunLogger can
+ * load the existing file and append to it. On finalize(), the file is renamed to
+ * `.log/{timestamp}_{appname}.json` for human-readable browsing.
+ *
  * Enabled by setting RUN_LOGGER=1 in .env. When disabled, all methods are no-ops.
  */
-import { writeFileSync, mkdirSync, unlinkSync } from 'fs'
+import { writeFileSync, readFileSync, mkdirSync, renameSync, existsSync } from 'fs'
 import path from 'path'
 import { MODEL_PRICING, DEFAULT_PRICING } from '../models'
 
@@ -50,17 +55,37 @@ export interface RunEvent {
 
 // ── RunLogger ───────────────────────────────────────────────────────────
 
+const LOG_DIR = path.join(process.cwd(), '.log')
+
 export class RunLogger {
   private log: RunLog
-  private filePath: string | null = null
+  private filePath: string
   private enabled: boolean
   private currentAgent: string = 'unknown'
 
-  constructor() {
+  /**
+   * @param existingRunId — if provided, resumes an existing log file at .log/{runId}.json
+   */
+  constructor(existingRunId?: string) {
     this.enabled = process.env.RUN_LOGGER === '1'
+
+    // Try to resume from an existing run
+    if (this.enabled && existingRunId) {
+      const activePath = path.join(LOG_DIR, `${existingRunId}.json`)
+      if (existsSync(activePath)) {
+        const raw = readFileSync(activePath, 'utf-8')
+        this.log = JSON.parse(raw) as RunLog
+        this.log.finished_at = null
+        this.filePath = activePath
+        return
+      }
+    }
+
+    // Fresh run
+    const runId = existingRunId ?? crypto.randomUUID()
     this.log = {
       version: 1,
-      run_id: crypto.randomUUID(),
+      run_id: runId,
       app_name: null,
       started_at: new Date().toISOString(),
       finished_at: null,
@@ -69,22 +94,16 @@ export class RunLogger {
       total_cost_estimate: 0,
       events: [],
     }
-    if (this.enabled) {
-      this.ensureFile()
-      this.flush()
-    }
+    this.filePath = path.join(LOG_DIR, `${runId}.json`)
+  }
+
+  get runId(): string {
+    return this.log.run_id
   }
 
   setAppName(name: string) {
     this.log.app_name = name
-    if (this.enabled) {
-      const oldPath = this.filePath
-      this.ensureFile()
-      if (oldPath && oldPath !== this.filePath) {
-        try { unlinkSync(oldPath) } catch {}
-      }
-      this.flush()
-    }
+    if (this.enabled) this.flush()
   }
 
   setAgent(agent: string) {
@@ -161,24 +180,30 @@ export class RunLogger {
   finalize() {
     this.log.finished_at = new Date().toISOString()
     this.recomputeTotals()
-    if (this.enabled) this.flush()
-  }
+    if (!this.enabled) return
+    this.flush()
 
-  // ── Private ─────────────────────────────────────────────────────────
-
-  private ensureFile() {
-    const logDir = path.join(process.cwd(), '.log')
-    mkdirSync(logDir, { recursive: true })
+    // Only rename to pretty name when generation/editing actually ran (app_name is set).
+    // Without an app name the file stays as {runId}.json so the next request can resume it.
+    if (!this.log.app_name) return
 
     const ts = this.log.started_at.replace(/[:.]/g, '-').replace('T', '_').replace('Z', '')
-    const sanitized = (this.log.app_name ?? 'unnamed')
+    const sanitized = this.log.app_name
       .toLowerCase()
       .replace(/[^a-z0-9]+/g, '_')
       .replace(/^_|_$/g, '')
       .slice(0, 40)
+    const finalPath = path.join(LOG_DIR, `${ts}_${sanitized}.json`)
 
-    this.filePath = path.join(logDir, `${ts}_${sanitized}.json`)
+    if (this.filePath !== finalPath) {
+      try {
+        renameSync(this.filePath, finalPath)
+        this.filePath = finalPath
+      } catch {}
+    }
   }
+
+  // ── Private ─────────────────────────────────────────────────────────
 
   private recomputeTotals() {
     let totalInput = 0
@@ -208,7 +233,7 @@ export class RunLogger {
   }
 
   private flush() {
-    if (!this.filePath) return
+    mkdirSync(LOG_DIR, { recursive: true })
     this.recomputeTotals()
     writeFileSync(this.filePath, JSON.stringify(this.log, null, 2))
   }

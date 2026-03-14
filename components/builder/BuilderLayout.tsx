@@ -44,6 +44,7 @@ export function BuilderLayout({ buildId }: { buildId: string }) {
 
   const apiKeyRef = useRef(apiKey)
   apiKeyRef.current = apiKey
+  const runIdRef = useRef<string | undefined>(undefined)
 
   const isCentered = builder.phase === BuilderPhase.Idle && !builder.treeData
 
@@ -59,12 +60,14 @@ export function BuilderLayout({ buildId }: { buildId: string }) {
         apiKey: apiKeyRef.current,
         blueprint: builder.blueprint ?? undefined,
         blueprintSummary: builder.blueprint ? summarizeBlueprint(builder.blueprint) : undefined,
+        runId: runIdRef.current,
       }),
     }),
     sendAutomaticallyWhen: shouldAutoResend,
     onData: (part: any) => {
       const b = builderRef.current
       switch (part.type) {
+        case 'data-run-id': runIdRef.current = part.data.runId; break
         case 'data-planning': b.startPlanning(); break
         case 'data-editing': b.startEditing(); break
         case 'data-partial-scaffold': b.setPartialScaffold(part.data); break

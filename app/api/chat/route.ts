@@ -8,7 +8,7 @@ import {
 } from 'ai'
 import { z } from 'zod'
 import { buildProductManagerPrompt } from '@/lib/prompts/productManagerPrompt'
-import { MODEL_PM } from '@/lib/models'
+import { MODEL_PM, MODEL_APP_CONTENT } from '@/lib/models'
 import { GenerationContext } from '@/lib/services/generationContext'
 import { RunLogger } from '@/lib/services/runLogger'
 import { createEditArchitectAgent } from '@/lib/services/architectAgent'
@@ -111,23 +111,31 @@ async function drainStream(stream: ReadableStream): Promise<void> {
 // ── Route Handler ──────────────────────────────────────────────────────
 
 export async function POST(req: Request) {
-  const { messages, apiKey, blueprint, blueprintSummary } = await req.json() as {
+  const { messages, apiKey, blueprint, blueprintSummary, runId } = await req.json() as {
     messages: UIMessage[]
     apiKey: string
     blueprint?: AppBlueprint
     blueprintSummary?: string
+    runId?: string
   }
 
   const stream = createUIMessageStream({
     execute: async ({ writer }) => {
-      const logger = new RunLogger()
+      const logger = new RunLogger(runId)
       logger.setAgent('Product Manager')
+      // Send runId to client so it can send it back on subsequent requests
+      writer.write({ type: 'data-run-id', data: { runId: logger.runId }, transient: true })
       const ctx = new GenerationContext(apiKey, writer, logger)
       const pmInstructions = buildProductManagerPrompt(blueprintSummary)
 
       const productManager = new ToolLoopAgent({
-        model: ctx.model(MODEL_PM),
+        model: ctx.model(MODEL_APP_CONTENT),
         instructions: pmInstructions,
+        providerOptions: {
+          anthropic: {
+            thinking: { type: 'adaptive' as const, effort: 'high' as const },
+          },
+        },
         tools: {
           askQuestions: {
             description: 'Ask the user clarifying questions about their app requirements. Each call can hold up to 5 questions.',
@@ -180,7 +188,7 @@ export async function POST(req: Request) {
               type: 'orchestration',
               agent: 'Product Manager',
               label: 'PM step',
-              model: MODEL_PM,
+              model: MODEL_APP_CONTENT,
               input_tokens: usage.inputTokens ?? 0,
               output_tokens: usage.outputTokens ?? 0,
               output: { text, ...(reasoningText && { reasoningText }), toolResults },
