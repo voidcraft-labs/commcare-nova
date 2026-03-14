@@ -274,9 +274,10 @@ Set `RUN_LOGGER=1` in `.env` to enable disk-based run logging. When enabled, eac
   - `logConversation(messages)` — overwrites the `conversation` field with the latest `UIMessage[]` from the client (called at the start of each request so the log always has the full chat history including user messages, PM responses, askQuestions tool calls, and user-chosen answers)
   - `logEvent(event)` — appends an orchestration/generation/fix event with token counts and cost estimate
   - `logSubResult(label, result)` — stitches a sub-generation result onto the most recent orchestration event's matching tool call (e.g. "Scaffold" generation result attaches to the `generateScaffold` tool call entry)
-  - `finalize()` — sets `finished_at` and recomputes totals
+  - `finalize()` — sets `finished_at`, recomputes totals, and renames the log file from UUID to `{timestamp}_{app_name}.json` (falls back to `_unnamed` if no app name was set)
+- **Abandoned log cleanup**: On construction, fires an async cleanup that scans `.log/` for UUID-named files (orphans from runs where `finalize()` never ran — e.g. user closed tab, process crashed) and renames them to `{timestamp}_abandoned.json`. Fully async, fire-and-forget, excludes the current run's ID to avoid races.
 - **Integration**: `GenerationContext.generate()`/`streamGenerate()` call `logger.logSubResult()` automatically. Agent `onStepFinish` callbacks call `logger.logEvent()` for orchestration steps.
-- **Output**: `.log/{timestamp}_{app_name}.json` — contains run metadata, full conversation history (`UIMessage[]`), per-event token usage (including `cache_read_tokens` / `cache_write_tokens`) + cache-aware cost estimates, full request/response I/O, and roll-up totals.
+- **Output**: `.log/{timestamp}_{app_name|unnamed|abandoned}.json` — contains run metadata, full conversation history (`UIMessage[]`), per-event token usage (including `cache_read_tokens` / `cache_write_tokens`) + cache-aware cost estimates, full request/response I/O, and roll-up totals.
 
 ## Service Layer Notes
 

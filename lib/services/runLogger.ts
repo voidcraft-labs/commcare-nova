@@ -15,6 +15,7 @@
  */
 import type { UIMessage } from 'ai'
 import { writeFileSync, readFileSync, mkdirSync, renameSync, existsSync } from 'fs'
+import { readdir, readFile, rename as renameAsync } from 'fs/promises'
 import path from 'path'
 import { MODEL_PRICING, DEFAULT_PRICING } from '../models'
 
@@ -58,6 +59,7 @@ export interface RunEvent {
 // ── RunLogger ───────────────────────────────────────────────────────────
 
 const LOG_DIR = path.join(process.cwd(), '.log')
+const UUID_FILE_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.json$/
 
 export class RunLogger {
   private log: RunLog
@@ -70,6 +72,11 @@ export class RunLogger {
    */
   constructor(existingRunId?: string) {
     this.enabled = process.env.RUN_LOGGER === '1'
+
+    // Fire-and-forget: rename any orphaned UUID log files from abandoned runs
+    if (this.enabled) {
+      RunLogger.cleanupAbandonedLogs(existingRunId).catch(() => {})
+    }
 
     // Try to resume from an existing run
     if (this.enabled && existingRunId) {
@@ -196,24 +203,36 @@ export class RunLogger {
     if (!this.enabled) return
     this.flush()
 
-    // Only rename to pretty name when generation/editing actually ran (app_name is set).
-    // Without an app name the file stays as {runId}.json so the next request can resume it.
-    if (!this.log.app_name) return
-
-    const ts = this.log.started_at.replace(/[:.]/g, '-').replace('T', '_').replace('Z', '')
-    const sanitized = this.log.app_name
-      .toLowerCase()
-      .replace(/[^a-z0-9]+/g, '_')
-      .replace(/^_|_$/g, '')
-      .slice(0, 40)
-    const finalPath = path.join(LOG_DIR, `${ts}_${sanitized}.json`)
-
+    const finalPath = buildFinalPath(this.log.started_at, this.log.app_name, 'unnamed')
     if (this.filePath !== finalPath) {
       try {
         renameSync(this.filePath, finalPath)
         this.filePath = finalPath
       } catch {}
     }
+  }
+
+  /**
+   * Async fire-and-forget cleanup: renames any UUID-named log files left by abandoned runs
+   * (where finalize() never ran, e.g. user closed tab mid-stream or process crashed).
+   * Called at the start of each new run so orphans are cleaned up incrementally.
+   */
+  private static async cleanupAbandonedLogs(excludeRunId?: string) {
+    try {
+      const files = await readdir(LOG_DIR)
+      for (const file of files) {
+        if (!UUID_FILE_PATTERN.test(file)) continue
+        const runId = file.replace('.json', '')
+        if (runId === excludeRunId) continue
+        try {
+          const filePath = path.join(LOG_DIR, file)
+          const raw = await readFile(filePath, 'utf-8')
+          const log = JSON.parse(raw) as Pick<RunLog, 'started_at' | 'app_name'>
+          const finalPath = buildFinalPath(log.started_at, log.app_name, 'abandoned')
+          await renameAsync(filePath, finalPath)
+        } catch {}
+      }
+    } catch {}
   }
 
   // ── Private ─────────────────────────────────────────────────────────
@@ -269,6 +288,15 @@ function estimateCost(
     (cacheWriteTokens ?? 0) * pricing.cacheWrite +
     outputTokens * pricing.output
   ) / 1_000_000
+}
+
+/** Build the final human-readable log file path from a started_at timestamp and optional app name. */
+function buildFinalPath(startedAt: string, appName: string | null, fallback: string): string {
+  const ts = startedAt.replace(/[:.]/g, '-').replace('T', '_').replace('Z', '')
+  const sanitized = appName
+    ? appName.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '').slice(0, 40)
+    : fallback
+  return path.join(LOG_DIR, `${ts}_${sanitized}.json`)
 }
 
 /** Check if a tool call name matches a generation label. */
