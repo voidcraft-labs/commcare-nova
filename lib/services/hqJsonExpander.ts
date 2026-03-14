@@ -156,9 +156,14 @@ function buildXForm(form: BlueprintForm, xmlns: string): string {
   // Collect itext entries (single language)
   const itextEntries: string[] = []
 
-  const addItext = (id: string, text: string | undefined) => {
+  const addItext = (id: string, text: string | undefined, markdown?: boolean) => {
     if (!text) return
-    itextEntries.push(`<text id="${id}"><value>${processLabelText(text)}</value></text>`)
+    const processed = processLabelText(text)
+    if (markdown) {
+      itextEntries.push(`<text id="${id}"><value>${processed}</value><value form="markdown">${processed}</value></text>`)
+    } else {
+      itextEntries.push(`<text id="${id}"><value>${processed}</value></text>`)
+    }
   }
 
   for (const q of questions) {
@@ -232,7 +237,7 @@ function buildQuestionParts(
   setvalues: string[],
   bodyElements: string[],
   insideRepeat: boolean,
-  addItext: (id: string, text: string | undefined) => void
+  addItext: (id: string, text: string | undefined, markdown?: boolean) => void
 ): void {
   const nodePath = `${parentPath}/${q.id}`
 
@@ -285,7 +290,7 @@ function buildQuestionParts(
 
   // itext (hidden questions have no body element, so no label to reference)
   if (q.type !== 'hidden' && q.label) {
-    addItext(`${q.id}-label`, q.label)
+    addItext(`${q.id}-label`, q.label, q.type === 'label')
     addItext(`${q.id}-hint`, q.hint)
     addItext(`${q.id}-help`, q.help)
   }
@@ -354,8 +359,8 @@ function buildQuestionParts(
     if (q.help) el += `\n      <help ref="jr:itext('${q.id}-help')"/>`
     el += `\n    ${items}\n    </${tag}>`
     bodyElements.push(el)
-  } else if (q.type === 'trigger') {
-    let el = `<trigger ref="${nodePath}">\n      <label ref="jr:itext('${q.id}-label')"/>`
+  } else if (q.type === 'label') {
+    let el = `<trigger ref="${nodePath}" appearance="minimal">\n      <label ref="jr:itext('${q.id}-label')"/>`
     if (q.hint) el += `\n      <hint ref="jr:itext('${q.id}-hint')"/>`
     if (q.help) el += `\n      <help ref="jr:itext('${q.id}-help')"/>`
     el += `\n    </trigger>`
@@ -412,7 +417,7 @@ function getXsdType(type: string): string | null {
     case 'signature': return 'xsd:string'
     case 'hidden': return 'xsd:string'
     case 'secret': return 'xsd:string'
-    case 'trigger': return null
+    case 'label': return null
     case 'group': return null
     case 'repeat': return null
     case 'select1': return 'xsd:string'

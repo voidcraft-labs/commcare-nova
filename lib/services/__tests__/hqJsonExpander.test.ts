@@ -271,7 +271,7 @@ describe('output references in labels', () => {
           name: 'F', type: 'survey',
           questions: [
             { id: 'name', type: 'text', label: 'Name' },
-            { id: 'greeting', type: 'trigger', label: 'Hello <output value="/data/name"/>, welcome!' },
+            { id: 'greeting', type: 'label', label: 'Hello <output value="/data/name"/>, welcome!' },
           ],
         }],
       }],
@@ -279,7 +279,7 @@ describe('output references in labels', () => {
     }
     const hq = expandBlueprint(bp)
     const xform: string = Object.values(hq._attachments)[0] as string
-    expect(xform).toContain('<text id="greeting-label"><value>Hello <output value="/data/name"/>, welcome!</value></text>')
+    expect(xform).toContain('<text id="greeting-label"><value>Hello <output value="/data/name"/>, welcome!</value><value form="markdown">Hello <output value="/data/name"/>, welcome!</value></text>')
   })
 
   it('expands #case/ hashtags inside <output value="..."/> tags', () => {
@@ -289,7 +289,7 @@ describe('output references in labels', () => {
           name: 'F', type: 'followup',
           questions: [
             { id: 'n', type: 'text', label: 'Name', case_property: 'full_name' },
-            { id: 'msg', type: 'trigger', label: 'Patient: <output value="#case/full_name"/>' },
+            { id: 'msg', type: 'label', label: 'Patient: <output value="#case/full_name"/>' },
           ],
         }],
       }],

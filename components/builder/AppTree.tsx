@@ -271,7 +271,7 @@ function QuestionRow({
     image: <Icon icon={ciImage} width="14" height="14" />,
     phone: <Icon icon={ciPhone} width="14" height="14" />,
     barcode: <Icon icon={ciBarcode} width="14" height="14" />,
-    trigger: <Icon icon={ciCircleWarning} width="14" height="14" />,
+    label: <Icon icon={ciCircleWarning} width="14" height="14" />,
   }
 
   return (
