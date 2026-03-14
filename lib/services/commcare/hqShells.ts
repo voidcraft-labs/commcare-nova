@@ -160,7 +160,7 @@ export function moduleShell(
     display_style: 'list',
     media_image: {}, media_audio: {}, custom_icons: [],
     is_training_module: false, module_filter: null, auto_select_case: false,
-    parent_select: { active: false, module_id: null },
+    parent_select: { active: false, relationship: 'parent', module_id: null },
     comment: '',
   }
 }

@@ -178,7 +178,7 @@ export interface HqModule {
   is_training_module: boolean
   module_filter: null
   auto_select_case: boolean
-  parent_select: { active: boolean; module_id: null }
+  parent_select: { active: boolean; relationship: string; module_id: string | null }
   comment: string
 }
 
