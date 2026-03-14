@@ -38,9 +38,8 @@ export interface PipelineResult {
 // ── Progress tracking for streaming ──────────────────────────────────
 
 interface ContentProgressState {
-  emittedModuleColumns: Set<number>
+  emittedModuleColumnCounts: Map<number, number>
   emittedFormQuestionCounts: Map<string, number>
-  phaseSwitchedToForms: boolean
 }
 
 /**
@@ -60,18 +59,20 @@ function emitContentProgress(
     if (modOutput?.moduleIndex == null) continue
     const mIdx = modOutput.moduleIndex
 
-    // Emit data-module-done when columns first appear with actual content
-    // (during streaming, the array starts as [] before items arrive)
-    if (
-      modOutput.case_list_columns !== undefined &&
-      modOutput.case_list_columns.length > 0 &&
-      !state.emittedModuleColumns.has(mIdx)
-    ) {
-      state.emittedModuleColumns.add(mIdx)
-      ctx.emit('data-module-done', {
-        moduleIndex: mIdx,
-        caseListColumns: modOutput.case_list_columns ?? null,
-      })
+    // Emit columns only when objects are actually populated (have both field and header).
+    // During partial streaming, column objects may arrive as {} before their fields stream in.
+    if (modOutput.case_list_columns !== undefined && modOutput.case_list_columns.length > 0) {
+      const completeColumns = modOutput.case_list_columns.filter(
+        (col: any) => col.field && col.header,
+      )
+      const prevColCount = state.emittedModuleColumnCounts.get(mIdx) ?? 0
+      if (completeColumns.length > 0 && completeColumns.length > prevColCount) {
+        state.emittedModuleColumnCounts.set(mIdx, completeColumns.length)
+        ctx.emit('data-module-done', {
+          moduleIndex: mIdx,
+          caseListColumns: completeColumns,
+        })
+      }
     }
 
     // Emit form progress as questions accumulate
@@ -89,12 +90,6 @@ function emitContentProgress(
       const currCount = readyQuestions.length
 
       if (currCount > prevCount) {
-        // Switch to forms phase on first question
-        if (!state.phaseSwitchedToForms) {
-          state.phaseSwitchedToForms = true
-          ctx.emit('data-phase', { phase: 'forms' })
-        }
-
         state.emittedFormQuestionCounts.set(key, currCount)
 
         // Strip empties, apply data model defaults, then convert to nested tree
@@ -151,7 +146,7 @@ export async function runGenerationPipeline(
   }
 
   ctx.emit('data-scaffold', scaffold)
-  ctx.emit('data-phase', { phase: 'modules' })
+  ctx.emit('data-phase', { phase: 'forms' })
 
   // ── Step 2: App content (Opus, structured output, streamed) ────────
 
@@ -171,9 +166,8 @@ export async function runGenerationPipeline(
   })
 
   const progressState: ContentProgressState = {
-    emittedModuleColumns: new Set(),
+    emittedModuleColumnCounts: new Map(),
     emittedFormQuestionCounts: new Map(),
-    phaseSwitchedToForms: false,
   }
 
   const content = await ctx.streamGenerate(appContentSchema, {
