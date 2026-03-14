@@ -1,5 +1,5 @@
 'use client'
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState, useCallback } from 'react'
 import { motion, AnimatePresence } from 'motion/react'
 import { Icon } from '@iconify/react'
 import ciCheck from '@iconify-icons/ci/check'
@@ -38,11 +38,77 @@ function getStageStatus(stagePhases: BuilderPhase[], currentPhase: BuilderPhase)
   return 'pending'
 }
 
+/** Map phase to its stage index (0-based among displayed stages, + count for Done). */
+function getPhaseStageIndex(phase: BuilderPhase, stageCount: number): number {
+  const map: Record<string, number> = {
+    [BuilderPhase.Planning]: 0,
+    [BuilderPhase.Designing]: 1,
+    [BuilderPhase.Modules]: 2,
+    [BuilderPhase.Forms]: 2,
+    [BuilderPhase.Validating]: 3,
+    [BuilderPhase.Fixing]: 4,
+    [BuilderPhase.Done]: stageCount, // Done is always last
+  }
+  return map[phase] ?? 0
+}
+
 export function GenerationProgress({ phase, message, completed, total, mode, onDone }: GenerationProgressProps) {
   const isDone = phase === BuilderPhase.Done
-  const pct = isDone ? 100 : total > 0 ? Math.min((completed / total) * 100, 100) : 0
+
+  // Only show Fix stage if we've reached it
+  const stages = phase === BuilderPhase.Fixing
+    ? [...baseStages, { key: 'fix', phases: [BuilderPhase.Fixing], label: 'Fix' }]
+    : baseStages
+
   const isCentered = mode === 'centered'
   const [dismissing, setDismissing] = useState(false)
+
+  // Refs for measuring label centers
+  const containerRef = useRef<HTMLDivElement>(null)
+  const barRef = useRef<HTMLDivElement>(null)
+  const labelRefs = useRef<Map<number, HTMLDivElement>>(new Map())
+  const [labelCenters, setLabelCenters] = useState<number[]>([])
+
+  const setLabelRef = useCallback((idx: number) => (el: HTMLDivElement | null) => {
+    if (el) labelRefs.current.set(idx, el)
+    else labelRefs.current.delete(idx)
+  }, [])
+
+  // Measure label centers as percentage of the bar width
+  useEffect(() => {
+    const bar = barRef.current
+    if (!bar) return
+
+    const measure = () => {
+      const barRect = bar.getBoundingClientRect()
+      if (barRect.width === 0) return
+      const totalLabels = stages.length + 1 // stages + Done
+      const centers: number[] = []
+      for (let i = 0; i < totalLabels; i++) {
+        const el = labelRefs.current.get(i)
+        if (el) {
+          const r = el.getBoundingClientRect()
+          const centerX = r.left + r.width / 2 - barRect.left
+          centers[i] = (centerX / barRect.width) * 100
+        }
+      }
+      setLabelCenters(centers)
+    }
+
+    measure()
+    const ro = new ResizeObserver(measure)
+    ro.observe(bar)
+    return () => ro.disconnect()
+  }, [stages.length, phase])
+
+  // Compute progress bar width — just snap to the measured center of the active stage
+  let pct = 0
+  if (isDone) {
+    pct = 100
+  } else if (labelCenters.length > 0) {
+    const stageIdx = getPhaseStageIndex(phase, stages.length)
+    pct = labelCenters[stageIdx] ?? 0
+  }
 
   // Auto-dismiss: 3s after done, trigger the pulse→slide-out sequence
   useEffect(() => {
@@ -54,15 +120,11 @@ export function GenerationProgress({ phase, message, completed, total, mode, onD
     return () => clearTimeout(timer)
   }, [isDone])
 
-  // Only show Fix stage if we've reached it
-  const stages = phase === BuilderPhase.Fixing
-    ? [...baseStages, { key: 'fix', phases: [BuilderPhase.Fixing], label: 'Fix' }]
-    : baseStages
-
   return (
     <motion.div
       layout
       layoutId="generation-progress"
+      ref={containerRef}
       animate={dismissing
         ? { opacity: 0, y: 30, scale: 0.97 }
         : { opacity: 1, y: 0, scale: 1 }
@@ -82,18 +144,19 @@ export function GenerationProgress({ phase, message, completed, total, mode, onD
     >
       {/* Stage indicators */}
       <div className={`flex items-center ${isCentered ? 'gap-3' : 'gap-2'}`}>
-        {stages.map((stage) => {
+        {stages.map((stage, i) => {
           const status = getStageStatus(stage.phases, phase)
 
           return (
             <div key={stage.key} className="flex items-center gap-2">
               <div className={`flex items-center gap-1.5 font-medium transition-colors duration-300 ${
-                isCentered ? 'text-sm' : 'text-xs'
-              } ${
-                status === 'done' ? 'text-nova-cyan-bright' :
-                status === 'active' ? (isCentered ? 'text-nova-text' : 'text-nova-violet-bright') :
-                'text-nova-text-muted'
-              }`}>
+                  isCentered ? 'text-sm' : 'text-xs'
+                } ${
+                  status === 'done' ? 'text-nova-cyan-bright' :
+                  status === 'active' ? (isCentered ? 'text-nova-text' : 'text-nova-violet-bright') :
+                  'text-nova-text-muted'
+                }`}
+              >
                 {status === 'done' && (
                   <motion.span
                     initial={{ scale: 0 }}
@@ -113,7 +176,7 @@ export function GenerationProgress({ phase, message, completed, total, mode, onD
                     }`}
                   />
                 )}
-                {stage.label}
+                <span ref={setLabelRef(i)}>{stage.label}</span>
               </div>
               <span className={`transition-colors duration-300 ${
                 isCentered ? 'text-sm' : 'text-xs'
@@ -126,10 +189,11 @@ export function GenerationProgress({ phase, message, completed, total, mode, onD
 
         {/* Done — always present, lights up when complete */}
         <div className={`flex items-center gap-1.5 font-medium transition-colors duration-300 ${
-          isCentered ? 'text-sm' : 'text-xs'
-        } ${
-          isDone ? 'text-nova-cyan-bright' : 'text-nova-text-muted'
-        }`}>
+            isCentered ? 'text-sm' : 'text-xs'
+          } ${
+            isDone ? 'text-nova-cyan-bright' : 'text-nova-text-muted'
+          }`}
+        >
           {isDone && (
             <motion.span
               initial={{ scale: 0 }}
@@ -139,14 +203,17 @@ export function GenerationProgress({ phase, message, completed, total, mode, onD
               <Icon icon={ciCheck} width={isCentered ? 14 : 12} height={isCentered ? 14 : 12} />
             </motion.span>
           )}
-          Done
+          <span ref={setLabelRef(stages.length)}>Done</span>
         </div>
       </div>
 
       {/* Progress bar — pulses once before dismissing */}
-      <div className={`rounded-full bg-nova-surface overflow-hidden ${
-        isCentered ? 'mt-3 h-[3px]' : 'mt-2 h-[2px]'
-      }`}>
+      <div
+        ref={barRef}
+        className={`rounded-full bg-nova-surface overflow-hidden ${
+          isCentered ? 'mt-3 h-[3px]' : 'mt-2 h-[2px]'
+        }`}
+      >
         <motion.div
           className="h-full rounded-full"
           style={{
