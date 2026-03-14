@@ -31,19 +31,19 @@ export interface FlatQuestion {
   type: string
   parentId: string
   sortOrder: number
-  label: string
-  hint: string
-  help: string
-  required: string
-  readonly: boolean
-  constraint: string
-  constraint_msg: string
-  relevant: string
-  calculate: string
-  default_value: string
-  case_property: string
-  is_case_name: boolean
-  options: Array<{ value: string; label: string }>
+  label?: string
+  hint?: string
+  help?: string
+  required?: string
+  readonly?: boolean
+  constraint?: string
+  constraint_msg?: string
+  relevant?: string
+  calculate?: string
+  default_value?: string
+  case_property?: string
+  is_case_name?: boolean
+  options?: Array<{ value: string; label: string }>
 }
 
 /** Content output for a single form. */
@@ -117,43 +117,40 @@ const questionSchema = z.object({
   ),
   label: z.string().describe(
     'Human-readable question text. Write clear labels like "Patient Name", "Date of Birth". ' +
-    'When mapping to a case property, defaults to the property label — use empty string to use the default. ' +
+    'Empty string when mapping to a case property to use the property label as default. ' +
     'Empty string for hidden questions.'
   ),
-  hint: z.string().describe(
-    'Short hint shown below the question. When mapping to a case property, defaults to the property hint. Empty string if none.'
+  hint: z.string().optional().describe(
+    'Short hint shown below the question. Omit if none.'
   ),
-  help: z.string().describe(
-    'Detailed help text shown on demand via help icon. When mapping to a case property, defaults to the property help. Empty string if none.'
+  help: z.string().optional().describe(
+    'Detailed help text shown on demand via help icon. Omit if none.'
   ),
   required: z.string().describe(
-    '"true()" if always required. An XPath expression for conditional requirement (e.g. "/data/age >= 18"). ' +
-    'When mapping to a case property, defaults to the property required setting. Empty string if not required.'
+    '"true()" if always required. An XPath expression for conditional requirement (e.g. "/data/age >= 18"). Empty string if not required.'
   ),
   readonly: z.boolean().describe(
-    'True if visible but not editable. Use for display-only preloaded values in followup forms. False otherwise.'
+    'True if visible but not editable. Use for display-only preloaded values in followup forms. False if editable.'
   ),
-  constraint: z.string().describe(
-    'XPath constraint expression (e.g. ". > 0 and . < 150"). Use raw operators (>, <, >=, <=), never HTML-escaped. ' +
-    'When mapping to a case property, defaults to the property constraint. Empty string if none.'
+  constraint: z.string().optional().describe(
+    'XPath constraint expression (e.g. ". > 0 and . < 150"). Use raw operators (>, <, >=, <=), never HTML-escaped. Omit if none.'
   ),
-  constraint_msg: z.string().describe(
-    'Human-friendly error message when constraint fails (e.g. "Age must be between 1 and 149"). ' +
-    'When mapping to a case property, defaults to the property constraint_msg. Empty string if none.'
+  constraint_msg: z.string().optional().describe(
+    'Human-friendly error message when constraint fails (e.g. "Age must be between 1 and 149"). Omit if none.'
   ),
-  relevant: z.string().describe(
+  relevant: z.string().optional().describe(
     'XPath expression — question only shows when true. ' +
     'Use full path: /data/question_id for top-level, /data/group_id/question_id for nested. ' +
-    'Use #case/property_name for case data. Empty string if always shown.'
+    'Use #case/property_name for case data. Omit if always shown.'
   ),
-  calculate: z.string().describe(
+  calculate: z.string().optional().describe(
     'XPath expression for auto-computed value (recomputes as referenced values change). ' +
-    'Required for "hidden" type questions. Use #case/property_name for case data. Empty string if none.'
+    'Required for "hidden" type questions. Use #case/property_name for case data. Omit if none.'
   ),
-  default_value: z.string().describe(
+  default_value: z.string().optional().describe(
     'XPath expression for the initial value set when the form opens (one-time, not recalculated). ' +
     'Use #case/property_name to preload case data in followup forms. ' +
-    'Different from calculate: default_value sets once on load, calculate updates continuously. Empty string if none.'
+    'Different from calculate: default_value sets once on load, calculate updates continuously. Omit if none.'
   ),
   case_property: z.string().describe(
     'Case property this question maps to. Must match a property name from the module\'s case type. ' +
@@ -165,12 +162,12 @@ const questionSchema = z.object({
   ),
   is_case_name: z.boolean().describe(
     'True if this question provides the case name. Registration and followup forms must have exactly one. ' +
-    'Auto-derived from case_name_property when possible. False otherwise.'
+    'Auto-derived from case_name_property when possible. False if not.'
   ),
   options: z.array(selectOptionSchema).describe(
     'Options for select1/select questions — at least 2 options. ' +
     'When mapping to a case property, defaults to the property options. ' +
-    'Empty array for all other question types.'
+    'Empty array for non-select question types.'
   ),
 })
 
@@ -205,12 +202,14 @@ export const appContentSchema = z.object({
 
 // ── Post-processing: strip empty values ──────────────────────────────
 
-/** Convert empty strings to undefined, empty arrays to undefined, false booleans to undefined. */
+/** Convert empty strings to undefined, empty arrays to undefined, false booleans to undefined.
+ *  With optional schema fields, values may already be undefined — pass through as-is. */
 function stripEmpty(q: FlatQuestion): Partial<FlatQuestion> {
   const result: any = {}
   for (const [k, v] of Object.entries(q)) {
+    if (v === undefined) continue
     if (v === '') continue
-    if (v === false && k !== 'type') continue  // keep false for readonly only if explicitly set... actually keep all false
+    if (v === false && k !== 'type') continue
     if (Array.isArray(v) && v.length === 0) continue
     result[k] = v
   }
@@ -230,7 +229,7 @@ export function buildQuestionTree(flat: Array<Partial<FlatQuestion>>): Question[
 
   const byParent = new Map<string | null, Array<Partial<FlatQuestion>>>()
   for (const q of sorted) {
-    const parent = q.parentId ?? null
+    const parent = q.parentId || null
     if (!byParent.has(parent)) byParent.set(parent, [])
     byParent.get(parent)!.push(q)
   }
