@@ -21,7 +21,9 @@ import {
   processContentOutput,
   processSingleFormOutput,
   buildQuestionTree,
-  type AppContentOutput, type ModuleContentOutput,
+  stripEmpty,
+  applyDefaults,
+  type AppContentOutput, type ModuleContentOutput, type FlatQuestion,
 } from '../schemas/appContentSchema'
 import { validateAndFix } from './architectAgent'
 
@@ -58,9 +60,11 @@ function emitContentProgress(
     if (modOutput?.moduleIndex == null) continue
     const mIdx = modOutput.moduleIndex
 
-    // Emit data-module-done when columns first appear
+    // Emit data-module-done when columns first appear with actual content
+    // (during streaming, the array starts as [] before items arrive)
     if (
       modOutput.case_list_columns !== undefined &&
+      modOutput.case_list_columns.length > 0 &&
       !state.emittedModuleColumns.has(mIdx)
     ) {
       state.emittedModuleColumns.add(mIdx)
@@ -93,9 +97,11 @@ function emitContentProgress(
 
         state.emittedFormQuestionCounts.set(key, currCount)
 
-        // Convert flat questions to nested for the client
+        // Strip empties, apply data model defaults, then convert to nested tree
         const ct = caseTypes.find(c => c.name === scaffold.modules[mIdx]?.case_type) ?? null
-        const nestedQuestions = buildQuestionTree(readyQuestions)
+        const stripped = readyQuestions.map((q: FlatQuestion) => stripEmpty(q))
+        const withDefaults = stripped.map((q: Partial<FlatQuestion>) => applyDefaults(q, ct))
+        const nestedQuestions = buildQuestionTree(withDefaults)
         const scaffoldForm = scaffold.modules[mIdx]?.forms[fIdx]
 
         ctx.emit('data-form-done', {
