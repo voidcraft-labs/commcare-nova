@@ -77,7 +77,12 @@ function emitContentProgress(
       const fIdx = formOutput.formIndex ?? 0
       const key = `${mIdx}-${fIdx}`
       const prevCount = state.emittedFormQuestionCounts.get(key) ?? 0
-      const currCount = formOutput.questions.length
+
+      // Exclude the last question — it may still be actively streaming with
+      // partial field values. Once the next question starts, we know it's complete.
+      // The final question of each form arrives via data-done with the full blueprint.
+      const readyQuestions = formOutput.questions.slice(0, -1)
+      const currCount = readyQuestions.length
 
       if (currCount > prevCount) {
         // Switch to forms phase on first question
@@ -90,7 +95,7 @@ function emitContentProgress(
 
         // Convert flat questions to nested for the client
         const ct = caseTypes.find(c => c.name === scaffold.modules[mIdx]?.case_type) ?? null
-        const nestedQuestions = buildQuestionTree(formOutput.questions)
+        const nestedQuestions = buildQuestionTree(readyQuestions)
         const scaffoldForm = scaffold.modules[mIdx]?.forms[fIdx]
 
         ctx.emit('data-form-done', {
@@ -130,7 +135,7 @@ export async function runGenerationPipeline(
     prompt: specification,
     label: 'Scaffold',
     knowledge: scaffoldFiles,
-    maxOutputTokens: 16384,
+    maxOutputTokens: 65536,
     onPartial: (partial) => ctx.emit('data-partial-scaffold', partial),
   })
 
@@ -172,7 +177,7 @@ export async function runGenerationPipeline(
     prompt: `Build complete content for all ${scaffold.modules.length} modules in "${scaffold.app_name}".`,
     label: 'App Content',
     knowledge: allContentFiles.length > 0 ? allContentFiles : undefined,
-    maxOutputTokens: 32768,
+    maxOutputTokens: 65536,
     onPartial: (partial) => emitContentProgress(ctx, partial, scaffold, progressState),
   })
 
@@ -199,26 +204,26 @@ export async function runGenerationPipeline(
 
 // ── Single-form generation (for edit mode regenerateForm + validate empty form fallback) ──
 
-/** Schema for single-form generation — no nullable, no optional, empty values instead. */
+/** Schema for single-form generation — optional fields match appContentSchema. */
 const singleFormSchema = z.object({
   questions: z.array(z.object({
     id: z.string(),
     type: z.string(),
     parentId: z.string(),
     sortOrder: z.number(),
-    label: z.string(),
-    hint: z.string(),
-    help: z.string(),
-    required: z.string(),
-    readonly: z.boolean(),
-    constraint: z.string(),
-    constraint_msg: z.string(),
-    relevant: z.string(),
-    calculate: z.string(),
-    default_value: z.string(),
-    case_property: z.string(),
-    is_case_name: z.boolean(),
-    options: z.array(z.object({ value: z.string(), label: z.string() })),
+    label: z.string().optional(),
+    hint: z.string().optional(),
+    help: z.string().optional(),
+    required: z.string().optional(),
+    readonly: z.boolean().optional(),
+    constraint: z.string().optional(),
+    constraint_msg: z.string().optional(),
+    relevant: z.string().optional(),
+    calculate: z.string().optional(),
+    default_value: z.string().optional(),
+    case_property: z.string().optional(),
+    is_case_name: z.boolean().optional(),
+    options: z.array(z.object({ value: z.string(), label: z.string() })).optional(),
   })),
   close_case: z.object({
     question: z.string(),
