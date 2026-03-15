@@ -122,11 +122,12 @@ export async function POST(req: Request) {
   }
   const pipelineConfig: PipelineConfig = { ...DEFAULT_PIPELINE_CONFIG, ...rawPipelineConfig }
 
+  const logger = new RunLogger(runId)
+  logger.setAgent('Product Manager')
+  logger.logConversation(messages)
+
   const stream = createUIMessageStream({
     execute: async ({ writer }) => {
-      const logger = new RunLogger(runId)
-      logger.setAgent('Product Manager')
-      logger.logConversation(messages)
       // Send runId to client so it can send it back on subsequent requests
       writer.write({ type: 'data-run-id', data: { runId: logger.runId }, transient: true })
       const ctx = new GenerationContext(apiKey, writer, logger, pipelineConfig)
@@ -198,11 +199,10 @@ export async function POST(req: Request) {
           }
         },
       })
-      try {
-        writer.merge(agentStream)
-      } finally {
-        logger.finalize()
-      }
+      writer.merge(agentStream)
+    },
+    onFinish() {
+      logger.finalize()
     },
     onError: (error) => {
       console.error('[chat] stream error:', error)
