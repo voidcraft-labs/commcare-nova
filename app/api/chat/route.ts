@@ -10,7 +10,7 @@ import { z } from 'zod'
 import { buildProductManagerPrompt } from '@/lib/prompts/productManagerPrompt'
 import { DEFAULT_PIPELINE_CONFIG } from '@/lib/models'
 import type { PipelineConfig } from '@/lib/types/settings'
-import { GenerationContext, thinkingProviderOptions } from '@/lib/services/generationContext'
+import { GenerationContext, thinkingProviderOptions, withPromptCaching } from '@/lib/services/generationContext'
 import { RunLogger } from '@/lib/services/runLogger'
 import { createEditArchitectAgent } from '@/lib/services/architectAgent'
 import { runGenerationPipeline } from '@/lib/services/generationPipeline'
@@ -138,6 +138,7 @@ export async function POST(req: Request) {
         model: ctx.model(pipelineConfig.pm.model),
         instructions: pmInstructions,
         ...(pmReasoning && { providerOptions: thinkingProviderOptions(pmReasoning.effort) }),
+        ...withPromptCaching,
         tools: {
           askQuestions: {
             description: 'Ask the user clarifying questions about their app requirements. Each call can hold up to 5 questions.',
@@ -193,6 +194,8 @@ export async function POST(req: Request) {
               model: pipelineConfig.pm.model,
               input_tokens: usage.inputTokens ?? 0,
               output_tokens: usage.outputTokens ?? 0,
+              cache_read_tokens: usage.inputTokenDetails?.cacheReadTokens ?? undefined,
+              cache_write_tokens: usage.inputTokenDetails?.cacheWriteTokens ?? undefined,
               output: { text, ...(reasoningText && { reasoningText }), toolResults },
               tool_calls: toolCalls?.map((tc: any) => ({ name: tc.toolName, args: tc.input })),
             })
