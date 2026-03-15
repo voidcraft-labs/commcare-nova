@@ -22,10 +22,10 @@ export const MODEL_PM = 'claude-sonnet-4-6'
 /** Default pipeline configuration — matches the hardcoded values used before settings existed. */
 export const DEFAULT_PIPELINE_CONFIG: PipelineConfig = {
   pm: { model: MODEL_APP_CONTENT, maxOutputTokens: 0 },
-  scaffold: { model: MODEL_APP_CONTENT, maxOutputTokens: 128000 },
-  appContent: { model: MODEL_APP_CONTENT, maxOutputTokens: 128000 },
+  scaffold: { model: MODEL_APP_CONTENT, maxOutputTokens: 0 },
+  appContent: { model: MODEL_APP_CONTENT, maxOutputTokens: 0 },
   editArchitect: { model: MODEL_GENERATION, maxOutputTokens: 0 },
-  singleFormRegen: { model: MODEL_APP_CONTENT, maxOutputTokens: 16384 },
+  singleFormRegen: { model: MODEL_APP_CONTENT, maxOutputTokens: 0 },
 }
 
 /** Pricing per million tokens, keyed by model ID (either full or alias). */
