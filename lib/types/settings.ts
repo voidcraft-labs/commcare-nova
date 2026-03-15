@@ -1,6 +1,10 @@
+export type ReasoningEffort = 'low' | 'medium' | 'high' | 'max'
+
 export interface PipelineStageConfig {
   model: string
   maxOutputTokens: number
+  reasoning: boolean
+  reasoningEffort: ReasoningEffort
 }
 
 export interface PipelineConfig {

@@ -6,7 +6,7 @@
  */
 import { ToolLoopAgent, tool, stepCountIs } from 'ai'
 import { z } from 'zod'
-import { GenerationContext, logWarnings, withPromptCaching } from './generationContext'
+import { GenerationContext, logWarnings, withPromptCaching, thinkingProviderOptions } from './generationContext'
 import { EDIT_ARCHITECT_PROMPT } from '../prompts/editArchitectPrompt'
 import { loadKnowledge } from './commcare/knowledge/loadKnowledge'
 import { generateSingleFormContent } from './generationPipeline'
@@ -312,9 +312,11 @@ export function createEditArchitectAgent(
   mutableBp: MutableBlueprint,
 ) {
   const editModel = ctx.pipelineConfig.editArchitect.model
+  const editReasoning = ctx.reasoningForStage('editArchitect')
   const agent = new ToolLoopAgent({
     model: ctx.model(editModel),
     instructions: EDIT_ARCHITECT_PROMPT,
+    ...(editReasoning && { providerOptions: thinkingProviderOptions(editReasoning.effort) }),
     stopWhen: stepCountIs(50),
     ...withPromptCaching,
     onStepFinish: ({ usage, text, reasoningText, toolCalls, toolResults, warnings }) => {

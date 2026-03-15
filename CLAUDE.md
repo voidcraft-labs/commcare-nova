@@ -94,8 +94,9 @@ The PM does NOT make technical decisions (property names, case types, form struc
 - **`emit(type, data)`** — writes a transient data part to the client stream (`writer.write({ type, data, transient: true })`)
 - **`logger`** — the `RunLogger` instance, accessible by agents for logging orchestration events
 - **`generatePlainText(opts)`** — text-only generation (no schema) via `generateText` with automatic run logging
-- **`generate(schema, opts)`** — one-shot structured generation via `generateText` + `Output.object()` with automatic run logging via `logger.logSubResult()`. Supports `thinkingBudget` for extended thinking.
-- **`streamGenerate(schema, opts)`** — streaming structured generation via `streamText` + `Output.object()` + `partialOutputStream` with `onPartial` callback and automatic run logging. Supports `thinkingBudget` for extended thinking.
+- **`generate(schema, opts)`** — one-shot structured generation via `generateText` + `Output.object()` with automatic run logging via `logger.logSubResult()`. Accepts `reasoning?: { effort }` for adaptive thinking.
+- **`streamGenerate(schema, opts)`** — streaming structured generation via `streamText` + `Output.object()` + `partialOutputStream` with `onPartial` callback and automatic run logging. Accepts `reasoning?: { effort }` for adaptive thinking.
+- **`reasoningForStage(stage)`** — returns `{ effort }` if reasoning is enabled and the model supports it, `undefined` otherwise. Used by pipeline stages and agents.
 - **`runAgent(agent, opts)`** — runs a `ToolLoopAgent` to completion with centralized step logging (token counts, cache metrics, knowledge attribution, tool call args). Used by the edit architect.
 
 Also exports **`withPromptCaching`** — a shared `prepareStep` config that marks the last message with Anthropic's `cache_control: ephemeral`. Spread into all `ToolLoopAgent` constructors via `...withPromptCaching` so prior conversation turns are cached across steps.
@@ -267,7 +268,8 @@ Dark "Stellar Minimalism" theme. CSS custom properties defined in `globals.css`:
 - `MODEL_FIXER` — available for cheap/fast fixes, currently `claude-haiku-4-5-20251001`
 - `MODEL_PM` — unused constant (PM now defaults to `MODEL_APP_CONTENT` via `DEFAULT_PIPELINE_CONFIG`)
 - `MODEL_PRICING` — cost lookup keyed by model ID (per million tokens: input, output, cacheWrite, cacheRead)
-- `DEFAULT_PIPELINE_CONFIG` — `PipelineConfig` object with per-stage model + maxOutputTokens defaults
+- `DEFAULT_PIPELINE_CONFIG` — `PipelineConfig` object with per-stage model + maxOutputTokens + reasoning defaults
+- `modelSupportsReasoning(modelId)` — returns true for Opus/Sonnet families (not Haiku)
 
 ### Settings & Pipeline Config
 
@@ -275,18 +277,18 @@ Users configure models and token limits per pipeline stage at `/settings`. Setti
 
 **Data flow**: `localStorage → useSettings() → useChat body → route.ts → GenerationContext.pipelineConfig → pipeline/agents`
 
-**Pipeline stages** (each has a model + maxOutputTokens):
-- `pm` — Product Manager agent (default: Opus, no token cap)
-- `scaffold` — Scaffold generation (default: Opus, 128k)
-- `appContent` — App content generation (default: Opus, 128k)
-- `editArchitect` — Edit Architect agent (default: Sonnet, no token cap)
-- `singleFormRegen` — Single form regeneration (default: Opus, 16k)
+**Pipeline stages** (each has model + maxOutputTokens + reasoning + reasoningEffort):
+- `pm` — Product Manager agent (default: Opus, no token cap, reasoning high)
+- `scaffold` — Scaffold generation (default: Opus, no token cap, reasoning high)
+- `appContent` — App content generation (default: Opus, no token cap, reasoning high)
+- `editArchitect` — Edit Architect agent (default: Sonnet, no token cap, reasoning off)
+- `singleFormRegen` — Single form regeneration (default: Opus, no token cap, reasoning high)
 
-Pipeline code reads from `ctx.pipelineConfig.<stage>.model` and `ctx.pipelineConfig.<stage>.maxOutputTokens` — never hardcoded model IDs. A `maxOutputTokens` of `0` means no cap.
+Pipeline code reads from `ctx.pipelineConfig.<stage>` — never hardcoded model IDs. A `maxOutputTokens` of `0` means no cap. Reasoning uses Anthropic adaptive thinking (`type: 'adaptive'`) with configurable effort (`low`/`medium`/`high`/`max`). `ctx.reasoningForStage(stage)` returns the effort config or `undefined` if reasoning is off or the model doesn't support it.
 
-**Hooks**: `useSettings()` is the primary hook (reads/writes `nova-settings`, migrates legacy `nova-api-key`). `useApiKey()` is a thin wrapper that delegates to `useSettings()`.
+**Hooks**: `useSettings()` is the primary hook (reads/writes `nova-settings`). `useApiKey()` is a thin wrapper that delegates to `useSettings()`.
 
-**Models proxy**: `POST /api/models` takes `{ apiKey }` and returns `{ models: [{ id, display_name, created_at }] }` from the Anthropic API, used to populate the settings dropdowns.
+**Models proxy**: `POST /api/models` takes `{ apiKey }` and returns the latest version of each model family (Opus, Sonnet, Haiku) from the Anthropic API, used to populate the settings dropdowns.
 
 ## Run Logging
 
@@ -320,7 +322,7 @@ Client-side feature for replaying a previously captured run log (`.log/*.json`) 
 - `architectAgent.ts`: Exports `createEditArchitectAgent(ctx, mutableBp)` — edit-mode `ToolLoopAgent` with search/get/edit/validate/loadKnowledge tools operating on a `MutableBlueprint`. `regenerateForm` uses `generateSingleFormContent()` (Opus structured output). Also exports `validateAndFix()` — shared programmatic validation + fix loop (rule-based fixes + Opus structured output fallback for empty forms). **Note:** `validateAndFix` has an artificial 3s delay when validation passes on the first attempt — our validation is purely deterministic and completes near-instantly, which feels jarring. Remove this delay once we integrate the CommCare core .jar for full validation (which will take real time).
 - `generationPipeline.ts`: Exports `runGenerationPipeline(ctx, specification, appName)` — programmatic sequence: scaffold (Sonnet `streamGenerate`) → app content (Opus `streamGenerate` with adaptive thinking + `appContentSchema`) → assemble (`processContentOutput` + `assembleBlueprint`) → validate (`validateAndFix`). Also exports `generateSingleFormContent()` for edit-mode `regenerateForm` and empty form fallback.
 - `mutableBlueprint.ts`: `MutableBlueprint` class — wraps `AppBlueprint` (deep-cloned) for in-place search, read, and mutation. `search()` finds matches across question IDs/labels/case_properties/XPath/module names/form names/columns. Mutation methods (`updateQuestion`, `addQuestion`, `removeQuestion`, etc.) auto-derive case config after changes. `renameCaseProperty()` propagates renames across all questions, columns, and XPath expressions.
-- `generationContext.ts`: `GenerationContext` class — wraps Anthropic client + UI stream writer + RunLogger + PipelineConfig. Provides `generatePlainText()` (text-only, no schema), `generate()` (one-shot structured, supports `thinkingBudget`), `streamGenerate()` (streaming structured with `onPartial`, supports `thinkingBudget`), `runAgent()` (ToolLoopAgent execution with centralized step logging), `emit()` (transient data parts). All LLM calls go through this class. Pipeline stages read model IDs and max tokens from `ctx.pipelineConfig` (user-configurable via settings page, merged with `DEFAULT_PIPELINE_CONFIG`). Extended thinking is enabled via `thinking: true` parameter which sets Anthropic adaptive thinking provider options (`type: 'adaptive', effort: 'high'`). Also exports `withPromptCaching` — spread into ToolLoopAgent constructors for Anthropic prompt caching.
+- `generationContext.ts`: `GenerationContext` class — wraps Anthropic client + UI stream writer + RunLogger + PipelineConfig. Provides `generatePlainText()` (text-only, no schema), `generate()` (one-shot structured), `streamGenerate()` (streaming structured with `onPartial`), `reasoningForStage()` (returns effort config or undefined), `runAgent()` (ToolLoopAgent execution with centralized step logging), `emit()` (transient data parts). All LLM calls go through this class. Pipeline stages read config from `ctx.pipelineConfig` (user-configurable via settings page). Reasoning is configurable per stage via `reasoning?: { effort }` parameter which sets Anthropic adaptive thinking provider options. Also exports `thinkingProviderOptions(effort)` for ToolLoopAgent constructors and `withPromptCaching` for Anthropic prompt caching.
 - `runLogger.ts`: `RunLogger` class — disk-based run logger. Writes incremental JSON to `.log/` after every mutation when `RUN_LOGGER=1`. Tracks current agent, stitches sub-generation results onto orchestration tool calls, computes cache-aware per-event cost estimates (using `cache_read_tokens` / `cache_write_tokens`) and roll-up totals.
 - `logReplay.ts`: `extractReplayStages(log)` builds an ordered array of `ReplayStage` from a `RunLog`. Each stage has `{ header, subtitle?, messages, applyToBuilder }` — a uniform interface where `applyToBuilder` is a closure calling builder methods (no-op for conversation stages). Stages are: conversation exchanges → scaffold → module columns → forms → done. Also provides a module-level singleton store (`setReplayData`/`getReplayData`/`clearReplayData`) for passing data between the settings page and BuilderLayout.
 - `hqJsonExpander.ts`: `expandBlueprint()` converts `AppBlueprint` → HQ import JSON. Generates XForm XML with proper Vellum dual-attribute hashtag expansion, secondary instance declarations (casedb, commcaresession), form actions, case details. `validateBlueprint()` checks semantic rules.

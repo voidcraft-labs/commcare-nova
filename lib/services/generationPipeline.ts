@@ -132,7 +132,7 @@ export async function runGenerationPipeline(
   const scaffoldCfg = ctx.pipelineConfig.scaffold
   const scaffold = await ctx.streamGenerate(scaffoldSchema, {
     model: scaffoldCfg.model,
-    thinking: true,
+    reasoning: ctx.reasoningForStage('scaffold'),
     system: scaffoldPrompt(scaffoldKnowledge),
     prompt: specification,
     label: 'Scaffold',
@@ -174,7 +174,7 @@ export async function runGenerationPipeline(
   const contentCfg = ctx.pipelineConfig.appContent
   const content = await ctx.streamGenerate(appContentSchema, {
     model: contentCfg.model,
-    thinking: true,
+    reasoning: ctx.reasoningForStage('appContent'),
     system: contentPrompt,
     prompt: `Build complete content for all ${scaffold.modules.length} modules in "${scaffold.app_name}".`,
     label: 'App Content',
@@ -268,7 +268,7 @@ export async function generateSingleFormContent(
   const regenCfg = ctx.pipelineConfig.singleFormRegen
   const result = await ctx.generate(singleFormSchema, {
     model: regenCfg.model,
-    thinking: true,
+    reasoning: ctx.reasoningForStage('singleFormRegen'),
     system: `You are a senior CommCare form builder. Build the questions for a single form.
 
 Questions use a flat structure: parentId (null for top-level, group id for nested). Array order determines display order.
