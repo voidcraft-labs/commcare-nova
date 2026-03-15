@@ -4,11 +4,10 @@ import { useRouter } from 'next/navigation'
 import { motion } from 'motion/react'
 import { Icon } from '@iconify/react'
 import ciArrowLeft from '@iconify-icons/ci/arrow-left-md'
-import ciCheck from '@iconify-icons/ci/check'
 import ciUndo from '@iconify-icons/ci/undo'
 import { Logo } from '@/components/ui/Logo'
 import { Button } from '@/components/ui/Button'
-import { Input } from '@/components/ui/Input'
+import { ApiKeyInput } from '@/components/ui/ApiKeyInput'
 import { useSettings } from '@/hooks/useSettings'
 import type { PipelineConfig } from '@/lib/types/settings'
 
@@ -134,31 +133,12 @@ export default function SettingsPage() {
             <p className="text-sm text-nova-text-muted mb-4">
               Your Anthropic API key. Stored locally in your browser.
             </p>
-            <div className="flex gap-3 items-end">
-              <div className="flex-1 relative">
-                <Input
-                  type="password"
-                  placeholder="sk-ant-..."
-                  value={keyInput}
-                  onChange={(e) => { setKeyInput(e.target.value); setKeySaved(false) }}
-                  onKeyDown={(e) => { if (e.key === 'Enter') handleSaveKey() }}
-                />
-                {keySaved && keyInput && (
-                  <div className="absolute right-3 top-1/2 -translate-y-1/2 text-nova-emerald text-xs flex items-center gap-1">
-                    <Icon icon={ciCheck} width="12" height="12" />
-                    Saved
-                  </div>
-                )}
-              </div>
-              <Button
-                onClick={handleSaveKey}
-                variant="secondary"
-                size="md"
-                disabled={keySaved || !keyInput}
-              >
-                Save
-              </Button>
-            </div>
+            <ApiKeyInput
+              value={keyInput}
+              onChange={(v) => { setKeyInput(v); setKeySaved(false) }}
+              onSave={handleSaveKey}
+              saved={keySaved}
+            />
           </section>
 
           {/* ── Pipeline Models ──────────────────────────── */}
