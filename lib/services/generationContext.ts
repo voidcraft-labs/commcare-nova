@@ -78,7 +78,7 @@ export class GenerationContext {
 
   /** Text-only generation (no schema) with automatic run logging. */
   async generatePlainText(
-    opts: { system: string; prompt: string; label: string; model?: string; maxOutputTokens?: number; knowledge?: string[] },
+    opts: { system: string; prompt: string; label: string; model?: string; maxOutputTokens?: number },
   ): Promise<string> {
     const model = opts.model ?? MODEL_GENERATION
     const result = await generateText({
@@ -96,7 +96,6 @@ export class GenerationContext {
         input: { system: opts.system, message: opts.prompt },
         output: result.text,
         ...(result.reasoningText && { reasoningText: result.reasoningText }),
-        ...(opts.knowledge && { knowledge: opts.knowledge }),
       })
     }
     return result.text
@@ -114,7 +113,7 @@ export class GenerationContext {
     schema: z.ZodType<T>,
     opts: {
       system: string; prompt: string; label: string; model?: string;
-      maxOutputTokens?: number; knowledge?: string[];
+      maxOutputTokens?: number;
       reasoning?: { effort: ReasoningEffort };
     },
   ): Promise<T | null> {
@@ -136,7 +135,6 @@ export class GenerationContext {
         input: { system: opts.system, message: opts.prompt },
         output: result.output,
         ...(result.reasoningText && { reasoningText: result.reasoningText }),
-        ...(opts.knowledge && { knowledge: opts.knowledge }),
       })
     }
     return result.output ?? null
@@ -147,7 +145,7 @@ export class GenerationContext {
     schema: z.ZodType<T>,
     opts: {
       system: string; prompt: string; label: string; model?: string;
-      maxOutputTokens?: number; knowledge?: string[];
+      maxOutputTokens?: number;
       onPartial?: (partial: Partial<T>) => void;
       reasoning?: { effort: ReasoningEffort };
     },
@@ -181,7 +179,6 @@ export class GenerationContext {
         input: { system: opts.system, message: opts.prompt },
         output: last,
         ...(reasoningText && { reasoningText }),
-        ...(opts.knowledge && { knowledge: opts.knowledge }),
       })
     }
     return last
@@ -190,8 +187,8 @@ export class GenerationContext {
   /**
    * Run a ToolLoopAgent to completion with centralized step logging.
    *
-   * All agent execution should go through this method so logging, token
-   * tracking, and knowledge attribution happen in one place.
+   * All agent execution should go through this method so logging and token
+   * tracking happen in one place.
    */
   async runAgent<CO, T extends Record<string, any>>(
     agent: ToolLoopAgent<CO, T>,
@@ -200,7 +197,6 @@ export class GenerationContext {
       label: string
       agentName: string
       model?: string
-      knowledge?: string[]
     },
   ): Promise<void> {
     const model = opts.model ?? MODEL_GENERATION
@@ -225,7 +221,6 @@ export class GenerationContext {
             ...(isFirst && { input: { system: (agent as any).settings?.instructions, message: opts.prompt } }),
             output: { text, ...(reasoningText && { reasoningText }), toolResults },
             tool_calls: toolCalls?.map((tc: any) => ({ name: tc.toolName, args: tc.input })),
-            ...(isFirst && opts.knowledge && { knowledge: opts.knowledge }),
           })
           stepNumber++
         }

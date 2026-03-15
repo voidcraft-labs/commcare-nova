@@ -46,7 +46,6 @@ export interface RunEvent {
   cache_read_tokens?: number
   cache_write_tokens?: number
   cost_estimate: number
-  knowledge?: string[]
   input?: { system: string; message: unknown; tools?: unknown }
   output?: unknown
   tool_calls?: Array<{
@@ -153,7 +152,6 @@ export class RunLogger {
       input?: { system: string; message: unknown }
       output?: unknown
       reasoningText?: string
-      knowledge?: string[]
     },
   ) {
     // Search backwards for an orchestration event with a tool call whose
@@ -174,7 +172,6 @@ export class RunLogger {
             input: result.input,
             output: result.output,
             ...(result.reasoningText && { reasoningText: result.reasoningText }),
-            ...(result.knowledge && { knowledge: result.knowledge }),
           }
           if (this.enabled) this.flush()
           return
@@ -193,7 +190,6 @@ export class RunLogger {
       input: result.input,
       output: result.output,
       ...(result.reasoningText && { reasoningText: result.reasoningText }),
-      ...(result.knowledge && { knowledge: result.knowledge }),
     })
   }
 

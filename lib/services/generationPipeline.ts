@@ -10,7 +10,6 @@ import { MODEL_APP_CONTENT } from '../models'
 import { GenerationContext } from './generationContext'
 import { scaffoldPrompt } from '../prompts/scaffoldPrompt'
 import { appContentPrompt } from '../prompts/appContentPrompt'
-import { loadKnowledge, resolveConditionalKnowledge } from './commcare/knowledge/loadKnowledge'
 import {
   scaffoldSchema,
   assembleBlueprint,
@@ -126,17 +125,13 @@ export async function runGenerationPipeline(
   // ── Step 1: Scaffold (Sonnet, structured output, streamed) ─────────
   ctx.emit('data-phase', { phase: 'designing' })
 
-  const scaffoldFiles = resolveConditionalKnowledge('scaffold', { specification })
-  const scaffoldKnowledge = await loadKnowledge(...scaffoldFiles)
-
   const scaffoldCfg = ctx.pipelineConfig.scaffold
   const scaffold = await ctx.streamGenerate(scaffoldSchema, {
     model: scaffoldCfg.model,
     reasoning: ctx.reasoningForStage('scaffold'),
-    system: scaffoldPrompt(scaffoldKnowledge),
+    system: scaffoldPrompt(),
     prompt: specification,
     label: 'Scaffold',
-    knowledge: scaffoldFiles,
     maxOutputTokens: scaffoldCfg.maxOutputTokens || undefined,
     onPartial: (partial) => ctx.emit('data-partial-scaffold', partial),
   })
@@ -151,20 +146,7 @@ export async function runGenerationPipeline(
 
   // ── Step 2: App content (Opus, structured output, streamed) ────────
 
-  // Load knowledge: combine module + form conditional sets
-  const moduleFiles = resolveConditionalKnowledge('module', { specification })
-  const formFiles = resolveConditionalKnowledge('form', { specification })
-  const allContentFiles = [...new Set([...moduleFiles, ...formFiles])]
-  const [contentKnowledge, examples] = await Promise.all([
-    allContentFiles.length > 0 ? loadKnowledge(...allContentFiles) : Promise.resolve(undefined),
-    loadKnowledge('form-design-examples'),
-  ])
-
-  const contentPrompt = appContentPrompt({
-    scaffold,
-    knowledge: contentKnowledge,
-    examples,
-  })
+  const contentPrompt = appContentPrompt({ scaffold })
 
   const progressState: ContentProgressState = {
     emittedModuleColumnCounts: new Map(),
@@ -178,7 +160,6 @@ export async function runGenerationPipeline(
     system: contentPrompt,
     prompt: `Build complete content for all ${scaffold.modules.length} modules in "${scaffold.app_name}".`,
     label: 'App Content',
-    knowledge: allContentFiles.length > 0 ? allContentFiles : undefined,
     maxOutputTokens: contentCfg.maxOutputTokens || undefined,
     onPartial: (partial) => emitContentProgress(ctx, partial, scaffold, progressState),
   })

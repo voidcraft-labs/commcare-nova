@@ -10,21 +10,10 @@ import type { Scaffold } from '../schemas/blueprint'
 
 export interface AppContentPromptOptions {
   scaffold: Scaffold
-  knowledge?: string
-  examples: string
 }
 
 export function appContentPrompt(opts: AppContentPromptOptions): string {
-  const { scaffold, knowledge, examples } = opts
-
-  const knowledgeSection = knowledge
-    ? `
-## CommCare Platform Knowledge
-
-<knowledge>
-${knowledge}
-</knowledge>`
-    : ''
+  const { scaffold } = opts
 
   // Build a compact representation of the full data model
   const dataModelSection = scaffold.case_types?.length
@@ -75,10 +64,6 @@ ${formLines.join('\n\n')}`
 
   return `You are a senior CommCare app builder. You are given an app scaffold — the structure and data model — and your job is to produce the complete content for every module: case list columns and all form questions.
 
-<examples>
-${examples}
-</examples>
-
 ${dataModelSection}
 
 ## App Scaffold
@@ -86,7 +71,6 @@ ${dataModelSection}
 App: "${scaffold.app_name}" — ${scaffold.description}
 
 ${moduleSections.join('\n\n')}
-${knowledgeSection}
 
 ## Case List Columns
 

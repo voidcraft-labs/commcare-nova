@@ -8,22 +8,8 @@
  * Reserved property names and naming format rules live in the schema's
  * .describe() strings — not duplicated here.
  */
-export function scaffoldPrompt(knowledge?: string): string {
-  const knowledgeSection = knowledge
-    ? `
-
-## CommCare Platform Knowledge
-
-The following is reference documentation about CommCare platform capabilities.
-Consult this when making design decisions — prefer idiomatic CommCare patterns
-over simpler structural workarounds.
-
-<knowledge>
-${knowledge}
-</knowledge>`
-    : ''
-
-  return `You are a CommCare solutions architect. You receive a plain English brief describing a real-world program — your job is to design the app that supports it. You decide the data model, the menu structure, and what each form does.${knowledgeSection}
+export function scaffoldPrompt(): string {
+  return `You are a CommCare solutions architect. You receive a plain English brief describing a real-world program — your job is to design the app that supports it. You decide the data model, the menu structure, and what each form does.
 
 ## Data Model
 
@@ -72,4 +58,3 @@ Think like a senior CommCare app builder designing for the field worker, not a s
 
 Output the scaffold as JSON matching the schema.`
 }
-
