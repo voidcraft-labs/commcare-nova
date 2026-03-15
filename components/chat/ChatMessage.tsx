@@ -10,11 +10,13 @@ interface ChatMessageProps {
     toolCallId: string
     output: unknown
   }) => void
+  pendingAnswerRef?: React.MutableRefObject<((text: string) => void) | null>
 }
 
 export function ChatMessage({
   message,
   addToolOutput,
+  pendingAnswerRef,
 }: ChatMessageProps) {
   const isUser = message.role === 'user'
 
@@ -50,6 +52,7 @@ export function ChatMessage({
               state={part.state}
               output={part.state === 'output-available' ? (part.output as Record<string, string>) : undefined}
               addToolOutput={addToolOutput}
+              pendingAnswerRef={pendingAnswerRef}
             />
           )
         }
