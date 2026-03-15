@@ -70,6 +70,10 @@ For each form, write a \`formDesign\` that describes the UX design — not just 
 
 Think like a senior CommCare app builder designing for the field worker, not a schema-to-form converter. A great form isn't a list of inputs — it's a workflow with sections, conditional flows, smart defaults, and empathy for the person using it on a phone in the field.
 
+## Thinking Instructions
+
+Use your thinking to reason about architecture and design decisions: case type relationships, property naming rationale, module organization tradeoffs, form workflow logic, and formDesign UX considerations. Do NOT draft or preview the JSON output in your thinking — the schema constrains your output, so spend your thinking budget on decisions that improve quality, not on pre-writing the response.
+
 Output the scaffold as JSON matching the schema.`
 }
 
