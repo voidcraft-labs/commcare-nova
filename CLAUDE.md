@@ -23,8 +23,9 @@ app/                    # Next.js App Router pages and API routes
     compile/            # CCZ compilation + download
   build/[id]/           # Main builder view (3-panel layout)
   builds/               # Build history
+  settings/             # Settings page (log replay file picker)
 components/
-  builder/              # AppTree, DetailPanel, GenerationProgress
+  builder/              # AppTree, DetailPanel, GenerationProgress, ReplayController
   chat/                 # ChatSidebar, ChatMessage, ChatInput, QuestionCard, ThinkingIndicator
   ui/                   # Button, Input, Badge, Logo
 hooks/                  # useBuilder, useApiKey
@@ -36,6 +37,7 @@ lib/
     mutableBlueprint.ts # MutableBlueprint class — wraps AppBlueprint for in-place search, read, and mutation during editing
     generationContext.ts # GenerationContext class — shared LLM abstraction for all pipeline calls (supports extended thinking)
     runLogger.ts        # RunLogger class — disk-based run logger (writes JSON to .log/ when RUN_LOGGER=1)
+    logReplay.ts        # Log replay — stage extraction from RunLog + module-level singleton store
     hqJsonExpander.ts   # Blueprint → HQ import JSON (XForm XML, form actions, Vellum metadata)
     cczCompiler.ts      # HQ import JSON → .ccz archive (adds case blocks, suite.xml)
     autoFixer.ts        # Programmatic fixes for common CommCare app issues
@@ -196,7 +198,7 @@ No auth layer. The user's Anthropic API key is stored in localStorage and sent p
 
 ## Chat Components
 
-- **`ChatSidebar`** — Message list + input. Accepts `mode: 'centered' | 'sidebar'`. Centered mode renders below the hero Logo with no header/border, uniform `gap-6` spacing, and no vertical padding on messages/input (parent flex gap controls all spacing). Sidebar mode is the 380px docked panel with `p-4` messages and `border-t` input. Uses `layout` + `layoutId` for animated transition between modes. Reads `builder.phase` to suppress thinking indicator when the builder is active.
+- **`ChatSidebar`** — Message list + input. Accepts `mode: 'centered' | 'sidebar'`, optional `readOnly` (hides input, used by log replay). Centered mode renders below the hero Logo with no header/border, uniform `gap-6` spacing, and no vertical padding on messages/input (parent flex gap controls all spacing). Sidebar mode is the 380px docked panel with `p-4` messages and `border-t` input. Uses `layout` + `layoutId` for animated transition between modes. Reads `builder.phase` to suppress thinking indicator when the builder is active.
 - **`ChatMessage`** — Iterates `message.parts`: renders text bubbles for `text` parts, `QuestionCard` for `tool-askQuestions` parts. Assistant text is rendered through `renderMarkdown()` (allowlist-based marked renderer); user text is plain `whitespace-pre-wrap`. All other tool parts (`tool-generateApp`, `tool-editApp`) and data parts are ignored in chat (handled by `onData` in BuilderLayout).
 - **`QuestionCard`** — Animated stepper with local state. Shows questions one at a time with option buttons. Answered questions display as checkmark + answer. Calls `addToolOutput` when all questions are answered.
 - **`ThinkingIndicator`** — Orbital violet dot animation. Shown when chat status is `submitted`/`streaming` AND builder phase is `Idle` AND scaffold is not in-flight.
@@ -279,6 +281,17 @@ Set `RUN_LOGGER=1` in `.env` to enable disk-based run logging. When enabled, eac
 - **Integration**: `GenerationContext.generate()`/`streamGenerate()` call `logger.logSubResult()` automatically. Agent `onStepFinish` callbacks call `logger.logEvent()` for orchestration steps.
 - **Output**: `.log/{timestamp}_{app_name|unnamed|abandoned}.json` — contains run metadata, full conversation history (`UIMessage[]`), per-event token usage (including `cache_read_tokens` / `cache_write_tokens`) + cache-aware cost estimates, full request/response I/O, and roll-up totals.
 
+## Log Replay
+
+Client-side feature for replaying a previously captured run log (`.log/*.json`) through the Builder state machine without making API calls. Used for rapid UI iteration.
+
+**Flow**: `/settings` page → file picker → `extractReplayStages(log)` → module-level store → navigate to `/build/new` → `BuilderLayout` reads store on mount → `ReplayController` drives Builder state.
+
+- **`lib/services/logReplay.ts`** — Stage extraction + singleton store. `extractReplayStages()` walks a `RunLog` to find conversation messages, scaffold output, and app content output. Each stage is a `ReplayStage` with `header`, `subtitle?`, `messages` (cumulative `UIMessage[]`), and `applyToBuilder` (closure that calls builder methods — no-op for conversation-only stages). Reuses `processContentOutput` + `assembleBlueprint` so schema changes propagate automatically. Store: `setReplayData()` / `getReplayData()` / `clearReplayData()`.
+- **`app/settings/page.tsx`** — File picker with drag-and-drop. Parses JSON, shows metadata preview (app name, date, event count, cost), extracts stages on "Load Replay", navigates to `/build/new`.
+- **`components/builder/ReplayController.tsx`** — Fixed-position pill at top center of viewport. Left/right navigation, stage header/subtitle (fixed width, truncated), counter, close button. `goToStage(n)` resets builder then applies stages 0..n in sequence. Reports messages via `onMessagesChange` callback.
+- **`BuilderLayout` modifications** — Detects replay data via `useState` initializers (no useEffect). Applies stage 0 synchronously before first render (safe because builder subscriptions aren't active yet). Shows chat in sidebar with replay messages (read-only, no input). `isCentered` reflects real UI state — conversation stages show centered hero chat, scaffold stage triggers sidebar transition.
+
 ## Service Layer Notes
 
 - `builder.ts`: `Builder` class — singleton via `useBuilder()`. Holds `scaffold`, `blueprint`, `partialScaffold` (streaming structured output), and `partialModules` (module/form results). `treeData` getter merges partial data with scaffold for progressive rendering. Setter methods are called from `onData` callback in BuilderLayout. `updateProgress()` derives completed/total counts from the `partialModules` map.
@@ -287,6 +300,7 @@ Set `RUN_LOGGER=1` in `.env` to enable disk-based run logging. When enabled, eac
 - `mutableBlueprint.ts`: `MutableBlueprint` class — wraps `AppBlueprint` (deep-cloned) for in-place search, read, and mutation. `search()` finds matches across question IDs/labels/case_properties/XPath/module names/form names/columns. Mutation methods (`updateQuestion`, `addQuestion`, `removeQuestion`, etc.) auto-derive case config after changes. `renameCaseProperty()` propagates renames across all questions, columns, and XPath expressions.
 - `generationContext.ts`: `GenerationContext` class — wraps Anthropic client + UI stream writer + RunLogger. Provides `generatePlainText()` (text-only, no schema), `generate()` (one-shot structured, supports `thinkingBudget`), `streamGenerate()` (streaming structured with `onPartial`, supports `thinkingBudget`), `runAgent()` (ToolLoopAgent execution with centralized step logging), `emit()` (transient data parts). All LLM calls go through this class. Extended thinking is enabled via `thinking: true` parameter which sets Anthropic adaptive thinking provider options (`type: 'adaptive', effort: 'high'`). Also exports `withPromptCaching` — spread into ToolLoopAgent constructors for Anthropic prompt caching.
 - `runLogger.ts`: `RunLogger` class — disk-based run logger. Writes incremental JSON to `.log/` after every mutation when `RUN_LOGGER=1`. Tracks current agent, stitches sub-generation results onto orchestration tool calls, computes cache-aware per-event cost estimates (using `cache_read_tokens` / `cache_write_tokens`) and roll-up totals.
+- `logReplay.ts`: `extractReplayStages(log)` builds an ordered array of `ReplayStage` from a `RunLog`. Each stage has `{ header, subtitle?, messages, applyToBuilder }` — a uniform interface where `applyToBuilder` is a closure calling builder methods (no-op for conversation stages). Stages are: conversation exchanges → scaffold → module columns → forms → done. Also provides a module-level singleton store (`setReplayData`/`getReplayData`/`clearReplayData`) for passing data between the settings page and BuilderLayout.
 - `hqJsonExpander.ts`: `expandBlueprint()` converts `AppBlueprint` → HQ import JSON. Generates XForm XML with proper Vellum dual-attribute hashtag expansion, secondary instance declarations (casedb, commcaresession), form actions, case details. `validateBlueprint()` checks semantic rules.
 - `cczCompiler.ts`: `CczCompiler` class takes HQ import JSON → `.ccz` Buffer. Generates suite.xml, profile.ccpr, app_strings.txt. Injects case blocks (create/update/close/subcases) back into XForm XML.
 - `autoFixer.ts`: `AutoFixer` class applies programmatic fixes (itext, reserved properties, missing binds) to generated files before validation.

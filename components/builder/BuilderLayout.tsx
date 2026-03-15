@@ -17,7 +17,9 @@ import { ChatSidebar } from '@/components/chat/ChatSidebar'
 import { AppTree } from '@/components/builder/AppTree'
 import { DetailPanel } from '@/components/builder/DetailPanel'
 import { GenerationProgress } from '@/components/builder/GenerationProgress'
+import { ReplayController } from '@/components/builder/ReplayController'
 import { DownloadDropdown } from '@/components/ui/DownloadDropdown'
+import { getReplayData, clearReplayData } from '@/lib/services/logReplay'
 
 /** Only auto-resend when the assistant's LAST step is askQuestions with all outputs available.
  *  If the PM continued past tool calls to ask a freeform text question, don't auto-resend —
@@ -41,11 +43,27 @@ export function BuilderLayout({ buildId }: { buildId: string }) {
   const builder = useBuilder()
   const [chatOpen, setChatOpen] = useState(true)
   const [progressHidden, setProgressHidden] = useState(false)
+  const initialReplay = getReplayData()
+  const [replayData, setReplayDataState] = useState(() => {
+    if (initialReplay) initialReplay.stages[0]?.applyToBuilder(builder)
+    return initialReplay
+  })
+  const [replayMessages, setReplayMessages] = useState(
+    () => initialReplay?.stages[0]?.messages ?? []
+  )
 
   const apiKeyRef = useRef(apiKey)
   apiKeyRef.current = apiKey
   const runIdRef = useRef<string | undefined>(undefined)
 
+  const handleExitReplay = useCallback(() => {
+    setReplayDataState(null)
+    setReplayMessages([])
+    clearReplayData()
+    builder.reset()
+  }, [builder])
+
+  const inReplayMode = replayData !== null
   const isCentered = builder.phase === BuilderPhase.Idle && !builder.treeData
 
   // ── Stable ref for builder so onData callback doesn't go stale ──────
@@ -98,8 +116,8 @@ export function BuilderLayout({ buildId }: { buildId: string }) {
   }, [messages])
 
   useEffect(() => {
-    if (loaded && !apiKey) router.push('/')
-  }, [loaded, apiKey, router])
+    if (loaded && !apiKey && !inReplayMode) router.push('/')
+  }, [loaded, apiKey, router, inReplayMode])
 
   const isGenerating = [BuilderPhase.Planning, BuilderPhase.Designing, BuilderPhase.Modules, BuilderPhase.Forms, BuilderPhase.Validating, BuilderPhase.Fixing, BuilderPhase.Editing].includes(builder.phase)
 
@@ -153,7 +171,7 @@ export function BuilderLayout({ buildId }: { buildId: string }) {
 
   if (!loaded) return null
 
-  const showProgress = (isGenerating || builder.phase === BuilderPhase.Done) && !progressHidden
+  const showProgress = (isGenerating || builder.phase === BuilderPhase.Done) && !progressHidden && !inReplayMode
 
   return (
     <LayoutGroup>
@@ -182,8 +200,18 @@ export function BuilderLayout({ buildId }: { buildId: string }) {
         </div>
       </motion.header>
 
+        {/* Replay controller — between header and content so it's visible in both centered and sidebar modes */}
+        {inReplayMode && replayData && (
+          <ReplayController
+            stages={replayData.stages}
+            appName={replayData.appName}
+            onExit={handleExitReplay}
+            onMessagesChange={setReplayMessages}
+          />
+        )}
+
         <div className="flex flex-1 overflow-hidden">
-          {chatOpen && (
+          {(chatOpen || inReplayMode) && (
             <motion.div
               layout
               className={
@@ -204,11 +232,12 @@ export function BuilderLayout({ buildId }: { buildId: string }) {
               )}
               <ChatSidebar
                 mode={isCentered ? 'centered' : 'sidebar'}
-                messages={messages}
-                status={status}
+                messages={inReplayMode ? replayMessages : messages}
+                status={inReplayMode ? 'ready' : status}
                 onSend={handleSend}
-                onClose={() => setChatOpen(false)}
+                onClose={inReplayMode ? undefined : () => setChatOpen(false)}
                 addToolOutput={addToolOutput}
+                readOnly={inReplayMode}
               />
             </motion.div>
           )}
