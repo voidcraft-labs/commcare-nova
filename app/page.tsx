@@ -4,35 +4,31 @@ import { useRouter } from 'next/navigation'
 import { motion } from 'motion/react'
 import { Icon } from '@iconify/react'
 import ciSettings from '@iconify-icons/ci/settings'
+import ciArrowRight from '@iconify-icons/ci/arrow-right-md'
 import Link from 'next/link'
 import { Logo } from '@/components/ui/Logo'
-import { Button } from '@/components/ui/Button'
-import { ApiKeyInput } from '@/components/ui/ApiKeyInput'
 import { useSettings } from '@/hooks/useSettings'
 
 export default function LandingPage() {
   const router = useRouter()
   const { settings, loaded, updateSettings } = useSettings()
   const [apiKey, setApiKey] = useState('')
-  const [saved, setSaved] = useState(false)
 
+  // Auto-redirect return visitors who already have a key
   useEffect(() => {
     if (loaded && settings.apiKey) {
-      setApiKey(settings.apiKey)
-      setSaved(true)
+      router.replace('/build/new')
     }
-  }, [loaded, settings.apiKey])
-
-  const saveKey = () => {
-    updateSettings({ apiKey })
-    setSaved(true)
-  }
+  }, [loaded, settings.apiKey, router])
 
   const startBuilding = () => {
-    if (!apiKey) return
-    updateSettings({ apiKey })
+    if (!apiKey.trim()) return
+    updateSettings({ apiKey: apiKey.trim() })
     router.push('/build/new')
   }
+
+  // Don't render anything while checking for existing key (prevents flash)
+  if (!loaded || settings.apiKey) return null
 
   return (
     <div className="min-h-screen flex flex-col items-center justify-center relative overflow-hidden">
@@ -73,22 +69,28 @@ export default function LandingPage() {
           transition={{ delay: 0.5, duration: 0.6 }}
           className="w-full space-y-4"
         >
-          <ApiKeyInput
-            value={apiKey}
-            onChange={(v) => { setApiKey(v); setSaved(false) }}
-            onSave={saveKey}
-            saved={saved}
-            label="Anthropic API Key"
-          />
-
-          <Button
-            onClick={startBuilding}
-            disabled={!apiKey}
-            size="lg"
-            className="w-full"
-          >
-            Start Building
-          </Button>
+          <div>
+            <label className="text-sm text-nova-text-secondary font-medium block mb-1.5">
+              Anthropic API Key
+            </label>
+            <div className="relative">
+              <input
+                type="password"
+                placeholder="sk-ant-..."
+                value={apiKey}
+                onChange={(e) => setApiKey(e.target.value)}
+                onKeyDown={(e) => { if (e.key === 'Enter') startBuilding() }}
+                className="w-full px-4 py-3 pr-14 bg-nova-deep border border-nova-border rounded-lg text-nova-text placeholder:text-nova-text-muted focus:outline-none focus:border-nova-violet focus:shadow-[var(--nova-glow-violet)] transition-all duration-200"
+              />
+              <button
+                onClick={startBuilding}
+                disabled={!apiKey.trim()}
+                className="absolute right-2 top-1/2 -translate-y-1/2 p-2 rounded-md bg-nova-violet text-white hover:bg-nova-violet-bright transition-colors disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer"
+              >
+                <Icon icon={ciArrowRight} width="18" height="18" />
+              </button>
+            </div>
+          </div>
 
           <p className="text-xs text-nova-text-muted text-center">
             Your API key stays in your browser. Never sent to our servers.
