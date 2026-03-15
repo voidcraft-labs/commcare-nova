@@ -21,6 +21,7 @@ interface ChatSidebarProps {
     output: unknown
   }) => void
   mode: 'centered' | 'sidebar'
+  readOnly?: boolean
 }
 
 export function ChatSidebar({
@@ -30,6 +31,7 @@ export function ChatSidebar({
   onClose,
   addToolOutput,
   mode,
+  readOnly,
 }: ChatSidebarProps) {
   const builder = useBuilder()
   const isLoading = status === 'submitted' || status === 'streaming'
@@ -103,14 +105,16 @@ export function ChatSidebar({
         </AnimatePresence>
       </div>
 
-      {/* Input */}
-      <div className="shrink-0">
-        <ChatInput
-          onSend={onSend}
-          disabled={isLoading || [BuilderPhase.Planning, BuilderPhase.Designing, BuilderPhase.Modules, BuilderPhase.Forms, BuilderPhase.Validating, BuilderPhase.Fixing, BuilderPhase.Editing].includes(builder.phase)}
-          centered={isCentered}
-        />
-      </div>
+      {/* Input — hidden in readOnly mode */}
+      {!readOnly && (
+        <div className="shrink-0">
+          <ChatInput
+            onSend={onSend}
+            disabled={isLoading || [BuilderPhase.Planning, BuilderPhase.Designing, BuilderPhase.Modules, BuilderPhase.Forms, BuilderPhase.Validating, BuilderPhase.Fixing, BuilderPhase.Editing].includes(builder.phase)}
+            centered={isCentered}
+          />
+        </div>
+      )}
     </motion.div>
   )
 }
