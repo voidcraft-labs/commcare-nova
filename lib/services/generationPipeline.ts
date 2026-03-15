@@ -6,7 +6,7 @@
  * The only LLM calls are inside generateScaffold (Sonnet) and generateAppContent (Opus).
  */
 import { z } from 'zod'
-import { MODEL_GENERATION, MODEL_APP_CONTENT } from '../models'
+import { MODEL_APP_CONTENT } from '../models'
 import { GenerationContext } from './generationContext'
 import { scaffoldPrompt } from '../prompts/scaffoldPrompt'
 import { appContentPrompt } from '../prompts/appContentPrompt'
@@ -129,14 +129,15 @@ export async function runGenerationPipeline(
   const scaffoldFiles = resolveConditionalKnowledge('scaffold', { specification })
   const scaffoldKnowledge = await loadKnowledge(...scaffoldFiles)
 
+  const scaffoldCfg = ctx.pipelineConfig.scaffold
   const scaffold = await ctx.streamGenerate(scaffoldSchema, {
-    model: MODEL_APP_CONTENT,
+    model: scaffoldCfg.model,
     thinking: true,
     system: scaffoldPrompt(scaffoldKnowledge),
     prompt: specification,
     label: 'Scaffold',
     knowledge: scaffoldFiles,
-    maxOutputTokens: 128000,
+    maxOutputTokens: scaffoldCfg.maxOutputTokens || undefined,
     onPartial: (partial) => ctx.emit('data-partial-scaffold', partial),
   })
 
@@ -170,14 +171,15 @@ export async function runGenerationPipeline(
     emittedFormQuestionCounts: new Map(),
   }
 
+  const contentCfg = ctx.pipelineConfig.appContent
   const content = await ctx.streamGenerate(appContentSchema, {
-    model: MODEL_APP_CONTENT,
+    model: contentCfg.model,
     thinking: true,
     system: contentPrompt,
     prompt: `Build complete content for all ${scaffold.modules.length} modules in "${scaffold.app_name}".`,
     label: 'App Content',
     knowledge: allContentFiles.length > 0 ? allContentFiles : undefined,
-    maxOutputTokens: 128000,
+    maxOutputTokens: contentCfg.maxOutputTokens || undefined,
     onPartial: (partial) => emitContentProgress(ctx, partial, scaffold, progressState),
   })
 
@@ -263,8 +265,9 @@ export async function generateSingleFormContent(
 
   const siblingForms = mod.forms.map(f => `"${f.name}" (${f.type})`).join(', ')
 
+  const regenCfg = ctx.pipelineConfig.singleFormRegen
   const result = await ctx.generate(singleFormSchema, {
-    model: MODEL_APP_CONTENT,
+    model: regenCfg.model,
     thinking: true,
     system: `You are a senior CommCare form builder. Build the questions for a single form.
 
@@ -285,7 +288,7 @@ ${instructions}
 
 Build the complete questions for this form.`,
     label: `Regenerate form "${form.name}"`,
-    maxOutputTokens: 16384,
+    maxOutputTokens: regenCfg.maxOutputTokens || undefined,
   })
 
   if (!result) {

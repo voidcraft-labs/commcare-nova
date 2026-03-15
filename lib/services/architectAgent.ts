@@ -6,7 +6,6 @@
  */
 import { ToolLoopAgent, tool, stepCountIs } from 'ai'
 import { z } from 'zod'
-import { MODEL_GENERATION } from '../models'
 import { GenerationContext, logWarnings, withPromptCaching } from './generationContext'
 import { EDIT_ARCHITECT_PROMPT } from '../prompts/editArchitectPrompt'
 import { loadKnowledge } from './commcare/knowledge/loadKnowledge'
@@ -312,8 +311,9 @@ export function createEditArchitectAgent(
   ctx: GenerationContext,
   mutableBp: MutableBlueprint,
 ) {
+  const editModel = ctx.pipelineConfig.editArchitect.model
   const agent = new ToolLoopAgent({
-    model: ctx.model(MODEL_GENERATION),
+    model: ctx.model(editModel),
     instructions: EDIT_ARCHITECT_PROMPT,
     stopWhen: stepCountIs(50),
     ...withPromptCaching,
@@ -324,7 +324,7 @@ export function createEditArchitectAgent(
           type: 'orchestration',
           agent: 'Edit Architect',
           label: 'Edit step',
-          model: MODEL_GENERATION,
+          model: editModel,
           input_tokens: usage.inputTokens ?? 0,
           output_tokens: usage.outputTokens ?? 0,
           cache_read_tokens: usage.inputTokenDetails?.cacheReadTokens ?? undefined,
