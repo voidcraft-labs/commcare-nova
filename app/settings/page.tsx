@@ -12,7 +12,8 @@ import { Button } from '@/components/ui/Button'
 import { ApiKeyInput } from '@/components/ui/ApiKeyInput'
 import { useSettings } from '@/hooks/useSettings'
 import { extractReplayStages, setReplayData } from '@/lib/services/logReplay'
-import type { PipelineConfig } from '@/lib/types/settings'
+import { modelSupportsReasoning } from '@/lib/models'
+import type { PipelineConfig, ReasoningEffort } from '@/lib/types/settings'
 import type { RunLog } from '@/lib/services/runLogger'
 
 interface ModelInfo {
@@ -56,6 +57,13 @@ function getTokenOptions(model: string) {
   const cap = MODEL_MAX_TOKENS[model] ?? DEFAULT_MAX_TOKENS
   return ALL_TOKEN_OPTIONS.filter(opt => opt.value === 0 || opt.value <= cap)
 }
+
+const EFFORT_LEVELS: { value: ReasoningEffort; label: string }[] = [
+  { value: 'low', label: 'Low' },
+  { value: 'medium', label: 'Medium' },
+  { value: 'high', label: 'High' },
+  { value: 'max', label: 'Max' },
+]
 
 export default function SettingsPage() {
   const router = useRouter()
@@ -187,12 +195,12 @@ export default function SettingsPage() {
           initial={{ opacity: 0, y: 12 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.4, ease: [0.16, 1, 0.3, 1] }}
-          className="space-y-10"
+          className="space-y-6"
         >
           {/* ── API Key ──────────────────────────────────── */}
-          <section>
-            <h2 className="text-lg font-display font-semibold mb-1">API Key</h2>
-            <p className="text-sm text-nova-text-muted mb-4">
+          <section className="rounded-xl border border-nova-border bg-nova-deep p-6">
+            <h2 className="text-sm font-display font-semibold tracking-wide uppercase text-nova-text-secondary mb-1">API Key</h2>
+            <p className="text-xs text-nova-text-muted mb-4">
               Your Anthropic API key. Stored locally in your browser.
             </p>
             <ApiKeyInput
@@ -204,12 +212,12 @@ export default function SettingsPage() {
           </section>
 
           {/* ── Pipeline Models ──────────────────────────── */}
-          <section>
-            <h2 className="text-lg font-display font-semibold mb-1">Pipeline Models</h2>
-            <p className="text-sm text-nova-text-muted mb-5">
-              Choose which model powers each stage of the generation pipeline.
+          <section className="rounded-xl border border-nova-border bg-nova-deep p-6">
+            <h2 className="text-sm font-display font-semibold tracking-wide uppercase text-nova-text-secondary mb-1">Pipeline Configuration</h2>
+            <p className="text-xs text-nova-text-muted mb-5">
+              Model, token limit, and reasoning settings for each generation stage.
             </p>
-            <div className="space-y-3">
+            <div className="space-y-2.5">
               {STAGES.map((stage, i) => (
                 <motion.div
                   key={stage.key}
@@ -236,11 +244,12 @@ export default function SettingsPage() {
                             const newModel = e.target.value
                             const cap = MODEL_MAX_TOKENS[newModel] ?? DEFAULT_MAX_TOKENS
                             const currentTokens = settings.pipeline[stage.key].maxOutputTokens
-                            const updates: { model: string; maxOutputTokens?: number } = { model: newModel }
+                            const updates: Partial<typeof settings.pipeline[typeof stage.key]> = { model: newModel }
                             if (currentTokens > 0 && currentTokens > cap) updates.maxOutputTokens = cap
+                            if (!modelSupportsReasoning(newModel)) updates.reasoning = false
                             updatePipelineStage(stage.key, updates)
                           }}
-                          className="w-full px-3 py-2 bg-nova-deep border border-nova-border rounded-lg text-sm text-nova-text focus:outline-none focus:border-nova-violet transition-colors appearance-none cursor-pointer"
+                          className="w-full px-3 py-2 bg-nova-void border border-nova-border rounded-lg text-sm text-nova-text focus:outline-none focus:border-nova-violet transition-colors appearance-none cursor-pointer"
                         >
                           {models.map(m => (
                             <option key={m.id} value={m.id}>{m.display_name}</option>
@@ -253,7 +262,7 @@ export default function SettingsPage() {
                           onChange={(e) => updatePipelineStage(stage.key, { model: e.target.value })}
                           placeholder={!settings.apiKey ? 'Enter API key first' : 'Model ID...'}
                           disabled={!settings.apiKey}
-                          className="w-full px-3 py-2 bg-nova-deep border border-nova-border rounded-lg text-sm text-nova-text placeholder:text-nova-text-muted focus:outline-none focus:border-nova-violet transition-colors disabled:opacity-40"
+                          className="w-full px-3 py-2 bg-nova-void border border-nova-border rounded-lg text-sm text-nova-text placeholder:text-nova-text-muted focus:outline-none focus:border-nova-violet transition-colors disabled:opacity-40"
                         />
                       )}
                     </div>
@@ -268,7 +277,7 @@ export default function SettingsPage() {
                             maxOutputTokens: parseInt(e.target.value),
                           })
                         }
-                        className="w-full px-3 py-2 bg-nova-deep border border-nova-border rounded-lg text-sm text-nova-text focus:outline-none focus:border-nova-violet transition-colors appearance-none cursor-pointer"
+                        className="w-full px-3 py-2 bg-nova-void border border-nova-border rounded-lg text-sm text-nova-text focus:outline-none focus:border-nova-violet transition-colors appearance-none cursor-pointer"
                       >
                         {getTokenOptions(settings.pipeline[stage.key].model).map(opt => (
                           <option key={opt.value} value={opt.value}>{opt.label}</option>
@@ -276,6 +285,47 @@ export default function SettingsPage() {
                       </select>
                     </div>
                   </div>
+                  {/* Reasoning row — only when API key is set and model supports it */}
+                  {settings.apiKey && modelSupportsReasoning(settings.pipeline[stage.key].model) && (
+                    <div className="flex items-center gap-3 mt-3 pt-3 border-t border-nova-border/40">
+                      <button
+                        type="button"
+                        role="switch"
+                        aria-checked={settings.pipeline[stage.key].reasoning}
+                        onClick={() => updatePipelineStage(stage.key, { reasoning: !settings.pipeline[stage.key].reasoning })}
+                        className={`relative inline-flex h-5 w-9 shrink-0 items-center rounded-full transition-colors cursor-pointer ${
+                          settings.pipeline[stage.key].reasoning
+                            ? 'bg-nova-violet'
+                            : 'bg-nova-border'
+                        }`}
+                      >
+                        <span
+                          className={`inline-block h-3.5 w-3.5 rounded-full bg-white transition-transform ${
+                            settings.pipeline[stage.key].reasoning ? 'translate-x-[18px]' : 'translate-x-[3px]'
+                          }`}
+                        />
+                      </button>
+                      <span className="text-xs text-nova-text-secondary select-none">Reasoning</span>
+                      {settings.pipeline[stage.key].reasoning && (
+                        <div className="ml-auto flex items-center gap-1.5">
+                          {EFFORT_LEVELS.map(({ value, label }) => (
+                            <button
+                              key={value}
+                              type="button"
+                              onClick={() => updatePipelineStage(stage.key, { reasoningEffort: value })}
+                              className={`px-2.5 py-1 rounded-md text-xs font-medium transition-colors cursor-pointer ${
+                                settings.pipeline[stage.key].reasoningEffort === value
+                                  ? 'bg-nova-violet/20 text-nova-violet-bright border border-nova-violet/40'
+                                  : 'text-nova-text-muted hover:text-nova-text-secondary hover:bg-nova-void border border-transparent'
+                              }`}
+                            >
+                              {label}
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  )}
                 </motion.div>
               ))}
             </div>
@@ -287,33 +337,27 @@ export default function SettingsPage() {
                 Enter an API key above to load available models.
               </p>
             )}
-          </section>
-
-          {/* ── Reset ────────────────────────────────────── */}
-          <section className="pt-2 border-t border-nova-border">
-            <div className="flex items-center justify-between">
-              <div>
-                <h2 className="text-sm font-medium text-nova-text-secondary">Reset Pipeline Config</h2>
-                <p className="text-xs text-nova-text-muted mt-0.5">
-                  Restore all models and token limits to their defaults.
-                </p>
-              </div>
+            {/* Reset — contextual action within pipeline config */}
+            <div className="mt-5 pt-4 border-t border-nova-border/40 flex items-center justify-between">
+              <span className="text-xs text-nova-text-muted">
+                Restore all stages to defaults
+              </span>
               <Button
                 onClick={resetToDefaults}
                 variant="ghost"
                 size="sm"
               >
                 <Icon icon={ciUndo} width="14" height="14" />
-                Reset to Defaults
+                Reset
               </Button>
             </div>
           </section>
 
           {/* ── Log Replay ───────────────────────────────── */}
-          <section>
-            <h2 className="text-lg font-display font-semibold mb-1">Log Replay</h2>
-            <p className="text-sm text-nova-text-muted mb-4">
-              Load a run log to replay the generation stages in the builder UI without making API calls.
+          <section className="rounded-xl border border-nova-border bg-nova-deep p-6">
+            <h2 className="text-sm font-display font-semibold tracking-wide uppercase text-nova-text-secondary mb-1">Log Replay</h2>
+            <p className="text-xs text-nova-text-muted mb-4">
+              Load a run log to replay generation stages without API calls.
             </p>
 
             {/* Drop zone */}

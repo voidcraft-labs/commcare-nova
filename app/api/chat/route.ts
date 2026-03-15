@@ -10,7 +10,7 @@ import { z } from 'zod'
 import { buildProductManagerPrompt } from '@/lib/prompts/productManagerPrompt'
 import { DEFAULT_PIPELINE_CONFIG } from '@/lib/models'
 import type { PipelineConfig } from '@/lib/types/settings'
-import { GenerationContext } from '@/lib/services/generationContext'
+import { GenerationContext, thinkingProviderOptions } from '@/lib/services/generationContext'
 import { RunLogger } from '@/lib/services/runLogger'
 import { createEditArchitectAgent } from '@/lib/services/architectAgent'
 import { runGenerationPipeline } from '@/lib/services/generationPipeline'
@@ -132,14 +132,11 @@ export async function POST(req: Request) {
       const ctx = new GenerationContext(apiKey, writer, logger, pipelineConfig)
       const pmInstructions = buildProductManagerPrompt(blueprintSummary)
 
+      const pmReasoning = ctx.reasoningForStage('pm')
       const productManager = new ToolLoopAgent({
         model: ctx.model(pipelineConfig.pm.model),
         instructions: pmInstructions,
-        providerOptions: {
-          anthropic: {
-            thinking: { type: 'adaptive' as const, effort: 'high' as const },
-          },
-        },
+        ...(pmReasoning && { providerOptions: thinkingProviderOptions(pmReasoning.effort) }),
         tools: {
           askQuestions: {
             description: 'Ask the user clarifying questions about their app requirements. Each call can hold up to 5 questions.',

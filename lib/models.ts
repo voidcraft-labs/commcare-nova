@@ -19,13 +19,21 @@ export const MODEL_FIXER = 'claude-haiku-4-5-20251001'
 /** Model for the Product Manager agent (Tier 0). */
 export const MODEL_PM = 'claude-sonnet-4-6'
 
+/** Model families that support extended thinking / reasoning. */
+const REASONING_PREFIXES = ['claude-opus', 'claude-sonnet']
+
+/** Check whether a model ID supports reasoning (extended thinking). */
+export function modelSupportsReasoning(modelId: string): boolean {
+  return REASONING_PREFIXES.some(prefix => modelId.startsWith(prefix))
+}
+
 /** Default pipeline configuration — matches the hardcoded values used before settings existed. */
 export const DEFAULT_PIPELINE_CONFIG: PipelineConfig = {
-  pm: { model: MODEL_APP_CONTENT, maxOutputTokens: 0 },
-  scaffold: { model: MODEL_APP_CONTENT, maxOutputTokens: 0 },
-  appContent: { model: MODEL_APP_CONTENT, maxOutputTokens: 0 },
-  editArchitect: { model: MODEL_GENERATION, maxOutputTokens: 0 },
-  singleFormRegen: { model: MODEL_APP_CONTENT, maxOutputTokens: 0 },
+  pm: { model: MODEL_APP_CONTENT, maxOutputTokens: 0, reasoning: true, reasoningEffort: 'high' },
+  scaffold: { model: MODEL_APP_CONTENT, maxOutputTokens: 0, reasoning: true, reasoningEffort: 'high' },
+  appContent: { model: MODEL_APP_CONTENT, maxOutputTokens: 0, reasoning: true, reasoningEffort: 'high' },
+  editArchitect: { model: MODEL_GENERATION, maxOutputTokens: 0, reasoning: false, reasoningEffort: 'high' },
+  singleFormRegen: { model: MODEL_APP_CONTENT, maxOutputTokens: 0, reasoning: true, reasoningEffort: 'high' },
 }
 
 /** Pricing per million tokens, keyed by model ID (either full or alias). */

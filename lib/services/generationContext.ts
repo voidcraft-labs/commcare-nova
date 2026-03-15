@@ -9,8 +9,8 @@ import { streamText, generateText, Output } from 'ai'
 import type { CallWarning, ModelMessage, ToolLoopAgent, UIMessageStreamWriter } from 'ai'
 import { createAnthropic } from '@ai-sdk/anthropic'
 import { z } from 'zod'
-import { MODEL_GENERATION, DEFAULT_PIPELINE_CONFIG } from '../models'
-import type { PipelineConfig } from '../types/settings'
+import { MODEL_GENERATION, DEFAULT_PIPELINE_CONFIG, modelSupportsReasoning } from '../models'
+import type { PipelineConfig, ReasoningEffort } from '../types/settings'
 import { RunLogger } from './runLogger'
 
 /** Log AI SDK warnings to the console if present. */
@@ -39,10 +39,10 @@ export const withPromptCaching = {
 }
 
 /** Anthropic provider options for adaptive extended thinking. */
-function thinkingProviderOptions() {
+export function thinkingProviderOptions(effort: ReasoningEffort) {
   return {
     anthropic: {
-      thinking: { type: 'adaptive' as const, effort: 'high' as const },
+      thinking: { type: 'adaptive' as const, effort },
     },
   }
 }
@@ -102,13 +102,20 @@ export class GenerationContext {
     return result.text
   }
 
+  /** Get reasoning config for a pipeline stage (undefined if disabled or model doesn't support it). */
+  reasoningForStage(stage: keyof PipelineConfig): { effort: ReasoningEffort } | undefined {
+    const cfg = this.pipelineConfig[stage]
+    if (!cfg.reasoning || !modelSupportsReasoning(cfg.model)) return undefined
+    return { effort: cfg.reasoningEffort }
+  }
+
   /** One-shot structured generation with automatic run logging. */
   async generate<T>(
     schema: z.ZodType<T>,
     opts: {
       system: string; prompt: string; label: string; model?: string;
       maxOutputTokens?: number; knowledge?: string[];
-      thinking?: boolean;
+      reasoning?: { effort: ReasoningEffort };
     },
   ): Promise<T | null> {
     const model = opts.model ?? MODEL_GENERATION
@@ -118,7 +125,7 @@ export class GenerationContext {
       system: opts.system,
       prompt: opts.prompt,
       maxOutputTokens: opts.maxOutputTokens,
-      ...(opts.thinking && { providerOptions: thinkingProviderOptions() }),
+      ...(opts.reasoning && { providerOptions: thinkingProviderOptions(opts.reasoning.effort) }),
     })
     logWarnings(`generate:${opts.label}`, result.warnings)
     if (result.usage) {
@@ -142,7 +149,7 @@ export class GenerationContext {
       system: string; prompt: string; label: string; model?: string;
       maxOutputTokens?: number; knowledge?: string[];
       onPartial?: (partial: Partial<T>) => void;
-      thinking?: boolean;
+      reasoning?: { effort: ReasoningEffort };
     },
   ): Promise<T | null> {
     const model = opts.model ?? MODEL_GENERATION
@@ -152,7 +159,7 @@ export class GenerationContext {
       system: opts.system,
       prompt: opts.prompt,
       maxOutputTokens: opts.maxOutputTokens,
-      ...(opts.thinking && { providerOptions: thinkingProviderOptions() }),
+      ...(opts.reasoning && { providerOptions: thinkingProviderOptions(opts.reasoning.effort) }),
       onError({ error }) {
         console.error(`[streamGenerate:${opts.label}] error:`, error)
       },
