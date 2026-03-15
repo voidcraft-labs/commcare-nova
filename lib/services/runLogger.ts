@@ -14,7 +14,7 @@
  * Enabled by setting RUN_LOGGER=1 in .env. When disabled, all methods are no-ops.
  */
 import type { UIMessage } from 'ai'
-import { writeFileSync, readFileSync, mkdirSync, renameSync, existsSync } from 'fs'
+import { writeFileSync, readFileSync, mkdirSync, existsSync } from 'fs'
 import { readdir, readFile, rename as renameAsync } from 'fs/promises'
 import path from 'path'
 import { MODEL_PRICING, DEFAULT_PRICING } from '../models'
@@ -202,20 +202,12 @@ export class RunLogger {
     this.recomputeTotals()
     if (!this.enabled) return
     this.flush()
-
-    const finalPath = buildFinalPath(this.log.started_at, this.log.app_name, 'unnamed')
-    if (this.filePath !== finalPath) {
-      try {
-        renameSync(this.filePath, finalPath)
-        this.filePath = finalPath
-      } catch {}
-    }
   }
 
   /**
-   * Async fire-and-forget cleanup: renames any UUID-named log files left by abandoned runs
-   * (where finalize() never ran, e.g. user closed tab mid-stream or process crashed).
-   * Called at the start of each new run so orphans are cleaned up incrementally.
+   * Async fire-and-forget cleanup: renames any UUID-named log files from previous sessions
+   * to human-readable names. Runs that completed (finished_at set) get the normal name;
+   * truly abandoned runs (no finished_at) get an 'abandoned' suffix.
    */
   private static async cleanupAbandonedLogs(excludeRunId?: string) {
     try {
@@ -227,8 +219,9 @@ export class RunLogger {
         try {
           const filePath = path.join(LOG_DIR, file)
           const raw = await readFile(filePath, 'utf-8')
-          const log = JSON.parse(raw) as Pick<RunLog, 'started_at' | 'app_name'>
-          const finalPath = buildFinalPath(log.started_at, log.app_name, 'abandoned')
+          const log = JSON.parse(raw) as Pick<RunLog, 'started_at' | 'app_name' | 'finished_at'>
+          const fallback = log.finished_at ? 'unnamed' : 'abandoned'
+          const finalPath = buildFinalPath(log.started_at, log.app_name, fallback)
           await renameAsync(filePath, finalPath)
         } catch {}
       }
