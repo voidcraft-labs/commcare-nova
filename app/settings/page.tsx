@@ -289,6 +289,26 @@ export default function SettingsPage() {
             )}
           </section>
 
+          {/* ── Reset ────────────────────────────────────── */}
+          <section className="pt-2 border-t border-nova-border">
+            <div className="flex items-center justify-between">
+              <div>
+                <h2 className="text-sm font-medium text-nova-text-secondary">Reset Pipeline Config</h2>
+                <p className="text-xs text-nova-text-muted mt-0.5">
+                  Restore all models and token limits to their defaults.
+                </p>
+              </div>
+              <Button
+                onClick={resetToDefaults}
+                variant="ghost"
+                size="sm"
+              >
+                <Icon icon={ciUndo} width="14" height="14" />
+                Reset to Defaults
+              </Button>
+            </div>
+          </section>
+
           {/* ── Log Replay ───────────────────────────────── */}
           <section>
             <h2 className="text-lg font-display font-semibold mb-1">Log Replay</h2>
@@ -365,26 +385,6 @@ export default function SettingsPage() {
                 </Button>
               </motion.div>
             )}
-          </section>
-
-          {/* ── Reset ────────────────────────────────────── */}
-          <section className="pt-2 border-t border-nova-border">
-            <div className="flex items-center justify-between">
-              <div>
-                <h2 className="text-sm font-medium text-nova-text-secondary">Reset Pipeline Config</h2>
-                <p className="text-xs text-nova-text-muted mt-0.5">
-                  Restore all models and token limits to their defaults.
-                </p>
-              </div>
-              <Button
-                onClick={resetToDefaults}
-                variant="ghost"
-                size="sm"
-              >
-                <Icon icon={ciUndo} width="14" height="14" />
-                Reset to Defaults
-              </Button>
-            </div>
           </section>
         </motion.div>
       </main>
