@@ -1,5 +1,5 @@
 'use client'
-import { useState } from 'react'
+import { useState, useRef } from 'react'
 import { motion, AnimatePresence } from 'motion/react'
 import { Icon } from '@iconify/react'
 import ciCheck from '@iconify-icons/ci/check'
@@ -23,6 +23,7 @@ interface QuestionCardProps {
     toolCallId: string
     output: unknown
   }) => void
+  pendingAnswerRef?: React.MutableRefObject<((text: string) => void) | null>
 }
 
 export function QuestionCard({
@@ -31,9 +32,14 @@ export function QuestionCard({
   state,
   output,
   addToolOutput,
+  pendingAnswerRef,
 }: QuestionCardProps) {
   const [currentIndex, setCurrentIndex] = useState(0)
   const [answers, setAnswers] = useState<Record<string, string>>({})
+
+  // Refs for stable closure in the pending answer handler
+  const stateRef = useRef({ currentIndex, answers })
+  stateRef.current = { currentIndex, answers }
 
   const isWaiting = state === 'input-available'
   const isComplete = state === 'output-available'
@@ -41,20 +47,30 @@ export function QuestionCard({
   const questions = input?.questions ?? []
   const isLoading = !isWaiting && !isComplete
 
-  const handleSelect = (questionText: string, optionLabel: string) => {
-    const newAnswers = { ...answers, [questionText]: optionLabel }
+  const applyAnswer = (questionText: string, answerText: string) => {
+    const { answers: ans, currentIndex: ci } = stateRef.current
+    const newAnswers = { ...ans, [questionText]: answerText }
     setAnswers(newAnswers)
+    stateRef.current.answers = newAnswers
 
-    const nextIndex = currentIndex + 1
-    if (nextIndex < questions.length) {
-      setCurrentIndex(nextIndex)
+    const nextIdx = ci + 1
+    if (nextIdx < questions.length) {
+      setCurrentIndex(nextIdx)
+      stateRef.current.currentIndex = nextIdx
     } else {
-      // All answered — send output
-      addToolOutput({
-        tool: 'askQuestions',
-        toolCallId,
-        output: newAnswers,
-      })
+      addToolOutput({ tool: 'askQuestions', toolCallId, output: newAnswers })
+    }
+  }
+
+  // Register handler so ChatSidebar can route typed messages as question answers
+  if (pendingAnswerRef) {
+    if (isWaiting) {
+      pendingAnswerRef.current = (text: string) => {
+        const q = questions[stateRef.current.currentIndex]
+        if (q) applyAnswer(q.question, `User Responded: ${text}`)
+      }
+    } else {
+      pendingAnswerRef.current = null
     }
   }
 
@@ -129,7 +145,7 @@ export function QuestionCard({
                             key={opt.label}
                             whileHover={{ scale: 1.01 }}
                             whileTap={{ scale: 0.99 }}
-                            onClick={() => handleSelect(q.question, opt.label)}
+                            onClick={() => applyAnswer(q.question, opt.label)}
                             className="w-full text-left px-3 py-2 rounded-lg border border-nova-border bg-nova-surface hover:border-nova-violet/40 hover:bg-nova-violet/5 transition-colors cursor-pointer"
                           >
                             <div className="text-sm text-nova-text">{opt.label}</div>
@@ -151,7 +167,7 @@ export function QuestionCard({
         {isWaiting && (
           <div className="px-3.5 py-2 border-t border-nova-violet/10">
             <span className="text-xs text-nova-text-muted">
-              or respond with a chat message
+              or type your answer below
             </span>
           </div>
         )}

@@ -1,5 +1,5 @@
 'use client'
-import { useRef, useEffect } from 'react'
+import { useRef, useEffect, useCallback } from 'react'
 import { motion, AnimatePresence } from 'motion/react'
 import type { UIMessage } from 'ai'
 import { Icon } from '@iconify/react'
@@ -38,7 +38,17 @@ export function ChatSidebar({
 
   const showThinking = isLoading && builder.phase === BuilderPhase.Idle
   const scrollRef = useRef<HTMLDivElement>(null)
+  const pendingAnswerRef = useRef<((text: string) => void) | null>(null)
   const isCentered = mode === 'centered'
+
+  // Route typed messages as question answers when a QuestionCard is waiting
+  const handleSend = useCallback((text: string) => {
+    if (pendingAnswerRef.current) {
+      pendingAnswerRef.current(text)
+    } else {
+      onSend(text)
+    }
+  }, [onSend])
 
   // Auto-scroll on new messages
   useEffect(() => {
@@ -98,6 +108,7 @@ export function ChatSidebar({
             key={msg.id}
             message={msg}
             addToolOutput={addToolOutput}
+            pendingAnswerRef={pendingAnswerRef}
           />
         ))}
         <AnimatePresence>
@@ -109,7 +120,7 @@ export function ChatSidebar({
       {!readOnly && (
         <div className="shrink-0">
           <ChatInput
-            onSend={onSend}
+            onSend={handleSend}
             disabled={isLoading || [BuilderPhase.Planning, BuilderPhase.Designing, BuilderPhase.Modules, BuilderPhase.Forms, BuilderPhase.Validating, BuilderPhase.Fixing, BuilderPhase.Editing].includes(builder.phase)}
             centered={isCentered}
           />
