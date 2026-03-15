@@ -5,6 +5,8 @@
  * Vercel AI SDK calls use short aliases (e.g. "claude-sonnet-4-6") resolved by the provider.
  */
 
+import type { PipelineConfig } from './types/settings'
+
 /** Default model for structured generation (scaffold). */
 export const MODEL_GENERATION = 'claude-sonnet-4-6'
 
@@ -16,6 +18,15 @@ export const MODEL_FIXER = 'claude-haiku-4-5-20251001'
 
 /** Model for the Product Manager agent (Tier 0). */
 export const MODEL_PM = 'claude-sonnet-4-6'
+
+/** Default pipeline configuration — matches the hardcoded values used before settings existed. */
+export const DEFAULT_PIPELINE_CONFIG: PipelineConfig = {
+  pm: { model: MODEL_APP_CONTENT, maxOutputTokens: 0 },
+  scaffold: { model: MODEL_APP_CONTENT, maxOutputTokens: 128000 },
+  appContent: { model: MODEL_APP_CONTENT, maxOutputTokens: 128000 },
+  editArchitect: { model: MODEL_GENERATION, maxOutputTokens: 0 },
+  singleFormRegen: { model: MODEL_APP_CONTENT, maxOutputTokens: 16384 },
+}
 
 /** Pricing per million tokens, keyed by model ID (either full or alias). */
 export const MODEL_PRICING: Record<string, { input: number; output: number; cacheWrite: number; cacheRead: number }> = {

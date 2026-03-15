@@ -21,13 +21,15 @@ app/                    # Next.js App Router pages and API routes
   api/
     chat/               # Single autonomous endpoint (PM + generation pipeline + edit agent)
     compile/            # CCZ compilation + download
+    models/             # Anthropic models list proxy (POST with apiKey)
   build/[id]/           # Main builder view (3-panel layout)
   builds/               # Build history
+  settings/             # Settings page (API key, pipeline model/token config)
 components/
   builder/              # AppTree, DetailPanel, GenerationProgress
   chat/                 # ChatSidebar, ChatMessage, ChatInput, QuestionCard, ThinkingIndicator
   ui/                   # Button, Input, Badge, Logo
-hooks/                  # useBuilder, useApiKey
+hooks/                  # useBuilder, useSettings, useApiKey
 lib/
   services/
     builder.ts          # Builder class — singleton state machine for the build lifecycle
@@ -45,7 +47,7 @@ lib/
   schemas/              # Zod schemas for AppBlueprint, appContentSchema (unified content output)
   prompts/              # Agent prompts (productManagerPrompt, editArchitectPrompt, scaffoldPrompt, appContentPrompt) — generation prompts accept knowledge param
   types/                # TypeScript type definitions
-  models.ts             # Central model ID + pricing config
+  models.ts             # Central model ID + pricing config + DEFAULT_PIPELINE_CONFIG
   store.ts              # CCZ file persistence in .data/
 scripts/
   test-schema.ts            # Structured output schema test (sends schema to Haiku, verifies round-trip)
@@ -84,9 +86,10 @@ The PM does NOT make technical decisions (property names, case types, form struc
 
 ### GenerationContext
 
-`lib/services/generationContext.ts` exports a `GenerationContext` class — the **single place** all LLM calls flow through. Wraps an Anthropic client + UI stream writer + RunLogger.
+`lib/services/generationContext.ts` exports a `GenerationContext` class — the **single place** all LLM calls flow through. Wraps an Anthropic client + UI stream writer + RunLogger + PipelineConfig.
 
 - **`model(id)`** — returns the Anthropic model provider
+- **`pipelineConfig`** — readonly `PipelineConfig` (merged with `DEFAULT_PIPELINE_CONFIG`). Pipeline stages read model IDs and max tokens from here instead of hardcoded constants.
 - **`emit(type, data)`** — writes a transient data part to the client stream (`writer.write({ type, data, transient: true })`)
 - **`logger`** — the `RunLogger` instance, accessible by agents for logging orchestration events
 - **`generatePlainText(opts)`** — text-only generation (no schema) via `generateText` with automatic run logging
@@ -118,7 +121,7 @@ Data parts emitted by the pipeline:
 
 `BuilderLayout` has one `useChat` instance targeting `/api/chat`. No second generation instance, no client-side orchestration, no round-trips.
 
-- **`body`** sends `apiKey`, `blueprint` (for edits), and `blueprintSummary` (for PM context) per request
+- **`body`** sends `apiKey`, `pipelineConfig`, `blueprint` (for edits), and `blueprintSummary` (for PM context) per request
 - **`sendAutomaticallyWhen`** only triggers for `askQuestions` (client-side tool), not server-side tool completions
 - **`onData`** handles all builder state updates (see above)
 
@@ -192,7 +195,7 @@ Case list columns are fully controlled by the LLM — no columns are auto-prepen
 
 ### Bring-Your-Own-API-Key
 
-No auth layer. The user's Anthropic API key is stored in localStorage and sent per request via the AI SDK's `body` option. Never persisted server-side.
+No auth layer. The user's Anthropic API key is stored in localStorage (inside `nova-settings`) and sent per request via the AI SDK's `body` option. Never persisted server-side.
 
 ## Chat Components
 
@@ -256,13 +259,33 @@ Dark "Stellar Minimalism" theme. CSS custom properties defined in `globals.css`:
 
 ## Model Configuration
 
-`lib/models.ts` is the single source of truth for model IDs and pricing. Never hardcode model IDs elsewhere.
+`lib/models.ts` is the single source of truth for default model IDs, pricing, and pipeline config. Model constants (`MODEL_GENERATION`, `MODEL_APP_CONTENT`, etc.) define the defaults, but **runtime model selection is user-configurable** via the settings page.
 
-- `MODEL_GENERATION` — scaffold structured generation, currently `claude-sonnet-4-6`
-- `MODEL_APP_CONTENT` — app content generation (columns + all forms), currently `claude-opus-4-6` (uses extended thinking)
-- `MODEL_FIXER` — available for cheap/fast fixes, currently `claude-haiku-4-5-20251001` (validation uses programmatic fixes + Opus fallback instead)
-- `MODEL_PM` — Product Manager agent (Tier 0), currently `claude-sonnet-4-6`
+- `MODEL_GENERATION` — default for scaffold + edit architect, currently `claude-sonnet-4-6`
+- `MODEL_APP_CONTENT` — default for PM + app content + single form regen, currently `claude-opus-4-6`
+- `MODEL_FIXER` — available for cheap/fast fixes, currently `claude-haiku-4-5-20251001`
+- `MODEL_PM` — unused constant (PM now defaults to `MODEL_APP_CONTENT` via `DEFAULT_PIPELINE_CONFIG`)
 - `MODEL_PRICING` — cost lookup keyed by model ID (per million tokens: input, output, cacheWrite, cacheRead)
+- `DEFAULT_PIPELINE_CONFIG` — `PipelineConfig` object with per-stage model + maxOutputTokens defaults
+
+### Settings & Pipeline Config
+
+Users configure models and token limits per pipeline stage at `/settings`. Settings are stored in `localStorage('nova-settings')` and sent to the server per request via `useChat` body.
+
+**Data flow**: `localStorage → useSettings() → useChat body → route.ts → GenerationContext.pipelineConfig → pipeline/agents`
+
+**Pipeline stages** (each has a model + maxOutputTokens):
+- `pm` — Product Manager agent (default: Opus, no token cap)
+- `scaffold` — Scaffold generation (default: Opus, 128k)
+- `appContent` — App content generation (default: Opus, 128k)
+- `editArchitect` — Edit Architect agent (default: Sonnet, no token cap)
+- `singleFormRegen` — Single form regeneration (default: Opus, 16k)
+
+Pipeline code reads from `ctx.pipelineConfig.<stage>.model` and `ctx.pipelineConfig.<stage>.maxOutputTokens` — never hardcoded model IDs. A `maxOutputTokens` of `0` means no cap.
+
+**Hooks**: `useSettings()` is the primary hook (reads/writes `nova-settings`, migrates legacy `nova-api-key`). `useApiKey()` is a thin wrapper that delegates to `useSettings()`.
+
+**Models proxy**: `POST /api/models` takes `{ apiKey }` and returns `{ models: [{ id, display_name, created_at }] }` from the Anthropic API, used to populate the settings dropdowns.
 
 ## Run Logging
 
@@ -285,7 +308,7 @@ Set `RUN_LOGGER=1` in `.env` to enable disk-based run logging. When enabled, eac
 - `architectAgent.ts`: Exports `createEditArchitectAgent(ctx, mutableBp)` — edit-mode `ToolLoopAgent` with search/get/edit/validate/loadKnowledge tools operating on a `MutableBlueprint`. `regenerateForm` uses `generateSingleFormContent()` (Opus structured output). Also exports `validateAndFix()` — shared programmatic validation + fix loop (rule-based fixes + Opus structured output fallback for empty forms). **Note:** `validateAndFix` has an artificial 3s delay when validation passes on the first attempt — our validation is purely deterministic and completes near-instantly, which feels jarring. Remove this delay once we integrate the CommCare core .jar for full validation (which will take real time).
 - `generationPipeline.ts`: Exports `runGenerationPipeline(ctx, specification, appName)` — programmatic sequence: scaffold (Sonnet `streamGenerate`) → app content (Opus `streamGenerate` with adaptive thinking + `appContentSchema`) → assemble (`processContentOutput` + `assembleBlueprint`) → validate (`validateAndFix`). Also exports `generateSingleFormContent()` for edit-mode `regenerateForm` and empty form fallback.
 - `mutableBlueprint.ts`: `MutableBlueprint` class — wraps `AppBlueprint` (deep-cloned) for in-place search, read, and mutation. `search()` finds matches across question IDs/labels/case_properties/XPath/module names/form names/columns. Mutation methods (`updateQuestion`, `addQuestion`, `removeQuestion`, etc.) auto-derive case config after changes. `renameCaseProperty()` propagates renames across all questions, columns, and XPath expressions.
-- `generationContext.ts`: `GenerationContext` class — wraps Anthropic client + UI stream writer + RunLogger. Provides `generatePlainText()` (text-only, no schema), `generate()` (one-shot structured, supports `thinkingBudget`), `streamGenerate()` (streaming structured with `onPartial`, supports `thinkingBudget`), `runAgent()` (ToolLoopAgent execution with centralized step logging), `emit()` (transient data parts). All LLM calls go through this class. Extended thinking is enabled via `thinking: true` parameter which sets Anthropic adaptive thinking provider options (`type: 'adaptive', effort: 'high'`). Also exports `withPromptCaching` — spread into ToolLoopAgent constructors for Anthropic prompt caching.
+- `generationContext.ts`: `GenerationContext` class — wraps Anthropic client + UI stream writer + RunLogger + PipelineConfig. Provides `generatePlainText()` (text-only, no schema), `generate()` (one-shot structured, supports `thinkingBudget`), `streamGenerate()` (streaming structured with `onPartial`, supports `thinkingBudget`), `runAgent()` (ToolLoopAgent execution with centralized step logging), `emit()` (transient data parts). All LLM calls go through this class. Pipeline stages read model IDs and max tokens from `ctx.pipelineConfig` (user-configurable via settings page, merged with `DEFAULT_PIPELINE_CONFIG`). Extended thinking is enabled via `thinking: true` parameter which sets Anthropic adaptive thinking provider options (`type: 'adaptive', effort: 'high'`). Also exports `withPromptCaching` — spread into ToolLoopAgent constructors for Anthropic prompt caching.
 - `runLogger.ts`: `RunLogger` class — disk-based run logger. Writes incremental JSON to `.log/` after every mutation when `RUN_LOGGER=1`. Tracks current agent, stitches sub-generation results onto orchestration tool calls, computes cache-aware per-event cost estimates (using `cache_read_tokens` / `cache_write_tokens`) and roll-up totals.
 - `hqJsonExpander.ts`: `expandBlueprint()` converts `AppBlueprint` → HQ import JSON. Generates XForm XML with proper Vellum dual-attribute hashtag expansion, secondary instance declarations (casedb, commcaresession), form actions, case details. `validateBlueprint()` checks semantic rules.
 - `cczCompiler.ts`: `CczCompiler` class takes HQ import JSON → `.ccz` Buffer. Generates suite.xml, profile.ccpr, app_strings.txt. Injects case blocks (create/update/close/subcases) back into XForm XML.

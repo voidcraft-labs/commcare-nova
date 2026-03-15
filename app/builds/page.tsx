@@ -2,6 +2,9 @@
 import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { motion } from 'motion/react'
+import { Icon } from '@iconify/react'
+import ciSettings from '@iconify-icons/ci/settings'
+import Link from 'next/link'
 import { Logo } from '@/components/ui/Logo'
 import { Button } from '@/components/ui/Button'
 import type { Build } from '@/lib/types'
@@ -23,9 +26,18 @@ export default function BuildsPage() {
         <div className="cursor-pointer" onClick={() => router.push('/')}>
           <Logo size="sm" />
         </div>
-        <Button onClick={() => router.push('/build/new')} size="sm">
-          New Build
-        </Button>
+        <div className="flex items-center gap-2">
+          <Link
+            href="/settings"
+            className="p-1.5 text-nova-text-muted hover:text-nova-text transition-colors rounded-lg hover:bg-nova-surface"
+            title="Settings"
+          >
+            <Icon icon={ciSettings} width="18" height="18" />
+          </Link>
+          <Button onClick={() => router.push('/build/new')} size="sm">
+            New Build
+          </Button>
+        </div>
       </header>
 
       <main className="max-w-4xl mx-auto px-6 py-12">
