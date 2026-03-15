@@ -3,34 +3,34 @@ import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { motion } from 'motion/react'
 import { Icon } from '@iconify/react'
-import ciCheck from '@iconify-icons/ci/check'
 import ciSettings from '@iconify-icons/ci/settings'
 import Link from 'next/link'
 import { Logo } from '@/components/ui/Logo'
 import { Button } from '@/components/ui/Button'
-import { Input } from '@/components/ui/Input'
+import { ApiKeyInput } from '@/components/ui/ApiKeyInput'
+import { useSettings } from '@/hooks/useSettings'
 
 export default function LandingPage() {
   const router = useRouter()
+  const { settings, loaded, updateSettings } = useSettings()
   const [apiKey, setApiKey] = useState('')
   const [saved, setSaved] = useState(false)
 
   useEffect(() => {
-    const stored = localStorage.getItem('nova-api-key')
-    if (stored) {
-      setApiKey(stored)
+    if (loaded && settings.apiKey) {
+      setApiKey(settings.apiKey)
       setSaved(true)
     }
-  }, [])
+  }, [loaded, settings.apiKey])
 
   const saveKey = () => {
-    localStorage.setItem('nova-api-key', apiKey)
+    updateSettings({ apiKey })
     setSaved(true)
   }
 
   const startBuilding = () => {
     if (!apiKey) return
-    localStorage.setItem('nova-api-key', apiKey)
+    updateSettings({ apiKey })
     router.push('/build/new')
   }
 
@@ -73,21 +73,13 @@ export default function LandingPage() {
           transition={{ delay: 0.5, duration: 0.6 }}
           className="w-full space-y-4"
         >
-          <div className="relative">
-            <Input
-              type="password"
-              placeholder="sk-ant-..."
-              value={apiKey}
-              onChange={(e) => { setApiKey(e.target.value); setSaved(false) }}
-              label="Anthropic API Key"
-            />
-            {saved && apiKey && (
-              <div className="absolute right-3 top-[38px] text-nova-emerald text-xs flex items-center gap-1">
-                <Icon icon={ciCheck} width="12" height="12" />
-                Saved
-              </div>
-            )}
-          </div>
+          <ApiKeyInput
+            value={apiKey}
+            onChange={(v) => { setApiKey(v); setSaved(false) }}
+            onSave={saveKey}
+            saved={saved}
+            label="Anthropic API Key"
+          />
 
           <Button
             onClick={startBuilding}
