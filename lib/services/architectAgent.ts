@@ -8,7 +8,6 @@ import { ToolLoopAgent, tool, stepCountIs } from 'ai'
 import { z } from 'zod'
 import { GenerationContext, logWarnings, withPromptCaching, thinkingProviderOptions } from './generationContext'
 import { EDIT_ARCHITECT_PROMPT } from '../prompts/editArchitectPrompt'
-import { loadKnowledge } from './commcare/knowledge/loadKnowledge'
 import { generateSingleFormContent } from './generationPipeline'
 import {
   type AppBlueprint, type BlueprintForm, type Question,
@@ -685,19 +684,6 @@ export function createEditArchitectAgent(
           } catch (err) {
             return { error: err instanceof Error ? err.message : String(err) }
           }
-        },
-      }),
-
-      // ── Knowledge ─────────────────────────────────────────────────
-
-      loadKnowledge: tool({
-        description: 'Load CommCare platform knowledge files for reference. Use this before making design decisions that involve case model changes, expression patterns, instance references, or any non-trivial CommCare feature. The knowledge index in your system prompt lists available files and when to consult them.',
-        inputSchema: z.object({
-          files: z.array(z.string()).describe('Knowledge file names to load (without .md extension). Check the knowledge index for available files.'),
-        }),
-        execute: async ({ files }) => {
-          const content = await loadKnowledge(...files)
-          return content
         },
       }),
 
