@@ -8,7 +8,8 @@ import {
 } from 'ai'
 import { z } from 'zod'
 import { buildProductManagerPrompt } from '@/lib/prompts/productManagerPrompt'
-import { MODEL_PM, MODEL_APP_CONTENT } from '@/lib/models'
+import { DEFAULT_PIPELINE_CONFIG } from '@/lib/models'
+import type { PipelineConfig } from '@/lib/types/settings'
 import { GenerationContext } from '@/lib/services/generationContext'
 import { RunLogger } from '@/lib/services/runLogger'
 import { createEditArchitectAgent } from '@/lib/services/architectAgent'
@@ -111,13 +112,15 @@ async function drainStream(stream: ReadableStream): Promise<void> {
 // ── Route Handler ──────────────────────────────────────────────────────
 
 export async function POST(req: Request) {
-  const { messages, apiKey, blueprint, blueprintSummary, runId } = await req.json() as {
+  const { messages, apiKey, blueprint, blueprintSummary, runId, pipelineConfig: rawPipelineConfig } = await req.json() as {
     messages: UIMessage[]
     apiKey: string
     blueprint?: AppBlueprint
     blueprintSummary?: string
     runId?: string
+    pipelineConfig?: Partial<PipelineConfig>
   }
+  const pipelineConfig: PipelineConfig = { ...DEFAULT_PIPELINE_CONFIG, ...rawPipelineConfig }
 
   const stream = createUIMessageStream({
     execute: async ({ writer }) => {
@@ -126,11 +129,11 @@ export async function POST(req: Request) {
       logger.logConversation(messages)
       // Send runId to client so it can send it back on subsequent requests
       writer.write({ type: 'data-run-id', data: { runId: logger.runId }, transient: true })
-      const ctx = new GenerationContext(apiKey, writer, logger)
+      const ctx = new GenerationContext(apiKey, writer, logger, pipelineConfig)
       const pmInstructions = buildProductManagerPrompt(blueprintSummary)
 
       const productManager = new ToolLoopAgent({
-        model: ctx.model(MODEL_APP_CONTENT),
+        model: ctx.model(pipelineConfig.pm.model),
         instructions: pmInstructions,
         providerOptions: {
           anthropic: {
@@ -189,7 +192,7 @@ export async function POST(req: Request) {
               type: 'orchestration',
               agent: 'Product Manager',
               label: 'PM step',
-              model: MODEL_APP_CONTENT,
+              model: pipelineConfig.pm.model,
               input_tokens: usage.inputTokens ?? 0,
               output_tokens: usage.outputTokens ?? 0,
               output: { text, ...(reasoningText && { reasoningText }), toolResults },

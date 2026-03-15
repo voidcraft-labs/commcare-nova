@@ -9,7 +9,8 @@ import { streamText, generateText, Output } from 'ai'
 import type { CallWarning, ModelMessage, ToolLoopAgent, UIMessageStreamWriter } from 'ai'
 import { createAnthropic } from '@ai-sdk/anthropic'
 import { z } from 'zod'
-import { MODEL_GENERATION } from '../models'
+import { MODEL_GENERATION, DEFAULT_PIPELINE_CONFIG } from '../models'
+import type { PipelineConfig } from '../types/settings'
 import { RunLogger } from './runLogger'
 
 /** Log AI SDK warnings to the console if present. */
@@ -50,11 +51,13 @@ export class GenerationContext {
   private anthropic: ReturnType<typeof createAnthropic>
   readonly writer: UIMessageStreamWriter
   readonly logger: RunLogger
+  readonly pipelineConfig: PipelineConfig
 
-  constructor(apiKey: string, writer: UIMessageStreamWriter, logger: RunLogger) {
+  constructor(apiKey: string, writer: UIMessageStreamWriter, logger: RunLogger, pipelineConfig?: Partial<PipelineConfig>) {
     this.anthropic = createAnthropic({ apiKey })
     this.writer = writer
     this.logger = logger
+    this.pipelineConfig = { ...DEFAULT_PIPELINE_CONFIG, ...pipelineConfig }
   }
 
   /** Get the Anthropic model provider for a given model ID. */

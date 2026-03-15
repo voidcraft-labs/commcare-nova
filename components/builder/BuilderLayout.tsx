@@ -8,7 +8,10 @@ import { Icon } from '@iconify/react'
 import ciHamburgerMd from '@iconify-icons/ci/hamburger-md'
 import ciFileDocument from '@iconify-icons/ci/file-document'
 import ciDownloadPackage from '@iconify-icons/ci/download-package'
+import ciSettings from '@iconify-icons/ci/settings'
+import Link from 'next/link'
 import { useApiKey } from '@/hooks/useApiKey'
+import { useSettings } from '@/hooks/useSettings'
 import { useBuilder } from '@/hooks/useBuilder'
 import { BuilderPhase } from '@/lib/services/builder'
 import { summarizeBlueprint } from '@/lib/schemas/blueprint'
@@ -40,6 +43,7 @@ function shouldAutoResend({ messages }: { messages: UIMessage[] }): boolean {
 export function BuilderLayout({ buildId }: { buildId: string }) {
   const router = useRouter()
   const { apiKey, loaded } = useApiKey()
+  const { settings } = useSettings()
   const builder = useBuilder()
   const [chatOpen, setChatOpen] = useState(true)
   const [progressHidden, setProgressHidden] = useState(false)
@@ -54,6 +58,8 @@ export function BuilderLayout({ buildId }: { buildId: string }) {
 
   const apiKeyRef = useRef(apiKey)
   apiKeyRef.current = apiKey
+  const settingsRef = useRef(settings)
+  settingsRef.current = settings
   const runIdRef = useRef<string | undefined>(undefined)
 
   const handleExitReplay = useCallback(() => {
@@ -76,6 +82,7 @@ export function BuilderLayout({ buildId }: { buildId: string }) {
       api: '/api/chat',
       body: () => ({
         apiKey: apiKeyRef.current,
+        pipelineConfig: settingsRef.current.pipeline,
         blueprint: builder.blueprint ?? undefined,
         blueprintSummary: builder.blueprint ? summarizeBlueprint(builder.blueprint) : undefined,
         runId: runIdRef.current,
@@ -196,9 +203,26 @@ export function BuilderLayout({ buildId }: { buildId: string }) {
               <Logo size="sm" />
             </motion.div>
           )}
-          <div />
+          <Link
+            href="/settings"
+            className="p-1.5 text-nova-text-muted hover:text-nova-text transition-colors rounded-lg hover:bg-nova-surface"
+            title="Settings"
+          >
+            <Icon icon={ciSettings} width="18" height="18" />
+          </Link>
         </div>
       </motion.header>
+
+      {/* Settings cog — visible in centered/hero mode when header is collapsed */}
+      {isCentered && (
+        <Link
+          href="/settings"
+          className="absolute top-3 right-4 z-20 p-1.5 text-nova-text-muted hover:text-nova-text transition-colors rounded-lg hover:bg-nova-surface"
+          title="Settings"
+        >
+          <Icon icon={ciSettings} width="18" height="18" />
+        </Link>
+      )}
 
         {/* Replay controller — between header and content so it's visible in both centered and sidebar modes */}
         {inReplayMode && replayData && (
