@@ -1,25 +1,17 @@
 'use client'
-import { useState, useEffect } from 'react'
+import { useCallback } from 'react'
+import { useSettings } from './useSettings'
 
 export function useApiKey() {
-  const [apiKey, setApiKey] = useState<string>('')
-  const [loaded, setLoaded] = useState(false)
+  const { settings, loaded, updateSettings } = useSettings()
 
-  useEffect(() => {
-    const stored = localStorage.getItem('nova-api-key')
-    if (stored) setApiKey(stored)
-    setLoaded(true)
-  }, [])
+  const saveApiKey = useCallback((key: string) => {
+    updateSettings({ apiKey: key })
+  }, [updateSettings])
 
-  const saveApiKey = (key: string) => {
-    setApiKey(key)
-    localStorage.setItem('nova-api-key', key)
-  }
+  const clearApiKey = useCallback(() => {
+    updateSettings({ apiKey: '' })
+  }, [updateSettings])
 
-  const clearApiKey = () => {
-    setApiKey('')
-    localStorage.removeItem('nova-api-key')
-  }
-
-  return { apiKey, loaded, saveApiKey, clearApiKey }
+  return { apiKey: settings.apiKey, loaded, saveApiKey, clearApiKey }
 }
