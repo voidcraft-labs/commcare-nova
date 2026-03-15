@@ -151,5 +151,9 @@ For relevant, calculate, constraint, default_value, and required:
 - If a form in one module creates child cases consumed by another module, the child case properties and the consuming module's columns/forms must agree on property names and types.
 - Registration and followup forms for the same case type should use the same question IDs, the same group structure, and the same question order for shared fields.
 
+## Thinking Instructions
+
+Use your thinking to reason about form design decisions: question flow, skip logic strategy, group organization, calculated vs entered fields, constraint rationale, cross-form coordination, and edge cases. Do NOT draft or preview the JSON output in your thinking — the schema constrains your output, so spend your thinking budget on decisions that improve quality, not on pre-writing the response.
+
 Build the complete content for all modules in this app.`
 }
