@@ -16,13 +16,13 @@ interface GenerationProgressProps {
 
 /** Display stages — Modules+Forms are combined into "Build" */
 const baseStages: { key: string; phases: BuilderPhase[]; label: string }[] = [
-  { key: 'planning', phases: [BuilderPhase.Planning], label: 'Planning' },
-  { key: 'structure', phases: [BuilderPhase.Designing], label: 'Structure' },
+  { key: 'data-model', phases: [BuilderPhase.DataModel], label: 'Data Model' },
+  { key: 'structure', phases: [BuilderPhase.Structure], label: 'Structure' },
   { key: 'build', phases: [BuilderPhase.Modules, BuilderPhase.Forms], label: 'Build' },
-  { key: 'validate', phases: [BuilderPhase.Validating], label: 'Validate' },
+  { key: 'validate', phases: [BuilderPhase.Validate], label: 'Validate' },
 ]
 
-const phaseOrder = [BuilderPhase.Planning, BuilderPhase.Designing, BuilderPhase.Modules, BuilderPhase.Forms, BuilderPhase.Validating, BuilderPhase.Fixing, BuilderPhase.Done]
+const phaseOrder = [BuilderPhase.DataModel, BuilderPhase.Structure, BuilderPhase.Modules, BuilderPhase.Forms, BuilderPhase.Validate, BuilderPhase.Fix, BuilderPhase.Done]
 
 function getStageStatus(stagePhases: BuilderPhase[], currentPhase: BuilderPhase): 'done' | 'active' | 'pending' {
   const currentIdx = phaseOrder.indexOf(currentPhase)
@@ -41,12 +41,12 @@ function getStageStatus(stagePhases: BuilderPhase[], currentPhase: BuilderPhase)
 /** Map phase to its stage index (0-based among displayed stages, + count for Done). */
 function getPhaseStageIndex(phase: BuilderPhase, stageCount: number): number {
   const map: Record<string, number> = {
-    [BuilderPhase.Planning]: 0,
-    [BuilderPhase.Designing]: 1,
+    [BuilderPhase.DataModel]: 0,
+    [BuilderPhase.Structure]: 1,
     [BuilderPhase.Modules]: 2,
     [BuilderPhase.Forms]: 2,
-    [BuilderPhase.Validating]: 3,
-    [BuilderPhase.Fixing]: 4,
+    [BuilderPhase.Validate]: 3,
+    [BuilderPhase.Fix]: 4,
     [BuilderPhase.Done]: stageCount, // Done is always last
   }
   return map[phase] ?? 0
@@ -56,8 +56,8 @@ export function GenerationProgress({ phase, message, completed, total, mode, onD
   const isDone = phase === BuilderPhase.Done
 
   // Only show Fix stage if we've reached it
-  const stages = phase === BuilderPhase.Fixing
-    ? [...baseStages, { key: 'fix', phases: [BuilderPhase.Fixing], label: 'Fix' }]
+  const stages = phase === BuilderPhase.Fix
+    ? [...baseStages, { key: 'fix', phases: [BuilderPhase.Fix], label: 'Fix' }]
     : baseStages
 
   const isCentered = mode === 'centered'

@@ -1,24 +1,38 @@
 /**
- * System prompt for the scaffold step (Tier 1).
+ * System prompt for the scaffold step.
  *
- * This is the technical translation layer: the input is a business description, 
- * and the output is the app's data model and structure.
- * All property naming, case type naming, and structural decisions happen here.
- *
- * Model descriptions are inside the schema's .describe() strings.
+ * Designs module/form structure given an existing data model (case types).
+ * Case types are passed as context — this prompt focuses on app structure only.
  */
-export function scaffoldPrompt(): string {
-  return `You are a CommCare solutions architect. You receive a brief from your requirements analyst describing a CommCare app — your job is to design it. You decide the data model, the menu structure, and what each form does.
+import type { CaseType } from '../schemas/blueprint'
+
+export function scaffoldPrompt(caseTypes?: CaseType[] | null): string {
+  const dataModelSection = caseTypes?.length
+    ? `## Data Model (already designed — use these case types)
+
+${caseTypes.map(ct => {
+      const props = ct.properties.map(p => {
+        const parts = [p.name]
+        if (p.data_type) parts.push(`(${p.data_type})`)
+        if (p.label) parts.push(`— ${p.label}`)
+        return `  - ${parts.join(' ')}`
+      }).join('\n')
+      return `### Case type: ${ct.name} (case_name_property: ${ct.case_name_property})
+${props}`
+    }).join('\n\n')}
+
+Use these exact case type names and property names in your module/form design. Do NOT redesign the data model.`
+    : ''
+
+  return `You are a CommCare solutions architect. You receive a brief describing a CommCare app — your job is to design its module and form structure.
 
 ## How to Use Your Reasoning
 
-Your thinking should focus on the hard design problems: What are the right case types for this app, and how do they relate? Which properties does each case type actually need? How should modules be organized around the real workflow? What makes each form's UX work well for the person in the field?
+Your thinking should focus on the hard design problems: How should modules be organized around the real workflow? What makes each form's UX work well for the person in the field? How do forms relate to each other?
 
 Reason about architecture, tradeoffs, and the people using this app. The schema defines the output structure — your job is to make good decisions about what goes in it.
 
-## Data Model
-
-Each case type represents something tracked over time. Properties are the fields on that record — choose what the app's users actually need to see, update, and filter by. The schema enforces naming rules and reserved words.
+${dataModelSection}
 
 ## App Structure
 

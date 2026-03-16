@@ -1,15 +1,15 @@
 /**
- * GenerationContext — shared abstraction for all LLM calls in the pipeline.
+ * GenerationContext — shared abstraction for all LLM calls.
  *
  * Wraps an Anthropic client + UI stream writer + RunLogger. Provides structured
  * generation (one-shot and streaming) with automatic run logging, plus transient
- * data part emission. Used by both the Requirements Analyst and Solutions Architect agents.
+ * data part emission. Used by the Solutions Architect agent and its generation tools.
  */
 import { streamText, generateText, Output } from 'ai'
 import type { CallWarning, ModelMessage, ToolLoopAgent, UIMessageStreamWriter } from 'ai'
 import { createAnthropic } from '@ai-sdk/anthropic'
 import { z } from 'zod'
-import { MODEL_GENERATION, DEFAULT_PIPELINE_CONFIG, modelSupportsReasoning } from '../models'
+import { MODEL_DEFAULT, DEFAULT_PIPELINE_CONFIG, modelSupportsReasoning } from '../models'
 import type { PipelineConfig, ReasoningEffort } from '../types/settings'
 import { RunLogger } from './runLogger'
 
@@ -80,7 +80,7 @@ export class GenerationContext {
   async generatePlainText(
     opts: { system: string; prompt: string; label: string; model?: string; maxOutputTokens?: number },
   ): Promise<string> {
-    const model = opts.model ?? MODEL_GENERATION
+    const model = opts.model ?? MODEL_DEFAULT
     const result = await generateText({
       model: this.anthropic(model),
       system: opts.system,
@@ -117,7 +117,7 @@ export class GenerationContext {
       reasoning?: { effort: ReasoningEffort };
     },
   ): Promise<T | null> {
-    const model = opts.model ?? MODEL_GENERATION
+    const model = opts.model ?? MODEL_DEFAULT
     const result = await generateText({
       model: this.anthropic(model),
       output: Output.object({ schema }),
@@ -150,7 +150,7 @@ export class GenerationContext {
       reasoning?: { effort: ReasoningEffort };
     },
   ): Promise<T | null> {
-    const model = opts.model ?? MODEL_GENERATION
+    const model = opts.model ?? MODEL_DEFAULT
     const result = streamText({
       model: this.anthropic(model),
       output: Output.object({ schema }),
@@ -199,7 +199,7 @@ export class GenerationContext {
       model?: string
     },
   ): Promise<void> {
-    const model = opts.model ?? MODEL_GENERATION
+    const model = opts.model ?? MODEL_DEFAULT
     let stepNumber = 0
 
     const result = await agent.stream({

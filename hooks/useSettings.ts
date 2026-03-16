@@ -9,11 +9,22 @@ function defaultSettings(): NovaSettings {
   return { apiKey: '', pipeline: { ...DEFAULT_PIPELINE_CONFIG } }
 }
 
+/** Keys from old PipelineConfig that should be removed on load. */
+const STALE_PIPELINE_KEYS = ['requirementsAnalyst', 'appContent', 'editArchitect', 'singleFormRegen']
+
 function loadSettings(): NovaSettings {
   const raw = localStorage.getItem(STORAGE_KEY)
   if (!raw) return defaultSettings()
   const stored = JSON.parse(raw) as Partial<NovaSettings>
   const defaults = defaultSettings()
+
+  // Clean stale pipeline keys from stored settings
+  if (stored.pipeline) {
+    for (const key of STALE_PIPELINE_KEYS) {
+      delete (stored.pipeline as any)[key]
+    }
+  }
+
   return {
     ...defaults,
     ...stored,

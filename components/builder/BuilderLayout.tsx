@@ -25,7 +25,7 @@ import { DownloadDropdown } from '@/components/ui/DownloadDropdown'
 import { getReplayData, clearReplayData } from '@/lib/services/logReplay'
 
 /** Only auto-resend when the assistant's LAST step is askQuestions with all outputs available.
- *  If the Requirements Analyst continued past tool calls to ask a freeform text question, don't auto-resend —
+ *  If the SA continued past tool calls to ask a freeform text question, don't auto-resend —
  *  the user needs to reply manually first. */
 function shouldAutoResend({ messages }: { messages: UIMessage[] }): boolean {
   const last = messages[messages.length - 1]
@@ -93,13 +93,12 @@ export function BuilderLayout({ buildId }: { buildId: string }) {
       const b = builderRef.current
       switch (part.type) {
         case 'data-run-id': runIdRef.current = part.data.runId; break
-        case 'data-planning': b.startPlanning(); break
-        case 'data-editing': b.startEditing(); break
+        case 'data-start-build': b.startDataModel(); break
+        case 'data-schema': b.setSchema(part.data.caseTypes); break
         case 'data-partial-scaffold': b.setPartialScaffold(part.data); break
         case 'data-scaffold': b.setScaffold(part.data); break
         case 'data-phase': b.setPhase(part.data.phase); break
         case 'data-module-done': b.setModuleContent(part.data.moduleIndex, part.data.caseListColumns); break
-        case 'data-question-added': b.setFormContent(part.data.moduleIndex, part.data.formIndex, part.data.form); break
         case 'data-form-done': b.setFormContent(part.data.moduleIndex, part.data.formIndex, part.data.form); break
         case 'data-form-fixed': b.setFormContent(part.data.moduleIndex, part.data.formIndex, part.data.form); break
         case 'data-form-updated': b.setFormContent(part.data.moduleIndex, part.data.formIndex, part.data.form); break
@@ -111,22 +110,11 @@ export function BuilderLayout({ buildId }: { buildId: string }) {
     },
   })
 
-  // ── Detect tool calls from message parts (immediate, no server round-trip) ──
-  useEffect(() => {
-    if (builderRef.current.phase !== BuilderPhase.Idle) return
-    const last = messages[messages.length - 1]
-    if (!last || last.role !== 'assistant') return
-    for (const part of last.parts) {
-      if (part.type === 'tool-generateApp') { builderRef.current.startPlanning(); return }
-      if (part.type === 'tool-editApp') { builderRef.current.startEditing(); return }
-    }
-  }, [messages])
-
   useEffect(() => {
     if (loaded && !apiKey && !inReplayMode) router.push('/')
   }, [loaded, apiKey, router, inReplayMode])
 
-  const isGenerating = [BuilderPhase.Planning, BuilderPhase.Designing, BuilderPhase.Modules, BuilderPhase.Forms, BuilderPhase.Validating, BuilderPhase.Fixing, BuilderPhase.Editing].includes(builder.phase)
+  const isGenerating = [BuilderPhase.DataModel, BuilderPhase.Structure, BuilderPhase.Modules, BuilderPhase.Forms, BuilderPhase.Validate, BuilderPhase.Fix].includes(builder.phase)
 
   // Progress is centered when there's no tree data yet, compact once the tree appears
   const progressMode = builder.treeData ? 'compact' as const : 'centered' as const

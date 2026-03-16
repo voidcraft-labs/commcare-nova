@@ -19,7 +19,7 @@ Next.js web app that generates CommCare apps from natural language conversation.
 ```
 app/                    # Next.js App Router pages and API routes
   api/
-    chat/               # Single autonomous endpoint (Requirements Analyst + generation pipeline + edit agent)
+    chat/               # Single endpoint — Solutions Architect agent
     compile/            # CCZ compilation + download
     models/             # Anthropic models list proxy (POST with apiKey)
   build/[id]/           # Main builder view (3-panel layout)
@@ -32,11 +32,10 @@ components/
 hooks/                  # useBuilder, useSettings, useApiKey
 lib/
   services/
+    solutionsArchitect.ts # Solutions Architect agent — single ToolLoopAgent with 21 tools
     builder.ts          # Builder class — singleton state machine for the build lifecycle
-    architectAgent.ts   # Edit-mode Solutions Architect agent (search → get → edit → validate) + shared validateAndFix
-    generationPipeline.ts # Programmatic generation pipeline: scaffold → content → assemble → validate (no agent loop)
-    mutableBlueprint.ts # MutableBlueprint class — wraps AppBlueprint for in-place search, read, and mutation during editing
-    generationContext.ts # GenerationContext class — shared LLM abstraction for all pipeline calls (supports extended thinking)
+    mutableBlueprint.ts # MutableBlueprint class — wraps AppBlueprint for progressive population and mutation
+    generationContext.ts # GenerationContext class — shared LLM abstraction for all calls (supports extended thinking)
     runLogger.ts        # RunLogger class — disk-based run logger (writes JSON to .log/ when RUN_LOGGER=1)
     logReplay.ts        # Log replay — stage extraction from RunLog + module-level singleton store
     hqJsonExpander.ts   # Blueprint → HQ import JSON (XForm XML, form actions, Vellum metadata)
@@ -44,74 +43,90 @@ lib/
     autoFixer.ts        # Programmatic fixes for common CommCare app issues
     commcare/           # Shared CommCare platform module (constants, XML, hashtags, HQ types/shells)
     __tests__/          # Vitest tests for expander, compiler, commcare module, mutableBlueprint
-  schemas/              # Zod schemas for AppBlueprint, appContentSchema (unified content output)
-  prompts/              # Agent prompts (requirementsAnalystPrompt, editArchitectPrompt, scaffoldPrompt, appContentPrompt)
+  schemas/
+    blueprint.ts        # Zod schemas for AppBlueprint + generation schemas (caseTypesOutput, scaffoldModules, moduleContent)
+    contentProcessing.ts # Post-processing utilities: flat→nested tree, strip sentinels, apply data model defaults
+  prompts/              # Agent prompts (solutionsArchitectPrompt, schemaPrompt, scaffoldPrompt)
   types/                # TypeScript type definitions
-  models.ts             # Central model ID + pricing config + DEFAULT_PIPELINE_CONFIG
+  models.ts             # Central model pricing config + DEFAULT_PIPELINE_CONFIG
   store.ts              # CCZ file persistence in .data/
 scripts/
-  test-schema.ts            # Structured output schema test (sends schema to Haiku, verifies round-trip)
+  test-schema.ts            # Structured output schema test (sends schema to Haiku, verifies compilation)
   sync-knowledge.ts         # Knowledge sync pipeline entry point
   knowledge/                # Pipeline phases: discover, crawl, triage, distill, reorganize
 ```
 
 ## Key Architecture Decisions
 
-### Requirements Analyst + Programmatic Pipeline + Edit Agent (Single Endpoint)
+### Single Solutions Architect Agent
 
-A single `POST /api/chat` endpoint runs the entire pipeline: conversation, generation, and editing.
+A single `POST /api/chat` endpoint runs everything. One `ToolLoopAgent` — the **Solutions Architect (SA)** — converses with users, incrementally generates apps through focused tool calls, and edits them. All within one conversation context and one prompt-caching window.
 
-1. **Requirements Analyst** — A `ToolLoopAgent` that gathers requirements via conversation and delegates to generation or editing. Tools:
-   - **`askQuestions`** (client-side, no `execute`) — structured multiple-choice questions rendered as `QuestionCard` in chat. `sendAutomaticallyWhen` re-sends when all questions are answered.
-   - **`generateApp`** (server-side) — called when the Requirements Analyst has enough info. Emits `data-planning`, runs `runGenerationPipeline()` directly (no agent loop), returns a rich summary.
-   - **`editApp`** (server-side) — called when the user requests changes to a generated app. Emits `data-editing`, creates a `MutableBlueprint` + edit-mode architect for surgical edits, returns a summary.
+The SA has **21 tools** in 5 groups:
 
-2. **Generation Pipeline** (`runGenerationPipeline`) — A programmatic sequence (not an agent loop) that runs four steps in code:
-   - **Scaffold** (Sonnet, `streamGenerate`) — designs app structure + data model
-   - **App Content** (Opus with adaptive thinking, `streamGenerate`) — produces case list columns + all form questions for every module in one call. Uses `appContentSchema` — a static Zod schema with no `nullable()` or `optional()` (empty string/array/false instead, required by the Anthropic schema compiler). Questions use a flat structure (parentId for nesting, array order for display order), converted to nested trees in post-processing.
-   - **Assemble** (pure function) — `processContentOutput()` applies data model defaults, unescapes XPath, converts flat→nested, then `assembleBlueprint()` combines scaffold + content into a full `AppBlueprint`
-   - **Validate** (programmatic) — `validateAndFix()` loop with rule-based fixes
+**Conversation (1):**
+- **`askQuestions`** (client-side, no `execute`) — structured multiple-choice questions rendered as `QuestionCard`. `sendAutomaticallyWhen` re-sends when all questions are answered.
 
-3. **Edit Architect** (`createEditArchitectAgent`) — A `ToolLoopAgent` for editing mode where decisions are genuinely dynamic:
-   - **`searchBlueprint`** — keyword search across question IDs, labels, case properties, XPath, module/form names, columns
-   - **`getModule`** / **`getForm`** / **`getQuestion`** — retrieve full details of specific elements
-   - **`editQuestion`** / **`addQuestion`** / **`removeQuestion`** — question-level mutations with auto case config re-derivation
-   - **`updateModule`** / **`updateForm`** / **`addForm`** / **`removeForm`** / **`addModule`** / **`removeModule`** — structural mutations
-   - **`renameCaseProperty`** — renames a case property with automatic propagation across all forms, columns, and XPath expressions
-   - **`regenerateForm`** — full form regeneration via Opus structured output (`generateSingleFormContent`)
-   - **`validateApp`** — runs `validateAndFix` loop on the mutated blueprint
+**Generation (4)** — each takes natural language instructions, runs structured output generation internally, returns a summary:
+- **`generateSchema`** — designs case types + properties. Emits `data-start-build` to trigger layout transition.
+- **`generateScaffold`** — designs module/form structure. Emits `data-phase: structure`, streams partial scaffold.
+- **`addModule`** — generates case list/detail columns for a module.
+- **`addForm`** — generates all questions for a form via structured output.
 
-The Requirements Analyst does NOT make technical decisions (property names, case types, form structures). It writes a plain English `appSpecification`. The generation pipeline translates that into CommCare architecture.
+**Read (4):**
+- `searchBlueprint`, `getModule`, `getForm`, `getQuestion`
+
+**Mutation (11):**
+- `editQuestion`, `addQuestion`, `removeQuestion`, `updateModule`, `updateForm`, `createForm`, `removeForm`, `createModule`, `removeModule`, `renameCaseProperty`, `regenerateForm`
+
+**Validation (1):**
+- **`validateApp`** — runs `validateAndFix()` loop, emits `data-done`.
+
+**Typical build sequence:**
+```
+SA: askQuestions (rounds of clarification)
+SA: generateSchema → data model
+SA: generateScaffold → module/form structure
+SA: addModule × N → case list columns
+SA: addForm × N → form questions
+SA: validateApp → done
+```
+
+The SA makes all architecture decisions (entities, relationships, module structure, form purposes). Generation tools handle detail work (question IDs, XPath, group structure).
+
+### MutableBlueprint as Single State Container
+
+`MutableBlueprint` is the single state container throughout the entire lifecycle:
+- **New build**: Route creates `MutableBlueprint({ app_name: '', modules: [], case_types: null })`. Generation tools progressively populate it via `setCaseTypes()`, `setScaffold()`, `updateModule()`, `replaceForm()`.
+- **Edit/continuation**: Route creates `MutableBlueprint(existingBlueprint)`. SA uses read/mutation tools directly.
 
 ### GenerationContext
 
 `lib/services/generationContext.ts` exports a `GenerationContext` class — the **single place** all LLM calls flow through. Wraps an Anthropic client + UI stream writer + RunLogger + PipelineConfig.
 
 - **`model(id)`** — returns the Anthropic model provider
-- **`pipelineConfig`** — readonly `PipelineConfig` (merged with `DEFAULT_PIPELINE_CONFIG`). Pipeline stages read model IDs and max tokens from here instead of hardcoded constants.
-- **`emit(type, data)`** — writes a transient data part to the client stream (`writer.write({ type, data, transient: true })`)
-- **`logger`** — the `RunLogger` instance, accessible by agents for logging orchestration events
-- **`generatePlainText(opts)`** — text-only generation (no schema) via `generateText` with automatic run logging
-- **`generate(schema, opts)`** — one-shot structured generation via `generateText` + `Output.object()` with automatic run logging via `logger.logSubResult()`. Accepts `reasoning?: { effort }` for adaptive thinking.
-- **`streamGenerate(schema, opts)`** — streaming structured generation via `streamText` + `Output.object()` + `partialOutputStream` with `onPartial` callback and automatic run logging. Accepts `reasoning?: { effort }` for adaptive thinking.
-- **`reasoningForStage(stage)`** — returns `{ effort }` if reasoning is enabled and the model supports it, `undefined` otherwise. Used by pipeline stages and agents.
-- **`runAgent(agent, opts)`** — runs a `ToolLoopAgent` to completion with centralized step logging (token counts, cache metrics, tool call args). Used by the edit architect.
+- **`pipelineConfig`** — readonly `PipelineConfig` (merged with `DEFAULT_PIPELINE_CONFIG`). Pipeline stages read model IDs and max tokens from here.
+- **`emit(type, data)`** — writes a transient data part to the client stream
+- **`logger`** — the `RunLogger` instance
+- **`generatePlainText(opts)`** — text-only generation with automatic run logging
+- **`generate(schema, opts)`** — one-shot structured generation via `generateText` + `Output.object()` with automatic run logging. Accepts `reasoning?: { effort }`.
+- **`streamGenerate(schema, opts)`** — streaming structured generation via `streamText` + `Output.object()` + `partialOutputStream` with `onPartial` callback. Accepts `reasoning?: { effort }`.
+- **`reasoningForStage(stage)`** — returns `{ effort }` if reasoning is enabled and the model supports it, `undefined` otherwise.
 
-Also exports **`withPromptCaching`** — a shared `prepareStep` config that marks the last message with Anthropic's `cache_control: ephemeral`. Spread into all `ToolLoopAgent` constructors via `...withPromptCaching` so prior conversation turns are cached across steps.
-
-The Requirements Analyst (via `logger.logEvent` in `onStepFinish`) and the generation pipeline (via `streamGenerate` which calls `logger.logSubResult`) use the same `GenerationContext` instance, created once in the route handler.
+Also exports **`withPromptCaching`** — a shared `prepareStep` config that marks the last message with Anthropic's `cache_control: ephemeral`. Spread into the SA's `ToolLoopAgent` constructor so prior conversation turns are cached across steps.
 
 ### Client State via `onData` (No useEffect Scanning)
 
-All builder state updates flow through the `onData` callback on `useChat`. The server emits transient data parts (`writer.write({ type, data, transient: true })`), and `onData` fires once per part. No `useEffect` scans messages.
+All builder state updates flow through the `onData` callback on `useChat`. The server emits transient data parts, and `onData` fires once per part. No `useEffect` scans messages.
 
-Data parts emitted by the pipeline:
-- `data-planning` / `data-editing` → `builder.startPlanning()` / `builder.startEditing()`
+Data parts emitted:
+- `data-start-build` → `builder.startDataModel()` (triggers layout transition)
+- `data-schema` → `builder.setSchema(caseTypes)`
 - `data-partial-scaffold` → `builder.setPartialScaffold()` (progressive scaffold streaming)
 - `data-scaffold` → `builder.setScaffold()`
-- `data-phase` → `builder.setPhase()` (designing, forms, validating, fixing)
-- `data-module-done` → `builder.setModuleContent()` (emitted progressively as column objects become complete in the partial stream — columns and forms are one phase/call)
-- `data-form-done` / `data-form-fixed` / `data-form-updated` → `builder.setFormContent()` (data-form-done emitted progressively as questions stream in during content generation)
+- `data-phase` → `builder.setPhase()` (structure, forms, validate, fix)
+- `data-module-done` → `builder.setModuleContent()`
+- `data-form-done` / `data-form-fixed` / `data-form-updated` → `builder.setFormContent()`
 - `data-blueprint-updated` → `builder.updateBlueprint()` (structural edits)
 - `data-fix-attempt` → `builder.setFixAttempt()`
 - `data-done` → `builder.setDone()` (blueprint + hqJson)
@@ -121,20 +136,20 @@ Data parts emitted by the pipeline:
 
 `BuilderLayout` has one `useChat` instance targeting `/api/chat`. No second generation instance, no client-side orchestration, no round-trips.
 
-- **`body`** sends `apiKey`, `pipelineConfig`, `blueprint` (for edits), and `blueprintSummary` (for Requirements Analyst context) per request
+- **`body`** sends `apiKey`, `pipelineConfig`, `blueprint` (for edits), and `blueprintSummary` (for SA context) per request
 - **`sendAutomaticallyWhen`** only triggers for `askQuestions` (client-side tool), not server-side tool completions
 - **`onData`** handles all builder state updates (see above)
 
 ### Chat-Centered Landing
 
-Chat is the hero experience. When `builder.phase === Idle && !builder.treeData`, the chat fills the center of the screen (`isCentered = true`) with a large hero Logo above the welcome heading and input — no header bar, just one continuous `bg-nova-void` background. When generation starts (Planning phase), the logo animates from center to the top-left header position via `layoutId="nova-logo"`, the header slides in (animated `height: 0 → auto`), and the chat narrows to its 380px sidebar position — all coordinated by `LayoutGroup` wrapping the entire layout including the header. `AnimatePresence` fades in builder panels (150ms delay). No DOM re-parenting — messages and input state are preserved throughout the transition.
+Chat is the hero experience. When `builder.phase === Idle && !builder.treeData`, the chat fills the center of the screen (`isCentered = true`) with a large hero Logo above the welcome heading and input — no header bar, just one continuous `bg-nova-void` background. When generation starts (DataModel phase), the logo animates from center to the top-left header position via `layoutId="nova-logo"`, the header slides in (animated `height: 0 → auto`), and the chat narrows to its 380px sidebar position — all coordinated by `LayoutGroup` wrapping the entire layout including the header. `AnimatePresence` fades in builder panels (150ms delay). No DOM re-parenting — messages and input state are preserved throughout the transition.
 
 ### Builder Class
 
-`lib/services/builder.ts` exports a `Builder` class — a singleton state machine shared across components via `useBuilder()`. Phases: `Idle → Planning → Designing → Forms → Validating → Fixing → Done | Error`. Also `Editing` for edit flows. (The `Modules` phase enum value exists but is unused — columns and forms are generated in one call and share the `Forms` phase.)
+`lib/services/builder.ts` exports a `Builder` class — a singleton state machine shared across components via `useBuilder()`. Phases: `Idle → DataModel → Structure → Forms → Validate → Fix → Done | Error`.
 
-- `builder.startPlanning()` — transitions to Planning phase ("Generating plan...")
-- `builder.startEditing()` — transitions to Editing phase ("Applying changes...")
+- `builder.startDataModel()` — transitions to DataModel phase ("Designing data model...")
+- `builder.setSchema(caseTypes)` — stores case types from schema generation
 - `builder.setPartialScaffold(partial)` — updates tree progressively from streaming structured output
 - `builder.setScaffold(scaffold)` — stores completed scaffold
 - `builder.setModuleContent(moduleIndex, columns)` / `builder.setFormContent(moduleIndex, formIndex, form)` — updates partial modules, auto-derives progress counts
@@ -142,27 +157,28 @@ Chat is the hero experience. When `builder.phase === Idle && !builder.treeData`,
 - `builder.setDone(result)` / `builder.setError(message)` — terminal states
 - `builder.treeData` — getter with four-level fallback: `blueprint` > `partialModules` merged with scaffold > `scaffold` > `partialScaffold`
 - `builder.subscribe(listener)` — triggers React re-renders on state changes
-- Progress counters (`progressCompleted`/`progressTotal`) are derived from the `partialModules` map against the scaffold — no server-emitted counts needed.
-
-### Two-Step Generation (Programmatic Pipeline)
-
-The generation pipeline runs two LLM calls in code — no agent loop, no orchestration tokens:
-1. **Scaffold** (Sonnet, `streamGenerate`): Translates plain English spec → app structure + data model (case types, property names, modules, forms) + per-form `formDesign` UX specs. All technical naming decisions happen here. Reserved property constraints are in the schema's `.describe()` strings. Streamed with `onPartial` for progressive tree rendering.
-2. **App Content** (Opus with extended thinking, `streamGenerate`): Produces case list columns + all form questions for every module in a single call. Uses `createAppContentSchema()` — a factory function that builds a `z.tuple()` of per-module schemas with dynamic `z.enum()` values for case properties and column fields. Questions use a flat structure (parentId for nesting, array order for display order) to avoid recursive schemas in structured output. Opus thinks through the design in extended thinking tokens (formDesign specs inform the thinking), then produces the structured output. Streamed with `onPartial` for progressive module/form rendering.
-
-Post-processing (`processContentOutput`): strips empty values back to undefined/null, applies data model defaults from case properties, unescapes XPath HTML entities, converts flat questions to nested trees, then `assembleBlueprint()` combines scaffold + processed content into a full `AppBlueprint`.
+- Progress counters (`progressCompleted`/`progressTotal`) are derived from the `partialModules` map against the scaffold.
 
 ### Data Model Defaults (Case Properties as Source of Truth)
 
 `case_types` on the blueprint carry rich property metadata: `label`, `data_type`, `hint`, `help`, `required`, `constraint`, `constraint_msg`, `options`. This makes case properties the single source of truth for shared question metadata.
 
 **Questions are sparse** — when a question maps to a case property via `case_property`, it only needs to carry overrides (e.g. `relevant`, `calculate`, `default_value`). Defaults are merged at two points:
-1. **Content post-processing** (`processContentOutput` in `appContentSchema.ts`) — `applyDefaults()` auto-merges from the case type at assembly time (type, label, hint, help, required, constraint, options, is_case_name). Also runs `unescapeXPath()` on all XPath fields to sanitize HTML entities (`&gt;` → `>`) that LLMs sometimes emit.
+1. **Content post-processing** (`contentProcessing.ts`) — `applyDefaults()` auto-merges from the case type at assembly time (type, label, hint, help, required, constraint, options, is_case_name). Also runs `unescapeXPath()` on all XPath fields to sanitize HTML entities (`&gt;` → `>`) that LLMs sometimes emit.
 2. **Expander** — `mergeQuestionDefaults()` / `mergeFormQuestions()` merge before XForm generation and validation
 
-The app content schema (`appContentSchema`) is a **static Zod schema with no `nullable()` or `optional()`** — the Anthropic schema compiler times out on `anyOf` unions these generate. Instead, every field is always present: empty string `""` for absent strings, empty array `[]` for absent arrays, `false` for absent booleans. The `processContentOutput` post-processing step strips these empty values back to undefined before assembly. Question `type` uses a `z.enum()` of the 20 CommCare types. `relationship` on child cases uses `z.enum(['child', 'extension'])`. All other string fields (case_property, case_type, column field) are plain `z.string()` — Opus handles correctness from prompt context.
-
 `is_case_name` is auto-derived from `case_name_property` in the case type definition — the LLM only sets it explicitly to override.
+
+### Structured Output Schema Constraints
+
+The Anthropic schema compiler times out with >8 `.optional()` fields per array item (each creates an `anyOf` union in JSON Schema). The `singleFormSchema` in `solutionsArchitect.ts` uses a hybrid approach:
+- **8 optional fields** (sparse, saves tokens): `hint`, `help`, `constraint`, `constraint_msg`, `relevant`, `calculate`, `default_value`, `options`
+- **4 required sentinel fields** (almost always present, low cost): `label` (empty string), `required` (empty string), `case_property` (empty string), `is_case_name` (false)
+- **`type`** uses `z.enum(QUESTION_TYPES)` (enums don't create `anyOf` unions)
+
+Post-processing (`stripEmpty` in `contentProcessing.ts`) converts sentinel values back to undefined.
+
+Use `npx tsx scripts/test-schema.ts` to verify schemas compile against Haiku.
 
 ### Per-Question Case Property Mapping
 
@@ -187,9 +203,9 @@ No auth layer. The user's Anthropic API key is stored in localStorage (inside `n
 
 ## Chat Components
 
-- **`ChatSidebar`** — Message list + input. Accepts `mode: 'centered' | 'sidebar'`, optional `readOnly` (hides input, used by log replay). Centered mode renders below the hero Logo with no header/border, uniform `gap-6` spacing, and no vertical padding on messages/input (parent flex gap controls all spacing). Sidebar mode is the 380px docked panel with `p-4` messages and `border-t` input. Uses `layout` + `layoutId` for animated transition between modes. Reads `builder.phase` to suppress thinking indicator when the builder is active.
-- **`ChatMessage`** — Iterates `message.parts`: renders text bubbles for `text` parts, `QuestionCard` for `tool-askQuestions` parts. Assistant text is rendered through `renderMarkdown()` (allowlist-based marked renderer); user text is plain `whitespace-pre-wrap`. All other tool parts (`tool-generateApp`, `tool-editApp`) and data parts are ignored in chat (handled by `onData` in BuilderLayout).
-- **`QuestionCard`** — Animated stepper with local state. Shows questions one at a time with option buttons. Answered questions display as checkmark + answer. Calls `addToolOutput` when all questions are answered. Also accepts a `pendingAnswerRef` — when the user types a message while a question is waiting, `ChatSidebar` routes it through this ref instead of sending a chat message. Typed answers are prefixed with `"User Responded: "` so the Requirements Analyst knows the user typed free-form text rather than picking an option.
+- **`ChatSidebar`** — Message list + input. Accepts `mode: 'centered' | 'sidebar'`, optional `readOnly` (hides input, used by log replay). Centered mode renders below the hero Logo with no header/border, uniform `gap-6` spacing. Sidebar mode is the 380px docked panel with `p-4` messages and `border-t` input. Uses `layout` + `layoutId` for animated transition between modes. Reads `builder.phase` to suppress thinking indicator when the builder is active.
+- **`ChatMessage`** — Iterates `message.parts`: renders text bubbles for `text` parts, `QuestionCard` for `tool-askQuestions` parts. Assistant text is rendered through `renderMarkdown()` (allowlist-based marked renderer); user text is plain `whitespace-pre-wrap`. All other tool/data parts are ignored in chat (handled by `onData` in BuilderLayout).
+- **`QuestionCard`** — Animated stepper with local state. Shows questions one at a time with option buttons. Answered questions display as checkmark + answer. Calls `addToolOutput` when all questions are answered. Also accepts a `pendingAnswerRef` — when the user types a message while a question is waiting, `ChatSidebar` routes it through this ref instead of sending a chat message. Typed answers are prefixed with `"User Responded: "` so the SA knows the user typed free-form text rather than picking an option.
 - **`ThinkingIndicator`** — Orbital violet dot animation. Shown when chat status is `submitted`/`streaming` AND builder phase is `Idle` AND scaffold is not in-flight.
 
 ## Schemas
@@ -199,7 +215,7 @@ Only `id` and `type` are required on a `Question`. All other fields (`label`, `h
 
 ### Question Format
 - One `Question` type with nested `children` arrays for groups/repeats
-- The stored schema supports one level of nesting, but the Form Builder agent's per-type tools with `parentId` can build arbitrarily deep structures
+- The stored schema supports one level of nesting, but the SA's per-type tools with `parentId` can build arbitrarily deep structures
 - Questions carry `case_property` and `is_case_name` — `deriveCaseConfig()` derives form-level case wiring on-demand
 - `default_value` generates `<setvalue event="xforms-ready">` in the XForm (one-time on load, unlike `calculate` which recalculates)
 
@@ -207,11 +223,11 @@ Only `id` and `type` are required on a `Question`. All other fields (`label`, `h
 
 Questions can use `#case/property_name` and `#user/property_name` shorthand in XPath expressions (`relevant`, `calculate`, `constraint`, `default_value`). The expander handles these with a dual-attribute pattern matching CommCare's Vellum editor:
 
-- **Real attributes** (`calculate`, `relevant`, `constraint`, `value`) — `#case/` expanded to full `instance('casedb')/casedb/case[@case_id = instance('commcaresession')/session/data/case_id]/property` XPath. This is what the XForm runtime evaluates.
-- **Vellum attributes** (`vellum:calculate`, `vellum:relevant`, `vellum:value`) — original shorthand preserved for the Vellum editor. Only added when hashtags are present.
-- **Vellum metadata** (`vellum:hashtags`, `vellum:hashtagTransforms`) — JSON metadata on each bind telling Vellum which hashtags are used and how to expand them.
-- **`case_references_data.load`** — form-level JSON mapping each question path to its array of `#case/` references. Required by CommCare HQ to resolve hashtags during app builds.
-- **Secondary instance declarations** — when any question uses `#case/` or `#user/` hashtags, the expander adds `<instance src="jr://instance/casedb" id="casedb" />` and `<instance src="jr://instance/session" id="commcaresession" />` to the XForm `<model>`. Without these, CommCare HQ rejects the form at build time.
+- **Real attributes** (`calculate`, `relevant`, `constraint`, `value`) — `#case/` expanded to full `instance('casedb')/casedb/case[@case_id = instance('commcaresession')/session/data/case_id]/property` XPath.
+- **Vellum attributes** (`vellum:calculate`, `vellum:relevant`, `vellum:value`) — original shorthand preserved for the Vellum editor.
+- **Vellum metadata** (`vellum:hashtags`, `vellum:hashtagTransforms`) — JSON metadata on each bind.
+- **`case_references_data.load`** — form-level JSON mapping each question path to its `#case/` references.
+- **Secondary instance declarations** — `<instance src="jr://instance/casedb" id="casedb" />` and `<instance src="jr://instance/session" id="commcaresession" />` added when hashtags are used.
 
 ### Close Case
 - `{}` = unconditional close
@@ -225,7 +241,7 @@ npm run dev          # Start dev server (Turbopack)
 npm run build        # Production build
 npm test             # Run tests (vitest)
 npm run test:watch   # Watch mode tests
-npx tsx scripts/test-schema.ts  # Test structured output schema against Haiku (requires ANTHROPIC_API_KEY)
+npx tsx scripts/test-schema.ts  # Test structured output schemas against Haiku (requires ANTHROPIC_API_KEY)
 ```
 
 ## Icons
@@ -247,28 +263,25 @@ Dark "Stellar Minimalism" theme. CSS custom properties defined in `globals.css`:
 
 ## Model Configuration
 
-`lib/models.ts` is the single source of truth for default model IDs, pricing, and pipeline config. Model constants (`MODEL_GENERATION`, `MODEL_APP_CONTENT`, etc.) define the defaults, but **runtime model selection is user-configurable** via the settings page.
+`lib/models.ts` is the single source of truth for default model IDs, pricing, and pipeline config. Runtime model selection is user-configurable via the settings page.
 
-- `MODEL_GENERATION` — default for scaffold + edit architect, currently `claude-sonnet-4-6`
-- `MODEL_APP_CONTENT` — default for Requirements Analyst + app content + single form regen, currently `claude-opus-4-6`
-- `MODEL_FIXER` — available for cheap/fast fixes, currently `claude-haiku-4-5-20251001`
-- `MODEL_REQUIREMENTS_ANALYST` — unused constant (Requirements Analyst now defaults to `MODEL_APP_CONTENT` via `DEFAULT_PIPELINE_CONFIG`)
+- `MODEL_DEFAULT` — fallback model for `GenerationContext` methods (`claude-sonnet-4-6`)
 - `MODEL_PRICING` — cost lookup keyed by model ID (per million tokens: input, output, cacheWrite, cacheRead)
 - `DEFAULT_PIPELINE_CONFIG` — `PipelineConfig` object with per-stage model + maxOutputTokens + reasoning defaults
 - `modelSupportsReasoning(modelId)` — returns true for Opus/Sonnet families (not Haiku)
+- `modelSupportsMaxReasoning(modelId)` — returns true for Opus only ("max" effort is Opus-exclusive)
 
 ### Settings & Pipeline Config
 
 Users configure models and token limits per pipeline stage at `/settings`. Settings are stored in `localStorage('nova-settings')` and sent to the server per request via `useChat` body.
 
-**Data flow**: `localStorage → useSettings() → useChat body → route.ts → GenerationContext.pipelineConfig → pipeline/agents`
+**Data flow**: `localStorage → useSettings() → useChat body → route.ts → GenerationContext.pipelineConfig → SA agent / tool LLM calls`
 
 **Pipeline stages** (each has model + maxOutputTokens + reasoning + reasoningEffort):
-- `requirementsAnalyst` — Requirements Analyst agent (default: Opus, no token cap, reasoning high)
-- `scaffold` — Scaffold generation (default: Opus, no token cap, reasoning high)
-- `appContent` — App content generation (default: Opus, no token cap, reasoning high)
-- `editArchitect` — Edit Architect agent (default: Sonnet, no token cap, reasoning off)
-- `singleFormRegen` — Single form regeneration (default: Opus, no token cap, reasoning high)
+- `solutionsArchitect` — SA agent (default: Opus, reasoning high)
+- `schemaGeneration` — `generateSchema` tool's LLM call (default: Sonnet, reasoning high)
+- `scaffold` — `generateScaffold` + `addModule` LLM calls (default: Sonnet, reasoning high)
+- `formGeneration` — `addForm` + `regenerateForm` LLM calls (default: Sonnet, reasoning off)
 
 Pipeline code reads from `ctx.pipelineConfig.<stage>` — never hardcoded model IDs. A `maxOutputTokens` of `0` means no cap. Reasoning uses Anthropic adaptive thinking (`type: 'adaptive'`) with configurable effort (`low`/`medium`/`high`/`max`). `ctx.reasoningForStage(stage)` returns the effort config or `undefined` if reasoning is off or the model doesn't support it.
 
@@ -281,51 +294,45 @@ Pipeline code reads from `ctx.pipelineConfig.<stage>` — never hardcoded model 
 Set `RUN_LOGGER=1` in `.env` to enable disk-based run logging. When enabled, each pipeline run writes a JSON file to `.log/` that is updated incrementally after every event (always valid JSON, even on crash).
 
 - **`lib/services/runLogger.ts`** — `RunLogger` class. Created once per request in the route handler. Key methods:
-  - `setAgent(name)` — tracks the current agent (`'Requirements Analyst'`, `'Generation Pipeline'`, `'Edit Architect'`)
+  - `setAgent(name)` — tracks the current agent (`'Solutions Architect'`)
   - `setAppName(name)` — renames the log file from `*_unnamed.json` to `*_{app_name}.json`
-  - `logConversation(messages)` — overwrites the `conversation` field with the latest `UIMessage[]` from the client (called at the start of each request so the log always has the full chat history including user messages, Requirements Analyst responses, askQuestions tool calls, and user-chosen answers)
+  - `logConversation(messages)` — overwrites the `conversation` field with the latest `UIMessage[]`
   - `logEvent(event)` — appends an orchestration/generation/fix event with token counts and cost estimate
-  - `logSubResult(label, result)` — stitches a sub-generation result onto the most recent orchestration event's matching tool call (e.g. "Scaffold" generation result attaches to the `generateScaffold` tool call entry)
-  - `finalize()` — sets `finished_at`, recomputes totals, and renames the log file from UUID to `{timestamp}_{app_name}.json` (falls back to `_unnamed` if no app name was set)
-- **Abandoned log cleanup**: On construction, fires an async cleanup that scans `.log/` for UUID-named files (orphans from runs where `finalize()` never ran — e.g. user closed tab, process crashed) and renames them to `{timestamp}_abandoned.json`. Fully async, fire-and-forget, excludes the current run's ID to avoid races.
-- **Integration**: `GenerationContext.generate()`/`streamGenerate()` call `logger.logSubResult()` automatically. Agent `onStepFinish` callbacks call `logger.logEvent()` for orchestration steps.
-- **Output**: `.log/{timestamp}_{app_name|unnamed|abandoned}.json` — contains run metadata, full conversation history (`UIMessage[]`), per-event token usage (including `cache_read_tokens` / `cache_write_tokens`) + cache-aware cost estimates, full request/response I/O, and roll-up totals.
+  - `logSubResult(label, result)` — stitches a sub-generation result onto the most recent orchestration event's matching tool call
+  - `finalize()` — sets `finished_at`, recomputes totals, renames log file
+- **Abandoned log cleanup**: On construction, scans `.log/` for UUID-named orphan files and renames them to `{timestamp}_abandoned.json`.
+- **Integration**: `GenerationContext.generate()`/`streamGenerate()` call `logger.logSubResult()` automatically. SA `onStepFinish` calls `logger.logEvent()` for orchestration steps.
+- **Output**: `.log/{timestamp}_{app_name|unnamed|abandoned}.json`
 
 ## Log Replay
 
-Client-side feature for replaying a previously captured run log (`.log/*.json`) through the Builder state machine without making API calls. Used for rapid UI iteration.
+Client-side feature for replaying a previously captured run log (`.log/*.json`) through the Builder state machine without making API calls.
 
 **Flow**: `/settings` page → file picker → `extractReplayStages(log)` → module-level store → navigate to `/build/new` → `BuilderLayout` reads store on mount → `ReplayController` drives Builder state.
 
-- **`lib/services/logReplay.ts`** — Stage extraction + singleton store. `extractReplayStages()` walks a `RunLog` to find conversation messages, scaffold output, and app content output. Each stage is a `ReplayStage` with `header`, `subtitle?`, `messages` (cumulative `UIMessage[]`), and `applyToBuilder` (closure that calls builder methods — no-op for conversation-only stages). Reuses `processContentOutput` + `assembleBlueprint` so schema changes propagate automatically. Store: `setReplayData()` / `getReplayData()` / `clearReplayData()`.
-- **`app/settings/page.tsx`** — File picker with drag-and-drop. Parses JSON, shows metadata preview (app name, date, event count, cost), extracts stages on "Load Replay", navigates to `/build/new`.
-- **`components/builder/ReplayController.tsx`** — Fixed-position pill at top center of viewport. Left/right navigation, stage header/subtitle (fixed width, truncated), counter, close button. `goToStage(n)` resets builder then applies stages 0..n in sequence. Reports messages via `onMessagesChange` callback.
-- **`BuilderLayout` modifications** — Detects replay data via `useState` initializers (no useEffect). Applies stage 0 synchronously before first render (safe because builder subscriptions aren't active yet). Shows chat in sidebar with replay messages (read-only, no input). `isCentered` reflects real UI state — conversation stages show centered hero chat, scaffold stage triggers sidebar transition.
+- **`lib/services/logReplay.ts`** — Stage extraction + singleton store. `extractReplayStages()` walks a `RunLog` to find conversation messages, scaffold output, and per-tool generation results. Each stage is a `ReplayStage` with `header`, `subtitle?`, `messages`, and `applyToBuilder` closure.
+- **`app/settings/page.tsx`** — File picker with drag-and-drop. Parses JSON, shows metadata preview.
+- **`components/builder/ReplayController.tsx`** — Fixed-position pill at top center of viewport. Left/right navigation, stage counter, close button.
 
 ## Service Layer Notes
 
-- `builder.ts`: `Builder` class — singleton via `useBuilder()`. Holds `scaffold`, `blueprint`, `partialScaffold` (streaming structured output), and `partialModules` (module/form results). `treeData` getter merges partial data with scaffold for progressive rendering. Setter methods are called from `onData` callback in BuilderLayout. `updateProgress()` derives completed/total counts from the `partialModules` map.
-- `architectAgent.ts`: Exports `createEditArchitectAgent(ctx, mutableBp)` — edit-mode `ToolLoopAgent` with search/get/edit/validate tools operating on a `MutableBlueprint`. `regenerateForm` uses `generateSingleFormContent()` (Opus structured output). Also exports `validateAndFix()` — shared programmatic validation + fix loop (rule-based fixes + Opus structured output fallback for empty forms). **Note:** `validateAndFix` has an artificial 3s delay when validation passes on the first attempt — our validation is purely deterministic and completes near-instantly, which feels jarring. Remove this delay once we integrate the CommCare core .jar for full validation (which will take real time).
-- `generationPipeline.ts`: Exports `runGenerationPipeline(ctx, specification, appName)` — programmatic sequence: scaffold (Sonnet `streamGenerate`) → app content (Opus `streamGenerate` with adaptive thinking + `appContentSchema`) → assemble (`processContentOutput` + `assembleBlueprint`) → validate (`validateAndFix`). Also exports `generateSingleFormContent()` for edit-mode `regenerateForm` and empty form fallback.
-- `mutableBlueprint.ts`: `MutableBlueprint` class — wraps `AppBlueprint` (deep-cloned) for in-place search, read, and mutation. `search()` finds matches across question IDs/labels/case_properties/XPath/module names/form names/columns. Mutation methods (`updateQuestion`, `addQuestion`, `removeQuestion`, etc.) auto-derive case config after changes. `renameCaseProperty()` propagates renames across all questions, columns, and XPath expressions.
-- `generationContext.ts`: `GenerationContext` class — wraps Anthropic client + UI stream writer + RunLogger + PipelineConfig. Provides `generatePlainText()` (text-only, no schema), `generate()` (one-shot structured), `streamGenerate()` (streaming structured with `onPartial`), `reasoningForStage()` (returns effort config or undefined), `runAgent()` (ToolLoopAgent execution with centralized step logging), `emit()` (transient data parts). All LLM calls go through this class. Pipeline stages read config from `ctx.pipelineConfig` (user-configurable via settings page). Reasoning is configurable per stage via `reasoning?: { effort }` parameter which sets Anthropic adaptive thinking provider options. Also exports `thinkingProviderOptions(effort)` for ToolLoopAgent constructors and `withPromptCaching` for Anthropic prompt caching.
-- `runLogger.ts`: `RunLogger` class — disk-based run logger. Writes incremental JSON to `.log/` after every mutation when `RUN_LOGGER=1`. Tracks current agent, stitches sub-generation results onto orchestration tool calls, computes cache-aware per-event cost estimates (using `cache_read_tokens` / `cache_write_tokens`) and roll-up totals.
-- `logReplay.ts`: `extractReplayStages(log)` builds an ordered array of `ReplayStage` from a `RunLog`. Each stage has `{ header, subtitle?, messages, applyToBuilder }` — a uniform interface where `applyToBuilder` is a closure calling builder methods (no-op for conversation stages). Stages are: conversation exchanges → scaffold → module columns → forms → done. Also provides a module-level singleton store (`setReplayData`/`getReplayData`/`clearReplayData`) for passing data between the settings page and BuilderLayout.
-- `hqJsonExpander.ts`: `expandBlueprint()` converts `AppBlueprint` → HQ import JSON. Generates XForm XML with proper Vellum dual-attribute hashtag expansion, secondary instance declarations (casedb, commcaresession), form actions, case details. `validateBlueprint()` checks semantic rules.
-- `cczCompiler.ts`: `CczCompiler` class takes HQ import JSON → `.ccz` Buffer. Generates suite.xml, profile.ccpr, app_strings.txt. Injects case blocks (create/update/close/subcases) back into XForm XML.
-- `autoFixer.ts`: `AutoFixer` class applies programmatic fixes (itext, reserved properties, missing binds) to generated files before validation.
+- `solutionsArchitect.ts`: Exports `createSolutionsArchitect(ctx, mutableBp, blueprintSummary?)` — single `ToolLoopAgent` with all 21 tools. Generation tools (`generateSchema`, `generateScaffold`, `addModule`, `addForm`) delegate to `ctx.generate()`/`ctx.streamGenerate()` with per-stage model config. Also exports `validateAndFix()` — programmatic validation + fix loop (rule-based fixes + structured output fallback for empty forms). Also exports `generateSingleFormContent()` for the `addForm` and `regenerateForm` tools. **Note:** `validateAndFix` has an artificial 3s delay when validation passes on the first attempt — our validation is purely deterministic and completes near-instantly, which feels jarring. Remove this delay once we integrate the CommCare core .jar for full validation.
+- `mutableBlueprint.ts`: `MutableBlueprint` class — wraps `AppBlueprint` (deep-cloned) for progressive population and in-place mutation. `setCaseTypes()` and `setScaffold()` for generation. `search()` finds matches across question IDs/labels/case_properties/XPath/module names/form names/columns. Mutation methods auto-derive case config after changes. `renameCaseProperty()` propagates renames across all questions, columns, and XPath expressions.
+- `generationContext.ts`: `GenerationContext` class — wraps Anthropic client + UI stream writer + RunLogger + PipelineConfig. All LLM calls go through this class. Also exports `thinkingProviderOptions(effort)` for ToolLoopAgent constructors and `withPromptCaching` for Anthropic prompt caching.
+- `contentProcessing.ts`: Post-processing utilities for structured output from form generation. `stripEmpty()` converts sentinel values back to undefined. `buildQuestionTree()` converts flat parentId-based questions to nested children arrays. `applyDefaults()` merges case property metadata. `processSingleFormOutput()` chains all three.
+- `hqJsonExpander.ts`: `expandBlueprint()` converts `AppBlueprint` → HQ import JSON. Generates XForm XML with Vellum dual-attribute hashtag expansion, secondary instance declarations, form actions, case details. `validateBlueprint()` checks semantic rules.
+- `cczCompiler.ts`: `CczCompiler` class takes HQ import JSON → `.ccz` Buffer. Generates suite.xml, profile.ccpr, app_strings.txt. Injects case blocks back into XForm XML.
 - `commcare/`: Shared module — `constants.ts` (reserved words, regex), `xml.ts` (escapeXml), `hashtags.ts` (Vellum expansion), `ids.ts` (hex ID gen), `hqTypes.ts` (HQ JSON interfaces), `hqShells.ts` (factory functions), `validate.ts` (identifier validation).
+
 ## Knowledge Sync Pipeline
 
-`scripts/sync-knowledge.ts` — offline pipeline that fetches CommCare docs from Confluence and distills them into markdown knowledge files. These files are not currently used by the runtime pipeline but can be regenerated and re-integrated if needed. See `scripts/README.md` for full documentation.
+`scripts/sync-knowledge.ts` — offline pipeline that fetches CommCare docs from Confluence and distills them into markdown knowledge files. See `scripts/README.md` for full documentation.
 
 ```bash
 npx tsx scripts/sync-knowledge.ts --phase discover|crawl|triage|distill|reorganize|reorg-plan|reorg-execute [--yes]
 ```
 
-- **Phases 0-3** (discover → crawl → triage → distill): Fetch, classify, cluster, and distill Confluence pages into `.data/confluence-cache/distilled/*.md` (intermediate output)
-- **Phase 4** (reorganize): Two-pass Opus reorganization — reads distilled files, cuts HQ UI content, merges related topics, writes output markdown files
+- **Phases 0-3** (discover → crawl → triage → distill): Fetch, classify, cluster, and distill Confluence pages
+- **Phase 4** (reorganize): Two-pass Opus reorganization
 - Cache lives in `.data/confluence-cache/` — incremental, safe to interrupt and resume
-- Confluence auth uses cloud gateway URL (`api.atlassian.com/ex/confluence/{cloudId}/wiki`), not direct site URL
-- Models used: Haiku (triage), Sonnet (distill/clustering), Opus (reorganize). Model IDs are hardcoded in the script files, not in `lib/models.ts` (these are offline scripts, not the runtime pipeline)
-- AI SDK patterns: `streamText` + `Output.object()` for streaming structured output, `partialOutputStream` for progressive rendering, `inputTokens`/`outputTokens` for usage (not `promptTokens`/`completionTokens`)
+- Models used: Haiku (triage), Sonnet (distill/clustering), Opus (reorganize). Model IDs are hardcoded in the script files, not in `lib/models.ts`

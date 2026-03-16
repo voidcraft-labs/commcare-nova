@@ -1,8 +1,9 @@
 /**
  * MutableBlueprint — wraps an AppBlueprint for in-place search, read, and mutation.
  *
- * Used by the edit-mode Solutions Architect agent to surgically modify an existing
- * blueprint without regenerating from scratch.
+ * Used by the Solutions Architect agent as the single state container throughout
+ * the entire lifecycle: progressive population during generation and surgical
+ * edits during editing.
  */
 import {
   type AppBlueprint, type BlueprintModule, type BlueprintForm, type Question,
@@ -71,6 +72,27 @@ export class MutableBlueprint {
 
   constructor(blueprint: AppBlueprint) {
     this.blueprint = structuredClone(blueprint)
+  }
+
+  // ── Progressive population (used by generation tools) ──────────────
+
+  /** Set the data model (case types). Used by generateSchema. */
+  setCaseTypes(caseTypes: CaseType[]): void {
+    this.blueprint.case_types = caseTypes
+  }
+
+  /** Set app structure from scaffold output. Preserves case_types. */
+  setScaffold(scaffold: { app_name: string; description?: string; modules: Array<{ name: string; case_type?: string | null; purpose?: string; forms: Array<{ name: string; type: string; purpose?: string; formDesign?: string }> }> }): void {
+    this.blueprint.app_name = scaffold.app_name
+    this.blueprint.modules = scaffold.modules.map(sm => ({
+      name: sm.name,
+      ...(sm.case_type != null && { case_type: sm.case_type }),
+      forms: sm.forms.map(sf => ({
+        name: sf.name,
+        type: sf.type as 'registration' | 'followup' | 'survey',
+        questions: [],
+      })),
+    }))
   }
 
   // ── Read ────────────────────────────────────────────────────────────

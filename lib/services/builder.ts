@@ -1,15 +1,14 @@
-import type { AppBlueprint, Scaffold, BlueprintForm } from '@/lib/schemas/blueprint'
+import type { AppBlueprint, Scaffold, BlueprintForm, CaseType } from '@/lib/schemas/blueprint'
 
 export enum BuilderPhase {
   Idle = 'idle',
-  Planning = 'planning',
-  Designing = 'designing',
+  DataModel = 'data-model',
+  Structure = 'structure',
   Modules = 'modules',
   Forms = 'forms',
-  Validating = 'validating',
-  Fixing = 'fixing',
+  Validate = 'validate',
+  Fix = 'fix',
   Done = 'done',
-  Editing = 'editing',
   Error = 'error',
 }
 
@@ -48,12 +47,13 @@ export class Builder {
   phase = BuilderPhase.Idle
   scaffold: Scaffold | null = null
   blueprint: AppBlueprint | null = null
+  caseTypes: CaseType[] | null = null
   statusMessage = ''
   selected: SelectedElement | null = null
   progressCompleted = 0
   progressTotal = 0
   private partialModules: Map<number, PartialModule> = new Map()
-  /** Partial scaffold being built during tier 1 streaming */
+  /** Partial scaffold being built during streaming */
   private partialScaffold: { appName?: string; description?: string; modules: TreeData['modules'] } | null = null
   private listeners = new Set<() => void>()
 
@@ -66,8 +66,7 @@ export class Builder {
     this.listeners.forEach(fn => fn())
   }
 
-  /** Derive progress counts from the scaffold and partialModules state.
-   *  Modules + Forms are a single "Build" phase — count all content items together. */
+  /** Derive progress counts from the scaffold and partialModules state. */
   private updateProgress() {
     if (!this.scaffold || (this.phase !== BuilderPhase.Modules && this.phase !== BuilderPhase.Forms)) {
       this.progressCompleted = 0
@@ -87,27 +86,16 @@ export class Builder {
     }
   }
 
-  /** Transition to planning phase (Claude is generating the plan in chat). */
-  startPlanning() {
-    this.phase = BuilderPhase.Planning
-    this.statusMessage = 'Generating plan...'
+  /** Transition to data model phase (SA called generateSchema). */
+  startDataModel() {
+    this.phase = BuilderPhase.DataModel
+    this.statusMessage = 'Designing data model...'
     this.notify()
   }
 
-  /** Transition to designing phase (generation pipeline started). */
-  startDesigning() {
-    this.phase = BuilderPhase.Designing
-    this.statusMessage = 'Designing app architecture...'
-    this.partialScaffold = null
-    this.partialModules.clear()
-    this.notify()
-  }
-
-  /** Transition to editing phase (edit pipeline started). */
-  startEditing() {
-    this.phase = BuilderPhase.Editing
-    this.statusMessage = 'Applying changes...'
-    this.partialModules.clear()
+  /** Store case types from data model generation. */
+  setSchema(caseTypes: CaseType[]) {
+    this.caseTypes = caseTypes
     this.notify()
   }
 
@@ -127,7 +115,8 @@ export class Builder {
         })),
       })),
     }
-    this.phase = BuilderPhase.Designing
+    this.phase = BuilderPhase.Structure
+    this.statusMessage = 'Designing app structure...'
     this.notify()
   }
 
@@ -166,20 +155,18 @@ export class Builder {
   /** Advance to a named phase with appropriate status message. */
   setPhase(phase: string) {
     const phaseMap: Record<string, BuilderPhase> = {
-      designing: BuilderPhase.Designing,
-      editing: BuilderPhase.Editing,
+      structure: BuilderPhase.Structure,
       modules: BuilderPhase.Modules,
       forms: BuilderPhase.Forms,
-      validating: BuilderPhase.Validating,
-      fixing: BuilderPhase.Fixing,
+      validate: BuilderPhase.Validate,
+      fix: BuilderPhase.Fix,
     }
     const statusMap: Record<string, string> = {
-      designing: 'Designing app architecture...',
-      editing: 'Applying changes...',
+      structure: 'Designing app structure...',
       modules: 'Building app content...',
       forms: 'Building app content...',
-      validating: 'Validating blueprint...',
-      fixing: 'Fixing validation errors...',
+      validate: 'Validating blueprint...',
+      fix: 'Fixing validation errors...',
     }
     const newPhase = phaseMap[phase]
     if (!newPhase) return
@@ -278,6 +265,7 @@ export class Builder {
     this.phase = BuilderPhase.Idle
     this.scaffold = null
     this.blueprint = null
+    this.caseTypes = null
     this.statusMessage = ''
     this.selected = null
     this.progressCompleted = 0

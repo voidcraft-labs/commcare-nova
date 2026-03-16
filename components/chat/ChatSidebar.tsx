@@ -121,7 +121,7 @@ export function ChatSidebar({
         <div className="shrink-0">
           <ChatInput
             onSend={handleSend}
-            disabled={isLoading || [BuilderPhase.Planning, BuilderPhase.Designing, BuilderPhase.Modules, BuilderPhase.Forms, BuilderPhase.Validating, BuilderPhase.Fixing, BuilderPhase.Editing].includes(builder.phase)}
+            disabled={isLoading || [BuilderPhase.DataModel, BuilderPhase.Structure, BuilderPhase.Modules, BuilderPhase.Forms, BuilderPhase.Validate, BuilderPhase.Fix].includes(builder.phase)}
             centered={isCentered}
           />
         </div>
