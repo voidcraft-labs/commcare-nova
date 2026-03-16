@@ -16,8 +16,8 @@ export const MODEL_APP_CONTENT = 'claude-opus-4-6'
 /** Model for the validation fixer (cheap, fast). */
 export const MODEL_FIXER = 'claude-haiku-4-5-20251001'
 
-/** Model for the Product Manager agent (Tier 0). */
-export const MODEL_PM = 'claude-sonnet-4-6'
+/** Model for the Requirements Analyst agent (Tier 0). */
+export const MODEL_REQUIREMENTS_ANALYST = 'claude-sonnet-4-6'
 
 /** Model families that support extended thinking / reasoning. */
 const REASONING_PREFIXES = ['claude-opus', 'claude-sonnet']
@@ -29,7 +29,7 @@ export function modelSupportsReasoning(modelId: string): boolean {
 
 /** Default pipeline configuration — matches the hardcoded values used before settings existed. */
 export const DEFAULT_PIPELINE_CONFIG: PipelineConfig = {
-  pm: { model: MODEL_APP_CONTENT, maxOutputTokens: 0, reasoning: true, reasoningEffort: 'high' },
+  requirementsAnalyst: { model: MODEL_APP_CONTENT, maxOutputTokens: 0, reasoning: true, reasoningEffort: 'high' },
   scaffold: { model: MODEL_APP_CONTENT, maxOutputTokens: 0, reasoning: true, reasoningEffort: 'high' },
   appContent: { model: MODEL_APP_CONTENT, maxOutputTokens: 0, reasoning: true, reasoningEffort: 'high' },
   editArchitect: { model: MODEL_GENERATION, maxOutputTokens: 0, reasoning: false, reasoningEffort: 'high' },

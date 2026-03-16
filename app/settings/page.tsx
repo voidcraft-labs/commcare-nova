@@ -28,7 +28,7 @@ interface ParsedLog {
 }
 
 const STAGES: { key: keyof PipelineConfig; label: string; description: string }[] = [
-  { key: 'pm', label: 'Product Manager', description: 'Conversational agent that gathers requirements' },
+  { key: 'requirementsAnalyst', label: 'Requirements Analyst', description: 'Conversational agent that gathers requirements' },
   { key: 'scaffold', label: 'Scaffold', description: 'Designs app structure and data model' },
   { key: 'appContent', label: 'App Content', description: 'Generates form questions and case list columns' },
   { key: 'editArchitect', label: 'Edit Architect', description: 'Applies surgical edits to generated apps' },

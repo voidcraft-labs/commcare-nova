@@ -3,7 +3,7 @@
  *
  * Wraps an Anthropic client + UI stream writer + RunLogger. Provides structured
  * generation (one-shot and streaming) with automatic run logging, plus transient
- * data part emission. Used by both the Product Manager and Solutions Architect agents.
+ * data part emission. Used by both the Requirements Analyst and Solutions Architect agents.
  */
 import { streamText, generateText, Output } from 'ai'
 import type { CallWarning, ModelMessage, ToolLoopAgent, UIMessageStreamWriter } from 'ai'

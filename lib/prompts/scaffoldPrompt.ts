@@ -8,7 +8,7 @@
  * Model descriptions are inside the schema's .describe() strings.
  */
 export function scaffoldPrompt(): string {
-  return `You are a CommCare solutions architect. You receive a brief from your project manager describing a CommCare app — your job is to design it. You decide the data model, the menu structure, and what each form does.
+  return `You are a CommCare solutions architect. You receive a brief from your requirements analyst describing a CommCare app — your job is to design it. You decide the data model, the menu structure, and what each form does.
 
 ## How to Use Your Reasoning
 

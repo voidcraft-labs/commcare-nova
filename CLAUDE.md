@@ -19,7 +19,7 @@ Next.js web app that generates CommCare apps from natural language conversation.
 ```
 app/                    # Next.js App Router pages and API routes
   api/
-    chat/               # Single autonomous endpoint (PM + generation pipeline + edit agent)
+    chat/               # Single autonomous endpoint (Requirements Analyst + generation pipeline + edit agent)
     compile/            # CCZ compilation + download
     models/             # Anthropic models list proxy (POST with apiKey)
   build/[id]/           # Main builder view (3-panel layout)
@@ -45,7 +45,7 @@ lib/
     commcare/           # Shared CommCare platform module (constants, XML, hashtags, HQ types/shells)
     __tests__/          # Vitest tests for expander, compiler, commcare module, mutableBlueprint
   schemas/              # Zod schemas for AppBlueprint, appContentSchema (unified content output)
-  prompts/              # Agent prompts (productManagerPrompt, editArchitectPrompt, scaffoldPrompt, appContentPrompt)
+  prompts/              # Agent prompts (requirementsAnalystPrompt, editArchitectPrompt, scaffoldPrompt, appContentPrompt)
   types/                # TypeScript type definitions
   models.ts             # Central model ID + pricing config + DEFAULT_PIPELINE_CONFIG
   store.ts              # CCZ file persistence in .data/
@@ -57,13 +57,13 @@ scripts/
 
 ## Key Architecture Decisions
 
-### PM + Programmatic Pipeline + Edit Agent (Single Endpoint)
+### Requirements Analyst + Programmatic Pipeline + Edit Agent (Single Endpoint)
 
 A single `POST /api/chat` endpoint runs the entire pipeline: conversation, generation, and editing.
 
-1. **Product Manager** — A `ToolLoopAgent` that gathers requirements via conversation and delegates to generation or editing. Tools:
+1. **Requirements Analyst** — A `ToolLoopAgent` that gathers requirements via conversation and delegates to generation or editing. Tools:
    - **`askQuestions`** (client-side, no `execute`) — structured multiple-choice questions rendered as `QuestionCard` in chat. `sendAutomaticallyWhen` re-sends when all questions are answered.
-   - **`generateApp`** (server-side) — called when the PM has enough info. Emits `data-planning`, runs `runGenerationPipeline()` directly (no agent loop), returns a rich summary.
+   - **`generateApp`** (server-side) — called when the Requirements Analyst has enough info. Emits `data-planning`, runs `runGenerationPipeline()` directly (no agent loop), returns a rich summary.
    - **`editApp`** (server-side) — called when the user requests changes to a generated app. Emits `data-editing`, creates a `MutableBlueprint` + edit-mode architect for surgical edits, returns a summary.
 
 2. **Generation Pipeline** (`runGenerationPipeline`) — A programmatic sequence (not an agent loop) that runs four steps in code:
@@ -81,7 +81,7 @@ A single `POST /api/chat` endpoint runs the entire pipeline: conversation, gener
    - **`regenerateForm`** — full form regeneration via Opus structured output (`generateSingleFormContent`)
    - **`validateApp`** — runs `validateAndFix` loop on the mutated blueprint
 
-The PM does NOT make technical decisions (property names, case types, form structures). It writes a plain English `appSpecification`. The generation pipeline translates that into CommCare architecture.
+The Requirements Analyst does NOT make technical decisions (property names, case types, form structures). It writes a plain English `appSpecification`. The generation pipeline translates that into CommCare architecture.
 
 ### GenerationContext
 
@@ -99,7 +99,7 @@ The PM does NOT make technical decisions (property names, case types, form struc
 
 Also exports **`withPromptCaching`** — a shared `prepareStep` config that marks the last message with Anthropic's `cache_control: ephemeral`. Spread into all `ToolLoopAgent` constructors via `...withPromptCaching` so prior conversation turns are cached across steps.
 
-The PM (via `logger.logEvent` in `onStepFinish`) and the generation pipeline (via `streamGenerate` which calls `logger.logSubResult`) use the same `GenerationContext` instance, created once in the route handler.
+The Requirements Analyst (via `logger.logEvent` in `onStepFinish`) and the generation pipeline (via `streamGenerate` which calls `logger.logSubResult`) use the same `GenerationContext` instance, created once in the route handler.
 
 ### Client State via `onData` (No useEffect Scanning)
 
@@ -121,7 +121,7 @@ Data parts emitted by the pipeline:
 
 `BuilderLayout` has one `useChat` instance targeting `/api/chat`. No second generation instance, no client-side orchestration, no round-trips.
 
-- **`body`** sends `apiKey`, `pipelineConfig`, `blueprint` (for edits), and `blueprintSummary` (for PM context) per request
+- **`body`** sends `apiKey`, `pipelineConfig`, `blueprint` (for edits), and `blueprintSummary` (for Requirements Analyst context) per request
 - **`sendAutomaticallyWhen`** only triggers for `askQuestions` (client-side tool), not server-side tool completions
 - **`onData`** handles all builder state updates (see above)
 
@@ -189,7 +189,7 @@ No auth layer. The user's Anthropic API key is stored in localStorage (inside `n
 
 - **`ChatSidebar`** — Message list + input. Accepts `mode: 'centered' | 'sidebar'`, optional `readOnly` (hides input, used by log replay). Centered mode renders below the hero Logo with no header/border, uniform `gap-6` spacing, and no vertical padding on messages/input (parent flex gap controls all spacing). Sidebar mode is the 380px docked panel with `p-4` messages and `border-t` input. Uses `layout` + `layoutId` for animated transition between modes. Reads `builder.phase` to suppress thinking indicator when the builder is active.
 - **`ChatMessage`** — Iterates `message.parts`: renders text bubbles for `text` parts, `QuestionCard` for `tool-askQuestions` parts. Assistant text is rendered through `renderMarkdown()` (allowlist-based marked renderer); user text is plain `whitespace-pre-wrap`. All other tool parts (`tool-generateApp`, `tool-editApp`) and data parts are ignored in chat (handled by `onData` in BuilderLayout).
-- **`QuestionCard`** — Animated stepper with local state. Shows questions one at a time with option buttons. Answered questions display as checkmark + answer. Calls `addToolOutput` when all questions are answered. Also accepts a `pendingAnswerRef` — when the user types a message while a question is waiting, `ChatSidebar` routes it through this ref instead of sending a chat message. Typed answers are prefixed with `"User Responded: "` so the PM knows the user typed free-form text rather than picking an option.
+- **`QuestionCard`** — Animated stepper with local state. Shows questions one at a time with option buttons. Answered questions display as checkmark + answer. Calls `addToolOutput` when all questions are answered. Also accepts a `pendingAnswerRef` — when the user types a message while a question is waiting, `ChatSidebar` routes it through this ref instead of sending a chat message. Typed answers are prefixed with `"User Responded: "` so the Requirements Analyst knows the user typed free-form text rather than picking an option.
 - **`ThinkingIndicator`** — Orbital violet dot animation. Shown when chat status is `submitted`/`streaming` AND builder phase is `Idle` AND scaffold is not in-flight.
 
 ## Schemas
@@ -250,9 +250,9 @@ Dark "Stellar Minimalism" theme. CSS custom properties defined in `globals.css`:
 `lib/models.ts` is the single source of truth for default model IDs, pricing, and pipeline config. Model constants (`MODEL_GENERATION`, `MODEL_APP_CONTENT`, etc.) define the defaults, but **runtime model selection is user-configurable** via the settings page.
 
 - `MODEL_GENERATION` — default for scaffold + edit architect, currently `claude-sonnet-4-6`
-- `MODEL_APP_CONTENT` — default for PM + app content + single form regen, currently `claude-opus-4-6`
+- `MODEL_APP_CONTENT` — default for Requirements Analyst + app content + single form regen, currently `claude-opus-4-6`
 - `MODEL_FIXER` — available for cheap/fast fixes, currently `claude-haiku-4-5-20251001`
-- `MODEL_PM` — unused constant (PM now defaults to `MODEL_APP_CONTENT` via `DEFAULT_PIPELINE_CONFIG`)
+- `MODEL_REQUIREMENTS_ANALYST` — unused constant (Requirements Analyst now defaults to `MODEL_APP_CONTENT` via `DEFAULT_PIPELINE_CONFIG`)
 - `MODEL_PRICING` — cost lookup keyed by model ID (per million tokens: input, output, cacheWrite, cacheRead)
 - `DEFAULT_PIPELINE_CONFIG` — `PipelineConfig` object with per-stage model + maxOutputTokens + reasoning defaults
 - `modelSupportsReasoning(modelId)` — returns true for Opus/Sonnet families (not Haiku)
@@ -264,7 +264,7 @@ Users configure models and token limits per pipeline stage at `/settings`. Setti
 **Data flow**: `localStorage → useSettings() → useChat body → route.ts → GenerationContext.pipelineConfig → pipeline/agents`
 
 **Pipeline stages** (each has model + maxOutputTokens + reasoning + reasoningEffort):
-- `pm` — Product Manager agent (default: Opus, no token cap, reasoning high)
+- `requirementsAnalyst` — Requirements Analyst agent (default: Opus, no token cap, reasoning high)
 - `scaffold` — Scaffold generation (default: Opus, no token cap, reasoning high)
 - `appContent` — App content generation (default: Opus, no token cap, reasoning high)
 - `editArchitect` — Edit Architect agent (default: Sonnet, no token cap, reasoning off)
@@ -281,9 +281,9 @@ Pipeline code reads from `ctx.pipelineConfig.<stage>` — never hardcoded model 
 Set `RUN_LOGGER=1` in `.env` to enable disk-based run logging. When enabled, each pipeline run writes a JSON file to `.log/` that is updated incrementally after every event (always valid JSON, even on crash).
 
 - **`lib/services/runLogger.ts`** — `RunLogger` class. Created once per request in the route handler. Key methods:
-  - `setAgent(name)` — tracks the current agent (`'Product Manager'`, `'Generation Pipeline'`, `'Edit Architect'`)
+  - `setAgent(name)` — tracks the current agent (`'Requirements Analyst'`, `'Generation Pipeline'`, `'Edit Architect'`)
   - `setAppName(name)` — renames the log file from `*_unnamed.json` to `*_{app_name}.json`
-  - `logConversation(messages)` — overwrites the `conversation` field with the latest `UIMessage[]` from the client (called at the start of each request so the log always has the full chat history including user messages, PM responses, askQuestions tool calls, and user-chosen answers)
+  - `logConversation(messages)` — overwrites the `conversation` field with the latest `UIMessage[]` from the client (called at the start of each request so the log always has the full chat history including user messages, Requirements Analyst responses, askQuestions tool calls, and user-chosen answers)
   - `logEvent(event)` — appends an orchestration/generation/fix event with token counts and cost estimate
   - `logSubResult(label, result)` — stitches a sub-generation result onto the most recent orchestration event's matching tool call (e.g. "Scaffold" generation result attaches to the `generateScaffold` tool call entry)
   - `finalize()` — sets `finished_at`, recomputes totals, and renames the log file from UUID to `{timestamp}_{app_name}.json` (falls back to `_unnamed` if no app name was set)

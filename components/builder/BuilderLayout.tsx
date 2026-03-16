@@ -25,7 +25,7 @@ import { DownloadDropdown } from '@/components/ui/DownloadDropdown'
 import { getReplayData, clearReplayData } from '@/lib/services/logReplay'
 
 /** Only auto-resend when the assistant's LAST step is askQuestions with all outputs available.
- *  If the PM continued past tool calls to ask a freeform text question, don't auto-resend —
+ *  If the Requirements Analyst continued past tool calls to ask a freeform text question, don't auto-resend —
  *  the user needs to reply manually first. */
 function shouldAutoResend({ messages }: { messages: UIMessage[] }): boolean {
   const last = messages[messages.length - 1]
