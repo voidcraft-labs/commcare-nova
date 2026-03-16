@@ -260,8 +260,8 @@ export default function SettingsPage() {
     reader.onload = () => {
       try {
         const log = JSON.parse(reader.result as string) as RunLog
-        if (!log.events || !Array.isArray(log.events)) {
-          setReplayError('This file does not appear to be a valid run log (no events array).')
+        if (!log.steps || !Array.isArray(log.steps)) {
+          setReplayError('This file does not appear to be a valid run log (no steps array). Only v2 logs are supported.')
           return
         }
         setParsed({ log, fileName: file.name })
@@ -442,8 +442,8 @@ export default function SettingsPage() {
                     <p className="font-medium truncate">{parsed.log.app_name ?? parsed.fileName}</p>
                     <div className="mt-2 grid grid-cols-2 gap-x-4 gap-y-1 text-xs text-nova-text-secondary">
                       <span>Date: {formatDate(parsed.log.started_at)}</span>
-                      <span>Events: {parsed.log.events.length}</span>
-                      <span>Cost: {formatCost(parsed.log.total_cost_estimate)}</span>
+                      <span>Steps: {parsed.log.steps.length}</span>
+                      <span>Cost: {formatCost(parsed.log.totals.cost_estimate)}</span>
                       <span>{parsed.log.finished_at ? 'Completed' : 'Abandoned'}</span>
                     </div>
                   </div>

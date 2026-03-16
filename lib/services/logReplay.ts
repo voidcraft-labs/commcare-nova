@@ -1,19 +1,20 @@
 /**
- * Log Replay — extracts replay stages from a RunLog and provides a module-level store.
+ * Log Replay — extracts replay stages from a v2 RunLog.
  *
- * Walks through each assistant message's parts in order. Tool call parts
- * (tool-generateSchema, tool-addModule, etc.) create replay stages whose
- * `messages` are the conversation truncated to that point — so the chat
- * sidebar progressively reveals the SA's commentary as you step through.
+ * Walks through `log.steps` sequentially. Each step with tool calls or
+ * emissions becomes one or more replay stages. When a step has multiple
+ * generation/mutation tool calls (e.g. addModule × 3), it's split into
+ * per-tool-call stages with emissions distributed by moduleIndex/formIndex.
  *
- * Actual structured output data (schema, scaffold, form content) comes from
- * the RunLog `events` array, not the tool part summaries.
+ * Chat messages are built progressively from step text/reasoning/tool_calls.
+ * The `applyToBuilder` closure replays the step's emissions through the
+ * shared `applyDataPart` function — the same code path as real-time streaming.
  */
 import type { UIMessage } from 'ai'
-import type { RunLog, RunEvent } from './runLogger'
+import type { RunLog, Step, StepToolCall, Emission } from './runLogger'
 import type { Builder } from './builder'
-import type { AppBlueprint, Scaffold, CaseType } from '@/lib/schemas/blueprint'
-import { processSingleFormOutput } from '@/lib/schemas/contentProcessing'
+import { applyDataPart } from './builder'
+import type { AppBlueprint } from '@/lib/schemas/blueprint'
 
 // ── Types ───────────────────────────────────────────────────────────────
 
@@ -39,163 +40,132 @@ export type ExtractionResult = ExtractionSuccess | ExtractionError
 
 // ── Extraction ──────────────────────────────────────────────────────────
 
-/** Find the first generation event output whose label starts with `prefix` (case-insensitive). */
-function findGenerationOutput(events: RunEvent[], prefix: string): unknown | null {
-  const lower = prefix.toLowerCase()
-  for (const event of events) {
-    if (event.type === 'generation' && event.label.toLowerCase().startsWith(lower)) {
-      if (event.output != null) return event.output
-    }
-  }
-  return null
-}
-
 /**
- * Extract ordered replay stages from a RunLog.
+ * Extract ordered replay stages from a v2 RunLog.
  *
  * Each stage carries:
- * - `messages`: conversation truncated to the current tool call (progressive chat)
- * - `applyToBuilder`: closure that sets the builder state for that stage
+ * - `messages`: conversation progressively built from steps (chat sidebar shows SA commentary)
+ * - `applyToBuilder`: replays the step's emissions through applyDataPart
  */
 export function extractReplayStages(log: RunLog): ExtractionResult {
-  const { events, conversation } = log
-  if (!conversation?.length) {
-    return { success: false, error: 'No conversation data.' }
+  if ((log as any).version !== 2 || !log.steps?.length) {
+    return { success: false, error: 'Unsupported log format. Only v2 logs are supported.' }
   }
 
   const stages: ReplayStage[] = []
-  let scaffold: Scaffold | null = null
-  let caseTypes: CaseType[] = []
-  let lastAssistantMsgIdx = -1
+  const userMessages = log.conversation.filter(m => m.role === 'user')
 
-  /** Conversation up to (and including) partIndex of the assistant message at msgIdx. */
-  function messagesUpTo(msgIdx: number, partIdx: number): UIMessage[] {
+  // Progressive state
+  let accumulatedParts: any[] = []
+  let currentRequest = -1
+  let baseMessages: UIMessage[] = []
+
+  // Track scaffold for name lookups in module/form stages
+  let scaffold: any = null
+
+  function buildProgressiveMessages(): UIMessage[] {
+    if (accumulatedParts.length === 0) return [...baseMessages]
     return [
-      ...conversation.slice(0, msgIdx),
-      { ...conversation[msgIdx], parts: conversation[msgIdx].parts.slice(0, partIdx + 1) },
+      ...baseMessages,
+      {
+        id: `assistant-${currentRequest}`,
+        role: 'assistant',
+        parts: [...accumulatedParts],
+        content: '',
+      } as UIMessage,
     ]
   }
 
-  for (let msgIdx = 0; msgIdx < conversation.length; msgIdx++) {
-    const msg = conversation[msgIdx]
-    if (msg.role !== 'assistant') continue
-    lastAssistantMsgIdx = msgIdx
+  for (const step of log.steps) {
+    // Handle request boundary — finalize previous assistant message, add next user message
+    if (step.request !== currentRequest) {
+      if (currentRequest >= 0 && accumulatedParts.length > 0) {
+        baseMessages = [
+          ...baseMessages,
+          {
+            id: `assistant-${currentRequest}`,
+            role: 'assistant',
+            parts: [...accumulatedParts],
+            content: '',
+          } as UIMessage,
+        ]
+        accumulatedParts = []
+      }
+      currentRequest = step.request
+      if (currentRequest < userMessages.length) {
+        baseMessages = [...baseMessages, userMessages[currentRequest]]
+      }
+    }
 
-    for (let partIdx = 0; partIdx < msg.parts.length; partIdx++) {
-      const part = msg.parts[partIdx] as Record<string, any>
+    // Track scaffold from emissions (needed for module/form name lookups)
+    for (const em of step.emissions) {
+      if (em.type === 'data-scaffold') scaffold = em.data
+    }
 
-      switch (part.type as string) {
-        case 'tool-askQuestions': {
-          stages.push({
-            header: 'Conversation',
-            subtitle: part.input?.header,
-            messages: messagesUpTo(msgIdx, partIdx),
-            applyToBuilder: () => {},
-          })
-          break
-        }
+    // Accumulate step parts into the progressive assistant message
+    if (step.reasoning) {
+      accumulatedParts.push({ type: 'reasoning', reasoning: step.reasoning })
+    }
+    if (step.text) {
+      accumulatedParts.push({ type: 'text', text: step.text })
+    }
+    if (step.tool_calls) {
+      for (const tc of step.tool_calls) {
+        accumulatedParts.push({
+          type: `tool-${tc.name}`,
+          toolCallId: `replay-${step.index}-${tc.name}`,
+          toolName: tc.name,
+          input: tc.args,
+          state: 'output-available',
+        })
+      }
+    }
 
-        case 'tool-generateSchema': {
-          const output = findGenerationOutput(events, 'schema')
-          caseTypes = (output as any)?.case_types ?? []
-          stages.push({
-            header: 'Data Model',
-            messages: messagesUpTo(msgIdx, partIdx),
-            applyToBuilder: (b) => {
-              b.startDataModel()
-              if (caseTypes.length) b.setSchema(caseTypes)
-            },
-          })
-          break
-        }
+    // Create stages — split when a step has multiple interesting tool calls
+    const interestingCalls = (step.tool_calls ?? []).filter(tc => toolToHeader(tc.name) !== null)
 
-        case 'tool-generateScaffold': {
-          const raw = findGenerationOutput(events, 'scaffold')
-          scaffold = raw as Scaffold | null
-          if (scaffold?.modules?.length) {
-            stages.push({
-              header: 'Scaffold',
-              messages: messagesUpTo(msgIdx, partIdx),
-              applyToBuilder: (b) => {
-                b.setScaffold(scaffold!)
-                b.setPhase('forms')
-              },
-            })
-          }
-          break
-        }
+    if (interestingCalls.length <= 1) {
+      const header = deriveStageHeader(step)
+      if (header) {
+        const stepEmissions = step.emissions
+        stages.push({
+          header,
+          subtitle: deriveSubtitle(interestingCalls[0], stepEmissions, scaffold),
+          messages: buildProgressiveMessages(),
+          applyToBuilder: (b) => {
+            for (const emission of stepEmissions) {
+              applyDataPart(b, emission.type, emission.data)
+            }
+          },
+        })
+      }
+    } else {
+      // Multiple interesting tool calls in one step — split into per-tool-call stages
+      const emissionMap = distributeEmissions(step.emissions, interestingCalls)
 
-        case 'tool-addModule': {
-          if (!scaffold) break
-          const moduleIndex = part.input?.moduleIndex as number | undefined
-          if (moduleIndex == null) break
-          const mod = scaffold.modules[moduleIndex]
-          // Columns are in the tool part output (full data, not just a summary)
-          let columns = (part.output as any)?.case_list_columns
-          if (!columns) {
-            columns = (findGenerationOutput(events, `module ${moduleIndex}`) as any)?.case_list_columns
-          }
-          if (columns) {
-            stages.push({
-              header: mod?.name ?? `Module ${moduleIndex}`,
-              subtitle: 'Columns',
-              messages: messagesUpTo(msgIdx, partIdx),
-              applyToBuilder: (b) => b.setModuleContent(moduleIndex, columns),
-            })
-          }
-          break
-        }
+      for (let i = 0; i < interestingCalls.length; i++) {
+        const tc = interestingCalls[i]
+        const header = toolToHeader(tc.name)!
+        const emissions = emissionMap.get(i) ?? []
 
-        case 'tool-addForm': {
-          if (!scaffold) break
-          const moduleIndex = part.input?.moduleIndex as number | undefined
-          const formIndex = part.input?.formIndex as number | undefined
-          if (moduleIndex == null || formIndex == null) break
-          const mod = scaffold.modules[moduleIndex]
-          const sf = mod?.forms[formIndex]
-          if (!sf) break
-
-          // Full form content comes from generation events (tool output only has a summary)
-          const raw = (findGenerationOutput(events, `generate form "${sf.name}"`)
-            ?? findGenerationOutput(events, `regenerate form "${sf.name}"`)) as any
-          if (raw?.questions) {
-            const ct = caseTypes.find(c => c.name === mod.case_type) ?? null
-            const form = processSingleFormOutput(
-              { formIndex, questions: raw.questions, close_case: raw.close_case ?? { question: '', answer: '' }, child_cases: raw.child_cases ?? [] },
-              sf.name,
-              sf.type as 'registration' | 'followup' | 'survey',
-              ct,
-            )
-            stages.push({
-              header: mod.name,
-              subtitle: sf.name,
-              messages: messagesUpTo(msgIdx, partIdx),
-              applyToBuilder: (b) => b.setFormContent(moduleIndex, formIndex, form),
-            })
-          }
-          break
-        }
-
-        case 'tool-validateApp': {
-          stages.push({
-            header: 'Validation',
-            messages: messagesUpTo(msgIdx, partIdx),
-            applyToBuilder: () => {},
-          })
-          break
-        }
+        stages.push({
+          header,
+          subtitle: deriveSubtitle(tc, emissions, scaffold),
+          messages: buildProgressiveMessages(),
+          applyToBuilder: (b) => {
+            for (const emission of emissions) {
+              applyDataPart(b, emission.type, emission.data)
+            }
+          },
+        })
       }
     }
   }
 
-  // ── Done stage — snapshot treeData (scaffold + partials) as the blueprint ──
-  const doneMessages = lastAssistantMsgIdx >= 0
-    ? messagesUpTo(lastAssistantMsgIdx, conversation[lastAssistantMsgIdx].parts.length - 1)
-    : [...conversation]
-
+  // Done stage — snapshot treeData as the final blueprint
   stages.push({
     header: 'Done',
-    messages: doneMessages,
+    messages: buildProgressiveMessages(),
     applyToBuilder: (b) => {
       const tree = b.treeData
       if (tree) {
@@ -213,6 +183,134 @@ export function extractReplayStages(log: RunLog): ExtractionResult {
   }
 
   return { success: true, stages, appName: log.app_name }
+}
+
+// ── Emission distribution ───────────────────────────────────────────────
+
+/**
+ * Distribute a step's emissions across multiple tool calls by matching
+ * moduleIndex/formIndex from emission data to tool call args.
+ * Unmatched emissions (e.g. data-phase) go to the first tool call.
+ */
+function distributeEmissions(emissions: Emission[], toolCalls: StepToolCall[]): Map<number, Emission[]> {
+  const result = new Map<number, Emission[]>()
+  for (let i = 0; i < toolCalls.length; i++) result.set(i, [])
+
+  for (const em of emissions) {
+    const d = em.data as Record<string, any>
+    let matchedIdx = -1
+
+    for (let i = 0; i < toolCalls.length; i++) {
+      const tc = toolCalls[i]
+      const args = tc.args as Record<string, any>
+
+      if (tc.name === 'addModule' &&
+          em.type === 'data-module-done' && d.moduleIndex === args.moduleIndex) {
+        matchedIdx = i; break
+      }
+      if ((tc.name === 'addForm' || tc.name === 'regenerateForm') &&
+          (em.type === 'data-form-done' || em.type === 'data-form-updated') &&
+          d.moduleIndex === args.moduleIndex && d.formIndex === args.formIndex) {
+        matchedIdx = i; break
+      }
+      if ((tc.name === 'editQuestion' || tc.name === 'addQuestion' ||
+           tc.name === 'removeQuestion' || tc.name === 'updateForm') &&
+          em.type === 'data-form-updated' &&
+          d.moduleIndex === args.moduleIndex && d.formIndex === args.formIndex) {
+        matchedIdx = i; break
+      }
+      if ((tc.name === 'updateModule' || tc.name === 'createModule' || tc.name === 'removeModule' ||
+           tc.name === 'createForm' || tc.name === 'removeForm' || tc.name === 'renameCaseProperty') &&
+          em.type === 'data-blueprint-updated') {
+        matchedIdx = i; break
+      }
+    }
+
+    if (matchedIdx >= 0) {
+      result.get(matchedIdx)!.push(em)
+    } else {
+      // Unmatched emissions (data-phase, etc.) go to the first stage
+      result.get(0)!.push(em)
+    }
+  }
+
+  return result
+}
+
+// ── Stage header/subtitle derivation ────────────────────────────────────
+
+/** Map tool call name → replay stage header. Returns null for read-only tools. */
+function toolToHeader(toolName: string): string | null {
+  switch (toolName) {
+    case 'askQuestions': return 'Conversation'
+    case 'generateSchema': return 'Data Model'
+    case 'generateScaffold': return 'Scaffold'
+    case 'addModule': return 'Module'
+    case 'addForm': return 'Form'
+    case 'regenerateForm': return 'Regenerate'
+    case 'validateApp': return 'Validation'
+    case 'editQuestion':
+    case 'addQuestion':
+    case 'removeQuestion':
+    case 'updateModule':
+    case 'updateForm':
+    case 'createForm':
+    case 'removeForm':
+    case 'createModule':
+    case 'removeModule':
+    case 'renameCaseProperty':
+      return 'Edit'
+    case 'searchBlueprint':
+    case 'getModule':
+    case 'getForm':
+    case 'getQuestion':
+      return null
+    default: return null
+  }
+}
+
+function deriveStageHeader(step: Step): string | null {
+  if (!step.tool_calls?.length) return step.emissions.length > 0 ? 'Update' : null
+  for (const tc of step.tool_calls) {
+    const header = toolToHeader(tc.name)
+    if (header) return header
+  }
+  return null
+}
+
+/** Derive a human-readable subtitle from a tool call, using scaffold names and emission data. */
+function deriveSubtitle(tc: StepToolCall | undefined, emissions: Emission[], scaffold: any): string | undefined {
+  if (!tc) return undefined
+  const args = tc.args as Record<string, any>
+
+  switch (tc.name) {
+    case 'askQuestions': return args?.header
+    case 'addModule': {
+      const name = scaffold?.modules?.[args?.moduleIndex]?.name
+      return name ?? `Module ${args?.moduleIndex}`
+    }
+    case 'addForm':
+    case 'regenerateForm': {
+      // Try emission data first (has the actual assembled form)
+      const formEm = emissions.find(e => e.type === 'data-form-done' || e.type === 'data-form-updated')
+      const formName = (formEm?.data as any)?.form?.name
+      if (formName) return formName
+      // Fallback to scaffold
+      const sfName = scaffold?.modules?.[args?.moduleIndex]?.forms?.[args?.formIndex]?.name
+      return sfName ?? `Form ${args?.formIndex}`
+    }
+    case 'editQuestion': return `Update ${args?.questionId}`
+    case 'addQuestion': return `Add ${(args?.question as any)?.id ?? 'question'}`
+    case 'removeQuestion': return `Remove ${args?.questionId}`
+    case 'updateModule': return 'Update module'
+    case 'updateForm': return 'Update form'
+    case 'createForm': return `Add form "${args?.name}"`
+    case 'removeForm': return 'Remove form'
+    case 'createModule': return `Add module "${args?.name}"`
+    case 'removeModule': return 'Remove module'
+    case 'renameCaseProperty': return `Rename ${args?.oldName} → ${args?.newName}`
+    default: return undefined
+  }
 }
 
 // ── Module-level singleton store ────────────────────────────────────────

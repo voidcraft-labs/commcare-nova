@@ -1,10 +1,9 @@
 /**
  * RunLogger — disk-based run logger that writes one JSON file per run to .log/.
  *
- * Writes valid JSON to disk after every mutation so the log is always inspectable,
- * even if the process crashes mid-run. Orchestration events from agent onStepFinish
- * callbacks carry tool_calls; sub-generation results from ctx.generate()/streamGenerate()
- * are stitched onto matching tool calls via logSubResult().
+ * v2 format: each step is one SA agent step — self-contained with its text,
+ * tool calls, emissions, and cost. Emissions capture ctx.emit() calls during
+ * tool execution, enabling replay by simply calling the same builder methods.
  *
  * Persistence across requests: the log file is `.log/{runId}.json` while active.
  * The client sends back the `runId` from previous requests, so the RunLogger can
@@ -21,39 +20,55 @@ import { MODEL_PRICING, DEFAULT_PRICING } from '../models'
 
 // ── Types ───────────────────────────────────────────────────────────────
 
-export interface RunLog {
-  version: 1
-  run_id: string
-  app_name: string | null
-  started_at: string
-  finished_at: string | null
-  total_input_tokens: number
-  total_output_tokens: number
-  total_cost_estimate: number
-  conversation: UIMessage[]
-  events: RunEvent[]
+export interface Emission {
+  type: string
+  data: unknown
 }
 
-export interface RunEvent {
-  index: number
-  timestamp: string
-  type: 'orchestration' | 'generation' | 'fix'
-  agent: string
-  label: string
+export interface StepUsage {
   model: string
   input_tokens: number
   output_tokens: number
   cache_read_tokens?: number
   cache_write_tokens?: number
   cost_estimate: number
-  input?: { system: string; message: unknown; tools?: unknown }
-  output?: unknown
-  tool_calls?: Array<{
-    name: string
-    args: unknown
-    result?: unknown
-  }>
 }
+
+export interface StepToolCall {
+  name: string
+  args: unknown
+  generation?: StepUsage
+}
+
+export interface Step {
+  index: number
+  timestamp: string
+  request: number
+  text?: string
+  reasoning?: string
+  tool_calls?: StepToolCall[]
+  emissions: Emission[]
+  usage: StepUsage
+}
+
+export interface RunLog {
+  version: 2
+  run_id: string
+  app_name: string | null
+  started_at: string
+  finished_at: string | null
+  totals: {
+    input_tokens: number
+    output_tokens: number
+    cost_estimate: number
+  }
+  conversation: UIMessage[]
+  steps: Step[]
+}
+
+// ── Transient emissions to skip ─────────────────────────────────────────
+
+const SKIP_EMISSIONS = new Set(['data-partial-scaffold', 'data-run-id'])
 
 // ── RunLogger ───────────────────────────────────────────────────────────
 
@@ -64,7 +79,9 @@ export class RunLogger {
   private log: RunLog
   private filePath: string
   private enabled: boolean
-  private currentAgent: string = 'unknown'
+  private requestNumber = 0
+  private pendingEmissions: Emission[] = []
+  private pendingSubResults: Array<{ label: string; usage: StepUsage }> = []
 
   /**
    * @param existingRunId — if provided, resumes an existing log file at .log/{runId}.json
@@ -77,31 +94,38 @@ export class RunLogger {
       RunLogger.cleanupAbandonedLogs(existingRunId).catch(() => {})
     }
 
-    // Try to resume from an existing run
+    // Try to resume from an existing v2 run
     if (this.enabled && existingRunId) {
       const activePath = path.join(LOG_DIR, `${existingRunId}.json`)
       if (existsSync(activePath)) {
-        const raw = readFileSync(activePath, 'utf-8')
-        this.log = JSON.parse(raw) as RunLog
-        this.log.finished_at = null
-        this.filePath = activePath
-        return
+        try {
+          const raw = readFileSync(activePath, 'utf-8')
+          const parsed = JSON.parse(raw)
+          if (parsed.version === 2) {
+            this.log = parsed as RunLog
+            this.log.finished_at = null
+            this.filePath = activePath
+            if (this.log.steps.length > 0) {
+              this.requestNumber = this.log.steps[this.log.steps.length - 1].request + 1
+            }
+            return
+          }
+        } catch {}
+        // v1 or corrupt — fall through to fresh run
       }
     }
 
     // Fresh run
     const runId = existingRunId ?? crypto.randomUUID()
     this.log = {
-      version: 1,
+      version: 2,
       run_id: runId,
       app_name: null,
       started_at: new Date().toISOString(),
       finished_at: null,
-      total_input_tokens: 0,
-      total_output_tokens: 0,
-      total_cost_estimate: 0,
+      totals: { input_tokens: 0, output_tokens: 0, cost_estimate: 0 },
       conversation: [],
-      events: [],
+      steps: [],
     }
     this.filePath = path.join(LOG_DIR, `${runId}.json`)
   }
@@ -115,8 +139,8 @@ export class RunLogger {
     if (this.enabled) this.flush()
   }
 
-  setAgent(agent: string) {
-    this.currentAgent = agent
+  setAgent(_agent: string) {
+    // No-op in v2 — agent name is implicit (always SA)
   }
 
   /**
@@ -129,19 +153,18 @@ export class RunLogger {
     if (this.enabled) this.flush()
   }
 
-  logEvent(event: Omit<RunEvent, 'index' | 'timestamp' | 'cost_estimate'>) {
-    this.log.events.push({
-      ...event,
-      index: this.log.events.length,
-      timestamp: new Date().toISOString(),
-      cost_estimate: estimateCost(event.model, event.input_tokens, event.output_tokens, event.cache_read_tokens, event.cache_write_tokens),
-    })
-    if (this.enabled) this.flush()
+  /**
+   * Buffer an emission during tool execution. Drained into the step by logStep().
+   * Skips transient streaming artifacts (partial-scaffold, run-id).
+   */
+  logEmission(type: string, data: unknown) {
+    if (SKIP_EMISSIONS.has(type)) return
+    this.pendingEmissions.push({ type, data })
   }
 
   /**
-   * Stitch a sub-generation result onto the most recent orchestration event's
-   * matching tool call. If no match is found, log as a standalone generation event.
+   * Buffer a sub-generation result during tool execution.
+   * Matched to tool_calls and drained by logStep().
    */
   logSubResult(
     label: string,
@@ -149,52 +172,87 @@ export class RunLogger {
       model: string
       input_tokens: number
       output_tokens: number
-      input?: { system: string; message: unknown }
+      cache_read_tokens?: number
+      cache_write_tokens?: number
+      input?: unknown
       output?: unknown
       reasoningText?: string
     },
   ) {
-    // Search backwards for an orchestration event with a tool call whose
-    // name matches the label pattern
-    for (let i = this.log.events.length - 1; i >= 0; i--) {
-      const event = this.log.events[i]
-      if (event.type !== 'orchestration' || !event.tool_calls) continue
+    this.pendingSubResults.push({
+      label,
+      usage: {
+        model: result.model,
+        input_tokens: result.input_tokens,
+        output_tokens: result.output_tokens,
+        ...(result.cache_read_tokens && { cache_read_tokens: result.cache_read_tokens }),
+        ...(result.cache_write_tokens && { cache_write_tokens: result.cache_write_tokens }),
+        cost_estimate: estimateCost(result.model, result.input_tokens, result.output_tokens, result.cache_read_tokens, result.cache_write_tokens),
+      },
+    })
+  }
 
-      for (const tc of event.tool_calls) {
-        if (tc.result != null) continue
-
-        if (toolCallMatchesLabel(tc.name, label)) {
-          tc.result = {
-            model: result.model,
-            input_tokens: result.input_tokens,
-            output_tokens: result.output_tokens,
-            cost_estimate: estimateCost(result.model, result.input_tokens, result.output_tokens),
-            input: result.input,
-            output: result.output,
-            ...(result.reasoningText && { reasoningText: result.reasoningText }),
-          }
-          if (this.enabled) this.flush()
-          return
-        }
+  /**
+   * Log a completed agent step. Called from onStepFinish.
+   * Drains pending emissions and sub-results into the step.
+   */
+  logStep(step: {
+    text?: string
+    reasoning?: string
+    tool_calls?: Array<{ name: string; args: unknown }>
+    usage: {
+      model: string
+      input_tokens: number
+      output_tokens: number
+      cache_read_tokens?: number
+      cache_write_tokens?: number
+    }
+  }) {
+    const toolCalls: StepToolCall[] | undefined = step.tool_calls?.map(tc => {
+      const idx = this.pendingSubResults.findIndex(sr => labelMatchesToolName(sr.label, tc.name))
+      const subResult = idx >= 0 ? this.pendingSubResults.splice(idx, 1)[0] : undefined
+      return {
+        name: tc.name,
+        args: tc.args,
+        ...(subResult && { generation: subResult.usage }),
       }
+    })
+
+    const newStep: Step = {
+      index: this.log.steps.length,
+      timestamp: new Date().toISOString(),
+      request: this.requestNumber,
+      ...(step.text && { text: step.text }),
+      ...(step.reasoning && { reasoning: step.reasoning }),
+      ...(toolCalls?.length && { tool_calls: toolCalls }),
+      emissions: [...this.pendingEmissions],
+      usage: {
+        model: step.usage.model,
+        input_tokens: step.usage.input_tokens,
+        output_tokens: step.usage.output_tokens,
+        ...(step.usage.cache_read_tokens && { cache_read_tokens: step.usage.cache_read_tokens }),
+        ...(step.usage.cache_write_tokens && { cache_write_tokens: step.usage.cache_write_tokens }),
+        cost_estimate: estimateCost(
+          step.usage.model,
+          step.usage.input_tokens,
+          step.usage.output_tokens,
+          step.usage.cache_read_tokens,
+          step.usage.cache_write_tokens,
+        ),
+      },
     }
 
-    // No matching orchestration event found — log as standalone
-    this.logEvent({
-      type: 'generation',
-      agent: this.currentAgent,
-      label,
-      model: result.model,
-      input_tokens: result.input_tokens,
-      output_tokens: result.output_tokens,
-      input: result.input,
-      output: result.output,
-      ...(result.reasoningText && { reasoningText: result.reasoningText }),
-    })
+    // Drain buffers
+    this.pendingEmissions = []
+    this.pendingSubResults = []
+
+    this.log.steps.push(newStep)
+    if (this.enabled) this.flush()
   }
 
   finalize() {
     this.log.finished_at = new Date().toISOString()
+    this.rebuildConversation()
     this.recomputeTotals()
     if (!this.enabled) return
     this.flush()
@@ -226,31 +284,71 @@ export class RunLogger {
 
   // ── Private ─────────────────────────────────────────────────────────
 
+  /**
+   * Rebuild conversation to include the assistant response from the current request.
+   * Constructs an assistant UIMessage from steps in the current request.
+   */
+  private rebuildConversation() {
+    const currentRequestSteps = this.log.steps.filter(s => s.request === this.requestNumber)
+    if (currentRequestSteps.length === 0) return
+
+    const parts: any[] = []
+    for (const step of currentRequestSteps) {
+      if (step.reasoning) {
+        parts.push({ type: 'reasoning', reasoning: step.reasoning })
+      }
+      if (step.text) {
+        parts.push({ type: 'text', text: step.text })
+      }
+      if (step.tool_calls) {
+        for (const tc of step.tool_calls) {
+          parts.push({
+            type: `tool-${tc.name}`,
+            toolCallId: `log-${step.index}-${tc.name}`,
+            toolName: tc.name,
+            input: tc.args,
+            state: 'output-available',
+          })
+        }
+      }
+    }
+
+    if (parts.length > 0) {
+      this.log.conversation.push({
+        id: `assistant-${this.requestNumber}`,
+        role: 'assistant',
+        parts,
+        content: '',
+      } as UIMessage)
+    }
+  }
+
   private recomputeTotals() {
     let totalInput = 0
     let totalOutput = 0
     let totalCost = 0
 
-    for (const event of this.log.events) {
-      totalInput += event.input_tokens
-      totalOutput += event.output_tokens
-      totalCost += event.cost_estimate
+    for (const step of this.log.steps) {
+      totalInput += step.usage.input_tokens
+      totalOutput += step.usage.output_tokens
+      totalCost += step.usage.cost_estimate
 
-      if (event.tool_calls) {
-        for (const tc of event.tool_calls) {
-          if (tc.result && typeof tc.result === 'object' && 'input_tokens' in tc.result) {
-            const r = tc.result as { input_tokens: number; output_tokens: number; cost_estimate: number }
-            totalInput += r.input_tokens
-            totalOutput += r.output_tokens
-            totalCost += r.cost_estimate
+      if (step.tool_calls) {
+        for (const tc of step.tool_calls) {
+          if (tc.generation) {
+            totalInput += tc.generation.input_tokens
+            totalOutput += tc.generation.output_tokens
+            totalCost += tc.generation.cost_estimate
           }
         }
       }
     }
 
-    this.log.total_input_tokens = totalInput
-    this.log.total_output_tokens = totalOutput
-    this.log.total_cost_estimate = Math.round(totalCost * 10000) / 10000
+    this.log.totals = {
+      input_tokens: totalInput,
+      output_tokens: totalOutput,
+      cost_estimate: Math.round(totalCost * 10000) / 10000,
+    }
   }
 
   private flush() {
@@ -288,16 +386,16 @@ function buildFinalPath(startedAt: string, appName: string | null, fallback: str
   return path.join(LOG_DIR, `${ts}_${sanitized}.json`)
 }
 
-/** Check if a tool call name matches a generation label. */
-function toolCallMatchesLabel(toolName: string, label: string): boolean {
-  const l = label.toLowerCase()
-
-  switch (toolName) {
-    case 'generateScaffold': return l.startsWith('scaffold')
-    case 'generateModuleContent': return l.startsWith('module')
-    case 'generateFormContent': return l.startsWith('form')
-    case 'regenerateForm': return l.startsWith('regenerate')
-    case 'validateApp': return l.startsWith('fixer')
+/** Match a sub-generation label to its parent tool call name. */
+function labelMatchesToolName(label: string, toolName: string): boolean {
+  const prefix = label.split(/[:\s]/)[0].toLowerCase()
+  switch (prefix) {
+    case 'schema': return toolName === 'generateSchema'
+    case 'scaffold': return toolName === 'generateScaffold'
+    case 'module': return toolName === 'addModule'
+    case 'generate': return toolName === 'addForm' || toolName === 'regenerateForm'
+    case 'regenerate': return toolName === 'regenerateForm'
+    case 'fixer': return toolName === 'validateApp'
     default: return false
   }
 }

@@ -479,20 +479,20 @@ export function createSolutionsArchitect(
     ...(saReasoning && { providerOptions: thinkingProviderOptions(saReasoning.effort) }),
     stopWhen: stepCountIs(80),
     ...withPromptCaching,
-    onStepFinish: ({ usage, text, reasoningText, toolCalls, toolResults, warnings }) => {
+    onStepFinish: ({ usage, text, reasoningText, toolCalls, warnings }) => {
       logWarnings('Solutions Architect', warnings)
       if (usage) {
-        ctx.logger.logEvent({
-          type: 'orchestration',
-          agent: 'Solutions Architect',
-          label: 'SA step',
-          model: saCfg.model,
-          input_tokens: usage.inputTokens ?? 0,
-          output_tokens: usage.outputTokens ?? 0,
-          cache_read_tokens: usage.inputTokenDetails?.cacheReadTokens ?? undefined,
-          cache_write_tokens: usage.inputTokenDetails?.cacheWriteTokens ?? undefined,
-          output: { text, ...(reasoningText && { reasoningText }), toolResults },
+        ctx.logger.logStep({
+          text: text || undefined,
+          reasoning: reasoningText || undefined,
           tool_calls: toolCalls?.map((tc: any) => ({ name: tc.toolName, args: tc.input })),
+          usage: {
+            model: saCfg.model,
+            input_tokens: usage.inputTokens ?? 0,
+            output_tokens: usage.outputTokens ?? 0,
+            cache_read_tokens: usage.inputTokenDetails?.cacheReadTokens ?? undefined,
+            cache_write_tokens: usage.inputTokenDetails?.cacheWriteTokens ?? undefined,
+          },
         })
       }
     },

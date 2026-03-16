@@ -291,27 +291,117 @@ Pipeline code reads from `ctx.pipelineConfig.<stage>` — never hardcoded model 
 
 ## Run Logging
 
-Set `RUN_LOGGER=1` in `.env` to enable disk-based run logging. When enabled, each pipeline run writes a JSON file to `.log/` that is updated incrementally after every event (always valid JSON, even on crash).
+Set `RUN_LOGGER=1` in `.env` to enable disk-based run logging. When enabled, each pipeline run writes a JSON file to `.log/` that is updated incrementally after every step (always valid JSON, even on crash).
 
-- **`lib/services/runLogger.ts`** — `RunLogger` class. Created once per request in the route handler. Key methods:
-  - `setAgent(name)` — tracks the current agent (`'Solutions Architect'`)
-  - `setAppName(name)` — renames the log file from `*_unnamed.json` to `*_{app_name}.json`
-  - `logConversation(messages)` — overwrites the `conversation` field with the latest `UIMessage[]`
-  - `logEvent(event)` — appends an orchestration/generation/fix event with token counts and cost estimate
-  - `logSubResult(label, result)` — stitches a sub-generation result onto the most recent orchestration event's matching tool call
-  - `finalize()` — sets `finished_at`, recomputes totals, renames log file
-- **Abandoned log cleanup**: On construction, scans `.log/` for UUID-named orphan files and renames them to `{timestamp}_abandoned.json`.
-- **Integration**: `GenerationContext.generate()`/`streamGenerate()` call `logger.logSubResult()` automatically. SA `onStepFinish` calls `logger.logEvent()` for orchestration steps.
+### v2 Log Format (full tree)
+
+```
+RunLog {
+  version: 2
+  run_id: string                          ← UUID, used as filename while active
+  app_name: string | null                 ← set by generateSchema tool
+  started_at: string                      ← ISO timestamp
+  finished_at: string | null              ← set by finalize()
+  totals: {                               ← recomputed on every flush
+    input_tokens: number
+    output_tokens: number
+    cost_estimate: number                 ← USD, 4 decimal places
+  }
+  conversation: UIMessage[]               ← rebuilt at finalize() to be COMPLETE
+  steps: Step[] [                         ← one per SA agent step (onStepFinish)
+    {
+      index: number                       ← 0-based
+      timestamp: string                   ← ISO
+      request: number                     ← which HTTP request (0 = first, increments on resume)
+      text?: string                       ← SA's text output for this step
+      reasoning?: string                  ← SA's extended thinking for this step
+      tool_calls?: StepToolCall[] [       ← tools the SA invoked this step
+        {
+          name: string                    ← tool name (e.g. "generateSchema", "editQuestion")
+          args: unknown                   ← tool input arguments
+          generation?: StepUsage {        ← sub-generation within this tool (from ctx.generate/streamGenerate)
+            model: string
+            input_tokens: number
+            output_tokens: number
+            cache_read_tokens?: number
+            cache_write_tokens?: number
+            cost_estimate: number
+          }
+        }
+      ]
+      emissions: Emission[] [             ← ctx.emit() calls captured during this step's tool execution
+        {
+          type: string                    ← e.g. "data-start-build", "data-schema", "data-scaffold", ...
+          data: unknown                   ← the payload passed to builder methods
+        }
+      ]
+      usage: StepUsage {                  ← token usage for the SA's LLM call this step
+        model: string
+        input_tokens: number
+        output_tokens: number
+        cache_read_tokens?: number
+        cache_write_tokens?: number
+        cost_estimate: number
+      }
+    }
+  ]
+}
+```
+
+### Emission types captured (in `step.emissions`)
+
+| type | data shape | builder method |
+|---|---|---|
+| `data-start-build` | `{}` | `startDataModel()` |
+| `data-schema` | `{ caseTypes }` | `setSchema(caseTypes)` |
+| `data-scaffold` | Scaffold object | `setScaffold(data)` |
+| `data-phase` | `{ phase }` | `setPhase(phase)` |
+| `data-module-done` | `{ moduleIndex, caseListColumns }` | `setModuleContent(...)` |
+| `data-form-done` | `{ moduleIndex, formIndex, form }` | `setFormContent(...)` |
+| `data-form-fixed` | `{ moduleIndex, formIndex, form }` | `setFormContent(...)` |
+| `data-form-updated` | `{ moduleIndex, formIndex, form }` | `setFormContent(...)` |
+| `data-blueprint-updated` | `{ blueprint }` | `updateBlueprint(blueprint)` |
+| `data-fix-attempt` | `{ attempt, errorCount }` | `setFixAttempt(...)` |
+| `data-done` | `{ blueprint, hqJson, success }` | `setDone(data)` |
+| `data-error` | `{ message }` | `setError(message)` |
+
+Skipped (not logged): `data-partial-scaffold` (transient streaming), `data-run-id` (client routing only).
+
+### RunLogger class
+
+`lib/services/runLogger.ts` — Created once per request in the route handler.
+
+- **Emission + sub-result buffering**: During tool execution, `logEmission()` and `logSubResult()` buffer data. When `onStepFinish` fires, `logStep()` drains both buffers into the step — emissions go into `step.emissions`, sub-results are matched to `step.tool_calls[].generation` by label.
+- **`logStep(step)`** — creates Step, drains buffers, computes cost, appends to `log.steps`, flushes
+- **`logEmission(type, data)`** — buffers an emission (skips transient types)
+- **`logSubResult(label, result)`** — buffers a sub-generation result with usage data
+- **`logConversation(messages)`** — overwrites `conversation` with client's messages array
+- **`finalize()`** — rebuilds conversation (appends assistant UIMessage from current request's steps), recomputes totals
+- **Label matching**: `labelMatchesToolName()` maps sub-generation labels (e.g. "Schema", "Scaffold", "Module 0 columns") to parent tool names (e.g. "generateSchema", "generateScaffold", "addModule")
+- **Abandoned log cleanup**: On construction, scans `.log/` for UUID-named orphan files and renames them
 - **Output**: `.log/{timestamp}_{app_name|unnamed|abandoned}.json`
+
+### Shared `applyDataPart` function
+
+`builder.ts` exports `applyDataPart(builder, type, data)` — a shared switch statement mapping emission types to builder methods. Used by both:
+- **Real-time streaming**: `BuilderLayout.onData` → `applyDataPart()`
+- **Log replay**: `stage.applyToBuilder` → iterates `step.emissions` → `applyDataPart()`
+
+This eliminates all duplicate builder-driving code between streaming and replay.
 
 ## Log Replay
 
-Client-side feature for replaying a previously captured run log (`.log/*.json`) through the Builder state machine without making API calls.
+Client-side feature for replaying a previously captured v2 run log (`.log/*.json`) through the Builder state machine without making API calls.
 
 **Flow**: `/settings` page → file picker → `extractReplayStages(log)` → module-level store → navigate to `/build/new` → `BuilderLayout` reads store on mount → `ReplayController` drives Builder state.
 
-- **`lib/services/logReplay.ts`** — Stage extraction + singleton store. `extractReplayStages()` walks a `RunLog` to find conversation messages, scaffold output, and per-tool generation results. Each stage is a `ReplayStage` with `header`, `subtitle?`, `messages`, and `applyToBuilder` closure.
-- **`app/settings/page.tsx`** — File picker with drag-and-drop. Parses JSON, shows metadata preview.
+- **`lib/services/logReplay.ts`** — Stage extraction + singleton store. `extractReplayStages()` walks `log.steps` sequentially:
+  - Builds progressive chat messages from step `text`/`reasoning`/`tool_calls`
+  - Creates a `ReplayStage` for each interesting tool call. When a step has multiple (e.g. `addModule` × 3), it's split into per-tool-call stages with emissions distributed by matching `moduleIndex`/`formIndex`.
+  - `applyToBuilder` just iterates the stage's emissions calling `applyDataPart()` — same code path as real-time
+  - Tracks scaffold during extraction for name lookups (module/form subtitles show actual names, not indices)
+  - Handles multi-request logs via `step.request` field (resets assistant message accumulator at request boundaries)
+- **`app/settings/page.tsx`** — File picker with drag-and-drop. Validates v2 format (`log.steps` array). Shows metadata preview.
 - **`components/builder/ReplayController.tsx`** — Fixed-position pill at top center of viewport. Left/right navigation, stage counter, close button.
 
 ## Service Layer Notes
