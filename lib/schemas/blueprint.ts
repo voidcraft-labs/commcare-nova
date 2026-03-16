@@ -1,10 +1,10 @@
 /**
  * Shared schemas for the App Blueprint format.
  *
- * Three tiers of schemas for generation:
- * - scaffoldSchema: App structure + data model (Tier 1)
- * - moduleContentSchema: Case list design (Tier 2)
- * - blueprintFormSchema: Assembled form structure (Tier 3, populated by Form Builder sub-agent)
+ * Generation schemas used by SA tools:
+ * - caseTypesOutputSchema: Data model (generateSchema tool)
+ * - scaffoldModulesSchema: Module/form structure (generateScaffold tool)
+ * - moduleContentSchema: Case list columns (addModule tool)
  *
  * TypeScript types are derived via z.infer.
  */
@@ -67,36 +67,39 @@ const caseTypeSchema = z.object({
   properties: z.array(casePropertySchema).describe('Case properties to track. Forms will create questions to capture these.'),
 })
 
-// ── Tier 1: Scaffold Schema ────────────────────────────────────────────
+// ── Case Types Output Schema (for generateSchema tool) ─────────────────
 
-export const scaffoldSchema = z.object({
+export const caseTypesOutputSchema = z.object({
+  case_types: z.array(caseTypeSchema).describe('Case types and their properties'),
+})
+
+// ── Scaffold Modules Schema (for generateScaffold tool, minus case_types) ──
+
+export const scaffoldModulesSchema = z.object({
   app_name: z.string().describe('Name of the CommCare application'),
   description: z.string().describe('Brief description of the app purpose and target users'),
   modules: z.array(z.object({
     name: z.string().describe('Display name for the module/menu'),
     case_type: z.string().nullable().describe(
-      'References a case_type name from the case_types array. Required if any form is "registration" or "followup". null for survey-only modules.'
+      'References a case_type name from the data model. Required if any form is "registration" or "followup". null for survey-only modules.'
     ),
     purpose: z.string().describe("Brief description of this module's role in the app"),
     forms: z.array(z.object({
       name: z.string().describe('Display name for the form'),
       type: z.enum(['registration', 'followup', 'survey']).describe(
-        '"registration" creates a new case (module must have case_type). ' +
-        '"followup" updates an existing case (module must have case_type). ' +
-        '"survey" is standalone data collection with no case management.'
+        '"registration" creates a new case. "followup" updates an existing case. "survey" is standalone.'
       ),
       purpose: z.string().describe('Brief description of what this form collects and why'),
       formDesign: z.string().describe(
         'Free-text UX design spec for this form. Describe the intended question flow, ' +
         'grouping, skip logic patterns, calculated fields, and how this form relates to ' +
-        'sibling forms. Think about the end user experience, not just data capture.'
+        'sibling forms.'
       ),
     })),
   })),
-  case_types: z.array(caseTypeSchema).nullable().describe('Case types and their properties. null if all modules are survey-only.'),
 })
 
-// ── Tier 2: Module Content Schema ──────────────────────────────────────
+// ── Module Content Schema (case list columns) ─────────────────────────
 
 export const moduleContentSchema = z.object({
   case_list_columns: z.array(z.object({
@@ -265,7 +268,7 @@ export type CaseProperty = z.infer<typeof casePropertySchema>
 export type CaseType = z.infer<typeof caseTypeSchema>
 
 export type CasePropertyMapping = z.infer<typeof casePropertyMappingSchema>
-export type Scaffold = z.infer<typeof scaffoldSchema>
+export type Scaffold = z.infer<typeof scaffoldModulesSchema>
 export type ModuleContent = z.infer<typeof moduleContentSchema>
 
 // ── JSON Schema export ─────────────────────────────────────────────────
@@ -385,35 +388,3 @@ export function deriveCaseConfig(questions: CaseConfigQuestion[], formType: 'reg
   return { case_name_field, case_properties, case_preload }
 }
 
-// ── Assembly ───────────────────────────────────────────────────────────
-
-/**
- * Assemble a full AppBlueprint from scaffold + module contents + form contents.
- *
- * Form contents are BlueprintForm[] — direct passthrough, no conversion needed.
- *
- * @param scaffold - Tier 1 output
- * @param moduleContents - Array of Tier 2 outputs, one per module (same order as scaffold.modules)
- * @param formContents - 2D array of BlueprintForm outputs, formContents[moduleIdx][formIdx]
- */
-export function assembleBlueprint(
-  scaffold: Scaffold,
-  moduleContents: ModuleContent[],
-  formContents: BlueprintForm[][],
-): AppBlueprint {
-  return {
-    app_name: scaffold.app_name,
-    case_types: scaffold.case_types,
-    modules: scaffold.modules.map((sm, mIdx) => {
-      const mc = moduleContents[mIdx]
-
-      return {
-        name: sm.name,
-        ...(sm.case_type != null && { case_type: sm.case_type }),
-        forms: formContents[mIdx],
-        ...(mc.case_list_columns != null && { case_list_columns: mc.case_list_columns }),
-        ...(mc.case_detail_columns != null && { case_detail_columns: mc.case_detail_columns }),
-      }
-    }),
-  }
-}

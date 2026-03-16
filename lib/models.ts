@@ -7,17 +7,8 @@
 
 import type { PipelineConfig } from './types/settings'
 
-/** Default model for structured generation (scaffold). */
-export const MODEL_GENERATION = 'claude-sonnet-4-6'
-
-/** Model for app content generation (columns + all forms). */
-export const MODEL_APP_CONTENT = 'claude-opus-4-6'
-
-/** Model for the validation fixer (cheap, fast). */
-export const MODEL_FIXER = 'claude-haiku-4-5-20251001'
-
-/** Model for the Requirements Analyst agent (Tier 0). */
-export const MODEL_REQUIREMENTS_ANALYST = 'claude-sonnet-4-6'
+/** Fallback model for GenerationContext methods when no model is specified. */
+export const MODEL_DEFAULT = 'claude-sonnet-4-6'
 
 /** Model families that support extended thinking / reasoning. */
 const REASONING_PREFIXES = ['claude-opus', 'claude-sonnet']
@@ -27,13 +18,17 @@ export function modelSupportsReasoning(modelId: string): boolean {
   return REASONING_PREFIXES.some(prefix => modelId.startsWith(prefix))
 }
 
-/** Default pipeline configuration — matches the hardcoded values used before settings existed. */
+/** Check whether a model ID supports "max" reasoning effort (only Opus). */
+export function modelSupportsMaxReasoning(modelId: string): boolean {
+  return modelId.startsWith('claude-opus')
+}
+
+/** Default pipeline configuration. */
 export const DEFAULT_PIPELINE_CONFIG: PipelineConfig = {
-  requirementsAnalyst: { model: MODEL_APP_CONTENT, maxOutputTokens: 0, reasoning: true, reasoningEffort: 'high' },
-  scaffold: { model: MODEL_APP_CONTENT, maxOutputTokens: 0, reasoning: true, reasoningEffort: 'high' },
-  appContent: { model: MODEL_APP_CONTENT, maxOutputTokens: 0, reasoning: true, reasoningEffort: 'high' },
-  editArchitect: { model: MODEL_GENERATION, maxOutputTokens: 0, reasoning: false, reasoningEffort: 'high' },
-  singleFormRegen: { model: MODEL_APP_CONTENT, maxOutputTokens: 0, reasoning: true, reasoningEffort: 'high' },
+  solutionsArchitect: { model: 'claude-opus-4-6', maxOutputTokens: 0, reasoning: true, reasoningEffort: 'high' },
+  schemaGeneration: { model: 'claude-sonnet-4-6', maxOutputTokens: 0, reasoning: true, reasoningEffort: 'high' },
+  scaffold: { model: 'claude-sonnet-4-6', maxOutputTokens: 0, reasoning: true, reasoningEffort: 'high' },
+  formGeneration: { model: 'claude-sonnet-4-6', maxOutputTokens: 0, reasoning: true, reasoningEffort: 'high' },
 }
 
 /** Pricing per million tokens, keyed by model ID (either full or alias). */

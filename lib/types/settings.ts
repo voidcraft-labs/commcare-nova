@@ -8,11 +8,10 @@ export interface PipelineStageConfig {
 }
 
 export interface PipelineConfig {
-  requirementsAnalyst: PipelineStageConfig
+  solutionsArchitect: PipelineStageConfig
+  schemaGeneration: PipelineStageConfig
   scaffold: PipelineStageConfig
-  appContent: PipelineStageConfig
-  editArchitect: PipelineStageConfig
-  singleFormRegen: PipelineStageConfig
+  formGeneration: PipelineStageConfig
 }
 
 export interface NovaSettings {

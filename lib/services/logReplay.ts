@@ -10,9 +10,14 @@
 import type { UIMessage } from 'ai'
 import type { RunLog, RunEvent } from './runLogger'
 import type { Builder } from './builder'
-import type { Scaffold, BlueprintForm, ModuleContent } from '@/lib/schemas/blueprint'
-import { assembleBlueprint } from '@/lib/schemas/blueprint'
-import { processContentOutput, type AppContentOutput } from '@/lib/schemas/appContentSchema'
+import type { Scaffold, BlueprintForm, CaseType } from '@/lib/schemas/blueprint'
+import {
+  processSingleFormOutput,
+  stripEmpty,
+  applyDefaults,
+  buildQuestionTree,
+  type FlatQuestion,
+} from '@/lib/schemas/contentProcessing'
 
 // ── Types ───────────────────────────────────────────────────────────────
 
@@ -36,25 +41,23 @@ interface ExtractionError {
 
 export type ExtractionResult = ExtractionSuccess | ExtractionError
 
-// ── Extraction ──────────────────────────────────────────────────────────
+// ── Extraction helpers ──────────────────────────────────────────────────
 
-/** Search for a generation output in RunLog events by label prefix. */
+/** Find a generation sub-result output by label prefix in RunLog events. */
 function findOutput(events: RunEvent[], labelPrefix: string): unknown | null {
-  // First: check standalone generation events
   for (const event of events) {
     if (event.type === 'generation' && event.label.toLowerCase().startsWith(labelPrefix.toLowerCase())) {
       if (event.output != null) return event.output
     }
   }
 
-  // Fallback: check tool_call results on orchestration events
   for (const event of events) {
     if (event.type !== 'orchestration' || !event.tool_calls) continue
     for (const tc of event.tool_calls) {
       if (tc.result == null || typeof tc.result !== 'object') continue
-      if (toolCallMatchesLabel(tc.name, labelPrefix)) {
-        const r = tc.result as Record<string, unknown>
-        if (r.output != null) return r.output
+      const r = tc.result as Record<string, unknown>
+      if (r.output != null && tc.name?.toLowerCase().includes(labelPrefix.toLowerCase())) {
+        return r.output
       }
     }
   }
@@ -62,26 +65,25 @@ function findOutput(events: RunEvent[], labelPrefix: string): unknown | null {
   return null
 }
 
-/** Mirror of the toolCallMatchesLabel from runLogger.ts (client-side copy). */
-function toolCallMatchesLabel(toolName: string, labelPrefix: string): boolean {
-  const l = labelPrefix.toLowerCase()
-  switch (toolName) {
-    case 'generateScaffold': return l.startsWith('scaffold')
-    case 'generateModuleContent': return l.startsWith('module')
-    case 'generateFormContent': return l.startsWith('form')
-    case 'generateAppContent': return l.startsWith('app content')
-    case 'regenerateForm': return l.startsWith('regenerate')
-    case 'validateApp': return l.startsWith('fixer')
-    default: return false
+/** Find all tool call results matching a tool name from SA orchestration events. */
+function findToolResults(events: RunEvent[], toolName: string): Array<{ args: any; result: any }> {
+  const results: Array<{ args: any; result: any }> = []
+  for (const event of events) {
+    if (event.type !== 'orchestration' || !event.tool_calls) continue
+    for (const tc of event.tool_calls) {
+      if (tc.name === toolName && tc.result != null) {
+        results.push({ args: tc.args ?? {}, result: tc.result })
+      }
+    }
   }
+  return results
 }
 
 /**
  * Extract ordered replay stages from a RunLog.
  *
- * Each stage carries cumulative messages and a builder-apply closure.
- * Conversation stages have a no-op applyToBuilder; generation stages
- * carry forward the last conversation's messages.
+ * Handles logs from the SA architecture: individual generateSchema,
+ * generateScaffold, addModule, and addForm tool calls.
  */
 export function extractReplayStages(log: RunLog): ExtractionResult {
   const { events } = log
@@ -104,7 +106,6 @@ export function extractReplayStages(log: RunLog): ExtractionResult {
       })
     }
   }
-  // Trailing user messages with no assistant reply
   if (conversation.length > 0 && lastMessages.length < conversation.length) {
     lastMessages = [...conversation]
     const n = stages.length + 1
@@ -127,6 +128,10 @@ export function extractReplayStages(log: RunLog): ExtractionResult {
     return { success: false, error: 'This log contains no conversation or generation data.' }
   }
 
+  // Case types come from the generateSchema tool result (separate from scaffold)
+  const schemaOutput = findOutput(events, 'schema')
+  const caseTypes: CaseType[] = (schemaOutput as any)?.case_types ?? []
+
   stages.push({
     header: 'Scaffold',
     messages: lastMessages,
@@ -136,83 +141,131 @@ export function extractReplayStages(log: RunLog): ExtractionResult {
     },
   })
 
-  // ── App content ───────────────────────────────────────────────────
-  const contentRaw = findOutput(events, 'app content')
+  // ── Module columns (from addModule tool calls or Module N sub-results) ──
+  for (let mIdx = 0; mIdx < scaffold.modules.length; mIdx++) {
+    const mod = scaffold.modules[mIdx]
+    // Try SA addModule tool results
+    const moduleResults = findToolResults(events, 'addModule')
+    const match = moduleResults.find(r => r.args?.moduleIndex === mIdx || r.result?.moduleIndex === mIdx)
 
-  if (contentRaw) {
-    const content = contentRaw as AppContentOutput
-    let processed: { moduleContents: ModuleContent[]; formContents: BlueprintForm[][] }
-
-    try {
-      processed = processContentOutput(content, scaffold)
-    } catch (err) {
-      return { success: false, error: `Failed to process app content: ${err instanceof Error ? err.message : String(err)}` }
-    }
-
-    const { moduleContents, formContents } = processed
-
-    // Module column stages
-    for (let mIdx = 0; mIdx < scaffold.modules.length; mIdx++) {
-      const mc = moduleContents[mIdx]
-      if (mc?.case_list_columns) {
-        const columns = mc.case_list_columns
-        stages.push({
-          header: scaffold.modules[mIdx].name,
-          subtitle: 'Columns',
-          messages: lastMessages,
-          applyToBuilder: (b) => b.setModuleContent(mIdx, columns),
-        })
+    if (match?.result?.case_list_columns) {
+      const columns = match.result.case_list_columns
+      stages.push({
+        header: mod.name,
+        subtitle: 'Columns',
+        messages: lastMessages,
+        applyToBuilder: (b) => b.setModuleContent(mIdx, columns),
+      })
+    } else {
+      // Try sub-result label match
+      const colOutput = findOutput(events, `module ${mIdx}`)
+      if (colOutput && typeof colOutput === 'object' && 'case_list_columns' in (colOutput as any)) {
+        const columns = (colOutput as any).case_list_columns
+        if (columns) {
+          stages.push({
+            header: mod.name,
+            subtitle: 'Columns',
+            messages: lastMessages,
+            applyToBuilder: (b) => b.setModuleContent(mIdx, columns),
+          })
+        }
       }
     }
+  }
 
-    // Form stages
-    for (let mIdx = 0; mIdx < scaffold.modules.length; mIdx++) {
-      const forms = formContents[mIdx] ?? []
-      for (let fIdx = 0; fIdx < forms.length; fIdx++) {
-        const form = forms[fIdx]
-        if (!form) continue
+  // ── Form content (from addForm tool calls or Generate form sub-results) ──
+  for (let mIdx = 0; mIdx < scaffold.modules.length; mIdx++) {
+    const mod = scaffold.modules[mIdx]
+    const ct = caseTypes.find(c => c.name === mod.case_type) ?? null
+
+    for (let fIdx = 0; fIdx < mod.forms.length; fIdx++) {
+      const sf = mod.forms[fIdx]
+
+      // Try SA addForm tool results (these contain the full generated form)
+      const formResults = findToolResults(events, 'addForm')
+      const match = formResults.find(r =>
+        r.args?.moduleIndex === mIdx && r.args?.formIndex === fIdx
+      )
+
+      if (match?.result?.questionCount != null) {
+        // The addForm tool returns a summary, but the actual form is on the blueprint.
+        // Try to find the form generation sub-result instead.
+        const formOutput = findOutput(events, `generate form "${sf.name}"`)
+        if (formOutput && typeof formOutput === 'object' && 'questions' in (formOutput as any)) {
+          const raw = formOutput as any
+          const form = processSingleFormOutput(
+            { formIndex: fIdx, questions: raw.questions, close_case: raw.close_case, child_cases: raw.child_cases },
+            sf.name,
+            sf.type as 'registration' | 'followup' | 'survey',
+            ct,
+          )
+          stages.push({
+            header: mod.name,
+            subtitle: sf.name,
+            messages: lastMessages,
+            applyToBuilder: (b) => b.setFormContent(mIdx, fIdx, form),
+          })
+          continue
+        }
+      }
+
+      // Try sub-result label match for individual form generation
+      const formOutput = findOutput(events, `generate form "${sf.name}"`)
+        ?? findOutput(events, `regenerate form "${sf.name}"`)
+      if (formOutput && typeof formOutput === 'object' && 'questions' in (formOutput as any)) {
+        const raw = formOutput as any
+        const form = processSingleFormOutput(
+          { formIndex: fIdx, questions: raw.questions, close_case: raw.close_case, child_cases: raw.child_cases },
+          sf.name,
+          sf.type as 'registration' | 'followup' | 'survey',
+          ct,
+        )
         stages.push({
-          header: scaffold.modules[mIdx].name,
-          subtitle: form.name,
+          header: mod.name,
+          subtitle: sf.name,
           messages: lastMessages,
           applyToBuilder: (b) => b.setFormContent(mIdx, fIdx, form),
         })
       }
     }
-
-    // Done stage
-    try {
-      const blueprint = assembleBlueprint(scaffold, moduleContents, formContents)
-      const doneResult = { blueprint, hqJson: {}, success: true }
-      stages.push({
-        header: 'Done',
-        messages: lastMessages,
-        applyToBuilder: (b) => b.setDone(doneResult),
-      })
-    } catch (err) {
-      return { success: false, error: `Failed to assemble blueprint: ${err instanceof Error ? err.message : String(err)}` }
-    }
-  } else {
-    // Partial log — scaffold only
-    const moduleContents = scaffold.modules.map(() => ({
-      case_list_columns: null,
-      case_detail_columns: null,
-    }))
-    const formContents = scaffold.modules.map(m =>
-      m.forms.map(f => ({
-        name: f.name,
-        type: f.type as 'registration' | 'followup' | 'survey',
-        questions: [],
-      }))
-    )
-    const blueprint = assembleBlueprint(scaffold, moduleContents, formContents)
-    const doneResult = { blueprint, hqJson: {}, success: true }
-    stages.push({
-      header: 'Done',
-      messages: lastMessages,
-      applyToBuilder: (b) => b.setDone(doneResult),
-    })
   }
+
+  // ── Done stage ────────────────────────────────────────────────────
+  // Build a blueprint from whatever we've collected
+  const blueprint = {
+    app_name: scaffold.app_name,
+    case_types: caseTypes.length > 0 ? caseTypes : null,
+    modules: scaffold.modules.map((sm, mIdx) => {
+      // Find columns for this module from stages
+      const colStage = stages.find(s => s.header === sm.name && s.subtitle === 'Columns')
+      let caseListColumns: Array<{ field: string; header: string }> | undefined
+
+      // Re-extract columns from the stage's closure (we stored them in the stage)
+      const moduleResults = findToolResults(events, 'addModule')
+      const colMatch = moduleResults.find(r => r.args?.moduleIndex === mIdx || r.result?.moduleIndex === mIdx)
+      if (colMatch?.result?.case_list_columns) {
+        caseListColumns = colMatch.result.case_list_columns
+      }
+
+      return {
+        name: sm.name,
+        ...(sm.case_type != null && { case_type: sm.case_type }),
+        forms: sm.forms.map(sf => ({
+          name: sf.name,
+          type: sf.type as 'registration' | 'followup' | 'survey',
+          questions: [] as any[],
+        })),
+        ...(caseListColumns && { case_list_columns: caseListColumns }),
+      }
+    }),
+  }
+
+  const doneResult = { blueprint, hqJson: {}, success: true }
+  stages.push({
+    header: 'Done',
+    messages: lastMessages,
+    applyToBuilder: (b) => b.setDone(doneResult),
+  })
 
   return { success: true, stages, appName: log.app_name }
 }

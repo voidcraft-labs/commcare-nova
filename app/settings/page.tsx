@@ -12,8 +12,8 @@ import { Button } from '@/components/ui/Button'
 import { ApiKeyInput } from '@/components/ui/ApiKeyInput'
 import { useSettings } from '@/hooks/useSettings'
 import { extractReplayStages, setReplayData } from '@/lib/services/logReplay'
-import { modelSupportsReasoning } from '@/lib/models'
-import type { PipelineConfig, ReasoningEffort } from '@/lib/types/settings'
+import { modelSupportsReasoning, modelSupportsMaxReasoning } from '@/lib/models'
+import type { PipelineConfig, PipelineStageConfig, ReasoningEffort } from '@/lib/types/settings'
 import type { RunLog } from '@/lib/services/runLogger'
 
 interface ModelInfo {
@@ -27,12 +27,16 @@ interface ParsedLog {
   fileName: string
 }
 
-const STAGES: { key: keyof PipelineConfig; label: string; description: string }[] = [
-  { key: 'requirementsAnalyst', label: 'Requirements Analyst', description: 'Conversational agent that gathers requirements' },
-  { key: 'scaffold', label: 'Scaffold', description: 'Designs app structure and data model' },
-  { key: 'appContent', label: 'App Content', description: 'Generates form questions and case list columns' },
-  { key: 'editArchitect', label: 'Edit Architect', description: 'Applies surgical edits to generated apps' },
-  { key: 'singleFormRegen', label: 'Form Regeneration', description: 'Rebuilds individual forms from scratch' },
+interface StageInfo { key: keyof PipelineConfig; label: string; description: string }
+
+const AGENT_STAGE: StageInfo = {
+  key: 'solutionsArchitect', label: 'Solutions Architect', description: 'Conversational agent that designs and builds apps',
+}
+
+const TOOL_STAGES: StageInfo[] = [
+  { key: 'schemaGeneration', label: 'Schema Generation', description: 'Designs the data model (case types and properties)' },
+  { key: 'scaffold', label: 'Scaffold', description: 'Designs module and form structure' },
+  { key: 'formGeneration', label: 'Form Generation', description: 'Generates form questions and content' },
 ]
 
 /** Max output token limits per model (with extended thinking). Hardcoded for now. */
@@ -64,6 +68,125 @@ const EFFORT_LEVELS: { value: ReasoningEffort; label: string }[] = [
   { value: 'high', label: 'High' },
   { value: 'max', label: 'Max' },
 ]
+
+function StageCard({ stage, index, settings, models, updatePipelineStage }: {
+  stage: StageInfo
+  index: number
+  settings: { apiKey: string; pipeline: PipelineConfig }
+  models: ModelInfo[]
+  updatePipelineStage: (stage: keyof PipelineConfig, updates: Partial<PipelineStageConfig>) => void
+}) {
+  const cfg = settings.pipeline[stage.key]
+  const supportsMax = modelSupportsMaxReasoning(cfg.model)
+  const effortLevels = supportsMax ? EFFORT_LEVELS : EFFORT_LEVELS.filter(e => e.value !== 'max')
+
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 8 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.3, delay: 0.05 * index, ease: [0.16, 1, 0.3, 1] }}
+      className="p-4 bg-nova-surface border border-nova-border rounded-lg"
+    >
+      <div className="flex items-start justify-between gap-4 mb-3">
+        <div className="min-w-0">
+          <h3 className="text-sm font-medium text-nova-text">{stage.label}</h3>
+          <p className="text-xs text-nova-text-muted mt-0.5">{stage.description}</p>
+        </div>
+      </div>
+      <div className="flex gap-3">
+        <div className="flex-1">
+          <label className="text-[11px] text-nova-text-muted uppercase tracking-wider mb-1.5 block">
+            Model
+          </label>
+          {models.length > 0 ? (
+            <select
+              value={cfg.model}
+              onChange={(e) => {
+                const newModel = e.target.value
+                const cap = MODEL_MAX_TOKENS[newModel] ?? DEFAULT_MAX_TOKENS
+                const updates: Partial<PipelineStageConfig> = { model: newModel }
+                if (cfg.maxOutputTokens > 0 && cfg.maxOutputTokens > cap) updates.maxOutputTokens = cap
+                if (!modelSupportsReasoning(newModel)) updates.reasoning = false
+                if (cfg.reasoningEffort === 'max' && !modelSupportsMaxReasoning(newModel)) updates.reasoningEffort = 'high'
+                updatePipelineStage(stage.key, updates)
+              }}
+              className="w-full px-3 py-2 bg-nova-void border border-nova-border rounded-lg text-sm text-nova-text focus:outline-none focus:border-nova-violet transition-colors appearance-none cursor-pointer"
+            >
+              {models.map(m => (
+                <option key={m.id} value={m.id}>{m.display_name}</option>
+              ))}
+            </select>
+          ) : (
+            <input
+              type="text"
+              value={cfg.model}
+              onChange={(e) => updatePipelineStage(stage.key, { model: e.target.value })}
+              placeholder={!settings.apiKey ? 'Enter API key first' : 'Model ID...'}
+              disabled={!settings.apiKey}
+              className="w-full px-3 py-2 bg-nova-void border border-nova-border rounded-lg text-sm text-nova-text placeholder:text-nova-text-muted focus:outline-none focus:border-nova-violet transition-colors disabled:opacity-40"
+            />
+          )}
+        </div>
+        <div className="w-36">
+          <label className="text-[11px] text-nova-text-muted uppercase tracking-wider mb-1.5 block">
+            Max Tokens
+          </label>
+          <select
+            value={cfg.maxOutputTokens}
+            onChange={(e) =>
+              updatePipelineStage(stage.key, {
+                maxOutputTokens: parseInt(e.target.value),
+              })
+            }
+            className="w-full px-3 py-2 bg-nova-void border border-nova-border rounded-lg text-sm text-nova-text focus:outline-none focus:border-nova-violet transition-colors appearance-none cursor-pointer"
+          >
+            {getTokenOptions(cfg.model).map(opt => (
+              <option key={opt.value} value={opt.value}>{opt.label}</option>
+            ))}
+          </select>
+        </div>
+      </div>
+      {settings.apiKey && modelSupportsReasoning(cfg.model) && (
+        <div className="flex items-center gap-3 mt-3 pt-3 border-t border-nova-border/40">
+          <button
+            type="button"
+            role="switch"
+            aria-checked={cfg.reasoning}
+            onClick={() => updatePipelineStage(stage.key, { reasoning: !cfg.reasoning })}
+            className={`relative inline-flex h-5 w-9 shrink-0 items-center rounded-full transition-colors cursor-pointer ${
+              cfg.reasoning ? 'bg-nova-violet' : 'bg-nova-border'
+            }`}
+          >
+            <span
+              className={`inline-block h-3.5 w-3.5 rounded-full bg-white transition-transform ${
+                cfg.reasoning ? 'translate-x-[18px]' : 'translate-x-[3px]'
+              }`}
+            />
+          </button>
+          <span className="text-xs text-nova-text-secondary select-none">Reasoning</span>
+          {cfg.reasoning && (
+            <div className="ml-auto flex items-center gap-1.5">
+              {effortLevels.map(({ value, label }) => (
+                <button
+                  key={value}
+                  type="button"
+                  onClick={() => updatePipelineStage(stage.key, { reasoningEffort: value })}
+                  className={`px-2.5 py-1 rounded-md text-xs font-medium transition-colors cursor-pointer ${
+                    cfg.reasoningEffort === value
+                      ? 'bg-nova-violet/20 text-nova-violet-bright border border-nova-violet/40'
+                      : 'text-nova-text-muted hover:text-nova-text-secondary hover:bg-nova-void border border-transparent'
+                  }`}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+    </motion.div>
+  )
+}
 
 export default function SettingsPage() {
   const router = useRouter()
@@ -215,120 +338,26 @@ export default function SettingsPage() {
           <section className="rounded-xl border border-nova-border bg-nova-deep p-6">
             <h2 className="text-sm font-display font-semibold tracking-wide uppercase text-nova-text-secondary mb-1">Pipeline Configuration</h2>
             <p className="text-xs text-nova-text-muted mb-5">
-              Model, token limit, and reasoning settings for each generation stage.
+              Model, token limit, and reasoning settings for each stage.
             </p>
+
+            {/* Agent stage */}
             <div className="space-y-2.5">
-              {STAGES.map((stage, i) => (
-                <motion.div
-                  key={stage.key}
-                  initial={{ opacity: 0, y: 8 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  transition={{ duration: 0.3, delay: 0.05 * i, ease: [0.16, 1, 0.3, 1] }}
-                  className="p-4 bg-nova-surface border border-nova-border rounded-lg"
-                >
-                  <div className="flex items-start justify-between gap-4 mb-3">
-                    <div className="min-w-0">
-                      <h3 className="text-sm font-medium text-nova-text">{stage.label}</h3>
-                      <p className="text-xs text-nova-text-muted mt-0.5">{stage.description}</p>
-                    </div>
-                  </div>
-                  <div className="flex gap-3">
-                    <div className="flex-1">
-                      <label className="text-[11px] text-nova-text-muted uppercase tracking-wider mb-1.5 block">
-                        Model
-                      </label>
-                      {models.length > 0 ? (
-                        <select
-                          value={settings.pipeline[stage.key].model}
-                          onChange={(e) => {
-                            const newModel = e.target.value
-                            const cap = MODEL_MAX_TOKENS[newModel] ?? DEFAULT_MAX_TOKENS
-                            const currentTokens = settings.pipeline[stage.key].maxOutputTokens
-                            const updates: Partial<typeof settings.pipeline[typeof stage.key]> = { model: newModel }
-                            if (currentTokens > 0 && currentTokens > cap) updates.maxOutputTokens = cap
-                            if (!modelSupportsReasoning(newModel)) updates.reasoning = false
-                            updatePipelineStage(stage.key, updates)
-                          }}
-                          className="w-full px-3 py-2 bg-nova-void border border-nova-border rounded-lg text-sm text-nova-text focus:outline-none focus:border-nova-violet transition-colors appearance-none cursor-pointer"
-                        >
-                          {models.map(m => (
-                            <option key={m.id} value={m.id}>{m.display_name}</option>
-                          ))}
-                        </select>
-                      ) : (
-                        <input
-                          type="text"
-                          value={settings.pipeline[stage.key].model}
-                          onChange={(e) => updatePipelineStage(stage.key, { model: e.target.value })}
-                          placeholder={!settings.apiKey ? 'Enter API key first' : 'Model ID...'}
-                          disabled={!settings.apiKey}
-                          className="w-full px-3 py-2 bg-nova-void border border-nova-border rounded-lg text-sm text-nova-text placeholder:text-nova-text-muted focus:outline-none focus:border-nova-violet transition-colors disabled:opacity-40"
-                        />
-                      )}
-                    </div>
-                    <div className="w-36">
-                      <label className="text-[11px] text-nova-text-muted uppercase tracking-wider mb-1.5 block">
-                        Max Tokens
-                      </label>
-                      <select
-                        value={settings.pipeline[stage.key].maxOutputTokens}
-                        onChange={(e) =>
-                          updatePipelineStage(stage.key, {
-                            maxOutputTokens: parseInt(e.target.value),
-                          })
-                        }
-                        className="w-full px-3 py-2 bg-nova-void border border-nova-border rounded-lg text-sm text-nova-text focus:outline-none focus:border-nova-violet transition-colors appearance-none cursor-pointer"
-                      >
-                        {getTokenOptions(settings.pipeline[stage.key].model).map(opt => (
-                          <option key={opt.value} value={opt.value}>{opt.label}</option>
-                        ))}
-                      </select>
-                    </div>
-                  </div>
-                  {/* Reasoning row — only when API key is set and model supports it */}
-                  {settings.apiKey && modelSupportsReasoning(settings.pipeline[stage.key].model) && (
-                    <div className="flex items-center gap-3 mt-3 pt-3 border-t border-nova-border/40">
-                      <button
-                        type="button"
-                        role="switch"
-                        aria-checked={settings.pipeline[stage.key].reasoning}
-                        onClick={() => updatePipelineStage(stage.key, { reasoning: !settings.pipeline[stage.key].reasoning })}
-                        className={`relative inline-flex h-5 w-9 shrink-0 items-center rounded-full transition-colors cursor-pointer ${
-                          settings.pipeline[stage.key].reasoning
-                            ? 'bg-nova-violet'
-                            : 'bg-nova-border'
-                        }`}
-                      >
-                        <span
-                          className={`inline-block h-3.5 w-3.5 rounded-full bg-white transition-transform ${
-                            settings.pipeline[stage.key].reasoning ? 'translate-x-[18px]' : 'translate-x-[3px]'
-                          }`}
-                        />
-                      </button>
-                      <span className="text-xs text-nova-text-secondary select-none">Reasoning</span>
-                      {settings.pipeline[stage.key].reasoning && (
-                        <div className="ml-auto flex items-center gap-1.5">
-                          {EFFORT_LEVELS.map(({ value, label }) => (
-                            <button
-                              key={value}
-                              type="button"
-                              onClick={() => updatePipelineStage(stage.key, { reasoningEffort: value })}
-                              className={`px-2.5 py-1 rounded-md text-xs font-medium transition-colors cursor-pointer ${
-                                settings.pipeline[stage.key].reasoningEffort === value
-                                  ? 'bg-nova-violet/20 text-nova-violet-bright border border-nova-violet/40'
-                                  : 'text-nova-text-muted hover:text-nova-text-secondary hover:bg-nova-void border border-transparent'
-                              }`}
-                            >
-                              {label}
-                            </button>
-                          ))}
-                        </div>
-                      )}
-                    </div>
-                  )}
-                </motion.div>
-              ))}
+              <StageCard stage={AGENT_STAGE} index={0} settings={settings} models={models} updatePipelineStage={updatePipelineStage} />
             </div>
+
+            {/* Tool stages — visually nested under the agent */}
+            <div className="mt-4 ml-3 pl-4 border-l-2 border-nova-violet/20">
+              <p className="text-[11px] text-nova-text-muted uppercase tracking-wider mb-2.5">
+                Tool Models
+              </p>
+              <div className="space-y-2.5">
+                {TOOL_STAGES.map((stage, i) => (
+                  <StageCard key={stage.key} stage={stage} index={i + 1} settings={settings} models={models} updatePipelineStage={updatePipelineStage} />
+                ))}
+              </div>
+            </div>
+
             {modelsError && modelsFetched && (
               <p className="text-xs text-nova-rose mt-3">{modelsError}</p>
             )}
