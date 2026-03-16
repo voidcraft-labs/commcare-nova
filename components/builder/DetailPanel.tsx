@@ -8,6 +8,7 @@ import ciFileBlank from '@iconify-icons/ci/file-blank'
 import type { AppBlueprint, BlueprintForm, Question } from '@/lib/schemas/blueprint'
 import { deriveCaseConfig } from '@/lib/schemas/blueprint'
 import { Badge } from '@/components/ui/Badge'
+import { XPathField } from '@/components/builder/XPathField'
 
 const formTypeIcons = {
   registration: ciFileAdd,
@@ -231,7 +232,7 @@ export function DetailPanel({ blueprint, selected, onUpdate, onClose }: DetailPa
             {question.constraint && (
               <div>
                 <label className="text-xs text-nova-text-muted uppercase tracking-wider mb-1 block">Constraint</label>
-                <p className="text-sm font-mono text-nova-text-secondary">{question.constraint}</p>
+                <XPathField value={question.constraint} />
                 {question.constraint_msg && (
                   <p className="text-xs text-nova-amber mt-1">{question.constraint_msg}</p>
                 )}
@@ -240,19 +241,19 @@ export function DetailPanel({ blueprint, selected, onUpdate, onClose }: DetailPa
             {question.relevant && (
               <div>
                 <label className="text-xs text-nova-text-muted uppercase tracking-wider mb-1 block">Show When</label>
-                <p className="text-sm font-mono text-nova-text-secondary">{question.relevant}</p>
+                <XPathField value={question.relevant} />
               </div>
             )}
             {question.default_value && (
               <div>
                 <label className="text-xs text-nova-text-muted uppercase tracking-wider mb-1 block">Default Value</label>
-                <p className="text-sm font-mono text-nova-text-secondary">{question.default_value}</p>
+                <XPathField value={question.default_value} />
               </div>
             )}
             {question.calculate && (
               <div>
                 <label className="text-xs text-nova-text-muted uppercase tracking-wider mb-1 block">Calculate</label>
-                <p className="text-sm font-mono text-nova-text-secondary">{question.calculate}</p>
+                <XPathField value={question.calculate} />
               </div>
             )}
             {question.options && question.options.length > 0 && (

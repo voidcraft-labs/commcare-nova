@@ -24,6 +24,16 @@ Set `RUN_LOGGER=1` in your `.env` to enable disk-based run logging. Each pipelin
 
 You can replay a saved run log through the builder UI without making any API calls. Go to `/settings`, pick a `.log/*.json` file, and click "Load Replay." This opens the builder with a navigation bar that lets you step forward and backward through each stage of the original run — conversation exchanges, scaffold, module columns, forms, and the final blueprint. Useful for iterating on UI changes without re-running the generation pipeline.
 
+### XPath Playground
+
+Visit `/xpath-test` to experiment with CommCare XPath syntax highlighting and formatting. The page has an editable CodeMirror editor with a format button and sample expressions covering hashtag references, paths, predicates, functions, and operators.
+
+The XPath grammar (`lib/codemirror/xpath.grammar`) is a custom Lezer grammar supporting XPath 1.0 plus CommCare's `#case/`, `#form/`, and `#user/` hashtag shorthand. If you modify the grammar, rebuild the parser with:
+
+```bash
+npx tsx scripts/build-xpath-parser.ts
+```
+
 ### Validation Delay
 
 The validate stage (`validateAndFix` in `lib/services/architectAgent.ts`) has an artificial 3-second delay when validation passes on the first attempt with no errors. Our validation is currently purely deterministic/rule-based and completes near-instantly, which feels jarring in the UI. This delay should be removed once we integrate the CommCare core `.jar` for full validation — that will take real time and the artificial delay won't be needed. Search for the `TODO` comment in `architectAgent.ts` to find it.
