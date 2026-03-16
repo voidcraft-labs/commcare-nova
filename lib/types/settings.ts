@@ -8,7 +8,7 @@ export interface PipelineStageConfig {
 }
 
 export interface PipelineConfig {
-  pm: PipelineStageConfig
+  requirementsAnalyst: PipelineStageConfig
   scaffold: PipelineStageConfig
   appContent: PipelineStageConfig
   editArchitect: PipelineStageConfig

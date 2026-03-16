@@ -7,7 +7,7 @@ import {
   type UIMessage,
 } from 'ai'
 import { z } from 'zod'
-import { buildProductManagerPrompt } from '@/lib/prompts/productManagerPrompt'
+import { buildRequirementsAnalystPrompt } from '@/lib/prompts/requirementsAnalystPrompt'
 import { DEFAULT_PIPELINE_CONFIG } from '@/lib/models'
 import type { PipelineConfig } from '@/lib/types/settings'
 import { GenerationContext, thinkingProviderOptions, withPromptCaching } from '@/lib/services/generationContext'
@@ -52,7 +52,7 @@ const editAppSchema = z.object({
 
 // ── Helpers ─────────────────────────────────────────────────────────────
 
-/** Summarize what the pipeline generated so the PM knows what was built. */
+/** Summarize what the pipeline generated so the Requirements Analyst knows what was built. */
 function summarizePipelineResult(appName: string, blueprint: AppBlueprint): string {
   const lines = [`Generated "${appName}": ${blueprint.modules.length} modules, ${blueprint.case_types?.length ?? 0} case types.`]
 
@@ -87,7 +87,7 @@ ${editInstructions}
 Search the blueprint to find the relevant elements, make the required changes, then validate.`
 }
 
-/** Summarize the edited blueprint so the PM knows what changed. */
+/** Summarize the edited blueprint so the Requirements Analyst knows what changed. */
 function summarizeEditResult(blueprint: AppBlueprint): string {
   const lines = [`Edited "${blueprint.app_name}": ${blueprint.modules.length} modules.`]
   for (let mIdx = 0; mIdx < blueprint.modules.length; mIdx++) {
@@ -123,7 +123,7 @@ export async function POST(req: Request) {
   const pipelineConfig: PipelineConfig = { ...DEFAULT_PIPELINE_CONFIG, ...rawPipelineConfig }
 
   const logger = new RunLogger(runId)
-  logger.setAgent('Product Manager')
+  logger.setAgent('Requirements Analyst')
   logger.logConversation(messages)
 
   const stream = createUIMessageStream({
@@ -131,22 +131,22 @@ export async function POST(req: Request) {
       // Send runId to client so it can send it back on subsequent requests
       writer.write({ type: 'data-run-id', data: { runId: logger.runId }, transient: true })
       const ctx = new GenerationContext(apiKey, writer, logger, pipelineConfig)
-      const pmInstructions = buildProductManagerPrompt(blueprintSummary)
+      const raInstructions = buildRequirementsAnalystPrompt(blueprintSummary)
 
-      const pmReasoning = ctx.reasoningForStage('pm')
-      const productManager = new ToolLoopAgent({
-        model: ctx.model(pipelineConfig.pm.model),
-        instructions: pmInstructions,
-        ...(pmReasoning && { providerOptions: thinkingProviderOptions(pmReasoning.effort) }),
+      const raReasoning = ctx.reasoningForStage('requirementsAnalyst')
+      const requirementsAnalyst = new ToolLoopAgent({
+        model: ctx.model(pipelineConfig.requirementsAnalyst.model),
+        instructions: raInstructions,
+        ...(raReasoning && { providerOptions: thinkingProviderOptions(raReasoning.effort) }),
         ...withPromptCaching,
         tools: {
           askQuestions: {
-            description: 'Ask the user clarifying questions about their app requirements. Each call can hold up to 5 questions.',
+            description: 'Ask the user clarifying questions about their app requirements. Up to 5 questions per call — call as many times as needed. Most requests need several rounds. Don\'t rush to generate; an app built on assumptions is worse than one that took extra questions to get right.',
             inputSchema: askQuestionsSchema,
             // No execute → client-side tool, agent stops for user input
           },
           generateApp: tool({
-            description: 'Generate the CommCare app from the specification. Call when you have enough information.',
+            description: 'Generate the CommCare app. The appSpecification should be a plain English brief that thoroughly describes every workflow, entity, and relationship — but never specifies property names, case types, or form structures. The solutions architect makes those decisions.',
             inputSchema: generateAppSchema,
             execute: async ({ appName, appSpecification }) => {
               logger.setAppName(appName)
@@ -159,7 +159,7 @@ export async function POST(req: Request) {
             },
           }),
           editApp: tool({
-            description: 'Edit the existing CommCare app blueprint. Call when the user requests changes to the generated app.',
+            description: 'Edit the existing app blueprint. Describe changes in plain English, reference things by name, and don\'t re-specify the whole app.',
             inputSchema: editAppSchema,
             execute: async ({ editInstructions }, { abortSignal }) => {
               if (!blueprint) return 'Error: No blueprint available to edit.'
@@ -180,18 +180,18 @@ export async function POST(req: Request) {
       })
 
       const agentStream = await createAgentUIStream({
-        agent: productManager,
+        agent: requirementsAnalyst,
         uiMessages: messages,
         onStepFinish: ({ usage, text, reasoningText, toolCalls, toolResults, warnings }) => {
           if (warnings?.length) {
-            for (const w of warnings) console.warn('[PM step] warning:', w)
+            for (const w of warnings) console.warn('[RA step] warning:', w)
           }
           if (usage) {
             logger.logEvent({
               type: 'orchestration',
-              agent: 'Product Manager',
-              label: 'PM step',
-              model: pipelineConfig.pm.model,
+              agent: 'Requirements Analyst',
+              label: 'RA step',
+              model: pipelineConfig.requirementsAnalyst.model,
               input_tokens: usage.inputTokens ?? 0,
               output_tokens: usage.outputTokens ?? 0,
               cache_read_tokens: usage.inputTokenDetails?.cacheReadTokens ?? undefined,
