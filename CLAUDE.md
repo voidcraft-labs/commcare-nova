@@ -25,12 +25,20 @@ app/                    # Next.js App Router pages and API routes
   build/[id]/           # Main builder view (3-panel layout)
   builds/               # Build history
   settings/             # Settings page (API key, pipeline model/token config, log replay)
+  xpath-test/           # XPath playground — test highlighting + formatting
 components/
-  builder/              # AppTree, DetailPanel, GenerationProgress, ReplayController
+  builder/              # AppTree, DetailPanel, XPathField, GenerationProgress, ReplayController
   chat/                 # ChatSidebar, ChatMessage, ChatInput, QuestionCard, ThinkingIndicator
   ui/                   # Button, Input, Badge, Logo
 hooks/                  # useBuilder, useSettings, useApiKey
 lib/
+  codemirror/           # CommCare XPath language support for CodeMirror
+    xpath.grammar       # Lezer grammar (CommCare XPath 1.0 + hashtag refs)
+    xpath-parser.ts     # Generated parser (run scripts/build-xpath-parser.ts to regenerate)
+    xpath-language.ts   # CodeMirror LanguageSupport + styleTags highlighting
+    xpath-theme.ts      # Nova dark theme for CodeMirror
+    xpath-format.ts     # Tree-walking formatter (phase 1: annotate, phase 2: render)
+    __tests__/          # Vitest tests for parser + formatter
   services/
     solutionsArchitect.ts # Solutions Architect agent — single ToolLoopAgent with 21 tools
     builder.ts          # Builder class — singleton state machine for the build lifecycle
@@ -52,6 +60,7 @@ lib/
   store.ts              # CCZ file persistence in .data/
 scripts/
   test-schema.ts            # Structured output schema test (sends schema to Haiku, verifies compilation)
+  build-xpath-parser.ts     # Builds Lezer parser from xpath.grammar → xpath-parser.ts
   sync-knowledge.ts         # Knowledge sync pipeline entry point
   knowledge/                # Pipeline phases: discover, crawl, triage, distill, reorganize
 ```
@@ -241,8 +250,43 @@ npm run dev          # Start dev server (Turbopack)
 npm run build        # Production build
 npm test             # Run tests (vitest)
 npm run test:watch   # Watch mode tests
-npx tsx scripts/test-schema.ts  # Test structured output schemas against Haiku (requires ANTHROPIC_API_KEY)
+npx tsx scripts/test-schema.ts       # Test structured output schemas against Haiku (requires ANTHROPIC_API_KEY)
+npx tsx scripts/build-xpath-parser.ts # Rebuild Lezer parser from xpath.grammar
 ```
+
+## XPath Highlighting & Formatting
+
+`lib/codemirror/` contains a custom CommCare XPath language for CodeMirror 6, built on a Lezer grammar.
+
+### Grammar (`xpath.grammar`)
+
+Custom Lezer grammar supporting XPath 1.0 + CommCare hashtag references (`#case/prop`, `#form/question`, `#user/prop`). Key design decisions:
+
+- **Keyword operators** (`and`, `or`, `div`, `mod`) use `@specialize` wrapped in uppercase `Keyword<w>` so they appear as typed nodes in the parse tree (lowercase inline rules make specialized tokens invisible).
+- **Standalone `/`** uses `RootPath` with dynamic precedence `~-10` as a fallback — the parser prefers path interpretation (`/step`) over bare root.
+- **Token precedence**: `NumberLiteral` beats `"."` so `.666` parses as a number, not a self-step + digits.
+- **Known limitation**: context-sensitive cases like `3mod4` (no space) require a stateful lexer. These don't occur in real CommCare XPath.
+
+When modifying the grammar, run `npx tsx scripts/build-xpath-parser.ts` to regenerate `xpath-parser.ts`.
+
+### Formatter (`xpath-format.ts`)
+
+Two-phase architecture:
+
+1. **Phase 1 (format)**: Walks the Lezer parse tree. For each composite node, produces a `FormatNode` tree with `Layout.Space` tokens inserted between children where the parent node type calls for it. Source token text is never modified — only whitespace between tokens is controlled.
+2. **Phase 2 (render)**: Recursively walks the `FormatNode` tree, mapping source tokens to their text and layout tokens to whitespace characters (`Space → ' '`, `NewLine → '\n'`, `Tab → '\t'`).
+
+`FormatNode.type` is a union of Lezer's `NodeType` and the `Layout` enum — one type, no discriminator wrappers.
+
+Spacing rules are driven by parent node type:
+- Binary expressions (`AddExpr`, `AndExpr`, etc.) → space around operator
+- Paths (`Child`, `Descendant`) → no space
+- Brackets/parens (`Filtered`, `ArgumentList`) → no space around delimiters, space after comma
+
+### Components
+
+- **`XPathField`** (`components/builder/XPathField.tsx`) — Read-only CodeMirror display with Nova theme. Used in `DetailPanel` for `constraint`, `relevant`, `default_value`, `calculate` fields.
+- **`/xpath-test`** — Interactive playground page for testing highlighting + formatting. Editable CodeMirror editor with format button and sample expressions.
 
 ## Icons
 
