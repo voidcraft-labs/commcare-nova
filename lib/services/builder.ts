@@ -221,12 +221,7 @@ export class Builder {
             forms: sm.forms.map((sf, fIdx) => {
               const assembledForm = partial?.forms.get(fIdx)
               if (assembledForm) {
-                return {
-                  name: assembledForm.name,
-                  type: assembledForm.type,
-                  purpose: sf.purpose,
-                  questions: assembledForm.questions,
-                }
+                return { ...assembledForm, purpose: sf.purpose }
               }
               return {
                 name: sf.name,
