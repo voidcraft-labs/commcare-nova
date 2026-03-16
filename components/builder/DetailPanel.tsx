@@ -2,9 +2,18 @@
 import { motion } from 'motion/react'
 import { Icon } from '@iconify/react'
 import ciCloseMd from '@iconify-icons/ci/close-md'
+import ciFileAdd from '@iconify-icons/ci/file-add'
+import ciFileEdit from '@iconify-icons/ci/file-edit'
+import ciFileBlank from '@iconify-icons/ci/file-blank'
 import type { AppBlueprint, BlueprintForm, Question } from '@/lib/schemas/blueprint'
 import { deriveCaseConfig } from '@/lib/schemas/blueprint'
 import { Badge } from '@/components/ui/Badge'
+
+const formTypeIcons = {
+  registration: ciFileAdd,
+  followup: ciFileEdit,
+  survey: ciFileBlank,
+} as const
 
 interface DetailPanelProps {
   blueprint: AppBlueprint
@@ -102,9 +111,7 @@ export function DetailPanel({ blueprint, selected, onUpdate, onClose }: DetailPa
               <div className="space-y-1">
                 {mod.forms.map((f, i) => (
                   <div key={i} className="flex items-center gap-2 text-sm">
-                    <Badge variant={f.type === 'registration' ? 'emerald' : f.type === 'followup' ? 'cyan' : 'amber'}>
-                      {f.type}
-                    </Badge>
+                    <Icon icon={formTypeIcons[f.type as keyof typeof formTypeIcons] ?? ciFileBlank} width="14" height="14" className="text-nova-text-muted shrink-0" />
                     <span>{f.name}</span>
                   </div>
                 ))}
@@ -122,9 +129,10 @@ export function DetailPanel({ blueprint, selected, onUpdate, onClose }: DetailPa
             </div>
             <div>
               <label className="text-xs text-nova-text-muted uppercase tracking-wider mb-1 block">Type</label>
-              <Badge variant={form.type === 'registration' ? 'emerald' : form.type === 'followup' ? 'cyan' : 'amber'}>
-                {form.type}
-              </Badge>
+              <div className="flex items-center gap-2 text-sm">
+                <Icon icon={formTypeIcons[form.type as keyof typeof formTypeIcons] ?? ciFileBlank} width="14" height="14" className="text-nova-text-muted shrink-0" />
+                <span className="capitalize">{form.type}</span>
+              </div>
             </div>
             {(() => {
               const { case_name_field, case_properties, case_preload } = deriveCaseConfig(form.questions || [], form.type)
