@@ -13,7 +13,7 @@ import Link from 'next/link'
 import { useApiKey } from '@/hooks/useApiKey'
 import { useSettings } from '@/hooks/useSettings'
 import { useBuilder } from '@/hooks/useBuilder'
-import { BuilderPhase } from '@/lib/services/builder'
+import { BuilderPhase, applyDataPart } from '@/lib/services/builder'
 import { summarizeBlueprint } from '@/lib/schemas/blueprint'
 import { Logo } from '@/components/ui/Logo'
 import { ChatSidebar } from '@/components/chat/ChatSidebar'
@@ -90,23 +90,8 @@ export function BuilderLayout({ buildId }: { buildId: string }) {
     }),
     sendAutomaticallyWhen: shouldAutoResend,
     onData: (part: any) => {
-      const b = builderRef.current
-      switch (part.type) {
-        case 'data-run-id': runIdRef.current = part.data.runId; break
-        case 'data-start-build': b.startDataModel(); break
-        case 'data-schema': b.setSchema(part.data.caseTypes); break
-        case 'data-partial-scaffold': b.setPartialScaffold(part.data); break
-        case 'data-scaffold': b.setScaffold(part.data); break
-        case 'data-phase': b.setPhase(part.data.phase); break
-        case 'data-module-done': b.setModuleContent(part.data.moduleIndex, part.data.caseListColumns); break
-        case 'data-form-done': b.setFormContent(part.data.moduleIndex, part.data.formIndex, part.data.form); break
-        case 'data-form-fixed': b.setFormContent(part.data.moduleIndex, part.data.formIndex, part.data.form); break
-        case 'data-form-updated': b.setFormContent(part.data.moduleIndex, part.data.formIndex, part.data.form); break
-        case 'data-blueprint-updated': b.updateBlueprint(part.data.blueprint); break
-        case 'data-fix-attempt': b.setFixAttempt(part.data.attempt, part.data.errorCount); break
-        case 'data-done': b.setDone(part.data); break
-        case 'data-error': b.setError(part.data.message); break
-      }
+      if (part.type === 'data-run-id') { runIdRef.current = part.data.runId; return }
+      applyDataPart(builderRef.current, part.type, part.data)
     },
   })
 

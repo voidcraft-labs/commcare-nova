@@ -1,5 +1,25 @@
 import type { AppBlueprint, Scaffold, BlueprintForm, CaseType } from '@/lib/schemas/blueprint'
 
+/** Apply a data part to a builder — shared between real-time streaming (onData) and replay. */
+export function applyDataPart(builder: Builder, type: string, data: any): void {
+  switch (type) {
+    case 'data-start-build': builder.startDataModel(); break
+    case 'data-schema': builder.setSchema(data.caseTypes); break
+    case 'data-partial-scaffold': builder.setPartialScaffold(data); break
+    case 'data-scaffold': builder.setScaffold(data); break
+    case 'data-phase': builder.setPhase(data.phase); break
+    case 'data-module-done': builder.setModuleContent(data.moduleIndex, data.caseListColumns); break
+    case 'data-form-done':
+    case 'data-form-fixed':
+    case 'data-form-updated':
+      builder.setFormContent(data.moduleIndex, data.formIndex, data.form); break
+    case 'data-blueprint-updated': builder.updateBlueprint(data.blueprint); break
+    case 'data-fix-attempt': builder.setFixAttempt(data.attempt, data.errorCount); break
+    case 'data-done': builder.setDone(data); break
+    case 'data-error': builder.setError(data.message); break
+  }
+}
+
 export enum BuilderPhase {
   Idle = 'idle',
   DataModel = 'data-model',

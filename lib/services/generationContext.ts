@@ -71,9 +71,10 @@ export class GenerationContext {
   }
 
 
-  /** Emit a transient data part to the client stream. */
+  /** Emit a transient data part to the client stream. Also buffers for run logging. */
   emit(type: `data-${string}`, data: unknown) {
     this.writer.write({ type, data, transient: true })
+    this.logger.logEmission(type, data)
   }
 
   /** Text-only generation (no schema) with automatic run logging. */
@@ -200,29 +201,24 @@ export class GenerationContext {
     },
   ): Promise<void> {
     const model = opts.model ?? MODEL_DEFAULT
-    let stepNumber = 0
 
     const result = await agent.stream({
       prompt: opts.prompt,
-      onStepFinish: ({ usage, text, reasoningText, toolCalls, toolResults, warnings }) => {
+      onStepFinish: ({ usage, text, reasoningText, toolCalls, warnings }) => {
         logWarnings(`runAgent:${opts.label}`, warnings)
         if (usage) {
-          const isFirst = stepNumber === 0
-          this.logger.logEvent({
-            type: 'orchestration',
-            agent: opts.agentName,
-            label: `${opts.label} step`,
-            model,
-            input_tokens: usage.inputTokens ?? 0,
-            output_tokens: usage.outputTokens ?? 0,
-            cache_read_tokens: usage.inputTokenDetails?.cacheReadTokens ?? undefined,
-            cache_write_tokens: usage.inputTokenDetails?.cacheWriteTokens ?? undefined,
-            // Log the full input context on the first step for debuggability
-            ...(isFirst && { input: { system: (agent as any).settings?.instructions, message: opts.prompt } }),
-            output: { text, ...(reasoningText && { reasoningText }), toolResults },
+          this.logger.logStep({
+            text: text || undefined,
+            reasoning: reasoningText || undefined,
             tool_calls: toolCalls?.map((tc: any) => ({ name: tc.toolName, args: tc.input })),
+            usage: {
+              model,
+              input_tokens: usage.inputTokens ?? 0,
+              output_tokens: usage.outputTokens ?? 0,
+              cache_read_tokens: usage.inputTokenDetails?.cacheReadTokens ?? undefined,
+              cache_write_tokens: usage.inputTokenDetails?.cacheWriteTokens ?? undefined,
+            },
           })
-          stepNumber++
         }
       },
     })
