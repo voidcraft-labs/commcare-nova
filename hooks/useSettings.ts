@@ -12,7 +12,16 @@ function defaultSettings(): NovaSettings {
 function loadSettings(): NovaSettings {
   const raw = localStorage.getItem(STORAGE_KEY)
   if (!raw) return defaultSettings()
-  return JSON.parse(raw) as NovaSettings
+  const stored = JSON.parse(raw) as Partial<NovaSettings>
+  const defaults = defaultSettings()
+  return {
+    ...defaults,
+    ...stored,
+    pipeline: {
+      ...defaults.pipeline,
+      ...stored.pipeline,
+    },
+  }
 }
 
 function persistSettings(settings: NovaSettings) {
