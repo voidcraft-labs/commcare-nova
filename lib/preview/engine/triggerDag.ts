@@ -1,7 +1,8 @@
 import type { Question } from '@/lib/schemas/blueprint'
 import { extractPathRefs } from '../xpath/dependencies'
+import { parseOutputTags } from './outputTag'
 
-export type ExpressionType = 'relevant' | 'calculate' | 'required' | 'constraint'
+export type ExpressionType = 'relevant' | 'calculate' | 'required' | 'constraint' | 'output'
 
 interface DagNode {
   path: string
@@ -97,13 +98,23 @@ export class TriggerDag {
     }
     if (q.constraint) expressions.push({ type: 'constraint', expr: q.constraint })
 
+    // Collect all XPath expressions that create dependency edges
+    const allDepExprs = expressions.map(e => e.expr)
+
+    // Scan label and hint for <output value="..."/> tags
+    const outputTags = parseOutputTags(q.label ?? '').concat(parseOutputTags(q.hint ?? ''))
+    if (outputTags.length > 0) {
+      expressions.push({ type: 'output', expr: '' })
+      for (const tag of outputTags) allDepExprs.push(tag.expr)
+    }
+
     if (expressions.length === 0) return
 
     this.nodes.set(path, { path, expressions })
 
     // Register dependency edges
-    for (const { expr } of expressions) {
-      const refs = extractPathRefs(expr)
+    for (const depExpr of allDepExprs) {
+      const refs = extractPathRefs(depExpr)
       for (const ref of refs) {
         if (ref === path) continue // Self-reference doesn't create a dependency
         let deps = this.dependedOnBy.get(ref)

@@ -277,4 +277,80 @@ describe('FormEngine', () => {
       expect(callCount).toBe(1)
     })
   })
+
+  describe('output tags', () => {
+    it('resolves output tags in labels with #case refs', () => {
+      const form = makeForm([
+        { id: 'name', type: 'text', label: 'Name', case_property: 'full_name' },
+        { id: 'greeting', type: 'label', label: 'Hello, <output value="#case/full_name"/>!' },
+      ], 'followup')
+      const caseData = new Map([['full_name', 'John Smith']])
+      const engine = new FormEngine(form, sampleCaseTypes, 'patient', caseData)
+
+      expect(engine.getState('/data/greeting').resolvedLabel).toBe('Hello, John Smith!')
+    })
+
+    it('resolves output tags referencing form fields', () => {
+      const form = makeForm([
+        { id: 'name', type: 'text', label: 'Name' },
+        { id: 'summary', type: 'label', label: 'You entered: <output value="#form/name"/>' },
+      ])
+      const engine = new FormEngine(form, null)
+
+      // Initially empty
+      expect(engine.getState('/data/summary').resolvedLabel).toBe('You entered: ')
+
+      // After setting a value, the label updates reactively
+      engine.setValue('/data/name', 'Alice')
+      expect(engine.getState('/data/summary').resolvedLabel).toBe('You entered: Alice')
+    })
+
+    it('resolves multiple output tags in one label', () => {
+      const form = makeForm([
+        { id: 'first', type: 'text', label: 'First' },
+        { id: 'last', type: 'text', label: 'Last' },
+        { id: 'display', type: 'label', label: '<output value="#form/first"/> <output value="#form/last"/>' },
+      ])
+      const engine = new FormEngine(form, null)
+
+      engine.setValue('/data/first', 'Jane')
+      engine.setValue('/data/last', 'Doe')
+      expect(engine.getState('/data/display').resolvedLabel).toBe('Jane Doe')
+    })
+
+    it('resolves output tags in hints', () => {
+      const form = makeForm([
+        { id: 'name', type: 'text', label: 'Name' },
+        { id: 'age', type: 'int', label: 'Age', hint: 'Age for <output value="#form/name"/>' },
+      ])
+      const engine = new FormEngine(form, null)
+
+      engine.setValue('/data/name', 'Bob')
+      expect(engine.getState('/data/age').resolvedHint).toBe('Age for Bob')
+    })
+
+    it('cascades through calculated fields into output tags', () => {
+      const form = makeForm([
+        { id: 'age', type: 'int', label: 'Age' },
+        { id: 'status', type: 'hidden', calculate: "if(/data/age > 18, 'Adult', 'Minor')" },
+        { id: 'info', type: 'label', label: 'Status: <output value="#form/status"/>' },
+      ])
+      const engine = new FormEngine(form, null)
+
+      engine.setValue('/data/age', '25')
+      expect(engine.getState('/data/info').resolvedLabel).toBe('Status: Adult')
+
+      engine.setValue('/data/age', '10')
+      expect(engine.getState('/data/info').resolvedLabel).toBe('Status: Minor')
+    })
+
+    it('does not set resolvedLabel when no output tags present', () => {
+      const form = makeForm([
+        { id: 'name', type: 'text', label: 'Plain label' },
+      ])
+      const engine = new FormEngine(form, null)
+
+      expect(engine.getState('/data/name').resolvedLabel).toBeUndefined()
+    })
+  })
 })

@@ -22,7 +22,7 @@ export function RepeatField({ question, path, engine, renderChildren }: RepeatFi
   return (
     <div className="space-y-3">
       {question.label && (
-        <h4 className="text-sm font-medium text-nova-text">{question.label}</h4>
+        <h4 className="text-sm font-medium text-nova-text">{state.resolvedLabel ?? question.label}</h4>
       )}
       {instances.map((idx) => (
         <div key={idx} className="rounded-lg border border-pv-input-border overflow-hidden">
@@ -49,7 +49,7 @@ export function RepeatField({ question, path, engine, renderChildren }: RepeatFi
         className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-pv-accent hover:text-pv-accent-bright border border-pv-input-border hover:border-pv-input-focus rounded-lg transition-colors cursor-pointer"
       >
         <Icon icon={ciPlus} width="14" height="14" />
-        Add {question.label ?? 'entry'}
+        Add {state.resolvedLabel ?? question.label ?? 'entry'}
       </button>
     </div>
   )

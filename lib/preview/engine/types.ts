@@ -8,6 +8,10 @@ export interface QuestionState {
   errorMessage?: string
   /** Whether the user has interacted with and left this field. */
   touched: boolean
+  /** Label text with <output/> tags resolved. Only set when the label contains output tags. */
+  resolvedLabel?: string
+  /** Hint text with <output/> tags resolved. Only set when the hint contains output tags. */
+  resolvedHint?: string
 }
 
 /** Navigation screen types for the preview. */
