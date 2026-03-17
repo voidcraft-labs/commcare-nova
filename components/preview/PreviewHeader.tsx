@@ -6,10 +6,11 @@ interface PreviewHeaderProps {
   breadcrumb: string[]
   canGoBack: boolean
   onBack: () => void
+  onBreadcrumbClick: (index: number) => void
   actions?: React.ReactNode
 }
 
-export function PreviewHeader({ breadcrumb, canGoBack, onBack, actions }: PreviewHeaderProps) {
+export function PreviewHeader({ breadcrumb, canGoBack, onBack, onBreadcrumbClick, actions }: PreviewHeaderProps) {
   return (
     <div className="flex items-center justify-between px-6 py-3 border-b border-pv-input-border">
       <div className="flex items-center gap-2 min-w-0">
@@ -22,14 +23,24 @@ export function PreviewHeader({ breadcrumb, canGoBack, onBack, actions }: Previe
           </button>
         )}
         <div className="flex items-center gap-1.5 text-sm min-w-0 truncate">
-          {breadcrumb.map((part, i) => (
-            <span key={i} className="flex items-center gap-1.5">
-              {i > 0 && <span className="text-nova-text-muted">/</span>}
-              <span className={i === breadcrumb.length - 1 ? 'text-nova-text font-medium' : 'text-nova-text-muted'}>
-                {part}
+          {breadcrumb.map((part, i) => {
+            const isLast = i === breadcrumb.length - 1
+            return (
+              <span key={i} className="flex items-center gap-1.5">
+                {i > 0 && <span className="text-nova-text-muted">/</span>}
+                {isLast ? (
+                  <span className="text-nova-text font-medium">{part}</span>
+                ) : (
+                  <button
+                    onClick={() => onBreadcrumbClick(i)}
+                    className="text-nova-text-muted hover:text-nova-text transition-colors cursor-pointer"
+                  >
+                    {part}
+                  </button>
+                )}
               </span>
-            </span>
-          ))}
+            )
+          })}
         </div>
       </div>
       {actions && (

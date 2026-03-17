@@ -22,6 +22,7 @@ export function PreviewShell({ blueprint, actions }: PreviewShellProps) {
         breadcrumb={nav.breadcrumb}
         canGoBack={nav.canGoBack}
         onBack={nav.back}
+        onBreadcrumbClick={nav.navigateTo}
         actions={actions}
       />
 
