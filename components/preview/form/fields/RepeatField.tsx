@@ -25,8 +25,8 @@ export function RepeatField({ question, path, engine, renderChildren }: RepeatFi
         <h4 className="text-sm font-medium text-nova-text">{question.label}</h4>
       )}
       {instances.map((idx) => (
-        <div key={idx} className="rounded-lg border border-[var(--pv-input-border)] overflow-hidden">
-          <div className="flex items-center justify-between px-4 py-2 bg-[var(--pv-surface)] border-b border-[var(--pv-input-border)]">
+        <div key={idx} className="rounded-lg border border-pv-input-border overflow-hidden">
+          <div className="flex items-center justify-between px-4 py-2 bg-pv-surface border-b border-pv-input-border">
             <span className="text-xs font-medium text-nova-text-secondary">
               #{idx + 1}
             </span>
@@ -46,7 +46,7 @@ export function RepeatField({ question, path, engine, renderChildren }: RepeatFi
       ))}
       <button
         onClick={() => engine.addRepeat(path)}
-        className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-[var(--pv-accent)] hover:text-[var(--pv-accent-bright)] border border-[var(--pv-input-border)] hover:border-[var(--pv-input-focus)] rounded-lg transition-colors cursor-pointer"
+        className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-pv-accent hover:text-pv-accent-bright border border-pv-input-border hover:border-pv-input-focus rounded-lg transition-colors cursor-pointer"
       >
         <Icon icon={ciPlus} width="14" height="14" />
         Add {question.label ?? 'entry'}

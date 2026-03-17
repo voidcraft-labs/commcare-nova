@@ -21,10 +21,10 @@ export function DateField({ question, state, onChange, onBlur }: DateFieldProps)
         value={state.value}
         onChange={(e) => onChange(e.target.value)}
         onBlur={onBlur}
-        className={`w-full px-3 py-2 rounded-lg bg-[var(--pv-input-bg)] border text-sm text-nova-text focus:outline-none transition-colors ${
+        className={`w-full px-3 py-2 rounded-lg bg-pv-input-bg border text-sm text-nova-text focus:outline-none transition-colors ${
           showError
             ? 'border-nova-rose/50 focus:border-nova-rose'
-            : 'border-[var(--pv-input-border)] focus:border-[var(--pv-input-focus)]'
+            : 'border-pv-input-border focus:border-pv-input-focus'
         }`}
       />
       {showError && state.errorMessage && <ConstraintError message={state.errorMessage} />}

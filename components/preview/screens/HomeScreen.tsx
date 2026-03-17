@@ -23,13 +23,13 @@ export function HomeScreen({ blueprint, onNavigate }: HomeScreenProps) {
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: mIdx * 0.06, duration: 0.3, ease: [0.16, 1, 0.3, 1] }}
             onClick={() => onNavigate({ type: 'module', moduleIndex: mIdx })}
-            className="w-full flex items-center gap-4 p-4 rounded-xl bg-[var(--pv-surface)] border border-[var(--pv-input-border)] hover:border-[var(--pv-input-focus)] hover:translate-y-[-1px] transition-all duration-200 cursor-pointer text-left group"
+            className="w-full flex items-center gap-4 p-4 rounded-xl bg-pv-surface border border-pv-input-border hover:border-pv-input-focus hover:translate-y-[-1px] transition-all duration-200 cursor-pointer text-left group"
           >
-            <div className="w-10 h-10 rounded-lg bg-[var(--pv-accent)]/10 flex items-center justify-center shrink-0">
-              <Icon icon={ciMoreGridBig} width="20" height="20" className="text-[var(--pv-accent)]" />
+            <div className="w-10 h-10 rounded-lg bg-pv-accent/10 flex items-center justify-center shrink-0">
+              <Icon icon={ciMoreGridBig} width="20" height="20" className="text-pv-accent" />
             </div>
             <div className="flex-1 min-w-0">
-              <div className="font-medium text-nova-text group-hover:text-[var(--pv-accent-bright)] transition-colors">
+              <div className="font-medium text-nova-text group-hover:text-pv-accent-bright transition-colors">
                 {mod.name}
               </div>
               {mod.case_type && (

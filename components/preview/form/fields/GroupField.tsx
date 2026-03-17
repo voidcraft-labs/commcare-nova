@@ -14,9 +14,9 @@ export function GroupField({ question, path, engine, renderChildren }: GroupFiel
   if (!state.visible) return null
 
   return (
-    <div className="rounded-lg border border-[var(--pv-input-border)] overflow-hidden">
+    <div className="rounded-lg border border-pv-input-border overflow-hidden">
       {question.label && (
-        <div className="px-4 py-2 bg-[var(--pv-surface)] border-b border-[var(--pv-input-border)]">
+        <div className="px-4 py-2 bg-pv-surface border-b border-pv-input-border">
           <h4 className="text-sm font-medium text-nova-text">{question.label}</h4>
           {question.hint && (
             <p className="text-xs text-nova-text-muted mt-0.5">{question.hint}</p>

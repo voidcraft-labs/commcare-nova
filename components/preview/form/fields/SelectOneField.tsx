@@ -22,10 +22,10 @@ export function SelectOneField({ question, state, onChange, onBlur }: SelectOneF
             key={opt.value}
             className={`flex items-center gap-3 px-3 py-2 rounded-lg cursor-pointer transition-colors ${
               state.value === opt.value
-                ? 'bg-[var(--pv-accent)]/10 border border-[var(--pv-accent)]/30'
+                ? 'bg-pv-accent/10 border border-pv-accent/30'
                 : showError
-                  ? 'bg-[var(--pv-input-bg)] border border-nova-rose/30 hover:border-nova-rose/50'
-                  : 'bg-[var(--pv-input-bg)] border border-[var(--pv-input-border)] hover:border-[var(--pv-input-focus)]'
+                  ? 'bg-pv-input-bg border border-nova-rose/30 hover:border-nova-rose/50'
+                  : 'bg-pv-input-bg border border-pv-input-border hover:border-pv-input-focus'
             }`}
           >
             <input
@@ -38,11 +38,11 @@ export function SelectOneField({ question, state, onChange, onBlur }: SelectOneF
             />
             <div className={`w-4 h-4 rounded-full border-2 flex items-center justify-center shrink-0 ${
               state.value === opt.value
-                ? 'border-[var(--pv-accent)]'
+                ? 'border-pv-accent'
                 : 'border-nova-text-muted'
             }`}>
               {state.value === opt.value && (
-                <div className="w-2 h-2 rounded-full bg-[var(--pv-accent)]" />
+                <div className="w-2 h-2 rounded-full bg-pv-accent" />
               )}
             </div>
             <span className="text-sm text-nova-text">{opt.label}</span>

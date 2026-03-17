@@ -11,12 +11,12 @@ interface PreviewHeaderProps {
 
 export function PreviewHeader({ breadcrumb, canGoBack, onBack, actions }: PreviewHeaderProps) {
   return (
-    <div className="flex items-center justify-between px-6 py-3 border-b border-[var(--pv-input-border)]">
+    <div className="flex items-center justify-between px-6 py-3 border-b border-pv-input-border">
       <div className="flex items-center gap-2 min-w-0">
         {canGoBack && (
           <button
             onClick={onBack}
-            className="p-1 -ml-1 text-nova-text-secondary hover:text-nova-text transition-colors rounded-md hover:bg-[var(--pv-elevated)] cursor-pointer"
+            className="p-1 -ml-1 text-nova-text-secondary hover:text-nova-text transition-colors rounded-md hover:bg-pv-elevated cursor-pointer"
           >
             <Icon icon={ciChevronLeft} width="18" height="18" />
           </button>

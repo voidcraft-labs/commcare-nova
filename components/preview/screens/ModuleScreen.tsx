@@ -57,9 +57,9 @@ export function ModuleScreen({ blueprint, moduleIndex, onNavigate }: ModuleScree
               animate={{ opacity: 1, y: 0 }}
               transition={{ delay: fIdx * 0.06, duration: 0.3, ease: [0.16, 1, 0.3, 1] }}
               onClick={handleClick}
-              className="w-full flex items-center gap-3 p-3 rounded-lg bg-[var(--pv-surface)] border border-[var(--pv-input-border)] hover:border-[var(--pv-input-focus)] transition-all duration-200 cursor-pointer text-left group"
+              className="w-full flex items-center gap-3 p-3 rounded-lg bg-pv-surface border border-pv-input-border hover:border-pv-input-focus transition-all duration-200 cursor-pointer text-left group"
             >
-              <Icon icon={icon} width="18" height="18" className="text-nova-text-muted group-hover:text-[var(--pv-accent)] transition-colors shrink-0" />
+              <Icon icon={icon} width="18" height="18" className="text-nova-text-muted group-hover:text-pv-accent transition-colors shrink-0" />
               <div className="flex-1 min-w-0">
                 <div className="text-sm font-medium text-nova-text">{form.name}</div>
               </div>

@@ -33,15 +33,15 @@ export function SelectMultiField({ question, state, onChange, onBlur }: SelectMu
               onClick={() => toggle(opt.value)}
               className={`flex items-center gap-3 px-3 py-2 rounded-lg cursor-pointer transition-colors ${
                 checked
-                  ? 'bg-[var(--pv-accent)]/10 border border-[var(--pv-accent)]/30'
+                  ? 'bg-pv-accent/10 border border-pv-accent/30'
                   : showError
-                    ? 'bg-[var(--pv-input-bg)] border border-nova-rose/30 hover:border-nova-rose/50'
-                    : 'bg-[var(--pv-input-bg)] border border-[var(--pv-input-border)] hover:border-[var(--pv-input-focus)]'
+                    ? 'bg-pv-input-bg border border-nova-rose/30 hover:border-nova-rose/50'
+                    : 'bg-pv-input-bg border border-pv-input-border hover:border-pv-input-focus'
               }`}
             >
               <div className={`w-4 h-4 rounded border-2 flex items-center justify-center shrink-0 ${
                 checked
-                  ? 'border-[var(--pv-accent)] bg-[var(--pv-accent)]'
+                  ? 'border-pv-accent bg-pv-accent'
                   : 'border-nova-text-muted'
               }`}>
                 {checked && (
