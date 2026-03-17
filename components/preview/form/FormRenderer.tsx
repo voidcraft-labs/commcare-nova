@@ -2,6 +2,7 @@
 import { motion } from 'motion/react'
 import type { Question } from '@/lib/schemas/blueprint'
 import type { FormEngine } from '@/lib/preview/engine/formEngine'
+import { renderPreviewMarkdown } from '@/lib/markdown'
 import { QuestionField } from './QuestionField'
 import { GroupField } from './fields/GroupField'
 import { LabelField } from './fields/LabelField'
@@ -94,12 +95,12 @@ export function FormRenderer({ questions, engine, prefix = '/data' }: FormRender
             <label className="block space-y-1.5">
               {q.label && (
                 <div className="flex items-center gap-1">
-                  <span className="text-sm font-medium text-nova-text">{state.resolvedLabel ?? q.label}</span>
+                  <span className="preview-markdown text-sm font-medium text-nova-text" dangerouslySetInnerHTML={{ __html: renderPreviewMarkdown(state.resolvedLabel ?? q.label) }} />
                   {state.required && <span className="text-nova-rose text-xs">*</span>}
                 </div>
               )}
               {q.hint && (
-                <p className="text-xs text-nova-text-muted">{state.resolvedHint ?? q.hint}</p>
+                <div className="preview-markdown text-xs text-nova-text-muted" dangerouslySetInnerHTML={{ __html: renderPreviewMarkdown(state.resolvedHint ?? q.hint) }} />
               )}
               <QuestionField
                 question={q}

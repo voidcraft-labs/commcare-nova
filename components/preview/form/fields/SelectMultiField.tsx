@@ -1,6 +1,7 @@
 'use client'
 import type { Question } from '@/lib/schemas/blueprint'
 import type { QuestionState } from '@/lib/preview/engine/types'
+import { renderPreviewMarkdown } from '@/lib/markdown'
 import { ConstraintError } from './ConstraintError'
 
 interface SelectMultiFieldProps {
@@ -50,7 +51,7 @@ export function SelectMultiField({ question, state, onChange, onBlur }: SelectMu
                   </svg>
                 )}
               </div>
-              <span className="text-sm text-nova-text">{opt.label}</span>
+              <span className="preview-markdown text-sm text-nova-text" dangerouslySetInnerHTML={{ __html: renderPreviewMarkdown(opt.label) }} />
             </label>
           )
         })}
