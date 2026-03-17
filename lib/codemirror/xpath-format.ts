@@ -11,37 +11,79 @@ export type FormatNode = {
   children?: FormatNode[]
 }
 
-// --------------- Phase 1: Format ---------------
+// --------------- Node Types ---------------
 
-/** Parent node types where adjacent children get spaces around operators. */
-const SPACED_PARENTS = new Set([
-  'AddExpr', 'SubtractExpr', 'MultiplyExpr', 'UnionExpr',
-  'EqualsExpr', 'NotEqualsExpr',
-  'LessThanExpr', 'LessEqualExpr', 'GreaterThanExpr', 'GreaterEqualExpr',
-  'AndExpr', 'OrExpr', 'DivideExpr', 'ModulusExpr',
+// Pre-resolved from the parser's nodeSet for typed comparisons
+const T = (() => {
+  const all = parser.nodeSet.types
+  const one = (name: string) => all.find(t => t.name === name)!
+  const many = (name: string) => new Set(all.filter(t => t.name === name))
+
+  return {
+    // Composite
+    ArgumentList: one('ArgumentList'),
+    Filtered: one('Filtered'),
+    AndExpr: one('AndExpr'),
+    OrExpr: one('OrExpr'),
+    AddExpr: one('AddExpr'),
+    SubtractExpr: one('SubtractExpr'),
+    MultiplyExpr: one('MultiplyExpr'),
+    UnionExpr: one('UnionExpr'),
+    EqualsExpr: one('EqualsExpr'),
+    NotEqualsExpr: one('NotEqualsExpr'),
+    LessThanExpr: one('LessThanExpr'),
+    LessEqualExpr: one('LessEqualExpr'),
+    GreaterThanExpr: one('GreaterThanExpr'),
+    GreaterEqualExpr: one('GreaterEqualExpr'),
+    DivideExpr: one('DivideExpr'),
+    ModulusExpr: one('ModulusExpr'),
+    // Tokens
+    OpenParen: one('('),
+    CloseParen: one(')'),
+    OpenBracket: one('['),
+    CloseBracket: one(']'),
+    Comma: one(','),
+    Plus: one('+'),
+    Minus: one('-'),
+    Star: one('*'),
+    Pipe: one('|'),
+    Gt: one('>'),
+    Gte: one('>='),
+    Lt: one('<'),
+    Lte: one('<='),
+    Eq: one('='),
+    Neq: one('!='),
+    Error: one('⚠'),
+    // Multi-instance (Keyword appears once per binary expr type that uses it)
+    Keywords: many('Keyword'),
+  }
+})()
+
+const SPACED_PARENTS = new Set<NodeType>([
+  T.AddExpr, T.SubtractExpr, T.MultiplyExpr, T.UnionExpr,
+  T.EqualsExpr, T.NotEqualsExpr,
+  T.LessThanExpr, T.LessEqualExpr, T.GreaterThanExpr, T.GreaterEqualExpr,
+  T.AndExpr, T.OrExpr, T.DivideExpr, T.ModulusExpr,
 ])
+
+const OPERATORS = new Set<NodeType>([
+  T.Plus, T.Minus, T.Star, T.Pipe,
+  T.Gt, T.Gte, T.Lt, T.Lte,
+  T.Eq, T.Neq,
+  ...T.Keywords,
+])
+
+// --------------- Phase 1: Format ---------------
 
 /** Should a Space be inserted between prev and curr inside this parent? */
 function needsSpace(parent: SyntaxNode, prev: SyntaxNode, curr: SyntaxNode): boolean {
-  const parentName = parent.name
-
-  // Binary expressions: space around the operator (middle child)
-  if (SPACED_PARENTS.has(parentName)) {
-    const isOperator = (n: SyntaxNode) =>
-      n.name === 'Keyword' || // and, or, div, mod
-      n.name === '+' || n.name === '-' || n.name === '*' || n.name === '|' ||
-      n.name === '>' || n.name === '>=' || n.name === '<' || n.name === '<=' ||
-      n.name === '=' || n.name === '!='
-
-    // Space before operator, space after operator
-    if (isOperator(curr) || isOperator(prev)) return true
+  if (SPACED_PARENTS.has(parent.type)) {
+    if (OPERATORS.has(curr.type) || OPERATORS.has(prev.type)) return true
     return false
   }
 
-  // Argument list: space after comma
-  if (parentName === 'ArgumentList' && prev.name === ',') return true
+  if (parent.type === T.ArgumentList && prev.type === T.Comma) return true
 
-  // Everything else (paths, filters, axes, attrs, function calls): no space
   return false
 }
 
@@ -57,7 +99,6 @@ function format(node: SyntaxNode, source: string): FormatNode {
   let child: SyntaxNode | null = node.firstChild
 
   while (child) {
-    // Check if we need a space before this child
     if (result.length > 0) {
       const last = result[result.length - 1]
       const prev = child.prevSibling
@@ -82,13 +123,8 @@ const LAYOUT_TEXT: Record<Layout, string> = {
 }
 
 function render(node: FormatNode): string {
-  // Layout token
   if (typeof node.type === 'number') return LAYOUT_TEXT[node.type]
-
-  // Leaf source token
   if (node.text !== undefined) return node.text
-
-  // Composite: render children
   return node.children!.map(render).join('')
 }
 
@@ -100,10 +136,132 @@ export function formatXPath(expr: string): string {
 
   const tree = parser.parse(trimmed)
 
-  // Parse errors: return unchanged
   let hasError = false
-  tree.iterate({ enter(n) { if (n.name === '⚠') hasError = true } })
+  tree.iterate({ enter(n) { if (n.type === T.Error) hasError = true } })
   if (hasError) return expr
 
   return render(format(tree.topNode, trimmed))
+}
+
+// --------------- Pretty Print ---------------
+
+const PRETTY_PRINT_THRESHOLD = 60
+
+/** Insert NewLine + N Tabs into a FormatNode array. */
+function insertIndent(into: FormatNode[], depth: number) {
+  into.push({ type: Layout.NewLine })
+  for (let i = 0; i < depth; i++) into.push({ type: Layout.Tab })
+}
+
+/**
+ * Walk the FormatNode tree and expand complex nodes across multiple lines:
+ * - ArgumentList (function args) — after (, before ), after ,
+ * - Filtered (predicates) — after [, before ]
+ * - AndExpr / OrExpr (when inside an expanded context) — newline before keyword
+ */
+function prettyPrint(node: FormatNode, depth: number): FormatNode {
+  // Layout tokens and leaf source tokens: pass through
+  if (typeof node.type === 'number') return node
+  if (node.text !== undefined) return node
+
+  const type = node.type
+
+  // Expand ArgumentList nodes that have args (more than just "(" and ")")
+  if (type === T.ArgumentList && (node.children?.length ?? 0) > 2) {
+    const innerDepth = depth + 1
+    const result: FormatNode[] = []
+
+    for (const child of node.children!) {
+      if (child.type === T.OpenParen) {
+        result.push(child)
+        insertIndent(result, innerDepth)
+      } else if (child.type === T.CloseParen) {
+        insertIndent(result, depth)
+        result.push(child)
+      } else if (child.type === T.Comma) {
+        result.push(child)
+        insertIndent(result, innerDepth)
+      } else if (child.type === Layout.Space) {
+        // Drop spaces between args — replaced by NewLine + Tabs above
+        continue
+      } else {
+        result.push(prettyPrint(child, innerDepth))
+      }
+    }
+
+    return { type, children: result }
+  }
+
+  // Expand Filtered (predicate) nodes — newline after [, before ]
+  if (type === T.Filtered) {
+    const innerDepth = depth + 1
+    const result: FormatNode[] = []
+    let insideBracket = false
+
+    for (const child of node.children!) {
+      if (child.type === T.OpenBracket) {
+        result.push(child)
+        insertIndent(result, innerDepth)
+        insideBracket = true
+      } else if (child.type === T.CloseBracket) {
+        insertIndent(result, depth)
+        result.push(child)
+        insideBracket = false
+      } else {
+        result.push(prettyPrint(child, insideBracket ? innerDepth : depth))
+      }
+    }
+
+    return { type, children: result }
+  }
+
+  // Break and/or onto new lines when inside an expanded context
+  if ((type === T.AndExpr || type === T.OrExpr) && depth > 0) {
+    const result: FormatNode[] = []
+
+    for (let i = 0; i < node.children!.length; i++) {
+      const child = node.children![i]
+
+      // Replace the Space before the keyword with NewLine + Tabs
+      if (child.type === Layout.Space) {
+        const next = node.children![i + 1]
+        if (typeof next?.type !== 'number' && T.Keywords.has(next.type)) {
+          insertIndent(result, depth)
+          continue
+        }
+      }
+
+      result.push(prettyPrint(child, depth))
+    }
+
+    return { type, children: result }
+  }
+
+  // Default: recurse into children
+  return {
+    type,
+    children: node.children!.map(child => prettyPrint(child, depth)),
+  }
+}
+
+/**
+ * Format + pretty print. If the single-line formatted result exceeds the
+ * threshold, expands function call argument lists across multiple lines.
+ */
+export function prettyPrintXPath(expr: string): string {
+  const trimmed = expr.trim()
+  if (!trimmed) return expr
+
+  const tree = parser.parse(trimmed)
+
+  let hasError = false
+  tree.iterate({ enter(n) { if (n.type === T.Error) hasError = true } })
+  if (hasError) return expr
+
+  const formatted = format(tree.topNode, trimmed)
+  const singleLine = render(formatted)
+
+  if (singleLine.length <= PRETTY_PRINT_THRESHOLD) return singleLine
+
+  return render(prettyPrint(formatted, 0))
 }

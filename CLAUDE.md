@@ -37,7 +37,7 @@ lib/
     xpath-parser.ts     # Generated parser (run scripts/build-xpath-parser.ts to regenerate)
     xpath-language.ts   # CodeMirror LanguageSupport + styleTags highlighting
     xpath-theme.ts      # Nova dark theme for CodeMirror
-    xpath-format.ts     # Tree-walking formatter (phase 1: annotate, phase 2: render)
+    xpath-format.ts     # Tree-walking formatter (phase 1: annotate, phase 2: render) + pretty printer
     __tests__/          # Vitest tests for parser + formatter
   services/
     solutionsArchitect.ts # Solutions Architect agent — single ToolLoopAgent with 21 tools
@@ -278,15 +278,28 @@ Two-phase architecture:
 
 `FormatNode.type` is a union of Lezer's `NodeType` and the `Layout` enum — one type, no discriminator wrappers.
 
+**Node type comparisons**: All node identification uses pre-resolved `NodeType` objects from `parser.nodeSet.types` (the `T` lookup), never string name comparisons. This includes operators, delimiters, keywords, and composite node types.
+
 Spacing rules are driven by parent node type:
 - Binary expressions (`AddExpr`, `AndExpr`, etc.) → space around operator
 - Paths (`Child`, `Descendant`) → no space
 - Brackets/parens (`Filtered`, `ArgumentList`) → no space around delimiters, space after comma
 
+### Pretty Printer
+
+`prettyPrintXPath()` — formats then expands complex expressions across multiple lines for readability. Only activates when the single-line formatted result exceeds 60 characters.
+
+Works as an additional tree-walking pass over the `FormatNode` tree (between format and render), replacing `Layout.Space` tokens with `Layout.NewLine` + `Layout.Tab` tokens:
+- **ArgumentList** (function args) — newline + indent after `(`, after each `,`, and before `)`; empty calls like `today()` stay inline
+- **Filtered** (predicates) — newline + indent after `[`, before `]`
+- **AndExpr / OrExpr** — newline before `and`/`or` keyword when inside an expanded context (depth > 0)
+
+`XPathField` uses `prettyPrintXPath` for display; the canonical single-line format (`formatXPath`) remains available for storage/export.
+
 ### Components
 
-- **`XPathField`** (`components/builder/XPathField.tsx`) — Read-only CodeMirror display with Nova theme. Used in `DetailPanel` for `constraint`, `relevant`, `default_value`, `calculate` fields.
-- **`/xpath-test`** — Interactive playground page for testing highlighting + formatting. Editable CodeMirror editor with format button and sample expressions.
+- **`XPathField`** (`components/builder/XPathField.tsx`) — Read-only CodeMirror display with Nova theme and `tabSize: 4`. Uses `prettyPrintXPath` for multi-line display. Used in `DetailPanel` for `constraint`, `relevant`, `default_value`, `calculate` fields.
+- **`/xpath-test`** — Interactive playground page for testing highlighting + formatting. Editable CodeMirror editor with "Simple Format" and "Pretty Format" buttons and sample expressions.
 
 ## Icons
 
