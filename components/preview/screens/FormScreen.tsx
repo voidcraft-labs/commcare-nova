@@ -1,0 +1,95 @@
+'use client'
+import { useRef, useMemo } from 'react'
+import type { AppBlueprint } from '@/lib/schemas/blueprint'
+import { useFormEngine } from '@/hooks/useFormEngine'
+import { FormRenderer } from '../form/FormRenderer'
+import { Badge } from '@/components/ui/Badge'
+
+interface FormScreenProps {
+  blueprint: AppBlueprint
+  moduleIndex: number
+  formIndex: number
+  caseData?: Map<string, string>
+  onBack: () => void
+}
+
+const formTypeBadge = {
+  registration: 'Registration',
+  followup: 'Follow-up',
+  survey: 'Survey',
+} as const
+
+export function FormScreen({ blueprint, moduleIndex, formIndex, caseData, onBack }: FormScreenProps) {
+  const mod = blueprint.modules[moduleIndex]
+  const form = mod?.forms[formIndex]
+
+  const stableCaseData = useMemo(() => caseData, [caseData])
+
+  const engine = useFormEngine(
+    form!,
+    blueprint.case_types ?? null,
+    mod?.case_type ?? undefined,
+    stableCaseData,
+  )
+
+  const formBodyRef = useRef<HTMLDivElement>(null)
+
+  if (!form) {
+    return (
+      <div className="p-6 text-center text-nova-text-muted">
+        Form not found.
+      </div>
+    )
+  }
+
+  const questions = engine.getQuestions()
+
+  const handleSubmit = () => {
+    const valid = engine.validateAll()
+    if (valid) {
+      onBack()
+    } else {
+      // Scroll to the first error
+      const errorEl = formBodyRef.current?.querySelector('[data-invalid="true"]')
+      errorEl?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    }
+  }
+
+  return (
+    <div className="flex flex-col h-full">
+      {/* Form header */}
+      <div className="px-6 pt-5 pb-4">
+        <div className="flex items-center gap-2">
+          <h2 className="text-lg font-display font-semibold text-nova-text">{form.name}</h2>
+          <Badge variant="muted">
+            {formTypeBadge[form.type as keyof typeof formTypeBadge] ?? form.type}
+          </Badge>
+        </div>
+      </div>
+
+      {/* Form body */}
+      <div ref={formBodyRef} className="flex-1 overflow-auto px-6 pb-6">
+        {questions.length === 0 ? (
+          <div className="text-center text-nova-text-muted py-8">
+            This form has no questions.
+          </div>
+        ) : (
+          <FormRenderer
+            questions={questions}
+            engine={engine}
+          />
+        )}
+      </div>
+
+      {/* Bottom bar */}
+      <div className="px-6 py-3 border-t border-[var(--pv-input-border)] bg-[var(--pv-surface)]">
+        <button
+          onClick={handleSubmit}
+          className="px-4 py-2 text-sm font-medium rounded-lg bg-[var(--pv-accent)] text-white hover:brightness-110 transition-all cursor-pointer"
+        >
+          Submit
+        </button>
+      </div>
+    </div>
+  )
+}

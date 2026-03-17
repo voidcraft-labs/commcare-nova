@@ -22,6 +22,8 @@ import { DetailPanel } from '@/components/builder/DetailPanel'
 import { GenerationProgress } from '@/components/builder/GenerationProgress'
 import { ReplayController } from '@/components/builder/ReplayController'
 import { DownloadDropdown } from '@/components/ui/DownloadDropdown'
+import { PreviewToggle } from '@/components/preview/PreviewToggle'
+import { PreviewShell } from '@/components/preview/PreviewShell'
 import { getReplayData, clearReplayData } from '@/lib/services/logReplay'
 
 /** Only auto-resend when the assistant's LAST step is askQuestions with all outputs available.
@@ -46,6 +48,7 @@ export function BuilderLayout({ buildId }: { buildId: string }) {
   const { settings } = useSettings()
   const builder = useBuilder()
   const [chatOpen, setChatOpen] = useState(true)
+  const [viewMode, setViewMode] = useState<'tree' | 'preview'>('tree')
   const [progressHidden, setProgressHidden] = useState(false)
   const initialReplay = getReplayData()
   const [replayData, setReplayDataState] = useState(() => {
@@ -260,32 +263,62 @@ export function BuilderLayout({ buildId }: { buildId: string }) {
                   )}
 
                   {builder.treeData ? (
-                    <AppTree
-                      data={builder.treeData}
-                      selected={builder.selected}
-                      onSelect={(s) => builder.select(s)}
-                      phase={builder.phase}
-                      actions={
-                        builder.phase === BuilderPhase.Done && builder.blueprint ? (
-                          <DownloadDropdown
-                            options={[
-                              {
-                                label: 'JSON',
-                                description: 'For CommCare HQ',
-                                icon: <Icon icon={ciFileDocument} width="28" height="28" />,
-                                onClick: handleDownloadJson,
-                              },
-                              {
-                                label: 'CCZ',
-                                description: 'For CommCare mobile',
-                                icon: <Icon icon={ciDownloadPackage} width="28" height="28" />,
-                                onClick: handleCompile,
-                              },
-                            ]}
-                          />
-                        ) : undefined
-                      }
-                    />
+                    viewMode === 'preview' && builder.phase === BuilderPhase.Done && builder.blueprint ? (
+                      <PreviewShell
+                        blueprint={builder.blueprint}
+                        actions={
+                          <>
+                            <PreviewToggle mode={viewMode} onChange={setViewMode} />
+                            <DownloadDropdown
+                              options={[
+                                {
+                                  label: 'JSON',
+                                  description: 'For CommCare HQ',
+                                  icon: <Icon icon={ciFileDocument} width="28" height="28" />,
+                                  onClick: handleDownloadJson,
+                                },
+                                {
+                                  label: 'CCZ',
+                                  description: 'For CommCare mobile',
+                                  icon: <Icon icon={ciDownloadPackage} width="28" height="28" />,
+                                  onClick: handleCompile,
+                                },
+                              ]}
+                            />
+                          </>
+                        }
+                      />
+                    ) : (
+                      <AppTree
+                        data={builder.treeData}
+                        selected={viewMode === 'tree' ? builder.selected : null}
+                        onSelect={(s) => builder.select(s)}
+                        phase={builder.phase}
+                        actions={
+                          builder.phase === BuilderPhase.Done && builder.blueprint ? (
+                            <>
+                              <PreviewToggle mode={viewMode} onChange={setViewMode} />
+                              <DownloadDropdown
+                                options={[
+                                  {
+                                    label: 'JSON',
+                                    description: 'For CommCare HQ',
+                                    icon: <Icon icon={ciFileDocument} width="28" height="28" />,
+                                    onClick: handleDownloadJson,
+                                  },
+                                  {
+                                    label: 'CCZ',
+                                    description: 'For CommCare mobile',
+                                    icon: <Icon icon={ciDownloadPackage} width="28" height="28" />,
+                                    onClick: handleCompile,
+                                  },
+                                ]}
+                              />
+                            </>
+                          ) : undefined
+                        }
+                      />
+                    )
                   ) : null}
                 </div>
 
@@ -317,7 +350,7 @@ export function BuilderLayout({ buildId }: { buildId: string }) {
             )}
           </AnimatePresence>
 
-          {builder.selected && builder.blueprint && (
+          {viewMode === 'tree' && builder.selected && builder.blueprint && (
             <DetailPanel
               blueprint={builder.blueprint}
               selected={builder.selected}
