@@ -26,6 +26,16 @@
 
   --background: var(--nova-void);
   --foreground: var(--nova-text);
+
+  /* Preview theme defaults (overridden by .preview-theme) */
+  --pv-bg: #0c0c1e;
+  --pv-surface: #141430;
+  --pv-elevated: #1c1c40;
+  --pv-input-bg: #10102a;
+  --pv-input-border: rgba(6, 182, 212, 0.2);
+  --pv-input-focus: rgba(6, 182, 212, 0.4);
+  --pv-accent: var(--nova-cyan);
+  --pv-accent-bright: var(--nova-cyan-bright);
 }
 
 @theme inline {
@@ -47,6 +57,14 @@
   --color-nova-emerald: var(--nova-emerald);
   --color-nova-amber: var(--nova-amber);
   --color-nova-rose: var(--nova-rose);
+  --color-pv-bg: var(--pv-bg);
+  --color-pv-surface: var(--pv-surface);
+  --color-pv-elevated: var(--pv-elevated);
+  --color-pv-input-bg: var(--pv-input-bg);
+  --color-pv-input-border: var(--pv-input-border);
+  --color-pv-input-focus: var(--pv-input-focus);
+  --color-pv-accent: var(--pv-accent);
+  --color-pv-accent-bright: var(--pv-accent-bright);
   --font-sans: var(--font-nova-sans);
   --font-display: var(--font-nova-display);
   --font-mono: var(--font-nova-mono);

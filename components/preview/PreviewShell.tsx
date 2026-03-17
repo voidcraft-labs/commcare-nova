@@ -17,7 +17,7 @@ export function PreviewShell({ blueprint, actions }: PreviewShellProps) {
   const nav = usePreviewNav(blueprint)
 
   return (
-    <div className="preview-theme h-full flex flex-col bg-[var(--pv-bg)] rounded-xl border border-[var(--pv-input-border)] shadow-[inset_0_1px_4px_rgba(0,0,0,0.3)] overflow-hidden">
+    <div className="preview-theme h-full flex flex-col bg-pv-bg rounded-xl border border-pv-input-border shadow-[inset_0_1px_4px_rgba(0,0,0,0.3)] overflow-hidden">
       <PreviewHeader
         breadcrumb={nav.breadcrumb}
         canGoBack={nav.canGoBack}

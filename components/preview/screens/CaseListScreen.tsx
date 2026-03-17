@@ -48,12 +48,12 @@ export function CaseListScreen({ blueprint, moduleIndex, formIndex, onNavigate }
       </h2>
       <p className="text-sm text-nova-text-muted mb-4">Select a case to continue</p>
 
-      <div className="rounded-lg border border-[var(--pv-input-border)] overflow-hidden">
+      <div className="rounded-lg border border-pv-input-border overflow-hidden">
         <table className="w-full text-sm">
           <thead>
-            <tr className="bg-[var(--pv-surface)]">
+            <tr className="bg-pv-surface">
               {columns.map((col, i) => (
-                <th key={i} className="text-left px-4 py-2.5 font-medium text-[var(--pv-accent-bright)] border-b border-[var(--pv-input-border)]">
+                <th key={i} className="text-left px-4 py-2.5 font-medium text-pv-accent-bright border-b border-pv-input-border">
                   {col.header}
                 </th>
               ))}
@@ -67,12 +67,12 @@ export function CaseListScreen({ blueprint, moduleIndex, formIndex, onNavigate }
                 animate={{ opacity: 1 }}
                 transition={{ delay: rIdx * 0.04, duration: 0.2 }}
                 onClick={() => handleRowClick(rIdx)}
-                className={`cursor-pointer hover:bg-[var(--pv-elevated)] ${
-                  rIdx % 2 === 0 ? 'bg-[var(--pv-bg)]' : 'bg-[var(--pv-surface)]/50'
+                className={`cursor-pointer hover:bg-pv-elevated ${
+                  rIdx % 2 === 0 ? 'bg-pv-bg' : 'bg-pv-surface/50'
                 } transition-colors`}
               >
                 {columns.map((col, cIdx) => (
-                  <td key={cIdx} className="px-4 py-2 text-nova-text-secondary border-b border-[var(--pv-input-border)]/50">
+                  <td key={cIdx} className="px-4 py-2 text-nova-text-secondary border-b border-pv-input-border/50">
                     {row.properties.get(col.field) ?? ''}
                   </td>
                 ))}

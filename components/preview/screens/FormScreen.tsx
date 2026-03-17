@@ -82,10 +82,10 @@ export function FormScreen({ blueprint, moduleIndex, formIndex, caseData, onBack
       </div>
 
       {/* Bottom bar */}
-      <div className="px-6 py-3 border-t border-[var(--pv-input-border)] bg-[var(--pv-surface)]">
+      <div className="px-6 py-3 border-t border-pv-input-border bg-pv-surface">
         <button
           onClick={handleSubmit}
-          className="px-4 py-2 text-sm font-medium rounded-lg bg-[var(--pv-accent)] text-white hover:brightness-110 transition-all cursor-pointer"
+          className="px-4 py-2 text-sm font-medium rounded-lg bg-pv-accent text-white hover:brightness-110 transition-all cursor-pointer"
         >
           Submit
         </button>
