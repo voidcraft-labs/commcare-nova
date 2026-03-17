@@ -8,12 +8,12 @@ interface PreviewToggleProps {
 
 export function PreviewToggle({ mode, onChange }: PreviewToggleProps) {
   return (
-    <div className="flex items-center bg-nova-deep border border-nova-border rounded-lg p-0.5">
+    <div className="flex items-center h-[34px] bg-nova-deep border border-nova-border rounded-lg p-0.5">
       {(['tree', 'preview'] as const).map((m) => (
         <button
           key={m}
           onClick={() => onChange(m)}
-          className="relative px-2.5 py-1 text-xs font-medium rounded-md transition-colors cursor-pointer"
+          className="relative h-full px-2.5 text-xs font-medium rounded-md transition-colors cursor-pointer"
         >
           {mode === m && (
             <motion.div
