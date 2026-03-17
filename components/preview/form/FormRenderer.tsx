@@ -4,6 +4,7 @@ import type { Question } from '@/lib/schemas/blueprint'
 import type { FormEngine } from '@/lib/preview/engine/formEngine'
 import { QuestionField } from './QuestionField'
 import { GroupField } from './fields/GroupField'
+import { LabelField } from './fields/LabelField'
 import { RepeatField } from './fields/RepeatField'
 
 interface FormRendererProps {
@@ -67,6 +68,20 @@ export function FormRenderer({ questions, engine, prefix = '/data' }: FormRender
           )
         }
 
+        // Label (display-only, no input)
+        if (q.type === 'label') {
+          return (
+            <motion.div
+              key={q.id || idx}
+              initial={{ opacity: 0, y: 8 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: idx * 0.03, duration: 0.25 }}
+            >
+              <LabelField question={q} state={state} />
+            </motion.div>
+          )
+        }
+
         // Regular question
         return (
           <motion.div
@@ -83,7 +98,7 @@ export function FormRenderer({ questions, engine, prefix = '/data' }: FormRender
                   {state.required && <span className="text-nova-rose text-xs">*</span>}
                 </div>
               )}
-              {q.hint && q.type !== 'label' && (
+              {q.hint && (
                 <p className="text-xs text-nova-text-muted">{state.resolvedHint ?? q.hint}</p>
               )}
               <QuestionField
