@@ -17,6 +17,10 @@ export function usePreviewNav(blueprint: AppBlueprint) {
     setStack(prev => prev.length > 1 ? prev.slice(0, -1) : prev)
   }, [])
 
+  const navigateTo = useCallback((index: number) => {
+    setStack(prev => index < prev.length - 1 ? prev.slice(0, index + 1) : prev)
+  }, [])
+
   const reset = useCallback(() => {
     setStack([{ type: 'home' }])
   }, [])
@@ -47,5 +51,5 @@ export function usePreviewNav(blueprint: AppBlueprint) {
     return parts
   }, [stack, blueprint])
 
-  return { current, push, back, reset, canGoBack, breadcrumb }
+  return { current, push, back, reset, navigateTo, canGoBack, breadcrumb }
 }
