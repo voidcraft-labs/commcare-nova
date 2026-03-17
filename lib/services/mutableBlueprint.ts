@@ -9,6 +9,8 @@ import {
   type AppBlueprint, type BlueprintModule, type BlueprintForm, type Question,
   type BlueprintChildCase, type CaseType, type CaseProperty,
 } from '../schemas/blueprint'
+import { rewriteXPathRefs, rewriteHashtagRefs } from '../preview/xpath/rewrite'
+import { rewriteOutputTags } from '../preview/engine/outputTag'
 
 // ── Result types ────────────────────────────────────────────────────────
 
@@ -25,6 +27,10 @@ export interface SearchResult {
 export interface RenameResult {
   formsChanged: string[]    // ["m0-f0", "m0-f1"]
   columnsChanged: string[]  // ["m0"]
+}
+
+export interface QuestionRenameResult {
+  xpathFieldsRewritten: number
 }
 
 // ── QuestionUpdate type ─────────────────────────────────────────────────
@@ -307,11 +313,12 @@ export class MutableBlueprint {
     }
   }
 
-  updateForm(mIdx: number, fIdx: number, updates: { name?: string; close_case?: { question?: string; answer?: string } | null }): void {
+  updateForm(mIdx: number, fIdx: number, updates: { name?: string; type?: 'registration' | 'followup' | 'survey'; close_case?: { question?: string; answer?: string } | null }): void {
     const form = this.blueprint.modules[mIdx]?.forms[fIdx]
     if (!form) throw new Error(`Form m${mIdx}-f${fIdx} not found`)
 
     if (updates.name !== undefined) form.name = updates.name
+    if (updates.type !== undefined) form.type = updates.type
     if (updates.close_case !== undefined) {
       if (updates.close_case === null) {
         delete form.close_case
@@ -420,6 +427,41 @@ export class MutableBlueprint {
     return { formsChanged, columnsChanged }
   }
 
+  renameQuestion(mIdx: number, fIdx: number, oldId: string, newId: string): QuestionRenameResult {
+    const form = this.blueprint.modules[mIdx]?.forms[fIdx]
+    if (!form) throw new Error(`Form m${mIdx}-f${fIdx} not found`)
+
+    const found = this.findQuestionWithPath(form.questions, oldId, '')
+    if (!found) throw new Error(`Question "${oldId}" not found in m${mIdx}-f${fIdx}`)
+
+    const oldPath = found.path
+    found.question.id = newId
+
+    // Rewrite XPath references in all questions within the same form
+    let xpathFieldsRewritten = 0
+    xpathFieldsRewritten += this.rewriteXPathInQuestions(form.questions, oldPath, newId)
+
+    // Update close_case reference
+    if (form.close_case?.question === oldId) {
+      form.close_case.question = newId
+    }
+
+    // Update child_cases references
+    if (form.child_cases) {
+      for (const cc of form.child_cases) {
+        if (cc.case_name_field === oldId) cc.case_name_field = newId
+        if (cc.repeat_context === oldId) cc.repeat_context = newId
+        if (cc.case_properties) {
+          for (const cp of cc.case_properties) {
+            if (cp.question_id === oldId) cp.question_id = newId
+          }
+        }
+      }
+    }
+
+    return { xpathFieldsRewritten }
+  }
+
   // ── Private helpers ─────────────────────────────────────────────────
 
   private findQuestion(questions: Question[], id: string): { question: Question; parent: Question[] } | null {
@@ -500,19 +542,62 @@ export class MutableBlueprint {
     }
   }
 
+  private rewriteXPathInQuestions(questions: Question[], oldPath: string, newId: string): number {
+    const xpathFields = ['relevant', 'calculate', 'default_value', 'constraint'] as const
+    const displayFields = ['label', 'hint'] as const
+    const rewriter = (expr: string) => rewriteXPathRefs(expr, oldPath, newId)
+    let count = 0
+    for (const q of questions) {
+      for (const field of xpathFields) {
+        const val = q[field]
+        if (!val) continue
+        const rewritten = rewriter(val)
+        if (rewritten !== val) {
+          ;(q as any)[field] = rewritten
+          count++
+        }
+      }
+      for (const field of displayFields) {
+        const text = q[field]
+        if (!text) continue
+        const rewritten = rewriteOutputTags(text, rewriter)
+        if (rewritten !== text) {
+          ;(q as any)[field] = rewritten
+          count++
+        }
+      }
+      if (q.children) {
+        count += this.rewriteXPathInQuestions(q.children, oldPath, newId)
+      }
+    }
+    return count
+  }
+
   private renamePropertyInQuestions(questions: Question[], oldName: string, newName: string): boolean {
+    const xpathFields = ['relevant', 'calculate', 'default_value', 'constraint'] as const
+    const displayFields = ['label', 'hint'] as const
+    const rewriter = (expr: string) => rewriteHashtagRefs(expr, '#case/', oldName, newName)
     let changed = false
     for (const q of questions) {
       if (q.case_property === oldName) {
         q.case_property = newName
         changed = true
       }
-      // Update XPath references: #case/oldName → #case/newName
-      const xpathFields = ['relevant', 'calculate', 'default_value', 'constraint'] as const
       for (const field of xpathFields) {
         const val = q[field]
-        if (val && val.includes(`#case/${oldName}`)) {
-          ;(q as any)[field] = val.replaceAll(`#case/${oldName}`, `#case/${newName}`)
+        if (!val) continue
+        const rewritten = rewriter(val)
+        if (rewritten !== val) {
+          ;(q as any)[field] = rewritten
+          changed = true
+        }
+      }
+      for (const field of displayFields) {
+        const text = q[field]
+        if (!text) continue
+        const rewritten = rewriteOutputTags(text, rewriter)
+        if (rewritten !== text) {
+          ;(q as any)[field] = rewritten
           changed = true
         }
       }

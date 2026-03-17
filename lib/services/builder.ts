@@ -1,4 +1,5 @@
 import type { AppBlueprint, Scaffold, BlueprintForm, CaseType } from '@/lib/schemas/blueprint'
+import { MutableBlueprint } from './mutableBlueprint'
 
 /** Apply a data part to a builder — shared between real-time streaming (onData) and replay. */
 export function applyDataPart(builder: Builder, type: string, data: any): void {
@@ -66,7 +67,7 @@ interface PartialModule {
 export class Builder {
   phase = BuilderPhase.Idle
   scaffold: Scaffold | null = null
-  blueprint: AppBlueprint | null = null
+  private _mb: MutableBlueprint | null = null
   caseTypes: CaseType[] | null = null
   statusMessage = ''
   selected: SelectedElement | null = null
@@ -76,6 +77,16 @@ export class Builder {
   /** Partial scaffold being built during streaming */
   private partialScaffold: { appName?: string; description?: string; modules: TreeData['modules'] } | null = null
   private listeners = new Set<() => void>()
+
+  /** The current blueprint as plain data, or null. */
+  get blueprint(): AppBlueprint | null {
+    return this._mb?.getBlueprint() ?? null
+  }
+
+  /** The persistent MutableBlueprint instance for direct mutation. */
+  get mb(): MutableBlueprint | null {
+    return this._mb
+  }
 
   subscribe(listener: () => void) {
     this.listeners.add(listener)
@@ -143,7 +154,7 @@ export class Builder {
   /** Store the completed scaffold for tree display. */
   setScaffold(scaffold: Scaffold) {
     this.scaffold = scaffold
-    this.blueprint = null
+    this._mb = null
     this.partialScaffold = null
     this.notify()
   }
@@ -204,7 +215,7 @@ export class Builder {
 
   /** Set the completed blueprint after validation. */
   setDone(result: { blueprint: AppBlueprint; hqJson: Record<string, any>; success: boolean }) {
-    this.blueprint = result.blueprint
+    this._mb = new MutableBlueprint(result.blueprint)
     this.partialModules.clear()
     this.phase = BuilderPhase.Done
     this.statusMessage = ''
@@ -272,14 +283,19 @@ export class Builder {
   }
 
   updateBlueprint(bp: AppBlueprint) {
-    this.blueprint = bp
+    this._mb = new MutableBlueprint(bp)
+    this.notify()
+  }
+
+  /** Notify subscribers that the blueprint was mutated in-place via mb. */
+  notifyBlueprintChanged = () => {
     this.notify()
   }
 
   reset() {
     this.phase = BuilderPhase.Idle
     this.scaffold = null
-    this.blueprint = null
+    this._mb = null
     this.caseTypes = null
     this.statusMessage = ''
     this.selected = null

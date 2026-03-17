@@ -8,6 +8,13 @@ import {
   detailColumn, detailPair, applicationShell, formShell, moduleShell,
 } from './commcare'
 import type { FormActions, HqApplication, OpenSubCaseAction } from './commcare'
+import { parseDocument } from 'htmlparser2'
+import { findAll } from 'domutils'
+import render from 'dom-serializer'
+import { Text, type Element } from 'domhandler'
+
+const PARSE_OPTS = { xmlMode: true } as const
+const RENDER_OPTS = { xmlMode: true, selfClosingTags: true, encodeEntities: 'utf8' as const } as const
 
 /**
  * Process label/hint/help text that may contain <output value="..."/> tags.
@@ -15,16 +22,21 @@ import type { FormActions, HqApplication, OpenSubCaseAction } from './commcare'
  * with hashtag expansion on the value attribute.
  */
 function processLabelText(text: string): string {
-  // Split on <output value="..."/> tags, preserving the tags
-  const parts = text.split(/(<output\s+value="[^"]*"\s*\/>)/g)
-  return parts.map(part => {
-    const outputMatch = part.match(/^<output\s+value="([^"]*)"\s*\/>$/)
-    if (outputMatch) {
-      const expandedValue = expandHashtags(outputMatch[1])
-      return `<output value="${escapeXml(expandedValue)}"/>`
+  const doc = parseDocument(text, PARSE_OPTS)
+
+  // Expand hashtags in output tag value attributes
+  const outputs = findAll(
+    (node): node is Element => node.type === 'tag' && node.name === 'output',
+    doc.children,
+  )
+  for (const el of outputs) {
+    if (el.attribs.value) {
+      el.attribs.value = expandHashtags(el.attribs.value)
     }
-    return escapeXml(part)
-  }).join('')
+  }
+
+  // Serialize back — dom-serializer handles XML escaping of text nodes
+  return render(doc, RENDER_OPTS)
 }
 
 

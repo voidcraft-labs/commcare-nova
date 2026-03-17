@@ -1,4 +1,4 @@
-import { LRLanguage, LanguageSupport } from '@codemirror/language'
+import { LRLanguage, LanguageSupport, foldNodeProp, foldInside } from '@codemirror/language'
 import { styleTags, tags as t } from '@lezer/highlight'
 import { parser } from './xpath-parser'
 
@@ -34,7 +34,13 @@ const xpathHighlighting = styleTags({
 export const xpathLanguage = LRLanguage.define({
   name: 'xpath',
   parser: parser.configure({
-    props: [xpathHighlighting],
+    props: [
+      xpathHighlighting,
+      foldNodeProp.add({
+        ArgumentList: foldInside,
+        Filtered: foldInside,
+      }),
+    ],
   }),
 })
 

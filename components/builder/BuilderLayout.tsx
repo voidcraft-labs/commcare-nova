@@ -351,12 +351,7 @@ export function BuilderLayout({ buildId }: { buildId: string }) {
           </AnimatePresence>
 
           {viewMode === 'tree' && builder.selected && builder.blueprint && (
-            <DetailPanel
-              blueprint={builder.blueprint}
-              selected={builder.selected}
-              onUpdate={(bp) => builder.updateBlueprint(bp)}
-              onClose={() => builder.select(null)}
-            />
+            <DetailPanel builder={builder} />
           )}
         </div>
     </div>

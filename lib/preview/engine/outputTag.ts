@@ -3,14 +3,28 @@
  *
  * CommCare output tags embed XPath expressions in labels and hints:
  *   "Updating record for: <output value="#case/client_name"/>"
- * The tag is replaced with the evaluated result of the XPath expression.
+ *
+ * Uses htmlparser2 for typed XML node traversal — works server and client side.
  */
+import { parseDocument } from 'htmlparser2'
+import { findAll, replaceElement } from 'domutils'
+import render from 'dom-serializer'
+import { Text, type Element } from 'domhandler'
 
-const OUTPUT_TAG_RE = /<output\s+value=["']([^"']*)["']\s*\/>/g
+const PARSE_OPTS = { xmlMode: true } as const
+const RENDER_OPTS = { xmlMode: true, selfClosingTags: true } as const
+
+/** Find all <output> elements in parsed display text. */
+function findOutputElements(text: string): { doc: ReturnType<typeof parseDocument>; outputs: Element[] } {
+  const doc = parseDocument(text, PARSE_OPTS)
+  const outputs = findAll(
+    (node): node is Element => node.type === 'tag' && node.name === 'output',
+    doc.children,
+  )
+  return { doc, outputs }
+}
 
 export interface OutputTag {
-  /** The entire <output .../> tag text */
-  fullMatch: string
   /** The XPath expression from the value attribute */
   expr: string
 }
@@ -21,10 +35,10 @@ export interface OutputTag {
  */
 export function parseOutputTags(text: string): OutputTag[] {
   if (!text) return []
-  return [...text.matchAll(OUTPUT_TAG_RE)].map(m => ({
-    fullMatch: m[0],
-    expr: m[1],
-  }))
+  return findOutputElements(text).outputs
+    .map(el => el.attribs.value)
+    .filter(Boolean)
+    .map(expr => ({ expr }))
 }
 
 /**
@@ -36,5 +50,44 @@ export function resolveOutputTags(
   evaluator: (expr: string) => string,
 ): string {
   if (!text) return text
-  return text.replace(OUTPUT_TAG_RE, (_, expr: string) => evaluator(expr))
+
+  const { doc, outputs } = findOutputElements(text)
+  if (outputs.length === 0) return text
+
+  for (const el of outputs) {
+    const expr = el.attribs.value
+    const resolved = expr ? evaluator(expr) : ''
+    replaceElement(el, new Text(resolved))
+  }
+
+  return render(doc, RENDER_OPTS)
+}
+
+/**
+ * Rewrite the XPath expressions inside <output value="..."/> tags.
+ *
+ * Parses the text, walks output elements, applies the rewriter to each
+ * value attribute in-place, then serializes back.
+ * Returns the original text unchanged if no rewrites occurred.
+ */
+export function rewriteOutputTags(
+  text: string,
+  rewriter: (expr: string) => string,
+): string {
+  if (!text) return text
+
+  const { doc, outputs } = findOutputElements(text)
+  let changed = false
+
+  for (const el of outputs) {
+    const expr = el.attribs.value
+    if (!expr) continue
+    const rewritten = rewriter(expr)
+    if (rewritten !== expr) {
+      el.attribs.value = rewritten
+      changed = true
+    }
+  }
+
+  return changed ? render(doc, RENDER_OPTS) : text
 }
