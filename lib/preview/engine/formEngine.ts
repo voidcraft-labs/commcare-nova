@@ -73,9 +73,15 @@ export class FormEngine {
       this.evaluateExpressions(affectedPath)
     }
 
-    // Re-validate the changed question itself (constraint check)
+    // Re-validate the changed question itself
     if (state) {
-      this.evaluateConstraint(path, state)
+      if (state.touched) {
+        // Field already shown to user — run full validation (required + constraint)
+        this.validateField(path, state)
+      } else {
+        // Not yet touched — only track constraint validity internally
+        this.evaluateConstraint(path, state)
+      }
     }
 
     this.notify()
