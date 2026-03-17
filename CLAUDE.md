@@ -29,8 +29,16 @@ app/                    # Next.js App Router pages and API routes
 components/
   builder/              # AppTree, DetailPanel, XPathField, GenerationProgress, ReplayController
   chat/                 # ChatSidebar, ChatMessage, ChatInput, QuestionCard, ThinkingIndicator
+  preview/              # Web preview mode (client-side form runner)
+    PreviewToggle.tsx   # Segmented [Tree View] [Preview] control
+    PreviewShell.tsx    # Top-level container with navigation + screen dispatch
+    PreviewHeader.tsx   # Back button, breadcrumb, actions slot
+    screens/            # HomeScreen, ModuleScreen, CaseListScreen, FormScreen
+    form/               # FormRenderer, QuestionField, type-specific field components
+      fields/           # TextField, NumberField, DateField, SelectOneField, SelectMultiField,
+                        # GroupField, RepeatField, LabelField, MediaField, ConstraintError
   ui/                   # Button, Input, Badge, Logo
-hooks/                  # useBuilder, useSettings, useApiKey
+hooks/                  # useBuilder, useSettings, useApiKey, useFormEngine, usePreviewNav
 lib/
   codemirror/           # CommCare XPath language support for CodeMirror
     xpath.grammar       # Lezer grammar (CommCare XPath 1.0 + hashtag refs)
@@ -51,6 +59,19 @@ lib/
     autoFixer.ts        # Programmatic fixes for common CommCare app issues
     commcare/           # Shared CommCare platform module (constants, XML, hashtags, HQ types/shells)
     __tests__/          # Vitest tests for expander, compiler, commcare module, mutableBlueprint
+  preview/              # Client-side web preview engine (no server calls)
+    xpath/              # XPath evaluator reusing the Lezer parser from codemirror/
+      types.ts          # XPathValue union, EvalContext interface
+      coerce.ts         # XPath 1.0 type coercion (toNumber, toString, toBoolean, compareEqual)
+      evaluator.ts      # Core: parse with Lezer, walk CST, return XPathValue
+      functions.ts      # Function registry: if(), today(), selected(), concat(), etc. (35 functions)
+      dependencies.ts   # Extract /data/... path refs from XPath for DAG construction
+    engine/             # Reactive form engine
+      types.ts          # QuestionState, PreviewScreen, DummyCaseRow
+      dataInstance.ts   # Flat Map<path, value> with repeat group support
+      triggerDag.ts     # Dependency graph + topological cascade ordering
+      formEngine.ts     # Main engine: init, setValue, touch, validateAll, recalc, state tracking
+      dummyData.ts      # Generate realistic placeholder case rows from CaseType
   schemas/
     blueprint.ts        # Zod schemas for AppBlueprint + generation schemas (caseTypesOutput, scaffoldModules, moduleContent)
     contentProcessing.ts # Post-processing utilities: flat→nested tree, strip sentinels, apply data model defaults
@@ -470,6 +491,53 @@ Client-side feature for replaying a previously captured v2 run log (`.log/*.json
 - `hqJsonExpander.ts`: `expandBlueprint()` converts `AppBlueprint` → HQ import JSON. Generates XForm XML with Vellum dual-attribute hashtag expansion, secondary instance declarations, form actions, case details. `validateBlueprint()` checks semantic rules.
 - `cczCompiler.ts`: `CczCompiler` class takes HQ import JSON → `.ccz` Buffer. Generates suite.xml, profile.ccpr, app_strings.txt. Injects case blocks back into XForm XML.
 - `commcare/`: Shared module — `constants.ts` (reserved words, regex), `xml.ts` (escapeXml), `hashtags.ts` (Vellum expansion), `ids.ts` (hex ID gen), `hqTypes.ts` (HQ JSON interfaces), `hqShells.ts` (factory functions), `validate.ts` (identifier validation).
+
+## Web Preview
+
+Client-side preview embedded in the builder. When the build reaches `Done`, a `[Tree View] [Preview]` toggle appears alongside the download button. Preview runs entirely from `AppBlueprint` — no XForm parsing, no server calls.
+
+### Architecture (3 subsystems)
+
+**1. XPath Evaluator** (`lib/preview/xpath/`) — Reuses the Lezer parser from `lib/codemirror/xpath-parser.ts`. Walks the CST to evaluate expressions, resolving paths, arithmetic, comparisons, logical ops, function calls, and hashtag refs.
+
+**2. Form Engine** (`lib/preview/engine/`) — Reactive state machine. Initializes from `BlueprintForm` + `CaseType` metadata. Maintains a `DataInstance` (values by path), builds a `TriggerDag` from XPath expressions, and cascades recalculation on every value change. Tracks per-question visibility, requirement, validity, value, and touched state.
+
+**3. Preview UI** (`components/preview/`) — Navigation shell: Home → Module → (Case List →) Form Entry. Cyan accent theme (`.preview-theme` in globals.css) distinguishes preview from builder.
+
+### Navigation Flow (matches CommCare)
+
+```
+Home (module cards)
+  → Module (form list)
+    → Registration/Survey form → Form opens directly
+    → Followup form → Case list ("Select a case") → Form opens with case data
+```
+
+The case list is a gate for a specific followup form, not a standalone module-level screen. Selecting a row passes that row's properties as `caseData` to the `FormEngine`.
+
+### XPath Evaluator — Lezer Grammar Gotcha
+
+The grammar produces **two distinct `Child` node types** (one from `rootStep`, one from `expr`) and two `Descendant` types. `one('Child')` only finds the first. The evaluator and dependency extractor use `many('Child')` to create `Set` collections and check with `.has()` — same pattern the formatter uses for `Keywords`.
+
+### Form Engine Lifecycle
+
+**On init**: merge data model defaults → build DataInstance → preload case data (followup) → build TriggerDag → init QuestionStates → apply `default_value` (one-time) → full cascade (all `calculate`, `relevant`, `required` expressions).
+
+**On `setValue(path)`**: update instance → DAG cascade (topologically sorted affected paths) → re-evaluate all expressions per affected path (calculate, relevant, required, constraint) → re-validate changed question's own constraint.
+
+**On `touch(path)` (blur)**: mark touched → validate (required check + constraint).
+
+**On `validateAll()` (submit)**: mark all visible fields touched → validate each → return boolean. FormScreen scrolls to first error on failure.
+
+**Validation display**: errors only show when `state.touched && !state.valid`. Fields start untouched — no error spam on load.
+
+### Integration
+
+`BuilderLayout.tsx` adds `viewMode` state (`'tree' | 'preview'`). When `Done` + blueprint exists:
+- `viewMode === 'tree'` → `AppTree` + `DetailPanel` (unchanged)
+- `viewMode === 'preview'` → `PreviewShell` (replaces tree, hides DetailPanel)
+
+Both modes show `PreviewToggle` + `DownloadDropdown` in the actions area.
 
 ## Knowledge Sync Pipeline
 

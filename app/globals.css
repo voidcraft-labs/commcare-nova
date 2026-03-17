@@ -167,6 +167,18 @@ body {
   background: rgba(139, 92, 246, 0.08);
 }
 
+/* Preview mode theme — cyan accent, warmer surfaces */
+.preview-theme {
+  --pv-bg: #0c0c1e;
+  --pv-surface: #141430;
+  --pv-elevated: #1c1c40;
+  --pv-input-bg: #10102a;
+  --pv-input-border: rgba(6, 182, 212, 0.2);
+  --pv-input-focus: rgba(6, 182, 212, 0.4);
+  --pv-accent: var(--nova-cyan);
+  --pv-accent-bright: var(--nova-cyan-bright);
+}
+
 /* Subtle noise texture overlay */
 .nova-noise::before {
   content: '';
