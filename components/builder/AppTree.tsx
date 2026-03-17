@@ -16,7 +16,7 @@ import ciLocation from '@iconify-icons/ci/location'
 import ciImage from '@iconify-icons/ci/image'
 import ciPhone from '@iconify-icons/ci/phone'
 import ciBarcode from '@iconify-icons/ci/barcode'
-import ciCircleWarning from '@iconify-icons/ci/circle-warning'
+import ciLabel from '@iconify-icons/ci/label'
 import ciFileAdd from '@iconify-icons/ci/file-add'
 import ciFileEdit from '@iconify-icons/ci/file-edit'
 import ciFileBlank from '@iconify-icons/ci/file-blank'
@@ -271,7 +271,7 @@ function QuestionRow({
     image: <Icon icon={ciImage} width="14" height="14" />,
     phone: <Icon icon={ciPhone} width="14" height="14" />,
     barcode: <Icon icon={ciBarcode} width="14" height="14" />,
-    label: <Icon icon={ciCircleWarning} width="14" height="14" />,
+    label: <Icon icon={ciLabel} width="14" height="14" />,
   }
 
   return (
