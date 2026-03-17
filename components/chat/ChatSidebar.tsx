@@ -70,7 +70,7 @@ export function ChatSidebar({
     >
       {/* Header — sidebar only */}
       {!isCentered && (
-        <div className="px-4 py-3 border-b border-nova-border flex items-center justify-between shrink-0">
+        <div className="px-4 h-12 border-b border-nova-border flex items-center justify-between shrink-0">
           <h2 className="text-sm font-medium text-nova-text-secondary">Chat</h2>
           {onClose && (
             <button

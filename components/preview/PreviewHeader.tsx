@@ -12,7 +12,7 @@ interface PreviewHeaderProps {
 
 export function PreviewHeader({ breadcrumb, canGoBack, onBack, onBreadcrumbClick, actions }: PreviewHeaderProps) {
   return (
-    <div className="flex items-center justify-between px-6 py-3 border-b border-pv-input-border">
+    <div className="flex items-center justify-between px-6 h-12 border-b border-nova-border">
       <div className="flex items-center gap-2 min-w-0">
         {canGoBack && (
           <button
