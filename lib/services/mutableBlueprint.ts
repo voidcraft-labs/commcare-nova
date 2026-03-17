@@ -242,7 +242,7 @@ export class MutableBlueprint {
     return question
   }
 
-  addQuestion(mIdx: number, fIdx: number, question: NewQuestion, opts?: { afterId?: string; parentId?: string }): void {
+  addQuestion(mIdx: number, fIdx: number, question: NewQuestion, opts?: { afterId?: string; beforeId?: string; parentId?: string }): void {
     const form = this.blueprint.modules[mIdx]?.forms[fIdx]
     if (!form) throw new Error(`Form m${mIdx}-f${fIdx} not found`)
 
@@ -252,9 +252,9 @@ export class MutableBlueprint {
       const parent = this.findQuestion(form.questions, opts.parentId)
       if (!parent) throw new Error(`Parent question "${opts.parentId}" not found`)
       if (!parent.question.children) parent.question.children = []
-      this.insertIntoArray(parent.question.children, newQ, opts.afterId)
+      this.insertIntoArray(parent.question.children, newQ, opts.afterId, opts.beforeId)
     } else {
-      this.insertIntoArray(form.questions, newQ, opts?.afterId)
+      this.insertIntoArray(form.questions, newQ, opts?.afterId, opts?.beforeId)
     }
   }
 
@@ -445,7 +445,16 @@ export class MutableBlueprint {
     return null
   }
 
-  private insertIntoArray(arr: Question[], item: Question, afterId?: string): void {
+  private insertIntoArray(arr: Question[], item: Question, afterId?: string, beforeId?: string): void {
+    if (beforeId) {
+      const idx = arr.findIndex(q => q.id === beforeId)
+      if (idx === -1) {
+        arr.push(item)
+      } else {
+        arr.splice(idx, 0, item)
+      }
+      return
+    }
     if (!afterId) {
       arr.push(item)
       return

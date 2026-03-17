@@ -784,7 +784,7 @@ export function createSolutionsArchitect(
       }),
 
       addQuestion: tool({
-        description: 'Add a new question to an existing form.',
+        description: 'Add a new question to an existing form. Use beforeQuestionId or afterQuestionId to control position; omit both to append at end.',
         inputSchema: z.object({
           moduleIndex: z.number().describe('0-based module index'),
           formIndex: z.number().describe('0-based form index'),
@@ -804,14 +804,15 @@ export function createSolutionsArchitect(
             is_case_name: z.boolean().optional(),
           }),
           afterQuestionId: z.string().optional().describe('Insert after this question ID. Omit to append at end.'),
+          beforeQuestionId: z.string().optional().describe('Insert before this question ID. Takes precedence over afterQuestionId.'),
           parentId: z.string().optional().describe('ID of a group/repeat to nest inside'),
         }),
-        execute: async ({ moduleIndex, formIndex, question, afterQuestionId, parentId }) => {
+        execute: async ({ moduleIndex, formIndex, question, afterQuestionId, beforeQuestionId, parentId }) => {
           try {
-            mutableBp.addQuestion(moduleIndex, formIndex, question as NewQuestion, { afterId: afterQuestionId, parentId })
+            mutableBp.addQuestion(moduleIndex, formIndex, question as NewQuestion, { afterId: afterQuestionId, beforeId: beforeQuestionId, parentId })
             const form = mutableBp.getForm(moduleIndex, formIndex)!
             ctx.emit('data-form-updated', { moduleIndex, formIndex, form })
-            return { moduleIndex, formIndex, addedQuestionId: question.id, parentId: parentId ?? null, afterQuestionId: afterQuestionId ?? null }
+            return { moduleIndex, formIndex, addedQuestionId: question.id, parentId: parentId ?? null, afterQuestionId: afterQuestionId ?? null, beforeQuestionId: beforeQuestionId ?? null }
           } catch (err) {
             return { error: err instanceof Error ? err.message : String(err) }
           }
