@@ -12,7 +12,7 @@ import { z } from 'zod'
 
 // ── Question types ──────────────────────────────────────────────────────
 
-const QUESTION_TYPES = [
+export const QUESTION_TYPES = [
   'text', 'int', 'date', 'select1', 'select', 'geopoint', 'image',
   'barcode', 'decimal', 'label', 'phone', 'time', 'datetime',
   'audio', 'video', 'signature', 'hidden', 'secret', 'group', 'repeat'

@@ -11,6 +11,7 @@ Next.js web app that generates CommCare apps from natural language conversation.
 - **Validation**: Zod v4
 - **AI**: Vercel AI SDK (`ai` + `@ai-sdk/react` + `@ai-sdk/anthropic`) — `ToolLoopAgent`, `createUIMessageStream`, `createAgentUIStream`, `useChat`, `generateText`, `streamText`, `Output.object()`
 - **Markdown**: marked (allowlist renderers in `lib/markdown.ts` — `renderMarkdown` for chat: headings, bold, italic, lists, tables, hr, code; blocks links, images, raw HTML. `renderPreviewMarkdown` for preview: same plus links and images)
+- **XML**: htmlparser2 + domutils + dom-serializer (output tag parsing in display text, XForm label processing)
 - **Icons**: Coolicons (`@iconify-icons/ci`) + Tabler (`@iconify-icons/tabler`) via `@iconify/react`
 - **Testing**: Vitest
 
@@ -27,7 +28,7 @@ app/                    # Next.js App Router pages and API routes
   settings/             # Settings page (API key, pipeline model/token config, log replay)
   xpath-test/           # XPath playground — test highlighting + formatting
 components/
-  builder/              # AppTree, DetailPanel, XPathField, GenerationProgress, ReplayController
+  builder/              # AppTree, DetailPanel, XPathField, EditableText, EditableDropdown, XPathEditorModal, GenerationProgress, ReplayController
   chat/                 # ChatSidebar, ChatMessage, ChatInput, QuestionCard, ThinkingIndicator
   preview/              # Web preview mode (client-side form runner)
     PreviewToggle.tsx   # Segmented [Tree View] [Preview] control
@@ -43,7 +44,7 @@ lib/
   codemirror/           # CommCare XPath language support for CodeMirror
     xpath.grammar       # Lezer grammar (CommCare XPath 1.0 + hashtag refs)
     xpath-parser.ts     # Generated parser (run scripts/build-xpath-parser.ts to regenerate)
-    xpath-language.ts   # CodeMirror LanguageSupport + styleTags highlighting
+    xpath-language.ts   # CodeMirror LanguageSupport + styleTags highlighting + foldNodeProp (ArgumentList, Filtered)
     xpath-theme.ts      # Nova dark theme for CodeMirror
     xpath-format.ts     # Tree-walking formatter (phase 1: annotate, phase 2: render) + pretty printer
     __tests__/          # Vitest tests for parser + formatter
@@ -66,10 +67,12 @@ lib/
       evaluator.ts      # Core: parse with Lezer, walk CST, return XPathValue
       functions.ts      # Function registry: if(), today(), selected(), concat(), etc. (35 functions)
       dependencies.ts   # Extract /data/... path refs from XPath for DAG construction
+      rewrite.ts        # Lezer-based XPath path/hashtag rewriting for rename propagation
     engine/             # Reactive form engine
       types.ts          # QuestionState, PreviewScreen, DummyCaseRow
       dataInstance.ts   # Flat Map<path, value> with repeat group support
       triggerDag.ts     # Dependency graph + topological cascade ordering
+      outputTag.ts      # Parse/resolve/rewrite <output value="..."/> tags via htmlparser2
       formEngine.ts     # Main engine: init, setValue, touch, validateAll, recalc, state tracking
       dummyData.ts      # Generate realistic placeholder case rows from CaseType
   schemas/
@@ -178,6 +181,11 @@ Chat is the hero experience. When `builder.phase === Idle && !builder.treeData`,
 
 `lib/services/builder.ts` exports a `Builder` class — a singleton state machine shared across components via `useBuilder()`. Phases: `Idle → DataModel → Structure → Forms → Validate → Fix → Done | Error`.
 
+Builder holds a persistent `MutableBlueprint` instance (`builder.mb`) for direct mutation. Components that edit the blueprint (e.g. `DetailPanel`) call mutation methods on `builder.mb` directly and then `builder.notifyBlueprintChanged()` to trigger re-renders — no clone-mutate-replace cycle. `builder.blueprint` is a getter that returns the plain `AppBlueprint` data from the MB for serialization boundaries (API calls, preview, compile).
+
+- `builder.mb` — the persistent `MutableBlueprint` instance (null before blueprint exists)
+- `builder.blueprint` — getter returning `mb.getBlueprint()` (plain data for serialization)
+- `builder.notifyBlueprintChanged()` — arrow property (stable ref), notifies subscribers after in-place mutations
 - `builder.startDataModel()` — transitions to DataModel phase ("Designing data model...")
 - `builder.setSchema(caseTypes)` — stores case types from schema generation
 - `builder.setPartialScaffold(partial)` — updates tree progressively from streaming structured output
@@ -319,8 +327,20 @@ Works as an additional tree-walking pass over the `FormatNode` tree (between for
 
 ### Components
 
-- **`XPathField`** (`components/builder/XPathField.tsx`) — Read-only CodeMirror display with Nova theme and `tabSize: 4`. Uses `prettyPrintXPath` for multi-line display. Used in `DetailPanel` for `constraint`, `relevant`, `default_value`, `calculate` fields.
+- **`XPathField`** (`components/builder/XPathField.tsx`) — Read-only CodeMirror display with Nova theme and `tabSize: 4`. Uses `prettyPrintXPath` for multi-line display. Optional `onClick` prop adds hover highlight and click handler (used by DetailPanel to open the XPath editor modal).
 - **`/xpath-test`** — Interactive playground page for testing highlighting + formatting. Editable CodeMirror editor with "Simple Format" and "Pretty Format" buttons and sample expressions.
+
+### Inline-Editable DetailPanel
+
+`DetailPanel` takes a `Builder` instance and reads/writes through `builder.mb` (the persistent `MutableBlueprint`). Three editing patterns:
+
+- **`EditableText`** — Click-to-edit inline text. Blur/Enter saves, Escape cancels. Emerald checkmark fades on save.
+- **`EditableDropdown`** — Custom dark-themed dropdown. Selection saves immediately. Click-outside/Escape closes.
+- **`XPathEditorModal`** — Portal-mounted CodeMirror editor with fold gutters, bracket matching, zebra stripes. Cancel/Update buttons.
+
+Editable fields: module name, form name, form type, question label/id/type/case_property/hint, required (dropdown with conditional → opens XPath modal), constraint/relevant/default_value/calculate (XPath modal). "Add Property" section shows `+` buttons for missing optional fields.
+
+**Rename propagation**: Editing a question ID calls `mb.renameQuestion()` which uses `rewriteXPathRefs` (Lezer-based) to update all `/data/...` paths and `#form/...` hashtags across sibling questions. Editing a case property calls `mb.renameCaseProperty()` which uses `rewriteHashtagRefs` for `#case/...` refs. Both propagate through `<output value="..."/>` tags in display text via `rewriteOutputTags`.
 
 ## Icons
 
@@ -485,7 +505,7 @@ Client-side feature for replaying a previously captured v2 run log (`.log/*.json
 ## Service Layer Notes
 
 - `solutionsArchitect.ts`: Exports `createSolutionsArchitect(ctx, mutableBp, blueprintSummary?)` — single `ToolLoopAgent` with all 21 tools. Generation tools (`generateSchema`, `generateScaffold`, `addModule`, `addForm`) delegate to `ctx.generate()`/`ctx.streamGenerate()` with per-stage model config. Also exports `validateAndFix()` — programmatic validation + fix loop (rule-based fixes + structured output fallback for empty forms). Also exports `generateSingleFormContent()` for the `addForm` and `regenerateForm` tools. **Note:** `validateAndFix` has an artificial 3s delay when validation passes on the first attempt — our validation is purely deterministic and completes near-instantly, which feels jarring. Remove this delay once we integrate the CommCare core .jar for full validation.
-- `mutableBlueprint.ts`: `MutableBlueprint` class — wraps `AppBlueprint` (deep-cloned) for progressive population and in-place mutation. `setCaseTypes()` and `setScaffold()` for generation. `search()` finds matches across question IDs/labels/case_properties/XPath/module names/form names/columns. Mutation methods auto-derive case config after changes. `renameCaseProperty()` propagates renames across all questions, columns, and XPath expressions.
+- `mutableBlueprint.ts`: `MutableBlueprint` class — wraps `AppBlueprint` (deep-cloned) for progressive population and in-place mutation. `setCaseTypes()` and `setScaffold()` for generation. `search()` finds matches across question IDs/labels/case_properties/XPath/module names/form names/columns. `renameQuestion()` renames a question ID and propagates through all XPath expressions and output tags in the same form via Lezer-based `rewriteXPathRefs`. `renameCaseProperty()` propagates renames across all questions, columns, XPath expressions, and output tags in display text via `rewriteHashtagRefs`. Both use `rewriteOutputTags` (htmlparser2) for display text.
 - `generationContext.ts`: `GenerationContext` class — wraps Anthropic client + UI stream writer + RunLogger + PipelineConfig. All LLM calls go through this class. Also exports `thinkingProviderOptions(effort)` for ToolLoopAgent constructors and `withPromptCaching` for Anthropic prompt caching.
 - `contentProcessing.ts`: Post-processing utilities for structured output from form generation. `stripEmpty()` converts sentinel values back to undefined. `buildQuestionTree()` converts flat parentId-based questions to nested children arrays. `applyDefaults()` merges case property metadata. `processSingleFormOutput()` chains all three.
 - `hqJsonExpander.ts`: `expandBlueprint()` converts `AppBlueprint` → HQ import JSON. Generates XForm XML with Vellum dual-attribute hashtag expansion, secondary instance declarations, form actions, case details. `validateBlueprint()` checks semantic rules.

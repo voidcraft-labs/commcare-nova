@@ -300,6 +300,46 @@ describe('MutableBlueprint', () => {
       expect(result.formsChanged).toEqual([])
       expect(result.columnsChanged).toEqual([])
     })
+
+    it('rewrites #case/ refs in output tags in labels', () => {
+      const bp = makeBlueprint()
+      bp.modules[0].forms[1].questions.push({
+        id: 'display_label',
+        type: 'label',
+        label: 'Updating record for: <output value="#case/email_address"/>',
+      })
+      const mb = new MutableBlueprint(bp)
+      mb.renameCaseProperty('client', 'email_address', 'contact_email')
+      const q = mb.getQuestion(0, 1, 'display_label')
+      expect(q!.question.label).toBe('Updating record for: <output value="#case/contact_email"/>')
+    })
+
+    it('rewrites #case/ refs in output tags in hints', () => {
+      const bp = makeBlueprint()
+      bp.modules[0].forms[1].questions.push({
+        id: 'hint_q',
+        type: 'text',
+        label: 'Update',
+        hint: 'Current: <output value="#case/full_name"/>',
+      })
+      const mb = new MutableBlueprint(bp)
+      mb.renameCaseProperty('client', 'full_name', 'legal_name')
+      const q = mb.getQuestion(0, 1, 'hint_q')
+      expect(q!.question.hint).toBe('Current: <output value="#case/legal_name"/>')
+    })
+
+    it('rewrites multiple output tags in one label', () => {
+      const bp = makeBlueprint()
+      bp.modules[0].forms[1].questions.push({
+        id: 'multi_label',
+        type: 'label',
+        label: '<output value="#case/full_name"/> (<output value="#case/full_name"/>)',
+      })
+      const mb = new MutableBlueprint(bp)
+      mb.renameCaseProperty('client', 'full_name', 'legal_name')
+      const q = mb.getQuestion(0, 1, 'multi_label')
+      expect(q!.question.label).toBe('<output value="#case/legal_name"/> (<output value="#case/legal_name"/>)')
+    })
   })
 
   describe('case type access', () => {
@@ -369,6 +409,121 @@ describe('MutableBlueprint', () => {
       const mb = new MutableBlueprint(original)
       mb.updateQuestion(0, 0, 'client_name', { label: 'CHANGED' })
       expect(original.modules[0].forms[0].questions[0].label).toEqual(originalName)
+    })
+  })
+
+  describe('renameQuestion', () => {
+    it('renames the question ID', () => {
+      const mb = new MutableBlueprint(makeBlueprint())
+      mb.renameQuestion(0, 0, 'client_name', 'full_name_q')
+      const q = mb.getQuestion(0, 0, 'full_name_q')
+      expect(q).not.toBeNull()
+      expect(q!.question.id).toBe('full_name_q')
+    })
+
+    it('rewrites XPath references in sibling questions', () => {
+      const bp = makeBlueprint()
+      // Add a question that references client_name in its relevant
+      bp.modules[0].forms[0].questions.push({
+        id: 'followup_q',
+        type: 'text',
+        label: 'Followup',
+        relevant: '/data/client_name != ""',
+      })
+      const mb = new MutableBlueprint(bp)
+      mb.renameQuestion(0, 0, 'client_name', 'full_name_q')
+      const q = mb.getQuestion(0, 0, 'followup_q')
+      expect(q!.question.relevant).toBe('/data/full_name_q != ""')
+    })
+
+    it('rewrites #form/ hashtag references', () => {
+      const bp = makeBlueprint()
+      bp.modules[0].forms[0].questions.push({
+        id: 'calc_q',
+        type: 'hidden',
+        calculate: '#form/client_name',
+      })
+      const mb = new MutableBlueprint(bp)
+      mb.renameQuestion(0, 0, 'client_name', 'full_name_q')
+      const q = mb.getQuestion(0, 0, 'calc_q')
+      expect(q!.question.calculate).toBe('#form/full_name_q')
+    })
+
+    it('updates close_case.question reference', () => {
+      const bp = makeBlueprint()
+      bp.modules[0].forms[1].close_case = { question: 'edit_name', answer: 'close' }
+      const mb = new MutableBlueprint(bp)
+      mb.renameQuestion(0, 1, 'edit_name', 'renamed_name')
+      const form = mb.getForm(0, 1)
+      expect(form!.close_case!.question).toBe('renamed_name')
+    })
+
+    it('updates child_cases references', () => {
+      const bp = makeBlueprint()
+      bp.modules[0].forms[0].child_cases = [{
+        case_type: 'sub',
+        case_name_field: 'client_name',
+        case_properties: [{ case_property: 'name', question_id: 'client_name' }],
+      }]
+      const mb = new MutableBlueprint(bp)
+      mb.renameQuestion(0, 0, 'client_name', 'full_name_q')
+      const form = mb.getForm(0, 0)
+      expect(form!.child_cases![0].case_name_field).toBe('full_name_q')
+      expect(form!.child_cases![0].case_properties![0].question_id).toBe('full_name_q')
+    })
+
+    it('returns count of rewritten XPath fields', () => {
+      const bp = makeBlueprint()
+      bp.modules[0].forms[0].questions.push(
+        { id: 'q1', type: 'text', relevant: '/data/client_name != ""' },
+        { id: 'q2', type: 'text', calculate: '/data/client_name' },
+      )
+      const mb = new MutableBlueprint(bp)
+      const result = mb.renameQuestion(0, 0, 'client_name', 'renamed')
+      expect(result.xpathFieldsRewritten).toBe(2)
+    })
+
+    it('rewrites XPath inside output tags in label', () => {
+      const bp = makeBlueprint()
+      bp.modules[0].forms[0].questions.push({
+        id: 'summary',
+        type: 'label',
+        label: 'Name: <output value="#form/client_name"/>',
+      })
+      const mb = new MutableBlueprint(bp)
+      mb.renameQuestion(0, 0, 'client_name', 'full_name_q')
+      const q = mb.getQuestion(0, 0, 'summary')
+      expect(q!.question.label).toBe('Name: <output value="#form/full_name_q"/>')
+    })
+
+    it('rewrites XPath inside output tags in hint', () => {
+      const bp = makeBlueprint()
+      bp.modules[0].forms[0].questions.push({
+        id: 'age_q',
+        type: 'int',
+        label: 'Age',
+        hint: 'Age for <output value="/data/client_name"/>',
+      })
+      const mb = new MutableBlueprint(bp)
+      mb.renameQuestion(0, 0, 'client_name', 'full_name_q')
+      const q = mb.getQuestion(0, 0, 'age_q')
+      expect(q!.question.hint).toBe('Age for <output value="/data/full_name_q"/>')
+    })
+
+    it('handles nested group questions', () => {
+      const bp = makeBlueprint()
+      bp.modules[0].forms[0].questions = [
+        {
+          id: 'grp', type: 'group', children: [
+            { id: 'inner_q', type: 'text', label: 'Inner' },
+          ],
+        },
+        { id: 'outer_q', type: 'text', relevant: '/data/grp/inner_q != ""' },
+      ]
+      const mb = new MutableBlueprint(bp)
+      mb.renameQuestion(0, 0, 'inner_q', 'renamed_inner')
+      const q = mb.getQuestion(0, 0, 'outer_q')
+      expect(q!.question.relevant).toBe('/data/grp/renamed_inner != ""')
     })
   })
 })

@@ -36,12 +36,13 @@ const readOnlyExtensions = [
 
 interface XPathFieldProps {
   value: string
+  onClick?: () => void
 }
 
-export function XPathField({ value }: XPathFieldProps) {
+export function XPathField({ value, onClick }: XPathFieldProps) {
   const formatted = useMemo(() => prettyPrintXPath(value), [value])
 
-  return (
+  const editor = (
     <CodeMirror
       value={formatted}
       theme={novaXPathTheme}
@@ -49,5 +50,16 @@ export function XPathField({ value }: XPathFieldProps) {
       basicSetup={false}
       editable={false}
     />
+  )
+
+  if (!onClick) return editor
+
+  return (
+    <div
+      onClick={onClick}
+      className="cursor-pointer rounded-md border border-transparent hover:border-nova-violet/30 transition-colors"
+    >
+      {editor}
+    </div>
   )
 }

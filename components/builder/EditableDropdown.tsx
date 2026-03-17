@@ -1,0 +1,104 @@
+'use client'
+import { useState, useRef, useEffect, useCallback } from 'react'
+import { motion, AnimatePresence } from 'motion/react'
+import { Icon } from '@iconify/react'
+import ciCheck from '@iconify-icons/ci/check'
+
+interface EditableDropdownProps {
+  label: string
+  value: string
+  options: Array<{ value: string; label: string }>
+  onSave: (value: string) => void
+  renderValue?: (value: string) => React.ReactNode
+}
+
+export function EditableDropdown({ label, value, options, onSave, renderValue }: EditableDropdownProps) {
+  const [open, setOpen] = useState(false)
+  const [saved, setSaved] = useState(false)
+  const containerRef = useRef<HTMLDivElement>(null)
+
+  const handleSelect = useCallback((v: string) => {
+    setOpen(false)
+    if (v !== value) {
+      onSave(v)
+      setSaved(true)
+      setTimeout(() => setSaved(false), 1500)
+    }
+  }, [value, onSave])
+
+  useEffect(() => {
+    if (!open) return
+    const handler = (e: MouseEvent) => {
+      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
+        setOpen(false)
+      }
+    }
+    document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
+  }, [open])
+
+  useEffect(() => {
+    if (!open) return
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setOpen(false)
+    }
+    document.addEventListener('keydown', handler)
+    return () => document.removeEventListener('keydown', handler)
+  }, [open])
+
+  const currentLabel = options.find(o => o.value === value)?.label ?? value
+
+  return (
+    <div>
+      <label className="text-xs text-nova-text-muted uppercase tracking-wider mb-1 flex items-center gap-1.5">
+        {label}
+        <AnimatePresence>
+          {saved && (
+            <motion.span
+              initial={{ opacity: 0, scale: 0.8 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.8 }}
+              transition={{ duration: 0.2 }}
+            >
+              <Icon icon={ciCheck} width="12" height="12" className="text-emerald-400" />
+            </motion.span>
+          )}
+        </AnimatePresence>
+      </label>
+      <div ref={containerRef} className="relative">
+        <div
+          onClick={() => setOpen(!open)}
+          className="cursor-pointer hover:opacity-80 transition-opacity"
+        >
+          {renderValue ? renderValue(value) : (
+            <span className="text-sm capitalize">{currentLabel}</span>
+          )}
+        </div>
+        <AnimatePresence>
+          {open && (
+            <motion.div
+              initial={{ opacity: 0, y: -4 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -4 }}
+              transition={{ duration: 0.12 }}
+              className="absolute z-50 top-full mt-1 left-0 min-w-[160px] bg-nova-surface border border-nova-border rounded-lg shadow-lg overflow-hidden"
+            >
+              {options.map((opt) => (
+                <button
+                  key={opt.value}
+                  onClick={() => handleSelect(opt.value)}
+                  className={`w-full text-left px-3 py-1.5 text-sm hover:bg-nova-elevated transition-colors flex items-center gap-2 ${
+                    opt.value === value ? 'text-nova-violet-bright' : 'text-nova-text-secondary'
+                  }`}
+                >
+                  <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${opt.value === value ? 'bg-nova-violet' : 'bg-transparent'}`} />
+                  {opt.label}
+                </button>
+              ))}
+            </motion.div>
+          )}
+        </AnimatePresence>
+      </div>
+    </div>
+  )
+}
