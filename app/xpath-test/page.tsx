@@ -4,7 +4,7 @@ import CodeMirror from '@uiw/react-codemirror'
 import { EditorView } from '@codemirror/view'
 import { xpath } from '@/lib/codemirror/xpath-language'
 import { novaXPathTheme } from '@/lib/codemirror/xpath-theme'
-import { formatXPath } from '@/lib/codemirror/xpath-format'
+import { formatXPath, prettyPrintXPath } from '@/lib/codemirror/xpath-format'
 
 const editorExtensions = [xpath(), EditorView.lineWrapping]
 
@@ -27,6 +27,10 @@ export default function XPathTestPage() {
 
   const handleFormat = useCallback(() => {
     setValue(formatXPath(value))
+  }, [value])
+
+  const handlePrettyPrint = useCallback(() => {
+    setValue(prettyPrintXPath(value))
   }, [value])
 
   const loadSample = useCallback((sample: string) => {
@@ -62,7 +66,13 @@ export default function XPathTestPage() {
             onClick={handleFormat}
             className="px-4 py-2 rounded-lg bg-nova-violet text-white text-sm font-medium hover:bg-nova-violet-bright transition-colors"
           >
-            Format
+            Simple Format
+          </button>
+          <button
+            onClick={handlePrettyPrint}
+            className="px-4 py-2 rounded-lg bg-nova-violet text-white text-sm font-medium hover:bg-nova-violet-bright transition-colors"
+          >
+            Pretty Format
           </button>
           <span className="text-xs text-nova-text-muted">
             {value.length} chars

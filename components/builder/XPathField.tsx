@@ -4,7 +4,7 @@ import { EditorView } from '@codemirror/view'
 import { EditorState } from '@codemirror/state'
 import { xpath } from '@/lib/codemirror/xpath-language'
 import { novaXPathTheme } from '@/lib/codemirror/xpath-theme'
-import { formatXPath } from '@/lib/codemirror/xpath-format'
+import { prettyPrintXPath } from '@/lib/codemirror/xpath-format'
 import { useMemo } from 'react'
 
 /** Minimal CodeMirror chrome for inline read-only display. */
@@ -29,6 +29,7 @@ const readOnlyExtensions = [
   xpath(),
   EditorView.editable.of(false),
   EditorState.readOnly.of(true),
+  EditorState.tabSize.of(4),
   EditorView.lineWrapping,
   inlineStyles,
 ]
@@ -38,7 +39,7 @@ interface XPathFieldProps {
 }
 
 export function XPathField({ value }: XPathFieldProps) {
-  const formatted = useMemo(() => formatXPath(value), [value])
+  const formatted = useMemo(() => prettyPrintXPath(value), [value])
 
   return (
     <CodeMirror
