@@ -10,7 +10,7 @@ Next.js web app that generates CommCare apps from natural language conversation.
 - **Animation**: Motion (imported as `motion/react`, NOT `framer-motion`)
 - **Validation**: Zod v4
 - **AI**: Vercel AI SDK (`ai` + `@ai-sdk/react` + `@ai-sdk/anthropic`) — `ToolLoopAgent`, `createUIMessageStream`, `createAgentUIStream`, `useChat`, `generateText`, `streamText`, `Output.object()`
-- **Markdown**: marked (allowlist renderer in `lib/markdown.ts` — headings, bold, italic, lists, tables, hr, code; blocks links, images, raw HTML)
+- **Markdown**: marked (allowlist renderers in `lib/markdown.ts` — `renderMarkdown` for chat: headings, bold, italic, lists, tables, hr, code; blocks links, images, raw HTML. `renderPreviewMarkdown` for preview: same plus links and images)
 - **Icons**: Coolicons (`@iconify-icons/ci`) + Tabler (`@iconify-icons/tabler`) via `@iconify/react`
 - **Testing**: Vitest
 

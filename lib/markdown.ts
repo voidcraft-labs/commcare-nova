@@ -98,3 +98,25 @@ const marked = new Marked({ renderer, async: false })
 export function renderMarkdown(text: string): string {
   return marked.parse(text) as string
 }
+
+/**
+ * Preview markdown renderer — supports everything chat does, plus links and images.
+ */
+const previewRenderer: RendererObject = {
+  ...renderer,
+  link({ href, tokens }) {
+    const text = this.parser.parseInline(tokens)
+    return `<a href="${href}" target="_blank" rel="noopener noreferrer">${text}</a>`
+  },
+  image({ href, title, text }) {
+    const titleAttr = title ? ` title="${title}"` : ''
+    const altAttr = text ? ` alt="${text}"` : ''
+    return `<img src="${href}"${altAttr}${titleAttr} />`
+  },
+}
+
+const previewMarked = new Marked({ renderer: previewRenderer, async: false })
+
+export function renderPreviewMarkdown(text: string): string {
+  return previewMarked.parse(text) as string
+}

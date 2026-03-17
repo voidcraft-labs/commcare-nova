@@ -1,6 +1,7 @@
 'use client'
 import type { Question } from '@/lib/schemas/blueprint'
 import type { FormEngine } from '@/lib/preview/engine/formEngine'
+import { renderPreviewMarkdown } from '@/lib/markdown'
 
 interface GroupFieldProps {
   question: Question
@@ -17,9 +18,9 @@ export function GroupField({ question, path, engine, renderChildren }: GroupFiel
     <div className="rounded-lg border border-pv-input-border overflow-hidden">
       {question.label && (
         <div className="px-4 py-2 bg-pv-surface border-b border-pv-input-border">
-          <h4 className="text-sm font-medium text-nova-text">{state.resolvedLabel ?? question.label}</h4>
+          <div className="preview-markdown text-sm font-medium text-nova-text" dangerouslySetInnerHTML={{ __html: renderPreviewMarkdown(state.resolvedLabel ?? question.label ?? '') }} />
           {question.hint && (
-            <p className="text-xs text-nova-text-muted mt-0.5">{state.resolvedHint ?? question.hint}</p>
+            <div className="preview-markdown text-xs text-nova-text-muted mt-0.5" dangerouslySetInnerHTML={{ __html: renderPreviewMarkdown(state.resolvedHint ?? question.hint) }} />
           )}
         </div>
       )}

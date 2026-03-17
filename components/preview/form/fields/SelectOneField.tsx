@@ -1,6 +1,7 @@
 'use client'
 import type { Question } from '@/lib/schemas/blueprint'
 import type { QuestionState } from '@/lib/preview/engine/types'
+import { renderPreviewMarkdown } from '@/lib/markdown'
 import { ConstraintError } from './ConstraintError'
 
 interface SelectOneFieldProps {
@@ -45,7 +46,7 @@ export function SelectOneField({ question, state, onChange, onBlur }: SelectOneF
                 <div className="w-2 h-2 rounded-full bg-pv-accent" />
               )}
             </div>
-            <span className="text-sm text-nova-text">{opt.label}</span>
+            <span className="preview-markdown text-sm text-nova-text" dangerouslySetInnerHTML={{ __html: renderPreviewMarkdown(opt.label) }} />
           </label>
         ))}
       </div>
