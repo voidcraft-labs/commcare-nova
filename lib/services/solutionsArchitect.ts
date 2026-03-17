@@ -776,7 +776,7 @@ export function createSolutionsArchitect(
             const question = mutableBp.updateQuestion(moduleIndex, formIndex, questionId, updates)
             const form = mutableBp.getForm(moduleIndex, formIndex)!
             ctx.emit('data-form-updated', { moduleIndex, formIndex, form })
-            return { moduleIndex, formIndex, questionId, question }
+            return { moduleIndex, formIndex, questionId, updatedFields: Object.keys(updates) }
           } catch (err) {
             return { error: err instanceof Error ? err.message : String(err) }
           }
