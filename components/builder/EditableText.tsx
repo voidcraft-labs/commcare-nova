@@ -8,14 +8,16 @@ interface EditableTextProps {
   label: string
   value: string
   onSave: (value: string) => void
+  onEmpty?: () => void
   mono?: boolean
   color?: string
   placeholder?: string
   multiline?: boolean
+  startEditing?: boolean
 }
 
-export function EditableText({ label, value, onSave, mono, color, placeholder, multiline }: EditableTextProps) {
-  const [editing, setEditing] = useState(false)
+export function EditableText({ label, value, onSave, onEmpty, mono, color, placeholder, multiline, startEditing }: EditableTextProps) {
+  const [editing, setEditing] = useState(!!startEditing)
   const [draft, setDraft] = useState(value)
   const [saved, setSaved] = useState(false)
   const inputRef = useRef<HTMLInputElement | HTMLTextAreaElement>(null)
@@ -34,17 +36,24 @@ export function EditableText({ label, value, onSave, mono, color, placeholder, m
   const commit = useCallback(() => {
     setEditing(false)
     const trimmed = draft.trim()
+    if (!trimmed && onEmpty) {
+      onEmpty()
+      return
+    }
     if (trimmed !== value) {
       onSave(trimmed)
       setSaved(true)
       setTimeout(() => setSaved(false), 1500)
     }
-  }, [draft, value, onSave])
+  }, [draft, value, onSave, onEmpty])
 
   const cancel = useCallback(() => {
     setDraft(value)
     setEditing(false)
-  }, [value])
+    if (!value.trim() && onEmpty) {
+      onEmpty()
+    }
+  }, [value, onEmpty])
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && !multiline) {

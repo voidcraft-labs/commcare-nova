@@ -42,6 +42,7 @@ interface DetailPanelProps {
 
 export function DetailPanel({ builder }: DetailPanelProps) {
   const [xpathModal, setXpathModal] = useState<{ field: string; value: string; label: string } | null>(null)
+  const [newlyAdded, setNewlyAdded] = useState<{ field: string; questionPath: string } | null>(null)
 
   const selected = builder.selected!
   const mb = builder.mb!
@@ -128,12 +129,20 @@ export function DetailPanel({ builder }: DetailPanelProps) {
     { field: 'constraint_msg', label: 'Constraint Message' },
   ] as const
 
+  // Derive which field (if any) is newly added for the current selection
+  const newlyAddedField = newlyAdded && newlyAdded.questionPath === selected.questionPath ? newlyAdded.field : null
+  const clearNewlyAdded = () => setNewlyAdded(null)
+
   // Compute missing optional fields for "add" affordances
   const missingXPathFields = question
     ? xpathFields.filter(f => !question[f.field as keyof Question])
     : []
   const missingTextFields = question
-    ? addableTextFields.filter(f => !question[f.field as keyof Question])
+    ? addableTextFields.filter(f =>
+        !question[f.field as keyof Question]
+        && newlyAddedField !== f.field
+        && !(f.field === 'constraint_msg' && !question.constraint)
+      )
     : []
 
   return (
@@ -318,11 +327,16 @@ export function DetailPanel({ builder }: DetailPanelProps) {
                 <Badge variant="emerald">case name</Badge>
               </div>
             )}
-            {question.hint && (
+            {(question.hint || newlyAddedField === 'hint') && (
               <EditableText
                 label="Hint"
-                value={question.hint}
-                onSave={(v) => saveQuestion('hint', v || null)}
+                value={question.hint ?? ''}
+                onSave={(v) => {
+                  saveQuestion('hint', v || null)
+                  clearNewlyAdded()
+                }}
+                startEditing={newlyAddedField === 'hint'}
+                onEmpty={newlyAddedField === 'hint' ? clearNewlyAdded : undefined}
               />
             )}
             <EditableDropdown
@@ -349,12 +363,17 @@ export function DetailPanel({ builder }: DetailPanelProps) {
               <div>
                 <label className="text-xs text-nova-text-muted uppercase tracking-wider mb-1 block">Constraint</label>
                 <XPathField value={question.constraint} onClick={() => setXpathModal({ field: 'constraint', value: question.constraint!, label: 'Constraint' })} />
-                {question.constraint_msg && (
+                {(question.constraint_msg || newlyAddedField === 'constraint_msg') && (
                   <div className="mt-1">
                     <EditableText
                       label="Constraint Message"
-                      value={question.constraint_msg}
-                      onSave={(v) => saveQuestion('constraint_msg', v || null)}
+                      value={question.constraint_msg ?? ''}
+                      onSave={(v) => {
+                        saveQuestion('constraint_msg', v || null)
+                        clearNewlyAdded()
+                      }}
+                      startEditing={newlyAddedField === 'constraint_msg'}
+                      onEmpty={newlyAddedField === 'constraint_msg' ? clearNewlyAdded : undefined}
                     />
                   </div>
                 )}
@@ -400,7 +419,7 @@ export function DetailPanel({ builder }: DetailPanelProps) {
                   {missingTextFields.map(({ field, label }) => (
                     <button
                       key={field}
-                      onClick={() => saveQuestion(field, ' ')}
+                      onClick={() => setNewlyAdded({ field, questionPath: selected.questionPath! })}
                       className="inline-flex items-center gap-1 px-2 py-0.5 text-xs text-nova-text-muted hover:text-nova-text-secondary bg-nova-surface hover:bg-nova-elevated border border-nova-border/40 rounded transition-colors"
                     >
                       <Icon icon={ciAddPlus} width="10" height="10" />
