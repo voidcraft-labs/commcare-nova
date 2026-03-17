@@ -40,7 +40,7 @@ export function QuestionField({ question, state, onChange, onBlur }: QuestionFie
     case 'select':
       return <SelectMultiField question={question} state={state} onChange={onChange} onBlur={onBlur} />
     case 'label':
-      return <LabelField question={question} />
+      return <LabelField question={question} state={state} />
     default:
       return null
   }

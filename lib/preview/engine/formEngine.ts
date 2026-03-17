@@ -5,6 +5,7 @@ import { evaluate } from '../xpath/evaluator'
 import { toBoolean } from '../xpath/coerce'
 import { DataInstance } from './dataInstance'
 import { TriggerDag } from './triggerDag'
+import { resolveOutputTags } from './outputTag'
 import type { QuestionState } from './types'
 
 /**
@@ -305,6 +306,15 @@ export class FormEngine {
         }
         case 'constraint': {
           this.evaluateConstraint(path, state)
+          break
+        }
+        case 'output': {
+          const q = this.findQuestion(path)
+          if (q) {
+            const resolve = (expr: string) => String(evaluate(expr, ctx))
+            state.resolvedLabel = q.label ? resolveOutputTags(q.label, resolve) : undefined
+            state.resolvedHint = q.hint ? resolveOutputTags(q.hint, resolve) : undefined
+          }
           break
         }
       }

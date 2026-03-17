@@ -79,12 +79,12 @@ export function FormRenderer({ questions, engine, prefix = '/data' }: FormRender
             <label className="block space-y-1.5">
               {q.label && (
                 <div className="flex items-center gap-1">
-                  <span className="text-sm font-medium text-nova-text">{q.label}</span>
+                  <span className="text-sm font-medium text-nova-text">{state.resolvedLabel ?? q.label}</span>
                   {state.required && <span className="text-nova-rose text-xs">*</span>}
                 </div>
               )}
               {q.hint && q.type !== 'label' && (
-                <p className="text-xs text-nova-text-muted">{q.hint}</p>
+                <p className="text-xs text-nova-text-muted">{state.resolvedHint ?? q.hint}</p>
               )}
               <QuestionField
                 question={q}
