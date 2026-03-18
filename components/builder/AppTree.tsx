@@ -14,9 +14,10 @@ interface AppTreeProps {
   onSelect: (selected: any) => void
   phase: BuilderPhase
   actions?: React.ReactNode
+  hideHeader?: boolean
 }
 
-export function AppTree({ data, selected, onSelect, phase, actions }: AppTreeProps) {
+export function AppTree({ data, selected, onSelect, phase, actions, hideHeader }: AppTreeProps) {
   if (!data) {
     return (
       <div className="h-full flex items-center justify-center text-nova-text-muted">
@@ -27,17 +28,18 @@ export function AppTree({ data, selected, onSelect, phase, actions }: AppTreePro
 
   return (
     <div className="h-full flex flex-col">
-      {/* Subheader bar — matches PreviewHeader dimensions */}
-      <div className="flex items-center justify-between px-6 h-12 border-b border-nova-border shrink-0">
-        <div className="flex items-center min-w-0">
-          <span className="text-sm font-medium text-nova-text truncate">{data.app_name}</span>
-        </div>
-        {actions && (
-          <div className="flex items-center gap-2 shrink-0">
-            {actions}
+      {!hideHeader && (
+        <div className="flex items-center justify-between px-6 h-12 border-b border-nova-border shrink-0">
+          <div className="flex items-center min-w-0">
+            <span className="text-sm font-medium text-nova-text truncate">{data.app_name}</span>
           </div>
-        )}
-      </div>
+          {actions && (
+            <div className="flex items-center gap-2 shrink-0">
+              {actions}
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Scrollable module cards */}
       <div className="flex-1 overflow-auto p-6 space-y-4">

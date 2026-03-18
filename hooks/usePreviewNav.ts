@@ -3,7 +3,7 @@ import { useState, useCallback, useMemo } from 'react'
 import type { PreviewScreen } from '@/lib/preview/engine/types'
 import type { AppBlueprint } from '@/lib/schemas/blueprint'
 
-export function usePreviewNav(blueprint: AppBlueprint) {
+export function usePreviewNav(blueprint: AppBlueprint | null) {
   const [stack, setStack] = useState<PreviewScreen[]>([{ type: 'home' }])
 
   const current = stack[stack.length - 1]
@@ -26,6 +26,7 @@ export function usePreviewNav(blueprint: AppBlueprint) {
   }, [])
 
   const breadcrumb = useMemo(() => {
+    if (!blueprint) return []
     const parts: string[] = []
     for (const screen of stack) {
       switch (screen.type) {

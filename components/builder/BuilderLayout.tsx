@@ -26,7 +26,9 @@ import { GenerationProgress } from '@/components/builder/GenerationProgress'
 import { ReplayController } from '@/components/builder/ReplayController'
 import { DownloadDropdown } from '@/components/ui/DownloadDropdown'
 import { PreviewToggle } from '@/components/preview/PreviewToggle'
+import { PreviewHeader } from '@/components/preview/PreviewHeader'
 import { PreviewShell } from '@/components/preview/PreviewShell'
+import { usePreviewNav } from '@/hooks/usePreviewNav'
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog'
 import { getReplayData, clearReplayData } from '@/lib/services/logReplay'
 
@@ -305,6 +307,8 @@ export function BuilderLayout({ buildId }: { buildId: string }) {
     setDeleteConfirm(false)
   }, [builder])
 
+  const nav = usePreviewNav(builder.blueprint)
+
   if (!loaded) return null
 
   const showProgress = (isGenerating || builder.phase === BuilderPhase.Done) && !progressHidden && !inReplayMode
@@ -420,98 +424,110 @@ export function BuilderLayout({ buildId }: { buildId: string }) {
           <AnimatePresence>
             {!isCentered && (
               <motion.div
-                className="flex-1 relative"
+                className="flex-1 flex flex-col overflow-hidden"
                 initial={{ opacity: 0 }}
                 animate={{ opacity: 1 }}
                 exit={{ opacity: 0 }}
                 transition={{ duration: 0.3, delay: 0.15 }}
               >
-                <div className="absolute inset-0 overflow-auto">
-                  {!chatOpen && (
-                    <button
-                      onClick={() => setChatOpen(true)}
-                      className="absolute top-3 left-3 z-10 p-2 bg-nova-surface border border-nova-border rounded-lg hover:border-nova-border-bright transition-colors"
-                      title="Open chat"
-                    >
-                      <Icon icon={ciHamburgerMd} width="16" height="16" />
-                    </button>
-                  )}
-
-                  {builder.treeData ? (
-                    isPreviewLike && builder.phase === BuilderPhase.Done && builder.blueprint ? (
-                      <PreviewShell
-                        blueprint={builder.blueprint}
-                        builder={builder}
-                        mode={editMode}
-                        actions={
-                          <>
-                            <PreviewToggle mode={viewMode} onChange={handleViewModeChange} />
-                            {downloadActions}
-                          </>
-                        }
-                      />
-                    ) : (
-                      <AppTree
-                        data={builder.treeData}
-                        selected={viewMode === 'tree' ? builder.selected : null}
-                        onSelect={(s) => builder.select(s)}
-                        phase={builder.phase}
-                        actions={
-                          builder.phase === BuilderPhase.Done && builder.blueprint ? (
-                            <>
-                              <PreviewToggle mode={viewMode} onChange={handleViewModeChange} />
-                              {downloadActions}
-                            </>
-                          ) : undefined
-                        }
-                      />
-                    )
-                  ) : null}
-                </div>
-
-                <AnimatePresence>
-                  {showProgress && (
-                    <motion.div
-                      layout
-                      className={`absolute z-10 pointer-events-none ${
-                        progressMode === 'centered'
-                          ? 'inset-0 flex items-center justify-center'
-                          : 'bottom-4 inset-x-0 flex justify-center'
-                      }`}
-                      transition={{ layout: { duration: 0.5, ease: [0.4, 0, 0.2, 1] } }}
-                    >
-                      <div className="pointer-events-auto">
-                        <GenerationProgress
-                          phase={builder.phase}
-                          message={builder.statusMessage}
-                          completed={builder.progressCompleted}
-                          total={builder.progressTotal}
-                          mode={progressMode}
-                          onDone={() => setProgressHidden(true)}
-                        />
+                {/* Subheader bar — spans full width, sidebars slide beneath */}
+                {builder.treeData && (
+                  isPreviewLike && builder.phase === BuilderPhase.Done && builder.blueprint ? (
+                    <PreviewHeader
+                      breadcrumb={nav.breadcrumb}
+                      canGoBack={nav.canGoBack}
+                      onBack={nav.back}
+                      onBreadcrumbClick={nav.navigateTo}
+                      actions={
+                        <>
+                          <PreviewToggle mode={viewMode} onChange={handleViewModeChange} />
+                          {downloadActions}
+                        </>
+                      }
+                    />
+                  ) : (
+                    <div className="flex items-center justify-between px-6 h-12 border-b border-nova-border shrink-0">
+                      <div className="flex items-center min-w-0">
+                        <span className="text-sm font-medium text-nova-text truncate">{builder.treeData.app_name}</span>
                       </div>
-                    </motion.div>
-                  )}
-                </AnimatePresence>
-              </motion.div>
-            )}
-          </AnimatePresence>
+                      {builder.phase === BuilderPhase.Done && builder.blueprint && (
+                        <div className="flex items-center gap-2 shrink-0">
+                          <PreviewToggle mode={viewMode} onChange={handleViewModeChange} />
+                          {downloadActions}
+                        </div>
+                      )}
+                    </div>
+                  )
+                )}
 
-          {/* DetailPanel — tree mode: inline. Preview mode: overlay. Test mode: hidden. */}
-          {viewMode === 'tree' && builder.selected && builder.blueprint && (
-            <DetailPanel builder={builder} />
-          )}
-          <AnimatePresence>
-            {viewMode === 'preview' && builder.selected && builder.blueprint && (
-              <motion.div
-                key="preview-detail"
-                initial={{ x: '100%' }}
-                animate={{ x: 0 }}
-                exit={{ x: '100%' }}
-                transition={{ type: 'spring', damping: 30, stiffness: 300 }}
-                className="fixed right-0 top-0 bottom-0 w-80 z-30 shadow-[-8px_0_24px_rgba(0,0,0,0.4)] backdrop-blur-sm bg-nova-deep/95"
-              >
-                <DetailPanel builder={builder} />
+                {/* Content + Detail panel row — below subheader */}
+                <div className="flex-1 flex overflow-hidden">
+                  <div className="flex-1 relative">
+                    <div className="absolute inset-0 overflow-auto">
+                      {!chatOpen && (
+                        <button
+                          onClick={() => setChatOpen(true)}
+                          className="absolute top-3 left-3 z-10 p-2 bg-nova-surface border border-nova-border rounded-lg hover:border-nova-border-bright transition-colors"
+                          title="Open chat"
+                        >
+                          <Icon icon={ciHamburgerMd} width="16" height="16" />
+                        </button>
+                      )}
+
+                      {builder.treeData ? (
+                        isPreviewLike && builder.phase === BuilderPhase.Done && builder.blueprint ? (
+                          <PreviewShell
+                            blueprint={builder.blueprint}
+                            builder={builder}
+                            mode={editMode}
+                            nav={nav}
+                            hideHeader
+                          />
+                        ) : (
+                          <AppTree
+                            data={builder.treeData}
+                            selected={viewMode === 'tree' ? builder.selected : null}
+                            onSelect={(s) => builder.select(s)}
+                            phase={builder.phase}
+                            hideHeader
+                          />
+                        )
+                      ) : null}
+                    </div>
+
+                    <AnimatePresence>
+                      {showProgress && (
+                        <motion.div
+                          layout
+                          className={`absolute z-10 pointer-events-none ${
+                            progressMode === 'centered'
+                              ? 'inset-0 flex items-center justify-center'
+                              : 'bottom-4 inset-x-0 flex justify-center'
+                          }`}
+                          transition={{ layout: { duration: 0.5, ease: [0.4, 0, 0.2, 1] } }}
+                        >
+                          <div className="pointer-events-auto">
+                            <GenerationProgress
+                              phase={builder.phase}
+                              message={builder.statusMessage}
+                              completed={builder.progressCompleted}
+                              total={builder.progressTotal}
+                              mode={progressMode}
+                              onDone={() => setProgressHidden(true)}
+                            />
+                          </div>
+                        </motion.div>
+                      )}
+                    </AnimatePresence>
+                  </div>
+
+                  {/* DetailPanel — slides from right, beneath subheader */}
+                  <AnimatePresence>
+                    {(viewMode === 'tree' || viewMode === 'preview') && builder.selected && builder.blueprint && (
+                      <DetailPanel builder={builder} />
+                    )}
+                  </AnimatePresence>
+                </div>
               </motion.div>
             )}
           </AnimatePresence>
