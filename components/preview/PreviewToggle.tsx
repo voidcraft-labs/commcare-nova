@@ -11,7 +11,7 @@ interface PreviewToggleProps {
 }
 
 const segments: { key: 'tree' | 'preview' | 'test'; label: string; icon?: IconifyIcon }[] = [
-  { key: 'tree', label: 'Tree View', icon: tablerListTree },
+  { key: 'tree', label: 'Tree', icon: tablerListTree },
   { key: 'preview', label: 'Preview', icon: tablerPlayerPause },
   { key: 'test', label: 'Live', icon: tablerPlayerPlay },
 ]
