@@ -37,25 +37,30 @@ describe('HistoryManager', () => {
     expect(hm.canUndo).toBe(true)
   })
 
-  it('undo restores previous state', () => {
+  it('undo restores previous state and returns meta', () => {
     const mb = new MutableBlueprint(makeBlueprint())
     const hm = new HistoryManager(mb)
     hm.proxied.updateQuestion(0, 0, 'q1', { label: 'Changed' })
     expect(hm.proxied.getQuestion(0, 0, 'q1')?.question.label).toBe('Changed')
 
-    const restored = hm.undo()
-    expect(restored).not.toBeNull()
+    const result = hm.undo()
+    expect(result).not.toBeNull()
+    expect(result!.mb).toBeInstanceOf(MutableBlueprint)
+    expect(result!.meta.type).toBe('update')
+    expect(result!.meta.questionId).toBe('q1')
     expect(hm.proxied.getQuestion(0, 0, 'q1')?.question.label).toBe('Q1')
   })
 
-  it('redo restores undone state', () => {
+  it('redo restores undone state and returns meta', () => {
     const mb = new MutableBlueprint(makeBlueprint())
     const hm = new HistoryManager(mb)
     hm.proxied.updateQuestion(0, 0, 'q1', { label: 'Changed' })
     hm.undo()
     expect(hm.canRedo).toBe(true)
 
-    hm.redo()
+    const result = hm.redo()
+    expect(result).not.toBeNull()
+    expect(result!.meta.type).toBe('update')
     expect(hm.proxied.getQuestion(0, 0, 'q1')?.question.label).toBe('Changed')
   })
 
@@ -147,5 +152,97 @@ describe('HistoryManager', () => {
     expect(hm.proxied.getQuestion(0, 0, 'q1')?.question.label).toBe('B')
     hm.redo() // B → C
     expect(hm.proxied.getQuestion(0, 0, 'q1')?.question.label).toBe('C')
+  })
+
+  // ── Metadata capture tests ───────────────────────────────────────────
+
+  describe('metadata capture', () => {
+    it('captures add metadata', () => {
+      const mb = new MutableBlueprint(makeBlueprint())
+      const hm = new HistoryManager(mb)
+      hm.proxied.addQuestion(0, 0, { id: 'q4', type: 'text', label: 'Q4' })
+
+      const result = hm.undo()!
+      expect(result.meta).toEqual({
+        type: 'add',
+        moduleIndex: 0,
+        formIndex: 0,
+        questionId: 'q4',
+      })
+    })
+
+    it('captures remove metadata', () => {
+      const mb = new MutableBlueprint(makeBlueprint())
+      const hm = new HistoryManager(mb)
+      hm.proxied.removeQuestion(0, 0, 'q2')
+
+      const result = hm.undo()!
+      expect(result.meta).toEqual({
+        type: 'remove',
+        moduleIndex: 0,
+        formIndex: 0,
+        questionId: 'q2',
+      })
+    })
+
+    it('captures move metadata', () => {
+      const mb = new MutableBlueprint(makeBlueprint())
+      const hm = new HistoryManager(mb)
+      hm.proxied.moveQuestion(0, 0, 'q3', { afterId: 'q1' })
+
+      const result = hm.undo()!
+      expect(result.meta).toEqual({
+        type: 'move',
+        moduleIndex: 0,
+        formIndex: 0,
+        questionId: 'q3',
+      })
+    })
+
+    it('captures duplicate metadata with clone ID', () => {
+      const mb = new MutableBlueprint(makeBlueprint())
+      const hm = new HistoryManager(mb)
+      const cloneId = hm.proxied.duplicateQuestion(0, 0, 'q1')
+
+      const result = hm.undo()!
+      expect(result.meta.type).toBe('duplicate')
+      expect(result.meta.questionId).toBe('q1')
+      expect(result.meta.secondaryId).toBe(cloneId)
+    })
+
+    it('captures rename metadata', () => {
+      const mb = new MutableBlueprint(makeBlueprint())
+      const hm = new HistoryManager(mb)
+      hm.proxied.renameQuestion(0, 0, 'q1', 'q1_renamed')
+
+      const result = hm.undo()!
+      expect(result.meta).toEqual({
+        type: 'rename',
+        moduleIndex: 0,
+        formIndex: 0,
+        questionId: 'q1',
+        secondaryId: 'q1_renamed',
+      })
+    })
+
+    it('captures structural metadata for non-question mutations', () => {
+      const mb = new MutableBlueprint(makeBlueprint())
+      const hm = new HistoryManager(mb)
+      hm.proxied.updateModule(0, { name: 'Renamed Module' })
+
+      const result = hm.undo()!
+      expect(result.meta.type).toBe('structural')
+    })
+
+    it('preserves metadata through redo', () => {
+      const mb = new MutableBlueprint(makeBlueprint())
+      const hm = new HistoryManager(mb)
+      hm.proxied.removeQuestion(0, 0, 'q2')
+
+      hm.undo()
+      const result = hm.redo()!
+      expect(result.meta.type).toBe('remove')
+      expect(result.meta.questionId).toBe('q2')
+    })
   })
 })

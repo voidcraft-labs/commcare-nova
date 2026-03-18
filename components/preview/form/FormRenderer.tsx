@@ -211,12 +211,16 @@ export function FormRenderer({ questions, engine, prefix = '/data', parentId }: 
           const sourceId = event.operation.source?.id
           if (sourceId) setActiveId(sourceId as string)
           document.body.style.cursor = 'grabbing'
-          if (ctx) ctx.builder.select(null)
+          if (ctx) {
+            ctx.builder.setDragging(true)
+            ctx.builder.select(null)
+          }
         }}
         onDragEnd={(event) => {
           const draggedId = activeId
           setActiveId(null)
           document.body.style.cursor = ''
+          if (ctx) ctx.builder.setDragging(false)
 
           if (event.canceled || !ctx || !draggedId) return
 

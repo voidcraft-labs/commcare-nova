@@ -1,6 +1,6 @@
 import type { AppBlueprint, Scaffold, BlueprintForm, CaseType } from '@/lib/schemas/blueprint'
 import { MutableBlueprint } from './mutableBlueprint'
-import { HistoryManager } from './historyManager'
+import { HistoryManager, type SnapshotMeta } from './historyManager'
 
 /** Apply a data part to a builder — shared between real-time streaming (onData) and replay. */
 export function applyDataPart(builder: Builder, type: string, data: any): void {
@@ -70,6 +70,7 @@ export class Builder {
   scaffold: Scaffold | null = null
   private _mb: MutableBlueprint | null = null
   private history: HistoryManager | null = null
+  private _isDragging = false
   caseTypes: CaseType[] | null = null
   statusMessage = ''
   selected: SelectedElement | null = null
@@ -123,22 +124,68 @@ export class Builder {
     }
   }
 
+  // ── Drag state ────────────────────────────────────────────────────
+
+  setDragging(active: boolean) {
+    this._isDragging = active
+  }
+
   // ── Undo/Redo ──────────────────────────────────────────────────────
 
+  private deriveSelection(meta: SnapshotMeta, direction: 'undo' | 'redo'): SelectedElement | null {
+    const isUndo = direction === 'undo'
+    let questionId: string | undefined
+
+    switch (meta.type) {
+      case 'add':
+        questionId = isUndo ? undefined : meta.questionId
+        break
+      case 'remove':
+        questionId = isUndo ? meta.questionId : undefined
+        break
+      case 'move':
+      case 'update':
+        questionId = meta.questionId
+        break
+      case 'duplicate':
+        questionId = isUndo ? meta.questionId : meta.secondaryId
+        break
+      case 'rename':
+        questionId = isUndo ? meta.questionId : meta.secondaryId
+        break
+      case 'structural':
+        return null
+    }
+
+    if (!questionId) return null
+
+    // Verify the question exists in the restored blueprint
+    if (!this._mb?.getQuestion(meta.moduleIndex, meta.formIndex, questionId)) return null
+
+    return {
+      type: 'question',
+      moduleIndex: meta.moduleIndex,
+      formIndex: meta.formIndex,
+      questionPath: questionId,
+    }
+  }
+
   undo() {
-    const newMb = this.history?.undo()
-    if (!newMb) return
-    this._mb = newMb
-    this.selected = null
+    if (this._isDragging) return
+    const result = this.history?.undo()
+    if (!result) return
+    this._mb = result.mb
+    this.selected = this.deriveSelection(result.meta, 'undo')
     this.mutationCount++
     this.notify()
   }
 
   redo() {
-    const newMb = this.history?.redo()
-    if (!newMb) return
-    this._mb = newMb
-    this.selected = null
+    if (this._isDragging) return
+    const result = this.history?.redo()
+    if (!result) return
+    this._mb = result.mb
+    this.selected = this.deriveSelection(result.meta, 'redo')
     this.mutationCount++
     this.notify()
   }
@@ -153,7 +200,10 @@ export class Builder {
 
   /** Transition to data model phase (SA called generateSchema). */
   startDataModel() {
-    if (this.history) this.history.enabled = false
+    if (this.history) {
+      this.history.clear()
+      this.history.enabled = false
+    }
     this.phase = BuilderPhase.DataModel
     this.statusMessage = 'Designing data model...'
     this.notify()
@@ -314,6 +364,13 @@ export class Builder {
   }
 
   select(el: SelectedElement | null) {
+    if (this.history && el && this.selected) {
+      const prev = this.selected
+      if (prev.formIndex !== undefined && el.formIndex !== undefined &&
+          (prev.moduleIndex !== el.moduleIndex || prev.formIndex !== el.formIndex)) {
+        this.history.clear()
+      }
+    }
     this.selected = el
     this.notify()
   }
