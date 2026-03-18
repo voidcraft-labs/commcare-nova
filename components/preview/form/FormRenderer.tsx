@@ -14,7 +14,6 @@ import { LabelField } from './fields/LabelField'
 import { RepeatField } from './fields/RepeatField'
 import { EditableQuestionWrapper } from './EditableQuestionWrapper'
 import { InsertionPoint } from './InsertionPoint'
-import { LogicBadges } from './LogicBadges'
 
 interface FormRendererProps {
   questions: Question[]
@@ -67,53 +66,41 @@ function SortableQuestion({
   if (q.type === 'group') {
     content = (
       <EditableQuestionWrapper questionId={q.id} isDragging={isDragging}>
-        <div className="relative">
-          <div className="absolute top-1 right-1 z-10"><LogicBadges question={q} /></div>
-          <GroupField question={q} path={path} engine={engine} renderChildren={renderChildren} />
-        </div>
+        <GroupField question={q} path={path} engine={engine} renderChildren={renderChildren} />
       </EditableQuestionWrapper>
     )
   } else if (q.type === 'repeat') {
     content = (
       <EditableQuestionWrapper questionId={q.id} isDragging={isDragging}>
-        <div className="relative">
-          <div className="absolute top-1 right-1 z-10"><LogicBadges question={q} /></div>
-          <RepeatField question={q} path={path} engine={engine} renderChildren={renderChildren} />
-        </div>
+        <RepeatField question={q} path={path} engine={engine} renderChildren={renderChildren} />
       </EditableQuestionWrapper>
     )
   } else if (q.type === 'label') {
     content = (
       <EditableQuestionWrapper questionId={q.id} isDragging={isDragging}>
-        <div className="relative">
-          <div className="absolute top-1 right-1 z-10"><LogicBadges question={q} /></div>
-          <LabelField question={q} state={state} />
-        </div>
+        <LabelField question={q} state={state} />
       </EditableQuestionWrapper>
     )
   } else {
     content = (
       <EditableQuestionWrapper questionId={q.id} isDragging={isDragging}>
-        <div className="relative">
-          <div className="absolute top-1 right-8 z-10"><LogicBadges question={q} /></div>
-          <label className="block space-y-1.5">
-            {q.label && (
-              <div className="flex items-center gap-1">
-                <span className="preview-markdown text-sm font-medium text-nova-text" dangerouslySetInnerHTML={{ __html: renderPreviewMarkdown(state.resolvedLabel ?? q.label) }} />
-                {state.required && <span className="text-nova-rose text-xs">*</span>}
-              </div>
-            )}
-            {q.hint && (
-              <div className="preview-markdown text-xs text-nova-text-muted" dangerouslySetInnerHTML={{ __html: renderPreviewMarkdown(state.resolvedHint ?? q.hint) }} />
-            )}
-            <QuestionField
-              question={q}
-              state={state}
-              onChange={(value) => engine.setValue(path, value)}
-              onBlur={() => engine.touch(path)}
-            />
-          </label>
-        </div>
+        <label className="block space-y-1.5">
+          {q.label && (
+            <div className="flex items-center gap-1">
+              <span className="preview-markdown text-sm font-medium text-nova-text" dangerouslySetInnerHTML={{ __html: renderPreviewMarkdown(state.resolvedLabel ?? q.label) }} />
+              {state.required && <span className="text-nova-rose text-xs">*</span>}
+            </div>
+          )}
+          {q.hint && (
+            <div className="preview-markdown text-xs text-nova-text-muted" dangerouslySetInnerHTML={{ __html: renderPreviewMarkdown(state.resolvedHint ?? q.hint) }} />
+          )}
+          <QuestionField
+            question={q}
+            state={state}
+            onChange={(value) => engine.setValue(path, value)}
+            onBlur={() => engine.touch(path)}
+          />
+        </label>
       </EditableQuestionWrapper>
     )
   }
