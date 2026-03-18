@@ -76,6 +76,8 @@ export class Builder {
   selected: SelectedElement | null = null
   /** When true, DetailPanel should auto-focus the label field on mount. Cleared after read. */
   autoFocusLabel = false
+  /** Path of a newly added question — Label and ID select-all on click until first save. */
+  newQuestionPath: string | null = null
   mutationCount = 0
   progressCompleted = 0
   progressTotal = 0
@@ -396,6 +398,7 @@ export class Builder {
     this.statusMessage = ''
     this.selected = null
     this.autoFocusLabel = false
+    this.newQuestionPath = null
     this.mutationCount = 0
     this.progressCompleted = 0
     this.progressTotal = 0

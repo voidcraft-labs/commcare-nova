@@ -42,7 +42,7 @@ Animated width panel (0 → 320px) via `AnimatePresence` + motion `width`/`opaci
 
 Reads/writes through `builder.mb` (persistent `MutableBlueprint`). Three editing patterns:
 
-- **EditableText** — Click-to-edit inline text. Single-line: Enter saves. Multiline: Enter inserts newline, Cmd/Ctrl+Enter saves. Escape cancels. Emerald checkmark fades on save.
+- **EditableText** — Always-rendered input/textarea styled as static text when unfocused, editing chrome on focus. Click places cursor at the native click position (no DOM swap). Single-line: Enter saves. Multiline: Enter inserts newline, Cmd/Ctrl+Enter saves. Escape cancels. Blur saves. Emerald checkmark fades on save. `autoFocus` focuses on mount. `selectAll` selects all text on focus (used for new question Label/ID via `builder.newQuestionPath`, cleared on first save).
 - **EditableDropdown** — Custom dark-themed dropdown. Selection saves immediately (including re-selection of current value, enabling actions like reopening the XPath modal). Click-outside/Escape closes.
 - **XPathEditorModal** — Portal-mounted CodeMirror editor with fold gutters, bracket matching, zebra stripes. Cmd/Ctrl+Enter saves, Escape closes. Cancel/Update buttons.
 

@@ -72,6 +72,7 @@ export function QuestionTypePicker({ anchorEl, atIndex, parentId, onClose }: Que
     mb.addQuestion(moduleIndex, formIndex, { id: newId, type: type as any, label: 'New Question' }, { atIndex, parentId })
     builder.notifyBlueprintChanged()
     builder.autoFocusLabel = true
+    builder.newQuestionPath = newId
     builder.select({ type: 'question', moduleIndex, formIndex, questionPath: newId })
     onClose()
   }

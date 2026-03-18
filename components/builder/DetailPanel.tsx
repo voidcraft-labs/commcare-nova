@@ -318,17 +318,19 @@ export function DetailPanel({ builder }: DetailPanelProps) {
               <EditableText
                 label="Label"
                 value={question.label ?? ''}
-                onSave={(v) => saveQuestion('label', v || null)}
+                onSave={(v) => { saveQuestion('label', v || null); builder.newQuestionPath = null }}
                 multiline
-                startEditing={builder.autoFocusLabel ? (() => { builder.autoFocusLabel = false; return true })() : undefined}
+                autoFocus={builder.autoFocusLabel ? (() => { builder.autoFocusLabel = false; return true })() : undefined}
+                selectAll={builder.newQuestionPath === selected.questionPath}
               />
             )}
             <EditableText
               label="ID"
               value={question.id}
-              onSave={renameQuestion}
+              onSave={(v) => { renameQuestion(v); builder.newQuestionPath = null }}
               mono
               color="text-nova-violet-bright"
+              selectAll={builder.newQuestionPath === selected.questionPath}
             />
             <EditableDropdown
               label="Type"
@@ -359,7 +361,7 @@ export function DetailPanel({ builder }: DetailPanelProps) {
                   saveQuestion('hint', v || null)
                   clearNewlyAdded()
                 }}
-                startEditing={newlyAddedField === 'hint'}
+                autoFocus={newlyAddedField === 'hint'}
                 onEmpty={newlyAddedField === 'hint' ? clearNewlyAdded : undefined}
               />
             )}
@@ -396,7 +398,7 @@ export function DetailPanel({ builder }: DetailPanelProps) {
                         saveQuestion('constraint_msg', v || null)
                         clearNewlyAdded()
                       }}
-                      startEditing={newlyAddedField === 'constraint_msg'}
+                      autoFocus={newlyAddedField === 'constraint_msg'}
                       onEmpty={newlyAddedField === 'constraint_msg' ? clearNewlyAdded : undefined}
                     />
                   </div>
