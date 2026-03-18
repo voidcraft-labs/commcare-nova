@@ -10,6 +10,8 @@ import ciSettings from '@iconify-icons/ci/settings'
 import ciUndo from '@iconify-icons/ci/undo'
 import ciRedo from '@iconify-icons/ci/redo'
 import ciChevronRight from '@iconify-icons/ci/chevron-right'
+import ciFileDocument from '@iconify-icons/ci/file-document'
+import ciDownloadPackage from '@iconify-icons/ci/download-package'
 import Link from 'next/link'
 import { useApiKey } from '@/hooks/useApiKey'
 import { useSettings } from '@/hooks/useSettings'
@@ -26,8 +28,11 @@ import { DetailPanel } from '@/components/builder/DetailPanel'
 import { GenerationProgress } from '@/components/builder/GenerationProgress'
 import { ReplayController } from '@/components/builder/ReplayController'
 import { PreviewToggle } from '@/components/preview/PreviewToggle'
+import { DownloadDropdown } from '@/components/ui/DownloadDropdown'
 import { PreviewShell } from '@/components/preview/PreviewShell'
 import { usePreviewNav } from '@/hooks/usePreviewNav'
+import type { PreviewScreen } from '@/lib/preview/engine/types'
+import { generateDummyCases } from '@/lib/preview/engine/dummyData'
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog'
 import { getReplayData, clearReplayData } from '@/lib/services/logReplay'
 
@@ -54,6 +59,8 @@ export function BuilderLayout({ buildId }: { buildId: string }) {
   const builder = useBuilder()
   const [chatOpen, setChatOpen] = useState(true)
   const [viewMode, setViewMode] = useState<'tree' | 'preview' | 'test'>('tree')
+  const viewModeRef = useRef(viewMode)
+  viewModeRef.current = viewMode
   const [progressHidden, setProgressHidden] = useState(false)
   const [deleteConfirm, setDeleteConfirm] = useState(false)
   const initialReplay = getReplayData()
@@ -78,10 +85,58 @@ export function BuilderLayout({ buildId }: { buildId: string }) {
     builder.reset()
   }, [builder])
 
+  const nav = usePreviewNav(builder.blueprint)
+  const navRef = useRef(nav)
+  navRef.current = nav
+
   const handleViewModeChange = useCallback((mode: 'tree' | 'preview' | 'test') => {
-    if (mode === 'test') builder.select(null)
+    const wasTree = viewModeRef.current === 'tree'
+    viewModeRef.current = mode
     setViewMode(mode)
-  }, [builder])
+
+    // Preview/Live → Tree: sync selection from current nav screen if nothing selected
+    if (mode === 'tree' && !builder.selected) {
+      const current = navRef.current.current
+      if (current.type === 'module') {
+        builder.select({ type: 'module', moduleIndex: current.moduleIndex })
+      } else if (current.type === 'form' || current.type === 'caseList') {
+        builder.select({ type: 'form', moduleIndex: current.moduleIndex, formIndex: current.formIndex })
+      }
+    }
+
+    // Tree → Preview/Live: sync nav to the current selection
+    if (!wasTree || !(mode === 'preview' || mode === 'test')) return
+    if (!builder.selected || !builder.blueprint) return
+
+    const sel = builder.selected
+    const bp = builder.blueprint
+    const stack: PreviewScreen[] = [{ type: 'home' }]
+    stack.push({ type: 'module', moduleIndex: sel.moduleIndex })
+
+    if (sel.formIndex !== undefined) {
+      const mod = bp.modules[sel.moduleIndex]
+      const form = mod?.forms[sel.formIndex]
+
+      // For followup forms in live mode, auto-select the first dummy case
+      let caseData: Map<string, string> | undefined
+      if (mode === 'test' && form?.type === 'followup' && mod?.case_type) {
+        const caseType = bp.case_types?.find(ct => ct.name === mod.case_type)
+        if (caseType) {
+          const rows = generateDummyCases(caseType, 1)
+          if (rows[0]) caseData = rows[0].properties
+        }
+      }
+
+      stack.push({
+        type: 'form',
+        moduleIndex: sel.moduleIndex,
+        formIndex: sel.formIndex,
+        ...(caseData && { caseData }),
+      })
+    }
+
+    nav.replaceStack(stack)
+  }, [builder, nav.replaceStack])
 
   const inReplayMode = replayData !== null
   const isCentered = builder.phase === BuilderPhase.Idle && !builder.treeData
@@ -171,7 +226,7 @@ export function BuilderLayout({ buildId }: { buildId: string }) {
     {
       key: 'Escape',
       handler: () => {
-        if (viewMode === 'test') { setViewMode('preview'); return }
+        if (viewMode === 'test') { handleViewModeChange('preview'); return }
         if (builder.selected) { builder.select(null); return }
       },
     },
@@ -306,14 +361,57 @@ export function BuilderLayout({ buildId }: { buildId: string }) {
     setDeleteConfirm(false)
   }, [builder])
 
-  const nav = usePreviewNav(builder.blueprint)
-
   if (!loaded) return null
 
   const showProgress = (isGenerating || builder.phase === BuilderPhase.Done) && !progressHidden && !inReplayMode
   const isPreviewLike = viewMode === 'preview' || viewMode === 'test'
   const editMode = viewMode === 'test' ? 'test' as const : 'edit' as const
 
+  // Unified breadcrumbs — derived from nav stack (preview/live) or selection (tree)
+  const breadcrumbParts: { label: string; onClick: () => void }[] = []
+  if (builder.blueprint) {
+    const bp = builder.blueprint
+    if (isPreviewLike) {
+      for (let i = 0; i < nav.breadcrumb.length; i++) {
+        const idx = i
+        breadcrumbParts.push({
+          label: nav.breadcrumb[idx],
+          onClick: () => {
+            nav.navigateTo(idx)
+            const screen = nav.stack[idx]
+            if (screen.type === 'module') {
+              builder.select({ type: 'module', moduleIndex: screen.moduleIndex })
+            } else if (screen.type === 'form' || screen.type === 'caseList') {
+              builder.select({ type: 'form', moduleIndex: screen.moduleIndex, formIndex: screen.formIndex })
+            } else {
+              builder.select(null)
+            }
+          },
+        })
+      }
+    } else {
+      const sel = builder.selected
+      breadcrumbParts.push({ label: bp.app_name, onClick: () => builder.select(null) })
+      if (sel) {
+        const mod = bp.modules[sel.moduleIndex]
+        if (mod) {
+          breadcrumbParts.push({
+            label: mod.name,
+            onClick: () => builder.select({ type: 'module', moduleIndex: sel.moduleIndex }),
+          })
+        }
+        if (sel.formIndex !== undefined) {
+          const form = mod?.forms[sel.formIndex]
+          if (form) {
+            breadcrumbParts.push({
+              label: form.name,
+              onClick: () => builder.select({ type: 'form', moduleIndex: sel.moduleIndex, formIndex: sel.formIndex! }),
+            })
+          }
+        }
+      }
+    }
+  }
 
   return (
     <LayoutGroup>
@@ -413,42 +511,36 @@ export function BuilderLayout({ buildId }: { buildId: string }) {
                 {/* Subheader toolbar — breadcrumbs + toggle (centered) + undo/redo */}
                 {builder.treeData && builder.phase === BuilderPhase.Done && builder.blueprint && (
                   <div className="grid grid-cols-[1fr_auto_1fr] items-center px-4 h-16 border-b border-nova-border shrink-0">
-                    {/* Left — app name (tree) or breadcrumbs (preview/live) */}
+                    {/* Left — breadcrumbs (all view modes) */}
                     <div className="flex items-center min-w-0">
-                      {isPreviewLike ? (
-                        <nav className="flex items-center gap-1 text-sm min-w-0 truncate">
-                          {nav.breadcrumb.map((part, i) => {
-                            const isLast = i === nav.breadcrumb.length - 1
-                            return (
-                              <span key={i} className="flex items-center gap-1 shrink-0">
-                                {i > 0 && (
-                                  <Icon icon={ciChevronRight} width="14" height="14" className="text-nova-text-muted/50" />
-                                )}
-                                {isLast ? (
-                                  <span className="text-nova-text font-medium truncate">{part}</span>
-                                ) : (
-                                  <button
-                                    onClick={() => nav.navigateTo(i)}
-                                    className="text-nova-text-muted hover:text-nova-text transition-colors cursor-pointer whitespace-nowrap"
-                                  >
-                                    {part}
-                                  </button>
-                                )}
-                              </span>
-                            )
-                          })}
-                        </nav>
-                      ) : (
-                        <span className="text-sm font-medium text-nova-text truncate">
-                          {builder.blueprint.app_name}
-                        </span>
-                      )}
+                      <nav className="flex items-center gap-1 text-sm min-w-0 truncate">
+                        {breadcrumbParts.map((part, i) => {
+                          const isLast = i === breadcrumbParts.length - 1
+                          return (
+                            <span key={i} className="flex items-center gap-1 shrink-0">
+                              {i > 0 && (
+                                <Icon icon={ciChevronRight} width="14" height="14" className="text-nova-text-muted/50" />
+                              )}
+                              {isLast ? (
+                                <span className="text-nova-text font-medium truncate">{part.label}</span>
+                              ) : (
+                                <button
+                                  onClick={part.onClick}
+                                  className="text-nova-text-muted hover:text-nova-text transition-colors cursor-pointer whitespace-nowrap"
+                                >
+                                  {part.label}
+                                </button>
+                              )}
+                            </span>
+                          )
+                        })}
+                      </nav>
                     </div>
 
                     {/* Center — toggle */}
                     <PreviewToggle mode={viewMode} onChange={handleViewModeChange} />
 
-                    {/* Right — undo/redo */}
+                    {/* Right — undo/redo + download */}
                     <div className="flex items-center gap-1.5 justify-end">
                       <button
                         onClick={() => builder.undo()}
@@ -468,6 +560,22 @@ export function BuilderLayout({ buildId }: { buildId: string }) {
                         <Icon icon={ciRedo} width="16" height="16" />
                         Redo
                       </button>
+                      <DownloadDropdown
+                        options={[
+                          {
+                            label: 'JSON',
+                            description: 'For CommCare HQ',
+                            icon: <Icon icon={ciFileDocument} width="28" height="28" />,
+                            onClick: handleDownloadJson,
+                          },
+                          {
+                            label: 'CCZ',
+                            description: 'For CommCare',
+                            icon: <Icon icon={ciDownloadPackage} width="28" height="28" />,
+                            onClick: handleCompile,
+                          },
+                        ]}
+                      />
                     </div>
                   </div>
                 )}

@@ -26,6 +26,8 @@ The grammar produces **two distinct `Child` node types** (one from `rootStep`, o
 
 **Validation display**: errors show only when `state.touched && !state.valid`. Fields start untouched — no error spam on load.
 
+**Unresolved case refs**: When a followup form has no case data, `resolveHashtag` returns empty string for `#case/` refs (not a placeholder string). `QuestionState.caseRef` is set from `question.case_property` for these fields. Output tag resolution returns `{ text, className }` objects via `ResolvedOutput` type, producing styled `<span class="case-ref">` elements in labels. The `.case-ref` CSS class (globals.css) renders a cyan monospace badge.
+
 ## Navigation Flow (matches CommCare)
 
 ```
