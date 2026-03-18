@@ -151,12 +151,13 @@ export function DetailPanel({ builder }: DetailPanelProps) {
 
   return (
     <motion.div
-      initial={{ x: 40, opacity: 0 }}
-      animate={{ x: 0, opacity: 1 }}
-      exit={{ x: 40, opacity: 0 }}
-      transition={{ duration: 0.2 }}
-      className="w-80 border-l border-nova-border bg-nova-deep flex flex-col shrink-0"
+      initial={{ width: 0, opacity: 0 }}
+      animate={{ width: 320, opacity: 1 }}
+      exit={{ width: 0, opacity: 0 }}
+      transition={{ duration: 0.25, ease: [0.4, 0, 0.2, 1] }}
+      className="border-l border-nova-border bg-nova-deep shrink-0 overflow-hidden"
     >
+    <div className="w-80 h-full flex flex-col">
       {/* Header */}
       <div className="px-4 py-3 border-b border-nova-border flex items-center justify-between">
         <h3 className="text-sm font-medium text-nova-text-secondary">
@@ -501,6 +502,7 @@ export function DetailPanel({ builder }: DetailPanelProps) {
         }}
         onCancel={() => setShowDeleteConfirm(false)}
       />
+    </div>
     </motion.div>
   )
 }

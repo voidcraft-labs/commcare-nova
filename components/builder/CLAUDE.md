@@ -38,6 +38,8 @@ Keyboard shortcuts (undo/redo, Tab/Shift+Tab navigation, Delete, Cmd+D duplicate
 
 ## DetailPanel
 
+Animated width panel (0 → 320px) via `AnimatePresence` + motion `width`/`opacity`. Outer `motion.div` handles width animation with `overflow-hidden`; inner `w-80` div keeps content at full width. This ensures the flex-1 content area resizes smoothly (no layout jumps) when the panel opens/closes.
+
 Reads/writes through `builder.mb` (persistent `MutableBlueprint`). Three editing patterns:
 
 - **EditableText** — Click-to-edit inline text. Blur/Enter saves, Escape cancels. Emerald checkmark fades on save.
