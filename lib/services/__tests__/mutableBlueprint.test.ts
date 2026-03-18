@@ -118,9 +118,9 @@ describe('MutableBlueprint', () => {
       expect(mod?.name).toBe('Client Management')
     })
 
-    it('getModule returns null for invalid index', () => {
+    it('getModule returns undefined for invalid index', () => {
       const mb = new MutableBlueprint(makeBlueprint())
-      expect(mb.getModule(99)).toBeNull()
+      expect(mb.getModule(99)).toBeUndefined()
     })
 
     it('getForm returns form', () => {
@@ -350,9 +350,9 @@ describe('MutableBlueprint', () => {
       expect(ct?.properties.length).toBe(2)
     })
 
-    it('getCaseType returns null for nonexistent case type', () => {
+    it('getCaseType returns undefined for nonexistent case type', () => {
       const mb = new MutableBlueprint(makeBlueprint())
-      expect(mb.getCaseType('nonexistent')).toBeNull()
+      expect(mb.getCaseType('nonexistent')).toBeUndefined()
     })
 
     it('getCaseProperty returns a property', () => {
@@ -361,9 +361,9 @@ describe('MutableBlueprint', () => {
       expect(prop?.label).toBe('Full Name')
     })
 
-    it('getCaseProperty returns null for nonexistent property', () => {
+    it('getCaseProperty returns undefined for nonexistent property', () => {
       const mb = new MutableBlueprint(makeBlueprint())
-      expect(mb.getCaseProperty('client', 'nonexistent')).toBeNull()
+      expect(mb.getCaseProperty('client', 'nonexistent')).toBeUndefined()
     })
 
     it('updateCaseProperty updates property metadata', () => {
@@ -417,7 +417,7 @@ describe('MutableBlueprint', () => {
       const mb = new MutableBlueprint(makeBlueprint())
       mb.renameQuestion(0, 0, qpath('client_name'), 'full_name_q')
       const q = mb.getQuestion(0, 0, qpath('full_name_q'))
-      expect(q).not.toBeNull()
+      expect(q).toBeDefined()
       expect(q!.id).toBe('full_name_q')
     })
 

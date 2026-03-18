@@ -27,7 +27,7 @@ export function FormScreen({ blueprint, moduleIndex, formIndex, caseData, onBack
 
   const engine = useFormEngine(
     form!,
-    blueprint.case_types ?? null,
+    blueprint.case_types ?? undefined,
     mod?.case_type ?? undefined,
     stableCaseData,
     builder?.mutationCount,

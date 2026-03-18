@@ -9,14 +9,14 @@ import type { BlueprintForm, CaseType } from '@/lib/schemas/blueprint'
  */
 export function useFormEngine(
   form: BlueprintForm,
-  caseTypes: CaseType[] | null,
+  caseTypes?: CaseType[],
   moduleCaseType?: string,
   caseData?: Map<string, string>,
   mutationCount?: number,
 ): FormEngine {
   // Persist live values across engine recreations so edits in preview don't wipe test data
-  const liveSnapshotRef = useRef<{ values: Map<string, string>, touched: Set<string> } | null>(null)
-  const prevEngineRef = useRef<FormEngine | null>(null)
+  const liveSnapshotRef = useRef<{ values: Map<string, string>, touched: Set<string> } | undefined>(undefined)
+  const prevEngineRef = useRef<FormEngine | undefined>(undefined)
 
   const engine = useMemo(() => {
     // Snapshot values from previous engine before creating new one

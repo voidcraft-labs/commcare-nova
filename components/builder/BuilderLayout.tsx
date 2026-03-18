@@ -77,7 +77,7 @@ export function BuilderLayout({ buildId }: { buildId: string }) {
   const runIdRef = useRef<string | undefined>(undefined)
 
   const handleExitReplay = useCallback(() => {
-    setReplayDataState(null)
+    setReplayDataState(undefined)
     setReplayMessages([])
     clearReplayData()
     builder.reset()

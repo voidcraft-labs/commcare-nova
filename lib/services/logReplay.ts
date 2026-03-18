@@ -28,7 +28,7 @@ export interface ReplayStage {
 interface ExtractionSuccess {
   success: true
   stages: ReplayStage[]
-  appName: string | null
+  appName?: string
 }
 
 interface ExtractionError {
@@ -122,7 +122,7 @@ export function extractReplayStages(log: RunLog): ExtractionResult {
     }
 
     // Create stages — split when a step has multiple interesting tool calls
-    const interestingCalls = (step.tool_calls ?? []).filter(tc => toolToHeader(tc.name) !== null)
+    const interestingCalls = (step.tool_calls ?? []).filter(tc => toolToHeader(tc.name) !== undefined)
 
     if (interestingCalls.length <= 1) {
       const header = deriveStageHeader(step)
@@ -182,7 +182,7 @@ export function extractReplayStages(log: RunLog): ExtractionResult {
     return { success: false, error: 'This log contains no generation data.' }
   }
 
-  return { success: true, stages, appName: log.app_name }
+  return { success: true, stages, appName: log.app_name ?? undefined }
 }
 
 // ── Emission distribution ───────────────────────────────────────────────
@@ -239,8 +239,8 @@ function distributeEmissions(emissions: Emission[], toolCalls: StepToolCall[]): 
 
 // ── Stage header/subtitle derivation ────────────────────────────────────
 
-/** Map tool call name → replay stage header. Returns null for read-only tools. */
-function toolToHeader(toolName: string): string | null {
+/** Map tool call name → replay stage header. Returns undefined for read-only tools. */
+function toolToHeader(toolName: string): string | undefined {
   switch (toolName) {
     case 'askQuestions': return 'Conversation'
     case 'generateSchema': return 'Data Model'
@@ -264,18 +264,18 @@ function toolToHeader(toolName: string): string | null {
     case 'getModule':
     case 'getForm':
     case 'getQuestion':
-      return null
-    default: return null
+      return undefined
+    default: return undefined
   }
 }
 
-function deriveStageHeader(step: Step): string | null {
-  if (!step.tool_calls?.length) return step.emissions.length > 0 ? 'Update' : null
+function deriveStageHeader(step: Step): string | undefined {
+  if (!step.tool_calls?.length) return step.emissions.length > 0 ? 'Update' : undefined
   for (const tc of step.tool_calls) {
     const header = toolToHeader(tc.name)
     if (header) return header
   }
-  return null
+  return undefined
 }
 
 /** Derive a human-readable subtitle from a tool call, using scaffold names and emission data. */
@@ -317,19 +317,19 @@ function deriveSubtitle(tc: StepToolCall | undefined, emissions: Emission[], sca
 
 interface ReplayData {
   stages: ReplayStage[]
-  appName: string | null
+  appName?: string
 }
 
-let replayStore: ReplayData | null = null
+let replayStore: ReplayData | undefined
 
-export function setReplayData(stages: ReplayStage[], appName: string | null) {
+export function setReplayData(stages: ReplayStage[], appName?: string) {
   replayStore = { stages, appName }
 }
 
-export function getReplayData(): ReplayData | null {
+export function getReplayData(): ReplayData | undefined {
   return replayStore
 }
 
 export function clearReplayData() {
-  replayStore = null
+  replayStore = undefined
 }

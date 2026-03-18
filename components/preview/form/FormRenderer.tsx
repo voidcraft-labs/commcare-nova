@@ -143,7 +143,7 @@ export function FormRenderer({ questions, engine, prefix = '/data', parentPath }
 
   // Cursor velocity tracking (EMA-smoothed, all refs — no re-renders)
   const cursorSpeedRef = useRef(0)
-  const lastCursorRef = useRef<{ x: number; y: number; t: number } | null>(null)
+  const lastCursorRef = useRef<{ x: number; y: number; t: number } | undefined>(undefined)
   const handleContainerMouseMove = useCallback((e: React.MouseEvent) => {
     const now = performance.now()
     const last = lastCursorRef.current

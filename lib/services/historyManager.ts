@@ -97,18 +97,18 @@ export class HistoryManager {
     }
   }
 
-  /** Undo: returns the new MutableBlueprint + meta, or null if nothing to undo. */
-  undo(): { mb: MutableBlueprint; meta: SnapshotMeta } | null {
-    if (this.undoStack.length === 0) return null
+  /** Undo: returns the new MutableBlueprint + meta, or undefined if nothing to undo. */
+  undo(): { mb: MutableBlueprint; meta: SnapshotMeta } | undefined {
+    if (this.undoStack.length === 0) return undefined
     const entry = this.undoStack.pop()!
     this.redoStack.push({ blueprint: structuredClone(this._mb.getBlueprint()), meta: entry.meta })
     this._mb = new MutableBlueprint(entry.blueprint)
     return { mb: this._mb, meta: entry.meta }
   }
 
-  /** Redo: returns the new MutableBlueprint + meta, or null if nothing to redo. */
-  redo(): { mb: MutableBlueprint; meta: SnapshotMeta } | null {
-    if (this.redoStack.length === 0) return null
+  /** Redo: returns the new MutableBlueprint + meta, or undefined if nothing to redo. */
+  redo(): { mb: MutableBlueprint; meta: SnapshotMeta } | undefined {
+    if (this.redoStack.length === 0) return undefined
     const entry = this.redoStack.pop()!
     this.undoStack.push({ blueprint: structuredClone(this._mb.getBlueprint()), meta: entry.meta })
     this._mb = new MutableBlueprint(entry.blueprint)

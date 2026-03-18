@@ -597,9 +597,9 @@ describe('mergeQuestionDefaults', () => {
     expect(merged).toEqual(q)
   })
 
-  it('returns question unchanged when case_types is null', () => {
+  it('returns question unchanged when case_types is undefined', () => {
     const q: Question = { id: 'q', type: 'text', case_property: 'full_name' }
-    const merged = mergeQuestionDefaults(q, null, 'patient')
+    const merged = mergeQuestionDefaults(q, undefined, 'patient')
     expect(merged).toEqual(q)
   })
 

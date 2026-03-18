@@ -226,7 +226,7 @@ function applyProgrammaticFixes(form: BlueprintForm, errors: string[]): void {
   }
 }
 
-function findCaseNameCandidate(questions: Question[]): Question | null {
+function findCaseNameCandidate(questions: Question[]): Question | undefined {
   for (const q of questions) {
     if (q.case_property && /name/i.test(q.case_property) && q.type === 'text') return q
     if (q.children) {
@@ -241,7 +241,7 @@ function findCaseNameCandidate(questions: Question[]): Question | null {
       if (found) return found
     }
   }
-  return null
+  return undefined
 }
 
 function clearDuplicateCaseNames(questions: Question[], state: { found: boolean }): void {
@@ -266,7 +266,7 @@ function renameReservedProperty(questions: Question[], reserved: string): void {
   }
 }
 
-function findQuestionByCaseProperty(questions: Question[], prop: string): Question | null {
+function findQuestionByCaseProperty(questions: Question[], prop: string): Question | undefined {
   for (const q of questions) {
     if (q.case_property === prop) return q
     if (q.children) {
@@ -274,10 +274,10 @@ function findQuestionByCaseProperty(questions: Question[], prop: string): Questi
       if (found) return found
     }
   }
-  return null
+  return undefined
 }
 
-function findQuestionById(questions: Question[], id: string): Question | null {
+function findQuestionById(questions: Question[], id: string): Question | undefined {
   for (const q of questions) {
     if (q.id === id) return q
     if (q.children) {
@@ -285,7 +285,7 @@ function findQuestionById(questions: Question[], id: string): Question | null {
       if (found) return found
     }
   }
-  return null
+  return undefined
 }
 
 // ── Single-form generation ───────────────────────────────────────────
@@ -813,9 +813,9 @@ export function createSolutionsArchitect(
         }),
         execute: async ({ moduleIndex, formIndex, question, afterQuestionId, beforeQuestionId, parentId }) => {
           try {
-            const afterPath = afterQuestionId ? mutableBp.resolveQuestionId(moduleIndex, formIndex, afterQuestionId) ?? undefined : undefined
-            const beforePath = beforeQuestionId ? mutableBp.resolveQuestionId(moduleIndex, formIndex, beforeQuestionId) ?? undefined : undefined
-            const parentPath = parentId ? mutableBp.resolveQuestionId(moduleIndex, formIndex, parentId) ?? undefined : undefined
+            const afterPath = afterQuestionId ? mutableBp.resolveQuestionId(moduleIndex, formIndex, afterQuestionId) : undefined
+            const beforePath = beforeQuestionId ? mutableBp.resolveQuestionId(moduleIndex, formIndex, beforeQuestionId) : undefined
+            const parentPath = parentId ? mutableBp.resolveQuestionId(moduleIndex, formIndex, parentId) : undefined
             mutableBp.addQuestion(moduleIndex, formIndex, question as NewQuestion, { afterPath, beforePath, parentPath })
             const form = mutableBp.getForm(moduleIndex, formIndex)!
             ctx.emit('data-form-updated', { moduleIndex, formIndex, form })

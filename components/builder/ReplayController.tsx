@@ -11,7 +11,7 @@ import type { ReplayStage } from '@/lib/services/logReplay'
 
 interface ReplayControllerProps {
   stages: ReplayStage[]
-  appName: string | null
+  appName?: string
   onExit: () => void
   onMessagesChange: (messages: UIMessage[]) => void
 }
@@ -19,7 +19,7 @@ interface ReplayControllerProps {
 export function ReplayController({ stages, appName, onExit, onMessagesChange }: ReplayControllerProps) {
   const builder = useBuilder()
   const [currentIndex, setCurrentIndex] = useState(0)
-  const [error, setError] = useState<string | null>(null)
+  const [error, setError] = useState<string>()
 
   const goToStage = useCallback((targetIndex: number) => {
     try {
@@ -29,7 +29,7 @@ export function ReplayController({ stages, appName, onExit, onMessagesChange }: 
       }
       onMessagesChange(stages[targetIndex].messages)
       setCurrentIndex(targetIndex)
-      setError(null)
+      setError(undefined)
     } catch (err) {
       setError(`Cannot load stage: ${err instanceof Error ? err.message : String(err)}`)
     }
@@ -122,7 +122,7 @@ export function ReplayController({ stages, appName, onExit, onMessagesChange }: 
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: 8 }}
             onAnimationComplete={() => {
-              setTimeout(() => setError(null), 3000)
+              setTimeout(() => setError(undefined), 3000)
             }}
             className="px-3 py-1.5 bg-nova-rose/15 border border-nova-rose/30 rounded-full text-xs text-rose-400"
           >

@@ -109,27 +109,27 @@ export class MutableBlueprint {
     return this.blueprint
   }
 
-  getModule(mIdx: number): BlueprintModule | null {
-    return this.blueprint.modules[mIdx] ?? null
+  getModule(mIdx: number): BlueprintModule | undefined {
+    return this.blueprint.modules[mIdx]
   }
 
-  getForm(mIdx: number, fIdx: number): BlueprintForm | null {
-    return this.blueprint.modules[mIdx]?.forms[fIdx] ?? null
+  getForm(mIdx: number, fIdx: number): BlueprintForm | undefined {
+    return this.blueprint.modules[mIdx]?.forms[fIdx]
   }
 
-  getQuestion(mIdx: number, fIdx: number, questionPath: QuestionPath): Question | null {
+  getQuestion(mIdx: number, fIdx: number, questionPath: QuestionPath): Question | undefined {
     const form = this.getForm(mIdx, fIdx)
-    if (!form) return null
-    return this.findByPath(form.questions, questionPath)?.question ?? null
+    if (!form) return undefined
+    return this.findByPath(form.questions, questionPath)?.question
   }
 
-  getCaseType(name: string): CaseType | null {
-    return this.blueprint.case_types?.find(ct => ct.name === name) ?? null
+  getCaseType(name: string): CaseType | undefined {
+    return this.blueprint.case_types?.find(ct => ct.name === name)
   }
 
-  getCaseProperty(caseTypeName: string, propertyName: string): CaseProperty | null {
+  getCaseProperty(caseTypeName: string, propertyName: string): CaseProperty | undefined {
     const ct = this.getCaseType(caseTypeName)
-    return ct?.properties.find(p => p.name === propertyName) ?? null
+    return ct?.properties.find(p => p.name === propertyName)
   }
 
   updateCaseProperty(caseTypeName: string, propertyName: string, updates: Partial<Omit<CaseProperty, 'name'>>): void {
@@ -550,17 +550,17 @@ export class MutableBlueprint {
   // ── Private helpers ─────────────────────────────────────────────────
 
   /** Walk the tree matching path segments to find a question and its parent array. */
-  private findByPath(questions: Question[], path: QuestionPath): { question: Question; parent: Question[] } | null {
+  private findByPath(questions: Question[], path: QuestionPath): { question: Question; parent: Question[] } | undefined {
     const segments = (path as string).split('/')
     let current = questions
     for (let i = 0; i < segments.length - 1; i++) {
       const parent = current.find(q => q.id === segments[i])
-      if (!parent?.children) return null
+      if (!parent?.children) return undefined
       current = parent.children
     }
     const lastId = segments[segments.length - 1]
     const question = current.find(q => q.id === lastId)
-    if (!question) return null
+    if (!question) return undefined
     return { question, parent: current }
   }
 
