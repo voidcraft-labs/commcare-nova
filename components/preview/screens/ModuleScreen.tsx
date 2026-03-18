@@ -6,7 +6,6 @@ import ciFileEdit from '@iconify-icons/ci/file-edit'
 import ciFileBlank from '@iconify-icons/ci/file-blank'
 import type { AppBlueprint } from '@/lib/schemas/blueprint'
 import type { PreviewScreen } from '@/lib/preview/engine/types'
-import { Badge } from '@/components/ui/Badge'
 
 interface ModuleScreenProps {
   blueprint: AppBlueprint
@@ -20,11 +19,6 @@ const formTypeIcons = {
   survey: ciFileBlank,
 } as const
 
-const formTypeBadge = {
-  registration: 'Registration',
-  followup: 'Follow-up',
-  survey: 'Survey',
-} as const
 
 export function ModuleScreen({ blueprint, moduleIndex, onNavigate }: ModuleScreenProps) {
   const mod = blueprint.modules[moduleIndex]
@@ -39,7 +33,6 @@ export function ModuleScreen({ blueprint, moduleIndex, onNavigate }: ModuleScree
       <div className="space-y-2">
         {mod.forms.map((form, fIdx) => {
           const icon = formTypeIcons[form.type as keyof typeof formTypeIcons] ?? ciFileBlank
-          const badge = formTypeBadge[form.type as keyof typeof formTypeBadge] ?? form.type
 
           const handleClick = () => {
             if (form.type === 'followup' && hasCase) {
@@ -63,7 +56,6 @@ export function ModuleScreen({ blueprint, moduleIndex, onNavigate }: ModuleScree
               <div className="flex-1 min-w-0">
                 <div className="text-sm font-medium text-nova-text">{form.name}</div>
               </div>
-              <Badge variant="muted">{badge}</Badge>
             </motion.button>
           )
         })}

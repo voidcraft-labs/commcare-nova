@@ -6,7 +6,8 @@ import type { EditMode } from '@/hooks/useEditContext'
 import { EditContextProvider } from '@/hooks/useEditContext'
 import { useFormEngine } from '@/hooks/useFormEngine'
 import { FormRenderer } from '../form/FormRenderer'
-import { Badge } from '@/components/ui/Badge'
+import { Icon } from '@iconify/react'
+import { formTypeIcons } from '@/lib/questionTypeIcons'
 
 interface FormScreenProps {
   blueprint: AppBlueprint
@@ -17,12 +18,6 @@ interface FormScreenProps {
   builder?: Builder
   mode?: EditMode
 }
-
-const formTypeBadge = {
-  registration: 'Registration',
-  followup: 'Follow-up',
-  survey: 'Survey',
-} as const
 
 export function FormScreen({ blueprint, moduleIndex, formIndex, caseData, onBack, builder, mode = 'edit' }: FormScreenProps) {
   const mod = blueprint.modules[moduleIndex]
@@ -79,10 +74,8 @@ export function FormScreen({ blueprint, moduleIndex, formIndex, caseData, onBack
       {/* Form header */}
       <div className="px-6 pt-5 pb-4 border-b border-pv-input-border">
         <div className="flex items-center gap-2">
+          <Icon icon={formTypeIcons[form.type] ?? formTypeIcons.survey} width="18" height="18" className="text-nova-text-muted shrink-0" />
           <h2 className="text-lg font-display font-semibold text-nova-text">{form.name}</h2>
-          <Badge variant="muted">
-            {formTypeBadge[form.type as keyof typeof formTypeBadge] ?? form.type}
-          </Badge>
         </div>
       </div>
 
