@@ -200,7 +200,7 @@ function FormCard({
           <AnimatePresence mode="sync">
             {form.questions.map((q, qIdx) => (
               <QuestionRow
-                key={q.id ? `${moduleIndex}_${formIndex}_${q.id}` : `${moduleIndex}_${formIndex}_${qIdx}`}
+                key={q.id ? `${moduleIndex}_${formIndex}_${qIdx}_${q.id}` : `${moduleIndex}_${formIndex}_${qIdx}`}
                 question={q}
                 questionPath={qpath(q.id)}
                 moduleIndex={moduleIndex}
@@ -270,7 +270,7 @@ function QuestionRow({
         <div className="ml-2 border-l border-nova-border/50">
           {q.children.map((child, cIdx) => (
             <QuestionRow
-              key={child.id ? `${moduleIndex}_${formIndex}_${child.id}` : `${moduleIndex}_${formIndex}_${cIdx}`}
+              key={child.id ? `${moduleIndex}_${formIndex}_${cIdx}_${child.id}` : `${moduleIndex}_${formIndex}_${cIdx}`}
               question={child}
               questionPath={qpath(child.id, questionPath)}
               moduleIndex={moduleIndex}

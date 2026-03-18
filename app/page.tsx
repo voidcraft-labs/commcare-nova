@@ -1,5 +1,5 @@
 'use client'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { motion } from 'motion/react'
 import { Icon } from '@iconify/react'
@@ -20,8 +20,11 @@ export default function LandingPage() {
     router.push('/build/new')
   }
 
-  if (!loaded) return null
-  if (settings.apiKey) { router.replace('/build/new'); return null }
+  useEffect(() => {
+    if (loaded && settings.apiKey) router.replace('/build/new')
+  }, [loaded, settings.apiKey, router])
+
+  if (!loaded || settings.apiKey) return null
 
   return (
     <div className="min-h-screen flex flex-col items-center justify-center relative overflow-hidden">
