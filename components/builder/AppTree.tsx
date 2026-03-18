@@ -26,39 +26,35 @@ export function AppTree({ data, selected, onSelect, phase, actions }: AppTreePro
   }
 
   return (
-    <div className="p-6 space-y-4 max-w-3xl mx-auto">
-      {/* App name header + actions */}
-      <motion.div
-        initial={{ opacity: 0, y: -10 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.4, ease: [0.16, 1, 0.3, 1] }}
-        className="mb-6 flex items-start justify-between gap-4"
-      >
-        <div>
-          <h1 className="text-2xl font-display font-semibold">{data.app_name}</h1>
-          <p className="text-sm text-nova-text-secondary mt-1">
-            {data.modules.length} module{data.modules.length !== 1 ? 's' : ''}
-          </p>
+    <div className="h-full flex flex-col">
+      {/* Subheader bar — matches PreviewHeader dimensions */}
+      <div className="flex items-center justify-between px-6 h-12 border-b border-nova-border shrink-0">
+        <div className="flex items-center min-w-0">
+          <span className="text-sm font-medium text-nova-text truncate">{data.app_name}</span>
         </div>
         {actions && (
           <div className="flex items-center gap-2 shrink-0">
             {actions}
           </div>
         )}
-      </motion.div>
+      </div>
 
-      {/* Module cards */}
-      <AnimatePresence mode="sync">
-        {data.modules.map((mod, mIdx) => (
-          <ModuleCard
-            key={mIdx}
-            module={mod}
-            moduleIndex={mIdx}
-            selected={selected}
-            onSelect={onSelect}
-          />
-        ))}
-      </AnimatePresence>
+      {/* Scrollable module cards */}
+      <div className="flex-1 overflow-auto p-6 space-y-4">
+        <div className="max-w-3xl mx-auto space-y-4">
+          <AnimatePresence mode="sync">
+            {data.modules.map((mod, mIdx) => (
+              <ModuleCard
+                key={mIdx}
+                module={mod}
+                moduleIndex={mIdx}
+                selected={selected}
+                onSelect={onSelect}
+              />
+            ))}
+          </AnimatePresence>
+        </div>
+      </div>
     </div>
   )
 }
