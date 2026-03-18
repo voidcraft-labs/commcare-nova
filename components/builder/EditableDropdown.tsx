@@ -19,8 +19,8 @@ export function EditableDropdown({ label, value, options, onSave, renderValue }:
 
   const handleSelect = useCallback((v: string) => {
     setOpen(false)
+    onSave(v)
     if (v !== value) {
-      onSave(v)
       setSaved(true)
       setTimeout(() => setSaved(false), 1500)
     }
@@ -87,7 +87,7 @@ export function EditableDropdown({ label, value, options, onSave, renderValue }:
                 <button
                   key={opt.value}
                   onClick={() => handleSelect(opt.value)}
-                  className={`w-full text-left px-3 py-1.5 text-sm hover:bg-nova-elevated transition-colors flex items-center gap-2 ${
+                  className={`w-full text-left px-3 py-1.5 text-sm cursor-pointer hover:bg-nova-elevated/80 transition-colors flex items-center gap-2 ${
                     opt.value === value ? 'text-nova-violet-bright' : 'text-nova-text-secondary'
                   }`}
                 >
