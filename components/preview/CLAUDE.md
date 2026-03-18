@@ -37,10 +37,6 @@ Uses `@dnd-kit/react` — `DragDropProvider` wraps the question list, each quest
 
 Trash icon on hover/selection in `EditableQuestionWrapper`. `ConfirmDialog` for confirmation. Selects nearest sibling after deletion.
 
-### Visual Indicators
-
-`LogicBadges` — small icon badges for `relevant` (cyan), `constraint` (amber), `calculate` (violet) on questions that have logic expressions.
-
 ## Form Components
 
 - **FormRenderer** — Iterates visible questions, wraps each in `SortableQuestion` + `EditableQuestionWrapper`, interleaves `InsertionPoint` zones. Manages drag state, delete confirmation, and cursor velocity tracking.
