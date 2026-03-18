@@ -5,12 +5,13 @@ import ciMoreGridBig from '@iconify-icons/ci/more-grid-big'
 import ciTable from '@iconify-icons/ci/table'
 import type { Question } from '@/lib/schemas/blueprint'
 import { BuilderPhase, type TreeData } from '@/lib/services/builder'
+import { type QuestionPath, qpath } from '@/lib/services/questionPath'
 import { Badge } from '@/components/ui/Badge'
 import { questionTypeIcons, formTypeIcons } from '@/lib/questionTypeIcons'
 
 interface AppTreeProps {
-  data: TreeData | null
-  selected: { type: string; moduleIndex: number; formIndex?: number; questionPath?: string } | null
+  data: TreeData | undefined
+  selected: { type: string; moduleIndex: number; formIndex?: number; questionPath?: QuestionPath } | undefined
   onSelect: (selected: any) => void
   phase: BuilderPhase
   actions?: React.ReactNode
@@ -201,6 +202,7 @@ function FormCard({
               <QuestionRow
                 key={q.id ? `${moduleIndex}_${formIndex}_${q.id}` : `${moduleIndex}_${formIndex}_${qIdx}`}
                 question={q}
+                questionPath={qpath(q.id)}
                 moduleIndex={moduleIndex}
                 formIndex={formIndex}
                 onSelect={onSelect}
@@ -218,6 +220,7 @@ function FormCard({
 
 function QuestionRow({
   question: q,
+  questionPath,
   moduleIndex,
   formIndex,
   onSelect,
@@ -226,6 +229,7 @@ function QuestionRow({
   delay,
 }: {
   question: Question
+  questionPath: QuestionPath
   moduleIndex: number
   formIndex: number
   onSelect: AppTreeProps['onSelect']
@@ -233,7 +237,7 @@ function QuestionRow({
   depth: number
   delay: number
 }) {
-  const isSelected = selected?.type === 'question' && selected.moduleIndex === moduleIndex && selected.formIndex === formIndex && selected.questionPath === q.id
+  const isSelected = selected?.type === 'question' && selected.moduleIndex === moduleIndex && selected.formIndex === formIndex && selected.questionPath === questionPath
   const iconData = questionTypeIcons[q.type]
 
   return (
@@ -249,7 +253,7 @@ function QuestionRow({
         style={{ paddingLeft: `${depth * 16 + 8}px` }}
         onClick={(e) => {
           e.stopPropagation()
-          onSelect({ type: 'question', moduleIndex, formIndex, questionPath: q.id })
+          onSelect({ type: 'question', moduleIndex, formIndex, questionPath })
         }}
       >
         <span className="w-6 text-center text-xs font-mono text-nova-text-muted shrink-0 flex items-center justify-center">
@@ -268,6 +272,7 @@ function QuestionRow({
             <QuestionRow
               key={child.id ? `${moduleIndex}_${formIndex}_${child.id}` : `${moduleIndex}_${formIndex}_${cIdx}`}
               question={child}
+              questionPath={qpath(child.id, questionPath)}
               moduleIndex={moduleIndex}
               formIndex={formIndex}
               onSelect={onSelect}

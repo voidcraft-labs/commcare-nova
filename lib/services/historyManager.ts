@@ -1,4 +1,5 @@
 import type { AppBlueprint } from '@/lib/schemas/blueprint'
+import { type QuestionPath, qpath, qpathParent } from './questionPath'
 import { MutableBlueprint } from './mutableBlueprint'
 
 /** Method names that mutate blueprint state and should create undo snapshots. */
@@ -15,8 +16,8 @@ export interface SnapshotMeta {
   type: MutationType
   moduleIndex: number
   formIndex: number
-  questionId?: string
-  secondaryId?: string
+  questionPath?: QuestionPath
+  secondaryPath?: QuestionPath
 }
 
 interface SnapshotEntry {
@@ -31,18 +32,18 @@ function deriveMeta(method: string, args: any[]): SnapshotMeta {
 
   switch (method) {
     case 'addQuestion':
-      return { type: 'add', moduleIndex, formIndex, questionId: args[2]?.id }
+      return { type: 'add', moduleIndex, formIndex, questionPath: qpath(args[2]?.id, args[3]?.parentPath) }
     case 'removeQuestion':
-      return { type: 'remove', moduleIndex, formIndex, questionId: args[2] }
+      return { type: 'remove', moduleIndex, formIndex, questionPath: args[2] }
     case 'moveQuestion':
-      return { type: 'move', moduleIndex, formIndex, questionId: args[2] }
+      return { type: 'move', moduleIndex, formIndex, questionPath: args[2] }
     case 'duplicateQuestion':
-      // secondaryId patched after execution with the clone's ID
-      return { type: 'duplicate', moduleIndex, formIndex, questionId: args[2] }
+      // secondaryPath patched after execution with the clone's path
+      return { type: 'duplicate', moduleIndex, formIndex, questionPath: args[2] }
     case 'updateQuestion':
-      return { type: 'update', moduleIndex, formIndex, questionId: args[2] }
+      return { type: 'update', moduleIndex, formIndex, questionPath: args[2] }
     case 'renameQuestion':
-      return { type: 'rename', moduleIndex, formIndex, questionId: args[2], secondaryId: args[3] }
+      return { type: 'rename', moduleIndex, formIndex, questionPath: args[2], secondaryPath: qpath(args[3], qpathParent(args[2])) }
     default:
       return { type: 'structural', moduleIndex, formIndex }
   }
@@ -74,7 +75,7 @@ export class HistoryManager {
             const result = value.apply(this._mb, args)
             // Patch duplicate clone ID after execution
             if (prop === 'duplicateQuestion' && typeof result === 'string' && this.undoStack.length > 0) {
-              this.undoStack[this.undoStack.length - 1].meta.secondaryId = result
+              this.undoStack[this.undoStack.length - 1].meta.secondaryPath = result as QuestionPath
             }
             return result
           }

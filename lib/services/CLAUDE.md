@@ -39,10 +39,12 @@ Also exports:
 - **New build**: Route creates `MutableBlueprint({ app_name: '', modules: [], case_types: null })`. Generation tools populate via `setCaseTypes()`, `setScaffold()`, `updateModule()`, `replaceForm()`.
 - **Edit/continuation**: Route creates `MutableBlueprint(existingBlueprint)`. SA uses read/mutation tools directly.
 
-**Query:** `search()` finds matches across question IDs/labels/case_properties/XPath/module names/form names/columns.
+**Question identification:** All public question methods use `QuestionPath` (branded string type from `questionPath.ts`) — a slash-delimited tree path like `"group1/child_q"`. Paths are built via `qpath(id, parent?)`, never by string concatenation. SA tools receive bare IDs from the LLM and resolve to paths via `resolveQuestionId()`.
+
+**Query:** `search()` finds matches across question paths/labels/case_properties/XPath/module names/form names/columns.
 
 **Rename propagation:**
-- `renameQuestion()` — renames question ID, propagates through all XPath expressions and output tags in the same form via Lezer-based `rewriteXPathRefs`.
+- `renameQuestion(path, newId)` — renames question ID, propagates through all XPath expressions and output tags in the same form via Lezer-based `rewriteXPathRefs`. Returns `{ newPath: QuestionPath, xpathFieldsRewritten }`.
 - `renameCaseProperty()` — propagates across all questions, columns, XPath, and output tags via `rewriteHashtagRefs`.
 - Both use `rewriteOutputTags` (htmlparser2) for `<output value="..."/>` tags in display text.
 
@@ -70,13 +72,21 @@ Also exports:
 
 **Phases:** `Idle → DataModel → Structure → Modules → Forms → Validate → Fix → Done | Error`
 
+**All state is private with readonly getters.** Consumers read via getters (`builder.phase`, `builder.selected`, `builder.blueprint`, etc.) and mutate through methods only.
+
 **Key members:**
-- `builder.mb` — persistent MutableBlueprint instance (null before blueprint exists)
+- `builder.mb` — persistent MutableBlueprint instance (undefined before blueprint exists)
 - `builder.blueprint` — getter returning `mb.getBlueprint()` (plain data for serialization)
 - `builder.notifyBlueprintChanged()` — arrow property (stable ref), notifies subscribers after mutations
 - `builder.treeData` — getter with four-level fallback: blueprint > partialModules merged with scaffold > scaffold > partialScaffold
 - `builder.subscribe(listener)` — triggers React re-renders
+- `builder.select(el?)` — set selection; call with no args to deselect
 - Progress counters (`progressCompleted`/`progressTotal`) derived from partialModules map against scaffold.
+
+**New question state** — encapsulated behind methods, not public fields:
+- `builder.markNewQuestion(path)` — called by QuestionTypePicker after inserting
+- `builder.isNewQuestion(path)` — checks if question was just added (drives auto-focus + select-all)
+- `builder.clearNewQuestion()` — called by DetailPanel on first save
 
 **Data parts → builder methods:**
 
@@ -98,13 +108,13 @@ Also exports:
 
 ### Undo/Redo
 
-`HistoryManager` (`historyManager.ts`) — Proxy-based mutation interception on MutableBlueprint. Each snapshot stores `SnapshotEntry { blueprint, meta: SnapshotMeta }`. `SnapshotMeta` captures mutation type (`add`/`remove`/`move`/`duplicate`/`update`/`rename`/`structural`), module/form indices, and question IDs. `deriveMeta()` maps method names + args to metadata; `duplicateQuestion` clone ID is patched after execution. `undo()`/`redo()` return `{ mb, meta }` — Builder uses meta to derive smart selection (e.g., undo-remove re-selects the restored question, undo-add clears selection). Drag guard: `builder.setDragging()` prevents undo/redo during drag operations. History cleared on form switch (in `select()`) and generation start (`startDataModel()`). Created in `setDone()`, disabled during generation, cleared on `reset()`.
+`HistoryManager` (`historyManager.ts`) — Proxy-based mutation interception on MutableBlueprint. Each snapshot stores `SnapshotEntry { blueprint, meta: SnapshotMeta }`. `SnapshotMeta` captures mutation type (`add`/`remove`/`move`/`duplicate`/`update`/`rename`/`structural`), module/form indices, and `QuestionPath` values. `deriveMeta()` maps method names + args to metadata; `duplicateQuestion` clone path is patched after execution. `undo()`/`redo()` return `{ mb, meta }` — Builder uses meta to derive smart selection (e.g., undo-remove re-selects the restored question, undo-add clears selection). Drag guard: `builder.setDragging()` prevents undo/redo during drag operations. History cleared on form switch (in `select()`) and generation start (`startDataModel()`). Created in `setDone()`, disabled during generation, cleared on `reset()`.
 
 ### Keyboard Shortcuts
 
 `KeyboardManager` (`keyboardManager.ts`) — module-level singleton, single `document.keydown` listener. Input suppression (input/textarea/select/contenteditable/.cm-content) unless `global: true`. `useKeyboardShortcuts` hook for React lifecycle.
 
-`questionNavigation.ts` — `flattenQuestionIds()` for Tab/Shift+Tab navigation through the question tree.
+`questionNavigation.ts` — `flattenQuestionPaths()` returns `QuestionPath[]` for Tab/Shift+Tab navigation through the question tree.
 
 ## Expander (hqJsonExpander.ts)
 

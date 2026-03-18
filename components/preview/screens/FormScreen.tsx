@@ -118,7 +118,7 @@ export function FormScreen({ blueprint, moduleIndex, formIndex, caseData, onBack
   )
 
   return (
-    <div className="flex flex-col h-full" onClick={() => builder?.select(null)}>
+    <div className="flex flex-col h-full" onClick={() => builder?.select()}>
       {builder ? (
         <EditContextProvider builder={builder} moduleIndex={moduleIndex} formIndex={formIndex} mode={mode}>
           {formBody}

@@ -4,7 +4,7 @@ import type { PreviewScreen } from '@/lib/preview/engine/types'
 import type { AppBlueprint } from '@/lib/schemas/blueprint'
 import { resolveScreen } from '@/lib/preview/engine/resolveScreen'
 
-export function usePreviewNav(blueprint: AppBlueprint | null) {
+export function usePreviewNav(blueprint?: AppBlueprint) {
   const [stack, setStack] = useState<PreviewScreen[]>([{ type: 'home' }])
 
   const current = stack[stack.length - 1]

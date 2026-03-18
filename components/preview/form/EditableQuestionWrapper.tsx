@@ -3,16 +3,17 @@ import { useState, useCallback, useRef, useEffect, type ReactNode } from 'react'
 import { Icon } from '@iconify/react'
 import tablerGripVertical from '@iconify-icons/tabler/grip-vertical'
 import { useEditContext } from '@/hooks/useEditContext'
+import type { QuestionPath } from '@/lib/services/questionPath'
 
 interface EditableQuestionWrapperProps {
-  questionId: string
+  questionPath: QuestionPath
   children: ReactNode
   style?: React.CSSProperties
   isDragging?: boolean
 }
 
 export function EditableQuestionWrapper({
-  questionId,
+  questionPath,
   children,
   style,
   isDragging,
@@ -62,7 +63,7 @@ export function EditableQuestionWrapper({
     && ctx.builder.selected?.type === 'question'
     && ctx.builder.selected.moduleIndex === ctx.moduleIndex
     && ctx.builder.selected.formIndex === ctx.formIndex
-    && ctx.builder.selected.questionPath === questionId
+    && ctx.builder.selected.questionPath === questionPath
 
   // Scroll selected question into view after view switch (Tree → Preview)
   useEffect(() => {
@@ -87,8 +88,8 @@ export function EditableQuestionWrapper({
     const closestWrapper = target.closest('[data-question-wrapper]')
     if (closestWrapper && closestWrapper !== e.currentTarget) return
     e.stopPropagation()
-    builder.select({ type: 'question', moduleIndex, formIndex, questionPath: questionId })
-  }, [builder, moduleIndex, formIndex, questionId])
+    builder.select({ type: 'question', moduleIndex, formIndex, questionPath })
+  }, [builder, moduleIndex, formIndex, questionPath])
 
   const mergedStyle = holdReady ? { ...style, cursor: 'grabbing' as const } : style
 

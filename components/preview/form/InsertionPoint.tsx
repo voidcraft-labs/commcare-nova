@@ -3,6 +3,7 @@ import { useState, useRef, useCallback, type RefObject } from 'react'
 import { Icon } from '@iconify/react'
 import ciAddPlus from '@iconify-icons/ci/add-plus'
 import { useEditContext } from '@/hooks/useEditContext'
+import type { QuestionPath } from '@/lib/services/questionPath'
 import { QuestionTypePicker } from './QuestionTypePicker'
 
 /** Speed threshold in px/ms. Above this = cursor is traversing, don't open. */
@@ -10,12 +11,12 @@ const SPEED_THRESHOLD = 0.1
 
 interface InsertionPointProps {
   atIndex: number
-  parentId?: string
+  parentPath?: QuestionPath
   disabled?: boolean
   cursorSpeedRef?: RefObject<number>
 }
 
-export function InsertionPoint({ atIndex, parentId, disabled, cursorSpeedRef }: InsertionPointProps) {
+export function InsertionPoint({ atIndex, parentPath, disabled, cursorSpeedRef }: InsertionPointProps) {
   const ctx = useEditContext()
   const [hovered, setHovered] = useState(false)
   const [isOpen, setIsOpen] = useState(false)
@@ -109,7 +110,7 @@ export function InsertionPoint({ atIndex, parentId, disabled, cursorSpeedRef }: 
         <QuestionTypePicker
           anchorEl={anchorRef.current}
           atIndex={atIndex}
-          parentId={parentId}
+          parentPath={parentPath}
           onClose={() => { setIsOpen(false); setHovered(false) }}
         />
       )}
