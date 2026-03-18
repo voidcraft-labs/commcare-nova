@@ -11,7 +11,8 @@ import ciTrashFull from '@iconify-icons/ci/trash-full'
 import { deriveCaseConfig, QUESTION_TYPES } from '@/lib/schemas/blueprint'
 import type { Question } from '@/lib/schemas/blueprint'
 import type { Builder } from '@/lib/services/builder'
-import { flattenQuestionIds } from '@/lib/services/questionNavigation'
+import { flattenQuestionPaths } from '@/lib/services/questionNavigation'
+import type { QuestionPath } from '@/lib/services/questionPath'
 import { Badge } from '@/components/ui/Badge'
 import { XPathField } from '@/components/builder/XPathField'
 import { EditableText } from '@/components/builder/EditableText'
@@ -44,7 +45,7 @@ interface DetailPanelProps {
 
 export function DetailPanel({ builder }: DetailPanelProps) {
   const [xpathModal, setXpathModal] = useState<{ field: string; value: string; label: string } | null>(null)
-  const [newlyAdded, setNewlyAdded] = useState<{ field: string; questionPath: string } | null>(null)
+  const [newlyAdded, setNewlyAdded] = useState<{ field: string; questionPath: QuestionPath } | null>(null)
 
   const selected = builder.selected!
   const mb = builder.mb!
@@ -57,7 +58,7 @@ export function DetailPanel({ builder }: DetailPanelProps) {
     : null
 
   const question = selected.questionPath && selected.formIndex !== undefined
-    ? mb.getQuestion(selected.moduleIndex, selected.formIndex, selected.questionPath)?.question
+    ? mb.getQuestion(selected.moduleIndex, selected.formIndex, selected.questionPath) ?? undefined
     : undefined
 
   // Mutation helpers — mutate in-place and notify
@@ -92,25 +93,26 @@ export function DetailPanel({ builder }: DetailPanelProps) {
 
   const renameQuestion = useCallback((newId: string) => {
     if (selected.formIndex === undefined || !selected.questionPath || !newId) return
-    mb.renameQuestion(selected.moduleIndex, selected.formIndex, selected.questionPath, newId)
+    const { newPath } = mb.renameQuestion(selected.moduleIndex, selected.formIndex, selected.questionPath, newId)
+    builder.select({ ...selected, questionPath: newPath })
     notifyBlueprintChanged()
-  }, [mb, selected.moduleIndex, selected.formIndex, selected.questionPath, notifyBlueprintChanged])
+  }, [mb, selected, builder, notifyBlueprintChanged])
 
   const deleteQuestion = useCallback(() => {
     if (selected.formIndex === undefined || !selected.questionPath) return
     const form = mb.getForm(selected.moduleIndex, selected.formIndex)
     if (!form) return
-    const ids = flattenQuestionIds(form.questions)
-    const curIdx = ids.indexOf(selected.questionPath)
-    const nextId = ids[curIdx + 1] ?? ids[curIdx - 1]
+    const paths = flattenQuestionPaths(form.questions)
+    const curIdx = paths.indexOf(selected.questionPath as QuestionPath)
+    const nextPath = paths[curIdx + 1] ?? paths[curIdx - 1]
 
     mb.removeQuestion(selected.moduleIndex, selected.formIndex, selected.questionPath)
     notifyBlueprintChanged()
 
-    if (nextId) {
-      builder.select({ type: 'question', moduleIndex: selected.moduleIndex, formIndex: selected.formIndex!, questionPath: nextId })
+    if (nextPath) {
+      builder.select({ type: 'question', moduleIndex: selected.moduleIndex, formIndex: selected.formIndex!, questionPath: nextPath })
     } else {
-      builder.select(null)
+      builder.select()
     }
   }, [mb, selected.moduleIndex, selected.formIndex, selected.questionPath, builder, notifyBlueprintChanged])
 
@@ -181,7 +183,7 @@ export function DetailPanel({ builder }: DetailPanelProps) {
         </h3>
         <div className="flex items-center gap-0.5">
           <button
-            onClick={() => builder.select(null)}
+            onClick={() => builder.select()}
             className="text-nova-text-muted hover:text-nova-text transition-colors p-1 cursor-pointer"
           >
             <Icon icon={ciCloseMd} width="14" height="14" />
@@ -318,19 +320,19 @@ export function DetailPanel({ builder }: DetailPanelProps) {
               <EditableText
                 label="Label"
                 value={question.label ?? ''}
-                onSave={(v) => { saveQuestion('label', v || null); builder.newQuestionPath = null }}
+                onSave={(v) => { saveQuestion('label', v || null); builder.clearNewQuestion() }}
                 multiline
-                autoFocus={builder.autoFocusLabel ? (() => { builder.autoFocusLabel = false; return true })() : undefined}
-                selectAll={builder.newQuestionPath === selected.questionPath}
+                autoFocus={builder.isNewQuestion(selected.questionPath!)}
+                selectAll={builder.isNewQuestion(selected.questionPath!)}
               />
             )}
             <EditableText
               label="ID"
               value={question.id}
-              onSave={(v) => { renameQuestion(v); builder.newQuestionPath = null }}
+              onSave={(v) => { renameQuestion(v); builder.clearNewQuestion() }}
               mono
               color="text-nova-violet-bright"
-              selectAll={builder.newQuestionPath === selected.questionPath}
+              selectAll={builder.isNewQuestion(selected.questionPath!)}
             />
             <EditableDropdown
               label="Type"

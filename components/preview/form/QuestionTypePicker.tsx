@@ -4,6 +4,7 @@ import { useFloating, offset, flip, shift, autoUpdate } from '@floating-ui/react
 import { Icon } from '@iconify/react'
 import { questionTypeIcons, questionTypeLabels } from '@/lib/questionTypeIcons'
 import { useEditContext } from '@/hooks/useEditContext'
+import { type QuestionPath, qpath } from '@/lib/services/questionPath'
 
 /** Types shown in the picker — excludes hidden (rarely manually inserted) */
 const PICKER_TYPES = [
@@ -15,11 +16,11 @@ const PICKER_TYPES = [
 interface QuestionTypePickerProps {
   anchorEl: HTMLElement
   atIndex: number
-  parentId?: string
+  parentPath?: QuestionPath
   onClose: () => void
 }
 
-export function QuestionTypePicker({ anchorEl, atIndex, parentId, onClose }: QuestionTypePickerProps) {
+export function QuestionTypePicker({ anchorEl, atIndex, parentPath, onClose }: QuestionTypePickerProps) {
   const ctx = useEditContext()!
   const { builder, moduleIndex, formIndex } = ctx
   const mb = builder.mb!
@@ -69,11 +70,11 @@ export function QuestionTypePicker({ anchorEl, atIndex, parentId, onClose }: Que
       newId = `new_${type}_${counter}`
     }
 
-    mb.addQuestion(moduleIndex, formIndex, { id: newId, type: type as any, label: 'New Question' }, { atIndex, parentId })
+    mb.addQuestion(moduleIndex, formIndex, { id: newId, type: type as any, label: 'New Question' }, { atIndex, parentPath })
     builder.notifyBlueprintChanged()
-    builder.autoFocusLabel = true
-    builder.newQuestionPath = newId
-    builder.select({ type: 'question', moduleIndex, formIndex, questionPath: newId })
+    const newPath = qpath(newId, parentPath)
+    builder.markNewQuestion(newPath)
+    builder.select({ type: 'question', moduleIndex, formIndex, questionPath: newPath })
     onClose()
   }
 

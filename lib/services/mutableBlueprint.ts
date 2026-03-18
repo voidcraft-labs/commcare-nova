@@ -11,6 +11,7 @@ import {
 } from '../schemas/blueprint'
 import { rewriteXPathRefs, rewriteHashtagRefs } from '../preview/xpath/rewrite'
 import { rewriteOutputTags } from '../preview/engine/outputTag'
+import { type QuestionPath, qpath, qpathId, qpathParent } from './questionPath'
 
 // ── Result types ────────────────────────────────────────────────────────
 
@@ -18,7 +19,7 @@ export interface SearchResult {
   type: 'module' | 'form' | 'question' | 'case_list_column'
   moduleIndex: number
   formIndex?: number
-  questionId?: string
+  questionPath?: QuestionPath
   field: string     // which field matched (e.g. 'label', 'case_property', 'id', 'name')
   value: string     // the matched value
   context: string   // human-readable location string
@@ -30,6 +31,7 @@ export interface RenameResult {
 }
 
 export interface QuestionRenameResult {
+  newPath: QuestionPath
   xpathFieldsRewritten: number
 }
 
@@ -115,10 +117,10 @@ export class MutableBlueprint {
     return this.blueprint.modules[mIdx]?.forms[fIdx] ?? null
   }
 
-  getQuestion(mIdx: number, fIdx: number, questionId: string): { question: Question; path: string } | null {
+  getQuestion(mIdx: number, fIdx: number, questionPath: QuestionPath): Question | null {
     const form = this.getForm(mIdx, fIdx)
     if (!form) return null
-    return this.findQuestionWithPath(form.questions, questionId, '')
+    return this.findByPath(form.questions, questionPath)?.question ?? null
   }
 
   getCaseType(name: string): CaseType | null {
@@ -136,6 +138,13 @@ export class MutableBlueprint {
     const prop = ct.properties.find(p => p.name === propertyName)
     if (!prop) throw new Error(`Property "${propertyName}" not found on case type "${caseTypeName}"`)
     Object.assign(prop, updates)
+  }
+
+  /** Resolve a bare question ID to its full QuestionPath via recursive search. For SA tool boundary. */
+  resolveQuestionId(mIdx: number, fIdx: number, bareId: string): QuestionPath | undefined {
+    const form = this.getForm(mIdx, fIdx)
+    if (!form) return undefined
+    return this.findQuestionPath(form.questions, bareId, undefined)
   }
 
   // ── Search ──────────────────────────────────────────────────────────
@@ -173,15 +182,16 @@ export class MutableBlueprint {
         }
 
         // Questions (recursive)
-        this.searchQuestions(form.questions, q, mIdx, fIdx, results)
+        this.searchQuestions(form.questions, q, mIdx, fIdx, results, undefined)
       }
     }
 
     return results
   }
 
-  private searchQuestions(questions: Question[], query: string, mIdx: number, fIdx: number, results: SearchResult[]): void {
+  private searchQuestions(questions: Question[], query: string, mIdx: number, fIdx: number, results: SearchResult[], parent: QuestionPath | undefined): void {
     for (const q of questions) {
+      const questionPath = qpath(q.id, parent)
       const formRef = `m${mIdx}-f${fIdx}`
       const matchFields: Array<{ field: string; value: string }> = []
 
@@ -211,7 +221,7 @@ export class MutableBlueprint {
           type: 'question',
           moduleIndex: mIdx,
           formIndex: fIdx,
-          questionId: q.id,
+          questionPath,
           field: match.field,
           value: match.value,
           context: `${formRef} question "${q.id}" (${q.type}${q.case_property ? `, case_property: ${q.case_property}` : ''})`,
@@ -219,19 +229,19 @@ export class MutableBlueprint {
       }
 
       if (q.children) {
-        this.searchQuestions(q.children, query, mIdx, fIdx, results)
+        this.searchQuestions(q.children, query, mIdx, fIdx, results, questionPath)
       }
     }
   }
 
   // ── Question mutations ──────────────────────────────────────────────
 
-  updateQuestion(mIdx: number, fIdx: number, questionId: string, updates: Partial<QuestionUpdate>): Question {
+  updateQuestion(mIdx: number, fIdx: number, questionPath: QuestionPath, updates: Partial<QuestionUpdate>): Question {
     const form = this.blueprint.modules[mIdx]?.forms[fIdx]
     if (!form) throw new Error(`Form m${mIdx}-f${fIdx} not found`)
 
-    const found = this.findQuestion(form.questions, questionId)
-    if (!found) throw new Error(`Question "${questionId}" not found in m${mIdx}-f${fIdx}`)
+    const found = this.findByPath(form.questions, questionPath)
+    if (!found) throw new Error(`Question "${questionPath}" not found in m${mIdx}-f${fIdx}`)
 
     const question = found.question
 
@@ -248,16 +258,16 @@ export class MutableBlueprint {
     return question
   }
 
-  addQuestion(mIdx: number, fIdx: number, question: NewQuestion, opts?: { afterId?: string; beforeId?: string; atIndex?: number; parentId?: string }): void {
+  addQuestion(mIdx: number, fIdx: number, question: NewQuestion, opts?: { afterPath?: QuestionPath; beforePath?: QuestionPath; atIndex?: number; parentPath?: QuestionPath }): void {
     const form = this.blueprint.modules[mIdx]?.forms[fIdx]
     if (!form) throw new Error(`Form m${mIdx}-f${fIdx} not found`)
 
     const newQ: Question = this.newQuestionToBlueprint(question)
 
     let arr: Question[]
-    if (opts?.parentId) {
-      const parent = this.findQuestion(form.questions, opts.parentId)
-      if (!parent) throw new Error(`Parent question "${opts.parentId}" not found`)
+    if (opts?.parentPath) {
+      const parent = this.findByPath(form.questions, opts.parentPath)
+      if (!parent) throw new Error(`Parent question "${opts.parentPath}" not found`)
       if (!parent.question.children) parent.question.children = []
       arr = parent.question.children
     } else {
@@ -267,29 +277,36 @@ export class MutableBlueprint {
     if (opts?.atIndex !== undefined) {
       arr.splice(opts.atIndex, 0, newQ)
     } else {
-      this.insertIntoArray(arr, newQ, opts?.afterId, opts?.beforeId)
+      const afterId = opts?.afterPath ? qpathId(opts.afterPath) : undefined
+      const beforeId = opts?.beforePath ? qpathId(opts.beforePath) : undefined
+      this.insertIntoArray(arr, newQ, afterId, beforeId)
     }
   }
 
-  removeQuestion(mIdx: number, fIdx: number, questionId: string): void {
+  removeQuestion(mIdx: number, fIdx: number, questionPath: QuestionPath): void {
     const form = this.blueprint.modules[mIdx]?.forms[fIdx]
     if (!form) throw new Error(`Form m${mIdx}-f${fIdx} not found`)
 
-    const removed = this.removeFromTree(form.questions, questionId)
-    if (!removed) throw new Error(`Question "${questionId}" not found in m${mIdx}-f${fIdx}`)
+    const found = this.findByPath(form.questions, questionPath)
+    if (!found) throw new Error(`Question "${questionPath}" not found in m${mIdx}-f${fIdx}`)
+
+    const idx = found.parent.indexOf(found.question)
+    if (idx !== -1) found.parent.splice(idx, 1)
+
+    const bareId = qpathId(questionPath)
 
     // Clean up close_case reference
-    if (form.close_case?.question === questionId) {
+    if (form.close_case?.question === bareId) {
       delete form.close_case
     }
 
     // Clean up child_cases references
     if (form.child_cases) {
       form.child_cases = form.child_cases.filter(cc => {
-        if (cc.case_name_field === questionId) return false
-        if (cc.repeat_context === questionId) return false
+        if (cc.case_name_field === bareId) return false
+        if (cc.repeat_context === bareId) return false
         if (cc.case_properties) {
-          cc.case_properties = cc.case_properties.filter(cp => cp.question_id !== questionId)
+          cc.case_properties = cc.case_properties.filter(cp => cp.question_id !== bareId)
         }
         return true
       })
@@ -297,30 +314,32 @@ export class MutableBlueprint {
     }
   }
 
-  moveQuestion(mIdx: number, fIdx: number, questionId: string, opts: { afterId?: string; beforeId?: string }): void {
+  moveQuestion(mIdx: number, fIdx: number, questionPath: QuestionPath, opts: { afterPath?: QuestionPath; beforePath?: QuestionPath }): void {
     const form = this.blueprint.modules[mIdx]?.forms[fIdx]
     if (!form) throw new Error(`Form m${mIdx}-f${fIdx} not found`)
 
     // No-op if moving relative to itself
-    if (opts.afterId === questionId || opts.beforeId === questionId) return
+    if (opts.afterPath === questionPath || opts.beforePath === questionPath) return
 
-    const found = this.findQuestion(form.questions, questionId)
-    if (!found) throw new Error(`Question "${questionId}" not found in m${mIdx}-f${fIdx}`)
+    const found = this.findByPath(form.questions, questionPath)
+    if (!found) throw new Error(`Question "${questionPath}" not found in m${mIdx}-f${fIdx}`)
 
     // Remove from current position
     const idx = found.parent.indexOf(found.question)
     if (idx !== -1) found.parent.splice(idx, 1)
 
     // Re-insert at new position within the same parent array
-    this.insertIntoArray(found.parent, found.question, opts.afterId, opts.beforeId)
+    const afterId = opts.afterPath ? qpathId(opts.afterPath) : undefined
+    const beforeId = opts.beforePath ? qpathId(opts.beforePath) : undefined
+    this.insertIntoArray(found.parent, found.question, afterId, beforeId)
   }
 
-  duplicateQuestion(mIdx: number, fIdx: number, questionId: string): string {
+  duplicateQuestion(mIdx: number, fIdx: number, questionPath: QuestionPath): QuestionPath {
     const form = this.blueprint.modules[mIdx]?.forms[fIdx]
     if (!form) throw new Error(`Form m${mIdx}-f${fIdx} not found`)
 
-    const found = this.findQuestion(form.questions, questionId)
-    if (!found) throw new Error(`Question "${questionId}" not found in m${mIdx}-f${fIdx}`)
+    const found = this.findByPath(form.questions, questionPath)
+    if (!found) throw new Error(`Question "${questionPath}" not found in m${mIdx}-f${fIdx}`)
 
     // Deep-clone and generate new ID
     const clone: Question = structuredClone(found.question)
@@ -338,8 +357,8 @@ export class MutableBlueprint {
     delete (clone as any).is_case_name
 
     // Insert after original in same parent array
-    this.insertIntoArray(found.parent, clone, questionId)
-    return newId
+    this.insertIntoArray(found.parent, clone, qpathId(questionPath))
+    return qpath(newId, qpathParent(questionPath))
   }
 
   private collectAllIds(questions: Question[]): Set<string> {
@@ -490,19 +509,21 @@ export class MutableBlueprint {
     return { formsChanged, columnsChanged }
   }
 
-  renameQuestion(mIdx: number, fIdx: number, oldId: string, newId: string): QuestionRenameResult {
+  renameQuestion(mIdx: number, fIdx: number, questionPath: QuestionPath, newId: string): QuestionRenameResult {
     const form = this.blueprint.modules[mIdx]?.forms[fIdx]
     if (!form) throw new Error(`Form m${mIdx}-f${fIdx} not found`)
 
-    const found = this.findQuestionWithPath(form.questions, oldId, '')
-    if (!found) throw new Error(`Question "${oldId}" not found in m${mIdx}-f${fIdx}`)
+    const found = this.findByPath(form.questions, questionPath)
+    if (!found) throw new Error(`Question "${questionPath}" not found in m${mIdx}-f${fIdx}`)
 
-    const oldPath = found.path
+    const oldId = found.question.id
+    // The path string is used for XPath rewriting (matches /data/... structure)
+    const oldXPathPath = questionPath as string
     found.question.id = newId
 
     // Rewrite XPath references in all questions within the same form
     let xpathFieldsRewritten = 0
-    xpathFieldsRewritten += this.rewriteXPathInQuestions(form.questions, oldPath, newId)
+    xpathFieldsRewritten += this.rewriteXPathInQuestions(form.questions, oldXPathPath, newId)
 
     // Update close_case reference
     if (form.close_case?.question === oldId) {
@@ -522,32 +543,38 @@ export class MutableBlueprint {
       }
     }
 
-    return { xpathFieldsRewritten }
+    const newPath = qpath(newId, qpathParent(questionPath))
+    return { newPath, xpathFieldsRewritten }
   }
 
   // ── Private helpers ─────────────────────────────────────────────────
 
-  private findQuestion(questions: Question[], id: string): { question: Question; parent: Question[] } | null {
-    for (const q of questions) {
-      if (q.id === id) return { question: q, parent: questions }
-      if (q.children) {
-        const found = this.findQuestion(q.children, id)
-        if (found) return found
-      }
+  /** Walk the tree matching path segments to find a question and its parent array. */
+  private findByPath(questions: Question[], path: QuestionPath): { question: Question; parent: Question[] } | null {
+    const segments = (path as string).split('/')
+    let current = questions
+    for (let i = 0; i < segments.length - 1; i++) {
+      const parent = current.find(q => q.id === segments[i])
+      if (!parent?.children) return null
+      current = parent.children
     }
-    return null
+    const lastId = segments[segments.length - 1]
+    const question = current.find(q => q.id === lastId)
+    if (!question) return null
+    return { question, parent: current }
   }
 
-  private findQuestionWithPath(questions: Question[], id: string, prefix: string): { question: Question; path: string } | null {
+  /** Recursive bare-ID search, returns full QuestionPath. Used by resolveQuestionId. */
+  private findQuestionPath(questions: Question[], id: string, parent: QuestionPath | undefined): QuestionPath | undefined {
     for (const q of questions) {
-      const path = prefix ? `${prefix}/${q.id}` : q.id
-      if (q.id === id) return { question: q, path }
+      const path = qpath(q.id, parent)
+      if (q.id === id) return path
       if (q.children) {
-        const found = this.findQuestionWithPath(q.children, id, path)
+        const found = this.findQuestionPath(q.children, id, path)
         if (found) return found
       }
     }
-    return null
+    return undefined
   }
 
   private insertIntoArray(arr: Question[], item: Question, afterId?: string, beforeId?: string): void {
@@ -570,18 +597,6 @@ export class MutableBlueprint {
     } else {
       arr.splice(idx + 1, 0, item)
     }
-  }
-
-  private removeFromTree(questions: Question[], id: string): boolean {
-    const idx = questions.findIndex(q => q.id === id)
-    if (idx !== -1) {
-      questions.splice(idx, 1)
-      return true
-    }
-    for (const q of questions) {
-      if (q.children && this.removeFromTree(q.children, id)) return true
-    }
-    return false
   }
 
   private newQuestionToBlueprint(nq: NewQuestion): Question {

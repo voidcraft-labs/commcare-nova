@@ -1,4 +1,5 @@
 import type { AppBlueprint, Scaffold, BlueprintForm, CaseType } from '@/lib/schemas/blueprint'
+import type { QuestionPath } from './questionPath'
 import { MutableBlueprint } from './mutableBlueprint'
 import { HistoryManager, type SnapshotMeta } from './historyManager'
 
@@ -38,7 +39,7 @@ export interface SelectedElement {
   type: 'module' | 'form' | 'question'
   moduleIndex: number
   formIndex?: number
-  questionPath?: string
+  questionPath?: QuestionPath
 }
 
 /** Common shape for AppTree rendering — satisfied by both Scaffold and AppBlueprint */
@@ -59,70 +60,101 @@ export interface TreeData {
   }>
 }
 
-/** Partial module data being built during streaming generation */
+/** Partial module data being built during streaming generation.
+ *  caseListColumns is undefined (not yet received), null (server said no columns), or an array. */
 interface PartialModule {
   caseListColumns?: Array<{ field: string; header: string }> | null
   forms: Map<number, any> // formIndex → assembled BlueprintForm
 }
 
 export class Builder {
-  phase = BuilderPhase.Idle
-  scaffold: Scaffold | null = null
-  private _mb: MutableBlueprint | null = null
-  private history: HistoryManager | null = null
-  private _isDragging = false
-  caseTypes: CaseType[] | null = null
-  statusMessage = ''
-  selected: SelectedElement | null = null
-  /** When true, DetailPanel should auto-focus the label field on mount. Cleared after read. */
-  autoFocusLabel = false
-  /** Path of a newly added question — Label and ID select-all on click until first save. */
-  newQuestionPath: string | null = null
-  mutationCount = 0
-  progressCompleted = 0
-  progressTotal = 0
-  private partialModules: Map<number, PartialModule> = new Map()
-  /** Partial scaffold being built during streaming */
-  private partialScaffold: { appName?: string; description?: string; modules: TreeData['modules'] } | null = null
-  private listeners = new Set<() => void>()
+  // ── Private state ────────────────────────────────────────────────────
 
-  /** The current blueprint as plain data, or null. */
-  get blueprint(): AppBlueprint | null {
-    return this._mb?.getBlueprint() ?? null
+  private _phase = BuilderPhase.Idle
+  private _scaffold?: Scaffold
+  private _mb?: MutableBlueprint
+  private _history?: HistoryManager
+  private _isDragging = false
+  private _caseTypes?: CaseType[]
+  private _statusMessage = ''
+  private _selected?: SelectedElement
+  private _newQuestionPath?: QuestionPath
+  private _mutationCount = 0
+  private _progressCompleted = 0
+  private _progressTotal = 0
+  private _partialModules = new Map<number, PartialModule>()
+  private _partialScaffold?: { appName?: string; description?: string; modules: TreeData['modules'] }
+  private _listeners = new Set<() => void>()
+
+  // ── Read-only public accessors ───────────────────────────────────────
+
+  get phase(): BuilderPhase { return this._phase }
+  get scaffold(): Scaffold | undefined { return this._scaffold }
+  get caseTypes(): CaseType[] | undefined { return this._caseTypes }
+  get statusMessage(): string { return this._statusMessage }
+  get selected(): SelectedElement | undefined { return this._selected }
+  get mutationCount(): number { return this._mutationCount }
+  get progressCompleted(): number { return this._progressCompleted }
+  get progressTotal(): number { return this._progressTotal }
+
+  /** The current blueprint as plain data, or undefined. */
+  get blueprint(): AppBlueprint | undefined {
+    return this._mb?.getBlueprint()
   }
 
   /** The persistent MutableBlueprint instance for direct mutation.
    *  Returns the Proxy-wrapped version when history is active. */
-  get mb(): MutableBlueprint | null {
-    return this.history?.proxied ?? this._mb
+  get mb(): MutableBlueprint | undefined {
+    return this._history?.proxied ?? this._mb
   }
 
+  // ── Subscribe ────────────────────────────────────────────────────────
+
   subscribe(listener: () => void) {
-    this.listeners.add(listener)
-    return () => { this.listeners.delete(listener) }
+    this._listeners.add(listener)
+    return () => { this._listeners.delete(listener) }
   }
 
   private notify() {
-    this.listeners.forEach(fn => fn())
+    this._listeners.forEach(fn => fn())
   }
+
+  // ── New question state ───────────────────────────────────────────────
+
+  /** Mark a question as newly added. Activates auto-focus and select-all behaviors. */
+  markNewQuestion(path: QuestionPath): void {
+    this._newQuestionPath = path
+  }
+
+  /** Returns true if the question at `path` was just added and hasn't been saved yet. */
+  isNewQuestion(path: QuestionPath): boolean {
+    return this._newQuestionPath === path
+  }
+
+  /** Deactivate new-question behaviors (called on first save). */
+  clearNewQuestion(): void {
+    this._newQuestionPath = undefined
+  }
+
+  // ── Progress ─────────────────────────────────────────────────────────
 
   /** Derive progress counts from the scaffold and partialModules state. */
   private updateProgress() {
-    if (!this.scaffold || (this.phase !== BuilderPhase.Modules && this.phase !== BuilderPhase.Forms)) {
-      this.progressCompleted = 0
-      this.progressTotal = 0
+    if (!this._scaffold || (this._phase !== BuilderPhase.Modules && this._phase !== BuilderPhase.Forms)) {
+      this._progressCompleted = 0
+      this._progressTotal = 0
       return
     }
 
     // Total = modules + all forms across modules
-    this.progressTotal = this.scaffold.modules.length +
-      this.scaffold.modules.reduce((sum, m) => sum + m.forms.length, 0)
+    this._progressTotal = this._scaffold.modules.length +
+      this._scaffold.modules.reduce((sum, m) => sum + m.forms.length, 0)
 
     // Completed = modules with columns + forms with content
-    this.progressCompleted = 0
-    for (const [, partial] of this.partialModules) {
-      if (partial.caseListColumns !== undefined) this.progressCompleted++
-      this.progressCompleted += partial.forms.size
+    this._progressCompleted = 0
+    for (const [, partial] of this._partialModules) {
+      if (partial.caseListColumns !== undefined) this._progressCompleted++
+      this._progressCompleted += partial.forms.size
     }
   }
 
@@ -134,93 +166,93 @@ export class Builder {
 
   // ── Undo/Redo ──────────────────────────────────────────────────────
 
-  private deriveSelection(meta: SnapshotMeta, direction: 'undo' | 'redo'): SelectedElement | null {
+  private deriveSelection(meta: SnapshotMeta, direction: 'undo' | 'redo'): SelectedElement | undefined {
     const isUndo = direction === 'undo'
-    let questionId: string | undefined
+    let questionPath: QuestionPath | undefined
 
     switch (meta.type) {
       case 'add':
-        questionId = isUndo ? undefined : meta.questionId
+        questionPath = isUndo ? undefined : meta.questionPath
         break
       case 'remove':
-        questionId = isUndo ? meta.questionId : undefined
+        questionPath = isUndo ? meta.questionPath : undefined
         break
       case 'move':
       case 'update':
-        questionId = meta.questionId
+        questionPath = meta.questionPath
         break
       case 'duplicate':
-        questionId = isUndo ? meta.questionId : meta.secondaryId
+        questionPath = isUndo ? meta.questionPath : meta.secondaryPath
         break
       case 'rename':
-        questionId = isUndo ? meta.questionId : meta.secondaryId
+        questionPath = isUndo ? meta.questionPath : meta.secondaryPath
         break
       case 'structural':
-        return null
+        return undefined
     }
 
-    if (!questionId) return null
+    if (!questionPath) return undefined
 
     // Verify the question exists in the restored blueprint
-    if (!this._mb?.getQuestion(meta.moduleIndex, meta.formIndex, questionId)) return null
+    if (!this._mb?.getQuestion(meta.moduleIndex, meta.formIndex, questionPath)) return undefined
 
     return {
       type: 'question',
       moduleIndex: meta.moduleIndex,
       formIndex: meta.formIndex,
-      questionPath: questionId,
+      questionPath,
     }
   }
 
   undo() {
     if (this._isDragging) return
-    const result = this.history?.undo()
+    const result = this._history?.undo()
     if (!result) return
     this._mb = result.mb
-    this.selected = this.deriveSelection(result.meta, 'undo')
-    this.mutationCount++
+    this._selected = this.deriveSelection(result.meta, 'undo')
+    this._mutationCount++
     this.notify()
   }
 
   redo() {
     if (this._isDragging) return
-    const result = this.history?.redo()
+    const result = this._history?.redo()
     if (!result) return
     this._mb = result.mb
-    this.selected = this.deriveSelection(result.meta, 'redo')
-    this.mutationCount++
+    this._selected = this.deriveSelection(result.meta, 'redo')
+    this._mutationCount++
     this.notify()
   }
 
   get canUndo(): boolean {
-    return this.history?.canUndo ?? false
+    return this._history?.canUndo ?? false
   }
 
   get canRedo(): boolean {
-    return this.history?.canRedo ?? false
+    return this._history?.canRedo ?? false
   }
 
   /** Transition to data model phase (SA called generateSchema). */
   startDataModel() {
-    if (this.history) {
-      this.history.clear()
-      this.history.enabled = false
+    if (this._history) {
+      this._history.clear()
+      this._history.enabled = false
     }
-    this.phase = BuilderPhase.DataModel
-    this.statusMessage = 'Designing data model...'
+    this._phase = BuilderPhase.DataModel
+    this._statusMessage = 'Designing data model...'
     this.notify()
   }
 
   /** Store case types from data model generation. */
   setSchema(caseTypes: CaseType[]) {
-    this.caseTypes = caseTypes
+    this._caseTypes = caseTypes
     this.notify()
   }
 
   /** Update partial scaffold from streaming tool call args. */
   setPartialScaffold(partial: any) {
     if (!partial?.modules?.length) return
-    this.partialScaffold = {
+    this._partialScaffold = {
       appName: partial.app_name,
       modules: partial.modules.filter((m: any) => m?.name).map((m: any) => ({
         name: m.name,
@@ -233,25 +265,25 @@ export class Builder {
         })),
       })),
     }
-    this.phase = BuilderPhase.Structure
-    this.statusMessage = 'Designing app structure...'
+    this._phase = BuilderPhase.Structure
+    this._statusMessage = 'Designing app structure...'
     this.notify()
   }
 
   /** Store the completed scaffold for tree display. */
   setScaffold(scaffold: Scaffold) {
-    this.scaffold = scaffold
-    this._mb = null
-    this.partialScaffold = null
+    this._scaffold = scaffold
+    this._mb = undefined
+    this._partialScaffold = undefined
     this.notify()
   }
 
   /** Update module content (case list columns). */
   setModuleContent(moduleIndex: number, caseListColumns: Array<{ field: string; header: string }> | null) {
-    let partial = this.partialModules.get(moduleIndex)
+    let partial = this._partialModules.get(moduleIndex)
     if (!partial) {
       partial = { forms: new Map() }
-      this.partialModules.set(moduleIndex, partial)
+      this._partialModules.set(moduleIndex, partial)
     }
     partial.caseListColumns = caseListColumns
     this.updateProgress()
@@ -260,10 +292,10 @@ export class Builder {
 
   /** Update form content (assembled form with questions). */
   setFormContent(moduleIndex: number, formIndex: number, form: BlueprintForm) {
-    let partial = this.partialModules.get(moduleIndex)
+    let partial = this._partialModules.get(moduleIndex)
     if (!partial) {
       partial = { forms: new Map() }
-      this.partialModules.set(moduleIndex, partial)
+      this._partialModules.set(moduleIndex, partial)
     }
     partial.forms.set(formIndex, form)
     this.updateProgress()
@@ -288,48 +320,48 @@ export class Builder {
     }
     const newPhase = phaseMap[phase]
     if (!newPhase) return
-    this.phase = newPhase
-    this.statusMessage = statusMap[phase] ?? this.statusMessage
+    this._phase = newPhase
+    this._statusMessage = statusMap[phase] ?? this._statusMessage
     this.updateProgress()
     this.notify()
   }
 
   /** Update status message for fix attempt progress. */
   setFixAttempt(attempt: number, errorCount: number) {
-    this.statusMessage = `Fixing ${errorCount} error${errorCount !== 1 ? 's' : ''} (attempt ${attempt})...`
+    this._statusMessage = `Fixing ${errorCount} error${errorCount !== 1 ? 's' : ''} (attempt ${attempt})...`
     this.notify()
   }
 
   /** Set the completed blueprint after validation. */
   setDone(result: { blueprint: AppBlueprint; hqJson: Record<string, any>; success: boolean }) {
     this._mb = new MutableBlueprint(result.blueprint)
-    this.history = new HistoryManager(this._mb)
-    this.partialModules.clear()
-    this.phase = BuilderPhase.Done
-    this.statusMessage = ''
-    this.progressCompleted = 0
-    this.progressTotal = 0
+    this._history = new HistoryManager(this._mb)
+    this._partialModules.clear()
+    this._phase = BuilderPhase.Done
+    this._statusMessage = ''
+    this._progressCompleted = 0
+    this._progressTotal = 0
     this.notify()
   }
 
   /** Set error state with a message. */
   setError(message: string) {
-    this.phase = BuilderPhase.Error
-    this.statusMessage = message
-    this.partialModules.clear()
+    this._phase = BuilderPhase.Error
+    this._statusMessage = message
+    this._partialModules.clear()
     this.notify()
   }
 
   /** Provides a common shape for AppTree — uses blueprint if available, otherwise merges partials with scaffold, otherwise scaffold. */
-  get treeData(): TreeData | null {
+  get treeData(): TreeData | undefined {
     if (this.blueprint) return this.blueprint
 
-    if (this.scaffold && this.partialModules.size > 0) {
+    if (this._scaffold && this._partialModules.size > 0) {
       // Overlay partial data on top of the scaffold
       return {
-        app_name: this.scaffold.app_name,
-        modules: this.scaffold.modules.map((sm, mIdx) => {
-          const partial = this.partialModules.get(mIdx)
+        app_name: this._scaffold.app_name,
+        modules: this._scaffold.modules.map((sm, mIdx) => {
+          const partial = this._partialModules.get(mIdx)
           return {
             name: sm.name,
             case_type: sm.case_type,
@@ -353,27 +385,27 @@ export class Builder {
       }
     }
 
-    if (this.scaffold) return this.scaffold
+    if (this._scaffold) return this._scaffold
 
-    if (this.partialScaffold && this.partialScaffold.modules.length > 0) {
+    if (this._partialScaffold && this._partialScaffold.modules.length > 0) {
       return {
-        app_name: this.partialScaffold.appName ?? 'Generating...',
-        modules: this.partialScaffold.modules,
+        app_name: this._partialScaffold.appName ?? 'Generating...',
+        modules: this._partialScaffold.modules,
       }
     }
 
-    return null
+    return undefined
   }
 
-  select(el: SelectedElement | null) {
-    if (this.history && el && this.selected) {
-      const prev = this.selected
+  select(el?: SelectedElement) {
+    if (this._history && el && this._selected) {
+      const prev = this._selected
       if (prev.formIndex !== undefined && el.formIndex !== undefined &&
           (prev.moduleIndex !== el.moduleIndex || prev.formIndex !== el.formIndex)) {
-        this.history.clear()
+        this._history.clear()
       }
     }
-    this.selected = el
+    this._selected = el
     this.notify()
   }
 
@@ -384,26 +416,25 @@ export class Builder {
 
   /** Notify subscribers that the blueprint was mutated in-place via mb. */
   notifyBlueprintChanged = () => {
-    this.mutationCount++
+    this._mutationCount++
     this.notify()
   }
 
   reset() {
-    this.phase = BuilderPhase.Idle
-    this.scaffold = null
-    this._mb = null
-    this.history?.clear()
-    this.history = null
-    this.caseTypes = null
-    this.statusMessage = ''
-    this.selected = null
-    this.autoFocusLabel = false
-    this.newQuestionPath = null
-    this.mutationCount = 0
-    this.progressCompleted = 0
-    this.progressTotal = 0
-    this.partialModules.clear()
-    this.partialScaffold = null
+    this._phase = BuilderPhase.Idle
+    this._scaffold = undefined
+    this._mb = undefined
+    this._history?.clear()
+    this._history = undefined
+    this._caseTypes = undefined
+    this._statusMessage = ''
+    this._selected = undefined
+    this._newQuestionPath = undefined
+    this._mutationCount = 0
+    this._progressCompleted = 0
+    this._progressTotal = 0
+    this._partialModules.clear()
+    this._partialScaffold = undefined
     this.notify()
   }
 }

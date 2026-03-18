@@ -7,6 +7,7 @@
  */
 import { describe, it, expect } from 'vitest'
 import { MutableBlueprint } from '../mutableBlueprint'
+import { qpath } from '../questionPath'
 import type { AppBlueprint, Question } from '../../schemas/blueprint'
 
 /** Create a minimal shell blueprint for form builder testing. */
@@ -97,8 +98,8 @@ describe('Form Builder Agent Integration', () => {
     it('nests questions inside a group', () => {
       const mb = new MutableBlueprint(makeShell())
       mb.addQuestion(0, 0, { id: 'demographics', type: 'group', label: 'Demographics' })
-      mb.addQuestion(0, 0, { id: 'first_name', type: 'text', label: 'First Name' }, { parentId: 'demographics' })
-      mb.addQuestion(0, 0, { id: 'last_name', type: 'text', label: 'Last Name' }, { parentId: 'demographics' })
+      mb.addQuestion(0, 0, { id: 'first_name', type: 'text', label: 'First Name' }, { parentPath: qpath('demographics') })
+      mb.addQuestion(0, 0, { id: 'last_name', type: 'text', label: 'Last Name' }, { parentPath: qpath('demographics') })
 
       const form = mb.getForm(0, 0)!
       expect(form.questions).toHaveLength(1)
@@ -111,8 +112,8 @@ describe('Form Builder Agent Integration', () => {
     it('nests questions inside a repeat', () => {
       const mb = new MutableBlueprint(makeShell())
       mb.addQuestion(0, 0, { id: 'household_members', type: 'repeat', label: 'Household Members' })
-      mb.addQuestion(0, 0, { id: 'member_name', type: 'text', label: 'Member Name' }, { parentId: 'household_members' })
-      mb.addQuestion(0, 0, { id: 'member_age', type: 'int', label: 'Age' }, { parentId: 'household_members' })
+      mb.addQuestion(0, 0, { id: 'member_name', type: 'text', label: 'Member Name' }, { parentPath: qpath('household_members') })
+      mb.addQuestion(0, 0, { id: 'member_age', type: 'int', label: 'Age' }, { parentPath: qpath('household_members') })
 
       const form = mb.getForm(0, 0)!
       const repeat = form.questions[0]
@@ -124,7 +125,7 @@ describe('Form Builder Agent Integration', () => {
       const mb = new MutableBlueprint(makeShell())
       mb.addQuestion(0, 0, { id: 'q1', type: 'text', label: 'Q1' })
       mb.addQuestion(0, 0, { id: 'q3', type: 'text', label: 'Q3' })
-      mb.addQuestion(0, 0, { id: 'q2', type: 'text', label: 'Q2' }, { afterId: 'q1' })
+      mb.addQuestion(0, 0, { id: 'q2', type: 'text', label: 'Q2' }, { afterPath: qpath('q1') })
 
       const form = mb.getForm(0, 0)!
       expect(form.questions.map(q => q.id)).toEqual(['q1', 'q2', 'q3'])
@@ -222,7 +223,7 @@ describe('Form Builder Agent Integration', () => {
         type: 'decimal',
         label: 'Temperature (°C)',
         case_property: 'temperature',
-      }, { parentId: 'vitals' })
+      }, { parentPath: qpath('vitals') })
 
       const form = mb.getForm(0, 0)!
       expect(form.name).toBe('Test Form')

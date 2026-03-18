@@ -742,9 +742,11 @@ export function createSolutionsArchitect(
           questionId: z.string().describe('Question id'),
         }),
         execute: async ({ moduleIndex, formIndex, questionId }) => {
-          const result = mutableBp.getQuestion(moduleIndex, formIndex, questionId)
-          if (!result) return { error: `Question "${questionId}" not found in m${moduleIndex}-f${formIndex}` }
-          return { moduleIndex, formIndex, questionId, path: result.path, question: result.question }
+          const questionPath = mutableBp.resolveQuestionId(moduleIndex, formIndex, questionId)
+          if (!questionPath) return { error: `Question "${questionId}" not found in m${moduleIndex}-f${formIndex}` }
+          const question = mutableBp.getQuestion(moduleIndex, formIndex, questionPath)
+          if (!question) return { error: `Question "${questionId}" not found in m${moduleIndex}-f${formIndex}` }
+          return { moduleIndex, formIndex, questionId, path: questionPath as string, question }
         },
       }),
 
@@ -773,7 +775,9 @@ export function createSolutionsArchitect(
         }),
         execute: async ({ moduleIndex, formIndex, questionId, updates }) => {
           try {
-            const question = mutableBp.updateQuestion(moduleIndex, formIndex, questionId, updates)
+            const questionPath = mutableBp.resolveQuestionId(moduleIndex, formIndex, questionId)
+            if (!questionPath) return { error: `Question "${questionId}" not found in m${moduleIndex}-f${formIndex}` }
+            const question = mutableBp.updateQuestion(moduleIndex, formIndex, questionPath, updates)
             const form = mutableBp.getForm(moduleIndex, formIndex)!
             ctx.emit('data-form-updated', { moduleIndex, formIndex, form })
             return { moduleIndex, formIndex, questionId, updatedFields: Object.keys(updates) }
@@ -809,7 +813,10 @@ export function createSolutionsArchitect(
         }),
         execute: async ({ moduleIndex, formIndex, question, afterQuestionId, beforeQuestionId, parentId }) => {
           try {
-            mutableBp.addQuestion(moduleIndex, formIndex, question as NewQuestion, { afterId: afterQuestionId, beforeId: beforeQuestionId, parentId })
+            const afterPath = afterQuestionId ? mutableBp.resolveQuestionId(moduleIndex, formIndex, afterQuestionId) ?? undefined : undefined
+            const beforePath = beforeQuestionId ? mutableBp.resolveQuestionId(moduleIndex, formIndex, beforeQuestionId) ?? undefined : undefined
+            const parentPath = parentId ? mutableBp.resolveQuestionId(moduleIndex, formIndex, parentId) ?? undefined : undefined
+            mutableBp.addQuestion(moduleIndex, formIndex, question as NewQuestion, { afterPath, beforePath, parentPath })
             const form = mutableBp.getForm(moduleIndex, formIndex)!
             ctx.emit('data-form-updated', { moduleIndex, formIndex, form })
             return { moduleIndex, formIndex, addedQuestionId: question.id, parentId: parentId ?? null, afterQuestionId: afterQuestionId ?? null, beforeQuestionId: beforeQuestionId ?? null }
@@ -828,7 +835,9 @@ export function createSolutionsArchitect(
         }),
         execute: async ({ moduleIndex, formIndex, questionId }) => {
           try {
-            mutableBp.removeQuestion(moduleIndex, formIndex, questionId)
+            const questionPath = mutableBp.resolveQuestionId(moduleIndex, formIndex, questionId)
+            if (!questionPath) return { error: `Question "${questionId}" not found in m${moduleIndex}-f${formIndex}` }
+            mutableBp.removeQuestion(moduleIndex, formIndex, questionPath)
             const form = mutableBp.getForm(moduleIndex, formIndex)!
             ctx.emit('data-form-updated', { moduleIndex, formIndex, form })
             return { moduleIndex, formIndex, removedQuestionId: questionId }

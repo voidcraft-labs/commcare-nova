@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import { MutableBlueprint } from '../mutableBlueprint'
 import { HistoryManager } from '../historyManager'
+import { qpath } from '../questionPath'
 import type { AppBlueprint } from '../../schemas/blueprint'
 
 function makeBlueprint(): AppBlueprint {
@@ -33,45 +34,45 @@ describe('HistoryManager', () => {
   it('captures snapshot on mutation via proxy', () => {
     const mb = new MutableBlueprint(makeBlueprint())
     const hm = new HistoryManager(mb)
-    hm.proxied.updateQuestion(0, 0, 'q1', { label: 'Changed' })
+    hm.proxied.updateQuestion(0, 0, qpath('q1'), { label: 'Changed' })
     expect(hm.canUndo).toBe(true)
   })
 
   it('undo restores previous state and returns meta', () => {
     const mb = new MutableBlueprint(makeBlueprint())
     const hm = new HistoryManager(mb)
-    hm.proxied.updateQuestion(0, 0, 'q1', { label: 'Changed' })
-    expect(hm.proxied.getQuestion(0, 0, 'q1')?.question.label).toBe('Changed')
+    hm.proxied.updateQuestion(0, 0, qpath('q1'), { label: 'Changed' })
+    expect(hm.proxied.getQuestion(0, 0, qpath('q1'))?.label).toBe('Changed')
 
     const result = hm.undo()
     expect(result).not.toBeNull()
     expect(result!.mb).toBeInstanceOf(MutableBlueprint)
     expect(result!.meta.type).toBe('update')
-    expect(result!.meta.questionId).toBe('q1')
-    expect(hm.proxied.getQuestion(0, 0, 'q1')?.question.label).toBe('Q1')
+    expect(result!.meta.questionPath).toBe(qpath('q1'))
+    expect(hm.proxied.getQuestion(0, 0, qpath('q1'))?.label).toBe('Q1')
   })
 
   it('redo restores undone state and returns meta', () => {
     const mb = new MutableBlueprint(makeBlueprint())
     const hm = new HistoryManager(mb)
-    hm.proxied.updateQuestion(0, 0, 'q1', { label: 'Changed' })
+    hm.proxied.updateQuestion(0, 0, qpath('q1'), { label: 'Changed' })
     hm.undo()
     expect(hm.canRedo).toBe(true)
 
     const result = hm.redo()
     expect(result).not.toBeNull()
     expect(result!.meta.type).toBe('update')
-    expect(hm.proxied.getQuestion(0, 0, 'q1')?.question.label).toBe('Changed')
+    expect(hm.proxied.getQuestion(0, 0, qpath('q1'))?.label).toBe('Changed')
   })
 
   it('new mutation clears redo stack', () => {
     const mb = new MutableBlueprint(makeBlueprint())
     const hm = new HistoryManager(mb)
-    hm.proxied.updateQuestion(0, 0, 'q1', { label: 'First' })
+    hm.proxied.updateQuestion(0, 0, qpath('q1'), { label: 'First' })
     hm.undo()
     expect(hm.canRedo).toBe(true)
 
-    hm.proxied.updateQuestion(0, 0, 'q1', { label: 'Second' })
+    hm.proxied.updateQuestion(0, 0, qpath('q1'), { label: 'Second' })
     expect(hm.canRedo).toBe(false)
   })
 
@@ -92,7 +93,7 @@ describe('HistoryManager', () => {
     const hm = new HistoryManager(mb, 3)
 
     for (let i = 0; i < 5; i++) {
-      hm.proxied.updateQuestion(0, 0, 'q1', { label: `Change ${i}` })
+      hm.proxied.updateQuestion(0, 0, qpath('q1'), { label: `Change ${i}` })
     }
 
     // Should only be able to undo 3 times
@@ -108,14 +109,14 @@ describe('HistoryManager', () => {
     const mb = new MutableBlueprint(makeBlueprint())
     const hm = new HistoryManager(mb)
     hm.enabled = false
-    hm.proxied.updateQuestion(0, 0, 'q1', { label: 'Changed' })
+    hm.proxied.updateQuestion(0, 0, qpath('q1'), { label: 'Changed' })
     expect(hm.canUndo).toBe(false)
   })
 
   it('clear empties both stacks', () => {
     const mb = new MutableBlueprint(makeBlueprint())
     const hm = new HistoryManager(mb)
-    hm.proxied.updateQuestion(0, 0, 'q1', { label: 'Changed' })
+    hm.proxied.updateQuestion(0, 0, qpath('q1'), { label: 'Changed' })
     hm.undo()
     expect(hm.canRedo).toBe(true)
 
@@ -131,7 +132,7 @@ describe('HistoryManager', () => {
     hm.proxied.getBlueprint()
     hm.proxied.getModule(0)
     hm.proxied.getForm(0, 0)
-    hm.proxied.getQuestion(0, 0, 'q1')
+    hm.proxied.getQuestion(0, 0, qpath('q1'))
     hm.proxied.search('q1')
     expect(hm.canUndo).toBe(false)
   })
@@ -140,18 +141,18 @@ describe('HistoryManager', () => {
     const mb = new MutableBlueprint(makeBlueprint())
     const hm = new HistoryManager(mb)
 
-    hm.proxied.updateQuestion(0, 0, 'q1', { label: 'A' })
-    hm.proxied.updateQuestion(0, 0, 'q1', { label: 'B' })
-    hm.proxied.updateQuestion(0, 0, 'q1', { label: 'C' })
+    hm.proxied.updateQuestion(0, 0, qpath('q1'), { label: 'A' })
+    hm.proxied.updateQuestion(0, 0, qpath('q1'), { label: 'B' })
+    hm.proxied.updateQuestion(0, 0, qpath('q1'), { label: 'C' })
 
     hm.undo() // C → B
-    expect(hm.proxied.getQuestion(0, 0, 'q1')?.question.label).toBe('B')
+    expect(hm.proxied.getQuestion(0, 0, qpath('q1'))?.label).toBe('B')
     hm.undo() // B → A
-    expect(hm.proxied.getQuestion(0, 0, 'q1')?.question.label).toBe('A')
+    expect(hm.proxied.getQuestion(0, 0, qpath('q1'))?.label).toBe('A')
     hm.redo() // A → B
-    expect(hm.proxied.getQuestion(0, 0, 'q1')?.question.label).toBe('B')
+    expect(hm.proxied.getQuestion(0, 0, qpath('q1'))?.label).toBe('B')
     hm.redo() // B → C
-    expect(hm.proxied.getQuestion(0, 0, 'q1')?.question.label).toBe('C')
+    expect(hm.proxied.getQuestion(0, 0, qpath('q1'))?.label).toBe('C')
   })
 
   // ── Metadata capture tests ───────────────────────────────────────────
@@ -167,61 +168,61 @@ describe('HistoryManager', () => {
         type: 'add',
         moduleIndex: 0,
         formIndex: 0,
-        questionId: 'q4',
+        questionPath: qpath('q4'),
       })
     })
 
     it('captures remove metadata', () => {
       const mb = new MutableBlueprint(makeBlueprint())
       const hm = new HistoryManager(mb)
-      hm.proxied.removeQuestion(0, 0, 'q2')
+      hm.proxied.removeQuestion(0, 0, qpath('q2'))
 
       const result = hm.undo()!
       expect(result.meta).toEqual({
         type: 'remove',
         moduleIndex: 0,
         formIndex: 0,
-        questionId: 'q2',
+        questionPath: qpath('q2'),
       })
     })
 
     it('captures move metadata', () => {
       const mb = new MutableBlueprint(makeBlueprint())
       const hm = new HistoryManager(mb)
-      hm.proxied.moveQuestion(0, 0, 'q3', { afterId: 'q1' })
+      hm.proxied.moveQuestion(0, 0, qpath('q3'), { afterPath: qpath('q1') })
 
       const result = hm.undo()!
       expect(result.meta).toEqual({
         type: 'move',
         moduleIndex: 0,
         formIndex: 0,
-        questionId: 'q3',
+        questionPath: qpath('q3'),
       })
     })
 
     it('captures duplicate metadata with clone ID', () => {
       const mb = new MutableBlueprint(makeBlueprint())
       const hm = new HistoryManager(mb)
-      const cloneId = hm.proxied.duplicateQuestion(0, 0, 'q1')
+      const cloneId = hm.proxied.duplicateQuestion(0, 0, qpath('q1'))
 
       const result = hm.undo()!
       expect(result.meta.type).toBe('duplicate')
-      expect(result.meta.questionId).toBe('q1')
-      expect(result.meta.secondaryId).toBe(cloneId)
+      expect(result.meta.questionPath).toBe(qpath('q1'))
+      expect(result.meta.secondaryPath).toBe(cloneId)
     })
 
     it('captures rename metadata', () => {
       const mb = new MutableBlueprint(makeBlueprint())
       const hm = new HistoryManager(mb)
-      hm.proxied.renameQuestion(0, 0, 'q1', 'q1_renamed')
+      hm.proxied.renameQuestion(0, 0, qpath('q1'), 'q1_renamed')
 
       const result = hm.undo()!
       expect(result.meta).toEqual({
         type: 'rename',
         moduleIndex: 0,
         formIndex: 0,
-        questionId: 'q1',
-        secondaryId: 'q1_renamed',
+        questionPath: qpath('q1'),
+        secondaryPath: qpath('q1_renamed'),
       })
     })
 
@@ -237,12 +238,12 @@ describe('HistoryManager', () => {
     it('preserves metadata through redo', () => {
       const mb = new MutableBlueprint(makeBlueprint())
       const hm = new HistoryManager(mb)
-      hm.proxied.removeQuestion(0, 0, 'q2')
+      hm.proxied.removeQuestion(0, 0, qpath('q2'))
 
       hm.undo()
       const result = hm.redo()!
       expect(result.meta.type).toBe('remove')
-      expect(result.meta.questionId).toBe('q2')
+      expect(result.meta.questionPath).toBe(qpath('q2'))
     })
   })
 })

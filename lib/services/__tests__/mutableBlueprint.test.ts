@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { MutableBlueprint } from '../mutableBlueprint'
+import { qpath } from '../questionPath'
 import type { AppBlueprint, Question } from '../../schemas/blueprint'
 
 /** Minimal test blueprint with two modules, two forms each. */
@@ -58,7 +59,7 @@ describe('MutableBlueprint', () => {
       const mb = new MutableBlueprint(makeBlueprint())
       const results = mb.search('client_email')
       expect(results.length).toBeGreaterThanOrEqual(1)
-      expect(results.some(r => r.questionId === 'client_email')).toBe(true)
+      expect(results.some(r => r.questionPath === 'client_email')).toBe(true)
     })
 
     it('finds questions by label', () => {
@@ -128,18 +129,17 @@ describe('MutableBlueprint', () => {
       expect(form?.name).toBe('Update Client')
     })
 
-    it('getQuestion returns question with path', () => {
+    it('getQuestion returns question', () => {
       const mb = new MutableBlueprint(makeBlueprint())
-      const result = mb.getQuestion(0, 0, 'client_email')
-      expect(result?.question.label).toBe('Client Email')
-      expect(result?.path).toBe('client_email')
+      const result = mb.getQuestion(0, 0, qpath('client_email'))
+      expect(result?.label).toBe('Client Email')
     })
   })
 
   describe('updateQuestion', () => {
     it('updates constraint and constraint_msg', () => {
       const mb = new MutableBlueprint(makeBlueprint())
-      const updated = mb.updateQuestion(0, 0, 'client_email', {
+      const updated = mb.updateQuestion(0, 0, qpath('client_email'), {
         constraint: "regex(., '^[a-zA-Z0-9._%+-]+@gmail\\.com$')",
         constraint_msg: 'Please enter a Gmail address',
       })
@@ -149,19 +149,19 @@ describe('MutableBlueprint', () => {
 
     it('clears a field when set to null', () => {
       const mb = new MutableBlueprint(makeBlueprint())
-      const updated = mb.updateQuestion(0, 0, 'client_email', { constraint: null })
+      const updated = mb.updateQuestion(0, 0, qpath('client_email'), { constraint: null })
       expect(updated.constraint).toBeUndefined()
     })
 
     it('updates case_property on a question', () => {
       const mb = new MutableBlueprint(makeBlueprint())
-      const updated = mb.updateQuestion(0, 0, 'client_email', { case_property: 'contact_email' })
+      const updated = mb.updateQuestion(0, 0, qpath('client_email'), { case_property: 'contact_email' })
       expect(updated.case_property).toBe('contact_email')
     })
 
     it('throws for nonexistent question', () => {
       const mb = new MutableBlueprint(makeBlueprint())
-      expect(() => mb.updateQuestion(0, 0, 'nonexistent', { label: 'X' })).toThrow()
+      expect(() => mb.updateQuestion(0, 0, qpath('nonexistent'), { label: 'X' })).toThrow()
     })
   })
 
@@ -175,7 +175,7 @@ describe('MutableBlueprint', () => {
 
     it('inserts after specific question', () => {
       const mb = new MutableBlueprint(makeBlueprint())
-      mb.addQuestion(0, 0, { id: 'inserted', type: 'text', label: 'Inserted' }, { afterId: 'client_name' })
+      mb.addQuestion(0, 0, { id: 'inserted', type: 'text', label: 'Inserted' }, { afterPath: qpath('client_name') })
       const form = mb.getForm(0, 0)!
       const ids = form.questions.map(q => q.id)
       expect(ids.indexOf('inserted')).toBe(ids.indexOf('client_name') + 1)
@@ -193,21 +193,21 @@ describe('MutableBlueprint', () => {
   describe('removeQuestion', () => {
     it('removes a question', () => {
       const mb = new MutableBlueprint(makeBlueprint())
-      mb.removeQuestion(0, 0, 'client_phone')
+      mb.removeQuestion(0, 0, qpath('client_phone'))
       const form = mb.getForm(0, 0)!
       expect(form.questions.some(q => q.id === 'client_phone')).toBe(false)
     })
 
     it('removes question with case_property', () => {
       const mb = new MutableBlueprint(makeBlueprint())
-      mb.removeQuestion(0, 0, 'client_email')
+      mb.removeQuestion(0, 0, qpath('client_email'))
       const form = mb.getForm(0, 0)!
       expect(form.questions.some(q => q.id === 'client_email')).toBe(false)
     })
 
     it('throws for nonexistent question', () => {
       const mb = new MutableBlueprint(makeBlueprint())
-      expect(() => mb.removeQuestion(0, 0, 'nonexistent')).toThrow()
+      expect(() => mb.removeQuestion(0, 0, qpath('nonexistent'))).toThrow()
     })
   })
 
@@ -310,8 +310,8 @@ describe('MutableBlueprint', () => {
       })
       const mb = new MutableBlueprint(bp)
       mb.renameCaseProperty('client', 'email_address', 'contact_email')
-      const q = mb.getQuestion(0, 1, 'display_label')
-      expect(q!.question.label).toBe('Updating record for: <output value="#case/contact_email"/>')
+      const q = mb.getQuestion(0, 1, qpath('display_label'))
+      expect(q!.label).toBe('Updating record for: <output value="#case/contact_email"/>')
     })
 
     it('rewrites #case/ refs in output tags in hints', () => {
@@ -324,8 +324,8 @@ describe('MutableBlueprint', () => {
       })
       const mb = new MutableBlueprint(bp)
       mb.renameCaseProperty('client', 'full_name', 'legal_name')
-      const q = mb.getQuestion(0, 1, 'hint_q')
-      expect(q!.question.hint).toBe('Current: <output value="#case/legal_name"/>')
+      const q = mb.getQuestion(0, 1, qpath('hint_q'))
+      expect(q!.hint).toBe('Current: <output value="#case/legal_name"/>')
     })
 
     it('rewrites multiple output tags in one label', () => {
@@ -337,8 +337,8 @@ describe('MutableBlueprint', () => {
       })
       const mb = new MutableBlueprint(bp)
       mb.renameCaseProperty('client', 'full_name', 'legal_name')
-      const q = mb.getQuestion(0, 1, 'multi_label')
-      expect(q!.question.label).toBe('<output value="#case/legal_name"/> (<output value="#case/legal_name"/>)')
+      const q = mb.getQuestion(0, 1, qpath('multi_label'))
+      expect(q!.label).toBe('<output value="#case/legal_name"/> (<output value="#case/legal_name"/>)')
     })
   })
 
@@ -407,7 +407,7 @@ describe('MutableBlueprint', () => {
       const original = makeBlueprint()
       const originalName = original.modules[0].forms[0].questions[0].label
       const mb = new MutableBlueprint(original)
-      mb.updateQuestion(0, 0, 'client_name', { label: 'CHANGED' })
+      mb.updateQuestion(0, 0, qpath('client_name'), { label: 'CHANGED' })
       expect(original.modules[0].forms[0].questions[0].label).toEqual(originalName)
     })
   })
@@ -415,10 +415,10 @@ describe('MutableBlueprint', () => {
   describe('renameQuestion', () => {
     it('renames the question ID', () => {
       const mb = new MutableBlueprint(makeBlueprint())
-      mb.renameQuestion(0, 0, 'client_name', 'full_name_q')
-      const q = mb.getQuestion(0, 0, 'full_name_q')
+      mb.renameQuestion(0, 0, qpath('client_name'), 'full_name_q')
+      const q = mb.getQuestion(0, 0, qpath('full_name_q'))
       expect(q).not.toBeNull()
-      expect(q!.question.id).toBe('full_name_q')
+      expect(q!.id).toBe('full_name_q')
     })
 
     it('rewrites XPath references in sibling questions', () => {
@@ -431,9 +431,9 @@ describe('MutableBlueprint', () => {
         relevant: '/data/client_name != ""',
       })
       const mb = new MutableBlueprint(bp)
-      mb.renameQuestion(0, 0, 'client_name', 'full_name_q')
-      const q = mb.getQuestion(0, 0, 'followup_q')
-      expect(q!.question.relevant).toBe('/data/full_name_q != ""')
+      mb.renameQuestion(0, 0, qpath('client_name'), 'full_name_q')
+      const q = mb.getQuestion(0, 0, qpath('followup_q'))
+      expect(q!.relevant).toBe('/data/full_name_q != ""')
     })
 
     it('rewrites #form/ hashtag references', () => {
@@ -444,16 +444,16 @@ describe('MutableBlueprint', () => {
         calculate: '#form/client_name',
       })
       const mb = new MutableBlueprint(bp)
-      mb.renameQuestion(0, 0, 'client_name', 'full_name_q')
-      const q = mb.getQuestion(0, 0, 'calc_q')
-      expect(q!.question.calculate).toBe('#form/full_name_q')
+      mb.renameQuestion(0, 0, qpath('client_name'), 'full_name_q')
+      const q = mb.getQuestion(0, 0, qpath('calc_q'))
+      expect(q!.calculate).toBe('#form/full_name_q')
     })
 
     it('updates close_case.question reference', () => {
       const bp = makeBlueprint()
       bp.modules[0].forms[1].close_case = { question: 'edit_name', answer: 'close' }
       const mb = new MutableBlueprint(bp)
-      mb.renameQuestion(0, 1, 'edit_name', 'renamed_name')
+      mb.renameQuestion(0, 1, qpath('edit_name'), 'renamed_name')
       const form = mb.getForm(0, 1)
       expect(form!.close_case!.question).toBe('renamed_name')
     })
@@ -466,7 +466,7 @@ describe('MutableBlueprint', () => {
         case_properties: [{ case_property: 'name', question_id: 'client_name' }],
       }]
       const mb = new MutableBlueprint(bp)
-      mb.renameQuestion(0, 0, 'client_name', 'full_name_q')
+      mb.renameQuestion(0, 0, qpath('client_name'), 'full_name_q')
       const form = mb.getForm(0, 0)
       expect(form!.child_cases![0].case_name_field).toBe('full_name_q')
       expect(form!.child_cases![0].case_properties![0].question_id).toBe('full_name_q')
@@ -479,7 +479,7 @@ describe('MutableBlueprint', () => {
         { id: 'q2', type: 'text', calculate: '/data/client_name' },
       )
       const mb = new MutableBlueprint(bp)
-      const result = mb.renameQuestion(0, 0, 'client_name', 'renamed')
+      const result = mb.renameQuestion(0, 0, qpath('client_name'), 'renamed')
       expect(result.xpathFieldsRewritten).toBe(2)
     })
 
@@ -491,9 +491,9 @@ describe('MutableBlueprint', () => {
         label: 'Name: <output value="#form/client_name"/>',
       })
       const mb = new MutableBlueprint(bp)
-      mb.renameQuestion(0, 0, 'client_name', 'full_name_q')
-      const q = mb.getQuestion(0, 0, 'summary')
-      expect(q!.question.label).toBe('Name: <output value="#form/full_name_q"/>')
+      mb.renameQuestion(0, 0, qpath('client_name'), 'full_name_q')
+      const q = mb.getQuestion(0, 0, qpath('summary'))
+      expect(q!.label).toBe('Name: <output value="#form/full_name_q"/>')
     })
 
     it('rewrites XPath inside output tags in hint', () => {
@@ -505,9 +505,9 @@ describe('MutableBlueprint', () => {
         hint: 'Age for <output value="/data/client_name"/>',
       })
       const mb = new MutableBlueprint(bp)
-      mb.renameQuestion(0, 0, 'client_name', 'full_name_q')
-      const q = mb.getQuestion(0, 0, 'age_q')
-      expect(q!.question.hint).toBe('Age for <output value="/data/full_name_q"/>')
+      mb.renameQuestion(0, 0, qpath('client_name'), 'full_name_q')
+      const q = mb.getQuestion(0, 0, qpath('age_q'))
+      expect(q!.hint).toBe('Age for <output value="/data/full_name_q"/>')
     })
 
     it('handles nested group questions', () => {
@@ -521,9 +521,9 @@ describe('MutableBlueprint', () => {
         { id: 'outer_q', type: 'text', relevant: '/data/grp/inner_q != ""' },
       ]
       const mb = new MutableBlueprint(bp)
-      mb.renameQuestion(0, 0, 'inner_q', 'renamed_inner')
-      const q = mb.getQuestion(0, 0, 'outer_q')
-      expect(q!.question.relevant).toBe('/data/grp/renamed_inner != ""')
+      mb.renameQuestion(0, 0, qpath('inner_q', qpath('grp')), 'renamed_inner')
+      const q = mb.getQuestion(0, 0, qpath('outer_q'))
+      expect(q!.relevant).toBe('/data/grp/renamed_inner != ""')
     })
   })
 
@@ -531,7 +531,7 @@ describe('MutableBlueprint', () => {
     it('moves a question after another', () => {
       const mb = new MutableBlueprint(makeBlueprint())
       // Move client_name after client_phone (currently: name, email, phone → email, phone, name)
-      mb.moveQuestion(0, 0, 'client_name', { afterId: 'client_phone' })
+      mb.moveQuestion(0, 0, qpath('client_name'), { afterPath: qpath('client_phone') })
       const ids = mb.getForm(0, 0)!.questions.map(q => q.id)
       expect(ids).toEqual(['client_email', 'client_phone', 'client_name'])
     })
@@ -539,20 +539,20 @@ describe('MutableBlueprint', () => {
     it('moves a question before another', () => {
       const mb = new MutableBlueprint(makeBlueprint())
       // Move client_phone before client_name (currently: name, email, phone → phone, name, email)
-      mb.moveQuestion(0, 0, 'client_phone', { beforeId: 'client_name' })
+      mb.moveQuestion(0, 0, qpath('client_phone'), { beforePath: qpath('client_name') })
       const ids = mb.getForm(0, 0)!.questions.map(q => q.id)
       expect(ids).toEqual(['client_phone', 'client_name', 'client_email'])
     })
 
     it('throws for nonexistent question', () => {
       const mb = new MutableBlueprint(makeBlueprint())
-      expect(() => mb.moveQuestion(0, 0, 'nonexistent', { afterId: 'client_name' })).toThrow()
+      expect(() => mb.moveQuestion(0, 0, qpath('nonexistent'), { afterPath: qpath('client_name') })).toThrow()
     })
 
     it('no-ops when moving after itself', () => {
       const mb = new MutableBlueprint(makeBlueprint())
       const idsBefore = mb.getForm(0, 0)!.questions.map(q => q.id)
-      mb.moveQuestion(0, 0, 'client_email', { afterId: 'client_email' })
+      mb.moveQuestion(0, 0, qpath('client_email'), { afterPath: qpath('client_email') })
       const idsAfter = mb.getForm(0, 0)!.questions.map(q => q.id)
       expect(idsAfter).toEqual(idsBefore)
     })
@@ -561,7 +561,7 @@ describe('MutableBlueprint', () => {
   describe('duplicateQuestion', () => {
     it('duplicates a question with _copy suffix', () => {
       const mb = new MutableBlueprint(makeBlueprint())
-      const newId = mb.duplicateQuestion(0, 0, 'client_name')
+      const newId = mb.duplicateQuestion(0, 0, qpath('client_name'))
       expect(newId).toBe('client_name_copy')
       const form = mb.getForm(0, 0)!
       const ids = form.questions.map(q => q.id)
@@ -572,28 +572,28 @@ describe('MutableBlueprint', () => {
 
     it('clears case_property on the clone', () => {
       const mb = new MutableBlueprint(makeBlueprint())
-      const newId = mb.duplicateQuestion(0, 0, 'client_name')
+      const newId = mb.duplicateQuestion(0, 0, qpath('client_name'))
       const q = mb.getQuestion(0, 0, newId)
-      expect(q!.question.case_property).toBeUndefined()
+      expect(q!.case_property).toBeUndefined()
     })
 
     it('clears is_case_name on the clone', () => {
       const mb = new MutableBlueprint(makeBlueprint())
-      const newId = mb.duplicateQuestion(0, 0, 'client_name')
+      const newId = mb.duplicateQuestion(0, 0, qpath('client_name'))
       const q = mb.getQuestion(0, 0, newId)
-      expect((q!.question as any).is_case_name).toBeUndefined()
+      expect((q! as any).is_case_name).toBeUndefined()
     })
 
     it('uses numeric suffix when _copy exists', () => {
       const mb = new MutableBlueprint(makeBlueprint())
-      mb.duplicateQuestion(0, 0, 'client_name') // creates client_name_copy
-      const newId2 = mb.duplicateQuestion(0, 0, 'client_name') // should be client_name_2
+      mb.duplicateQuestion(0, 0, qpath('client_name')) // creates client_name_copy
+      const newId2 = mb.duplicateQuestion(0, 0, qpath('client_name')) // should be client_name_2
       expect(newId2).toBe('client_name_2')
     })
 
     it('throws for nonexistent question', () => {
       const mb = new MutableBlueprint(makeBlueprint())
-      expect(() => mb.duplicateQuestion(0, 0, 'nonexistent')).toThrow()
+      expect(() => mb.duplicateQuestion(0, 0, qpath('nonexistent'))).toThrow()
     })
   })
 })

@@ -1,17 +1,18 @@
 import { describe, it, expect } from 'vitest'
-import { flattenQuestionIds } from '../questionNavigation'
+import { flattenQuestionPaths } from '../questionNavigation'
+import { qpath } from '../questionPath'
 
 // Use plain objects — the function only reads id, type, and children
 type Q = { id: string; type: string; children?: Q[] }
 
-describe('flattenQuestionIds', () => {
+describe('flattenQuestionPaths', () => {
   it('returns flat list for simple questions', () => {
     const questions: Q[] = [
       { id: 'q1', type: 'text' },
       { id: 'q2', type: 'int' },
       { id: 'q3', type: 'date' },
     ]
-    expect(flattenQuestionIds(questions)).toEqual(['q1', 'q2', 'q3'])
+    expect(flattenQuestionPaths(questions)).toEqual([qpath('q1'), qpath('q2'), qpath('q3')])
   })
 
   it('skips hidden questions', () => {
@@ -20,7 +21,7 @@ describe('flattenQuestionIds', () => {
       { id: 'h1', type: 'hidden' },
       { id: 'q2', type: 'text' },
     ]
-    expect(flattenQuestionIds(questions)).toEqual(['q1', 'q2'])
+    expect(flattenQuestionPaths(questions)).toEqual([qpath('q1'), qpath('q2')])
   })
 
   it('includes group/repeat IDs and recurses into children', () => {
@@ -34,7 +35,7 @@ describe('flattenQuestionIds', () => {
       },
       { id: 'q2', type: 'text' },
     ]
-    expect(flattenQuestionIds(questions)).toEqual(['q1', 'grp', 'child1', 'child2', 'q2'])
+    expect(flattenQuestionPaths(questions)).toEqual([qpath('q1'), qpath('grp'), qpath('child1', qpath('grp')), qpath('child2', qpath('grp')), qpath('q2')])
   })
 
   it('handles nested groups', () => {
@@ -49,10 +50,10 @@ describe('flattenQuestionIds', () => {
         ],
       },
     ]
-    expect(flattenQuestionIds(questions)).toEqual(['outer', 'inner', 'deep'])
+    expect(flattenQuestionPaths(questions)).toEqual([qpath('outer'), qpath('inner', qpath('outer')), qpath('deep', qpath('inner', qpath('outer')))])
   })
 
   it('returns empty array for empty questions', () => {
-    expect(flattenQuestionIds([])).toEqual([])
+    expect(flattenQuestionPaths([])).toEqual([])
   })
 })

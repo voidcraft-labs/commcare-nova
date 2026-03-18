@@ -18,7 +18,8 @@ import { useSettings } from '@/hooks/useSettings'
 import { useBuilder } from '@/hooks/useBuilder'
 import { BuilderPhase, applyDataPart } from '@/lib/services/builder'
 import { summarizeBlueprint } from '@/lib/schemas/blueprint'
-import { flattenQuestionIds } from '@/lib/services/questionNavigation'
+import { flattenQuestionPaths } from '@/lib/services/questionNavigation'
+import { type QuestionPath, qpath } from '@/lib/services/questionPath'
 import { useKeyboardShortcuts } from '@/hooks/useKeyboardShortcuts'
 import type { Shortcut } from '@/lib/services/keyboardManager'
 import { Logo } from '@/components/ui/Logo'
@@ -87,12 +88,13 @@ export function BuilderLayout({ buildId }: { buildId: string }) {
   navRef.current = nav
 
   // Track last focused question in live mode (focusin fires before click steals focus)
-  const lastLiveQuestionRef = useRef<string | null>(null)
+  const lastLiveQuestionRef = useRef<QuestionPath | undefined>(undefined)
   useEffect(() => {
     const handler = (e: FocusEvent) => {
       if (viewModeRef.current !== 'test') return
       const el = (e.target as HTMLElement)?.closest?.('[data-question-id]')
-      if (el) lastLiveQuestionRef.current = el.getAttribute('data-question-id')
+      const attr = el?.getAttribute('data-question-id')
+      if (attr) lastLiveQuestionRef.current = attr as QuestionPath
     }
     document.addEventListener('focusin', handler)
     return () => document.removeEventListener('focusin', handler)
@@ -146,7 +148,7 @@ export function BuilderLayout({ buildId }: { buildId: string }) {
     nav.replaceStack(stack)
   }, [builder, nav.replaceStack])
 
-  const inReplayMode = replayData !== null
+  const inReplayMode = !!replayData
   const isCentered = builder.phase === BuilderPhase.Idle && !builder.treeData
 
   // ── Stable ref for builder so onData callback doesn't go stale ──────
@@ -235,7 +237,7 @@ export function BuilderLayout({ buildId }: { buildId: string }) {
       key: 'Escape',
       handler: () => {
         if (viewMode === 'test') { handleViewModeChange('preview'); return }
-        if (builder.selected) { builder.select(null); return }
+        if (builder.selected) { builder.select(); return }
       },
     },
     // Tab / Shift+Tab — navigate questions
@@ -247,8 +249,8 @@ export function BuilderLayout({ buildId }: { buildId: string }) {
         if (sel.formIndex === undefined) return
         const form = builder.blueprint.modules[sel.moduleIndex]?.forms[sel.formIndex]
         if (!form) return
-        const ids = flattenQuestionIds(form.questions)
-        const curIdx = ids.indexOf(sel.questionPath ?? '')
+        const ids = flattenQuestionPaths(form.questions)
+        const curIdx = ids.indexOf(sel.questionPath as QuestionPath)
         const nextIdx = (curIdx + 1) % ids.length
         builder.select({ type: 'question', moduleIndex: sel.moduleIndex, formIndex: sel.formIndex, questionPath: ids[nextIdx] })
       },
@@ -262,8 +264,8 @@ export function BuilderLayout({ buildId }: { buildId: string }) {
         if (sel.formIndex === undefined) return
         const form = builder.blueprint.modules[sel.moduleIndex]?.forms[sel.formIndex]
         if (!form) return
-        const ids = flattenQuestionIds(form.questions)
-        const curIdx = ids.indexOf(sel.questionPath ?? '')
+        const ids = flattenQuestionPaths(form.questions)
+        const curIdx = ids.indexOf(sel.questionPath as QuestionPath)
         const prevIdx = curIdx <= 0 ? ids.length - 1 : curIdx - 1
         builder.select({ type: 'question', moduleIndex: sel.moduleIndex, formIndex: sel.formIndex, questionPath: ids[prevIdx] })
       },
@@ -290,9 +292,9 @@ export function BuilderLayout({ buildId }: { buildId: string }) {
         if (!sel || sel.type !== 'question' || sel.formIndex === undefined || !sel.questionPath) return
         const mb = builder.mb
         if (!mb) return
-        const newId = mb.duplicateQuestion(sel.moduleIndex, sel.formIndex, sel.questionPath)
+        const newPath = mb.duplicateQuestion(sel.moduleIndex, sel.formIndex, sel.questionPath)
         builder.notifyBlueprintChanged()
-        builder.select({ type: 'question', moduleIndex: sel.moduleIndex, formIndex: sel.formIndex, questionPath: newId })
+        builder.select({ type: 'question', moduleIndex: sel.moduleIndex, formIndex: sel.formIndex, questionPath: newPath })
       },
     },
     // ArrowUp/ArrowDown — reorder
@@ -305,10 +307,10 @@ export function BuilderLayout({ buildId }: { buildId: string }) {
         if (!mb) return
         const form = mb.getForm(sel.moduleIndex, sel.formIndex)
         if (!form) return
-        const ids = flattenQuestionIds(form.questions)
-        const curIdx = ids.indexOf(sel.questionPath)
+        const ids = flattenQuestionPaths(form.questions)
+        const curIdx = ids.indexOf(sel.questionPath as QuestionPath)
         if (curIdx <= 0) return
-        mb.moveQuestion(sel.moduleIndex, sel.formIndex, sel.questionPath, { beforeId: ids[curIdx - 1] })
+        mb.moveQuestion(sel.moduleIndex, sel.formIndex, sel.questionPath, { beforePath: ids[curIdx - 1] })
         builder.notifyBlueprintChanged()
       },
     },
@@ -321,10 +323,10 @@ export function BuilderLayout({ buildId }: { buildId: string }) {
         if (!mb) return
         const form = mb.getForm(sel.moduleIndex, sel.formIndex)
         if (!form) return
-        const ids = flattenQuestionIds(form.questions)
-        const curIdx = ids.indexOf(sel.questionPath)
+        const ids = flattenQuestionPaths(form.questions)
+        const curIdx = ids.indexOf(sel.questionPath as QuestionPath)
         if (curIdx < 0 || curIdx >= ids.length - 1) return
-        mb.moveQuestion(sel.moduleIndex, sel.formIndex, sel.questionPath, { afterId: ids[curIdx + 1] })
+        mb.moveQuestion(sel.moduleIndex, sel.formIndex, sel.questionPath, { afterPath: ids[curIdx + 1] })
         builder.notifyBlueprintChanged()
       },
     },
@@ -354,17 +356,17 @@ export function BuilderLayout({ buildId }: { buildId: string }) {
     const form = mb.getForm(sel.moduleIndex, sel.formIndex)
     if (!form) return
 
-    const ids = flattenQuestionIds(form.questions)
-    const curIdx = ids.indexOf(sel.questionPath)
-    const nextId = ids[curIdx + 1] ?? ids[curIdx - 1]
+    const paths = flattenQuestionPaths(form.questions)
+    const curIdx = paths.indexOf(sel.questionPath as QuestionPath)
+    const nextPath = paths[curIdx + 1] ?? paths[curIdx - 1]
 
     mb.removeQuestion(sel.moduleIndex, sel.formIndex, sel.questionPath)
     builder.notifyBlueprintChanged()
 
-    if (nextId) {
-      builder.select({ type: 'question', moduleIndex: sel.moduleIndex, formIndex: sel.formIndex, questionPath: nextId })
+    if (nextPath) {
+      builder.select({ type: 'question', moduleIndex: sel.moduleIndex, formIndex: sel.formIndex, questionPath: nextPath })
     } else {
-      builder.select(null)
+      builder.select()
     }
   }, [builder])
 
@@ -391,14 +393,14 @@ export function BuilderLayout({ buildId }: { buildId: string }) {
             } else if (screen.type === 'form' || screen.type === 'caseList') {
               builder.select({ type: 'form', moduleIndex: screen.moduleIndex, formIndex: screen.formIndex })
             } else {
-              builder.select(null)
+              builder.select()
             }
           },
         })
       }
     } else {
       const sel = builder.selected
-      breadcrumbParts.push({ label: bp.app_name, onClick: () => builder.select(null) })
+      breadcrumbParts.push({ label: bp.app_name, onClick: () => builder.select() })
       if (sel) {
         const mod = bp.modules[sel.moduleIndex]
         if (mod) {
@@ -613,7 +615,7 @@ export function BuilderLayout({ buildId }: { buildId: string }) {
                         ) : (
                           <AppTree
                             data={builder.treeData}
-                            selected={viewMode === 'tree' ? builder.selected : null}
+                            selected={viewMode === 'tree' ? builder.selected : undefined}
                             onSelect={(s) => builder.select(s)}
                             phase={builder.phase}
                             hideHeader

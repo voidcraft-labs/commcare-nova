@@ -3,17 +3,19 @@ import { Icon } from '@iconify/react'
 import ciPlus from '@iconify-icons/ci/plus'
 import ciTrash from '@iconify-icons/ci/trash-full'
 import type { Question } from '@/lib/schemas/blueprint'
+import type { QuestionPath } from '@/lib/services/questionPath'
 import type { FormEngine } from '@/lib/preview/engine/formEngine'
 import { renderPreviewMarkdown } from '@/lib/markdown'
 
 interface RepeatFieldProps {
   question: Question
   path: string
+  questionPath: QuestionPath
   engine: FormEngine
-  renderChildren: (questions: Question[], prefix: string) => React.ReactNode
+  renderChildren: (questions: Question[], prefix: string, parentPath: QuestionPath) => React.ReactNode
 }
 
-export function RepeatField({ question, path, engine, renderChildren }: RepeatFieldProps) {
+export function RepeatField({ question, path, questionPath, engine, renderChildren }: RepeatFieldProps) {
   const state = engine.getState(path)
   if (!state.visible) return null
 
@@ -41,7 +43,7 @@ export function RepeatField({ question, path, engine, renderChildren }: RepeatFi
             )}
           </div>
           <div className="p-4 space-y-4">
-            {question.children && renderChildren(question.children, `${path}[${idx}]`)}
+            {question.children && renderChildren(question.children, `${path}[${idx}]`, questionPath)}
           </div>
         </div>
       ))}
