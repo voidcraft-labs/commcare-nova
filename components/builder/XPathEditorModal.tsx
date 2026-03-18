@@ -52,14 +52,6 @@ interface XPathEditorModalProps {
 export function XPathEditorModal({ value, label, onSave, onClose }: XPathEditorModalProps) {
   const [draft, setDraft] = useState(() => formatXPath(value))
 
-  useEffect(() => {
-    const handler = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose()
-    }
-    document.addEventListener('keydown', handler)
-    return () => document.removeEventListener('keydown', handler)
-  }, [onClose])
-
   const handleUpdate = useCallback(() => {
     const trimmed = draft.trim()
     if (trimmed !== value) {
@@ -67,6 +59,18 @@ export function XPathEditorModal({ value, label, onSave, onClose }: XPathEditorM
     }
     onClose()
   }, [draft, value, onSave, onClose])
+
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose()
+      if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
+        e.preventDefault()
+        handleUpdate()
+      }
+    }
+    document.addEventListener('keydown', handler)
+    return () => document.removeEventListener('keydown', handler)
+  }, [onClose, handleUpdate])
 
   return createPortal(
     <AnimatePresence>
@@ -116,19 +120,24 @@ export function XPathEditorModal({ value, label, onSave, onClose }: XPathEditorM
           </div>
 
           {/* Footer */}
-          <div className="px-5 py-3 border-t border-nova-border flex items-center justify-end gap-2 shrink-0">
-            <button
-              onClick={onClose}
-              className="px-3 py-1.5 text-sm text-nova-text-muted hover:text-nova-text transition-colors rounded"
-            >
-              Cancel
-            </button>
-            <button
-              onClick={handleUpdate}
-              className="px-3 py-1.5 text-sm bg-nova-violet/20 text-nova-violet-bright hover:bg-nova-violet/30 border border-nova-violet/30 rounded transition-colors"
-            >
-              Update
-            </button>
+          <div className="px-5 py-3 border-t border-nova-border flex items-center justify-between shrink-0">
+            <span className="text-[10px] text-nova-text-muted tracking-wide">
+              {typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.platform) ? '⌘' : 'Ctrl'} + {typeof navigator !== 'undefined' && /Win/.test(navigator.platform) ? 'ENTER' : 'RETURN'} TO SAVE
+            </span>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={onClose}
+                className="px-3 py-1.5 text-sm text-nova-text-muted hover:text-nova-text transition-colors rounded"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleUpdate}
+                className="px-3 py-1.5 text-sm bg-nova-violet/20 text-nova-violet-bright hover:bg-nova-violet/30 border border-nova-violet/30 rounded transition-colors"
+              >
+                Update
+              </button>
+            </div>
           </div>
         </motion.div>
       </motion.div>
