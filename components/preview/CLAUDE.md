@@ -35,11 +35,11 @@ Uses `@dnd-kit/react` — `DragDropProvider` wraps the question list, each quest
 
 ### Delete
 
-Trash icon on hover/selection in `EditableQuestionWrapper`. `ConfirmDialog` for confirmation. Selects nearest sibling after deletion.
+Trash icon on hover/selection in `EditableQuestionWrapper`. Deletes immediately (no confirmation — undo/redo is the safety net). Selects nearest sibling after deletion.
 
 ## Form Components
 
-- **FormRenderer** — Iterates visible questions, wraps each in `SortableQuestion` + `EditableQuestionWrapper`, interleaves `InsertionPoint` zones. Manages drag state, delete confirmation, and cursor velocity tracking. In edit mode, `SortableQuestion` passes a clean `displayState` (empty value, untouched, valid) to field components so preview inputs appear pristine. Each question wrapper has a `data-question-id` attribute for focus targeting.
+- **FormRenderer** — Iterates visible questions, wraps each in `SortableQuestion` + `EditableQuestionWrapper`, interleaves `InsertionPoint` zones. Manages drag state and cursor velocity tracking. In edit mode, `SortableQuestion` passes a clean `displayState` (empty value, untouched, valid) to field components so preview inputs appear pristine. Each question wrapper has a `data-question-id` attribute for focus targeting.
 - **EditableQuestionWrapper** — Hover chrome (ring, grip handle), click-to-select, delete button, hold-to-grab cursor (300ms timer). `pointer-events-none` on children prevents form input interaction in edit mode. `data-question-wrapper` attribute for nested click delegation.
 - **QuestionField** — Dispatches to type-specific field component. When `state.caseRef` is set (unresolved case property in edit mode), renders a `.case-ref` badge instead of any input.
 
