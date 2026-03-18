@@ -648,17 +648,21 @@ export function createSolutionsArchitect(
       // ── Validation ────────────────────────────────────────────────
 
       validateApp: tool({
-        description: 'Validate the app against CommCare platform rules and fix any issues. Call this when you are done building or editing.',
+        description: 'Validate the app against CommCare platform rules and fix any issues. Call this when you are done building or editing. If validation fails with remaining errors, use your mutation tools (removeQuestion, editQuestion, etc.) to fix them, then call validateApp again.',
         inputSchema: z.object({}),
         execute: async () => {
           const blueprint = mutableBp.getBlueprint()
           const result = await validateAndFix(ctx, blueprint)
-          ctx.emit('data-done', {
-            blueprint: result.blueprint,
-            hqJson: result.hqJson ?? {},
-            success: result.success,
-          })
-          return { success: result.success }
+          if (result.success) {
+            ctx.emit('data-done', {
+              blueprint: result.blueprint,
+              hqJson: result.hqJson ?? {},
+              success: true,
+            })
+            return { success: true }
+          }
+          // Surface remaining errors so the SA can fix them with its tools
+          return { success: false, errors: result.errors ?? [] }
         },
       }),
     },
