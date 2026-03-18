@@ -156,6 +156,18 @@ export function validateBlueprint(blueprint: AppBlueprint): string[] {
         return ids
       }
 
+      // Check for duplicate question IDs
+      const allIds = collectQuestionIds(mergedForm.questions || [])
+      const idCounts = new Map<string, number>()
+      for (const id of allIds) {
+        idCounts.set(id, (idCounts.get(id) ?? 0) + 1)
+      }
+      for (const [id, count] of idCounts) {
+        if (count > 1) {
+          errors.push(`"${fn}" in "${mod.name}" has duplicate question ID "${id}" (${count} occurrences)`)
+        }
+      }
+
       // Find a question by id (recursively searching groups/repeats)
       function findQuestionById(questions: Question[], id: string): Question | undefined {
         for (const q of questions) {

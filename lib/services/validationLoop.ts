@@ -15,7 +15,7 @@ import { generateSingleFormContent } from './formGeneration'
 export async function validateAndFix(
   ctx: GenerationContext,
   blueprint: AppBlueprint,
-): Promise<{ success: boolean; blueprint: AppBlueprint; hqJson?: Record<string, any> }> {
+): Promise<{ success: boolean; blueprint: AppBlueprint; hqJson?: Record<string, any>; errors?: string[] }> {
   const recentErrorSignatures: string[] = []
   const MAX_STUCK_REPEATS = 3
   let attempt = 0
@@ -44,9 +44,9 @@ export async function validateAndFix(
     if (recentErrorSignatures.length === MAX_STUCK_REPEATS && recentErrorSignatures.every(s => s === sig)) {
       try {
         const hqJson = expandBlueprint(blueprint)
-        return { success: false, blueprint, hqJson }
+        return { success: false, blueprint, hqJson, errors }
       } catch {
-        return { success: false, blueprint }
+        return { success: false, blueprint, errors }
       }
     }
 
