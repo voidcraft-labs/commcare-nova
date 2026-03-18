@@ -14,7 +14,7 @@ When `builder.phase === Idle && !builder.treeData`, chat fills center with hero 
 
 ### Subheader Toolbar
 
-BuilderLayout renders a **subheader toolbar** (only when `Done` + blueprint exists) spanning the full width right of the chat sidebar. Left side: `PreviewToggle` (3-segment: Tree View / Preview / Live). Right side: Undo/Redo buttons with icons and labels. Both the main content area and DetailPanel sit **below** this subheader in a flex row — sidebars slide out from beneath the subheader, never above it.
+BuilderLayout renders a **subheader toolbar** (only when `Done` + blueprint exists) spanning the full width right of the chat sidebar. 3-column grid layout: left shows app name (tree mode) or navigable breadcrumbs (preview/live mode), center has `PreviewToggle` (3-segment: Tree / Preview / Live), right has Undo/Redo buttons. Breadcrumbs come from `usePreviewNav` and clicking a crumb calls `nav.navigateTo(index)`. Both the main content area and DetailPanel sit **below** this subheader in a flex row — sidebars slide out from beneath the subheader, never above it.
 
 `usePreviewNav` is lifted to BuilderLayout and shared with `PreviewShell` (via `nav` prop) so navigation state stays in sync. AppTree and PreviewShell render with `hideHeader` since BuilderLayout owns the subheader.
 
@@ -25,7 +25,7 @@ BuilderLayout renders a **subheader toolbar** (only when `Done` + blueprint exis
 - `'preview'` → `PreviewShell` (editable canvas) + `DetailPanel` (inline right sidebar)
 - `'test'` → `PreviewShell` (read-only, no edit chrome or sidebar)
 
-Subheader shows `PreviewToggle` on left, Undo/Redo on right. Keyboard shortcuts (undo/redo, Tab/Shift+Tab navigation, Delete, Cmd+D duplicate, arrow keys to reorder) registered via `useKeyboardShortcuts`.
+Subheader: breadcrumbs left, `PreviewToggle` centered, Undo/Redo right. Keyboard shortcuts (undo/redo, Tab/Shift+Tab navigation, Delete, Cmd+D duplicate, arrow keys to reorder) registered via `useKeyboardShortcuts`.
 
 ## DetailPanel
 

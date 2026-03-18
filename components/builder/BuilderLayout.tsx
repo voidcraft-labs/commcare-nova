@@ -9,6 +9,7 @@ import ciHamburgerMd from '@iconify-icons/ci/hamburger-md'
 import ciSettings from '@iconify-icons/ci/settings'
 import ciUndo from '@iconify-icons/ci/undo'
 import ciRedo from '@iconify-icons/ci/redo'
+import ciChevronRight from '@iconify-icons/ci/chevron-right'
 import Link from 'next/link'
 import { useApiKey } from '@/hooks/useApiKey'
 import { useSettings } from '@/hooks/useSettings'
@@ -409,11 +410,46 @@ export function BuilderLayout({ buildId }: { buildId: string }) {
                 exit={{ opacity: 0 }}
                 transition={{ duration: 0.3, delay: 0.15 }}
               >
-                {/* Subheader toolbar — toggle + undo/redo */}
+                {/* Subheader toolbar — breadcrumbs + toggle (centered) + undo/redo */}
                 {builder.treeData && builder.phase === BuilderPhase.Done && builder.blueprint && (
-                  <div className="flex items-center justify-between px-4 h-16 border-b border-nova-border shrink-0">
+                  <div className="grid grid-cols-[1fr_auto_1fr] items-center px-4 h-16 border-b border-nova-border shrink-0">
+                    {/* Left — app name (tree) or breadcrumbs (preview/live) */}
+                    <div className="flex items-center min-w-0">
+                      {isPreviewLike ? (
+                        <nav className="flex items-center gap-1 text-sm min-w-0 truncate">
+                          {nav.breadcrumb.map((part, i) => {
+                            const isLast = i === nav.breadcrumb.length - 1
+                            return (
+                              <span key={i} className="flex items-center gap-1 shrink-0">
+                                {i > 0 && (
+                                  <Icon icon={ciChevronRight} width="14" height="14" className="text-nova-text-muted/50" />
+                                )}
+                                {isLast ? (
+                                  <span className="text-nova-text font-medium truncate">{part}</span>
+                                ) : (
+                                  <button
+                                    onClick={() => nav.navigateTo(i)}
+                                    className="text-nova-text-muted hover:text-nova-text transition-colors cursor-pointer whitespace-nowrap"
+                                  >
+                                    {part}
+                                  </button>
+                                )}
+                              </span>
+                            )
+                          })}
+                        </nav>
+                      ) : (
+                        <span className="text-sm font-medium text-nova-text truncate">
+                          {builder.blueprint.app_name}
+                        </span>
+                      )}
+                    </div>
+
+                    {/* Center — toggle */}
                     <PreviewToggle mode={viewMode} onChange={handleViewModeChange} />
-                    <div className="flex items-center gap-1.5">
+
+                    {/* Right — undo/redo */}
+                    <div className="flex items-center gap-1.5 justify-end">
                       <button
                         onClick={() => builder.undo()}
                         disabled={!builder.canUndo}
