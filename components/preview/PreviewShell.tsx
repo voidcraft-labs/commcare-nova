@@ -15,20 +15,25 @@ interface PreviewShellProps {
   actions?: React.ReactNode
   builder?: Builder
   mode?: EditMode
+  nav?: ReturnType<typeof usePreviewNav>
+  hideHeader?: boolean
 }
 
-export function PreviewShell({ blueprint, actions, builder, mode = 'edit' }: PreviewShellProps) {
-  const nav = usePreviewNav(blueprint)
+export function PreviewShell({ blueprint, actions, builder, mode = 'edit', nav: navProp, hideHeader }: PreviewShellProps) {
+  const ownNav = usePreviewNav(blueprint)
+  const nav = navProp ?? ownNav
 
   return (
     <div className="preview-theme h-full flex flex-col">
-      <PreviewHeader
-        breadcrumb={nav.breadcrumb}
-        canGoBack={nav.canGoBack}
-        onBack={nav.back}
-        onBreadcrumbClick={nav.navigateTo}
-        actions={actions}
-      />
+      {!hideHeader && (
+        <PreviewHeader
+          breadcrumb={nav.breadcrumb}
+          canGoBack={nav.canGoBack}
+          onBack={nav.back}
+          onBreadcrumbClick={nav.navigateTo}
+          actions={actions}
+        />
+      )}
 
       <div className="flex-1 overflow-hidden p-4 pt-3">
         <div className="h-full overflow-auto rounded-xl border border-pv-input-border bg-pv-bg shadow-[inset_0_1px_4px_rgba(0,0,0,0.3)]">

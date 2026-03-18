@@ -4,8 +4,8 @@ Client-side web preview with cyan accent theme (`.preview-theme` in globals.css)
 
 ## Navigation Shell
 
-- **PreviewShell** — Top-level container with navigation + screen dispatch
-- **PreviewHeader** — Back button, breadcrumb, actions slot
+- **PreviewShell** — Screen dispatch container. Accepts optional `nav` prop (from `usePreviewNav`) and `hideHeader` — when used inside BuilderLayout, the header is rendered externally in the subheader bar and nav state is shared via prop.
+- **PreviewHeader** — Back button, breadcrumb, actions slot. Rendered by BuilderLayout in the subheader bar (not by PreviewShell) so it spans the full width above both content and DetailPanel.
 - **PreviewToggle** — Segmented `[Tree View] [Preview] [Test]` control
 
 ## Screens
@@ -21,7 +21,7 @@ Preview is an always-editable canvas. `EditContextProvider` (`hooks/useEditConte
 
 ### Selection
 
-Click a question → `builder.select()` → ring highlight + DetailPanel sidebar (overlay in preview). Shared with TreeView via same `builder.selected` state.
+Click a question → `builder.select()` → ring highlight + DetailPanel sidebar (inline in both tree and preview modes). Shared with TreeView via same `builder.selected` state.
 
 ### Drag & Drop
 
