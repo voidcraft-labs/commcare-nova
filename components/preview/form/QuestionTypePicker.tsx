@@ -81,6 +81,7 @@ export function QuestionTypePicker({ anchorEl, atIndex, parentId, onClose }: Que
       ref={(el) => { refs.setFloating(el); (panelRef as any).current = el }}
       style={floatingStyles}
       className="z-50 w-52 rounded-xl bg-nova-deep border border-nova-border shadow-xl p-2 grid grid-cols-2 gap-1"
+      onClick={(e) => e.stopPropagation()}
     >
       {PICKER_TYPES.map((type) => {
         const icon = questionTypeIcons[type]
