@@ -45,7 +45,7 @@ describe('HistoryManager', () => {
     expect(hm.proxied.getQuestion(0, 0, qpath('q1'))?.label).toBe('Changed')
 
     const result = hm.undo()
-    expect(result).not.toBeNull()
+    expect(result).toBeDefined()
     expect(result!.mb).toBeInstanceOf(MutableBlueprint)
     expect(result!.meta.type).toBe('update')
     expect(result!.meta.questionPath).toBe(qpath('q1'))
@@ -60,7 +60,7 @@ describe('HistoryManager', () => {
     expect(hm.canRedo).toBe(true)
 
     const result = hm.redo()
-    expect(result).not.toBeNull()
+    expect(result).toBeDefined()
     expect(result!.meta.type).toBe('update')
     expect(hm.proxied.getQuestion(0, 0, qpath('q1'))?.label).toBe('Changed')
   })
@@ -76,16 +76,16 @@ describe('HistoryManager', () => {
     expect(hm.canRedo).toBe(false)
   })
 
-  it('undo returns null when stack is empty', () => {
+  it('undo returns undefined when stack is empty', () => {
     const mb = new MutableBlueprint(makeBlueprint())
     const hm = new HistoryManager(mb)
-    expect(hm.undo()).toBeNull()
+    expect(hm.undo()).toBeUndefined()
   })
 
-  it('redo returns null when stack is empty', () => {
+  it('redo returns undefined when stack is empty', () => {
     const mb = new MutableBlueprint(makeBlueprint())
     const hm = new HistoryManager(mb)
-    expect(hm.redo()).toBeNull()
+    expect(hm.redo()).toBeUndefined()
   })
 
   it('respects maxDepth', () => {

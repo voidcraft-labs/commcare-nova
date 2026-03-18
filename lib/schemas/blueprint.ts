@@ -305,8 +305,8 @@ export function summarizeBlueprint(bp: AppBlueprint): string {
 /** Merge data model defaults from case property metadata into a question. */
 export function mergeQuestionDefaults(
   question: Question,
-  caseTypes: CaseType[] | null,
-  moduleCaseType: string | undefined,
+  caseTypes?: CaseType[] | null,
+  moduleCaseType?: string,
 ): Question {
   if (!question.case_property || !caseTypes || !moduleCaseType) return question
   const ct = caseTypes.find(c => c.name === moduleCaseType)
@@ -332,8 +332,8 @@ export function mergeQuestionDefaults(
 /** Recursively merge data model defaults into a form's question tree. */
 export function mergeFormQuestions(
   questions: Question[],
-  caseTypes: CaseType[] | null,
-  moduleCaseType: string | undefined,
+  caseTypes?: CaseType[] | null,
+  moduleCaseType?: string,
 ): Question[] {
   return questions.map(q => {
     const merged = mergeQuestionDefaults(q, caseTypes, moduleCaseType)

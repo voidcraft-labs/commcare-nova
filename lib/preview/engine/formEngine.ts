@@ -27,7 +27,7 @@ export class FormEngine {
 
   constructor(
     form: BlueprintForm,
-    caseTypes: CaseType[] | null,
+    caseTypes?: CaseType[] | null,
     moduleCaseType?: string,
     caseData?: Map<string, string>,
   ) {

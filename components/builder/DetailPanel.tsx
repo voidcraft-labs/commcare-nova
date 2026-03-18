@@ -44,8 +44,8 @@ interface DetailPanelProps {
 }
 
 export function DetailPanel({ builder }: DetailPanelProps) {
-  const [xpathModal, setXpathModal] = useState<{ field: string; value: string; label: string } | null>(null)
-  const [newlyAdded, setNewlyAdded] = useState<{ field: string; questionPath: QuestionPath } | null>(null)
+  const [xpathModal, setXpathModal] = useState<{ field: string; value: string; label: string }>()
+  const [newlyAdded, setNewlyAdded] = useState<{ field: string; questionPath: QuestionPath }>()
 
   const selected = builder.selected!
   const mb = builder.mb!
@@ -152,8 +152,8 @@ export function DetailPanel({ builder }: DetailPanelProps) {
   ] as const
 
   // Derive which field (if any) is newly added for the current selection
-  const newlyAddedField = newlyAdded && newlyAdded.questionPath === selected.questionPath ? newlyAdded.field : null
-  const clearNewlyAdded = () => setNewlyAdded(null)
+  const newlyAddedField = newlyAdded && newlyAdded.questionPath === selected.questionPath ? newlyAdded.field : undefined
+  const clearNewlyAdded = () => setNewlyAdded(undefined)
 
   // Compute missing optional fields for "add" affordances
   const missingXPathFields = question
@@ -491,7 +491,7 @@ export function DetailPanel({ builder }: DetailPanelProps) {
           value={xpathModal.value}
           label={xpathModal.label}
           onSave={handleXPathSave}
-          onClose={() => setXpathModal(null)}
+          onClose={() => setXpathModal(undefined)}
         />
       )}
 

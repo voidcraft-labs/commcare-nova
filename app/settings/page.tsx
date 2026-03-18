@@ -195,12 +195,12 @@ export default function SettingsPage() {
   const [keySaved, setKeySaved] = useState(false)
   const [models, setModels] = useState<ModelInfo[]>([])
   const [modelsFetched, setModelsFetched] = useState(false)
-  const [modelsError, setModelsError] = useState<string | null>(null)
+  const [modelsError, setModelsError] = useState<string>()
 
   // Log replay state
   const fileInputRef = useRef<HTMLInputElement>(null)
-  const [parsed, setParsed] = useState<ParsedLog | null>(null)
-  const [replayError, setReplayError] = useState<string | null>(null)
+  const [parsed, setParsed] = useState<ParsedLog>()
+  const [replayError, setReplayError] = useState<string>()
   const [dragging, setDragging] = useState(false)
 
   // Sync key input with loaded settings
@@ -226,7 +226,7 @@ export default function SettingsPage() {
         setModels([])
       } else {
         setModels(data.models ?? [])
-        setModelsError(null)
+        setModelsError(undefined)
       }
     } catch {
       setModelsError('Failed to fetch models')
@@ -248,8 +248,8 @@ export default function SettingsPage() {
 
   // Log replay handlers
   const handleFile = useCallback((file: File) => {
-    setReplayError(null)
-    setParsed(null)
+    setReplayError(undefined)
+    setParsed(undefined)
 
     if (!file.name.endsWith('.json')) {
       setReplayError('Please select a .json file.')
@@ -434,7 +434,7 @@ export default function SettingsPage() {
                   <p className="text-sm text-rose-400">{replayError}</p>
                   <button
                     type="button"
-                    onClick={() => { setReplayError(null); fileInputRef.current?.click() }}
+                    onClick={() => { setReplayError(undefined); fileInputRef.current?.click() }}
                     className="text-xs text-nova-text-muted hover:text-nova-text-secondary transition-colors cursor-pointer"
                   >
                     Try another file
@@ -460,7 +460,7 @@ export default function SettingsPage() {
                   <div className="flex gap-2.5 mt-4">
                     <button
                       type="button"
-                      onClick={(e) => { e.stopPropagation(); setParsed(null) }}
+                      onClick={(e) => { e.stopPropagation(); setParsed(undefined) }}
                       className="flex-1 px-3 py-2 text-sm text-nova-text-secondary hover:text-nova-text bg-nova-void border border-nova-border rounded-lg transition-colors cursor-pointer"
                     >
                       Clear
