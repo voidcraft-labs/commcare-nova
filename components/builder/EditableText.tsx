@@ -56,7 +56,11 @@ export function EditableText({ label, value, onSave, onEmpty, mono, color, place
   }, [value, onEmpty])
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === 'Enter' && !multiline) {
+    if (e.key === 'Enter') {
+      if (multiline && e.shiftKey) {
+        // Shift+Enter inserts newline in multiline mode
+        return
+      }
       e.preventDefault()
       commit()
     }
@@ -76,6 +80,11 @@ export function EditableText({ label, value, onSave, onEmpty, mono, color, place
       <div>
         <label className="text-xs text-nova-text-muted uppercase tracking-wider mb-1 flex items-center gap-1.5">
           {label}
+          {multiline && (
+            <span className="ml-auto text-[10px] tracking-normal text-nova-text-secondary font-normal">
+              SHIFT + {typeof navigator !== 'undefined' && /Win/.test(navigator.platform) ? 'ENTER' : 'RETURN'} FOR NEW LINE
+            </span>
+          )}
         </label>
         {multiline ? (
           <textarea
