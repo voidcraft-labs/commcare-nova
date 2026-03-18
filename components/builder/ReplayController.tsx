@@ -40,9 +40,9 @@ export function ReplayController({ stages, appName, onExit, onMessagesChange }: 
   const stage = stages[currentIndex]
 
   return (
-    <div className="fixed top-3 left-1/2 -translate-x-1/2 z-50 flex flex-col items-center gap-2">
+    <div className="fixed bottom-3 left-1/2 -translate-x-1/2 z-50 flex flex-col items-center gap-2">
       <motion.div
-        initial={{ opacity: 0, y: -20 }}
+        initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ type: 'spring', stiffness: 300, damping: 25 }}
         className="flex items-center gap-3 px-4 py-2 bg-nova-deep/95 backdrop-blur-xl border border-nova-violet-bright/40 rounded-2xl shadow-[0_0_20px_rgba(139,92,246,0.25),0_4px_16px_rgba(0,0,0,0.5)]"
@@ -53,7 +53,7 @@ export function ReplayController({ stages, appName, onExit, onMessagesChange }: 
           disabled={!canGoBack}
           className={`p-0.5 rounded-md transition-colors ${
             canGoBack
-              ? 'text-nova-text hover:text-nova-violet-bright'
+              ? 'text-nova-text hover:text-nova-violet-bright cursor-pointer'
               : 'text-nova-text-muted cursor-not-allowed'
           }`}
         >
@@ -95,7 +95,7 @@ export function ReplayController({ stages, appName, onExit, onMessagesChange }: 
           disabled={!canGoForward}
           className={`p-0.5 rounded-md transition-colors ${
             canGoForward
-              ? 'text-nova-text hover:text-nova-violet-bright'
+              ? 'text-nova-text hover:text-nova-violet-bright cursor-pointer'
               : 'text-nova-text-muted cursor-not-allowed'
           }`}
         >
@@ -108,7 +108,7 @@ export function ReplayController({ stages, appName, onExit, onMessagesChange }: 
         {/* Close */}
         <button
           onClick={onExit}
-          className="p-0.5 rounded-md text-nova-text-muted hover:text-nova-text transition-colors"
+          className="p-0.5 rounded-md text-nova-text-muted hover:text-nova-text transition-colors cursor-pointer"
         >
           <Icon icon={ciCloseMd} width={18} height={18} />
         </button>
@@ -118,9 +118,9 @@ export function ReplayController({ stages, appName, onExit, onMessagesChange }: 
       <AnimatePresence>
         {error && (
           <motion.div
-            initial={{ opacity: 0, y: -8 }}
+            initial={{ opacity: 0, y: 8 }}
             animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -8 }}
+            exit={{ opacity: 0, y: 8 }}
             onAnimationComplete={() => {
               setTimeout(() => setError(null), 3000)
             }}
