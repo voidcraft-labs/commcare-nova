@@ -301,6 +301,20 @@ body {
   --pv-accent-bright: var(--nova-cyan-bright);
 }
 
+/* Styled badge for unresolved case property references in preview */
+.case-ref {
+  display: inline-flex;
+  align-items: center;
+  padding: 1px 7px;
+  border-radius: 4px;
+  font-family: var(--font-code);
+  font-size: 0.75em;
+  line-height: 1.5;
+  background: rgba(6, 182, 212, 0.1);
+  color: var(--nova-cyan);
+  border: 1px solid rgba(6, 182, 212, 0.2);
+}
+
 /* Subtle noise texture overlay */
 .nova-noise::before {
   content: '';

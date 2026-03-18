@@ -5,7 +5,7 @@ import { evaluate } from '../xpath/evaluator'
 import { toBoolean } from '../xpath/coerce'
 import { DataInstance } from './dataInstance'
 import { TriggerDag } from './triggerDag'
-import { resolveOutputTags } from './outputTag'
+import { resolveOutputTags, type ResolvedOutput } from './outputTag'
 import type { QuestionState } from './types'
 
 /**
@@ -21,6 +21,9 @@ export class FormEngine {
   private mergedQuestions: Question[]
   private caseData: Map<string, string>
   private moduleCaseType: string | undefined
+  private formType: string
+  /** Set as a side-effect by resolveHashtag when an unresolved #case/ ref is encountered. */
+  private _lastCaseRef: string | undefined
 
   constructor(
     form: BlueprintForm,
@@ -29,6 +32,7 @@ export class FormEngine {
     caseData?: Map<string, string>,
   ) {
     this.moduleCaseType = moduleCaseType
+    this.formType = form.type
     this.caseData = caseData ?? new Map()
 
     // 1. Merge data model defaults
@@ -240,14 +244,19 @@ export class FormEngine {
         if (q.children) this.initStates(q.children, `${path}[0]`)
       } else {
         const isRequired = q.required === 'true()'
-        this.states.set(path, {
+        const state: QuestionState = {
           path,
           value: this.instance.get(path) ?? '',
           visible: true,
           required: isRequired,
           valid: true,
           touched: false,
-        })
+        }
+        // Mark followup form fields that read from case data when none is loaded
+        if (this.formType === 'followup' && q.case_property && this.caseData.size === 0) {
+          state.caseRef = q.case_property
+        }
+        this.states.set(path, state)
       }
     }
   }
@@ -317,7 +326,17 @@ export class FormEngine {
         case 'output': {
           const q = this.findQuestion(path)
           if (q) {
-            const resolve = (expr: string) => String(evaluate(expr, ctx))
+            const resolve = (exprStr: string): ResolvedOutput => {
+              this._lastCaseRef = undefined
+              const result = String(evaluate(exprStr, ctx))
+              // If resolveHashtag flagged an unresolved case ref, return a styled element
+              if (this._lastCaseRef) {
+                const ref = this._lastCaseRef
+                this._lastCaseRef = undefined
+                return { text: ref, className: 'case-ref' }
+              }
+              return result
+            }
             state.resolvedLabel = q.label ? resolveOutputTags(q.label, resolve) : undefined
             state.resolvedHint = q.hint ? resolveOutputTags(q.hint, resolve) : undefined
           }
@@ -383,7 +402,10 @@ export class FormEngine {
         }
         if (ref.startsWith('#case/')) {
           const prop = ref.slice(6)
-          return this.caseData.get(prop) ?? `[case:${prop}]`
+          const value = this.caseData.get(prop)
+          if (value !== undefined) return value
+          this._lastCaseRef = prop
+          return ''
         }
         if (ref.startsWith('#user/')) {
           const prop = ref.slice(6)

@@ -25,6 +25,10 @@ export function usePreviewNav(blueprint: AppBlueprint | null) {
     setStack([{ type: 'home' }])
   }, [])
 
+  const replaceStack = useCallback((newStack: PreviewScreen[]) => {
+    setStack(newStack.length > 0 ? newStack : [{ type: 'home' }])
+  }, [])
+
   const breadcrumb = useMemo(() => {
     if (!blueprint) return []
     const parts: string[] = []
@@ -52,5 +56,5 @@ export function usePreviewNav(blueprint: AppBlueprint | null) {
     return parts
   }, [stack, blueprint])
 
-  return { current, push, back, reset, navigateTo, canGoBack, breadcrumb }
+  return { stack, current, push, back, reset, navigateTo, replaceStack, canGoBack, breadcrumb }
 }

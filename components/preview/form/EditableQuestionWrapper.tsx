@@ -1,5 +1,5 @@
 'use client'
-import { useState, useCallback, useRef, type ReactNode } from 'react'
+import { useState, useCallback, useRef, useEffect, type ReactNode } from 'react'
 import { Icon } from '@iconify/react'
 import ciTrashFull from '@iconify-icons/ci/trash-full'
 import tablerGripVertical from '@iconify-icons/tabler/grip-vertical'
@@ -25,6 +25,7 @@ export function EditableQuestionWrapper({
   const [holdReady, setHoldReady] = useState(false)
   const holdTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const wasDraggingRef = useRef(false)
+  const wrapperRef = useRef<HTMLDivElement>(null)
 
   const clearHoldTimer = useCallback(() => {
     if (holdTimerRef.current) {
@@ -59,15 +60,28 @@ export function EditableQuestionWrapper({
     if (holdReady) setHoldReady(false)
   }
 
+  // Compute selection before conditional return (needed for scroll-into-view hook)
+  const isSelected = !!ctx && ctx.mode !== 'test'
+    && ctx.builder.selected?.type === 'question'
+    && ctx.builder.selected.moduleIndex === ctx.moduleIndex
+    && ctx.builder.selected.formIndex === ctx.formIndex
+    && ctx.builder.selected.questionPath === questionId
+
+  // Scroll selected question into view after view switch (Tree → Preview)
+  useEffect(() => {
+    if (isSelected && wrapperRef.current) {
+      const timer = setTimeout(() => {
+        wrapperRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
+      }, 250)
+      return () => clearTimeout(timer)
+    }
+  }, [isSelected])
+
   if (!ctx || ctx.mode === 'test') {
     return <div style={style}>{children}</div>
   }
 
   const { builder, moduleIndex, formIndex } = ctx
-  const isSelected = builder.selected?.type === 'question'
-    && builder.selected.moduleIndex === moduleIndex
-    && builder.selected.formIndex === formIndex
-    && builder.selected.questionPath === questionId
 
   const handleClick = useCallback((e: React.MouseEvent) => {
     // Don't intercept clicks that belong to nested question wrappers or insertion points
@@ -83,6 +97,7 @@ export function EditableQuestionWrapper({
 
   return (
     <div
+      ref={wrapperRef}
       data-question-wrapper
       className={`relative rounded-lg transition-all duration-150 cursor-pointer p-3 ${
         isSelected

@@ -48,6 +48,20 @@ export function FormScreen({ blueprint, moduleIndex, formIndex, caseData, onBack
     )
   }
 
+  // Follow-up forms in live mode require case data to function
+  if (mode === 'test' && form.type === 'followup' && (!caseData || caseData.size === 0)) {
+    return (
+      <div className="flex flex-col items-center justify-center h-full gap-4 px-6">
+        <div className="text-center space-y-2">
+          <h3 className="text-sm font-medium text-nova-text">No cases available</h3>
+          <p className="text-sm text-nova-text-muted max-w-xs">
+            This follow-up form requires an existing case. Submit the registration form first to create one.
+          </p>
+        </div>
+      </div>
+    )
+  }
+
   const questions = engine.getQuestions()
 
   const handleSubmit = () => {

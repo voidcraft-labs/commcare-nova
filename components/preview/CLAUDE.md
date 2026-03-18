@@ -13,7 +13,7 @@ Client-side web preview with cyan accent theme (`.preview-theme` in globals.css)
 - **HomeScreen** — Module cards
 - **ModuleScreen** — Form list within a module
 - **CaseListScreen** — Case selector for followup forms (generates dummy data from CaseType)
-- **FormScreen** — Form entry with question fields, submit button, scroll-to-first-error on validation failure. Wraps form body in `EditContextProvider` when builder is present.
+- **FormScreen** — Form entry with question fields, submit button, scroll-to-first-error on validation failure. Wraps form body in `EditContextProvider` when builder is present. Blocks followup forms in live mode without case data (shows "no cases" error).
 
 ## Edit Mode
 
@@ -21,7 +21,7 @@ Preview is an always-editable canvas. `EditContextProvider` (`hooks/useEditConte
 
 ### Selection
 
-Click a question → `builder.select()` → ring highlight + DetailPanel sidebar (inline in both tree and preview modes). Shared with TreeView via same `builder.selected` state.
+Click a question → `builder.select()` → ring highlight + DetailPanel sidebar (inline in both tree and preview modes). Shared with TreeView via same `builder.selected` state. `EditableQuestionWrapper` scrolls selected question into view on selection change (250ms delay for AnimatePresence transitions).
 
 ### Drag & Drop
 
@@ -45,7 +45,7 @@ Trash icon on hover/selection in `EditableQuestionWrapper`. `ConfirmDialog` for 
 
 - **FormRenderer** — Iterates visible questions, wraps each in `SortableQuestion` + `EditableQuestionWrapper`, interleaves `InsertionPoint` zones. Manages drag state, delete confirmation, and cursor velocity tracking.
 - **EditableQuestionWrapper** — Hover chrome (ring, grip handle), click-to-select, delete button, hold-to-grab cursor (300ms timer). `pointer-events-none` on children prevents form input interaction in edit mode. `data-question-wrapper` attribute for nested click delegation.
-- **QuestionField** — Dispatches to type-specific field component
+- **QuestionField** — Dispatches to type-specific field component. When `state.caseRef` is set (unresolved case property in edit mode), renders a `.case-ref` badge instead of any input.
 
 ### Field Components
 

@@ -14,18 +14,27 @@ When `builder.phase === Idle && !builder.treeData`, chat fills center with hero 
 
 ### Subheader Toolbar
 
-BuilderLayout renders a **subheader toolbar** (only when `Done` + blueprint exists) spanning the full width right of the chat sidebar. 3-column grid layout: left shows app name (tree mode) or navigable breadcrumbs (preview/live mode), center has `PreviewToggle` (3-segment: Tree / Preview / Live), right has Undo/Redo buttons. Breadcrumbs come from `usePreviewNav` and clicking a crumb calls `nav.navigateTo(index)`. Both the main content area and DetailPanel sit **below** this subheader in a flex row — sidebars slide out from beneath the subheader, never above it.
+BuilderLayout renders a **subheader toolbar** (only when `Done` + blueprint exists) spanning the full width right of the chat sidebar. 3-column grid layout: left shows navigable breadcrumbs (all modes), center has `PreviewToggle` (3-segment: Tree / Preview / Live), right has Undo/Redo buttons + `DownloadDropdown` (JSON/CCZ export). Both the main content area and DetailPanel sit **below** this subheader in a flex row — sidebars slide out from beneath the subheader, never above it.
+
+Breadcrumbs are unified across all view modes. In preview/live, derived from `usePreviewNav` stack. In tree mode, derived from `builder.selected` (app name → module → form). Clicking a breadcrumb navigates: in preview/live calls `nav.navigateTo()` + `builder.select()`; in tree calls `builder.select()` directly.
 
 `usePreviewNav` is lifted to BuilderLayout and shared with `PreviewShell` (via `nav` prop) so navigation state stays in sync. AppTree and PreviewShell render with `hideHeader` since BuilderLayout owns the subheader.
 
-### View Modes
+### View Mode Sync
 
-`viewMode` state (`'tree' | 'preview' | 'test'`). When `Done` + blueprint exists:
+`viewMode` state (`'tree' | 'preview' | 'test'`). Selection (`builder.selected`) and navigation (`usePreviewNav` stack) stay in sync across view switches:
+
+- **Tree → Preview/Live**: Nav stack syncs to `builder.selected` (navigates to the selected module/form). For followup forms in live mode, auto-selects first dummy case via `generateDummyCases`.
+- **Preview/Live → Tree**: If nothing selected, `builder.selected` syncs from current nav screen.
+- **Preview ↔ Live**: Nav is shared (no sync needed). Selection preserved but invisible in live mode.
+- **Escape in live**: Switches to preview without nav sync (stays on current screen).
+
+When `Done` + blueprint exists:
 - `'tree'` → `AppTree` + `DetailPanel` (inline right sidebar)
 - `'preview'` → `PreviewShell` (editable canvas) + `DetailPanel` (inline right sidebar)
 - `'test'` → `PreviewShell` (read-only, no edit chrome or sidebar)
 
-Subheader: breadcrumbs left, `PreviewToggle` centered, Undo/Redo right. Keyboard shortcuts (undo/redo, Tab/Shift+Tab navigation, Delete, Cmd+D duplicate, arrow keys to reorder) registered via `useKeyboardShortcuts`.
+Keyboard shortcuts (undo/redo, Tab/Shift+Tab navigation, Delete, Cmd+D duplicate, arrow keys to reorder) registered via `useKeyboardShortcuts`.
 
 ## DetailPanel
 

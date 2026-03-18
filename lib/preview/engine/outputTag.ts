@@ -9,7 +9,7 @@
 import { parseDocument } from 'htmlparser2'
 import { findAll, replaceElement } from 'domutils'
 import render from 'dom-serializer'
-import { Text, type Element } from 'domhandler'
+import { Text, Element as HtmlElement, type Element } from 'domhandler'
 
 const PARSE_OPTS = { xmlMode: true } as const
 const RENDER_OPTS = { xmlMode: true, selfClosingTags: true } as const
@@ -41,13 +41,19 @@ export function parseOutputTags(text: string): OutputTag[] {
     .map(expr => ({ expr }))
 }
 
+/** Evaluator return: plain string, or a styled element with text + CSS class. */
+export type ResolvedOutput = string | { text: string; className: string }
+
 /**
  * Replace all <output value="..."/> tags in the text with the results
  * of evaluating each tag's XPath expression via the provided evaluator.
+ *
+ * When the evaluator returns `{ text, className }`, a styled `<span>` is
+ * created instead of a plain text node — used for unresolved case ref badges.
  */
 export function resolveOutputTags(
   text: string,
-  evaluator: (expr: string) => string,
+  evaluator: (expr: string) => ResolvedOutput,
 ): string {
   if (!text) return text
 
@@ -56,8 +62,12 @@ export function resolveOutputTags(
 
   for (const el of outputs) {
     const expr = el.attribs.value
-    const resolved = expr ? evaluator(expr) : ''
-    replaceElement(el, new Text(resolved))
+    const result = expr ? evaluator(expr) : ''
+    if (typeof result === 'string') {
+      replaceElement(el, new Text(result))
+    } else {
+      replaceElement(el, new HtmlElement('span', { class: result.className }, [new Text(result.text)]))
+    }
   }
 
   return render(doc, RENDER_OPTS)
