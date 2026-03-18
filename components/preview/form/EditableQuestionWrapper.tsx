@@ -99,7 +99,7 @@ export function EditableQuestionWrapper({
     <div
       ref={wrapperRef}
       data-question-wrapper
-      className={`relative rounded-lg transition-all duration-150 cursor-pointer p-3 ${
+      className={`group/qw relative rounded-lg transition-all duration-150 cursor-pointer p-3 ${
         isSelected
           ? 'ring-2 ring-nova-violet bg-nova-violet/[0.03]'
           : hovered
@@ -114,14 +114,13 @@ export function EditableQuestionWrapper({
       onPointerLeave={handlePointerLeave}
       onClickCapture={handleClick}
     >
-      {(hovered || isDragging) && (
-        <div
-          className="absolute -left-6 top-1/2 -translate-y-1/2 cursor-grab active:cursor-grabbing text-nova-text-muted hover:text-nova-text"
-          style={{ opacity: 0.5 }}
-        >
-          <Icon icon={tablerGripVertical} width="16" height="16" />
-        </div>
-      )}
+      <div
+        className={`absolute -left-6 top-1/2 -translate-y-1/2 py-2 cursor-grab active:cursor-grabbing text-nova-text-muted hover:text-nova-text transition-opacity ${
+          isDragging ? 'opacity-50' : 'opacity-0 group-hover/qw:opacity-50'
+        }`}
+      >
+        <Icon icon={tablerGripVertical} width="16" height="16" />
+      </div>
 
       {(hovered || isSelected) && onDelete && (
         <div className="absolute top-1 right-1 flex items-center gap-0.5 z-10" data-no-drag>
