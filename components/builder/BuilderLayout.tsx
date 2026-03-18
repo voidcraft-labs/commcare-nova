@@ -32,7 +32,6 @@ import { DownloadDropdown } from '@/components/ui/DownloadDropdown'
 import { PreviewShell } from '@/components/preview/PreviewShell'
 import { usePreviewNav } from '@/hooks/usePreviewNav'
 import type { PreviewScreen } from '@/lib/preview/engine/types'
-import { ConfirmDialog } from '@/components/ui/ConfirmDialog'
 import { getReplayData, clearReplayData } from '@/lib/services/logReplay'
 
 /** Only auto-resend when the assistant's LAST step is askQuestions with all outputs available.
@@ -61,7 +60,6 @@ export function BuilderLayout({ buildId }: { buildId: string }) {
   const viewModeRef = useRef(viewMode)
   viewModeRef.current = viewMode
   const [progressHidden, setProgressHidden] = useState(false)
-  const [deleteConfirm, setDeleteConfirm] = useState(false)
   const initialReplay = getReplayData()
   const [replayData, setReplayDataState] = useState(() => {
     if (initialReplay) initialReplay.stages[0]?.applyToBuilder(builder)
@@ -274,13 +272,13 @@ export function BuilderLayout({ buildId }: { buildId: string }) {
     {
       key: 'Delete',
       handler: () => {
-        if (builder.selected?.type === 'question') setDeleteConfirm(true)
+        if (builder.selected?.type === 'question') handleDelete()
       },
     },
     {
       key: 'Backspace',
       handler: () => {
-        if (builder.selected?.type === 'question') setDeleteConfirm(true)
+        if (builder.selected?.type === 'question') handleDelete()
       },
     },
     // Cmd+D — duplicate
@@ -348,7 +346,7 @@ export function BuilderLayout({ buildId }: { buildId: string }) {
 
   useKeyboardShortcuts('builder-layout', shortcuts, [isDone, viewMode, builder.selected, builder.blueprint, builder.mutationCount])
 
-  const handleDeleteConfirm = useCallback(() => {
+  const handleDelete = useCallback(() => {
     const sel = builder.selected
     if (!sel || sel.type !== 'question' || sel.formIndex === undefined || !sel.questionPath) return
     const mb = builder.mb
@@ -368,7 +366,6 @@ export function BuilderLayout({ buildId }: { buildId: string }) {
     } else {
       builder.select(null)
     }
-    setDeleteConfirm(false)
   }, [builder])
 
   if (!loaded) return null
@@ -663,16 +660,6 @@ export function BuilderLayout({ buildId }: { buildId: string }) {
           </AnimatePresence>
         </div>
 
-      {/* Delete confirmation from keyboard shortcut */}
-      <ConfirmDialog
-        open={deleteConfirm}
-        title="Delete Question"
-        message={`Are you sure you want to delete "${builder.selected?.questionPath}"?`}
-        confirmLabel="Delete"
-        confirmVariant="danger"
-        onConfirm={handleDeleteConfirm}
-        onCancel={() => setDeleteConfirm(false)}
-      />
     </div>
     </LayoutGroup>
   )

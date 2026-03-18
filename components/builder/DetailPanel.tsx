@@ -17,7 +17,6 @@ import { XPathField } from '@/components/builder/XPathField'
 import { EditableText } from '@/components/builder/EditableText'
 import { EditableDropdown } from '@/components/builder/EditableDropdown'
 import { XPathEditorModal } from '@/components/builder/XPathEditorModal'
-import { ConfirmDialog } from '@/components/ui/ConfirmDialog'
 
 const formTypeIcons = {
   registration: ciFileAdd,
@@ -46,7 +45,6 @@ interface DetailPanelProps {
 export function DetailPanel({ builder }: DetailPanelProps) {
   const [xpathModal, setXpathModal] = useState<{ field: string; value: string; label: string } | null>(null)
   const [newlyAdded, setNewlyAdded] = useState<{ field: string; questionPath: string } | null>(null)
-  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
 
   const selected = builder.selected!
   const mb = builder.mb!
@@ -97,6 +95,24 @@ export function DetailPanel({ builder }: DetailPanelProps) {
     mb.renameQuestion(selected.moduleIndex, selected.formIndex, selected.questionPath, newId)
     notifyBlueprintChanged()
   }, [mb, selected.moduleIndex, selected.formIndex, selected.questionPath, notifyBlueprintChanged])
+
+  const deleteQuestion = useCallback(() => {
+    if (selected.formIndex === undefined || !selected.questionPath) return
+    const form = mb.getForm(selected.moduleIndex, selected.formIndex)
+    if (!form) return
+    const ids = flattenQuestionIds(form.questions)
+    const curIdx = ids.indexOf(selected.questionPath)
+    const nextId = ids[curIdx + 1] ?? ids[curIdx - 1]
+
+    mb.removeQuestion(selected.moduleIndex, selected.formIndex, selected.questionPath)
+    notifyBlueprintChanged()
+
+    if (nextId) {
+      builder.select({ type: 'question', moduleIndex: selected.moduleIndex, formIndex: selected.formIndex!, questionPath: nextId })
+    } else {
+      builder.select(null)
+    }
+  }, [mb, selected.moduleIndex, selected.formIndex, selected.questionPath, builder, notifyBlueprintChanged])
 
   const handleXPathSave = useCallback((value: string) => {
     if (!xpathModal) return
@@ -456,7 +472,7 @@ export function DetailPanel({ builder }: DetailPanelProps) {
       {selected.type === 'question' && question && (
         <div className="shrink-0 px-4 py-3 bg-nova-deep flex justify-start">
           <button
-            onClick={() => setShowDeleteConfirm(true)}
+            onClick={deleteQuestion}
             className="inline-flex items-center gap-2 px-3 py-1.5 text-sm text-nova-rose hover:text-white hover:bg-nova-rose/20 transition-colors cursor-pointer rounded"
           >
             <Icon icon={ciTrashFull} width="14" height="14" />
@@ -475,33 +491,6 @@ export function DetailPanel({ builder }: DetailPanelProps) {
         />
       )}
 
-      {/* Delete confirmation */}
-      <ConfirmDialog
-        open={showDeleteConfirm}
-        title="Delete Question"
-        message={`Are you sure you want to delete "${question?.label || selected.questionPath}"?`}
-        confirmLabel="Delete"
-        confirmVariant="danger"
-        onConfirm={() => {
-          if (selected.formIndex === undefined || !selected.questionPath) return
-          const form = mb.getForm(selected.moduleIndex, selected.formIndex)
-          if (!form) return
-          const ids = flattenQuestionIds(form.questions)
-          const curIdx = ids.indexOf(selected.questionPath)
-          const nextId = ids[curIdx + 1] ?? ids[curIdx - 1]
-
-          mb.removeQuestion(selected.moduleIndex, selected.formIndex, selected.questionPath)
-          notifyBlueprintChanged()
-
-          if (nextId) {
-            builder.select({ type: 'question', moduleIndex: selected.moduleIndex, formIndex: selected.formIndex!, questionPath: nextId })
-          } else {
-            builder.select(null)
-          }
-          setShowDeleteConfirm(false)
-        }}
-        onCancel={() => setShowDeleteConfirm(false)}
-      />
     </div>
     </motion.div>
   )
