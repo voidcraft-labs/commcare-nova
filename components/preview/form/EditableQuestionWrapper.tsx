@@ -1,7 +1,6 @@
 'use client'
 import { useState, useCallback, useRef, useEffect, type ReactNode } from 'react'
 import { Icon } from '@iconify/react'
-import ciTrashFull from '@iconify-icons/ci/trash-full'
 import tablerGripVertical from '@iconify-icons/tabler/grip-vertical'
 import { useEditContext } from '@/hooks/useEditContext'
 
@@ -9,7 +8,6 @@ interface EditableQuestionWrapperProps {
   questionId: string
   children: ReactNode
   style?: React.CSSProperties
-  onDelete?: () => void
   isDragging?: boolean
 }
 
@@ -17,7 +15,6 @@ export function EditableQuestionWrapper({
   questionId,
   children,
   style,
-  onDelete,
   isDragging,
 }: EditableQuestionWrapperProps) {
   const ctx = useEditContext()
@@ -121,18 +118,6 @@ export function EditableQuestionWrapper({
       >
         <Icon icon={tablerGripVertical} width="16" height="16" />
       </div>
-
-      {(hovered || isSelected) && onDelete && (
-        <div className="absolute top-1 right-1 flex items-center gap-0.5 z-10" data-no-drag>
-          <button
-            onClick={(e) => { e.stopPropagation(); onDelete() }}
-            className="p-1 rounded text-nova-text-muted hover:text-nova-rose transition-colors cursor-pointer"
-            title="Delete question"
-          >
-            <Icon icon={ciTrashFull} width="12" height="12" />
-          </button>
-        </div>
-      )}
 
       <div className="pointer-events-none" tabIndex={-1}>
         {children}
