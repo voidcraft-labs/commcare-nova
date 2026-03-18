@@ -1,5 +1,5 @@
 'use client'
-import { useRef, useMemo } from 'react'
+import { useRef, useMemo, useEffect } from 'react'
 import type { AppBlueprint } from '@/lib/schemas/blueprint'
 import type { Builder } from '@/lib/services/builder'
 import type { EditMode } from '@/hooks/useEditContext'
@@ -34,6 +34,18 @@ export function FormScreen({ blueprint, moduleIndex, formIndex, caseData, onBack
   )
 
   const formBodyRef = useRef<HTMLDivElement>(null)
+
+  // Auto-focus the selected question's input when entering live mode
+  useEffect(() => {
+    if (mode !== 'test') return
+    const qId = builder?.selected?.questionPath
+    if (!qId) return
+    requestAnimationFrame(() => {
+      const el = formBodyRef.current?.querySelector(`[data-question-id="${qId}"]`)
+      const input = el?.querySelector('input, select, textarea') as HTMLElement | null
+      input?.focus()
+    })
+  }, [mode, builder?.selected?.questionPath])
 
   if (!form) {
     return (

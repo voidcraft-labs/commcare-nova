@@ -60,6 +60,16 @@ function SortableQuestion({
   // In edit mode: suppress validation display entirely
   const showInvalid = !isEditMode && state.touched && !state.valid
 
+  // In edit mode (preview): show clean inputs — no values, no validation errors.
+  // Engine state is preserved internally for when the user switches back to live.
+  const displayState = isEditMode ? {
+    ...state,
+    value: '',
+    touched: false,
+    valid: true,
+    errorMessage: undefined,
+  } : state
+
   // Build content based on question type
   let content: React.ReactNode
 
@@ -78,7 +88,7 @@ function SortableQuestion({
   } else if (q.type === 'label') {
     content = (
       <EditableQuestionWrapper questionId={q.id} isDragging={isDragging}>
-        <LabelField question={q} state={state} />
+        <LabelField question={q} state={displayState} />
       </EditableQuestionWrapper>
     )
   } else {
@@ -96,7 +106,7 @@ function SortableQuestion({
           )}
           <QuestionField
             question={q}
-            state={state}
+            state={displayState}
             onChange={(value) => engine.setValue(path, value)}
             onBlur={() => engine.touch(path)}
           />
@@ -110,6 +120,7 @@ function SortableQuestion({
       ref={ref}
       className="relative mb-4"
       data-invalid={showInvalid ? 'true' : undefined}
+      data-question-id={q.id}
     >
       {isDragging && (
         <div className="absolute inset-0 rounded-lg border-2 border-dashed border-nova-violet/30 bg-nova-violet/[0.02]" />
