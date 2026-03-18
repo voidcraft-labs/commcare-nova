@@ -2,6 +2,7 @@
 import { useState, useCallback, useMemo } from 'react'
 import type { PreviewScreen } from '@/lib/preview/engine/types'
 import type { AppBlueprint } from '@/lib/schemas/blueprint'
+import { resolveScreen } from '@/lib/preview/engine/resolveScreen'
 
 export function usePreviewNav(blueprint: AppBlueprint | null) {
   const [stack, setStack] = useState<PreviewScreen[]>([{ type: 'home' }])
@@ -9,9 +10,14 @@ export function usePreviewNav(blueprint: AppBlueprint | null) {
   const current = stack[stack.length - 1]
   const canGoBack = stack.length > 1
 
+  const resolve = useCallback((screen: PreviewScreen): PreviewScreen => {
+    if (!blueprint) return screen
+    return resolveScreen(screen, blueprint)
+  }, [blueprint])
+
   const push = useCallback((screen: PreviewScreen) => {
-    setStack(prev => [...prev, screen])
-  }, [])
+    setStack(prev => [...prev, resolve(screen)])
+  }, [resolve])
 
   const back = useCallback(() => {
     setStack(prev => prev.length > 1 ? prev.slice(0, -1) : prev)
@@ -26,8 +32,9 @@ export function usePreviewNav(blueprint: AppBlueprint | null) {
   }, [])
 
   const replaceStack = useCallback((newStack: PreviewScreen[]) => {
-    setStack(newStack.length > 0 ? newStack : [{ type: 'home' }])
-  }, [])
+    const resolved = newStack.length > 0 ? newStack.map(resolve) : [{ type: 'home' } as PreviewScreen]
+    setStack(resolved)
+  }, [resolve])
 
   const breadcrumb = useMemo(() => {
     if (!blueprint) return []

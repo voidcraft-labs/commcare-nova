@@ -39,6 +39,10 @@ Home (module cards)
 
 Case list is a gate for a specific followup form, not a module-level screen. Selected row passes properties as `caseData` to `FormEngine`.
 
+## Case Data Resolution
+
+`usePreviewNav` auto-resolves case data for every screen entering the nav stack via `resolveScreen()`. Follow-up form screens without explicit `caseData` get auto-generated dummy data; screens with existing caseData (from CaseList user selection) are preserved. This is the **single place** to change when real case data is implemented.
+
 ## Key Files
 
 - `xpath/dependencies.ts` — extracts `/data/...` path refs from XPath for DAG construction
@@ -47,3 +51,4 @@ Case list is a gate for a specific followup form, not a module-level screen. Sel
 - `engine/triggerDag.ts` — dependency graph + topological cascade ordering
 - `engine/outputTag.ts` — parse/resolve/rewrite `<output value="..."/>` tags via htmlparser2
 - `engine/dummyData.ts` — generates realistic placeholder case rows from CaseType
+- `engine/resolveScreen.ts` — auto-attaches dummy case data to follow-up form screens

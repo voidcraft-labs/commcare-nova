@@ -32,7 +32,6 @@ import { DownloadDropdown } from '@/components/ui/DownloadDropdown'
 import { PreviewShell } from '@/components/preview/PreviewShell'
 import { usePreviewNav } from '@/hooks/usePreviewNav'
 import type { PreviewScreen } from '@/lib/preview/engine/types'
-import { generateDummyCases } from '@/lib/preview/engine/dummyData'
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog'
 import { getReplayData, clearReplayData } from '@/lib/services/logReplay'
 
@@ -114,24 +113,10 @@ export function BuilderLayout({ buildId }: { buildId: string }) {
     stack.push({ type: 'module', moduleIndex: sel.moduleIndex })
 
     if (sel.formIndex !== undefined) {
-      const mod = bp.modules[sel.moduleIndex]
-      const form = mod?.forms[sel.formIndex]
-
-      // For followup forms in live mode, auto-select the first dummy case
-      let caseData: Map<string, string> | undefined
-      if (mode === 'test' && form?.type === 'followup' && mod?.case_type) {
-        const caseType = bp.case_types?.find(ct => ct.name === mod.case_type)
-        if (caseType) {
-          const rows = generateDummyCases(caseType, 1)
-          if (rows[0]) caseData = rows[0].properties
-        }
-      }
-
       stack.push({
         type: 'form',
         moduleIndex: sel.moduleIndex,
         formIndex: sel.formIndex,
-        ...(caseData && { caseData }),
       })
     }
 
