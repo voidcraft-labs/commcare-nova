@@ -63,7 +63,7 @@ export function FormScreen({ blueprint, moduleIndex, formIndex, caseData, onBack
   const formBody = (
     <>
       {/* Form header */}
-      <div className="px-6 pt-5 pb-4">
+      <div className="px-6 pt-5 pb-4 border-b border-pv-input-border">
         <div className="flex items-center gap-2">
           <h2 className="text-lg font-display font-semibold text-nova-text">{form.name}</h2>
           <Badge variant="muted">

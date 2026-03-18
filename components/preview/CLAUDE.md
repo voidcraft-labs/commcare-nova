@@ -4,9 +4,9 @@ Client-side web preview with cyan accent theme (`.preview-theme` in globals.css)
 
 ## Navigation Shell
 
-- **PreviewShell** — Screen dispatch container. Accepts optional `nav` prop (from `usePreviewNav`) and `hideHeader` — when used inside BuilderLayout, the header is rendered externally in the subheader bar and nav state is shared via prop.
-- **PreviewHeader** — Back button, breadcrumb, actions slot. Rendered by BuilderLayout in the subheader bar (not by PreviewShell) so it spans the full width above both content and DetailPanel.
-- **PreviewToggle** — Segmented `[Tree View] [Preview] [Test]` control
+- **PreviewShell** — Screen dispatch container. Accepts optional `nav` prop (from `usePreviewNav`) and `hideHeader` — when used inside BuilderLayout, the header is rendered externally in the subheader bar and nav state is shared via prop. Content fills the full pane (no border/padding wrapper).
+- **PreviewHeader** — Back button, breadcrumb, actions slot. Used by PreviewShell when rendering standalone (not used by BuilderLayout).
+- **PreviewToggle** — 3-segment control: `[Tree View] [⏸ Preview] [▶ Live]` with icons. Live segment uses emerald accent. Rendered in BuilderLayout subheader toolbar.
 
 ## Screens
 

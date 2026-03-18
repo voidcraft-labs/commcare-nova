@@ -12,11 +12,11 @@ Main 3-panel layout with one `useChat` instance targeting `/api/chat`.
 
 When `builder.phase === Idle && !builder.treeData`, chat fills center with hero Logo above welcome heading and input — no header bar, uniform `bg-nova-void`. On generation start (DataModel phase), Logo animates from center to header via `layoutId="nova-logo"`, header slides in (animated `height: 0 → auto`), chat narrows to 380px sidebar — coordinated by `LayoutGroup` wrapping the layout. `AnimatePresence` fades in builder panels (150ms delay). No DOM re-parenting — messages and input state preserved.
 
-### Subheader + Content Layout
+### Subheader Toolbar
 
-BuilderLayout renders a **subheader bar** (app name in tree mode, breadcrumb nav in preview mode) spanning the full width right of the chat sidebar. Both the main content area and DetailPanel sit **below** this subheader in a flex row — sidebars slide out from beneath the subheader, never above it.
+BuilderLayout renders a **subheader toolbar** (only when `Done` + blueprint exists) spanning the full width right of the chat sidebar. Left side: `PreviewToggle` (3-segment: Tree View / Preview / Live). Right side: Undo/Redo buttons with icons and labels. Both the main content area and DetailPanel sit **below** this subheader in a flex row — sidebars slide out from beneath the subheader, never above it.
 
-`usePreviewNav` is lifted to BuilderLayout and shared with both `PreviewHeader` (in the subheader) and `PreviewShell` (via `nav` prop) so navigation state stays in sync. AppTree and PreviewShell render with `hideHeader` since BuilderLayout owns the subheader.
+`usePreviewNav` is lifted to BuilderLayout and shared with `PreviewShell` (via `nav` prop) so navigation state stays in sync. AppTree and PreviewShell render with `hideHeader` since BuilderLayout owns the subheader.
 
 ### View Modes
 
@@ -25,7 +25,7 @@ BuilderLayout renders a **subheader bar** (app name in tree mode, breadcrumb nav
 - `'preview'` → `PreviewShell` (editable canvas) + `DetailPanel` (inline right sidebar)
 - `'test'` → `PreviewShell` (read-only, no edit chrome or sidebar)
 
-Both show `PreviewToggle` + `DownloadDropdown` in the subheader actions area. Keyboard shortcuts (undo/redo, Tab/Shift+Tab navigation, Delete, Cmd+D duplicate, arrow keys to reorder) registered via `useKeyboardShortcuts`.
+Subheader shows `PreviewToggle` on left, Undo/Redo on right. Keyboard shortcuts (undo/redo, Tab/Shift+Tab navigation, Delete, Cmd+D duplicate, arrow keys to reorder) registered via `useKeyboardShortcuts`.
 
 ## DetailPanel
 
