@@ -18,6 +18,7 @@ export class FormEngine {
   private dag: TriggerDag
   private states = new Map<string, QuestionState>()
   private listeners = new Set<() => void>()
+  private _version = 0
   private mergedQuestions: Question[]
   private caseData: Map<string, string>
   private moduleCaseType: string | undefined
@@ -227,12 +228,15 @@ export class FormEngine {
     this.notify()
   }
 
-  subscribe(listener: () => void): () => void {
+  subscribe = (listener: () => void): (() => void) => {
     this.listeners.add(listener)
     return () => { this.listeners.delete(listener) }
   }
 
+  getSnapshot = () => this._version
+
   private notify(): void {
+    this._version++
     this.listeners.forEach(fn => fn())
   }
 

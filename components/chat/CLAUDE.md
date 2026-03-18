@@ -7,7 +7,7 @@ Message list + input. Accepts `mode: 'centered' | 'sidebar'`, optional `readOnly
 - **Centered mode**: Below hero Logo, no header/border, uniform `gap-6` spacing.
 - **Sidebar mode**: 380px docked panel, `p-4` messages, `border-t` input.
 
-Uses `layout` + `layoutId` for animated transition between modes. Reads `builder.phase` to suppress thinking indicator when builder is active.
+Uses `layout` + `layoutId` for animated transition between modes. Reads `builder.phase` to suppress thinking indicator when builder is active. Auto-scroll to bottom via MutationObserver ref callback on the messages container.
 
 ## ChatMessage
 

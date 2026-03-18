@@ -1,5 +1,5 @@
 'use client'
-import { useState, useEffect } from 'react'
+import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { motion } from 'motion/react'
 import { Icon } from '@iconify/react'
@@ -14,21 +14,14 @@ export default function LandingPage() {
   const { settings, loaded, updateSettings } = useSettings()
   const [apiKey, setApiKey] = useState('')
 
-  // Auto-redirect return visitors who already have a key
-  useEffect(() => {
-    if (loaded && settings.apiKey) {
-      router.replace('/build/new')
-    }
-  }, [loaded, settings.apiKey, router])
-
   const startBuilding = () => {
     if (!apiKey.trim()) return
     updateSettings({ apiKey: apiKey.trim() })
     router.push('/build/new')
   }
 
-  // Don't render anything while checking for existing key (prevents flash)
-  if (!loaded || settings.apiKey) return null
+  if (!loaded) return null
+  if (settings.apiKey) { router.replace('/build/new'); return null }
 
   return (
     <div className="min-h-screen flex flex-col items-center justify-center relative overflow-hidden">

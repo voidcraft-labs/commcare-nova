@@ -6,7 +6,7 @@ Client-side form preview running entirely from `AppBlueprint` — no XForm parsi
 
 **1. XPath Evaluator** (`xpath/`) — Reuses the Lezer parser from `lib/codemirror/xpath-parser.ts`. Walks CST to evaluate paths, arithmetic, comparisons, logical ops, function calls, and hashtag refs. Function registry in `functions.ts` (~35 functions).
 
-**2. Form Engine** (`engine/`) — Reactive state machine. Initializes from `BlueprintForm` + `CaseType` metadata. Maintains `DataInstance` (values by path), builds `TriggerDag` from XPath expressions, cascades recalculation on every value change.
+**2. Form Engine** (`engine/`) — Reactive state machine. Initializes from `BlueprintForm` + `CaseType` metadata. Maintains `DataInstance` (values by path), builds `TriggerDag` from XPath expressions, cascades recalculation on every value change. Exposes `subscribe` + `getSnapshot` for `useSyncExternalStore`.
 
 **3. Preview UI** (`components/preview/`) — Navigation shell: Home → Module → (Case List →) Form Entry. Cyan accent theme (`.preview-theme` in globals.css).
 

@@ -1,8 +1,9 @@
 'use client'
-import { useState, useRef, useEffect, useCallback } from 'react'
+import { useState, useCallback } from 'react'
 import { motion, AnimatePresence } from 'motion/react'
 import { Icon } from '@iconify/react'
 import ciCheck from '@iconify-icons/ci/check'
+import { useDismissRef } from '@/hooks/useDismissRef'
 
 interface EditableDropdownProps {
   label: string
@@ -15,7 +16,7 @@ interface EditableDropdownProps {
 export function EditableDropdown({ label, value, options, onSave, renderValue }: EditableDropdownProps) {
   const [open, setOpen] = useState(false)
   const [saved, setSaved] = useState(false)
-  const containerRef = useRef<HTMLDivElement>(null)
+  const dismissRef = useDismissRef(() => setOpen(false))
 
   const handleSelect = useCallback((v: string) => {
     setOpen(false)
@@ -25,26 +26,6 @@ export function EditableDropdown({ label, value, options, onSave, renderValue }:
       setTimeout(() => setSaved(false), 1500)
     }
   }, [value, onSave])
-
-  useEffect(() => {
-    if (!open) return
-    const handler = (e: MouseEvent) => {
-      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
-        setOpen(false)
-      }
-    }
-    document.addEventListener('mousedown', handler)
-    return () => document.removeEventListener('mousedown', handler)
-  }, [open])
-
-  useEffect(() => {
-    if (!open) return
-    const handler = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') setOpen(false)
-    }
-    document.addEventListener('keydown', handler)
-    return () => document.removeEventListener('keydown', handler)
-  }, [open])
 
   const currentLabel = options.find(o => o.value === value)?.label ?? value
 
@@ -65,7 +46,7 @@ export function EditableDropdown({ label, value, options, onSave, renderValue }:
           )}
         </AnimatePresence>
       </label>
-      <div ref={containerRef} className="relative">
+      <div ref={dismissRef} className="relative">
         <div
           onClick={() => setOpen(!open)}
           className="cursor-pointer hover:opacity-80 transition-opacity"

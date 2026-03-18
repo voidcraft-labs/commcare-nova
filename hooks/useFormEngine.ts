@@ -1,5 +1,6 @@
 'use client'
-import { useMemo, useState, useEffect, useRef } from 'react'
+import { useMemo, useRef, useCallback } from 'react'
+import { useSyncExternalStore } from 'react'
 import { FormEngine } from '@/lib/preview/engine/formEngine'
 import type { BlueprintForm, CaseType } from '@/lib/schemas/blueprint'
 
@@ -37,11 +38,11 @@ export function useFormEngine(
 
   prevEngineRef.current = engine
 
-  const [, tick] = useState(0)
-
-  useEffect(() => {
-    return engine.subscribe(() => tick(n => n + 1))
-  }, [engine])
+  // Re-render when the engine notifies (value changes, validation, etc.)
+  // Wrapped in useCallback because engine identity changes on deps
+  const subscribe = useCallback((cb: () => void) => engine.subscribe(cb), [engine])
+  const getSnapshot = useCallback(() => engine.getSnapshot(), [engine])
+  useSyncExternalStore(subscribe, getSnapshot)
 
   return engine
 }

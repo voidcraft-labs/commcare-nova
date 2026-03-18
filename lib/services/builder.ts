@@ -85,6 +85,7 @@ export class Builder {
   private _partialModules = new Map<number, PartialModule>()
   private _partialScaffold?: { appName?: string; description?: string; modules: TreeData['modules'] }
   private _listeners = new Set<() => void>()
+  private _version = 0
 
   // ── Read-only public accessors ───────────────────────────────────────
 
@@ -110,12 +111,15 @@ export class Builder {
 
   // ── Subscribe ────────────────────────────────────────────────────────
 
-  subscribe(listener: () => void) {
+  subscribe = (listener: () => void) => {
     this._listeners.add(listener)
     return () => { this._listeners.delete(listener) }
   }
 
+  getSnapshot = () => this._version
+
   private notify() {
+    this._version++
     this._listeners.forEach(fn => fn())
   }
 

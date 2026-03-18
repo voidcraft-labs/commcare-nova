@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { expandBlueprint } from '@/lib/services/hqJsonExpander'
 import { appBlueprintSchema } from '@/lib/schemas/blueprint'
+import { ApiError, handleApiError } from '@/lib/apiError'
 
 export async function POST(req: NextRequest) {
   try {
@@ -8,15 +9,16 @@ export async function POST(req: NextRequest) {
     const { blueprint } = body
 
     if (!blueprint) {
-      return NextResponse.json({ error: 'blueprint is required' }, { status: 400 })
+      throw new ApiError('blueprint is required', 400)
     }
 
     const parsed = appBlueprintSchema.safeParse(blueprint)
     if (!parsed.success) {
-      return NextResponse.json({
-        error: 'Invalid blueprint',
-        details: parsed.error.issues.map((e: { path: PropertyKey[]; message: string }) => `${e.path.join('.')}: ${e.message}`)
-      }, { status: 400 })
+      throw new ApiError(
+        'Invalid blueprint',
+        400,
+        parsed.error.issues.map((e: { path: PropertyKey[]; message: string }) => `${e.path.join('.')}: ${e.message}`),
+      )
     }
 
     const hqJson = expandBlueprint(parsed.data)
@@ -29,7 +31,6 @@ export async function POST(req: NextRequest) {
       },
     })
   } catch (err) {
-    const message = err instanceof Error ? err.message : 'JSON export failed'
-    return NextResponse.json({ error: message }, { status: 500 })
+    return handleApiError(err instanceof Error ? err : new Error('JSON export failed'))
   }
 }

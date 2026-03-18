@@ -1,5 +1,5 @@
 'use client'
-import { useRef, useEffect, useCallback } from 'react'
+import { useRef, useCallback } from 'react'
 import { motion, AnimatePresence } from 'motion/react'
 import type { UIMessage } from 'ai'
 import { Icon } from '@iconify/react'
@@ -37,7 +37,6 @@ export function ChatSidebar({
   const isLoading = status === 'submitted' || status === 'streaming'
 
   const showThinking = isLoading && builder.phase === BuilderPhase.Idle
-  const scrollRef = useRef<HTMLDivElement>(null)
   const pendingAnswerRef = useRef<((text: string) => void) | null>(null)
   const isCentered = mode === 'centered'
 
@@ -50,12 +49,16 @@ export function ChatSidebar({
     }
   }, [onSend])
 
-  // Auto-scroll on new messages
-  useEffect(() => {
-    if (scrollRef.current) {
-      scrollRef.current.scrollTop = scrollRef.current.scrollHeight
-    }
-  }, [messages])
+  // Auto-scroll to bottom when new messages are added.
+  // MutationObserver watches for DOM child changes and scrolls on each mutation.
+  const scrollRef = useCallback((el: HTMLDivElement | null) => {
+    if (!el) return
+    const observer = new MutationObserver(() => {
+      el.scrollTop = el.scrollHeight
+    })
+    observer.observe(el, { childList: true, subtree: true })
+    return () => observer.disconnect()
+  }, [])
 
   return (
     <motion.div

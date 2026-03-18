@@ -1,9 +1,10 @@
 'use client'
-import { useState, useRef, useEffect } from 'react'
+import { useState } from 'react'
 import { motion, AnimatePresence } from 'motion/react'
 import { Icon } from '@iconify/react'
 import ciDownload from '@iconify-icons/ci/download'
 import ciChevronDown from '@iconify-icons/ci/chevron-down'
+import { useDismissRef } from '@/hooks/useDismissRef'
 
 interface DownloadOption {
   label: string
@@ -18,18 +19,10 @@ interface DownloadDropdownProps {
 
 export function DownloadDropdown({ options }: DownloadDropdownProps) {
   const [open, setOpen] = useState(false)
-  const ref = useRef<HTMLDivElement>(null)
-
-  useEffect(() => {
-    const handleClick = (e: MouseEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false)
-    }
-    document.addEventListener('mousedown', handleClick)
-    return () => document.removeEventListener('mousedown', handleClick)
-  }, [])
+  const dismissRef = useDismissRef(() => setOpen(false))
 
   return (
-    <div ref={ref} className="relative">
+    <div ref={dismissRef} className="relative">
       <motion.button
         whileTap={{ scale: 0.98 }}
         onClick={() => setOpen(!open)}

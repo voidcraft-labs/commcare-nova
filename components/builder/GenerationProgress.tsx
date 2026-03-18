@@ -1,5 +1,5 @@
 'use client'
-import { useEffect, useRef, useState, useCallback } from 'react'
+import { useRef, useState, useCallback, useSyncExternalStore } from 'react'
 import { motion, AnimatePresence } from 'motion/react'
 import { Icon } from '@iconify/react'
 import ciCheck from '@iconify-icons/ci/check'
@@ -65,7 +65,7 @@ export function GenerationProgress({ phase, message, completed, total, mode, onD
 
   // Refs for measuring label centers
   const containerRef = useRef<HTMLDivElement>(null)
-  const barRef = useRef<HTMLDivElement>(null)
+  const barElRef = useRef<HTMLDivElement>(null)
   const labelRefs = useRef<Map<number, HTMLDivElement>>(new Map())
   const [labelCenters, setLabelCenters] = useState<number[]>([])
 
@@ -74,20 +74,20 @@ export function GenerationProgress({ phase, message, completed, total, mode, onD
     else labelRefs.current.delete(idx)
   }, [])
 
-  // Measure label centers as percentage of the bar width
-  useEffect(() => {
-    const bar = barRef.current
-    if (!bar) return
+  // Measure label centers via ref callback + ResizeObserver
+  const barRefCallback = useCallback((el: HTMLDivElement | null) => {
+    barElRef.current = el
+    if (!el) return
 
     const measure = () => {
-      const barRect = bar.getBoundingClientRect()
+      const barRect = el.getBoundingClientRect()
       if (barRect.width === 0) return
       const totalLabels = stages.length + 1 // stages + Done
       const centers: number[] = []
       for (let i = 0; i < totalLabels; i++) {
-        const el = labelRefs.current.get(i)
-        if (el) {
-          const r = el.getBoundingClientRect()
+        const labelEl = labelRefs.current.get(i)
+        if (labelEl) {
+          const r = labelEl.getBoundingClientRect()
           const centerX = r.left + r.width / 2 - barRect.left
           centers[i] = (centerX / barRect.width) * 100
         }
@@ -97,7 +97,7 @@ export function GenerationProgress({ phase, message, completed, total, mode, onD
 
     measure()
     const ro = new ResizeObserver(measure)
-    ro.observe(bar)
+    ro.observe(el)
     return () => ro.disconnect()
   }, [stages.length, phase])
 
@@ -110,15 +110,18 @@ export function GenerationProgress({ phase, message, completed, total, mode, onD
     pct = labelCenters[stageIdx] ?? 0
   }
 
-  // Auto-dismiss: 3s after done, trigger the pulse→slide-out sequence
-  useEffect(() => {
+  // 3s after completion, trigger the pulse→slide-out dismiss animation.
+  // Uses useSyncExternalStore's subscribe lifecycle to manage the timer —
+  // when isDone changes the old timer is cleaned up and a new one starts.
+  const subscribeToDismiss = useCallback((notify: () => void) => {
     if (!isDone) {
       setDismissing(false)
-      return
+      return () => {}
     }
     const timer = setTimeout(() => setDismissing(true), 3000)
     return () => clearTimeout(timer)
   }, [isDone])
+  useSyncExternalStore(subscribeToDismiss, () => 0)
 
   return (
     <motion.div
@@ -209,7 +212,7 @@ export function GenerationProgress({ phase, message, completed, total, mode, onD
 
       {/* Progress bar — pulses once before dismissing */}
       <div
-        ref={barRef}
+        ref={barRefCallback}
         className={`rounded-full bg-nova-surface overflow-hidden ${
           isCentered ? 'mt-3 h-[3px]' : 'mt-2 h-[2px]'
         }`}
