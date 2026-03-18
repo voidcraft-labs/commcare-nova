@@ -9,9 +9,48 @@ const MUTATION_METHODS = new Set([
   'updateCaseProperty', 'addChildCase',
 ])
 
+export type MutationType = 'add' | 'remove' | 'move' | 'duplicate' | 'update' | 'rename' | 'structural'
+
+export interface SnapshotMeta {
+  type: MutationType
+  moduleIndex: number
+  formIndex: number
+  questionId?: string
+  secondaryId?: string
+}
+
+interface SnapshotEntry {
+  blueprint: AppBlueprint
+  meta: SnapshotMeta
+}
+
+/** Maps a proxy-intercepted method call to SnapshotMeta. */
+function deriveMeta(method: string, args: any[]): SnapshotMeta {
+  const moduleIndex = typeof args[0] === 'number' ? args[0] : -1
+  const formIndex = typeof args[1] === 'number' ? args[1] : -1
+
+  switch (method) {
+    case 'addQuestion':
+      return { type: 'add', moduleIndex, formIndex, questionId: args[2]?.id }
+    case 'removeQuestion':
+      return { type: 'remove', moduleIndex, formIndex, questionId: args[2] }
+    case 'moveQuestion':
+      return { type: 'move', moduleIndex, formIndex, questionId: args[2] }
+    case 'duplicateQuestion':
+      // secondaryId patched after execution with the clone's ID
+      return { type: 'duplicate', moduleIndex, formIndex, questionId: args[2] }
+    case 'updateQuestion':
+      return { type: 'update', moduleIndex, formIndex, questionId: args[2] }
+    case 'renameQuestion':
+      return { type: 'rename', moduleIndex, formIndex, questionId: args[2], secondaryId: args[3] }
+    default:
+      return { type: 'structural', moduleIndex, formIndex }
+  }
+}
+
 export class HistoryManager {
-  private undoStack: AppBlueprint[] = []
-  private redoStack: AppBlueprint[] = []
+  private undoStack: SnapshotEntry[] = []
+  private redoStack: SnapshotEntry[] = []
   private maxDepth: number
   enabled = true
 
@@ -30,8 +69,14 @@ export class HistoryManager {
         const value = (this._mb as any)[prop]
         if (typeof prop === 'string' && MUTATION_METHODS.has(prop) && typeof value === 'function') {
           return (...args: any[]) => {
-            this.snapshot()
-            return value.apply(this._mb, args)
+            const meta = deriveMeta(prop, args)
+            this.snapshot(meta)
+            const result = value.apply(this._mb, args)
+            // Patch duplicate clone ID after execution
+            if (prop === 'duplicateQuestion' && typeof result === 'string' && this.undoStack.length > 0) {
+              this.undoStack[this.undoStack.length - 1].meta.secondaryId = result
+            }
+            return result
           }
         }
         if (typeof value === 'function') {
@@ -42,31 +87,31 @@ export class HistoryManager {
     })
   }
 
-  private snapshot() {
+  private snapshot(meta: SnapshotMeta) {
     if (!this.enabled) return
-    this.undoStack.push(structuredClone(this._mb.getBlueprint()))
+    this.undoStack.push({ blueprint: structuredClone(this._mb.getBlueprint()), meta })
     this.redoStack = []
     if (this.undoStack.length > this.maxDepth) {
       this.undoStack.shift()
     }
   }
 
-  /** Undo: returns the new MutableBlueprint, or null if nothing to undo. */
-  undo(): MutableBlueprint | null {
+  /** Undo: returns the new MutableBlueprint + meta, or null if nothing to undo. */
+  undo(): { mb: MutableBlueprint; meta: SnapshotMeta } | null {
     if (this.undoStack.length === 0) return null
-    this.redoStack.push(structuredClone(this._mb.getBlueprint()))
-    const restored = this.undoStack.pop()!
-    this._mb = new MutableBlueprint(restored)
-    return this._mb
+    const entry = this.undoStack.pop()!
+    this.redoStack.push({ blueprint: structuredClone(this._mb.getBlueprint()), meta: entry.meta })
+    this._mb = new MutableBlueprint(entry.blueprint)
+    return { mb: this._mb, meta: entry.meta }
   }
 
-  /** Redo: returns the new MutableBlueprint, or null if nothing to redo. */
-  redo(): MutableBlueprint | null {
+  /** Redo: returns the new MutableBlueprint + meta, or null if nothing to redo. */
+  redo(): { mb: MutableBlueprint; meta: SnapshotMeta } | null {
     if (this.redoStack.length === 0) return null
-    this.undoStack.push(structuredClone(this._mb.getBlueprint()))
-    const restored = this.redoStack.pop()!
-    this._mb = new MutableBlueprint(restored)
-    return this._mb
+    const entry = this.redoStack.pop()!
+    this.undoStack.push({ blueprint: structuredClone(this._mb.getBlueprint()), meta: entry.meta })
+    this._mb = new MutableBlueprint(entry.blueprint)
+    return { mb: this._mb, meta: entry.meta }
   }
 
   get canUndo(): boolean {

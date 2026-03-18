@@ -98,7 +98,7 @@ Also exports:
 
 ### Undo/Redo
 
-`HistoryManager` (`historyManager.ts`) — Proxy-based mutation interception on MutableBlueprint. Snapshots blueprint before each mutation method call. `builder.mb` returns the proxied instance when history is active. `builder.undo()`/`builder.redo()` swap the internal MutableBlueprint. Created in `setDone()`, disabled during generation (`startDataModel()`), cleared on `reset()`.
+`HistoryManager` (`historyManager.ts`) — Proxy-based mutation interception on MutableBlueprint. Each snapshot stores `SnapshotEntry { blueprint, meta: SnapshotMeta }`. `SnapshotMeta` captures mutation type (`add`/`remove`/`move`/`duplicate`/`update`/`rename`/`structural`), module/form indices, and question IDs. `deriveMeta()` maps method names + args to metadata; `duplicateQuestion` clone ID is patched after execution. `undo()`/`redo()` return `{ mb, meta }` — Builder uses meta to derive smart selection (e.g., undo-remove re-selects the restored question, undo-add clears selection). Drag guard: `builder.setDragging()` prevents undo/redo during drag operations. History cleared on form switch (in `select()`) and generation start (`startDataModel()`). Created in `setDone()`, disabled during generation, cleared on `reset()`.
 
 ### Keyboard Shortcuts
 
