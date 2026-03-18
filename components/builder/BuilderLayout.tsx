@@ -501,11 +501,20 @@ export function BuilderLayout({ buildId }: { buildId: string }) {
           {viewMode === 'tree' && builder.selected && builder.blueprint && (
             <DetailPanel builder={builder} />
           )}
-          {viewMode === 'preview' && builder.selected && builder.blueprint && (
-            <div className="fixed right-0 top-0 bottom-0 w-80 z-30 shadow-[-8px_0_24px_rgba(0,0,0,0.4)] backdrop-blur-sm bg-nova-deep/95">
-              <DetailPanel builder={builder} />
-            </div>
-          )}
+          <AnimatePresence>
+            {viewMode === 'preview' && builder.selected && builder.blueprint && (
+              <motion.div
+                key="preview-detail"
+                initial={{ x: '100%' }}
+                animate={{ x: 0 }}
+                exit={{ x: '100%' }}
+                transition={{ type: 'spring', damping: 30, stiffness: 300 }}
+                className="fixed right-0 top-0 bottom-0 w-80 z-30 shadow-[-8px_0_24px_rgba(0,0,0,0.4)] backdrop-blur-sm bg-nova-deep/95"
+              >
+                <DetailPanel builder={builder} />
+              </motion.div>
+            )}
+          </AnimatePresence>
         </div>
 
       {/* Delete confirmation from keyboard shortcut */}
