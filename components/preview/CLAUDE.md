@@ -31,7 +31,7 @@ Uses `@dnd-kit/react` — `DragDropProvider` wraps the question list, each quest
 
 `InsertionPoint` — zero-height hover zones between questions. Expand on hover with CSS height transition to reveal a line + plus button. `QuestionTypePicker` (floating-ui popover) opens on click for type selection. Inserts via `mb.addQuestion()` with `atIndex` for exact array position.
 
-**Velocity-aware hover**: FormRenderer tracks cursor speed via EMA-smoothed velocity (ref-based, no re-renders). InsertionPoints check the speed ref on mouseenter — slow cursor shows immediately, fast cursor waits for slowdown or 200ms fallback. Prevents accidental triggers when traversing the question list quickly.
+**Velocity-aware hover**: FormRenderer tracks cursor speed via EMA-smoothed velocity (α=0.1, ~160ms window, ref-based, no re-renders). InsertionPoints check the speed ref on mouseenter — slow cursor (< 0.1 px/ms) shows immediately with a 50ms transition delay, fast cursor waits for slowdown or 200ms fallback. Prevents accidental triggers when traversing the question list quickly.
 
 ### Delete
 

@@ -153,7 +153,7 @@ export function FormRenderer({ questions, engine, prefix = '/data', parentId }: 
         const dy = e.clientY - last.y
         const speed = Math.sqrt(dx * dx + dy * dy) / dt
         // Long gap = mouse was stopped, reset. Otherwise EMA smooth.
-        cursorSpeedRef.current = dt > 100 ? speed : 0.3 * speed + 0.7 * cursorSpeedRef.current
+        cursorSpeedRef.current = dt > 100 ? speed : 0.1 * speed + 0.9 * cursorSpeedRef.current
       }
     }
     lastCursorRef.current = { x: e.clientX, y: e.clientY, t: now }

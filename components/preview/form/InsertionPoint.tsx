@@ -6,7 +6,7 @@ import { useEditContext } from '@/hooks/useEditContext'
 import { QuestionTypePicker } from './QuestionTypePicker'
 
 /** Speed threshold in px/ms. Above this = cursor is traversing, don't open. */
-const SPEED_THRESHOLD = 0.3
+const SPEED_THRESHOLD = 0.1
 
 interface InsertionPointProps {
   atIndex: number
@@ -72,7 +72,7 @@ export function InsertionPoint({ atIndex, parentId, disabled, cursorSpeedRef }: 
         height: isActive ? 24 : 0,
         marginBottom: isActive ? 16 : 0,
         transition: isActive
-          ? 'height 250ms cubic-bezier(0.6, 0, 0.1, 1), margin 250ms cubic-bezier(0.6, 0, 0.1, 1)'
+          ? 'height 250ms cubic-bezier(0.6, 0, 0.1, 1) 50ms, margin 250ms cubic-bezier(0.6, 0, 0.1, 1) 50ms'
           : 'height 150ms ease-in, margin 150ms ease-in',
       }}
       data-insertion-point
