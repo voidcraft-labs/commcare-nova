@@ -185,7 +185,7 @@ export function FormRenderer({ questions, engine, prefix = '/data', parentPath }
         const actualIdx = questions.indexOf(q)
         const questionPath = qpath(q.id, parentPath)
         return (
-          <Fragment key={q.id}>
+          <Fragment key={`${idx}_${q.id}`}>
             <SortableQuestion
               q={q}
               questionPath={questionPath}
