@@ -13,5 +13,5 @@ export function useKeyboardShortcuts(id: string, shortcuts: Shortcut[], deps: an
     return () => keyboardManager.unregister(id)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id, ...deps])
-  useSyncExternalStore(subscribe, () => 0)
+  useSyncExternalStore(subscribe, () => 0, () => 0)
 }
