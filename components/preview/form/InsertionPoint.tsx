@@ -83,7 +83,7 @@ export function InsertionPoint({ atIndex, parentId, disabled, cursorSpeedRef }: 
         onMouseEnter={handleMouseEnter}
         onMouseMove={handleMouseMove}
         onMouseLeave={handleMouseLeave}
-        onClick={(e) => { e.stopPropagation(); ctx.builder.select(null); setIsOpen(true) }}
+        onClick={(e) => { e.stopPropagation(); setIsOpen(true) }}
       />
 
       {/* Visible content — vertically centered in the expanded area */}
@@ -95,7 +95,7 @@ export function InsertionPoint({ atIndex, parentId, disabled, cursorSpeedRef }: 
       >
         <div className="flex-1 h-px bg-nova-violet/40" />
         <button
-          onClick={(e) => { e.stopPropagation(); ctx.builder.select(null); setIsOpen(true) }}
+          onClick={(e) => { e.stopPropagation(); setIsOpen(true) }}
           className="mx-1 w-5 h-5 flex items-center justify-center rounded-full bg-nova-surface border border-nova-violet/40 text-nova-violet hover:bg-nova-violet/10 transition-colors cursor-pointer shrink-0"
           title="Insert question"
         >
