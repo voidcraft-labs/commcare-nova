@@ -12,10 +12,12 @@ export function useFormEngine(
   caseTypes: CaseType[] | null,
   moduleCaseType?: string,
   caseData?: Map<string, string>,
+  mutationCount?: number,
 ): FormEngine {
   const engine = useMemo(
     () => new FormEngine(form, caseTypes, moduleCaseType, caseData),
-    [form, caseTypes, moduleCaseType, caseData],
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [form, caseTypes, moduleCaseType, caseData, mutationCount],
   )
 
   const [, tick] = useState(0)

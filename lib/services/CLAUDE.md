@@ -96,6 +96,16 @@ Also exports:
 
 `applyDataPart(builder, type, data)` — shared switch used by both real-time streaming (`onData`) and log replay.
 
+### Undo/Redo
+
+`HistoryManager` (`historyManager.ts`) — Proxy-based mutation interception on MutableBlueprint. Snapshots blueprint before each mutation method call. `builder.mb` returns the proxied instance when history is active. `builder.undo()`/`builder.redo()` swap the internal MutableBlueprint. Created in `setDone()`, disabled during generation (`startDataModel()`), cleared on `reset()`.
+
+### Keyboard Shortcuts
+
+`KeyboardManager` (`keyboardManager.ts`) — module-level singleton, single `document.keydown` listener. Input suppression (input/textarea/select/contenteditable/.cm-content) unless `global: true`. `useKeyboardShortcuts` hook for React lifecycle.
+
+`questionNavigation.ts` — `flattenQuestionIds()` for Tab/Shift+Tab navigation through the question tree.
+
 ## Expander (hqJsonExpander.ts)
 
 `expandBlueprint()` converts `AppBlueprint` → HQ import JSON. `validateBlueprint()` checks semantic rules.

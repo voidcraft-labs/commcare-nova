@@ -526,4 +526,74 @@ describe('MutableBlueprint', () => {
       expect(q!.question.relevant).toBe('/data/grp/renamed_inner != ""')
     })
   })
+
+  describe('moveQuestion', () => {
+    it('moves a question after another', () => {
+      const mb = new MutableBlueprint(makeBlueprint())
+      // Move client_name after client_phone (currently: name, email, phone → email, phone, name)
+      mb.moveQuestion(0, 0, 'client_name', { afterId: 'client_phone' })
+      const ids = mb.getForm(0, 0)!.questions.map(q => q.id)
+      expect(ids).toEqual(['client_email', 'client_phone', 'client_name'])
+    })
+
+    it('moves a question before another', () => {
+      const mb = new MutableBlueprint(makeBlueprint())
+      // Move client_phone before client_name (currently: name, email, phone → phone, name, email)
+      mb.moveQuestion(0, 0, 'client_phone', { beforeId: 'client_name' })
+      const ids = mb.getForm(0, 0)!.questions.map(q => q.id)
+      expect(ids).toEqual(['client_phone', 'client_name', 'client_email'])
+    })
+
+    it('throws for nonexistent question', () => {
+      const mb = new MutableBlueprint(makeBlueprint())
+      expect(() => mb.moveQuestion(0, 0, 'nonexistent', { afterId: 'client_name' })).toThrow()
+    })
+
+    it('no-ops when moving after itself', () => {
+      const mb = new MutableBlueprint(makeBlueprint())
+      const idsBefore = mb.getForm(0, 0)!.questions.map(q => q.id)
+      mb.moveQuestion(0, 0, 'client_email', { afterId: 'client_email' })
+      const idsAfter = mb.getForm(0, 0)!.questions.map(q => q.id)
+      expect(idsAfter).toEqual(idsBefore)
+    })
+  })
+
+  describe('duplicateQuestion', () => {
+    it('duplicates a question with _copy suffix', () => {
+      const mb = new MutableBlueprint(makeBlueprint())
+      const newId = mb.duplicateQuestion(0, 0, 'client_name')
+      expect(newId).toBe('client_name_copy')
+      const form = mb.getForm(0, 0)!
+      const ids = form.questions.map(q => q.id)
+      expect(ids).toContain('client_name_copy')
+      // Should be right after original
+      expect(ids.indexOf('client_name_copy')).toBe(ids.indexOf('client_name') + 1)
+    })
+
+    it('clears case_property on the clone', () => {
+      const mb = new MutableBlueprint(makeBlueprint())
+      const newId = mb.duplicateQuestion(0, 0, 'client_name')
+      const q = mb.getQuestion(0, 0, newId)
+      expect(q!.question.case_property).toBeUndefined()
+    })
+
+    it('clears is_case_name on the clone', () => {
+      const mb = new MutableBlueprint(makeBlueprint())
+      const newId = mb.duplicateQuestion(0, 0, 'client_name')
+      const q = mb.getQuestion(0, 0, newId)
+      expect((q!.question as any).is_case_name).toBeUndefined()
+    })
+
+    it('uses numeric suffix when _copy exists', () => {
+      const mb = new MutableBlueprint(makeBlueprint())
+      mb.duplicateQuestion(0, 0, 'client_name') // creates client_name_copy
+      const newId2 = mb.duplicateQuestion(0, 0, 'client_name') // should be client_name_2
+      expect(newId2).toBe('client_name_2')
+    })
+
+    it('throws for nonexistent question', () => {
+      const mb = new MutableBlueprint(makeBlueprint())
+      expect(() => mb.duplicateQuestion(0, 0, 'nonexistent')).toThrow()
+    })
+  })
 })

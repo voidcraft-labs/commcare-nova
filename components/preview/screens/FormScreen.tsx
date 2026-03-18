@@ -1,6 +1,9 @@
 'use client'
 import { useRef, useMemo } from 'react'
 import type { AppBlueprint } from '@/lib/schemas/blueprint'
+import type { Builder } from '@/lib/services/builder'
+import type { EditMode } from '@/hooks/useEditContext'
+import { EditContextProvider } from '@/hooks/useEditContext'
 import { useFormEngine } from '@/hooks/useFormEngine'
 import { FormRenderer } from '../form/FormRenderer'
 import { Badge } from '@/components/ui/Badge'
@@ -11,6 +14,8 @@ interface FormScreenProps {
   formIndex: number
   caseData?: Map<string, string>
   onBack: () => void
+  builder?: Builder
+  mode?: EditMode
 }
 
 const formTypeBadge = {
@@ -19,7 +24,7 @@ const formTypeBadge = {
   survey: 'Survey',
 } as const
 
-export function FormScreen({ blueprint, moduleIndex, formIndex, caseData, onBack }: FormScreenProps) {
+export function FormScreen({ blueprint, moduleIndex, formIndex, caseData, onBack, builder, mode = 'edit' }: FormScreenProps) {
   const mod = blueprint.modules[moduleIndex]
   const form = mod?.forms[formIndex]
 
@@ -30,6 +35,7 @@ export function FormScreen({ blueprint, moduleIndex, formIndex, caseData, onBack
     blueprint.case_types ?? null,
     mod?.case_type ?? undefined,
     stableCaseData,
+    builder?.mutationCount,
   )
 
   const formBodyRef = useRef<HTMLDivElement>(null)
@@ -49,14 +55,13 @@ export function FormScreen({ blueprint, moduleIndex, formIndex, caseData, onBack
     if (valid) {
       onBack()
     } else {
-      // Scroll to the first error
       const errorEl = formBodyRef.current?.querySelector('[data-invalid="true"]')
       errorEl?.scrollIntoView({ behavior: 'smooth', block: 'center' })
     }
   }
 
-  return (
-    <div className="flex flex-col h-full">
+  const formBody = (
+    <>
       {/* Form header */}
       <div className="px-6 pt-5 pb-4">
         <div className="flex items-center gap-2">
@@ -68,7 +73,7 @@ export function FormScreen({ blueprint, moduleIndex, formIndex, caseData, onBack
       </div>
 
       {/* Form body */}
-      <div ref={formBodyRef} className="flex-1 overflow-auto px-6 pb-6">
+      <div ref={formBodyRef} className="flex-1 overflow-auto px-6 py-6" style={{ scrollbarGutter: 'stable' }}>
         {questions.length === 0 ? (
           <div className="text-center text-nova-text-muted py-8">
             This form has no questions.
@@ -90,6 +95,18 @@ export function FormScreen({ blueprint, moduleIndex, formIndex, caseData, onBack
           Submit
         </button>
       </div>
+    </>
+  )
+
+  return (
+    <div className="flex flex-col h-full">
+      {builder ? (
+        <EditContextProvider builder={builder} moduleIndex={moduleIndex} formIndex={formIndex} mode={mode}>
+          {formBody}
+        </EditContextProvider>
+      ) : (
+        formBody
+      )}
     </div>
   )
 }

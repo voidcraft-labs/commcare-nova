@@ -15,6 +15,9 @@ import { useSettings } from '@/hooks/useSettings'
 import { useBuilder } from '@/hooks/useBuilder'
 import { BuilderPhase, applyDataPart } from '@/lib/services/builder'
 import { summarizeBlueprint } from '@/lib/schemas/blueprint'
+import { flattenQuestionIds } from '@/lib/services/questionNavigation'
+import { useKeyboardShortcuts } from '@/hooks/useKeyboardShortcuts'
+import type { Shortcut } from '@/lib/services/keyboardManager'
 import { Logo } from '@/components/ui/Logo'
 import { ChatSidebar } from '@/components/chat/ChatSidebar'
 import { AppTree } from '@/components/builder/AppTree'
@@ -24,6 +27,7 @@ import { ReplayController } from '@/components/builder/ReplayController'
 import { DownloadDropdown } from '@/components/ui/DownloadDropdown'
 import { PreviewToggle } from '@/components/preview/PreviewToggle'
 import { PreviewShell } from '@/components/preview/PreviewShell'
+import { ConfirmDialog } from '@/components/ui/ConfirmDialog'
 import { getReplayData, clearReplayData } from '@/lib/services/logReplay'
 
 /** Only auto-resend when the assistant's LAST step is askQuestions with all outputs available.
@@ -48,8 +52,9 @@ export function BuilderLayout({ buildId }: { buildId: string }) {
   const { settings } = useSettings()
   const builder = useBuilder()
   const [chatOpen, setChatOpen] = useState(true)
-  const [viewMode, setViewMode] = useState<'tree' | 'preview'>('tree')
+  const [viewMode, setViewMode] = useState<'tree' | 'preview' | 'test'>('tree')
   const [progressHidden, setProgressHidden] = useState(false)
+  const [deleteConfirm, setDeleteConfirm] = useState(false)
   const initialReplay = getReplayData()
   const [replayData, setReplayDataState] = useState(() => {
     if (initialReplay) initialReplay.stages[0]?.applyToBuilder(builder)
@@ -70,6 +75,11 @@ export function BuilderLayout({ buildId }: { buildId: string }) {
     setReplayMessages([])
     clearReplayData()
     builder.reset()
+  }, [builder])
+
+  const handleViewModeChange = useCallback((mode: 'tree' | 'preview' | 'test') => {
+    if (mode === 'test') builder.select(null)
+    setViewMode(mode)
   }, [builder])
 
   const inReplayMode = replayData !== null
@@ -152,9 +162,174 @@ export function BuilderLayout({ buildId }: { buildId: string }) {
     }
   }
 
+  // ── Keyboard shortcuts ──────────────────────────────────────────────
+  const isDone = builder.phase === BuilderPhase.Done
+
+  const shortcuts: Shortcut[] = isDone ? [
+    // Escape — deselect / exit test mode
+    {
+      key: 'Escape',
+      handler: () => {
+        if (viewMode === 'test') { setViewMode('preview'); return }
+        if (builder.selected) { builder.select(null); return }
+      },
+    },
+    // Tab / Shift+Tab — navigate questions
+    {
+      key: 'Tab',
+      handler: () => {
+        if (!builder.selected || !builder.blueprint) return
+        const sel = builder.selected
+        if (sel.formIndex === undefined) return
+        const form = builder.blueprint.modules[sel.moduleIndex]?.forms[sel.formIndex]
+        if (!form) return
+        const ids = flattenQuestionIds(form.questions)
+        const curIdx = ids.indexOf(sel.questionPath ?? '')
+        const nextIdx = (curIdx + 1) % ids.length
+        builder.select({ type: 'question', moduleIndex: sel.moduleIndex, formIndex: sel.formIndex, questionPath: ids[nextIdx] })
+      },
+    },
+    {
+      key: 'Tab',
+      shift: true,
+      handler: () => {
+        if (!builder.selected || !builder.blueprint) return
+        const sel = builder.selected
+        if (sel.formIndex === undefined) return
+        const form = builder.blueprint.modules[sel.moduleIndex]?.forms[sel.formIndex]
+        if (!form) return
+        const ids = flattenQuestionIds(form.questions)
+        const curIdx = ids.indexOf(sel.questionPath ?? '')
+        const prevIdx = curIdx <= 0 ? ids.length - 1 : curIdx - 1
+        builder.select({ type: 'question', moduleIndex: sel.moduleIndex, formIndex: sel.formIndex, questionPath: ids[prevIdx] })
+      },
+    },
+    // Delete / Backspace — delete selected question
+    {
+      key: 'Delete',
+      handler: () => {
+        if (builder.selected?.type === 'question') setDeleteConfirm(true)
+      },
+    },
+    {
+      key: 'Backspace',
+      handler: () => {
+        if (builder.selected?.type === 'question') setDeleteConfirm(true)
+      },
+    },
+    // Cmd+D — duplicate
+    {
+      key: 'd',
+      meta: true,
+      handler: () => {
+        const sel = builder.selected
+        if (!sel || sel.type !== 'question' || sel.formIndex === undefined || !sel.questionPath) return
+        const mb = builder.mb
+        if (!mb) return
+        const newId = mb.duplicateQuestion(sel.moduleIndex, sel.formIndex, sel.questionPath)
+        builder.notifyBlueprintChanged()
+        builder.select({ type: 'question', moduleIndex: sel.moduleIndex, formIndex: sel.formIndex, questionPath: newId })
+      },
+    },
+    // ArrowUp/ArrowDown — reorder
+    {
+      key: 'ArrowUp',
+      handler: () => {
+        const sel = builder.selected
+        if (!sel || sel.type !== 'question' || sel.formIndex === undefined || !sel.questionPath) return
+        const mb = builder.mb
+        if (!mb) return
+        const form = mb.getForm(sel.moduleIndex, sel.formIndex)
+        if (!form) return
+        const ids = flattenQuestionIds(form.questions)
+        const curIdx = ids.indexOf(sel.questionPath)
+        if (curIdx <= 0) return
+        mb.moveQuestion(sel.moduleIndex, sel.formIndex, sel.questionPath, { beforeId: ids[curIdx - 1] })
+        builder.notifyBlueprintChanged()
+      },
+    },
+    {
+      key: 'ArrowDown',
+      handler: () => {
+        const sel = builder.selected
+        if (!sel || sel.type !== 'question' || sel.formIndex === undefined || !sel.questionPath) return
+        const mb = builder.mb
+        if (!mb) return
+        const form = mb.getForm(sel.moduleIndex, sel.formIndex)
+        if (!form) return
+        const ids = flattenQuestionIds(form.questions)
+        const curIdx = ids.indexOf(sel.questionPath)
+        if (curIdx < 0 || curIdx >= ids.length - 1) return
+        mb.moveQuestion(sel.moduleIndex, sel.formIndex, sel.questionPath, { afterId: ids[curIdx + 1] })
+        builder.notifyBlueprintChanged()
+      },
+    },
+    // Cmd+Z / Cmd+Shift+Z — undo/redo
+    {
+      key: 'z',
+      meta: true,
+      global: true,
+      handler: () => builder.undo(),
+    },
+    {
+      key: 'z',
+      meta: true,
+      shift: true,
+      global: true,
+      handler: () => builder.redo(),
+    },
+  ] : []
+
+  useKeyboardShortcuts('builder-layout', shortcuts, [isDone, viewMode, builder.selected, builder.blueprint, builder.mutationCount])
+
+  const handleDeleteConfirm = useCallback(() => {
+    const sel = builder.selected
+    if (!sel || sel.type !== 'question' || sel.formIndex === undefined || !sel.questionPath) return
+    const mb = builder.mb
+    if (!mb) return
+    const form = mb.getForm(sel.moduleIndex, sel.formIndex)
+    if (!form) return
+
+    const ids = flattenQuestionIds(form.questions)
+    const curIdx = ids.indexOf(sel.questionPath)
+    const nextId = ids[curIdx + 1] ?? ids[curIdx - 1]
+
+    mb.removeQuestion(sel.moduleIndex, sel.formIndex, sel.questionPath)
+    builder.notifyBlueprintChanged()
+
+    if (nextId) {
+      builder.select({ type: 'question', moduleIndex: sel.moduleIndex, formIndex: sel.formIndex, questionPath: nextId })
+    } else {
+      builder.select(null)
+    }
+    setDeleteConfirm(false)
+  }, [builder])
+
   if (!loaded) return null
 
   const showProgress = (isGenerating || builder.phase === BuilderPhase.Done) && !progressHidden && !inReplayMode
+  const isPreviewLike = viewMode === 'preview' || viewMode === 'test'
+  const editMode = viewMode === 'test' ? 'test' as const : 'edit' as const
+
+  // Download actions (shared between tree and preview)
+  const downloadActions = (
+    <DownloadDropdown
+      options={[
+        {
+          label: 'JSON',
+          description: 'For CommCare HQ',
+          icon: <Icon icon={ciFileDocument} width="28" height="28" />,
+          onClick: handleDownloadJson,
+        },
+        {
+          label: 'CCZ',
+          description: 'For CommCare mobile',
+          icon: <Icon icon={ciDownloadPackage} width="28" height="28" />,
+          onClick: handleCompile,
+        },
+      ]}
+    />
+  )
 
   return (
     <LayoutGroup>
@@ -263,28 +438,15 @@ export function BuilderLayout({ buildId }: { buildId: string }) {
                   )}
 
                   {builder.treeData ? (
-                    viewMode === 'preview' && builder.phase === BuilderPhase.Done && builder.blueprint ? (
+                    isPreviewLike && builder.phase === BuilderPhase.Done && builder.blueprint ? (
                       <PreviewShell
                         blueprint={builder.blueprint}
+                        builder={builder}
+                        mode={editMode}
                         actions={
                           <>
-                            <PreviewToggle mode={viewMode} onChange={setViewMode} />
-                            <DownloadDropdown
-                              options={[
-                                {
-                                  label: 'JSON',
-                                  description: 'For CommCare HQ',
-                                  icon: <Icon icon={ciFileDocument} width="28" height="28" />,
-                                  onClick: handleDownloadJson,
-                                },
-                                {
-                                  label: 'CCZ',
-                                  description: 'For CommCare mobile',
-                                  icon: <Icon icon={ciDownloadPackage} width="28" height="28" />,
-                                  onClick: handleCompile,
-                                },
-                              ]}
-                            />
+                            <PreviewToggle mode={viewMode} onChange={handleViewModeChange} />
+                            {downloadActions}
                           </>
                         }
                       />
@@ -297,23 +459,8 @@ export function BuilderLayout({ buildId }: { buildId: string }) {
                         actions={
                           builder.phase === BuilderPhase.Done && builder.blueprint ? (
                             <>
-                              <PreviewToggle mode={viewMode} onChange={setViewMode} />
-                              <DownloadDropdown
-                                options={[
-                                  {
-                                    label: 'JSON',
-                                    description: 'For CommCare HQ',
-                                    icon: <Icon icon={ciFileDocument} width="28" height="28" />,
-                                    onClick: handleDownloadJson,
-                                  },
-                                  {
-                                    label: 'CCZ',
-                                    description: 'For CommCare mobile',
-                                    icon: <Icon icon={ciDownloadPackage} width="28" height="28" />,
-                                    onClick: handleCompile,
-                                  },
-                                ]}
-                              />
+                              <PreviewToggle mode={viewMode} onChange={handleViewModeChange} />
+                              {downloadActions}
                             </>
                           ) : undefined
                         }
@@ -350,10 +497,27 @@ export function BuilderLayout({ buildId }: { buildId: string }) {
             )}
           </AnimatePresence>
 
+          {/* DetailPanel — tree mode: inline. Preview mode: overlay. Test mode: hidden. */}
           {viewMode === 'tree' && builder.selected && builder.blueprint && (
             <DetailPanel builder={builder} />
           )}
+          {viewMode === 'preview' && builder.selected && builder.blueprint && (
+            <div className="fixed right-0 top-0 bottom-0 w-80 z-30 shadow-[-8px_0_24px_rgba(0,0,0,0.4)] backdrop-blur-sm bg-nova-deep/95">
+              <DetailPanel builder={builder} />
+            </div>
+          )}
         </div>
+
+      {/* Delete confirmation from keyboard shortcut */}
+      <ConfirmDialog
+        open={deleteConfirm}
+        title="Delete Question"
+        message={`Are you sure you want to delete "${builder.selected?.questionPath}"?`}
+        confirmLabel="Delete"
+        confirmVariant="danger"
+        onConfirm={handleDeleteConfirm}
+        onCancel={() => setDeleteConfirm(false)}
+      />
     </div>
     </LayoutGroup>
   )
