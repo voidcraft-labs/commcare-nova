@@ -6,9 +6,9 @@ import { DefaultChatTransport, type UIMessage } from 'ai'
 import { motion, AnimatePresence, LayoutGroup } from 'motion/react'
 import { Icon } from '@iconify/react'
 import ciHamburgerMd from '@iconify-icons/ci/hamburger-md'
-import ciFileDocument from '@iconify-icons/ci/file-document'
-import ciDownloadPackage from '@iconify-icons/ci/download-package'
 import ciSettings from '@iconify-icons/ci/settings'
+import ciUndo from '@iconify-icons/ci/undo'
+import ciRedo from '@iconify-icons/ci/redo'
 import Link from 'next/link'
 import { useApiKey } from '@/hooks/useApiKey'
 import { useSettings } from '@/hooks/useSettings'
@@ -24,9 +24,7 @@ import { AppTree } from '@/components/builder/AppTree'
 import { DetailPanel } from '@/components/builder/DetailPanel'
 import { GenerationProgress } from '@/components/builder/GenerationProgress'
 import { ReplayController } from '@/components/builder/ReplayController'
-import { DownloadDropdown } from '@/components/ui/DownloadDropdown'
 import { PreviewToggle } from '@/components/preview/PreviewToggle'
-import { PreviewHeader } from '@/components/preview/PreviewHeader'
 import { PreviewShell } from '@/components/preview/PreviewShell'
 import { usePreviewNav } from '@/hooks/usePreviewNav'
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog'
@@ -315,25 +313,6 @@ export function BuilderLayout({ buildId }: { buildId: string }) {
   const isPreviewLike = viewMode === 'preview' || viewMode === 'test'
   const editMode = viewMode === 'test' ? 'test' as const : 'edit' as const
 
-  // Download actions (shared between tree and preview)
-  const downloadActions = (
-    <DownloadDropdown
-      options={[
-        {
-          label: 'JSON',
-          description: 'For CommCare HQ',
-          icon: <Icon icon={ciFileDocument} width="28" height="28" />,
-          onClick: handleDownloadJson,
-        },
-        {
-          label: 'CCZ',
-          description: 'For CommCare mobile',
-          icon: <Icon icon={ciDownloadPackage} width="28" height="28" />,
-          onClick: handleCompile,
-        },
-      ]}
-    />
-  )
 
   return (
     <LayoutGroup>
@@ -430,34 +409,31 @@ export function BuilderLayout({ buildId }: { buildId: string }) {
                 exit={{ opacity: 0 }}
                 transition={{ duration: 0.3, delay: 0.15 }}
               >
-                {/* Subheader bar — spans full width, sidebars slide beneath */}
-                {builder.treeData && (
-                  isPreviewLike && builder.phase === BuilderPhase.Done && builder.blueprint ? (
-                    <PreviewHeader
-                      breadcrumb={nav.breadcrumb}
-                      canGoBack={nav.canGoBack}
-                      onBack={nav.back}
-                      onBreadcrumbClick={nav.navigateTo}
-                      actions={
-                        <>
-                          <PreviewToggle mode={viewMode} onChange={handleViewModeChange} />
-                          {downloadActions}
-                        </>
-                      }
-                    />
-                  ) : (
-                    <div className="flex items-center justify-between px-6 h-12 border-b border-nova-border shrink-0">
-                      <div className="flex items-center min-w-0">
-                        <span className="text-sm font-medium text-nova-text truncate">{builder.treeData.app_name}</span>
-                      </div>
-                      {builder.phase === BuilderPhase.Done && builder.blueprint && (
-                        <div className="flex items-center gap-2 shrink-0">
-                          <PreviewToggle mode={viewMode} onChange={handleViewModeChange} />
-                          {downloadActions}
-                        </div>
-                      )}
+                {/* Subheader toolbar — toggle + undo/redo */}
+                {builder.treeData && builder.phase === BuilderPhase.Done && builder.blueprint && (
+                  <div className="flex items-center justify-between px-4 h-16 border-b border-nova-border shrink-0">
+                    <PreviewToggle mode={viewMode} onChange={handleViewModeChange} />
+                    <div className="flex items-center gap-1.5">
+                      <button
+                        onClick={() => builder.undo()}
+                        disabled={!builder.canUndo}
+                        className="flex items-center gap-1.5 h-[38px] px-3 rounded-lg text-[13px] font-medium text-nova-text-muted transition-colors cursor-pointer enabled:hover:text-nova-text enabled:hover:bg-nova-surface disabled:opacity-25 disabled:cursor-default"
+                        title="Undo (⌘Z)"
+                      >
+                        <Icon icon={ciUndo} width="16" height="16" />
+                        Undo
+                      </button>
+                      <button
+                        onClick={() => builder.redo()}
+                        disabled={!builder.canRedo}
+                        className="flex items-center gap-1.5 h-[38px] px-3 rounded-lg text-[13px] font-medium text-nova-text-muted transition-colors cursor-pointer enabled:hover:text-nova-text enabled:hover:bg-nova-surface disabled:opacity-25 disabled:cursor-default"
+                        title="Redo (⌘⇧Z)"
+                      >
+                        <Icon icon={ciRedo} width="16" height="16" />
+                        Redo
+                      </button>
                     </div>
-                  )
+                  </div>
                 )}
 
                 {/* Content + Detail panel row — below subheader */}

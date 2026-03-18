@@ -35,49 +35,47 @@ export function PreviewShell({ blueprint, actions, builder, mode = 'edit', nav: 
         />
       )}
 
-      <div className="flex-1 overflow-hidden p-4 pt-3">
-        <div className="h-full overflow-auto rounded-xl border border-pv-input-border bg-pv-bg shadow-[inset_0_1px_4px_rgba(0,0,0,0.3)]">
-          <AnimatePresence mode="wait">
-            <motion.div
-              key={JSON.stringify(nav.current)}
-              initial={{ opacity: 0, x: 20 }}
-              animate={{ opacity: 1, x: 0 }}
-              exit={{ opacity: 0, x: -20 }}
-              transition={{ duration: 0.2, ease: [0.4, 0, 0.2, 1] }}
-              className="h-full"
-            >
-              {nav.current.type === 'home' && (
-                <HomeScreen blueprint={blueprint} onNavigate={nav.push} />
-              )}
-              {nav.current.type === 'module' && (
-                <ModuleScreen
-                  blueprint={blueprint}
-                  moduleIndex={nav.current.moduleIndex}
-                  onNavigate={nav.push}
-                />
-              )}
-              {nav.current.type === 'caseList' && (
-                <CaseListScreen
-                  blueprint={blueprint}
-                  moduleIndex={nav.current.moduleIndex}
-                  formIndex={nav.current.formIndex}
-                  onNavigate={nav.push}
-                />
-              )}
-              {nav.current.type === 'form' && (
-                <FormScreen
-                  blueprint={blueprint}
-                  moduleIndex={nav.current.moduleIndex}
-                  formIndex={nav.current.formIndex}
-                  caseData={nav.current.caseData}
-                  onBack={nav.back}
-                  builder={builder}
-                  mode={mode}
-                />
-              )}
-            </motion.div>
-          </AnimatePresence>
-        </div>
+      <div className="flex-1 overflow-auto bg-pv-bg">
+        <AnimatePresence mode="wait">
+          <motion.div
+            key={JSON.stringify(nav.current)}
+            initial={{ opacity: 0, x: 20 }}
+            animate={{ opacity: 1, x: 0 }}
+            exit={{ opacity: 0, x: -20 }}
+            transition={{ duration: 0.2, ease: [0.4, 0, 0.2, 1] }}
+            className="h-full"
+          >
+            {nav.current.type === 'home' && (
+              <HomeScreen blueprint={blueprint} onNavigate={nav.push} />
+            )}
+            {nav.current.type === 'module' && (
+              <ModuleScreen
+                blueprint={blueprint}
+                moduleIndex={nav.current.moduleIndex}
+                onNavigate={nav.push}
+              />
+            )}
+            {nav.current.type === 'caseList' && (
+              <CaseListScreen
+                blueprint={blueprint}
+                moduleIndex={nav.current.moduleIndex}
+                formIndex={nav.current.formIndex}
+                onNavigate={nav.push}
+              />
+            )}
+            {nav.current.type === 'form' && (
+              <FormScreen
+                blueprint={blueprint}
+                moduleIndex={nav.current.moduleIndex}
+                formIndex={nav.current.formIndex}
+                caseData={nav.current.caseData}
+                onBack={nav.back}
+                builder={builder}
+                mode={mode}
+              />
+            )}
+          </motion.div>
+        </AnimatePresence>
       </div>
     </div>
   )
