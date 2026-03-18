@@ -38,6 +38,7 @@ export interface StepToolCall {
   name: string
   args: unknown
   generation?: StepUsage
+  reasoning?: string
 }
 
 export interface Step {
@@ -81,7 +82,7 @@ export class RunLogger {
   private enabled: boolean
   private requestNumber = 0
   private pendingEmissions: Emission[] = []
-  private pendingSubResults: Array<{ label: string; usage: StepUsage }> = []
+  private pendingSubResults: Array<{ label: string; usage: StepUsage; reasoning?: string }> = []
 
   /**
    * @param existingRunId — if provided, resumes an existing log file at .log/{runId}.json
@@ -189,6 +190,7 @@ export class RunLogger {
         ...(result.cache_write_tokens && { cache_write_tokens: result.cache_write_tokens }),
         cost_estimate: estimateCost(result.model, result.input_tokens, result.output_tokens, result.cache_read_tokens, result.cache_write_tokens),
       },
+      ...(result.reasoningText && { reasoning: result.reasoningText }),
     })
   }
 
@@ -215,6 +217,7 @@ export class RunLogger {
         name: tc.name,
         args: tc.args,
         ...(subResult && { generation: subResult.usage }),
+        ...(subResult?.reasoning && { reasoning: subResult.reasoning }),
       }
     })
 
