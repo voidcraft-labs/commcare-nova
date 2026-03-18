@@ -155,7 +155,7 @@ export function DetailPanel({ builder }: DetailPanelProps) {
       animate={{ x: 0, opacity: 1 }}
       exit={{ x: 40, opacity: 0 }}
       transition={{ duration: 0.2 }}
-      className="w-80 border-l border-nova-border bg-nova-deep overflow-y-auto shrink-0"
+      className="w-80 border-l border-nova-border bg-nova-deep flex flex-col shrink-0"
     >
       {/* Header */}
       <div className="px-4 py-3 border-b border-nova-border flex items-center justify-between">
@@ -163,15 +163,6 @@ export function DetailPanel({ builder }: DetailPanelProps) {
           {selected.type === 'module' ? 'Module' : selected.type === 'form' ? 'Form' : 'Question'}
         </h3>
         <div className="flex items-center gap-0.5">
-          {selected.type === 'question' && (
-            <button
-              onClick={() => setShowDeleteConfirm(true)}
-              className="text-nova-text-muted hover:text-nova-rose transition-colors p-1 cursor-pointer"
-              title="Delete question"
-            >
-              <Icon icon={ciTrashFull} width="14" height="14" />
-            </button>
-          )}
           <button
             onClick={() => builder.select(null)}
             className="text-nova-text-muted hover:text-nova-text transition-colors p-1 cursor-pointer"
@@ -181,7 +172,7 @@ export function DetailPanel({ builder }: DetailPanelProps) {
         </div>
       </div>
 
-      <div className="p-4 space-y-4">
+      <div className="p-4 space-y-4 overflow-y-auto flex-1 min-h-0">
         {/* Module details */}
         {selected.type === 'module' && (
           <>
@@ -457,7 +448,21 @@ export function DetailPanel({ builder }: DetailPanelProps) {
             )}
           </>
         )}
+
       </div>
+
+      {/* Delete bar — sticky bottom, background only visible when content scrolls behind it */}
+      {selected.type === 'question' && question && (
+        <div className="shrink-0 px-4 py-3 bg-nova-deep flex justify-start">
+          <button
+            onClick={() => setShowDeleteConfirm(true)}
+            className="inline-flex items-center gap-2 px-3 py-1.5 text-sm text-nova-rose hover:text-white hover:bg-nova-rose/20 transition-colors cursor-pointer rounded"
+          >
+            <Icon icon={ciTrashFull} width="14" height="14" />
+            Delete
+          </button>
+        </div>
+      )}
 
       {/* XPath editor modal */}
       {xpathModal && (

@@ -8,7 +8,6 @@ import type { Question } from '@/lib/schemas/blueprint'
 import type { FormEngine } from '@/lib/preview/engine/formEngine'
 import { renderPreviewMarkdown } from '@/lib/markdown'
 import { useEditContext } from '@/hooks/useEditContext'
-import { ConfirmDialog } from '@/components/ui/ConfirmDialog'
 import { QuestionField } from './QuestionField'
 import { GroupField } from './fields/GroupField'
 import { LabelField } from './fields/LabelField'
@@ -39,16 +38,12 @@ function SortableQuestion({
   path,
   engine,
   renderChildren,
-  onDelete,
-  isFirst,
 }: {
   q: Question
   sortIndex: number
   path: string
   engine: FormEngine
   renderChildren: (children: Question[], childPrefix: string) => React.ReactNode
-  onDelete: (id: string) => void
-  isFirst?: boolean
 }) {
   const state = engine.getState(path)
   const ctx = useEditContext()
@@ -63,8 +58,6 @@ function SortableQuestion({
   if (q.type === 'hidden') return null
   if (!state.visible) return null
 
-  const handleDelete = () => onDelete(q.id)
-
   // In edit mode: suppress validation display entirely
   const showInvalid = !isEditMode && state.touched && !state.valid
 
@@ -73,7 +66,7 @@ function SortableQuestion({
 
   if (q.type === 'group') {
     content = (
-      <EditableQuestionWrapper questionId={q.id} isDragging={isDragging} onDelete={handleDelete}>
+      <EditableQuestionWrapper questionId={q.id} isDragging={isDragging}>
         <div className="relative">
           <div className="absolute top-1 right-1 z-10"><LogicBadges question={q} /></div>
           <GroupField question={q} path={path} engine={engine} renderChildren={renderChildren} />
@@ -82,7 +75,7 @@ function SortableQuestion({
     )
   } else if (q.type === 'repeat') {
     content = (
-      <EditableQuestionWrapper questionId={q.id} isDragging={isDragging} onDelete={handleDelete}>
+      <EditableQuestionWrapper questionId={q.id} isDragging={isDragging}>
         <div className="relative">
           <div className="absolute top-1 right-1 z-10"><LogicBadges question={q} /></div>
           <RepeatField question={q} path={path} engine={engine} renderChildren={renderChildren} />
@@ -91,7 +84,7 @@ function SortableQuestion({
     )
   } else if (q.type === 'label') {
     content = (
-      <EditableQuestionWrapper questionId={q.id} isDragging={isDragging} onDelete={handleDelete}>
+      <EditableQuestionWrapper questionId={q.id} isDragging={isDragging}>
         <div className="relative">
           <div className="absolute top-1 right-1 z-10"><LogicBadges question={q} /></div>
           <LabelField question={q} state={state} />
@@ -100,7 +93,7 @@ function SortableQuestion({
     )
   } else {
     content = (
-      <EditableQuestionWrapper questionId={q.id} isDragging={isDragging} onDelete={handleDelete}>
+      <EditableQuestionWrapper questionId={q.id} isDragging={isDragging}>
         <div className="relative">
           <div className="absolute top-1 right-8 z-10"><LogicBadges question={q} /></div>
           <label className="block space-y-1.5">
@@ -144,7 +137,6 @@ function SortableQuestion({
 export function FormRenderer({ questions, engine, prefix = '/data', parentId }: FormRendererProps) {
   const ctx = useEditContext()
   const isEditMode = ctx?.mode === 'edit'
-  const [deleteTarget, setDeleteTarget] = useState<{ id: string; label: string } | null>(null)
   const [activeId, setActiveId] = useState<string | null>(null)
   const containerRef = useRef<HTMLDivElement>(null)
 
@@ -182,31 +174,6 @@ export function FormRenderer({ questions, engine, prefix = '/data', parentId }: 
     }),
   ], [])
 
-  const handleDelete = useCallback((id: string) => {
-    const q = questions.find(q => q.id === id)
-    setDeleteTarget({ id, label: q?.label || id })
-  }, [questions])
-
-  const confirmDelete = useCallback(() => {
-    if (!deleteTarget || !ctx) return
-    const mb = ctx.builder.mb
-    if (!mb) return
-
-    // Find neighbor for selection transfer
-    const idx = questions.findIndex(q => q.id === deleteTarget.id)
-    const nextQ = questions[idx + 1] ?? questions[idx - 1]
-
-    mb.removeQuestion(ctx.moduleIndex, ctx.formIndex, deleteTarget.id)
-    ctx.builder.notifyBlueprintChanged()
-
-    if (nextQ) {
-      ctx.builder.select({ type: 'question', moduleIndex: ctx.moduleIndex, formIndex: ctx.formIndex, questionPath: nextQ.id })
-    } else {
-      ctx.builder.select(null)
-    }
-    setDeleteTarget(null)
-  }, [deleteTarget, ctx, questions])
-
   const activeQuestion = activeId ? questions.find(q => q.id === activeId) : null
   const isDragging = !!activeId
 
@@ -223,7 +190,6 @@ export function FormRenderer({ questions, engine, prefix = '/data', parentId }: 
               path={`${prefix}/${q.id}`}
               engine={engine}
               renderChildren={renderChildren}
-              onDelete={handleDelete}
               />
             {isEditMode && <InsertionPoint atIndex={actualIdx + 1} parentId={parentId} disabled={isDragging} cursorSpeedRef={cursorSpeedRef} />}
           </Fragment>
@@ -233,20 +199,7 @@ export function FormRenderer({ questions, engine, prefix = '/data', parentId }: 
   )
 
   if (!isEditMode) {
-    return (
-      <>
-        {list}
-        <ConfirmDialog
-          open={!!deleteTarget}
-          title="Delete Question"
-          message={`Are you sure you want to delete "${deleteTarget?.label}"?`}
-          confirmLabel="Delete"
-          confirmVariant="danger"
-          onConfirm={confirmDelete}
-          onCancel={() => setDeleteTarget(null)}
-        />
-      </>
-    )
+    return list
   }
 
   return (
@@ -301,16 +254,6 @@ export function FormRenderer({ questions, engine, prefix = '/data', parentId }: 
           )}
         </DragOverlay>
       </DragDropProvider>
-
-      <ConfirmDialog
-        open={!!deleteTarget}
-        title="Delete Question"
-        message={`Are you sure you want to delete "${deleteTarget?.label}"?`}
-        confirmLabel="Delete"
-        confirmVariant="danger"
-        onConfirm={confirmDelete}
-        onCancel={() => setDeleteTarget(null)}
-      />
     </>
   )
 }
