@@ -1,5 +1,11 @@
 # Schemas & Content Processing
 
+## API Schemas (`apiSchemas.ts`)
+
+Zod schemas for API route input validation:
+- `chatRequestSchema` — validates `apiKey`, `blueprint` (reuses `appBlueprintSchema`), `pipelineConfig` (typed to match `PipelineStageConfig`). Messages are typed as `UIMessage[]` separately — they come from the AI SDK, not validated by us.
+- `modelsRequestSchema` — validates `apiKey`.
+
 ## Blueprint Schema (`blueprint.ts`)
 
 Zod schemas for `AppBlueprint` and generation output schemas (`caseTypesOutput`, `scaffoldModules`, `moduleContent`).
@@ -29,7 +35,7 @@ All text fields are plain `string`. XPath fields support `#case/` and `#user/` h
 
 ## Structured Output Constraints
 
-The Anthropic schema compiler times out with >8 `.optional()` per array item (each creates an `anyOf` union in JSON Schema). The `singleFormSchema` in `solutionsArchitect.ts` uses a hybrid approach:
+The Anthropic schema compiler times out with >8 `.optional()` per array item (each creates an `anyOf` union in JSON Schema). The `singleFormSchema` in `formGeneration.ts` uses a hybrid approach:
 
 - **8 optional fields** (sparse, saves tokens): `hint`, `help`, `constraint`, `constraint_msg`, `relevant`, `calculate`, `default_value`, `options`
 - **4 required sentinel fields** (almost always present, low cost): `label` (empty string), `required` (empty string), `case_property` (empty string), `is_case_name` (false)

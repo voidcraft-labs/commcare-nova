@@ -1,5 +1,5 @@
 'use client'
-import { useState, useRef, useEffect, useCallback } from 'react'
+import { useState, useRef, useCallback } from 'react'
 import { motion, AnimatePresence } from 'motion/react'
 import { Icon } from '@iconify/react'
 import ciCheck from '@iconify-icons/ci/check'
@@ -19,46 +19,42 @@ interface EditableTextProps {
 
 export function EditableText({ label, value, onSave, onEmpty, mono, color, placeholder, multiline, autoFocus, selectAll }: EditableTextProps) {
   const [focused, setFocused] = useState(false)
-  const [draft, setDraft] = useState(value)
+  const [internalDraft, setInternalDraft] = useState(value)
   const [saved, setSaved] = useState(false)
   const inputRef = useRef<HTMLInputElement | HTMLTextAreaElement>(null)
   const committedRef = useRef(false)
 
-  // Sync external value changes when not editing
-  useEffect(() => {
-    if (!focused) setDraft(value)
-  }, [value, focused])
+  // Derived: when not editing, always show the current prop value
+  const draft = focused ? internalDraft : value
 
-  // Auto-focus on mount (replaces startEditing)
-  useEffect(() => {
-    if (autoFocus) {
-      const el = inputRef.current
-      if (!el) return
+  // Auto-focus on mount via ref callback
+  const setInputRef = useCallback((el: HTMLInputElement | HTMLTextAreaElement | null) => {
+    inputRef.current = el
+    if (el && autoFocus) {
       el.focus()
-      if (selectAll) {
-        el.select()
-      } else {
-        el.setSelectionRange(el.value.length, el.value.length)
-      }
+      if (selectAll) el.select()
+      else el.setSelectionRange(el.value.length, el.value.length)
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
+  // Sync internal draft to the current prop value when entering edit mode
   const handleFocus = useCallback(() => {
     committedRef.current = false
+    setInternalDraft(value)
     setFocused(true)
     if (selectAll) {
       // Defer to after the mouseup that placed the cursor
       setTimeout(() => inputRef.current?.select(), 0)
     }
-  }, [selectAll])
+  }, [value, selectAll])
 
   const commit = useCallback(() => {
     if (committedRef.current) return
     committedRef.current = true
     setFocused(false)
     inputRef.current?.blur()
-    const trimmed = draft.trim()
+    const trimmed = internalDraft.trim()
     if (!trimmed && onEmpty) {
       onEmpty()
       return
@@ -68,11 +64,10 @@ export function EditableText({ label, value, onSave, onEmpty, mono, color, place
       setSaved(true)
       setTimeout(() => setSaved(false), 1500)
     }
-  }, [draft, value, onSave, onEmpty])
+  }, [internalDraft, value, onSave, onEmpty])
 
   const cancel = useCallback(() => {
     committedRef.current = true
-    setDraft(value)
     setFocused(false)
     inputRef.current?.blur()
     if (!value.trim() && onEmpty) {
@@ -140,9 +135,9 @@ export function EditableText({ label, value, onSave, onEmpty, mono, color, place
       </label>
       {multiline ? (
         <textarea
-          ref={inputRef as React.RefObject<HTMLTextAreaElement>}
+          ref={setInputRef as React.RefCallback<HTMLTextAreaElement>}
           value={draft}
-          onChange={(e) => setDraft(e.target.value)}
+          onChange={(e) => setInternalDraft(e.target.value)}
           onFocus={handleFocus}
           onBlur={handleBlur}
           onKeyDown={handleKeyDown}
@@ -152,9 +147,9 @@ export function EditableText({ label, value, onSave, onEmpty, mono, color, place
         />
       ) : (
         <input
-          ref={inputRef as React.RefObject<HTMLInputElement>}
+          ref={setInputRef as React.RefCallback<HTMLInputElement>}
           value={draft}
-          onChange={(e) => setDraft(e.target.value)}
+          onChange={(e) => setInternalDraft(e.target.value)}
           onFocus={handleFocus}
           onBlur={handleBlur}
           onKeyDown={handleKeyDown}

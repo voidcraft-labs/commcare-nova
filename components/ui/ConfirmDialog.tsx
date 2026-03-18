@@ -1,5 +1,5 @@
 'use client'
-import { useEffect } from 'react'
+import { useCallback, useRef } from 'react'
 import { createPortal } from 'react-dom'
 import { motion, AnimatePresence } from 'motion/react'
 
@@ -22,14 +22,17 @@ export function ConfirmDialog({
   onConfirm,
   onCancel,
 }: ConfirmDialogProps) {
-  useEffect(() => {
-    if (!open) return
-    const handleKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onCancel()
+  const onCancelRef = useRef(onCancel)
+  onCancelRef.current = onCancel
+
+  const dialogRef = useCallback((el: HTMLDivElement | null) => {
+    if (!el) return
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onCancelRef.current()
     }
-    document.addEventListener('keydown', handleKey)
-    return () => document.removeEventListener('keydown', handleKey)
-  }, [open, onCancel])
+    document.addEventListener('keydown', handler)
+    return () => document.removeEventListener('keydown', handler)
+  }, [])
 
   if (typeof document === 'undefined') return null
 
@@ -37,6 +40,7 @@ export function ConfirmDialog({
     <AnimatePresence>
       {open && (
         <motion.div
+          ref={dialogRef}
           className="fixed inset-0 z-50 flex items-center justify-center"
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}

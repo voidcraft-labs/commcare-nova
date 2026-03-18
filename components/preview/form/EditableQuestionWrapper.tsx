@@ -1,5 +1,5 @@
 'use client'
-import { useState, useCallback, useRef, useEffect, type ReactNode } from 'react'
+import { useState, useCallback, useRef, type ReactNode } from 'react'
 import { Icon } from '@iconify/react'
 import tablerGripVertical from '@iconify-icons/tabler/grip-vertical'
 import { useEditContext } from '@/hooks/useEditContext'
@@ -23,7 +23,7 @@ export function EditableQuestionWrapper({
   const [holdReady, setHoldReady] = useState(false)
   const holdTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const wasDraggingRef = useRef(false)
-  const wrapperRef = useRef<HTMLDivElement>(null)
+  const wrapperElRef = useRef<HTMLDivElement>(null)
 
   const clearHoldTimer = useCallback(() => {
     if (holdTimerRef.current) {
@@ -58,21 +58,22 @@ export function EditableQuestionWrapper({
     if (holdReady) setHoldReady(false)
   }
 
-  // Compute selection before conditional return (needed for scroll-into-view hook)
+  // Compute selection before conditional return (needed for scroll-into-view)
   const isSelected = !!ctx && ctx.mode !== 'test'
     && ctx.builder.selected?.type === 'question'
     && ctx.builder.selected.moduleIndex === ctx.moduleIndex
     && ctx.builder.selected.formIndex === ctx.formIndex
     && ctx.builder.selected.questionPath === questionPath
 
-  // Scroll selected question into view after view switch (Tree → Preview)
-  useEffect(() => {
-    if (isSelected && wrapperRef.current) {
-      const timer = setTimeout(() => {
-        wrapperRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
-      }, 250)
-      return () => clearTimeout(timer)
-    }
+  // Scroll selected question into view after selection changes.
+  // 250ms delay accounts for AnimatePresence panel transitions.
+  const wrapperRef = useCallback((el: HTMLDivElement | null) => {
+    wrapperElRef.current = el
+    if (!el || !isSelected) return
+    const timer = setTimeout(() => {
+      el.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
+    }, 250)
+    return () => clearTimeout(timer)
   }, [isSelected])
 
   if (!ctx || ctx.mode === 'test') {

@@ -1,5 +1,5 @@
 'use client'
-import { useState, useCallback, useEffect } from 'react'
+import { useState, useCallback, useRef } from 'react'
 import { createPortal } from 'react-dom'
 import { motion, AnimatePresence } from 'motion/react'
 import CodeMirror from '@uiw/react-codemirror'
@@ -60,17 +60,23 @@ export function XPathEditorModal({ value, label, onSave, onClose }: XPathEditorM
     onClose()
   }, [draft, value, onSave, onClose])
 
-  useEffect(() => {
+  const handleUpdateRef = useRef(handleUpdate)
+  handleUpdateRef.current = handleUpdate
+  const onCloseRef = useRef(onClose)
+  onCloseRef.current = onClose
+
+  const modalRef = useCallback((el: HTMLDivElement | null) => {
+    if (!el) return
     const handler = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose()
+      if (e.key === 'Escape') onCloseRef.current()
       if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
         e.preventDefault()
-        handleUpdate()
+        handleUpdateRef.current()
       }
     }
     document.addEventListener('keydown', handler)
     return () => document.removeEventListener('keydown', handler)
-  }, [onClose, handleUpdate])
+  }, [])
 
   return createPortal(
     <AnimatePresence>
@@ -83,6 +89,7 @@ export function XPathEditorModal({ value, label, onSave, onClose }: XPathEditorM
         onClick={(e) => { if (e.target === e.currentTarget) onClose() }}
       >
         <motion.div
+          ref={modalRef}
           initial={{ opacity: 0, scale: 0.95 }}
           animate={{ opacity: 1, scale: 1 }}
           exit={{ opacity: 0, scale: 0.95 }}

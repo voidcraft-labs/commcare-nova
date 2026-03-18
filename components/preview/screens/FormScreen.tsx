@@ -1,5 +1,5 @@
 'use client'
-import { useRef, useMemo, useEffect } from 'react'
+import { useRef, useMemo, useCallback } from 'react'
 import type { AppBlueprint } from '@/lib/schemas/blueprint'
 import type { Builder } from '@/lib/services/builder'
 import type { EditMode } from '@/hooks/useEditContext'
@@ -33,18 +33,21 @@ export function FormScreen({ blueprint, moduleIndex, formIndex, caseData, onBack
     builder?.mutationCount,
   )
 
-  const formBodyRef = useRef<HTMLDivElement>(null)
+  const formBodyElRef = useRef<HTMLDivElement>(null)
 
-  // Auto-focus the selected question's input when entering live mode
-  useEffect(() => {
-    if (mode !== 'test') return
+  // In live/test mode, focus the selected question's input when the form mounts
+  // or when the selection changes. rAF ensures the DOM is painted first.
+  const formBodyRef = useCallback((el: HTMLDivElement | null) => {
+    formBodyElRef.current = el
+    if (!el || mode !== 'test') return
     const qId = builder?.selected?.questionPath
     if (!qId) return
-    requestAnimationFrame(() => {
-      const el = formBodyRef.current?.querySelector(`[data-question-id="${qId}"]`)
-      const input = el?.querySelector('input, select, textarea') as HTMLElement | null
+    const raf = requestAnimationFrame(() => {
+      const qEl = el.querySelector(`[data-question-id="${qId}"]`)
+      const input = qEl?.querySelector('input, select, textarea') as HTMLElement | null
       input?.focus()
     })
+    return () => cancelAnimationFrame(raf)
   }, [mode, builder?.selected?.questionPath])
 
   if (!form) {
@@ -76,7 +79,7 @@ export function FormScreen({ blueprint, moduleIndex, formIndex, caseData, onBack
     if (valid) {
       onBack()
     } else {
-      const errorEl = formBodyRef.current?.querySelector('[data-invalid="true"]')
+      const errorEl = formBodyElRef.current?.querySelector('[data-invalid="true"]')
       errorEl?.scrollIntoView({ behavior: 'smooth', block: 'center' })
     }
   }

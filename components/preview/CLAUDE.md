@@ -21,7 +21,7 @@ Preview is an always-editable canvas. `EditContextProvider` (`hooks/useEditConte
 
 ### Selection
 
-Click a question → `builder.select()` → ring highlight + DetailPanel sidebar (inline in both tree and preview modes). Shared with TreeView via same `builder.selected` state. `EditableQuestionWrapper` scrolls selected question into view on selection change (250ms delay for AnimatePresence transitions).
+Click a question → `builder.select()` → ring highlight + DetailPanel sidebar (inline in both tree and preview modes). Shared with TreeView via same `builder.selected` state. `EditableQuestionWrapper` scrolls selected question into view via ref callback on selection change (250ms delay for AnimatePresence transitions).
 
 ### Drag & Drop
 
@@ -55,4 +55,4 @@ Each field calls `engine.setValue(path, value)` on change and `engine.touch(path
 
 **Live (test)**: Persistent testing sandbox. Values survive round-trips through preview. On switch back to live, all rules (constraints, relevants, calculations) re-evaluate with the current schema against persisted values. `FormScreen` auto-focuses the selected question's input on entry. Blueprint mutations in preview (incrementing `mutationCount`) recreate the engine, but `useFormEngine` snapshots and restores values across recreations.
 
-**Focus tracking**: BuilderLayout tracks the last focused question in live mode via a `focusin` event listener updating `lastLiveQuestionRef`. On Live → Preview switch, this ref drives `builder.select()` so the question the user was typing in becomes selected in preview.
+**Focus tracking**: BuilderLayout tracks the last focused question in live mode via a `focusin` ref callback on the layout container. On Live → Preview switch, this ref drives `builder.select()` so the question the user was typing in becomes selected in preview.

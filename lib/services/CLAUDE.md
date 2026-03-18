@@ -4,6 +4,11 @@ Core business logic: Solutions Architect agent, blueprint management, LLM orches
 
 ## Solutions Architect Agent
 
+Split across three files:
+- `solutionsArchitect.ts` — `createSolutionsArchitect()` with tool definitions
+- `formGeneration.ts` — `singleFormSchema`, `generateSingleFormContent()`, `buildColumnPrompt()`, `QUESTION_TYPES`
+- `validationLoop.ts` — `validateAndFix()`, `groupErrorsByForm()`, `applyProgrammaticFixes()`
+
 `solutionsArchitect.ts` exports `createSolutionsArchitect(ctx, mutableBp, blueprintSummary?)` — single `ToolLoopAgent` with 21 tools in 5 groups:
 
 **Conversation (1):**
@@ -28,9 +33,9 @@ Core business logic: Solutions Architect agent, blueprint management, LLM orches
 
 The SA makes all architecture decisions (entities, relationships, structure). Generation tools handle detail work (question IDs, XPath, group structure).
 
-Also exports:
-- `validateAndFix()` — programmatic validation + fix loop (rule-based fixes + structured output fallback for empty forms). Has an artificial 3s delay when validation passes first attempt — remove once CommCare core .jar is integrated for full validation.
-- `generateSingleFormContent()` — used by `addForm` and `regenerateForm`.
+Also re-exports from the split files:
+- `validateAndFix()` (from `validationLoop.ts`) — programmatic validation + fix loop (rule-based fixes + structured output fallback for empty forms). Has an artificial 3s delay when validation passes first attempt — remove once CommCare core .jar is integrated for full validation.
+- `generateSingleFormContent()` (from `formGeneration.ts`) — used by `addForm` and `regenerateForm`.
 
 ## MutableBlueprint
 
@@ -79,7 +84,7 @@ Also exports:
 - `builder.blueprint` — getter returning `mb.getBlueprint()` (plain data for serialization)
 - `builder.notifyBlueprintChanged()` — arrow property (stable ref), notifies subscribers after mutations
 - `builder.treeData` — getter with four-level fallback: blueprint > partialModules merged with scaffold > scaffold > partialScaffold
-- `builder.subscribe(listener)` — triggers React re-renders
+- `builder.subscribe` / `builder.getSnapshot` — arrow properties for `useSyncExternalStore`. `_version` counter incremented in `notify()`.
 - `builder.select(el?)` — set selection; call with no args to deselect
 - Progress counters (`progressCompleted`/`progressTotal`) derived from partialModules map against scaffold.
 
@@ -112,11 +117,16 @@ Also exports:
 
 ### Keyboard Shortcuts
 
-`KeyboardManager` (`keyboardManager.ts`) — module-level singleton, single `document.keydown` listener. Input suppression (input/textarea/select/contenteditable/.cm-content) unless `global: true`. `useKeyboardShortcuts` hook for React lifecycle.
+`KeyboardManager` (`keyboardManager.ts`) — module-level singleton, single `document.keydown` listener. Input suppression (input/textarea/select/contenteditable/.cm-content) unless `global: true`. `useKeyboardShortcuts` hook uses `useSyncExternalStore`'s subscribe lifecycle for register/unregister.
 
 `questionNavigation.ts` — `flattenQuestionPaths()` returns `QuestionPath[]` for Tab/Shift+Tab navigation through the question tree.
 
-## Expander (hqJsonExpander.ts)
+## Expander
+
+Split across three files:
+- `hqJsonExpander.ts` — `expandBlueprint()` orchestrator + `validateBlueprint()`
+- `xformBuilder.ts` — `buildXForm()`, `buildQuestionParts()`, `getAppearance()`, `getXsdType()`
+- `formActions.ts` — `buildFormActions()`, `buildCaseReferencesLoad()`
 
 `expandBlueprint()` converts `AppBlueprint` → HQ import JSON. `validateBlueprint()` checks semantic rules.
 

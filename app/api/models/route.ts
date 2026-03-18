@@ -1,4 +1,6 @@
 import { NextResponse } from 'next/server'
+import { modelsRequestSchema } from '@/lib/schemas/apiSchemas'
+import { ApiError, handleApiError } from '@/lib/apiError'
 
 interface AnthropicModel {
   id: string
@@ -14,10 +16,12 @@ function getModelFamily(id: string): string {
 
 export async function POST(req: Request) {
   try {
-    const { apiKey } = await req.json() as { apiKey?: string }
-    if (!apiKey) {
-      return NextResponse.json({ models: [], error: 'No API key provided' })
+    const body = await req.json()
+    const parsed = modelsRequestSchema.safeParse(body)
+    if (!parsed.success) {
+      throw new ApiError('No API key provided', 400)
     }
+    const { apiKey } = parsed.data
 
     const res = await fetch('https://api.anthropic.com/v1/models', {
       headers: {
@@ -28,11 +32,13 @@ export async function POST(req: Request) {
 
     if (!res.ok) {
       const text = await res.text()
-      return NextResponse.json({ models: [], error: `Anthropic API error: ${res.status} ${text}` })
+      // Map Anthropic status to an appropriate gateway error code
+      const status = res.status === 401 ? 401 : 502
+      throw new ApiError(`Anthropic API error: ${res.status} ${text}`, status)
     }
 
-    const body = await res.json() as { data: AnthropicModel[] }
-    const allModels = (body.data ?? [])
+    const responseBody = await res.json() as { data: AnthropicModel[] }
+    const allModels = (responseBody.data ?? [])
       .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
 
     // Keep only the latest version per model family
@@ -48,6 +54,6 @@ export async function POST(req: Request) {
 
     return NextResponse.json({ models })
   } catch (err) {
-    return NextResponse.json({ models: [], error: err instanceof Error ? err.message : String(err) })
+    return handleApiError(err instanceof Error ? err : new Error(String(err)))
   }
 }

@@ -1,5 +1,5 @@
 'use client'
-import { useState, useEffect } from 'react'
+import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { motion } from 'motion/react'
 import { Icon } from '@iconify/react'
@@ -12,13 +12,15 @@ import type { Build } from '@/lib/types'
 export default function BuildsPage() {
   const router = useRouter()
   const [builds, setBuilds] = useState<Build[]>([])
+  const [buildsInit, setBuildsInit] = useState(false)
 
-  useEffect(() => {
-    const stored = localStorage.getItem('nova-builds')
-    if (stored) {
-      try { setBuilds(JSON.parse(stored)) } catch { /* ignore */ }
-    }
-  }, [])
+  if (!buildsInit && typeof window !== 'undefined') {
+    setBuildsInit(true)
+    try {
+      const stored = localStorage.getItem('nova-builds')
+      if (stored) setBuilds(JSON.parse(stored))
+    } catch { /* ignore */ }
+  }
 
   return (
     <div className="min-h-screen bg-nova-void">

@@ -2,7 +2,7 @@
 
 ## BuilderLayout
 
-Main 3-panel layout with one `useChat` instance targeting `/api/chat`.
+Main 3-panel layout with one `useChat` instance targeting `/api/chat`. Wrapped in `ErrorBoundary` around ChatSidebar, PreviewShell/AppTree, and DetailPanel.
 
 - **`body`** sends: `apiKey`, `pipelineConfig`, `blueprint` (for edits), `blueprintSummary` (for SA context).
 - **`sendAutomaticallyWhen`** only triggers for `askQuestions` (client-side tool).
@@ -12,9 +12,9 @@ Main 3-panel layout with one `useChat` instance targeting `/api/chat`.
 
 When `builder.phase === Idle && !builder.treeData`, chat fills center with hero Logo above welcome heading and input — no header bar, uniform `bg-nova-void`. On generation start (DataModel phase), Logo animates from center to header via `layoutId="nova-logo"`, header slides in (animated `height: 0 → auto`), chat narrows to 380px sidebar — coordinated by `LayoutGroup` wrapping the layout. `AnimatePresence` fades in builder panels (150ms delay). No DOM re-parenting — messages and input state preserved.
 
-### Subheader Toolbar
+### Subheader Toolbar (`SubheaderToolbar.tsx`)
 
-BuilderLayout renders a **subheader toolbar** (only when `Done` + blueprint exists) spanning the full width right of the chat sidebar. 3-column grid layout: left shows navigable breadcrumbs (all modes), center has `PreviewToggle` (3-segment: Tree / Preview / Live), right has Undo/Redo buttons + `DownloadDropdown` (JSON/CCZ export). Both the main content area and DetailPanel sit **below** this subheader in a flex row — sidebars slide out from beneath the subheader, never above it.
+Extracted component rendered by BuilderLayout (only when `Done` + blueprint exists) spanning the full width right of the chat sidebar. 3-column grid layout: left shows navigable breadcrumbs (all modes), center has `PreviewToggle` (3-segment: Tree / Preview / Live), right has Undo/Redo buttons + `DownloadDropdown` (JSON/CCZ export). Both the main content area and DetailPanel sit **below** this subheader in a flex row — sidebars slide out from beneath the subheader, never above it.
 
 Breadcrumbs are unified across all view modes. In preview/live, derived from `usePreviewNav` stack. In tree mode, derived from `builder.selected` (app name → module → form). Clicking a breadcrumb navigates: in preview/live calls `nav.navigateTo()` + `builder.select()`; in tree calls `builder.select()` directly.
 
@@ -34,17 +34,26 @@ When `Done` + blueprint exists:
 - `'preview'` → `PreviewShell` (editable canvas) + `DetailPanel` (inline right sidebar)
 - `'test'` → `PreviewShell` (read-only, no edit chrome or sidebar)
 
-Keyboard shortcuts (undo/redo, Tab/Shift+Tab navigation, Delete, Cmd+D duplicate, arrow keys to reorder) registered via `useKeyboardShortcuts`.
+Keyboard shortcuts extracted to `useBuilderShortcuts.ts` hook, registered via `useKeyboardShortcuts`.
+
+### Focus Tracking
+
+BuilderLayout tracks the last focused question in live mode via a `focusin` ref callback on the layout container div. On Live → Preview switch, this drives `builder.select()`.
 
 ## DetailPanel
 
 Animated width panel (0 → 320px) via `AnimatePresence` + motion `width`/`opacity`. Outer `motion.div` handles width animation with `overflow-hidden`; inner `w-80` div keeps content at full width. This ensures the flex-1 content area resizes smoothly (no layout jumps) when the panel opens/closes.
 
+Split into sub-panels:
+- `detail/ModuleDetail.tsx` — module name, case type, columns
+- `detail/FormDetail.tsx` — form name, type, case config
+- `detail/QuestionDetail.tsx` — question fields, XPath, options
+
 Reads/writes through `builder.mb` (persistent `MutableBlueprint`). Three editing patterns:
 
 - **EditableText** — Always-rendered input/textarea styled as static text when unfocused, editing chrome on focus. Click places cursor at the native click position (no DOM swap). Single-line: Enter saves. Multiline: Enter inserts newline, Cmd/Ctrl+Enter saves. Escape cancels. Blur saves. Emerald checkmark fades on save. `autoFocus` focuses on mount. `selectAll` selects all text on focus (used for newly added questions via `builder.isNewQuestion(path)`, cleared on first save via `builder.clearNewQuestion()`).
-- **EditableDropdown** — Custom dark-themed dropdown. Selection saves immediately (including re-selection of current value, enabling actions like reopening the XPath modal). Click-outside/Escape closes.
-- **XPathEditorModal** — Portal-mounted CodeMirror editor with fold gutters, bracket matching, zebra stripes. Cmd/Ctrl+Enter saves, Escape closes. Cancel/Update buttons.
+- **EditableDropdown** — Custom dark-themed dropdown. Selection saves immediately (including re-selection of current value, enabling actions like reopening the XPath modal). Click-outside/Escape via `useDismissRef`.
+- **XPathEditorModal** — Portal-mounted CodeMirror editor with fold gutters, bracket matching, zebra stripes. Cmd/Ctrl+Enter saves, Escape closes via ref callback. Cancel/Update buttons.
 
 **Editable fields:** module name, form name, form type, question label/id/type/case_property/hint, required (dropdown with conditional → opens XPath modal), constraint/relevant/default_value/calculate (XPath modal). "Add Property" shows `+` buttons for missing optional fields.
 

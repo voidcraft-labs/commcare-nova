@@ -67,7 +67,7 @@ export class HistoryManager {
     // Proxy delegates to this._mb, which can be swapped
     this.proxied = new Proxy({} as MutableBlueprint, {
       get: (_target, prop, _receiver) => {
-        const value = (this._mb as any)[prop]
+        const value = Reflect.get(this._mb, prop, this._mb)
         if (typeof prop === 'string' && MUTATION_METHODS.has(prop) && typeof value === 'function') {
           return (...args: any[]) => {
             const meta = deriveMeta(prop, args)

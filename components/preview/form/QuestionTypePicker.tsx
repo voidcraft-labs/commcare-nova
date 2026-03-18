@@ -1,10 +1,12 @@
 'use client'
-import { useEffect, useRef } from 'react'
+import { useCallback } from 'react'
 import { useFloating, offset, flip, shift, autoUpdate } from '@floating-ui/react'
 import { Icon } from '@iconify/react'
 import { questionTypeIcons, questionTypeLabels } from '@/lib/questionTypeIcons'
 import { useEditContext } from '@/hooks/useEditContext'
 import { type QuestionPath, qpath } from '@/lib/services/questionPath'
+import { useDismissRef } from '@/hooks/useDismissRef'
+import type { Question } from '@/lib/schemas/blueprint'
 
 /** Types shown in the picker — excludes hidden (rarely manually inserted) */
 const PICKER_TYPES = [
@@ -24,7 +26,7 @@ export function QuestionTypePicker({ anchorEl, atIndex, parentPath, onClose }: Q
   const ctx = useEditContext()!
   const { builder, moduleIndex, formIndex } = ctx
   const mb = builder.mb!
-  const panelRef = useRef<HTMLDivElement>(null)
+  const dismissRef = useDismissRef(onClose)
 
   const { refs, floatingStyles } = useFloating({
     placement: 'bottom',
@@ -33,25 +35,17 @@ export function QuestionTypePicker({ anchorEl, atIndex, parentPath, onClose }: Q
     whileElementsMounted: autoUpdate,
   })
 
-  // Close on click outside
-  useEffect(() => {
-    const handleClick = (e: MouseEvent) => {
-      if (panelRef.current && !panelRef.current.contains(e.target as Node)) {
-        onClose()
-      }
-    }
-    const handleKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose()
-    }
-    document.addEventListener('mousedown', handleClick)
-    document.addEventListener('keydown', handleKey)
+  const composedRef = useCallback((el: HTMLDivElement | null) => {
+    refs.setFloating(el)
+    if (!el) return
+    const cleanup = dismissRef(el)
     return () => {
-      document.removeEventListener('mousedown', handleClick)
-      document.removeEventListener('keydown', handleKey)
+      cleanup?.()
+      refs.setFloating(null as unknown as HTMLDivElement)
     }
-  }, [onClose])
+  }, [refs, dismissRef])
 
-  const handleSelect = (type: string) => {
+  const handleSelect = (type: Question['type']) => {
     // Generate unique ID
     const form = mb.getForm(moduleIndex, formIndex)
     const existingIds = new Set<string>()
@@ -70,7 +64,7 @@ export function QuestionTypePicker({ anchorEl, atIndex, parentPath, onClose }: Q
       newId = `new_${type}_${counter}`
     }
 
-    mb.addQuestion(moduleIndex, formIndex, { id: newId, type: type as any, label: 'New Question' }, { atIndex, parentPath })
+    mb.addQuestion(moduleIndex, formIndex, { id: newId, type, label: 'New Question' }, { atIndex, parentPath })
     builder.notifyBlueprintChanged()
     const newPath = qpath(newId, parentPath)
     builder.markNewQuestion(newPath)
@@ -80,7 +74,7 @@ export function QuestionTypePicker({ anchorEl, atIndex, parentPath, onClose }: Q
 
   return (
     <div
-      ref={(el) => { refs.setFloating(el); (panelRef as any).current = el }}
+      ref={composedRef}
       style={floatingStyles}
       className="z-50 w-52 rounded-xl bg-nova-deep border border-nova-border shadow-xl p-2 grid grid-cols-2 gap-1"
       onClick={(e) => e.stopPropagation()}

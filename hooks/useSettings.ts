@@ -1,5 +1,5 @@
 'use client'
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useCallback } from 'react'
 import { DEFAULT_PIPELINE_CONFIG } from '@/lib/models'
 import type { NovaSettings, PipelineConfig, PipelineStageConfig } from '@/lib/types/settings'
 
@@ -43,10 +43,13 @@ export function useSettings() {
   const [settings, setSettings] = useState<NovaSettings>(defaultSettings)
   const [loaded, setLoaded] = useState(false)
 
-  useEffect(() => {
+  // Render-phase update: reads localStorage synchronously on the client.
+  // During SSR loaded=false → consumers gate on it. On the client React
+  // restarts the render with the real values before committing.
+  if (!loaded && typeof window !== 'undefined') {
     setSettings(loadSettings())
     setLoaded(true)
-  }, [])
+  }
 
   const updateSettings = useCallback((updates: Partial<NovaSettings>) => {
     setSettings(prev => {

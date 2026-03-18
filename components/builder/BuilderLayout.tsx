@@ -1,5 +1,5 @@
 'use client'
-import { useEffect, useRef, useState, useCallback } from 'react'
+import { useRef, useState, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
 import { useChat } from '@ai-sdk/react'
 import { DefaultChatTransport, type UIMessage } from 'ai'
@@ -7,11 +7,6 @@ import { motion, AnimatePresence, LayoutGroup } from 'motion/react'
 import { Icon } from '@iconify/react'
 import ciHamburgerMd from '@iconify-icons/ci/hamburger-md'
 import ciSettings from '@iconify-icons/ci/settings'
-import ciUndo from '@iconify-icons/ci/undo'
-import ciRedo from '@iconify-icons/ci/redo'
-import ciChevronRight from '@iconify-icons/ci/chevron-right'
-import ciFileDocument from '@iconify-icons/ci/file-document'
-import ciDownloadPackage from '@iconify-icons/ci/download-package'
 import Link from 'next/link'
 import { useApiKey } from '@/hooks/useApiKey'
 import { useSettings } from '@/hooks/useSettings'
@@ -19,20 +14,21 @@ import { useBuilder } from '@/hooks/useBuilder'
 import { BuilderPhase, applyDataPart } from '@/lib/services/builder'
 import { summarizeBlueprint } from '@/lib/schemas/blueprint'
 import { flattenQuestionPaths } from '@/lib/services/questionNavigation'
-import { type QuestionPath, qpath } from '@/lib/services/questionPath'
+import { type QuestionPath } from '@/lib/services/questionPath'
 import { useKeyboardShortcuts } from '@/hooks/useKeyboardShortcuts'
-import type { Shortcut } from '@/lib/services/keyboardManager'
 import { Logo } from '@/components/ui/Logo'
 import { ChatSidebar } from '@/components/chat/ChatSidebar'
 import { AppTree } from '@/components/builder/AppTree'
 import { DetailPanel } from '@/components/builder/DetailPanel'
 import { GenerationProgress } from '@/components/builder/GenerationProgress'
 import { ReplayController } from '@/components/builder/ReplayController'
-import { PreviewToggle } from '@/components/preview/PreviewToggle'
-import { DownloadDropdown } from '@/components/ui/DownloadDropdown'
+import { SubheaderToolbar } from '@/components/builder/SubheaderToolbar'
+import type { BreadcrumbPart } from '@/components/builder/SubheaderToolbar'
+import { useBuilderShortcuts } from '@/components/builder/useBuilderShortcuts'
 import { PreviewShell } from '@/components/preview/PreviewShell'
 import { usePreviewNav } from '@/hooks/usePreviewNav'
 import type { PreviewScreen } from '@/lib/preview/engine/types'
+import { ErrorBoundary } from '@/components/ui/ErrorBoundary'
 import { getReplayData, clearReplayData } from '@/lib/services/logReplay'
 
 /** Only auto-resend when the assistant's LAST step is askQuestions with all outputs available.
@@ -89,15 +85,16 @@ export function BuilderLayout({ buildId }: { buildId: string }) {
 
   // Track last focused question in live mode (focusin fires before click steals focus)
   const lastLiveQuestionRef = useRef<QuestionPath | undefined>(undefined)
-  useEffect(() => {
+  const layoutRef = useCallback((el: HTMLDivElement | null) => {
+    if (!el) return
     const handler = (e: FocusEvent) => {
       if (viewModeRef.current !== 'test') return
-      const el = (e.target as HTMLElement)?.closest?.('[data-question-id]')
-      const attr = el?.getAttribute('data-question-id')
+      const target = (e.target as HTMLElement)?.closest?.('[data-question-id]')
+      const attr = target?.getAttribute('data-question-id')
       if (attr) lastLiveQuestionRef.current = attr as QuestionPath
     }
-    document.addEventListener('focusin', handler)
-    return () => document.removeEventListener('focusin', handler)
+    el.addEventListener('focusin', handler)
+    return () => el.removeEventListener('focusin', handler)
   }, [])
 
   const handleViewModeChange = useCallback((mode: 'tree' | 'preview' | 'test') => {
@@ -174,10 +171,6 @@ export function BuilderLayout({ buildId }: { buildId: string }) {
     },
   })
 
-  useEffect(() => {
-    if (loaded && !apiKey && !inReplayMode) router.push('/')
-  }, [loaded, apiKey, router, inReplayMode])
-
   const isGenerating = [BuilderPhase.DataModel, BuilderPhase.Structure, BuilderPhase.Modules, BuilderPhase.Forms, BuilderPhase.Validate, BuilderPhase.Fix].includes(builder.phase)
 
   // Progress is centered when there's no tree data yet, compact once the tree appears
@@ -228,126 +221,7 @@ export function BuilderLayout({ buildId }: { buildId: string }) {
     }
   }
 
-  // ── Keyboard shortcuts ──────────────────────────────────────────────
-  const isDone = builder.phase === BuilderPhase.Done
-
-  const shortcuts: Shortcut[] = isDone ? [
-    // Escape — deselect / exit test mode
-    {
-      key: 'Escape',
-      handler: () => {
-        if (viewMode === 'test') { handleViewModeChange('preview'); return }
-        if (builder.selected) { builder.select(); return }
-      },
-    },
-    // Tab / Shift+Tab — navigate questions
-    {
-      key: 'Tab',
-      handler: () => {
-        if (!builder.selected || !builder.blueprint) return
-        const sel = builder.selected
-        if (sel.formIndex === undefined) return
-        const form = builder.blueprint.modules[sel.moduleIndex]?.forms[sel.formIndex]
-        if (!form) return
-        const ids = flattenQuestionPaths(form.questions)
-        const curIdx = ids.indexOf(sel.questionPath as QuestionPath)
-        const nextIdx = (curIdx + 1) % ids.length
-        builder.select({ type: 'question', moduleIndex: sel.moduleIndex, formIndex: sel.formIndex, questionPath: ids[nextIdx] })
-      },
-    },
-    {
-      key: 'Tab',
-      shift: true,
-      handler: () => {
-        if (!builder.selected || !builder.blueprint) return
-        const sel = builder.selected
-        if (sel.formIndex === undefined) return
-        const form = builder.blueprint.modules[sel.moduleIndex]?.forms[sel.formIndex]
-        if (!form) return
-        const ids = flattenQuestionPaths(form.questions)
-        const curIdx = ids.indexOf(sel.questionPath as QuestionPath)
-        const prevIdx = curIdx <= 0 ? ids.length - 1 : curIdx - 1
-        builder.select({ type: 'question', moduleIndex: sel.moduleIndex, formIndex: sel.formIndex, questionPath: ids[prevIdx] })
-      },
-    },
-    // Delete / Backspace — delete selected question
-    {
-      key: 'Delete',
-      handler: () => {
-        if (builder.selected?.type === 'question') handleDelete()
-      },
-    },
-    {
-      key: 'Backspace',
-      handler: () => {
-        if (builder.selected?.type === 'question') handleDelete()
-      },
-    },
-    // Cmd+D — duplicate
-    {
-      key: 'd',
-      meta: true,
-      handler: () => {
-        const sel = builder.selected
-        if (!sel || sel.type !== 'question' || sel.formIndex === undefined || !sel.questionPath) return
-        const mb = builder.mb
-        if (!mb) return
-        const newPath = mb.duplicateQuestion(sel.moduleIndex, sel.formIndex, sel.questionPath)
-        builder.notifyBlueprintChanged()
-        builder.select({ type: 'question', moduleIndex: sel.moduleIndex, formIndex: sel.formIndex, questionPath: newPath })
-      },
-    },
-    // ArrowUp/ArrowDown — reorder
-    {
-      key: 'ArrowUp',
-      handler: () => {
-        const sel = builder.selected
-        if (!sel || sel.type !== 'question' || sel.formIndex === undefined || !sel.questionPath) return
-        const mb = builder.mb
-        if (!mb) return
-        const form = mb.getForm(sel.moduleIndex, sel.formIndex)
-        if (!form) return
-        const ids = flattenQuestionPaths(form.questions)
-        const curIdx = ids.indexOf(sel.questionPath as QuestionPath)
-        if (curIdx <= 0) return
-        mb.moveQuestion(sel.moduleIndex, sel.formIndex, sel.questionPath, { beforePath: ids[curIdx - 1] })
-        builder.notifyBlueprintChanged()
-      },
-    },
-    {
-      key: 'ArrowDown',
-      handler: () => {
-        const sel = builder.selected
-        if (!sel || sel.type !== 'question' || sel.formIndex === undefined || !sel.questionPath) return
-        const mb = builder.mb
-        if (!mb) return
-        const form = mb.getForm(sel.moduleIndex, sel.formIndex)
-        if (!form) return
-        const ids = flattenQuestionPaths(form.questions)
-        const curIdx = ids.indexOf(sel.questionPath as QuestionPath)
-        if (curIdx < 0 || curIdx >= ids.length - 1) return
-        mb.moveQuestion(sel.moduleIndex, sel.formIndex, sel.questionPath, { afterPath: ids[curIdx + 1] })
-        builder.notifyBlueprintChanged()
-      },
-    },
-    // Cmd+Z / Cmd+Shift+Z — undo/redo
-    {
-      key: 'z',
-      meta: true,
-      global: true,
-      handler: () => builder.undo(),
-    },
-    {
-      key: 'z',
-      meta: true,
-      shift: true,
-      global: true,
-      handler: () => builder.redo(),
-    },
-  ] : []
-
-  useKeyboardShortcuts('builder-layout', shortcuts, [isDone, viewMode, builder.selected, builder.blueprint, builder.mutationCount])
-
+  // ── Keyboard shortcuts (extracted to useBuilderShortcuts) ───────────
   const handleDelete = useCallback(() => {
     const sel = builder.selected
     if (!sel || sel.type !== 'question' || sel.formIndex === undefined || !sel.questionPath) return
@@ -370,14 +244,22 @@ export function BuilderLayout({ buildId }: { buildId: string }) {
     }
   }, [builder])
 
+  const shortcuts = useBuilderShortcuts(builder, viewMode, handleViewModeChange, handleDelete)
+
+  useKeyboardShortcuts('builder-layout', shortcuts, [builder.phase === BuilderPhase.Done, viewMode, builder.selected, builder.blueprint, builder.mutationCount])
+
   if (!loaded) return null
+  if (!apiKey && !inReplayMode) {
+    router.push('/')
+    return null
+  }
 
   const showProgress = (isGenerating || builder.phase === BuilderPhase.Done) && !progressHidden && !inReplayMode
   const isPreviewLike = viewMode === 'preview' || viewMode === 'test'
   const editMode = viewMode === 'test' ? 'test' as const : 'edit' as const
 
   // Unified breadcrumbs — derived from nav stack (preview/live) or selection (tree)
-  const breadcrumbParts: { label: string; onClick: () => void }[] = []
+  const breadcrumbParts: BreadcrumbPart[] = []
   if (builder.blueprint) {
     const bp = builder.blueprint
     if (isPreviewLike) {
@@ -424,7 +306,7 @@ export function BuilderLayout({ buildId }: { buildId: string }) {
 
   return (
     <LayoutGroup>
-    <div className="h-screen flex flex-col bg-nova-void overflow-hidden">
+    <div ref={layoutRef} className="h-screen flex flex-col bg-nova-void overflow-hidden">
       {/* Header — collapses to zero height in hero mode, reveals with border on transition */}
       <motion.header
         className="overflow-hidden shrink-0"
@@ -496,15 +378,17 @@ export function BuilderLayout({ buildId }: { buildId: string }) {
                   <Logo size="hero" />
                 </motion.div>
               )}
-              <ChatSidebar
-                mode={isCentered ? 'centered' : 'sidebar'}
-                messages={inReplayMode ? replayMessages : messages}
-                status={inReplayMode ? 'ready' : status}
-                onSend={handleSend}
-                onClose={inReplayMode ? undefined : () => setChatOpen(false)}
-                addToolOutput={addToolOutput}
-                readOnly={inReplayMode}
-              />
+              <ErrorBoundary>
+                <ChatSidebar
+                  mode={isCentered ? 'centered' : 'sidebar'}
+                  messages={inReplayMode ? replayMessages : messages}
+                  status={inReplayMode ? 'ready' : status}
+                  onSend={handleSend}
+                  onClose={inReplayMode ? undefined : () => setChatOpen(false)}
+                  addToolOutput={addToolOutput}
+                  readOnly={inReplayMode}
+                />
+              </ErrorBoundary>
             </motion.div>
           )}
 
@@ -519,74 +403,17 @@ export function BuilderLayout({ buildId }: { buildId: string }) {
               >
                 {/* Subheader toolbar — breadcrumbs + toggle (centered) + undo/redo */}
                 {builder.treeData && builder.phase === BuilderPhase.Done && builder.blueprint && (
-                  <div className="grid grid-cols-[1fr_auto_1fr] items-center px-4 h-16 border-b border-nova-border shrink-0">
-                    {/* Left — breadcrumbs (all view modes) */}
-                    <div className="flex items-center min-w-0">
-                      <nav className="flex items-center gap-1 text-sm min-w-0 truncate">
-                        {breadcrumbParts.map((part, i) => {
-                          const isLast = i === breadcrumbParts.length - 1
-                          return (
-                            <span key={i} className="flex items-center gap-1 shrink-0">
-                              {i > 0 && (
-                                <Icon icon={ciChevronRight} width="14" height="14" className="text-nova-text-muted/50" />
-                              )}
-                              {isLast ? (
-                                <span className="text-nova-text font-medium truncate">{part.label}</span>
-                              ) : (
-                                <button
-                                  onClick={part.onClick}
-                                  className="text-nova-text-muted hover:text-nova-text transition-colors cursor-pointer whitespace-nowrap"
-                                >
-                                  {part.label}
-                                </button>
-                              )}
-                            </span>
-                          )
-                        })}
-                      </nav>
-                    </div>
-
-                    {/* Center — toggle */}
-                    <PreviewToggle mode={viewMode} onChange={handleViewModeChange} />
-
-                    {/* Right — undo/redo + download */}
-                    <div className="flex items-center gap-1.5 justify-end">
-                      <button
-                        onClick={() => builder.undo()}
-                        disabled={!builder.canUndo}
-                        className="flex items-center gap-1.5 h-[38px] px-3 rounded-lg text-[13px] font-medium text-nova-text-muted transition-colors cursor-pointer enabled:hover:text-nova-text enabled:hover:bg-nova-surface disabled:opacity-25 disabled:cursor-default"
-                        title="Undo (⌘Z)"
-                      >
-                        <Icon icon={ciUndo} width="16" height="16" />
-                        Undo
-                      </button>
-                      <button
-                        onClick={() => builder.redo()}
-                        disabled={!builder.canRedo}
-                        className="flex items-center gap-1.5 h-[38px] px-3 rounded-lg text-[13px] font-medium text-nova-text-muted transition-colors cursor-pointer enabled:hover:text-nova-text enabled:hover:bg-nova-surface disabled:opacity-25 disabled:cursor-default"
-                        title="Redo (⌘⇧Z)"
-                      >
-                        <Icon icon={ciRedo} width="16" height="16" />
-                        Redo
-                      </button>
-                      <DownloadDropdown
-                        options={[
-                          {
-                            label: 'JSON',
-                            description: 'For CommCare HQ',
-                            icon: <Icon icon={ciFileDocument} width="28" height="28" />,
-                            onClick: handleDownloadJson,
-                          },
-                          {
-                            label: 'CCZ',
-                            description: 'For CommCare',
-                            icon: <Icon icon={ciDownloadPackage} width="28" height="28" />,
-                            onClick: handleCompile,
-                          },
-                        ]}
-                      />
-                    </div>
-                  </div>
+                  <SubheaderToolbar
+                    breadcrumbParts={breadcrumbParts}
+                    viewMode={viewMode}
+                    onViewModeChange={handleViewModeChange}
+                    canUndo={builder.canUndo}
+                    canRedo={builder.canRedo}
+                    onUndo={() => builder.undo()}
+                    onRedo={() => builder.redo()}
+                    onDownloadJson={handleDownloadJson}
+                    onCompile={handleCompile}
+                  />
                 )}
 
                 {/* Content + Detail panel row — below subheader */}
@@ -603,25 +430,27 @@ export function BuilderLayout({ buildId }: { buildId: string }) {
                         </button>
                       )}
 
-                      {builder.treeData ? (
-                        isPreviewLike && builder.phase === BuilderPhase.Done && builder.blueprint ? (
-                          <PreviewShell
-                            blueprint={builder.blueprint}
-                            builder={builder}
-                            mode={editMode}
-                            nav={nav}
-                            hideHeader
-                          />
-                        ) : (
-                          <AppTree
-                            data={builder.treeData}
-                            selected={viewMode === 'tree' ? builder.selected : undefined}
-                            onSelect={(s) => builder.select(s)}
-                            phase={builder.phase}
-                            hideHeader
-                          />
-                        )
-                      ) : null}
+                      <ErrorBoundary>
+                        {builder.treeData ? (
+                          isPreviewLike && builder.phase === BuilderPhase.Done && builder.blueprint ? (
+                            <PreviewShell
+                              blueprint={builder.blueprint}
+                              builder={builder}
+                              mode={editMode}
+                              nav={nav}
+                              hideHeader
+                            />
+                          ) : (
+                            <AppTree
+                              data={builder.treeData}
+                              selected={viewMode === 'tree' ? builder.selected : undefined}
+                              onSelect={(s) => builder.select(s)}
+                              phase={builder.phase}
+                              hideHeader
+                            />
+                          )
+                        ) : null}
+                      </ErrorBoundary>
                     </div>
 
                     <AnimatePresence>
@@ -653,7 +482,9 @@ export function BuilderLayout({ buildId }: { buildId: string }) {
                   {/* DetailPanel — slides from right, beneath subheader */}
                   <AnimatePresence>
                     {(viewMode === 'tree' || viewMode === 'preview') && builder.selected && builder.blueprint && (
-                      <DetailPanel builder={builder} />
+                      <ErrorBoundary>
+                        <DetailPanel builder={builder} />
+                      </ErrorBoundary>
                     )}
                   </AnimatePresence>
                 </div>
