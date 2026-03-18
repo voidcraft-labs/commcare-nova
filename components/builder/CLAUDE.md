@@ -14,11 +14,12 @@ When `builder.phase === Idle && !builder.treeData`, chat fills center with hero 
 
 ### View Modes
 
-`viewMode` state (`'tree' | 'preview'`). When `Done` + blueprint exists:
+`viewMode` state (`'tree' | 'preview' | 'test'`). When `Done` + blueprint exists:
 - `'tree'` → `AppTree` + `DetailPanel`
-- `'preview'` → `PreviewShell` (replaces tree, hides DetailPanel)
+- `'preview'` → `PreviewShell` (editable canvas) + DetailPanel as overlay
+- `'test'` → `PreviewShell` (read-only, no edit chrome or sidebar)
 
-Both show `PreviewToggle` + `DownloadDropdown` in actions area.
+Both show `PreviewToggle` + `DownloadDropdown` in actions area. Keyboard shortcuts (undo/redo, Tab/Shift+Tab navigation, Delete, Cmd+D duplicate, arrow keys to reorder) registered via `useKeyboardShortcuts`.
 
 ## DetailPanel
 

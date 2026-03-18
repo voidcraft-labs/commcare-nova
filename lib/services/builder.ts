@@ -1,5 +1,6 @@
 import type { AppBlueprint, Scaffold, BlueprintForm, CaseType } from '@/lib/schemas/blueprint'
 import { MutableBlueprint } from './mutableBlueprint'
+import { HistoryManager } from './historyManager'
 
 /** Apply a data part to a builder — shared between real-time streaming (onData) and replay. */
 export function applyDataPart(builder: Builder, type: string, data: any): void {
@@ -68,9 +69,13 @@ export class Builder {
   phase = BuilderPhase.Idle
   scaffold: Scaffold | null = null
   private _mb: MutableBlueprint | null = null
+  private history: HistoryManager | null = null
   caseTypes: CaseType[] | null = null
   statusMessage = ''
   selected: SelectedElement | null = null
+  /** When true, DetailPanel should auto-focus the label field on mount. Cleared after read. */
+  autoFocusLabel = false
+  mutationCount = 0
   progressCompleted = 0
   progressTotal = 0
   private partialModules: Map<number, PartialModule> = new Map()
@@ -83,9 +88,10 @@ export class Builder {
     return this._mb?.getBlueprint() ?? null
   }
 
-  /** The persistent MutableBlueprint instance for direct mutation. */
+  /** The persistent MutableBlueprint instance for direct mutation.
+   *  Returns the Proxy-wrapped version when history is active. */
   get mb(): MutableBlueprint | null {
-    return this._mb
+    return this.history?.proxied ?? this._mb
   }
 
   subscribe(listener: () => void) {
@@ -117,8 +123,37 @@ export class Builder {
     }
   }
 
+  // ── Undo/Redo ──────────────────────────────────────────────────────
+
+  undo() {
+    const newMb = this.history?.undo()
+    if (!newMb) return
+    this._mb = newMb
+    this.selected = null
+    this.mutationCount++
+    this.notify()
+  }
+
+  redo() {
+    const newMb = this.history?.redo()
+    if (!newMb) return
+    this._mb = newMb
+    this.selected = null
+    this.mutationCount++
+    this.notify()
+  }
+
+  get canUndo(): boolean {
+    return this.history?.canUndo ?? false
+  }
+
+  get canRedo(): boolean {
+    return this.history?.canRedo ?? false
+  }
+
   /** Transition to data model phase (SA called generateSchema). */
   startDataModel() {
+    if (this.history) this.history.enabled = false
     this.phase = BuilderPhase.DataModel
     this.statusMessage = 'Designing data model...'
     this.notify()
@@ -216,6 +251,7 @@ export class Builder {
   /** Set the completed blueprint after validation. */
   setDone(result: { blueprint: AppBlueprint; hqJson: Record<string, any>; success: boolean }) {
     this._mb = new MutableBlueprint(result.blueprint)
+    this.history = new HistoryManager(this._mb)
     this.partialModules.clear()
     this.phase = BuilderPhase.Done
     this.statusMessage = ''
@@ -289,6 +325,7 @@ export class Builder {
 
   /** Notify subscribers that the blueprint was mutated in-place via mb. */
   notifyBlueprintChanged = () => {
+    this.mutationCount++
     this.notify()
   }
 
@@ -296,9 +333,13 @@ export class Builder {
     this.phase = BuilderPhase.Idle
     this.scaffold = null
     this._mb = null
+    this.history?.clear()
+    this.history = null
     this.caseTypes = null
     this.statusMessage = ''
     this.selected = null
+    this.autoFocusLabel = false
+    this.mutationCount = 0
     this.progressCompleted = 0
     this.progressTotal = 0
     this.partialModules.clear()

@@ -8,6 +8,7 @@ Next.js web app that generates CommCare apps from natural language conversation.
 - **Language**: TypeScript (strict mode)
 - **Styling**: Tailwind CSS v4 with `@theme inline` custom properties
 - **Animation**: Motion (imported as `motion/react`, NOT `framer-motion`)
+- **Drag & Drop**: `@dnd-kit/react` (`DragDropProvider`, `useSortable` from `@dnd-kit/react/sortable`, modifiers from `@dnd-kit/dom/modifiers`)
 - **Validation**: Zod v4
 - **AI**: Vercel AI SDK (`ai` + `@ai-sdk/react` + `@ai-sdk/anthropic`) — `ToolLoopAgent`, `createUIMessageStream`, `createAgentUIStream`, `useChat`, `generateText`, `streamText`, `Output.object()`
 - **Markdown**: marked — allowlist renderers in `lib/markdown.ts`. `renderMarkdown` (chat): headings, bold, italic, lists, tables, hr, code; blocks links/images/HTML. `renderPreviewMarkdown` (preview): same plus links and images.

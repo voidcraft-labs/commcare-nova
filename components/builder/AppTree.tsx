@@ -3,26 +3,10 @@ import { motion, AnimatePresence } from 'motion/react'
 import { Icon } from '@iconify/react'
 import ciMoreGridBig from '@iconify-icons/ci/more-grid-big'
 import ciTable from '@iconify-icons/ci/table'
-import ciText from '@iconify-icons/ci/text'
-import tabler123 from '@iconify-icons/tabler/123'
-import tablerDecimal from '@iconify-icons/tabler/decimal'
-import ciCalendar from '@iconify-icons/ci/calendar'
-import ciRadioFill from '@iconify-icons/ci/radio-fill'
-import ciCheckboxCheck from '@iconify-icons/ci/checkbox-check'
-import ciGroup from '@iconify-icons/ci/group'
-import ciRepeat from '@iconify-icons/ci/repeat'
-import ciHide from '@iconify-icons/ci/hide'
-import ciLocation from '@iconify-icons/ci/location'
-import ciImage from '@iconify-icons/ci/image'
-import ciPhone from '@iconify-icons/ci/phone'
-import ciBarcode from '@iconify-icons/ci/barcode'
-import ciLabel from '@iconify-icons/ci/label'
-import ciFileAdd from '@iconify-icons/ci/file-add'
-import ciFileEdit from '@iconify-icons/ci/file-edit'
-import ciFileBlank from '@iconify-icons/ci/file-blank'
 import type { Question } from '@/lib/schemas/blueprint'
 import { BuilderPhase, type TreeData } from '@/lib/services/builder'
 import { Badge } from '@/components/ui/Badge'
+import { questionTypeIcons, formTypeIcons } from '@/lib/questionTypeIcons'
 
 interface AppTreeProps {
   data: TreeData | null
@@ -182,12 +166,7 @@ function FormCard({
   delay: number
 }) {
   const isSelected = selected?.type === 'form' && selected.moduleIndex === moduleIndex && selected.formIndex === formIndex
-  const formTypeIcons = {
-    registration: ciFileAdd,
-    followup: ciFileEdit,
-    survey: ciFileBlank,
-  } as const
-  const formIcon = formTypeIcons[form.type as keyof typeof formTypeIcons] ?? ciFileBlank
+  const formIcon = formTypeIcons[form.type] ?? formTypeIcons.survey
 
   return (
     <motion.div
@@ -257,22 +236,7 @@ function QuestionRow({
   delay: number
 }) {
   const isSelected = selected?.type === 'question' && selected.moduleIndex === moduleIndex && selected.formIndex === formIndex && selected.questionPath === q.id
-  const typeIcons: Record<string, React.ReactNode> = {
-    text: <Icon icon={ciText} width="14" height="14" />,
-    int: <Icon icon={tabler123} width="14" height="14" />,
-    decimal: <Icon icon={tablerDecimal} width="14" height="14" />,
-    date: <Icon icon={ciCalendar} width="14" height="14" />,
-    select1: <Icon icon={ciRadioFill} width="14" height="14" />,
-    select: <Icon icon={ciCheckboxCheck} width="14" height="14" />,
-    group: <Icon icon={ciGroup} width="14" height="14" />,
-    repeat: <Icon icon={ciRepeat} width="14" height="14" />,
-    hidden: <Icon icon={ciHide} width="14" height="14" />,
-    geopoint: <Icon icon={ciLocation} width="14" height="14" />,
-    image: <Icon icon={ciImage} width="14" height="14" />,
-    phone: <Icon icon={ciPhone} width="14" height="14" />,
-    barcode: <Icon icon={ciBarcode} width="14" height="14" />,
-    label: <Icon icon={ciLabel} width="14" height="14" />,
-  }
+  const iconData = questionTypeIcons[q.type]
 
   return (
     <motion.div
@@ -291,7 +255,7 @@ function QuestionRow({
         }}
       >
         <span className="w-6 text-center text-xs font-mono text-nova-text-muted shrink-0 flex items-center justify-center">
-          {typeIcons[q.type] || '?'}
+          {iconData ? <Icon icon={iconData} width="14" height="14" /> : '?'}
         </span>
         <span className="truncate">{q.label || q.id}</span>
         <span className="text-xs text-nova-text-muted font-mono shrink-0 ml-auto">

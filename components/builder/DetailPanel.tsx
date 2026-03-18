@@ -7,14 +7,17 @@ import ciFileAdd from '@iconify-icons/ci/file-add'
 import ciFileEdit from '@iconify-icons/ci/file-edit'
 import ciFileBlank from '@iconify-icons/ci/file-blank'
 import ciAddPlus from '@iconify-icons/ci/add-plus'
+import ciTrashFull from '@iconify-icons/ci/trash-full'
 import { deriveCaseConfig, QUESTION_TYPES } from '@/lib/schemas/blueprint'
 import type { Question } from '@/lib/schemas/blueprint'
 import type { Builder } from '@/lib/services/builder'
+import { flattenQuestionIds } from '@/lib/services/questionNavigation'
 import { Badge } from '@/components/ui/Badge'
 import { XPathField } from '@/components/builder/XPathField'
 import { EditableText } from '@/components/builder/EditableText'
 import { EditableDropdown } from '@/components/builder/EditableDropdown'
 import { XPathEditorModal } from '@/components/builder/XPathEditorModal'
+import { ConfirmDialog } from '@/components/ui/ConfirmDialog'
 
 const formTypeIcons = {
   registration: ciFileAdd,
@@ -43,6 +46,7 @@ interface DetailPanelProps {
 export function DetailPanel({ builder }: DetailPanelProps) {
   const [xpathModal, setXpathModal] = useState<{ field: string; value: string; label: string } | null>(null)
   const [newlyAdded, setNewlyAdded] = useState<{ field: string; questionPath: string } | null>(null)
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
 
   const selected = builder.selected!
   const mb = builder.mb!
@@ -158,12 +162,23 @@ export function DetailPanel({ builder }: DetailPanelProps) {
         <h3 className="text-sm font-medium text-nova-text-secondary">
           {selected.type === 'module' ? 'Module' : selected.type === 'form' ? 'Form' : 'Question'}
         </h3>
-        <button
-          onClick={() => builder.select(null)}
-          className="text-nova-text-muted hover:text-nova-text transition-colors p-1"
-        >
-          <Icon icon={ciCloseMd} width="14" height="14" />
-        </button>
+        <div className="flex items-center gap-0.5">
+          {selected.type === 'question' && (
+            <button
+              onClick={() => setShowDeleteConfirm(true)}
+              className="text-nova-text-muted hover:text-nova-rose transition-colors p-1 cursor-pointer"
+              title="Delete question"
+            >
+              <Icon icon={ciTrashFull} width="14" height="14" />
+            </button>
+          )}
+          <button
+            onClick={() => builder.select(null)}
+            className="text-nova-text-muted hover:text-nova-text transition-colors p-1 cursor-pointer"
+          >
+            <Icon icon={ciCloseMd} width="14" height="14" />
+          </button>
+        </div>
       </div>
 
       <div className="p-4 space-y-4">
@@ -297,6 +312,7 @@ export function DetailPanel({ builder }: DetailPanelProps) {
                 value={question.label ?? ''}
                 onSave={(v) => saveQuestion('label', v || null)}
                 multiline
+                startEditing={builder.autoFocusLabel ? (() => { builder.autoFocusLabel = false; return true })() : undefined}
               />
             )}
             <EditableText
@@ -452,6 +468,34 @@ export function DetailPanel({ builder }: DetailPanelProps) {
           onClose={() => setXpathModal(null)}
         />
       )}
+
+      {/* Delete confirmation */}
+      <ConfirmDialog
+        open={showDeleteConfirm}
+        title="Delete Question"
+        message={`Are you sure you want to delete "${question?.label || selected.questionPath}"?`}
+        confirmLabel="Delete"
+        confirmVariant="danger"
+        onConfirm={() => {
+          if (selected.formIndex === undefined || !selected.questionPath) return
+          const form = mb.getForm(selected.moduleIndex, selected.formIndex)
+          if (!form) return
+          const ids = flattenQuestionIds(form.questions)
+          const curIdx = ids.indexOf(selected.questionPath)
+          const nextId = ids[curIdx + 1] ?? ids[curIdx - 1]
+
+          mb.removeQuestion(selected.moduleIndex, selected.formIndex, selected.questionPath)
+          notifyBlueprintChanged()
+
+          if (nextId) {
+            builder.select({ type: 'question', moduleIndex: selected.moduleIndex, formIndex: selected.formIndex!, questionPath: nextId })
+          } else {
+            builder.select(null)
+          }
+          setShowDeleteConfirm(false)
+        }}
+        onCancel={() => setShowDeleteConfirm(false)}
+      />
     </motion.div>
   )
 }

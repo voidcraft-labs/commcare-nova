@@ -1,117 +1,316 @@
 'use client'
-import { motion } from 'motion/react'
+import { useState, useCallback, useMemo, useRef, Fragment } from 'react'
+import { DragDropProvider, DragOverlay, PointerSensor } from '@dnd-kit/react'
+import { useSortable, isSortable } from '@dnd-kit/react/sortable'
+import { PointerActivationConstraints } from '@dnd-kit/dom'
+import { RestrictToElement } from '@dnd-kit/dom/modifiers'
 import type { Question } from '@/lib/schemas/blueprint'
 import type { FormEngine } from '@/lib/preview/engine/formEngine'
 import { renderPreviewMarkdown } from '@/lib/markdown'
+import { useEditContext } from '@/hooks/useEditContext'
+import { ConfirmDialog } from '@/components/ui/ConfirmDialog'
 import { QuestionField } from './QuestionField'
 import { GroupField } from './fields/GroupField'
 import { LabelField } from './fields/LabelField'
 import { RepeatField } from './fields/RepeatField'
+import { EditableQuestionWrapper } from './EditableQuestionWrapper'
+import { InsertionPoint } from './InsertionPoint'
+import { LogicBadges } from './LogicBadges'
 
 interface FormRendererProps {
   questions: Question[]
   engine: FormEngine
   prefix?: string
+  parentId?: string
 }
 
-export function FormRenderer({ questions, engine, prefix = '/data' }: FormRendererProps) {
-  const renderChildren = (children: Question[], childPrefix: string) => (
-    <FormRenderer questions={children} engine={engine} prefix={childPrefix} />
-  )
+/** Sensor config: 5px distance to distinguish click from drag. */
+const SENSORS = [
+  PointerSensor.configure({
+    activationConstraints: [
+      new PointerActivationConstraints.Distance({ value: 5 }),
+    ],
+  }),
+]
+
+function SortableQuestion({
+  q,
+  sortIndex,
+  path,
+  engine,
+  renderChildren,
+  onDelete,
+  isFirst,
+}: {
+  q: Question
+  sortIndex: number
+  path: string
+  engine: FormEngine
+  renderChildren: (children: Question[], childPrefix: string) => React.ReactNode
+  onDelete: (id: string) => void
+  isFirst?: boolean
+}) {
+  const state = engine.getState(path)
+  const ctx = useEditContext()
+  const isEditMode = ctx?.mode === 'edit'
+
+  const { ref, isDragging } = useSortable({
+    id: q.id,
+    index: sortIndex,
+    disabled: !isEditMode,
+  })
+
+  if (q.type === 'hidden') return null
+  if (!state.visible) return null
+
+  const handleDelete = () => onDelete(q.id)
+
+  // In edit mode: suppress validation display entirely
+  const showInvalid = !isEditMode && state.touched && !state.valid
+
+  // Build content based on question type
+  let content: React.ReactNode
+
+  if (q.type === 'group') {
+    content = (
+      <EditableQuestionWrapper questionId={q.id} isDragging={isDragging} onDelete={handleDelete}>
+        <div className="relative">
+          <div className="absolute top-1 right-1 z-10"><LogicBadges question={q} /></div>
+          <GroupField question={q} path={path} engine={engine} renderChildren={renderChildren} />
+        </div>
+      </EditableQuestionWrapper>
+    )
+  } else if (q.type === 'repeat') {
+    content = (
+      <EditableQuestionWrapper questionId={q.id} isDragging={isDragging} onDelete={handleDelete}>
+        <div className="relative">
+          <div className="absolute top-1 right-1 z-10"><LogicBadges question={q} /></div>
+          <RepeatField question={q} path={path} engine={engine} renderChildren={renderChildren} />
+        </div>
+      </EditableQuestionWrapper>
+    )
+  } else if (q.type === 'label') {
+    content = (
+      <EditableQuestionWrapper questionId={q.id} isDragging={isDragging} onDelete={handleDelete}>
+        <div className="relative">
+          <div className="absolute top-1 right-1 z-10"><LogicBadges question={q} /></div>
+          <LabelField question={q} state={state} />
+        </div>
+      </EditableQuestionWrapper>
+    )
+  } else {
+    content = (
+      <EditableQuestionWrapper questionId={q.id} isDragging={isDragging} onDelete={handleDelete}>
+        <div className="relative">
+          <div className="absolute top-1 right-8 z-10"><LogicBadges question={q} /></div>
+          <label className="block space-y-1.5">
+            {q.label && (
+              <div className="flex items-center gap-1">
+                <span className="preview-markdown text-sm font-medium text-nova-text" dangerouslySetInnerHTML={{ __html: renderPreviewMarkdown(state.resolvedLabel ?? q.label) }} />
+                {state.required && <span className="text-nova-rose text-xs">*</span>}
+              </div>
+            )}
+            {q.hint && (
+              <div className="preview-markdown text-xs text-nova-text-muted" dangerouslySetInnerHTML={{ __html: renderPreviewMarkdown(state.resolvedHint ?? q.hint) }} />
+            )}
+            <QuestionField
+              question={q}
+              state={state}
+              onChange={(value) => engine.setValue(path, value)}
+              onBlur={() => engine.touch(path)}
+            />
+          </label>
+        </div>
+      </EditableQuestionWrapper>
+    )
+  }
 
   return (
-    <div className="space-y-4">
-      {questions.map((q, idx) => {
-        const path = `${prefix}/${q.id}`
-        const state = engine.getState(path)
+    <div
+      ref={ref}
+      className="relative mb-4"
+      data-invalid={showInvalid ? 'true' : undefined}
+    >
+      {isDragging && (
+        <div className="absolute inset-0 rounded-lg border-2 border-dashed border-nova-violet/30 bg-nova-violet/[0.02]" />
+      )}
+      <div className={isDragging ? 'invisible' : undefined}>
+        {content}
+      </div>
+    </div>
+  )
+}
 
-        // Hidden questions produce no UI
-        if (q.type === 'hidden') return null
+export function FormRenderer({ questions, engine, prefix = '/data', parentId }: FormRendererProps) {
+  const ctx = useEditContext()
+  const isEditMode = ctx?.mode === 'edit'
+  const [deleteTarget, setDeleteTarget] = useState<{ id: string; label: string } | null>(null)
+  const [activeId, setActiveId] = useState<string | null>(null)
+  const containerRef = useRef<HTMLDivElement>(null)
 
-        // Check visibility
-        if (!state.visible) return null
+  // Cursor velocity tracking (EMA-smoothed, all refs — no re-renders)
+  const cursorSpeedRef = useRef(0)
+  const lastCursorRef = useRef<{ x: number; y: number; t: number } | null>(null)
+  const handleContainerMouseMove = useCallback((e: React.MouseEvent) => {
+    const now = performance.now()
+    const last = lastCursorRef.current
+    if (last) {
+      const dt = now - last.t
+      if (dt > 0) {
+        const dx = e.clientX - last.x
+        const dy = e.clientY - last.y
+        const speed = Math.sqrt(dx * dx + dy * dy) / dt
+        // Long gap = mouse was stopped, reset. Otherwise EMA smooth.
+        cursorSpeedRef.current = dt > 100 ? speed : 0.3 * speed + 0.7 * cursorSpeedRef.current
+      }
+    }
+    lastCursorRef.current = { x: e.clientX, y: e.clientY, t: now }
+  }, [])
 
-        // Group
-        if (q.type === 'group') {
-          return (
-            <motion.div
-              key={q.id || idx}
-              initial={{ opacity: 0, y: 8 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: idx * 0.03, duration: 0.25 }}
-            >
-              <GroupField
-                question={q}
-                path={path}
-                engine={engine}
-                renderChildren={renderChildren}
-              />
-            </motion.div>
-          )
-        }
+  const renderChildren = useCallback((children: Question[], childPrefix: string) => (
+    <FormRenderer questions={children} engine={engine} prefix={childPrefix} parentId={childPrefix.split('/').pop()} />
+  ), [engine])
 
-        // Repeat
-        if (q.type === 'repeat') {
-          return (
-            <motion.div
-              key={q.id || idx}
-              initial={{ opacity: 0, y: 8 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: idx * 0.03, duration: 0.25 }}
-            >
-              <RepeatField
-                question={q}
-                path={path}
-                engine={engine}
-                renderChildren={renderChildren}
-              />
-            </motion.div>
-          )
-        }
+  const visibleQuestions = useMemo(
+    () => questions.filter(q => q.type !== 'hidden'),
+    [questions]
+  )
 
-        // Label (display-only, no input)
-        if (q.type === 'label') {
-          return (
-            <motion.div
-              key={q.id || idx}
-              initial={{ opacity: 0, y: 8 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: idx * 0.03, duration: 0.25 }}
-            >
-              <LabelField question={q} state={state} />
-            </motion.div>
-          )
-        }
+  const modifiers = useMemo(() => [
+    RestrictToElement.configure({
+      element: () => containerRef.current,
+    }),
+  ], [])
 
-        // Regular question
+  const handleDelete = useCallback((id: string) => {
+    const q = questions.find(q => q.id === id)
+    setDeleteTarget({ id, label: q?.label || id })
+  }, [questions])
+
+  const confirmDelete = useCallback(() => {
+    if (!deleteTarget || !ctx) return
+    const mb = ctx.builder.mb
+    if (!mb) return
+
+    // Find neighbor for selection transfer
+    const idx = questions.findIndex(q => q.id === deleteTarget.id)
+    const nextQ = questions[idx + 1] ?? questions[idx - 1]
+
+    mb.removeQuestion(ctx.moduleIndex, ctx.formIndex, deleteTarget.id)
+    ctx.builder.notifyBlueprintChanged()
+
+    if (nextQ) {
+      ctx.builder.select({ type: 'question', moduleIndex: ctx.moduleIndex, formIndex: ctx.formIndex, questionPath: nextQ.id })
+    } else {
+      ctx.builder.select(null)
+    }
+    setDeleteTarget(null)
+  }, [deleteTarget, ctx, questions])
+
+  const activeQuestion = activeId ? questions.find(q => q.id === activeId) : null
+  const isDragging = !!activeId
+
+  const list = (
+    <div ref={containerRef} className="min-h-full pointer-events-auto" onMouseMove={isEditMode ? handleContainerMouseMove : undefined}>
+      {isEditMode && <InsertionPoint atIndex={0} parentId={parentId} disabled={isDragging} cursorSpeedRef={cursorSpeedRef} />}
+      {visibleQuestions.map((q, idx) => {
+        const actualIdx = questions.indexOf(q)
         return (
-          <motion.div
-            key={q.id || idx}
-            initial={{ opacity: 0, y: 8 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: idx * 0.03, duration: 0.25 }}
-            data-invalid={state.touched && !state.valid ? 'true' : undefined}
-          >
-            <label className="block space-y-1.5">
-              {q.label && (
-                <div className="flex items-center gap-1">
-                  <span className="preview-markdown text-sm font-medium text-nova-text" dangerouslySetInnerHTML={{ __html: renderPreviewMarkdown(state.resolvedLabel ?? q.label) }} />
-                  {state.required && <span className="text-nova-rose text-xs">*</span>}
-                </div>
-              )}
-              {q.hint && (
-                <div className="preview-markdown text-xs text-nova-text-muted" dangerouslySetInnerHTML={{ __html: renderPreviewMarkdown(state.resolvedHint ?? q.hint) }} />
-              )}
-              <QuestionField
-                question={q}
-                state={state}
-                onChange={(value) => engine.setValue(path, value)}
-                onBlur={() => engine.touch(path)}
+          <Fragment key={q.id}>
+            <SortableQuestion
+              q={q}
+              sortIndex={idx}
+              path={`${prefix}/${q.id}`}
+              engine={engine}
+              renderChildren={renderChildren}
+              onDelete={handleDelete}
               />
-            </label>
-          </motion.div>
+            {isEditMode && <InsertionPoint atIndex={actualIdx + 1} parentId={parentId} disabled={isDragging} cursorSpeedRef={cursorSpeedRef} />}
+          </Fragment>
         )
       })}
     </div>
+  )
+
+  if (!isEditMode) {
+    return (
+      <>
+        {list}
+        <ConfirmDialog
+          open={!!deleteTarget}
+          title="Delete Question"
+          message={`Are you sure you want to delete "${deleteTarget?.label}"?`}
+          confirmLabel="Delete"
+          confirmVariant="danger"
+          onConfirm={confirmDelete}
+          onCancel={() => setDeleteTarget(null)}
+        />
+      </>
+    )
+  }
+
+  return (
+    <>
+      <DragDropProvider
+        sensors={SENSORS}
+        modifiers={modifiers}
+        onDragStart={(event) => {
+          const sourceId = event.operation.source?.id
+          if (sourceId) setActiveId(sourceId as string)
+          document.body.style.cursor = 'grabbing'
+          if (ctx) ctx.builder.select(null)
+        }}
+        onDragEnd={(event) => {
+          const draggedId = activeId
+          setActiveId(null)
+          document.body.style.cursor = ''
+
+          if (event.canceled || !ctx || !draggedId) return
+
+          const { source } = event.operation
+          if (!source || !isSortable(source)) return
+
+          const { initialIndex, index } = source
+          if (initialIndex !== index) {
+            const mb = ctx.builder.mb
+            if (mb) {
+              const withoutMoved = visibleQuestions.filter((_, i) => i !== initialIndex)
+              if (index === 0) {
+                mb.moveQuestion(ctx.moduleIndex, ctx.formIndex, draggedId, { beforeId: withoutMoved[0].id })
+              } else {
+                mb.moveQuestion(ctx.moduleIndex, ctx.formIndex, draggedId, { afterId: withoutMoved[index - 1].id })
+              }
+              ctx.builder.notifyBlueprintChanged()
+            }
+          }
+
+          ctx.builder.select({
+            type: 'question',
+            moduleIndex: ctx.moduleIndex,
+            formIndex: ctx.formIndex,
+            questionPath: draggedId,
+          })
+        }}
+      >
+        {list}
+        <DragOverlay>
+          {activeQuestion && (
+            <div className="rounded-lg bg-nova-surface/80 border border-nova-violet/40 px-3 py-2 shadow-lg text-sm text-nova-text">
+              {activeQuestion.label || activeQuestion.id}
+            </div>
+          )}
+        </DragOverlay>
+      </DragDropProvider>
+
+      <ConfirmDialog
+        open={!!deleteTarget}
+        title="Delete Question"
+        message={`Are you sure you want to delete "${deleteTarget?.label}"?`}
+        confirmLabel="Delete"
+        confirmVariant="danger"
+        onConfirm={confirmDelete}
+        onCancel={() => setDeleteTarget(null)}
+      />
+    </>
   )
 }

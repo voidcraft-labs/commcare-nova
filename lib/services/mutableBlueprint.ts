@@ -248,19 +248,26 @@ export class MutableBlueprint {
     return question
   }
 
-  addQuestion(mIdx: number, fIdx: number, question: NewQuestion, opts?: { afterId?: string; beforeId?: string; parentId?: string }): void {
+  addQuestion(mIdx: number, fIdx: number, question: NewQuestion, opts?: { afterId?: string; beforeId?: string; atIndex?: number; parentId?: string }): void {
     const form = this.blueprint.modules[mIdx]?.forms[fIdx]
     if (!form) throw new Error(`Form m${mIdx}-f${fIdx} not found`)
 
     const newQ: Question = this.newQuestionToBlueprint(question)
 
+    let arr: Question[]
     if (opts?.parentId) {
       const parent = this.findQuestion(form.questions, opts.parentId)
       if (!parent) throw new Error(`Parent question "${opts.parentId}" not found`)
       if (!parent.question.children) parent.question.children = []
-      this.insertIntoArray(parent.question.children, newQ, opts.afterId, opts.beforeId)
+      arr = parent.question.children
     } else {
-      this.insertIntoArray(form.questions, newQ, opts?.afterId, opts?.beforeId)
+      arr = form.questions
+    }
+
+    if (opts?.atIndex !== undefined) {
+      arr.splice(opts.atIndex, 0, newQ)
+    } else {
+      this.insertIntoArray(arr, newQ, opts?.afterId, opts?.beforeId)
     }
   }
 
@@ -288,6 +295,62 @@ export class MutableBlueprint {
       })
       if (form.child_cases.length === 0) delete form.child_cases
     }
+  }
+
+  moveQuestion(mIdx: number, fIdx: number, questionId: string, opts: { afterId?: string; beforeId?: string }): void {
+    const form = this.blueprint.modules[mIdx]?.forms[fIdx]
+    if (!form) throw new Error(`Form m${mIdx}-f${fIdx} not found`)
+
+    // No-op if moving relative to itself
+    if (opts.afterId === questionId || opts.beforeId === questionId) return
+
+    const found = this.findQuestion(form.questions, questionId)
+    if (!found) throw new Error(`Question "${questionId}" not found in m${mIdx}-f${fIdx}`)
+
+    // Remove from current position
+    const idx = found.parent.indexOf(found.question)
+    if (idx !== -1) found.parent.splice(idx, 1)
+
+    // Re-insert at new position within the same parent array
+    this.insertIntoArray(found.parent, found.question, opts.afterId, opts.beforeId)
+  }
+
+  duplicateQuestion(mIdx: number, fIdx: number, questionId: string): string {
+    const form = this.blueprint.modules[mIdx]?.forms[fIdx]
+    if (!form) throw new Error(`Form m${mIdx}-f${fIdx} not found`)
+
+    const found = this.findQuestion(form.questions, questionId)
+    if (!found) throw new Error(`Question "${questionId}" not found in m${mIdx}-f${fIdx}`)
+
+    // Deep-clone and generate new ID
+    const clone: Question = structuredClone(found.question)
+    let newId = `${clone.id}_copy`
+    const allIds = this.collectAllIds(form.questions)
+    if (allIds.has(newId)) {
+      let counter = 2
+      while (allIds.has(`${clone.id}_${counter}`)) counter++
+      newId = `${clone.id}_${counter}`
+    }
+    clone.id = newId
+
+    // Clear case mappings on the clone to avoid duplicate mappings
+    delete clone.case_property
+    delete (clone as any).is_case_name
+
+    // Insert after original in same parent array
+    this.insertIntoArray(found.parent, clone, questionId)
+    return newId
+  }
+
+  private collectAllIds(questions: Question[]): Set<string> {
+    const ids = new Set<string>()
+    for (const q of questions) {
+      ids.add(q.id)
+      if (q.children) {
+        for (const id of this.collectAllIds(q.children)) ids.add(id)
+      }
+    }
+    return ids
   }
 
   // ── Structural mutations ────────────────────────────────────────────

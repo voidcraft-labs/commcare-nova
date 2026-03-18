@@ -1,6 +1,8 @@
 'use client'
 import { AnimatePresence, motion } from 'motion/react'
 import type { AppBlueprint } from '@/lib/schemas/blueprint'
+import type { Builder } from '@/lib/services/builder'
+import type { EditMode } from '@/hooks/useEditContext'
 import { usePreviewNav } from '@/hooks/usePreviewNav'
 import { PreviewHeader } from './PreviewHeader'
 import { HomeScreen } from './screens/HomeScreen'
@@ -11,9 +13,11 @@ import { FormScreen } from './screens/FormScreen'
 interface PreviewShellProps {
   blueprint: AppBlueprint
   actions?: React.ReactNode
+  builder?: Builder
+  mode?: EditMode
 }
 
-export function PreviewShell({ blueprint, actions }: PreviewShellProps) {
+export function PreviewShell({ blueprint, actions, builder, mode = 'edit' }: PreviewShellProps) {
   const nav = usePreviewNav(blueprint)
 
   return (
@@ -62,6 +66,8 @@ export function PreviewShell({ blueprint, actions }: PreviewShellProps) {
                   formIndex={nav.current.formIndex}
                   caseData={nav.current.caseData}
                   onBack={nav.back}
+                  builder={builder}
+                  mode={mode}
                 />
               )}
             </motion.div>
