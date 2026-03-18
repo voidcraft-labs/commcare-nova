@@ -194,6 +194,39 @@ export class FormEngine {
     return this.mergedQuestions
   }
 
+  /** Get a snapshot of all values and touched state for persisting across engine recreations. */
+  getValueSnapshot(): { values: Map<string, string>, touched: Set<string> } {
+    const values = new Map<string, string>()
+    const touched = new Set<string>()
+    for (const [path, state] of this.states) {
+      if (state.value) values.set(path, state.value)
+      if (state.touched) touched.add(path)
+    }
+    return { values, touched }
+  }
+
+  /** Restore values and touched state from a snapshot, then re-evaluate all expressions. */
+  restoreValues(snapshot: { values: Map<string, string>, touched: Set<string> }): void {
+    for (const [path, value] of snapshot.values) {
+      const state = this.states.get(path)
+      if (state) {
+        state.value = value
+        this.instance.set(path, value)
+      }
+    }
+    // Re-evaluate all expressions with restored values
+    this.fullCascade()
+    // Restore touched state and re-validate
+    for (const path of snapshot.touched) {
+      const state = this.states.get(path)
+      if (state) {
+        state.touched = true
+        this.validateField(path, state)
+      }
+    }
+    this.notify()
+  }
+
   subscribe(listener: () => void): () => void {
     this.listeners.add(listener)
     return () => { this.listeners.delete(listener) }

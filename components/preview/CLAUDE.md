@@ -39,7 +39,7 @@ Trash icon on hover/selection in `EditableQuestionWrapper`. `ConfirmDialog` for 
 
 ## Form Components
 
-- **FormRenderer** — Iterates visible questions, wraps each in `SortableQuestion` + `EditableQuestionWrapper`, interleaves `InsertionPoint` zones. Manages drag state, delete confirmation, and cursor velocity tracking.
+- **FormRenderer** — Iterates visible questions, wraps each in `SortableQuestion` + `EditableQuestionWrapper`, interleaves `InsertionPoint` zones. Manages drag state, delete confirmation, and cursor velocity tracking. In edit mode, `SortableQuestion` passes a clean `displayState` (empty value, untouched, valid) to field components so preview inputs appear pristine. Each question wrapper has a `data-question-id` attribute for focus targeting.
 - **EditableQuestionWrapper** — Hover chrome (ring, grip handle), click-to-select, delete button, hold-to-grab cursor (300ms timer). `pointer-events-none` on children prevents form input interaction in edit mode. `data-question-wrapper` attribute for nested click delegation.
 - **QuestionField** — Dispatches to type-specific field component. When `state.caseRef` is set (unresolved case property in edit mode), renders a `.case-ref` badge instead of any input.
 
@@ -48,3 +48,11 @@ Trash icon on hover/selection in `EditableQuestionWrapper`. `ConfirmDialog` for 
 `TextField`, `NumberField`, `DateField`, `SelectOneField`, `SelectMultiField`, `GroupField`, `RepeatField`, `LabelField`, `MediaField`, `ConstraintError`
 
 Each field calls `engine.setValue(path, value)` on change and `engine.touch(path)` on blur. Errors display via `ConstraintError` when `state.touched && !state.valid`.
+
+## Preview vs Live Mode
+
+**Preview (edit)**: Frozen, stateless view. Inputs appear empty, no validation errors or borders. Engine state is preserved internally but suppressed at the display layer. For editing form structure via DetailPanel.
+
+**Live (test)**: Persistent testing sandbox. Values survive round-trips through preview. On switch back to live, all rules (constraints, relevants, calculations) re-evaluate with the current schema against persisted values. `FormScreen` auto-focuses the selected question's input on entry. Blueprint mutations in preview (incrementing `mutationCount`) recreate the engine, but `useFormEngine` snapshots and restores values across recreations.
+
+**Focus tracking**: BuilderLayout tracks the last focused question in live mode via a `focusin` event listener updating `lastLiveQuestionRef`. On Live → Preview switch, this ref drives `builder.select()` so the question the user was typing in becomes selected in preview.

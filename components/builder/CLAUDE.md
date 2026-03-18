@@ -26,7 +26,7 @@ Breadcrumbs are unified across all view modes. In preview/live, derived from `us
 
 - **Tree → Preview/Live**: Nav stack syncs to `builder.selected` (navigates to the selected module/form). `usePreviewNav` auto-resolves case data for followup forms via `resolveScreen`.
 - **Preview/Live → Tree**: If nothing selected, `builder.selected` syncs from current nav screen.
-- **Preview ↔ Live**: Nav is shared (no sync needed). Selection preserved but invisible in live mode.
+- **Preview ↔ Live**: Nav is shared (no sync needed). Selection preserved but invisible in live mode. Live → Preview syncs selection from the last focused question (tracked via `focusin` listener on `lastLiveQuestionRef`). Preview → Live auto-focuses the selected question's input.
 - **Escape in live**: Switches to preview without nav sync (stays on current screen).
 
 When `Done` + blueprint exists:

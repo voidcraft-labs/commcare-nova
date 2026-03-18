@@ -24,7 +24,9 @@ The grammar produces **two distinct `Child` node types** (one from `rootStep`, o
 
 **On `validateAll()` (submit)**: mark all visible fields touched → validate each → return boolean. `FormScreen` scrolls to first error on failure.
 
-**Validation display**: errors show only when `state.touched && !state.valid`. Fields start untouched — no error spam on load.
+**Validation display**: errors show only when `state.touched && !state.valid`. Fields start untouched — no error spam on load. In edit mode (preview), `FormRenderer` passes a clean `displayState` (empty value, untouched, valid) to field components — inputs appear empty with no errors. Engine state is preserved internally.
+
+**Value persistence**: `useFormEngine` snapshots live-mode values (via `getValueSnapshot()`) into a ref before engine recreation (caused by `mutationCount` bumps from preview edits). New engines restore values via `restoreValues()`, which sets values, runs a full cascade, then re-validates touched fields. This lets users edit form structure in preview without losing their test data.
 
 **Unresolved case refs**: When a followup form has no case data, `resolveHashtag` returns empty string for `#case/` refs (not a placeholder string). `QuestionState.caseRef` is set from `question.case_property` for these fields. Output tag resolution returns `{ text, className }` objects via `ResolvedOutput` type, producing styled `<span class="case-ref">` elements in labels. The `.case-ref` CSS class (globals.css) renders a cyan monospace badge.
 
