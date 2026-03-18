@@ -121,7 +121,7 @@ export function GenerationProgress({ phase, message, completed, total, mode, onD
     const timer = setTimeout(() => setDismissing(true), 3000)
     return () => clearTimeout(timer)
   }, [isDone])
-  useSyncExternalStore(subscribeToDismiss, () => 0)
+  useSyncExternalStore(subscribeToDismiss, () => 0, () => 0)
 
   return (
     <motion.div

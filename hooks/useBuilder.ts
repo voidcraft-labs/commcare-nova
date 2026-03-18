@@ -5,6 +5,6 @@ import { Builder } from '@/lib/services/builder'
 const builder = new Builder()
 
 export function useBuilder() {
-  useSyncExternalStore(builder.subscribe, builder.getSnapshot)
+  useSyncExternalStore(builder.subscribe, builder.getSnapshot, builder.getSnapshot)
   return builder
 }

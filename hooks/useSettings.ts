@@ -1,5 +1,5 @@
 'use client'
-import { useState, useCallback } from 'react'
+import { useCallback, useSyncExternalStore } from 'react'
 import { DEFAULT_PIPELINE_CONFIG } from '@/lib/models'
 import type { NovaSettings, PipelineConfig, PipelineStageConfig } from '@/lib/types/settings'
 
@@ -35,53 +35,65 @@ function loadSettings(): NovaSettings {
   }
 }
 
-function persistSettings(settings: NovaSettings) {
+// ── Module-level settings store ──────────────────────────────────────────
+// useSyncExternalStore handles the SSR→client transition gracefully:
+// server renders with defaults, client hydrates with localStorage values,
+// and React falls back to client rendering if they differ (no hydration error).
+
+let currentSettings: NovaSettings = defaultSettings()
+let initialized = false
+const listeners = new Set<() => void>()
+
+function getSnapshot(): NovaSettings {
+  if (!initialized && typeof window !== 'undefined') {
+    currentSettings = loadSettings()
+    initialized = true
+  }
+  return currentSettings
+}
+
+function getServerSnapshot(): NovaSettings {
+  return defaultSettings()
+}
+
+function subscribe(listener: () => void): () => void {
+  listeners.add(listener)
+  return () => listeners.delete(listener)
+}
+
+function notify() {
+  listeners.forEach(fn => fn())
+}
+
+function persistAndNotify(settings: NovaSettings) {
+  currentSettings = settings
   localStorage.setItem(STORAGE_KEY, JSON.stringify(settings))
+  notify()
 }
 
 export function useSettings() {
-  const [settings, setSettings] = useState<NovaSettings>(defaultSettings)
-  const [loaded, setLoaded] = useState(false)
-
-  // Render-phase update: reads localStorage synchronously on the client.
-  // During SSR loaded=false → consumers gate on it. On the client React
-  // restarts the render with the real values before committing.
-  if (!loaded && typeof window !== 'undefined') {
-    setSettings(loadSettings())
-    setLoaded(true)
-  }
+  const settings = useSyncExternalStore(subscribe, getSnapshot, getServerSnapshot)
+  const loaded = typeof window !== 'undefined'
 
   const updateSettings = useCallback((updates: Partial<NovaSettings>) => {
-    setSettings(prev => {
-      const next = { ...prev, ...updates }
-      persistSettings(next)
-      return next
-    })
+    persistAndNotify({ ...currentSettings, ...updates })
   }, [])
 
   const updatePipelineStage = useCallback(
     (stage: keyof PipelineConfig, updates: Partial<PipelineStageConfig>) => {
-      setSettings(prev => {
-        const next = {
-          ...prev,
-          pipeline: {
-            ...prev.pipeline,
-            [stage]: { ...prev.pipeline[stage], ...updates },
-          },
-        }
-        persistSettings(next)
-        return next
+      persistAndNotify({
+        ...currentSettings,
+        pipeline: {
+          ...currentSettings.pipeline,
+          [stage]: { ...currentSettings.pipeline[stage], ...updates },
+        },
       })
     },
     [],
   )
 
   const resetToDefaults = useCallback(() => {
-    setSettings(prev => {
-      const next = { ...prev, pipeline: { ...DEFAULT_PIPELINE_CONFIG } }
-      persistSettings(next)
-      return next
-    })
+    persistAndNotify({ ...currentSettings, pipeline: { ...DEFAULT_PIPELINE_CONFIG } })
   }, [])
 
   return { settings, loaded, updateSettings, updatePipelineStage, resetToDefaults }

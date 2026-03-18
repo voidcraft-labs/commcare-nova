@@ -42,7 +42,7 @@ export function useFormEngine(
   // Wrapped in useCallback because engine identity changes on deps
   const subscribe = useCallback((cb: () => void) => engine.subscribe(cb), [engine])
   const getSnapshot = useCallback(() => engine.getSnapshot(), [engine])
-  useSyncExternalStore(subscribe, getSnapshot)
+  useSyncExternalStore(subscribe, getSnapshot, getSnapshot)
 
   return engine
 }
