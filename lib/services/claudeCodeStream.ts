@@ -1,5 +1,7 @@
 import { spawn } from 'child_process'
 import * as readline from 'readline'
+import { readFileSync, mkdirSync } from 'fs'
+import { join } from 'path'
 
 export type ClaudeCodeEvent =
   | { type: 'init'; sessionId: string }
@@ -106,9 +108,25 @@ export interface StreamClaudeCodeOptions {
   signal?: AbortSignal
 }
 
+/** Load the nova-generate skill content for use as system prompt. */
+let _skillContent: string | undefined
+function getSkillSystemPrompt(): string {
+  if (!_skillContent) {
+    const skillPath = join(process.cwd(), '.claude', 'skills', 'nova-generate.md')
+    const raw = readFileSync(skillPath, 'utf-8')
+    // Strip frontmatter (--- ... ---)
+    _skillContent = raw.replace(/^---[\s\S]*?---\s*/, '').trim()
+  }
+  return _skillContent
+}
+
 /**
  * Async generator that spawns `claude` CLI with `--output-format stream-json`
  * and yields parsed ClaudeCodeEvent values as they arrive.
+ *
+ * Disables all skills/plugins to prevent superpowers from hijacking the conversation.
+ * Injects the nova-generate skill content directly as the system prompt.
+ * Restricts tools to Write (for blueprint file) and Read (for codebase context).
  */
 export async function* streamClaudeCode(
   prompt: string,
@@ -116,13 +134,27 @@ export async function* streamClaudeCode(
 ): AsyncGenerator<ClaudeCodeEvent> {
   const { sessionId, signal } = opts
 
-  const args: string[] = ['-p', prompt, '--output-format', 'stream-json', '--verbose']
+  const systemPrompt = getSkillSystemPrompt()
+
+  const args: string[] = [
+    '-p', prompt,
+    '--output-format', 'stream-json',
+    '--verbose',
+    '--disable-slash-commands',
+    '--system-prompt', systemPrompt,
+    '--tools', 'Write',
+    '--permission-mode', 'bypassPermissions',
+    '--setting-sources', 'user',
+  ]
 
   if (sessionId) {
     args.push('--resume', sessionId)
   } else {
     args.push('--no-session-persistence')
   }
+
+  // Ensure .nova/ directory exists for blueprint file writes
+  mkdirSync(join(process.cwd(), '.nova'), { recursive: true })
 
   const proc = spawn('claude', args, { stdio: ['ignore', 'pipe', 'pipe'] })
 
