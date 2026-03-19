@@ -1,4 +1,4 @@
-# CommCare Nova
+# commcare nova
 
 A web app that generates CommCare applications from natural language conversation. Describe what you need, and Nova builds a fully structured CommCare app — forms, case management, logic, and all.
 

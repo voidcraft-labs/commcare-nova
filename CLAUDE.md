@@ -1,4 +1,4 @@
-# CommCare Nova
+# commcare nova
 
 Next.js web app that generates CommCare apps from natural language conversation.
 
