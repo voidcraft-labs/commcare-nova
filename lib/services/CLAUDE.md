@@ -161,7 +161,7 @@ Shared platform module: `constants.ts` (reserved words, regex), `xml.ts` (escape
 Set `RUN_LOGGER=1` in `.env` to enable. Each run writes to `.log/` — always valid JSON, even on crash.
 
 **RunLogger class** (`runLogger.ts`): created once per request.
-- `logStep(step)` — creates Step, drains emission/sub-result buffers, computes cost, flushes
+- `logStep(step)` — creates Step, drains emission/sub-result buffers, computes cost, flushes. `StepToolCall.output` is backfilled by `logConversation` for client-side tools (e.g. `askQuestions`) whose output arrives on the follow-up request.
 - `logEmission(type, data)` — buffers an emission (skips transient types like `data-partial-scaffold`)
 - `logSubResult(label, result)` — buffers sub-generation usage data
 - `finalize()` — rebuilds conversation, recomputes totals
@@ -177,7 +177,7 @@ Client-side replay of v2 run logs through Builder without API calls.
 
 **Flow:** `/settings` file picker → `extractReplayStages(log)` → module-level store → `/build/new` → `BuilderLayout` reads store → `ReplayController` drives Builder.
 
-`logReplay.ts` — walks `log.steps`, builds progressive chat messages, creates `ReplayStage` per tool call. Multi-tool steps split by `moduleIndex`/`formIndex`. Uses `applyDataPart()` — same code path as real-time.
+`logReplay.ts` — walks `log.steps`, builds progressive chat messages, creates `ReplayStage` per tool call. Multi-tool steps split by `moduleIndex`/`formIndex`. Uses `applyDataPart()` — same code path as real-time. Tool outputs (e.g. question answers) are read from `StepToolCall.output` and included in replay parts.
 
 ## Pipeline Config
 

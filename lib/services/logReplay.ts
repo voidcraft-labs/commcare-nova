@@ -117,6 +117,7 @@ export function extractReplayStages(log: RunLog): ExtractionResult {
           toolName: tc.name,
           input: tc.args,
           state: 'output-available',
+          ...(tc.output !== undefined ? { output: tc.output } : {}),
         })
       }
     }

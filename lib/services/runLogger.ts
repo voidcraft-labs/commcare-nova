@@ -37,6 +37,7 @@ export interface StepUsage {
 export interface StepToolCall {
   name: string
   args: unknown
+  output?: unknown
   generation?: StepUsage
   reasoning?: string
 }
@@ -148,8 +149,11 @@ export class RunLogger {
    * Update the conversation log with the latest messages from the client.
    * Called at the start of each request — overwrites with the latest (most complete)
    * messages array so the log always has the full conversation history.
+   * Also backfills tool outputs (e.g. askQuestions answers) into step tool_calls,
+   * since client-side tools only receive output on the follow-up request.
    */
   logConversation(messages: UIMessage[]) {
+    this.backfillToolOutputs(messages)
     this.log.conversation = messages
     if (this.enabled) this.flush()
   }
@@ -288,6 +292,36 @@ export class RunLogger {
   // ── Private ─────────────────────────────────────────────────────────
 
   /**
+   * Backfill tool outputs from client messages into step tool_calls.
+   * Client-side tools (e.g. askQuestions) have no execute — output arrives
+   * via addToolOutput on the follow-up request. Match by tool name in order.
+   */
+  private backfillToolOutputs(messages: UIMessage[]) {
+    const outputs: { name: string; output: unknown }[] = []
+    for (const msg of messages) {
+      if (msg.role !== 'assistant') continue
+      for (const part of msg.parts) {
+        if (part.type === 'tool-askQuestions' && part.state === 'output-available') {
+          outputs.push({ name: 'askQuestions', output: part.output })
+        }
+      }
+    }
+    if (outputs.length === 0) return
+
+    let idx = 0
+    for (const step of this.log.steps) {
+      if (!step.tool_calls || idx >= outputs.length) continue
+      for (const tc of step.tool_calls) {
+        if (tc.name === outputs[idx].name) {
+          if (tc.output === undefined) tc.output = outputs[idx].output
+          idx++
+        }
+        if (idx >= outputs.length) break
+      }
+    }
+  }
+
+  /**
    * Rebuild conversation to include the assistant response from the current request.
    * Constructs an assistant UIMessage from steps in the current request.
    */
@@ -311,6 +345,7 @@ export class RunLogger {
             toolName: tc.name,
             input: tc.args,
             state: 'output-available',
+            ...(tc.output !== undefined ? { output: tc.output } : {}),
           })
         }
       }
