@@ -1,5 +1,5 @@
 'use client'
-import { useRef, useMemo, useCallback } from 'react'
+import { useRef, useEffect, useMemo, useCallback } from 'react'
 import type { AppBlueprint } from '@/lib/schemas/blueprint'
 import type { Builder } from '@/lib/services/builder'
 import type { EditMode } from '@/hooks/useEditContext'
@@ -32,6 +32,15 @@ export function FormScreen({ blueprint, moduleIndex, formIndex, caseData, onBack
     stableCaseData,
     builder?.mutationCount,
   )
+
+  // Reset validation when leaving test mode so fields start clean on re-entry
+  const prevModeRef = useRef(mode)
+  useEffect(() => {
+    if (prevModeRef.current === 'test' && mode !== 'test') {
+      engine.resetValidation()
+    }
+    prevModeRef.current = mode
+  }, [mode, engine])
 
   const formBodyElRef = useRef<HTMLDivElement>(null)
 

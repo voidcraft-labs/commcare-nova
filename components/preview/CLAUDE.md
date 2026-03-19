@@ -47,12 +47,12 @@ Trash icon on hover/selection in `EditableQuestionWrapper`. Deletes immediately 
 
 `TextField`, `NumberField`, `DateField`, `SelectOneField`, `SelectMultiField`, `GroupField`, `RepeatField`, `LabelField`, `MediaField`, `ConstraintError`
 
-Each field calls `engine.setValue(path, value)` on change and `engine.touch(path)` on blur. Errors display via `ConstraintError` when `state.touched && !state.valid`.
+Each field calls `engine.setValue(path, value)` on change and `engine.touch(path)` on blur. Blur only validates constraints — required validation is deferred to submit. Errors display via `ConstraintError` when `state.touched && !state.valid`.
 
 ## Design vs Preview Mode
 
 **Design (edit)**: Frozen, stateless view. Inputs appear empty, no validation errors, submit bar hidden. Engine state is preserved internally but suppressed at the display layer. For editing form structure via DetailPanel. Cyan accent for edit chrome (selection rings, insertion points, drag overlays). `.design-theme` overrides input borders to neutral gray so cyan selection chrome stands out.
 
-**Preview (test)**: Persistent testing sandbox. Values survive round-trips through design. On switch back to preview, all rules (constraints, relevants, calculations) re-evaluate with the current schema against persisted values. `FormScreen` auto-focuses the selected question's input on entry. Blueprint mutations in design (incrementing `mutationCount`) recreate the engine, but `useFormEngine` snapshots and restores values across recreations.
+**Preview (test)**: Persistent testing sandbox. Values survive round-trips through design. Validation state resets on exit from test mode (`engine.resetValidation()`) so fields start clean on re-entry. On switch back to preview, all rules (constraints, relevants, calculations) re-evaluate with the current schema against persisted values. `FormScreen` auto-focuses the selected question's input on entry. Blueprint mutations in design (incrementing `mutationCount`) recreate the engine, but `useFormEngine` snapshots and restores values across recreations.
 
 **Focus tracking**: BuilderLayout tracks the last focused question in preview mode via a `focusin` ref callback on the layout container. On Preview → Design switch, this ref drives `builder.select()` so the question the user was typing in becomes selected in design.

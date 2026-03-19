@@ -20,9 +20,11 @@ The grammar produces **two distinct `Child` node types** (one from `rootStep`, o
 
 **On `setValue(path)`**: update instance → DAG cascade (topologically sorted) → re-evaluate expressions per affected path (calculate, relevant, required, constraint) → re-validate constraint.
 
-**On `touch(path)` (blur)**: mark touched → validate (required + constraint).
+**On `touch(path)` (blur)**: mark touched → validate constraint only. Required validation is deferred to submit to avoid error flash on mode switches.
 
-**On `validateAll()` (submit)**: mark all visible fields touched → validate each → return boolean. `FormScreen` scrolls to first error on failure.
+**On `validateAll()` (submit)**: mark all visible fields touched → validate each (required + constraint) → return boolean. `FormScreen` scrolls to first error on failure.
+
+**On `resetValidation()`**: clear touched state and errors on all fields. Called by `FormScreen` when leaving test mode so fields start clean on re-entry.
 
 **Validation display**: errors show only when `state.touched && !state.valid`. Fields start untouched — no error spam on load. In edit mode (preview), `FormRenderer` passes a clean `displayState` (empty value, untouched, valid) to field components — inputs appear empty with no errors. Engine state is preserved internally.
 

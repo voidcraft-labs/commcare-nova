@@ -152,13 +152,13 @@ export class FormEngine {
     return this.instance.getRepeatCount(repeatPath)
   }
 
-  /** Mark a field as touched (on blur). Runs validation for that field. */
+  /** Mark a field as touched (on blur). Runs constraint validation only — required is deferred to submit. */
   touch(path: string): void {
     const state = this.states.get(path)
     if (!state || state.touched) return
 
     state.touched = true
-    this.validateField(path, state)
+    this.evaluateConstraint(path, state)
     this.notify()
   }
 
@@ -193,6 +193,16 @@ export class FormEngine {
   /** Get the merged question tree (with data model defaults applied). */
   getQuestions(): Question[] {
     return this.mergedQuestions
+  }
+
+  /** Clear touched state and validation errors on all fields (for mode switches). */
+  resetValidation(): void {
+    for (const state of this.states.values()) {
+      state.touched = false
+      state.valid = true
+      state.errorMessage = undefined
+    }
+    this.notify()
   }
 
   /** Get a snapshot of all values and touched state for persisting across engine recreations. */
