@@ -13,7 +13,7 @@ Client-side web preview with cyan accent theme (`.preview-theme` in globals.css)
 - **HomeScreen** — Module cards
 - **ModuleScreen** — Form list within a module
 - **CaseListScreen** — Case selector for followup forms (generates dummy data from CaseType)
-- **FormScreen** — Form entry with question fields, submit button, scroll-to-first-error on validation failure. Wraps form body in `EditContextProvider` when builder is present. Blocks followup forms in preview mode without case data (shows "no cases" error).
+- **FormScreen** — Form entry with question fields, submit button (preview mode only), scroll-to-first-error on validation failure. Wraps form body in `EditContextProvider` when builder is present. Blocks followup forms in preview mode without case data (shows "no cases" error).
 
 ## Edit Mode
 
@@ -51,7 +51,7 @@ Each field calls `engine.setValue(path, value)` on change and `engine.touch(path
 
 ## Design vs Preview Mode
 
-**Design (edit)**: Frozen, stateless view. Inputs appear empty, no validation errors. Engine state is preserved internally but suppressed at the display layer. For editing form structure via DetailPanel. Cyan accent for edit chrome (selection rings, insertion points, drag overlays). `.design-theme` overrides input borders to neutral gray so cyan selection chrome stands out.
+**Design (edit)**: Frozen, stateless view. Inputs appear empty, no validation errors, submit bar hidden. Engine state is preserved internally but suppressed at the display layer. For editing form structure via DetailPanel. Cyan accent for edit chrome (selection rings, insertion points, drag overlays). `.design-theme` overrides input borders to neutral gray so cyan selection chrome stands out.
 
 **Preview (test)**: Persistent testing sandbox. Values survive round-trips through design. On switch back to preview, all rules (constraints, relevants, calculations) re-evaluate with the current schema against persisted values. `FormScreen` auto-focuses the selected question's input on entry. Blueprint mutations in design (incrementing `mutationCount`) recreate the engine, but `useFormEngine` snapshots and restores values across recreations.
 
