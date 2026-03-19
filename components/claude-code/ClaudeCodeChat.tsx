@@ -128,6 +128,25 @@ export function ClaudeCodeChat({ onBlueprintReady }: ClaudeCodeChatProps) {
             {messages.map((message) => {
               const isUser = message.role === 'user'
 
+              // Hide user messages sent from card clicks (answer already shown in card checkmark)
+              if (isUser && message.fromCard) return null
+
+              // Status update (building phase transition)
+              if (!isUser && message.statusUpdate) {
+                return (
+                  <div key={message.id} className="flex justify-center my-4">
+                    <motion.div
+                      initial={{ opacity: 0, scale: 0.95 }}
+                      animate={{ opacity: 1, scale: 1 }}
+                      className="flex items-center gap-3 px-5 py-3 rounded-full bg-nova-violet/10 border border-nova-violet/20"
+                    >
+                      <div className="w-2 h-2 rounded-full bg-nova-violet animate-pulse" />
+                      <span className="text-sm font-medium text-nova-violet">{message.statusUpdate.message}</span>
+                    </motion.div>
+                  </div>
+                )
+              }
+
               // Structured question card for assistant messages
               if (!isUser && message.structuredQuestion) {
                 const preamble = getQuestionPreamble(message.content)
@@ -144,7 +163,7 @@ export function ClaudeCodeChat({ onBlueprintReady }: ClaudeCodeChatProps) {
                       )}
                       <QuestionCardInline
                         question={message.structuredQuestion}
-                        onAnswer={(answer) => sendMessage(answer)}
+                        onAnswer={(answer) => sendMessage(answer, { fromCard: true })}
                         disabled={isStreaming}
                       />
                     </div>

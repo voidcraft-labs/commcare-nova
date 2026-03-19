@@ -13,12 +13,21 @@ export interface StructuredQuestion {
   options: QuestionOption[]
 }
 
+export interface StatusUpdate {
+  phase: string
+  message: string
+}
+
 export interface ClaudeCodeMessage {
   id: string
   role: 'user' | 'assistant'
   content: string
   /** Parsed structured question from a ```question block, if present */
   structuredQuestion?: StructuredQuestion
+  /** Parsed status update from a ```status block, if present */
+  statusUpdate?: StatusUpdate
+  /** If true, this user message was sent by clicking a question card option — hide the bubble */
+  fromCard?: boolean
 }
 
 /** Extract a structured question from a ```question fenced block. */
@@ -47,6 +56,21 @@ export function getQuestionPreamble(text: string): string {
   const idx = text.indexOf('```question')
   if (idx <= 0) return ''
   return text.slice(0, idx).trim()
+}
+
+/** Extract a status update from a ```status fenced block. */
+export function extractStatus(text: string): StatusUpdate | null {
+  const match = text.match(/```status\s*\n([\s\S]*?)\n```/)
+  if (!match) return null
+  try {
+    const parsed = JSON.parse(match[1])
+    if (parsed?.phase && parsed?.message) {
+      return { phase: parsed.phase, message: parsed.message }
+    }
+  } catch {
+    // invalid JSON
+  }
+  return null
 }
 
 /** Check if an object looks like a complete AppBlueprint (not a partial example). */
@@ -87,7 +111,7 @@ export function useClaudeCode() {
   const sessionIdRef = useRef<string | null>(null)
   const abortRef = useRef<AbortController | null>(null)
 
-  const sendMessage = useCallback(async (text: string) => {
+  const sendMessage = useCallback(async (text: string, opts?: { fromCard?: boolean }) => {
     // Abort any in-flight request
     if (abortRef.current) {
       abortRef.current.abort()
@@ -99,6 +123,7 @@ export function useClaudeCode() {
       id: crypto.randomUUID(),
       role: 'user',
       content: text,
+      fromCard: opts?.fromCard,
     }
     const assistantMessage: ClaudeCodeMessage = {
       id: crypto.randomUUID(),
@@ -161,22 +186,20 @@ export function useClaudeCode() {
             } else if (currentEvent === 'text') {
               const chunk = typeof data === 'string' ? data : (data?.text ?? '')
               fullText += chunk
-              // Check for a complete structured question block
+              // Check for structured question or status blocks
               const sq = extractQuestion(fullText)
+              const su = extractStatus(fullText)
               setMessages(prev =>
                 prev.map(m =>
-                  m.id === assistantId ? { ...m, content: fullText, structuredQuestion: sq ?? undefined } : m
+                  m.id === assistantId
+                    ? { ...m, content: fullText, structuredQuestion: sq ?? undefined, statusUpdate: su ?? undefined }
+                    : m
                 )
               )
             } else if (currentEvent === 'tool_use') {
               const tool = typeof data === 'string' ? data : (data?.tool ?? data?.name ?? 'tool')
               if (tool === 'Write') sawFileWrite = true
-              fullText += `\n*Using ${tool}...*\n`
-              setMessages(prev =>
-                prev.map(m =>
-                  m.id === assistantId ? { ...m, content: fullText } : m
-                )
-              )
+              // Don't append tool_use text inline — it creates artifacts
             } else if (currentEvent === 'result') {
               // Only look for blueprint in text if the response looks like it was a generation turn
               const bp = extractBlueprint(fullText)
