@@ -149,9 +149,9 @@ export async function* streamClaudeCode(
 
   if (sessionId) {
     args.push('--resume', sessionId)
-  } else {
-    args.push('--no-session-persistence')
   }
+  // Note: we do NOT use --no-session-persistence because multi-turn
+  // requires the session to be saved so --resume works on follow-up messages.
 
   // Ensure .nova/ directory exists for blueprint file writes
   mkdirSync(join(process.cwd(), '.nova'), { recursive: true })
