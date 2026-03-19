@@ -4,10 +4,11 @@ import { createPortal } from 'react-dom'
 import { motion, AnimatePresence } from 'motion/react'
 import CodeMirror from '@uiw/react-codemirror'
 import { EditorView, keymap } from '@codemirror/view'
-import { foldGutter, foldKeymap, indentOnInput, bracketMatching } from '@codemirror/language'
+import { foldGutter, foldKeymap, indentOnInput, bracketMatching, indentUnit } from '@codemirror/language'
+import { EditorState } from '@codemirror/state'
 import { xpath } from '@/lib/codemirror/xpath-language'
 import { novaXPathTheme } from '@/lib/codemirror/xpath-theme'
-import { formatXPath } from '@/lib/codemirror/xpath-format'
+import { formatXPath, prettyPrintXPath } from '@/lib/codemirror/xpath-format'
 
 const modalEditorTheme = EditorView.theme({
   '&': {
@@ -29,12 +30,44 @@ const modalEditorTheme = EditorView.theme({
     borderRight: '1px solid rgba(139, 92, 246, 0.1)',
     color: 'var(--nova-text-muted)',
   },
-  '.cm-foldGutter': { width: '12px' },
+  '.cm-foldPlaceholder': {
+    backgroundColor: 'rgba(139, 92, 246, 0.1)',
+    border: '1px solid rgba(139, 92, 246, 0.2)',
+    color: 'var(--nova-text-muted)',
+    borderRadius: '3px',
+    padding: '0 4px',
+  },
+  '.cm-foldGutter': { width: '16px' },
+  '.cm-foldGutter .cm-gutterElement': {
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
 })
 
 const modalExtensions = [
+  indentUnit.of('    '),
   xpath(),
-  foldGutter(),
+  foldGutter({
+    markerDOM(open) {
+      const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg')
+      svg.setAttribute('viewBox', '0 0 24 24')
+      svg.setAttribute('width', '12')
+      svg.setAttribute('height', '12')
+      svg.style.cssText = 'cursor: pointer; color: var(--nova-text-muted);'
+      const path = document.createElementNS('http://www.w3.org/2000/svg', 'path')
+      path.setAttribute('fill', 'none')
+      path.setAttribute('stroke', 'currentColor')
+      path.setAttribute('stroke-linecap', 'round')
+      path.setAttribute('stroke-linejoin', 'round')
+      path.setAttribute('stroke-width', '2')
+      path.setAttribute('d', open ? 'm19 9l-7 7l-7-7' : 'm9 5l7 7l-7 7')
+      svg.appendChild(path)
+      svg.addEventListener('mouseenter', () => { svg.style.color = 'var(--nova-violet-bright, #a78bfa)' })
+      svg.addEventListener('mouseleave', () => { svg.style.color = 'var(--nova-text-muted)' })
+      return svg
+    },
+  }),
   keymap.of(foldKeymap),
   indentOnInput(),
   bracketMatching(),
@@ -50,12 +83,12 @@ interface XPathEditorModalProps {
 }
 
 export function XPathEditorModal({ value, label, onSave, onClose }: XPathEditorModalProps) {
-  const [draft, setDraft] = useState(() => formatXPath(value))
+  const [draft, setDraft] = useState(() => prettyPrintXPath(value))
 
   const handleUpdate = useCallback(() => {
-    const trimmed = draft.trim()
-    if (trimmed !== value) {
-      onSave(trimmed)
+    const normalized = formatXPath(draft)
+    if (normalized !== formatXPath(value)) {
+      onSave(normalized)
     }
     onClose()
   }, [draft, value, onSave, onClose])
@@ -115,6 +148,11 @@ export function XPathEditorModal({ value, label, onSave, onClose }: XPathEditorM
               onChange={setDraft}
               theme={novaXPathTheme}
               extensions={modalExtensions}
+              autoFocus
+              onCreateEditor={(view) => {
+                const end = view.state.doc.length
+                view.dispatch({ selection: { anchor: end } })
+              }}
               basicSetup={{
                 lineNumbers: true,
                 highlightActiveLine: true,

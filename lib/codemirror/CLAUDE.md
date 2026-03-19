@@ -17,7 +17,7 @@ Custom XPath 1.0 language with CommCare hashtag references (`#case/prop`, `#form
 Two-phase architecture:
 
 1. **Phase 1 (format)**: Walk Lezer tree → produce `FormatNode` tree with `Layout.Space` tokens between children. Source text is never modified — only whitespace is controlled.
-2. **Phase 2 (render)**: Walk `FormatNode` tree → map to output (`Space → ' '`, `NewLine → '\n'`, `Tab → '\t'`).
+2. **Phase 2 (render)**: Walk `FormatNode` tree → map to output (`Space → ' '`, `NewLine → '\n'`, `Tab → '    '` (4 spaces)).
 
 `FormatNode.type` is a union of Lezer's `NodeType` and the `Layout` enum — one type, no discriminator wrappers.
 
@@ -37,7 +37,7 @@ Replaces `Layout.Space` with `Layout.NewLine` + `Layout.Tab`:
 - **Filtered** — newline + indent after `[`, before `]`
 - **AndExpr / OrExpr** — newline before keyword when inside expanded context (depth > 0)
 
-`XPathField` uses `prettyPrintXPath` for display; `formatXPath` (single-line) for storage/export.
+`XPathField` uses `prettyPrintXPath` for display; `XPathEditorModal` opens with `prettyPrintXPath` and saves via `formatXPath` (single-line) for storage/export. `Layout.Tab` renders as 4 spaces (not `\t`) so editor auto-indent matches formatter output.
 
 ## Language & Theme
 
