@@ -50,7 +50,7 @@ function shouldAutoResend({ messages }: { messages: UIMessage[] }): boolean {
   return askParts.length > 0 && askParts.every((p: any) => p.state === 'output-available')
 }
 
-export function BuilderLayout({ buildId }: { buildId: string }) {
+export function BuilderLayout({ buildId, claudeCodeMode }: { buildId: string; claudeCodeMode?: boolean }) {
   const router = useRouter()
   const { apiKey, loaded } = useApiKey()
   const { settings } = useSettings()
@@ -228,14 +228,15 @@ export function BuilderLayout({ buildId }: { buildId: string }) {
 
   useKeyboardShortcuts('builder-layout', shortcuts, [builder.phase === BuilderPhase.Done, viewMode, builder.selected, builder.blueprint, builder.mutationCount])
 
-  const shouldRedirect = loaded && !apiKey && !inReplayMode
+  const shouldRedirect = loaded && !apiKey && !inReplayMode && !claudeCodeMode
   useEffect(() => {
     if (shouldRedirect) router.push('/')
   }, [shouldRedirect, router])
   if (!loaded || shouldRedirect) return null
 
   const showProgress = (isGenerating || builder.phase === BuilderPhase.Done) && !progressHidden && !inReplayMode
-  const chatOpen = viewMode === 'preview' ? false : chatUserPref
+  const ccViewOnly = !!(claudeCodeMode && !apiKey)
+  const chatOpen = ccViewOnly ? false : (viewMode === 'preview' ? false : chatUserPref)
   const showToolbar = !!(builder.treeData && builder.phase === BuilderPhase.Done && builder.blueprint)
   const showDetailPanel = showToolbar && (viewMode === 'tree' || viewMode === 'design') && !!builder.selected
   const isPreviewLike = viewMode === 'design' || viewMode === 'preview'
@@ -386,6 +387,13 @@ export function BuilderLayout({ buildId }: { buildId: string }) {
           />
         )}
 
+        {/* Claude Code view-only banner */}
+        {ccViewOnly && showToolbar && (
+          <div className="px-4 py-2 text-xs text-nova-text-muted text-center bg-nova-deep/50 border-b border-nova-border">
+            View mode — <Link href="/settings" className="text-nova-violet hover:underline">add an API key</Link> to enable AI-powered editing
+          </div>
+        )}
+
         {/* Tier 4: Content area — sidebars float over main content */}
         <div className="relative flex-1 overflow-hidden">
           {/* Centered hero mode */}
@@ -426,7 +434,7 @@ export function BuilderLayout({ buildId }: { buildId: string }) {
                 transition={{ duration: 0.3, delay: 0.15 }}
               >
                 <div className="h-full overflow-auto">
-                  {!chatOpen && viewMode !== 'preview' && (
+                  {!chatOpen && viewMode !== 'preview' && !ccViewOnly && (
                     <button
                       onClick={() => setChatUserPref(true)}
                       className="absolute top-3 left-3 z-10 p-2 bg-nova-surface border border-nova-border rounded-lg hover:border-nova-border-bright transition-colors cursor-pointer"
