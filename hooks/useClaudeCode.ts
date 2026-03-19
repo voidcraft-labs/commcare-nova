@@ -230,16 +230,11 @@ export function useClaudeCode() {
               if (timerRef.current) { clearInterval(timerRef.current); timerRef.current = null }
               setElapsedMs(Date.now() - startTimeRef.current)
 
-              // Extract real usage from result event (has accurate totals)
-              const resultUsage = data?.usage
-              if (resultUsage) {
-                const outTokens = resultUsage.output_tokens ?? resultUsage.outputTokens ?? 0
-                const inTokens = (resultUsage.input_tokens ?? resultUsage.inputTokens ?? 0)
-                  + (resultUsage.cache_read_input_tokens ?? 0)
-                  + (resultUsage.cache_creation_input_tokens ?? 0)
+              // Extract usage from result (parser includes it with accurate totals)
+              if (data?.usage) {
                 setUsage(prev => ({
-                  inputTokens: prev.inputTokens + inTokens,
-                  outputTokens: prev.outputTokens + outTokens,
+                  inputTokens: prev.inputTokens + (data.usage.inputTokens ?? 0),
+                  outputTokens: prev.outputTokens + (data.usage.outputTokens ?? 0),
                 }))
               }
 

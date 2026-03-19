@@ -13,7 +13,7 @@ export type ClaudeCodeEvent =
   | { type: 'text'; text: string; sessionId: string }
   | { type: 'tool_use'; tool: string; sessionId: string }
   | { type: 'usage'; usage: TokenUsage; sessionId: string }
-  | { type: 'result'; text: string; sessionId: string; durationMs: number }
+  | { type: 'result'; text: string; sessionId: string; durationMs: number; usage?: TokenUsage }
   | { type: 'error'; message: string }
 
 /**
@@ -113,7 +113,15 @@ export function parseStreamEvent(line: string): ClaudeCodeEvent[] {
         typeof sessionId === 'string' &&
         typeof durationMs === 'number'
       ) {
-        return [{ type: 'result', text: result, sessionId, durationMs }]
+        // Extract usage from result event (has accurate final totals)
+        const rawUsage = obj['usage'] as Record<string, unknown> | undefined
+        const resultUsage: TokenUsage | undefined = rawUsage ? {
+          inputTokens: (typeof rawUsage['input_tokens'] === 'number' ? rawUsage['input_tokens'] as number : 0)
+            + (typeof rawUsage['cache_read_input_tokens'] === 'number' ? rawUsage['cache_read_input_tokens'] as number : 0)
+            + (typeof rawUsage['cache_creation_input_tokens'] === 'number' ? rawUsage['cache_creation_input_tokens'] as number : 0),
+          outputTokens: typeof rawUsage['output_tokens'] === 'number' ? rawUsage['output_tokens'] as number : 0,
+        } : undefined
+        return [{ type: 'result', text: result, sessionId, durationMs, usage: resultUsage }]
       }
     }
 
