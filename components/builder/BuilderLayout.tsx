@@ -1,5 +1,5 @@
 'use client'
-import { useRef, useState, useCallback } from 'react'
+import { useRef, useState, useCallback, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { useChat } from '@ai-sdk/react'
 import { DefaultChatTransport, type UIMessage } from 'ai'
@@ -248,11 +248,11 @@ export function BuilderLayout({ buildId }: { buildId: string }) {
 
   useKeyboardShortcuts('builder-layout', shortcuts, [builder.phase === BuilderPhase.Done, viewMode, builder.selected, builder.blueprint, builder.mutationCount])
 
-  if (!loaded) return null
-  if (!apiKey && !inReplayMode) {
-    router.push('/')
-    return null
-  }
+  const shouldRedirect = loaded && !apiKey && !inReplayMode
+  useEffect(() => {
+    if (shouldRedirect) router.push('/')
+  }, [shouldRedirect, router])
+  if (!loaded || shouldRedirect) return null
 
   const showProgress = (isGenerating || builder.phase === BuilderPhase.Done) && !progressHidden && !inReplayMode
   const isPreviewLike = viewMode === 'preview' || viewMode === 'test'
