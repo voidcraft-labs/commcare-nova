@@ -108,10 +108,13 @@ export interface StreamClaudeCodeOptions {
   signal?: AbortSignal
 }
 
-/** Load the nova-generate skill content for use as system prompt. */
+/** Load the nova-generate skill content for use as system prompt.
+ *  In dev mode, re-reads the file each time to pick up changes without restart.
+ */
 let _skillContent: string | undefined
 function getSkillSystemPrompt(): string {
-  if (!_skillContent) {
+  const isDev = process.env.NODE_ENV === 'development'
+  if (!_skillContent || isDev) {
     const skillPath = join(process.cwd(), '.claude', 'skills', 'nova-generate.md')
     const raw = readFileSync(skillPath, 'utf-8')
     // Strip frontmatter (--- ... ---)

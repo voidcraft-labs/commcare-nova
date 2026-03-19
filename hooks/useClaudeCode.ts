@@ -2,10 +2,51 @@
 
 import { useState, useRef, useCallback } from 'react'
 
+export interface QuestionOption {
+  label: string
+  description?: string
+}
+
+export interface StructuredQuestion {
+  header: string
+  question: string
+  options: QuestionOption[]
+}
+
 export interface ClaudeCodeMessage {
   id: string
   role: 'user' | 'assistant'
   content: string
+  /** Parsed structured question from a ```question block, if present */
+  structuredQuestion?: StructuredQuestion
+}
+
+/** Extract a structured question from a ```question fenced block. */
+export function extractQuestion(text: string): StructuredQuestion | null {
+  const match = text.match(/```question\s*\n([\s\S]*?)\n```/)
+  if (!match) return null
+  try {
+    const parsed = JSON.parse(match[1])
+    if (parsed?.question && Array.isArray(parsed?.options) && parsed.options.length >= 2) {
+      return {
+        header: parsed.header ?? '',
+        question: parsed.question,
+        options: parsed.options.map((o: any) =>
+          typeof o === 'string' ? { label: o } : { label: o.label, description: o.description }
+        ),
+      }
+    }
+  } catch {
+    // invalid JSON
+  }
+  return null
+}
+
+/** Get the text content before a ```question block (context sentence). */
+export function getQuestionPreamble(text: string): string {
+  const idx = text.indexOf('```question')
+  if (idx <= 0) return ''
+  return text.slice(0, idx).trim()
 }
 
 export function extractBlueprint(text: string): any | null {
@@ -108,9 +149,11 @@ export function useClaudeCode() {
             } else if (currentEvent === 'text') {
               const chunk = typeof data === 'string' ? data : (data?.text ?? '')
               fullText += chunk
+              // Check for a complete structured question block
+              const sq = extractQuestion(fullText)
               setMessages(prev =>
                 prev.map(m =>
-                  m.id === assistantId ? { ...m, content: fullText } : m
+                  m.id === assistantId ? { ...m, content: fullText, structuredQuestion: sq ?? undefined } : m
                 )
               )
             } else if (currentEvent === 'tool_use') {

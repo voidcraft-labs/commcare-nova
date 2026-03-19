@@ -4,7 +4,8 @@ import { motion, AnimatePresence } from 'motion/react'
 import { Icon } from '@iconify/react'
 import ciArrowRight from '@iconify-icons/ci/arrow-right-md'
 import ciCheckAll from '@iconify-icons/ci/check-all'
-import { useClaudeCode } from '@/hooks/useClaudeCode'
+import { useClaudeCode, getQuestionPreamble } from '@/hooks/useClaudeCode'
+import type { StructuredQuestion } from '@/hooks/useClaudeCode'
 import { renderMarkdown } from '@/lib/markdown'
 
 interface ClaudeCodeChatProps {
@@ -58,6 +59,11 @@ export function ClaudeCodeChat({ onBlueprintReady }: ClaudeCodeChatProps) {
     onBlueprintReady(blueprint, chatMessages)
   }, [blueprint, messages, onBlueprintReady])
 
+  const handleOptionClick = useCallback((answer: string) => {
+    if (isStreaming) return
+    sendMessage(answer)
+  }, [isStreaming, sendMessage])
+
   return (
     <div className="flex flex-col h-full max-w-2xl mx-auto w-full">
       {/* Messages area */}
@@ -83,6 +89,31 @@ export function ClaudeCodeChat({ onBlueprintReady }: ClaudeCodeChatProps) {
           <>
             {messages.map((message) => {
               const isUser = message.role === 'user'
+
+              // Structured question card for assistant messages
+              if (!isUser && message.structuredQuestion) {
+                const preamble = getQuestionPreamble(message.content)
+                return (
+                  <div key={message.id} className="flex justify-start">
+                    <div className="max-w-[85%] w-full space-y-2">
+                      {preamble && (
+                        <div className="text-sm text-nova-text-muted leading-relaxed">
+                          <div
+                            className="chat-markdown"
+                            dangerouslySetInnerHTML={{ __html: renderMarkdown(preamble) }}
+                          />
+                        </div>
+                      )}
+                      <QuestionCardInline
+                        question={message.structuredQuestion}
+                        onAnswer={(answer) => sendMessage(answer)}
+                        disabled={isStreaming}
+                      />
+                    </div>
+                  </div>
+                )
+              }
+
               return (
                 <div
                   key={message.id}
@@ -183,6 +214,73 @@ export function ClaudeCodeChat({ onBlueprintReady }: ClaudeCodeChatProps) {
           </button>
         </div>
       </div>
+    </div>
+  )
+}
+
+// ── Inline question card ─────────────────────────────────────────────
+
+function QuestionCardInline({
+  question,
+  onAnswer,
+  disabled,
+}: {
+  question: StructuredQuestion
+  onAnswer: (answer: string) => void
+  disabled: boolean
+}) {
+  const [answered, setAnswered] = useState<string | null>(null)
+
+  const handleClick = (label: string) => {
+    if (disabled || answered) return
+    setAnswered(label)
+    onAnswer(label)
+  }
+
+  return (
+    <div className="rounded-xl border border-nova-violet/20 bg-nova-violet/5 overflow-hidden">
+      {/* Header */}
+      <div className="px-3.5 py-2.5 border-b border-nova-violet/10">
+        {question.header && (
+          <span className="text-[10px] uppercase tracking-widest text-nova-violet font-medium">
+            {question.header}
+          </span>
+        )}
+        <p className="text-sm text-nova-text mt-0.5">{question.question}</p>
+      </div>
+
+      {/* Options */}
+      <div className="px-3.5 py-3 space-y-1.5">
+        {answered ? (
+          <div className="flex items-center gap-2 text-xs text-nova-text">
+            <Icon icon={ciCheckAll} width="14" height="14" className="text-nova-emerald shrink-0" />
+            <span>{answered}</span>
+          </div>
+        ) : (
+          question.options.map((opt) => (
+            <motion.button
+              key={opt.label}
+              whileHover={{ scale: 1.01 }}
+              whileTap={{ scale: 0.99 }}
+              onClick={() => handleClick(opt.label)}
+              disabled={disabled}
+              className="w-full text-left px-3 py-2 rounded-lg border border-nova-border bg-nova-surface hover:border-nova-violet/40 hover:bg-nova-violet/5 transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              <div className="text-sm text-nova-text">{opt.label}</div>
+              {opt.description && (
+                <div className="text-xs text-nova-text-muted mt-0.5">{opt.description}</div>
+              )}
+            </motion.button>
+          ))
+        )}
+      </div>
+
+      {/* Footer hint */}
+      {!answered && !disabled && (
+        <div className="px-3.5 py-2 border-t border-nova-violet/10">
+          <span className="text-xs text-nova-text-muted">or type your answer below</span>
+        </div>
+      )}
     </div>
   )
 }
