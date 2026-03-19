@@ -52,8 +52,10 @@ function getSnapshot(): NovaSettings {
   return currentSettings
 }
 
+const SERVER_SNAPSHOT = defaultSettings()
+
 function getServerSnapshot(): NovaSettings {
-  return defaultSettings()
+  return SERVER_SNAPSHOT
 }
 
 function subscribe(listener: () => void): () => void {
