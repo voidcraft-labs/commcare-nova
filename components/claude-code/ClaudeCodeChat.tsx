@@ -4,9 +4,11 @@ import { motion, AnimatePresence } from 'motion/react'
 import { Icon } from '@iconify/react'
 import ciArrowRight from '@iconify-icons/ci/arrow-right-md'
 import ciCheckAll from '@iconify-icons/ci/check-all'
+import ciWarning from '@iconify-icons/ci/warning'
 import { useClaudeCode, getQuestionPreamble } from '@/hooks/useClaudeCode'
 import type { StructuredQuestion } from '@/hooks/useClaudeCode'
 import { renderMarkdown } from '@/lib/markdown'
+import { validateBlueprint } from '@/lib/services/hqJsonExpander'
 
 interface ClaudeCodeChatProps {
   onBlueprintReady: (blueprint: any, messages: { role: string; content: string }[]) => void
@@ -53,11 +55,47 @@ export function ClaudeCodeChat({ onBlueprintReady }: ClaudeCodeChatProps) {
     }
   }
 
-  const handleOpenInBuilder = useCallback(() => {
+  // Validation state: null = not started, 'validating' = running, string[] = errors, 'passed' = clean
+  const [validationState, setValidationState] = useState<null | 'validating' | 'passed' | string[]>(null)
+
+  const handleValidate = useCallback(() => {
     if (!blueprint) return
+    setValidationState('validating')
+
+    // Run validation (sync function, but use setTimeout to let UI update)
+    setTimeout(() => {
+      const errors = validateBlueprint(blueprint)
+      if (errors.length === 0) {
+        setValidationState('passed')
+      } else {
+        setValidationState(errors)
+        // Send errors back to Claude Code to fix
+        const errorList = errors.map((e, i) => `${i + 1}. ${e}`).join('\n')
+        sendMessage(
+          `The blueprint has ${errors.length} validation error${errors.length !== 1 ? 's' : ''}. Please fix them and output the corrected blueprint:\n\n${errorList}`
+        )
+      }
+    }, 100)
+  }, [blueprint, sendMessage])
+
+  // Auto-validate when a new blueprint arrives after a fix attempt
+  const prevBlueprintRef = useRef<any>(null)
+  useEffect(() => {
+    if (blueprint && validationState && Array.isArray(validationState) && blueprint !== prevBlueprintRef.current) {
+      // New blueprint arrived after we sent fix errors — auto-validate
+      prevBlueprintRef.current = blueprint
+      handleValidate()
+    }
+    if (blueprint && !prevBlueprintRef.current) {
+      prevBlueprintRef.current = blueprint
+    }
+  }, [blueprint, validationState, handleValidate])
+
+  const handleOpenInBuilder = useCallback(() => {
+    if (!blueprint || validationState !== 'passed') return
     const chatMessages = messages.map(m => ({ role: m.role, content: m.content }))
     onBlueprintReady(blueprint, chatMessages)
-  }, [blueprint, messages, onBlueprintReady])
+  }, [blueprint, validationState, messages, onBlueprintReady])
 
   const handleOptionClick = useCallback((answer: string) => {
     if (isStreaming) return
@@ -166,26 +204,74 @@ export function ClaudeCodeChat({ onBlueprintReady }: ClaudeCodeChatProps) {
         )}
       </div>
 
-      {/* Blueprint ready banner */}
+      {/* Blueprint action banner */}
       <AnimatePresence>
-        {blueprint && (
+        {blueprint && !isStreaming && (
           <motion.div
             initial={{ opacity: 0, y: 8 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: 8 }}
             transition={{ duration: 0.3, ease: [0.16, 1, 0.3, 1] }}
-            className="mx-4 mb-3 flex items-center justify-between gap-3 rounded-lg border border-nova-emerald/30 bg-nova-emerald/10 px-4 py-3"
+            className={`mx-4 mb-3 rounded-lg border px-4 py-3 ${
+              validationState === 'passed'
+                ? 'border-nova-emerald/30 bg-nova-emerald/10'
+                : Array.isArray(validationState)
+                  ? 'border-nova-amber/30 bg-nova-amber/10'
+                  : 'border-nova-violet/30 bg-nova-violet/10'
+            }`}
           >
-            <div className="flex items-center gap-2 text-sm text-nova-emerald">
-              <Icon icon={ciCheckAll} width="16" height="16" />
-              <span>Blueprint ready</span>
-            </div>
-            <button
-              onClick={handleOpenInBuilder}
-              className="shrink-0 rounded-md bg-nova-emerald px-3 py-1.5 text-xs font-medium text-white transition-opacity hover:opacity-90"
-            >
-              Open in Builder
-            </button>
+            {/* State: blueprint detected, not yet validated */}
+            {!validationState && (
+              <div className="flex items-center justify-between gap-3">
+                <div className="flex items-center gap-2 text-sm text-nova-violet">
+                  <Icon icon={ciCheckAll} width="16" height="16" />
+                  <span>Blueprint generated — <strong>{blueprint.app_name}</strong></span>
+                </div>
+                <button
+                  onClick={handleValidate}
+                  className="shrink-0 rounded-md bg-nova-violet px-3 py-1.5 text-xs font-medium text-white transition-opacity hover:opacity-90 cursor-pointer"
+                >
+                  Validate
+                </button>
+              </div>
+            )}
+
+            {/* State: validating */}
+            {validationState === 'validating' && (
+              <div className="flex items-center gap-2 text-sm text-nova-violet">
+                <div className="animate-pulse">Validating blueprint...</div>
+              </div>
+            )}
+
+            {/* State: validation errors (sent to Claude Code to fix) */}
+            {Array.isArray(validationState) && (
+              <div className="space-y-2">
+                <div className="flex items-center gap-2 text-sm text-nova-amber">
+                  <Icon icon={ciWarning} width="16" height="16" />
+                  <span>{validationState.length} validation error{validationState.length !== 1 ? 's' : ''} — fixing...</span>
+                </div>
+                <ul className="text-xs text-nova-text-muted space-y-0.5 list-disc pl-5">
+                  {validationState.slice(0, 3).map((e, i) => <li key={i}>{e}</li>)}
+                  {validationState.length > 3 && <li>...and {validationState.length - 3} more</li>}
+                </ul>
+              </div>
+            )}
+
+            {/* State: validation passed */}
+            {validationState === 'passed' && (
+              <div className="flex items-center justify-between gap-3">
+                <div className="flex items-center gap-2 text-sm text-nova-emerald">
+                  <Icon icon={ciCheckAll} width="16" height="16" />
+                  <span>Validation passed — <strong>{blueprint.app_name}</strong></span>
+                </div>
+                <button
+                  onClick={handleOpenInBuilder}
+                  className="shrink-0 rounded-md bg-nova-emerald px-3 py-1.5 text-xs font-medium text-white transition-opacity hover:opacity-90 cursor-pointer"
+                >
+                  Open in Builder
+                </button>
+              </div>
+            )}
           </motion.div>
         )}
       </AnimatePresence>

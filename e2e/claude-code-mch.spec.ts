@@ -5,106 +5,104 @@ import { test, expect } from '@playwright/test'
  *
  * Flow:
  * 1. Landing page → toggle to "Claude Code" mode → navigate to /build/cc
- * 2. Send a prompt describing an MCH app
- * 3. Wait for Claude Code to generate and return a blueprint
- * 4. Click "Open in Builder" to transition into the visual builder
- * 5. Verify the builder loaded the app with expected modules/forms
- *
- * Requires:
- * - Dev server running on localhost:3000
- * - `claude` CLI installed and authenticated (uses local subscription)
+ * 2. Send a detailed MCH prompt (skip the question flow for speed)
+ * 3. Wait for blueprint generation
+ * 4. Click "Validate" → validation runs, fix loop if needed
+ * 5. Click "Open in Builder" after validation passes
+ * 6. Verify the builder loaded the app correctly
  */
 
-test('generate MCH app via Claude Code and load into builder', async ({ page }) => {
+test('generate MCH app via Claude Code with validation', async ({ page }) => {
+  // Monitor API responses
+  page.on('response', async (response) => {
+    if (response.url().includes('/api/claude-code')) {
+      console.log(`API response: ${response.status()} ${response.url()}`)
+    }
+  })
+
   // ── Step 1: Landing page → Claude Code mode ─────────────────────────
 
   await page.goto('/')
   await expect(page.locator('text=Build CommCare apps from conversation')).toBeVisible()
 
-  // Toggle to Claude Code mode
   const ccToggle = page.locator('button', { hasText: 'Claude Code' })
   await ccToggle.click()
 
-  // Click "Start with Claude Code"
   const startButton = page.locator('button', { hasText: 'Start with Claude Code' })
   await expect(startButton).toBeVisible()
   await startButton.click()
-
-  // Should navigate to /build/cc
   await expect(page).toHaveURL('/build/cc')
 
-  // ── Step 2: Send prompt ─────────────────────────────────────────────
+  // ── Step 2: Send detailed prompt ────────────────────────────────────
 
   const prompt = `Build a Maternal and Child Health (MCH) tracking app with these requirements:
 
 - Track mothers (pregnant women) with: full_name, age, phone_number, village, expected_delivery_date, risk_level (high/medium/low)
-- Track pregnancies as child cases of mothers with: trimester, last_visit_date, blood_pressure, weight_kg, notes
+- Track pregnancy visits as child cases of mothers with: trimester, last_visit_date, blood_pressure, weight_kg, notes
 - Mother module: registration form to enroll a new mother, followup form for routine checkups that creates a pregnancy visit child case
-- Pregnancy module: followup form to view visit history
-- Keep it simple — 3-5 questions per form`
-
-  // Monitor /api/claude-code requests
-  page.on('response', async (response) => {
-    if (response.url().includes('/api/claude-code')) {
-      console.log(`API response: ${response.status()} ${response.url()}`)
-      if (response.status() !== 200) {
-        const body = await response.text().catch(() => 'failed to read')
-        console.log('Error body:', body)
-      }
-    }
-  })
+- Pregnancy Visits module: followup form to view/update visit details
+- Keep it simple — 3-6 questions per form
+- Make sure every registration form has exactly one is_case_name question
+- Make sure every select question has at least 2 options`
 
   const input = page.locator('textarea[placeholder="Describe the app you want to build..."]')
   await expect(input).toBeVisible()
   await input.fill(prompt)
   await input.press('Enter')
 
-  // ── Step 3: Wait for generation ─────────────────────────────────────
+  // ── Step 3: Wait for blueprint generation ───────────────────────────
 
-  // Wait for any assistant content to appear (streaming started)
-  // Claude Code can take 10-60s before any text arrives depending on complexity
+  // Wait for streaming to start
   await expect(page.locator('.chat-markdown').first()).toBeVisible({ timeout: 120_000 })
-  console.log('Streaming started — assistant responding...')
+  console.log('Streaming started...')
 
-  // Wait for the "Blueprint ready" banner — this is the signal that Claude Code
-  // finished generating and the blueprint was detected.
-  // This can take 1-4 minutes depending on Claude Code's response time.
-  const blueprintBanner = page.locator('text=Blueprint ready')
-  await expect(blueprintBanner).toBeVisible({ timeout: 4 * 60 * 1000 })
-  console.log('Blueprint detected!')
+  // Wait for the "Validate" button to appear (blueprint detected, streaming done)
+  const validateButton = page.locator('button', { hasText: 'Validate' })
+  await expect(validateButton).toBeVisible({ timeout: 4 * 60 * 1000 })
+  console.log('Blueprint generated — validate button visible')
 
-  // ── Step 4: Load into builder ───────────────────────────────────────
+  // ── Step 4: Click Validate ──────────────────────────────────────────
 
+  await validateButton.click()
+  console.log('Clicked Validate')
+
+  // Wait for either:
+  // a) "Validation passed" → we're done
+  // b) "validation errors — fixing..." → Claude Code is fixing, wait for next round
+  // The component auto-validates after each fix, so we just wait for "passed"
+
+  const passedText = page.locator('text=Validation passed')
   const openButton = page.locator('button', { hasText: 'Open in Builder' })
-  await expect(openButton).toBeVisible()
+
+  // Allow up to 3 fix cycles (each ~30-60s)
+  await expect(openButton).toBeVisible({ timeout: 4 * 60 * 1000 })
+  await expect(passedText).toBeVisible()
+  console.log('Validation passed!')
+
+  // ── Step 5: Open in Builder ─────────────────────────────────────────
+
   await openButton.click()
+  console.log('Clicked Open in Builder')
 
-  // ── Step 5: Verify builder loaded ───────────────────────────────────
-
-  // The builder should now be showing the app tree.
-  // Wait for the app tree to render with module names.
-  // We check for common MCH-related module names that Claude Code should generate.
-
-  // Give the builder a moment to transition
+  // Give builder time to transition
   await page.waitForTimeout(1000)
 
-  // The view-only banner should be visible (no API key)
+  // ── Step 6: Verify builder loaded correctly ─────────────────────────
+
+  // View-only banner should show (no API key)
   await expect(page.locator('text=View mode')).toBeVisible({ timeout: 5000 })
 
-  // Check that the app tree has loaded with at least one module
-  // The tree renders module names — look for something MCH-related
-  const treeContent = await page.locator('[class*="overflow"]').first().textContent()
-  console.log('Builder tree content:', treeContent?.slice(0, 500))
-
-  // Verify we have modules rendered in the tree
-  // The exact names depend on what Claude Code generates, but we should see
-  // "mother" or "Mother" or "Maternal" somewhere in the tree
+  // The app tree should have MCH-related content
   const pageContent = await page.content()
   const hasMaternalContent = /mother|maternal|pregnan/i.test(pageContent)
   expect(hasMaternalContent).toBeTruthy()
 
-  // Take a screenshot for manual review
-  await page.screenshot({ path: 'e2e/screenshots/mch-app-builder.png', fullPage: true })
+  // Should have module and form structure visible
+  const hasModules = /case:/i.test(pageContent)
+  expect(hasModules).toBeTruthy()
 
-  console.log('MCH app generated and loaded into builder successfully!')
+  // Take a screenshot
+  await page.screenshot({ path: 'e2e/screenshots/mch-validated-builder.png', fullPage: true })
+
+  console.log('MCH app generated, validated, and loaded into builder successfully!')
 })
