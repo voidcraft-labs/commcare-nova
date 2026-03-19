@@ -54,8 +54,13 @@ export function usePreviewNav(blueprint?: AppBlueprint) {
           break
         }
         case 'form': {
-          const mod = blueprint.modules[screen.moduleIndex]
-          parts.push(mod?.forms[screen.formIndex]?.name ?? 'Form')
+          const caseName = screen.caseData?.get('case_name')
+          if (caseName) {
+            parts.push(caseName)
+          } else {
+            const mod = blueprint.modules[screen.moduleIndex]
+            parts.push(mod?.forms[screen.formIndex]?.name ?? 'Form')
+          }
           break
         }
       }

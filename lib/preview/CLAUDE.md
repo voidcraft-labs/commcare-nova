@@ -39,7 +39,7 @@ Home (module cards)
     → Followup → Case list ("Select a case") → Form with case data
 ```
 
-Case list is a gate for a specific followup form, not a module-level screen. Selected row passes properties as `caseData` to `FormEngine`.
+Case list is a gate for a specific followup form, not a module-level screen. Selected row passes properties as `caseData` to `FormEngine`. Breadcrumbs for follow-up forms show the selected case name (from `caseData.get('case_name')`) instead of repeating the form name.
 
 ## Case Data Resolution
 
