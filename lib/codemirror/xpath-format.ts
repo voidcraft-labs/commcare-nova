@@ -119,7 +119,7 @@ function format(node: SyntaxNode, source: string): FormatNode {
 const LAYOUT_TEXT: Record<Layout, string> = {
   [Layout.Space]: ' ',
   [Layout.NewLine]: '\n',
-  [Layout.Tab]: '\t',
+  [Layout.Tab]: '    ',
 }
 
 function render(node: FormatNode): string {
