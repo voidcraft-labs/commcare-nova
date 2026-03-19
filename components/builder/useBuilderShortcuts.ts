@@ -17,8 +17,8 @@ import { BuilderPhase } from '@/lib/services/builder'
  */
 export function useBuilderShortcuts(
   builder: Builder,
-  viewMode: 'tree' | 'preview' | 'test',
-  handleViewModeChange: (mode: 'tree' | 'preview' | 'test') => void,
+  viewMode: 'tree' | 'design' | 'preview',
+  handleViewModeChange: (mode: 'tree' | 'design' | 'preview') => void,
   handleDelete: () => void,
 ): Shortcut[] {
   // ── Keyboard shortcuts ──────────────────────────────────────────────
@@ -31,7 +31,7 @@ export function useBuilderShortcuts(
     {
       key: 'Escape',
       handler: () => {
-        if (viewMode === 'test') { handleViewModeChange('preview'); return }
+        if (viewMode === 'preview') { handleViewModeChange('design'); return }
         if (builder.selected) { builder.select(); return }
       },
     },
