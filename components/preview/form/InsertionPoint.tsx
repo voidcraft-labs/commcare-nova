@@ -7,35 +7,42 @@ import type { QuestionPath } from '@/lib/services/questionPath'
 import { QuestionTypePicker } from './QuestionTypePicker'
 
 /** Speed threshold in px/ms. Above this = cursor is traversing, don't open. */
-const SPEED_THRESHOLD = 0.1
+const SPEED_THRESHOLD = 0.01
+/** How often (ms) to re-check speed while waiting for cursor to slow down. */
+const POLL_INTERVAL = 16
+/** Per-tick decay factor applied to EMA when cursor is stationary. */
+const POLL_DECAY = 0.15
+/** Time (ms) with no mousemove events before the cursor is considered stationary. ~2 frames at 60fps. */
+const STALE_THRESHOLD = 32
 
 interface InsertionPointProps {
   atIndex: number
   parentPath?: QuestionPath
   disabled?: boolean
   cursorSpeedRef?: RefObject<number>
+  lastCursorRef?: RefObject<{ x: number; y: number; t: number } | undefined>
 }
 
-export function InsertionPoint({ atIndex, parentPath, disabled, cursorSpeedRef }: InsertionPointProps) {
+export function InsertionPoint({ atIndex, parentPath, disabled, cursorSpeedRef, lastCursorRef }: InsertionPointProps) {
   const ctx = useEditContext()
   const [hovered, setHovered] = useState(false)
   const [isOpen, setIsOpen] = useState(false)
   const anchorRef = useRef<HTMLDivElement>(null)
   const pendingRef = useRef(false)
-  const fallbackTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
-  const clearFallback = useCallback(() => {
-    if (fallbackTimerRef.current) {
-      clearTimeout(fallbackTimerRef.current)
-      fallbackTimerRef.current = null
+  const clearPoll = useCallback(() => {
+    if (pollRef.current) {
+      clearInterval(pollRef.current)
+      pollRef.current = null
     }
   }, [])
 
   const show = useCallback(() => {
-    clearFallback()
+    clearPoll()
     pendingRef.current = false
     setHovered(true)
-  }, [clearFallback])
+  }, [clearPoll])
 
   const handleMouseEnter = useCallback(() => {
     if (isOpen) return
@@ -43,11 +50,21 @@ export function InsertionPoint({ atIndex, parentPath, disabled, cursorSpeedRef }
     if (!fast) {
       show()
     } else {
-      // Fast entry — wait for slowdown or fallback timeout
+      // Fast entry — poll until EMA decays below threshold
       pendingRef.current = true
-      fallbackTimerRef.current = setTimeout(show, 200)
+      clearPoll()
+      pollRef.current = setInterval(() => {
+        // If cursor hasn't moved in 2 frames, it's stationary — decay EMA toward 0
+        const lastT = lastCursorRef?.current?.t ?? 0
+        if (performance.now() - lastT > STALE_THRESHOLD) {
+          if (cursorSpeedRef) cursorSpeedRef.current *= (1 - POLL_DECAY)
+        }
+        if ((cursorSpeedRef?.current ?? 0) <= SPEED_THRESHOLD) {
+          show()
+        }
+      }, POLL_INTERVAL)
     }
-  }, [isOpen, cursorSpeedRef, show])
+  }, [isOpen, cursorSpeedRef, lastCursorRef, show, clearPoll])
 
   const handleMouseMove = useCallback(() => {
     if (!pendingRef.current) return
@@ -56,10 +73,10 @@ export function InsertionPoint({ atIndex, parentPath, disabled, cursorSpeedRef }
   }, [cursorSpeedRef, show])
 
   const handleMouseLeave = useCallback(() => {
-    clearFallback()
+    clearPoll()
     pendingRef.current = false
     if (!isOpen) setHovered(false)
-  }, [isOpen, clearFallback])
+  }, [isOpen, clearPoll])
 
   if (!ctx || ctx.mode === 'test') return null
   if (disabled) return null
@@ -73,8 +90,8 @@ export function InsertionPoint({ atIndex, parentPath, disabled, cursorSpeedRef }
         height: isActive ? 24 : 0,
         marginBottom: isActive ? 16 : 0,
         transition: isActive
-          ? 'height 250ms cubic-bezier(0.6, 0, 0.1, 1) 50ms, margin 250ms cubic-bezier(0.6, 0, 0.1, 1) 50ms'
-          : 'height 150ms ease-in, margin 150ms ease-in',
+          ? 'height 200ms cubic-bezier(0.6, 0, 0.1, 1) 50ms, margin 200ms cubic-bezier(0.6, 0, 0.1, 1) 50ms'
+          : 'height 50ms ease-in, margin 50ms ease-in',
       }}
       data-insertion-point
     >

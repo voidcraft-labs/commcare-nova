@@ -1,5 +1,5 @@
 'use client'
-import { useState, useCallback, useMemo, useRef, Fragment } from 'react'
+import { useState, useCallback, useEffect, useMemo, useRef, Fragment } from 'react'
 import { DragDropProvider, DragOverlay, PointerSensor } from '@dnd-kit/react'
 import { useSortable, isSortable } from '@dnd-kit/react/sortable'
 import { PointerActivationConstraints } from '@dnd-kit/dom'
@@ -15,6 +15,11 @@ import { LabelField } from './fields/LabelField'
 import { RepeatField } from './fields/RepeatField'
 import { EditableQuestionWrapper } from './EditableQuestionWrapper'
 import { InsertionPoint } from './InsertionPoint'
+
+/** EMA smoothing factor for cursor velocity. Lower = smoother, slower response. */
+const EMA_ALPHA = 0.01
+/** Time (ms) without mouse events before EMA resets to raw speed instead of smoothing. Prevents stale EMA from lingering after long pauses. */
+const GAP_RESET = 5000
 
 interface FormRendererProps {
   questions: Question[]
@@ -141,24 +146,48 @@ export function FormRenderer({ questions, engine, prefix = '/data', parentPath }
   const [activePath, setActivePath] = useState<QuestionPath | undefined>()
   const containerRef = useRef<HTMLDivElement>(null)
 
-  // Cursor velocity tracking (EMA-smoothed, all refs — no re-renders)
+  // Cursor velocity tracking (EMA-smoothed, document-level so EMA is warm before cursor reaches insertion points)
   const cursorSpeedRef = useRef(0)
   const lastCursorRef = useRef<{ x: number; y: number; t: number } | undefined>(undefined)
-  const handleContainerMouseMove = useCallback((e: React.MouseEvent) => {
-    const now = performance.now()
-    const last = lastCursorRef.current
-    if (last) {
-      const dt = now - last.t
-      if (dt > 0) {
-        const dx = e.clientX - last.x
-        const dy = e.clientY - last.y
-        const speed = Math.sqrt(dx * dx + dy * dy) / dt
-        // Long gap = mouse was stopped, reset. Otherwise EMA smooth.
-        cursorSpeedRef.current = dt > 100 ? speed : 0.1 * speed + 0.9 * cursorSpeedRef.current
+  useEffect(() => {
+    if (!isEditMode) return
+    const handler = (e: MouseEvent) => {
+      const now = performance.now()
+      const last = lastCursorRef.current
+      if (last) {
+        const dt = now - last.t
+        if (dt > 0) {
+          const dx = e.clientX - last.x
+          const dy = e.clientY - last.y
+          const speed = Math.sqrt(dx * dx + dy * dy) / dt
+          // Long gap = cursor was stopped, EMA is stale — reset to raw speed
+          cursorSpeedRef.current = dt > GAP_RESET ? speed : EMA_ALPHA * speed + (1 - EMA_ALPHA) * cursorSpeedRef.current
+        }
+      }
+      lastCursorRef.current = { x: e.clientX, y: e.clientY, t: now }
+    }
+    const wheelHandler = (e: WheelEvent) => {
+      const now = performance.now()
+      const last = lastCursorRef.current
+      if (last) {
+        const dt = now - last.t
+        if (dt > 0) {
+          // Normalize: deltaMode 0=px, 1=lines (~16px each)
+          const pxDelta = Math.abs(e.deltaY) * (e.deltaMode === 1 ? 16 : 1)
+          const speed = pxDelta / dt
+          cursorSpeedRef.current = dt > GAP_RESET ? speed : EMA_ALPHA * speed + (1 - EMA_ALPHA) * cursorSpeedRef.current
+        }
+        // Update timestamp so poll knows there's activity; position stays unchanged
+        last.t = now
       }
     }
-    lastCursorRef.current = { x: e.clientX, y: e.clientY, t: now }
-  }, [])
+    document.addEventListener('mousemove', handler)
+    document.addEventListener('wheel', wheelHandler, { passive: true })
+    return () => {
+      document.removeEventListener('mousemove', handler)
+      document.removeEventListener('wheel', wheelHandler)
+    }
+  }, [isEditMode])
 
   const renderChildren = useCallback((children: Question[], childPrefix: string, parentPath: QuestionPath) => (
     <FormRenderer questions={children} engine={engine} prefix={childPrefix} parentPath={parentPath} />
@@ -179,8 +208,8 @@ export function FormRenderer({ questions, engine, prefix = '/data', parentPath }
   const isDragging = !!activePath
 
   const list = (
-    <div ref={containerRef} className="min-h-full pointer-events-auto" onMouseMove={isEditMode ? handleContainerMouseMove : undefined}>
-      {isEditMode && <InsertionPoint atIndex={0} parentPath={parentPath} disabled={isDragging} cursorSpeedRef={cursorSpeedRef} />}
+    <div ref={containerRef} className="min-h-full pointer-events-auto">
+      {isEditMode && <InsertionPoint atIndex={0} parentPath={parentPath} disabled={isDragging} cursorSpeedRef={cursorSpeedRef} lastCursorRef={lastCursorRef} />}
       {visibleQuestions.map((q, idx) => {
         const actualIdx = questions.indexOf(q)
         const questionPath = qpath(q.id, parentPath)
@@ -194,7 +223,7 @@ export function FormRenderer({ questions, engine, prefix = '/data', parentPath }
               engine={engine}
               renderChildren={renderChildren}
               />
-            {isEditMode && <InsertionPoint atIndex={actualIdx + 1} parentPath={parentPath} disabled={isDragging} cursorSpeedRef={cursorSpeedRef} />}
+            {isEditMode && <InsertionPoint atIndex={actualIdx + 1} parentPath={parentPath} disabled={isDragging} cursorSpeedRef={cursorSpeedRef} lastCursorRef={lastCursorRef} />}
           </Fragment>
         )
       })}
