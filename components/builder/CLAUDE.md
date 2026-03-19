@@ -2,25 +2,32 @@
 
 ## BuilderLayout
 
-Main 3-panel layout with one `useChat` instance targeting `/api/chat`. Wrapped in `ErrorBoundary` around ChatSidebar, PreviewShell/AppTree, and DetailPanel.
+Main layout with one `useChat` instance targeting `/api/chat`. Wrapped in `ErrorBoundary` around ChatSidebar, PreviewShell/AppTree, and DetailPanel.
 
 - **`body`** sends: `apiKey`, `pipelineConfig`, `blueprint` (for edits), `blueprintSummary` (for SA context).
 - **`sendAutomaticallyWhen`** only triggers for `askQuestions` (client-side tool).
 - **`onData`** handles all state updates via `applyDataPart()`.
 
+### Four-Tier Header Layout
+
+1. **Tier 1 — Logo bar**: `commcare nova` + settings link. `bg-nova-void`. Collapses to zero height in hero/centered mode via animated `height: 0 → auto`.
+2. **Tier 2 — Project subheader**: Full-width breadcrumbs (left) + `DownloadDropdown` (right). `bg-[rgba(139,92,246,0.06)]` with subtle violet glow shadow. Shows as soon as centered mode exits (breadcrumbs populate once `app_name` arrives). Download button appears when `phase === Done`. `text-lg` for hierarchy above chat/toolbar text.
+3. **Tier 3 — Toolbar** (`SubheaderToolbar.tsx`): Full-width `ViewModeToggle` (centered) + Undo/Redo (right). `bg-nova-deep`. Only shows when `Done` + blueprint exists.
+4. **Tier 4 — Content area**: Main content fills full width (scrollbar on far right). Chat sidebar and DetailPanel float as absolute overlays from left/right edges respectively.
+
 ### Chat-Centered Landing
 
-When `builder.phase === Idle && !builder.treeData`, chat fills center with hero Logo above welcome heading and input — no header bar, uniform `bg-nova-void`. On generation start (DataModel phase), Logo animates from center to header via `layoutId="nova-logo"`, header slides in (animated `height: 0 → auto`), chat narrows to 380px sidebar — coordinated by `LayoutGroup` wrapping the layout. `AnimatePresence` fades in builder panels (150ms delay). No DOM re-parenting — messages and input state preserved.
+When `builder.phase === Idle && !builder.treeData`, chat fills center with hero Logo above welcome heading and input — no header bars, uniform `bg-nova-void`. On generation start, Logo animates from center to header via `layoutId="nova-logo"`, header tiers slide in, chat becomes a 320px sidebar overlay — coordinated by `LayoutGroup`. `AnimatePresence` fades in builder panels (150ms delay). No DOM re-parenting — messages and input state preserved.
 
-### Subheader Toolbar (`SubheaderToolbar.tsx`)
+### Project Subheader (Tier 2)
 
-Extracted component rendered by BuilderLayout (only when `Done` + blueprint exists) spanning the full width right of the chat sidebar. 3-column grid layout: left shows navigable breadcrumbs (all modes), center has `PreviewToggle` (3-segment: Tree / Design / Preview), right has Undo/Redo buttons + `DownloadDropdown` (JSON/CCZ export). Both the main content area and DetailPanel sit **below** this subheader in a flex row — sidebars slide out from beneath the subheader, never above it.
+`CollapsibleBreadcrumb` (exported from `SubheaderToolbar.tsx`) renders navigable breadcrumbs. In design/preview, derived from `usePreviewNav` stack. In tree mode, derived from `builder.selected` (app name → module → form). Follow-up forms show the selected case name as the final breadcrumb segment. Clicking a breadcrumb navigates: in design/preview calls `nav.navigateTo()` + `builder.select()`; in tree calls `builder.select()` directly. Breadcrumbs use `text-lg whitespace-nowrap` — no truncation since the full-width bar has ample space. Collapse behind `…` dropdown only at depth 4+.
 
-Breadcrumbs are unified across all view modes via `CollapsibleBreadcrumb` (internal component). In design/preview, derived from `usePreviewNav` stack. In tree mode, derived from `builder.selected` (app name → module → form). Follow-up forms show the selected case name as the final breadcrumb segment (from `caseData.get('case_name')`) instead of repeating the form name. Clicking a breadcrumb navigates: in design/preview calls `nav.navigateTo()` + `builder.select()`; in tree calls `builder.select()` directly.
+### Toolbar (Tier 3, `SubheaderToolbar.tsx`)
 
-**Collapsible breadcrumbs**: First and last items always occupy stable DOM positions to prevent flicker on depth changes. At depth ≤3, all segments shown inline with truncation. At depth 4+, middle segments collapse behind an animated `…` dropdown menu (Motion + `useDismissRef`). Last item (current location) has `shrink-0 max-w-[50%]` to prioritize showing its full text; ancestor items use `shrink-[3]` to absorb compression first.
+Full-width 3-column grid: left spacer, center `ViewModeToggle` (`components/preview/ViewModeToggle.tsx`, renamed from PreviewToggle), right Undo/Redo. `h-12 bg-nova-deep`. `ViewModeToggle` is a compact `h-[34px]` 3-segment control matching undo/redo button height.
 
-`usePreviewNav` is lifted to BuilderLayout and shared with `PreviewShell` (via `nav` prop) so navigation state stays in sync. AppTree and PreviewShell render with `hideHeader` since BuilderLayout owns the subheader.
+`usePreviewNav` is lifted to BuilderLayout and shared with `PreviewShell` (via `nav` prop) so navigation state stays in sync. AppTree and PreviewShell render with `hideHeader` since BuilderLayout owns the header tiers.
 
 ### View Mode Sync
 
@@ -32,15 +39,19 @@ Breadcrumbs are unified across all view modes via `CollapsibleBreadcrumb` (inter
 - **Escape in preview**: Switches to design without nav sync (stays on current screen).
 
 When `Done` + blueprint exists:
-- `'tree'` → `AppTree` + `DetailPanel` (inline right sidebar)
-- `'design'` → `PreviewShell` (editable canvas) + `DetailPanel` (inline right sidebar)
-- `'preview'` → `PreviewShell` (read-only, no edit chrome or sidebar)
+- `'tree'` → `AppTree` + `DetailPanel` (overlay right) + `ChatSidebar` (overlay left)
+- `'design'` → `PreviewShell` (editable canvas) + `DetailPanel` (overlay right) + `ChatSidebar` (overlay left)
+- `'preview'` → `PreviewShell` (read-only, no edit chrome, no sidebars)
+
+### Sidebar Auto-Hide in Preview
+
+Both ChatSidebar and DetailPanel auto-hide in preview mode. `chatOpen` is derived: `viewMode === 'preview' ? false : chatUserPref`. `showDetailPanel` excludes preview via `viewMode === 'tree' || viewMode === 'design'`. When switching back to tree/design, both restore to their previous state (chat restores user preference, detail panel restores if `builder.selected` is still set). The chat open button (`ci:chat-conversation-circle`) also hides in preview mode.
 
 Keyboard shortcuts extracted to `useBuilderShortcuts.ts` hook, registered via `useKeyboardShortcuts`.
 
 ## DetailPanel
 
-Animated width panel (0 → 320px) via `AnimatePresence` + motion `width`/`opacity`. Outer `motion.div` handles width animation with `overflow-hidden`; inner `w-80` div keeps content at full width. This ensures the flex-1 content area resizes smoothly (no layout jumps) when the panel opens/closes.
+Absolutely positioned right-side overlay (`absolute right-0 top-0 bottom-0 z-20`). Animated width (0 → 320px) via `AnimatePresence` + motion `width`/`opacity`. Inner `w-80` div keeps content at full width. Styled as a pullout: `rounded-l-xl m-2 mr-0 border border-nova-border-bright border-r-0 shadow-[0_2px_12px_rgba(0,0,0,0.4)]` — mirroring the chat sidebar on the opposite side. Floats over main content without affecting layout or scrollbar position.
 
 Split into sub-panels:
 - `detail/ModuleDetail.tsx` — module name, case type, columns
