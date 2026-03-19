@@ -18,12 +18,12 @@ export interface BreadcrumbPart {
 }
 
 interface SubheaderToolbarProps {
-  /** Breadcrumb segments derived from nav stack (preview/live) or selection (tree). */
+  /** Breadcrumb segments derived from nav stack (design/preview) or selection (tree). */
   breadcrumbParts: BreadcrumbPart[]
-  /** Current view mode (tree / preview / test). */
-  viewMode: 'tree' | 'preview' | 'test'
+  /** Current view mode (tree / design / preview). */
+  viewMode: 'tree' | 'design' | 'preview'
   /** Callback when view mode toggle changes. */
-  onViewModeChange: (mode: 'tree' | 'preview' | 'test') => void
+  onViewModeChange: (mode: 'tree' | 'design' | 'preview') => void
   /** Whether the undo action is available. */
   canUndo: boolean
   /** Whether the redo action is available. */

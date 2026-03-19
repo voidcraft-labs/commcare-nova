@@ -14,9 +14,9 @@ When `builder.phase === Idle && !builder.treeData`, chat fills center with hero 
 
 ### Subheader Toolbar (`SubheaderToolbar.tsx`)
 
-Extracted component rendered by BuilderLayout (only when `Done` + blueprint exists) spanning the full width right of the chat sidebar. 3-column grid layout: left shows navigable breadcrumbs (all modes), center has `PreviewToggle` (3-segment: Tree / Preview / Live), right has Undo/Redo buttons + `DownloadDropdown` (JSON/CCZ export). Both the main content area and DetailPanel sit **below** this subheader in a flex row — sidebars slide out from beneath the subheader, never above it.
+Extracted component rendered by BuilderLayout (only when `Done` + blueprint exists) spanning the full width right of the chat sidebar. 3-column grid layout: left shows navigable breadcrumbs (all modes), center has `PreviewToggle` (3-segment: Tree / Design / Preview), right has Undo/Redo buttons + `DownloadDropdown` (JSON/CCZ export). Both the main content area and DetailPanel sit **below** this subheader in a flex row — sidebars slide out from beneath the subheader, never above it.
 
-Breadcrumbs are unified across all view modes via `CollapsibleBreadcrumb` (internal component). In preview/live, derived from `usePreviewNav` stack. In tree mode, derived from `builder.selected` (app name → module → form). Follow-up forms show the selected case name as the final breadcrumb segment (from `caseData.get('case_name')`) instead of repeating the form name. Clicking a breadcrumb navigates: in preview/live calls `nav.navigateTo()` + `builder.select()`; in tree calls `builder.select()` directly.
+Breadcrumbs are unified across all view modes via `CollapsibleBreadcrumb` (internal component). In design/preview, derived from `usePreviewNav` stack. In tree mode, derived from `builder.selected` (app name → module → form). Follow-up forms show the selected case name as the final breadcrumb segment (from `caseData.get('case_name')`) instead of repeating the form name. Clicking a breadcrumb navigates: in design/preview calls `nav.navigateTo()` + `builder.select()`; in tree calls `builder.select()` directly.
 
 **Collapsible breadcrumbs**: First and last items always occupy stable DOM positions to prevent flicker on depth changes. At depth ≤3, all segments shown inline with truncation. At depth 4+, middle segments collapse behind an animated `…` dropdown menu (Motion + `useDismissRef`). Last item (current location) has `shrink-0 max-w-[50%]` to prioritize showing its full text; ancestor items use `shrink-[3]` to absorb compression first.
 
@@ -24,17 +24,17 @@ Breadcrumbs are unified across all view modes via `CollapsibleBreadcrumb` (inter
 
 ### View Mode Sync
 
-`viewMode` state (`'tree' | 'preview' | 'test'`). Selection (`builder.selected`) and navigation (`usePreviewNav` stack) stay in sync across view switches:
+`viewMode` state (`'tree' | 'design' | 'preview'`). Selection (`builder.selected`) and navigation (`usePreviewNav` stack) stay in sync across view switches:
 
-- **Tree → Preview/Live**: Nav stack syncs to `builder.selected` (navigates to the selected module/form). `usePreviewNav` auto-resolves case data for followup forms via `resolveScreen`.
-- **Preview/Live → Tree**: If nothing selected, `builder.selected` syncs from current nav screen.
-- **Preview ↔ Live**: Nav is shared (no sync needed). Selection preserved but invisible in live mode. Live → Preview preserves existing selection state — sidebar only opens if user had something selected before entering live. Preview → Live auto-focuses the selected question's input.
-- **Escape in live**: Switches to preview without nav sync (stays on current screen).
+- **Tree → Design/Preview**: Nav stack syncs to `builder.selected` (navigates to the selected module/form). `usePreviewNav` auto-resolves case data for followup forms via `resolveScreen`.
+- **Design/Preview → Tree**: If nothing selected, `builder.selected` syncs from current nav screen.
+- **Design ↔ Preview**: Nav is shared (no sync needed). Selection preserved but invisible in preview mode. Preview → Design preserves existing selection state — sidebar only opens if user had something selected before entering preview. Design → Preview auto-focuses the selected question's input.
+- **Escape in preview**: Switches to design without nav sync (stays on current screen).
 
 When `Done` + blueprint exists:
 - `'tree'` → `AppTree` + `DetailPanel` (inline right sidebar)
-- `'preview'` → `PreviewShell` (editable canvas) + `DetailPanel` (inline right sidebar)
-- `'test'` → `PreviewShell` (read-only, no edit chrome or sidebar)
+- `'design'` → `PreviewShell` (editable canvas) + `DetailPanel` (inline right sidebar)
+- `'preview'` → `PreviewShell` (read-only, no edit chrome or sidebar)
 
 Keyboard shortcuts extracted to `useBuilderShortcuts.ts` hook, registered via `useKeyboardShortcuts`.
 

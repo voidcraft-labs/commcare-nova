@@ -2,18 +2,18 @@
 import { motion } from 'motion/react'
 import { Icon, type IconifyIcon } from '@iconify/react'
 import tablerListTree from '@iconify-icons/tabler/list-tree'
-import tablerPlayerPause from '@iconify-icons/tabler/player-pause'
+import ciEditPencil01 from '@iconify-icons/ci/edit-pencil-01'
 import tablerPlayerPlay from '@iconify-icons/tabler/player-play'
 
 interface PreviewToggleProps {
-  mode: 'tree' | 'preview' | 'test'
-  onChange: (mode: 'tree' | 'preview' | 'test') => void
+  mode: 'tree' | 'design' | 'preview'
+  onChange: (mode: 'tree' | 'design' | 'preview') => void
 }
 
-const segments: { key: 'tree' | 'preview' | 'test'; label: string; icon?: IconifyIcon }[] = [
+const segments: { key: 'tree' | 'design' | 'preview'; label: string; icon?: IconifyIcon }[] = [
   { key: 'tree', label: 'Tree', icon: tablerListTree },
-  { key: 'preview', label: 'Preview', icon: tablerPlayerPause },
-  { key: 'test', label: 'Live', icon: tablerPlayerPlay },
+  { key: 'design', label: 'Design', icon: ciEditPencil01 },
+  { key: 'preview', label: 'Preview', icon: tablerPlayerPlay },
 ]
 
 export function PreviewToggle({ mode, onChange }: PreviewToggleProps) {
@@ -31,14 +31,14 @@ export function PreviewToggle({ mode, onChange }: PreviewToggleProps) {
               <motion.div
                 layoutId="preview-toggle-indicator"
                 className={`absolute inset-0 rounded-md ${
-                  key === 'test' ? 'bg-nova-emerald/15' : 'bg-nova-surface'
+                  key === 'preview' ? 'bg-nova-emerald/15' : 'bg-nova-surface'
                 }`}
                 transition={{ duration: 0.2, ease: [0.4, 0, 0.2, 1] }}
               />
             )}
             <span className={`relative z-10 flex items-center gap-2 ${
               isActive
-                ? key === 'test' ? 'text-nova-emerald' : 'text-nova-text'
+                ? key === 'preview' ? 'text-nova-emerald' : 'text-nova-text'
                 : 'text-nova-text-muted hover:text-nova-text-secondary'
             }`}>
               {icon && <Icon icon={icon} width="16" height="16" />}
