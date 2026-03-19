@@ -100,9 +100,9 @@ export function EditableQuestionWrapper({
       data-question-wrapper
       className={`group/qw relative rounded-lg transition-all duration-150 cursor-pointer p-3 ${
         isSelected
-          ? 'ring-2 ring-nova-violet bg-nova-violet/[0.03]'
+          ? 'ring-2 ring-nova-cyan bg-nova-cyan/[0.03]'
           : hovered
-            ? 'ring-1 ring-nova-violet/30'
+            ? 'ring-1 ring-nova-cyan/30'
             : ''
       }`}
       style={mergedStyle}

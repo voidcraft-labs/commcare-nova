@@ -31,14 +31,18 @@ export function PreviewToggle({ mode, onChange }: PreviewToggleProps) {
               <motion.div
                 layoutId="preview-toggle-indicator"
                 className={`absolute inset-0 rounded-md ${
-                  key === 'preview' ? 'bg-nova-emerald/15' : 'bg-nova-surface'
+                  key === 'preview' ? 'bg-nova-emerald/15'
+                    : key === 'design' ? 'bg-nova-cyan/15'
+                    : 'bg-nova-surface'
                 }`}
                 transition={{ duration: 0.2, ease: [0.4, 0, 0.2, 1] }}
               />
             )}
             <span className={`relative z-10 flex items-center gap-2 ${
               isActive
-                ? key === 'preview' ? 'text-nova-emerald' : 'text-nova-text'
+                ? key === 'preview' ? 'text-nova-emerald'
+                  : key === 'design' ? 'text-nova-cyan'
+                  : 'text-nova-text'
                 : 'text-nova-text-muted hover:text-nova-text-secondary'
             }`}>
               {icon && <Icon icon={icon} width="16" height="16" />}

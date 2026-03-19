@@ -94,15 +94,15 @@ export function InsertionPoint({ atIndex, parentPath, disabled, cursorSpeedRef }
           isActive ? 'opacity-100' : 'opacity-0 pointer-events-none'
         }`}
       >
-        <div className="flex-1 h-px bg-nova-violet/40" />
+        <div className="flex-1 h-px bg-nova-cyan/40" />
         <button
           onClick={(e) => { e.stopPropagation(); setIsOpen(true) }}
-          className="mx-1 w-5 h-5 flex items-center justify-center rounded-full bg-nova-surface border border-nova-violet/40 text-nova-violet hover:bg-nova-violet/10 transition-colors cursor-pointer shrink-0"
+          className="mx-1 w-5 h-5 flex items-center justify-center rounded-full bg-nova-surface border border-nova-cyan/40 text-nova-cyan hover:bg-nova-cyan/10 transition-colors cursor-pointer shrink-0"
           title="Insert question"
         >
           <Icon icon={ciAddPlus} width="12" height="12" />
         </button>
-        <div className="flex-1 h-px bg-nova-violet/40" />
+        <div className="flex-1 h-px bg-nova-cyan/40" />
       </div>
 
       {/* Question type picker popover */}
