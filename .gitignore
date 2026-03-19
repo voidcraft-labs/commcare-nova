@@ -23,8 +23,9 @@
 # misc
 .DS_Store
 *.pem
-.claude/
+.claude/*
 !.claude/skills/
+!.claude/skills/**
 
 # Claude Code generated blueprints
 .nova/
