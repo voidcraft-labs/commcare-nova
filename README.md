@@ -1,24 +1,50 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# CommCare Nova
+
+A web app that generates CommCare applications from natural language conversation. Describe what you need, and Nova builds a fully structured CommCare app — forms, case management, logic, and all.
+
+## How It Works
+
+Nova uses a single AI agent — the **Solutions Architect** — that converses with you to understand your requirements, then generates a complete CommCare app blueprint through a multi-stage pipeline. The entire conversation and generation happens in one streaming session via the Vercel AI SDK and Anthropic's Claude.
+
+**Bring Your Own API Key** — there's no auth layer or server-side key. You provide your Anthropic API key in the settings UI, and it's stored in your browser's localStorage. It's sent per-request and never persisted on the server.
 
 ## Getting Started
 
-First, run the development server:
-
 ```bash
+cp .env.example .env   # Optional — enables run logging by default
+npm install
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Open [http://localhost:3000](http://localhost:3000) to start building.
+
+You'll be prompted to enter your Anthropic API key in the settings panel before you can generate apps.
+
+## Commands
+
+```bash
+npm run dev                              # Start dev server (Turbopack)
+npm run build                            # Production build
+npm test                                 # Run tests
+npm run test:watch                       # Watch mode tests
+npx tsx scripts/test-schema.ts           # Test structured output schemas (requires ANTHROPIC_API_KEY)
+npx tsx scripts/build-xpath-parser.ts    # Rebuild XPath parser from grammar
+```
+
+## Stack
+
+- **Next.js 16** — App Router, Turbopack
+- **TypeScript** — strict mode
+- **Tailwind CSS v4** — dark theme with custom properties
+- **Vercel AI SDK** — streaming chat, tool calls, structured output
+- **Anthropic Claude** — LLM backbone
+- **Vitest** — testing
+
+## Developer Tools
 
 ### Run Logging
 
-Set `RUN_LOGGER=1` in your `.env` to enable disk-based run logging. Each pipeline run writes a JSON file to `.log/` with all LLM calls, token usage, cost estimates, and full request/response data. The file is updated incrementally after every event, so it's always valid JSON even if the process crashes mid-run.
+Set `RUN_LOGGER=1` in `.env` to enable disk-based run logging. Each pipeline run writes a JSON file to `.log/` with all LLM calls, token usage, cost estimates, and full request/response data. The file is updated incrementally after every event, so it's always valid JSON even if the process crashes mid-run.
 
 ### Log Replay
 
@@ -36,23 +62,4 @@ npx tsx scripts/build-xpath-parser.ts
 
 ### Validation Delay
 
-The validate stage (`validateAndFix` in `lib/services/architectAgent.ts`) has an artificial 3-second delay when validation passes on the first attempt with no errors. Our validation is currently purely deterministic/rule-based and completes near-instantly, which feels jarring in the UI. This delay should be removed once we integrate the CommCare core `.jar` for full validation — that will take real time and the artificial delay won't be needed. Search for the `TODO` comment in `architectAgent.ts` to find it.
-
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
-
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
-
-## Learn More
-
-To learn more about Next.js, take a look at the following resources:
-
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
-
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+The validate stage has an artificial 3-second delay when validation passes on the first attempt with no errors. Validation is currently rule-based and completes near-instantly, which feels jarring in the UI. This delay should be removed once we integrate the CommCare core `.jar` for full validation — that will take real time and the artificial delay won't be needed.
