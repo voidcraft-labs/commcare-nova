@@ -3,8 +3,11 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
+    "predev": "node scripts/check-updates.mjs",
     "dev": "next dev",
+    "prebuild": "node scripts/check-updates.mjs",
     "build": "next build",
+    "prestart": "node scripts/check-updates.mjs",
     "start": "next start",
     "lint": "eslint",
     "test": "vitest run",
