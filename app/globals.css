@@ -301,6 +301,12 @@ body {
   --pv-accent-bright: var(--nova-cyan-bright);
 }
 
+/* Design mode — neutral input borders so cyan edit chrome stands out */
+.design-theme {
+  --pv-input-border: rgba(136, 136, 170, 0.15);
+  --pv-input-focus: rgba(136, 136, 170, 0.25);
+}
+
 /* Styled badge for unresolved case property references in preview */
 .case-ref {
   display: inline-flex;

@@ -6,7 +6,7 @@ Client-side web preview with cyan accent theme (`.preview-theme` in globals.css)
 
 - **PreviewShell** — Screen dispatch container. Accepts optional `nav` prop (from `usePreviewNav`) and `hideHeader` — when used inside BuilderLayout, the header is rendered externally in the subheader bar and nav state is shared via prop. Content fills the full pane (no border/padding wrapper).
 - **PreviewHeader** — Back button, breadcrumb, actions slot. Used by PreviewShell when rendering standalone (not used by BuilderLayout).
-- **PreviewToggle** — 3-segment control: `[Tree] [✏ Design] [▶ Preview]` with icons. Preview segment uses emerald accent. Rendered in BuilderLayout subheader toolbar.
+- **PreviewToggle** — 3-segment control: `[Tree] [✏ Design] [▶ Preview]` with icons. Each mode has a distinct accent: Tree is neutral, Design uses cyan, Preview uses emerald. Rendered in BuilderLayout subheader toolbar.
 
 ## Screens
 
@@ -51,7 +51,7 @@ Each field calls `engine.setValue(path, value)` on change and `engine.touch(path
 
 ## Design vs Preview Mode
 
-**Design (edit)**: Frozen, stateless view. Inputs appear empty, no validation errors or borders. Engine state is preserved internally but suppressed at the display layer. For editing form structure via DetailPanel.
+**Design (edit)**: Frozen, stateless view. Inputs appear empty, no validation errors. Engine state is preserved internally but suppressed at the display layer. For editing form structure via DetailPanel. Cyan accent for edit chrome (selection rings, insertion points, drag overlays). `.design-theme` overrides input borders to neutral gray so cyan selection chrome stands out.
 
 **Preview (test)**: Persistent testing sandbox. Values survive round-trips through design. On switch back to preview, all rules (constraints, relevants, calculations) re-evaluate with the current schema against persisted values. `FormScreen` auto-focuses the selected question's input on entry. Blueprint mutations in design (incrementing `mutationCount`) recreate the engine, but `useFormEngine` snapshots and restores values across recreations.
 

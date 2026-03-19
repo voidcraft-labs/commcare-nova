@@ -24,7 +24,7 @@ export function PreviewShell({ blueprint, actions, builder, mode = 'edit', nav: 
   const nav = navProp ?? ownNav
 
   return (
-    <div className="preview-theme h-full flex flex-col">
+    <div className={`preview-theme ${mode === 'edit' ? 'design-theme' : ''} h-full flex flex-col`}>
       {!hideHeader && (
         <PreviewHeader
           breadcrumb={nav.breadcrumb}
