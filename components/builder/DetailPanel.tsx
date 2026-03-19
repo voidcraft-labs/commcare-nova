@@ -35,7 +35,7 @@ export function DetailPanel({ builder }: DetailPanelProps) {
       animate={{ width: 320, opacity: 1 }}
       exit={{ width: 0, opacity: 0 }}
       transition={{ duration: 0.25, ease: [0.4, 0, 0.2, 1] }}
-      className="border-l border-nova-border bg-nova-deep shrink-0 overflow-hidden"
+      className="absolute right-0 top-0 bottom-0 z-20 border border-nova-border-bright border-r-0 bg-nova-deep overflow-hidden rounded-l-xl m-2 mr-0 shadow-[0_2px_12px_rgba(0,0,0,0.4)]"
     >
     <div className="w-80 h-full flex flex-col">
       {/* Header */}

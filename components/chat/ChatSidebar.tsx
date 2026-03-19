@@ -62,27 +62,25 @@ export function ChatSidebar({
 
   return (
     <motion.div
-      layout
-      layoutId="chat-panel"
+      layout={isCentered ? true : undefined}
+      layoutId={isCentered ? 'chat-panel' : undefined}
       className={
         isCentered
           ? 'w-full max-w-2xl max-h-[min(700px,80vh)] flex flex-col rounded-2xl border border-nova-border bg-nova-deep overflow-hidden'
-          : 'w-[380px] border-r border-nova-border bg-nova-deep flex flex-col shrink-0 h-full'
+          : 'w-80 border border-nova-border-bright border-l-0 bg-nova-deep flex flex-col shrink-0 h-full rounded-r-xl m-2 ml-0 shadow-[0_2px_12px_rgba(0,0,0,0.4)]'
       }
       transition={{ layout: { duration: 0.45, ease: [0.4, 0, 0.2, 1] } }}
     >
       {/* Header — sidebar only */}
       {!isCentered && (
-        <div className="px-4 h-16 border-b border-nova-border flex items-center justify-between shrink-0">
-          <h2 className="text-base font-medium text-nova-text-secondary">Chat</h2>
-          {onClose && (
-            <button
-              onClick={onClose}
-              className="text-nova-text-muted hover:text-nova-text transition-colors p-1"
-            >
-              <Icon icon={ciChevronLeft} width="14" height="14" />
-            </button>
-          )}
+        <div className="px-4 h-12 border-b border-nova-border flex items-center justify-between shrink-0">
+          <button
+            onClick={onClose}
+            className="text-nova-text-muted hover:text-nova-text transition-colors p-1 cursor-pointer"
+          >
+            <Icon icon={ciChevronLeft} width="14" height="14" />
+          </button>
+          <h2 className="text-sm font-medium text-nova-text-secondary">Chat</h2>
         </div>
       )}
 

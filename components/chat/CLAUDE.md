@@ -4,10 +4,10 @@
 
 Message list + input. Accepts `mode: 'centered' | 'sidebar'`, optional `readOnly` (hides input, for log replay).
 
-- **Centered mode**: Below hero Logo, no header/border, uniform `gap-6` spacing.
-- **Sidebar mode**: 380px docked panel, `p-4` messages, `border-t` input.
+- **Centered mode**: Below hero Logo, no header/border, uniform `gap-6` spacing. Uses `layout` + `layoutId="chat-panel"` for animated transition to sidebar.
+- **Sidebar mode**: 320px (`w-80`) absolutely positioned overlay on the left (`z-20`). Slides in/out via `translateX` animation (`x: -320 → 0`). Styled as a pullout: `rounded-r-xl m-2 ml-0 border border-nova-border-bright border-l-0 shadow-[0_2px_12px_rgba(0,0,0,0.4)]` — mirroring DetailPanel on the opposite side. Header shows collapse chevron (left) + "Chat" label (right, `text-sm`). Collapse always visible including replay mode.
 
-Uses `layout` + `layoutId` for animated transition between modes. Reads `builder.phase` to suppress thinking indicator when builder is active. Auto-scroll to bottom via MutationObserver ref callback on the messages container.
+Auto-hides in preview mode (derived `chatOpen = viewMode === 'preview' ? false : chatUserPref`). Restores user preference when switching back to tree/design. Reads `builder.phase` to suppress thinking indicator when builder is active. Auto-scroll to bottom via MutationObserver ref callback on the messages container.
 
 ## ChatMessage
 

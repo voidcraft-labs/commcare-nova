@@ -95,7 +95,7 @@ export function FormScreen({ blueprint, moduleIndex, formIndex, caseData, onBack
       </div>
 
       {/* Form body */}
-      <div ref={formBodyRef} className="flex-1 overflow-auto px-6 py-6" style={{ scrollbarGutter: 'stable' }}>
+      <div ref={formBodyRef} className="flex-1 px-6 py-6">
         {questions.length === 0 ? (
           <div className="text-center text-nova-text-muted py-8">
             This form has no questions.
@@ -121,7 +121,7 @@ export function FormScreen({ blueprint, moduleIndex, formIndex, caseData, onBack
   )
 
   return (
-    <div className="flex flex-col h-full" onClick={() => builder?.select()}>
+    <div className="flex flex-col h-full max-w-3xl mx-auto w-full" onClick={() => builder?.select()}>
       {builder ? (
         <EditContextProvider builder={builder} moduleIndex={moduleIndex} formIndex={formIndex} mode={mode}>
           {formBody}

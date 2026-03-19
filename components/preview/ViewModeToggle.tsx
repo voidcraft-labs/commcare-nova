@@ -5,7 +5,7 @@ import tablerListTree from '@iconify-icons/tabler/list-tree'
 import ciEditPencil01 from '@iconify-icons/ci/edit-pencil-01'
 import tablerPlayerPlay from '@iconify-icons/tabler/player-play'
 
-interface PreviewToggleProps {
+interface ViewModeToggleProps {
   mode: 'tree' | 'design' | 'preview'
   onChange: (mode: 'tree' | 'design' | 'preview') => void
 }
@@ -16,20 +16,20 @@ const segments: { key: 'tree' | 'design' | 'preview'; label: string; icon?: Icon
   { key: 'preview', label: 'Preview', icon: tablerPlayerPlay },
 ]
 
-export function PreviewToggle({ mode, onChange }: PreviewToggleProps) {
+export function ViewModeToggle({ mode, onChange }: ViewModeToggleProps) {
   return (
-    <div className="flex items-center h-[48px] bg-nova-deep border border-nova-border rounded-lg p-0.5">
+    <div className="flex items-center h-[34px] bg-nova-deep border border-nova-border rounded-lg p-0.5">
       {segments.map(({ key, label, icon }) => {
         const isActive = mode === key
         return (
           <button
             key={key}
             onClick={() => onChange(key)}
-            className="relative h-full px-3.5 text-[13px] font-medium rounded-md transition-colors cursor-pointer"
+            className="relative h-full px-2.5 text-[13px] font-medium rounded-md transition-colors cursor-pointer"
           >
             {isActive && (
               <motion.div
-                layoutId="preview-toggle-indicator"
+                layoutId="view-mode-indicator"
                 className={`absolute inset-0 rounded-md ${
                   key === 'preview' ? 'bg-nova-emerald/15'
                     : key === 'design' ? 'bg-nova-cyan/15'

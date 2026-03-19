@@ -5,7 +5,7 @@ import { useChat } from '@ai-sdk/react'
 import { DefaultChatTransport, type UIMessage } from 'ai'
 import { motion, AnimatePresence, LayoutGroup } from 'motion/react'
 import { Icon } from '@iconify/react'
-import ciHamburgerMd from '@iconify-icons/ci/hamburger-md'
+import ciChatConversationCircle from '@iconify-icons/ci/chat-conversation-circle'
 import ciSettings from '@iconify-icons/ci/settings'
 import Link from 'next/link'
 import { useApiKey } from '@/hooks/useApiKey'
@@ -22,8 +22,11 @@ import { AppTree } from '@/components/builder/AppTree'
 import { DetailPanel } from '@/components/builder/DetailPanel'
 import { GenerationProgress } from '@/components/builder/GenerationProgress'
 import { ReplayController } from '@/components/builder/ReplayController'
-import { SubheaderToolbar } from '@/components/builder/SubheaderToolbar'
+import { SubheaderToolbar, CollapsibleBreadcrumb } from '@/components/builder/SubheaderToolbar'
 import type { BreadcrumbPart } from '@/components/builder/SubheaderToolbar'
+import { DownloadDropdown } from '@/components/ui/DownloadDropdown'
+import ciFileDocument from '@iconify-icons/ci/file-document'
+import ciDownloadPackage from '@iconify-icons/ci/download-package'
 import { useBuilderShortcuts } from '@/components/builder/useBuilderShortcuts'
 import { PreviewShell } from '@/components/preview/PreviewShell'
 import { usePreviewNav } from '@/hooks/usePreviewNav'
@@ -52,7 +55,7 @@ export function BuilderLayout({ buildId }: { buildId: string }) {
   const { apiKey, loaded } = useApiKey()
   const { settings } = useSettings()
   const builder = useBuilder()
-  const [chatOpen, setChatOpen] = useState(true)
+  const [chatUserPref, setChatUserPref] = useState(true)
   const [viewMode, setViewMode] = useState<'tree' | 'design' | 'preview'>('tree')
   const viewModeRef = useRef(viewMode)
   viewModeRef.current = viewMode
@@ -232,6 +235,9 @@ export function BuilderLayout({ buildId }: { buildId: string }) {
   if (!loaded || shouldRedirect) return null
 
   const showProgress = (isGenerating || builder.phase === BuilderPhase.Done) && !progressHidden && !inReplayMode
+  const chatOpen = viewMode === 'preview' ? false : chatUserPref
+  const showToolbar = !!(builder.treeData && builder.phase === BuilderPhase.Done && builder.blueprint)
+  const showDetailPanel = showToolbar && (viewMode === 'tree' || viewMode === 'design') && !!builder.selected
   const isPreviewLike = viewMode === 'design' || viewMode === 'preview'
   const editMode = viewMode === 'preview' ? 'test' as const : 'edit' as const
 
@@ -293,7 +299,7 @@ export function BuilderLayout({ buildId }: { buildId: string }) {
         }}
         transition={{ duration: 0.45, ease: [0.4, 0, 0.2, 1] }}
       >
-        <div className="flex items-center justify-between px-4 py-2.5 border-b border-nova-border">
+        <div className="flex items-center justify-between px-4 py-2.5 border-b border-nova-border bg-nova-void">
           {!isCentered && (
             <motion.div
               layoutId="nova-logo"
@@ -335,33 +341,73 @@ export function BuilderLayout({ buildId }: { buildId: string }) {
           />
         )}
 
-        <div className="flex flex-1 overflow-hidden">
-          {(chatOpen || inReplayMode) && (
+        {/* Project subheader — full-width breadcrumbs + download */}
+        <AnimatePresence>
+          {!isCentered && (
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              transition={{ duration: 0.2 }}
+              className="flex items-center justify-between px-5 h-14 border-b border-nova-border shrink-0 bg-[rgba(139,92,246,0.06)] shadow-[0_1px_12px_-4px_rgba(139,92,246,0.12)]"
+            >
+              <CollapsibleBreadcrumb parts={breadcrumbParts} />
+              {builder.phase === BuilderPhase.Done && builder.blueprint && (
+                <DownloadDropdown
+                  options={[
+                    {
+                      label: 'JSON',
+                      description: 'For CommCare HQ',
+                      icon: <Icon icon={ciFileDocument} width="28" height="28" />,
+                      onClick: handleDownloadJson,
+                    },
+                    {
+                      label: 'CCZ',
+                      description: 'For CommCare',
+                      icon: <Icon icon={ciDownloadPackage} width="28" height="28" />,
+                      onClick: handleCompile,
+                    },
+                  ]}
+                />
+              )}
+            </motion.div>
+          )}
+        </AnimatePresence>
+
+        {/* Tier 3: Toolbar — full-width view mode + undo/redo */}
+        {showToolbar && (
+          <SubheaderToolbar
+            viewMode={viewMode}
+            onViewModeChange={handleViewModeChange}
+            canUndo={builder.canUndo}
+            canRedo={builder.canRedo}
+            onUndo={() => builder.undo()}
+            onRedo={() => builder.redo()}
+          />
+        )}
+
+        {/* Tier 4: Content area — sidebars float over main content */}
+        <div className="relative flex-1 overflow-hidden">
+          {/* Centered hero mode */}
+          {isCentered && chatOpen && (
             <motion.div
               layout
-              className={
-                isCentered
-                  ? 'flex-1 flex flex-col items-center justify-center gap-6'
-                  : 'shrink-0'
-              }
+              className="absolute inset-0 flex flex-col items-center justify-center gap-6"
               transition={{ layout: { duration: 0.45, ease: [0.4, 0, 0.2, 1] } }}
             >
-              {/* Hero logo — animates to header on transition */}
-              {isCentered && (
-                <motion.div
-                  layoutId="nova-logo"
-                  transition={{ layout: { duration: 0.45, ease: [0.4, 0, 0.2, 1] } }}
-                >
-                  <Logo size="hero" />
-                </motion.div>
-              )}
+              <motion.div
+                layoutId="nova-logo"
+                transition={{ layout: { duration: 0.45, ease: [0.4, 0, 0.2, 1] } }}
+              >
+                <Logo size="hero" />
+              </motion.div>
               <ErrorBoundary>
                 <ChatSidebar
-                  mode={isCentered ? 'centered' : 'sidebar'}
+                  mode="centered"
                   messages={inReplayMode ? replayMessages : messages}
                   status={inReplayMode ? 'ready' : status}
                   onSend={handleSend}
-                  onClose={inReplayMode ? undefined : () => setChatOpen(false)}
+                  onClose={() => setChatUserPref(false)}
                   addToolOutput={addToolOutput}
                   readOnly={inReplayMode}
                 />
@@ -369,103 +415,110 @@ export function BuilderLayout({ buildId }: { buildId: string }) {
             </motion.div>
           )}
 
+          {/* Main scrollable content — full height, scrollbar on far right */}
           <AnimatePresence>
             {!isCentered && (
               <motion.div
-                className="flex-1 flex flex-col overflow-hidden"
+                className="absolute inset-0"
                 initial={{ opacity: 0 }}
                 animate={{ opacity: 1 }}
                 exit={{ opacity: 0 }}
                 transition={{ duration: 0.3, delay: 0.15 }}
               >
-                {/* Subheader toolbar — breadcrumbs + toggle (centered) + undo/redo */}
-                {builder.treeData && builder.phase === BuilderPhase.Done && builder.blueprint && (
-                  <SubheaderToolbar
-                    breadcrumbParts={breadcrumbParts}
-                    viewMode={viewMode}
-                    onViewModeChange={handleViewModeChange}
-                    canUndo={builder.canUndo}
-                    canRedo={builder.canRedo}
-                    onUndo={() => builder.undo()}
-                    onRedo={() => builder.redo()}
-                    onDownloadJson={handleDownloadJson}
-                    onCompile={handleCompile}
-                  />
-                )}
+                <div className="h-full overflow-auto">
+                  {!chatOpen && viewMode !== 'preview' && (
+                    <button
+                      onClick={() => setChatUserPref(true)}
+                      className="absolute top-3 left-3 z-10 p-2 bg-nova-surface border border-nova-border rounded-lg hover:border-nova-border-bright transition-colors cursor-pointer"
+                      title="Open chat"
+                    >
+                      <Icon icon={ciChatConversationCircle} width="24" height="24" />
+                    </button>
+                  )}
 
-                {/* Content + Detail panel row — below subheader */}
-                <div className="flex-1 flex overflow-hidden">
-                  <div className="flex-1 relative">
-                    <div className="absolute inset-0 overflow-auto">
-                      {!chatOpen && (
-                        <button
-                          onClick={() => setChatOpen(true)}
-                          className="absolute top-3 left-3 z-10 p-2 bg-nova-surface border border-nova-border rounded-lg hover:border-nova-border-bright transition-colors"
-                          title="Open chat"
-                        >
-                          <Icon icon={ciHamburgerMd} width="16" height="16" />
-                        </button>
-                      )}
-
-                      <ErrorBoundary>
-                        {builder.treeData ? (
-                          isPreviewLike && builder.phase === BuilderPhase.Done && builder.blueprint ? (
-                            <PreviewShell
-                              blueprint={builder.blueprint}
-                              builder={builder}
-                              mode={editMode}
-                              nav={nav}
-                              hideHeader
-                            />
-                          ) : (
-                            <AppTree
-                              data={builder.treeData}
-                              selected={viewMode === 'tree' ? builder.selected : undefined}
-                              onSelect={(s) => builder.select(s)}
-                              phase={builder.phase}
-                              hideHeader
-                            />
-                          )
-                        ) : null}
-                      </ErrorBoundary>
-                    </div>
-
-                    <AnimatePresence>
-                      {showProgress && (
-                        <motion.div
-                          layout
-                          className={`absolute z-10 pointer-events-none ${
-                            progressMode === 'centered'
-                              ? 'inset-0 flex items-center justify-center'
-                              : 'bottom-4 inset-x-0 flex justify-center'
-                          }`}
-                          transition={{ layout: { duration: 0.5, ease: [0.4, 0, 0.2, 1] } }}
-                        >
-                          <div className="pointer-events-auto">
-                            <GenerationProgress
-                              phase={builder.phase}
-                              message={builder.statusMessage}
-                              completed={builder.progressCompleted}
-                              total={builder.progressTotal}
-                              mode={progressMode}
-                              onDone={() => setProgressHidden(true)}
-                            />
-                          </div>
-                        </motion.div>
-                      )}
-                    </AnimatePresence>
-                  </div>
-
-                  {/* DetailPanel — slides from right, beneath subheader */}
-                  <AnimatePresence>
-                    {(viewMode === 'tree' || viewMode === 'design') && builder.selected && builder.blueprint && (
-                      <ErrorBoundary>
-                        <DetailPanel builder={builder} />
-                      </ErrorBoundary>
-                    )}
-                  </AnimatePresence>
+                  <ErrorBoundary>
+                    {builder.treeData ? (
+                      isPreviewLike && builder.phase === BuilderPhase.Done && builder.blueprint ? (
+                        <PreviewShell
+                          blueprint={builder.blueprint}
+                          builder={builder}
+                          mode={editMode}
+                          nav={nav}
+                          hideHeader
+                        />
+                      ) : (
+                        <AppTree
+                          data={builder.treeData}
+                          selected={viewMode === 'tree' ? builder.selected : undefined}
+                          onSelect={(s) => builder.select(s)}
+                          phase={builder.phase}
+                          hideHeader
+                        />
+                      )
+                    ) : null}
+                  </ErrorBoundary>
                 </div>
+
+                {/* Progress overlay */}
+                <AnimatePresence>
+                  {showProgress && (
+                    <motion.div
+                      layout
+                      className={`absolute z-10 pointer-events-none ${
+                        progressMode === 'centered'
+                          ? 'inset-0 flex items-center justify-center'
+                          : 'bottom-4 inset-x-0 flex justify-center'
+                      }`}
+                      transition={{ layout: { duration: 0.5, ease: [0.4, 0, 0.2, 1] } }}
+                    >
+                      <div className="pointer-events-auto">
+                        <GenerationProgress
+                          phase={builder.phase}
+                          message={builder.statusMessage}
+                          completed={builder.progressCompleted}
+                          total={builder.progressTotal}
+                          mode={progressMode}
+                          onDone={() => setProgressHidden(true)}
+                        />
+                      </div>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
               </motion.div>
+            )}
+          </AnimatePresence>
+
+          {/* Chat sidebar — absolute left, floats over content */}
+          <AnimatePresence>
+            {!isCentered && chatOpen && (
+              <motion.div
+                initial={{ x: -320, opacity: 0 }}
+                animate={{ x: 0, opacity: 1 }}
+                exit={{ x: -320, opacity: 0 }}
+                transition={{ duration: 0.25, ease: [0.4, 0, 0.2, 1] }}
+                className="absolute left-0 top-0 bottom-0 z-20"
+              >
+                <ErrorBoundary>
+                  <ChatSidebar
+                    mode="sidebar"
+                    messages={inReplayMode ? replayMessages : messages}
+                    status={inReplayMode ? 'ready' : status}
+                    onSend={handleSend}
+                    onClose={() => setChatUserPref(false)}
+                    addToolOutput={addToolOutput}
+                    readOnly={inReplayMode}
+                  />
+                </ErrorBoundary>
+              </motion.div>
+            )}
+          </AnimatePresence>
+
+          {/* DetailPanel — absolute right, floats over content */}
+          <AnimatePresence>
+            {showDetailPanel && (
+              <ErrorBoundary>
+                <DetailPanel builder={builder} />
+              </ErrorBoundary>
             )}
           </AnimatePresence>
         </div>

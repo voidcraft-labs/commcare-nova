@@ -26,7 +26,7 @@ export function DownloadDropdown({ options }: DownloadDropdownProps) {
       <motion.button
         whileTap={{ scale: 0.98 }}
         onClick={() => setOpen(!open)}
-        className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium rounded-lg bg-nova-surface text-nova-text border border-nova-border hover:border-nova-border-bright hover:bg-nova-elevated transition-all duration-200 cursor-pointer"
+        className="inline-flex items-center gap-1.5 px-3 py-1.5 text-lg font-medium rounded-lg bg-nova-surface text-nova-text border border-nova-border hover:border-nova-border-bright hover:bg-nova-elevated transition-all duration-200 cursor-pointer"
       >
         <Icon icon={ciDownload} width="14" height="14" className="opacity-70" />
         Download
@@ -44,7 +44,7 @@ export function DownloadDropdown({ options }: DownloadDropdownProps) {
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: -4, scale: 0.97 }}
             transition={{ duration: 0.15, ease: [0.4, 0, 0.2, 1] }}
-            className="absolute right-0 top-[calc(100%+6px)] z-50 w-52 rounded-lg border border-nova-border bg-nova-surface/95 backdrop-blur-xl shadow-[0_8px_32px_rgba(0,0,0,0.5)] overflow-hidden"
+            className="absolute right-0 top-[calc(100%+6px)] z-50 w-52 rounded-xl border border-nova-border-bright bg-nova-surface/95 backdrop-blur-xl shadow-[0_4px_16px_rgba(0,0,0,0.5)] overflow-hidden"
           >
             {options.map((option, i) => (
               <button
