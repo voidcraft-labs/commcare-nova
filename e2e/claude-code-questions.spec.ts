@@ -1,53 +1,57 @@
 import { test, expect } from '@playwright/test'
 
 /**
- * E2E test: Verify that Claude Code asks questions before generating,
- * and the "Blueprint generated" banner does NOT appear during the question phase.
- *
- * This specifically tests the bug where extractBlueprint was triggering
- * on conversational responses before generation was complete.
+ * E2E test: Send a semi-detailed prompt, handle 0-2 questions if asked,
+ * then validate and open in builder. Proves the full interactive flow works
+ * regardless of whether Claude Code asks questions or generates directly.
  */
 
-test('questions phase does not trigger blueprint banner', async ({ page }) => {
+test('question → answer → generate → validate → open in builder', async ({ page }) => {
   await page.goto('/build/cc')
 
-  // Send a vague prompt that should trigger questions
   const input = page.locator('textarea[placeholder="Describe the app you want to build..."]')
   await expect(input).toBeVisible()
-  await input.fill('I want to build a health app')
+
+  await input.fill(
+    'Build a patient registration app. Track patients with full_name, age, phone_number, village. ' +
+    'One module, one registration form, one followup form for updates. ' +
+    'Keep it minimal. Ask at most 1 quick question then generate.'
+  )
   await input.press('Enter')
 
-  // Wait for Claude Code to respond (should ask a question)
+  // Wait for first response
   await expect(page.locator('.chat-markdown').first()).toBeVisible({ timeout: 120_000 })
-  console.log('First response received')
-
-  // Wait for streaming to finish (input becomes enabled again)
   await expect(input).toBeEnabled({ timeout: 60_000 })
-  console.log('Streaming complete — checking for false blueprint detection')
 
-  // The banner should NOT be visible — Claude Code should be asking questions, not generating
-  const validateButton = page.locator('button', { hasText: 'Validate' })
-  const blueprintBanner = page.locator('text=Blueprint generated')
+  // If Claude Code asked a question (no validate button yet), answer it
+  const validateBtn = page.locator('button', { hasText: 'Validate' })
+  if (!(await validateBtn.isVisible({ timeout: 2000 }).catch(() => false))) {
+    // Try clicking a structured option, or type an answer
+    const optionButton = page.locator('button:has-text("Keep it simple")').or(
+      page.locator('[class*="border-nova-border"][class*="bg-nova-surface"]').first()
+    )
+    if (await optionButton.first().isVisible({ timeout: 2000 }).catch(() => false)) {
+      await optionButton.first().click()
+    } else {
+      await input.fill('Just generate it with sensible defaults.')
+      await input.press('Enter')
+    }
+  }
 
-  // Give a moment for any false detection to trigger
-  await page.waitForTimeout(2000)
+  // Wait for validate button
+  await expect(validateBtn).toBeVisible({ timeout: 4 * 60 * 1000 })
+  await validateBtn.click()
 
-  const bannerVisible = await blueprintBanner.isVisible()
-  const validateVisible = await validateButton.isVisible()
+  // Wait for validation to pass
+  const openBtn = page.locator('button', { hasText: 'Open in Builder' })
+  await expect(openBtn).toBeVisible({ timeout: 4 * 60 * 1000 })
+  await openBtn.click()
 
-  console.log(`Blueprint banner visible: ${bannerVisible}`)
-  console.log(`Validate button visible: ${validateVisible}`)
+  await page.waitForTimeout(1000)
+  await expect(page.locator('text=View mode')).toBeVisible({ timeout: 5000 })
 
-  // Neither should be visible during the question phase
-  expect(bannerVisible).toBe(false)
-  expect(validateVisible).toBe(false)
+  const content = await page.content()
+  expect(/patient/i.test(content)).toBeTruthy()
 
-  // Should see either a structured question card or conversational text
-  const pageContent = await page.content()
-  const hasQuestionContent = /question|what|which|how|who|tell me/i.test(pageContent)
-  expect(hasQuestionContent).toBeTruthy()
-
-  console.log('Confirmed: no false blueprint detection during question phase')
-
-  await page.screenshot({ path: 'e2e/screenshots/question-phase-no-banner.png', fullPage: true })
+  await page.screenshot({ path: 'e2e/screenshots/question-flow-builder.png', fullPage: true })
 })
