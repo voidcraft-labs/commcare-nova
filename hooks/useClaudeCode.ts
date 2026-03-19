@@ -102,14 +102,23 @@ export function extractBlueprint(text: string): any | null {
 
 type Status = 'ready' | 'streaming' | 'error'
 
+export interface CumulativeUsage {
+  inputTokens: number
+  outputTokens: number
+}
+
 export function useClaudeCode() {
   const [messages, setMessages] = useState<ClaudeCodeMessage[]>([])
   const [status, setStatus] = useState<Status>('ready')
   const [error, setError] = useState<string | null>(null)
   const [blueprint, setBlueprint] = useState<any | null>(null)
+  const [usage, setUsage] = useState<CumulativeUsage>({ inputTokens: 0, outputTokens: 0 })
+  const [elapsedMs, setElapsedMs] = useState(0)
 
   const sessionIdRef = useRef<string | null>(null)
   const abortRef = useRef<AbortController | null>(null)
+  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  const startTimeRef = useRef<number>(0)
 
   const sendMessage = useCallback(async (text: string, opts?: { fromCard?: boolean }) => {
     // Abort any in-flight request
@@ -118,6 +127,14 @@ export function useClaudeCode() {
     }
     const controller = new AbortController()
     abortRef.current = controller
+
+    // Start elapsed time timer
+    startTimeRef.current = Date.now()
+    setElapsedMs(0)
+    if (timerRef.current) clearInterval(timerRef.current)
+    timerRef.current = setInterval(() => {
+      setElapsedMs(Date.now() - startTimeRef.current)
+    }, 500)
 
     const userMessage: ClaudeCodeMessage = {
       id: crypto.randomUUID(),
@@ -196,11 +213,36 @@ export function useClaudeCode() {
                     : m
                 )
               )
+            } else if (currentEvent === 'usage') {
+              const u = data?.usage
+              if (u) {
+                setUsage(prev => ({
+                  inputTokens: prev.inputTokens + (u.inputTokens ?? 0),
+                  outputTokens: prev.outputTokens + (u.outputTokens ?? 0),
+                }))
+              }
             } else if (currentEvent === 'tool_use') {
               const tool = typeof data === 'string' ? data : (data?.tool ?? data?.name ?? 'tool')
               if (tool === 'Write') sawFileWrite = true
               // Don't append tool_use text inline — it creates artifacts
             } else if (currentEvent === 'result') {
+              // Stop the timer
+              if (timerRef.current) { clearInterval(timerRef.current); timerRef.current = null }
+              setElapsedMs(Date.now() - startTimeRef.current)
+
+              // Extract real usage from result event (has accurate totals)
+              const resultUsage = data?.usage
+              if (resultUsage) {
+                const outTokens = resultUsage.output_tokens ?? resultUsage.outputTokens ?? 0
+                const inTokens = (resultUsage.input_tokens ?? resultUsage.inputTokens ?? 0)
+                  + (resultUsage.cache_read_input_tokens ?? 0)
+                  + (resultUsage.cache_creation_input_tokens ?? 0)
+                setUsage(prev => ({
+                  inputTokens: prev.inputTokens + inTokens,
+                  outputTokens: prev.outputTokens + outTokens,
+                }))
+              }
+
               // Only look for blueprint in text if the response looks like it was a generation turn
               const bp = extractBlueprint(fullText)
               if (bp) {
@@ -236,6 +278,7 @@ export function useClaudeCode() {
         }
       }
     } catch (err: any) {
+      if (timerRef.current) { clearInterval(timerRef.current); timerRef.current = null }
       if (err?.name === 'AbortError') return
       setError(err?.message ?? 'Unknown error')
       setStatus('error')
@@ -249,5 +292,7 @@ export function useClaudeCode() {
     sendMessage,
     blueprint,
     sessionId: sessionIdRef.current,
+    usage,
+    elapsedMs,
   }
 }

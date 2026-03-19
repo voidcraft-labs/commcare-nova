@@ -47,8 +47,9 @@ test('generate, validate, open builder, interact with tree', async ({ page }) =>
   await openBtn.click()
   await page.waitForTimeout(2000)
 
-  // Verify we're in the builder
-  await expect(page.locator('text=View mode')).toBeVisible({ timeout: 5000 })
+  // Verify we're in the builder (tree view with modules visible)
+  // With CC session, we have edit capability — no "View mode" banner
+  await expect(page.getByRole('button', { name: 'Tree' })).toBeVisible({ timeout: 5000 })
   console.log('Builder loaded')
 
   // Take initial screenshot

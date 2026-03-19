@@ -3,26 +3,32 @@ import * as readline from 'readline'
 import { readFileSync, mkdirSync, unlinkSync } from 'fs'
 import { join } from 'path'
 
+export interface TokenUsage {
+  inputTokens: number
+  outputTokens: number
+}
+
 export type ClaudeCodeEvent =
   | { type: 'init'; sessionId: string }
   | { type: 'text'; text: string; sessionId: string }
   | { type: 'tool_use'; tool: string; sessionId: string }
+  | { type: 'usage'; usage: TokenUsage; sessionId: string }
   | { type: 'result'; text: string; sessionId: string; durationMs: number }
   | { type: 'error'; message: string }
 
 /**
  * Parses a single JSON line from `claude --output-format stream-json` output.
- * Returns a normalized ClaudeCodeEvent or null if the line is irrelevant.
+ * Returns normalized ClaudeCodeEvents (may return multiple, e.g. text + usage).
  */
-export function parseStreamEvent(line: string): ClaudeCodeEvent | null {
+export function parseStreamEvent(line: string): ClaudeCodeEvent[] {
   let parsed: unknown
   try {
     parsed = JSON.parse(line)
   } catch {
-    return null
+    return []
   }
 
-  if (typeof parsed !== 'object' || parsed === null) return null
+  if (typeof parsed !== 'object' || parsed === null) return []
 
   const obj = parsed as Record<string, unknown>
 
@@ -32,9 +38,9 @@ export function parseStreamEvent(line: string): ClaudeCodeEvent | null {
   if (type === 'system' && obj['subtype'] === 'init') {
     const sessionId = obj['session_id']
     if (typeof sessionId === 'string') {
-      return { type: 'init', sessionId }
+      return [{ type: 'init', sessionId }]
     }
-    return null
+    return []
   }
 
   // Assistant message
@@ -52,21 +58,35 @@ export function parseStreamEvent(line: string): ClaudeCodeEvent | null {
 
     const contentType = first['type']
 
+    // Extract usage from assistant message if present
+    const usage = msg['usage'] as Record<string, unknown> | undefined
+    const inputTokens = (typeof usage?.['input_tokens'] === 'number' ? usage['input_tokens'] as number : 0)
+      + (typeof usage?.['cache_read_input_tokens'] === 'number' ? usage['cache_read_input_tokens'] as number : 0)
+      + (typeof usage?.['cache_creation_input_tokens'] === 'number' ? usage['cache_creation_input_tokens'] as number : 0)
+    const outputTokens = typeof usage?.['output_tokens'] === 'number' ? usage['output_tokens'] as number : 0
+    const usageEvent: ClaudeCodeEvent | null = (inputTokens || outputTokens)
+      ? { type: 'usage', usage: { inputTokens, outputTokens }, sessionId }
+      : null
+
     if (contentType === 'text') {
       const text = first['text']
       if (typeof text === 'string') {
-        return { type: 'text', text, sessionId }
+        const events: ClaudeCodeEvent[] = [{ type: 'text', text, sessionId }]
+        if (usageEvent) events.push(usageEvent)
+        return events
       }
     }
 
     if (contentType === 'tool_use') {
       const name = first['name']
       if (typeof name === 'string') {
-        return { type: 'tool_use', tool: name, sessionId }
+        const events: ClaudeCodeEvent[] = [{ type: 'tool_use', tool: name, sessionId }]
+        if (usageEvent) events.push(usageEvent)
+        return events
       }
     }
 
-    return null
+    return usageEvent ? [usageEvent] : []
   }
 
   // Result event
@@ -81,7 +101,7 @@ export function parseStreamEvent(line: string): ClaudeCodeEvent | null {
           : typeof obj['error'] === 'string'
             ? obj['error']
             : 'Unknown error'
-      return { type: 'error', message }
+      return [{ type: 'error', message }]
     }
 
     if (subtype === 'success') {
@@ -93,14 +113,14 @@ export function parseStreamEvent(line: string): ClaudeCodeEvent | null {
         typeof sessionId === 'string' &&
         typeof durationMs === 'number'
       ) {
-        return { type: 'result', text: result, sessionId, durationMs }
+        return [{ type: 'result', text: result, sessionId, durationMs }]
       }
     }
 
-    return null
+    return []
   }
 
-  return null
+  return []
 }
 
 export interface StreamClaudeCodeOptions {
@@ -183,9 +203,9 @@ export async function* streamClaudeCode(
 
   rl.on('line', (line: string) => {
     if (!line.trim()) return
-    const event = parseStreamEvent(line)
-    if (event !== null) {
-      queue.push(event)
+    const events = parseStreamEvent(line)
+    if (events.length > 0) {
+      queue.push(...events)
       resolve?.()
       resolve = null
     }

@@ -36,7 +36,7 @@ export function ChatSidebar({
   const builder = useBuilder()
   const isLoading = status === 'submitted' || status === 'streaming'
 
-  const showThinking = isLoading && builder.phase === BuilderPhase.Idle
+  const showThinking = isLoading && (builder.phase === BuilderPhase.Idle || builder.phase === BuilderPhase.Done)
   const pendingAnswerRef = useRef<((text: string) => void) | null>(null)
   const isCentered = mode === 'centered'
 

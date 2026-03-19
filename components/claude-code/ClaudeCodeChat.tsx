@@ -15,7 +15,7 @@ interface ClaudeCodeChatProps {
 }
 
 export function ClaudeCodeChat({ onBlueprintReady }: ClaudeCodeChatProps) {
-  const { messages, status, error, sendMessage, blueprint, sessionId } = useClaudeCode()
+  const { messages, status, error, sendMessage, blueprint, sessionId, usage, elapsedMs } = useClaudeCode()
   const [input, setInput] = useState('')
   const scrollRef = useRef<HTMLDivElement>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
@@ -196,9 +196,9 @@ export function ClaudeCodeChat({ onBlueprintReady }: ClaudeCodeChatProps) {
               )
             })}
 
-            {/* Thinking indicator */}
+            {/* Streaming indicator with elapsed time */}
             <AnimatePresence>
-              {showThinking && (
+              {isStreaming && (
                 <motion.div
                   initial={{ opacity: 0 }}
                   animate={{ opacity: 1 }}
@@ -206,8 +206,15 @@ export function ClaudeCodeChat({ onBlueprintReady }: ClaudeCodeChatProps) {
                   transition={{ duration: 0.2 }}
                   className="flex justify-start"
                 >
-                  <div className="text-sm text-nova-text-muted animate-pulse px-1 py-1">
-                    Thinking...
+                  <div className="flex items-center gap-2 text-xs text-nova-text-muted px-1 py-1">
+                    <div className="w-1.5 h-1.5 rounded-full bg-nova-violet animate-pulse" />
+                    <span>{showThinking ? 'Thinking' : 'Generating'}</span>
+                    {elapsedMs > 1000 && (
+                      <span className="text-nova-text-muted/50">{Math.floor(elapsedMs / 1000)}s</span>
+                    )}
+                    {usage.outputTokens > 0 && (
+                      <span className="text-nova-text-muted/50">{usage.outputTokens.toLocaleString()} tokens</span>
+                    )}
                   </div>
                 </motion.div>
               )}

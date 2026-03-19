@@ -8,8 +8,8 @@ describe('parseStreamEvent', () => {
       subtype: 'init',
       session_id: 'sess-abc123',
     })
-    const event = parseStreamEvent(line)
-    expect(event).toEqual({ type: 'init', sessionId: 'sess-abc123' })
+    const events = parseStreamEvent(line)
+    expect(events).toEqual([{ type: 'init', sessionId: 'sess-abc123' }])
   })
 
   it('extracts text from assistant message', () => {
@@ -20,8 +20,23 @@ describe('parseStreamEvent', () => {
         content: [{ type: 'text', text: 'Hello, world!' }],
       },
     })
-    const event = parseStreamEvent(line)
-    expect(event).toEqual({ type: 'text', text: 'Hello, world!', sessionId: 'sess-abc123' })
+    const events = parseStreamEvent(line)
+    expect(events[0]).toEqual({ type: 'text', text: 'Hello, world!', sessionId: 'sess-abc123' })
+  })
+
+  it('extracts text + usage from assistant message with usage', () => {
+    const line = JSON.stringify({
+      type: 'assistant',
+      session_id: 'sess-abc123',
+      message: {
+        content: [{ type: 'text', text: 'Hi' }],
+        usage: { input_tokens: 100, output_tokens: 50, cache_read_input_tokens: 200 },
+      },
+    })
+    const events = parseStreamEvent(line)
+    expect(events).toHaveLength(2)
+    expect(events[0]).toMatchObject({ type: 'text', text: 'Hi' })
+    expect(events[1]).toMatchObject({ type: 'usage', usage: { inputTokens: 300, outputTokens: 50 } })
   })
 
   it('extracts tool_use from assistant tool_use content', () => {
@@ -32,8 +47,8 @@ describe('parseStreamEvent', () => {
         content: [{ type: 'tool_use', name: 'bash', id: 'tool-1', input: {} }],
       },
     })
-    const event = parseStreamEvent(line)
-    expect(event).toEqual({ type: 'tool_use', tool: 'bash', sessionId: 'sess-abc123' })
+    const events = parseStreamEvent(line)
+    expect(events[0]).toEqual({ type: 'tool_use', tool: 'bash', sessionId: 'sess-abc123' })
   })
 
   it('extracts result from completion', () => {
@@ -44,23 +59,22 @@ describe('parseStreamEvent', () => {
       session_id: 'sess-abc123',
       duration_ms: 1234,
     })
-    const event = parseStreamEvent(line)
-    expect(event).toEqual({
+    const events = parseStreamEvent(line)
+    expect(events).toEqual([{
       type: 'result',
       text: 'Task completed.',
       sessionId: 'sess-abc123',
       durationMs: 1234,
-    })
+    }])
   })
 
-  it('returns null for hook/system events that are not init', () => {
+  it('returns empty array for hook/system events that are not init', () => {
     const line = JSON.stringify({
       type: 'system',
       subtype: 'hook_result',
       output: 'some output',
     })
-    const event = parseStreamEvent(line)
-    expect(event).toBeNull()
+    expect(parseStreamEvent(line)).toEqual([])
   })
 
   it('returns error for error result with subtype error', () => {
@@ -69,8 +83,7 @@ describe('parseStreamEvent', () => {
       subtype: 'error',
       result: 'Something went wrong',
     })
-    const event = parseStreamEvent(line)
-    expect(event).toEqual({ type: 'error', message: 'Something went wrong' })
+    expect(parseStreamEvent(line)).toEqual([{ type: 'error', message: 'Something went wrong' }])
   })
 
   it('returns error for result with is_error true', () => {
@@ -79,21 +92,20 @@ describe('parseStreamEvent', () => {
       is_error: true,
       result: 'Execution failed',
     })
-    const event = parseStreamEvent(line)
-    expect(event).toEqual({ type: 'error', message: 'Execution failed' })
+    expect(parseStreamEvent(line)).toEqual([{ type: 'error', message: 'Execution failed' }])
   })
 
-  it('returns null for invalid JSON', () => {
-    expect(parseStreamEvent('not json')).toBeNull()
+  it('returns empty array for invalid JSON', () => {
+    expect(parseStreamEvent('not json')).toEqual([])
   })
 
-  it('returns null for empty/whitespace lines', () => {
-    expect(parseStreamEvent('')).toBeNull()
-    expect(parseStreamEvent('   ')).toBeNull()
+  it('returns empty array for empty/whitespace lines', () => {
+    expect(parseStreamEvent('')).toEqual([])
+    expect(parseStreamEvent('   ')).toEqual([])
   })
 
-  it('returns null for unknown event types', () => {
+  it('returns empty array for unknown event types', () => {
     const line = JSON.stringify({ type: 'unknown', data: 'foo' })
-    expect(parseStreamEvent(line)).toBeNull()
+    expect(parseStreamEvent(line)).toEqual([])
   })
 })
