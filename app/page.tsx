@@ -13,6 +13,7 @@ export default function LandingPage() {
   const router = useRouter()
   const { settings, loaded, updateSettings } = useSettings()
   const [apiKey, setApiKey] = useState('')
+  const [mode, setMode] = useState<'api-key' | 'claude-code'>('api-key')
 
   const startBuilding = () => {
     if (!apiKey.trim()) return
@@ -21,10 +22,10 @@ export default function LandingPage() {
   }
 
   useEffect(() => {
-    if (loaded && settings.apiKey) router.replace('/build/new')
-  }, [loaded, settings.apiKey, router])
+    if (loaded && settings.apiKey && mode === 'api-key') router.replace('/build/new')
+  }, [loaded, settings.apiKey, router, mode])
 
-  if (!loaded || settings.apiKey) return null
+  if (!loaded || (settings.apiKey && mode === 'api-key')) return null
 
   return (
     <div className="min-h-screen flex flex-col items-center justify-center relative overflow-hidden">
@@ -65,34 +66,67 @@ export default function LandingPage() {
           transition={{ delay: 0.5, duration: 0.6 }}
           className="w-full space-y-4"
         >
-          <div>
-            <label className="text-sm text-nova-text-secondary font-medium block mb-1.5">
-              Anthropic API Key
-            </label>
-            <div className="relative">
-              <input
-                type="password"
-                placeholder="sk-ant-..."
-                value={apiKey}
-                onChange={(e) => setApiKey(e.target.value)}
-                onKeyDown={(e) => { if (e.key === 'Enter') startBuilding() }}
-                autoComplete="off"
-                data-1p-ignore
-                className="w-full px-4 py-3 pr-14 bg-nova-deep border border-nova-border rounded-lg text-nova-text placeholder:text-nova-text-muted focus:outline-none focus:border-nova-violet focus:shadow-[var(--nova-glow-violet)] transition-all duration-200"
-              />
+          {/* Mode toggle */}
+          <div className="flex justify-center">
+            <div className="flex rounded-lg bg-nova-deep border border-nova-border p-0.5">
               <button
-                onClick={startBuilding}
-                disabled={!apiKey.trim()}
-                className="absolute right-2 top-1/2 -translate-y-1/2 p-2 rounded-md bg-nova-violet text-white hover:bg-nova-violet-bright transition-colors disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer"
-              >
-                <Icon icon={ciArrowRight} width="18" height="18" />
-              </button>
+                onClick={() => setMode('api-key')}
+                className={`px-3 py-1.5 rounded-md text-xs font-medium transition-all cursor-pointer ${
+                  mode === 'api-key' ? 'bg-nova-violet text-white' : 'text-nova-text-muted hover:text-nova-text'
+                }`}
+              >API Key</button>
+              <button
+                onClick={() => setMode('claude-code')}
+                className={`px-3 py-1.5 rounded-md text-xs font-medium transition-all cursor-pointer ${
+                  mode === 'claude-code' ? 'bg-nova-violet text-white' : 'text-nova-text-muted hover:text-nova-text'
+                }`}
+              >Claude Code</button>
             </div>
           </div>
 
-          <p className="text-xs text-nova-text-muted text-center">
-            Your API key stays in your browser. Never sent to our servers.
-          </p>
+          {mode === 'api-key' ? (
+            <>
+              <div>
+                <label className="text-sm text-nova-text-secondary font-medium block mb-1.5">
+                  Anthropic API Key
+                </label>
+                <div className="relative">
+                  <input
+                    type="password"
+                    placeholder="sk-ant-..."
+                    value={apiKey}
+                    onChange={(e) => setApiKey(e.target.value)}
+                    onKeyDown={(e) => { if (e.key === 'Enter') startBuilding() }}
+                    autoComplete="off"
+                    data-1p-ignore
+                    className="w-full px-4 py-3 pr-14 bg-nova-deep border border-nova-border rounded-lg text-nova-text placeholder:text-nova-text-muted focus:outline-none focus:border-nova-violet focus:shadow-[var(--nova-glow-violet)] transition-all duration-200"
+                  />
+                  <button
+                    onClick={startBuilding}
+                    disabled={!apiKey.trim()}
+                    className="absolute right-2 top-1/2 -translate-y-1/2 p-2 rounded-md bg-nova-violet text-white hover:bg-nova-violet-bright transition-colors disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer"
+                  >
+                    <Icon icon={ciArrowRight} width="18" height="18" />
+                  </button>
+                </div>
+              </div>
+              <p className="text-xs text-nova-text-muted text-center">
+                Your API key stays in your browser. Never sent to our servers.
+              </p>
+            </>
+          ) : (
+            <>
+              <button
+                onClick={() => router.push('/build/cc')}
+                className="w-full py-3 rounded-lg bg-nova-violet text-white font-medium hover:bg-nova-violet-bright transition-colors cursor-pointer"
+              >
+                Start with Claude Code
+              </button>
+              <p className="text-xs text-nova-text-muted text-center">
+                Uses your local Claude Code CLI — no API key needed.
+              </p>
+            </>
+          )}
         </motion.div>
       </motion.div>
     </div>
