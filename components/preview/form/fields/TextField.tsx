@@ -22,6 +22,8 @@ export function TextField({ question, state, onChange, onBlur }: TextFieldProps)
         onChange={(e) => onChange(e.target.value)}
         onBlur={onBlur}
         placeholder={question.hint ?? ''}
+        autoComplete="off"
+        data-1p-ignore
         className={`w-full px-3 py-2 rounded-lg bg-pv-input-bg border text-sm text-nova-text placeholder:text-nova-text-muted focus:outline-none transition-colors ${
           showError
             ? 'border-nova-rose/50 focus:border-nova-rose'

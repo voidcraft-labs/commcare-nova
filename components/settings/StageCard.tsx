@@ -118,6 +118,8 @@ export function StageCard({ stage, index, settings, models, updatePipelineStage 
               onChange={(e) => updatePipelineStage(stage.key, { model: e.target.value })}
               placeholder={!settings.apiKey ? 'Enter API key first' : 'Model ID...'}
               disabled={!settings.apiKey}
+              autoComplete="off"
+              data-1p-ignore
               className="w-full px-3 py-2 bg-nova-void border border-nova-border rounded-lg text-sm text-nova-text placeholder:text-nova-text-muted focus:outline-none focus:border-nova-violet transition-colors disabled:opacity-40"
             />
           )}

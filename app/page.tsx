@@ -76,6 +76,8 @@ export default function LandingPage() {
                 value={apiKey}
                 onChange={(e) => setApiKey(e.target.value)}
                 onKeyDown={(e) => { if (e.key === 'Enter') startBuilding() }}
+                autoComplete="off"
+                data-1p-ignore
                 className="w-full px-4 py-3 pr-14 bg-nova-deep border border-nova-border rounded-lg text-nova-text placeholder:text-nova-text-muted focus:outline-none focus:border-nova-violet focus:shadow-[var(--nova-glow-violet)] transition-all duration-200"
               />
               <button

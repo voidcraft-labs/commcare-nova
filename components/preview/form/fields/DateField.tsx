@@ -21,6 +21,8 @@ export function DateField({ question, state, onChange, onBlur }: DateFieldProps)
         value={state.value}
         onChange={(e) => onChange(e.target.value)}
         onBlur={onBlur}
+        autoComplete="off"
+        data-1p-ignore
         className={`w-full px-3 py-2 rounded-lg bg-pv-input-bg border text-sm text-nova-text focus:outline-none transition-colors ${
           showError
             ? 'border-nova-rose/50 focus:border-nova-rose'
