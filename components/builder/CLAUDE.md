@@ -33,7 +33,7 @@ Full-width 3-column grid: left spacer, center `ViewModeToggle` (`components/prev
 
 `viewMode` state (`'tree' | 'design' | 'preview'`). Selection (`builder.selected`) and navigation (`usePreviewNav` stack) stay in sync across view switches:
 
-- **Tree → Design/Preview**: Nav stack syncs to `builder.selected` (navigates to the selected module/form). `usePreviewNav` auto-resolves case data for followup forms via `resolveScreen`.
+- **Tree → Design/Preview**: Nav stack syncs to `builder.selected` (navigates to the selected module/form). If nothing is selected (user deselected in tree), nav resets to home. `usePreviewNav` auto-resolves case data for followup forms via `resolveScreen`.
 - **Design/Preview → Tree**: If nothing selected, `builder.selected` syncs from current nav screen.
 - **Design ↔ Preview**: Nav is shared (no sync needed). Selection preserved but invisible in preview mode. Preview → Design preserves existing selection state — sidebar only opens if user had something selected before entering preview. Design → Preview auto-focuses the selected question's input.
 - **Escape in preview**: Switches to design without nav sync (stays on current screen).

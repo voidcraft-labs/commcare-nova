@@ -107,7 +107,11 @@ export function BuilderLayout({ buildId }: { buildId: string }) {
 
     // Tree → Design/Preview: sync nav to the current selection
     if (!wasTree || !(mode === 'design' || mode === 'preview')) return
-    if (!builder.selected || !builder.blueprint) return
+
+    if (!builder.selected || !builder.blueprint) {
+      nav.reset()
+      return
+    }
 
     const sel = builder.selected
     const bp = builder.blueprint
@@ -123,7 +127,7 @@ export function BuilderLayout({ buildId }: { buildId: string }) {
     }
 
     nav.replaceStack(stack)
-  }, [builder, nav.replaceStack])
+  }, [builder, nav.replaceStack, nav.reset])
 
   const inReplayMode = !!replayData
   const isCentered = builder.phase === BuilderPhase.Idle && !builder.treeData
