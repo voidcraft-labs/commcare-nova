@@ -195,6 +195,22 @@ export class FormEngine {
     return this.mergedQuestions
   }
 
+  /** Full reset — reinitialize all values, defaults, and expressions back to the fresh state. */
+  reset(): void {
+    this.instance = new DataInstance()
+    this.instance.initFromQuestions(this.mergedQuestions)
+
+    if (this.formType === 'followup' && this.caseData.size > 0) {
+      this.preloadCaseData(this.mergedQuestions)
+    }
+
+    this.states.clear()
+    this.initStates(this.mergedQuestions)
+    this.applyDefaults(this.mergedQuestions)
+    this.fullCascade()
+    this.notify()
+  }
+
   /** Clear touched state and validation errors on all fields (for mode switches). */
   resetValidation(): void {
     for (const state of this.states.values()) {

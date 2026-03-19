@@ -24,6 +24,8 @@ The grammar produces **two distinct `Child` node types** (one from `rootStep`, o
 
 **On `validateAll()` (submit)**: mark all visible fields touched → validate each (required + constraint) → return boolean. `FormScreen` scrolls to first error on failure.
 
+**On `reset()`**: full reinitialization — rebuild DataInstance, re-preload case data (followup), reinit all QuestionStates, reapply `default_value` expressions, full cascade. Returns the form to its exact initial state. Called by the reset button in FormScreen's header.
+
 **On `resetValidation()`**: clear touched state and errors on all fields. Called by `FormScreen` when leaving test mode so fields start clean on re-entry.
 
 **Validation display**: errors show only when `state.touched && !state.valid`. Fields start untouched — no error spam on load. In edit mode (preview), `FormRenderer` passes a clean `displayState` (empty value, untouched, valid) to field components — inputs appear empty with no errors. Engine state is preserved internally.

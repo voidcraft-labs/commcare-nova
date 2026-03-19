@@ -8,6 +8,7 @@ import { useFormEngine } from '@/hooks/useFormEngine'
 import { FormRenderer } from '../form/FormRenderer'
 import { Icon } from '@iconify/react'
 import { formTypeIcons } from '@/lib/questionTypeIcons'
+import ciRedo from '@iconify-icons/ci/redo'
 
 interface FormScreenProps {
   blueprint: AppBlueprint
@@ -100,6 +101,15 @@ export function FormScreen({ blueprint, moduleIndex, formIndex, caseData, onBack
         <div className="flex items-center gap-2">
           <Icon icon={formTypeIcons[form.type] ?? formTypeIcons.survey} width="18" height="18" className="text-nova-text-muted shrink-0" />
           <h2 className="text-lg font-display font-semibold text-nova-text">{form.name}</h2>
+          {mode === 'test' && (
+            <button
+              onClick={() => engine.reset()}
+              className="ml-auto inline-flex items-center gap-1.5 px-2.5 py-1 text-sm text-nova-text-muted hover:text-nova-text hover:bg-white/5 transition-colors cursor-pointer rounded"
+            >
+              <Icon icon={ciRedo} width="14" height="14" />
+              Reset
+            </button>
+          )}
         </div>
       </div>
 
