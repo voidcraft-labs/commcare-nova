@@ -66,6 +66,10 @@ import ciIconName from '@iconify-icons/ci/icon-name'
 
 Browse available: `node_modules/@iconify-icons/ci/` (one file per icon). No build plugin — pure ESM.
 
+### Inputs
+
+All `<input>` and `<textarea>` elements must include `autoComplete="off"` and `data-1p-ignore` to prevent browser autocomplete and 1Password autofill. Nothing on the site is a real login/signup form.
+
 ### Theme
 
 Dark "Stellar Minimalism". CSS custom properties in `globals.css`:

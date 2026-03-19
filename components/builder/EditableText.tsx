@@ -144,6 +144,8 @@ export function EditableText({ label, value, onSave, onEmpty, mono, color, place
           className={`${cls} resize-none`}
           rows={rows}
           placeholder={placeholder}
+          autoComplete="off"
+          data-1p-ignore
         />
       ) : (
         <input
@@ -155,6 +157,8 @@ export function EditableText({ label, value, onSave, onEmpty, mono, color, place
           onKeyDown={handleKeyDown}
           className={cls}
           placeholder={placeholder}
+          autoComplete="off"
+          data-1p-ignore
         />
       )}
     </div>
