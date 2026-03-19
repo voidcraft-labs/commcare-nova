@@ -21,7 +21,7 @@ export function NumberField({ question, state, onChange, onBlur }: NumberFieldPr
         value={state.value}
         onChange={(e) => onChange(e.target.value)}
         onBlur={onBlur}
-        placeholder={question.hint ?? ''}
+        placeholder=""
         autoComplete="off"
         data-1p-ignore
         className={`w-full px-3 py-2 rounded-lg bg-pv-input-bg border text-sm text-nova-text placeholder:text-nova-text-muted focus:outline-none transition-colors ${
