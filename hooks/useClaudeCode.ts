@@ -49,13 +49,24 @@ export function getQuestionPreamble(text: string): string {
   return text.slice(0, idx).trim()
 }
 
+/** Check if an object looks like a complete AppBlueprint (not a partial example). */
+function isCompleteBlueprint(obj: any): boolean {
+  if (!obj?.app_name || !Array.isArray(obj?.modules) || obj.modules.length === 0) return false
+  // Must have at least one module with forms that have questions
+  return obj.modules.some((m: any) =>
+    Array.isArray(m?.forms) && m.forms.some((f: any) =>
+      Array.isArray(f?.questions) && f.questions.length > 0
+    )
+  )
+}
+
 export function extractBlueprint(text: string): any | null {
-  const blockRegex = /```json\n([\s\S]*?)\n```/g
+  const blockRegex = /```json\s*\n([\s\S]*?)\n```/g
   let match: RegExpExecArray | null
   while ((match = blockRegex.exec(text)) !== null) {
     try {
       const parsed = JSON.parse(match[1])
-      if (parsed && typeof parsed === 'object' && 'app_name' in parsed && Array.isArray(parsed.modules)) {
+      if (isCompleteBlueprint(parsed)) {
         return parsed
       }
     } catch {
@@ -102,6 +113,7 @@ export function useClaudeCode() {
     const assistantId = assistantMessage.id
     let fullText = ''
     let foundBlueprint = false
+    let sawFileWrite = false  // Track if Claude Code used Write tool (wrote blueprint file)
 
     try {
       const response = await fetch('/api/claude-code', {
@@ -158,6 +170,7 @@ export function useClaudeCode() {
               )
             } else if (currentEvent === 'tool_use') {
               const tool = typeof data === 'string' ? data : (data?.tool ?? data?.name ?? 'tool')
+              if (tool === 'Write') sawFileWrite = true
               fullText += `\n*Using ${tool}...*\n`
               setMessages(prev =>
                 prev.map(m =>
@@ -165,6 +178,7 @@ export function useClaudeCode() {
                 )
               )
             } else if (currentEvent === 'result') {
+              // Only look for blueprint in text if the response looks like it was a generation turn
               const bp = extractBlueprint(fullText)
               if (bp) {
                 foundBlueprint = true
@@ -183,18 +197,19 @@ export function useClaudeCode() {
 
       setStatus('ready')
 
-      if (!foundBlueprint) {
+      // Only check the file endpoint if Claude Code used the Write tool
+      // (meaning it wrote .nova/blueprint.json) and we didn't find it in text
+      if (!foundBlueprint && sawFileWrite) {
         try {
           const bpRes = await fetch('/api/claude-code/blueprint', { signal: controller.signal })
           if (bpRes.ok) {
             const bpData = await bpRes.json()
-            if (bpData) {
-              setBlueprint(bpData)
+            if (bpData?.blueprint && isCompleteBlueprint(bpData.blueprint)) {
+              setBlueprint(bpData.blueprint)
             }
           }
         } catch (bpErr: any) {
           if (bpErr?.name === 'AbortError') return
-          // Non-fatal: blueprint fetch failed, ignore
         }
       }
     } catch (err: any) {

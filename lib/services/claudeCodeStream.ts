@@ -1,6 +1,6 @@
 import { spawn } from 'child_process'
 import * as readline from 'readline'
-import { readFileSync, mkdirSync } from 'fs'
+import { readFileSync, mkdirSync, unlinkSync } from 'fs'
 import { join } from 'path'
 
 export type ClaudeCodeEvent =
@@ -156,8 +156,10 @@ export async function* streamClaudeCode(
   // Note: we do NOT use --no-session-persistence because multi-turn
   // requires the session to be saved so --resume works on follow-up messages.
 
-  // Ensure .nova/ directory exists for blueprint file writes
-  mkdirSync(join(process.cwd(), '.nova'), { recursive: true })
+  // Ensure .nova/ directory exists and clean up stale blueprint from previous runs
+  const novaDir = join(process.cwd(), '.nova')
+  mkdirSync(novaDir, { recursive: true })
+  try { unlinkSync(join(novaDir, 'blueprint.json')) } catch { /* doesn't exist, fine */ }
 
   const proc = spawn('claude', args, { stdio: ['ignore', 'pipe', 'pipe'] })
 
