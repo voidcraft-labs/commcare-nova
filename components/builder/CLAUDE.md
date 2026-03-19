@@ -28,7 +28,7 @@ Breadcrumbs are unified across all view modes via `CollapsibleBreadcrumb` (inter
 
 - **Tree → Preview/Live**: Nav stack syncs to `builder.selected` (navigates to the selected module/form). `usePreviewNav` auto-resolves case data for followup forms via `resolveScreen`.
 - **Preview/Live → Tree**: If nothing selected, `builder.selected` syncs from current nav screen.
-- **Preview ↔ Live**: Nav is shared (no sync needed). Selection preserved but invisible in live mode. Live → Preview syncs selection from the last focused question (tracked via `focusin` listener on `lastLiveQuestionRef`). Preview → Live auto-focuses the selected question's input.
+- **Preview ↔ Live**: Nav is shared (no sync needed). Selection preserved but invisible in live mode. Live → Preview preserves existing selection state — sidebar only opens if user had something selected before entering live. Preview → Live auto-focuses the selected question's input.
 - **Escape in live**: Switches to preview without nav sync (stays on current screen).
 
 When `Done` + blueprint exists:
@@ -37,10 +37,6 @@ When `Done` + blueprint exists:
 - `'test'` → `PreviewShell` (read-only, no edit chrome or sidebar)
 
 Keyboard shortcuts extracted to `useBuilderShortcuts.ts` hook, registered via `useKeyboardShortcuts`.
-
-### Focus Tracking
-
-BuilderLayout tracks the last focused question in live mode via a `focusin` ref callback on the layout container div. On Live → Preview switch, this drives `builder.select()`.
 
 ## DetailPanel
 

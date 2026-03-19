@@ -83,34 +83,11 @@ export function BuilderLayout({ buildId }: { buildId: string }) {
   const navRef = useRef(nav)
   navRef.current = nav
 
-  // Track last focused question in live mode (focusin fires before click steals focus)
-  const lastLiveQuestionRef = useRef<QuestionPath | undefined>(undefined)
   const layoutRef = useCallback((el: HTMLDivElement | null) => {
     if (!el) return
-    const handler = (e: FocusEvent) => {
-      if (viewModeRef.current !== 'test') return
-      const target = (e.target as HTMLElement)?.closest?.('[data-question-id]')
-      const attr = target?.getAttribute('data-question-id')
-      if (attr) lastLiveQuestionRef.current = attr as QuestionPath
-    }
-    el.addEventListener('focusin', handler)
-    return () => el.removeEventListener('focusin', handler)
   }, [])
 
   const handleViewModeChange = useCallback((mode: 'tree' | 'preview' | 'test') => {
-    // Live → Preview: select the question the user was last focused on
-    if (viewModeRef.current === 'test' && mode === 'preview' && lastLiveQuestionRef.current) {
-      const current = navRef.current.current
-      if (current.type === 'form') {
-        builder.select({
-          type: 'question',
-          moduleIndex: current.moduleIndex,
-          formIndex: current.formIndex,
-          questionPath: lastLiveQuestionRef.current,
-        })
-      }
-    }
-
     const wasTree = viewModeRef.current === 'tree'
     viewModeRef.current = mode
     setViewMode(mode)
