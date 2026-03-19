@@ -145,7 +145,7 @@ export async function* streamClaudeCode(
     '--verbose',
     '--disable-slash-commands',
     '--system-prompt', systemPrompt,
-    '--tools', 'Write',
+    '--tools', 'Read,Write',
     '--permission-mode', 'bypassPermissions',
     '--setting-sources', 'user',
   ]

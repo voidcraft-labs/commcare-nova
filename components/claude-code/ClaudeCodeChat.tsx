@@ -11,11 +11,11 @@ import { renderMarkdown } from '@/lib/markdown'
 import { validateBlueprint } from '@/lib/services/hqJsonExpander'
 
 interface ClaudeCodeChatProps {
-  onBlueprintReady: (blueprint: any, messages: { role: string; content: string }[]) => void
+  onBlueprintReady: (blueprint: any, messages: { role: string; content: string }[], sessionId: string | null) => void
 }
 
 export function ClaudeCodeChat({ onBlueprintReady }: ClaudeCodeChatProps) {
-  const { messages, status, error, sendMessage, blueprint } = useClaudeCode()
+  const { messages, status, error, sendMessage, blueprint, sessionId } = useClaudeCode()
   const [input, setInput] = useState('')
   const scrollRef = useRef<HTMLDivElement>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
@@ -94,8 +94,8 @@ export function ClaudeCodeChat({ onBlueprintReady }: ClaudeCodeChatProps) {
   const handleOpenInBuilder = useCallback(() => {
     if (!blueprint || validationState !== 'passed') return
     const chatMessages = messages.map(m => ({ role: m.role, content: m.content }))
-    onBlueprintReady(blueprint, chatMessages)
-  }, [blueprint, validationState, messages, onBlueprintReady])
+    onBlueprintReady(blueprint, chatMessages, sessionId)
+  }, [blueprint, validationState, messages, sessionId, onBlueprintReady])
 
   const handleOptionClick = useCallback((answer: string) => {
     if (isStreaming) return

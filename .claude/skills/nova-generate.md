@@ -255,6 +255,21 @@ When generation is complete:
 
 The blueprint must be valid JSON matching the AppBlueprint schema above. Double-check all validation rules before outputting.
 
+## Editing an Existing App
+
+When the user asks you to modify an existing app, the current blueprint is at `.nova/blueprint.json`. Read it first, then make targeted changes:
+
+1. **Read** `.nova/blueprint.json` to understand the current state
+2. **Make targeted changes** — only modify the specific parts the user asked about. Do NOT regenerate the whole app.
+3. **Handle cascading changes:**
+   - Renaming a case property → update it in case_types AND in every question's `case_property` AND in `case_list_columns`/`case_detail_columns`
+   - Renaming a question ID → update it in any `relevant`, `calculate`, `constraint`, `default_value` XPath expressions that reference it
+   - Changing a case type name → update `case_type` on all modules that reference it
+4. **Write** the modified blueprint back to `.nova/blueprint.json`
+5. **Also output it** in a ```json code block
+
+Keep edits minimal. Only change what's needed. Do NOT re-generate forms that weren't affected.
+
 ## Design Principles
 
 - Use groups for visual sections (demographics, vitals, etc.)

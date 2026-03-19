@@ -13,12 +13,12 @@ import type { AppBlueprint } from '@/lib/schemas/blueprint'
 export default function ClaudeCodeBuildPage() {
   const builder = useBuilder()
   const [blueprintLoaded, setBlueprintLoaded] = useState(false)
+  const [ccSessionId, setCcSessionId] = useState<string | null>(null)
 
-  const handleBlueprintReady = useCallback((blueprint: AppBlueprint, ccMessages: { role: string; content: string }[]) => {
-    // Store conversation context so the SA has it for edits
+  const handleBlueprintReady = useCallback((blueprint: AppBlueprint, ccMessages: { role: string; content: string }[], sessionId: string | null) => {
     setClaudeCodeContext(ccMessages)
+    setCcSessionId(sessionId)
 
-    // Blueprint has already been validated in ClaudeCodeChat — load directly
     builder.setDone({
       blueprint,
       hqJson: {},
@@ -28,7 +28,7 @@ export default function ClaudeCodeBuildPage() {
   }, [builder])
 
   if (blueprintLoaded) {
-    return <BuilderLayout buildId="cc" claudeCodeMode />
+    return <BuilderLayout buildId="cc" claudeCodeMode ccSessionId={ccSessionId ?? undefined} />
   }
 
   return (

@@ -1,4 +1,6 @@
 import { execSync } from 'child_process'
+import { writeFileSync, mkdirSync } from 'fs'
+import { join } from 'path'
 import { streamClaudeCode } from '@/lib/services/claudeCodeStream'
 
 export const maxDuration = 300
@@ -37,13 +39,20 @@ export async function POST(req: Request) {
     })
   }
 
-  const { prompt, sessionId } = body as Record<string, unknown>
+  const { prompt, sessionId, blueprint } = body as Record<string, unknown>
 
   if (typeof prompt !== 'string' || prompt.trim() === '') {
     return new Response(JSON.stringify({ error: 'prompt must be a non-empty string' }), {
       status: 400,
       headers: { 'Content-Type': 'application/json' },
     })
+  }
+
+  // If a blueprint is provided (edit mode), write it to disk so Claude Code can read it
+  if (blueprint && typeof blueprint === 'object') {
+    const novaDir = join(process.cwd(), '.nova')
+    mkdirSync(novaDir, { recursive: true })
+    writeFileSync(join(novaDir, 'blueprint.json'), JSON.stringify(blueprint, null, 2))
   }
 
   const abortController = new AbortController()

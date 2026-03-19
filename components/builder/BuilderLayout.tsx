@@ -34,6 +34,7 @@ import type { PreviewScreen } from '@/lib/preview/engine/types'
 import { ErrorBoundary } from '@/components/ui/ErrorBoundary'
 import { getReplayData, clearReplayData } from '@/lib/services/logReplay'
 import { consumeClaudeCodeContext } from '@/lib/services/claudeCodeContext'
+import { useClaudeCodeEdit } from '@/hooks/useClaudeCodeEdit'
 
 /** Only auto-resend when the assistant's LAST step is askQuestions with all outputs available.
  *  If the SA continued past tool calls to ask a freeform text question, don't auto-resend —
@@ -51,7 +52,7 @@ function shouldAutoResend({ messages }: { messages: UIMessage[] }): boolean {
   return askParts.length > 0 && askParts.every((p: any) => p.state === 'output-available')
 }
 
-export function BuilderLayout({ buildId, claudeCodeMode }: { buildId: string; claudeCodeMode?: boolean }) {
+export function BuilderLayout({ buildId, claudeCodeMode, ccSessionId }: { buildId: string; claudeCodeMode?: boolean; ccSessionId?: string }) {
   const router = useRouter()
   const { apiKey, loaded } = useApiKey()
   const { settings } = useSettings()
@@ -134,9 +135,9 @@ export function BuilderLayout({ buildId, claudeCodeMode }: { buildId: string; cl
   const builderRef = useRef(builder)
   builderRef.current = builder
 
-  // ── Single useChat — handles chat + generation + editing ────────────
-  const { messages, sendMessage, addToolOutput, status } = useChat({
-    ...(ccContext ? { initialMessages: ccContext } : {}),
+  // ── Chat — either SA via API or Claude Code CLI ──────────────────────
+  const apiChat = useChat({
+    ...(ccContext && !ccSessionId ? { initialMessages: ccContext } : {}),
     transport: new DefaultChatTransport({
       api: '/api/chat',
       body: () => ({
@@ -154,6 +155,21 @@ export function BuilderLayout({ buildId, claudeCodeMode }: { buildId: string; cl
     },
   })
 
+  const ccEdit = useClaudeCodeEdit({
+    sessionId: ccSessionId ?? null,
+    getBlueprint: () => builder.blueprint,
+    onBlueprintUpdated: (bp) => {
+      builder.updateBlueprint(bp)
+    },
+    initialMessages: ccContext,
+  })
+
+  // Use Claude Code for edits when in CC mode (regardless of API key)
+  const useCCEdit = !!(claudeCodeMode && ccSessionId)
+  const { messages, sendMessage, addToolOutput, status } = useCCEdit
+    ? ccEdit
+    : apiChat
+
   const isGenerating = [BuilderPhase.DataModel, BuilderPhase.Structure, BuilderPhase.Modules, BuilderPhase.Forms, BuilderPhase.Validate, BuilderPhase.Fix].includes(builder.phase)
 
   // Progress is centered when there's no tree data yet, compact once the tree appears
@@ -161,9 +177,10 @@ export function BuilderLayout({ buildId, claudeCodeMode }: { buildId: string; cl
   if (isGenerating && progressHidden) setProgressHidden(false)
 
   const handleSend = useCallback((text: string) => {
-    if (!text.trim() || !apiKey) return
+    if (!text.trim()) return
+    if (!useCCEdit && !apiKey) return
     sendMessage({ text })
-  }, [apiKey, sendMessage])
+  }, [apiKey, useCCEdit, sendMessage])
 
   const handleCompile = async () => {
     if (!builder.blueprint) return
@@ -238,7 +255,7 @@ export function BuilderLayout({ buildId, claudeCodeMode }: { buildId: string; cl
   if (!loaded || shouldRedirect) return null
 
   const showProgress = (isGenerating || builder.phase === BuilderPhase.Done) && !progressHidden && !inReplayMode
-  const ccViewOnly = !!(claudeCodeMode && !apiKey)
+  const ccViewOnly = !!(claudeCodeMode && !apiKey && !ccSessionId)
   const chatOpen = ccViewOnly ? false : (viewMode === 'preview' ? false : chatUserPref)
   const showToolbar = !!(builder.treeData && builder.phase === BuilderPhase.Done && builder.blueprint)
   const showDetailPanel = showToolbar && (viewMode === 'tree' || viewMode === 'design') && !!builder.selected
