@@ -13,7 +13,7 @@ Client-side web preview with cyan accent theme (`.preview-theme` in globals.css)
 - **HomeScreen** — Module cards
 - **ModuleScreen** — Form list within a module
 - **CaseListScreen** — Case selector for followup forms (generates dummy data from CaseType)
-- **FormScreen** — Form entry with question fields, submit button (preview mode only), scroll-to-first-error on validation failure. Wraps form body in `EditContextProvider` when builder is present. Blocks followup forms in preview mode without case data (shows "no cases" error).
+- **FormScreen** — Form entry with question fields, submit button (preview mode only), reset button in header (preview mode only), scroll-to-first-error on validation failure. Wraps form body in `EditContextProvider` when builder is present. Blocks followup forms in preview mode without case data (shows "no cases" error).
 
 ## Edit Mode
 
@@ -53,6 +53,6 @@ Each field calls `engine.setValue(path, value)` on change and `engine.touch(path
 
 **Design (edit)**: Frozen, stateless view. Inputs appear empty, no validation errors, submit bar hidden. Engine state is preserved internally but suppressed at the display layer. For editing form structure via DetailPanel. Cyan accent for edit chrome (selection rings, insertion points, drag overlays). `.design-theme` overrides input borders to neutral gray so cyan selection chrome stands out.
 
-**Preview (test)**: Persistent testing sandbox. Values survive round-trips through design. Validation state resets on exit from test mode (`engine.resetValidation()`) so fields start clean on re-entry. On switch back to preview, all rules (constraints, relevants, calculations) re-evaluate with the current schema against persisted values. `FormScreen` auto-focuses the selected question's input on entry. Blueprint mutations in design (incrementing `mutationCount`) recreate the engine, but `useFormEngine` snapshots and restores values across recreations.
+**Preview (test)**: Persistent testing sandbox. Values survive round-trips through design. Validation state resets on exit from test mode (`engine.resetValidation()`) so fields start clean on re-entry. On switch back to preview, all rules (constraints, relevants, calculations) re-evaluate with the current schema against persisted values. `FormScreen` auto-focuses the selected question's input on entry. Blueprint mutations in design (incrementing `mutationCount`) recreate the engine, but `useFormEngine` snapshots and restores values across recreations. Reset button in the form header calls `engine.reset()` to fully reinitialize all values, defaults, and expressions back to the fresh state.
 
 **Focus tracking**: BuilderLayout tracks the last focused question in preview mode via a `focusin` ref callback on the layout container. On Preview → Design switch, this ref drives `builder.select()` so the question the user was typing in becomes selected in design.
