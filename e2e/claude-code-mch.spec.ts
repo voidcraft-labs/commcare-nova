@@ -43,6 +43,17 @@ test('generate MCH app via Claude Code and load into builder', async ({ page }) 
 - Pregnancy module: followup form to view visit history
 - Keep it simple — 3-5 questions per form`
 
+  // Monitor /api/claude-code requests
+  page.on('response', async (response) => {
+    if (response.url().includes('/api/claude-code')) {
+      console.log(`API response: ${response.status()} ${response.url()}`)
+      if (response.status() !== 200) {
+        const body = await response.text().catch(() => 'failed to read')
+        console.log('Error body:', body)
+      }
+    }
+  })
+
   const input = page.locator('textarea[placeholder="Describe the app you want to build..."]')
   await expect(input).toBeVisible()
   await input.fill(prompt)
@@ -50,14 +61,17 @@ test('generate MCH app via Claude Code and load into builder', async ({ page }) 
 
   // ── Step 3: Wait for generation ─────────────────────────────────────
 
-  // Should see streaming response
-  await expect(page.locator('.chat-markdown').first()).toBeVisible({ timeout: 30_000 })
+  // Wait for any assistant content to appear (streaming started)
+  // Claude Code can take 10-60s before any text arrives depending on complexity
+  await expect(page.locator('.chat-markdown').first()).toBeVisible({ timeout: 120_000 })
+  console.log('Streaming started — assistant responding...')
 
   // Wait for the "Blueprint ready" banner — this is the signal that Claude Code
   // finished generating and the blueprint was detected.
   // This can take 1-4 minutes depending on Claude Code's response time.
   const blueprintBanner = page.locator('text=Blueprint ready')
   await expect(blueprintBanner).toBeVisible({ timeout: 4 * 60 * 1000 })
+  console.log('Blueprint detected!')
 
   // ── Step 4: Load into builder ───────────────────────────────────────
 
