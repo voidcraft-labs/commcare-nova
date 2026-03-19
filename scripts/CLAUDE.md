@@ -30,3 +30,9 @@ npx tsx scripts/sync-knowledge.ts --phase discover|crawl|triage|distill|reorgani
 - Models: Haiku (triage), Sonnet (distill), Opus (reorganize) — hardcoded in script files, not `lib/models.ts`
 
 See `scripts/README.md` for full documentation.
+
+## check-updates.mjs
+
+Startup update checker — runs as a `pre` hook on `dev`, `build`, and `start`. Fetches `origin/main`, shows a branded box with new commits, and offers to pull + `npm install`. Silently exits on non-git, no network, feature branches, or CI.
+
+Skip with `NOVA_SKIP_UPDATE_CHECK=1`.
