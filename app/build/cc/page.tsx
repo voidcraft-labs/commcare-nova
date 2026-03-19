@@ -7,13 +7,17 @@ import { Logo } from '@/components/ui/Logo'
 import { ClaudeCodeChat } from '@/components/claude-code/ClaudeCodeChat'
 import { useBuilder } from '@/hooks/useBuilder'
 import { BuilderLayout } from '@/components/builder/BuilderLayout'
+import { setClaudeCodeContext } from '@/lib/services/claudeCodeContext'
 import type { AppBlueprint } from '@/lib/schemas/blueprint'
 
 export default function ClaudeCodeBuildPage() {
   const builder = useBuilder()
   const [blueprintLoaded, setBlueprintLoaded] = useState(false)
 
-  const handleBlueprintReady = useCallback((blueprint: AppBlueprint, _messages: { role: string; content: string }[]) => {
+  const handleBlueprintReady = useCallback((blueprint: AppBlueprint, ccMessages: { role: string; content: string }[]) => {
+    // Store conversation context so the SA has it for edits
+    setClaudeCodeContext(ccMessages)
+
     // Blueprint has already been validated in ClaudeCodeChat — load directly
     builder.setDone({
       blueprint,

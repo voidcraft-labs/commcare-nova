@@ -33,6 +33,7 @@ import { usePreviewNav } from '@/hooks/usePreviewNav'
 import type { PreviewScreen } from '@/lib/preview/engine/types'
 import { ErrorBoundary } from '@/components/ui/ErrorBoundary'
 import { getReplayData, clearReplayData } from '@/lib/services/logReplay'
+import { consumeClaudeCodeContext } from '@/lib/services/claudeCodeContext'
 
 /** Only auto-resend when the assistant's LAST step is askQuestions with all outputs available.
  *  If the SA continued past tool calls to ask a freeform text question, don't auto-resend —
@@ -60,6 +61,7 @@ export function BuilderLayout({ buildId, claudeCodeMode }: { buildId: string; cl
   const viewModeRef = useRef(viewMode)
   viewModeRef.current = viewMode
   const [progressHidden, setProgressHidden] = useState(false)
+  const [ccContext] = useState(() => claudeCodeMode ? consumeClaudeCodeContext() : undefined)
   const initialReplay = getReplayData()
   const [replayData, setReplayDataState] = useState(() => {
     if (initialReplay) initialReplay.stages[0]?.applyToBuilder(builder)
@@ -134,6 +136,7 @@ export function BuilderLayout({ buildId, claudeCodeMode }: { buildId: string; cl
 
   // ── Single useChat — handles chat + generation + editing ────────────
   const { messages, sendMessage, addToolOutput, status } = useChat({
+    ...(ccContext ? { initialMessages: ccContext } : {}),
     transport: new DefaultChatTransport({
       api: '/api/chat',
       body: () => ({
