@@ -78,6 +78,7 @@ export async function POST(req: Request) {
             event.type === 'init' ||
             event.type === 'text' ||
             event.type === 'tool_use' ||
+            event.type === 'usage' ||
             event.type === 'result' ||
             event.type === 'error'
           ) {
