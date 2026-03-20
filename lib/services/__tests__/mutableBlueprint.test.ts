@@ -556,6 +556,92 @@ describe('MutableBlueprint', () => {
       const idsAfter = mb.getForm(0, 0)!.questions.map(q => q.id)
       expect(idsAfter).toEqual(idsBefore)
     })
+
+    it('moves a question from a group to root level', () => {
+      const mb = new MutableBlueprint({
+        app_name: 'Test', modules: [{
+          name: 'M', forms: [{
+            name: 'F', type: 'registration' as const,
+            questions: [
+              { id: 'q1', type: 'text' as const, label: 'Q1' },
+              { id: 'grp', type: 'group' as const, label: 'Group', children: [
+                { id: 'child1', type: 'text' as const, label: 'Child 1' },
+                { id: 'child2', type: 'text' as const, label: 'Child 2' },
+              ]},
+              { id: 'q2', type: 'text' as const, label: 'Q2' },
+            ],
+          }],
+        }], case_types: [],
+      })
+      // Move child1 out of group to root, after q2
+      mb.moveQuestion(0, 0, qpath('child1', qpath('grp')), { afterPath: qpath('q2'), targetParentPath: undefined })
+      const form = mb.getForm(0, 0)!
+      expect(form.questions.map(q => q.id)).toEqual(['q1', 'grp', 'q2', 'child1'])
+      expect(form.questions[1].children!.map(q => q.id)).toEqual(['child2'])
+    })
+
+    it('moves a question from root into a group', () => {
+      const mb = new MutableBlueprint({
+        app_name: 'Test', modules: [{
+          name: 'M', forms: [{
+            name: 'F', type: 'registration' as const,
+            questions: [
+              { id: 'q1', type: 'text' as const, label: 'Q1' },
+              { id: 'grp', type: 'group' as const, label: 'Group', children: [
+                { id: 'child1', type: 'text' as const, label: 'Child 1' },
+              ]},
+              { id: 'q2', type: 'text' as const, label: 'Q2' },
+            ],
+          }],
+        }], case_types: [],
+      })
+      // Move q2 into group, before child1
+      mb.moveQuestion(0, 0, qpath('q2'), { beforePath: qpath('child1', qpath('grp')), targetParentPath: qpath('grp') })
+      const form = mb.getForm(0, 0)!
+      expect(form.questions.map(q => q.id)).toEqual(['q1', 'grp'])
+      expect(form.questions[1].children!.map(q => q.id)).toEqual(['q2', 'child1'])
+    })
+
+    it('prevents circular nesting (moving group into its own child)', () => {
+      const mb = new MutableBlueprint({
+        app_name: 'Test', modules: [{
+          name: 'M', forms: [{
+            name: 'F', type: 'registration' as const,
+            questions: [
+              { id: 'grp', type: 'group' as const, label: 'Group', children: [
+                { id: 'sub', type: 'group' as const, label: 'Sub', children: [
+                  { id: 'deep', type: 'text' as const, label: 'Deep' },
+                ]},
+              ]},
+            ],
+          }],
+        }], case_types: [],
+      })
+      // Attempt to move grp into grp/sub — should no-op
+      mb.moveQuestion(0, 0, qpath('grp'), { targetParentPath: qpath('sub', qpath('grp')) })
+      const form = mb.getForm(0, 0)!
+      expect(form.questions.map(q => q.id)).toEqual(['grp'])
+      expect(form.questions[0].children![0].id).toBe('sub')
+    })
+
+    it('moves a question into an empty group', () => {
+      const mb = new MutableBlueprint({
+        app_name: 'Test', modules: [{
+          name: 'M', forms: [{
+            name: 'F', type: 'registration' as const,
+            questions: [
+              { id: 'q1', type: 'text' as const, label: 'Q1' },
+              { id: 'grp', type: 'group' as const, label: 'Group', children: [] },
+            ],
+          }],
+        }], case_types: [],
+      })
+      // Move q1 into empty group
+      mb.moveQuestion(0, 0, qpath('q1'), { targetParentPath: qpath('grp') })
+      const form = mb.getForm(0, 0)!
+      expect(form.questions.map(q => q.id)).toEqual(['grp'])
+      expect(form.questions[0].children!.map(q => q.id)).toEqual(['q1'])
+    })
   })
 
   describe('duplicateQuestion', () => {
