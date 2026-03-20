@@ -11,7 +11,7 @@ import Link from 'next/link'
 import { useApiKey } from '@/hooks/useApiKey'
 import { useSettings } from '@/hooks/useSettings'
 import { useBuilder } from '@/hooks/useBuilder'
-import { BuilderPhase, applyDataPart } from '@/lib/services/builder'
+import { BuilderPhase, applyDataPart, type ViewMode } from '@/lib/services/builder'
 import { summarizeBlueprint } from '@/lib/schemas/blueprint'
 import { flattenQuestionPaths } from '@/lib/services/questionNavigation'
 import { type QuestionPath } from '@/lib/services/questionPath'
@@ -94,6 +94,9 @@ export function BuilderLayout({ buildId }: { buildId: string }) {
   const layoutRef = useCallback((el: HTMLDivElement | null) => {
     if (!el) return
   }, [])
+
+  // Keep builder's viewMode in sync for undo/redo snapshot capture
+  builder.setViewMode(viewMode as ViewMode)
 
   const handleViewModeChange = useCallback((mode: 'tree' | 'design' | 'preview') => {
     const wasTree = viewModeRef.current === 'tree'
@@ -210,6 +213,39 @@ export function BuilderLayout({ buildId }: { buildId: string }) {
     }
   }
 
+  // ── Undo/Redo with view restoration ─────────────────────────────────
+  const restoreView = useCallback((targetMode: ViewMode) => {
+    // Switch view mode if needed
+    if (targetMode !== viewModeRef.current) {
+      viewModeRef.current = targetMode
+      setViewMode(targetMode)
+    }
+    // Sync nav stack to the restored selection when in design/preview
+    if (targetMode === 'design' || targetMode === 'preview') {
+      const sel = builder.selected
+      if (!sel || !builder.blueprint) {
+        nav.reset()
+      } else {
+        const stack: PreviewScreen[] = [{ type: 'home' }]
+        stack.push({ type: 'module', moduleIndex: sel.moduleIndex })
+        if (sel.formIndex !== undefined) {
+          stack.push({ type: 'form', moduleIndex: sel.moduleIndex, formIndex: sel.formIndex })
+        }
+        nav.replaceStack(stack)
+      }
+    }
+  }, [builder, nav.replaceStack, nav.reset])
+
+  const handleUndo = useCallback(() => {
+    const viewMode = builder.undo()
+    if (viewMode) restoreView(viewMode)
+  }, [builder, restoreView])
+
+  const handleRedo = useCallback(() => {
+    const viewMode = builder.redo()
+    if (viewMode) restoreView(viewMode)
+  }, [builder, restoreView])
+
   // ── Keyboard shortcuts (extracted to useBuilderShortcuts) ───────────
   const handleDelete = useCallback(() => {
     const sel = builder.selected
@@ -233,7 +269,7 @@ export function BuilderLayout({ buildId }: { buildId: string }) {
     }
   }, [builder])
 
-  const shortcuts = useBuilderShortcuts(builder, viewMode, handleViewModeChange, handleDelete)
+  const shortcuts = useBuilderShortcuts(builder, viewMode, handleViewModeChange, handleDelete, handleUndo, handleRedo)
 
   useKeyboardShortcuts('builder-layout', shortcuts, [builder.phase === BuilderPhase.Done, viewMode, builder.selected, builder.blueprint, builder.mutationCount])
 
@@ -391,8 +427,8 @@ export function BuilderLayout({ buildId }: { buildId: string }) {
             onViewModeChange={handleViewModeChange}
             canUndo={builder.canUndo}
             canRedo={builder.canRedo}
-            onUndo={() => builder.undo()}
-            onRedo={() => builder.redo()}
+            onUndo={handleUndo}
+            onRedo={handleRedo}
           />
         )}
 

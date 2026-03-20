@@ -20,6 +20,8 @@ export function useBuilderShortcuts(
   viewMode: 'tree' | 'design' | 'preview',
   handleViewModeChange: (mode: 'tree' | 'design' | 'preview') => void,
   handleDelete: () => void,
+  onUndo: () => void,
+  onRedo: () => void,
 ): Shortcut[] {
   // ── Keyboard shortcuts ──────────────────────────────────────────────
   const isDone = builder.phase === BuilderPhase.Done
@@ -130,14 +132,14 @@ export function useBuilderShortcuts(
       key: 'z',
       meta: true,
       global: true,
-      handler: () => builder.undo(),
+      handler: onUndo,
     },
     {
       key: 'z',
       meta: true,
       shift: true,
       global: true,
-      handler: () => builder.redo(),
+      handler: onRedo,
     },
   ]
 }
