@@ -82,7 +82,7 @@ export function CollapsibleBreadcrumb({ parts }: { parts: BreadcrumbPart[] }) {
                     animate={{ opacity: 1, y: 0, scale: 1 }}
                     exit={{ opacity: 0, y: -4, scale: 0.97 }}
                     transition={{ duration: 0.15, ease: [0.4, 0, 0.2, 1] }}
-                    className="absolute left-0 top-[calc(100%+4px)] z-50 min-w-[180px] max-w-[280px] rounded-xl border border-nova-border-bright bg-nova-surface/95 backdrop-blur-xl shadow-[0_4px_16px_rgba(0,0,0,0.5)] overflow-hidden py-1"
+                    className="absolute left-0 top-[calc(100%+4px)] z-popover min-w-[180px] max-w-[280px] rounded-xl border border-nova-border-bright bg-nova-surface/95 backdrop-blur-xl shadow-[0_4px_16px_rgba(0,0,0,0.5)] overflow-hidden py-1"
                   >
                     {middle.map((part, i) => (
                       <button

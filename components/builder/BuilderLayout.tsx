@@ -369,7 +369,7 @@ export function BuilderLayout({ buildId }: { buildId: string }) {
       {isCentered && (
         <Link
           href="/settings"
-          className="absolute top-3 right-4 z-20 p-1.5 text-nova-text-muted hover:text-nova-text transition-colors rounded-lg hover:bg-nova-surface"
+          className="absolute top-3 right-4 z-raised p-1.5 text-nova-text-muted hover:text-nova-text transition-colors rounded-lg hover:bg-nova-surface"
           title="Settings"
         >
           <Icon icon={ciSettings} width="18" height="18" />
@@ -475,7 +475,7 @@ export function BuilderLayout({ buildId }: { buildId: string }) {
                   {!chatOpen && viewMode !== 'preview' && (
                     <button
                       onClick={() => setChatUserPref(true)}
-                      className="absolute top-3 left-3 z-10 p-2 bg-nova-surface border border-nova-border rounded-lg hover:border-nova-border-bright transition-colors cursor-pointer"
+                      className="absolute top-3 left-3 z-ground p-2 bg-nova-surface border border-nova-border rounded-lg hover:border-nova-border-bright transition-colors cursor-pointer"
                       title="Open chat"
                     >
                       <Icon icon={ciChatConversationCircle} width="24" height="24" />
@@ -510,7 +510,7 @@ export function BuilderLayout({ buildId }: { buildId: string }) {
                   {showProgress && (
                     <motion.div
                       layout
-                      className={`absolute z-10 pointer-events-none ${
+                      className={`absolute z-ground pointer-events-none ${
                         progressMode === 'centered'
                           ? 'inset-0 flex items-center justify-center'
                           : 'bottom-4 inset-x-0 flex justify-center'
@@ -542,7 +542,7 @@ export function BuilderLayout({ buildId }: { buildId: string }) {
                 animate={{ x: 0, opacity: 1 }}
                 exit={{ x: -320, opacity: 0 }}
                 transition={{ duration: 0.25, ease: [0.4, 0, 0.2, 1] }}
-                className="absolute left-0 top-0 bottom-0 z-20"
+                className="absolute left-0 top-0 bottom-0 z-raised"
               >
                 <ErrorBoundary>
                   <ChatSidebar
@@ -567,7 +567,7 @@ export function BuilderLayout({ buildId }: { buildId: string }) {
                 animate={{ x: 0, opacity: 1 }}
                 exit={{ x: 320, opacity: 0 }}
                 transition={{ duration: 0.25, ease: [0.4, 0, 0.2, 1] }}
-                className="absolute right-0 top-0 bottom-0 z-20"
+                className="absolute right-0 top-0 bottom-0 z-raised"
               >
                 <ErrorBoundary>
                   <DetailPanel builder={builder} />
