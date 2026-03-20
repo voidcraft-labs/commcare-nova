@@ -43,6 +43,23 @@ function collectCaseProperties(questions: Question[]): string[] {
   return props
 }
 
+interface QuestionSummary {
+  id: string
+  type: string
+  case_property?: string
+  children?: QuestionSummary[]
+}
+
+/** Compact question tree summary so the SA can see IDs, types, and nesting at a glance. */
+function summarizeQuestions(questions: Question[]): QuestionSummary[] {
+  return questions.map(q => {
+    const entry: QuestionSummary = { id: q.id, type: q.type }
+    if (q.case_property) entry.case_property = q.case_property
+    if (q.children?.length) entry.children = summarizeQuestions(q.children)
+    return entry
+  })
+}
+
 // ── askQuestions schema ──────────────────────────────────────────────
 
 const selectOptionSchema = z.object({
@@ -283,6 +300,7 @@ export function createSolutionsArchitect(
             type: form.type,
             questionCount: countQuestionsRecursive(newForm.questions),
             caseProperties: collectCaseProperties(newForm.questions),
+            questions: summarizeQuestions(newForm.questions),
           }
         },
       }),
@@ -638,6 +656,7 @@ export function createSolutionsArchitect(
               name: form.name,
               questionCount: countQuestionsRecursive(newForm.questions),
               caseProperties: collectCaseProperties(newForm.questions),
+              questions: summarizeQuestions(newForm.questions),
             }
           } catch (err) {
             return { error: err instanceof Error ? err.message : String(err) }
