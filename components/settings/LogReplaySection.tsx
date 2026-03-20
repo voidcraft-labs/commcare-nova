@@ -67,7 +67,7 @@ export function LogReplaySection() {
       setReplayError(result.error)
       return
     }
-    setReplayData(result.stages, result.appName)
+    setReplayData(result.stages, result.doneIndex, result.appName)
     router.push('/build/new')
   }, [parsed, router])
 

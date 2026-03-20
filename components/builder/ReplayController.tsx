@@ -12,13 +12,14 @@ import type { ReplayStage } from '@/lib/services/logReplay'
 interface ReplayControllerProps {
   stages: ReplayStage[]
   appName?: string
+  initialIndex?: number
   onExit: () => void
   onMessagesChange: (messages: UIMessage[]) => void
 }
 
-export function ReplayController({ stages, appName, onExit, onMessagesChange }: ReplayControllerProps) {
+export function ReplayController({ stages, appName, initialIndex = 0, onExit, onMessagesChange }: ReplayControllerProps) {
   const builder = useBuilder()
-  const [currentIndex, setCurrentIndex] = useState(0)
+  const [currentIndex, setCurrentIndex] = useState(initialIndex)
   const [error, setError] = useState<string>()
 
   const goToStage = useCallback((targetIndex: number) => {

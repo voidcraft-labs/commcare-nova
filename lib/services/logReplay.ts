@@ -28,6 +28,7 @@ export interface ReplayStage {
 interface ExtractionSuccess {
   success: true
   stages: ReplayStage[]
+  doneIndex: number
   appName?: string
 }
 
@@ -164,6 +165,7 @@ export function extractReplayStages(log: RunLog): ExtractionResult {
   }
 
   // Done stage — snapshot treeData as the final blueprint
+  const doneIndex = stages.length
   stages.push({
     header: 'Done',
     messages: buildProgressiveMessages(),
@@ -183,7 +185,7 @@ export function extractReplayStages(log: RunLog): ExtractionResult {
     return { success: false, error: 'This log contains no generation data.' }
   }
 
-  return { success: true, stages, appName: log.app_name ?? undefined }
+  return { success: true, stages, doneIndex, appName: log.app_name ?? undefined }
 }
 
 // ── Emission distribution ───────────────────────────────────────────────
@@ -318,13 +320,14 @@ function deriveSubtitle(tc: StepToolCall | undefined, emissions: Emission[], sca
 
 interface ReplayData {
   stages: ReplayStage[]
+  doneIndex: number
   appName?: string
 }
 
 let replayStore: ReplayData | undefined
 
-export function setReplayData(stages: ReplayStage[], appName?: string) {
-  replayStore = { stages, appName }
+export function setReplayData(stages: ReplayStage[], doneIndex: number, appName?: string) {
+  replayStore = { stages, doneIndex, appName }
 }
 
 export function getReplayData(): ReplayData | undefined {
