@@ -81,8 +81,12 @@ export function EditableQuestionWrapper({
   const { builder, moduleIndex, formIndex } = ctx
 
   const handleClick = useCallback((e: React.MouseEvent) => {
-    // Don't intercept clicks that belong to nested question wrappers or insertion points
+    // Ignore clicks from portal-rendered elements (e.g. QuestionTypePicker FloatingPortal).
+    // React synthetic events still bubble through the React tree from portals,
+    // but the DOM target is outside this wrapper's subtree.
     const target = e.target as HTMLElement
+    if (!e.currentTarget.contains(target)) return
+    // Don't intercept clicks that belong to nested question wrappers or insertion points
     if (target.closest('[data-insertion-point]')) return
     const closestWrapper = target.closest('[data-question-wrapper]')
     if (closestWrapper && closestWrapper !== e.currentTarget) return

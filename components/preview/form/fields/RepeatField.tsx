@@ -43,7 +43,7 @@ export function RepeatField({ question, path, questionPath, engine, renderChildr
             )}
           </div>
           <div className="p-4 space-y-4">
-            {question.children && renderChildren(question.children, `${path}[${idx}]`, questionPath)}
+            {renderChildren(question.children ?? [], `${path}[${idx}]`, questionPath)}
           </div>
         </div>
       ))}

@@ -27,7 +27,7 @@ export function GroupField({ question, path, questionPath, engine, renderChildre
         </div>
       )}
       <div className="p-4 space-y-4">
-        {question.children && renderChildren(question.children, path, questionPath)}
+        {renderChildren(question.children ?? [], path, questionPath)}
       </div>
     </div>
   )
