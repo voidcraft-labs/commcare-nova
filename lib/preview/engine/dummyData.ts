@@ -73,8 +73,8 @@ function generateValue(name: string, dataType: string | undefined, options?: { v
       return `+1${randomInt(200, 999)}${randomInt(100, 999)}${randomInt(1000, 9999)}`
     case 'geopoint':
       return `${(Math.random() * 180 - 90).toFixed(4)} ${(Math.random() * 360 - 180).toFixed(4)}`
-    case 'select1':
-    case 'select':
+    case 'single_select':
+    case 'multi_select':
       return pick(['yes', 'no'])
     default:
       return `Sample ${name}`

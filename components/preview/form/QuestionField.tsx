@@ -44,9 +44,9 @@ export function QuestionField({ question, state, onChange, onBlur }: QuestionFie
     case 'time':
     case 'datetime':
       return <DateField question={question} state={state} onChange={onChange} onBlur={onBlur} />
-    case 'select1':
+    case 'single_select':
       return <SelectOneField question={question} state={state} onChange={onChange} onBlur={onBlur} />
-    case 'select':
+    case 'multi_select':
       return <SelectMultiField question={question} state={state} onChange={onChange} onBlur={onBlur} />
     case 'label':
       return <LabelField question={question} state={state} />

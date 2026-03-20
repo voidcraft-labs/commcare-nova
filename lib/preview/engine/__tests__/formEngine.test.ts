@@ -12,7 +12,7 @@ const sampleCaseTypes: CaseType[] = [{
   properties: [
     { name: 'full_name', label: 'Full Name' },
     { name: 'age', label: 'Age', data_type: 'int' },
-    { name: 'risk_level', label: 'Risk Level', data_type: 'select1', options: [
+    { name: 'risk_level', label: 'Risk Level', data_type: 'single_select', options: [
       { value: 'low', label: 'Low' },
       { value: 'high', label: 'High' },
     ]},
@@ -45,7 +45,7 @@ describe('FormEngine', () => {
   describe('relevant (visibility)', () => {
     it('hides questions when relevant evaluates to false', () => {
       const form = makeForm([
-        { id: 'has_children', type: 'select1', label: 'Has children?', options: [
+        { id: 'has_children', type: 'single_select', label: 'Has children?', options: [
           { value: 'yes', label: 'Yes' }, { value: 'no', label: 'No' },
         ]},
         { id: 'num_children', type: 'int', label: 'How many?', relevant: '/data/has_children = "yes"' },
@@ -237,7 +237,7 @@ describe('FormEngine', () => {
 
     it('skips hidden (not visible) fields', () => {
       const form = makeForm([
-        { id: 'toggle', type: 'select1', label: 'Show?', options: [
+        { id: 'toggle', type: 'single_select', label: 'Show?', options: [
           { value: 'yes', label: 'Yes' }, { value: 'no', label: 'No' },
         ]},
         { id: 'conditional', type: 'text', label: 'Details', required: 'true()', relevant: '/data/toggle = "yes"' },

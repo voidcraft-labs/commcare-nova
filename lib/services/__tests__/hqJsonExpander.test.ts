@@ -169,7 +169,7 @@ describe('expandBlueprint', () => {
             name: 'Conditional Close', type: 'followup',
             close_case: { question: 'confirm', answer: 'yes' },
             questions: [
-              { id: 'confirm', type: 'select1', label: 'Close?', options: [
+              { id: 'confirm', type: 'single_select', label: 'Close?', options: [
                 { value: 'yes', label: 'Yes' }, { value: 'no', label: 'No' },
               ]},
             ],
@@ -367,7 +367,7 @@ describe('conditional required', () => {
         name: 'M', forms: [{
           name: 'F', type: 'survey',
           questions: [
-            { id: 'consent', type: 'select1', label: 'Consent?', options: [{ value: 'yes', label: 'Yes' }, { value: 'no', label: 'No' }] },
+            { id: 'consent', type: 'single_select', label: 'Consent?', options: [{ value: 'yes', label: 'Yes' }, { value: 'no', label: 'No' }] },
             { id: 'details', type: 'text', label: 'Details', required: "/data/consent = 'yes'" },
           ],
         }],
@@ -535,7 +535,7 @@ const testCaseTypes: CaseType[] = [{
   properties: [
     { name: 'full_name', label: 'Full Name' },
     { name: 'age', label: 'Patient Age', data_type: 'int', required: 'true()', constraint: '. > 0 and . < 150', constraint_msg: 'Age must be between 1 and 149' },
-    { name: 'gender', label: 'Gender', data_type: 'select1', options: [{ value: 'male', label: 'Male' }, { value: 'female', label: 'Female' }] },
+    { name: 'gender', label: 'Gender', data_type: 'single_select', options: [{ value: 'male', label: 'Male' }, { value: 'female', label: 'Female' }] },
     { name: 'phone', label: 'Phone Number', data_type: 'phone', hint: 'Include country code' },
   ],
 }]
@@ -562,7 +562,7 @@ describe('mergeQuestionDefaults', () => {
   })
 
   it('fills in options for select properties', () => {
-    const q: Question = { id: 'gender_q', type: 'select1', case_property: 'gender' }
+    const q: Question = { id: 'gender_q', type: 'single_select', case_property: 'gender' }
     const merged = mergeQuestionDefaults(q, testCaseTypes, 'patient')
     expect(merged.options).toEqual([{ value: 'male', label: 'Male' }, { value: 'female', label: 'Female' }])
   })
@@ -634,7 +634,7 @@ describe('expander merges data model defaults', () => {
           questions: [
             { id: 'name_q', type: 'text', case_property: 'full_name', is_case_name: true },
             { id: 'age_q', type: 'int', case_property: 'age' },
-            { id: 'gender_q', type: 'select1', case_property: 'gender' },
+            { id: 'gender_q', type: 'single_select', case_property: 'gender' },
           ],
         }],
       }],
@@ -686,7 +686,7 @@ describe('expander merges data model defaults', () => {
           name: 'F', type: 'registration',
           questions: [
             { id: 'name_q', type: 'text', case_property: 'full_name', is_case_name: true },
-            { id: 'gender_q', type: 'select1', case_property: 'gender' },
+            { id: 'gender_q', type: 'single_select', case_property: 'gender' },
           ],
         }],
       }],

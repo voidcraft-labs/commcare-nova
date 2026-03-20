@@ -10,7 +10,7 @@ import type { Question } from '@/lib/schemas/blueprint'
 
 /** Types shown in the picker — excludes hidden (rarely manually inserted) */
 const PICKER_TYPES = [
-  'text', 'int', 'decimal', 'date', 'select1', 'select',
+  'text', 'int', 'decimal', 'date', 'single_select', 'multi_select',
   'geopoint', 'image', 'phone', 'barcode', 'label',
   'group', 'repeat',
 ] as const
