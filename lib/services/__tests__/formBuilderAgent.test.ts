@@ -209,8 +209,8 @@ describe('Form Builder Agent Integration', () => {
         id: 'patient_age',
         type: 'int',
         label: 'Age',
-        constraint: '. > 0 and . < 150',
-        constraint_msg: 'Age must be between 1 and 149',
+        validation: '. > 0 and . < 150',
+        validation_msg: 'Age must be between 1 and 149',
         case_property: 'age',
       })
       mb.addQuestion(0, 0, {

@@ -88,6 +88,6 @@ The Anthropic schema compiler times out with >8 `.optional()` fields per array i
 
 ### Data Model
 
-Case properties are the source of truth for shared question metadata (label, type, hint, help, required, constraint, options). Questions are sparse — only carry overrides when mapped via `case_property`. Defaults merged at assembly time (`contentProcessing.ts`) and expansion time (`hqJsonExpander.ts`).
+Case properties are the source of truth for shared question metadata (label, type, hint, help, required, validation, options). Questions are sparse — only carry overrides when mapped via `case_property`. Defaults merged at assembly time (`contentProcessing.ts`) and expansion time (`hqJsonExpander.ts`).
 
 Each question has `case_property` + `is_case_name`. `deriveCaseConfig()` derives form-level case wiring on-demand — no form-level case fields stored. Case list columns are fully LLM-controlled — no auto-prepend or filtering by expander/compiler.

@@ -8,7 +8,7 @@ import type { CaseType, BlueprintForm, Question } from './blueprint'
 
 // ── XPath utilities ──────────────────────────────────────────────────
 
-const XPATH_FIELDS = ['constraint', 'relevant', 'calculate', 'default_value', 'required'] as const
+const XPATH_FIELDS = ['validation', 'relevant', 'calculate', 'default_value', 'required'] as const
 
 /** Unescape HTML entities that LLMs sometimes emit in XPath strings. */
 function unescapeXPath(s: string): string {
@@ -26,8 +26,8 @@ export interface FlatQuestion {
   hint?: string
   help?: string
   required?: string
-  constraint?: string
-  constraint_msg?: string
+  validation?: string
+  validation_msg?: string
   relevant?: string
   calculate?: string
   default_value?: string
@@ -123,8 +123,8 @@ export function applyDefaults(q: Partial<FlatQuestion>, caseType: CaseType | nul
       result.hint ??= prop.hint
       result.help ??= prop.help
       result.required ??= prop.required
-      result.constraint ??= prop.constraint
-      result.constraint_msg ??= prop.constraint_msg
+      result.validation ??= prop.validation
+      result.validation_msg ??= prop.validation_msg
       result.options ??= prop.options
     }
     // Auto-derive is_case_name

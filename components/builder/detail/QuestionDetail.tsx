@@ -145,7 +145,7 @@ const requiredOptions = [
 
 // XPath fields that can be added
 const xpathFields = [
-  { field: 'constraint', label: 'Constraint' },
+  { field: 'validation', label: 'Validation' },
   { field: 'relevant', label: 'Show When' },
   { field: 'default_value', label: 'Default Value' },
   { field: 'calculate', label: 'Calculate' },
@@ -154,7 +154,7 @@ const xpathFields = [
 // Text fields that can be added
 const addableTextFields = [
   { field: 'hint', label: 'Hint' },
-  { field: 'constraint_msg', label: 'Constraint Message' },
+  { field: 'validation_msg', label: 'Validation Message' },
 ] as const
 
 interface QuestionDetailProps {
@@ -173,7 +173,7 @@ interface QuestionDetailProps {
 /**
  * Question editing sub-panel within the DetailPanel.
  * Displays and allows editing of: label, ID, type, case property, hint, required,
- * constraint/relevant/default_value/calculate (XPath fields), options, and add/delete affordances.
+ * validation/relevant/default_value/calculate (XPath fields), options, and add/delete affordances.
  *
  * Renders three sibling sections designed for the DetailPanel's flex-col layout:
  * 1. Scrollable field content (inside the flex-1 overflow area)
@@ -256,7 +256,7 @@ export function QuestionDetail({ question, selected, mb, builder, notifyBlueprin
   const missingTextFields = addableTextFields.filter(f =>
     !question[f.field as keyof Question]
     && newlyAddedField !== f.field
-    && !(f.field === 'constraint_msg' && !question.constraint)
+    && !(f.field === 'validation_msg' && !question.validation)
   )
 
   return (
@@ -334,21 +334,21 @@ export function QuestionDetail({ question, selected, mb, builder, notifyBlueprin
           }}
         />
 
-        {question.constraint && (
+        {question.validation && (
           <div>
-            <label className="text-xs text-nova-text-muted uppercase tracking-wider mb-1 block">Constraint</label>
-            <XPathField value={question.constraint} onClick={() => setXpathModal({ field: 'constraint', value: question.constraint!, label: 'Constraint' })} />
-            {(question.constraint_msg || newlyAddedField === 'constraint_msg') && (
+            <label className="text-xs text-nova-text-muted uppercase tracking-wider mb-1 block">Validation</label>
+            <XPathField value={question.validation} onClick={() => setXpathModal({ field: 'validation', value: question.validation!, label: 'Validation' })} />
+            {(question.validation_msg || newlyAddedField === 'validation_msg') && (
               <div className="mt-1">
                 <EditableText
-                  label="Constraint Message"
-                  value={question.constraint_msg ?? ''}
+                  label="Validation Message"
+                  value={question.validation_msg ?? ''}
                   onSave={(v) => {
-                    saveQuestion('constraint_msg', v || null)
+                    saveQuestion('validation_msg', v || null)
                     clearNewlyAdded()
                   }}
-                  autoFocus={newlyAddedField === 'constraint_msg'}
-                  onEmpty={newlyAddedField === 'constraint_msg' ? clearNewlyAdded : undefined}
+                  autoFocus={newlyAddedField === 'validation_msg'}
+                  onEmpty={newlyAddedField === 'validation_msg' ? clearNewlyAdded : undefined}
                 />
               </div>
             )}

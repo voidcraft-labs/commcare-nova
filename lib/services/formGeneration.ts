@@ -46,8 +46,8 @@ export const singleFormSchema = z.object({
     // Optionals (8) — sparse, saves tokens when absent
     hint: z.string().optional(),
     help: z.string().optional(),
-    constraint: z.string().optional(),
-    constraint_msg: z.string().optional(),
+    validation: z.string().optional(),
+    validation_msg: z.string().optional(),
     relevant: z.string().optional(),
     calculate: z.string().optional(),
     default_value: z.string().optional(),
@@ -79,7 +79,7 @@ Use raw XPath operators (>, <), never HTML-escaped. Reference questions by /data
 - Calculate, don't ask: if a value can be derived (age from DOB, BMI from height+weight), use a hidden calculated field
 - Coordinate sibling forms: Registration and followup forms for the same case type should use the same question IDs and group structure for shared fields
 - Confirm context in followups: start with label questions showing key case details using <output value="#case/property_name"/>
-- Use relevant for conditional visibility. Use constraint with constraint_msg for validation
+- Use relevant for conditional visibility. Use validation with validation_msg for input validation rules
 - Default the common case: Use default_value (e.g. today()) when 90%+ of submissions will use the same value
 - hidden questions MUST have either calculate or default_value — a hidden question with neither saves blank data`
 

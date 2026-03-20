@@ -81,11 +81,11 @@ export class FormEngine {
     // Re-validate the changed question itself
     if (state) {
       if (state.touched) {
-        // Field already shown to user — run full validation (required + constraint)
+        // Field already shown to user — run full validation (required + validation rule)
         this.validateField(path, state)
       } else {
-        // Not yet touched — only track constraint validity internally
-        this.evaluateConstraint(path, state)
+        // Not yet touched — only track validation validity internally
+        this.evaluateValidation(path, state)
       }
     }
 
@@ -152,19 +152,25 @@ export class FormEngine {
     return this.instance.getRepeatCount(repeatPath)
   }
 
-  /** Mark a field as touched (on blur). Runs constraint validation only — required is deferred to submit. */
+  /**
+   * Mark a field as touched (on blur). Runs validation rules only — required
+   * is intentionally deferred to submit. Showing "required" errors on blur is
+   * bad UX: users click into a field, navigate away, and get an immediate error
+   * before they've had a chance to fill anything out. The red asterisk is
+   * sufficient to communicate requiredness until submission.
+   */
   touch(path: string): void {
     const state = this.states.get(path)
     if (!state || state.touched) return
 
     state.touched = true
-    this.evaluateConstraint(path, state)
+    this.evaluateValidation(path, state)
     this.notify()
   }
 
   /**
    * Validate all visible fields. Marks every field as touched, runs required
-   * checks and constraints. Returns true if the form is valid.
+   * checks and validation rules. Returns true if the form is valid.
    */
   validateAll(): boolean {
     let valid = true
@@ -382,8 +388,8 @@ export class FormEngine {
           state.required = toBoolean(result)
           break
         }
-        case 'constraint': {
-          this.evaluateConstraint(path, state)
+        case 'validation': {
+          this.evaluateValidation(path, state)
           break
         }
         case 'output': {
@@ -409,7 +415,7 @@ export class FormEngine {
     }
   }
 
-  /** Validate a single field: required check + constraint check. */
+  /** Validate a single field: required check + validation check. */
   private validateField(path: string, state: QuestionState): void {
     // Required check
     if (state.required && !state.value) {
@@ -418,27 +424,26 @@ export class FormEngine {
       return
     }
 
-    // Constraint check (only if has a value)
-    this.evaluateConstraint(path, state)
+    // Validation check (only if has a value)
+    this.evaluateValidation(path, state)
   }
 
-  /** Evaluate constraint for a question. */
-  private evaluateConstraint(path: string, state: QuestionState): void {
+  /** Evaluate validation rule for a question. */
+  private evaluateValidation(path: string, state: QuestionState): void {
     const expressions = this.dag.getExpressions(path)
-    const constraintExpr = expressions.find(e => e.type === 'constraint')
-    if (!constraintExpr || !state.value) {
+    const validationExpr = expressions.find(e => e.type === 'validation')
+    if (!validationExpr || !state.value) {
       state.valid = true
       state.errorMessage = undefined
       return
     }
 
     const ctx = this.createEvalContext(path)
-    const result = evaluate(constraintExpr.expr, ctx)
+    const result = evaluate(validationExpr.expr, ctx)
     state.valid = toBoolean(result)
     if (!state.valid) {
-      // Find the constraint_msg from the question
       const q = this.findQuestion(path)
-      state.errorMessage = q?.constraint_msg ?? 'Invalid value'
+      state.errorMessage = q?.validation_msg ?? 'Invalid value'
     } else {
       state.errorMessage = undefined
     }

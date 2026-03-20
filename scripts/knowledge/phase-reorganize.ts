@@ -95,11 +95,11 @@ export async function reorgPlan(config: PipelineConfig): Promise<ReorgPlan> {
     }
   }
 
-  const system = `You are reorganizing a CommCare knowledge base for an AI agent (the "Solutions Architect") that designs CommCare mobile apps from natural language. The SA generates app blueprints: modules, forms, questions (with types, labels, case properties, logic), case types, and case list columns. The SA also writes expressions — relevant conditions, calculate, constraint, default_value, and itemset configurations (nodeset, value, label, filter predicates). That is the SA's ENTIRE interface. It does not touch XML, does not use CommCare HQ's web interface, does not make API calls, does not manage users/locations/infrastructure, does not do data import/export, does not configure servers or integrations.
+  const system = `You are reorganizing a CommCare knowledge base for an AI agent (the "Solutions Architect") that designs CommCare mobile apps from natural language. The SA generates app blueprints: modules, forms, questions (with types, labels, case properties, logic), case types, and case list columns. The SA also writes expressions — relevant conditions, calculate, validation, default_value, and itemset configurations (nodeset, value, label, filter predicates). That is the SA's ENTIRE interface. It does not touch XML, does not use CommCare HQ's web interface, does not make API calls, does not manage users/locations/infrastructure, does not do data import/export, does not configure servers or integrations.
 
 The SA's output is an app blueprint that gets deterministically converted into a working CommCare app by a separate pipeline. The SA never sees or writes XML, never interacts with submission endpoints, never configures case import spreadsheets, never sets up cross-domain data sharing, never manages user accounts. If a human couldn't do it while sitting in the CommCare app builder designing forms and modules, the SA can't do it either.
 
-**The strict test for inclusion: Would this knowledge help the SA decide what question type to use, how to structure a module, how to wire case properties, or how to write an expression (relevant/calculate/constraint/default_value/itemset)?** If no, cut it entirely. Don't keep it "for context" or "for debugging" — the SA doesn't debug.
+**The strict test for inclusion: Would this knowledge help the SA decide what question type to use, how to structure a module, how to wire case properties, or how to write an expression (relevant/calculate/validation/default_value/itemset)?** If no, cut it entirely. Don't keep it "for context" or "for debugging" — the SA doesn't debug.
 
 Given all source files, produce a reorganization plan that:
 
@@ -280,7 +280,7 @@ export async function reorgExecute(config: PipelineConfig): Promise<void> {
 
   const system = `You are writing one file of a CommCare knowledge base for an AI agent (the "Solutions Architect") that designs CommCare mobile apps from natural language.
 
-The SA generates app blueprints: modules, forms, questions (with types, labels, case properties, logic), case types, and case list columns. The SA's "coding" surface is expressions — relevant, calculate, constraint, default_value, and itemset configurations (nodeset, value, label, filter predicates). That is the SA's ENTIRE interface.
+The SA generates app blueprints: modules, forms, questions (with types, labels, case properties, logic), case types, and case list columns. The SA's "coding" surface is expressions — relevant, calculate, validation, default_value, and itemset configurations (nodeset, value, label, filter predicates). That is the SA's ENTIRE interface.
 
 The SA does NOT:
 - See, write, or reason about XML/XForm structure
