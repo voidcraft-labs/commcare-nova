@@ -18,11 +18,11 @@ The grammar produces **two distinct `Child` node types** (one from `rootStep`, o
 
 **On init**: merge data model defaults → build DataInstance → preload case data (followup) → build TriggerDag → init QuestionStates → apply `default_value` (one-time) → full cascade.
 
-**On `setValue(path)`**: update instance → DAG cascade (topologically sorted) → re-evaluate expressions per affected path (calculate, relevant, required, constraint) → re-validate constraint.
+**On `setValue(path)`**: update instance → DAG cascade (topologically sorted) → re-evaluate expressions per affected path (calculate, relevant, required, validation) → re-validate.
 
-**On `touch(path)` (blur)**: mark touched → validate constraint only. Required validation is deferred to submit to avoid error flash on mode switches.
+**On `touch(path)` (blur)**: mark touched → validate validation rule only. Required is intentionally deferred to submit — showing "required" on blur is bad UX (user clicks in, navigates away, gets immediate error before they've filled anything). The red asterisk communicates requiredness until submission.
 
-**On `validateAll()` (submit)**: mark all visible fields touched → validate each (required + constraint) → return boolean. `FormScreen` scrolls to first error on failure.
+**On `validateAll()` (submit)**: mark all visible fields touched → validate each (required + validation) → return boolean. `FormScreen` scrolls to first error on failure.
 
 **On `reset()`**: full reinitialization — rebuild DataInstance, re-preload case data (followup), reinit all QuestionStates, reapply `default_value` expressions, full cascade. Returns the form to its exact initial state. Called by the reset button in FormScreen's header.
 

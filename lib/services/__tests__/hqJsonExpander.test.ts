@@ -34,7 +34,7 @@ const registrationBlueprint: AppBlueprint = {
       type: 'registration',
       questions: [
         { id: 'full_name', type: 'text', label: 'Full Name', required: 'true()', is_case_name: true },
-        { id: 'patient_age', type: 'int', label: 'Age', constraint: '. > 0 and . < 150', case_property: 'age' },
+        { id: 'patient_age', type: 'int', label: 'Age', validation: '. > 0 and . < 150', case_property: 'age' },
         { id: 'risk', type: 'hidden', calculate: "if(/data/patient_age > 65, 'high', 'low')" },
       ],
     }],
@@ -534,7 +534,7 @@ const testCaseTypes: CaseType[] = [{
   case_name_property: 'full_name',
   properties: [
     { name: 'full_name', label: 'Full Name' },
-    { name: 'age', label: 'Patient Age', data_type: 'int', required: 'true()', constraint: '. > 0 and . < 150', constraint_msg: 'Age must be between 1 and 149' },
+    { name: 'age', label: 'Patient Age', data_type: 'int', required: 'true()', validation: '. > 0 and . < 150', validation_msg: 'Age must be between 1 and 149' },
     { name: 'gender', label: 'Gender', data_type: 'single_select', options: [{ value: 'male', label: 'Male' }, { value: 'female', label: 'Female' }] },
     { name: 'phone', label: 'Phone Number', data_type: 'phone', hint: 'Include country code' },
   ],
@@ -553,12 +553,12 @@ describe('mergeQuestionDefaults', () => {
     expect(merged.label).toBe('Custom Label')
   })
 
-  it('fills in constraint, required, and constraint_msg', () => {
+  it('fills in validation, required, and validation_msg', () => {
     const q: Question = { id: 'age_q', type: 'int', case_property: 'age' }
     const merged = mergeQuestionDefaults(q, testCaseTypes, 'patient')
     expect(merged.required).toBe('true()')
-    expect(merged.constraint).toBe('. > 0 and . < 150')
-    expect(merged.constraint_msg).toBe('Age must be between 1 and 149')
+    expect(merged.validation).toBe('. > 0 and . < 150')
+    expect(merged.validation_msg).toBe('Age must be between 1 and 149')
   })
 
   it('fills in options for select properties', () => {

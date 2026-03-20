@@ -2,7 +2,7 @@ import type { Question } from '@/lib/schemas/blueprint'
 import { extractPathRefs } from '../xpath/dependencies'
 import { parseOutputTags } from './outputTag'
 
-export type ExpressionType = 'relevant' | 'calculate' | 'required' | 'constraint' | 'output'
+export type ExpressionType = 'relevant' | 'calculate' | 'required' | 'validation' | 'output'
 
 interface DagNode {
   path: string
@@ -96,7 +96,7 @@ export class TriggerDag {
     if (q.required && q.required !== 'true()' && q.required !== 'false()') {
       expressions.push({ type: 'required', expr: q.required })
     }
-    if (q.constraint) expressions.push({ type: 'constraint', expr: q.constraint })
+    if (q.validation) expressions.push({ type: 'validation', expr: q.validation })
 
     // Collect all XPath expressions that create dependency edges
     const allDepExprs = expressions.map(e => e.expr)

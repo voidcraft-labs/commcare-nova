@@ -43,8 +43,8 @@ export interface QuestionUpdate {
   hint: string | null
   help: string | null
   required: string | null
-  constraint: string | null
-  constraint_msg: string | null
+  validation: string | null
+  validation_msg: string | null
   relevant: string | null
   calculate: string | null
   default_value: string | null
@@ -62,8 +62,8 @@ export interface NewQuestion {
   hint?: string
   help?: string
   required?: string
-  constraint?: string
-  constraint_msg?: string
+  validation?: string
+  validation_msg?: string
   relevant?: string
   calculate?: string
   default_value?: string
@@ -198,11 +198,11 @@ export class MutableBlueprint {
       if (q.id.toLowerCase().includes(query)) matchFields.push({ field: 'id', value: q.id })
       if (q.label && q.label.toLowerCase().includes(query)) matchFields.push({ field: 'label', value: q.label })
       if (q.case_property?.toLowerCase().includes(query)) matchFields.push({ field: 'case_property', value: q.case_property })
-      if (q.constraint?.toLowerCase().includes(query)) matchFields.push({ field: 'constraint', value: q.constraint })
+      if (q.validation?.toLowerCase().includes(query)) matchFields.push({ field: 'validation', value: q.validation })
       if (q.relevant?.toLowerCase().includes(query)) matchFields.push({ field: 'relevant', value: q.relevant })
       if (q.calculate?.toLowerCase().includes(query)) matchFields.push({ field: 'calculate', value: q.calculate })
       if (q.default_value?.toLowerCase().includes(query)) matchFields.push({ field: 'default_value', value: q.default_value })
-      if (q.constraint_msg && q.constraint_msg.toLowerCase().includes(query)) matchFields.push({ field: 'constraint_msg', value: q.constraint_msg })
+      if (q.validation_msg && q.validation_msg.toLowerCase().includes(query)) matchFields.push({ field: 'validation_msg', value: q.validation_msg })
       if (q.hint && q.hint.toLowerCase().includes(query)) matchFields.push({ field: 'hint', value: q.hint })
       if (q.help && q.help.toLowerCase().includes(query)) matchFields.push({ field: 'help', value: q.help })
 
@@ -608,8 +608,8 @@ export class MutableBlueprint {
       ...(nq.help != null && { help: nq.help }),
       ...(nq.required != null && { required: nq.required }),
 
-      ...(nq.constraint != null && { constraint: nq.constraint }),
-      ...(nq.constraint_msg != null && { constraint_msg: nq.constraint_msg }),
+      ...(nq.validation != null && { validation: nq.validation }),
+      ...(nq.validation_msg != null && { validation_msg: nq.validation_msg }),
       ...(nq.relevant != null && { relevant: nq.relevant }),
       ...(nq.calculate != null && { calculate: nq.calculate }),
       ...(nq.default_value != null && { default_value: nq.default_value }),
@@ -621,7 +621,7 @@ export class MutableBlueprint {
   }
 
   private rewriteXPathInQuestions(questions: Question[], oldPath: string, newId: string): number {
-    const xpathFields = ['relevant', 'calculate', 'default_value', 'constraint'] as const
+    const xpathFields = ['relevant', 'calculate', 'default_value', 'validation'] as const
     const displayFields = ['label', 'hint'] as const
     const rewriter = (expr: string) => rewriteXPathRefs(expr, oldPath, newId)
     let count = 0
@@ -652,7 +652,7 @@ export class MutableBlueprint {
   }
 
   private renamePropertyInQuestions(questions: Question[], oldName: string, newName: string): boolean {
-    const xpathFields = ['relevant', 'calculate', 'default_value', 'constraint'] as const
+    const xpathFields = ['relevant', 'calculate', 'default_value', 'validation'] as const
     const displayFields = ['label', 'hint'] as const
     const rewriter = (expr: string) => rewriteHashtagRefs(expr, '#case/', oldName, newName)
     let changed = false

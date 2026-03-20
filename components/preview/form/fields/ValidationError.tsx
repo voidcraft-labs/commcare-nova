@@ -2,7 +2,7 @@
 import { motion } from 'motion/react'
 import { renderPreviewMarkdown } from '@/lib/markdown'
 
-export function ConstraintError({ message }: { message: string }) {
+export function ValidationError({ message }: { message: string }) {
   return (
     <motion.div
       initial={{ opacity: 0, y: -4 }}

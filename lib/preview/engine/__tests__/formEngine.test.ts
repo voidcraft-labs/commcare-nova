@@ -80,10 +80,10 @@ describe('FormEngine', () => {
     })
   })
 
-  describe('constraint', () => {
-    it('validates constraints on value change', () => {
+  describe('validation', () => {
+    it('validates on value change', () => {
       const form = makeForm([
-        { id: 'age', type: 'int', label: 'Age', constraint: '. > 0 and . < 150', constraint_msg: 'Must be 1-149' },
+        { id: 'age', type: 'int', label: 'Age', validation: '. > 0 and . < 150', validation_msg: 'Must be 1-149' },
       ])
       const engine = new FormEngine(form, null)
 
@@ -190,14 +190,14 @@ describe('FormEngine', () => {
       expect(engine.getState('/data/name').valid).toBe(true)
     })
 
-    it('runs constraint on touch when field has a value', () => {
+    it('runs validation on touch when field has a value', () => {
       const form = makeForm([
-        { id: 'age', type: 'int', label: 'Age', constraint: '. > 0', constraint_msg: 'Must be positive' },
+        { id: 'age', type: 'int', label: 'Age', validation: '. > 0', validation_msg: 'Must be positive' },
       ])
       const engine = new FormEngine(form, null)
 
       engine.setValue('/data/age', '-5')
-      // setValue runs constraint, so it's already invalid
+      // setValue runs validation, so it's already invalid
       expect(engine.getState('/data/age').valid).toBe(false)
 
       // But touch also runs it
