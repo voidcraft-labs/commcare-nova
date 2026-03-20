@@ -1,11 +1,13 @@
 'use client'
 import { Icon } from '@iconify/react'
+import { useDroppable } from '@dnd-kit/react'
 import ciPlus from '@iconify-icons/ci/plus'
 import ciTrash from '@iconify-icons/ci/trash-full'
 import type { Question } from '@/lib/schemas/blueprint'
 import type { QuestionPath } from '@/lib/services/questionPath'
 import type { FormEngine } from '@/lib/preview/engine/formEngine'
 import { renderPreviewMarkdown } from '@/lib/markdown'
+import { useEditContext } from '@/hooks/useEditContext'
 
 interface RepeatFieldProps {
   question: Question
@@ -17,6 +19,16 @@ interface RepeatFieldProps {
 
 export function RepeatField({ question, path, questionPath, engine, renderChildren }: RepeatFieldProps) {
   const state = engine.getState(path)
+  const ctx = useEditContext()
+  const isEditMode = ctx?.mode === 'edit'
+
+  // Make the repeat's children area a droppable target so items can be dropped into empty repeats
+  const { ref: droppableRef } = useDroppable({
+    id: `${questionPath}:container`,
+    accept: 'question',
+    disabled: !isEditMode,
+  })
+
   if (!state.visible) return null
 
   const count = engine.getRepeatCount(path)
@@ -42,7 +54,7 @@ export function RepeatField({ question, path, questionPath, engine, renderChildr
               </button>
             )}
           </div>
-          <div className="p-4 space-y-4">
+          <div ref={droppableRef} className="p-4 space-y-4">
             {renderChildren(question.children ?? [], `${path}[${idx}]`, questionPath)}
           </div>
         </div>

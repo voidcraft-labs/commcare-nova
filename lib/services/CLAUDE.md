@@ -48,6 +48,8 @@ Also re-exports from the split files:
 
 **Query:** `search()` finds matches across question paths/labels/case_properties/XPath/module names/form names/columns.
 
+**Cross-level move:** `moveQuestion()` accepts optional `targetParentPath` in opts. When present, removes the question from its current parent array and inserts into the target parent's children (or root if `undefined`). Circular nesting (moving a group into itself or a descendant) is a no-op. Backward-compatible — callers omitting `targetParentPath` get same-level reorder as before.
+
 **Rename propagation:**
 - `renameQuestion(path, newId)` — renames question ID, propagates through all XPath expressions and output tags in the same form via Lezer-based `rewriteXPathRefs`. Returns `{ newPath: QuestionPath, xpathFieldsRewritten }`.
 - `renameCaseProperty()` — propagates across all questions, columns, XPath, and output tags via `rewriteHashtagRefs`.

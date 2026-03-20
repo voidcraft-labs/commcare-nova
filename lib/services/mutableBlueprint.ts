@@ -314,12 +314,21 @@ export class MutableBlueprint {
     }
   }
 
-  moveQuestion(mIdx: number, fIdx: number, questionPath: QuestionPath, opts: { afterPath?: QuestionPath; beforePath?: QuestionPath }): void {
+  moveQuestion(mIdx: number, fIdx: number, questionPath: QuestionPath, opts: { afterPath?: QuestionPath; beforePath?: QuestionPath; targetParentPath?: QuestionPath }): void {
     const form = this.blueprint.modules[mIdx]?.forms[fIdx]
     if (!form) throw new Error(`Form m${mIdx}-f${fIdx} not found`)
 
     // No-op if moving relative to itself
     if (opts.afterPath === questionPath || opts.beforePath === questionPath) return
+
+    const isCrossLevel = 'targetParentPath' in opts
+
+    // Prevent circular nesting — can't move a group into itself or its descendants
+    if (isCrossLevel && opts.targetParentPath !== undefined) {
+      const targetStr = opts.targetParentPath as string
+      const draggedStr = questionPath as string
+      if (targetStr === draggedStr || targetStr.startsWith(draggedStr + '/')) return
+    }
 
     const found = this.findByPath(form.questions, questionPath)
     if (!found) throw new Error(`Question "${questionPath}" not found in m${mIdx}-f${fIdx}`)
@@ -328,10 +337,14 @@ export class MutableBlueprint {
     const idx = found.parent.indexOf(found.question)
     if (idx !== -1) found.parent.splice(idx, 1)
 
-    // Re-insert at new position within the same parent array
+    // Determine target array — cross-level uses targetParentPath, otherwise same parent
+    const targetArray = isCrossLevel
+      ? this.getParentArray(form.questions, opts.targetParentPath)
+      : found.parent
+
     const afterId = opts.afterPath ? qpathId(opts.afterPath) : undefined
     const beforeId = opts.beforePath ? qpathId(opts.beforePath) : undefined
-    this.insertIntoArray(found.parent, found.question, afterId, beforeId)
+    this.insertIntoArray(targetArray, found.question, afterId, beforeId)
   }
 
   duplicateQuestion(mIdx: number, fIdx: number, questionPath: QuestionPath): QuestionPath {
@@ -548,6 +561,20 @@ export class MutableBlueprint {
   }
 
   // ── Private helpers ─────────────────────────────────────────────────
+
+  /** Get the children array for a given parent path, or root questions if no parent. */
+  private getParentArray(questions: Question[], parentPath?: QuestionPath): Question[] {
+    if (!parentPath) return questions
+    const segments = (parentPath as string).split('/')
+    let current = questions
+    for (const seg of segments) {
+      const parent = current.find(q => q.id === seg)
+      if (!parent) throw new Error(`Parent "${seg}" not found`)
+      if (!parent.children) parent.children = []
+      current = parent.children
+    }
+    return current
+  }
 
   /** Walk the tree matching path segments to find a question and its parent array. */
   private findByPath(questions: Question[], path: QuestionPath): { question: Question; parent: Question[] } | undefined {
