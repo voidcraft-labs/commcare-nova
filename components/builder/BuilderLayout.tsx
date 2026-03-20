@@ -61,12 +61,17 @@ export function BuilderLayout({ buildId }: { buildId: string }) {
   viewModeRef.current = viewMode
   const [progressHidden, setProgressHidden] = useState(false)
   const initialReplay = getReplayData()
+  const replayStartIndex = initialReplay?.doneIndex ?? 0
   const [replayData, setReplayDataState] = useState(() => {
-    if (initialReplay) initialReplay.stages[0]?.applyToBuilder(builder)
+    if (initialReplay) {
+      for (let i = 0; i <= replayStartIndex; i++) {
+        initialReplay.stages[i]?.applyToBuilder(builder)
+      }
+    }
     return initialReplay
   })
   const [replayMessages, setReplayMessages] = useState(
-    () => initialReplay?.stages[0]?.messages ?? []
+    () => initialReplay?.stages[replayStartIndex]?.messages ?? []
   )
 
   const apiKeyRef = useRef(apiKey)
@@ -340,6 +345,7 @@ export function BuilderLayout({ buildId }: { buildId: string }) {
           <ReplayController
             stages={replayData.stages}
             appName={replayData.appName}
+            initialIndex={replayStartIndex}
             onExit={handleExitReplay}
             onMessagesChange={setReplayMessages}
           />

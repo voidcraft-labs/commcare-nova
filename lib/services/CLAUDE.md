@@ -177,7 +177,7 @@ Client-side replay of v2 run logs through Builder without API calls.
 
 **Flow:** `/settings` file picker → `extractReplayStages(log)` → module-level store → `/build/new` → `BuilderLayout` reads store → `ReplayController` drives Builder.
 
-`logReplay.ts` — walks `log.steps`, builds progressive chat messages, creates `ReplayStage` per tool call. Multi-tool steps split by `moduleIndex`/`formIndex`. Uses `applyDataPart()` — same code path as real-time. Tool outputs (e.g. question answers) are read from `StepToolCall.output` and included in replay parts.
+`logReplay.ts` — walks `log.steps`, builds progressive chat messages, creates `ReplayStage` per tool call. Multi-tool steps split by `moduleIndex`/`formIndex`. Uses `applyDataPart()` — same code path as real-time. Tool outputs (e.g. question answers) are read from `StepToolCall.output` and included in replay parts. Extraction returns `doneIndex` — the index of the synthetic "Done" stage — so consumers can start replay at the completed app state without string comparisons.
 
 ## Pipeline Config
 
