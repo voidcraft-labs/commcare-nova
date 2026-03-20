@@ -54,8 +54,8 @@ const casePropertySchema = z.object({
   hint: z.string().optional().describe('Hint text shown below questions collecting this property.'),
   help: z.string().optional().describe('Extended help text accessible via help icon.'),
   required: z.string().optional().describe('"true()" if always required. Omit if optional.'),
-  constraint: z.string().optional().describe('XPath constraint, e.g. ". > 0 and . < 150"'),
-  constraint_msg: z.string().optional().describe('Error message when constraint fails.'),
+  validation: z.string().optional().describe('XPath validation expression, e.g. ". > 0 and . < 150"'),
+  validation_msg: z.string().optional().describe('Error message when validation fails.'),
   options: z.array(selectOptionSchema).optional().describe('Options for single_select/multi_select properties.'),
 })
 
@@ -143,8 +143,8 @@ const questionFields = {
   required: z.string().optional().describe(
     '"true()" if always required. An XPath expression for conditional requirement (e.g. "/data/age >= 18").'
   ),
-  constraint: z.string().optional().describe('XPath constraint expression, e.g. ". > 0 and . < 150"'),
-  constraint_msg: z.string().optional().describe('Error message when constraint fails.'),
+  validation: z.string().optional().describe('XPath validation expression, e.g. ". > 0 and . < 150"'),
+  validation_msg: z.string().optional().describe('Error message when validation fails.'),
   relevant: z.string().optional().describe(
     'XPath expression — question only shows when true. ' +
     'Use the full path: /data/question_id for top-level, /data/group_id/question_id for nested. ' +
@@ -322,8 +322,8 @@ export function mergeQuestionDefaults(
     hint: question.hint ?? prop.hint,
     help: question.help ?? prop.help,
     required: question.required ?? prop.required,
-    constraint: question.constraint ?? prop.constraint,
-    constraint_msg: question.constraint_msg ?? prop.constraint_msg,
+    validation: question.validation ?? prop.validation,
+    validation_msg: question.validation_msg ?? prop.validation_msg,
     options: question.options ?? prop.options,
     ...(isCaseName != null && { is_case_name: isCaseName }),
   }

@@ -161,7 +161,7 @@ export function buildFormActions(form: BlueprintForm, caseType: string): FormAct
  * Build the case_references_data.load map for a form.
  *
  * Scans all questions for #case/ and #user/ references in XPath expressions
- * (calculate, relevant, constraint, default_value) and maps each question's
+ * (calculate, relevant, validation, default_value) and maps each question's
  * full path to the array of hashtag references it uses. CommCare's Vellum
  * editor uses this to resolve hashtag shorthand at build time.
  */
@@ -169,7 +169,7 @@ export function buildCaseReferencesLoad(questions: Question[], parentPath = '/da
   const load: Record<string, string[]> = {}
   for (const q of questions) {
     const nodePath = `${parentPath}/${q.id}`
-    const xpathExprs = [q.relevant, q.constraint, q.calculate, q.default_value, q.required].filter(Boolean) as string[]
+    const xpathExprs = [q.relevant, q.validation, q.calculate, q.default_value, q.required].filter(Boolean) as string[]
     const hashtags = extractHashtags(xpathExprs)
     if (hashtags.length > 0) {
       load[nodePath] = hashtags

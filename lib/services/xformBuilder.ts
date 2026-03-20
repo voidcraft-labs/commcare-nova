@@ -46,7 +46,7 @@ function collectAllXPaths(questions: Question[]): string[] {
   const exprs: string[] = []
   for (const q of questions) {
     if (q.relevant) exprs.push(q.relevant)
-    if (q.constraint) exprs.push(q.constraint)
+    if (q.validation) exprs.push(q.validation)
     if (q.calculate) exprs.push(q.calculate)
     if (q.default_value) exprs.push(q.default_value)
     if (q.required) exprs.push(q.required)
@@ -133,7 +133,7 @@ ${bodyContent}
 /**
  * Recursively generate the four XForm parts for a question:
  * - dataElements: <instance> data nodes
- * - binds: <bind> elements with type, required, constraint, etc.
+ * - binds: <bind> elements with type, required, validation, etc.
  * - itextEntries: <itext> translation entries for labels/hints/options
  * - bodyElements: <h:body> input/select/group elements
  *
@@ -163,12 +163,12 @@ function buildQuestionParts(
     if (hasHashtags(q.required)) bindParts.push(`vellum:required="${escapeXml(q.required)}"`)
     bindParts.push(`required="${escapeXml(expandedReq)}"`)
   }
-  if (q.constraint) {
-    if (hasHashtags(q.constraint)) bindParts.push(`vellum:constraint="${escapeXml(q.constraint)}"`)
-    bindParts.push(`constraint="${escapeXml(expandHashtags(q.constraint))}"`)
+  if (q.validation) {
+    if (hasHashtags(q.validation)) bindParts.push(`vellum:constraint="${escapeXml(q.validation)}"`)
+    bindParts.push(`constraint="${escapeXml(expandHashtags(q.validation))}"`)
   }
-  if (q.constraint_msg) {
-    bindParts.push(`jr:constraintMsg="${escapeXml(q.constraint_msg)}"`)
+  if (q.validation_msg) {
+    bindParts.push(`jr:constraintMsg="${escapeXml(q.validation_msg)}"`)
   }
   if (q.relevant) {
     if (hasHashtags(q.relevant)) bindParts.push(`vellum:relevant="${escapeXml(q.relevant)}"`)
@@ -189,7 +189,7 @@ function buildQuestionParts(
     setvalues.push(`<setvalue event="${event}" ref="${nodePath}"${vellumAttrs} value="${escapeXml(expandedValue)}"/>`)
   }
   // Add Vellum hashtag metadata for #case/ and #user/ references
-  const xpathExprs = [q.relevant, q.constraint, q.calculate, q.default_value, q.required].filter(Boolean) as string[]
+  const xpathExprs = [q.relevant, q.validation, q.calculate, q.default_value, q.required].filter(Boolean) as string[]
   const hashtags = extractHashtags(xpathExprs)
   if (hashtags.length > 0) {
     const hashtagMap = Object.fromEntries(hashtags.map(h => [h, null]))
