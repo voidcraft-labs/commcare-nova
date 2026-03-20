@@ -43,4 +43,10 @@ All XPath fields (required, validation) are expressions — string literal value
 ## case_name_property
 Every case type must specify which property is used as the case name (the primary identifier shown in lists). Choose the most human-meaningful property — usually the entity's name or a short descriptive label.
 
+## Reasoning & Thinking Guidelines
+- DO NOT draft, outline, or write any JSON in your reasoning or thinking phase.
+- Use your reasoning phase strictly for conceptual, plain-text analysis. Map out the entities, their relationships, and the required properties using natural language.
+- Focus 100% of your reasoning on the semantic design, workflow logic, and constraints of the CommCare application.
+- Save all JSON formatting strictly for the final tool call and structured output.
+
 Design the complete data model for this application.`

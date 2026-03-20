@@ -18,7 +18,9 @@ Split across three files:
 - `generateSchema` — case types + properties. Emits `data-start-build`.
 - `generateScaffold` — module/form structure. Emits `data-phase: structure`, streams partial scaffold.
 - `addModule` — case list/detail columns.
-- `addForm` — form questions via structured output.
+- `addForm` — form questions via structured output. Returns `questions` tree summary (id, type, case_property, children) so the SA can see structure and coordinate sibling forms.
+
+`addForm` and `regenerateForm` return a compact `questions` tree via `summarizeQuestions()` — the SA sees every question's ID, type, case_property, and nesting. This lets it detect structural mismatches between sibling forms (e.g. registration vs followup) and fix them with mutation tools.
 
 **Read (4):**
 - `searchBlueprint`, `getModule`, `getForm`, `getQuestion`
