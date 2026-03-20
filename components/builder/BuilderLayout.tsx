@@ -56,6 +56,7 @@ export function BuilderLayout({ buildId }: { buildId: string }) {
   const { settings } = useSettings()
   const builder = useBuilder()
   const [chatUserPref, setChatUserPref] = useState(true)
+  const [detailUserPref, setDetailUserPref] = useState(true)
   const [viewMode, setViewMode] = useState<'overview' | 'design' | 'preview'>('overview')
   const viewModeRef = useRef(viewMode)
   viewModeRef.current = viewMode
@@ -238,15 +239,26 @@ export function BuilderLayout({ buildId }: { buildId: string }) {
 
   const handleUndo = useCallback(() => {
     const viewMode = builder.undo()
-    if (viewMode) restoreView(viewMode)
+    if (viewMode) {
+      setDetailUserPref(true)
+      restoreView(viewMode)
+    }
   }, [builder, restoreView])
 
   const handleRedo = useCallback(() => {
     const viewMode = builder.redo()
-    if (viewMode) restoreView(viewMode)
+    if (viewMode) {
+      setDetailUserPref(true)
+      restoreView(viewMode)
+    }
   }, [builder, restoreView])
 
   // ── Keyboard shortcuts (extracted to useBuilderShortcuts) ───────────
+  const handleDetailClose = useCallback(() => {
+    builder.select()
+    setDetailUserPref(false)
+  }, [builder])
+
   const handleDelete = useCallback(() => {
     const sel = builder.selected
     if (!sel || sel.type !== 'question' || sel.formIndex === undefined || !sel.questionPath) return
@@ -273,6 +285,19 @@ export function BuilderLayout({ buildId }: { buildId: string }) {
 
   useKeyboardShortcuts('builder-layout', shortcuts, [builder.phase === BuilderPhase.Done, viewMode, builder.selected, builder.blueprint, builder.mutationCount])
 
+  // Sync detail panel pref with selection changes (suppress during view mode transitions)
+  const prevVMRef = useRef(viewMode)
+  const prevSelRef = useRef(builder.selected)
+  useEffect(() => {
+    const vmChanged = viewMode !== prevVMRef.current
+    const selChanged = builder.selected !== prevSelRef.current
+    if (selChanged && !vmChanged) {
+      setDetailUserPref(!!builder.selected)
+    }
+    prevVMRef.current = viewMode
+    prevSelRef.current = builder.selected
+  }, [builder.selected, viewMode])
+
   const shouldRedirect = loaded && !apiKey && !inReplayMode
   useEffect(() => {
     if (shouldRedirect) router.push('/')
@@ -282,7 +307,8 @@ export function BuilderLayout({ buildId }: { buildId: string }) {
   const showProgress = (isGenerating || builder.phase === BuilderPhase.Done) && !progressHidden && !inReplayMode
   const chatOpen = viewMode === 'preview' ? false : chatUserPref
   const showToolbar = !!(builder.treeData && builder.phase === BuilderPhase.Done && builder.blueprint)
-  const showDetailPanel = showToolbar && (viewMode === 'overview' || viewMode === 'design') && !!builder.selected
+  const detailOpen = viewMode === 'preview' ? false : detailUserPref
+  const showDetailPanel = showToolbar && !!builder.selected && detailOpen
   const isPreviewLike = viewMode === 'design' || viewMode === 'preview'
   const editMode = viewMode === 'preview' ? 'test' as const : 'edit' as const
 
@@ -570,7 +596,7 @@ export function BuilderLayout({ buildId }: { buildId: string }) {
                 className="absolute right-0 top-0 bottom-0 z-20"
               >
                 <ErrorBoundary>
-                  <DetailPanel builder={builder} />
+                  <DetailPanel builder={builder} onClose={handleDetailClose} />
                 </ErrorBoundary>
               </motion.div>
             )}

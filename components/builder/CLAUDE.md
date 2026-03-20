@@ -43,9 +43,14 @@ When `Done` + blueprint exists:
 - `'design'` → `PreviewShell` (editable canvas) + `DetailPanel` (overlay right) + `ChatSidebar` (overlay left)
 - `'preview'` → `PreviewShell` (read-only, no edit chrome, no sidebars)
 
-### Sidebar Auto-Hide in Preview
+### Sidebar State Management
 
-Both ChatSidebar and DetailPanel auto-hide in preview mode. `chatOpen` is derived: `viewMode === 'preview' ? false : chatUserPref`. `showDetailPanel` excludes preview via `viewMode === 'overview' || viewMode === 'design'`. When switching back to overview/design, both restore to their previous state (chat restores user preference, detail panel restores if `builder.selected` is still set). The chat open button (`ci:chat-conversation-circle`) also hides in preview mode.
+Both ChatSidebar and DetailPanel use the same `userPref` pattern — a boolean state that the user controls, temporarily overridden to `false` in preview mode:
+- `chatOpen = viewMode === 'preview' ? false : chatUserPref`
+- `detailOpen = viewMode === 'preview' ? false : detailUserPref`
+- `showDetailPanel = showToolbar && !!builder.selected && detailOpen`
+
+DetailPanel pref syncs with selection changes via a `useEffect` that suppresses during view mode transitions (prevents auto-sync re-selections from reopening a closed panel). When selection changes without a view mode change: selecting sets pref `true`, deselecting sets pref `false`. View mode transitions (where auto-sync may re-select from nav) leave the pref unchanged. Undo/redo explicitly sets pref `true` to show edit context. The chat open button (`ci:chat-conversation-circle`) also hides in preview mode.
 
 Keyboard shortcuts extracted to `useBuilderShortcuts.ts` hook, registered via `useKeyboardShortcuts`. Undo/redo shortcuts delegate to `handleUndo`/`handleRedo` callbacks (passed from BuilderLayout) rather than calling `builder.undo()`/`redo()` directly — this enables view restoration after undo/redo.
 
