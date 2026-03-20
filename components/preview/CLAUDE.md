@@ -6,7 +6,7 @@ Client-side web preview with cyan accent theme (`.preview-theme` in globals.css)
 
 - **PreviewShell** — Screen dispatch container. Accepts optional `nav` prop (from `usePreviewNav`) and `hideHeader` — when used inside BuilderLayout, the header is rendered externally in the subheader bar and nav state is shared via prop. Content fills the full pane (no border/padding wrapper).
 - **PreviewHeader** — Back button, breadcrumb, actions slot. Used by PreviewShell when rendering standalone (not used by BuilderLayout).
-- **ViewModeToggle** (`ViewModeToggle.tsx`, renamed from PreviewToggle) — Compact `h-[34px]` 3-segment control: `[Tree] [✏ Design] [▶ Preview]` with icons. Each mode has a distinct accent: Tree is neutral, Design uses cyan, Preview uses emerald. Active indicator animated via `layoutId="view-mode-indicator"`. Rendered in BuilderLayout's full-width toolbar (Tier 3).
+- **ViewModeToggle** (`ViewModeToggle.tsx`, renamed from PreviewToggle) — Compact `h-[34px]` 3-segment control: `[Overview] [✏ Design] [▶ Preview]` with icons. Each mode has a distinct accent: Overview is neutral, Design uses cyan, Preview uses emerald. Active indicator animated via `layoutId="view-mode-indicator"`. Rendered in BuilderLayout's full-width toolbar (Tier 3).
 
 ## Screens
 
@@ -21,7 +21,7 @@ Preview is an always-editable canvas. `EditContextProvider` (`hooks/useEditConte
 
 ### Selection
 
-Click a question → `builder.select()` → outline highlight + DetailPanel sidebar (inline in both tree and preview modes). Shared with TreeView via same `builder.selected` state. `EditableQuestionWrapper` scrolls selected question into view via ref callback on selection change (250ms delay for AnimatePresence transitions).
+Click a question → `builder.select()` → outline highlight + DetailPanel sidebar (inline in both overview and preview modes). Shared with TreeView via same `builder.selected` state. `EditableQuestionWrapper` scrolls selected question into view via ref callback on selection change (250ms delay for AnimatePresence transitions).
 
 ### Drag & Drop
 

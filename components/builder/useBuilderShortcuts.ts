@@ -17,8 +17,8 @@ import { BuilderPhase } from '@/lib/services/builder'
  */
 export function useBuilderShortcuts(
   builder: Builder,
-  viewMode: 'tree' | 'design' | 'preview',
-  handleViewModeChange: (mode: 'tree' | 'design' | 'preview') => void,
+  viewMode: 'overview' | 'design' | 'preview',
+  handleViewModeChange: (mode: 'overview' | 'design' | 'preview') => void,
   handleDelete: () => void,
   onUndo: () => void,
   onRedo: () => void,

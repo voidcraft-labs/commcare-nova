@@ -6,12 +6,12 @@ import ciEditPencil01 from '@iconify-icons/ci/edit-pencil-01'
 import tablerPlayerPlay from '@iconify-icons/tabler/player-play'
 
 interface ViewModeToggleProps {
-  mode: 'tree' | 'design' | 'preview'
-  onChange: (mode: 'tree' | 'design' | 'preview') => void
+  mode: 'overview' | 'design' | 'preview'
+  onChange: (mode: 'overview' | 'design' | 'preview') => void
 }
 
-const segments: { key: 'tree' | 'design' | 'preview'; label: string; icon?: IconifyIcon }[] = [
-  { key: 'tree', label: 'Tree', icon: tablerListTree },
+const segments: { key: 'overview' | 'design' | 'preview'; label: string; icon?: IconifyIcon }[] = [
+  { key: 'overview', label: 'Overview', icon: tablerListTree },
   { key: 'design', label: 'Design', icon: ciEditPencil01 },
   { key: 'preview', label: 'Preview', icon: tablerPlayerPlay },
 ]

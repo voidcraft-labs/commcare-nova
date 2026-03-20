@@ -12,7 +12,7 @@ const MUTATION_METHODS = new Set([
 
 export type MutationType = 'add' | 'remove' | 'move' | 'duplicate' | 'update' | 'rename' | 'structural'
 
-export type ViewMode = 'tree' | 'design' | 'preview'
+export type ViewMode = 'overview' | 'design' | 'preview'
 
 export interface SnapshotMeta {
   type: MutationType
@@ -59,7 +59,7 @@ export class HistoryManager {
   enabled = true
 
   /** Current view mode — set by Builder, captured in each snapshot. */
-  viewMode: ViewMode = 'tree'
+  viewMode: ViewMode = 'overview'
 
   /** Current MutableBlueprint — can be swapped on undo/redo. */
   private _mb: MutableBlueprint

@@ -171,7 +171,7 @@ describe('HistoryManager', () => {
     it('returns viewMode of the snapshot being restored on undo', () => {
       const mb = new MutableBlueprint(makeBlueprint())
       const hm = new HistoryManager(mb)
-      hm.viewMode = 'tree'
+      hm.viewMode = 'overview'
       hm.proxied.updateQuestion(0, 0, qpath('q1'), { label: 'First' })
       hm.viewMode = 'design'
       hm.proxied.updateQuestion(0, 0, qpath('q1'), { label: 'Second' })
@@ -179,15 +179,15 @@ describe('HistoryManager', () => {
       // Undo the design edit → returns 'design' (where the edit was made)
       const r1 = hm.undo()!
       expect(r1.viewMode).toBe('design')
-      // Undo the tree edit → returns 'tree'
+      // Undo the overview edit → returns 'overview'
       const r2 = hm.undo()!
-      expect(r2.viewMode).toBe('tree')
+      expect(r2.viewMode).toBe('overview')
     })
 
     it('captures current viewMode on redo stack when undoing', () => {
       const mb = new MutableBlueprint(makeBlueprint())
       const hm = new HistoryManager(mb)
-      hm.viewMode = 'tree'
+      hm.viewMode = 'overview'
       hm.proxied.updateQuestion(0, 0, qpath('q1'), { label: 'Changed' })
 
       // Switch to design then undo — redo entry captures 'design' (current at undo time)
