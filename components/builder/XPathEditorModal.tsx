@@ -50,11 +50,12 @@ const modalExtensions = [
   xpath(),
   foldGutter({
     markerDOM(open) {
+      const wrapper = document.createElement('span')
+      wrapper.style.cssText = 'display: inline-flex; cursor: pointer; color: var(--nova-text-muted);'
       const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg')
       svg.setAttribute('viewBox', '0 0 24 24')
       svg.setAttribute('width', '12')
       svg.setAttribute('height', '12')
-      svg.style.cssText = 'cursor: pointer; color: var(--nova-text-muted);'
       const path = document.createElementNS('http://www.w3.org/2000/svg', 'path')
       path.setAttribute('fill', 'none')
       path.setAttribute('stroke', 'currentColor')
@@ -63,9 +64,10 @@ const modalExtensions = [
       path.setAttribute('stroke-width', '2')
       path.setAttribute('d', open ? 'm19 9l-7 7l-7-7' : 'm9 5l7 7l-7 7')
       svg.appendChild(path)
-      svg.addEventListener('mouseenter', () => { svg.style.color = 'var(--nova-violet-bright, #a78bfa)' })
-      svg.addEventListener('mouseleave', () => { svg.style.color = 'var(--nova-text-muted)' })
-      return svg
+      wrapper.appendChild(svg)
+      wrapper.addEventListener('mouseenter', () => { wrapper.style.color = 'var(--nova-violet-bright, #a78bfa)' })
+      wrapper.addEventListener('mouseleave', () => { wrapper.style.color = 'var(--nova-text-muted)' })
+      return wrapper
     },
   }),
   keymap.of(foldKeymap),
