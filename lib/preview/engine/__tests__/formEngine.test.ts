@@ -168,7 +168,7 @@ describe('FormEngine', () => {
   })
 
   describe('touch (blur validation)', () => {
-    it('marks field as touched and validates required', () => {
+    it('marks field as touched — required validation deferred to submit', () => {
       const form = makeForm([
         { id: 'name', type: 'text', label: 'Name', required: 'true()' },
       ])
@@ -178,15 +178,19 @@ describe('FormEngine', () => {
       expect(engine.getState('/data/name').touched).toBe(false)
       expect(engine.getState('/data/name').valid).toBe(true)
 
-      // Touch triggers validation
+      // Touch marks as touched but does NOT run required validation (deferred to submit)
       engine.touch('/data/name')
       expect(engine.getState('/data/name').touched).toBe(true)
+      expect(engine.getState('/data/name').valid).toBe(true)
+
+      // Submit triggers required validation
+      expect(engine.validateAll()).toBe(false)
       expect(engine.getState('/data/name').valid).toBe(false)
       expect(engine.getState('/data/name').errorMessage).toBe('This field is required')
 
       // Filling the value clears the error
       engine.setValue('/data/name', 'Alice')
-      engine.touch('/data/name')
+      expect(engine.validateAll()).toBe(true)
       expect(engine.getState('/data/name').valid).toBe(true)
     })
 

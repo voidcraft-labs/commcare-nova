@@ -31,13 +31,13 @@ describe('prettyPrintXPath', () => {
     const expr = "if(#case/status = 'active', concat(#case/first_name, ' ', #case/last_name), 'Closed')"
     expect(prettyPrintXPath(expr)).toBe(
       "if(\n" +
-      "\t#case/status = 'active',\n" +
-      "\tconcat(\n" +
-      "\t\t#case/first_name,\n" +
-      "\t\t' ',\n" +
-      "\t\t#case/last_name\n" +
-      "\t),\n" +
-      "\t'Closed'\n" +
+      "    #case/status = 'active',\n" +
+      "    concat(\n" +
+      "        #case/first_name,\n" +
+      "        ' ',\n" +
+      "        #case/last_name\n" +
+      "    ),\n" +
+      "    'Closed'\n" +
       ")"
     )
   })
@@ -67,7 +67,7 @@ describe('prettyPrintXPath', () => {
     const expr = "if(#case/a = 'x', if(#case/b = 'y', concat(#case/c, ' ', #case/d, ' ', #case/e), 'fallback_b'), 'fallback_a')"
     const result = prettyPrintXPath(expr)
     // 3 levels deep: outer if → inner if → concat
-    expect(result).toContain('\t\t\t#case/c')
+    expect(result).toContain('            #case/c')
   })
 
   it('stays on one line when under threshold', () => {
@@ -80,12 +80,12 @@ describe('prettyPrintXPath', () => {
     const result = prettyPrintXPath(expr)
     expect(result).toBe(
       "instance(\n" +
-      "\t'casedb'\n" +
+      "    'casedb'\n" +
       ")/casedb/case[\n" +
-      "\t@case_type = 'mother'\n" +
-      "\tand @status = 'open'\n" +
+      "    @case_type = 'mother'\n" +
+      "    and @status = 'open'\n" +
       "][\n" +
-      "\tlast()\n" +
+      "    last()\n" +
       "]/case_name"
     )
   })
@@ -94,7 +94,7 @@ describe('prettyPrintXPath', () => {
     const expr = "instance('casedb')/casedb/case[@case_type = 'household' and @status = 'open' and @owner_id = #user/id]"
     const result = prettyPrintXPath(expr)
     // Each and should start a new line at the same indent level
-    expect(result).toContain("'household'\n\tand @status = 'open'\n\tand @owner_id")
+    expect(result).toContain("'household'\n    and @status = 'open'\n    and @owner_id")
   })
 
   it('does not break and/or at top level', () => {
