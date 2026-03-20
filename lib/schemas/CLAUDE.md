@@ -18,7 +18,7 @@ Only `id` and `type` are required. All other fields are optional — present onl
 - **Data:** `case_property`, `is_case_name`, `options`
 - **Structure:** `children` (nested groups/repeats)
 
-All text fields are plain `string`. XPath fields support `#case/` and `#user/` hashtag shorthand.
+All text fields are plain `string`. XPath fields support `#case/` and `#user/` hashtag shorthand. String literal values in XPath fields must be quoted (`'pending'`, not `pending`) — the validator catches bare words via Lezer parse tree analysis.
 
 ### Question Format
 

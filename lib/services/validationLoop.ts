@@ -157,6 +157,15 @@ export function applyProgrammaticFixes(form: BlueprintForm, errors: string[]): v
       continue
     }
 
+    const unquotedMatch = err.match(/Question "(\w+)".*unquoted string "([^"]+)" in (\w+)/)
+    if (unquotedMatch) {
+      const q = findQuestionById(form.questions, unquotedMatch[1])
+      if (q) {
+        ;(q as Record<string, unknown>)[unquotedMatch[3]] = `'${unquotedMatch[2]}'`
+      }
+      continue
+    }
+
     const selectMatch = err.match(/Question "(\w+)".*is a select but has no options/)
     if (selectMatch) {
       const q = findQuestionById(form.questions, selectMatch[1])

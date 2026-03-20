@@ -696,3 +696,91 @@ describe('expander merges data model defaults', () => {
     expect(errors.some(e => e.includes('no options'))).toBe(false)
   })
 })
+
+// ── Unquoted String Literal Detection ────────────────────────────────────
+
+describe('unquoted string literal detection', () => {
+  const makeBp = (questionOverrides: Partial<Question>): AppBlueprint => ({
+    app_name: 'Test',
+    modules: [{
+      name: 'M',
+      forms: [{
+        name: 'F',
+        type: 'survey',
+        questions: [{ id: 'q', type: 'text', label: 'Q', ...questionOverrides }],
+      }],
+    }],
+    case_types: null,
+  })
+
+  it('catches bare string in default_value', () => {
+    const errors = validateBlueprint(makeBp({ type: 'hidden', default_value: 'no' }))
+    expect(errors.some(e => e.includes('unquoted string "no"') && e.includes('default_value'))).toBe(true)
+  })
+
+  it('catches bare string in calculate', () => {
+    const errors = validateBlueprint(makeBp({ type: 'hidden', calculate: 'pending' }))
+    expect(errors.some(e => e.includes('unquoted string "pending"') && e.includes('calculate'))).toBe(true)
+  })
+
+  it('catches bare string in relevant', () => {
+    const errors = validateBlueprint(makeBp({ relevant: 'yes' }))
+    expect(errors.some(e => e.includes('unquoted string "yes"') && e.includes('relevant'))).toBe(true)
+  })
+
+  it('allows quoted string literal', () => {
+    const errors = validateBlueprint(makeBp({ type: 'hidden', default_value: "'no'" }))
+    expect(errors.some(e => e.includes('unquoted string'))).toBe(false)
+  })
+
+  it('allows function calls', () => {
+    const errors = validateBlueprint(makeBp({ required: 'true()' }))
+    expect(errors.some(e => e.includes('unquoted string'))).toBe(false)
+  })
+
+  it('allows XPath expressions', () => {
+    const errors = validateBlueprint(makeBp({ relevant: '/data/age > 18' }))
+    expect(errors.some(e => e.includes('unquoted string'))).toBe(false)
+  })
+
+  it('allows hashtag references', () => {
+    const errors = validateBlueprint(makeBp({ type: 'hidden', calculate: '#case/status' }))
+    expect(errors.some(e => e.includes('unquoted string'))).toBe(false)
+  })
+
+  it('allows number literals', () => {
+    const errors = validateBlueprint(makeBp({ type: 'hidden', default_value: '0' }))
+    expect(errors.some(e => e.includes('unquoted string'))).toBe(false)
+  })
+
+  it('allows today() function', () => {
+    const errors = validateBlueprint(makeBp({ type: 'hidden', default_value: 'today()' }))
+    expect(errors.some(e => e.includes('unquoted string'))).toBe(false)
+  })
+
+  it('allows dot expressions', () => {
+    const errors = validateBlueprint(makeBp({ validation: '. > 0' }))
+    expect(errors.some(e => e.includes('unquoted string'))).toBe(false)
+  })
+
+  it('catches bare string inside group children', () => {
+    const bp: AppBlueprint = {
+      app_name: 'Test',
+      modules: [{
+        name: 'M',
+        forms: [{
+          name: 'F',
+          type: 'survey',
+          questions: [{
+            id: 'grp', type: 'group', label: 'Group', children: [
+              { id: 'status', type: 'hidden', default_value: 'active' },
+            ],
+          }],
+        }],
+      }],
+      case_types: null,
+    }
+    const errors = validateBlueprint(bp)
+    expect(errors.some(e => e.includes('unquoted string "active"'))).toBe(true)
+  })
+})

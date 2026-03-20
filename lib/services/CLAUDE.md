@@ -130,7 +130,7 @@ Split across three files:
 - `xformBuilder.ts` — `buildXForm()`, `buildQuestionParts()`, `getAppearance()`, `getXsdType()`
 - `formActions.ts` — `buildFormActions()`, `buildCaseReferencesLoad()`
 
-`expandBlueprint()` converts `AppBlueprint` → HQ import JSON. `validateBlueprint()` checks semantic rules.
+`expandBlueprint()` converts `AppBlueprint` → HQ import JSON. `validateBlueprint()` checks semantic rules. `detectUnquotedStringLiteral()` uses the Lezer XPath parser to flag bare words in XPath fields (e.g. `no` instead of `'no'`).
 
 **Vellum hashtag expansion** — dual-attribute pattern matching CommCare's Vellum editor:
 - Real attributes (`calculate`, `relevant`, `constraint`, `value`) — `#case/` expanded to full `instance('casedb')/casedb/case[@case_id = instance('commcaresession')/session/data/case_id]/property` XPath.
@@ -152,7 +152,7 @@ Called on-demand by expander and validator — no form-level case fields stored.
 
 ## AutoFixer (autoFixer.ts)
 
-Programmatic fixes for common CommCare app issues. Used by `validateAndFix()` loop before falling back to structured output for unfixable errors.
+Programmatic fixes for common CommCare app issues. Used by `validateAndFix()` loop before falling back to structured output for unfixable errors. Includes auto-fix for unquoted string literals (wraps bare words in single quotes).
 
 ## CommCare Module (commcare/)
 
