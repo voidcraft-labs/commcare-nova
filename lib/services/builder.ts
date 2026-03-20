@@ -1,7 +1,8 @@
 import type { AppBlueprint, Scaffold, BlueprintForm, CaseType } from '@/lib/schemas/blueprint'
 import type { QuestionPath } from './questionPath'
 import { MutableBlueprint } from './mutableBlueprint'
-import { HistoryManager, type SnapshotMeta } from './historyManager'
+import { HistoryManager, type SnapshotMeta, type ViewMode } from './historyManager'
+export type { ViewMode } from './historyManager'
 
 /** Apply a data part to a builder — shared between real-time streaming (onData) and replay. */
 export function applyDataPart(builder: Builder, type: string, data: any): void {
@@ -162,6 +163,13 @@ export class Builder {
     }
   }
 
+  // ── View mode ────────────────────────────────────────────────────
+
+  /** Update the current view mode — kept in sync by BuilderLayout. */
+  setViewMode(mode: ViewMode) {
+    if (this._history) this._history.viewMode = mode
+  }
+
   // ── Drag state ────────────────────────────────────────────────────
 
   setDragging(active: boolean) {
@@ -208,24 +216,26 @@ export class Builder {
     }
   }
 
-  undo() {
-    if (this._isDragging) return
+  undo(): ViewMode | undefined {
+    if (this._isDragging) return undefined
     const result = this._history?.undo()
-    if (!result) return
+    if (!result) return undefined
     this._mb = result.mb
     this._selected = this.deriveSelection(result.meta, 'undo')
     this._mutationCount++
     this.notify()
+    return result.viewMode
   }
 
-  redo() {
-    if (this._isDragging) return
+  redo(): ViewMode | undefined {
+    if (this._isDragging) return undefined
     const result = this._history?.redo()
-    if (!result) return
+    if (!result) return undefined
     this._mb = result.mb
     this._selected = this.deriveSelection(result.meta, 'redo')
     this._mutationCount++
     this.notify()
+    return result.viewMode
   }
 
   get canUndo(): boolean {

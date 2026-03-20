@@ -155,6 +155,50 @@ describe('HistoryManager', () => {
     expect(hm.proxied.getQuestion(0, 0, qpath('q1'))?.label).toBe('C')
   })
 
+  // ── View mode capture tests ────────────────────────────────────────
+
+  describe('viewMode capture', () => {
+    it('captures current viewMode in snapshot', () => {
+      const mb = new MutableBlueprint(makeBlueprint())
+      const hm = new HistoryManager(mb)
+      hm.viewMode = 'design'
+      hm.proxied.updateQuestion(0, 0, qpath('q1'), { label: 'Changed' })
+
+      const result = hm.undo()!
+      expect(result.viewMode).toBe('design')
+    })
+
+    it('returns viewMode of the snapshot being restored on undo', () => {
+      const mb = new MutableBlueprint(makeBlueprint())
+      const hm = new HistoryManager(mb)
+      hm.viewMode = 'tree'
+      hm.proxied.updateQuestion(0, 0, qpath('q1'), { label: 'First' })
+      hm.viewMode = 'design'
+      hm.proxied.updateQuestion(0, 0, qpath('q1'), { label: 'Second' })
+
+      // Undo the design edit → returns 'design' (where the edit was made)
+      const r1 = hm.undo()!
+      expect(r1.viewMode).toBe('design')
+      // Undo the tree edit → returns 'tree'
+      const r2 = hm.undo()!
+      expect(r2.viewMode).toBe('tree')
+    })
+
+    it('captures current viewMode on redo stack when undoing', () => {
+      const mb = new MutableBlueprint(makeBlueprint())
+      const hm = new HistoryManager(mb)
+      hm.viewMode = 'tree'
+      hm.proxied.updateQuestion(0, 0, qpath('q1'), { label: 'Changed' })
+
+      // Switch to design then undo — redo entry captures 'design' (current at undo time)
+      hm.viewMode = 'design'
+      hm.undo()
+
+      const result = hm.redo()!
+      expect(result.viewMode).toBe('design')
+    })
+  })
+
   // ── Metadata capture tests ───────────────────────────────────────────
 
   describe('metadata capture', () => {

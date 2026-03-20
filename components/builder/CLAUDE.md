@@ -47,7 +47,11 @@ When `Done` + blueprint exists:
 
 Both ChatSidebar and DetailPanel auto-hide in preview mode. `chatOpen` is derived: `viewMode === 'preview' ? false : chatUserPref`. `showDetailPanel` excludes preview via `viewMode === 'tree' || viewMode === 'design'`. When switching back to tree/design, both restore to their previous state (chat restores user preference, detail panel restores if `builder.selected` is still set). The chat open button (`ci:chat-conversation-circle`) also hides in preview mode.
 
-Keyboard shortcuts extracted to `useBuilderShortcuts.ts` hook, registered via `useKeyboardShortcuts`.
+Keyboard shortcuts extracted to `useBuilderShortcuts.ts` hook, registered via `useKeyboardShortcuts`. Undo/redo shortcuts delegate to `handleUndo`/`handleRedo` callbacks (passed from BuilderLayout) rather than calling `builder.undo()`/`redo()` directly — this enables view restoration after undo/redo.
+
+### Undo/Redo View Restoration
+
+Undo/redo "teleports" the user back to where the edit was made. Each history snapshot captures the current `ViewMode`. On undo/redo, `builder.undo()`/`redo()` return the captured view mode. BuilderLayout's `restoreView()` switches viewMode if needed and syncs the preview nav stack to the restored selection (so the correct form is visible in design/preview mode). `builder.setViewMode()` keeps the HistoryManager in sync on each render.
 
 ## DetailPanel
 
