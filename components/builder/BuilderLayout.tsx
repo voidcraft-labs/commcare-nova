@@ -56,7 +56,7 @@ export function BuilderLayout({ buildId }: { buildId: string }) {
   const { settings } = useSettings()
   const builder = useBuilder()
   const [chatUserPref, setChatUserPref] = useState(true)
-  const [viewMode, setViewMode] = useState<'tree' | 'design' | 'preview'>('tree')
+  const [viewMode, setViewMode] = useState<'overview' | 'design' | 'preview'>('overview')
   const viewModeRef = useRef(viewMode)
   viewModeRef.current = viewMode
   const [progressHidden, setProgressHidden] = useState(false)
@@ -98,13 +98,13 @@ export function BuilderLayout({ buildId }: { buildId: string }) {
   // Keep builder's viewMode in sync for undo/redo snapshot capture
   builder.setViewMode(viewMode as ViewMode)
 
-  const handleViewModeChange = useCallback((mode: 'tree' | 'design' | 'preview') => {
-    const wasTree = viewModeRef.current === 'tree'
+  const handleViewModeChange = useCallback((mode: 'overview' | 'design' | 'preview') => {
+    const wasOverview = viewModeRef.current === 'overview'
     viewModeRef.current = mode
     setViewMode(mode)
 
-    // Design/Preview → Tree: sync selection from current nav screen if nothing selected
-    if (mode === 'tree' && !builder.selected) {
+    // Design/Preview → Overview: sync selection from current nav screen if nothing selected
+    if (mode === 'overview' && !builder.selected) {
       const current = navRef.current.current
       if (current.type === 'module') {
         builder.select({ type: 'module', moduleIndex: current.moduleIndex })
@@ -113,8 +113,8 @@ export function BuilderLayout({ buildId }: { buildId: string }) {
       }
     }
 
-    // Tree → Design/Preview: sync nav to the current selection
-    if (!wasTree || !(mode === 'design' || mode === 'preview')) return
+    // Overview → Design/Preview: sync nav to the current selection
+    if (!wasOverview || !(mode === 'design' || mode === 'preview')) return
 
     if (!builder.selected || !builder.blueprint) {
       nav.reset()
@@ -282,11 +282,11 @@ export function BuilderLayout({ buildId }: { buildId: string }) {
   const showProgress = (isGenerating || builder.phase === BuilderPhase.Done) && !progressHidden && !inReplayMode
   const chatOpen = viewMode === 'preview' ? false : chatUserPref
   const showToolbar = !!(builder.treeData && builder.phase === BuilderPhase.Done && builder.blueprint)
-  const showDetailPanel = showToolbar && (viewMode === 'tree' || viewMode === 'design') && !!builder.selected
+  const showDetailPanel = showToolbar && (viewMode === 'overview' || viewMode === 'design') && !!builder.selected
   const isPreviewLike = viewMode === 'design' || viewMode === 'preview'
   const editMode = viewMode === 'preview' ? 'test' as const : 'edit' as const
 
-  // Unified breadcrumbs — derived from nav stack (design/preview) or selection (tree)
+  // Unified breadcrumbs — derived from nav stack (design/preview) or selection (overview)
   const breadcrumbParts: BreadcrumbPart[] = []
   if (builder.blueprint) {
     const bp = builder.blueprint
@@ -495,7 +495,7 @@ export function BuilderLayout({ buildId }: { buildId: string }) {
                       ) : (
                         <AppTree
                           data={builder.treeData}
-                          selected={viewMode === 'tree' ? builder.selected : undefined}
+                          selected={viewMode === 'overview' ? builder.selected : undefined}
                           onSelect={(s) => builder.select(s)}
                           phase={builder.phase}
                           hideHeader

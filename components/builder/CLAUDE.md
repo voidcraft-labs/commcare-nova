@@ -21,7 +21,7 @@ When `builder.phase === Idle && !builder.treeData`, chat fills center with hero 
 
 ### Project Subheader (Tier 2)
 
-`CollapsibleBreadcrumb` (exported from `SubheaderToolbar.tsx`) renders navigable breadcrumbs. In design/preview, derived from `usePreviewNav` stack. In tree mode, derived from `builder.selected` (app name → module → form). Follow-up forms show the selected case name as the final breadcrumb segment. Clicking a breadcrumb navigates: in design/preview calls `nav.navigateTo()` + `builder.select()`; in tree calls `builder.select()` directly. Breadcrumbs use `text-lg whitespace-nowrap` — no truncation since the full-width bar has ample space. Collapse behind `…` dropdown only at depth 4+.
+`CollapsibleBreadcrumb` (exported from `SubheaderToolbar.tsx`) renders navigable breadcrumbs. In design/preview, derived from `usePreviewNav` stack. In overview mode, derived from `builder.selected` (app name → module → form). Follow-up forms show the selected case name as the final breadcrumb segment. Clicking a breadcrumb navigates: in design/preview calls `nav.navigateTo()` + `builder.select()`; in overview calls `builder.select()` directly. Breadcrumbs use `text-lg whitespace-nowrap` — no truncation since the full-width bar has ample space. Collapse behind `…` dropdown only at depth 4+.
 
 ### Toolbar (Tier 3, `SubheaderToolbar.tsx`)
 
@@ -31,21 +31,21 @@ Full-width 3-column grid: left spacer, center `ViewModeToggle` (`components/prev
 
 ### View Mode Sync
 
-`viewMode` state (`'tree' | 'design' | 'preview'`). Selection (`builder.selected`) and navigation (`usePreviewNav` stack) stay in sync across view switches:
+`viewMode` state (`'overview' | 'design' | 'preview'`). Selection (`builder.selected`) and navigation (`usePreviewNav` stack) stay in sync across view switches:
 
-- **Tree → Design/Preview**: Nav stack syncs to `builder.selected` (navigates to the selected module/form). If nothing is selected (user deselected in tree), nav resets to home. `usePreviewNav` auto-resolves case data for followup forms via `resolveScreen`.
-- **Design/Preview → Tree**: If nothing selected, `builder.selected` syncs from current nav screen.
+- **Overview → Design/Preview**: Nav stack syncs to `builder.selected` (navigates to the selected module/form). If nothing is selected (user deselected in overview), nav resets to home. `usePreviewNav` auto-resolves case data for followup forms via `resolveScreen`.
+- **Design/Preview → Overview**: If nothing selected, `builder.selected` syncs from current nav screen.
 - **Design ↔ Preview**: Nav is shared (no sync needed). Selection preserved but invisible in preview mode. Preview → Design preserves existing selection state — sidebar only opens if user had something selected before entering preview. Design → Preview auto-focuses the selected question's input.
 - **Escape in preview**: Switches to design without nav sync (stays on current screen).
 
 When `Done` + blueprint exists:
-- `'tree'` → `AppTree` + `DetailPanel` (overlay right) + `ChatSidebar` (overlay left)
+- `'overview'` → `AppTree` + `DetailPanel` (overlay right) + `ChatSidebar` (overlay left)
 - `'design'` → `PreviewShell` (editable canvas) + `DetailPanel` (overlay right) + `ChatSidebar` (overlay left)
 - `'preview'` → `PreviewShell` (read-only, no edit chrome, no sidebars)
 
 ### Sidebar Auto-Hide in Preview
 
-Both ChatSidebar and DetailPanel auto-hide in preview mode. `chatOpen` is derived: `viewMode === 'preview' ? false : chatUserPref`. `showDetailPanel` excludes preview via `viewMode === 'tree' || viewMode === 'design'`. When switching back to tree/design, both restore to their previous state (chat restores user preference, detail panel restores if `builder.selected` is still set). The chat open button (`ci:chat-conversation-circle`) also hides in preview mode.
+Both ChatSidebar and DetailPanel auto-hide in preview mode. `chatOpen` is derived: `viewMode === 'preview' ? false : chatUserPref`. `showDetailPanel` excludes preview via `viewMode === 'overview' || viewMode === 'design'`. When switching back to overview/design, both restore to their previous state (chat restores user preference, detail panel restores if `builder.selected` is still set). The chat open button (`ci:chat-conversation-circle`) also hides in preview mode.
 
 Keyboard shortcuts extracted to `useBuilderShortcuts.ts` hook, registered via `useKeyboardShortcuts`. Undo/redo shortcuts delegate to `handleUndo`/`handleRedo` callbacks (passed from BuilderLayout) rather than calling `builder.undo()`/`redo()` directly — this enables view restoration after undo/redo.
 
