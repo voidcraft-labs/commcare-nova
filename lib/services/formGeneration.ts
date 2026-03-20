@@ -72,7 +72,7 @@ Questions use a flat structure: parentId (empty string for top-level, group id f
 
 For case wiring: registration forms save to case properties, followup forms preload from case using default_value with #case/property_name.
 For display-only context in followups, use label questions with <output value="#case/property_name"/> labels (labels support markdown formatting). Use groups for visual sections. Calculate don't ask for derived values.
-Use raw XPath operators (>, <), never HTML-escaped. Reference questions by /data/question_id.
+Use raw XPath operators (>, <), never HTML-escaped. Reference questions by their full path: /data/question_id for top-level, /data/group_id/question_id for nested (match the actual tree depth).
 All XPath field values are expressions — string literals must be quoted: \`'pending'\`, not \`pending\`.
 
 ### Design Principles
