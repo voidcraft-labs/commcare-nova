@@ -526,9 +526,17 @@ export function BuilderLayout({ buildId }: { buildId: string }) {
           {/* DetailPanel — absolute right, floats over content */}
           <AnimatePresence>
             {showDetailPanel && (
-              <ErrorBoundary>
-                <DetailPanel builder={builder} />
-              </ErrorBoundary>
+              <motion.div
+                initial={{ x: 320, opacity: 0 }}
+                animate={{ x: 0, opacity: 1 }}
+                exit={{ x: 320, opacity: 0 }}
+                transition={{ duration: 0.25, ease: [0.4, 0, 0.2, 1] }}
+                className="absolute right-0 top-0 bottom-0 z-20"
+              >
+                <ErrorBoundary>
+                  <DetailPanel builder={builder} />
+                </ErrorBoundary>
+              </motion.div>
             )}
           </AnimatePresence>
         </div>

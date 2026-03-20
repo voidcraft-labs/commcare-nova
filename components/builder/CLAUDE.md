@@ -51,7 +51,7 @@ Keyboard shortcuts extracted to `useBuilderShortcuts.ts` hook, registered via `u
 
 ## DetailPanel
 
-Absolutely positioned right-side overlay (`absolute right-0 top-0 bottom-0 z-20`). Animated width (0 → 320px) via `AnimatePresence` + motion `width`/`opacity`. Inner `w-80` div keeps content at full width. Styled as a pullout: `rounded-l-xl m-2 mr-0 border border-nova-border-bright border-r-0 shadow-[0_2px_12px_rgba(0,0,0,0.4)]` — mirroring the chat sidebar on the opposite side. Floats over main content without affecting layout or scrollbar position.
+Right-side overlay mirroring ChatSidebar's structure. BuilderLayout wraps it in an outer `motion.div` with `absolute right-0 top-0 bottom-0 z-20` for positioning and slide animation (`x: 320 → 0`). Inner DetailPanel is a plain `w-80 h-full` div styled as a pullout: `rounded-l-xl m-2 mr-0 border border-nova-border-bright border-r-0 shadow-[0_2px_12px_rgba(0,0,0,0.4)]`. Floats over main content without affecting layout or scrollbar position.
 
 Split into sub-panels:
 - `detail/ModuleDetail.tsx` — module name, case type, columns
