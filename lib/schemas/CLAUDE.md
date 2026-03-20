@@ -22,8 +22,9 @@ All text fields are plain `string`. XPath fields support `#case/` and `#user/` h
 
 ### Question Format
 
-- One `Question` type with nested `children` for groups/repeats
-- Stored schema supports one level of nesting; SA tools with `parentId` build deeper structures
+- `Question` is an explicit recursive interface (`children?: Question[]`) supporting arbitrary nesting depth
+- The Zod schema is intentionally shallow (one level) due to Anthropic compiler constraints; `BlueprintForm`, `BlueprintModule`, and `AppBlueprint` override the Zod-inferred types with `Omit & { ... }` to use the recursive `Question`
+- SA tools with `parentId` build deeper structures during generation
 - `default_value` → `<setvalue event="xforms-ready">` in XForm (one-time on load, unlike `calculate` which recalculates)
 - `is_case_name` is auto-derived from `case_name_property` in the case type — LLM only sets explicitly to override
 

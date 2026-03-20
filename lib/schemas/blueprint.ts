@@ -259,10 +259,34 @@ export const appBlueprintSchema = z.object({
 
 // ── Types ──────────────────────────────────────────────────────────────
 
-export type AppBlueprint = z.infer<typeof appBlueprintSchema>
-export type BlueprintModule = z.infer<typeof blueprintModuleSchema>
-export type BlueprintForm = z.infer<typeof blueprintFormSchema>
-export type Question = z.infer<typeof questionSchema>
+// Zod-inferred base types (shallow nesting for LLM schema compiler)
+type _BlueprintForm = z.infer<typeof blueprintFormSchema>
+type _BlueprintModule = z.infer<typeof blueprintModuleSchema>
+
+// Override questions to use recursive Question type
+export type BlueprintForm = Omit<_BlueprintForm, 'questions'> & { questions: Question[] }
+export type BlueprintModule = Omit<_BlueprintModule, 'forms'> & { forms: BlueprintForm[] }
+export type AppBlueprint = Omit<z.infer<typeof appBlueprintSchema>, 'modules'> & { modules: BlueprintModule[] }
+/** Recursive question type — supports arbitrary nesting depth for groups/repeats.
+ *  The Zod schema is intentionally shallow (Anthropic compiler constraint);
+ *  this interface is the runtime source of truth. */
+export interface Question {
+  id: string
+  type: typeof QUESTION_TYPES[number]
+  label?: string
+  hint?: string
+  help?: string
+  required?: string
+  validation?: string
+  validation_msg?: string
+  relevant?: string
+  calculate?: string
+  default_value?: string
+  options?: Array<{ value: string; label: string }>
+  case_property?: string
+  is_case_name?: boolean
+  children?: Question[]
+}
 export type BlueprintChildCase = z.infer<typeof childCaseSchema>
 export type CaseProperty = z.infer<typeof casePropertySchema>
 export type CaseType = z.infer<typeof caseTypeSchema>
