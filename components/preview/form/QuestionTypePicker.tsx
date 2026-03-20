@@ -1,6 +1,6 @@
 'use client'
 import { useCallback } from 'react'
-import { useFloating, offset, flip, shift, autoUpdate } from '@floating-ui/react'
+import { useFloating, offset, flip, shift, autoUpdate, FloatingPortal } from '@floating-ui/react'
 import { Icon } from '@iconify/react'
 import { questionTypeIcons, questionTypeLabels } from '@/lib/questionTypeIcons'
 import { useEditContext } from '@/hooks/useEditContext'
@@ -73,25 +73,27 @@ export function QuestionTypePicker({ anchorEl, atIndex, parentPath, onClose }: Q
   }
 
   return (
-    <div
-      ref={composedRef}
-      style={floatingStyles}
-      className="z-50 w-52 rounded-xl bg-nova-deep border border-nova-border shadow-xl p-2 grid grid-cols-2 gap-1"
-      onClick={(e) => e.stopPropagation()}
-    >
-      {PICKER_TYPES.map((type) => {
-        const icon = questionTypeIcons[type]
-        return (
-          <button
-            key={type}
-            onClick={() => handleSelect(type)}
-            className="flex items-center gap-2 px-2 py-1.5 rounded-lg text-xs text-nova-text-secondary hover:bg-nova-surface hover:text-nova-text transition-colors cursor-pointer"
-          >
-            {icon && <Icon icon={icon} width="14" height="14" className="shrink-0" />}
-            <span className="truncate">{questionTypeLabels[type] ?? type}</span>
-          </button>
-        )
-      })}
-    </div>
+    <FloatingPortal>
+      <div
+        ref={composedRef}
+        style={floatingStyles}
+        className="z-popover w-52 rounded-xl bg-nova-deep border border-nova-border shadow-xl p-2 grid grid-cols-2 gap-1"
+        onClick={(e) => e.stopPropagation()}
+      >
+        {PICKER_TYPES.map((type) => {
+          const icon = questionTypeIcons[type]
+          return (
+            <button
+              key={type}
+              onClick={() => handleSelect(type)}
+              className="flex items-center gap-2 px-2 py-1.5 rounded-lg text-xs text-nova-text-secondary hover:bg-nova-surface hover:text-nova-text transition-colors cursor-pointer"
+            >
+              {icon && <Icon icon={icon} width="14" height="14" className="shrink-0" />}
+              <span className="truncate">{questionTypeLabels[type] ?? type}</span>
+            </button>
+          )
+        })}
+      </div>
+    </FloatingPortal>
   )
 }
