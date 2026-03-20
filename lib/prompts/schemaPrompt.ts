@@ -33,7 +33,7 @@ Choose properties the app's users actually need to see, update, and filter by.
 - hint: Help text shown below the question
 - help: Extended help text via help icon
 
-All XPath fields (required, validation) are expressions — string literal values must be quoted: `'pending'`, not `pending`.
+All XPath fields (required, validation) are expressions — string literal values must be quoted: \`'pending'\`, not \`pending\`.
 
 ## Relationships
 - Parent-child relationships are established through modules, not through properties

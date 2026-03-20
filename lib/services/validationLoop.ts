@@ -161,7 +161,9 @@ export function applyProgrammaticFixes(form: BlueprintForm, errors: string[]): v
     if (unquotedMatch) {
       const q = findQuestionById(form.questions, unquotedMatch[1])
       if (q) {
-        ;(q as Record<string, unknown>)[unquotedMatch[3]] = `'${unquotedMatch[2]}'`
+        type XPathField = 'validation' | 'relevant' | 'calculate' | 'default_value' | 'required'
+        const field = unquotedMatch[3] as XPathField
+        q[field] = `'${unquotedMatch[2]}'`
       }
       continue
     }

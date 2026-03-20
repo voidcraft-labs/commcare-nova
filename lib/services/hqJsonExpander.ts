@@ -165,7 +165,7 @@ export function validateBlueprint(blueprint: AppBlueprint): string[] {
             errors.push(`Question "${q.id}" in "${formName}" is hidden but has no calculate or default_value — it will save blank data`)
           }
           for (const field of XPATH_FIELDS) {
-            const val = (q as Record<string, unknown>)[field]
+            const val = q[field]
             if (typeof val === 'string') {
               const bare = detectUnquotedStringLiteral(val)
               if (bare) {
