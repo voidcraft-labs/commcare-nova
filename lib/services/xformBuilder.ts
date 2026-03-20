@@ -259,8 +259,8 @@ function buildQuestionParts(
       bodyElements.push(`<group ref="${nodePath}" appearance="field-list">\n      <label ref="jr:itext('${q.id}-label')"/>\n${innerLines}\n    </group>`)
     }
     return
-  } else if (q.type === 'select1' || q.type === 'select') {
-    const tag = q.type === 'select1' ? 'select1' : 'select'
+  } else if (q.type === 'single_select' || q.type === 'multi_select') {
+    const tag = q.type === 'single_select' ? 'select1' : 'select'
     const items = (q.options ?? []).map(opt =>
       `  <item><label ref="jr:itext('${q.id}-${opt.value}-label')"/><value>${escapeXml(opt.value)}</value></item>`
     ).join('\n    ')
@@ -330,8 +330,8 @@ function getXsdType(type: string): string | null {
     case 'label': return null
     case 'group': return null
     case 'repeat': return null
-    case 'select1': return 'xsd:string'
-    case 'select': return 'xsd:string'
+    case 'single_select': return 'xsd:string'
+    case 'multi_select': return 'xsd:string'
     default: return 'xsd:string'
   }
 }

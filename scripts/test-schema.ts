@@ -9,7 +9,7 @@ const anthropic = createAnthropic({ apiKey })
 const model = process.argv[2] === 'opus' ? 'claude-opus-4-6' : 'claude-haiku-4-5-20251001'
 
 const QUESTION_TYPES = [
-  'text', 'int', 'date', 'select1', 'select', 'geopoint', 'image',
+  'text', 'int', 'date', 'single_select', 'multi_select', 'geopoint', 'image',
   'barcode', 'decimal', 'label', 'phone', 'time', 'datetime',
   'audio', 'video', 'signature', 'hidden', 'secret', 'group', 'repeat',
 ] as const

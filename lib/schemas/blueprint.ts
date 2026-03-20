@@ -13,7 +13,7 @@ import { z } from 'zod'
 // ── Question types ──────────────────────────────────────────────────────
 
 export const QUESTION_TYPES = [
-  'text', 'int', 'date', 'select1', 'select', 'geopoint', 'image',
+  'text', 'int', 'date', 'single_select', 'multi_select', 'geopoint', 'image',
   'barcode', 'decimal', 'label', 'phone', 'time', 'datetime',
   'audio', 'video', 'signature', 'hidden', 'secret', 'group', 'repeat'
 ] as const
@@ -35,7 +35,7 @@ const RESERVED_CASE_PROPERTIES = 'case_id, case_type, closed, closed_by, closed_
 
 const CASE_PROPERTY_DATA_TYPES = [
   'text', 'int', 'decimal', 'date', 'time', 'datetime',
-  'select1', 'select', 'phone', 'geopoint',
+  'single_select', 'multi_select', 'phone', 'geopoint',
 ] as const
 
 // ── Case property + case type schemas ────────────────────────────────
@@ -56,7 +56,7 @@ const casePropertySchema = z.object({
   required: z.string().optional().describe('"true()" if always required. Omit if optional.'),
   constraint: z.string().optional().describe('XPath constraint, e.g. ". > 0 and . < 150"'),
   constraint_msg: z.string().optional().describe('Error message when constraint fails.'),
-  options: z.array(selectOptionSchema).optional().describe('Options for select1/select properties.'),
+  options: z.array(selectOptionSchema).optional().describe('Options for single_select/multi_select properties.'),
 })
 
 const caseTypeSchema = z.object({
@@ -126,8 +126,8 @@ const questionFields = {
     '"date"/"time"/"datetime" for temporal values, ' +
     '"int" for whole numbers (age, count, quantity), ' +
     '"decimal" for measurements (weight, height, price), ' +
-    '"select1" for any fixed single-choice (yes/no, gender, status), ' +
-    '"select" for multi-choice (symptoms, services), ' +
+    '"single_select" for any fixed single-choice (yes/no, gender, status), ' +
+    '"multi_select" for multi-choice (symptoms, services), ' +
     '"geopoint" for GPS, "image"/"audio"/"video"/"signature"/"barcode" for media capture, ' +
     '"hidden" with "calculate" for computed values (BMI, risk score, age from DOB), ' +
     '"secret" for passwords/PINs, ' +
@@ -163,7 +163,7 @@ const questionFields = {
     'Different from calculate: default_value sets once on load, calculate updates continuously.'
   ),
   options: z.array(selectOptionSchema).optional().describe(
-    'Options for select1/select questions — at least 2 options. Omit for all other question types.'
+    'Options for single_select/multi_select questions — at least 2 options. Omit for all other question types.'
   ),
   case_property: z.string().optional().describe(
     'Case property name this question maps to. On registration forms, the answer is saved to this property. ' +

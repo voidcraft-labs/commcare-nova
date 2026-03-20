@@ -130,7 +130,7 @@ export function validateBlueprint(blueprint: AppBlueprint): string[] {
       // Validate questions recursively
       function validateQuestions(questions: Question[], formName: string) {
         for (const q of questions) {
-          if ((q.type === 'select1' || q.type === 'select') && (!q.options || q.options.length === 0)) {
+          if ((q.type === 'single_select' || q.type === 'multi_select') && (!q.options || q.options.length === 0)) {
             errors.push(`Question "${q.id}" in "${formName}" is a select but has no options`)
           }
           if (q.type === 'hidden' && !q.calculate && !q.default_value) {

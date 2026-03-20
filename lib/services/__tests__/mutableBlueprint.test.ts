@@ -43,7 +43,7 @@ function makeBlueprint(): AppBlueprint {
             name: 'Satisfaction Survey',
             type: 'survey',
             questions: [
-              { id: 'rating', type: 'select1', label: 'How satisfied are you?', options: [{ value: 'good', label: 'Good' }, { value: 'bad', label: 'Bad' }] },
+              { id: 'rating', type: 'single_select', label: 'How satisfied are you?', options: [{ value: 'good', label: 'Good' }, { value: 'bad', label: 'Bad' }] },
             ],
           },
         ],

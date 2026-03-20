@@ -59,11 +59,11 @@ describe('Form Builder Agent Integration', () => {
       expect(form.questions.map(q => q.id)).toEqual(['q1', 'q2', 'q3'])
     })
 
-    it('adds a select1 question with options', () => {
+    it('adds a single_select question with options', () => {
       const mb = new MutableBlueprint(makeShell())
       mb.addQuestion(0, 0, {
         id: 'gender',
-        type: 'select1',
+        type: 'single_select',
         label: 'Gender',
         options: [
           { value: 'male', label: 'Male' },
@@ -133,7 +133,7 @@ describe('Form Builder Agent Integration', () => {
 
     it('adds a question with relevant condition', () => {
       const mb = new MutableBlueprint(makeShell())
-      mb.addQuestion(0, 0, { id: 'has_symptoms', type: 'select1', label: 'Has Symptoms?', options: [{ value: 'yes', label: 'Yes' }, { value: 'no', label: 'No' }] })
+      mb.addQuestion(0, 0, { id: 'has_symptoms', type: 'single_select', label: 'Has Symptoms?', options: [{ value: 'yes', label: 'Yes' }, { value: 'no', label: 'No' }] })
       mb.addQuestion(0, 0, { id: 'symptom_details', type: 'text', label: 'Describe symptoms', relevant: "/data/has_symptoms = 'yes'" })
 
       const form = mb.getForm(0, 0)!
@@ -153,7 +153,7 @@ describe('Form Builder Agent Integration', () => {
 
     it('sets conditional close_case', () => {
       const mb = new MutableBlueprint(makeShell('followup'))
-      mb.addQuestion(0, 0, { id: 'discharge', type: 'select1', label: 'Discharge?', options: [{ value: 'yes', label: 'Yes' }, { value: 'no', label: 'No' }] })
+      mb.addQuestion(0, 0, { id: 'discharge', type: 'single_select', label: 'Discharge?', options: [{ value: 'yes', label: 'Yes' }, { value: 'no', label: 'No' }] })
       mb.updateForm(0, 0, { close_case: { question: 'discharge', answer: 'yes' } })
 
       const form = mb.getForm(0, 0)!

@@ -21,15 +21,15 @@ Choose properties the app's users actually need to see, update, and filter by.
 - Media/binary properties (photos, audio, video, signatures) cannot be case properties — don't include them
 
 ### Data Types
-- text (default), int, decimal, date, time, datetime, select1, select, phone, geopoint
-- Use the most specific type: "phone" for phone numbers, "date" for dates, "select1" for fixed choices
+- text (default), int, decimal, date, time, datetime, single_select, multi_select, phone, geopoint
+- Use the most specific type: "phone" for phone numbers, "date" for dates, "single_select" for fixed choices
 
 ### Property Metadata
 - label: Human-readable label (used as default question label in all forms)
 - required: "true()" if always required, omit if optional
 - constraint: XPath constraint (e.g. ". > 0 and . < 150")
 - constraint_msg: Human-friendly error message
-- options: For select1/select types — at least 2 options with value and label
+- options: For single_select/multi_select types — at least 2 options with value and label
 - hint: Help text shown below the question
 - help: Extended help text via help icon
 
