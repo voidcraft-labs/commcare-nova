@@ -8,9 +8,10 @@ import { QuestionDetail } from '@/components/builder/detail/QuestionDetail'
 
 interface DetailPanelProps {
   builder: Builder
+  onClose: () => void
 }
 
-export function DetailPanel({ builder }: DetailPanelProps) {
+export function DetailPanel({ builder, onClose }: DetailPanelProps) {
   const selected = builder.selected!
   const mb = builder.mb!
 
@@ -37,7 +38,7 @@ export function DetailPanel({ builder }: DetailPanelProps) {
         </h3>
         <div className="flex items-center gap-0.5">
           <button
-            onClick={() => builder.select()}
+            onClick={onClose}
             className="text-nova-text-muted hover:text-nova-text transition-colors p-1 cursor-pointer"
           >
             <Icon icon={ciCloseMd} width="14" height="14" />
