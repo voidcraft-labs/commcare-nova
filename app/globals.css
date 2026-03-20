@@ -27,6 +27,13 @@
   --background: var(--nova-void);
   --foreground: var(--nova-text);
 
+  /* Z-index layers — single source of truth for stacking order */
+  --z-ground: 10;        /* Inline interactive elements: hover zones, sidebar dividers, page backgrounds */
+  --z-raised: 20;        /* Slightly elevated UI: insertion points, settings buttons, sidebar overlays */
+  --z-popover: 50;       /* Floating menus: dropdowns, pickers, popovers, confirm dialogs */
+  --z-modal: 100;        /* Modal backdrops and dialogs */
+  --z-system: 9999;      /* System overlays: noise texture */
+
   /* Preview theme defaults (overridden by .preview-theme) */
   --pv-bg: #0c0c1e;
   --pv-surface: #141430;
@@ -68,6 +75,11 @@
   --font-sans: var(--font-nova-sans);
   --font-display: var(--font-nova-display);
   --font-mono: var(--font-nova-mono);
+  --z-index-ground: var(--z-ground);
+  --z-index-raised: var(--z-raised);
+  --z-index-popover: var(--z-popover);
+  --z-index-modal: var(--z-modal);
+  --z-index-system: var(--z-system);
 }
 
 /* Global styles */
@@ -329,5 +341,5 @@ body {
   opacity: 0.015;
   pointer-events: none;
   background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
-  z-index: 9999;
+  z-index: var(--z-system);
 }

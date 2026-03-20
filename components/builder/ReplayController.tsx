@@ -41,7 +41,7 @@ export function ReplayController({ stages, appName, initialIndex = 0, onExit, on
   const stage = stages[currentIndex]
 
   return (
-    <div className="fixed bottom-3 left-1/2 -translate-x-1/2 z-50 flex flex-col items-center gap-2">
+    <div className="fixed bottom-3 left-1/2 -translate-x-1/2 z-popover flex flex-col items-center gap-2">
       <motion.div
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}

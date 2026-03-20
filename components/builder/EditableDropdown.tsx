@@ -62,7 +62,7 @@ export function EditableDropdown({ label, value, options, onSave, renderValue }:
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: -4 }}
               transition={{ duration: 0.12 }}
-              className="absolute z-50 top-full mt-1 left-0 min-w-[160px] bg-nova-surface border border-nova-border rounded-lg shadow-lg overflow-hidden"
+              className="absolute z-popover top-full mt-1 left-0 min-w-[160px] bg-nova-surface border border-nova-border rounded-lg shadow-lg overflow-hidden"
             >
               {options.map((opt) => (
                 <button
