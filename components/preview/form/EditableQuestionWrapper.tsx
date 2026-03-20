@@ -1,7 +1,5 @@
 'use client'
 import { useState, useCallback, useRef, type ReactNode } from 'react'
-import { Icon } from '@iconify/react'
-import tablerGripVertical from '@iconify-icons/tabler/grip-vertical'
 import { useEditContext } from '@/hooks/useEditContext'
 import type { QuestionPath } from '@/lib/services/questionPath'
 
@@ -98,12 +96,12 @@ export function EditableQuestionWrapper({
     <div
       ref={wrapperRef}
       data-question-wrapper
-      className={`group/qw relative rounded-lg transition-all duration-150 cursor-pointer p-3 ${
+      className={`group/qw relative rounded-lg transition-all duration-150 cursor-pointer outline-offset-3 ${
         isSelected
-          ? 'ring-2 ring-nova-cyan bg-nova-cyan/[0.03]'
+          ? 'outline-2 outline-nova-cyan bg-nova-cyan/[0.03]'
           : hovered
-            ? 'ring-1 ring-nova-cyan/30'
-            : ''
+            ? 'outline-1 outline-nova-cyan/30'
+            : 'outline-1 outline-nova-cyan/10'
       }`}
       style={mergedStyle}
       onMouseEnter={() => setHovered(true)}
@@ -113,14 +111,6 @@ export function EditableQuestionWrapper({
       onPointerLeave={handlePointerLeave}
       onClickCapture={handleClick}
     >
-      <div
-        className={`absolute -left-6 top-1/2 -translate-y-1/2 py-2 cursor-grab active:cursor-grabbing text-nova-text-muted hover:text-nova-text transition-opacity ${
-          isDragging ? 'opacity-50' : 'opacity-0 group-hover/qw:opacity-50'
-        }`}
-      >
-        <Icon icon={tablerGripVertical} width="16" height="16" />
-      </div>
-
       <div className="pointer-events-none" tabIndex={-1}>
         {children}
       </div>
