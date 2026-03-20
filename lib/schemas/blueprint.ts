@@ -53,8 +53,8 @@ const casePropertySchema = z.object({
   ),
   hint: z.string().optional().describe('Hint text shown below questions collecting this property.'),
   help: z.string().optional().describe('Extended help text accessible via help icon.'),
-  required: z.string().optional().describe('"true()" if always required. Omit if optional.'),
-  validation: z.string().optional().describe('XPath validation expression, e.g. ". > 0 and . < 150"'),
+  required: z.string().optional().describe('"true()" if always required. Omit if optional. String values must be quoted: `\'text\'`, not `text`.'),
+  validation: z.string().optional().describe('XPath validation expression, e.g. ". > 0 and . < 150". String values must be quoted: `\'text\'`, not `text`.'),
   validation_msg: z.string().optional().describe('Error message when validation fails.'),
   options: z.array(selectOptionSchema).optional().describe('Options for single_select/multi_select properties.'),
 })
@@ -141,21 +141,21 @@ const questionFields = {
   hint: z.string().optional().describe('Help text shown below the question.'),
   help: z.string().optional().describe('Extended help text accessible via help icon.'),
   required: z.string().optional().describe(
-    '"true()" if always required. An XPath expression for conditional requirement (e.g. "/data/age >= 18").'
+    '"true()" if always required. An XPath expression for conditional requirement (e.g. "/data/age >= 18"). String values must be quoted: `\'text\'`, not `text`.'
   ),
-  validation: z.string().optional().describe('XPath validation expression, e.g. ". > 0 and . < 150"'),
+  validation: z.string().optional().describe('XPath validation expression, e.g. ". > 0 and . < 150". String values must be quoted: `\'text\'`, not `text`.'),
   validation_msg: z.string().optional().describe('Error message when validation fails.'),
   relevant: z.string().optional().describe(
     'XPath expression — question only shows when true. ' +
     'Use the full path: /data/question_id for top-level, /data/group_id/question_id for nested. ' +
     'Use #case/property_name to reference existing case data. ' +
-    'e.g. "/data/age > 18", "#case/risk_level = \'high\'"'
+    'e.g. "/data/age > 18", "#case/risk_level = \'high\'". String values must be quoted: `\'text\'`, not `text`.'
   ),
   calculate: z.string().optional().describe(
     'XPath expression for auto-computed value (use with type "hidden"). ' +
     'Use the full path: /data/question_id for top-level, /data/group_id/question_id for nested. ' +
     'Use #case/property_name to reference existing case data. ' +
-    'Never reference the question\'s own node — use #case/ to read the current case value instead.'
+    'Never reference the question\'s own node — use #case/ to read the current case value instead. String values must be quoted: `\'text\'`, not `text`.'
   ),
   default_value: z.string().optional().describe(
     'XPath expression for the initial value set when the form opens (one-time, not recalculated). ' +

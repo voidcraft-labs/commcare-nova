@@ -8,6 +8,34 @@ import {
 import type { HqApplication } from './commcare'
 import { buildXForm } from './xformBuilder'
 import { buildFormActions, buildCaseReferencesLoad } from './formActions'
+import { parser } from '@/lib/codemirror/xpath-parser'
+import { NameTest } from '@/lib/codemirror/xpath-parser.terms'
+
+/** XPath fields on questions that should contain valid XPath expressions. */
+const XPATH_FIELDS = ['validation', 'relevant', 'calculate', 'default_value', 'required'] as const
+
+/**
+ * Detect unquoted string literals in XPath expressions using the Lezer parser.
+ * A bare word like "no" parses as a single NameTest — almost always an error
+ * where the author forgot to quote a string literal.
+ */
+export function detectUnquotedStringLiteral(expr: string): string | null {
+  const trimmed = expr.trim()
+  if (!trimmed) return null
+
+  const tree = parser.parse(trimmed)
+  const top = tree.topNode
+  const child = top.firstChild
+  if (!child || child.nextSibling) return null
+  if (child.type.id !== NameTest) return null
+
+  // Verify no error nodes
+  let hasError = false
+  tree.iterate({ enter(node) { if (node.type.isError) hasError = true } })
+  if (hasError) return null
+
+  return trimmed
+}
 
 
 /**
@@ -135,6 +163,15 @@ export function validateBlueprint(blueprint: AppBlueprint): string[] {
           }
           if (q.type === 'hidden' && !q.calculate && !q.default_value) {
             errors.push(`Question "${q.id}" in "${formName}" is hidden but has no calculate or default_value — it will save blank data`)
+          }
+          for (const field of XPATH_FIELDS) {
+            const val = (q as Record<string, unknown>)[field]
+            if (typeof val === 'string') {
+              const bare = detectUnquotedStringLiteral(val)
+              if (bare) {
+                errors.push(`Question "${q.id}" in "${formName}" has unquoted string "${bare}" in ${field} — use "'${bare}'" instead`)
+              }
+            }
           }
           if ((q.type === 'group' || q.type === 'repeat') && q.children) {
             validateQuestions(q.children, formName)
