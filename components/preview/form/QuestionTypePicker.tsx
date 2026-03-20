@@ -64,7 +64,11 @@ export function QuestionTypePicker({ anchorEl, atIndex, parentPath, onClose }: Q
       newId = `new_${type}_${counter}`
     }
 
-    mb.addQuestion(moduleIndex, formIndex, { id: newId, type, label: 'New Question' }, { atIndex, parentPath })
+    const isSelect = type === 'single_select' || type === 'multi_select'
+    const defaultOptions = isSelect
+      ? [{ value: 'option_1', label: 'Option 1' }, { value: 'option_2', label: 'Option 2' }]
+      : undefined
+    mb.addQuestion(moduleIndex, formIndex, { id: newId, type, label: 'New Question', options: defaultOptions }, { atIndex, parentPath })
     builder.notifyBlueprintChanged()
     const newPath = qpath(newId, parentPath)
     builder.markNewQuestion(newPath)
