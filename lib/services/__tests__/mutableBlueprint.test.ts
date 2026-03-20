@@ -21,7 +21,7 @@ function makeBlueprint(): AppBlueprint {
             type: 'registration',
             questions: [
               { id: 'client_name', type: 'text', label: 'Client Name', is_case_name: true, case_property: 'full_name', required: 'true()' },
-              { id: 'client_email', type: 'text', label: 'Client Email', case_property: 'email_address', constraint: "regex(., '[^@]+@[^@]+\\.[^@]+')", constraint_msg: 'Please enter a valid email' },
+              { id: 'client_email', type: 'text', label: 'Client Email', case_property: 'email_address', validation: "regex(., '[^@]+@[^@]+\\.[^@]+')", validation_msg: 'Please enter a valid email' },
               { id: 'client_phone', type: 'phone', label: 'Phone Number' },
             ],
           },
@@ -137,20 +137,20 @@ describe('MutableBlueprint', () => {
   })
 
   describe('updateQuestion', () => {
-    it('updates constraint and constraint_msg', () => {
+    it('updates validation and validation_msg', () => {
       const mb = new MutableBlueprint(makeBlueprint())
       const updated = mb.updateQuestion(0, 0, qpath('client_email'), {
-        constraint: "regex(., '^[a-zA-Z0-9._%+-]+@gmail\\.com$')",
-        constraint_msg: 'Please enter a Gmail address',
+        validation: "regex(., '^[a-zA-Z0-9._%+-]+@gmail\\.com$')",
+        validation_msg: 'Please enter a Gmail address',
       })
-      expect(updated.constraint).toBe("regex(., '^[a-zA-Z0-9._%+-]+@gmail\\.com$')")
-      expect(updated.constraint_msg).toBe('Please enter a Gmail address')
+      expect(updated.validation).toBe("regex(., '^[a-zA-Z0-9._%+-]+@gmail\\.com$')")
+      expect(updated.validation_msg).toBe('Please enter a Gmail address')
     })
 
     it('clears a field when set to null', () => {
       const mb = new MutableBlueprint(makeBlueprint())
-      const updated = mb.updateQuestion(0, 0, qpath('client_email'), { constraint: null })
-      expect(updated.constraint).toBeUndefined()
+      const updated = mb.updateQuestion(0, 0, qpath('client_email'), { validation: null })
+      expect(updated.validation).toBeUndefined()
     })
 
     it('updates case_property on a question', () => {

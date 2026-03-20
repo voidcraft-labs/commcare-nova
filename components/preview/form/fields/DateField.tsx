@@ -1,7 +1,7 @@
 'use client'
 import type { Question } from '@/lib/schemas/blueprint'
 import type { QuestionState } from '@/lib/preview/engine/types'
-import { ConstraintError } from './ConstraintError'
+import { ValidationError } from './ValidationError'
 
 interface DateFieldProps {
   question: Question
@@ -29,7 +29,7 @@ export function DateField({ question, state, onChange, onBlur }: DateFieldProps)
             : 'border-pv-input-border focus:border-pv-input-focus'
         }`}
       />
-      {showError && state.errorMessage && <ConstraintError message={state.errorMessage} />}
+      {showError && state.errorMessage && <ValidationError message={state.errorMessage} />}
     </div>
   )
 }

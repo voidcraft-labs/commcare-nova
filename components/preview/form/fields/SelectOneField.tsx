@@ -2,7 +2,7 @@
 import type { Question } from '@/lib/schemas/blueprint'
 import type { QuestionState } from '@/lib/preview/engine/types'
 import { renderPreviewMarkdown } from '@/lib/markdown'
-import { ConstraintError } from './ConstraintError'
+import { ValidationError } from './ValidationError'
 
 interface SelectOneFieldProps {
   question: Question
@@ -50,7 +50,7 @@ export function SelectOneField({ question, state, onChange, onBlur }: SelectOneF
           </label>
         ))}
       </div>
-      {showError && state.errorMessage && <ConstraintError message={state.errorMessage} />}
+      {showError && state.errorMessage && <ValidationError message={state.errorMessage} />}
     </div>
   )
 }

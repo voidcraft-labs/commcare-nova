@@ -27,8 +27,8 @@ Choose properties the app's users actually need to see, update, and filter by.
 ### Property Metadata
 - label: Human-readable label (used as default question label in all forms)
 - required: "true()" if always required, omit if optional
-- constraint: XPath constraint (e.g. ". > 0 and . < 150")
-- constraint_msg: Human-friendly error message
+- validation: XPath validation expression (e.g. ". > 0 and . < 150")
+- validation_msg: Human-friendly error message when validation fails
 - options: For single_select/multi_select types — at least 2 options with value and label
 - hint: Help text shown below the question
 - help: Extended help text via help icon

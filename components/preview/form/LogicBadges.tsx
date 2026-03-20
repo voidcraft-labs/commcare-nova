@@ -21,8 +21,8 @@ export function LogicBadges({ question }: LogicBadgesProps) {
   if (question.relevant) {
     badges.push({ icon: ciFilter, tint: 'text-nova-cyan', title: `Show when: ${truncate(question.relevant)}` })
   }
-  if (question.constraint) {
-    badges.push({ icon: ciShieldCheck, tint: 'text-nova-amber', title: `Constraint: ${truncate(question.constraint)}` })
+  if (question.validation) {
+    badges.push({ icon: ciShieldCheck, tint: 'text-nova-amber', title: `Validation: ${truncate(question.validation)}` })
   }
   if (question.calculate) {
     badges.push({ icon: tablerMath, tint: 'text-nova-violet', title: `Calculate: ${truncate(question.calculate)}` })

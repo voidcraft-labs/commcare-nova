@@ -2,7 +2,7 @@
 import type { Question } from '@/lib/schemas/blueprint'
 import type { QuestionState } from '@/lib/preview/engine/types'
 import { renderPreviewMarkdown } from '@/lib/markdown'
-import { ConstraintError } from './ConstraintError'
+import { ValidationError } from './ValidationError'
 
 interface SelectMultiFieldProps {
   question: Question
@@ -56,7 +56,7 @@ export function SelectMultiField({ question, state, onChange, onBlur }: SelectMu
           )
         })}
       </div>
-      {showError && state.errorMessage && <ConstraintError message={state.errorMessage} />}
+      {showError && state.errorMessage && <ValidationError message={state.errorMessage} />}
     </div>
   )
 }
