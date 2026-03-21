@@ -35,7 +35,7 @@ export function PreviewShell({ blueprint, actions, builder, mode = 'edit', nav: 
         />
       )}
 
-      <div className="flex-1 overflow-y-auto overflow-x-hidden bg-pv-bg">
+      <div data-preview-scroll-container className="flex-1 overflow-y-auto overflow-x-hidden bg-pv-bg">
         <AnimatePresence mode="wait">
           <motion.div
             key={JSON.stringify(nav.current)}

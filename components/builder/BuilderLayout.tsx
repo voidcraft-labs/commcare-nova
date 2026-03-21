@@ -1,5 +1,5 @@
 'use client'
-import { useRef, useState, useCallback, useEffect } from 'react'
+import { useRef, useState, useCallback, useEffect, useLayoutEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { useChat } from '@ai-sdk/react'
 import { DefaultChatTransport, type UIMessage } from 'ai'
@@ -65,6 +65,7 @@ export function BuilderLayout({ buildId }: { buildId: string }) {
   const [detailUserPref, setDetailUserPref] = useState(true)
   const [viewMode, setViewMode] = useState<'design' | 'preview'>('design')
   const viewModeRef = useRef(viewMode)
+  const scrollAnchorRef = useRef<{ questionPath: string; offsetTop: number; allPaths: string[] } | null>(null)
   viewModeRef.current = viewMode
   const [progressHidden, setProgressHidden] = useState(false)
   const initialReplay = getReplayData()
@@ -106,6 +107,24 @@ export function BuilderLayout({ buildId }: { buildId: string }) {
   builder.setViewMode(viewMode as ViewMode)
 
   const handleViewModeChange = useCallback((mode: 'design' | 'preview') => {
+    // Capture scroll anchor before mode switch for flipbook-style alignment
+    const scrollContainer = document.querySelector('[data-preview-scroll-container]') as HTMLElement | null
+    if (scrollContainer) {
+      const containerRect = scrollContainer.getBoundingClientRect()
+      const questionEls = Array.from(scrollContainer.querySelectorAll('[data-question-id]'))
+      for (let i = 0; i < questionEls.length; i++) {
+        const rect = questionEls[i].getBoundingClientRect()
+        if (rect.bottom > containerRect.top) {
+          scrollAnchorRef.current = {
+            questionPath: questionEls[i].getAttribute('data-question-id')!,
+            offsetTop: rect.top - containerRect.top,
+            allPaths: questionEls.map(el => el.getAttribute('data-question-id')!),
+          }
+          break
+        }
+      }
+    }
+
     viewModeRef.current = mode
     setViewMode(mode)
 
@@ -116,6 +135,33 @@ export function BuilderLayout({ buildId }: { buildId: string }) {
       setLeftPanelOpen(true)
     }
   }, [])
+
+  // Restore scroll position after mode switch for flipbook-style alignment
+  useLayoutEffect(() => {
+    const anchor = scrollAnchorRef.current
+    if (!anchor) return
+    scrollAnchorRef.current = null
+
+    const scrollContainer = document.querySelector('[data-preview-scroll-container]') as HTMLElement | null
+    if (!scrollContainer) return
+
+    let targetEl = scrollContainer.querySelector(`[data-question-id="${anchor.questionPath}"]`) as HTMLElement | null
+
+    if (!targetEl) {
+      // Anchor hidden in new mode — find nearest visible question above it
+      const anchorIdx = anchor.allPaths.indexOf(anchor.questionPath)
+      for (let i = anchorIdx - 1; i >= 0; i--) {
+        targetEl = scrollContainer.querySelector(`[data-question-id="${anchor.allPaths[i]}"]`) as HTMLElement | null
+        if (targetEl) break
+      }
+    }
+
+    if (targetEl) {
+      const containerRect = scrollContainer.getBoundingClientRect()
+      const currentOffset = targetEl.getBoundingClientRect().top - containerRect.top
+      scrollContainer.scrollTop += currentOffset - anchor.offsetTop
+    }
+  }, [viewMode])
 
   const inReplayMode = !!replayData
   const isCentered = builder.phase === BuilderPhase.Idle && !builder.treeData
