@@ -15,10 +15,10 @@ export interface BreadcrumbPart {
 }
 
 interface SubheaderToolbarProps {
-  /** Current view mode (overview / design / preview). */
-  viewMode: 'overview' | 'design' | 'preview'
+  /** Current view mode (design / preview). */
+  viewMode: 'design' | 'preview'
   /** Callback when view mode toggle changes. */
-  onViewModeChange: (mode: 'overview' | 'design' | 'preview') => void
+  onViewModeChange: (mode: 'design' | 'preview') => void
   /** Whether the undo action is available. */
   canUndo: boolean
   /** Whether the redo action is available. */

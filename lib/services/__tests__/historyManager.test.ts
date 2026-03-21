@@ -171,31 +171,31 @@ describe('HistoryManager', () => {
     it('returns viewMode of the snapshot being restored on undo', () => {
       const mb = new MutableBlueprint(makeBlueprint())
       const hm = new HistoryManager(mb)
-      hm.viewMode = 'overview'
-      hm.proxied.updateQuestion(0, 0, qpath('q1'), { label: 'First' })
       hm.viewMode = 'design'
+      hm.proxied.updateQuestion(0, 0, qpath('q1'), { label: 'First' })
+      hm.viewMode = 'preview'
       hm.proxied.updateQuestion(0, 0, qpath('q1'), { label: 'Second' })
 
-      // Undo the design edit → returns 'design' (where the edit was made)
+      // Undo the preview edit → returns 'preview' (where the edit was made)
       const r1 = hm.undo()!
-      expect(r1.viewMode).toBe('design')
-      // Undo the overview edit → returns 'overview'
+      expect(r1.viewMode).toBe('preview')
+      // Undo the design edit → returns 'design'
       const r2 = hm.undo()!
-      expect(r2.viewMode).toBe('overview')
+      expect(r2.viewMode).toBe('design')
     })
 
     it('captures current viewMode on redo stack when undoing', () => {
       const mb = new MutableBlueprint(makeBlueprint())
       const hm = new HistoryManager(mb)
-      hm.viewMode = 'overview'
+      hm.viewMode = 'design'
       hm.proxied.updateQuestion(0, 0, qpath('q1'), { label: 'Changed' })
 
-      // Switch to design then undo — redo entry captures 'design' (current at undo time)
-      hm.viewMode = 'design'
+      // Switch to preview then undo — redo entry captures 'preview' (current at undo time)
+      hm.viewMode = 'preview'
       hm.undo()
 
       const result = hm.redo()!
-      expect(result.viewMode).toBe('design')
+      expect(result.viewMode).toBe('preview')
     })
   })
 

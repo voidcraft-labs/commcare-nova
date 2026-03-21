@@ -16,12 +16,14 @@ interface AppTreeProps {
   phase: BuilderPhase
   actions?: React.ReactNode
   hideHeader?: boolean
+  /** Compact mode for side-panel rendering — tighter spacing, no max-width constraint */
+  compact?: boolean
 }
 
-export function AppTree({ data, selected, onSelect, phase, actions, hideHeader }: AppTreeProps) {
+export function AppTree({ data, selected, onSelect, phase, actions, hideHeader, compact }: AppTreeProps) {
   if (!data) {
     return (
-      <div className="h-full flex items-center justify-center text-nova-text-muted">
+      <div className="h-full flex items-center justify-center text-nova-text-muted text-sm">
         Waiting for generation...
       </div>
     )
@@ -43,8 +45,8 @@ export function AppTree({ data, selected, onSelect, phase, actions, hideHeader }
       )}
 
       {/* Scrollable module cards */}
-      <div className="flex-1 overflow-auto p-6 space-y-4">
-        <div className="max-w-3xl mx-auto space-y-4">
+      <div className={`flex-1 overflow-auto ${compact ? 'p-3 space-y-3' : 'p-6 space-y-4'}`}>
+        <div className={compact ? 'space-y-3' : 'max-w-3xl mx-auto space-y-4'}>
           <AnimatePresence mode="sync">
             {data.modules.map((mod, mIdx) => (
               <ModuleCard
@@ -53,6 +55,7 @@ export function AppTree({ data, selected, onSelect, phase, actions, hideHeader }
                 moduleIndex={mIdx}
                 selected={selected}
                 onSelect={onSelect}
+                compact={compact}
               />
             ))}
           </AnimatePresence>
@@ -67,11 +70,13 @@ function ModuleCard({
   moduleIndex,
   selected,
   onSelect,
+  compact,
 }: {
   module: TreeData['modules'][number]
   moduleIndex: number
   selected: AppTreeProps['selected']
   onSelect: AppTreeProps['onSelect']
+  compact?: boolean
 }) {
   const isSelected = selected?.type === 'module' && selected.moduleIndex === moduleIndex
 

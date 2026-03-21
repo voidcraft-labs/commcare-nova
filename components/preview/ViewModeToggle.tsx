@@ -1,17 +1,15 @@
 'use client'
 import { motion } from 'motion/react'
 import { Icon, type IconifyIcon } from '@iconify/react'
-import tablerListTree from '@iconify-icons/tabler/list-tree'
 import ciEditPencil01 from '@iconify-icons/ci/edit-pencil-01'
 import tablerPlayerPlay from '@iconify-icons/tabler/player-play'
 
 interface ViewModeToggleProps {
-  mode: 'overview' | 'design' | 'preview'
-  onChange: (mode: 'overview' | 'design' | 'preview') => void
+  mode: 'design' | 'preview'
+  onChange: (mode: 'design' | 'preview') => void
 }
 
-const segments: { key: 'overview' | 'design' | 'preview'; label: string; icon?: IconifyIcon }[] = [
-  { key: 'overview', label: 'Overview', icon: tablerListTree },
+const segments: { key: 'design' | 'preview'; label: string; icon?: IconifyIcon }[] = [
   { key: 'design', label: 'Design', icon: ciEditPencil01 },
   { key: 'preview', label: 'Preview', icon: tablerPlayerPlay },
 ]

@@ -18,7 +18,7 @@ import { type QuestionPath } from '@/lib/services/questionPath'
 import { useKeyboardShortcuts } from '@/hooks/useKeyboardShortcuts'
 import { Logo } from '@/components/ui/Logo'
 import { ChatSidebar } from '@/components/chat/ChatSidebar'
-import { AppTree } from '@/components/builder/AppTree'
+import { LeftPanel, type LeftTab } from '@/components/builder/LeftPanel'
 import { DetailPanel } from '@/components/builder/DetailPanel'
 import { GenerationProgress } from '@/components/builder/GenerationProgress'
 import { ReplayController } from '@/components/builder/ReplayController'
@@ -55,9 +55,10 @@ export function BuilderLayout({ buildId }: { buildId: string }) {
   const { apiKey, loaded } = useApiKey()
   const { settings } = useSettings()
   const builder = useBuilder()
-  const [chatUserPref, setChatUserPref] = useState(true)
+  const [leftPanelOpen, setLeftPanelOpen] = useState(true)
+  const [leftTab, setLeftTab] = useState<LeftTab>('chat')
   const [detailUserPref, setDetailUserPref] = useState(true)
-  const [viewMode, setViewMode] = useState<'overview' | 'design' | 'preview'>('overview')
+  const [viewMode, setViewMode] = useState<'design' | 'preview'>('design')
   const viewModeRef = useRef(viewMode)
   viewModeRef.current = viewMode
   const [progressHidden, setProgressHidden] = useState(false)
@@ -99,44 +100,17 @@ export function BuilderLayout({ buildId }: { buildId: string }) {
   // Keep builder's viewMode in sync for undo/redo snapshot capture
   builder.setViewMode(viewMode as ViewMode)
 
-  const handleViewModeChange = useCallback((mode: 'overview' | 'design' | 'preview') => {
-    const wasOverview = viewModeRef.current === 'overview'
+  const handleViewModeChange = useCallback((mode: 'design' | 'preview') => {
     viewModeRef.current = mode
     setViewMode(mode)
 
-    // Design/Preview → Overview: sync selection from current nav screen if nothing selected
-    if (mode === 'overview' && !builder.selected) {
-      const current = navRef.current.current
-      if (current.type === 'module') {
-        builder.select({ type: 'module', moduleIndex: current.moduleIndex })
-      } else if (current.type === 'form' || current.type === 'caseList') {
-        builder.select({ type: 'form', moduleIndex: current.moduleIndex, formIndex: current.formIndex })
-      }
+    // Entering preview: collapse left panel
+    if (mode === 'preview') {
+      setLeftPanelOpen(false)
+    } else {
+      setLeftPanelOpen(true)
     }
-
-    // Overview → Design/Preview: sync nav to the current selection
-    if (!wasOverview || !(mode === 'design' || mode === 'preview')) return
-
-    if (!builder.selected || !builder.blueprint) {
-      nav.reset()
-      return
-    }
-
-    const sel = builder.selected
-    const bp = builder.blueprint
-    const stack: PreviewScreen[] = [{ type: 'home' }]
-    stack.push({ type: 'module', moduleIndex: sel.moduleIndex })
-
-    if (sel.formIndex !== undefined) {
-      stack.push({
-        type: 'form',
-        moduleIndex: sel.moduleIndex,
-        formIndex: sel.formIndex,
-      })
-    }
-
-    nav.replaceStack(stack)
-  }, [builder, nav.replaceStack, nav.reset])
+  }, [])
 
   const inReplayMode = !!replayData
   const isCentered = builder.phase === BuilderPhase.Idle && !builder.treeData
@@ -144,6 +118,34 @@ export function BuilderLayout({ buildId }: { buildId: string }) {
   // ── Stable ref for builder so onData callback doesn't go stale ──────
   const builderRef = useRef(builder)
   builderRef.current = builder
+
+  // ── Auto-switch to Structure tab when tree data first appears during generation ──
+  const prevTreeDataRef = useRef(builder.treeData)
+  useEffect(() => {
+    if (!prevTreeDataRef.current && builder.treeData) {
+      setLeftTab('structure')
+      setLeftPanelOpen(true)
+    }
+    prevTreeDataRef.current = builder.treeData
+  }, [builder.treeData])
+
+  // ── Auto-switch to Chat tab + navigate to first form when generation completes ──
+  const prevPhaseRef = useRef(builder.phase)
+  useEffect(() => {
+    const wasGenerating = [BuilderPhase.DataModel, BuilderPhase.Structure, BuilderPhase.Modules, BuilderPhase.Forms, BuilderPhase.Validate, BuilderPhase.Fix].includes(prevPhaseRef.current)
+    if (wasGenerating && builder.phase === BuilderPhase.Done) {
+      setLeftTab('chat')
+      // Navigate to first form if available
+      if (builder.blueprint && builder.blueprint.modules.length > 0 && builder.blueprint.modules[0].forms.length > 0) {
+        nav.replaceStack([
+          { type: 'home' },
+          { type: 'module', moduleIndex: 0 },
+          { type: 'form', moduleIndex: 0, formIndex: 0 },
+        ])
+      }
+    }
+    prevPhaseRef.current = builder.phase
+  }, [builder.phase, builder.blueprint, nav.replaceStack])
 
   // ── Single useChat — handles chat + generation + editing ────────────
   const { messages, sendMessage, addToolOutput, status } = useChat({
@@ -221,19 +223,17 @@ export function BuilderLayout({ buildId }: { buildId: string }) {
       viewModeRef.current = targetMode
       setViewMode(targetMode)
     }
-    // Sync nav stack to the restored selection when in design/preview
-    if (targetMode === 'design' || targetMode === 'preview') {
-      const sel = builder.selected
-      if (!sel || !builder.blueprint) {
-        nav.reset()
-      } else {
-        const stack: PreviewScreen[] = [{ type: 'home' }]
-        stack.push({ type: 'module', moduleIndex: sel.moduleIndex })
-        if (sel.formIndex !== undefined) {
-          stack.push({ type: 'form', moduleIndex: sel.moduleIndex, formIndex: sel.formIndex })
-        }
-        nav.replaceStack(stack)
+    // Sync nav stack to the restored selection
+    const sel = builder.selected
+    if (!sel || !builder.blueprint) {
+      nav.reset()
+    } else {
+      const stack: PreviewScreen[] = [{ type: 'home' }]
+      stack.push({ type: 'module', moduleIndex: sel.moduleIndex })
+      if (sel.formIndex !== undefined) {
+        stack.push({ type: 'form', moduleIndex: sel.moduleIndex, formIndex: sel.formIndex })
       }
+      nav.replaceStack(stack)
     }
   }, [builder, nav.replaceStack, nav.reset])
 
@@ -258,6 +258,21 @@ export function BuilderLayout({ buildId }: { buildId: string }) {
     builder.select()
     setDetailUserPref(false)
   }, [builder])
+
+  // ── Structure tree selection → select + navigate canvas ─────────────
+  const handleTreeSelect = useCallback((sel: any) => {
+    builder.select(sel)
+    if (!sel) {
+      nav.reset()
+      return
+    }
+    const stack: PreviewScreen[] = [{ type: 'home' }]
+    stack.push({ type: 'module', moduleIndex: sel.moduleIndex })
+    if (sel.formIndex !== undefined) {
+      stack.push({ type: 'form', moduleIndex: sel.moduleIndex, formIndex: sel.formIndex })
+    }
+    nav.replaceStack(stack)
+  }, [builder, nav.replaceStack, nav.reset])
 
   const handleDelete = useCallback(() => {
     const sel = builder.selected
@@ -305,56 +320,31 @@ export function BuilderLayout({ buildId }: { buildId: string }) {
   if (!loaded || shouldRedirect) return null
 
   const showProgress = (isGenerating || builder.phase === BuilderPhase.Done) && !progressHidden && !inReplayMode
-  const chatOpen = viewMode === 'preview' ? false : chatUserPref
+  const leftOpen = viewMode === 'preview' ? false : leftPanelOpen
   const showToolbar = !!(builder.treeData && builder.phase === BuilderPhase.Done && builder.blueprint)
   const detailOpen = viewMode === 'preview' ? false : detailUserPref
   const showDetailPanel = showToolbar && !!builder.selected && detailOpen
-  const isPreviewLike = viewMode === 'design' || viewMode === 'preview'
   const editMode = viewMode === 'preview' ? 'test' as const : 'edit' as const
 
-  // Unified breadcrumbs — derived from nav stack (design/preview) or selection (overview)
+  // Breadcrumbs — always derived from nav stack now (no overview mode)
   const breadcrumbParts: BreadcrumbPart[] = []
   if (builder.blueprint) {
-    const bp = builder.blueprint
-    if (isPreviewLike) {
-      for (let i = 0; i < nav.breadcrumb.length; i++) {
-        const idx = i
-        breadcrumbParts.push({
-          label: nav.breadcrumb[idx],
-          onClick: () => {
-            nav.navigateTo(idx)
-            const screen = nav.stack[idx]
-            if (screen.type === 'module') {
-              builder.select({ type: 'module', moduleIndex: screen.moduleIndex })
-            } else if (screen.type === 'form' || screen.type === 'caseList') {
-              builder.select({ type: 'form', moduleIndex: screen.moduleIndex, formIndex: screen.formIndex })
-            } else {
-              builder.select()
-            }
-          },
-        })
-      }
-    } else {
-      const sel = builder.selected
-      breadcrumbParts.push({ label: bp.app_name, onClick: () => builder.select() })
-      if (sel) {
-        const mod = bp.modules[sel.moduleIndex]
-        if (mod) {
-          breadcrumbParts.push({
-            label: mod.name,
-            onClick: () => builder.select({ type: 'module', moduleIndex: sel.moduleIndex }),
-          })
-        }
-        if (sel.formIndex !== undefined) {
-          const form = mod?.forms[sel.formIndex]
-          if (form) {
-            breadcrumbParts.push({
-              label: form.name,
-              onClick: () => builder.select({ type: 'form', moduleIndex: sel.moduleIndex, formIndex: sel.formIndex! }),
-            })
+    for (let i = 0; i < nav.breadcrumb.length; i++) {
+      const idx = i
+      breadcrumbParts.push({
+        label: nav.breadcrumb[idx],
+        onClick: () => {
+          nav.navigateTo(idx)
+          const screen = nav.stack[idx]
+          if (screen.type === 'module') {
+            builder.select({ type: 'module', moduleIndex: screen.moduleIndex })
+          } else if (screen.type === 'form' || screen.type === 'caseList') {
+            builder.select({ type: 'form', moduleIndex: screen.moduleIndex, formIndex: screen.formIndex })
+          } else {
+            builder.select()
           }
-        }
-      }
+        },
+      })
     }
   }
 
@@ -461,7 +451,7 @@ export function BuilderLayout({ buildId }: { buildId: string }) {
         {/* Tier 4: Content area — sidebars float over main content */}
         <div className="relative flex-1 overflow-hidden">
           {/* Centered hero mode */}
-          {isCentered && chatOpen && (
+          {isCentered && leftPanelOpen && (
             <motion.div
               layout
               className="absolute inset-0 flex flex-col items-center justify-center gap-6"
@@ -479,7 +469,7 @@ export function BuilderLayout({ buildId }: { buildId: string }) {
                   messages={inReplayMode ? replayMessages : messages}
                   status={inReplayMode ? 'ready' : status}
                   onSend={handleSend}
-                  onClose={() => setChatUserPref(false)}
+                  onClose={() => setLeftPanelOpen(false)}
                   addToolOutput={addToolOutput}
                   readOnly={inReplayMode}
                 />
@@ -498,35 +488,25 @@ export function BuilderLayout({ buildId }: { buildId: string }) {
                 transition={{ duration: 0.3, delay: 0.15 }}
               >
                 <div className="h-full overflow-auto">
-                  {!chatOpen && viewMode !== 'preview' && (
+                  {!leftOpen && viewMode !== 'preview' && (
                     <button
-                      onClick={() => setChatUserPref(true)}
+                      onClick={() => setLeftPanelOpen(true)}
                       className="absolute top-3 left-3 z-ground p-2 bg-nova-surface border border-nova-border rounded-lg hover:border-nova-border-bright transition-colors cursor-pointer"
-                      title="Open chat"
+                      title="Open panel"
                     >
                       <Icon icon={ciChatConversationCircle} width="24" height="24" />
                     </button>
                   )}
 
                   <ErrorBoundary>
-                    {builder.treeData ? (
-                      isPreviewLike && builder.phase === BuilderPhase.Done && builder.blueprint ? (
-                        <PreviewShell
-                          blueprint={builder.blueprint}
-                          builder={builder}
-                          mode={editMode}
-                          nav={nav}
-                          hideHeader
-                        />
-                      ) : (
-                        <AppTree
-                          data={builder.treeData}
-                          selected={viewMode === 'overview' ? builder.selected : undefined}
-                          onSelect={(s) => builder.select(s)}
-                          phase={builder.phase}
-                          hideHeader
-                        />
-                      )
+                    {builder.phase === BuilderPhase.Done && builder.blueprint ? (
+                      <PreviewShell
+                        blueprint={builder.blueprint}
+                        builder={builder}
+                        mode={editMode}
+                        nav={nav}
+                        hideHeader
+                      />
                     ) : null}
                   </ErrorBoundary>
                 </div>
@@ -560,9 +540,9 @@ export function BuilderLayout({ buildId }: { buildId: string }) {
             )}
           </AnimatePresence>
 
-          {/* Chat sidebar — absolute left, floats over content */}
+          {/* Left panel (Chat + Structure tabs) — absolute left, floats over content */}
           <AnimatePresence>
-            {!isCentered && chatOpen && (
+            {!isCentered && leftOpen && (
               <motion.div
                 initial={{ x: -320, opacity: 0 }}
                 animate={{ x: 0, opacity: 1 }}
@@ -570,17 +550,18 @@ export function BuilderLayout({ buildId }: { buildId: string }) {
                 transition={{ duration: 0.25, ease: [0.4, 0, 0.2, 1] }}
                 className="absolute left-0 top-0 bottom-0 z-raised"
               >
-                <ErrorBoundary>
-                  <ChatSidebar
-                    mode="sidebar"
-                    messages={inReplayMode ? replayMessages : messages}
-                    status={inReplayMode ? 'ready' : status}
-                    onSend={handleSend}
-                    onClose={() => setChatUserPref(false)}
-                    addToolOutput={addToolOutput}
-                    readOnly={inReplayMode}
-                  />
-                </ErrorBoundary>
+                <LeftPanel
+                  builder={builder}
+                  messages={inReplayMode ? replayMessages : messages}
+                  status={inReplayMode ? 'ready' : status}
+                  onSend={handleSend}
+                  addToolOutput={addToolOutput}
+                  readOnly={inReplayMode}
+                  onClose={() => setLeftPanelOpen(false)}
+                  activeTab={leftTab}
+                  onTabChange={setLeftTab}
+                  onTreeSelect={handleTreeSelect}
+                />
               </motion.div>
             )}
           </AnimatePresence>
