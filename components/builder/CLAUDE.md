@@ -34,7 +34,7 @@ Full-width 3-column grid: left spacer, center `ViewModeToggle` (`components/prev
 
 `viewMode` state (`'design' | 'preview'`). Two modes only — the app tree lives permanently in the LeftPanel's Structure tab rather than as a separate "overview" mode.
 
-- **Design ↔ Preview**: Nav is shared (no sync needed). Selection preserved but invisible in preview mode. Preview → Design preserves existing selection state — sidebar only opens if user had something selected before entering preview. Design → Preview auto-focuses the selected question's input.
+- **Design ↔ Preview**: Nav is shared (no sync needed). Selection preserved but invisible in preview mode. Preview → Design preserves existing selection state — sidebar only opens if user had something selected before entering preview. Design → Preview auto-focuses the selected question's input. **Flipbook scroll sync**: `handleViewModeChange` captures the topmost visible question's `data-question-id` and its pixel offset from the scroll container top before calling `setState`. A `useLayoutEffect` on `viewMode` then restores the scroll position before paint — finding the same element (or the nearest visible question above it if the anchor is hidden by relevancy) and adjusting `scrollTop` to match the captured offset. The scroll container is identified via `[data-preview-scroll-container]` on PreviewShell's inner scroll div.
 - **Escape in preview**: Switches to design without nav sync (stays on current screen).
 - **Structure tree selection**: `handleTreeSelect` in BuilderLayout calls both `builder.select()` and `nav.replaceStack()` so clicking a tree item navigates the canvas to the corresponding form and opens the detail panel.
 
