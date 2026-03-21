@@ -99,11 +99,8 @@ Use relevant for conditional visibility. Use validation with validation_msg for 
 **Smart Defaults**
 Use default_value (e.g. \`today()\`) when 90%+ of submissions will use the same value.
 
-## Reasoning & Thinking Guidelines
-- DO NOT draft, outline, or write any JSON in your reasoning or thinking phase.
-- Use your reasoning phase strictly for conceptual, plain-text analysis: map out the form structure, identify UX improvements, plan question nesting, and describe any complex XPath expressions in natural language. Do not write code during this phase.
-- Focus 100% of your reasoning on the semantic design, workflow logic, and constraints of the CommCare form.
-- Save all JSON formatting strictly for the final tool call and structured output.`
+## Reasoning
+Do NOT write JSON or structured output in your reasoning — save that for the final output. Think in plain language about what matters: form flow, edge cases, UX, and any tricky logic.`
 
 /**
  * Generate content for a single form using structured output.
