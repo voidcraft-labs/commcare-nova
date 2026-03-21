@@ -40,8 +40,8 @@ export interface FlatQuestion {
 export interface FormContentOutput {
   formIndex: number
   questions: FlatQuestion[]
-  close_case: { question: string; answer: string }
-  child_cases: Array<{
+  close_case?: { question: string; answer: string }
+  child_cases?: Array<{
     case_type: string
     case_name_field: string
     case_properties: Array<{ case_property: string; question_id: string }>
@@ -134,6 +134,19 @@ export function applyDefaults(q: Partial<FlatQuestion>, caseType: CaseType | nul
   return result
 }
 
+// ── Nested → flat conversion ─────────────────────────────────────────
+
+/** Convert nested Question[] (with children) back to flat FlatQuestion[] (with parentId). */
+export function flattenToFlat(questions: Question[], parentId: string = ''): FlatQuestion[] {
+  const result: FlatQuestion[] = []
+  for (const q of questions) {
+    const { children, ...rest } = q
+    result.push({ ...rest, parentId } as FlatQuestion)
+    if (children?.length) result.push(...flattenToFlat(children, q.id))
+  }
+  return result
+}
+
 // ── Single form processing ──────────────────────────────────────────
 
 /**
@@ -150,13 +163,13 @@ export function processSingleFormOutput(
   const withDefaults = stripped.map(q => applyDefaults(q, caseType))
   const nestedQuestions = buildQuestionTree(withDefaults)
 
-  const hasCloseCase = formOutput.close_case.question || formOutput.close_case.answer
+  const hasCloseCase = formOutput.close_case?.question || formOutput.close_case?.answer
   const closeCase = hasCloseCase ? {
-    ...(formOutput.close_case.question && { question: formOutput.close_case.question }),
-    ...(formOutput.close_case.answer && { answer: formOutput.close_case.answer }),
+    ...(formOutput.close_case?.question && { question: formOutput.close_case.question }),
+    ...(formOutput.close_case?.answer && { answer: formOutput.close_case.answer }),
   } : undefined
 
-  const childCases = formOutput.child_cases.length > 0 ? formOutput.child_cases : undefined
+  const childCases = formOutput.child_cases?.length ? formOutput.child_cases : undefined
 
   return {
     name: formName,

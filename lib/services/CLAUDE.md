@@ -9,35 +9,46 @@ Split across three files:
 - `formGeneration.ts` — `singleFormSchema`, `generateSingleFormContent()`, `buildColumnPrompt()`, `QUESTION_TYPES`
 - `validationLoop.ts` — `validateAndFix()`, `groupErrorsByForm()`, `applyProgrammaticFixes()`
 
-`solutionsArchitect.ts` exports `createSolutionsArchitect(ctx, mutableBp, blueprintSummary?)` — single `ToolLoopAgent` with 21 tools in 5 groups:
+`solutionsArchitect.ts` exports `createSolutionsArchitect(ctx, mutableBp, blueprintSummary?)` — single `ToolLoopAgent` with 22 tools in 6 groups:
 
 **Conversation (1):**
 - `askQuestions` (client-side, no `execute`) — structured multiple-choice rendered as QuestionCard. `sendAutomaticallyWhen` re-sends when all answered.
 
-**Generation (4)** — take natural language instructions, run structured output internally, return summary:
+**Code Execution (1):**
+- `code_execution` — Anthropic code execution sandbox. SA writes Python to build forms via programmatic tool calling.
+
+**Generation (3)** — take natural language instructions, run structured output internally, return summary:
 - `generateSchema` — case types + properties. Emits `data-start-build`.
 - `generateScaffold` — module/form structure. Emits `data-phase: structure`, streams partial scaffold.
 - `addModule` — case list/detail columns.
-- `addForm` — form questions via structured output. Returns `questions` tree summary (id, type, case_property, children) so the SA can see structure and coordinate sibling forms.
 
-`addForm` and `regenerateForm` return a compact `questions` tree via `summarizeQuestions()` — the SA sees every question's ID, type, case_property, and nesting. This lets it detect structural mismatches between sibling forms (e.g. registration vs followup) and fix them with mutation tools.
+**Form Building (1):**
+- `addQuestions` — batch-append flat questions to a form. Marked with `allowedCallers: ['code_execution_20260120']` for programmatic calling from code execution. Processes questions through `stripEmpty → applyDefaults → buildQuestionTree`, merging with existing form questions. Emits `data-form-updated`.
 
 **Read (4):**
 - `searchBlueprint`, `getModule`, `getForm`, `getQuestion`
 
 **Mutation (11):**
-- `editQuestion`, `addQuestion`, `removeQuestion`, `updateModule`, `updateForm`, `createForm`, `removeForm`, `createModule`, `removeModule`, `renameCaseProperty`, `regenerateForm`
+- `editQuestion`, `addQuestion`, `removeQuestion`, `updateModule`, `updateForm` (name, close_case, child_cases), `createForm`, `removeForm`, `createModule`, `removeModule`, `renameCaseProperty`, `regenerateForm`
 
 **Validation (1):**
 - `validateApp` — runs `validateAndFix()` loop, emits `data-done`.
 
-**Build sequence:** `askQuestions → generateSchema → generateScaffold → addModule × N → addForm × N → validateApp`
+**Build sequence:** `askQuestions → generateSchema → generateScaffold → addModule × N → code_execution + addQuestions × N → updateForm (close_case/child_cases) → validateApp`
 
-The SA makes all architecture decisions (entities, relationships, structure). Generation tools handle detail work (question IDs, XPath, group structure).
+The SA makes all architecture and form design decisions. For forms, it writes Python in code_execution that calls addQuestions in section-sized batches — the JSON construction stays in the sandbox, not in the SA's context window.
+
+`regenerateForm` returns a compact `questions` tree via `summarizeQuestions()` — the SA sees every question's ID, type, case_property, and nesting.
+
+**prepareStep:** Inline function that consolidates prompt caching (message-level), reasoning (adaptive thinking), and container forwarding (code execution sandbox persistence) into a single provider options builder. No external `withPromptCaching` dependency. Cache control skips code-execution-related messages (tool results and assistant messages containing `code_execution` tool calls) since they aren't rendered in Claude's context.
+
+**Agent limits:** `stopWhen: stepCountIs(80)` — resets per request. Error recovery prompt tells SA to bail after 2-3 failed retries.
+
+**SA prompt** (`lib/prompts/solutionsArchitectPrompt.ts`) includes a CommCare XPath quick reference so the SA can write correct XPath without hallucinating function signatures (e.g. `round()` takes 1 arg, not 2).
 
 Also re-exports from the split files:
 - `validateAndFix()` (from `validationLoop.ts`) — programmatic validation + fix loop (rule-based fixes + structured output fallback for empty forms). Has an artificial 3s delay when validation passes first attempt — remove once CommCare core .jar is integrated for full validation.
-- `generateSingleFormContent()` (from `formGeneration.ts`) — used by `addForm` and `regenerateForm`.
+- `generateSingleFormContent()` (from `formGeneration.ts`) — used by `regenerateForm`.
 
 ## MutableBlueprint
 
@@ -72,8 +83,8 @@ Also re-exports from the split files:
 - `reasoningForStage(stage)` — returns `{ effort }` if reasoning enabled and model supports it, `undefined` otherwise.
 
 **Exports:**
-- `thinkingProviderOptions(effort)` — Anthropic adaptive thinking provider options for ToolLoopAgent constructors.
-- `withPromptCaching` — `prepareStep` config marking last message with `cache_control: ephemeral`. Spread into SA's ToolLoopAgent constructor.
+- `ANTHROPIC_CACHE_CONTROL` — Anthropic cache control marker for prompt caching (`cache_control: ephemeral`).
+- `thinkingProviderOptions(effort)` — Anthropic adaptive thinking provider options for `generate()`/`streamGenerate()` calls.
 
 ## Builder
 
