@@ -50,6 +50,11 @@ function shouldAutoResend({ messages }: { messages: UIMessage[] }): boolean {
   return askParts.length > 0 && askParts.every((p: any) => p.state === 'output-available')
 }
 
+// ── Persist chat messages at module level so they survive component remounts ──
+// (Builder is a module-level singleton, but useChat's internal Chat instance
+// lives in a useRef that resets on remount — this bridges the gap.)
+let persistedChatMessages: UIMessage[] = []
+
 export function BuilderLayout({ buildId }: { buildId: string }) {
   const router = useRouter()
   const { apiKey, loaded } = useApiKey()
@@ -149,6 +154,7 @@ export function BuilderLayout({ buildId }: { buildId: string }) {
 
   // ── Single useChat — handles chat + generation + editing ────────────
   const { messages, sendMessage, addToolOutput, status } = useChat({
+    messages: persistedChatMessages,
     transport: new DefaultChatTransport({
       api: '/api/chat',
       body: () => ({
@@ -165,6 +171,9 @@ export function BuilderLayout({ buildId }: { buildId: string }) {
       applyDataPart(builderRef.current, part.type, part.data)
     },
   })
+
+  // Keep module-level message cache in sync so remounts restore chat history
+  persistedChatMessages = messages
 
   const isGenerating = [BuilderPhase.DataModel, BuilderPhase.Structure, BuilderPhase.Modules, BuilderPhase.Forms, BuilderPhase.Validate, BuilderPhase.Fix].includes(builder.phase)
 
