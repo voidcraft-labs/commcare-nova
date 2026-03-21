@@ -124,7 +124,7 @@ function SortableQuestion({
   })
 
   if (q.type === 'hidden') return null
-  if (!state.visible) return null
+  if (!isEditMode && !state.visible) return null
 
   // Use isDragging from dnd-kit OR the context flag (covers cross-group remount where isDragging resets)
   const showAsPlaceholder = isDragging || isActiveDrag

@@ -28,7 +28,7 @@ The grammar produces **two distinct `Child` node types** (one from `rootStep`, o
 
 **On `resetValidation()`**: clear touched state and errors on all fields. Called by `FormScreen` when leaving test mode so fields start clean on re-entry.
 
-**Validation display**: errors show only when `state.touched && !state.valid`. Fields start untouched — no error spam on load. In edit mode (preview), `FormRenderer` passes a clean `displayState` (empty value, untouched, valid) to field components — inputs appear empty with no errors. Engine state is preserved internally.
+**Validation display**: errors show only when `state.touched && !state.valid`. Fields start untouched — no error spam on load. In edit mode (preview), `FormRenderer` passes a clean `displayState` (empty value, untouched, valid) to field components — inputs appear empty with no errors. Engine state is preserved internally. **Relevant conditions are bypassed in edit mode** — `SortableQuestion` skips the `!state.visible` check so all questions remain visible for editing, even when their relevant XPath evaluates to false (which it would since there are no real values).
 
 **Value persistence**: `useFormEngine` snapshots live-mode values (via `getValueSnapshot()`) into a ref before engine recreation (caused by `mutationCount` bumps from preview edits). New engines restore values via `restoreValues()`, which sets values, runs a full cascade, then re-validates touched fields. This lets users edit form structure in preview without losing their test data.
 
