@@ -7,6 +7,7 @@ Main layout with one `useChat` instance targeting `/api/chat`. Wrapped in `Error
 - **`body`** sends: `apiKey`, `pipelineConfig`, `blueprint` (for edits), `blueprintSummary` (for SA context).
 - **`sendAutomaticallyWhen`** only triggers for `askQuestions` (client-side tool).
 - **`onData`** handles all state updates via `applyDataPart()`.
+- **`messages: persistedChatMessages`** seeds useChat with module-level cached messages on mount. The AI SDK's `Chat` instance lives in a `useRef` inside `useChat`, so it resets on component remount. `persistedChatMessages` (module-level, like the `Builder` singleton) bridges the gap — updated on every render, restored on remount.
 
 ### Four-Tier Header Layout
 
