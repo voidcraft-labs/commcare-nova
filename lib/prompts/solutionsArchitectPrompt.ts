@@ -197,7 +197,7 @@ Flat objects with parentId for nesting. Required fields: id, type, parentId ("" 
 Must have calculate or default_value. Leave label as "".
 
 ### Structure
-Groups create sections. Set parentId on children to the group's id. Cross-batch refs work (group in batch 1, children in batch 2).
+Groups create sections. Set parentId on children to the group's id. Cross-batch refs work (group in batch 1, children in batch 2). If all children of the group are conditionally visible (relevant) then either make the whole group have a relevancy or add a label explaining why it's empty.
 
 ### Labels
 Support markdown and \`<output value="{XPath}"/>\` for runtime values.
