@@ -21,7 +21,12 @@ Preview is an always-editable canvas. `EditContextProvider` (`hooks/useEditConte
 
 ### Selection
 
-Click a question → `builder.select()` → outline highlight + DetailPanel sidebar. Shared with Structure tree (in LeftPanel) via same `builder.selected` state. `EditableQuestionWrapper` scrolls selected question into view via ref callback on selection change (250ms delay for AnimatePresence transitions).
+Click a question → `builder.select()` → outline highlight + DetailPanel sidebar. Shared with Structure tree (in LeftPanel) via same `builder.selected` state.
+
+**Cross-panel scroll sync** — scroll is source-driven, never self-scroll:
+- **Design canvas click** → `EditableQuestionWrapper` scrolls the matching tree row into view (queries `[data-tree-question]`), only if not already visible.
+- **Tree click** → `handleTreeSelect` in BuilderLayout scrolls the design canvas to the selected question (queries `[data-question-id]`, 250ms delay for AnimatePresence, `block: 'start'` with 20px `scrollMarginTop`).
+- Clicking an item does NOT scroll its own panel.
 
 ### Drag & Drop
 
@@ -33,7 +38,7 @@ Uses `@dnd-kit/react` with cross-level support — a single `DragDropProvider` a
 
 `InsertionPoint` — zero-height hover zones between questions. Expand on hover with CSS height transition to reveal a line + plus button. `QuestionTypePicker` (floating-ui popover) opens on click for type selection. Inserts via `mb.addQuestion()` with `atIndex` for exact array position.
 
-**Velocity-aware hover**: FormRenderer tracks cursor speed via EMA-smoothed velocity (α=0.01, document-level mousemove + wheel listeners, ref-based, no re-renders). InsertionPoints check the speed ref on mouseenter — slow cursor (< 0.01 px/ms) shows immediately, fast cursor enters a polling loop (16ms interval) that decays the EMA (0.15/tick) when the cursor is stationary (no mousemove for 32ms). Scroll speed is included so fast scrolling suppresses triggers. Prevents accidental triggers when traversing the question list quickly.
+**Velocity-aware hover**: Root FormRenderer tracks cursor speed via EMA-smoothed velocity (α=0.01, document-level mousemove + wheel listeners, ref-based, no re-renders). Speed refs are shared to nested FormRenderers via `CursorSpeedContext` — without this, nested instances would create their own zero-initialized refs and insertion points inside groups would always open. InsertionPoints check the speed ref on mouseenter — slow cursor (< 0.01 px/ms) shows immediately, fast cursor enters a polling loop (16ms interval) that decays the EMA (0.15/tick) when the cursor is stationary (no mousemove for 32ms). Invisible hover detector extends ±8px above/below each insertion point. Scroll speed is included so fast scrolling suppresses triggers.
 
 ### Delete
 
@@ -41,7 +46,7 @@ Trash icon on hover/selection in `EditableQuestionWrapper`. Deletes immediately 
 
 ## Form Components
 
-- **FormRenderer** — Iterates visible questions, wraps each in `SortableQuestion` + `EditableQuestionWrapper`, interleaves `InsertionPoint` zones. Manages controlled drag state (`DragReorderContext`) and cursor velocity tracking. During drag, renders from the controlled items map; otherwise from the questions prop. In edit mode, `SortableQuestion` passes a clean `displayState` (empty value, untouched, valid) to field components so preview inputs appear pristine, and **skips the `!state.visible` check** so questions with unsatisfied relevant conditions are still shown. Each question wrapper has a `data-question-id` attribute for focus targeting. Uses stable `questionPath` keys so React doesn't unmount/remount during reorder.
+- **FormRenderer** — Iterates visible questions, wraps each in `SortableQuestion` + `EditableQuestionWrapper`, interleaves `InsertionPoint` zones. Manages controlled drag state (`DragReorderContext`), cursor velocity tracking (`CursorSpeedContext`), and provides both contexts to nested instances. During drag, renders from the controlled items map; otherwise from the questions prop. In edit mode, `SortableQuestion` passes a clean `displayState` (empty value, untouched, valid) to field components so preview inputs appear pristine, and **skips the `!state.visible` check** so questions with unsatisfied relevant conditions are still shown. Each question wrapper has a `data-question-id` attribute for focus targeting. Uses stable `questionPath` keys so React doesn't unmount/remount during reorder.
 - **EditableQuestionWrapper** — Hover chrome (outline with `outline-offset-3`), click-to-select, delete button, hold-to-grab cursor (300ms timer). `pointer-events-none` on children prevents form input interaction in edit mode. `data-question-wrapper` attribute for nested click delegation. Outline is always faintly visible (10% opacity) to show click targets, brightens on hover (30%), full on selection. Uses `outline` instead of `ring` so the border projects outward without affecting layout — question content stays pixel-aligned with preview mode. **Portal guard:** `onClickCapture` checks `e.currentTarget.contains(target)` first — React synthetic events from `FloatingPortal`-rendered children (e.g. `QuestionTypePicker`) still bubble through the React tree even though their DOM target is outside the wrapper. Without this guard, the capture handler would swallow portal clicks and select the parent question.
 - **QuestionField** — Dispatches to type-specific field component. When `state.caseRef` is set (unresolved case property in edit mode), renders a `.case-ref` badge instead of any input.
 

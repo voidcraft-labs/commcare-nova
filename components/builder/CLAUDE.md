@@ -57,7 +57,7 @@ DetailPanel pref syncs with selection changes via a `useEffect` that suppresses 
 
 Dual-tab left panel combining Chat and Structure (app tree) in a single overlay. Tab bar with `ci/message` (Chat) and `tabler/list-tree` (Structure) icons + close chevron. Each tab renders its content in the shared panel body:
 - **Chat tab**: Embeds `ChatSidebar` in `sidebar-embedded` mode (no header/chrome — LeftPanel provides the shell).
-- **Structure tab**: Embeds `AppTree` in `compact` mode (tighter spacing for 320px width). `onTreeSelect` prop delegates to BuilderLayout's `handleTreeSelect` which calls both `builder.select()` and `nav.replaceStack()` — so clicking any item in the tree navigates the canvas and opens the detail panel.
+- **Structure tab**: Embeds `AppTree` in `compact` mode (tighter spacing for 320px width). `onTreeSelect` prop delegates to BuilderLayout's `handleTreeSelect` which calls `builder.select()`, `nav.replaceStack()`, and scrolls the design canvas to the selected question (250ms delay, `block: 'start'`). Tree supports expand/collapse at module, form, and group/repeat levels. Question rows use compact `text-xs` font, reduced depth-based indentation (`depth * 6`), alternating row backgrounds (pre-computed via `buildOddPaths`), and `data-tree-question` attributes for cross-panel scroll targeting.
 
 Keyboard shortcuts extracted to `useBuilderShortcuts.ts` hook, registered via `useKeyboardShortcuts`. Undo/redo shortcuts delegate to `handleUndo`/`handleRedo` callbacks (passed from BuilderLayout) rather than calling `builder.undo()`/`redo()` directly — this enables view restoration after undo/redo.
 

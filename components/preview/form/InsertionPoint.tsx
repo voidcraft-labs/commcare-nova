@@ -97,7 +97,7 @@ export function InsertionPoint({ atIndex, parentPath, disabled, cursorSpeedRef, 
     >
       {/* Invisible hover detector extending into adjacent gaps */}
       <div
-        className="absolute inset-x-0 -top-4 -bottom-4 z-raised cursor-pointer"
+        className="absolute inset-x-0 -top-2 -bottom-2 z-raised cursor-pointer"
         onMouseEnter={handleMouseEnter}
         onMouseMove={handleMouseMove}
         onMouseLeave={handleMouseLeave}

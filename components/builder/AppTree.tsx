@@ -1,8 +1,10 @@
 'use client'
+import { useState, useCallback } from 'react'
 import { motion, AnimatePresence } from 'motion/react'
 import { Icon } from '@iconify/react'
 import ciMoreGridBig from '@iconify-icons/ci/more-grid-big'
 import ciTable from '@iconify-icons/ci/table'
+import ciChevronRight from '@iconify-icons/ci/chevron-right'
 import type { Question } from '@/lib/schemas/blueprint'
 import { BuilderPhase, type TreeData } from '@/lib/services/builder'
 import { type QuestionPath, qpath } from '@/lib/services/questionPath'
@@ -21,6 +23,16 @@ interface AppTreeProps {
 }
 
 export function AppTree({ data, selected, onSelect, phase, actions, hideHeader, compact }: AppTreeProps) {
+  const [collapsed, setCollapsed] = useState<Set<string>>(new Set())
+  const toggle = useCallback((key: string) => {
+    setCollapsed(prev => {
+      const next = new Set(prev)
+      if (next.has(key)) next.delete(key)
+      else next.add(key)
+      return next
+    })
+  }, [])
+
   if (!data) {
     return (
       <div className="h-full flex items-center justify-center text-nova-text-muted text-sm">
@@ -56,6 +68,8 @@ export function AppTree({ data, selected, onSelect, phase, actions, hideHeader, 
                 selected={selected}
                 onSelect={onSelect}
                 compact={compact}
+                collapsed={collapsed}
+                toggle={toggle}
               />
             ))}
           </AnimatePresence>
@@ -65,20 +79,44 @@ export function AppTree({ data, selected, onSelect, phase, actions, hideHeader, 
   )
 }
 
+/** Reusable disclosure chevron — rotates 90deg when expanded */
+function CollapseChevron({ isCollapsed, onClick }: { isCollapsed: boolean; onClick: (e: React.MouseEvent) => void }) {
+  return (
+    <button
+      className="w-6 h-6 -m-1 flex items-center justify-center shrink-0 cursor-pointer rounded text-nova-text-muted hover:text-nova-text hover:bg-nova-surface/50 transition-colors"
+      onClick={onClick}
+    >
+      <Icon
+        icon={ciChevronRight}
+        width="10"
+        height="10"
+        className="transition-transform duration-150"
+        style={{ transform: isCollapsed ? 'rotate(0deg)' : 'rotate(90deg)' }}
+      />
+    </button>
+  )
+}
+
 function ModuleCard({
   module: mod,
   moduleIndex,
   selected,
   onSelect,
   compact,
+  collapsed,
+  toggle,
 }: {
   module: TreeData['modules'][number]
   moduleIndex: number
   selected: AppTreeProps['selected']
   onSelect: AppTreeProps['onSelect']
   compact?: boolean
+  collapsed: Set<string>
+  toggle: (key: string) => void
 }) {
   const isSelected = selected?.type === 'module' && selected.moduleIndex === moduleIndex
+  const collapseKey = `m${moduleIndex}`
+  const isCollapsed = collapsed.has(collapseKey)
 
   return (
     <motion.div
@@ -94,7 +132,11 @@ function ModuleCard({
         className="px-4 py-3 cursor-pointer flex items-center justify-between"
         onClick={() => onSelect({ type: 'module', moduleIndex })}
       >
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-2">
+          <CollapseChevron
+            isCollapsed={isCollapsed}
+            onClick={(e) => { e.stopPropagation(); toggle(collapseKey) }}
+          />
           <div className="w-8 h-8 rounded-lg bg-nova-violet/10 flex items-center justify-center">
             <Icon icon={ciMoreGridBig} width="16" height="16" className="text-nova-violet-bright" />
           </div>
@@ -112,44 +154,50 @@ function ModuleCard({
         </Badge>
       </div>
 
-      {/* Case list columns */}
-      {mod.case_list_columns && mod.case_list_columns.length > 0 && (
-        <div className="mx-4 mb-3 rounded-lg border border-nova-cyan/12 bg-nova-cyan/[0.03] overflow-hidden">
-          <div className="flex items-center gap-1.5 px-3 py-1.5 border-b border-nova-cyan/8">
-            <Icon icon={ciTable} width="12" height="12" className="text-nova-cyan/50" />
-            <span className="text-[10px] font-medium text-nova-cyan/50 uppercase tracking-widest">Case List</span>
-          </div>
-          <div className="flex">
-            {mod.case_list_columns.map((col, i) => (
-              <div
-                key={i}
-                className={`flex-1 px-3 py-2 text-xs font-medium text-nova-cyan-bright ${
-                  i > 0 ? 'border-l border-nova-cyan/8' : ''
-                }`}
-              >
-                {col.header}
+      {!isCollapsed && (
+        <>
+          {/* Case list columns */}
+          {mod.case_list_columns && mod.case_list_columns.length > 0 && (
+            <div className="mx-4 mb-3 rounded-lg border border-nova-cyan/12 bg-nova-cyan/[0.03] overflow-hidden">
+              <div className="flex items-center gap-1.5 px-3 py-1.5 border-b border-nova-cyan/8">
+                <Icon icon={ciTable} width="12" height="12" className="text-nova-cyan/50" />
+                <span className="text-[10px] font-medium text-nova-cyan/50 uppercase tracking-widest">Case List</span>
               </div>
-            ))}
-          </div>
-        </div>
-      )}
+              <div className="flex">
+                {mod.case_list_columns.map((col, i) => (
+                  <div
+                    key={i}
+                    className={`flex-1 px-3 py-2 text-xs font-medium text-nova-cyan-bright ${
+                      i > 0 ? 'border-l border-nova-cyan/8' : ''
+                    }`}
+                  >
+                    {col.header}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
 
-      {/* Forms */}
-      <div className="border-t border-nova-border">
-        <AnimatePresence mode="sync">
-          {mod.forms.map((form, fIdx) => (
-            <FormCard
-              key={`${moduleIndex}-${fIdx}`}
-              form={form}
-              moduleIndex={moduleIndex}
-              formIndex={fIdx}
-              selected={selected}
-              onSelect={onSelect}
-              delay={fIdx * 0.08}
-            />
-          ))}
-        </AnimatePresence>
-      </div>
+          {/* Forms */}
+          <div className="border-t border-nova-border">
+            <AnimatePresence mode="sync">
+              {mod.forms.map((form, fIdx) => (
+                <FormCard
+                  key={`${moduleIndex}-${fIdx}`}
+                  form={form}
+                  moduleIndex={moduleIndex}
+                  formIndex={fIdx}
+                  selected={selected}
+                  onSelect={onSelect}
+                  delay={fIdx * 0.08}
+                  collapsed={collapsed}
+                  toggle={toggle}
+                />
+              ))}
+            </AnimatePresence>
+          </div>
+        </>
+      )}
     </motion.div>
   )
 }
@@ -161,6 +209,8 @@ function FormCard({
   selected,
   onSelect,
   delay,
+  collapsed,
+  toggle,
 }: {
   form: TreeData['modules'][number]['forms'][number]
   moduleIndex: number
@@ -168,9 +218,15 @@ function FormCard({
   selected: AppTreeProps['selected']
   onSelect: AppTreeProps['onSelect']
   delay: number
+  collapsed: Set<string>
+  toggle: (key: string) => void
 }) {
   const isSelected = selected?.type === 'form' && selected.moduleIndex === moduleIndex && selected.formIndex === formIndex
   const formIcon = formTypeIcons[form.type] ?? formTypeIcons.survey
+  const collapseKey = `f${moduleIndex}_${formIndex}`
+  const isCollapsed = collapsed.has(collapseKey)
+  const hasQuestions = form.questions && form.questions.length > 0
+  const oddPaths = hasQuestions ? buildOddPaths(form.questions!, collapsed) : undefined
 
   return (
     <motion.div
@@ -182,28 +238,35 @@ function FormCard({
       }`}
     >
       <div
-        className="px-4 py-2.5 cursor-pointer hover:bg-nova-surface/30 transition-colors flex items-center gap-3"
+        className="px-4 py-2.5 cursor-pointer hover:bg-nova-surface/30 transition-colors flex items-center gap-2"
         onClick={() => onSelect({ type: 'form', moduleIndex, formIndex })}
       >
-        <div className="w-1 h-6 rounded-full bg-nova-border" />
-        <div className="flex-1">
+        {hasQuestions ? (
+          <CollapseChevron
+            isCollapsed={isCollapsed}
+            onClick={(e) => { e.stopPropagation(); toggle(collapseKey) }}
+          />
+        ) : (
+          <span className="w-3.5 shrink-0" />
+        )}
+        <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2">
             <Icon icon={formIcon} width="14" height="14" className="text-nova-text-muted shrink-0" />
-            <span className="text-sm font-medium">{form.name}</span>
+            <span className="text-sm font-medium truncate">{form.name}</span>
           </div>
         </div>
-        {form.questions && form.questions.length > 0 && (
-          <span className="text-xs text-nova-text-muted">
-            {countQuestions(form.questions)} q
+        {hasQuestions && (
+          <span className="text-xs text-nova-text-muted shrink-0">
+            {countQuestions(form.questions!)} q
           </span>
         )}
       </div>
 
       {/* Questions */}
-      {form.questions && form.questions.length > 0 && (
-        <div className="pl-12 pr-4 pb-2 space-y-0.5">
+      {hasQuestions && !isCollapsed && (
+        <div className="pl-6 pr-3 pb-1.5">
           <AnimatePresence mode="sync">
-            {form.questions.map((q, qIdx) => (
+            {form.questions!.map((q, qIdx) => (
               <QuestionRow
                 key={q.id ? `${moduleIndex}_${formIndex}_${qIdx}_${q.id}` : `${moduleIndex}_${formIndex}_${qIdx}`}
                 question={q}
@@ -214,6 +277,9 @@ function FormCard({
                 selected={selected}
                 depth={0}
                 delay={delay + qIdx * 0.02}
+                collapsed={collapsed}
+                toggle={toggle}
+                oddPaths={oddPaths!}
               />
             ))}
           </AnimatePresence>
@@ -232,6 +298,9 @@ function QuestionRow({
   selected,
   depth,
   delay,
+  collapsed,
+  toggle,
+  oddPaths,
 }: {
   question: Question
   questionPath: QuestionPath
@@ -241,9 +310,15 @@ function QuestionRow({
   selected: AppTreeProps['selected']
   depth: number
   delay: number
+  collapsed: Set<string>
+  toggle: (key: string) => void
+  oddPaths: Set<string>
 }) {
   const isSelected = selected?.type === 'question' && selected.moduleIndex === moduleIndex && selected.formIndex === formIndex && selected.questionPath === questionPath
   const iconData = questionTypeIcons[q.type]
+  const hasChildren = q.children && q.children.length > 0
+  const isCollapsed = hasChildren && collapsed.has(questionPath)
+  const isOdd = oddPaths.has(questionPath)
 
   return (
     <motion.div
@@ -252,28 +327,39 @@ function QuestionRow({
       transition={{ delay, duration: 0.2 }}
     >
       <div
-        className={`flex items-center gap-2 py-1 px-2 rounded cursor-pointer transition-colors text-sm ${
-          isSelected ? 'bg-nova-violet/10 text-nova-text' : 'hover:bg-nova-surface/50 text-nova-text-secondary'
+        data-tree-question={questionPath}
+        className={`flex items-center gap-1.5 py-1.5 px-1.5 -mx-1.5 cursor-pointer transition-colors text-xs ${
+          isSelected ? 'bg-nova-violet/10 text-nova-text' : `${isOdd ? 'bg-white/[0.025]' : ''} hover:bg-white/10 text-nova-text-secondary`
         }`}
-        style={{ paddingLeft: `${depth * 16 + 8}px` }}
+        style={{ paddingLeft: `${depth * 6}px` }}
         onClick={(e) => {
           e.stopPropagation()
           onSelect({ type: 'question', moduleIndex, formIndex, questionPath })
         }}
       >
-        <span className="w-6 text-center text-xs font-mono text-nova-text-muted shrink-0 flex items-center justify-center">
-          {iconData ? <Icon icon={iconData} width="14" height="14" /> : '?'}
+        {hasChildren ? (
+          <CollapseChevron
+            isCollapsed={!!isCollapsed}
+            onClick={(e) => { e.stopPropagation(); toggle(questionPath) }}
+          />
+        ) : (
+          <span className="w-3.5 shrink-0" />
+        )}
+        <span className="w-4 text-center text-nova-text-muted shrink-0 flex items-center justify-center">
+          {iconData ? <Icon icon={iconData} width="12" height="12" /> : '?'}
         </span>
-        <span className="truncate">{q.label || q.id}</span>
-        <span className="text-xs text-nova-text-muted font-mono shrink-0 ml-auto">
-          {q.type}
-        </span>
+        <span className={`truncate ${hasChildren ? 'font-medium text-[#b8b8dd]' : ''}`}>{q.label || q.id}</span>
+        {hasChildren && isCollapsed && (
+          <span className="text-[10px] text-nova-text-muted ml-auto shrink-0">
+            {countQuestions(q.children!)}
+          </span>
+        )}
       </div>
 
       {/* Nested children for groups/repeats */}
-      {q.children && q.children.length > 0 && (
-        <div className="ml-2 border-l border-nova-border/50">
-          {q.children.map((child, cIdx) => (
+      {hasChildren && !isCollapsed && (
+        <div className="ml-1 border-l border-nova-text-muted/20">
+          {q.children!.map((child, cIdx) => (
             <QuestionRow
               key={child.id ? `${moduleIndex}_${formIndex}_${cIdx}_${child.id}` : `${moduleIndex}_${formIndex}_${cIdx}`}
               question={child}
@@ -284,6 +370,9 @@ function QuestionRow({
               selected={selected}
               depth={depth + 1}
               delay={delay + (cIdx + 1) * 0.02}
+              collapsed={collapsed}
+              toggle={toggle}
+              oddPaths={oddPaths}
             />
           ))}
         </div>
@@ -299,4 +388,22 @@ function countQuestions(questions: Question[]): number {
     if (q.children) count += countQuestions(q.children)
   }
   return count
+}
+
+/** Pre-flatten visible question paths and return the set of odd-indexed ones. */
+function buildOddPaths(questions: Question[], collapsed: Set<string>, parentPath?: QuestionPath): Set<string> {
+  const flat: string[] = []
+  function walk(qs: Question[], parent?: QuestionPath) {
+    for (const q of qs) {
+      const p = qpath(q.id, parent)
+      flat.push(p)
+      if (q.children && q.children.length > 0 && !collapsed.has(p)) {
+        walk(q.children, p)
+      }
+    }
+  }
+  walk(questions, parentPath)
+  const odd = new Set<string>()
+  for (let i = 1; i < flat.length; i += 2) odd.add(flat[i])
+  return odd
 }
