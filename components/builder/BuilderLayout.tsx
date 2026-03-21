@@ -3,7 +3,7 @@ import { useRef, useState, useCallback, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { useChat } from '@ai-sdk/react'
 import { DefaultChatTransport, type UIMessage } from 'ai'
-import { motion, AnimatePresence, LayoutGroup } from 'motion/react'
+import { motion, AnimatePresence } from 'motion/react'
 import { Icon } from '@iconify/react'
 import ciChatConversationCircle from '@iconify-icons/ci/chat-conversation-circle'
 import ciSettings from '@iconify-icons/ci/settings'
@@ -358,7 +358,6 @@ export function BuilderLayout({ buildId }: { buildId: string }) {
   }
 
   return (
-    <LayoutGroup>
     <div ref={layoutRef} className="h-screen flex flex-col bg-nova-void overflow-hidden">
       {/* Header — collapses to zero height in hero mode, reveals with border on transition */}
       <motion.header
@@ -524,13 +523,11 @@ export function BuilderLayout({ buildId }: { buildId: string }) {
                 <AnimatePresence>
                   {showProgress && (
                     <motion.div
-                      layout
                       className={`absolute z-ground pointer-events-none ${
                         progressMode === 'centered'
                           ? 'inset-0 flex items-center justify-center'
                           : 'bottom-4 inset-x-0 flex justify-center'
                       }`}
-                      transition={{ layout: { duration: 0.5, ease: [0.4, 0, 0.2, 1] } }}
                     >
                       <div className="pointer-events-auto">
                         <GenerationProgress
@@ -594,6 +591,5 @@ export function BuilderLayout({ buildId }: { buildId: string }) {
         </div>
 
     </div>
-    </LayoutGroup>
   )
 }
