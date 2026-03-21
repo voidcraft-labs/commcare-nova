@@ -164,7 +164,7 @@ export class RunLogger {
    */
   logEmission(type: string, data: unknown) {
     if (SKIP_EMISSIONS.has(type)) return
-    this.pendingEmissions.push({ type, data })
+    this.pendingEmissions.push({ type, data: structuredClone(data) })
   }
 
   /**
