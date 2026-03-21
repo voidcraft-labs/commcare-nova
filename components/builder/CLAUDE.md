@@ -18,7 +18,7 @@ Main layout with one `useChat` instance targeting `/api/chat`. Wrapped in `Error
 
 ### Chat-Centered Landing
 
-When `builder.phase === Idle && !builder.treeData`, chat fills center with hero Logo above welcome heading and input — no header bars, uniform `bg-nova-void`. On generation start, Logo animates from center to header via `layoutId="nova-logo"`, header tiers slide in, chat becomes a 320px sidebar overlay — coordinated by `LayoutGroup`. `AnimatePresence` fades in builder panels (150ms delay). No DOM re-parenting — messages and input state preserved.
+When `builder.phase === Idle && !builder.treeData`, chat fills center with hero Logo above welcome heading and input — no header bars, uniform `bg-nova-void`. On generation start, Logo animates from center to header via `layoutId="nova-logo"` (global, no `LayoutGroup` — avoids triggering layout measurement passes that re-animate sibling panels), header tiers slide in, chat becomes a 320px sidebar overlay. `AnimatePresence` fades in builder panels (150ms delay). No DOM re-parenting — messages and input state preserved.
 
 ### Project Subheader (Tier 2)
 
