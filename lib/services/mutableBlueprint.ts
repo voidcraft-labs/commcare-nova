@@ -408,7 +408,7 @@ export class MutableBlueprint {
     }
   }
 
-  updateForm(mIdx: number, fIdx: number, updates: { name?: string; type?: 'registration' | 'followup' | 'survey'; close_case?: { question?: string; answer?: string } | null }): void {
+  updateForm(mIdx: number, fIdx: number, updates: { name?: string; type?: 'registration' | 'followup' | 'survey'; close_case?: { question?: string; answer?: string } | null; child_cases?: BlueprintChildCase[] | null }): void {
     const form = this.blueprint.modules[mIdx]?.forms[fIdx]
     if (!form) throw new Error(`Form m${mIdx}-f${fIdx} not found`)
 
@@ -419,6 +419,13 @@ export class MutableBlueprint {
         delete form.close_case
       } else {
         form.close_case = updates.close_case
+      }
+    }
+    if (updates.child_cases !== undefined) {
+      if (updates.child_cases === null) {
+        delete form.child_cases
+      } else {
+        form.child_cases = updates.child_cases
       }
     }
   }

@@ -22,21 +22,8 @@ export function logWarnings(label: string, warnings: CallWarning[] | undefined) 
   }
 }
 
-const ANTHROPIC_CACHE_CONTROL = { anthropic: { cacheControl: { type: 'ephemeral' as const } } }
-
-/**
- * prepareStep that marks the last message with cache_control: ephemeral.
- * Reuse this in all ToolLoopAgent constructors so prior conversation turns are cached.
- */
-export const withPromptCaching = {
-  prepareStep: ({ messages }: { messages: ModelMessage[] }) => ({
-    messages: messages.map((msg, i) =>
-      i === messages.length - 1
-        ? { ...msg, providerOptions: { ...msg.providerOptions, ...ANTHROPIC_CACHE_CONTROL } }
-        : msg,
-    ),
-  }),
-}
+/** Anthropic cache control marker for prompt caching. */
+export const ANTHROPIC_CACHE_CONTROL = { anthropic: { cacheControl: { type: 'ephemeral' as const } } }
 
 /** Anthropic provider options for adaptive extended thinking. */
 export function thinkingProviderOptions(effort: ReasoningEffort) {

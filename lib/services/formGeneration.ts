@@ -53,17 +53,6 @@ export const singleFormSchema = z.object({
     default_value: z.string().optional().describe("XPath for initial value on form load. String values must be quoted: `'text'`, not `text`."),
     options: z.array(z.object({ value: z.string(), label: z.string() })).optional(),
   })),
-  close_case: z.object({
-    question: z.string().describe('Question ID for conditional close. Empty string if no close.'),
-    answer: z.string().describe('Value that triggers closure. Empty string if no close.'),
-  }),
-  child_cases: z.array(z.object({
-    case_type: z.string(),
-    case_name_field: z.string(),
-    case_properties: z.array(z.object({ case_property: z.string(), question_id: z.string() })),
-    relationship: z.enum(['child', 'extension']),
-    repeat_context: z.string().describe('Repeat group question ID. Empty string if not in repeat.'),
-  })).describe('Empty array if no child cases.'),
 })
 
 const FORM_GENERATION_SYSTEM = `You are a senior CommCare technical project analyst that is an expert form builder.
@@ -153,7 +142,7 @@ Build the complete questions for this form.`,
   }
 
   return processSingleFormOutput(
-    { formIndex, questions: result.questions as FlatQuestion[], close_case: result.close_case, child_cases: result.child_cases },
+    { formIndex, questions: result.questions as FlatQuestion[] },
     form.name,
     form.type,
     ct,
