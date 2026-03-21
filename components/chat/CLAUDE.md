@@ -2,12 +2,13 @@
 
 ## ChatSidebar
 
-Message list + input. Accepts `mode: 'centered' | 'sidebar'`, optional `readOnly` (hides input, for log replay).
+Message list + input. Accepts `mode: 'centered' | 'sidebar' | 'sidebar-embedded'`, optional `readOnly` (hides input, for log replay).
 
 - **Centered mode**: Below hero Logo, no header/border, uniform `gap-6` spacing. Uses `layout` + `layoutId="chat-panel"` for animated transition to sidebar.
-- **Sidebar mode**: 320px (`w-80`) absolutely positioned overlay on the left (`z-20`). Slides in/out via `translateX` animation (`x: -320 → 0`). Styled as a pullout: `rounded-r-xl m-2 ml-0 border border-nova-border-bright border-l-0 shadow-[0_2px_12px_rgba(0,0,0,0.4)]` — mirroring DetailPanel on the opposite side. Header shows collapse chevron (left) + "Chat" label (right, `text-sm`). Collapse always visible including replay mode.
+- **Sidebar mode**: 320px (`w-80`) standalone overlay with own header. Used for standalone left-panel rendering outside of LeftPanel.
+- **Sidebar-embedded mode**: Just messages + input, no outer chrome (header/border/shadow). Used inside `LeftPanel`'s Chat tab — the parent provides the shell.
 
-Auto-hides in preview mode (derived `chatOpen = viewMode === 'preview' ? false : chatUserPref`). Restores user preference when switching back to overview/design. Reads `builder.phase` to suppress thinking indicator when builder is active. Auto-scroll to bottom via MutationObserver ref callback on the messages container.
+After generation, chat lives inside LeftPanel's Chat tab (embedded mode). Auto-hides in preview mode when LeftPanel collapses. Reads `builder.phase` to suppress thinking indicator when builder is active. Auto-scroll to bottom via MutationObserver ref callback on the messages container.
 
 ## ChatMessage
 

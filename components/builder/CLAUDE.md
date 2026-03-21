@@ -2,7 +2,7 @@
 
 ## BuilderLayout
 
-Main layout with one `useChat` instance targeting `/api/chat`. Wrapped in `ErrorBoundary` around ChatSidebar, PreviewShell/AppTree, and DetailPanel.
+Main layout with one `useChat` instance targeting `/api/chat`. Wrapped in `ErrorBoundary` around LeftPanel (Chat + Structure tabs), PreviewShell, and DetailPanel.
 
 - **`body`** sends: `apiKey`, `pipelineConfig`, `blueprint` (for edits), `blueprintSummary` (for SA context).
 - **`sendAutomaticallyWhen`** only triggers for `askQuestions` (client-side tool).
@@ -13,7 +13,7 @@ Main layout with one `useChat` instance targeting `/api/chat`. Wrapped in `Error
 1. **Tier 1 — Logo bar**: `commcare nova` + settings link. `bg-nova-void`. Collapses to zero height in hero/centered mode via animated `height: 0 → auto`.
 2. **Tier 2 — Project subheader**: Full-width breadcrumbs (left) + `DownloadDropdown` (right). `bg-[rgba(139,92,246,0.06)]` with subtle violet glow shadow. Shows as soon as centered mode exits (breadcrumbs populate once `app_name` arrives). Download button appears when `phase === Done`. `text-lg` for hierarchy above chat/toolbar text.
 3. **Tier 3 — Toolbar** (`SubheaderToolbar.tsx`): Full-width `ViewModeToggle` (centered) + Undo/Redo (right). `bg-nova-deep`. Only shows when `Done` + blueprint exists.
-4. **Tier 4 — Content area**: Main content fills full width (scrollbar on far right). Chat sidebar and DetailPanel float as absolute overlays from left/right edges respectively.
+4. **Tier 4 — Content area**: Main content fills full width (scrollbar on far right). LeftPanel (dual-tab Chat/Structure) and DetailPanel float as absolute overlays from left/right edges respectively.
 
 ### Chat-Centered Landing
 
@@ -21,36 +21,42 @@ When `builder.phase === Idle && !builder.treeData`, chat fills center with hero 
 
 ### Project Subheader (Tier 2)
 
-`CollapsibleBreadcrumb` (exported from `SubheaderToolbar.tsx`) renders navigable breadcrumbs. In design/preview, derived from `usePreviewNav` stack. In overview mode, derived from `builder.selected` (app name → module → form). Follow-up forms show the selected case name as the final breadcrumb segment. Clicking a breadcrumb navigates: in design/preview calls `nav.navigateTo()` + `builder.select()`; in overview calls `builder.select()` directly. Breadcrumbs use `text-lg whitespace-nowrap` — no truncation since the full-width bar has ample space. Collapse behind `…` dropdown only at depth 4+.
+`CollapsibleBreadcrumb` (exported from `SubheaderToolbar.tsx`) renders navigable breadcrumbs, always derived from the `usePreviewNav` stack. Follow-up forms show the selected case name as the final breadcrumb segment. Clicking a breadcrumb calls `nav.navigateTo()` + `builder.select()`. Breadcrumbs use `text-lg whitespace-nowrap` — no truncation since the full-width bar has ample space. Collapse behind `…` dropdown only at depth 4+.
 
 ### Toolbar (Tier 3, `SubheaderToolbar.tsx`)
 
-Full-width 3-column grid: left spacer, center `ViewModeToggle` (`components/preview/ViewModeToggle.tsx`, renamed from PreviewToggle), right Undo/Redo. `h-12 bg-nova-deep`. `ViewModeToggle` is a compact `h-[34px]` 3-segment control matching undo/redo button height.
+Full-width 3-column grid: left spacer, center `ViewModeToggle` (`components/preview/ViewModeToggle.tsx`), right Undo/Redo. `h-12 bg-nova-deep`. `ViewModeToggle` is a compact `h-[34px]` 2-segment control (Design | Preview) matching undo/redo button height.
 
-`usePreviewNav` is lifted to BuilderLayout and shared with `PreviewShell` (via `nav` prop) so navigation state stays in sync. AppTree and PreviewShell render with `hideHeader` since BuilderLayout owns the header tiers.
+`usePreviewNav` is lifted to BuilderLayout and shared with `PreviewShell` (via `nav` prop) so navigation state stays in sync. PreviewShell renders with `hideHeader` since BuilderLayout owns the header tiers.
 
 ### View Mode Sync
 
-`viewMode` state (`'overview' | 'design' | 'preview'`). Selection (`builder.selected`) and navigation (`usePreviewNav` stack) stay in sync across view switches:
+`viewMode` state (`'design' | 'preview'`). Two modes only — the app tree lives permanently in the LeftPanel's Structure tab rather than as a separate "overview" mode.
 
-- **Overview → Design/Preview**: Nav stack syncs to `builder.selected` (navigates to the selected module/form). If nothing is selected (user deselected in overview), nav resets to home. `usePreviewNav` auto-resolves case data for followup forms via `resolveScreen`.
-- **Design/Preview → Overview**: If nothing selected, `builder.selected` syncs from current nav screen.
 - **Design ↔ Preview**: Nav is shared (no sync needed). Selection preserved but invisible in preview mode. Preview → Design preserves existing selection state — sidebar only opens if user had something selected before entering preview. Design → Preview auto-focuses the selected question's input.
 - **Escape in preview**: Switches to design without nav sync (stays on current screen).
+- **Structure tree selection**: `handleTreeSelect` in BuilderLayout calls both `builder.select()` and `nav.replaceStack()` so clicking a tree item navigates the canvas to the corresponding form and opens the detail panel.
 
 When `Done` + blueprint exists:
-- `'overview'` → `AppTree` + `DetailPanel` (overlay right) + `ChatSidebar` (overlay left)
-- `'design'` → `PreviewShell` (editable canvas) + `DetailPanel` (overlay right) + `ChatSidebar` (overlay left)
+- `'design'` → `PreviewShell` (editable canvas) + `LeftPanel` (overlay left, Chat/Structure tabs) + `DetailPanel` (overlay right)
 - `'preview'` → `PreviewShell` (read-only, no edit chrome, no sidebars)
 
-### Sidebar State Management
+### Panel State Management
 
-Both ChatSidebar and DetailPanel use the same `userPref` pattern — a boolean state that the user controls, temporarily overridden to `false` in preview mode:
-- `chatOpen = viewMode === 'preview' ? false : chatUserPref`
+LeftPanel and DetailPanel both collapse in preview mode:
+- `leftOpen = viewMode === 'preview' ? false : leftPanelOpen`
 - `detailOpen = viewMode === 'preview' ? false : detailUserPref`
 - `showDetailPanel = showToolbar && !!builder.selected && detailOpen`
 
-DetailPanel pref syncs with selection changes via a `useEffect` that suppresses during view mode transitions (prevents auto-sync re-selections from reopening a closed panel). When selection changes without a view mode change: selecting sets pref `true`, deselecting sets pref `false`. View mode transitions (where auto-sync may re-select from nav) leave the pref unchanged. Undo/redo explicitly sets pref `true` to show edit context. The chat open button (`ci:chat-conversation-circle`) also hides in preview mode.
+`leftTab` (`'chat' | 'structure'`) tracks which LeftPanel tab is active. Auto-switches to `'structure'` when tree data first appears during generation, then to `'chat'` when generation completes (so the SA's "app is ready" message is visible). After generation, the canvas auto-navigates to the first form.
+
+DetailPanel pref syncs with selection changes via a `useEffect` that suppresses during view mode transitions (prevents auto-sync re-selections from reopening a closed panel). When selection changes without a view mode change: selecting sets pref `true`, deselecting sets pref `false`. View mode transitions (where auto-sync may re-select from nav) leave the pref unchanged. Undo/redo explicitly sets pref `true` to show edit context. The reopen button (`ci:chat-conversation-circle`) also hides in preview mode.
+
+## LeftPanel
+
+Dual-tab left panel combining Chat and Structure (app tree) in a single overlay. Tab bar with `ci/message` (Chat) and `tabler/list-tree` (Structure) icons + close chevron. Each tab renders its content in the shared panel body:
+- **Chat tab**: Embeds `ChatSidebar` in `sidebar-embedded` mode (no header/chrome — LeftPanel provides the shell).
+- **Structure tab**: Embeds `AppTree` in `compact` mode (tighter spacing for 320px width). `onTreeSelect` prop delegates to BuilderLayout's `handleTreeSelect` which calls both `builder.select()` and `nav.replaceStack()` — so clicking any item in the tree navigates the canvas and opens the detail panel.
 
 Keyboard shortcuts extracted to `useBuilderShortcuts.ts` hook, registered via `useKeyboardShortcuts`. Undo/redo shortcuts delegate to `handleUndo`/`handleRedo` callbacks (passed from BuilderLayout) rather than calling `builder.undo()`/`redo()` directly — this enables view restoration after undo/redo.
 

@@ -20,7 +20,8 @@ interface ChatSidebarProps {
     toolCallId: string
     output: unknown
   }) => void
-  mode: 'centered' | 'sidebar'
+  /** 'centered' = hero chat, 'sidebar' = standalone left panel, 'sidebar-embedded' = embedded in LeftPanel (no header/chrome) */
+  mode: 'centered' | 'sidebar' | 'sidebar-embedded'
   readOnly?: boolean
 }
 
@@ -39,6 +40,7 @@ export function ChatSidebar({
   const showThinking = isLoading && builder.phase === BuilderPhase.Idle
   const pendingAnswerRef = useRef<((text: string) => void) | null>(null)
   const isCentered = mode === 'centered'
+  const isEmbedded = mode === 'sidebar-embedded'
 
   // Route typed messages as question answers when a QuestionCard is waiting
   const handleSend = useCallback((text: string) => {
@@ -60,6 +62,43 @@ export function ChatSidebar({
     return () => observer.disconnect()
   }, [])
 
+  // Embedded mode — just messages + input, no chrome. Parent (LeftPanel) provides the shell.
+  if (isEmbedded) {
+    return (
+      <div className="flex flex-col flex-1 overflow-hidden">
+        <div ref={scrollRef} className="flex-1 overflow-y-auto p-4 space-y-4">
+          {messages.length === 0 && !isLoading && (
+            <div className="text-center py-8">
+              <p className="text-sm text-nova-text-muted">
+                Describe the CommCare app you want to build.
+              </p>
+            </div>
+          )}
+          {messages.map((msg) => (
+            <ChatMessage
+              key={msg.id}
+              message={msg}
+              addToolOutput={addToolOutput}
+              pendingAnswerRef={pendingAnswerRef}
+            />
+          ))}
+          <AnimatePresence>
+            {showThinking && <ThinkingIndicator />}
+          </AnimatePresence>
+        </div>
+        {!readOnly && (
+          <div className="shrink-0">
+            <ChatInput
+              onSend={handleSend}
+              disabled={isLoading || [BuilderPhase.DataModel, BuilderPhase.Structure, BuilderPhase.Modules, BuilderPhase.Forms, BuilderPhase.Validate, BuilderPhase.Fix].includes(builder.phase)}
+              centered={false}
+            />
+          </div>
+        )}
+      </div>
+    )
+  }
+
   return (
     <motion.div
       layout={isCentered ? true : undefined}
@@ -71,7 +110,7 @@ export function ChatSidebar({
       }
       transition={{ layout: { duration: 0.45, ease: [0.4, 0, 0.2, 1] } }}
     >
-      {/* Header — sidebar only */}
+      {/* Header — standalone sidebar only */}
       {!isCentered && (
         <div className="px-4 h-12 border-b border-nova-border flex items-center justify-between shrink-0">
           <button
