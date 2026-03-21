@@ -93,7 +93,7 @@ Read-only CodeMirror with Nova theme, `tabSize: 4`, `prettyPrintXPath` for displ
 
 ## GenerationProgress
 
-Progress bar with phase labels during generation. Counts derived from `builder.progressCompleted` / `builder.progressTotal`.
+Progress bar with phase labels during generation. Always centered in the content area throughout the entire generation lifecycle — stays centered even after the scaffold tree appears in the left panel, then animates out 3s after completion. Counts derived from `builder.progressCompleted` / `builder.progressTotal`.
 
 ## ReplayController
 

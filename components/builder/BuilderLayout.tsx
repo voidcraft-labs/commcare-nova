@@ -177,8 +177,7 @@ export function BuilderLayout({ buildId }: { buildId: string }) {
 
   const isGenerating = [BuilderPhase.DataModel, BuilderPhase.Structure, BuilderPhase.Modules, BuilderPhase.Forms, BuilderPhase.Validate, BuilderPhase.Fix].includes(builder.phase)
 
-  // Progress is centered when there's no tree data yet, compact once the tree appears
-  const progressMode = builder.treeData ? 'compact' as const : 'centered' as const
+  const progressMode = 'centered' as const
   if (isGenerating && progressHidden) setProgressHidden(false)
 
   const handleSend = useCallback((text: string) => {
