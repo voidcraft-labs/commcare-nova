@@ -457,10 +457,12 @@ export function createSolutionsArchitect(
           try {
             const questionPath = mutableBp.resolveQuestionId(moduleIndex, formIndex, questionId)
             if (!questionPath) return { error: `Question "${questionId}" not found in m${moduleIndex}-f${formIndex}` }
+            const beforeCount = countQuestionsRecursive(mutableBp.getForm(moduleIndex, formIndex)!.questions)
             mutableBp.removeQuestion(moduleIndex, formIndex, questionPath)
             const form = mutableBp.getForm(moduleIndex, formIndex)!
             ctx.emit('data-form-updated', { moduleIndex, formIndex, form })
-            return { moduleIndex, formIndex, removedQuestionId: questionId }
+            const afterCount = countQuestionsRecursive(form.questions)
+            return { moduleIndex, formIndex, removedQuestionId: questionId, questionCountBefore: beforeCount, questionCountAfter: afterCount }
           } catch (err) {
             return { error: err instanceof Error ? err.message : String(err) }
           }
