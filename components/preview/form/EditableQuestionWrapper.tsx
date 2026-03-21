@@ -63,16 +63,9 @@ export function EditableQuestionWrapper({
     && ctx.builder.selected.formIndex === ctx.formIndex
     && ctx.builder.selected.questionPath === questionPath
 
-  // Scroll selected question into view after selection changes.
-  // 250ms delay accounts for AnimatePresence panel transitions.
   const wrapperRef = useCallback((el: HTMLDivElement | null) => {
     wrapperElRef.current = el
-    if (!el || !isSelected) return
-    const timer = setTimeout(() => {
-      el.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
-    }, 250)
-    return () => clearTimeout(timer)
-  }, [isSelected])
+  }, [])
 
   if (!ctx || ctx.mode === 'test') {
     return <div style={style}>{children}</div>
@@ -92,6 +85,20 @@ export function EditableQuestionWrapper({
     if (closestWrapper && closestWrapper !== e.currentTarget) return
     e.stopPropagation()
     builder.select({ type: 'question', moduleIndex, formIndex, questionPath })
+    // Scroll the matching tree row into view if not already visible
+    const treeRow = document.querySelector(`[data-tree-question="${questionPath}"]`) as HTMLElement | null
+    if (treeRow) {
+      const parent = treeRow.closest('[class*="overflow-auto"]') as HTMLElement | null
+      if (parent) {
+        const parentRect = parent.getBoundingClientRect()
+        const rowRect = treeRow.getBoundingClientRect()
+        const isVisible = rowRect.top >= parentRect.top && rowRect.bottom <= parentRect.bottom
+        if (!isVisible) {
+          treeRow.style.scrollMarginTop = '20px'
+          treeRow.scrollIntoView({ behavior: 'smooth', block: 'start' })
+        }
+      }
+    }
   }, [builder, moduleIndex, formIndex, questionPath])
 
   const mergedStyle = holdReady ? { ...style, cursor: 'grabbing' as const } : style

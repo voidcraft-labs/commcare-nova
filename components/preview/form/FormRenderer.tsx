@@ -54,6 +54,12 @@ interface DragReorderState {
 
 const DragReorderContext = createContext<DragReorderState | null>(null)
 
+/** Shared cursor speed refs from the root FormRenderer to all nested instances. */
+const CursorSpeedContext = createContext<{
+  speedRef: React.RefObject<number>
+  lastRef: React.RefObject<{ x: number; y: number; t: number } | undefined>
+} | null>(null)
+
 /** Build controlled drag state from the question tree. */
 function buildDragState(questions: Question[], activePath: QuestionPath): DragReorderState {
   const itemsMap: Record<string, string[]> = {}
@@ -222,9 +228,12 @@ export function FormRenderer({ questions, engine, prefix = '/data', parentPath }
   const activeDragReorder = isRoot ? dragState : dragCtx
 
   // Cursor velocity tracking (EMA-smoothed, document-level so EMA is warm before cursor reaches insertion points)
-  // Only track at root level — nested FormRenderers share the same refs via renderChildren closure.
-  const cursorSpeedRef = useRef(0)
-  const lastCursorRef = useRef<{ x: number; y: number; t: number } | undefined>(undefined)
+  // Root creates the refs and provides them via CursorSpeedContext; nested instances consume.
+  const cursorCtx = useContext(CursorSpeedContext)
+  const ownSpeedRef = useRef(0)
+  const ownLastRef = useRef<{ x: number; y: number; t: number } | undefined>(undefined)
+  const cursorSpeedRef = isRoot ? ownSpeedRef : (cursorCtx?.speedRef ?? ownSpeedRef)
+  const lastCursorRef = isRoot ? ownLastRef : (cursorCtx?.lastRef ?? ownLastRef)
   useEffect(() => {
     if (!isEditMode || !isRoot) return
     const handler = (e: MouseEvent) => {
@@ -318,6 +327,8 @@ export function FormRenderer({ questions, engine, prefix = '/data', parentPath }
     </div>
   )
 
+  const cursorSpeedCtx = useMemo(() => ({ speedRef: cursorSpeedRef, lastRef: lastCursorRef }), [cursorSpeedRef, lastCursorRef])
+
   // Non-edit mode or nested FormRenderers: just render items (no DragDropProvider).
   // Only the root FormRenderer creates the DragDropProvider so items can drag across all levels.
   if (!isEditMode || !isRoot) {
@@ -325,6 +336,7 @@ export function FormRenderer({ questions, engine, prefix = '/data', parentPath }
   }
 
   return (
+    <CursorSpeedContext.Provider value={cursorSpeedCtx}>
     <DragReorderContext.Provider value={dragState}>
       <DragDropProvider
         sensors={SENSORS}
@@ -462,5 +474,6 @@ export function FormRenderer({ questions, engine, prefix = '/data', parentPath }
         </DragOverlay>
       </DragDropProvider>
     </DragReorderContext.Provider>
+    </CursorSpeedContext.Provider>
   )
 }

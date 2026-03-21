@@ -280,6 +280,16 @@ export function BuilderLayout({ buildId }: { buildId: string }) {
       stack.push({ type: 'form', moduleIndex: sel.moduleIndex, formIndex: sel.formIndex })
     }
     nav.replaceStack(stack)
+    // Scroll the design canvas to the selected question
+    if (sel.questionPath) {
+      setTimeout(() => {
+        const el = document.querySelector(`[data-question-id="${sel.questionPath}"]`) as HTMLElement | null
+        if (el) {
+          el.style.scrollMarginTop = '20px'
+          el.scrollIntoView({ behavior: 'smooth', block: 'start' })
+        }
+      }, 250)
+    }
   }, [builder, nav.replaceStack, nav.reset])
 
   const handleDelete = useCallback(() => {
