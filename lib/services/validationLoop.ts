@@ -27,12 +27,6 @@ export async function validateAndFix(
     const errors = validateBlueprint(blueprint)
 
     if (errors.length === 0) {
-      // TODO: Remove this artificial delay once we integrate CommCare core .jar
-      // validation. Currently our validation is purely deterministic/rule-based and
-      // completes near-instantly when there are no issues, which feels jarring in
-      // the UI. Once we run the full CommCare .jar validator this will take real
-      // time and the delay can be removed.
-      if (attempt === 1) await new Promise(r => setTimeout(r, 3000))
       const hqJson = expandBlueprint(blueprint)
       return { success: true, blueprint, hqJson }
     }
@@ -203,6 +197,55 @@ export function applyProgrammaticFixes(form: BlueprintForm, errors: string[]): v
         if (form.child_cases.length === 0) delete form.child_cases
       }
       continue
+    }
+
+    // Auto-fix unknown functions with case mismatch (e.g. Today() → today())
+    const unknownFuncMatch = err.match(/Unknown function "(\w[\w-]*)[\w-]*\(\)" — did you mean "(\w[\w-]*)[\w-]*\(\)"/)
+    if (unknownFuncMatch) {
+      const wrong = unknownFuncMatch[1]
+      const correct = unknownFuncMatch[2]
+      const qIdMatch = err.match(/Question "(\w+)"/)
+      if (qIdMatch) {
+        const q = findQuestionById(form.questions, qIdMatch[1])
+        if (q) fixFunctionCase(q, wrong, correct)
+      }
+      continue
+    }
+
+    // Auto-fix round(x, 2) → round(x) — common LLM mistake
+    const arityMatch = err.match(/(\w[\w-]*)\(\) accepts at most (\d+) argument/)
+    if (arityMatch && arityMatch[1] === 'round') {
+      const qIdMatch = err.match(/Question "(\w+)"/)
+      if (qIdMatch) {
+        const q = findQuestionById(form.questions, qIdMatch[1])
+        if (q) fixRoundArity(q)
+      }
+      continue
+    }
+  }
+}
+
+/** Fix function name case in all XPath fields (e.g. Today → today). */
+function fixFunctionCase(q: Question, wrong: string, correct: string): void {
+  type XPathField = 'validation' | 'relevant' | 'calculate' | 'default_value' | 'required'
+  const fields: XPathField[] = ['validation', 'relevant', 'calculate', 'default_value', 'required']
+  for (const field of fields) {
+    const val = q[field]
+    if (typeof val === 'string' && val.includes(wrong + '(')) {
+      q[field] = val.replaceAll(wrong + '(', correct + '(')
+    }
+  }
+}
+
+/** Fix round(x, n) → round(x) by stripping the second argument. */
+function fixRoundArity(q: Question): void {
+  type XPathField = 'validation' | 'relevant' | 'calculate' | 'default_value' | 'required'
+  const fields: XPathField[] = ['validation', 'relevant', 'calculate', 'default_value', 'required']
+  for (const field of fields) {
+    const val = q[field]
+    if (typeof val === 'string') {
+      // Match round(expr, expr) and keep only the first argument
+      q[field] = val.replace(/round\(([^,)]+),\s*[^)]+\)/g, 'round($1)')
     }
   }
 }

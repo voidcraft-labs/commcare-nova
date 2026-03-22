@@ -47,7 +47,7 @@ The SA makes all architecture and form design decisions. For forms, it writes Py
 **SA prompt** (`lib/prompts/solutionsArchitectPrompt.ts`) includes a CommCare XPath quick reference so the SA can write correct XPath without hallucinating function signatures (e.g. `round()` takes 1 arg, not 2).
 
 Also re-exports from the split files:
-- `validateAndFix()` (from `validationLoop.ts`) — programmatic validation + fix loop (rule-based fixes + structured output fallback for empty forms). Has an artificial 3s delay when validation passes first attempt — remove once CommCare core .jar is integrated for full validation.
+- `validateAndFix()` (from `validationLoop.ts`) — programmatic validation + fix loop (rule-based fixes + deep XPath validation + structured output fallback for empty forms).
 - `generateSingleFormContent()` (from `formGeneration.ts`) — used by `regenerateForm`.
 
 ## MutableBlueprint
@@ -172,6 +172,17 @@ Programmatic fixes for common CommCare app issues. Used by `validateAndFix()` lo
 ## CommCare Module (commcare/)
 
 Shared platform module: `constants.ts` (reserved words, regex), `xml.ts` (escapeXml), `hashtags.ts` (Vellum expansion), `ids.ts` (hex ID gen), `hqTypes.ts` (HQ JSON interfaces), `hqShells.ts` (factory functions), `validate.ts` (identifier validation).
+
+### Deep Validation (commcare/validate/)
+
+Two-phase XPath validation mirroring how real language compilers work — syntax via Lezer, semantics via tree walker. Operates directly on `AppBlueprint` objects during build and edit, not on compiled output.
+
+- `functionRegistry.ts` — `FUNCTION_REGISTRY`: static `Map<string, {minArgs, maxArgs}>` for all ~65 CommCare XPath functions + XPath 1.0 core. Source of truth: commcare-core's `ASTNodeFunctionCall.java`. Includes custom validators for `cond` (odd arg count) and `weighted-checklist` (even arg count). `findCaseInsensitiveMatch()` powers "did you mean?" suggestions.
+- `xpathValidator.ts` — `validateXPath(expr, validPaths?, caseProperties?)`: comprehensive Lezer CST tree walker. Single pass validates every node: `⚠` → syntax error, `Invoke` → function name + arity, path refs → node existence, `HashtagRef` → case property existence. Pre-resolves node types (same `T` pattern as dependencies.ts/xpath-format.ts).
+- `index.ts` — `validateBlueprintDeep(blueprint)`: orchestrator called by `validateBlueprint()`. Per-form: walks all XPath fields, runs cycle detection via `TriggerDag.reportCycles()`. Cross-form: validates `#case/prop` references against `blueprint.case_types`.
+- `types.ts` — `ValidationError` with codes: `XPATH_SYNTAX`, `UNKNOWN_FUNCTION`, `WRONG_ARITY`, `INVALID_REF`, `INVALID_CASE_REF`, `CYCLE`.
+
+The fix loop in `validationLoop.ts` auto-fixes case-mismatched function names (`Today()` → `today()`) and wrong `round()` arity (`round(x, 2)` → `round(x)`).
 
 ## Run Logging
 

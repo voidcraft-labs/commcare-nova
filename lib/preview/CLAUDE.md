@@ -54,7 +54,7 @@ Case list is a gate for a specific followup form, not a module-level screen. Sel
 - `xpath/dependencies.ts` — extracts `/data/...` path refs from XPath for DAG construction
 - `xpath/rewrite.ts` — Lezer-based XPath rewriting for rename propagation
 - `engine/dataInstance.ts` — flat `Map<path, value>` with repeat group support
-- `engine/triggerDag.ts` — dependency graph + topological cascade ordering
+- `engine/triggerDag.ts` — dependency graph + topological cascade ordering. `reportCycles(questions)` returns cycle paths for validation (used by deep validator); `detectAndBreakCycles()` silently breaks them for preview
 - `engine/outputTag.ts` — parse/resolve/rewrite `<output value="..."/>` tags via htmlparser2
 - `engine/dummyData.ts` — generates realistic placeholder case rows from CaseType
 - `engine/resolveScreen.ts` — auto-attaches dummy case data to follow-up form screens
