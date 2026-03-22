@@ -10,6 +10,7 @@ import { buildXForm } from './xformBuilder'
 import { buildFormActions, buildCaseReferencesLoad } from './formActions'
 import { parser } from '@/lib/codemirror/xpath-parser'
 import { NameTest } from '@/lib/codemirror/xpath-parser.terms'
+import { validateBlueprintDeep } from './commcare/validate/index'
 
 /** XPath fields on questions that should contain valid XPath expressions. */
 const XPATH_FIELDS = ['validation', 'relevant', 'calculate', 'default_value', 'required'] as const
@@ -315,6 +316,9 @@ export function validateBlueprint(blueprint: AppBlueprint): string[] {
 
     }
   }
+
+  // Deep validation: XPath syntax/semantics, cycles, node refs
+  errors.push(...validateBlueprintDeep(blueprint))
 
   return errors
 }

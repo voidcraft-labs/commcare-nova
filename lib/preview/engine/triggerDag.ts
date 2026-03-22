@@ -127,6 +127,69 @@ export class TriggerDag {
     }
   }
 
+  /**
+   * Report all cycles without modifying the graph.
+   * Returns an array of cycle paths (e.g. ['/data/a', '/data/b', '/data/a']).
+   * Must be called after collectExpressions() and before detectAndBreakCycles().
+   */
+  reportCycles(questions: Question[], prefix = '/data'): string[][] {
+    // Build a fresh graph for cycle detection without mutating the instance
+    const nodes = new Map<string, DagNode>()
+    const dependedOnBy = new Map<string, Set<string>>()
+
+    // Temporarily swap in fresh maps, collect, then swap back
+    const savedNodes = this.nodes
+    const savedDeps = this.dependedOnBy
+    this.nodes = nodes
+    this.dependedOnBy = dependedOnBy
+    this.collectExpressions(questions, prefix)
+    this.nodes = savedNodes
+    this.dependedOnBy = savedDeps
+
+    const WHITE = 0, GRAY = 1, BLACK = 2
+    const color = new Map<string, number>()
+    const parent = new Map<string, string>()
+    const cycles: string[][] = []
+
+    for (const path of nodes.keys()) {
+      color.set(path, WHITE)
+    }
+
+    const dfs = (u: string): void => {
+      color.set(u, GRAY)
+      const dependents = dependedOnBy.get(u)
+      if (dependents) {
+        for (const v of dependents) {
+          const c = color.get(v) ?? WHITE
+          if (c === GRAY) {
+            // Back edge — reconstruct cycle
+            const cycle = [v, u]
+            let cur = u
+            while (cur !== v) {
+              cur = parent.get(cur)!
+              if (cur === undefined) break
+              cycle.push(cur)
+            }
+            cycle.reverse()
+            cycles.push(cycle)
+          } else if (c === WHITE) {
+            parent.set(v, u)
+            dfs(v)
+          }
+        }
+      }
+      color.set(u, BLACK)
+    }
+
+    for (const path of nodes.keys()) {
+      if ((color.get(path) ?? WHITE) === WHITE) {
+        dfs(path)
+      }
+    }
+
+    return cycles
+  }
+
   /** DFS cycle detection. If a cycle is found, break it by removing the back-edge. */
   private detectAndBreakCycles(): void {
     const WHITE = 0, GRAY = 1, BLACK = 2
