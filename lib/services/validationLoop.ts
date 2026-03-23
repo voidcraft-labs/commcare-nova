@@ -107,13 +107,10 @@ export function applyProgrammaticFixes(form: BlueprintForm, errors: string[]): v
   for (const err of errors) {
     if (err.includes('has no case_name_field')) {
       const candidate = findCaseNameCandidate(form.questions)
-      if (candidate) candidate.is_case_name = true
-      continue
-    }
-
-    if (err.includes('multiple questions have is_case_name')) {
-      let found = false
-      clearDuplicateCaseNames(form.questions, { found })
+      if (candidate) {
+        candidate.id = 'case_name'
+        candidate.is_case_property = true
+      }
       continue
     }
 
@@ -128,7 +125,7 @@ export function applyProgrammaticFixes(form: BlueprintForm, errors: string[]): v
       const mediaMatch = err.match(/case property "(\w+)" maps to a (\w+) question/)
       if (mediaMatch) {
         const qWithProp = findQuestionByCaseProperty(form.questions, mediaMatch[1])
-        if (qWithProp) delete qWithProp.case_property
+        if (qWithProp) delete qWithProp.is_case_property
       }
       continue
     }
@@ -235,15 +232,17 @@ function fixRoundArity(q: Question): void {
 // ── Question search helpers ──────────────────────────────────────────
 
 function findCaseNameCandidate(questions: Question[]): Question | undefined {
+  // First pass: look for a text question with is_case_property that has "name" in its ID
   for (const q of questions) {
-    if (q.case_property && /name/i.test(q.case_property) && q.type === 'text') return q
+    if (q.is_case_property && /name/i.test(q.id) && q.type === 'text') return q
     if (q.children) {
       const found = findCaseNameCandidate(q.children)
       if (found) return found
     }
   }
+  // Second pass: first question with is_case_property
   for (const q of questions) {
-    if (q.case_property) return q
+    if (q.is_case_property) return q
     if (q.children) {
       const found = findCaseNameCandidate(q.children)
       if (found) return found
@@ -252,23 +251,10 @@ function findCaseNameCandidate(questions: Question[]): Question | undefined {
   return undefined
 }
 
-function clearDuplicateCaseNames(questions: Question[], state: { found: boolean }): void {
-  for (const q of questions) {
-    if (q.is_case_name) {
-      if (state.found) {
-        q.is_case_name = false
-      } else {
-        state.found = true
-      }
-    }
-    if (q.children) clearDuplicateCaseNames(q.children, state)
-  }
-}
-
 function renameReservedProperty(questions: Question[], reserved: string): void {
   for (const q of questions) {
-    if (q.case_property === reserved) {
-      q.case_property = `${reserved}_value`
+    if (q.id === reserved && q.is_case_property) {
+      q.id = `${reserved}_value`
     }
     if (q.children) renameReservedProperty(q.children, reserved)
   }
@@ -276,7 +262,7 @@ function renameReservedProperty(questions: Question[], reserved: string): void {
 
 function findQuestionByCaseProperty(questions: Question[], prop: string): Question | undefined {
   for (const q of questions) {
-    if (q.case_property === prop) return q
+    if (q.id === prop && q.is_case_property) return q
     if (q.children) {
       const found = findQuestionByCaseProperty(q.children, prop)
       if (found) return found

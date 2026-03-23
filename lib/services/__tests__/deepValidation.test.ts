@@ -292,9 +292,9 @@ describe('validateBlueprintDeep', () => {
 
   it('returns no errors for valid blueprint', () => {
     const bp = makeBlueprint([
-      { id: 'name', type: 'text', label: 'Name', case_property: 'full_name', is_case_name: true },
-      { id: 'age', type: 'int', label: 'Age', relevant: "/data/name != ''" },
-    ], [{ name: 'patient', case_name_property: 'full_name', properties: [{ name: 'full_name', label: 'Name' }] }])
+      { id: 'case_name', type: 'text', label: 'Name', is_case_property: true },
+      { id: 'age', type: 'int', label: 'Age', relevant: "/data/case_name != ''" },
+    ], [{ name: 'patient', properties: [{ name: 'case_name', label: 'Name' }] }])
     const errors = validateBlueprintDeep(bp)
     expect(errors).toEqual([])
   })
@@ -328,9 +328,9 @@ describe('validateBlueprintDeep', () => {
 
   it('catches unknown case property in #case/ ref', () => {
     const bp = makeBlueprint([
-      { id: 'name', type: 'text', label: 'Name', case_property: 'full_name', is_case_name: true },
+      { id: 'case_name', type: 'text', label: 'Name', is_case_property: true },
       { id: 'val', type: 'hidden', calculate: '#case/nonexistent + 1' },
-    ], [{ name: 'patient', case_name_property: 'full_name', properties: [{ name: 'full_name', label: 'Name' }] }])
+    ], [{ name: 'patient', properties: [{ name: 'case_name', label: 'Name' }] }])
     const errors = validateBlueprintDeep(bp)
     expect(errors.some(e => e.includes('Unknown case property'))).toBe(true)
   })
@@ -349,13 +349,13 @@ describe('validateBlueprint with deep validation', () => {
           name: 'Reg',
           type: 'registration',
           questions: [
-            { id: 'name', type: 'text', label: 'Name', case_property: 'full_name', is_case_name: true },
+            { id: 'case_name', type: 'text', label: 'Name', is_case_property: true },
             // Deep validation issue: unknown function
             { id: 'calc', type: 'hidden', calculate: 'foobar(1)' },
           ],
         }],
       }],
-      case_types: [{ name: 'patient', case_name_property: 'full_name', properties: [{ name: 'full_name', label: 'Name' }] }],
+      case_types: [{ name: 'patient', properties: [{ name: 'case_name', label: 'Name' }] }],
     }
 
     const errors = validateBlueprint(bp)

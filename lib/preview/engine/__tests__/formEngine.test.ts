@@ -8,9 +8,8 @@ function makeForm(questions: BlueprintForm['questions'], type: BlueprintForm['ty
 
 const sampleCaseTypes: CaseType[] = [{
   name: 'patient',
-  case_name_property: 'full_name',
   properties: [
-    { name: 'full_name', label: 'Full Name' },
+    { name: 'case_name', label: 'Full Name' },
     { name: 'age', label: 'Age', data_type: 'int' },
     { name: 'risk_level', label: 'Risk Level', data_type: 'single_select', options: [
       { value: 'low', label: 'Low' },
@@ -112,8 +111,8 @@ describe('FormEngine', () => {
   describe('data model defaults', () => {
     it('merges case property metadata into questions', () => {
       const form = makeForm([
-        { id: 'patient_name', type: 'text', case_property: 'full_name' },
-        { id: 'patient_age', type: 'int', case_property: 'age' },
+        { id: 'case_name', type: 'text', is_case_property: true },
+        { id: 'age', type: 'int', is_case_property: true },
       ])
       const engine = new FormEngine(form, sampleCaseTypes, 'patient')
       const questions = engine.getQuestions()
@@ -126,14 +125,14 @@ describe('FormEngine', () => {
   describe('followup form preloading', () => {
     it('pre-populates case data into the instance', () => {
       const form = makeForm([
-        { id: 'name', type: 'text', case_property: 'full_name' },
-        { id: 'age', type: 'int', case_property: 'age' },
+        { id: 'case_name', type: 'text', is_case_property: true },
+        { id: 'age', type: 'int', is_case_property: true },
       ], 'followup')
 
-      const caseData = new Map([['full_name', 'Alice'], ['age', '30']])
+      const caseData = new Map([['case_name', 'Alice'], ['age', '30']])
       const engine = new FormEngine(form, sampleCaseTypes, 'patient', caseData)
 
-      expect(engine.getState('/data/name').value).toBe('Alice')
+      expect(engine.getState('/data/case_name').value).toBe('Alice')
       expect(engine.getState('/data/age').value).toBe('30')
     })
   })
@@ -150,25 +149,25 @@ describe('FormEngine', () => {
 
     it('overrides preloaded case data with default_value on followup forms', () => {
       const form = makeForm([
-        { id: 'name', type: 'text', label: 'Name', case_property: 'full_name', default_value: "concat(#case/age, ' - ', #case/full_name)" },
+        { id: 'case_name', type: 'text', label: 'Name', is_case_property: true, default_value: "concat(#case/age, ' - ', #case/case_name)" },
       ], 'followup')
-      const caseData = new Map([['full_name', 'Alice'], ['age', '30']])
+      const caseData = new Map([['case_name', 'Alice'], ['age', '30']])
       const engine = new FormEngine(form, sampleCaseTypes, 'patient', caseData)
 
       // default_value should win over case preload
-      expect(engine.getState('/data/name').value).toBe('30 - Alice')
+      expect(engine.getState('/data/case_name').value).toBe('30 - Alice')
     })
 
     it('overrides preloaded case data after reset()', () => {
       const form = makeForm([
-        { id: 'name', type: 'text', label: 'Name', case_property: 'full_name', default_value: "concat(#case/age, ' - ', #case/full_name)" },
+        { id: 'case_name', type: 'text', label: 'Name', is_case_property: true, default_value: "concat(#case/age, ' - ', #case/case_name)" },
       ], 'followup')
-      const caseData = new Map([['full_name', 'Alice'], ['age', '30']])
+      const caseData = new Map([['case_name', 'Alice'], ['age', '30']])
       const engine = new FormEngine(form, sampleCaseTypes, 'patient', caseData)
 
-      engine.setValue('/data/name', 'user typed this')
+      engine.setValue('/data/case_name', 'user typed this')
       engine.reset()
-      expect(engine.getState('/data/name').value).toBe('30 - Alice')
+      expect(engine.getState('/data/case_name').value).toBe('30 - Alice')
     })
   })
 
@@ -361,10 +360,10 @@ describe('FormEngine', () => {
   describe('output tags', () => {
     it('resolves output tags in labels with #case refs', () => {
       const form = makeForm([
-        { id: 'name', type: 'text', label: 'Name', case_property: 'full_name' },
-        { id: 'greeting', type: 'label', label: 'Hello, <output value="#case/full_name"/>!' },
+        { id: 'case_name', type: 'text', label: 'Name', is_case_property: true },
+        { id: 'greeting', type: 'label', label: 'Hello, <output value="#case/case_name"/>!' },
       ], 'followup')
-      const caseData = new Map([['full_name', 'John Smith']])
+      const caseData = new Map([['case_name', 'John Smith']])
       const engine = new FormEngine(form, sampleCaseTypes, 'patient', caseData)
 
       expect(engine.getState('/data/greeting').resolvedLabel).toBe('Hello, John Smith!')

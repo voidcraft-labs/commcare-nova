@@ -61,10 +61,7 @@ const casePropertySchema = z.object({
 
 const caseTypeSchema = z.object({
   name: z.string().describe('Case type name in snake_case (e.g., "patient", "household")'),
-  case_name_property: z.string().describe(
-    'Which property identifies this case (used as the case name). Must match one of the property names below.'
-  ),
-  properties: z.array(casePropertySchema).describe('Case properties to track. Forms will create questions to capture these.'),
+  properties: z.array(casePropertySchema).describe('Case properties to track. Forms will create questions to capture these. The case name question must always have id "case_name".'),
 })
 
 // ── Case Types Output Schema (for generateSchema tool) ─────────────────
@@ -165,15 +162,12 @@ const questionFields = {
   options: z.array(selectOptionSchema).optional().describe(
     'Options for single_select/multi_select questions — at least 2 options. Omit for all other question types.'
   ),
-  case_property: z.string().optional().describe(
-    'Case property name this question maps to. On registration forms, the answer is saved to this property. ' +
-    'On followup forms, the property value is preloaded into the question AND saved back. ' +
-    'Omit if this question does not map to a case property. ' +
-    `Must NOT be a reserved name: ${RESERVED_CASE_PROPERTIES}. ` +
+  is_case_property: z.boolean().optional().describe(
+    'True if this question\'s value is saved as a case property (property name = question id). ' +
+    'On registration forms, the answer is saved. On followup forms, the value is preloaded AND saved back. ' +
+    'The case name question must always have id "case_name". ' +
+    `Question id must NOT be a reserved name: ${RESERVED_CASE_PROPERTIES}. ` +
     'Must NOT be set on media questions (image, audio, video, signature).'
-  ),
-  is_case_name: z.boolean().optional().describe(
-    'True if this question provides the case name. Registration and followup forms that set or update the case name must have exactly one.'
   ),
 }
 
@@ -274,8 +268,7 @@ export interface Question {
   calculate?: string
   default_value?: string
   options?: Array<{ value: string; label: string }>
-  case_property?: string
-  is_case_name?: boolean
+  is_case_property?: boolean
   children?: Question[]
 }
 export type BlueprintChildCase = z.infer<typeof childCaseSchema>
@@ -323,13 +316,10 @@ export function mergeQuestionDefaults(
   caseTypes?: CaseType[] | null,
   moduleCaseType?: string,
 ): Question {
-  if (!question.case_property || !caseTypes || !moduleCaseType) return question
+  if (!question.is_case_property || !caseTypes || !moduleCaseType) return question
   const ct = caseTypes.find(c => c.name === moduleCaseType)
-  const prop = ct?.properties.find(p => p.name === question.case_property)
+  const prop = ct?.properties.find(p => p.name === question.id)
   if (!prop) return question
-
-  // Auto-derive is_case_name when this question maps to the case name property
-  const isCaseName = question.is_case_name ?? (ct!.case_name_property === question.case_property ? true : undefined)
 
   return {
     ...question,
@@ -340,7 +330,6 @@ export function mergeQuestionDefaults(
     validation: question.validation ?? prop.validation,
     validation_msg: question.validation_msg ?? prop.validation_msg,
     options: question.options ?? prop.options,
-    ...(isCaseName != null && { is_case_name: isCaseName }),
   }
 }
 
@@ -362,13 +351,13 @@ export function mergeFormQuestions(
 // ── Case config derivation ─────────────────────────────────────────────
 
 /**
- * Derive form-level case config from per-question case_property / is_case_name fields.
+ * Derive form-level case config from per-question is_case_property fields.
+ * Case name is always the question with id "case_name".
  * Works on any question-like objects with nested children.
  */
 interface CaseConfigQuestion {
   id: string
-  case_property?: string
-  is_case_name?: boolean
+  is_case_property?: boolean
   children?: CaseConfigQuestion[]
 }
 
@@ -384,12 +373,14 @@ export function deriveCaseConfig(questions: CaseConfigQuestion[], formType: 'reg
 
   function walk(qs: CaseConfigQuestion[]) {
     for (const q of qs) {
-      if (q.is_case_name) case_name_field = q.id
-      if (q.case_property) {
+      if (q.id === 'case_name' && q.is_case_property) {
+        // case_name is handled via case_name_field / name_update, not case_properties
+        case_name_field = q.id
+      } else if (q.is_case_property) {
         if (formType === 'followup') {
-          preload.push({ case_property: q.case_property, question_id: q.id })
+          preload.push({ case_property: q.id, question_id: q.id })
         }
-        props.push({ case_property: q.case_property, question_id: q.id })
+        props.push({ case_property: q.id, question_id: q.id })
       }
       if (q.children) walk(q.children)
     }

@@ -150,8 +150,8 @@ Split across three files:
 - Secondary instances (`casedb`, `commcaresession`) auto-declared when hashtags are used.
 
 **Case config derivation** (`deriveCaseConfig()`):
-- Registration: `case_property` → `case_properties` map. `is_case_name` → `case_name_field`.
-- Followup: `case_property` → both `case_preload` and `case_properties`. `is_case_name` → `case_name_field`.
+- Registration: `is_case_property` questions → `case_properties` map (property name = question ID). `id === 'case_name'` → `case_name_field`.
+- Followup: `is_case_property` questions → both `case_preload` and `case_properties`. `id === 'case_name'` → `case_name_field`.
 - Survey: no case config.
 
 Called on-demand by expander and validator — no form-level case fields stored.

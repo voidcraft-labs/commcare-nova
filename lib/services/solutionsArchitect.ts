@@ -39,7 +39,7 @@ function countQuestionsRecursive(questions: Question[]): number {
 function collectCaseProperties(questions: Question[]): string[] {
   const props: string[] = []
   for (const q of questions) {
-    if (q.case_property) props.push(q.case_property)
+    if (q.is_case_property) props.push(q.id)
     if (q.children) props.push(...collectCaseProperties(q.children))
   }
   return props
@@ -48,7 +48,7 @@ function collectCaseProperties(questions: Question[]): string[] {
 interface QuestionSummary {
   id: string
   type: string
-  case_property?: string
+  is_case_property?: true
   children?: QuestionSummary[]
 }
 
@@ -56,7 +56,7 @@ interface QuestionSummary {
 function summarizeQuestions(questions: Question[]): QuestionSummary[] {
   return questions.map(q => {
     const entry: QuestionSummary = { id: q.id, type: q.type }
-    if (q.case_property) entry.case_property = q.case_property
+    if (q.is_case_property) entry.is_case_property = true
     if (q.children?.length) entry.children = summarizeQuestions(q.children)
     return entry
   })
@@ -211,7 +211,7 @@ export function createSolutionsArchitect(
           appName: z.string().describe('Short app name (2-5 words)'),
           description: z.string().describe(
             'Thorough description of all case types needed: what entities to track, what properties each needs, ' +
-            'how they relate to each other, and what the case_name_property should be for each.'
+            'and how they relate to each other. The case name question is always id "case_name".'
           ),
         }),
         onInputStart: () => {
@@ -244,7 +244,6 @@ export function createSolutionsArchitect(
             appName,
             caseTypes: result.case_types.map(ct => ({
               name: ct.name,
-              case_name_property: ct.case_name_property,
               propertyCount: ct.properties.length,
               properties: ct.properties.map(p => p.name),
             })),
@@ -362,11 +361,10 @@ export function createSolutionsArchitect(
             id: z.string(),
             type: z.enum(QUESTION_TYPES),
             parentId: z.string().describe('Parent group/repeat ID. Empty string for top-level.'),
-            // Required sentinels (4) — almost always present, low cost as empty values
+            // Required sentinels (3) — almost always present, low cost as empty values
             label: z.string().describe('Question label. Empty string for hidden questions.'),
             required: z.string().describe('"true()" if always required, XPath for conditional. Empty string if not required.'),
-            case_property: z.string().describe('Case property name. Empty string if not mapped.'),
-            is_case_name: z.boolean().describe('True if this is the case name field. False if not.'),
+            is_case_property: z.boolean().describe('True if this question saves to case (property name = question id). The case name question must have id "case_name". False if not mapped.'),
             // Optionals (8) — sparse, saves tokens when absent
             hint: z.string().optional(),
             help: z.string().optional(),
@@ -495,8 +493,7 @@ export function createSolutionsArchitect(
             calculate: z.string().nullable().optional().describe('XPath computed value'),
             default_value: z.string().nullable().optional().describe('XPath initial value'),
             options: z.array(selectOptionSchema).nullable().optional(),
-            case_property: z.string().nullable().optional(),
-            is_case_name: z.boolean().optional(),
+            is_case_property: z.boolean().optional(),
           }).describe('Fields to update. Only include fields you want to change.'),
         }),
         execute: async ({ moduleIndex, formIndex, questionId, updates }) => {
@@ -530,8 +527,7 @@ export function createSolutionsArchitect(
             calculate: z.string().optional(),
             default_value: z.string().optional(),
             options: z.array(selectOptionSchema).optional(),
-            case_property: z.string().optional(),
-            is_case_name: z.boolean().optional(),
+            is_case_property: z.boolean().optional(),
           }),
           afterQuestionId: z.string().optional().describe('Insert after this question ID. Omit to append at end.'),
           beforeQuestionId: z.string().optional().describe('Insert before this question ID. Takes precedence over afterQuestionId.'),

@@ -49,8 +49,7 @@ export interface QuestionUpdate {
   calculate: string | null
   default_value: string | null
   options: Array<{ value: string; label: string }> | null
-  case_property: string | null
-  is_case_name: boolean | null
+  is_case_property: boolean | null
 }
 
 // ── NewQuestion type ────────────────────────────────────────────────────
@@ -68,8 +67,7 @@ export interface NewQuestion {
   calculate?: string
   default_value?: string
   options?: Array<{ value: string; label: string }>
-  case_property?: string
-  is_case_name?: boolean
+  is_case_property?: boolean
   children?: NewQuestion[]
 }
 
@@ -197,7 +195,7 @@ export class MutableBlueprint {
 
       if (q.id.toLowerCase().includes(query)) matchFields.push({ field: 'id', value: q.id })
       if (q.label && q.label.toLowerCase().includes(query)) matchFields.push({ field: 'label', value: q.label })
-      if (q.case_property?.toLowerCase().includes(query)) matchFields.push({ field: 'case_property', value: q.case_property })
+      if (q.is_case_property && q.id.toLowerCase().includes(query)) matchFields.push({ field: 'case_property', value: q.id })
       if (q.validation?.toLowerCase().includes(query)) matchFields.push({ field: 'validation', value: q.validation })
       if (q.relevant?.toLowerCase().includes(query)) matchFields.push({ field: 'relevant', value: q.relevant })
       if (q.calculate?.toLowerCase().includes(query)) matchFields.push({ field: 'calculate', value: q.calculate })
@@ -224,7 +222,7 @@ export class MutableBlueprint {
           questionPath,
           field: match.field,
           value: match.value,
-          context: `${formRef} question "${q.id}" (${q.type}${q.case_property ? `, case_property: ${q.case_property}` : ''})`,
+          context: `${formRef} question "${q.id}" (${q.type}${q.is_case_property ? ', case_property' : ''})`,
         })
       }
 
@@ -365,9 +363,8 @@ export class MutableBlueprint {
     }
     clone.id = newId
 
-    // Clear case mappings on the clone to avoid duplicate mappings
-    delete clone.case_property
-    delete (clone as any).is_case_name
+    // Clear case mapping on the clone to avoid duplicate mappings
+    delete clone.is_case_property
 
     // Insert after original in same parent array
     this.insertIntoArray(found.parent, clone, qpathId(questionPath))
@@ -472,13 +469,12 @@ export class MutableBlueprint {
     const formsChanged: string[] = []
     const columnsChanged: string[] = []
 
-    // Rename in case_types definition
+    // Rename in case_types definition (if present)
     if (this.blueprint.case_types) {
       const ct = this.blueprint.case_types.find(c => c.name === caseType)
       if (ct) {
         const prop = ct.properties.find(p => p.name === oldName)
         if (prop) prop.name = newName
-        if (ct.case_name_property === oldName) ct.case_name_property = newName
       }
     }
 
@@ -503,7 +499,7 @@ export class MutableBlueprint {
         const form = mod.forms[fIdx]
         let formChanged = false
 
-        // Questions
+        // Rename question IDs and rewrite XPath refs
         formChanged = this.renamePropertyInQuestions(form.questions, oldName, newName) || formChanged
 
         // Child cases
@@ -648,8 +644,7 @@ export class MutableBlueprint {
       ...(nq.calculate != null && { calculate: nq.calculate }),
       ...(nq.default_value != null && { default_value: nq.default_value }),
       ...(nq.options != null && { options: nq.options }),
-      ...(nq.case_property != null && { case_property: nq.case_property }),
-      ...(nq.is_case_name != null && { is_case_name: nq.is_case_name }),
+      ...(nq.is_case_property != null && { is_case_property: nq.is_case_property }),
       ...((nq.type === 'group' || nq.type === 'repeat') && {
         children: (nq.children ?? []).map(c => this.newQuestionToBlueprint(c)),
       }),
@@ -690,17 +685,21 @@ export class MutableBlueprint {
   private renamePropertyInQuestions(questions: Question[], oldName: string, newName: string): boolean {
     const xpathFields = ['relevant', 'calculate', 'default_value', 'validation'] as const
     const displayFields = ['label', 'hint'] as const
-    const rewriter = (expr: string) => rewriteHashtagRefs(expr, '#case/', oldName, newName)
+    const hashtagRewriter = (expr: string) => rewriteHashtagRefs(expr, '#case/', oldName, newName)
+    const pathRewriter = (expr: string) => rewriteXPathRefs(expr, oldName, newName)
     let changed = false
     for (const q of questions) {
-      if (q.case_property === oldName) {
-        q.case_property = newName
+      // Rename question ID (since question ID = property name)
+      if (q.id === oldName && q.is_case_property) {
+        q.id = newName
         changed = true
       }
       for (const field of xpathFields) {
         const val = q[field]
         if (!val) continue
-        const rewritten = rewriter(val)
+        // Rewrite both #case/old → #case/new and /data/old → /data/new
+        let rewritten = hashtagRewriter(val)
+        rewritten = pathRewriter(rewritten)
         if (rewritten !== val) {
           ;(q as any)[field] = rewritten
           changed = true
@@ -709,7 +708,7 @@ export class MutableBlueprint {
       for (const field of displayFields) {
         const text = q[field]
         if (!text) continue
-        const rewritten = rewriteOutputTags(text, rewriter)
+        const rewritten = rewriteOutputTags(text, (expr) => pathRewriter(hashtagRewriter(expr)))
         if (rewritten !== text) {
           ;(q as any)[field] = rewritten
           changed = true

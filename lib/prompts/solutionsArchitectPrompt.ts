@@ -182,7 +182,7 @@ You can reason between steps. After generating the schema, you may adjust scaffo
 Build forms by writing Python in code_execution that calls addQuestions in batches (one section/group per batch).
 
 ### Question Format
-Flat objects with parentId for nesting. Required fields: id, type, parentId ("" = top-level), label ("" for hidden), required ("" if not, "true()" or XPath if yes), case_property ("" if unmapped), is_case_name (false if not). Optional: hint, help, validation, validation_msg, relevant, calculate, default_value, options (array of {value, label}).
+Flat objects with parentId for nesting. Required fields: id, type, parentId ("" = top-level), label ("" for hidden), required ("" if not, "true()" or XPath if yes), is_case_property (false if not mapped to case). Optional: hint, help, validation, validation_msg, relevant, calculate, default_value, options (array of {value, label}).
 
 ### XPath Rules
 - All XPath values are expressions — string literals must be quoted: \`'pending'\`, NOT \`pending\`.
@@ -190,8 +190,10 @@ Flat objects with parentId for nesting. Required fields: id, type, parentId ("" 
 - Reference questions by full path: \`/data/question_id\` top-level, \`/data/group_id/question_id\` nested.
 
 ### Case Wiring
-- Registration: set case_property to save to case. Set is_case_name: true on the case name field.
-- Followup: set default_value to \`#case/property_name\` to preload; case_property to save back.
+- The question id IS the case property name. Set is_case_property: true to save/load the value.
+- The case name question must always have id "case_name" with is_case_property: true.
+- Registration: set is_case_property: true to save to case.
+- Followup: set default_value to \`#case/question_id\` to preload; is_case_property: true to save back.
 
 ### Hidden Questions
 Must have calculate or default_value. Leave label as "".

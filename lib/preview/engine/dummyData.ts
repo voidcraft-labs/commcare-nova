@@ -114,8 +114,8 @@ function generateDummyCases(caseType: CaseType, count = 6): DummyCaseRow[] {
       properties.set(prop.name, generateValue(prop.name, prop.data_type, prop.options))
     }
 
-    // Derive case_name from case_name_property
-    const caseName = properties.get(caseType.case_name_property) ?? `Case ${i + 1}`
+    // case_name is always the "case_name" property
+    const caseName = properties.get('case_name') ?? `Case ${i + 1}`
     properties.set('case_name', caseName)
 
     rows.push({
