@@ -47,7 +47,9 @@ Case list is a gate for a specific followup form, not a module-level screen. Sel
 
 ## Case Data Resolution
 
-`usePreviewNav` auto-resolves case data for every screen entering the nav stack via `resolveScreen()`. Follow-up form screens without explicit `caseData` get auto-generated dummy data; screens with existing caseData (from CaseList user selection) are preserved. This is the **single place** to change when real case data is implemented.
+`usePreviewNav` auto-resolves case data for every screen entering the nav stack via `resolveScreen()`. Follow-up form screens without explicit `caseData` get dummy data from `getDummyCases()`; screens with existing caseData (from CaseList user selection) are preserved.
+
+Dummy case data is generated once per case type and cached at the module level in `dummyData.ts`. Both `CaseListScreen` and `resolveScreen` read from this same cache via `getDummyCases()`, so the case list table, breadcrumb case name, and form preload values are always consistent. When real case data replaces dummy data, swap `getDummyCases()` — it is the single entry point.
 
 ## Key Files
 
@@ -56,5 +58,5 @@ Case list is a gate for a specific followup form, not a module-level screen. Sel
 - `engine/dataInstance.ts` — flat `Map<path, value>` with repeat group support
 - `engine/triggerDag.ts` — dependency graph + topological cascade ordering. `reportCycles(questions)` returns cycle paths for validation (used by deep validator); `detectAndBreakCycles()` silently breaks them for preview
 - `engine/outputTag.ts` — parse/resolve/rewrite `<output value="..."/>` tags via htmlparser2
-- `engine/dummyData.ts` — generates realistic placeholder case rows from CaseType
-- `engine/resolveScreen.ts` — auto-attaches dummy case data to follow-up form screens
+- `engine/dummyData.ts` — generates and caches realistic placeholder case rows from CaseType. `getDummyCases()` is the single read entry point; `generateDummyCases()` is internal
+- `engine/resolveScreen.ts` — auto-attaches dummy case data (from `getDummyCases()`) to follow-up form screens

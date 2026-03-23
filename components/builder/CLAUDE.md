@@ -36,7 +36,7 @@ Full-width 3-column grid: left spacer, center `ViewModeToggle` (`components/prev
 
 - **Design ↔ Preview**: Nav is shared (no sync needed). Selection preserved but invisible in preview mode. Preview → Design preserves existing selection state — sidebar only opens if user had something selected before entering preview. Design → Preview auto-focuses the selected question's input. **Flipbook scroll sync**: `handleViewModeChange` captures the topmost visible question's `data-question-id` and its pixel offset from the scroll container top before calling `setState`. A `useLayoutEffect` on `viewMode` then restores the scroll position before paint — finding the same element (or the nearest visible question above it if the anchor is hidden by relevancy) and adjusting `scrollTop` to match the captured offset. The scroll container is identified via `[data-preview-scroll-container]` on PreviewShell's inner scroll div.
 - **Escape in preview**: Switches to design without nav sync (stays on current screen).
-- **Structure tree selection**: `handleTreeSelect` in BuilderLayout calls both `builder.select()` and `nav.replaceStack()` so clicking a tree item navigates the canvas to the corresponding form and opens the detail panel.
+- **Structure tree selection**: `handleTreeSelect` in BuilderLayout calls both `builder.select()` and `nav.replaceStack()` (via `buildNavStack()`) so clicking a tree item navigates the canvas to the corresponding form and opens the detail panel. For follow-up forms, `buildNavStack()` inserts a `caseList` screen before the `form` screen so breadcrumbs correctly show the form name.
 
 When `Done` + blueprint exists:
 - `'design'` → `PreviewShell` (editable canvas) + `LeftPanel` (overlay left, Chat/Structure tabs) + `DetailPanel` (overlay right)
@@ -63,7 +63,7 @@ Keyboard shortcuts extracted to `useBuilderShortcuts.ts` hook, registered via `u
 
 ### Undo/Redo View Restoration
 
-Undo/redo "teleports" the user back to where the edit was made. Each history snapshot captures the current `ViewMode`. On undo/redo, `builder.undo()`/`redo()` return the captured view mode. BuilderLayout's `restoreView()` switches viewMode if needed and syncs the preview nav stack to the restored selection (so the correct form is visible in design/preview mode). `builder.setViewMode()` keeps the HistoryManager in sync on each render.
+Undo/redo "teleports" the user back to where the edit was made. Each history snapshot captures the current `ViewMode`. On undo/redo, `builder.undo()`/`redo()` return the captured view mode. BuilderLayout's `restoreView()` switches viewMode if needed and syncs the preview nav stack to the restored selection via `buildNavStack()` (so the correct form is visible in design/preview mode, with caseList inserted for follow-up forms). `builder.setViewMode()` keeps the HistoryManager in sync on each render.
 
 ## DetailPanel
 

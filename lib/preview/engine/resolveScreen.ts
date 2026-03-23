@@ -1,6 +1,6 @@
 import type { PreviewScreen } from './types'
 import type { AppBlueprint } from '@/lib/schemas/blueprint'
-import { generateDummyCases } from './dummyData'
+import { getDummyCases } from './dummyData'
 
 /**
  * Ensures a PreviewScreen has case data when needed.
@@ -18,7 +18,7 @@ export function resolveScreen(screen: PreviewScreen, blueprint: AppBlueprint): P
   const caseType = blueprint.case_types?.find(ct => ct.name === mod.case_type)
   if (!caseType) return screen
 
-  const rows = generateDummyCases(caseType, 1)
+  const rows = getDummyCases(caseType)
   if (!rows[0]) return screen
 
   return { ...screen, caseData: rows[0].properties }

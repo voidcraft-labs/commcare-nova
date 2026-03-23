@@ -81,11 +81,24 @@ function generateValue(name: string, dataType: string | undefined, options?: { v
   }
 }
 
+// ── Cache: one set of dummy rows per case type name ──────────────────────────
+const cache = new Map<string, DummyCaseRow[]>()
+
 /**
- * Generate realistic dummy case rows from a CaseType definition.
- * @param count Number of rows to generate (default: 6)
+ * Return cached dummy rows for a case type, generating once on first access.
+ * Both CaseListScreen and resolveScreen read from here so the data is consistent.
+ * When real case data replaces this, swap this single call site.
  */
-export function generateDummyCases(caseType: CaseType, count = 6): DummyCaseRow[] {
+export function getDummyCases(caseType: CaseType, count = 6): DummyCaseRow[] {
+  const cached = cache.get(caseType.name)
+  if (cached) return cached
+  const rows = generateDummyCases(caseType, count)
+  cache.set(caseType.name, rows)
+  return rows
+}
+
+/** Generate realistic dummy case rows from a CaseType definition. */
+function generateDummyCases(caseType: CaseType, count = 6): DummyCaseRow[] {
   const rows: DummyCaseRow[] = []
 
   for (let i = 0; i < count; i++) {
