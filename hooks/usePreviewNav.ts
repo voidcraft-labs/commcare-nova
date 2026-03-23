@@ -38,59 +38,35 @@ export function usePreviewNav(blueprint?: AppBlueprint) {
     })
   }, [resolve])
 
-  // ── Typed navigation methods — idempotent, skip if already there ────
+  // Idempotent push — skips if already on the target screen
+  const pushIfDifferent = useCallback((screen: PreviewScreen) => {
+    setState(prev => {
+      if (screensEqual(prev.entries[prev.cursor], screen)) return prev
+      const newEntries = [...prev.entries.slice(0, prev.cursor + 1), screen]
+      if (newEntries.length > MAX_HISTORY) {
+        return { entries: newEntries.slice(newEntries.length - MAX_HISTORY), cursor: MAX_HISTORY - 1 }
+      }
+      return { entries: newEntries, cursor: prev.cursor + 1 }
+    })
+  }, [])
+
+  // ── Typed navigation methods ────────────────────────────────────────
 
   const navigateToHome = useCallback(() => {
-    setState(prev => {
-      const cur = prev.entries[prev.cursor]
-      const target: PreviewScreen = { type: 'home' }
-      if (screensEqual(cur, target)) return prev
-      const newEntries = [...prev.entries.slice(0, prev.cursor + 1), target]
-      if (newEntries.length > MAX_HISTORY) {
-        return { entries: newEntries.slice(newEntries.length - MAX_HISTORY), cursor: MAX_HISTORY - 1 }
-      }
-      return { entries: newEntries, cursor: prev.cursor + 1 }
-    })
-  }, [])
+    pushIfDifferent({ type: 'home' })
+  }, [pushIfDifferent])
 
   const navigateToModule = useCallback((moduleIndex: number) => {
-    setState(prev => {
-      const cur = prev.entries[prev.cursor]
-      const target: PreviewScreen = { type: 'module', moduleIndex }
-      if (screensEqual(cur, target)) return prev
-      const newEntries = [...prev.entries.slice(0, prev.cursor + 1), target]
-      if (newEntries.length > MAX_HISTORY) {
-        return { entries: newEntries.slice(newEntries.length - MAX_HISTORY), cursor: MAX_HISTORY - 1 }
-      }
-      return { entries: newEntries, cursor: prev.cursor + 1 }
-    })
-  }, [])
+    pushIfDifferent({ type: 'module', moduleIndex })
+  }, [pushIfDifferent])
 
   const navigateToForm = useCallback((moduleIndex: number, formIndex: number) => {
-    const resolved = resolve({ type: 'form', moduleIndex, formIndex })
-    setState(prev => {
-      const cur = prev.entries[prev.cursor]
-      if (screensEqual(cur, resolved)) return prev
-      const newEntries = [...prev.entries.slice(0, prev.cursor + 1), resolved]
-      if (newEntries.length > MAX_HISTORY) {
-        return { entries: newEntries.slice(newEntries.length - MAX_HISTORY), cursor: MAX_HISTORY - 1 }
-      }
-      return { entries: newEntries, cursor: prev.cursor + 1 }
-    })
-  }, [resolve])
+    pushIfDifferent(resolve({ type: 'form', moduleIndex, formIndex }))
+  }, [pushIfDifferent, resolve])
 
   const navigateToCaseList = useCallback((moduleIndex: number, formIndex: number) => {
-    setState(prev => {
-      const cur = prev.entries[prev.cursor]
-      const target: PreviewScreen = { type: 'caseList', moduleIndex, formIndex }
-      if (screensEqual(cur, target)) return prev
-      const newEntries = [...prev.entries.slice(0, prev.cursor + 1), target]
-      if (newEntries.length > MAX_HISTORY) {
-        return { entries: newEntries.slice(newEntries.length - MAX_HISTORY), cursor: MAX_HISTORY - 1 }
-      }
-      return { entries: newEntries, cursor: prev.cursor + 1 }
-    })
-  }, [])
+    pushIfDifferent({ type: 'caseList', moduleIndex, formIndex })
+  }, [pushIfDifferent])
 
   // Go back one step in history, returns the new current screen
   const back = useCallback((): PreviewScreen | undefined => {
