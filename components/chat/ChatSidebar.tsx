@@ -1,5 +1,5 @@
 'use client'
-import { useRef, useCallback } from 'react'
+import { useRef, useCallback, useEffect } from 'react'
 import { motion, AnimatePresence } from 'motion/react'
 import type { UIMessage } from 'ai'
 import { Icon } from '@iconify/react'
@@ -9,6 +9,10 @@ import { BuilderPhase } from '@/lib/services/builder'
 import { ChatMessage } from '@/components/chat/ChatMessage'
 import { ChatInput } from '@/components/chat/ChatInput'
 import { ThinkingIndicator } from '@/components/chat/ThinkingIndicator'
+
+// ── Module-level scroll state persisted across ChatSidebar instances ──
+let chatScrollPinned = true
+let chatScrollTop = 0
 
 interface ChatSidebarProps {
   messages: UIMessage[]
@@ -41,6 +45,9 @@ export function ChatSidebar({
   const pendingAnswerRef = useRef<((text: string) => void) | null>(null)
   const isCentered = mode === 'centered'
   const isEmbedded = mode === 'sidebar-embedded'
+  const scrollElRef = useRef<HTMLDivElement | null>(null)
+  const isNearBottomRef = useRef(chatScrollPinned)
+  const isUserHoldingRef = useRef(false)
 
   // Route typed messages as question answers when a QuestionCard is waiting
   const handleSend = useCallback((text: string) => {
@@ -51,16 +58,101 @@ export function ChatSidebar({
     }
   }, [onSend])
 
-  // Auto-scroll to bottom when new messages are added.
-  // MutationObserver watches for DOM child changes and scrolls on each mutation.
+  // Smart scroll management: auto-scroll when near bottom, respect user scroll hold,
+  // persist state across instances (tab switch, center → sidebar transition).
   const scrollRef = useCallback((el: HTMLDivElement | null) => {
+    scrollElRef.current = el
     if (!el) return
-    const observer = new MutationObserver(() => {
+
+    const THRESHOLD = 50
+    let animFrameId: number | undefined
+
+    const wasAtBottom = chatScrollPinned
+    isNearBottomRef.current = wasAtBottom
+
+    if (wasAtBottom) {
       el.scrollTop = el.scrollHeight
-    })
-    observer.observe(el, { childList: true, subtree: true })
-    return () => observer.disconnect()
+      // Keep pinning during layout animation (center → sidebar, ~500ms)
+      const startTime = performance.now()
+      const pin = () => {
+        if (performance.now() - startTime > 600) return
+        if (isNearBottomRef.current && !isUserHoldingRef.current) {
+          el.scrollTop = el.scrollHeight
+        }
+        animFrameId = requestAnimationFrame(pin)
+      }
+      animFrameId = requestAnimationFrame(pin)
+    } else {
+      el.scrollTop = chatScrollTop
+    }
+
+    const autoScroll = () => {
+      if (isNearBottomRef.current && !isUserHoldingRef.current) {
+        el.scrollTop = el.scrollHeight
+      }
+    }
+
+    const checkNearBottom = () => {
+      isNearBottomRef.current = el.scrollTop + el.clientHeight >= el.scrollHeight - THRESHOLD
+    }
+
+    const onScroll = () => {
+      if (!isUserHoldingRef.current) checkNearBottom()
+    }
+    const onMouseDown = () => { isUserHoldingRef.current = true }
+    const onMouseUp = () => {
+      isUserHoldingRef.current = false
+      checkNearBottom()
+    }
+
+    const mutationObserver = new MutationObserver(autoScroll)
+    mutationObserver.observe(el, { childList: true, subtree: true })
+
+    const resizeObserver = new ResizeObserver(autoScroll)
+    resizeObserver.observe(el)
+
+    el.addEventListener('scroll', onScroll, { passive: true })
+    el.addEventListener('mousedown', onMouseDown)
+    document.addEventListener('mouseup', onMouseUp)
+
+    return () => {
+      chatScrollPinned = isNearBottomRef.current
+      chatScrollTop = el.scrollTop
+      if (animFrameId !== undefined) cancelAnimationFrame(animFrameId)
+      mutationObserver.disconnect()
+      resizeObserver.disconnect()
+      el.removeEventListener('scroll', onScroll)
+      el.removeEventListener('mousedown', onMouseDown)
+      document.removeEventListener('mouseup', onMouseUp)
+      scrollElRef.current = null
+    }
   }, [])
+
+  // ── Auto-scroll question cards into view when they appear ──
+  let activeQuestionCount = 0
+  for (const msg of messages) {
+    for (const part of msg.parts as any[]) {
+      if (part.type === 'tool-askQuestions' && part.state === 'input-available') {
+        activeQuestionCount++
+      }
+    }
+  }
+
+  const prevActiveQCountRef = useRef(0)
+  useEffect(() => {
+    if (activeQuestionCount > prevActiveQCountRef.current && scrollElRef.current && !isUserHoldingRef.current) {
+      requestAnimationFrame(() => {
+        const el = scrollElRef.current
+        if (!el) return
+        const cards = el.querySelectorAll('[data-question-card="waiting"]')
+        const lastCard = cards[cards.length - 1] as HTMLElement | undefined
+        if (lastCard) {
+          lastCard.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
+        }
+      })
+    }
+    prevActiveQCountRef.current = activeQuestionCount
+  }, [activeQuestionCount])
 
   // Embedded mode — just messages + input, no chrome. Parent (LeftPanel) provides the shell.
   if (isEmbedded) {

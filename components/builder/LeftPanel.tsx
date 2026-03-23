@@ -76,8 +76,13 @@ export function LeftPanel({
       </div>
 
       {/* Tab content */}
-      <div className="flex-1 overflow-hidden flex flex-col">
-        {activeTab === 'chat' && (
+      <div className="flex-1 overflow-hidden flex flex-col relative">
+        {/* Chat stays mounted to preserve scroll position — hidden via CSS when structure tab active */}
+        <div className={
+          activeTab === 'chat'
+            ? 'flex flex-col flex-1 min-h-0'
+            : 'flex flex-col absolute inset-0 overflow-hidden invisible pointer-events-none'
+        }>
           <ErrorBoundary>
             <ChatSidebar
               mode="sidebar-embedded"
@@ -88,7 +93,7 @@ export function LeftPanel({
               readOnly={readOnly}
             />
           </ErrorBoundary>
-        )}
+        </div>
         {activeTab === 'structure' && (
           <ErrorBoundary>
             <AppTree
