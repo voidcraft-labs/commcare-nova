@@ -43,13 +43,13 @@ Home (module cards)
     → Followup → Case list ("Select a case") → Form with case data
 ```
 
-Case list is a gate for a specific followup form, not a module-level screen. Selected row passes properties as `caseData` to `FormEngine`. Breadcrumbs for follow-up forms show the selected case name (from `caseData.get('case_name')`) instead of repeating the form name.
+Case list is a gate for a specific followup form, not a module-level screen. Selected row passes `caseId` to the form screen via the nav stack. Breadcrumbs for follow-up forms show the selected case name (looked up by `caseId` via `getCaseData()`).
 
 ## Case Data Resolution
 
-`usePreviewNav` auto-resolves case data for every screen entering the nav stack via `resolveScreen()`. Follow-up form screens without explicit `caseData` get dummy data from `getDummyCases()`; screens with existing caseData (from CaseList user selection) are preserved.
+The nav stack only carries `caseId` — case data is resolved at the point of use, not stored in navigation state. `FormScreen` looks up case data by `caseId` via `getCaseData()` and passes the resulting `Map<string, string>` to `FormEngine`. Breadcrumbs similarly look up case names by `caseId`. This separation means swapping the data source (dummy → real API) only requires changing the lookup functions in `dummyData.ts`.
 
-Dummy case data is generated once per case type and cached at the module level in `dummyData.ts`. Both `CaseListScreen` and `resolveScreen` read from this same cache via `getDummyCases()`, so the case list table, breadcrumb case name, and form preload values are always consistent. When real case data replaces dummy data, swap `getDummyCases()` — it is the single entry point.
+Dummy case data is generated once per case type and cached at the module level in `dummyData.ts`. `getDummyCases()` returns all rows (used by `CaseListScreen`); `getCaseData(caseTypeName, caseId)` returns a single case's properties by ID (used by `FormScreen` and breadcrumbs).
 
 ## Key Files
 
@@ -58,5 +58,4 @@ Dummy case data is generated once per case type and cached at the module level i
 - `engine/dataInstance.ts` — flat `Map<path, value>` with repeat group support
 - `engine/triggerDag.ts` — dependency graph + topological cascade ordering. `reportCycles(questions)` returns cycle paths for validation (used by deep validator); `detectAndBreakCycles()` silently breaks them for preview
 - `engine/outputTag.ts` — parse/resolve/rewrite `<output value="..."/>` tags via htmlparser2
-- `engine/dummyData.ts` — generates and caches realistic placeholder case rows from CaseType. `getDummyCases()` is the single read entry point; `generateDummyCases()` is internal
-- `engine/resolveScreen.ts` — auto-attaches dummy case data (from `getDummyCases()`) to follow-up form screens
+- `engine/dummyData.ts` — generates and caches realistic placeholder case rows from CaseType. `getDummyCases()` returns all rows; `getCaseData(caseTypeName, caseId)` looks up a single case by ID

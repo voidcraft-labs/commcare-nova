@@ -42,7 +42,6 @@ export function CaseListScreen({ blueprint, moduleIndex, formIndex, onNavigate, 
       moduleIndex,
       formIndex,
       caseId: row.case_id,
-      caseData: row.properties,
     })
   }
 

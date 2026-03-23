@@ -21,7 +21,7 @@ export type PreviewScreen =
   | { type: 'home' }
   | { type: 'module'; moduleIndex: number }
   | { type: 'caseList'; moduleIndex: number; formIndex: number }
-  | { type: 'form'; moduleIndex: number; formIndex: number; caseId?: string; caseData?: Map<string, string> }
+  | { type: 'form'; moduleIndex: number; formIndex: number; caseId?: string }
 
 export function screensEqual(a: PreviewScreen, b: PreviewScreen): boolean {
   if (a.type !== b.type) return false
