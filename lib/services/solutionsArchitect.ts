@@ -182,6 +182,9 @@ export function createSolutionsArchitect(
           appName: z.string().describe('Short app name (2-5 words)'),
           caseTypes: caseTypesOutputSchema.shape.case_types,
         }),
+        providerOptions: {
+          anthropic: { allowedCallers: ['code_execution_20260120'] },
+        },
         onInputStart: () => {
           ctx.emit('data-start-build', {})
         },
@@ -206,6 +209,9 @@ export function createSolutionsArchitect(
       generateScaffold: tool({
         description: 'Set the module and form structure for the app. Call after generateSchema. Provide the complete scaffold directly.',
         inputSchema: scaffoldModulesSchema,
+        providerOptions: {
+          anthropic: { allowedCallers: ['code_execution_20260120'] },
+        },
         onInputStart: () => {
           ctx.emit('data-phase', { phase: 'structure' })
         },
@@ -233,6 +239,9 @@ export function createSolutionsArchitect(
           case_list_columns: moduleContentSchema.shape.case_list_columns,
           case_detail_columns: moduleContentSchema.shape.case_detail_columns,
         }),
+        providerOptions: {
+          anthropic: { allowedCallers: ['code_execution_20260120'] },
+        },
         onInputStart: () => {
           ctx.emit('data-phase', { phase: 'modules' })
         },
