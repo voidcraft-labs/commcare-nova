@@ -17,9 +17,9 @@ Split across two files:
 - `code_execution` — Anthropic code execution sandbox. SA writes Python to build forms via programmatic tool calling.
 
 **Generation (3)** — take natural language instructions, run structured output internally, return summary:
-- `generateSchema` — case types + properties. Emits `data-start-build`.
-- `generateScaffold` — module/form structure. Emits `data-phase: structure`, streams partial scaffold.
-- `addModule` — case list/detail columns.
+- `generateSchema` — case types + properties. `onInputStart` emits `data-start-build`.
+- `generateScaffold` — module/form structure. `onInputStart` emits `data-phase: structure`, streams partial scaffold.
+- `addModule` — case list/detail columns. `onInputStart` emits `data-phase: modules`.
 
 **Form Building (1):**
 - `addQuestions` — batch-append flat questions to a form. Marked with `allowedCallers: ['code_execution_20260120']` for programmatic calling from code execution. Processes questions through `stripEmpty → applyDefaults → buildQuestionTree`, merging with existing form questions. Emits `data-form-updated`.
@@ -31,7 +31,7 @@ Split across two files:
 - `editQuestion`, `addQuestion`, `removeQuestion`, `updateModule`, `updateForm` (name, close_case, child_cases), `createForm`, `removeForm`, `createModule`, `removeModule`, `renameCaseProperty`
 
 **Validation (1):**
-- `validateApp` — runs `validateAndFix()` loop, emits `data-done`.
+- `validateApp` — runs `validateAndFix()` loop. `onInputStart` emits `data-phase: validate`, emits `data-done` on success.
 
 **Build sequence:** `askQuestions → generateSchema → generateScaffold → addModule × N → code_execution + addQuestions × N → updateForm (close_case/child_cases) → validateApp`
 
