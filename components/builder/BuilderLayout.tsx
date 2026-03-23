@@ -278,11 +278,12 @@ export function BuilderLayout({ buildId }: { buildId: string }) {
     if (!sel || !builder.blueprint) {
       nav.navigateToHome()
     } else if (sel.formIndex !== undefined) {
-      nav.navigateToForm(sel.moduleIndex, sel.formIndex)
+      const currentCaseId = nav.current.type === 'form' ? nav.current.caseId : undefined
+      nav.navigateToForm(sel.moduleIndex, sel.formIndex, currentCaseId)
     } else {
       nav.navigateToModule(sel.moduleIndex)
     }
-  }, [builder, nav.navigateToHome, nav.navigateToForm, nav.navigateToModule])
+  }, [builder, nav.current, nav.navigateToHome, nav.navigateToForm, nav.navigateToModule])
 
   const handleUndo = useCallback(() => {
     const viewMode = builder.undo()
@@ -315,7 +316,8 @@ export function BuilderLayout({ buildId }: { buildId: string }) {
     }
     if (!builder.blueprint) return
     if (sel.formIndex !== undefined) {
-      nav.navigateToForm(sel.moduleIndex, sel.formIndex)
+      const currentCaseId = nav.current.type === 'form' ? nav.current.caseId : undefined
+      nav.navigateToForm(sel.moduleIndex, sel.formIndex, currentCaseId)
     } else {
       nav.navigateToModule(sel.moduleIndex)
     }
