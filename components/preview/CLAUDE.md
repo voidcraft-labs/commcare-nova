@@ -13,7 +13,7 @@ Client-side web preview with cyan accent theme (`.preview-theme` in globals.css)
 - **HomeScreen** — Module cards. `max-w-3xl mx-auto`.
 - **ModuleScreen** — Form list within a module. `max-w-3xl mx-auto`.
 - **CaseListScreen** — Case selector for followup forms (reads cached dummy data via `getDummyCases()`). `max-w-3xl mx-auto`.
-- **FormScreen** — Form entry with question fields, submit button (preview mode only), reset button in header (preview mode only), scroll-to-first-error on validation failure. Wraps form body in `EditContextProvider` when builder is present. Blocks followup forms in preview mode without case data (shows "no cases" error). `max-w-3xl mx-auto`.
+- **FormScreen** — Form entry with question fields, submit button (preview mode only), reset button in header (preview mode only), scroll-to-first-error on validation failure. Wraps form body in `EditContextProvider` when builder is present. Followup forms without a `caseId` fall back to the first dummy case; blocks with "no cases" error only when no case data is available at all. `max-w-3xl mx-auto`.
 
 All screens render a consistent header row: back button (always present, disabled when no history) + screen title. The back button is the same size and position across all screens so layout doesn't shift on navigation.
 
@@ -50,7 +50,7 @@ Trash icon on hover/selection in `EditableQuestionWrapper`. Deletes immediately 
 
 - **FormRenderer** — Iterates visible questions, wraps each in `SortableQuestion` + `EditableQuestionWrapper`, interleaves `InsertionPoint` zones. Manages controlled drag state (`DragReorderContext`), cursor velocity tracking (`CursorSpeedContext`), and provides both contexts to nested instances. During drag, renders from the controlled items map; otherwise from the questions prop. In edit mode, `SortableQuestion` passes a clean `displayState` (empty value, untouched, valid) to field components so preview inputs appear pristine, and **skips the `!state.visible` check** so questions with unsatisfied relevant conditions are still shown. Each question wrapper has a `data-question-id` attribute for focus targeting. Uses stable `questionPath` keys so React doesn't unmount/remount during reorder.
 - **EditableQuestionWrapper** — Hover chrome (outline with `outline-offset-3`), click-to-select, delete button, hold-to-grab cursor (300ms timer). `pointer-events-none` on children prevents form input interaction in edit mode. `data-question-wrapper` attribute for nested click delegation. Outline is always faintly visible (10% opacity) to show click targets, brightens on hover (30%), full on selection. Uses `outline` instead of `ring` so the border projects outward without affecting layout — question content stays pixel-aligned with preview mode. **Portal guard:** `onClickCapture` checks `e.currentTarget.contains(target)` first — React synthetic events from `FloatingPortal`-rendered children (e.g. `QuestionTypePicker`) still bubble through the React tree even though their DOM target is outside the wrapper. Without this guard, the capture handler would swallow portal clicks and select the parent question.
-- **QuestionField** — Dispatches to type-specific field component. When `state.caseRef` is set (unresolved case property in edit mode), renders a `.case-ref` badge instead of any input.
+- **QuestionField** — Dispatches to type-specific field component.
 
 ### Field Components
 

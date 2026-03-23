@@ -12,8 +12,6 @@ export interface QuestionState {
   resolvedLabel?: string
   /** Hint text with <output/> tags resolved. Only set when the hint contains output tags. */
   resolvedHint?: string
-  /** When set, this field's value comes from an unresolved case property (no case data loaded). */
-  caseRef?: string
 }
 
 /** Navigation screen types for the preview. */

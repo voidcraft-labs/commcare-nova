@@ -19,15 +19,6 @@ interface QuestionFieldProps {
 const MEDIA_TYPES = new Set(['geopoint', 'image', 'audio', 'video', 'signature', 'barcode'])
 
 export function QuestionField({ question, state, onChange, onBlur }: QuestionFieldProps) {
-  // Unresolved case reference — render a styled badge instead of an input
-  if (state.caseRef) {
-    return (
-      <div className="w-full px-3 py-2 rounded-lg bg-pv-input-bg border border-pv-input-border">
-        <span className="case-ref">{state.caseRef}</span>
-      </div>
-    )
-  }
-
   if (MEDIA_TYPES.has(question.type)) {
     return <MediaField question={question} />
   }

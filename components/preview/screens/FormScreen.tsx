@@ -5,7 +5,7 @@ import type { Builder } from '@/lib/services/builder'
 import type { EditMode } from '@/hooks/useEditContext'
 import { EditContextProvider } from '@/hooks/useEditContext'
 import { useFormEngine } from '@/hooks/useFormEngine'
-import { getCaseData } from '@/lib/preview/engine/dummyData'
+import { getCaseData, getDummyCases } from '@/lib/preview/engine/dummyData'
 import { FormRenderer } from '../form/FormRenderer'
 import { Icon } from '@iconify/react'
 import { formTypeIcons } from '@/lib/questionTypeIcons'
@@ -28,9 +28,15 @@ export function FormScreen({ blueprint, moduleIndex, formIndex, caseId, onBack, 
   const form = mod?.forms[formIndex]
 
   const caseData = useMemo(() => {
-    if (!caseId || !mod?.case_type) return undefined
-    return getCaseData(mod.case_type, caseId)
-  }, [caseId, mod?.case_type])
+    if (!mod?.case_type) return undefined
+    if (caseId) return getCaseData(mod.case_type, caseId)
+    // Followup forms without a caseId: fall back to first dummy case
+    if (form?.type === 'followup') {
+      const caseType = blueprint.case_types?.find(ct => ct.name === mod.case_type)
+      if (caseType) return getDummyCases(caseType)[0]?.properties
+    }
+    return undefined
+  }, [caseId, mod?.case_type, form?.type, blueprint.case_types])
 
   const engine = useFormEngine(
     form!,
@@ -74,8 +80,8 @@ export function FormScreen({ blueprint, moduleIndex, formIndex, caseId, onBack, 
     )
   }
 
-  // Follow-up forms in live mode require case data to function
-  if (mode === 'test' && form.type === 'followup' && !caseId) {
+  // Followup form with no case data at all (no case type configured, no dummy data available)
+  if (mode === 'test' && form.type === 'followup' && !caseData) {
     return (
       <div className="flex flex-col items-center justify-center h-full gap-4 px-6">
         <div className="text-center space-y-2">
