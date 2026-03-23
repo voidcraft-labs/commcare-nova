@@ -16,6 +16,7 @@
   "dependencies": {
     "@ai-sdk/anthropic": "^3.0.58",
     "@ai-sdk/react": "^3.0.118",
+    "@codemirror/autocomplete": "^6.20.1",
     "@codemirror/language": "^6.12.2",
     "@dnd-kit/dom": "^0.3.2",
     "@dnd-kit/helpers": "^0.3.2",
