@@ -14,7 +14,6 @@ const pipelineConfigSchema = z.object({
   solutionsArchitect: pipelineStageConfigSchema,
   schemaGeneration: pipelineStageConfigSchema,
   scaffold: pipelineStageConfigSchema,
-  formGeneration: pipelineStageConfigSchema,
 }).partial()
 
 export const chatRequestSchema = z.object({

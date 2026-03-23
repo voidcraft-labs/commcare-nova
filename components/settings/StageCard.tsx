@@ -55,7 +55,6 @@ export const AGENT_STAGE: StageInfo = {
 export const TOOL_STAGES: StageInfo[] = [
   { key: 'schemaGeneration', label: 'Schema Generation', description: 'Designs the data model (case types and properties)' },
   { key: 'scaffold', label: 'Scaffold', description: 'Designs module and form structure' },
-  { key: 'formGeneration', label: 'Form Generation', description: 'Generates form questions and content' },
 ]
 
 interface StageCardProps {

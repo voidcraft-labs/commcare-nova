@@ -8,7 +8,6 @@
 import type { AppBlueprint, BlueprintForm, Question } from '../schemas/blueprint'
 import { expandBlueprint, validateBlueprint } from './hqJsonExpander'
 import { GenerationContext } from './generationContext'
-import { generateSingleFormContent } from './formGeneration'
 
 // ── Validate + fix loop ──────────────────────────────────────────────
 
@@ -68,22 +67,7 @@ export async function validateAndFix(
 
       const form = blueprint.modules[mIdx].forms[fIdx]
 
-      // "has no questions" — regenerate with Opus structured output
-      if (formErrs.some(e => e.includes('has no questions'))) {
-        try {
-          const newForm = await generateSingleFormContent(
-            ctx, blueprint, mIdx, fIdx,
-            `Form "${form.name}" (${form.type}) has no questions. Generate appropriate questions for this form.`,
-          )
-          blueprint.modules[mIdx].forms[fIdx] = newForm
-        } catch {
-          // Rebuild failed, will be caught on next attempt
-        }
-        ctx.emit('data-form-fixed', { moduleIndex: mIdx, formIndex: fIdx, form: blueprint.modules[mIdx].forms[fIdx] })
-        continue
-      }
-
-      // Apply programmatic fixes for all other errors
+      // Apply programmatic fixes
       applyProgrammaticFixes(form, formErrs)
       ctx.emit('data-form-fixed', { moduleIndex: mIdx, formIndex: fIdx, form })
     }

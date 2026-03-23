@@ -11,7 +11,6 @@ export interface PipelineConfig {
   solutionsArchitect: PipelineStageConfig
   schemaGeneration: PipelineStageConfig
   scaffold: PipelineStageConfig
-  formGeneration: PipelineStageConfig
 }
 
 export interface NovaSettings {

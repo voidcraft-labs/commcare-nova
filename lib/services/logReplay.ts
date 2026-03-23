@@ -211,7 +211,7 @@ function distributeEmissions(emissions: Emission[], toolCalls: StepToolCall[]): 
           em.type === 'data-module-done' && d.moduleIndex === args.moduleIndex) {
         matchedIdx = i; break
       }
-      if ((tc.name === 'addForm' || tc.name === 'addQuestions' || tc.name === 'regenerateForm') &&
+      if ((tc.name === 'addForm' || tc.name === 'addQuestions') &&
           (em.type === 'data-form-done' || em.type === 'data-form-updated') &&
           d.moduleIndex === args.moduleIndex && d.formIndex === args.formIndex) {
         matchedIdx = i; break
@@ -251,7 +251,6 @@ function toolToHeader(toolName: string): string | undefined {
     case 'addModule': return 'Module'
     case 'addForm': return 'Form' // legacy log compat
     case 'addQuestions': return 'Form'
-    case 'regenerateForm': return 'Regenerate'
     case 'validateApp': return 'Validation'
     case 'editQuestion':
     case 'addQuestion':
@@ -294,8 +293,7 @@ function deriveSubtitle(tc: StepToolCall | undefined, emissions: Emission[], sca
       return name ?? `Module ${args?.moduleIndex}`
     }
     case 'addForm':
-    case 'addQuestions':
-    case 'regenerateForm': {
+    case 'addQuestions': {
       // Try emission data first (has the actual assembled form)
       const formEm = emissions.find(e => e.type === 'data-form-done' || e.type === 'data-form-updated')
       const formName = (formEm?.data as any)?.form?.name
