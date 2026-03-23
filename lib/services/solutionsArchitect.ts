@@ -388,12 +388,13 @@ export function createSolutionsArchitect(
       // ── Question mutations ────────────────────────────────────────
 
       editQuestion: tool({
-        description: 'Update fields on an existing question. Only include fields you want to change. Use null to clear a field.',
+        description: 'Update fields on an existing question. Only include fields you want to change. Use null to clear a field. Renaming the id automatically propagates XPath and column references — for case properties, propagates across all forms in the module.',
         inputSchema: z.object({
           moduleIndex: z.number().describe('0-based module index'),
           formIndex: z.number().describe('0-based form index'),
           questionId: z.string().describe('Question id to update'),
           updates: z.object({
+            id: z.string().optional().describe('New question id. Automatically propagates XPath refs; for case properties, propagates across all forms and columns.'),
             label: z.string().optional().describe('Question label text'),
             type: z.enum(QUESTION_TYPES).optional(),
             hint: z.string().optional().describe('Hint text'),
@@ -409,12 +410,40 @@ export function createSolutionsArchitect(
         }),
         execute: async ({ moduleIndex, formIndex, questionId, updates }) => {
           try {
-            const questionPath = mutableBp.resolveQuestionId(moduleIndex, formIndex, questionId)
-            if (!questionPath) return { error: `Question "${questionId}" not found in m${moduleIndex}-f${formIndex}` }
-            const question = mutableBp.updateQuestion(moduleIndex, formIndex, questionPath, updates)
-            const form = mutableBp.getForm(moduleIndex, formIndex)!
-            ctx.emit('data-form-updated', { moduleIndex, formIndex, form })
-            return { moduleIndex, formIndex, questionId, updatedFields: Object.keys(updates) }
+            let currentPath = mutableBp.resolveQuestionId(moduleIndex, formIndex, questionId)
+            if (!currentPath) return { error: `Question "${questionId}" not found in m${moduleIndex}-f${formIndex}` }
+
+            // Handle ID rename with automatic propagation
+            const { id: newId, ...fieldUpdates } = updates
+            if (newId && newId !== questionId) {
+              const question = mutableBp.getQuestion(moduleIndex, formIndex, currentPath)
+              if (question?.is_case_property) {
+                // Cross-form rename: all forms in module + columns + #case/ refs
+                const mod = mutableBp.getModule(moduleIndex)
+                if (mod?.case_type) {
+                  mutableBp.renameCaseProperty(mod.case_type, questionId, newId)
+                }
+              } else {
+                // Single-form rename: XPath path refs within this form
+                mutableBp.renameQuestion(moduleIndex, formIndex, currentPath, newId)
+              }
+              // Re-resolve path after rename
+              currentPath = mutableBp.resolveQuestionId(moduleIndex, formIndex, newId)!
+            }
+
+            // Apply remaining field updates
+            if (Object.keys(fieldUpdates).length > 0) {
+              mutableBp.updateQuestion(moduleIndex, formIndex, currentPath, fieldUpdates)
+            }
+
+            // Emit update for all affected forms
+            if (newId && newId !== questionId) {
+              ctx.emit('data-blueprint-updated', { blueprint: mutableBp.getBlueprint() })
+            } else {
+              const form = mutableBp.getForm(moduleIndex, formIndex)!
+              ctx.emit('data-form-updated', { moduleIndex, formIndex, form })
+            }
+            return { moduleIndex, formIndex, questionId: newId ?? questionId, updatedFields: Object.keys(updates) }
           } catch (err) {
             return { error: err instanceof Error ? err.message : String(err) }
           }
@@ -626,24 +655,6 @@ export function createSolutionsArchitect(
             mutableBp.removeModule(moduleIndex)
             ctx.emit('data-blueprint-updated', { blueprint: mutableBp.getBlueprint() })
             return { removedModuleIndex: moduleIndex, removedModuleName: name }
-          } catch (err) {
-            return { error: err instanceof Error ? err.message : String(err) }
-          }
-        },
-      }),
-
-      renameCaseProperty: tool({
-        description: 'Rename a case property across the entire app. Automatically propagates to all questions, columns, and XPath.',
-        inputSchema: z.object({
-          caseType: z.string().describe('The case type that owns this property'),
-          oldName: z.string().describe('Current property name'),
-          newName: z.string().describe('New property name'),
-        }),
-        execute: async ({ caseType, oldName, newName }) => {
-          try {
-            const result = mutableBp.renameCaseProperty(caseType, oldName, newName)
-            ctx.emit('data-blueprint-updated', { blueprint: mutableBp.getBlueprint() })
-            return { caseType, oldName, newName, formsChanged: result.formsChanged, columnsChanged: result.columnsChanged }
           } catch (err) {
             return { error: err instanceof Error ? err.message : String(err) }
           }
