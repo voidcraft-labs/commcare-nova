@@ -14,9 +14,9 @@ Split across two files:
 - `askQuestions` (client-side, no `execute`) — structured multiple-choice rendered as QuestionCard. `sendAutomaticallyWhen` re-sends when all answered.
 
 **Code Execution (1):**
-- `code_execution` — Anthropic code execution sandbox. SA writes Python to build forms via programmatic tool calling.
+- `code_execution` — Anthropic code execution sandbox. SA writes Python for build steps via programmatic tool calling.
 
-**Generation (3)** — SA provides structured data directly in tool args (no sub-LLM calls):
+**Generation (3)** — SA provides structured data directly (no sub-LLM calls). All marked with `allowedCallers: ['code_execution_20260120']` for programmatic calling from code execution:
 - `generateSchema` — accepts case types + properties. `onInputStart` emits `data-start-build`.
 - `generateScaffold` — accepts module/form structure. `onInputStart` emits `data-phase: structure`.
 - `addModule` — accepts case list/detail columns. `onInputStart` emits `data-phase: modules`.
@@ -33,9 +33,9 @@ Split across two files:
 **Validation (1):**
 - `validateApp` — runs `validateAndFix()` loop. `onInputStart` emits `data-phase: validate`, emits `data-done` on success.
 
-**Build sequence:** `askQuestions → generateSchema → generateScaffold → addModule × N → code_execution + addQuestions × N → updateForm (close_case/child_cases) → validateApp`
+**Build sequence:** `askQuestions → code_execution (generateSchema → generateScaffold → addModule × N → addQuestions × N) → updateForm (close_case/child_cases) → validateApp`
 
-The SA makes all architecture and form design decisions. For forms, it writes Python in code_execution that calls addQuestions in section-sized batches — the JSON construction stays in the sandbox, not in the SA's context window.
+The SA makes all architecture and form design decisions. All build tools are called from code execution — JSON construction stays in the sandbox, not in the SA's context window.
 
 **prepareStep:** Inline function that consolidates prompt caching (message-level), reasoning (adaptive thinking), and container forwarding (code execution sandbox persistence) into a single provider options builder. No external `withPromptCaching` dependency. Cache control skips code-execution-related messages (tool results, assistant messages containing `code_execution` tool calls, and assistant messages containing tool calls made BY code execution via programmatic tool calling) since they aren't rendered in Claude's context.
 
