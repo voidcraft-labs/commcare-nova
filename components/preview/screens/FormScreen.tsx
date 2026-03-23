@@ -8,7 +8,7 @@ import { useFormEngine } from '@/hooks/useFormEngine'
 import { FormRenderer } from '../form/FormRenderer'
 import { Icon } from '@iconify/react'
 import { formTypeIcons } from '@/lib/questionTypeIcons'
-import ciRedo from '@iconify-icons/ci/redo'
+import ciArrowReload02 from '@iconify-icons/ci/arrow-reload-02'
 
 interface FormScreenProps {
   blueprint: AppBlueprint
@@ -106,7 +106,7 @@ export function FormScreen({ blueprint, moduleIndex, formIndex, caseData, onBack
               onClick={() => engine.reset()}
               className="ml-auto inline-flex items-center gap-1.5 px-2.5 py-1 text-sm text-nova-text-muted hover:text-nova-text hover:bg-white/5 transition-colors cursor-pointer rounded"
             >
-              <Icon icon={ciRedo} width="14" height="14" />
+              <Icon icon={ciArrowReload02} width="14" height="14" />
               Reset
             </button>
           )}
