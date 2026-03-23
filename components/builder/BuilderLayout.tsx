@@ -378,6 +378,18 @@ export function BuilderLayout({ buildId }: { buildId: string }) {
     prevSelRef.current = builder.selected
   }, [builder.selected, viewMode])
 
+  // Back handler for in-content back button — syncs builder selection with history
+  const handlePreviewBack = useCallback(() => {
+    const newScreen = nav.back()
+    if (!newScreen || newScreen.type === 'home') {
+      builder.select()
+    } else if (newScreen.type === 'module') {
+      builder.select({ type: 'module', moduleIndex: newScreen.moduleIndex })
+    } else if (newScreen.type === 'form' || newScreen.type === 'caseList') {
+      builder.select({ type: 'form', moduleIndex: newScreen.moduleIndex, formIndex: newScreen.formIndex })
+    }
+  }, [nav, builder])
+
   const shouldRedirect = loaded && !apiKey && !inReplayMode
   useEffect(() => {
     if (shouldRedirect) router.push('/')
@@ -391,7 +403,7 @@ export function BuilderLayout({ buildId }: { buildId: string }) {
   const showDetailPanel = showToolbar && !!builder.selected && detailOpen
   const editMode = viewMode === 'preview' ? 'test' as const : 'edit' as const
 
-  // Breadcrumbs — always derived from nav stack now (no overview mode)
+  // Breadcrumbs — derived from current screen's hierarchical path
   const breadcrumbParts: BreadcrumbPart[] = []
   if (builder.blueprint) {
     for (let i = 0; i < nav.breadcrumb.length; i++) {
@@ -400,10 +412,10 @@ export function BuilderLayout({ buildId }: { buildId: string }) {
         label: nav.breadcrumb[idx],
         onClick: () => {
           nav.navigateTo(idx)
-          const screen = nav.stack[idx]
-          if (screen.type === 'module') {
+          const screen = nav.breadcrumbPath[idx]
+          if (screen?.type === 'module') {
             builder.select({ type: 'module', moduleIndex: screen.moduleIndex })
-          } else if (screen.type === 'form' || screen.type === 'caseList') {
+          } else if (screen?.type === 'form' || screen?.type === 'caseList') {
             builder.select({ type: 'form', moduleIndex: screen.moduleIndex, formIndex: screen.formIndex })
           } else {
             builder.select()
@@ -570,6 +582,7 @@ export function BuilderLayout({ buildId }: { buildId: string }) {
                         mode={editMode}
                         nav={nav}
                         hideHeader
+                        onBack={handlePreviewBack}
                       />
                     ) : null}
                   </ErrorBoundary>

@@ -4,69 +4,121 @@ import type { PreviewScreen } from '@/lib/preview/engine/types'
 import type { AppBlueprint } from '@/lib/schemas/blueprint'
 import { resolveScreen } from '@/lib/preview/engine/resolveScreen'
 
-export function usePreviewNav(blueprint?: AppBlueprint) {
-  const [stack, setStack] = useState<PreviewScreen[]>([{ type: 'home' }])
+const MAX_HISTORY = 50
 
-  const current = stack[stack.length - 1]
-  const canGoBack = stack.length > 1
+interface NavHistoryState {
+  entries: PreviewScreen[]
+  cursor: number
+}
+
+export function usePreviewNav(blueprint?: AppBlueprint) {
+  const [state, setState] = useState<NavHistoryState>({
+    entries: [{ type: 'home' }],
+    cursor: 0,
+  })
+
+  const current = state.entries[state.cursor]
+  const canGoBack = state.cursor > 0
 
   const resolve = useCallback((screen: PreviewScreen): PreviewScreen => {
     if (!blueprint) return screen
     return resolveScreen(screen, blueprint)
   }, [blueprint])
 
-  const push = useCallback((screen: PreviewScreen) => {
-    setStack(prev => [...prev, resolve(screen)])
+  // Navigate to a new screen — adds to history, clears forward entries
+  const navigate = useCallback((screen: PreviewScreen) => {
+    const resolved = resolve(screen)
+    setState(prev => {
+      const newEntries = [...prev.entries.slice(0, prev.cursor + 1), resolved]
+      if (newEntries.length > MAX_HISTORY) {
+        return { entries: newEntries.slice(newEntries.length - MAX_HISTORY), cursor: MAX_HISTORY - 1 }
+      }
+      return { entries: newEntries, cursor: prev.cursor + 1 }
+    })
   }, [resolve])
 
-  const back = useCallback(() => {
-    setStack(prev => prev.length > 1 ? prev.slice(0, -1) : prev)
+  // Go back one step in history, returns the new current screen
+  const back = useCallback((): PreviewScreen | undefined => {
+    let newScreen: PreviewScreen | undefined
+    setState(prev => {
+      if (prev.cursor <= 0) return prev
+      newScreen = prev.entries[prev.cursor - 1]
+      return { ...prev, cursor: prev.cursor - 1 }
+    })
+    return newScreen
   }, [])
 
-  const navigateTo = useCallback((index: number) => {
-    setStack(prev => index < prev.length - 1 ? prev.slice(0, index + 1) : prev)
-  }, [])
+  // Derive breadcrumb from current screen (hierarchical path, not history)
+  const { breadcrumb, breadcrumbPath } = useMemo(() => {
+    if (!blueprint) return { breadcrumb: [] as string[], breadcrumbPath: [] as PreviewScreen[] }
 
-  const reset = useCallback(() => {
-    setStack([{ type: 'home' }])
-  }, [])
+    const labels: string[] = []
+    const screens: PreviewScreen[] = []
 
-  const replaceStack = useCallback((newStack: PreviewScreen[]) => {
-    const resolved = newStack.length > 0 ? newStack.map(resolve) : [{ type: 'home' } as PreviewScreen]
-    setStack(resolved)
-  }, [resolve])
+    // Home is always first
+    screens.push({ type: 'home' })
+    labels.push(blueprint.app_name)
 
-  const breadcrumb = useMemo(() => {
-    if (!blueprint) return []
-    const parts: string[] = []
-    for (const screen of stack) {
-      switch (screen.type) {
-        case 'home':
-          parts.push(blueprint.app_name)
-          break
-        case 'module':
-          parts.push(blueprint.modules[screen.moduleIndex]?.name ?? 'Module')
-          break
-        case 'caseList': {
-          const clMod = blueprint.modules[screen.moduleIndex]
-          const formName = clMod?.forms[screen.formIndex]?.name ?? 'Form'
-          parts.push(formName)
-          break
-        }
-        case 'form': {
-          const caseName = screen.caseData?.get('case_name')
-          if (caseName) {
-            parts.push(caseName)
-          } else {
-            const mod = blueprint.modules[screen.moduleIndex]
-            parts.push(mod?.forms[screen.formIndex]?.name ?? 'Form')
-          }
-          break
-        }
+    if (current.type === 'home') return { breadcrumb: labels, breadcrumbPath: screens }
+
+    // All other types have moduleIndex
+    const mod = blueprint.modules[current.moduleIndex]
+    screens.push({ type: 'module', moduleIndex: current.moduleIndex })
+    labels.push(mod?.name ?? 'Module')
+
+    if (current.type === 'module') return { breadcrumb: labels, breadcrumbPath: screens }
+
+    if (current.type === 'caseList') {
+      screens.push(current)
+      labels.push(mod?.forms[current.formIndex]?.name ?? 'Form')
+      return { breadcrumb: labels, breadcrumbPath: screens }
+    }
+
+    if (current.type === 'form') {
+      const caseName = current.caseData?.get('case_name')
+      if (caseName) {
+        // Followup form with case data — form name at caseList level, case name at form level
+        screens.push({ type: 'caseList', moduleIndex: current.moduleIndex, formIndex: current.formIndex })
+        labels.push(mod?.forms[current.formIndex]?.name ?? 'Form')
+        screens.push(current)
+        labels.push(caseName)
+      } else {
+        screens.push(current)
+        labels.push(mod?.forms[current.formIndex]?.name ?? 'Form')
       }
     }
-    return parts
-  }, [stack, blueprint])
 
-  return { stack, current, push, back, reset, navigateTo, replaceStack, canGoBack, breadcrumb }
+    return { breadcrumb: labels, breadcrumbPath: screens }
+  }, [current, blueprint])
+
+  // Navigate to a breadcrumb level (ancestor screen)
+  const navigateTo = useCallback((index: number) => {
+    if (index < breadcrumbPath.length - 1) {
+      navigate(breadcrumbPath[index])
+    }
+  }, [breadcrumbPath, navigate])
+
+  // Navigate to home
+  const reset = useCallback(() => {
+    navigate({ type: 'home' })
+  }, [navigate])
+
+  // Backward compat: navigate to last screen in the provided array
+  const replaceStack = useCallback((newStack: PreviewScreen[]) => {
+    const target = newStack[newStack.length - 1] ?? { type: 'home' } as PreviewScreen
+    navigate(target)
+  }, [navigate])
+
+  return {
+    current,
+    canGoBack,
+    navigate,
+    push: navigate,
+    back,
+    navigateTo,
+    reset,
+    replaceStack,
+    breadcrumb,
+    breadcrumbPath,
+  }
 }
