@@ -12,7 +12,7 @@ Client-side web preview with cyan accent theme (`.preview-theme` in globals.css)
 
 - **HomeScreen** — Module cards
 - **ModuleScreen** — Form list within a module
-- **CaseListScreen** — Case selector for followup forms (generates dummy data from CaseType)
+- **CaseListScreen** — Case selector for followup forms (reads cached dummy data via `getDummyCases()`)
 - **FormScreen** — Form entry with question fields, submit button (preview mode only), reset button in header (preview mode only), scroll-to-first-error on validation failure. Wraps form body in `EditContextProvider` when builder is present. Blocks followup forms in preview mode without case data (shows "no cases" error).
 
 ## Edit Mode

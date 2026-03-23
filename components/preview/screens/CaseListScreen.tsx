@@ -3,7 +3,7 @@ import { useMemo } from 'react'
 import { motion } from 'motion/react'
 import type { AppBlueprint } from '@/lib/schemas/blueprint'
 import type { PreviewScreen } from '@/lib/preview/engine/types'
-import { generateDummyCases } from '@/lib/preview/engine/dummyData'
+import { getDummyCases } from '@/lib/preview/engine/dummyData'
 
 interface CaseListScreenProps {
   blueprint: AppBlueprint
@@ -20,7 +20,7 @@ export function CaseListScreen({ blueprint, moduleIndex, formIndex, onNavigate }
 
   const rows = useMemo(() => {
     if (!caseType) return []
-    return generateDummyCases(caseType, 6)
+    return getDummyCases(caseType)
   }, [caseType])
 
   if (!mod || !caseType || columns.length === 0) {

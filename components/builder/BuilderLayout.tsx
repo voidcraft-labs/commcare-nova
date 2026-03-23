@@ -12,7 +12,7 @@ import { useApiKey } from '@/hooks/useApiKey'
 import { useSettings } from '@/hooks/useSettings'
 import { useBuilder } from '@/hooks/useBuilder'
 import { BuilderPhase, applyDataPart, type ViewMode } from '@/lib/services/builder'
-import { summarizeBlueprint } from '@/lib/schemas/blueprint'
+import { summarizeBlueprint, type AppBlueprint } from '@/lib/schemas/blueprint'
 import { flattenQuestionPaths } from '@/lib/services/questionNavigation'
 import { type QuestionPath } from '@/lib/services/questionPath'
 import { useKeyboardShortcuts } from '@/hooks/useKeyboardShortcuts'
@@ -33,6 +33,20 @@ import { usePreviewNav } from '@/hooks/usePreviewNav'
 import type { PreviewScreen } from '@/lib/preview/engine/types'
 import { ErrorBoundary } from '@/components/ui/ErrorBoundary'
 import { getReplayData, clearReplayData } from '@/lib/services/logReplay'
+
+/** Build a nav stack for a given module/form, inserting caseList for follow-up forms. */
+function buildNavStack(blueprint: AppBlueprint, moduleIndex: number, formIndex?: number): PreviewScreen[] {
+  const stack: PreviewScreen[] = [{ type: 'home' }, { type: 'module', moduleIndex }]
+  if (formIndex !== undefined) {
+    const mod = blueprint.modules[moduleIndex]
+    const form = mod?.forms[formIndex]
+    if (form?.type === 'followup' && mod?.case_type) {
+      stack.push({ type: 'caseList', moduleIndex, formIndex })
+    }
+    stack.push({ type: 'form', moduleIndex, formIndex })
+  }
+  return stack
+}
 
 /** Only auto-resend when the assistant's LAST step is askQuestions with all outputs available.
  *  If the SA continued past tool calls to ask a freeform text question, don't auto-resend —
@@ -188,11 +202,7 @@ export function BuilderLayout({ buildId }: { buildId: string }) {
       setLeftTab('chat')
       // Navigate to first form if available
       if (builder.blueprint && builder.blueprint.modules.length > 0 && builder.blueprint.modules[0].forms.length > 0) {
-        nav.replaceStack([
-          { type: 'home' },
-          { type: 'module', moduleIndex: 0 },
-          { type: 'form', moduleIndex: 0, formIndex: 0 },
-        ])
+        nav.replaceStack(buildNavStack(builder.blueprint, 0, 0))
       }
     }
     prevPhaseRef.current = builder.phase
@@ -282,12 +292,7 @@ export function BuilderLayout({ buildId }: { buildId: string }) {
     if (!sel || !builder.blueprint) {
       nav.reset()
     } else {
-      const stack: PreviewScreen[] = [{ type: 'home' }]
-      stack.push({ type: 'module', moduleIndex: sel.moduleIndex })
-      if (sel.formIndex !== undefined) {
-        stack.push({ type: 'form', moduleIndex: sel.moduleIndex, formIndex: sel.formIndex })
-      }
-      nav.replaceStack(stack)
+      nav.replaceStack(buildNavStack(builder.blueprint, sel.moduleIndex, sel.formIndex))
     }
   }, [builder, nav.replaceStack, nav.reset])
 
@@ -320,12 +325,8 @@ export function BuilderLayout({ buildId }: { buildId: string }) {
       nav.reset()
       return
     }
-    const stack: PreviewScreen[] = [{ type: 'home' }]
-    stack.push({ type: 'module', moduleIndex: sel.moduleIndex })
-    if (sel.formIndex !== undefined) {
-      stack.push({ type: 'form', moduleIndex: sel.moduleIndex, formIndex: sel.formIndex })
-    }
-    nav.replaceStack(stack)
+    if (!builder.blueprint) return
+    nav.replaceStack(buildNavStack(builder.blueprint, sel.moduleIndex, sel.formIndex))
     // Scroll the design canvas to the selected question
     if (sel.questionPath) {
       setTimeout(() => {
