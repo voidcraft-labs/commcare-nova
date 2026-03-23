@@ -1,5 +1,6 @@
 'use client'
 import { useDroppable } from '@dnd-kit/react'
+import { CollisionPriority } from '@dnd-kit/abstract'
 import type { Question } from '@/lib/schemas/blueprint'
 import type { QuestionPath } from '@/lib/services/questionPath'
 import type { FormEngine } from '@/lib/preview/engine/formEngine'
@@ -22,7 +23,9 @@ export function GroupField({ question, path, questionPath, engine, renderChildre
   // Make the group's children area a droppable target so items can be dropped into empty groups
   const { ref: droppableRef } = useDroppable({
     id: `${questionPath}:container`,
+    type: 'container',
     accept: 'question',
+    collisionPriority: CollisionPriority.Low,
     disabled: !isEditMode,
   })
 
@@ -38,7 +41,7 @@ export function GroupField({ question, path, questionPath, engine, renderChildre
           )}
         </div>
       )}
-      <div ref={droppableRef} className="p-4 space-y-4">
+      <div ref={droppableRef} className="p-4 space-y-4 min-h-[72px]">
         {renderChildren(question.children ?? [], path, questionPath)}
       </div>
     </div>

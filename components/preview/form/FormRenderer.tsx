@@ -2,6 +2,7 @@
 import { useState, useCallback, useEffect, useMemo, useRef, Fragment, createContext, useContext } from 'react'
 import { DragDropProvider, DragOverlay, PointerSensor } from '@dnd-kit/react'
 import { useSortable } from '@dnd-kit/react/sortable'
+import { CollisionPriority } from '@dnd-kit/abstract'
 import { PointerActivationConstraints } from '@dnd-kit/dom'
 import { RestrictToElement } from '@dnd-kit/dom/modifiers'
 import { move } from '@dnd-kit/helpers'
@@ -25,6 +26,11 @@ const GAP_RESET = 5000
 /** Sentinel group identifier for root-level questions. */
 const ROOT_GROUP = '__root__'
 
+/** Suffix used on items-map keys for group/repeat containers, matching the
+ *  `useDroppable` id in GroupField / RepeatField so the `move` helper can
+ *  route dragged items into empty containers. */
+const CONTAINER_SUFFIX = ':container'
+
 interface FormRendererProps {
   questions: Question[]
   engine: FormEngine
@@ -41,12 +47,18 @@ const SENSORS = [
   }),
 ]
 
-// ── Controlled drag ordering ──────────────────────────────────────────
+// ── Controlled drag state ─────────────────────────────────────────────
+// Follows the official dnd-kit "droppable columns" pattern: onDragOver +
+// move() + React state + render from state. Required because the
+// OptimisticSortingPlugin only processes SortableDroppable instances —
+// plain useDroppable targets (used for empty group containers) are invisible
+// to it. The controlled approach lets the move() helper detect container
+// drops via target.id matching items-map keys.
 
 interface DragReorderState {
-  /** Group → ordered questionPaths. Mutated by `move` helper during drag. */
+  /** Group → ordered questionPaths. Updated by `move` helper during drag. */
   itemsMap: Record<string, string[]>
-  /** Flat lookup: questionPath → Question object (stable for the drag duration). */
+  /** Flat lookup: questionPath → Question object (stable for the drag). */
   questionsById: Map<string, Question>
   /** The questionPath currently being dragged (for placeholder rendering). */
   activePath: QuestionPath
@@ -65,20 +77,21 @@ function buildDragState(questions: Question[], activePath: QuestionPath): DragRe
   const itemsMap: Record<string, string[]> = {}
   const questionsById = new Map<string, Question>()
 
-  function walk(qs: Question[], parentGroup: string) {
-    if (!itemsMap[parentGroup]) itemsMap[parentGroup] = []
+  function walk(qs: Question[], groupKey: string, pathPrefix: string) {
+    if (!itemsMap[groupKey]) itemsMap[groupKey] = []
     for (const q of qs) {
       if (q.type === 'hidden') continue
-      const qPath = parentGroup === ROOT_GROUP ? q.id : `${parentGroup}/${q.id}`
-      itemsMap[parentGroup].push(qPath)
+      const qPath = pathPrefix ? `${pathPrefix}/${q.id}` : q.id
+      itemsMap[groupKey].push(qPath)
       questionsById.set(qPath, q)
       if ((q.type === 'group' || q.type === 'repeat') && q.children) {
-        if (!itemsMap[qPath]) itemsMap[qPath] = []
-        walk(q.children, qPath)
+        const containerKey = `${qPath}${CONTAINER_SUFFIX}`
+        if (!itemsMap[containerKey]) itemsMap[containerKey] = []
+        walk(q.children, containerKey, qPath)
       }
     }
   }
-  walk(questions, ROOT_GROUP)
+  walk(questions, ROOT_GROUP, '')
   return { itemsMap, questionsById, activePath }
 }
 
@@ -92,6 +105,11 @@ function findQuestionInTree(questions: Question[], id: string): Question | undef
     }
   }
   return undefined
+}
+
+/** Strip the :container suffix to recover the actual QuestionPath. */
+function stripContainerSuffix(group: string): string {
+  return group.endsWith(CONTAINER_SUFFIX) ? group.slice(0, -CONTAINER_SUFFIX.length) : group
 }
 
 // ── SortableQuestion ──────────────────────────────────────────────────
@@ -120,6 +138,10 @@ function SortableQuestion({
   const ctx = useEditContext()
   const isEditMode = ctx?.mode === 'edit'
 
+  // Groups/repeats get Lowest collision priority so their inner container
+  // droppable (Low) wins when items are dragged over the content area.
+  const isContainer = q.type === 'group' || q.type === 'repeat'
+
   const { ref, isDragging } = useSortable({
     id: questionPath,
     index: sortIndex,
@@ -127,6 +149,7 @@ function SortableQuestion({
     type: 'question',
     accept: 'question',
     disabled: !isEditMode,
+    ...(isContainer && { collisionPriority: CollisionPriority.Lowest }),
   })
 
   if (q.type === 'hidden') return null
@@ -216,12 +239,13 @@ export function FormRenderer({ questions, engine, prefix = '/data', parentPath }
   const ctx = useEditContext()
   const isEditMode = ctx?.mode === 'edit'
   const isRoot = !parentPath
-  const [activePath, setActivePath] = useState<QuestionPath | undefined>()
   const [dragState, setDragState] = useState<DragReorderState | null>(null)
   const containerRef = useRef<HTMLDivElement>(null)
 
-  /** Group identifier for sortable items at this level. */
-  const group = parentPath ? (parentPath as string) : ROOT_GROUP
+  /** Group identifier for sortable items at this level.
+   *  Nested levels use the `:container` suffix to match the droppable id in
+   *  GroupField / RepeatField so the `move` helper can route items there. */
+  const group = parentPath ? `${parentPath as string}${CONTAINER_SUFFIX}` : ROOT_GROUP
 
   // Nested FormRenderers read drag state from context; root uses its own state.
   const dragCtx = useContext(DragReorderContext)
@@ -297,6 +321,7 @@ export function FormRenderer({ questions, engine, prefix = '/data', parentPath }
   ], [])
 
   // For root: search entire tree for the active question (supports nested items).
+  const activePath = dragState?.activePath
   const activeQuestion = activePath ? findQuestionInTree(questions, qpathId(activePath)) : undefined
   const isDragging = !!activePath
 
@@ -345,7 +370,6 @@ export function FormRenderer({ questions, engine, prefix = '/data', parentPath }
           const sourceId = event.operation.source?.id
           if (sourceId) {
             const path = sourceId as QuestionPath
-            setActivePath(path)
             setDragState(buildDragState(questions, path))
           }
           document.body.style.cursor = 'grabbing'
@@ -363,104 +387,106 @@ export function FormRenderer({ questions, engine, prefix = '/data', parentPath }
           })
         }}
         onDragEnd={(event) => {
-          // Capture controlled state BEFORE clearing — it has the final positions
+          // Capture state before clearing — dnd-kit fires this during
+          // useInsertionEffect where React 19 forbids setState, so defer cleanup.
           const currentDragState = dragState
-          const draggedPath = activePath
-          setActivePath(undefined)
-          setDragState(null)
-          document.body.style.cursor = ''
-          if (ctx) ctx.builder.setDragging(false)
+          const draggedPath = dragState?.activePath
+          const canceled = event.canceled
 
-          if (event.canceled || !ctx || !draggedPath || !currentDragState) return
+          queueMicrotask(() => {
+            setDragState(null)
+            document.body.style.cursor = ''
+            if (ctx) ctx.builder.setDragging(false)
 
-          const mb = ctx.builder.mb
-          if (!mb) return
+            if (canceled || !ctx || !draggedPath || !currentDragState) return
 
-          // Find where the item ended up in the controlled items map
-          const finalMap = currentDragState.itemsMap
-          let finalGroup: string | undefined
-          let finalIndex = -1
-          for (const [g, ids] of Object.entries(finalMap)) {
-            const idx = ids.indexOf(draggedPath as string)
-            if (idx !== -1) {
-              finalGroup = g
-              finalIndex = idx
-              break
+            const mb = ctx.builder.mb
+            if (!mb) return
+
+            // Find where the item ended up in the controlled items map
+            const finalMap = currentDragState.itemsMap
+            let finalGroup: string | undefined
+            let finalIndex = -1
+            for (const [g, ids] of Object.entries(finalMap)) {
+              const idx = ids.indexOf(draggedPath as string)
+              if (idx !== -1) {
+                finalGroup = g
+                finalIndex = idx
+                break
+              }
             }
-          }
 
-          if (finalGroup === undefined || finalIndex === -1) return
+            if (finalGroup === undefined || finalIndex === -1) return
 
-          // Determine the initial group from the dragged path
-          const draggedStr = draggedPath as string
-          const lastSlash = draggedStr.lastIndexOf('/')
-          const initialGroup = lastSlash === -1 ? ROOT_GROUP : draggedStr.slice(0, lastSlash)
+            // Determine the initial group from the dragged path
+            const draggedStr = draggedPath as string
+            const lastSlash = draggedStr.lastIndexOf('/')
+            const parentOfDragged = lastSlash === -1 ? null : draggedStr.slice(0, lastSlash)
+            const initialGroup = parentOfDragged ? `${parentOfDragged}${CONTAINER_SUFFIX}` : ROOT_GROUP
 
-          const sameGroup = initialGroup === finalGroup
+            const sameGroup = initialGroup === finalGroup
 
-          // Check if position actually changed
-          if (sameGroup) {
-            // Build the initial items map to compare
-            const initialMap = buildDragState(questions, draggedPath).itemsMap
-            const initialIds = initialMap[initialGroup] ?? []
+            // Check if position actually changed
+            if (sameGroup) {
+              const initialMap = buildDragState(questions, draggedPath).itemsMap
+              const initialIds = initialMap[initialGroup] ?? []
+              const finalIds = finalMap[finalGroup] ?? []
+              const initialIdx = initialIds.indexOf(draggedStr)
+              if (initialIdx === finalIndex && initialIds.length === finalIds.length) {
+                // No movement — just select
+                ctx.builder.select({
+                  type: 'question',
+                  moduleIndex: ctx.moduleIndex,
+                  formIndex: ctx.formIndex,
+                  questionPath: draggedPath,
+                })
+                return
+              }
+            }
+
+            // Use neighboring items in the final map to determine position
             const finalIds = finalMap[finalGroup] ?? []
-            const initialIdx = initialIds.indexOf(draggedStr)
-            if (initialIdx === finalIndex && initialIds.length === finalIds.length) {
-              // No movement — just select
-              ctx.builder.select({
-                type: 'question',
-                moduleIndex: ctx.moduleIndex,
-                formIndex: ctx.formIndex,
-                questionPath: draggedPath,
-              })
-              return
-            }
-          }
+            const targetParentPath = finalGroup === ROOT_GROUP
+              ? undefined
+              : stripContainerSuffix(finalGroup) as QuestionPath
 
-          // Use neighboring items in the final map to determine position
-          const finalIds = finalMap[finalGroup] ?? []
-          const targetParentPath = finalGroup === ROOT_GROUP ? undefined : finalGroup as QuestionPath
-
-          if (sameGroup) {
-            // Same-level reorder — use afterPath/beforePath from final map neighbors
-            if (finalIndex === 0) {
-              // First position: insert before the next item
-              if (finalIds.length > 1) {
-                const nextPath = finalIds[1] as QuestionPath
-                mb.moveQuestion(ctx.moduleIndex, ctx.formIndex, draggedPath, { beforePath: nextPath })
+            if (sameGroup) {
+              // Same-level reorder
+              if (finalIndex === 0) {
+                if (finalIds.length > 1) {
+                  const nextPath = finalIds[1] as QuestionPath
+                  mb.moveQuestion(ctx.moduleIndex, ctx.formIndex, draggedPath, { beforePath: nextPath })
+                }
+              } else {
+                const prevPath = finalIds[finalIndex - 1] as QuestionPath
+                mb.moveQuestion(ctx.moduleIndex, ctx.formIndex, draggedPath, { afterPath: prevPath })
               }
             } else {
-              // After the preceding item (skip the dragged item itself)
-              const prevPath = finalIds[finalIndex - 1] as QuestionPath
-              mb.moveQuestion(ctx.moduleIndex, ctx.formIndex, draggedPath, { afterPath: prevPath })
+              // Cross-group transfer
+              if (finalIds.length <= 1) {
+                mb.moveQuestion(ctx.moduleIndex, ctx.formIndex, draggedPath, { targetParentPath })
+              } else if (finalIndex === 0) {
+                const nextPath = finalIds[1] as QuestionPath
+                const nextId = qpathId(nextPath)
+                const beforePath = qpath(nextId, targetParentPath)
+                mb.moveQuestion(ctx.moduleIndex, ctx.formIndex, draggedPath, { beforePath, targetParentPath })
+              } else {
+                const prevPath = finalIds[finalIndex - 1] as QuestionPath
+                const prevId = qpathId(prevPath)
+                const afterPath = qpath(prevId, targetParentPath)
+                mb.moveQuestion(ctx.moduleIndex, ctx.formIndex, draggedPath, { afterPath, targetParentPath })
+              }
             }
-          } else {
-            // Cross-level move — include targetParentPath
-            if (finalIds.length <= 1) {
-              // Only item in the group (or empty) — just move to target
-              mb.moveQuestion(ctx.moduleIndex, ctx.formIndex, draggedPath, { targetParentPath })
-            } else if (finalIndex === 0) {
-              const nextPath = finalIds[1] as QuestionPath
-              // Extract just the ID from the next path for beforePath at the target level
-              const nextId = qpathId(nextPath)
-              const beforePath = qpath(nextId, targetParentPath)
-              mb.moveQuestion(ctx.moduleIndex, ctx.formIndex, draggedPath, { beforePath, targetParentPath })
-            } else {
-              const prevPath = finalIds[finalIndex - 1] as QuestionPath
-              const prevId = qpathId(prevPath)
-              const afterPath = qpath(prevId, targetParentPath)
-              mb.moveQuestion(ctx.moduleIndex, ctx.formIndex, draggedPath, { afterPath, targetParentPath })
-            }
-          }
 
-          const newPath = sameGroup ? draggedPath : qpath(qpathId(draggedPath), targetParentPath)
-          ctx.builder.notifyBlueprintChanged()
+            const newPath = sameGroup ? draggedPath : qpath(qpathId(draggedPath), targetParentPath)
+            ctx.builder.notifyBlueprintChanged()
 
-          ctx.builder.select({
-            type: 'question',
-            moduleIndex: ctx.moduleIndex,
-            formIndex: ctx.formIndex,
-            questionPath: newPath,
+            ctx.builder.select({
+              type: 'question',
+              moduleIndex: ctx.moduleIndex,
+              formIndex: ctx.formIndex,
+              questionPath: newPath,
+            })
           })
         }}
       >

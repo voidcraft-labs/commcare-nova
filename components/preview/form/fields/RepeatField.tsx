@@ -1,6 +1,7 @@
 'use client'
 import { Icon } from '@iconify/react'
 import { useDroppable } from '@dnd-kit/react'
+import { CollisionPriority } from '@dnd-kit/abstract'
 import ciPlus from '@iconify-icons/ci/plus'
 import ciTrash from '@iconify-icons/ci/trash-full'
 import type { Question } from '@/lib/schemas/blueprint'
@@ -25,7 +26,9 @@ export function RepeatField({ question, path, questionPath, engine, renderChildr
   // Make the repeat's children area a droppable target so items can be dropped into empty repeats
   const { ref: droppableRef } = useDroppable({
     id: `${questionPath}:container`,
+    type: 'container',
     accept: 'question',
+    collisionPriority: CollisionPriority.Low,
     disabled: !isEditMode,
   })
 
@@ -54,7 +57,7 @@ export function RepeatField({ question, path, questionPath, engine, renderChildr
               </button>
             )}
           </div>
-          <div ref={droppableRef} className="p-4 space-y-4">
+          <div ref={droppableRef} className="p-4 space-y-4 min-h-[72px]">
             {renderChildren(question.children ?? [], `${path}[${idx}]`, questionPath)}
           </div>
         </div>

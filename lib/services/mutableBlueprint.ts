@@ -650,7 +650,9 @@ export class MutableBlueprint {
       ...(nq.options != null && { options: nq.options }),
       ...(nq.case_property != null && { case_property: nq.case_property }),
       ...(nq.is_case_name != null && { is_case_name: nq.is_case_name }),
-      ...(nq.children && { children: nq.children.map(c => this.newQuestionToBlueprint(c)) }),
+      ...((nq.type === 'group' || nq.type === 'repeat') && {
+        children: (nq.children ?? []).map(c => this.newQuestionToBlueprint(c)),
+      }),
     }
   }
 
