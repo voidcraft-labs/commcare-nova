@@ -147,6 +147,82 @@ describe('FormEngine', () => {
 
       expect(engine.getState('/data/visit_date').value).toMatch(/^\d{4}-\d{2}-\d{2}$/)
     })
+
+    it('overrides preloaded case data with default_value on followup forms', () => {
+      const form = makeForm([
+        { id: 'name', type: 'text', label: 'Name', case_property: 'full_name', default_value: "concat(#case/age, ' - ', #case/full_name)" },
+      ], 'followup')
+      const caseData = new Map([['full_name', 'Alice'], ['age', '30']])
+      const engine = new FormEngine(form, sampleCaseTypes, 'patient', caseData)
+
+      // default_value should win over case preload
+      expect(engine.getState('/data/name').value).toBe('30 - Alice')
+    })
+
+    it('overrides preloaded case data after reset()', () => {
+      const form = makeForm([
+        { id: 'name', type: 'text', label: 'Name', case_property: 'full_name', default_value: "concat(#case/age, ' - ', #case/full_name)" },
+      ], 'followup')
+      const caseData = new Map([['full_name', 'Alice'], ['age', '30']])
+      const engine = new FormEngine(form, sampleCaseTypes, 'patient', caseData)
+
+      engine.setValue('/data/name', 'user typed this')
+      engine.reset()
+      expect(engine.getState('/data/name').value).toBe('30 - Alice')
+    })
+  })
+
+  describe('restoreValues', () => {
+    it('restores only user-touched values, preserving new defaults', () => {
+      // Simulate engine recreation: old engine had a default, user touched a different field
+      const form = makeForm([
+        { id: 'greeting', type: 'text', label: 'Greeting', default_value: "'hello'" },
+        { id: 'name', type: 'text', label: 'Name' },
+      ])
+      const engine = new FormEngine(form, null)
+      expect(engine.getState('/data/greeting').value).toBe('hello')
+
+      // User types in the name field (touched), doesn't touch greeting
+      engine.setValue('/data/name', 'Alice')
+      engine.touch('/data/name')
+      const snapshot = engine.getValueSnapshot()
+
+      // Simulate engine recreation with updated default
+      const updatedForm = makeForm([
+        { id: 'greeting', type: 'text', label: 'Greeting', default_value: "'goodbye'" },
+        { id: 'name', type: 'text', label: 'Name' },
+      ])
+      const newEngine = new FormEngine(updatedForm, null)
+      expect(newEngine.getState('/data/greeting').value).toBe('goodbye')
+
+      // Restore snapshot — only touched values restored, new default kept
+      newEngine.restoreValues(snapshot)
+      expect(newEngine.getState('/data/name').value).toBe('Alice')
+      expect(newEngine.getState('/data/greeting').value).toBe('goodbye')
+    })
+
+    it('does not overwrite new defaults with stale untouched values', () => {
+      const form = makeForm([
+        { id: 'status', type: 'text', label: 'Status', default_value: "'active'" },
+      ])
+      const engine = new FormEngine(form, null)
+      expect(engine.getState('/data/status').value).toBe('active')
+
+      // Snapshot includes the default-computed value but field was never touched
+      const snapshot = engine.getValueSnapshot()
+      expect(snapshot.values.get('/data/status')).toBe('active')
+      expect(snapshot.touched.has('/data/status')).toBe(false)
+
+      // New engine with different default
+      const updatedForm = makeForm([
+        { id: 'status', type: 'text', label: 'Status', default_value: "'archived'" },
+      ])
+      const newEngine = new FormEngine(updatedForm, null)
+      newEngine.restoreValues(snapshot)
+
+      // New default should win — stale 'active' should not overwrite 'archived'
+      expect(newEngine.getState('/data/status').value).toBe('archived')
+    })
   })
 
   describe('groups', () => {

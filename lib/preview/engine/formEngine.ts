@@ -240,9 +240,11 @@ export class FormEngine {
 
   /** Restore values and touched state from a snapshot, then re-evaluate all expressions. */
   restoreValues(snapshot: { values: Map<string, string>, touched: Set<string> }): void {
-    for (const [path, value] of snapshot.values) {
+    // Only restore user-touched values; untouched fields keep new defaults from applyDefaults()
+    for (const path of snapshot.touched) {
+      const value = snapshot.values.get(path)
       const state = this.states.get(path)
-      if (state) {
+      if (state && value !== undefined) {
         state.value = value
         this.instance.set(path, value)
       }
@@ -334,7 +336,7 @@ export class FormEngine {
   private applyDefaults(questions: Question[], prefix = '/data'): void {
     for (const q of questions) {
       const path = `${prefix}/${q.id}`
-      if (q.default_value && !this.instance.get(path)) {
+      if (q.default_value) {
         const ctx = this.createEvalContext(path)
         const result = evaluate(q.default_value, ctx)
         const value = String(result)

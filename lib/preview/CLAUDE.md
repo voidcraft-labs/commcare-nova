@@ -16,7 +16,7 @@ The grammar produces **two distinct `Child` node types** (one from `rootStep`, o
 
 ## Form Engine Lifecycle
 
-**On init**: merge data model defaults → build DataInstance → preload case data (followup) → build TriggerDag → init QuestionStates → apply `default_value` (one-time) → full cascade.
+**On init**: merge data model defaults → build DataInstance → preload case data (followup) → build TriggerDag → init QuestionStates → apply `default_value` (one-time, overrides preloaded case data) → full cascade.
 
 **On `setValue(path)`**: update instance → DAG cascade (topologically sorted) → re-evaluate expressions per affected path (calculate, relevant, required, validation) → re-validate.
 
@@ -30,7 +30,7 @@ The grammar produces **two distinct `Child` node types** (one from `rootStep`, o
 
 **Validation display**: errors show only when `state.touched && !state.valid`. Fields start untouched — no error spam on load. In edit mode (preview), `FormRenderer` passes a clean `displayState` (empty value, untouched, valid) to field components — inputs appear empty with no errors. Engine state is preserved internally. **Relevant conditions are bypassed in edit mode** — `SortableQuestion` skips the `!state.visible` check so all questions remain visible for editing, even when their relevant XPath evaluates to false (which it would since there are no real values).
 
-**Value persistence**: `useFormEngine` snapshots live-mode values (via `getValueSnapshot()`) into a ref before engine recreation (caused by `mutationCount` bumps from preview edits). New engines restore values via `restoreValues()`, which sets values, runs a full cascade, then re-validates touched fields. This lets users edit form structure in preview without losing their test data.
+**Value persistence**: `useFormEngine` snapshots live-mode values (via `getValueSnapshot()`) into a ref before engine recreation (caused by `mutationCount` bumps from preview edits). New engines restore values via `restoreValues()`, which restores only user-touched values, runs a full cascade, then re-validates touched fields. Untouched fields keep the new engine's defaults — this ensures editing a `default_value` expression in design mode is immediately reflected in preview.
 
 **Unresolved case refs**: When a followup form has no case data, `resolveHashtag` returns empty string for `#case/` refs (not a placeholder string). `QuestionState.caseRef` is set from `question.case_property` for these fields. Output tag resolution returns `{ text, className }` objects via `ResolvedOutput` type, producing styled `<span class="case-ref">` elements in labels. The `.case-ref` CSS class (globals.css) renders a cyan monospace badge.
 
