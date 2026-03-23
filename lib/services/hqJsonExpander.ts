@@ -1,5 +1,5 @@
 import type { AppBlueprint, Question } from '../schemas/blueprint'
-import { deriveCaseConfig, mergeFormQuestions } from '../schemas/blueprint'
+import { deriveCaseConfig } from '../schemas/blueprint'
 import {
   RESERVED_CASE_PROPERTIES, MEDIA_QUESTION_TYPES,
   genHexId, genShortId,
@@ -72,17 +72,13 @@ export function expandBlueprint(blueprint: AppBlueprint): HqApplication {
       const formUniqueId = genHexId()
       const xmlns = `http://openrosa.org/formdesigner/${genShortId()}`
 
-      // Merge data model defaults from case_types into questions before expansion
-      const mergedQuestions = mergeFormQuestions(bf.questions || [], blueprint.case_types, bm.case_type)
-      const mergedForm = { ...bf, questions: mergedQuestions }
-
-      attachments[`${formUniqueId}.xml`] = buildXForm(mergedForm, xmlns)
+      attachments[`${formUniqueId}.xml`] = buildXForm(bf, xmlns)
 
       return formShell(
         formUniqueId, bf.name, xmlns,
         bf.type === 'followup' ? 'case' : 'none',
-        buildFormActions(mergedForm, caseType),
-        buildCaseReferencesLoad(mergedForm.questions || []),
+        buildFormActions(bf, caseType),
+        buildCaseReferencesLoad(bf.questions || []),
       )
     })
 
@@ -145,12 +141,8 @@ export function validateBlueprint(blueprint: AppBlueprint): string[] {
         errors.push(`"${form.name}" in "${mod.name}" has no questions`)
       }
 
-      // Merge data model defaults before validation (e.g. select-with-no-options needs merged options)
-      const mergedQuestions = mergeFormQuestions(form.questions || [], blueprint.case_types, mod.case_type)
-      const mergedForm = { ...form, questions: mergedQuestions }
-
       // Derive case config on-demand from per-question fields
-      const { case_name_field, case_properties, case_preload } = deriveCaseConfig(mergedForm.questions || [], form.type)
+      const { case_name_field, case_properties, case_preload } = deriveCaseConfig(form.questions || [], form.type)
 
       if (form.type === 'registration' && !case_name_field) {
         errors.push(`"${form.name}" is a registration form but has no case_name_field`)
@@ -180,7 +172,7 @@ export function validateBlueprint(blueprint: AppBlueprint): string[] {
         }
       }
       const fn = form.name
-      validateQuestions(mergedForm.questions || [], fn)
+      validateQuestions(form.questions || [], fn)
 
       // Collect all question IDs including those inside groups/repeats
       function collectQuestionIds(questions: Question[]): string[] {
@@ -195,7 +187,7 @@ export function validateBlueprint(blueprint: AppBlueprint): string[] {
       }
 
       // Check for duplicate question IDs
-      const allIds = collectQuestionIds(mergedForm.questions || [])
+      const allIds = collectQuestionIds(form.questions || [])
       const idCounts = new Map<string, number>()
       for (const id of allIds) {
         idCounts.set(id, (idCounts.get(id) ?? 0) + 1)
@@ -220,7 +212,7 @@ export function validateBlueprint(blueprint: AppBlueprint): string[] {
 
       // Check case_name_field refers to a valid question
       if (form.type === 'registration' && case_name_field) {
-        const questionIds = collectQuestionIds(mergedForm.questions || [])
+        const questionIds = collectQuestionIds(form.questions || [])
         if (!questionIds.includes(case_name_field)) {
           errors.push(`"${fn}" case_name_field "${case_name_field}" doesn't match any question id`)
         }
@@ -228,7 +220,7 @@ export function validateBlueprint(blueprint: AppBlueprint): string[] {
 
       // Check case_properties are not reserved words and refer to valid questions
       if (case_properties) {
-        const questionIds = collectQuestionIds(mergedForm.questions || [])
+        const questionIds = collectQuestionIds(form.questions || [])
         for (const { case_property: prop, question_id: qId } of case_properties) {
           if (RESERVED_CASE_PROPERTIES.has(prop) && prop !== 'case_name') {
             errors.push(`"${fn}" uses reserved case property name "${prop}" — use a different name`)
@@ -236,7 +228,7 @@ export function validateBlueprint(blueprint: AppBlueprint): string[] {
           if (!questionIds.includes(qId)) {
             errors.push(`"${fn}" case property "${prop}" maps to question "${qId}" which doesn't exist`)
           } else {
-            const q = findQuestionById(mergedForm.questions || [], qId)
+            const q = findQuestionById(form.questions || [], qId)
             if (q && MEDIA_QUESTION_TYPES.has(q.type)) {
               errors.push(`"${fn}" case property "${prop}" maps to a ${q.type} question — media/binary questions cannot be saved as case properties`)
             }
@@ -246,7 +238,7 @@ export function validateBlueprint(blueprint: AppBlueprint): string[] {
 
       // Check case_preload entries refer to valid question ids and aren't reserved
       if (case_preload) {
-        const questionIds = collectQuestionIds(mergedForm.questions || [])
+        const questionIds = collectQuestionIds(form.questions || [])
         for (const { question_id: qId, case_property: caseProp } of case_preload) {
           if (!questionIds.includes(qId)) {
             errors.push(`"${fn}" case_preload references question "${qId}" which doesn't exist`)
@@ -271,7 +263,7 @@ export function validateBlueprint(blueprint: AppBlueprint): string[] {
           errors.push(`"${fn}" close_case condition is missing "question"`)
         }
         if (cc.question) {
-          const questionIds = collectQuestionIds(mergedForm.questions || [])
+          const questionIds = collectQuestionIds(form.questions || [])
           if (!questionIds.includes(cc.question)) {
             errors.push(`"${fn}" close_case references question "${cc.question}" which doesn't exist`)
           }
@@ -280,7 +272,7 @@ export function validateBlueprint(blueprint: AppBlueprint): string[] {
 
       // Validate child_cases
       if (form.child_cases) {
-        const questionIds = collectQuestionIds(mergedForm.questions || [])
+        const questionIds = collectQuestionIds(form.questions || [])
         for (let cIdx = 0; cIdx < form.child_cases.length; cIdx++) {
           const child = form.child_cases[cIdx]
           const prefix = `"${fn}" child_cases[${cIdx}]`
@@ -304,7 +296,7 @@ export function validateBlueprint(blueprint: AppBlueprint): string[] {
             }
           }
           if (child.repeat_context) {
-            const repeatQ = (mergedForm.questions || []).find(q => q.id === child.repeat_context)
+            const repeatQ = (form.questions || []).find(q => q.id === child.repeat_context)
             if (!repeatQ) {
               errors.push(`${prefix} repeat_context "${child.repeat_context}" doesn't match any question id`)
             } else if (repeatQ.type !== 'repeat') {

@@ -1,7 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { expandBlueprint, validateBlueprint } from '../hqJsonExpander'
-import { mergeQuestionDefaults, mergeFormQuestions } from '../../schemas/blueprint'
-import type { AppBlueprint, CaseType, Question } from '../../schemas/blueprint'
+import type { AppBlueprint, Question } from '../../schemas/blueprint'
 
 const followupBlueprint: AppBlueprint = {
   app_name: 'Test App',
@@ -527,153 +526,47 @@ describe('jr-insert for repeat defaults', () => {
   })
 })
 
-// ── Data Model Defaults Merge ────────────────────────────────────────────
+// ── Expansion with complete questions (no merge from case_types) ──────────
 
-const testCaseTypes: CaseType[] = [{
-  name: 'patient',
-  properties: [
-    { name: 'case_name', label: 'Full Name' },
-    { name: 'age', label: 'Patient Age', data_type: 'int', required: 'true()', validation: '. > 0 and . < 150', validation_msg: 'Age must be between 1 and 149' },
-    { name: 'gender', label: 'Gender', data_type: 'single_select', options: [{ value: 'male', label: 'Male' }, { value: 'female', label: 'Female' }] },
-    { name: 'phone', label: 'Phone Number', data_type: 'phone', hint: 'Include country code' },
-  ],
-}]
-
-describe('mergeQuestionDefaults', () => {
-  it('fills in label from data model for sparse question', () => {
-    const q: Question = { id: 'case_name', type: 'text', is_case_property: true }
-    const merged = mergeQuestionDefaults(q, testCaseTypes, 'patient')
-    expect(merged.label).toBe('Full Name')
-  })
-
-  it('preserves explicit label when provided', () => {
-    const q: Question = { id: 'case_name', type: 'text', label: 'Custom Label', is_case_property: true }
-    const merged = mergeQuestionDefaults(q, testCaseTypes, 'patient')
-    expect(merged.label).toBe('Custom Label')
-  })
-
-  it('fills in validation, required, and validation_msg', () => {
-    const q: Question = { id: 'age', type: 'int', is_case_property: true }
-    const merged = mergeQuestionDefaults(q, testCaseTypes, 'patient')
-    expect(merged.required).toBe('true()')
-    expect(merged.validation).toBe('. > 0 and . < 150')
-    expect(merged.validation_msg).toBe('Age must be between 1 and 149')
-  })
-
-  it('fills in options for select properties', () => {
-    const q: Question = { id: 'gender', type: 'single_select', is_case_property: true }
-    const merged = mergeQuestionDefaults(q, testCaseTypes, 'patient')
-    expect(merged.options).toEqual([{ value: 'male', label: 'Male' }, { value: 'female', label: 'Female' }])
-  })
-
-  it('fills in hint from data model', () => {
-    const q: Question = { id: 'phone', type: 'phone', is_case_property: true }
-    const merged = mergeQuestionDefaults(q, testCaseTypes, 'patient')
-    expect(merged.hint).toBe('Include country code')
-  })
-
-  it('returns question unchanged when no is_case_property', () => {
-    const q: Question = { id: 'notes', type: 'text', label: 'Notes' }
-    const merged = mergeQuestionDefaults(q, testCaseTypes, 'patient')
-    expect(merged).toEqual(q)
-  })
-
-  it('returns question unchanged when case_types is undefined', () => {
-    const q: Question = { id: 'case_name', type: 'text', is_case_property: true }
-    const merged = mergeQuestionDefaults(q, undefined, 'patient')
-    expect(merged).toEqual(q)
-  })
-
-  it('returns question unchanged when property not found', () => {
-    const q: Question = { id: 'nonexistent', type: 'text', is_case_property: true }
-    const merged = mergeQuestionDefaults(q, testCaseTypes, 'patient')
-    expect(merged).toEqual(q)
-  })
-})
-
-describe('mergeFormQuestions', () => {
-  it('recursively merges children inside groups', () => {
-    const questions: Question[] = [{
-      id: 'grp', type: 'group', label: 'Group', children: [
-        { id: 'age', type: 'int', is_case_property: true },
-      ],
-    }]
-    const merged = mergeFormQuestions(questions, testCaseTypes, 'patient')
-    expect(merged[0].children![0].label).toBe('Patient Age')
-    expect(merged[0].children![0].required).toBe('true()')
-  })
-})
-
-describe('expander merges data model defaults', () => {
-  it('produces correct XForm for sparse question with data model defaults', () => {
-    const bp: AppBlueprint = {
-      app_name: 'Merge Test',
-      case_types: testCaseTypes,
-      modules: [{
-        name: 'M', case_type: 'patient', forms: [{
-          name: 'F', type: 'registration',
-          questions: [
-            { id: 'case_name', type: 'text', is_case_property: true },
-            { id: 'age', type: 'int', is_case_property: true },
-            { id: 'gender', type: 'single_select', is_case_property: true },
-          ],
-        }],
-      }],
-    }
-    const hq = expandBlueprint(bp)
-    const xform: string = Object.values(hq._attachments)[0] as string
-
-    // Label from data model should appear in itext
-    expect(xform).toContain('Full Name')
-    expect(xform).toContain('Patient Age')
-    expect(xform).toContain('Gender')
-
-    // Constraint from data model on age
-    expect(xform).toContain('. &gt; 0 and . &lt; 150')
-
-    // Options from data model on gender
-    expect(xform).toContain('Male')
-    expect(xform).toContain('Female')
-  })
-
+describe('expansion with complete questions', () => {
   it('derives case name from question with id "case_name"', () => {
     const bp: AppBlueprint = {
-      app_name: 'Auto Case Name',
-      case_types: testCaseTypes,
+      app_name: 'Case Name Test',
+      case_types: [{ name: 'patient', properties: [{ name: 'case_name', label: 'Name' }] }],
       modules: [{
         name: 'M', case_type: 'patient', forms: [{
           name: 'Register', type: 'registration',
           questions: [
-            { id: 'case_name', type: 'text', is_case_property: true },
-            { id: 'age', type: 'int', is_case_property: true },
+            { id: 'case_name', type: 'text', label: 'Patient Name', is_case_property: true },
+            { id: 'age', type: 'int', label: 'Age', is_case_property: true },
           ],
         }],
       }],
     }
     const hq = expandBlueprint(bp)
     const actions = hq.modules[0].forms[0].actions
-    // open_case should be wired with case_name as the case name field
     expect(actions.open_case.condition.type).toBe('always')
     expect(actions.open_case.name_update.question_path).toBe('/data/case_name')
   })
 
-  it('validator passes for select question with options from data model', () => {
+  it('uses question labels directly without case_types merge', () => {
     const bp: AppBlueprint = {
-      app_name: 'V',
-      case_types: testCaseTypes,
+      app_name: 'Complete Questions',
+      case_types: [{ name: 'patient', properties: [{ name: 'case_name', label: 'WRONG' }] }],
       modules: [{
         name: 'M', case_type: 'patient', forms: [{
           name: 'F', type: 'registration',
           questions: [
-            { id: 'case_name', type: 'text', is_case_property: true },
-            { id: 'gender', type: 'single_select', is_case_property: true },
+            { id: 'case_name', type: 'text', label: 'Patient Name', is_case_property: true },
           ],
         }],
       }],
     }
-    const errors = validateBlueprint(bp)
-    // Should NOT report "select but has no options" since options come from data model
-    expect(errors.some(e => e.includes('no options'))).toBe(false)
+    const hq = expandBlueprint(bp)
+    const xform: string = Object.values(hq._attachments)[0] as string
+    // Should use the question's own label, not the case_types label
+    expect(xform).toContain('Patient Name')
+    expect(xform).not.toContain('WRONG')
   })
 })
 

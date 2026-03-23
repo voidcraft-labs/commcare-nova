@@ -108,16 +108,16 @@ describe('FormEngine', () => {
     })
   })
 
-  describe('data model defaults', () => {
-    it('merges case property metadata into questions', () => {
+  describe('questions are self-contained', () => {
+    it('uses question labels directly without case_types merge', () => {
       const form = makeForm([
-        { id: 'case_name', type: 'text', is_case_property: true },
-        { id: 'age', type: 'int', is_case_property: true },
+        { id: 'case_name', type: 'text', label: 'Patient Name', is_case_property: true },
+        { id: 'age', type: 'int', label: 'Age', is_case_property: true },
       ])
       const engine = new FormEngine(form, sampleCaseTypes, 'patient')
       const questions = engine.getQuestions()
 
-      expect(questions[0].label).toBe('Full Name')
+      expect(questions[0].label).toBe('Patient Name')
       expect(questions[1].label).toBe('Age')
     })
   })

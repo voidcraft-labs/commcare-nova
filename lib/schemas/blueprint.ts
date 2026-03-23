@@ -308,46 +308,6 @@ export function summarizeBlueprint(bp: AppBlueprint): string {
   return lines.join('\n')
 }
 
-// ── Data model defaults merge ──────────────────────────────────────────
-
-/** Merge data model defaults from case property metadata into a question. */
-export function mergeQuestionDefaults(
-  question: Question,
-  caseTypes?: CaseType[] | null,
-  moduleCaseType?: string,
-): Question {
-  if (!question.is_case_property || !caseTypes || !moduleCaseType) return question
-  const ct = caseTypes.find(c => c.name === moduleCaseType)
-  const prop = ct?.properties.find(p => p.name === question.id)
-  if (!prop) return question
-
-  return {
-    ...question,
-    label: question.label ?? prop.label,
-    hint: question.hint ?? prop.hint,
-    help: question.help ?? prop.help,
-    required: question.required ?? prop.required,
-    validation: question.validation ?? prop.validation,
-    validation_msg: question.validation_msg ?? prop.validation_msg,
-    options: question.options ?? prop.options,
-  }
-}
-
-/** Recursively merge data model defaults into a form's question tree. */
-export function mergeFormQuestions(
-  questions: Question[],
-  caseTypes?: CaseType[] | null,
-  moduleCaseType?: string,
-): Question[] {
-  return questions.map(q => {
-    const merged = mergeQuestionDefaults(q, caseTypes, moduleCaseType)
-    if (q.children) {
-      return { ...merged, children: mergeFormQuestions(q.children, caseTypes, moduleCaseType) }
-    }
-    return merged
-  })
-}
-
 // ── Case config derivation ─────────────────────────────────────────────
 
 /**
