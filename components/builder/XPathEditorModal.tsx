@@ -3,14 +3,15 @@ import { useState, useCallback, useRef, useMemo } from 'react'
 import { createPortal } from 'react-dom'
 import { motion, AnimatePresence } from 'motion/react'
 import CodeMirror, { type ReactCodeMirrorRef } from '@uiw/react-codemirror'
-import { EditorView, keymap } from '@codemirror/view'
+import { EditorView, keymap, tooltips } from '@codemirror/view'
 import { foldGutter, foldKeymap, indentOnInput, bracketMatching, indentUnit } from '@codemirror/language'
 import { EditorState } from '@codemirror/state'
 import { diagnosticCount } from '@codemirror/lint'
 import { xpath } from '@/lib/codemirror/xpath-language'
-import { novaXPathTheme } from '@/lib/codemirror/xpath-theme'
+import { novaXPathTheme, novaAutocompleteTheme } from '@/lib/codemirror/xpath-theme'
 import { formatXPath, prettyPrintXPath } from '@/lib/codemirror/xpath-format'
 import { xpathLinter, type XPathLintContext } from '@/lib/codemirror/xpath-lint'
+import { xpathAutocomplete } from '@/lib/codemirror/xpath-autocomplete'
 
 const modalEditorTheme = EditorView.theme({
   '&': {
@@ -76,6 +77,7 @@ const baseExtensions = [
   indentOnInput(),
   bracketMatching(),
   EditorView.lineWrapping,
+  tooltips({ parent: document.body }),
   modalEditorTheme,
 ]
 
@@ -97,7 +99,12 @@ export function XPathEditorModal({ value, label, onSave, onClose, getLintContext
   getLintContextRef.current = getLintContext
 
   const extensions = useMemo(
-    () => [...baseExtensions, xpathLinter(() => getLintContextRef.current())],
+    () => [
+      ...baseExtensions,
+      xpathLinter(() => getLintContextRef.current()),
+      xpathAutocomplete(() => getLintContextRef.current()),
+      novaAutocompleteTheme,
+    ],
     [],
   )
 

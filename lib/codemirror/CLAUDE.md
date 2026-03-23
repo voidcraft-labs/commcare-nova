@@ -43,7 +43,18 @@ Replaces `Layout.Space` with `Layout.NewLine` + `Layout.Tab`:
 
 `xpathLinter(getContext)` — CodeMirror lint extension using `@codemirror/lint`. Takes a getter that reads live from the blueprint (`() => { blueprint, form, moduleCaseType }`). On each lint pass, derives valid paths and case properties from the blueprint, then runs `validateXPath()` for full syntax + semantic validation. Blocks save in `XPathEditorModal` when diagnostics are present.
 
+## Autocomplete (`xpath-autocomplete.ts`)
+
+`xpathAutocomplete(getContext)` — CodeMirror autocomplete extension using `@codemirror/autocomplete`. Same getter pattern as `xpathLinter` — reads live from the blueprint via `XPathLintContext`.
+
+**Three completion sources:**
+- **Functions** — all ~65 from `FUNCTION_REGISTRY`, cached at module level. Uses `snippetCompletion` with typed placeholders (e.g. `if(${1:boolean}, ${2}, ${3})`). Suppressed inside `HashtagRef`, `Child`, `Descendant`, `StringLiteral` via `ifNotIn`.
+- **Hashtag references** — two-phase: bare `#` shows namespace prefixes (`#case/`, `#form/`, `#user/`); after a namespace, shows properties/questions from the blueprint. `activateOnCompletion` re-triggers after picking a namespace prefix.
+- **Data paths** — `/data/...` paths from `collectValidPaths()`.
+
+**Context detection uses Lezer syntax tree nodes** (`syntaxTree().resolveInner()`), not regex. The grammar's `HashtagRef` (opaque token), `Child`/`Descendant` (path chains), and `NameTest`/`FunctionName` nodes drive all context decisions. Node text is only read from identified tree nodes (e.g. extracting the namespace from a `HashtagRef` token, checking a `NameTest` is `"data"`).
+
 ## Language & Theme
 
 - `xpath-language.ts` — CodeMirror `LanguageSupport` with `styleTags` highlighting and `foldNodeProp` (folds `ArgumentList` and `Filtered`).
-- `xpath-theme.ts` — Nova dark theme for CodeMirror. Used by `XPathField` and `XPathEditorModal`.
+- `xpath-theme.ts` — Nova dark theme for CodeMirror. Used by `XPathField` and `XPathEditorModal`. Also exports `novaAutocompleteTheme` — dark tooltip styling for the autocomplete dropdown (z-index 200 to float above the XPath modal).
