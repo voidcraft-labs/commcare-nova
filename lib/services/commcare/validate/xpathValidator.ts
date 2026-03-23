@@ -13,9 +13,10 @@ import type { SyntaxNode } from '@lezer/common'
 import { parser } from '@/lib/codemirror/xpath-parser'
 import { FUNCTION_REGISTRY, findCaseInsensitiveMatch } from './functionRegistry'
 import { extractPathRefs } from '@/lib/preview/xpath/dependencies'
+import { checkTypes } from './typeChecker'
 
 export interface XPathError {
-  code: 'XPATH_SYNTAX' | 'UNKNOWN_FUNCTION' | 'WRONG_ARITY' | 'INVALID_REF' | 'INVALID_CASE_REF'
+  code: 'XPATH_SYNTAX' | 'UNKNOWN_FUNCTION' | 'WRONG_ARITY' | 'INVALID_REF' | 'INVALID_CASE_REF' | 'TYPE_ERROR'
   message: string
   position?: number
 }
@@ -102,6 +103,12 @@ export function validateXPath(
         })
       }
     }
+  }
+
+  // Phase 3: Type checking — bottom-up inference + constraint validation
+  const typeErrors = checkTypes(expr)
+  for (const err of typeErrors) {
+    errors.push({ ...err, position: err.position })
   }
 
   return errors

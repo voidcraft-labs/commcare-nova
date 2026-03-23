@@ -1,6 +1,6 @@
 /** Validation error produced by deep blueprint validation. */
 export interface ValidationError {
-  code: 'XPATH_SYNTAX' | 'UNKNOWN_FUNCTION' | 'WRONG_ARITY' | 'INVALID_REF' | 'INVALID_CASE_REF' | 'CYCLE'
+  code: 'XPATH_SYNTAX' | 'UNKNOWN_FUNCTION' | 'WRONG_ARITY' | 'INVALID_REF' | 'INVALID_CASE_REF' | 'CYCLE' | 'TYPE_ERROR'
   message: string
   module?: string
   form?: string

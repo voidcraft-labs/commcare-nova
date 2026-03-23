@@ -433,6 +433,13 @@ export function QuestionDetail({ question, selected, mb, builder, notifyBlueprin
           label={xpathModal.label}
           onSave={handleXPathSave}
           onClose={() => setXpathModal(undefined)}
+          getLintContext={() => {
+            const blueprint = mb.getBlueprint()
+            const form = mb.getForm(selected.moduleIndex, selected.formIndex!)
+            const mod = mb.getModule(selected.moduleIndex)
+            if (!form) return undefined
+            return { blueprint, form, moduleCaseType: mod?.case_type ?? undefined }
+          }}
         />
       )}
     </>

@@ -129,6 +129,75 @@ describe('validateXPath', () => {
       expect(errors[0].code).toBe('INVALID_CASE_REF')
     })
   })
+
+  describe('type checking', () => {
+    describe('catches provably-lossy coercions', () => {
+      it('unary minus on non-numeric string literal', () => {
+        const errors = validateXPath("-'hello'")
+        expect(errors.some(e => e.code === 'TYPE_ERROR')).toBe(true)
+      })
+
+      it('arithmetic with non-numeric string literal', () => {
+        expect(validateXPath("'text' * 2").some(e => e.code === 'TYPE_ERROR')).toBe(true)
+        expect(validateXPath("'text' + 5").some(e => e.code === 'TYPE_ERROR')).toBe(true)
+        expect(validateXPath("'text' - 1").some(e => e.code === 'TYPE_ERROR')).toBe(true)
+        expect(validateXPath("10 div 'abc'").some(e => e.code === 'TYPE_ERROR')).toBe(true)
+      })
+
+      it('the original failing case: =- string literal', () => {
+        const errors = validateXPath("/data/x =- 'here'")
+        expect(errors.some(e => e.code === 'TYPE_ERROR')).toBe(true)
+      })
+
+      it('non-numeric string literal in numeric function param', () => {
+        expect(validateXPath("round('foo')").some(e => e.code === 'TYPE_ERROR')).toBe(true)
+        expect(validateXPath("floor('bar')").some(e => e.code === 'TYPE_ERROR')).toBe(true)
+        expect(validateXPath("abs('baz')").some(e => e.code === 'TYPE_ERROR')).toBe(true)
+      })
+    })
+
+    describe('allows legitimate patterns', () => {
+      it('today() + 1 (date arithmetic — today returns number)', () => {
+        expect(validateXPath('today() + 1')).toEqual([])
+      })
+
+      it('/data/age + 1 (nodeset in numeric context — unknowable)', () => {
+        expect(validateXPath('/data/age + 1')).toEqual([])
+      })
+
+      it('#case/visits + 1 (string ref in numeric context — unknowable)', () => {
+        expect(validateXPath('#case/visits + 1')).toEqual([])
+      })
+
+      it("'5' + 3 (numeric string literal — parseable)", () => {
+        expect(validateXPath("'5' + 3")).toEqual([])
+      })
+
+      it("5 = '5' (equality accepts any types)", () => {
+        expect(validateXPath("5 = '5'")).toEqual([])
+      })
+
+      it("if(true(), 'yes', 'no') (conditional with any-typed branches)", () => {
+        expect(validateXPath("if(true(), 'yes', 'no')")).toEqual([])
+      })
+
+      it('not(count(/data/items)) (number→boolean is valid coercion)', () => {
+        expect(validateXPath('not(count(/data/items))')).toEqual([])
+      })
+
+      it("boolean('yes') (explicit conversion function)", () => {
+        expect(validateXPath("boolean('yes')")).toEqual([])
+      })
+
+      it("number('42') (explicit conversion function)", () => {
+        expect(validateXPath("number('42')")).toEqual([])
+      })
+
+      it('selected(#form/symptoms, \'fever\') (string params)', () => {
+        expect(validateXPath("selected(#form/symptoms, 'fever')")).toEqual([])
+      })
+    })
+  })
 })
 
 // ── Function Registry ───────────────────────────────────────────────

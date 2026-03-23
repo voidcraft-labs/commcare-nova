@@ -1,14 +1,16 @@
 'use client'
-import { useState, useCallback, useRef } from 'react'
+import { useState, useCallback, useRef, useMemo } from 'react'
 import { createPortal } from 'react-dom'
 import { motion, AnimatePresence } from 'motion/react'
-import CodeMirror from '@uiw/react-codemirror'
+import CodeMirror, { type ReactCodeMirrorRef } from '@uiw/react-codemirror'
 import { EditorView, keymap } from '@codemirror/view'
 import { foldGutter, foldKeymap, indentOnInput, bracketMatching, indentUnit } from '@codemirror/language'
 import { EditorState } from '@codemirror/state'
+import { diagnosticCount } from '@codemirror/lint'
 import { xpath } from '@/lib/codemirror/xpath-language'
 import { novaXPathTheme } from '@/lib/codemirror/xpath-theme'
 import { formatXPath, prettyPrintXPath } from '@/lib/codemirror/xpath-format'
+import { xpathLinter, type XPathLintContext } from '@/lib/codemirror/xpath-lint'
 
 const modalEditorTheme = EditorView.theme({
   '&': {
@@ -45,7 +47,7 @@ const modalEditorTheme = EditorView.theme({
   },
 })
 
-const modalExtensions = [
+const baseExtensions = [
   indentUnit.of('    '),
   xpath(),
   foldGutter({
@@ -82,12 +84,28 @@ interface XPathEditorModalProps {
   label: string
   onSave: (value: string) => void
   onClose: () => void
+  getLintContext: () => XPathLintContext | undefined
 }
 
-export function XPathEditorModal({ value, label, onSave, onClose }: XPathEditorModalProps) {
+export function XPathEditorModal({ value, label, onSave, onClose, getLintContext }: XPathEditorModalProps) {
   const [draft, setDraft] = useState(() => prettyPrintXPath(value))
+  const [hasErrors, setHasErrors] = useState(false)
+  const editorRef = useRef<ReactCodeMirrorRef>(null)
+
+  // Stable ref so the linter closure always reads the latest getter
+  const getLintContextRef = useRef(getLintContext)
+  getLintContextRef.current = getLintContext
+
+  const extensions = useMemo(
+    () => [...baseExtensions, xpathLinter(() => getLintContextRef.current())],
+    [],
+  )
 
   const handleUpdate = useCallback(() => {
+    if (editorRef.current?.view) {
+      const errCount = diagnosticCount(editorRef.current.view.state)
+      if (errCount > 0) return
+    }
     const normalized = formatXPath(draft)
     if (normalized !== formatXPath(value)) {
       onSave(normalized)
@@ -146,10 +164,14 @@ export function XPathEditorModal({ value, label, onSave, onClose }: XPathEditorM
           {/* Editor */}
           <div className="p-4 flex-1 overflow-hidden">
             <CodeMirror
+              ref={editorRef}
               value={draft}
               onChange={setDraft}
+              onUpdate={(viewUpdate) => {
+                setHasErrors(diagnosticCount(viewUpdate.state) > 0)
+              }}
               theme={novaXPathTheme}
-              extensions={modalExtensions}
+              extensions={extensions}
               autoFocus
               onCreateEditor={(view) => {
                 const end = view.state.doc.length
@@ -168,9 +190,13 @@ export function XPathEditorModal({ value, label, onSave, onClose }: XPathEditorM
 
           {/* Footer */}
           <div className="px-5 py-3 border-t border-nova-border flex items-center justify-between shrink-0">
-            <span className="text-[10px] text-nova-text-muted tracking-wide">
-              {typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.platform) ? '⌘' : 'Ctrl'} + {typeof navigator !== 'undefined' && /Win/.test(navigator.platform) ? 'ENTER' : 'RETURN'} TO SAVE
-            </span>
+            {hasErrors ? (
+              <span className="text-[10px] text-nova-rose tracking-wide">FIX ERRORS BEFORE SAVING</span>
+            ) : (
+              <span className="text-[10px] text-nova-text-muted tracking-wide">
+                {typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.platform) ? '⌘' : 'Ctrl'} + {typeof navigator !== 'undefined' && /Win/.test(navigator.platform) ? 'ENTER' : 'RETURN'} TO SAVE
+              </span>
+            )}
             <div className="flex items-center gap-2">
               <button
                 onClick={onClose}
@@ -180,7 +206,12 @@ export function XPathEditorModal({ value, label, onSave, onClose }: XPathEditorM
               </button>
               <button
                 onClick={handleUpdate}
-                className="px-3 py-1.5 text-sm bg-nova-violet/20 text-nova-violet-bright hover:bg-nova-violet/30 border border-nova-violet/30 rounded transition-colors"
+                disabled={hasErrors}
+                className={`px-3 py-1.5 text-sm rounded transition-colors border ${
+                  hasErrors
+                    ? 'bg-nova-surface text-nova-text-muted border-nova-border cursor-not-allowed opacity-50'
+                    : 'bg-nova-violet/20 text-nova-violet-bright hover:bg-nova-violet/30 border-nova-violet/30'
+                }`}
               >
                 Update
               </button>
