@@ -4,16 +4,18 @@ Client-side web preview with cyan accent theme (`.preview-theme` in globals.css)
 
 ## Navigation Shell
 
-- **PreviewShell** — Screen dispatch container. Accepts optional `nav` prop (from `usePreviewNav`) and `hideHeader` — when used inside BuilderLayout, the header is rendered externally in the subheader bar and nav state is shared via prop. Content fills the full pane (no border/padding wrapper).
+- **PreviewShell** — Screen dispatch container. Accepts optional `nav` prop (from `usePreviewNav`), `hideHeader`, and `onBack`. When used inside BuilderLayout, the header is rendered externally in the subheader bar, nav state is shared via prop, and `onBack` syncs builder selection. Passes `canGoBack`/`onBack` to all screen components. Content fills the full pane (no border/padding wrapper).
 - **PreviewHeader** — Back button, breadcrumb, actions slot. Used by PreviewShell when rendering standalone (not used by BuilderLayout).
 - **ViewModeToggle** (`ViewModeToggle.tsx`) — Compact `h-[34px]` 2-segment control: `[✏ Design] [▶ Preview]` with icons. Design uses cyan accent, Preview uses emerald. Active indicator animated via `layoutId="view-mode-indicator"`. Rendered in BuilderLayout's full-width toolbar (Tier 3).
 
 ## Screens
 
-- **HomeScreen** — Module cards
-- **ModuleScreen** — Form list within a module
-- **CaseListScreen** — Case selector for followup forms (reads cached dummy data via `getDummyCases()`)
-- **FormScreen** — Form entry with question fields, submit button (preview mode only), reset button in header (preview mode only), scroll-to-first-error on validation failure. Wraps form body in `EditContextProvider` when builder is present. Blocks followup forms in preview mode without case data (shows "no cases" error).
+- **HomeScreen** — Module cards. `max-w-3xl mx-auto`.
+- **ModuleScreen** — Form list within a module. `max-w-3xl mx-auto`.
+- **CaseListScreen** — Case selector for followup forms (reads cached dummy data via `getDummyCases()`). `max-w-3xl mx-auto`.
+- **FormScreen** — Form entry with question fields, submit button (preview mode only), reset button in header (preview mode only), scroll-to-first-error on validation failure. Wraps form body in `EditContextProvider` when builder is present. Blocks followup forms in preview mode without case data (shows "no cases" error). `max-w-3xl mx-auto`.
+
+All screens render a consistent header row: back button (always present, disabled when no history) + screen title. The back button is the same size and position across all screens so layout doesn't shift on navigation.
 
 ## Edit Mode
 

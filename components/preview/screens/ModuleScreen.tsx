@@ -4,6 +4,7 @@ import { Icon } from '@iconify/react'
 import ciFileAdd from '@iconify-icons/ci/file-add'
 import ciFileEdit from '@iconify-icons/ci/file-edit'
 import ciFileBlank from '@iconify-icons/ci/file-blank'
+import ciChevronLeft from '@iconify-icons/ci/chevron-left'
 import type { AppBlueprint } from '@/lib/schemas/blueprint'
 import type { PreviewScreen } from '@/lib/preview/engine/types'
 
@@ -11,6 +12,8 @@ interface ModuleScreenProps {
   blueprint: AppBlueprint
   moduleIndex: number
   onNavigate: (screen: PreviewScreen) => void
+  canGoBack?: boolean
+  onBack?: () => void
 }
 
 const formTypeIcons = {
@@ -20,15 +23,24 @@ const formTypeIcons = {
 } as const
 
 
-export function ModuleScreen({ blueprint, moduleIndex, onNavigate }: ModuleScreenProps) {
+export function ModuleScreen({ blueprint, moduleIndex, onNavigate, canGoBack, onBack }: ModuleScreenProps) {
   const mod = blueprint.modules[moduleIndex]
   if (!mod) return null
 
   const hasCase = !!mod.case_type
 
   return (
-    <div className="p-6 space-y-4 max-w-2xl mx-auto">
-      <h2 className="text-lg font-display font-semibold text-nova-text">{mod.name}</h2>
+    <div className="p-6 space-y-4 max-w-3xl mx-auto">
+      <div className="flex items-center gap-2">
+        <button
+          onClick={onBack}
+          disabled={!canGoBack}
+          className={`p-1.5 -ml-1.5 rounded-md shrink-0 transition-colors ${canGoBack ? 'text-nova-text-muted hover:text-nova-text hover:bg-pv-elevated cursor-pointer' : 'text-nova-text-muted/30 cursor-default'}`}
+        >
+          <Icon icon={ciChevronLeft} width="20" height="20" />
+        </button>
+        <h2 className="text-lg font-display font-semibold text-nova-text">{mod.name}</h2>
+      </div>
 
       <div className="space-y-2">
         {mod.forms.map((form, fIdx) => {

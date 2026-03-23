@@ -22,13 +22,13 @@ When `builder.phase === Idle && !builder.treeData`, chat fills center with hero 
 
 ### Project Subheader (Tier 2)
 
-`CollapsibleBreadcrumb` (exported from `SubheaderToolbar.tsx`) renders navigable breadcrumbs, always derived from the `usePreviewNav` stack. Follow-up forms show the selected case name as the final breadcrumb segment. Clicking a breadcrumb calls `nav.navigateTo()` + `builder.select()`. Breadcrumbs use `text-lg whitespace-nowrap` — no truncation since the full-width bar has ample space. Collapse behind `…` dropdown only at depth 4+.
+`CollapsibleBreadcrumb` (exported from `SubheaderToolbar.tsx`) renders navigable breadcrumbs, derived from the current screen's hierarchical position (via `nav.breadcrumbPath`). Follow-up forms show the selected case name as the final breadcrumb segment. Clicking a breadcrumb calls `nav.navigateTo()` + `builder.select()`. Breadcrumbs use `text-lg whitespace-nowrap` — no truncation since the full-width bar has ample space. Collapse behind `…` dropdown only at depth 4+.
 
 ### Toolbar (Tier 3, `SubheaderToolbar.tsx`)
 
 Full-width 3-column grid: left spacer, center `ViewModeToggle` (`components/preview/ViewModeToggle.tsx`), right Undo/Redo. `h-12 bg-nova-deep`. `ViewModeToggle` is a compact `h-[34px]` 2-segment control (Design | Preview) matching undo/redo button height.
 
-`usePreviewNav` is lifted to BuilderLayout and shared with `PreviewShell` (via `nav` prop) so navigation state stays in sync. PreviewShell renders with `hideHeader` since BuilderLayout owns the header tiers.
+`usePreviewNav` is lifted to BuilderLayout and shared with `PreviewShell` (via `nav` prop) so navigation state stays in sync. PreviewShell renders with `hideHeader` since BuilderLayout owns the header tiers. `handlePreviewBack` syncs `builder.select()` when the in-content back button is clicked, passed to PreviewShell via `onBack`.
 
 ### View Mode Sync
 
@@ -36,7 +36,7 @@ Full-width 3-column grid: left spacer, center `ViewModeToggle` (`components/prev
 
 - **Design ↔ Preview**: Nav is shared (no sync needed). Selection preserved but invisible in preview mode. Preview → Design preserves existing selection state — sidebar only opens if user had something selected before entering preview. Design → Preview auto-focuses the selected question's input. **Flipbook scroll sync**: `handleViewModeChange` captures the topmost visible question's `data-question-id` and its pixel offset from the scroll container top before calling `setState`. A `useLayoutEffect` on `viewMode` then restores the scroll position before paint — finding the same element (or the nearest visible question above it if the anchor is hidden by relevancy) and adjusting `scrollTop` to match the captured offset. The scroll container is identified via `[data-preview-scroll-container]` on PreviewShell's inner scroll div.
 - **Escape in preview**: Switches to design without nav sync (stays on current screen).
-- **Structure tree selection**: `handleTreeSelect` in BuilderLayout calls both `builder.select()` and `nav.replaceStack()` (via `buildNavStack()`) so clicking a tree item navigates the canvas to the corresponding form and opens the detail panel. For follow-up forms, `buildNavStack()` inserts a `caseList` screen before the `form` screen so breadcrumbs correctly show the form name.
+- **Structure tree selection**: `handleTreeSelect` in BuilderLayout calls both `builder.select()` and `nav.replaceStack()` (via `buildNavStack()`) so clicking a tree item navigates the canvas to the corresponding form (adding to browser-like history) and opens the detail panel. For follow-up forms, `buildNavStack()` inserts a `caseList` screen before the `form` screen so breadcrumbs correctly show the form name.
 
 When `Done` + blueprint exists:
 - `'design'` → `PreviewShell` (editable canvas) + `LeftPanel` (overlay left, Chat/Structure tabs) + `DetailPanel` (overlay right)

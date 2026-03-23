@@ -17,11 +17,13 @@ interface PreviewShellProps {
   mode?: EditMode
   nav?: ReturnType<typeof usePreviewNav>
   hideHeader?: boolean
+  onBack?: () => void
 }
 
-export function PreviewShell({ blueprint, actions, builder, mode = 'edit', nav: navProp, hideHeader }: PreviewShellProps) {
+export function PreviewShell({ blueprint, actions, builder, mode = 'edit', nav: navProp, hideHeader, onBack }: PreviewShellProps) {
   const ownNav = usePreviewNav(blueprint)
   const nav = navProp ?? ownNav
+  const handleBack = onBack ?? nav.back
 
   return (
     <div className={`preview-theme ${mode === 'edit' ? 'design-theme' : ''} h-full flex flex-col`}>
@@ -46,13 +48,15 @@ export function PreviewShell({ blueprint, actions, builder, mode = 'edit', nav: 
             className="h-full"
           >
             {nav.current.type === 'home' && (
-              <HomeScreen blueprint={blueprint} onNavigate={nav.push} />
+              <HomeScreen blueprint={blueprint} onNavigate={nav.push} canGoBack={nav.canGoBack} onBack={handleBack} />
             )}
             {nav.current.type === 'module' && (
               <ModuleScreen
                 blueprint={blueprint}
                 moduleIndex={nav.current.moduleIndex}
                 onNavigate={nav.push}
+                canGoBack={nav.canGoBack}
+                onBack={handleBack}
               />
             )}
             {nav.current.type === 'caseList' && (
@@ -61,6 +65,8 @@ export function PreviewShell({ blueprint, actions, builder, mode = 'edit', nav: 
                 moduleIndex={nav.current.moduleIndex}
                 formIndex={nav.current.formIndex}
                 onNavigate={nav.push}
+                canGoBack={nav.canGoBack}
+                onBack={handleBack}
               />
             )}
             {nav.current.type === 'form' && (
@@ -69,7 +75,8 @@ export function PreviewShell({ blueprint, actions, builder, mode = 'edit', nav: 
                 moduleIndex={nav.current.moduleIndex}
                 formIndex={nav.current.formIndex}
                 caseData={nav.current.caseData}
-                onBack={nav.back}
+                onBack={handleBack}
+                canGoBack={nav.canGoBack}
                 builder={builder}
                 mode={mode}
               />

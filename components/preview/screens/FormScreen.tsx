@@ -9,6 +9,7 @@ import { FormRenderer } from '../form/FormRenderer'
 import { Icon } from '@iconify/react'
 import { formTypeIcons } from '@/lib/questionTypeIcons'
 import ciArrowReload02 from '@iconify-icons/ci/arrow-reload-02'
+import ciChevronLeft from '@iconify-icons/ci/chevron-left'
 
 interface FormScreenProps {
   blueprint: AppBlueprint
@@ -16,11 +17,12 @@ interface FormScreenProps {
   formIndex: number
   caseData?: Map<string, string>
   onBack: () => void
+  canGoBack?: boolean
   builder?: Builder
   mode?: EditMode
 }
 
-export function FormScreen({ blueprint, moduleIndex, formIndex, caseData, onBack, builder, mode = 'edit' }: FormScreenProps) {
+export function FormScreen({ blueprint, moduleIndex, formIndex, caseData, onBack, canGoBack, builder, mode = 'edit' }: FormScreenProps) {
   const mod = blueprint.modules[moduleIndex]
   const form = mod?.forms[formIndex]
 
@@ -99,6 +101,13 @@ export function FormScreen({ blueprint, moduleIndex, formIndex, caseData, onBack
       {/* Form header */}
       <div className="px-6 pt-5 pb-4 border-b border-pv-input-border">
         <div className="flex items-center gap-2">
+          <button
+            onClick={onBack}
+            disabled={!canGoBack}
+            className={`p-1.5 -ml-1.5 rounded-md shrink-0 transition-colors ${canGoBack ? 'text-nova-text-muted hover:text-nova-text hover:bg-pv-elevated cursor-pointer' : 'text-nova-text-muted/30 cursor-default'}`}
+          >
+            <Icon icon={ciChevronLeft} width="20" height="20" />
+          </button>
           <Icon icon={formTypeIcons[form.type] ?? formTypeIcons.survey} width="18" height="18" className="text-nova-text-muted shrink-0" />
           <h2 className="text-lg font-display font-semibold text-nova-text">{form.name}</h2>
           {mode === 'test' && (
