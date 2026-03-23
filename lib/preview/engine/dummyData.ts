@@ -86,8 +86,8 @@ const cache = new Map<string, DummyCaseRow[]>()
 
 /**
  * Return cached dummy rows for a case type, generating once on first access.
- * Both CaseListScreen and resolveScreen read from here so the data is consistent.
- * When real case data replaces this, swap this single call site.
+ * CaseListScreen, FormScreen, and breadcrumbs all read from here via getDummyCases/getCaseData.
+ * When real case data replaces this, swap these entry points.
  */
 export function getDummyCases(caseType: CaseType, count = 6): DummyCaseRow[] {
   const cached = cache.get(caseType.name)
@@ -95,6 +95,11 @@ export function getDummyCases(caseType: CaseType, count = 6): DummyCaseRow[] {
   const rows = generateDummyCases(caseType, count)
   cache.set(caseType.name, rows)
   return rows
+}
+
+/** Look up a single case's properties by case type name and case ID. */
+export function getCaseData(caseTypeName: string, caseId: string): Map<string, string> | undefined {
+  return cache.get(caseTypeName)?.find(r => r.case_id === caseId)?.properties
 }
 
 /** Generate realistic dummy case rows from a CaseType definition. */

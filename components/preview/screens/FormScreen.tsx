@@ -5,6 +5,7 @@ import type { Builder } from '@/lib/services/builder'
 import type { EditMode } from '@/hooks/useEditContext'
 import { EditContextProvider } from '@/hooks/useEditContext'
 import { useFormEngine } from '@/hooks/useFormEngine'
+import { getCaseData } from '@/lib/preview/engine/dummyData'
 import { FormRenderer } from '../form/FormRenderer'
 import { Icon } from '@iconify/react'
 import { formTypeIcons } from '@/lib/questionTypeIcons'
@@ -15,24 +16,27 @@ interface FormScreenProps {
   blueprint: AppBlueprint
   moduleIndex: number
   formIndex: number
-  caseData?: Map<string, string>
+  caseId?: string
   onBack: () => void
   canGoBack?: boolean
   builder?: Builder
   mode?: EditMode
 }
 
-export function FormScreen({ blueprint, moduleIndex, formIndex, caseData, onBack, canGoBack, builder, mode = 'edit' }: FormScreenProps) {
+export function FormScreen({ blueprint, moduleIndex, formIndex, caseId, onBack, canGoBack, builder, mode = 'edit' }: FormScreenProps) {
   const mod = blueprint.modules[moduleIndex]
   const form = mod?.forms[formIndex]
 
-  const stableCaseData = useMemo(() => caseData, [caseData])
+  const caseData = useMemo(() => {
+    if (!caseId || !mod?.case_type) return undefined
+    return getCaseData(mod.case_type, caseId)
+  }, [caseId, mod?.case_type])
 
   const engine = useFormEngine(
     form!,
     blueprint.case_types ?? undefined,
     mod?.case_type ?? undefined,
-    stableCaseData,
+    caseData,
     builder?.mutationCount,
   )
 
@@ -71,7 +75,7 @@ export function FormScreen({ blueprint, moduleIndex, formIndex, caseData, onBack
   }
 
   // Follow-up forms in live mode require case data to function
-  if (mode === 'test' && form.type === 'followup' && (!caseData || caseData.size === 0)) {
+  if (mode === 'test' && form.type === 'followup' && !caseId) {
     return (
       <div className="flex flex-col items-center justify-center h-full gap-4 px-6">
         <div className="text-center space-y-2">

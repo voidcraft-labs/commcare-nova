@@ -3,7 +3,7 @@ import { useState, useCallback, useMemo } from 'react'
 import type { PreviewScreen } from '@/lib/preview/engine/types'
 import { screensEqual } from '@/lib/preview/engine/types'
 import type { AppBlueprint } from '@/lib/schemas/blueprint'
-import { resolveScreen } from '@/lib/preview/engine/resolveScreen'
+import { getCaseData } from '@/lib/preview/engine/dummyData'
 
 const MAX_HISTORY = 50
 
@@ -21,22 +21,16 @@ export function usePreviewNav(blueprint?: AppBlueprint) {
   const current = state.entries[state.cursor]
   const canGoBack = state.cursor > 0
 
-  const resolve = useCallback((screen: PreviewScreen): PreviewScreen => {
-    if (!blueprint) return screen
-    return resolveScreen(screen, blueprint)
-  }, [blueprint])
-
   // Unconditional push — always adds to history, clears forward entries
   const push = useCallback((screen: PreviewScreen) => {
-    const resolved = resolve(screen)
     setState(prev => {
-      const newEntries = [...prev.entries.slice(0, prev.cursor + 1), resolved]
+      const newEntries = [...prev.entries.slice(0, prev.cursor + 1), screen]
       if (newEntries.length > MAX_HISTORY) {
         return { entries: newEntries.slice(newEntries.length - MAX_HISTORY), cursor: MAX_HISTORY - 1 }
       }
       return { entries: newEntries, cursor: prev.cursor + 1 }
     })
-  }, [resolve])
+  }, [])
 
   // Idempotent push — skips if already on the target screen
   const pushIfDifferent = useCallback((screen: PreviewScreen) => {
@@ -61,8 +55,8 @@ export function usePreviewNav(blueprint?: AppBlueprint) {
   }, [pushIfDifferent])
 
   const navigateToForm = useCallback((moduleIndex: number, formIndex: number) => {
-    pushIfDifferent(resolve({ type: 'form', moduleIndex, formIndex }))
-  }, [pushIfDifferent, resolve])
+    pushIfDifferent({ type: 'form', moduleIndex, formIndex })
+  }, [pushIfDifferent])
 
   const navigateToCaseList = useCallback((moduleIndex: number, formIndex: number) => {
     pushIfDifferent({ type: 'caseList', moduleIndex, formIndex })
@@ -106,7 +100,9 @@ export function usePreviewNav(blueprint?: AppBlueprint) {
     }
 
     if (current.type === 'form') {
-      const caseName = current.caseData?.get('case_name')
+      const caseName = current.caseId && mod?.case_type
+        ? getCaseData(mod.case_type, current.caseId)?.get('case_name')
+        : undefined
       if (caseName) {
         // Followup form with case data — form name at caseList level, case name at form level
         screens.push({ type: 'caseList', moduleIndex: current.moduleIndex, formIndex: current.formIndex })
