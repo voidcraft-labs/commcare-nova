@@ -175,12 +175,13 @@ Shared platform module: `constants.ts` (reserved words, regex), `xml.ts` (escape
 
 ### Deep Validation (commcare/validate/)
 
-Two-phase XPath validation mirroring how real language compilers work — syntax via Lezer, semantics via tree walker. Operates directly on `AppBlueprint` objects during build and edit, not on compiled output.
+Three-phase XPath validation mirroring real compiler architecture — parsing (Lezer) → type checking → name/arity/reference checking. Operates directly on `AppBlueprint` objects during build and edit.
 
-- `functionRegistry.ts` — `FUNCTION_REGISTRY`: static `Map<string, {minArgs, maxArgs}>` for all ~65 CommCare XPath functions + XPath 1.0 core. Source of truth: commcare-core's `ASTNodeFunctionCall.java`. Includes custom validators for `cond` (odd arg count) and `weighted-checklist` (even arg count). `findCaseInsensitiveMatch()` powers "did you mean?" suggestions.
-- `xpathValidator.ts` — `validateXPath(expr, validPaths?, caseProperties?)`: comprehensive Lezer CST tree walker. Single pass validates every node: `⚠` → syntax error, `Invoke` → function name + arity, path refs → node existence, `HashtagRef` → case property existence. Pre-resolves node types (same `T` pattern as dependencies.ts/xpath-format.ts).
-- `index.ts` — `validateBlueprintDeep(blueprint)`: orchestrator called by `validateBlueprint()`. Per-form: walks all XPath fields, runs cycle detection via `TriggerDag.reportCycles()`. Cross-form: validates `#case/prop` references against `blueprint.case_types`.
-- `types.ts` — `ValidationError` with codes: `XPATH_SYNTAX`, `UNKNOWN_FUNCTION`, `WRONG_ARITY`, `INVALID_REF`, `INVALID_CASE_REF`, `CYCLE`.
+- `functionRegistry.ts` — `FUNCTION_REGISTRY`: static `Map<string, FunctionSpec>` for all ~65 CommCare XPath functions + XPath 1.0 core. Each entry has `minArgs`, `maxArgs`, `returnType` (`XPathType`), and optional `paramTypes` array. Source of truth for arities: commcare-core's `ASTNodeFunctionCall.java`. Source of truth for types: XPath 1.0 spec + CommCare runtime. `findCaseInsensitiveMatch()` powers "did you mean?" suggestions.
+- `typeChecker.ts` — Bottom-up type inference over the Lezer CST. Infers `XPathType` (`string | number | boolean | nodeset | any`) for every node, then checks operator/function constraints via a declarative `OPERATOR_TYPES` table. Flags provably-lossy coercions: non-numeric string literals in numeric contexts (e.g. `- 'hello'`, `'text' * 2`, `round('foo')`). Allows legitimate patterns: nodeset coercion (unknowable), numeric string literals (`'5' + 3`), boolean↔number coercion.
+- `xpathValidator.ts` — `validateXPath(expr, validPaths?, caseProperties?)`: comprehensive Lezer CST walker. Three phases: `⚠` → syntax error, `Invoke` → function name + arity, type checker → type errors, path refs → node existence, `HashtagRef` → case property existence.
+- `index.ts` — `validateBlueprintDeep(blueprint)`: orchestrator called by `validateBlueprint()`. Per-form: walks all XPath fields, runs cycle detection via `TriggerDag.reportCycles()`. Cross-form: validates `#case/prop` references against `blueprint.case_types`. Exports `collectValidPaths()` and `collectCaseProperties()` for reuse by the CodeMirror linter.
+- `types.ts` — `ValidationError` with codes: `XPATH_SYNTAX`, `UNKNOWN_FUNCTION`, `WRONG_ARITY`, `INVALID_REF`, `INVALID_CASE_REF`, `CYCLE`, `TYPE_ERROR`.
 
 The fix loop in `validationLoop.ts` auto-fixes case-mismatched function names (`Today()` → `today()`) and wrong `round()` arity (`round(x, 2)` → `round(x)`).
 

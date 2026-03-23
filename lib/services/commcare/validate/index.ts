@@ -15,7 +15,7 @@ import { TriggerDag } from '@/lib/preview/engine/triggerDag'
 const XPATH_FIELDS = ['relevant', 'validation', 'calculate', 'default_value', 'required'] as const
 
 /** Collect all valid /data/... paths from a question tree. */
-function collectValidPaths(questions: Question[], prefix = '/data'): Set<string> {
+export function collectValidPaths(questions: Question[], prefix = '/data'): Set<string> {
   const paths = new Set<string>()
   for (const q of questions) {
     const path = `${prefix}/${q.id}`
@@ -30,7 +30,7 @@ function collectValidPaths(questions: Question[], prefix = '/data'): Set<string>
 }
 
 /** Collect case property names for a module's case type. */
-function collectCaseProperties(blueprint: AppBlueprint, moduleCaseType: string | undefined): Set<string> | undefined {
+export function collectCaseProperties(blueprint: AppBlueprint, moduleCaseType: string | undefined): Set<string> | undefined {
   if (!moduleCaseType || !blueprint.case_types) return undefined
   const ct = blueprint.case_types.find(c => c.name === moduleCaseType)
   if (!ct) return undefined

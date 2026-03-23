@@ -39,6 +39,10 @@ Replaces `Layout.Space` with `Layout.NewLine` + `Layout.Tab`:
 
 `XPathField` uses `prettyPrintXPath` for display; `XPathEditorModal` opens with `prettyPrintXPath` and saves via `formatXPath` (single-line) for storage/export. `Layout.Tab` renders as 4 spaces (not `\t`) so editor auto-indent matches formatter output.
 
+## Linter (`xpath-lint.ts`)
+
+`xpathLinter(getContext)` — CodeMirror lint extension using `@codemirror/lint`. Takes a getter that reads live from the blueprint (`() => { blueprint, form, moduleCaseType }`). On each lint pass, derives valid paths and case properties from the blueprint, then runs `validateXPath()` for full syntax + semantic validation. Blocks save in `XPathEditorModal` when diagnostics are present.
+
 ## Language & Theme
 
 - `xpath-language.ts` — CodeMirror `LanguageSupport` with `styleTags` highlighting and `foldNodeProp` (folds `ArgumentList` and `Filtered`).
