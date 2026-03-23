@@ -17,7 +17,7 @@ ${caseTypes.map(ct => {
         if (p.label) parts.push(`— ${p.label}`)
         return `  - ${parts.join(' ')}`
       }).join('\n')
-      return `### Case type: ${ct.name} (case_name_property: ${ct.case_name_property})
+      return `### Case type: ${ct.name}
 ${props}`
     }).join('\n\n')}
 

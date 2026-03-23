@@ -80,7 +80,7 @@ Reads/writes through `builder.mb` (persistent `MutableBlueprint`). Three editing
 - **EditableDropdown** — Custom dark-themed dropdown. Selection saves immediately (including re-selection of current value, enabling actions like reopening the XPath modal). Click-outside/Escape via `useDismissRef`.
 - **XPathEditorModal** — Portal-mounted CodeMirror editor with fold gutters (ci chevron SVG markers), bracket matching, zebra stripes. Opens with `prettyPrintXPath` (same expanded format as sidebar), saves back via `formatXPath` (single-line for storage). Auto-focuses with cursor at end. Cmd/Ctrl+Enter saves, Escape closes via ref callback. Cancel/Update buttons. Indentation uses 4 spaces (matching `Layout.Tab` rendering).
 
-**Editable fields:** module name, form name, form type, question label/id/type/case_property/hint, required (dropdown with conditional → opens XPath modal), validation/relevant/default_value/calculate (XPath modal). "Add Property" shows `+` buttons for missing optional fields.
+**Editable fields:** module name, form name, form type, question label/id/type/hint, required (dropdown with conditional → opens XPath modal), validation/relevant/default_value/calculate (XPath modal). "Add Property" shows `+` buttons for missing optional fields. `is_case_property` shown as a badge; case name badge shown when `id === 'case_name'`.
 
 ### Rename Propagation
 

@@ -88,6 +88,6 @@ The Anthropic schema compiler times out with >8 `.optional()` fields per array i
 
 ### Data Model
 
-Case properties are the source of truth for shared question metadata (label, type, hint, help, required, validation, options). Questions are sparse — only carry overrides when mapped via `case_property`. Defaults merged at assembly time (`contentProcessing.ts`) and expansion time (`hqJsonExpander.ts`).
+Question ID = case property name. Questions with `is_case_property: true` are saved to/loaded from the case. The case name question must always have `id: "case_name"`. Case types in `blueprint.case_types` provide default metadata (label, type, validation) during generation — questions inherit via ID matching. Validation derives known case properties reactively by scanning questions, not from `case_types.properties`.
 
-Each question has `case_property` + `is_case_name`. `deriveCaseConfig()` derives form-level case wiring on-demand — no form-level case fields stored. Case list columns are fully LLM-controlled — no auto-prepend or filtering by expander/compiler.
+`deriveCaseConfig()` derives form-level case wiring on-demand — no form-level case fields stored. Case list columns are fully LLM-controlled — no auto-prepend or filtering by expander/compiler.

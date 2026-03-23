@@ -31,8 +31,7 @@ export interface FlatQuestion {
   relevant?: string
   calculate?: string
   default_value?: string
-  case_property?: string
-  is_case_name?: boolean
+  is_case_property?: boolean
   options?: Array<{ value: string; label: string }>
 }
 
@@ -114,9 +113,9 @@ export function applyDefaults(q: Partial<FlatQuestion>, caseType: CaseType | nul
     }
   }
 
-  // Merge data model defaults from case type
-  if (result.case_property && caseType) {
-    const prop = caseType.properties.find(p => p.name === result.case_property)
+  // Merge data model defaults from case type (question id = property name)
+  if (result.is_case_property && caseType) {
+    const prop = caseType.properties.find(p => p.name === result.id)
     if (prop) {
       result.type ??= (prop.data_type ?? 'text') as any
       result.label ??= prop.label
@@ -127,8 +126,6 @@ export function applyDefaults(q: Partial<FlatQuestion>, caseType: CaseType | nul
       result.validation_msg ??= prop.validation_msg
       result.options ??= prop.options
     }
-    // Auto-derive is_case_name
-    result.is_case_name ??= caseType.case_name_property === result.case_property ? true : undefined
   }
 
   return result

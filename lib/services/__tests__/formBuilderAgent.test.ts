@@ -20,7 +20,7 @@ function makeShell(type: 'registration' | 'followup' | 'survey' = 'registration'
       forms: [{ name: 'Test Form', type, questions: [] }],
     }],
     case_types: type !== 'survey'
-      ? [{ name: 'patient', case_name_property: 'full_name', properties: [{ name: 'full_name', label: 'Full Name' }] }]
+      ? [{ name: 'patient', properties: [{ name: 'case_name', label: 'Full Name' }] }]
       : null,
   }
 }
@@ -30,19 +30,17 @@ describe('Form Builder Agent Integration', () => {
     it('adds a simple text question', () => {
       const mb = new MutableBlueprint(makeShell())
       mb.addQuestion(0, 0, {
-        id: 'patient_name',
+        id: 'case_name',
         type: 'text',
         label: 'Patient Name',
-        case_property: 'full_name',
-        is_case_name: true,
+        is_case_property: true,
       })
 
       const form = mb.getForm(0, 0)!
       expect(form.questions).toHaveLength(1)
-      expect(form.questions[0].id).toBe('patient_name')
+      expect(form.questions[0].id).toBe('case_name')
       expect(form.questions[0].type).toBe('text')
-      expect(form.questions[0].case_property).toBe('full_name')
-      expect(form.questions[0].is_case_name).toBe(true)
+      expect(form.questions[0].is_case_property).toBe(true)
       // Only explicitly set fields are present
       expect(form.questions[0].hint).toBeUndefined()
       expect(form.questions[0].required).toBeUndefined()
@@ -69,7 +67,7 @@ describe('Form Builder Agent Integration', () => {
           { value: 'male', label: 'Male' },
           { value: 'female', label: 'Female' },
         ],
-        case_property: 'gender',
+        is_case_property: true,
       })
 
       const form = mb.getForm(0, 0)!
@@ -85,7 +83,7 @@ describe('Form Builder Agent Integration', () => {
         id: 'age_group',
         type: 'hidden',
         calculate: "if(/data/age < 18, 'child', 'adult')",
-        case_property: 'age_group',
+        is_case_property: true,
       })
 
       const form = mb.getForm(0, 0)!
@@ -198,20 +196,19 @@ describe('Form Builder Agent Integration', () => {
     it('produces a valid BlueprintForm-shaped result', () => {
       const mb = new MutableBlueprint(makeShell())
       mb.addQuestion(0, 0, {
-        id: 'patient_name',
+        id: 'case_name',
         type: 'text',
         label: 'Patient Name',
         required: 'true()',
-        case_property: 'full_name',
-        is_case_name: true,
+        is_case_property: true,
       })
       mb.addQuestion(0, 0, {
-        id: 'patient_age',
+        id: 'age',
         type: 'int',
         label: 'Age',
         validation: '. > 0 and . < 150',
         validation_msg: 'Age must be between 1 and 149',
-        case_property: 'age',
+        is_case_property: true,
       })
       mb.addQuestion(0, 0, {
         id: 'vitals',
@@ -222,13 +219,13 @@ describe('Form Builder Agent Integration', () => {
         id: 'temperature',
         type: 'decimal',
         label: 'Temperature (°C)',
-        case_property: 'temperature',
+        is_case_property: true,
       }, { parentPath: qpath('vitals') })
 
       const form = mb.getForm(0, 0)!
       expect(form.name).toBe('Test Form')
       expect(form.type).toBe('registration')
-      expect(form.questions).toHaveLength(3) // patient_name, patient_age, vitals (with child)
+      expect(form.questions).toHaveLength(3) // case_name, age, vitals (with child)
       expect(form.questions[2].children).toHaveLength(1)
 
       // Verify required fields are always present, optional fields only when set

@@ -9,6 +9,7 @@
  */
 
 import type { AppBlueprint, Question } from '@/lib/schemas/blueprint'
+// collectCaseProperties derives from questions (reactive schema) rather than case_types
 import { validateXPath } from './xpathValidator'
 import { TriggerDag } from '@/lib/preview/engine/triggerDag'
 
@@ -29,12 +30,24 @@ export function collectValidPaths(questions: Question[], prefix = '/data'): Set<
   return paths
 }
 
-/** Collect case property names for a module's case type. */
+/** Collect case property names by scanning questions with is_case_property across all forms in matching modules. */
 export function collectCaseProperties(blueprint: AppBlueprint, moduleCaseType: string | undefined): Set<string> | undefined {
-  if (!moduleCaseType || !blueprint.case_types) return undefined
-  const ct = blueprint.case_types.find(c => c.name === moduleCaseType)
-  if (!ct) return undefined
-  return new Set(ct.properties.map(p => p.name))
+  if (!moduleCaseType) return undefined
+  const props = new Set<string>()
+  for (const mod of blueprint.modules) {
+    if (mod.case_type !== moduleCaseType) continue
+    for (const form of mod.forms) {
+      collectFromQuestions(form.questions || [], props)
+    }
+  }
+  return props.size > 0 ? props : undefined
+}
+
+function collectFromQuestions(questions: Question[], props: Set<string>): void {
+  for (const q of questions) {
+    if (q.is_case_property) props.add(q.id)
+    if (q.children) collectFromQuestions(q.children, props)
+  }
 }
 
 /**

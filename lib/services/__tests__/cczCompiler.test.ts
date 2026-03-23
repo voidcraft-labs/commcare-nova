@@ -13,21 +13,21 @@ const blueprint: AppBlueprint = {
       {
         name: 'Register', type: 'registration',
         questions: [
-          { id: 'name', type: 'text', label: 'Name', is_case_name: true },
-          { id: 'age', type: 'int', label: 'Age', case_property: 'age' },
+          { id: 'case_name', type: 'text', label: 'Name', is_case_property: true },
+          { id: 'age', type: 'int', label: 'Age', is_case_property: true },
         ],
       },
       {
         name: 'Visit', type: 'followup',
         questions: [
-          { id: 'visit_count', type: 'hidden', calculate: '#case/total_visits + 1', case_property: 'total_visits' },
+          { id: 'total_visits', type: 'hidden', calculate: '#case/total_visits + 1', is_case_property: true },
           { id: 'notes', type: 'text', label: 'Notes' },
         ],
       },
     ],
     case_list_columns: [{ field: 'age', header: 'Age' }],
   }],
-  case_types: [{ name: 'patient', case_name_property: 'name', properties: [{ name: 'name', label: 'Name' }, { name: 'age', label: 'Age' }, { name: 'total_visits', label: 'Total Visits' }] }],
+  case_types: [{ name: 'patient', properties: [{ name: 'case_name', label: 'Name' }, { name: 'age', label: 'Age' }, { name: 'total_visits', label: 'Total Visits' }] }],
 }
 
 describe('CczCompiler', () => {

@@ -40,8 +40,8 @@ All XPath fields (required, validation) are expressions — string literal value
 - A child case type (e.g. "visit" belonging to "patient") will have its module reference the parent case type
 - Don't add relationship reference properties — CommCare handles this through case indices
 
-## case_name_property
-Every case type must specify which property is used as the case name (the primary identifier shown in lists). Choose the most human-meaningful property — usually the entity's name or a short descriptive label.
+## Case Name
+The case name property is always "case_name" — every case type should include a property named "case_name" that holds the primary human-readable identifier for the entity (e.g. the patient's name, the site's name).
 
 ## Reasoning & Thinking Guidelines
 - DO NOT draft, outline, or write any JSON in your reasoning or thinking phase.

@@ -288,18 +288,10 @@ export function QuestionDetail({ question, selected, mb, builder, notifyBlueprin
           onSave={(v) => saveQuestion('type', v)}
           renderValue={(v) => <Badge variant="violet">{v}</Badge>}
         />
-        {question.case_property && (
-          <EditableText
-            label="Case Property"
-            value={question.case_property}
-            onSave={(v) => v ? renameCaseProperty(question.case_property!, v) : saveQuestion('case_property', null)}
-            mono
-            color="text-nova-cyan-bright"
-          />
-        )}
-        {question.case_property && question.is_case_name && (
-          <div>
-            <Badge variant="emerald">case name</Badge>
+        {question.is_case_property && (
+          <div className="flex items-center gap-2">
+            <Badge variant="cyan">case property</Badge>
+            {question.id === 'case_name' && <Badge variant="emerald">case name</Badge>}
           </div>
         )}
         {(question.hint || newlyAddedField === 'hint') && (

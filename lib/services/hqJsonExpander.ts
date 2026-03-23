@@ -230,7 +230,7 @@ export function validateBlueprint(blueprint: AppBlueprint): string[] {
       if (case_properties) {
         const questionIds = collectQuestionIds(mergedForm.questions || [])
         for (const { case_property: prop, question_id: qId } of case_properties) {
-          if (RESERVED_CASE_PROPERTIES.has(prop)) {
+          if (RESERVED_CASE_PROPERTIES.has(prop) && prop !== 'case_name') {
             errors.push(`"${fn}" uses reserved case property name "${prop}" — use a different name`)
           }
           if (!questionIds.includes(qId)) {
