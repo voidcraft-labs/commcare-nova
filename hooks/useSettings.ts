@@ -10,7 +10,7 @@ function defaultSettings(): NovaSettings {
 }
 
 /** Keys from old PipelineConfig that should be removed on load. */
-const STALE_PIPELINE_KEYS = ['requirementsAnalyst', 'appContent', 'editArchitect', 'singleFormRegen']
+const STALE_PIPELINE_KEYS = ['requirementsAnalyst', 'appContent', 'editArchitect', 'singleFormRegen', 'schemaGeneration', 'scaffold']
 
 function loadSettings(): NovaSettings {
   const raw = localStorage.getItem(STORAGE_KEY)

@@ -9,7 +9,7 @@ import { Logo } from '@/components/ui/Logo'
 import { Button } from '@/components/ui/Button'
 import { ApiKeyInput } from '@/components/ui/ApiKeyInput'
 import { useSettings } from '@/hooks/useSettings'
-import { StageCard, AGENT_STAGE, TOOL_STAGES } from '@/components/settings/StageCard'
+import { StageCard, AGENT_STAGE } from '@/components/settings/StageCard'
 import { LogReplaySection } from '@/components/settings/LogReplaySection'
 
 interface ModelInfo {
@@ -117,19 +117,8 @@ export default function SettingsPage() {
               <StageCard stage={AGENT_STAGE} index={0} settings={settings} models={models} updatePipelineStage={updatePipelineStage} />
             </div>
 
-            {/* Tool stages — visually nested under the agent */}
-            <div className="mt-4 ml-3 pl-4 border-l-2 border-nova-violet/20">
-              <p className="text-[11px] text-nova-text-muted uppercase tracking-wider mb-2.5">
-                Tool Models
-              </p>
-              <div className="space-y-2.5">
-                {TOOL_STAGES.map((stage, i) => (
-                  <StageCard key={stage.key} stage={stage} index={i + 1} settings={settings} models={models} updatePipelineStage={updatePipelineStage} />
-                ))}
-              </div>
-            </div>
 
-            {modelsError && modelsFetched && (
+{modelsError && modelsFetched && (
               <p className="text-xs text-nova-rose mt-3">{modelsError}</p>
             )}
             {!settings.apiKey && (
