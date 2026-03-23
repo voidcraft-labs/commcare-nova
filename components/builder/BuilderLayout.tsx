@@ -5,7 +5,7 @@ import { useChat } from '@ai-sdk/react'
 import { DefaultChatTransport, type UIMessage } from 'ai'
 import { motion, AnimatePresence } from 'motion/react'
 import { Icon } from '@iconify/react'
-import ciChatConversationCircle from '@iconify-icons/ci/chat-conversation-circle'
+import ciWindowSidebar from '@iconify-icons/ci/window-sidebar'
 import ciSettings from '@iconify-icons/ci/settings'
 import Link from 'next/link'
 import { useApiKey } from '@/hooks/useApiKey'
@@ -558,7 +558,7 @@ export function BuilderLayout({ buildId }: { buildId: string }) {
                       className="absolute top-3 left-3 z-ground p-2 bg-nova-surface border border-nova-border rounded-lg hover:border-nova-border-bright transition-colors cursor-pointer"
                       title="Open panel"
                     >
-                      <Icon icon={ciChatConversationCircle} width="24" height="24" />
+                      <Icon icon={ciWindowSidebar} width="24" height="24" />
                     </button>
                   )}
 

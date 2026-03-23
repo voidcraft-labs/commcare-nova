@@ -51,7 +51,7 @@ LeftPanel and DetailPanel both collapse in preview mode:
 
 `leftTab` (`'chat' | 'structure'`) tracks which LeftPanel tab is active. Auto-switches to `'structure'` when tree data first appears during generation, then to `'chat'` when generation completes (so the SA's "app is ready" message is visible). After generation, the canvas auto-navigates to the first form.
 
-DetailPanel pref syncs with selection changes via a `useEffect` that suppresses during view mode transitions (prevents auto-sync re-selections from reopening a closed panel). When selection changes without a view mode change: selecting sets pref `true`, deselecting sets pref `false`. View mode transitions (where auto-sync may re-select from nav) leave the pref unchanged. Undo/redo explicitly sets pref `true` to show edit context. The reopen button (`ci:chat-conversation-circle`) also hides in preview mode.
+DetailPanel pref syncs with selection changes via a `useEffect` that suppresses during view mode transitions (prevents auto-sync re-selections from reopening a closed panel). When selection changes without a view mode change: selecting sets pref `true`, deselecting sets pref `false`. View mode transitions (where auto-sync may re-select from nav) leave the pref unchanged. Undo/redo explicitly sets pref `true` to show edit context. The reopen button (`ci:window-sidebar`) also hides in preview mode.
 
 ## LeftPanel
 
