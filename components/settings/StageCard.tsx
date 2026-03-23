@@ -51,11 +51,6 @@ export const AGENT_STAGE: StageInfo = {
   key: 'solutionsArchitect', label: 'Solutions Architect', description: 'Conversational agent that designs and builds apps',
 }
 
-/** Tool-level stages nested under the agent. */
-export const TOOL_STAGES: StageInfo[] = [
-  { key: 'schemaGeneration', label: 'Schema Generation', description: 'Designs the data model (case types and properties)' },
-  { key: 'scaffold', label: 'Scaffold', description: 'Designs module and form structure' },
-]
 
 interface StageCardProps {
   stage: StageInfo

@@ -9,8 +9,6 @@ import { forwardAnthropicContainerIdFromLastStep } from '@ai-sdk/anthropic'
 import { z } from 'zod'
 import { GenerationContext, logWarnings, ANTHROPIC_CACHE_CONTROL } from './generationContext'
 import { buildSolutionsArchitectPrompt } from '../prompts/solutionsArchitectPrompt'
-import { SCHEMA_PROMPT } from '../prompts/schemaPrompt'
-import { scaffoldPrompt } from '../prompts/scaffoldPrompt'
 import {
   type AppBlueprint, type BlueprintForm, type Question,
   QUESTION_TYPES,
@@ -60,33 +58,6 @@ function summarizeQuestions(questions: Question[]): QuestionSummary[] {
     if (q.children?.length) entry.children = summarizeQuestions(q.children)
     return entry
   })
-}
-
-// ── Module column prompt builder ─────────────────────────────────────
-
-function buildColumnPrompt(blueprint: AppBlueprint, moduleIndex: number, instructions: string): string {
-  const mod = blueprint.modules[moduleIndex]
-  const caseTypes = blueprint.case_types ?? []
-  const ct = caseTypes.find(c => c.name === mod.case_type)
-
-  const dataModel = ct
-    ? `Case type: ${ct.name}\nProperties: ${ct.properties.map(p => p.name).join(', ')}`
-    : 'Survey-only module (no case type)'
-
-  return `App: "${blueprint.app_name}"
-Module: "${mod.name}"
-${dataModel}
-
-## Instructions
-${instructions}
-
-Design the case list columns and case detail columns for this module.
-- Choose columns that help the user quickly identify and differentiate records
-- Include case_name as the first column unless there is a reason not to
-- 3-5 columns is typical
-- Column headers should be short and scannable
-- For case_detail_columns, include more fields than the list. Use null to auto-mirror.
-- Survey-only modules should have null for both.`
 }
 
 // ── askQuestions schema ──────────────────────────────────────────────
@@ -206,43 +177,24 @@ export function createSolutionsArchitect(
       // ── Generation ────────────────────────────────────────────────
 
       generateSchema: tool({
-        description: 'Design the data model (case types and properties) for the app. Call this first before generateScaffold. Provide the app name and a thorough description of all entities, their properties, and relationships.',
+        description: 'Set the data model (case types and properties) for the app. Call this first before generateScaffold. Provide the structured case types directly.',
         inputSchema: z.object({
           appName: z.string().describe('Short app name (2-5 words)'),
-          description: z.string().describe(
-            'Thorough description of all case types needed: what entities to track, what properties each needs, ' +
-            'and how they relate to each other. The case name question is always id "case_name".'
-          ),
+          caseTypes: caseTypesOutputSchema.shape.case_types,
         }),
         onInputStart: () => {
           ctx.emit('data-start-build', {})
         },
-        execute: async ({ appName, description }) => {
+        execute: async ({ appName, caseTypes }) => {
           ctx.logger.setAppName(appName)
-
-          const schemaCfg = ctx.pipelineConfig.schemaGeneration
-          const result = await ctx.generate(caseTypesOutputSchema, {
-            model: schemaCfg.model,
-            reasoning: ctx.reasoningForStage('schemaGeneration'),
-            system: SCHEMA_PROMPT,
-            prompt: `App: "${appName}"\n\n${description}`,
-            label: 'Schema',
-            maxOutputTokens: schemaCfg.maxOutputTokens || undefined,
-          })
-
-          if (!result) {
-            return { error: 'Schema generation returned no output' }
-          }
-
-          mutableBp.setCaseTypes(result.case_types)
-          // Set app_name on the blueprint
+          mutableBp.setCaseTypes(caseTypes)
           const bp = mutableBp.getBlueprint()
           bp.app_name = appName
-          ctx.emit('data-schema', { caseTypes: result.case_types })
+          ctx.emit('data-schema', { caseTypes })
 
           return {
             appName,
-            caseTypes: result.case_types.map(ct => ({
+            caseTypes: caseTypes.map(ct => ({
               name: ct.name,
               propertyCount: ct.properties.length,
               properties: ct.properties.map(p => p.name),
@@ -252,40 +204,18 @@ export function createSolutionsArchitect(
       }),
 
       generateScaffold: tool({
-        description: 'Design the module and form structure for the app. Call after generateSchema. Provide a full specification describing every module, its forms, and what each form does.',
-        inputSchema: z.object({
-          specification: z.string().describe(
-            'Full plain English specification: describe every module, its purpose, each form\'s purpose, ' +
-            'the intended UX for each form, and how forms relate to each other. Include formDesign specs.'
-          ),
-        }),
+        description: 'Set the module and form structure for the app. Call after generateSchema. Provide the complete scaffold directly.',
+        inputSchema: scaffoldModulesSchema,
         onInputStart: () => {
           ctx.emit('data-phase', { phase: 'structure' })
         },
-        execute: async ({ specification }) => {
-
-          const caseTypes = mutableBp.getBlueprint().case_types
-          const scaffoldCfg = ctx.pipelineConfig.scaffold
-          const result = await ctx.streamGenerate(scaffoldModulesSchema, {
-            model: scaffoldCfg.model,
-            reasoning: ctx.reasoningForStage('scaffold'),
-            system: scaffoldPrompt(caseTypes),
-            prompt: specification,
-            label: 'Scaffold',
-            maxOutputTokens: scaffoldCfg.maxOutputTokens || undefined,
-            onPartial: (partial) => ctx.emit('data-partial-scaffold', partial),
-          })
-
-          if (!result) {
-            return { error: 'Scaffold generation returned no output' }
-          }
-
-          mutableBp.setScaffold(result)
-          ctx.emit('data-scaffold', result)
+        execute: async (scaffold) => {
+          mutableBp.setScaffold(scaffold)
+          ctx.emit('data-scaffold', scaffold)
 
           return {
-            appName: result.app_name,
-            modules: result.modules.map((m, i) => ({
+            appName: scaffold.app_name,
+            modules: scaffold.modules.map((m, i) => ({
               index: i,
               name: m.name,
               case_type: m.case_type,
@@ -297,55 +227,36 @@ export function createSolutionsArchitect(
       }),
 
       addModule: tool({
-        description: 'Generate case list columns for a module. Call after generateScaffold. Provide the module index and instructions for what columns to display.',
+        description: 'Set case list columns for a module. Call after generateScaffold. Provide the columns directly. Survey-only modules (no case_type) should pass null for both.',
         inputSchema: z.object({
           moduleIndex: z.number().describe('0-based module index'),
-          instructions: z.string().describe('What columns to show in the case list and case detail view'),
+          case_list_columns: moduleContentSchema.shape.case_list_columns,
+          case_detail_columns: moduleContentSchema.shape.case_detail_columns,
         }),
         onInputStart: () => {
           ctx.emit('data-phase', { phase: 'modules' })
         },
-        execute: async ({ moduleIndex, instructions }) => {
-          const blueprint = mutableBp.getBlueprint()
-          const mod = blueprint.modules[moduleIndex]
+        execute: async ({ moduleIndex, case_list_columns, case_detail_columns }) => {
+          const mod = mutableBp.getModule(moduleIndex)
           if (!mod) return { error: `Module ${moduleIndex} not found` }
 
-          // Survey-only modules don't need columns
-          if (!mod.case_type) {
+          if (!mod.case_type || !case_list_columns) {
             ctx.emit('data-module-done', { moduleIndex, caseListColumns: null })
-            return { moduleIndex, name: mod.name, columns: null, message: 'Survey-only module, no columns needed' }
+            return { moduleIndex, name: mod.name, columns: null }
           }
 
-          const scaffoldCfg = ctx.pipelineConfig.scaffold
-          const result = await ctx.generate(moduleContentSchema, {
-            model: scaffoldCfg.model,
-            reasoning: ctx.reasoningForStage('scaffold'),
-            system: 'You are a CommCare app builder. Design the case list and case detail columns for a module.',
-            prompt: buildColumnPrompt(blueprint, moduleIndex, instructions),
-            label: `Module ${moduleIndex} columns`,
-            maxOutputTokens: scaffoldCfg.maxOutputTokens || undefined,
-          })
-
-          if (!result) {
-            return { error: 'Column generation returned no output' }
-          }
-
-          // Apply to blueprint
           mutableBp.updateModule(moduleIndex, {
-            ...(result.case_list_columns && { case_list_columns: result.case_list_columns }),
-            ...(result.case_detail_columns && { case_detail_columns: result.case_detail_columns }),
+            case_list_columns,
+            ...(case_detail_columns && { case_detail_columns }),
           })
 
-          ctx.emit('data-module-done', {
-            moduleIndex,
-            caseListColumns: result.case_list_columns,
-          })
+          ctx.emit('data-module-done', { moduleIndex, caseListColumns: case_list_columns })
 
           return {
             moduleIndex,
             name: mod.name,
-            case_list_columns: result.case_list_columns,
-            case_detail_columns: result.case_detail_columns,
+            case_list_columns,
+            case_detail_columns: case_detail_columns ?? null,
           }
         },
       }),

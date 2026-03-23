@@ -26,8 +26,6 @@ export function modelSupportsMaxReasoning(modelId: string): boolean {
 /** Default pipeline configuration. */
 export const DEFAULT_PIPELINE_CONFIG: PipelineConfig = {
   solutionsArchitect: { model: 'claude-opus-4-6', maxOutputTokens: 0, reasoning: true, reasoningEffort: 'max' },
-  schemaGeneration: { model: 'claude-sonnet-4-6', maxOutputTokens: 0, reasoning: true, reasoningEffort: 'medium' },
-  scaffold: { model: 'claude-sonnet-4-6', maxOutputTokens: 0, reasoning: true, reasoningEffort: 'medium' },
 }
 
 /** Pricing per million tokens, keyed by model ID (either full or alias). */

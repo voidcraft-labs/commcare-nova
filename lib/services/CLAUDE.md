@@ -16,10 +16,10 @@ Split across two files:
 **Code Execution (1):**
 - `code_execution` — Anthropic code execution sandbox. SA writes Python to build forms via programmatic tool calling.
 
-**Generation (3)** — take natural language instructions, run structured output internally, return summary:
-- `generateSchema` — case types + properties. `onInputStart` emits `data-start-build`.
-- `generateScaffold` — module/form structure. `onInputStart` emits `data-phase: structure`, streams partial scaffold.
-- `addModule` — case list/detail columns. `onInputStart` emits `data-phase: modules`.
+**Generation (3)** — SA provides structured data directly in tool args (no sub-LLM calls):
+- `generateSchema` — accepts case types + properties. `onInputStart` emits `data-start-build`.
+- `generateScaffold` — accepts module/form structure. `onInputStart` emits `data-phase: structure`.
+- `addModule` — accepts case list/detail columns. `onInputStart` emits `data-phase: modules`.
 
 **Form Building (1):**
 - `addQuestions` — batch-append flat questions to a form. Marked with `allowedCallers: ['code_execution_20260120']` for programmatic calling from code execution. Processes questions through `stripEmpty → applyDefaults → buildQuestionTree`, merging with existing form questions. Emits `data-form-updated`.
@@ -206,13 +206,10 @@ Client-side replay of v2 run logs through Builder without API calls.
 
 ## Pipeline Config
 
-**Stages** (each has model + maxOutputTokens + reasoning + reasoningEffort):
-- `solutionsArchitect` — SA agent (default: Opus, reasoning max)
-- `schemaGeneration` — `generateSchema` call (default: Sonnet, reasoning medium)
-- `scaffold` — `generateScaffold` + `addModule` calls (default: Sonnet, reasoning medium)
+Single stage: `solutionsArchitect` (model + maxOutputTokens + reasoning + reasoningEffort). Default: Opus, reasoning max. No sub-LLM calls — the SA produces all structured data directly.
 
 `maxOutputTokens` of `0` means no cap. Reasoning uses Anthropic adaptive thinking (`type: 'adaptive'`) with configurable effort (`low`/`medium`/`high`/`max`). `ctx.reasoningForStage(stage)` returns the config or `undefined`.
 
-Users configure per-stage via `/settings`. Settings flow: `localStorage → useSettings() → useChat body → route.ts → GenerationContext.pipelineConfig`.
+Users configure via `/settings`. Settings flow: `localStorage → useSettings() → useChat body → route.ts → GenerationContext.pipelineConfig`.
 
 **Models proxy:** `POST /api/models` takes `{ apiKey }`, returns latest version of each family (Opus, Sonnet, Haiku) for settings dropdowns.

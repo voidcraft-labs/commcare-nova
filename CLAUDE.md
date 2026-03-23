@@ -84,7 +84,7 @@ The Anthropic schema compiler times out with >8 `.optional()` fields per array i
 
 ### Model Configuration
 
-`lib/models.ts` is the single source of truth for model IDs and pricing. Pipeline stages read from `ctx.pipelineConfig` — never hardcode model IDs. Settings flow: `localStorage → useSettings() → useChat body → route.ts → GenerationContext.pipelineConfig`.
+`lib/models.ts` is the single source of truth for model IDs and pricing. Single pipeline stage: `solutionsArchitect` (the SA agent). Settings flow: `localStorage → useSettings() → useChat body → route.ts → GenerationContext.pipelineConfig`.
 
 ### Data Model
 
