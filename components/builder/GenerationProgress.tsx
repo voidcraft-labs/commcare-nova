@@ -118,8 +118,8 @@ export function GenerationProgress({ phase, message, completed, total, mode, onD
       setDismissing(false)
       return () => {}
     }
-    const timer = setTimeout(() => setDismissing(true), 3000)
-    return () => clearTimeout(timer)
+    setDismissing(true)
+    return () => {}
   }, [isDone])
   useSyncExternalStore(subscribeToDismiss, () => 0, () => 0)
 
@@ -133,7 +133,7 @@ export function GenerationProgress({ phase, message, completed, total, mode, onD
         : { opacity: 1, y: 0, scale: 1 }
       }
       transition={dismissing
-        ? { duration: 0.5, ease: [0.4, 0, 0.2, 1] }
+        ? { duration: 1, ease: [0.4, 0, 0.2, 1] }
         : { layout: { duration: 0.5, ease: [0.4, 0, 0.2, 1] } }
       }
       onAnimationComplete={() => {

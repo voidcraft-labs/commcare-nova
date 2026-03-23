@@ -19,8 +19,6 @@ export async function validateAndFix(
   const MAX_STUCK_REPEATS = 3
   let attempt = 0
 
-  ctx.emit('data-phase', { phase: 'validate' })
-
   while (true) {
     attempt++
     const errors = validateBlueprint(blueprint)

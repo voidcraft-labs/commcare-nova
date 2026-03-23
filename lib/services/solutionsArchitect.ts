@@ -214,9 +214,11 @@ export function createSolutionsArchitect(
             'how they relate to each other, and what the case_name_property should be for each.'
           ),
         }),
+        onInputStart: () => {
+          ctx.emit('data-start-build', {})
+        },
         execute: async ({ appName, description }) => {
           ctx.logger.setAppName(appName)
-          ctx.emit('data-start-build', {})
 
           const schemaCfg = ctx.pipelineConfig.schemaGeneration
           const result = await ctx.generate(caseTypesOutputSchema, {
@@ -258,8 +260,10 @@ export function createSolutionsArchitect(
             'the intended UX for each form, and how forms relate to each other. Include formDesign specs.'
           ),
         }),
-        execute: async ({ specification }) => {
+        onInputStart: () => {
           ctx.emit('data-phase', { phase: 'structure' })
+        },
+        execute: async ({ specification }) => {
 
           const caseTypes = mutableBp.getBlueprint().case_types
           const scaffoldCfg = ctx.pipelineConfig.scaffold
@@ -299,6 +303,9 @@ export function createSolutionsArchitect(
           moduleIndex: z.number().describe('0-based module index'),
           instructions: z.string().describe('What columns to show in the case list and case detail view'),
         }),
+        onInputStart: () => {
+          ctx.emit('data-phase', { phase: 'modules' })
+        },
         execute: async ({ moduleIndex, instructions }) => {
           const blueprint = mutableBp.getBlueprint()
           const mod = blueprint.modules[moduleIndex]
@@ -741,6 +748,9 @@ export function createSolutionsArchitect(
       validateApp: tool({
         description: 'Validate the app against CommCare platform rules and fix any issues. Call this when you are done building or editing. If validation fails with remaining errors, use your mutation tools (removeQuestion, editQuestion, etc.) to fix them, then call validateApp again.',
         inputSchema: z.object({}),
+        onInputStart: () => {
+          ctx.emit('data-phase', { phase: 'validate' })
+        },
         execute: async () => {
           const blueprint = mutableBp.getBlueprint()
           const result = await validateAndFix(ctx, blueprint)
