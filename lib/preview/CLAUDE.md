@@ -16,7 +16,7 @@ The grammar produces **two distinct `Child` node types** (one from `rootStep`, o
 
 ## Form Engine Lifecycle
 
-**On init**: merge data model defaults → build DataInstance → preload case data (followup) → build TriggerDag → init QuestionStates → apply `default_value` (one-time, overrides preloaded case data) → full cascade.
+**On init**: build DataInstance → preload case data (followup) → build TriggerDag → init QuestionStates → apply `default_value` (one-time, overrides preloaded case data) → full cascade. Questions are self-contained (no merge from case_types at runtime).
 
 **On `setValue(path)`**: update instance → DAG cascade (topologically sorted) → re-evaluate expressions per affected path (calculate, relevant, required, validation) → re-validate.
 

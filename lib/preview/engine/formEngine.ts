@@ -1,5 +1,4 @@
 import type { BlueprintForm, Question, CaseType } from '@/lib/schemas/blueprint'
-import { mergeFormQuestions } from '@/lib/schemas/blueprint'
 import type { EvalContext } from '../xpath/types'
 import { evaluate } from '../xpath/evaluator'
 import { toBoolean } from '../xpath/coerce'
@@ -34,8 +33,8 @@ export class FormEngine {
     this.formType = form.type
     this.caseData = caseData ?? new Map()
 
-    // 1. Merge data model defaults
-    this.mergedQuestions = mergeFormQuestions(form.questions, caseTypes, moduleCaseType)
+    // 1. Questions are the source of truth (no merge from case_types)
+    this.mergedQuestions = form.questions
 
     // 2. Build data instance
     this.instance = new DataInstance()

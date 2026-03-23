@@ -469,14 +469,7 @@ export class MutableBlueprint {
     const formsChanged: string[] = []
     const columnsChanged: string[] = []
 
-    // Rename in case_types definition (if present)
-    if (this.blueprint.case_types) {
-      const ct = this.blueprint.case_types.find(c => c.name === caseType)
-      if (ct) {
-        const prop = ct.properties.find(p => p.name === oldName)
-        if (prop) prop.name = newName
-      }
-    }
+    // case_types is frozen after generation — not updated during edits
 
     for (let mIdx = 0; mIdx < this.blueprint.modules.length; mIdx++) {
       const mod = this.blueprint.modules[mIdx]

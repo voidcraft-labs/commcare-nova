@@ -85,7 +85,7 @@ Reads/writes through `builder.mb` (persistent `MutableBlueprint`). Three editing
 ### Rename Propagation
 
 - Editing question ID → `mb.renameQuestion()` → `rewriteXPathRefs` (Lezer-based) updates `/data/...` paths and `#form/...` hashtags across siblings.
-- Editing case property → `mb.renameCaseProperty()` → `rewriteHashtagRefs` for `#case/...` refs across all questions, columns, XPath, and output tags.
+- Renaming a case property (question with `is_case_property`) → `mb.renameCaseProperty()` → renames question ID across all forms in the module, `rewriteHashtagRefs` for `#case/...` refs, updates columns. Does not touch `case_types` (frozen after generation).
 
 ## XPathField
 

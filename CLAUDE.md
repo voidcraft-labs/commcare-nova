@@ -88,6 +88,6 @@ The Anthropic schema compiler times out with >8 `.optional()` fields per array i
 
 ### Data Model
 
-Question ID = case property name. Questions with `is_case_property: true` are saved to/loaded from the case. The case name question must always have `id: "case_name"`. Case types in `blueprint.case_types` provide default metadata (label, type, validation) during generation — questions inherit via ID matching. Validation derives known case properties reactively by scanning questions, not from `case_types.properties`.
+Question ID = case property name. Questions with `is_case_property: true` are saved to/loaded from the case. The case name question must always have `id: "case_name"`. Questions are fully self-contained — all metadata (label, type, validation, options) lives on the question itself. `case_types` is a frozen generation-time artifact; `applyDefaults` bakes defaults into questions during `addQuestions`, after which `case_types` is never consulted again. Validation derives known case properties reactively by scanning questions.
 
 `deriveCaseConfig()` derives form-level case wiring on-demand — no form-level case fields stored. Case list columns are fully LLM-controlled — no auto-prepend or filtering by expander/compiler.

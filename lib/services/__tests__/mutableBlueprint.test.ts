@@ -388,13 +388,13 @@ describe('MutableBlueprint', () => {
     })
   })
 
-  describe('renameCaseProperty propagates to case_types', () => {
-    it('renames property in case_types definition', () => {
+  describe('renameCaseProperty does not touch frozen case_types', () => {
+    it('leaves case_types unchanged after rename', () => {
       const mb = new MutableBlueprint(makeBlueprint())
       mb.renameCaseProperty('client', 'email_address', 'contact_email')
       const ct = mb.getCaseType('client')
-      expect(ct?.properties.some(p => p.name === 'contact_email')).toBe(true)
-      expect(ct?.properties.some(p => p.name === 'email_address')).toBe(false)
+      // case_types is frozen after generation — rename only affects questions/columns
+      expect(ct?.properties.some(p => p.name === 'email_address')).toBe(true)
     })
   })
 
