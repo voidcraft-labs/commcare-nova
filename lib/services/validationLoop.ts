@@ -42,7 +42,7 @@ export async function validateAndFix(
     }
 
     ctx.emit('data-phase', { phase: 'fix' })
-    ctx.emit('data-fix-attempt', { attempt, errorCount: errors.length })
+    ctx.emit('data-fix-attempt', { attempt, errorCount: errors.length, errors })
 
     // Fix module-level errors programmatically
     for (const err of errors) {
