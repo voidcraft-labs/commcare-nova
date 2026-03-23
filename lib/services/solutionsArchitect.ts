@@ -760,10 +760,14 @@ export function createSolutionsArchitect(
               hqJson: result.hqJson ?? {},
               success: true,
             })
-            return { success: true }
+            const output = { success: true as const }
+            ctx.logger.logToolOutput('validateApp', output)
+            return output
           }
           // Surface remaining errors so the SA can fix them with its tools
-          return { success: false, errors: result.errors ?? [] }
+          const output = { success: false as const, errors: result.errors ?? [] }
+          ctx.logger.logToolOutput('validateApp', output)
+          return output
         },
       }),
     },

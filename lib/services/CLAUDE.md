@@ -185,9 +185,10 @@ The fix loop in `validationLoop.ts` auto-fixes case-mismatched function names (`
 Set `RUN_LOGGER=1` in `.env` to enable. Each run writes to `.log/` — always valid JSON, even on crash.
 
 **RunLogger class** (`runLogger.ts`): created once per request.
-- `logStep(step)` — creates Step, drains emission/sub-result buffers, computes cost, flushes. `StepToolCall.output` is backfilled by `logConversation` for client-side tools (e.g. `askQuestions`) whose output arrives on the follow-up request.
+- `logStep(step)` — creates Step, drains emission/sub-result/tool-output buffers, computes cost, flushes. `StepToolCall.output` is populated from `logToolOutput` for server-side tools and backfilled by `logConversation` for client-side tools (e.g. `askQuestions`) whose output arrives on the follow-up request.
 - `logEmission(type, data)` — buffers an emission (skips transient types like `data-partial-scaffold`)
 - `logSubResult(label, result)` — buffers sub-generation usage data
+- `logToolOutput(toolName, output)` — buffers a server-side tool's return value. Matched to `tool_calls` by name in `logStep()`. Used by `validateApp` to capture success/failure + error details.
 - `finalize()` — rebuilds conversation, recomputes totals
 - `labelMatchesToolName()` — maps labels (e.g. "Schema") to tool names (e.g. "generateSchema")
 - Abandoned log cleanup on construction (renames UUID-named orphans)

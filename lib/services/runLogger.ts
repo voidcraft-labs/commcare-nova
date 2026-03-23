@@ -84,6 +84,7 @@ export class RunLogger {
   private requestNumber = 0
   private pendingEmissions: Emission[] = []
   private pendingSubResults: Array<{ label: string; usage: StepUsage; reasoning?: string }> = []
+  private pendingToolOutputs: Array<{ toolName: string; output: NonNullable<StepToolCall['output']> }> = []
 
   /**
    * @param existingRunId — if provided, resumes an existing log file at .log/{runId}.json
@@ -159,6 +160,14 @@ export class RunLogger {
   }
 
   /**
+   * Buffer a server-side tool's return value during execution.
+   * Matched to tool_calls by name and drained by logStep().
+   */
+  logToolOutput(toolName: string, output: NonNullable<StepToolCall['output']>) {
+    this.pendingToolOutputs.push({ toolName, output: structuredClone(output) })
+  }
+
+  /**
    * Buffer an emission during tool execution. Drained into the step by logStep().
    * Skips transient streaming artifacts (partial-scaffold, run-id).
    */
@@ -215,11 +224,14 @@ export class RunLogger {
     }
   }) {
     const toolCalls: StepToolCall[] | undefined = step.tool_calls?.map(tc => {
-      const idx = this.pendingSubResults.findIndex(sr => labelMatchesToolName(sr.label, tc.name))
-      const subResult = idx >= 0 ? this.pendingSubResults.splice(idx, 1)[0] : undefined
+      const subIdx = this.pendingSubResults.findIndex(sr => labelMatchesToolName(sr.label, tc.name))
+      const subResult = subIdx >= 0 ? this.pendingSubResults.splice(subIdx, 1)[0] : undefined
+      const outIdx = this.pendingToolOutputs.findIndex(to => to.toolName === tc.name)
+      const toolOutput = outIdx >= 0 ? this.pendingToolOutputs.splice(outIdx, 1)[0] : undefined
       return {
         name: tc.name,
         args: tc.args,
+        ...(toolOutput && { output: toolOutput.output }),
         ...(subResult && { generation: subResult.usage }),
         ...(subResult?.reasoning && { reasoning: subResult.reasoning }),
       }
@@ -252,6 +264,7 @@ export class RunLogger {
     // Drain buffers
     this.pendingEmissions = []
     this.pendingSubResults = []
+    this.pendingToolOutputs = []
 
     this.log.steps.push(newStep)
     if (this.enabled) this.flush()
