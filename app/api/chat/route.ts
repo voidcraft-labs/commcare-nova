@@ -30,7 +30,7 @@ export async function POST(req: Request) {
   if (!parsed.success) {
     return new Response(JSON.stringify({ error: 'Invalid request body' }), { status: 400 })
   }
-  const { apiKey, blueprint, blueprintSummary, runId, pipelineConfig: rawPipelineConfig } = parsed.data
+  const { apiKey, blueprint, runId, pipelineConfig: rawPipelineConfig } = parsed.data
   const pipelineConfig: PipelineConfig = { ...DEFAULT_PIPELINE_CONFIG, ...rawPipelineConfig }
 
   const logger = new RunLogger(runId)
@@ -48,7 +48,7 @@ export async function POST(req: Request) {
         blueprint ?? { app_name: '', modules: [], case_types: null }
       )
 
-      const sa = createSolutionsArchitect(ctx, mutableBp, blueprintSummary)
+      const sa = createSolutionsArchitect(ctx, mutableBp)
 
       const agentStream = await createAgentUIStream({
         agent: sa,

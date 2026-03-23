@@ -22,8 +22,6 @@ export function logWarnings(label: string, warnings: CallWarning[] | undefined) 
   }
 }
 
-/** Anthropic cache control marker for prompt caching. */
-export const ANTHROPIC_CACHE_CONTROL = { anthropic: { cacheControl: { type: 'ephemeral' as const } } }
 
 /** Anthropic provider options for adaptive extended thinking. */
 export function thinkingProviderOptions(effort: ReasoningEffort) {

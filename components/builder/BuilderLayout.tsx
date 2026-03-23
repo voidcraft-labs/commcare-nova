@@ -12,7 +12,7 @@ import { useApiKey } from '@/hooks/useApiKey'
 import { useSettings } from '@/hooks/useSettings'
 import { useBuilder } from '@/hooks/useBuilder'
 import { BuilderPhase, applyDataPart, type ViewMode } from '@/lib/services/builder'
-import { summarizeBlueprint, type AppBlueprint } from '@/lib/schemas/blueprint'
+import type { AppBlueprint } from '@/lib/schemas/blueprint'
 import { flattenQuestionPaths } from '@/lib/services/questionNavigation'
 import { type QuestionPath } from '@/lib/services/questionPath'
 import { useKeyboardShortcuts } from '@/hooks/useKeyboardShortcuts'
@@ -203,7 +203,6 @@ export function BuilderLayout({ buildId }: { buildId: string }) {
         apiKey: apiKeyRef.current,
         pipelineConfig: settingsRef.current.pipeline,
         blueprint: builder.blueprint ?? undefined,
-        blueprintSummary: builder.blueprint ? summarizeBlueprint(builder.blueprint) : undefined,
         runId: runIdRef.current,
       }),
     }),

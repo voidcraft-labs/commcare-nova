@@ -17,7 +17,6 @@ const pipelineConfigSchema = z.object({
 export const chatRequestSchema = z.object({
   apiKey: z.string().min(1, 'API key is required'),
   blueprint: appBlueprintSchema.optional(),
-  blueprintSummary: z.string().optional(),
   runId: z.string().optional(),
   pipelineConfig: pipelineConfigSchema.optional(),
 })
