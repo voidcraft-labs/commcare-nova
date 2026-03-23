@@ -32,7 +32,7 @@ The grammar produces **two distinct `Child` node types** (one from `rootStep`, o
 
 **Value persistence**: `useFormEngine` snapshots live-mode values (via `getValueSnapshot()`) into a ref before engine recreation (caused by `mutationCount` bumps from preview edits). New engines restore values via `restoreValues()`, which restores only user-touched values, runs a full cascade, then re-validates touched fields. Untouched fields keep the new engine's defaults — this ensures editing a `default_value` expression in design mode is immediately reflected in preview.
 
-**Unresolved case refs**: When a followup form has no case data, `resolveHashtag` returns empty string for `#case/` refs (not a placeholder string). `QuestionState.caseRef` is set from `question.case_property` for these fields. Output tag resolution returns `{ text, className }` objects via `ResolvedOutput` type, producing styled `<span class="case-ref">` elements in labels. The `.case-ref` CSS class (globals.css) renders a cyan monospace badge.
+**Case data fallback**: `FormScreen` auto-selects the first dummy case when a followup form renders without an explicit `caseId` (e.g. when navigated to via the tree). This ensures case-mapped fields always resolve. `resolveHashtag` returns empty string for any `#case/` ref not found in case data.
 
 ## Navigation Flow (matches CommCare)
 
@@ -47,7 +47,7 @@ Case list is a gate for a specific followup form, not a module-level screen. Sel
 
 ## Case Data Resolution
 
-The nav stack only carries `caseId` — case data is resolved at the point of use, not stored in navigation state. `FormScreen` looks up case data by `caseId` via `getCaseData()` and passes the resulting `Map<string, string>` to `FormEngine`. Breadcrumbs similarly look up case names by `caseId`. This separation means swapping the data source (dummy → real API) only requires changing the lookup functions in `dummyData.ts`.
+The nav stack only carries `caseId` — case data is resolved at the point of use, not stored in navigation state. `FormScreen` looks up case data by `caseId` via `getCaseData()` and passes the resulting `Map<string, string>` to `FormEngine`. When a followup form has no `caseId` (e.g. navigated via tree), `FormScreen` falls back to the first dummy case's properties. Breadcrumbs similarly look up case names by `caseId`. This separation means swapping the data source (dummy → real API) only requires changing the lookup functions in `dummyData.ts`.
 
 Dummy case data is generated once per case type and cached at the module level in `dummyData.ts`. `getDummyCases()` returns all rows (used by `CaseListScreen`); `getCaseData(caseTypeName, caseId)` returns a single case's properties by ID (used by `FormScreen` and breadcrumbs).
 
