@@ -21,7 +21,21 @@ export type PreviewScreen =
   | { type: 'home' }
   | { type: 'module'; moduleIndex: number }
   | { type: 'caseList'; moduleIndex: number; formIndex: number }
-  | { type: 'form'; moduleIndex: number; formIndex: number; caseData?: Map<string, string> }
+  | { type: 'form'; moduleIndex: number; formIndex: number; caseId?: string; caseData?: Map<string, string> }
+
+export function screensEqual(a: PreviewScreen, b: PreviewScreen): boolean {
+  if (a.type !== b.type) return false
+  if (a.type === 'home') return true
+  if (a.type === 'module' && b.type === 'module')
+    return a.moduleIndex === b.moduleIndex
+  if (a.type === 'caseList' && b.type === 'caseList')
+    return a.moduleIndex === b.moduleIndex && a.formIndex === b.formIndex
+  if (a.type === 'form' && b.type === 'form')
+    return a.moduleIndex === b.moduleIndex
+      && a.formIndex === b.formIndex
+      && a.caseId === b.caseId
+  return false
+}
 
 /** A row of dummy case data for case list display. */
 export interface DummyCaseRow {
