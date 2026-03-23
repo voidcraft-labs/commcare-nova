@@ -431,8 +431,7 @@ function labelMatchesToolName(label: string, toolName: string): boolean {
     case 'schema': return toolName === 'generateSchema'
     case 'scaffold': return toolName === 'generateScaffold'
     case 'module': return toolName === 'addModule'
-    case 'generate': return toolName === 'addForm' || toolName === 'regenerateForm'
-    case 'regenerate': return toolName === 'regenerateForm'
+    case 'generate': return toolName === 'addForm'
     case 'fixer': return toolName === 'validateApp'
     default: return false
   }

@@ -4,12 +4,11 @@ Core business logic: Solutions Architect agent, blueprint management, LLM orches
 
 ## Solutions Architect Agent
 
-Split across three files:
-- `solutionsArchitect.ts` — `createSolutionsArchitect()` with tool definitions
-- `formGeneration.ts` — `singleFormSchema`, `generateSingleFormContent()`, `buildColumnPrompt()`, `QUESTION_TYPES`
+Split across two files:
+- `solutionsArchitect.ts` — `createSolutionsArchitect()` with tool definitions + `buildColumnPrompt()`
 - `validationLoop.ts` — `validateAndFix()`, `groupErrorsByForm()`, `applyProgrammaticFixes()`
 
-`solutionsArchitect.ts` exports `createSolutionsArchitect(ctx, mutableBp, blueprintSummary?)` — single `ToolLoopAgent` with 22 tools in 6 groups:
+`solutionsArchitect.ts` exports `createSolutionsArchitect(ctx, mutableBp, blueprintSummary?)` — single `ToolLoopAgent` with 21 tools in 6 groups:
 
 **Conversation (1):**
 - `askQuestions` (client-side, no `execute`) — structured multiple-choice rendered as QuestionCard. `sendAutomaticallyWhen` re-sends when all answered.
@@ -28,8 +27,8 @@ Split across three files:
 **Read (4):**
 - `searchBlueprint`, `getModule`, `getForm`, `getQuestion`
 
-**Mutation (11):**
-- `editQuestion`, `addQuestion`, `removeQuestion`, `updateModule`, `updateForm` (name, close_case, child_cases), `createForm`, `removeForm`, `createModule`, `removeModule`, `renameCaseProperty`, `regenerateForm`
+**Mutation (10):**
+- `editQuestion`, `addQuestion`, `removeQuestion`, `updateModule`, `updateForm` (name, close_case, child_cases), `createForm`, `removeForm`, `createModule`, `removeModule`, `renameCaseProperty`
 
 **Validation (1):**
 - `validateApp` — runs `validateAndFix()` loop, emits `data-done`.
@@ -38,17 +37,13 @@ Split across three files:
 
 The SA makes all architecture and form design decisions. For forms, it writes Python in code_execution that calls addQuestions in section-sized batches — the JSON construction stays in the sandbox, not in the SA's context window.
 
-`regenerateForm` returns a compact `questions` tree via `summarizeQuestions()` — the SA sees every question's ID, type, case_property, and nesting.
-
 **prepareStep:** Inline function that consolidates prompt caching (message-level), reasoning (adaptive thinking), and container forwarding (code execution sandbox persistence) into a single provider options builder. No external `withPromptCaching` dependency. Cache control skips code-execution-related messages (tool results, assistant messages containing `code_execution` tool calls, and assistant messages containing tool calls made BY code execution via programmatic tool calling) since they aren't rendered in Claude's context.
 
 **Agent limits:** `stopWhen: stepCountIs(80)` — resets per request. Error recovery prompt tells SA to bail after 2-3 failed retries.
 
 **SA prompt** (`lib/prompts/solutionsArchitectPrompt.ts`) includes a CommCare XPath quick reference so the SA can write correct XPath without hallucinating function signatures (e.g. `round()` takes 1 arg, not 2).
 
-Also re-exports from the split files:
-- `validateAndFix()` (from `validationLoop.ts`) — programmatic validation + fix loop (rule-based fixes + deep XPath validation + structured output fallback for empty forms).
-- `generateSingleFormContent()` (from `formGeneration.ts`) — used by `regenerateForm`.
+Also re-exports `validateAndFix()` (from `validationLoop.ts`) — programmatic validation + fix loop (rule-based fixes + deep XPath validation). Unfixable errors (e.g. empty forms) are surfaced to the SA to fix with its normal tools.
 
 ## MutableBlueprint
 
@@ -167,7 +162,7 @@ Called on-demand by expander and validator — no form-level case fields stored.
 
 ## AutoFixer (autoFixer.ts)
 
-Programmatic fixes for common CommCare app issues. Used by `validateAndFix()` loop before falling back to structured output for unfixable errors. Includes auto-fix for unquoted string literals (wraps bare words in single quotes).
+Programmatic fixes for common CommCare app issues. Used by `validateAndFix()` loop. Includes auto-fix for unquoted string literals (wraps bare words in single quotes).
 
 ## CommCare Module (commcare/)
 
@@ -214,7 +209,6 @@ Client-side replay of v2 run logs through Builder without API calls.
 - `solutionsArchitect` — SA agent (default: Opus, reasoning max)
 - `schemaGeneration` — `generateSchema` call (default: Sonnet, reasoning medium)
 - `scaffold` — `generateScaffold` + `addModule` calls (default: Sonnet, reasoning medium)
-- `formGeneration` — `addForm` + `regenerateForm` calls (default: Sonnet, reasoning medium)
 
 `maxOutputTokens` of `0` means no cap. Reasoning uses Anthropic adaptive thinking (`type: 'adaptive'`) with configurable effort (`low`/`medium`/`high`/`max`). `ctx.reasoningForStage(stage)` returns the config or `undefined`.
 

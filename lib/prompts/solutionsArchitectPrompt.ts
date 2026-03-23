@@ -220,7 +220,6 @@ When editing an existing app:
    - \`createForm\` / \`removeForm\` to add or remove forms
    - \`createModule\` / \`removeModule\` to add or remove modules
    - \`renameCaseProperty\` for propagated renames across all forms, columns, and XPath
-   - \`regenerateForm\` for major restructuring of an entire form
 4. **Validate** — Call \`validateApp\` when done editing.
 
 ### Dependency Awareness

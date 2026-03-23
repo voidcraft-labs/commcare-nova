@@ -36,7 +36,7 @@ All text fields are plain `string`. XPath fields support `#case/` and `#user/` h
 
 ## Structured Output Constraints
 
-The Anthropic schema compiler times out with >8 `.optional()` per array item (each creates an `anyOf` union in JSON Schema). The `singleFormSchema` in `formGeneration.ts` (questions-only, used by `regenerateForm`) and the `addQuestions` tool schema both use a hybrid approach:
+The Anthropic schema compiler times out with >8 `.optional()` per array item (each creates an `anyOf` union in JSON Schema). The `addQuestions` tool schema uses a hybrid approach:
 
 - **8 optional fields** (sparse, saves tokens): `hint`, `help`, `validation`, `validation_msg`, `relevant`, `calculate`, `default_value`, `options`
 - **4 required sentinel fields** (almost always present, low cost): `label` (empty string), `required` (empty string), `case_property` (empty string), `is_case_name` (false)

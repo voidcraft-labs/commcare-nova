@@ -13,6 +13,7 @@ import { SCHEMA_PROMPT } from '../prompts/schemaPrompt'
 import { scaffoldPrompt } from '../prompts/scaffoldPrompt'
 import {
   type AppBlueprint, type BlueprintForm, type Question,
+  QUESTION_TYPES,
   caseTypesOutputSchema, scaffoldModulesSchema, moduleContentSchema,
   summarizeBlueprint,
 } from '../schemas/blueprint'
@@ -22,11 +23,7 @@ import {
 } from '../schemas/contentProcessing'
 import { MutableBlueprint, type NewQuestion } from './mutableBlueprint'
 import { validateAndFix } from './validationLoop'
-import { generateSingleFormContent, buildColumnPrompt, QUESTION_TYPES } from './formGeneration'
-
-// Re-export for consumers that imported from this module
 export { validateAndFix } from './validationLoop'
-export { generateSingleFormContent } from './formGeneration'
 
 // ── Helper: count questions recursively ───────────────────────────────
 
@@ -63,6 +60,33 @@ function summarizeQuestions(questions: Question[]): QuestionSummary[] {
     if (q.children?.length) entry.children = summarizeQuestions(q.children)
     return entry
   })
+}
+
+// ── Module column prompt builder ─────────────────────────────────────
+
+function buildColumnPrompt(blueprint: AppBlueprint, moduleIndex: number, instructions: string): string {
+  const mod = blueprint.modules[moduleIndex]
+  const caseTypes = blueprint.case_types ?? []
+  const ct = caseTypes.find(c => c.name === mod.case_type)
+
+  const dataModel = ct
+    ? `Case type: ${ct.name}\nProperties: ${ct.properties.map(p => p.name).join(', ')}`
+    : 'Survey-only module (no case type)'
+
+  return `App: "${blueprint.app_name}"
+Module: "${mod.name}"
+${dataModel}
+
+## Instructions
+${instructions}
+
+Design the case list columns and case detail columns for this module.
+- Choose columns that help the user quickly identify and differentiate records
+- Include case_name as the first column unless there is a reason not to
+- 3-5 columns is typical
+- Column headers should be short and scannable
+- For case_detail_columns, include more fields than the list. Use null to auto-mirror.
+- Survey-only modules should have null for both.`
 }
 
 // ── askQuestions schema ──────────────────────────────────────────────
@@ -611,7 +635,7 @@ export function createSolutionsArchitect(
       }),
 
       createForm: tool({
-        description: 'Add a new empty form to a module. Use code_execution + addQuestions or regenerateForm to populate it.',
+        description: 'Add a new empty form to a module. Use code_execution + addQuestions to populate it.',
         inputSchema: z.object({
           moduleIndex: z.number().describe('0-based module index'),
           name: z.string().describe('Form display name'),
@@ -706,43 +730,6 @@ export function createSolutionsArchitect(
             const result = mutableBp.renameCaseProperty(caseType, oldName, newName)
             ctx.emit('data-blueprint-updated', { blueprint: mutableBp.getBlueprint() })
             return { caseType, oldName, newName, formsChanged: result.formsChanged, columnsChanged: result.columnsChanged }
-          } catch (err) {
-            return { error: err instanceof Error ? err.message : String(err) }
-          }
-        },
-      }),
-
-      // ── Generation (edit context) ─────────────────────────────────
-
-      regenerateForm: tool({
-        description: 'Fully regenerate a form using AI. Use for major restructuring or when adding many questions at once.',
-        inputSchema: z.object({
-          moduleIndex: z.number().describe('0-based module index'),
-          formIndex: z.number().describe('0-based form index'),
-          instructions: z.string().describe('What this form should contain or how to change it'),
-        }),
-        execute: async ({ moduleIndex, formIndex, instructions }) => {
-          const blueprint = mutableBp.getBlueprint()
-          const mod = blueprint.modules[moduleIndex]
-          if (!mod) return { error: `Module index ${moduleIndex} out of range` }
-          const form = mod.forms[formIndex]
-          if (!form) return { error: `Form index ${formIndex} out of range in module ${moduleIndex}` }
-
-          try {
-            const newForm = await generateSingleFormContent(
-              ctx, blueprint, moduleIndex, formIndex, instructions,
-            )
-            mutableBp.replaceForm(moduleIndex, formIndex, newForm)
-            ctx.emit('data-form-updated', { moduleIndex, formIndex, form: newForm })
-
-            return {
-              moduleIndex,
-              formIndex,
-              name: form.name,
-              questionCount: countQuestionsRecursive(newForm.questions),
-              caseProperties: collectCaseProperties(newForm.questions),
-              questions: summarizeQuestions(newForm.questions),
-            }
           } catch (err) {
             return { error: err instanceof Error ? err.message : String(err) }
           }
