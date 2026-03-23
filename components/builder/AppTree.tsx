@@ -1,15 +1,18 @@
 'use client'
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useDeferredValue, useMemo } from 'react'
 import { motion, AnimatePresence } from 'motion/react'
 import { Icon } from '@iconify/react'
 import ciMoreGridBig from '@iconify-icons/ci/more-grid-big'
 import ciTable from '@iconify-icons/ci/table'
 import ciChevronRight from '@iconify-icons/ci/chevron-right'
+import ciSearchMagnifyingGlass from '@iconify-icons/ci/search-magnifying-glass'
+import ciCloseSm from '@iconify-icons/ci/close-sm'
 import type { Question } from '@/lib/schemas/blueprint'
 import { BuilderPhase, type TreeData } from '@/lib/services/builder'
 import { type QuestionPath, qpath } from '@/lib/services/questionPath'
 import { Badge } from '@/components/ui/Badge'
 import { questionTypeIcons, formTypeIcons } from '@/lib/questionTypeIcons'
+import { filterTree, highlightSegments, type MatchIndices } from '@/lib/filterTree'
 
 interface AppTreeProps {
   data: TreeData | undefined
@@ -24,6 +27,13 @@ interface AppTreeProps {
 
 export function AppTree({ data, selected, onSelect, phase, actions, hideHeader, compact }: AppTreeProps) {
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set())
+  const [searchQuery, setSearchQuery] = useState('')
+  const deferredQuery = useDeferredValue(searchQuery)
+  const filtered = useMemo(
+    () => data && deferredQuery.trim() ? filterTree(data, deferredQuery.trim()) : null,
+    [data, deferredQuery],
+  )
+
   const toggle = useCallback((key: string) => {
     setCollapsed(prev => {
       const next = new Set(prev)
@@ -41,6 +51,8 @@ export function AppTree({ data, selected, onSelect, phase, actions, hideHeader, 
     )
   }
 
+  const displayModules = filtered ? filtered.data.modules : data.modules
+
   return (
     <div className="h-full flex flex-col">
       {!hideHeader && (
@@ -56,24 +68,69 @@ export function AppTree({ data, selected, onSelect, phase, actions, hideHeader, 
         </div>
       )}
 
+      {/* Search input — compact/sidebar mode only */}
+      {compact && (
+        <div className="px-3 pt-3 shrink-0">
+          <div className="relative">
+            <Icon
+              icon={ciSearchMagnifyingGlass}
+              width="14"
+              height="14"
+              className="absolute left-2.5 top-1/2 -translate-y-1/2 text-nova-text-muted pointer-events-none"
+            />
+            <input
+              type="text"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Escape') {
+                  if (searchQuery) setSearchQuery('')
+                  else (e.target as HTMLInputElement).blur()
+                }
+              }}
+              placeholder="Filter questions..."
+              autoComplete="off"
+              data-1p-ignore
+              className="w-full pl-8 pr-7 py-1.5 text-xs bg-nova-surface border border-nova-border rounded-lg text-nova-text placeholder:text-nova-text-muted focus:outline-none focus:border-nova-violet transition-colors"
+            />
+            {searchQuery && (
+              <button
+                onClick={() => setSearchQuery('')}
+                className="absolute right-1.5 top-1/2 -translate-y-1/2 w-5 h-5 flex items-center justify-center rounded text-nova-text-muted hover:text-nova-text transition-colors cursor-pointer"
+              >
+                <Icon icon={ciCloseSm} width="12" height="12" />
+              </button>
+            )}
+          </div>
+        </div>
+      )}
+
       {/* Scrollable module cards */}
       <div className={`flex-1 overflow-auto ${compact ? 'p-3 space-y-3' : 'p-6 space-y-4'}`}>
-        <div className={compact ? 'space-y-3' : 'max-w-3xl mx-auto space-y-4'}>
-          <AnimatePresence mode="sync">
-            {data.modules.map((mod, mIdx) => (
-              <ModuleCard
-                key={mIdx}
-                module={mod}
-                moduleIndex={mIdx}
-                selected={selected}
-                onSelect={onSelect}
-                compact={compact}
-                collapsed={collapsed}
-                toggle={toggle}
-              />
-            ))}
-          </AnimatePresence>
-        </div>
+        {filtered && displayModules.length === 0 ? (
+          <div className="flex items-center justify-center py-8 text-nova-text-muted text-xs">
+            No matches
+          </div>
+        ) : (
+          <div className={compact ? 'space-y-3' : 'max-w-3xl mx-auto space-y-4'}>
+            <AnimatePresence mode="sync">
+              {displayModules.map((mod, mIdx) => (
+                <ModuleCard
+                  key={mIdx}
+                  module={mod}
+                  moduleIndex={mIdx}
+                  selected={selected}
+                  onSelect={onSelect}
+                  compact={compact}
+                  collapsed={collapsed}
+                  toggle={toggle}
+                  forceExpand={filtered?.forceExpand}
+                  matchMap={filtered?.matchMap}
+                />
+              ))}
+            </AnimatePresence>
+          </div>
+        )}
       </div>
     </div>
   )
@@ -105,6 +162,8 @@ function ModuleCard({
   compact,
   collapsed,
   toggle,
+  forceExpand,
+  matchMap,
 }: {
   module: TreeData['modules'][number]
   moduleIndex: number
@@ -113,10 +172,13 @@ function ModuleCard({
   compact?: boolean
   collapsed: Set<string>
   toggle: (key: string) => void
+  forceExpand?: Set<string>
+  matchMap?: Map<string, MatchIndices>
 }) {
   const isSelected = selected?.type === 'module' && selected.moduleIndex === moduleIndex
   const collapseKey = `m${moduleIndex}`
-  const isCollapsed = collapsed.has(collapseKey)
+  const isCollapsed = forceExpand?.has(collapseKey) ? false : collapsed.has(collapseKey)
+  const nameIndices = matchMap?.get(collapseKey)
 
   return (
     <motion.div
@@ -141,7 +203,9 @@ function ModuleCard({
             <Icon icon={ciMoreGridBig} width="16" height="16" className="text-nova-violet-bright" />
           </div>
           <div>
-            <h3 className="font-medium text-sm">{mod.name}</h3>
+            <h3 className="font-medium text-sm">
+              {nameIndices ? <HighlightedText text={mod.name} indices={nameIndices} /> : mod.name}
+            </h3>
             {mod.case_type && (
               <span className="text-xs text-nova-text-muted font-mono">
                 case: {mod.case_type}
@@ -192,6 +256,8 @@ function ModuleCard({
                   delay={fIdx * 0.08}
                   collapsed={collapsed}
                   toggle={toggle}
+                  forceExpand={forceExpand}
+                  matchMap={matchMap}
                 />
               ))}
             </AnimatePresence>
@@ -211,6 +277,8 @@ function FormCard({
   delay,
   collapsed,
   toggle,
+  forceExpand,
+  matchMap,
 }: {
   form: TreeData['modules'][number]['forms'][number]
   moduleIndex: number
@@ -220,13 +288,16 @@ function FormCard({
   delay: number
   collapsed: Set<string>
   toggle: (key: string) => void
+  forceExpand?: Set<string>
+  matchMap?: Map<string, MatchIndices>
 }) {
   const isSelected = selected?.type === 'form' && selected.moduleIndex === moduleIndex && selected.formIndex === formIndex
   const formIcon = formTypeIcons[form.type] ?? formTypeIcons.survey
   const collapseKey = `f${moduleIndex}_${formIndex}`
-  const isCollapsed = collapsed.has(collapseKey)
+  const isCollapsed = forceExpand?.has(collapseKey) ? false : collapsed.has(collapseKey)
   const hasQuestions = form.questions && form.questions.length > 0
   const oddPaths = hasQuestions ? buildOddPaths(form.questions!, collapsed) : undefined
+  const nameIndices = matchMap?.get(collapseKey)
 
   return (
     <motion.div
@@ -252,7 +323,9 @@ function FormCard({
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2">
             <Icon icon={formIcon} width="14" height="14" className="text-nova-text-muted shrink-0" />
-            <span className="text-sm font-medium truncate">{form.name}</span>
+            <span className="text-sm font-medium truncate">
+              {nameIndices ? <HighlightedText text={form.name} indices={nameIndices} /> : form.name}
+            </span>
           </div>
         </div>
         {hasQuestions && (
@@ -280,6 +353,8 @@ function FormCard({
                 collapsed={collapsed}
                 toggle={toggle}
                 oddPaths={oddPaths!}
+                forceExpand={forceExpand}
+                matchMap={matchMap}
               />
             ))}
           </AnimatePresence>
@@ -301,6 +376,8 @@ function QuestionRow({
   collapsed,
   toggle,
   oddPaths,
+  forceExpand,
+  matchMap,
 }: {
   question: Question
   questionPath: QuestionPath
@@ -313,12 +390,21 @@ function QuestionRow({
   collapsed: Set<string>
   toggle: (key: string) => void
   oddPaths: Set<string>
+  forceExpand?: Set<string>
+  matchMap?: Map<string, MatchIndices>
 }) {
   const isSelected = selected?.type === 'question' && selected.moduleIndex === moduleIndex && selected.formIndex === formIndex && selected.questionPath === questionPath
   const iconData = questionTypeIcons[q.type]
   const hasChildren = q.children && q.children.length > 0
-  const isCollapsed = hasChildren && collapsed.has(questionPath)
+  const isCollapsed = hasChildren && (forceExpand?.has(questionPath) ? false : collapsed.has(questionPath))
   const isOdd = oddPaths.has(questionPath)
+  const labelIndices = matchMap?.get(questionPath)
+  const idIndices = matchMap?.get(`${questionPath}__id`)
+  // Show the ID badge when the match came from the ID (and question has a separate label)
+  const showIdMatch = !!(idIndices && q.label)
+  // Highlight the main display text: label match, or id match when there's no label
+  const textIndices = labelIndices ?? (!q.label ? idIndices : undefined)
+  const displayText = q.label || q.id
 
   return (
     <motion.div
@@ -348,7 +434,20 @@ function QuestionRow({
         <span className="w-4 text-center text-nova-text-muted shrink-0 flex items-center justify-center">
           {iconData ? <Icon icon={iconData} width="12" height="12" /> : '?'}
         </span>
-        <span className={`truncate ${hasChildren ? 'font-medium text-[#b8b8dd]' : ''}`}>{q.label || q.id}</span>
+        {showIdMatch ? (
+          <span className="flex items-center gap-1.5 min-w-0 flex-1">
+            <span className={`truncate shrink ${hasChildren ? 'font-medium text-[#b8b8dd]' : ''}`}>
+              {textIndices ? <HighlightedText text={displayText} indices={textIndices} /> : displayText}
+            </span>
+            <span className="truncate shrink-0 max-w-[45%] font-mono text-[10px] text-nova-text-muted">
+              (<HighlightedText text={q.id} indices={idIndices} />)
+            </span>
+          </span>
+        ) : (
+          <span className={`truncate ${hasChildren ? 'font-medium text-[#b8b8dd]' : ''}`}>
+            {textIndices ? <HighlightedText text={displayText} indices={textIndices} /> : displayText}
+          </span>
+        )}
         {hasChildren && isCollapsed && (
           <span className="text-[10px] text-nova-text-muted ml-auto shrink-0">
             {countQuestions(q.children!)}
@@ -373,11 +472,27 @@ function QuestionRow({
               collapsed={collapsed}
               toggle={toggle}
               oddPaths={oddPaths}
+              forceExpand={forceExpand}
+              matchMap={matchMap}
             />
           ))}
         </div>
       )}
     </motion.div>
+  )
+}
+
+/** Inline highlighted text with match indices */
+function HighlightedText({ text, indices }: { text: string; indices: MatchIndices }) {
+  const segments = highlightSegments(text, indices)
+  return (
+    <>
+      {segments.map((seg, i) =>
+        seg.highlight
+          ? <mark key={i} className="bg-nova-violet/20 text-inherit rounded-sm">{seg.text}</mark>
+          : <span key={i}>{seg.text}</span>
+      )}
+    </>
   )
 }
 
