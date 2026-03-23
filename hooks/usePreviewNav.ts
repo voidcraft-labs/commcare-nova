@@ -54,8 +54,8 @@ export function usePreviewNav(blueprint?: AppBlueprint) {
     pushIfDifferent({ type: 'module', moduleIndex })
   }, [pushIfDifferent])
 
-  const navigateToForm = useCallback((moduleIndex: number, formIndex: number) => {
-    pushIfDifferent({ type: 'form', moduleIndex, formIndex })
+  const navigateToForm = useCallback((moduleIndex: number, formIndex: number, caseId?: string) => {
+    pushIfDifferent({ type: 'form', moduleIndex, formIndex, caseId })
   }, [pushIfDifferent])
 
   const navigateToCaseList = useCallback((moduleIndex: number, formIndex: number) => {
