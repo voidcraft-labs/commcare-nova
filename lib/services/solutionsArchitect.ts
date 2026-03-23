@@ -112,8 +112,14 @@ export function createSolutionsArchitect(
         // Skip tool-result messages (may be code execution results)
         if (msg.role === 'tool') { cacheIdx--; continue }
         // Skip assistant messages containing code_execution tool calls
+        // or tool calls made BY code execution (programmatic tool calling)
         if (msg.role === 'assistant' && Array.isArray(msg.content) &&
-            msg.content.some((p: any) => p.type === 'tool-call' && p.toolName === 'code_execution')) {
+            msg.content.some((p: any) => {
+              if (p.type !== 'tool-call') return false
+              if (p.toolName === 'code_execution') return true
+              const callerType = (p.providerOptions?.anthropic ?? p.providerMetadata?.anthropic)?.caller?.type
+              return typeof callerType === 'string' && callerType.startsWith('code_execution')
+            })) {
           cacheIdx--; continue
         }
         break

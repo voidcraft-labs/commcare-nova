@@ -40,7 +40,7 @@ The SA makes all architecture and form design decisions. For forms, it writes Py
 
 `regenerateForm` returns a compact `questions` tree via `summarizeQuestions()` — the SA sees every question's ID, type, case_property, and nesting.
 
-**prepareStep:** Inline function that consolidates prompt caching (message-level), reasoning (adaptive thinking), and container forwarding (code execution sandbox persistence) into a single provider options builder. No external `withPromptCaching` dependency. Cache control skips code-execution-related messages (tool results and assistant messages containing `code_execution` tool calls) since they aren't rendered in Claude's context.
+**prepareStep:** Inline function that consolidates prompt caching (message-level), reasoning (adaptive thinking), and container forwarding (code execution sandbox persistence) into a single provider options builder. No external `withPromptCaching` dependency. Cache control skips code-execution-related messages (tool results, assistant messages containing `code_execution` tool calls, and assistant messages containing tool calls made BY code execution via programmatic tool calling) since they aren't rendered in Claude's context.
 
 **Agent limits:** `stopWhen: stepCountIs(80)` — resets per request. Error recovery prompt tells SA to bail after 2-3 failed retries.
 
