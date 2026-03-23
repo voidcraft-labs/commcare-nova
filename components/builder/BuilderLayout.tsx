@@ -327,13 +327,21 @@ export function BuilderLayout({ buildId }: { buildId: string }) {
     }
     if (!builder.blueprint) return
     nav.replaceStack(buildNavStack(builder.blueprint, sel.moduleIndex, sel.formIndex))
-    // Scroll the design canvas to the selected question
+    // Scroll the design canvas to the selected question (only if not already visible)
     if (sel.questionPath) {
       setTimeout(() => {
         const el = document.querySelector(`[data-question-id="${sel.questionPath}"]`) as HTMLElement | null
         if (el) {
-          el.style.scrollMarginTop = '20px'
-          el.scrollIntoView({ behavior: 'smooth', block: 'start' })
+          const scrollContainer = el.closest('[data-preview-scroll-container]') as HTMLElement | null
+          if (scrollContainer) {
+            const containerRect = scrollContainer.getBoundingClientRect()
+            const elRect = el.getBoundingClientRect()
+            const isVisible = elRect.top >= containerRect.top && elRect.bottom <= containerRect.bottom
+            if (!isVisible) {
+              el.style.scrollMarginTop = '20px'
+              el.scrollIntoView({ behavior: 'smooth', block: 'start' })
+            }
+          }
         }
       }, 250)
     }
