@@ -10,7 +10,7 @@ The single endpoint for all agent interaction. Creates `RunLogger`, `GenerationC
 
 **Input validation**: `chatRequestSchema` (from `lib/schemas/apiSchemas.ts`) validates our fields (`apiKey`, `pipelineConfig`, `blueprint`, etc.) via Zod `safeParse`. `messages` is typed as `UIMessage[]` from the AI SDK — not schema-validated.
 
-**Body params** (from `useChat` body): `apiKey`, `pipelineConfig`, `blueprint` (for edits), `blueprintSummary` (for SA context), `runId` (for log continuation).
+**Body params** (from `useChat` body): `apiKey`, `pipelineConfig`, `blueprint` (for edits), `runId` (for log continuation).
 
 **Streaming**: Uses `createUIMessageStream` + `createAgentUIStream`. Server emits transient data parts via `ctx.emit()` which drive builder state on the client.
 

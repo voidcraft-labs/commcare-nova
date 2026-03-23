@@ -7,13 +7,12 @@
 import { ToolLoopAgent, tool, stepCountIs } from 'ai'
 import { forwardAnthropicContainerIdFromLastStep } from '@ai-sdk/anthropic'
 import { z } from 'zod'
-import { GenerationContext, logWarnings, ANTHROPIC_CACHE_CONTROL } from './generationContext'
+import { GenerationContext, logWarnings } from './generationContext'
 import { buildSolutionsArchitectPrompt } from '../prompts/solutionsArchitectPrompt'
 import {
   type AppBlueprint, type BlueprintForm, type Question,
   QUESTION_TYPES,
   caseTypesOutputSchema, scaffoldModulesSchema, moduleContentSchema,
-  summarizeBlueprint,
 } from '../schemas/blueprint'
 import {
   type FlatQuestion,
@@ -87,46 +86,21 @@ const askQuestionsSchema = z.object({
 export function createSolutionsArchitect(
   ctx: GenerationContext,
   mutableBp: MutableBlueprint,
-  blueprintSummary?: string,
 ) {
   const saCfg = ctx.pipelineConfig.solutionsArchitect
   const saReasoning = ctx.reasoningForStage('solutionsArchitect')
 
   const agent = new ToolLoopAgent({
     model: ctx.model(saCfg.model),
-    instructions: buildSolutionsArchitectPrompt(blueprintSummary),
+    instructions: buildSolutionsArchitectPrompt(),
     stopWhen: stepCountIs(80),
-    prepareStep: ({ messages, steps }: { messages: any[]; steps?: Array<{ providerMetadata?: Record<string, any> }> }) => {
-      // Message-level: prompt caching (ephemeral on last cacheable message)
-      // Code execution tool calls and their results cannot have cache_control —
-      // they aren't rendered in Claude's context. Walk backwards to find the
-      // last message that doesn't involve code execution.
-      let cacheIdx = messages.length - 1
-      while (cacheIdx >= 0) {
-        const msg = messages[cacheIdx]
-        // Skip tool-result messages (may be code execution results)
-        if (msg.role === 'tool') { cacheIdx--; continue }
-        // Skip assistant messages containing code_execution tool calls
-        // or tool calls made BY code execution (programmatic tool calling)
-        if (msg.role === 'assistant' && Array.isArray(msg.content) &&
-            msg.content.some((p: any) => {
-              if (p.type !== 'tool-call') return false
-              if (p.toolName === 'code_execution') return true
-              const callerType = (p.providerOptions?.anthropic ?? p.providerMetadata?.anthropic)?.caller?.type
-              return typeof callerType === 'string' && callerType.startsWith('code_execution')
-            })) {
-          cacheIdx--; continue
-        }
-        break
+    prepareStep: ({ steps }: { steps?: Array<{ providerMetadata?: Record<string, any> }> }) => {
+      const anthropic: Record<string, any> = {
+        // Automatic prompt caching — Anthropic places the cache breakpoint on the
+        // last cacheable block and advances it as the conversation grows. System
+        // prompt stays cached across requests; code execution blocks are skipped.
+        cacheControl: { type: 'ephemeral' },
       }
-      const cachedMessages = messages.map((msg: any, i: number) =>
-        i === cacheIdx
-          ? { ...msg, providerOptions: { ...msg.providerOptions, ...ANTHROPIC_CACHE_CONTROL } }
-          : msg,
-      )
-
-      // Request-level: build complete Anthropic provider options
-      const anthropic: Record<string, any> = {}
 
       // Reasoning (adaptive thinking)
       if (saReasoning) {
@@ -140,12 +114,7 @@ export function createSolutionsArchitect(
         if (containerOpts) Object.assign(anthropic, containerOpts)
       }
 
-      return {
-        messages: cachedMessages,
-        ...(Object.keys(anthropic).length > 0 && {
-          providerOptions: { anthropic } as Record<string, any>,
-        }),
-      }
+      return { providerOptions: { anthropic } as Record<string, any> }
     },
     onStepFinish: ({ usage, text, reasoningText, toolCalls, warnings }) => {
       logWarnings('Solutions Architect', warnings)

@@ -243,7 +243,6 @@ Always validate when done.
 ## Error Recovery
 If a tool call fails, try a different approach — don't retry the same thing more than twice. If you're stuck after 2-3 attempts, stop and tell the user something went wrong. Ask them to share the run log with the support team so we can investigate. Don't keep looping.`
 
-export function buildSolutionsArchitectPrompt(blueprintSummary?: string): string {
-  if (!blueprintSummary) return BASE_PROMPT
-  return BASE_PROMPT + `\n\n## Current App\nThe user has a generated app:\n${blueprintSummary}\n\nWhen they request changes, use the search/get/edit tools directly. Keep edits targeted and validate when done.`
+export function buildSolutionsArchitectPrompt(): string {
+  return BASE_PROMPT
 }

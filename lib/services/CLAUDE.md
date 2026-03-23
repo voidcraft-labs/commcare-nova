@@ -8,7 +8,7 @@ Split across two files:
 - `solutionsArchitect.ts` — `createSolutionsArchitect()` with tool definitions + `buildColumnPrompt()`
 - `validationLoop.ts` — `validateAndFix()`, `groupErrorsByForm()`, `applyProgrammaticFixes()`
 
-`solutionsArchitect.ts` exports `createSolutionsArchitect(ctx, mutableBp, blueprintSummary?)` — single `ToolLoopAgent` with 21 tools in 6 groups:
+`solutionsArchitect.ts` exports `createSolutionsArchitect(ctx, mutableBp)` — single `ToolLoopAgent` with 21 tools in 6 groups:
 
 **Conversation (1):**
 - `askQuestions` (client-side, no `execute`) — structured multiple-choice rendered as QuestionCard. `sendAutomaticallyWhen` re-sends when all answered.
@@ -37,7 +37,7 @@ Split across two files:
 
 The SA makes all architecture and form design decisions. All build tools are called from code execution — JSON construction stays in the sandbox, not in the SA's context window.
 
-**prepareStep:** Inline function that consolidates prompt caching (message-level), reasoning (adaptive thinking), and container forwarding (code execution sandbox persistence) into a single provider options builder. No external `withPromptCaching` dependency. Cache control skips code-execution-related messages (tool results, assistant messages containing `code_execution` tool calls, and assistant messages containing tool calls made BY code execution via programmatic tool calling) since they aren't rendered in Claude's context.
+**prepareStep:** Inline function that consolidates prompt caching, reasoning (adaptive thinking), and container forwarding (code execution sandbox persistence) into a single provider options builder. Uses request-level `cacheControl: { type: 'ephemeral' }` in `providerOptions.anthropic` — Anthropic automatically places the cache breakpoint on the last cacheable block and advances it as the conversation grows. System prompt stays cached across requests.
 
 **Agent limits:** `stopWhen: stepCountIs(80)` — resets per request. Error recovery prompt tells SA to bail after 2-3 failed retries.
 
@@ -79,7 +79,6 @@ Also re-exports `validateAndFix()` (from `validationLoop.ts`) — programmatic v
 - `reasoningForStage(stage)` — returns `{ effort }` if reasoning enabled and model supports it, `undefined` otherwise.
 
 **Exports:**
-- `ANTHROPIC_CACHE_CONTROL` — Anthropic cache control marker for prompt caching (`cache_control: ephemeral`).
 - `thinkingProviderOptions(effort)` — Anthropic adaptive thinking provider options for `generate()`/`streamGenerate()` calls.
 
 ## Builder
