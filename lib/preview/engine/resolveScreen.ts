@@ -21,5 +21,5 @@ export function resolveScreen(screen: PreviewScreen, blueprint: AppBlueprint): P
   const rows = getDummyCases(caseType)
   if (!rows[0]) return screen
 
-  return { ...screen, caseData: rows[0].properties }
+  return { ...screen, caseId: rows[0].case_id, caseData: rows[0].properties }
 }

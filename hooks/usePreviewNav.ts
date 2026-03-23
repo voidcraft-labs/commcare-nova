@@ -1,6 +1,7 @@
 'use client'
 import { useState, useCallback, useMemo } from 'react'
 import type { PreviewScreen } from '@/lib/preview/engine/types'
+import { screensEqual } from '@/lib/preview/engine/types'
 import type { AppBlueprint } from '@/lib/schemas/blueprint'
 import { resolveScreen } from '@/lib/preview/engine/resolveScreen'
 
@@ -25,8 +26,8 @@ export function usePreviewNav(blueprint?: AppBlueprint) {
     return resolveScreen(screen, blueprint)
   }, [blueprint])
 
-  // Navigate to a new screen — adds to history, clears forward entries
-  const navigate = useCallback((screen: PreviewScreen) => {
+  // Unconditional push — always adds to history, clears forward entries
+  const push = useCallback((screen: PreviewScreen) => {
     const resolved = resolve(screen)
     setState(prev => {
       const newEntries = [...prev.entries.slice(0, prev.cursor + 1), resolved]
@@ -36,6 +37,60 @@ export function usePreviewNav(blueprint?: AppBlueprint) {
       return { entries: newEntries, cursor: prev.cursor + 1 }
     })
   }, [resolve])
+
+  // ── Typed navigation methods — idempotent, skip if already there ────
+
+  const navigateToHome = useCallback(() => {
+    setState(prev => {
+      const cur = prev.entries[prev.cursor]
+      const target: PreviewScreen = { type: 'home' }
+      if (screensEqual(cur, target)) return prev
+      const newEntries = [...prev.entries.slice(0, prev.cursor + 1), target]
+      if (newEntries.length > MAX_HISTORY) {
+        return { entries: newEntries.slice(newEntries.length - MAX_HISTORY), cursor: MAX_HISTORY - 1 }
+      }
+      return { entries: newEntries, cursor: prev.cursor + 1 }
+    })
+  }, [])
+
+  const navigateToModule = useCallback((moduleIndex: number) => {
+    setState(prev => {
+      const cur = prev.entries[prev.cursor]
+      const target: PreviewScreen = { type: 'module', moduleIndex }
+      if (screensEqual(cur, target)) return prev
+      const newEntries = [...prev.entries.slice(0, prev.cursor + 1), target]
+      if (newEntries.length > MAX_HISTORY) {
+        return { entries: newEntries.slice(newEntries.length - MAX_HISTORY), cursor: MAX_HISTORY - 1 }
+      }
+      return { entries: newEntries, cursor: prev.cursor + 1 }
+    })
+  }, [])
+
+  const navigateToForm = useCallback((moduleIndex: number, formIndex: number) => {
+    const resolved = resolve({ type: 'form', moduleIndex, formIndex })
+    setState(prev => {
+      const cur = prev.entries[prev.cursor]
+      if (screensEqual(cur, resolved)) return prev
+      const newEntries = [...prev.entries.slice(0, prev.cursor + 1), resolved]
+      if (newEntries.length > MAX_HISTORY) {
+        return { entries: newEntries.slice(newEntries.length - MAX_HISTORY), cursor: MAX_HISTORY - 1 }
+      }
+      return { entries: newEntries, cursor: prev.cursor + 1 }
+    })
+  }, [resolve])
+
+  const navigateToCaseList = useCallback((moduleIndex: number, formIndex: number) => {
+    setState(prev => {
+      const cur = prev.entries[prev.cursor]
+      const target: PreviewScreen = { type: 'caseList', moduleIndex, formIndex }
+      if (screensEqual(cur, target)) return prev
+      const newEntries = [...prev.entries.slice(0, prev.cursor + 1), target]
+      if (newEntries.length > MAX_HISTORY) {
+        return { entries: newEntries.slice(newEntries.length - MAX_HISTORY), cursor: MAX_HISTORY - 1 }
+      }
+      return { entries: newEntries, cursor: prev.cursor + 1 }
+    })
+  }, [])
 
   // Go back one step in history, returns the new current screen
   const back = useCallback((): PreviewScreen | undefined => {
@@ -94,30 +149,20 @@ export function usePreviewNav(blueprint?: AppBlueprint) {
   // Navigate to a breadcrumb level (ancestor screen)
   const navigateTo = useCallback((index: number) => {
     if (index < breadcrumbPath.length - 1) {
-      navigate(breadcrumbPath[index])
+      push(breadcrumbPath[index])
     }
-  }, [breadcrumbPath, navigate])
-
-  // Navigate to home
-  const reset = useCallback(() => {
-    navigate({ type: 'home' })
-  }, [navigate])
-
-  // Backward compat: navigate to last screen in the provided array
-  const replaceStack = useCallback((newStack: PreviewScreen[]) => {
-    const target = newStack[newStack.length - 1] ?? { type: 'home' } as PreviewScreen
-    navigate(target)
-  }, [navigate])
+  }, [breadcrumbPath, push])
 
   return {
     current,
     canGoBack,
-    navigate,
-    push: navigate,
+    push,
     back,
+    navigateToHome,
+    navigateToModule,
+    navigateToForm,
+    navigateToCaseList,
     navigateTo,
-    reset,
-    replaceStack,
     breadcrumb,
     breadcrumbPath,
   }

@@ -30,23 +30,9 @@ import ciDownloadPackage from '@iconify-icons/ci/download-package'
 import { useBuilderShortcuts } from '@/components/builder/useBuilderShortcuts'
 import { PreviewShell } from '@/components/preview/PreviewShell'
 import { usePreviewNav } from '@/hooks/usePreviewNav'
-import type { PreviewScreen } from '@/lib/preview/engine/types'
 import { ErrorBoundary } from '@/components/ui/ErrorBoundary'
 import { getReplayData, clearReplayData } from '@/lib/services/logReplay'
 
-/** Build a nav stack for a given module/form, inserting caseList for follow-up forms. */
-function buildNavStack(blueprint: AppBlueprint, moduleIndex: number, formIndex?: number): PreviewScreen[] {
-  const stack: PreviewScreen[] = [{ type: 'home' }, { type: 'module', moduleIndex }]
-  if (formIndex !== undefined) {
-    const mod = blueprint.modules[moduleIndex]
-    const form = mod?.forms[formIndex]
-    if (form?.type === 'followup' && mod?.case_type) {
-      stack.push({ type: 'caseList', moduleIndex, formIndex })
-    }
-    stack.push({ type: 'form', moduleIndex, formIndex })
-  }
-  return stack
-}
 
 /** Only auto-resend when the assistant's LAST step is askQuestions with all outputs available.
  *  If the SA continued past tool calls to ask a freeform text question, don't auto-resend —
@@ -202,11 +188,11 @@ export function BuilderLayout({ buildId }: { buildId: string }) {
       setLeftTab('chat')
       // Navigate to first form if available
       if (builder.blueprint && builder.blueprint.modules.length > 0 && builder.blueprint.modules[0].forms.length > 0) {
-        nav.replaceStack(buildNavStack(builder.blueprint, 0, 0))
+        nav.navigateToForm(0, 0)
       }
     }
     prevPhaseRef.current = builder.phase
-  }, [builder.phase, builder.blueprint, nav.replaceStack])
+  }, [builder.phase, builder.blueprint, nav.navigateToForm])
 
   // ── Single useChat — handles chat + generation + editing ────────────
   const { messages, sendMessage, addToolOutput, status } = useChat({
@@ -287,14 +273,16 @@ export function BuilderLayout({ buildId }: { buildId: string }) {
       viewModeRef.current = targetMode
       setViewMode(targetMode)
     }
-    // Sync nav stack to the restored selection
+    // Sync nav to the restored selection
     const sel = builder.selected
     if (!sel || !builder.blueprint) {
-      nav.reset()
+      nav.navigateToHome()
+    } else if (sel.formIndex !== undefined) {
+      nav.navigateToForm(sel.moduleIndex, sel.formIndex)
     } else {
-      nav.replaceStack(buildNavStack(builder.blueprint, sel.moduleIndex, sel.formIndex))
+      nav.navigateToModule(sel.moduleIndex)
     }
-  }, [builder, nav.replaceStack, nav.reset])
+  }, [builder, nav.navigateToHome, nav.navigateToForm, nav.navigateToModule])
 
   const handleUndo = useCallback(() => {
     const viewMode = builder.undo()
@@ -322,11 +310,15 @@ export function BuilderLayout({ buildId }: { buildId: string }) {
   const handleTreeSelect = useCallback((sel: any) => {
     builder.select(sel)
     if (!sel) {
-      nav.reset()
+      nav.navigateToHome()
       return
     }
     if (!builder.blueprint) return
-    nav.replaceStack(buildNavStack(builder.blueprint, sel.moduleIndex, sel.formIndex))
+    if (sel.formIndex !== undefined) {
+      nav.navigateToForm(sel.moduleIndex, sel.formIndex)
+    } else {
+      nav.navigateToModule(sel.moduleIndex)
+    }
     // Scroll the design canvas to the selected question (only if not already visible)
     if (sel.questionPath) {
       setTimeout(() => {
@@ -345,7 +337,7 @@ export function BuilderLayout({ buildId }: { buildId: string }) {
         }
       }, 250)
     }
-  }, [builder, nav.replaceStack, nav.reset])
+  }, [builder, nav.navigateToHome, nav.navigateToForm, nav.navigateToModule])
 
   const handleDelete = useCallback(() => {
     const sel = builder.selected
