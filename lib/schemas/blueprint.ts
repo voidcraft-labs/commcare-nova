@@ -14,7 +14,7 @@ import { z } from 'zod'
 
 export const QUESTION_TYPES = [
   'text', 'int', 'date', 'single_select', 'multi_select', 'geopoint', 'image',
-  'barcode', 'decimal', 'label', 'phone', 'time', 'datetime',
+  'barcode', 'decimal', 'label', 'time', 'datetime',
   'audio', 'video', 'signature', 'hidden', 'secret', 'group', 'repeat'
 ] as const
 
@@ -115,11 +115,11 @@ export const moduleContentSchema = z.object({
 
 const questionFields = {
   id: z.string().describe(
-    'Unique identifier within the form. Use snake_case starting with a letter (e.g. "patient_name", "visit_date").'
+    'Unique identifier per parent level. Use alphanumeric snake_case (must start with a letter).'
   ),
   type: z.enum(QUESTION_TYPES).describe(
     'Question type. Always pick the most specific type available: ' +
-    '"phone" for phone numbers (not "text"), ' +
+    '"text" for free text values (shape can be enforced with validation expression), ' +
     '"date"/"time"/"datetime" for temporal values, ' +
     '"int" for whole numbers (age, count, quantity), ' +
     '"decimal" for measurements (weight, height, price), ' +
@@ -128,44 +128,34 @@ const questionFields = {
     '"geopoint" for GPS, "image"/"audio"/"video"/"signature"/"barcode" for media capture, ' +
     '"hidden" with "calculate" for computed values (BMI, risk score, age from DOB), ' +
     '"secret" for passwords/PINs, ' +
-    '"group"/"repeat" for nesting. ' +
-    'Only use "text" for genuinely free-text fields: names, addresses, notes.'
+    '"group"/"repeat" for nesting. '
   ),
   label: z.string().optional().describe(
-    'Human-readable question text. Write clear, professional labels like "Patient Name", "Date of Birth". ' +
+    'Human-friendly label for the element. `<output value="{XPath}"/>` will be replaced with the result `{XPath}` on load and when any of its dependencies change.' +
     'Omit for hidden questions — they have no visible label.'
   ),
   hint: z.string().optional().describe('Help text shown below the question.'),
   help: z.string().optional().describe('Extended help text accessible via help icon.'),
   required: z.string().optional().describe(
-    '"true()" if always required. An XPath expression for conditional requirement (e.g. "/data/age >= 18"). String values must be quoted: `\'text\'`, not `text`.'
+    'An XPath expression for requiring the element (can be `true()` for always required).'
   ),
-  validation: z.string().optional().describe('XPath validation expression, e.g. ". > 0 and . < 150". String values must be quoted: `\'text\'`, not `text`.'),
+  validation: z.string().optional().describe('XPath expression for validation.'),
   validation_msg: z.string().optional().describe('Error message when validation fails.'),
   relevant: z.string().optional().describe(
-    'XPath expression — question only shows when true. ' +
-    'Use the full path: /data/question_id for top-level, /data/group_id/question_id for nested. ' +
-    'Use #case/property_name to reference existing case data. ' +
-    'e.g. "/data/age > 18", "#case/risk_level = \'high\'". String values must be quoted: `\'text\'`, not `text`.'
+    'XPath expression evaluated to conditionally show or hide this element.'
   ),
   calculate: z.string().optional().describe(
-    'XPath expression for auto-computed value (use with type "hidden"). ' +
-    'Use the full path: /data/question_id for top-level, /data/group_id/question_id for nested. ' +
-    'Use #case/property_name to reference existing case data. ' +
-    'Never reference the question\'s own node — use #case/ to read the current case value instead. String values must be quoted: `\'text\'`, not `text`.'
+    'XPath expression evaluated on form load and after any its dependency updates.'
   ),
   default_value: z.string().optional().describe(
-    'XPath expression for the initial value set when the form opens (one-time, not recalculated). ' +
-    'Use #case/property_name to reference case data. Use string literals wrapped in quotes, e.g. "\'pending\'". ' +
-    'Different from calculate: default_value sets once on load, calculate updates continuously.'
+    'XPath expression evaluated once on form load.'
   ),
   options: z.array(selectOptionSchema).optional().describe(
     'Options for single_select/multi_select questions — at least 2 options. Omit for all other question types.'
   ),
   is_case_property: z.boolean().optional().describe(
-    'True if this question\'s value is saved as a case property (property name = question id). ' +
-    'On registration forms, the answer is saved. On followup forms, the value is preloaded AND saved back. ' +
-    'The case name question must always have id "case_name". ' +
+    'True if this question\'s value is saved as a case property (e.g., `#case/{Question ID}` = question id). ' +
+    'The question being saved as the case object\'s name must always be called "case_name". ' +
     `Question id must NOT be a reserved name: ${RESERVED_CASE_PROPERTIES}. ` +
     'Must NOT be set on media questions (image, audio, video, signature).'
   ),
