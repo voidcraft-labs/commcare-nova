@@ -15,9 +15,11 @@ interface EditableTextProps {
   multiline?: boolean
   autoFocus?: boolean
   selectAll?: boolean
+  /** Content rendered right-aligned in the label row (e.g. a toggle). */
+  labelRight?: React.ReactNode
 }
 
-export function EditableText({ label, value, onSave, onEmpty, mono, color, placeholder, multiline, autoFocus, selectAll }: EditableTextProps) {
+export function EditableText({ label, value, onSave, onEmpty, mono, color, placeholder, multiline, autoFocus, selectAll, labelRight }: EditableTextProps) {
   const [focused, setFocused] = useState(false)
   const [internalDraft, setInternalDraft] = useState(value)
   const [saved, setSaved] = useState(false)
@@ -132,6 +134,7 @@ export function EditableText({ label, value, onSave, onEmpty, mono, color, place
             </motion.span>
           )}
         </AnimatePresence>
+        {labelRight}
       </label>
       {multiline ? (
         <textarea
