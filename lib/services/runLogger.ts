@@ -1,9 +1,11 @@
 /**
  * RunLogger — disk-based run logger that writes one JSON file per run to .log/.
  *
- * v2 format: each step is one SA agent step — self-contained with its text,
- * tool calls, emissions, and cost. Emissions capture ctx.emit() calls during
- * tool execution, enabling replay by simply calling the same builder methods.
+ * v3 format: each "turn" is one LLM call — grouped with its programmatic sub-calls
+ * (from code_execution), emissions, and cost. Emissions carry full payloads for
+ * deterministic builder replay; `events` provides human-readable summaries.
+ *
+ * User messages stored as plain text. No conversation duplication.
  *
  * Persistence across requests: the log file is `.log/{runId}.json` while active.
  * The client sends back the `runId` from previous requests, so the RunLogger can
@@ -34,27 +36,35 @@ export interface StepUsage {
   cost_estimate: number
 }
 
-export interface StepToolCall {
+export interface SubCall {
+  name: string
+  args: unknown
+  output?: unknown
+}
+
+export interface TurnToolCall {
   name: string
   args: unknown
   output?: unknown
   generation?: StepUsage
   reasoning?: string
+  sub_calls?: SubCall[]
 }
 
-export interface Step {
+export interface Turn {
   index: number
   timestamp: string
   request: number
-  text?: string
-  reasoning?: string
-  tool_calls?: StepToolCall[]
-  emissions: Emission[]
   usage: StepUsage
+  reasoning?: string
+  text?: string
+  tool_calls?: TurnToolCall[]
+  events: string[]
+  emissions: Emission[]
 }
 
 export interface RunLog {
-  version: 2
+  version: 3
   run_id: string
   app_name: string | null
   started_at: string
@@ -64,18 +74,28 @@ export interface RunLog {
     output_tokens: number
     cost_estimate: number
   }
-  conversation: UIMessage[]
-  steps: Step[]
+  user_messages: Array<{ id: string; text: string }>
+  turns: Turn[]
 }
 
-// ── Transient emissions to skip ─────────────────────────────────────────
+// ── Internal types ──────────────────────────────────────────────────────
+
+/** Intermediate: a tool call with matched sub-results and outputs, before turn grouping. */
+interface MatchedToolCall {
+  name: string
+  args: unknown
+  output?: unknown
+  generation?: StepUsage
+  reasoning?: string
+}
+
+// ── Constants ───────────────────────────────────────────────────────────
 
 const SKIP_EMISSIONS = new Set(['data-partial-scaffold', 'data-run-id'])
-
-// ── RunLogger ───────────────────────────────────────────────────────────
-
 const LOG_DIR = path.join(process.cwd(), '.log')
 const UUID_FILE_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.json$/
+
+// ── RunLogger ───────────────────────────────────────────────────────────
 
 export class RunLogger {
   private log: RunLog
@@ -84,51 +104,44 @@ export class RunLogger {
   private requestNumber = 0
   private pendingEmissions: Emission[] = []
   private pendingSubResults: Array<{ label: string; usage: StepUsage; reasoning?: string }> = []
-  private pendingToolOutputs: Array<{ toolName: string; output: NonNullable<StepToolCall['output']> }> = []
+  private pendingToolOutputs: Array<{ toolName: string; output: {} }> = []
 
-  /**
-   * @param existingRunId — if provided, resumes an existing log file at .log/{runId}.json
-   */
   constructor(existingRunId?: string) {
     this.enabled = process.env.RUN_LOGGER === '1'
 
-    // Fire-and-forget: rename any orphaned UUID log files from abandoned runs
     if (this.enabled) {
       RunLogger.cleanupAbandonedLogs(existingRunId).catch(() => {})
     }
 
-    // Try to resume from an existing v2 run
     if (this.enabled && existingRunId) {
       const activePath = path.join(LOG_DIR, `${existingRunId}.json`)
       if (existsSync(activePath)) {
         try {
           const raw = readFileSync(activePath, 'utf-8')
           const parsed = JSON.parse(raw)
-          if (parsed.version === 2) {
+          if (parsed.version === 3) {
             this.log = parsed as RunLog
             this.log.finished_at = null
             this.filePath = activePath
-            if (this.log.steps.length > 0) {
-              this.requestNumber = this.log.steps[this.log.steps.length - 1].request + 1
+            if (this.log.turns.length > 0) {
+              this.requestNumber = this.log.turns[this.log.turns.length - 1].request + 1
             }
             return
           }
         } catch {}
-        // v1 or corrupt — fall through to fresh run
       }
     }
 
-    // Fresh run
     const runId = existingRunId ?? crypto.randomUUID()
     this.log = {
-      version: 2,
+      version: 3,
       run_id: runId,
       app_name: null,
       started_at: new Date().toISOString(),
       finished_at: null,
       totals: { input_tokens: 0, output_tokens: 0, cost_estimate: 0 },
-      conversation: [],
-      steps: [],
+      user_messages: [],
+      turns: [],
     }
     this.filePath = path.join(LOG_DIR, `${runId}.json`)
   }
@@ -142,47 +155,34 @@ export class RunLogger {
     if (this.enabled) this.flush()
   }
 
-  setAgent(_agent: string) {
-    // No-op in v2 — agent name is implicit (always SA)
-  }
+  setAgent(_agent: string) {}
 
-  /**
-   * Update the conversation log with the latest messages from the client.
-   * Called at the start of each request — overwrites with the latest (most complete)
-   * messages array so the log always has the full conversation history.
-   * Also backfills tool outputs (e.g. askQuestions answers) into step tool_calls,
-   * since client-side tools only receive output on the follow-up request.
-   */
   logConversation(messages: UIMessage[]) {
     if (!this.enabled) return
     this.backfillToolOutputs(messages)
-    this.log.conversation = messages
+    this.log.user_messages = messages
+      .filter(m => m.role === 'user')
+      .map(m => ({
+        id: m.id,
+        text: m.parts
+          .filter((p: any) => p.type === 'text')
+          .map((p: any) => p.text)
+          .join('\n'),
+      }))
     this.flush()
   }
 
-  /**
-   * Buffer a server-side tool's return value during execution.
-   * Matched to tool_calls by name and drained by logStep().
-   */
-  logToolOutput(toolName: string, output: NonNullable<StepToolCall['output']>) {
+  logToolOutput(toolName: string, output: {}) {
     if (!this.enabled) return
     this.pendingToolOutputs.push({ toolName, output: structuredClone(output) })
   }
 
-  /**
-   * Buffer an emission during tool execution. Drained into the step by logStep().
-   * Skips transient streaming artifacts (partial-scaffold, run-id).
-   */
   logEmission(type: string, data: unknown) {
     if (!this.enabled) return
     if (SKIP_EMISSIONS.has(type)) return
     this.pendingEmissions.push({ type, data: structuredClone(data) })
   }
 
-  /**
-   * Buffer a sub-generation result during tool execution.
-   * Matched to tool_calls and drained by logStep().
-   */
   logSubResult(
     label: string,
     result: {
@@ -211,10 +211,6 @@ export class RunLogger {
     })
   }
 
-  /**
-   * Log a completed agent step. Called from onStepFinish.
-   * Drains pending emissions and sub-results into the step.
-   */
   logStep(step: {
     text?: string
     reasoning?: string
@@ -229,7 +225,7 @@ export class RunLogger {
   }) {
     if (!this.enabled) return
 
-    const toolCalls: StepToolCall[] | undefined = step.tool_calls?.map(tc => {
+    const toolCalls: MatchedToolCall[] | undefined = step.tool_calls?.map(tc => {
       const subIdx = this.pendingSubResults.findIndex(sr => labelMatchesToolName(sr.label, tc.name))
       const subResult = subIdx >= 0 ? this.pendingSubResults.splice(subIdx, 1)[0] : undefined
       const outIdx = this.pendingToolOutputs.findIndex(to => to.toolName === tc.name)
@@ -243,52 +239,50 @@ export class RunLogger {
       }
     })
 
-    const newStep: Step = {
-      index: this.log.steps.length,
-      timestamp: new Date().toISOString(),
-      request: this.requestNumber,
-      ...(step.text && { text: step.text }),
-      ...(step.reasoning && { reasoning: step.reasoning }),
-      ...(toolCalls?.length && { tool_calls: toolCalls }),
-      emissions: [...this.pendingEmissions],
-      usage: {
-        model: step.usage.model,
-        input_tokens: step.usage.input_tokens,
-        output_tokens: step.usage.output_tokens,
-        ...(step.usage.cache_read_tokens && { cache_read_tokens: step.usage.cache_read_tokens }),
-        ...(step.usage.cache_write_tokens && { cache_write_tokens: step.usage.cache_write_tokens }),
-        cost_estimate: estimateCost(
-          step.usage.model,
-          step.usage.input_tokens,
-          step.usage.output_tokens,
-          step.usage.cache_read_tokens,
-          step.usage.cache_write_tokens,
-        ),
-      },
-    }
-
-    // Drain buffers
+    const emissions = [...this.pendingEmissions]
     this.pendingEmissions = []
     this.pendingSubResults = []
     this.pendingToolOutputs = []
 
-    this.log.steps.push(newStep)
+    const usage: StepUsage = {
+      model: step.usage.model,
+      input_tokens: step.usage.input_tokens,
+      output_tokens: step.usage.output_tokens,
+      ...(step.usage.cache_read_tokens && { cache_read_tokens: step.usage.cache_read_tokens }),
+      ...(step.usage.cache_write_tokens && { cache_write_tokens: step.usage.cache_write_tokens }),
+      cost_estimate: estimateCost(
+        step.usage.model,
+        step.usage.input_tokens,
+        step.usage.output_tokens,
+        step.usage.cache_read_tokens,
+        step.usage.cache_write_tokens,
+      ),
+    }
+
+    const isNewTurn = step.usage.input_tokens > 0 || this.log.turns.length === 0
+
+    if (isNewTurn) {
+      this.startNewTurn(
+        { text: step.text, reasoning: step.reasoning, usage },
+        toolCalls ?? [],
+        emissions,
+      )
+    } else {
+      this.appendSubCalls(toolCalls ?? [], emissions)
+    }
+
     this.flush()
   }
 
   finalize() {
     if (!this.enabled) return
     this.log.finished_at = new Date().toISOString()
-    this.rebuildConversation()
     this.recomputeTotals()
     this.flush()
   }
 
-  /**
-   * Async fire-and-forget cleanup: renames any UUID-named log files from previous sessions
-   * to human-readable names. Runs that completed (finished_at set) get the normal name;
-   * truly abandoned runs (no finished_at) get an 'abandoned' suffix.
-   */
+  // ── Private ─────────────────────────────────────────────────────────
+
   private static async cleanupAbandonedLogs(excludeRunId?: string) {
     try {
       const files = await readdir(LOG_DIR)
@@ -308,13 +302,80 @@ export class RunLogger {
     } catch {}
   }
 
-  // ── Private ─────────────────────────────────────────────────────────
+  private startNewTurn(
+    step: { text?: string; reasoning?: string; usage: StepUsage },
+    toolCalls: MatchedToolCall[],
+    emissions: Emission[],
+  ) {
+    const turn: Turn = {
+      index: this.log.turns.length,
+      timestamp: new Date().toISOString(),
+      request: this.requestNumber,
+      usage: step.usage,
+      ...(step.text && { text: step.text }),
+      ...(step.reasoning && { reasoning: step.reasoning }),
+      events: emissions.map(summarizeEmission),
+      emissions,
+    }
 
-  /**
-   * Backfill tool outputs from client messages into step tool_calls.
-   * Client-side tools (e.g. askQuestions) have no execute — output arrives
-   * via addToolOutput on the follow-up request. Match by tool name in order.
-   */
+    if (toolCalls.length > 0) {
+      const ceIdx = toolCalls.findIndex(tc => tc.name === 'code_execution')
+      if (ceIdx >= 0) {
+        const ceTc = toolCalls[ceIdx]
+        const subCalls: SubCall[] = toolCalls
+          .filter((_, i) => i !== ceIdx)
+          .map(tc => ({
+            name: tc.name,
+            args: tc.args,
+            ...(tc.output !== undefined && { output: tc.output }),
+          }))
+        turn.tool_calls = [{
+          name: ceTc.name,
+          args: ceTc.args,
+          ...(ceTc.output !== undefined && { output: ceTc.output }),
+          ...(ceTc.generation && { generation: ceTc.generation }),
+          ...(ceTc.reasoning && { reasoning: ceTc.reasoning }),
+          ...(subCalls.length > 0 && { sub_calls: subCalls }),
+        }]
+      } else {
+        turn.tool_calls = toolCalls.map(tc => ({
+          name: tc.name,
+          args: tc.args,
+          ...(tc.output !== undefined && { output: tc.output }),
+          ...(tc.generation && { generation: tc.generation }),
+          ...(tc.reasoning && { reasoning: tc.reasoning }),
+        }))
+      }
+    }
+
+    this.log.turns.push(turn)
+  }
+
+  private appendSubCalls(toolCalls: MatchedToolCall[], emissions: Emission[]) {
+    if (this.log.turns.length === 0) {
+      const noopUsage: StepUsage = { model: 'unknown', input_tokens: 0, output_tokens: 0, cost_estimate: 0 }
+      this.startNewTurn({ usage: noopUsage }, toolCalls, emissions)
+      return
+    }
+
+    const currentTurn = this.log.turns[this.log.turns.length - 1]
+    const ceTc = currentTurn.tool_calls?.find(tc => tc.name === 'code_execution')
+
+    if (ceTc && toolCalls.length > 0) {
+      if (!ceTc.sub_calls) ceTc.sub_calls = []
+      for (const tc of toolCalls) {
+        ceTc.sub_calls.push({
+          name: tc.name,
+          args: tc.args,
+          ...(tc.output !== undefined && { output: tc.output }),
+        })
+      }
+    }
+
+    currentTurn.events.push(...emissions.map(summarizeEmission))
+    currentTurn.emissions.push(...emissions)
+  }
+
   private backfillToolOutputs(messages: UIMessage[]) {
     const outputs: { name: string; output: unknown }[] = []
     for (const msg of messages) {
@@ -328,9 +389,9 @@ export class RunLogger {
     if (outputs.length === 0) return
 
     let idx = 0
-    for (const step of this.log.steps) {
-      if (!step.tool_calls || idx >= outputs.length) continue
-      for (const tc of step.tool_calls) {
+    for (const turn of this.log.turns) {
+      if (!turn.tool_calls || idx >= outputs.length) continue
+      for (const tc of turn.tool_calls) {
         if (tc.name === outputs[idx].name) {
           if (tc.output === undefined) tc.output = outputs[idx].output
           idx++
@@ -340,58 +401,18 @@ export class RunLogger {
     }
   }
 
-  /**
-   * Rebuild conversation to include the assistant response from the current request.
-   * Constructs an assistant UIMessage from steps in the current request.
-   */
-  private rebuildConversation() {
-    const currentRequestSteps = this.log.steps.filter(s => s.request === this.requestNumber)
-    if (currentRequestSteps.length === 0) return
-
-    const parts: any[] = []
-    for (const step of currentRequestSteps) {
-      if (step.reasoning) {
-        parts.push({ type: 'reasoning', reasoning: step.reasoning })
-      }
-      if (step.text) {
-        parts.push({ type: 'text', text: step.text })
-      }
-      if (step.tool_calls) {
-        for (const tc of step.tool_calls) {
-          parts.push({
-            type: `tool-${tc.name}`,
-            toolCallId: `log-${step.index}-${tc.name}`,
-            toolName: tc.name,
-            input: tc.args,
-            state: 'output-available',
-            ...(tc.output !== undefined ? { output: tc.output } : {}),
-          })
-        }
-      }
-    }
-
-    if (parts.length > 0) {
-      this.log.conversation.push({
-        id: `assistant-${this.requestNumber}`,
-        role: 'assistant',
-        parts,
-        content: '',
-      } as UIMessage)
-    }
-  }
-
   private recomputeTotals() {
     let totalInput = 0
     let totalOutput = 0
     let totalCost = 0
 
-    for (const step of this.log.steps) {
-      totalInput += step.usage.input_tokens
-      totalOutput += step.usage.output_tokens
-      totalCost += step.usage.cost_estimate
+    for (const turn of this.log.turns) {
+      totalInput += turn.usage.input_tokens
+      totalOutput += turn.usage.output_tokens
+      totalCost += turn.usage.cost_estimate
 
-      if (step.tool_calls) {
-        for (const tc of step.tool_calls) {
+      if (turn.tool_calls) {
+        for (const tc of turn.tool_calls) {
           if (tc.generation) {
             totalInput += tc.generation.input_tokens
             totalOutput += tc.generation.output_tokens
@@ -434,7 +455,6 @@ function estimateCost(
   ) / 1_000_000
 }
 
-/** Build the final human-readable log file path from a started_at timestamp and optional app name. */
 function buildFinalPath(startedAt: string, appName: string | null, fallback: string): string {
   const ts = startedAt.replace(/[:.]/g, '-').replace('T', '_').replace('Z', '')
   const sanitized = appName
@@ -443,7 +463,6 @@ function buildFinalPath(startedAt: string, appName: string | null, fallback: str
   return path.join(LOG_DIR, `${ts}_${sanitized}.json`)
 }
 
-/** Match a sub-generation label to its parent tool call name. */
 function labelMatchesToolName(label: string, toolName: string): boolean {
   const prefix = label.split(/[:\s]/)[0].toLowerCase()
   switch (prefix) {
@@ -454,4 +473,15 @@ function labelMatchesToolName(label: string, toolName: string): boolean {
     case 'fixer': return toolName === 'validateApp'
     default: return false
   }
+}
+
+function summarizeEmission(em: Emission): string {
+  const base = em.type.replace(/^data-/, '')
+  const d = em.data as Record<string, any> | null | undefined
+  if (!d || typeof d !== 'object') return base
+  if ('phase' in d) return `${base}:${d.phase}`
+  if ('moduleIndex' in d && 'formIndex' in d) return `${base}[${d.moduleIndex}:${d.formIndex}]`
+  if ('moduleIndex' in d) return `${base}[${d.moduleIndex}]`
+  if ('attempt' in d) return `${base}:${d.attempt}`
+  return base
 }

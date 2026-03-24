@@ -21,13 +21,11 @@ interface ParsedLog {
 export function LogReplaySection() {
   const router = useRouter()
 
-  // Log replay state
   const fileInputRef = useRef<HTMLInputElement>(null)
   const [parsed, setParsed] = useState<ParsedLog>()
   const [replayError, setReplayError] = useState<string>()
   const [dragging, setDragging] = useState(false)
 
-  // Log replay handlers
   const handleFile = useCallback((file: File) => {
     setReplayError(undefined)
     setParsed(undefined)
@@ -41,8 +39,8 @@ export function LogReplaySection() {
     reader.onload = () => {
       try {
         const log = JSON.parse(reader.result as string) as RunLog
-        if (!log.steps || !Array.isArray(log.steps)) {
-          setReplayError('This file does not appear to be a valid run log (no steps array). Only v2 logs are supported.')
+        if (log.version !== 3 || !Array.isArray(log.turns)) {
+          setReplayError('This file does not appear to be a valid v3 run log.')
           return
         }
         setParsed({ log, fileName: file.name })
@@ -143,7 +141,7 @@ export function LogReplaySection() {
                 <p className="font-medium truncate">{parsed.log.app_name ?? parsed.fileName}</p>
                 <div className="mt-2 grid grid-cols-2 gap-x-4 gap-y-1 text-xs text-nova-text-secondary">
                   <span>Date: {formatDate(parsed.log.started_at)}</span>
-                  <span>Steps: {parsed.log.steps.length}</span>
+                  <span>Turns: {parsed.log.turns.length}</span>
                   <span>Cost: {formatCost(parsed.log.totals.cost_estimate)}</span>
                   <span>{parsed.log.finished_at ? 'Completed' : 'Abandoned'}</span>
                 </div>

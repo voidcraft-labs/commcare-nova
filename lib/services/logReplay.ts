@@ -1,17 +1,16 @@
 /**
- * Log Replay — extracts replay stages from a v2 RunLog.
+ * Log Replay — extracts replay stages from a v3 RunLog.
  *
- * Walks through `log.steps` sequentially. Each step with tool calls or
- * emissions becomes one or more replay stages. When a step has multiple
- * generation/mutation tool calls (e.g. addModule × 3), it's split into
- * per-tool-call stages with emissions distributed by moduleIndex/formIndex.
+ * Walks through `log.turns` sequentially. Each turn's tool calls (direct and
+ * sub_calls from code_execution) become replay stages. Emissions on each turn
+ * are distributed across stages by moduleIndex/formIndex matching.
  *
- * Chat messages are built progressively from step text/reasoning/tool_calls.
- * The `applyToBuilder` closure replays the step's emissions through the
+ * Chat messages are built progressively from turn text/reasoning/tool_calls.
+ * The `applyToBuilder` closure replays the turn's emissions through the
  * shared `applyDataPart` function — the same code path as real-time streaming.
  */
 import type { UIMessage } from 'ai'
-import type { RunLog, Step, StepToolCall, Emission } from './runLogger'
+import type { RunLog, Turn, Emission } from './runLogger'
 import type { Builder } from './builder'
 import { applyDataPart } from './builder'
 import type { AppBlueprint } from '@/lib/schemas/blueprint'
@@ -39,29 +38,25 @@ interface ExtractionError {
 
 export type ExtractionResult = ExtractionSuccess | ExtractionError
 
+/** Minimal tool call shape used by stage derivation helpers. */
+interface ToolCallRef {
+  name: string
+  args: unknown
+  output?: unknown
+}
+
 // ── Extraction ──────────────────────────────────────────────────────────
 
-/**
- * Extract ordered replay stages from a v2 RunLog.
- *
- * Each stage carries:
- * - `messages`: conversation progressively built from steps (chat sidebar shows SA commentary)
- * - `applyToBuilder`: replays the step's emissions through applyDataPart
- */
 export function extractReplayStages(log: RunLog): ExtractionResult {
-  if ((log as any).version !== 2 || !log.steps?.length) {
-    return { success: false, error: 'Unsupported log format. Only v2 logs are supported.' }
+  if (log.version !== 3 || !log.turns?.length) {
+    return { success: false, error: 'Unsupported log format. Only v3 logs are supported.' }
   }
 
   const stages: ReplayStage[] = []
-  const userMessages = log.conversation.filter(m => m.role === 'user')
 
-  // Progressive state
   let accumulatedParts: any[] = []
   let currentRequest = -1
   let baseMessages: UIMessage[] = []
-
-  // Track scaffold for name lookups in module/form stages
   let scaffold: any = null
 
   function buildProgressiveMessages(): UIMessage[] {
@@ -77,9 +72,9 @@ export function extractReplayStages(log: RunLog): ExtractionResult {
     ]
   }
 
-  for (const step of log.steps) {
-    // Handle request boundary — finalize previous assistant message, add next user message
-    if (step.request !== currentRequest) {
+  for (const turn of log.turns) {
+    // Request boundary — finalize previous assistant message, add next user message
+    if (turn.request !== currentRequest) {
       if (currentRequest >= 0 && accumulatedParts.length > 0) {
         baseMessages = [
           ...baseMessages,
@@ -92,66 +87,93 @@ export function extractReplayStages(log: RunLog): ExtractionResult {
         ]
         accumulatedParts = []
       }
-      currentRequest = step.request
-      if (currentRequest < userMessages.length) {
-        baseMessages = [...baseMessages, userMessages[currentRequest]]
+      currentRequest = turn.request
+      const userMsg = log.user_messages[currentRequest]
+      if (userMsg) {
+        baseMessages = [
+          ...baseMessages,
+          {
+            id: userMsg.id,
+            role: 'user',
+            parts: [{ type: 'text', text: userMsg.text }],
+            content: userMsg.text,
+          } as UIMessage,
+        ]
       }
     }
 
-    // Track scaffold from emissions (needed for module/form name lookups)
-    for (const em of step.emissions) {
+    // Track scaffold from emissions
+    for (const em of turn.emissions) {
       if (em.type === 'data-scaffold') scaffold = em.data
     }
 
-    // Accumulate step parts into the progressive assistant message
-    if (step.reasoning) {
-      accumulatedParts.push({ type: 'reasoning', reasoning: step.reasoning })
+    // Accumulate all parts into progressive assistant message
+    if (turn.reasoning) {
+      accumulatedParts.push({ type: 'reasoning', reasoning: turn.reasoning })
     }
-    if (step.text) {
-      accumulatedParts.push({ type: 'text', text: step.text })
+    if (turn.text) {
+      accumulatedParts.push({ type: 'text', text: turn.text })
     }
-    if (step.tool_calls) {
-      for (const tc of step.tool_calls) {
-        accumulatedParts.push({
-          type: `tool-${tc.name}`,
-          toolCallId: `replay-${step.index}-${tc.name}`,
-          toolName: tc.name,
-          input: tc.args,
-          state: 'output-available',
-          ...(tc.output !== undefined ? { output: tc.output } : {}),
-        })
+    let subIdx = 0
+    for (const tc of turn.tool_calls ?? []) {
+      accumulatedParts.push({
+        type: `tool-${tc.name}`,
+        toolCallId: `replay-${turn.index}-${tc.name}`,
+        toolName: tc.name,
+        input: tc.args,
+        state: 'output-available',
+        ...(tc.output !== undefined ? { output: tc.output } : {}),
+      })
+      if (tc.sub_calls) {
+        for (const sc of tc.sub_calls) {
+          accumulatedParts.push({
+            type: `tool-${sc.name}`,
+            toolCallId: `replay-${turn.index}-sub-${subIdx++}-${sc.name}`,
+            toolName: sc.name,
+            input: sc.args,
+            state: 'output-available',
+            ...(sc.output !== undefined ? { output: sc.output } : {}),
+          })
+        }
       }
     }
 
-    // Create stages — split when a step has multiple interesting tool calls
-    const interestingCalls = (step.tool_calls ?? []).filter(tc => toolToHeader(tc.name) !== undefined)
+    // Create stages from interesting tool calls
+    const interestingCalls = flattenInterestingCalls(turn)
 
-    if (interestingCalls.length <= 1) {
-      const header = deriveStageHeader(step)
-      if (header) {
-        const stepEmissions = step.emissions
+    if (interestingCalls.length === 0) {
+      if (turn.emissions.length > 0) {
+        const turnEmissions = turn.emissions
         stages.push({
-          header,
-          subtitle: deriveSubtitle(interestingCalls[0], stepEmissions, scaffold),
+          header: 'Update',
           messages: buildProgressiveMessages(),
           applyToBuilder: (b) => {
-            for (const emission of stepEmissions) {
+            for (const emission of turnEmissions) {
               applyDataPart(b, emission.type, emission.data)
             }
           },
         })
       }
+    } else if (interestingCalls.length === 1) {
+      const header = toolToHeader(interestingCalls[0].name)!
+      const turnEmissions = turn.emissions
+      stages.push({
+        header,
+        subtitle: deriveSubtitle(interestingCalls[0], turnEmissions, scaffold),
+        messages: buildProgressiveMessages(),
+        applyToBuilder: (b) => {
+          for (const emission of turnEmissions) {
+            applyDataPart(b, emission.type, emission.data)
+          }
+        },
+      })
     } else {
-      // Multiple interesting tool calls in one step — split into per-tool-call stages
-      const emissionMap = distributeEmissions(step.emissions, interestingCalls)
-
+      const emissionMap = distributeEmissions(turn.emissions, interestingCalls)
       for (let i = 0; i < interestingCalls.length; i++) {
         const tc = interestingCalls[i]
-        const header = toolToHeader(tc.name)!
         const emissions = emissionMap.get(i) ?? []
-
         stages.push({
-          header,
+          header: toolToHeader(tc.name)!,
           subtitle: deriveSubtitle(tc, emissions, scaffold),
           messages: buildProgressiveMessages(),
           applyToBuilder: (b) => {
@@ -164,7 +186,7 @@ export function extractReplayStages(log: RunLog): ExtractionResult {
     }
   }
 
-  // Done stage — snapshot treeData as the final blueprint
+  // Done stage
   const doneIndex = stages.length
   stages.push({
     header: 'Done',
@@ -188,14 +210,32 @@ export function extractReplayStages(log: RunLog): ExtractionResult {
   return { success: true, stages, doneIndex, appName: log.app_name ?? undefined }
 }
 
-// ── Emission distribution ───────────────────────────────────────────────
+// ── Helpers ─────────────────────────────────────────────────────────────
+
+/** Flatten a turn's tool calls into interesting (stage-producing) calls, skipping code_execution. */
+function flattenInterestingCalls(turn: Turn): ToolCallRef[] {
+  const result: ToolCallRef[] = []
+  for (const tc of turn.tool_calls ?? []) {
+    if (tc.name !== 'code_execution' && toolToHeader(tc.name) !== undefined) {
+      result.push(tc)
+    }
+    if (tc.sub_calls) {
+      for (const sc of tc.sub_calls) {
+        if (toolToHeader(sc.name) !== undefined) {
+          result.push(sc)
+        }
+      }
+    }
+  }
+  return result
+}
 
 /**
- * Distribute a step's emissions across multiple tool calls by matching
+ * Distribute a turn's emissions across multiple tool calls by matching
  * moduleIndex/formIndex from emission data to tool call args.
- * Unmatched emissions (e.g. data-phase) go to the first tool call.
+ * Unmatched emissions go to the first tool call.
  */
-function distributeEmissions(emissions: Emission[], toolCalls: StepToolCall[]): Map<number, Emission[]> {
+function distributeEmissions(emissions: Emission[], toolCalls: ToolCallRef[]): Map<number, Emission[]> {
   const result = new Map<number, Emission[]>()
   for (let i = 0; i < toolCalls.length; i++) result.set(i, [])
 
@@ -207,11 +247,7 @@ function distributeEmissions(emissions: Emission[], toolCalls: StepToolCall[]): 
       const tc = toolCalls[i]
       const args = tc.args as Record<string, any>
 
-      if (tc.name === 'addModule' &&
-          em.type === 'data-module-done' && d.moduleIndex === args.moduleIndex) {
-        matchedIdx = i; break
-      }
-      if ((tc.name === 'addForm' || tc.name === 'addQuestions') &&
+      if ((tc.name === 'addQuestions') &&
           (em.type === 'data-form-done' || em.type === 'data-form-updated') &&
           d.moduleIndex === args.moduleIndex && d.formIndex === args.formIndex) {
         matchedIdx = i; break
@@ -232,7 +268,6 @@ function distributeEmissions(emissions: Emission[], toolCalls: StepToolCall[]): 
     if (matchedIdx >= 0) {
       result.get(matchedIdx)!.push(em)
     } else {
-      // Unmatched emissions (data-phase, etc.) go to the first stage
       result.get(0)!.push(em)
     }
   }
@@ -240,16 +275,13 @@ function distributeEmissions(emissions: Emission[], toolCalls: StepToolCall[]): 
   return result
 }
 
-// ── Stage header/subtitle derivation ────────────────────────────────────
-
-/** Map tool call name → replay stage header. Returns undefined for read-only tools. */
+/** Map tool call name to replay stage header. Returns undefined for non-stage tools. */
 function toolToHeader(toolName: string): string | undefined {
   switch (toolName) {
     case 'askQuestions': return 'Conversation'
     case 'generateSchema': return 'Data Model'
     case 'generateScaffold': return 'Scaffold'
     case 'addModule': return 'Module'
-    case 'addForm': return 'Form' // legacy log compat
     case 'addQuestions': return 'Form'
     case 'validateApp': return 'Validation'
     case 'editQuestion':
@@ -263,26 +295,11 @@ function toolToHeader(toolName: string): string | undefined {
     case 'removeModule':
     case 'renameCaseProperty':
       return 'Edit'
-    case 'searchBlueprint':
-    case 'getModule':
-    case 'getForm':
-    case 'getQuestion':
-      return undefined
     default: return undefined
   }
 }
 
-function deriveStageHeader(step: Step): string | undefined {
-  if (!step.tool_calls?.length) return step.emissions.length > 0 ? 'Update' : undefined
-  for (const tc of step.tool_calls) {
-    const header = toolToHeader(tc.name)
-    if (header) return header
-  }
-  return undefined
-}
-
-/** Derive a human-readable subtitle from a tool call, using scaffold names and emission data. */
-function deriveSubtitle(tc: StepToolCall | undefined, emissions: Emission[], scaffold: any): string | undefined {
+function deriveSubtitle(tc: ToolCallRef | undefined, emissions: Emission[], scaffold: any): string | undefined {
   if (!tc) return undefined
   const args = tc.args as Record<string, any>
 
@@ -292,13 +309,10 @@ function deriveSubtitle(tc: StepToolCall | undefined, emissions: Emission[], sca
       const name = scaffold?.modules?.[args?.moduleIndex]?.name
       return name ?? `Module ${args?.moduleIndex}`
     }
-    case 'addForm':
     case 'addQuestions': {
-      // Try emission data first (has the actual assembled form)
       const formEm = emissions.find(e => e.type === 'data-form-done' || e.type === 'data-form-updated')
       const formName = (formEm?.data as any)?.form?.name
       if (formName) return formName
-      // Fallback to scaffold
       const sfName = scaffold?.modules?.[args?.moduleIndex]?.forms?.[args?.formIndex]?.name
       return sfName ?? `Form ${args?.formIndex}`
     }
