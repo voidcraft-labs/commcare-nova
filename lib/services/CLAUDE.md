@@ -13,15 +13,13 @@ Split across two files:
 **Conversation (1):**
 - `askQuestions` (client-side, no `execute`) — structured multiple-choice rendered as QuestionCard. `sendAutomaticallyWhen` re-sends when all answered.
 
-**Code Execution (1):**
-- `code_execution` — Anthropic code execution sandbox. SA writes Python for build steps via programmatic tool calling.
-
-**Generation (3)** — SA provides structured data directly (no sub-LLM calls). All marked with `allowedCallers: ['code_execution_20260120']` for programmatic calling from code execution:
+**Generation (3)** — SA calls directly with structured data (no sub-LLM calls):
 - `generateSchema` — accepts case types + properties. `onInputStart` emits `data-start-build`.
 - `generateScaffold` — accepts module/form structure. `onInputStart` emits `data-phase: structure`.
 - `addModule` — accepts case list/detail columns. `onInputStart` emits `data-phase: modules`.
 
-**Form Building (1):**
+**Code Execution + Form Building (2):**
+- `code_execution` — Anthropic code execution sandbox. SA writes Python to batch `addQuestions` calls.
 - `addQuestions` — batch-append flat questions to a form. Marked with `allowedCallers: ['code_execution_20260120']` for programmatic calling from code execution. Processes questions through `stripEmpty → applyDefaults → buildQuestionTree`, merging with existing form questions. Emits `data-form-updated`.
 
 **Read (4):**
@@ -33,9 +31,9 @@ Split across two files:
 **Validation (1):**
 - `validateApp` — runs `validateAndFix()` loop. `onInputStart` emits `data-phase: validate`, emits `data-done` on success.
 
-**Build sequence:** `askQuestions → code_execution (generateSchema → generateScaffold → addModule × N → addQuestions × N) → updateForm (close_case/child_cases) → validateApp`
+**Build sequence:** `askQuestions → generateSchema → generateScaffold → addModule × N → code_execution (addQuestions × N) → updateForm (close_case/child_cases) → validateApp`
 
-The SA makes all architecture and form design decisions. All build tools are called from code execution — JSON construction stays in the sandbox, not in the SA's context window.
+The SA makes all architecture and form design decisions. Schema, scaffold, and module tools are called directly. Only `addQuestions` goes through code execution for batching.
 
 **prepareStep:** Inline function that consolidates prompt caching, reasoning (adaptive thinking), and container forwarding (code execution sandbox persistence) into a single provider options builder. Uses request-level `cacheControl: { type: 'ephemeral' }` in `providerOptions.anthropic` — Anthropic automatically places the cache breakpoint on the last cacheable block and advances it as the conversation grows. System prompt stays cached across requests.
 
