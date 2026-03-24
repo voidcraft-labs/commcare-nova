@@ -11,16 +11,13 @@ import type { Build } from '@/lib/types'
 
 export default function BuildsPage() {
   const router = useRouter()
-  const [builds, setBuilds] = useState<Build[]>([])
-  const [buildsInit, setBuildsInit] = useState(false)
-
-  if (!buildsInit && typeof window !== 'undefined') {
-    setBuildsInit(true)
+  const [builds] = useState<Build[]>(() => {
+    if (typeof window === 'undefined') return []
     try {
       const stored = localStorage.getItem('nova-builds')
-      if (stored) setBuilds(JSON.parse(stored))
-    } catch { /* ignore */ }
-  }
+      return stored ? JSON.parse(stored) as Build[] : []
+    } catch { return [] }
+  })
 
   return (
     <div className="min-h-screen bg-nova-void">

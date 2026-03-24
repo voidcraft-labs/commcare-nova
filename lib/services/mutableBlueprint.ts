@@ -80,6 +80,14 @@ export class MutableBlueprint {
     this.blueprint = structuredClone(blueprint)
   }
 
+  /** Create from an already-isolated blueprint, skipping the defensive clone.
+   *  Caller MUST guarantee no other reference to `blueprint` is retained. */
+  static fromOwned(blueprint: AppBlueprint): MutableBlueprint {
+    const mb = Object.create(MutableBlueprint.prototype) as MutableBlueprint
+    mb.blueprint = blueprint
+    return mb
+  }
+
   // ── Progressive population (used by generation tools) ──────────────
 
   /** Set the data model (case types). Used by generateSchema. */

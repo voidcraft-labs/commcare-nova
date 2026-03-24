@@ -1,5 +1,5 @@
 'use client'
-import { useRef, useState, useCallback, useEffect, useLayoutEffect } from 'react'
+import { useRef, useState, useCallback, useEffect, useLayoutEffect, useMemo } from 'react'
 import { useRouter } from 'next/navigation'
 import { useChat } from '@ai-sdk/react'
 import { DefaultChatTransport, type UIMessage } from 'ai'
@@ -33,6 +33,8 @@ import { usePreviewNav } from '@/hooks/usePreviewNav'
 import { ErrorBoundary } from '@/components/ui/ErrorBoundary'
 import { getReplayData, clearReplayData } from '@/lib/services/logReplay'
 
+const DOWNLOAD_JSON_ICON = <Icon icon={ciFileDocument} width="28" height="28" />
+const DOWNLOAD_CCZ_ICON = <Icon icon={ciDownloadPackage} width="28" height="28" />
 
 /** Only auto-resend when the assistant's LAST step is askQuestions with all outputs available.
  *  If the SA continued past tool calls to ask a freeform text question, don't auto-resend —
@@ -226,7 +228,7 @@ export function BuilderLayout({ buildId }: { buildId: string }) {
     sendMessage({ text })
   }, [apiKey, sendMessage])
 
-  const handleCompile = async () => {
+  const handleCompile = useCallback(async () => {
     if (!builder.blueprint) return
     try {
       const res = await fetch('/api/compile', {
@@ -239,9 +241,9 @@ export function BuilderLayout({ buildId }: { buildId: string }) {
     } catch (err) {
       console.error('Compile failed:', err)
     }
-  }
+  }, [builder])
 
-  const handleDownloadJson = async () => {
+  const handleDownloadJson = useCallback(async () => {
     if (!builder.blueprint) return
     try {
       const res = await fetch('/api/compile/json', {
@@ -263,7 +265,12 @@ export function BuilderLayout({ buildId }: { buildId: string }) {
     } catch (err) {
       console.error('JSON export failed:', err)
     }
-  }
+  }, [builder])
+
+  const downloadOptions = useMemo(() => [
+    { label: 'JSON', description: 'For CommCare HQ', icon: DOWNLOAD_JSON_ICON, onClick: handleDownloadJson },
+    { label: 'CCZ', description: 'For CommCare', icon: DOWNLOAD_CCZ_ICON, onClick: handleCompile },
+  ], [handleDownloadJson, handleCompile])
 
   // ── Undo/Redo with view restoration ─────────────────────────────────
   const restoreView = useCallback((targetMode: ViewMode) => {
@@ -492,22 +499,7 @@ export function BuilderLayout({ buildId }: { buildId: string }) {
             >
               <CollapsibleBreadcrumb parts={breadcrumbParts} />
               {builder.phase === BuilderPhase.Done && builder.blueprint && (
-                <DownloadDropdown
-                  options={[
-                    {
-                      label: 'JSON',
-                      description: 'For CommCare HQ',
-                      icon: <Icon icon={ciFileDocument} width="28" height="28" />,
-                      onClick: handleDownloadJson,
-                    },
-                    {
-                      label: 'CCZ',
-                      description: 'For CommCare',
-                      icon: <Icon icon={ciDownloadPackage} width="28" height="28" />,
-                      onClick: handleCompile,
-                    },
-                  ]}
-                />
+                <DownloadDropdown options={downloadOptions} />
               )}
             </motion.div>
           )}

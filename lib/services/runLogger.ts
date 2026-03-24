@@ -154,9 +154,10 @@ export class RunLogger {
    * since client-side tools only receive output on the follow-up request.
    */
   logConversation(messages: UIMessage[]) {
+    if (!this.enabled) return
     this.backfillToolOutputs(messages)
     this.log.conversation = messages
-    if (this.enabled) this.flush()
+    this.flush()
   }
 
   /**
@@ -164,6 +165,7 @@ export class RunLogger {
    * Matched to tool_calls by name and drained by logStep().
    */
   logToolOutput(toolName: string, output: NonNullable<StepToolCall['output']>) {
+    if (!this.enabled) return
     this.pendingToolOutputs.push({ toolName, output: structuredClone(output) })
   }
 
@@ -172,6 +174,7 @@ export class RunLogger {
    * Skips transient streaming artifacts (partial-scaffold, run-id).
    */
   logEmission(type: string, data: unknown) {
+    if (!this.enabled) return
     if (SKIP_EMISSIONS.has(type)) return
     this.pendingEmissions.push({ type, data: structuredClone(data) })
   }
@@ -193,6 +196,7 @@ export class RunLogger {
       reasoningText?: string
     },
   ) {
+    if (!this.enabled) return
     this.pendingSubResults.push({
       label,
       usage: {
@@ -223,6 +227,8 @@ export class RunLogger {
       cache_write_tokens?: number
     }
   }) {
+    if (!this.enabled) return
+
     const toolCalls: StepToolCall[] | undefined = step.tool_calls?.map(tc => {
       const subIdx = this.pendingSubResults.findIndex(sr => labelMatchesToolName(sr.label, tc.name))
       const subResult = subIdx >= 0 ? this.pendingSubResults.splice(subIdx, 1)[0] : undefined
@@ -267,14 +273,14 @@ export class RunLogger {
     this.pendingToolOutputs = []
 
     this.log.steps.push(newStep)
-    if (this.enabled) this.flush()
+    this.flush()
   }
 
   finalize() {
+    if (!this.enabled) return
     this.log.finished_at = new Date().toISOString()
     this.rebuildConversation()
     this.recomputeTotals()
-    if (!this.enabled) return
     this.flush()
   }
 
