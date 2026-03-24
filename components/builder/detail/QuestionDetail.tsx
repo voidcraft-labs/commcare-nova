@@ -1,5 +1,6 @@
 'use client'
 import { useState, useCallback, useRef } from 'react'
+import { motion } from 'motion/react'
 import { Icon } from '@iconify/react'
 import ciAddPlus from '@iconify-icons/ci/add-plus'
 import ciTrashFull from '@iconify-icons/ci/trash-full'
@@ -135,6 +136,8 @@ function OptionsEditor({ options, onSave }: OptionsEditorProps) {
 
 // ── QuestionDetail helpers ──────────────────────────────────────────────
 
+const MEDIA_TYPES = new Set(['image', 'audio', 'video', 'signature'])
+
 const questionTypeOptions = QUESTION_TYPES.map(t => ({ value: t, label: t }))
 
 const requiredOptions = [
@@ -156,6 +159,55 @@ const addableTextFields = [
   { field: 'hint', label: 'Hint' },
   { field: 'validation_msg', label: 'Validation Message' },
 ] as const
+
+// ── CasePropertyToggle ──────────────────────────────────────────────────
+
+interface CasePropertyToggleProps {
+  on: boolean
+  isCaseName: boolean
+  disabled: boolean
+  onToggle: (on: boolean) => void
+}
+
+function CasePropertyToggle({ on, isCaseName, disabled, onToggle }: CasePropertyToggleProps) {
+  const locked = isCaseName // case_name must always be a case property
+  const canToggle = !disabled && !locked
+
+  return (
+    <span
+      className="ml-auto flex items-center gap-1.5 normal-case tracking-normal"
+      onClick={(e) => e.preventDefault() /* prevent label from focusing the input */}
+    >
+      {isCaseName && <Badge variant="emerald">case name</Badge>}
+      <button
+        role="switch"
+        aria-checked={on}
+        aria-label="Case property"
+        disabled={!canToggle}
+        onClick={() => canToggle && onToggle(!on)}
+        className={`
+          relative h-[14px] w-[26px] shrink-0 rounded-full border transition-colors duration-200
+          ${on
+            ? 'bg-nova-cyan/25 border-nova-cyan/40 shadow-[0_0_6px_rgba(0,210,255,0.15)]'
+            : 'bg-nova-surface border-nova-border/60'}
+          ${canToggle ? 'cursor-pointer hover:border-nova-cyan/50' : 'opacity-50 cursor-not-allowed'}
+        `}
+      >
+        <motion.div
+          className={`
+            absolute top-[2px] h-[8px] w-[8px] rounded-full
+            ${on ? 'bg-nova-cyan-bright' : 'bg-nova-text-muted'}
+          `}
+          animate={{ left: on ? 14 : 2 }}
+          transition={{ type: 'spring', stiffness: 500, damping: 30 }}
+        />
+      </button>
+      <span className={`text-[11px] font-medium ${on ? 'text-nova-cyan-bright' : 'text-nova-text-muted'} transition-colors duration-200`}>
+        Saved to case
+      </span>
+    </span>
+  )
+}
 
 interface QuestionDetailProps {
   /** The question being edited. */
@@ -188,6 +240,14 @@ export function QuestionDetail({ question, selected, mb, builder, notifyBlueprin
     if (selected.formIndex === undefined || !selected.questionPath) return
     mb.updateQuestion(selected.moduleIndex, selected.formIndex, selected.questionPath, {
       [field]: value === '' ? null : value,
+    })
+    notifyBlueprintChanged()
+  }, [mb, selected.moduleIndex, selected.formIndex, selected.questionPath, notifyBlueprintChanged])
+
+  const toggleCaseProperty = useCallback((on: boolean) => {
+    if (selected.formIndex === undefined || !selected.questionPath) return
+    mb.updateQuestion(selected.moduleIndex, selected.formIndex, selected.questionPath, {
+      is_case_property: on || null,
     })
     notifyBlueprintChanged()
   }, [mb, selected.moduleIndex, selected.formIndex, selected.questionPath, notifyBlueprintChanged])
@@ -280,6 +340,14 @@ export function QuestionDetail({ question, selected, mb, builder, notifyBlueprin
           mono
           color="text-nova-violet-bright"
           selectAll={builder.isNewQuestion(selected.questionPath!)}
+          labelRight={
+            <CasePropertyToggle
+              on={!!question.is_case_property}
+              isCaseName={question.id === 'case_name'}
+              disabled={MEDIA_TYPES.has(question.type)}
+              onToggle={toggleCaseProperty}
+            />
+          }
         />
         <EditableDropdown
           label="Type"
@@ -288,12 +356,6 @@ export function QuestionDetail({ question, selected, mb, builder, notifyBlueprin
           onSave={(v) => saveQuestion('type', v)}
           renderValue={(v) => <Badge variant="violet">{v}</Badge>}
         />
-        {question.is_case_property && (
-          <div className="flex items-center gap-2">
-            <Badge variant="cyan">case property</Badge>
-            {question.id === 'case_name' && <Badge variant="emerald">case name</Badge>}
-          </div>
-        )}
         {(question.hint || newlyAddedField === 'hint') && (
           <EditableText
             label="Hint"
