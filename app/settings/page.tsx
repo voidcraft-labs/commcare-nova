@@ -20,7 +20,7 @@ interface ModelInfo {
 
 export default function SettingsPage() {
   const router = useRouter()
-  const { settings, loaded, updateSettings, updatePipelineStage, resetToDefaults } = useSettings()
+  const { settings, updateSettings, updatePipelineStage, resetToDefaults } = useSettings()
   const [editingKey, setEditingKey] = useState<string | undefined>(undefined)
   const keyInput = editingKey ?? settings.apiKey
   const keySaved = editingKey === undefined && !!settings.apiKey
@@ -63,8 +63,6 @@ export default function SettingsPage() {
     setEditingKey(undefined)
     if (keyInput) fetchModels(keyInput)
   }
-
-  if (!loaded) return null
 
   return (
     <div className="min-h-screen bg-nova-void">

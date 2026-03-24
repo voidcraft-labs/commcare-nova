@@ -11,7 +11,7 @@ import { useSettings } from '@/hooks/useSettings'
 
 export default function LandingPage() {
   const router = useRouter()
-  const { settings, loaded, updateSettings } = useSettings()
+  const { settings, updateSettings } = useSettings()
   const [apiKey, setApiKey] = useState('')
 
   const startBuilding = () => {
@@ -21,10 +21,10 @@ export default function LandingPage() {
   }
 
   useEffect(() => {
-    if (loaded && settings.apiKey) router.replace('/build/new')
-  }, [loaded, settings.apiKey, router])
+    if (settings.apiKey) router.replace('/build/new')
+  }, [settings.apiKey, router])
 
-  if (!loaded || settings.apiKey) return null
+  if (settings.apiKey) return null
 
   return (
     <div className="min-h-screen flex flex-col items-center justify-center relative overflow-hidden">
