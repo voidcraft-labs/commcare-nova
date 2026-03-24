@@ -23,7 +23,7 @@ const makeTree = (overrides?: Partial<TreeData>): TreeData => ({
               type: 'group',
               label: 'Contact Information',
               children: [
-                { id: 'phone_number', type: 'phone', label: 'Phone Number' },
+                { id: 'phone_number', type: 'text', label: 'Phone Number' },
                 { id: 'email', type: 'text', label: 'Email Address' },
               ],
             },

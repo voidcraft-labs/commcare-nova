@@ -25,7 +25,6 @@ export function QuestionField({ question, state, onChange, onBlur }: QuestionFie
 
   switch (question.type) {
     case 'text':
-    case 'phone':
     case 'secret':
       return <TextField question={question} state={state} onChange={onChange} onBlur={onBlur} />
     case 'int':
