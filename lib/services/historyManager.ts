@@ -108,7 +108,8 @@ export class HistoryManager {
     if (this.undoStack.length === 0) return undefined
     const entry = this.undoStack.pop()!
     this.redoStack.push({ blueprint: structuredClone(this._mb.getBlueprint()), meta: entry.meta, viewMode: this.viewMode })
-    this._mb = new MutableBlueprint(entry.blueprint)
+    // entry was popped — no other reference exists, safe to adopt without cloning
+    this._mb = MutableBlueprint.fromOwned(entry.blueprint)
     return { mb: this._mb, meta: entry.meta, viewMode: entry.viewMode }
   }
 
@@ -117,7 +118,8 @@ export class HistoryManager {
     if (this.redoStack.length === 0) return undefined
     const entry = this.redoStack.pop()!
     this.undoStack.push({ blueprint: structuredClone(this._mb.getBlueprint()), meta: entry.meta, viewMode: this.viewMode })
-    this._mb = new MutableBlueprint(entry.blueprint)
+    // entry was popped — no other reference exists, safe to adopt without cloning
+    this._mb = MutableBlueprint.fromOwned(entry.blueprint)
     return { mb: this._mb, meta: entry.meta, viewMode: entry.viewMode }
   }
 

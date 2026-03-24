@@ -89,7 +89,7 @@ Reads/writes through `builder.mb` (persistent `MutableBlueprint`). Three editing
 
 ## XPathField
 
-Read-only CodeMirror with Nova theme, `tabSize: 4`, `prettyPrintXPath` for display. Optional `onClick` adds hover highlight (used by DetailPanel to open XPath modal).
+Read-only CodeMirror with Nova theme, `tabSize: 4`, `prettyPrintXPath` for display. Optional `onClick` adds hover highlight (used by DetailPanel to open XPath modal). Lazy-loaded via `next/dynamic` (`ssr: false`) in QuestionDetail alongside XPathEditorModal — CodeMirror (~150KB) is deferred until a question with XPath properties is selected.
 
 ## GenerationProgress
 
