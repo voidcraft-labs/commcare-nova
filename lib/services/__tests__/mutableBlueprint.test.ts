@@ -22,7 +22,7 @@ function makeBlueprint(): AppBlueprint {
             questions: [
               { id: 'case_name', type: 'text', label: 'Client Name', is_case_property: true, required: 'true()' },
               { id: 'email_address', type: 'text', label: 'Client Email', is_case_property: true, validation: "regex(., '[^@]+@[^@]+\\.[^@]+')", validation_msg: 'Please enter a valid email' },
-              { id: 'client_phone', type: 'phone', label: 'Phone Number' },
+              { id: 'client_phone', type: 'text', label: 'Phone Number' },
             ],
           },
           {

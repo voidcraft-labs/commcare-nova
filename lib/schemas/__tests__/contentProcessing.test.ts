@@ -8,7 +8,7 @@ const testCaseType: CaseType = {
     { name: 'case_name', label: 'Full Name' },
     { name: 'age', label: 'Patient Age', data_type: 'int', required: 'true()', validation: '. > 0 and . < 150', validation_msg: 'Age must be between 1 and 149' },
     { name: 'gender', label: 'Gender', data_type: 'single_select', options: [{ value: 'male', label: 'Male' }, { value: 'female', label: 'Female' }] },
-    { name: 'phone', label: 'Phone Number', data_type: 'phone', hint: 'Include country code' },
+    { name: 'phone', label: 'Phone Number', data_type: 'text', hint: 'Include country code' },
   ],
 }
 
@@ -36,7 +36,7 @@ describe('applyDefaults', () => {
   })
 
   it('fills in hint from case type', () => {
-    const result = applyDefaults({ id: 'phone', type: 'phone', is_case_property: true }, testCaseType)
+    const result = applyDefaults({ id: 'phone', type: 'text', is_case_property: true }, testCaseType)
     expect(result.hint).toBe('Include country code')
   })
 

@@ -69,8 +69,6 @@ function generateValue(name: string, dataType: string | undefined, options?: { v
       return `${String(randomInt(8, 17)).padStart(2, '0')}:${String(randomInt(0, 59)).padStart(2, '0')}`
     case 'datetime':
       return `${randomDate(365)}T${String(randomInt(8, 17)).padStart(2, '0')}:${String(randomInt(0, 59)).padStart(2, '0')}`
-    case 'phone':
-      return `+1${randomInt(200, 999)}${randomInt(100, 999)}${randomInt(1000, 9999)}`
     case 'geopoint':
       return `${(Math.random() * 180 - 90).toFixed(4)} ${(Math.random() * 360 - 180).toFixed(4)}`
     case 'single_select':

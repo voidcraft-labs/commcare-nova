@@ -11,7 +11,7 @@ interface TextFieldProps {
 }
 
 export function TextField({ question, state, onChange, onBlur }: TextFieldProps) {
-  const inputType = question.type === 'phone' ? 'tel' : question.type === 'secret' ? 'password' : 'text'
+  const inputType = question.type === 'secret' ? 'password' : 'text'
   const showError = state.touched && !state.valid
 
   return (

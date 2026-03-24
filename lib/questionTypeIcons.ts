@@ -13,7 +13,6 @@ import ciRepeat from '@iconify-icons/ci/repeat'
 import ciHide from '@iconify-icons/ci/hide'
 import ciLocation from '@iconify-icons/ci/location'
 import ciImage from '@iconify-icons/ci/image'
-import ciPhone from '@iconify-icons/ci/phone'
 import ciBarcode from '@iconify-icons/ci/barcode'
 import ciLabel from '@iconify-icons/ci/label'
 import ciClock from '@iconify-icons/ci/clock'
@@ -34,7 +33,6 @@ export const questionTypeIcons: Record<string, IconifyIcon> = {
   hidden: ciHide,
   geopoint: ciLocation,
   image: ciImage,
-  phone: ciPhone,
   barcode: ciBarcode,
   label: ciLabel,
   time: ciClock,
@@ -52,7 +50,6 @@ export const questionTypeLabels: Record<string, string> = {
   repeat: 'Repeat',
   geopoint: 'Location',
   image: 'Image',
-  phone: 'Phone',
   barcode: 'Barcode',
   label: 'Label',
   time: 'Time',

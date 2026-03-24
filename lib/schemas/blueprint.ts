@@ -35,7 +35,7 @@ const RESERVED_CASE_PROPERTIES = 'case_id, case_type, closed, closed_by, closed_
 
 const CASE_PROPERTY_DATA_TYPES = [
   'text', 'int', 'decimal', 'date', 'time', 'datetime',
-  'single_select', 'multi_select', 'phone', 'geopoint',
+  'single_select', 'multi_select', 'geopoint',
 ] as const
 
 // ── Case property + case type schemas ────────────────────────────────

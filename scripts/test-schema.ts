@@ -10,7 +10,7 @@ const model = process.argv[2] === 'opus' ? 'claude-opus-4-6' : 'claude-haiku-4-5
 
 const QUESTION_TYPES = [
   'text', 'int', 'date', 'single_select', 'multi_select', 'geopoint', 'image',
-  'barcode', 'decimal', 'label', 'phone', 'time', 'datetime',
+  'barcode', 'decimal', 'label', 'time', 'datetime',
   'audio', 'video', 'signature', 'hidden', 'secret', 'group', 'repeat',
 ] as const
 

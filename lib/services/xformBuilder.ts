@@ -290,7 +290,7 @@ function buildQuestionParts(
     el += `\n    </upload>`
     bodyElements.push(el)
   } else {
-    // Input types: text, int, decimal, date, time, datetime, geopoint, barcode, phone
+    // Input types: text, int, decimal, date, time, datetime, geopoint, barcode
     const appearance = getAppearance(q.type)
     const appearanceAttr = appearance ? ` appearance="${appearance}"` : ''
     let el = `<input ref="${nodePath}"${appearanceAttr}>\n      <label ref="jr:itext('${q.id}-label')"/>`
@@ -301,10 +301,9 @@ function buildQuestionParts(
   }
 }
 
-/** Map question type to XForm appearance attribute (e.g. "phone" -> "numeric"). */
+/** Map question type to XForm appearance attribute. */
 function getAppearance(type: string): string | null {
   switch (type) {
-    case 'phone': return 'numeric'
     default: return null
   }
 }
@@ -313,7 +312,6 @@ function getAppearance(type: string): string | null {
 function getXsdType(type: string): string | null {
   switch (type) {
     case 'text': return 'xsd:string'
-    case 'phone': return 'xsd:string'
     case 'int': return 'xsd:int'
     case 'decimal': return 'xsd:decimal'
     case 'date': return 'xsd:date'
