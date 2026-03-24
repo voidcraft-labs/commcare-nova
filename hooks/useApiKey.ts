@@ -3,7 +3,7 @@ import { useCallback } from 'react'
 import { useSettings } from './useSettings'
 
 export function useApiKey() {
-  const { settings, loaded, updateSettings } = useSettings()
+  const { settings, updateSettings } = useSettings()
 
   const saveApiKey = useCallback((key: string) => {
     updateSettings({ apiKey: key })
@@ -13,5 +13,5 @@ export function useApiKey() {
     updateSettings({ apiKey: '' })
   }, [updateSettings])
 
-  return { apiKey: settings.apiKey, loaded, saveApiKey, clearApiKey }
+  return { apiKey: settings.apiKey, saveApiKey, clearApiKey }
 }

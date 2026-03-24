@@ -59,7 +59,7 @@ let persistedChatMessages: UIMessage[] = []
 
 export function BuilderLayout({ buildId }: { buildId: string }) {
   const router = useRouter()
-  const { apiKey, loaded } = useApiKey()
+  const { apiKey } = useApiKey()
   const { settings } = useSettings()
   const builder = useBuilder()
   const [leftPanelOpen, setLeftPanelOpen] = useState(true)
@@ -398,11 +398,11 @@ export function BuilderLayout({ buildId }: { buildId: string }) {
     }
   }, [nav, builder])
 
-  const shouldRedirect = loaded && !apiKey && !inReplayMode
+  const shouldRedirect = !apiKey && !inReplayMode
   useEffect(() => {
     if (shouldRedirect) router.push('/')
   }, [shouldRedirect, router])
-  if (!loaded || shouldRedirect) return null
+  if (shouldRedirect) return null
 
   const showProgress = (isGenerating || builder.phase === BuilderPhase.Done) && !progressHidden && !inReplayMode
   const leftOpen = viewMode === 'preview' ? false : leftPanelOpen

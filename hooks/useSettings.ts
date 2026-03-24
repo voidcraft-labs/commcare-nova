@@ -36,9 +36,9 @@ function loadSettings(): NovaSettings {
 }
 
 // ── Module-level settings store ──────────────────────────────────────────
-// useSyncExternalStore handles the SSR→client transition gracefully:
-// server renders with defaults, client hydrates with localStorage values,
-// and React falls back to client rendering if they differ (no hydration error).
+// useSyncExternalStore uses getServerSnapshot during both SSR and hydration,
+// then switches to getSnapshot (localStorage) after hydration completes.
+// Components should render consistently with both snapshots — no typeof window branching.
 
 let currentSettings: NovaSettings = defaultSettings()
 let initialized = false
@@ -75,7 +75,6 @@ function persistAndNotify(settings: NovaSettings) {
 
 export function useSettings() {
   const settings = useSyncExternalStore(subscribe, getSnapshot, getServerSnapshot)
-  const loaded = typeof window !== 'undefined'
 
   const updateSettings = useCallback((updates: Partial<NovaSettings>) => {
     persistAndNotify({ ...currentSettings, ...updates })
@@ -98,5 +97,5 @@ export function useSettings() {
     persistAndNotify({ ...currentSettings, pipeline: { ...DEFAULT_PIPELINE_CONFIG } })
   }, [])
 
-  return { settings, loaded, updateSettings, updatePipelineStage, resetToDefaults }
+  return { settings, updateSettings, updatePipelineStage, resetToDefaults }
 }
