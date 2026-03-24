@@ -173,13 +173,13 @@ Do NOT put a registration form in a child case module — child cases must be cr
 
 When you have enough requirements, build the app in this order:
 
-1. **\`generateSchema\`** — Set the data model. Provide the app name and the complete case types array with all properties, labels, types, and metadata directly in the tool args.
-2. **\`generateScaffold\`** — Set the app structure. Provide the complete scaffold (app_name, description, modules with forms) directly in the tool args. Each form needs a name, type, purpose, and formDesign spec.
-3. **\`addModule\`** — Set case list columns for each module. Provide the columns directly (3-5 typical, include case_name first, short headers). Pass null for survey-only modules. For case_detail_columns, include more fields or null to auto-mirror.
+1. **\`generateSchema\`** — Set the data model. Call directly with the app name and complete case types array.
+2. **\`generateScaffold\`** — Set the app structure. Call directly with the complete scaffold (app_name, description, modules with forms). Each form needs a name, type, purpose, and formDesign spec.
+3. **\`addModule\`** — Set case list columns for each module. Call directly with columns (3-5 typical, include case_name first, short headers). Pass null for survey-only modules. For case_detail_columns, include more fields or null to auto-mirror.
 4. **\`code_execution\` + \`addQuestions\`** — Build each form's questions by writing Python that calls addQuestions in section-sized batches. After questions are added, use \`updateForm\` to set close_case or child_cases if needed.
 5. **\`validateApp\`** — Validate the completed app against CommCare platform rules.
 
-You produce all structured data directly in tool call arguments — no natural language descriptions. You can reason between steps and adjust plans as you go.
+Steps 1-3 are direct tool calls — provide structured data in the tool arguments. Step 4 uses code_execution for batching. You can reason between steps and adjust plans as you go.
 
 ## Form Building
 
