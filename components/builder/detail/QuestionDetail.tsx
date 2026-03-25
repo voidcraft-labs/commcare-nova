@@ -171,9 +171,23 @@ const addableTextFields = [
   { field: 'validation_msg', label: 'Validation Message' },
 ] as const
 
-// ── CasePropertySelector ──────────────────────────────────────────────────
+// ── Case type scoping ─────────────────────────────────────────────────────
 
-interface CasePropertySelectorProps {
+/** Returns case type names this module can write to: its own type + any child types. */
+function getModuleCaseTypes(mb: MutableBlueprint, moduleIndex: number): string[] {
+  const mod = mb.getModule(moduleIndex)
+  const bp = mb.getBlueprint()
+  if (!mod?.case_type || !bp.case_types) return []
+  const result = [mod.case_type]
+  for (const ct of bp.case_types) {
+    if (ct.parent_type === mod.case_type) result.push(ct.name)
+  }
+  return result
+}
+
+// ── CasePropertyPills ─────────────────────────────────────────────────────
+
+interface CasePropertyPillsProps {
   value: string | undefined
   isCaseName: boolean
   disabled: boolean
@@ -181,35 +195,47 @@ interface CasePropertySelectorProps {
   onChange: (caseType: string | null) => void
 }
 
-function CasePropertySelector({ value, isCaseName, disabled, caseTypes, onChange }: CasePropertySelectorProps) {
+function CasePropertyPills({ value, isCaseName, disabled, caseTypes, onChange }: CasePropertyPillsProps) {
   const locked = isCaseName // case_name must always be a case property
+  const isInteractive = !disabled && !locked
+
+  if (caseTypes.length === 0 && !isCaseName) return null
 
   return (
-    <span
-      className="ml-auto flex items-center gap-1.5 normal-case tracking-normal"
-      onClick={(e) => e.preventDefault() /* prevent label from focusing the input */}
+    <div
+      className="mt-1.5 pl-2 flex items-center gap-1.5"
+      role="radiogroup"
+      aria-label="Save to case type"
     >
-      {isCaseName && <Badge variant="emerald">case name</Badge>}
-      <select
-        value={value ?? ''}
-        disabled={disabled || locked}
-        onChange={(e) => onChange(e.target.value || null)}
-        className={`
-          h-[22px] text-[11px] font-medium rounded border px-1.5 appearance-none bg-no-repeat bg-[right_4px_center]
-          bg-[length:10px_10px] pr-4 transition-colors duration-200 outline-none
-          ${value
-            ? 'bg-nova-cyan/10 border-nova-cyan/30 text-nova-cyan-bright shadow-[0_0_6px_rgba(0,210,255,0.1)]'
-            : 'bg-nova-surface border-nova-border/60 text-nova-text-muted'}
-          ${disabled || locked ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer hover:border-nova-cyan/50'}
-        `}
-        style={{ backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12'%3E%3Cpath d='M3 5l3 3 3-3' fill='none' stroke='%23888' stroke-width='1.5'/%3E%3C/svg%3E")` }}
-      >
-        <option value="">Not saved</option>
-        {caseTypes.map(ct => (
-          <option key={ct} value={ct}>{ct}</option>
-        ))}
-      </select>
-    </span>
+      <span className="text-[11px] text-nova-text-muted">saves to</span>
+      {caseTypes.map(ct => {
+        const isActive = value === ct
+        return (
+          <button
+            key={ct}
+            type="button"
+            role="radio"
+            aria-checked={isActive}
+            aria-disabled={!isInteractive || undefined}
+            onClick={() => {
+              if (!isInteractive) return
+              onChange(isActive ? null : ct)
+            }}
+            className={`
+              h-[22px] px-2 text-[11px] font-medium rounded-full border outline-none transition-all duration-200
+              ${isActive
+                ? 'bg-nova-cyan/10 border-nova-cyan/30 text-nova-cyan-bright shadow-[0_0_6px_rgba(0,210,255,0.1)]'
+                : 'bg-nova-surface border-nova-border/60 text-nova-text-muted'}
+              ${!isInteractive
+                ? `${locked && isActive ? 'opacity-70' : 'opacity-50'} cursor-not-allowed`
+                : `cursor-pointer ${!isActive ? 'hover:border-nova-cyan/50 hover:text-nova-text-secondary' : ''}`}
+            `}
+          >
+            {ct}
+          </button>
+        )
+      })}
+    </div>
   )
 }
 
@@ -337,23 +363,23 @@ export function QuestionDetail({ question, selected, mb, builder, notifyBlueprin
             selectAll={builder.isNewQuestion(selected.questionPath!)}
           />
         )}
-        <EditableText
-          label="ID"
-          value={question.id}
-          onSave={(v) => { renameQuestion(v); builder.clearNewQuestion() }}
-          mono
-          color="text-nova-violet-bright"
-          selectAll={builder.isNewQuestion(selected.questionPath!)}
-          labelRight={
-            <CasePropertySelector
-              value={question.case_property_on}
-              isCaseName={question.id === 'case_name'}
-              disabled={MEDIA_TYPES.has(question.type)}
-              caseTypes={(mb.getBlueprint().case_types ?? []).map(ct => ct.name)}
-              onChange={setCasePropertyOn}
-            />
-          }
-        />
+        <div>
+          <EditableText
+            label="ID"
+            value={question.id}
+            onSave={(v) => { renameQuestion(v); builder.clearNewQuestion() }}
+            mono
+            color="text-nova-violet-bright"
+            selectAll={builder.isNewQuestion(selected.questionPath!)}
+          />
+          <CasePropertyPills
+            value={question.case_property_on}
+            isCaseName={question.id === 'case_name'}
+            disabled={MEDIA_TYPES.has(question.type)}
+            caseTypes={getModuleCaseTypes(mb, selected.moduleIndex)}
+            onChange={setCasePropertyOn}
+          />
+        </div>
         <EditableDropdown
           label="Type"
           value={question.type}
