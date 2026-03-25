@@ -88,6 +88,11 @@ Also re-exports `validateAndFix()` (from `validationLoop.ts`) — programmatic v
 
 **All state is private with readonly getters.** Consumers read via getters (`builder.phase`, `builder.selected`, `builder.blueprint`, etc.) and mutate through methods only.
 
+**Agent activity state** — three derived getters separate agent activity from build pipeline phase:
+- `builder.agentActive` — true when the SA is processing a request. Set by BuilderLayout via `setAgentActive()` synced from `useChat` status (`submitted`/`streaming`).
+- `builder.isGenerating` — true when the build pipeline is running (phases DataModel through Fix).
+- `builder.isThinking` — `agentActive && !isGenerating`. Drives the thinking indicator. Works for both initial generation (before first data part arrives) and edit operations (phase stays `Done`).
+
 **Key members:**
 - `builder.mb` — persistent MutableBlueprint instance (undefined before blueprint exists)
 - `builder.blueprint` — getter returning `mb.getBlueprint()` (plain data for serialization)

@@ -8,7 +8,7 @@ Message list + input. Accepts `mode: 'centered' | 'sidebar' | 'sidebar-embedded'
 - **Sidebar mode**: 320px (`w-80`) standalone overlay with own header. Used for standalone left-panel rendering outside of LeftPanel.
 - **Sidebar-embedded mode**: Just messages + input, no outer chrome (header/border/shadow). Used inside `LeftPanel`'s Chat tab — the parent provides the shell.
 
-After generation, chat lives inside LeftPanel's Chat tab (embedded mode). Auto-hides in preview mode when LeftPanel collapses. Reads `builder.phase` to suppress thinking indicator when builder is active.
+After generation, chat lives inside LeftPanel's Chat tab (embedded mode). Auto-hides in preview mode when LeftPanel collapses.
 
 **Scroll management** — Smart auto-scroll via `scrollRef` callback:
 - **Near-bottom tracking**: Only auto-scrolls on new content (MutationObserver + ResizeObserver) when user was within 50px of bottom. Scrolling up "detaches" from auto-follow.
@@ -32,4 +32,4 @@ Animated stepper with local state. Shows questions one at a time with option but
 
 ## ThinkingIndicator
 
-Orbital violet dot animation. Shown when `status === 'submitted'|'streaming'` AND `builder.phase === Idle` AND scaffold is not in-flight.
+Orbital violet dot animation. Shown when `builder.isThinking` is true — i.e. the agent is actively processing (`agentActive`) but the build pipeline isn't running (`!isGenerating`). Works for both initial generation (before first data part) and edit operations. BuilderLayout syncs `useChat` status → `builder.setAgentActive()` via effect.
