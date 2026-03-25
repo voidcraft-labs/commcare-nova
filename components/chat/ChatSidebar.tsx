@@ -5,7 +5,6 @@ import type { UIMessage } from 'ai'
 import { Icon } from '@iconify/react'
 import ciChevronLeft from '@iconify-icons/ci/chevron-left'
 import { useBuilder } from '@/hooks/useBuilder'
-import { BuilderPhase } from '@/lib/services/builder'
 import { ChatMessage } from '@/components/chat/ChatMessage'
 import { ChatInput } from '@/components/chat/ChatInput'
 import { ThinkingIndicator } from '@/components/chat/ThinkingIndicator'
@@ -40,8 +39,7 @@ export function ChatSidebar({
 }: ChatSidebarProps) {
   const builder = useBuilder()
   const isLoading = status === 'submitted' || status === 'streaming'
-
-  const showThinking = isLoading && builder.phase === BuilderPhase.Idle
+  const showThinking = builder.isThinking
   const pendingAnswerRef = useRef<((text: string) => void) | null>(null)
   const isCentered = mode === 'centered'
   const isEmbedded = mode === 'sidebar-embedded'
@@ -182,7 +180,7 @@ export function ChatSidebar({
           <div className="shrink-0">
             <ChatInput
               onSend={handleSend}
-              disabled={isLoading || [BuilderPhase.DataModel, BuilderPhase.Structure, BuilderPhase.Modules, BuilderPhase.Forms, BuilderPhase.Validate, BuilderPhase.Fix].includes(builder.phase)}
+              disabled={isLoading || builder.isGenerating}
               centered={false}
             />
           </div>
@@ -253,7 +251,7 @@ export function ChatSidebar({
         <div className="shrink-0">
           <ChatInput
             onSend={handleSend}
-            disabled={isLoading || [BuilderPhase.DataModel, BuilderPhase.Structure, BuilderPhase.Modules, BuilderPhase.Forms, BuilderPhase.Validate, BuilderPhase.Fix].includes(builder.phase)}
+            disabled={isLoading || builder.isGenerating}
             centered={isCentered}
           />
         </div>

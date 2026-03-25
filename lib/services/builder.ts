@@ -76,6 +76,7 @@ export class Builder {
   private _mb?: MutableBlueprint
   private _history?: HistoryManager
   private _isDragging = false
+  private _agentActive = false
   private _caseTypes?: CaseType[]
   private _statusMessage = ''
   private _selected?: SelectedElement
@@ -93,6 +94,24 @@ export class Builder {
   // ── Read-only public accessors ───────────────────────────────────────
 
   get phase(): BuilderPhase { return this._phase }
+  get agentActive(): boolean { return this._agentActive }
+
+  /** True when the build pipeline is running (DataModel through Fix). */
+  get isGenerating(): boolean {
+    return this._phase === BuilderPhase.DataModel ||
+      this._phase === BuilderPhase.Structure ||
+      this._phase === BuilderPhase.Modules ||
+      this._phase === BuilderPhase.Forms ||
+      this._phase === BuilderPhase.Validate ||
+      this._phase === BuilderPhase.Fix
+  }
+
+  /** True when the agent is actively working but the build pipeline isn't running.
+   *  Drives the thinking indicator in the chat sidebar. */
+  get isThinking(): boolean {
+    return this._agentActive && !this.isGenerating
+  }
+
   get scaffold(): Scaffold | undefined { return this._scaffold }
   get caseTypes(): CaseType[] | undefined { return this._caseTypes }
   get statusMessage(): string { return this._statusMessage }
@@ -195,6 +214,13 @@ export class Builder {
 
   setDragging(active: boolean) {
     this._isDragging = active
+  }
+
+  /** Called by BuilderLayout to sync chat transport status with builder state. */
+  setAgentActive(active: boolean) {
+    if (this._agentActive === active) return
+    this._agentActive = active
+    this.notify()
   }
 
   // ── Undo/Redo ──────────────────────────────────────────────────────
@@ -465,6 +491,7 @@ export class Builder {
     this._statusMessage = ''
     this._selected = undefined
     this._newQuestionPath = undefined
+    this._agentActive = false
     this._mutationCount = 0
     this._progressCompleted = 0
     this._progressTotal = 0

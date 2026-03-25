@@ -219,7 +219,12 @@ export function BuilderLayout({ buildId }: { buildId: string }) {
   // Keep module-level message cache in sync so remounts restore chat history
   persistedChatMessages = messages
 
-  const isGenerating = [BuilderPhase.DataModel, BuilderPhase.Structure, BuilderPhase.Modules, BuilderPhase.Forms, BuilderPhase.Validate, BuilderPhase.Fix].includes(builder.phase)
+  // Sync chat transport status → builder agent state (drives builder.isThinking)
+  useEffect(() => {
+    builder.setAgentActive(status === 'submitted' || status === 'streaming')
+  }, [status, builder])
+
+  const isGenerating = builder.isGenerating
 
   const progressMode = 'centered' as const
   if (isGenerating && progressHidden) setProgressHidden(false)
