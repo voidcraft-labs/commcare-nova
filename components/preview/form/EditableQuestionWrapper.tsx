@@ -65,7 +65,13 @@ export function EditableQuestionWrapper({
 
   const wrapperRef = useCallback((el: HTMLDivElement | null) => {
     wrapperElRef.current = el
-  }, [])
+    if (el && isSelected && ctx) {
+      ctx.builder.setQuestionAnchor({ el, path: questionPath })
+      return () => {
+        if (ctx.builder.questionAnchor?.el === el) ctx.builder.setQuestionAnchor(null)
+      }
+    }
+  }, [isSelected, ctx, questionPath])
 
   if (!ctx || ctx.mode === 'test') {
     return <div style={style}>{children}</div>

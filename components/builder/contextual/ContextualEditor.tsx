@@ -1,5 +1,5 @@
 'use client'
-import { useState, useRef, useLayoutEffect } from 'react'
+import { useState, useRef, useLayoutEffect, useSyncExternalStore } from 'react'
 import { useFloating, offset, flip, shift, autoUpdate, FloatingPortal } from '@floating-ui/react'
 import type { Builder } from '@/lib/services/builder'
 import { ContextualEditorTabs, type EditorTab } from './ContextualEditorTabs'
@@ -28,20 +28,32 @@ export function ContextualEditor({ builder }: ContextualEditorProps) {
   })
 
   const animRef = useRef<HTMLDivElement>(null)
+  const [anchorReady, setAnchorReady] = useState(true)
   const questionPath = selected?.type === 'question' ? selected.questionPath : undefined
 
-  // Reposition the floating reference when the question changes or the blueprint mutates
-  // (the question element may shift after edits). Do NOT replay the entrance animation here.
-  useLayoutEffect(() => {
-    if (!questionPath) return
-    const container = document.querySelector(`[data-question-id="${questionPath}"]`)
-    const el = container?.querySelector('[data-question-wrapper]') ?? container
-    if (el) refs.setReference(el as HTMLElement)
-  }, [questionPath, builder.mutationCount, refs])
+  // Resolve anchor element: prefer the registered ref callback element, fall back to DOM query.
+  // The registered element handles cross-form navigation (element mounts after form transition).
+  // The DOM query handles same-form selection (element already in DOM, no wait needed).
+  const anchor = useSyncExternalStore(builder.subscribeAnchor, builder.getAnchorSnapshot, () => null)
+  const registeredEl = anchor !== null && anchor.path === questionPath ? anchor.el : null
 
-  // Entrance animation — only on question selection change
   useLayoutEffect(() => {
     if (!questionPath) return
+    const el = registeredEl ?? (() => {
+      const container = document.querySelector(`[data-question-id="${questionPath}"]`)
+      return (container?.querySelector('[data-question-wrapper]') ?? container) as HTMLElement | null
+    })()
+    if (el) {
+      refs.setReference(el as HTMLElement)
+      setAnchorReady(true)
+    } else {
+      setAnchorReady(false)
+    }
+  }, [questionPath, registeredEl, builder.mutationCount, refs])
+
+  // Entrance animation — on question selection change or after cross-form anchor resolution
+  useLayoutEffect(() => {
+    if (!questionPath || !anchorReady) return
     animRef.current?.animate(
       [
         { opacity: 0, transform: 'scale(0.97)' },
@@ -49,9 +61,9 @@ export function ContextualEditor({ builder }: ContextualEditorProps) {
       ],
       { duration: 150, easing: 'ease-out' },
     )
-  }, [questionPath])
+  }, [questionPath, anchorReady])
 
-  if (!selected || selected.type !== 'question' || !mb || !selected.questionPath) return null
+  if (!selected || selected.type !== 'question' || !mb || !selected.questionPath || !anchorReady) return null
 
   const question = selected.formIndex !== undefined
     ? mb.getQuestion(selected.moduleIndex, selected.formIndex, selected.questionPath) ?? undefined

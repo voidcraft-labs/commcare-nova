@@ -64,7 +64,9 @@ Undo/redo "teleports" the user back to where the edit was made. Each history sna
 
 ## ContextualEditor
 
-Floating property panel anchored to the selected question via `@floating-ui/react`. Rendered into a `FloatingPortal` at `z-popover`. Appears in design mode whenever a question is selected (`showContextualEditor = showToolbar && viewMode === 'design'`). All hooks called unconditionally before the early return guard (React rules of hooks). Two separate `useLayoutEffect`s: one repositions the floating reference on every mutation (the question element may shift), the other plays the entrance animation only on question selection change.
+Floating property panel anchored to the selected question via `@floating-ui/react`. Rendered into a `FloatingPortal` at `z-popover`. Appears in design mode whenever a question is selected (`showContextualEditor = showToolbar && viewMode === 'design'`). All hooks called unconditionally before the early return guard (React rules of hooks).
+
+**Anchor resolution** — two-source strategy via `useLayoutEffect`: prefers `builder.questionAnchor` (element registered by `EditableQuestionWrapper`'s React 19 ref callback), falls back to DOM query (`[data-question-id]`). DOM query handles same-form selection instantly; the registered anchor handles cross-form navigation (element mounts after form transition). When neither source finds the element, `anchorReady` state goes false and the panel returns null (no 0,0 flash). The anchor subscription is separate from the main builder subscription (`subscribeAnchor`/`getAnchorSnapshot` via `useSyncExternalStore`) to avoid re-rendering the wrapper tree and causing infinite ref callback loops. Entrance animation replays on question change or after cross-form anchor resolution.
 
 Split into tabbed sub-editors (`ContextualEditorTabs`):
 - **UI tab** (`ContextualEditorUI`) — label, type (via `QuestionTypeGrid` popover at `z-popover-top`), hint, required
