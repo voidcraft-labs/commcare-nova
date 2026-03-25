@@ -161,14 +161,16 @@ export function FormScreen({ blueprint, moduleIndex, formIndex, caseId, onBack, 
   )
 
   return (
-    <div className="flex flex-col h-full max-w-3xl mx-auto w-full" onClick={() => builder?.select()}>
-      {builder ? (
-        <EditContextProvider builder={builder} moduleIndex={moduleIndex} formIndex={formIndex} mode={mode}>
-          {formBody}
-        </EditContextProvider>
-      ) : (
-        formBody
-      )}
+    <div className="h-full" onClick={() => builder?.select()}>
+      <div className="flex flex-col h-full max-w-3xl mx-auto w-full">
+        {builder ? (
+          <EditContextProvider builder={builder} moduleIndex={moduleIndex} formIndex={formIndex} mode={mode}>
+            {formBody}
+          </EditContextProvider>
+        ) : (
+          formBody
+        )}
+      </div>
     </div>
   )
 }
