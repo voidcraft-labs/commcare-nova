@@ -6,6 +6,8 @@
  */
 import type { CaseType, BlueprintForm, Question } from './blueprint'
 
+type CaseTypes = CaseType[] | null
+
 // ── XPath utilities ──────────────────────────────────────────────────
 
 const XPATH_FIELDS = ['validation', 'relevant', 'calculate', 'default_value', 'required'] as const
@@ -31,7 +33,7 @@ export interface FlatQuestion {
   relevant?: string
   calculate?: string
   default_value?: string
-  is_case_property?: boolean
+  case_property_on?: string
   options?: Array<{ value: string; label: string }>
 }
 
@@ -40,13 +42,6 @@ export interface FormContentOutput {
   formIndex: number
   questions: FlatQuestion[]
   close_case?: { question: string; answer: string }
-  child_cases?: Array<{
-    case_type: string
-    case_name_field: string
-    case_properties: Array<{ case_property: string; question_id: string }>
-    relationship: 'child' | 'extension'
-    repeat_context: string
-  }>
 }
 
 // ── Strip empty sentinel values ─────────────────────────────────────
@@ -58,7 +53,7 @@ export function stripEmpty(q: FlatQuestion): Partial<FlatQuestion> {
   for (const [k, v] of Object.entries(q)) {
     if (v === undefined) continue
     if (v === '') continue
-    if (v === false && k !== 'type') continue
+    if (v === false) continue
     if (Array.isArray(v) && v.length === 0) continue
     result[k] = v
   }
@@ -101,8 +96,9 @@ export function buildQuestionTree(flat: Array<Partial<FlatQuestion>>): Question[
 
 /**
  * Apply data model defaults from case type metadata and sanitize XPath.
+ * Looks up the case type by the question's case_property_on value.
  */
-export function applyDefaults(q: Partial<FlatQuestion>, caseType: CaseType | null): Partial<FlatQuestion> {
+export function applyDefaults(q: Partial<FlatQuestion>, caseTypes: CaseTypes): Partial<FlatQuestion> {
   const result = { ...q }
 
   // Unescape HTML entities in XPath fields
@@ -114,8 +110,9 @@ export function applyDefaults(q: Partial<FlatQuestion>, caseType: CaseType | nul
   }
 
   // Merge data model defaults from case type (question id = property name)
-  if (result.is_case_property && caseType) {
-    const prop = caseType.properties.find(p => p.name === result.id)
+  if (result.case_property_on && caseTypes) {
+    const ct = caseTypes.find(c => c.name === result.case_property_on)
+    const prop = ct?.properties.find(p => p.name === result.id)
     if (prop) {
       result.type ??= (prop.data_type ?? 'text') as any
       result.label ??= prop.label
@@ -154,10 +151,10 @@ export function processSingleFormOutput(
   formOutput: FormContentOutput,
   formName: string,
   formType: 'registration' | 'followup' | 'survey',
-  caseType: CaseType | null,
+  caseTypes: CaseTypes,
 ): BlueprintForm {
   const stripped = formOutput.questions.map(q => stripEmpty(q))
-  const withDefaults = stripped.map(q => applyDefaults(q, caseType))
+  const withDefaults = stripped.map(q => applyDefaults(q, caseTypes))
   const nestedQuestions = buildQuestionTree(withDefaults)
 
   const hasCloseCase = formOutput.close_case?.question || formOutput.close_case?.answer
@@ -166,13 +163,10 @@ export function processSingleFormOutput(
     ...(formOutput.close_case?.answer && { answer: formOutput.close_case.answer }),
   } : undefined
 
-  const childCases = formOutput.child_cases?.length ? formOutput.child_cases : undefined
-
   return {
     name: formName,
     type: formType,
     questions: nestedQuestions,
     ...(closeCase && { close_case: closeCase }),
-    ...(childCases && { child_cases: childCases }),
   }
 }

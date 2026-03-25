@@ -21,7 +21,7 @@ const singleFormSchema = z.object({
     parentId: z.string(),
     label: z.string(),
     required: z.string(),
-    is_case_property: z.boolean(),
+    case_property_on: z.string(),
     hint: z.string().optional(),
     help: z.string().optional(),
     validation: z.string().optional(),
@@ -32,13 +32,6 @@ const singleFormSchema = z.object({
     options: z.array(z.object({ value: z.string(), label: z.string() })).optional(),
   })),
   close_case: z.object({ question: z.string(), answer: z.string() }),
-  child_cases: z.array(z.object({
-    case_type: z.string(),
-    case_name_field: z.string(),
-    case_properties: z.array(z.object({ case_property: z.string(), question_id: z.string() })),
-    relationship: z.enum(['child', 'extension']),
-    repeat_context: z.string(),
-  })),
 })
 
 const size = JSON.stringify(z.toJSONSchema(singleFormSchema)).length

@@ -275,7 +275,7 @@ export class FormEngine {
   private preloadCaseData(questions: Question[], prefix = '/data'): void {
     for (const q of questions) {
       const path = `${prefix}/${q.id}`
-      if (q.is_case_property && this.caseData.has(q.id)) {
+      if (q.case_property_on && q.case_property_on === this.moduleCaseType && this.caseData.has(q.id)) {
         this.instance.set(path, this.caseData.get(q.id)!)
       }
       if (q.children) {

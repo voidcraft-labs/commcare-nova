@@ -1,7 +1,6 @@
 'use client'
 import { useState, useCallback, useRef } from 'react'
 import dynamic from 'next/dynamic'
-import { motion } from 'motion/react'
 import { Icon } from '@iconify/react'
 import ciAddPlus from '@iconify-icons/ci/add-plus'
 import ciTrashFull from '@iconify-icons/ci/trash-full'
@@ -172,18 +171,18 @@ const addableTextFields = [
   { field: 'validation_msg', label: 'Validation Message' },
 ] as const
 
-// ── CasePropertyToggle ──────────────────────────────────────────────────
+// ── CasePropertySelector ──────────────────────────────────────────────────
 
-interface CasePropertyToggleProps {
-  on: boolean
+interface CasePropertySelectorProps {
+  value: string | undefined
   isCaseName: boolean
   disabled: boolean
-  onToggle: (on: boolean) => void
+  caseTypes: string[]
+  onChange: (caseType: string | null) => void
 }
 
-function CasePropertyToggle({ on, isCaseName, disabled, onToggle }: CasePropertyToggleProps) {
+function CasePropertySelector({ value, isCaseName, disabled, caseTypes, onChange }: CasePropertySelectorProps) {
   const locked = isCaseName // case_name must always be a case property
-  const canToggle = !disabled && !locked
 
   return (
     <span
@@ -191,32 +190,25 @@ function CasePropertyToggle({ on, isCaseName, disabled, onToggle }: CaseProperty
       onClick={(e) => e.preventDefault() /* prevent label from focusing the input */}
     >
       {isCaseName && <Badge variant="emerald">case name</Badge>}
-      <button
-        role="switch"
-        aria-checked={on}
-        aria-label="Case property"
-        disabled={!canToggle}
-        onClick={() => canToggle && onToggle(!on)}
+      <select
+        value={value ?? ''}
+        disabled={disabled || locked}
+        onChange={(e) => onChange(e.target.value || null)}
         className={`
-          relative h-[14px] w-[26px] shrink-0 rounded-full border transition-colors duration-200
-          ${on
-            ? 'bg-nova-cyan/25 border-nova-cyan/40 shadow-[0_0_6px_rgba(0,210,255,0.15)]'
-            : 'bg-nova-surface border-nova-border/60'}
-          ${canToggle ? 'cursor-pointer hover:border-nova-cyan/50' : 'opacity-50 cursor-not-allowed'}
+          h-[22px] text-[11px] font-medium rounded border px-1.5 appearance-none bg-no-repeat bg-[right_4px_center]
+          bg-[length:10px_10px] pr-4 transition-colors duration-200 outline-none
+          ${value
+            ? 'bg-nova-cyan/10 border-nova-cyan/30 text-nova-cyan-bright shadow-[0_0_6px_rgba(0,210,255,0.1)]'
+            : 'bg-nova-surface border-nova-border/60 text-nova-text-muted'}
+          ${disabled || locked ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer hover:border-nova-cyan/50'}
         `}
+        style={{ backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12'%3E%3Cpath d='M3 5l3 3 3-3' fill='none' stroke='%23888' stroke-width='1.5'/%3E%3C/svg%3E")` }}
       >
-        <motion.div
-          className={`
-            absolute top-[2px] h-[8px] w-[8px] rounded-full
-            ${on ? 'bg-nova-cyan-bright' : 'bg-nova-text-muted'}
-          `}
-          animate={{ left: on ? 14 : 2 }}
-          transition={{ type: 'spring', stiffness: 500, damping: 30 }}
-        />
-      </button>
-      <span className={`text-[11px] font-medium ${on ? 'text-nova-cyan-bright' : 'text-nova-text-muted'} transition-colors duration-200`}>
-        Saved to case
-      </span>
+        <option value="">Not saved</option>
+        {caseTypes.map(ct => (
+          <option key={ct} value={ct}>{ct}</option>
+        ))}
+      </select>
     </span>
   )
 }
@@ -256,10 +248,10 @@ export function QuestionDetail({ question, selected, mb, builder, notifyBlueprin
     notifyBlueprintChanged()
   }, [mb, selected.moduleIndex, selected.formIndex, selected.questionPath, notifyBlueprintChanged])
 
-  const toggleCaseProperty = useCallback((on: boolean) => {
+  const setCasePropertyOn = useCallback((caseType: string | null) => {
     if (selected.formIndex === undefined || !selected.questionPath) return
     mb.updateQuestion(selected.moduleIndex, selected.formIndex, selected.questionPath, {
-      is_case_property: on || null,
+      case_property_on: caseType,
     })
     notifyBlueprintChanged()
   }, [mb, selected.moduleIndex, selected.formIndex, selected.questionPath, notifyBlueprintChanged])
@@ -353,11 +345,12 @@ export function QuestionDetail({ question, selected, mb, builder, notifyBlueprin
           color="text-nova-violet-bright"
           selectAll={builder.isNewQuestion(selected.questionPath!)}
           labelRight={
-            <CasePropertyToggle
-              on={!!question.is_case_property}
+            <CasePropertySelector
+              value={question.case_property_on}
               isCaseName={question.id === 'case_name'}
               disabled={MEDIA_TYPES.has(question.type)}
-              onToggle={toggleCaseProperty}
+              caseTypes={(mb.getBlueprint().case_types ?? []).map(ct => ct.name)}
+              onChange={setCasePropertyOn}
             />
           }
         />

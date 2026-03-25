@@ -26,12 +26,12 @@ Split across two files:
 - `searchBlueprint`, `getModule`, `getForm`, `getQuestion`
 
 **Mutation (10):**
-- `editQuestion` (includes ID rename with automatic propagation), `addQuestion`, `removeQuestion`, `updateModule`, `updateForm` (name, close_case, child_cases), `createForm`, `removeForm`, `createModule`, `removeModule`
+- `editQuestion` (includes ID rename with automatic propagation), `addQuestion`, `removeQuestion`, `updateModule`, `updateForm` (name, close_case), `createForm`, `removeForm`, `createModule`, `removeModule`
 
 **Validation (1):**
 - `validateApp` — runs `validateAndFix()` loop. `onInputStart` emits `data-phase: validate`, emits `data-done` on success.
 
-**Build sequence:** `askQuestions → generateSchema → generateScaffold → addModule × N → code_execution (addQuestions × N) → updateForm (close_case/child_cases) → validateApp`
+**Build sequence:** `askQuestions → generateSchema → generateScaffold → addModule × N → code_execution (addQuestions × N) → validateApp`
 
 The SA makes all architecture and form design decisions. Schema, scaffold, and module tools are called directly. Only `addQuestions` goes through code execution for batching.
 
@@ -148,10 +148,12 @@ Split across three files:
 - `case_references_data.load` — form-level JSON mapping question paths to `#case/` refs.
 - Secondary instances (`casedb`, `commcaresession`) auto-declared when hashtags are used.
 
-**Case config derivation** (`deriveCaseConfig()`):
-- Registration: `is_case_property` questions → `case_properties` map (property name = question ID). `id === 'case_name'` → `case_name_field`.
-- Followup: `is_case_property` questions → both `case_preload` and `case_properties`. `id === 'case_name'` → `case_name_field`.
+**Case config derivation** (`deriveCaseConfig(questions, formType, moduleCaseType, caseTypes)`):
+- Groups questions by `case_property_on` value. Primary case (matches module case type) vs child cases (different case type).
+- Registration: primary `case_property_on` questions → `case_properties` map. `id === 'case_name'` → `case_name_field`.
+- Followup: primary questions → both `case_preload` and `case_properties`. `id === 'case_name'` → `case_name_field`.
 - Survey: no case config.
+- Child cases: questions with `case_property_on` naming a non-primary case type → auto-derived `DerivedChildCase[]` with case_type, case_name_field, case_properties, relationship (from case_types), and repeat_context (auto-detected from question tree).
 
 Called on-demand by expander and validator — no form-level case fields stored.
 

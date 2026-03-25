@@ -36,7 +36,7 @@ function countQuestionsRecursive(questions: Question[]): number {
 function collectCaseProperties(questions: Question[]): string[] {
   const props: string[] = []
   for (const q of questions) {
-    if (q.is_case_property) props.push(q.id)
+    if (q.case_property_on) props.push(`${q.id}→${q.case_property_on}`)
     if (q.children) props.push(...collectCaseProperties(q.children))
   }
   return props
@@ -45,7 +45,7 @@ function collectCaseProperties(questions: Question[]): string[] {
 interface QuestionSummary {
   id: string
   type: string
-  is_case_property?: true
+  case_property_on?: string
   children?: QuestionSummary[]
 }
 
@@ -53,7 +53,7 @@ interface QuestionSummary {
 function summarizeQuestions(questions: Question[]): QuestionSummary[] {
   return questions.map(q => {
     const entry: QuestionSummary = { id: q.id, type: q.type }
-    if (q.is_case_property) entry.is_case_property = true
+    if (q.case_property_on) entry.case_property_on = q.case_property_on
     if (q.children?.length) entry.children = summarizeQuestions(q.children)
     return entry
   })
@@ -244,7 +244,7 @@ export function createSolutionsArchitect(
             // Required sentinels (3) — almost always present, low cost as empty values
             label: z.string().describe('Question label. Empty string for hidden questions.'),
             required: z.string().describe('"true()" if always required, XPath for conditional. Empty string if not required.'),
-            is_case_property: z.boolean().describe('True if this question saves to case (property name = question id). The case name question must have id "case_name". False if not mapped.'),
+            case_property_on: z.string().describe('Case type name this question saves to (e.g. "patient"). The case name question must have id "case_name". Empty string if not a case property.'),
             // Optionals (8) — sparse, saves tokens when absent
             hint: z.string().optional(),
             help: z.string().optional(),
@@ -266,11 +266,8 @@ export function createSolutionsArchitect(
           const form = mod.forms[formIndex]
           if (!form) return { error: `Form ${formIndex} not found in module ${moduleIndex}` }
 
-          // Get case type for applyDefaults
-          const ct = (blueprint.case_types ?? []).find(c => c.name === mod.case_type) ?? null
-
           // Process new questions: strip sentinels → apply case property defaults
-          const processed = questions.map(q => applyDefaults(stripEmpty(q as unknown as FlatQuestion), ct))
+          const processed = questions.map(q => applyDefaults(stripEmpty(q as unknown as FlatQuestion), blueprint.case_types))
 
           // Merge with existing: flatten existing tree, append new, rebuild
           const existingFlat = flattenToFlat(form.questions)
@@ -374,7 +371,7 @@ export function createSolutionsArchitect(
             calculate: z.string().nullable().optional().describe('XPath computed value'),
             default_value: z.string().nullable().optional().describe('XPath initial value'),
             options: z.array(selectOptionSchema).nullable().optional(),
-            is_case_property: z.boolean().optional(),
+            case_property_on: z.string().nullable().optional().describe('Case type name to save to, or null to remove.'),
           }).describe('Fields to update. Only include fields you want to change.'),
         }),
         execute: async ({ moduleIndex, formIndex, questionId, updates }) => {
@@ -386,7 +383,7 @@ export function createSolutionsArchitect(
             const { id: newId, ...fieldUpdates } = updates
             if (newId && newId !== questionId) {
               const question = mutableBp.getQuestion(moduleIndex, formIndex, currentPath)
-              if (question?.is_case_property) {
+              if (question?.case_property_on) {
                 // Cross-form rename: all forms in module + columns + #case/ refs
                 const mod = mutableBp.getModule(moduleIndex)
                 if (mod?.case_type) {
@@ -436,7 +433,7 @@ export function createSolutionsArchitect(
             calculate: z.string().optional(),
             default_value: z.string().optional(),
             options: z.array(selectOptionSchema).optional(),
-            is_case_property: z.boolean().optional(),
+            case_property_on: z.string().optional().describe('Case type name to save to.'),
           }),
           afterQuestionId: z.string().optional().describe('Insert after this question ID. Omit to append at end.'),
           beforeQuestionId: z.string().optional().describe('Insert before this question ID. Takes precedence over afterQuestionId.'),
@@ -513,7 +510,7 @@ export function createSolutionsArchitect(
       }),
 
       updateForm: tool({
-        description: 'Update form metadata: name, close_case, or child_cases config.',
+        description: 'Update form metadata: name or close_case config.',
         inputSchema: z.object({
           moduleIndex: z.number().describe('0-based module index'),
           formIndex: z.number().describe('0-based form index'),
@@ -522,24 +519,16 @@ export function createSolutionsArchitect(
             question: z.string().optional(),
             answer: z.string().optional(),
           }).nullable().optional().describe('Set close_case config. null to remove. {} for unconditional.'),
-          child_cases: z.array(z.object({
-            case_type: z.string(),
-            case_name_field: z.string(),
-            case_properties: z.array(z.object({ case_property: z.string(), question_id: z.string() })),
-            relationship: z.enum(['child', 'extension']),
-            repeat_context: z.string().describe('Repeat group ID. Empty string if not in repeat.'),
-          })).nullable().optional().describe('Child cases config. null to remove.'),
         }),
-        execute: async ({ moduleIndex, formIndex, name, close_case, child_cases }) => {
+        execute: async ({ moduleIndex, formIndex, name, close_case }) => {
           try {
             mutableBp.updateForm(moduleIndex, formIndex, {
               ...(name !== undefined && { name }),
               ...(close_case !== undefined && { close_case }),
-              ...(child_cases !== undefined && { child_cases }),
             })
             const form = mutableBp.getForm(moduleIndex, formIndex)!
             ctx.emit('data-form-updated', { moduleIndex, formIndex, form })
-            return { moduleIndex, formIndex, name: form.name, type: form.type, close_case: form.close_case ?? null, child_cases: form.child_cases ?? null }
+            return { moduleIndex, formIndex, name: form.name, type: form.type, close_case: form.close_case ?? null }
           } catch (err) {
             return { error: err instanceof Error ? err.message : String(err) }
           }

@@ -111,8 +111,8 @@ describe('FormEngine', () => {
   describe('questions are self-contained', () => {
     it('uses question labels directly without case_types merge', () => {
       const form = makeForm([
-        { id: 'case_name', type: 'text', label: 'Patient Name', is_case_property: true },
-        { id: 'age', type: 'int', label: 'Age', is_case_property: true },
+        { id: 'case_name', type: 'text', label: 'Patient Name', case_property_on: 'patient' },
+        { id: 'age', type: 'int', label: 'Age', case_property_on: 'patient' },
       ])
       const engine = new FormEngine(form, sampleCaseTypes, 'patient')
       const questions = engine.getQuestions()
@@ -125,8 +125,8 @@ describe('FormEngine', () => {
   describe('followup form preloading', () => {
     it('pre-populates case data into the instance', () => {
       const form = makeForm([
-        { id: 'case_name', type: 'text', is_case_property: true },
-        { id: 'age', type: 'int', is_case_property: true },
+        { id: 'case_name', type: 'text', case_property_on: 'patient' },
+        { id: 'age', type: 'int', case_property_on: 'patient' },
       ], 'followup')
 
       const caseData = new Map([['case_name', 'Alice'], ['age', '30']])
@@ -149,7 +149,7 @@ describe('FormEngine', () => {
 
     it('overrides preloaded case data with default_value on followup forms', () => {
       const form = makeForm([
-        { id: 'case_name', type: 'text', label: 'Name', is_case_property: true, default_value: "concat(#case/age, ' - ', #case/case_name)" },
+        { id: 'case_name', type: 'text', label: 'Name', case_property_on: 'patient', default_value: "concat(#case/age, ' - ', #case/case_name)" },
       ], 'followup')
       const caseData = new Map([['case_name', 'Alice'], ['age', '30']])
       const engine = new FormEngine(form, sampleCaseTypes, 'patient', caseData)
@@ -160,7 +160,7 @@ describe('FormEngine', () => {
 
     it('overrides preloaded case data after reset()', () => {
       const form = makeForm([
-        { id: 'case_name', type: 'text', label: 'Name', is_case_property: true, default_value: "concat(#case/age, ' - ', #case/case_name)" },
+        { id: 'case_name', type: 'text', label: 'Name', case_property_on: 'patient', default_value: "concat(#case/age, ' - ', #case/case_name)" },
       ], 'followup')
       const caseData = new Map([['case_name', 'Alice'], ['age', '30']])
       const engine = new FormEngine(form, sampleCaseTypes, 'patient', caseData)
@@ -360,7 +360,7 @@ describe('FormEngine', () => {
   describe('output tags', () => {
     it('resolves output tags in labels with #case refs', () => {
       const form = makeForm([
-        { id: 'case_name', type: 'text', label: 'Name', is_case_property: true },
+        { id: 'case_name', type: 'text', label: 'Name', case_property_on: 'patient' },
         { id: 'greeting', type: 'label', label: 'Hello, <output value="#case/case_name"/>!' },
       ], 'followup')
       const caseData = new Map([['case_name', 'John Smith']])

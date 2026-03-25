@@ -5,7 +5,7 @@
  * and case_references_data.load map from blueprint form definitions.
  * Extracted from hqJsonExpander.ts to isolate case/action logic.
  */
-import type { BlueprintForm, Question } from '../schemas/blueprint'
+import type { BlueprintForm, Question, CaseType } from '../schemas/blueprint'
 import { deriveCaseConfig } from '../schemas/blueprint'
 import {
   RESERVED_CASE_PROPERTIES, MEDIA_QUESTION_TYPES,
@@ -37,15 +37,17 @@ function resolveQuestionPath(questions: Question[], questionId: string, prefix =
  * Silently filters reserved property names and media questions.
  * All question paths are resolved through the group/repeat hierarchy.
  */
-export function buildFormActions(form: BlueprintForm, caseType: string): FormActions {
+export function buildFormActions(form: BlueprintForm, moduleCaseType: string, caseTypes?: CaseType[] | null): FormActions {
   const base = emptyFormActions()
 
-  if (form.type === 'survey' || !caseType) {
+  if (form.type === 'survey' || !moduleCaseType) {
     return base
   }
 
   // Derive case config on-demand from per-question fields
-  const { case_name_field, case_properties, case_preload } = deriveCaseConfig(form.questions || [], form.type)
+  const { case_name_field, case_properties, case_preload, child_cases } = deriveCaseConfig(
+    form.questions || [], form.type, moduleCaseType, caseTypes,
+  )
 
   // Build a safe update map, filtering out reserved property names and media questions
   function buildSafeUpdateMap(caseProperties: Array<{ case_property: string; question_id: string }> | undefined): Record<string, { question_path: string; update_mode: string }> {
@@ -126,16 +128,14 @@ export function buildFormActions(form: BlueprintForm, caseType: string): FormAct
     }
   }
 
-  // Child cases / subcases
-  if (form.child_cases && form.child_cases.length > 0) {
-    base.subcases = form.child_cases.map((child): OpenSubCaseAction => {
+  // Child cases / subcases (auto-derived from case_property_on annotations)
+  if (child_cases && child_cases.length > 0) {
+    base.subcases = child_cases.map((child): OpenSubCaseAction => {
       const childProps: Record<string, { question_path: string; update_mode: string }> = {}
-      if (child.case_properties) {
-        for (const { case_property: caseProp, question_id: questionId } of child.case_properties) {
-          if (RESERVED_CASE_PROPERTIES.has(caseProp)) continue
-          const qPath = resolveQuestionPath(form.questions || [], questionId) || `/data/${questionId}`
-          childProps[caseProp] = { question_path: qPath, update_mode: 'always' }
-        }
+      for (const { case_property: caseProp, question_id: questionId } of child.case_properties) {
+        if (RESERVED_CASE_PROPERTIES.has(caseProp)) continue
+        const qPath = resolveQuestionPath(form.questions || [], questionId) || `/data/${questionId}`
+        childProps[caseProp] = { question_path: qPath, update_mode: 'always' }
       }
 
       const nameFieldPath = resolveQuestionPath(form.questions || [], child.case_name_field) || `/data/${child.case_name_field}`
@@ -147,7 +147,7 @@ export function buildFormActions(form: BlueprintForm, caseType: string): FormAct
         reference_id: '',
         case_properties: childProps,
         repeat_context: child.repeat_context ? resolveQuestionPath(form.questions || [], child.repeat_context) || `/data/${child.repeat_context}` : '',
-        relationship: child.relationship || 'child',
+        relationship: child.relationship,
         close_condition: neverCondition(),
         condition: alwaysCondition(),
       }

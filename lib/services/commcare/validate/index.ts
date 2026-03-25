@@ -30,23 +30,23 @@ export function collectValidPaths(questions: Question[], prefix = '/data'): Set<
   return paths
 }
 
-/** Collect case property names by scanning questions with is_case_property across all forms in matching modules. */
+/** Collect case property names by scanning questions with case_property_on matching the module's case type. */
 export function collectCaseProperties(blueprint: AppBlueprint, moduleCaseType: string | undefined): Set<string> | undefined {
   if (!moduleCaseType) return undefined
   const props = new Set<string>()
   for (const mod of blueprint.modules) {
     if (mod.case_type !== moduleCaseType) continue
     for (const form of mod.forms) {
-      collectFromQuestions(form.questions || [], props)
+      collectFromQuestions(form.questions || [], moduleCaseType, props)
     }
   }
   return props.size > 0 ? props : undefined
 }
 
-function collectFromQuestions(questions: Question[], props: Set<string>): void {
+function collectFromQuestions(questions: Question[], moduleCaseType: string, props: Set<string>): void {
   for (const q of questions) {
-    if (q.is_case_property) props.add(q.id)
-    if (q.children) collectFromQuestions(q.children, props)
+    if (q.case_property_on === moduleCaseType) props.add(q.id)
+    if (q.children) collectFromQuestions(q.children, moduleCaseType, props)
   }
 }
 

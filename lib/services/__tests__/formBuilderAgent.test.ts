@@ -3,11 +3,12 @@
  *
  * These are unit tests that exercise the tool executors directly (no LLM calls).
  * They verify that the form builder's addQuestion, setCloseCaseCondition, and
- * addChildCase tools correctly modify the MutableBlueprint shell.
+ * case derivation via case_property_on correctly modify the MutableBlueprint shell.
  */
 import { describe, it, expect } from 'vitest'
 import { MutableBlueprint } from '../mutableBlueprint'
 import { qpath } from '../questionPath'
+import { deriveCaseConfig } from '../../schemas/blueprint'
 import type { AppBlueprint, Question } from '../../schemas/blueprint'
 
 /** Create a minimal shell blueprint for form builder testing. */
@@ -33,14 +34,14 @@ describe('Form Builder Agent Integration', () => {
         id: 'case_name',
         type: 'text',
         label: 'Patient Name',
-        is_case_property: true,
+        case_property_on: 'patient',
       })
 
       const form = mb.getForm(0, 0)!
       expect(form.questions).toHaveLength(1)
       expect(form.questions[0].id).toBe('case_name')
       expect(form.questions[0].type).toBe('text')
-      expect(form.questions[0].is_case_property).toBe(true)
+      expect(form.questions[0].case_property_on).toBe('patient')
       // Only explicitly set fields are present
       expect(form.questions[0].hint).toBeUndefined()
       expect(form.questions[0].required).toBeUndefined()
@@ -67,7 +68,7 @@ describe('Form Builder Agent Integration', () => {
           { value: 'male', label: 'Male' },
           { value: 'female', label: 'Female' },
         ],
-        is_case_property: true,
+        case_property_on: 'patient',
       })
 
       const form = mb.getForm(0, 0)!
@@ -83,7 +84,7 @@ describe('Form Builder Agent Integration', () => {
         id: 'age_group',
         type: 'hidden',
         calculate: "if(/data/age < 18, 'child', 'adult')",
-        is_case_property: true,
+        case_property_on: 'patient',
       })
 
       const form = mb.getForm(0, 0)!
@@ -159,36 +160,58 @@ describe('Form Builder Agent Integration', () => {
     })
   })
 
-  describe('addChildCase', () => {
-    it('adds a child case', () => {
+  describe('child case derivation via case_property_on', () => {
+    it('derives a child case from case_property_on annotations', () => {
       const mb = new MutableBlueprint(makeShell())
-      mb.addQuestion(0, 0, { id: 'referral_name', type: 'text', label: 'Referral Name' })
-      mb.addChildCase(0, 0, {
-        case_type: 'referral',
-        case_name_field: 'referral_name',
-        case_properties: [{ case_property: 'referral_reason', question_id: 'referral_name' }],
-      })
+      mb.addQuestion(0, 0, { id: 'case_name', type: 'text', label: 'Referral Name', case_property_on: 'referral' })
+      mb.addQuestion(0, 0, { id: 'referral_reason', type: 'text', label: 'Referral Reason', case_property_on: 'referral' })
 
       const form = mb.getForm(0, 0)!
-      expect(form.child_cases).toHaveLength(1)
-      expect(form.child_cases![0].case_type).toBe('referral')
-      expect(form.child_cases![0].case_name_field).toBe('referral_name')
+      const config = deriveCaseConfig(form.questions, form.type, 'patient', [
+        { name: 'patient', properties: [{ name: 'case_name', label: 'Full Name' }] },
+        { name: 'referral', properties: [{ name: 'case_name', label: 'Referral Name' }] },
+      ])
+
+      expect(config.child_cases).toHaveLength(1)
+      expect(config.child_cases![0].case_type).toBe('referral')
+      expect(config.child_cases![0].case_name_field).toBe('case_name')
     })
 
-    it('adds multiple child cases', () => {
+    it('derives multiple child cases from different case_property_on values', () => {
       const mb = new MutableBlueprint(makeShell())
-      mb.addQuestion(0, 0, { id: 'name1', type: 'text', label: 'Name 1' })
-      mb.addQuestion(0, 0, { id: 'name2', type: 'text', label: 'Name 2' })
-      mb.addChildCase(0, 0, { case_type: 'child_a', case_name_field: 'name1' })
-      mb.addChildCase(0, 0, { case_type: 'child_b', case_name_field: 'name2' })
+      mb.addQuestion(0, 0, { id: 'case_name', type: 'text', label: 'Name A', case_property_on: 'child_a' })
+      mb.addQuestion(0, 0, { id: 'case_name', type: 'text', label: 'Name B', case_property_on: 'child_b' })
 
       const form = mb.getForm(0, 0)!
-      expect(form.child_cases).toHaveLength(2)
+      const config = deriveCaseConfig(form.questions, form.type, 'patient', [
+        { name: 'patient', properties: [{ name: 'case_name', label: 'Full Name' }] },
+        { name: 'child_a', properties: [{ name: 'case_name', label: 'Name A' }] },
+        { name: 'child_b', properties: [{ name: 'case_name', label: 'Name B' }] },
+      ])
+
+      expect(config.child_cases).toHaveLength(2)
     })
 
-    it('throws for nonexistent form', () => {
+    it('separates primary and child case properties', () => {
       const mb = new MutableBlueprint(makeShell())
-      expect(() => mb.addChildCase(0, 5, { case_type: 'x', case_name_field: 'y' })).toThrow()
+      mb.addQuestion(0, 0, { id: 'case_name', type: 'text', label: 'Patient Name', case_property_on: 'patient' })
+      mb.addQuestion(0, 0, { id: 'case_name', type: 'text', label: 'Referral Name', case_property_on: 'referral' })
+      mb.addQuestion(0, 0, { id: 'referral_reason', type: 'text', label: 'Reason', case_property_on: 'referral' })
+
+      const form = mb.getForm(0, 0)!
+      const config = deriveCaseConfig(form.questions, form.type, 'patient', [
+        { name: 'patient', properties: [{ name: 'case_name', label: 'Full Name' }] },
+        { name: 'referral', properties: [{ name: 'case_name', label: 'Referral Name' }] },
+      ])
+
+      // Primary case
+      expect(config.case_name_field).toBe('case_name')
+      // Child case
+      expect(config.child_cases).toHaveLength(1)
+      expect(config.child_cases![0].case_type).toBe('referral')
+      expect(config.child_cases![0].case_properties).toEqual([
+        { case_property: 'referral_reason', question_id: 'referral_reason' },
+      ])
     })
   })
 
@@ -200,7 +223,7 @@ describe('Form Builder Agent Integration', () => {
         type: 'text',
         label: 'Patient Name',
         required: 'true()',
-        is_case_property: true,
+        case_property_on: 'patient',
       })
       mb.addQuestion(0, 0, {
         id: 'age',
@@ -208,7 +231,7 @@ describe('Form Builder Agent Integration', () => {
         label: 'Age',
         validation: '. > 0 and . < 150',
         validation_msg: 'Age must be between 1 and 149',
-        is_case_property: true,
+        case_property_on: 'patient',
       })
       mb.addQuestion(0, 0, {
         id: 'vitals',
@@ -219,7 +242,7 @@ describe('Form Builder Agent Integration', () => {
         id: 'temperature',
         type: 'decimal',
         label: 'Temperature (°C)',
-        is_case_property: true,
+        case_property_on: 'patient',
       }, { parentPath: qpath('vitals') })
 
       const form = mb.getForm(0, 0)!
