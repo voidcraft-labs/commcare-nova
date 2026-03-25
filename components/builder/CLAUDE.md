@@ -2,7 +2,7 @@
 
 ## BuilderLayout
 
-Main layout with one `useChat` instance targeting `/api/chat`. Wrapped in `ErrorBoundary` around LeftPanel (Chat + Structure tabs), PreviewShell, and DetailPanel.
+Main layout with one `useChat` instance targeting `/api/chat`. Wrapped in `ErrorBoundary` around LeftPanel (Chat + Structure tabs), PreviewShell, and ContextualEditor.
 
 - **`body`** sends: `apiKey`, `pipelineConfig`, `blueprint` (for edits).
 - **`sendAutomaticallyWhen`** only triggers for `askQuestions` (client-side tool).
@@ -14,7 +14,7 @@ Main layout with one `useChat` instance targeting `/api/chat`. Wrapped in `Error
 1. **Tier 1 — Logo bar**: `commcare nova` + settings link. `bg-nova-void`. Collapses to zero height in hero/centered mode via animated `height: 0 → auto`.
 2. **Tier 2 — Project subheader**: Full-width breadcrumbs (left) + `DownloadDropdown` (right). `bg-[rgba(139,92,246,0.06)]` with subtle violet glow shadow. Shows as soon as centered mode exits (breadcrumbs populate once `app_name` arrives). Download button appears when `phase === Done`. `text-lg` for hierarchy above chat/toolbar text.
 3. **Tier 3 — Toolbar** (`SubheaderToolbar.tsx`): Full-width `ViewModeToggle` (centered) + Undo/Redo (right). `bg-nova-deep`. Only shows when `Done` + blueprint exists.
-4. **Tier 4 — Content area**: Main content fills full width (scrollbar on far right). LeftPanel (dual-tab Chat/Structure) and DetailPanel float as absolute overlays from left/right edges respectively.
+4. **Tier 4 — Content area**: Main content fills full width (scrollbar on far right). LeftPanel (dual-tab Chat/Structure) floats as absolute overlay from the left edge. ContextualEditor floats as a portal anchored to the selected question.
 
 ### Chat-Centered Landing
 
@@ -39,19 +39,16 @@ Full-width 3-column grid: left spacer, center `ViewModeToggle` (`components/prev
 - **Structure tree selection**: `handleTreeSelect` in BuilderLayout calls `builder.select()` and typed nav methods (`nav.navigateToForm()`, `nav.navigateToModule()`, `nav.navigateToHome()`). Typed methods are idempotent — they use `screensEqual()` internally to skip if already on the target screen, preventing duplicate history entries when clicking multiple questions in the same form.
 
 When `Done` + blueprint exists:
-- `'design'` → `PreviewShell` (editable canvas) + `LeftPanel` (overlay left, Chat/Structure tabs) + `DetailPanel` (overlay right)
+- `'design'` → `PreviewShell` (editable canvas) + `LeftPanel` (overlay left, Chat/Structure tabs) + `ContextualEditor` (floating, anchored to selected question)
 - `'preview'` → `PreviewShell` (read-only, no edit chrome, no sidebars)
 
 ### Panel State Management
 
-LeftPanel and DetailPanel both collapse in preview mode:
+LeftPanel collapses in preview mode. ContextualEditor shows in design mode whenever a question is selected (no separate open/close pref — always visible for the selected question).
 - `leftOpen = viewMode === 'preview' ? false : leftPanelOpen`
-- `detailOpen = viewMode === 'preview' ? false : detailUserPref`
-- `showDetailPanel = showToolbar && !!builder.selected && detailOpen`
+- `showContextualEditor = showToolbar && viewMode === 'design'`
 
 `leftTab` (`'chat' | 'structure'`) tracks which LeftPanel tab is active. Auto-switches to `'structure'` when tree data first appears during generation, then to `'chat'` when generation completes (so the SA's "app is ready" message is visible). After generation, the canvas auto-navigates to the first form.
-
-DetailPanel pref syncs with selection changes via a `useEffect` that suppresses during view mode transitions (prevents auto-sync re-selections from reopening a closed panel). When selection changes without a view mode change: selecting sets pref `true`, deselecting sets pref `false`. View mode transitions (where auto-sync may re-select from nav) leave the pref unchanged. Undo/redo explicitly sets pref `true` to show edit context. The reopen button (`ci:window-sidebar`) also hides in preview mode.
 
 ## LeftPanel
 
@@ -65,31 +62,29 @@ Keyboard shortcuts extracted to `useBuilderShortcuts.ts` hook, registered via `u
 
 Undo/redo "teleports" the user back to where the edit was made. Each history snapshot captures the current `ViewMode`. On undo/redo, `builder.undo()`/`redo()` return the captured view mode. BuilderLayout's `restoreView()` switches viewMode if needed and syncs the preview nav via typed methods (`navigateToForm`/`navigateToModule`/`navigateToHome`) so the correct form is visible. `builder.setViewMode()` keeps the HistoryManager in sync on each render.
 
-## DetailPanel
+## ContextualEditor
 
-Right-side overlay mirroring ChatSidebar's structure. BuilderLayout wraps it in an outer `motion.div` with `absolute right-0 top-0 bottom-0 z-20` for positioning and slide animation (`x: 320 → 0`). Inner DetailPanel is a plain `w-80 h-full` div styled as a pullout: `rounded-l-xl m-2 mr-0 border border-nova-border-bright border-r-0 shadow-[0_2px_12px_rgba(0,0,0,0.4)]`. Floats over main content without affecting layout or scrollbar position.
+Floating property panel anchored to the selected question via `@floating-ui/react`. Rendered into a `FloatingPortal` at `z-popover`. Appears in design mode whenever a question is selected (`showContextualEditor = showToolbar && viewMode === 'design'`). All hooks called unconditionally before the early return guard (React rules of hooks). Two separate `useLayoutEffect`s: one repositions the floating reference on every mutation (the question element may shift), the other plays the entrance animation only on question selection change.
 
-Split into sub-panels:
-- `detail/ModuleDetail.tsx` — module name, case type, columns
-- `detail/FormDetail.tsx` — form name, type, case config
-- `detail/QuestionDetail.tsx` — question fields, XPath, options
+Split into tabbed sub-editors (`ContextualEditorTabs`):
+- **UI tab** (`ContextualEditorUI`) — label, type (via `QuestionTypeGrid` popover at `z-popover-top`), hint, required
+- **Logic tab** (`ContextualEditorLogic`) — validation, relevant, default_value, calculate (XPath modal)
+- **Data tab** (`ContextualEditorData`) — question ID (with rename propagation), `CasePropertyPills` ("Saves to" header + pill buttons), options editor for select types
 
-Reads/writes through `builder.mb` (persistent `MutableBlueprint`). Three editing patterns:
+**Footer** (`ContextualEditorFooter`) — move up/down, duplicate, delete. Uses `flattenQuestionPaths` with `builder.mutationCount` dependency to keep move button enabled/disabled state fresh after mutations.
+
+Reads/writes through `builder.mb` (persistent `MutableBlueprint`). Editing patterns:
 
 - **EditableText** — Always-rendered input/textarea styled as static text when unfocused, editing chrome on focus. Click places cursor at the native click position (no DOM swap). Single-line: Enter saves. Multiline: Enter inserts newline, Cmd/Ctrl+Enter saves. Escape cancels. Blur saves. Emerald checkmark fades on save. `autoFocus` focuses on mount. `selectAll` selects all text on focus (used for newly added questions via `builder.isNewQuestion(path)`, cleared on first save via `builder.clearNewQuestion()`). Optional `labelRight` renders right-aligned content in the label row.
 - **EditableDropdown** — Custom dark-themed dropdown. Selection saves immediately (including re-selection of current value, enabling actions like reopening the XPath modal). Click-outside/Escape via `useDismissRef`.
-- **XPathEditorModal** — Portal-mounted CodeMirror editor with fold gutters (ci chevron SVG markers), bracket matching, zebra stripes. Opens with `prettyPrintXPath` (same expanded format as sidebar), saves back via `formatXPath` (single-line for storage). Auto-focuses with cursor at end. Cmd/Ctrl+Enter saves, Escape closes via ref callback. Cancel/Update buttons. Indentation uses 4 spaces (matching `Layout.Tab` rendering).
-
-**Editable fields:** module name, form name, form type, question label/id/type/hint, required (dropdown with conditional → opens XPath modal), validation/relevant/default_value/calculate (XPath modal). "Add Property" shows `+` buttons for missing optional fields. `case_property_on` via `CasePropertyPills` — inline pill buttons rendered as a sub-row beneath the ID field ("saves to [type1] [type2]"). One pill per case type the module can write to (its own type + child types via `getModuleCaseTypes`). Click to toggle on/off, radio behavior when multiple. Disabled for media types, locked on for `case_name`.
+- **QuestionTypeGrid** (`components/builder/QuestionTypeGrid.tsx`) — shared 2-column icon+label grid for type selection. Used by both `ContextualEditorUI` (type change) and `QuestionTypePicker` (insertion point). Highlights active type with violet accent.
+- **CasePropertyPills** — pill buttons with "Saves to" header. One pill per case type the module can write to (its own type + child types via `getModuleCaseTypes`). Click to toggle on/off, radio behavior when multiple. Disabled for media types, locked on for `case_name`.
+- **XPathEditorModal** — Portal-mounted CodeMirror editor at `z-modal`. Fold gutters, bracket matching, zebra stripes. Opens with `prettyPrintXPath`, saves back via `formatXPath` (single-line for storage). Cmd/Ctrl+Enter saves, Escape closes. Lazy-loaded via `next/dynamic` (`ssr: false`).
 
 ### Rename Propagation
 
 - Editing question ID → `mb.renameQuestion()` → `rewriteXPathRefs` (Lezer-based) updates `/data/...` paths and `#form/...` hashtags across siblings.
 - Renaming a case property (question with `case_property_on`) → `mb.renameCaseProperty()` → renames question ID across all forms in the module, `rewriteHashtagRefs` for `#case/...` refs, updates columns. Does not touch `case_types` (frozen after generation).
-
-## XPathField
-
-Read-only CodeMirror with Nova theme, `tabSize: 4`, `prettyPrintXPath` for display. Optional `onClick` adds hover highlight (used by DetailPanel to open XPath modal). Lazy-loaded via `next/dynamic` (`ssr: false`) in QuestionDetail alongside XPathEditorModal — CodeMirror (~150KB) is deferred until a question with XPath properties is selected.
 
 ## GenerationProgress
 
