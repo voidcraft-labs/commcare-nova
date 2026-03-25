@@ -45,7 +45,7 @@ When `Done` + blueprint exists:
 
 ### Panel State Management
 
-Both panels collapse in preview mode. ContextualEditor shows in design mode whenever a question is selected (no separate open/close pref — always visible for the selected question).
+Both panels collapse in preview mode via conditional rendering — the underlying `leftPanelOpen`/`rightPanelOpen` state is never mutated by mode switches, so the user's open/close preference is preserved when returning to design. ContextualEditor shows in design mode whenever a question is selected (no separate open/close pref — always visible for the selected question).
 - `leftOpen = viewMode === 'preview' ? false : leftPanelOpen`
 - `rightOpen = viewMode === 'preview' ? false : rightPanelOpen`
 - `showContextualEditor = showToolbar && viewMode === 'design'`

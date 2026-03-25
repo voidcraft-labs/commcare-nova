@@ -130,14 +130,6 @@ export function BuilderLayout({ buildId }: { buildId: string }) {
 
     viewModeRef.current = mode
     setViewMode(mode)
-
-    // Entering preview: collapse both panels
-    if (mode === 'preview') {
-      setLeftPanelOpen(false)
-      setRightPanelOpen(false)
-    } else {
-      setLeftPanelOpen(true)
-    }
   }, [])
 
   // Restore scroll position after mode switch for flipbook-style alignment
