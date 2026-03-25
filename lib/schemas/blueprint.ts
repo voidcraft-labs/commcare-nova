@@ -62,6 +62,12 @@ const casePropertySchema = z.object({
 const caseTypeSchema = z.object({
   name: z.string().describe('Case type name in snake_case (e.g., "patient", "household")'),
   properties: z.array(casePropertySchema).describe('Case properties to track. Forms will create questions to capture these. The case name question must always have id "case_name".'),
+  parent_type: z.string().optional().describe(
+    'Parent case type name. Present only for child case types (e.g., a "child" case type with parent_type "mother").'
+  ),
+  relationship: z.enum(['child', 'extension']).optional().describe(
+    '"child" (default) or "extension". Only used when parent_type is set. Use "extension" when the child should prevent the parent from being closed.'
+  ),
 })
 
 // ── Case Types Output Schema (for generateSchema tool) ─────────────────
@@ -153,9 +159,11 @@ const questionFields = {
   options: z.array(selectOptionSchema).optional().describe(
     'Options for single_select/multi_select questions — at least 2 options. Omit for all other question types.'
   ),
-  is_case_property: z.boolean().optional().describe(
-    'True if this question\'s value is saved as a case property (e.g., `#case/{Question ID}` = question id). ' +
-    'The question being saved as the case object\'s name must always be called "case_name". ' +
+  case_property_on: z.string().optional().describe(
+    'Case type name this question saves to (e.g. "patient"). ' +
+    'When this matches the module\'s case_type, the question is a normal case property. ' +
+    'When different, it creates a child case of that type. ' +
+    'The question for the case name must always have id "case_name". ' +
     `Question id must NOT be a reserved name: ${RESERVED_CASE_PROPERTIES}. ` +
     'Must NOT be set on media questions (image, audio, video, signature).'
   ),
@@ -165,26 +173,6 @@ const questionSchema: z.ZodType<Question> = z.object({
   ...questionFields,
   children: z.lazy(() => z.array(questionSchema)).optional().describe('Nested questions for group/repeat types'),
 })
-
-// ── Child Case Schema ─────────────────────────────────────────────────
-
-const childCaseSchema = z.object({
-  case_type: z.string().describe(
-    'The child case type in snake_case (e.g. "referral", "pregnancy", "household_member"). Only letters, digits, underscores, hyphens.'
-  ),
-  case_name_field: z.string().describe(
-    'Question id whose value becomes the child case name'
-  ),
-  case_properties: z.array(casePropertyMappingSchema).optional().describe(
-    'Child case property-to-question mappings. Do NOT use reserved property names.'
-  ),
-  relationship: z.enum(['child', 'extension']).optional().describe(
-    '"child" (default) or "extension". Use "extension" when the child should prevent the parent from being closed.'
-  ),
-  repeat_context: z.string().optional().describe(
-    'Question id of a repeat group — creates one child case per repeat entry'
-  ),
-}).describe('Creates a child/sub-case linked to the parent case')
 
 // ── Form Schema ──────────────────────────────────────────────────────
 
@@ -198,9 +186,6 @@ export const blueprintFormSchema = z.object({
     answer: z.string().optional().describe('Value that triggers case closure'),
   }).optional().describe(
     'Followup forms only. Present = close the case. Empty {} = always close. {question, answer} = close only when that answer is selected. Omit entirely if form should not close the case.'
-  ),
-  child_cases: z.array(childCaseSchema).optional().describe(
-    'Create child/sub-cases linked to the current case. Valid on both registration and followup forms.'
   ),
   questions: z.array(questionSchema).describe(
     'Array of questions with nested children for groups/repeats. Every form must have at least one question.'
@@ -258,10 +243,9 @@ export interface Question {
   calculate?: string
   default_value?: string
   options?: Array<{ value: string; label: string }>
-  is_case_property?: boolean
+  case_property_on?: string
   children?: Question[]
 }
-export type BlueprintChildCase = z.infer<typeof childCaseSchema>
 export type CaseProperty = z.infer<typeof casePropertySchema>
 export type CaseType = z.infer<typeof caseTypeSchema>
 
@@ -301,46 +285,116 @@ export function summarizeBlueprint(bp: AppBlueprint): string {
 // ── Case config derivation ─────────────────────────────────────────────
 
 /**
- * Derive form-level case config from per-question is_case_property fields.
- * Case name is always the question with id "case_name".
- * Works on any question-like objects with nested children.
+ * Derive form-level case config from per-question case_property_on fields.
+ *
+ * Questions with case_property_on matching the module's case type → primary case config.
+ * Questions with case_property_on pointing to a different type → child case creation.
+ * Case name is always the question with id "case_name" within each case type group.
  */
-interface CaseConfigQuestion {
+export interface CaseConfigQuestion {
   id: string
-  is_case_property?: boolean
+  type?: string
+  case_property_on?: string
   children?: CaseConfigQuestion[]
 }
 
-export function deriveCaseConfig(questions: CaseConfigQuestion[], formType: 'registration' | 'followup' | 'survey') {
+export interface DerivedChildCase {
+  case_type: string
+  case_name_field: string
+  case_properties: CasePropertyMapping[]
+  relationship: 'child' | 'extension'
+  repeat_context?: string
+}
+
+export interface DerivedCaseConfig {
+  case_name_field?: string
+  case_properties?: CasePropertyMapping[]
+  case_preload?: CasePropertyMapping[]
+  child_cases?: DerivedChildCase[]
+}
+
+export function deriveCaseConfig(
+  questions: CaseConfigQuestion[],
+  formType: 'registration' | 'followup' | 'survey',
+  moduleCaseType?: string,
+  caseTypes?: CaseType[] | null,
+): DerivedCaseConfig {
+  const empty: DerivedCaseConfig = {}
+  if (formType === 'survey') return empty
+
+  const primaryProps: CasePropertyMapping[] = []
+  const primaryPreload: CasePropertyMapping[] = []
   let case_name_field: string | undefined
-  let case_properties: CasePropertyMapping[] | undefined
-  let case_preload: CasePropertyMapping[] | undefined
 
-  if (formType === 'survey') return { case_name_field, case_properties, case_preload }
+  // Child case groups: case_type → { questions with their repeat ancestor }
+  const childGroups = new Map<string, Array<{ id: string; repeatAncestor?: string }>>()
 
-  const props: CasePropertyMapping[] = []
-  const preload: CasePropertyMapping[] = []
-
-  function walk(qs: CaseConfigQuestion[]) {
+  function walk(qs: CaseConfigQuestion[], repeatAncestor?: string) {
     for (const q of qs) {
-      if (q.id === 'case_name' && q.is_case_property) {
-        // case_name is handled via case_name_field / name_update, not case_properties
-        case_name_field = q.id
-      } else if (q.is_case_property) {
-        if (formType === 'followup') {
-          preload.push({ case_property: q.id, question_id: q.id })
+      const currentRepeat = (q.type === 'repeat') ? q.id : repeatAncestor
+
+      if (q.case_property_on) {
+        if (q.case_property_on === moduleCaseType) {
+          // Primary case property
+          if (q.id === 'case_name') {
+            case_name_field = q.id
+          } else {
+            if (formType === 'followup') {
+              primaryPreload.push({ case_property: q.id, question_id: q.id })
+            }
+            primaryProps.push({ case_property: q.id, question_id: q.id })
+          }
+        } else {
+          // Child case property
+          if (!childGroups.has(q.case_property_on)) childGroups.set(q.case_property_on, [])
+          childGroups.get(q.case_property_on)!.push({ id: q.id, repeatAncestor: currentRepeat })
         }
-        props.push({ case_property: q.id, question_id: q.id })
       }
-      if (q.children) walk(q.children)
+
+      if (q.children) walk(q.children, currentRepeat)
     }
   }
 
   walk(questions)
 
-  if (props.length > 0) case_properties = props
-  if (preload.length > 0) case_preload = preload
+  const result: DerivedCaseConfig = {}
+  if (case_name_field) result.case_name_field = case_name_field
+  if (primaryProps.length > 0) result.case_properties = primaryProps
+  if (primaryPreload.length > 0) result.case_preload = primaryPreload
 
-  return { case_name_field, case_properties, case_preload }
+  // Derive child cases
+  if (childGroups.size > 0 && caseTypes) {
+    const derived: DerivedChildCase[] = []
+
+    for (const [childType, entries] of childGroups) {
+      const ctDef = caseTypes.find(ct => ct.name === childType)
+      const relationship = ctDef?.relationship ?? 'child'
+
+      // Find case_name question for this child type
+      const nameEntry = entries.find(e => e.id === 'case_name')
+      const childCaseName = nameEntry?.id ?? entries[0].id
+
+      // Properties: all entries except the case name
+      const childProps: CasePropertyMapping[] = entries
+        .filter(e => e.id !== childCaseName)
+        .map(e => ({ case_property: e.id, question_id: e.id }))
+
+      // Repeat context: if all entries share the same repeat ancestor, use it
+      const repeatAncestors = new Set(entries.map(e => e.repeatAncestor).filter(Boolean))
+      const repeat_context = repeatAncestors.size === 1 ? [...repeatAncestors][0] : undefined
+
+      derived.push({
+        case_type: childType,
+        case_name_field: childCaseName,
+        case_properties: childProps,
+        relationship,
+        ...(repeat_context && { repeat_context }),
+      })
+    }
+
+    result.child_cases = derived
+  }
+
+  return result
 }
 

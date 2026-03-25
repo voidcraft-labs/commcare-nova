@@ -7,7 +7,7 @@
  */
 import {
   type AppBlueprint, type BlueprintModule, type BlueprintForm, type Question,
-  type BlueprintChildCase, type CaseType, type CaseProperty,
+  type CaseType, type CaseProperty,
 } from '../schemas/blueprint'
 import { rewriteXPathRefs, rewriteHashtagRefs } from '../preview/xpath/rewrite'
 import { rewriteOutputTags } from '../preview/engine/outputTag'
@@ -49,7 +49,7 @@ export interface QuestionUpdate {
   calculate: string | null
   default_value: string | null
   options: Array<{ value: string; label: string }> | null
-  is_case_property: boolean | null
+  case_property_on: string | null
 }
 
 // ── NewQuestion type ────────────────────────────────────────────────────
@@ -67,7 +67,7 @@ export interface NewQuestion {
   calculate?: string
   default_value?: string
   options?: Array<{ value: string; label: string }>
-  is_case_property?: boolean
+  case_property_on?: string
   children?: NewQuestion[]
 }
 
@@ -203,7 +203,7 @@ export class MutableBlueprint {
 
       if (q.id.toLowerCase().includes(query)) matchFields.push({ field: 'id', value: q.id })
       if (q.label && q.label.toLowerCase().includes(query)) matchFields.push({ field: 'label', value: q.label })
-      if (q.is_case_property && q.id.toLowerCase().includes(query)) matchFields.push({ field: 'case_property', value: q.id })
+      if (q.case_property_on && q.id.toLowerCase().includes(query)) matchFields.push({ field: 'case_property', value: `${q.id}→${q.case_property_on}` })
       if (q.validation?.toLowerCase().includes(query)) matchFields.push({ field: 'validation', value: q.validation })
       if (q.relevant?.toLowerCase().includes(query)) matchFields.push({ field: 'relevant', value: q.relevant })
       if (q.calculate?.toLowerCase().includes(query)) matchFields.push({ field: 'calculate', value: q.calculate })
@@ -230,7 +230,7 @@ export class MutableBlueprint {
           questionPath,
           field: match.field,
           value: match.value,
-          context: `${formRef} question "${q.id}" (${q.type}${q.is_case_property ? ', case_property' : ''})`,
+          context: `${formRef} question "${q.id}" (${q.type}${q.case_property_on ? `, case_property_on:${q.case_property_on}` : ''})`,
         })
       }
 
@@ -305,19 +305,6 @@ export class MutableBlueprint {
     if (form.close_case?.question === bareId) {
       delete form.close_case
     }
-
-    // Clean up child_cases references
-    if (form.child_cases) {
-      form.child_cases = form.child_cases.filter(cc => {
-        if (cc.case_name_field === bareId) return false
-        if (cc.repeat_context === bareId) return false
-        if (cc.case_properties) {
-          cc.case_properties = cc.case_properties.filter(cp => cp.question_id !== bareId)
-        }
-        return true
-      })
-      if (form.child_cases.length === 0) delete form.child_cases
-    }
   }
 
   moveQuestion(mIdx: number, fIdx: number, questionPath: QuestionPath, opts: { afterPath?: QuestionPath; beforePath?: QuestionPath; targetParentPath?: QuestionPath }): void {
@@ -372,7 +359,7 @@ export class MutableBlueprint {
     clone.id = newId
 
     // Clear case mapping on the clone to avoid duplicate mappings
-    delete clone.is_case_property
+    delete clone.case_property_on
 
     // Insert after original in same parent array
     this.insertIntoArray(found.parent, clone, qpathId(questionPath))
@@ -413,7 +400,7 @@ export class MutableBlueprint {
     }
   }
 
-  updateForm(mIdx: number, fIdx: number, updates: { name?: string; type?: 'registration' | 'followup' | 'survey'; close_case?: { question?: string; answer?: string } | null; child_cases?: BlueprintChildCase[] | null }): void {
+  updateForm(mIdx: number, fIdx: number, updates: { name?: string; type?: 'registration' | 'followup' | 'survey'; close_case?: { question?: string; answer?: string } | null }): void {
     const form = this.blueprint.modules[mIdx]?.forms[fIdx]
     if (!form) throw new Error(`Form m${mIdx}-f${fIdx} not found`)
 
@@ -426,20 +413,6 @@ export class MutableBlueprint {
         form.close_case = updates.close_case
       }
     }
-    if (updates.child_cases !== undefined) {
-      if (updates.child_cases === null) {
-        delete form.child_cases
-      } else {
-        form.child_cases = updates.child_cases
-      }
-    }
-  }
-
-  addChildCase(mIdx: number, fIdx: number, childCase: BlueprintChildCase): void {
-    const form = this.blueprint.modules[mIdx]?.forms[fIdx]
-    if (!form) throw new Error(`Form m${mIdx}-f${fIdx} not found`)
-    if (!form.child_cases) form.child_cases = []
-    form.child_cases.push(childCase)
   }
 
   replaceForm(mIdx: number, fIdx: number, form: BlueprintForm): void {
@@ -503,20 +476,6 @@ export class MutableBlueprint {
         // Rename question IDs and rewrite XPath refs
         formChanged = this.renamePropertyInQuestions(form.questions, oldName, newName) || formChanged
 
-        // Child cases
-        if (form.child_cases) {
-          for (const cc of form.child_cases) {
-            if (cc.case_properties) {
-              for (const cp of cc.case_properties) {
-                if (cp.case_property === oldName) {
-                  cp.case_property = newName
-                  formChanged = true
-                }
-              }
-            }
-          }
-        }
-
         if (formChanged) {
           formsChanged.push(`m${mIdx}-f${fIdx}`)
         }
@@ -545,19 +504,6 @@ export class MutableBlueprint {
     // Update close_case reference
     if (form.close_case?.question === oldId) {
       form.close_case.question = newId
-    }
-
-    // Update child_cases references
-    if (form.child_cases) {
-      for (const cc of form.child_cases) {
-        if (cc.case_name_field === oldId) cc.case_name_field = newId
-        if (cc.repeat_context === oldId) cc.repeat_context = newId
-        if (cc.case_properties) {
-          for (const cp of cc.case_properties) {
-            if (cp.question_id === oldId) cp.question_id = newId
-          }
-        }
-      }
     }
 
     const newPath = qpath(newId, qpathParent(questionPath))
@@ -645,7 +591,7 @@ export class MutableBlueprint {
       ...(nq.calculate != null && { calculate: nq.calculate }),
       ...(nq.default_value != null && { default_value: nq.default_value }),
       ...(nq.options != null && { options: nq.options }),
-      ...(nq.is_case_property != null && { is_case_property: nq.is_case_property }),
+      ...(nq.case_property_on != null && { case_property_on: nq.case_property_on }),
       ...((nq.type === 'group' || nq.type === 'repeat') && {
         children: (nq.children ?? []).map(c => this.newQuestionToBlueprint(c)),
       }),
@@ -691,7 +637,7 @@ export class MutableBlueprint {
     let changed = false
     for (const q of questions) {
       // Rename question ID (since question ID = property name)
-      if (q.id === oldName && q.is_case_property) {
+      if (q.id === oldName && q.case_property_on) {
         q.id = newName
         changed = true
       }

@@ -12,9 +12,9 @@ const followupBlueprint: AppBlueprint = {
       type: 'followup',
       questions: [
         { id: 'client_info', type: 'group', label: 'Client Info', children: [
-          { id: 'full_name', type: 'text', label: 'Name', is_case_property: true },
+          { id: 'full_name', type: 'text', label: 'Name', case_property_on: 'patient' },
         ]},
-        { id: 'total_visits', type: 'hidden', calculate: '#case/total_visits + 1', is_case_property: true },
+        { id: 'total_visits', type: 'hidden', calculate: '#case/total_visits + 1', case_property_on: 'patient' },
         { id: 'notes', type: 'text', label: 'Notes' },
       ],
     }],
@@ -32,8 +32,8 @@ const registrationBlueprint: AppBlueprint = {
       name: 'Register Patient',
       type: 'registration',
       questions: [
-        { id: 'case_name', type: 'text', label: 'Full Name', required: 'true()', is_case_property: true },
-        { id: 'age', type: 'int', label: 'Age', validation: '. > 0 and . < 150', is_case_property: true },
+        { id: 'case_name', type: 'text', label: 'Full Name', required: 'true()', case_property_on: 'patient' },
+        { id: 'age', type: 'int', label: 'Age', validation: '. > 0 and . < 150', case_property_on: 'patient' },
         { id: 'risk', type: 'hidden', calculate: "if(/data/age > 65, 'high', 'low')" },
       ],
     }],
@@ -67,7 +67,7 @@ describe('expandBlueprint', () => {
           name: 'F', type: 'followup',
           questions: [{
             id: 'grp', type: 'group', label: 'G', children: [
-              { id: 'some_prop', type: 'hidden', calculate: '#case/some_prop + #user/role', is_case_property: true },
+              { id: 'some_prop', type: 'hidden', calculate: '#case/some_prop + #user/role', case_property_on: 'case' },
             ],
           }],
         }],
@@ -137,7 +137,7 @@ describe('expandBlueprint', () => {
       app_name: 'DV', modules: [{
         name: 'M', case_type: 'c', forms: [{
           name: 'F', type: 'followup',
-          questions: [{ id: 'full_name', type: 'text', label: 'Name', default_value: '#case/full_name', is_case_property: true }],
+          questions: [{ id: 'full_name', type: 'text', label: 'Name', default_value: '#case/full_name', case_property_on: 'c' }],
         }],
       }],
       case_types: [{ name: 'c', properties: [{ name: 'full_name', label: 'Full Name' }] }],
@@ -194,7 +194,7 @@ describe('case_name in case list columns', () => {
     app_name: 'CL', modules: [{
       name: 'M', case_type: 'patient', forms: [{
         name: 'F', type: 'registration',
-        questions: [{ id: 'case_name', type: 'text', label: 'Name', is_case_property: true }],
+        questions: [{ id: 'case_name', type: 'text', label: 'Name', case_property_on: 'patient' }],
       }],
       case_list_columns: [{ field: 'case_name', header: 'Full Name' }, { field: 'age', header: 'Age' }],
     }],
@@ -222,7 +222,7 @@ describe('validateBlueprint', () => {
       app_name: 'Bad', modules: [{
         name: 'M', forms: [{
           name: 'F', type: 'registration',
-          questions: [{ id: 'case_name', type: 'text', label: 'Q', is_case_property: true }],
+          questions: [{ id: 'case_name', type: 'text', label: 'Q', case_property_on: 'patient' }],
         }],
       }],
       case_types: null,
@@ -236,7 +236,7 @@ describe('validateBlueprint', () => {
       app_name: 'Bad', modules: [{
         name: 'M', case_type: 'c', forms: [{
           name: 'F', type: 'registration',
-          questions: [{ id: 'name', type: 'text', label: 'Q', is_case_property: true }],
+          questions: [{ id: 'name', type: 'text', label: 'Q', case_property_on: 'c' }],
         }],
       }],
       case_types: [{ name: 'c', properties: [{ name: 'name', label: 'Q' }] }],
@@ -287,7 +287,7 @@ describe('output references in labels', () => {
         name: 'M', case_type: 'c', forms: [{
           name: 'F', type: 'followup',
           questions: [
-            { id: 'full_name', type: 'text', label: 'Name', is_case_property: true },
+            { id: 'full_name', type: 'text', label: 'Name', case_property_on: 'c' },
             { id: 'msg', type: 'label', label: 'Patient: <output value="#case/full_name"/>' },
           ],
         }],
@@ -385,7 +385,7 @@ describe('conditional required', () => {
         name: 'M', case_type: 'c', forms: [{
           name: 'F', type: 'followup',
           questions: [
-            { id: 'risk', type: 'text', label: 'Q', is_case_property: true },
+            { id: 'risk', type: 'text', label: 'Q', case_property_on: 'c' },
             { id: 'notes', type: 'text', label: 'Notes', required: "#case/risk = 'high'" },
           ],
         }],
@@ -407,7 +407,7 @@ describe('case detail (long) view', () => {
       app_name: 'D', modules: [{
         name: 'M', case_type: 'c', forms: [{
           name: 'F', type: 'registration',
-          questions: [{ id: 'case_name', type: 'text', label: 'Name', is_case_property: true }],
+          questions: [{ id: 'case_name', type: 'text', label: 'Name', case_property_on: 'c' }],
         }],
         case_list_columns: [{ field: 'case_name', header: 'Name' }, { field: 'age', header: 'Age' }],
       }],
@@ -424,7 +424,7 @@ describe('case detail (long) view', () => {
       app_name: 'D', modules: [{
         name: 'M', case_type: 'c', forms: [{
           name: 'F', type: 'registration',
-          questions: [{ id: 'case_name', type: 'text', label: 'Name', is_case_property: true }],
+          questions: [{ id: 'case_name', type: 'text', label: 'Name', case_property_on: 'c' }],
         }],
         case_list_columns: [{ field: 'case_name', header: 'Name' }],
         case_detail_columns: [
@@ -537,8 +537,8 @@ describe('expansion with complete questions', () => {
         name: 'M', case_type: 'patient', forms: [{
           name: 'Register', type: 'registration',
           questions: [
-            { id: 'case_name', type: 'text', label: 'Patient Name', is_case_property: true },
-            { id: 'age', type: 'int', label: 'Age', is_case_property: true },
+            { id: 'case_name', type: 'text', label: 'Patient Name', case_property_on: 'patient' },
+            { id: 'age', type: 'int', label: 'Age', case_property_on: 'patient' },
           ],
         }],
       }],
@@ -557,7 +557,7 @@ describe('expansion with complete questions', () => {
         name: 'M', case_type: 'patient', forms: [{
           name: 'F', type: 'registration',
           questions: [
-            { id: 'case_name', type: 'text', label: 'Patient Name', is_case_property: true },
+            { id: 'case_name', type: 'text', label: 'Patient Name', case_property_on: 'patient' },
           ],
         }],
       }],

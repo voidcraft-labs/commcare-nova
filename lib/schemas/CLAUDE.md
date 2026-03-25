@@ -15,7 +15,7 @@ Zod schemas for `AppBlueprint` and generation output schemas (`caseTypesOutput`,
 Only `id` and `type` are required. All other fields are optional — present only when set:
 - **Text:** `label`, `hint`, `help`
 - **Logic:** `required`, `validation`, `validation_msg`, `relevant`, `calculate`, `default_value`
-- **Data:** `is_case_property`, `options`
+- **Data:** `case_property_on`, `options`
 - **Structure:** `children` (nested groups/repeats)
 
 All text fields are plain `string`. XPath fields support `#case/` and `#user/` hashtag shorthand. String literal values in XPath fields must be quoted (`'pending'`, not `pending`) — the validator catches bare words via Lezer parse tree analysis.
@@ -26,7 +26,7 @@ All text fields are plain `string`. XPath fields support `#case/` and `#user/` h
 - The Zod schema (`questionSchema`) is also recursive via `z.lazy()` — used for API input validation only, not LLM structured output
 - SA tools with `parentId` build deeper structures during generation
 - `default_value` → `<setvalue event="xforms-ready">` in XForm (one-time on load, unlike `calculate` which recalculates)
-- `is_case_property: true` marks a question as a case property (property name = question ID). The case name question must have `id: "case_name"`.
+- `case_property_on: "<case_type>"` marks a question as saving to that case type (property name = question ID). When it matches the module's case type, it's a normal case property. When it names a different type, it triggers child case creation. The case name question must have `id: "case_name"`.
 
 ### Close Case Format
 
@@ -39,7 +39,7 @@ All text fields are plain `string`. XPath fields support `#case/` and `#user/` h
 The Anthropic schema compiler times out with >8 `.optional()` per array item (each creates an `anyOf` union in JSON Schema). The `addQuestions` tool schema uses a hybrid approach:
 
 - **8 optional fields** (sparse, saves tokens): `hint`, `help`, `validation`, `validation_msg`, `relevant`, `calculate`, `default_value`, `options`
-- **3 required sentinel fields** (almost always present, low cost): `label` (empty string), `required` (empty string), `is_case_property` (false)
+- **3 required sentinel fields** (almost always present, low cost): `label` (empty string), `required` (empty string), `case_property_on` (empty string)
 - **`type`** uses `z.enum(QUESTION_TYPES)` (enums don't create `anyOf` unions)
 
 Post-processing converts sentinels back to real values — see Content Processing below.

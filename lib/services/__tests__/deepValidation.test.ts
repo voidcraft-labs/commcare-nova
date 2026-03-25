@@ -292,7 +292,7 @@ describe('validateBlueprintDeep', () => {
 
   it('returns no errors for valid blueprint', () => {
     const bp = makeBlueprint([
-      { id: 'case_name', type: 'text', label: 'Name', is_case_property: true },
+      { id: 'case_name', type: 'text', label: 'Name', case_property_on: 'patient' },
       { id: 'age', type: 'int', label: 'Age', relevant: "/data/case_name != ''" },
     ], [{ name: 'patient', properties: [{ name: 'case_name', label: 'Name' }] }])
     const errors = validateBlueprintDeep(bp)
@@ -328,7 +328,7 @@ describe('validateBlueprintDeep', () => {
 
   it('catches unknown case property in #case/ ref', () => {
     const bp = makeBlueprint([
-      { id: 'case_name', type: 'text', label: 'Name', is_case_property: true },
+      { id: 'case_name', type: 'text', label: 'Name', case_property_on: 'patient' },
       { id: 'val', type: 'hidden', calculate: '#case/nonexistent + 1' },
     ], [{ name: 'patient', properties: [{ name: 'case_name', label: 'Name' }] }])
     const errors = validateBlueprintDeep(bp)
@@ -349,7 +349,7 @@ describe('validateBlueprint with deep validation', () => {
           name: 'Reg',
           type: 'registration',
           questions: [
-            { id: 'case_name', type: 'text', label: 'Name', is_case_property: true },
+            { id: 'case_name', type: 'text', label: 'Name', case_property_on: 'patient' },
             // Deep validation issue: unknown function
             { id: 'calc', type: 'hidden', calculate: 'foobar(1)' },
           ],

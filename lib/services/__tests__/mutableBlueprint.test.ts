@@ -20,8 +20,8 @@ function makeBlueprint(): AppBlueprint {
             name: 'Register Client',
             type: 'registration',
             questions: [
-              { id: 'case_name', type: 'text', label: 'Client Name', is_case_property: true, required: 'true()' },
-              { id: 'email_address', type: 'text', label: 'Client Email', is_case_property: true, validation: "regex(., '[^@]+@[^@]+\\.[^@]+')", validation_msg: 'Please enter a valid email' },
+              { id: 'case_name', type: 'text', label: 'Client Name', case_property_on: 'client', required: 'true()' },
+              { id: 'email_address', type: 'text', label: 'Client Email', case_property_on: 'client', validation: "regex(., '[^@]+@[^@]+\\.[^@]+')", validation_msg: 'Please enter a valid email' },
               { id: 'client_phone', type: 'text', label: 'Phone Number' },
             ],
           },
@@ -29,9 +29,9 @@ function makeBlueprint(): AppBlueprint {
             name: 'Update Client',
             type: 'followup',
             questions: [
-              { id: 'case_name', type: 'text', label: 'Client Name', is_case_property: true },
-              { id: 'email_address', type: 'text', label: 'Email', is_case_property: true },
-              { id: 'risk_level', type: 'hidden', calculate: "#case/email_address", is_case_property: true },
+              { id: 'case_name', type: 'text', label: 'Client Name', case_property_on: 'client' },
+              { id: 'email_address', type: 'text', label: 'Email', case_property_on: 'client' },
+              { id: 'risk_level', type: 'hidden', calculate: "#case/email_address", case_property_on: 'client' },
             ],
           },
         ],
@@ -153,10 +153,10 @@ describe('MutableBlueprint', () => {
       expect(updated.validation).toBeUndefined()
     })
 
-    it('updates is_case_property on a question', () => {
+    it('updates case_property_on on a question', () => {
       const mb = new MutableBlueprint(makeBlueprint())
-      const updated = mb.updateQuestion(0, 0, qpath('client_phone'), { is_case_property: true })
-      expect(updated.is_case_property).toBe(true)
+      const updated = mb.updateQuestion(0, 0, qpath('client_phone'), { case_property_on: 'client' })
+      expect(updated.case_property_on).toBe('client')
     })
 
     it('throws for nonexistent question', () => {
@@ -181,12 +181,12 @@ describe('MutableBlueprint', () => {
       expect(ids.indexOf('inserted')).toBe(ids.indexOf('case_name') + 1)
     })
 
-    it('adds question with is_case_property', () => {
+    it('adds question with case_property_on', () => {
       const mb = new MutableBlueprint(makeBlueprint())
-      mb.addQuestion(0, 0, { id: 'age', type: 'int', label: 'Age', is_case_property: true })
+      mb.addQuestion(0, 0, { id: 'age', type: 'int', label: 'Age', case_property_on: 'client' })
       const form = mb.getForm(0, 0)!
       const q = form.questions.find(q => q.id === 'age')
-      expect(q?.is_case_property).toBe(true)
+      expect(q?.case_property_on).toBe('client')
     })
   })
 
@@ -198,7 +198,7 @@ describe('MutableBlueprint', () => {
       expect(form.questions.some(q => q.id === 'client_phone')).toBe(false)
     })
 
-    it('removes question with is_case_property', () => {
+    it('removes question with case_property_on', () => {
       const mb = new MutableBlueprint(makeBlueprint())
       mb.removeQuestion(0, 0, qpath('email_address'))
       const form = mb.getForm(0, 0)!
@@ -259,13 +259,13 @@ describe('MutableBlueprint', () => {
       const regForm = mb.getForm(0, 0)!
       const regEmail = regForm.questions.find(q => q.id === 'contact_email')!
       expect(regEmail).toBeDefined()
-      expect(regEmail.is_case_property).toBe(true)
+      expect(regEmail.case_property_on).toBe('client')
 
       // Check followup form — question ID should now be contact_email
       const followForm = mb.getForm(0, 1)!
       const followEmail = followForm.questions.find(q => q.id === 'contact_email')!
       expect(followEmail).toBeDefined()
-      expect(followEmail.is_case_property).toBe(true)
+      expect(followEmail.case_property_on).toBe('client')
 
       expect(result.formsChanged).toContain('m0-f0')
       expect(result.formsChanged).toContain('m0-f1')
@@ -454,20 +454,6 @@ describe('MutableBlueprint', () => {
       expect(form!.close_case!.question).toBe('renamed_name')
     })
 
-    it('updates child_cases references', () => {
-      const bp = makeBlueprint()
-      bp.modules[0].forms[0].child_cases = [{
-        case_type: 'sub',
-        case_name_field: 'case_name',
-        case_properties: [{ case_property: 'name', question_id: 'case_name' }],
-      }]
-      const mb = new MutableBlueprint(bp)
-      mb.renameQuestion(0, 0, qpath('case_name'), 'full_name_q')
-      const form = mb.getForm(0, 0)
-      expect(form!.child_cases![0].case_name_field).toBe('full_name_q')
-      expect(form!.child_cases![0].case_properties![0].question_id).toBe('full_name_q')
-    })
-
     it('returns count of rewritten XPath fields', () => {
       const bp = makeBlueprint()
       bp.modules[0].forms[0].questions.push(
@@ -652,11 +638,11 @@ describe('MutableBlueprint', () => {
       expect(ids.indexOf('case_name_copy')).toBe(ids.indexOf('case_name') + 1)
     })
 
-    it('clears is_case_property on the clone', () => {
+    it('clears case_property_on on the clone', () => {
       const mb = new MutableBlueprint(makeBlueprint())
       const newId = mb.duplicateQuestion(0, 0, qpath('case_name'))
       const q = mb.getQuestion(0, 0, newId)
-      expect(q!.is_case_property).toBeUndefined()
+      expect(q!.case_property_on).toBeUndefined()
     })
 
     it('uses numeric suffix when _copy exists', () => {

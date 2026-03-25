@@ -7,7 +7,7 @@ const MUTATION_METHODS = new Set([
   'updateQuestion', 'addQuestion', 'removeQuestion', 'moveQuestion', 'duplicateQuestion',
   'updateModule', 'updateForm', 'replaceForm', 'addForm', 'removeForm',
   'addModule', 'removeModule', 'renameQuestion', 'renameCaseProperty',
-  'updateCaseProperty', 'addChildCase',
+  'updateCaseProperty',
 ])
 
 export type MutationType = 'add' | 'remove' | 'move' | 'duplicate' | 'update' | 'rename' | 'structural'

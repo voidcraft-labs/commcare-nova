@@ -50,16 +50,13 @@ export function expandBlueprint(blueprint: AppBlueprint): HqApplication {
   const attachments: Record<string, string> = {}
 
   // Build child case type map: child_case_type → parent module index
-  // Used to set parent_select on child case modules after expansion.
+  // Derived from case_types[].parent_type — no form-level child_cases needed.
   const childCaseParents = new Map<string, number>()
-  for (let mIdx = 0; mIdx < blueprint.modules.length; mIdx++) {
-    for (const bf of blueprint.modules[mIdx].forms) {
-      if (bf.child_cases) {
-        for (const cc of bf.child_cases) {
-          if (!childCaseParents.has(cc.case_type)) {
-            childCaseParents.set(cc.case_type, mIdx)
-          }
-        }
+  if (blueprint.case_types) {
+    for (const ct of blueprint.case_types) {
+      if (ct.parent_type) {
+        const parentIdx = blueprint.modules.findIndex(m => m.case_type === ct.parent_type)
+        if (parentIdx !== -1) childCaseParents.set(ct.name, parentIdx)
       }
     }
   }
@@ -77,7 +74,7 @@ export function expandBlueprint(blueprint: AppBlueprint): HqApplication {
       return formShell(
         formUniqueId, bf.name, xmlns,
         bf.type === 'followup' ? 'case' : 'none',
-        buildFormActions(bf, caseType),
+        buildFormActions(bf, caseType, blueprint.case_types),
         buildCaseReferencesLoad(bf.questions || []),
       )
     })
@@ -142,7 +139,9 @@ export function validateBlueprint(blueprint: AppBlueprint): string[] {
       }
 
       // Derive case config on-demand from per-question fields
-      const { case_name_field, case_properties, case_preload } = deriveCaseConfig(form.questions || [], form.type)
+      const { case_name_field, case_properties, case_preload } = deriveCaseConfig(
+        form.questions || [], form.type, mod.case_type, blueprint.case_types,
+      )
 
       if (form.type === 'registration' && !case_name_field) {
         errors.push(`"${form.name}" is a registration form but has no case_name_field`)
@@ -266,42 +265,6 @@ export function validateBlueprint(blueprint: AppBlueprint): string[] {
           const questionIds = collectQuestionIds(form.questions || [])
           if (!questionIds.includes(cc.question)) {
             errors.push(`"${fn}" close_case references question "${cc.question}" which doesn't exist`)
-          }
-        }
-      }
-
-      // Validate child_cases
-      if (form.child_cases) {
-        const questionIds = collectQuestionIds(form.questions || [])
-        for (let cIdx = 0; cIdx < form.child_cases.length; cIdx++) {
-          const child = form.child_cases[cIdx]
-          const prefix = `"${fn}" child_cases[${cIdx}]`
-
-          if (!child.case_type) {
-            errors.push(`${prefix} is missing case_type`)
-          }
-          if (!child.case_name_field) {
-            errors.push(`${prefix} is missing case_name_field`)
-          } else if (!questionIds.includes(child.case_name_field)) {
-            errors.push(`${prefix} case_name_field "${child.case_name_field}" doesn't match any question id`)
-          }
-          if (child.case_properties) {
-            for (const { case_property: prop, question_id: qId } of child.case_properties) {
-              if (RESERVED_CASE_PROPERTIES.has(prop)) {
-                errors.push(`${prefix} uses reserved case property name "${prop}"`)
-              }
-              if (!questionIds.includes(qId)) {
-                errors.push(`${prefix} case property "${prop}" maps to question "${qId}" which doesn't exist`)
-              }
-            }
-          }
-          if (child.repeat_context) {
-            const repeatQ = (form.questions || []).find(q => q.id === child.repeat_context)
-            if (!repeatQ) {
-              errors.push(`${prefix} repeat_context "${child.repeat_context}" doesn't match any question id`)
-            } else if (repeatQ.type !== 'repeat') {
-              errors.push(`${prefix} repeat_context "${child.repeat_context}" is not a repeat group`)
-            }
           }
         }
       }

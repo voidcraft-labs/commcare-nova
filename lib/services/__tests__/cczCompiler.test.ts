@@ -13,14 +13,14 @@ const blueprint: AppBlueprint = {
       {
         name: 'Register', type: 'registration',
         questions: [
-          { id: 'case_name', type: 'text', label: 'Name', is_case_property: true },
-          { id: 'age', type: 'int', label: 'Age', is_case_property: true },
+          { id: 'case_name', type: 'text', label: 'Name', case_property_on: 'patient' },
+          { id: 'age', type: 'int', label: 'Age', case_property_on: 'patient' },
         ],
       },
       {
         name: 'Visit', type: 'followup',
         questions: [
-          { id: 'total_visits', type: 'hidden', calculate: '#case/total_visits + 1', is_case_property: true },
+          { id: 'total_visits', type: 'hidden', calculate: '#case/total_visits + 1', case_property_on: 'patient' },
           { id: 'notes', type: 'text', label: 'Notes' },
         ],
       },

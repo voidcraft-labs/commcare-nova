@@ -80,12 +80,12 @@ Reads/writes through `builder.mb` (persistent `MutableBlueprint`). Three editing
 - **EditableDropdown** — Custom dark-themed dropdown. Selection saves immediately (including re-selection of current value, enabling actions like reopening the XPath modal). Click-outside/Escape via `useDismissRef`.
 - **XPathEditorModal** — Portal-mounted CodeMirror editor with fold gutters (ci chevron SVG markers), bracket matching, zebra stripes. Opens with `prettyPrintXPath` (same expanded format as sidebar), saves back via `formatXPath` (single-line for storage). Auto-focuses with cursor at end. Cmd/Ctrl+Enter saves, Escape closes via ref callback. Cancel/Update buttons. Indentation uses 4 spaces (matching `Layout.Tab` rendering).
 
-**Editable fields:** module name, form name, form type, question label/id/type/hint, required (dropdown with conditional → opens XPath modal), validation/relevant/default_value/calculate (XPath modal). "Add Property" shows `+` buttons for missing optional fields. `is_case_property` toggled via `CasePropertyToggle` inline on the ID field's label row (spring-animated switch, cyan when on, disabled for media types, locked on for `case_name`). Case name badge shown when `id === 'case_name'`.
+**Editable fields:** module name, form name, form type, question label/id/type/hint, required (dropdown with conditional → opens XPath modal), validation/relevant/default_value/calculate (XPath modal). "Add Property" shows `+` buttons for missing optional fields. `case_property_on` selected via `CasePropertySelector` dropdown inline on the ID field's label row (lists existing case types, disabled for media types, locked on for `case_name`). Case name badge shown when `id === 'case_name'`.
 
 ### Rename Propagation
 
 - Editing question ID → `mb.renameQuestion()` → `rewriteXPathRefs` (Lezer-based) updates `/data/...` paths and `#form/...` hashtags across siblings.
-- Renaming a case property (question with `is_case_property`) → `mb.renameCaseProperty()` → renames question ID across all forms in the module, `rewriteHashtagRefs` for `#case/...` refs, updates columns. Does not touch `case_types` (frozen after generation).
+- Renaming a case property (question with `case_property_on`) → `mb.renameCaseProperty()` → renames question ID across all forms in the module, `rewriteHashtagRefs` for `#case/...` refs, updates columns. Does not touch `case_types` (frozen after generation).
 
 ## XPathField
 

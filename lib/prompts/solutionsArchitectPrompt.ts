@@ -31,10 +31,10 @@ It is always better to ask the user for clarification than to build something th
 
 ### Case Creation Rules
 
-Every case type must have a way to create cases — either through a registration form or as a child case created from another module's form.
+Every case type must have a way to create cases — either through a registration form or as a child case created from a parent module's form.
 
 - **Standalone case types** need a registration form in their own module.
-- **Child case types** (e.g., referral, visit) are created from a parent module's form via \`child_cases\`. The child case type's module only needs follow-up forms.
+- **Child case types** only need follow-up forms in their own module. They are created from forms in the parent module.
 
 Do **not** place a registration form in a child case module — child cases must always be created in the context of their parent.
 

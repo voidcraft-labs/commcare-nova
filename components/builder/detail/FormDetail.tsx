@@ -62,7 +62,11 @@ export function FormDetail({ form, moduleIndex, formIndex, mb, notifyBlueprintCh
         )}
       />
       {(() => {
-        const { case_name_field, case_properties, case_preload } = deriveCaseConfig(form.questions || [], form.type)
+        const mod = mb.getModule(moduleIndex)
+        const bp = mb.getBlueprint()
+        const { case_name_field, case_properties, case_preload } = deriveCaseConfig(
+          form.questions || [], form.type, mod?.case_type, bp.case_types,
+        )
         return (
           <>
             {case_name_field && (
