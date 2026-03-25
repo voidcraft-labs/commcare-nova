@@ -81,6 +81,7 @@ export class Builder {
   private _statusMessage = ''
   private _selected?: SelectedElement
   private _newQuestionPath?: QuestionPath
+  private _editorTab: 'ui' | 'logic' | 'data' = 'ui'
   private _mutationCount = 0
   private _progressCompleted = 0
   private _progressTotal = 0
@@ -117,6 +118,7 @@ export class Builder {
   get statusMessage(): string { return this._statusMessage }
   get selected(): SelectedElement | undefined { return this._selected }
   get mutationCount(): number { return this._mutationCount }
+  get editorTab(): 'ui' | 'logic' | 'data' { return this._editorTab }
   get questionAnchor(): { el: HTMLElement; path: QuestionPath } | null { return this._questionAnchor }
   get progressCompleted(): number { return this._progressCompleted }
   get progressTotal(): number { return this._progressTotal }
@@ -179,6 +181,10 @@ export class Builder {
   /** Deactivate new-question behaviors (called on first save). */
   clearNewQuestion(): void {
     this._newQuestionPath = undefined
+  }
+
+  setEditorTab(tab: 'ui' | 'logic' | 'data'): void {
+    this._editorTab = tab
   }
 
   // ── Progress ─────────────────────────────────────────────────────────

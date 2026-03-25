@@ -77,6 +77,8 @@ Split into tabbed sub-editors (`ContextualEditorTabs`):
 - **Logic tab** (`ContextualEditorLogic`) — validation, relevant, default_value, calculate (XPath modal)
 - **Data tab** (`ContextualEditorData`) — question ID (with rename propagation), `CasePropertyPills` ("Saves to" header + pill buttons), options editor for select types
 
+Active tab is persisted on the Builder singleton (`builder.editorTab` / `setEditorTab()`), so it survives design↔preview mode switches (which unmount/remount the editor). Resets to UI tab on question change.
+
 **Footer** (`ContextualEditorFooter`) — move up/down, duplicate, delete. Uses `flattenQuestionPaths` with `builder.mutationCount` dependency to keep move button enabled/disabled state fresh after mutations.
 
 Reads/writes through `builder.mb` (persistent `MutableBlueprint`). Editing patterns:
