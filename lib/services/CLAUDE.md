@@ -20,7 +20,7 @@ Split across two files:
 
 **Code Execution + Form Building (2):**
 - `code_execution` — Anthropic code execution sandbox. SA writes Python to batch `addQuestions` calls.
-- `addQuestions` — batch-append flat questions to a form. Marked with `allowedCallers: ['code_execution_20260120']` for programmatic calling from code execution. Processes questions through `stripEmpty → applyDefaults → buildQuestionTree`, merging with existing form questions. Emits `data-form-updated`.
+- `addQuestions` — batch-append flat questions to a form. Marked with `allowedCallers: ['code_execution_20260120']` for programmatic calling from code execution. Processes questions through `stripEmpty → applyDefaults(caseTypes, formType, moduleCaseType) → buildQuestionTree`, merging with existing form questions. `applyDefaults` auto-sets `default_value` to `#case/{id}` for primary case properties in follow-up forms. Emits `data-form-updated`.
 
 **Read (4):**
 - `searchBlueprint`, `getModule`, `getForm`, `getQuestion`

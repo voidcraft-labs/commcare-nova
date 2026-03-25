@@ -97,8 +97,17 @@ export function buildQuestionTree(flat: Array<Partial<FlatQuestion>>): Question[
 /**
  * Apply data model defaults from case type metadata and sanitize XPath.
  * Looks up the case type by the question's case_property_on value.
+ *
+ * When formType is 'followup' and a question is a primary case property
+ * (case_property_on matches moduleCaseType), auto-sets default_value to
+ * `#case/{id}` so the value is visible in the UI and exported as a <setvalue>.
  */
-export function applyDefaults(q: Partial<FlatQuestion>, caseTypes: CaseTypes): Partial<FlatQuestion> {
+export function applyDefaults(
+  q: Partial<FlatQuestion>,
+  caseTypes: CaseTypes,
+  formType?: 'registration' | 'followup' | 'survey',
+  moduleCaseType?: string,
+): Partial<FlatQuestion> {
   const result = { ...q }
 
   // Unescape HTML entities in XPath fields
@@ -123,6 +132,21 @@ export function applyDefaults(q: Partial<FlatQuestion>, caseTypes: CaseTypes): P
       result.validation_msg ??= prop.validation_msg
       result.options ??= prop.options
     }
+  }
+
+  // Auto-set default_value for primary case properties in follow-up forms.
+  // Mirrors the case_preload logic in deriveCaseConfig: primary props (excluding
+  // case_name) get preloaded from the case. Setting default_value here makes the
+  // preload visible in the UI and exports it as a <setvalue>.
+  if (
+    formType === 'followup' &&
+    result.case_property_on &&
+    result.case_property_on === moduleCaseType &&
+    result.id !== 'case_name' &&
+    !result.default_value &&
+    !result.calculate
+  ) {
+    result.default_value = `#case/${result.id}`
   }
 
   return result
@@ -152,9 +176,10 @@ export function processSingleFormOutput(
   formName: string,
   formType: 'registration' | 'followup' | 'survey',
   caseTypes: CaseTypes,
+  moduleCaseType?: string,
 ): BlueprintForm {
   const stripped = formOutput.questions.map(q => stripEmpty(q))
-  const withDefaults = stripped.map(q => applyDefaults(q, caseTypes))
+  const withDefaults = stripped.map(q => applyDefaults(q, caseTypes, formType, moduleCaseType))
   const nestedQuestions = buildQuestionTree(withDefaults)
 
   const hasCloseCase = formOutput.close_case?.question || formOutput.close_case?.answer

@@ -267,7 +267,7 @@ export function createSolutionsArchitect(
           if (!form) return { error: `Form ${formIndex} not found in module ${moduleIndex}` }
 
           // Process new questions: strip sentinels → apply case property defaults
-          const processed = questions.map(q => applyDefaults(stripEmpty(q as unknown as FlatQuestion), blueprint.case_types))
+          const processed = questions.map(q => applyDefaults(stripEmpty(q as unknown as FlatQuestion), blueprint.case_types, form.type, mod.case_type))
 
           // Merge with existing: flatten existing tree, append new, rebuild
           const existingFlat = flattenToFlat(form.questions)
