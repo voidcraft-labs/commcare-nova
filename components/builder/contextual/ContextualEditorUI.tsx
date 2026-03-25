@@ -1,6 +1,5 @@
 'use client'
 import { useState, useCallback, useRef } from 'react'
-import dynamic from 'next/dynamic'
 import { useFloating, offset, flip, shift, autoUpdate, FloatingPortal } from '@floating-ui/react'
 import { Icon } from '@iconify/react'
 import ciAddPlus from '@iconify-icons/ci/add-plus'
@@ -10,16 +9,9 @@ import type { MutableBlueprint } from '@/lib/services/mutableBlueprint'
 import type { QuestionPath } from '@/lib/services/questionPath'
 import { questionTypeIcons, questionTypeLabels } from '@/lib/questionTypeIcons'
 import { EditableText } from '@/components/builder/EditableText'
-import { EditableDropdown } from '@/components/builder/EditableDropdown'
 import { QuestionTypeGrid } from '@/components/builder/QuestionTypeGrid'
-import { Badge } from '@/components/ui/Badge'
 import { useDismissRef } from '@/hooks/useDismissRef'
-import { requiredOptions, addableTextFields } from './shared'
-
-const XPathEditorModal = dynamic(
-  () => import('@/components/builder/XPathEditorModal').then(m => ({ default: m.XPathEditorModal })),
-  { ssr: false },
-)
+import { addableTextFields } from './shared'
 
 interface ContextualEditorUIProps {
   question: Question
@@ -30,7 +22,6 @@ interface ContextualEditorUIProps {
 }
 
 export function ContextualEditorUI({ question, selected, mb, builder, notifyBlueprintChanged }: ContextualEditorUIProps) {
-  const [xpathModal, setXpathModal] = useState<{ field: string; value: string; label: string }>()
   const [newlyAdded, setNewlyAdded] = useState<{ field: string; questionPath: QuestionPath }>()
   const [typePickerOpen, setTypePickerOpen] = useState(false)
   const typeButtonRef = useRef<HTMLButtonElement>(null)
@@ -59,29 +50,14 @@ export function ContextualEditorUI({ question, selected, mb, builder, notifyBlue
     notifyBlueprintChanged()
   }, [mb, selected.moduleIndex, selected.formIndex, selected.questionPath, notifyBlueprintChanged])
 
-  const handleRequiredChange = useCallback((value: string) => {
-    if (value === 'conditional') {
-      setXpathModal({
-        field: 'required',
-        value: question?.required && question.required !== 'true()' ? question.required : '',
-        label: 'Required When',
-      })
-    } else {
-      saveQuestion('required', value || null)
-    }
-  }, [question, saveQuestion])
-
-  const requiredValue = !question?.required ? '' : question.required === 'true()' ? 'true()' : 'conditional'
-
   const newlyAddedField = newlyAdded && newlyAdded.questionPath === selected.questionPath ? newlyAdded.field : undefined
   const clearNewlyAdded = () => setNewlyAdded(undefined)
 
   const missingTextFields = addableTextFields.filter(f =>
-    f.field === 'hint' && !question.hint && newlyAddedField !== 'hint',
+    (f.field === 'hint' || f.field === 'help') && !question[f.field as keyof Question] && newlyAddedField !== f.field,
   )
 
   return (
-    <>
       <div className="space-y-3">
         {question.label !== undefined && (
           <EditableText
@@ -136,25 +112,18 @@ export function ContextualEditorUI({ question, selected, mb, builder, notifyBlue
             onEmpty={newlyAddedField === 'hint' ? clearNewlyAdded : undefined}
           />
         )}
-        <EditableDropdown
-          label="Required"
-          value={requiredValue}
-          options={
-            question.required && question.required !== 'true()'
-              ? [
-                  { value: '', label: 'Not required' },
-                  { value: 'true()', label: 'Always required' },
-                  { value: 'conditional', label: `Conditional: ${question.required}` },
-                ]
-              : requiredOptions
-          }
-          onSave={handleRequiredChange}
-          renderValue={(v) => {
-            if (v === 'true()') return <Badge variant="amber">Required</Badge>
-            if (v === 'conditional') return <Badge variant="amber">Required when: {question?.required}</Badge>
-            return <span className="text-sm text-nova-text-muted">Not required</span>
-          }}
-        />
+        {(question.help || newlyAddedField === 'help') && (
+          <EditableText
+            label="Help"
+            value={question.help ?? ''}
+            onSave={(v) => {
+              saveQuestion('help', v || null)
+              clearNewlyAdded()
+            }}
+            autoFocus={newlyAddedField === 'help'}
+            onEmpty={newlyAddedField === 'help' ? clearNewlyAdded : undefined}
+          />
+        )}
         {missingTextFields.length > 0 && (
           <div className="flex flex-wrap gap-1.5">
             {missingTextFields.map(({ field, label }) => (
@@ -170,25 +139,5 @@ export function ContextualEditorUI({ question, selected, mb, builder, notifyBlue
           </div>
         )}
       </div>
-
-      {xpathModal && (
-        <XPathEditorModal
-          value={xpathModal.value}
-          label={xpathModal.label}
-          onSave={(value) => {
-            saveQuestion(xpathModal.field, value || null)
-            setXpathModal(undefined)
-          }}
-          onClose={() => setXpathModal(undefined)}
-          getLintContext={() => {
-            const blueprint = mb.getBlueprint()
-            const form = mb.getForm(selected.moduleIndex, selected.formIndex!)
-            const mod = mb.getModule(selected.moduleIndex)
-            if (!form) return undefined
-            return { blueprint, form, moduleCaseType: mod?.case_type ?? undefined }
-          }}
-        />
-      )}
-    </>
   )
 }

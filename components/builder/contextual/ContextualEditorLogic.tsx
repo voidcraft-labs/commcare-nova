@@ -8,7 +8,9 @@ import type { SelectedElement } from '@/lib/services/builder'
 import type { MutableBlueprint } from '@/lib/services/mutableBlueprint'
 import type { QuestionPath } from '@/lib/services/questionPath'
 import { EditableText } from '@/components/builder/EditableText'
-import { xpathFields, addableTextFields } from './shared'
+import { EditableDropdown } from '@/components/builder/EditableDropdown'
+import { Badge } from '@/components/ui/Badge'
+import { requiredOptions, xpathFields, addableTextFields } from './shared'
 
 const XPathField = dynamic(
   () => import('@/components/builder/XPathField').then(m => ({ default: m.XPathField })),
@@ -42,6 +44,20 @@ export function ContextualEditorLogic({ question, selected, mb, notifyBlueprintC
     notifyBlueprintChanged()
   }, [mb, selected.moduleIndex, selected.formIndex, selected.questionPath, notifyBlueprintChanged])
 
+  const handleRequiredChange = useCallback((value: string) => {
+    if (value === 'conditional') {
+      setXpathModal({
+        field: 'required',
+        value: question?.required && question.required !== 'true()' ? question.required : '',
+        label: 'Required When',
+      })
+    } else {
+      saveQuestion('required', value || null)
+    }
+  }, [question, saveQuestion])
+
+  const requiredValue = !question?.required ? '' : question.required === 'true()' ? 'true()' : 'conditional'
+
   const newlyAddedField = newlyAdded && newlyAdded.questionPath === selected.questionPath ? newlyAdded.field : undefined
   const clearNewlyAdded = () => setNewlyAdded(undefined)
 
@@ -50,18 +66,30 @@ export function ContextualEditorLogic({ question, selected, mb, notifyBlueprintC
     f.field === 'validation_msg' && !question.validation_msg && newlyAddedField !== 'validation_msg' && question.validation,
   )
 
-  const hasContent = question.validation || question.relevant || question.default_value || question.calculate
-    || (question.required && question.required !== 'true()')
+  const hasContent = question.required || question.validation || question.relevant || question.default_value || question.calculate
 
   return (
     <>
       <div className="space-y-3">
-        {question.required && question.required !== 'true()' && (
-          <div>
-            <label className="text-xs text-nova-text-muted uppercase tracking-wider mb-1 block">Required When</label>
-            <XPathField value={question.required} onClick={() => setXpathModal({ field: 'required', value: question.required!, label: 'Required When' })} />
-          </div>
-        )}
+        <EditableDropdown
+          label="Required"
+          value={requiredValue}
+          options={
+            question.required && question.required !== 'true()'
+              ? [
+                  { value: '', label: 'Not required' },
+                  { value: 'true()', label: 'Always required' },
+                  { value: 'conditional', label: `Conditional: ${question.required}` },
+                ]
+              : requiredOptions
+          }
+          onSave={handleRequiredChange}
+          renderValue={(v) => {
+            if (v === 'true()') return <Badge variant="amber">Required</Badge>
+            if (v === 'conditional') return <Badge variant="amber">Required when: {question?.required}</Badge>
+            return <span className="text-sm text-nova-text-muted">Not required</span>
+          }}
+        />
         {question.validation && (
           <div>
             <label className="text-xs text-nova-text-muted uppercase tracking-wider mb-1 block">Validation</label>

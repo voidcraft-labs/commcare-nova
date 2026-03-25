@@ -73,8 +73,8 @@ Floating property panel anchored to the selected question via `@floating-ui/reac
 **Anchor resolution** — two-source strategy via `useLayoutEffect`: prefers `builder.questionAnchor` (element registered by `EditableQuestionWrapper`'s React 19 ref callback), falls back to DOM query (`[data-question-id]`). DOM query handles same-form selection instantly; the registered anchor handles cross-form navigation (element mounts after form transition). When neither source finds the element, `anchorReady` state goes false and the panel returns null (no 0,0 flash). The anchor subscription is separate from the main builder subscription (`subscribeAnchor`/`getAnchorSnapshot` via `useSyncExternalStore`) to avoid re-rendering the wrapper tree and causing infinite ref callback loops. Entrance animation replays on question change or after cross-form anchor resolution.
 
 Split into tabbed sub-editors (`ContextualEditorTabs`):
-- **UI tab** (`ContextualEditorUI`) — label, type (via `QuestionTypeGrid` popover at `z-popover-top`), hint, required
-- **Logic tab** (`ContextualEditorLogic`) — validation, relevant, default_value, calculate (XPath modal)
+- **UI tab** (`ContextualEditorUI`) — label, type (via `QuestionTypeGrid` popover at `z-popover-top`), hint, help
+- **Logic tab** (`ContextualEditorLogic`) — required (EditableDropdown with conditional XPath modal), validation, relevant, default_value, calculate
 - **Data tab** (`ContextualEditorData`) — question ID (with rename propagation), `CasePropertyPills` ("Saves to" header + pill buttons), options editor for select types
 
 Active tab is persisted on the Builder singleton (`builder.editorTab` / `setEditorTab()`), so it survives design↔preview mode switches (which unmount/remount the editor). Resets to UI tab on question change.
