@@ -19,7 +19,7 @@ import { useKeyboardShortcuts } from '@/hooks/useKeyboardShortcuts'
 import { Logo } from '@/components/ui/Logo'
 import { ChatSidebar } from '@/components/chat/ChatSidebar'
 import { LeftPanel, type LeftTab } from '@/components/builder/LeftPanel'
-import { DetailPanel } from '@/components/builder/DetailPanel'
+import { ContextualEditor } from '@/components/builder/contextual/ContextualEditor'
 import { GenerationProgress } from '@/components/builder/GenerationProgress'
 import { ReplayController } from '@/components/builder/ReplayController'
 import { SubheaderToolbar, CollapsibleBreadcrumb } from '@/components/builder/SubheaderToolbar'
@@ -64,7 +64,6 @@ export function BuilderLayout({ buildId }: { buildId: string }) {
   const builder = useBuilder()
   const [leftPanelOpen, setLeftPanelOpen] = useState(true)
   const [leftTab, setLeftTab] = useState<LeftTab>('chat')
-  const [detailUserPref, setDetailUserPref] = useState(true)
   const [viewMode, setViewMode] = useState<'design' | 'preview'>('design')
   const viewModeRef = useRef(viewMode)
   const scrollAnchorRef = useRef<{ questionPath: string; offsetTop: number; allPaths: string[] } | null>(null)
@@ -293,25 +292,13 @@ export function BuilderLayout({ buildId }: { buildId: string }) {
 
   const handleUndo = useCallback(() => {
     const viewMode = builder.undo()
-    if (viewMode) {
-      setDetailUserPref(true)
-      restoreView(viewMode)
-    }
+    if (viewMode) restoreView(viewMode)
   }, [builder, restoreView])
 
   const handleRedo = useCallback(() => {
     const viewMode = builder.redo()
-    if (viewMode) {
-      setDetailUserPref(true)
-      restoreView(viewMode)
-    }
+    if (viewMode) restoreView(viewMode)
   }, [builder, restoreView])
-
-  // ── Keyboard shortcuts (extracted to useBuilderShortcuts) ───────────
-  const handleDetailClose = useCallback(() => {
-    builder.select()
-    setDetailUserPref(false)
-  }, [builder])
 
   // ── Structure tree selection → select + navigate canvas ─────────────
   const handleTreeSelect = useCallback((sel: any) => {
@@ -373,19 +360,6 @@ export function BuilderLayout({ buildId }: { buildId: string }) {
 
   useKeyboardShortcuts('builder-layout', shortcuts, [builder.phase === BuilderPhase.Done, viewMode, builder.selected, builder.blueprint, builder.mutationCount])
 
-  // Sync detail panel pref with selection changes (suppress during view mode transitions)
-  const prevVMRef = useRef(viewMode)
-  const prevSelRef = useRef(builder.selected)
-  useEffect(() => {
-    const vmChanged = viewMode !== prevVMRef.current
-    const selChanged = builder.selected !== prevSelRef.current
-    if (selChanged && !vmChanged) {
-      setDetailUserPref(!!builder.selected)
-    }
-    prevVMRef.current = viewMode
-    prevSelRef.current = builder.selected
-  }, [builder.selected, viewMode])
-
   // Back handler for in-content back button — syncs builder selection with history
   const handlePreviewBack = useCallback(() => {
     const newScreen = nav.back()
@@ -407,8 +381,7 @@ export function BuilderLayout({ buildId }: { buildId: string }) {
   const showProgress = (isGenerating || builder.phase === BuilderPhase.Done) && !progressHidden && !inReplayMode
   const leftOpen = viewMode === 'preview' ? false : leftPanelOpen
   const showToolbar = !!(builder.treeData && builder.phase === BuilderPhase.Done && builder.blueprint)
-  const detailOpen = viewMode === 'preview' ? false : detailUserPref
-  const showDetailPanel = showToolbar && !!builder.selected && detailOpen
+  const showContextualEditor = showToolbar && viewMode === 'design'
   const editMode = viewMode === 'preview' ? 'test' as const : 'edit' as const
 
   // Breadcrumbs — derived from current screen's hierarchical path
@@ -634,22 +607,12 @@ export function BuilderLayout({ buildId }: { buildId: string }) {
             )}
           </AnimatePresence>
 
-          {/* DetailPanel — absolute right, floats over content */}
-          <AnimatePresence>
-            {showDetailPanel && (
-              <motion.div
-                initial={{ x: 320, opacity: 0 }}
-                animate={{ x: 0, opacity: 1 }}
-                exit={{ x: 320, opacity: 0 }}
-                transition={{ duration: 0.25, ease: [0.4, 0, 0.2, 1] }}
-                className="absolute right-0 top-0 bottom-0 z-raised"
-              >
-                <ErrorBoundary>
-                  <DetailPanel builder={builder} onClose={handleDetailClose} />
-                </ErrorBoundary>
-              </motion.div>
-            )}
-          </AnimatePresence>
+          {/* Contextual editor — floating panel anchored to selected question */}
+          {showContextualEditor && (
+            <ErrorBoundary>
+              <ContextualEditor builder={builder} />
+            </ErrorBoundary>
+          )}
         </div>
 
     </div>

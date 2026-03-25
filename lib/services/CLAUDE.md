@@ -100,7 +100,7 @@ Also re-exports `validateAndFix()` (from `validationLoop.ts`) — programmatic v
 **New question state** — encapsulated behind methods, not public fields:
 - `builder.markNewQuestion(path)` — called by QuestionTypePicker after inserting
 - `builder.isNewQuestion(path)` — checks if question was just added (drives auto-focus + select-all)
-- `builder.clearNewQuestion()` — called by DetailPanel on first save
+- `builder.clearNewQuestion()` — called by ContextualEditor on first save
 
 **Data parts → builder methods:**
 

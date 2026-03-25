@@ -31,6 +31,7 @@
   --z-ground: 10;        /* Inline interactive elements: hover zones, sidebar dividers, page backgrounds */
   --z-raised: 20;        /* Slightly elevated UI: insertion points, settings buttons, sidebar overlays */
   --z-popover: 50;       /* Floating menus: dropdowns, pickers, popovers, confirm dialogs */
+  --z-popover-top: 60;   /* Popovers above other popovers: type picker over contextual editor */
   --z-modal: 100;        /* Modal backdrops and dialogs */
   --z-system: 9999;      /* System overlays: noise texture */
 
@@ -78,6 +79,7 @@
   --z-index-ground: var(--z-ground);
   --z-index-raised: var(--z-raised);
   --z-index-popover: var(--z-popover);
+  --z-index-popover-top: var(--z-popover-top);
   --z-index-modal: var(--z-modal);
   --z-index-system: var(--z-system);
 }

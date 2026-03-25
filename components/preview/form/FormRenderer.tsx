@@ -312,7 +312,7 @@ export function FormRenderer({ questions, engine, prefix = '/data', parentPath }
         .filter((q): q is Question => !!q)
     }
     return questions.filter(q => q.type !== 'hidden')
-  }, [questions, activeDragReorder, group])
+  }, [questions, activeDragReorder, group, engine])
 
   const modifiers = useMemo(() => [
     RestrictToElement.configure({
