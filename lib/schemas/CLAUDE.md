@@ -52,7 +52,7 @@ Post-processing pipeline for structured output from form generation:
 
 1. **`stripEmpty()`** — converts sentinel values (empty strings, false) back to undefined
 2. **`buildQuestionTree()`** — converts flat `parentId`-based questions to nested `children` arrays
-3. **`applyDefaults()`** — bakes case property defaults (type, label, hint, help, required, validation, options) into questions at generation time by matching question ID to case type property name. This is the only point where `case_types` is consulted — after generation, questions are self-contained. Also runs `unescapeXPath()` to sanitize HTML entities (`&gt;` → `>`) LLMs sometimes emit.
+3. **`applyDefaults()`** — bakes case property defaults (type, label, hint, help, required, validation, options) into questions at generation time by matching question ID to case type property name. Also auto-sets `default_value` to `#case/{id}` for primary case properties in follow-up forms (excluding `case_name` and questions with `calculate`), making the preload visible in the UI and exported as `<setvalue>`. Accepts optional `formType` and `moduleCaseType` params for this. This is the only point where `case_types` is consulted — after generation, questions are self-contained. Also runs `unescapeXPath()` to sanitize HTML entities (`&gt;` → `>`) LLMs sometimes emit.
 4. **`processSingleFormOutput()`** — chains all three in order
 
 ### XPath and Vellum Hashtags
