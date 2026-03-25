@@ -100,19 +100,20 @@ function ContextualEditorInner({ builder }: { builder: Builder }) {
     ? mb.getQuestion(selected.moduleIndex, selected.formIndex, selected.questionPath) ?? undefined
     : undefined
 
-  const [activeTab, setActiveTab] = useState<EditorTab>('ui')
+  const [activeTab, setActiveTab] = useState<EditorTab>(builder.editorTab)
   const prevPathRef = useRef(selected.questionPath)
 
   if (selected.questionPath !== prevPathRef.current) {
     prevPathRef.current = selected.questionPath
     setActiveTab('ui')
+    builder.setEditorTab('ui')
   }
 
   if (!question) return null
 
   return (
     <>
-      <ContextualEditorTabs activeTab={activeTab} onTabChange={setActiveTab} />
+      <ContextualEditorTabs activeTab={activeTab} onTabChange={(tab) => { setActiveTab(tab); builder.setEditorTab(tab) }} />
       <div className="px-3 pb-3 overflow-y-auto max-h-[420px] min-h-0">
         {activeTab === 'ui' && (
           <ContextualEditorUI question={question} selected={selected} mb={mb} builder={builder} notifyBlueprintChanged={notifyBlueprintChanged} />

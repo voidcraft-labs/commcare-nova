@@ -108,6 +108,8 @@ Also re-exports `validateAndFix()` (from `validationLoop.ts`) — programmatic v
 - `builder.isNewQuestion(path)` — checks if question was just added (drives auto-focus + select-all)
 - `builder.clearNewQuestion()` — called by ContextualEditor on first save
 
+**Editor tab state** — `builder.editorTab` / `builder.setEditorTab(tab)`. Persists the active ContextualEditor tab (UI/Logic/Data) across component unmount/remount cycles (design↔preview mode switches). Reset to `'ui'` on question change.
+
 **Data parts → builder methods:**
 
 | Emission type | Builder method |
