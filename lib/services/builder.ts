@@ -87,6 +87,8 @@ export class Builder {
   private _partialScaffold?: { appName?: string; description?: string; modules: TreeData['modules'] }
   private _listeners = new Set<() => void>()
   private _version = 0
+  private _questionAnchor: { el: HTMLElement; path: QuestionPath } | null = null
+  private _anchorListeners = new Set<() => void>()
 
   // ── Read-only public accessors ───────────────────────────────────────
 
@@ -96,6 +98,7 @@ export class Builder {
   get statusMessage(): string { return this._statusMessage }
   get selected(): SelectedElement | undefined { return this._selected }
   get mutationCount(): number { return this._mutationCount }
+  get questionAnchor(): { el: HTMLElement; path: QuestionPath } | null { return this._questionAnchor }
   get progressCompleted(): number { return this._progressCompleted }
   get progressTotal(): number { return this._progressTotal }
 
@@ -123,6 +126,24 @@ export class Builder {
     this._version++
     this._listeners.forEach(fn => fn())
   }
+
+  // ── Question anchor (selected question's DOM element) ────────────────
+
+  /** Called by EditableQuestionWrapper ref callback when the selected question mounts/unmounts.
+   *  Uses a separate listener set so only ContextualEditor re-renders — not the entire builder
+   *  subscriber tree (which would re-render the wrapper and re-trigger the ref callback). */
+  setQuestionAnchor = (anchor: { el: HTMLElement; path: QuestionPath } | null): void => {
+    if (this._questionAnchor?.el === anchor?.el) return
+    this._questionAnchor = anchor
+    for (const fn of this._anchorListeners) fn()
+  }
+
+  subscribeAnchor = (fn: () => void) => {
+    this._anchorListeners.add(fn)
+    return () => { this._anchorListeners.delete(fn) }
+  }
+
+  getAnchorSnapshot = () => this._questionAnchor
 
   // ── New question state ───────────────────────────────────────────────
 

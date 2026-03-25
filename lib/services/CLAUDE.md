@@ -94,6 +94,7 @@ Also re-exports `validateAndFix()` (from `validationLoop.ts`) — programmatic v
 - `builder.notifyBlueprintChanged()` — arrow property (stable ref), notifies subscribers after mutations
 - `builder.treeData` — getter with four-level fallback: blueprint > partialModules merged with scaffold > scaffold > partialScaffold
 - `builder.subscribe` / `builder.getSnapshot` — arrow properties for `useSyncExternalStore`. `_version` counter incremented in `notify()`.
+- `builder.questionAnchor` / `builder.setQuestionAnchor` / `builder.subscribeAnchor` / `builder.getAnchorSnapshot` — selected question's DOM element, registered by `EditableQuestionWrapper` ref callback. Uses a **separate** listener set from the main `subscribe`/`notify` to avoid re-rendering the wrapper tree (which would re-trigger the ref callback in an infinite loop). `ContextualEditor` subscribes via `useSyncExternalStore(subscribeAnchor, getAnchorSnapshot)`.
 - `builder.select(el?)` — set selection; call with no args to deselect
 - Progress counters (`progressCompleted`/`progressTotal`) derived from partialModules map against scaffold.
 
