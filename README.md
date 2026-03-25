@@ -59,7 +59,3 @@ The XPath grammar (`lib/codemirror/xpath.grammar`) is a custom Lezer grammar sup
 ```bash
 npx tsx scripts/build-xpath-parser.ts
 ```
-
-### Validation Delay
-
-The validate stage has an artificial 3-second delay when validation passes on the first attempt with no errors. Validation is currently rule-based and completes near-instantly, which feels jarring in the UI. This delay should be removed once we integrate the CommCare core `.jar` for full validation — that will take real time and the artificial delay won't be needed.
