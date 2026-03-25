@@ -5,7 +5,8 @@ import { useChat } from '@ai-sdk/react'
 import { DefaultChatTransport, type UIMessage } from 'ai'
 import { motion, AnimatePresence } from 'motion/react'
 import { Icon } from '@iconify/react'
-import ciWindowSidebar from '@iconify-icons/ci/window-sidebar'
+import ciMessage from '@iconify-icons/ci/message'
+import tablerListTree from '@iconify-icons/tabler/list-tree'
 import ciSettings from '@iconify-icons/ci/settings'
 import Link from 'next/link'
 import { useApiKey } from '@/hooks/useApiKey'
@@ -18,7 +19,8 @@ import { type QuestionPath } from '@/lib/services/questionPath'
 import { useKeyboardShortcuts } from '@/hooks/useKeyboardShortcuts'
 import { Logo } from '@/components/ui/Logo'
 import { ChatSidebar } from '@/components/chat/ChatSidebar'
-import { LeftPanel, type LeftTab } from '@/components/builder/LeftPanel'
+import { LeftPanel } from '@/components/builder/LeftPanel'
+import { RightPanel } from '@/components/builder/RightPanel'
 import { ContextualEditor } from '@/components/builder/contextual/ContextualEditor'
 import { GenerationProgress } from '@/components/builder/GenerationProgress'
 import { ReplayController } from '@/components/builder/ReplayController'
@@ -63,7 +65,7 @@ export function BuilderLayout({ buildId }: { buildId: string }) {
   const { settings } = useSettings()
   const builder = useBuilder()
   const [leftPanelOpen, setLeftPanelOpen] = useState(true)
-  const [leftTab, setLeftTab] = useState<LeftTab>('chat')
+  const [rightPanelOpen, setRightPanelOpen] = useState(false)
   const [viewMode, setViewMode] = useState<'design' | 'preview'>('design')
   const viewModeRef = useRef(viewMode)
   const scrollAnchorRef = useRef<{ questionPath: string; offsetTop: number; allPaths: string[] } | null>(null)
@@ -129,9 +131,10 @@ export function BuilderLayout({ buildId }: { buildId: string }) {
     viewModeRef.current = mode
     setViewMode(mode)
 
-    // Entering preview: collapse left panel
+    // Entering preview: collapse both panels
     if (mode === 'preview') {
       setLeftPanelOpen(false)
+      setRightPanelOpen(false)
     } else {
       setLeftPanelOpen(true)
     }
@@ -171,22 +174,21 @@ export function BuilderLayout({ buildId }: { buildId: string }) {
   const builderRef = useRef(builder)
   builderRef.current = builder
 
-  // ── Auto-switch to Structure tab when tree data first appears during generation ──
+  // ── Auto-open right panel when tree data first appears during generation ──
   const prevTreeDataRef = useRef(builder.treeData)
   useEffect(() => {
     if (!prevTreeDataRef.current && builder.treeData) {
-      setLeftTab('structure')
+      setRightPanelOpen(true)
       setLeftPanelOpen(true)
     }
     prevTreeDataRef.current = builder.treeData
   }, [builder.treeData])
 
-  // ── Auto-switch to Chat tab + navigate to first form when generation completes ──
+  // ── Navigate to first form when generation completes ──
   const prevPhaseRef = useRef(builder.phase)
   useEffect(() => {
     const wasGenerating = [BuilderPhase.DataModel, BuilderPhase.Structure, BuilderPhase.Modules, BuilderPhase.Forms, BuilderPhase.Validate, BuilderPhase.Fix].includes(prevPhaseRef.current)
     if (wasGenerating && builder.phase === BuilderPhase.Done) {
-      setLeftTab('chat')
       // Navigate to first form if available
       if (builder.blueprint && builder.blueprint.modules.length > 0 && builder.blueprint.modules[0].forms.length > 0) {
         nav.navigateToForm(0, 0)
@@ -380,6 +382,7 @@ export function BuilderLayout({ buildId }: { buildId: string }) {
 
   const showProgress = (isGenerating || builder.phase === BuilderPhase.Done) && !progressHidden && !inReplayMode
   const leftOpen = viewMode === 'preview' ? false : leftPanelOpen
+  const rightOpen = viewMode === 'preview' ? false : rightPanelOpen
   const showToolbar = !!(builder.treeData && builder.phase === BuilderPhase.Done && builder.blueprint)
   const showContextualEditor = showToolbar && viewMode === 'design'
   const editMode = viewMode === 'preview' ? 'test' as const : 'edit' as const
@@ -534,9 +537,18 @@ export function BuilderLayout({ buildId }: { buildId: string }) {
                     <button
                       onClick={() => setLeftPanelOpen(true)}
                       className="absolute top-3 left-3 z-ground p-2 bg-nova-surface border border-nova-border rounded-lg hover:border-nova-border-bright transition-colors cursor-pointer"
-                      title="Open panel"
+                      title="Open chat"
                     >
-                      <Icon icon={ciWindowSidebar} width="24" height="24" />
+                      <Icon icon={ciMessage} width="20" height="20" />
+                    </button>
+                  )}
+                  {!rightOpen && viewMode !== 'preview' && builder.treeData && (
+                    <button
+                      onClick={() => setRightPanelOpen(true)}
+                      className="absolute top-3 right-3 z-ground p-2 bg-nova-surface border border-nova-border rounded-lg hover:border-nova-border-bright transition-colors cursor-pointer"
+                      title="Open structure"
+                    >
+                      <Icon icon={tablerListTree} width="20" height="20" />
                     </button>
                   )}
 
@@ -581,7 +593,7 @@ export function BuilderLayout({ buildId }: { buildId: string }) {
             )}
           </AnimatePresence>
 
-          {/* Left panel (Chat + Structure tabs) — absolute left, floats over content */}
+          {/* Left panel (Chat) — absolute left, floats over content */}
           <AnimatePresence>
             {!isCentered && leftOpen && (
               <motion.div
@@ -592,15 +604,30 @@ export function BuilderLayout({ buildId }: { buildId: string }) {
                 className="absolute left-0 top-0 bottom-0 z-raised"
               >
                 <LeftPanel
-                  builder={builder}
                   messages={inReplayMode ? replayMessages : messages}
                   status={inReplayMode ? 'ready' : status}
                   onSend={handleSend}
                   addToolOutput={addToolOutput}
                   readOnly={inReplayMode}
                   onClose={() => setLeftPanelOpen(false)}
-                  activeTab={leftTab}
-                  onTabChange={setLeftTab}
+                />
+              </motion.div>
+            )}
+          </AnimatePresence>
+
+          {/* Right panel (Structure tree) — absolute right, floats over content */}
+          <AnimatePresence>
+            {!isCentered && rightOpen && (
+              <motion.div
+                initial={{ x: 320, opacity: 0 }}
+                animate={{ x: 0, opacity: 1 }}
+                exit={{ x: 320, opacity: 0 }}
+                transition={{ duration: 0.25, ease: [0.4, 0, 0.2, 1] }}
+                className="absolute right-0 top-0 bottom-0 z-raised"
+              >
+                <RightPanel
+                  builder={builder}
+                  onClose={() => setRightPanelOpen(false)}
                   onTreeSelect={handleTreeSelect}
                 />
               </motion.div>
