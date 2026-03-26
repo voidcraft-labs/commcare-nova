@@ -1,9 +1,9 @@
 /**
  * Log Replay — extracts replay stages from a v3 RunLog.
  *
- * Walks through `log.turns` sequentially. Each turn's tool calls (direct and
- * sub_calls from code_execution) become replay stages. Emissions on each turn
- * are distributed across stages by moduleIndex/formIndex matching.
+ * Walks through `log.turns` sequentially. Each turn's tool calls become replay
+ * stages. Emissions on each turn are distributed across stages by
+ * moduleIndex/formIndex matching.
  *
  * Chat messages are built progressively from turn text/reasoning/tool_calls.
  * The `applyToBuilder` closure replays the turn's emissions through the
@@ -114,7 +114,6 @@ export function extractReplayStages(log: RunLog): ExtractionResult {
     if (turn.text) {
       accumulatedParts.push({ type: 'text', text: turn.text })
     }
-    let subIdx = 0
     for (const tc of turn.tool_calls ?? []) {
       accumulatedParts.push({
         type: `tool-${tc.name}`,
@@ -124,18 +123,6 @@ export function extractReplayStages(log: RunLog): ExtractionResult {
         state: 'output-available',
         ...(tc.output !== undefined ? { output: tc.output } : {}),
       })
-      if (tc.sub_calls) {
-        for (const sc of tc.sub_calls) {
-          accumulatedParts.push({
-            type: `tool-${sc.name}`,
-            toolCallId: `replay-${turn.index}-sub-${subIdx++}-${sc.name}`,
-            toolName: sc.name,
-            input: sc.args,
-            state: 'output-available',
-            ...(sc.output !== undefined ? { output: sc.output } : {}),
-          })
-        }
-      }
     }
 
     // Create stages from interesting tool calls
@@ -212,19 +199,12 @@ export function extractReplayStages(log: RunLog): ExtractionResult {
 
 // ── Helpers ─────────────────────────────────────────────────────────────
 
-/** Flatten a turn's tool calls into interesting (stage-producing) calls, skipping code_execution. */
+/** Flatten a turn's tool calls into interesting (stage-producing) calls. */
 function flattenInterestingCalls(turn: Turn): ToolCallRef[] {
   const result: ToolCallRef[] = []
   for (const tc of turn.tool_calls ?? []) {
-    if (tc.name !== 'code_execution' && toolToHeader(tc.name) !== undefined) {
+    if (toolToHeader(tc.name) !== undefined) {
       result.push(tc)
-    }
-    if (tc.sub_calls) {
-      for (const sc of tc.sub_calls) {
-        if (toolToHeader(sc.name) !== undefined) {
-          result.push(sc)
-        }
-      }
     }
   }
   return result

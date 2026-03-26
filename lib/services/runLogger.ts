@@ -1,9 +1,9 @@
 /**
  * RunLogger — disk-based run logger that writes one JSON file per run to .log/.
  *
- * v3 format: each "turn" is one LLM call — grouped with its programmatic sub-calls
- * (from code_execution), emissions, and cost. Emissions carry full payloads for
- * deterministic builder replay; `events` provides human-readable summaries.
+ * v3 format: each "turn" is one LLM call — grouped with its emissions and cost.
+ * Emissions carry full payloads for deterministic builder replay; `events`
+ * provides human-readable summaries.
  *
  * User messages stored as plain text. No conversation duplication.
  *
@@ -36,19 +36,12 @@ export interface StepUsage {
   cost_estimate: number
 }
 
-export interface SubCall {
-  name: string
-  args: unknown
-  output?: unknown
-}
-
 export interface TurnToolCall {
   name: string
   args: unknown
   output?: unknown
   generation?: StepUsage
   reasoning?: string
-  sub_calls?: SubCall[]
 }
 
 export interface Turn {
@@ -259,17 +252,11 @@ export class RunLogger {
       ),
     }
 
-    const isNewTurn = step.usage.input_tokens > 0 || this.log.turns.length === 0
-
-    if (isNewTurn) {
-      this.startNewTurn(
-        { text: step.text, reasoning: step.reasoning, usage },
-        toolCalls ?? [],
-        emissions,
-      )
-    } else {
-      this.appendSubCalls(toolCalls ?? [], emissions)
-    }
+    this.startNewTurn(
+      { text: step.text, reasoning: step.reasoning, usage },
+      toolCalls ?? [],
+      emissions,
+    )
 
     this.flush()
   }
@@ -319,62 +306,18 @@ export class RunLogger {
     }
 
     if (toolCalls.length > 0) {
-      const ceIdx = toolCalls.findIndex(tc => tc.name === 'code_execution')
-      if (ceIdx >= 0) {
-        const ceTc = toolCalls[ceIdx]
-        const subCalls: SubCall[] = toolCalls
-          .filter((_, i) => i !== ceIdx)
-          .map(tc => ({
-            name: tc.name,
-            args: tc.args,
-            ...(tc.output !== undefined && { output: tc.output }),
-          }))
-        turn.tool_calls = [{
-          name: ceTc.name,
-          args: ceTc.args,
-          ...(ceTc.output !== undefined && { output: ceTc.output }),
-          ...(ceTc.generation && { generation: ceTc.generation }),
-          ...(ceTc.reasoning && { reasoning: ceTc.reasoning }),
-          ...(subCalls.length > 0 && { sub_calls: subCalls }),
-        }]
-      } else {
-        turn.tool_calls = toolCalls.map(tc => ({
-          name: tc.name,
-          args: tc.args,
-          ...(tc.output !== undefined && { output: tc.output }),
-          ...(tc.generation && { generation: tc.generation }),
-          ...(tc.reasoning && { reasoning: tc.reasoning }),
-        }))
-      }
+      turn.tool_calls = toolCalls.map(tc => ({
+        name: tc.name,
+        args: tc.args,
+        ...(tc.output !== undefined && { output: tc.output }),
+        ...(tc.generation && { generation: tc.generation }),
+        ...(tc.reasoning && { reasoning: tc.reasoning }),
+      }))
     }
 
     this.log.turns.push(turn)
   }
 
-  private appendSubCalls(toolCalls: MatchedToolCall[], emissions: Emission[]) {
-    if (this.log.turns.length === 0) {
-      const noopUsage: StepUsage = { model: 'unknown', input_tokens: 0, output_tokens: 0, cost_estimate: 0 }
-      this.startNewTurn({ usage: noopUsage }, toolCalls, emissions)
-      return
-    }
-
-    const currentTurn = this.log.turns[this.log.turns.length - 1]
-    const ceTc = currentTurn.tool_calls?.find(tc => tc.name === 'code_execution')
-
-    if (ceTc && toolCalls.length > 0) {
-      if (!ceTc.sub_calls) ceTc.sub_calls = []
-      for (const tc of toolCalls) {
-        ceTc.sub_calls.push({
-          name: tc.name,
-          args: tc.args,
-          ...(tc.output !== undefined && { output: tc.output }),
-        })
-      }
-    }
-
-    currentTurn.events.push(...emissions.map(summarizeEmission))
-    currentTurn.emissions.push(...emissions)
-  }
 
   private backfillToolOutputs(messages: UIMessage[]) {
     const outputs: { name: string; output: unknown }[] = []

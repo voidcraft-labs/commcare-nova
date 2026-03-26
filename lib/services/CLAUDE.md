@@ -8,7 +8,7 @@ Split across two files:
 - `solutionsArchitect.ts` — `createSolutionsArchitect()` with tool definitions + `buildColumnPrompt()`
 - `validationLoop.ts` — `validateAndFix()`, `groupErrorsByForm()`, `applyProgrammaticFixes()`
 
-`solutionsArchitect.ts` exports `createSolutionsArchitect(ctx, mutableBp)` — single `ToolLoopAgent` with 21 tools in 6 groups:
+`solutionsArchitect.ts` exports `createSolutionsArchitect(ctx, mutableBp)` — single `ToolLoopAgent` with 20 tools in 6 groups:
 
 **Conversation (1):**
 - `askQuestions` (client-side, no `execute`) — structured multiple-choice rendered as QuestionCard. `sendAutomaticallyWhen` re-sends when all answered.
@@ -18,9 +18,8 @@ Split across two files:
 - `generateScaffold` — accepts module/form structure. `onInputStart` emits `data-phase: structure`.
 - `addModule` — accepts case list/detail columns. `onInputStart` emits `data-phase: modules`.
 
-**Code Execution + Form Building (2):**
-- `code_execution` — Anthropic code execution sandbox. SA writes Python to batch `addQuestions` calls.
-- `addQuestions` — batch-append flat questions to a form. Marked with `allowedCallers: ['code_execution_20260120']` for programmatic calling from code execution. Processes questions through `stripEmpty → applyDefaults(caseTypes, formType, moduleCaseType) → buildQuestionTree`, merging with existing form questions. `applyDefaults` auto-sets `default_value` to `#case/{id}` for primary case properties in follow-up forms. Emits `data-form-updated`.
+**Form Building (1):**
+- `addQuestions` — batch-append flat questions to a form. Processes questions through `stripEmpty → applyDefaults(caseTypes, formType, moduleCaseType) → buildQuestionTree`, merging with existing form questions. `applyDefaults` auto-sets `default_value` to `#case/{id}` for primary case properties in follow-up forms. Emits `data-form-updated`.
 
 **Read (4):**
 - `searchBlueprint`, `getModule`, `getForm`, `getQuestion`
@@ -31,11 +30,11 @@ Split across two files:
 **Validation (1):**
 - `validateApp` — runs `validateAndFix()` loop. `onInputStart` emits `data-phase: validate`, emits `data-done` on success.
 
-**Build sequence:** `askQuestions → generateSchema → generateScaffold → addModule × N → code_execution (addQuestions × N) → validateApp`
+**Build sequence:** `askQuestions → generateSchema → generateScaffold → addModule × N → addQuestions × N → validateApp`
 
-The SA makes all architecture and form design decisions. Schema, scaffold, and module tools are called directly. Only `addQuestions` goes through code execution for batching.
+The SA makes all architecture and form design decisions. All tools are called directly.
 
-**prepareStep:** Inline function that consolidates prompt caching, reasoning (adaptive thinking), and container forwarding (code execution sandbox persistence) into a single provider options builder. Uses request-level `cacheControl: { type: 'ephemeral' }` in `providerOptions.anthropic` — Anthropic automatically places the cache breakpoint on the last cacheable block and advances it as the conversation grows. System prompt stays cached across requests.
+**prepareStep:** Inline function that consolidates prompt caching and reasoning (adaptive thinking) into a single provider options builder. Uses request-level `cacheControl: { type: 'ephemeral' }` in `providerOptions.anthropic` — Anthropic automatically places the cache breakpoint on the last cacheable block and advances it as the conversation grows. System prompt stays cached across requests.
 
 **Agent limits:** `stopWhen: stepCountIs(80)` — resets per request. Error recovery prompt tells SA to bail after 2-3 failed retries.
 
@@ -203,7 +202,7 @@ The fix loop in `validationLoop.ts` auto-fixes case-mismatched function names (`
 Set `RUN_LOGGER=1` in `.env` to enable. Each run writes to `.log/` — always valid JSON, even on crash. When disabled (the default), all logging methods (`logStep`, `logEmission`, `logSubResult`, `logToolOutput`, `logConversation`, `finalize`) return immediately — zero `structuredClone` overhead or buffer work.
 
 **RunLogger class** (`runLogger.ts`): created once per request.
-- `logStep(step)` — groups into turns. Steps with `input_tokens > 0` start a new `Turn`; steps with `input_tokens === 0` are programmatic sub-calls from `code_execution` and get appended to the current turn's `sub_calls`. Drains emission/sub-result/tool-output buffers, computes cost, flushes.
+- `logStep(step)` — starts a new turn. Drains emission/sub-result/tool-output buffers, computes cost, flushes.
 - `logEmission(type, data)` — buffers an emission (skips transient types like `data-partial-scaffold`)
 - `logSubResult(label, result)` — buffers sub-generation usage data
 - `logToolOutput(toolName, output)` — buffers a server-side tool's return value. Matched to `tool_calls` by name in `logStep()`. Used by `validateApp` to capture success/failure + error details.
@@ -217,11 +216,9 @@ Set `RUN_LOGGER=1` in `.env` to enable. Each run writes to `.log/` — always va
 - `turns[]` — one entry per LLM call. Each turn contains:
   - `usage` — token counts and cost for this LLM call
   - `text`, `reasoning` — LLM output
-  - `tool_calls[]` — `TurnToolCall` with `name`, `args`, `output?`, `generation?`. If `code_execution`, programmatic sub-calls are nested in `sub_calls[]` (`SubCall` with `name`, `args`, `output?`)
+  - `tool_calls[]` — `TurnToolCall` with `name`, `args`, `output?`, `generation?`
   - `events[]` — human-readable emission summaries (e.g. `"phase:modules"`, `"form-updated[0:1]"`, `"done"`)
   - `emissions[]` — full emission payloads for replay
-
-**Turn grouping:** When the SA calls `code_execution`, the sandbox runs Python that calls other tools (e.g. `createModule`, `addQuestions`). These programmatic calls appear as 0-token steps in the `ToolLoopAgent`. RunLogger nests them as `sub_calls` under the parent `code_execution` tool call, so each Turn represents one LLM decision with all its consequences.
 
 ## Log Replay
 
@@ -229,7 +226,7 @@ Client-side replay of v3 run logs through Builder without API calls.
 
 **Flow:** `/settings` file picker → `extractReplayStages(log)` → module-level store → `/build/new` → `BuilderLayout` reads store → `ReplayController` drives Builder.
 
-`logReplay.ts` — walks `log.turns`, builds progressive chat messages, creates `ReplayStage` per interesting tool call. Tool calls are flattened from `TurnToolCall` + `sub_calls` (skipping `code_execution` itself). Multi-tool turns split by `moduleIndex`/`formIndex` via `distributeEmissions`. Uses `applyDataPart()` — same code path as real-time. Extraction returns `doneIndex` — the index of the synthetic "Done" stage — so consumers can start replay at the completed app state without string comparisons.
+`logReplay.ts` — walks `log.turns`, builds progressive chat messages, creates `ReplayStage` per interesting tool call. Multi-tool turns split by `moduleIndex`/`formIndex` via `distributeEmissions`. Uses `applyDataPart()` — same code path as real-time. Extraction returns `doneIndex` — the index of the synthetic "Done" stage — so consumers can start replay at the completed app state without string comparisons.
 
 ## Pipeline Config
 
