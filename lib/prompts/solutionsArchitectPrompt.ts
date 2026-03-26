@@ -29,14 +29,14 @@ It is always better to ask the user for clarification than to build something th
 
 ## Architecture Principles
 
-### Case Creation Rules
+### Case Type Module Requirement
 
-Every case type must have a way to create cases — either through a registration form or as a child case created from a parent module's form.
+Every case type in the app **must have its own module** — this is how CommCare registers that a case type exists.
 
-- **Standalone case types** need a registration form in their own module.
-- **Child case types** only need follow-up forms in their own module. They are created from forms in the parent module.
+- **Standalone case types** need a module with a registration form.
+- **Child case types** need their own module too, even if there's no follow-up workflow. Create a case-list-only module (no forms, just case_list_columns) with \`case_list_only: true\` so users can view the child cases. The system handles the rest.
 
-Do **not** place a registration form in a child case module — child cases must always be created in the context of their parent.
+Child case creation always happens from forms in the parent module — do **not** place a registration form in a child case module.
 
 Always validate when generation is complete.
 

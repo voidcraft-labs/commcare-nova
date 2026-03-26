@@ -973,3 +973,197 @@ describe('unquoted string literal detection', () => {
     expect(errors.some(e => e.includes('unquoted string "active"'))).toBe(true)
   })
 })
+
+// ── Child Case Type Module Requirement ─────────────────────────────────
+
+describe('child case type module requirement', () => {
+  it('errors when child case type has no module', () => {
+    const bp: AppBlueprint = {
+      app_name: 'Test',
+      modules: [{
+        name: 'Plans',
+        case_type: 'plan',
+        forms: [{
+          name: 'Create Plan',
+          type: 'registration',
+          questions: [
+            { id: 'case_name', type: 'text', label: 'Plan Name', case_property_on: 'plan' },
+          ],
+        }],
+      }],
+      case_types: [
+        { name: 'plan', properties: [{ name: 'case_name', label: 'Plan Name' }] },
+        { name: 'service', parent_type: 'plan', properties: [{ name: 'case_name', label: 'Service Name' }] },
+      ],
+    }
+    const errors = validateBlueprint(bp)
+    expect(errors.some(e => e.includes('Child case type "service"') && e.includes('has no module'))).toBe(true)
+  })
+
+  it('no error when child case type has a case_list_only module', () => {
+    const bp: AppBlueprint = {
+      app_name: 'Test',
+      modules: [
+        {
+          name: 'Plans',
+          case_type: 'plan',
+          forms: [{
+            name: 'Create Plan',
+            type: 'registration',
+            questions: [
+              { id: 'case_name', type: 'text', label: 'Plan Name', case_property_on: 'plan' },
+            ],
+          }],
+        },
+        {
+          name: 'Services',
+          case_type: 'service',
+          case_list_only: true,
+          forms: [],
+          case_list_columns: [{ field: 'case_name', header: 'Name' }],
+        },
+      ],
+      case_types: [
+        { name: 'plan', properties: [{ name: 'case_name', label: 'Plan Name' }] },
+        { name: 'service', parent_type: 'plan', properties: [{ name: 'case_name', label: 'Service Name' }] },
+      ],
+    }
+    const errors = validateBlueprint(bp)
+    expect(errors.some(e => e.includes('Child case type "service"'))).toBe(false)
+    expect(errors.some(e => e.includes('case_list_only'))).toBe(false)
+  })
+})
+
+// ── case_list_only Validation ──────────────────────────────────────────
+
+describe('case_list_only validation', () => {
+  it('errors when case_list_only module has forms', () => {
+    const bp: AppBlueprint = {
+      app_name: 'Test',
+      modules: [{
+        name: 'Bad',
+        case_type: 'thing',
+        case_list_only: true,
+        forms: [{ name: 'F', type: 'followup', questions: [{ id: 'q', type: 'text', label: 'Q' }] }],
+      }],
+      case_types: [{ name: 'thing', properties: [] }],
+    }
+    const errors = validateBlueprint(bp)
+    expect(errors.some(e => e.includes('case_list_only but has forms'))).toBe(true)
+  })
+
+  it('errors when case_list_only module has no case_type', () => {
+    const bp: AppBlueprint = {
+      app_name: 'Test',
+      modules: [{
+        name: 'Bad',
+        case_list_only: true,
+        forms: [],
+      }],
+      case_types: null,
+    }
+    const errors = validateBlueprint(bp)
+    expect(errors.some(e => e.includes('case_list_only but has no case_type'))).toBe(true)
+  })
+
+  it('errors when module has case_type and no forms but missing case_list_only flag', () => {
+    const bp: AppBlueprint = {
+      app_name: 'Test',
+      modules: [{
+        name: 'Ambiguous',
+        case_type: 'thing',
+        forms: [],
+      }],
+      case_types: [{ name: 'thing', properties: [] }],
+    }
+    const errors = validateBlueprint(bp)
+    expect(errors.some(e => e.includes('set case_list_only: true'))).toBe(true)
+  })
+})
+
+// ── case_list_only Expansion ───────────────────────────────────────────
+
+describe('case_list_only expansion', () => {
+  it('sets case_list.show on case_list_only modules', () => {
+    const bp: AppBlueprint = {
+      app_name: 'Test',
+      modules: [
+        {
+          name: 'Plans',
+          case_type: 'plan',
+          forms: [{
+            name: 'Create Plan',
+            type: 'registration',
+            questions: [
+              { id: 'case_name', type: 'text', label: 'Plan Name', case_property_on: 'plan' },
+            ],
+          }],
+        },
+        {
+          name: 'Services',
+          case_type: 'service',
+          case_list_only: true,
+          forms: [],
+          case_list_columns: [{ field: 'case_name', header: 'Name' }],
+        },
+      ],
+      case_types: [
+        { name: 'plan', properties: [{ name: 'case_name', label: 'Plan Name' }] },
+        { name: 'service', parent_type: 'plan', properties: [{ name: 'case_name', label: 'Service Name' }] },
+      ],
+    }
+    const hq = expandBlueprint(bp)
+    expect(hq.modules[1].case_list.show).toBe(true)
+    expect(hq.modules[1].case_list.label).toEqual({ en: 'Services' })
+    expect(hq.modules[0].case_list.show).toBe(false)
+  })
+
+  it('sets case_type on case_list_only modules', () => {
+    const bp: AppBlueprint = {
+      app_name: 'Test',
+      modules: [{
+        name: 'Services',
+        case_type: 'service',
+        case_list_only: true,
+        forms: [],
+        case_list_columns: [{ field: 'case_name', header: 'Name' }],
+      }],
+      case_types: [{ name: 'service', properties: [{ name: 'case_name', label: 'Name' }] }],
+    }
+    const hq = expandBlueprint(bp)
+    expect(hq.modules[0].case_type).toBe('service')
+  })
+
+  it('sets parent_select on child case type modules', () => {
+    const bp: AppBlueprint = {
+      app_name: 'Test',
+      modules: [
+        {
+          name: 'Plans',
+          case_type: 'plan',
+          forms: [{
+            name: 'Create Plan',
+            type: 'registration',
+            questions: [
+              { id: 'case_name', type: 'text', label: 'Plan Name', case_property_on: 'plan' },
+            ],
+          }],
+        },
+        {
+          name: 'Services',
+          case_type: 'service',
+          case_list_only: true,
+          forms: [],
+          case_list_columns: [{ field: 'case_name', header: 'Name' }],
+        },
+      ],
+      case_types: [
+        { name: 'plan', properties: [{ name: 'case_name', label: 'Plan Name' }] },
+        { name: 'service', parent_type: 'plan', properties: [{ name: 'case_name', label: 'Service Name' }] },
+      ],
+    }
+    const hq = expandBlueprint(bp)
+    expect(hq.modules[1].parent_select.active).toBe(true)
+    expect(hq.modules[1].parent_select.module_id).toBe(hq.modules[0].unique_id)
+  })
+})

@@ -609,16 +609,20 @@ export function createSolutionsArchitect(
         inputSchema: z.object({
           name: z.string().describe('Module display name'),
           case_type: z.string().optional().describe('Case type (required if module will have registration/followup forms)'),
+          case_list_only: z.boolean().optional().describe(
+            'True for case-list-only modules with no forms. Use for child case types that need to be viewable but have no follow-up workflow.'
+          ),
           case_list_columns: z.array(z.object({
             field: z.string().describe('Case property name'),
             header: z.string().describe('Column header text'),
           })).optional().describe('Case list columns'),
         }),
-        execute: async ({ name, case_type, case_list_columns }) => {
+        execute: async ({ name, case_type, case_list_only, case_list_columns }) => {
           try {
             mutableBp.addModule({
               name,
               ...(case_type && { case_type }),
+              ...(case_list_only && { case_list_only }),
               forms: [],
               ...(case_list_columns && { case_list_columns }),
             })
