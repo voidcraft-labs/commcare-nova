@@ -2,13 +2,20 @@
 import { Icon } from '@iconify/react'
 import ciImage from '@iconify-icons/ci/image'
 import type { Question } from '@/lib/schemas/blueprint'
+import { questionTypeIcons, questionTypeLabels } from '@/lib/questionTypeIcons'
+import { useEditContext } from '@/hooks/useEditContext'
 
 export function MediaField({ question }: { question: Question }) {
+  const ctx = useEditContext()
+  const isDesign = ctx?.mode === 'edit'
+  const icon = questionTypeIcons[question.type] ?? ciImage
+  const label = questionTypeLabels[question.type] ?? question.type
+
   return (
     <div className="flex items-center gap-3 px-4 py-3 rounded-lg bg-pv-surface border border-dashed border-pv-input-border">
-      <Icon icon={ciImage} width="20" height="20" className="text-nova-text-muted" />
+      <Icon icon={icon} width="20" height="20" className="text-nova-text-muted" />
       <span className="text-sm text-nova-text-muted">
-        {question.type} capture (not available in preview)
+        {label}{!isDesign && ' (not available in preview)'}
       </span>
     </div>
   )
