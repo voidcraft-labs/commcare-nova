@@ -126,9 +126,9 @@ describe('expandBlueprint', () => {
     }
     const hq = expandBlueprint(bp)
     const xform: string = Object.values(hq._attachments)[0] as string
-    expect(xform).toContain('<setvalue event="xforms-ready" ref="/data/status"')
+    expect(xform).toContain('vellum:ref="#form/status" ref="/data/status"')
     expect(xform).toContain("value=\"&apos;pending&apos;\"")
-    // No vellum:value when there are no hashtags
+    // No vellum:value when there are no hashtags in the value expression
     expect(xform).not.toContain('vellum:value=')
   })
 
@@ -296,10 +296,245 @@ describe('output references in labels', () => {
     }
     const hq = expandBlueprint(bp)
     const xform: string = Object.values(hq._attachments)[0] as string
-    // The output tag should have expanded XPath, not the #case/ shorthand
-    expect(xform).toContain('<output value="')
-    expect(xform).toContain('/full_name"/>')
-    expect(xform).not.toContain('#case/full_name"/>')
+    // The output value= should have expanded XPath, vellum:value preserves shorthand
+    expect(xform).toContain('<output value="instance(')
+    expect(xform).toContain('vellum:value="#case/full_name"')
+  })
+})
+
+// ── #form/ hashtag expansion ─────────────────────────────────────────────
+
+describe('#form/ hashtag expansion', () => {
+  it('expands #form/ in calculate to /data/, keeps shorthand in vellum:calculate', () => {
+    const bp: AppBlueprint = {
+      app_name: 'FormRef', modules: [{
+        name: 'M', forms: [{
+          name: 'F', type: 'survey',
+          questions: [
+            { id: 'first_name', type: 'text', label: 'First' },
+            { id: 'last_name', type: 'text', label: 'Last' },
+            { id: 'full_name', type: 'hidden', calculate: "concat(#form/first_name, ' ', #form/last_name)" },
+          ],
+        }],
+      }],
+      case_types: null,
+    }
+    const hq = expandBlueprint(bp)
+    const xform: string = Object.values(hq._attachments)[0] as string
+    expect(xform).toContain("calculate=\"concat(/data/first_name, &apos; &apos;, /data/last_name)\"")
+    expect(xform).toContain("vellum:calculate=\"concat(#form/first_name, &apos; &apos;, #form/last_name)\"")
+  })
+
+  it('expands #form/ in relevant to /data/, keeps shorthand in vellum:relevant', () => {
+    const bp: AppBlueprint = {
+      app_name: 'FormRef', modules: [{
+        name: 'M', forms: [{
+          name: 'F', type: 'survey',
+          questions: [
+            { id: 'consent', type: 'single_select', label: 'Consent?', options: [{ value: 'yes', label: 'Yes' }, { value: 'no', label: 'No' }] },
+            { id: 'details', type: 'text', label: 'Details', relevant: "#form/consent = 'yes'" },
+          ],
+        }],
+      }],
+      case_types: null,
+    }
+    const hq = expandBlueprint(bp)
+    const xform: string = Object.values(hq._attachments)[0] as string
+    expect(xform).toContain("relevant=\"/data/consent = &apos;yes&apos;\"")
+    expect(xform).toContain("vellum:relevant=\"#form/consent = &apos;yes&apos;\"")
+  })
+
+  it('expands #form/ in validation constraint', () => {
+    const bp: AppBlueprint = {
+      app_name: 'FormRef', modules: [{
+        name: 'M', forms: [{
+          name: 'F', type: 'survey',
+          questions: [
+            { id: 'start_date', type: 'date', label: 'Start' },
+            { id: 'end_date', type: 'date', label: 'End', validation: '. >= #form/start_date' },
+          ],
+        }],
+      }],
+      case_types: null,
+    }
+    const hq = expandBlueprint(bp)
+    const xform: string = Object.values(hq._attachments)[0] as string
+    expect(xform).toContain('constraint=". &gt;= /data/start_date"')
+    expect(xform).toContain('vellum:constraint=". &gt;= #form/start_date"')
+  })
+
+  it('expands #form/ in required condition', () => {
+    const bp: AppBlueprint = {
+      app_name: 'FormRef', modules: [{
+        name: 'M', forms: [{
+          name: 'F', type: 'survey',
+          questions: [
+            { id: 'has_issue', type: 'single_select', label: 'Issue?', options: [{ value: 'yes', label: 'Yes' }, { value: 'no', label: 'No' }] },
+            { id: 'details', type: 'text', label: 'Details', required: "#form/has_issue = 'yes'" },
+          ],
+        }],
+      }],
+      case_types: null,
+    }
+    const hq = expandBlueprint(bp)
+    const xform: string = Object.values(hq._attachments)[0] as string
+    expect(xform).toContain("required=\"/data/has_issue = &apos;yes&apos;\"")
+    expect(xform).toContain("vellum:required=\"#form/has_issue = &apos;yes&apos;\"")
+  })
+
+  it('expands #form/ in <output> tags with vellum:value', () => {
+    const bp: AppBlueprint = {
+      app_name: 'FormRef', modules: [{
+        name: 'M', forms: [{
+          name: 'F', type: 'survey',
+          questions: [
+            { id: 'text_value', type: 'hidden', default_value: "'Text'" },
+            { id: 'here', type: 'label', label: 'Here <output value="#form/text_value"/>' },
+          ],
+        }],
+      }],
+      case_types: null,
+    }
+    const hq = expandBlueprint(bp)
+    const xform: string = Object.values(hq._attachments)[0] as string
+    expect(xform).toContain('<output value="/data/text_value" vellum:value="#form/text_value"/>')
+  })
+
+  it('expands #form/ in default_value setvalue', () => {
+    const bp: AppBlueprint = {
+      app_name: 'FormRef', modules: [{
+        name: 'M', forms: [{
+          name: 'F', type: 'survey',
+          questions: [
+            { id: 'score_a', type: 'int', label: 'Score A' },
+            { id: 'score_b', type: 'int', label: 'Score B' },
+            { id: 'total', type: 'hidden', default_value: '#form/score_a + #form/score_b' },
+          ],
+        }],
+      }],
+      case_types: null,
+    }
+    const hq = expandBlueprint(bp)
+    const xform: string = Object.values(hq._attachments)[0] as string
+    expect(xform).toContain('value="/data/score_a + /data/score_b"')
+    expect(xform).toContain('vellum:value="#form/score_a + #form/score_b"')
+  })
+
+  it('generates vellum:nodeset on all binds', () => {
+    const bp: AppBlueprint = {
+      app_name: 'VN', modules: [{
+        name: 'M', forms: [{
+          name: 'F', type: 'survey',
+          questions: [
+            { id: 'name', type: 'text', label: 'Name' },
+            { id: 'age', type: 'int', label: 'Age' },
+          ],
+        }],
+      }],
+      case_types: null,
+    }
+    const hq = expandBlueprint(bp)
+    const xform: string = Object.values(hq._attachments)[0] as string
+    expect(xform).toContain('vellum:nodeset="#form/name" nodeset="/data/name"')
+    expect(xform).toContain('vellum:nodeset="#form/age" nodeset="/data/age"')
+  })
+
+  it('generates vellum:nodeset for nested questions in groups', () => {
+    const bp: AppBlueprint = {
+      app_name: 'VN', modules: [{
+        name: 'M', forms: [{
+          name: 'F', type: 'survey',
+          questions: [{
+            id: 'grp', type: 'group', label: 'Group', children: [
+              { id: 'inner', type: 'text', label: 'Inner' },
+            ],
+          }],
+        }],
+      }],
+      case_types: null,
+    }
+    const hq = expandBlueprint(bp)
+    const xform: string = Object.values(hq._attachments)[0] as string
+    expect(xform).toContain('vellum:nodeset="#form/grp/inner" nodeset="/data/grp/inner"')
+  })
+
+  it('generates vellum:ref on setvalue elements', () => {
+    const bp: AppBlueprint = {
+      app_name: 'VR', modules: [{
+        name: 'M', forms: [{
+          name: 'F', type: 'survey',
+          questions: [{ id: 'ts', type: 'hidden', default_value: 'now()' }],
+        }],
+      }],
+      case_types: null,
+    }
+    const hq = expandBlueprint(bp)
+    const xform: string = Object.values(hq._attachments)[0] as string
+    expect(xform).toContain('vellum:ref="#form/ts" ref="/data/ts"')
+  })
+
+  it('expands #form/ in group relevant and adds vellum attributes', () => {
+    const bp: AppBlueprint = {
+      app_name: 'GR', modules: [{
+        name: 'M', forms: [{
+          name: 'F', type: 'survey',
+          questions: [
+            { id: 'show', type: 'single_select', label: 'Show?', options: [{ value: 'yes', label: 'Yes' }, { value: 'no', label: 'No' }] },
+            { id: 'details', type: 'group', label: 'Details', relevant: "#form/show = 'yes'", children: [
+              { id: 'info', type: 'text', label: 'Info' },
+            ]},
+          ],
+        }],
+      }],
+      case_types: null,
+    }
+    const hq = expandBlueprint(bp)
+    const xform: string = Object.values(hq._attachments)[0] as string
+    expect(xform).toContain("relevant=\"/data/show = &apos;yes&apos;\"")
+    expect(xform).toContain("vellum:relevant=\"#form/show = &apos;yes&apos;\"")
+    expect(xform).toContain('vellum:nodeset="#form/details"')
+  })
+
+  it('does not add vellum:hashtags or vellum:hashtagTransforms for #form/-only expressions', () => {
+    const bp: AppBlueprint = {
+      app_name: 'FormRef', modules: [{
+        name: 'M', forms: [{
+          name: 'F', type: 'survey',
+          questions: [
+            { id: 'a', type: 'int', label: 'A' },
+            { id: 'b', type: 'hidden', calculate: '#form/a * 2' },
+          ],
+        }],
+      }],
+      case_types: null,
+    }
+    const hq = expandBlueprint(bp)
+    const xform: string = Object.values(hq._attachments)[0] as string
+    // #form/ is NOT in VELLUM_HASHTAG_TRANSFORMS — no transforms metadata needed
+    expect(xform).not.toContain('vellum:hashtags=')
+    expect(xform).not.toContain('vellum:hashtagTransforms=')
+    // But vellum:calculate IS present (preserves shorthand for Vellum editor)
+    expect(xform).toContain('vellum:calculate="#form/a * 2"')
+    expect(xform).toContain('calculate="/data/a * 2"')
+  })
+
+  it('does not require secondary instances for #form/-only expressions', () => {
+    const bp: AppBlueprint = {
+      app_name: 'FormRef', modules: [{
+        name: 'M', forms: [{
+          name: 'F', type: 'survey',
+          questions: [
+            { id: 'a', type: 'int', label: 'A' },
+            { id: 'b', type: 'hidden', calculate: '#form/a * 2' },
+          ],
+        }],
+      }],
+      case_types: null,
+    }
+    const hq = expandBlueprint(bp)
+    const xform: string = Object.values(hq._attachments)[0] as string
+    expect(xform).not.toContain('id="casedb"')
+    expect(xform).not.toContain('id="commcaresession"')
   })
 })
 

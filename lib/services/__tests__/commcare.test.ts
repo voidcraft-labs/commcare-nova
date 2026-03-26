@@ -102,10 +102,34 @@ describe('hashtag expansion', () => {
     expect(result).not.toContain('#user/')
   })
 
+  it('expandHashtags replaces #form/ with /data/ path', () => {
+    expect(expandHashtags('#form/age')).toBe('/data/age')
+    expect(expandHashtags('#form/age > 18')).toBe('/data/age > 18')
+  })
+
+  it('expandHashtags handles nested #form/ paths', () => {
+    expect(expandHashtags('#form/group/question')).toBe('/data/group/question')
+    expect(expandHashtags('#form/a/b/c')).toBe('/data/a/b/c')
+  })
+
+  it('expandHashtags handles mixed #form/ and #case/ in same expression', () => {
+    const result = expandHashtags("if(#form/confirmed = 'yes', #case/name, '')")
+    expect(result).toContain('/data/confirmed')
+    expect(result).toContain("instance('casedb')")
+    expect(result).not.toContain('#form/')
+    expect(result).not.toContain('#case/')
+  })
+
+  it('expandHashtags leaves plain /data/ paths untouched', () => {
+    expect(expandHashtags('/data/age > 18')).toBe('/data/age > 18')
+  })
+
   it('hasHashtags detects presence', () => {
     expect(hasHashtags('#case/name')).toBe(true)
     expect(hasHashtags('#user/role')).toBe(true)
+    expect(hasHashtags('#form/age')).toBe(true)
     expect(hasHashtags('plain text')).toBe(false)
+    expect(hasHashtags('/data/age')).toBe(false)
   })
 
   it('extractHashtags collects unique references', () => {
@@ -114,6 +138,13 @@ describe('hashtag expansion', () => {
     expect(result).toContain('#case/b')
     expect(result).toContain('#user/c')
     expect(result).toHaveLength(3)
+  })
+
+  it('extractHashtags does not include #form/ refs (not in transforms map)', () => {
+    const result = extractHashtags(['#form/age + #case/name'])
+    expect(result).toContain('#case/name')
+    expect(result).not.toContain('#form/age')
+    expect(result).toHaveLength(1)
   })
 })
 

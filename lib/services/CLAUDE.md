@@ -150,12 +150,17 @@ Split across four files:
 
 `expandBlueprint()` converts `AppBlueprint` → HQ import JSON. `validateBlueprint()` checks semantic rules. `detectUnquotedStringLiteral()` uses the Lezer XPath parser to flag bare words in XPath fields (e.g. `no` instead of `'no'`).
 
-**Vellum hashtag expansion** — dual-attribute pattern matching CommCare's Vellum editor:
-- Real attributes (`calculate`, `relevant`, `constraint`, `value`) — `#case/` expanded to full `instance('casedb')/casedb/case[@case_id = instance('commcaresession')/session/data/case_id]/property` XPath.
-- Vellum attributes (`vellum:calculate`, `vellum:relevant`, `vellum:value`) — original shorthand preserved.
-- Vellum metadata (`vellum:hashtags`, `vellum:hashtagTransforms`) — JSON on each bind.
+**Vellum hashtag expansion** — dual-attribute pattern matching CommCare's Vellum editor. All three hashtag types (`#form/`, `#case/`, `#user/`) are expanded via the Lezer XPath parser's `HashtagRef` node (with `HashtagType` and `HashtagSegment` children). `expandHashtags()` in `commcare/hashtags.ts` is the single expansion point:
+- `#form/question` → `/data/question` (trivial, hardcoded in Vellum).
+- `#case/property` → full `instance('casedb')/...` XPath.
+- `#user/property` → full user-case `instance('casedb')/...` XPath.
+- Real attributes (`calculate`, `relevant`, `constraint`, `value`) get expanded XPath.
+- Vellum attributes (`vellum:calculate`, `vellum:relevant`, `vellum:value`) preserve original shorthand.
+- Every bind gets `vellum:nodeset="#form/..."`, every setvalue gets `vellum:ref="#form/..."`.
+- Vellum metadata (`vellum:hashtags`, `vellum:hashtagTransforms`) — JSON on binds with `#case/` or `#user/` refs only.
+- `<output value="..."/>` tags in labels get `vellum:value` preserving shorthand when expansion occurs.
 - `case_references_data.load` — form-level JSON mapping question paths to `#case/` refs.
-- Secondary instances (`casedb`, `commcaresession`) auto-declared when hashtags are used.
+- Secondary instances (`casedb`, `commcaresession`) auto-declared when `#case/` or `#user/` hashtags are used.
 
 **Case config derivation** (`deriveCaseConfig(questions, formType, moduleCaseType, caseTypes)`):
 - Groups questions by `case_property_on` value. Primary case (matches module case type) vs child cases (different case type).

@@ -2,7 +2,7 @@
 export const
   XPath = 1,
   HashtagRef = 2,
-  VariableReference = 3,
-  StringLiteral = 6,
-  NumberLiteral = 7,
-  NameTest = 13
+  VariableReference = 7,
+  StringLiteral = 10,
+  NumberLiteral = 11,
+  NameTest = 16
