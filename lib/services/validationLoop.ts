@@ -8,6 +8,7 @@
 import type { AppBlueprint, BlueprintForm, Question } from '../schemas/blueprint'
 import { expandBlueprint, validateBlueprint } from './hqJsonExpander'
 import { GenerationContext } from './generationContext'
+import { deriveConnectDefaults } from './connectConfig'
 
 // ── Validate + fix loop ──────────────────────────────────────────────
 
@@ -15,6 +16,17 @@ export async function validateAndFix(
   ctx: GenerationContext,
   blueprint: AppBlueprint,
 ): Promise<{ success: boolean; blueprint: AppBlueprint; hqJson?: Record<string, any>; errors?: string[] }> {
+  // Auto-populate Connect config defaults before validation
+  if (blueprint.connect_type) {
+    for (const mod of blueprint.modules) {
+      for (const form of mod.forms) {
+        if (form.connect) {
+          deriveConnectDefaults(blueprint.connect_type, form)
+        }
+      }
+    }
+  }
+
   const recentErrorSignatures: string[] = []
   const MAX_STUCK_REPEATS = 3
   let attempt = 0

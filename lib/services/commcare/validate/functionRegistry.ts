@@ -142,6 +142,9 @@ export const FUNCTION_REGISTRY: ReadonlyMap<string, FunctionSpec> = new Map<stri
     validate: (n) => n < 2 || n % 2 !== 0 ? 'weighted-checklist() requires an even number of arguments (min, max, bool1, weight1, ...)' : undefined,
   }],
 
+  // ── Secondary Instances ──────────────────────────────────────────
+  ['instance',       { minArgs: 1, maxArgs: 1, returnType: 'nodeset' as XPathType, paramTypes: ['string' as XPathType] }],
+
   // ── Crypto / Utility ──────────────────────────────────────────────
   ['checksum',       str(2, 2, ['string', 'string'])],
   ['encrypt-string', str(3, 3, ['string', 'string', 'string'])],

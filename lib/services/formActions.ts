@@ -5,7 +5,7 @@
  * and case_references_data.load map from blueprint form definitions.
  * Extracted from hqJsonExpander.ts to isolate case/action logic.
  */
-import type { BlueprintForm, Question, CaseType } from '../schemas/blueprint'
+import type { BlueprintForm, ConnectConfig, Question, CaseType } from '../schemas/blueprint'
 import { deriveCaseConfig } from '../schemas/blueprint'
 import {
   RESERVED_CASE_PROPERTIES, MEDIA_QUESTION_TYPES,
@@ -165,7 +165,7 @@ export function buildFormActions(form: BlueprintForm, moduleCaseType: string, ca
  * full path to the array of hashtag references it uses. CommCare's Vellum
  * editor uses this to resolve hashtag shorthand at build time.
  */
-export function buildCaseReferencesLoad(questions: Question[], parentPath = '/data'): Record<string, string[]> {
+export function buildCaseReferencesLoad(questions: Question[], connect?: ConnectConfig, parentPath = '/data'): Record<string, string[]> {
   const load: Record<string, string[]> = {}
   for (const q of questions) {
     const nodePath = `${parentPath}/${q.id}`
@@ -175,8 +175,21 @@ export function buildCaseReferencesLoad(questions: Question[], parentPath = '/da
       load[nodePath] = hashtags
     }
     if ((q.type === 'group' || q.type === 'repeat') && q.children) {
-      Object.assign(load, buildCaseReferencesLoad(q.children, nodePath))
+      Object.assign(load, buildCaseReferencesLoad(q.children, undefined, nodePath))
     }
   }
+
+  // Extract hashtag references from Connect XPath fields
+  if (connect?.assessment?.user_score) {
+    const h = extractHashtags([connect.assessment.user_score])
+    if (h.length > 0) load['/data/connect_assessment/assessment/user_score'] = h
+  }
+  if (connect?.deliver_unit) {
+    const idH = extractHashtags([connect.deliver_unit.entity_id])
+    if (idH.length > 0) load['/data/connect_deliver/deliver/entity_id'] = idH
+    const nameH = extractHashtags([connect.deliver_unit.entity_name])
+    if (nameH.length > 0) load['/data/connect_deliver/deliver/entity_name'] = nameH
+  }
+
   return load
 }

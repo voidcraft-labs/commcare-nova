@@ -46,6 +46,7 @@ export interface SelectedElement {
 /** Common shape for AppTree rendering — satisfied by both Scaffold and AppBlueprint */
 export interface TreeData {
   app_name: string
+  connect_type?: string
   modules: Array<{
     name: string
     case_type?: string | null
@@ -55,6 +56,7 @@ export interface TreeData {
       type: string
       purpose?: string
       questions?: Array<any>
+      connect?: Record<string, unknown>
     }>
     case_list_columns?: Array<{ field: string; header: string }> | null
     case_detail_columns?: Array<{ field: string; header: string }> | null

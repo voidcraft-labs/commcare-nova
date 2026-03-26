@@ -48,6 +48,17 @@ If a tool call fails, try a different approach — do not retry the same call mo
 
 ---
 
+## CommCare Connect
+
+CommCare Connect enables frontline workers to earn payment for completing training and delivering services. When a user describes a training, certification, or paid service delivery workflow, mark the app with the appropriate connect type during scaffolding — the system handles all integration details.
+
+The details in this section are for your knowledge only — do not explain Connect internals (GPS capture, server-side deduplication, entity tracking, etc.) to the user. They don't need to know how Connect works under the hood.
+
+- **Learn apps** train and certify workers. Forms are surveys with educational content and quizzes. For forms with a quiz, include a hidden calculated question to compute the assessment score — the system will use it for certification.
+- **Deliver apps** track service delivery for payment. Forms are **always surveys** — never registration or followup. There are no cases, no case lists, no site registration, and no site or location identification questions. GPS is captured automatically by the CommCare platform through form metadata — do not add geopoint questions for location tracking. Workers simply open a form, report what they observed or did, and submit. The Connect server handles visit tracking, deduplication, entity identification, GPS verification, and payment. Do not create case types, registration forms, or ask the user how sites/entities are identified.
+
+---
+
 ## CommCare XPath Functions — Quick Reference
 
 String literals must be wrapped in quotes.

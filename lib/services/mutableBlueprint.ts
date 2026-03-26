@@ -7,7 +7,7 @@
  */
 import {
   type AppBlueprint, type BlueprintModule, type BlueprintForm, type Question,
-  type CaseType, type CaseProperty,
+  type CaseType, type CaseProperty, type ConnectConfig,
 } from '../schemas/blueprint'
 import { rewriteXPathRefs, rewriteHashtagRefs } from '../preview/xpath/rewrite'
 import { rewriteOutputTags } from '../preview/engine/outputTag'
@@ -96,8 +96,12 @@ export class MutableBlueprint {
   }
 
   /** Set app structure from scaffold output. Preserves case_types. */
-  setScaffold(scaffold: { app_name: string; description?: string; modules: Array<{ name: string; case_type?: string | null; purpose?: string; forms: Array<{ name: string; type: string; purpose?: string; formDesign?: string }> }> }): void {
+  setScaffold(scaffold: { app_name: string; description?: string; connect_type?: string; modules: Array<{ name: string; case_type?: string | null; purpose?: string; forms: Array<{ name: string; type: string; purpose?: string; formDesign?: string }> }> }): void {
     this.blueprint.app_name = scaffold.app_name
+    const connectType = scaffold.connect_type as 'learn' | 'deliver' | '' | undefined
+    if (connectType === 'learn' || connectType === 'deliver') {
+      this.blueprint.connect_type = connectType
+    }
     this.blueprint.modules = scaffold.modules.map(sm => ({
       name: sm.name,
       ...(sm.case_type != null && { case_type: sm.case_type }),
@@ -400,7 +404,7 @@ export class MutableBlueprint {
     }
   }
 
-  updateForm(mIdx: number, fIdx: number, updates: { name?: string; type?: 'registration' | 'followup' | 'survey'; close_case?: { question?: string; answer?: string } | null }): void {
+  updateForm(mIdx: number, fIdx: number, updates: { name?: string; type?: 'registration' | 'followup' | 'survey'; close_case?: { question?: string; answer?: string } | null; connect?: ConnectConfig | null }): void {
     const form = this.blueprint.modules[mIdx]?.forms[fIdx]
     if (!form) throw new Error(`Form m${mIdx}-f${fIdx} not found`)
 
@@ -411,6 +415,13 @@ export class MutableBlueprint {
         delete form.close_case
       } else {
         form.close_case = updates.close_case
+      }
+    }
+    if (updates.connect !== undefined) {
+      if (updates.connect === null) {
+        delete form.connect
+      } else {
+        form.connect = updates.connect
       }
     }
   }

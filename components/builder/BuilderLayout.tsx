@@ -27,6 +27,7 @@ import { ReplayController } from '@/components/builder/ReplayController'
 import { SubheaderToolbar, CollapsibleBreadcrumb } from '@/components/builder/SubheaderToolbar'
 import type { BreadcrumbPart } from '@/components/builder/SubheaderToolbar'
 import { DownloadDropdown } from '@/components/ui/DownloadDropdown'
+import { AppConnectSettings } from '@/components/builder/detail/AppConnectSettings'
 import ciFileDocument from '@iconify-icons/ci/file-document'
 import ciDownloadPackage from '@iconify-icons/ci/download-package'
 import { useBuilderShortcuts } from '@/components/builder/useBuilderShortcuts'
@@ -471,9 +472,14 @@ export function BuilderLayout({ buildId }: { buildId: string }) {
               className="flex items-center justify-between px-5 h-14 border-b border-nova-border shrink-0 bg-[rgba(139,92,246,0.06)] shadow-[0_1px_12px_-4px_rgba(139,92,246,0.12)]"
             >
               <CollapsibleBreadcrumb parts={breadcrumbParts} />
-              {builder.phase === BuilderPhase.Done && builder.blueprint && (
-                <DownloadDropdown options={downloadOptions} />
-              )}
+              <div className="flex items-center gap-2">
+                {builder.phase === BuilderPhase.Done && builder.blueprint && (
+                  <>
+                    <AppConnectSettings builder={builder} />
+                    <DownloadDropdown options={downloadOptions} />
+                  </>
+                )}
+              </div>
             </motion.div>
           )}
         </AnimatePresence>

@@ -8,6 +8,7 @@ import ciChevronRight from '@iconify-icons/ci/chevron-right'
 import ciSearchMagnifyingGlass from '@iconify-icons/ci/search-magnifying-glass'
 import ciCloseSm from '@iconify-icons/ci/close-sm'
 import type { Question } from '@/lib/schemas/blueprint'
+import { ConnectLogomark } from '@/components/icons/ConnectLogomark'
 import { BuilderPhase, type TreeData } from '@/lib/services/builder'
 import { type QuestionPath, qpath } from '@/lib/services/questionPath'
 import { Badge } from '@/components/ui/Badge'
@@ -126,6 +127,7 @@ export function AppTree({ data, selected, onSelect, phase, actions, hideHeader, 
                   toggle={toggle}
                   forceExpand={filtered?.forceExpand}
                   matchMap={filtered?.matchMap}
+                  appConnectType={data?.connect_type}
                 />
               ))}
             </AnimatePresence>
@@ -164,6 +166,7 @@ function ModuleCard({
   toggle,
   forceExpand,
   matchMap,
+  appConnectType,
 }: {
   module: TreeData['modules'][number]
   moduleIndex: number
@@ -174,6 +177,7 @@ function ModuleCard({
   toggle: (key: string) => void
   forceExpand?: Set<string>
   matchMap?: Map<string, MatchIndices>
+  appConnectType?: string
 }) {
   const isSelected = selected?.type === 'module' && selected.moduleIndex === moduleIndex
   const collapseKey = `m${moduleIndex}`
@@ -258,6 +262,7 @@ function ModuleCard({
                   toggle={toggle}
                   forceExpand={forceExpand}
                   matchMap={matchMap}
+                  appConnectType={appConnectType}
                 />
               ))}
             </AnimatePresence>
@@ -279,6 +284,7 @@ function FormCard({
   toggle,
   forceExpand,
   matchMap,
+  appConnectType,
 }: {
   form: TreeData['modules'][number]['forms'][number]
   moduleIndex: number
@@ -290,6 +296,7 @@ function FormCard({
   toggle: (key: string) => void
   forceExpand?: Set<string>
   matchMap?: Map<string, MatchIndices>
+  appConnectType?: string
 }) {
   const isSelected = selected?.type === 'form' && selected.moduleIndex === moduleIndex && selected.formIndex === formIndex
   const formIcon = formTypeIcons[form.type] ?? formTypeIcons.survey
@@ -326,6 +333,7 @@ function FormCard({
             <span className="text-sm font-medium truncate">
               {nameIndices ? <HighlightedText text={form.name} indices={nameIndices} /> : form.name}
             </span>
+            {form.connect && appConnectType && <ConnectLogomark size={11} className="text-nova-violet-bright shrink-0" />}
           </div>
         </div>
         {hasQuestions && (

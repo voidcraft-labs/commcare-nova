@@ -26,7 +26,7 @@ Split across two files:
 - `searchBlueprint`, `getModule`, `getForm`, `getQuestion`
 
 **Mutation (10):**
-- `editQuestion` (includes ID rename with automatic propagation), `addQuestion`, `removeQuestion`, `updateModule`, `updateForm` (name, close_case), `createForm`, `removeForm`, `createModule`, `removeModule`
+- `editQuestion` (includes ID rename with automatic propagation), `addQuestion`, `removeQuestion`, `updateModule`, `updateForm` (name, close_case, connect), `createForm`, `removeForm`, `createModule`, `removeModule`
 
 **Validation (1):**
 - `validateApp` — runs `validateAndFix()` loop. `onInputStart` emits `data-phase: validate`, emits `data-done` on success.
@@ -142,10 +142,11 @@ Also re-exports `validateAndFix()` (from `validationLoop.ts`) — programmatic v
 
 ## Expander
 
-Split across three files:
+Split across four files:
 - `hqJsonExpander.ts` — `expandBlueprint()` orchestrator + `validateBlueprint()`
-- `xformBuilder.ts` — `buildXForm()`, `buildQuestionParts()`, `getAppearance()`, `getXsdType()`
+- `xformBuilder.ts` — `buildXForm()`, `buildQuestionParts()`, `buildConnectBlocks()`, `getAppearance()`, `getXsdType()`
 - `formActions.ts` — `buildFormActions()`, `buildCaseReferencesLoad()`
+- `connectConfig.ts` — `deriveConnectDefaults()` auto-populates Connect config from form content
 
 `expandBlueprint()` converts `AppBlueprint` → HQ import JSON. `validateBlueprint()` checks semantic rules. `detectUnquotedStringLiteral()` uses the Lezer XPath parser to flag bare words in XPath fields (e.g. `no` instead of `'no'`).
 

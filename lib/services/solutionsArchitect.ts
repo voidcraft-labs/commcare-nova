@@ -10,7 +10,7 @@ import { z } from 'zod'
 import { GenerationContext, logWarnings } from './generationContext'
 import { buildSolutionsArchitectPrompt } from '../prompts/solutionsArchitectPrompt'
 import {
-  type AppBlueprint, type BlueprintForm, type Question,
+  type AppBlueprint, type BlueprintForm, type ConnectConfig, type Question,
   QUESTION_TYPES,
   caseTypesOutputSchema, scaffoldModulesSchema, moduleContentSchema,
 } from '../schemas/blueprint'
@@ -21,6 +21,29 @@ import {
 import { MutableBlueprint, type NewQuestion } from './mutableBlueprint'
 import { validateAndFix } from './validationLoop'
 export { validateAndFix } from './validationLoop'
+
+// ── Helper: build a full ConnectConfig from SA's partial input ────────
+
+/**
+ * Converts the SA's partial connect input into a proper ConnectConfig.
+ * The SA only sets fields it should know about (learn_module, assessment,
+ * deliver_unit.name, task). System-derived fields (entity_id, entity_name)
+ * are preserved from the existing config or left empty for auto-derivation.
+ */
+function buildConnectConfig(
+  input: { learn_module?: { name: string; description: string; time_estimate: number }; assessment?: { user_score: string }; deliver_unit?: { name: string }; task?: { name: string; description: string } } | null,
+  existing?: ConnectConfig,
+): ConnectConfig | null {
+  if (input === null) return null
+  return {
+    learn_module: input.learn_module,
+    assessment: input.assessment,
+    deliver_unit: input.deliver_unit
+      ? { ...existing?.deliver_unit, ...input.deliver_unit, entity_id: existing?.deliver_unit?.entity_id ?? '', entity_name: existing?.deliver_unit?.entity_name ?? '' }
+      : input.deliver_unit,
+    task: input.task,
+  }
+}
 
 // ── Helper: count questions recursively ───────────────────────────────
 
@@ -510,7 +533,7 @@ export function createSolutionsArchitect(
       }),
 
       updateForm: tool({
-        description: 'Update form metadata: name or close_case config.',
+        description: 'Update form metadata: name, close_case config, or Connect integration.',
         inputSchema: z.object({
           moduleIndex: z.number().describe('0-based module index'),
           formIndex: z.number().describe('0-based form index'),
@@ -519,16 +542,23 @@ export function createSolutionsArchitect(
             question: z.string().optional(),
             answer: z.string().optional(),
           }).nullable().optional().describe('Set close_case config. null to remove. {} for unconditional.'),
+          connect: z.object({
+            learn_module: z.object({ name: z.string(), description: z.string(), time_estimate: z.number() }).optional(),
+            assessment: z.object({ user_score: z.string() }).optional(),
+            deliver_unit: z.object({ name: z.string() }).optional(),
+            task: z.object({ name: z.string(), description: z.string() }).optional(),
+          }).nullable().optional().describe('Set Connect config on this form. null to remove.'),
         }),
-        execute: async ({ moduleIndex, formIndex, name, close_case }) => {
+        execute: async ({ moduleIndex, formIndex, name, close_case, connect }) => {
           try {
             mutableBp.updateForm(moduleIndex, formIndex, {
               ...(name !== undefined && { name }),
               ...(close_case !== undefined && { close_case }),
+              ...(connect !== undefined && { connect: buildConnectConfig(connect, mutableBp.getForm(moduleIndex, formIndex)?.connect) }),
             })
             const form = mutableBp.getForm(moduleIndex, formIndex)!
             ctx.emit('data-form-updated', { moduleIndex, formIndex, form })
-            return { moduleIndex, formIndex, name: form.name, type: form.type, close_case: form.close_case ?? null }
+            return { moduleIndex, formIndex, name: form.name, type: form.type, close_case: form.close_case ?? null, connect: form.connect ?? null }
           } catch (err) {
             return { error: err instanceof Error ? err.message : String(err) }
           }
