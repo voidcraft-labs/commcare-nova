@@ -1,6 +1,7 @@
 'use client'
 import { motion } from 'motion/react'
 import { modelSupportsReasoning, modelSupportsMaxReasoning } from '@/lib/models'
+import { Toggle } from '@/components/ui/Toggle'
 import type { PipelineConfig, PipelineStageConfig, ReasoningEffort } from '@/lib/types/settings'
 
 interface ModelInfo {
@@ -139,21 +140,7 @@ export function StageCard({ stage, index, settings, models, updatePipelineStage 
       </div>
       {settings.apiKey && modelSupportsReasoning(cfg.model) && (
         <div className="flex items-center gap-3 mt-3 pt-3 border-t border-nova-border/40">
-          <button
-            type="button"
-            role="switch"
-            aria-checked={cfg.reasoning}
-            onClick={() => updatePipelineStage(stage.key, { reasoning: !cfg.reasoning })}
-            className={`relative inline-flex h-5 w-9 shrink-0 items-center rounded-full transition-colors cursor-pointer ${
-              cfg.reasoning ? 'bg-nova-violet' : 'bg-nova-border'
-            }`}
-          >
-            <span
-              className={`inline-block h-3.5 w-3.5 rounded-full bg-white transition-transform ${
-                cfg.reasoning ? 'translate-x-[18px]' : 'translate-x-[3px]'
-              }`}
-            />
-          </button>
+          <Toggle enabled={cfg.reasoning} onToggle={() => updatePipelineStage(stage.key, { reasoning: !cfg.reasoning })} />
           <span className="text-xs text-nova-text-secondary select-none">Reasoning</span>
           {cfg.reasoning && (
             <div className="ml-auto flex items-center gap-1.5">

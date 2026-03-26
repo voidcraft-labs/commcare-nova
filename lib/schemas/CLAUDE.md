@@ -34,6 +34,20 @@ All text fields are plain `string`. XPath fields support `#case/` and `#user/` h
 - `{ question, answer }` = conditional close
 - absent/undefined = no close
 
+### CommCare Connect Config
+
+App-level `connect_type?: 'learn' | 'deliver'` determines the app's Connect type. Form-level `connect?: ConnectConfig` opts individual forms into Connect (present = opted in, absent = not).
+
+`ConnectConfig` has optional sub-configs — which ones are relevant depends on the app's `connect_type`:
+- **Learn:** `learn_module` (name, description, time_estimate), `assessment` (user_score XPath)
+- **Deliver:** `deliver_unit` (name, entity_id, entity_name), `task` (name, description)
+
+`entity_id` and `entity_name` are system-derived (never user-facing) — auto-populated by `deriveConnectDefaults()` in `connectConfig.ts`. The SA only sets `deliver_unit.name`.
+
+All Connect forms get auto GPS capture (`orx:pollsensor` + `cc:location` in form metadata).
+
+Scaffold schema has app-level `connect_type` (empty string sentinel for standard apps).
+
 ## Structured Output Constraints
 
 The Anthropic schema compiler times out with >8 `.optional()` per array item (each creates an `anyOf` union in JSON Schema). The `addQuestions` tool schema uses a hybrid approach:

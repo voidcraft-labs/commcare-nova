@@ -81,6 +81,9 @@ export const caseTypesOutputSchema = z.object({
 export const scaffoldModulesSchema = z.object({
   app_name: z.string().describe('Name of the CommCare application'),
   description: z.string().describe('Brief description of the app purpose and target users'),
+  connect_type: z.string().describe(
+    'CommCare Connect app type: "learn" for training/certification, "deliver" for paid service delivery. Empty string for standard apps.'
+  ),
   modules: z.array(z.object({
     name: z.string().describe('Display name for the module/menu'),
     case_type: z.string().nullable().describe(
@@ -115,6 +118,36 @@ export const moduleContentSchema = z.object({
   })).nullable().describe(
     'Columns shown in the case detail view (when a user taps on a case). null to auto-mirror case_list_columns.'
   ),
+})
+
+// ── Connect Config ────────────────────────────────────────────────────
+
+const connectLearnModuleSchema = z.object({
+  name: z.string(),
+  description: z.string(),
+  time_estimate: z.number().int().positive(),
+})
+
+const connectAssessmentSchema = z.object({
+  user_score: z.string(),
+})
+
+const connectDeliverUnitSchema = z.object({
+  name: z.string(),
+  entity_id: z.string(),
+  entity_name: z.string(),
+})
+
+const connectTaskSchema = z.object({
+  name: z.string(),
+  description: z.string(),
+})
+
+const connectConfigSchema = z.object({
+  learn_module: connectLearnModuleSchema.optional(),
+  assessment: connectAssessmentSchema.optional(),
+  deliver_unit: connectDeliverUnitSchema.optional(),
+  task: connectTaskSchema.optional(),
 })
 
 // ── Question Schema ───────────────────────────────────────────────────
@@ -187,6 +220,9 @@ export const blueprintFormSchema = z.object({
   }).optional().describe(
     'Followup forms only. Present = close the case. Empty {} = always close. {question, answer} = close only when that answer is selected. Omit entirely if form should not close the case.'
   ),
+  connect: connectConfigSchema.optional().describe(
+    'CommCare Connect configuration. Present when this form is part of a Connect Learn or Deliver app.'
+  ),
   questions: z.array(questionSchema).describe(
     'Array of questions with nested children for groups/repeats. Every form must have at least one question.'
   ),
@@ -216,6 +252,9 @@ const blueprintModuleSchema = z.object({
 /** Top-level schema for a complete CommCare app in blueprint format. */
 export const appBlueprintSchema = z.object({
   app_name: z.string().describe('Name of the CommCare application'),
+  connect_type: z.enum(['learn', 'deliver']).optional().describe(
+    'CommCare Connect app type. "learn" for training/certification apps. "deliver" for paid service delivery apps.'
+  ),
   modules: z.array(blueprintModuleSchema).describe(
     'Array of modules. Each module is a menu containing forms.'
   ),
@@ -249,6 +288,11 @@ export interface Question {
 export type CaseProperty = z.infer<typeof casePropertySchema>
 export type CaseType = z.infer<typeof caseTypeSchema>
 
+export type ConnectConfig = z.infer<typeof connectConfigSchema>
+export type ConnectLearnModule = z.infer<typeof connectLearnModuleSchema>
+export type ConnectAssessment = z.infer<typeof connectAssessmentSchema>
+export type ConnectDeliverUnit = z.infer<typeof connectDeliverUnitSchema>
+export type ConnectTask = z.infer<typeof connectTaskSchema>
 export type CasePropertyMapping = z.infer<typeof casePropertyMappingSchema>
 export type Scaffold = z.infer<typeof scaffoldModulesSchema>
 export type ModuleContent = z.infer<typeof moduleContentSchema>
@@ -263,7 +307,7 @@ export function getAppBlueprintJsonSchema(): Record<string, unknown> {
 
 /** Generate a concise text summary of an AppBlueprint for chat context. */
 export function summarizeBlueprint(bp: AppBlueprint): string {
-  const lines = [`App: "${bp.app_name}"`]
+  const lines = [`App: "${bp.app_name}"${bp.connect_type ? ` (Connect: ${bp.connect_type})` : ''}`]
   if (bp.case_types) {
     for (const ct of bp.case_types) {
       lines.push(`  Case type "${ct.name}": ${ct.properties.map(p => p.name).join(', ')}`)
@@ -276,7 +320,8 @@ export function summarizeBlueprint(bp: AppBlueprint): string {
     }
     for (const form of mod.forms) {
       const qCount = form.questions?.length ?? 0
-      lines.push(`    Form: "${form.name}" (${form.type}, ${qCount} questions)`)
+      const connectTag = form.connect ? ', connect' : ''
+      lines.push(`    Form: "${form.name}" (${form.type}, ${qCount} questions${connectTag})`)
     }
   }
   return lines.join('\n')

@@ -5,7 +5,7 @@
  * itext translations, binds, setvalues, body elements, and secondary instances.
  * Extracted from hqJsonExpander.ts to isolate XForm construction logic.
  */
-import type { BlueprintForm, Question } from '../schemas/blueprint'
+import type { BlueprintForm, ConnectConfig, Question } from '../schemas/blueprint'
 import {
   escapeXml,
   VELLUM_HASHTAG_TRANSFORMS, expandHashtags, hasHashtags, extractHashtags,
@@ -55,8 +55,87 @@ function collectAllXPaths(questions: Question[]): string[] {
   return exprs
 }
 
+/** Collect XPath expressions from Connect config fields. */
+function collectConnectXPaths(connect?: ConnectConfig): string[] {
+  const exprs: string[] = []
+  if (connect?.assessment?.user_score) exprs.push(connect.assessment.user_score)
+  if (connect?.deliver_unit?.entity_id) exprs.push(connect.deliver_unit.entity_id)
+  if (connect?.deliver_unit?.entity_name) exprs.push(connect.deliver_unit.entity_name)
+  return exprs
+}
+
+const CONNECT_XMLNS = 'http://commcareconnect.com/data/v1/learn'
+
+/**
+ * Build Connect data blocks and binds for the XForm.
+ * Each block is a data-only node with the Connect namespace — no body elements.
+ */
+function buildConnectBlocks(connect: ConnectConfig | undefined): { dataElements: string[]; binds: string[] } {
+  const dataElements: string[] = []
+  const binds: string[] = []
+
+  if (!connect) return { dataElements, binds }
+
+  if (connect.learn_module) {
+    const lm = connect.learn_module
+    dataElements.push(
+      `<connect_learn>` +
+      `<module xmlns="${CONNECT_XMLNS}" id="connect_learn">` +
+      `<name>${escapeXml(lm.name)}</name>` +
+      `<description>${escapeXml(lm.description)}</description>` +
+      `<time_estimate>${lm.time_estimate}</time_estimate>` +
+      `</module>` +
+      `</connect_learn>`
+    )
+  }
+
+  if (connect.assessment) {
+    dataElements.push(
+      `<connect_assessment>` +
+      `<assessment xmlns="${CONNECT_XMLNS}" id="connect_assessment">` +
+      `<user_score/>` +
+      `</assessment>` +
+      `</connect_assessment>`
+    )
+    binds.push(
+      `<bind nodeset="/data/connect_assessment/assessment/user_score" calculate="${escapeXml(expandHashtags(connect.assessment.user_score))}"/>`
+    )
+  }
+
+  if (connect.deliver_unit) {
+    const du = connect.deliver_unit
+    dataElements.push(
+      `<connect_deliver>` +
+      `<deliver xmlns="${CONNECT_XMLNS}" id="connect_deliver">` +
+      `<name>${escapeXml(du.name)}</name>` +
+      `<entity_id/>` +
+      `<entity_name/>` +
+      `</deliver>` +
+      `</connect_deliver>`
+    )
+    binds.push(
+      `<bind nodeset="/data/connect_deliver/deliver/entity_id" calculate="${escapeXml(expandHashtags(du.entity_id))}"/>`,
+      `<bind nodeset="/data/connect_deliver/deliver/entity_name" calculate="${escapeXml(expandHashtags(du.entity_name))}"/>`,
+    )
+  }
+
+  if (connect.task) {
+    const t = connect.task
+    dataElements.push(
+      `<connect_task>` +
+      `<task xmlns="${CONNECT_XMLNS}" id="connect_task">` +
+      `<name>${escapeXml(t.name)}</name>` +
+      `<description>${escapeXml(t.description)}</description>` +
+      `</task>` +
+      `</connect_task>`
+    )
+  }
+
+  return { dataElements, binds }
+}
+
 /** Build complete XForm XML from question definitions. */
-export function buildXForm(form: BlueprintForm, xmlns: string): string {
+export function buildXForm(form: BlueprintForm, xmlns: string, options?: { autoGps?: boolean }): string {
   const questions = form.questions || []
   const dataElements: string[] = []
   const binds: string[] = []
@@ -80,6 +159,36 @@ export function buildXForm(form: BlueprintForm, xmlns: string): string {
     buildQuestionParts(q, '/data', dataElements, binds, setvalues, bodyElements, false, addItext)
   }
 
+  // Append Connect data blocks and binds (data-only, no body elements)
+  const connectParts = buildConnectBlocks(form.connect)
+  dataElements.push(...connectParts.dataElements)
+  binds.push(...connectParts.binds)
+
+  // Auto GPS capture for Connect apps — adds meta block with pollsensor
+  if (options?.autoGps) {
+    dataElements.push(
+      `<orx:meta xmlns:cc="http://commcarehq.org/xforms">` +
+      `<orx:deviceID/><orx:timeStart/><orx:timeEnd/><orx:username/><orx:userID/>` +
+      `<cc:appVersion/><orx:drift/><cc:location/>` +
+      `</orx:meta>`
+    )
+    binds.push(
+      `<bind nodeset="/data/meta/timeStart" type="xsd:dateTime"/>`,
+      `<bind nodeset="/data/meta/timeEnd" type="xsd:dateTime"/>`,
+      `<bind nodeset="/data/meta/location" type="geopoint"/>`,
+    )
+    setvalues.push(
+      `<setvalue ref="/data/meta/deviceID" value="instance('commcaresession')/session/context/deviceid" event="xforms-ready"/>`,
+      `<setvalue ref="/data/meta/timeStart" value="now()" event="xforms-ready"/>`,
+      `<setvalue ref="/data/meta/timeEnd" value="now()" event="xforms-revalidate"/>`,
+      `<setvalue ref="/data/meta/username" value="instance('commcaresession')/session/context/username" event="xforms-ready"/>`,
+      `<setvalue ref="/data/meta/userID" value="instance('commcaresession')/session/context/userid" event="xforms-ready"/>`,
+      `<setvalue ref="/data/meta/appVersion" value="instance('commcaresession')/session/context/appversion" event="xforms-ready"/>`,
+      `<setvalue ref="/data/meta/drift" value="if(count(instance('commcaresession')/session/context/drift) = 1, instance('commcaresession')/session/context/drift, '')" event="xforms-revalidate"/>`,
+      `<orx:pollsensor event="xforms-ready" ref="/data/meta/location"/>`,
+    )
+  }
+
   const dataContent = dataElements.length > 0
     ? '\n' + dataElements.map(e => `          ${e}`).join('\n') + '\n        '
     : ''
@@ -101,9 +210,9 @@ export function buildXForm(form: BlueprintForm, xmlns: string): string {
   const bodyContent = bodyElements.map(e => `    ${e}`).join('\n')
 
   // Check if any XPath references need secondary instances
-  const allXPaths = collectAllXPaths(questions)
+  const allXPaths = [...collectAllXPaths(questions), ...collectConnectXPaths(form.connect)]
   const needsCasedb = allXPaths.some(x => x.includes('#case/') || x.includes('#user/') || x.includes("instance('casedb')"))
-  const needsSession = needsCasedb || allXPaths.some(x => x.includes("instance('commcaresession')"))
+  const needsSession = needsCasedb || options?.autoGps || allXPaths.some(x => x.includes("instance('commcaresession')"))
 
   const secondaryInstances = [
     ...(needsCasedb ? ['      <instance src="jr://instance/casedb" id="casedb" />'] : []),
@@ -111,8 +220,10 @@ export function buildXForm(form: BlueprintForm, xmlns: string): string {
   ]
   const secondaryContent = secondaryInstances.length > 0 ? '\n' + secondaryInstances.join('\n') : ''
 
+  const orxNs = options?.autoGps ? ' xmlns:orx="http://openrosa.org/jr/xforms"' : ''
+
   return `<?xml version="1.0"?>
-<h:html xmlns:h="http://www.w3.org/1999/xhtml" xmlns="http://www.w3.org/2002/xforms" xmlns:xsd="http://www.w3.org/2001/XMLSchema" xmlns:jr="http://openrosa.org/javarosa" xmlns:vellum="http://commcarehq.org/xforms/vellum">
+<h:html xmlns:h="http://www.w3.org/1999/xhtml" xmlns="http://www.w3.org/2002/xforms" xmlns:xsd="http://www.w3.org/2001/XMLSchema" xmlns:jr="http://openrosa.org/javarosa" xmlns:vellum="http://commcarehq.org/xforms/vellum"${orxNs}>
   <h:head>
     <h:title>${escapeXml(formName)}</h:title>
     <model>

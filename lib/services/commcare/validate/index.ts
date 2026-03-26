@@ -66,8 +66,32 @@ export function validateBlueprintDeep(blueprint: AppBlueprint): string[] {
 
       const validPaths = collectValidPaths(questions)
 
+      // Add Connect data paths so question XPaths can reference them (only when app-level connect_type is set)
+      if (blueprint.connect_type && form.connect) {
+        if (form.connect.learn_module) validPaths.add('/data/connect_learn')
+        if (form.connect.assessment) validPaths.add('/data/connect_assessment/assessment/user_score')
+        if (form.connect.deliver_unit) {
+          validPaths.add('/data/connect_deliver/deliver/entity_id')
+          validPaths.add('/data/connect_deliver/deliver/entity_name')
+        }
+      }
+
       // Validate XPath in every question
       validateQuestionsXPath(questions, validPaths, caseProps, form.name, mod.name, errors)
+
+      // Validate Connect XPath expressions (only when app-level connect_type is set)
+      if (blueprint.connect_type && form.connect) {
+        const connectXPaths: Array<[string, string]> = []
+        if (form.connect.assessment?.user_score) connectXPaths.push(['Connect assessment user_score', form.connect.assessment.user_score])
+        if (form.connect.deliver_unit?.entity_id) connectXPaths.push(['Connect deliver entity_id', form.connect.deliver_unit.entity_id])
+        if (form.connect.deliver_unit?.entity_name) connectXPaths.push(['Connect deliver entity_name', form.connect.deliver_unit.entity_name])
+        for (const [label, expr] of connectXPaths) {
+          const xpathErrors = validateXPath(expr, validPaths, caseProps)
+          for (const err of xpathErrors) {
+            errors.push(`"${form.name}" in "${mod.name}" ${label}: ${err.message}`)
+          }
+        }
+      }
 
       // Cycle detection via TriggerDag
       const dag = new TriggerDag()

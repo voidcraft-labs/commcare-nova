@@ -69,13 +69,19 @@ export function expandBlueprint(blueprint: AppBlueprint): HqApplication {
       const formUniqueId = genHexId()
       const xmlns = `http://openrosa.org/formdesigner/${genShortId()}`
 
-      attachments[`${formUniqueId}.xml`] = buildXForm(bf, xmlns)
+      // Only include Connect config in export when app-level connect_type is set
+      const effectiveConnect = blueprint.connect_type ? bf.connect : undefined
+      const exportForm = effectiveConnect === bf.connect ? bf : { ...bf, connect: effectiveConnect }
+
+      attachments[`${formUniqueId}.xml`] = buildXForm(exportForm, xmlns, {
+        ...(blueprint.connect_type && { autoGps: true }),
+      })
 
       return formShell(
         formUniqueId, bf.name, xmlns,
         bf.type === 'followup' ? 'case' : 'none',
         buildFormActions(bf, caseType, blueprint.case_types),
-        buildCaseReferencesLoad(bf.questions || []),
+        buildCaseReferencesLoad(bf.questions || [], effectiveConnect),
       )
     })
 
@@ -265,6 +271,28 @@ export function validateBlueprint(blueprint: AppBlueprint): string[] {
           const questionIds = collectQuestionIds(form.questions || [])
           if (!questionIds.includes(cc.question)) {
             errors.push(`"${fn}" close_case references question "${cc.question}" which doesn't exist`)
+          }
+        }
+      }
+
+      // Validate Connect config (only when app-level connect_type is set)
+      if (blueprint.connect_type && form.connect) {
+        const ct = blueprint.connect_type
+        if (ct === 'learn' && !form.connect.learn_module) {
+          errors.push(`"${fn}" is a Connect Learn form but has no learn_module config`)
+        }
+        if (ct === 'deliver' && !form.connect.deliver_unit) {
+          errors.push(`"${fn}" is a Connect Deliver form but has no deliver_unit config`)
+        }
+        // Check XPath expressions for unquoted string literals
+        const connectXPaths: Array<[string, string]> = []
+        if (form.connect.assessment?.user_score) connectXPaths.push(['Connect assessment user_score', form.connect.assessment.user_score])
+        if (form.connect.deliver_unit?.entity_id) connectXPaths.push(['Connect deliver entity_id', form.connect.deliver_unit.entity_id])
+        if (form.connect.deliver_unit?.entity_name) connectXPaths.push(['Connect deliver entity_name', form.connect.deliver_unit.entity_name])
+        for (const [label, expr] of connectXPaths) {
+          const bare = detectUnquotedStringLiteral(expr)
+          if (bare) {
+            errors.push(`"${fn}" ${label} has unquoted string "${bare}" — use "'${bare}'" instead`)
           }
         }
       }

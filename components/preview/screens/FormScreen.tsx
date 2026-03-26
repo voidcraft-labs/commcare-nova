@@ -11,6 +11,7 @@ import { Icon } from '@iconify/react'
 import { formTypeIcons } from '@/lib/questionTypeIcons'
 import ciArrowReload02 from '@iconify-icons/ci/arrow-reload-02'
 import ciChevronLeft from '@iconify-icons/ci/chevron-left'
+import { FormSettingsButton } from '@/components/builder/detail/FormSettingsPanel'
 
 interface FormScreenProps {
   blueprint: AppBlueprint
@@ -120,6 +121,15 @@ export function FormScreen({ blueprint, moduleIndex, formIndex, caseId, onBack, 
           </button>
           <Icon icon={formTypeIcons[form.type] ?? formTypeIcons.survey} width="18" height="18" className="text-nova-text-muted shrink-0" />
           <h2 className="text-lg font-display font-semibold text-nova-text">{form.name}</h2>
+          {mode === 'edit' && builder && (
+            <FormSettingsButton
+              form={form}
+              moduleIndex={moduleIndex}
+              formIndex={formIndex}
+              mb={builder.mb!}
+              notifyBlueprintChanged={builder.notifyBlueprintChanged}
+            />
+          )}
           {mode === 'test' && (
             <button
               onClick={() => engine.reset()}
