@@ -16,6 +16,7 @@ import { GroupField } from './fields/GroupField'
 import { LabelField } from './fields/LabelField'
 import { RepeatField } from './fields/RepeatField'
 import { EditableQuestionWrapper } from './EditableQuestionWrapper'
+import { HelpTooltip } from './HelpTooltip'
 import { InsertionPoint } from './InsertionPoint'
 
 /** EMA smoothing factor for cursor velocity. Lower = smoother, slower response. */
@@ -200,6 +201,7 @@ function SortableQuestion({
             <div className="flex items-center gap-1">
               <span className="preview-markdown text-sm font-medium text-nova-text" dangerouslySetInnerHTML={{ __html: renderPreviewMarkdown(state.resolvedLabel ?? q.label) }} />
               {state.required && <span className="text-nova-rose text-xs">*</span>}
+              {q.help && <HelpTooltip help={q.help} isEditMode={isEditMode} />}
             </div>
           )}
           {q.hint && (
