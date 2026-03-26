@@ -5,6 +5,7 @@ Custom XPath 1.0 language with CommCare hashtag references (`#case/prop`, `#form
 ## Grammar (`xpath.grammar`)
 
 **Design decisions:**
+- `HashtagRef` is a grammar rule (not a flat token) with `HashtagType` and `HashtagSegment` child nodes. `!hashtag` precedence on the inner `/` prevents the parser from reducing early and treating it as a child-step operator. Consumers use `getChild(T.HashtagType.id)` and `getChildren(T.HashtagSegment.id)` to read parts directly from the tree.
 - Keyword operators (`and`, `or`, `div`, `mod`) use `@specialize` wrapped in uppercase `Keyword<w>` — lowercase inline rules make specialized tokens invisible in the parse tree.
 - Standalone `/` uses `RootPath` with dynamic precedence `~-10` — parser prefers path interpretation (`/step`) over bare root.
 - Token precedence: `NumberLiteral` beats `"."` so `.666` parses as a number, not a self-step + digits.

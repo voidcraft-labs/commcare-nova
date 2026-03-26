@@ -26,14 +26,19 @@ const RENDER_OPTS = { xmlMode: true, selfClosingTags: true, encodeEntities: 'utf
 function processLabelText(text: string): string {
   const doc = parseDocument(text, PARSE_OPTS)
 
-  // Expand hashtags in output tag value attributes
+  // Expand hashtags in output tag value attributes, preserve shorthand in vellum:value
   const outputs = findAll(
     (node): node is Element => node.type === 'tag' && node.name === 'output',
     doc.children,
   )
   for (const el of outputs) {
     if (el.attribs.value) {
-      el.attribs.value = expandHashtags(el.attribs.value)
+      const original = el.attribs.value
+      const expanded = expandHashtags(original)
+      if (original !== expanded) {
+        el.attribs['vellum:value'] = original
+      }
+      el.attribs.value = expanded
     }
   }
 
@@ -266,7 +271,8 @@ function buildQuestionParts(
   dataElements.push(`<${q.id}/>`)
 
   // Bind — real attributes get expanded XPath, vellum: attributes keep shorthand
-  const bindParts = [`nodeset="${nodePath}"`]
+  const vellumPath = '#form' + nodePath.slice(5) // /data/x → #form/x
+  const bindParts = [`vellum:nodeset="${vellumPath}"`, `nodeset="${nodePath}"`]
   const xsdType = getXsdType(q.type)
   if (xsdType) bindParts.push(`type="${xsdType}"`)
   if (q.required) {
@@ -297,7 +303,7 @@ function buildQuestionParts(
       ? ` vellum:value="${escapeXml(q.default_value)}"`
       : ''
     const event = insideRepeat ? 'jr-insert' : 'xforms-ready'
-    setvalues.push(`<setvalue event="${event}" ref="${nodePath}"${vellumAttrs} value="${escapeXml(expandedValue)}"/>`)
+    setvalues.push(`<setvalue event="${event}" vellum:ref="${vellumPath}" ref="${nodePath}"${vellumAttrs} value="${escapeXml(expandedValue)}"/>`)
   }
   // Add Vellum hashtag metadata for #case/ and #user/ references
   const xpathExprs = [q.relevant, q.validation, q.calculate, q.default_value, q.required].filter(Boolean) as string[]
@@ -343,7 +349,9 @@ function buildQuestionParts(
     // Replace the group bind with just a relevant bind if needed
     binds.pop()
     if (q.relevant) {
-      binds.push(`<bind nodeset="${nodePath}" relevant="${escapeXml(q.relevant)}"/>`)
+      const expandedGroupRelevant = expandHashtags(q.relevant)
+      const vellumRelevantAttr = hasHashtags(q.relevant) ? ` vellum:relevant="${escapeXml(q.relevant)}"` : ''
+      binds.push(`<bind vellum:nodeset="${vellumPath}" nodeset="${nodePath}"${vellumRelevantAttr} relevant="${escapeXml(expandedGroupRelevant)}"/>`)
     }
     binds.push(...childBinds)
     // Re-indent ALL lines of child body elements for proper nesting.
