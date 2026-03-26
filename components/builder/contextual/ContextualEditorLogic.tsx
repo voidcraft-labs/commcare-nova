@@ -1,6 +1,5 @@
 'use client'
 import { useState, useCallback } from 'react'
-import dynamic from 'next/dynamic'
 import { Icon } from '@iconify/react'
 import ciAddPlus from '@iconify-icons/ci/add-plus'
 import type { Question } from '@/lib/schemas/blueprint'
@@ -10,20 +9,9 @@ import type { QuestionPath } from '@/lib/services/questionPath'
 import { EditableText } from '@/components/builder/EditableText'
 import { EditableDropdown } from '@/components/builder/EditableDropdown'
 import { Badge } from '@/components/ui/Badge'
+import { XPathField } from '@/components/builder/XPathField'
+import { XPathEditorModal } from '@/components/builder/XPathEditorModal'
 import { requiredOptions, xpathFields, addableTextFields } from './shared'
-
-const XPathField = dynamic(
-  () => import('@/components/builder/XPathField').then(m => ({ default: m.XPathField })),
-  { ssr: false, loading: () => <XPathFieldSkeleton /> },
-)
-const XPathEditorModal = dynamic(
-  () => import('@/components/builder/XPathEditorModal').then(m => ({ default: m.XPathEditorModal })),
-  { ssr: false },
-)
-
-function XPathFieldSkeleton() {
-  return <div className="h-[30px] rounded-md bg-nova-surface border border-[rgba(139,92,246,0.1)] animate-pulse" />
-}
 
 interface ContextualEditorLogicProps {
   question: Question
