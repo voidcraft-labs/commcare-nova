@@ -2,7 +2,6 @@
 import { useState, useCallback, useRef, useEffect, useLayoutEffect } from 'react'
 import { useFloating, offset, flip, shift, autoUpdate, FloatingPortal } from '@floating-ui/react'
 import { motion, AnimatePresence } from 'motion/react'
-import dynamic from 'next/dynamic'
 import { Icon } from '@iconify/react'
 import ciSettings from '@iconify-icons/ci/settings'
 import ciClose from '@iconify-icons/ci/close-md'
@@ -12,15 +11,8 @@ import { FormDetail } from './FormDetail'
 import { ConnectLogomark } from '@/components/icons/ConnectLogomark'
 import { Toggle } from '@/components/ui/Toggle'
 import { useDismissRef } from '@/hooks/useDismissRef'
-
-const XPathField = dynamic(
-  () => import('@/components/builder/XPathField').then(m => ({ default: m.XPathField })),
-  { ssr: false, loading: () => <div className="h-[30px] rounded-md bg-nova-surface border border-[rgba(139,92,246,0.1)] animate-pulse" /> },
-)
-const XPathEditorModal = dynamic(
-  () => import('@/components/builder/XPathEditorModal').then(m => ({ default: m.XPathEditorModal })),
-  { ssr: false },
-)
+import { XPathField } from '@/components/builder/XPathField'
+import { XPathEditorModal } from '@/components/builder/XPathEditorModal'
 
 // ── Types ─────────────────────────────────────────────────────────────
 

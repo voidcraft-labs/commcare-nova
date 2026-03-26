@@ -87,7 +87,7 @@ Reads/writes through `builder.mb` (persistent `MutableBlueprint`). Editing patte
 - **EditableDropdown** — Custom dark-themed dropdown. Selection saves immediately (including re-selection of current value, enabling actions like reopening the XPath modal). Click-outside/Escape via `useDismissRef`.
 - **QuestionTypeGrid** (`components/builder/QuestionTypeGrid.tsx`) — shared 2-column icon+label grid for type selection. Used by both `ContextualEditorUI` (type change) and `QuestionTypePicker` (insertion point). Highlights active type with violet accent.
 - **CasePropertyPills** — pill buttons with "Saves to" header. One pill per case type the module can write to (its own type + child types via `getModuleCaseTypes`). Click to toggle on/off, radio behavior when multiple. Disabled for media types, locked on for `case_name`.
-- **XPathEditorModal** — Portal-mounted CodeMirror editor at `z-modal`. Fold gutters, bracket matching, zebra stripes. Opens with `prettyPrintXPath`, saves back via `formatXPath` (single-line for storage). Cmd/Ctrl+Enter saves, Escape closes. Lazy-loaded via `next/dynamic` (`ssr: false`).
+- **XPathEditorModal** — Portal-mounted CodeMirror editor at `z-modal`. Fold gutters, bracket matching, zebra stripes. Opens with `prettyPrintXPath`, saves back via `formatXPath` (single-line for storage). Cmd/Ctrl+Enter saves, Escape closes.
 
 ### Rename Propagation
 
