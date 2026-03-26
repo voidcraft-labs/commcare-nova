@@ -159,8 +159,9 @@ Split across four files:
 - Every bind gets `vellum:nodeset="#form/..."`, every setvalue gets `vellum:ref="#form/..."`.
 - Vellum metadata (`vellum:hashtags`, `vellum:hashtagTransforms`) — JSON on binds with `#case/` or `#user/` refs only.
 - `<output value="..."/>` tags in labels get `vellum:value` preserving shorthand when expansion occurs.
+- **Bare hashtags in prose** — labels/hints/help may contain bare `#case/foo` text (not wrapped in `<output>` tags). `wrapBareHashtags()` auto-wraps these in `<output value="..."/>` before expansion. Uses regex (not Lezer) because labels are prose, not XPath — the Lezer parser can't find hashtags in prose text (surrounding chars like `**` get parsed as XPath operators, swallowing the `#`).
 - `case_references_data.load` — form-level JSON mapping question paths to `#case/` refs.
-- Secondary instances (`casedb`, `commcaresession`) auto-declared when `#case/` or `#user/` hashtags are used.
+- Secondary instances (`casedb`, `commcaresession`) auto-declared when `#case/` or `#user/` hashtags are used in XPath fields or labels.
 
 **Case config derivation** (`deriveCaseConfig(questions, formType, moduleCaseType, caseTypes)`):
 - Groups questions by `case_property_on` value. Primary case (matches module case type) vs child cases (different case type).
