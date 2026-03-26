@@ -159,7 +159,7 @@ export interface HqModule {
   case_list: {
     doc_type: 'CaseList'
     show: boolean
-    label: Record<string, never>
+    label: Record<string, string> | Record<string, never>
     media_image: Record<string, never>
     media_audio: Record<string, never>
     custom_icons: unknown[]

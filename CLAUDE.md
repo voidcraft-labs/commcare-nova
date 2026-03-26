@@ -90,7 +90,7 @@ The Anthropic schema compiler times out with >8 `.optional()` fields per array i
 
 Question ID = case property name. Questions with `case_property_on: "<case_type>"` are saved to/loaded from that case type. When `case_property_on` matches the module's case type, it's a normal case property. When it names a different case type, the system auto-derives child case creation. The case name question must always have `id: "case_name"`. Questions are fully self-contained — all metadata (label, type, validation, options) lives on the question itself. `case_types` is a frozen generation-time artifact; `applyDefaults` bakes defaults into questions during `addQuestions`, after which `case_types` is never consulted again. Validation derives known case properties reactively by scanning questions.
 
-Child case types declare `parent_type` and optional `relationship` (`'child'` | `'extension'`) on their case type definition. `deriveCaseConfig()` derives all form-level case wiring on-demand — primary case config, child case creation, repeat context — no form-level case fields stored. Case list columns are fully LLM-controlled — no auto-prepend or filtering by expander/compiler.
+Child case types declare `parent_type` and optional `relationship` (`'child'` | `'extension'`) on their case type definition. `deriveCaseConfig()` derives all form-level case wiring on-demand — primary case config, child case creation, repeat context — no form-level case fields stored. Case list columns are fully LLM-controlled — no auto-prepend or filtering by expander/compiler. Every case type must have its own module — child types with no follow-up workflow use `case_list_only: true` on their module (the expander sets `case_list.show` and label automatically).
 
 ### CommCare Connect
 

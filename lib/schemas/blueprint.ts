@@ -89,6 +89,10 @@ export const scaffoldModulesSchema = z.object({
     case_type: z.string().nullable().describe(
       'References a case_type name from the data model. Required if any form is "registration" or "followup". null for survey-only modules.'
     ),
+    case_list_only: z.boolean().describe(
+      'True when this module exists solely to display a case list with no forms. ' +
+      'Use for child case types that need to be viewable but have no follow-up workflow.'
+    ),
     purpose: z.string().describe("Brief description of this module's role in the app"),
     forms: z.array(z.object({
       name: z.string().describe('Display name for the form'),
@@ -239,6 +243,11 @@ const blueprintModuleSchema = z.object({
   name: z.string().describe('Display name for the module/menu'),
   case_type: z.string().optional().describe(
     'Required if any form is "registration" or "followup". Use short snake_case (e.g. "patient", "household_visit"). Only letters, digits, underscores, hyphens.'
+  ),
+  case_list_only: z.boolean().optional().describe(
+    'True when this module exists solely to display a case list with no forms. ' +
+    'CommCare requires every case type to have its own module — use this for child case types ' +
+    'that have no follow-up workflow but still need to be viewable.'
   ),
   forms: z.array(blueprintFormSchema).describe('Array of forms in this module'),
   case_list_columns: z.array(caseListColumnSchema).optional().describe(

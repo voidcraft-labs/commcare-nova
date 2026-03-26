@@ -62,7 +62,7 @@ export function expandBlueprint(blueprint: AppBlueprint): HqApplication {
   }
 
   const modules = blueprint.modules.map((bm) => {
-    const hasCases = bm.case_type && bm.forms.some(f => f.type !== 'survey')
+    const hasCases = bm.case_type && (bm.case_list_only || bm.forms.some(f => f.type !== 'survey'))
     const caseType = hasCases ? bm.case_type! : ''
 
     const forms = bm.forms.map((bf) => {
@@ -97,6 +97,15 @@ export function expandBlueprint(blueprint: AppBlueprint): HqApplication {
 
     return moduleShell(genHexId(), bm.name, caseType, forms, caseDetails)
   })
+
+  // case_list_only modules need case_list.show so HQ doesn't reject them
+  // with "no forms or case list" (CommCare requires either forms or a visible case list)
+  for (let mIdx = 0; mIdx < modules.length; mIdx++) {
+    if (blueprint.modules[mIdx].case_list_only) {
+      modules[mIdx].case_list.show = true
+      modules[mIdx].case_list.label = { en: blueprint.modules[mIdx].name }
+    }
+  }
 
   // Activate parent_select on modules whose case_type is created as a child case elsewhere
   for (let mIdx = 0; mIdx < modules.length; mIdx++) {
@@ -136,6 +145,17 @@ export function validateBlueprint(blueprint: AppBlueprint): string[] {
     const hasCaseForms = mod.forms?.some(f => f.type !== 'survey')
     if (hasCaseForms && !mod.case_type) {
       errors.push(`"${mod.name}" has case forms but no case_type`)
+    }
+
+    // case_list_only validation
+    if (mod.case_list_only && mod.forms.length > 0) {
+      errors.push(`"${mod.name}" is marked case_list_only but has forms`)
+    }
+    if (mod.case_list_only && !mod.case_type) {
+      errors.push(`"${mod.name}" is marked case_list_only but has no case_type`)
+    }
+    if (!mod.case_list_only && mod.case_type && mod.forms.length === 0) {
+      errors.push(`"${mod.name}" has a case_type but no forms — set case_list_only: true if this is a case-list viewer, or add forms`)
     }
 
     for (let fIdx = 0; fIdx < mod.forms.length; fIdx++) {
@@ -297,6 +317,19 @@ export function validateBlueprint(blueprint: AppBlueprint): string[] {
         }
       }
 
+    }
+  }
+
+  // Check that every child case type has its own module
+  if (blueprint.case_types) {
+    const moduleCaseTypes = new Set(blueprint.modules.map(m => m.case_type).filter(Boolean))
+    for (const ct of blueprint.case_types) {
+      if (ct.parent_type && !moduleCaseTypes.has(ct.name)) {
+        errors.push(
+          `Child case type "${ct.name}" is used in forms but has no module — ` +
+          `create a module with case_type "${ct.name}" and case_list_columns so these cases are viewable`
+        )
+      }
     }
   }
 

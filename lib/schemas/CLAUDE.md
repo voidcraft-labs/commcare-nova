@@ -28,6 +28,10 @@ All text fields are plain `string`. XPath fields support `#form/`, `#case/`, and
 - `default_value` → `<setvalue event="xforms-ready">` in XForm (one-time on load, unlike `calculate` which recalculates)
 - `case_property_on: "<case_type>"` marks a question as saving to that case type (property name = question ID). When it matches the module's case type, it's a normal case property. When it names a different type, it triggers child case creation. The case name question must have `id: "case_name"`.
 
+### Case-List-Only Modules
+
+`case_list_only?: boolean` on `BlueprintModule` — marks a module as a case-list viewer with no forms. Used for child case types that have no follow-up workflow but still need a module (CommCare requires every case type to have one). Present on both `blueprintModuleSchema` and `scaffoldModulesSchema`.
+
 ### Close Case Format
 
 - `{}` = unconditional close

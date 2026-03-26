@@ -150,6 +150,8 @@ Split across four files:
 
 `expandBlueprint()` converts `AppBlueprint` → HQ import JSON. `validateBlueprint()` checks semantic rules. `detectUnquotedStringLiteral()` uses the Lezer XPath parser to flag bare words in XPath fields (e.g. `no` instead of `'no'`).
 
+**`case_list_only` modules** — CommCare requires every case type to be declared as a module's primary `case_type`. Child case types with no follow-up workflow use `case_list_only: true` on their module. The expander sets `case_list.show = true` and `case_list.label` on these modules so HQ accepts them. The validator checks: `case_list_only` + forms → error, `case_list_only` + no case_type → error, case_type + no forms + no `case_list_only` flag → error (ambiguous — could be a forgotten form or an intentional case-list viewer).
+
 **Vellum hashtag expansion** — dual-attribute pattern matching CommCare's Vellum editor. All three hashtag types (`#form/`, `#case/`, `#user/`) are expanded via the Lezer XPath parser's `HashtagRef` node (with `HashtagType` and `HashtagSegment` children). `expandHashtags()` in `commcare/hashtags.ts` is the single expansion point:
 - `#form/question` → `/data/question` (trivial, hardcoded in Vellum).
 - `#case/property` → full `instance('casedb')/...` XPath.
