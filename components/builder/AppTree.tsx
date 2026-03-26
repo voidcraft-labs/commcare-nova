@@ -11,7 +11,6 @@ import type { Question } from '@/lib/schemas/blueprint'
 import { ConnectLogomark } from '@/components/icons/ConnectLogomark'
 import { BuilderPhase, type TreeData } from '@/lib/services/builder'
 import { type QuestionPath, qpath } from '@/lib/services/questionPath'
-import { Badge } from '@/components/ui/Badge'
 import { questionTypeIcons, formTypeIcons } from '@/lib/questionTypeIcons'
 import { filterTree, highlightSegments, type MatchIndices } from '@/lib/filterTree'
 
@@ -212,14 +211,11 @@ function ModuleCard({
             </h3>
             {mod.case_type && (
               <span className="text-xs text-nova-text-muted font-mono">
-                case: {mod.case_type}
+                {mod.case_type}
               </span>
             )}
           </div>
         </div>
-        <Badge variant="muted">
-          {mod.forms.length} form{mod.forms.length !== 1 ? 's' : ''}
-        </Badge>
       </div>
 
       {!isCollapsed && (
