@@ -5,7 +5,6 @@
  * calls, and edits them — all within one conversation context and prompt-caching window.
  */
 import { ToolLoopAgent, tool, stepCountIs } from 'ai'
-import { forwardAnthropicContainerIdFromLastStep } from '@ai-sdk/anthropic'
 import { z } from 'zod'
 import { GenerationContext, logWarnings } from './generationContext'
 import { buildSolutionsArchitectPrompt } from '../prompts/solutionsArchitectPrompt'
@@ -120,21 +119,13 @@ export function createSolutionsArchitect(
     prepareStep: ({ steps }: { steps?: Array<{ providerMetadata?: Record<string, any> }> }) => {
       const anthropic: Record<string, any> = {
         // Automatic prompt caching — Anthropic places the cache breakpoint on the
-        // last cacheable block and advances it as the conversation grows. System
-        // prompt stays cached across requests; code execution blocks are skipped.
+        // last cacheable block and advances it as the conversation grows.
         cacheControl: { type: 'ephemeral' },
       }
 
       // Reasoning (adaptive thinking)
       if (saReasoning) {
         anthropic.thinking = { type: 'adaptive' as const, effort: saReasoning.effort }
-      }
-
-      // Container forwarding (code execution sandbox persistence)
-      if (steps?.length) {
-        const containerResult = forwardAnthropicContainerIdFromLastStep({ steps })
-        const containerOpts = containerResult?.providerOptions?.anthropic
-        if (containerOpts) Object.assign(anthropic, containerOpts)
       }
 
       return { providerOptions: { anthropic } as Record<string, any> }
@@ -253,10 +244,8 @@ export function createSolutionsArchitect(
         },
       }),
 
-      code_execution: ctx.codeExecutionTool(),
-
       addQuestions: tool({
-        description: 'Add a batch of questions to an existing form. Appends to existing questions (does not replace). Call from code_execution for large forms. Groups added in one batch can be referenced as parentId in later batches.',
+        description: 'Add a batch of questions to an existing form. Appends to existing questions (does not replace). Groups added in one batch can be referenced as parentId in later batches.',
         inputSchema: z.object({
           moduleIndex: z.number().describe('0-based module index'),
           formIndex: z.number().describe('0-based form index'),
@@ -279,9 +268,6 @@ export function createSolutionsArchitect(
             options: z.array(selectOptionSchema).optional(),
           })),
         }),
-        providerOptions: {
-          anthropic: { allowedCallers: ['code_execution_20260120'] },
-        },
         execute: async ({ moduleIndex, formIndex, questions }) => {
           const blueprint = mutableBp.getBlueprint()
           const mod = blueprint.modules[moduleIndex]
@@ -566,7 +552,7 @@ export function createSolutionsArchitect(
       }),
 
       createForm: tool({
-        description: 'Add a new empty form to a module. Use code_execution + addQuestions to populate it.',
+        description: 'Add a new empty form to a module. Use addQuestions to populate it.',
         inputSchema: z.object({
           moduleIndex: z.number().describe('0-based module index'),
           name: z.string().describe('Form display name'),

@@ -50,11 +50,6 @@ export class GenerationContext {
     return this.anthropic(id)
   }
 
-  /** Get the Anthropic code execution tool for programmatic tool calling. */
-  codeExecutionTool() {
-    return this.anthropic.tools.codeExecution_20260120()
-  }
-
 
   /** Emit a transient data part to the client stream. Also buffers for run logging. */
   emit(type: `data-${string}`, data: unknown) {
