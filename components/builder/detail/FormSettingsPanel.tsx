@@ -167,14 +167,21 @@ function ConnectSection({ form, moduleIndex, formIndex, mb, notifyBlueprintChang
     notifyBlueprintChanged()
   }, [mb, moduleIndex, formIndex, notifyBlueprintChanged])
 
+  // Store the last config so toggling off/on doesn't lose values
+  const lastConfigRef = useRef(connect)
+  if (connect) lastConfigRef.current = connect
+
   const toggle = useCallback(() => {
     if (enabled) {
       save(null)
     } else {
-      const initial: ConnectConfig = connectType === 'learn'
-        ? { assessment: { user_score: '100' } }
-        : {}
-      save(initial)
+      // Restore previous config, or create a sensible default
+      const restored = lastConfigRef.current
+      if (restored && Object.keys(restored).length > 0) {
+        save(restored)
+      } else {
+        save(connectType === 'learn' ? { assessment: { user_score: '100' } } : {})
+      }
     }
   }, [enabled, connectType, save])
 
