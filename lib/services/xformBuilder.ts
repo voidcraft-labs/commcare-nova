@@ -19,12 +19,44 @@ const PARSE_OPTS = { xmlMode: true } as const
 const RENDER_OPTS = { xmlMode: true, selfClosingTags: true, encodeEntities: 'utf8' as const } as const
 
 /**
+ * Bare hashtag pattern for label/hint/help prose text.
+ *
+ * Labels are natural language, not XPath — the Lezer XPath parser can't find
+ * hashtags in prose because surrounding characters (e.g. markdown `**`) get
+ * parsed as XPath operators (multiply/wildcard), swallowing the `#`.
+ * Regex is the correct tool here; Lezer handles XPath fields (calculate, etc.).
+ */
+const BARE_HASHTAG_RE = /#(case|form|user)(\/[a-zA-Z_][a-zA-Z0-9_-]*)+/g
+
+/**
+ * Wrap bare hashtag references in prose text with <output value="..."/> tags.
+ * Splits on existing <output/> tags to avoid double-wrapping hashtags
+ * that are already inside output tag attributes.
+ */
+function wrapBareHashtags(text: string): string {
+  // Split on existing <output .../> tags — captured groups land at odd indices
+  const parts = text.split(/(<output\b[^>]*\/>)/g)
+  let changed = false
+  for (let i = 0; i < parts.length; i += 2) {
+    const replaced = parts[i].replace(BARE_HASHTAG_RE, '<output value="$&"/>')
+    if (replaced !== parts[i]) {
+      parts[i] = replaced
+      changed = true
+    }
+  }
+  return changed ? parts.join('') : text
+}
+
+/**
  * Process label/hint/help text that may contain <output value="..."/> tags.
- * Plain text segments are XML-escaped. <output> tags are preserved as raw XML
- * with hashtag expansion on the value attribute.
+ * Bare hashtag references (#case/x, #form/x, #user/x) are auto-wrapped in
+ * <output> tags first. Then all <output> tags get Lezer-based hashtag expansion
+ * on the value attribute. Plain text is XML-escaped by dom-serializer.
  */
 function processLabelText(text: string): string {
-  const doc = parseDocument(text, PARSE_OPTS)
+  // Wrap bare hashtag refs (e.g. #case/name) in <output> tags before parsing
+  const preprocessed = wrapBareHashtags(text)
+  const doc = parseDocument(preprocessed, PARSE_OPTS)
 
   // Expand hashtags in output tag value attributes, preserve shorthand in vellum:value
   const outputs = findAll(
@@ -67,6 +99,18 @@ function collectConnectXPaths(connect?: ConnectConfig): string[] {
   if (connect?.deliver_unit?.entity_id) exprs.push(connect.deliver_unit.entity_id)
   if (connect?.deliver_unit?.entity_name) exprs.push(connect.deliver_unit.entity_name)
   return exprs
+}
+
+/** Non-global — safe for .test() without lastIndex state. Only #case/ and #user/ need casedb. */
+const CASE_HASHTAG_IN_PROSE = /#(case|user)\//
+
+/** Check if any question labels/hints/help contain #case/ or #user/ hashtag refs. */
+function hasHashtagInLabels(questions: Question[]): boolean {
+  for (const q of questions) {
+    if (CASE_HASHTAG_IN_PROSE.test(q.label ?? '') || CASE_HASHTAG_IN_PROSE.test(q.hint ?? '') || CASE_HASHTAG_IN_PROSE.test(q.help ?? '')) return true
+    if (q.children && hasHashtagInLabels(q.children)) return true
+  }
+  return false
 }
 
 const CONNECT_XMLNS = 'http://commcareconnect.com/data/v1/learn'
@@ -214,9 +258,11 @@ export function buildXForm(form: BlueprintForm, xmlns: string, options?: { autoG
 
   const bodyContent = bodyElements.map(e => `    ${e}`).join('\n')
 
-  // Check if any XPath references need secondary instances
+  // Check if any XPath references or labels need secondary instances
   const allXPaths = [...collectAllXPaths(questions), ...collectConnectXPaths(form.connect)]
-  const needsCasedb = allXPaths.some(x => x.includes('#case/') || x.includes('#user/') || x.includes("instance('casedb')"))
+  const xpathNeedsCasedb = allXPaths.some(x => x.includes('#case/') || x.includes('#user/') || x.includes("instance('casedb')"))
+  const labelNeedsCasedb = !xpathNeedsCasedb && hasHashtagInLabels(questions)
+  const needsCasedb = xpathNeedsCasedb || labelNeedsCasedb
   const needsSession = needsCasedb || options?.autoGps || allXPaths.some(x => x.includes("instance('commcaresession')"))
 
   const secondaryInstances = [

@@ -300,6 +300,87 @@ describe('output references in labels', () => {
     expect(xform).toContain('<output value="instance(')
     expect(xform).toContain('vellum:value="#case/full_name"')
   })
+
+  it('wraps bare #case/ in label text as <output> tags with expanded XPath', () => {
+    const bp: AppBlueprint = {
+      app_name: 'BareRef', modules: [{
+        name: 'M', case_type: 'c', forms: [{
+          name: 'F', type: 'followup',
+          questions: [
+            { id: 'case_name', type: 'text', label: 'Name', case_property_on: 'c' },
+            { id: 'start_date', type: 'date', label: 'Start', case_property_on: 'c' },
+            { id: 'end_date', type: 'date', label: 'End', case_property_on: 'c' },
+            { id: 'summary', type: 'label', label: 'Plan: **#case/case_name**, from #case/start_date to #case/end_date' },
+          ],
+        }],
+      }],
+      case_types: [{ name: 'c', properties: [
+        { name: 'case_name', label: 'Name' },
+        { name: 'start_date', label: 'Start' },
+        { name: 'end_date', label: 'End' },
+      ] }],
+    }
+    const hq = expandBlueprint(bp)
+    const xform: string = Object.values(hq._attachments)[0] as string
+    // Bare #case/ text should not appear in label content
+    expect(xform).not.toContain('#case/case_name**')
+    expect(xform).not.toContain('to #case/end_date')
+    // Shorthand preserved in vellum:value attributes on output tags
+    expect(xform).toContain('vellum:value="#case/case_name"')
+    expect(xform).toContain('vellum:value="#case/start_date"')
+    expect(xform).toContain('vellum:value="#case/end_date"')
+    // Each output tag should have expanded instance() XPath
+    expect(xform).toContain('<output value="instance(')
+    // Label type gets both <value> and <value form="markdown">, so 3 refs × 2 = 6
+    const outputCount = (xform.match(/vellum:value="#case\//g) || []).length
+    expect(outputCount).toBe(6)
+  })
+
+  it('wraps bare #form/ in label text as <output> tags', () => {
+    const bp: AppBlueprint = {
+      app_name: 'BareForm', modules: [{
+        name: 'M', forms: [{
+          name: 'F', type: 'survey',
+          questions: [
+            { id: 'user_name', type: 'text', label: 'Your name' },
+            { id: 'greeting', type: 'label', label: 'Hello #form/user_name!' },
+          ],
+        }],
+      }],
+      case_types: null,
+    }
+    const hq = expandBlueprint(bp)
+    const xform: string = Object.values(hq._attachments)[0] as string
+    expect(xform).not.toContain('#form/user_name!')
+    expect(xform).toContain('<output value="/data/user_name" vellum:value="#form/user_name"/>')
+  })
+
+  it('handles mixed bare hashtags and existing <output> tags in one label', () => {
+    const bp: AppBlueprint = {
+      app_name: 'Mixed', modules: [{
+        name: 'M', case_type: 'c', forms: [{
+          name: 'F', type: 'followup',
+          questions: [
+            { id: 'case_name', type: 'text', label: 'Name', case_property_on: 'c' },
+            { id: 'status', type: 'text', label: 'Status', case_property_on: 'c' },
+            { id: 'info', type: 'label', label: 'Hello <output value="#case/case_name"/>, status: #case/status' },
+          ],
+        }],
+      }],
+      case_types: [{ name: 'c', properties: [
+        { name: 'case_name', label: 'Name' },
+        { name: 'status', label: 'Status' },
+      ] }],
+    }
+    const hq = expandBlueprint(bp)
+    const xform: string = Object.values(hq._attachments)[0] as string
+    // The bare #case/status from the label should be wrapped and expanded
+    const infoLabel = xform.match(/<text id="info-label">.*?<\/text>/s)?.[0] || ''
+    expect(infoLabel).not.toContain('status: #case/status')
+    // Both existing <output> and bare ref should be expanded with vellum:value
+    expect(infoLabel).toContain('vellum:value="#case/case_name"')
+    expect(infoLabel).toContain('vellum:value="#case/status"')
+  })
 })
 
 // ── #form/ hashtag expansion ─────────────────────────────────────────────
