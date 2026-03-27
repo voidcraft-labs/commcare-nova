@@ -15,17 +15,15 @@ export function signalLabel(mode: SignalMode): string {
 
 interface SignalPanelProps {
   active: boolean
-  /** Base label (e.g. "Thinking") — used as the crossfade key. */
   label: string
-  /** Full display text including timer suffix (e.g. "Thinking (32s)"). Rendered inside the crossfade. */
-  displayLabel?: string
+  /** Optional suffix that fades in once but updates in place (e.g. "(32s)"). */
+  suffix?: string
   children: ReactNode
 }
 
 /** Sci-fi panel chrome — bezels, notches, indicator LED, display well, etched label. */
-export function SignalPanel({ active, label, displayLabel, children }: SignalPanelProps) {
+export function SignalPanel({ active, label, suffix, children }: SignalPanelProps) {
   const baseText = label && active ? label : 'SYS:IDLE'
-  const displayText = displayLabel && active ? displayLabel : baseText
 
   return (
     <div className="nova-panel" data-active={active || undefined}>
@@ -55,7 +53,20 @@ export function SignalPanel({ active, label, displayLabel, children }: SignalPan
             exit={{ opacity: 0 }}
             transition={{ duration: 0.75 }}
           >
-            {displayText}
+            {baseText}
+            <AnimatePresence>
+              {suffix && (
+                <motion.span
+                  key="suffix"
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  exit={{ opacity: 0 }}
+                  transition={{ duration: 0.75 }}
+                >
+                  {' '}{suffix}
+                </motion.span>
+              )}
+            </AnimatePresence>
           </motion.span>
         </AnimatePresence>
         <div className="nova-panel-groove" />
