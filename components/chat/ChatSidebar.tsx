@@ -81,6 +81,18 @@ export function ChatSidebar({
     ? `(${elapsed >= 60 ? `${Math.floor(elapsed / 60)}m ${elapsed % 60}s` : `${elapsed}s`})`
     : undefined
 
+  // Only enable layout animation during centered↔sidebar morph, not toolbar resizes
+  const [morphing, setMorphing] = useState(false)
+  const prevCenteredRef = useRef(centered)
+  useEffect(() => {
+    if (centered !== prevCenteredRef.current) {
+      setMorphing(true)
+      const id = setTimeout(() => setMorphing(false), 500)
+      prevCenteredRef.current = centered
+      return () => clearTimeout(id)
+    }
+  }, [centered])
+
   const pendingAnswerRef = useRef<((text: string) => void) | null>(null)
   const scrollElRef = useRef<HTMLDivElement | null>(null)
   const isNearBottomRef = useRef(chatScrollPinned)
@@ -208,7 +220,7 @@ export function ChatSidebar({
     >
       {centered && heroLogo}
       <motion.div
-        layout="position"
+        layout={morphing ? 'position' : false}
         className={`pointer-events-auto flex flex-col overflow-hidden transition-[width,max-width,max-height,height,border-radius,box-shadow,border-color,margin] duration-[450ms] ease-[cubic-bezier(0.4,0,0.2,1)] ${centered
           ? 'w-full max-w-2xl max-h-[min(700px,80vh)] rounded-2xl border border-nova-border bg-nova-deep'
           : 'w-80 h-full border border-nova-border-bright border-l-0 bg-nova-deep rounded-r-xl m-2 ml-0 shadow-[0_2px_12px_rgba(0,0,0,0.4)]'
