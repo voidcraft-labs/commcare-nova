@@ -1,13 +1,13 @@
 'use client'
-import { useRef, useCallback, useEffect } from 'react'
-import { motion, AnimatePresence } from 'motion/react'
+import { useRef, useState, useCallback, useEffect } from 'react'
+import { motion } from 'motion/react'
 import type { UIMessage } from 'ai'
 import { Icon } from '@iconify/react'
 import ciChevronLeft from '@iconify-icons/ci/chevron-left'
 import { useBuilder } from '@/hooks/useBuilder'
 import { ChatMessage } from '@/components/chat/ChatMessage'
 import { ChatInput } from '@/components/chat/ChatInput'
-import { ThinkingIndicator } from '@/components/chat/ThinkingIndicator'
+import { SignalGrid } from '@/components/chat/SignalGrid'
 
 // ── Module-level scroll state persisted across ChatSidebar instances ──
 let chatScrollPinned = true
@@ -39,7 +39,28 @@ export function ChatSidebar({
 }: ChatSidebarProps) {
   const builder = useBuilder()
   const isLoading = status === 'submitted' || status === 'streaming'
-  const showThinking = builder.isThinking
+
+  // Signal Grid mode — can be overridden by intro or forced sending
+  const [introMode, setIntroMode] = useState<'reasoning' | null>(null)
+  const [forceSending, setForceSending] = useState(false)
+  const forceSendingTimer = useRef<ReturnType<typeof setTimeout>>(undefined)
+
+  const gridMode = ((): 'sending' | 'reasoning' | 'building' | 'idle' => {
+    if (introMode) return introMode
+    if (forceSending) return 'sending'
+    if (builder.isGenerating) return 'building'
+    if (builder.agentActive) return 'reasoning'
+    return 'idle'
+  })()
+
+  const gridLabel = (() => {
+    if (introMode) return 'Thinking'
+    if (forceSending) return 'Transmitting'
+    if (builder.isGenerating) return builder.statusMessage || 'Building'
+    if (builder.agentActive) return 'Thinking'
+    return ''
+  })()
+
   const pendingAnswerRef = useRef<((text: string) => void) | null>(null)
   const isCentered = mode === 'centered'
   const isEmbedded = mode === 'sidebar-embedded'
@@ -52,6 +73,10 @@ export function ChatSidebar({
     if (pendingAnswerRef.current) {
       pendingAnswerRef.current(text)
     } else {
+      // Force sending animation for at least 1s so the user always sees the wave
+      clearTimeout(forceSendingTimer.current)
+      setForceSending(true)
+      forceSendingTimer.current = setTimeout(() => setForceSending(false), 1000)
       onSend(text)
     }
   }, [onSend])
@@ -172,9 +197,9 @@ export function ChatSidebar({
               pendingAnswerRef={pendingAnswerRef}
             />
           ))}
-          <AnimatePresence>
-            {showThinking && <ThinkingIndicator />}
-          </AnimatePresence>
+        </div>
+        <div className="shrink-0">
+          <SignalGrid mode={gridMode} label={gridLabel} messages={messages} />
         </div>
         {!readOnly && (
           <div className="shrink-0">
@@ -218,14 +243,7 @@ export function ChatSidebar({
         {messages.length === 0 && !isLoading && (
           <div className={isCentered ? 'text-center' : 'text-center py-8'}>
             {isCentered ? (
-              <>
-                <h1 className="text-xl font-display font-medium text-nova-text mb-1.5">
-                  What do you want to build?
-                </h1>
-                <p className="text-nova-text-secondary text-sm leading-relaxed">
-                  Describe your CommCare app — workflows, data collection, and who will use it.
-                </p>
-              </>
+              <WelcomeIntro builder={builder} setIntroMode={setIntroMode} />
             ) : (
               <p className="text-sm text-nova-text-muted">
                 Describe the CommCare app you want to build.
@@ -241,9 +259,11 @@ export function ChatSidebar({
             pendingAnswerRef={pendingAnswerRef}
           />
         ))}
-        <AnimatePresence>
-          {showThinking && <ThinkingIndicator />}
-        </AnimatePresence>
+      </div>
+
+      {/* Nova's thinking panel — permanent status display */}
+      <div className="shrink-0">
+        <SignalGrid mode={gridMode} label={gridLabel} messages={messages} />
       </div>
 
       {/* Input — hidden in readOnly mode */}
@@ -257,5 +277,57 @@ export function ChatSidebar({
         </div>
       )}
     </motion.div>
+  )
+}
+
+/** Staggered welcome text with a coordinated burst on the signal grid. */
+function WelcomeIntro({ builder, setIntroMode }: {
+  builder: ReturnType<typeof useBuilder>
+  setIntroMode: (mode: 'reasoning' | null) => void
+}) {
+  const [stage, setStage] = useState(0) // 0: nothing, 1: heading, 2: subtitle
+
+  useEffect(() => {
+    // Activate reasoning mode for the intro bursts
+    setIntroMode('reasoning')
+    builder.injectEnergy(40)
+
+    const t1 = setTimeout(() => {
+      setStage(1)
+      builder.injectEnergy(40)
+    }, 1200)
+
+    const t2 = setTimeout(() => {
+      setStage(2)
+      builder.injectEnergy(80)
+    }, 1700)
+
+    // Let the grid settle, then back to idle
+    const t3 = setTimeout(() => {
+      setIntroMode(null)
+    }, 2400)
+
+    return () => { clearTimeout(t1); clearTimeout(t2); clearTimeout(t3) }
+  }, [builder, setIntroMode])
+
+  return (
+    <>
+      <motion.h1
+        initial={{ opacity: 0, y: 6 }}
+        animate={stage >= 1 ? { opacity: 1, y: 0 } : { opacity: 0, y: 6 }}
+        transition={{ duration: 0.5, ease: [0.4, 0, 0.2, 1] }}
+        className="text-xl font-display font-medium text-nova-text mb-1.5"
+      >
+        What do you want to build?
+      </motion.h1>
+      <motion.p
+        initial={{ opacity: 0, y: 8 }}
+        animate={stage >= 2 ? { opacity: 1, y: 0 } : { opacity: 0, y: 8 }}
+        transition={{ duration: 0.5, ease: [0.4, 0, 0.2, 1] }}
+        className="text-nova-text-secondary text-sm leading-relaxed"
+      >
+        Describe your CommCare app — workflows, data collection, and who will use it.
+      </motion.p>
+    </>
   )
 }

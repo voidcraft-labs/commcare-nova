@@ -109,6 +109,123 @@ body {
   color: white;
 }
 
+/* Nova Panel — recessed hardware enclosure for the neural display */
+.nova-panel {
+  margin: 0 6px 4px;
+  border-radius: 6px;
+  background: linear-gradient(180deg, rgba(10, 10, 26, 0.6), rgba(5, 5, 16, 0.8));
+  border: 1px solid rgba(139, 92, 246, 0.08);
+  box-shadow:
+    inset 0 1px 3px rgba(0, 0, 0, 0.4),
+    0 1px 0 rgba(139, 92, 246, 0.04);
+  transition: border-color 0.6s ease, box-shadow 0.8s ease;
+}
+.nova-panel[data-active] {
+  border-color: rgba(139, 92, 246, 0.15);
+  box-shadow:
+    inset 0 1px 3px rgba(0, 0, 0, 0.4),
+    0 1px 0 rgba(139, 92, 246, 0.06),
+    0 0 12px rgba(139, 92, 246, 0.04);
+}
+
+/* Bezel — top and bottom frame edges */
+.nova-panel-bezel {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0 8px;
+  height: 14px;
+}
+.nova-panel-bezel-top { padding-top: 2px; }
+.nova-panel-bezel-bottom { padding-bottom: 2px; }
+
+/* Etched groove lines that run across the bezel */
+.nova-panel-groove {
+  flex: 1;
+  height: 1px;
+  background: rgba(139, 92, 246, 0.06);
+}
+.nova-panel[data-active] .nova-panel-groove {
+  background: rgba(139, 92, 246, 0.12);
+}
+
+/* Corner notches — small square cutouts at the bezel edges */
+.nova-panel-notch {
+  width: 3px;
+  height: 3px;
+  border-radius: 1px;
+  background: rgba(139, 92, 246, 0.05);
+}
+.nova-panel[data-active] .nova-panel-notch {
+  background: rgba(139, 92, 246, 0.12);
+}
+
+/* Status indicator — small LED recessed into the top bezel */
+.nova-panel-indicator {
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: rgba(85, 85, 119, 0.25);
+  box-shadow: inset 0 0.5px 1px rgba(0, 0, 0, 0.3);
+  transition: background 0.5s ease, box-shadow 0.5s ease;
+}
+.nova-panel-indicator.active {
+  background: var(--nova-violet);
+  box-shadow:
+    inset 0 0.5px 1px rgba(0, 0, 0, 0.1),
+    0 0 5px rgba(139, 92, 246, 0.5);
+}
+
+/* Etched label in the bottom bezel */
+.nova-panel-etch {
+  font-family: var(--font-mono);
+  font-size: 7px;
+  letter-spacing: 0.15em;
+  text-transform: uppercase;
+  color: rgba(85, 85, 119, 0.3);
+  white-space: nowrap;
+  transition: color 0.5s ease;
+}
+.nova-panel[data-active] .nova-panel-etch {
+  color: rgba(136, 136, 170, 0.5);
+}
+
+/* Display well — recessed cavity where the LED grid sits */
+.nova-panel-well {
+  margin: 0 6px;
+  padding: 2px;
+  border-radius: 3px;
+  background: rgba(3, 3, 10, 0.5);
+  box-shadow: inset 0 1px 4px rgba(0, 0, 0, 0.5);
+}
+
+/* Signal Grid — the LED array inside the well */
+.signal-grid {
+  position: relative;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, 6px);
+  grid-template-rows: repeat(3, 6px);
+  gap: 3px;
+  justify-content: center;
+  padding: 4px;
+  border-radius: 2px;
+  overflow: hidden;
+}
+.signal-grid::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: repeating-linear-gradient(
+    0deg,
+    transparent,
+    transparent 2px,
+    rgba(5, 5, 16, 0.15) 2px,
+    rgba(5, 5, 16, 0.15) 4px
+  );
+  pointer-events: none;
+  border-radius: inherit;
+}
+
 /* Chat markdown (assistant messages) */
 .chat-markdown {
   line-height: 1.6;

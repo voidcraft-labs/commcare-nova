@@ -582,7 +582,6 @@ export function BuilderLayout({ buildId }: { buildId: string }) {
                       <div className="pointer-events-auto">
                         <GenerationProgress
                           phase={builder.phase}
-                          message={builder.statusMessage}
                           completed={builder.progressCompleted}
                           total={builder.progressTotal}
                           mode={progressMode}

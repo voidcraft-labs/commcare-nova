@@ -1,13 +1,13 @@
 'use client'
 import { useRef, useState, useCallback, useSyncExternalStore } from 'react'
-import { motion, AnimatePresence } from 'motion/react'
+import { motion } from 'motion/react'
 import { Icon } from '@iconify/react'
 import ciCheck from '@iconify-icons/ci/check'
 import { BuilderPhase } from '@/lib/services/builder'
 
 interface GenerationProgressProps {
   phase: BuilderPhase
-  message: string
+
   completed: number
   total: number
   mode: 'centered' | 'compact'
@@ -52,7 +52,7 @@ function getPhaseStageIndex(phase: BuilderPhase, stageCount: number): number {
   return map[phase] ?? 0
 }
 
-export function GenerationProgress({ phase, message, completed, total, mode, onDone }: GenerationProgressProps) {
+export function GenerationProgress({ phase, completed, total, mode, onDone }: GenerationProgressProps) {
   const isDone = phase === BuilderPhase.Done
 
   // Only show Fix stage if we've reached it
@@ -239,25 +239,6 @@ export function GenerationProgress({ phase, message, completed, total, mode, onD
         />
       </div>
 
-      {/* Status message */}
-      <div className={`overflow-hidden ${isCentered ? 'mt-2 h-5' : 'mt-1.5 h-4'}`}>
-        <AnimatePresence mode="wait">
-          <motion.p
-            key={isDone ? '__done__' : message || '__empty__'}
-            initial={{ opacity: 0, y: 4 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -4 }}
-            transition={{ duration: 0.15 }}
-            className={`truncate ${
-              isCentered ? 'text-xs' : 'text-[10px]'
-            } ${
-              isDone ? 'text-nova-cyan-bright/70' : 'text-nova-text-muted'
-            }`}
-          >
-            {isDone ? 'Generation complete' : message || 'Starting...'}
-          </motion.p>
-        </AnimatePresence>
-      </div>
     </motion.div>
   )
 }
