@@ -6,7 +6,7 @@ Message list + input. Single instance that morphs between centered and sidebar l
 
 - **`centered` prop**: Hero mode below Logo, no header/border. Logo passed via `heroLogo` slot, animates to header via `layoutId="nova-logo"`.
 - **`!centered`**: 320px (`w-80`) left sidebar with header + close button.
-- **Layout morph**: Inner panel uses Motion `layout="position"` for GPU-accelerated position animation. Size/border/shadow transition via CSS `transition` on the panel div. One instance stays mounted across the transition.
+- **Layout morph**: Inner panel uses Motion `layout="position"` for GPU-accelerated position animation, enabled only during the 500ms centered↔sidebar transition (via `morphing` state). Disabled otherwise to prevent unwanted animations when toolbar/headers resize the content area. Size/border/shadow transition via CSS `transition` on the panel div. One instance stays mounted across the transition.
 - **Enter/exit**: Sidebar slides in/out (`x: -320`). Centered fades. Handled by outer `motion.div` with `AnimatePresence` in BuilderLayout.
 
 **Layout**: scrollable messages → SignalGrid (permanent, `shrink-0`) → ChatInput (`shrink-0`). The SignalGrid panel sits between messages and input, never scrolls.
