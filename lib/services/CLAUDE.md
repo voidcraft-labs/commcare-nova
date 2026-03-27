@@ -90,7 +90,9 @@ Also re-exports `validateAndFix()` (from `validationLoop.ts`) — programmatic v
 **Agent activity state** — three derived getters separate agent activity from build pipeline phase:
 - `builder.agentActive` — true when the SA is processing a request. Set by BuilderLayout via `setAgentActive()` synced from `useChat` status (`submitted`/`streaming`).
 - `builder.isGenerating` — true when the build pipeline is running (phases DataModel through Fix).
-- `builder.isThinking` — `agentActive && !isGenerating`. Drives the thinking indicator. Works for both initial generation (before first data part arrives) and edit operations (phase stays `Done`).
+- `builder.isThinking` — `agentActive && !isGenerating`. Works for both initial generation (before first data part arrives) and edit operations (phase stays `Done`).
+
+**Stream energy** — non-versioned field for the SignalGrid neural activity display. `injectEnergy(amount)` accumulates energy, `drainEnergy()` reads and resets. Never triggers React re-renders. Energy sources: message content deltas (reasoning tokens tracked by SignalGrid component), `applyDataPart()` bursts (200 for module/form completions, 100 for updates, 50 for phase transitions), and the intro sequence.
 
 **Key members:**
 - `builder.mb` — persistent MutableBlueprint instance (undefined before blueprint exists)

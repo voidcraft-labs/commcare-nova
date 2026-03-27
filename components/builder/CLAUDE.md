@@ -96,7 +96,7 @@ Reads/writes through `builder.mb` (persistent `MutableBlueprint`). Editing patte
 
 ## GenerationProgress
 
-Progress bar with phase labels during generation. Always centered in the content area throughout the entire generation lifecycle — stays centered even after the scaffold tree appears in the left panel, then dismisses immediately on completion with a 1s fade-out. Counts derived from `builder.progressCompleted` / `builder.progressTotal`.
+Progress bar with phase labels during generation. Always centered in the content area throughout the entire generation lifecycle — stays centered even after the scaffold tree appears in the left panel, then dismisses immediately on completion with a 1s fade-out. Counts derived from `builder.progressCompleted` / `builder.progressTotal`. Status message text was removed — phase-specific text now lives in the SignalGrid panel's etched label instead.
 
 ## ReplayController
 

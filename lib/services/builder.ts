@@ -6,6 +6,23 @@ export type { ViewMode } from './historyManager'
 
 /** Apply a data part to a builder — shared between real-time streaming (onData) and replay. */
 export function applyDataPart(builder: Builder, type: string, data: any): void {
+  // Inject energy for signal grid based on data part significance
+  switch (type) {
+    case 'data-module-done':
+    case 'data-form-done':
+    case 'data-form-fixed':
+      builder.injectEnergy(200); break
+    case 'data-form-updated':
+    case 'data-blueprint-updated':
+      builder.injectEnergy(100); break
+    case 'data-phase':
+    case 'data-schema':
+    case 'data-scaffold':
+    case 'data-partial-scaffold':
+    case 'data-fix-attempt':
+      builder.injectEnergy(50); break
+  }
+
   switch (type) {
     case 'data-start-build': builder.startDataModel(); break
     case 'data-schema': builder.setSchema(data.caseTypes); break
@@ -93,6 +110,9 @@ export class Builder {
   private _version = 0
   private _questionAnchor: { el: HTMLElement; path: QuestionPath } | null = null
   private _anchorListeners = new Set<() => void>()
+
+  // ── Stream energy (non-versioned — consumed by SignalGrid rAF loop, never triggers React re-renders) ──
+  private _streamEnergy = 0
 
   // ── Read-only public accessors ───────────────────────────────────────
 
@@ -229,6 +249,18 @@ export class Builder {
     if (this._agentActive === active) return
     this._agentActive = active
     this.notify()
+  }
+
+  /** Inject energy for signal grid animation. Non-versioned — does NOT trigger React re-renders. */
+  injectEnergy(amount: number): void {
+    this._streamEnergy += amount
+  }
+
+  /** Read and drain accumulated energy. Called by SignalGridController each animation frame. */
+  drainEnergy(): number {
+    const e = this._streamEnergy
+    this._streamEnergy = 0
+    return e
   }
 
   // ── Undo/Redo ──────────────────────────────────────────────────────
@@ -505,6 +537,7 @@ export class Builder {
     this._progressTotal = 0
     this._partialModules.clear()
     this._partialScaffold = undefined
+    this._streamEnergy = 0
     this.notify()
   }
 }
