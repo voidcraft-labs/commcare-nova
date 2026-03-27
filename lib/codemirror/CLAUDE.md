@@ -53,9 +53,9 @@ Replaces `Layout.Space` with `Layout.NewLine` + `Layout.Tab`:
 - **Hashtag references** — two-phase: bare `#` shows namespace prefixes (`#case/`, `#form/`, `#user/`); after a namespace, shows properties/questions from the blueprint. `activateOnCompletion` re-triggers after picking a namespace prefix.
 - **Data paths** — `/data/...` paths from `collectValidPaths()`.
 
-**Context detection uses Lezer syntax tree nodes** (`syntaxTree().resolveInner()`), not regex. The grammar's `HashtagRef` (opaque token), `Child`/`Descendant` (path chains), and `NameTest`/`FunctionName` nodes drive all context decisions. Node text is only read from identified tree nodes (e.g. extracting the namespace from a `HashtagRef` token, checking a `NameTest` is `"data"`).
+**Context detection uses Lezer syntax tree nodes** (`syntaxTree().resolveInner()`), not regex. The grammar's `HashtagRef` (rule node with `HashtagType`/`HashtagSegment` children), `Child`/`Descendant` (path chains), and `NameTest`/`FunctionName` nodes drive all context decisions. Since `resolveInner` returns the innermost node, hashtag autocomplete walks up to 2 parent levels to find the `HashtagRef` ancestor when the cursor lands on a child node.
 
 ## Language & Theme
 
-- `xpath-language.ts` — CodeMirror `LanguageSupport` with `styleTags` highlighting and `foldNodeProp` (folds `ArgumentList` and `Filtered`).
+- `xpath-language.ts` — CodeMirror `LanguageSupport` with `styleTags` highlighting and `foldNodeProp` (folds `ArgumentList` and `Filtered`). `HashtagRef` child nodes (`HashtagType`, `HashtagSegment`) are tagged directly — named children don't inherit parent styles. Scoped overrides (`HashtagRef/"/"`, `HashtagRef/"#"`) keep `#` and `/` tokens cyan instead of falling through to the global separator style.
 - `xpath-theme.ts` — Nova dark theme for CodeMirror. Used by `XPathField` and `XPathEditorModal`. Also exports `novaAutocompleteTheme` — dark tooltip styling for the autocomplete dropdown (z-index 200 to float above the XPath modal).

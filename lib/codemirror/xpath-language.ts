@@ -3,8 +3,9 @@ import { styleTags, tags as t } from '@lezer/highlight'
 import { parser } from './xpath-parser'
 
 const xpathHighlighting = styleTags({
-  // Data references
-  HashtagRef: t.special(t.variableName),
+  // Data references — all parts of a hashtag ref share the same style
+  'HashtagRef HashtagType HashtagSegment': t.special(t.variableName),
+  'HashtagRef/"/" HashtagRef/"#"': t.special(t.variableName),
   VariableReference: t.variableName,
   // Names (path segments, element names)
   'NameTest QualifiedWildcard': t.propertyName,
