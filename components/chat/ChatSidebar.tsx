@@ -230,13 +230,13 @@ export function ChatSidebar({
         {/* Sidebar header */}
         {!centered && (
           <div className="flex items-center justify-between px-4 h-11 border-b border-nova-border shrink-0">
-            <span className="text-[13px] font-medium text-nova-text-secondary">Chat</span>
             <button
               onClick={onClose}
               className="px-1 h-11 text-nova-text-muted hover:text-nova-text transition-colors cursor-pointer"
             >
               <Icon icon={ciChevronLeft} width="14" height="14" />
             </button>
+            <span className="text-[13px] font-medium text-nova-text-secondary">Chat</span>
           </div>
         )}
 
