@@ -109,7 +109,7 @@ function findDataPathRoot(node: SyntaxNode): SyntaxNode | null {
 
 /** Read the namespace (case/form/user) from a HashtagRef node's doc text. */
 function readHashtagNamespace(node: SyntaxNode, doc: { sliceString(from: number, to: number): string }): string {
-  // HashtagRef token text is "#prefix" or "#prefix/path/..." — namespace is the first segment after #
+  // HashtagRef node text is "#prefix/path/..." — namespace is the first segment after #
   const text = doc.sliceString(node.from + 1, node.to) // skip "#"
   const slashIdx = text.indexOf('/')
   return slashIdx >= 0 ? text.slice(0, slashIdx) : text
@@ -139,10 +139,17 @@ function hashtagSource(
     let from: number
     let namespace: string | undefined // undefined = Phase 1 (show prefixes)
 
-    if (node.name === 'HashtagRef') {
-      // Cursor inside a HashtagRef token (e.g. #case, #case/risk, #form/age)
-      from = node.from
-      const text = state.doc.sliceString(node.from + 1, pos) // text typed so far, skip "#"
+    // Find HashtagRef — cursor may resolve to the node itself or a child
+    // (HashtagType, HashtagSegment, or the localName token inside them)
+    const hashtagAncestor =
+      node.name === 'HashtagRef' ? node
+      : node.parent?.name === 'HashtagRef' ? node.parent
+      : node.parent?.parent?.name === 'HashtagRef' ? node.parent!.parent
+      : null
+
+    if (hashtagAncestor) {
+      from = hashtagAncestor.from
+      const text = state.doc.sliceString(hashtagAncestor.from + 1, pos) // text typed so far, skip "#"
       const slashIdx = text.indexOf('/')
       if (slashIdx >= 0) {
         namespace = text.slice(0, slashIdx) // "case", "form", or "user"
