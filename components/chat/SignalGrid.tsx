@@ -8,10 +8,11 @@ import { SignalPanel } from '@/components/chat/SignalPanel'
 interface SignalGridProps {
   mode: SignalMode
   label: string
+  displayLabel?: string
   messages: UIMessage[]
 }
 
-export function SignalGrid({ mode, label, messages }: SignalGridProps) {
+export function SignalGrid({ mode, label, displayLabel, messages }: SignalGridProps) {
   const builder = useBuilder()
   const controllerRef = useRef<SignalGridController | null>(null)
   const builderRef = useRef(builder)
@@ -64,7 +65,7 @@ export function SignalGrid({ mode, label, messages }: SignalGridProps) {
   }, [messages, builder])
 
   return (
-    <SignalPanel active={mode !== 'idle'} label={label}>
+    <SignalPanel active={mode !== 'idle'} label={label} displayLabel={displayLabel}>
       <div ref={gridCallbackRef} className="signal-grid" />
     </SignalPanel>
   )
