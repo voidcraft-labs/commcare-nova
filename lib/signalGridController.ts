@@ -31,6 +31,8 @@ interface ControllerOpts {
 }
 
 const ROWS = 3
+/** Target duration (seconds) for one full sending wave cycle, regardless of grid width. */
+export const SEND_WAVE_DURATION = 3.5
 const CELL_SIZE = 6   // px
 const CELL_GAP = 3    // px
 const CELL_SLOT = CELL_SIZE + CELL_GAP
@@ -236,11 +238,11 @@ export class SignalGridController {
   // ── Sending wave ─────────────────────────────────────────────────────
 
   private tickSending(dt: number): void {
-    this.wavePhase += dt * 2.5
     // Normalize phase offsets so the wave spans exactly one cycle across the grid,
     // preventing wrap-around where the tail bleeds into the bottom-left corner.
     const maxDelay = this.cols * 0.15 + (ROWS - 1) * 0.5
     const cycleLen = Math.PI + maxDelay // one sine half-period + full grid traversal
+    this.wavePhase += dt * (cycleLen / SEND_WAVE_DURATION)
     const t = this.wavePhase % cycleLen
 
     for (let i = 0; i < this.cellCount; i++) {
@@ -366,14 +368,17 @@ export class SignalGridController {
   private tickBuilding(dt: number, energy: number): void {
     this.sweepPhase += dt * 1.8
 
-    // Rhythmic column sweep
+    // Rhythmic two-column sweep
     const activeCol = Math.floor(this.sweepPhase % this.cols)
+    const nextCol = (activeCol + 1) % this.cols
     for (let row = 0; row < ROWS; row++) {
-      const idx = row * this.cols + activeCol
-      const off = idx * STRIDE
-      this.cells[off + TB] = Math.max(this.cells[off + TB], 0.45)
-      this.cells[off + TH] = 0.3 + (Math.sin(this.sweepPhase) * 0.5 + 0.5) * 0.4
-      this.cells[off + DR] = 3.0
+      const hue = 0.3 + (Math.sin(this.sweepPhase) * 0.5 + 0.5) * 0.4
+      for (const col of [activeCol, nextCol]) {
+        const off = (row * this.cols + col) * STRIDE
+        this.cells[off + TB] = Math.max(this.cells[off + TB], 0.45)
+        this.cells[off + TH] = hue
+        this.cells[off + DR] = 3.0
+      }
     }
 
     // Data-part bursts
@@ -422,24 +427,30 @@ export class SignalGridController {
       this.cells[off + YO] = 0
     }
 
-    // Occasional soft twinkle — small cluster around a center cell
-    if (Math.random() < dt * 3) {
+    // Occasional soft twinkle — wider cluster around a center cell
+    if (Math.random() < dt * 0.75) {
       const center = Math.floor(Math.random() * this.cellCount)
       const centerCol = center % this.cols
       const centerRow = Math.floor(center / this.cols)
       // Center cell brightest
       this.cells[center * STRIDE + TB] = 0.3 + Math.random() * 0.26
       this.cells[center * STRIDE + DR] = 0.5
-      // All valid adjacent neighbors light up dimmer
-      for (let dr = -1; dr <= 1; dr++) {
-        for (let dc = -1; dc <= 1; dc++) {
+      // 5×5 spread — inner ring bright, outer ring dimmer
+      for (let dr = -2; dr <= 2; dr++) {
+        for (let dc = -2; dc <= 2; dc++) {
           if (dr === 0 && dc === 0) continue
           const nr = centerRow + dr
           const nc = centerCol + dc
           if (nr < 0 || nr >= ROWS || nc < 0 || nc >= this.cols) continue
+          const dist = Math.max(Math.abs(dr), Math.abs(dc))
           const nOff = (nr * this.cols + nc) * STRIDE
-          this.cells[nOff + TB] = Math.max(this.cells[nOff + TB], 0.15 + Math.random() * 0.20)
-          this.cells[nOff + DR] = 0.4
+          if (dist === 1) {
+            this.cells[nOff + TB] = Math.max(this.cells[nOff + TB], 0.15 + Math.random() * 0.20)
+            this.cells[nOff + DR] = 0.4
+          } else {
+            this.cells[nOff + TB] = Math.max(this.cells[nOff + TB], 0.08 + Math.random() * 0.12)
+            this.cells[nOff + DR] = 0.3
+          }
         }
       }
     }
