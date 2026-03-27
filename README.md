@@ -18,7 +18,7 @@ npm run dev
 
 Open [http://localhost:3000](http://localhost:3000) to start building.
 
-You'll be prompted to enter your Anthropic API key in the settings panel before you can generate apps.
+You'll be prompted to enter your Anthropic API key before you can generate apps.
 
 ## Commands
 
