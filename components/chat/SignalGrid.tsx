@@ -3,6 +3,7 @@ import { useRef, useEffect, useCallback } from 'react'
 import type { UIMessage } from 'ai'
 import { useBuilder } from '@/hooks/useBuilder'
 import { SignalGridController, type SignalMode } from '@/lib/signalGridController'
+import { SignalPanel } from '@/components/chat/SignalPanel'
 
 interface SignalGridProps {
   mode: SignalMode
@@ -57,42 +58,15 @@ export function SignalGrid({ mode, label, messages }: SignalGridProps) {
 
     const delta = contentLen - prevContentLenRef.current
     if (delta > 0) {
-      builder.injectEnergy(delta)
+      builder.injectEnergy(delta * 2)
     }
     prevContentLenRef.current = contentLen
   }, [messages, builder])
 
-  const isActive = mode !== 'idle'
-
   return (
-    <div className="nova-panel" data-active={isActive || undefined}>
-      {/* Top bezel — etched groove with corner notches */}
-      <div className="nova-panel-bezel nova-panel-bezel-top">
-        <div className="nova-panel-notch" />
-        <div className="nova-panel-groove" />
-        {/* Status indicator recessed into the bezel */}
-        <div className={`nova-panel-indicator ${isActive ? 'active' : ''}`} />
-        <div className="nova-panel-groove" />
-        <div className="nova-panel-notch" />
-      </div>
-
-      {/* Display well — the recessed area where the LEDs sit */}
-      <div className="nova-panel-well">
-        <div
-          ref={gridCallbackRef}
-          className="signal-grid"
-        />
-      </div>
-
-      {/* Bottom bezel — label etched into the frame */}
-      <div className="nova-panel-bezel nova-panel-bezel-bottom">
-        <div className="nova-panel-groove" />
-        <span className="nova-panel-etch">
-          {label && isActive ? label : 'SYS:NEURAL'}
-        </span>
-        <div className="nova-panel-groove" />
-      </div>
-    </div>
+    <SignalPanel active={mode !== 'idle'} label={label}>
+      <div ref={gridCallbackRef} className="signal-grid" />
+    </SignalPanel>
   )
 }
 

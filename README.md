@@ -59,3 +59,7 @@ The XPath grammar (`lib/codemirror/xpath.grammar`) is a custom Lezer grammar sup
 ```bash
 npx tsx scripts/build-xpath-parser.ts
 ```
+
+### Signal Grid Test
+
+Visit `/signal-test` to tune the Signal Grid neural activity panel. The page lets you simulate all streaming states (sending, reasoning, building) with adjustable container width, manual energy injection, direct mode control, and preset scenarios including a full lifecycle simulation. Changes to the grid controller or panel chrome can be verified here without running a real generation.

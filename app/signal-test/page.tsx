@@ -1,160 +1,156 @@
 'use client'
 import { useState, useRef, useCallback, useEffect } from 'react'
 import { SignalGridController, type SignalMode } from '@/lib/signalGridController'
+import { SignalPanel, signalLabel } from '@/components/chat/SignalPanel'
 
 // Standalone test page — no builder dependency, simulates energy directly.
 
 interface Scenario {
   name: string
   description: string
-  run: (ctrl: SignalGridController, inject: (n: number) => void) => () => void
+  run: (setMode: (m: SignalMode) => void, inject: (n: number) => void) => () => void
 }
 
 const scenarios: Scenario[] = [
   {
     name: 'Sending',
     description: 'Upward wave — user just hit send, waiting for server response.',
-    run: (ctrl) => {
-      ctrl.setMode('sending')
-      return () => ctrl.setMode('idle')
+    run: (setMode) => {
+      setMode('sending')
+      return () => setMode('idle')
     },
   },
   {
     name: 'Reasoning — Slow Trickle',
     description: 'Model is deep in thought. Sparse reasoning tokens every ~500ms.',
-    run: (ctrl, inject) => {
-      ctrl.setMode('reasoning')
+    run: (setMode, inject) => {
+      setMode('reasoning')
       const id = setInterval(() => inject(8 + Math.random() * 12), 500)
-      return () => { clearInterval(id); ctrl.setMode('idle') }
+      return () => { clearInterval(id); setMode('idle') }
     },
   },
   {
     name: 'Reasoning — Steady Stream',
     description: 'Model reasoning at a steady clip. ~30-60 chars every 100ms.',
-    run: (ctrl, inject) => {
-      ctrl.setMode('reasoning')
+    run: (setMode, inject) => {
+      setMode('reasoning')
       const id = setInterval(() => inject(30 + Math.random() * 30), 100)
-      return () => { clearInterval(id); ctrl.setMode('idle') }
+      return () => { clearInterval(id); setMode('idle') }
     },
   },
   {
     name: 'Reasoning — Burst Pattern',
     description: '"do-do-do-DA" — small trickles punctuated by big reasoning bursts.',
-    run: (ctrl, inject) => {
-      ctrl.setMode('reasoning')
+    run: (setMode, inject) => {
+      setMode('reasoning')
       let tick = 0
       const id = setInterval(() => {
         tick++
         if (tick % 12 === 0) {
-          // Big burst
           inject(200 + Math.random() * 150)
         } else {
-          // Small trickle
           inject(3 + Math.random() * 8)
         }
       }, 120)
-      return () => { clearInterval(id); ctrl.setMode('idle') }
+      return () => { clearInterval(id); setMode('idle') }
     },
   },
   {
     name: 'Reasoning — Long Pause Then Burst',
     description: 'Model thinks silently for 3s, then dumps a big reasoning block. Repeats.',
-    run: (ctrl, inject) => {
-      ctrl.setMode('reasoning')
+    run: (setMode, inject) => {
+      setMode('reasoning')
       let phase = 0
       const id = setInterval(() => {
         phase++
         if (phase > 25 && phase <= 30) {
-          inject(80 + Math.random() * 120) // burst window
+          inject(80 + Math.random() * 120)
         }
-        if (phase > 30) phase = 0 // reset cycle
+        if (phase > 30) phase = 0
       }, 120)
-      return () => { clearInterval(id); ctrl.setMode('idle') }
+      return () => { clearInterval(id); setMode('idle') }
     },
   },
   {
     name: 'Building — Sweep Only',
     description: 'Build pipeline running, no data parts yet. Just the heartbeat sweep.',
-    run: (ctrl) => {
-      ctrl.setMode('building')
-      return () => ctrl.setMode('idle')
+    run: (setMode) => {
+      setMode('building')
+      return () => setMode('idle')
     },
   },
   {
     name: 'Building — Module Completions',
     description: 'Sweep + large bursts every ~2s (simulating module/form done events).',
-    run: (ctrl, inject) => {
-      ctrl.setMode('building')
+    run: (setMode, inject) => {
+      setMode('building')
       const id = setInterval(() => inject(200), 2000)
-      return () => { clearInterval(id); ctrl.setMode('idle') }
+      return () => { clearInterval(id); setMode('idle') }
     },
   },
   {
     name: 'Building — Rapid Forms',
     description: 'Forms completing in quick succession — frequent medium bursts.',
-    run: (ctrl, inject) => {
-      ctrl.setMode('building')
+    run: (setMode, inject) => {
+      setMode('building')
       const id = setInterval(() => inject(100 + Math.random() * 100), 600)
-      return () => { clearInterval(id); ctrl.setMode('idle') }
+      return () => { clearInterval(id); setMode('idle') }
     },
   },
   {
     name: 'Full Lifecycle',
     description: 'Sending → Reasoning → Building → Done. Complete generation flow.',
-    run: (ctrl, inject) => {
-      ctrl.setMode('sending')
+    run: (setMode, inject) => {
+      setMode('sending')
       const timers: ReturnType<typeof setTimeout>[] = []
 
-      // 2s: switch to reasoning with trickle
       timers.push(setTimeout(() => {
-        ctrl.setMode('reasoning')
+        setMode('reasoning')
       }, 2000))
       const reasoningId = setInterval(() => {
         inject(10 + Math.random() * 40)
       }, 150)
 
-      // 6s: switch to building
       timers.push(setTimeout(() => {
         clearInterval(reasoningId)
-        ctrl.setMode('building')
+        setMode('building')
       }, 6000))
 
-      // 7s, 9s, 10.5s: module completions
       timers.push(setTimeout(() => inject(200), 7000))
       timers.push(setTimeout(() => inject(200), 9000))
       timers.push(setTimeout(() => inject(200), 10500))
 
-      // 12s: done
-      timers.push(setTimeout(() => ctrl.setMode('idle'), 12000))
+      timers.push(setTimeout(() => setMode('idle'), 12000))
 
       return () => {
         clearInterval(reasoningId)
         timers.forEach(clearTimeout)
-        ctrl.setMode('idle')
+        setMode('idle')
       }
     },
   },
   {
     name: 'Mode Transitions',
     description: 'Rapidly cycles through modes every 2s to test blending.',
-    run: (ctrl, inject) => {
+    run: (setMode, inject) => {
       const modes: SignalMode[] = ['sending', 'reasoning', 'building', 'idle']
       let idx = 0
-      ctrl.setMode(modes[0])
+      setMode(modes[0])
       const id = setInterval(() => {
         idx = (idx + 1) % modes.length
-        ctrl.setMode(modes[idx])
+        setMode(modes[idx])
         if (modes[idx] === 'reasoning') inject(60)
         if (modes[idx] === 'building') inject(150)
       }, 2000)
-      return () => { clearInterval(id); ctrl.setMode('idle') }
+      return () => { clearInterval(id); setMode('idle') }
     },
   },
 ]
 
 export default function SignalTestPage() {
   const [activeScenario, setActiveScenario] = useState<number | null>(null)
-  const [width, setWidth] = useState(280) // default sidebar width
+  const [mode, setMode] = useState<SignalMode>('idle')
+  const [width, setWidth] = useState(280)
   const controllerRef = useRef<SignalGridController | null>(null)
   const energyRef = useRef(0)
   const cleanupRef = useRef<(() => void) | null>(null)
@@ -180,28 +176,30 @@ export default function SignalTestPage() {
     }
   }, [])
 
+  // Sync mode state → controller
+  useEffect(() => {
+    const ctrl = controllerRef.current
+    if (!ctrl) return
+    ctrl.setMode(mode)
+    if (mode !== 'idle') ctrl.powerOn()
+  }, [mode])
+
   const inject = useCallback((amount: number) => {
     energyRef.current += amount
   }, [])
 
   const runScenario = useCallback((index: number) => {
-    // Cleanup previous
     cleanupRef.current?.()
     cleanupRef.current = null
-
-    const ctrl = controllerRef.current
-    if (!ctrl) return
-
     setActiveScenario(index)
     energyRef.current = 0
-    ctrl.powerOn()
-    cleanupRef.current = scenarios[index].run(ctrl, inject)
+    cleanupRef.current = scenarios[index].run(setMode, inject)
   }, [inject])
 
   const stopScenario = useCallback(() => {
     cleanupRef.current?.()
     cleanupRef.current = null
-    controllerRef.current?.setMode('idle')
+    setMode('idle')
     setActiveScenario(null)
   }, [])
 
@@ -268,12 +266,9 @@ export default function SignalTestPage() {
             className="bg-nova-deep border border-nova-border rounded-xl p-4 flex justify-center"
           >
             <div style={{ width }}>
-              <div className="px-1 py-1.5">
+              <SignalPanel active={mode !== 'idle'} label={signalLabel(mode)}>
                 <div ref={gridCallbackRef} className="signal-grid" />
-                <div className="text-[10px] text-nova-text-muted tracking-wider mt-1.5 pl-0.5 font-mono uppercase">
-                  {activeScenario !== null ? scenarios[activeScenario].name : 'Idle'}
-                </div>
-              </div>
+              </SignalPanel>
             </div>
           </div>
         </div>
@@ -309,10 +304,13 @@ export default function SignalTestPage() {
                   cleanupRef.current?.()
                   cleanupRef.current = null
                   setActiveScenario(null)
-                  controllerRef.current?.setMode(m)
-                  if (m !== 'idle') controllerRef.current?.powerOn()
+                  setMode(m)
                 }}
-                className="text-xs px-3 py-1.5 rounded border border-nova-border text-nova-text-secondary hover:border-nova-violet/40 hover:bg-nova-violet/5 transition-colors cursor-pointer capitalize font-mono"
+                className={`text-xs px-3 py-1.5 rounded border transition-colors cursor-pointer capitalize font-mono ${
+                  mode === m
+                    ? 'border-nova-violet/40 bg-nova-violet/10 text-nova-text'
+                    : 'border-nova-border text-nova-text-secondary hover:border-nova-violet/40 hover:bg-nova-violet/5'
+                }`}
               >
                 {m}
               </button>

@@ -19,7 +19,6 @@ import { type QuestionPath } from '@/lib/services/questionPath'
 import { useKeyboardShortcuts } from '@/hooks/useKeyboardShortcuts'
 import { Logo } from '@/components/ui/Logo'
 import { ChatSidebar } from '@/components/chat/ChatSidebar'
-import { LeftPanel } from '@/components/builder/LeftPanel'
 import { RightPanel } from '@/components/builder/RightPanel'
 import { ContextualEditor } from '@/components/builder/contextual/ContextualEditor'
 import { GenerationProgress } from '@/components/builder/GenerationProgress'
@@ -498,22 +497,21 @@ export function BuilderLayout({ buildId }: { buildId: string }) {
 
         {/* Tier 4: Content area — sidebars float over main content */}
         <div className="relative flex-1 overflow-hidden">
-          {/* Centered hero mode */}
-          {isCentered && leftPanelOpen && (
-            <motion.div
-              layout
-              className="absolute inset-0 flex flex-col items-center justify-center gap-6"
-              transition={{ layout: { duration: 0.45, ease: [0.4, 0, 0.2, 1] } }}
-            >
-              <motion.div
-                layoutId="nova-logo"
-                transition={{ layout: { duration: 0.45, ease: [0.4, 0, 0.2, 1] } }}
-              >
-                <Logo size="hero" />
-              </motion.div>
-              <ErrorBoundary>
+          {/* Single chat instance — morphs from centered to sidebar via layout animation */}
+          <ErrorBoundary>
+            <AnimatePresence>
+              {(isCentered ? leftPanelOpen : leftOpen) && (
                 <ChatSidebar
-                  mode="centered"
+                  key="chat"
+                  centered={isCentered}
+                  heroLogo={
+                    <motion.div
+                      layoutId="nova-logo"
+                      transition={{ layout: { duration: 0.45, ease: [0.4, 0, 0.2, 1] } }}
+                    >
+                      <Logo size="hero" />
+                    </motion.div>
+                  }
                   messages={inReplayMode ? replayMessages : messages}
                   status={inReplayMode ? 'ready' : status}
                   onSend={handleSend}
@@ -521,9 +519,9 @@ export function BuilderLayout({ buildId }: { buildId: string }) {
                   addToolOutput={addToolOutput}
                   readOnly={inReplayMode}
                 />
-              </ErrorBoundary>
-            </motion.div>
-          )}
+              )}
+            </AnimatePresence>
+          </ErrorBoundary>
 
           {/* Main scrollable content — full height, scrollbar on far right */}
           <AnimatePresence>
@@ -591,28 +589,6 @@ export function BuilderLayout({ buildId }: { buildId: string }) {
                     </motion.div>
                   )}
                 </AnimatePresence>
-              </motion.div>
-            )}
-          </AnimatePresence>
-
-          {/* Left panel (Chat) — absolute left, floats over content */}
-          <AnimatePresence>
-            {!isCentered && leftOpen && (
-              <motion.div
-                initial={{ x: -320, opacity: 0 }}
-                animate={{ x: 0, opacity: 1 }}
-                exit={{ x: -320, opacity: 0 }}
-                transition={{ duration: 0.25, ease: [0.4, 0, 0.2, 1] }}
-                className="absolute left-0 top-0 bottom-0 z-raised"
-              >
-                <LeftPanel
-                  messages={inReplayMode ? replayMessages : messages}
-                  status={inReplayMode ? 'ready' : status}
-                  onSend={handleSend}
-                  addToolOutput={addToolOutput}
-                  readOnly={inReplayMode}
-                  onClose={() => setLeftPanelOpen(false)}
-                />
               </motion.div>
             )}
           </AnimatePresence>
