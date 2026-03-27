@@ -77,8 +77,8 @@ export function ChatSidebar({
     return () => clearInterval(timerRef.current)
   }, [gridMode])
 
-  const gridDisplayLabel = elapsed >= 30
-    ? `${baseLabel} (${elapsed >= 60 ? `${Math.floor(elapsed / 60)}m ${elapsed % 60}s` : `${elapsed}s`})`
+  const gridSuffix = elapsed >= 30
+    ? `(${elapsed >= 60 ? `${Math.floor(elapsed / 60)}m ${elapsed % 60}s` : `${elapsed}s`})`
     : undefined
 
   const pendingAnswerRef = useRef<((text: string) => void) | null>(null)
@@ -253,7 +253,7 @@ export function ChatSidebar({
 
         {/* Nova's thinking panel — permanent status display */}
         <div className="shrink-0">
-          <SignalGrid mode={gridMode} label={baseLabel} displayLabel={gridDisplayLabel} messages={messages} />
+          <SignalGrid mode={gridMode} label={baseLabel} suffix={gridSuffix} messages={messages} />
         </div>
 
         {/* Input — hidden in readOnly mode */}

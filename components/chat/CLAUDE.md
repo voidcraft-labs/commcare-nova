@@ -35,7 +35,7 @@ Animated stepper with local state. Shows questions one at a time with option but
 
 Reusable sci-fi panel chrome — bezels, notches, indicator LED, display well, etched label. Used by both SignalGrid (chat) and the signal test page. Props: `active`, `label`, `children`. Exports `signalLabel(mode)` for default mode→label mapping.
 
-**Label animation** — `AnimatePresence mode="wait"` crossfades the etched label text on change (0.75s fade).
+**Label animation** — `AnimatePresence mode="wait"` crossfades the base label on mode change (0.75s fade). Optional `suffix` prop (e.g. elapsed timer) fades in once on appearance but updates in place without retriggering the crossfade.
 
 **Panel chrome** — top bezel (corner notches, groove lines, status LED), recessed display well, bottom bezel with etched label. Grooves/notches are static (never change with state). Label shows "SYS:IDLE" when inactive, phase-specific text when active. Indicator LED pulses slowly (3s cycle) when active, decays over 1.5s on deactivation. Entire panel is `user-select: none`. CSS in `globals.css` under `.nova-panel*`.
 
@@ -48,6 +48,10 @@ Permanent neural activity panel. Always mounted between the scroll container and
 - `sending` — upward wave (bottom→top, left→right). Duration-normalized via `SEND_WAVE_DURATION` so one cycle takes the same time regardless of grid width. Forced for one wave cycle via `forceSending` in ChatSidebar.
 - `reasoning` — random neural firing correlated with reasoning token reception. Tracks `reasoning` + `text` part deltas on the last assistant message → `builder.injectEnergy(delta * 2)`. Ambient firing speed scales with energy level.
 - `building` — rhythmic two-column sweep + data-part bursts (module/form completions flash bright cyan).
+
+**Elapsed timer** — after 30s in reasoning or building mode, ChatSidebar appends a suffix like "(30s)", "(1m 12s)" via the `suffix` prop on SignalPanel. Fades in once, then ticks in place.
+
+**Status labels** — `PHASE_LABELS` in `builder.ts` is the single source of truth for build-phase status text shown in the panel. No ellipses — the neurons and timer convey activity.
 
 **Architecture** — two-layer: `SignalGridController` (imperative class in `lib/signalGridController.ts`) owns cell state and the rAF animation loop, writes directly to DOM via `style.cssText`. `SignalGrid` (React component) creates/destroys the controller via a stable ref callback, forwards mode changes via `useEffect`, and tracks message content deltas.
 

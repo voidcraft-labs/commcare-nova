@@ -53,6 +53,19 @@ export enum BuilderPhase {
   Error = 'error',
 }
 
+/** Status label for each build phase, shown in the Signal Grid panel. */
+export const PHASE_LABELS: Record<BuilderPhase, string> = {
+  [BuilderPhase.Idle]: '',
+  [BuilderPhase.DataModel]: 'Designing data model',
+  [BuilderPhase.Structure]: 'Designing app structure',
+  [BuilderPhase.Modules]: 'Building app content',
+  [BuilderPhase.Forms]: 'Building app content',
+  [BuilderPhase.Validate]: 'Validating blueprint',
+  [BuilderPhase.Fix]: 'Fixing validation errors',
+  [BuilderPhase.Done]: '',
+  [BuilderPhase.Error]: '',
+}
+
 export interface SelectedElement {
   type: 'module' | 'form' | 'question'
   moduleIndex: number
@@ -340,7 +353,7 @@ export class Builder {
       this._history.enabled = false
     }
     this._phase = BuilderPhase.DataModel
-    this._statusMessage = 'Designing data model...'
+    this._statusMessage = PHASE_LABELS[BuilderPhase.DataModel]
     this.notify()
   }
 
@@ -367,7 +380,7 @@ export class Builder {
       })),
     }
     this._phase = BuilderPhase.Structure
-    this._statusMessage = 'Designing app structure...'
+    this._statusMessage = PHASE_LABELS[BuilderPhase.Structure]
     this.notify()
   }
 
@@ -412,24 +425,17 @@ export class Builder {
       validate: BuilderPhase.Validate,
       fix: BuilderPhase.Fix,
     }
-    const statusMap: Record<string, string> = {
-      structure: 'Designing app structure...',
-      modules: 'Building app content...',
-      forms: 'Building app content...',
-      validate: 'Validating blueprint...',
-      fix: 'Fixing validation errors...',
-    }
     const newPhase = phaseMap[phase]
     if (!newPhase) return
     this._phase = newPhase
-    this._statusMessage = statusMap[phase] ?? this._statusMessage
+    this._statusMessage = PHASE_LABELS[newPhase] || this._statusMessage
     this.updateProgress()
     this.notify()
   }
 
   /** Update status message for fix attempt progress. */
   setFixAttempt(attempt: number, errorCount: number) {
-    this._statusMessage = `Fixing ${errorCount} error${errorCount !== 1 ? 's' : ''} (attempt ${attempt})...`
+    this._statusMessage = `${PHASE_LABELS[BuilderPhase.Fix]} — ${errorCount} error${errorCount !== 1 ? 's' : ''} (attempt ${attempt})`
     this.notify()
   }
 
