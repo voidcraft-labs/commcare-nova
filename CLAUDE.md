@@ -51,6 +51,10 @@ Server emits transient data parts → `useChat` `onData` callback → builder me
 - **No navigation during render** — `router.push`/`router.replace` must be called from `useEffect`, never from the render body. Conditional redirects use a `shouldRedirect` flag checked by both the effect and the early return.
 - **Error boundaries** — Route-level (`app/error.tsx`, `app/build/[id]/error.tsx`) and component-level (`ErrorBoundary` wrapping ChatSidebar, PreviewShell, ContextualEditor).
 
+### Error Handling
+
+End-to-end error system: API/stream errors are classified (`lib/services/errorClassifier.ts`), logged to run logs (`RunLogger.logError()`), emitted to the client as `data-error` parts, and surfaced via toast notifications (`lib/services/toastStore.ts` → `ToastContainer`). The signal grid has two error modes: `error-recovering` (reasoning with warm-hued cells) and `error-fatal` (flicker settling into dim rose-pink pulse). `GenerationProgress` shows which step failed with rose indicators. Builder has `errorSeverity` (`'recovering'` | `'failed'`) to distinguish retryable from fatal errors. The route handler uses a manual reader loop (not `writer.merge()`) so stream errors can be caught and emitted before the stream closes. Fallback: if the writer is broken, `useChat`'s error property fires a toast on the client.
+
 ### BYOAPI-Key
 
 No auth layer. API key in `localStorage('nova-settings')`, sent per request via `useChat` body. Never server-persisted.

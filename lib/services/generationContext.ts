@@ -12,6 +12,7 @@ import { z } from 'zod'
 import { MODEL_DEFAULT, DEFAULT_PIPELINE_CONFIG, modelSupportsReasoning } from '../models'
 import type { PipelineConfig, ReasoningEffort } from '../types/settings'
 import { RunLogger } from './runLogger'
+import { classifyError, type ClassifiedError } from './errorClassifier'
 
 /** Log AI SDK warnings to the console if present. */
 export function logWarnings(label: string, warnings: CallWarning[] | undefined) {
@@ -57,29 +58,49 @@ export class GenerationContext {
     this.logger.logEmission(type, data)
   }
 
+  /** Emit a classified error to the client and log it. */
+  emitError(error: ClassifiedError, context?: string) {
+    this.logger.logError(error, context)
+    try {
+      this.emit('data-error', {
+        message: error.message,
+        type: error.type,
+        fatal: !error.recoverable,
+      })
+    } catch {
+      // Writer is broken — error is already in run log
+      console.error('[emitError] failed to emit:', error.message)
+    }
+  }
+
   /** Text-only generation (no schema) with automatic run logging. */
   async generatePlainText(
     opts: { system: string; prompt: string; label: string; model?: string; maxOutputTokens?: number },
   ): Promise<string> {
-    const model = opts.model ?? MODEL_DEFAULT
-    const result = await generateText({
-      model: this.anthropic(model),
-      system: opts.system,
-      prompt: opts.prompt,
-      maxOutputTokens: opts.maxOutputTokens,
-    })
-    logWarnings(`generatePlainText:${opts.label}`, result.warnings)
-    if (result.usage) {
-      this.logger.logSubResult(opts.label, {
-        model,
-        input_tokens: result.usage.inputTokens ?? 0,
-        output_tokens: result.usage.outputTokens ?? 0,
-        input: { system: opts.system, message: opts.prompt },
-        output: result.text,
-        ...(result.reasoningText && { reasoningText: result.reasoningText }),
+    try {
+      const model = opts.model ?? MODEL_DEFAULT
+      const result = await generateText({
+        model: this.anthropic(model),
+        system: opts.system,
+        prompt: opts.prompt,
+        maxOutputTokens: opts.maxOutputTokens,
       })
+      logWarnings(`generatePlainText:${opts.label}`, result.warnings)
+      if (result.usage) {
+        this.logger.logSubResult(opts.label, {
+          model,
+          input_tokens: result.usage.inputTokens ?? 0,
+          output_tokens: result.usage.outputTokens ?? 0,
+          input: { system: opts.system, message: opts.prompt },
+          output: result.text,
+          ...(result.reasoningText && { reasoningText: result.reasoningText }),
+        })
+      }
+      return result.text
+    } catch (error) {
+      this.emitError(classifyError(error), `generatePlainText:${opts.label}`)
+      throw error
     }
-    return result.text
   }
 
   /** Get reasoning config for a pipeline stage (undefined if disabled or model doesn't support it). */
@@ -98,27 +119,32 @@ export class GenerationContext {
       reasoning?: { effort: ReasoningEffort };
     },
   ): Promise<T | null> {
-    const model = opts.model ?? MODEL_DEFAULT
-    const result = await generateText({
-      model: this.anthropic(model),
-      output: Output.object({ schema }),
-      system: opts.system,
-      prompt: opts.prompt,
-      maxOutputTokens: opts.maxOutputTokens,
-      ...(opts.reasoning && { providerOptions: thinkingProviderOptions(opts.reasoning.effort) }),
-    })
-    logWarnings(`generate:${opts.label}`, result.warnings)
-    if (result.usage) {
-      this.logger.logSubResult(opts.label, {
-        model,
-        input_tokens: result.usage.inputTokens ?? 0,
-        output_tokens: result.usage.outputTokens ?? 0,
-        input: { system: opts.system, message: opts.prompt },
-        output: result.output,
-        ...(result.reasoningText && { reasoningText: result.reasoningText }),
+    try {
+      const model = opts.model ?? MODEL_DEFAULT
+      const result = await generateText({
+        model: this.anthropic(model),
+        output: Output.object({ schema }),
+        system: opts.system,
+        prompt: opts.prompt,
+        maxOutputTokens: opts.maxOutputTokens,
+        ...(opts.reasoning && { providerOptions: thinkingProviderOptions(opts.reasoning.effort) }),
       })
+      logWarnings(`generate:${opts.label}`, result.warnings)
+      if (result.usage) {
+        this.logger.logSubResult(opts.label, {
+          model,
+          input_tokens: result.usage.inputTokens ?? 0,
+          output_tokens: result.usage.outputTokens ?? 0,
+          input: { system: opts.system, message: opts.prompt },
+          output: result.output,
+          ...(result.reasoningText && { reasoningText: result.reasoningText }),
+        })
+      }
+      return result.output ?? null
+    } catch (error) {
+      this.emitError(classifyError(error), `generate:${opts.label}`)
+      throw error
     }
-    return result.output ?? null
   }
 
   /** Streaming structured generation with partial callbacks and automatic run logging. */
@@ -139,8 +165,8 @@ export class GenerationContext {
       prompt: opts.prompt,
       maxOutputTokens: opts.maxOutputTokens,
       ...(opts.reasoning && { providerOptions: thinkingProviderOptions(opts.reasoning.effort) }),
-      onError({ error }) {
-        console.error(`[streamGenerate:${opts.label}] error:`, error)
+      onError: ({ error }) => {
+        this.emitError(classifyError(error), `streamGenerate:${opts.label}`)
       },
     })
 

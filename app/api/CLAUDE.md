@@ -12,7 +12,7 @@ The single endpoint for all agent interaction. Creates `RunLogger`, `GenerationC
 
 **Body params** (from `useChat` body): `apiKey`, `pipelineConfig`, `blueprint` (for edits), `runId` (for log continuation).
 
-**Streaming**: Uses `createUIMessageStream` + `createAgentUIStream`. Server emits transient data parts via `ctx.emit()` which drive builder state on the client.
+**Streaming**: Uses `createUIMessageStream` with a manual reader loop (not `writer.merge()`) so stream errors can be caught and emitted as `data-error` before the stream closes. Errors are classified via `errorClassifier.ts`, logged to `RunLogger`, and emitted to the client via `ctx.emitError()`. Server emits transient data parts via `ctx.emit()` which drive builder state on the client.
 
 `maxDuration = 300` (5 min timeout for long generation runs).
 

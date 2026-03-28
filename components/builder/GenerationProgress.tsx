@@ -7,7 +7,7 @@ import { BuilderPhase } from '@/lib/services/builder'
 
 interface GenerationProgressProps {
   phase: BuilderPhase
-
+  statusMessage?: string
   completed: number
   total: number
   mode: 'centered' | 'compact'
@@ -24,7 +24,9 @@ const baseStages: { key: string; phases: BuilderPhase[]; label: string }[] = [
 
 const phaseOrder = [BuilderPhase.DataModel, BuilderPhase.Structure, BuilderPhase.Modules, BuilderPhase.Forms, BuilderPhase.Validate, BuilderPhase.Fix, BuilderPhase.Done]
 
-function getStageStatus(stagePhases: BuilderPhase[], currentPhase: BuilderPhase): 'done' | 'active' | 'pending' {
+type StageStatus = 'done' | 'active' | 'error' | 'pending'
+
+function getStageStatus(stagePhases: BuilderPhase[], currentPhase: BuilderPhase): StageStatus {
   const currentIdx = phaseOrder.indexOf(currentPhase)
   if (currentIdx < 0) return 'pending'
 
@@ -52,11 +54,18 @@ function getPhaseStageIndex(phase: BuilderPhase, stageCount: number): number {
   return map[phase] ?? 0
 }
 
-export function GenerationProgress({ phase, completed, total, mode, onDone }: GenerationProgressProps) {
+export function GenerationProgress({ phase, statusMessage, completed, total, mode, onDone }: GenerationProgressProps) {
   const isDone = phase === BuilderPhase.Done
+  const isError = phase === BuilderPhase.Error
+
+  // Track the last generating phase so we can show which step failed on error
+  const lastActivePhaseRef = useRef(phase)
+  if (phase !== BuilderPhase.Error && phase !== BuilderPhase.Idle && phase !== BuilderPhase.Done) {
+    lastActivePhaseRef.current = phase
+  }
 
   // Only show Fix stage if we've reached it
-  const stages = phase === BuilderPhase.Fix
+  const stages = phase === BuilderPhase.Fix || lastActivePhaseRef.current === BuilderPhase.Fix
     ? [...baseStages, { key: 'fix', phases: [BuilderPhase.Fix], label: 'Fix' }]
     : baseStages
 
@@ -114,13 +123,14 @@ export function GenerationProgress({ phase, completed, total, mode, onDone }: Ge
   // Uses useSyncExternalStore's subscribe lifecycle to manage the timer —
   // when isDone changes the old timer is cleaned up and a new one starts.
   const subscribeToDismiss = useCallback((notify: () => void) => {
-    if (!isDone) {
+    // No auto-dismiss on error — user must dismiss manually or retry
+    if (!isDone || isError) {
       setDismissing(false)
       return () => {}
     }
     setDismissing(true)
     return () => {}
-  }, [isDone])
+  }, [isDone, isError])
   useSyncExternalStore(subscribeToDismiss, () => 0, () => 0)
 
   return (
@@ -148,7 +158,14 @@ export function GenerationProgress({ phase, completed, total, mode, onDone }: Ge
       {/* Stage indicators */}
       <div className={`flex items-center ${isCentered ? 'gap-3' : 'gap-2'}`}>
         {stages.map((stage, i) => {
-          const status = getStageStatus(stage.phases, phase)
+          // On error, compute status from the last active phase, then mark the active one as 'error'
+          let status: StageStatus
+          if (isError) {
+            status = getStageStatus(stage.phases, lastActivePhaseRef.current)
+            if (status === 'active') status = 'error'
+          } else {
+            status = getStageStatus(stage.phases, phase)
+          }
 
           return (
             <div key={stage.key} className="flex items-center gap-2">
@@ -157,6 +174,7 @@ export function GenerationProgress({ phase, completed, total, mode, onDone }: Ge
                 } ${
                   status === 'done' ? 'text-nova-cyan-bright' :
                   status === 'active' ? (isCentered ? 'text-nova-text' : 'text-nova-violet-bright') :
+                  status === 'error' ? 'text-nova-rose' :
                   'text-nova-text-muted'
                 }`}
               >
@@ -175,6 +193,16 @@ export function GenerationProgress({ phase, completed, total, mode, onDone }: Ge
                     animate={{ scale: 1 }}
                     transition={{ type: 'spring', stiffness: 500, damping: 25 }}
                     className={`inline-block rounded-full bg-nova-violet-bright animate-pulse ${
+                      isCentered ? 'w-2 h-2' : 'w-1.5 h-1.5'
+                    }`}
+                  />
+                )}
+                {status === 'error' && (
+                  <motion.span
+                    initial={{ scale: 0 }}
+                    animate={{ scale: 1 }}
+                    transition={{ type: 'spring', stiffness: 500, damping: 25 }}
+                    className={`inline-block rounded-full bg-nova-rose ${
                       isCentered ? 'w-2 h-2' : 'w-1.5 h-1.5'
                     }`}
                   />
@@ -222,10 +250,14 @@ export function GenerationProgress({ phase, completed, total, mode, onDone }: Ge
           style={{
             background: isDone
               ? 'var(--nova-cyan-bright)'
-              : 'linear-gradient(90deg, var(--nova-cyan), var(--nova-violet-bright))',
+              : isError
+                ? 'linear-gradient(90deg, var(--nova-cyan), var(--nova-rose))'
+                : 'linear-gradient(90deg, var(--nova-cyan), var(--nova-violet-bright))',
             boxShadow: isDone
               ? '0 0 10px var(--nova-cyan)'
-              : '0 0 8px var(--nova-violet)',
+              : isError
+                ? '0 0 8px var(--nova-rose)'
+                : '0 0 8px var(--nova-violet)',
           }}
           initial={{ width: '0%' }}
           animate={dismissing
@@ -238,6 +270,17 @@ export function GenerationProgress({ phase, completed, total, mode, onDone }: Ge
           }
         />
       </div>
+
+      {/* Error message */}
+      {isError && statusMessage && (
+        <motion.p
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          className={`text-nova-rose/80 mt-1.5 ${isCentered ? 'text-xs' : 'text-[10px]'}`}
+        >
+          {statusMessage}
+        </motion.p>
+      )}
 
     </motion.div>
   )

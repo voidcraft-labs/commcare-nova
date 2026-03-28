@@ -70,14 +70,32 @@ Also re-exports `validateAndFix()` (from `validationLoop.ts`) — programmatic v
 - `model(id)` — returns Anthropic model provider
 - `pipelineConfig` — readonly `PipelineConfig` (merged with `DEFAULT_PIPELINE_CONFIG`)
 - `emit(type, data)` — writes transient data part to client stream
+- `emitError(error, context?)` — classifies error, logs to RunLogger, emits `data-error` to client. Handles broken writer gracefully (error still in run log).
 - `logger` — the `RunLogger` instance
-- `generatePlainText(opts)` — text-only generation with automatic run logging
-- `generate(schema, opts)` — one-shot structured generation via `generateText` + `Output.object()`. Accepts `reasoning?: { effort }`.
-- `streamGenerate(schema, opts)` — streaming structured generation via `streamText` + `Output.object()` + `partialOutputStream` with `onPartial`. Accepts `reasoning?: { effort }`.
+- `generatePlainText(opts)` — text-only generation with automatic run logging. Wrapped in try/catch → `emitError` + re-throw.
+- `generate(schema, opts)` — one-shot structured generation via `generateText` + `Output.object()`. Accepts `reasoning?: { effort }`. Wrapped in try/catch → `emitError` + re-throw.
+- `streamGenerate(schema, opts)` — streaming structured generation via `streamText` + `Output.object()` + `partialOutputStream` with `onPartial`. Accepts `reasoning?: { effort }`. `onError` callback uses `emitError`.
 - `reasoningForStage(stage)` — returns `{ effort }` if reasoning enabled and model supports it, `undefined` otherwise.
 
 **Exports:**
 - `thinkingProviderOptions(effort)` — Anthropic adaptive thinking provider options for `generate()`/`streamGenerate()` calls.
+
+## Error Classification
+
+`errorClassifier.ts` — inspects errors from the AI SDK / API calls and returns a `ClassifiedError` with a human-readable message safe for display.
+
+**Error types:** `api_auth`, `api_rate_limit`, `api_overloaded`, `api_timeout`, `api_server`, `model_error`, `stream_broken`, `internal`. All are `recoverable: false`. Detection: checks `APICallError` from `@ai-sdk/provider` (has `statusCode`, `responseBody`), then falls back to message pattern matching. Unknown errors fall through to `internal` ("Something went wrong during generation.").
+
+**Error flow:** Three catch points cover the full surface:
+1. `route.ts` outer catch — errors from `createSolutionsArchitect` / `createAgentUIStream`
+2. `route.ts` inner catch — errors during stream consumption (manual reader loop replaces `writer.merge()`)
+3. `generationContext.ts` wraps — errors from any LLM call, emits + re-throws so the tool's catch also handles it
+
+If the stream writer is broken (can't emit `data-error`), `emitError` catches silently — the error is in the run log, and the `useChat` hook's `error` property fires on the client as a fallback.
+
+## Toast Notifications
+
+`toastStore.ts` — module-level singleton following the builder pattern. Callable from anywhere via `showToast(severity, title, message?)`. Consumed by `useToasts()` hook + `ToastContainer` component (portal-mounted, top-right). Severities: `error` (persistent), `warning` (8s auto-dismiss), `info` (5s). Max 3 visible toasts.
 
 ## Builder
 
@@ -205,13 +223,14 @@ The fix loop in `validationLoop.ts` auto-fixes case-mismatched function names (`
 
 ## Run Logging
 
-Set `RUN_LOGGER=1` in `.env` to enable. Each run writes to `.log/` — always valid JSON, even on crash. When disabled (the default), all logging methods (`logStep`, `logEmission`, `logSubResult`, `logToolOutput`, `logConversation`, `finalize`) return immediately — zero `structuredClone` overhead or buffer work.
+Set `RUN_LOGGER=1` in `.env` to enable. Each run writes to `.log/` — always valid JSON, even on crash. When disabled (the default), all logging methods (`logStep`, `logEmission`, `logSubResult`, `logToolOutput`, `logError`, `logConversation`, `finalize`) return immediately — zero `structuredClone` overhead or buffer work.
 
 **RunLogger class** (`runLogger.ts`): created once per request.
 - `logStep(step)` — starts a new turn. Drains emission/sub-result/tool-output buffers, computes cost, flushes.
 - `logEmission(type, data)` — buffers an emission (skips transient types like `data-partial-scaffold`)
 - `logSubResult(label, result)` — buffers sub-generation usage data
 - `logToolOutput(toolName, output)` — buffers a server-side tool's return value. Matched to `tool_calls` by name in `logStep()`. Used by `validateApp` to capture success/failure + error details.
+- `logError(error, context?)` — records a `ClassifiedError` with timestamp, type, message, raw error, fatal flag, and context. Flushes immediately (process may crash after fatal error).
 - `logConversation(messages)` — extracts user message text only. Backfills client-side tool outputs (e.g. `askQuestions` answers) into turn `tool_calls`.
 - `finalize()` — recomputes totals, writes final file
 - Abandoned log cleanup on construction (renames UUID-named orphans)
@@ -225,6 +244,7 @@ Set `RUN_LOGGER=1` in `.env` to enable. Each run writes to `.log/` — always va
   - `tool_calls[]` — `TurnToolCall` with `name`, `args`, `output?`, `generation?`
   - `events[]` — human-readable emission summaries (e.g. `"phase:modules"`, `"form-updated[0:1]"`, `"done"`)
   - `emissions[]` — full emission payloads for replay
+- `errors[]` — optional `RunLogError` array with classified errors (type, message, raw, fatal, context)
 
 ## Log Replay
 
