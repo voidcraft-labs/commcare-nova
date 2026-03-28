@@ -233,6 +233,20 @@ Rule-based validation system that catches every error CommCare HQ would catch du
 **Post-expansion XForm validation** (called by validationLoop and CczCompiler):
 - `xformValidator.ts` — `validateXFormXml(xml, formName, moduleName)`: parses generated XForm XML with htmlparser2, validates that all bind nodesets, body control refs, setvalue targets, and itext references resolve to actual instance nodes. Catches orphaned binds (the `"Bind Node found but has no associated Data node"` class of errors from Vellum/FormPlayer). Used in two places: the validation loop (after `expandBlueprint`) and the CczCompiler (after case block injection).
 
+**HQ build checks NOT yet covered** (add validation when we build these features):
+- **Form workflows** — HQ validates `post_form_workflow` (form links point to valid forms/modules, no links to display-only forms, no circular links). Source: `validators.py:1054-1105`.
+- **Shadow modules** — HQ validates source module exists, shadow parent tags present. Source: `validators.py:927-936`.
+- **Parent select / child module cycles** — HQ checks for circular parent_select and root_module references between modules. Source: `validators.py:225-250`. We only check within-form cycles currently.
+- **Case search config** — HQ validates search nodeset instances, grouped vs ungrouped properties, search_on_clear + auto_select conflicts. Source: `validators.py:511-557`.
+- **Case tile configuration** — HQ validates tile templates, row conflicts, address formats, clickable icons. Source: `validators.py:656-715`.
+- **Smart links** — HQ validates endpoint presence, conflicts with parent select / multi-select / inline search. Source: `validators.py:435-466`.
+- **Case list field actions** — HQ validates endpoint_action_id references resolve. Source: `validators.py:559-572`.
+- **Sort field format** — HQ validates case list sort fields match a specific regex pattern. Source: `validators.py:630-642`.
+- **Multimedia references** — HQ validates multimedia attachments exist for any referenced media. Not relevant until we support image/audio in case details.
+- **Multi-language** — HQ validates no empty language codes, itext entries exist for all languages. We only generate single-language (English) apps currently.
+- **Itemset validation** — FormPlayer validates itemset nodeset/label/copy/value relationships, referenced instances exist, copy targets are repeatable. Source: `XFormParser.java:2554-2619`. Relevant when we support dynamic select lists from lookup tables.
+- **Repeat homogeneity** — FormPlayer validates all repeated nodes for a binding are structurally identical. Source: `XFormParser.java:2383`. Our generator produces uniform repeats, but should validate if we ever allow manual XForm editing.
+
 ## Run Logging
 
 Set `RUN_LOGGER=1` in `.env` to enable. Each run writes to `.log/` — always valid JSON, even on crash. When disabled (the default), all logging methods (`logStep`, `logEmission`, `logSubResult`, `logToolOutput`, `logError`, `logConversation`, `finalize`) return immediately — zero `structuredClone` overhead or buffer work.
