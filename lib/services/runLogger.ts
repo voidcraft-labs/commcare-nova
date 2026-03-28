@@ -19,6 +19,7 @@ import { writeFileSync, readFileSync, mkdirSync, existsSync } from 'fs'
 import { readdir, readFile, rename as renameAsync } from 'fs/promises'
 import path from 'path'
 import { MODEL_PRICING, DEFAULT_PRICING } from '../models'
+import type { ClassifiedError } from './errorClassifier'
 
 // ── Types ───────────────────────────────────────────────────────────────
 
@@ -56,6 +57,15 @@ export interface Turn {
   emissions: Emission[]
 }
 
+export interface RunLogError {
+  timestamp: string
+  type: string
+  message: string
+  raw?: string
+  fatal: boolean
+  context?: string
+}
+
 export interface RunLog {
   version: 3
   run_id: string
@@ -69,6 +79,7 @@ export interface RunLog {
   }
   user_messages: Array<{ id: string; text: string }>
   turns: Turn[]
+  errors?: RunLogError[]
 }
 
 // ── Internal types ──────────────────────────────────────────────────────
@@ -174,6 +185,20 @@ export class RunLogger {
     if (!this.enabled) return
     if (SKIP_EMISSIONS.has(type)) return
     this.pendingEmissions.push({ type, data: structuredClone(data) })
+  }
+
+  logError(error: ClassifiedError, context?: string) {
+    if (!this.enabled) return
+    if (!this.log.errors) this.log.errors = []
+    this.log.errors.push({
+      timestamp: new Date().toISOString(),
+      type: error.type,
+      message: error.message,
+      ...(error.raw && { raw: error.raw }),
+      fatal: !error.recoverable,
+      ...(context && { context }),
+    })
+    this.flush() // flush immediately — process may crash after a fatal error
   }
 
   logSubResult(

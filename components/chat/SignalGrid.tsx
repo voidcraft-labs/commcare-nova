@@ -73,7 +73,7 @@ export function SignalGrid({ mode, label, suffix, messages }: SignalGridProps) {
   }, [messages, builder])
 
   return (
-    <SignalPanel active={mode !== 'idle'} label={label} suffix={suffix}>
+    <SignalPanel active={mode !== 'idle'} label={label} suffix={suffix} error={mode === 'error-recovering' || mode === 'error-fatal'}>
       <div ref={gridCallbackRef} className="signal-grid" />
     </SignalPanel>
   )

@@ -37,7 +37,10 @@ export function applyDataPart(builder: Builder, type: string, data: any): void {
     case 'data-blueprint-updated': builder.updateBlueprint(data.blueprint); break
     case 'data-fix-attempt': builder.setFixAttempt(data.attempt, data.errorCount); break
     case 'data-done': builder.setDone(data); break
-    case 'data-error': builder.setError(data.message); break
+    case 'data-error':
+      if (data.fatal) builder.setError(data.message)
+      else builder.setRecovering(data.message)
+      break
   }
 }
 
@@ -63,7 +66,7 @@ export const PHASE_LABELS: Record<BuilderPhase, string> = {
   [BuilderPhase.Validate]: 'Validating blueprint',
   [BuilderPhase.Fix]: 'Fixing validation errors',
   [BuilderPhase.Done]: '',
-  [BuilderPhase.Error]: '',
+  [BuilderPhase.Error]: 'Error',
 }
 
 export interface SelectedElement {
@@ -119,6 +122,7 @@ export class Builder {
   private _progressTotal = 0
   private _partialModules = new Map<number, PartialModule>()
   private _partialScaffold?: { appName?: string; description?: string; modules: TreeData['modules'] }
+  private _errorSeverity: 'recovering' | 'failed' = 'failed'
   private _listeners = new Set<() => void>()
   private _version = 0
   private _questionAnchor: { el: HTMLElement; path: QuestionPath } | null = null
@@ -148,6 +152,9 @@ export class Builder {
   get isThinking(): boolean {
     return this._agentActive && !this.isGenerating
   }
+
+  get errorSeverity(): 'recovering' | 'failed' { return this._errorSeverity }
+  get isRecovering(): boolean { return this._phase === BuilderPhase.Error && this._errorSeverity === 'recovering' }
 
   get scaffold(): Scaffold | undefined { return this._scaffold }
   get caseTypes(): CaseType[] | undefined { return this._caseTypes }
@@ -464,11 +471,20 @@ export class Builder {
     this.notify()
   }
 
-  /** Set error state with a message. */
+  /** Set fatal error state — generation is over. */
   setError(message: string) {
     this._phase = BuilderPhase.Error
+    this._errorSeverity = 'failed'
     this._statusMessage = message
     this._partialModules.clear()
+    this.notify()
+  }
+
+  /** Set recovering state — the SA is attempting to fix the issue. */
+  setRecovering(message: string) {
+    this._phase = BuilderPhase.Error
+    this._errorSeverity = 'recovering'
+    this._statusMessage = message
     this.notify()
   }
 

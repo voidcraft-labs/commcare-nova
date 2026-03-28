@@ -8,7 +8,8 @@ import { useBuilder } from '@/hooks/useBuilder'
 import { ChatMessage } from '@/components/chat/ChatMessage'
 import { ChatInput } from '@/components/chat/ChatInput'
 import { SignalGrid } from '@/components/chat/SignalGrid'
-import { SEND_WAVE_DURATION } from '@/lib/signalGridController'
+import { SEND_WAVE_DURATION, type SignalMode } from '@/lib/signalGridController'
+import { BuilderPhase } from '@/lib/services/builder'
 import { signalLabel } from '@/components/chat/SignalPanel'
 
 // ── Module-level scroll state persisted across ChatSidebar instances ──
@@ -48,9 +49,12 @@ export function ChatSidebar({
   const [forceSending, setForceSending] = useState(false)
   const forceSendingTimer = useRef<ReturnType<typeof setTimeout>>(undefined)
 
-  const gridMode = ((): 'sending' | 'reasoning' | 'building' | 'idle' => {
+  const gridMode = ((): SignalMode => {
     if (introMode) return introMode
     if (forceSending) return 'sending'
+    if (builder.phase === BuilderPhase.Error) {
+      return builder.errorSeverity === 'recovering' ? 'error-recovering' : 'error-fatal'
+    }
     if (builder.isGenerating) return 'building'
     if (builder.agentActive) return 'reasoning'
     return 'idle'
