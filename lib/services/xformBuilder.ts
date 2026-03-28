@@ -184,7 +184,7 @@ function buildConnectBlocks(connect: ConnectConfig | undefined): { dataElements:
 }
 
 /** Build complete XForm XML from question definitions. */
-export function buildXForm(form: BlueprintForm, xmlns: string, options?: { autoGps?: boolean }): string {
+export function buildXForm(form: BlueprintForm, xmlns: string): string {
   const questions = form.questions || []
   const dataElements: string[] = []
   const binds: string[] = []
@@ -213,31 +213,6 @@ export function buildXForm(form: BlueprintForm, xmlns: string, options?: { autoG
   dataElements.push(...connectParts.dataElements)
   binds.push(...connectParts.binds)
 
-  // Auto GPS capture for Connect apps — adds meta block with pollsensor
-  if (options?.autoGps) {
-    dataElements.push(
-      `<orx:meta xmlns:cc="http://commcarehq.org/xforms">` +
-      `<orx:deviceID/><orx:timeStart/><orx:timeEnd/><orx:username/><orx:userID/>` +
-      `<cc:appVersion/><orx:drift/><cc:location/>` +
-      `</orx:meta>`
-    )
-    binds.push(
-      `<bind nodeset="/data/meta/timeStart" type="xsd:dateTime"/>`,
-      `<bind nodeset="/data/meta/timeEnd" type="xsd:dateTime"/>`,
-      `<bind nodeset="/data/meta/location" type="geopoint"/>`,
-    )
-    setvalues.push(
-      `<setvalue ref="/data/meta/deviceID" value="instance('commcaresession')/session/context/deviceid" event="xforms-ready"/>`,
-      `<setvalue ref="/data/meta/timeStart" value="now()" event="xforms-ready"/>`,
-      `<setvalue ref="/data/meta/timeEnd" value="now()" event="xforms-revalidate"/>`,
-      `<setvalue ref="/data/meta/username" value="instance('commcaresession')/session/context/username" event="xforms-ready"/>`,
-      `<setvalue ref="/data/meta/userID" value="instance('commcaresession')/session/context/userid" event="xforms-ready"/>`,
-      `<setvalue ref="/data/meta/appVersion" value="instance('commcaresession')/session/context/appversion" event="xforms-ready"/>`,
-      `<setvalue ref="/data/meta/drift" value="if(count(instance('commcaresession')/session/context/drift) = 1, instance('commcaresession')/session/context/drift, '')" event="xforms-revalidate"/>`,
-      `<orx:pollsensor event="xforms-ready" ref="/data/meta/location"/>`,
-    )
-  }
-
   const dataContent = dataElements.length > 0
     ? '\n' + dataElements.map(e => `          ${e}`).join('\n') + '\n        '
     : ''
@@ -263,7 +238,7 @@ export function buildXForm(form: BlueprintForm, xmlns: string, options?: { autoG
   const xpathNeedsCasedb = allXPaths.some(x => x.includes('#case/') || x.includes('#user/') || x.includes("instance('casedb')"))
   const labelNeedsCasedb = !xpathNeedsCasedb && hasHashtagInLabels(questions)
   const needsCasedb = xpathNeedsCasedb || labelNeedsCasedb
-  const needsSession = needsCasedb || options?.autoGps || allXPaths.some(x => x.includes("instance('commcaresession')"))
+  const needsSession = needsCasedb || allXPaths.some(x => x.includes("instance('commcaresession')"))
 
   const secondaryInstances = [
     ...(needsCasedb ? ['      <instance src="jr://instance/casedb" id="casedb" />'] : []),
@@ -271,10 +246,8 @@ export function buildXForm(form: BlueprintForm, xmlns: string, options?: { autoG
   ]
   const secondaryContent = secondaryInstances.length > 0 ? '\n' + secondaryInstances.join('\n') : ''
 
-  const orxNs = options?.autoGps ? ' xmlns:orx="http://openrosa.org/jr/xforms"' : ''
-
   return `<?xml version="1.0"?>
-<h:html xmlns:h="http://www.w3.org/1999/xhtml" xmlns="http://www.w3.org/2002/xforms" xmlns:xsd="http://www.w3.org/2001/XMLSchema" xmlns:jr="http://openrosa.org/javarosa" xmlns:vellum="http://commcarehq.org/xforms/vellum"${orxNs}>
+<h:html xmlns:h="http://www.w3.org/1999/xhtml" xmlns="http://www.w3.org/2002/xforms" xmlns:xsd="http://www.w3.org/2001/XMLSchema" xmlns:jr="http://openrosa.org/javarosa" xmlns:vellum="http://commcarehq.org/xforms/vellum">
   <h:head>
     <h:title>${escapeXml(formName)}</h:title>
     <model>
