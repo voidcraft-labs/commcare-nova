@@ -46,8 +46,8 @@ Permanent neural activity panel. Always mounted between the scroll container and
 **Modes** — derived in ChatSidebar from builder + useChat state:
 - `idle` — slow wide twinkle clusters (5x5 spread, ~0.75/sec). Grid is alive but resting.
 - `sending` — upward wave (bottom→top, left→right). Duration-normalized via `SEND_WAVE_DURATION` so one cycle takes the same time regardless of grid width. Forced for one wave cycle via `forceSending` in ChatSidebar.
-- `reasoning` — random neural firing correlated with reasoning token reception. Tracks `reasoning` + `text` part deltas on the last assistant message → `builder.injectEnergy(delta * 2)`. Ambient firing speed scales with energy level.
-- `building` — rhythmic two-column sweep + data-part bursts (module/form completions flash bright cyan).
+- `reasoning` — random neural firing correlated with token generation. Tracks `reasoning` + `text` + `tool-*` input part deltas on the last assistant message → `builder.injectThinkEnergy(delta * 2)`. Ambient firing speed scales with energy level.
+- `building` — rhythmic two-column sweep + delivery bursts + thinking activity. Burst energy (from data parts: module/form completions) drives flashes. Think energy (from token generation: text, reasoning, tool args) drives reasoning-style neural firing layered on top of the sweep. Rule: anything not shown to the user = thinking; only UI-visible changes trigger flashes.
 
 **Elapsed timer** — after 30s in reasoning or building mode, ChatSidebar appends a suffix like "(30s)", "(1m 12s)" via the `suffix` prop on SignalPanel. Fades in once, then ticks in place.
 
@@ -55,7 +55,10 @@ Permanent neural activity panel. Always mounted between the scroll container and
 
 **Architecture** — two-layer: `SignalGridController` (imperative class in `lib/signalGridController.ts`) owns cell state and the rAF animation loop, writes directly to DOM via `style.cssText`. `SignalGrid` (React component) creates/destroys the controller via a stable ref callback, forwards mode changes via `useEffect`, and tracks message content deltas.
 
-**Energy pipeline** — `builder.injectEnergy(amount)` / `builder.drainEnergy()` are non-versioned (no React re-renders). Energy injected from: message content deltas (reasoning tokens, 2x multiplier), `applyDataPart()` bursts, and the intro sequence. Controller reads via `consumeEnergy()` each animation frame.
+**Energy pipeline** — two channels, both non-versioned (no React re-renders):
+- **Burst energy** (`builder.injectEnergy` / `drainEnergy`) — from `applyDataPart()` (200 for module/form completions, 100 for updates, 50 for phase transitions) and the intro sequence. Drives building-mode flashes; combined into neural firing in reasoning mode.
+- **Think energy** (`builder.injectThinkEnergy` / `drainThinkEnergy`) — from message content deltas: `text` + `reasoning` + `tool-*` input parts (2x multiplier). Drives reasoning-style neural firing in all modes. Tool input tracking (`JSON.stringify(part.input)`) captures energy during tool arg streaming, which is the bulk of build time.
+Controller reads both via `consumeEnergy()` + `consumeThinkEnergy()` each animation frame.
 
 **Intro sequence** — on page load, ChatSidebar's `WelcomeIntro` component temporarily sets mode to `reasoning` and injects energy bursts timed with the staggered welcome text fade-in.
 

@@ -126,6 +126,7 @@ export class Builder {
 
   // ── Stream energy (non-versioned — consumed by SignalGrid rAF loop, never triggers React re-renders) ──
   private _streamEnergy = 0
+  private _thinkEnergy = 0
 
   // ── Read-only public accessors ───────────────────────────────────────
 
@@ -264,15 +265,27 @@ export class Builder {
     this.notify()
   }
 
-  /** Inject energy for signal grid animation. Non-versioned — does NOT trigger React re-renders. */
+  /** Inject burst energy from data parts (UI-visible changes). Drives building-mode flashes. */
   injectEnergy(amount: number): void {
     this._streamEnergy += amount
   }
 
-  /** Read and drain accumulated energy. Called by SignalGridController each animation frame. */
+  /** Inject think energy from token generation (text, reasoning, tool args). Drives neural firing. */
+  injectThinkEnergy(amount: number): void {
+    this._thinkEnergy += amount
+  }
+
+  /** Read and drain accumulated burst energy. Called by SignalGridController each animation frame. */
   drainEnergy(): number {
     const e = this._streamEnergy
     this._streamEnergy = 0
+    return e
+  }
+
+  /** Read and drain accumulated think energy. Called by SignalGridController each animation frame. */
+  drainThinkEnergy(): number {
+    const e = this._thinkEnergy
+    this._thinkEnergy = 0
     return e
   }
 
@@ -544,6 +557,7 @@ export class Builder {
     this._partialModules.clear()
     this._partialScaffold = undefined
     this._streamEnergy = 0
+    this._thinkEnergy = 0
     this.notify()
   }
 }
