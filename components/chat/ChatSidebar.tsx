@@ -181,6 +181,30 @@ export function ChatSidebar({
     }
   }, [])
 
+  // Anchor scroll position during center↔sidebar morph.
+  // The existing ResizeObserver + onScroll race: onScroll fires first when the
+  // browser clamps scrollTop during resize, clearing isNearBottomRef before the
+  // ResizeObserver can act. This rAF loop captures intent at morph start and
+  // overrides on every frame, keeping position stable throughout the transition.
+  useEffect(() => {
+    const el = scrollElRef.current
+    if (!morphing || !el) return
+
+    const pinToBottom = isNearBottomRef.current
+    const savedTop = el.scrollTop
+    let id: number
+
+    const tick = () => {
+      if (!isUserHoldingRef.current) {
+        el.scrollTop = pinToBottom ? el.scrollHeight : savedTop
+      }
+      id = requestAnimationFrame(tick)
+    }
+    id = requestAnimationFrame(tick)
+
+    return () => cancelAnimationFrame(id)
+  }, [morphing])
+
   // ── Auto-scroll question cards into view when they appear ──
   let activeQuestionCount = 0
   for (const msg of messages) {
