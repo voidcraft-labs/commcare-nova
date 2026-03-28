@@ -15,7 +15,7 @@ Message list + input. Single instance that morphs between centered and sidebar l
 - **Near-bottom tracking**: Only auto-scrolls on new content (MutationObserver + ResizeObserver) when user was within 50px of bottom. Scrolling up "detaches" from auto-follow.
 - **User hold detection**: `mousedown` on scroll container suppresses all auto-scroll; `mouseup` re-enables.
 - **Cross-instance persistence**: Module-level `chatScrollPinned` + `chatScrollTop` survive center→sidebar transitions and panel close/reopen.
-- **Animation-aware pinning**: 600ms rAF loop on mount keeps pinning to bottom during layout animation, catching post-reflow height changes.
+- **Animation-aware pinning**: 600ms rAF loop on mount keeps pinning to bottom during initial layout animation. Separate morph-aware rAF loop (tied to `morphing` state) anchors scroll during center↔sidebar transitions — captures pin-to-bottom intent and absolute scrollTop at morph start, overrides every frame to defeat the ResizeObserver/onScroll race condition where the browser's scrollTop clamping falsely clears `isNearBottomRef`.
 - **Question card auto-scroll**: Detects new `input-available` askQuestions parts and `scrollIntoView({ block: 'nearest' })` unless user is holding scrollbar.
 
 ## ChatMessage
