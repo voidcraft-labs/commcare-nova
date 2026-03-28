@@ -28,9 +28,9 @@ describe('RESERVED_CASE_PROPERTIES', () => {
 })
 
 describe('escapeXml', () => {
-  it('escapes all 5 special characters', () => {
+  it('escapes XML special characters (single quotes left as-is for double-quoted attrs)', () => {
     expect(escapeXml('a & b < c > d " e \' f')).toBe(
-      'a &amp; b &lt; c &gt; d &quot; e &apos; f'
+      'a &amp; b &lt; c &gt; d &quot; e \' f'
     )
   })
 

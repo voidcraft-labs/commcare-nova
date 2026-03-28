@@ -90,8 +90,8 @@ describe('deriveConnectDefaults', () => {
     deriveConnectDefaults('deliver', form)
     expect(form.connect!.deliver_unit).toEqual({
       name: 'Weekly Report',
-      entity_id: "concat(instance('commcaresession')/session/user/data/username, '-', today())",
-      entity_name: "instance('commcaresession')/session/user/data/username",
+      entity_id: "concat(#user/username, '-', today())",
+      entity_name: "#user/username",
     })
   })
 
@@ -129,7 +129,7 @@ describe('Connect XForm export', () => {
     const hq = expandBlueprint(bp)
     const xml = Object.values(hq._attachments)[0] as string
 
-    expect(xml).toContain('<connect_learn>')
+    expect(xml).toContain('<connect_learn vellum:role="ConnectLearnModule">')
     expect(xml).toContain('xmlns="http://commcareconnect.com/data/v1/learn"')
     expect(xml).toContain('<name>ILC Module</name>')
     expect(xml).toContain('<description>Training for ILC</description>')
@@ -146,7 +146,7 @@ describe('Connect XForm export', () => {
     const hq = expandBlueprint(bp)
     const xml = Object.values(hq._attachments)[0] as string
 
-    expect(xml).toContain('<connect_assessment>')
+    expect(xml).toContain('<connect_assessment vellum:role="ConnectAssessment">')
     expect(xml).toContain('<user_score/>')
     expect(xml).toContain('nodeset="/data/connect_assessment/assessment/user_score" calculate="100"')
   })
@@ -163,7 +163,7 @@ describe('Connect XForm export', () => {
     const hq = expandBlueprint(bp)
     const xml = Object.values(hq._attachments)[0] as string
 
-    expect(xml).toContain('<connect_deliver>')
+    expect(xml).toContain('<connect_deliver vellum:role="ConnectDeliverUnit">')
     expect(xml).toContain('<deliver xmlns="http://commcareconnect.com/data/v1/learn"')
     expect(xml).toContain('<name>Weekly Report</name>')
     expect(xml).toContain('<entity_id/>')
@@ -181,7 +181,7 @@ describe('Connect XForm export', () => {
     const hq = expandBlueprint(bp)
     const xml = Object.values(hq._attachments)[0] as string
 
-    expect(xml).toContain('<connect_task>')
+    expect(xml).toContain('<connect_task vellum:role="ConnectTask">')
     expect(xml).toContain('<name>Delivery Task</name>')
     expect(xml).toContain('<description>Complete the delivery</description>')
   })

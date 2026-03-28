@@ -145,7 +145,7 @@ Also re-exports `validateAndFix()` (from `validationLoop.ts`) — programmatic v
 
 Split across four files:
 - `hqJsonExpander.ts` — `expandBlueprint()` orchestrator + `validateBlueprint()`
-- `xformBuilder.ts` — `buildXForm()`, `buildQuestionParts()`, `buildConnectBlocks()`, `getAppearance()`, `getXsdType()`
+- `xformBuilder.ts` — `buildXForm()`, `buildQuestionParts()`, `buildConnectBlocks()`, `InstanceTracker`, `getAppearance()`, `getXsdType()`
 - `formActions.ts` — `buildFormActions()`, `buildCaseReferencesLoad()`
 - `connectConfig.ts` — `deriveConnectDefaults()` auto-populates Connect config from form content
 
@@ -164,7 +164,7 @@ Split across four files:
 - `<output value="..."/>` tags in labels get `vellum:value` preserving shorthand when expansion occurs.
 - **Bare hashtags in prose** — labels/hints/help may contain bare `#case/foo` text (not wrapped in `<output>` tags). `wrapBareHashtags()` auto-wraps these in `<output value="..."/>` before expansion. Uses regex (not Lezer) because labels are prose, not XPath — the Lezer parser can't find hashtags in prose text (surrounding chars like `**` get parsed as XPath operators, swallowing the `#`).
 - `case_references_data.load` — form-level JSON mapping question paths to `#case/` refs.
-- Secondary instances (`casedb`, `commcaresession`) auto-declared when `#case/` or `#user/` hashtags are used in XPath fields or labels.
+- **Secondary instances** — `InstanceTracker` accumulates required instances (`casedb`, `commcaresession`) at the point of use during the build. `buildQuestionParts` scans XPath fields and labels; `buildConnectBlocks` scans Connect XPath expressions. `casedb` implies `commcaresession` (case XPath uses session for case_id). No post-hoc string scanning — requirements are registered where binds are generated.
 
 **Case config derivation** (`deriveCaseConfig(questions, formType, moduleCaseType, caseTypes)`):
 - Groups questions by `case_property_on` value. Primary case (matches module case type) vs child cases (different case type).
