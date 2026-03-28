@@ -13,6 +13,8 @@ import { useApiKey } from '@/hooks/useApiKey'
 import { useSettings } from '@/hooks/useSettings'
 import { useBuilder } from '@/hooks/useBuilder'
 import { BuilderPhase, applyDataPart, type ViewMode } from '@/lib/services/builder'
+import { showToast } from '@/lib/services/toastStore'
+import { ToastContainer } from '@/components/ui/ToastContainer'
 import type { AppBlueprint } from '@/lib/schemas/blueprint'
 import { flattenQuestionPaths } from '@/lib/services/questionNavigation'
 import { type QuestionPath } from '@/lib/services/questionPath'
@@ -190,7 +192,7 @@ export function BuilderLayout({ buildId }: { buildId: string }) {
   }, [builder.phase, builder.blueprint, nav.navigateToForm])
 
   // ── Single useChat — handles chat + generation + editing ────────────
-  const { messages, sendMessage, addToolOutput, status } = useChat({
+  const { messages, sendMessage, addToolOutput, status, error: chatError } = useChat({
     messages: persistedChatMessages,
     transport: new DefaultChatTransport({
       api: '/api/chat',
@@ -205,6 +207,9 @@ export function BuilderLayout({ buildId }: { buildId: string }) {
     onData: (part: any) => {
       if (part.type === 'data-run-id') { runIdRef.current = part.data.runId; return }
       applyDataPart(builderRef.current, part.type, part.data)
+      if (part.type === 'data-error') {
+        showToast(part.data.fatal ? 'error' : 'warning', 'Generation error', part.data.message)
+      }
     },
   })
 
@@ -215,6 +220,14 @@ export function BuilderLayout({ buildId }: { buildId: string }) {
   useEffect(() => {
     builder.setAgentActive(status === 'submitted' || status === 'streaming')
   }, [status, builder])
+
+  // Surface stream-level errors from useChat (network, API key, server crash)
+  useEffect(() => {
+    if (chatError && builder.phase !== BuilderPhase.Error) {
+      builder.setError(chatError.message)
+      showToast('error', 'Generation failed', chatError.message)
+    }
+  }, [chatError, builder])
 
   const isGenerating = builder.isGenerating
 
@@ -236,8 +249,8 @@ export function BuilderLayout({ buildId }: { buildId: string }) {
       })
       const data = await res.json()
       if (data.downloadUrl) window.open(data.downloadUrl, '_blank')
-    } catch (err) {
-      console.error('Compile failed:', err)
+    } catch {
+      showToast('error', 'Compile failed', 'Could not generate the .ccz file.')
     }
   }, [builder])
 
@@ -250,7 +263,7 @@ export function BuilderLayout({ buildId }: { buildId: string }) {
         body: JSON.stringify({ blueprint: builder.blueprint }),
       })
       if (!res.ok) {
-        console.error('JSON export failed:', await res.text())
+        showToast('error', 'Export failed', 'Could not generate the JSON file.')
         return
       }
       const blob = await res.blob()
@@ -260,8 +273,8 @@ export function BuilderLayout({ buildId }: { buildId: string }) {
       a.download = `${builder.blueprint.app_name || 'app'}.json`
       a.click()
       URL.revokeObjectURL(url)
-    } catch (err) {
-      console.error('JSON export failed:', err)
+    } catch {
+      showToast('error', 'Export failed', 'Could not generate the JSON file.')
     }
   }, [builder])
 
@@ -377,7 +390,7 @@ export function BuilderLayout({ buildId }: { buildId: string }) {
   }, [shouldRedirect, router])
   if (shouldRedirect) return null
 
-  const showProgress = (isGenerating || builder.phase === BuilderPhase.Done) && !progressHidden && !inReplayMode
+  const showProgress = (isGenerating || builder.phase === BuilderPhase.Done || builder.phase === BuilderPhase.Error) && !progressHidden && !inReplayMode
   const leftOpen = viewMode === 'preview' ? false : leftPanelOpen
   const rightOpen = viewMode === 'preview' ? false : rightPanelOpen
   const showToolbar = !!(builder.treeData && builder.phase === BuilderPhase.Done && builder.blueprint)
@@ -580,6 +593,7 @@ export function BuilderLayout({ buildId }: { buildId: string }) {
                       <div className="pointer-events-auto">
                         <GenerationProgress
                           phase={builder.phase}
+                          statusMessage={builder.statusMessage}
                           completed={builder.progressCompleted}
                           total={builder.progressTotal}
                           mode={progressMode}
@@ -620,6 +634,7 @@ export function BuilderLayout({ buildId }: { buildId: string }) {
           )}
         </div>
 
+      <ToastContainer />
     </div>
   )
 }

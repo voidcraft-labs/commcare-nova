@@ -62,4 +62,8 @@ npx tsx scripts/build-xpath-parser.ts
 
 ### Signal Grid Test
 
-Visit `/signal-test` to tune the Signal Grid neural activity panel. The page lets you simulate all streaming states (sending, reasoning, building) with adjustable container width, manual energy injection, direct mode control, and preset scenarios including a full lifecycle simulation. Changes to the grid controller or panel chrome can be verified here without running a real generation.
+Visit `/signal-test` to tune the Signal Grid neural activity panel. The page lets you simulate all streaming states (sending, reasoning, building, error-recovering, error-fatal) with adjustable container width, manual energy injection, direct mode control, and preset scenarios including a full lifecycle simulation and error transitions. Changes to the grid controller or panel chrome can be verified here without running a real generation.
+
+### Error System Test
+
+Visit `/error-test` to simulate error scenarios end-to-end. The page shows the signal grid and generation progress together alongside toast notifications. Scenarios include invalid API key, mid-build stream errors, rate limiting, overloaded-with-recovery, compile failures, and toast stacking. Manual toast triggers let you test error/warning/info toasts individually. Use this to verify that error states flow correctly from the API through the signal grid, progress bar, and toast system without waiting for a real error.

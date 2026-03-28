@@ -4,6 +4,8 @@ const VIOLET = [139, 92, 246] as const   // #8b5cf6
 const CYAN = [6, 182, 212] as const      // #06b6d4
 const PINK = [255, 105, 140] as const    // bubblegum pink (building sweep)
 const WHITE = [232, 232, 255] as const   // #e8e8ff (nova-text)
+const AMBER = [245, 158, 11] as const    // #f59e0b (--nova-amber)
+const ROSE = [244, 63, 94] as const      // #f43f5e (--nova-rose)
 
 function lerp(a: number, b: number, t: number): number {
   return a + (b - a) * t
@@ -11,9 +13,23 @@ function lerp(a: number, b: number, t: number): number {
 
 function cellColor(brightness: number, hue: number): string {
   // hue: 0 = violet, 1 = cyan, <0 = violet→pink (building sweep).
+  //       >1 = warm error tones: 1–1.5 = violet→amber, 1.5–2.0 = amber→rose.
   // Negative hues decay back through violet on the way to cyan — all cool tones.
   let r, g, b
-  if (hue < 0) {
+  if (hue > 1) {
+    // Warm error tones
+    if (hue <= 1.5) {
+      const t = (hue - 1) * 2
+      r = lerp(VIOLET[0], AMBER[0], t)
+      g = lerp(VIOLET[1], AMBER[1], t)
+      b = lerp(VIOLET[2], AMBER[2], t)
+    } else {
+      const t = Math.min((hue - 1.5) * 2, 1)
+      r = lerp(AMBER[0], ROSE[0], t)
+      g = lerp(AMBER[1], ROSE[1], t)
+      b = lerp(AMBER[2], ROSE[2], t)
+    }
+  } else if (hue < 0) {
     const t = Math.min(-hue, 1)
     r = lerp(VIOLET[0], PINK[0], t)
     g = lerp(VIOLET[1], PINK[1], t)
@@ -33,7 +49,7 @@ function cellColor(brightness: number, hue: number): string {
 
 // ── Controller ───────────────────────────────────────────────────────
 
-export type SignalMode = 'sending' | 'reasoning' | 'building' | 'idle'
+export type SignalMode = 'sending' | 'reasoning' | 'building' | 'error-recovering' | 'error-fatal' | 'idle'
 
 interface ControllerOpts {
   /** Read and reset accumulated burst energy (data parts). Called once per animation frame. */
@@ -85,6 +101,9 @@ export class SignalGridController {
   private sweepPhase = 0
   private buildThinkAccum = 0
   private buildAmbientTimer = 0
+
+  // Error fatal
+  private fatalTimer = 0
 
   // Power state
   private powerState: 'off' | 'powering-on' | 'on' | 'powering-off' = 'off'
@@ -168,7 +187,8 @@ export class SignalGridController {
     // Reset mode-specific state so animations start fresh
     if (mode === 'sending') this.wavePhase = 0
     if (mode === 'building') { this.sweepPhase = 0; this.buildThinkAccum = 0; this.buildAmbientTimer = 0 }
-    if (mode === 'reasoning') { this.accumEnergy = 0; this.ambientTimer = 0 }
+    if (mode === 'reasoning' || mode === 'error-recovering') { this.accumEnergy = 0; this.ambientTimer = 0 }
+    if (mode === 'error-fatal') this.fatalTimer = 0
   }
 
   powerOn(): void {
@@ -248,6 +268,8 @@ export class SignalGridController {
       case 'sending': this.tickSending(dt); break
       case 'reasoning': this.tickReasoning(dt, burstEnergy + thinkEnergy); break
       case 'building': this.tickBuilding(dt, burstEnergy, thinkEnergy); break
+      case 'error-recovering': this.tickErrorRecovering(dt, burstEnergy + thinkEnergy); break
+      case 'error-fatal': this.tickErrorFatal(dt); break
       case 'idle': this.tickIdle(dt); break
     }
   }
@@ -500,6 +522,128 @@ export class SignalGridController {
     }
   }
 
+  // ── Error recovering ("sprinkle some red" — reasoning with distress) ─
+
+  private tickErrorRecovering(dt: number, energy: number): void {
+    this.accumEnergy += energy
+    const density = this.cellCount / 93
+
+    const threshold = 7 / density
+    let fires = Math.floor(this.accumEnergy / threshold)
+    fires = Math.min(fires, Math.ceil(this.cellCount * 0.45))
+    this.accumEnergy = Math.min(this.accumEnergy - fires * threshold, threshold * 8)
+
+    // Same hotspot/scatter pattern as reasoning, but ~35% of cells get warm error hues
+    if (fires >= 5) {
+      const hotspots = Math.min(1 + Math.floor(Math.random() * 3), Math.floor(fires / 2))
+      for (let h = 0; h < hotspots; h++) {
+        const center = Math.floor(Math.random() * this.cellCount)
+        const centerCol = center % this.cols
+        const centerRow = Math.floor(center / this.cols)
+        const warm = Math.random() < 0.35
+        const cOff = center * STRIDE
+        this.cells[cOff + TB] = 0.7 + Math.random() * 0.3
+        this.cells[cOff + TH] = warm ? 1.3 + Math.random() * 0.4 : 0.5 + Math.random() * 0.5
+        this.cells[cOff + DR] = 2.0
+        fires--
+        const neighborCount = 1 + Math.floor(Math.random() * 2)
+        for (let n = 0; n < neighborCount && fires > 0; n++) {
+          const dc = Math.floor(Math.random() * 3) - 1
+          const dr = Math.floor(Math.random() * 3) - 1
+          if (dc === 0 && dr === 0) continue
+          const nc = centerCol + dc
+          const nr = centerRow + dr
+          if (nr < 0 || nr >= ROWS || nc < 0 || nc >= this.cols) continue
+          const nOff = (nr * this.cols + nc) * STRIDE
+          this.cells[nOff + TB] = 0.3 + Math.random() * 0.4
+          this.cells[nOff + TH] = warm ? 1.2 + Math.random() * 0.3 : 0.4 + Math.random() * 0.4
+          this.cells[nOff + DR] = 2.5
+          fires--
+        }
+      }
+    }
+    for (let f = 0; f < fires; f++) {
+      const idx = Math.floor(Math.random() * this.cellCount)
+      const off = idx * STRIDE
+      const warm = Math.random() < 0.35
+      this.cells[off + TB] = 0.45 + Math.random() * 0.45
+      this.cells[off + TH] = warm ? 1.3 + Math.random() * 0.4 : Math.random() * 0.7
+      this.cells[off + DR] = 2.0 + Math.random()
+    }
+
+    // Ambient with warm mix
+    const recentEnergy = Math.min(1, this.accumEnergy / 50)
+    const ambientInterval = 0.12 - recentEnergy * 0.08
+    this.ambientTimer += dt
+    if (this.ambientTimer > ambientInterval) {
+      this.ambientTimer -= ambientInterval
+      const count = Math.max(1, Math.round((2 + recentEnergy * 3 + Math.random() * 2) * density))
+      for (let a = 0; a < count; a++) {
+        const idx = Math.floor(Math.random() * this.cellCount)
+        const off = idx * STRIDE
+        const warm = Math.random() < 0.25
+        const roll = Math.random()
+        const ambientBrightness = roll < 0.7
+          ? 0.15 + Math.random() * 0.2
+          : 0.3 + Math.random() * 0.25
+        this.cells[off + TB] = Math.max(this.cells[off + TB], ambientBrightness)
+        this.cells[off + TH] = warm ? 1.2 + Math.random() * 0.5 : Math.random()
+        this.cells[off + DR] = 1.5 + Math.random() * 0.5
+      }
+    }
+
+    // Decay + drift
+    for (let i = 0; i < this.cellCount; i++) {
+      const off = i * STRIDE
+      this.cells[off + TB] = Math.max(0, this.cells[off + TB] - dt * 0.7)
+      this.cells[off + YO] = 0
+    }
+  }
+
+  // ── Error fatal ("giving up" — flicker fades into settled dim pulse) ─
+  //
+  // No discrete phases — flicker intensity decays continuously while the
+  // pull toward the resting breath target grows. Everything flows through
+  // the target/interpolation system so transitions are inherently smooth.
+
+  private tickErrorFatal(dt: number): void {
+    this.fatalTimer += dt
+    const density = this.cellCount / 93
+
+    // Resting state: slow breathing rose-pink pulse (~5s cycle)
+    const breath = 0.235 + Math.sin(this.fatalTimer * 1.25) * 0.055
+
+    // Flicker fades out continuously over ~3s
+    const flicker = Math.max(0, 1 - this.fatalTimer / 3)
+
+    // Pull toward resting state — weak at first (flicker dominates), strong when settled
+    const pull = 0.5 + (1 - flicker) * 6
+
+    // All cells drift toward the resting breath target
+    for (let i = 0; i < this.cellCount; i++) {
+      const off = i * STRIDE
+      this.cells[off + TB] += (breath - this.cells[off + TB]) * dt * pull
+      this.cells[off + TH] += (2.0 - this.cells[off + TH]) * dt * pull
+      this.cells[off + DR] = 1.0 + (1 - flicker) * 2.0
+      this.cells[off + YO] = 0
+    }
+
+    // Erratic flicker layered on top — fades out naturally
+    if (flicker > 0.01) {
+      const fireRate = 0.03 + flicker * 0.05
+      if (Math.random() < dt / fireRate) {
+        const count = Math.max(1, Math.round((2 + flicker * 6) * density))
+        for (let f = 0; f < count; f++) {
+          const idx = Math.floor(Math.random() * this.cellCount)
+          const off = idx * STRIDE
+          this.cells[off + TB] = breath + Math.random() * 0.5 * flicker
+          this.cells[off + TH] = 1.5 + Math.random() * 0.5
+          this.cells[off + DR] = 2.0 + flicker * 3
+        }
+      }
+    }
+  }
+
   // ── Idle ─────────────────────────────────────────────────────────────
 
   // Idle
@@ -605,7 +749,9 @@ export class SignalGridController {
     if (this.container) {
       const avg = this.cellCount > 0 ? totalBrightness / this.cellCount : 0
       if (avg > 0.02) {
-        this.container.style.boxShadow = `0 0 ${(avg * 12).toFixed(1)}px rgba(139,92,246,${(avg * 0.3).toFixed(2)})`
+        const isError = this.mode === 'error-recovering' || this.mode === 'error-fatal'
+        const glowColor = isError ? '244,63,94' : '139,92,246'
+        this.container.style.boxShadow = `0 0 ${(avg * 12).toFixed(1)}px rgba(${glowColor},${(avg * 0.3).toFixed(2)})`
       } else {
         this.container.style.boxShadow = 'none'
       }

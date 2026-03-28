@@ -11,6 +11,7 @@ import { RunLogger } from '@/lib/services/runLogger'
 import { createSolutionsArchitect } from '@/lib/services/solutionsArchitect'
 import { MutableBlueprint } from '@/lib/services/mutableBlueprint'
 import { chatRequestSchema } from '@/lib/schemas/apiSchemas'
+import { classifyError } from '@/lib/services/errorClassifier'
 
 export const maxDuration = 300
 
@@ -48,18 +49,36 @@ export async function POST(req: Request) {
         blueprint ?? { app_name: '', modules: [], case_types: null }
       )
 
-      const sa = createSolutionsArchitect(ctx, mutableBp)
+      try {
+        const sa = createSolutionsArchitect(ctx, mutableBp)
+        const agentStream = await createAgentUIStream({
+          agent: sa,
+          uiMessages: messages,
+        })
 
-      const agentStream = await createAgentUIStream({
-        agent: sa,
-        uiMessages: messages,
-      })
-      writer.merge(agentStream)
+        // Manual consumption instead of writer.merge() — lets us catch stream
+        // errors and emit data-error before the stream closes.
+        const reader = agentStream.getReader()
+        try {
+          while (true) {
+            const { done, value } = await reader.read()
+            if (done) break
+            writer.write(value)
+          }
+        } catch (streamError) {
+          const classified = classifyError(streamError)
+          ctx.emitError(classified, 'route:stream')
+        }
+      } catch (error) {
+        const classified = classifyError(error)
+        ctx.emitError(classified, 'route:init')
+      }
     },
     onFinish() {
       logger.finalize()
     },
     onError: (error) => {
+      // Safety net — most errors are now caught above and emitted as data-error.
       console.error('[chat] stream error:', error)
       return error instanceof Error ? error.message : String(error)
     },
