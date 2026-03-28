@@ -92,7 +92,9 @@ Also re-exports `validateAndFix()` (from `validationLoop.ts`) — programmatic v
 - `builder.isGenerating` — true when the build pipeline is running (phases DataModel through Fix).
 - `builder.isThinking` — `agentActive && !isGenerating`. Works for both initial generation (before first data part arrives) and edit operations (phase stays `Done`).
 
-**Stream energy** — non-versioned field for the SignalGrid neural activity display. `injectEnergy(amount)` accumulates energy, `drainEnergy()` reads and resets. Never triggers React re-renders. Energy sources: message content deltas (reasoning tokens tracked by SignalGrid component), `applyDataPart()` bursts (200 for module/form completions, 100 for updates, 50 for phase transitions), and the intro sequence.
+**Stream energy** — two non-versioned channels for the SignalGrid neural activity display. Never trigger React re-renders.
+- **Burst energy** (`injectEnergy` / `drainEnergy`) — from `applyDataPart()` bursts (200 for module/form completions, 100 for updates, 50 for phase transitions) and the intro sequence. Drives building-mode flashes when UI-visible changes occur.
+- **Think energy** (`injectThinkEnergy` / `drainThinkEnergy`) — from message content deltas (text, reasoning, and tool input parts tracked by SignalGrid component, 2x multiplier). Drives reasoning-style neural firing in all modes. In building mode, think energy creates hotspot/scatter activity layered on the sweep; burst energy triggers delivery flashes.
 
 **Key members:**
 - `builder.mb` — persistent MutableBlueprint instance (undefined before blueprint exists)

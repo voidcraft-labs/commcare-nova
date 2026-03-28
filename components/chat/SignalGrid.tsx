@@ -24,6 +24,7 @@ export function SignalGrid({ mode, label, suffix, messages }: SignalGridProps) {
 
     const ctrl = new SignalGridController({
       consumeEnergy: () => builderRef.current.drainEnergy(),
+      consumeThinkEnergy: () => builderRef.current.drainThinkEnergy(),
     })
     controllerRef.current = ctrl
     ctrl.attach(el)
@@ -55,11 +56,18 @@ export function SignalGrid({ mode, label, suffix, messages }: SignalGridProps) {
       if ((part.type === 'text' || part.type === 'reasoning') && part.text) {
         contentLen += part.text.length
       }
+      // Track tool input streaming — typed tool parts (tool-addQuestions, etc.)
+      // grow their input progressively during input-streaming state.
+      // Without this, tool arg generation (the bulk of build time) produces
+      // zero energy, making the grid look idle during active generation.
+      if (part.type?.startsWith('tool-') && part.input != null) {
+        contentLen += JSON.stringify(part.input).length
+      }
     }
 
     const delta = contentLen - prevContentLenRef.current
     if (delta > 0) {
-      builder.injectEnergy(delta * 2)
+      builder.injectThinkEnergy(delta * 2)
     }
     prevContentLenRef.current = contentLen
   }, [messages, builder])

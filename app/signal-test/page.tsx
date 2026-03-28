@@ -153,6 +153,7 @@ export default function SignalTestPage() {
   const [width, setWidth] = useState(280)
   const controllerRef = useRef<SignalGridController | null>(null)
   const energyRef = useRef(0)
+  const thinkEnergyRef = useRef(0)
   const cleanupRef = useRef<(() => void) | null>(null)
 
   const gridCallbackRef = useCallback((el: HTMLDivElement | null) => {
@@ -161,6 +162,11 @@ export default function SignalTestPage() {
       consumeEnergy: () => {
         const e = energyRef.current
         energyRef.current = 0
+        return e
+      },
+      consumeThinkEnergy: () => {
+        const e = thinkEnergyRef.current
+        thinkEnergyRef.current = 0
         return e
       },
     })

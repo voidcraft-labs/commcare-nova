@@ -26,8 +26,10 @@ function cellColor(brightness: number, hue: number): string {
 export type SignalMode = 'sending' | 'reasoning' | 'building' | 'idle'
 
 interface ControllerOpts {
-  /** Read and reset accumulated energy. Called once per animation frame. */
+  /** Read and reset accumulated burst energy (data parts). Called once per animation frame. */
   consumeEnergy: () => number
+  /** Read and reset accumulated think energy (token generation). Called once per animation frame. */
+  consumeThinkEnergy: () => number
 }
 
 const ROWS = 3
@@ -60,6 +62,7 @@ export class SignalGridController {
   private modeT = 1 // blend factor 0..1 (1 = fully in current mode)
 
   private consumeEnergy: () => number
+  private consumeThinkEnergy: () => number
 
   // Sending
   private wavePhase = 0
@@ -70,6 +73,8 @@ export class SignalGridController {
 
   // Building
   private sweepPhase = 0
+  private buildThinkAccum = 0
+  private buildAmbientTimer = 0
 
   // Power state
   private powerState: 'off' | 'powering-on' | 'on' | 'powering-off' = 'off'
@@ -78,6 +83,7 @@ export class SignalGridController {
 
   constructor(opts: ControllerOpts) {
     this.consumeEnergy = opts.consumeEnergy
+    this.consumeThinkEnergy = opts.consumeThinkEnergy
   }
 
   // ── Lifecycle ────────────────────────────────────────────────────────
@@ -151,7 +157,7 @@ export class SignalGridController {
     this.modeT = 0
     // Reset mode-specific state so animations start fresh
     if (mode === 'sending') this.wavePhase = 0
-    if (mode === 'building') this.sweepPhase = 0
+    if (mode === 'building') { this.sweepPhase = 0; this.buildThinkAccum = 0; this.buildAmbientTimer = 0 }
     if (mode === 'reasoning') { this.accumEnergy = 0; this.ambientTimer = 0 }
   }
 
@@ -202,14 +208,15 @@ export class SignalGridController {
       this.modeT = Math.min(1, this.modeT + dt * 3.0) // 333ms blend
     }
 
-    // Read and drain energy
-    const rawEnergy = this.consumeEnergy()
+    // Read and drain energy from both channels
+    const burstEnergy = this.consumeEnergy()
+    const thinkEnergy = this.consumeThinkEnergy()
 
     // Advance power state
     this.tickPower(dt)
 
     // Always tick and render — cells are physical LEDs, always present
-    this.tickMode(dt, rawEnergy)
+    this.tickMode(dt, burstEnergy, thinkEnergy)
     this.interpolateCells(dt)
     this.render()
 
@@ -226,11 +233,11 @@ export class SignalGridController {
     }
   }
 
-  private tickMode(dt: number, energy: number): void {
+  private tickMode(dt: number, burstEnergy: number, thinkEnergy: number): void {
     switch (this.mode) {
       case 'sending': this.tickSending(dt); break
-      case 'reasoning': this.tickReasoning(dt, energy); break
-      case 'building': this.tickBuilding(dt, energy); break
+      case 'reasoning': this.tickReasoning(dt, burstEnergy + thinkEnergy); break
+      case 'building': this.tickBuilding(dt, burstEnergy, thinkEnergy); break
       case 'idle': this.tickIdle(dt); break
     }
   }
@@ -363,9 +370,9 @@ export class SignalGridController {
     }
   }
 
-  // ── Building (sweep + data-part bursts) ──────────────────────────────
+  // ── Building (sweep + delivery bursts + thinking activity) ────────────
 
-  private tickBuilding(dt: number, energy: number): void {
+  private tickBuilding(dt: number, burstEnergy: number, thinkEnergy: number): void {
     this.sweepPhase += dt * 1.8
 
     // Rhythmic two-column sweep
@@ -381,8 +388,8 @@ export class SignalGridController {
       }
     }
 
-    // Data-part bursts
-    if (energy >= 150) {
+    // Delivery bursts — only from data parts (UI-visible changes like module/form done)
+    if (burstEnergy >= 150) {
       // Large burst: flash all cells bright cyan
       for (let i = 0; i < this.cellCount; i++) {
         const off = i * STRIDE
@@ -390,15 +397,80 @@ export class SignalGridController {
         this.cells[off + TH] = 0.8 + Math.random() * 0.2
         this.cells[off + DR] = 1.5 // linger
       }
-    } else if (energy >= 30) {
+    } else if (burstEnergy >= 30) {
       // Small burst: activate random subset
-      const count = Math.min(Math.floor(energy / 8), this.cellCount)
+      const count = Math.min(Math.floor(burstEnergy / 8), this.cellCount)
       for (let f = 0; f < count; f++) {
         const idx = Math.floor(Math.random() * this.cellCount)
         const off = idx * STRIDE
         this.cells[off + TB] = 0.5 + Math.random() * 0.3
         this.cells[off + TH] = 0.5
         this.cells[off + DR] = 3.0
+      }
+    }
+
+    // Thinking activity — reasoning-style neural firing from token generation.
+    // Token streaming (text, reasoning, tool args) isn't shown to the user,
+    // so it manifests as thinking activity layered on top of the sweep.
+    this.buildThinkAccum += thinkEnergy
+    const density = this.cellCount / 93
+    const threshold = 7 / density
+    let fires = Math.floor(this.buildThinkAccum / threshold)
+    fires = Math.min(fires, Math.ceil(this.cellCount * 0.35))
+    this.buildThinkAccum = Math.min(this.buildThinkAccum - fires * threshold, threshold * 8)
+
+    if (fires >= 5) {
+      const hotspots = Math.min(1 + Math.floor(Math.random() * 3), Math.floor(fires / 2))
+      for (let h = 0; h < hotspots; h++) {
+        const center = Math.floor(Math.random() * this.cellCount)
+        const centerCol = center % this.cols
+        const centerRow = Math.floor(center / this.cols)
+        const cOff = center * STRIDE
+        this.cells[cOff + TB] = 0.7 + Math.random() * 0.3
+        this.cells[cOff + TH] = 0.5 + Math.random() * 0.5
+        this.cells[cOff + DR] = 2.0
+        fires--
+        const neighborCount = 1 + Math.floor(Math.random() * 2)
+        for (let n = 0; n < neighborCount && fires > 0; n++) {
+          const dc = Math.floor(Math.random() * 3) - 1
+          const dr = Math.floor(Math.random() * 3) - 1
+          if (dc === 0 && dr === 0) continue
+          const nc = centerCol + dc
+          const nr = centerRow + dr
+          if (nr < 0 || nr >= ROWS || nc < 0 || nc >= this.cols) continue
+          const nOff = (nr * this.cols + nc) * STRIDE
+          this.cells[nOff + TB] = 0.3 + Math.random() * 0.4
+          this.cells[nOff + TH] = 0.4 + Math.random() * 0.4
+          this.cells[nOff + DR] = 2.5
+          fires--
+        }
+      }
+    }
+    for (let f = 0; f < fires; f++) {
+      const idx = Math.floor(Math.random() * this.cellCount)
+      const off = idx * STRIDE
+      this.cells[off + TB] = 0.45 + Math.random() * 0.45
+      this.cells[off + TH] = Math.random() * 0.7
+      this.cells[off + DR] = 2.0 + Math.random()
+    }
+
+    // Ambient hum while thinking — keeps grid alive between token chunks
+    const recentThink = Math.min(1, this.buildThinkAccum / 50)
+    const ambientInterval = 0.12 - recentThink * 0.08
+    this.buildAmbientTimer += dt
+    if (this.buildAmbientTimer > ambientInterval) {
+      this.buildAmbientTimer -= ambientInterval
+      const count = Math.max(1, Math.round((2 + recentThink * 2 + Math.random() * 2) * density))
+      for (let a = 0; a < count; a++) {
+        const idx = Math.floor(Math.random() * this.cellCount)
+        const off = idx * STRIDE
+        const roll = Math.random()
+        const ambientBrightness = roll < 0.7
+          ? 0.15 + Math.random() * 0.2
+          : 0.3 + Math.random() * 0.25
+        this.cells[off + TB] = Math.max(this.cells[off + TB], ambientBrightness)
+        this.cells[off + TH] = Math.random()
+        this.cells[off + DR] = 1.5 + Math.random() * 0.5
       }
     }
 
