@@ -33,7 +33,7 @@ Animated stepper with local state. Shows questions one at a time with option but
 
 ## SignalPanel
 
-Reusable sci-fi panel chrome — bezels, notches, indicator LED, display well, etched label. Used by both SignalGrid (chat) and the signal test page. Props: `active`, `label`, `children`. Exports `signalLabel(mode)` for default mode→label mapping.
+Reusable sci-fi panel chrome — bezels, notches, indicator LED, display well, etched label. Used by both SignalGrid (chat) and the signal test page. Props: `active`, `label`, `suffix?`, `error?`, `children`. Exports `signalLabel(mode)` for default mode→label mapping. When `error` is true, the indicator LED and etched label turn rose via CSS (`globals.css` `.nova-panel[data-error]` rules).
 
 **Label animation** — `AnimatePresence mode="wait"` crossfades the base label on mode change (0.75s fade). Optional `suffix` prop (e.g. elapsed timer) fades in once on appearance but updates in place without retriggering the crossfade.
 
@@ -48,6 +48,8 @@ Permanent neural activity panel. Always mounted between the scroll container and
 - `sending` — upward wave (bottom→top, left→right). Duration-normalized via `SEND_WAVE_DURATION` so one cycle takes the same time regardless of grid width. Forced for one wave cycle via `forceSending` in ChatSidebar.
 - `reasoning` — random neural firing correlated with token generation. Tracks `reasoning` + `text` + `tool-*` input part deltas on the last assistant message → `builder.injectThinkEnergy(delta * 2)`. Ambient firing speed scales with energy level.
 - `building` — pink scanner beam sweep + delivery bursts + thinking activity. The sweep uses bubblegum pink (negative hue → `PINK` constant) to contrast the cyan thinking cells. Burst energy (from data parts: module/form completions) drives flashes. Think energy (from token generation: text, reasoning, tool args) drives reasoning-style neural firing layered on top of the sweep. Rule: anything not shown to the user = thinking; only UI-visible changes trigger flashes.
+- `error-recovering` — reasoning-style firing with ~35% of cells using warm amber-rose hues. Signals "something's wrong but the SA is still working." Ambient cells also get ~25% warm mix.
+- `error-fatal` — continuous transition from erratic warm flicker (decays over ~3s) into a settled uniform dim rose-pink pulse (~5s sine breath, 30–50% opacity, hue 2.0 = pure rose). No discrete phases — flicker intensity fades out while the resting-pulse pull grows stronger. Container glow shifts to rose. Panel LED and label turn rose via `data-error` attribute.
 
 **Elapsed timer** — after 30s in reasoning or building mode, ChatSidebar appends a suffix like "(30s)", "(1m 12s)" via the `suffix` prop on SignalPanel. Fades in once, then ticks in place.
 
@@ -60,7 +62,7 @@ Permanent neural activity panel. Always mounted between the scroll container and
 - **Think energy** (`builder.injectThinkEnergy` / `drainThinkEnergy`) — from message content deltas: `text` + `reasoning` + `tool-*` input parts (2x multiplier). Drives reasoning-style neural firing in all modes. Tool input tracking (`JSON.stringify(part.input)`) captures energy during tool arg streaming, which is the bulk of build time.
 Controller reads both via `consumeEnergy()` + `consumeThinkEnergy()` each animation frame.
 
-**Color space** — `cellColor(brightness, hue)` maps hue to color: 0 = violet, 1 = cyan, <0 = pink (violet→bubblegum). Brightness >0.55 blends toward white. Thinking cells use hue 0-1 (violet-cyan). The building sweep uses negative hue (-0.8 leading, -0.35 trail) for pink, which decays back through violet to cyan — all cool tones, no ghosting. Warm colors (yellow/red/amber) are reserved for warning/error states.
+**Color space** — `cellColor(brightness, hue)` maps hue to color: 0 = violet, 1 = cyan, <0 = pink (violet→bubblegum), >1 = warm error tones (1–1.5 = violet→amber, 1.5–2.0 = amber→rose). Brightness >0.55 blends toward white. Thinking cells use hue 0-1 (violet-cyan). The building sweep uses negative hue (-0.8 leading, -0.35 trail) for pink. Error modes use hue >1 for warm tones — `error-recovering` sprinkles ~35% warm-hued cells into reasoning-style activity, `error-fatal` flickers then settles into a uniform dim rose-pink pulse (hue 2.0 = pure rose, no amber).
 
 **Intro sequence** — on page load, ChatSidebar's `WelcomeIntro` component temporarily sets mode to `reasoning` and injects energy bursts timed with the staggered welcome text fade-in.
 

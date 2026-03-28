@@ -9,6 +9,8 @@ export function signalLabel(mode: SignalMode): string {
     case 'sending': return 'Transmitting'
     case 'reasoning': return 'Thinking'
     case 'building': return 'Building'
+    case 'error-recovering': return 'Recovering'
+    case 'error-fatal': return 'Error'
     case 'idle': return ''
   }
 }
@@ -18,15 +20,16 @@ interface SignalPanelProps {
   label: string
   /** Optional suffix that fades in once but updates in place (e.g. "(32s)"). */
   suffix?: string
+  error?: boolean
   children: ReactNode
 }
 
 /** Sci-fi panel chrome — bezels, notches, indicator LED, display well, etched label. */
-export function SignalPanel({ active, label, suffix, children }: SignalPanelProps) {
+export function SignalPanel({ active, label, suffix, error, children }: SignalPanelProps) {
   const baseText = label && active ? label : 'SYS:IDLE'
 
   return (
-    <div className="nova-panel" data-active={active || undefined}>
+    <div className="nova-panel" data-active={active || undefined} data-error={error || undefined}>
       {/* Top bezel — etched groove with corner notches */}
       <div className="nova-panel-bezel nova-panel-bezel-top">
         <div className="nova-panel-notch" />

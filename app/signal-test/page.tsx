@@ -145,6 +145,65 @@ const scenarios: Scenario[] = [
       return () => { clearInterval(id); setMode('idle') }
     },
   },
+  {
+    name: 'Error Recovering — With Think Energy',
+    description: 'SA hit an issue but is still working. Reasoning with ~35% warm-hued cells.',
+    run: (setMode, inject) => {
+      setMode('error-recovering')
+      const id = setInterval(() => inject(20 + Math.random() * 40), 120)
+      return () => { clearInterval(id); setMode('idle') }
+    },
+  },
+  {
+    name: 'Error Recovering — Sparse',
+    description: 'Recovering with minimal energy. Slow amber-rose flickers in ambient.',
+    run: (setMode, inject) => {
+      setMode('error-recovering')
+      const id = setInterval(() => inject(3 + Math.random() * 5), 500)
+      return () => { clearInterval(id); setMode('idle') }
+    },
+  },
+  {
+    name: 'Error Fatal',
+    description: 'Unrecoverable error. Erratic warm flicker → slow fade → dim rose embers.',
+    run: (setMode) => {
+      setMode('error-fatal')
+      return () => setMode('idle')
+    },
+  },
+  {
+    name: 'Building → Error Recovering → Fatal',
+    description: 'Full error lifecycle: building normally, hits an issue, tries to recover, gives up.',
+    run: (setMode, inject) => {
+      setMode('building')
+      const timers: ReturnType<typeof setTimeout>[] = []
+      const intervals: ReturnType<typeof setInterval>[] = []
+
+      // Building with energy
+      const buildId = setInterval(() => inject(80 + Math.random() * 60), 200)
+      intervals.push(buildId)
+
+      // At 3s: transition to recovering
+      timers.push(setTimeout(() => {
+        clearInterval(buildId)
+        setMode('error-recovering')
+        const recoverId = setInterval(() => inject(15 + Math.random() * 25), 150)
+        intervals.push(recoverId)
+
+        // At 6s: give up
+        timers.push(setTimeout(() => {
+          clearInterval(recoverId)
+          setMode('error-fatal')
+        }, 3000))
+      }, 3000))
+
+      return () => {
+        intervals.forEach(clearInterval)
+        timers.forEach(clearTimeout)
+        setMode('idle')
+      }
+    },
+  },
 ]
 
 export default function SignalTestPage() {
@@ -272,7 +331,7 @@ export default function SignalTestPage() {
             className="bg-nova-deep border border-nova-border rounded-xl p-4 flex justify-center"
           >
             <div style={{ width }}>
-              <SignalPanel active={mode !== 'idle'} label={signalLabel(mode)}>
+              <SignalPanel active={mode !== 'idle'} label={signalLabel(mode)} error={mode === 'error-recovering' || mode === 'error-fatal'}>
                 <div ref={gridCallbackRef} className="signal-grid" />
               </SignalPanel>
             </div>
@@ -303,7 +362,7 @@ export default function SignalTestPage() {
             Direct Mode Control
           </label>
           <div className="flex gap-2">
-            {(['sending', 'reasoning', 'building', 'idle'] as SignalMode[]).map(m => (
+            {(['sending', 'reasoning', 'building', 'error-recovering', 'error-fatal', 'idle'] as SignalMode[]).map(m => (
               <button
                 key={m}
                 onClick={() => {

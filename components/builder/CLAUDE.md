@@ -98,6 +98,8 @@ Reads/writes through `builder.mb` (persistent `MutableBlueprint`). Editing patte
 
 Progress bar with phase labels during generation. Always centered in the content area throughout the entire generation lifecycle — stays centered even after the scaffold tree appears in the left panel, then dismisses immediately on completion with a 1s fade-out. Counts derived from `builder.progressCompleted` / `builder.progressTotal`. Status message text was removed — phase-specific text now lives in the SignalGrid panel's etched label instead.
 
+**Error state:** When `phase === BuilderPhase.Error`, tracks the last active generating phase via `useRef` to show which step failed. The formerly-active stage gets an `'error'` status: static rose dot (no pulse), label in `text-nova-rose`, progress bar gradient shifts to `cyan→rose`. Error message from `statusMessage` prop displayed below the bar. No auto-dismiss on error — user must dismiss manually or retry.
+
 ## ReplayController
 
 Fixed-position pill for log replay navigation. Left/right arrows, stage counter, close button. Drives Builder via `applyDataPart()`. Accepts `initialIndex` prop — defaults to 0 but BuilderLayout passes `doneIndex` so replay starts at the completed app state (edit stages after Done are still navigable forward).
