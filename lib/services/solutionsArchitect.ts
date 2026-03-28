@@ -19,6 +19,7 @@ import {
 } from '../schemas/contentProcessing'
 import { MutableBlueprint, type NewQuestion } from './mutableBlueprint'
 import { validateAndFix } from './validationLoop'
+import { errorToString } from './commcare/validate/errors'
 export { validateAndFix } from './validationLoop'
 
 // ── Helper: build a full ConnectConfig from SA's partial input ────────
@@ -660,8 +661,8 @@ export function createSolutionsArchitect(
             ctx.logger.logToolOutput('validateApp', output)
             return output
           }
-          // Surface remaining errors so the SA can fix them with its tools
-          const output = { success: false as const, errors: result.errors ?? [] }
+          // Surface remaining errors as strings so the SA can read and fix them
+          const output = { success: false as const, errors: (result.errors ?? []).map(errorToString) }
           ctx.logger.logToolOutput('validateApp', output)
           return output
         },

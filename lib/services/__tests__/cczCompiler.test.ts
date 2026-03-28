@@ -67,6 +67,24 @@ describe('CczCompiler', () => {
     expect(followupXform).not.toContain('<create>') // followup should not create
   })
 
+  it('post-injection validation catches orphaned binds', async () => {
+    const hq = expandBlueprint(blueprint)
+
+    // Sabotage: inject a bind that points to a node we never create
+    const formId = hq.modules[0].forms[0].unique_id
+    hq._attachments[`${formId}.xml`] += '' // ensure it exists
+    const xml = hq._attachments[`${formId}.xml`] as string
+    hq._attachments[`${formId}.xml`] = xml.replace(
+      '</model>',
+      '      <bind nodeset="/data/meta/location" type="xsd:geopoint"/>\n    </model>'
+    )
+
+    const err = await new CczCompiler().compile(hq, 'CHW App').catch(e => e)
+    expect(err).toBeInstanceOf(Error)
+    expect(err.message).toContain('/data/meta/location')
+    expect(err.message).toContain('XForm validation failed')
+  })
+
   it('generates suite.xml with case detail and menu entries', async () => {
     const hq = expandBlueprint(blueprint)
     const buf = await new CczCompiler().compile(hq, 'CHW App')

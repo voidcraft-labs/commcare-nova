@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest'
 import { validateXPath } from '../commcare/validate/xpathValidator'
 import { FUNCTION_REGISTRY, findCaseInsensitiveMatch } from '../commcare/validate/functionRegistry'
 import { validateBlueprintDeep } from '../commcare/validate/index'
-import { validateBlueprint } from '../hqJsonExpander'
+import { runValidation } from '../commcare/validate/runner'
 import type { AppBlueprint } from '../../schemas/blueprint'
 import { TriggerDag } from '../../preview/engine/triggerDag'
 
@@ -336,9 +336,9 @@ describe('validateBlueprintDeep', () => {
   })
 })
 
-// ── Full Integration (validateBlueprint calls deep) ─────────────────
+// ── Full Integration (runValidation calls deep) ────────────────────
 
-describe('validateBlueprint with deep validation', () => {
+describe('runValidation with deep validation', () => {
   it('catches both rule-based and deep XPath errors', () => {
     const bp: AppBlueprint = {
       app_name: 'Test',
@@ -350,7 +350,6 @@ describe('validateBlueprint with deep validation', () => {
           type: 'registration',
           questions: [
             { id: 'case_name', type: 'text', label: 'Name', case_property_on: 'patient' },
-            // Deep validation issue: unknown function
             { id: 'calc', type: 'hidden', calculate: 'foobar(1)' },
           ],
         }],
@@ -358,8 +357,7 @@ describe('validateBlueprint with deep validation', () => {
       case_types: [{ name: 'patient', properties: [{ name: 'case_name', label: 'Name' }] }],
     }
 
-    const errors = validateBlueprint(bp)
-    // Should have the deep XPath error
-    expect(errors.some(e => e.includes('Unknown function'))).toBe(true)
+    const errors = runValidation(bp)
+    expect(errors.some(e => e.code === 'UNKNOWN_FUNCTION')).toBe(true)
   })
 })
