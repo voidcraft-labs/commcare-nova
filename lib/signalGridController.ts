@@ -2,6 +2,7 @@
 
 const VIOLET = [139, 92, 246] as const   // #8b5cf6
 const CYAN = [6, 182, 212] as const      // #06b6d4
+const PINK = [255, 105, 140] as const    // bubblegum pink (building sweep)
 const WHITE = [232, 232, 255] as const   // #e8e8ff (nova-text)
 
 function lerp(a: number, b: number, t: number): number {
@@ -9,10 +10,19 @@ function lerp(a: number, b: number, t: number): number {
 }
 
 function cellColor(brightness: number, hue: number): string {
-  // hue: 0 = violet, 1 = cyan. High brightness pushes toward white.
-  const r = lerp(VIOLET[0], CYAN[0], hue)
-  const g = lerp(VIOLET[1], CYAN[1], hue)
-  const b = lerp(VIOLET[2], CYAN[2], hue)
+  // hue: 0 = violet, 1 = cyan, <0 = violet→pink (building sweep).
+  // Negative hues decay back through violet on the way to cyan — all cool tones.
+  let r, g, b
+  if (hue < 0) {
+    const t = Math.min(-hue, 1)
+    r = lerp(VIOLET[0], PINK[0], t)
+    g = lerp(VIOLET[1], PINK[1], t)
+    b = lerp(VIOLET[2], PINK[2], t)
+  } else {
+    r = lerp(VIOLET[0], CYAN[0], Math.min(hue, 1))
+    g = lerp(VIOLET[1], CYAN[1], Math.min(hue, 1))
+    b = lerp(VIOLET[2], CYAN[2], Math.min(hue, 1))
+  }
 
   if (brightness > 0.55) {
     const whiteT = (brightness - 0.55) / 0.45
@@ -375,17 +385,25 @@ export class SignalGridController {
   private tickBuilding(dt: number, burstEnergy: number, thinkEnergy: number): void {
     this.sweepPhase += dt * 1.8
 
-    // Rhythmic two-column sweep
+    // Pink scanner beam — bubblegum pink bars contrasting the cyan thinking cells.
+    // Negative hue = pink; decays through violet back to cyan (all cool tones).
     const activeCol = Math.floor(this.sweepPhase % this.cols)
     const nextCol = (activeCol + 1) % this.cols
+    const trailCol = (activeCol - 1 + this.cols) % this.cols
     for (let row = 0; row < ROWS; row++) {
-      const hue = 0.3 + (Math.sin(this.sweepPhase) * 0.5 + 0.5) * 0.4
+      // Leading edge — bright bubblegum pink
       for (const col of [activeCol, nextCol]) {
         const off = (row * this.cols + col) * STRIDE
-        this.cells[off + TB] = Math.max(this.cells[off + TB], 0.45)
-        this.cells[off + TH] = hue
-        this.cells[off + DR] = 3.0
+        this.cells[off + TB] = Math.max(this.cells[off + TB], 0.78)
+        this.cells[off + TH] = -0.8
+        this.cells[off + DR] = 5.0
+        this.cells[off + YO] = -0.5
       }
+      // Trailing glow — pinkish violet fade
+      const tOff = (row * this.cols + trailCol) * STRIDE
+      this.cells[tOff + TB] = Math.max(this.cells[tOff + TB], 0.35)
+      this.cells[tOff + TH] = -0.35
+      this.cells[tOff + DR] = 3.0
     }
 
     // Delivery bursts — only from data parts (UI-visible changes like module/form done)

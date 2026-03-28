@@ -47,7 +47,7 @@ Permanent neural activity panel. Always mounted between the scroll container and
 - `idle` — slow wide twinkle clusters (5x5 spread, ~0.75/sec). Grid is alive but resting.
 - `sending` — upward wave (bottom→top, left→right). Duration-normalized via `SEND_WAVE_DURATION` so one cycle takes the same time regardless of grid width. Forced for one wave cycle via `forceSending` in ChatSidebar.
 - `reasoning` — random neural firing correlated with token generation. Tracks `reasoning` + `text` + `tool-*` input part deltas on the last assistant message → `builder.injectThinkEnergy(delta * 2)`. Ambient firing speed scales with energy level.
-- `building` — rhythmic two-column sweep + delivery bursts + thinking activity. Burst energy (from data parts: module/form completions) drives flashes. Think energy (from token generation: text, reasoning, tool args) drives reasoning-style neural firing layered on top of the sweep. Rule: anything not shown to the user = thinking; only UI-visible changes trigger flashes.
+- `building` — pink scanner beam sweep + delivery bursts + thinking activity. The sweep uses bubblegum pink (negative hue → `PINK` constant) to contrast the cyan thinking cells. Burst energy (from data parts: module/form completions) drives flashes. Think energy (from token generation: text, reasoning, tool args) drives reasoning-style neural firing layered on top of the sweep. Rule: anything not shown to the user = thinking; only UI-visible changes trigger flashes.
 
 **Elapsed timer** — after 30s in reasoning or building mode, ChatSidebar appends a suffix like "(30s)", "(1m 12s)" via the `suffix` prop on SignalPanel. Fades in once, then ticks in place.
 
@@ -59,6 +59,8 @@ Permanent neural activity panel. Always mounted between the scroll container and
 - **Burst energy** (`builder.injectEnergy` / `drainEnergy`) — from `applyDataPart()` (200 for module/form completions, 100 for updates, 50 for phase transitions) and the intro sequence. Drives building-mode flashes; combined into neural firing in reasoning mode.
 - **Think energy** (`builder.injectThinkEnergy` / `drainThinkEnergy`) — from message content deltas: `text` + `reasoning` + `tool-*` input parts (2x multiplier). Drives reasoning-style neural firing in all modes. Tool input tracking (`JSON.stringify(part.input)`) captures energy during tool arg streaming, which is the bulk of build time.
 Controller reads both via `consumeEnergy()` + `consumeThinkEnergy()` each animation frame.
+
+**Color space** — `cellColor(brightness, hue)` maps hue to color: 0 = violet, 1 = cyan, <0 = pink (violet→bubblegum). Brightness >0.55 blends toward white. Thinking cells use hue 0-1 (violet-cyan). The building sweep uses negative hue (-0.8 leading, -0.35 trail) for pink, which decays back through violet to cyan — all cool tones, no ghosting. Warm colors (yellow/red/amber) are reserved for warning/error states.
 
 **Intro sequence** — on page load, ChatSidebar's `WelcomeIntro` component temporarily sets mode to `reasoning` and injects energy bursts timed with the staggered welcome text fade-in.
 
