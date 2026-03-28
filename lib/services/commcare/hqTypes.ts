@@ -195,6 +195,57 @@ export interface HqApplication {
   secure_submissions: boolean
   multimedia_map: Record<string, never>
   translations: Record<string, never>
+  /** Standard HQ app properties (push _attachments past WAF 16KB inspection window) */
+  admin_password: null
+  admin_password_charset: string
+  amplifies_project: string
+  amplifies_workers: string
+  archived_media: Record<string, never>
+  attribution_notes: null
+  auto_gps_capture: boolean
+  build_broken: boolean
+  build_broken_reason: null
+  build_comment: null
+  build_profiles: Record<string, never>
+  build_signed: boolean
+  built_on: null
+  built_with: { signed: boolean; datetime: null; doc_type: 'BuildRecord'; version: null; build_number: null; latest: null }
+  cached_properties: Record<string, never>
+  comment: string
+  comment_from: null
+  copy_history: never[]
+  created_from_template: null
+  custom_assertions: never[]
+  custom_base_url: null
+  date_created: null
+  deployment_date: null
+  description: null
+  experienced_threshold: string
+  family_id: null
+  grid_form_menus: string
+  has_submissions: boolean
+  is_auto_generated: boolean
+  is_released: boolean
+  last_modified: null
+  last_released: null
+  location_fixture_restore: string
+  logo_refs: Record<string, never>
+  media_form_errors: boolean
+  minimum_use_threshold: string
+  mobile_ucr_restore_version: string
+  persistent_menu: boolean
+  phone_model: null
+  practice_mobile_worker_id: null
+  recipients: string
+  show_breadcrumbs: boolean
+  smart_lang_display: null
+  split_screen_dynamic_search: boolean
+  target_commcare_flavor: string
+  translation_strategy: string
+  use_custom_suite: boolean
+  use_grid_menus: boolean
+  user_type: null
+  add_ons: Record<string, boolean>
   modules: HqModule[]
   _attachments: Record<string, string>
 }
