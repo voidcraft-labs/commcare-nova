@@ -73,9 +73,7 @@ export function expandBlueprint(blueprint: AppBlueprint): HqApplication {
       const effectiveConnect = blueprint.connect_type ? bf.connect : undefined
       const exportForm = effectiveConnect === bf.connect ? bf : { ...bf, connect: effectiveConnect }
 
-      attachments[`${formUniqueId}.xml`] = buildXForm(exportForm, xmlns, {
-        ...(blueprint.connect_type && { autoGps: true }),
-      })
+      attachments[`${formUniqueId}.xml`] = buildXForm(exportForm, xmlns)
 
       return formShell(
         formUniqueId, bf.name, xmlns,
@@ -122,7 +120,9 @@ export function expandBlueprint(blueprint: AppBlueprint): HqApplication {
     }
   }
 
-  return applicationShell(blueprint.app_name, modules, attachments)
+  return applicationShell(blueprint.app_name, modules, attachments, {
+    ...(blueprint.connect_type && { autoGpsCapture: true }),
+  })
 }
 
 

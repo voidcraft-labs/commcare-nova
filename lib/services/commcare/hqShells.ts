@@ -91,6 +91,7 @@ export function applicationShell(
   appName: string,
   modules: HqModule[],
   attachments: Record<string, string>,
+  options?: { autoGpsCapture?: boolean },
 ): HqApplication {
   return {
     doc_type: 'Application',
@@ -114,7 +115,7 @@ export function applicationShell(
     amplifies_workers: 'not_set',
     archived_media: {},
     attribution_notes: null,
-    auto_gps_capture: false,
+    auto_gps_capture: options?.autoGpsCapture ?? false,
     build_broken: false,
     build_broken_reason: null,
     build_comment: null,
