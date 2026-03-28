@@ -56,3 +56,27 @@ export const XML_ELEMENT_NAME_REGEX = /^[a-zA-Z_][a-zA-Z0-9_]*$/
 
 /** Valid XForm data path (e.g. /data/name, /data/group/question). */
 export const XFORM_PATH_REGEX = /^\/data\/[a-zA-Z0-9_/]+$/
+
+/** Maximum length for case type names (CommCare Core CaseXmlParser constraint). */
+export const MAX_CASE_TYPE_LENGTH = 255
+
+/** Maximum length for case property names (CommCare Core CaseXmlParser constraint). */
+export const MAX_CASE_PROPERTY_LENGTH = 255
+
+/**
+ * Case properties that are always available in case list columns
+ * without needing to be explicitly created by forms.
+ * Source: commcare-hq/corehq/apps/app_manager/detail_screen.py CASE_PROPERTY_MAP
+ * + modules.py default properties.
+ */
+export const STANDARD_CASE_LIST_PROPERTIES: ReadonlySet<string> = new Set([
+  'case_name',         // the display name
+  'name',              // alias for case_name
+  'date_opened',       // when the case was created
+  'date-opened',       // HQ alias
+  'last_modified',     // timestamp of last modification
+  'owner_id',          // user/group ID owning the case
+  'external_id',       // external identifier
+  'external-id',       // HQ alias
+  'status',            // open/closed
+])

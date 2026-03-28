@@ -18,7 +18,9 @@ The single endpoint for all agent interaction. Creates `RunLogger`, `GenerationC
 
 ## POST /api/compile (`compile/route.ts`)
 
-Compiles blueprint → HQ import JSON → `.ccz`. Stores result in `.data/` via `store.ts`.
+Compiles blueprint → HQ import JSON → `.ccz`. Pipeline: `expandBlueprint()` → `AutoFixer.fix()` → `CczCompiler.compile()`. Stores result in `.data/` via `store.ts`.
+
+The CczCompiler validates every XForm after case block injection (bind/ref integrity, itext references) and validates suite.xml well-formedness before packaging. Throws on any structural issue.
 
 **Sub-routes:**
 - `POST /api/compile/json` — returns HQ import JSON only, uses `ApiError` for validation failures

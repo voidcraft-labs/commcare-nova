@@ -1,10 +1,15 @@
 import AdmZip from 'adm-zip'
 import { randomUUID } from 'crypto'
 import { escapeXml, validateCaseType, validateXFormPath, validatePropertyName } from './commcare'
+import { validateXFormXml } from './commcare/validate/xformValidator'
+import { errorToString } from './commcare/validate/errors'
 
 /**
  * Compiles HQ import JSON into a .ccz archive for deployment.
  * Generates suite.xml, profile.ccpr, app_strings.txt, and adds case blocks to XForms.
+ *
+ * Validates every XForm after case block injection to catch orphaned binds,
+ * dangling refs, and other structural issues before packaging.
  */
 export class CczCompiler {
 
@@ -67,6 +72,18 @@ export class CczCompiler {
         if (xform && caseType) {
           xform = this.addCaseBlocks(xform, form.actions, caseType)
         }
+
+        // Validate the final XForm after case injection
+        if (xform) {
+          const xformErrors = validateXFormXml(xform, formName, modName)
+          if (xformErrors.length > 0) {
+            throw new Error(
+              `XForm validation failed for "${formName}" in "${modName}" after case block injection:\n` +
+              xformErrors.map(e => `  - ${errorToString(e)}`).join('\n')
+            )
+          }
+        }
+
         files[filePath] = xform
 
         // Resource declaration
@@ -99,7 +116,17 @@ export class CczCompiler {
       return `  <locale language="${lang === langs[0] ? 'default' : lang}">\n    <resource id="app_strings_${lang}" version="1">\n      <location authority="local">./${langDir}/app_strings.txt</location>\n    </resource>\n  </locale>`
     })
 
-    files['suite.xml'] = `<?xml version="1.0"?>\n<suite version="1">\n${suiteResources.join('\n')}\n${localeResources.join('\n')}\n${suiteDetails.join('\n')}\n${suiteEntries.join('\n')}\n${suiteMenus.join('\n')}\n</suite>`
+    const suiteXml = `<?xml version="1.0"?>\n<suite version="1">\n${suiteResources.join('\n')}\n${localeResources.join('\n')}\n${suiteDetails.join('\n')}\n${suiteEntries.join('\n')}\n${suiteMenus.join('\n')}\n</suite>`
+
+    // Validate suite.xml is well-formed
+    try {
+      const { parseDocument } = await import('htmlparser2')
+      parseDocument(suiteXml, { xmlMode: true })
+    } catch (e) {
+      throw new Error(`Generated suite.xml is malformed: ${e instanceof Error ? e.message : String(e)}`)
+    }
+
+    files['suite.xml'] = suiteXml
 
     // Build per-language app_strings.txt files
     for (const lang of langs) {

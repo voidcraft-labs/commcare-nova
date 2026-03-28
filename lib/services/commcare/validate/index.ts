@@ -1,15 +1,14 @@
 /**
- * Deep blueprint validation — comprehensive XPath and structural checks.
+ * Deep XPath validation — Lezer-based syntax, semantics, and reference checking.
  *
  * Operates directly on AppBlueprint objects. Validates every XPath expression
  * in every question via a Lezer tree walk (syntax + semantics), detects
  * dependency cycles, and checks case property references.
  *
- * Returns error strings compatible with the existing fix loop.
+ * Called by runner.ts which wraps the string output into structured ValidationError objects.
  */
 
 import type { AppBlueprint, Question } from '@/lib/schemas/blueprint'
-// collectCaseProperties derives from questions (reactive schema) rather than case_types
 import { validateXPath } from './xpathValidator'
 import { TriggerDag } from '@/lib/preview/engine/triggerDag'
 
@@ -50,10 +49,7 @@ function collectFromQuestions(questions: Question[], moduleCaseType: string, pro
   }
 }
 
-/**
- * Deep validation of a blueprint's XPath expressions, cycles, and references.
- * Returns error strings in the same format as validateBlueprint() for fix loop compatibility.
- */
+/** Deep validation of a blueprint's XPath expressions, cycles, and references. */
 export function validateBlueprintDeep(blueprint: AppBlueprint): string[] {
   const errors: string[] = []
 

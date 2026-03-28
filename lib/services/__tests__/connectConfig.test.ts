@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import { deriveConnectDefaults } from '../connectConfig'
-import { expandBlueprint, validateBlueprint } from '../hqJsonExpander'
+import { expandBlueprint } from '../hqJsonExpander'
+import { runValidation } from '../commcare/validate/runner'
 import { MutableBlueprint } from '../mutableBlueprint'
 import type { AppBlueprint, BlueprintForm, ConnectConfig } from '../../schemas/blueprint'
 
@@ -218,15 +219,15 @@ describe('Connect validation', () => {
   it('validates learn form missing learn_module', () => {
     const form = makeLearnForm({})
     const bp = makeConnectBlueprint('learn', form)
-    const errors = validateBlueprint(bp)
-    expect(errors.some(e => e.includes('no learn_module config'))).toBe(true)
+    const errors = runValidation(bp)
+    expect(errors.some(e => e.code === 'CONNECT_MISSING_LEARN')).toBe(true)
   })
 
   it('validates deliver form missing deliver_unit', () => {
     const form = makeDeliverForm({})
     const bp = makeConnectBlueprint('deliver', form)
-    const errors = validateBlueprint(bp)
-    expect(errors.some(e => e.includes('no deliver_unit config'))).toBe(true)
+    const errors = runValidation(bp)
+    expect(errors.some(e => e.code === 'CONNECT_MISSING_DELIVER')).toBe(true)
   })
 
   it('passes validation for well-formed learn config', () => {
@@ -235,7 +236,7 @@ describe('Connect validation', () => {
       assessment: { user_score: '100' },
     })
     const bp = makeConnectBlueprint('learn', form)
-    const errors = validateBlueprint(bp)
+    const errors = runValidation(bp)
     expect(errors).toHaveLength(0)
   })
 
@@ -248,7 +249,7 @@ describe('Connect validation', () => {
       },
     })
     const bp = makeConnectBlueprint('deliver', form)
-    const errors = validateBlueprint(bp)
+    const errors = runValidation(bp)
     expect(errors).toHaveLength(0)
   })
 })

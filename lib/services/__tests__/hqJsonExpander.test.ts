@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest'
-import { expandBlueprint, validateBlueprint } from '../hqJsonExpander'
+import { expandBlueprint } from '../hqJsonExpander'
+import { runValidation } from '../commcare/validate/runner'
 import type { AppBlueprint, Question } from '../../schemas/blueprint'
 
 const followupBlueprint: AppBlueprint = {
@@ -28,6 +29,7 @@ const registrationBlueprint: AppBlueprint = {
   modules: [{
     name: 'Registration',
     case_type: 'patient',
+    case_list_columns: [{ field: 'case_name', header: 'Name' }, { field: 'age', header: 'Age' }],
     forms: [{
       name: 'Register Patient',
       type: 'registration',
@@ -208,13 +210,13 @@ describe('case_name in case list columns', () => {
   })
 
   it('validator allows case_name in case_list_columns', () => {
-    expect(validateBlueprint(bp).some(e => e.includes('case_name'))).toBe(false)
+    expect(runValidation(bp).some(e => e.code === 'RESERVED_CASE_PROPERTY')).toBe(false)
   })
 })
 
-describe('validateBlueprint', () => {
+describe('runValidation', () => {
   it('passes for a valid blueprint', () => {
-    expect(validateBlueprint(registrationBlueprint)).toEqual([])
+    expect(runValidation(registrationBlueprint)).toEqual([])
   })
 
   it('catches missing case_type on case forms', () => {
@@ -227,8 +229,8 @@ describe('validateBlueprint', () => {
       }],
       case_types: null,
     }
-    const errors = validateBlueprint(bp)
-    expect(errors.some(e => e.includes('case_type'))).toBe(true)
+    const errors = runValidation(bp)
+    expect(errors.some(e => e.code === 'NO_CASE_TYPE')).toBe(true)
   })
 
   it('catches reserved case property names', () => {
@@ -241,8 +243,8 @@ describe('validateBlueprint', () => {
       }],
       case_types: [{ name: 'c', properties: [{ name: 'name', label: 'Q' }] }],
     }
-    const errors = validateBlueprint(bp)
-    expect(errors.some(e => e.includes('reserved'))).toBe(true)
+    const errors = runValidation(bp)
+    expect(errors.some(e => e.code === 'RESERVED_CASE_PROPERTY')).toBe(true)
   })
 
   it('catches registration form without case_name question', () => {
@@ -255,8 +257,8 @@ describe('validateBlueprint', () => {
       }],
       case_types: [{ name: 'c', properties: [{ name: 'q', label: 'Q' }] }],
     }
-    const errors = validateBlueprint(bp)
-    expect(errors.some(e => e.includes('case_name_field'))).toBe(true)
+    const errors = runValidation(bp)
+    expect(errors.some(e => e.code === 'NO_CASE_NAME_FIELD')).toBe(true)
   })
 })
 
@@ -903,53 +905,53 @@ describe('unquoted string literal detection', () => {
   })
 
   it('catches bare string in default_value', () => {
-    const errors = validateBlueprint(makeBp({ type: 'hidden', default_value: 'no' }))
-    expect(errors.some(e => e.includes('unquoted string "no"') && e.includes('default_value'))).toBe(true)
+    const errors = runValidation(makeBp({ type: 'hidden', default_value: 'no' }))
+    expect(errors.some(e => e.code === 'UNQUOTED_STRING_LITERAL' && e.location.field === 'default_value')).toBe(true)
   })
 
   it('catches bare string in calculate', () => {
-    const errors = validateBlueprint(makeBp({ type: 'hidden', calculate: 'pending' }))
-    expect(errors.some(e => e.includes('unquoted string "pending"') && e.includes('calculate'))).toBe(true)
+    const errors = runValidation(makeBp({ type: 'hidden', calculate: 'pending' }))
+    expect(errors.some(e => e.code === 'UNQUOTED_STRING_LITERAL' && e.location.field === 'calculate')).toBe(true)
   })
 
   it('catches bare string in relevant', () => {
-    const errors = validateBlueprint(makeBp({ relevant: 'yes' }))
-    expect(errors.some(e => e.includes('unquoted string "yes"') && e.includes('relevant'))).toBe(true)
+    const errors = runValidation(makeBp({ relevant: 'yes' }))
+    expect(errors.some(e => e.code === 'UNQUOTED_STRING_LITERAL' && e.location.field === 'relevant')).toBe(true)
   })
 
   it('allows quoted string literal', () => {
-    const errors = validateBlueprint(makeBp({ type: 'hidden', default_value: "'no'" }))
-    expect(errors.some(e => e.includes('unquoted string'))).toBe(false)
+    const errors = runValidation(makeBp({ type: 'hidden', default_value: "'no'" }))
+    expect(errors.some(e => e.code === 'UNQUOTED_STRING_LITERAL')).toBe(false)
   })
 
   it('allows function calls', () => {
-    const errors = validateBlueprint(makeBp({ required: 'true()' }))
-    expect(errors.some(e => e.includes('unquoted string'))).toBe(false)
+    const errors = runValidation(makeBp({ required: 'true()' }))
+    expect(errors.some(e => e.code === 'UNQUOTED_STRING_LITERAL')).toBe(false)
   })
 
   it('allows XPath expressions', () => {
-    const errors = validateBlueprint(makeBp({ relevant: '/data/age > 18' }))
-    expect(errors.some(e => e.includes('unquoted string'))).toBe(false)
+    const errors = runValidation(makeBp({ relevant: '/data/age > 18' }))
+    expect(errors.some(e => e.code === 'UNQUOTED_STRING_LITERAL')).toBe(false)
   })
 
   it('allows hashtag references', () => {
-    const errors = validateBlueprint(makeBp({ type: 'hidden', calculate: '#case/status' }))
-    expect(errors.some(e => e.includes('unquoted string'))).toBe(false)
+    const errors = runValidation(makeBp({ type: 'hidden', calculate: '#case/status' }))
+    expect(errors.some(e => e.code === 'UNQUOTED_STRING_LITERAL')).toBe(false)
   })
 
   it('allows number literals', () => {
-    const errors = validateBlueprint(makeBp({ type: 'hidden', default_value: '0' }))
-    expect(errors.some(e => e.includes('unquoted string'))).toBe(false)
+    const errors = runValidation(makeBp({ type: 'hidden', default_value: '0' }))
+    expect(errors.some(e => e.code === 'UNQUOTED_STRING_LITERAL')).toBe(false)
   })
 
   it('allows today() function', () => {
-    const errors = validateBlueprint(makeBp({ type: 'hidden', default_value: 'today()' }))
-    expect(errors.some(e => e.includes('unquoted string'))).toBe(false)
+    const errors = runValidation(makeBp({ type: 'hidden', default_value: 'today()' }))
+    expect(errors.some(e => e.code === 'UNQUOTED_STRING_LITERAL')).toBe(false)
   })
 
   it('allows dot expressions', () => {
-    const errors = validateBlueprint(makeBp({ validation: '. > 0' }))
-    expect(errors.some(e => e.includes('unquoted string'))).toBe(false)
+    const errors = runValidation(makeBp({ validation: '. > 0' }))
+    expect(errors.some(e => e.code === 'UNQUOTED_STRING_LITERAL')).toBe(false)
   })
 
   it('catches bare string inside group children', () => {
@@ -969,8 +971,8 @@ describe('unquoted string literal detection', () => {
       }],
       case_types: null,
     }
-    const errors = validateBlueprint(bp)
-    expect(errors.some(e => e.includes('unquoted string "active"'))).toBe(true)
+    const errors = runValidation(bp)
+    expect(errors.some(e => e.code === 'UNQUOTED_STRING_LITERAL' && e.details?.bareWord === 'active')).toBe(true)
   })
 })
 
@@ -996,8 +998,8 @@ describe('child case type module requirement', () => {
         { name: 'service', parent_type: 'plan', properties: [{ name: 'case_name', label: 'Service Name' }] },
       ],
     }
-    const errors = validateBlueprint(bp)
-    expect(errors.some(e => e.includes('Child case type "service"') && e.includes('has no module'))).toBe(true)
+    const errors = runValidation(bp)
+    expect(errors.some(e => e.code === 'MISSING_CHILD_CASE_MODULE')).toBe(true)
   })
 
   it('no error when child case type has a case_list_only module', () => {
@@ -1028,9 +1030,9 @@ describe('child case type module requirement', () => {
         { name: 'service', parent_type: 'plan', properties: [{ name: 'case_name', label: 'Service Name' }] },
       ],
     }
-    const errors = validateBlueprint(bp)
-    expect(errors.some(e => e.includes('Child case type "service"'))).toBe(false)
-    expect(errors.some(e => e.includes('case_list_only'))).toBe(false)
+    const errors = runValidation(bp)
+    expect(errors.some(e => e.code === 'MISSING_CHILD_CASE_MODULE')).toBe(false)
+    expect(errors.some(e => e.code === 'CASE_LIST_ONLY_HAS_FORMS' || e.code === 'CASE_LIST_ONLY_NO_CASE_TYPE')).toBe(false)
   })
 })
 
@@ -1048,8 +1050,8 @@ describe('case_list_only validation', () => {
       }],
       case_types: [{ name: 'thing', properties: [] }],
     }
-    const errors = validateBlueprint(bp)
-    expect(errors.some(e => e.includes('case_list_only but has forms'))).toBe(true)
+    const errors = runValidation(bp)
+    expect(errors.some(e => e.code === 'CASE_LIST_ONLY_HAS_FORMS')).toBe(true)
   })
 
   it('errors when case_list_only module has no case_type', () => {
@@ -1062,8 +1064,8 @@ describe('case_list_only validation', () => {
       }],
       case_types: null,
     }
-    const errors = validateBlueprint(bp)
-    expect(errors.some(e => e.includes('case_list_only but has no case_type'))).toBe(true)
+    const errors = runValidation(bp)
+    expect(errors.some(e => e.code === 'CASE_LIST_ONLY_NO_CASE_TYPE')).toBe(true)
   })
 
   it('errors when module has case_type and no forms but missing case_list_only flag', () => {
@@ -1076,8 +1078,8 @@ describe('case_list_only validation', () => {
       }],
       case_types: [{ name: 'thing', properties: [] }],
     }
-    const errors = validateBlueprint(bp)
-    expect(errors.some(e => e.includes('set case_list_only: true'))).toBe(true)
+    const errors = runValidation(bp)
+    expect(errors.some(e => e.code === 'NO_FORMS_OR_CASE_LIST')).toBe(true)
   })
 })
 

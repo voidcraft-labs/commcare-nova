@@ -6,7 +6,7 @@ Core business logic: Solutions Architect agent, blueprint management, LLM orches
 
 Split across two files:
 - `solutionsArchitect.ts` — `createSolutionsArchitect()` with tool definitions + `buildColumnPrompt()`
-- `validationLoop.ts` — `validateAndFix()`, `groupErrorsByForm()`, `applyProgrammaticFixes()`
+- `validationLoop.ts` — `validateAndFix()` orchestrator
 
 `solutionsArchitect.ts` exports `createSolutionsArchitect(ctx, mutableBp)` — single `ToolLoopAgent` with 20 tools in 6 groups:
 
@@ -40,7 +40,7 @@ The SA makes all architecture and form design decisions. All tools are called di
 
 **SA prompt** (`lib/prompts/solutionsArchitectPrompt.ts`) includes a CommCare XPath quick reference so the SA can write correct XPath without hallucinating function signatures (e.g. `round()` takes 1 arg, not 2).
 
-Also re-exports `validateAndFix()` (from `validationLoop.ts`) — programmatic validation + fix loop (rule-based fixes + deep XPath validation). Unfixable errors (e.g. empty forms) are surfaced to the SA to fix with its normal tools.
+Also re-exports `validateAndFix()` (from `validationLoop.ts`) — runs `runValidation()` in a loop, applying auto-fixes from `FIX_REGISTRY` by error code. Unfixable errors are surfaced to the SA as strings via `errorToString()` so it can fix them with its mutation tools.
 
 ## MutableBlueprint
 
@@ -146,14 +146,14 @@ Also re-exports `validateAndFix()` (from `validationLoop.ts`) — programmatic v
 ## Expander
 
 Split across four files:
-- `hqJsonExpander.ts` — `expandBlueprint()` orchestrator + `validateBlueprint()`
+- `hqJsonExpander.ts` — `expandBlueprint()` orchestrator + `detectUnquotedStringLiteral()`
 - `xformBuilder.ts` — `buildXForm()`, `buildQuestionParts()`, `buildConnectBlocks()`, `InstanceTracker`, `getAppearance()`, `getXsdType()`
 - `formActions.ts` — `buildFormActions()`, `buildCaseReferencesLoad()`
 - `connectConfig.ts` — `deriveConnectDefaults()` auto-populates Connect config from form content
 
-`expandBlueprint()` converts `AppBlueprint` → HQ import JSON. `validateBlueprint()` checks semantic rules. `detectUnquotedStringLiteral()` uses the Lezer XPath parser to flag bare words in XPath fields (e.g. `no` instead of `'no'`).
+`expandBlueprint()` converts `AppBlueprint` → HQ import JSON. `detectUnquotedStringLiteral()` uses the Lezer XPath parser to flag bare words in XPath fields (e.g. `no` instead of `'no'`).
 
-**`case_list_only` modules** — CommCare requires every case type to be declared as a module's primary `case_type`. Child case types with no follow-up workflow use `case_list_only: true` on their module. The expander sets `case_list.show = true` and `case_list.label` on these modules so HQ accepts them. The validator checks: `case_list_only` + forms → error, `case_list_only` + no case_type → error, case_type + no forms + no `case_list_only` flag → error (ambiguous — could be a forgotten form or an intentional case-list viewer).
+**`case_list_only` modules** — CommCare requires every case type to be declared as a module's primary `case_type`. Child case types with no follow-up workflow use `case_list_only: true` on their module. The expander sets `case_list.show = true` and `case_list.label` on these modules so HQ accepts them.
 
 **Vellum hashtag expansion** — dual-attribute pattern matching CommCare's Vellum editor. All three hashtag types (`#form/`, `#case/`, `#user/`) are expanded via the Lezer XPath parser's `HashtagRef` node (with `HashtagType` and `HashtagSegment` children). `expandHashtags()` in `commcare/hashtags.ts` is the single expansion point:
 - `#form/question` → `/data/question` (trivial, hardcoded in Vellum).
@@ -179,29 +179,41 @@ Called on-demand by expander and validator — no form-level case fields stored.
 
 ## Compiler (cczCompiler.ts)
 
-`CczCompiler` takes HQ import JSON → `.ccz` Buffer. Generates suite.xml, profile.ccpr, app_strings.txt. Injects case blocks back into XForm XML.
+`CczCompiler` takes HQ import JSON → `.ccz` Buffer. Generates suite.xml, profile.ccpr, app_strings.txt. Injects case blocks (create/update/close/subcases) back into XForm XML via `addCaseBlocks()`.
+
+After case block injection, every XForm is validated via `validateXFormXml()` — checking that all bind nodesets, control refs, setvalue targets, and itext references resolve to actual nodes. Suite.xml is also parsed to verify well-formedness. The compiler throws on any structural issue, preventing broken .ccz files from being packaged.
 
 ## AutoFixer (autoFixer.ts)
 
-Programmatic fixes for common CommCare app issues. Used by `validateAndFix()` loop. Includes auto-fix for unquoted string literals (wraps bare words in single quotes).
+Post-expansion XML fixes for CommCare app issues (itext conversion, reserved property names in XML, missing case binds). Operates on generated XForm XML, not the blueprint.
 
 ## CommCare Module (commcare/)
 
-Shared platform module: `constants.ts` (reserved words, regex), `xml.ts` (escapeXml), `hashtags.ts` (Vellum expansion), `ids.ts` (hex ID gen), `hqTypes.ts` (HQ JSON interfaces), `hqShells.ts` (factory functions), `validate.ts` (identifier validation).
+Shared platform module: `constants.ts` (reserved words, regex, length limits), `xml.ts` (escapeXml), `hashtags.ts` (Vellum expansion), `ids.ts` (hex ID gen), `hqTypes.ts` (HQ JSON interfaces), `hqShells.ts` (factory functions), `validate.ts` (identifier validation).
 
 **WAF workaround in `hqShells.ts`:** HQ's app import endpoint (`ImportAppStepsView`) is missing a `waf_allow('XSS_BODY')` WAF exemption that all other XForms-handling endpoints have. The AWS WAF inspects the first 16KB of the request body for XSS patterns and blocks when it finds XForms elements like `<input>`, `<select>`, `<upload>` that look like HTML tags. `applicationShell()` includes ~50 standard HQ Application properties before `_attachments` to push the XForms XML past the 16KB inspection window. These properties must appear before `modules` and `_attachments` in key order — do not reorder them.
 
-### Deep Validation (commcare/validate/)
+### Validation System (commcare/validate/)
 
-Three-phase XPath validation mirroring real compiler architecture — parsing (Lezer) → type checking → name/arity/reference checking. Operates directly on `AppBlueprint` objects during build and edit.
+Rule-based validation system that catches every error CommCare HQ would catch during a build. Each check is a discrete function that returns structured `ValidationError[]` objects with typed error codes, scope, location, and details.
 
+**Architecture:**
+- `errors.ts` — `ValidationError` interface with `ValidationErrorCode` union (~35 codes), `errorToString()` for SA-facing messages.
+- `runner.ts` — `runValidation(blueprint)`: single entry point. Walks the blueprint tree once running scope-appropriate rules, then runs deep XPath validation.
+- `rules/app.ts` — App-level rules: empty app name, duplicate module names, child case type missing module.
+- `rules/module.ts` — Module-level rules: case type presence/format/length, case_list_only constraints, case list column presence, column field validation against known case properties.
+- `rules/form.ts` — Form-level rules: empty form, case config validation (name field, reserved/invalid/duplicate properties, length limits, media types, preload), close_case, Connect config. Derives case config once per form.
+- `rules/question.ts` — Question-level rules (recursive): select no options, hidden no value, unquoted string literals, invalid question ID format.
+- `fixes.ts` — `FIX_REGISTRY`: `Map<ValidationErrorCode, FixFn>` mapping error codes to auto-fix functions. The fix loop in `validationLoop.ts` dispatches by error code.
+
+**XPath Deep Validation** (unchanged, called by runner):
 - `functionRegistry.ts` — `FUNCTION_REGISTRY`: static `Map<string, FunctionSpec>` for all ~65 CommCare XPath functions + XPath 1.0 core. Each entry has `minArgs`, `maxArgs`, `returnType` (`XPathType`), and optional `paramTypes` array. Source of truth for arities: commcare-core's `ASTNodeFunctionCall.java`. Source of truth for types: XPath 1.0 spec + CommCare runtime. `findCaseInsensitiveMatch()` powers "did you mean?" suggestions.
 - `typeChecker.ts` — Bottom-up type inference over the Lezer CST. Infers `XPathType` (`string | number | boolean | nodeset | any`) for every node, then checks operator/function constraints via a declarative `OPERATOR_TYPES` table. Flags provably-lossy coercions: non-numeric string literals in numeric contexts (e.g. `- 'hello'`, `'text' * 2`, `round('foo')`). Allows legitimate patterns: nodeset coercion (unknowable), numeric string literals (`'5' + 3`), boolean↔number coercion.
 - `xpathValidator.ts` — `validateXPath(expr, validPaths?, caseProperties?)`: comprehensive Lezer CST walker. Three phases: `⚠` → syntax error, `Invoke` → function name + arity, type checker → type errors, path refs → node existence, `HashtagRef` → case property existence.
-- `index.ts` — `validateBlueprintDeep(blueprint)`: orchestrator called by `validateBlueprint()`. Per-form: walks all XPath fields, runs cycle detection via `TriggerDag.reportCycles()`. Cross-form: validates `#case/prop` references against `blueprint.case_types`. Exports `collectValidPaths()` and `collectCaseProperties()` for reuse by the CodeMirror linter.
-- `types.ts` — `ValidationError` with codes: `XPATH_SYNTAX`, `UNKNOWN_FUNCTION`, `WRONG_ARITY`, `INVALID_REF`, `INVALID_CASE_REF`, `CYCLE`, `TYPE_ERROR`.
+- `index.ts` — `validateBlueprintDeep(blueprint)`: deep XPath orchestrator called by `runner.ts`. Per-form: walks all XPath fields, runs cycle detection via `TriggerDag.reportCycles()`. Cross-form: validates `#case/prop` references against `blueprint.case_types`. Exports `collectValidPaths()` and `collectCaseProperties()` for reuse by the CodeMirror linter.
 
-The fix loop in `validationLoop.ts` auto-fixes case-mismatched function names (`Today()` → `today()`) and wrong `round()` arity (`round(x, 2)` → `round(x)`).
+**Post-expansion XForm validation** (called by validationLoop and CczCompiler):
+- `xformValidator.ts` — `validateXFormXml(xml, formName, moduleName)`: parses generated XForm XML with htmlparser2, validates that all bind nodesets, body control refs, setvalue targets, and itext references resolve to actual instance nodes. Catches orphaned binds (the `"Bind Node found but has no associated Data node"` class of errors from Vellum/FormPlayer). Used in two places: the validation loop (after `expandBlueprint`) and the CczCompiler (after case block injection).
 
 ## Run Logging
 
