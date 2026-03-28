@@ -65,7 +65,7 @@ export function deriveConnectDefaults(connectType: 'learn' | 'deliver', form: Bl
   if (connectType === 'deliver') {
     const du = form.connect.deliver_unit ??= { name: '', entity_id: '', entity_name: '' }
     du.name ||= form.name
-    du.entity_id ||= "concat(instance('commcaresession')/session/user/data/username, '-', today())"
-    du.entity_name ||= "instance('commcaresession')/session/user/data/username"
+    du.entity_id ||= "concat(#user/username, '-', today())"
+    du.entity_name ||= "#user/username"
   }
 }

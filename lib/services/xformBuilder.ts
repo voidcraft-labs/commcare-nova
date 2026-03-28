@@ -78,48 +78,67 @@ function processLabelText(text: string): string {
   return render(doc, RENDER_OPTS)
 }
 
-/** Collect all XPath expressions from a question tree (pre-expansion). */
-function collectAllXPaths(questions: Question[]): string[] {
-  const exprs: string[] = []
-  for (const q of questions) {
-    if (q.relevant) exprs.push(q.relevant)
-    if (q.validation) exprs.push(q.validation)
-    if (q.calculate) exprs.push(q.calculate)
-    if (q.default_value) exprs.push(q.default_value)
-    if (q.required) exprs.push(q.required)
-    if (q.children) exprs.push(...collectAllXPaths(q.children))
-  }
-  return exprs
+// ── Secondary instance tracking ──────────────────────────────────────
+// Instead of collecting XPaths into arrays and scanning them post-hoc,
+// each sub-builder registers the instances it needs via this tracker.
+// casedb implies commcaresession (case XPath uses session for case_id).
+
+type InstanceId = 'casedb' | 'commcaresession'
+
+const INSTANCE_SOURCES: Record<InstanceId, string> = {
+  casedb: 'jr://instance/casedb',
+  commcaresession: 'jr://instance/session',
 }
 
-/** Collect XPath expressions from Connect config fields. */
-function collectConnectXPaths(connect?: ConnectConfig): string[] {
-  const exprs: string[] = []
-  if (connect?.assessment?.user_score) exprs.push(connect.assessment.user_score)
-  if (connect?.deliver_unit?.entity_id) exprs.push(connect.deliver_unit.entity_id)
-  if (connect?.deliver_unit?.entity_name) exprs.push(connect.deliver_unit.entity_name)
-  return exprs
-}
+class InstanceTracker {
+  private ids = new Set<InstanceId>()
 
-/** Non-global — safe for .test() without lastIndex state. Only #case/ and #user/ need casedb. */
-const CASE_HASHTAG_IN_PROSE = /#(case|user)\//
-
-/** Check if any question labels/hints/help contain #case/ or #user/ hashtag refs. */
-function hasHashtagInLabels(questions: Question[]): boolean {
-  for (const q of questions) {
-    if (CASE_HASHTAG_IN_PROSE.test(q.label ?? '') || CASE_HASHTAG_IN_PROSE.test(q.hint ?? '') || CASE_HASHTAG_IN_PROSE.test(q.help ?? '')) return true
-    if (q.children && hasHashtagInLabels(q.children)) return true
+  require(id: InstanceId): void {
+    this.ids.add(id)
+    if (id === 'casedb') this.ids.add('commcaresession')
   }
-  return false
+
+  /** Scan a pre-expansion XPath for instance references. */
+  scanXPath(expr: string): void {
+    if (expr.includes('#case/') || expr.includes('#user/') || expr.includes("instance('casedb')")) {
+      this.require('casedb')
+    }
+    if (expr.includes("instance('commcaresession')")) {
+      this.require('commcaresession')
+    }
+  }
+
+  /** Scan label/hint/help prose for #case/ or #user/ hashtag refs. */
+  scanLabel(text: string): void {
+    if (/#(case|user)\//.test(text)) this.require('casedb')
+  }
+
+  toXml(): string[] {
+    return (['casedb', 'commcaresession'] as const)
+      .filter(id => this.ids.has(id))
+      .map(id => `      <instance src="${INSTANCE_SOURCES[id]}" id="${id}" />`)
+  }
 }
 
 const CONNECT_XMLNS = 'http://commcareconnect.com/data/v1/learn'
 
 /**
  * Build Connect data blocks and binds for the XForm.
- * Each block is a data-only node with the Connect namespace — no body elements.
+ *
+ * Each Connect type uses a two-level wrapper recognized by Vellum:
+ *   <wrapper vellum:role="ConnectDeliverUnit">
+ *     <inner xmlns="http://commcareconnect.com/data/v1/learn" id="wrapper">
+ *       <child/>...
+ *     </inner>
+ *   </wrapper>
+ *
+ * The vellum:role attribute is what tells HQ this is a Connect entity, not a
+ * plain hidden question. Without it, HQ can't process the Connect structure
+ * and child binds (entity_id, user_score, etc.) fail at runtime.
+ *
+ * Each wrapper also needs its own bind with vellum:nodeset.
  */
-function buildConnectBlocks(connect: ConnectConfig | undefined): { dataElements: string[]; binds: string[] } {
+function buildConnectBlocks(connect: ConnectConfig | undefined, instances: InstanceTracker): { dataElements: string[]; binds: string[] } {
   const dataElements: string[] = []
   const binds: string[] = []
 
@@ -128,7 +147,7 @@ function buildConnectBlocks(connect: ConnectConfig | undefined): { dataElements:
   if (connect.learn_module) {
     const lm = connect.learn_module
     dataElements.push(
-      `<connect_learn>` +
+      `<connect_learn vellum:role="ConnectLearnModule">` +
       `<module xmlns="${CONNECT_XMLNS}" id="connect_learn">` +
       `<name>${escapeXml(lm.name)}</name>` +
       `<description>${escapeXml(lm.description)}</description>` +
@@ -136,25 +155,32 @@ function buildConnectBlocks(connect: ConnectConfig | undefined): { dataElements:
       `</module>` +
       `</connect_learn>`
     )
+    binds.push(
+      `<bind vellum:nodeset="#form/connect_learn" nodeset="/data/connect_learn"/>`,
+    )
   }
 
   if (connect.assessment) {
+    instances.scanXPath(connect.assessment.user_score)
     dataElements.push(
-      `<connect_assessment>` +
+      `<connect_assessment vellum:role="ConnectAssessment">` +
       `<assessment xmlns="${CONNECT_XMLNS}" id="connect_assessment">` +
       `<user_score/>` +
       `</assessment>` +
       `</connect_assessment>`
     )
     binds.push(
-      `<bind nodeset="/data/connect_assessment/assessment/user_score" calculate="${escapeXml(expandHashtags(connect.assessment.user_score))}"/>`
+      `<bind vellum:nodeset="#form/connect_assessment" nodeset="/data/connect_assessment"/>`,
+      `<bind nodeset="/data/connect_assessment/assessment/user_score" calculate="${escapeXml(expandHashtags(connect.assessment.user_score))}"/>`,
     )
   }
 
   if (connect.deliver_unit) {
     const du = connect.deliver_unit
+    instances.scanXPath(du.entity_id)
+    instances.scanXPath(du.entity_name)
     dataElements.push(
-      `<connect_deliver>` +
+      `<connect_deliver vellum:role="ConnectDeliverUnit">` +
       `<deliver xmlns="${CONNECT_XMLNS}" id="connect_deliver">` +
       `<name>${escapeXml(du.name)}</name>` +
       `<entity_id/>` +
@@ -163,6 +189,7 @@ function buildConnectBlocks(connect: ConnectConfig | undefined): { dataElements:
       `</connect_deliver>`
     )
     binds.push(
+      `<bind vellum:nodeset="#form/connect_deliver" nodeset="/data/connect_deliver"/>`,
       `<bind nodeset="/data/connect_deliver/deliver/entity_id" calculate="${escapeXml(expandHashtags(du.entity_id))}"/>`,
       `<bind nodeset="/data/connect_deliver/deliver/entity_name" calculate="${escapeXml(expandHashtags(du.entity_name))}"/>`,
     )
@@ -171,12 +198,15 @@ function buildConnectBlocks(connect: ConnectConfig | undefined): { dataElements:
   if (connect.task) {
     const t = connect.task
     dataElements.push(
-      `<connect_task>` +
+      `<connect_task vellum:role="ConnectTask">` +
       `<task xmlns="${CONNECT_XMLNS}" id="connect_task">` +
       `<name>${escapeXml(t.name)}</name>` +
       `<description>${escapeXml(t.description)}</description>` +
       `</task>` +
       `</connect_task>`
+    )
+    binds.push(
+      `<bind vellum:nodeset="#form/connect_task" nodeset="/data/connect_task"/>`,
     )
   }
 
@@ -186,6 +216,7 @@ function buildConnectBlocks(connect: ConnectConfig | undefined): { dataElements:
 /** Build complete XForm XML from question definitions. */
 export function buildXForm(form: BlueprintForm, xmlns: string): string {
   const questions = form.questions || []
+  const instances = new InstanceTracker()
   const dataElements: string[] = []
   const binds: string[] = []
   const setvalues: string[] = []
@@ -205,11 +236,11 @@ export function buildXForm(form: BlueprintForm, xmlns: string): string {
   }
 
   for (const q of questions) {
-    buildQuestionParts(q, '/data', dataElements, binds, setvalues, bodyElements, false, addItext)
+    buildQuestionParts(q, '/data', dataElements, binds, setvalues, bodyElements, false, addItext, instances)
   }
 
   // Append Connect data blocks and binds (data-only, no body elements)
-  const connectParts = buildConnectBlocks(form.connect)
+  const connectParts = buildConnectBlocks(form.connect, instances)
   dataElements.push(...connectParts.dataElements)
   binds.push(...connectParts.binds)
 
@@ -233,17 +264,7 @@ export function buildXForm(form: BlueprintForm, xmlns: string): string {
 
   const bodyContent = bodyElements.map(e => `    ${e}`).join('\n')
 
-  // Check if any XPath references or labels need secondary instances
-  const allXPaths = [...collectAllXPaths(questions), ...collectConnectXPaths(form.connect)]
-  const xpathNeedsCasedb = allXPaths.some(x => x.includes('#case/') || x.includes('#user/') || x.includes("instance('casedb')"))
-  const labelNeedsCasedb = !xpathNeedsCasedb && hasHashtagInLabels(questions)
-  const needsCasedb = xpathNeedsCasedb || labelNeedsCasedb
-  const needsSession = needsCasedb || allXPaths.some(x => x.includes("instance('commcaresession')"))
-
-  const secondaryInstances = [
-    ...(needsCasedb ? ['      <instance src="jr://instance/casedb" id="casedb" />'] : []),
-    ...(needsSession ? ['      <instance src="jr://instance/session" id="commcaresession" />'] : []),
-  ]
+  const secondaryInstances = instances.toXml()
   const secondaryContent = secondaryInstances.length > 0 ? '\n' + secondaryInstances.join('\n') : ''
 
   return `<?xml version="1.0"?>
@@ -282,9 +303,18 @@ function buildQuestionParts(
   setvalues: string[],
   bodyElements: string[],
   insideRepeat: boolean,
-  addItext: (id: string, text: string | undefined, markdown?: boolean) => void
+  addItext: (id: string, text: string | undefined, markdown?: boolean) => void,
+  instances: InstanceTracker,
 ): void {
   const nodePath = `${parentPath}/${q.id}`
+
+  // Register instance requirements for all XPath fields and labels
+  for (const expr of [q.relevant, q.validation, q.calculate, q.default_value, q.required]) {
+    if (expr) instances.scanXPath(expr)
+  }
+  for (const text of [q.label, q.hint, q.help]) {
+    if (text) instances.scanLabel(text)
+  }
 
   // Data element
   dataElements.push(`<${q.id}/>`)
@@ -359,7 +389,7 @@ function buildQuestionParts(
     const childBody: string[] = []
     const childInsideRepeat = q.type === 'repeat' ? true : insideRepeat
     for (const child of (q.children || [])) {
-      buildQuestionParts(child, nodePath, childData, childBinds, setvalues, childBody, childInsideRepeat, addItext)
+      buildQuestionParts(child, nodePath, childData, childBinds, setvalues, childBody, childInsideRepeat, addItext, instances)
     }
     // Replace the self-closing data element with a proper parent element wrapping children
     dataElements.pop()

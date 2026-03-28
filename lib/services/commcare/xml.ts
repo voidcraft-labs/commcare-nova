@@ -1,11 +1,12 @@
-/** Escape special XML characters in attribute values and text content. Includes &apos; for attributes. */
+/** Escape special XML characters for attribute values and text content.
+ *  All our attributes are double-quoted, so single quotes are left as-is —
+ *  HQ/CommCare expects literal ' in XPath expressions (e.g. instance('casedb')). */
 export function escapeXml(s: string): string {
   return s
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;')
-    .replace(/'/g, '&apos;')
 }
 
 /** Escape special regex characters in a string for use in `new RegExp()`. */

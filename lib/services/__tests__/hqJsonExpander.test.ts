@@ -84,7 +84,7 @@ describe('expandBlueprint', () => {
 
     // Real calculate should have the expanded instance() XPath
     expect(xform).toContain(
-      "calculate=\"instance(&apos;casedb&apos;)/casedb/case[@case_id = instance(&apos;commcaresession&apos;)/session/data/case_id]/total_visits + 1\""
+      "calculate=\"instance('casedb')/casedb/case[@case_id = instance('commcaresession')/session/data/case_id]/total_visits + 1\""
     )
     // Vellum calculate preserves the shorthand for the editor
     expect(xform).toContain('vellum:calculate="#case/total_visits + 1"')
@@ -127,7 +127,7 @@ describe('expandBlueprint', () => {
     const hq = expandBlueprint(bp)
     const xform: string = Object.values(hq._attachments)[0] as string
     expect(xform).toContain('vellum:ref="#form/status" ref="/data/status"')
-    expect(xform).toContain("value=\"&apos;pending&apos;\"")
+    expect(xform).toContain("value=\"'pending'\"")
     // No vellum:value when there are no hashtags in the value expression
     expect(xform).not.toContain('vellum:value=')
   })
@@ -145,7 +145,7 @@ describe('expandBlueprint', () => {
     const hq = expandBlueprint(bp)
     const xform: string = Object.values(hq._attachments)[0] as string
     // Real value attribute should have expanded XPath (XML-escaped)
-    expect(xform).toContain("instance(&apos;casedb&apos;)")
+    expect(xform).toContain("instance('casedb')")
     expect(xform).toContain('/full_name"')
     // Vellum value preserves shorthand
     expect(xform).toContain('vellum:value="#case/full_name"')
@@ -402,8 +402,8 @@ describe('#form/ hashtag expansion', () => {
     }
     const hq = expandBlueprint(bp)
     const xform: string = Object.values(hq._attachments)[0] as string
-    expect(xform).toContain("calculate=\"concat(/data/first_name, &apos; &apos;, /data/last_name)\"")
-    expect(xform).toContain("vellum:calculate=\"concat(#form/first_name, &apos; &apos;, #form/last_name)\"")
+    expect(xform).toContain("calculate=\"concat(/data/first_name, ' ', /data/last_name)\"")
+    expect(xform).toContain("vellum:calculate=\"concat(#form/first_name, ' ', #form/last_name)\"")
   })
 
   it('expands #form/ in relevant to /data/, keeps shorthand in vellum:relevant', () => {
@@ -421,8 +421,8 @@ describe('#form/ hashtag expansion', () => {
     }
     const hq = expandBlueprint(bp)
     const xform: string = Object.values(hq._attachments)[0] as string
-    expect(xform).toContain("relevant=\"/data/consent = &apos;yes&apos;\"")
-    expect(xform).toContain("vellum:relevant=\"#form/consent = &apos;yes&apos;\"")
+    expect(xform).toContain("relevant=\"/data/consent = 'yes'\"")
+    expect(xform).toContain("vellum:relevant=\"#form/consent = 'yes'\"")
   })
 
   it('expands #form/ in validation constraint', () => {
@@ -459,8 +459,8 @@ describe('#form/ hashtag expansion', () => {
     }
     const hq = expandBlueprint(bp)
     const xform: string = Object.values(hq._attachments)[0] as string
-    expect(xform).toContain("required=\"/data/has_issue = &apos;yes&apos;\"")
-    expect(xform).toContain("vellum:required=\"#form/has_issue = &apos;yes&apos;\"")
+    expect(xform).toContain("required=\"/data/has_issue = 'yes'\"")
+    expect(xform).toContain("vellum:required=\"#form/has_issue = 'yes'\"")
   })
 
   it('expands #form/ in <output> tags with vellum:value', () => {
@@ -571,8 +571,8 @@ describe('#form/ hashtag expansion', () => {
     }
     const hq = expandBlueprint(bp)
     const xform: string = Object.values(hq._attachments)[0] as string
-    expect(xform).toContain("relevant=\"/data/show = &apos;yes&apos;\"")
-    expect(xform).toContain("vellum:relevant=\"#form/show = &apos;yes&apos;\"")
+    expect(xform).toContain("relevant=\"/data/show = 'yes'\"")
+    expect(xform).toContain("vellum:relevant=\"#form/show = 'yes'\"")
     expect(xform).toContain('vellum:nodeset="#form/details"')
   })
 
@@ -691,7 +691,7 @@ describe('conditional required', () => {
     }
     const hq = expandBlueprint(bp)
     const xform: string = Object.values(hq._attachments)[0] as string
-    expect(xform).toContain("required=\"/data/consent = &apos;yes&apos;\"")
+    expect(xform).toContain("required=\"/data/consent = 'yes'\"")
     expect(xform).not.toContain('required="true()"')
   })
 
@@ -710,8 +710,8 @@ describe('conditional required', () => {
     }
     const hq = expandBlueprint(bp)
     const xform: string = Object.values(hq._attachments)[0] as string
-    expect(xform).toContain("vellum:required=\"#case/risk = &apos;high&apos;\"")
-    expect(xform).toContain("instance(&apos;casedb&apos;)")
+    expect(xform).toContain("vellum:required=\"#case/risk = 'high'\"")
+    expect(xform).toContain("instance('casedb')")
   })
 })
 
