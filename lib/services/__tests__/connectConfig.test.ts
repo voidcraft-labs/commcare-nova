@@ -190,8 +190,8 @@ describe('Connect XForm export', () => {
     const form = makeDeliverForm({
       deliver_unit: {
         name: 'Unit',
-        entity_id: "instance('commcaresession')/session/user/data/username",
-        entity_name: "instance('commcaresession')/session/user/data/username",
+        entity_id: "concat(#user/username, '-', today())",
+        entity_name: "#user/username",
       },
     })
     const bp = makeConnectBlueprint('deliver', form)
