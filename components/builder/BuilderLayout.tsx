@@ -597,6 +597,7 @@ export function BuilderLayout({ buildId }: { buildId: string }) {
                           completed={builder.progressCompleted}
                           total={builder.progressTotal}
                           mode={progressMode}
+                          appName={builder.treeData?.app_name || undefined}
                           onDone={() => setProgressHidden(true)}
                         />
                       </div>
