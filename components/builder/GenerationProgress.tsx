@@ -1,6 +1,6 @@
 'use client'
 import { useRef, useState, useCallback, useSyncExternalStore } from 'react'
-import { AnimatePresence, motion } from 'motion/react'
+import { motion } from 'motion/react'
 import { Icon } from '@iconify/react'
 import ciCheck from '@iconify-icons/ci/check'
 import { BuilderPhase } from '@/lib/services/builder'
@@ -11,7 +11,6 @@ interface GenerationProgressProps {
   completed: number
   total: number
   mode: 'centered' | 'compact'
-  appName?: string
   onDone?: () => void
 }
 
@@ -55,7 +54,7 @@ function getPhaseStageIndex(phase: BuilderPhase, stageCount: number): number {
   return map[phase] ?? 0
 }
 
-export function GenerationProgress({ phase, statusMessage, completed, total, mode, appName, onDone }: GenerationProgressProps) {
+export function GenerationProgress({ phase, statusMessage, completed, total, mode, onDone }: GenerationProgressProps) {
   const isDone = phase === BuilderPhase.Done
   const isError = phase === BuilderPhase.Error
 
@@ -156,25 +155,6 @@ export function GenerationProgress({ phase, statusMessage, completed, total, mod
           : 'border border-nova-violet/20 bg-nova-deep/95 px-5 py-3 shadow-nova-void/50 min-w-[360px]'
       }`}
     >
-      {/* App name — animates in when available */}
-      <AnimatePresence>
-        {appName && (
-          <motion.div
-            initial={{ opacity: 0, y: -8, height: 0, marginBottom: 0 }}
-            animate={{ opacity: 1, y: 0, height: 'auto', marginBottom: isCentered ? 12 : 8 }}
-            exit={{ opacity: 0, height: 0, marginBottom: 0 }}
-            transition={{ duration: 0.5, ease: [0.4, 0, 0.2, 1] }}
-            className="overflow-hidden"
-          >
-            <span className={`font-display font-semibold text-nova-text tracking-tight ${
-              isCentered ? 'text-base' : 'text-sm'
-            }`}>
-              {appName}
-            </span>
-          </motion.div>
-        )}
-      </AnimatePresence>
-
       {/* Stage indicators */}
       <div className={`flex items-center ${isCentered ? 'gap-3' : 'gap-2'}`}>
         {stages.map((stage, i) => {
