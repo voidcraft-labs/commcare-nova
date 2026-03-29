@@ -64,10 +64,12 @@ export function ChatSidebar({
     ? builder.statusMessage
     : signalLabel(gridMode)
 
-  // Elapsed timer — shows "(30s)", "(1m 12s)" etc. after 30s in the same mode
+  // Elapsed timer — shows "(30s)", "(1m 12s)" etc. after 30s in the current step
+  // Resets independently per step: gridMode change OR statusMessage (build phase) change
   const [elapsed, setElapsed] = useState(0)
   const modeStartRef = useRef(0)
   const timerRef = useRef<ReturnType<typeof setInterval>>(undefined)
+  const statusMessage = (builder.isGenerating && builder.statusMessage) || ''
 
   useEffect(() => {
     clearInterval(timerRef.current)
@@ -79,7 +81,7 @@ export function ChatSidebar({
       setElapsed(secs)
     }, 1000)
     return () => clearInterval(timerRef.current)
-  }, [gridMode])
+  }, [gridMode, statusMessage])
 
   const gridSuffix = elapsed >= 30
     ? `(${elapsed >= 60 ? `${Math.floor(elapsed / 60)}m ${elapsed % 60}s` : `${elapsed}s`})`

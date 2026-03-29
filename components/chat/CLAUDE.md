@@ -51,7 +51,7 @@ Permanent neural activity panel. Always mounted between the scroll container and
 - `error-recovering` — reasoning-style firing with ~35% of cells using warm amber-rose hues. Signals "something's wrong but the SA is still working." Ambient cells also get ~25% warm mix.
 - `error-fatal` — continuous transition from erratic warm flicker (decays over ~3s) into a settled uniform dim rose-pink pulse (~5s sine breath, 30–50% opacity, hue 2.0 = pure rose). No discrete phases — flicker intensity fades out while the resting-pulse pull grows stronger. Container glow shifts to rose. Panel LED and label turn rose via `data-error` attribute.
 
-**Elapsed timer** — after 30s in reasoning or building mode, ChatSidebar appends a suffix like "(30s)", "(1m 12s)" via the `suffix` prop on SignalPanel. Fades in once, then ticks in place.
+**Elapsed timer** — after 30s in the current step, ChatSidebar appends a suffix like "(30s)", "(1m 12s)" via the `suffix` prop on SignalPanel. Fades in once, then ticks in place. Resets independently per step: on `gridMode` change OR `statusMessage` (build phase) change, so each build phase starts its own timer from 0.
 
 **Status labels** — `PHASE_LABELS` in `builder.ts` is the single source of truth for build-phase status text shown in the panel. No ellipses — the neurons and timer convey activity.
 
