@@ -505,13 +505,19 @@ export class Builder {
 
   /** Update form content (assembled form with questions). */
   setFormContent(moduleIndex: number, formIndex: number, form: BlueprintForm) {
-    let partial = this._partialModules.get(moduleIndex)
-    if (!partial) {
-      partial = { forms: new Map() }
-      this._partialModules.set(moduleIndex, partial)
+    // During edit mode (_mb exists), update the blueprint directly
+    if (this._mb) {
+      this._mb.replaceForm(moduleIndex, formIndex, form)
+    } else {
+      // During initial build, accumulate in partialModules
+      let partial = this._partialModules.get(moduleIndex)
+      if (!partial) {
+        partial = { forms: new Map() }
+        this._partialModules.set(moduleIndex, partial)
+      }
+      partial.forms.set(formIndex, form)
+      this.updateProgress()
     }
-    partial.forms.set(formIndex, form)
-    this.updateProgress()
     this.notify()
   }
 
