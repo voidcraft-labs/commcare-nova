@@ -1,20 +1,14 @@
 'use client'
-import { useCallback } from 'react'
+import { useState, useCallback, useRef, useLayoutEffect } from 'react'
+import { useFloating, offset, flip, shift, autoUpdate, FloatingPortal } from '@floating-ui/react'
 import { Icon } from '@iconify/react'
-import ciFileAdd from '@iconify-icons/ci/file-add'
-import ciFileEdit from '@iconify-icons/ci/file-edit'
-import ciFileBlank from '@iconify-icons/ci/file-blank'
 import type { BlueprintForm } from '@/lib/schemas/blueprint'
 import type { MutableBlueprint } from '@/lib/services/mutableBlueprint'
-import { EditableDropdown } from '@/components/builder/EditableDropdown'
+import { formTypeIcons } from '@/lib/questionTypeIcons'
+import { useDismissRef } from '@/hooks/useDismissRef'
+import { POPOVER_GLASS } from '@/lib/styles'
 
-const formTypeIcons = {
-  registration: ciFileAdd,
-  followup: ciFileEdit,
-  survey: ciFileBlank,
-} as const
-
-const formTypeOptions = [
+const formTypeOptions: { value: string; label: string }[] = [
   { value: 'registration', label: 'Registration' },
   { value: 'followup', label: 'Followup' },
   { value: 'survey', label: 'Survey' },
@@ -35,38 +29,131 @@ interface FormDetailProps {
 
 /**
  * Form editing sub-panel within the FormSettingsPanel.
- * Displays and allows editing of: form type, close case info, and question count.
+ * Displays close case info (read-only).
  */
-export function FormDetail({ form, moduleIndex, formIndex, mb, notifyBlueprintChanged }: FormDetailProps) {
-  const saveForm = useCallback((updates: { type?: 'registration' | 'followup' | 'survey' }) => {
-    mb.updateForm(moduleIndex, formIndex, updates)
+export function FormDetail({ form }: FormDetailProps) {
+  if (!form.close_case) return null
+
+  return (
+    <div>
+      <label className="text-xs text-nova-text-muted uppercase tracking-wider mb-1 block">Close Case</label>
+      <p className="text-sm text-nova-rose">
+        {form.close_case.question
+          ? `When ${form.close_case.question} = "${form.close_case.answer}"`
+          : 'Always (unconditional)'}
+      </p>
+    </div>
+  )
+}
+
+// ── Form Type Button (for FormScreen header) ──────────────────────────
+
+interface FormTypeButtonProps {
+  form: BlueprintForm
+  moduleIndex: number
+  formIndex: number
+  mb: MutableBlueprint
+  notifyBlueprintChanged: () => void
+}
+
+/**
+ * Clickable form type icon in the form header.
+ * Opens a small dropdown to change the form type inline.
+ */
+export function FormTypeButton({ form, moduleIndex, formIndex, mb, notifyBlueprintChanged }: FormTypeButtonProps) {
+  const [open, setOpen] = useState(false)
+  const buttonRef = useRef<HTMLButtonElement>(null)
+  const animRef = useRef<HTMLDivElement>(null)
+
+  const { refs, floatingStyles } = useFloating({
+    placement: 'bottom-start',
+    middleware: [
+      offset(4),
+      flip(),
+      shift({ padding: 12 }),
+    ],
+    whileElementsMounted: autoUpdate,
+  })
+
+  useLayoutEffect(() => {
+    if (buttonRef.current) refs.setReference(buttonRef.current)
+  }, [refs])
+
+  useLayoutEffect(() => {
+    if (open) {
+      animRef.current?.animate(
+        [
+          { opacity: 0, transform: 'scale(0.97) translateY(-4px)' },
+          { opacity: 1, transform: 'scale(1) translateY(0)' },
+        ],
+        { duration: 150, easing: 'ease-out' },
+      )
+    }
+  }, [open])
+
+  const handleSelect = useCallback((type: string) => {
+    mb.updateForm(moduleIndex, formIndex, { type: type as 'registration' | 'followup' | 'survey' })
     notifyBlueprintChanged()
+    setOpen(false)
   }, [mb, moduleIndex, formIndex, notifyBlueprintChanged])
+
+  const icon = formTypeIcons[form.type] ?? formTypeIcons.survey
 
   return (
     <>
-      <EditableDropdown
-        label="Type"
-        value={form.type}
-        options={formTypeOptions}
-        onSave={(v) => saveForm({ type: v as 'registration' | 'followup' | 'survey' })}
-        renderValue={(v) => (
-          <div className="flex items-center gap-2 text-sm">
-            <Icon icon={formTypeIcons[v as keyof typeof formTypeIcons] ?? ciFileBlank} width="14" height="14" className="text-nova-text-muted shrink-0" />
-            <span className="capitalize">{v}</span>
+      <button
+        ref={buttonRef}
+        onClick={() => setOpen(o => !o)}
+        className="p-1.5 rounded-md transition-colors cursor-pointer text-nova-text-muted hover:text-nova-text hover:bg-white/5 shrink-0"
+        aria-label="Change form type"
+      >
+        <Icon icon={icon} width="18" height="18" />
+      </button>
+
+      {open && (
+        <FloatingPortal>
+          <div
+            ref={(el) => { animRef.current = el; refs.setFloating(el) }}
+            style={floatingStyles}
+            className="z-popover"
+          >
+            <FormTypeDropdown
+              currentType={form.type}
+              onSelect={handleSelect}
+              onClose={() => setOpen(false)}
+            />
           </div>
-        )}
-      />
-      {form.close_case && (
-        <div>
-          <label className="text-xs text-nova-text-muted uppercase tracking-wider mb-1 block">Close Case</label>
-          <p className="text-sm text-nova-rose">
-            {form.close_case.question
-              ? `When ${form.close_case.question} = "${form.close_case.answer}"`
-              : 'Always (unconditional)'}
-          </p>
-        </div>
+        </FloatingPortal>
       )}
     </>
+  )
+}
+
+function FormTypeDropdown({ currentType, onSelect, onClose }: { currentType: string; onSelect: (type: string) => void; onClose: () => void }) {
+  const dismissRef = useDismissRef(onClose)
+
+  return (
+    <div ref={dismissRef} className={`py-1 min-w-[140px] ${POPOVER_GLASS}`}>
+      {formTypeOptions.map((opt) => (
+        <button
+          key={opt.value}
+          onClick={() => onSelect(opt.value)}
+          className={`w-full flex items-center gap-2.5 px-3 py-1.5 text-sm transition-colors cursor-pointer ${
+            opt.value === currentType
+              ? 'text-nova-violet-bright bg-nova-violet/10'
+              : 'text-nova-text hover:bg-white/[0.06]'
+          }`}
+        >
+          <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${opt.value === currentType ? 'bg-nova-violet' : 'bg-transparent'}`} />
+          <Icon
+            icon={formTypeIcons[opt.value] ?? formTypeIcons.survey}
+            width="16"
+            height="16"
+            className={opt.value === currentType ? 'text-nova-violet-bright' : 'text-nova-text-muted'}
+          />
+          {opt.label}
+        </button>
+      ))}
+    </div>
   )
 }
