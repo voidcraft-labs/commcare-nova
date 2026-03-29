@@ -210,9 +210,9 @@ export function connectValidation(form: BlueprintForm, ctx: FormContext, _caseCo
   const errors: ValidationError[] = []
   const loc = { formIndex: ctx.formIndex, formName: ctx.formName }
 
-  if (blueprint.connect_type === 'learn' && !form.connect.learn_module) {
+  if (blueprint.connect_type === 'learn' && !form.connect.learn_module && !form.connect.assessment) {
     errors.push(validationError('CONNECT_MISSING_LEARN', 'form',
-      `"${ctx.formName}" is opted into Connect but is missing learn_module config. This app is a Connect Learn app, so each Connect form needs a learn_module with a name, description, and time_estimate.`,
+      `"${ctx.formName}" is opted into Connect but has neither a learn module nor an assessment. Enable at least one.`,
       loc))
   }
   if (blueprint.connect_type === 'deliver' && !form.connect.deliver_unit) {

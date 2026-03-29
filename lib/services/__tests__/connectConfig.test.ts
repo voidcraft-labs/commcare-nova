@@ -51,22 +51,31 @@ describe('deriveConnectDefaults', () => {
     expect(form.connect).toBeUndefined()
   })
 
-  it('auto-populates learn_module from form name and question count', () => {
-    const form = makeLearnForm({})
-    deriveConnectDefaults('learn', form)
+  it('fills learn_module defaults when learn_module is present', () => {
+    const form = makeLearnForm({ learn_module: { name: '', description: '' } as any })
+    deriveConnectDefaults('learn', form, 'Main')
     expect(form.connect!.learn_module).toEqual({
+      id: 'main',
       name: 'ILC Training',
       description: 'ILC Training',
       time_estimate: 2, // 4 questions / 3, rounded up, min 1
     })
   })
 
-  it('auto-detects assessment score from hidden question with score in id', () => {
-    const form = makeLearnForm({})
-    deriveConnectDefaults('learn', form)
+  it('auto-detects assessment score when assessment is present', () => {
+    const form = makeLearnForm({ assessment: { user_score: '' } })
+    deriveConnectDefaults('learn', form, 'Main')
     expect(form.connect!.assessment).toEqual({
+      id: 'main_ilc_training',
       user_score: "if(/data/q1 = 'b' and /data/q2 = 'daily', 100, 0)",
     })
+  })
+
+  it('does not auto-create learn_module or assessment from empty connect', () => {
+    const form = makeLearnForm({})
+    deriveConnectDefaults('learn', form, 'Main')
+    expect(form.connect!.learn_module).toBeUndefined()
+    expect(form.connect!.assessment).toBeUndefined()
   })
 
   it('does not overwrite existing learn_module', () => {
@@ -86,10 +95,11 @@ describe('deriveConnectDefaults', () => {
     expect(form.connect!.assessment!.user_score).toBe('50')
   })
 
-  it('auto-populates deliver_unit with sensible defaults', () => {
-    const form = makeDeliverForm({})
-    deriveConnectDefaults('deliver', form)
+  it('fills deliver_unit defaults when deliver_unit is present', () => {
+    const form = makeDeliverForm({ deliver_unit: { name: '', entity_id: '', entity_name: '' } })
+    deriveConnectDefaults('deliver', form, 'Main')
     expect(form.connect!.deliver_unit).toEqual({
+      id: 'main',
       name: 'Weekly Report',
       entity_id: "concat(#user/username, '-', today())",
       entity_name: "#user/username",
@@ -104,18 +114,17 @@ describe('deriveConnectDefaults', () => {
     expect(form.connect!.deliver_unit!.name).toBe('Custom Unit')
   })
 
-  it('handles learn form with no score question', () => {
+  it('fills assessment default score of 100 when no score question exists', () => {
     const form: BlueprintForm = {
       name: 'Simple Learn',
       type: 'survey',
-      connect: {},
+      connect: { assessment: { user_score: '' } },
       questions: [
         { id: 'content', type: 'label', label: 'Read this.' },
       ],
     }
-    deriveConnectDefaults('learn', form)
-    expect(form.connect!.learn_module).toBeDefined()
-    expect(form.connect!.assessment).toEqual({ user_score: '100' })
+    deriveConnectDefaults('learn', form, 'Training')
+    expect(form.connect!.assessment).toEqual({ id: 'training_simple_learn', user_score: '100' })
   })
 })
 
@@ -216,11 +225,18 @@ describe('Connect XForm export', () => {
 // ── Validation ──────────────────────────────────────────────────────
 
 describe('Connect validation', () => {
-  it('validates learn form missing learn_module', () => {
+  it('validates learn form with neither learn_module nor assessment', () => {
     const form = makeLearnForm({})
     const bp = makeConnectBlueprint('learn', form)
     const errors = runValidation(bp)
     expect(errors.some(e => e.code === 'CONNECT_MISSING_LEARN')).toBe(true)
+  })
+
+  it('passes validation for learn form with only assessment', () => {
+    const form = makeLearnForm({ assessment: { user_score: '100' } })
+    const bp = makeConnectBlueprint('learn', form)
+    const errors = runValidation(bp)
+    expect(errors.some(e => e.code === 'CONNECT_MISSING_LEARN')).toBe(false)
   })
 
   it('validates deliver form missing deliver_unit', () => {

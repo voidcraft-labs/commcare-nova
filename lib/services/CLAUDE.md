@@ -38,7 +38,7 @@ The SA makes all architecture and form design decisions. All tools are called di
 
 **Agent limits:** `stopWhen: stepCountIs(80)` — resets per request. Error recovery prompt tells SA to bail after 2-3 failed retries.
 
-**SA prompt** (`lib/prompts/solutionsArchitectPrompt.ts`) includes a CommCare XPath quick reference so the SA can write correct XPath without hallucinating function signatures (e.g. `round()` takes 1 arg, not 2).
+**SA prompt** (`lib/prompts/solutionsArchitectPrompt.ts`) includes a CommCare XPath quick reference so the SA can write correct XPath without hallucinating function signatures (e.g. `round()` takes 1 arg, not 2). The Connect section instructs the SA to assign `learn_module` and `assessment` independently per form based on content — educational forms get `learn_module` only, quiz forms get `assessment` only, combined forms get both.
 
 Also re-exports `validateAndFix()` (from `validationLoop.ts`) — runs `runValidation()` in a loop, applying auto-fixes from `FIX_REGISTRY` by error code. Unfixable errors are surfaced to the SA as strings via `errorToString()` so it can fix them with its mutation tools.
 
@@ -167,7 +167,7 @@ Split across four files:
 - `hqJsonExpander.ts` — `expandBlueprint()` orchestrator + `detectUnquotedStringLiteral()`
 - `xformBuilder.ts` — `buildXForm()`, `buildQuestionParts()`, `buildConnectBlocks()`, `InstanceTracker`, `getAppearance()`, `getXsdType()`
 - `formActions.ts` — `buildFormActions()`, `buildCaseReferencesLoad()`
-- `connectConfig.ts` — `deriveConnectDefaults()` auto-populates Connect config from form content; `normalizeConnectConfig()` strips empty sub-configs (e.g. task with blank name/description) so absent data stays absent in XForm output. Called from `MutableBlueprint.updateForm()`.
+- `connectConfig.ts` — `deriveConnectDefaults()` fills defaults for Connect sub-configs that are already present (never auto-creates sub-configs). Assigns default `id` values and fills missing field values. `normalizeConnectConfig()` strips empty sub-configs (e.g. task with blank name/description) so absent data stays absent in XForm output. Called from `MutableBlueprint.updateForm()`.
 
 `expandBlueprint()` converts `AppBlueprint` → HQ import JSON. `detectUnquotedStringLiteral()` uses the Lezer XPath parser to flag bare words in XPath fields (e.g. `no` instead of `'no'`).
 

@@ -181,14 +181,16 @@ export function buildCaseReferencesLoad(questions: Question[], connect?: Connect
 
   // Extract hashtag references from Connect XPath fields
   if (connect?.assessment?.user_score) {
+    const assessId = connect.assessment.id || 'connect_assessment'
     const h = extractHashtags([connect.assessment.user_score])
-    if (h.length > 0) load['/data/connect_assessment/assessment/user_score'] = h
+    if (h.length > 0) load[`/data/${assessId}/assessment/user_score`] = h
   }
   if (connect?.deliver_unit) {
+    const duId = connect.deliver_unit.id || 'connect_deliver'
     const idH = extractHashtags([connect.deliver_unit.entity_id])
-    if (idH.length > 0) load['/data/connect_deliver/deliver/entity_id'] = idH
+    if (idH.length > 0) load[`/data/${duId}/deliver/entity_id`] = idH
     const nameH = extractHashtags([connect.deliver_unit.entity_name])
-    if (nameH.length > 0) load['/data/connect_deliver/deliver/entity_name'] = nameH
+    if (nameH.length > 0) load[`/data/${duId}/deliver/entity_name`] = nameH
   }
 
   return load

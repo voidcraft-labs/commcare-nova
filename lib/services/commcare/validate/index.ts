@@ -64,11 +64,12 @@ export function validateBlueprintDeep(blueprint: AppBlueprint): string[] {
 
       // Add Connect data paths so question XPaths can reference them (only when app-level connect_type is set)
       if (blueprint.connect_type && form.connect) {
-        if (form.connect.learn_module) validPaths.add('/data/connect_learn')
-        if (form.connect.assessment) validPaths.add('/data/connect_assessment/assessment/user_score')
+        if (form.connect.learn_module) validPaths.add(`/data/${form.connect.learn_module.id || 'connect_learn'}`)
+        if (form.connect.assessment) validPaths.add(`/data/${form.connect.assessment.id || 'connect_assessment'}/assessment/user_score`)
         if (form.connect.deliver_unit) {
-          validPaths.add('/data/connect_deliver/deliver/entity_id')
-          validPaths.add('/data/connect_deliver/deliver/entity_name')
+          const duId = form.connect.deliver_unit.id || 'connect_deliver'
+          validPaths.add(`/data/${duId}/deliver/entity_id`)
+          validPaths.add(`/data/${duId}/deliver/entity_name`)
         }
       }
 

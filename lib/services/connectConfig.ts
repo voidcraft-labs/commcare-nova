@@ -6,6 +6,7 @@
  * access to the full question tree.
  */
 import type { BlueprintForm, ConnectConfig, Question } from '../schemas/blueprint'
+import { toSnakeId } from './commcare/validate'
 
 /** Count questions recursively (excluding structural containers). */
 function countQuestions(questions: Question[]): number {
@@ -67,27 +68,38 @@ export function normalizeConnectConfig(config: ConnectConfig): ConnectConfig | u
   return out
 }
 
-export function deriveConnectDefaults(connectType: 'learn' | 'deliver', form: BlueprintForm): void {
+export function deriveConnectDefaults(connectType: 'learn' | 'deliver', form: BlueprintForm, moduleName?: string): void {
   if (!form.connect) return
 
+  const modSlug = toSnakeId(moduleName ?? 'module')
+  const formSlug = toSnakeId(form.name)
+
   if (connectType === 'learn') {
-    form.connect.learn_module ??= {
-      name: form.name,
-      description: form.name,
-      time_estimate: Math.max(1, Math.ceil(countQuestions(form.questions || []) / 3)),
+    // Fill defaults only for sub-configs that are present — learn_module and assessment are independent
+    if (form.connect.learn_module) {
+      form.connect.learn_module.id ??= modSlug
+      form.connect.learn_module.name ||= form.name
+      form.connect.learn_module.description ||= form.name
+      form.connect.learn_module.time_estimate ??= Math.max(1, Math.ceil(countQuestions(form.questions || []) / 3))
     }
-    // Auto-detect assessment score: prefer a hidden calculated question with
-    // 'score' or 'assessment' in its id, otherwise default to 100 (automatic pass)
-    if (!form.connect.assessment) {
-      const scoreQ = findScoreQuestion(form.questions || [])
-      form.connect.assessment = { user_score: scoreQ?.calculate ?? '100' }
+    if (form.connect.assessment) {
+      form.connect.assessment.id ??= `${modSlug}_${formSlug}`
+      if (!form.connect.assessment.user_score) {
+        const scoreQ = findScoreQuestion(form.questions || [])
+        form.connect.assessment.user_score = scoreQ?.calculate ?? '100'
+      }
     }
   }
 
   if (connectType === 'deliver') {
-    const du = form.connect.deliver_unit ??= { name: '', entity_id: '', entity_name: '' }
-    du.name ||= form.name
-    du.entity_id ||= "concat(#user/username, '-', today())"
-    du.entity_name ||= "#user/username"
+    if (form.connect.deliver_unit) {
+      form.connect.deliver_unit.id ??= modSlug
+      form.connect.deliver_unit.name ||= form.name
+      form.connect.deliver_unit.entity_id ||= "concat(#user/username, '-', today())"
+      form.connect.deliver_unit.entity_name ||= "#user/username"
+    }
+    if (form.connect.task) {
+      form.connect.task.id ??= `${modSlug}_${formSlug}`
+    }
   }
 }

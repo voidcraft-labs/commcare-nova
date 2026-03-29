@@ -76,6 +76,10 @@ export interface NewQuestion {
 
 export class MutableBlueprint {
   private blueprint: AppBlueprint
+  private connectStash = {
+    learn: new Map<number, Map<number, ConnectConfig>>(),
+    deliver: new Map<number, Map<number, ConnectConfig>>(),
+  }
 
   constructor(blueprint: AppBlueprint) {
     this.blueprint = structuredClone(blueprint)
@@ -149,6 +153,51 @@ export class MutableBlueprint {
     const prop = ct.properties.find(p => p.name === propertyName)
     if (!prop) throw new Error(`Property "${propertyName}" not found on case type "${caseTypeName}"`)
     Object.assign(prop, updates)
+  }
+
+  // ── Connect stash (preserves form configs across mode switches) ──────
+
+  /** Stash all forms' connect configs for the given mode, then clear them. */
+  stashAndClearConnect(mode: 'learn' | 'deliver'): void {
+    const stash = this.connectStash[mode]
+    stash.clear()
+    for (let mIdx = 0; mIdx < this.blueprint.modules.length; mIdx++) {
+      const mod = this.blueprint.modules[mIdx]
+      for (let fIdx = 0; fIdx < mod.forms.length; fIdx++) {
+        const form = mod.forms[fIdx]
+        if (form.connect) {
+          let moduleMap = stash.get(mIdx)
+          if (!moduleMap) { moduleMap = new Map(); stash.set(mIdx, moduleMap) }
+          moduleMap.set(fIdx, structuredClone(form.connect))
+          delete form.connect
+        }
+      }
+    }
+  }
+
+  /** Restore previously stashed connect configs for the given mode. */
+  restoreConnect(mode: 'learn' | 'deliver'): void {
+    for (const [mIdx, moduleMap] of this.connectStash[mode]) {
+      for (const [fIdx, config] of moduleMap) {
+        const form = this.blueprint.modules[mIdx]?.forms[fIdx]
+        if (form) {
+          form.connect = structuredClone(config)
+        }
+      }
+    }
+  }
+
+  /** Stash a single form's connect config for a mode. */
+  stashFormConnect(mode: 'learn' | 'deliver', mIdx: number, fIdx: number, config: ConnectConfig): void {
+    const stash = this.connectStash[mode]
+    let moduleMap = stash.get(mIdx)
+    if (!moduleMap) { moduleMap = new Map(); stash.set(mIdx, moduleMap) }
+    moduleMap.set(fIdx, structuredClone(config))
+  }
+
+  /** Get a single form's stashed connect config for a mode (does not remove it). */
+  getFormConnectStash(mode: 'learn' | 'deliver', mIdx: number, fIdx: number): ConnectConfig | undefined {
+    return this.connectStash[mode].get(mIdx)?.get(fIdx)
   }
 
   /** Resolve a bare question ID to its full QuestionPath via recursive search. For SA tool boundary. */

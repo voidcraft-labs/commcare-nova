@@ -55,7 +55,7 @@ export async function validateAndFix(
     for (const mod of blueprint.modules) {
       for (const form of mod.forms) {
         if (form.connect) {
-          deriveConnectDefaults(blueprint.connect_type, form)
+          deriveConnectDefaults(blueprint.connect_type, form, mod.name)
         }
       }
     }

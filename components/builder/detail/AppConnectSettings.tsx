@@ -50,11 +50,23 @@ export function AppConnectSettings({ builder }: AppConnectSettingsProps) {
   const setConnectType = useCallback((type: ConnectType | null) => {
     if (!mb) return
     const bp = mb.getBlueprint()
+    const currentType = bp.connect_type as ConnectType | undefined
+
+    // Stash current mode's form configs before switching
+    if (currentType && currentType !== type) {
+      mb.stashAndClearConnect(currentType)
+    }
+
     if (type) {
       bp.connect_type = type
+      // Restore the new mode's stashed configs (if switching, not initial enable)
+      if (type !== currentType) {
+        mb.restoreConnect(type)
+      }
     } else {
       delete bp.connect_type
     }
+
     builder.notifyBlueprintChanged()
   }, [mb, builder])
 
