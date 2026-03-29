@@ -92,6 +92,9 @@ body {
 }
 
 /* Custom scrollbar */
+* {
+  scrollbar-gutter: stable;
+}
 ::-webkit-scrollbar {
   width: 6px;
 }
