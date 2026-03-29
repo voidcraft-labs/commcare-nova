@@ -107,18 +107,27 @@ export function ChatSidebar({
   const isNearBottomRef = useRef(chatScrollPinned)
   const isUserHoldingRef = useRef(false)
 
+  const triggerSendWave = useCallback(() => {
+    clearTimeout(forceSendingTimer.current)
+    setForceSending(true)
+    forceSendingTimer.current = setTimeout(() => setForceSending(false), SEND_WAVE_DURATION * 1000)
+  }, [])
+
   // Route typed messages as question answers when a QuestionCard is waiting
   const handleSend = useCallback((text: string) => {
     if (pendingAnswerRef.current) {
       pendingAnswerRef.current(text)
     } else {
-      // Force sending animation for one full wave cycle
-      clearTimeout(forceSendingTimer.current)
-      setForceSending(true)
-      forceSendingTimer.current = setTimeout(() => setForceSending(false), SEND_WAVE_DURATION * 1000)
+      triggerSendWave()
       onSend(text)
     }
-  }, [onSend])
+  }, [onSend, triggerSendWave])
+
+  // Wrap addToolOutput to trigger send animation when a question block completes
+  const handleToolOutput = useCallback((params: { tool: string; toolCallId: string; output: unknown }) => {
+    if (params.tool === 'askQuestions') triggerSendWave()
+    addToolOutput(params)
+  }, [addToolOutput, triggerSendWave])
 
   // Smart scroll management: auto-scroll when near bottom, respect user scroll hold,
   // persist state across instances (tab switch, center → sidebar transition).
@@ -290,7 +299,7 @@ export function ChatSidebar({
             <ChatMessage
               key={msg.id}
               message={msg}
-              addToolOutput={addToolOutput}
+              addToolOutput={handleToolOutput}
               pendingAnswerRef={pendingAnswerRef}
             />
           ))}
