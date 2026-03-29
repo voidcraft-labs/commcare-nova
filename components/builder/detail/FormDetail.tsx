@@ -6,7 +6,6 @@ import ciFileEdit from '@iconify-icons/ci/file-edit'
 import ciFileBlank from '@iconify-icons/ci/file-blank'
 import type { BlueprintForm } from '@/lib/schemas/blueprint'
 import type { MutableBlueprint } from '@/lib/services/mutableBlueprint'
-import { EditableText } from '@/components/builder/EditableText'
 import { EditableDropdown } from '@/components/builder/EditableDropdown'
 
 const formTypeIcons = {
@@ -36,17 +35,16 @@ interface FormDetailProps {
 
 /**
  * Form editing sub-panel within the FormSettingsPanel.
- * Displays and allows editing of: form name, form type, close case info, and question count.
+ * Displays and allows editing of: form type, close case info, and question count.
  */
 export function FormDetail({ form, moduleIndex, formIndex, mb, notifyBlueprintChanged }: FormDetailProps) {
-  const saveForm = useCallback((updates: { name?: string; type?: 'registration' | 'followup' | 'survey' }) => {
+  const saveForm = useCallback((updates: { type?: 'registration' | 'followup' | 'survey' }) => {
     mb.updateForm(moduleIndex, formIndex, updates)
     notifyBlueprintChanged()
   }, [mb, moduleIndex, formIndex, notifyBlueprintChanged])
 
   return (
     <>
-      <EditableText label="Name" value={form.name} onSave={(v) => saveForm({ name: v })} />
       <EditableDropdown
         label="Type"
         value={form.type}

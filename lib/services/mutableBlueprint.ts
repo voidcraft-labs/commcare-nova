@@ -433,6 +433,10 @@ export class MutableBlueprint {
 
   // ── Structural mutations ────────────────────────────────────────────
 
+  updateApp(updates: { app_name?: string }): void {
+    if (updates.app_name !== undefined) this.blueprint.app_name = updates.app_name
+  }
+
   updateModule(mIdx: number, updates: {
     name?: string
     case_list_columns?: Array<{ field: string; header: string }>

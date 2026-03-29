@@ -46,7 +46,7 @@ Also re-exports `validateAndFix()` (from `validationLoop.ts`) — runs `runValid
 
 `mutableBlueprint.ts` — wraps `AppBlueprint` (deep-cloned) for progressive population and in-place mutation.
 
-- **New build**: Route creates `MutableBlueprint({ app_name: '', modules: [], case_types: null })`. Generation tools populate via `setCaseTypes()`, `setScaffold()`, `updateModule()`, `replaceForm()`.
+- **New build**: Route creates `MutableBlueprint({ app_name: '', modules: [], case_types: null })`. Generation tools populate via `setCaseTypes()`, `setScaffold()`, `updateApp()`, `updateModule()`, `replaceForm()`.
 - **Edit/continuation**: Route creates `MutableBlueprint(existingBlueprint)`. SA uses read/mutation tools directly.
 - **Zero-copy adoption**: `MutableBlueprint.fromOwned(blueprint)` skips the defensive `structuredClone` — caller must guarantee exclusive ownership. Used by HistoryManager to adopt popped stack entries without redundant cloning.
 

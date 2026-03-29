@@ -1,20 +1,34 @@
 'use client'
+import { useState, useCallback } from 'react'
 import { motion } from 'motion/react'
 import { Icon } from '@iconify/react'
 import ciMoreGridBig from '@iconify-icons/ci/more-grid-big'
 import ciChevronLeft from '@iconify-icons/ci/chevron-left'
 import type { AppBlueprint } from '@/lib/schemas/blueprint'
+import type { Builder } from '@/lib/services/builder'
+import type { EditMode } from '@/hooks/useEditContext'
 import type { PreviewScreen } from '@/lib/preview/engine/types'
 import { Badge } from '@/components/ui/Badge'
+import { EditableTitle, SavedCheck } from '@/components/builder/EditableTitle'
 
 interface HomeScreenProps {
   blueprint: AppBlueprint
   onNavigate: (screen: PreviewScreen) => void
   canGoBack?: boolean
   onBack?: () => void
+  builder?: Builder
+  mode?: EditMode
 }
 
-export function HomeScreen({ blueprint, onNavigate, canGoBack, onBack }: HomeScreenProps) {
+export function HomeScreen({ blueprint, onNavigate, canGoBack, onBack, builder, mode = 'edit' }: HomeScreenProps) {
+  const [saved, setSaved] = useState(false)
+  const saveAppName = useCallback((name: string) => {
+    if (!builder?.mb) return
+    builder.mb.updateApp({ app_name: name })
+    builder.notifyBlueprintChanged()
+  }, [builder])
+  const handleSaved = useCallback(() => { setSaved(true); setTimeout(() => setSaved(false), 1500) }, [])
+
   return (
     <div className="p-6 space-y-4 max-w-3xl mx-auto">
       <div className="flex items-center gap-2">
@@ -25,7 +39,12 @@ export function HomeScreen({ blueprint, onNavigate, canGoBack, onBack }: HomeScr
         >
           <Icon icon={ciChevronLeft} width="20" height="20" />
         </button>
-        <h2 className="text-lg font-display font-semibold text-nova-text">{blueprint.app_name}</h2>
+        {mode === 'edit' && builder?.mb ? (
+          <EditableTitle value={blueprint.app_name} onSave={saveAppName} onSaved={handleSaved} />
+        ) : (
+          <h2 className="text-lg font-display font-semibold text-nova-text">{blueprint.app_name}</h2>
+        )}
+        <SavedCheck visible={saved} />
       </div>
       <div className="grid gap-3">
         {blueprint.modules.map((mod, mIdx) => (
