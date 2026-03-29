@@ -111,7 +111,7 @@ export function EditableText({ label, value, onSave, onEmpty, mono, color, place
   const cls = focused ? focusedCls : unfocusedCls
 
   const lineCount = multiline ? draft.split('\n').length : 1
-  const rows = focused ? Math.max(lineCount, 2) : Math.max(lineCount, 1)
+  const rows = multiline ? 4 : (focused ? Math.max(lineCount, 2) : Math.max(lineCount, 1))
 
   return (
     <div>
