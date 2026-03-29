@@ -5,6 +5,7 @@ import { ConnectLogomark } from '@/components/icons/ConnectLogomark'
 import { Toggle } from '@/components/ui/Toggle'
 import { useDismissRef } from '@/hooks/useDismissRef'
 import type { Builder } from '@/lib/services/builder'
+import { POPOVER_GLASS } from '@/lib/styles'
 
 type ConnectType = 'learn' | 'deliver'
 
@@ -122,7 +123,7 @@ function AppConnectPanel({
   return (
     <div
       ref={dismissRef}
-      className="w-64 rounded-xl bg-[rgba(10,10,26,0.85)] backdrop-blur-[12px] [-webkit-backdrop-filter:blur(12px)] border border-white/[0.08] shadow-[0_24px_48px_rgba(0,0,0,0.6)]"
+      className={`w-64 ${POPOVER_GLASS}`}
     >
       <div className="px-3.5 py-3 space-y-3">
         {/* Toggle */}

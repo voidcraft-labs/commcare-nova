@@ -8,6 +8,7 @@ import ciClose from '@iconify-icons/ci/close-md'
 import type { BlueprintForm, ConnectConfig } from '@/lib/schemas/blueprint'
 import type { MutableBlueprint } from '@/lib/services/mutableBlueprint'
 import { toSnakeId } from '@/lib/services/commcare/validate'
+import { POPOVER_GLASS } from '@/lib/styles'
 import { FormDetail } from './FormDetail'
 import { ConnectLogomark } from '@/components/icons/ConnectLogomark'
 import { Toggle } from '@/components/ui/Toggle'
@@ -112,7 +113,7 @@ function FormSettingsPanel({
   return (
     <div
       ref={dismissRef}
-      className="w-80 rounded-xl bg-[rgba(10,10,26,0.85)] backdrop-blur-[12px] [-webkit-backdrop-filter:blur(12px)] border border-white/[0.08] shadow-[0_24px_48px_rgba(0,0,0,0.6)]"
+      className={`w-80 ${POPOVER_GLASS}`}
     >
       {/* Header */}
       <div className="flex items-center justify-between px-3.5 py-2.5 border-b border-white/[0.06]">
