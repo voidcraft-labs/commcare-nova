@@ -12,6 +12,7 @@ import { formTypeIcons } from '@/lib/questionTypeIcons'
 import ciArrowReload02 from '@iconify-icons/ci/arrow-reload-02'
 import ciChevronLeft from '@iconify-icons/ci/chevron-left'
 import { FormSettingsButton } from '@/components/builder/detail/FormSettingsPanel'
+import { FormTypeButton } from '@/components/builder/detail/FormDetail'
 import { EditableTitle, SavedCheck } from '@/components/builder/EditableTitle'
 
 interface FormScreenProps {
@@ -122,7 +123,17 @@ export function FormScreen({ blueprint, moduleIndex, formIndex, caseId, onBack, 
           >
             <Icon icon={ciChevronLeft} width="20" height="20" />
           </button>
-          <Icon icon={formTypeIcons[form.type] ?? formTypeIcons.survey} width="18" height="18" className="text-nova-text-muted shrink-0" />
+          {mode === 'edit' && builder?.mb ? (
+            <FormTypeButton
+              form={form}
+              moduleIndex={moduleIndex}
+              formIndex={formIndex}
+              mb={builder.mb}
+              notifyBlueprintChanged={builder.notifyBlueprintChanged}
+            />
+          ) : (
+            <Icon icon={formTypeIcons[form.type] ?? formTypeIcons.survey} width="18" height="18" className="text-nova-text-muted shrink-0" />
+          )}
           {mode === 'edit' && builder?.mb ? (
             <EditableTitle value={form.name} onSave={(name) => { builder.mb!.updateForm(moduleIndex, formIndex, { name }); builder.notifyBlueprintChanged() }} onSaved={handleTitleSaved} />
           ) : (

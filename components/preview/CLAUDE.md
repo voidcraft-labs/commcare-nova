@@ -17,7 +17,7 @@ Client-side web preview with cyan accent theme (`.preview-theme` in globals.css)
 
 All screens render a consistent header row: back button (always present, disabled when no history) + screen title. The back button is the same size and position across all screens so layout doesn't shift on navigation.
 
-**Inline title editing** — In edit mode, all screen titles (app name, module name, form name) use `EditableTitle` instead of a static `<h2>`. Click to edit, Enter/blur to save, Escape to cancel. A hidden span mirror sizes the input to its exact text width. `SavedCheck` (animated emerald checkmark) renders after the title on Home/Module screens and after the settings button on FormScreen. Form name was removed from `FormSettingsPanel` — the inline title is the primary edit surface.
+**Inline title editing** — In edit mode, all screen titles (app name, module name, form name) use `EditableTitle` instead of a static `<h2>`. Click to edit, Enter/blur to save, Escape to cancel. A hidden span mirror sizes the input to its exact text width. `SavedCheck` (animated emerald checkmark) renders after the title on Home/Module screens and after the settings button on FormScreen. Form name was removed from `FormSettingsPanel` — the inline title is the primary edit surface. **Inline form type** — In edit mode, the form type icon (left of title) is a `FormTypeButton` that opens a floating dropdown (`FormTypeDropdown`) to change the type. Violet dot + highlight marks the current selection. Form type was removed from `FormSettingsPanel` — the settings panel now only contains close case info and Connect configuration.
 
 ## Edit Mode
 
