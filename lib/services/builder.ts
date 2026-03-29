@@ -605,7 +605,7 @@ export class Builder {
 
     if (this._partialScaffold && this._partialScaffold.modules.length > 0) {
       return {
-        app_name: this._partialScaffold.appName ?? 'Generating...',
+        app_name: this._partialScaffold.appName ?? '',
         modules: this._partialScaffold.modules,
       }
     }
