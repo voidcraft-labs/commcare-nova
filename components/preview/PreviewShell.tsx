@@ -78,6 +78,7 @@ export function PreviewShell({ blueprint, actions, builder, mode = 'edit', nav: 
                 formIndex={nav.current.formIndex}
                 caseId={nav.current.caseId}
                 onBack={handleBack}
+                onNavigate={nav.push}
                 canGoBack={nav.canGoBack}
                 builder={builder}
                 mode={mode}

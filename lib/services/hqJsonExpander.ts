@@ -3,6 +3,7 @@ import {
   genHexId, genShortId,
   detailColumn, detailPair, applicationShell, formShell, moduleShell,
 } from './commcare'
+import { toHqWorkflow } from './commcare/session'
 import type { HqApplication } from './commcare'
 import { buildXForm } from './xformBuilder'
 import { buildFormActions, buildCaseReferencesLoad } from './formActions'
@@ -74,6 +75,7 @@ export function expandBlueprint(blueprint: AppBlueprint): HqApplication {
         bf.type === 'followup' ? 'case' : 'none',
         buildFormActions(bf, caseType, blueprint.case_types),
         buildCaseReferencesLoad(bf.questions || [], effectiveConnect),
+        toHqWorkflow(bf.post_submit ?? 'default'),
       )
     })
 

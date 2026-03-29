@@ -1,6 +1,7 @@
 import AdmZip from 'adm-zip'
 import { randomUUID } from 'crypto'
 import { escapeXml, validateCaseType, validateXFormPath, validatePropertyName } from './commcare'
+import { deriveEntryDefinition, renderEntryXml, fromHqWorkflow } from './commcare/session'
 import { validateXFormXml } from './commcare/validate/xformValidator'
 import { errorToString } from './commcare/validate/errors'
 
@@ -91,16 +92,13 @@ export class CczCompiler {
           `  <xform>\n    <resource id="${filePath}" version="1">\n      <location authority="local">./${filePath}</location>\n    </resource>\n  </xform>`
         )
 
-        // Entry
-        let entry = `  <entry>\n    <form>${xmlns}</form>\n    <command id="${cmdId}">\n      <text><locale id="forms.m${mIdx}f${fIdx}"/></text>\n    </command>`
-
-        if (requires === 'case' && caseType) {
-          entry += `\n    <instance id="casedb" src="jr://instance/casedb"/>`
-          entry += `\n    <session>\n      <datum id="case_id" nodeset="instance('casedb')/casedb/case[@case_type='${validateCaseType(caseType)}'][@status='open']" value="./@case_id" detail-select="m${mIdx}_case_short"/>\n    </session>`
-        }
-
-        entry += `\n  </entry>`
-        suiteEntries.push(entry)
+        // Entry — derived from session module (datums + post-submit stack)
+        const postSubmit = fromHqWorkflow(form.post_form_workflow || 'default')
+        const formType = requires === 'case' ? 'followup' as const : 'registration' as const
+        const entryDef = deriveEntryDefinition(
+          xmlns, mIdx, fIdx, formType, postSubmit, caseType || undefined,
+        )
+        suiteEntries.push(renderEntryXml(entryDef))
         menuCommands.push(`    <command id="${cmdId}"/>`)
       }
 

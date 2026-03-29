@@ -32,6 +32,34 @@ All text fields are plain `string`. XPath fields support `#form/`, `#case/`, and
 
 `case_list_only?: boolean` on `BlueprintModule` — marks a module as a case-list viewer with no forms. Used for child case types that have no follow-up workflow but still need a module (CommCare requires every case type to have one). Present on both `blueprintModuleSchema` and `scaffoldModulesSchema`.
 
+### Post-Submit Navigation
+
+`post_submit?: PostSubmitDestination` on `BlueprintForm` — controls where the user goes after submitting the form. Also serves as the fallback when `form_links` have conditional links that don't match.
+
+**User-facing values** (exposed in UI dropdown and SA tools via `USER_FACING_DESTINATIONS`):
+- `'default'` — App Home
+- `'module'` — This Module (back to the module's form list)
+- `'previous'` — Previous Screen (back to where the user was, e.g. case list for followup)
+
+**Internal-only values** (accepted by the schema for CommCare export fidelity, not exposed to users):
+- `'root'` — Currently same as `'default'`. When `put_in_root` is modeled on modules, `'root'` navigates to the root menu (which includes forms from `put_in_root` modules) while `'default'` clears the entire session. The system will auto-resolve when needed.
+- `'parent_module'` — Currently falls back to `'module'`. When nested modules (`root_module`) are modeled, navigates to the parent module's menu. The system will auto-resolve when needed.
+
+**`put_in_root` impact (not yet modeled):** CommCare's `put_in_root` boolean on modules flattens navigation — the module's forms appear at the parent menu level instead of inside a module menu. When this is set, `'module'` becomes invalid (there's no module menu to navigate to). The build should auto-resolve to `'root'` and validation should warn. See `lib/services/CLAUDE.md` "Session & Navigation" for the full gap inventory.
+
+Present on both `blueprintFormSchema` (full `POST_SUBMIT_DESTINATIONS`) and `scaffoldModulesSchema` (user-facing `USER_FACING_DESTINATIONS` only).
+
+### Form Links
+
+`form_links?: FormLink[]` on `BlueprintForm` — conditional navigation to other forms/modules after submission. Each `FormLink` has:
+- `condition?: string` — XPath condition (omit = always matches)
+- `target: { type: 'form', moduleIndex, formIndex } | { type: 'module', moduleIndex }` — where to navigate
+- `datums?: FormLinkDatum[]` — manual datum overrides (`{ name, xpath }`) for when auto-matching fails
+
+When `form_links` is present, links are evaluated in order — the first matching condition wins. `post_submit` serves as the fallback when no condition matches.
+
+**Validation is fully implemented** — target existence, self-reference, circular links (A→B→A), missing fallback, empty array. **Not yet exposed** in the SA tools, FormSettingsPanel UI, or preview engine navigation. The session module generates correct suite.xml `<stack>` operations when `form_links` are set directly on the blueprint.
+
 ### Close Case Format
 
 - `{}` = unconditional close

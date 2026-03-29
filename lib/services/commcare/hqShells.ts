@@ -175,6 +175,7 @@ export function formShell(
   requires: string,
   actions: FormActions,
   caseRefsLoad: Record<string, string[]>,
+  postFormWorkflow: string = 'default',
 ): HqForm {
   return {
     doc_type: 'Form',
@@ -187,7 +188,7 @@ export function formShell(
     actions,
     case_references_data: { load: caseRefsLoad, save: {}, doc_type: 'CaseReferences' },
     form_filter: null,
-    post_form_workflow: 'default',
+    post_form_workflow: postFormWorkflow,
     no_vellum: false,
     media_image: {}, media_audio: {}, custom_icons: [],
     custom_assertions: [], custom_instances: [], form_links: [],

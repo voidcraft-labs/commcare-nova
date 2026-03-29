@@ -526,7 +526,7 @@ export function createSolutionsArchitect(
       }),
 
       updateForm: tool({
-        description: 'Update form metadata: name, close_case config, or Connect integration.',
+        description: 'Update form metadata: name, close_case config, Connect integration, or post-submit navigation.',
         inputSchema: z.object({
           moduleIndex: z.number().describe('0-based module index'),
           formIndex: z.number().describe('0-based form index'),
@@ -535,6 +535,13 @@ export function createSolutionsArchitect(
             question: z.string().optional(),
             answer: z.string().optional(),
           }).nullable().optional().describe('Set close_case config. null to remove. {} for unconditional.'),
+          post_submit: z.enum(['default', 'module', 'previous']).nullable().optional().describe(
+            'Where the user goes after submitting this form. ' +
+            '"default" = app home screen. ' +
+            '"module" = back to this module\'s form list. ' +
+            '"previous" = back to where the user was before this form (e.g. case list for followup forms). ' +
+            'null to reset to default. Omit to leave unchanged.'
+          ),
           connect: z.object({
             learn_module: z.object({ id: z.string().optional(), name: z.string(), description: z.string(), time_estimate: z.number() }).optional().describe('Set for forms with educational/training content. Omit for quiz-only forms.'),
             assessment: z.object({ id: z.string().optional(), user_score: z.string() }).optional().describe('Set for forms with a quiz/test. Omit for content-only forms.'),
@@ -542,16 +549,17 @@ export function createSolutionsArchitect(
             task: z.object({ name: z.string(), description: z.string() }).optional(),
           }).nullable().optional().describe('Set Connect config on this form. null to remove. Learn apps: set learn_module and/or assessment independently — match to form content.'),
         }),
-        execute: async ({ moduleIndex, formIndex, name, close_case, connect }) => {
+        execute: async ({ moduleIndex, formIndex, name, close_case, post_submit, connect }) => {
           try {
             mutableBp.updateForm(moduleIndex, formIndex, {
               ...(name !== undefined && { name }),
               ...(close_case !== undefined && { close_case }),
+              ...(post_submit !== undefined && { post_submit }),
               ...(connect !== undefined && { connect: buildConnectConfig(connect, mutableBp.getForm(moduleIndex, formIndex)?.connect) }),
             })
             const form = mutableBp.getForm(moduleIndex, formIndex)!
             ctx.emit('data-form-updated', { moduleIndex, formIndex, form })
-            return { moduleIndex, formIndex, name: form.name, type: form.type, close_case: form.close_case ?? null, connect: form.connect ?? null }
+            return { moduleIndex, formIndex, name: form.name, type: form.type, post_submit: form.post_submit ?? 'default', close_case: form.close_case ?? null, connect: form.connect ?? null }
           } catch (err) {
             return { error: err instanceof Error ? err.message : String(err) }
           }
@@ -564,14 +572,17 @@ export function createSolutionsArchitect(
           moduleIndex: z.number().describe('0-based module index'),
           name: z.string().describe('Form display name'),
           type: z.enum(['registration', 'followup', 'survey']).describe('Form type'),
+          post_submit: z.enum(['default', 'module', 'previous']).optional().describe(
+            'Where the user goes after submitting this form. Omit for default (app home).'
+          ),
         }),
-        execute: async ({ moduleIndex, name, type }) => {
+        execute: async ({ moduleIndex, name, type, post_submit }) => {
           try {
-            const form: BlueprintForm = { name, type, questions: [] }
+            const form: BlueprintForm = { name, type, questions: [], ...(post_submit && post_submit !== 'default' && { post_submit }) }
             mutableBp.addForm(moduleIndex, form)
             ctx.emit('data-blueprint-updated', { blueprint: mutableBp.getBlueprint() })
             const mod = mutableBp.getModule(moduleIndex)!
-            return { moduleIndex, formIndex: mod.forms.length - 1, name, type }
+            return { moduleIndex, formIndex: mod.forms.length - 1, name, type, post_submit: post_submit ?? 'default' }
           } catch (err) {
             return { error: err instanceof Error ? err.message : String(err) }
           }

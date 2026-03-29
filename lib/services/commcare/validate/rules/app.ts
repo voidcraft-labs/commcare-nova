@@ -5,6 +5,7 @@
 
 import type { AppBlueprint } from '@/lib/schemas/blueprint'
 import { type ValidationError, validationError } from '../errors'
+import { detectFormLinkCycles } from '../../session'
 
 export function emptyAppName(blueprint: AppBlueprint): ValidationError[] {
   if (!blueprint.app_name || !blueprint.app_name.trim()) {
@@ -53,4 +54,23 @@ export function childCaseTypeMissingModule(blueprint: AppBlueprint): ValidationE
   return errors
 }
 
-export const APP_RULES = [emptyAppName, duplicateModuleNames, childCaseTypeMissingModule]
+export function circularFormLinks(blueprint: AppBlueprint): ValidationError[] {
+  const cycles = detectFormLinkCycles(blueprint)
+  return cycles.map(({ chain, formKey }) => {
+    const path = chain.join(' → ')
+    // Parse formKey to get module/form names for the error message
+    const match = formKey.match(/^m(\d+)f(\d+)$/)
+    const formName = match
+      ? blueprint.modules[+match[1]]?.forms[+match[2]]?.name ?? formKey
+      : formKey
+    return validationError('FORM_LINK_CIRCULAR', 'app',
+      `Circular form link detected: ${path}.\n\n` +
+      `"${formName}" eventually links back to itself through a chain of form links. ` +
+      `After form submission, CommCare evaluates links in sequence — a cycle means ` +
+      `the user would be trapped in an infinite loop of form submissions.\n\n` +
+      `Break the cycle by changing one of the links in the chain to target a module menu instead of a form.`,
+      {})
+  })
+}
+
+export const APP_RULES = [emptyAppName, duplicateModuleNames, childCaseTypeMissingModule, circularFormLinks]

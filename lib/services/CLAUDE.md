@@ -25,7 +25,7 @@ Split across two files:
 - `searchBlueprint`, `getModule`, `getForm`, `getQuestion`
 
 **Mutation (10):**
-- `editQuestion` (includes ID rename with automatic propagation), `addQuestion`, `removeQuestion`, `updateModule`, `updateForm` (name, close_case, connect), `createForm`, `removeForm`, `createModule`, `removeModule`
+- `editQuestion` (includes ID rename with automatic propagation), `addQuestion`, `removeQuestion`, `updateModule`, `updateForm` (name, close_case, post_submit, connect), `createForm` (name, type, post_submit), `removeForm`, `createModule`, `removeModule`
 
 **Validation (1):**
 - `validateApp` — runs `validateAndFix()` loop. `onInputStart` emits `data-phase: validate`, emits `data-done` on success.
@@ -202,7 +202,84 @@ Called on-demand by expander and validator — no form-level case fields stored.
 
 `CczCompiler` takes HQ import JSON → `.ccz` Buffer. Generates suite.xml, profile.ccpr, app_strings.txt. Injects case blocks (create/update/close/subcases) back into XForm XML via `addCaseBlocks()`.
 
-After case block injection, every XForm is validated via `validateXFormXml()` — checking that all bind nodesets, control refs, setvalue targets, and itext references resolve to actual nodes. Suite.xml is also parsed to verify well-formedness. The compiler throws on any structural issue, preventing broken .ccz files from being packaged.
+Entry definitions (datums, stack frames) are derived via the session module (`commcare/session.ts`) — the compiler just serializes them. After case block injection, every XForm is validated via `validateXFormXml()` — checking that all bind nodesets, control refs, setvalue targets, and itext references resolve to actual nodes. Suite.xml is also parsed to verify well-formedness. The compiler throws on any structural issue, preventing broken .ccz files from being packaged.
+
+## Session & Navigation (commcare/session.ts)
+
+Single source of truth for CommCare session mechanics: entry datums, stack operations, form linking.
+
+### Stack Operation Model
+
+CommCare Core processes three operation types after form submission. All three are modeled in `StackOperation`:
+
+| Operation | XML | Behavior | Used by Nova |
+|---|---|---|---|
+| `create` | `<create>` | Push a new navigation frame onto the stack | Yes — all destinations + form links |
+| `push` | `<push>` | Add steps to the current frame | Typed, not generated |
+| `clear` | `<clear>` | Remove frames from the stack (wipe history) | Typed, not generated |
+
+Key behavioral differences:
+- **No `<stack>` at all**: form frame popped, user returns to previous navigation level (case list, module menu, etc.)
+- **`<create/>` (empty)**: new empty frame pushed → no command → resolves to home
+- **`<clear/>`**: stack is explicitly wiped → session ends → home
+
+These are NOT the same. A user deep in Home → Module → Case List → Form would go back to the Case List with no `<stack>`, but to Home with `<create/>` or `<clear/>`. Nova omits `<stack>` entirely when `post_submit` is absent (CommCare's natural pop-back behavior). When `post_submit` is `'default'`, an empty `<create/>` is generated to force navigation home.
+
+### Entry Derivation
+
+`deriveEntryDefinition()` combines session datums (what a form needs before opening) and stack operations (where to go after submission) into a single `EntryDefinition` that the compiler serializes to suite.xml. Currently supports single case_id datum for followup forms.
+
+### Post-Submit Destinations
+
+Users and the SA see three choices (`USER_FACING_DESTINATIONS`). Two additional values exist for CommCare export fidelity (`POST_SUBMIT_DESTINATIONS`) and are resolved automatically.
+
+| Destination | User-facing | Suite.xml Stack | Status |
+|---|---|---|---|
+| `default` | "App Home" | `<create/>` (empty) | Implemented |
+| `root` | *(internal)* | `<create><command value="'root'"/></create>` | Implemented — same as default until `put_in_root` is modeled |
+| `module` | "This Module" | `<create><command value="'m{idx}'"/></create>` | Implemented |
+| `parent_module` | *(internal)* | Same as module | Stub — falls back to module until nested modules are modeled |
+| `previous` | "Previous Screen" | `<create>` with module cmd + case datums | Implemented |
+
+### Form Linking
+
+`form_links` on BlueprintForm enables conditional navigation to other forms/modules. `deriveFormLinkStack()` generates one `<create>` per link (with `ifClause` from the link's condition), plus a fallback `<create>` whose condition negates all link conditions. `detectFormLinkCycles()` provides DFS-based circular link detection.
+
+**Implemented:** Stack generation, fallback frame generation, cycle detection, full validation.
+**Not wired:** SA tools (no `form_links` parameter), FormSettingsPanel UI, preview engine navigation, HQ export of `form_links` array. Setting `form_links` directly on the blueprint will generate correct suite.xml and pass validation.
+
+**Auto datum matching not implemented.** CommCare HQ's `_find_best_match()` automatically matches datums between source and target forms by ID + case_type. Nova's form links require manual `datums` when the target form needs session variables. When auto datum matching is implemented, it must handle: same ID + same case_type (perfect match), different ID + same case_type (datum rename), and surface explicit warnings rather than silent fallback.
+
+### Edge Cases & Gaps
+
+**`put_in_root` (CommCare's "Menu Mode: Display only forms"):**
+CommCare's `put_in_root` boolean on modules flattens navigation — the module's forms appear directly in the parent menu instead of inside a module menu. This has cascading effects on post-submit navigation:
+- `'module'` becomes invalid (there IS no module menu — forms are at root level). HQ errors: "form link to display only forms."
+- `'root'` and `'default'` diverge: `'root'` shows the root menu (which includes the flattened forms), `'default'` clears the session entirely.
+- `'parent_module'` with a `put_in_root` parent also becomes invalid (same reason — parent has no menu).
+
+When `put_in_root` is added to `BlueprintModule`:
+1. Add validation: `'module'` is invalid when `mod.put_in_root`
+2. The build should auto-resolve `'module'` → `'root'` for `put_in_root` modules
+3. The `'root'` vs `'default'` distinction becomes meaningful — update the UI to surface `'root'` as a separate option ("Main Menu" vs "App Home") only when `put_in_root` modules exist in the app
+
+**Validated but behavior not yet modeled (validation stubs activate when features are added):**
+- `module` + `put_in_root` — see above. Currently checked via `case_list_only` as a partial equivalent.
+- `parent_module` + `root_module` — Always errors today (parent modules not modeled). When `root_module` is added to `BlueprintModule`, check: parent exists AND parent is not `put_in_root`.
+- `previous` + `multi_select` — HQ errors when module and root module have mismatched multi-select. When `is_multi_select` is added, check the mismatch.
+- `previous` + `inline_search` — HQ errors when a followup form's module uses inline search (search results can't be restored). When inline search is added, check this combination.
+
+**Not yet implemented (documented for when these features are built):**
+- **Auto datum matching** for form links (manual datums required)
+- **Shadow module resolution** for form link targets (`form_module_id` in HQ)
+- **`<push>` operations** — typed but never generated. Used in HQ for appending steps to existing frames.
+- **`<clear>` operations** — typed but never generated. Used in HQ for explicit stack wiping. Our `default` destination uses empty `<create/>` which achieves the same home-navigation result.
+- **Form link export to HQ JSON** — `form_links` is validated and generates suite.xml, but the HQ import JSON `form_links` array is not populated from the blueprint. The `hqShells.ts` form shell still exports an empty `form_links: []`. When wired, must map blueprint's index-based targets to HQ's unique_id-based `form_id`/`module_unique_id`.
+- **SA tool + UI surface for form links** — `updateForm`/`createForm` tools don't accept `form_links`. `FormSettingsPanel` doesn't display them. The preview engine doesn't navigate to linked forms after submission.
+
+### HQ Workflow Mapping
+
+`toHqWorkflow()` / `fromHqWorkflow()` convert between Nova's `PostSubmitDestination` and CommCare HQ's `post_form_workflow` strings. When `form_links` are present, the expander should set `post_form_workflow: 'form'` and populate `form_links` + `post_form_workflow_fallback` in the HQ JSON — this is not yet wired.
 
 ## AutoFixer (autoFixer.ts)
 
@@ -219,11 +296,11 @@ Shared platform module: `constants.ts` (reserved words, regex, length limits), `
 Rule-based validation system that catches every error CommCare HQ would catch during a build. Each check is a discrete function that returns structured `ValidationError[]` objects with typed error codes, scope, location, and details.
 
 **Architecture:**
-- `errors.ts` — `ValidationError` interface with `ValidationErrorCode` union (~35 codes), `errorToString()` for SA-facing messages.
+- `errors.ts` — `ValidationError` interface with `ValidationErrorCode` union (~40 codes), `errorToString()` for SA-facing messages.
 - `runner.ts` — `runValidation(blueprint)`: single entry point. Walks the blueprint tree once running scope-appropriate rules, then runs deep XPath validation.
-- `rules/app.ts` — App-level rules: empty app name, duplicate module names, child case type missing module.
+- `rules/app.ts` — App-level rules: empty app name, duplicate module names, child case type missing module, circular form links.
 - `rules/module.ts` — Module-level rules: case type presence/format/length, case_list_only constraints, case list column presence, column field validation against known case properties.
-- `rules/form.ts` — Form-level rules: empty form, case config validation (name field, reserved/invalid/duplicate properties, length limits, media types, preload), close_case, Connect config. Derives case config once per form.
+- `rules/form.ts` — Form-level rules: empty form, case config validation (name field, reserved/invalid/duplicate properties, length limits, media types, preload), close_case, post_submit (destination validity, parent_module without parent, module on case_list_only, previous on survey), form_links (empty array, target existence, self-reference, missing fallback), Connect config. Derives case config once per form.
 - `rules/question.ts` — Question-level rules (recursive): select no options, hidden no value, unquoted string literals, invalid question ID format.
 - `fixes.ts` — `FIX_REGISTRY`: `Map<ValidationErrorCode, FixFn>` mapping error codes to auto-fix functions. The fix loop in `validationLoop.ts` dispatches by error code.
 
@@ -236,8 +313,10 @@ Rule-based validation system that catches every error CommCare HQ would catch du
 **Post-expansion XForm validation** (called by validationLoop and CczCompiler):
 - `xformValidator.ts` — `validateXFormXml(xml, formName, moduleName)`: parses generated XForm XML with htmlparser2, validates that all bind nodesets, body control refs, setvalue targets, and itext references resolve to actual instance nodes. Catches orphaned binds (the `"Bind Node found but has no associated Data node"` class of errors from Vellum/FormPlayer). Used in two places: the validation loop (after `expandBlueprint`) and the CczCompiler (after case block injection).
 
+**HQ build checks fully covered:**
+- **Form workflows** — All `post_submit` destinations validated (value, context, edge cases). Form linking (`form_links`) fully validated: target existence, self-reference, circular detection (app-level DFS), missing fallback for conditional links, empty array. Auto datum matching not yet implemented (manual datums required). Source: `validators.py:1054-1105`. See "Session & Navigation" section for detailed gap list.
+
 **HQ build checks NOT yet covered** (add validation when we build these features):
-- **Form workflows** — HQ validates `post_form_workflow` (form links point to valid forms/modules, no links to display-only forms, no circular links). Source: `validators.py:1054-1105`.
 - **Shadow modules** — HQ validates source module exists, shadow parent tags present. Source: `validators.py:927-936`.
 - **Parent select / child module cycles** — HQ checks for circular parent_select and root_module references between modules. Source: `validators.py:225-250`. We only check within-form cycles currently.
 - **Case search config** — HQ validates search nodeset instances, grouped vs ungrouped properties, search_on_clear + auto_select conflicts. Source: `validators.py:511-557`.

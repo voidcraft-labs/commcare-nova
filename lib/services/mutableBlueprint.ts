@@ -7,7 +7,7 @@
  */
 import {
   type AppBlueprint, type BlueprintModule, type BlueprintForm, type Question,
-  type CaseType, type CaseProperty, type ConnectConfig,
+  type CaseType, type CaseProperty, type ConnectConfig, type PostSubmitDestination,
 } from '../schemas/blueprint'
 import { normalizeConnectConfig } from './connectConfig'
 import { rewriteXPathRefs, rewriteHashtagRefs } from '../preview/xpath/rewrite'
@@ -458,7 +458,7 @@ export class MutableBlueprint {
     }
   }
 
-  updateForm(mIdx: number, fIdx: number, updates: { name?: string; type?: 'registration' | 'followup' | 'survey'; close_case?: { question?: string; answer?: string } | null; connect?: ConnectConfig | null }): void {
+  updateForm(mIdx: number, fIdx: number, updates: { name?: string; type?: 'registration' | 'followup' | 'survey'; close_case?: { question?: string; answer?: string } | null; connect?: ConnectConfig | null; post_submit?: PostSubmitDestination | null }): void {
     const form = this.blueprint.modules[mIdx]?.forms[fIdx]
     if (!form) throw new Error(`Form m${mIdx}-f${fIdx} not found`)
 
@@ -478,6 +478,13 @@ export class MutableBlueprint {
         const normalized = normalizeConnectConfig(updates.connect)
         if (normalized) form.connect = normalized
         else delete form.connect
+      }
+    }
+    if (updates.post_submit !== undefined) {
+      if (updates.post_submit === null || updates.post_submit === 'default') {
+        delete form.post_submit
+      } else {
+        form.post_submit = updates.post_submit
       }
     }
   }

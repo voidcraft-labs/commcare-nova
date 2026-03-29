@@ -12,6 +12,28 @@ import { z } from 'zod'
 
 // ── Question types ──────────────────────────────────────────────────────
 
+// ── Post-submit navigation ───────────────────────────────────────────
+
+/** All destinations (internal). Includes root/parent_module for CommCare export fidelity. */
+export const POST_SUBMIT_DESTINATIONS = [
+  'default', 'root', 'module', 'parent_module', 'previous',
+] as const
+export type PostSubmitDestination = typeof POST_SUBMIT_DESTINATIONS[number]
+
+/**
+ * User-facing destinations (UI + SA tools). Three clear choices:
+ *   "default"  → App Home
+ *   "module"   → This Module
+ *   "previous" → Previous Screen
+ *
+ * Internal-only values (not exposed to users):
+ *   "root"           → resolved automatically when put_in_root is modeled
+ *   "parent_module"  → resolved automatically when nested modules are modeled
+ */
+export const USER_FACING_DESTINATIONS = ['default', 'module', 'previous'] as const
+
+// ── Question types ──────────────────────────────────────────────────────
+
 export const QUESTION_TYPES = [
   'text', 'int', 'date', 'single_select', 'multi_select', 'geopoint', 'image',
   'barcode', 'decimal', 'label', 'time', 'datetime',
@@ -100,6 +122,9 @@ export const scaffoldModulesSchema = z.object({
         '"registration" creates a new case. "followup" updates an existing case. "survey" is standalone.'
       ),
       purpose: z.string().describe('Brief description of what this form collects and why'),
+      post_submit: z.enum(USER_FACING_DESTINATIONS).optional().describe(
+        'Where the user goes after submitting this form. Omit for default (app home).'
+      ),
       formDesign: z.string().describe(
         'Free-text UX design spec for this form. Describe the intended question flow, ' +
         'grouping, skip logic patterns, calculated fields, and how this form relates to ' +
@@ -215,6 +240,31 @@ const questionSchema: z.ZodType<Question> = z.object({
   children: z.lazy(() => z.array(questionSchema)).optional().describe('Nested questions for group/repeat types'),
 })
 
+// ── Form Link Schema ─────────────────────────────────────────────────
+
+const formLinkDatumSchema = z.object({
+  name: z.string().describe('Target datum ID (e.g. "case_id")'),
+  xpath: z.string().describe('XPath expression for the datum value'),
+})
+
+const formLinkTargetSchema = z.discriminatedUnion('type', [
+  z.object({
+    type: z.literal('form'),
+    moduleIndex: z.number().describe('0-based target module index'),
+    formIndex: z.number().describe('0-based target form index'),
+  }),
+  z.object({
+    type: z.literal('module'),
+    moduleIndex: z.number().describe('0-based target module index'),
+  }),
+])
+
+const formLinkSchema = z.object({
+  condition: z.string().optional().describe('XPath condition. Omit = always matches.'),
+  target: formLinkTargetSchema.describe('Navigation target — a form or module'),
+  datums: z.array(formLinkDatumSchema).optional().describe('Manual datum overrides when auto-matching fails'),
+})
+
 // ── Form Schema ──────────────────────────────────────────────────────
 
 export const blueprintFormSchema = z.object({
@@ -227,6 +277,20 @@ export const blueprintFormSchema = z.object({
     answer: z.string().optional().describe('Value that triggers case closure'),
   }).optional().describe(
     'Followup forms only. Present = close the case. Empty {} = always close. {question, answer} = close only when that answer is selected. Omit entirely if form should not close the case.'
+  ),
+  post_submit: z.enum(POST_SUBMIT_DESTINATIONS).optional().describe(
+    'Where the user goes after submitting this form (also serves as fallback when form_links have conditions). ' +
+    '"default" = app home. ' +
+    '"module" = this module\'s form list. ' +
+    '"previous" = back to where the user was (e.g. case list for followup forms). ' +
+    'Internal values "root" and "parent_module" are resolved automatically during build. ' +
+    'Omit for default (app home).'
+  ),
+  form_links: z.array(formLinkSchema).optional().describe(
+    'Conditional navigation to other forms/modules after submission. ' +
+    'When present, links are evaluated in order — the first matching condition wins. ' +
+    'post_submit serves as the fallback when no condition matches. ' +
+    'Not yet exposed in the UI or SA tools.'
   ),
   connect: connectConfigSchema.optional().describe(
     'CommCare Connect configuration. Present when this form is part of a Connect Learn or Deliver app.'
@@ -306,6 +370,8 @@ export type ConnectLearnModule = z.infer<typeof connectLearnModuleSchema>
 export type ConnectAssessment = z.infer<typeof connectAssessmentSchema>
 export type ConnectDeliverUnit = z.infer<typeof connectDeliverUnitSchema>
 export type ConnectTask = z.infer<typeof connectTaskSchema>
+export type FormLink = z.infer<typeof formLinkSchema>
+export type FormLinkDatum = z.infer<typeof formLinkDatumSchema>
 export type CasePropertyMapping = z.infer<typeof casePropertyMappingSchema>
 export type Scaffold = z.infer<typeof scaffoldModulesSchema>
 export type ModuleContent = z.infer<typeof moduleContentSchema>
