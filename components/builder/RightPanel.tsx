@@ -1,9 +1,10 @@
 'use client'
 import { Icon } from '@iconify/react'
 import ciChevronRight from '@iconify-icons/ci/chevron-right'
+import { motion, AnimatePresence } from 'motion/react'
 import { ErrorBoundary } from '@/components/ui/ErrorBoundary'
 import { AppTree } from '@/components/builder/AppTree'
-import type { Builder } from '@/lib/services/builder'
+import { BuilderPhase, type Builder } from '@/lib/services/builder'
 
 interface RightPanelProps {
   builder: Builder
@@ -30,7 +31,7 @@ export function RightPanel({
       </div>
 
       {/* Structure tree */}
-      <div className="flex-1 overflow-hidden flex flex-col">
+      <div className="flex-1 overflow-hidden flex flex-col relative">
         <ErrorBoundary>
           <AppTree
             data={builder.treeData}
@@ -41,6 +42,17 @@ export function RightPanel({
             compact
           />
         </ErrorBoundary>
+
+        {/* Dim overlay — blocks interaction until generation completes */}
+        <AnimatePresence>
+          {builder.phase !== BuilderPhase.Done && (
+            <motion.div
+              exit={{ opacity: 0 }}
+              transition={{ duration: 0.3 }}
+              className="absolute inset-0 bg-black/25 z-10 pointer-events-none"
+            />
+          )}
+        </AnimatePresence>
       </div>
     </div>
   )

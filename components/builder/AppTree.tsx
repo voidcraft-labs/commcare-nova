@@ -26,6 +26,7 @@ interface AppTreeProps {
 }
 
 export function AppTree({ data, selected, onSelect, phase, actions, hideHeader, compact }: AppTreeProps) {
+  const locked = phase !== BuilderPhase.Done
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set())
   const [searchQuery, setSearchQuery] = useState('')
   const deferredQuery = useDeferredValue(searchQuery)
@@ -70,7 +71,7 @@ export function AppTree({ data, selected, onSelect, phase, actions, hideHeader, 
 
       {/* Search input — compact/sidebar mode only */}
       {compact && (
-        <div className="px-3 pt-3 shrink-0">
+        <div className={`px-3 pt-3 shrink-0 ${locked ? 'pointer-events-none opacity-40' : ''}`}>
           <div className="relative">
             <Icon
               icon={ciSearchMagnifyingGlass}
@@ -127,6 +128,7 @@ export function AppTree({ data, selected, onSelect, phase, actions, hideHeader, 
                   forceExpand={filtered?.forceExpand}
                   matchMap={filtered?.matchMap}
                   appConnectType={data?.connect_type}
+                  locked={locked}
                 />
               ))}
             </AnimatePresence>
@@ -138,10 +140,10 @@ export function AppTree({ data, selected, onSelect, phase, actions, hideHeader, 
 }
 
 /** Reusable disclosure chevron — rotates 90deg when expanded */
-function CollapseChevron({ isCollapsed, onClick }: { isCollapsed: boolean; onClick: (e: React.MouseEvent) => void }) {
+function CollapseChevron({ isCollapsed, onClick, hidden }: { isCollapsed: boolean; onClick: (e: React.MouseEvent) => void; hidden?: boolean }) {
   return (
     <button
-      className="w-6 h-6 -m-1 flex items-center justify-center shrink-0 cursor-pointer rounded text-nova-text-muted hover:text-nova-text hover:bg-nova-surface/50 transition-colors"
+      className={`w-6 h-6 -m-1 flex items-center justify-center shrink-0 cursor-pointer rounded text-nova-text-muted hover:text-nova-text hover:bg-nova-surface/50 transition-colors ${hidden ? 'invisible' : ''}`}
       onClick={onClick}
     >
       <Icon
@@ -166,6 +168,7 @@ function ModuleCard({
   forceExpand,
   matchMap,
   appConnectType,
+  locked,
 }: {
   module: TreeData['modules'][number]
   moduleIndex: number
@@ -177,6 +180,7 @@ function ModuleCard({
   forceExpand?: Set<string>
   matchMap?: Map<string, MatchIndices>
   appConnectType?: string
+  locked?: boolean
 }) {
   const isSelected = selected?.type === 'module' && selected.moduleIndex === moduleIndex
   const collapseKey = `m${moduleIndex}`
@@ -189,18 +193,19 @@ function ModuleCard({
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.5, ease: [0.16, 1, 0.3, 1] }}
       className={`rounded-xl border transition-colors ${
-        isSelected ? 'border-nova-violet bg-nova-surface' : 'border-nova-border bg-nova-deep hover:border-nova-border-bright'
+        isSelected ? 'border-nova-violet bg-nova-surface' : `border-nova-border bg-nova-deep ${locked ? '' : 'hover:border-nova-border-bright'}`
       }`}
     >
       {/* Module header */}
       <div
-        className="px-4 py-3 cursor-pointer flex items-center justify-between"
+        className={`px-4 py-3 flex items-center justify-between ${locked ? 'pointer-events-none' : 'cursor-pointer'}`}
         onClick={() => onSelect({ type: 'module', moduleIndex })}
       >
         <div className="flex items-center gap-2">
           <CollapseChevron
             isCollapsed={isCollapsed}
             onClick={(e) => { e.stopPropagation(); toggle(collapseKey) }}
+            hidden={locked}
           />
           <div className="w-8 h-8 rounded-lg bg-nova-violet/10 flex items-center justify-center">
             <Icon icon={ciMoreGridBig} width="16" height="16" className="text-nova-violet-bright" />
@@ -259,6 +264,7 @@ function ModuleCard({
                   forceExpand={forceExpand}
                   matchMap={matchMap}
                   appConnectType={appConnectType}
+                  locked={locked}
                 />
               ))}
             </AnimatePresence>
@@ -281,6 +287,7 @@ function FormCard({
   forceExpand,
   matchMap,
   appConnectType,
+  locked,
 }: {
   form: TreeData['modules'][number]['forms'][number]
   moduleIndex: number
@@ -293,6 +300,7 @@ function FormCard({
   forceExpand?: Set<string>
   matchMap?: Map<string, MatchIndices>
   appConnectType?: string
+  locked?: boolean
 }) {
   const isSelected = selected?.type === 'form' && selected.moduleIndex === moduleIndex && selected.formIndex === formIndex
   const formIcon = formTypeIcons[form.type] ?? formTypeIcons.survey
@@ -312,13 +320,14 @@ function FormCard({
       }`}
     >
       <div
-        className="px-4 py-2.5 cursor-pointer hover:bg-nova-surface/30 transition-colors flex items-center gap-2"
+        className={`px-4 py-2.5 transition-colors flex items-center gap-2 ${locked ? 'pointer-events-none' : 'cursor-pointer hover:bg-nova-surface/30'}`}
         onClick={() => onSelect({ type: 'form', moduleIndex, formIndex })}
       >
         {hasQuestions ? (
           <CollapseChevron
             isCollapsed={isCollapsed}
             onClick={(e) => { e.stopPropagation(); toggle(collapseKey) }}
+            hidden={locked}
           />
         ) : (
           <span className="w-3.5 shrink-0" />
@@ -359,6 +368,7 @@ function FormCard({
                 oddPaths={oddPaths!}
                 forceExpand={forceExpand}
                 matchMap={matchMap}
+                locked={locked}
               />
             ))}
           </AnimatePresence>
@@ -382,6 +392,7 @@ function QuestionRow({
   oddPaths,
   forceExpand,
   matchMap,
+  locked,
 }: {
   question: Question
   questionPath: QuestionPath
@@ -396,6 +407,7 @@ function QuestionRow({
   oddPaths: Set<string>
   forceExpand?: Set<string>
   matchMap?: Map<string, MatchIndices>
+  locked?: boolean
 }) {
   const isSelected = selected?.type === 'question' && selected.moduleIndex === moduleIndex && selected.formIndex === formIndex && selected.questionPath === questionPath
   const iconData = questionTypeIcons[q.type]
@@ -418,8 +430,9 @@ function QuestionRow({
     >
       <div
         data-tree-question={questionPath}
-        className={`flex items-center gap-1.5 py-1.5 px-1.5 -mx-1.5 cursor-pointer transition-colors text-xs ${
-          isSelected ? 'bg-nova-violet/10 text-nova-text' : `${isOdd ? 'bg-white/[0.025]' : ''} hover:bg-white/10 text-nova-text-secondary`
+        className={`flex items-center gap-1.5 py-1.5 px-1.5 -mx-1.5 transition-colors text-xs ${
+          locked ? 'pointer-events-none text-nova-text-secondary' :
+          isSelected ? 'cursor-pointer bg-nova-violet/10 text-nova-text' : `cursor-pointer ${isOdd ? 'bg-white/[0.025]' : ''} hover:bg-white/10 text-nova-text-secondary`
         }`}
         style={{ paddingLeft: `${depth * 6}px` }}
         onClick={(e) => {
@@ -431,6 +444,7 @@ function QuestionRow({
           <CollapseChevron
             isCollapsed={!!isCollapsed}
             onClick={(e) => { e.stopPropagation(); toggle(questionPath) }}
+            hidden={locked}
           />
         ) : (
           <span className="w-3.5 shrink-0" />
@@ -478,6 +492,7 @@ function QuestionRow({
               oddPaths={oddPaths}
               forceExpand={forceExpand}
               matchMap={matchMap}
+              locked={locked}
             />
           ))}
         </div>
