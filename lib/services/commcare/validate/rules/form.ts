@@ -4,8 +4,8 @@
  * Case config is derived once per form and passed to rules that need it.
  */
 
-import type { AppBlueprint, BlueprintForm, BlueprintModule, Question, DerivedCaseConfig } from '@/lib/schemas/blueprint'
-import { deriveCaseConfig } from '@/lib/schemas/blueprint'
+import type { AppBlueprint, BlueprintForm, BlueprintModule, Question, DerivedCaseConfig, FormLink } from '@/lib/schemas/blueprint'
+import { deriveCaseConfig, POST_SUBMIT_DESTINATIONS } from '@/lib/schemas/blueprint'
 import { RESERVED_CASE_PROPERTIES, MEDIA_QUESTION_TYPES, CASE_PROPERTY_REGEX, MAX_CASE_PROPERTY_LENGTH } from '../../constants'
 import { type ValidationError, validationError } from '../errors'
 import { detectUnquotedStringLiteral } from '../../../hqJsonExpander'
@@ -205,6 +205,203 @@ export function closeCaseValidation(form: BlueprintForm, ctx: FormContext): Vali
   return errors
 }
 
+/**
+ * Comprehensive post-submit navigation validation.
+ *
+ * Validates every post_submit destination against the form's context.
+ * Even destinations that "work" may produce warnings when the behavior
+ * is surprising or will change when more features are added.
+ *
+ * CommCare HQ validates (validators.py:1054-1105):
+ * - WORKFLOW_FORM with empty form_links → error
+ * - WORKFLOW_MODULE when module.put_in_root → error
+ * - WORKFLOW_PARENT_MODULE when no root_module → error
+ * - WORKFLOW_PARENT_MODULE when parent.put_in_root → error
+ * - WORKFLOW_PREVIOUS with multi_select + mismatched root → error
+ * - WORKFLOW_PREVIOUS with inline_search → error
+ *
+ * We validate ALL of these. For features not yet modeled in Nova
+ * (put_in_root, root_module, multi_select, inline_search), the
+ * checks are stubs that will activate when those features are added.
+ */
+export function postSubmitValidation(form: BlueprintForm, ctx: FormContext, mod: BlueprintModule): ValidationError[] {
+  if (!form.post_submit) return []
+  const errors: ValidationError[] = []
+  const loc = { moduleIndex: ctx.modIndex, moduleName: ctx.moduleName, formIndex: ctx.formIndex, formName: ctx.formName }
+  const dest = form.post_submit
+
+  // ── Value validity ──────────────────────────────────────────────
+  const valid = (POST_SUBMIT_DESTINATIONS as readonly string[]).includes(dest)
+  if (!valid) {
+    errors.push(validationError('INVALID_POST_SUBMIT', 'form',
+      `"${ctx.formName}" has post_submit set to "${dest}", which is not a recognized destination.\n\n` +
+      `The valid options are:\n` +
+      `  "default"        — Navigate to the app home screen\n` +
+      `  "root"           — Navigate to the first menu (module select)\n` +
+      `  "module"         — Navigate back to this module's form list\n` +
+      `  "parent_module"  — Navigate to the parent module's menu\n` +
+      `  "previous"       — Navigate to the screen before this form`,
+      loc, { value: String(dest) }))
+    return errors // Don't run further checks on an invalid value
+  }
+
+  // ── parent_module: requires a parent module relationship ────────
+  // CommCare HQ: invalid when module has no root_module_id.
+  // Nova doesn't model root_module yet, so this is ALWAYS an error.
+  // When root_module is added, this check should verify:
+  //   1. mod.root_module exists
+  //   2. The parent module is not put_in_root (display-only)
+  if (dest === 'parent_module') {
+    errors.push(validationError('POST_SUBMIT_PARENT_MODULE_UNSUPPORTED', 'form',
+      `"${ctx.formName}" has post_submit set to "parent_module", but "${ctx.moduleName}" doesn't have a parent module.\n\n` +
+      `"parent_module" navigates to the parent module's menu after form submission. ` +
+      `This requires the module to be nested under another module (a feature that isn't configured here). ` +
+      `In the meantime, this will behave the same as "module" (navigating back to "${ctx.moduleName}").\n\n` +
+      `If you intended a different destination, the options are:\n` +
+      `  "module"    — Stay in "${ctx.moduleName}" (same behavior, explicit)\n` +
+      `  "previous"  — Go back to where the user was before this form\n` +
+      `  "default"   — Go to the app home screen`,
+      loc))
+  }
+
+  // ── module: invalid when module is display-only (case_list_only) ──
+  // CommCare HQ: invalid when module.put_in_root (forms are at root level,
+  // so "module menu" doesn't exist as a navigable screen).
+  // Nova: case_list_only modules have no forms → no form list to return to.
+  if (dest === 'module' && mod.case_list_only) {
+    errors.push(validationError('POST_SUBMIT_MODULE_CASE_LIST_ONLY', 'form',
+      `"${ctx.formName}" has post_submit set to "module", but "${ctx.moduleName}" is a case-list-only module with no form list to navigate to.\n\n` +
+      `After submitting this form, the user would land on an empty module menu. ` +
+      `Consider using "previous" to return the user to where they were, or "default" to go home.`,
+      loc))
+  }
+
+  // ── previous: surprising for survey forms (no case context to return to) ──
+  // Not an error, but worth noting: for survey forms, "previous" behaves
+  // the same as "module" because there's no case selection to restore.
+  if (dest === 'previous' && form.type === 'survey') {
+    errors.push(validationError('POST_SUBMIT_PREVIOUS_SURVEY_NO_EFFECT', 'form',
+      `"${ctx.formName}" has post_submit set to "previous", but this is a survey form with no case selection step.\n\n` +
+      `For survey forms, "previous" behaves the same as "module" — the user returns to the module's form list. ` +
+      `This isn't an error, but if you intended to send the user to the module menu, using "module" makes the intent clearer.`,
+      loc))
+  }
+
+  // ── Future checks (activate when features are modeled) ──────────
+  //
+  // WORKFLOW_MODULE + put_in_root:
+  //   When Nova adds put_in_root on modules, check:
+  //   if (dest === 'module' && mod.put_in_root) → error
+  //   "This module's forms are displayed at the root level, so there's
+  //    no module menu to navigate to."
+  //
+  // WORKFLOW_PREVIOUS + multi_select:
+  //   When Nova adds multi_select on modules, check:
+  //   if (dest === 'previous' && mod.is_multi_select !== mod.root_module?.is_multi_select)
+  //   "The previous screen used a different selection mode than this module."
+  //
+  // WORKFLOW_PREVIOUS + inline_search:
+  //   When Nova adds inline search, check:
+  //   if (dest === 'previous' && form.type === 'followup' && mod.uses_inline_search)
+  //   "Inline search results can't be restored after form submission."
+
+  return errors
+}
+
+
+/**
+ * Form link validation.
+ *
+ * Validates every aspect of form_links that CommCare HQ checks:
+ * - Empty links array (present but no entries)
+ * - Target form/module exists in the blueprint
+ * - No self-referencing links (form links to itself)
+ * - Conditional links have a fallback (post_submit must be set)
+ *
+ * Circular link detection (A→B→A) runs at the app level via
+ * detectFormLinkCycles() in the runner.
+ *
+ * form_links is fully validated but NOT YET EXPOSED in the UI or SA tools.
+ * Setting form_links directly on the blueprint will trigger these checks.
+ */
+export function formLinkValidation(form: BlueprintForm, ctx: FormContext, _mod: BlueprintModule, blueprint: AppBlueprint): ValidationError[] {
+  if (!form.form_links) return []
+  const errors: ValidationError[] = []
+  const loc = { moduleIndex: ctx.modIndex, moduleName: ctx.moduleName, formIndex: ctx.formIndex, formName: ctx.formName }
+
+  // ── Empty form_links array ──────────────────────────────────────
+  if (form.form_links.length === 0) {
+    errors.push(validationError('FORM_LINK_EMPTY', 'form',
+      `"${ctx.formName}" has form_links set to an empty array.\n\n` +
+      `form_links is meant to hold one or more navigation links to other forms or modules. ` +
+      `An empty array has no effect — either add links or remove the form_links field entirely.\n\n` +
+      `Without form_links, the form will use its post_submit destination ("${form.post_submit ?? 'default'}").`,
+      loc))
+    return errors
+  }
+
+  const hasAnyCondition = form.form_links.some(l => l.condition)
+
+  // ── No fallback when links have conditions ──────────────────────
+  if (hasAnyCondition && !form.post_submit) {
+    errors.push(validationError('FORM_LINK_NO_FALLBACK', 'form',
+      `"${ctx.formName}" has conditional form links but no post_submit fallback.\n\n` +
+      `When form links have XPath conditions, CommCare evaluates them after submission. ` +
+      `If none of the conditions match, the user needs somewhere to go — that's what post_submit provides.\n\n` +
+      `Set post_submit to a destination like "module" or "default" so there's always a valid navigation path.`,
+      loc))
+  }
+
+  // ── Validate each link ──────────────────────────────────────────
+  for (let lIdx = 0; lIdx < form.form_links.length; lIdx++) {
+    const link = form.form_links[lIdx]
+    const linkLabel = link.condition
+      ? `form link ${lIdx + 1} (condition: "${link.condition.slice(0, 40)}${link.condition.length > 40 ? '...' : ''}")`
+      : `form link ${lIdx + 1}`
+
+    // Target exists
+    if (link.target.type === 'form') {
+      const targetMod = blueprint.modules[link.target.moduleIndex]
+      const targetForm = targetMod?.forms[link.target.formIndex]
+      if (!targetMod) {
+        errors.push(validationError('FORM_LINK_TARGET_NOT_FOUND', 'form',
+          `"${ctx.formName}" ${linkLabel} targets module ${link.target.moduleIndex}, which doesn't exist.\n\n` +
+          `The app has ${blueprint.modules.length} module${blueprint.modules.length === 1 ? '' : 's'} (indices 0–${blueprint.modules.length - 1}). ` +
+          `Update the target to reference an existing module.`,
+          loc))
+      } else if (!targetForm) {
+        errors.push(validationError('FORM_LINK_TARGET_NOT_FOUND', 'form',
+          `"${ctx.formName}" ${linkLabel} targets form ${link.target.formIndex} in "${targetMod.name}", which doesn't exist.\n\n` +
+          `"${targetMod.name}" has ${targetMod.forms.length} form${targetMod.forms.length === 1 ? '' : 's'} (indices 0–${targetMod.forms.length - 1}). ` +
+          `Update the target to reference an existing form.`,
+          loc))
+      }
+
+      // Self-reference
+      if (link.target.moduleIndex === ctx.modIndex && link.target.formIndex === ctx.formIndex) {
+        errors.push(validationError('FORM_LINK_SELF_REFERENCE', 'form',
+          `"${ctx.formName}" ${linkLabel} links back to itself.\n\n` +
+          `After submitting this form, the user would immediately re-enter the same form. ` +
+          `This creates a confusing loop. If you need the user to fill this form again, ` +
+          `consider linking to the module menu instead so they can choose to re-enter.`,
+          loc))
+      }
+    } else {
+      // Module target
+      const targetMod = blueprint.modules[link.target.moduleIndex]
+      if (!targetMod) {
+        errors.push(validationError('FORM_LINK_TARGET_NOT_FOUND', 'form',
+          `"${ctx.formName}" ${linkLabel} targets module ${link.target.moduleIndex}, which doesn't exist.\n\n` +
+          `The app has ${blueprint.modules.length} module${blueprint.modules.length === 1 ? '' : 's'} (indices 0–${blueprint.modules.length - 1}). ` +
+          `Update the target to reference an existing module.`,
+          loc))
+      }
+    }
+  }
+
+  return errors
+}
+
 export function connectValidation(form: BlueprintForm, ctx: FormContext, _caseConfig: DerivedCaseConfig, _mod: BlueprintModule, blueprint: AppBlueprint): ValidationError[] {
   if (!blueprint.connect_type || !form.connect) return []
   const errors: ValidationError[] = []
@@ -322,6 +519,8 @@ export function runFormRules(
   errors.push(...registrationNoCaseProperties(form, ctx, caseConfig, mod))
   errors.push(...casePropertyBadFormat(form, ctx, caseConfig))
   errors.push(...casePropertyTooLong(form, ctx, caseConfig))
+  errors.push(...postSubmitValidation(form, ctx, mod))
+  errors.push(...formLinkValidation(form, ctx, mod, blueprint))
   errors.push(...connectValidation(form, ctx, caseConfig, mod, blueprint))
 
   return errors

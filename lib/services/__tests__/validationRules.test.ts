@@ -249,3 +249,216 @@ describe('fix registry', () => {
     expect(bp.modules[0].forms[0].questions[0].options).toHaveLength(2)
   })
 })
+
+// ── Post-submit validation ────────────────────────────────────────
+
+describe('post_submit validation', () => {
+  it('accepts valid destinations without errors', () => {
+    for (const dest of ['default', 'root', 'module', 'previous'] as const) {
+      const bp = minBlueprint()
+      bp.modules[0].forms[0].post_submit = dest
+      const errors = runValidation(bp)
+      expect(errors.filter(e => e.code.startsWith('POST_SUBMIT') || e.code === 'INVALID_POST_SUBMIT')).toEqual([])
+    }
+  })
+
+  it('catches invalid destination with helpful message', () => {
+    const bp = minBlueprint()
+    ;(bp.modules[0].forms[0] as any).post_submit = 'nowhere'
+    const errors = runValidation(bp)
+    const err = errors.find(e => e.code === 'INVALID_POST_SUBMIT')
+    expect(err).toBeDefined()
+    expect(err!.message).toContain('"nowhere"')
+    expect(err!.message).toContain('default')
+    expect(err!.message).toContain('module')
+    expect(err!.message).toContain('previous')
+  })
+
+  it('errors on parent_module since parent modules are not yet supported', () => {
+    const bp = minBlueprint()
+    bp.modules[0].forms[0].post_submit = 'parent_module'
+    const errors = runValidation(bp)
+    const err = errors.find(e => e.code === 'POST_SUBMIT_PARENT_MODULE_UNSUPPORTED')
+    expect(err).toBeDefined()
+    expect(err!.message).toContain("doesn't have a parent module")
+    expect(err!.message).toContain('"module"')
+    expect(err!.message).toContain('"previous"')
+  })
+
+  it('catches module destination on case_list_only modules', () => {
+    const bp: AppBlueprint = {
+      app_name: 'Test',
+      modules: [{
+        name: 'View Only',
+        case_type: 'patient',
+        case_list_only: true,
+        forms: [{ name: 'F', type: 'survey', post_submit: 'module', questions: [{ id: 'q', type: 'text', label: 'Q' }] }],
+        case_list_columns: [{ field: 'case_name', header: 'Name' }],
+      }],
+      case_types: [{ name: 'patient', properties: [{ name: 'case_name', label: 'Name' }] }],
+    }
+    const errors = runValidation(bp)
+    const err = errors.find(e => e.code === 'POST_SUBMIT_MODULE_CASE_LIST_ONLY')
+    expect(err).toBeDefined()
+    expect(err!.message).toContain('case-list-only')
+    expect(err!.message).toContain('"previous"')
+  })
+
+  it('warns when previous is used on survey forms', () => {
+    const bp = surveyBlueprint([{ id: 'q', type: 'text', label: 'Q' }])
+    bp.modules[0].forms[0].post_submit = 'previous'
+    const errors = runValidation(bp)
+    const err = errors.find(e => e.code === 'POST_SUBMIT_PREVIOUS_SURVEY_NO_EFFECT')
+    expect(err).toBeDefined()
+    expect(err!.message).toContain('survey form')
+    expect(err!.message).toContain('same as "module"')
+  })
+
+  it('does not warn on previous for followup forms', () => {
+    const bp = minBlueprint()
+    bp.modules[0].forms[0].type = 'followup'
+    bp.modules[0].forms[0].post_submit = 'previous'
+    const errors = runValidation(bp)
+    expect(errors.find(e => e.code === 'POST_SUBMIT_PREVIOUS_SURVEY_NO_EFFECT')).toBeUndefined()
+  })
+
+  it('does not produce errors when post_submit is absent', () => {
+    const bp = minBlueprint()
+    delete bp.modules[0].forms[0].post_submit
+    const errors = runValidation(bp)
+    expect(errors.filter(e => e.code.startsWith('POST_SUBMIT') || e.code === 'INVALID_POST_SUBMIT')).toEqual([])
+  })
+})
+
+// ── Form link validation ──────────────────────────────────────────
+
+describe('form_links validation', () => {
+  it('catches empty form_links array', () => {
+    const bp = surveyBlueprint([{ id: 'q', type: 'text', label: 'Q' }])
+    bp.modules[0].forms[0].form_links = []
+    const errors = runValidation(bp)
+    expect(errors.find(e => e.code === 'FORM_LINK_EMPTY')).toBeDefined()
+  })
+
+  it('catches non-existent target module', () => {
+    const bp = surveyBlueprint([{ id: 'q', type: 'text', label: 'Q' }])
+    bp.modules[0].forms[0].form_links = [
+      { target: { type: 'form', moduleIndex: 99, formIndex: 0 } },
+    ]
+    const errors = runValidation(bp)
+    const err = errors.find(e => e.code === 'FORM_LINK_TARGET_NOT_FOUND')
+    expect(err).toBeDefined()
+    expect(err!.message).toContain('module 99')
+  })
+
+  it('catches non-existent target form', () => {
+    const bp: AppBlueprint = {
+      app_name: 'Test',
+      modules: [
+        { name: 'M0', forms: [
+          { name: 'F0', type: 'survey', questions: [{ id: 'q', type: 'text', label: 'Q' }],
+            form_links: [{ target: { type: 'form', moduleIndex: 0, formIndex: 99 } }] },
+        ]},
+      ],
+      case_types: null,
+    }
+    const errors = runValidation(bp)
+    const err = errors.find(e => e.code === 'FORM_LINK_TARGET_NOT_FOUND')
+    expect(err).toBeDefined()
+    expect(err!.message).toContain('form 99')
+  })
+
+  it('catches self-referencing link', () => {
+    const bp = surveyBlueprint([{ id: 'q', type: 'text', label: 'Q' }])
+    bp.modules[0].forms[0].form_links = [
+      { target: { type: 'form', moduleIndex: 0, formIndex: 0 } },
+    ]
+    const errors = runValidation(bp)
+    expect(errors.find(e => e.code === 'FORM_LINK_SELF_REFERENCE')).toBeDefined()
+  })
+
+  it('catches conditional links without post_submit fallback', () => {
+    const bp: AppBlueprint = {
+      app_name: 'Test',
+      modules: [
+        { name: 'M0', forms: [
+          { name: 'F0', type: 'survey', questions: [{ id: 'q', type: 'text', label: 'Q' }],
+            form_links: [{ condition: 'x = 1', target: { type: 'form', moduleIndex: 0, formIndex: 1 } }] },
+          { name: 'F1', type: 'survey', questions: [{ id: 'q', type: 'text', label: 'Q' }] },
+        ]},
+      ],
+      case_types: null,
+    }
+    const errors = runValidation(bp)
+    expect(errors.find(e => e.code === 'FORM_LINK_NO_FALLBACK')).toBeDefined()
+  })
+
+  it('accepts conditional links when post_submit fallback is set', () => {
+    const bp: AppBlueprint = {
+      app_name: 'Test',
+      modules: [
+        { name: 'M0', forms: [
+          { name: 'F0', type: 'survey', questions: [{ id: 'q', type: 'text', label: 'Q' }],
+            post_submit: 'module',
+            form_links: [{ condition: 'x = 1', target: { type: 'form', moduleIndex: 0, formIndex: 1 } }] },
+          { name: 'F1', type: 'survey', questions: [{ id: 'q', type: 'text', label: 'Q' }] },
+        ]},
+      ],
+      case_types: null,
+    }
+    const errors = runValidation(bp)
+    expect(errors.find(e => e.code === 'FORM_LINK_NO_FALLBACK')).toBeUndefined()
+  })
+
+  it('detects circular form links at app level', () => {
+    const bp: AppBlueprint = {
+      app_name: 'Test',
+      modules: [{
+        name: 'M0', forms: [
+          { name: 'F0', type: 'survey', questions: [{ id: 'q', type: 'text', label: 'Q' }],
+            form_links: [{ target: { type: 'form', moduleIndex: 0, formIndex: 1 } }] },
+          { name: 'F1', type: 'survey', questions: [{ id: 'q', type: 'text', label: 'Q' }],
+            form_links: [{ target: { type: 'form', moduleIndex: 0, formIndex: 0 } }] },
+        ],
+      }],
+      case_types: null,
+    }
+    const errors = runValidation(bp)
+    expect(errors.find(e => e.code === 'FORM_LINK_CIRCULAR')).toBeDefined()
+  })
+
+  it('accepts valid form links', () => {
+    const bp: AppBlueprint = {
+      app_name: 'Test',
+      modules: [{
+        name: 'M0', forms: [
+          { name: 'F0', type: 'survey', questions: [{ id: 'q', type: 'text', label: 'Q' }],
+            form_links: [{ target: { type: 'form', moduleIndex: 0, formIndex: 1 } }] },
+          { name: 'F1', type: 'survey', questions: [{ id: 'q', type: 'text', label: 'Q' }] },
+        ],
+      }],
+      case_types: null,
+    }
+    const errors = runValidation(bp)
+    const linkErrors = errors.filter(e => e.code.startsWith('FORM_LINK'))
+    expect(linkErrors).toEqual([])
+  })
+
+  it('accepts module target links', () => {
+    const bp: AppBlueprint = {
+      app_name: 'Test',
+      modules: [
+        { name: 'M0', forms: [
+          { name: 'F0', type: 'survey', questions: [{ id: 'q', type: 'text', label: 'Q' }],
+            form_links: [{ target: { type: 'module', moduleIndex: 1 } }] },
+        ]},
+        { name: 'M1', forms: [
+          { name: 'F0', type: 'survey', questions: [{ id: 'q', type: 'text', label: 'Q' }] },
+        ]},
+      ],
+      case_types: null,
+    }
+    const errors = runValidation(bp)
+    expect(errors.filter(e => e.code.startsWith('FORM_LINK'))).toEqual([])
+  })
+})

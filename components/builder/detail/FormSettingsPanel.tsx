@@ -5,7 +5,7 @@ import { motion, AnimatePresence } from 'motion/react'
 import { Icon } from '@iconify/react'
 import ciSettings from '@iconify-icons/ci/settings'
 import ciClose from '@iconify-icons/ci/close-md'
-import type { BlueprintForm, ConnectConfig } from '@/lib/schemas/blueprint'
+import type { BlueprintForm, ConnectConfig, PostSubmitDestination } from '@/lib/schemas/blueprint'
 import type { MutableBlueprint } from '@/lib/services/mutableBlueprint'
 import { toSnakeId } from '@/lib/services/commcare/validate'
 import { POPOVER_GLASS } from '@/lib/styles'
@@ -136,6 +136,14 @@ function FormSettingsPanel({
           notifyBlueprintChanged={notifyBlueprintChanged}
         />
 
+        <AfterSubmitSection
+          form={form}
+          moduleIndex={moduleIndex}
+          formIndex={formIndex}
+          mb={mb}
+          notifyBlueprintChanged={notifyBlueprintChanged}
+        />
+
         <ConnectSection
           form={form}
           moduleIndex={moduleIndex}
@@ -144,6 +152,70 @@ function FormSettingsPanel({
           notifyBlueprintChanged={notifyBlueprintChanged}
           onModalChange={setModalOpen}
         />
+      </div>
+    </div>
+  )
+}
+
+// ── After Submit Section ──────────────────────────────────────────────
+
+const AFTER_SUBMIT_OPTIONS: Array<{ value: PostSubmitDestination; label: string; description: string }> = [
+  { value: 'default', label: 'App Home', description: 'Back to the main screen' },
+  { value: 'module', label: 'This Module', description: 'Stay in this module\'s form list' },
+  { value: 'previous', label: 'Previous Screen', description: 'Back to where the user was' },
+]
+
+/** Map internal-only values (root, parent_module) to their user-facing equivalent. */
+function resolveUserFacing(dest: PostSubmitDestination): PostSubmitDestination {
+  if (dest === 'root') return 'default'
+  if (dest === 'parent_module') return 'module'
+  return dest
+}
+
+function AfterSubmitSection({ form, moduleIndex, formIndex, mb, notifyBlueprintChanged }: FormSettingsPanelProps) {
+  const [open, setOpen] = useState(false)
+  const current = resolveUserFacing(form.post_submit ?? 'default')
+  const currentLabel = AFTER_SUBMIT_OPTIONS.find(o => o.value === current)?.label ?? 'App Home'
+  const dismissRef = useDismissRef(() => setOpen(false))
+
+  const handleSelect = useCallback((value: PostSubmitDestination) => {
+    mb.updateForm(moduleIndex, formIndex, { post_submit: value === 'default' ? null : value })
+    notifyBlueprintChanged()
+    setOpen(false)
+  }, [mb, moduleIndex, formIndex, notifyBlueprintChanged])
+
+  return (
+    <div>
+      <label className="text-xs font-medium text-nova-text-secondary uppercase tracking-wider mb-1.5 block">
+        After Submit
+      </label>
+      <div className="relative" ref={dismissRef}>
+        <button
+          onClick={() => setOpen(o => !o)}
+          className="w-full flex items-center justify-between px-2 py-1.5 text-xs rounded-md border transition-colors cursor-pointer text-nova-text bg-transparent border-white/[0.06] hover:border-white/[0.12]"
+        >
+          <span>{currentLabel}</span>
+          <svg width="10" height="10" viewBox="0 0 10 10" className={`text-nova-text-muted transition-transform ${open ? 'rotate-180' : ''}`}>
+            <path d="M2 3.5L5 6.5L8 3.5" stroke="currentColor" strokeWidth="1.2" fill="none" strokeLinecap="round" strokeLinejoin="round"/>
+          </svg>
+        </button>
+        {open && (
+          <div className="absolute z-10 mt-1 w-full rounded-md border border-white/[0.08] bg-nova-elevated shadow-lg overflow-hidden">
+            {AFTER_SUBMIT_OPTIONS.map(opt => (
+              <button
+                key={opt.value}
+                onClick={() => handleSelect(opt.value)}
+                className={`w-full text-left px-2.5 py-1.5 text-xs transition-colors cursor-pointer ${
+                  opt.value === current
+                    ? 'text-nova-violet-bright bg-nova-violet/10'
+                    : 'text-nova-text hover:bg-white/[0.04]'
+                }`}
+              >
+                {opt.label}
+              </button>
+            ))}
+          </div>
+        )}
       </div>
     </div>
   )

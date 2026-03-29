@@ -1,6 +1,7 @@
 'use client'
 import { useState, useRef, useEffect, useMemo, useCallback } from 'react'
 import type { AppBlueprint } from '@/lib/schemas/blueprint'
+import type { PreviewScreen } from '@/lib/preview/engine/types'
 import type { Builder } from '@/lib/services/builder'
 import type { EditMode } from '@/hooks/useEditContext'
 import { EditContextProvider } from '@/hooks/useEditContext'
@@ -21,12 +22,13 @@ interface FormScreenProps {
   formIndex: number
   caseId?: string
   onBack: () => void
+  onNavigate?: (screen: PreviewScreen) => void
   canGoBack?: boolean
   builder?: Builder
   mode?: EditMode
 }
 
-export function FormScreen({ blueprint, moduleIndex, formIndex, caseId, onBack, canGoBack, builder, mode = 'edit' }: FormScreenProps) {
+export function FormScreen({ blueprint, moduleIndex, formIndex, caseId, onBack, onNavigate, canGoBack, builder, mode = 'edit' }: FormScreenProps) {
   const [titleSaved, setTitleSaved] = useState(false)
   const handleTitleSaved = useCallback(() => { setTitleSaved(true); setTimeout(() => setTitleSaved(false), 1500) }, [])
   const mod = blueprint.modules[moduleIndex]
@@ -104,7 +106,23 @@ export function FormScreen({ blueprint, moduleIndex, formIndex, caseId, onBack, 
   const handleSubmit = () => {
     const valid = engine.validateAll()
     if (valid) {
-      onBack()
+      const dest = form.post_submit ?? 'default'
+      switch (dest) {
+        case 'module':
+        case 'parent_module':
+          if (onNavigate) onNavigate({ type: 'module', moduleIndex })
+          else onBack()
+          break
+        case 'root':
+        case 'default':
+          if (onNavigate) onNavigate({ type: 'home' })
+          else onBack()
+          break
+        case 'previous':
+        default:
+          onBack()
+          break
+      }
     } else {
       const errorEl = formBodyElRef.current?.querySelector('[data-invalid="true"]')
       errorEl?.scrollIntoView({ behavior: 'smooth', block: 'center' })
