@@ -74,6 +74,7 @@ export function BuilderLayout({ buildId }: { buildId: string }) {
   const scrollAnchorRef = useRef<{ questionPath: string; offsetTop: number; allPaths: string[] } | null>(null)
   viewModeRef.current = viewMode
   const [progressHidden, setProgressHidden] = useState(false)
+  const [scrollingToQuestion, setScrollingToQuestion] = useState(false)
   const replayStartIndex = initialReplay?.doneIndex ?? 0
   const [replayData, setReplayDataState] = useState(() => {
     if (initialReplay) {
@@ -326,22 +327,25 @@ export function BuilderLayout({ buildId }: { buildId: string }) {
     } else {
       nav.navigateToModule(sel.moduleIndex)
     }
-    // Scroll the design canvas to the selected question (only if not already visible)
+    // Scroll the design canvas to the selected question (only if not already visible).
+    // Set scrolling flag immediately so the editor stays hidden until scroll finishes.
     if (sel.questionPath) {
+      setScrollingToQuestion(true)
       setTimeout(() => {
         const el = document.querySelector(`[data-question-id="${sel.questionPath}"]`) as HTMLElement | null
-        if (el) {
-          const scrollContainer = el.closest('[data-preview-scroll-container]') as HTMLElement | null
-          if (scrollContainer) {
-            const containerRect = scrollContainer.getBoundingClientRect()
-            const elRect = el.getBoundingClientRect()
-            const isVisible = elRect.top >= containerRect.top && elRect.bottom <= containerRect.bottom
-            if (!isVisible) {
-              el.style.scrollMarginTop = '20px'
-              el.scrollIntoView({ behavior: 'smooth', block: 'start' })
-            }
+        const scrollContainer = el?.closest('[data-preview-scroll-container]') as HTMLElement | null
+        if (el && scrollContainer) {
+          const containerRect = scrollContainer.getBoundingClientRect()
+          const elRect = el.getBoundingClientRect()
+          const isVisible = elRect.top >= containerRect.top && elRect.bottom <= containerRect.bottom
+          if (!isVisible) {
+            scrollContainer.addEventListener('scrollend', () => setScrollingToQuestion(false), { once: true })
+            el.style.scrollMarginTop = '20px'
+            el.scrollIntoView({ behavior: 'smooth', block: 'start' })
+            return
           }
         }
+        setScrollingToQuestion(false)
       }, 250)
     }
   }, [builder, nav.navigateToHome, nav.navigateToForm, nav.navigateToModule])
@@ -632,7 +636,7 @@ export function BuilderLayout({ buildId }: { buildId: string }) {
           {/* Contextual editor — floating panel anchored to selected question */}
           {showContextualEditor && (
             <ErrorBoundary>
-              <ContextualEditor builder={builder} />
+              <ContextualEditor builder={builder} scrolling={scrollingToQuestion} />
             </ErrorBoundary>
           )}
         </div>

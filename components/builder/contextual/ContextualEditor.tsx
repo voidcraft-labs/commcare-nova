@@ -1,6 +1,6 @@
 'use client'
 import { useState, useRef, useLayoutEffect, useSyncExternalStore } from 'react'
-import { useFloating, offset, flip, shift, autoUpdate, FloatingPortal } from '@floating-ui/react'
+import { useFloating, offset, flip, shift, autoUpdate, FloatingPortal, type Placement } from '@floating-ui/react'
 import type { Builder } from '@/lib/services/builder'
 import { ContextualEditorTabs, type EditorTab } from './ContextualEditorTabs'
 import { ContextualEditorUI } from './ContextualEditorUI'
@@ -11,15 +11,28 @@ import { POPOVER_GLASS } from '@/lib/styles'
 
 interface ContextualEditorProps {
   builder: Builder
+  scrolling?: boolean
 }
 
-export function ContextualEditor({ builder }: ContextualEditorProps) {
+export function ContextualEditor({ builder, scrolling }: ContextualEditorProps) {
   const selected = builder.selected
   const mb = builder.mb
+  const questionPath = selected?.type === 'question' ? selected.questionPath : undefined
+
+  // Sticky placement: feed resolved placement back as the preferred placement.
+  // flip() only moves away from the current side if it actually overflows,
+  // preventing re-flips when content shrinks (e.g. switching editor tabs).
+  // Resets to 'bottom' on question change so each question starts fresh.
+  const [stickyPlacement, setStickyPlacement] = useState<Placement>('bottom')
+  const prevQuestionPathRef = useRef(questionPath)
+  if (questionPath !== prevQuestionPathRef.current) {
+    prevQuestionPathRef.current = questionPath
+    setStickyPlacement('bottom')
+  }
 
   // Hooks must be called unconditionally (before any early return)
-  const { refs, floatingStyles } = useFloating({
-    placement: 'bottom',
+  const { refs, floatingStyles, placement } = useFloating({
+    placement: stickyPlacement,
     middleware: [
       offset(-20),
       flip(),
@@ -28,9 +41,12 @@ export function ContextualEditor({ builder }: ContextualEditorProps) {
     whileElementsMounted: autoUpdate,
   })
 
+  useLayoutEffect(() => {
+    setStickyPlacement(placement)
+  }, [placement])
+
   const animRef = useRef<HTMLDivElement>(null)
   const [anchorReady, setAnchorReady] = useState(true)
-  const questionPath = selected?.type === 'question' ? selected.questionPath : undefined
 
   // Resolve anchor element: prefer the registered ref callback element, fall back to DOM query.
   // The registered element handles cross-form navigation (element mounts after form transition).
@@ -52,9 +68,9 @@ export function ContextualEditor({ builder }: ContextualEditorProps) {
     }
   }, [questionPath, registeredEl, builder.mutationCount, refs])
 
-  // Entrance animation — on question selection change or after cross-form anchor resolution
+  // Entrance animation — on question change, anchor resolution, or scroll settle
   useLayoutEffect(() => {
-    if (!questionPath || !anchorReady) return
+    if (!questionPath || !anchorReady || scrolling) return
     animRef.current?.animate(
       [
         { opacity: 0, transform: 'scale(0.97)' },
@@ -62,9 +78,9 @@ export function ContextualEditor({ builder }: ContextualEditorProps) {
       ],
       { duration: 150, easing: 'ease-out' },
     )
-  }, [questionPath, anchorReady])
+  }, [questionPath, anchorReady, scrolling])
 
-  if (!selected || selected.type !== 'question' || !mb || !selected.questionPath || !anchorReady) return null
+  if (!selected || selected.type !== 'question' || !mb || !selected.questionPath || !anchorReady || scrolling) return null
 
   const question = selected.formIndex !== undefined
     ? mb.getQuestion(selected.moduleIndex, selected.formIndex, selected.questionPath) ?? undefined
@@ -112,16 +128,16 @@ function ContextualEditorInner({ builder }: { builder: Builder }) {
   return (
     <>
       <ContextualEditorTabs activeTab={activeTab} onTabChange={(tab) => { setActiveTab(tab); builder.setEditorTab(tab) }} />
-      <div className="px-3 pb-3 overflow-y-auto max-h-[420px] min-h-0">
-        {activeTab === 'ui' && (
+      <div className="grid max-h-[420px] min-h-0 overflow-y-auto">
+        <div className={`px-3 pb-3 min-w-0 ${activeTab !== 'ui' ? 'invisible' : ''}`} style={{ gridArea: '1/1' }} inert={activeTab !== 'ui'}>
           <ContextualEditorUI question={question} selected={selected} mb={mb} builder={builder} notifyBlueprintChanged={notifyBlueprintChanged} />
-        )}
-        {activeTab === 'logic' && (
+        </div>
+        <div className={`px-3 pb-3 min-w-0 ${activeTab !== 'logic' ? 'invisible' : ''}`} style={{ gridArea: '1/1' }} inert={activeTab !== 'logic'}>
           <ContextualEditorLogic question={question} selected={selected} mb={mb} notifyBlueprintChanged={notifyBlueprintChanged} />
-        )}
-        {activeTab === 'data' && (
+        </div>
+        <div className={`px-3 pb-3 min-w-0 ${activeTab !== 'data' ? 'invisible' : ''}`} style={{ gridArea: '1/1' }} inert={activeTab !== 'data'}>
           <ContextualEditorData question={question} selected={selected} mb={mb} builder={builder} notifyBlueprintChanged={notifyBlueprintChanged} />
-        )}
+        </div>
       </div>
       <ContextualEditorFooter selected={selected} mb={mb} builder={builder} notifyBlueprintChanged={notifyBlueprintChanged} />
     </>
