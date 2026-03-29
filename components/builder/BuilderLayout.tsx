@@ -66,14 +66,14 @@ export function BuilderLayout({ buildId }: { buildId: string }) {
   const { apiKey } = useApiKey()
   const { settings } = useSettings()
   const builder = useBuilder()
+  const initialReplay = getReplayData()
   const [leftPanelOpen, setLeftPanelOpen] = useState(true)
-  const [rightPanelOpen, setRightPanelOpen] = useState(false)
+  const [rightPanelOpen, setRightPanelOpen] = useState(!!initialReplay)
   const [viewMode, setViewMode] = useState<'design' | 'preview'>('design')
   const viewModeRef = useRef(viewMode)
   const scrollAnchorRef = useRef<{ questionPath: string; offsetTop: number; allPaths: string[] } | null>(null)
   viewModeRef.current = viewMode
   const [progressHidden, setProgressHidden] = useState(false)
-  const initialReplay = getReplayData()
   const replayStartIndex = initialReplay?.doneIndex ?? 0
   const [replayData, setReplayDataState] = useState(() => {
     if (initialReplay) {

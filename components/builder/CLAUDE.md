@@ -50,7 +50,7 @@ Both panels collapse in preview mode via conditional rendering — the underlyin
 - `rightOpen = viewMode === 'preview' ? false : rightPanelOpen`
 - `showContextualEditor = showToolbar && viewMode === 'design'`
 
-`rightPanelOpen` starts `false`, auto-opens when tree data first appears during generation. After generation, the canvas auto-navigates to the first form. Both panels are independently open/closeable.
+`rightPanelOpen` starts `false` (or `true` during log replay), auto-opens when tree data first appears during generation. After generation, the canvas auto-navigates to the first form. Both panels are independently open/closeable.
 
 ## LeftPanel
 
