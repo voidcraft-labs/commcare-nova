@@ -105,10 +105,11 @@ If the stream writer is broken (can't emit `data-error`), `emitError` catches si
 
 **All state is private with readonly getters.** Consumers read via getters (`builder.phase`, `builder.selected`, `builder.blueprint`, etc.) and mutate through methods only.
 
-**Agent activity state** — three derived getters separate agent activity from build pipeline phase:
+**Agent activity state** — four getters separate agent activity from build pipeline phase:
 - `builder.agentActive` — true when the SA is processing a request. Set by BuilderLayout via `setAgentActive()` synced from `useChat` status (`submitted`/`streaming`).
 - `builder.isGenerating` — true when the build pipeline is running (phases DataModel through Fix).
-- `builder.isThinking` — `agentActive && !isGenerating`. Works for both initial generation (before first data part arrives) and edit operations (phase stays `Done`). ChatSidebar maps this to `'editing'` mode when `phase=Done`, `'reasoning'` otherwise.
+- `builder.isThinking` — `agentActive && !isGenerating`. Works for both initial generation (before first data part arrives) and edit operations (phase stays `Done`).
+- `builder.postBuildEdit` — true when the agent reactivates after having gone idle in `Done` phase (i.e., the user sent a new message after generation completed). `setDone()` resets it to false; `setAgentActive(true)` sets it to true when `phase === Done`. ChatSidebar uses this to distinguish post-build summary (reasoning) from user-initiated edits (editing).
 
 **Stream energy** — two non-versioned channels for the SignalGrid neural activity display. Never trigger React re-renders.
 - **Burst energy** (`injectEnergy` / `drainEnergy`) — from `applyDataPart()` bursts (200 for module/form completions, 100 for updates, 50 for phase transitions) and the intro sequence. Drives building-mode flashes when UI-visible changes occur.
