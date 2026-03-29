@@ -276,17 +276,6 @@ export function postSubmitValidation(form: BlueprintForm, ctx: FormContext, mod:
       loc))
   }
 
-  // ── previous: surprising for survey forms (no case context to return to) ──
-  // Not an error, but worth noting: for survey forms, "previous" behaves
-  // the same as "module" because there's no case selection to restore.
-  if (dest === 'previous' && form.type === 'survey') {
-    errors.push(validationError('POST_SUBMIT_PREVIOUS_SURVEY_NO_EFFECT', 'form',
-      `"${ctx.formName}" has post_submit set to "previous", but this is a survey form with no case selection step.\n\n` +
-      `For survey forms, "previous" behaves the same as "module" — the user returns to the module's form list. ` +
-      `This isn't an error, but if you intended to send the user to the module menu, using "module" makes the intent clearer.`,
-      loc))
-  }
-
   // ── Future checks (activate when features are modeled) ──────────
   //
   // WORKFLOW_MODULE + put_in_root:

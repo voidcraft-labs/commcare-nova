@@ -300,7 +300,7 @@ Rule-based validation system that catches every error CommCare HQ would catch du
 - `runner.ts` — `runValidation(blueprint)`: single entry point. Walks the blueprint tree once running scope-appropriate rules, then runs deep XPath validation.
 - `rules/app.ts` — App-level rules: empty app name, duplicate module names, child case type missing module, circular form links.
 - `rules/module.ts` — Module-level rules: case type presence/format/length, case_list_only constraints, case list column presence, column field validation against known case properties.
-- `rules/form.ts` — Form-level rules: empty form, case config validation (name field, reserved/invalid/duplicate properties, length limits, media types, preload), close_case, post_submit (destination validity, parent_module without parent, module on case_list_only, previous on survey), form_links (empty array, target existence, self-reference, missing fallback), Connect config. Derives case config once per form.
+- `rules/form.ts` — Form-level rules: empty form, case config validation (name field, reserved/invalid/duplicate properties, length limits, media types, preload), close_case, post_submit (destination validity, parent_module without parent, module on case_list_only), form_links (empty array, target existence, self-reference, missing fallback), Connect config. Derives case config once per form.
 - `rules/question.ts` — Question-level rules (recursive): select no options, hidden no value, unquoted string literals, invalid question ID format.
 - `fixes.ts` — `FIX_REGISTRY`: `Map<ValidationErrorCode, FixFn>` mapping error codes to auto-fix functions. The fix loop in `validationLoop.ts` dispatches by error code.
 

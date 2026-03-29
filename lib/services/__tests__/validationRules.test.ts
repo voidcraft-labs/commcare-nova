@@ -304,24 +304,6 @@ describe('post_submit validation', () => {
     expect(err!.message).toContain('"previous"')
   })
 
-  it('warns when previous is used on survey forms', () => {
-    const bp = surveyBlueprint([{ id: 'q', type: 'text', label: 'Q' }])
-    bp.modules[0].forms[0].post_submit = 'previous'
-    const errors = runValidation(bp)
-    const err = errors.find(e => e.code === 'POST_SUBMIT_PREVIOUS_SURVEY_NO_EFFECT')
-    expect(err).toBeDefined()
-    expect(err!.message).toContain('survey form')
-    expect(err!.message).toContain('same as "module"')
-  })
-
-  it('does not warn on previous for followup forms', () => {
-    const bp = minBlueprint()
-    bp.modules[0].forms[0].type = 'followup'
-    bp.modules[0].forms[0].post_submit = 'previous'
-    const errors = runValidation(bp)
-    expect(errors.find(e => e.code === 'POST_SUBMIT_PREVIOUS_SURVEY_NO_EFFECT')).toBeUndefined()
-  })
-
   it('does not produce errors when post_submit is absent', () => {
     const bp = minBlueprint()
     delete bp.modules[0].forms[0].post_submit
