@@ -93,7 +93,7 @@ const renderer: RendererObject = {
   },
 }
 
-const marked = new Marked({ renderer, async: false })
+const marked = new Marked({ renderer, async: false, breaks: true })
 
 export function renderMarkdown(text: string): string {
   return marked.parse(text) as string
@@ -115,7 +115,7 @@ const previewRenderer: RendererObject = {
   },
 }
 
-const previewMarked = new Marked({ renderer: previewRenderer, async: false })
+const previewMarked = new Marked({ renderer: previewRenderer, async: false, breaks: true })
 
 export function renderPreviewMarkdown(text: string): string {
   return previewMarked.parse(text) as string
