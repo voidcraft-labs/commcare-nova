@@ -7,6 +7,7 @@ import { ContextualEditorUI } from './ContextualEditorUI'
 import { ContextualEditorLogic } from './ContextualEditorLogic'
 import { ContextualEditorData } from './ContextualEditorData'
 import { ContextualEditorFooter } from './ContextualEditorFooter'
+import { POPOVER_GLASS } from '@/lib/styles'
 
 interface ContextualEditorProps {
   builder: Builder
@@ -77,10 +78,7 @@ export function ContextualEditor({ builder }: ContextualEditorProps) {
         ref={refs.setFloating}
         style={floatingStyles}
         onClick={(e) => e.stopPropagation()}
-        className="z-popover w-72 rounded-xl
-          bg-[rgba(10,10,26,0.4)] backdrop-blur-[6px] [-webkit-backdrop-filter:blur(6px)]
-          border border-white/[0.1]
-          shadow-[0_24px_48px_rgba(0,0,0,0.5)]"
+        className={`z-popover w-72 ${POPOVER_GLASS}`}
       >
         <div ref={animRef} className="flex flex-col"
         >
