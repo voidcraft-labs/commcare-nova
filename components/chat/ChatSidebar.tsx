@@ -57,8 +57,8 @@ export function ChatSidebar({
     }
     if (builder.isGenerating) return 'building'
     if (builder.agentActive) {
-      // Post-build agent activity = editing; pre-build or mid-build = reasoning
-      return builder.phase === BuilderPhase.Done ? 'editing' : 'reasoning'
+      // Only show editing mode for user-initiated edits after the build summary completes
+      return builder.postBuildEdit ? 'editing' : 'reasoning'
     }
     return 'idle'
   })()

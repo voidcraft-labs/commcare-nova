@@ -122,6 +122,7 @@ export class Builder {
   private _history?: HistoryManager
   private _isDragging = false
   private _agentActive = false
+  private _postBuildEdit = false
   private _caseTypes?: CaseType[]
   private _statusMessage = ''
   private _selected?: SelectedElement
@@ -149,6 +150,10 @@ export class Builder {
 
   get phase(): BuilderPhase { return this._phase }
   get agentActive(): boolean { return this._agentActive }
+
+  /** True when agent activates in Done phase after the initial summary has completed.
+   *  Used by ChatSidebar to distinguish post-build summary (reasoning) from user-initiated edits (editing). */
+  get postBuildEdit(): boolean { return this._postBuildEdit }
 
   /** True when the build pipeline is running (DataModel through Fix). */
   get isGenerating(): boolean {
@@ -281,6 +286,10 @@ export class Builder {
   /** Called by BuilderLayout to sync chat transport status with builder state. */
   setAgentActive(active: boolean) {
     if (this._agentActive === active) return
+    // Agent reactivating after Done = user-initiated edit (not the post-build summary)
+    if (active && this._phase === BuilderPhase.Done) {
+      this._postBuildEdit = true
+    }
     this._agentActive = active
     this.notify()
   }
@@ -535,6 +544,7 @@ export class Builder {
     this._history = new HistoryManager(this._mb)
     this._partialModules.clear()
     this._phase = BuilderPhase.Done
+    this._postBuildEdit = false
     this._statusMessage = ''
     this._progressCompleted = 0
     this._progressTotal = 0
@@ -637,6 +647,7 @@ export class Builder {
     this._selected = undefined
     this._newQuestionPath = undefined
     this._agentActive = false
+    this._postBuildEdit = false
     this._mutationCount = 0
     this._progressCompleted = 0
     this._progressTotal = 0
