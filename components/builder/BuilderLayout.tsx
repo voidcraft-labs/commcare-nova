@@ -417,6 +417,9 @@ export function BuilderLayout({ buildId }: { buildId: string }) {
         },
       })
     }
+  } else if (builder.treeData?.app_name) {
+    // During generation: show app name as a static (non-clickable) breadcrumb
+    breadcrumbParts.push({ label: builder.treeData.app_name, onClick: () => {} })
   }
 
   return (
@@ -597,7 +600,6 @@ export function BuilderLayout({ buildId }: { buildId: string }) {
                           completed={builder.progressCompleted}
                           total={builder.progressTotal}
                           mode={progressMode}
-                          appName={builder.treeData?.app_name || undefined}
                           onDone={() => setProgressHidden(true)}
                         />
                       </div>

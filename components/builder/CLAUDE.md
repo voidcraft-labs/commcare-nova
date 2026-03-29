@@ -23,7 +23,7 @@ When `builder.phase === Idle && !builder.treeData`, chat fills center with hero 
 
 ### Project Subheader (Tier 2)
 
-`CollapsibleBreadcrumb` (exported from `SubheaderToolbar.tsx`) renders navigable breadcrumbs, derived from the current screen's hierarchical position (via `nav.breadcrumbPath`). Follow-up forms show the selected case name as the final breadcrumb segment. Clicking a breadcrumb calls `nav.navigateTo()` + `builder.select()`. Breadcrumbs use `text-lg whitespace-nowrap` — no truncation since the full-width bar has ample space. Collapse behind `…` dropdown only at depth 4+.
+`CollapsibleBreadcrumb` (exported from `SubheaderToolbar.tsx`) renders navigable breadcrumbs, derived from the current screen's hierarchical position (via `nav.breadcrumbPath`). During generation (no blueprint yet), the app name appears as a static non-clickable breadcrumb via `builder.treeData?.app_name`. Once generation completes and `builder.blueprint` exists, normal nav-based breadcrumbs take over seamlessly. Follow-up forms show the selected case name as the final breadcrumb segment. Clicking a breadcrumb calls `nav.navigateTo()` + `builder.select()`. Breadcrumbs use `text-lg whitespace-nowrap` — no truncation since the full-width bar has ample space. Collapse behind `…` dropdown only at depth 4+.
 
 ### Toolbar (Tier 3, `SubheaderToolbar.tsx`)
 
@@ -99,8 +99,6 @@ Reads/writes through `builder.mb` (persistent `MutableBlueprint`). Editing patte
 ## GenerationProgress
 
 Progress bar with phase labels during generation. Always centered in the content area throughout the entire generation lifecycle — stays centered even after the scaffold tree appears in the left panel, then dismisses immediately on completion with a 1s fade-out. Counts derived from `builder.progressCompleted` / `builder.progressTotal`. Status message text was removed — phase-specific text now lives in the SignalGrid panel's etched label instead.
-
-**App name:** Animates in above the stage indicators as soon as `builder.treeData?.app_name` is available (typically during Structure phase). Uses `AnimatePresence` with a slide-down + fade entrance. `font-display font-semibold` styling.
 
 **Error state:** When `phase === BuilderPhase.Error`, tracks the last active generating phase via `useRef` to show which step failed. The formerly-active stage gets an `'error'` status: static rose dot (no pulse), label in `text-nova-rose`, progress bar gradient shifts to `cyan→rose`. Error message from `statusMessage` prop displayed below the bar. No auto-dismiss on error — user must dismiss manually or retry.
 
