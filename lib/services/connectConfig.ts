@@ -5,7 +5,7 @@
  * Called after all questions are built (in validateAndFix) so it has
  * access to the full question tree.
  */
-import type { BlueprintForm, Question } from '../schemas/blueprint'
+import type { BlueprintForm, ConnectConfig, Question } from '../schemas/blueprint'
 
 /** Count questions recursively (excluding structural containers). */
 function countQuestions(questions: Question[]): number {
@@ -45,6 +45,28 @@ function findScoreQuestion(questions: Question[]): Question | undefined {
  * never overwritten. This allows the SA or UI to set explicit values
  * that survive re-derivation.
  */
+/**
+ * Strip empty Connect sub-configs so absent data stays absent.
+ *
+ * Sub-configs that exist but contain only empty/default-sentinel values
+ * are removed — preventing the XForm builder from emitting empty blocks.
+ * Called from MutableBlueprint.updateForm() on every connect mutation.
+ */
+export function normalizeConnectConfig(config: ConnectConfig): ConnectConfig | undefined {
+  const out = { ...config }
+
+  if (out.task && !out.task.name.trim() && !out.task.description.trim()) {
+    delete out.task
+  }
+
+  // Config with no sub-configs at all → remove entirely
+  if (!out.learn_module && !out.assessment && !out.deliver_unit && !out.task) {
+    return undefined
+  }
+
+  return out
+}
+
 export function deriveConnectDefaults(connectType: 'learn' | 'deliver', form: BlueprintForm): void {
   if (!form.connect) return
 

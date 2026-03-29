@@ -46,7 +46,7 @@ App-level `connect_type?: 'learn' | 'deliver'` determines the app's Connect type
 - **Learn:** `learn_module` (name, description, time_estimate), `assessment` (user_score XPath)
 - **Deliver:** `deliver_unit` (name, entity_id, entity_name), `task` (name, description)
 
-`entity_id` and `entity_name` are system-derived (never user-facing) — auto-populated by `deriveConnectDefaults()` in `connectConfig.ts`. The SA only sets `deliver_unit.name`.
+`entity_id` and `entity_name` are auto-populated by `deriveConnectDefaults()` in `connectConfig.ts` but user-visible and editable in `FormSettingsPanel`. The SA only sets `deliver_unit.name`.
 
 All Connect forms get auto GPS capture (`orx:pollsensor` + `cc:location` in form metadata).
 
