@@ -212,6 +212,11 @@ function ConnectSection({ form, moduleIndex, formIndex, mb, notifyBlueprintChang
                 <LearnConfig connect={connect} save={save} mb={mb} moduleIndex={moduleIndex} formIndex={formIndex} onModalChange={onModalChange} />
               )}
 
+              {/* Deliver config */}
+              {connectType === 'deliver' && (
+                <DeliverConfig connect={connect} save={save} mb={mb} moduleIndex={moduleIndex} formIndex={formIndex} onModalChange={onModalChange} />
+              )}
+
             </div>
           </motion.div>
         )}
@@ -324,6 +329,78 @@ function LearnConfig({ connect, save, mb, moduleIndex, formIndex, onModalChange 
   )
 }
 
+
+// ── Deliver Config Fields ──────────────────────────────────────────────
+
+function DeliverConfig({ connect, save, mb, moduleIndex, formIndex, onModalChange }: ConnectSubConfigProps) {
+  const du = connect.deliver_unit
+  const task = connect.task
+  const { modal, setModal, getLintContext } = useXPathModal(mb, moduleIndex, formIndex, onModalChange)
+
+  const updateDeliverUnit = useCallback((field: string, value: string) => {
+    const current = connect.deliver_unit ?? { name: '', entity_id: '', entity_name: '' }
+    save({ ...connect, deliver_unit: { ...current, [field]: value } })
+  }, [connect, save])
+
+  const updateTask = useCallback((field: string, value: string) => {
+    const current = connect.task ?? { name: '', description: '' }
+    save({ ...connect, task: { ...current, [field]: value } })
+  }, [connect, save])
+
+  return (
+    <>
+      <div className="space-y-2">
+        <div>
+          <label className="text-[10px] text-nova-text-muted uppercase tracking-wider mb-0.5 flex items-center gap-0.5">
+            Entity ID<span className="text-nova-rose">*</span>
+          </label>
+          <XPathField
+            value={du?.entity_id ?? ''}
+            onClick={() => setModal({
+              label: 'Entity ID',
+              value: du?.entity_id ?? '',
+              onSave: (v) => { if (v.trim()) updateDeliverUnit('entity_id', v) },
+            })}
+          />
+        </div>
+        <div>
+          <label className="text-[10px] text-nova-text-muted uppercase tracking-wider mb-0.5 flex items-center gap-0.5">
+            Entity Name<span className="text-nova-rose">*</span>
+          </label>
+          <XPathField
+            value={du?.entity_name ?? ''}
+            onClick={() => setModal({
+              label: 'Entity Name',
+              value: du?.entity_name ?? '',
+              onSave: (v) => { if (v.trim()) updateDeliverUnit('entity_name', v) },
+            })}
+          />
+        </div>
+        <InlineField
+          label="Task Name"
+          value={task?.name ?? ''}
+          onChange={(v) => updateTask('name', v)}
+        />
+        <InlineField
+          label="Task Description"
+          value={task?.description ?? ''}
+          onChange={(v) => updateTask('description', v)}
+          multiline
+        />
+      </div>
+
+      {modal && (
+        <XPathEditorModal
+          value={modal.value}
+          label={modal.label}
+          onSave={(v) => { modal.onSave(v); setModal(undefined) }}
+          onClose={() => setModal(undefined)}
+          getLintContext={getLintContext}
+        />
+      )}
+    </>
+  )
+}
 
 // ── Inline Field ───────────────────────────────────────────────────────
 

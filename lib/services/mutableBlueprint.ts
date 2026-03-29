@@ -9,6 +9,7 @@ import {
   type AppBlueprint, type BlueprintModule, type BlueprintForm, type Question,
   type CaseType, type CaseProperty, type ConnectConfig,
 } from '../schemas/blueprint'
+import { normalizeConnectConfig } from './connectConfig'
 import { rewriteXPathRefs, rewriteHashtagRefs } from '../preview/xpath/rewrite'
 import { rewriteOutputTags } from '../preview/engine/outputTag'
 import { type QuestionPath, qpath, qpathId, qpathParent } from './questionPath'
@@ -421,7 +422,9 @@ export class MutableBlueprint {
       if (updates.connect === null) {
         delete form.connect
       } else {
-        form.connect = updates.connect
+        const normalized = normalizeConnectConfig(updates.connect)
+        if (normalized) form.connect = normalized
+        else delete form.connect
       }
     }
   }

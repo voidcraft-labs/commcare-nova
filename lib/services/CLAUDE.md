@@ -167,7 +167,7 @@ Split across four files:
 - `hqJsonExpander.ts` — `expandBlueprint()` orchestrator + `detectUnquotedStringLiteral()`
 - `xformBuilder.ts` — `buildXForm()`, `buildQuestionParts()`, `buildConnectBlocks()`, `InstanceTracker`, `getAppearance()`, `getXsdType()`
 - `formActions.ts` — `buildFormActions()`, `buildCaseReferencesLoad()`
-- `connectConfig.ts` — `deriveConnectDefaults()` auto-populates Connect config from form content
+- `connectConfig.ts` — `deriveConnectDefaults()` auto-populates Connect config from form content; `normalizeConnectConfig()` strips empty sub-configs (e.g. task with blank name/description) so absent data stays absent in XForm output. Called from `MutableBlueprint.updateForm()`.
 
 `expandBlueprint()` converts `AppBlueprint` → HQ import JSON. `detectUnquotedStringLiteral()` uses the Lezer XPath parser to flag bare words in XPath fields (e.g. `no` instead of `'no'`).
 
