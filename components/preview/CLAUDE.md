@@ -10,12 +10,14 @@ Client-side web preview with cyan accent theme (`.preview-theme` in globals.css)
 
 ## Screens
 
-- **HomeScreen** — Module cards. `max-w-3xl mx-auto`.
-- **ModuleScreen** — Form list within a module. `max-w-3xl mx-auto`.
+- **HomeScreen** — Module cards. `max-w-3xl mx-auto`. Accepts optional `builder`/`mode` for inline app name editing.
+- **ModuleScreen** — Form list within a module. `max-w-3xl mx-auto`. Accepts optional `builder`/`mode` for inline module name editing.
 - **CaseListScreen** — Case selector for followup forms (reads cached dummy data via `getDummyCases()`). `max-w-3xl mx-auto`.
 - **FormScreen** — Form entry with question fields, submit button (preview mode only), reset button in header (preview mode only), scroll-to-first-error on validation failure. Wraps form body in `EditContextProvider` when builder is present. Followup forms without a `caseId` fall back to the first dummy case; blocks with "no cases" error only when no case data is available at all. `max-w-3xl mx-auto`.
 
 All screens render a consistent header row: back button (always present, disabled when no history) + screen title. The back button is the same size and position across all screens so layout doesn't shift on navigation.
+
+**Inline title editing** — In edit mode, all screen titles (app name, module name, form name) use `EditableTitle` instead of a static `<h2>`. Click to edit, Enter/blur to save, Escape to cancel. A hidden span mirror sizes the input to its exact text width. `SavedCheck` (animated emerald checkmark) renders after the title on Home/Module screens and after the settings button on FormScreen. Form name was removed from `FormSettingsPanel` — the inline title is the primary edit surface.
 
 ## Edit Mode
 

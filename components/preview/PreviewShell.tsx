@@ -48,7 +48,7 @@ export function PreviewShell({ blueprint, actions, builder, mode = 'edit', nav: 
             className="h-full"
           >
             {nav.current.type === 'home' && (
-              <HomeScreen blueprint={blueprint} onNavigate={nav.push} canGoBack={nav.canGoBack} onBack={handleBack} />
+              <HomeScreen blueprint={blueprint} onNavigate={nav.push} canGoBack={nav.canGoBack} onBack={handleBack} builder={builder} mode={mode} />
             )}
             {nav.current.type === 'module' && (
               <ModuleScreen
@@ -57,6 +57,8 @@ export function PreviewShell({ blueprint, actions, builder, mode = 'edit', nav: 
                 onNavigate={nav.push}
                 canGoBack={nav.canGoBack}
                 onBack={handleBack}
+                builder={builder}
+                mode={mode}
               />
             )}
             {nav.current.type === 'caseList' && (

@@ -73,50 +73,39 @@ export function usePreviewNav(blueprint?: AppBlueprint) {
     return newScreen
   }, [])
 
-  // Derive breadcrumb from current screen (hierarchical path, not history)
-  const { breadcrumb, breadcrumbPath } = useMemo(() => {
-    if (!blueprint) return { breadcrumb: [] as string[], breadcrumbPath: [] as PreviewScreen[] }
+  // Screen path structure — stable across name edits, only changes on navigation
+  const breadcrumbPath = useMemo(() => {
+    if (!blueprint) return [] as PreviewScreen[]
 
-    const labels: string[] = []
-    const screens: PreviewScreen[] = []
+    const screens: PreviewScreen[] = [{ type: 'home' }]
 
-    // Home is always first
-    screens.push({ type: 'home' })
-    labels.push(blueprint.app_name)
+    if (current.type === 'home') return screens
 
-    if (current.type === 'home') return { breadcrumb: labels, breadcrumbPath: screens }
-
-    // All other types have moduleIndex
-    const mod = blueprint.modules[current.moduleIndex]
     screens.push({ type: 'module', moduleIndex: current.moduleIndex })
-    labels.push(mod?.name ?? 'Module')
-
-    if (current.type === 'module') return { breadcrumb: labels, breadcrumbPath: screens }
+    if (current.type === 'module') return screens
 
     if (current.type === 'caseList') {
       screens.push(current)
-      labels.push(mod?.forms[current.formIndex]?.name ?? 'Form')
-      return { breadcrumb: labels, breadcrumbPath: screens }
+      return screens
     }
 
     if (current.type === 'form') {
+      const mod = blueprint.modules[current.moduleIndex]
       const caseName = current.caseId && mod?.case_type
         ? getCaseData(mod.case_type, current.caseId)?.get('case_name')
         : undefined
       if (caseName) {
-        // Followup form with case data — form name at caseList level, case name at form level
         screens.push({ type: 'caseList', moduleIndex: current.moduleIndex, formIndex: current.formIndex })
-        labels.push(mod?.forms[current.formIndex]?.name ?? 'Form')
-        screens.push(current)
-        labels.push(caseName)
-      } else {
-        screens.push(current)
-        labels.push(mod?.forms[current.formIndex]?.name ?? 'Form')
       }
+      screens.push(current)
     }
 
-    return { breadcrumb: labels, breadcrumbPath: screens }
+    return screens
   }, [current, blueprint])
+
+  // Labels derived from the live blueprint — not memoized so in-place name
+  // mutations are reflected immediately on re-render
+  const breadcrumb = deriveBreadcrumbLabels(breadcrumbPath, blueprint)
 
   // Navigate to a breadcrumb level (ancestor screen)
   const navigateTo = useCallback((index: number) => {
@@ -138,4 +127,24 @@ export function usePreviewNav(blueprint?: AppBlueprint) {
     breadcrumb,
     breadcrumbPath,
   }
+}
+
+function deriveBreadcrumbLabels(path: PreviewScreen[], blueprint?: AppBlueprint): string[] {
+  if (!blueprint) return []
+  return path.map((screen, i) => {
+    if (screen.type === 'home') return blueprint.app_name
+    if (screen.type === 'module') return blueprint.modules[screen.moduleIndex]?.name ?? 'Module'
+    if (screen.type === 'caseList') return blueprint.modules[screen.moduleIndex]?.forms[screen.formIndex]?.name ?? 'Form'
+    if (screen.type === 'form') {
+      // If preceded by caseList, this level shows the case name
+      if (i > 0 && path[i - 1].type === 'caseList') {
+        const mod = blueprint.modules[screen.moduleIndex]
+        return (screen.caseId && mod?.case_type
+          ? getCaseData(mod.case_type, screen.caseId)?.get('case_name')
+          : undefined) ?? 'Case'
+      }
+      return blueprint.modules[screen.moduleIndex]?.forms[screen.formIndex]?.name ?? 'Form'
+    }
+    return ''
+  })
 }

@@ -1,4 +1,5 @@
 'use client'
+import { useState, useCallback } from 'react'
 import { motion } from 'motion/react'
 import { Icon } from '@iconify/react'
 import ciFileAdd from '@iconify-icons/ci/file-add'
@@ -6,7 +7,10 @@ import ciFileEdit from '@iconify-icons/ci/file-edit'
 import ciFileBlank from '@iconify-icons/ci/file-blank'
 import ciChevronLeft from '@iconify-icons/ci/chevron-left'
 import type { AppBlueprint } from '@/lib/schemas/blueprint'
+import type { Builder } from '@/lib/services/builder'
+import type { EditMode } from '@/hooks/useEditContext'
 import type { PreviewScreen } from '@/lib/preview/engine/types'
+import { EditableTitle, SavedCheck } from '@/components/builder/EditableTitle'
 
 interface ModuleScreenProps {
   blueprint: AppBlueprint
@@ -14,6 +18,8 @@ interface ModuleScreenProps {
   onNavigate: (screen: PreviewScreen) => void
   canGoBack?: boolean
   onBack?: () => void
+  builder?: Builder
+  mode?: EditMode
 }
 
 const formTypeIcons = {
@@ -23,8 +29,17 @@ const formTypeIcons = {
 } as const
 
 
-export function ModuleScreen({ blueprint, moduleIndex, onNavigate, canGoBack, onBack }: ModuleScreenProps) {
+export function ModuleScreen({ blueprint, moduleIndex, onNavigate, canGoBack, onBack, builder, mode = 'edit' }: ModuleScreenProps) {
   const mod = blueprint.modules[moduleIndex]
+
+  const [saved, setSaved] = useState(false)
+  const saveModuleName = useCallback((name: string) => {
+    if (!builder?.mb) return
+    builder.mb.updateModule(moduleIndex, { name })
+    builder.notifyBlueprintChanged()
+  }, [builder, moduleIndex])
+  const handleSaved = useCallback(() => { setSaved(true); setTimeout(() => setSaved(false), 1500) }, [])
+
   if (!mod) return null
 
   const hasCase = !!mod.case_type
@@ -39,7 +54,12 @@ export function ModuleScreen({ blueprint, moduleIndex, onNavigate, canGoBack, on
         >
           <Icon icon={ciChevronLeft} width="20" height="20" />
         </button>
-        <h2 className="text-lg font-display font-semibold text-nova-text">{mod.name}</h2>
+        {mode === 'edit' && builder?.mb ? (
+          <EditableTitle value={mod.name} onSave={saveModuleName} onSaved={handleSaved} />
+        ) : (
+          <h2 className="text-lg font-display font-semibold text-nova-text">{mod.name}</h2>
+        )}
+        <SavedCheck visible={saved} />
       </div>
 
       <div className="space-y-2">

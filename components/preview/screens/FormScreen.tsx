@@ -1,5 +1,5 @@
 'use client'
-import { useRef, useEffect, useMemo, useCallback } from 'react'
+import { useState, useRef, useEffect, useMemo, useCallback } from 'react'
 import type { AppBlueprint } from '@/lib/schemas/blueprint'
 import type { Builder } from '@/lib/services/builder'
 import type { EditMode } from '@/hooks/useEditContext'
@@ -12,6 +12,7 @@ import { formTypeIcons } from '@/lib/questionTypeIcons'
 import ciArrowReload02 from '@iconify-icons/ci/arrow-reload-02'
 import ciChevronLeft from '@iconify-icons/ci/chevron-left'
 import { FormSettingsButton } from '@/components/builder/detail/FormSettingsPanel'
+import { EditableTitle, SavedCheck } from '@/components/builder/EditableTitle'
 
 interface FormScreenProps {
   blueprint: AppBlueprint
@@ -25,6 +26,8 @@ interface FormScreenProps {
 }
 
 export function FormScreen({ blueprint, moduleIndex, formIndex, caseId, onBack, canGoBack, builder, mode = 'edit' }: FormScreenProps) {
+  const [titleSaved, setTitleSaved] = useState(false)
+  const handleTitleSaved = useCallback(() => { setTitleSaved(true); setTimeout(() => setTitleSaved(false), 1500) }, [])
   const mod = blueprint.modules[moduleIndex]
   const form = mod?.forms[formIndex]
 
@@ -120,7 +123,11 @@ export function FormScreen({ blueprint, moduleIndex, formIndex, caseId, onBack, 
             <Icon icon={ciChevronLeft} width="20" height="20" />
           </button>
           <Icon icon={formTypeIcons[form.type] ?? formTypeIcons.survey} width="18" height="18" className="text-nova-text-muted shrink-0" />
-          <h2 className="text-lg font-display font-semibold text-nova-text">{form.name}</h2>
+          {mode === 'edit' && builder?.mb ? (
+            <EditableTitle value={form.name} onSave={(name) => { builder.mb!.updateForm(moduleIndex, formIndex, { name }); builder.notifyBlueprintChanged() }} onSaved={handleTitleSaved} />
+          ) : (
+            <h2 className="text-lg font-display font-semibold text-nova-text">{form.name}</h2>
+          )}
           {mode === 'edit' && builder && (
             <FormSettingsButton
               form={form}
@@ -130,6 +137,7 @@ export function FormScreen({ blueprint, moduleIndex, formIndex, caseId, onBack, 
               notifyBlueprintChanged={builder.notifyBlueprintChanged}
             />
           )}
+          <SavedCheck visible={titleSaved} />
           {mode === 'test' && (
             <button
               onClick={() => engine.reset()}
