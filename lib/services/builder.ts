@@ -1,5 +1,7 @@
 import type { AppBlueprint, Scaffold, BlueprintForm, CaseType } from '@/lib/schemas/blueprint'
 import type { QuestionPath } from './questionPath'
+import type { EditFocus } from '@/lib/signalGridController'
+import { countDeep } from './questionTree'
 import { MutableBlueprint } from './mutableBlueprint'
 import { HistoryManager, type SnapshotMeta, type ViewMode } from './historyManager'
 export type { ViewMode } from './historyManager'
@@ -76,6 +78,14 @@ export interface SelectedElement {
   questionPath?: QuestionPath
 }
 
+/** Scope the agent is currently editing — drives signal grid focus zone. */
+export interface EditScope {
+  moduleIndex: number
+  formIndex?: number
+  /** Flat question index within the form (0-based, depth-first). */
+  questionIndex?: number
+}
+
 /** Common shape for AppTree rendering — satisfied by both Scaffold and AppBlueprint */
 export interface TreeData {
   app_name: string
@@ -131,6 +141,9 @@ export class Builder {
   // ── Stream energy (non-versioned — consumed by SignalGrid rAF loop, never triggers React re-renders) ──
   private _streamEnergy = 0
   private _thinkEnergy = 0
+
+  // ── Edit scope (non-versioned — consumed by SignalGrid rAF loop) ──
+  private _editScope: EditScope | null = null
 
   // ── Read-only public accessors ───────────────────────────────────────
 
@@ -294,6 +307,63 @@ export class Builder {
     const e = this._thinkEnergy
     this._thinkEnergy = 0
     return e
+  }
+
+  // ── Edit focus (non-versioned — drives signal grid zone during editing) ──
+
+  /** Update the scope the agent is currently editing. Null = no specific scope. */
+  setEditScope(scope: EditScope | null): void {
+    this._editScope = scope
+  }
+
+  /** Compute the normalized edit focus zone from the current scope and blueprint structure.
+   *  Returns null when there's no blueprint or no scope (= full-width fallback). */
+  computeEditFocus(): EditFocus | null {
+    const bp = this._mb?.getBlueprint()
+    if (!bp || !this._editScope) return null
+
+    // Build a flat map: for each module, for each form, the cumulative question count.
+    // This gives us the total question count and the position of any form within it.
+    let total = 0
+    const formPositions: Array<{ moduleIndex: number; formIndex: number; start: number; count: number }> = []
+
+    for (let mi = 0; mi < bp.modules.length; mi++) {
+      const mod = bp.modules[mi]
+      if (!mod.forms) continue
+      for (let fi = 0; fi < mod.forms.length; fi++) {
+        const count = countDeep(mod.forms[fi].questions)
+        formPositions.push({ moduleIndex: mi, formIndex: fi, start: total, count })
+        total += count
+      }
+    }
+
+    if (total === 0) return null
+
+    const scope = this._editScope
+
+    // Module-level scope (no formIndex): span all forms in the module
+    if (scope.formIndex == null) {
+      const modForms = formPositions.filter(f => f.moduleIndex === scope.moduleIndex)
+      if (modForms.length === 0) return null
+      const start = modForms[0].start / total
+      const end = (modForms[modForms.length - 1].start + modForms[modForms.length - 1].count) / total
+      return clampEditFocus(start, end)
+    }
+
+    // Form-level scope
+    const form = formPositions.find(f => f.moduleIndex === scope.moduleIndex && f.formIndex === scope.formIndex)
+    if (!form || form.count === 0) return null
+
+    // Question-level scope
+    if (scope.questionIndex != null) {
+      const qPos = (form.start + Math.min(scope.questionIndex, form.count - 1)) / total
+      // Zone centered on the question, min 15% width
+      const halfZone = Math.max(MIN_EDIT_ZONE / 2, form.count / total * 0.3)
+      return clampEditFocus(qPos - halfZone, qPos + halfZone)
+    }
+
+    // Form-level: span the whole form
+    return clampEditFocus(form.start / total, (form.start + form.count) / total)
   }
 
   // ── Undo/Redo ──────────────────────────────────────────────────────
@@ -574,6 +644,27 @@ export class Builder {
     this._partialScaffold = undefined
     this._streamEnergy = 0
     this._thinkEnergy = 0
+    this._editScope = null
     this.notify()
   }
+}
+
+// ── Helpers ────────────────────────────────────────────────────────────
+
+/** Minimum zone width fraction for edit focus (matches signalGridController constant). */
+const MIN_EDIT_ZONE = 0.15
+
+/** Clamp an edit focus zone: enforce minimum width, don't wrap, stay in 0-1. */
+function clampEditFocus(start: number, end: number): EditFocus {
+  let width = end - start
+  if (width < MIN_EDIT_ZONE) {
+    const center = (start + end) / 2
+    start = center - MIN_EDIT_ZONE / 2
+    end = center + MIN_EDIT_ZONE / 2
+    width = MIN_EDIT_ZONE
+  }
+  // Clamp to 0-1 without wrapping — shift the window instead
+  if (start < 0) { end -= start; start = 0 }
+  if (end > 1) { start -= (end - 1); end = 1 }
+  return { start: Math.max(0, start), end: Math.min(1, end) }
 }

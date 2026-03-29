@@ -56,7 +56,10 @@ export function ChatSidebar({
       return builder.errorSeverity === 'recovering' ? 'error-recovering' : 'error-fatal'
     }
     if (builder.isGenerating) return 'building'
-    if (builder.agentActive) return 'reasoning'
+    if (builder.agentActive) {
+      // Post-build agent activity = editing; pre-build or mid-build = reasoning
+      return builder.phase === BuilderPhase.Done ? 'editing' : 'reasoning'
+    }
     return 'idle'
   })()
 

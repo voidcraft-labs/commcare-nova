@@ -9,6 +9,7 @@ export function signalLabel(mode: SignalMode): string {
     case 'sending': return 'Transmitting'
     case 'reasoning': return 'Thinking'
     case 'building': return 'Building'
+    case 'editing': return 'Editing'
     case 'error-recovering': return 'Recovering'
     case 'error-fatal': return 'Error'
     case 'idle': return ''

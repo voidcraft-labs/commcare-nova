@@ -108,11 +108,13 @@ If the stream writer is broken (can't emit `data-error`), `emitError` catches si
 **Agent activity state** — three derived getters separate agent activity from build pipeline phase:
 - `builder.agentActive` — true when the SA is processing a request. Set by BuilderLayout via `setAgentActive()` synced from `useChat` status (`submitted`/`streaming`).
 - `builder.isGenerating` — true when the build pipeline is running (phases DataModel through Fix).
-- `builder.isThinking` — `agentActive && !isGenerating`. Works for both initial generation (before first data part arrives) and edit operations (phase stays `Done`).
+- `builder.isThinking` — `agentActive && !isGenerating`. Works for both initial generation (before first data part arrives) and edit operations (phase stays `Done`). ChatSidebar maps this to `'editing'` mode when `phase=Done`, `'reasoning'` otherwise.
 
 **Stream energy** — two non-versioned channels for the SignalGrid neural activity display. Never trigger React re-renders.
 - **Burst energy** (`injectEnergy` / `drainEnergy`) — from `applyDataPart()` bursts (200 for module/form completions, 100 for updates, 50 for phase transitions) and the intro sequence. Drives building-mode flashes when UI-visible changes occur.
-- **Think energy** (`injectThinkEnergy` / `drainThinkEnergy`) — from message content deltas (text, reasoning, and tool input parts tracked by SignalGrid component, 2x multiplier). Drives reasoning-style neural firing in all modes. In building mode, think energy creates hotspot/scatter activity layered on the sweep; burst energy triggers delivery flashes.
+- **Think energy** (`injectThinkEnergy` / `drainThinkEnergy`) — from message content deltas (text, reasoning, and tool input parts tracked by SignalGrid component, 2x multiplier). Drives reasoning-style neural firing in all modes. In building and editing modes, think energy creates hotspot/scatter activity layered on the sweep/defrag bars; burst energy triggers delivery flashes.
+
+**Edit scope** — non-versioned `EditScope` tracking what the agent is currently editing. Set by `SignalGrid` from streaming tool call args (`moduleIndex`, `formIndex`, `questionPath`). `computeEditFocus()` maps scope + blueprint structure to a normalized `EditFocus` zone for the signal grid controller. Uses `flatIndexById()` from `questionTree.ts` for question-level precision — walks the tree structurally, no string parsing.
 
 **Key members:**
 - `builder.mb` — persistent MutableBlueprint instance (undefined before blueprint exists)

@@ -49,7 +49,40 @@ function cellColor(brightness: number, hue: number): string {
 
 // ── Controller ───────────────────────────────────────────────────────
 
-export type SignalMode = 'sending' | 'reasoning' | 'building' | 'error-recovering' | 'error-fatal' | 'idle'
+export type SignalMode = 'sending' | 'reasoning' | 'building' | 'editing' | 'error-recovering' | 'error-fatal' | 'idle'
+
+/** Normalized zone (0-1) within the grid for editing focus. */
+export interface EditFocus {
+  /** Start of active zone, 0-1 inclusive. */
+  start: number
+  /** End of active zone, 0-1 inclusive. */
+  end: number
+}
+
+/** Minimum zone width as a fraction of total columns (prevents tiny slivers). */
+const MIN_EDIT_ZONE = 0.15
+/** How fast the current zone lerps toward the target zone (per second). */
+const EDIT_ZONE_LERP_SPEED = 3.0
+/** One defrag op at a time — a single 2-column bar, just like building's sweep. */
+const MAX_DEFRAG_OPS = 1
+
+const enum DefragPhase { Seek, Select, Crawl, Place }
+
+/** A tracked defrag operation — a vertical bar that selects, crawls, and places. */
+interface DefragOp {
+  srcCol: number
+  dstCol: number
+  /** Current fractional column position (animates during crawl and seek). */
+  pos: number
+  phase: DefragPhase
+  /** Time spent in the current phase. */
+  timer: number
+  /** Crawl speed in columns per second (randomized per op for organic feel). */
+  speed: number
+  /** Seek: columns to jitter through before landing on srcCol. */
+  seekStops: number[]
+  seekIdx: number
+}
 
 interface ControllerOpts {
   /** Read and reset accumulated burst energy (data parts). Called once per animation frame. */
@@ -101,6 +134,14 @@ export class SignalGridController {
   private sweepPhase = 0
   private buildThinkAccum = 0
   private buildAmbientTimer = 0
+
+  // Editing (defrag)
+  private editTarget: EditFocus = { start: 0, end: 1 }
+  private editCurrent: EditFocus = { start: 0, end: 1 }
+  private editOps: DefragOp[] = []
+  private editSpawnTimer = 0
+  private editThinkAccum = 0
+  private editAmbientTimer = 0
 
   // Error fatal
   private fatalTimer = 0
@@ -188,7 +229,13 @@ export class SignalGridController {
     if (mode === 'sending') this.wavePhase = 0
     if (mode === 'building') { this.sweepPhase = 0; this.buildThinkAccum = 0; this.buildAmbientTimer = 0 }
     if (mode === 'reasoning' || mode === 'error-recovering') { this.accumEnergy = 0; this.ambientTimer = 0 }
+    if (mode === 'editing') { this.editOps = []; this.editSpawnTimer = 0; this.editThinkAccum = 0; this.editAmbientTimer = 0 }
     if (mode === 'error-fatal') this.fatalTimer = 0
+  }
+
+  /** Set the normalized focus zone for editing mode. Null = full width. */
+  setEditFocus(focus: EditFocus | null): void {
+    this.editTarget = focus ?? { start: 0, end: 1 }
   }
 
   powerOn(): void {
@@ -268,6 +315,7 @@ export class SignalGridController {
       case 'sending': this.tickSending(dt); break
       case 'reasoning': this.tickReasoning(dt, burstEnergy + thinkEnergy); break
       case 'building': this.tickBuilding(dt, burstEnergy, thinkEnergy); break
+      case 'editing': this.tickEditing(dt, burstEnergy, thinkEnergy); break
       case 'error-recovering': this.tickErrorRecovering(dt, burstEnergy + thinkEnergy); break
       case 'error-fatal': this.tickErrorFatal(dt); break
       case 'idle': this.tickIdle(dt); break
@@ -519,6 +567,303 @@ export class SignalGridController {
       const off = i * STRIDE
       this.cells[off + TB] = Math.max(0, this.cells[off + TB] - dt * 1.2)
       this.cells[off + YO] = 0
+    }
+  }
+
+  // ── Editing (defrag — vertical bars that select, crawl, and place) ────
+  //
+  // Like the building sweep's vertical bubblegum pink bars, but instead of
+  // sweeping left→right, bars perform tracked pick-move-drop operations:
+  //   1. Select — double-brighten a column (two quick flashes, like double-click)
+  //   2. Crawl  — bar moves column-by-column from source to destination
+  //   3. Place  — single bright pulse at destination (single-click to drop)
+  //
+  // Operations are tracked in editOps with per-op lifecycle state.
+  // Zone smoothly lerps toward the target focus so transitions feel organic.
+
+  private tickEditing(dt: number, burstEnergy: number, thinkEnergy: number): void {
+    // Smooth-lerp the current zone toward the target
+    this.editCurrent.start += (this.editTarget.start - this.editCurrent.start) * Math.min(dt * EDIT_ZONE_LERP_SPEED, 1)
+    this.editCurrent.end += (this.editTarget.end - this.editCurrent.end) * Math.min(dt * EDIT_ZONE_LERP_SPEED, 1)
+
+    const startCol = Math.floor(this.editCurrent.start * this.cols)
+    const endCol = Math.min(Math.ceil(this.editCurrent.end * this.cols), this.cols)
+    const zoneCols = Math.max(1, endCol - startCol)
+    const density = this.cellCount / 93
+
+    // ── Defrag bar — one 2-column bar at a time, like building's sweep ──
+    // Immediately spawn a new op when the previous one finishes.
+    if (this.editOps.length < MAX_DEFRAG_OPS) {
+      const src = startCol + Math.floor(Math.random() * zoneCols)
+      let dst = startCol + Math.floor(Math.random() * zoneCols)
+      if (Math.abs(dst - src) < 2) dst = src + (Math.random() < 0.5 ? -2 : 2)
+      dst = Math.max(startCol, Math.min(endCol - 1, dst))
+      if (dst === src) dst = src < endCol - 1 ? src + 1 : src - 1
+      dst = Math.max(startCol, Math.min(endCol - 1, dst))
+
+      // Generate seek stops — mix of jumps and adjacent moves.
+      // ~40% chance each stop is adjacent to the previous (±1-2 cols),
+      // creating clusters where the bar "inspects a region" before jumping.
+      const seekCount = 4 + Math.floor(Math.random() * 5)
+      const seekStops: number[] = []
+      let prev = startCol + Math.floor(Math.random() * zoneCols)
+      seekStops.push(prev)
+      for (let s = 1; s < seekCount; s++) {
+        if (Math.random() < 0.8) {
+          // Adjacent move — nudge ±1-2 columns from previous
+          const nudge = (Math.random() < 0.5 ? -1 : 1) * (1 + Math.floor(Math.random() * 2))
+          prev = Math.max(startCol, Math.min(endCol - 1, prev + nudge))
+        } else {
+          // Jump to a random column
+          prev = startCol + Math.floor(Math.random() * zoneCols)
+        }
+        seekStops.push(prev)
+      }
+      seekStops.push(src) // final stop is the actual source
+
+      this.editOps.push({
+        srcCol: src,
+        dstCol: dst,
+        pos: seekStops[0],
+        phase: DefragPhase.Seek,
+        timer: 0,
+        speed: (zoneCols * 0.16) + Math.random() * (zoneCols * 0.12),
+        seekStops,
+        seekIdx: 0,
+      })
+    }
+
+    // ── Advance the active operation ────────────────────────────────
+    const op = this.editOps[0]
+    if (op) {
+      op.timer += dt
+      const dir = op.dstCol > op.srcCol ? 1 : -1
+
+      // Pick the adjacent column for a 2-wide bar, always staying inside the zone.
+      // Prefer the dir side, fall back to the other side.
+      const pairCol = (col: number): number => {
+        const preferred = col + dir
+        if (preferred >= startCol && preferred < endCol) return preferred
+        const fallback = col - dir
+        if (fallback >= startCol && fallback < endCol) return fallback
+        return col // zone is 1 col wide, no pair possible
+      }
+
+      switch (op.phase) {
+        case DefragPhase.Seek: {
+          // Hunt: dim bar jitters through a few random columns before
+          // landing on the source. Each stop gets a brief dim flash.
+          const t = op.timer
+          const dwell = 0.54 // time per stop
+          const col = op.seekStops[op.seekIdx]
+          // Seek has no direction — pick whichever adjacent column fits
+          const pair = (col + 1 < endCol) ? col + 1 : Math.max(startCol, col - 1)
+
+          // Dim flash at current stop — subtle, not full brightness
+          const flash = Math.max(0, 1 - (t / dwell))
+          for (const c of [col, pair]) this.lightColumnY(c, 0.25 + flash * 0.2, -0.4, 6.0, 0)
+
+          if (t >= dwell) {
+            op.seekIdx++
+            op.timer = 0
+            if (op.seekIdx >= op.seekStops.length) {
+              op.phase = DefragPhase.Select
+              op.timer = 0
+            }
+          }
+          break
+        }
+        case DefragPhase.Select: {
+          // Double-click: two sharp flashes with a short forced-dark gap.
+          const t = op.timer
+          const src = op.srcCol
+          const srcPair = pairCol(src)
+
+          if (t < 0.10) {
+            for (const c of [src, srcPair]) this.lightColumnY(c, 0.95, -0.8, 8.0, -1.5)
+          } else if (t < 0.25) {
+            for (const c of [src, srcPair]) this.dimColumn(c, 10.0)
+          } else if (t < 0.35) {
+            for (const c of [src, srcPair]) this.lightColumnY(c, 0.95, -0.8, 8.0, -1.5)
+          } else {
+            for (const c of [src, srcPair]) this.lightColumnY(c, 0.95, -0.8, 5.0, -0.8)
+          }
+
+          if (t >= 0.45) {
+            op.phase = DefragPhase.Crawl
+            op.timer = 0
+            op.pos = op.srcCol
+          }
+          break
+        }
+        case DefragPhase.Crawl: {
+          // Drag: full flash brightness, lifted — actively moving.
+          op.pos += dir * op.speed * dt
+
+          const col = Math.round(op.pos)
+          const lead = Math.max(startCol, Math.min(endCol - 1, col))
+          const pair = pairCol(lead)
+          this.lightColumnY(lead, 0.95, -0.8, 5.0, -0.8)
+          this.lightColumnY(pair, 0.95, -0.8, 5.0, -0.8)
+
+          // Trailing glow
+          const trail = lead - dir
+          if (trail >= startCol && trail < endCol) {
+            this.lightColumn(trail, 0.15, -0.3, 3.5)
+          }
+
+          if ((dir > 0 && op.pos >= op.dstCol) || (dir < 0 && op.pos <= op.dstCol)) {
+            op.phase = DefragPhase.Place
+            op.timer = 0
+          }
+          break
+        }
+        case DefragPhase.Place: {
+          // Drop: forced dark gap, then single flash, then fade.
+          const t = op.timer
+          const dst = op.dstCol
+          const dstPair = pairCol(dst)
+
+          if (t < 0.20) {
+            for (const c of [dst, dstPair]) this.dimColumn(c, 10.0)
+          } else if (t < 0.32) {
+            for (const c of [dst, dstPair]) this.lightColumnY(c, 0.95, -0.8, 6.0, 0.8)
+          } else {
+            const fade = Math.max(0, 1 - (t - 0.32) / 0.33)
+            for (const c of [dst, dstPair]) this.lightColumnY(c, fade * 0.5, -0.5, 3.0, 0.8 * fade)
+          }
+
+          if (t >= 0.65) {
+            this.editOps.length = 0
+          }
+          break
+        }
+      }
+    }
+
+    // ── Delivery bursts — from data parts (form updated, blueprint updated) ──
+    if (burstEnergy >= 100) {
+      for (let row = 0; row < ROWS; row++) {
+        for (let col = startCol; col < endCol; col++) {
+          const off = (row * this.cols + col) * STRIDE
+          this.cells[off + TB] = 0.8 + Math.random() * 0.2
+          this.cells[off + TH] = 0.8 + Math.random() * 0.2
+          this.cells[off + DR] = 1.5
+        }
+      }
+    } else if (burstEnergy >= 30) {
+      const count = Math.min(Math.floor(burstEnergy / 6), zoneCols * ROWS)
+      for (let f = 0; f < count; f++) {
+        const col = startCol + Math.floor(Math.random() * zoneCols)
+        const row = Math.floor(Math.random() * ROWS)
+        const off = (row * this.cols + col) * STRIDE
+        this.cells[off + TB] = 0.5 + Math.random() * 0.35
+        this.cells[off + TH] = 0.6 + Math.random() * 0.3
+        this.cells[off + DR] = 2.5
+      }
+    }
+
+    // ── Thinking activity — full-grid reasoning-style neural firing ─────
+    // Identical to building mode's think layer: fires across the entire grid,
+    // not constrained to the zone. The defrag bars are the zone-specific part;
+    // this is the independent background layer underneath.
+    this.editThinkAccum += thinkEnergy + burstEnergy
+    const thinkThreshold = 7 / density
+    let fires = Math.floor(this.editThinkAccum / thinkThreshold)
+    fires = Math.min(fires, Math.ceil(this.cellCount * 0.35))
+    this.editThinkAccum = Math.min(this.editThinkAccum - fires * thinkThreshold, thinkThreshold * 8)
+
+    if (fires >= 5) {
+      const hotspots = Math.min(1 + Math.floor(Math.random() * 3), Math.floor(fires / 2))
+      for (let h = 0; h < hotspots; h++) {
+        const center = Math.floor(Math.random() * this.cellCount)
+        const centerCol = center % this.cols
+        const centerRow = Math.floor(center / this.cols)
+        const cOff = center * STRIDE
+        this.cells[cOff + TB] = 0.7 + Math.random() * 0.3
+        this.cells[cOff + TH] = 0.5 + Math.random() * 0.5
+        this.cells[cOff + DR] = 2.0
+        fires--
+        const neighborCount = 1 + Math.floor(Math.random() * 2)
+        for (let n = 0; n < neighborCount && fires > 0; n++) {
+          const dc = Math.floor(Math.random() * 3) - 1
+          const dr = Math.floor(Math.random() * 3) - 1
+          if (dc === 0 && dr === 0) continue
+          const nc = centerCol + dc
+          const nr = centerRow + dr
+          if (nr < 0 || nr >= ROWS || nc < 0 || nc >= this.cols) continue
+          const nOff = (nr * this.cols + nc) * STRIDE
+          this.cells[nOff + TB] = 0.3 + Math.random() * 0.4
+          this.cells[nOff + TH] = 0.4 + Math.random() * 0.4
+          this.cells[nOff + DR] = 2.5
+          fires--
+        }
+      }
+    }
+    for (let f = 0; f < fires; f++) {
+      const idx = Math.floor(Math.random() * this.cellCount)
+      const off = idx * STRIDE
+      this.cells[off + TB] = 0.45 + Math.random() * 0.45
+      this.cells[off + TH] = Math.random() * 0.7
+      this.cells[off + DR] = 2.0 + Math.random()
+    }
+
+    // ── Ambient hum — full-grid baseline activity between token chunks ──
+    const recentThink = Math.min(1, this.editThinkAccum / 50)
+    const ambientInterval = 0.12 - recentThink * 0.08
+    this.editAmbientTimer += dt
+    if (this.editAmbientTimer > ambientInterval) {
+      this.editAmbientTimer -= ambientInterval
+      const count = Math.max(1, Math.round((2 + recentThink * 2 + Math.random() * 2) * density))
+      for (let a = 0; a < count; a++) {
+        const idx = Math.floor(Math.random() * this.cellCount)
+        const off = idx * STRIDE
+        const roll = Math.random()
+        const ambientBrightness = roll < 0.7
+          ? 0.15 + Math.random() * 0.2
+          : 0.3 + Math.random() * 0.25
+        this.cells[off + TB] = Math.max(this.cells[off + TB], ambientBrightness)
+        this.cells[off + TH] = Math.random()
+        this.cells[off + DR] = 1.5 + Math.random() * 0.5
+      }
+    }
+
+    // ── Decay ──
+    for (let i = 0; i < this.cellCount; i++) {
+      const off = i * STRIDE
+      this.cells[off + TB] = Math.max(0, this.cells[off + TB] - dt * 1.2)
+      this.cells[off + YO] = 0
+    }
+  }
+
+  /** Light an entire column (all rows) — used by defrag ops for vertical bar effect. */
+  private lightColumn(col: number, brightness: number, hue: number, decay: number): void {
+    for (let row = 0; row < ROWS; row++) {
+      const off = (row * this.cols + col) * STRIDE
+      this.cells[off + TB] = Math.max(this.cells[off + TB], brightness)
+      this.cells[off + TH] = hue
+      this.cells[off + DR] = decay
+    }
+  }
+
+  /** Force a column dark — actively pulls brightness toward 0 at the given rate.
+   *  Unlike lightColumn (which uses max), this overrides to drive cells down. */
+  private dimColumn(col: number, decayRate: number): void {
+    for (let row = 0; row < ROWS; row++) {
+      const off = (row * this.cols + col) * STRIDE
+      this.cells[off + TB] = 0
+      this.cells[off + DR] = decayRate
+    }
+  }
+
+  /** Light an entire column with a vertical offset — for lifted/dropped bar states. */
+  private lightColumnY(col: number, brightness: number, hue: number, decay: number, yOffset: number): void {
+    for (let row = 0; row < ROWS; row++) {
+      const off = (row * this.cols + col) * STRIDE
+      this.cells[off + TB] = Math.max(this.cells[off + TB], brightness)
+      this.cells[off + TH] = hue
+      this.cells[off + DR] = decay
+      this.cells[off + YO] = yOffset
     }
   }
 
