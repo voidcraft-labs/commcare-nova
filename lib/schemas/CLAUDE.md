@@ -42,11 +42,17 @@ All text fields are plain `string`. XPath fields support `#form/`, `#case/`, and
 
 App-level `connect_type?: 'learn' | 'deliver'` determines the app's Connect type. Form-level `connect?: ConnectConfig` opts individual forms into Connect (present = opted in, absent = not).
 
-`ConnectConfig` has optional sub-configs — which ones are relevant depends on the app's `connect_type`:
-- **Learn:** `learn_module` (name, description, time_estimate), `assessment` (user_score XPath)
-- **Deliver:** `deliver_unit` (name, entity_id, entity_name), `task` (name, description)
+`ConnectConfig` has four independently optional sub-configs, each with an optional `id` field:
+- **`learn_module`** (`id`, name, description, time_estimate) — the learning content module
+- **`assessment`** (`id`, user_score XPath) — the assessment/quiz scoring
+- **`deliver_unit`** (`id`, name, entity_id, entity_name) — the delivery entity
+- **`task`** (`id`, name, description) — optional task metadata
 
-`entity_id` and `entity_name` are auto-populated by `deriveConnectDefaults()` in `connectConfig.ts` but user-visible and editable in `FormSettingsPanel`. The SA only sets `deliver_unit.name`.
+The `id` field on each sub-config becomes the XForm wrapper element name, inner element `id` attribute, and bind path prefix (e.g. `/data/{id}`). IDs follow question ID rules (alphanumeric snake_case, starts with letter). Defaults: UI derives from app/module/form names via `toSnakeId()`; `deriveConnectDefaults()` falls back to `connect_learn`, `connect_assessment`, `connect_deliver`, `connect_task`.
+
+**Learn apps:** `learn_module` and `assessment` are independent — a form can have either or both. Validation requires at least one. In production, learn modules and assessments are often in separate forms. The SA matches sub-configs to form content: educational content → `learn_module` only, quiz/test → `assessment` only, combined → both. Never add `learn_module` to a quiz-only form or `assessment` to a content-only form.
+
+**Deliver apps:** `deliver_unit` is required. `task` is optional (controlled by a sub-toggle). `entity_id` and `entity_name` are auto-populated by `deriveConnectDefaults()` but user-visible and editable. The SA only sets `deliver_unit.name`.
 
 All Connect forms get auto GPS capture (`orx:pollsensor` + `cc:location` in form metadata).
 

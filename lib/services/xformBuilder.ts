@@ -146,67 +146,71 @@ function buildConnectBlocks(connect: ConnectConfig | undefined, instances: Insta
 
   if (connect.learn_module) {
     const lm = connect.learn_module
+    const lmId = lm.id || 'connect_learn'
     dataElements.push(
-      `<connect_learn vellum:role="ConnectLearnModule">` +
-      `<module xmlns="${CONNECT_XMLNS}" id="connect_learn">` +
+      `<${lmId} vellum:role="ConnectLearnModule">` +
+      `<module xmlns="${CONNECT_XMLNS}" id="${lmId}">` +
       `<name>${escapeXml(lm.name)}</name>` +
       `<description>${escapeXml(lm.description)}</description>` +
       `<time_estimate>${lm.time_estimate}</time_estimate>` +
       `</module>` +
-      `</connect_learn>`
+      `</${lmId}>`
     )
     binds.push(
-      `<bind vellum:nodeset="#form/connect_learn" nodeset="/data/connect_learn"/>`,
+      `<bind vellum:nodeset="#form/${lmId}" nodeset="/data/${lmId}"/>`,
     )
   }
 
   if (connect.assessment) {
+    const assessId = connect.assessment.id || 'connect_assessment'
     instances.scanXPath(connect.assessment.user_score)
     dataElements.push(
-      `<connect_assessment vellum:role="ConnectAssessment">` +
-      `<assessment xmlns="${CONNECT_XMLNS}" id="connect_assessment">` +
+      `<${assessId} vellum:role="ConnectAssessment">` +
+      `<assessment xmlns="${CONNECT_XMLNS}" id="${assessId}">` +
       `<user_score/>` +
       `</assessment>` +
-      `</connect_assessment>`
+      `</${assessId}>`
     )
     binds.push(
-      `<bind vellum:nodeset="#form/connect_assessment" nodeset="/data/connect_assessment"/>`,
-      `<bind nodeset="/data/connect_assessment/assessment/user_score" calculate="${escapeXml(expandHashtags(connect.assessment.user_score))}"/>`,
+      `<bind vellum:nodeset="#form/${assessId}" nodeset="/data/${assessId}"/>`,
+      `<bind nodeset="/data/${assessId}/assessment/user_score" calculate="${escapeXml(expandHashtags(connect.assessment.user_score))}"/>`,
     )
   }
 
   if (connect.deliver_unit) {
     const du = connect.deliver_unit
+    const duId = du.id || 'connect_deliver'
     instances.scanXPath(du.entity_id)
     instances.scanXPath(du.entity_name)
     dataElements.push(
-      `<connect_deliver vellum:role="ConnectDeliverUnit">` +
-      `<deliver xmlns="${CONNECT_XMLNS}" id="connect_deliver">` +
+      `<${duId} vellum:role="ConnectDeliverUnit">` +
+      `<deliver xmlns="${CONNECT_XMLNS}" id="${duId}">` +
       `<name>${escapeXml(du.name)}</name>` +
       `<entity_id/>` +
       `<entity_name/>` +
       `</deliver>` +
-      `</connect_deliver>`
+      `</${duId}>`
     )
     binds.push(
-      `<bind vellum:nodeset="#form/connect_deliver" nodeset="/data/connect_deliver"/>`,
-      `<bind nodeset="/data/connect_deliver/deliver/entity_id" calculate="${escapeXml(expandHashtags(du.entity_id))}"/>`,
-      `<bind nodeset="/data/connect_deliver/deliver/entity_name" calculate="${escapeXml(expandHashtags(du.entity_name))}"/>`,
+      `<bind vellum:nodeset="#form/${duId}" nodeset="/data/${duId}"/>`,
+      `<bind nodeset="/data/${duId}/deliver/entity_id" calculate="${escapeXml(expandHashtags(du.entity_id))}"/>`,
+      `<bind nodeset="/data/${duId}/deliver/entity_name" calculate="${escapeXml(expandHashtags(du.entity_name))}"/>`,
     )
   }
 
   if (connect.task) {
     const t = connect.task
+    const taskId = t.id || 'connect_task'
     dataElements.push(
-      `<connect_task vellum:role="ConnectTask">` +
-      `<task xmlns="${CONNECT_XMLNS}" id="connect_task">` +
+      `<${taskId} vellum:role="ConnectTask">` +
+      `<task xmlns="${CONNECT_XMLNS}" id="${taskId}">` +
       `<name>${escapeXml(t.name)}</name>` +
       `<description>${escapeXml(t.description)}</description>` +
       `</task>` +
-      `</connect_task>`
+      `</${taskId}>`
     )
     binds.push(
-      `<bind vellum:nodeset="#form/connect_task" nodeset="/data/connect_task"/>`,
+      `<bind vellum:nodeset="#form/${taskId}" nodeset="/data/${taskId}"/>`,
     )
   }
 

@@ -7,6 +7,7 @@ import ciSettings from '@iconify-icons/ci/settings'
 import ciClose from '@iconify-icons/ci/close-md'
 import type { BlueprintForm, ConnectConfig } from '@/lib/schemas/blueprint'
 import type { MutableBlueprint } from '@/lib/services/mutableBlueprint'
+import { toSnakeId } from '@/lib/services/commcare/validate'
 import { FormDetail } from './FormDetail'
 import { ConnectLogomark } from '@/components/icons/ConnectLogomark'
 import { Toggle } from '@/components/ui/Toggle'
@@ -150,7 +151,7 @@ function FormSettingsPanel({
 // ── Connect Configuration Section ──────────────────────────────────────
 
 function ConnectSection({ form, moduleIndex, formIndex, mb, notifyBlueprintChanged, onModalChange }: FormSettingsPanelProps & { onModalChange: (open: boolean) => void }) {
-  const connectType = mb.getBlueprint().connect_type
+  const connectType = mb.getBlueprint().connect_type as ConnectType | undefined
   const connect = form.connect
   const enabled = !!connect
 
@@ -159,23 +160,36 @@ function ConnectSection({ form, moduleIndex, formIndex, mb, notifyBlueprintChang
     notifyBlueprintChanged()
   }, [mb, moduleIndex, formIndex, notifyBlueprintChanged])
 
-  // Store the last config so toggling off/on doesn't lose values
-  const lastConfigRef = useRef(connect)
-  if (connect) lastConfigRef.current = connect
-
   const toggle = useCallback(() => {
     if (enabled) {
+      // Stash before toggling off
+      if (connect && connectType) {
+        mb.stashFormConnect(connectType, moduleIndex, formIndex, connect)
+      }
       save(null)
-    } else {
-      // Restore previous config, or create a sensible default
-      const restored = lastConfigRef.current
-      if (restored && Object.keys(restored).length > 0) {
-        save(restored)
+    } else if (connectType) {
+      // Restore from stash, or create defaults
+      const stashed = mb.getFormConnectStash(connectType, moduleIndex, formIndex)
+      if (stashed) {
+        save(stashed)
       } else {
-        save(connectType === 'learn' ? { assessment: { user_score: '100' } } : {})
+        const mod = mb.getModule(moduleIndex)
+        const formData = mb.getForm(moduleIndex, formIndex)
+        const modSlug = toSnakeId(mod?.name ?? '')
+        const formSlug = toSnakeId(formData?.name ?? '')
+        if (connectType === 'learn') {
+          save({
+            learn_module: { id: modSlug, name: formData?.name ?? '', description: formData?.name ?? '', time_estimate: 5 },
+            assessment: { id: `${modSlug}_${formSlug}`, user_score: '100' },
+          })
+        } else {
+          save({
+            deliver_unit: { id: modSlug, name: formData?.name ?? '', entity_id: "concat(#user/username, '-', today())", entity_name: '#user/username' },
+          })
+        }
       }
     }
-  }, [enabled, connectType, save])
+  }, [enabled, connect, connectType, mb, moduleIndex, formIndex, save])
 
   if (!connectType) return null
 
@@ -204,17 +218,17 @@ function ConnectSection({ form, moduleIndex, formIndex, mb, notifyBlueprintChang
             className="overflow-hidden"
           >
             <div className="pt-2.5 space-y-3">
-              {/* Name — shared across learn/deliver */}
-              <ConnectName connect={connect} connectType={connectType} save={save} />
-
-              {/* Learn config */}
+              {/* Learn config — sub-toggles for learn_module and assessment */}
               {connectType === 'learn' && (
                 <LearnConfig connect={connect} save={save} mb={mb} moduleIndex={moduleIndex} formIndex={formIndex} onModalChange={onModalChange} />
               )}
 
-              {/* Deliver config */}
+              {/* Deliver config — name + unit fields + task sub-toggle */}
               {connectType === 'deliver' && (
-                <DeliverConfig connect={connect} save={save} mb={mb} moduleIndex={moduleIndex} formIndex={formIndex} onModalChange={onModalChange} />
+                <>
+                  <ConnectName connect={connect} connectType={connectType} save={save} />
+                  <DeliverConfig connect={connect} save={save} mb={mb} moduleIndex={moduleIndex} formIndex={formIndex} onModalChange={onModalChange} />
+                </>
               )}
 
             </div>
@@ -227,20 +241,13 @@ function ConnectSection({ form, moduleIndex, formIndex, mb, notifyBlueprintChang
 
 // ── Connect Name (shared) ──────────────────────────────────────────────
 
-function ConnectName({ connect, connectType, save }: { connect: ConnectConfig; connectType: ConnectType; save: (c: ConnectConfig) => void }) {
-  const name = connectType === 'learn'
-    ? (connect.learn_module?.name ?? '')
-    : (connect.deliver_unit?.name ?? '')
+function ConnectName({ connect, save }: { connect: ConnectConfig; connectType: ConnectType; save: (c: ConnectConfig) => void }) {
+  const name = connect.deliver_unit?.name ?? ''
 
   const onChange = useCallback((v: string) => {
-    if (connectType === 'learn') {
-      const current = connect.learn_module ?? { name: '', description: '', time_estimate: 5 }
-      save({ ...connect, learn_module: { ...current, name: v } })
-    } else {
-      const current = connect.deliver_unit ?? { name: '', entity_id: '', entity_name: '' }
-      save({ ...connect, deliver_unit: { ...current, name: v } })
-    }
-  }, [connect, connectType, save])
+    const current = connect.deliver_unit ?? { name: '', entity_id: '', entity_name: '' }
+    save({ ...connect, deliver_unit: { ...current, name: v } })
+  }, [connect, save])
 
   return <InlineField label="Name" value={name} onChange={onChange} required />
 }
@@ -276,43 +283,153 @@ function useXPathModal(mb: MutableBlueprint, moduleIndex: number, formIndex: num
 
 function LearnConfig({ connect, save, mb, moduleIndex, formIndex, onModalChange }: ConnectSubConfigProps) {
   const lm = connect.learn_module
+  const assessment = connect.assessment
+  const learnEnabled = !!lm
+  const assessmentEnabled = !!assessment
+  const lastLearnRef = useRef(lm)
+  const lastAssessmentRef = useRef(assessment)
+  if (lm) lastLearnRef.current = lm
+  if (assessment) lastAssessmentRef.current = assessment
   const { modal, setModal, getLintContext } = useXPathModal(mb, moduleIndex, formIndex, onModalChange)
 
+  const defaultIds = useCallback(() => {
+    const mod = mb.getModule(moduleIndex)
+    const formData = mb.getForm(moduleIndex, formIndex)
+    const modSlug = toSnakeId(mod?.name ?? '')
+    const formSlug = toSnakeId(formData?.name ?? '')
+    return { learnId: modSlug, assessmentId: `${modSlug}_${formSlug}` }
+  }, [mb, moduleIndex, formIndex])
+
   const updateLearnModule = useCallback((field: string, value: string | number) => {
-    const current = connect.learn_module ?? { name: '', description: '', time_estimate: 5 }
+    const { learnId } = defaultIds()
+    const current = connect.learn_module ?? { id: learnId, name: '', description: '', time_estimate: 5 }
     save({ ...connect, learn_module: { ...current, [field]: value } })
-  }, [connect, save])
+  }, [connect, save, defaultIds])
+
+  const toggleLearn = useCallback(() => {
+    if (learnEnabled) {
+      const { learn_module: _removed, ...rest } = connect
+      save(rest as ConnectConfig)
+    } else {
+      const restored = lastLearnRef.current
+      if (restored && restored.name.trim()) {
+        save({ ...connect, learn_module: restored })
+      } else {
+        const { learnId } = defaultIds()
+        const formData = mb.getForm(moduleIndex, formIndex)
+        save({ ...connect, learn_module: { id: learnId, name: formData?.name ?? '', description: formData?.name ?? '', time_estimate: 5 } })
+      }
+    }
+  }, [learnEnabled, connect, save, mb, moduleIndex, formIndex, defaultIds])
+
+  const toggleAssessment = useCallback(() => {
+    if (assessmentEnabled) {
+      const { assessment: _removed, ...rest } = connect
+      save(rest as ConnectConfig)
+    } else {
+      const restored = lastAssessmentRef.current
+      if (restored && restored.user_score.trim()) {
+        save({ ...connect, assessment: restored })
+      } else {
+        const { assessmentId } = defaultIds()
+        save({ ...connect, assessment: { id: assessmentId, user_score: '100' } })
+      }
+    }
+  }, [assessmentEnabled, connect, save, defaultIds])
 
   return (
     <>
       <div className="space-y-2">
-        <InlineField
-          label="Description"
-          value={lm?.description ?? ''}
-          onChange={(v) => updateLearnModule('description', v)}
-          multiline
-          required
-        />
-        <InlineField
-          label="Time Estimate"
-          value={String(lm?.time_estimate ?? 5)}
-          onChange={(v) => updateLearnModule('time_estimate', Math.max(1, parseInt(v) || 1))}
-          suffix="min"
-          type="number"
-          required
-        />
-        <div>
-          <label className="text-[10px] text-nova-text-muted uppercase tracking-wider mb-0.5 flex items-center gap-0.5">
-            Assessment Score<span className="text-nova-rose">*</span>
-          </label>
-          <XPathField
-            value={connect.assessment?.user_score ?? ''}
-            onClick={() => setModal({
-              label: 'Assessment Score',
-              value: connect.assessment?.user_score ?? '',
-              onSave: (v) => { if (v.trim()) save({ ...connect, assessment: { user_score: v } }) },
-            })}
-          />
+        {/* Learn Module sub-toggle */}
+        <div className="rounded-lg bg-white/[0.03] border border-white/[0.05] px-2.5 py-2">
+          <div className="flex items-center justify-between">
+            <span className="text-[10px] text-nova-text-muted uppercase tracking-wider">Learn Module</span>
+            <Toggle enabled={learnEnabled} onToggle={toggleLearn} variant="sub" />
+          </div>
+          <AnimatePresence>
+            {lm && (
+              <motion.div
+                initial={{ opacity: 0, height: 0 }}
+                animate={{ opacity: 1, height: 'auto' }}
+                exit={{ opacity: 0, height: 0 }}
+                transition={{ duration: 0.15, ease: 'easeOut' }}
+                className="overflow-hidden"
+              >
+                <div className="space-y-2 pt-2.5 mt-2 border-t border-white/[0.05]">
+                  <InlineField
+                    label="Module ID"
+                    value={lm.id ?? 'connect_learn'}
+                    onChange={(v) => updateLearnModule('id', v)}
+                    mono
+                    required
+                  />
+                  <InlineField
+                    label="Name"
+                    value={lm.name}
+                    onChange={(v) => updateLearnModule('name', v)}
+                    required
+                  />
+                  <InlineField
+                    label="Description"
+                    value={lm.description}
+                    onChange={(v) => updateLearnModule('description', v)}
+                    multiline
+                    required
+                  />
+                  <InlineField
+                    label="Time Estimate"
+                    value={String(lm.time_estimate)}
+                    onChange={(v) => updateLearnModule('time_estimate', Math.max(1, parseInt(v) || 1))}
+                    suffix="min"
+                    type="number"
+                    required
+                  />
+                </div>
+              </motion.div>
+            )}
+          </AnimatePresence>
+        </div>
+
+        {/* Assessment sub-toggle */}
+        <div className="rounded-lg bg-white/[0.03] border border-white/[0.05] px-2.5 py-2">
+          <div className="flex items-center justify-between">
+            <span className="text-[10px] text-nova-text-muted uppercase tracking-wider">Assessment</span>
+            <Toggle enabled={assessmentEnabled} onToggle={toggleAssessment} variant="sub" />
+          </div>
+          <AnimatePresence>
+            {assessment && (
+              <motion.div
+                initial={{ opacity: 0, height: 0 }}
+                animate={{ opacity: 1, height: 'auto' }}
+                exit={{ opacity: 0, height: 0 }}
+                transition={{ duration: 0.15, ease: 'easeOut' }}
+                className="overflow-hidden"
+              >
+                <div className="space-y-2 pt-2.5 mt-2 border-t border-white/[0.05]">
+                  <InlineField
+                    label="Assessment ID"
+                    value={assessment.id ?? 'connect_assessment'}
+                    onChange={(v) => save({ ...connect, assessment: { ...assessment, id: v } })}
+                    mono
+                    required
+                  />
+                  <div>
+                    <label className="text-[10px] text-nova-text-muted uppercase tracking-wider mb-0.5 flex items-center gap-0.5">
+                      User Score<span className="text-nova-rose">*</span>
+                    </label>
+                    <XPathField
+                      value={assessment.user_score}
+                      onClick={() => setModal({
+                        label: 'User Score',
+                        value: assessment.user_score,
+                        onSave: (v) => { if (v.trim()) save({ ...connect, assessment: { ...assessment, user_score: v } }) },
+                      })}
+                    />
+                  </div>
+                </div>
+              </motion.div>
+            )}
+          </AnimatePresence>
         </div>
       </div>
 
@@ -335,6 +452,9 @@ function LearnConfig({ connect, save, mb, moduleIndex, formIndex, onModalChange 
 function DeliverConfig({ connect, save, mb, moduleIndex, formIndex, onModalChange }: ConnectSubConfigProps) {
   const du = connect.deliver_unit
   const task = connect.task
+  const taskEnabled = !!task
+  const lastTaskRef = useRef(task)
+  if (task) lastTaskRef.current = task
   const { modal, setModal, getLintContext } = useXPathModal(mb, moduleIndex, formIndex, onModalChange)
 
   const updateDeliverUnit = useCallback((field: string, value: string) => {
@@ -346,6 +466,24 @@ function DeliverConfig({ connect, save, mb, moduleIndex, formIndex, onModalChang
     const current = connect.task ?? { name: '', description: '' }
     save({ ...connect, task: { ...current, [field]: value } })
   }, [connect, save])
+
+  const toggleTask = useCallback(() => {
+    if (taskEnabled) {
+      // Save task data before removing
+      const { task: _removed, ...rest } = connect
+      save(rest as ConnectConfig)
+    } else {
+      // Restore previous or create defaults
+      const restored = lastTaskRef.current
+      const formData = mb.getForm(moduleIndex, formIndex)
+      save({
+        ...connect,
+        task: restored && (restored.name.trim() || restored.description.trim())
+          ? restored
+          : { name: formData?.name ?? '', description: formData?.name ?? '' },
+      })
+    }
+  }, [taskEnabled, connect, save, mb, moduleIndex, formIndex])
 
   return (
     <>
@@ -376,17 +514,41 @@ function DeliverConfig({ connect, save, mb, moduleIndex, formIndex, onModalChang
             })}
           />
         </div>
-        <InlineField
-          label="Task Name"
-          value={task?.name ?? ''}
-          onChange={(v) => updateTask('name', v)}
-        />
-        <InlineField
-          label="Task Description"
-          value={task?.description ?? ''}
-          onChange={(v) => updateTask('description', v)}
-          multiline
-        />
+
+        {/* Task sub-toggle */}
+        <div className="rounded-lg bg-white/[0.03] border border-white/[0.05] px-2.5 py-2 mt-1">
+          <div className="flex items-center justify-between">
+            <span className="text-[10px] text-nova-text-muted uppercase tracking-wider">Task</span>
+            <Toggle enabled={taskEnabled} onToggle={toggleTask} variant="sub" />
+          </div>
+          <AnimatePresence>
+            {task && (
+              <motion.div
+                initial={{ opacity: 0, height: 0 }}
+                animate={{ opacity: 1, height: 'auto' }}
+                exit={{ opacity: 0, height: 0 }}
+                transition={{ duration: 0.15, ease: 'easeOut' }}
+                className="overflow-hidden"
+              >
+                <div className="space-y-2 pt-2.5 mt-2 border-t border-white/[0.05]">
+                  <InlineField
+                    label="Task Name"
+                    value={task.name}
+                    onChange={(v) => updateTask('name', v)}
+                    required
+                  />
+                  <InlineField
+                    label="Task Description"
+                    value={task.description}
+                    onChange={(v) => updateTask('description', v)}
+                    multiline
+                    required
+                  />
+                </div>
+              </motion.div>
+            )}
+          </AnimatePresence>
+        </div>
       </div>
 
       {modal && (

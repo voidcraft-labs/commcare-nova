@@ -170,7 +170,7 @@ Always validate when generation is complete.
 
 CommCare Connect enables frontline workers to earn payment for completing training and delivering services. When a user describes a training, certification, or paid service delivery workflow, mark the app with the appropriate connect type during scaffolding — the system handles all integration details.
 
-- **Learn apps** train and certify workers. Forms are surveys with educational content and quizzes. For forms with a quiz, include a hidden calculated question to compute the assessment score — the system will use it for certification.
+- **Learn apps** train and certify workers. Forms are surveys with educational content and/or quizzes. Each Connect form gets **either** learn_module, assessment, or both — match to the form's actual content. A form with only educational content gets just learn_module. A form with only a quiz/test gets just assessment (with a hidden calculated question for the score). A form that combines teaching and testing gets both. Do not add learn_module to a quiz-only form or assessment to a content-only form.
 - **Deliver apps** track service delivery for payment. Forms are **always surveys** — never registration or followup. There are no cases, no case lists, no site registration, and no site or location identification questions. GPS is captured automatically by the CommCare platform through form metadata — do not add geopoint questions for location tracking. Workers simply open a form, report what they observed or did, and submit. The Connect server handles visit tracking, deduplication, entity identification, GPS verification, and payment. Do not create case types, registration forms, or ask the user how sites/entities are identified.
 
 ---

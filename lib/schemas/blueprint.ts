@@ -127,22 +127,26 @@ export const moduleContentSchema = z.object({
 // ── Connect Config ────────────────────────────────────────────────────
 
 const connectLearnModuleSchema = z.object({
+  id: z.string().optional(),
   name: z.string(),
   description: z.string(),
   time_estimate: z.number().int().positive(),
 })
 
 const connectAssessmentSchema = z.object({
+  id: z.string().optional(),
   user_score: z.string(),
 })
 
 const connectDeliverUnitSchema = z.object({
+  id: z.string().optional(),
   name: z.string(),
   entity_id: z.string(),
   entity_name: z.string(),
 })
 
 const connectTaskSchema = z.object({
+  id: z.string().optional(),
   name: z.string(),
   description: z.string(),
 })

@@ -30,3 +30,14 @@ export function validatePropertyName(name: string): string {
 export function isReservedProperty(name: string): boolean {
   return RESERVED_CASE_PROPERTIES.has(name)
 }
+
+/** Convert a display name to a valid snake_case identifier (alphanumeric, starts with a letter). */
+export function toSnakeId(name: string): string {
+  return name
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '_')
+    .replace(/^_|_$/g, '')
+    .replace(/^(\d)/, '_$1')
+    || 'unnamed'
+}

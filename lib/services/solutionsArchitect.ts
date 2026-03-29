@@ -31,17 +31,23 @@ export { validateAndFix } from './validationLoop'
  * are preserved from the existing config or left empty for auto-derivation.
  */
 function buildConnectConfig(
-  input: { learn_module?: { name: string; description: string; time_estimate: number }; assessment?: { user_score: string }; deliver_unit?: { name: string }; task?: { name: string; description: string } } | null,
+  input: { learn_module?: { id?: string; name: string; description: string; time_estimate: number }; assessment?: { id?: string; user_score: string }; deliver_unit?: { name: string }; task?: { name: string; description: string } } | null,
   existing?: ConnectConfig,
 ): ConnectConfig | null {
   if (input === null) return null
   return {
-    learn_module: input.learn_module,
-    assessment: input.assessment,
+    learn_module: input.learn_module
+      ? { ...existing?.learn_module, ...input.learn_module }
+      : input.learn_module,
+    assessment: input.assessment
+      ? { ...existing?.assessment, ...input.assessment }
+      : input.assessment,
     deliver_unit: input.deliver_unit
       ? { ...existing?.deliver_unit, ...input.deliver_unit, entity_id: existing?.deliver_unit?.entity_id ?? '', entity_name: existing?.deliver_unit?.entity_name ?? '' }
       : input.deliver_unit,
-    task: input.task,
+    task: input.task
+      ? { ...existing?.task, ...input.task }
+      : input.task,
   }
 }
 
@@ -530,11 +536,11 @@ export function createSolutionsArchitect(
             answer: z.string().optional(),
           }).nullable().optional().describe('Set close_case config. null to remove. {} for unconditional.'),
           connect: z.object({
-            learn_module: z.object({ name: z.string(), description: z.string(), time_estimate: z.number() }).optional(),
-            assessment: z.object({ user_score: z.string() }).optional(),
+            learn_module: z.object({ id: z.string().optional(), name: z.string(), description: z.string(), time_estimate: z.number() }).optional().describe('Set for forms with educational/training content. Omit for quiz-only forms.'),
+            assessment: z.object({ id: z.string().optional(), user_score: z.string() }).optional().describe('Set for forms with a quiz/test. Omit for content-only forms.'),
             deliver_unit: z.object({ name: z.string() }).optional(),
             task: z.object({ name: z.string(), description: z.string() }).optional(),
-          }).nullable().optional().describe('Set Connect config on this form. null to remove.'),
+          }).nullable().optional().describe('Set Connect config on this form. null to remove. Learn apps: set learn_module and/or assessment independently — match to form content.'),
         }),
         execute: async ({ moduleIndex, formIndex, name, close_case, connect }) => {
           try {
