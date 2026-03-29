@@ -144,7 +144,7 @@ If the stream writer is broken (can't emit `data-error`), `emitError` catches si
 | `data-scaffold` | `setScaffold()` |
 | `data-phase` | `setPhase()` |
 | `data-module-done` | `setModuleContent()` |
-| `data-form-done` / `data-form-fixed` / `data-form-updated` | `setFormContent()` |
+| `data-form-done` / `data-form-fixed` / `data-form-updated` | `setFormContent()` — updates `_mb.replaceForm()` in edit mode, `_partialModules` during build |
 | `data-blueprint-updated` | `updateBlueprint()` |
 | `data-fix-attempt` | `setFixAttempt()` |
 | `data-done` | `setDone()` |
