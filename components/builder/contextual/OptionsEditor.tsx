@@ -1,8 +1,8 @@
 'use client'
 import { useState, useCallback, useRef } from 'react'
 import { Icon } from '@iconify/react'
-import ciAddPlus from '@iconify-icons/ci/add-plus'
 import ciTrashFull from '@iconify-icons/ci/trash-full'
+import { AddPropertyButton } from './AddPropertyButton'
 
 interface OptionsEditorProps {
   options: Array<{ value: string; label: string }>
@@ -12,7 +12,7 @@ interface OptionsEditorProps {
 export function OptionsEditor({ options, onSave }: OptionsEditorProps) {
   const [draft, setDraft] = useState<Array<{ value: string; label: string }>>(options)
   const [focusIndex, setFocusIndex] = useState<number | null>(null)
-  const addRef = useRef<HTMLButtonElement>(null)
+
 
   const optionsKey = JSON.stringify(options)
   const prevKeyRef = useRef(optionsKey)
@@ -104,14 +104,7 @@ export function OptionsEditor({ options, onSave }: OptionsEditorProps) {
           </div>
         ))}
       </div>
-      <button
-        ref={addRef}
-        onClick={addOption}
-        className="mt-2 inline-flex items-center gap-1 px-2 py-0.5 text-xs text-nova-text-muted hover:text-nova-text-secondary bg-nova-surface hover:bg-nova-elevated border border-nova-border/40 rounded transition-colors cursor-pointer"
-      >
-        <Icon icon={ciAddPlus} width="10" height="10" />
-        Add option
-      </button>
+      <AddPropertyButton label="Add option" onClick={addOption} className="mt-2" />
     </div>
   )
 }
