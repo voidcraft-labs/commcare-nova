@@ -482,6 +482,14 @@ export default function SignalTestPage() {
   const scaffoldProgressRef = useRef(0)
   const cleanupRef = useRef<(() => void) | null>(null)
 
+  // Track the controller's actually-applied mode/label for the panel display.
+  // This defers label updates until the animation actually transitions (e.g. the
+  // sending wave must complete before the label switches from "Transmitting").
+  const [appliedMode, setAppliedMode] = useState<SignalMode>('idle')
+  const [appliedLabel, setAppliedLabel] = useState('')
+  const appliedStateRef = useRef({ setAppliedMode, setAppliedLabel })
+  appliedStateRef.current = { setAppliedMode, setAppliedLabel }
+
   const gridCallbackRef = useCallback((el: HTMLDivElement | null) => {
     if (!el) return
     const ctrl = new SignalGridController({
@@ -496,6 +504,10 @@ export default function SignalTestPage() {
         return e
       },
       consumeScaffoldProgress: () => scaffoldProgressRef.current,
+    })
+    ctrl.setOnModeApplied((appliedMode, appliedLabel) => {
+      appliedStateRef.current.setAppliedMode(appliedMode)
+      appliedStateRef.current.setAppliedLabel(appliedLabel)
     })
     controllerRef.current = ctrl
     ctrl.attach(el)
@@ -666,7 +678,7 @@ export default function SignalTestPage() {
             className="bg-nova-deep border border-nova-border rounded-xl p-4 flex justify-center"
           >
             <div style={{ width }}>
-              <SignalPanel active={mode !== 'idle'} label={defaultLabel(mode)} error={mode === 'error-fatal'} recovering={mode === 'error-recovering'} done={mode === 'done'}>
+              <SignalPanel active={appliedMode !== 'idle'} label={appliedLabel} error={appliedMode === 'error-fatal'} recovering={appliedMode === 'error-recovering'} done={appliedMode === 'done'}>
                 <div ref={gridCallbackRef} className="signal-grid" />
               </SignalPanel>
             </div>
