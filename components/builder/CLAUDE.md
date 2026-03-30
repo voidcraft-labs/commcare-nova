@@ -29,7 +29,7 @@ When `builder.phase === Idle && !builder.treeData`, chat fills center with hero 
 
 Full-width 3-column grid: left spacer, center `ViewModeToggle` (`components/preview/ViewModeToggle.tsx`), right Undo/Redo. `h-12 bg-nova-deep`. `ViewModeToggle` is a compact `h-[34px]` 2-segment control (Design | Preview) matching undo/redo button height.
 
-`usePreviewNav` is lifted to BuilderLayout and shared with `PreviewShell` (via `nav` prop) so navigation state stays in sync. PreviewShell renders with `hideHeader` since BuilderLayout owns the header tiers. `handlePreviewBack` syncs `builder.select()` when the in-content back button is clicked, passed to PreviewShell via `onBack`.
+`usePreviewNav` is lifted to BuilderLayout and shared with `PreviewShell` (via `nav` prop) so navigation state stays in sync. PreviewShell renders with `hideHeader` since BuilderLayout owns the header tiers. `syncSelection(screen)` maps a `PreviewScreen` to the corresponding `builder.select()` call — used by both `handlePreviewBack` (history back, passed via `onBack`) and `handlePreviewUp` (hierarchy up via `getParentScreen`, passed via `onUp`).
 
 ### View Mode Sync
 

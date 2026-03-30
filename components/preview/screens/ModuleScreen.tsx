@@ -5,7 +5,7 @@ import { Icon } from '@iconify/react'
 import ciFileAdd from '@iconify-icons/ci/file-add'
 import ciFileEdit from '@iconify-icons/ci/file-edit'
 import ciFileBlank from '@iconify-icons/ci/file-blank'
-import ciChevronLeft from '@iconify-icons/ci/chevron-left'
+import { ScreenNavButtons } from '@/components/preview/ScreenNavButtons'
 import type { AppBlueprint } from '@/lib/schemas/blueprint'
 import type { Builder } from '@/lib/services/builder'
 import type { EditMode } from '@/hooks/useEditContext'
@@ -17,7 +17,9 @@ interface ModuleScreenProps {
   moduleIndex: number
   onNavigate: (screen: PreviewScreen) => void
   canGoBack?: boolean
+  canGoUp?: boolean
   onBack?: () => void
+  onUp?: () => void
   builder?: Builder
   mode?: EditMode
 }
@@ -29,7 +31,7 @@ const formTypeIcons = {
 } as const
 
 
-export function ModuleScreen({ blueprint, moduleIndex, onNavigate, canGoBack, onBack, builder, mode = 'edit' }: ModuleScreenProps) {
+export function ModuleScreen({ blueprint, moduleIndex, onNavigate, canGoBack, canGoUp, onBack, onUp, builder, mode = 'edit' }: ModuleScreenProps) {
   const mod = blueprint.modules[moduleIndex]
 
   const [saved, setSaved] = useState(false)
@@ -47,13 +49,7 @@ export function ModuleScreen({ blueprint, moduleIndex, onNavigate, canGoBack, on
   return (
     <div className="p-6 space-y-4 max-w-3xl mx-auto">
       <div className="flex items-center gap-2">
-        <button
-          onClick={onBack}
-          disabled={!canGoBack}
-          className={`p-1.5 -ml-1.5 rounded-md shrink-0 transition-colors ${canGoBack ? 'text-nova-text-muted hover:text-nova-text hover:bg-pv-elevated cursor-pointer' : 'text-nova-text-muted/30 cursor-default'}`}
-        >
-          <Icon icon={ciChevronLeft} width="20" height="20" />
-        </button>
+        <ScreenNavButtons canGoBack={canGoBack} canGoUp={canGoUp} onBack={onBack} onUp={onUp} />
         {mode === 'edit' && builder?.mb ? (
           <EditableTitle value={mod.name} onSave={saveModuleName} onSaved={handleSaved} />
         ) : (

@@ -21,6 +21,16 @@ export type PreviewScreen =
   | { type: 'caseList'; moduleIndex: number; formIndex: number }
   | { type: 'form'; moduleIndex: number; formIndex: number; caseId?: string }
 
+/** Returns the immediate parent screen in the hierarchy, or undefined if already at home. */
+export function getParentScreen(screen: PreviewScreen): PreviewScreen | undefined {
+  switch (screen.type) {
+    case 'module': return { type: 'home' }
+    case 'caseList':
+    case 'form': return { type: 'module', moduleIndex: screen.moduleIndex }
+    default: return undefined
+  }
+}
+
 export function screensEqual(a: PreviewScreen, b: PreviewScreen): boolean {
   if (a.type !== b.type) return false
   if (a.type === 'home') return true

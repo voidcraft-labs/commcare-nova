@@ -1,27 +1,21 @@
 'use client'
-import { Icon } from '@iconify/react'
-import ciChevronLeft from '@iconify-icons/ci/chevron-left'
+import { ScreenNavButtons } from './ScreenNavButtons'
 
 interface PreviewHeaderProps {
   breadcrumb: string[]
   canGoBack: boolean
+  canGoUp: boolean
   onBack: () => void
+  onUp: () => void
   onBreadcrumbClick: (index: number) => void
   actions?: React.ReactNode
 }
 
-export function PreviewHeader({ breadcrumb, canGoBack, onBack, onBreadcrumbClick, actions }: PreviewHeaderProps) {
+export function PreviewHeader({ breadcrumb, canGoBack, canGoUp, onBack, onUp, onBreadcrumbClick, actions }: PreviewHeaderProps) {
   return (
     <div className="flex items-center justify-between px-6 h-12 border-b border-nova-border">
       <div className="flex items-center gap-2 min-w-0">
-        {canGoBack && (
-          <button
-            onClick={onBack}
-            className="p-1 -ml-1 text-nova-text-secondary hover:text-nova-text transition-colors rounded-md hover:bg-pv-elevated cursor-pointer"
-          >
-            <Icon icon={ciChevronLeft} width="18" height="18" />
-          </button>
-        )}
+        <ScreenNavButtons canGoBack={canGoBack} canGoUp={canGoUp} onBack={onBack} onUp={onUp} compact static />
         <div className="flex items-center gap-1.5 text-sm min-w-0 truncate">
           {breadcrumb.map((part, i) => {
             const isLast = i === breadcrumb.length - 1
