@@ -87,6 +87,21 @@ export interface EditFocus {
   end: number
 }
 
+/** Configuration for the shared think + ambient neural firing layer.
+ *  Each mode passes different values to tune the visual character of its
+ *  background neural activity (e.g. scaffolding uses reduced intensity
+ *  so the tetris pieces remain visually dominant). */
+interface ThinkLayerOpts {
+  /** Max fraction of cells that can fire per frame (default 0.45). */
+  maxFires?: number
+  /** DR multiplier for visual response speed (default 1.0). */
+  drScale?: number
+  /** Ambient base count multiplier — higher = denser ambient hum (default 3). */
+  ambientIntensity?: number
+  /** Probability of warm amber/rose error hues instead of cool tones (0 = none, default 0). */
+  warmProb?: number
+}
+
 /** Minimum zone width as a fraction of total columns (prevents tiny slivers). */
 const MIN_EDIT_ZONE = 0.15
 /** How fast the current zone lerps toward the target zone (per second). */
@@ -114,14 +129,14 @@ interface DefragOp {
 
 // ── Scaffolding (solver-driven tetris progress bar) ────────────────────
 
-const enum ScaffoldAnimPhase { Preview, Select, Slide, Lock, Wait }
+const enum ScaffoldAnimPhase { Preview, Select, Slide, Lock }
 
 /** A preview candidate: shape + row, ready to render. */
 interface ScaffoldPreview { shape: Shape; originRow: number }
 
 interface ScaffoldAnim {
-  /** Solver's optimal placement (null during Wait). */
-  optimal: Placement | null
+  /** Solver's optimal placement for this turn. */
+  optimal: Placement
   /** Pre-resolved shapes (random piece × random rotation) for the slot-machine preview.
    *  Last entry is always the winner in its solver-chosen rotation. */
   previews: ScaffoldPreview[]
@@ -136,28 +151,11 @@ interface ScaffoldAnim {
   speed: number
 }
 
-/** Debug: render a shape as compact ASCII for console logging. */
-function shapeAscii(shape: Shape): string {
-  const maxR = Math.max(...shape.map(([r]) => r))
-  const maxC = Math.max(...shape.map(([, c]) => c))
-  const set = new Set(shape.map(([r, c]) => r * 10 + c))
-  const rows: string[] = []
-  for (let r = 0; r <= maxR; r++) {
-    let row = ''
-    for (let c = 0; c <= maxC; c++) row += set.has(r * 10 + c) ? '#' : '.'
-    rows.push(row)
-  }
-  return rows.join('|')
-}
-
-/** Auto-increment rate per second (fraction of grid). */
-const SCAFFOLD_AUTO_RATE = 0.015
-/** Auto-increment cannot exceed this fraction without explicit target. */
-const SCAFFOLD_AUTO_CAP = 0.88
-
 /** Global scaffold animation tempo — scales all phase durations, DR, and decay.
- *  1.0 = original design pace. Per-piece `speed` multiplies on top. */
-const SCAFFOLD_TEMPO = 4.0
+ *  1.0 = original design pace. Per-piece `speed` multiplies on top.
+ *  At 1.5, each piece takes ~1-1.5s at normal speed — fast enough to feel
+ *  like progress but slow enough to see the preview→select→slide→lock sequence. */
+const SCAFFOLD_TEMPO = 1.5
 
 // Phase base durations (seconds at TEMPO=1, before per-piece speed scaling).
 // Actual duration = base / (SCAFFOLD_TEMPO * speed).
@@ -165,7 +163,6 @@ const S_PREVIEW = 0.40   // per candidate dwell
 const S_SELECT  = 0.13   // double-flash (snappier than other phases)
 const S_SLIDE_K = 2.5    // slide cols/sec = max(distance * S_SLIDE_K, 6) * tempo * speed
 const S_LOCK    = 0.25   // flash + fade
-const S_WAIT    = 0.60   // per candidate cycle
 const S_DECAY   = 1.2    // TB drain per second (scaled by tempo)
 
 interface ControllerOpts {
@@ -184,15 +181,36 @@ const CELL_SIZE = 6   // px
 const CELL_GAP = 3    // px
 const CELL_SLOT = CELL_SIZE + CELL_GAP
 
-// Per-cell state indices in the flat Float64Array
+// ── Per-cell state layout ──────────────────────────────────────────
+// Cells are stored in a flat Float64Array with STRIDE fields per cell.
+// Mode tick methods write to TB/TH (targets); interpolateCells() blends
+// B/H toward those targets each frame at the rate specified by DR.
+// This target→interpolate architecture gives smooth visual transitions
+// even when modes write discontinuous target values.
 const STRIDE = 6
-const B = 0    // brightness (current)
-const H = 1    // hue (current, 0=violet 1=cyan)
-const TB = 2   // target brightness
-const TH = 3   // target hue
-const DR = 4   // decay rate (interpolation speed per second)
-const YO = 5   // vertical offset in px
+const B = 0    // brightness (current interpolated value)
+const H = 1    // hue (current interpolated value, 0=violet 1=cyan)
+const TB = 2   // target brightness (set by mode tick methods)
+const TH = 3   // target hue (set by mode tick methods)
+const DR = 4   // decay/interpolation rate (higher = faster tracking, per second)
+const YO = 5   // vertical offset in px (for lifted/dropped effects)
 
+/**
+ * Imperative animation controller for the signal grid LED panel.
+ *
+ * Manages a flat Float64Array of per-cell state (brightness, hue, targets,
+ * decay rates, vertical offsets) and drives all animations through a single
+ * requestAnimationFrame loop. Each animation mode has its own tick method
+ * that writes target values; a shared interpolation pass smoothly blends
+ * current values toward targets each frame.
+ *
+ * Created by ChatSidebar, attached to a DOM container via `attach()`, and
+ * mode-switched via `setMode()`. Two energy channels (burst + think) are
+ * consumed each frame from the builder to drive animation intensity.
+ *
+ * Imperative for performance: 60fps across hundreds of cells with no React
+ * re-renders in the animation loop — all DOM updates are direct style writes.
+ */
 export class SignalGridController {
   private cells = new Float64Array(0)
   private cellCount = 0
@@ -233,13 +251,11 @@ export class SignalGridController {
   private scaffoldBoard: Board | null = null
   private scaffoldPlan: TilingPlan = []
   private scaffoldPlanIdx = 0
-  private scaffoldProgress = 0
   private scaffoldTarget = 0
-  private scaffoldAutoProgress = 0
   private scaffoldAnim: ScaffoldAnim | null = null
+  private scaffoldBreathPhase = 0
   private scaffoldThinkAccum = 0
   private scaffoldAmbientTimer = 0
-  private scaffoldTime = 0
 
   // Editing (defrag)
   private editTarget: EditFocus = { start: 0, end: 1 }
@@ -450,9 +466,8 @@ export class SignalGridController {
     if (mode === 'reasoning' || mode === 'error-recovering') { this.accumEnergy = 0; this.ambientTimer = 0 }
     if (mode === 'scaffolding') {
       this.scaffoldBoard = null; this.scaffoldPlan = []; this.scaffoldPlanIdx = 0
-      this.scaffoldProgress = 0; this.scaffoldTarget = 0
-      this.scaffoldAutoProgress = 0; this.scaffoldAnim = null
-      this.scaffoldThinkAccum = 0; this.scaffoldAmbientTimer = 0; this.scaffoldTime = 0
+      this.scaffoldTarget = 0; this.scaffoldAnim = null; this.scaffoldBreathPhase = 0
+      this.scaffoldThinkAccum = 0; this.scaffoldAmbientTimer = 0
     }
     if (mode === 'editing') { this.editOps = []; this.editSpawnTimer = 0; this.editThinkAccum = 0; this.editAmbientTimer = 0 }
     // When leaving done/emerald (hue 4.0) for idle/violet (hue 0), snap hue to cyan (1.0)
@@ -587,16 +602,7 @@ export class SignalGridController {
     energy: number,
     accum: number,
     ambientTimer: number,
-    opts?: {
-      /** Max fraction of cells that can fire per frame (default 0.35). */
-      maxFires?: number
-      /** DR multiplier for visual response speed (default 1.0). */
-      drScale?: number
-      /** Ambient base count multiplier — higher = denser ambient (default 2). */
-      ambientIntensity?: number
-      /** Probability of warm error hues (0 = none, default 0). */
-      warmProb?: number
-    },
+    opts?: ThinkLayerOpts,
   ): [accum: number, ambientTimer: number] {
     const maxFires = opts?.maxFires ?? 0.45
     const drScale = opts?.drScale ?? 1.0
@@ -709,15 +715,13 @@ export class SignalGridController {
   // ── Scaffolding (solver-driven tetris progress bar) ────────────────────
   //
   // Grid fills left→right as solver-optimal pieces are placed.
-  // Progress is driven externally (builder milestones) + auto-increment.
-  // Each turn: solver picks optimal (piece, rotation, row, landing col).
-  // Animation: Preview (slot-machine cycling random pieces) → Select
-  // (double-flash optimal) → Slide (left to landing) → Lock (integrate).
-  // At cap or target: Wait phase (pieces preview but don't place).
+  // External progress (scaffoldTarget) acts as a SPEED SIGNAL, not a gate:
+  //   - Large gap between target and fill → fast animation (catch up)
+  //   - Small gap → slow animation (ease off)
+  //   - Zero gap → stall: breathing energy bar on the fill front columns
+  // The animation never freezes — it either places pieces or breathes.
 
-  private tickScaffolding(dt: number, _burstEnergy: number, _thinkEnergy: number): void {
-    this.scaffoldTime += dt
-
+  private tickScaffolding(dt: number, _burstEnergy: number, thinkEnergy: number): void {
     // ── Initialize board + pre-compute tiling plan on first frame ───
     if (!this.scaffoldBoard) {
       this.scaffoldBoard = createEmptyBoard(this.cols)
@@ -725,9 +729,8 @@ export class SignalGridController {
       this.scaffoldPlanIdx = 0
     }
 
-    // ── DEBUG MODE: show exactly one shape at a time, 1s each, nothing else ──
-
-    // Clear every cell to dark each frame
+    // Clear all cells to dark — scaffold renders everything from scratch each frame
+    // so that piece animations and filled cells are the only visible elements.
     for (let i = 0; i < this.cellCount; i++) {
       const off = i * STRIDE
       this.cells[off + TB] = 0
@@ -736,7 +739,7 @@ export class SignalGridController {
       this.cells[off + YO] = 0
     }
 
-    // Render filled board cells (dim cyan so progress is visible)
+    // Render filled board cells as dim cyan to show cumulative progress
     for (let r = 0; r < ROWS; r++) {
       for (let c = 0; c < this.cols; c++) {
         if (!this.scaffoldBoard[r][c]) continue
@@ -747,174 +750,84 @@ export class SignalGridController {
       }
     }
 
-    // Step through plan: 1 second per preview/select, no slide/lock animation
-    if (this.scaffoldPlanIdx >= this.scaffoldPlan.length) return
-    const planned = this.scaffoldPlan[this.scaffoldPlanIdx]
+    // ── Speed from gap — progress is a speed signal, not a gate ───
+    const totalCells = ROWS * this.cols
+    const targetFill = Math.floor(this.scaffoldTarget * totalCells)
+    const currentFill = fillCount(this.scaffoldBoard)
+    const gap = targetFill - currentFill
+    const gapFraction = gap / totalCells
+    const stalled = gap <= 0 || this.scaffoldPlanIdx >= this.scaffoldPlan.length
 
-    // Build the debug sequence: rejected pieces (rot0) + winner (actual rot)
-    type StepType = 'reject' | 'rotate' | 'winner' | 'select' | 'drop' | 'slide'
-    const seq: { shape: Shape; originRow: number; label: string; type: StepType }[] = []
+    if (stalled) {
+      // ── Breathing front — oscillating energy bar on the fill edge columns ───
+      // A bright peak travels up and down the 3 rows, leaving a fading trail
+      // on the two columns at the fill front. Shows the system is alive and working.
+      const front = fillFront(this.scaffoldBoard)
+      if (front < this.cols) {
+        this.scaffoldBreathPhase += dt * 1.5
+        for (let row = 0; row < ROWS; row++) {
+          const phase = this.scaffoldBreathPhase * Math.PI * 2 + row * (Math.PI * 2 / ROWS)
+          const wave = (Math.sin(phase) + 1) * 0.5
+          const brightness = 0.15 + wave * 0.6
 
-    // Rejected pieces in rot0
-    for (const rej of planned.rejected) {
-      const shape = rej.rotations[0]
-      const height = Math.max(...shape.map(([r]) => r)) + 1
-      seq.push({ shape, originRow: Math.floor((ROWS - height) / 2), label: `REJECT ${rej.id} rot0`, type: 'reject' })
-    }
+          const off1 = (row * this.cols + front) * STRIDE
+          this.cells[off1 + TB] = Math.max(this.cells[off1 + TB], brightness)
+          this.cells[off1 + TH] = -0.6
+          this.cells[off1 + DR] = 2.5
 
-    // Winner rotating from family base to final rotation
-    const ri = planned.rotationIndex
-    const base = planned.piece.rotations.length > 4 ? Math.floor(ri / 4) * 4 : 0
-    const winnerHeight = Math.max(...planned.shape.map(([row]) => row)) + 1
-    const winnerCentered = Math.floor((ROWS - winnerHeight) / 2)
-    for (let r = base; r <= ri; r++) {
-      const shape = planned.piece.rotations[r]
-      const height = Math.max(...shape.map(([row]) => row)) + 1
-      seq.push({
-        shape,
-        originRow: Math.floor((ROWS - height) / 2),
-        label: r === ri ? `WINNER ${planned.piece.id} rot${r}` : `ROTATE ${planned.piece.id} rot${r}`,
-        type: r === ri ? 'winner' : 'rotate',
-      })
-    }
-
-    // Double-flash select (same timing as editing's DefragPhase.Select: 0.45s)
-    seq.push({ shape: planned.shape, originRow: winnerCentered, label: 'SELECT', type: 'select' })
-
-    // Slide: move piece from preview position to landing position, one cell at a time.
-    // First drop to landing row (if needed), then slide left to landing column.
-    const front = fillFront(this.scaffoldBoard)
-    const pieceWidth = Math.max(...planned.shape.map(([, c]) => c)) + 1
-    const previewCol = front + pieceWidth + 3
-
-    // Row drop (if centered row ≠ landing row)
-    if (winnerCentered !== planned.originRow) {
-      seq.push({ shape: planned.shape, originRow: planned.originRow, label: `DROP → row ${planned.originRow}`, type: 'drop' })
-    }
-
-    // Column-by-column slide from preview to landing
-    const startCol = Math.min(previewCol, this.cols - pieceWidth)
-    for (let c = startCol - 1; c >= planned.originCol; c--) {
-      seq.push({ shape: planned.shape, originRow: planned.originRow, label: `SLIDE → col ${c}`, type: 'slide' })
-    }
-
-    const DWELL = 1.0 // 1 second per shape
-    const SELECT_DUR = 0.45 // matches editing's DefragPhase.Select
-    const SLIDE_DWELL = 0.15 // fast per-column slide
-    const elapsed = this.scaffoldTime
-
-    // Compute elapsed thresholds per step (select and slide are shorter)
-    let totalDur = 0
-    const stepStarts: number[] = []
-    for (const s of seq) {
-      stepStarts.push(totalDur)
-      if (s.type === 'select') totalDur += SELECT_DUR
-      else if (s.type === 'slide' || s.type === 'drop') totalDur += SLIDE_DWELL
-      else totalDur += DWELL
-    }
-
-    if (elapsed >= totalDur) {
-      console.log(`%c[debug] PLACED ${planned.piece.id} rot${planned.rotationIndex} at col ${planned.originCol}`, 'color:#10b981;font-weight:bold')
-      this.scaffoldBoard = applyPlacement(this.scaffoldBoard, planned)
-      this.scaffoldPlanIdx++
-      this.scaffoldTime = 0
-      return
-    }
-
-    // Find current step
-    let stepIdx = 0
-    for (let i = seq.length - 1; i >= 0; i--) {
-      if (elapsed >= stepStarts[i]) { stepIdx = i; break }
-    }
-    const step = seq[stepIdx]
-    const stepElapsed = elapsed - stepStarts[stepIdx]
-
-    // Log on first frame of each step
-    let prevStepIdx = 0
-    for (let i = seq.length - 1; i >= 0; i--) {
-      if (elapsed - dt >= stepStarts[i]) { prevStepIdx = i; break }
-    }
-    if (stepIdx !== prevStepIdx || elapsed - dt < 0) {
-      const styles: Record<StepType, string> = {
-        reject: 'color:#f59e0b', rotate: 'color:#8b5cf6', winner: 'color:#06b6d4;font-weight:bold',
-        select: 'color:#fff;font-weight:bold', drop: 'color:#10b981', slide: 'color:#10b981',
-      }
-      console.log(`%c[debug] ${step.label}  ${shapeAscii(step.shape)}`, styles[step.type])
-    }
-
-    // Render — slide/drop steps encode their column in the label, others use preview position
-    const frontNow = fillFront(this.scaffoldBoard)
-    const pw = Math.max(...step.shape.map(([, c]) => c)) + 1
-    const previewColNow = frontNow + pw + 3
-
-    // For slide steps, extract the target column from the sequence position.
-    // The slide steps count down from startCol-1 to originCol.
-    let col: number
-    if (step.type === 'slide') {
-      // Slide steps are sequential after drop/select — compute column from step index
-      const slideStartIdx = seq.findIndex(s => s.type === 'slide')
-      const slideOffset = stepIdx - slideStartIdx
-      const slideStartCol = Math.min(previewColNow, this.cols - pw) - 1
-      col = slideStartCol - slideOffset
-    } else if (step.type === 'drop') {
-      col = Math.min(previewColNow, this.cols - pw)
-    } else {
-      col = Math.min(previewColNow, this.cols - pw)
-    }
-
-    if (step.type === 'select') {
-      // Exact same timing as editing's DefragPhase.Select:
-      // 0.00-0.10: flash (bright, lifted)
-      // 0.10-0.25: dim (forced dark)
-      // 0.25-0.35: flash (bright, lifted)
-      // 0.35-0.45: hold (bright, slightly lifted)
-      const t = stepElapsed
-      let brightness: number, hue: number, yOffset: number, decay: number
-      if (t < 0.10) {
-        brightness = 0.95; hue = 1.0; decay = 8.0; yOffset = -1.5
-      } else if (t < 0.25) {
-        brightness = 0.0; hue = 0.5; decay = 10.0; yOffset = 0
-      } else if (t < 0.35) {
-        brightness = 0.95; hue = 1.0; decay = 8.0; yOffset = -1.5
-      } else {
-        brightness = 0.95; hue = 1.0; decay = 5.0; yOffset = -0.8
-      }
-      for (const [dr, dc] of step.shape) {
-        const row = step.originRow + dr
-        const c = col + dc
-        if (row < 0 || row >= ROWS || c < 0 || c >= this.cols) continue
-        const off = (row * this.cols + c) * STRIDE
-        this.cells[off + TB] = brightness
-        this.cells[off + TH] = hue
-        this.cells[off + DR] = decay
-        this.cells[off + YO] = yOffset
+          if (front + 1 < this.cols) {
+            const off2 = (row * this.cols + front + 1) * STRIDE
+            this.cells[off2 + TB] = Math.max(this.cells[off2 + TB], brightness * 0.5)
+            this.cells[off2 + TH] = -0.3
+            this.cells[off2 + DR] = 2.0
+          }
+        }
       }
     } else {
-      const visual: Record<string, { brightness: number; hue: number; yOffset: number }> = {
-        reject: { brightness: 0.5, hue: -0.5, yOffset: 0 },    // pink — not this one
-        rotate: { brightness: 0.55, hue: 0.3, yOffset: 0 },   // muted violet-cyan — trying rotations
-        winner: { brightness: 0.55, hue: 0.3, yOffset: 0 },   // same — final rotation (select lights it up)
-        drop:   { brightness: 0.9, hue: 1.0, yOffset: -0.5 },  // bright cyan — moving
-        slide:  { brightness: 0.9, hue: 1.0, yOffset: -0.5 },  // bright cyan — moving
+      // ── Piece placement — speed scales with how far behind we are ───
+      const speed = this.scaffoldTarget >= 1.0 ? 4.0
+        : gapFraction > 0.30 ? 3.0
+        : gapFraction > 0.15 ? 2.0
+        : gapFraction > 0.05 ? 1.0
+        : 0.5
+
+      // Start a new turn when idle
+      if (!this.scaffoldAnim && this.scaffoldPlanIdx < this.scaffoldPlan.length) {
+        this.scaffoldAnim = this.startScaffoldTurn(this.scaffoldPlan[this.scaffoldPlanIdx])
       }
-      const v = visual[step.type]
-      for (const [dr, dc] of step.shape) {
-        const row = step.originRow + dr
-        const c = col + dc
-        if (row < 0 || row >= ROWS || c < 0 || c >= this.cols) continue
-        const off = (row * this.cols + c) * STRIDE
-        this.cells[off + TB] = v.brightness
-        this.cells[off + TH] = v.hue
-        this.cells[off + DR] = 20
-        this.cells[off + YO] = v.yOffset
+
+      // Update speed dynamically — the gap can change mid-turn as new milestones arrive
+      if (this.scaffoldAnim) {
+        this.scaffoldAnim.speed = speed
+        this.advanceScaffoldAnim(dt)
       }
+
+      // Reset breath phase so it starts fresh if we stall again
+      this.scaffoldBreathPhase = 0
+    }
+
+    // Think + ambient layer fires underneath the tetris fill. Reduced intensity
+    // so the thinking activity accents but doesn't overpower the piece visuals.
+    ;[this.scaffoldThinkAccum, this.scaffoldAmbientTimer] = this.tickThinkLayer(
+      dt, thinkEnergy, this.scaffoldThinkAccum, this.scaffoldAmbientTimer,
+      { maxFires: 0.25, drScale: SCAFFOLD_TEMPO * 0.5, ambientIntensity: 1.5 },
+    )
+
+    // Gentle decay on unfilled cells — filled cells are re-rendered above each frame,
+    // so this only affects think layer remnants and animation afterglow on empty cells.
+    for (let i = 0; i < this.cellCount; i++) {
+      const r = Math.floor(i / this.cols)
+      const c = i % this.cols
+      if (this.scaffoldBoard![r][c]) continue
+      const off = i * STRIDE
+      this.cells[off + TB] = Math.max(0, this.cells[off + TB] - dt * S_DECAY * SCAFFOLD_TEMPO)
     }
   }
 
-  /** Start a new turn: replay the solver's search — rejected pieces then the winner. */
+  /** Start a new turn: replay the solver's search — rejected pieces then the winner.
+   *  Speed is not set here — tickScaffolding updates it dynamically each frame
+   *  based on the gap between target and current fill. */
   private startScaffoldTurn(optimal: Placement): ScaffoldAnim {
-    const completing = this.scaffoldTarget >= 1.0
-
     // Previews: last 1-3 rejections (rot0), then winner rotating to its final orientation.
     // Rotation families: rotations 0-3 are one family, 4-7 another (quarter turns within each).
     const previews: ScaffoldPreview[] = []
@@ -951,40 +864,17 @@ export class SignalGridController {
     const pieceWidth = Math.max(...optimal.shape.map(([, c]) => c)) + 1
     const previewCol = front + pieceWidth + 3
 
-    const currentFill = fillCount(this.scaffoldBoard!)
-    const totalCells = ROWS * this.cols
-    const gapFraction = (this.scaffoldProgress * totalCells - currentFill) / totalCells
-    const speed = completing ? 4.0 : gapFraction > 0.3 ? 3.0 : gapFraction > 0.15 ? 2.0 : 1.0
-
     return {
       optimal, previews, previewIdx: 0,
       previewCol, slidePos: previewCol,
       phase: previews.length > 0 ? ScaffoldAnimPhase.Preview : ScaffoldAnimPhase.Select,
-      timer: 0, speed,
-    }
-  }
-
-  /** Start wait-mode animation: cycle random pieces without placing. */
-  private startScaffoldWait(): ScaffoldAnim {
-    const front = fillFront(this.scaffoldBoard!)
-    const previewCol = Math.min(front + 2, this.cols - 1)
-    const previews: ScaffoldPreview[] = []
-    for (let i = 0; i < 3; i++) {
-      const rp = PIECES[Math.floor(Math.random() * PIECES.length)]
-      const shape = rp.rotations[Math.floor(Math.random() * rp.rotations.length)]
-      const height = Math.max(...shape.map(([r]) => r)) + 1
-      previews.push({ shape, originRow: Math.floor((ROWS - height) / 2) })
-    }
-    return {
-      optimal: null, previews, previewIdx: 0,
-      previewCol, slidePos: previewCol,
-      phase: ScaffoldAnimPhase.Wait, timer: 0, speed: 1.0,
+      timer: 0, speed: 1.0,
     }
   }
 
   /** Advance the scaffold piece animation state machine.
    *  All phase durations use base constants (S_*) scaled by SCAFFOLD_TEMPO and per-piece speed. */
-  private advanceScaffoldAnim(dt: number, shouldWait: boolean): void {
+  private advanceScaffoldAnim(dt: number): void {
     const a = this.scaffoldAnim!
     const tempo = SCAFFOLD_TEMPO * a.speed
     a.timer += dt
@@ -997,10 +887,6 @@ export class SignalGridController {
           if (a.previewIdx >= a.previews.length) {
             a.phase = ScaffoldAnimPhase.Select
             a.timer = 0
-            console.log(`%c[scaffold] SELECT winner: ${a.optimal!.piece.id} rot${a.optimal!.rotationIndex}  ${shapeAscii(a.optimal!.shape)}`, 'color:#06b6d4')
-          } else {
-            const next = a.previews[a.previewIdx]
-            console.log(`[scaffold] PREVIEW ${a.previewIdx + 1}/${a.previews.length}: ${shapeAscii(next.shape)}`)
           }
         }
         const pv = a.previews[Math.min(a.previewIdx, a.previews.length - 1)]
@@ -1009,7 +895,7 @@ export class SignalGridController {
       }
 
       case ScaffoldAnimPhase.Select: {
-        const { shape, originRow } = a.optimal!
+        const { shape, originRow } = a.optimal
         const p = a.timer / (S_SELECT / tempo) // 0..1 normalized progress
         if (p < 0.25) {
           this.renderScaffoldShape(shape, originRow, a.previewCol, 0.95, -0.8, 8.0, -1.5)
@@ -1029,7 +915,7 @@ export class SignalGridController {
       }
 
       case ScaffoldAnimPhase.Slide: {
-        const { shape, originRow, originCol } = a.optimal!
+        const { shape, originRow, originCol } = a.optimal
         const distance = a.previewCol - originCol
         const slideSpeed = Math.max(distance * S_SLIDE_K, 6) * tempo
         a.slidePos -= slideSpeed * dt
@@ -1056,7 +942,7 @@ export class SignalGridController {
       case ScaffoldAnimPhase.Lock: {
         const dur = S_LOCK / SCAFFOLD_TEMPO
         const p = a.timer / dur
-        const { cells } = a.optimal!
+        const { cells } = a.optimal
         if (p < 0.30) {
           for (const [r, c] of cells) {
             if (r < 0 || r >= ROWS || c < 0 || c >= this.cols) continue
@@ -1078,29 +964,13 @@ export class SignalGridController {
           }
         }
         if (p >= 1.0) {
-          console.log(`%c[scaffold] LOCK ${a.optimal!.piece.id} rot${a.optimal!.rotationIndex} at col ${a.optimal!.originCol}`, 'color:#10b981')
-          this.scaffoldBoard = applyPlacement(this.scaffoldBoard!, a.optimal!)
+          this.scaffoldBoard = applyPlacement(this.scaffoldBoard!, a.optimal)
           this.scaffoldPlanIdx++
           this.scaffoldAnim = null
         }
         break
       }
 
-      case ScaffoldAnimPhase.Wait: {
-        const dwell = S_WAIT / SCAFFOLD_TEMPO * (1 + Math.random() * 0.25)
-        if (a.timer >= dwell) {
-          a.previewIdx = (a.previewIdx + 1) % a.previews.length
-          a.timer = 0
-        }
-        const pv = a.previews[a.previewIdx % a.previews.length]
-        const fade = 0.3 + Math.sin(a.timer * 4) * 0.1
-        this.renderScaffoldShape(pv.shape, pv.originRow, a.previewCol, fade, -0.4, 3.0, 0)
-
-        if (!shouldWait) {
-          this.scaffoldAnim = null
-        }
-        break
-      }
     }
   }
 

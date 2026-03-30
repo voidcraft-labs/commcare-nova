@@ -276,6 +276,7 @@ const scenarios: Scenario[] = [
     description: 'Tetris fill with real milestone timing: schema → partial → scaffold → done.',
     run: ({ setMode, setScaffoldProgress, injectThink }) => {
       setMode('scaffolding')
+      setScaffoldProgress(0.15)
       const timers: ReturnType<typeof setTimeout>[] = []
       const thinkId = setInterval(() => injectThink(15 + Math.random() * 25), 150)
 
@@ -311,7 +312,7 @@ const scenarios: Scenario[] = [
   },
   {
     name: 'Scaffolding — Stall at Cap',
-    description: 'Progress reaches 60% then stalls for 8s (auto-cap + wait animation), then completes.',
+    description: 'Progress reaches 60% then stalls for 8s (breathing front), then completes.',
     run: ({ setMode, setScaffoldProgress, injectThink }) => {
       setMode('scaffolding')
       setScaffoldProgress(0.60)
@@ -332,6 +333,7 @@ const scenarios: Scenario[] = [
     description: 'Full lifecycle: scaffold fills, transitions to building, then done. All driven by onSettled.',
     run: ({ setMode, setScaffoldProgress, inject, injectThink, onSettled }) => {
       setMode('scaffolding')
+      setScaffoldProgress(0.15)
       const timers: ReturnType<typeof setTimeout>[] = []
       const intervals: ReturnType<typeof setInterval>[] = []
       const thinkId = setInterval(() => injectThink(20 + Math.random() * 30), 120)
@@ -719,6 +721,7 @@ export default function SignalTestPage() {
                   setActiveScenario(null)
                   scaffoldProgressRef.current = 0
                   setMode(m)
+                  if (m === 'scaffolding') setScaffoldProgress(0.50)
                   if (m === 'editing') setFocus({ start: 0.3, end: 0.7 })
                   if (m !== 'editing') setFocus(null)
                 }}
