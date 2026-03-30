@@ -1,5 +1,5 @@
 'use client'
-import { Icon } from '@iconify/react'
+import { Icon } from '@iconify/react/offline'
 import { useDroppable } from '@dnd-kit/react'
 import { CollisionPriority } from '@dnd-kit/abstract'
 import ciPlus from '@iconify-icons/ci/plus'

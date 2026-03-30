@@ -1,5 +1,5 @@
 'use client'
-import { Icon } from '@iconify/react'
+import { Icon } from '@iconify/react/offline'
 import { questionTypeIcons, questionTypeLabels } from '@/lib/questionTypeIcons'
 import { POPOVER_GLASS, POPOVER_ELEVATED } from '@/lib/styles'
 import type { Question } from '@/lib/schemas/blueprint'

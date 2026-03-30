@@ -1,7 +1,7 @@
 'use client'
 import { useState, useCallback, useRef } from 'react'
 import { useRouter } from 'next/navigation'
-import { Icon } from '@iconify/react'
+import { Icon } from '@iconify/react/offline'
 import ciFileUpload from '@iconify-icons/ci/file-upload'
 import ciFileDocument from '@iconify-icons/ci/file-document'
 import { Button } from '@/components/ui/Button'

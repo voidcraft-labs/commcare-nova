@@ -1,7 +1,7 @@
 'use client'
 import { useState } from 'react'
 import { motion, AnimatePresence } from 'motion/react'
-import { Icon } from '@iconify/react'
+import { Icon } from '@iconify/react/offline'
 import ciDownload from '@iconify-icons/ci/download'
 import ciChevronDown from '@iconify-icons/ci/chevron-down'
 import { useDismissRef } from '@/hooks/useDismissRef'

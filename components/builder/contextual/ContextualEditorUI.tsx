@@ -1,7 +1,7 @@
 'use client'
 import { useState, useCallback, useRef } from 'react'
 import { useFloating, offset, flip, shift, autoUpdate, FloatingPortal } from '@floating-ui/react'
-import { Icon } from '@iconify/react'
+import { Icon } from '@iconify/react/offline'
 import type { Question } from '@/lib/schemas/blueprint'
 import type { Builder, SelectedElement } from '@/lib/services/builder'
 import type { MutableBlueprint } from '@/lib/services/mutableBlueprint'

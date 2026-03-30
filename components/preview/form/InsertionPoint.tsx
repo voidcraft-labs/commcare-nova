@@ -1,6 +1,6 @@
 'use client'
 import { useState, useRef, useCallback, type RefObject } from 'react'
-import { Icon } from '@iconify/react'
+import { Icon } from '@iconify/react/offline'
 import ciAddPlus from '@iconify-icons/ci/add-plus'
 import { useEditContext } from '@/hooks/useEditContext'
 import { dismissContentPopovers } from '@/hooks/useContentPopover'

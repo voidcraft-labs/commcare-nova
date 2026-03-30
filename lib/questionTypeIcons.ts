@@ -19,7 +19,7 @@ import ciClock from '@iconify-icons/ci/clock'
 import ciFileAdd from '@iconify-icons/ci/file-add'
 import ciFileEdit from '@iconify-icons/ci/file-edit'
 import ciFileBlank from '@iconify-icons/ci/file-blank'
-import type { IconifyIcon } from '@iconify/react'
+import type { IconifyIcon } from '@iconify/react/offline'
 
 export const questionTypeIcons: Record<string, IconifyIcon> = {
   text: ciText,

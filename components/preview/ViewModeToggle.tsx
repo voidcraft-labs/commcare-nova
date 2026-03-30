@@ -1,6 +1,6 @@
 'use client'
 import { motion } from 'motion/react'
-import { Icon, type IconifyIcon } from '@iconify/react'
+import { Icon, type IconifyIcon } from '@iconify/react/offline'
 import ciEditPencil01 from '@iconify-icons/ci/edit-pencil-01'
 import tablerPlayerPlay from '@iconify-icons/tabler/player-play'
 

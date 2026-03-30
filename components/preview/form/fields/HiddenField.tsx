@@ -1,5 +1,5 @@
 'use client'
-import { Icon } from '@iconify/react'
+import { Icon } from '@iconify/react/offline'
 import type { Question } from '@/lib/schemas/blueprint'
 import { questionTypeIcons } from '@/lib/questionTypeIcons'
 import { ExpressionContent } from '@/lib/references/ExpressionContent'

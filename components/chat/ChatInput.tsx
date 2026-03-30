@@ -1,6 +1,6 @@
 'use client'
 import { useState, useRef, useCallback } from 'react'
-import { Icon } from '@iconify/react'
+import { Icon } from '@iconify/react/offline'
 import ciArrowRightMd from '@iconify-icons/ci/arrow-right-md'
 
 interface ChatInputProps {

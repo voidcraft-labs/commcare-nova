@@ -1,5 +1,5 @@
 'use client'
-import { Icon } from '@iconify/react'
+import { Icon } from '@iconify/react/offline'
 import ciFilter from '@iconify-icons/ci/filter'
 import ciShieldCheck from '@iconify-icons/ci/shield-check'
 import tablerMath from '@iconify-icons/tabler/math'

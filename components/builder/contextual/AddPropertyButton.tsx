@@ -1,4 +1,4 @@
-import { Icon } from '@iconify/react'
+import { Icon } from '@iconify/react/offline'
 import ciAddPlus from '@iconify-icons/ci/add-plus'
 
 interface AddPropertyButtonProps {

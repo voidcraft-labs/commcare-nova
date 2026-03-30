@@ -1,6 +1,6 @@
 'use client'
 import { useState, useCallback, useRef } from 'react'
-import { Icon } from '@iconify/react'
+import { Icon } from '@iconify/react/offline'
 import ciTrashFull from '@iconify-icons/ci/trash-full'
 import { AddPropertyButton } from './AddPropertyButton'
 

@@ -1,5 +1,5 @@
 'use client'
-import { Icon } from '@iconify/react'
+import { Icon } from '@iconify/react/offline'
 import ciArrowLeftMd from '@iconify-icons/ci/arrow-left-md'
 import ciArrowUpMd from '@iconify-icons/ci/arrow-up-md'
 

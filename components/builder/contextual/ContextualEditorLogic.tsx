@@ -1,7 +1,7 @@
 'use client'
 import { useState, useCallback } from 'react'
 import type { XPathLintContext } from '@/lib/codemirror/xpath-lint'
-import { Icon } from '@iconify/react'
+import { Icon } from '@iconify/react/offline'
 import ciTrashFull from '@iconify-icons/ci/trash-full'
 import type { Question } from '@/lib/schemas/blueprint'
 import type { SelectedElement } from '@/lib/services/builder'

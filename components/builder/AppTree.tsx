@@ -1,7 +1,7 @@
 'use client'
 import { useState, useCallback, useDeferredValue, useMemo } from 'react'
 import { motion, AnimatePresence } from 'motion/react'
-import { Icon } from '@iconify/react'
+import { Icon } from '@iconify/react/offline'
 import ciMoreGridBig from '@iconify-icons/ci/more-grid-big'
 import ciTable from '@iconify-icons/ci/table'
 import ciChevronRight from '@iconify-icons/ci/chevron-right'

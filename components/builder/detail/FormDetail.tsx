@@ -1,7 +1,7 @@
 'use client'
 import { useState, useCallback, useRef, useLayoutEffect } from 'react'
 import { useFloating, offset, flip, shift, autoUpdate, FloatingPortal } from '@floating-ui/react'
-import { Icon } from '@iconify/react'
+import { Icon } from '@iconify/react/offline'
 import type { BlueprintForm } from '@/lib/schemas/blueprint'
 import type { MutableBlueprint } from '@/lib/services/mutableBlueprint'
 import { formTypeIcons } from '@/lib/questionTypeIcons'

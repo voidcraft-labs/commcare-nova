@@ -12,7 +12,7 @@
 
 'use client'
 import { forwardRef, useEffect, useImperativeHandle, useState } from 'react'
-import { Icon } from '@iconify/react'
+import { Icon } from '@iconify/react/offline'
 import { REF_TYPE_CONFIG } from '@/lib/references/config'
 import type { Reference, ReferenceType } from '@/lib/references/types'
 

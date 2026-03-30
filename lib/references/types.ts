@@ -9,7 +9,7 @@
  *   - user: bare user property name (flat identifier)
  */
 
-import type { IconifyIcon } from '@iconify/react'
+import type { IconifyIcon } from '@iconify/react/offline'
 import type { QuestionPath } from '@/lib/services/questionPath'
 
 /** The three hashtag reference namespaces in CommCare XPath. */

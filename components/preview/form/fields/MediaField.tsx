@@ -1,5 +1,5 @@
 'use client'
-import { Icon } from '@iconify/react'
+import { Icon } from '@iconify/react/offline'
 import ciImage from '@iconify-icons/ci/image'
 import type { Question } from '@/lib/schemas/blueprint'
 import { questionTypeIcons, questionTypeLabels } from '@/lib/questionTypeIcons'

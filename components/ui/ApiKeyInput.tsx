@@ -1,5 +1,5 @@
 'use client'
-import { Icon } from '@iconify/react'
+import { Icon } from '@iconify/react/offline'
 import ciCheck from '@iconify-icons/ci/check'
 import { Button } from './Button'
 import { Input } from './Input'

@@ -1,7 +1,7 @@
 'use client'
 import { useState, useCallback } from 'react'
 import { motion, AnimatePresence } from 'motion/react'
-import { Icon } from '@iconify/react'
+import { Icon } from '@iconify/react/offline'
 import ciChevronLeft from '@iconify-icons/ci/chevron-left'
 import ciChevronRight from '@iconify-icons/ci/chevron-right'
 import ciCloseMd from '@iconify-icons/ci/close-md'
