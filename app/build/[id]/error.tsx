@@ -1,11 +1,13 @@
 'use client'
-import { useRouter } from 'next/navigation'
 import { Logo } from '@/components/ui/Logo'
 import { Button } from '@/components/ui/Button'
 
+/**
+ * Error boundary for the build route. Uses hard navigation (window.location)
+ * instead of router.push because client-side navigation doesn't work reliably
+ * inside an error boundary — React's tree is in an error state.
+ */
 export default function BuildError({ error, reset }: { error: Error; reset: () => void }) {
-  const router = useRouter()
-
   return (
     <div className="min-h-screen bg-nova-void flex flex-col items-center justify-center gap-6 px-6">
       <Logo size="sm" />
@@ -15,7 +17,7 @@ export default function BuildError({ error, reset }: { error: Error; reset: () =
       </div>
       <div className="flex gap-3">
         <Button variant="ghost" onClick={() => reset()}>Try Again</Button>
-        <Button onClick={() => router.push('/build/new')}>Start New Build</Button>
+        <Button onClick={() => { window.location.href = '/build/new' }}>Start New Build</Button>
       </div>
     </div>
   )
