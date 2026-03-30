@@ -1,7 +1,7 @@
 'use client'
 import type { Question } from '@/lib/schemas/blueprint'
 import type { QuestionState } from '@/lib/preview/engine/types'
-import { renderPreviewMarkdown } from '@/lib/markdown'
+import { LabelContent } from '@/lib/references/LabelContent'
 import { useEditContext } from '@/hooks/useEditContext'
 import { HelpTooltip } from '../HelpTooltip'
 
@@ -12,11 +12,11 @@ export function LabelField({ question, state }: { question: Question; state: Que
   return (
     <div className="py-1">
       <div className="flex items-center gap-1">
-        <span className="preview-markdown text-sm text-nova-text" dangerouslySetInnerHTML={{ __html: renderPreviewMarkdown(state.resolvedLabel ?? question.label ?? '') }} />
+        <span className="text-sm text-nova-text"><LabelContent label={question.label ?? ''} resolvedLabel={state.resolvedLabel} isEditMode={isEditMode} /></span>
         {question.help && <HelpTooltip help={question.help} isEditMode={isEditMode} />}
       </div>
       {question.hint && (
-        <div className="preview-markdown text-xs text-nova-text-muted mt-0.5" dangerouslySetInnerHTML={{ __html: renderPreviewMarkdown(state.resolvedHint ?? question.hint) }} />
+        <div className="text-xs text-nova-text-muted mt-0.5"><LabelContent label={question.hint} resolvedLabel={state.resolvedHint} isEditMode={isEditMode} /></div>
       )}
     </div>
   )

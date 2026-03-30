@@ -27,12 +27,10 @@ import type { Extension } from '@codemirror/state'
 import type { SyntaxNode } from '@lezer/common'
 import { FUNCTION_REGISTRY } from '@/lib/services/commcare/validate/functionRegistry'
 import { collectValidPaths, collectCaseProperties } from '@/lib/services/commcare/validate/index'
+import { USER_PROPERTIES, collectQuestionEntries } from '@/lib/references/provider'
 import type { XPathLintContext } from './xpath-lint'
-import type { Question } from '@/lib/schemas/blueprint'
 
 // ── Static data ────────────────────────────────────────────────────────
-
-const USER_PROPERTIES = ['username', 'first_name', 'last_name', 'phone_number']
 
 const NAMESPACE_OPTIONS: Completion[] = [
   { label: '#case/', type: 'namespace', detail: 'case property', boost: 2 },
@@ -72,19 +70,6 @@ const functionCompletions: Completion[] = (() => {
 })()
 
 // ── Helpers ────────────────────────────────────────────────────────────
-
-/** Recursively collect question IDs for #form/ completions. */
-function collectQuestionIds(questions: Question[], prefix = ''): string[] {
-  const ids: string[] = []
-  for (const q of questions) {
-    const path = prefix ? `${prefix}/${q.id}` : q.id
-    ids.push(path)
-    if ((q.type === 'group' || q.type === 'repeat') && q.children) {
-      ids.push(...collectQuestionIds(q.children, path))
-    }
-  }
-  return ids
-}
 
 function isPathNode(node: SyntaxNode): boolean {
   return node.name === 'Child' || node.name === 'Descendant'
@@ -187,25 +172,38 @@ function hashtagSource(
     if (namespace === 'case' && lintCtx) {
       const caseProps = collectCaseProperties(lintCtx.blueprint, lintCtx.moduleCaseType)
       if (caseProps) {
-        options = [...caseProps].map((name) => ({
-          label: `#case/${name}`,
-          type: 'property',
-        }))
+        const caseType = lintCtx.blueprint.case_types?.find(ct => ct.name === lintCtx.moduleCaseType)
+        options = [...caseProps].map((name) => {
+          const prop = caseType?.properties?.find(p => p.name === name)
+          return {
+            label: `#case/${name}`,
+            detail: prop?.label,
+            type: 'property',
+          }
+        })
       }
     } else if (namespace === 'form' && lintCtx?.form.questions) {
-      const ids = collectQuestionIds(lintCtx.form.questions)
-      options = ids.map((id) => ({
-        label: `#form/${id}`,
+      const entries = collectQuestionEntries(lintCtx.form.questions)
+      options = entries.map(({ path, label }) => ({
+        label: `#form/${path}`,
+        detail: label,
         type: 'variable',
       }))
     } else if (namespace === 'user') {
-      options = USER_PROPERTIES.map((name) => ({
-        label: `#user/${name}`,
+      options = USER_PROPERTIES.map((p) => ({
+        label: `#user/${p.name}`,
+        detail: p.label,
         type: 'property',
       }))
     }
 
     if (options.length === 0) return null
+
+    /* Suppress the dropdown when the typed text already exactly matches a
+       known reference — the chip is rendered and there's nothing to complete. */
+    const typed = state.doc.sliceString(from, pos)
+    if (options.some(o => o.label === typed)) return null
+
     return { from, options }
   }
 }

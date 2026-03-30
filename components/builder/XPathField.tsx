@@ -3,9 +3,12 @@ import CodeMirror from '@uiw/react-codemirror'
 import { EditorView } from '@codemirror/view'
 import { EditorState } from '@codemirror/state'
 import { xpath } from '@/lib/codemirror/xpath-language'
-import { novaXPathTheme } from '@/lib/codemirror/xpath-theme'
+import { novaXPathTheme, novaChipTheme } from '@/lib/codemirror/xpath-theme'
 import { prettyPrintXPath } from '@/lib/codemirror/xpath-format'
-import { useMemo } from 'react'
+import { xpathChips } from '@/lib/codemirror/xpath-chips'
+import { ReferenceProvider } from '@/lib/references/provider'
+import type { XPathLintContext } from '@/lib/codemirror/xpath-lint'
+import { useMemo, useRef } from 'react'
 
 /** Minimal CodeMirror chrome for inline read-only display. */
 const inlineStyles = EditorView.theme({
@@ -25,7 +28,7 @@ const inlineStyles = EditorView.theme({
   '.cm-cursor': { display: 'none' },
 })
 
-const readOnlyExtensions = [
+const baseReadOnlyExtensions = [
   xpath(),
   EditorView.editable.of(false),
   EditorState.readOnly.of(true),
@@ -37,16 +40,29 @@ const readOnlyExtensions = [
 interface XPathFieldProps {
   value: string
   onClick?: () => void
+  /** Context getter for chip label resolution. When provided, hashtag references render as chips. */
+  getLintContext?: () => XPathLintContext | undefined
 }
 
-export function XPathField({ value, onClick }: XPathFieldProps) {
+export function XPathField({ value, onClick, getLintContext }: XPathFieldProps) {
   const formatted = useMemo(() => prettyPrintXPath(value), [value])
+
+  /* Stable ref so the provider closure always reads the latest getter. */
+  const getLintContextRef = useRef(getLintContext)
+  getLintContextRef.current = getLintContext
+
+  const extensions = useMemo(() => {
+    if (!getLintContext) return baseReadOnlyExtensions
+    const provider = new ReferenceProvider(() => getLintContextRef.current?.())
+    return [...baseReadOnlyExtensions, xpathChips(provider), novaChipTheme]
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [!!getLintContext])
 
   const editor = (
     <CodeMirror
       value={formatted}
       theme={novaXPathTheme}
-      extensions={readOnlyExtensions}
+      extensions={extensions}
       basicSetup={false}
       editable={false}
     />

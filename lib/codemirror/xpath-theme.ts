@@ -46,6 +46,16 @@ export const novaXPathTheme = createTheme({
   ],
 })
 
+/** Chip widget styles — subtle hover feedback for reference chips. */
+export const novaChipTheme = EditorView.theme({
+  '.cm-hashtag-chip': {
+    transition: 'filter 0.1s ease',
+  },
+  '.cm-hashtag-chip:hover': {
+    filter: 'brightness(1.2)',
+  },
+})
+
 /** Dark autocomplete tooltip theme matching Nova. */
 export const novaAutocompleteTheme = EditorView.theme({
   '.cm-tooltip': {

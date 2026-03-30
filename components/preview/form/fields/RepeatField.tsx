@@ -7,7 +7,7 @@ import ciTrash from '@iconify-icons/ci/trash-full'
 import type { Question } from '@/lib/schemas/blueprint'
 import type { QuestionPath } from '@/lib/services/questionPath'
 import type { FormEngine } from '@/lib/preview/engine/formEngine'
-import { renderPreviewMarkdown } from '@/lib/markdown'
+import { LabelContent } from '@/lib/references/LabelContent'
 import { useEditContext } from '@/hooks/useEditContext'
 
 interface RepeatFieldProps {
@@ -40,7 +40,7 @@ export function RepeatField({ question, path, questionPath, engine, renderChildr
   return (
     <div className="space-y-3">
       {question.label && (
-        <div className="preview-markdown text-sm font-medium text-nova-text" dangerouslySetInnerHTML={{ __html: renderPreviewMarkdown(state.resolvedLabel ?? question.label ?? '') }} />
+        <div className="text-sm font-medium text-nova-text"><LabelContent label={question.label ?? ''} resolvedLabel={state.resolvedLabel} isEditMode={isEditMode} /></div>
       )}
       {instances.map((idx) => (
         <div key={idx} className="rounded-lg border border-pv-input-border overflow-hidden">

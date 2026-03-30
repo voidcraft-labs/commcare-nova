@@ -8,9 +8,11 @@ import type { MutableBlueprint } from '@/lib/services/mutableBlueprint'
 import type { QuestionPath } from '@/lib/services/questionPath'
 import { questionTypeIcons, questionTypeLabels } from '@/lib/questionTypeIcons'
 import { EditableText } from '@/components/builder/EditableText'
+import { RefLabelInput } from '@/components/builder/RefLabelInput'
 import { QuestionTypeGrid } from '@/components/builder/QuestionTypeGrid'
 import { useDismissRef } from '@/hooks/useDismissRef'
 import { AddPropertyButton } from './AddPropertyButton'
+import { useSaveQuestion } from '@/hooks/useSaveQuestion'
 import { addableTextFields } from './shared'
 
 interface ContextualEditorUIProps {
@@ -42,13 +44,7 @@ export function ContextualEditorUI({ question, selected, mb, builder, notifyBlue
     }
   }, [typeRefs, typeDismissRef])
 
-  const saveQuestion = useCallback((field: string, value: string | null) => {
-    if (selected.formIndex === undefined || !selected.questionPath) return
-    mb.updateQuestion(selected.moduleIndex, selected.formIndex, selected.questionPath, {
-      [field]: value === '' ? null : value,
-    })
-    notifyBlueprintChanged()
-  }, [mb, selected.moduleIndex, selected.formIndex, selected.questionPath, notifyBlueprintChanged])
+  const saveQuestion = useSaveQuestion(selected, mb, notifyBlueprintChanged)
 
   const newlyAddedField = newlyAdded && newlyAdded.questionPath === selected.questionPath ? newlyAdded.field : undefined
   const clearNewlyAdded = () => setNewlyAdded(undefined)
@@ -64,10 +60,11 @@ export function ContextualEditorUI({ question, selected, mb, builder, notifyBlue
   return (
       <div className="space-y-3">
         {!isHidden && question.label !== undefined && (
-          <EditableText
+          <RefLabelInput
             label="Label"
             value={question.label ?? ''}
             onSave={(v) => { saveQuestion('label', v || null); builder.clearNewQuestion() }}
+            onChange={(v) => saveQuestion('label', v || null)}
             multiline
             autoFocus={builder.isNewQuestion(selected.questionPath!)}
             selectAll={builder.isNewQuestion(selected.questionPath!)}

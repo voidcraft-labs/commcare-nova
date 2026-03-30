@@ -6,6 +6,7 @@ import type { MutableBlueprint } from '@/lib/services/mutableBlueprint'
 import { EditableText } from '@/components/builder/EditableText'
 import { CasePropertyPills } from './CasePropertyPills'
 import { OptionsEditor } from './OptionsEditor'
+import { useSaveQuestion } from '@/hooks/useSaveQuestion'
 import { MEDIA_TYPES, getModuleCaseTypes } from './shared'
 
 interface ContextualEditorDataProps {
@@ -17,13 +18,7 @@ interface ContextualEditorDataProps {
 }
 
 export function ContextualEditorData({ question, selected, mb, builder, notifyBlueprintChanged }: ContextualEditorDataProps) {
-  const saveQuestion = useCallback((field: string, value: string | null) => {
-    if (selected.formIndex === undefined || !selected.questionPath) return
-    mb.updateQuestion(selected.moduleIndex, selected.formIndex, selected.questionPath, {
-      [field]: value === '' ? null : value,
-    })
-    notifyBlueprintChanged()
-  }, [mb, selected.moduleIndex, selected.formIndex, selected.questionPath, notifyBlueprintChanged])
+  const saveQuestion = useSaveQuestion(selected, mb, notifyBlueprintChanged)
 
   const setCasePropertyOn = useCallback((caseType: string | null) => {
     if (selected.formIndex === undefined || !selected.questionPath) return

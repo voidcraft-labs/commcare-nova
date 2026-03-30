@@ -8,10 +8,12 @@ import { foldGutter, foldKeymap, indentOnInput, bracketMatching, indentUnit } fr
 import { EditorState } from '@codemirror/state'
 import { diagnosticCount } from '@codemirror/lint'
 import { xpath } from '@/lib/codemirror/xpath-language'
-import { novaXPathTheme, novaAutocompleteTheme } from '@/lib/codemirror/xpath-theme'
+import { novaXPathTheme, novaAutocompleteTheme, novaChipTheme } from '@/lib/codemirror/xpath-theme'
 import { formatXPath, prettyPrintXPath } from '@/lib/codemirror/xpath-format'
 import { xpathLinter, type XPathLintContext } from '@/lib/codemirror/xpath-lint'
 import { xpathAutocomplete } from '@/lib/codemirror/xpath-autocomplete'
+import { xpathChips } from '@/lib/codemirror/xpath-chips'
+import { ReferenceProvider } from '@/lib/references/provider'
 
 const modalEditorTheme = EditorView.theme({
   '&': {
@@ -71,9 +73,12 @@ export function XPathEditorModal({ value, label, onSave, onClose, getLintContext
   const [hasErrors, setHasErrors] = useState(false)
   const editorRef = useRef<ReactCodeMirrorRef>(null)
 
-  // Stable ref so the linter closure always reads the latest getter
+  // Stable ref so the linter/autocomplete/chip closures always read the latest getter
   const getLintContextRef = useRef(getLintContext)
   getLintContextRef.current = getLintContext
+
+  /* Provider for chip label resolution — shares the same getter as linter/autocomplete. */
+  const chipProvider = useMemo(() => new ReferenceProvider(() => getLintContextRef.current()), [])
 
   const extensions = useMemo(
     () => [
@@ -103,9 +108,11 @@ export function XPathEditorModal({ value, label, onSave, onClose, getLintContext
       tooltips({ parent: document.body }),
       xpathLinter(() => getLintContextRef.current()),
       xpathAutocomplete(() => getLintContextRef.current()),
+      xpathChips(chipProvider),
       novaAutocompleteTheme,
+      novaChipTheme,
     ],
-    [],
+    [chipProvider],
   )
 
   const handleUpdate = useCallback(() => {
