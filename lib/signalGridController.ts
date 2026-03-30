@@ -463,7 +463,17 @@ export class SignalGridController {
     // Reset mode-specific state so animations start fresh
     if (mode === 'sending') this.wavePhase = 0
     if (mode === 'building') { this.sweepPhase = 0; this.buildThinkAccum = 0; this.buildAmbientTimer = 0 }
-    if (mode === 'reasoning' || mode === 'error-recovering') { this.accumEnergy = 0; this.ambientTimer = 0 }
+    if (mode === 'reasoning' || mode === 'error-recovering') {
+      this.accumEnergy = 0; this.ambientTimer = 0
+      // When arriving from sending, the wave left cells at DR=8.0 (very fast tracking).
+      // Slow the interpolation rate so the violet glow fades gradually (~0.7s) into
+      // reasoning's dim ambient baseline instead of snapping dark in 2-3 frames.
+      if (this.prevMode === 'sending') {
+        for (let i = 0; i < this.cellCount; i++) {
+          this.cells[i * STRIDE + DR] = 2.0
+        }
+      }
+    }
     if (mode === 'scaffolding') {
       this.scaffoldBoard = null; this.scaffoldPlan = []; this.scaffoldPlanIdx = 0
       this.scaffoldTarget = 0; this.scaffoldAnim = null; this.scaffoldBreathPhase = 0
