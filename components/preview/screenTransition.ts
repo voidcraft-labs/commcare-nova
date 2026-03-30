@@ -1,7 +1,6 @@
 /**
  * Shared screen transition config used by PreviewShell's AnimatePresence
- * and ScreenNavButtons' counter-animation. Keeping these in sync prevents
- * the nav buttons from drifting during screen transitions.
+ * for slide animations between screens.
  */
 
 const SLIDE_DISTANCE = 20
@@ -13,7 +12,4 @@ export const SCREEN_TRANSITION = {
   animate: { opacity: 1, x: 0 },
   exit: { opacity: 0, x: -SLIDE_DISTANCE },
   transition: { duration: DURATION, ease: EASING },
-  /** Counter-slide for elements that should stay pinned during the transition. */
-  counterInitial: { x: -SLIDE_DISTANCE },
-  counterAnimate: { x: 0 },
 } as const

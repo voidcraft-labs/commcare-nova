@@ -11,7 +11,6 @@ import { FormRenderer } from '../form/FormRenderer'
 import { Icon } from '@iconify/react'
 import { formTypeIcons } from '@/lib/questionTypeIcons'
 import ciArrowReload02 from '@iconify-icons/ci/arrow-reload-02'
-import { ScreenNavButtons } from '@/components/preview/ScreenNavButtons'
 import { FormSettingsButton } from '@/components/builder/detail/FormSettingsPanel'
 import { FormTypeButton } from '@/components/builder/detail/FormDetail'
 import { EditableTitle, SavedCheck } from '@/components/builder/EditableTitle'
@@ -22,15 +21,12 @@ interface FormScreenProps {
   formIndex: number
   caseId?: string
   onBack: () => void
-  onUp?: () => void
   onNavigate?: (screen: PreviewScreen) => void
-  canGoBack?: boolean
-  canGoUp?: boolean
   builder?: Builder
   mode?: EditMode
 }
 
-export function FormScreen({ blueprint, moduleIndex, formIndex, caseId, onBack, onUp, onNavigate, canGoBack, canGoUp, builder, mode = 'edit' }: FormScreenProps) {
+export function FormScreen({ blueprint, moduleIndex, formIndex, caseId, onBack, onNavigate, builder, mode = 'edit' }: FormScreenProps) {
   const [titleSaved, setTitleSaved] = useState(false)
   const handleTitleSaved = useCallback(() => { setTitleSaved(true); setTimeout(() => setTitleSaved(false), 1500) }, [])
   const mod = blueprint.modules[moduleIndex]
@@ -136,7 +132,6 @@ export function FormScreen({ blueprint, moduleIndex, formIndex, caseId, onBack, 
       {/* Form header */}
       <div className="px-6 pt-5 pb-4 border-b border-pv-input-border">
         <div className="flex items-center gap-2">
-          <ScreenNavButtons canGoBack={canGoBack} canGoUp={canGoUp} onBack={onBack} onUp={onUp} />
           {mode === 'edit' && builder?.mb ? (
             <FormTypeButton
               form={form}

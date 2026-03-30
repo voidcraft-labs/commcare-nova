@@ -5,7 +5,6 @@ import { Icon } from '@iconify/react'
 import ciFileAdd from '@iconify-icons/ci/file-add'
 import ciFileEdit from '@iconify-icons/ci/file-edit'
 import ciFileBlank from '@iconify-icons/ci/file-blank'
-import { ScreenNavButtons } from '@/components/preview/ScreenNavButtons'
 import type { AppBlueprint } from '@/lib/schemas/blueprint'
 import type { Builder } from '@/lib/services/builder'
 import type { EditMode } from '@/hooks/useEditContext'
@@ -16,10 +15,6 @@ interface ModuleScreenProps {
   blueprint: AppBlueprint
   moduleIndex: number
   onNavigate: (screen: PreviewScreen) => void
-  canGoBack?: boolean
-  canGoUp?: boolean
-  onBack?: () => void
-  onUp?: () => void
   builder?: Builder
   mode?: EditMode
 }
@@ -31,7 +26,7 @@ const formTypeIcons = {
 } as const
 
 
-export function ModuleScreen({ blueprint, moduleIndex, onNavigate, canGoBack, canGoUp, onBack, onUp, builder, mode = 'edit' }: ModuleScreenProps) {
+export function ModuleScreen({ blueprint, moduleIndex, onNavigate, builder, mode = 'edit' }: ModuleScreenProps) {
   const mod = blueprint.modules[moduleIndex]
 
   const [saved, setSaved] = useState(false)
@@ -49,7 +44,6 @@ export function ModuleScreen({ blueprint, moduleIndex, onNavigate, canGoBack, ca
   return (
     <div className="p-6 space-y-4 max-w-3xl mx-auto">
       <div className="flex items-center gap-2">
-        <ScreenNavButtons canGoBack={canGoBack} canGoUp={canGoUp} onBack={onBack} onUp={onUp} />
         {mode === 'edit' && builder?.mb ? (
           <EditableTitle value={mod.name} onSave={saveModuleName} onSaved={handleSaved} />
         ) : (

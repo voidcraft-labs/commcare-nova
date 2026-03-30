@@ -13,7 +13,7 @@ Main layout with one `useChat` instance targeting `/api/chat`. Wrapped in `Error
 ### Four-Tier Header Layout
 
 1. **Tier 1 — Logo bar**: `commcare nova` + settings link. `bg-nova-void`. Collapses to zero height in hero/centered mode via animated `height: 0 → auto`.
-2. **Tier 2 — Project subheader**: Full-width breadcrumbs (left) + `DownloadDropdown` (right). `bg-[rgba(139,92,246,0.06)]` with subtle violet glow shadow. Shows as soon as centered mode exits (breadcrumbs populate once `app_name` arrives). Download button appears when `phase === Done`. `text-lg` for hierarchy above chat/toolbar text.
+2. **Tier 2 — Project subheader**: Nav buttons (`ScreenNavButtons` back + up, left of breadcrumbs, shown when blueprint exists) + `CollapsibleBreadcrumb` (left) + `DownloadDropdown` (right). `bg-[rgba(139,92,246,0.06)]` with subtle violet glow shadow. Shows as soon as centered mode exits (breadcrumbs populate once `app_name` arrives). Download button appears when `phase === Done`. `text-lg` for hierarchy above chat/toolbar text.
 3. **Tier 3 — Toolbar** (`SubheaderToolbar.tsx`): Full-width `ViewModeToggle` (centered) + Undo/Redo (right). `bg-nova-deep`. Only shows when `Done` + blueprint exists.
 4. **Tier 4 — Content area**: Main content fills full width (scrollbar on far right). LeftPanel (chat) floats as absolute overlay from the left edge. RightPanel (structure tree) floats as absolute overlay from the right edge. ContextualEditor floats as a portal anchored to the selected question.
 
@@ -29,7 +29,7 @@ When `builder.phase === Idle && !builder.treeData`, chat fills center with hero 
 
 Full-width 3-column grid: left spacer, center `ViewModeToggle` (`components/preview/ViewModeToggle.tsx`), right Undo/Redo. `h-12 bg-nova-deep`. `ViewModeToggle` is a compact `h-[34px]` 2-segment control (Design | Preview) matching undo/redo button height.
 
-`usePreviewNav` is lifted to BuilderLayout and shared with `PreviewShell` (via `nav` prop) so navigation state stays in sync. PreviewShell renders with `hideHeader` since BuilderLayout owns the header tiers. `syncSelection(screen)` maps a `PreviewScreen` to the corresponding `builder.select()` call — used by both `handlePreviewBack` (history back, passed via `onBack`) and `handlePreviewUp` (hierarchy up via `getParentScreen`, passed via `onUp`).
+`usePreviewNav` is lifted to BuilderLayout and shared with `PreviewShell` (via `nav` prop) so navigation state stays in sync. PreviewShell renders with `hideHeader` since BuilderLayout owns the header tiers. `syncSelection(screen)` maps a `PreviewScreen` to the corresponding `builder.select()` call — used by both `handlePreviewBack` (history back, wired to Tier 2 nav buttons and passed to PreviewShell via `onBack` for post-submit navigation) and `handlePreviewUp` (hierarchy up via `getParentScreen`, wired to Tier 2 nav buttons).
 
 ### View Mode Sync
 

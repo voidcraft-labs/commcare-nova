@@ -18,15 +18,15 @@ interface PreviewShellProps {
   mode?: EditMode
   nav?: ReturnType<typeof usePreviewNav>
   hideHeader?: boolean
+  /** Back handler override — used by BuilderLayout to sync selection on back navigation.
+   *  Also used by FormScreen for post-submit navigation. */
   onBack?: () => void
-  onUp?: () => void
 }
 
-export function PreviewShell({ blueprint, actions, builder, mode = 'edit', nav: navProp, hideHeader, onBack, onUp }: PreviewShellProps) {
+export function PreviewShell({ blueprint, actions, builder, mode = 'edit', nav: navProp, hideHeader, onBack }: PreviewShellProps) {
   const ownNav = usePreviewNav(blueprint)
   const nav = navProp ?? ownNav
   const handleBack = onBack ?? nav.back
-  const handleUp = onUp ?? nav.navigateUp
 
   return (
     <div className={`preview-theme ${mode === 'edit' ? 'design-theme' : ''} h-full flex flex-col`}>
@@ -53,17 +53,13 @@ export function PreviewShell({ blueprint, actions, builder, mode = 'edit', nav: 
             className="h-full"
           >
             {nav.current.type === 'home' && (
-              <HomeScreen blueprint={blueprint} onNavigate={nav.push} canGoBack={nav.canGoBack} canGoUp={nav.canGoUp} onBack={handleBack} onUp={handleUp} builder={builder} mode={mode} />
+              <HomeScreen blueprint={blueprint} onNavigate={nav.push} builder={builder} mode={mode} />
             )}
             {nav.current.type === 'module' && (
               <ModuleScreen
                 blueprint={blueprint}
                 moduleIndex={nav.current.moduleIndex}
                 onNavigate={nav.push}
-                canGoBack={nav.canGoBack}
-                canGoUp={nav.canGoUp}
-                onBack={handleBack}
-                onUp={handleUp}
                 builder={builder}
                 mode={mode}
               />
@@ -74,10 +70,6 @@ export function PreviewShell({ blueprint, actions, builder, mode = 'edit', nav: 
                 moduleIndex={nav.current.moduleIndex}
                 formIndex={nav.current.formIndex}
                 onNavigate={nav.push}
-                canGoBack={nav.canGoBack}
-                canGoUp={nav.canGoUp}
-                onBack={handleBack}
-                onUp={handleUp}
               />
             )}
             {nav.current.type === 'form' && (
@@ -87,10 +79,7 @@ export function PreviewShell({ blueprint, actions, builder, mode = 'edit', nav: 
                 formIndex={nav.current.formIndex}
                 caseId={nav.current.caseId}
                 onBack={handleBack}
-                onUp={handleUp}
                 onNavigate={nav.push}
-                canGoBack={nav.canGoBack}
-                canGoUp={nav.canGoUp}
                 builder={builder}
                 mode={mode}
               />
