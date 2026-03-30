@@ -177,6 +177,8 @@ Split across four files:
 
 **`case_list_only` modules** — CommCare requires every case type to be declared as a module's primary `case_type`. Child case types with no follow-up workflow use `case_list_only: true` on their module. The expander sets `case_list.show = true` and `case_list.label` on these modules so HQ accepts them.
 
+**Markdown itext** — all itext entries (labels, hints, help, option labels) emit both `<value>` and `<value form="markdown">`. CommCare only renders markdown when the markdown form is present; without it, syntax like `**bold**` renders as literal text. This is safe for plain text — identical rendering when no markdown syntax is present.
+
 **Vellum hashtag expansion** — dual-attribute pattern matching CommCare's Vellum editor. All three hashtag types (`#form/`, `#case/`, `#user/`) are expanded via the Lezer XPath parser's `HashtagRef` node (with `HashtagType` and `HashtagSegment` children). `expandHashtags()` in `commcare/hashtags.ts` is the single expansion point:
 - `#form/question` → `/data/question` (trivial, hardcoded in Vellum).
 - `#case/property` → full `instance('casedb')/...` XPath.
