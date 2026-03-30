@@ -399,19 +399,6 @@ export function BuilderLayout({ buildId }: { buildId: string }) {
     syncSelection(getParentScreen(nav.current))
   }, [nav, syncSelection])
 
-  const shouldRedirect = !apiKey && !inReplayMode
-  useEffect(() => {
-    if (shouldRedirect) router.push('/')
-  }, [shouldRedirect, router])
-  if (shouldRedirect) return null
-
-  const showProgress = (isGenerating || builder.phase === BuilderPhase.Done || builder.phase === BuilderPhase.Error) && !progressHidden && !inReplayMode
-  const leftOpen = viewMode === 'preview' ? false : leftPanelOpen
-  const rightOpen = viewMode === 'preview' ? false : rightPanelOpen
-  const showToolbar = !!(builder.treeData && builder.phase === BuilderPhase.Done && builder.blueprint)
-  const showContextualEditor = showToolbar && viewMode === 'design'
-  const editMode = viewMode === 'preview' ? 'test' as const : 'edit' as const
-
   // Breadcrumb click handlers — memoized on navigation structure so they're
   // stable across unrelated renders (chat messages, selection changes, etc.).
   // This lets CollapsibleBreadcrumb's memo() skip re-renders when nothing changed.
@@ -423,18 +410,7 @@ export function BuilderLayout({ buildId }: { buildId: string }) {
     [nav.breadcrumbPath, nav.navigateTo, syncSelection],
   )
 
-  // Breadcrumb parts — labels are derived unmemoized (for live inline title edits),
-  // handlers are stable memoized references. During generation (no blueprint),
-  // show app name as a static non-clickable breadcrumb.
   const noop = useCallback(() => {}, [])
-  const breadcrumbParts: BreadcrumbPart[] = builder.blueprint
-    ? nav.breadcrumb.map((label, i) => ({
-        label,
-        onClick: breadcrumbHandlers[i] ?? noop,
-      }))
-    : builder.treeData?.app_name
-      ? [{ label: builder.treeData.app_name, onClick: noop }]
-      : []
 
   /**
    * Context getter for the ReferenceProvider. Reads from the builder's current
@@ -464,6 +440,32 @@ export function BuilderLayout({ buildId }: { buildId: string }) {
 
     return undefined
   }, [builder])
+
+  // ── Redirect guard — all hooks must be above this line ─────────────
+  const shouldRedirect = !apiKey && !inReplayMode
+  useEffect(() => {
+    if (shouldRedirect) router.push('/')
+  }, [shouldRedirect, router])
+  if (shouldRedirect) return null
+
+  const showProgress = (isGenerating || builder.phase === BuilderPhase.Done || builder.phase === BuilderPhase.Error) && !progressHidden && !inReplayMode
+  const leftOpen = viewMode === 'preview' ? false : leftPanelOpen
+  const rightOpen = viewMode === 'preview' ? false : rightPanelOpen
+  const showToolbar = !!(builder.treeData && builder.phase === BuilderPhase.Done && builder.blueprint)
+  const showContextualEditor = showToolbar && viewMode === 'design'
+  const editMode = viewMode === 'preview' ? 'test' as const : 'edit' as const
+
+  // Breadcrumb parts — labels are derived unmemoized (for live inline title edits),
+  // handlers are stable memoized references. During generation (no blueprint),
+  // show app name as a static non-clickable breadcrumb.
+  const breadcrumbParts: BreadcrumbPart[] = builder.blueprint
+    ? nav.breadcrumb.map((label, i) => ({
+        label,
+        onClick: breadcrumbHandlers[i] ?? noop,
+      }))
+    : builder.treeData?.app_name
+      ? [{ label: builder.treeData.app_name, onClick: noop }]
+      : []
 
   return (
     <ReferenceProviderWrapper getContext={getRefContext} subscribeMutation={builder.subscribeMutation}>
