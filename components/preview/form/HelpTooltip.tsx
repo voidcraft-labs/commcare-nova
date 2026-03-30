@@ -13,7 +13,7 @@ import {
   useInteractions,
   FloatingPortal,
 } from '@floating-ui/react'
-import { Icon } from '@iconify/react'
+import { Icon } from '@iconify/react/offline'
 import ciHelpCircle from '@iconify-icons/ci/help-circle'
 import { renderPreviewMarkdown } from '@/lib/markdown'
 

@@ -1,7 +1,7 @@
 'use client'
 import { useRef, useState, useCallback, useSyncExternalStore } from 'react'
 import { motion } from 'motion/react'
-import { Icon } from '@iconify/react'
+import { Icon } from '@iconify/react/offline'
 import ciCheck from '@iconify-icons/ci/check'
 import { BuilderPhase } from '@/lib/services/builder'
 

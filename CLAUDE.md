@@ -14,7 +14,7 @@ Next.js web app that generates CommCare apps from natural language conversation.
 - **Rich Text**: TipTap 3 (`@tiptap/react`, `@tiptap/starter-kit`, `@tiptap/extension-mention`, `@tiptap/suggestion`) — label input with inline reference chips
 - **Markdown**: marked — allowlist renderers in `lib/markdown.ts`, `breaks: true` (single newlines → `<br>`). `renderMarkdown` (chat): headings, bold, italic, lists, tables, hr, code; blocks links/images/HTML. `renderPreviewMarkdown` (preview): same plus links and images.
 - **XML**: htmlparser2 + domutils + dom-serializer
-- **Icons**: Coolicons (`@iconify-icons/ci`) + Tabler (`@iconify-icons/tabler`) via `@iconify/react`
+- **Icons**: Coolicons (`@iconify-icons/ci`) + Tabler (`@iconify-icons/tabler`) via `@iconify/react/offline`
 - **Testing**: Vitest
 
 ## Commands
@@ -79,11 +79,12 @@ No auth layer. API key in `localStorage('nova-settings')`, sent per request via 
 ### Icons
 
 ```tsx
+import { Icon } from '@iconify/react/offline'
 import ciIconName from '@iconify-icons/ci/icon-name'
 <Icon icon={ciIconName} width="16" height="16" />
 ```
 
-Browse available: `node_modules/@iconify-icons/ci/` (one file per icon). No build plugin — pure ESM.
+**Always import from `@iconify/react/offline`**, never `@iconify/react`. The default export uses `useState` + `useEffect` for hydration safety, which renders an empty `<span>` for 1–3 frames before swapping in the SVG. The `/offline` export renders synchronously on the first frame. Browse available: `node_modules/@iconify-icons/ci/` (one file per icon). No build plugin — pure ESM.
 
 ### Inputs
 

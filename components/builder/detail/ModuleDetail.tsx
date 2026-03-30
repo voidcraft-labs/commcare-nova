@@ -1,6 +1,6 @@
 'use client'
 import { useCallback } from 'react'
-import { Icon } from '@iconify/react'
+import { Icon } from '@iconify/react/offline'
 import ciFileAdd from '@iconify-icons/ci/file-add'
 import ciFileEdit from '@iconify-icons/ci/file-edit'
 import ciFileBlank from '@iconify-icons/ci/file-blank'

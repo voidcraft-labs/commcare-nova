@@ -1,5 +1,5 @@
 'use client'
-import { Icon } from '@iconify/react'
+import { Icon } from '@iconify/react/offline'
 import ciChevronRight from '@iconify-icons/ci/chevron-right'
 import { motion, AnimatePresence } from 'motion/react'
 import { ErrorBoundary } from '@/components/ui/ErrorBoundary'

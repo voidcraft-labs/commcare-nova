@@ -2,7 +2,7 @@
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { motion } from 'motion/react'
-import { Icon } from '@iconify/react'
+import { Icon } from '@iconify/react/offline'
 import ciSettings from '@iconify-icons/ci/settings'
 import ciArrowRight from '@iconify-icons/ci/arrow-right-md'
 import Link from 'next/link'

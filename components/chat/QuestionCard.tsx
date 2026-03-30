@@ -1,7 +1,7 @@
 'use client'
 import { useState, useRef } from 'react'
 import { motion, AnimatePresence } from 'motion/react'
-import { Icon } from '@iconify/react'
+import { Icon } from '@iconify/react/offline'
 import ciCheck from '@iconify-icons/ci/check'
 import { Badge } from '@/components/ui/Badge'
 

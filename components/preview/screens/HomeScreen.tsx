@@ -1,7 +1,7 @@
 'use client'
 import { useState, useCallback } from 'react'
 import { motion } from 'motion/react'
-import { Icon } from '@iconify/react'
+import { Icon } from '@iconify/react/offline'
 import ciMoreGridBig from '@iconify-icons/ci/more-grid-big'
 import type { AppBlueprint } from '@/lib/schemas/blueprint'
 import type { Builder } from '@/lib/services/builder'

@@ -2,7 +2,7 @@
 import { useRef, useState, useCallback, useEffect, type ReactNode } from 'react'
 import { motion } from 'motion/react'
 import type { UIMessage } from 'ai'
-import { Icon } from '@iconify/react'
+import { Icon } from '@iconify/react/offline'
 import ciChevronLeft from '@iconify-icons/ci/chevron-left'
 import { useBuilder } from '@/hooks/useBuilder'
 import { ChatMessage } from '@/components/chat/ChatMessage'

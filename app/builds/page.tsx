@@ -2,7 +2,7 @@
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { motion } from 'motion/react'
-import { Icon } from '@iconify/react'
+import { Icon } from '@iconify/react/offline'
 import ciSettings from '@iconify-icons/ci/settings'
 import Link from 'next/link'
 import { Logo } from '@/components/ui/Logo'

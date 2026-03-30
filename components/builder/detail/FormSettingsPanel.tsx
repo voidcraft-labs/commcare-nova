@@ -2,7 +2,7 @@
 import { useState, useCallback, useRef, useEffect, useLayoutEffect } from 'react'
 import { useFloating, offset, flip, shift, autoUpdate, FloatingPortal } from '@floating-ui/react'
 import { motion, AnimatePresence } from 'motion/react'
-import { Icon } from '@iconify/react'
+import { Icon } from '@iconify/react/offline'
 import ciSettings from '@iconify-icons/ci/settings'
 import ciClose from '@iconify-icons/ci/close-md'
 import type { BlueprintForm, ConnectConfig, PostSubmitDestination } from '@/lib/schemas/blueprint'

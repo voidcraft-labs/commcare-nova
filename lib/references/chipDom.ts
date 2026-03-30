@@ -6,7 +6,7 @@
  * via inline CSS using the shared CHIP dimension constants from config.ts.
  */
 
-import type { IconifyIcon } from '@iconify/react'
+import type { IconifyIcon } from '@iconify/react/offline'
 import { CHIP, displayId } from './config'
 import type { Reference, ReferenceTypeConfig } from './types'
 

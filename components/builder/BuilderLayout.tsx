@@ -4,7 +4,7 @@ import { useRouter } from 'next/navigation'
 import { useChat } from '@ai-sdk/react'
 import { DefaultChatTransport, type UIMessage } from 'ai'
 import { motion, AnimatePresence } from 'motion/react'
-import { Icon } from '@iconify/react'
+import { Icon } from '@iconify/react/offline'
 import ciMessage from '@iconify-icons/ci/message'
 import tablerListTree from '@iconify-icons/tabler/list-tree'
 import ciSettings from '@iconify-icons/ci/settings'
@@ -412,30 +412,29 @@ export function BuilderLayout({ buildId }: { buildId: string }) {
   const showContextualEditor = showToolbar && viewMode === 'design'
   const editMode = viewMode === 'preview' ? 'test' as const : 'edit' as const
 
-  // Breadcrumbs — derived from current screen's hierarchical path
-  const breadcrumbParts: BreadcrumbPart[] = []
-  if (builder.blueprint) {
-    for (let i = 0; i < nav.breadcrumb.length; i++) {
-      const idx = i
-      breadcrumbParts.push({
-        label: nav.breadcrumb[idx],
-        onClick: () => {
-          nav.navigateTo(idx)
-          const screen = nav.breadcrumbPath[idx]
-          if (screen?.type === 'module') {
-            builder.select({ type: 'module', moduleIndex: screen.moduleIndex })
-          } else if (screen?.type === 'form' || screen?.type === 'caseList') {
-            builder.select({ type: 'form', moduleIndex: screen.moduleIndex, formIndex: screen.formIndex })
-          } else {
-            builder.select()
-          }
-        },
-      })
-    }
-  } else if (builder.treeData?.app_name) {
-    // During generation: show app name as a static (non-clickable) breadcrumb
-    breadcrumbParts.push({ label: builder.treeData.app_name, onClick: () => {} })
-  }
+  // Breadcrumb click handlers — memoized on navigation structure so they're
+  // stable across unrelated renders (chat messages, selection changes, etc.).
+  // This lets CollapsibleBreadcrumb's memo() skip re-renders when nothing changed.
+  const breadcrumbHandlers = useMemo(() =>
+    nav.breadcrumbPath.map((screen, idx) => () => {
+      nav.navigateTo(idx)
+      syncSelection(screen)
+    }),
+    [nav.breadcrumbPath, nav.navigateTo, syncSelection],
+  )
+
+  // Breadcrumb parts — labels are derived unmemoized (for live inline title edits),
+  // handlers are stable memoized references. During generation (no blueprint),
+  // show app name as a static non-clickable breadcrumb.
+  const noop = useCallback(() => {}, [])
+  const breadcrumbParts: BreadcrumbPart[] = builder.blueprint
+    ? nav.breadcrumb.map((label, i) => ({
+        label,
+        onClick: breadcrumbHandlers[i] ?? noop,
+      }))
+    : builder.treeData?.app_name
+      ? [{ label: builder.treeData.app_name, onClick: noop }]
+      : []
 
   /**
    * Context getter for the ReferenceProvider. Reads from the builder's current
