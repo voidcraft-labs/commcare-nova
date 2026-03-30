@@ -124,13 +124,16 @@ function ContextualEditorInner({ builder }: { builder: Builder }) {
     ? mb.getQuestion(selected.moduleIndex, selected.formIndex, selected.questionPath) ?? undefined
     : undefined
 
+  // Hidden questions default to Logic tab — the UI tab only has the type picker,
+  // while Logic holds the more useful calculate/default/relevant fields.
+  const defaultTab: EditorTab = question?.type === 'hidden' ? 'logic' : 'ui'
   const [activeTab, setActiveTab] = useState<EditorTab>(builder.editorTab)
   const prevPathRef = useRef(selected.questionPath)
 
   if (selected.questionPath !== prevPathRef.current) {
     prevPathRef.current = selected.questionPath
-    setActiveTab('ui')
-    builder.setEditorTab('ui')
+    setActiveTab(defaultTab)
+    builder.setEditorTab(defaultTab)
   }
 
   if (!question) return null

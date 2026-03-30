@@ -16,6 +16,7 @@ import { GroupField } from './fields/GroupField'
 import { LabelField } from './fields/LabelField'
 import { RepeatField } from './fields/RepeatField'
 import { EditableQuestionWrapper } from './EditableQuestionWrapper'
+import { HiddenField } from './fields/HiddenField'
 import { HelpTooltip } from './HelpTooltip'
 import { InsertionPoint } from './InsertionPoint'
 
@@ -81,7 +82,6 @@ function buildDragState(questions: Question[], activePath: QuestionPath): DragRe
   function walk(qs: Question[], groupKey: string, pathPrefix: string) {
     if (!itemsMap[groupKey]) itemsMap[groupKey] = []
     for (const q of qs) {
-      if (q.type === 'hidden') continue
       const qPath = pathPrefix ? `${pathPrefix}/${q.id}` : q.id
       itemsMap[groupKey].push(qPath)
       questionsById.set(qPath, q)
@@ -153,7 +153,7 @@ function SortableQuestion({
     ...(isContainer && { collisionPriority: CollisionPriority.Lowest }),
   })
 
-  if (q.type === 'hidden') return null
+  if (q.type === 'hidden' && !isEditMode) return null
   if (!isEditMode && !state.visible) return null
 
   // Use isDragging from dnd-kit OR the context flag (covers cross-group remount where isDragging resets)
@@ -191,6 +191,12 @@ function SortableQuestion({
     content = (
       <EditableQuestionWrapper questionPath={questionPath} isDragging={showAsPlaceholder}>
         <LabelField question={q} state={displayState} />
+      </EditableQuestionWrapper>
+    )
+  } else if (q.type === 'hidden') {
+    content = (
+      <EditableQuestionWrapper questionPath={questionPath} isDragging={showAsPlaceholder}>
+        <HiddenField question={q} />
       </EditableQuestionWrapper>
     )
   } else {
@@ -313,8 +319,11 @@ export function FormRenderer({ questions, engine, prefix = '/data', parentPath }
         .map(id => activeDragReorder.questionsById.get(id))
         .filter((q): q is Question => !!q)
     }
-    return questions.filter(q => q.type !== 'hidden')
-  }, [questions, activeDragReorder, group, engine])
+    // In preview mode, filter hidden questions at the list level so SortableQuestion
+    // (and its useSortable hook) never runs for them — avoids wasted hook execution.
+    // In edit mode, hidden questions are visible and draggable, so include them.
+    return isEditMode ? questions : questions.filter(q => q.type !== 'hidden')
+  }, [questions, activeDragReorder, group, engine, isEditMode])
 
   const modifiers = useMemo(() => [
     RestrictToElement.configure({
