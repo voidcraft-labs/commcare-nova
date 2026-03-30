@@ -1,3 +1,9 @@
+import {
+  type Board, type Placement, type PieceDefinition, type Shape, type TilingPlan,
+  PIECES, createEmptyBoard, fillCount, isBoardFull, fillFront,
+  generateTilingPlan, applyPlacement,
+} from './tetrisProgressSolver'
+
 // ── Color constants (pre-computed RGB for interpolation) ──────────────
 
 const VIOLET = [139, 92, 246] as const   // #8b5cf6
@@ -6,6 +12,7 @@ const PINK = [255, 105, 140] as const    // bubblegum pink (building sweep)
 const WHITE = [232, 232, 255] as const   // #e8e8ff (nova-text)
 const AMBER = [245, 158, 11] as const    // #f59e0b (--nova-amber)
 const ROSE = [244, 63, 94] as const      // #f43f5e (--nova-rose)
+const EMERALD = [16, 185, 129] as const  // #10b981 (--nova-emerald)
 
 function lerp(a: number, b: number, t: number): number {
   return a + (b - a) * t
@@ -14,9 +21,15 @@ function lerp(a: number, b: number, t: number): number {
 function cellColor(brightness: number, hue: number): string {
   // hue: 0 = violet, 1 = cyan, <0 = violet→pink (building sweep).
   //       >1 = warm error tones: 1–1.5 = violet→amber, 1.5–2.0 = amber→rose.
+  //       3.0–4.0 = cyan→emerald (scaffolding fill / done celebration).
   // Negative hues decay back through violet on the way to cyan — all cool tones.
   let r, g, b
-  if (hue > 1) {
+  if (hue >= 3.0) {
+    const t = Math.min(hue - 3.0, 1)
+    r = lerp(CYAN[0], EMERALD[0], t)
+    g = lerp(CYAN[1], EMERALD[1], t)
+    b = lerp(CYAN[2], EMERALD[2], t)
+  } else if (hue > 1) {
     // Warm error tones
     if (hue <= 1.5) {
       const t = (hue - 1) * 2
@@ -49,7 +62,22 @@ function cellColor(brightness: number, hue: number): string {
 
 // ── Controller ───────────────────────────────────────────────────────
 
-export type SignalMode = 'sending' | 'reasoning' | 'building' | 'editing' | 'error-recovering' | 'error-fatal' | 'idle'
+export type SignalMode = 'sending' | 'reasoning' | 'scaffolding' | 'building' | 'editing' | 'error-recovering' | 'error-fatal' | 'done' | 'idle'
+
+/** Default label for each mode. Callers can override with a more specific label. */
+export function defaultLabel(mode: SignalMode): string {
+  switch (mode) {
+    case 'sending': return 'Transmitting'
+    case 'reasoning': return 'Thinking'
+    case 'scaffolding': return 'Designing'
+    case 'building': return 'Building'
+    case 'editing': return 'Editing'
+    case 'error-recovering': return 'Recovering'
+    case 'error-fatal': return 'Error'
+    case 'done': return 'Complete'
+    case 'idle': return ''
+  }
+}
 
 /** Normalized zone (0-1) within the grid for editing focus. */
 export interface EditFocus {
@@ -84,11 +112,69 @@ interface DefragOp {
   seekIdx: number
 }
 
+// ── Scaffolding (solver-driven tetris progress bar) ────────────────────
+
+const enum ScaffoldAnimPhase { Preview, Select, Slide, Lock, Wait }
+
+/** A preview candidate: shape + row, ready to render. */
+interface ScaffoldPreview { shape: Shape; originRow: number }
+
+interface ScaffoldAnim {
+  /** Solver's optimal placement (null during Wait). */
+  optimal: Placement | null
+  /** Pre-resolved shapes (random piece × random rotation) for the slot-machine preview.
+   *  Last entry is always the winner in its solver-chosen rotation. */
+  previews: ScaffoldPreview[]
+  previewIdx: number
+  /** Column where preview/select renders (right of fill front). */
+  previewCol: number
+  /** Current column position during slide (float for smooth animation). */
+  slidePos: number
+  phase: ScaffoldAnimPhase
+  timer: number
+  /** Animation speed multiplier (scales with gap size, fast during completion). */
+  speed: number
+}
+
+/** Debug: render a shape as compact ASCII for console logging. */
+function shapeAscii(shape: Shape): string {
+  const maxR = Math.max(...shape.map(([r]) => r))
+  const maxC = Math.max(...shape.map(([, c]) => c))
+  const set = new Set(shape.map(([r, c]) => r * 10 + c))
+  const rows: string[] = []
+  for (let r = 0; r <= maxR; r++) {
+    let row = ''
+    for (let c = 0; c <= maxC; c++) row += set.has(r * 10 + c) ? '#' : '.'
+    rows.push(row)
+  }
+  return rows.join('|')
+}
+
+/** Auto-increment rate per second (fraction of grid). */
+const SCAFFOLD_AUTO_RATE = 0.015
+/** Auto-increment cannot exceed this fraction without explicit target. */
+const SCAFFOLD_AUTO_CAP = 0.88
+
+/** Global scaffold animation tempo — scales all phase durations, DR, and decay.
+ *  1.0 = original design pace. Per-piece `speed` multiplies on top. */
+const SCAFFOLD_TEMPO = 4.0
+
+// Phase base durations (seconds at TEMPO=1, before per-piece speed scaling).
+// Actual duration = base / (SCAFFOLD_TEMPO * speed).
+const S_PREVIEW = 0.40   // per candidate dwell
+const S_SELECT  = 0.13   // double-flash (snappier than other phases)
+const S_SLIDE_K = 2.5    // slide cols/sec = max(distance * S_SLIDE_K, 6) * tempo * speed
+const S_LOCK    = 0.25   // flash + fade
+const S_WAIT    = 0.60   // per candidate cycle
+const S_DECAY   = 1.2    // TB drain per second (scaled by tempo)
+
 interface ControllerOpts {
   /** Read and reset accumulated burst energy (data parts). Called once per animation frame. */
   consumeEnergy: () => number
   /** Read and reset accumulated think energy (token generation). Called once per animation frame. */
   consumeThinkEnergy: () => number
+  /** Read current scaffold progress (0-1) from builder. Called each frame during scaffolding. */
+  consumeScaffoldProgress?: () => number
 }
 
 const ROWS = 3
@@ -120,8 +206,16 @@ export class SignalGridController {
   private prevMode: SignalMode = 'idle'
   private modeT = 1 // blend factor 0..1 (1 = fully in current mode)
 
+  // Mode transition queue — modes with minimum animation times defer the next mode
+  private pendingMode: SignalMode | null = null
+  private pendingLabel = ''
+  private currentLabel = ''
+  private settledCallbacks: (() => void)[] = []
+  private modeAppliedCallback: ((mode: SignalMode, label: string) => void) | null = null
+
   private consumeEnergy: () => number
   private consumeThinkEnergy: () => number
+  private consumeScaffoldProgress: (() => number) | null
 
   // Sending
   private wavePhase = 0
@@ -135,6 +229,18 @@ export class SignalGridController {
   private buildThinkAccum = 0
   private buildAmbientTimer = 0
 
+  // Scaffolding (pre-computed tiling plan)
+  private scaffoldBoard: Board | null = null
+  private scaffoldPlan: TilingPlan = []
+  private scaffoldPlanIdx = 0
+  private scaffoldProgress = 0
+  private scaffoldTarget = 0
+  private scaffoldAutoProgress = 0
+  private scaffoldAnim: ScaffoldAnim | null = null
+  private scaffoldThinkAccum = 0
+  private scaffoldAmbientTimer = 0
+  private scaffoldTime = 0
+
   // Editing (defrag)
   private editTarget: EditFocus = { start: 0, end: 1 }
   private editCurrent: EditFocus = { start: 0, end: 1 }
@@ -146,6 +252,10 @@ export class SignalGridController {
   // Error fatal
   private fatalTimer = 0
 
+  // Done (celebration + resting pulse)
+  private doneTimer = 0
+  private doneCellPhases = new Float64Array(0)
+
   // Power state
   private powerState: 'off' | 'powering-on' | 'on' | 'powering-off' = 'off'
   private powerProgress = 0 // 0..1
@@ -154,6 +264,7 @@ export class SignalGridController {
   constructor(opts: ControllerOpts) {
     this.consumeEnergy = opts.consumeEnergy
     this.consumeThinkEnergy = opts.consumeThinkEnergy
+    this.consumeScaffoldProgress = opts.consumeScaffoldProgress ?? null
   }
 
   // ── Lifecycle ────────────────────────────────────────────────────────
@@ -207,6 +318,28 @@ export class SignalGridController {
     }
     this.cellCount = newCount
 
+    // Recompute mode-specific state for new grid dimensions
+    if (this.mode === 'scaffolding' && this.scaffoldBoard) {
+      const oldCols = this.scaffoldBoard[0].length
+      const fraction = oldCols > 0 ? fillCount(this.scaffoldBoard) / (ROWS * oldCols) : 0
+      // Regenerate plan for new width and fast-forward to current progress
+      this.scaffoldPlan = generateTilingPlan(this.cols)
+      this.scaffoldBoard = createEmptyBoard(this.cols)
+      const targetFill = Math.floor(fraction * ROWS * this.cols)
+      this.scaffoldPlanIdx = 0
+      while (this.scaffoldPlanIdx < this.scaffoldPlan.length && fillCount(this.scaffoldBoard) < targetFill) {
+        this.scaffoldBoard = applyPlacement(this.scaffoldBoard, this.scaffoldPlan[this.scaffoldPlanIdx])
+        this.scaffoldPlanIdx++
+      }
+      this.scaffoldAnim = null
+    }
+    if (this.mode === 'done') {
+      this.doneCellPhases = new Float64Array(newCount)
+      for (let i = 0; i < newCount; i++) {
+        this.doneCellPhases[i] = Math.random() * Math.PI * 2
+      }
+    }
+
     // Sync DOM elements
     while (this.container.firstChild) this.container.removeChild(this.container.firstChild)
     this.elements = []
@@ -220,22 +353,138 @@ export class SignalGridController {
 
   // ── Mode & power control ─────────────────────────────────────────────
 
-  setMode(mode: SignalMode): void {
-    if (mode === this.mode) return
+  /** Set mode and label together. Label defaults to a built-in name if omitted.
+   *  If the current animation hasn't settled, the transition is queued. */
+  setMode(mode: SignalMode, label?: string): void {
+    const newLabel = label ?? defaultLabel(mode)
+
+    // Same mode — just update the label
+    if (mode === this.mode) {
+      if (newLabel !== this.currentLabel) {
+        this.currentLabel = newLabel
+        this.modeAppliedCallback?.(mode, newLabel)
+      }
+      return
+    }
+
+    // Error modes always bypass the queue
+    if (mode === 'error-fatal' || mode === 'error-recovering') {
+      this.pendingMode = null
+      this.applyMode(mode, newLabel)
+      return
+    }
+
+    // Force scaffolding completion when transitioning away
+    if (this.mode === 'scaffolding') this.scaffoldTarget = 1.0
+
+    // If the current mode's animation hasn't settled, queue the transition
+    if (!this.isSettled()) {
+      this.pendingMode = mode
+      this.pendingLabel = newLabel
+      return
+    }
+
+    this.applyMode(mode, newLabel)
+  }
+
+  /** Register a one-shot callback for when the current animation settles.
+   *  Fires at most once per registration. Multiple can be registered. */
+  onSettled(callback: () => void): void {
+    this.settledCallbacks.push(callback)
+  }
+
+  /** Register a persistent callback that fires every time a mode (and/or label) is applied. */
+  setOnModeApplied(callback: ((mode: SignalMode, label: string) => void) | null): void {
+    this.modeAppliedCallback = callback
+  }
+
+  /** True when the current mode's minimum animation has completed and a transition can proceed. */
+  private isSettled(): boolean {
+    switch (this.mode) {
+      case 'sending': {
+        // One full wave cycle
+        const maxDelay = this.cols * 0.15 + (ROWS - 1) * 0.5
+        return this.wavePhase >= Math.PI + maxDelay
+      }
+      case 'scaffolding':
+        // Settled if not targeting completion, or board is full with no active piece
+        return this.scaffoldTarget < 1.0 || (
+          this.scaffoldBoard != null && isBoardFull(this.scaffoldBoard) && !this.scaffoldAnim
+        )
+      default:
+        return true
+    }
+  }
+
+  /** Check settled state each frame — resolves pending mode and fires callbacks. */
+  private checkSettled(): void {
+    if (!this.isSettled()) return
+    if (!this.pendingMode && this.settledCallbacks.length === 0) return
+
+    // Resolve pending mode queue
+    if (this.pendingMode) {
+      const next = this.pendingMode
+      const label = this.pendingLabel
+      this.pendingMode = null
+      this.applyMode(next, label)
+    }
+
+    // Fire one-shot callbacks
+    if (this.settledCallbacks.length > 0) {
+      const cbs = this.settledCallbacks.splice(0)
+      for (const cb of cbs) cb()
+    }
+  }
+
+  /** Actually apply a mode transition — resets mode-specific state. */
+  private applyMode(mode: SignalMode, label: string): void {
+    this.pendingMode = null
     this.prevMode = this.mode
     this.mode = mode
+    this.currentLabel = label
     this.modeT = 0
+    this.modeAppliedCallback?.(mode, label)
     // Reset mode-specific state so animations start fresh
     if (mode === 'sending') this.wavePhase = 0
     if (mode === 'building') { this.sweepPhase = 0; this.buildThinkAccum = 0; this.buildAmbientTimer = 0 }
     if (mode === 'reasoning' || mode === 'error-recovering') { this.accumEnergy = 0; this.ambientTimer = 0 }
+    if (mode === 'scaffolding') {
+      this.scaffoldBoard = null; this.scaffoldPlan = []; this.scaffoldPlanIdx = 0
+      this.scaffoldProgress = 0; this.scaffoldTarget = 0
+      this.scaffoldAutoProgress = 0; this.scaffoldAnim = null
+      this.scaffoldThinkAccum = 0; this.scaffoldAmbientTimer = 0; this.scaffoldTime = 0
+    }
     if (mode === 'editing') { this.editOps = []; this.editSpawnTimer = 0; this.editThinkAccum = 0; this.editAmbientTimer = 0 }
+    // When leaving done/emerald (hue 4.0) for idle/violet (hue 0), snap hue to cyan (1.0)
+    // so interpolation stays in cool tones and doesn't flash through amber/rose.
+    if (this.prevMode === 'done' && mode === 'idle') {
+      for (let i = 0; i < this.cellCount; i++) {
+        this.cells[i * STRIDE + H] = 1.0
+        this.cells[i * STRIDE + TH] = 0
+      }
+    }
     if (mode === 'error-fatal') this.fatalTimer = 0
+    if (mode === 'done') {
+      this.doneTimer = 0
+      this.doneCellPhases = new Float64Array(this.cellCount)
+      for (let i = 0; i < this.cellCount; i++) {
+        this.doneCellPhases[i] = Math.random() * Math.PI * 2
+        // Snap both current and target hue to emerald so interpolation never
+        // passes through the warm error tones (hue 1.5-2.0 = amber→rose)
+        this.cells[i * STRIDE + H] = 4.0
+        this.cells[i * STRIDE + TH] = 4.0
+      }
+    }
   }
 
   /** Set the normalized focus zone for editing mode. Null = full width. */
   setEditFocus(focus: EditFocus | null): void {
     this.editTarget = focus ?? { start: 0, end: 1 }
+  }
+
+  /** Set scaffold progress target (0-1). Monotonic — only advances. */
+  setScaffoldProgress(target: number): void {
+    this.scaffoldTarget = Math.max(this.scaffoldTarget, Math.min(1, target))
   }
 
   powerOn(): void {
@@ -289,11 +538,18 @@ export class SignalGridController {
     const burstEnergy = this.consumeEnergy()
     const thinkEnergy = this.consumeThinkEnergy()
 
+    // Poll scaffold progress from builder each frame (like energy — no React re-render)
+    if ((this.mode === 'scaffolding' || this.pendingMode) && this.consumeScaffoldProgress) {
+      const progress = this.consumeScaffoldProgress()
+      if (progress > this.scaffoldTarget) this.scaffoldTarget = progress
+    }
+
     // Advance power state
     this.tickPower(dt)
 
     // Always tick and render — cells are physical LEDs, always present
     this.tickMode(dt, burstEnergy, thinkEnergy)
+    this.checkSettled()
     this.interpolateCells(dt)
     this.render()
 
@@ -314,12 +570,109 @@ export class SignalGridController {
     switch (this.mode) {
       case 'sending': this.tickSending(dt); break
       case 'reasoning': this.tickReasoning(dt, burstEnergy + thinkEnergy); break
+      case 'scaffolding': this.tickScaffolding(dt, burstEnergy, thinkEnergy); break
       case 'building': this.tickBuilding(dt, burstEnergy, thinkEnergy); break
       case 'editing': this.tickEditing(dt, burstEnergy, thinkEnergy); break
       case 'error-recovering': this.tickErrorRecovering(dt, burstEnergy + thinkEnergy); break
       case 'error-fatal': this.tickErrorFatal(dt); break
+      case 'done': this.tickDone(dt); break
       case 'idle': this.tickIdle(dt); break
     }
+  }
+
+  // ── Think + ambient layer (shared by reasoning, scaffolding, building, editing, error) ──
+
+  private tickThinkLayer(
+    dt: number,
+    energy: number,
+    accum: number,
+    ambientTimer: number,
+    opts?: {
+      /** Max fraction of cells that can fire per frame (default 0.35). */
+      maxFires?: number
+      /** DR multiplier for visual response speed (default 1.0). */
+      drScale?: number
+      /** Ambient base count multiplier — higher = denser ambient (default 2). */
+      ambientIntensity?: number
+      /** Probability of warm error hues (0 = none, default 0). */
+      warmProb?: number
+    },
+  ): [accum: number, ambientTimer: number] {
+    const maxFires = opts?.maxFires ?? 0.45
+    const drScale = opts?.drScale ?? 1.0
+    const intensity = opts?.ambientIntensity ?? 3
+    const warmProb = opts?.warmProb ?? 0
+
+    const density = this.cellCount / 93
+
+    accum += energy
+    const threshold = 7 / density
+    let fires = Math.floor(accum / threshold)
+    fires = Math.min(fires, Math.ceil(this.cellCount * maxFires))
+    accum = Math.min(accum - fires * threshold, threshold * 8)
+
+    // Hotspots: 1-3 bright center cells + 1-2 dimmer neighbors
+    if (fires >= 5) {
+      const hotspots = Math.min(1 + Math.floor(Math.random() * 3), Math.floor(fires / 2))
+      for (let h = 0; h < hotspots; h++) {
+        const center = Math.floor(Math.random() * this.cellCount)
+        const centerCol = center % this.cols
+        const centerRow = Math.floor(center / this.cols)
+        const warm = warmProb > 0 && Math.random() < warmProb
+        const cOff = center * STRIDE
+        this.cells[cOff + TB] = 0.7 + Math.random() * 0.3
+        this.cells[cOff + TH] = warm ? 1.3 + Math.random() * 0.4 : 0.5 + Math.random() * 0.5
+        this.cells[cOff + DR] = 2.0 * drScale
+        fires--
+        const neighborCount = 1 + Math.floor(Math.random() * 2)
+        for (let n = 0; n < neighborCount && fires > 0; n++) {
+          const dc = Math.floor(Math.random() * 3) - 1
+          const dr = Math.floor(Math.random() * 3) - 1
+          if (dc === 0 && dr === 0) continue
+          const nc = centerCol + dc
+          const nr = centerRow + dr
+          if (nr < 0 || nr >= ROWS || nc < 0 || nc >= this.cols) continue
+          const nOff = (nr * this.cols + nc) * STRIDE
+          this.cells[nOff + TB] = 0.3 + Math.random() * 0.4
+          this.cells[nOff + TH] = warm ? 1.2 + Math.random() * 0.3 : 0.4 + Math.random() * 0.4
+          this.cells[nOff + DR] = 2.5 * drScale
+          fires--
+        }
+      }
+    }
+
+    // Scatter remaining fires
+    for (let f = 0; f < fires; f++) {
+      const idx = Math.floor(Math.random() * this.cellCount)
+      const off = idx * STRIDE
+      const warm = warmProb > 0 && Math.random() < warmProb
+      this.cells[off + TB] = 0.45 + Math.random() * 0.45
+      this.cells[off + TH] = warm ? 1.3 + Math.random() * 0.4 : Math.random() * 0.7
+      this.cells[off + DR] = (2.0 + Math.random()) * drScale
+    }
+
+    // Ambient hum — baseline activity even with zero energy
+    const recent = Math.min(1, accum / 50)
+    const ambientInterval = 0.12 - recent * 0.08
+    ambientTimer += dt
+    if (ambientTimer > ambientInterval) {
+      ambientTimer -= ambientInterval
+      const count = Math.max(1, Math.round((2 + recent * intensity + Math.random() * 2) * density))
+      for (let a = 0; a < count; a++) {
+        const idx = Math.floor(Math.random() * this.cellCount)
+        const off = idx * STRIDE
+        const warm = warmProb > 0 && Math.random() < warmProb * 0.7
+        const roll = Math.random()
+        const brightness = roll < 0.7
+          ? 0.15 + Math.random() * 0.2
+          : 0.3 + Math.random() * 0.25
+        this.cells[off + TB] = Math.max(this.cells[off + TB], brightness)
+        this.cells[off + TH] = warm ? 1.2 + Math.random() * 0.5 : Math.random()
+        this.cells[off + DR] = (1.5 + Math.random() * 0.5) * drScale
+      }
+    }
+
+    return [accum, ambientTimer]
   }
 
   // ── Sending wave ─────────────────────────────────────────────────────
@@ -353,86 +706,430 @@ export class SignalGridController {
     }
   }
 
+  // ── Scaffolding (solver-driven tetris progress bar) ────────────────────
+  //
+  // Grid fills left→right as solver-optimal pieces are placed.
+  // Progress is driven externally (builder milestones) + auto-increment.
+  // Each turn: solver picks optimal (piece, rotation, row, landing col).
+  // Animation: Preview (slot-machine cycling random pieces) → Select
+  // (double-flash optimal) → Slide (left to landing) → Lock (integrate).
+  // At cap or target: Wait phase (pieces preview but don't place).
+
+  private tickScaffolding(dt: number, _burstEnergy: number, _thinkEnergy: number): void {
+    this.scaffoldTime += dt
+
+    // ── Initialize board + pre-compute tiling plan on first frame ───
+    if (!this.scaffoldBoard) {
+      this.scaffoldBoard = createEmptyBoard(this.cols)
+      this.scaffoldPlan = generateTilingPlan(this.cols)
+      this.scaffoldPlanIdx = 0
+    }
+
+    // ── DEBUG MODE: show exactly one shape at a time, 1s each, nothing else ──
+
+    // Clear every cell to dark each frame
+    for (let i = 0; i < this.cellCount; i++) {
+      const off = i * STRIDE
+      this.cells[off + TB] = 0
+      this.cells[off + TH] = 0
+      this.cells[off + DR] = 20
+      this.cells[off + YO] = 0
+    }
+
+    // Render filled board cells (dim cyan so progress is visible)
+    for (let r = 0; r < ROWS; r++) {
+      for (let c = 0; c < this.cols; c++) {
+        if (!this.scaffoldBoard[r][c]) continue
+        const off = (r * this.cols + c) * STRIDE
+        this.cells[off + TB] = 0.25
+        this.cells[off + TH] = 1.0
+        this.cells[off + DR] = 20
+      }
+    }
+
+    // Step through plan: 1 second per preview/select, no slide/lock animation
+    if (this.scaffoldPlanIdx >= this.scaffoldPlan.length) return
+    const planned = this.scaffoldPlan[this.scaffoldPlanIdx]
+
+    // Build the debug sequence: rejected pieces (rot0) + winner (actual rot)
+    type StepType = 'reject' | 'rotate' | 'winner' | 'select' | 'drop' | 'slide'
+    const seq: { shape: Shape; originRow: number; label: string; type: StepType }[] = []
+
+    // Rejected pieces in rot0
+    for (const rej of planned.rejected) {
+      const shape = rej.rotations[0]
+      const height = Math.max(...shape.map(([r]) => r)) + 1
+      seq.push({ shape, originRow: Math.floor((ROWS - height) / 2), label: `REJECT ${rej.id} rot0`, type: 'reject' })
+    }
+
+    // Winner rotating from family base to final rotation
+    const ri = planned.rotationIndex
+    const base = planned.piece.rotations.length > 4 ? Math.floor(ri / 4) * 4 : 0
+    const winnerHeight = Math.max(...planned.shape.map(([row]) => row)) + 1
+    const winnerCentered = Math.floor((ROWS - winnerHeight) / 2)
+    for (let r = base; r <= ri; r++) {
+      const shape = planned.piece.rotations[r]
+      const height = Math.max(...shape.map(([row]) => row)) + 1
+      seq.push({
+        shape,
+        originRow: Math.floor((ROWS - height) / 2),
+        label: r === ri ? `WINNER ${planned.piece.id} rot${r}` : `ROTATE ${planned.piece.id} rot${r}`,
+        type: r === ri ? 'winner' : 'rotate',
+      })
+    }
+
+    // Double-flash select (same timing as editing's DefragPhase.Select: 0.45s)
+    seq.push({ shape: planned.shape, originRow: winnerCentered, label: 'SELECT', type: 'select' })
+
+    // Slide: move piece from preview position to landing position, one cell at a time.
+    // First drop to landing row (if needed), then slide left to landing column.
+    const front = fillFront(this.scaffoldBoard)
+    const pieceWidth = Math.max(...planned.shape.map(([, c]) => c)) + 1
+    const previewCol = front + pieceWidth + 3
+
+    // Row drop (if centered row ≠ landing row)
+    if (winnerCentered !== planned.originRow) {
+      seq.push({ shape: planned.shape, originRow: planned.originRow, label: `DROP → row ${planned.originRow}`, type: 'drop' })
+    }
+
+    // Column-by-column slide from preview to landing
+    const startCol = Math.min(previewCol, this.cols - pieceWidth)
+    for (let c = startCol - 1; c >= planned.originCol; c--) {
+      seq.push({ shape: planned.shape, originRow: planned.originRow, label: `SLIDE → col ${c}`, type: 'slide' })
+    }
+
+    const DWELL = 1.0 // 1 second per shape
+    const SELECT_DUR = 0.45 // matches editing's DefragPhase.Select
+    const SLIDE_DWELL = 0.15 // fast per-column slide
+    const elapsed = this.scaffoldTime
+
+    // Compute elapsed thresholds per step (select and slide are shorter)
+    let totalDur = 0
+    const stepStarts: number[] = []
+    for (const s of seq) {
+      stepStarts.push(totalDur)
+      if (s.type === 'select') totalDur += SELECT_DUR
+      else if (s.type === 'slide' || s.type === 'drop') totalDur += SLIDE_DWELL
+      else totalDur += DWELL
+    }
+
+    if (elapsed >= totalDur) {
+      console.log(`%c[debug] PLACED ${planned.piece.id} rot${planned.rotationIndex} at col ${planned.originCol}`, 'color:#10b981;font-weight:bold')
+      this.scaffoldBoard = applyPlacement(this.scaffoldBoard, planned)
+      this.scaffoldPlanIdx++
+      this.scaffoldTime = 0
+      return
+    }
+
+    // Find current step
+    let stepIdx = 0
+    for (let i = seq.length - 1; i >= 0; i--) {
+      if (elapsed >= stepStarts[i]) { stepIdx = i; break }
+    }
+    const step = seq[stepIdx]
+    const stepElapsed = elapsed - stepStarts[stepIdx]
+
+    // Log on first frame of each step
+    let prevStepIdx = 0
+    for (let i = seq.length - 1; i >= 0; i--) {
+      if (elapsed - dt >= stepStarts[i]) { prevStepIdx = i; break }
+    }
+    if (stepIdx !== prevStepIdx || elapsed - dt < 0) {
+      const styles: Record<StepType, string> = {
+        reject: 'color:#f59e0b', rotate: 'color:#8b5cf6', winner: 'color:#06b6d4;font-weight:bold',
+        select: 'color:#fff;font-weight:bold', drop: 'color:#10b981', slide: 'color:#10b981',
+      }
+      console.log(`%c[debug] ${step.label}  ${shapeAscii(step.shape)}`, styles[step.type])
+    }
+
+    // Render — slide/drop steps encode their column in the label, others use preview position
+    const frontNow = fillFront(this.scaffoldBoard)
+    const pw = Math.max(...step.shape.map(([, c]) => c)) + 1
+    const previewColNow = frontNow + pw + 3
+
+    // For slide steps, extract the target column from the sequence position.
+    // The slide steps count down from startCol-1 to originCol.
+    let col: number
+    if (step.type === 'slide') {
+      // Slide steps are sequential after drop/select — compute column from step index
+      const slideStartIdx = seq.findIndex(s => s.type === 'slide')
+      const slideOffset = stepIdx - slideStartIdx
+      const slideStartCol = Math.min(previewColNow, this.cols - pw) - 1
+      col = slideStartCol - slideOffset
+    } else if (step.type === 'drop') {
+      col = Math.min(previewColNow, this.cols - pw)
+    } else {
+      col = Math.min(previewColNow, this.cols - pw)
+    }
+
+    if (step.type === 'select') {
+      // Exact same timing as editing's DefragPhase.Select:
+      // 0.00-0.10: flash (bright, lifted)
+      // 0.10-0.25: dim (forced dark)
+      // 0.25-0.35: flash (bright, lifted)
+      // 0.35-0.45: hold (bright, slightly lifted)
+      const t = stepElapsed
+      let brightness: number, hue: number, yOffset: number, decay: number
+      if (t < 0.10) {
+        brightness = 0.95; hue = 1.0; decay = 8.0; yOffset = -1.5
+      } else if (t < 0.25) {
+        brightness = 0.0; hue = 0.5; decay = 10.0; yOffset = 0
+      } else if (t < 0.35) {
+        brightness = 0.95; hue = 1.0; decay = 8.0; yOffset = -1.5
+      } else {
+        brightness = 0.95; hue = 1.0; decay = 5.0; yOffset = -0.8
+      }
+      for (const [dr, dc] of step.shape) {
+        const row = step.originRow + dr
+        const c = col + dc
+        if (row < 0 || row >= ROWS || c < 0 || c >= this.cols) continue
+        const off = (row * this.cols + c) * STRIDE
+        this.cells[off + TB] = brightness
+        this.cells[off + TH] = hue
+        this.cells[off + DR] = decay
+        this.cells[off + YO] = yOffset
+      }
+    } else {
+      const visual: Record<string, { brightness: number; hue: number; yOffset: number }> = {
+        reject: { brightness: 0.5, hue: -0.5, yOffset: 0 },    // pink — not this one
+        rotate: { brightness: 0.55, hue: 0.3, yOffset: 0 },   // muted violet-cyan — trying rotations
+        winner: { brightness: 0.55, hue: 0.3, yOffset: 0 },   // same — final rotation (select lights it up)
+        drop:   { brightness: 0.9, hue: 1.0, yOffset: -0.5 },  // bright cyan — moving
+        slide:  { brightness: 0.9, hue: 1.0, yOffset: -0.5 },  // bright cyan — moving
+      }
+      const v = visual[step.type]
+      for (const [dr, dc] of step.shape) {
+        const row = step.originRow + dr
+        const c = col + dc
+        if (row < 0 || row >= ROWS || c < 0 || c >= this.cols) continue
+        const off = (row * this.cols + c) * STRIDE
+        this.cells[off + TB] = v.brightness
+        this.cells[off + TH] = v.hue
+        this.cells[off + DR] = 20
+        this.cells[off + YO] = v.yOffset
+      }
+    }
+  }
+
+  /** Start a new turn: replay the solver's search — rejected pieces then the winner. */
+  private startScaffoldTurn(optimal: Placement): ScaffoldAnim {
+    const completing = this.scaffoldTarget >= 1.0
+
+    // Previews: last 1-3 rejections (rot0), then winner rotating to its final orientation.
+    // Rotation families: rotations 0-3 are one family, 4-7 another (quarter turns within each).
+    const previews: ScaffoldPreview[] = []
+
+    // Rejected pieces in rot0
+    if (optimal.rejected.length > 0) {
+      const rej = optimal.rejected
+      const n = Math.min(rej.length, 1 + Math.floor(Math.random() * 3))
+      for (const r of rej.slice(-n)) {
+        const shape = r.rotations[0]
+        const height = Math.max(...shape.map(([row]) => row)) + 1
+        previews.push({ shape, originRow: Math.floor((ROWS - height) / 2) })
+      }
+    }
+
+    // Winner rotating: step from family base to final rotation, one quarter turn at a time.
+    // Last frame uses the actual landing originRow so it visually "drops" into position.
+    const ri = optimal.rotationIndex
+    const base = optimal.piece.rotations.length > 4 ? Math.floor(ri / 4) * 4 : 0
+    for (let r = base; r <= ri; r++) {
+      const shape = optimal.piece.rotations[r]
+      const height = Math.max(...shape.map(([row]) => row)) + 1
+      previews.push({ shape, originRow: Math.floor((ROWS - height) / 2) })
+    }
+    // If the centered row differs from the landing row, add a final "drop" frame
+    if (previews.length > 0) {
+      const lastPv = previews[previews.length - 1]
+      if (lastPv.originRow !== optimal.originRow) {
+        previews.push({ shape: optimal.shape, originRow: optimal.originRow })
+      }
+    }
+
+    const front = fillFront(this.scaffoldBoard!)
+    const pieceWidth = Math.max(...optimal.shape.map(([, c]) => c)) + 1
+    const previewCol = front + pieceWidth + 3
+
+    const currentFill = fillCount(this.scaffoldBoard!)
+    const totalCells = ROWS * this.cols
+    const gapFraction = (this.scaffoldProgress * totalCells - currentFill) / totalCells
+    const speed = completing ? 4.0 : gapFraction > 0.3 ? 3.0 : gapFraction > 0.15 ? 2.0 : 1.0
+
+    return {
+      optimal, previews, previewIdx: 0,
+      previewCol, slidePos: previewCol,
+      phase: previews.length > 0 ? ScaffoldAnimPhase.Preview : ScaffoldAnimPhase.Select,
+      timer: 0, speed,
+    }
+  }
+
+  /** Start wait-mode animation: cycle random pieces without placing. */
+  private startScaffoldWait(): ScaffoldAnim {
+    const front = fillFront(this.scaffoldBoard!)
+    const previewCol = Math.min(front + 2, this.cols - 1)
+    const previews: ScaffoldPreview[] = []
+    for (let i = 0; i < 3; i++) {
+      const rp = PIECES[Math.floor(Math.random() * PIECES.length)]
+      const shape = rp.rotations[Math.floor(Math.random() * rp.rotations.length)]
+      const height = Math.max(...shape.map(([r]) => r)) + 1
+      previews.push({ shape, originRow: Math.floor((ROWS - height) / 2) })
+    }
+    return {
+      optimal: null, previews, previewIdx: 0,
+      previewCol, slidePos: previewCol,
+      phase: ScaffoldAnimPhase.Wait, timer: 0, speed: 1.0,
+    }
+  }
+
+  /** Advance the scaffold piece animation state machine.
+   *  All phase durations use base constants (S_*) scaled by SCAFFOLD_TEMPO and per-piece speed. */
+  private advanceScaffoldAnim(dt: number, shouldWait: boolean): void {
+    const a = this.scaffoldAnim!
+    const tempo = SCAFFOLD_TEMPO * a.speed
+    a.timer += dt
+
+    switch (a.phase) {
+      case ScaffoldAnimPhase.Preview: {
+        if (a.timer >= S_PREVIEW / tempo) {
+          a.previewIdx++
+          a.timer = 0
+          if (a.previewIdx >= a.previews.length) {
+            a.phase = ScaffoldAnimPhase.Select
+            a.timer = 0
+            console.log(`%c[scaffold] SELECT winner: ${a.optimal!.piece.id} rot${a.optimal!.rotationIndex}  ${shapeAscii(a.optimal!.shape)}`, 'color:#06b6d4')
+          } else {
+            const next = a.previews[a.previewIdx]
+            console.log(`[scaffold] PREVIEW ${a.previewIdx + 1}/${a.previews.length}: ${shapeAscii(next.shape)}`)
+          }
+        }
+        const pv = a.previews[Math.min(a.previewIdx, a.previews.length - 1)]
+        this.renderScaffoldShape(pv.shape, pv.originRow, a.previewCol, 0.5, -0.6, 4.0, 0)
+        break
+      }
+
+      case ScaffoldAnimPhase.Select: {
+        const { shape, originRow } = a.optimal!
+        const p = a.timer / (S_SELECT / tempo) // 0..1 normalized progress
+        if (p < 0.25) {
+          this.renderScaffoldShape(shape, originRow, a.previewCol, 0.95, -0.8, 8.0, -1.5)
+        } else if (p < 0.50) {
+          this.renderScaffoldShape(shape, originRow, a.previewCol, 0.05, -0.4, 10.0, 0)
+        } else if (p < 0.67) {
+          this.renderScaffoldShape(shape, originRow, a.previewCol, 0.95, -0.8, 8.0, -1.5)
+        } else {
+          this.renderScaffoldShape(shape, originRow, a.previewCol, 0.85, -0.8, 5.0, -0.8)
+        }
+        if (p >= 1.0) {
+          a.phase = ScaffoldAnimPhase.Slide
+          a.timer = 0
+          a.slidePos = a.previewCol
+        }
+        break
+      }
+
+      case ScaffoldAnimPhase.Slide: {
+        const { shape, originRow, originCol } = a.optimal!
+        const distance = a.previewCol - originCol
+        const slideSpeed = Math.max(distance * S_SLIDE_K, 6) * tempo
+        a.slidePos -= slideSpeed * dt
+        const col = Math.max(originCol, Math.round(a.slidePos))
+        this.renderScaffoldShape(shape, originRow, col, 0.90, -0.8, 5.0, -0.5)
+        // Trailing glow
+        const maxDc = Math.max(...shape.map(([, c]) => c))
+        const trail = col + maxDc + 1
+        if (trail < this.cols) {
+          for (let row = 0; row < ROWS; row++) {
+            const off = (row * this.cols + trail) * STRIDE
+            this.cells[off + TB] = Math.max(this.cells[off + TB], 0.2)
+            this.cells[off + TH] = -0.3
+            this.cells[off + DR] = 3.5 * SCAFFOLD_TEMPO
+          }
+        }
+        if (a.slidePos <= originCol) {
+          a.phase = ScaffoldAnimPhase.Lock
+          a.timer = 0
+        }
+        break
+      }
+
+      case ScaffoldAnimPhase.Lock: {
+        const dur = S_LOCK / SCAFFOLD_TEMPO
+        const p = a.timer / dur
+        const { cells } = a.optimal!
+        if (p < 0.30) {
+          for (const [r, c] of cells) {
+            if (r < 0 || r >= ROWS || c < 0 || c >= this.cols) continue
+            const off = (r * this.cols + c) * STRIDE
+            this.cells[off + TB] = 0.95
+            this.cells[off + TH] = 1.0
+            this.cells[off + DR] = 6.0 * SCAFFOLD_TEMPO
+            this.cells[off + YO] = -1.0
+          }
+        } else {
+          const fade = Math.max(0, 1 - (p - 0.30) / 0.70)
+          for (const [r, c] of cells) {
+            if (r < 0 || r >= ROWS || c < 0 || c >= this.cols) continue
+            const off = (r * this.cols + c) * STRIDE
+            this.cells[off + TB] = 0.35 + fade * 0.5
+            this.cells[off + TH] = 1.0
+            this.cells[off + DR] = 3.0 * SCAFFOLD_TEMPO
+            this.cells[off + YO] = -fade * 0.5
+          }
+        }
+        if (p >= 1.0) {
+          console.log(`%c[scaffold] LOCK ${a.optimal!.piece.id} rot${a.optimal!.rotationIndex} at col ${a.optimal!.originCol}`, 'color:#10b981')
+          this.scaffoldBoard = applyPlacement(this.scaffoldBoard!, a.optimal!)
+          this.scaffoldPlanIdx++
+          this.scaffoldAnim = null
+        }
+        break
+      }
+
+      case ScaffoldAnimPhase.Wait: {
+        const dwell = S_WAIT / SCAFFOLD_TEMPO * (1 + Math.random() * 0.25)
+        if (a.timer >= dwell) {
+          a.previewIdx = (a.previewIdx + 1) % a.previews.length
+          a.timer = 0
+        }
+        const pv = a.previews[a.previewIdx % a.previews.length]
+        const fade = 0.3 + Math.sin(a.timer * 4) * 0.1
+        this.renderScaffoldShape(pv.shape, pv.originRow, a.previewCol, fade, -0.4, 3.0, 0)
+
+        if (!shouldWait) {
+          this.scaffoldAnim = null
+        }
+        break
+      }
+    }
+  }
+
+  /** Render a piece shape at the given board position.
+   *  DR is scaled by SCAFFOLD_TEMPO for crisp response at animation speed.
+   *  Skips cells already filled on the board so pieces never clip through placed tiles. */
+  private renderScaffoldShape(
+    shape: Shape, originRow: number, anchorCol: number,
+    brightness: number, hue: number, decay: number, yOffset: number,
+  ): void {
+    for (const [dr, dc] of shape) {
+      const row = originRow + dr
+      const col = anchorCol + dc
+      if (row < 0 || row >= ROWS || col < 0 || col >= this.cols) continue
+      if (this.scaffoldBoard?.[row][col]) continue
+      const off = (row * this.cols + col) * STRIDE
+      this.cells[off + TB] = Math.max(this.cells[off + TB], brightness)
+      this.cells[off + TH] = hue
+      this.cells[off + DR] = decay * SCAFFOLD_TEMPO
+      this.cells[off + YO] = yOffset
+    }
+  }
+
   // ── Reasoning (token-correlated neural firing) ───────────────────────
 
   private tickReasoning(dt: number, energy: number): void {
-    this.accumEnergy += energy
-
-    // Scale activation counts so the same energy produces the same visual density
-    // regardless of grid width. Reference: 93 cells (sidebar at 280px).
-    const density = this.cellCount / 93
-
-    // Convert energy to fires. Threshold scales inversely with density so wider
-    // grids fire proportionally more cells from the same energy.
-    const threshold = 7 / density
-    let fires = Math.floor(this.accumEnergy / threshold)
-    fires = Math.min(fires, Math.ceil(this.cellCount * 0.45))
-    this.accumEnergy = Math.min(this.accumEnergy - fires * threshold, threshold * 8) // cap overflow
-
-    // Large bursts: 1-3 small hotspots (center + 1-2 neighbors)
-    if (fires >= 5) {
-      const hotspots = Math.min(1 + Math.floor(Math.random() * 3), Math.floor(fires / 2))
-      for (let h = 0; h < hotspots; h++) {
-        const center = Math.floor(Math.random() * this.cellCount)
-        const centerCol = center % this.cols
-        const centerRow = Math.floor(center / this.cols)
-        // Center cell — brightest
-        const cOff = center * STRIDE
-        this.cells[cOff + TB] = 0.7 + Math.random() * 0.3
-        this.cells[cOff + TH] = 0.5 + Math.random() * 0.5 // pushed toward cyan
-        this.cells[cOff + DR] = 2.0
-        fires--
-        // 1-2 random adjacent neighbors at lower intensity
-        const neighborCount = 1 + Math.floor(Math.random() * 2)
-        for (let n = 0; n < neighborCount && fires > 0; n++) {
-          const dc = Math.floor(Math.random() * 3) - 1
-          const dr = Math.floor(Math.random() * 3) - 1
-          if (dc === 0 && dr === 0) continue
-          const nc = centerCol + dc
-          const nr = centerRow + dr
-          if (nr < 0 || nr >= ROWS || nc < 0 || nc >= this.cols) continue
-          const nOff = (nr * this.cols + nc) * STRIDE
-          this.cells[nOff + TB] = 0.3 + Math.random() * 0.4
-          this.cells[nOff + TH] = 0.4 + Math.random() * 0.4
-          this.cells[nOff + DR] = 2.5
-          fires--
-        }
-      }
-    }
-
-    // Scatter remaining fires — energy-driven cells punch above the ambient baseline
-    for (let f = 0; f < fires; f++) {
-      const idx = Math.floor(Math.random() * this.cellCount)
-      const off = idx * STRIDE
-      this.cells[off + TB] = 0.45 + Math.random() * 0.45 // 0.45-0.90: clearly above ambient
-      this.cells[off + TH] = Math.random() * 0.7
-      this.cells[off + DR] = 2.0 + Math.random()
-    }
-
-    // Ambient background hum — baseline neural activity even with zero energy.
-    // Interval and count both scale with recent energy: more energy = faster firing.
-    // At rest: ~every 120ms, 2-4 cells. With energy: up to every 40ms, 4-8 cells.
-    const recentEnergy = Math.min(1, this.accumEnergy / 50) // 0..1 energy level
-    const ambientInterval = 0.12 - recentEnergy * 0.08 // 120ms at rest → 40ms at peak
-    const ambientBase = 2 + recentEnergy * 3             // 2-5 cells per tick
-
-    this.ambientTimer += dt
-    if (this.ambientTimer > ambientInterval) {
-      this.ambientTimer -= ambientInterval
-      const count = Math.max(1, Math.round((ambientBase + Math.random() * 2) * density))
-      for (let a = 0; a < count; a++) {
-        const idx = Math.floor(Math.random() * this.cellCount)
-        const off = idx * STRIDE
-        // Varied intensity — most cells get a gentle glow, some pop brighter
-        const roll = Math.random()
-        const ambientBrightness = roll < 0.7
-          ? 0.15 + Math.random() * 0.2   // gentle glow
-          : 0.3 + Math.random() * 0.25   // occasional brighter pop
-        this.cells[off + TB] = Math.max(this.cells[off + TB], ambientBrightness)
-        this.cells[off + TH] = Math.random()
-        this.cells[off + DR] = 1.5 + Math.random() * 0.5
-      }
-    }
+    ;[this.accumEnergy, this.ambientTimer] = this.tickThinkLayer(
+      dt, energy, this.accumEnergy, this.ambientTimer,
+    )
 
     // Drift active cell hues toward cyan over time
     for (let i = 0; i < this.cellCount; i++) {
@@ -497,70 +1194,10 @@ export class SignalGridController {
       }
     }
 
-    // Thinking activity — reasoning-style neural firing from token generation.
-    // Token streaming (text, reasoning, tool args) isn't shown to the user,
-    // so it manifests as thinking activity layered on top of the sweep.
-    this.buildThinkAccum += thinkEnergy
-    const density = this.cellCount / 93
-    const threshold = 7 / density
-    let fires = Math.floor(this.buildThinkAccum / threshold)
-    fires = Math.min(fires, Math.ceil(this.cellCount * 0.35))
-    this.buildThinkAccum = Math.min(this.buildThinkAccum - fires * threshold, threshold * 8)
-
-    if (fires >= 5) {
-      const hotspots = Math.min(1 + Math.floor(Math.random() * 3), Math.floor(fires / 2))
-      for (let h = 0; h < hotspots; h++) {
-        const center = Math.floor(Math.random() * this.cellCount)
-        const centerCol = center % this.cols
-        const centerRow = Math.floor(center / this.cols)
-        const cOff = center * STRIDE
-        this.cells[cOff + TB] = 0.7 + Math.random() * 0.3
-        this.cells[cOff + TH] = 0.5 + Math.random() * 0.5
-        this.cells[cOff + DR] = 2.0
-        fires--
-        const neighborCount = 1 + Math.floor(Math.random() * 2)
-        for (let n = 0; n < neighborCount && fires > 0; n++) {
-          const dc = Math.floor(Math.random() * 3) - 1
-          const dr = Math.floor(Math.random() * 3) - 1
-          if (dc === 0 && dr === 0) continue
-          const nc = centerCol + dc
-          const nr = centerRow + dr
-          if (nr < 0 || nr >= ROWS || nc < 0 || nc >= this.cols) continue
-          const nOff = (nr * this.cols + nc) * STRIDE
-          this.cells[nOff + TB] = 0.3 + Math.random() * 0.4
-          this.cells[nOff + TH] = 0.4 + Math.random() * 0.4
-          this.cells[nOff + DR] = 2.5
-          fires--
-        }
-      }
-    }
-    for (let f = 0; f < fires; f++) {
-      const idx = Math.floor(Math.random() * this.cellCount)
-      const off = idx * STRIDE
-      this.cells[off + TB] = 0.45 + Math.random() * 0.45
-      this.cells[off + TH] = Math.random() * 0.7
-      this.cells[off + DR] = 2.0 + Math.random()
-    }
-
-    // Ambient hum while thinking — keeps grid alive between token chunks
-    const recentThink = Math.min(1, this.buildThinkAccum / 50)
-    const ambientInterval = 0.12 - recentThink * 0.08
-    this.buildAmbientTimer += dt
-    if (this.buildAmbientTimer > ambientInterval) {
-      this.buildAmbientTimer -= ambientInterval
-      const count = Math.max(1, Math.round((2 + recentThink * 2 + Math.random() * 2) * density))
-      for (let a = 0; a < count; a++) {
-        const idx = Math.floor(Math.random() * this.cellCount)
-        const off = idx * STRIDE
-        const roll = Math.random()
-        const ambientBrightness = roll < 0.7
-          ? 0.15 + Math.random() * 0.2
-          : 0.3 + Math.random() * 0.25
-        this.cells[off + TB] = Math.max(this.cells[off + TB], ambientBrightness)
-        this.cells[off + TH] = Math.random()
-        this.cells[off + DR] = 1.5 + Math.random() * 0.5
-      }
-    }
+    // Think + ambient layer on top of sweep
+    ;[this.buildThinkAccum, this.buildAmbientTimer] = this.tickThinkLayer(
+      dt, thinkEnergy, this.buildThinkAccum, this.buildAmbientTimer,
+    )
 
     // Decay targets
     for (let i = 0; i < this.cellCount; i++) {
@@ -763,70 +1400,10 @@ export class SignalGridController {
       }
     }
 
-    // ── Thinking activity — full-grid reasoning-style neural firing ─────
-    // Identical to building mode's think layer: fires across the entire grid,
-    // not constrained to the zone. The defrag bars are the zone-specific part;
-    // this is the independent background layer underneath.
-    this.editThinkAccum += thinkEnergy + burstEnergy
-    const thinkThreshold = 7 / density
-    let fires = Math.floor(this.editThinkAccum / thinkThreshold)
-    fires = Math.min(fires, Math.ceil(this.cellCount * 0.35))
-    this.editThinkAccum = Math.min(this.editThinkAccum - fires * thinkThreshold, thinkThreshold * 8)
-
-    if (fires >= 5) {
-      const hotspots = Math.min(1 + Math.floor(Math.random() * 3), Math.floor(fires / 2))
-      for (let h = 0; h < hotspots; h++) {
-        const center = Math.floor(Math.random() * this.cellCount)
-        const centerCol = center % this.cols
-        const centerRow = Math.floor(center / this.cols)
-        const cOff = center * STRIDE
-        this.cells[cOff + TB] = 0.7 + Math.random() * 0.3
-        this.cells[cOff + TH] = 0.5 + Math.random() * 0.5
-        this.cells[cOff + DR] = 2.0
-        fires--
-        const neighborCount = 1 + Math.floor(Math.random() * 2)
-        for (let n = 0; n < neighborCount && fires > 0; n++) {
-          const dc = Math.floor(Math.random() * 3) - 1
-          const dr = Math.floor(Math.random() * 3) - 1
-          if (dc === 0 && dr === 0) continue
-          const nc = centerCol + dc
-          const nr = centerRow + dr
-          if (nr < 0 || nr >= ROWS || nc < 0 || nc >= this.cols) continue
-          const nOff = (nr * this.cols + nc) * STRIDE
-          this.cells[nOff + TB] = 0.3 + Math.random() * 0.4
-          this.cells[nOff + TH] = 0.4 + Math.random() * 0.4
-          this.cells[nOff + DR] = 2.5
-          fires--
-        }
-      }
-    }
-    for (let f = 0; f < fires; f++) {
-      const idx = Math.floor(Math.random() * this.cellCount)
-      const off = idx * STRIDE
-      this.cells[off + TB] = 0.45 + Math.random() * 0.45
-      this.cells[off + TH] = Math.random() * 0.7
-      this.cells[off + DR] = 2.0 + Math.random()
-    }
-
-    // ── Ambient hum — full-grid baseline activity between token chunks ──
-    const recentThink = Math.min(1, this.editThinkAccum / 50)
-    const ambientInterval = 0.12 - recentThink * 0.08
-    this.editAmbientTimer += dt
-    if (this.editAmbientTimer > ambientInterval) {
-      this.editAmbientTimer -= ambientInterval
-      const count = Math.max(1, Math.round((2 + recentThink * 2 + Math.random() * 2) * density))
-      for (let a = 0; a < count; a++) {
-        const idx = Math.floor(Math.random() * this.cellCount)
-        const off = idx * STRIDE
-        const roll = Math.random()
-        const ambientBrightness = roll < 0.7
-          ? 0.15 + Math.random() * 0.2
-          : 0.3 + Math.random() * 0.25
-        this.cells[off + TB] = Math.max(this.cells[off + TB], ambientBrightness)
-        this.cells[off + TH] = Math.random()
-        this.cells[off + DR] = 1.5 + Math.random() * 0.5
-      }
-    }
+    // Think + ambient layer underneath the defrag bars
+    ;[this.editThinkAccum, this.editAmbientTimer] = this.tickThinkLayer(
+      dt, thinkEnergy + burstEnergy, this.editThinkAccum, this.editAmbientTimer,
+    )
 
     // ── Decay ──
     for (let i = 0; i < this.cellCount; i++) {
@@ -870,72 +1447,10 @@ export class SignalGridController {
   // ── Error recovering ("sprinkle some red" — reasoning with distress) ─
 
   private tickErrorRecovering(dt: number, energy: number): void {
-    this.accumEnergy += energy
-    const density = this.cellCount / 93
-
-    const threshold = 7 / density
-    let fires = Math.floor(this.accumEnergy / threshold)
-    fires = Math.min(fires, Math.ceil(this.cellCount * 0.45))
-    this.accumEnergy = Math.min(this.accumEnergy - fires * threshold, threshold * 8)
-
-    // Same hotspot/scatter pattern as reasoning, but ~35% of cells get warm error hues
-    if (fires >= 5) {
-      const hotspots = Math.min(1 + Math.floor(Math.random() * 3), Math.floor(fires / 2))
-      for (let h = 0; h < hotspots; h++) {
-        const center = Math.floor(Math.random() * this.cellCount)
-        const centerCol = center % this.cols
-        const centerRow = Math.floor(center / this.cols)
-        const warm = Math.random() < 0.35
-        const cOff = center * STRIDE
-        this.cells[cOff + TB] = 0.7 + Math.random() * 0.3
-        this.cells[cOff + TH] = warm ? 1.3 + Math.random() * 0.4 : 0.5 + Math.random() * 0.5
-        this.cells[cOff + DR] = 2.0
-        fires--
-        const neighborCount = 1 + Math.floor(Math.random() * 2)
-        for (let n = 0; n < neighborCount && fires > 0; n++) {
-          const dc = Math.floor(Math.random() * 3) - 1
-          const dr = Math.floor(Math.random() * 3) - 1
-          if (dc === 0 && dr === 0) continue
-          const nc = centerCol + dc
-          const nr = centerRow + dr
-          if (nr < 0 || nr >= ROWS || nc < 0 || nc >= this.cols) continue
-          const nOff = (nr * this.cols + nc) * STRIDE
-          this.cells[nOff + TB] = 0.3 + Math.random() * 0.4
-          this.cells[nOff + TH] = warm ? 1.2 + Math.random() * 0.3 : 0.4 + Math.random() * 0.4
-          this.cells[nOff + DR] = 2.5
-          fires--
-        }
-      }
-    }
-    for (let f = 0; f < fires; f++) {
-      const idx = Math.floor(Math.random() * this.cellCount)
-      const off = idx * STRIDE
-      const warm = Math.random() < 0.35
-      this.cells[off + TB] = 0.45 + Math.random() * 0.45
-      this.cells[off + TH] = warm ? 1.3 + Math.random() * 0.4 : Math.random() * 0.7
-      this.cells[off + DR] = 2.0 + Math.random()
-    }
-
-    // Ambient with warm mix
-    const recentEnergy = Math.min(1, this.accumEnergy / 50)
-    const ambientInterval = 0.12 - recentEnergy * 0.08
-    this.ambientTimer += dt
-    if (this.ambientTimer > ambientInterval) {
-      this.ambientTimer -= ambientInterval
-      const count = Math.max(1, Math.round((2 + recentEnergy * 3 + Math.random() * 2) * density))
-      for (let a = 0; a < count; a++) {
-        const idx = Math.floor(Math.random() * this.cellCount)
-        const off = idx * STRIDE
-        const warm = Math.random() < 0.25
-        const roll = Math.random()
-        const ambientBrightness = roll < 0.7
-          ? 0.15 + Math.random() * 0.2
-          : 0.3 + Math.random() * 0.25
-        this.cells[off + TB] = Math.max(this.cells[off + TB], ambientBrightness)
-        this.cells[off + TH] = warm ? 1.2 + Math.random() * 0.5 : Math.random()
-        this.cells[off + DR] = 1.5 + Math.random() * 0.5
-      }
-    }
+    ;[this.accumEnergy, this.ambientTimer] = this.tickThinkLayer(
+      dt, energy, this.accumEnergy, this.ambientTimer,
+      { warmProb: 0.35 },
+    )
 
     // Decay + drift
     for (let i = 0; i < this.cellCount; i++) {
@@ -986,6 +1501,98 @@ export class SignalGridController {
           this.cells[off + DR] = 2.0 + flicker * 3
         }
       }
+    }
+  }
+
+  // ── Done ("du-du-DONEE" celebration → resting emerald pulse) ──────────
+
+  private tickDone(dt: number): void {
+    this.doneTimer += dt
+    if (this.doneTimer < 2.0) {
+      this.tickDoneCelebration()
+    } else {
+      this.tickDoneResting(dt)
+    }
+  }
+
+  private tickDoneCelebration(): void {
+    const t = this.doneTimer
+    const cx = (this.cols - 1) / 2
+    const cy = (ROWS - 1) / 2
+    let maxDist = 0
+    for (let i = 0; i < this.cellCount; i++) {
+      const col = i % this.cols
+      const row = Math.floor(i / this.cols)
+      const d = Math.sqrt((col - cx) ** 2 + (row - cy) ** 2)
+      if (d > maxDist) maxDist = d
+    }
+    if (maxDist === 0) maxDist = 1
+
+    // Three beats: accelerating into climax
+    // [startTime, peakBrightness, radiusFraction, decayRate]
+    const beats: [number, number, number, number][] = [
+      [0.00, 0.60, 0.35, 3.5],  // Beat 1: modest, center 35%
+      [0.30, 0.78, 0.65, 3.0],  // Beat 2: medium, 65%
+      [0.55, 1.00, 1.00, 1.8],  // Beat 3: FULL explosion
+    ]
+
+    // Decay toward dark between beats + force emerald hue on ALL cells
+    for (let i = 0; i < this.cellCount; i++) {
+      const off = i * STRIDE
+      this.cells[off + TB] = Math.max(0, this.cells[off + TB] - 0.016 * 3.0)
+      this.cells[off + TH] = 4.0
+      this.cells[off + H] = 4.0
+    }
+
+    for (let i = 0; i < this.cellCount; i++) {
+      const col = i % this.cols
+      const row = Math.floor(i / this.cols)
+      const dist = Math.sqrt((col - cx) ** 2 + (row - cy) ** 2) / maxDist
+      const off = i * STRIDE
+
+      let bright = 0
+      for (const [beatStart, peak, radius, decay] of beats) {
+        const beatAge = t - beatStart
+        if (beatAge < 0) continue
+        if (dist > radius) continue
+        const waveDelay = dist * 0.12
+        const localAge = beatAge - waveDelay
+        if (localAge < 0) continue
+        const attack = Math.min(localAge / 0.05, 1)
+        const decayFactor = Math.exp(-localAge * decay)
+        bright = Math.max(bright, peak * attack * decayFactor)
+      }
+
+      // Settle toward resting level (t=1.0-2.0)
+      if (t > 1.0) {
+        const settleT = Math.min((t - 1.0) / 1.0, 1)
+        const rest = 0.25 + Math.sin(this.doneCellPhases[i] ?? 0) * 0.03
+        bright = lerp(bright, rest, settleT * settleT)
+      }
+
+      if (bright > 0.01) {
+        // Write directly to both current (B) and target (TB) for instant response
+        this.cells[off + B] = Math.max(this.cells[off + B], bright)
+        this.cells[off + TB] = Math.max(this.cells[off + TB], bright)
+        this.cells[off + TH] = 4.0
+        this.cells[off + H] = 4.0  // snap hue too — no interpolation lag
+        this.cells[off + DR] = 12.0 // fast tracking
+        this.cells[off + YO] = bright > 0.7 ? -bright * 1.2 : 0
+      }
+    }
+  }
+
+  private tickDoneResting(dt: number): void {
+    // Gentle emerald breathing — per-cell phase offset for organic feel
+    const breathFreq = Math.PI / 2 // ~4s full cycle
+    for (let i = 0; i < this.cellCount; i++) {
+      const off = i * STRIDE
+      const phase = this.doneCellPhases[i] ?? 0
+      const breath = 0.25 + Math.sin(this.doneTimer * breathFreq + phase) * 0.05
+      this.cells[off + TB] += (breath - this.cells[off + TB]) * dt * 2
+      this.cells[off + TH] += (4.0 - this.cells[off + TH]) * dt * 3
+      this.cells[off + DR] = 1.5
+      this.cells[off + YO] = 0
     }
   }
 
@@ -1094,8 +1701,9 @@ export class SignalGridController {
     if (this.container) {
       const avg = this.cellCount > 0 ? totalBrightness / this.cellCount : 0
       if (avg > 0.02) {
+        const isDone = this.mode === 'done'
         const isError = this.mode === 'error-recovering' || this.mode === 'error-fatal'
-        const glowColor = isError ? '244,63,94' : '139,92,246'
+        const glowColor = isDone ? '16,185,129' : isError ? '244,63,94' : '139,92,246'
         this.container.style.boxShadow = `0 0 ${(avg * 12).toFixed(1)}px rgba(${glowColor},${(avg * 0.3).toFixed(2)})`
       } else {
         this.container.style.boxShadow = 'none'

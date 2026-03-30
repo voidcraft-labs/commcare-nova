@@ -8,9 +8,9 @@ import { useBuilder } from '@/hooks/useBuilder'
 import { ChatMessage } from '@/components/chat/ChatMessage'
 import { ChatInput } from '@/components/chat/ChatInput'
 import { SignalGrid } from '@/components/chat/SignalGrid'
-import { SEND_WAVE_DURATION, type SignalMode } from '@/lib/signalGridController'
+import { SignalPanel } from '@/components/chat/SignalPanel'
+import { SignalGridController, defaultLabel, type SignalMode } from '@/lib/signalGridController'
 import { BuilderPhase } from '@/lib/services/builder'
-import { signalLabel } from '@/components/chat/SignalPanel'
 
 // ── Module-level scroll state persisted across ChatSidebar instances ──
 let chatScrollPinned = true
@@ -44,47 +44,71 @@ export function ChatSidebar({
   const builder = useBuilder()
   const isLoading = status === 'submitted' || status === 'streaming'
 
-  // Signal Grid mode — can be overridden by intro or forced sending
+  // ── Signal Grid — controller created here, all state flows through it ──
   const [introMode, setIntroMode] = useState<'reasoning' | null>(null)
-  const [forceSending, setForceSending] = useState(false)
-  const forceSendingTimer = useRef<ReturnType<typeof setTimeout>>(undefined)
+  const [activeMode, setActiveMode] = useState<SignalMode>('idle')
+  const [activeLabel, setActiveLabel] = useState('')
 
-  const gridMode = ((): SignalMode => {
+  // Create the controller once — stable across re-renders
+  const builderRef = useRef(builder)
+  builderRef.current = builder
+  const activeStateRef = useRef({ setActiveMode, setActiveLabel })
+  activeStateRef.current = { setActiveMode, setActiveLabel }
+
+  const [gridController] = useState(() => {
+    const ctrl = new SignalGridController({
+      consumeEnergy: () => builderRef.current.drainEnergy(),
+      consumeThinkEnergy: () => builderRef.current.drainThinkEnergy(),
+      consumeScaffoldProgress: () => builderRef.current.scaffoldProgress,
+    })
+    ctrl.setOnModeApplied((mode, label) => {
+      activeStateRef.current.setActiveMode(mode)
+      activeStateRef.current.setActiveLabel(label)
+    })
+    return ctrl
+  })
+
+  // Desired mode + label from builder state — sent to controller, which queues if busy
+  const desiredMode = ((): SignalMode => {
     if (introMode) return introMode
-    if (forceSending) return 'sending'
     if (builder.phase === BuilderPhase.Error) {
       return builder.errorSeverity === 'recovering' ? 'error-recovering' : 'error-fatal'
     }
+    if (builder.phase === BuilderPhase.DataModel || builder.phase === BuilderPhase.Structure) {
+      return 'scaffolding'
+    }
     if (builder.isGenerating) return 'building'
     if (builder.agentActive) {
-      // Only show editing mode for user-initiated edits after the build summary completes
       return builder.postBuildEdit ? 'editing' : 'reasoning'
     }
+    if (builder.phase === BuilderPhase.Done) return 'done'
     return 'idle'
   })()
 
-  const baseLabel = builder.isGenerating && builder.statusMessage
+  const desiredLabel = builder.isGenerating && builder.statusMessage
     ? builder.statusMessage
-    : signalLabel(gridMode)
+    : defaultLabel(desiredMode)
 
-  // Elapsed timer — shows "(30s)", "(1m 12s)" etc. after 30s in the current step
-  // Resets independently per step: gridMode change OR statusMessage (build phase) change
+  useEffect(() => {
+    gridController.setMode(desiredMode, desiredLabel)
+  }, [desiredMode, desiredLabel, gridController])
+
+  // Elapsed timer — resets when the controller's active label changes
   const [elapsed, setElapsed] = useState(0)
   const modeStartRef = useRef(0)
   const timerRef = useRef<ReturnType<typeof setInterval>>(undefined)
-  const statusMessage = (builder.isGenerating && builder.statusMessage) || ''
 
   useEffect(() => {
     clearInterval(timerRef.current)
     setElapsed(0)
-    if (gridMode === 'idle' || gridMode === 'sending') return
+    if (activeMode === 'idle' || activeMode === 'sending' || activeMode === 'done') return
     modeStartRef.current = Date.now()
     timerRef.current = setInterval(() => {
       const secs = Math.floor((Date.now() - modeStartRef.current) / 1000)
       setElapsed(secs)
     }, 1000)
     return () => clearInterval(timerRef.current)
-  }, [gridMode, statusMessage])
+  }, [activeMode, activeLabel])
 
   const gridSuffix = elapsed >= 30
     ? `(${elapsed >= 60 ? `${Math.floor(elapsed / 60)}m ${elapsed % 60}s` : `${elapsed}s`})`
@@ -108,10 +132,8 @@ export function ChatSidebar({
   const isUserHoldingRef = useRef(false)
 
   const triggerSendWave = useCallback(() => {
-    clearTimeout(forceSendingTimer.current)
-    setForceSending(true)
-    forceSendingTimer.current = setTimeout(() => setForceSending(false), SEND_WAVE_DURATION * 1000)
-  }, [])
+    gridController.setMode('sending')
+  }, [gridController])
 
   // Route typed messages as question answers when a QuestionCard is waiting
   const handleSend = useCallback((text: string) => {
@@ -307,7 +329,16 @@ export function ChatSidebar({
 
         {/* Nova's thinking panel — permanent status display */}
         <div className="shrink-0">
-          <SignalGrid mode={gridMode} label={baseLabel} suffix={gridSuffix} messages={messages} />
+          <SignalPanel
+              active={activeMode !== 'idle'}
+              label={activeLabel}
+              suffix={gridSuffix}
+              error={activeMode === 'error-fatal'}
+              recovering={activeMode === 'error-recovering'}
+              done={activeMode === 'done'}
+            >
+              <SignalGrid controller={gridController} messages={messages} />
+            </SignalPanel>
         </div>
 
         {/* Input — hidden in readOnly mode */}
