@@ -333,7 +333,7 @@ describe('output references in labels', () => {
     expect(xform).toContain('vellum:value="#case/end_date"')
     // Each output tag should have expanded instance() XPath
     expect(xform).toContain('<output value="instance(')
-    // Label type gets both <value> and <value form="markdown">, so 3 refs × 2 = 6
+    // All itext entries get both <value> and <value form="markdown">, so 3 refs × 2 = 6
     const outputCount = (xform.match(/vellum:value="#case\//g) || []).length
     expect(outputCount).toBe(6)
   })
@@ -382,6 +382,138 @@ describe('output references in labels', () => {
     // Both existing <output> and bare ref should be expanded with vellum:value
     expect(infoLabel).toContain('vellum:value="#case/case_name"')
     expect(infoLabel).toContain('vellum:value="#case/status"')
+  })
+})
+
+// ── Markdown itext for all question types ────────────────────────────────
+// CommCare only renders markdown when <value form="markdown"> is present alongside
+// <value> in itext. Verify every surface (labels, hints, help, options, groups)
+// emits the markdown form so markdown syntax doesn't render as plain text on-device.
+
+describe('markdown itext for all question types', () => {
+  /** Extract a single itext entry by ID from XForm XML. */
+  const extractItext = (xform: string, id: string): string =>
+    xform.match(new RegExp(`<text id="${id}">.*?</text>`, 's'))?.[0] ?? ''
+
+  it('emits markdown form for regular text question labels', () => {
+    const bp: AppBlueprint = {
+      app_name: 'MD', modules: [{
+        name: 'M', forms: [{
+          name: 'F', type: 'survey',
+          questions: [{ id: 'name', type: 'text', label: 'Enter your **full name**' }],
+        }],
+      }],
+      case_types: null,
+    }
+    const xform: string = Object.values(expandBlueprint(bp)._attachments)[0] as string
+    const entry = extractItext(xform, 'name-label')
+    expect(entry).toContain('<value>Enter your **full name**</value>')
+    expect(entry).toContain('<value form="markdown">Enter your **full name**</value>')
+  })
+
+  it('emits markdown form for select question labels and option labels', () => {
+    const bp: AppBlueprint = {
+      app_name: 'MD', modules: [{
+        name: 'M', forms: [{
+          name: 'F', type: 'survey',
+          questions: [{
+            id: 'status', type: 'single_select', label: 'Current **status**',
+            options: [
+              { value: 'active', label: '**Active** — currently enrolled' },
+              { value: 'inactive', label: '_Inactive_' },
+            ],
+          }],
+        }],
+      }],
+      case_types: null,
+    }
+    const xform: string = Object.values(expandBlueprint(bp)._attachments)[0] as string
+    // Question label
+    const label = extractItext(xform, 'status-label')
+    expect(label).toContain('<value form="markdown">Current **status**</value>')
+    // Option labels
+    const activeOpt = extractItext(xform, 'status-active-label')
+    expect(activeOpt).toContain('<value form="markdown">**Active** &#x2014; currently enrolled</value>')
+    const inactiveOpt = extractItext(xform, 'status-inactive-label')
+    expect(inactiveOpt).toContain('<value form="markdown">_Inactive_</value>')
+  })
+
+  it('emits markdown form for hint and help text', () => {
+    const bp: AppBlueprint = {
+      app_name: 'MD', modules: [{
+        name: 'M', forms: [{
+          name: 'F', type: 'survey',
+          questions: [{
+            id: 'age', type: 'int', label: 'Age',
+            hint: 'Enter age in **years**',
+            help: 'Must be _18 or older_ to continue',
+          }],
+        }],
+      }],
+      case_types: null,
+    }
+    const xform: string = Object.values(expandBlueprint(bp)._attachments)[0] as string
+    const hint = extractItext(xform, 'age-hint')
+    expect(hint).toContain('<value form="markdown">Enter age in **years**</value>')
+    const help = extractItext(xform, 'age-help')
+    expect(help).toContain('<value form="markdown">Must be _18 or older_ to continue</value>')
+  })
+
+  it('emits markdown form for group labels', () => {
+    const bp: AppBlueprint = {
+      app_name: 'MD', modules: [{
+        name: 'M', forms: [{
+          name: 'F', type: 'survey',
+          questions: [{
+            id: 'demographics', type: 'group', label: '## Demographics',
+            children: [{ id: 'name', type: 'text', label: 'Name' }],
+          }],
+        }],
+      }],
+      case_types: null,
+    }
+    const xform: string = Object.values(expandBlueprint(bp)._attachments)[0] as string
+    const entry = extractItext(xform, 'demographics-label')
+    expect(entry).toContain('<value>## Demographics</value>')
+    expect(entry).toContain('<value form="markdown">## Demographics</value>')
+  })
+
+  it('emits markdown form for repeat group labels', () => {
+    const bp: AppBlueprint = {
+      app_name: 'MD', modules: [{
+        name: 'M', forms: [{
+          name: 'F', type: 'survey',
+          questions: [{
+            id: 'children', type: 'repeat', label: 'Add **child** details',
+            children: [{ id: 'child_name', type: 'text', label: 'Child name' }],
+          }],
+        }],
+      }],
+      case_types: null,
+    }
+    const xform: string = Object.values(expandBlueprint(bp)._attachments)[0] as string
+    const entry = extractItext(xform, 'children-label')
+    expect(entry).toContain('<value form="markdown">Add **child** details</value>')
+  })
+
+  it('emits markdown form for date, decimal, and media question labels', () => {
+    const bp: AppBlueprint = {
+      app_name: 'MD', modules: [{
+        name: 'M', forms: [{
+          name: 'F', type: 'survey',
+          questions: [
+            { id: 'visit_date', type: 'date', label: 'Date of **visit**' },
+            { id: 'weight', type: 'decimal', label: 'Weight _(kg)_' },
+            { id: 'photo', type: 'image', label: 'Take a **photo**' },
+          ],
+        }],
+      }],
+      case_types: null,
+    }
+    const xform: string = Object.values(expandBlueprint(bp)._attachments)[0] as string
+    expect(extractItext(xform, 'visit_date-label')).toContain('<value form="markdown">Date of **visit**</value>')
+    expect(extractItext(xform, 'weight-label')).toContain('<value form="markdown">Weight _(kg)_</value>')
+    expect(extractItext(xform, 'photo-label')).toContain('<value form="markdown">Take a **photo**</value>')
   })
 })
 

@@ -229,14 +229,13 @@ export function buildXForm(form: BlueprintForm, xmlns: string): string {
   // Collect itext entries (single language)
   const itextEntries: string[] = []
 
-  const addItext = (id: string, text: string | undefined, markdown?: boolean) => {
+  const addItext = (id: string, text: string | undefined) => {
     if (!text) return
     const processed = processLabelText(text)
-    if (markdown) {
-      itextEntries.push(`<text id="${id}"><value>${processed}</value><value form="markdown">${processed}</value></text>`)
-    } else {
-      itextEntries.push(`<text id="${id}"><value>${processed}</value></text>`)
-    }
+    // Always emit both plain and markdown values — CommCare only renders markdown
+    // when <value form="markdown"> is present, and it's a no-op for plain text.
+    // Without the markdown form, any markdown syntax renders as literal characters.
+    itextEntries.push(`<text id="${id}"><value>${processed}</value><value form="markdown">${processed}</value></text>`)
   }
 
   for (const q of questions) {
@@ -370,7 +369,7 @@ function buildQuestionParts(
 
   // itext (hidden questions have no body element, so no label to reference)
   if (q.type !== 'hidden' && q.label) {
-    addItext(`${q.id}-label`, q.label, q.type === 'label')
+    addItext(`${q.id}-label`, q.label)
     addItext(`${q.id}-hint`, q.hint)
     addItext(`${q.id}-help`, q.help)
   }
