@@ -123,6 +123,7 @@ export class Builder {
   private _isDragging = false
   private _agentActive = false
   private _postBuildEdit = false
+  private _editMadeMutations = false
   private _caseTypes?: CaseType[]
   private _statusMessage = ''
   private _selected?: SelectedElement
@@ -155,6 +156,10 @@ export class Builder {
   /** True when agent activates in Done phase after the initial summary has completed.
    *  Used by ChatSidebar to distinguish post-build summary (reasoning) from user-initiated edits (editing). */
   get postBuildEdit(): boolean { return this._postBuildEdit }
+
+  /** True when the SA made blueprint mutations during the current post-build edit session.
+   *  Distinguishes "agent asked questions" (idle) from "agent made changes" (done). */
+  get editMadeMutations(): boolean { return this._editMadeMutations }
 
   /** True when the build pipeline is running (DataModel through Fix). */
   get isGenerating(): boolean {
@@ -302,6 +307,7 @@ export class Builder {
     // Agent reactivating after Done = user-initiated edit (not the post-build summary)
     if (active && this._phase === BuilderPhase.Done) {
       this._postBuildEdit = true
+      this._editMadeMutations = false
     }
     this._agentActive = active
     this.notify()
@@ -518,6 +524,7 @@ export class Builder {
 
   /** Update form content (assembled form with questions). */
   setFormContent(moduleIndex: number, formIndex: number, form: BlueprintForm) {
+    if (this._postBuildEdit) this._editMadeMutations = true
     // During edit mode (_mb exists), update the blueprint directly
     if (this._mb) {
       this._mb.replaceForm(moduleIndex, formIndex, form)
@@ -564,6 +571,7 @@ export class Builder {
     this._partialModules.clear()
     this._phase = BuilderPhase.Done
     this._postBuildEdit = false
+    this._editMadeMutations = false
     this._statusMessage = ''
     this._progressCompleted = 0
     this._progressTotal = 0
@@ -645,6 +653,7 @@ export class Builder {
   }
 
   updateBlueprint(bp: AppBlueprint) {
+    if (this._postBuildEdit) this._editMadeMutations = true
     this._mb = new MutableBlueprint(bp)
     this.notify()
   }
@@ -667,6 +676,7 @@ export class Builder {
     this._newQuestionPath = undefined
     this._agentActive = false
     this._postBuildEdit = false
+    this._editMadeMutations = false
     this._mutationCount = 0
     this._progressCompleted = 0
     this._progressTotal = 0

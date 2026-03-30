@@ -44,7 +44,7 @@ Reusable sci-fi panel chrome — bezels, notches, indicator LED, display well, e
 Permanent neural activity panel. Always mounted between the scroll container and the chat input (`shrink-0`), never scrolls, never hides. Cells are physical LEDs that exist even when unlit.
 
 **Modes** — derived in ChatSidebar from builder + useChat state:
-- `idle` — slow wide twinkle clusters (5x5 spread, ~0.75/sec). Grid is alive but resting.
+- `idle` — slow wide twinkle clusters (5x5 spread, ~0.75/sec). Grid is alive but resting. Also used after post-build edits where the SA only asked questions (no blueprint mutations) — the grid rests while awaiting user input.
 - `sending` — upward wave (bottom→top, left→right). Duration-normalized via `SEND_WAVE_DURATION` so one cycle takes the same time regardless of grid width. Queued via `controller.setMode('sending')` in ChatSidebar. Three triggers: (1) user's initial message, (2) completed question block, (3) post-build edit messages.
 - `reasoning` — pure backplate: random neural firing with hue drift toward cyan. The canonical "thinking" visual.
 - `scaffolding` — backplate (reduced intensity) + tetris progress bar foreground. Pre-computed `TilingPlan` fills the 3×N grid left→right with L/J-tetromino, step, square, and column pieces. Each turn: rejected pieces preview (pink) → winning piece rotates through quarter turns (muted violet-cyan) → double-flash select → slide left to landing → lock. External progress (`scaffoldTarget`) acts as a **speed signal**: large gap = fast catch-up, small gap = slow cruise, zero gap = breathing front (oscillating pink energy bar on the fill-front columns). `SCAFFOLD_TEMPO` (1.5) scales all phase durations; per-piece `speed` (0.5–4.0) is dynamically updated each frame from the gap. `canReachFromRight` + `nextCellFillable` lookahead prevent unreachable pockets.
@@ -52,7 +52,7 @@ Permanent neural activity panel. Always mounted between the scroll container and
 - `editing` — defrag-style animation + backplate. A 2-column bubblegum pink bar performs tracked pick-move-drop operations within a focus zone: **Seek** → **Select** (double-flash) → **Crawl** → **Place**. Think layer fires underneath.
 - `error-recovering` — backplate with `warmProb: 0.35` for ~35% warm amber hues, no hue drift. Panel LED/label amber.
 - `error-fatal` — erratic warm flicker settling into dim rose-pink pulse. Panel LED/label rose.
-- `done` — "du-du-DONEE" 3-beat radial celebration → resting emerald breathing pulse. Panel LED/label emerald. Exiting done snaps hue to cyan (or 3.0 for scaffolding) so interpolation never passes through the warm error tone range (1.0–3.0).
+- `done` — "du-du-DONEE" 3-beat radial celebration → resting emerald breathing pulse. Panel LED/label emerald. Triggers after initial build completion and after post-build edits where the SA actually mutated the blueprint (even without `validateApp`). Does NOT trigger when the SA only asked questions — that goes to `idle` instead. Exiting done snaps hue to cyan (or 3.0 for scaffolding) so interpolation never passes through the warm error tone range (1.0–3.0).
 
 **Elapsed timer** — after 30s in the current step, ChatSidebar appends a suffix like "(30s)", "(1m 12s)" via the `suffix` prop on SignalPanel. Resets when the controller's active label changes.
 
