@@ -2,6 +2,7 @@
 import { useState, useRef, useLayoutEffect, useSyncExternalStore } from 'react'
 import { useFloating, offset, flip, shift, autoUpdate, FloatingPortal, type Placement } from '@floating-ui/react'
 import type { Builder } from '@/lib/services/builder'
+import { useContentPopoverDismiss } from '@/hooks/useContentPopover'
 import { ContextualEditorTabs, type EditorTab } from './ContextualEditorTabs'
 import { ContextualEditorUI } from './ContextualEditorUI'
 import { ContextualEditorLogic } from './ContextualEditorLogic'
@@ -80,13 +81,22 @@ export function ContextualEditor({ builder, scrolling }: ContextualEditorProps) 
     )
   }, [questionPath, anchorReady, scrolling])
 
-  if (!selected || selected.type !== 'question' || !mb || !selected.questionPath || !anchorReady || scrolling) return null
-
-  const question = selected.formIndex !== undefined
+  // Compute question before early returns so it feeds both the content popover
+  // registration and the render. The selected?.type guard narrows to the question
+  // variant, giving access to moduleIndex/formIndex/questionPath.
+  const question = selected?.type === 'question' && mb && selected.questionPath && selected.formIndex !== undefined
     ? mb.getQuestion(selected.moduleIndex, selected.formIndex, selected.questionPath) ?? undefined
     : undefined
 
-  if (!question) return null
+  // Whether the editor will actually render — mirrors the early return conditions
+  const isVisible = !!(question && anchorReady && !scrolling)
+
+  // Register with the content popover system when visible. Dismissal deselects
+  // the current question, which hides this editor and clears the deck for the
+  // competing interaction (e.g. an insertion point opening its type picker).
+  useContentPopoverDismiss(() => builder.select(), isVisible)
+
+  if (!isVisible) return null
 
   return (
     <FloatingPortal>

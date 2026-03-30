@@ -6,6 +6,7 @@ import type { BlueprintForm } from '@/lib/schemas/blueprint'
 import type { MutableBlueprint } from '@/lib/services/mutableBlueprint'
 import { formTypeIcons } from '@/lib/questionTypeIcons'
 import { useDismissRef } from '@/hooks/useDismissRef'
+import { useContentPopoverDismiss } from '@/hooks/useContentPopover'
 import { POPOVER_GLASS } from '@/lib/styles'
 
 const formTypeOptions: { value: string; label: string }[] = [
@@ -131,6 +132,7 @@ export function FormTypeButton({ form, moduleIndex, formIndex, mb, notifyBluepri
 
 function FormTypeDropdown({ currentType, onSelect, onClose }: { currentType: string; onSelect: (type: string) => void; onClose: () => void }) {
   const dismissRef = useDismissRef(onClose)
+  useContentPopoverDismiss(onClose)
 
   return (
     <div ref={dismissRef} className={`py-1 min-w-[140px] ${POPOVER_GLASS}`}>

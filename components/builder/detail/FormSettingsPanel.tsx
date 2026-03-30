@@ -13,6 +13,7 @@ import { FormDetail } from './FormDetail'
 import { ConnectLogomark } from '@/components/icons/ConnectLogomark'
 import { Toggle } from '@/components/ui/Toggle'
 import { useDismissRef } from '@/hooks/useDismissRef'
+import { useContentPopoverDismiss } from '@/hooks/useContentPopover'
 import { XPathField } from '@/components/builder/XPathField'
 import { XPathEditorModal } from '@/components/builder/XPathEditorModal'
 
@@ -109,6 +110,7 @@ function FormSettingsPanel({
 }: FormSettingsPanelProps & { onClose: () => void }) {
   const [modalOpen, setModalOpen] = useState(false)
   const dismissRef = useDismissRef(() => { if (!modalOpen) onClose() })
+  useContentPopoverDismiss(onClose)
 
   return (
     <div

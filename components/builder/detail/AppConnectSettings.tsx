@@ -4,6 +4,7 @@ import { useFloating, offset, flip, shift, autoUpdate, FloatingPortal } from '@f
 import { ConnectLogomark } from '@/components/icons/ConnectLogomark'
 import { Toggle } from '@/components/ui/Toggle'
 import { useDismissRef } from '@/hooks/useDismissRef'
+import { useContentPopoverDismiss } from '@/hooks/useContentPopover'
 import type { Builder } from '@/lib/services/builder'
 import { POPOVER_GLASS } from '@/lib/styles'
 
@@ -119,6 +120,7 @@ function AppConnectPanel({
 }) {
   const enabled = !!connectType
   const dismissRef = useDismissRef(onClose)
+  useContentPopoverDismiss(onClose)
 
   return (
     <div

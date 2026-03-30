@@ -3,6 +3,7 @@ import { useState, useRef, useCallback, type RefObject } from 'react'
 import { Icon } from '@iconify/react'
 import ciAddPlus from '@iconify-icons/ci/add-plus'
 import { useEditContext } from '@/hooks/useEditContext'
+import { dismissContentPopovers } from '@/hooks/useContentPopover'
 import type { QuestionPath } from '@/lib/services/questionPath'
 import { QuestionTypePicker } from './QuestionTypePicker'
 
@@ -78,6 +79,21 @@ export function InsertionPoint({ atIndex, parentPath, disabled, cursorSpeedRef, 
     if (!isOpen) setHovered(false)
   }, [isOpen, clearPoll])
 
+  /** Open the type picker. Uses mouseDown (not click) so the open action runs
+   *  in the same event as useDismissRef handlers on other popovers. React
+   *  batches both updates into one commit — no layout shift from the first
+   *  InsertionPoint collapsing before the second opens. */
+  const handleOpen = useCallback((e: React.MouseEvent) => {
+    if (e.button !== 0) return
+    e.stopPropagation()
+    e.preventDefault()
+    dismissContentPopovers()
+    setIsOpen(true)
+  }, [])
+
+  /** Prevent click from bubbling to parent question wrappers. */
+  const stopClick = useCallback((e: React.MouseEvent) => { e.stopPropagation() }, [])
+
   if (!ctx || ctx.mode === 'test') return null
   if (disabled) return null
 
@@ -101,7 +117,8 @@ export function InsertionPoint({ atIndex, parentPath, disabled, cursorSpeedRef, 
         onMouseEnter={handleMouseEnter}
         onMouseMove={handleMouseMove}
         onMouseLeave={handleMouseLeave}
-        onClick={(e) => { e.stopPropagation(); setIsOpen(true) }}
+        onMouseDown={handleOpen}
+        onClick={stopClick}
       />
 
       {/* Visible content — vertically centered in the expanded area */}
@@ -113,7 +130,8 @@ export function InsertionPoint({ atIndex, parentPath, disabled, cursorSpeedRef, 
       >
         <div className="flex-1 h-px bg-nova-cyan/40" />
         <button
-          onClick={(e) => { e.stopPropagation(); setIsOpen(true) }}
+          onMouseDown={handleOpen}
+          onClick={stopClick}
           className="mx-1 w-5 h-5 flex items-center justify-center rounded-full bg-nova-surface border border-nova-cyan/40 text-nova-cyan hover:bg-nova-cyan/10 transition-colors cursor-pointer shrink-0"
           title="Insert question"
         >
