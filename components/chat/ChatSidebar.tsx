@@ -107,7 +107,8 @@ export function ChatSidebar({
   useEffect(() => {
     clearInterval(timerRef.current)
     setElapsed(0)
-    if (activeMode === 'idle' || activeMode === 'sending' || activeMode === 'done') return
+    if (activeMode === 'idle' || activeMode === 'sending' || activeMode === 'done'
+      || activeMode === 'error-recovering' || activeMode === 'error-fatal') return
     modeStartRef.current = Date.now()
     timerRef.current = setInterval(() => {
       const secs = Math.floor((Date.now() - modeStartRef.current) / 1000)
