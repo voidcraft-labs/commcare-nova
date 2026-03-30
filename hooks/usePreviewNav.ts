@@ -1,7 +1,7 @@
 'use client'
 import { useState, useCallback, useMemo } from 'react'
 import type { PreviewScreen } from '@/lib/preview/engine/types'
-import { screensEqual } from '@/lib/preview/engine/types'
+import { screensEqual, getParentScreen } from '@/lib/preview/engine/types'
 import type { AppBlueprint } from '@/lib/schemas/blueprint'
 import { getCaseData } from '@/lib/preview/engine/dummyData'
 
@@ -10,6 +10,16 @@ const MAX_HISTORY = 50
 interface NavHistoryState {
   entries: PreviewScreen[]
   cursor: number
+}
+
+/** Append a screen to history, truncating forward entries and capping at MAX_HISTORY. */
+function appendEntry(prev: NavHistoryState, screen: PreviewScreen): NavHistoryState {
+  const entries = prev.entries.slice(0, prev.cursor + 1)
+  entries.push(screen)
+  if (entries.length > MAX_HISTORY) {
+    return { entries: entries.slice(entries.length - MAX_HISTORY), cursor: MAX_HISTORY - 1 }
+  }
+  return { entries, cursor: prev.cursor + 1 }
 }
 
 export function usePreviewNav(blueprint?: AppBlueprint) {
@@ -23,24 +33,14 @@ export function usePreviewNav(blueprint?: AppBlueprint) {
 
   // Unconditional push — always adds to history, clears forward entries
   const push = useCallback((screen: PreviewScreen) => {
-    setState(prev => {
-      const newEntries = [...prev.entries.slice(0, prev.cursor + 1), screen]
-      if (newEntries.length > MAX_HISTORY) {
-        return { entries: newEntries.slice(newEntries.length - MAX_HISTORY), cursor: MAX_HISTORY - 1 }
-      }
-      return { entries: newEntries, cursor: prev.cursor + 1 }
-    })
+    setState(prev => appendEntry(prev, screen))
   }, [])
 
   // Idempotent push — skips if already on the target screen
   const pushIfDifferent = useCallback((screen: PreviewScreen) => {
     setState(prev => {
       if (screensEqual(prev.entries[prev.cursor], screen)) return prev
-      const newEntries = [...prev.entries.slice(0, prev.cursor + 1), screen]
-      if (newEntries.length > MAX_HISTORY) {
-        return { entries: newEntries.slice(newEntries.length - MAX_HISTORY), cursor: MAX_HISTORY - 1 }
-      }
-      return { entries: newEntries, cursor: prev.cursor + 1 }
+      return appendEntry(prev, screen)
     })
   }, [])
 
@@ -71,6 +71,16 @@ export function usePreviewNav(blueprint?: AppBlueprint) {
       return { ...prev, cursor: prev.cursor - 1 }
     })
     return newScreen
+  }, [])
+
+  // Navigate up one level in the screen hierarchy (pushes onto history)
+  const canGoUp = current.type !== 'home'
+  const navigateUp = useCallback(() => {
+    setState(prev => {
+      const parent = getParentScreen(prev.entries[prev.cursor])
+      if (!parent) return prev
+      return appendEntry(prev, parent)
+    })
   }, [])
 
   // Screen path structure — stable across name edits, only changes on navigation
@@ -117,8 +127,10 @@ export function usePreviewNav(blueprint?: AppBlueprint) {
   return {
     current,
     canGoBack,
+    canGoUp,
     push,
     back,
+    navigateUp,
     navigateToHome,
     navigateToModule,
     navigateToForm,

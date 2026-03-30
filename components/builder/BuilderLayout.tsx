@@ -34,6 +34,7 @@ import ciDownloadPackage from '@iconify-icons/ci/download-package'
 import { useBuilderShortcuts } from '@/components/builder/useBuilderShortcuts'
 import { PreviewShell } from '@/components/preview/PreviewShell'
 import { usePreviewNav } from '@/hooks/usePreviewNav'
+import { getParentScreen, type PreviewScreen } from '@/lib/preview/engine/types'
 import { ErrorBoundary } from '@/components/ui/ErrorBoundary'
 import { getReplayData, clearReplayData } from '@/lib/services/logReplay'
 
@@ -376,17 +377,25 @@ export function BuilderLayout({ buildId }: { buildId: string }) {
 
   useKeyboardShortcuts('builder-layout', shortcuts, [builder.phase === BuilderPhase.Done, viewMode, builder.selected, builder.blueprint, builder.mutationCount])
 
-  // Back handler for in-content back button — syncs builder selection with history
-  const handlePreviewBack = useCallback(() => {
-    const newScreen = nav.back()
-    if (!newScreen || newScreen.type === 'home') {
+  /** Sync builder selection to match the given preview screen. */
+  const syncSelection = useCallback((screen: PreviewScreen | undefined) => {
+    if (!screen || screen.type === 'home') {
       builder.select()
-    } else if (newScreen.type === 'module') {
-      builder.select({ type: 'module', moduleIndex: newScreen.moduleIndex })
-    } else if (newScreen.type === 'form' || newScreen.type === 'caseList') {
-      builder.select({ type: 'form', moduleIndex: newScreen.moduleIndex, formIndex: newScreen.formIndex })
+    } else if (screen.type === 'module') {
+      builder.select({ type: 'module', moduleIndex: screen.moduleIndex })
+    } else if (screen.type === 'form' || screen.type === 'caseList') {
+      builder.select({ type: 'form', moduleIndex: screen.moduleIndex, formIndex: screen.formIndex })
     }
-  }, [nav, builder])
+  }, [builder])
+
+  const handlePreviewBack = useCallback(() => {
+    syncSelection(nav.back())
+  }, [nav, syncSelection])
+
+  const handlePreviewUp = useCallback(() => {
+    nav.navigateUp()
+    syncSelection(getParentScreen(nav.current))
+  }, [nav, syncSelection])
 
   const shouldRedirect = !apiKey && !inReplayMode
   useEffect(() => {
@@ -582,6 +591,7 @@ export function BuilderLayout({ buildId }: { buildId: string }) {
                         nav={nav}
                         hideHeader
                         onBack={handlePreviewBack}
+                        onUp={handlePreviewUp}
                       />
                     ) : null}
                   </ErrorBoundary>

@@ -3,7 +3,7 @@ import { useState, useCallback } from 'react'
 import { motion } from 'motion/react'
 import { Icon } from '@iconify/react'
 import ciMoreGridBig from '@iconify-icons/ci/more-grid-big'
-import ciChevronLeft from '@iconify-icons/ci/chevron-left'
+import { ScreenNavButtons } from '@/components/preview/ScreenNavButtons'
 import type { AppBlueprint } from '@/lib/schemas/blueprint'
 import type { Builder } from '@/lib/services/builder'
 import type { EditMode } from '@/hooks/useEditContext'
@@ -15,12 +15,14 @@ interface HomeScreenProps {
   blueprint: AppBlueprint
   onNavigate: (screen: PreviewScreen) => void
   canGoBack?: boolean
+  canGoUp?: boolean
   onBack?: () => void
+  onUp?: () => void
   builder?: Builder
   mode?: EditMode
 }
 
-export function HomeScreen({ blueprint, onNavigate, canGoBack, onBack, builder, mode = 'edit' }: HomeScreenProps) {
+export function HomeScreen({ blueprint, onNavigate, canGoBack, canGoUp, onBack, onUp, builder, mode = 'edit' }: HomeScreenProps) {
   const [saved, setSaved] = useState(false)
   const saveAppName = useCallback((name: string) => {
     if (!builder?.mb) return
@@ -32,13 +34,7 @@ export function HomeScreen({ blueprint, onNavigate, canGoBack, onBack, builder, 
   return (
     <div className="p-6 space-y-4 max-w-3xl mx-auto">
       <div className="flex items-center gap-2">
-        <button
-          onClick={onBack}
-          disabled={!canGoBack}
-          className={`p-1.5 -ml-1.5 rounded-md shrink-0 transition-colors ${canGoBack ? 'text-nova-text-muted hover:text-nova-text hover:bg-pv-elevated cursor-pointer' : 'text-nova-text-muted/30 cursor-default'}`}
-        >
-          <Icon icon={ciChevronLeft} width="20" height="20" />
-        </button>
+        <ScreenNavButtons canGoBack={canGoBack} canGoUp={canGoUp} onBack={onBack} onUp={onUp} />
         {mode === 'edit' && builder?.mb ? (
           <EditableTitle value={blueprint.app_name} onSave={saveAppName} onSaved={handleSaved} />
         ) : (
