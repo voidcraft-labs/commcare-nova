@@ -27,6 +27,7 @@ import { GenerationProgress } from '@/components/builder/GenerationProgress'
 import { ReplayController } from '@/components/builder/ReplayController'
 import { SubheaderToolbar, CollapsibleBreadcrumb } from '@/components/builder/SubheaderToolbar'
 import type { BreadcrumbPart } from '@/components/builder/SubheaderToolbar'
+import { ScreenNavButtons } from '@/components/preview/ScreenNavButtons'
 import { DownloadDropdown } from '@/components/ui/DownloadDropdown'
 import { AppConnectSettings } from '@/components/builder/detail/AppConnectSettings'
 import ciFileDocument from '@iconify-icons/ci/file-document'
@@ -530,7 +531,17 @@ export function BuilderLayout({ buildId }: { buildId: string }) {
               transition={{ duration: 0.2 }}
               className="flex items-center justify-between px-5 h-14 border-b border-nova-border shrink-0 bg-[rgba(139,92,246,0.06)] shadow-[0_1px_12px_-4px_rgba(139,92,246,0.12)]"
             >
-              <CollapsibleBreadcrumb parts={breadcrumbParts} />
+              <div className="flex items-center gap-2 min-w-0">
+                {builder.blueprint && (
+                  <ScreenNavButtons
+                    canGoBack={nav.canGoBack}
+                    canGoUp={nav.canGoUp}
+                    onBack={handlePreviewBack}
+                    onUp={handlePreviewUp}
+                  />
+                )}
+                <CollapsibleBreadcrumb parts={breadcrumbParts} />
+              </div>
               <div className="flex items-center gap-2">
                 {builder.phase === BuilderPhase.Done && builder.blueprint && (
                   <>
@@ -622,7 +633,6 @@ export function BuilderLayout({ buildId }: { buildId: string }) {
                         nav={nav}
                         hideHeader
                         onBack={handlePreviewBack}
-                        onUp={handlePreviewUp}
                       />
                     ) : null}
                   </ErrorBoundary>

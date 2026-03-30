@@ -3,7 +3,6 @@ import { useState, useCallback } from 'react'
 import { motion } from 'motion/react'
 import { Icon } from '@iconify/react'
 import ciMoreGridBig from '@iconify-icons/ci/more-grid-big'
-import { ScreenNavButtons } from '@/components/preview/ScreenNavButtons'
 import type { AppBlueprint } from '@/lib/schemas/blueprint'
 import type { Builder } from '@/lib/services/builder'
 import type { EditMode } from '@/hooks/useEditContext'
@@ -14,15 +13,11 @@ import { EditableTitle, SavedCheck } from '@/components/builder/EditableTitle'
 interface HomeScreenProps {
   blueprint: AppBlueprint
   onNavigate: (screen: PreviewScreen) => void
-  canGoBack?: boolean
-  canGoUp?: boolean
-  onBack?: () => void
-  onUp?: () => void
   builder?: Builder
   mode?: EditMode
 }
 
-export function HomeScreen({ blueprint, onNavigate, canGoBack, canGoUp, onBack, onUp, builder, mode = 'edit' }: HomeScreenProps) {
+export function HomeScreen({ blueprint, onNavigate, builder, mode = 'edit' }: HomeScreenProps) {
   const [saved, setSaved] = useState(false)
   const saveAppName = useCallback((name: string) => {
     if (!builder?.mb) return
@@ -34,7 +29,6 @@ export function HomeScreen({ blueprint, onNavigate, canGoBack, canGoUp, onBack, 
   return (
     <div className="p-6 space-y-4 max-w-3xl mx-auto">
       <div className="flex items-center gap-2">
-        <ScreenNavButtons canGoBack={canGoBack} canGoUp={canGoUp} onBack={onBack} onUp={onUp} />
         {mode === 'edit' && builder?.mb ? (
           <EditableTitle value={blueprint.app_name} onSave={saveAppName} onSaved={handleSaved} />
         ) : (

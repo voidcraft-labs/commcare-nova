@@ -15,7 +15,7 @@ export function PreviewHeader({ breadcrumb, canGoBack, canGoUp, onBack, onUp, on
   return (
     <div className="flex items-center justify-between px-6 h-12 border-b border-nova-border">
       <div className="flex items-center gap-2 min-w-0">
-        <ScreenNavButtons canGoBack={canGoBack} canGoUp={canGoUp} onBack={onBack} onUp={onUp} compact static />
+        <ScreenNavButtons canGoBack={canGoBack} canGoUp={canGoUp} onBack={onBack} onUp={onUp} compact />
         <div className="flex items-center gap-1.5 text-sm min-w-0 truncate">
           {breadcrumb.map((part, i) => {
             const isLast = i === breadcrumb.length - 1

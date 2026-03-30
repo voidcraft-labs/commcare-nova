@@ -1,7 +1,6 @@
 'use client'
 import { useMemo } from 'react'
 import { motion } from 'motion/react'
-import { ScreenNavButtons } from '@/components/preview/ScreenNavButtons'
 import type { AppBlueprint } from '@/lib/schemas/blueprint'
 import type { PreviewScreen } from '@/lib/preview/engine/types'
 import { getDummyCases } from '@/lib/preview/engine/dummyData'
@@ -11,13 +10,9 @@ interface CaseListScreenProps {
   moduleIndex: number
   formIndex: number
   onNavigate: (screen: PreviewScreen) => void
-  canGoBack?: boolean
-  canGoUp?: boolean
-  onBack?: () => void
-  onUp?: () => void
 }
 
-export function CaseListScreen({ blueprint, moduleIndex, formIndex, onNavigate, canGoBack, canGoUp, onBack, onUp }: CaseListScreenProps) {
+export function CaseListScreen({ blueprint, moduleIndex, formIndex, onNavigate }: CaseListScreenProps) {
   const mod = blueprint.modules[moduleIndex]
   const form = mod?.forms[formIndex]
   const caseType = blueprint.case_types?.find(ct => ct.name === mod?.case_type)
@@ -49,7 +44,6 @@ export function CaseListScreen({ blueprint, moduleIndex, formIndex, onNavigate, 
   return (
     <div className="p-6 max-w-3xl mx-auto">
       <div className="flex items-center gap-2 mb-1">
-        <ScreenNavButtons canGoBack={canGoBack} canGoUp={canGoUp} onBack={onBack} onUp={onUp} />
         <h2 className="text-lg font-display font-semibold text-nova-text">
           {form?.name}
         </h2>
