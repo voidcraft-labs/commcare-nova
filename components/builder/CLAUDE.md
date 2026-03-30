@@ -70,7 +70,7 @@ Undo/redo "teleports" the user back to where the edit was made. Each history sna
 
 ## ContextualEditor
 
-Floating property panel anchored to the selected question via `@floating-ui/react`. Rendered into a `FloatingPortal` at `z-popover`. Uses `POPOVER_GLASS` from `lib/styles.ts` for frosted-glass styling (shared with `FormSettingsPanel` and `AppConnectSettings`). Appears in design mode whenever a question is selected (`showContextualEditor = showToolbar && viewMode === 'design'`). All hooks called unconditionally before the early return guard (React rules of hooks).
+Floating property panel anchored to the selected question via `@floating-ui/react`. Rendered into a `FloatingPortal` at `z-popover`. Uses `POPOVER_GLASS` from `lib/styles.ts` for frosted-glass styling (shared with `FormSettingsPanel` and `AppConnectSettings`). Appears in design mode whenever a question is selected (`showContextualEditor = showToolbar && viewMode === 'design'`). All hooks called unconditionally before the early return guard (React rules of hooks). Registered with the content popover dismiss system (`useContentPopoverDismiss`) — dismissal deselects the current question, hiding the editor to clear the deck for competing interactions (e.g. insertion point type picker).
 
 **Sticky placement** — feeds the resolved `placement` back as the preferred placement via `useLayoutEffect`. `flip()` only re-flips when the current side actually overflows, preventing flip-flopping when content shrinks (e.g. switching editor tabs). Resets to `'bottom'` on question change.
 
@@ -98,6 +98,12 @@ Reads/writes through `builder.mb` (persistent `MutableBlueprint`). Editing patte
 - **QuestionTypeGrid** (`components/builder/QuestionTypeGrid.tsx`) — shared 2-column icon+label grid for type selection. Used by both `ContextualEditorUI` (type change) and `QuestionTypePicker` (insertion point). Highlights active type with violet accent.
 - **CasePropertyPills** — pill buttons with "Saves to" header. One pill per case type the module can write to (its own type + child types via `getModuleCaseTypes`). Click to toggle on/off, radio behavior when multiple. Disabled for media types, locked on for `case_name`.
 - **XPathEditorModal** — Portal-mounted CodeMirror editor at `z-modal`. Fold gutters, bracket matching, zebra stripes. Opens with `prettyPrintXPath`, saves back via `formatXPath` (single-line for storage). Cmd/Ctrl+Enter saves, Escape closes.
+
+### Content Popover Coordination
+
+`hooks/useContentPopover.ts` — module-level singleton store that coordinates dismissal across floating UI popovers in the main content area. Content popovers (ContextualEditor, FormSettingsPanel, FormTypeDropdown, AppConnectPanel, QuestionTypePicker) live on the same visual layer and compete for focus. Each registers its dismiss callback via `useContentPopoverDismiss(onDismiss, enabled?)` on mount and unregisters on unmount. Consumers like `InsertionPoint` call `dismissContentPopovers()` to clear all active popovers before opening their own UI.
+
+**Participants:** `ContextualEditor` (dismiss = deselect question, uses `enabled` flag tied to visibility), `FormSettingsPanel`, `FormTypeDropdown`, `AppConnectPanel`, `QuestionTypePicker` (all use default `enabled=true` since they conditionally render). These components also retain `useDismissRef` for direct click-outside/Escape handling — the two mechanisms are orthogonal (self-dismissal vs cross-dismissal).
 
 ### Rename Propagation
 

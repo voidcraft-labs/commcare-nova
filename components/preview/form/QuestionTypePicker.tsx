@@ -4,6 +4,7 @@ import { useFloating, offset, flip, shift, autoUpdate, FloatingPortal } from '@f
 import { useEditContext } from '@/hooks/useEditContext'
 import { type QuestionPath, qpath } from '@/lib/services/questionPath'
 import { useDismissRef } from '@/hooks/useDismissRef'
+import { useContentPopoverDismiss } from '@/hooks/useContentPopover'
 import type { Question } from '@/lib/schemas/blueprint'
 import { QuestionTypeGrid } from '@/components/builder/QuestionTypeGrid'
 
@@ -19,6 +20,7 @@ export function QuestionTypePicker({ anchorEl, atIndex, parentPath, onClose }: Q
   const { builder, moduleIndex, formIndex } = ctx
   const mb = builder.mb!
   const dismissRef = useDismissRef(onClose)
+  useContentPopoverDismiss(onClose)
 
   const { refs, floatingStyles } = useFloating({
     placement: 'bottom',
@@ -73,6 +75,7 @@ export function QuestionTypePicker({ anchorEl, atIndex, parentPath, onClose }: Q
       <div
         ref={composedRef}
         style={floatingStyles}
+        className="z-popover-top"
         onClick={(e) => e.stopPropagation()}
       >
         <QuestionTypeGrid onSelect={handleSelect} />
