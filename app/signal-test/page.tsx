@@ -1,7 +1,9 @@
 'use client'
 import { useState, useRef, useCallback, useEffect } from 'react'
 import { SignalGridController, type SignalMode, type EditFocus } from '@/lib/signalGridController'
-import { SignalPanel, signalLabel } from '@/components/chat/SignalPanel'
+import { SignalPanel } from '@/components/chat/SignalPanel'
+import { defaultLabel } from '@/lib/signalGridController'
+import { PIECES } from '@/lib/tetrisProgressSolver'
 
 // Standalone test page — no builder dependency, simulates energy directly.
 
@@ -16,6 +18,9 @@ interface ScenarioContext {
   inject: (n: number) => void
   injectThink: (n: number) => void
   setFocus: (f: EditFocus | null) => void
+  setScaffoldProgress: (p: number) => void
+  /** One-shot callback for when the current animation settles (wave cycle done, fill complete). */
+  onSettled: (cb: () => void) => void
 }
 
 const scenarios: Scenario[] = [
@@ -173,31 +178,52 @@ const scenarios: Scenario[] = [
   },
   {
     name: 'Full Lifecycle',
-    description: 'Sending → Reasoning → Building → Done. Complete generation flow.',
-    run: ({ setMode, inject }) => {
+    description: 'Sending → Reasoning → Scaffolding → Building → Done. All transitions driven by onSettled.',
+    run: ({ setMode, inject, injectThink, setScaffoldProgress, onSettled }) => {
       setMode('sending')
       const timers: ReturnType<typeof setTimeout>[] = []
+      const intervals: ReturnType<typeof setInterval>[] = []
 
-      timers.push(setTimeout(() => {
-        setMode('reasoning')
-      }, 2000))
-      const reasoningId = setInterval(() => {
-        inject(10 + Math.random() * 40)
-      }, 150)
+      // Sending settles after one wave → reasoning
+      setMode('reasoning') // queued — waits for wave cycle
+      const reasoningId = setInterval(() => injectThink(10 + Math.random() * 40), 150)
+      intervals.push(reasoningId)
 
-      timers.push(setTimeout(() => {
-        clearInterval(reasoningId)
-        setMode('building')
-      }, 6000))
+      // After 3s of reasoning → scaffolding
+      onSettled(() => {
+        timers.push(setTimeout(() => {
+          clearInterval(reasoningId)
+          setMode('scaffolding')
+          const thinkId = setInterval(() => injectThink(15 + Math.random() * 25), 150)
+          intervals.push(thinkId)
 
-      timers.push(setTimeout(() => inject(200), 7000))
-      timers.push(setTimeout(() => inject(200), 9000))
-      timers.push(setTimeout(() => inject(200), 10500))
+          setScaffoldProgress(0.30)
+          timers.push(setTimeout(() => setScaffoldProgress(0.55), 1500))
+          timers.push(setTimeout(() => setScaffoldProgress(0.85), 3000))
 
-      timers.push(setTimeout(() => setMode('idle'), 12000))
+          // At 4.5s: request building (queued until scaffold fill completes)
+          timers.push(setTimeout(() => {
+            setScaffoldProgress(1.0)
+            clearInterval(thinkId)
+            setMode('building') // queued
+            const buildId = setInterval(() => inject(80 + Math.random() * 60), 200)
+            intervals.push(buildId)
+
+            // When scaffold settles → building active, run for 4s then done
+            onSettled(() => {
+              timers.push(setTimeout(() => inject(200), 1500))
+              timers.push(setTimeout(() => inject(200), 3000))
+              timers.push(setTimeout(() => {
+                intervals.forEach(clearInterval)
+                setMode('done')
+              }, 4000))
+            })
+          }, 4500))
+        }, 3000))
+      })
 
       return () => {
-        clearInterval(reasoningId)
+        intervals.forEach(clearInterval)
         timers.forEach(clearTimeout)
         setMode('idle')
       }
@@ -246,10 +272,130 @@ const scenarios: Scenario[] = [
     },
   },
   {
+    name: 'Scaffolding — Steady Progress',
+    description: 'Tetris fill with real milestone timing: schema → partial → scaffold → done.',
+    run: ({ setMode, setScaffoldProgress, injectThink }) => {
+      setMode('scaffolding')
+      const timers: ReturnType<typeof setTimeout>[] = []
+      const thinkId = setInterval(() => injectThink(15 + Math.random() * 25), 150)
+
+      timers.push(setTimeout(() => setScaffoldProgress(0.30), 2000))
+      timers.push(setTimeout(() => setScaffoldProgress(0.55), 4500))
+      timers.push(setTimeout(() => setScaffoldProgress(0.85), 7000))
+      timers.push(setTimeout(() => setScaffoldProgress(1.0), 10000))
+
+      return () => {
+        clearInterval(thinkId)
+        timers.forEach(clearTimeout)
+        setMode('idle')
+      }
+    },
+  },
+  {
+    name: 'Scaffolding — Fast Complete',
+    description: 'Schema at 30%, then jump straight to 100% after 1.5s. Tests rapid catch-up.',
+    run: ({ setMode, setScaffoldProgress, injectThink }) => {
+      setMode('scaffolding')
+      setScaffoldProgress(0.30)
+      const timers: ReturnType<typeof setTimeout>[] = []
+      const thinkId = setInterval(() => injectThink(20 + Math.random() * 30), 120)
+
+      timers.push(setTimeout(() => setScaffoldProgress(1.0), 1500))
+
+      return () => {
+        clearInterval(thinkId)
+        timers.forEach(clearTimeout)
+        setMode('idle')
+      }
+    },
+  },
+  {
+    name: 'Scaffolding — Stall at Cap',
+    description: 'Progress reaches 60% then stalls for 8s (auto-cap + wait animation), then completes.',
+    run: ({ setMode, setScaffoldProgress, injectThink }) => {
+      setMode('scaffolding')
+      setScaffoldProgress(0.60)
+      const timers: ReturnType<typeof setTimeout>[] = []
+      const thinkId = setInterval(() => injectThink(10 + Math.random() * 15), 200)
+
+      timers.push(setTimeout(() => setScaffoldProgress(1.0), 8000))
+
+      return () => {
+        clearInterval(thinkId)
+        timers.forEach(clearTimeout)
+        setMode('idle')
+      }
+    },
+  },
+  {
+    name: 'Scaffolding → Building → Done',
+    description: 'Full lifecycle: scaffold fills, transitions to building, then done. All driven by onSettled.',
+    run: ({ setMode, setScaffoldProgress, inject, injectThink, onSettled }) => {
+      setMode('scaffolding')
+      const timers: ReturnType<typeof setTimeout>[] = []
+      const intervals: ReturnType<typeof setInterval>[] = []
+      const thinkId = setInterval(() => injectThink(20 + Math.random() * 30), 120)
+      intervals.push(thinkId)
+
+      timers.push(setTimeout(() => setScaffoldProgress(0.30), 1000))
+      timers.push(setTimeout(() => setScaffoldProgress(0.55), 2500))
+      timers.push(setTimeout(() => setScaffoldProgress(0.85), 4000))
+
+      // At 5.5s: request completion → building is queued, starts when fill finishes
+      timers.push(setTimeout(() => {
+        setScaffoldProgress(1.0)
+        setMode('building') // queued — controller resolves when scaffold fill completes
+
+        // Start injecting building energy now (consumed when building mode activates)
+        const buildId = setInterval(() => inject(80 + Math.random() * 60), 200)
+        intervals.push(buildId)
+
+        // When scaffolding settles (fill done, building starts), run building for 4s then done
+        onSettled(() => {
+          timers.push(setTimeout(() => inject(200), 1000))
+          timers.push(setTimeout(() => inject(200), 2500))
+          timers.push(setTimeout(() => {
+            intervals.forEach(clearInterval)
+            setMode('done')
+          }, 4000))
+        })
+      }, 5500))
+
+      return () => {
+        intervals.forEach(clearInterval)
+        timers.forEach(clearTimeout)
+        setMode('idle')
+      }
+    },
+  },
+  {
+    name: 'Build → Done',
+    description: 'Building with energy bursts, then "du-du-DONEE" celebration transition.',
+    run: ({ setMode, inject }) => {
+      setMode('building')
+      const timers: ReturnType<typeof setTimeout>[] = []
+      const buildId = setInterval(() => inject(80 + Math.random() * 60), 200)
+
+      timers.push(setTimeout(() => inject(200), 1000))
+      timers.push(setTimeout(() => inject(200), 3000))
+
+      timers.push(setTimeout(() => {
+        clearInterval(buildId)
+        setMode('done')
+      }, 4000))
+
+      return () => {
+        clearInterval(buildId)
+        timers.forEach(clearTimeout)
+        setMode('idle')
+      }
+    },
+  },
+  {
     name: 'Mode Transitions',
     description: 'Rapidly cycles through modes every 2s to test blending.',
     run: ({ setMode, inject, setFocus }) => {
-      const modes: SignalMode[] = ['sending', 'reasoning', 'building', 'editing', 'idle']
+      const modes: SignalMode[] = ['sending', 'reasoning', 'scaffolding', 'building', 'editing', 'done', 'idle']
       let idx = 0
       setMode(modes[0])
       const id = setInterval(() => {
@@ -331,6 +477,7 @@ export default function SignalTestPage() {
   const controllerRef = useRef<SignalGridController | null>(null)
   const energyRef = useRef(0)
   const thinkEnergyRef = useRef(0)
+  const scaffoldProgressRef = useRef(0)
   const cleanupRef = useRef<(() => void) | null>(null)
 
   const gridCallbackRef = useCallback((el: HTMLDivElement | null) => {
@@ -346,6 +493,7 @@ export default function SignalTestPage() {
         thinkEnergyRef.current = 0
         return e
       },
+      consumeScaffoldProgress: () => scaffoldProgressRef.current,
     })
     controllerRef.current = ctrl
     ctrl.attach(el)
@@ -379,7 +527,16 @@ export default function SignalTestPage() {
     controllerRef.current?.setEditFocus(focus)
   }, [])
 
-  const ctx: ScenarioContext = { setMode, inject, injectThink, setFocus }
+  const setScaffoldProgress = useCallback((p: number) => {
+    scaffoldProgressRef.current = Math.max(scaffoldProgressRef.current, p)
+    controllerRef.current?.setScaffoldProgress(p)
+  }, [])
+
+  const onSettled = useCallback((cb: () => void) => {
+    controllerRef.current?.onSettled(cb)
+  }, [])
+
+  const ctx: ScenarioContext = { setMode, inject, injectThink, setFocus, setScaffoldProgress, onSettled }
 
   const runScenario = useCallback((index: number) => {
     cleanupRef.current?.()
@@ -387,6 +544,7 @@ export default function SignalTestPage() {
     setActiveScenario(index)
     energyRef.current = 0
     thinkEnergyRef.current = 0
+    scaffoldProgressRef.current = 0
     cleanupRef.current = scenarios[index].run(ctx)
   }, [ctx])
 
@@ -410,6 +568,52 @@ export default function SignalTestPage() {
           <p className="text-sm text-nova-text-secondary">
             Simulate different streaming states to tune animation parameters.
           </p>
+        </div>
+
+        {/* Piece gallery — all pieces × all rotations on a 3-row mini grid */}
+        <div className="space-y-2">
+          <label className="text-xs text-nova-text-muted uppercase tracking-wider font-mono">
+            Piece Catalogue
+          </label>
+          <div className="flex gap-6 flex-wrap">
+            {PIECES.map(piece => (
+              <div key={piece.id} className="space-y-1.5">
+                <span className="text-xs text-nova-text-secondary font-mono">{piece.name}</span>
+                <div className="flex gap-3">
+                  {piece.rotations.map((shape, ri) => {
+                    const maxR = Math.max(...shape.map(([r]) => r))
+                    const maxC = Math.max(...shape.map(([, c]) => c))
+                    const cells = new Set(shape.map(([r, c]) => `${r},${c}`))
+                    return (
+                      <div key={ri} className="flex flex-col items-center gap-1">
+                        <div
+                          className="grid gap-[2px]"
+                          style={{
+                            gridTemplateColumns: `repeat(${maxC + 1}, 8px)`,
+                            gridTemplateRows: `repeat(${maxR + 1}, 8px)`,
+                          }}
+                        >
+                          {Array.from({ length: (maxR + 1) * (maxC + 1) }, (_, i) => {
+                            const r = Math.floor(i / (maxC + 1))
+                            const c = i % (maxC + 1)
+                            const on = cells.has(`${r},${c}`)
+                            return (
+                              <div
+                                key={i}
+                                className={`rounded-[1.5px] ${on ? 'bg-nova-cyan' : 'bg-nova-void/50'}`}
+                                style={{ width: 8, height: 8, opacity: on ? 1 : 0.15 }}
+                              />
+                            )
+                          })}
+                        </div>
+                        <span className="text-[9px] text-nova-text-muted font-mono">r{ri}</span>
+                      </div>
+                    )
+                  })}
+                </div>
+              </div>
+            ))}
+          </div>
         </div>
 
         {/* Width control */}
@@ -460,7 +664,7 @@ export default function SignalTestPage() {
             className="bg-nova-deep border border-nova-border rounded-xl p-4 flex justify-center"
           >
             <div style={{ width }}>
-              <SignalPanel active={mode !== 'idle'} label={signalLabel(mode)} error={mode === 'error-recovering' || mode === 'error-fatal'}>
+              <SignalPanel active={mode !== 'idle'} label={defaultLabel(mode)} error={mode === 'error-fatal'} recovering={mode === 'error-recovering'} done={mode === 'done'}>
                 <div ref={gridCallbackRef} className="signal-grid" />
               </SignalPanel>
             </div>
@@ -506,13 +710,14 @@ export default function SignalTestPage() {
             Direct Mode Control
           </label>
           <div className="flex gap-2 flex-wrap">
-            {(['sending', 'reasoning', 'building', 'editing', 'error-recovering', 'error-fatal', 'idle'] as SignalMode[]).map(m => (
+            {(['sending', 'reasoning', 'scaffolding', 'building', 'editing', 'error-recovering', 'error-fatal', 'done', 'idle'] as SignalMode[]).map(m => (
               <button
                 key={m}
                 onClick={() => {
                   cleanupRef.current?.()
                   cleanupRef.current = null
                   setActiveScenario(null)
+                  scaffoldProgressRef.current = 0
                   setMode(m)
                   if (m === 'editing') setFocus({ start: 0.3, end: 0.7 })
                   if (m !== 'editing') setFocus(null)
@@ -548,6 +753,29 @@ export default function SignalTestPage() {
                   key={label}
                   onClick={() => setFocus(f)}
                   className="text-xs px-3 py-1.5 rounded border border-nova-border text-nova-text-secondary hover:border-nova-cyan/40 hover:bg-nova-cyan/5 transition-colors cursor-pointer font-mono"
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Scaffold progress control — only visible in scaffolding mode */}
+        {mode === 'scaffolding' && (
+          <div className="space-y-2">
+            <label className="text-xs text-nova-text-muted uppercase tracking-wider font-mono">
+              Scaffold Progress
+            </label>
+            <div className="flex gap-2 flex-wrap">
+              {([
+                ['5%', 0.05], ['30%', 0.30], ['55%', 0.55],
+                ['85%', 0.85], ['100%', 1.0],
+              ] as [string, number][]).map(([label, p]) => (
+                <button
+                  key={label}
+                  onClick={() => setScaffoldProgress(p)}
+                  className="text-xs px-3 py-1.5 rounded border border-nova-border text-nova-text-secondary hover:border-nova-emerald/40 hover:bg-nova-emerald/5 transition-colors cursor-pointer font-mono"
                 >
                   {label}
                 </button>

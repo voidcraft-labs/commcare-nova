@@ -1,20 +1,6 @@
 'use client'
 import type { ReactNode } from 'react'
 import { AnimatePresence, motion } from 'motion/react'
-import type { SignalMode } from '@/lib/signalGridController'
-
-/** Default mode → label mapping. */
-export function signalLabel(mode: SignalMode): string {
-  switch (mode) {
-    case 'sending': return 'Transmitting'
-    case 'reasoning': return 'Thinking'
-    case 'building': return 'Building'
-    case 'editing': return 'Editing'
-    case 'error-recovering': return 'Recovering'
-    case 'error-fatal': return 'Error'
-    case 'idle': return ''
-  }
-}
 
 interface SignalPanelProps {
   active: boolean
@@ -22,15 +8,17 @@ interface SignalPanelProps {
   /** Optional suffix that fades in once but updates in place (e.g. "(32s)"). */
   suffix?: string
   error?: boolean
+  recovering?: boolean
+  done?: boolean
   children: ReactNode
 }
 
 /** Sci-fi panel chrome — bezels, notches, indicator LED, display well, etched label. */
-export function SignalPanel({ active, label, suffix, error, children }: SignalPanelProps) {
+export function SignalPanel({ active, label, suffix, error, recovering, done, children }: SignalPanelProps) {
   const baseText = label && active ? label : 'SYS:IDLE'
 
   return (
-    <div className="nova-panel" data-active={active || undefined} data-error={error || undefined}>
+    <div className="nova-panel" data-active={active || undefined} data-error={error || undefined} data-recovering={recovering || undefined} data-done={done || undefined}>
       {/* Top bezel — etched groove with corner notches */}
       <div className="nova-panel-bezel nova-panel-bezel-top">
         <div className="nova-panel-notch" />
