@@ -81,7 +81,13 @@ export function ChatSidebar({
     if (builder.agentActive) {
       return builder.postBuildEdit ? 'editing' : 'reasoning'
     }
-    if (builder.phase === BuilderPhase.Done) return 'done'
+    // After a post-build edit: show 'done' if the SA actually mutated the blueprint
+    // (addQuestion, editQuestion, etc.), 'idle' if it only asked questions.
+    // setDone() also clears postBuildEdit, so initial builds and validated edits
+    // fall through to 'done' via the !postBuildEdit path.
+    if (builder.phase === BuilderPhase.Done) {
+      return builder.postBuildEdit && !builder.editMadeMutations ? 'idle' : 'done'
+    }
     return 'idle'
   })()
 

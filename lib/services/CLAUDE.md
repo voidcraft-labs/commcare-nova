@@ -105,11 +105,12 @@ If the stream writer is broken (can't emit `data-error`), `emitError` catches si
 
 **All state is private with readonly getters.** Consumers read via getters (`builder.phase`, `builder.selected`, `builder.blueprint`, etc.) and mutate through methods only.
 
-**Agent activity state** — four getters separate agent activity from build pipeline phase:
+**Agent activity state** — five getters separate agent activity from build pipeline phase:
 - `builder.agentActive` — true when the SA is processing a request. Set by BuilderLayout via `setAgentActive()` synced from `useChat` status (`submitted`/`streaming`).
 - `builder.isGenerating` — true when the build pipeline is running (phases DataModel through Fix).
 - `builder.isThinking` — `agentActive && !isGenerating`. Works for both initial generation (before first data part arrives) and edit operations (phase stays `Done`).
 - `builder.postBuildEdit` — true when the agent reactivates after having gone idle in `Done` phase (i.e., the user sent a new message after generation completed). `setDone()` resets it to false; `setAgentActive(true)` sets it to true when `phase === Done`. ChatSidebar uses this to distinguish post-build summary (reasoning) from user-initiated edits (editing).
+- `builder.editMadeMutations` — true when the SA mutated the blueprint during the current post-build edit session (via `setFormContent` or `updateBlueprint`). Reset when a new edit session starts (`setAgentActive(true)` in Done phase) and on `setDone()`/`reset()`. ChatSidebar uses this with `postBuildEdit` to decide done vs idle: if `postBuildEdit && !editMadeMutations` the SA only asked questions → `'idle'`; otherwise → `'done'`.
 
 **Stream energy** — two non-versioned channels for the SignalGrid neural activity display. Never trigger React re-renders.
 - **Burst energy** (`injectEnergy` / `drainEnergy`) — from `applyDataPart()` bursts (200 for module/form completions, 100 for updates, 50 for phase transitions) and the intro sequence. Drives building-mode flashes when UI-visible changes occur.
