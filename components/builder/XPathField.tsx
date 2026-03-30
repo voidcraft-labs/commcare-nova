@@ -6,9 +6,8 @@ import { xpath } from '@/lib/codemirror/xpath-language'
 import { novaXPathTheme, novaChipTheme } from '@/lib/codemirror/xpath-theme'
 import { prettyPrintXPath } from '@/lib/codemirror/xpath-format'
 import { xpathChips } from '@/lib/codemirror/xpath-chips'
-import { ReferenceProvider } from '@/lib/references/provider'
-import type { XPathLintContext } from '@/lib/codemirror/xpath-lint'
-import { useMemo, useRef } from 'react'
+import { useReferenceProvider } from '@/lib/references/ReferenceContext'
+import { useMemo } from 'react'
 
 /** Minimal CodeMirror chrome for inline read-only display. */
 const inlineStyles = EditorView.theme({
@@ -40,23 +39,24 @@ const baseReadOnlyExtensions = [
 interface XPathFieldProps {
   value: string
   onClick?: () => void
-  /** Context getter for chip label resolution. When provided, hashtag references render as chips. */
-  getLintContext?: () => XPathLintContext | undefined
 }
 
-export function XPathField({ value, onClick, getLintContext }: XPathFieldProps) {
+/**
+ * Inline read-only CodeMirror display for XPath expressions.
+ *
+ * Automatically renders hashtag references as styled chips when a
+ * ReferenceProvider is available via context (from ReferenceProviderWrapper
+ * in BuilderLayout). No prop wiring needed — any XPathField rendered within
+ * the builder gets chip support for free.
+ */
+export function XPathField({ value, onClick }: XPathFieldProps) {
   const formatted = useMemo(() => prettyPrintXPath(value), [value])
-
-  /* Stable ref so the provider closure always reads the latest getter. */
-  const getLintContextRef = useRef(getLintContext)
-  getLintContextRef.current = getLintContext
+  const provider = useReferenceProvider()
 
   const extensions = useMemo(() => {
-    if (!getLintContext) return baseReadOnlyExtensions
-    const provider = new ReferenceProvider(() => getLintContextRef.current?.())
+    if (!provider) return baseReadOnlyExtensions
     return [...baseReadOnlyExtensions, xpathChips(provider), novaChipTheme]
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [!!getLintContext])
+  }, [provider])
 
   const editor = (
     <CodeMirror
