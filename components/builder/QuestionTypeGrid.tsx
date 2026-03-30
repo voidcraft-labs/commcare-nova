@@ -1,6 +1,7 @@
 'use client'
 import { Icon } from '@iconify/react'
 import { questionTypeIcons, questionTypeLabels } from '@/lib/questionTypeIcons'
+import { POPOVER_GLASS, POPOVER_ELEVATED } from '@/lib/styles'
 import type { Question } from '@/lib/schemas/blueprint'
 
 /** Types shown in the grid — excludes hidden (rarely manually inserted) */
@@ -13,12 +14,15 @@ const GRID_TYPES = [
 interface QuestionTypeGridProps {
   onSelect: (type: Question['type']) => void
   /** Currently active type — highlighted in the grid. */
-  activeType?: string
+  activeType?: Question['type']
+  /** Surface variant. `'glass'` (default) for standalone popovers, `'elevated'` for
+   *  popovers stacked above an existing glass surface. */
+  variant?: 'glass' | 'elevated'
 }
 
-export function QuestionTypeGrid({ onSelect, activeType }: QuestionTypeGridProps) {
+export function QuestionTypeGrid({ onSelect, activeType, variant = 'glass' }: QuestionTypeGridProps) {
   return (
-    <div className="w-52 rounded-xl bg-nova-deep border border-nova-border shadow-xl p-2 grid grid-cols-2 gap-1">
+    <div className={`w-52 p-2 grid grid-cols-2 gap-1 ${variant === 'elevated' ? POPOVER_ELEVATED : POPOVER_GLASS}`}>
       {GRID_TYPES.map((type) => {
         const icon = questionTypeIcons[type]
         const isActive = type === activeType
