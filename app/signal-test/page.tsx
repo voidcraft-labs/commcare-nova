@@ -736,6 +736,12 @@ export default function SignalTestPage() {
                   if (m === 'scaffolding') setScaffoldProgress(0.50)
                   if (m === 'editing') setFocus({ start: 0.3, end: 0.7 })
                   if (m !== 'editing') setFocus(null)
+                  // Modes with background think activity need continuous energy
+                  // to show the neural firing layer (mirrors real app streaming)
+                  if (m === 'scaffolding' || m === 'reasoning' || m === 'building' || m === 'editing' || m === 'error-recovering') {
+                    const id = setInterval(() => injectThink(15 + Math.random() * 25), 150)
+                    cleanupRef.current = () => clearInterval(id)
+                  }
                 }}
                 className={`text-xs px-3 py-1.5 rounded border transition-colors cursor-pointer capitalize font-mono ${
                   mode === m
