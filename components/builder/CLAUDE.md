@@ -9,6 +9,7 @@ Main layout with one `useChat` instance targeting `/api/chat`. Wrapped in `Error
 - **`onData`** handles all state updates via `applyDataPart()`.
 - **Agent status sync** — `useEffect` syncs `useChat` status → `builder.setAgentActive()`, enabling `builder.isThinking` for both generation and edit operations.
 - **`messages: persistedChatMessages`** seeds useChat with module-level cached messages on mount. The AI SDK's `Chat` instance lives in a `useRef` inside `useChat`, so it resets on component remount. `persistedChatMessages` (module-level, like the `Builder` singleton) bridges the gap — updated on every render, restored on remount.
+- **Redirect guard** — `if (shouldRedirect) return null` early-exits when no API key is set. All hooks must be declared above this guard to satisfy React's rules of hooks.
 
 ### Four-Tier Header Layout
 
@@ -82,7 +83,7 @@ Floating property panel anchored to the selected question via `@floating-ui/reac
 
 Split into tabbed sub-editors (`ContextualEditorTabs`):
 - **UI tab** (`ContextualEditorUI`) — label (via `RefLabelInput` with inline reference chips), type (via `QuestionTypeGrid` popover at `z-popover-top`), hint, help. For hidden questions, only the type picker is shown (no label/hint/help since hidden questions have no visible UI).
-- **Logic tab** (`ContextualEditorLogic`) — required (Toggle + optional conditional XPath, hidden until added via "Add Property"), validation, relevant, default_value, calculate. All XPath fields rendered via `XPathField` with chip support (`getLintContext` prop).
+- **Logic tab** (`ContextualEditorLogic`) — required (Toggle + optional conditional XPath, hidden until added via "Add Property"), validation, relevant, default_value, calculate. All XPath fields rendered via `XPathField` with automatic chip support via context provider.
 - **Data tab** (`ContextualEditorData`) — question ID (with rename propagation), `CasePropertyPills` ("Saves to" header + pill buttons), options editor for select types
 
 Active tab is persisted on the Builder singleton (`builder.editorTab` / `setEditorTab()`), so it survives design↔preview mode switches (which unmount/remount the editor). Resets to UI tab on question change, except for hidden questions which default to Logic tab (where calculate/default/relevant fields are more relevant than the minimal UI tab).
@@ -100,7 +101,7 @@ Reads/writes through `builder.mb` (persistent `MutableBlueprint`). Editing patte
 - **RefLabelInput** (`components/builder/RefLabelInput.tsx`) — TipTap-based label input replacing `EditableText` for the label field. Typing `#` triggers a two-phase autocomplete (namespace picker → filtered references from `ReferenceProvider`). Selected references insert as `commcareRef` atom nodes that render as inline `ReferenceChip` components. Serializes to/from `<output value="#type/path"/>` tags (CommCare standard). Debounced `onChange` (200ms) keeps the preview canvas in sync during editing. Same commit/cancel UX as `EditableText` (blur→save, Enter→save, Escape→cancel, emerald checkmark). TipTap extensions: `StarterKit` (paragraphs only), `CommcareRef` (custom atom node from `lib/tiptap/commcareRefNode.ts`), `Mention` (wired to `createRefSuggestion` from `lib/tiptap/refSuggestion.ts`).
 - **ReferenceAutocomplete** (`components/builder/ReferenceAutocomplete.tsx`) — Floating autocomplete dropdown for hashtag reference suggestions. Imperative handle for keyboard navigation (`onKeyDown`). Two-phase display: namespace options (`#form/`, `#case/`, `#user/`) or filtered references with type-colored icons.
 - **XPathEditorModal** — Portal-mounted CodeMirror editor at `z-modal`. Fold gutters, bracket matching, zebra stripes. Hashtag references render as inline chips via `xpathChips(provider)`. Opens with `prettyPrintXPath`, saves back via `formatXPath` (single-line for storage). Cmd/Ctrl+Enter saves, Escape closes.
-- **XPathField** — Inline read-only CodeMirror display. When `getLintContext` prop is provided, hashtag references render as chips via `xpathChips(provider)`. Used by `ContextualEditorLogic` for required/validation/relevant/default/calculate expressions.
+- **XPathField** — Inline read-only CodeMirror display. Automatically renders hashtag references as chips via the context `ReferenceProvider` (from `ReferenceProviderWrapper` in BuilderLayout) — no prop wiring needed. Used by `ContextualEditorLogic` for required/validation/relevant/default/calculate expressions and by `FormSettingsPanel` for Connect XPath fields.
 
 ### Content Popover Coordination
 
