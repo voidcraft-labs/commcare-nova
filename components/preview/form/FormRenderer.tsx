@@ -10,6 +10,7 @@ import type { Question } from '@/lib/schemas/blueprint'
 import { type QuestionPath, qpath, qpathId } from '@/lib/services/questionPath'
 import type { FormEngine } from '@/lib/preview/engine/formEngine'
 import { renderPreviewMarkdown } from '@/lib/markdown'
+import { LabelContent } from '@/lib/references/LabelContent'
 import { useEditContext } from '@/hooks/useEditContext'
 import { QuestionField } from './QuestionField'
 import { GroupField } from './fields/GroupField'
@@ -205,13 +206,13 @@ function SortableQuestion({
         <label className="block space-y-1.5">
           {q.label && (
             <div className="flex items-center gap-1">
-              <span className="preview-markdown text-sm font-medium text-nova-text" dangerouslySetInnerHTML={{ __html: renderPreviewMarkdown(state.resolvedLabel ?? q.label) }} />
+              <span className="text-sm font-medium text-nova-text"><LabelContent label={q.label} resolvedLabel={state.resolvedLabel} isEditMode={isEditMode} /></span>
               {state.required && <span className="text-nova-rose text-xs">*</span>}
               {q.help && <HelpTooltip help={q.help} isEditMode={isEditMode} />}
             </div>
           )}
           {q.hint && (
-            <div className="preview-markdown text-xs text-nova-text-muted" dangerouslySetInnerHTML={{ __html: renderPreviewMarkdown(state.resolvedHint ?? q.hint) }} />
+            <div className="text-xs text-nova-text-muted"><LabelContent label={q.hint} resolvedLabel={state.resolvedHint} isEditMode={isEditMode} /></div>
           )}
           <QuestionField
             question={q}

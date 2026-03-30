@@ -4,7 +4,7 @@ import { CollisionPriority } from '@dnd-kit/abstract'
 import type { Question } from '@/lib/schemas/blueprint'
 import type { QuestionPath } from '@/lib/services/questionPath'
 import type { FormEngine } from '@/lib/preview/engine/formEngine'
-import { renderPreviewMarkdown } from '@/lib/markdown'
+import { LabelContent } from '@/lib/references/LabelContent'
 import { useEditContext } from '@/hooks/useEditContext'
 
 interface GroupFieldProps {
@@ -20,7 +20,6 @@ export function GroupField({ question, path, questionPath, engine, renderChildre
   const ctx = useEditContext()
   const isEditMode = ctx?.mode === 'edit'
 
-  // Make the group's children area a droppable target so items can be dropped into empty groups
   const { ref: droppableRef } = useDroppable({
     id: `${questionPath}:container`,
     type: 'container',
@@ -35,9 +34,9 @@ export function GroupField({ question, path, questionPath, engine, renderChildre
     <div className="rounded-lg border border-pv-input-border overflow-hidden">
       {question.label && (
         <div className="px-4 py-2 bg-pv-surface border-b border-pv-input-border">
-          <div className="preview-markdown text-sm font-medium text-nova-text" dangerouslySetInnerHTML={{ __html: renderPreviewMarkdown(state.resolvedLabel ?? question.label ?? '') }} />
+          <div className="text-sm font-medium text-nova-text"><LabelContent label={question.label ?? ''} resolvedLabel={state.resolvedLabel} isEditMode={isEditMode} /></div>
           {question.hint && (
-            <div className="preview-markdown text-xs text-nova-text-muted mt-0.5" dangerouslySetInnerHTML={{ __html: renderPreviewMarkdown(state.resolvedHint ?? question.hint) }} />
+            <div className="text-xs text-nova-text-muted mt-0.5"><LabelContent label={question.hint} resolvedLabel={state.resolvedHint} isEditMode={isEditMode} /></div>
           )}
         </div>
       )}

@@ -137,6 +137,7 @@ export class Builder {
   private _errorSeverity: 'recovering' | 'failed' = 'failed'
   private _listeners = new Set<() => void>()
   private _version = 0
+  private _mutationListeners = new Set<() => void>()
   private _questionAnchor: { el: HTMLElement; path: QuestionPath } | null = null
   private _anchorListeners = new Set<() => void>()
 
@@ -220,11 +221,24 @@ export class Builder {
     return () => { this._listeners.delete(listener) }
   }
 
+  /** Subscribe to blueprint/selection changes that invalidate derived caches.
+   *  Fires when the blueprint is mutated, replaced, or the active form changes —
+   *  NOT on UI-only state changes (phase labels, panel toggles, agent status).
+   *  Returns an unsubscribe function. */
+  subscribeMutation = (listener: () => void): (() => void) => {
+    this._mutationListeners.add(listener)
+    return () => { this._mutationListeners.delete(listener) }
+  }
+
   getSnapshot = () => this._version
 
   private notify() {
     this._version++
     this._listeners.forEach(fn => fn())
+  }
+
+  private notifyMutation() {
+    for (const fn of this._mutationListeners) fn()
   }
 
   // ── Question anchor (selected question's DOM element) ────────────────
@@ -441,6 +455,7 @@ export class Builder {
     this._mb = result.mb
     this._selected = this.deriveSelection(result.meta, 'undo')
     this._mutationCount++
+    this.notifyMutation()
     this.notify()
     return result.viewMode
   }
@@ -452,6 +467,7 @@ export class Builder {
     this._mb = result.mb
     this._selected = this.deriveSelection(result.meta, 'redo')
     this._mutationCount++
+    this.notifyMutation()
     this.notify()
     return result.viewMode
   }
@@ -649,18 +665,21 @@ export class Builder {
       }
     }
     this._selected = el
+    this.notifyMutation()
     this.notify()
   }
 
   updateBlueprint(bp: AppBlueprint) {
     if (this._postBuildEdit) this._editMadeMutations = true
     this._mb = new MutableBlueprint(bp)
+    this.notifyMutation()
     this.notify()
   }
 
   /** Notify subscribers that the blueprint was mutated in-place via mb. */
   notifyBlueprintChanged = () => {
     this._mutationCount++
+    this.notifyMutation()
     this.notify()
   }
 

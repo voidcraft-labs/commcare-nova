@@ -11,6 +11,7 @@ Next.js web app that generates CommCare apps from natural language conversation.
 - **Drag & Drop**: `@dnd-kit/react` (`DragDropProvider`, `useSortable` from `@dnd-kit/react/sortable`, modifiers from `@dnd-kit/dom/modifiers`)
 - **Validation**: Zod v4
 - **AI**: Vercel AI SDK (`ai` + `@ai-sdk/react` + `@ai-sdk/anthropic`) — `ToolLoopAgent`, `createUIMessageStream`, `createAgentUIStream`, `useChat`, `generateText`, `streamText`, `Output.object()`
+- **Rich Text**: TipTap 3 (`@tiptap/react`, `@tiptap/starter-kit`, `@tiptap/extension-mention`, `@tiptap/suggestion`) — label input with inline reference chips
 - **Markdown**: marked — allowlist renderers in `lib/markdown.ts`, `breaks: true` (single newlines → `<br>`). `renderMarkdown` (chat): headings, bold, italic, lists, tables, hr, code; blocks links/images/HTML. `renderPreviewMarkdown` (preview): same plus links and images.
 - **XML**: htmlparser2 + domutils + dom-serializer
 - **Icons**: Coolicons (`@iconify-icons/ci`) + Tabler (`@iconify-icons/tabler`) via `@iconify/react`
@@ -38,6 +39,20 @@ npx tsx scripts/build-xpath-parser.ts # Rebuild Lezer parser from xpath.grammar
 - **Builder** (`lib/services/builder.ts`) — singleton state machine shared via `useBuilder()`. Phases: `Idle → DataModel → Structure → Modules → Forms → Validate → Fix → Done | Error`. Holds a persistent `MutableBlueprint` instance. Exposes `subscribe` + `getSnapshot` for `useSyncExternalStore`.
 - **MutableBlueprint** (`lib/services/mutableBlueprint.ts`) — single state container for the entire lifecycle. Progressive population during generation, in-place mutation during editing. Components call mutation methods directly, then `builder.notifyBlueprintChanged()`.
 - **GenerationContext** (`lib/services/generationContext.ts`) — all LLM calls flow through here. Wraps Anthropic client + stream writer + RunLogger + PipelineConfig.
+
+### Reference Chip System (`lib/references/`)
+
+Hashtag references (`#form/question`, `#case/property`, `#user/property`) render as styled inline chips across three surfaces:
+
+- **CodeMirror 6** — `xpathChips(provider)` extension in `lib/codemirror/xpath-chips.ts`. MatchDecorator + WidgetType with raw DOM via `chipDom.ts`. Backspace-to-revert deletes one char, exposing raw text and reopening autocomplete.
+- **TipTap** — `commcareRef` atom node in `lib/tiptap/commcareRefNode.ts`, React NodeView via `CommcareRefView.tsx`. `#` trigger wired to `ReferenceProvider.search()` via `refSuggestion.ts`. Labels serialize as `<output value="#type/path"/>` tags.
+- **Preview canvas** — `LabelContent` (labels/hints) and `ExpressionContent` (calculate/default in HiddenField) render chips as React components. Design mode shows chips; preview mode shows engine-resolved values.
+
+**Type system:** `Reference` is a discriminated union — `FormReference` (path: `QuestionPath`), `CaseReference` (path: `string`), `UserReference` (path: `string`). Config per type in `config.ts` (icon, Tailwind classes for React, raw CSS for CM6 DOM).
+
+**ReferenceProvider** (`provider.ts`) — unified search/resolve API. Caches form question entries and case properties; cache invalidated via `builder.subscribeMutation` (fires only on blueprint mutations and selection changes). `ReferenceProviderWrapper` in `ReferenceContext.tsx` provides the provider via React context; wraps `BuilderLayout`'s content area.
+
+**Shared utilities:** `useSaveQuestion` hook (`hooks/useSaveQuestion.ts`) extracts the common question mutation + notify pattern used by all three contextual editor tabs. `splitOnPattern` in `renderLabel.ts` is the single regex-split implementation used by label parsing, expression parsing, and TipTap hydration.
 
 ### Client-Server Data Flow
 

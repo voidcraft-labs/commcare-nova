@@ -37,6 +37,7 @@ import { usePreviewNav } from '@/hooks/usePreviewNav'
 import { getParentScreen, type PreviewScreen } from '@/lib/preview/engine/types'
 import { ErrorBoundary } from '@/components/ui/ErrorBoundary'
 import { getReplayData, clearReplayData } from '@/lib/services/logReplay'
+import { ReferenceProviderWrapper } from '@/lib/references/ReferenceContext'
 
 const DOWNLOAD_JSON_ICON = <Icon icon={ciFileDocument} width="28" height="28" />
 const DOWNLOAD_CCZ_ICON = <Icon icon={ciDownloadPackage} width="28" height="28" />
@@ -435,7 +436,37 @@ export function BuilderLayout({ buildId }: { buildId: string }) {
     breadcrumbParts.push({ label: builder.treeData.app_name, onClick: () => {} })
   }
 
+  /**
+   * Context getter for the ReferenceProvider. Reads from the builder's current
+   * selection (contextual editor) or the nav's current form screen (preview canvas).
+   * Returns undefined when no form is active (home/module screens).
+   */
+  const getRefContext = useCallback(() => {
+    const mb = builder.mb
+    if (!mb) return undefined
+    const blueprint = mb.getBlueprint()
+
+    /* Prefer the selected question's form (contextual editor context). */
+    const sel = builder.selected
+    if (sel?.type === 'question' && sel.formIndex !== undefined) {
+      const form = mb.getForm(sel.moduleIndex, sel.formIndex)
+      const mod = mb.getModule(sel.moduleIndex)
+      if (form) return { blueprint, form, moduleCaseType: mod?.case_type ?? undefined }
+    }
+
+    /* Fall back to the nav's current form screen (preview canvas context). */
+    const screen = navRef.current.current
+    if (screen.type === 'form') {
+      const form = mb.getForm(screen.moduleIndex, screen.formIndex)
+      const mod = mb.getModule(screen.moduleIndex)
+      if (form) return { blueprint, form, moduleCaseType: mod?.case_type ?? undefined }
+    }
+
+    return undefined
+  }, [builder])
+
   return (
+    <ReferenceProviderWrapper getContext={getRefContext} subscribeMutation={builder.subscribeMutation}>
     <div ref={layoutRef} className="h-screen flex flex-col bg-nova-void overflow-hidden">
       {/* Header — collapses to zero height in hero mode, reveals with border on transition */}
       <motion.header
@@ -653,5 +684,6 @@ export function BuilderLayout({ buildId }: { buildId: string }) {
 
       <ToastContainer />
     </div>
+    </ReferenceProviderWrapper>
   )
 }

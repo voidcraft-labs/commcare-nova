@@ -50,12 +50,22 @@ Replaces `Layout.Space` with `Layout.NewLine` + `Layout.Tab`:
 
 **Three completion sources:**
 - **Functions** — all ~65 from `FUNCTION_REGISTRY`, cached at module level. Uses `snippetCompletion` with typed placeholders (e.g. `if(${1:boolean}, ${2}, ${3})`). Suppressed inside `HashtagRef`, `Child`, `Descendant`, `StringLiteral` via `ifNotIn`.
-- **Hashtag references** — two-phase: bare `#` shows namespace prefixes (`#case/`, `#form/`, `#user/`); after a namespace, shows properties/questions from the blueprint. `activateOnCompletion` re-triggers after picking a namespace prefix.
+- **Hashtag references** — two-phase: bare `#` shows namespace prefixes (`#case/`, `#form/`, `#user/`); after a namespace, shows properties/questions from the blueprint with `detail` labels (human-readable names). Uses `collectQuestionEntries` and `USER_PROPERTIES` from `lib/references/provider.ts` (single source of truth). `activateOnCompletion` re-triggers after picking a namespace prefix. Exact-match suppression closes the dropdown when the typed text matches a known reference (chip renders instead).
 - **Data paths** — `/data/...` paths from `collectValidPaths()`.
 
 **Context detection uses Lezer syntax tree nodes** (`syntaxTree().resolveInner()`), not regex. The grammar's `HashtagRef` (rule node with `HashtagType`/`HashtagSegment` children), `Child`/`Descendant` (path chains), and `NameTest`/`FunctionName` nodes drive all context decisions. Since `resolveInner` returns the innermost node, hashtag autocomplete walks up to 2 parent levels to find the `HashtagRef` ancestor when the cursor lands on a child node.
 
+## Chip Decorations (`xpath-chips.ts`)
+
+`xpathChips(provider: ReferenceProvider): Extension` — renders `#form/`, `#case/`, `#user/` hashtag references as inline styled chips (colored pills with icons). The document always stores canonical `#type/path` text — chips are purely visual decorations.
+
+**Four facets packaged into a single Extension:**
+- **MatchDecorator + ViewPlugin** — scans the viewport for `HASHTAG_REF_PATTERN` matches, calls `provider.resolve(raw)` for each. Only decorates references that exist in the blueprint (unknown refs stay as raw text). Uses `ChipWidget extends WidgetType` with `createChipElement()` from `lib/references/chipDom.ts`.
+- **atomicRanges** — makes chip decoration ranges atomic for cursor navigation (arrow keys skip entire chip).
+- **transactionFilter (backspace-to-revert)** — intercepts `delete.backward` on atomic ranges. Instead of deleting the whole chip, deletes only the last character. The remaining text no longer matches a valid reference, so the chip disappears and raw text is exposed. Attaches a `chipRevertEffect` StateEffect.
+- **revertAutocomplete ViewPlugin** — watches for `chipRevertEffect` and reopens autocomplete via `startCompletion` (deferred to next microtask so editor state is settled).
+
 ## Language & Theme
 
 - `xpath-language.ts` — CodeMirror `LanguageSupport` with `styleTags` highlighting and `foldNodeProp` (folds `ArgumentList` and `Filtered`). `HashtagRef` child nodes (`HashtagType`, `HashtagSegment`) are tagged directly — named children don't inherit parent styles. Scoped overrides (`HashtagRef/"/"`, `HashtagRef/"#"`) keep `#` and `/` tokens cyan instead of falling through to the global separator style.
-- `xpath-theme.ts` — Nova dark theme for CodeMirror. Used by `XPathField` and `XPathEditorModal`. Also exports `novaAutocompleteTheme` — dark tooltip styling for the autocomplete dropdown (z-index 200 to float above the XPath modal).
+- `xpath-theme.ts` — Nova dark theme for CodeMirror. Used by `XPathField` and `XPathEditorModal`. Also exports `novaAutocompleteTheme` (dark tooltip styling for the autocomplete dropdown, z-index 200) and `novaChipTheme` (hover feedback for `.cm-hashtag-chip` widgets).
