@@ -91,6 +91,7 @@ export function ContextualEditorUI({ question, selected, mb, builder, notifyBlue
               >
                 <QuestionTypeGrid
                   activeType={question.type}
+                  variant="elevated"
                   onSelect={(type) => {
                     saveQuestion('type', type)
                     setTypePickerOpen(false)

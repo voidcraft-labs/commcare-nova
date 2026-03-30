@@ -81,6 +81,7 @@ Dark "Stellar Minimalism". CSS custom properties in `globals.css`:
 - Text: `--nova-text` (#e8e8ff) → `--nova-text-muted` (#555577)
 - Accents: `--nova-violet`, `--nova-cyan`, `--nova-emerald`, `--nova-amber`, `--nova-rose`
 - Fonts: Outfit (display), Plus Jakarta Sans (body), JetBrains Mono (code)
+- Popover layers (`lib/styles.ts`): `POPOVER_GLASS` (L1, frosted glass with bright inset border) for base-layer floating panels, `POPOVER_ELEVATED` (L2, nearly opaque) for popovers stacked above glass. Both share a 1px inner highlight (`inset box-shadow`) that catches light.
 
 ### Structured Output Schemas
 
