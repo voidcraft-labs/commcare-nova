@@ -2,7 +2,6 @@
 import { useState, useCallback, useRef } from 'react'
 import { useFloating, offset, flip, shift, autoUpdate, FloatingPortal } from '@floating-ui/react'
 import { Icon } from '@iconify/react'
-import ciAddPlus from '@iconify-icons/ci/add-plus'
 import type { Question } from '@/lib/schemas/blueprint'
 import type { Builder, SelectedElement } from '@/lib/services/builder'
 import type { MutableBlueprint } from '@/lib/services/mutableBlueprint'
@@ -11,6 +10,7 @@ import { questionTypeIcons, questionTypeLabels } from '@/lib/questionTypeIcons'
 import { EditableText } from '@/components/builder/EditableText'
 import { QuestionTypeGrid } from '@/components/builder/QuestionTypeGrid'
 import { useDismissRef } from '@/hooks/useDismissRef'
+import { AddPropertyButton } from './AddPropertyButton'
 import { addableTextFields } from './shared'
 
 interface ContextualEditorUIProps {
@@ -132,14 +132,11 @@ export function ContextualEditorUI({ question, selected, mb, builder, notifyBlue
         {missingTextFields.length > 0 && (
           <div className="flex flex-wrap gap-1.5">
             {missingTextFields.map(({ field, label }) => (
-              <button
+              <AddPropertyButton
                 key={field}
+                label={label}
                 onClick={() => setNewlyAdded({ field, questionPath: selected.questionPath! })}
-                className="inline-flex items-center gap-1 px-2 py-0.5 text-xs text-nova-text-muted hover:text-nova-text-secondary bg-nova-surface hover:bg-nova-elevated border border-nova-border/40 rounded transition-colors cursor-pointer"
-              >
-                <Icon icon={ciAddPlus} width="10" height="10" />
-                {label}
-              </button>
+              />
             ))}
           </div>
         )}

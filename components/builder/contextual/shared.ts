@@ -2,12 +2,6 @@ import type { MutableBlueprint } from '@/lib/services/mutableBlueprint'
 
 export const MEDIA_TYPES = new Set(['image', 'audio', 'video', 'signature'])
 
-export const requiredOptions = [
-  { value: '', label: 'Not required' },
-  { value: 'true()', label: 'Always required' },
-  { value: 'conditional', label: 'Conditional...' },
-]
-
 export const xpathFields = [
   { field: 'validation', label: 'Validation' },
   { field: 'relevant', label: 'Show When' },
