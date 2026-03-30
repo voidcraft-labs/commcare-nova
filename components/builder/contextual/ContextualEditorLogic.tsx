@@ -26,7 +26,7 @@ export function ContextualEditorLogic({ question, selected, mb, notifyBlueprintC
   const [xpathModal, setXpathModal] = useState<{ field: string; value: string; label: string }>()
   const [newlyAdded, setNewlyAdded] = useState<{ field: string; questionPath: QuestionPath }>()
 
-  /** Context getter for XPathField chip resolution and XPathEditorModal linting. */
+  /** Context getter for XPathEditorModal linting and autocomplete. */
   const getLintContext = useCallback(() => {
     const blueprint = mb.getBlueprint()
     const form = mb.getForm(selected.moduleIndex, selected.formIndex!)
@@ -63,7 +63,6 @@ export function ContextualEditorLogic({ question, selected, mb, notifyBlueprintC
                 <div className="flex-1 min-w-0">
                   <XPathField
                     value={question.required!}
-                    getLintContext={getLintContext}
                     onClick={() => setXpathModal({
                       field: 'required',
                       value: question.required!,
@@ -91,7 +90,7 @@ export function ContextualEditorLogic({ question, selected, mb, notifyBlueprintC
         {question.validation && (
           <div>
             <label className="text-xs text-nova-text-muted uppercase tracking-wider mb-1 block">Validation</label>
-            <XPathField value={question.validation} getLintContext={getLintContext} onClick={() => setXpathModal({ field: 'validation', value: question.validation!, label: 'Validation' })} />
+            <XPathField value={question.validation} onClick={() => setXpathModal({ field: 'validation', value: question.validation!, label: 'Validation' })} />
             {(question.validation_msg || newlyAddedField === 'validation_msg') && (
               <div className="mt-1">
                 <EditableText
@@ -111,19 +110,19 @@ export function ContextualEditorLogic({ question, selected, mb, notifyBlueprintC
         {question.relevant && (
           <div>
             <label className="text-xs text-nova-text-muted uppercase tracking-wider mb-1 block">Show When</label>
-            <XPathField value={question.relevant} getLintContext={getLintContext} onClick={() => setXpathModal({ field: 'relevant', value: question.relevant!, label: 'Show When' })} />
+            <XPathField value={question.relevant} onClick={() => setXpathModal({ field: 'relevant', value: question.relevant!, label: 'Show When' })} />
           </div>
         )}
         {question.default_value && (
           <div>
             <label className="text-xs text-nova-text-muted uppercase tracking-wider mb-1 block">Default Value</label>
-            <XPathField value={question.default_value} getLintContext={getLintContext} onClick={() => setXpathModal({ field: 'default_value', value: question.default_value!, label: 'Default Value' })} />
+            <XPathField value={question.default_value} onClick={() => setXpathModal({ field: 'default_value', value: question.default_value!, label: 'Default Value' })} />
           </div>
         )}
         {question.calculate && (
           <div>
             <label className="text-xs text-nova-text-muted uppercase tracking-wider mb-1 block">Calculate</label>
-            <XPathField value={question.calculate} getLintContext={getLintContext} onClick={() => setXpathModal({ field: 'calculate', value: question.calculate!, label: 'Calculate' })} />
+            <XPathField value={question.calculate} onClick={() => setXpathModal({ field: 'calculate', value: question.calculate!, label: 'Calculate' })} />
           </div>
         )}
 
