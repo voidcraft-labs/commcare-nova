@@ -14,8 +14,8 @@ Split across two files:
 - `askQuestions` (client-side, no `execute`) — structured multiple-choice rendered as QuestionCard. `sendAutomaticallyWhen` re-sends when all answered.
 
 **Generation (3)** — SA calls directly with structured data (no sub-LLM calls):
-- `generateSchema` — accepts case types + properties. `onInputStart` emits `data-start-build`.
-- `generateScaffold` — accepts module/form structure. `onInputStart` emits `data-phase: structure`.
+- `generateSchema` — accepts case types + properties. `strict: true`. `onInputStart` emits `data-start-build`.
+- `generateScaffold` — accepts module/form structure. `strict: true`. `onInputStart` emits `data-phase: structure`.
 - `addModule` — accepts case list/detail columns. `onInputStart` emits `data-phase: modules`.
 
 **Form Building (1):**

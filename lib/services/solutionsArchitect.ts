@@ -172,6 +172,7 @@ export function createSolutionsArchitect(
           appName: z.string().describe('Short app name (2-5 words)'),
           caseTypes: caseTypesOutputSchema.shape.case_types,
         }),
+        strict: true,
         onInputStart: () => {
           ctx.emit('data-start-build', {})
         },
@@ -196,6 +197,7 @@ export function createSolutionsArchitect(
       generateScaffold: tool({
         description: 'Set the module and form structure for the app. Call after generateSchema. Provide the complete scaffold directly.',
         inputSchema: scaffoldModulesSchema,
+        strict: true,
         onInputStart: () => {
           ctx.emit('data-phase', { phase: 'structure' })
         },
