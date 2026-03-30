@@ -102,6 +102,42 @@ interface ThinkLayerOpts {
   warmProb?: number
 }
 
+/** Configuration for the shared backplate — the background neural activity layer
+ *  that multiple modes render underneath their foreground animations.
+ *
+ *  The backplate encapsulates: sending fade → think layer → hue drift → decay.
+ *  Reasoning and error-recovering use it as their entire visual. Scaffolding,
+ *  building, and editing layer their foreground (pieces, sweep, defrag) on top. */
+interface BackplateOpts {
+  /** ThinkLayer tuning (fire density, response speed, warm hue probability). */
+  think?: ThinkLayerOpts
+  /** Target hue for active cells (B > 0.05) to drift toward. Default 1.0 (cyan).
+   *  Values >1 drift toward warm tones (e.g. 1.3 for amber). */
+  hueDriftTarget?: number
+  /** Hue drift speed per second. Default 0.4. Set to 0 to disable drift. */
+  hueDriftRate?: number
+  /** Brightness decay rate per second. Default 0.7. */
+  decayRate?: number
+  /** Skip decay for cells where the predicate returns false.
+   *  Used by scaffolding to preserve filled board cells at locked brightness. */
+  decayFilter?: (row: number, col: number) => boolean
+}
+
+/** Mutable accumulators owned by each mode and passed to tickBackplate.
+ *  Each mode that uses the backplate has its own instance so state doesn't
+ *  bleed across mode transitions. Includes the sending fade timer which
+ *  drains the violet glow uniformly regardless of which mode follows. */
+interface BackplateState {
+  accum: number
+  ambientTimer: number
+  sendingFade: number
+}
+
+/** Shared backplate opts for modes with fast-decaying foreground animations (building, editing).
+ *  Faster decay (1.2 vs 0.7) keeps the sweep/defrag visually dominant. No hue drift so
+ *  the foreground's bubblegum pink doesn't get pulled toward cyan. */
+const FOREGROUND_BACKPLATE_OPTS: BackplateOpts = { decayRate: 1.2, hueDriftRate: 0 }
+
 /** Minimum zone width as a fraction of total columns (prevents tiny slivers). */
 const MIN_EDIT_ZONE = 0.15
 /** How fast the current zone lerps toward the target zone (per second). */
@@ -222,7 +258,6 @@ export class SignalGridController {
   private lastTime = 0
   private mode: SignalMode = 'idle'
   private prevMode: SignalMode = 'idle'
-  private modeT = 1 // blend factor 0..1 (1 = fully in current mode)
 
   // Mode transition queue — modes with minimum animation times defer the next mode
   private pendingMode: SignalMode | null = null
@@ -238,32 +273,38 @@ export class SignalGridController {
   // Sending
   private wavePhase = 0
 
-  // Reasoning
-  private accumEnergy = 0
-  private ambientTimer = 0
+  // Backplate state — per-mode accumulators for the shared neural activity layer.
+  // Each mode gets its own instance so state resets cleanly on mode transitions.
+  // Error-recovering shares reasoningBP since they use the same fields.
+  private reasoningBP: BackplateState = { accum: 0, ambientTimer: 0, sendingFade: 0 }
+  private scaffoldBP: BackplateState = { accum: 0, ambientTimer: 0, sendingFade: 0 }
+  private buildBP: BackplateState = { accum: 0, ambientTimer: 0, sendingFade: 0 }
+  private editBP: BackplateState = { accum: 0, ambientTimer: 0, sendingFade: 0 }
 
   // Building
   private sweepPhase = 0
-  private buildThinkAccum = 0
-  private buildAmbientTimer = 0
 
   // Scaffolding (pre-computed tiling plan)
+  /** Stable backplate opts for scaffolding — allocated once, never mutated.
+   *  The decayFilter is a bound method that reads this.scaffoldBoard directly. */
+  private readonly scaffoldBackplateOpts: BackplateOpts = {
+    think: { maxFires: 0.25, drScale: SCAFFOLD_TEMPO * 0.5, ambientIntensity: 1.5 },
+    decayRate: S_DECAY * SCAFFOLD_TEMPO,
+    hueDriftRate: 0,
+    decayFilter: (r: number, c: number) => !this.scaffoldBoard?.[r][c],
+  }
   private scaffoldBoard: Board | null = null
   private scaffoldPlan: TilingPlan = []
   private scaffoldPlanIdx = 0
   private scaffoldTarget = 0
   private scaffoldAnim: ScaffoldAnim | null = null
   private scaffoldBreathPhase = 0
-  private scaffoldThinkAccum = 0
-  private scaffoldAmbientTimer = 0
 
   // Editing (defrag)
   private editTarget: EditFocus = { start: 0, end: 1 }
   private editCurrent: EditFocus = { start: 0, end: 1 }
   private editOps: DefragOp[] = []
   private editSpawnTimer = 0
-  private editThinkAccum = 0
-  private editAmbientTimer = 0
 
   // Error fatal
   private fatalTimer = 0
@@ -458,28 +499,31 @@ export class SignalGridController {
     this.prevMode = this.mode
     this.mode = mode
     this.currentLabel = label
-    this.modeT = 0
     this.modeAppliedCallback?.(mode, label)
+
+    // Sending fade: when arriving from the sending wave, seed the backplate's
+    // sendingFade timer so the violet glow decays gradually (~0.7s) into the
+    // next mode's ambient baseline instead of snapping dark.
+    const fade = this.prevMode === 'sending' ? 1.0 : 0
+
     // Reset mode-specific state so animations start fresh
     if (mode === 'sending') this.wavePhase = 0
-    if (mode === 'building') { this.sweepPhase = 0; this.buildThinkAccum = 0; this.buildAmbientTimer = 0 }
     if (mode === 'reasoning' || mode === 'error-recovering') {
-      this.accumEnergy = 0; this.ambientTimer = 0
-      // When arriving from sending, the wave left cells at DR=8.0 (very fast tracking).
-      // Slow the interpolation rate so the violet glow fades gradually (~0.7s) into
-      // reasoning's dim ambient baseline instead of snapping dark in 2-3 frames.
-      if (this.prevMode === 'sending') {
-        for (let i = 0; i < this.cellCount; i++) {
-          this.cells[i * STRIDE + DR] = 2.0
-        }
-      }
+      this.reasoningBP = { accum: 0, ambientTimer: 0, sendingFade: fade }
+    }
+    if (mode === 'building') {
+      this.sweepPhase = 0
+      this.buildBP = { accum: 0, ambientTimer: 0, sendingFade: fade }
     }
     if (mode === 'scaffolding') {
       this.scaffoldBoard = null; this.scaffoldPlan = []; this.scaffoldPlanIdx = 0
       this.scaffoldTarget = 0; this.scaffoldAnim = null; this.scaffoldBreathPhase = 0
-      this.scaffoldThinkAccum = 0; this.scaffoldAmbientTimer = 0
+      this.scaffoldBP = { accum: 0, ambientTimer: 0, sendingFade: fade }
     }
-    if (mode === 'editing') { this.editOps = []; this.editSpawnTimer = 0; this.editThinkAccum = 0; this.editAmbientTimer = 0 }
+    if (mode === 'editing') {
+      this.editOps = []; this.editSpawnTimer = 0
+      this.editBP = { accum: 0, ambientTimer: 0, sendingFade: fade }
+    }
     // When leaving done/emerald (hue 4.0), snap hue to a cool base so interpolation
     // never passes through the warm error tone range (hue 1.0–3.0 = amber/rose).
     // Scaffolding lives in the emerald range (3.0–4.0), so snap to the cyan–emerald
@@ -557,11 +601,6 @@ export class SignalGridController {
     const dt = Math.min((now - this.lastTime) / 1000, 0.05)
     this.lastTime = now
 
-    // Advance mode blend
-    if (this.modeT < 1) {
-      this.modeT = Math.min(1, this.modeT + dt * 3.0) // 333ms blend
-    }
-
     // Read and drain energy from both channels
     const burstEnergy = this.consumeEnergy()
     const thinkEnergy = this.consumeThinkEnergy()
@@ -608,15 +647,12 @@ export class SignalGridController {
     }
   }
 
-  // ── Think + ambient layer (shared by reasoning, scaffolding, building, editing, error) ──
+  // ── Think + ambient layer (called by tickBackplate) ─────────────────
+  //
+  // Fires neural hotspots, scatter cells, and ambient hum based on accumulated
+  // energy. Mutates state.accum and state.ambientTimer in place.
 
-  private tickThinkLayer(
-    dt: number,
-    energy: number,
-    accum: number,
-    ambientTimer: number,
-    opts?: ThinkLayerOpts,
-  ): [accum: number, ambientTimer: number] {
+  private tickThinkLayer(dt: number, energy: number, state: BackplateState, opts?: ThinkLayerOpts): void {
     const maxFires = opts?.maxFires ?? 0.45
     const drScale = opts?.drScale ?? 1.0
     const intensity = opts?.ambientIntensity ?? 3
@@ -624,11 +660,11 @@ export class SignalGridController {
 
     const density = this.cellCount / 93
 
-    accum += energy
+    state.accum += energy
     const threshold = 7 / density
-    let fires = Math.floor(accum / threshold)
+    let fires = Math.floor(state.accum / threshold)
     fires = Math.min(fires, Math.ceil(this.cellCount * maxFires))
-    accum = Math.min(accum - fires * threshold, threshold * 8)
+    state.accum = Math.min(state.accum - fires * threshold, threshold * 8)
 
     // Hotspots: 1-3 bright center cells + 1-2 dimmer neighbors
     if (fires >= 5) {
@@ -671,11 +707,11 @@ export class SignalGridController {
     }
 
     // Ambient hum — baseline activity even with zero energy
-    const recent = Math.min(1, accum / 50)
+    const recent = Math.min(1, state.accum / 50)
     const ambientInterval = 0.12 - recent * 0.08
-    ambientTimer += dt
-    if (ambientTimer > ambientInterval) {
-      ambientTimer -= ambientInterval
+    state.ambientTimer += dt
+    if (state.ambientTimer > ambientInterval) {
+      state.ambientTimer -= ambientInterval
       const count = Math.max(1, Math.round((2 + recent * intensity + Math.random() * 2) * density))
       for (let a = 0; a < count; a++) {
         const idx = Math.floor(Math.random() * this.cellCount)
@@ -691,7 +727,69 @@ export class SignalGridController {
       }
     }
 
-    return [accum, ambientTimer]
+  }
+
+  // ── Backplate — shared background neural activity layer ──────────────
+  //
+  // The canonical "thinking" visual: random neural firing, hue drift, gentle
+  // decay. Used directly by reasoning and error-recovering as their entire
+  // animation, and as a background layer by scaffolding, building, and editing
+  // (which paint their foreground elements on top).
+  //
+  // Call order in each mode ticker:
+  //   Foreground-first modes (building, editing):
+  //     1. Render foreground (sweep, defrag bars, bursts)
+  //     2. tickBackplate() — fires underneath, decay applied to all
+  //   Background-first modes (scaffolding):
+  //     1. tickBackplate() — fires on unfilled cells
+  //     2. Render foreground (board cells, piece animation) on top
+  //   Pure backplate modes (reasoning, error-recovering):
+  //     1. tickBackplate() — that's the entire visual
+
+  private tickBackplate(dt: number, energy: number, state: BackplateState, opts?: BackplateOpts): void {
+    // ── Sending fade — violet glow that lingers after the wave ──
+    // Applies a decaying brightness floor (Math.max so it never overwrites
+    // brighter foreground) and caps DR for smooth interpolation. Drains at
+    // 1.5/s so the fade is fully gone in ~0.7s.
+    if (state.sendingFade > 0.01) {
+      const fadeBrightness = 0.08 * state.sendingFade
+      for (let i = 0; i < this.cellCount; i++) {
+        const off = i * STRIDE
+        this.cells[off + TB] = Math.max(this.cells[off + TB], fadeBrightness)
+        this.cells[off + DR] = Math.min(this.cells[off + DR], 2.0)
+      }
+      state.sendingFade = Math.max(0, state.sendingFade - dt * 1.5)
+    }
+
+    // ── Think layer — neural firing correlated with streaming energy ──
+    this.tickThinkLayer(dt, energy, state, opts?.think)
+
+    // ── Hue drift — active cells drift toward a target hue ──
+    const driftRate = opts?.hueDriftRate ?? 0.4
+    const driftTarget = opts?.hueDriftTarget ?? 1.0
+    if (driftRate > 0) {
+      for (let i = 0; i < this.cellCount; i++) {
+        const off = i * STRIDE
+        if (this.cells[off + B] > 0.05) {
+          const current = this.cells[off + TH]
+          if (current < driftTarget) {
+            this.cells[off + TH] = Math.min(driftTarget, current + dt * driftRate)
+          } else if (current > driftTarget) {
+            this.cells[off + TH] = Math.max(driftTarget, current - dt * driftRate)
+          }
+        }
+      }
+    }
+
+    // ── Decay + YO reset — brightness fades, vertical offsets cleared ──
+    const decay = opts?.decayRate ?? 0.7
+    const filter = opts?.decayFilter
+    for (let i = 0; i < this.cellCount; i++) {
+      if (filter && !filter(Math.floor(i / this.cols), i % this.cols)) continue
+      const off = i * STRIDE
+      this.cells[off + TB] = Math.max(0, this.cells[off + TB] - dt * decay)
+      this.cells[off + YO] = 0
+    }
   }
 
   // ── Sending wave ─────────────────────────────────────────────────────
@@ -742,21 +840,18 @@ export class SignalGridController {
       this.scaffoldPlanIdx = 0
     }
 
-    // Clear all cells to dark — scaffold renders everything from scratch each frame
-    // so that piece animations and filled cells are the only visible elements.
-    for (let i = 0; i < this.cellCount; i++) {
-      const off = i * STRIDE
-      this.cells[off + TB] = 0
-      this.cells[off + TH] = 0
-      this.cells[off + DR] = 20
-      this.cells[off + YO] = 0
-    }
+    // ── Background: neural activity on unfilled cells ──
+    // The backplate handles think layer firing, sending fade, and decay.
+    // decayFilter (on scaffoldBackplateOpts) reads this.scaffoldBoard directly.
+    const board = this.scaffoldBoard
+    const cols = this.cols
+    this.tickBackplate(dt, thinkEnergy, this.scaffoldBP, this.scaffoldBackplateOpts)
 
-    // Render filled board cells as dim cyan to show cumulative progress
+    // ── Foreground: filled board cells at locked brightness ──
     for (let r = 0; r < ROWS; r++) {
-      for (let c = 0; c < this.cols; c++) {
-        if (!this.scaffoldBoard[r][c]) continue
-        const off = (r * this.cols + c) * STRIDE
+      for (let c = 0; c < cols; c++) {
+        if (!board[r][c]) continue
+        const off = (r * cols + c) * STRIDE
         this.cells[off + TB] = 0.25
         this.cells[off + TH] = 1.0
         this.cells[off + DR] = 20
@@ -764,9 +859,9 @@ export class SignalGridController {
     }
 
     // ── Speed from gap — progress is a speed signal, not a gate ───
-    const totalCells = ROWS * this.cols
+    const totalCells = ROWS * cols
     const targetFill = Math.floor(this.scaffoldTarget * totalCells)
-    const currentFill = fillCount(this.scaffoldBoard)
+    const currentFill = fillCount(board)
     const gap = targetFill - currentFill
     const gapFraction = gap / totalCells
     const stalled = gap <= 0 || this.scaffoldPlanIdx >= this.scaffoldPlan.length
@@ -775,21 +870,21 @@ export class SignalGridController {
       // ── Breathing front — oscillating energy bar on the fill edge columns ───
       // A bright peak travels up and down the 3 rows, leaving a fading trail
       // on the two columns at the fill front. Shows the system is alive and working.
-      const front = fillFront(this.scaffoldBoard)
-      if (front < this.cols) {
+      const front = fillFront(board)
+      if (front < cols) {
         this.scaffoldBreathPhase += dt * 1.5
         for (let row = 0; row < ROWS; row++) {
           const phase = this.scaffoldBreathPhase * Math.PI * 2 + row * (Math.PI * 2 / ROWS)
           const wave = (Math.sin(phase) + 1) * 0.5
           const brightness = 0.15 + wave * 0.6
 
-          const off1 = (row * this.cols + front) * STRIDE
+          const off1 = (row * cols + front) * STRIDE
           this.cells[off1 + TB] = Math.max(this.cells[off1 + TB], brightness)
           this.cells[off1 + TH] = -0.6
           this.cells[off1 + DR] = 2.5
 
-          if (front + 1 < this.cols) {
-            const off2 = (row * this.cols + front + 1) * STRIDE
+          if (front + 1 < cols) {
+            const off2 = (row * cols + front + 1) * STRIDE
             this.cells[off2 + TB] = Math.max(this.cells[off2 + TB], brightness * 0.5)
             this.cells[off2 + TH] = -0.3
             this.cells[off2 + DR] = 2.0
@@ -817,23 +912,6 @@ export class SignalGridController {
 
       // Reset breath phase so it starts fresh if we stall again
       this.scaffoldBreathPhase = 0
-    }
-
-    // Think + ambient layer fires underneath the tetris fill. Reduced intensity
-    // so the thinking activity accents but doesn't overpower the piece visuals.
-    ;[this.scaffoldThinkAccum, this.scaffoldAmbientTimer] = this.tickThinkLayer(
-      dt, thinkEnergy, this.scaffoldThinkAccum, this.scaffoldAmbientTimer,
-      { maxFires: 0.25, drScale: SCAFFOLD_TEMPO * 0.5, ambientIntensity: 1.5 },
-    )
-
-    // Gentle decay on unfilled cells — filled cells are re-rendered above each frame,
-    // so this only affects think layer remnants and animation afterglow on empty cells.
-    for (let i = 0; i < this.cellCount; i++) {
-      const r = Math.floor(i / this.cols)
-      const c = i % this.cols
-      if (this.scaffoldBoard![r][c]) continue
-      const off = i * STRIDE
-      this.cells[off + TB] = Math.max(0, this.cells[off + TB] - dt * S_DECAY * SCAFFOLD_TEMPO)
     }
   }
 
@@ -1010,24 +1088,7 @@ export class SignalGridController {
   // ── Reasoning (token-correlated neural firing) ───────────────────────
 
   private tickReasoning(dt: number, energy: number): void {
-    ;[this.accumEnergy, this.ambientTimer] = this.tickThinkLayer(
-      dt, energy, this.accumEnergy, this.ambientTimer,
-    )
-
-    // Drift active cell hues toward cyan over time
-    for (let i = 0; i < this.cellCount; i++) {
-      const off = i * STRIDE
-      if (this.cells[off + B] > 0.05) {
-        this.cells[off + TH] = Math.min(1, this.cells[off + TH] + dt * 0.4)
-      }
-    }
-
-    // Decay targets toward dark
-    for (let i = 0; i < this.cellCount; i++) {
-      const off = i * STRIDE
-      this.cells[off + TB] = Math.max(0, this.cells[off + TB] - dt * 0.7)
-      this.cells[off + YO] = 0
-    }
+    this.tickBackplate(dt, energy, this.reasoningBP)
   }
 
   // ── Building (sweep + delivery bursts + thinking activity) ────────────
@@ -1077,17 +1138,8 @@ export class SignalGridController {
       }
     }
 
-    // Think + ambient layer on top of sweep
-    ;[this.buildThinkAccum, this.buildAmbientTimer] = this.tickThinkLayer(
-      dt, thinkEnergy, this.buildThinkAccum, this.buildAmbientTimer,
-    )
-
-    // Decay targets
-    for (let i = 0; i < this.cellCount; i++) {
-      const off = i * STRIDE
-      this.cells[off + TB] = Math.max(0, this.cells[off + TB] - dt * 1.2)
-      this.cells[off + YO] = 0
-    }
+    // Backplate: think layer fires on top of sweep, then decay pulls everything down
+    this.tickBackplate(dt, thinkEnergy, this.buildBP, FOREGROUND_BACKPLATE_OPTS)
   }
 
   // ── Editing (defrag — vertical bars that select, crawl, and place) ────
@@ -1283,17 +1335,8 @@ export class SignalGridController {
       }
     }
 
-    // Think + ambient layer underneath the defrag bars
-    ;[this.editThinkAccum, this.editAmbientTimer] = this.tickThinkLayer(
-      dt, thinkEnergy + burstEnergy, this.editThinkAccum, this.editAmbientTimer,
-    )
-
-    // ── Decay ──
-    for (let i = 0; i < this.cellCount; i++) {
-      const off = i * STRIDE
-      this.cells[off + TB] = Math.max(0, this.cells[off + TB] - dt * 1.2)
-      this.cells[off + YO] = 0
-    }
+    // Backplate: think layer fires underneath defrag bars, then decay
+    this.tickBackplate(dt, thinkEnergy + burstEnergy, this.editBP, FOREGROUND_BACKPLATE_OPTS)
   }
 
   /** Light an entire column (all rows) — used by defrag ops for vertical bar effect. */
@@ -1330,17 +1373,10 @@ export class SignalGridController {
   // ── Error recovering ("sprinkle some red" — reasoning with distress) ─
 
   private tickErrorRecovering(dt: number, energy: number): void {
-    ;[this.accumEnergy, this.ambientTimer] = this.tickThinkLayer(
-      dt, energy, this.accumEnergy, this.ambientTimer,
-      { warmProb: 0.35 },
-    )
-
-    // Decay + drift
-    for (let i = 0; i < this.cellCount; i++) {
-      const off = i * STRIDE
-      this.cells[off + TB] = Math.max(0, this.cells[off + TB] - dt * 0.7)
-      this.cells[off + YO] = 0
-    }
+    this.tickBackplate(dt, energy, this.reasoningBP, {
+      think: { warmProb: 0.35 },
+      hueDriftRate: 0,
+    })
   }
 
   // ── Error fatal ("giving up" — flicker fades into settled dim pulse) ─
