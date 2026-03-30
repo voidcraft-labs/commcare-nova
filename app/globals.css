@@ -179,7 +179,18 @@ body {
   50% { opacity: 1; }
 }
 
-/* Error state — rose LED and label */
+/* Error recovering — amber LED and label */
+.nova-panel[data-recovering] .nova-panel-indicator.active {
+  background: var(--nova-amber);
+  box-shadow:
+    inset 0 0.5px 1px rgba(0, 0, 0, 0.1),
+    0 0 5px rgba(245, 158, 11, 0.5);
+}
+.nova-panel[data-recovering] .nova-panel-etch {
+  color: rgba(245, 158, 11, 0.7);
+}
+
+/* Error fatal — rose LED and label */
 .nova-panel[data-error] .nova-panel-indicator.active {
   background: var(--nova-rose);
   box-shadow:
@@ -188,6 +199,17 @@ body {
 }
 .nova-panel[data-error] .nova-panel-etch {
   color: rgba(244, 63, 94, 0.7);
+}
+
+/* Done state — emerald LED and label */
+.nova-panel[data-done] .nova-panel-indicator.active {
+  background: var(--nova-emerald);
+  box-shadow:
+    inset 0 0.5px 1px rgba(0, 0, 0, 0.1),
+    0 0 5px rgba(16, 185, 129, 0.5);
+}
+.nova-panel[data-done] .nova-panel-etch {
+  color: rgba(16, 185, 129, 0.7);
 }
 
 /* Etched label in the bottom bezel */

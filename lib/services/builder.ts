@@ -146,6 +146,7 @@ export class Builder {
   // ── Edit scope (non-versioned — consumed by SignalGrid rAF loop) ──
   private _editScope: EditScope | null = null
 
+
   // ── Read-only public accessors ───────────────────────────────────────
 
   get phase(): BuilderPhase { return this._phase }
@@ -183,6 +184,18 @@ export class Builder {
   get questionAnchor(): { el: HTMLElement; path: QuestionPath } | null { return this._questionAnchor }
   get progressCompleted(): number { return this._progressCompleted }
   get progressTotal(): number { return this._progressTotal }
+
+  /** Scaffold progress (0-1) derived from current state. Polled by SignalGrid rAF loop. */
+  get scaffoldProgress(): number {
+    if (this._phase === BuilderPhase.Idle) return 0
+    if (this._phase === BuilderPhase.DataModel) return this._caseTypes ? 0.30 : 0.05
+    if (this._phase === BuilderPhase.Structure) {
+      if (this._scaffold) return 0.85
+      if (this._partialScaffold) return 0.55
+      return 0.35
+    }
+    return 1.0
+  }
 
   /** The current blueprint as plain data, or undefined. */
   get blueprint(): AppBlueprint | undefined {

@@ -2,7 +2,8 @@
 import { useState, useRef, useCallback, useEffect } from 'react'
 import { motion } from 'motion/react'
 import { SignalGridController, type SignalMode } from '@/lib/signalGridController'
-import { SignalPanel, signalLabel } from '@/components/chat/SignalPanel'
+import { SignalPanel } from '@/components/chat/SignalPanel'
+import { defaultLabel } from '@/lib/signalGridController'
 import { ToastContainer } from '@/components/ui/ToastContainer'
 import { showToast } from '@/lib/services/toastStore'
 import { BuilderPhase, PHASE_LABELS } from '@/lib/services/builder'
@@ -263,8 +264,9 @@ export default function ErrorTestPage() {
             <div className="bg-nova-deep border border-nova-border rounded-xl p-4">
               <SignalPanel
                 active={gridMode !== 'idle'}
-                label={signalLabel(gridMode)}
-                error={gridMode === 'error-recovering' || gridMode === 'error-fatal'}
+                label={defaultLabel(gridMode)}
+                error={gridMode === 'error-fatal'}
+                recovering={gridMode === 'error-recovering'}
               >
                 <div ref={gridCallbackRef} className="signal-grid" />
               </SignalPanel>
