@@ -827,9 +827,12 @@ export class SignalGridController {
   //
   // Grid fills left→right as solver-optimal pieces are placed.
   // External progress (scaffoldTarget) acts as a SPEED SIGNAL, not a gate:
-  //   - Large gap between target and fill → fast animation (catch up)
-  //   - Small gap → slow animation (ease off)
+  //   - Large gap between target and fill → fast animation (catch up, rush mode)
+  //   - Small gap → slow animation (ease off, full theatrics)
   //   - Zero gap → stall: breathing energy bar on the fill front columns
+  // Rush mode (speed >= 3.0) skips preview/select phases — piece appears
+  // pre-selected at its final rotation and slides in from a short distance.
+  // This makes catch-up ~4x faster than the full animation sequence.
   // The animation never freezes — it either places pieces or breathes.
 
   private tickScaffolding(dt: number, _burstEnergy: number, thinkEnergy: number): void {
@@ -893,15 +896,18 @@ export class SignalGridController {
       }
     } else {
       // ── Piece placement — speed scales with how far behind we are ───
+      // Slow cruise when keeping pace, rush mode (>= 3.0) when catching up.
+      // Rush skips preview/select theatrics for ~4x faster piece placement.
       const speed = this.scaffoldTarget >= 1.0 ? 4.0
         : gapFraction > 0.30 ? 3.0
-        : gapFraction > 0.15 ? 2.0
-        : gapFraction > 0.05 ? 1.0
-        : 0.5
+        : gapFraction > 0.15 ? 1.5
+        : gapFraction > 0.05 ? 0.7
+        : 0.4
+      const rush = speed >= 3.0
 
       // Start a new turn when idle
       if (!this.scaffoldAnim && this.scaffoldPlanIdx < this.scaffoldPlan.length) {
-        this.scaffoldAnim = this.startScaffoldTurn(this.scaffoldPlan[this.scaffoldPlanIdx])
+        this.scaffoldAnim = this.startScaffoldTurn(this.scaffoldPlan[this.scaffoldPlanIdx], rush)
       }
 
       // Update speed dynamically — the gap can change mid-turn as new milestones arrive
@@ -917,8 +923,27 @@ export class SignalGridController {
 
   /** Start a new turn: replay the solver's search — rejected pieces then the winner.
    *  Speed is not set here — tickScaffolding updates it dynamically each frame
-   *  based on the gap between target and current fill. */
-  private startScaffoldTurn(optimal: Placement): ScaffoldAnim {
+   *  based on the gap between target and current fill.
+   *  Rush mode skips preview/select theatrics — piece appears pre-selected at its
+   *  final rotation a few columns out and slides directly into landing position. */
+  private startScaffoldTurn(optimal: Placement, rush: boolean): ScaffoldAnim {
+    const front = fillFront(this.scaffoldBoard!)
+    const pieceWidth = Math.max(...optimal.shape.map(([, c]) => c)) + 1
+    const previewCol = front + pieceWidth + 3
+
+    // Rush: no rejected previews, no rotation, no select flash.
+    // Piece starts at its final rotation a short distance out and slides in.
+    if (rush) {
+      const rushStart = Math.min(optimal.originCol + 5, this.cols - 1)
+      return {
+        optimal, previews: [], previewIdx: 0,
+        previewCol, slidePos: rushStart,
+        phase: ScaffoldAnimPhase.Slide,
+        timer: 0, speed: 1.0,
+      }
+    }
+
+    // Full animation: rejected pieces → rotation → double-flash select → slide → lock.
     // Previews: last 1-3 rejections (rot0), then winner rotating to its final orientation.
     // Rotation families: rotations 0-3 are one family, 4-7 another (quarter turns within each).
     const previews: ScaffoldPreview[] = []
@@ -950,10 +975,6 @@ export class SignalGridController {
         previews.push({ shape: optimal.shape, originRow: optimal.originRow })
       }
     }
-
-    const front = fillFront(this.scaffoldBoard!)
-    const pieceWidth = Math.max(...optimal.shape.map(([, c]) => c)) + 1
-    const previewCol = front + pieceWidth + 3
 
     return {
       optimal, previews, previewIdx: 0,
@@ -1031,7 +1052,8 @@ export class SignalGridController {
       }
 
       case ScaffoldAnimPhase.Lock: {
-        const dur = S_LOCK / SCAFFOLD_TEMPO
+        // Scale by speed (clamped >= 1.0 so slow pieces keep a crisp lock flash)
+        const dur = S_LOCK / (SCAFFOLD_TEMPO * Math.max(a.speed, 1.0))
         const p = a.timer / dur
         const { cells } = a.optimal
         if (p < 0.30) {
