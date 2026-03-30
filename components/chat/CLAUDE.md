@@ -52,7 +52,7 @@ Permanent neural activity panel. Always mounted between the scroll container and
 - `editing` — defrag-style animation for user-initiated post-build edits. A 2-column bubblegum pink bar performs tracked pick-move-drop operations within a focus zone: **Seek** → **Select** (double-flash) → **Crawl** → **Place**. Think layer fires underneath.
 - `error-recovering` — reasoning-style firing with ~35% warm amber hues via `tickThinkLayer({ warmProb: 0.35 })`. Panel LED/label amber.
 - `error-fatal` — erratic warm flicker settling into dim rose-pink pulse. Panel LED/label rose.
-- `done` — "du-du-DONEE" 3-beat radial celebration → resting emerald breathing pulse. Panel LED/label emerald. Transition to idle snaps hue from emerald to cyan to avoid warm-tone flash.
+- `done` — "du-du-DONEE" 3-beat radial celebration → resting emerald breathing pulse. Panel LED/label emerald. Exiting done snaps hue to cyan (or 3.0 for scaffolding) so interpolation never passes through the warm error tone range (1.0–3.0).
 
 **Elapsed timer** — after 30s in the current step, ChatSidebar appends a suffix like "(30s)", "(1m 12s)" via the `suffix` prop on SignalPanel. Resets when the controller's active label changes.
 

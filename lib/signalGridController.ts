@@ -470,12 +470,15 @@ export class SignalGridController {
       this.scaffoldThinkAccum = 0; this.scaffoldAmbientTimer = 0
     }
     if (mode === 'editing') { this.editOps = []; this.editSpawnTimer = 0; this.editThinkAccum = 0; this.editAmbientTimer = 0 }
-    // When leaving done/emerald (hue 4.0) for idle/violet (hue 0), snap hue to cyan (1.0)
-    // so interpolation stays in cool tones and doesn't flash through amber/rose.
-    if (this.prevMode === 'done' && mode === 'idle') {
+    // When leaving done/emerald (hue 4.0), snap hue to a cool base so interpolation
+    // never passes through the warm error tone range (hue 1.0–3.0 = amber/rose).
+    // Scaffolding lives in the emerald range (3.0–4.0), so snap to the cyan–emerald
+    // boundary. All other modes live at hue ≤ 1.0, so snap to cyan.
+    if (this.prevMode === 'done' && mode !== 'done') {
+      const snapHue = mode === 'scaffolding' ? 3.0 : 1.0
       for (let i = 0; i < this.cellCount; i++) {
-        this.cells[i * STRIDE + H] = 1.0
-        this.cells[i * STRIDE + TH] = 0
+        this.cells[i * STRIDE + H] = snapHue
+        this.cells[i * STRIDE + TH] = snapHue
       }
     }
     if (mode === 'error-fatal') this.fatalTimer = 0
@@ -485,7 +488,7 @@ export class SignalGridController {
       for (let i = 0; i < this.cellCount; i++) {
         this.doneCellPhases[i] = Math.random() * Math.PI * 2
         // Snap both current and target hue to emerald so interpolation never
-        // passes through the warm error tones (hue 1.5-2.0 = amber→rose)
+        // passes through the warm error tone range (hue 1.0–3.0 = amber/rose)
         this.cells[i * STRIDE + H] = 4.0
         this.cells[i * STRIDE + TH] = 4.0
       }
