@@ -53,13 +53,17 @@ export function ContextualEditorUI({ question, selected, mb, builder, notifyBlue
   const newlyAddedField = newlyAdded && newlyAdded.questionPath === selected.questionPath ? newlyAdded.field : undefined
   const clearNewlyAdded = () => setNewlyAdded(undefined)
 
-  const missingTextFields = addableTextFields.filter(f =>
+  const isHidden = question.type === 'hidden'
+
+  // Hidden questions have no visible UI — no label, hint, or help. Only the type
+  // picker is relevant, and even that is rarely needed.
+  const missingTextFields = isHidden ? [] : addableTextFields.filter(f =>
     (f.field === 'hint' || f.field === 'help') && !question[f.field as keyof Question] && newlyAddedField !== f.field,
   )
 
   return (
       <div className="space-y-3">
-        {question.label !== undefined && (
+        {!isHidden && question.label !== undefined && (
           <EditableText
             label="Label"
             value={question.label ?? ''}
@@ -101,7 +105,7 @@ export function ContextualEditorUI({ question, selected, mb, builder, notifyBlue
             </FloatingPortal>
           )}
         </div>
-        {(question.hint || newlyAddedField === 'hint') && (
+        {!isHidden && (question.hint || newlyAddedField === 'hint') && (
           <EditableText
             label="Hint"
             value={question.hint ?? ''}
@@ -113,7 +117,7 @@ export function ContextualEditorUI({ question, selected, mb, builder, notifyBlue
             onEmpty={newlyAddedField === 'hint' ? clearNewlyAdded : undefined}
           />
         )}
-        {(question.help || newlyAddedField === 'help') && (
+        {!isHidden && (question.help || newlyAddedField === 'help') && (
           <EditableText
             label="Help"
             value={question.help ?? ''}

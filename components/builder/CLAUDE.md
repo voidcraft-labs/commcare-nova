@@ -81,11 +81,11 @@ Floating property panel anchored to the selected question via `@floating-ui/reac
 **Stable tab height** — all three tab panels render simultaneously in a CSS grid stack (`gridArea: '1/1'`). Inactive tabs use `invisible` (hidden but in layout) + `inert` (no focus/clicks). The grid cell height is always the tallest tab, preventing height changes on tab switch that would cause the popover to re-flip. Each panel has `min-w-0` to respect the `w-72` container width.
 
 Split into tabbed sub-editors (`ContextualEditorTabs`):
-- **UI tab** (`ContextualEditorUI`) — label, type (via `QuestionTypeGrid` popover at `z-popover-top`), hint, help
+- **UI tab** (`ContextualEditorUI`) — label, type (via `QuestionTypeGrid` popover at `z-popover-top`), hint, help. For hidden questions, only the type picker is shown (no label/hint/help since hidden questions have no visible UI).
 - **Logic tab** (`ContextualEditorLogic`) — required (EditableDropdown with conditional XPath modal), validation, relevant, default_value, calculate
 - **Data tab** (`ContextualEditorData`) — question ID (with rename propagation), `CasePropertyPills` ("Saves to" header + pill buttons), options editor for select types
 
-Active tab is persisted on the Builder singleton (`builder.editorTab` / `setEditorTab()`), so it survives design↔preview mode switches (which unmount/remount the editor). Resets to UI tab on question change.
+Active tab is persisted on the Builder singleton (`builder.editorTab` / `setEditorTab()`), so it survives design↔preview mode switches (which unmount/remount the editor). Resets to UI tab on question change, except for hidden questions which default to Logic tab (where calculate/default/relevant fields are more relevant than the minimal UI tab).
 
 **Footer** (`ContextualEditorFooter`) — move up/down, duplicate, delete. Uses `flattenQuestionPaths` with `builder.mutationCount` dependency to keep move button enabled/disabled state fresh after mutations.
 
