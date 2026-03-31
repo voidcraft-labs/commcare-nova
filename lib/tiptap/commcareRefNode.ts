@@ -9,6 +9,13 @@
  *
  * Round-trips through HTML via <span data-commcare-ref data-ref-type data-path data-label>.
  *
+ * Markdown round-trip via tiptap-markdown:
+ *   - Serialize: writes `<output value="#type/path"/>` (CommCare standard)
+ *   - Parse: a markdown-it inline rule intercepts `<output value="..."/>`
+ *     before the HTML parser sees it (avoiding self-closing void element
+ *     issues) and emits `<span data-commcare-ref ...>` which the existing
+ *     parseHTML rule picks up.
+ *
  * Backspace-to-revert: when the cursor is right after a commcareRef node,
  * backspace converts it back to raw text minus the last character, causing
  * the suggestion popup to re-trigger on the partial match.
@@ -17,12 +24,76 @@
 import { Node, mergeAttributes } from '@tiptap/core'
 import { ReactNodeViewRenderer } from '@tiptap/react'
 import { CommcareRefView } from './CommcareRefView'
+/** Matches <output value="#type/path"/> in markdown text. */
+const OUTPUT_TAG_RE = /^<output\s+value="(#(form|case|user)\/([^"]*))"\s*\/>/
+
+/** Minimal typing for markdown-it's StateInline — just the fields we need. */
+interface MdStateInline {
+  src: string
+  pos: number
+  push: (type: string, tag: string, nesting: number) => { content: string; attrs: null | [string, string][] }
+}
+
+/** Minimal typing for the markdown-it inline ruler we register with. */
+interface MdInlineRuler {
+  before: (beforeName: string, ruleName: string, fn: (state: MdStateInline, silent: boolean) => boolean) => void
+}
+
+/** Minimal typing for the markdown-it instance passed to parse.setup(). */
+interface MdInstance {
+  inline: { ruler: MdInlineRuler }
+}
+
+/**
+ * markdown-it inline rule that intercepts `<output value="#type/path"/>` tags
+ * and converts them to `<span data-commcare-ref ...>` HTML before they reach
+ * the browser's DOMParser. This avoids the self-closing non-void element
+ * issue (`<output>` is not a void element in HTML5, so `<output .../>` would
+ * swallow subsequent content).
+ */
+function commcareRefInlineRule(state: MdStateInline, silent: boolean): boolean {
+  const tail = state.src.slice(state.pos)
+  const match = tail.match(OUTPUT_TAG_RE)
+  if (!match) return false
+  if (!silent) {
+    const token = state.push('html_inline', '', 0)
+    const refType = match[2]
+    const path = match[3]
+    /* Emit the <span> format that CommcareRef.parseHTML recognizes. */
+    token.content = `<span data-commcare-ref data-ref-type="${refType}" data-path="${path}" data-label="${path}">${path}</span>`
+  }
+  state.pos += match[0].length
+  return true
+}
 
 export const CommcareRef = Node.create({
   name: 'commcareRef',
   group: 'inline',
   inline: true,
   atom: true,
+
+  /**
+   * Markdown serialization/parsing for tiptap-markdown round-trips.
+   * Serialize: CommcareRef → `<output value="#type/path"/>`.
+   * Parse: markdown-it inline rule intercepts `<output>` tags before
+   * the HTML parser, converting them to `<span data-commcare-ref>`
+   * that the existing parseHTML rule recognizes.
+   */
+  addStorage() {
+    return {
+      markdown: {
+        serialize(state: { write: (s: string) => void }, node: { attrs: { refType: string; path: string } }) {
+          state.write(`<output value="#${node.attrs.refType}/${node.attrs.path}"/>`)
+        },
+        parse: {
+          setup(markdownit: MdInstance) {
+            /* Register before html_inline so we intercept <output> tags first. */
+            markdownit.inline.ruler.before('html_inline', 'commcare_ref', commcareRefInlineRule)
+          },
+        },
+      },
+    }
+  },
 
   /** Node attributes mapping to the Reference type's fields. */
   addAttributes() {

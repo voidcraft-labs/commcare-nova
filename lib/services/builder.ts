@@ -3,8 +3,8 @@ import type { QuestionPath } from './questionPath'
 import type { EditFocus } from '@/lib/signalGridController'
 import { countDeep } from './questionTree'
 import { MutableBlueprint } from './mutableBlueprint'
-import { HistoryManager, type SnapshotMeta, type ViewMode } from './historyManager'
-export type { ViewMode } from './historyManager'
+import { HistoryManager, type SnapshotMeta, type CursorMode } from './historyManager'
+export type { CursorMode } from './historyManager'
 
 /** Apply a data part to a builder — shared between real-time streaming (onData) and replay. */
 export function applyDataPart(builder: Builder, type: string, data: any): void {
@@ -128,7 +128,6 @@ export class Builder {
   private _statusMessage = ''
   private _selected?: SelectedElement
   private _newQuestionPath?: QuestionPath
-  private _editorTab: 'ui' | 'logic' | 'data' = 'ui'
   private _mutationCount = 0
   private _progressCompleted = 0
   private _progressTotal = 0
@@ -138,8 +137,6 @@ export class Builder {
   private _listeners = new Set<() => void>()
   private _version = 0
   private _mutationListeners = new Set<() => void>()
-  private _questionAnchor: { el: HTMLElement; path: QuestionPath } | null = null
-  private _anchorListeners = new Set<() => void>()
 
   // ── Stream energy (non-versioned — consumed by SignalGrid rAF loop, never triggers React re-renders) ──
   private _streamEnergy = 0
@@ -186,8 +183,6 @@ export class Builder {
   get statusMessage(): string { return this._statusMessage }
   get selected(): SelectedElement | undefined { return this._selected }
   get mutationCount(): number { return this._mutationCount }
-  get editorTab(): 'ui' | 'logic' | 'data' { return this._editorTab }
-  get questionAnchor(): { el: HTMLElement; path: QuestionPath } | null { return this._questionAnchor }
   get progressCompleted(): number { return this._progressCompleted }
   get progressTotal(): number { return this._progressTotal }
 
@@ -241,24 +236,6 @@ export class Builder {
     for (const fn of this._mutationListeners) fn()
   }
 
-  // ── Question anchor (selected question's DOM element) ────────────────
-
-  /** Called by EditableQuestionWrapper ref callback when the selected question mounts/unmounts.
-   *  Uses a separate listener set so only ContextualEditor re-renders — not the entire builder
-   *  subscriber tree (which would re-render the wrapper and re-trigger the ref callback). */
-  setQuestionAnchor = (anchor: { el: HTMLElement; path: QuestionPath } | null): void => {
-    if (this._questionAnchor?.el === anchor?.el) return
-    this._questionAnchor = anchor
-    for (const fn of this._anchorListeners) fn()
-  }
-
-  subscribeAnchor = (fn: () => void) => {
-    this._anchorListeners.add(fn)
-    return () => { this._anchorListeners.delete(fn) }
-  }
-
-  getAnchorSnapshot = () => this._questionAnchor
-
   // ── New question state ───────────────────────────────────────────────
 
   /** Mark a question as newly added. Activates auto-focus and select-all behaviors. */
@@ -274,10 +251,6 @@ export class Builder {
   /** Deactivate new-question behaviors (called on first save). */
   clearNewQuestion(): void {
     this._newQuestionPath = undefined
-  }
-
-  setEditorTab(tab: 'ui' | 'logic' | 'data'): void {
-    this._editorTab = tab
   }
 
   // ── Progress ─────────────────────────────────────────────────────────
@@ -302,11 +275,11 @@ export class Builder {
     }
   }
 
-  // ── View mode ────────────────────────────────────────────────────
+  // ── Cursor mode ──────────────────────────────────────────────────
 
-  /** Update the current view mode — kept in sync by BuilderLayout. */
-  setViewMode(mode: ViewMode) {
-    if (this._history) this._history.viewMode = mode
+  /** Update the current cursor mode — kept in sync by BuilderLayout. */
+  setCursorMode(mode: CursorMode) {
+    if (this._history) this._history.cursorMode = mode
   }
 
   // ── Drag state ────────────────────────────────────────────────────
@@ -448,7 +421,7 @@ export class Builder {
     }
   }
 
-  undo(): ViewMode | undefined {
+  undo(): CursorMode | undefined {
     if (this._isDragging) return undefined
     const result = this._history?.undo()
     if (!result) return undefined
@@ -457,10 +430,10 @@ export class Builder {
     this._mutationCount++
     this.notifyMutation()
     this.notify()
-    return result.viewMode
+    return result.cursorMode
   }
 
-  redo(): ViewMode | undefined {
+  redo(): CursorMode | undefined {
     if (this._isDragging) return undefined
     const result = this._history?.redo()
     if (!result) return undefined
@@ -469,7 +442,7 @@ export class Builder {
     this._mutationCount++
     this.notifyMutation()
     this.notify()
-    return result.viewMode
+    return result.cursorMode
   }
 
   get canUndo(): boolean {

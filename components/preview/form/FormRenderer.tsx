@@ -12,6 +12,8 @@ import type { FormEngine } from '@/lib/preview/engine/formEngine'
 import { renderPreviewMarkdown } from '@/lib/markdown'
 import { LabelContent } from '@/lib/references/LabelContent'
 import { useEditContext } from '@/hooks/useEditContext'
+import { useTextEditSave } from '@/hooks/useTextEditSave'
+import { TextEditable } from './TextEditable'
 import { QuestionField } from './QuestionField'
 import { GroupField } from './fields/GroupField'
 import { LabelField } from './fields/LabelField'
@@ -20,6 +22,7 @@ import { EditableQuestionWrapper } from './EditableQuestionWrapper'
 import { HiddenField } from './fields/HiddenField'
 import { HelpTooltip } from './HelpTooltip'
 import { InsertionPoint } from './InsertionPoint'
+import { InlineSettingsPanel } from '@/components/builder/InlineSettingsPanel'
 
 /** EMA smoothing factor for cursor velocity. Lower = smoother, slower response. */
 const EMA_ALPHA = 0.01
@@ -139,6 +142,7 @@ function SortableQuestion({
   const state = engine.getState(path)
   const ctx = useEditContext()
   const isEditMode = ctx?.mode === 'edit'
+  const saveField = useTextEditSave(questionPath)
 
   // Groups/repeats get Lowest collision priority so their inner container
   // droppable (Low) wins when items are dragged over the content area.
@@ -191,7 +195,7 @@ function SortableQuestion({
   } else if (q.type === 'label') {
     content = (
       <EditableQuestionWrapper questionPath={questionPath} isDragging={showAsPlaceholder}>
-        <LabelField question={q} state={displayState} />
+        <LabelField question={q} questionPath={questionPath} state={displayState} />
       </EditableQuestionWrapper>
     )
   } else if (q.type === 'hidden') {
@@ -206,13 +210,17 @@ function SortableQuestion({
         <label className="block space-y-1.5">
           {q.label && (
             <div className="flex items-center gap-1">
-              <div className="text-sm font-medium text-nova-text"><LabelContent label={q.label} resolvedLabel={state.resolvedLabel} isEditMode={isEditMode} /></div>
+              <TextEditable value={q.label} onSave={saveField ? (v) => saveField('label', v) : undefined} fieldType="label">
+                <div className="text-sm font-medium text-nova-text"><LabelContent label={q.label} resolvedLabel={state.resolvedLabel} isEditMode={isEditMode} /></div>
+              </TextEditable>
               {state.required && <span className="text-nova-rose text-xs">*</span>}
               {q.help && <HelpTooltip help={q.help} isEditMode={isEditMode} />}
             </div>
           )}
           {q.hint && (
-            <div className="text-xs text-nova-text-muted"><LabelContent label={q.hint} resolvedLabel={state.resolvedHint} isEditMode={isEditMode} /></div>
+            <TextEditable value={q.hint} onSave={saveField ? (v) => saveField('hint', v) : undefined} fieldType="hint">
+              <div className="text-xs text-nova-text-muted"><LabelContent label={q.hint} resolvedLabel={state.resolvedHint} isEditMode={isEditMode} /></div>
+            </TextEditable>
           )}
           <QuestionField
             question={q}
@@ -224,6 +232,13 @@ function SortableQuestion({
       </EditableQuestionWrapper>
     )
   }
+
+  /* Show inline settings panel below the selected question in inspect mode. */
+  const isSelected = isEditMode && ctx?.cursorMode === 'inspect'
+    && ctx.builder.selected?.type === 'question'
+    && ctx.builder.selected.moduleIndex === ctx.moduleIndex
+    && ctx.builder.selected.formIndex === ctx.formIndex
+    && ctx.builder.selected.questionPath === questionPath
 
   return (
     <div
@@ -238,6 +253,15 @@ function SortableQuestion({
       <div className={showAsPlaceholder ? 'invisible' : undefined}>
         {content}
       </div>
+      {isSelected && ctx && (
+        <InlineSettingsPanel
+          builder={ctx.builder}
+          question={q}
+          questionPath={questionPath}
+          moduleIndex={ctx.moduleIndex}
+          formIndex={ctx.formIndex}
+        />
+      )}
     </div>
   )
 }

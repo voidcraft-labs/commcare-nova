@@ -5,7 +5,8 @@ import { Icon } from '@iconify/react/offline'
 import ciChevronRight from '@iconify-icons/ci/chevron-right'
 import ciUndo from '@iconify-icons/ci/undo'
 import ciRedo from '@iconify-icons/ci/redo'
-import { ViewModeToggle } from '@/components/preview/ViewModeToggle'
+import { CursorModeSelector } from '@/components/builder/CursorModeSelector'
+import type { CursorMode } from '@/lib/services/builder'
 import { useDismissRef } from '@/hooks/useDismissRef'
 
 /** A breadcrumb segment with a label and navigation callback. */
@@ -15,10 +16,10 @@ export interface BreadcrumbPart {
 }
 
 interface SubheaderToolbarProps {
-  /** Current view mode (design / preview). */
-  viewMode: 'design' | 'preview'
-  /** Callback when view mode toggle changes. */
-  onViewModeChange: (mode: 'design' | 'preview') => void
+  /** Current cursor mode (pointer / text / inspect). */
+  cursorMode: CursorMode
+  /** Callback when cursor mode changes. */
+  onCursorModeChange: (mode: CursorMode) => void
   /** Whether the undo action is available. */
   canUndo: boolean
   /** Whether the redo action is available. */
@@ -149,8 +150,8 @@ export const CollapsibleBreadcrumb = memo(function CollapsibleBreadcrumb({ parts
  * Breadcrumbs and download live in the full-width ProjectSubheader above.
  */
 export function SubheaderToolbar({
-  viewMode,
-  onViewModeChange,
+  cursorMode,
+  onCursorModeChange,
   canUndo,
   canRedo,
   onUndo,
@@ -161,8 +162,8 @@ export function SubheaderToolbar({
       {/* Left — spacer */}
       <div />
 
-      {/* Center — toggle */}
-      <ViewModeToggle mode={viewMode} onChange={onViewModeChange} />
+      {/* Center — cursor mode selector */}
+      <CursorModeSelector mode={cursorMode} onChange={onCursorModeChange} />
 
       {/* Right — undo/redo */}
       <div className="flex items-center gap-1.5 justify-end">

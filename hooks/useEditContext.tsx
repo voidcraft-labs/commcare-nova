@@ -1,6 +1,6 @@
 'use client'
 import { createContext, useContext, type ReactNode } from 'react'
-import type { Builder } from '@/lib/services/builder'
+import type { Builder, CursorMode } from '@/lib/services/builder'
 
 export type EditMode = 'edit' | 'test'
 
@@ -9,6 +9,8 @@ interface EditContextValue {
   moduleIndex: number
   formIndex: number
   mode: EditMode
+  /** Current cursor mode — undefined when PreviewShell is used standalone (no builder). */
+  cursorMode?: CursorMode
 }
 
 const EditContext = createContext<EditContextValue | null>(null)
@@ -18,10 +20,11 @@ export function EditContextProvider({
   moduleIndex,
   formIndex,
   mode,
+  cursorMode,
   children,
 }: EditContextValue & { children: ReactNode }) {
   return (
-    <EditContext.Provider value={{ builder, moduleIndex, formIndex, mode }}>
+    <EditContext.Provider value={{ builder, moduleIndex, formIndex, mode, cursorMode }}>
       {children}
     </EditContext.Provider>
   )

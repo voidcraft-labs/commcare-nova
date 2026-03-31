@@ -21,7 +21,6 @@ export function EditableQuestionWrapper({
   const [holdReady, setHoldReady] = useState(false)
   const holdTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const wasDraggingRef = useRef(false)
-  const wrapperElRef = useRef<HTMLDivElement>(null)
 
   const clearHoldTimer = useCallback(() => {
     if (holdTimerRef.current) {
@@ -56,30 +55,12 @@ export function EditableQuestionWrapper({
     if (holdReady) setHoldReady(false)
   }
 
-  // Compute selection before conditional return (needed for scroll-into-view)
-  const isSelected = !!ctx && ctx.mode !== 'test'
-    && ctx.builder.selected?.type === 'question'
-    && ctx.builder.selected.moduleIndex === ctx.moduleIndex
-    && ctx.builder.selected.formIndex === ctx.formIndex
-    && ctx.builder.selected.questionPath === questionPath
-
-  const wrapperRef = useCallback((el: HTMLDivElement | null) => {
-    wrapperElRef.current = el
-    if (el && isSelected && ctx) {
-      ctx.builder.setQuestionAnchor({ el, path: questionPath })
-      return () => {
-        if (ctx.builder.questionAnchor?.el === el) ctx.builder.setQuestionAnchor(null)
-      }
-    }
-  }, [isSelected, ctx, questionPath])
-
-  if (!ctx || ctx.mode === 'test') {
-    return <div style={style}>{children}</div>
-  }
-
-  const { builder, moduleIndex, formIndex } = ctx
+  const builder = ctx?.builder
+  const moduleIndex = ctx?.moduleIndex
+  const formIndex = ctx?.formIndex
 
   const handleClick = useCallback((e: React.MouseEvent) => {
+    if (!builder || moduleIndex === undefined || formIndex === undefined) return
     // Ignore clicks from portal-rendered elements (e.g. QuestionTypePicker FloatingPortal).
     // React synthetic events still bubble through the React tree from portals,
     // but the DOM target is outside this wrapper's subtree.
@@ -107,11 +88,26 @@ export function EditableQuestionWrapper({
     }
   }, [builder, moduleIndex, formIndex, questionPath])
 
+  if (!ctx || ctx.mode === 'test') {
+    return <div style={style}>{children}</div>
+  }
+
+  /* Text mode: no outlines, no click capture, no pointer-events-none.
+   * Children are fully interactive so TextEditable instances inside can
+   * receive clicks directly and activate inline editors. */
+  if (ctx.cursorMode === 'text') {
+    return <div style={style}>{children}</div>
+  }
+
+  const isSelected = builder?.selected?.type === 'question'
+    && builder.selected.moduleIndex === moduleIndex
+    && builder.selected.formIndex === formIndex
+    && builder.selected.questionPath === questionPath
+
   const mergedStyle = holdReady ? { ...style, cursor: 'grabbing' as const } : style
 
   return (
     <div
-      ref={wrapperRef}
       data-question-wrapper
       className={`group/qw relative rounded-lg transition-all duration-150 cursor-pointer outline-offset-3 ${
         isSelected

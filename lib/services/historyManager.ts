@@ -12,7 +12,7 @@ const MUTATION_METHODS = new Set([
 
 export type MutationType = 'add' | 'remove' | 'move' | 'duplicate' | 'update' | 'rename' | 'structural'
 
-export type ViewMode = 'design' | 'preview'
+export type CursorMode = 'pointer' | 'text' | 'inspect'
 
 export interface SnapshotMeta {
   type: MutationType
@@ -25,7 +25,7 @@ export interface SnapshotMeta {
 interface SnapshotEntry {
   blueprint: AppBlueprint
   meta: SnapshotMeta
-  viewMode: ViewMode
+  cursorMode: CursorMode
 }
 
 /** Maps a proxy-intercepted method call to SnapshotMeta. */
@@ -58,8 +58,8 @@ export class HistoryManager {
   private maxDepth: number
   enabled = true
 
-  /** Current view mode — set by Builder, captured in each snapshot. */
-  viewMode: ViewMode = 'design'
+  /** Current cursor mode — set by Builder, captured in each snapshot. */
+  cursorMode: CursorMode = 'inspect'
 
   /** Current MutableBlueprint — can be swapped on undo/redo. */
   private _mb: MutableBlueprint
@@ -96,31 +96,31 @@ export class HistoryManager {
 
   private snapshot(meta: SnapshotMeta) {
     if (!this.enabled) return
-    this.undoStack.push({ blueprint: structuredClone(this._mb.getBlueprint()), meta, viewMode: this.viewMode })
+    this.undoStack.push({ blueprint: structuredClone(this._mb.getBlueprint()), meta, cursorMode: this.cursorMode })
     this.redoStack = []
     if (this.undoStack.length > this.maxDepth) {
       this.undoStack.shift()
     }
   }
 
-  /** Undo: returns the new MutableBlueprint + meta + viewMode, or undefined if nothing to undo. */
-  undo(): { mb: MutableBlueprint; meta: SnapshotMeta; viewMode: ViewMode } | undefined {
+  /** Undo: returns the new MutableBlueprint + meta + cursorMode, or undefined if nothing to undo. */
+  undo(): { mb: MutableBlueprint; meta: SnapshotMeta; cursorMode: CursorMode } | undefined {
     if (this.undoStack.length === 0) return undefined
     const entry = this.undoStack.pop()!
-    this.redoStack.push({ blueprint: structuredClone(this._mb.getBlueprint()), meta: entry.meta, viewMode: this.viewMode })
+    this.redoStack.push({ blueprint: structuredClone(this._mb.getBlueprint()), meta: entry.meta, cursorMode: this.cursorMode })
     // entry was popped — no other reference exists, safe to adopt without cloning
     this._mb = MutableBlueprint.fromOwned(entry.blueprint)
-    return { mb: this._mb, meta: entry.meta, viewMode: entry.viewMode }
+    return { mb: this._mb, meta: entry.meta, cursorMode: entry.cursorMode }
   }
 
-  /** Redo: returns the new MutableBlueprint + meta + viewMode, or undefined if nothing to redo. */
-  redo(): { mb: MutableBlueprint; meta: SnapshotMeta; viewMode: ViewMode } | undefined {
+  /** Redo: returns the new MutableBlueprint + meta + cursorMode, or undefined if nothing to redo. */
+  redo(): { mb: MutableBlueprint; meta: SnapshotMeta; cursorMode: CursorMode } | undefined {
     if (this.redoStack.length === 0) return undefined
     const entry = this.redoStack.pop()!
-    this.undoStack.push({ blueprint: structuredClone(this._mb.getBlueprint()), meta: entry.meta, viewMode: this.viewMode })
+    this.undoStack.push({ blueprint: structuredClone(this._mb.getBlueprint()), meta: entry.meta, cursorMode: this.cursorMode })
     // entry was popped — no other reference exists, safe to adopt without cloning
     this._mb = MutableBlueprint.fromOwned(entry.blueprint)
-    return { mb: this._mb, meta: entry.meta, viewMode: entry.viewMode }
+    return { mb: this._mb, meta: entry.meta, cursorMode: entry.cursorMode }
   }
 
   get canUndo(): boolean {

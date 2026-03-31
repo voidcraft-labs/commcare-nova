@@ -1,3 +1,6 @@
+@import '../components/tiptap-ui/_variables.scss';
+@import '../components/tiptap-ui/_keyframe-animations.scss';
+
 @import "tailwindcss";
 
 :root {
