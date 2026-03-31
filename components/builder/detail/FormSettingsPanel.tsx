@@ -1,5 +1,5 @@
 'use client'
-import { useState, useCallback, useRef, useEffect, useLayoutEffect } from 'react'
+import { useState, useCallback, useRef, useLayoutEffect } from 'react'
 import { useFloating, offset, flip, shift, autoUpdate, FloatingPortal } from '@floating-ui/react'
 import { motion, AnimatePresence } from 'motion/react'
 import { Icon } from '@iconify/react/offline'
@@ -14,6 +14,8 @@ import { ConnectLogomark } from '@/components/icons/ConnectLogomark'
 import { Toggle } from '@/components/ui/Toggle'
 import { useDismissRef } from '@/hooks/useDismissRef'
 import { useContentPopoverDismiss } from '@/hooks/useContentPopover'
+import { useCommitField } from '@/hooks/useCommitField'
+import { SavedCheck } from '@/components/builder/EditableTitle'
 import { XPathField } from '@/components/builder/XPathField'
 import { XPathEditorModal } from '@/components/builder/XPathEditorModal'
 
@@ -640,6 +642,12 @@ function DeliverConfig({ connect, save, mb, moduleIndex, formIndex, onModalChang
 
 // ── Inline Field ───────────────────────────────────────────────────────
 
+/**
+ * Compact text field used inside FormSettingsPanel for connect configuration.
+ * Shares the same commit/cancel/checkmark model as EditableText (via
+ * useCommitField): blur or Enter commits, Escape cancels with stopPropagation,
+ * and an emerald checkmark animates in the label for 1.5 s after a save.
+ */
 function InlineField({
   label, value, onChange, mono, multiline, placeholder, suffix, type = 'text', required,
 }: {
@@ -653,51 +661,29 @@ function InlineField({
   type?: string
   required?: boolean
 }) {
-  const [localValue, setLocalValue] = useState(value)
-  const [focused, setFocused] = useState(false)
-  const commitTimeout = useRef<ReturnType<typeof setTimeout>>(undefined)
-
-  // Sync external value changes (from undo/redo or other sources)
-  useEffect(() => {
-    if (!focused) setLocalValue(value)
-  }, [value, focused])
-
-  const commit = useCallback((v: string) => {
-    clearTimeout(commitTimeout.current)
-    if (v !== value) onChange(v)
-  }, [value, onChange])
-
-  const handleBlur = useCallback(() => {
-    setFocused(false)
-    if (required && !localValue.trim()) {
-      setLocalValue(value)
-    } else {
-      commit(localValue)
-    }
-  }, [localValue, value, required, commit])
-
-  const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
-    if (e.key === 'Enter' && !multiline) {
-      e.preventDefault()
-      ;(e.target as HTMLElement).blur()
-    }
-    if (e.key === 'Escape') {
-      setLocalValue(value)
-      ;(e.target as HTMLElement).blur()
-    }
-  }, [multiline, value])
+  const { draft, setDraft, focused, saved, ref, handleFocus, handleBlur, handleKeyDown } = useCommitField({
+    value,
+    onSave: onChange,
+    required,
+    multiline,
+  })
 
   const Tag = multiline ? 'textarea' : 'input'
 
   return (
     <div>
-      <label className="text-[10px] text-nova-text-muted uppercase tracking-wider mb-0.5 flex items-center gap-0.5">{label}{required && <span className="text-nova-rose">*</span>}</label>
+      <label className="text-[10px] text-nova-text-muted uppercase tracking-wider mb-0.5 flex items-center gap-0.5">
+        {label}
+        {required && <span className="text-nova-rose ml-0.5">*</span>}
+        <SavedCheck visible={saved && !focused} size={10} className="shrink-0" />
+      </label>
       <div className="relative">
         <Tag
+          ref={ref as React.RefCallback<HTMLInputElement & HTMLTextAreaElement>}
           type={type === 'number' ? 'number' : 'text'}
-          value={localValue}
-          onChange={(e) => setLocalValue(e.target.value)}
-          onFocus={() => setFocused(true)}
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          onFocus={handleFocus}
           onBlur={handleBlur}
           onKeyDown={handleKeyDown}
           placeholder={placeholder}
