@@ -17,7 +17,10 @@ export function SignalGrid({ controller, messages }: SignalGridProps) {
   const builder = useBuilder()
   const builderRef = useRef(builder)
   builderRef.current = builder
-  const prevContentLenRef = useRef(0)
+  /** Null on mount — the first effect records the baseline content length
+   *  without injecting energy, preventing a massive brightness spike from
+   *  all existing message content being treated as a delta on remount. */
+  const prevContentLenRef = useRef<number | null>(null)
 
   const gridCallbackRef = useCallback((el: HTMLDivElement | null) => {
     if (!el) return
@@ -71,9 +74,14 @@ export function SignalGrid({ controller, messages }: SignalGridProps) {
       }
     }
 
-    const delta = contentLen - prevContentLenRef.current
-    if (delta > 0) {
-      builder.injectThinkEnergy(delta * 2)
+    // On first run (mount/remount), record baseline without injecting energy.
+    // Content generated while unmounted doesn't need a brightness burst — the
+    // headless tick was already advancing state from burst energy data parts.
+    if (prevContentLenRef.current !== null) {
+      const delta = contentLen - prevContentLenRef.current
+      if (delta > 0) {
+        builder.injectThinkEnergy(delta * 2)
+      }
     }
     prevContentLenRef.current = contentLen
 

@@ -36,7 +36,7 @@ export function SignalPanel({ active, label, suffix, error, recovering, done, ch
       {/* Bottom bezel — label etched into the frame */}
       <div className="nova-panel-bezel nova-panel-bezel-bottom">
         <div className="nova-panel-groove" />
-        <AnimatePresence mode="wait">
+        <AnimatePresence mode="wait" initial={false}>
           <motion.span
             key={baseText}
             className="nova-panel-etch"

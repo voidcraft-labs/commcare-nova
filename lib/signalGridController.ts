@@ -210,6 +210,12 @@ interface ControllerOpts {
   consumeScaffoldProgress?: () => number
 }
 
+/** Reference frame delta for fps-independent scaling. All per-frame caps and
+ *  probability thresholds are tuned for 60fps — when running at lower fps
+ *  (e.g. 10fps headless), these are scaled by `dt / REFERENCE_DT` so the
+ *  same amount of work happens per second regardless of frame rate. */
+const REFERENCE_DT = 1 / 60
+
 const ROWS = 3
 /** Target duration (seconds) for one full sending wave cycle, regardless of grid width. */
 export const SEND_WAVE_DURATION = 3.5
@@ -240,9 +246,15 @@ const YO = 5   // vertical offset in px (for lifted/dropped effects)
  * that writes target values; a shared interpolation pass smoothly blends
  * current values toward targets each frame.
  *
- * Created by ChatSidebar, attached to a DOM container via `attach()`, and
- * mode-switched via `setMode()`. Two energy channels (burst + think) are
- * consumed each frame from the builder to drive animation intensity.
+ * Long-lived singleton created at module scope — survives sidebar close/reopen
+ * cycles. Attached to a DOM container via `attach()`, and mode-switched via
+ * `setMode()`. Two energy channels (burst + think) are consumed each frame
+ * from the builder to drive animation intensity.
+ *
+ * The animation loop runs continuously once started, even while detached from
+ * the DOM. This keeps phase timers, energy consumption, and mode transitions
+ * advancing in real time. Only the DOM render pass is skipped when detached,
+ * so reattaching shows the true current state — no replay of entry animations.
  *
  * Imperative for performance: 60fps across hundreds of cells with no React
  * re-renders in the animation loop — all DOM updates are direct style writes.
@@ -255,6 +267,11 @@ export class SignalGridController {
   private container: HTMLDivElement | null = null
 
   private rafId = 0
+  /** True when the tick loop is running via setTimeout (headless) instead of rAF. */
+  private headless = false
+  /** Seconds of headless ticking with no energy input. After a threshold the
+   *  loop self-terminates to avoid permanent CPU drain on page navigation. */
+  private headlessIdleTime = 0
   private lastTime = 0
   private mode: SignalMode = 'idle'
   private prevMode: SignalMode = 'idle'
@@ -308,6 +325,11 @@ export class SignalGridController {
 
   // Error fatal
   private fatalTimer = 0
+  private fatalFlickerTimer = 0
+
+  // Idle — accumulator-based twinkle timing (fps-independent)
+  private idleTimer = 0
+  private nextIdleTwinkle = 0.5 + Math.random() * 1.5
 
   // Done (celebration + resting pulse)
   private doneTimer = 0
@@ -324,18 +346,56 @@ export class SignalGridController {
     this.consumeScaffoldProgress = opts.consumeScaffoldProgress ?? null
   }
 
+  /** The currently active mode — read by React on remount to sync panel state. */
+  get currentMode(): SignalMode { return this.mode }
+
+  /** The currently active label — read by React on remount to sync panel state. */
+  get currentModeLabel(): string { return this.currentLabel }
+
   // ── Lifecycle ────────────────────────────────────────────────────────
 
+  /** Cancel whichever timer type (rAF or setTimeout) is currently active. */
+  private cancelTick(): void {
+    if (!this.rafId) return
+    if (this.headless) window.clearTimeout(this.rafId)
+    else cancelAnimationFrame(this.rafId)
+    this.rafId = 0
+    this.headless = false
+  }
+
+  /** Bind (or rebind) the controller to a DOM container. Rebuilds DOM cells
+   *  from the current cell state and starts the rAF loop if not already running.
+   *  If running headless (setTimeout at ~10fps), upgrades to rAF for smooth rendering.
+   *  Safe to call repeatedly — reattaching after detach resumes rendering
+   *  without replaying any entry animation. */
   attach(container: HTMLDivElement): void {
     this.container = container
     this.rebuildGrid()
-    this.lastTime = performance.now()
-    this.rafId = requestAnimationFrame(this.tick)
+    if (!this.rafId) {
+      // First attach or after destroy — start the loop
+      this.lastTime = performance.now()
+      this.rafId = requestAnimationFrame(this.tick)
+    } else if (this.headless) {
+      // Upgrade from headless setTimeout to full-speed rAF
+      this.cancelTick()
+      this.lastTime = performance.now()
+      this.rafId = requestAnimationFrame(this.tick)
+    }
   }
 
+  /** Disconnect from the DOM. The animation loop continues headless at ~10fps
+   *  via setTimeout — phase timers, energy drain, and mode transitions keep
+   *  advancing so the next `attach()` shows the true current state. */
   detach(): void {
-    if (this.rafId) cancelAnimationFrame(this.rafId)
-    this.rafId = 0
+    this.elements = []
+    this.container = null
+    // The next tick will detect no elements and switch to setTimeout automatically
+  }
+
+  /** Full teardown — stops the animation loop entirely. Use only when the
+   *  controller is being permanently discarded (e.g. page navigation). */
+  destroy(): void {
+    this.cancelTick()
     this.elements = []
     this.container = null
   }
@@ -535,7 +595,8 @@ export class SignalGridController {
         this.cells[i * STRIDE + TH] = snapHue
       }
     }
-    if (mode === 'error-fatal') this.fatalTimer = 0
+    if (mode === 'idle') { this.idleTimer = 0; this.nextIdleTwinkle = 0.5 + Math.random() * 1.5 }
+    if (mode === 'error-fatal') { this.fatalTimer = 0; this.fatalFlickerTimer = 0 }
     if (mode === 'done') {
       this.doneTimer = 0
       this.doneCellPhases = new Float64Array(this.cellCount)
@@ -597,9 +658,19 @@ export class SignalGridController {
 
   // ── Animation loop ───────────────────────────────────────────────────
 
-  private tick = (now: number): void => {
-    const dt = Math.min((now - this.lastTime) / 1000, 0.05)
-    this.lastTime = now
+  /** Headless throttle interval — ~10fps when detached to save CPU while
+   *  keeping phase timers and energy drain advancing. */
+  private static readonly HEADLESS_INTERVAL = 100
+
+  private tick = (now?: number): void => {
+    // setTimeout doesn't pass a DOMHighResTimeStamp — read it ourselves
+    const t = now ?? performance.now()
+    // Cap dt at 50ms when rendering to prevent visual jumps on frame drops.
+    // When headless, allow real elapsed time so the animation catches up to
+    // wall-clock — we're not rendering so large steps are fine.
+    const rawDt = (t - this.lastTime) / 1000
+    const dt = this.headless ? rawDt : Math.min(rawDt, 0.05)
+    this.lastTime = t
 
     // Read and drain energy from both channels
     const burstEnergy = this.consumeEnergy()
@@ -614,13 +685,41 @@ export class SignalGridController {
     // Advance power state
     this.tickPower(dt)
 
-    // Always tick and render — cells are physical LEDs, always present
+    // Always tick state — the controller runs headless while detached.
+    // Only render when attached to the DOM.
     this.tickMode(dt, burstEnergy, thinkEnergy)
     this.checkSettled()
-    this.interpolateCells(dt)
-    this.render()
 
-    this.rafId = requestAnimationFrame(this.tick)
+    const attached = this.elements.length > 0
+    if (attached) {
+      this.interpolateCells(dt)
+      this.render()
+    } else {
+      // Headless: snap B/H to targets instead of smooth interpolation.
+      // Nobody sees the intermediate values, and they'll converge on reattach.
+      this.snapCells()
+    }
+
+    // When detached, throttle to ~10fps via setTimeout to save CPU while
+    // keeping state current. Switch back to rAF when attached for smooth rendering.
+    // Self-terminate after 5s of headless idle with no energy to avoid permanent
+    // CPU drain when the user navigates away from the build page.
+    if (attached) {
+      this.headless = false
+      this.headlessIdleTime = 0
+      this.rafId = requestAnimationFrame(this.tick)
+    } else {
+      this.headless = true
+      const hasEnergy = burstEnergy > 0 || thinkEnergy > 0
+      this.headlessIdleTime = hasEnergy ? 0 : this.headlessIdleTime + dt
+      if (this.headlessIdleTime > 5) {
+        // No one is listening and nothing is happening — stop the loop.
+        // attach() will restart it if the sidebar reopens.
+        this.rafId = 0
+      } else {
+        this.rafId = window.setTimeout(this.tick, SignalGridController.HEADLESS_INTERVAL)
+      }
+    }
   }
 
   private tickPower(dt: number): void {
@@ -663,7 +762,12 @@ export class SignalGridController {
     state.accum += energy
     const threshold = 7 / density
     let fires = Math.floor(state.accum / threshold)
-    fires = Math.min(fires, Math.ceil(this.cellCount * maxFires))
+    // Scale the per-frame fire cap by dt so the same energy budget is available
+    // per second regardless of frame rate. At 10fps headless, each tick gets a
+    // 6x larger cap, matching the total fires/sec of 60fps rendering. Capped at
+    // 10x to prevent pathological values after long background tab delays.
+    const dtScale = Math.min(Math.max(dt, 0.001) / REFERENCE_DT, 10)
+    fires = Math.min(fires, Math.ceil(this.cellCount * maxFires * dtScale))
     state.accum = Math.min(state.accum - fires * threshold, threshold * 8)
 
     // Hotspots: 1-3 bright center cells + 1-2 dimmer neighbors
@@ -706,11 +810,15 @@ export class SignalGridController {
       this.cells[off + DR] = (2.0 + Math.random()) * drScale
     }
 
-    // Ambient hum — baseline activity even with zero energy
+    // Ambient hum — baseline activity even with zero energy.
+    // Loop handles multi-interval steps at low fps so each interval's batch
+    // fires independently instead of clumping into one oversized burst.
+    // Timer capped at 5 intervals to prevent a CPU spike after long background
+    // delays (e.g. tab throttled to 1fps → dt of 60s → 1500 iterations).
     const recent = Math.min(1, state.accum / 50)
     const ambientInterval = 0.12 - recent * 0.08
-    state.ambientTimer += dt
-    if (state.ambientTimer > ambientInterval) {
+    state.ambientTimer = Math.min(state.ambientTimer + dt, ambientInterval * 5)
+    while (state.ambientTimer > ambientInterval) {
       state.ambientTimer -= ambientInterval
       const count = Math.max(1, Math.round((2 + recent * intensity + Math.random() * 2) * density))
       for (let a = 0; a < count; a++) {
@@ -1429,10 +1537,14 @@ export class SignalGridController {
       this.cells[off + YO] = 0
     }
 
-    // Erratic flicker layered on top — fades out naturally
+    // Erratic flicker layered on top — fades out naturally.
+    // Accumulator-based timing so flicker rate is fps-independent (the old
+    // `Math.random() < dt / fireRate` saturated to 1.0 at low fps).
     if (flicker > 0.01) {
       const fireRate = 0.03 + flicker * 0.05
-      if (Math.random() < dt / fireRate) {
+      this.fatalFlickerTimer += dt
+      if (this.fatalFlickerTimer >= fireRate) {
+        this.fatalFlickerTimer -= fireRate
         const count = Math.max(1, Math.round((2 + flicker * 6) * density))
         for (let f = 0; f < count; f++) {
           const idx = Math.floor(Math.random() * this.cellCount)
@@ -1539,9 +1651,6 @@ export class SignalGridController {
 
   // ── Idle ─────────────────────────────────────────────────────────────
 
-  // Idle
-  private idleTimer = 0
-
   private tickIdle(dt: number): void {
     this.idleTimer += dt
 
@@ -1554,8 +1663,12 @@ export class SignalGridController {
       this.cells[off + YO] = 0
     }
 
-    // Occasional soft twinkle — wider cluster around a center cell
-    if (Math.random() < dt * 0.75) {
+    // Occasional soft twinkle — wider cluster around a center cell.
+    // Mean interval ~1.33s (was `Math.random() < dt * 0.75` which broke
+    // with large dt, firing every frame at low fps).
+    if (this.idleTimer >= this.nextIdleTwinkle) {
+      this.idleTimer -= this.nextIdleTwinkle
+      this.nextIdleTwinkle = 0.5 + Math.random() * 1.5
       const center = Math.floor(Math.random() * this.cellCount)
       const centerCol = center % this.cols
       const centerRow = Math.floor(center / this.cols)
@@ -1592,6 +1705,16 @@ export class SignalGridController {
       const t = Math.min(dt * rate, 1)
       this.cells[off + B] += (this.cells[off + TB] - this.cells[off + B]) * t
       this.cells[off + H] += (this.cells[off + TH] - this.cells[off + H]) * t
+    }
+  }
+
+  /** Headless fast-path: snap current values to targets without smooth
+   *  interpolation. Saves per-cell multiply/add when nobody sees the result. */
+  private snapCells(): void {
+    for (let i = 0; i < this.cellCount; i++) {
+      const off = i * STRIDE
+      this.cells[off + B] = this.cells[off + TB]
+      this.cells[off + H] = this.cells[off + TH]
     }
   }
 
