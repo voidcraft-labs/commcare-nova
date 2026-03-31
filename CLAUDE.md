@@ -11,7 +11,7 @@ Next.js web app that generates CommCare apps from natural language conversation.
 - **Drag & Drop**: `@dnd-kit/react` (`DragDropProvider`, `useSortable` from `@dnd-kit/react/sortable`, modifiers from `@dnd-kit/dom/modifiers`)
 - **Validation**: Zod v4
 - **AI**: Vercel AI SDK (`ai` + `@ai-sdk/react` + `@ai-sdk/anthropic`) — `ToolLoopAgent`, `createUIMessageStream`, `createAgentUIStream`, `useChat`, `generateText`, `streamText`, `Output.object()`
-- **Rich Text**: TipTap 3 (`@tiptap/react`, `@tiptap/starter-kit`, `@tiptap/extension-mention`, `@tiptap/suggestion`) — label input with inline reference chips
+- **Rich Text**: TipTap 3 (`@tiptap/react`, `@tiptap/starter-kit`, `@tiptap/extension-mention`, `@tiptap/suggestion`, `@tiptap/extension-image`, `@tiptap/extension-table`) — WYSIWYG label editing with full CommCare markdown support (headings, bold, italic, strike, links, images, lists, code, blockquotes, hr, GFM tables) and inline reference chips
 - **Markdown**: marked — allowlist renderers in `lib/markdown.ts`, `breaks: true` (single newlines → `<br>`). `renderMarkdown` (chat): headings, bold, italic, lists, tables, hr, code; blocks links/images/HTML. `renderPreviewMarkdown` (preview): same plus links and images.
 - **XML**: htmlparser2 + domutils + dom-serializer
 - **Icons**: Coolicons (`@iconify-icons/ci`) + Tabler (`@iconify-icons/tabler`) via `@iconify/react/offline`

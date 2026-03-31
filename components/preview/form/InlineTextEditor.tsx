@@ -2,17 +2,20 @@
  * WYSIWYG inline text editor for text cursor mode.
  *
  * Replaces static LabelContent in-place when the user clicks a text surface
- * in text mode. Full markdown rendering — bold, italic, headings, lists —
- * via tiptap-markdown. Uses the TipTap composable API (`<Tiptap>` provider +
- * `<Tiptap.Content>`).
+ * in text mode. Full CommCare markdown rendering — headings, bold, italic,
+ * strikethrough, links, images, lists, code (inline + block), blockquotes,
+ * horizontal rules, and GFM tables — via tiptap-markdown. Uses the TipTap
+ * composable API (`<Tiptap>` provider + `<Tiptap.Content>`).
  *
  * Two toolbar variants:
  *
  * **Labels** — Always-visible floating toolbar anchored above the editor via
- * React portal + manual positioning. Full StarterKit formatting via official
- * TipTap UI components: MarkButton, HeadingDropdownMenu, ListDropdownMenu,
- * BlockquoteButton, CodeBlockButton. Portal-mounted to body so overflow-hidden
- * ancestors can't clip it.
+ * React portal + manual positioning. Full CommCare markdown feature set via
+ * official TipTap UI components: MarkButton (bold, italic, strike, code),
+ * HeadingDropdownMenu, ListDropdownMenu, LinkButton, ImageButton,
+ * BlockquoteButton, CodeBlockButton, HorizontalRuleButton, and TableButton
+ * (dropdown with visual grid picker for selecting dimensions). Portal-mounted
+ * to body so overflow-hidden ancestors can't clip it.
  *
  * **Hints/help** — BubbleMenu with default shouldShow (text selection only).
  * Bold and italic MarkButton only.
@@ -33,6 +36,10 @@ import { HeadingDropdownMenu } from '@/components/tiptap-ui/heading-dropdown-men
 import { ListDropdownMenu } from '@/components/tiptap-ui/list-dropdown-menu'
 import { BlockquoteButton } from '@/components/tiptap-ui/blockquote-button'
 import { CodeBlockButton } from '@/components/tiptap-ui/code-block-button'
+import { LinkButton } from '@/components/tiptap-ui/link-button'
+import { ImageButton } from '@/components/tiptap-ui/image-button'
+import { HorizontalRuleButton } from '@/components/tiptap-ui/horizontal-rule-button'
+import { TableButton } from '@/components/tiptap-ui/table-button'
 import { createInlineEditorExtensions, getMarkdownContent } from '@/lib/tiptap/markdownExtensions'
 import { useReferenceProvider } from '@/lib/references/ReferenceContext'
 
@@ -122,8 +129,15 @@ function LabelToolbar({ anchorRef }: { anchorRef: React.RefObject<HTMLDivElement
         </ToolbarGroup>
         <ToolbarSeparator />
         <ToolbarGroup>
+          <LinkButton />
+          <ImageButton />
+        </ToolbarGroup>
+        <ToolbarSeparator />
+        <ToolbarGroup>
           <BlockquoteButton />
           <CodeBlockButton />
+          <HorizontalRuleButton />
+          <TableButton />
         </ToolbarGroup>
       </Toolbar>
     </div>,

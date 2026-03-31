@@ -2,8 +2,10 @@
  * TipTap extension configuration for WYSIWYG markdown editing.
  *
  * Used by InlineTextEditor (text cursor mode) to enable full markdown
- * rendering — bold, italic, headings, lists, etc. — with round-trip
- * serialization via tiptap-markdown. CommcareRef nodes serialize as
+ * rendering with round-trip serialization via tiptap-markdown. Supports
+ * the full CommCare markdown feature set: headings, bold, italic,
+ * strikethrough, links, images, lists, code (inline + block), blockquotes,
+ * horizontal rules, and GFM tables. CommcareRef nodes serialize as
  * `<output value="#type/path"/>` tags and parse back losslessly.
  *
  * Contrast with RefLabelInput which uses StarterKit with everything
@@ -13,6 +15,11 @@
 
 import StarterKit from '@tiptap/starter-kit'
 import Mention from '@tiptap/extension-mention'
+import { Image } from '@tiptap/extension-image'
+import { Table } from '@tiptap/extension-table'
+import { TableRow } from '@tiptap/extension-table'
+import { TableHeader } from '@tiptap/extension-table'
+import { TableCell } from '@tiptap/extension-table'
 import { Markdown } from 'tiptap-markdown'
 import { CommcareRef } from './commcareRefNode'
 import { createRefSuggestion } from './refSuggestion'
@@ -22,8 +29,10 @@ import type { Extensions } from '@tiptap/core'
 /**
  * Create the full WYSIWYG extension set for inline text editing.
  *
- * StarterKit is fully enabled (headings, bold, italic, lists, blockquote,
- * code, hr). The Markdown extension handles bidirectional conversion.
+ * StarterKit provides the core formatting: headings (1-3), bold, italic,
+ * strike, code, blockquote, lists, horizontal rule, and links. Additional
+ * extensions add image and GFM table support — the full CommCare markdown
+ * feature set. The Markdown extension handles bidirectional conversion.
  * CommcareRef provides `<output>` tag round-tripping. Mention wires
  * the `#` trigger to ReferenceProvider for chip autocomplete.
  *
@@ -36,7 +45,21 @@ export function createInlineEditorExtensions(provider: ReferenceProvider | null)
     StarterKit.configure({
       /* Headings limited to 1-3 — deeper levels aren't useful in form labels. */
       heading: { levels: [1, 2, 3] },
+      /* Links open in new tab (CommCare default) and don't activate on click
+       * inside the editor — users need to click to position their cursor. */
+      link: {
+        openOnClick: false,
+        HTMLAttributes: { target: '_blank', rel: 'noopener noreferrer' },
+      },
     }),
+    /* Inline images — `![alt](url)` in markdown. */
+    Image.configure({ inline: true }),
+    /* GFM pipe tables — `| col | col |` syntax. Requires all four table
+     * node types (table, row, header cell, body cell) for ProseMirror. */
+    Table.configure({ resizable: false }),
+    TableRow,
+    TableHeader,
+    TableCell,
     Markdown.configure({
       html: true,
       breaks: true,
