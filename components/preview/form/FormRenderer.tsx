@@ -206,7 +206,7 @@ function SortableQuestion({
         <label className="block space-y-1.5">
           {q.label && (
             <div className="flex items-center gap-1">
-              <span className="text-sm font-medium text-nova-text"><LabelContent label={q.label} resolvedLabel={state.resolvedLabel} isEditMode={isEditMode} /></span>
+              <div className="text-sm font-medium text-nova-text"><LabelContent label={q.label} resolvedLabel={state.resolvedLabel} isEditMode={isEditMode} /></div>
               {state.required && <span className="text-nova-rose text-xs">*</span>}
               {q.help && <HelpTooltip help={q.help} isEditMode={isEditMode} />}
             </div>

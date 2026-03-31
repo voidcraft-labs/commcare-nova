@@ -35,9 +35,8 @@ export const HASHTAG_REF_PATTERN = /#(form|user|case)\/[\w.\/]+/
 export const REFERENCE_TYPES: readonly ReferenceType[] = ['form', 'case', 'user'] as const
 
 /**
- * Shared chip dimension constants. Used by chipDom.ts (inline CSS),
- * renderLabel.ts (HTML string), and ReferenceChip.tsx (Tailwind) to keep
- * the three rendering paths in sync.
+ * Shared chip dimension constants. Used by chipDom.ts (CodeMirror inline CSS)
+ * and ReferenceChip.tsx (Tailwind) to keep both rendering paths in sync.
  */
 export const CHIP = {
   height: 18,

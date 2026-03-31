@@ -57,5 +57,5 @@ Dummy case data is generated once per case type and cached at the module level i
 - `xpath/rewrite.ts` — Lezer-based XPath rewriting for rename propagation
 - `engine/dataInstance.ts` — flat `Map<path, value>` with repeat group support
 - `engine/triggerDag.ts` — dependency graph + topological cascade ordering. `reportCycles(questions)` returns cycle paths for validation (used by deep validator); `detectAndBreakCycles()` silently breaks them for preview
-- `engine/outputTag.ts` — parse/resolve/rewrite `<output value="..."/>` tags via htmlparser2
+- `engine/outputTag.ts` — parse/resolve/rewrite `<output value="..."/>` tags via htmlparser2. Also resolves bare hashtag refs (`#form/x`, `#case/x`, `#user/x`) in labels via regex. `resolveLabel()` is the unified entry point — chains output tag resolution (skipped via `includes('<output')` guard when absent) with bare hashtag resolution, returning `undefined` when no dynamic refs are present
 - `engine/dummyData.ts` — generates and caches realistic placeholder case rows from CaseType. `getDummyCases()` returns all rows; `getCaseData(caseTypeName, caseId)` looks up a single case by ID

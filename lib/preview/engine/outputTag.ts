@@ -1,15 +1,20 @@
 /**
- * Parses and resolves <output value="..."/> tags in display text.
+ * Parses and resolves dynamic references in label/hint display text.
  *
- * CommCare output tags embed XPath expressions in labels and hints:
- *   "Updating record for: <output value="#case/client_name"/>"
+ * Two reference formats:
+ * 1. <output value="#type/path"/> tags (CommCare standard, from TipTap serialization)
+ *    — parsed via htmlparser2 for robust XML handling.
+ * 2. Bare hashtag refs (#form/x, #case/x, #user/x) — SA-generated labels use
+ *    these directly. Parsed via HASHTAG_REF_PATTERN regex.
  *
- * Uses htmlparser2 for typed XML node traversal — works server and client side.
+ * `resolveLabel()` is the unified entry point for the form engine — chains both
+ * resolution strategies, skipping the XML parser when no output tags are present.
  */
 import { parseDocument } from 'htmlparser2'
 import { findAll, replaceElement } from 'domutils'
 import render from 'dom-serializer'
 import { Text, type Element } from 'domhandler'
+import { HASHTAG_REF_PATTERN } from '@/lib/references/config'
 
 const PARSE_OPTS = { xmlMode: true } as const
 const RENDER_OPTS = { xmlMode: true, selfClosingTags: true } as const
@@ -89,4 +94,57 @@ export function rewriteOutputTags(
   }
 
   return changed ? render(doc, RENDER_OPTS) : text
+}
+
+/**
+ * Resolve all dynamic references in label/hint text — both <output> tags and
+ * bare hashtag refs. Single entry point for the form engine's 'output' expression
+ * handler. Returns undefined if the text contains no resolvable references
+ * (so callers can distinguish "no refs" from "refs resolved to empty").
+ */
+export function resolveLabel(
+  text: string | undefined,
+  evaluator: (expr: string) => string,
+): string | undefined {
+  if (!text) return undefined
+  /* Only invoke the XML parser when the text actually contains output tags —
+     bare-hashtag-only labels skip the htmlparser2 overhead entirely. */
+  const afterOutput = text.includes('<output') ? resolveOutputTags(text, evaluator) : text
+  const afterHashtags = resolveBareHashtags(afterOutput, evaluator)
+  /* Return undefined when nothing was resolved — matches the engine's convention
+     where resolvedLabel is only set when the label contains dynamic refs. */
+  return afterHashtags !== text ? afterHashtags : undefined
+}
+
+// ── Bare hashtag refs in label text ────────────────────────────────────
+
+/**
+ * Extract bare hashtag references (#form/x, #case/x, #user/x) from label text.
+ * These are XPath expressions the SA embeds directly in labels (without <output>
+ * tag wrappers). Returns them in the same OutputTag shape as parseOutputTags so
+ * the DAG can register dependencies identically.
+ */
+export function parseBareHashtags(text: string): OutputTag[] {
+  if (!text) return []
+  const tags: OutputTag[] = []
+  const re = new RegExp(HASHTAG_REF_PATTERN, 'g')
+  let match: RegExpExecArray | null
+  while ((match = re.exec(text)) !== null) {
+    tags.push({ expr: match[0] })
+  }
+  return tags
+}
+
+/**
+ * Replace bare hashtag references in label text with their evaluated values.
+ * Companion to resolveOutputTags — handles the bare-hashtag format that the SA
+ * generates instead of <output> tags. Returns the text unchanged if no bare
+ * hashtags are present.
+ */
+export function resolveBareHashtags(
+  text: string,
+  evaluator: (expr: string) => string,
+): string {
+  if (!text) return text
+  return text.replace(new RegExp(HASHTAG_REF_PATTERN, 'g'), match => evaluator(match))
 }

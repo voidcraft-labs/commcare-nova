@@ -1,10 +1,11 @@
 /**
  * React chip component for rendering a reference as a styled inline pill.
  *
- * Used by TipTap's React NodeView (CommcareRefView) and any React-based
- * display context. Visual dimensions are driven by the shared CHIP constants
- * in config.ts to stay in sync with chipDom.ts (CM6) and renderLabel.ts (HTML).
- * Colors come from the per-type ReferenceTypeConfig via Tailwind classes.
+ * Used by TipTap's React NodeView (CommcareRefView), LabelContent (preview
+ * canvas labels), and ExpressionContent (hidden field expressions). Visual
+ * dimensions are driven by the shared CHIP constants in config.ts to stay in
+ * sync with chipDom.ts (CodeMirror). Colors come from the per-type
+ * ReferenceTypeConfig via Tailwind classes.
  */
 
 import { Icon } from '@iconify/react/offline'

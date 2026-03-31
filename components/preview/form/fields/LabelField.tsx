@@ -12,7 +12,7 @@ export function LabelField({ question, state }: { question: Question; state: Que
   return (
     <div className="py-1">
       <div className="flex items-center gap-1">
-        <span className="text-sm text-nova-text"><LabelContent label={question.label ?? ''} resolvedLabel={state.resolvedLabel} isEditMode={isEditMode} /></span>
+        <div className="text-sm text-nova-text"><LabelContent label={question.label ?? ''} resolvedLabel={state.resolvedLabel} isEditMode={isEditMode} /></div>
         {question.help && <HelpTooltip help={question.help} isEditMode={isEditMode} />}
       </div>
       {question.hint && (
