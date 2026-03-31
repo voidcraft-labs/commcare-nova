@@ -10,11 +10,33 @@ import { ChatInput } from '@/components/chat/ChatInput'
 import { SignalGrid } from '@/components/chat/SignalGrid'
 import { SignalPanel } from '@/components/chat/SignalPanel'
 import { SignalGridController, defaultLabel, type SignalMode } from '@/lib/signalGridController'
-import { BuilderPhase } from '@/lib/services/builder'
+import { Builder, BuilderPhase } from '@/lib/services/builder'
 
-// ── Module-level scroll state persisted across ChatSidebar instances ──
+// ── Module-level state persisted across ChatSidebar instances ──
 let chatScrollPinned = true
 let chatScrollTop = 0
+
+/** Module-level singleton — survives sidebar close/reopen cycles so the
+ *  animation state (phase timers, cell brightness, mode) is never lost.
+ *  Energy callbacks close over `singletonBuilderRef`, updated each render. */
+let gridControllerSingleton: SignalGridController | null = null
+
+/** Mutable holder for the builder reference — closures in the controller's
+ *  callbacks read `.current` each frame, staying current across remounts. */
+const singletonBuilderRef: { current: Builder | null } = { current: null }
+
+/** Lazily create (or return) the shared controller. The callbacks close over
+ *  `singletonBuilderRef` so they always read the latest builder instance. */
+function getGridController(): SignalGridController {
+  if (!gridControllerSingleton) {
+    gridControllerSingleton = new SignalGridController({
+      consumeEnergy: () => singletonBuilderRef.current?.drainEnergy() ?? 0,
+      consumeThinkEnergy: () => singletonBuilderRef.current?.drainThinkEnergy() ?? 0,
+      consumeScaffoldProgress: () => singletonBuilderRef.current?.scaffoldProgress ?? 0,
+    })
+  }
+  return gridControllerSingleton
+}
 
 interface ChatSidebarProps {
   centered: boolean
@@ -44,29 +66,35 @@ export function ChatSidebar({
   const builder = useBuilder()
   const isLoading = status === 'submitted' || status === 'streaming'
 
-  // ── Signal Grid — controller created here, all state flows through it ──
-  const [introMode, setIntroMode] = useState<'reasoning' | null>(null)
-  const [activeMode, setActiveMode] = useState<SignalMode>('idle')
-  const [activeLabel, setActiveLabel] = useState('')
+  // ── Signal Grid — singleton controller survives sidebar close/reopen ──
 
-  // Create the controller once — stable across re-renders
-  const builderRef = useRef(builder)
-  builderRef.current = builder
+  // Keep the module-level builder ref current so the singleton's callbacks
+  // always read the latest builder instance (survives remounts).
+  singletonBuilderRef.current = builder
+
+  // Stable reference to the singleton controller — must come before useState
+  // so we can initialize React state from the controller's current mode.
+  const gridController = getGridController()
+
+  const [introMode, setIntroMode] = useState<'reasoning' | null>(null)
+  // Initialize from the controller's live state so remounts don't flash
+  // from 'SYS:IDLE' to the real label. On first mount the controller is
+  // in 'idle' mode, which matches the default anyway.
+  const [activeMode, setActiveMode] = useState<SignalMode>(() => gridController.currentMode)
+  const [activeLabel, setActiveLabel] = useState(() => gridController.currentModeLabel)
+
+  // Wire mode-applied callback to React state — ref indirection so the
+  // callback closure doesn't go stale across renders.
   const activeStateRef = useRef({ setActiveMode, setActiveLabel })
   activeStateRef.current = { setActiveMode, setActiveLabel }
 
-  const [gridController] = useState(() => {
-    const ctrl = new SignalGridController({
-      consumeEnergy: () => builderRef.current.drainEnergy(),
-      consumeThinkEnergy: () => builderRef.current.drainThinkEnergy(),
-      consumeScaffoldProgress: () => builderRef.current.scaffoldProgress,
-    })
-    ctrl.setOnModeApplied((mode, label) => {
+  useEffect(() => {
+    gridController.setOnModeApplied((mode, label) => {
       activeStateRef.current.setActiveMode(mode)
       activeStateRef.current.setActiveLabel(label)
     })
-    return ctrl
-  })
+    return () => gridController.setOnModeApplied(null)
+  }, [gridController])
 
   // Desired mode + label from builder state — sent to controller, which queues if busy
   const desiredMode = ((): SignalMode => {
