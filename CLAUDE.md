@@ -46,13 +46,13 @@ Hashtag references (`#form/question`, `#case/property`, `#user/property`) render
 
 - **CodeMirror 6** — `xpathChips(provider)` extension in `lib/codemirror/xpath-chips.ts`. MatchDecorator + WidgetType with raw DOM via `chipDom.ts`. Backspace-to-revert deletes one char, exposing raw text and reopening autocomplete.
 - **TipTap** — `commcareRef` atom node in `lib/tiptap/commcareRefNode.ts`, React NodeView via `CommcareRefView.tsx`. `#` trigger wired to `ReferenceProvider.search()` via `refSuggestion.ts`. Labels serialize as `<output value="#type/path"/>` tags.
-- **Preview canvas** — `LabelContent` (labels/hints) and `ExpressionContent` (calculate/default in HiddenField) render chips as React components. Design mode shows chips; preview mode shows engine-resolved values.
+- **Preview canvas** — `LabelContent` (labels/hints) and `ExpressionContent` (calculate/default in HiddenField) render chips as React components. `LabelContent` uses marked's lexer to parse markdown into a token tree, then walks it to produce React elements — leaf text nodes are split on `LABEL_REF_RE` so refs become `ReferenceChip` components correctly nested inside markdown formatting (bold, headings, etc.). Handles both `<output value="..."/>` tags (from TipTap serialization) and bare `#type/path` hashtags (from SA-generated labels). Design mode shows chips; preview mode shows engine-resolved values.
 
 **Type system:** `Reference` is a discriminated union — `FormReference` (path: `QuestionPath`), `CaseReference` (path: `string`), `UserReference` (path: `string`). Config per type in `config.ts` (icon, Tailwind classes for React, raw CSS for CM6 DOM).
 
 **ReferenceProvider** (`provider.ts`) — unified search/resolve API. Caches form question entries and case properties; cache invalidated via `builder.subscribeMutation` (fires only on blueprint mutations and selection changes). `ReferenceProviderWrapper` in `ReferenceContext.tsx` provides the provider via React context; wraps `BuilderLayout`'s content area.
 
-**Shared utilities:** `useSaveQuestion` hook (`hooks/useSaveQuestion.ts`) extracts the common question mutation + notify pattern used by all three contextual editor tabs. `splitOnPattern` in `renderLabel.ts` is the single regex-split implementation used by label parsing, expression parsing, and TipTap hydration.
+**Shared utilities:** `useSaveQuestion` hook (`hooks/useSaveQuestion.ts`) extracts the common question mutation + notify pattern used by all three contextual editor tabs. `splitOnPattern` in `renderLabel.ts` is the single regex-split implementation used by label parsing, expression parsing, and TipTap hydration. `LABEL_REF_RE` in `renderLabel.ts` is the unified regex matching both `<output>` tags and bare hashtags — used by `parseLabelSegments` (TipTap hydration, RefLabelInput) and `LabelContent` (token-tree leaf splitting).
 
 ### Client-Server Data Flow
 

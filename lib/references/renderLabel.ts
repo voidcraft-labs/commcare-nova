@@ -3,7 +3,7 @@
  *
  * Provides segment parsing (splitting text into plain text + reference matches)
  * and reference resolution for building React component trees with ReferenceChip
- * nodes. Used by LabelContent, ExpressionContent, and RefLabelInput.
+ * nodes. Used by ExpressionContent, RefLabelInput, and LabelContent.
  */
 
 import { HASHTAG_REF_PATTERN } from './config'
@@ -13,6 +13,17 @@ import type { QuestionPath } from '@/lib/services/questionPath'
 
 /** Matches <output value="#type/path"/> tags in label text. */
 export const OUTPUT_TAG_RE = /<output\s+value="(#(?:form|user|case)\/[\w.\/]+)"\/>/
+
+/**
+ * Unified pattern matching both <output value="#type/path"/> tags and bare
+ * #type/path hashtags. Composed from OUTPUT_TAG_RE and HASHTAG_REF_PATTERN
+ * so the path syntax stays in sync. Group 1 captures the ref from an output
+ * tag, group 2 captures a bare hashtag. Without `g` flag — consumers create
+ * global copies.
+ */
+export const LABEL_REF_RE = new RegExp(
+  `(?:${OUTPUT_TAG_RE.source})|(${HASHTAG_REF_PATTERN.source})`,
+)
 
 /** A segment from splitting text on a reference-matching pattern. */
 export type LabelSegment = { kind: 'text'; text: string } | { kind: 'ref'; value: string }
@@ -49,11 +60,14 @@ export function splitOnPattern(
 }
 
 /**
- * Parse a label string into segments of plain text and <output> tag references.
- * Used by LabelContent (chip display) and RefLabelInput (TipTap hydration).
+ * Parse a label string into segments of plain text and reference matches.
+ * Handles both <output value="#type/path"/> tags (from TipTap serialization)
+ * and bare #type/path hashtags (from SA-generated labels). The extracted
+ * value is always the canonical #type/path string regardless of source format.
+ * Used by RefLabelInput for TipTap document hydration.
  */
 export function parseLabelSegments(label: string): LabelSegment[] {
-  return splitOnPattern(label, OUTPUT_TAG_RE, m => m[1])
+  return splitOnPattern(label, LABEL_REF_RE, m => m[1] ?? m[2])
 }
 
 /**

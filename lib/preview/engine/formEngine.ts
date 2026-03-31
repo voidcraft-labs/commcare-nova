@@ -4,7 +4,7 @@ import { evaluate } from '../xpath/evaluator'
 import { toBoolean } from '../xpath/coerce'
 import { DataInstance } from './dataInstance'
 import { TriggerDag } from './triggerDag'
-import { resolveOutputTags } from './outputTag'
+import { resolveLabel } from './outputTag'
 import type { QuestionState } from './types'
 
 /**
@@ -393,8 +393,8 @@ export class FormEngine {
             const resolve = (exprStr: string): string => {
               return String(evaluate(exprStr, ctx))
             }
-            state.resolvedLabel = q.label ? resolveOutputTags(q.label, resolve) : undefined
-            state.resolvedHint = q.hint ? resolveOutputTags(q.hint, resolve) : undefined
+            state.resolvedLabel = resolveLabel(q.label, resolve)
+            state.resolvedHint = resolveLabel(q.hint, resolve)
           }
           break
         }
