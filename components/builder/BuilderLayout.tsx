@@ -252,7 +252,16 @@ export function BuilderLayout({ buildId }: { buildId: string }) {
         body: JSON.stringify({ blueprint: builder.blueprint }),
       })
       const data = await res.json()
-      if (data.downloadUrl) window.open(data.downloadUrl, '_blank')
+      if (data.downloadUrl) {
+        const cczRes = await fetch(data.downloadUrl)
+        const blob = await cczRes.blob()
+        const url = URL.createObjectURL(blob)
+        const a = document.createElement('a')
+        a.href = url
+        a.download = `${data.appName || 'app'}.ccz`
+        a.click()
+        URL.revokeObjectURL(url)
+      }
     } catch {
       showToast('error', 'Compile failed', 'Could not generate the .ccz file.')
     }
