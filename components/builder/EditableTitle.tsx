@@ -4,10 +4,23 @@ import { motion, AnimatePresence } from 'motion/react'
 import { Icon } from '@iconify/react/offline'
 import ciCheck from '@iconify-icons/ci/check'
 
+// Shared className constants — single source of truth for the typographic and box-model
+// properties that must be identical across the readOnly and editable render paths.
+// Any divergence here would produce a layout shift when toggling between design/preview.
+const MEASURE_SPAN_CLASS = 'text-lg font-display font-semibold px-1 border border-transparent absolute invisible whitespace-pre'
+const INPUT_BASE_CLASS = 'text-lg font-display font-semibold outline-none rounded px-1 -mx-1 border text-nova-text'
+
 interface EditableTitleProps {
   value: string
-  onSave: (value: string) => void
+  /** Called when the user commits a new title. Optional when `readOnly` is true. */
+  onSave?: (value: string) => void
   onSaved?: () => void
+  /**
+   * When true, renders the input non-interactively using the exact same element
+   * and box model as the editable version. This ensures pixel-perfect flipbook
+   * consistency when switching between design and preview modes — no layout shift.
+   */
+  readOnly?: boolean
 }
 
 /**
@@ -15,8 +28,11 @@ interface EditableTitleProps {
  * Click to edit, Enter/blur to save, Escape to cancel.
  * Uses a hidden span mirror to size the input exactly to its content.
  * Calls `onSaved` after a successful save so the parent can show a checkmark wherever it wants.
+ *
+ * Pass `readOnly` to render the same element in a frozen, non-interactive state —
+ * used by preview mode so the title occupies identical space to the design-mode input.
  */
-export function EditableTitle({ value, onSave, onSaved }: EditableTitleProps) {
+export function EditableTitle({ value, onSave, onSaved, readOnly }: EditableTitleProps) {
   const [focused, setFocused] = useState(false)
   const [draft, setDraft] = useState(value)
   const inputRef = useRef<HTMLInputElement>(null)
@@ -44,7 +60,7 @@ export function EditableTitle({ value, onSave, onSaved }: EditableTitleProps) {
     inputRef.current?.blur()
     const trimmed = draft.trim()
     if (trimmed && trimmed !== value) {
-      onSave(trimmed)
+      onSave?.(trimmed)
       onSaved?.()
     }
   }, [draft, value, onSave, onSaved])
@@ -74,12 +90,37 @@ export function EditableTitle({ value, onSave, onSaved }: EditableTitleProps) {
     }
   }
 
+  // Read-only path: same element and box model as the editable input, just frozen.
+  // Using the identical span+input structure guarantees pixel-perfect alignment
+  // with design mode — no layout shift when flipping between modes.
+  if (readOnly) {
+    return (
+      <>
+        <span
+          ref={(el) => { measureRef.current = el; syncWidth() }}
+          className={MEASURE_SPAN_CLASS}
+          aria-hidden
+        >
+          {value || '\u00A0'}
+        </span>
+        <input
+          ref={(el) => { inputRef.current = el; syncWidth() }}
+          value={value}
+          readOnly
+          className={`${INPUT_BASE_CLASS} border-transparent bg-transparent pointer-events-none`}
+          autoComplete="off"
+          data-1p-ignore
+        />
+      </>
+    )
+  }
+
   return (
     <>
       {/* Hidden span that mirrors the input text for pixel-accurate width measurement */}
       <span
         ref={(el) => { measureRef.current = el; syncWidth() }}
-        className="text-lg font-display font-semibold px-1 border border-transparent absolute invisible whitespace-pre"
+        className={MEASURE_SPAN_CLASS}
         aria-hidden
       >
         {displayValue || '\u00A0'}
@@ -92,10 +133,10 @@ export function EditableTitle({ value, onSave, onSaved }: EditableTitleProps) {
         onBlur={handleBlur}
         onKeyDown={handleKeyDown}
         onClick={(e) => e.stopPropagation()}
-        className={`text-lg font-display font-semibold outline-none rounded px-1 -mx-1 border transition-colors min-w-0 ${
+        className={`${INPUT_BASE_CLASS} transition-colors min-w-0 ${
           focused
-            ? 'text-nova-text border-nova-violet/60 bg-nova-surface'
-            : 'text-nova-text border-transparent cursor-text hover:border-nova-border bg-transparent'
+            ? 'border-nova-violet/60 bg-nova-surface'
+            : 'border-transparent cursor-text hover:border-nova-border bg-transparent'
         }`}
         autoComplete="off"
         data-1p-ignore

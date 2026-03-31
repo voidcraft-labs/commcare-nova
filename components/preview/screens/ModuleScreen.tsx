@@ -47,7 +47,7 @@ export function ModuleScreen({ blueprint, moduleIndex, onNavigate, builder, mode
         {mode === 'edit' && builder?.mb ? (
           <EditableTitle value={mod.name} onSave={saveModuleName} onSaved={handleSaved} />
         ) : (
-          <h2 className="text-lg font-display font-semibold text-nova-text">{mod.name}</h2>
+          <EditableTitle value={mod.name} readOnly />
         )}
         <SavedCheck visible={saved} />
       </div>
