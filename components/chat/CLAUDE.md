@@ -21,7 +21,7 @@ Message list + input. Single instance that morphs between centered and sidebar l
 ## ChatMessage
 
 Iterates `message.parts`:
-- `text` parts → text bubbles (assistant: `renderMarkdown()`, user: plain `whitespace-pre-wrap`)
+- `text` parts → text bubbles (assistant: `ChatMarkdown`, user: plain `whitespace-pre-wrap`)
 - `tool-askQuestions` parts → `QuestionCard`
 - All other tool/data parts → ignored (handled by `onData` in BuilderLayout)
 

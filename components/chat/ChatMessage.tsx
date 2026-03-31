@@ -1,7 +1,7 @@
 'use client'
 import type { UIMessage } from 'ai'
 import { QuestionCard } from '@/components/chat/QuestionCard'
-import { renderMarkdown } from '@/lib/markdown'
+import { ChatMarkdown } from '@/lib/markdown'
 
 interface ChatMessageProps {
   message: UIMessage
@@ -36,7 +36,7 @@ export function ChatMessage({
                 {isUser ? (
                   <div className="whitespace-pre-wrap break-words">{text}</div>
                 ) : (
-                  <div className="chat-markdown" dangerouslySetInnerHTML={{ __html: renderMarkdown(text) }} />
+                  <div className="chat-markdown"><ChatMarkdown>{text}</ChatMarkdown></div>
                 )}
               </div>
             </div>

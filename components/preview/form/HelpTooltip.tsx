@@ -15,7 +15,7 @@ import {
 } from '@floating-ui/react'
 import { Icon } from '@iconify/react/offline'
 import ciHelpCircle from '@iconify-icons/ci/help-circle'
-import { renderPreviewMarkdown } from '@/lib/markdown'
+import { PreviewMarkdown } from '@/lib/markdown'
 
 export function HelpTooltip({ help, isEditMode }: { help: string; isEditMode: boolean }) {
   if (isEditMode) {
@@ -65,10 +65,9 @@ function InteractiveHelpTooltip({ help }: { help: string }) {
             {...getFloatingProps()}
             className="z-popover max-w-60 rounded-lg border border-nova-border bg-nova-elevated px-3 py-2 shadow-lg"
           >
-            <div
-              className="preview-markdown text-xs text-nova-text"
-              dangerouslySetInnerHTML={{ __html: renderPreviewMarkdown(help) }}
-            />
+            <div className="preview-markdown text-xs text-nova-text">
+              <PreviewMarkdown>{help}</PreviewMarkdown>
+            </div>
           </div>
         )}
       </FloatingPortal>
