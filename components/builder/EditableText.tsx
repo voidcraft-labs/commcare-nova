@@ -1,8 +1,8 @@
 'use client'
-import { useState, useRef, useCallback } from 'react'
-import { motion, AnimatePresence } from 'motion/react'
+import { useCallback } from 'react'
 import { Icon } from '@iconify/react/offline'
-import ciCheck from '@iconify-icons/ci/check'
+import { SavedCheck } from '@/components/builder/EditableTitle'
+import { useCommitField } from '@/hooks/useCommitField'
 
 interface EditableTextProps {
   label: string
@@ -20,18 +20,19 @@ interface EditableTextProps {
 }
 
 export function EditableText({ label, value, onSave, onEmpty, mono, color, placeholder, multiline, autoFocus, selectAll, labelRight }: EditableTextProps) {
-  const [focused, setFocused] = useState(false)
-  const [internalDraft, setInternalDraft] = useState(value)
-  const [saved, setSaved] = useState(false)
-  const inputRef = useRef<HTMLInputElement | HTMLTextAreaElement>(null)
-  const committedRef = useRef(false)
+  const { draft, setDraft, focused, saved, ref, handleFocus, handleBlur, handleKeyDown } = useCommitField({
+    value,
+    onSave,
+    onEmpty,
+    multiline,
+    selectAll,
+  })
 
-  // Derived: when not editing, always show the current prop value
-  const draft = focused ? internalDraft : value
-
-  // Auto-focus on mount via ref callback
+  // Callback ref wrapping the hook's ref so we can also handle autoFocus on
+  // mount without triggering React's synthetic focus event (which would fire
+  // handleFocus and reset the draft to the current prop value unnecessarily).
   const setInputRef = useCallback((el: HTMLInputElement | HTMLTextAreaElement | null) => {
-    inputRef.current = el
+    ref(el)
     if (el && autoFocus) {
       el.focus()
       if (selectAll) el.select()
@@ -39,71 +40,6 @@ export function EditableText({ label, value, onSave, onEmpty, mono, color, place
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
-
-  // Sync internal draft to the current prop value when entering edit mode
-  const handleFocus = useCallback(() => {
-    committedRef.current = false
-    setInternalDraft(value)
-    setFocused(true)
-    if (selectAll) {
-      // Defer to after the mouseup that placed the cursor
-      setTimeout(() => inputRef.current?.select(), 0)
-    }
-  }, [value, selectAll])
-
-  const commit = useCallback(() => {
-    if (committedRef.current) return
-    committedRef.current = true
-    setFocused(false)
-    inputRef.current?.blur()
-    const trimmed = internalDraft.trim()
-    if (!trimmed && onEmpty) {
-      onEmpty()
-      return
-    }
-    if (trimmed !== value) {
-      onSave(trimmed)
-      setSaved(true)
-      setTimeout(() => setSaved(false), 1500)
-    }
-  }, [internalDraft, value, onSave, onEmpty])
-
-  const cancel = useCallback(() => {
-    committedRef.current = true
-    setFocused(false)
-    inputRef.current?.blur()
-    if (!value.trim() && onEmpty) {
-      onEmpty()
-    }
-  }, [value, onEmpty])
-
-  const handleBlur = useCallback(() => {
-    if (committedRef.current) {
-      committedRef.current = false
-      return
-    }
-    commit()
-  }, [commit])
-
-  const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === 'Enter') {
-      if (multiline) {
-        if (e.metaKey || e.ctrlKey) {
-          e.preventDefault()
-          commit()
-        }
-        // Plain Enter inserts newline naturally
-        return
-      }
-      e.preventDefault()
-      commit()
-    }
-    if (e.key === 'Escape') {
-      e.preventDefault()
-      e.stopPropagation()
-      cancel()
-    }
-  }
 
   const fontClass = mono ? 'font-mono' : ''
   const baseCls = `w-full text-sm ${fontClass} rounded px-2 py-1 border outline-none transition-colors`
@@ -118,18 +54,7 @@ export function EditableText({ label, value, onSave, onEmpty, mono, color, place
     <div>
       <label className="text-xs text-nova-text-muted uppercase tracking-wider mb-1 flex items-center gap-1.5">
         {label}
-        <AnimatePresence>
-          {saved && !focused && (
-            <motion.span
-              initial={{ opacity: 0, scale: 0.8 }}
-              animate={{ opacity: 1, scale: 1 }}
-              exit={{ opacity: 0, scale: 0.8 }}
-              transition={{ duration: 0.2 }}
-            >
-              <Icon icon={ciCheck} width="12" height="12" className="text-emerald-400" />
-            </motion.span>
-          )}
-        </AnimatePresence>
+        <SavedCheck visible={saved && !focused} size={12} className="shrink-0" />
         {focused && multiline && (
           <span className="ml-auto text-[10px] tracking-normal text-nova-text-secondary font-normal">
             {typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.platform) ? '⌘' : 'Ctrl'} + {typeof navigator !== 'undefined' && /Win/.test(navigator.platform) ? 'ENTER' : 'RETURN'} TO SAVE
@@ -141,7 +66,7 @@ export function EditableText({ label, value, onSave, onEmpty, mono, color, place
         <textarea
           ref={setInputRef as React.RefCallback<HTMLTextAreaElement>}
           value={draft}
-          onChange={(e) => setInternalDraft(e.target.value)}
+          onChange={(e) => setDraft(e.target.value)}
           onFocus={handleFocus}
           onBlur={handleBlur}
           onKeyDown={handleKeyDown}
@@ -155,7 +80,7 @@ export function EditableText({ label, value, onSave, onEmpty, mono, color, place
         <input
           ref={setInputRef as React.RefCallback<HTMLInputElement>}
           value={draft}
-          onChange={(e) => setInternalDraft(e.target.value)}
+          onChange={(e) => setDraft(e.target.value)}
           onFocus={handleFocus}
           onBlur={handleBlur}
           onKeyDown={handleKeyDown}

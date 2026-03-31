@@ -16,17 +16,15 @@
 
 'use client'
 import { useState, useCallback, useMemo, useRef, useEffect } from 'react'
-import { motion, AnimatePresence } from 'motion/react'
 import { useEditor, EditorContent } from '@tiptap/react'
 import StarterKit from '@tiptap/starter-kit'
 import Mention from '@tiptap/extension-mention'
-import { Icon } from '@iconify/react/offline'
-import ciCheck from '@iconify-icons/ci/check'
 import { Extension } from '@tiptap/core'
 import { CommcareRef } from '@/lib/tiptap/commcareRefNode'
 import { createRefSuggestion } from '@/lib/tiptap/refSuggestion'
 import { ReferenceProvider } from '@/lib/references/provider'
 import { useReferenceProvider } from '@/lib/references/ReferenceContext'
+import { SavedCheck } from '@/components/builder/EditableTitle'
 import { parseLabelSegments } from '@/lib/references/renderLabel'
 import type { JSONContent } from '@tiptap/core'
 
@@ -353,18 +351,7 @@ export function RefLabelInput({
     <div>
       <label className="text-xs text-nova-text-muted uppercase tracking-wider mb-1 flex items-center gap-1.5">
         {fieldLabel}
-        <AnimatePresence>
-          {saved && !focused && (
-            <motion.span
-              initial={{ opacity: 0, scale: 0.8 }}
-              animate={{ opacity: 1, scale: 1 }}
-              exit={{ opacity: 0, scale: 0.8 }}
-              transition={{ duration: 0.2 }}
-            >
-              <Icon icon={ciCheck} width="12" height="12" className="text-emerald-400" />
-            </motion.span>
-          )}
-        </AnimatePresence>
+        <SavedCheck visible={saved && !focused} size={12} className="shrink-0" />
         {focused && multiline && (
           <span className="ml-auto text-[10px] tracking-normal text-nova-text-secondary font-normal">
             {typeof navigator !== 'undefined' && IS_MAC.test(navigator.platform) ? '⌘' : 'Ctrl'} + {typeof navigator !== 'undefined' && IS_WIN.test(navigator.platform) ? 'ENTER' : 'RETURN'} TO SAVE

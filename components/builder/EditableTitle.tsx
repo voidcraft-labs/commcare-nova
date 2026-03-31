@@ -145,8 +145,8 @@ export function EditableTitle({ value, onSave, onSaved, readOnly }: EditableTitl
   )
 }
 
-/** Animated checkmark shown after a title save. */
-export function SavedCheck({ visible }: { visible: boolean }) {
+/** Animated emerald checkmark shown after a successful save. */
+export function SavedCheck({ visible, size = 16, className = 'shrink-0 -ml-1' }: { visible: boolean; size?: number; className?: string }) {
   return (
     <AnimatePresence>
       {visible && (
@@ -155,9 +155,9 @@ export function SavedCheck({ visible }: { visible: boolean }) {
           animate={{ opacity: 1, scale: 1 }}
           exit={{ opacity: 0, scale: 0.8 }}
           transition={{ duration: 0.2 }}
-          className="shrink-0 -ml-1"
+          className={className}
         >
-          <Icon icon={ciCheck} width="16" height="16" className="text-emerald-400" />
+          <Icon icon={ciCheck} width={size} height={size} className="text-emerald-400" />
         </motion.span>
       )}
     </AnimatePresence>
