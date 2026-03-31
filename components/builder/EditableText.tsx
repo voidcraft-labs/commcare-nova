@@ -100,6 +100,7 @@ export function EditableText({ label, value, onSave, onEmpty, mono, color, place
     }
     if (e.key === 'Escape') {
       e.preventDefault()
+      e.stopPropagation()
       cancel()
     }
   }
@@ -117,11 +118,6 @@ export function EditableText({ label, value, onSave, onEmpty, mono, color, place
     <div>
       <label className="text-xs text-nova-text-muted uppercase tracking-wider mb-1 flex items-center gap-1.5">
         {label}
-        {focused && multiline && (
-          <span className="ml-auto text-[10px] tracking-normal text-nova-text-secondary font-normal">
-            {typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.platform) ? '⌘' : 'Ctrl'} + {typeof navigator !== 'undefined' && /Win/.test(navigator.platform) ? 'ENTER' : 'RETURN'} TO SAVE
-          </span>
-        )}
         <AnimatePresence>
           {saved && !focused && (
             <motion.span
@@ -134,6 +130,11 @@ export function EditableText({ label, value, onSave, onEmpty, mono, color, place
             </motion.span>
           )}
         </AnimatePresence>
+        {focused && multiline && (
+          <span className="ml-auto text-[10px] tracking-normal text-nova-text-secondary font-normal">
+            {typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.platform) ? '⌘' : 'Ctrl'} + {typeof navigator !== 'undefined' && /Win/.test(navigator.platform) ? 'ENTER' : 'RETURN'} TO SAVE
+          </span>
+        )}
         {labelRight}
       </label>
       {multiline ? (

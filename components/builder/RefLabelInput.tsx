@@ -22,6 +22,7 @@ import StarterKit from '@tiptap/starter-kit'
 import Mention from '@tiptap/extension-mention'
 import { Icon } from '@iconify/react/offline'
 import ciCheck from '@iconify-icons/ci/check'
+import { Extension } from '@tiptap/core'
 import { CommcareRef } from '@/lib/tiptap/commcareRefNode'
 import { createRefSuggestion } from '@/lib/tiptap/refSuggestion'
 import { ReferenceProvider } from '@/lib/references/provider'
@@ -134,6 +135,9 @@ export function RefLabelInput({
   const committedRef = useRef(false)
   const valueRef = useRef(value)
   valueRef.current = value
+  /** Captures the value at focus time — used by cancel to revert to the
+   *  pre-edit state, unaffected by debounced onChange updates. */
+  const savedValueRef = useRef(value)
   const onChangeRef = useRef(onChange)
   onChangeRef.current = onChange
   const debounceRef = useRef<ReturnType<typeof setTimeout>>(undefined)
@@ -152,6 +156,21 @@ export function RefLabelInput({
     return createRefSuggestion(provider)
   }, [provider])
 
+  /**
+   * TipTap extension for commit/cancel keyboard shortcuts. Runs at ProseMirror
+   * keymap priority, intercepting Enter/Escape before StarterKit's handlers
+   * (which would otherwise insert a newline before our DOM listener could fire).
+   */
+  const keyboardExtension = useMemo(() => Extension.create({
+    name: 'labelInputKeyboard',
+    addKeyboardShortcuts() {
+      return {
+        'Mod-Enter': () => { commitRef.current(); return true },
+        ...(!multiline ? { 'Enter': () => { commitRef.current(); return true } } : {}),
+      }
+    },
+  }), [multiline])
+
   /* Only paragraphs + text + commcareRef nodes — no block-level elements. */
   const extensions = useMemo(() => [
     StarterKit.configure({
@@ -165,6 +184,7 @@ export function RefLabelInput({
       listItem: false,
     }),
     CommcareRef,
+    keyboardExtension,
     ...(suggestion ? [
       Mention.configure({
         HTMLAttributes: { class: 'commcare-ref-mention' },
@@ -172,7 +192,7 @@ export function RefLabelInput({
         renderLabel: () => '',
       }),
     ] : []),
-  ], [suggestion])
+  ], [suggestion, keyboardExtension])
 
   const initialContent = useMemo(
     () => parseValueToContent(value, provider),
@@ -234,13 +254,14 @@ export function RefLabelInput({
     if (committedRef.current || !editor) return
     committedRef.current = true
     setFocused(false)
+    editor.commands.blur()
 
     const serialized = serializeContent(editor.getJSON()).trim()
     if (!serialized && onEmpty) {
       onEmpty()
       return
     }
-    if (serialized !== valueRef.current) {
+    if (serialized !== savedValueRef.current) {
       onSave(serialized)
       setSaved(true)
       savedTimerRef.current = setTimeout(() => setSaved(false), 1500)
@@ -253,14 +274,18 @@ export function RefLabelInput({
    * signals removal (matching EditableText's "delete on empty cancel" behavior).
    */
   const cancel = useCallback(() => {
-    if (!editor) return
+    if (committedRef.current || !editor) return
     committedRef.current = true
     setFocused(false)
+    editor.commands.blur()
 
-    const content = parseValueToContent(valueRef.current, provider)
+    const content = parseValueToContent(savedValueRef.current, provider)
     editor.commands.setContent(content)
 
-    if (!valueRef.current.trim() && onEmpty) {
+    /* Push the reverted value back to the parent so the canvas stays in sync. */
+    onChangeRef.current?.(savedValueRef.current)
+
+    if (!savedValueRef.current.trim() && onEmpty) {
       onEmpty()
     }
   }, [editor, provider, onEmpty])
@@ -272,12 +297,16 @@ export function RefLabelInput({
   const cancelRef = useRef(cancel)
   cancelRef.current = cancel
 
-  /* Register focus/blur + keyboard handlers on the editor. */
+  /* Register focus/blur handlers on the editor. Escape is handled here as a
+     DOM keydown listener (rather than via TipTap addKeyboardShortcuts) so we
+     can call stopPropagation — preventing the document-level useDismissRef
+     listener from closing the contextual editor during an edit cancel. */
   useEffect(() => {
     if (!editor) return
 
     const handleFocus = () => {
       committedRef.current = false
+      savedValueRef.current = valueRef.current
       setFocused(true)
       if (selectAll) {
         setTimeout(() => editor.commands.selectAll(), 0)
@@ -292,21 +321,10 @@ export function RefLabelInput({
       commitRef.current()
     }
 
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Enter') {
-        if (multiline) {
-          if (event.metaKey || event.ctrlKey) {
-            event.preventDefault()
-            commitRef.current()
-          }
-          return
-        }
-        event.preventDefault()
-        commitRef.current()
-        return
-      }
-      if (event.key === 'Escape') {
-        event.preventDefault()
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        e.preventDefault()
+        e.stopPropagation()
         cancelRef.current()
       }
     }
@@ -322,7 +340,7 @@ export function RefLabelInput({
       editor.off('blur', handleBlur)
       dom.removeEventListener('keydown', handleKeyDown)
     }
-  }, [editor, multiline, selectAll])
+  }, [editor, selectAll])
 
   /* Derive styling classes matching EditableText. */
   const baseCls = 'w-full text-sm rounded px-2 py-1 border outline-none transition-colors'
@@ -335,11 +353,6 @@ export function RefLabelInput({
     <div>
       <label className="text-xs text-nova-text-muted uppercase tracking-wider mb-1 flex items-center gap-1.5">
         {fieldLabel}
-        {focused && multiline && (
-          <span className="ml-auto text-[10px] tracking-normal text-nova-text-secondary font-normal">
-            {typeof navigator !== 'undefined' && IS_MAC.test(navigator.platform) ? '⌘' : 'Ctrl'} + {typeof navigator !== 'undefined' && IS_WIN.test(navigator.platform) ? 'ENTER' : 'RETURN'} TO SAVE
-          </span>
-        )}
         <AnimatePresence>
           {saved && !focused && (
             <motion.span
@@ -352,6 +365,11 @@ export function RefLabelInput({
             </motion.span>
           )}
         </AnimatePresence>
+        {focused && multiline && (
+          <span className="ml-auto text-[10px] tracking-normal text-nova-text-secondary font-normal">
+            {typeof navigator !== 'undefined' && IS_MAC.test(navigator.platform) ? '⌘' : 'Ctrl'} + {typeof navigator !== 'undefined' && IS_WIN.test(navigator.platform) ? 'ENTER' : 'RETURN'} TO SAVE
+          </span>
+        )}
         {labelRight}
       </label>
       <div className={wrapperCls}>
