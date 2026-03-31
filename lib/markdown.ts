@@ -1,5 +1,4 @@
-import { Marked, type RendererObject, type Token, type Tokens } from 'marked'
-export type { Token } from 'marked'
+import { Marked, type RendererObject, type Tokens } from 'marked'
 
 /**
  * Allowlist-based markdown renderer for chat messages.
@@ -122,12 +121,3 @@ export function renderPreviewMarkdown(text: string): string {
   return previewMarked.parse(text) as string
 }
 
-/**
- * Tokenize text using the preview markdown lexer (same config as renderPreviewMarkdown).
- * Returns the raw token tree for consumers that need to walk it and produce React
- * elements instead of HTML strings — e.g. LabelContent interleaving ReferenceChip
- * components with markdown formatting.
- */
-export function previewLexer(text: string): Token[] {
-  return previewMarked.lexer(text)
-}
