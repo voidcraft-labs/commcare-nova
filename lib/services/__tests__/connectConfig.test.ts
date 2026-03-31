@@ -3,7 +3,7 @@ import { deriveConnectDefaults } from '../connectConfig'
 import { expandBlueprint } from '../hqJsonExpander'
 import { runValidation } from '../commcare/validate/runner'
 import { MutableBlueprint } from '../mutableBlueprint'
-import type { AppBlueprint, BlueprintForm, ConnectConfig } from '../../schemas/blueprint'
+import type { AppBlueprint, BlueprintForm, ConnectConfig, ConnectType } from '../../schemas/blueprint'
 
 // ── Helpers ──────────────────────────────────────────────────────────
 
@@ -33,7 +33,7 @@ function makeDeliverForm(connect?: ConnectConfig): BlueprintForm {
   }
 }
 
-function makeConnectBlueprint(connectType: 'learn' | 'deliver', form: BlueprintForm): AppBlueprint {
+function makeConnectBlueprint(connectType: ConnectType, form: BlueprintForm): AppBlueprint {
   return {
     app_name: 'Connect Test App',
     connect_type: connectType,

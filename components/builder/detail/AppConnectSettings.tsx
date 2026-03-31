@@ -6,9 +6,8 @@ import { Toggle } from '@/components/ui/Toggle'
 import { useDismissRef } from '@/hooks/useDismissRef'
 import { useContentPopoverDismiss } from '@/hooks/useContentPopover'
 import type { Builder } from '@/lib/services/builder'
+import type { ConnectType } from '@/lib/schemas/blueprint'
 import { POPOVER_GLASS } from '@/lib/styles'
-
-type ConnectType = 'learn' | 'deliver'
 
 interface AppConnectSettingsProps {
   builder: Builder
@@ -49,26 +48,9 @@ export function AppConnectSettings({ builder }: AppConnectSettingsProps) {
     }
   }, [open])
 
-  const setConnectType = useCallback((type: ConnectType | null) => {
+  const setConnectType = useCallback((type: ConnectType | null | undefined) => {
     if (!mb) return
-    const bp = mb.getBlueprint()
-    const currentType = bp.connect_type as ConnectType | undefined
-
-    // Stash current mode's form configs before switching
-    if (currentType && currentType !== type) {
-      mb.stashAndClearConnect(currentType)
-    }
-
-    if (type) {
-      bp.connect_type = type
-      // Restore the new mode's stashed configs (if switching, not initial enable)
-      if (type !== currentType) {
-        mb.restoreConnect(type)
-      }
-    } else {
-      delete bp.connect_type
-    }
-
+    mb.switchConnectMode(type)
     builder.notifyBlueprintChanged()
   }, [mb, builder])
 
@@ -115,7 +97,7 @@ function AppConnectPanel({
   connectType, setConnectType, onClose,
 }: {
   connectType: ConnectType | undefined
-  setConnectType: (type: ConnectType | null) => void
+  setConnectType: (type: ConnectType | null | undefined) => void
   onClose: () => void
 }) {
   const enabled = !!connectType
@@ -128,12 +110,12 @@ function AppConnectPanel({
       className={`w-64 ${POPOVER_GLASS}`}
     >
       <div className="px-3.5 py-3 space-y-3">
-        {/* Toggle */}
+        {/* Toggle — undefined signals "re-enable with last mode", resolved inside switchConnectMode */}
         <div className="flex items-center justify-between">
           <span className="text-xs font-medium text-nova-text-secondary uppercase tracking-wider">
             CommCare Connect
           </span>
-          <Toggle enabled={enabled} onToggle={() => setConnectType(enabled ? null : 'learn')} />
+          <Toggle enabled={enabled} onToggle={() => setConnectType(enabled ? null : undefined)} />
         </div>
 
         {/* Type pills */}

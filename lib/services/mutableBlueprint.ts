@@ -7,7 +7,7 @@
  */
 import {
   type AppBlueprint, type BlueprintModule, type BlueprintForm, type Question,
-  type CaseType, type CaseProperty, type ConnectConfig, type PostSubmitDestination,
+  type CaseType, type CaseProperty, type ConnectConfig, type ConnectType, type PostSubmitDestination,
 } from '../schemas/blueprint'
 import { normalizeConnectConfig } from './connectConfig'
 import { rewriteXPathRefs, rewriteHashtagRefs } from '../preview/xpath/rewrite'
@@ -80,6 +80,8 @@ export class MutableBlueprint {
     learn: new Map<number, Map<number, ConnectConfig>>(),
     deliver: new Map<number, Map<number, ConnectConfig>>(),
   }
+  /** Preserved across off/on toggles so re-enabling restores the user's prior mode choice. */
+  private lastConnectType: ConnectType | undefined
 
   constructor(blueprint: AppBlueprint) {
     this.blueprint = structuredClone(blueprint)
@@ -103,7 +105,7 @@ export class MutableBlueprint {
   /** Set app structure from scaffold output. Preserves case_types. */
   setScaffold(scaffold: { app_name: string; description?: string; connect_type?: string; modules: Array<{ name: string; case_type?: string | null; purpose?: string; forms: Array<{ name: string; type: string; purpose?: string; formDesign?: string }> }> }): void {
     this.blueprint.app_name = scaffold.app_name
-    const connectType = scaffold.connect_type as 'learn' | 'deliver' | '' | undefined
+    const connectType = scaffold.connect_type as ConnectType | '' | undefined
     if (connectType === 'learn' || connectType === 'deliver') {
       this.blueprint.connect_type = connectType
     }
@@ -157,8 +159,51 @@ export class MutableBlueprint {
 
   // ── Connect stash (preserves form configs across mode switches) ──────
 
-  /** Stash all forms' connect configs for the given mode, then clear them. */
-  stashAndClearConnect(mode: 'learn' | 'deliver'): void {
+  /**
+   * Switch the app-level connect mode, or toggle it off/on.
+   *
+   * Passing a mode (`'learn'` or `'deliver'`) enables that mode — stashing the outgoing
+   * mode's form configs and restoring the incoming mode's stashed configs.
+   *
+   * Passing `null` disables Connect entirely. Passing `undefined` re-enables Connect
+   * with the user's last active mode (falling back to `'learn'` for first-time enable).
+   * This keeps the "which mode to restore" decision fully encapsulated here rather than
+   * leaking it into the UI layer.
+   */
+  switchConnectMode(type: ConnectType | null | undefined): void {
+    const currentType = this.blueprint.connect_type as ConnectType | undefined
+    const resolved = type === undefined ? (this.lastConnectType ?? 'learn') : type
+
+    if (resolved === currentType) return
+
+    if (currentType) {
+      this.lastConnectType = currentType
+      this.stashAllFormConnect(currentType)
+    }
+
+    if (resolved) {
+      this.blueprint.connect_type = resolved
+      this.restoreAllFormConnect(resolved)
+    } else {
+      delete this.blueprint.connect_type
+    }
+  }
+
+  /** Stash a single form's connect config. Used by form-level toggles in FormSettingsPanel. */
+  stashFormConnect(mode: ConnectType, mIdx: number, fIdx: number, config: ConnectConfig): void {
+    const stash = this.connectStash[mode]
+    let moduleMap = stash.get(mIdx)
+    if (!moduleMap) { moduleMap = new Map(); stash.set(mIdx, moduleMap) }
+    moduleMap.set(fIdx, structuredClone(config))
+  }
+
+  /** Get a single form's stashed connect config (does not remove it). */
+  getFormConnectStash(mode: ConnectType, mIdx: number, fIdx: number): ConnectConfig | undefined {
+    return this.connectStash[mode].get(mIdx)?.get(fIdx)
+  }
+
+  /** Move all forms' connect configs into the stash for the given mode, clearing them from the blueprint. */
+  private stashAllFormConnect(mode: ConnectType): void {
     const stash = this.connectStash[mode]
     stash.clear()
     for (let mIdx = 0; mIdx < this.blueprint.modules.length; mIdx++) {
@@ -168,15 +213,16 @@ export class MutableBlueprint {
         if (form.connect) {
           let moduleMap = stash.get(mIdx)
           if (!moduleMap) { moduleMap = new Map(); stash.set(mIdx, moduleMap) }
-          moduleMap.set(fIdx, structuredClone(form.connect))
+          /* Move the reference — the form slot is about to be deleted, so no aliasing risk. */
+          moduleMap.set(fIdx, form.connect)
           delete form.connect
         }
       }
     }
   }
 
-  /** Restore previously stashed connect configs for the given mode. */
-  restoreConnect(mode: 'learn' | 'deliver'): void {
+  /** Clone stashed connect configs back onto their forms for the given mode. */
+  private restoreAllFormConnect(mode: ConnectType): void {
     for (const [mIdx, moduleMap] of this.connectStash[mode]) {
       for (const [fIdx, config] of moduleMap) {
         const form = this.blueprint.modules[mIdx]?.forms[fIdx]
@@ -185,19 +231,6 @@ export class MutableBlueprint {
         }
       }
     }
-  }
-
-  /** Stash a single form's connect config for a mode. */
-  stashFormConnect(mode: 'learn' | 'deliver', mIdx: number, fIdx: number, config: ConnectConfig): void {
-    const stash = this.connectStash[mode]
-    let moduleMap = stash.get(mIdx)
-    if (!moduleMap) { moduleMap = new Map(); stash.set(mIdx, moduleMap) }
-    moduleMap.set(fIdx, structuredClone(config))
-  }
-
-  /** Get a single form's stashed connect config for a mode (does not remove it). */
-  getFormConnectStash(mode: 'learn' | 'deliver', mIdx: number, fIdx: number): ConnectConfig | undefined {
-    return this.connectStash[mode].get(mIdx)?.get(fIdx)
   }
 
   /** Resolve a bare question ID to its full QuestionPath via recursive search. For SA tool boundary. */

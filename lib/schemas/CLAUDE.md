@@ -68,7 +68,7 @@ When `form_links` is present, links are evaluated in order — the first matchin
 
 ### CommCare Connect Config
 
-App-level `connect_type?: 'learn' | 'deliver'` determines the app's Connect type. Form-level `connect?: ConnectConfig` opts individual forms into Connect (present = opted in, absent = not).
+App-level `connect_type?: ConnectType` (`'learn' | 'deliver'`) determines the app's Connect type. `ConnectType` is exported from `blueprint.ts` as the single source of truth. Form-level `connect?: ConnectConfig` opts individual forms into Connect (present = opted in, absent = not).
 
 `ConnectConfig` has four independently optional sub-configs, each with an optional `id` field:
 - **`learn_module`** (`id`, name, description, time_estimate) — the learning content module

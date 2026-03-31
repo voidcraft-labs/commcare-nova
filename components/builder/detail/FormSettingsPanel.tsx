@@ -5,7 +5,7 @@ import { motion, AnimatePresence } from 'motion/react'
 import { Icon } from '@iconify/react/offline'
 import ciSettings from '@iconify-icons/ci/settings'
 import ciClose from '@iconify-icons/ci/close-md'
-import type { BlueprintForm, ConnectConfig, PostSubmitDestination } from '@/lib/schemas/blueprint'
+import type { BlueprintForm, ConnectConfig, ConnectType, PostSubmitDestination } from '@/lib/schemas/blueprint'
 import type { MutableBlueprint } from '@/lib/services/mutableBlueprint'
 import { toSnakeId } from '@/lib/services/commcare/validate'
 import { POPOVER_GLASS } from '@/lib/styles'
@@ -27,7 +27,6 @@ interface FormSettingsPanelProps {
   notifyBlueprintChanged: () => void
 }
 
-type ConnectType = 'learn' | 'deliver'
 
 // ── Toggle Button (for FormScreen header) ─────────────────────────────
 

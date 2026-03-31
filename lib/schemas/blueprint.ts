@@ -345,6 +345,8 @@ export const appBlueprintSchema = z.object({
 export type BlueprintForm = z.infer<typeof blueprintFormSchema>
 export type BlueprintModule = z.infer<typeof blueprintModuleSchema>
 export type AppBlueprint = z.infer<typeof appBlueprintSchema>
+/** The two CommCare Connect app modes — learn (training/certification) or deliver (paid service delivery). */
+export type ConnectType = NonNullable<AppBlueprint['connect_type']>
 /** Recursive question type — supports arbitrary nesting depth for groups/repeats. */
 export interface Question {
   id: string
