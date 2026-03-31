@@ -31,7 +31,7 @@ Click a question → `builder.select()` → outline highlight + DetailPanel side
 
 **Cross-panel scroll sync** — scroll is source-driven, never self-scroll:
 - **Design canvas click** → `EditableQuestionWrapper` scrolls the matching tree row into view (queries `[data-tree-question]`), only if not already visible.
-- **Tree click** → `handleTreeSelect` in BuilderLayout scrolls the design canvas to the selected question only if not already visible (queries `[data-question-id]`, 250ms delay for AnimatePresence, visibility check against `[data-preview-scroll-container]`, `block: 'start'` with 20px `scrollMarginTop`).
+- **Tree click** → `handleTreeSelect` in BuilderLayout scrolls the design canvas to the selected question only if not already visible (queries `[data-question-id]`, 250ms delay for AnimatePresence, visibility check against `[data-preview-scroll-container]`, manual `scrollContainer.scrollTo()` with 20px top margin — avoids `scrollIntoView()` which cascades to `overflow:hidden` ancestors and shifts the sidebars).
 - Clicking an item does NOT scroll its own panel.
 
 ### Drag & Drop
