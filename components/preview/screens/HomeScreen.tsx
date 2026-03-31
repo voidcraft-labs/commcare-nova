@@ -32,7 +32,7 @@ export function HomeScreen({ blueprint, onNavigate, builder, mode = 'edit' }: Ho
         {mode === 'edit' && builder?.mb ? (
           <EditableTitle value={blueprint.app_name} onSave={saveAppName} onSaved={handleSaved} />
         ) : (
-          <h2 className="text-lg font-display font-semibold text-nova-text">{blueprint.app_name}</h2>
+          <EditableTitle value={blueprint.app_name} readOnly />
         )}
         <SavedCheck visible={saved} />
       </div>

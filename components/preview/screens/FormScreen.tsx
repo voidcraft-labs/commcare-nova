@@ -141,12 +141,15 @@ export function FormScreen({ blueprint, moduleIndex, formIndex, caseId, onBack, 
               notifyBlueprintChanged={builder.notifyBlueprintChanged}
             />
           ) : (
-            <Icon icon={formTypeIcons[form.type] ?? formTypeIcons.survey} width="18" height="18" className="text-nova-text-muted shrink-0" />
+            // p-1.5 matches FormTypeButton's padding so the title doesn't shift horizontally
+            <span className="p-1.5 shrink-0 text-nova-text-muted">
+              <Icon icon={formTypeIcons[form.type] ?? formTypeIcons.survey} width="18" height="18" />
+            </span>
           )}
           {mode === 'edit' && builder?.mb ? (
             <EditableTitle value={form.name} onSave={(name) => { builder.mb!.updateForm(moduleIndex, formIndex, { name }); builder.notifyBlueprintChanged() }} onSaved={handleTitleSaved} />
           ) : (
-            <h2 className="text-lg font-display font-semibold text-nova-text">{form.name}</h2>
+            <EditableTitle value={form.name} readOnly />
           )}
           {mode === 'edit' && builder && (
             <FormSettingsButton
