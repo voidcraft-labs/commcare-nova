@@ -10,6 +10,11 @@ Zod schemas for API route input validation:
 
 Zod schemas for `AppBlueprint` and generation output schemas (`caseTypesOutput`, `scaffoldModules`, `moduleContent`).
 
+**Shared exports consumed by tool schemas:**
+- `questionFields` — canonical Zod field definitions for all question properties (id, type, label, hint, etc.). SA tool schemas in `toolSchemas.ts` derive from these directly.
+- `QUESTION_DOCS` — canonical description strings for every question field. Single source of truth for all SA-facing guidance (type selection rules, `#form/` reference syntax, XPath quoting, reserved case properties). Update descriptions here — they propagate to blueprint validation and all SA tools automatically.
+- `selectOptionSchema` — shared `{ value, label }` schema used by blueprint and tool schemas.
+
 ### Question Fields
 
 Only `id` and `type` are required. All other fields are optional — present only when set:
@@ -86,15 +91,19 @@ All Connect forms get auto GPS capture (`orx:pollsensor` + `cc:location` in form
 
 Scaffold schema has app-level `connect_type` (empty string sentinel for standard apps).
 
+## Tool Schemas (`toolSchemas.ts`)
+
+SA tool input schemas for question fields — derived from `questionFields` in `blueprint.ts`. Three shapes for three tool contexts:
+
+- **`addQuestionsQuestionSchema`** — batch generation. Flat with `parentId` for tree building. 3 sentinel fields (label, required, case_property_on) are required `z.string()` instead of optional, keeping optional count at 8 (Anthropic compiler limit). Post-processing via `stripEmpty()` converts empty strings back.
+- **`editQuestionUpdatesSchema`** — partial updates. All fields optional. XPath fields (`relevant`, `calculate`, `default_value`) and `options`/`case_property_on` accept `null` to clear.
+- **`addQuestionQuestionSchema`** — single insertion. Same shape as `questionFields` (no children, no sentinels).
+
+Also exports `addQuestionsSchema` (wraps question array with module/form indices) used by `test-schema.ts`.
+
 ## Structured Output Constraints
 
-The Anthropic schema compiler times out with >8 `.optional()` per array item (each creates an `anyOf` union in JSON Schema). The `addQuestions` tool schema uses a hybrid approach:
-
-- **8 optional fields** (sparse, saves tokens): `hint`, `help`, `validation`, `validation_msg`, `relevant`, `calculate`, `default_value`, `options`
-- **3 required sentinel fields** (almost always present, low cost): `label` (empty string), `required` (empty string), `case_property_on` (empty string)
-- **`type`** uses `z.enum(QUESTION_TYPES)` (enums don't create `anyOf` unions)
-
-Post-processing converts sentinels back to real values — see Content Processing below.
+The Anthropic schema compiler times out with >8 `.optional()` per array item (each creates an `anyOf` union in JSON Schema). The sentinel pattern in `addQuestionsQuestionSchema` works around this — see Tool Schemas above.
 
 Test with: `npx tsx scripts/test-schema.ts`
 
