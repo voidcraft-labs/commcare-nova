@@ -9,6 +9,8 @@ import type { QuestionPath } from '@/lib/services/questionPath'
 import type { FormEngine } from '@/lib/preview/engine/formEngine'
 import { LabelContent } from '@/lib/references/LabelContent'
 import { useEditContext } from '@/hooks/useEditContext'
+import { useTextEditSave } from '@/hooks/useTextEditSave'
+import { TextEditable } from '../TextEditable'
 
 interface RepeatFieldProps {
   question: Question
@@ -22,6 +24,7 @@ export function RepeatField({ question, path, questionPath, engine, renderChildr
   const state = engine.getState(path)
   const ctx = useEditContext()
   const isEditMode = ctx?.mode === 'edit'
+  const saveField = useTextEditSave(questionPath)
 
   // Make the repeat's children area a droppable target so items can be dropped into empty repeats
   const { ref: droppableRef } = useDroppable({
@@ -40,7 +43,9 @@ export function RepeatField({ question, path, questionPath, engine, renderChildr
   return (
     <div className="space-y-3">
       {question.label && (
-        <div className="text-sm font-medium text-nova-text"><LabelContent label={question.label ?? ''} resolvedLabel={state.resolvedLabel} isEditMode={isEditMode} /></div>
+        <TextEditable value={question.label ?? ''} onSave={saveField ? (v) => saveField('label', v) : undefined} fieldType="label">
+          <div className="text-sm font-medium text-nova-text"><LabelContent label={question.label ?? ''} resolvedLabel={state.resolvedLabel} isEditMode={isEditMode} /></div>
+        </TextEditable>
       )}
       {instances.map((idx) => (
         <div key={idx} className="rounded-lg border border-pv-input-border overflow-hidden">

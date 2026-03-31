@@ -155,47 +155,47 @@ describe('HistoryManager', () => {
     expect(hm.proxied.getQuestion(0, 0, qpath('q1'))?.label).toBe('C')
   })
 
-  // ── View mode capture tests ────────────────────────────────────────
+  // ── Cursor mode capture tests ───────────────────────────────────────
 
-  describe('viewMode capture', () => {
-    it('captures current viewMode in snapshot', () => {
+  describe('cursorMode capture', () => {
+    it('captures current cursorMode in snapshot', () => {
       const mb = new MutableBlueprint(makeBlueprint())
       const hm = new HistoryManager(mb)
-      hm.viewMode = 'design'
+      hm.cursorMode = 'inspect'
       hm.proxied.updateQuestion(0, 0, qpath('q1'), { label: 'Changed' })
 
       const result = hm.undo()!
-      expect(result.viewMode).toBe('design')
+      expect(result.cursorMode).toBe('inspect')
     })
 
-    it('returns viewMode of the snapshot being restored on undo', () => {
+    it('returns cursorMode of the snapshot being restored on undo', () => {
       const mb = new MutableBlueprint(makeBlueprint())
       const hm = new HistoryManager(mb)
-      hm.viewMode = 'design'
+      hm.cursorMode = 'inspect'
       hm.proxied.updateQuestion(0, 0, qpath('q1'), { label: 'First' })
-      hm.viewMode = 'preview'
+      hm.cursorMode = 'pointer'
       hm.proxied.updateQuestion(0, 0, qpath('q1'), { label: 'Second' })
 
-      // Undo the preview edit → returns 'preview' (where the edit was made)
+      // Undo the pointer edit → returns 'pointer' (where the edit was made)
       const r1 = hm.undo()!
-      expect(r1.viewMode).toBe('preview')
-      // Undo the design edit → returns 'design'
+      expect(r1.cursorMode).toBe('pointer')
+      // Undo the inspect edit → returns 'inspect'
       const r2 = hm.undo()!
-      expect(r2.viewMode).toBe('design')
+      expect(r2.cursorMode).toBe('inspect')
     })
 
-    it('captures current viewMode on redo stack when undoing', () => {
+    it('captures current cursorMode on redo stack when undoing', () => {
       const mb = new MutableBlueprint(makeBlueprint())
       const hm = new HistoryManager(mb)
-      hm.viewMode = 'design'
+      hm.cursorMode = 'inspect'
       hm.proxied.updateQuestion(0, 0, qpath('q1'), { label: 'Changed' })
 
-      // Switch to preview then undo — redo entry captures 'preview' (current at undo time)
-      hm.viewMode = 'preview'
+      // Switch to pointer then undo — redo entry captures 'pointer' (current at undo time)
+      hm.cursorMode = 'pointer'
       hm.undo()
 
       const result = hm.redo()!
-      expect(result.viewMode).toBe('preview')
+      expect(result.cursorMode).toBe('pointer')
     })
   })
 

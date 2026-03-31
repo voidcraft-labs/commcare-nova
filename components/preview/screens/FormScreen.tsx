@@ -2,7 +2,7 @@
 import { useState, useRef, useEffect, useMemo, useCallback } from 'react'
 import type { AppBlueprint } from '@/lib/schemas/blueprint'
 import type { PreviewScreen } from '@/lib/preview/engine/types'
-import type { Builder } from '@/lib/services/builder'
+import type { Builder, CursorMode } from '@/lib/services/builder'
 import type { EditMode } from '@/hooks/useEditContext'
 import { EditContextProvider } from '@/hooks/useEditContext'
 import { useFormEngine } from '@/hooks/useFormEngine'
@@ -24,9 +24,11 @@ interface FormScreenProps {
   onNavigate?: (screen: PreviewScreen) => void
   builder?: Builder
   mode?: EditMode
+  /** Current cursor mode — threaded to EditContextProvider for mode-aware components. */
+  cursorMode?: CursorMode
 }
 
-export function FormScreen({ blueprint, moduleIndex, formIndex, caseId, onBack, onNavigate, builder, mode = 'edit' }: FormScreenProps) {
+export function FormScreen({ blueprint, moduleIndex, formIndex, caseId, onBack, onNavigate, builder, mode = 'edit', cursorMode }: FormScreenProps) {
   const [titleSaved, setTitleSaved] = useState(false)
   const handleTitleSaved = useCallback(() => { setTitleSaved(true); setTimeout(() => setTitleSaved(false), 1500) }, [])
   const mod = blueprint.modules[moduleIndex]
@@ -205,7 +207,7 @@ export function FormScreen({ blueprint, moduleIndex, formIndex, caseId, onBack, 
     <div className="h-full" onClick={() => builder?.select()}>
       <div className="flex flex-col h-full max-w-3xl mx-auto w-full">
         {builder ? (
-          <EditContextProvider builder={builder} moduleIndex={moduleIndex} formIndex={formIndex} mode={mode}>
+          <EditContextProvider builder={builder} moduleIndex={moduleIndex} formIndex={formIndex} mode={mode} cursorMode={cursorMode}>
             {formBody}
           </EditContextProvider>
         ) : (

@@ -1,7 +1,7 @@
 'use client'
 import { AnimatePresence, motion } from 'motion/react'
 import type { AppBlueprint } from '@/lib/schemas/blueprint'
-import type { Builder } from '@/lib/services/builder'
+import type { Builder, CursorMode } from '@/lib/services/builder'
 import type { EditMode } from '@/hooks/useEditContext'
 import { usePreviewNav } from '@/hooks/usePreviewNav'
 import { PreviewHeader } from './PreviewHeader'
@@ -16,6 +16,8 @@ interface PreviewShellProps {
   actions?: React.ReactNode
   builder?: Builder
   mode?: EditMode
+  /** Current cursor mode — threaded to EditContextProvider for mode-aware components. */
+  cursorMode?: CursorMode
   nav?: ReturnType<typeof usePreviewNav>
   hideHeader?: boolean
   /** Back handler override — used by BuilderLayout to sync selection on back navigation.
@@ -23,7 +25,7 @@ interface PreviewShellProps {
   onBack?: () => void
 }
 
-export function PreviewShell({ blueprint, actions, builder, mode = 'edit', nav: navProp, hideHeader, onBack }: PreviewShellProps) {
+export function PreviewShell({ blueprint, actions, builder, mode = 'edit', cursorMode, nav: navProp, hideHeader, onBack }: PreviewShellProps) {
   const ownNav = usePreviewNav(blueprint)
   const nav = navProp ?? ownNav
   const handleBack = onBack ?? nav.back
@@ -82,6 +84,7 @@ export function PreviewShell({ blueprint, actions, builder, mode = 'edit', nav: 
                 onNavigate={nav.push}
                 builder={builder}
                 mode={mode}
+                cursorMode={cursorMode}
               />
             )}
           </motion.div>

@@ -6,6 +6,8 @@ import type { QuestionPath } from '@/lib/services/questionPath'
 import type { FormEngine } from '@/lib/preview/engine/formEngine'
 import { LabelContent } from '@/lib/references/LabelContent'
 import { useEditContext } from '@/hooks/useEditContext'
+import { useTextEditSave } from '@/hooks/useTextEditSave'
+import { TextEditable } from '../TextEditable'
 
 interface GroupFieldProps {
   question: Question
@@ -19,6 +21,7 @@ export function GroupField({ question, path, questionPath, engine, renderChildre
   const state = engine.getState(path)
   const ctx = useEditContext()
   const isEditMode = ctx?.mode === 'edit'
+  const saveField = useTextEditSave(questionPath)
 
   const { ref: droppableRef } = useDroppable({
     id: `${questionPath}:container`,
@@ -34,9 +37,13 @@ export function GroupField({ question, path, questionPath, engine, renderChildre
     <div className="rounded-lg border border-pv-input-border overflow-hidden">
       {question.label && (
         <div className="px-4 py-2 bg-pv-surface border-b border-pv-input-border">
-          <div className="text-sm font-medium text-nova-text"><LabelContent label={question.label ?? ''} resolvedLabel={state.resolvedLabel} isEditMode={isEditMode} /></div>
+          <TextEditable value={question.label ?? ''} onSave={saveField ? (v) => saveField('label', v) : undefined} fieldType="label">
+            <div className="text-sm font-medium text-nova-text"><LabelContent label={question.label ?? ''} resolvedLabel={state.resolvedLabel} isEditMode={isEditMode} /></div>
+          </TextEditable>
           {question.hint && (
-            <div className="text-xs text-nova-text-muted mt-0.5"><LabelContent label={question.hint} resolvedLabel={state.resolvedHint} isEditMode={isEditMode} /></div>
+            <TextEditable value={question.hint} onSave={saveField ? (v) => saveField('hint', v) : undefined} fieldType="hint">
+              <div className="text-xs text-nova-text-muted mt-0.5"><LabelContent label={question.hint} resolvedLabel={state.resolvedHint} isEditMode={isEditMode} /></div>
+            </TextEditable>
           )}
         </div>
       )}

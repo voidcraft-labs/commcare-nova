@@ -1,0 +1,79 @@
+/**
+ * Wrapper that makes a text surface (LabelContent) click-activatable in
+ * text cursor mode.
+ *
+ * In text mode: wraps children with a subtle hover indicator and cursor-text.
+ * On click, swaps the static children for an InlineTextEditor. On save,
+ * swaps back to static rendering.
+ *
+ * In other modes: renders children as-is (zero overhead).
+ *
+ * The `data-text-editable` attribute enables Tab navigation discovery —
+ * InlineTextEditor's Tab handler queries all [data-text-editable] elements
+ * in DOM order to find the next/previous field.
+ */
+
+'use client'
+import { useState, useCallback, type ReactNode } from 'react'
+import { useEditContext } from '@/hooks/useEditContext'
+import { InlineTextEditor } from './InlineTextEditor'
+
+type FieldType = 'label' | 'hint' | 'help'
+
+interface TextEditableProps {
+  /** Raw markdown value for this field. */
+  value: string
+  /** Called when the editor saves a new value. Undefined = read-only (no text mode editing). */
+  onSave: ((value: string) => void) | undefined
+  /** Which text surface — drives InlineTextEditor styling. */
+  fieldType: FieldType
+  /** Static rendering of this field (LabelContent). Shown when not editing. */
+  children: ReactNode
+}
+
+export function TextEditable({ value, onSave, fieldType, children }: TextEditableProps) {
+  const ctx = useEditContext()
+  const [editing, setEditing] = useState(false)
+
+  const handleSave = useCallback((newValue: string) => {
+    setEditing(false)
+    if (newValue !== value) {
+      onSave?.(newValue)
+    }
+  }, [value, onSave])
+
+  const handleClick = useCallback((e: React.MouseEvent) => {
+    e.stopPropagation()
+    setEditing(true)
+  }, [])
+
+  /* Not in text mode or no save handler — render children as-is. */
+  if (ctx?.cursorMode !== 'text' || !onSave) {
+    return <>{children}</>
+  }
+
+  /* Active editing — swap in the WYSIWYG editor. */
+  if (editing) {
+    return (
+      <div data-text-editable data-no-drag>
+        <InlineTextEditor
+          value={value}
+          onSave={handleSave}
+          fieldType={fieldType}
+          autoFocus
+        />
+      </div>
+    )
+  }
+
+  /* Text mode idle — show children with hover indicator. */
+  return (
+    <div
+      data-text-editable
+      onClick={handleClick}
+      className="cursor-text rounded transition-colors hover:ring-1 hover:ring-nova-violet/30 hover:ring-offset-1 hover:ring-offset-transparent"
+    >
+      {children}
+    </div>
+  )
+}

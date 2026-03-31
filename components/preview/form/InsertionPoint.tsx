@@ -95,6 +95,8 @@ export function InsertionPoint({ atIndex, parentPath, disabled, cursorSpeedRef, 
   const stopClick = useCallback((e: React.MouseEvent) => { e.stopPropagation() }, [])
 
   if (!ctx || ctx.mode === 'test') return null
+  /* Text mode: insertion points are hidden — editing text, not adding questions. */
+  if (ctx.cursorMode === 'text') return null
   if (disabled) return null
 
   const isActive = hovered || isOpen

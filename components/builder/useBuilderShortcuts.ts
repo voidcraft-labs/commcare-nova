@@ -1,46 +1,47 @@
 import { flattenQuestionPaths } from '@/lib/services/questionNavigation'
 import type { QuestionPath } from '@/lib/services/questionPath'
 import type { Shortcut } from '@/lib/services/keyboardManager'
-import type { Builder } from '@/lib/services/builder'
+import type { Builder, CursorMode } from '@/lib/services/builder'
 import { BuilderPhase } from '@/lib/services/builder'
 
 /**
  * Builds the keyboard shortcuts array for the builder layout.
  *
  * Returns an empty array when not in Done phase.
- * When active, includes: Escape (deselect/exit test), Tab/Shift+Tab (navigate questions),
- * Delete/Backspace (delete question), Cmd+D (duplicate), ArrowUp/ArrowDown (reorder),
- * Cmd+Z/Cmd+Shift+Z (undo/redo).
- *
- * The returned array is NOT memoized — it matches the original inline pattern where
- * useKeyboardShortcuts re-registers based on its own deps array.
+ * When active, includes: Escape (deselect/exit pointer), 1/2/3 (switch cursor mode),
+ * Tab/Shift+Tab (navigate questions in inspect mode), Delete/Backspace (delete question),
+ * Cmd+D (duplicate), ArrowUp/ArrowDown (reorder), Cmd+Z/Cmd+Shift+Z (undo/redo).
  */
 export function useBuilderShortcuts(
   builder: Builder,
-  viewMode: 'design' | 'preview',
-  handleViewModeChange: (mode: 'design' | 'preview') => void,
+  cursorMode: CursorMode,
+  handleCursorModeChange: (mode: CursorMode) => void,
   handleDelete: () => void,
   onUndo: () => void,
   onRedo: () => void,
 ): Shortcut[] {
-  // ── Keyboard shortcuts ──────────────────────────────────────────────
   const isDone = builder.phase === BuilderPhase.Done
 
   if (!isDone) return []
 
   return [
-    // Escape — deselect / exit test mode
+    // Escape — deselect / exit pointer mode
     {
       key: 'Escape',
       handler: () => {
-        if (viewMode === 'preview') { handleViewModeChange('design'); return }
+        if (cursorMode === 'pointer') { handleCursorModeChange('inspect'); return }
         if (builder.selected) { builder.select(); return }
       },
     },
-    // Tab / Shift+Tab — navigate questions
+    // 1/2/3 — switch cursor mode
+    { key: '1', handler: () => handleCursorModeChange('pointer') },
+    { key: '2', handler: () => handleCursorModeChange('text') },
+    { key: '3', handler: () => handleCursorModeChange('inspect') },
+    // Tab / Shift+Tab — navigate questions (inspect mode only; text mode uses Tab for text fields)
     {
       key: 'Tab',
       handler: () => {
+        if (cursorMode !== 'inspect') return
         if (!builder.selected || !builder.blueprint) return
         const sel = builder.selected
         if (sel.formIndex === undefined) return
@@ -56,6 +57,7 @@ export function useBuilderShortcuts(
       key: 'Tab',
       shift: true,
       handler: () => {
+        if (cursorMode !== 'inspect') return
         if (!builder.selected || !builder.blueprint) return
         const sel = builder.selected
         if (sel.formIndex === undefined) return

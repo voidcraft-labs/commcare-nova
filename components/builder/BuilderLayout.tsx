@@ -12,7 +12,7 @@ import Link from 'next/link'
 import { useApiKey } from '@/hooks/useApiKey'
 import { useSettings } from '@/hooks/useSettings'
 import { useBuilder } from '@/hooks/useBuilder'
-import { BuilderPhase, applyDataPart, type ViewMode } from '@/lib/services/builder'
+import { BuilderPhase, applyDataPart, type CursorMode } from '@/lib/services/builder'
 import { showToast } from '@/lib/services/toastStore'
 import { ToastContainer } from '@/components/ui/ToastContainer'
 import type { AppBlueprint } from '@/lib/schemas/blueprint'
@@ -22,7 +22,6 @@ import { useKeyboardShortcuts } from '@/hooks/useKeyboardShortcuts'
 import { Logo } from '@/components/ui/Logo'
 import { ChatSidebar } from '@/components/chat/ChatSidebar'
 import { RightPanel } from '@/components/builder/RightPanel'
-import { ContextualEditor } from '@/components/builder/contextual/ContextualEditor'
 import { GenerationProgress } from '@/components/builder/GenerationProgress'
 import { ReplayController } from '@/components/builder/ReplayController'
 import { SubheaderToolbar, CollapsibleBreadcrumb } from '@/components/builder/SubheaderToolbar'
@@ -72,12 +71,11 @@ export function BuilderLayout({ buildId }: { buildId: string }) {
   const initialReplay = getReplayData()
   const [leftPanelOpen, setLeftPanelOpen] = useState(true)
   const [rightPanelOpen, setRightPanelOpen] = useState(!!initialReplay)
-  const [viewMode, setViewMode] = useState<'design' | 'preview'>('design')
-  const viewModeRef = useRef(viewMode)
+  const [cursorMode, setCursorMode] = useState<CursorMode>('inspect')
+  const cursorModeRef = useRef(cursorMode)
   const scrollAnchorRef = useRef<{ questionPath: string; offsetTop: number; allPaths: string[] } | null>(null)
-  viewModeRef.current = viewMode
+  cursorModeRef.current = cursorMode
   const [progressHidden, setProgressHidden] = useState(false)
-  const [scrollingToQuestion, setScrollingToQuestion] = useState(false)
   const replayStartIndex = initialReplay?.doneIndex ?? 0
   const [replayData, setReplayDataState] = useState(() => {
     if (initialReplay) {
@@ -112,11 +110,12 @@ export function BuilderLayout({ buildId }: { buildId: string }) {
     if (!el) return
   }, [])
 
-  // Keep builder's viewMode in sync for undo/redo snapshot capture
-  builder.setViewMode(viewMode as ViewMode)
+  // Keep builder's cursorMode in sync for undo/redo snapshot capture
+  builder.setCursorMode(cursorMode)
 
-  const handleViewModeChange = useCallback((mode: 'design' | 'preview') => {
+  const handleCursorModeChange = useCallback((mode: CursorMode) => {
     // Capture scroll anchor before mode switch for flipbook-style alignment
+    // (switching to/from pointer triggers different rendering which may shift scroll)
     const scrollContainer = document.querySelector('[data-preview-scroll-container]') as HTMLElement | null
     if (scrollContainer) {
       const containerRect = scrollContainer.getBoundingClientRect()
@@ -134,8 +133,8 @@ export function BuilderLayout({ buildId }: { buildId: string }) {
       }
     }
 
-    viewModeRef.current = mode
-    setViewMode(mode)
+    cursorModeRef.current = mode
+    setCursorMode(mode)
   }, [])
 
   // Restore scroll position after mode switch for flipbook-style alignment
@@ -163,7 +162,7 @@ export function BuilderLayout({ buildId }: { buildId: string }) {
       const currentOffset = targetEl.getBoundingClientRect().top - containerRect.top
       scrollContainer.scrollTop += currentOffset - anchor.offsetTop
     }
-  }, [viewMode])
+  }, [cursorMode])
 
   const inReplayMode = !!replayData
   const isCentered = builder.phase === BuilderPhase.Idle && !builder.treeData
@@ -297,11 +296,11 @@ export function BuilderLayout({ buildId }: { buildId: string }) {
   ], [handleDownloadJson, handleCompile])
 
   // ── Undo/Redo with view restoration ─────────────────────────────────
-  const restoreView = useCallback((targetMode: ViewMode) => {
-    // Switch view mode if needed
-    if (targetMode !== viewModeRef.current) {
-      viewModeRef.current = targetMode
-      setViewMode(targetMode)
+  const restoreView = useCallback((targetMode: CursorMode) => {
+    // Switch cursor mode if needed
+    if (targetMode !== cursorModeRef.current) {
+      cursorModeRef.current = targetMode
+      setCursorMode(targetMode)
     }
     // Sync nav to the restored selection
     const sel = builder.selected
@@ -316,13 +315,13 @@ export function BuilderLayout({ buildId }: { buildId: string }) {
   }, [builder, nav.current, nav.navigateToHome, nav.navigateToForm, nav.navigateToModule])
 
   const handleUndo = useCallback(() => {
-    const viewMode = builder.undo()
-    if (viewMode) restoreView(viewMode)
+    const mode = builder.undo()
+    if (mode) restoreView(mode)
   }, [builder, restoreView])
 
   const handleRedo = useCallback(() => {
-    const viewMode = builder.redo()
-    if (viewMode) restoreView(viewMode)
+    const mode = builder.redo()
+    if (mode) restoreView(mode)
   }, [builder, restoreView])
 
   // ── Structure tree selection → select + navigate canvas ─────────────
@@ -340,9 +339,7 @@ export function BuilderLayout({ buildId }: { buildId: string }) {
       nav.navigateToModule(sel.moduleIndex)
     }
     // Scroll the design canvas to the selected question (only if not already visible).
-    // Set scrolling flag immediately so the editor stays hidden until scroll finishes.
     if (sel.questionPath) {
-      setScrollingToQuestion(true)
       setTimeout(() => {
         const el = document.querySelector(`[data-question-id="${sel.questionPath}"]`) as HTMLElement | null
         const scrollContainer = el?.closest('[data-preview-scroll-container]') as HTMLElement | null
@@ -351,17 +348,11 @@ export function BuilderLayout({ buildId }: { buildId: string }) {
           const elRect = el.getBoundingClientRect()
           const isVisible = elRect.top >= containerRect.top && elRect.bottom <= containerRect.bottom
           if (!isVisible) {
-            // Manually scroll only the intended container — avoids scrollIntoView() cascading
-            // up to overflow:hidden ancestors (which browsers treat as scroll containers for
-            // scrollIntoView purposes) and unintentionally shifting the sidebars by ~20px.
             const SCROLL_MARGIN = 20
             const targetScrollTop = scrollContainer.scrollTop + elRect.top - containerRect.top - SCROLL_MARGIN
-            scrollContainer.addEventListener('scrollend', () => setScrollingToQuestion(false), { once: true })
             scrollContainer.scrollTo({ top: Math.max(0, targetScrollTop), behavior: 'smooth' })
-            return
           }
         }
-        setScrollingToQuestion(false)
       }, 250)
     }
   }, [builder, nav.navigateToHome, nav.navigateToForm, nav.navigateToModule])
@@ -388,9 +379,9 @@ export function BuilderLayout({ buildId }: { buildId: string }) {
     }
   }, [builder])
 
-  const shortcuts = useBuilderShortcuts(builder, viewMode, handleViewModeChange, handleDelete, handleUndo, handleRedo)
+  const shortcuts = useBuilderShortcuts(builder, cursorMode, handleCursorModeChange, handleDelete, handleUndo, handleRedo)
 
-  useKeyboardShortcuts('builder-layout', shortcuts, [builder.phase === BuilderPhase.Done, viewMode, builder.selected, builder.blueprint, builder.mutationCount])
+  useKeyboardShortcuts('builder-layout', shortcuts, [builder.phase === BuilderPhase.Done, cursorMode, builder.selected, builder.blueprint, builder.mutationCount])
 
   /** Sync builder selection to match the given preview screen. */
   const syncSelection = useCallback((screen: PreviewScreen | undefined) => {
@@ -462,11 +453,10 @@ export function BuilderLayout({ buildId }: { buildId: string }) {
   if (shouldRedirect) return null
 
   const showProgress = (isGenerating || builder.phase === BuilderPhase.Done || builder.phase === BuilderPhase.Error) && !progressHidden && !inReplayMode
-  const leftOpen = viewMode === 'preview' ? false : leftPanelOpen
-  const rightOpen = viewMode === 'preview' ? false : rightPanelOpen
+  const leftOpen = cursorMode === 'pointer' ? false : leftPanelOpen
+  const rightOpen = cursorMode === 'pointer' ? false : rightPanelOpen
   const showToolbar = !!(builder.treeData && builder.phase === BuilderPhase.Done && builder.blueprint)
-  const showContextualEditor = showToolbar && viewMode === 'design'
-  const editMode = viewMode === 'preview' ? 'test' as const : 'edit' as const
+  const editMode = cursorMode === 'pointer' ? 'test' as const : 'edit' as const
 
   // Breadcrumb parts — labels are derived unmemoized (for live inline title edits),
   // handlers are stable memoized references. During generation (no blueprint),
@@ -571,8 +561,8 @@ export function BuilderLayout({ buildId }: { buildId: string }) {
         {/* Tier 3: Toolbar — full-width view mode + undo/redo */}
         {showToolbar && (
           <SubheaderToolbar
-            viewMode={viewMode}
-            onViewModeChange={handleViewModeChange}
+            cursorMode={cursorMode}
+            onCursorModeChange={handleCursorModeChange}
             canUndo={builder.canUndo}
             canRedo={builder.canRedo}
             onUndo={handleUndo}
@@ -619,7 +609,7 @@ export function BuilderLayout({ buildId }: { buildId: string }) {
                 transition={{ duration: 0.3, delay: 0.15 }}
               >
                 <div className="h-full overflow-auto">
-                  {!leftOpen && viewMode !== 'preview' && (
+                  {!leftOpen && cursorMode !== 'pointer' && (
                     <button
                       onClick={() => setLeftPanelOpen(true)}
                       className="absolute top-3 left-3 z-ground p-2 bg-nova-surface border border-nova-border rounded-lg hover:border-nova-border-bright transition-colors cursor-pointer"
@@ -628,7 +618,7 @@ export function BuilderLayout({ buildId }: { buildId: string }) {
                       <Icon icon={ciMessage} width="20" height="20" />
                     </button>
                   )}
-                  {!rightOpen && viewMode !== 'preview' && builder.treeData && (
+                  {!rightOpen && cursorMode !== 'pointer' && builder.treeData && (
                     <button
                       onClick={() => setRightPanelOpen(true)}
                       className="absolute top-3 right-3 z-ground p-2 bg-nova-surface border border-nova-border rounded-lg hover:border-nova-border-bright transition-colors cursor-pointer"
@@ -644,6 +634,7 @@ export function BuilderLayout({ buildId }: { buildId: string }) {
                         blueprint={builder.blueprint}
                         builder={builder}
                         mode={editMode}
+                        cursorMode={cursorMode}
                         nav={nav}
                         hideHeader
                         onBack={handlePreviewBack}
@@ -698,12 +689,7 @@ export function BuilderLayout({ buildId }: { buildId: string }) {
             )}
           </AnimatePresence>
 
-          {/* Contextual editor — floating panel anchored to selected question */}
-          {showContextualEditor && (
-            <ErrorBoundary>
-              <ContextualEditor builder={builder} scrolling={scrollingToQuestion} />
-            </ErrorBoundary>
-          )}
+          {/* InlineSettingsPanel now renders inside FormRenderer (SortableQuestion) */}
         </div>
 
       <ToastContainer />
