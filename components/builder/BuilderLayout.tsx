@@ -351,9 +351,13 @@ export function BuilderLayout({ buildId }: { buildId: string }) {
           const elRect = el.getBoundingClientRect()
           const isVisible = elRect.top >= containerRect.top && elRect.bottom <= containerRect.bottom
           if (!isVisible) {
+            // Manually scroll only the intended container — avoids scrollIntoView() cascading
+            // up to overflow:hidden ancestors (which browsers treat as scroll containers for
+            // scrollIntoView purposes) and unintentionally shifting the sidebars by ~20px.
+            const SCROLL_MARGIN = 20
+            const targetScrollTop = scrollContainer.scrollTop + elRect.top - containerRect.top - SCROLL_MARGIN
             scrollContainer.addEventListener('scrollend', () => setScrollingToQuestion(false), { once: true })
-            el.style.scrollMarginTop = '20px'
-            el.scrollIntoView({ behavior: 'smooth', block: 'start' })
+            scrollContainer.scrollTo({ top: Math.max(0, targetScrollTop), behavior: 'smooth' })
             return
           }
         }
