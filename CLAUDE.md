@@ -24,7 +24,7 @@ npm run dev          # Start dev server (Turbopack)
 npm run build        # Production build
 npm test             # Run tests (vitest)
 npm run test:watch   # Watch mode tests
-npx tsx scripts/test-schema.ts       # Test structured output schemas (requires ANTHROPIC_API_KEY)
+npx tsx scripts/test-schema.ts       # Test structured output schemas (reads ANTHROPIC_API_KEY from .env)
 npx tsx scripts/build-xpath-parser.ts # Rebuild Lezer parser from xpath.grammar
 ```
 
@@ -102,6 +102,8 @@ Dark "Stellar Minimalism". CSS custom properties in `globals.css`:
 ### Structured Output Schemas
 
 The Anthropic schema compiler times out with >8 `.optional()` fields per array item. Use sentinel values (empty string, false) for required-but-sparse fields, post-process with `stripEmpty()`. Test with `npx tsx scripts/test-schema.ts`. See `lib/schemas/CLAUDE.md` for the full constraint details.
+
+All SA tool question schemas are derived from `questionFields` in `blueprint.ts` — see `lib/schemas/toolSchemas.ts`. Field descriptions come from `QUESTION_DOCS` (also in `blueprint.ts`). Never define question field schemas inline in tool definitions.
 
 ### Model Configuration
 

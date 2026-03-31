@@ -40,7 +40,7 @@ export const QUESTION_TYPES = [
   'audio', 'video', 'signature', 'hidden', 'secret', 'group', 'repeat'
 ] as const
 
-const selectOptionSchema = z.object({
+export const selectOptionSchema = z.object({
   value: z.string().describe('Option value (stored in data)'),
   label: z.string().describe('Option label (shown to user)'),
 })
@@ -183,13 +183,15 @@ const connectConfigSchema = z.object({
   task: connectTaskSchema.optional(),
 })
 
-// ── Question Schema ───────────────────────────────────────────────────
+// ── Question Field Descriptions ───────────────────────────────────────
+//
+// Single source of truth for question field guidance, consumed by the
+// blueprint validation schema and all SA tool schemas.
 
-const questionFields = {
-  id: z.string().describe(
-    'Unique identifier per parent level. Use alphanumeric snake_case (must start with a letter).'
-  ),
-  type: z.enum(QUESTION_TYPES).describe(
+export const QUESTION_DOCS = {
+  id:
+    'Unique identifier per parent level. Use alphanumeric snake_case (must start with a letter).',
+  type:
     'Question type. Always pick the most specific type available: ' +
     '"text" for free text values (shape can be enforced with validation expression), ' +
     '"date"/"time"/"datetime" for temporal values, ' +
@@ -198,41 +200,62 @@ const questionFields = {
     '"single_select" for any fixed single-choice (yes/no, gender, status), ' +
     '"multi_select" for multi-choice (symptoms, services), ' +
     '"geopoint" for GPS, "image"/"audio"/"video"/"signature"/"barcode" for media capture, ' +
-    '"hidden" with "calculate" for computed values (BMI, risk score, age from DOB), ' +
+    '"hidden" with "calculate" for any computed values, ' +
     '"secret" for passwords/PINs, ' +
-    '"group"/"repeat" for nesting. '
-  ),
-  label: z.string().optional().describe(
-    'Human-friendly label for the element. `<output value="{XPath}"/>` will be replaced with the result `{XPath}` on load and when any of its dependencies change.' +
-    'Omit for hidden questions — they have no visible label.'
-  ),
-  hint: z.string().optional().describe('Help text shown below the question.'),
-  help: z.string().optional().describe('Extended help text accessible via help icon.'),
-  required: z.string().optional().describe(
-    'An XPath expression for requiring the element (can be `true()` for always required).'
-  ),
-  validation: z.string().optional().describe('XPath expression for validation.'),
-  validation_msg: z.string().optional().describe('Error message when validation fails.'),
-  relevant: z.string().optional().describe(
-    'XPath expression evaluated to conditionally show or hide this element.'
-  ),
-  calculate: z.string().optional().describe(
-    'XPath expression evaluated on form load and after any its dependency updates.'
-  ),
-  default_value: z.string().optional().describe(
-    'XPath expression evaluated once on form load.'
-  ),
-  options: z.array(selectOptionSchema).optional().describe(
-    'Options for single_select/multi_select questions — at least 2 options. Omit for all other question types.'
-  ),
-  case_property_on: z.string().optional().describe(
-    'Case type name this question saves to (e.g. "patient"). ' +
+    '"group"/"repeat" for nesting.',
+  label:
+    'Human-friendly label for the element. ' +
+    'Supports hashtag references and markdown.' +
+    'Do NOT use {curly_brace} template syntax — it is not supported. ' +
+    'Omit for hidden questions.',
+  hint:
+    'Help text shown below the question.',
+  help:
+    'Extended help text accessible via help icon.',
+  required:
+    'An XPath expression for requiring the element (can be `true()` for always required). ' +
+    'Supports hashtag references.',
+  validation:
+    'XPath expression for validation (e.g. ". > 0 and . < 150"). ' +
+    'Supports hashtag references.',
+  validation_msg:
+    'Error message shown when validation fails.',
+  relevant:
+    'XPath expression evaluated to conditionally show or hide this element. ' +
+    'Supports hashtag references.',
+  calculate:
+    'XPath expression evaluated on form load and whenever any of the calculation\'s dependencies update. ' +
+    'Supports hashtag references.',
+  default_value:
+    'XPath expression evaluated once on form load. ' +
+    'Supports hashtag references.',
+  options:
+    'Options for single_select/multi_select questions — at least 2 options. Omit for all other question types.',
+  case_property_on:
+    'Case type name this question saves to. ' +
     'When this matches the module\'s case_type, the question is a normal case property. ' +
     'When different, it creates a child case of that type. ' +
     'The question for the case name must always have id "case_name". ' +
     `Question id must NOT be a reserved name: ${RESERVED_CASE_PROPERTIES}. ` +
-    'Must NOT be set on media questions (image, audio, video, signature).'
-  ),
+    'Must NOT be set on media questions (image, audio, video, signature).',
+} as const satisfies Record<string, string>
+
+// ── Question Schema ───────────────────────────────────────────────────
+
+export const questionFields = {
+  id: z.string().describe(QUESTION_DOCS.id),
+  type: z.enum(QUESTION_TYPES).describe(QUESTION_DOCS.type),
+  label: z.string().optional().describe(QUESTION_DOCS.label),
+  hint: z.string().optional().describe(QUESTION_DOCS.hint),
+  help: z.string().optional().describe(QUESTION_DOCS.help),
+  required: z.string().optional().describe(QUESTION_DOCS.required),
+  validation: z.string().optional().describe(QUESTION_DOCS.validation),
+  validation_msg: z.string().optional().describe(QUESTION_DOCS.validation_msg),
+  relevant: z.string().optional().describe(QUESTION_DOCS.relevant),
+  calculate: z.string().optional().describe(QUESTION_DOCS.calculate),
+  default_value: z.string().optional().describe(QUESTION_DOCS.default_value),
+  options: z.array(selectOptionSchema).optional().describe(QUESTION_DOCS.options),
+  case_property_on: z.string().optional().describe(QUESTION_DOCS.case_property_on),
 }
 
 const questionSchema: z.ZodType<Question> = z.object({

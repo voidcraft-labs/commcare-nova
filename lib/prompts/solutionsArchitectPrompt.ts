@@ -21,7 +21,12 @@ The details in this prompt are for your knowledge only — do not overexplain in
 
 ## CommCare XPath Functions — Quick Reference
 
-String literals must be wrapped in quotes.
+String literals must be wrapped in quotes. 
+
+In any XPath Expression or label-type field, use the correct hashtag reference with their full path to output a node's or property's value:
+1. \`#form/full/path/to/question\`
+2. \`#case/case_property\`
+3. \`#user/user_property\`
 
 ### Direct Values (no arguments)
 

@@ -10,9 +10,11 @@ import { GenerationContext, logWarnings } from './generationContext'
 import { buildSolutionsArchitectPrompt } from '../prompts/solutionsArchitectPrompt'
 import {
   type AppBlueprint, type BlueprintForm, type ConnectConfig, type Question,
-  QUESTION_TYPES,
   caseTypesOutputSchema, scaffoldModulesSchema, moduleContentSchema,
 } from '../schemas/blueprint'
+import {
+  addQuestionsQuestionSchema, editQuestionUpdatesSchema, addQuestionQuestionSchema,
+} from '../schemas/toolSchemas'
 import {
   type FlatQuestion,
   stripEmpty, applyDefaults, buildQuestionTree, flattenToFlat,
@@ -89,11 +91,6 @@ function summarizeQuestions(questions: Question[]): QuestionSummary[] {
 }
 
 // ── askQuestions schema ──────────────────────────────────────────────
-
-const selectOptionSchema = z.object({
-  value: z.string().describe('Option value (stored in data)'),
-  label: z.string().describe('Option label (shown to user)'),
-})
 
 const askQuestionsSchema = z.object({
   header: z.string().describe('Short header for this group of questions'),
@@ -258,24 +255,7 @@ export function createSolutionsArchitect(
         inputSchema: z.object({
           moduleIndex: z.number().describe('0-based module index'),
           formIndex: z.number().describe('0-based form index'),
-          questions: z.array(z.object({
-            id: z.string(),
-            type: z.enum(QUESTION_TYPES),
-            parentId: z.string().describe('Parent group/repeat ID. Empty string for top-level.'),
-            // Required sentinels (3) — almost always present, low cost as empty values
-            label: z.string().describe('Question label. Empty string for hidden questions.'),
-            required: z.string().describe('"true()" if always required, XPath for conditional. Empty string if not required.'),
-            case_property_on: z.string().describe('Case type name this question saves to (e.g. "patient"). The case name question must have id "case_name". Empty string if not a case property.'),
-            // Optionals (8) — sparse, saves tokens when absent
-            hint: z.string().optional(),
-            help: z.string().optional(),
-            validation: z.string().optional(),
-            validation_msg: z.string().optional(),
-            relevant: z.string().optional(),
-            calculate: z.string().optional(),
-            default_value: z.string().optional().describe("XPath for initial value on form load. String values must be quoted: `'text'`, not `text`."),
-            options: z.array(selectOptionSchema).optional(),
-          })),
+          questions: z.array(addQuestionsQuestionSchema),
         }),
         execute: async ({ moduleIndex, formIndex, questions }) => {
           const blueprint = mutableBp.getBlueprint()
@@ -377,20 +357,7 @@ export function createSolutionsArchitect(
           moduleIndex: z.number().describe('0-based module index'),
           formIndex: z.number().describe('0-based form index'),
           questionId: z.string().describe('Question id to update'),
-          updates: z.object({
-            id: z.string().optional().describe('New question id. Automatically propagates XPath refs; for case properties, propagates across all forms and columns.'),
-            label: z.string().optional().describe('Question label text'),
-            type: z.enum(QUESTION_TYPES).optional(),
-            hint: z.string().optional().describe('Hint text'),
-            required: z.string().optional().describe('"true()" if always required, or XPath for conditional.'),
-            validation: z.string().optional().describe('XPath validation expression'),
-            validation_msg: z.string().optional().describe('Error message when validation fails'),
-            relevant: z.string().nullable().optional().describe('XPath display condition'),
-            calculate: z.string().nullable().optional().describe('XPath computed value'),
-            default_value: z.string().nullable().optional().describe('XPath initial value'),
-            options: z.array(selectOptionSchema).nullable().optional(),
-            case_property_on: z.string().nullable().optional().describe('Case type name to save to, or null to remove.'),
-          }).describe('Fields to update. Only include fields you want to change.'),
+          updates: editQuestionUpdatesSchema,
         }),
         execute: async ({ moduleIndex, formIndex, questionId, updates }) => {
           try {
@@ -439,20 +406,7 @@ export function createSolutionsArchitect(
         inputSchema: z.object({
           moduleIndex: z.number().describe('0-based module index'),
           formIndex: z.number().describe('0-based form index'),
-          question: z.object({
-            id: z.string().describe('Unique question id in snake_case'),
-            type: z.enum(QUESTION_TYPES),
-            label: z.string().optional().describe('Question label (omit for hidden)'),
-            hint: z.string().optional(),
-            required: z.string().optional(),
-            validation: z.string().optional(),
-            validation_msg: z.string().optional(),
-            relevant: z.string().optional(),
-            calculate: z.string().optional(),
-            default_value: z.string().optional(),
-            options: z.array(selectOptionSchema).optional(),
-            case_property_on: z.string().optional().describe('Case type name to save to.'),
-          }),
+          question: addQuestionQuestionSchema,
           afterQuestionId: z.string().optional().describe('Insert after this question ID. Omit to append at end.'),
           beforeQuestionId: z.string().optional().describe('Insert before this question ID. Takes precedence over afterQuestionId.'),
           parentId: z.string().optional().describe('ID of a group/repeat to nest inside'),

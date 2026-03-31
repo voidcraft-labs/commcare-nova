@@ -1,6 +1,14 @@
+/**
+ * Tests that the addQuestions structured output schema compiles within
+ * Anthropic's grammar compiler limits. The compiler times out with >8
+ * .optional() fields per array item — this script catches regressions.
+ *
+ * Usage: npx tsx scripts/test-schema.ts [opus]
+ */
+import 'dotenv/config'
 import { generateText, Output } from 'ai'
 import { createAnthropic } from '@ai-sdk/anthropic'
-import { z } from 'zod'
+import { addQuestionsSchema } from '../lib/schemas/toolSchemas'
 
 const apiKey = process.env.ANTHROPIC_API_KEY
 if (!apiKey) { console.error('Set ANTHROPIC_API_KEY'); process.exit(1) }
@@ -8,34 +16,8 @@ if (!apiKey) { console.error('Set ANTHROPIC_API_KEY'); process.exit(1) }
 const anthropic = createAnthropic({ apiKey })
 const model = process.argv[2] === 'opus' ? 'claude-opus-4-6' : 'claude-haiku-4-5-20251001'
 
-const QUESTION_TYPES = [
-  'text', 'int', 'date', 'single_select', 'multi_select', 'geopoint', 'image',
-  'barcode', 'decimal', 'label', 'time', 'datetime',
-  'audio', 'video', 'signature', 'hidden', 'secret', 'group', 'repeat',
-] as const
-
-const singleFormSchema = z.object({
-  questions: z.array(z.object({
-    id: z.string(),
-    type: z.enum(QUESTION_TYPES),
-    parentId: z.string(),
-    label: z.string(),
-    required: z.string(),
-    case_property_on: z.string(),
-    hint: z.string().optional(),
-    help: z.string().optional(),
-    validation: z.string().optional(),
-    validation_msg: z.string().optional(),
-    relevant: z.string().optional(),
-    calculate: z.string().optional(),
-    default_value: z.string().optional(),
-    options: z.array(z.object({ value: z.string(), label: z.string() })).optional(),
-  })),
-  close_case: z.object({ question: z.string(), answer: z.string() }),
-})
-
-const size = JSON.stringify(z.toJSONSchema(singleFormSchema)).length
-console.log(`singleFormSchema (with type enum): ${size} chars`)
+const size = JSON.stringify(addQuestionsSchema.jsonSchema).length
+console.log(`addQuestionsSchema: ${size} chars`)
 console.log(`Testing with ${model}...`)
 
 const controller = new AbortController()
@@ -43,7 +25,7 @@ const timer = setTimeout(() => { console.log('TIMEOUT (180s)'); controller.abort
 
 generateText({
   model: anthropic(model),
-  output: Output.object({ schema: singleFormSchema }),
+  output: Output.object({ schema: addQuestionsSchema.schema }),
   system: 'Produce minimal valid output.',
   prompt: 'A registration form with 2 questions: patient_name (text) and age (int).',
   maxOutputTokens: 1024,

@@ -4,8 +4,9 @@ Core business logic: Solutions Architect agent, blueprint management, LLM orches
 
 ## Solutions Architect Agent
 
-Split across two files:
-- `solutionsArchitect.ts` — `createSolutionsArchitect()` with tool definitions + `buildColumnPrompt()`
+Split across three files:
+- `solutionsArchitect.ts` — `createSolutionsArchitect()` with tool definitions
+- `lib/schemas/toolSchemas.ts` — question field schemas for SA tools, derived from `questionFields` in `blueprint.ts`
 - `validationLoop.ts` — `validateAndFix()` orchestrator
 
 `solutionsArchitect.ts` exports `createSolutionsArchitect(ctx, mutableBp)` — single `ToolLoopAgent` with 20 tools in 6 groups:

@@ -10,10 +10,11 @@ npx tsx scripts/build-xpath-parser.ts
 
 ## test-schema.ts
 
-Tests structured output schemas against Haiku to verify they compile within Anthropic's schema compiler limits. Requires `ANTHROPIC_API_KEY`.
+Tests the `addQuestionsSchema` (from `lib/schemas/toolSchemas.ts`) against Haiku to verify it compiles within Anthropic's schema compiler limits. Loads `.env` via `dotenv/config`. Requires `ANTHROPIC_API_KEY`.
 
 ```bash
-npx tsx scripts/test-schema.ts
+npx tsx scripts/test-schema.ts        # Test with Haiku (default)
+npx tsx scripts/test-schema.ts opus   # Test with Opus
 ```
 
 ## Knowledge Sync Pipeline
