@@ -1,7 +1,7 @@
 'use client'
 import type { Question } from '@/lib/schemas/blueprint'
 import type { QuestionState } from '@/lib/preview/engine/types'
-import { renderPreviewMarkdown } from '@/lib/markdown'
+import { PreviewMarkdown } from '@/lib/markdown'
 import { ValidationError } from './ValidationError'
 
 interface SelectMultiFieldProps {
@@ -51,7 +51,9 @@ export function SelectMultiField({ question, state, onChange, onBlur }: SelectMu
                   </svg>
                 )}
               </div>
-              <span className="preview-markdown text-sm text-nova-text" dangerouslySetInnerHTML={{ __html: renderPreviewMarkdown(opt.label) }} />
+              <span className="preview-markdown text-sm text-nova-text">
+                <PreviewMarkdown inline>{opt.label}</PreviewMarkdown>
+              </span>
             </label>
           )
         })}
