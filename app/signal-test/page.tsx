@@ -293,6 +293,39 @@ const scenarios: Scenario[] = [
     },
   },
   {
+    name: 'Scaffolding — Real Time',
+    description: 'Full theatrics — drip-feeds progress so every piece gets preview → select → slide → lock at natural pace.',
+    run: ({ setMode, setScaffoldProgress, injectThink }) => {
+      setMode('scaffolding')
+      const thinkId = setInterval(() => injectThink(15 + Math.random() * 25), 150)
+
+      // Drip-feed progress in small increments every 2.5s, staying in the
+      // slow-cruise band (gapFraction ≤ 5%) so the animation never rushes.
+      // Each tick advances by ~2 pieces worth of fill, giving the solver
+      // room to animate one full turn before the next nudge arrives.
+      const TICK_MS = 2500
+      const STEP = 0.04 // ~2 pieces per tick on a typical grid
+      let progress = 0
+      const dripId = setInterval(() => {
+        progress = Math.min(progress + STEP, 0.98) // hold below 1.0 to avoid rush
+        setScaffoldProgress(progress)
+      }, TICK_MS)
+
+      // After all drip ticks have filled to 98%, wait one more beat then complete
+      const totalTicks = Math.ceil(0.98 / STEP)
+      const completeTimer = setTimeout(() => {
+        setScaffoldProgress(1.0)
+      }, totalTicks * TICK_MS + TICK_MS)
+
+      return () => {
+        clearInterval(thinkId)
+        clearInterval(dripId)
+        clearTimeout(completeTimer)
+        setMode('idle')
+      }
+    },
+  },
+  {
     name: 'Scaffolding — Fast Complete',
     description: 'Schema at 30%, then jump straight to 100% after 1.5s. Tests rapid catch-up.',
     run: ({ setMode, setScaffoldProgress, injectThink }) => {
