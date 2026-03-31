@@ -5,7 +5,7 @@
  * Called after all questions are built (in validateAndFix) so it has
  * access to the full question tree.
  */
-import type { BlueprintForm, ConnectConfig, Question } from '../schemas/blueprint'
+import type { BlueprintForm, ConnectConfig, ConnectType, Question } from '../schemas/blueprint'
 import { toSnakeId } from './commcare/validate'
 
 /** Count questions recursively (excluding structural containers). */
@@ -68,7 +68,7 @@ export function normalizeConnectConfig(config: ConnectConfig): ConnectConfig | u
   return out
 }
 
-export function deriveConnectDefaults(connectType: 'learn' | 'deliver', form: BlueprintForm, moduleName?: string): void {
+export function deriveConnectDefaults(connectType: ConnectType, form: BlueprintForm, moduleName?: string): void {
   if (!form.connect) return
 
   const modSlug = toSnakeId(moduleName ?? 'module')
