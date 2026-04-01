@@ -146,17 +146,21 @@ function SortableQuestion({
   // droppable (Low) wins when items are dragged over the content area.
   const isContainer = q.type === 'group' || q.type === 'repeat'
 
+  /* Text mode is for inline editing, not reordering. */
+  const isTextMode = ctx?.cursorMode === 'text'
+
   const { ref, isDragging } = useSortable({
     id: questionPath,
     index: sortIndex,
     group,
     type: 'question',
     accept: 'question',
-    disabled: !isEditMode,
+    disabled: !isEditMode || isTextMode,
     ...(isContainer && { collisionPriority: CollisionPriority.Lowest }),
   })
 
-  if (q.type === 'hidden' && !isEditMode) return null
+  /* Hidden questions have no inline-editable surface — skip in text mode. */
+  if (q.type === 'hidden' && (!isEditMode || isTextMode)) return null
   if (!isEditMode && !state.visible) return null
 
   // Use isDragging from dnd-kit OR the context flag (covers cross-group remount where isDragging resets)
@@ -343,11 +347,13 @@ export function FormRenderer({ questions, engine, prefix = '/data', parentPath }
         .map(id => activeDragReorder.questionsById.get(id))
         .filter((q): q is Question => !!q)
     }
-    // In preview mode, filter hidden questions at the list level so SortableQuestion
-    // (and its useSortable hook) never runs for them — avoids wasted hook execution.
-    // In edit mode, hidden questions are visible and draggable, so include them.
-    return isEditMode ? questions : questions.filter(q => q.type !== 'hidden')
-  }, [questions, activeDragReorder, group, engine, isEditMode])
+    // Filter hidden questions in preview mode and text mode — nothing to interact
+    // with, and skipping them avoids unnecessary useSortable hook execution.
+    // In inspect/pointer edit modes, hidden questions are visible and draggable.
+    const isTextMode = ctx?.cursorMode === 'text'
+    const showHidden = isEditMode && !isTextMode
+    return showHidden ? questions : questions.filter(q => q.type !== 'hidden')
+  }, [questions, activeDragReorder, group, engine, isEditMode, ctx?.cursorMode])
 
   const modifiers = useMemo(() => [
     RestrictToElement.configure({

@@ -513,6 +513,24 @@ body {
   --pv-input-focus: rgba(136, 136, 170, 0.25);
 }
 
+/* Text mode — everything that isn't a text-editable surface is visually "paused".
+ * An invisible overlay blocks hover/click on non-text elements. TextEditable
+ * zones rise above the overlay via z-index so they remain fully interactive. */
+.text-mode-cursors {
+  position: relative;
+  cursor: default !important;
+}
+.text-mode-cursors::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: var(--z-ground);
+}
+.text-mode-cursors [data-text-editable] {
+  position: relative;
+  z-index: var(--z-raised);
+  cursor: text;
+}
 
 /* Subtle noise texture overlay */
 .nova-noise::before {
