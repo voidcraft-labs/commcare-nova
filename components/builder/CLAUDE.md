@@ -2,7 +2,7 @@
 
 ## BuilderLayout
 
-Main layout with one `useChat` instance targeting `/api/chat`. Wrapped in `ErrorBoundary` around LeftPanel (chat), RightPanel (structure tree), PreviewShell, and ContextualEditor.
+Main layout with one `useChat` instance targeting `/api/chat`. Wrapped in `ErrorBoundary` around ChatSidebar (right), StructureSidebar (left), PreviewShell, and ContextualEditor.
 
 - **`body`** sends: `apiKey`, `pipelineConfig`, `blueprint` (for edits).
 - **`sendAutomaticallyWhen`** only triggers for `askQuestions` (client-side tool).
@@ -16,11 +16,11 @@ Main layout with one `useChat` instance targeting `/api/chat`. Wrapped in `Error
 1. **Tier 1 — Logo bar**: `commcare nova` + settings link. `bg-nova-void`. Collapses to zero height in hero/centered mode via animated `height: 0 → auto`.
 2. **Tier 2 — Project subheader**: Nav buttons (`ScreenNavButtons` back + up, left of breadcrumbs, shown when blueprint exists) + `CollapsibleBreadcrumb` (left) + `DownloadDropdown` (right). `bg-[rgba(139,92,246,0.06)]` with subtle violet glow shadow. Shows as soon as centered mode exits (breadcrumbs populate once `app_name` arrives). Download button appears when `phase === Done`. `text-lg` for hierarchy above chat/toolbar text.
 3. **Tier 3 — Toolbar** (`SubheaderToolbar.tsx`): Full-width `ViewModeToggle` (centered) + Undo/Redo (right). `bg-nova-deep`. Only shows when `Done` + blueprint exists.
-4. **Tier 4 — Content area**: Main content fills full width (scrollbar on far right). LeftPanel (chat) floats as absolute overlay from the left edge. RightPanel (structure tree) floats as absolute overlay from the right edge. ContextualEditor floats as a portal anchored to the selected question.
+4. **Tier 4 — Content area**: Main content fills full width (scrollbar on far right). StructureSidebar floats as absolute overlay from the left edge. ChatSidebar floats as absolute overlay from the right edge. ContextualEditor floats as a portal anchored to the selected question.
 
 ### Chat-Centered Landing
 
-When `builder.phase === Idle && !builder.treeData`, chat fills center with hero Logo above welcome heading and input — no header bars, uniform `bg-nova-void`. On generation start, Logo animates from center to header via `layoutId="nova-logo"` (global, no `LayoutGroup` — avoids triggering layout measurement passes that re-animate sibling panels), header tiers slide in, chat becomes a 320px left sidebar overlay. When tree data first appears, the right panel (structure tree) auto-opens. `AnimatePresence` fades in builder panels (150ms delay). No DOM re-parenting — messages and input state preserved.
+When `builder.phase === Idle && !builder.treeData`, chat fills center with hero Logo above welcome heading and input — no header bars, uniform `bg-nova-void`. On generation start, Logo animates from center to header via `layoutId="nova-logo"` (global, no `LayoutGroup` — avoids triggering layout measurement passes that re-animate sibling panels), header tiers slide in, chat becomes a 320px right sidebar overlay. When tree data first appears, the structure sidebar auto-opens. `AnimatePresence` fades in builder panels (150ms delay). No DOM re-parenting — messages and input state preserved.
 
 ### Project Subheader (Tier 2)
 
@@ -34,32 +34,28 @@ Full-width 3-column grid: left spacer, center `ViewModeToggle` (`components/prev
 
 ### View Mode Sync
 
-`viewMode` state (`'design' | 'preview'`). Two modes only — the app tree lives permanently in the LeftPanel's Structure tab rather than as a separate "overview" mode.
+`viewMode` state (`'design' | 'preview'`). Two modes only — the app tree lives permanently in the StructureSidebar rather than as a separate "overview" mode.
 
 - **Design ↔ Preview**: Nav is shared (no sync needed). Selection preserved but invisible in preview mode. Preview → Design preserves existing selection state — sidebar only opens if user had something selected before entering preview. Design → Preview auto-focuses the selected question's input. **Flipbook scroll sync**: `handleViewModeChange` captures the topmost visible question's `data-question-id` and its pixel offset from the scroll container top before calling `setState`. A `useLayoutEffect` on `viewMode` then restores the scroll position before paint — finding the same element (or the nearest visible question above it if the anchor is hidden by relevancy) and adjusting `scrollTop` to match the captured offset. The scroll container is identified via `[data-preview-scroll-container]` on PreviewShell's inner scroll div.
 - **Escape in preview**: Switches to design without nav sync (stays on current screen).
 - **Structure tree selection**: `handleTreeSelect` in BuilderLayout calls `builder.select()` and typed nav methods (`nav.navigateToForm()`, `nav.navigateToModule()`, `nav.navigateToHome()`). Typed methods are idempotent — they use `screensEqual()` internally to skip if already on the target screen, preventing duplicate history entries when clicking multiple questions in the same form.
 
 When `Done` + blueprint exists:
-- `'design'` → `PreviewShell` (editable canvas) + `LeftPanel` (chat, overlay left) + `RightPanel` (structure tree, overlay right) + `InlineSettingsPanel` (per-question, inspect mode only)
+- `'design'` → `PreviewShell` (editable canvas) + `StructureSidebar` (left) + `ChatSidebar` (right) + `InlineSettingsPanel` (per-question, inspect mode only)
 - `'preview'` → `PreviewShell` (read-only, no edit chrome, no sidebars)
 
 ### Panel State Management
 
-Both panels collapse in preview mode via conditional rendering — the underlying `leftPanelOpen`/`rightPanelOpen` state is never mutated by mode switches, so the user's open/close preference is preserved when returning to design. InlineSettingsPanel shows when `cursorMode === 'inspect'` and a question is selected.
-- `leftOpen = viewMode === 'preview' ? false : leftPanelOpen`
-- `rightOpen = viewMode === 'preview' ? false : rightPanelOpen`
+Both sidebars collapse in preview mode via conditional rendering — the underlying `chatOpen`/`structureOpen` state is never mutated by mode switches, so the user's open/close preference is preserved when returning to design. InlineSettingsPanel shows when `cursorMode === 'inspect'` and a question is selected.
+- `chatSidebarOpen = viewMode === 'preview' ? false : chatOpen`
+- `structureSidebarOpen = viewMode === 'preview' ? false : structureOpen`
 - `showInlinePanel = isEditMode && cursorMode === 'inspect'` (rendered by FormRenderer per-question)
 
-`rightPanelOpen` starts `false` (or `true` during log replay), auto-opens when tree data first appears during generation. After generation, the canvas auto-navigates to the first form. Both panels are independently open/closeable.
+`structureOpen` starts `false` (or `true` during log replay), auto-opens when tree data first appears during generation. After generation, the canvas auto-navigates to the first form. Both sidebars are independently open/closeable.
 
-## LeftPanel
+## StructureSidebar
 
-Chat-only left panel. Simple header with "Chat" label + close chevron-left. Embeds `ChatSidebar` in `sidebar-embedded` mode (no header/chrome — LeftPanel provides the shell). Container: `w-80 border-l-0 rounded-r-xl m-2 ml-0`. Slides in from left.
-
-## RightPanel
-
-Structure-only right panel, visually mirroring LeftPanel on the right side. Simple header with "Structure" label + close chevron-right. Embeds `AppTree` in `compact` mode with `hideHeader` (tighter spacing for 320px width). `onTreeSelect` prop delegates to BuilderLayout's `handleTreeSelect` which calls `builder.select()`, typed nav methods (`navigateToForm`/`navigateToModule`/`navigateToHome`), and scrolls the design canvas to the selected question if not already visible (250ms delay, visibility check, `block: 'start'`). Tree supports expand/collapse at module, form, and group/repeat levels. Question rows use compact `text-xs` font, reduced depth-based indentation (`depth * 6`), alternating row backgrounds (pre-computed via `buildOddPaths`), and `data-tree-question` attributes for cross-panel scroll targeting. **Fuzzy search** input pinned above the scrollable area filters the tree by question label, question ID, module name, or form name. Uses fuse.js (`lib/filterTree.ts`) with `useDeferredValue` for responsive input. Matching branches preserve parent hierarchy; non-matching items are hidden. Parent nodes auto-expand via `forceExpand` set. Matched text highlighted with `bg-nova-violet/20`. Escape clears the search; state resets on panel close (AppTree unmounts). Container: `w-80 border-r-0 rounded-l-xl m-2 mr-0`. Slides in from right.
+Structure sidebar (`StructureSidebar.tsx`). Simple header with close chevron-left + "Structure" label. Embeds `AppTree` in `compact` mode with `hideHeader` (tighter spacing for 320px width). `onTreeSelect` prop delegates to BuilderLayout's `handleTreeSelect` which calls `builder.select()`, typed nav methods (`navigateToForm`/`navigateToModule`/`navigateToHome`), and scrolls the design canvas to the selected question if not already visible (250ms delay, visibility check, `block: 'start'`). Tree supports expand/collapse at module, form, and group/repeat levels. Question rows use compact `text-xs` font, reduced depth-based indentation (`depth * 6`), alternating row backgrounds (pre-computed via `buildOddPaths`), and `data-tree-question` attributes for cross-panel scroll targeting. **Fuzzy search** input pinned above the scrollable area filters the tree by question label, question ID, module name, or form name. Uses fuse.js (`lib/filterTree.ts`) with `useDeferredValue` for responsive input. Matching branches preserve parent hierarchy; non-matching items are hidden. Parent nodes auto-expand via `forceExpand` set. Matched text highlighted with `bg-nova-violet/20`. Escape clears the search; state resets on sidebar close (AppTree unmounts). Container: `w-80 border-l-0 rounded-r-xl m-2 ml-0`. Slides in from left.
 
 **Generation lock** — while `phase !== Done`, the tree is non-interactive but still scrollable. A `pointer-events-none` `bg-black/25` overlay dims the tree content area (below the header). Individual clickable rows (module header, form header, question row) get `pointer-events-none` to block selection, with hover classes and `cursor-pointer` removed. Collapse chevrons use `invisible` to hide while preserving layout. The search input is disabled with reduced opacity. The close button in the header remains interactive. The overlay fades out (300ms) via `AnimatePresence` when generation completes. A `locked` prop threads from `AppTree` (derived from `phase !== Done`) through `ModuleCard` → `FormCard` → `QuestionRow` → `CollapseChevron`. Edit mode is unaffected since edits only occur after `Done`.
 
@@ -106,7 +102,7 @@ Reads/writes through `builder.mb` (persistent `MutableBlueprint`). Editing patte
 
 ## GenerationProgress
 
-Progress bar with phase labels during generation. Always centered in the content area throughout the entire generation lifecycle — stays centered even after the scaffold tree appears in the left panel, then dismisses immediately on completion with a 1s fade-out. Counts derived from `builder.progressCompleted` / `builder.progressTotal`. Status message text was removed — phase-specific text now lives in the SignalGrid panel's etched label instead.
+Progress bar with phase labels during generation. Always centered in the content area throughout the entire generation lifecycle — stays centered even after the scaffold tree appears in the structure sidebar, then dismisses immediately on completion with a 1s fade-out. Counts derived from `builder.progressCompleted` / `builder.progressTotal`. Status message text was removed — phase-specific text now lives in the SignalGrid panel's etched label instead.
 
 **Error state:** When `phase === BuilderPhase.Error`, tracks the last active generating phase via `useRef` to show which step failed. The formerly-active stage gets an `'error'` status: static rose dot (no pulse), label in `text-nova-rose`, progress bar gradient shifts to `cyan→rose`. Error message from `statusMessage` prop displayed below the bar. No auto-dismiss on error — user must dismiss manually or retry.
 

@@ -21,7 +21,7 @@ import { type QuestionPath } from '@/lib/services/questionPath'
 import { useKeyboardShortcuts } from '@/hooks/useKeyboardShortcuts'
 import { Logo } from '@/components/ui/Logo'
 import { ChatSidebar } from '@/components/chat/ChatSidebar'
-import { RightPanel } from '@/components/builder/RightPanel'
+import { StructureSidebar } from '@/components/builder/StructureSidebar'
 import { GenerationProgress } from '@/components/builder/GenerationProgress'
 import { ReplayController } from '@/components/builder/ReplayController'
 import { SubheaderToolbar, CollapsibleBreadcrumb } from '@/components/builder/SubheaderToolbar'
@@ -69,8 +69,8 @@ export function BuilderLayout({ buildId }: { buildId: string }) {
   const { settings } = useSettings()
   const builder = useBuilder()
   const initialReplay = getReplayData()
-  const [leftPanelOpen, setLeftPanelOpen] = useState(true)
-  const [rightPanelOpen, setRightPanelOpen] = useState(!!initialReplay)
+  const [chatOpen, setChatOpen] = useState(true)
+  const [structureOpen, setStructureOpen] = useState(!!initialReplay)
   const [cursorMode, setCursorMode] = useState<CursorMode>('inspect')
   const cursorModeRef = useRef(cursorMode)
   const scrollAnchorRef = useRef<{ questionPath: string; offsetTop: number; allPaths: string[] } | null>(null)
@@ -175,8 +175,8 @@ export function BuilderLayout({ buildId }: { buildId: string }) {
   const prevTreeDataRef = useRef(builder.treeData)
   useEffect(() => {
     if (!prevTreeDataRef.current && builder.treeData) {
-      setRightPanelOpen(true)
-      setLeftPanelOpen(true)
+      setStructureOpen(true)
+      setChatOpen(true)
     }
     prevTreeDataRef.current = builder.treeData
   }, [builder.treeData])
@@ -453,8 +453,8 @@ export function BuilderLayout({ buildId }: { buildId: string }) {
   if (shouldRedirect) return null
 
   const showProgress = (isGenerating || builder.phase === BuilderPhase.Done || builder.phase === BuilderPhase.Error) && !progressHidden && !inReplayMode
-  const leftOpen = cursorMode === 'pointer' ? false : leftPanelOpen
-  const rightOpen = cursorMode === 'pointer' ? false : rightPanelOpen
+  const chatSidebarOpen = cursorMode === 'pointer' ? false : chatOpen
+  const structureSidebarOpen = cursorMode === 'pointer' ? false : structureOpen
   const showToolbar = !!(builder.treeData && builder.phase === BuilderPhase.Done && builder.blueprint)
   const editMode = cursorMode === 'pointer' ? 'test' as const : 'edit' as const
 
@@ -575,7 +575,7 @@ export function BuilderLayout({ buildId }: { buildId: string }) {
           {/* Single chat instance — morphs from centered to sidebar via layout animation */}
           <ErrorBoundary>
             <AnimatePresence>
-              {(isCentered ? leftPanelOpen : leftOpen) && (
+              {(isCentered ? chatOpen : chatSidebarOpen) && (
                 <ChatSidebar
                   key="chat"
                   centered={isCentered}
@@ -590,7 +590,7 @@ export function BuilderLayout({ buildId }: { buildId: string }) {
                   messages={inReplayMode ? replayMessages : messages}
                   status={inReplayMode ? 'ready' : status}
                   onSend={handleSend}
-                  onClose={() => setLeftPanelOpen(false)}
+                  onClose={() => setChatOpen(false)}
                   addToolOutput={addToolOutput}
                   readOnly={inReplayMode}
                 />
@@ -609,22 +609,22 @@ export function BuilderLayout({ buildId }: { buildId: string }) {
                 transition={{ duration: 0.3, delay: 0.15 }}
               >
                 <div className="h-full overflow-auto">
-                  {!leftOpen && cursorMode !== 'pointer' && (
+                  {!structureSidebarOpen && cursorMode !== 'pointer' && builder.treeData && (
                     <button
-                      onClick={() => setLeftPanelOpen(true)}
+                      onClick={() => setStructureOpen(true)}
                       className="absolute top-3 left-3 z-ground p-2 bg-nova-surface border border-nova-border rounded-lg hover:border-nova-border-bright transition-colors cursor-pointer"
-                      title="Open chat"
-                    >
-                      <Icon icon={ciMessage} width="20" height="20" />
-                    </button>
-                  )}
-                  {!rightOpen && cursorMode !== 'pointer' && builder.treeData && (
-                    <button
-                      onClick={() => setRightPanelOpen(true)}
-                      className="absolute top-3 right-3 z-ground p-2 bg-nova-surface border border-nova-border rounded-lg hover:border-nova-border-bright transition-colors cursor-pointer"
                       title="Open structure"
                     >
                       <Icon icon={tablerListTree} width="20" height="20" />
+                    </button>
+                  )}
+                  {!chatSidebarOpen && cursorMode !== 'pointer' && (
+                    <button
+                      onClick={() => setChatOpen(true)}
+                      className="absolute top-3 right-3 z-ground p-2 bg-nova-surface border border-nova-border rounded-lg hover:border-nova-border-bright transition-colors cursor-pointer"
+                      title="Open chat"
+                    >
+                      <Icon icon={ciMessage} width="20" height="20" />
                     </button>
                   )}
 
@@ -672,17 +672,17 @@ export function BuilderLayout({ buildId }: { buildId: string }) {
 
           {/* Right panel (Structure tree) — absolute right, floats over content */}
           <AnimatePresence>
-            {!isCentered && rightOpen && (
+            {!isCentered && structureSidebarOpen && (
               <motion.div
-                initial={{ x: 320, opacity: 0 }}
+                initial={{ x: -320, opacity: 0 }}
                 animate={{ x: 0, opacity: 1 }}
-                exit={{ x: 320, opacity: 0 }}
+                exit={{ x: -320, opacity: 0 }}
                 transition={{ duration: 0.25, ease: [0.4, 0, 0.2, 1] }}
-                className="absolute right-0 top-0 bottom-0 z-raised"
+                className="absolute left-0 top-0 bottom-0 z-raised"
               >
-                <RightPanel
+                <StructureSidebar
                   builder={builder}
-                  onClose={() => setRightPanelOpen(false)}
+                  onClose={() => setStructureOpen(false)}
                   onTreeSelect={handleTreeSelect}
                 />
               </motion.div>

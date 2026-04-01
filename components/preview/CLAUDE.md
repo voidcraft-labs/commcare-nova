@@ -27,7 +27,7 @@ Preview is an always-editable canvas. `EditContextProvider` (`hooks/useEditConte
 
 ### Selection
 
-Click a question → `builder.select()` → outline highlight + DetailPanel sidebar. Shared with Structure tree (in LeftPanel) via same `builder.selected` state.
+Click a question → `builder.select()` → outline highlight + DetailPanel sidebar. Shared with Structure tree (in StructureSidebar) via same `builder.selected` state.
 
 **Cross-panel scroll sync** — scroll is source-driven, never self-scroll:
 - **Design canvas click** → `EditableQuestionWrapper` scrolls the matching tree row into view (queries `[data-tree-question]`), only if not already visible.

@@ -1,33 +1,33 @@
 'use client'
 import { Icon } from '@iconify/react/offline'
-import ciChevronRight from '@iconify-icons/ci/chevron-right'
+import ciChevronLeft from '@iconify-icons/ci/chevron-left'
 import { motion, AnimatePresence } from 'motion/react'
 import { ErrorBoundary } from '@/components/ui/ErrorBoundary'
 import { AppTree } from '@/components/builder/AppTree'
 import { BuilderPhase, type Builder } from '@/lib/services/builder'
 
-interface RightPanelProps {
+interface StructureSidebarProps {
   builder: Builder
   onClose: () => void
   onTreeSelect: (selection: any) => void
 }
 
-export function RightPanel({
+export function StructureSidebar({
   builder,
   onClose,
   onTreeSelect,
-}: RightPanelProps) {
+}: StructureSidebarProps) {
   return (
-    <div className="w-80 border border-nova-border-bright border-r-0 bg-nova-deep flex flex-col shrink-0 h-full rounded-l-xl m-2 mr-0 shadow-[0_2px_12px_rgba(0,0,0,0.4)]">
+    <div className="w-80 border border-nova-border-bright border-l-0 bg-nova-deep flex flex-col shrink-0 h-full rounded-r-xl m-2 ml-0 shadow-[0_2px_12px_rgba(0,0,0,0.4)]">
       {/* Header */}
       <div className="flex items-center justify-between px-4 h-11 border-b border-nova-border shrink-0">
-        <span className="text-[13px] font-medium text-nova-text-secondary">Structure</span>
         <button
           onClick={onClose}
           className="px-1 h-11 text-nova-text-muted hover:text-nova-text transition-colors cursor-pointer"
         >
-          <Icon icon={ciChevronRight} width="14" height="14" />
+          <Icon icon={ciChevronLeft} width="14" height="14" />
         </button>
+        <span className="text-[13px] font-medium text-nova-text-secondary">Structure</span>
       </div>
 
       {/* Structure tree */}
