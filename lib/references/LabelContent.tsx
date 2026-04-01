@@ -15,7 +15,7 @@ import { Fragment, useMemo, type ReactNode } from 'react'
 import { PREVIEW_OPTIONS, withChipInjection } from '@/lib/markdown'
 import { ReferenceChip } from './ReferenceChip'
 import { useReferenceProvider } from './ReferenceContext'
-import { resolveRefFromExpr, parseLabelSegments, LABEL_REF_RE } from './renderLabel'
+import { resolveRefFromExpr, parseLabelSegments, outputTagsToHashtags, LABEL_REF_RE } from './renderLabel'
 import type { ReferenceProvider } from './provider'
 
 interface LabelContentProps {
@@ -76,9 +76,11 @@ export function LabelContent({ label, resolvedLabel, isEditMode }: LabelContentP
     )
   }
 
+  const normalized = outputTagsToHashtags(label)
+
   return (
     <div className="preview-markdown">
-      <Markdown options={options}>{label}</Markdown>
+      <Markdown options={options}>{normalized}</Markdown>
     </div>
   )
 }

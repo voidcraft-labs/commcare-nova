@@ -25,6 +25,18 @@ export const LABEL_REF_RE = new RegExp(
   `(?:${OUTPUT_TAG_RE.source})|(${HASHTAG_REF_PATTERN.source})`,
 )
 
+/**
+ * Normalize `<output value="#type/path"/>` tags to bare `#type/path` hashtags.
+ * Used by rendering surfaces (LabelContent, InlineTextEditor) to convert the
+ * CommCare serialization format back to the canonical hashtag format before
+ * display or editing. markdown-to-jsx would parse `<output>` as an HTML element
+ * (bypassing the text-node chip renderRule), and tiptap-markdown delegates
+ * ref hydration to `hydrateHashtagRefs()` which operates on bare hashtags.
+ */
+export function outputTagsToHashtags(text: string): string {
+  return text.replace(new RegExp(OUTPUT_TAG_RE.source, 'g'), '$1')
+}
+
 /** A segment from splitting text on a reference-matching pattern. */
 export type LabelSegment = { kind: 'text'; text: string } | { kind: 'ref'; value: string }
 
@@ -79,14 +91,16 @@ export function parseExpressionSegments(expr: string): LabelSegment[] {
 }
 
 /**
- * Resolve a parsed expression string to a Reference. Tries the provider first
- * for full resolution (with question type icon), falls back to a minimal
- * Reference from parse() when the provider is unavailable or the ref is stale.
+ * Resolve a parsed expression string to a Reference. When a provider is
+ * available, only returns a Reference if it actually resolves — unresolvable
+ * hashtags (typos, partial edits, stale refs) return null so they render as
+ * plain text instead of misleading chips. Falls back to pattern-based parsing
+ * only when no provider is available (e.g. during initial load before the
+ * provider context is ready).
  */
 export function resolveRefFromExpr(expr: string, provider: ReferenceProvider | null): Reference | null {
   if (provider) {
-    const resolved = provider.resolve(expr)
-    if (resolved) return resolved
+    return provider.resolve(expr)
   }
   const parsed = ReferenceProvider.parse(expr)
   if (!parsed) return null

@@ -42,6 +42,8 @@ import { HorizontalRuleButton } from '@/components/tiptap-ui/horizontal-rule-but
 import { TableButton } from '@/components/tiptap-ui/table-button'
 import { createInlineEditorExtensions, getMarkdownContent } from '@/lib/tiptap/markdownExtensions'
 import { useReferenceProvider } from '@/lib/references/ReferenceContext'
+import { outputTagsToHashtags } from '@/lib/references/renderLabel'
+import { hydrateHashtagRefs } from '@/lib/tiptap/hydrateRefs'
 
 type FieldType = 'label' | 'hint'
 
@@ -255,17 +257,17 @@ export function InlineTextEditor({ value, onSave, fieldType, autoFocus, clickPos
     },
   })
 
-  /* Load markdown content and auto-focus after the editor mounts. Uses the
-   * Markdown extension's overridden setContent command which explicitly parses
-   * the markdown string through markdown-it before setting editor state.
-   * When activated by a user click, posAtCoords maps the original viewport
-   * coordinates to a document position so the cursor lands where the user
-   * clicked rather than jumping to the end. Tab-triggered activations
-   * (synthetic .click() at 0,0) naturally fall back to focus('end') because
-   * posAtCoords returns null for coordinates outside the editor. */
+  /* Load markdown content and hydrate hashtag references into chip nodes.
+   * First normalizes <output> tags to bare hashtags, then lets tiptap-markdown
+   * parse the markdown (hashtags pass through as plain text), then walks the
+   * resulting ProseMirror document to promote hashtag text into commcareRef
+   * atom nodes. When activated by a user click, posAtCoords maps the original
+   * viewport coordinates to a document position so the cursor lands where the
+   * user clicked rather than jumping to the end. */
   useEffect(() => {
     if (!editor) return
-    editor.commands.setContent(value)
+    editor.commands.setContent(outputTagsToHashtags(value))
+    hydrateHashtagRefs(editor)
     if (autoFocus) {
       if (clickPosition) {
         const pos = editor.view.posAtCoords({ left: clickPosition.x, top: clickPosition.y })
