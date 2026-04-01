@@ -26,7 +26,6 @@ export interface FlatQuestion {
   parentId: string
   label?: string
   hint?: string
-  help?: string
   required?: string
   validation?: string
   validation_msg?: string
@@ -126,7 +125,6 @@ export function applyDefaults(
       result.type ??= (prop.data_type ?? 'text') as any
       result.label ??= prop.label
       result.hint ??= prop.hint
-      result.help ??= prop.help
       result.required ??= prop.required
       result.validation ??= prop.validation
       result.validation_msg ??= prop.validation_msg

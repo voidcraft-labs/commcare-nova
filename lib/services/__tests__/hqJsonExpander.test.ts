@@ -387,7 +387,7 @@ describe('output references in labels', () => {
 
 // ── Markdown itext for all question types ────────────────────────────────
 // CommCare only renders markdown when <value form="markdown"> is present alongside
-// <value> in itext. Verify every surface (labels, hints, help, options, groups)
+// <value> in itext. Verify every surface (labels, hints, options, groups)
 // emits the markdown form so markdown syntax doesn't render as plain text on-device.
 
 describe('markdown itext for all question types', () => {
@@ -438,7 +438,7 @@ describe('markdown itext for all question types', () => {
     expect(inactiveOpt).toContain('<value form="markdown">_Inactive_</value>')
   })
 
-  it('emits markdown form for hint and help text', () => {
+  it('emits markdown form for hint text', () => {
     const bp: AppBlueprint = {
       app_name: 'MD', modules: [{
         name: 'M', forms: [{
@@ -446,7 +446,6 @@ describe('markdown itext for all question types', () => {
           questions: [{
             id: 'age', type: 'int', label: 'Age',
             hint: 'Enter age in **years**',
-            help: 'Must be _18 or older_ to continue',
           }],
         }],
       }],
@@ -455,8 +454,6 @@ describe('markdown itext for all question types', () => {
     const xform: string = Object.values(expandBlueprint(bp)._attachments)[0] as string
     const hint = extractItext(xform, 'age-hint')
     expect(hint).toContain('<value form="markdown">Enter age in **years**</value>')
-    const help = extractItext(xform, 'age-help')
-    expect(help).toContain('<value form="markdown">Must be _18 or older_ to continue</value>')
   })
 
   it('emits markdown form for group labels', () => {
@@ -750,45 +747,6 @@ describe('#form/ hashtag expansion', () => {
     const xform: string = Object.values(hq._attachments)[0] as string
     expect(xform).not.toContain('id="casedb"')
     expect(xform).not.toContain('id="commcaresession"')
-  })
-})
-
-// ── Feature 2: Help Text ────────────────────────────────────────────────
-
-describe('help text', () => {
-  it('generates <help> element and itext entry for questions with help text', () => {
-    const bp: AppBlueprint = {
-      app_name: 'Help', modules: [{
-        name: 'M', forms: [{
-          name: 'F', type: 'survey',
-          questions: [
-            { id: 'q', type: 'text', label: 'Name', help: 'Enter the full legal name as shown on ID' },
-          ],
-        }],
-      }],
-      case_types: null,
-    }
-    const hq = expandBlueprint(bp)
-    const xform: string = Object.values(hq._attachments)[0] as string
-    expect(xform).toContain('id="q-help"')
-    expect(xform).toContain('Enter the full legal name as shown on ID')
-    expect(xform).toContain('<help ref="jr:itext(\'q-help\')"/>')
-  })
-
-  it('does not generate <help> when help is absent', () => {
-    const bp: AppBlueprint = {
-      app_name: 'NoHelp', modules: [{
-        name: 'M', forms: [{
-          name: 'F', type: 'survey',
-          questions: [{ id: 'q', type: 'text', label: 'Name' }],
-        }],
-      }],
-      case_types: null,
-    }
-    const hq = expandBlueprint(bp)
-    const xform: string = Object.values(hq._attachments)[0] as string
-    expect(xform).not.toContain('-help')
-    expect(xform).not.toContain('<help')
   })
 })
 

@@ -11,7 +11,6 @@ export const xpathFields = [
 
 export const addableTextFields = [
   { field: 'hint', label: 'Hint' },
-  { field: 'help', label: 'Help' },
   { field: 'validation_msg', label: 'Validation Message' },
 ] as const
 

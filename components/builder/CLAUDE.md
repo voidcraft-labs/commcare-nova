@@ -74,7 +74,7 @@ Undo/redo "teleports" the user back to where the edit was made. Each history sna
 Inline property panel for inspect cursor mode (`cursorMode === 'inspect'`). Renders below the selected question inside the form DOM, pushing subsequent questions down and scrolling with the question. Drag-drop still works — the panel is inside `SortableQuestion` and moves during drag.
 
 Three collapsible sections (all start expanded; hidden questions start with Appearance collapsed):
-- **Appearance** (`ContextualEditorUI`) — type (via `QuestionTypeGrid` popover at `z-popover-top`), hint, help. Label is intentionally absent — labels are edited directly on the canvas in text mode.
+- **Appearance** (`ContextualEditorUI`) — type (via `QuestionTypeGrid` popover at `z-popover-top`), hint. Label is intentionally absent — labels are edited directly on the canvas in text mode.
 - **Logic** (`ContextualEditorLogic`) — required (Toggle + optional conditional XPath, hidden until added via "Add Property"), validation, relevant, default_value, calculate. All XPath fields rendered via `XPathField` with automatic chip support via context provider.
 - **Data** (`ContextualEditorData`) — question ID (with rename propagation), `CasePropertyPills` ("Saves to" header + pill buttons), options editor for select types
 

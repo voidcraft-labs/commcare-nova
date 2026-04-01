@@ -19,7 +19,7 @@ const PARSE_OPTS = { xmlMode: true } as const
 const RENDER_OPTS = { xmlMode: true, selfClosingTags: true, encodeEntities: 'utf8' as const } as const
 
 /**
- * Bare hashtag pattern for label/hint/help prose text.
+ * Bare hashtag pattern for label/hint prose text.
  *
  * Labels are natural language, not XPath — the Lezer XPath parser can't find
  * hashtags in prose because surrounding characters (e.g. markdown `**`) get
@@ -48,7 +48,7 @@ function wrapBareHashtags(text: string): string {
 }
 
 /**
- * Process label/hint/help text that may contain <output value="..."/> tags.
+ * Process label/hint text that may contain <output value="..."/> tags.
  * Bare hashtag references (#case/x, #form/x, #user/x) are auto-wrapped in
  * <output> tags first. Then all <output> tags get Lezer-based hashtag expansion
  * on the value attribute. Plain text is XML-escaped by dom-serializer.
@@ -108,7 +108,7 @@ class InstanceTracker {
     }
   }
 
-  /** Scan label/hint/help prose for #case/ or #user/ hashtag refs. */
+  /** Scan label/hint prose for #case/ or #user/ hashtag refs. */
   scanLabel(text: string): void {
     if (/#(case|user)\//.test(text)) this.require('casedb')
   }
@@ -315,7 +315,7 @@ function buildQuestionParts(
   for (const expr of [q.relevant, q.validation, q.calculate, q.default_value, q.required]) {
     if (expr) instances.scanXPath(expr)
   }
-  for (const text of [q.label, q.hint, q.help]) {
+  for (const text of [q.label, q.hint]) {
     if (text) instances.scanLabel(text)
   }
 
@@ -371,7 +371,6 @@ function buildQuestionParts(
   if (q.type !== 'hidden' && q.label) {
     addItext(`${q.id}-label`, q.label)
     addItext(`${q.id}-hint`, q.hint)
-    addItext(`${q.id}-help`, q.help)
   }
 
   // itext for select options
@@ -437,19 +436,16 @@ function buildQuestionParts(
     ).join('\n    ')
     let el = `<${tag} ref="${nodePath}">\n      <label ref="jr:itext('${q.id}-label')"/>`
     if (q.hint) el += `\n      <hint ref="jr:itext('${q.id}-hint')"/>`
-    if (q.help) el += `\n      <help ref="jr:itext('${q.id}-help')"/>`
     el += `\n    ${items}\n    </${tag}>`
     bodyElements.push(el)
   } else if (q.type === 'label') {
     let el = `<trigger ref="${nodePath}" appearance="minimal">\n      <label ref="jr:itext('${q.id}-label')"/>`
     if (q.hint) el += `\n      <hint ref="jr:itext('${q.id}-hint')"/>`
-    if (q.help) el += `\n      <help ref="jr:itext('${q.id}-help')"/>`
     el += `\n    </trigger>`
     bodyElements.push(el)
   } else if (q.type === 'secret') {
     let el = `<secret ref="${nodePath}">\n      <label ref="jr:itext('${q.id}-label')"/>`
     if (q.hint) el += `\n      <hint ref="jr:itext('${q.id}-hint')"/>`
-    if (q.help) el += `\n      <help ref="jr:itext('${q.id}-help')"/>`
     el += `\n    </secret>`
     bodyElements.push(el)
   } else if (q.type === 'image' || q.type === 'audio' || q.type === 'video' || q.type === 'signature') {
@@ -457,7 +453,6 @@ function buildQuestionParts(
     const appearance = q.type === 'signature' ? ' appearance="signature"' : ''
     let el = `<upload ref="${nodePath}" mediatype="${mediatype}"${appearance}>\n      <label ref="jr:itext('${q.id}-label')"/>`
     if (q.hint) el += `\n      <hint ref="jr:itext('${q.id}-hint')"/>`
-    if (q.help) el += `\n      <help ref="jr:itext('${q.id}-help')"/>`
     el += `\n    </upload>`
     bodyElements.push(el)
   } else {
@@ -466,7 +461,6 @@ function buildQuestionParts(
     const appearanceAttr = appearance ? ` appearance="${appearance}"` : ''
     let el = `<input ref="${nodePath}"${appearanceAttr}>\n      <label ref="jr:itext('${q.id}-label')"/>`
     if (q.hint) el += `\n      <hint ref="jr:itext('${q.id}-hint')"/>`
-    if (q.help) el += `\n      <help ref="jr:itext('${q.id}-help')"/>`
     el += `\n    </input>`
     bodyElements.push(el)
   }
