@@ -28,6 +28,16 @@ npx tsx scripts/test-schema.ts       # Test structured output schemas (reads ANT
 npx tsx scripts/build-xpath-parser.ts # Rebuild Lezer parser from xpath.grammar
 ```
 
+## Deployment
+
+Deployed to **Google Cloud Run** via Docker. `next.config.ts` uses `output: "standalone"` for a self-contained production build.
+
+```bash
+docker build -t commcare-nova .                    # Build image locally
+docker run -p 8080:8080 commcare-nova              # Run locally
+gcloud run deploy nova --source . --region <region> # Deploy to Cloud Run
+```
+
 ## Architecture
 
 ### Single Agent, Single Endpoint
