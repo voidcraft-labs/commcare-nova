@@ -43,17 +43,19 @@ export function FormDetail({ form }: FormDetailProps) {
 
 interface FormTypeButtonProps {
   form: BlueprintForm
-  moduleIndex: number
-  formIndex: number
-  mb: MutableBlueprint
-  notifyBlueprintChanged: () => void
+  /** When provided, the icon becomes a clickable button that opens a type picker. */
+  moduleIndex?: number
+  formIndex?: number
+  mb?: MutableBlueprint
+  notifyBlueprintChanged?: () => void
 }
 
 /**
- * Clickable form type icon in the form header.
- * Opens a small dropdown to change the form type inline.
+ * Form type icon in the form header. Interactive (dropdown to change type) when
+ * mutation props are provided, static icon otherwise.
  */
 export function FormTypeButton({ form, moduleIndex, formIndex, mb, notifyBlueprintChanged }: FormTypeButtonProps) {
+  const editable = mb != null && moduleIndex != null && formIndex != null && notifyBlueprintChanged != null
   const [open, setOpen] = useState(false)
   const buttonRef = useRef<HTMLButtonElement>(null)
   const animRef = useRef<HTMLDivElement>(null)
@@ -85,25 +87,27 @@ export function FormTypeButton({ form, moduleIndex, formIndex, mb, notifyBluepri
   }, [open])
 
   const handleSelect = useCallback((type: string) => {
+    if (!editable) return
     mb.updateForm(moduleIndex, formIndex, { type: type as 'registration' | 'followup' | 'survey' })
     notifyBlueprintChanged()
     setOpen(false)
-  }, [mb, moduleIndex, formIndex, notifyBlueprintChanged])
+  }, [editable, mb, moduleIndex, formIndex, notifyBlueprintChanged])
 
   const icon = formTypeIcons[form.type] ?? formTypeIcons.survey
 
   return (
     <>
-      <button
+      <span
         ref={buttonRef}
-        onClick={() => setOpen(o => !o)}
-        className="p-1.5 rounded-md transition-colors cursor-pointer text-nova-text-muted hover:text-nova-text hover:bg-white/5 shrink-0"
-        aria-label="Change form type"
+        onClick={editable ? () => setOpen(o => !o) : undefined}
+        className={`-ml-1.5 p-1.5 rounded-md shrink-0 text-nova-text-muted ${editable ? 'transition-colors cursor-pointer hover:text-nova-text hover:bg-white/5' : ''}`}
+        role={editable ? 'button' : undefined}
+        aria-label={editable ? 'Change form type' : undefined}
       >
         <Icon icon={icon} width="18" height="18" />
-      </button>
+      </span>
 
-      {open && (
+      {editable && open && (
         <FloatingPortal>
           <div
             ref={(el) => { animRef.current = el; refs.setFloating(el) }}
