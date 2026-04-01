@@ -285,7 +285,7 @@ export function InlineTextEditor({ value, onSave, fieldType, autoFocus, clickPos
     <Tiptap editor={editor}>
       <div
         ref={anchorRef}
-        className="relative rounded ring-2 ring-nova-violet-bright/80 ring-offset-1 ring-offset-transparent"
+        className="relative"
         data-no-drag
       >
         {fieldType === 'label' ? <LabelToolbar anchorRef={anchorRef} /> : <CompactToolbar />}
