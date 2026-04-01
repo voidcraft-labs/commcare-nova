@@ -661,10 +661,16 @@ export function BuilderLayout({ buildId }: { buildId: string }) {
                   )}
                 </AnimatePresence>
 
-                {/* Cursor mode bar — floats at the right edge of main content */}
+                {/* Cursor mode bar — anchored to the right edge of the centered
+                 *  form content (max-w-3xl) so it stays at a fixed distance from
+                 *  the form regardless of which sidebars are open or closed. */}
                 {showToolbar && (
-                  <div className="absolute top-1/2 right-4 -translate-y-1/2 z-raised">
-                    <CursorModeSelector mode={cursorMode} onChange={handleCursorModeChange} variant="vertical" />
+                  <div className="absolute inset-0 pointer-events-none z-raised">
+                    <div className="max-w-3xl mx-auto h-full relative">
+                      <div className="absolute top-1/2 -translate-y-1/2 -right-7 pointer-events-auto">
+                        <CursorModeSelector mode={cursorMode} onChange={handleCursorModeChange} variant="vertical" />
+                      </div>
+                    </div>
                   </div>
                 )}
               </motion.div>
