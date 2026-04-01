@@ -75,8 +75,8 @@ export function QuestionCard({
   }
 
   return (
-    <div data-question-card={isWaiting ? 'waiting' : isComplete ? 'done' : 'loading'} className="flex justify-start">
-      <div className="max-w-[85%] w-full rounded-xl border border-nova-violet/20 bg-nova-violet/5 overflow-hidden">
+    <div data-question-card={isWaiting ? 'waiting' : isComplete ? 'done' : 'loading'}>
+      <div className="rounded-xl border border-nova-violet/20 bg-nova-violet/5 overflow-hidden">
         {/* Header */}
         <div className="px-3.5 py-2.5 border-b border-nova-violet/10">
           {isLoading ? (
