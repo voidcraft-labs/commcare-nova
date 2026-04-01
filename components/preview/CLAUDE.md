@@ -30,9 +30,10 @@ Preview is an always-editable canvas. `EditContextProvider` (`hooks/useEditConte
 Click a question → `builder.select()` → outline highlight + DetailPanel sidebar. Shared with Structure tree (in StructureSidebar) via same `builder.selected` state.
 
 **Cross-panel scroll sync** — scroll is source-driven, never self-scroll:
-- **Design canvas click** → `EditableQuestionWrapper` scrolls the matching tree row into view (queries `[data-tree-question]`), only if not already visible.
-- **Tree click** → `handleTreeSelect` in BuilderLayout scrolls the design canvas to the selected question only if not already visible (queries `[data-question-id]`, 250ms delay for AnimatePresence, visibility check against `[data-preview-scroll-container]`, manual `scrollContainer.scrollTo()` with 20px top margin — avoids `scrollIntoView()` which cascades to `overflow:hidden` ancestors and shifts the sidebars).
+- **Design canvas click** → `EditableQuestionWrapper` scrolls the matching tree row into view (queries `[data-tree-question]`), only if the row's top is outside the visible area.
+- **Tree click** → `handleTreeSelect` in BuilderLayout scrolls the design canvas to the selected question only if the element's top is outside the visible viewport (queries `[data-question-id]`, 250ms delay for AnimatePresence, top-visibility check against `[data-preview-scroll-container]`, manual `scrollContainer.scrollTo()` with 20px top margin — avoids `scrollIntoView()` which cascades to `overflow:hidden` ancestors and shifts the sidebars). For tall elements (groups/repeats), only the top needs to be visible — the check doesn't require the full element to fit.
 - Clicking an item does NOT scroll its own panel.
+- **No self-scroll on InlineSettingsPanel** — scroll to the selected question is owned by BuilderLayout/EditableQuestionWrapper only. InlineSettingsPanel must not scroll itself into view on mount to avoid competing smooth-scroll animations.
 
 ### Drag & Drop
 

@@ -71,7 +71,7 @@ Undo/redo "teleports" the user back to where the edit was made. Each history sna
 
 ## InlineSettingsPanel
 
-Inline property panel for inspect cursor mode (`cursorMode === 'inspect'`). Renders below the selected question inside the form DOM, pushing subsequent questions down and scrolling with the question. Drag-drop still works — the panel is inside `SortableQuestion` and moves during drag.
+Inline property panel for inspect cursor mode (`cursorMode === 'inspect'`). Renders below the selected question inside the form DOM, pushing subsequent questions down and scrolling with the question. Drag-drop still works — the panel is inside `SortableQuestion` and moves during drag. **No self-scroll** — the panel does not scroll itself into view on mount; scroll-to-selection is owned by BuilderLayout's `handleTreeSelect` and `EditableQuestionWrapper` to avoid competing smooth-scroll animations.
 
 Three collapsible sections (all start expanded; hidden questions start with Appearance collapsed):
 - **Appearance** (`ContextualEditorUI`) — type (via `QuestionTypeGrid` popover at `z-popover-top`), hint. Label is intentionally absent — labels are edited directly on the canvas in text mode.

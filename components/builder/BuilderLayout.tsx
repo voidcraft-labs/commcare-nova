@@ -343,9 +343,13 @@ export function BuilderLayout({ buildId }: { buildId: string }) {
         if (el && scrollContainer) {
           const containerRect = scrollContainer.getBoundingClientRect()
           const elRect = el.getBoundingClientRect()
-          const isVisible = elRect.top >= containerRect.top && elRect.bottom <= containerRect.bottom
-          if (!isVisible) {
-            const SCROLL_MARGIN = 20
+          /* Only scroll if the top of the element is outside the visible viewport.
+             For tall elements (groups/repeats), we only care about the top being visible —
+             requiring the full element to fit would always trigger a scroll. */
+          const SCROLL_MARGIN = 20
+          const isTopVisible = elRect.top >= containerRect.top + SCROLL_MARGIN
+            && elRect.top <= containerRect.bottom - SCROLL_MARGIN
+          if (!isTopVisible) {
             const targetScrollTop = scrollContainer.scrollTop + elRect.top - containerRect.top - SCROLL_MARGIN
             scrollContainer.scrollTo({ top: Math.max(0, targetScrollTop), behavior: 'smooth' })
           }
