@@ -228,10 +228,12 @@ export function InlineTextEditor({ value, onSave, fieldType, autoFocus }: Inline
     immediatelyRender: false,
     editorProps: {
       attributes: {
-        /* preview-markdown reuses the same typography CSS that LabelContent's
-         * markdown-to-jsx output uses, so the editor is a pixel-perfect match
-         * for the static rendering — true flipbook parity. */
-        class: `outline-none preview-markdown ${FIELD_STYLES[fieldType]}`,
+        /* Font styles and preview-markdown are on ancestor wrapper divs
+         * (matching the static LabelContent nesting), so the editor element
+         * only needs outline suppression. Typography inherits from the
+         * wrappers, and ProseMirror's injected white-space/position are
+         * matched by the [data-text-editable] .preview-markdown rule. */
+        class: 'outline-none',
         'data-1p-ignore': '',
         autocomplete: 'off',
       },
@@ -270,7 +272,14 @@ export function InlineTextEditor({ value, onSave, fieldType, autoFocus }: Inline
         data-no-drag
       >
         {fieldType === 'label' ? <LabelToolbar anchorRef={anchorRef} /> : <CompactToolbar />}
-        <Tiptap.Content />
+        {/* Wrapper nesting mirrors the static LabelContent structure (font-style
+         * div → preview-markdown div → content) so the CSS cascade produces
+         * identical computed values in both states — true flipbook parity. */}
+        <div className={FIELD_STYLES[fieldType]}>
+          <div className="preview-markdown">
+            <Tiptap.Content />
+          </div>
+        </div>
       </div>
     </Tiptap>
   )

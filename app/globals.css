@@ -364,6 +364,15 @@ body {
   line-height: 1.7;
   word-break: break-word;
 }
+
+/* Text-editable surfaces must match ProseMirror's whitespace and positioning
+ * defaults so the static rendering is pixel-identical to the TipTap editor.
+ * Without this, clicking into an editor causes a layout shift because
+ * ProseMirror's injected CSS sets these properties on the editor element. */
+[data-text-editable] .preview-markdown {
+  white-space: break-spaces;
+  position: relative;
+}
 .preview-markdown p {
   margin: 0;
 }

@@ -41,9 +41,11 @@ export function GroupField({ question, path, questionPath, engine, renderChildre
             <div className="text-sm font-medium text-nova-text"><LabelContent label={question.label ?? ''} resolvedLabel={state.resolvedLabel} isEditMode={isEditMode} /></div>
           </TextEditable>
           {question.hint && (
-            <TextEditable value={question.hint} onSave={saveField ? (v) => saveField('hint', v) : undefined} fieldType="hint">
-              <div className="text-xs text-nova-text-muted mt-0.5"><LabelContent label={question.hint} resolvedLabel={state.resolvedHint} isEditMode={isEditMode} /></div>
-            </TextEditable>
+            <div className="mt-0.5">
+              <TextEditable value={question.hint} onSave={saveField ? (v) => saveField('hint', v) : undefined} fieldType="hint">
+                <div className="text-xs text-nova-text-muted"><LabelContent label={question.hint} resolvedLabel={state.resolvedHint} isEditMode={isEditMode} /></div>
+              </TextEditable>
+            </div>
           )}
         </div>
       )}
