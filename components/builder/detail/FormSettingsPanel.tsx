@@ -135,13 +135,7 @@ function FormSettingsPanel({
 
       {/* Content */}
       <div className="px-3.5 py-3 space-y-3 overflow-y-auto max-h-[480px]">
-        <FormDetail
-          form={form}
-          moduleIndex={moduleIndex}
-          formIndex={formIndex}
-          mb={mb}
-          notifyBlueprintChanged={notifyBlueprintChanged}
-        />
+        <FormDetail form={form} />
 
         <AfterSubmitSection
           form={form}

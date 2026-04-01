@@ -3,7 +3,6 @@ import { useState, useCallback, useRef, useLayoutEffect } from 'react'
 import { useFloating, offset, flip, shift, autoUpdate, FloatingPortal } from '@floating-ui/react'
 import { Icon } from '@iconify/react/offline'
 import type { BlueprintForm } from '@/lib/schemas/blueprint'
-import type { MutableBlueprint } from '@/lib/services/mutableBlueprint'
 import { formTypeIcons } from '@/lib/questionTypeIcons'
 import { useDismissRef } from '@/hooks/useDismissRef'
 import { useContentPopoverDismiss } from '@/hooks/useContentPopover'
@@ -16,21 +15,13 @@ const formTypeOptions: { value: string; label: string }[] = [
 ]
 
 interface FormDetailProps {
-  /** The form being edited. */
+  /** The form to display close case info for. */
   form: BlueprintForm
-  /** Module index in the blueprint. */
-  moduleIndex: number
-  /** Form index within the module. */
-  formIndex: number
-  /** The MutableBlueprint instance for direct mutation. */
-  mb: MutableBlueprint
-  /** Notify the builder that the blueprint has changed. */
-  notifyBlueprintChanged: () => void
 }
 
 /**
- * Form editing sub-panel within the FormSettingsPanel.
- * Displays close case info (read-only).
+ * Read-only close case info panel within FormSettingsPanel.
+ * Renders only when the form has a close_case configuration.
  */
 export function FormDetail({ form }: FormDetailProps) {
   if (!form.close_case) return null
