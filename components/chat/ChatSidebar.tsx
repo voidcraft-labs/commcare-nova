@@ -318,7 +318,7 @@ export function ChatSidebar({
       transition={{ duration: 0.25, ease: [0.4, 0, 0.2, 1] }}
       className={centered
         ? 'absolute inset-0 z-raised flex flex-col items-center justify-center gap-6 pointer-events-none'
-        : 'shrink-0'
+        : 'shrink-0 h-full'
       }
     >
       {centered && heroLogo}

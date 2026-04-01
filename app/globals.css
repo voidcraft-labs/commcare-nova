@@ -94,11 +94,12 @@ body {
   font-family: var(--font-sans);
 }
 
-/* Custom scrollbar — reserve gutter space on scroll containers to prevent
-   layout shift when content grows. Scoped away from SVGs because
-   scrollbar-gutter + the UA's overflow:hidden on SVGs prevents Chrome
-   from painting SVG path content. */
-*:not(svg) {
+/* Custom scrollbar — reserve gutter space only on actual scroll containers
+   to prevent layout shift when content grows. The wildcard selector was
+   causing double scrollbar gutters: overflow-hidden parents reserved a
+   blank gutter gap next to children that showed real scrollbars. */
+.overflow-y-auto,
+.overflow-y-scroll {
   scrollbar-gutter: stable;
 }
 ::-webkit-scrollbar {
