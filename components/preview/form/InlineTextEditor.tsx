@@ -54,6 +54,10 @@ interface InlineTextEditorProps {
   fieldType: FieldType
   /** Whether to auto-focus the editor on mount. */
   autoFocus?: boolean
+  /** Viewport coordinates of the click that activated this editor. When
+   *  provided, the cursor is placed at the corresponding text position
+   *  instead of jumping to the end of the field. */
+  clickPosition?: { x: number; y: number } | null
 }
 
 /** Style classes per field type so the editor matches the static LabelContent it replaces. */
@@ -166,7 +170,7 @@ function CompactToolbar() {
 
 // ── Main editor ──────────────────────────────────────────────────────
 
-export function InlineTextEditor({ value, onSave, fieldType, autoFocus }: InlineTextEditorProps) {
+export function InlineTextEditor({ value, onSave, fieldType, autoFocus, clickPosition }: InlineTextEditorProps) {
   const provider = useReferenceProvider()
   const savedRef = useRef(false)
   const anchorRef = useRef<HTMLDivElement>(null)
@@ -254,11 +258,25 @@ export function InlineTextEditor({ value, onSave, fieldType, autoFocus }: Inline
 
   /* Load markdown content and auto-focus after the editor mounts. Uses the
    * Markdown extension's overridden setContent command which explicitly parses
-   * the markdown string through markdown-it before setting editor state. */
+   * the markdown string through markdown-it before setting editor state.
+   * When activated by a user click, posAtCoords maps the original viewport
+   * coordinates to a document position so the cursor lands where the user
+   * clicked rather than jumping to the end. Tab-triggered activations
+   * (synthetic .click() at 0,0) naturally fall back to focus('end') because
+   * posAtCoords returns null for coordinates outside the editor. */
   useEffect(() => {
     if (!editor) return
     editor.commands.setContent(value)
-    if (autoFocus) editor.commands.focus('end')
+    if (autoFocus) {
+      if (clickPosition) {
+        const pos = editor.view.posAtCoords({ left: clickPosition.x, top: clickPosition.y })
+        if (pos) {
+          editor.commands.focus(pos.pos)
+          return
+        }
+      }
+      editor.commands.focus('end')
+    }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [editor])
 

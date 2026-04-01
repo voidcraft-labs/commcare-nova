@@ -14,7 +14,7 @@
  */
 
 'use client'
-import { useState, useCallback, type ReactNode } from 'react'
+import { useState, useCallback, useRef, type ReactNode } from 'react'
 import { useEditContext } from '@/hooks/useEditContext'
 import { InlineTextEditor } from './InlineTextEditor'
 
@@ -34,8 +34,12 @@ interface TextEditableProps {
 export function TextEditable({ value, onSave, fieldType, children }: TextEditableProps) {
   const ctx = useEditContext()
   const [editing, setEditing] = useState(false)
+  /** Viewport coordinates of the activation click — passed to the editor
+   *  so it can place the cursor at the correct text position via posAtCoords. */
+  const clickPosRef = useRef<{ x: number; y: number } | null>(null)
 
   const handleSave = useCallback((newValue: string) => {
+    clickPosRef.current = null
     setEditing(false)
     if (newValue !== value) {
       onSave?.(newValue)
@@ -44,6 +48,7 @@ export function TextEditable({ value, onSave, fieldType, children }: TextEditabl
 
   const handleClick = useCallback((e: React.MouseEvent) => {
     e.stopPropagation()
+    clickPosRef.current = { x: e.clientX, y: e.clientY }
     setEditing(true)
   }, [])
 
@@ -61,6 +66,7 @@ export function TextEditable({ value, onSave, fieldType, children }: TextEditabl
           onSave={handleSave}
           fieldType={fieldType}
           autoFocus
+          clickPosition={clickPosRef.current}
         />
       </div>
     )
