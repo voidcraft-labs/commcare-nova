@@ -208,10 +208,12 @@ function SortableQuestion({
         <label className="block space-y-1.5">
           {q.label && (
             <div className="flex items-center gap-1">
-              <TextEditable value={q.label} onSave={saveField ? (v) => saveField('label', v) : undefined} fieldType="label">
-                <div className="text-sm font-medium text-nova-text"><LabelContent label={q.label} resolvedLabel={state.resolvedLabel} isEditMode={isEditMode} /></div>
-              </TextEditable>
-              {state.required && <span className="text-nova-rose text-xs">*</span>}
+              <div className="min-w-0 flex-1">
+                <TextEditable value={q.label} onSave={saveField ? (v) => saveField('label', v) : undefined} fieldType="label">
+                  <div className="text-sm font-medium text-nova-text"><LabelContent label={q.label} resolvedLabel={state.resolvedLabel} isEditMode={isEditMode} /></div>
+                </TextEditable>
+              </div>
+              {state.required && <span className="text-nova-rose text-xs shrink-0">*</span>}
             </div>
           )}
           {q.hint && (
