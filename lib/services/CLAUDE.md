@@ -58,10 +58,9 @@ Also re-exports `validateAndFix()` (from `validationLoop.ts`) — runs `runValid
 **Cross-level move:** `moveQuestion()` accepts optional `targetParentPath` in opts. When present, removes the question from its current parent array and inserts into the target parent's children (or root if `undefined`). Circular nesting (moving a group into itself or a descendant) is a no-op. Backward-compatible — callers omitting `targetParentPath` get same-level reorder as before.
 
 **Rename propagation:**
-- `renameQuestion(path, newId)` — renames question ID within a single form, propagates through XPath expressions and output tags via Lezer-based `rewriteXPathRefs`. Returns `{ newPath: QuestionPath, xpathFieldsRewritten }`.
-- `renameCaseProperty()` — cross-form rename for case properties: renames question ID in all forms of the module, rewrites `#case/` hashtag refs, updates columns. Does not touch `case_types` (frozen after generation).
+- `renameQuestion(path, newId)` — renames question ID within a single form, propagates through XPath expressions via Lezer-based `rewriteXPathRefs` and bare hashtags in display text via `transformBareHashtags`. Returns `{ newPath: QuestionPath, xpathFieldsRewritten }`.
+- `renameCaseProperty()` — cross-form rename for case properties: renames question ID in all forms of the module, rewrites `#case/` hashtag refs in both XPath and display text, updates columns. Does not touch `case_types` (frozen after generation).
 - The SA's `editQuestion` tool detects ID changes and calls the appropriate method automatically — `renameCaseProperty` for case properties, `renameQuestion` for others. No separate rename tool needed.
-- Both use `rewriteOutputTags` (htmlparser2) for `<output value="..."/>` tags in display text.
 
 ## GenerationContext
 

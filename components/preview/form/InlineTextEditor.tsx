@@ -42,7 +42,6 @@ import { HorizontalRuleButton } from '@/components/tiptap-ui/horizontal-rule-but
 import { TableButton } from '@/components/tiptap-ui/table-button'
 import { createInlineEditorExtensions, getMarkdownContent } from '@/lib/tiptap/markdownExtensions'
 import { useReferenceProvider } from '@/lib/references/ReferenceContext'
-import { outputTagsToHashtags } from '@/lib/references/renderLabel'
 import { hydrateHashtagRefs } from '@/lib/tiptap/hydrateRefs'
 
 type FieldType = 'label' | 'hint'
@@ -258,15 +257,15 @@ export function InlineTextEditor({ value, onSave, fieldType, autoFocus, clickPos
   })
 
   /* Load markdown content and hydrate hashtag references into chip nodes.
-   * First normalizes <output> tags to bare hashtags, then lets tiptap-markdown
-   * parse the markdown (hashtags pass through as plain text), then walks the
-   * resulting ProseMirror document to promote hashtag text into commcareRef
-   * atom nodes. When activated by a user click, posAtCoords maps the original
-   * viewport coordinates to a document position so the cursor lands where the
-   * user clicked rather than jumping to the end. */
+   * Labels use bare `#type/path` hashtags internally. tiptap-markdown parses
+   * the markdown (hashtags pass through as plain text), then hydrateHashtagRefs
+   * walks the resulting ProseMirror document to promote hashtag text into
+   * commcareRef atom nodes. When activated by a user click, posAtCoords maps
+   * the original viewport coordinates to a document position so the cursor
+   * lands where the user clicked rather than jumping to the end. */
   useEffect(() => {
     if (!editor) return
-    editor.commands.setContent(outputTagsToHashtags(value))
+    editor.commands.setContent(value)
     hydrateHashtagRefs(editor)
     if (autoFocus) {
       if (clickPosition) {

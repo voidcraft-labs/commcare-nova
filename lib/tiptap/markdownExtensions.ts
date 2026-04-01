@@ -6,7 +6,7 @@
  * the full CommCare markdown feature set: headings, bold, italic,
  * strikethrough, links, images, lists, code (inline + block), blockquotes,
  * horizontal rules, and GFM tables. CommcareRef nodes serialize as
- * `<output value="#type/path"/>` tags and parse back losslessly.
+ * bare `#type/path` hashtags and parse back via `hydrateHashtagRefs()`.
  *
  * Contrast with RefLabelInput which uses StarterKit with everything
  * disabled except paragraphs — that editor is text-only with chips.
@@ -33,7 +33,7 @@ import type { Extensions } from '@tiptap/core'
  * strike, code, blockquote, lists, horizontal rule, and links. Additional
  * extensions add image and GFM table support — the full CommCare markdown
  * feature set. The Markdown extension handles bidirectional conversion.
- * CommcareRef provides `<output>` tag round-tripping. Mention wires
+ * CommcareRef provides bare hashtag round-tripping. Mention wires
  * the `#` trigger to ReferenceProvider for chip autocomplete.
  *
  * @param provider - ReferenceProvider for hashtag autocomplete (null disables autocomplete)

@@ -8,9 +8,9 @@ export interface QuestionState {
   errorMessage?: string
   /** Whether the user has interacted with and left this field. */
   touched: boolean
-  /** Label text with <output/> tags resolved. Only set when the label contains output tags. */
+  /** Label with hashtag refs evaluated to runtime values. Only set when the label contains refs. */
   resolvedLabel?: string
-  /** Hint text with <output/> tags resolved. Only set when the hint contains output tags. */
+  /** Hint with hashtag refs evaluated to runtime values. Only set when the hint contains refs. */
   resolvedHint?: string
 }
 

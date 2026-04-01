@@ -304,44 +304,44 @@ describe('MutableBlueprint', () => {
       expect(result.columnsChanged).toEqual([])
     })
 
-    it('rewrites #case/ refs in output tags in labels', () => {
+    it('rewrites #case/ refs in labels', () => {
       const bp = makeBlueprint()
       bp.modules[0].forms[1].questions.push({
         id: 'display_label',
         type: 'label',
-        label: 'Updating record for: <output value="#case/email_address"/>',
+        label: 'Updating record for: #case/email_address',
       })
       const mb = new MutableBlueprint(bp)
       mb.renameCaseProperty('client', 'email_address', 'contact_email')
       const q = mb.getQuestion(0, 1, qpath('display_label'))
-      expect(q!.label).toBe('Updating record for: <output value="#case/contact_email"/>')
+      expect(q!.label).toBe('Updating record for: #case/contact_email')
     })
 
-    it('rewrites #case/ refs in output tags in hints', () => {
+    it('rewrites #case/ refs in hints', () => {
       const bp = makeBlueprint()
       bp.modules[0].forms[1].questions.push({
         id: 'hint_q',
         type: 'text',
         label: 'Update',
-        hint: 'Current: <output value="#case/case_name"/>',
+        hint: 'Current: #case/case_name',
       })
       const mb = new MutableBlueprint(bp)
       mb.renameCaseProperty('client', 'case_name', 'legal_name')
       const q = mb.getQuestion(0, 1, qpath('hint_q'))
-      expect(q!.hint).toBe('Current: <output value="#case/legal_name"/>')
+      expect(q!.hint).toBe('Current: #case/legal_name')
     })
 
-    it('rewrites multiple output tags in one label', () => {
+    it('rewrites multiple hashtag refs in one label', () => {
       const bp = makeBlueprint()
       bp.modules[0].forms[1].questions.push({
         id: 'multi_label',
         type: 'label',
-        label: '<output value="#case/case_name"/> (<output value="#case/case_name"/>)',
+        label: '#case/case_name (#case/case_name)',
       })
       const mb = new MutableBlueprint(bp)
       mb.renameCaseProperty('client', 'case_name', 'legal_name')
       const q = mb.getQuestion(0, 1, qpath('multi_label'))
-      expect(q!.label).toBe('<output value="#case/legal_name"/> (<output value="#case/legal_name"/>)')
+      expect(q!.label).toBe('#case/legal_name (#case/legal_name)')
     })
   })
 
@@ -465,31 +465,31 @@ describe('MutableBlueprint', () => {
       expect(result.xpathFieldsRewritten).toBe(2)
     })
 
-    it('rewrites XPath inside output tags in label', () => {
+    it('rewrites hashtag refs in label', () => {
       const bp = makeBlueprint()
       bp.modules[0].forms[0].questions.push({
         id: 'summary',
         type: 'label',
-        label: 'Name: <output value="#form/case_name"/>',
+        label: 'Name: #form/case_name',
       })
       const mb = new MutableBlueprint(bp)
       mb.renameQuestion(0, 0, qpath('case_name'), 'full_name_q')
       const q = mb.getQuestion(0, 0, qpath('summary'))
-      expect(q!.label).toBe('Name: <output value="#form/full_name_q"/>')
+      expect(q!.label).toBe('Name: #form/full_name_q')
     })
 
-    it('rewrites XPath inside output tags in hint', () => {
+    it('rewrites hashtag refs in hint', () => {
       const bp = makeBlueprint()
       bp.modules[0].forms[0].questions.push({
         id: 'age_q',
         type: 'int',
         label: 'Age',
-        hint: 'Age for <output value="/data/case_name"/>',
+        hint: 'Age for #form/case_name',
       })
       const mb = new MutableBlueprint(bp)
       mb.renameQuestion(0, 0, qpath('case_name'), 'full_name_q')
       const q = mb.getQuestion(0, 0, qpath('age_q'))
-      expect(q!.hint).toBe('Age for <output value="/data/full_name_q"/>')
+      expect(q!.hint).toBe('Age for #form/full_name_q')
     })
 
     it('handles nested group questions', () => {

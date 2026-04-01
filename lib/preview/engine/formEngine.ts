@@ -4,7 +4,7 @@ import { evaluate } from '../xpath/evaluator'
 import { toBoolean } from '../xpath/coerce'
 import { DataInstance } from './dataInstance'
 import { TriggerDag } from './triggerDag'
-import { resolveLabel } from './outputTag'
+import { resolveLabel } from './labelRefs'
 import type { QuestionState } from './types'
 
 /**

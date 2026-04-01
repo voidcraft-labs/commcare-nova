@@ -1,6 +1,6 @@
 import type { Question } from '@/lib/schemas/blueprint'
 import { extractPathRefs } from '../xpath/dependencies'
-import { parseOutputTags, parseBareHashtags } from './outputTag'
+import { parseBareHashtags } from './labelRefs'
 
 export type ExpressionType = 'relevant' | 'calculate' | 'required' | 'validation' | 'output'
 
@@ -101,13 +101,11 @@ export class TriggerDag {
     // Collect all XPath expressions that create dependency edges
     const allDepExprs = expressions.map(e => e.expr)
 
-    // Scan label and hint for <output value="..."/> tags and bare hashtag refs
-    const outputTags = parseOutputTags(q.label ?? '').concat(parseOutputTags(q.hint ?? ''))
-    const bareHashtags = parseBareHashtags(q.label ?? '').concat(parseBareHashtags(q.hint ?? ''))
-    const allLabelRefs = outputTags.concat(bareHashtags)
+    // Scan label and hint for bare hashtag refs (#form/x, #case/x, #user/x)
+    const allLabelRefs = parseBareHashtags(q.label ?? '').concat(parseBareHashtags(q.hint ?? ''))
     if (allLabelRefs.length > 0) {
       expressions.push({ type: 'output', expr: '' })
-      for (const tag of allLabelRefs) allDepExprs.push(tag.expr)
+      for (const ref of allLabelRefs) allDepExprs.push(ref)
     }
 
     if (expressions.length === 0) return

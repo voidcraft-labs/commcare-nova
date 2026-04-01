@@ -49,9 +49,9 @@ const IS_WIN = /Win/
 
 /**
  * Parse a label string into TipTap JSON content.
- * <output value="#type/path"/> tags become commcareRef nodes;
- * everything else becomes text nodes. Delegates to parseLabelSegments
- * for the regex splitting (single source of truth for the output tag pattern).
+ * Bare `#type/path` hashtags become commcareRef nodes; everything else
+ * becomes text nodes. Delegates to parseLabelSegments for the regex
+ * splitting (single source of truth for the hashtag pattern).
  */
 function parseValueToContent(value: string, provider: ReferenceProvider | null): JSONContent {
   if (!value) {
@@ -93,8 +93,8 @@ function parseValueToContent(value: string, provider: ReferenceProvider | null):
 
 /**
  * Serialize TipTap document content to a label string.
- * commcareRef nodes become <output value="#type/path"/> tags (CommCare standard),
- * text nodes become their text content.
+ * commcareRef nodes become bare `#type/path` hashtags (canonical internal
+ * format), text nodes become their text content.
  */
 function serializeContent(doc: JSONContent): string {
   let result = ''
@@ -105,7 +105,7 @@ function serializeContent(doc: JSONContent): string {
       if (node.type === 'text') {
         result += node.text ?? ''
       } else if (node.type === 'commcareRef') {
-        result += `<output value="#${node.attrs?.refType}/${node.attrs?.path}"/>`
+        result += `#${node.attrs?.refType}/${node.attrs?.path}`
       }
     }
     if (pi < paragraphs.length - 1) {

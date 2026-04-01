@@ -11,7 +11,7 @@ import {
 } from '../schemas/blueprint'
 import { normalizeConnectConfig } from './connectConfig'
 import { rewriteXPathRefs, rewriteHashtagRefs } from '../preview/xpath/rewrite'
-import { rewriteOutputTags } from '../preview/engine/outputTag'
+import { transformBareHashtags } from '../preview/engine/labelRefs'
 import { type QuestionPath, qpath, qpathId, qpathParent } from './questionPath'
 
 // ── Result types ────────────────────────────────────────────────────────
@@ -720,7 +720,7 @@ export class MutableBlueprint {
       for (const field of displayFields) {
         const text = q[field]
         if (!text) continue
-        const rewritten = rewriteOutputTags(text, rewriter)
+        const rewritten = transformBareHashtags(text, rewriter)
         if (rewritten !== text) {
           ;(q as any)[field] = rewritten
           count++
@@ -759,7 +759,7 @@ export class MutableBlueprint {
       for (const field of displayFields) {
         const text = q[field]
         if (!text) continue
-        const rewritten = rewriteOutputTags(text, (expr) => pathRewriter(hashtagRewriter(expr)))
+        const rewritten = transformBareHashtags(text, (hashtag) => pathRewriter(hashtagRewriter(hashtag)))
         if (rewritten !== text) {
           ;(q as any)[field] = rewritten
           changed = true
