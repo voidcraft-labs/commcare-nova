@@ -34,7 +34,7 @@ export function GroupField({ question, path, questionPath, engine, renderChildre
   if (!state.visible) return null
 
   return (
-    <div className="rounded-lg border border-pv-input-border overflow-hidden">
+    <div className="rounded-lg border border-pv-input-border overflow-hidden bg-pv-surface">
       {question.label && (
         <div className="px-4 py-2 bg-pv-surface border-b border-pv-input-border">
           <TextEditable value={question.label ?? ''} onSave={saveField ? (v) => saveField('label', v) : undefined} fieldType="label">
@@ -49,7 +49,7 @@ export function GroupField({ question, path, questionPath, engine, renderChildre
           )}
         </div>
       )}
-      <div ref={droppableRef} className="p-4 space-y-4 min-h-[72px]">
+      <div ref={droppableRef} className="p-4 space-y-4 min-h-[72px] bg-pv-bg">
         {renderChildren(question.children ?? [], path, questionPath)}
       </div>
     </div>

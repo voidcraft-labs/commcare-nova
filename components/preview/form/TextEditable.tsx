@@ -52,15 +52,17 @@ export function TextEditable({ value, onSave, fieldType, children }: TextEditabl
     setEditing(true)
   }, [])
 
-  /* Not in text mode or no save handler — render children as-is. */
+  /* Not in text mode or no save handler — render children as-is.
+   * Still wrap in a div with matching padding so content doesn't shift
+   * when switching cursor modes (flipbook parity). */
   if (ctx?.cursorMode !== 'text' || !onSave) {
-    return <>{children}</>
+    return <div className="py-[5px]">{children}</div>
   }
 
   /* Active editing — swap in the WYSIWYG editor. */
   if (editing) {
     return (
-      <div data-text-editable data-no-drag>
+      <div className="rounded py-[5px] ring-2 ring-nova-violet-bright/80" data-text-editable data-no-drag>
         <InlineTextEditor
           value={value}
           onSave={handleSave}
@@ -77,7 +79,7 @@ export function TextEditable({ value, onSave, fieldType, children }: TextEditabl
     <div
       data-text-editable
       onClick={handleClick}
-      className="cursor-text rounded transition-colors hover:ring-1 hover:ring-nova-violet/30 hover:ring-offset-1 hover:ring-offset-transparent"
+      className="cursor-text rounded py-[5px] transition-colors hover:ring-1 hover:ring-nova-violet/30 hover:ring-offset-1 hover:ring-offset-transparent"
     >
       {children}
     </div>
