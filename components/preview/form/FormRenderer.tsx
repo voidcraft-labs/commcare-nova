@@ -19,7 +19,6 @@ import { LabelField } from './fields/LabelField'
 import { RepeatField } from './fields/RepeatField'
 import { EditableQuestionWrapper } from './EditableQuestionWrapper'
 import { HiddenField } from './fields/HiddenField'
-import { HelpTooltip } from './HelpTooltip'
 import { InsertionPoint } from './InsertionPoint'
 import { InlineSettingsPanel } from '@/components/builder/InlineSettingsPanel'
 
@@ -213,7 +212,6 @@ function SortableQuestion({
                 <div className="text-sm font-medium text-nova-text"><LabelContent label={q.label} resolvedLabel={state.resolvedLabel} isEditMode={isEditMode} /></div>
               </TextEditable>
               {state.required && <span className="text-nova-rose text-xs">*</span>}
-              {q.help && <HelpTooltip help={q.help} isEditMode={isEditMode} />}
             </div>
           )}
           {q.hint && (

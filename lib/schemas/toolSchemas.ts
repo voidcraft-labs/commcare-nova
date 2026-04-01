@@ -18,26 +18,25 @@ import { questionFields, selectOptionSchema, QUESTION_DOCS } from './blueprint'
 
 /**
  * Flat question schema for batch generation. Adds parentId for tree building,
- * and makes 3 fields required sentinels to stay under the 8-optional limit.
+ * and makes 2 fields required sentinels to stay under the 8-optional limit.
  */
 export const addQuestionsQuestionSchema = z.object({
   id: questionFields.id,
   type: questionFields.type,
   parentId: z.string().describe('Parent group/repeat ID. Empty string for top-level.'),
-  // Required sentinels (3) — use empty string when not applicable.
+  // Required sentinels (2) — use empty string when not applicable.
   // Keeps optional count at 8 (Anthropic compiler limit).
   label: z.string().describe(QUESTION_DOCS.label),
   required: z.string().describe(QUESTION_DOCS.required),
-  case_property_on: z.string().describe(QUESTION_DOCS.case_property_on),
   // Optionals (8)
   hint: questionFields.hint,
-  help: questionFields.help,
   validation: questionFields.validation,
   validation_msg: questionFields.validation_msg,
   relevant: questionFields.relevant,
   calculate: questionFields.calculate,
   default_value: questionFields.default_value,
   options: questionFields.options,
+  case_property_on: questionFields.case_property_on,
 })
 
 /** Full addQuestions input schema (wraps question array with module/form indices). */

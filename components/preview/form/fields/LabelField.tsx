@@ -6,7 +6,6 @@ import { LabelContent } from '@/lib/references/LabelContent'
 import { useEditContext } from '@/hooks/useEditContext'
 import { useTextEditSave } from '@/hooks/useTextEditSave'
 import { TextEditable } from '../TextEditable'
-import { HelpTooltip } from '../HelpTooltip'
 
 export function LabelField({ question, questionPath, state }: { question: Question; questionPath?: QuestionPath; state: QuestionState }) {
   const ctx = useEditContext()
@@ -21,7 +20,6 @@ export function LabelField({ question, questionPath, state }: { question: Questi
         <TextEditable value={question.label ?? ''} onSave={saveField ? (v) => saveField('label', v) : undefined} fieldType="label">
           <div className="text-sm font-medium text-nova-text"><LabelContent label={question.label ?? ''} resolvedLabel={state.resolvedLabel} isEditMode={isEditMode} /></div>
         </TextEditable>
-        {question.help && <HelpTooltip help={question.help} isEditMode={isEditMode} />}
       </div>
       {question.hint && (
         <div className="mt-0.5">

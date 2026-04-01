@@ -6,7 +6,7 @@
  *   raw HTML. Used for assistant messages where untrusted content must not
  *   produce clickable links or injected markup.
  * - **Preview** (`PreviewMarkdown`) — full rendering with links (`target="_blank"`)
- *   and images. Used for form labels, help tooltips, validation errors, and
+ *   and images. Used for form labels, validation errors, and
  *   select option labels.
  *
  * Both variants support `breaks: true` semantics (single newlines → `<br>`)

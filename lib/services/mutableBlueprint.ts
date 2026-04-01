@@ -42,7 +42,6 @@ export interface QuestionUpdate {
   type: Question['type']
   label: string | null
   hint: string | null
-  help: string | null
   required: string | null
   validation: string | null
   validation_msg: string | null
@@ -60,7 +59,6 @@ export interface NewQuestion {
   type: Question['type']
   label?: string
   hint?: string
-  help?: string
   required?: string
   validation?: string
   validation_msg?: string
@@ -297,7 +295,7 @@ export class MutableBlueprint {
       if (q.default_value?.toLowerCase().includes(query)) matchFields.push({ field: 'default_value', value: q.default_value })
       if (q.validation_msg && q.validation_msg.toLowerCase().includes(query)) matchFields.push({ field: 'validation_msg', value: q.validation_msg })
       if (q.hint && q.hint.toLowerCase().includes(query)) matchFields.push({ field: 'hint', value: q.hint })
-      if (q.help && q.help.toLowerCase().includes(query)) matchFields.push({ field: 'help', value: q.help })
+
 
       // Search options
       if (q.options && q.options.length > 0) {
@@ -689,7 +687,6 @@ export class MutableBlueprint {
       type: nq.type,
       ...(nq.label != null && { label: nq.label }),
       ...(nq.hint != null && { hint: nq.hint }),
-      ...(nq.help != null && { help: nq.help }),
       ...(nq.required != null && { required: nq.required }),
 
       ...(nq.validation != null && { validation: nq.validation }),

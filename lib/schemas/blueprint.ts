@@ -74,7 +74,6 @@ const casePropertySchema = z.object({
     'Data type. Determines the default question type. Omit for "text".'
   ),
   hint: z.string().optional().describe('Hint text shown below questions collecting this property.'),
-  help: z.string().optional().describe('Extended help text accessible via help icon.'),
   required: z.string().optional().describe('"true()" if always required. Omit if optional. String values must be quoted: `\'text\'`, not `text`.'),
   validation: z.string().optional().describe('XPath validation expression, e.g. ". > 0 and . < 150". String values must be quoted: `\'text\'`, not `text`.'),
   validation_msg: z.string().optional().describe('Error message when validation fails.'),
@@ -210,8 +209,6 @@ export const QUESTION_DOCS = {
     'Omit for hidden questions.',
   hint:
     'Help text shown below the question.',
-  help:
-    'Extended help text accessible via help icon.',
   required:
     'An XPath expression for requiring the element (can be `true()` for always required). ' +
     'Supports hashtag references.',
@@ -247,7 +244,6 @@ export const questionFields = {
   type: z.enum(QUESTION_TYPES).describe(QUESTION_DOCS.type),
   label: z.string().optional().describe(QUESTION_DOCS.label),
   hint: z.string().optional().describe(QUESTION_DOCS.hint),
-  help: z.string().optional().describe(QUESTION_DOCS.help),
   required: z.string().optional().describe(QUESTION_DOCS.required),
   validation: z.string().optional().describe(QUESTION_DOCS.validation),
   validation_msg: z.string().optional().describe(QUESTION_DOCS.validation_msg),
@@ -376,7 +372,6 @@ export interface Question {
   type: typeof QUESTION_TYPES[number]
   label?: string
   hint?: string
-  help?: string
   required?: string
   validation?: string
   validation_msg?: string

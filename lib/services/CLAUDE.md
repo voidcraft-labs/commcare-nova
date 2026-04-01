@@ -179,7 +179,7 @@ Split across four files:
 
 **`case_list_only` modules** — CommCare requires every case type to be declared as a module's primary `case_type`. Child case types with no follow-up workflow use `case_list_only: true` on their module. The expander sets `case_list.show = true` and `case_list.label` on these modules so HQ accepts them.
 
-**Markdown itext** — all itext entries (labels, hints, help, option labels) emit both `<value>` and `<value form="markdown">`. CommCare only renders markdown when the markdown form is present; without it, syntax like `**bold**` renders as literal text. This is safe for plain text — identical rendering when no markdown syntax is present.
+**Markdown itext** — all itext entries (labels, hints, option labels) emit both `<value>` and `<value form="markdown">`. CommCare only renders markdown when the markdown form is present; without it, syntax like `**bold**` renders as literal text. This is safe for plain text — identical rendering when no markdown syntax is present.
 
 **Vellum hashtag expansion** — dual-attribute pattern matching CommCare's Vellum editor. All three hashtag types (`#form/`, `#case/`, `#user/`) are expanded via the Lezer XPath parser's `HashtagRef` node (with `HashtagType` and `HashtagSegment` children). `expandHashtags()` in `commcare/hashtags.ts` is the single expansion point:
 - `#form/question` → `/data/question` (trivial, hardcoded in Vellum).
@@ -190,7 +190,7 @@ Split across four files:
 - Every bind gets `vellum:nodeset="#form/..."`, every setvalue gets `vellum:ref="#form/..."`.
 - Vellum metadata (`vellum:hashtags`, `vellum:hashtagTransforms`) — JSON on binds with `#case/` or `#user/` refs only.
 - `<output value="..."/>` tags in labels get `vellum:value` preserving shorthand when expansion occurs.
-- **Bare hashtags in prose** — labels/hints/help may contain bare `#case/foo` text (not wrapped in `<output>` tags). `wrapBareHashtags()` auto-wraps these in `<output value="..."/>` before expansion. Uses regex (not Lezer) because labels are prose, not XPath — the Lezer parser can't find hashtags in prose text (surrounding chars like `**` get parsed as XPath operators, swallowing the `#`).
+- **Bare hashtags in prose** — labels/hints may contain bare `#case/foo` text (not wrapped in `<output>` tags). `wrapBareHashtags()` auto-wraps these in `<output value="..."/>` before expansion. Uses regex (not Lezer) because labels are prose, not XPath — the Lezer parser can't find hashtags in prose text (surrounding chars like `**` get parsed as XPath operators, swallowing the `#`).
 - `case_references_data.load` — form-level JSON mapping question paths to `#case/` refs.
 - **Secondary instances** — `InstanceTracker` accumulates required instances (`casedb`, `commcaresession`) at the point of use during the build. `buildQuestionParts` scans XPath fields and labels; `buildConnectBlocks` scans Connect XPath expressions. `casedb` implies `commcaresession` (case XPath uses session for case_id). No post-hoc string scanning — requirements are registered where binds are generated.
 

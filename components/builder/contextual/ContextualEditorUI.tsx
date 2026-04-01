@@ -50,10 +50,10 @@ export function ContextualEditorUI({ question, selected, mb, builder, notifyBlue
 
   const isHidden = question.type === 'hidden'
 
-  // Hidden questions have no visible UI — no hint or help. Only the type
+  // Hidden questions have no visible UI — no hint. Only the type
   // picker is relevant, and even that is rarely needed.
   const missingTextFields = isHidden ? [] : addableTextFields.filter(f =>
-    (f.field === 'hint' || f.field === 'help') && !question[f.field as keyof Question] && newlyAddedField !== f.field,
+    f.field === 'hint' && !question[f.field as keyof Question] && newlyAddedField !== f.field,
   )
 
   return (
@@ -100,18 +100,6 @@ export function ContextualEditorUI({ question, selected, mb, builder, notifyBlue
             }}
             autoFocus={newlyAddedField === 'hint'}
             onEmpty={newlyAddedField === 'hint' ? clearNewlyAdded : undefined}
-          />
-        )}
-        {!isHidden && (question.help || newlyAddedField === 'help') && (
-          <EditableText
-            label="Help"
-            value={question.help ?? ''}
-            onSave={(v) => {
-              saveQuestion('help', v || null)
-              clearNewlyAdded()
-            }}
-            autoFocus={newlyAddedField === 'help'}
-            onEmpty={newlyAddedField === 'help' ? clearNewlyAdded : undefined}
           />
         )}
         {missingTextFields.length > 0 && (

@@ -18,7 +18,7 @@ Zod schemas for `AppBlueprint` and generation output schemas (`caseTypesOutput`,
 ### Question Fields
 
 Only `id` and `type` are required. All other fields are optional — present only when set:
-- **Text:** `label`, `hint`, `help`
+- **Text:** `label`, `hint`
 - **Logic:** `required`, `validation`, `validation_msg`, `relevant`, `calculate`, `default_value`
 - **Data:** `case_property_on`, `options`
 - **Structure:** `children` (nested groups/repeats)
@@ -95,7 +95,7 @@ Scaffold schema has app-level `connect_type` (empty string sentinel for standard
 
 SA tool input schemas for question fields — derived from `questionFields` in `blueprint.ts`. Three shapes for three tool contexts:
 
-- **`addQuestionsQuestionSchema`** — batch generation. Flat with `parentId` for tree building. 3 sentinel fields (label, required, case_property_on) are required `z.string()` instead of optional, keeping optional count at 8 (Anthropic compiler limit). Post-processing via `stripEmpty()` converts empty strings back.
+- **`addQuestionsQuestionSchema`** — batch generation. Flat with `parentId` for tree building. 2 sentinel fields (label, required) are required `z.string()` instead of optional, keeping optional count at 8 (Anthropic compiler limit). Post-processing via `stripEmpty()` converts empty strings back.
 - **`editQuestionUpdatesSchema`** — partial updates. All fields optional. XPath fields (`relevant`, `calculate`, `default_value`) and `options`/`case_property_on` accept `null` to clear.
 - **`addQuestionQuestionSchema`** — single insertion. Same shape as `questionFields` (no children, no sentinels).
 
@@ -113,7 +113,7 @@ Post-processing pipeline for structured output from form generation:
 
 1. **`stripEmpty()`** — converts sentinel values (empty strings, false) back to undefined
 2. **`buildQuestionTree()`** — converts flat `parentId`-based questions to nested `children` arrays
-3. **`applyDefaults()`** — bakes case property defaults (type, label, hint, help, required, validation, options) into questions at generation time by matching question ID to case type property name. Also auto-sets `default_value` to `#case/{id}` for primary case properties in follow-up forms (excluding `case_name` and questions with `calculate`), making the preload visible in the UI and exported as `<setvalue>`. Accepts optional `formType` and `moduleCaseType` params for this. This is the only point where `case_types` is consulted — after generation, questions are self-contained. Also runs `unescapeXPath()` to sanitize HTML entities (`&gt;` → `>`) LLMs sometimes emit.
+3. **`applyDefaults()`** — bakes case property defaults (type, label, hint, required, validation, options) into questions at generation time by matching question ID to case type property name. Also auto-sets `default_value` to `#case/{id}` for primary case properties in follow-up forms (excluding `case_name` and questions with `calculate`), making the preload visible in the UI and exported as `<setvalue>`. Accepts optional `formType` and `moduleCaseType` params for this. This is the only point where `case_types` is consulted — after generation, questions are self-contained. Also runs `unescapeXPath()` to sanitize HTML entities (`&gt;` → `>`) LLMs sometimes emit.
 4. **`processSingleFormOutput()`** — chains all three in order
 
 ### XPath and Vellum Hashtags

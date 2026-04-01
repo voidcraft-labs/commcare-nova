@@ -18,7 +18,7 @@ import { useState, useCallback, useRef, type ReactNode } from 'react'
 import { useEditContext } from '@/hooks/useEditContext'
 import { InlineTextEditor } from './InlineTextEditor'
 
-type FieldType = 'label' | 'hint' | 'help'
+type FieldType = 'label' | 'hint'
 
 interface TextEditableProps {
   /** Raw markdown value for this field. */

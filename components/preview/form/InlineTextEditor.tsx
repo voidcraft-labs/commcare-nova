@@ -17,7 +17,7 @@
  * (dropdown with visual grid picker for selecting dimensions). Portal-mounted
  * to body so overflow-hidden ancestors can't clip it.
  *
- * **Hints/help** — BubbleMenu with default shouldShow (text selection only).
+ * **Hints** — BubbleMenu with default shouldShow (text selection only).
  * Bold and italic MarkButton only.
  *
  * Save: blur or Escape. Cancel: no separate cancel — every blur saves.
@@ -43,7 +43,7 @@ import { TableButton } from '@/components/tiptap-ui/table-button'
 import { createInlineEditorExtensions, getMarkdownContent } from '@/lib/tiptap/markdownExtensions'
 import { useReferenceProvider } from '@/lib/references/ReferenceContext'
 
-type FieldType = 'label' | 'hint' | 'help'
+type FieldType = 'label' | 'hint'
 
 interface InlineTextEditorProps {
   /** Current markdown value for this field. */
@@ -64,7 +64,6 @@ interface InlineTextEditorProps {
 const FIELD_STYLES: Record<FieldType, string> = {
   label: 'text-sm font-medium text-nova-text',
   hint: 'text-xs text-nova-text-muted',
-  help: 'text-xs text-nova-text-muted',
 }
 
 // ── Label toolbar (full StarterKit formatting via TipTap UI) ─────────
@@ -149,10 +148,10 @@ function LabelToolbar({ anchorRef }: { anchorRef: React.RefObject<HTMLDivElement
   )
 }
 
-// ── Hint/help toolbar (minimal formatting) ───────────────────────────
+// ── Hint toolbar (minimal formatting) ────────────────────────────────
 
 /**
- * Minimal BubbleMenu for hint/help fields. Default shouldShow — appears
+ * Minimal BubbleMenu for hint fields. Default shouldShow — appears
  * on text selection only. Bold and italic only.
  */
 function CompactToolbar() {
