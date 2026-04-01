@@ -1,12 +1,18 @@
 /**
- * Three-segment mode selector for the builder toolbar.
+ * Three-segment cursor mode selector with two layout variants:
  *
- * Replaces the old Design/Preview toggle with three cursor modes:
+ * - **`horizontal`** (default): Segmented control with icon + label for
+ *   embedding in toolbars. `h-[34px]`, `rounded-lg`, `bg-nova-deep` border.
+ * - **`vertical`**: Icon-only stacked buttons with title tooltips for the
+ *   content area gap between the preview canvas and chat sidebar.
+ *
+ * Both share the same segments, mode colors, and animated sliding indicator
+ * (via `layoutId`). The `layoutId` is unique per variant to avoid cross-animation.
+ *
+ * Modes:
  * - **Pointer**: live form experience (no edit chrome)
  * - **Text**: click text surfaces to edit inline with WYSIWYG toolbar
  * - **Inspect**: click questions to expand inline settings panel
- *
- * Animated sliding indicator via `layoutId` matches the existing toolbar aesthetic.
  */
 
 'use client'
@@ -20,6 +26,9 @@ import type { CursorMode } from '@/lib/services/builder'
 interface CursorModeSelectorProps {
   mode: CursorMode
   onChange: (mode: CursorMode) => void
+  /** Layout variant. `horizontal` shows icon + label in a segmented control;
+   *  `vertical` stacks icon-only buttons with title tooltips. */
+  variant?: 'horizontal' | 'vertical'
 }
 
 /** Color per mode — pointer uses emerald (live), text uses violet (content), inspect uses cyan (structure). */
@@ -35,9 +44,17 @@ const segments: { key: CursorMode; label: string; icon: IconifyIcon }[] = [
   { key: 'inspect', label: 'Inspect', icon: ciSettingsFilled },
 ]
 
-export function CursorModeSelector({ mode, onChange }: CursorModeSelectorProps) {
+/** Shared animation transition for the sliding mode indicator. */
+const INDICATOR_TRANSITION = { duration: 0.2, ease: [0.4, 0, 0.2, 1] } as const
+
+export function CursorModeSelector({ mode, onChange, variant = 'horizontal' }: CursorModeSelectorProps) {
+  const vertical = variant === 'vertical'
+
   return (
-    <div className="flex items-center h-[34px] bg-nova-deep border border-nova-border rounded-lg p-0.5">
+    <div className={vertical
+      ? 'flex flex-col items-center gap-1 rounded-xl bg-nova-deep border border-nova-border p-1'
+      : 'flex items-center h-[34px] bg-nova-deep border border-nova-border rounded-lg p-0.5'
+    }>
       {segments.map(({ key, label, icon }) => {
         const isActive = mode === key
         const colors = MODE_COLORS[key]
@@ -45,20 +62,24 @@ export function CursorModeSelector({ mode, onChange }: CursorModeSelectorProps) 
           <button
             key={key}
             onClick={() => onChange(key)}
-            className="relative h-full px-2.5 text-[13px] font-medium rounded-md transition-colors cursor-pointer"
+            title={vertical ? label : undefined}
+            className={vertical
+              ? 'relative w-8 h-8 rounded-lg transition-colors cursor-pointer'
+              : 'relative h-full px-2.5 text-[13px] font-medium rounded-md transition-colors cursor-pointer'
+            }
           >
             {isActive && (
               <motion.div
-                layoutId="cursor-mode-indicator"
-                className={`absolute inset-0 rounded-md ${colors.bg}`}
-                transition={{ duration: 0.2, ease: [0.4, 0, 0.2, 1] }}
+                layoutId={vertical ? 'cursor-mode-bar-indicator' : 'cursor-mode-indicator'}
+                className={`absolute inset-0 ${vertical ? 'rounded-lg' : 'rounded-md'} ${colors.bg}`}
+                transition={INDICATOR_TRANSITION}
               />
             )}
-            <span className={`relative z-10 flex items-center gap-2 ${
+            <span className={`relative z-10 flex items-center ${vertical ? 'justify-center w-full h-full' : 'gap-2'} ${
               isActive ? colors.text : 'text-nova-text-muted hover:text-nova-text-secondary'
             }`}>
-              <Icon icon={icon} width="16" height="16" />
-              {label}
+              <Icon icon={icon} width={vertical ? 18 : 16} height={vertical ? 18 : 16} />
+              {!vertical && label}
             </span>
           </button>
         )

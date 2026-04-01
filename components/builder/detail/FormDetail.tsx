@@ -7,7 +7,7 @@ import type { MutableBlueprint } from '@/lib/services/mutableBlueprint'
 import { formTypeIcons } from '@/lib/questionTypeIcons'
 import { useDismissRef } from '@/hooks/useDismissRef'
 import { useContentPopoverDismiss } from '@/hooks/useContentPopover'
-import { POPOVER_GLASS } from '@/lib/styles'
+import { DropdownMenu, type DropdownMenuItem } from '@/components/ui/DropdownMenu'
 
 const formTypeOptions: { value: string; label: string }[] = [
   { value: 'registration', label: 'Registration' },
@@ -130,32 +130,17 @@ export function FormTypeButton({ form, moduleIndex, formIndex, mb, notifyBluepri
   )
 }
 
+/** Form type dropdown using the shared DropdownMenu for consistent POPOVER_GLASS styling. */
 function FormTypeDropdown({ currentType, onSelect, onClose }: { currentType: string; onSelect: (type: string) => void; onClose: () => void }) {
   const dismissRef = useDismissRef(onClose)
   useContentPopoverDismiss(onClose)
 
-  return (
-    <div ref={dismissRef} className={`py-1 min-w-[140px] ${POPOVER_GLASS}`}>
-      {formTypeOptions.map((opt) => (
-        <button
-          key={opt.value}
-          onClick={() => onSelect(opt.value)}
-          className={`w-full flex items-center gap-2.5 px-3 py-1.5 text-sm transition-colors cursor-pointer ${
-            opt.value === currentType
-              ? 'text-nova-violet-bright bg-nova-violet/10'
-              : 'text-nova-text hover:bg-white/[0.06]'
-          }`}
-        >
-          <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${opt.value === currentType ? 'bg-nova-violet' : 'bg-transparent'}`} />
-          <Icon
-            icon={formTypeIcons[opt.value] ?? formTypeIcons.survey}
-            width="16"
-            height="16"
-            className={opt.value === currentType ? 'text-nova-violet-bright' : 'text-nova-text-muted'}
-          />
-          {opt.label}
-        </button>
-      ))}
-    </div>
-  )
+  const items: DropdownMenuItem[] = formTypeOptions.map((opt) => ({
+    key: opt.value,
+    label: opt.label,
+    icon: formTypeIcons[opt.value] ?? formTypeIcons.survey,
+    onClick: () => onSelect(opt.value),
+  }))
+
+  return <DropdownMenu items={items} activeKey={currentType} menuRef={dismissRef} />
 }

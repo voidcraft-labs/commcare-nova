@@ -5,9 +5,9 @@
 Message list + input. Single instance that morphs between centered and sidebar layouts.
 
 - **`centered` prop**: Hero mode below Logo, no header/border. Logo passed via `heroLogo` slot, animates to header via `layoutId="nova-logo"`.
-- **`!centered`**: 320px (`w-80`) right sidebar with header + close button.
+- **`!centered`**: `CHAT_SIDEBAR_WIDTH` (280px) right sidebar with header + close button. Width and slide animation derive from this exported constant.
 - **Layout morph**: Inner panel uses Motion `layout="position"` for GPU-accelerated position animation, enabled only during the 500ms centered↔sidebar transition (via `morphing` state). Disabled otherwise to prevent unwanted animations when toolbar/headers resize the content area. Size/border/shadow transition via CSS `transition` on the panel div. One instance stays mounted across the transition.
-- **Enter/exit**: Sidebar slides in/out (`x: 320`). Centered fades. Handled by outer `motion.div` with `AnimatePresence` in BuilderLayout.
+- **Enter/exit**: Sidebar slides in/out (`x: 280`). Centered fades. Handled by outer `motion.div` with `AnimatePresence` in BuilderLayout.
 
 **Layout**: scrollable messages → SignalGrid (permanent, `shrink-0`) → ChatInput (`shrink-0`). The SignalGrid panel sits between messages and input, never scrolls.
 
@@ -21,7 +21,7 @@ Message list + input. Single instance that morphs between centered and sidebar l
 ## ChatMessage
 
 Iterates `message.parts`:
-- `text` parts → text bubbles (assistant: `ChatMarkdown`, user: plain `whitespace-pre-wrap`)
+- `text` parts → full-width bubbles in a single column, differentiated by color (user: violet tint, assistant: surface). No left/right stepping.
 - `tool-askQuestions` parts → `QuestionCard`
 - All other tool/data parts → ignored (handled by `onData` in BuilderLayout)
 
