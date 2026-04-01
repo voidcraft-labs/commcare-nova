@@ -20,17 +20,20 @@ import { flattenQuestionPaths } from '@/lib/services/questionNavigation'
 import { type QuestionPath } from '@/lib/services/questionPath'
 import { useKeyboardShortcuts } from '@/hooks/useKeyboardShortcuts'
 import { Logo } from '@/components/ui/Logo'
-import { ChatSidebar } from '@/components/chat/ChatSidebar'
+import { ChatSidebar, CHAT_SIDEBAR_WIDTH } from '@/components/chat/ChatSidebar'
 import { StructureSidebar } from '@/components/builder/StructureSidebar'
 import { GenerationProgress } from '@/components/builder/GenerationProgress'
 import { ReplayController } from '@/components/builder/ReplayController'
-import { SubheaderToolbar, CollapsibleBreadcrumb } from '@/components/builder/SubheaderToolbar'
+import { CollapsibleBreadcrumb } from '@/components/builder/SubheaderToolbar'
 import type { BreadcrumbPart } from '@/components/builder/SubheaderToolbar'
 import { ScreenNavButtons } from '@/components/preview/ScreenNavButtons'
-import { DownloadDropdown } from '@/components/ui/DownloadDropdown'
+import { ExportDropdown } from '@/components/ui/ExportDropdown'
 import { AppConnectSettings } from '@/components/builder/detail/AppConnectSettings'
 import ciFileDocument from '@iconify-icons/ci/file-document'
-import ciDownloadPackage from '@iconify-icons/ci/download-package'
+import tablerPackageExport from '@iconify-icons/tabler/package-export'
+import ciUndo from '@iconify-icons/ci/undo'
+import ciRedo from '@iconify-icons/ci/redo'
+import { CursorModeSelector } from '@/components/builder/CursorModeSelector'
 import { useBuilderShortcuts } from '@/components/builder/useBuilderShortcuts'
 import { PreviewShell } from '@/components/preview/PreviewShell'
 import { usePreviewNav } from '@/hooks/usePreviewNav'
@@ -39,8 +42,6 @@ import { ErrorBoundary } from '@/components/ui/ErrorBoundary'
 import { getReplayData, clearReplayData } from '@/lib/services/logReplay'
 import { ReferenceProviderWrapper } from '@/lib/references/ReferenceContext'
 
-const DOWNLOAD_JSON_ICON = <Icon icon={ciFileDocument} width="28" height="28" />
-const DOWNLOAD_CCZ_ICON = <Icon icon={ciDownloadPackage} width="28" height="28" />
 
 /** Only auto-resend when the assistant's LAST step is askQuestions with all outputs available.
  *  If the SA continued past tool calls to ask a freeform text question, don't auto-resend —
@@ -242,7 +243,7 @@ export function BuilderLayout({ buildId }: { buildId: string }) {
     sendMessage({ text })
   }, [apiKey, sendMessage])
 
-  const handleCompile = useCallback(async () => {
+  const handleExportCcz = useCallback(async () => {
     if (!builder.blueprint) return
     try {
       const res = await fetch('/api/compile', {
@@ -262,11 +263,11 @@ export function BuilderLayout({ buildId }: { buildId: string }) {
         URL.revokeObjectURL(url)
       }
     } catch {
-      showToast('error', 'Compile failed', 'Could not generate the .ccz file.')
+      showToast('error', 'Export failed', 'Could not generate the .ccz file.')
     }
   }, [builder])
 
-  const handleDownloadJson = useCallback(async () => {
+  const handleExportJson = useCallback(async () => {
     if (!builder.blueprint) return
     try {
       const res = await fetch('/api/compile/json', {
@@ -290,10 +291,10 @@ export function BuilderLayout({ buildId }: { buildId: string }) {
     }
   }, [builder])
 
-  const downloadOptions = useMemo(() => [
-    { label: 'JSON', description: 'For CommCare HQ', icon: DOWNLOAD_JSON_ICON, onClick: handleDownloadJson },
-    { label: 'CCZ', description: 'For CommCare', icon: DOWNLOAD_CCZ_ICON, onClick: handleCompile },
-  ], [handleDownloadJson, handleCompile])
+  const exportOptions = useMemo(() => [
+    { label: 'JSON', description: 'CommCare Web Apps', icon: ciFileDocument, onClick: handleExportJson },
+    { label: 'CCZ', description: 'CommCare Mobile', icon: tablerPackageExport, onClick: handleExportCcz },
+  ], [handleExportJson, handleExportCcz])
 
   // ── Undo/Redo with view restoration ─────────────────────────────────
   const restoreView = useCallback((targetMode: CursorMode) => {
@@ -525,7 +526,7 @@ export function BuilderLayout({ buildId }: { buildId: string }) {
           />
         )}
 
-        {/* Project subheader — full-width breadcrumbs + download */}
+        {/* Tier 2: Nav + breadcrumbs (left) + action buttons (right) */}
         <AnimatePresence>
           {!isCentered && (
             <motion.div
@@ -533,7 +534,7 @@ export function BuilderLayout({ buildId }: { buildId: string }) {
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
               transition={{ duration: 0.2 }}
-              className="flex items-center justify-between px-5 h-14 border-b border-nova-border shrink-0 bg-[rgba(139,92,246,0.06)] shadow-[0_1px_12px_-4px_rgba(139,92,246,0.12)]"
+              className="flex items-center justify-between px-5 h-12 border-b border-nova-border shrink-0 bg-nova-deep"
             >
               <div className="flex items-center gap-2 min-w-0">
                 {builder.blueprint && (
@@ -546,29 +547,31 @@ export function BuilderLayout({ buildId }: { buildId: string }) {
                 )}
                 <CollapsibleBreadcrumb parts={breadcrumbParts} />
               </div>
-              <div className="flex items-center gap-2">
-                {builder.phase === BuilderPhase.Done && builder.blueprint && (
-                  <>
-                    <AppConnectSettings builder={builder} />
-                    <DownloadDropdown options={downloadOptions} />
-                  </>
-                )}
-              </div>
+              {showToolbar && (
+                <div className="flex items-center gap-1 shrink-0">
+                  <AppConnectSettings builder={builder} />
+                  <button
+                    onClick={handleUndo}
+                    disabled={!builder.canUndo}
+                    className="flex items-center justify-center w-8 h-8 rounded-lg text-nova-text-muted transition-colors cursor-pointer enabled:hover:text-nova-text enabled:hover:bg-white/5 disabled:opacity-25 disabled:cursor-default"
+                    title="Undo (⌘Z)"
+                  >
+                    <Icon icon={ciUndo} width="18" height="18" />
+                  </button>
+                  <button
+                    onClick={handleRedo}
+                    disabled={!builder.canRedo}
+                    className="flex items-center justify-center w-8 h-8 rounded-lg text-nova-text-muted transition-colors cursor-pointer enabled:hover:text-nova-text enabled:hover:bg-white/5 disabled:opacity-25 disabled:cursor-default"
+                    title="Redo (⌘⇧Z)"
+                  >
+                    <Icon icon={ciRedo} width="18" height="18" />
+                  </button>
+                  <ExportDropdown options={exportOptions} compact />
+                </div>
+              )}
             </motion.div>
           )}
         </AnimatePresence>
-
-        {/* Tier 3: Toolbar — full-width view mode + undo/redo */}
-        {showToolbar && (
-          <SubheaderToolbar
-            cursorMode={cursorMode}
-            onCursorModeChange={handleCursorModeChange}
-            canUndo={builder.canUndo}
-            canRedo={builder.canRedo}
-            onUndo={handleUndo}
-            onRedo={handleRedo}
-          />
-        )}
 
         {/* Tier 4: Content area — sidebars float over main content */}
         <div className="relative flex-1 overflow-hidden">
@@ -669,6 +672,17 @@ export function BuilderLayout({ buildId }: { buildId: string }) {
               </motion.div>
             )}
           </AnimatePresence>
+
+          {/* Cursor mode bar — floats in the gap between preview and chat sidebar */}
+          {/* Cursor mode bar — sidebar width + left margin (8px) + gap (12px) */}
+          {showToolbar && (
+            <div
+              className="absolute top-1/2 -translate-y-1/2 z-raised transition-[right] duration-300 ease-[cubic-bezier(0.4,0,0.2,1)]"
+              style={{ right: chatSidebarOpen ? CHAT_SIDEBAR_WIDTH + 20 : 16 }}
+            >
+              <CursorModeSelector mode={cursorMode} onChange={handleCursorModeChange} variant="vertical" />
+            </div>
+          )}
 
           {/* Right panel (Structure tree) — absolute right, floats over content */}
           <AnimatePresence>

@@ -3,31 +3,12 @@ import { Fragment, memo, useState } from 'react'
 import { motion, AnimatePresence } from 'motion/react'
 import { Icon } from '@iconify/react/offline'
 import ciChevronRight from '@iconify-icons/ci/chevron-right'
-import ciUndo from '@iconify-icons/ci/undo'
-import ciRedo from '@iconify-icons/ci/redo'
-import { CursorModeSelector } from '@/components/builder/CursorModeSelector'
-import type { CursorMode } from '@/lib/services/builder'
 import { useDismissRef } from '@/hooks/useDismissRef'
 
 /** A breadcrumb segment with a label and navigation callback. */
 export interface BreadcrumbPart {
   label: string
   onClick: () => void
-}
-
-interface SubheaderToolbarProps {
-  /** Current cursor mode (pointer / text / inspect). */
-  cursorMode: CursorMode
-  /** Callback when cursor mode changes. */
-  onCursorModeChange: (mode: CursorMode) => void
-  /** Whether the undo action is available. */
-  canUndo: boolean
-  /** Whether the redo action is available. */
-  canRedo: boolean
-  /** Callback for undo. */
-  onUndo: () => void
-  /** Callback for redo. */
-  onRedo: () => void
 }
 
 /** Chevron separator rendered between breadcrumb segments. */
@@ -144,48 +125,3 @@ export const CollapsibleBreadcrumb = memo(function CollapsibleBreadcrumb({ parts
     </nav>
   )
 }, breadcrumbPartsEqual)
-
-/**
- * Subheader toolbar — view mode toggle + undo/redo, spanning the content area.
- * Breadcrumbs and download live in the full-width ProjectSubheader above.
- */
-export function SubheaderToolbar({
-  cursorMode,
-  onCursorModeChange,
-  canUndo,
-  canRedo,
-  onUndo,
-  onRedo,
-}: SubheaderToolbarProps) {
-  return (
-    <div className="grid grid-cols-[1fr_auto_1fr] items-center px-4 h-12 border-b border-nova-border shrink-0 bg-nova-deep">
-      {/* Left — spacer */}
-      <div />
-
-      {/* Center — cursor mode selector */}
-      <CursorModeSelector mode={cursorMode} onChange={onCursorModeChange} />
-
-      {/* Right — undo/redo */}
-      <div className="flex items-center gap-1.5 justify-end">
-        <button
-          onClick={onUndo}
-          disabled={!canUndo}
-          className="flex items-center gap-1.5 h-[34px] px-2.5 rounded-lg text-[13px] font-medium text-nova-text-muted transition-colors cursor-pointer enabled:hover:text-nova-text enabled:hover:bg-nova-surface disabled:opacity-25 disabled:cursor-default"
-          title="Undo (⌘Z)"
-        >
-          <Icon icon={ciUndo} width="16" height="16" />
-          Undo
-        </button>
-        <button
-          onClick={onRedo}
-          disabled={!canRedo}
-          className="flex items-center gap-1.5 h-[34px] px-2.5 rounded-lg text-[13px] font-medium text-nova-text-muted transition-colors cursor-pointer enabled:hover:text-nova-text enabled:hover:bg-nova-surface disabled:opacity-25 disabled:cursor-default"
-          title="Redo (⌘⇧Z)"
-        >
-          <Icon icon={ciRedo} width="16" height="16" />
-          Redo
-        </button>
-      </div>
-    </div>
-  )
-}

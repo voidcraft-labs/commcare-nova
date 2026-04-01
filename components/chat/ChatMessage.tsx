@@ -27,18 +27,16 @@ export function ChatMessage({
           const text = part.text.trim()
           if (!text) return null
           return (
-            <div key={i} className={`flex ${isUser ? 'justify-end' : 'justify-start'}`}>
-              <div className={`max-w-[85%] rounded-xl px-3.5 py-2.5 text-sm leading-relaxed ${
-                isUser
-                  ? 'bg-nova-violet/15 text-nova-text border border-nova-violet/10'
-                  : 'bg-nova-surface text-nova-text-secondary border border-nova-border'
-              }`}>
-                {isUser ? (
-                  <div className="whitespace-pre-wrap break-words">{text}</div>
-                ) : (
-                  <div className="chat-markdown"><ChatMarkdown>{text}</ChatMarkdown></div>
-                )}
-              </div>
+            <div key={i} className={`rounded-xl px-3.5 py-2.5 text-sm leading-relaxed ${
+              isUser
+                ? 'bg-nova-violet/15 text-nova-text border border-nova-violet/10'
+                : 'bg-nova-surface text-nova-text-secondary border border-nova-border'
+            }`}>
+              {isUser ? (
+                <div className="whitespace-pre-wrap break-words">{text}</div>
+              ) : (
+                <div className="chat-markdown"><ChatMarkdown>{text}</ChatMarkdown></div>
+              )}
             </div>
           )
         }

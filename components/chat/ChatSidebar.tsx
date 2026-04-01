@@ -12,6 +12,10 @@ import { SignalPanel } from '@/components/chat/SignalPanel'
 import { SignalGridController, defaultLabel, type SignalMode } from '@/lib/signalGridController'
 import { Builder, BuilderPhase } from '@/lib/services/builder'
 
+/** Sidebar panel width in pixels. Exported so siblings (e.g. cursor mode bar
+ *  positioning in BuilderLayout) can derive offsets without magic numbers. */
+export const CHAT_SIDEBAR_WIDTH = 280
+
 // ── Module-level state persisted across ChatSidebar instances ──
 let chatScrollPinned = true
 let chatScrollTop = 0
@@ -308,9 +312,9 @@ export function ChatSidebar({
 
   return (
     <motion.div
-      initial={centered ? false : { x: 320, opacity: 0 }}
+      initial={centered ? false : { x: CHAT_SIDEBAR_WIDTH, opacity: 0 }}
       animate={{ x: 0, opacity: 1 }}
-      exit={centered ? { opacity: 0 } : { x: 320, opacity: 0 }}
+      exit={centered ? { opacity: 0 } : { x: CHAT_SIDEBAR_WIDTH, opacity: 0 }}
       transition={{ duration: 0.25, ease: [0.4, 0, 0.2, 1] }}
       className={centered
         ? 'absolute inset-0 z-raised flex flex-col items-center justify-center gap-6 pointer-events-none'
@@ -322,7 +326,7 @@ export function ChatSidebar({
         layout={morphing ? 'position' : false}
         className={`pointer-events-auto flex flex-col overflow-hidden transition-[width,max-width,max-height,height,border-radius,box-shadow,border-color,margin] duration-[450ms] ease-[cubic-bezier(0.4,0,0.2,1)] ${centered
           ? 'w-full max-w-2xl max-h-[min(700px,80vh)] rounded-2xl border border-nova-border bg-nova-deep'
-          : 'w-80 h-full border border-nova-border-bright border-r-0 bg-nova-deep rounded-l-xl m-2 mr-0 shadow-[0_2px_12px_rgba(0,0,0,0.4)]'
+          : `w-[${CHAT_SIDEBAR_WIDTH}px] h-full border border-nova-border-bright border-r-0 bg-nova-deep rounded-l-xl m-2 mr-0 shadow-[0_2px_12px_rgba(0,0,0,0.4)]`
         }`}
         transition={{ layout: { duration: 0.45, ease: [0.4, 0, 0.2, 1] } }}
       >
