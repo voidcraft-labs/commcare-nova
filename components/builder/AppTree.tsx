@@ -21,11 +21,9 @@ interface AppTreeProps {
   phase: BuilderPhase
   actions?: React.ReactNode
   hideHeader?: boolean
-  /** Compact mode for side-panel rendering — tighter spacing, no max-width constraint */
-  compact?: boolean
 }
 
-export function AppTree({ data, selected, onSelect, phase, actions, hideHeader, compact }: AppTreeProps) {
+export function AppTree({ data, selected, onSelect, phase, actions, hideHeader }: AppTreeProps) {
   const locked = phase !== BuilderPhase.Done
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set())
   const [searchQuery, setSearchQuery] = useState('')
@@ -69,9 +67,8 @@ export function AppTree({ data, selected, onSelect, phase, actions, hideHeader, 
         </div>
       )}
 
-      {/* Search input — compact/sidebar mode only */}
-      {compact && (
-        <div className={`px-3 pt-3 shrink-0 ${locked ? 'pointer-events-none opacity-40' : ''}`}>
+      {/* Search input */}
+      <div className={`px-3 py-3 shrink-0 ${locked ? 'pointer-events-none opacity-40' : ''}`}>
           <div className="relative">
             <Icon
               icon={ciSearchMagnifyingGlass}
@@ -104,16 +101,15 @@ export function AppTree({ data, selected, onSelect, phase, actions, hideHeader, 
             )}
           </div>
         </div>
-      )}
 
       {/* Scrollable module cards */}
-      <div className={`flex-1 overflow-auto ${compact ? 'p-3 space-y-3' : 'p-6 space-y-4'}`}>
+      <div className="flex-1 overflow-auto">
         {filtered && displayModules.length === 0 ? (
           <div className="flex items-center justify-center py-8 text-nova-text-muted text-xs">
             No matches
           </div>
         ) : (
-          <div className={compact ? 'space-y-3' : 'max-w-3xl mx-auto space-y-4'}>
+          <div>
             <AnimatePresence mode="sync">
               {displayModules.map((mod, mIdx) => (
                 <ModuleCard
@@ -122,7 +118,6 @@ export function AppTree({ data, selected, onSelect, phase, actions, hideHeader, 
                   moduleIndex={mIdx}
                   selected={selected}
                   onSelect={onSelect}
-                  compact={compact}
                   collapsed={collapsed}
                   toggle={toggle}
                   forceExpand={filtered?.forceExpand}
@@ -143,7 +138,7 @@ export function AppTree({ data, selected, onSelect, phase, actions, hideHeader, 
 function CollapseChevron({ isCollapsed, onClick, hidden }: { isCollapsed: boolean; onClick: (e: React.MouseEvent) => void; hidden?: boolean }) {
   return (
     <button
-      className={`w-6 h-6 -m-1 flex items-center justify-center shrink-0 cursor-pointer rounded text-nova-text-muted hover:text-nova-text hover:bg-nova-surface/50 transition-colors ${hidden ? 'invisible' : ''}`}
+      className={`w-4 h-4 flex items-center justify-center shrink-0 cursor-pointer rounded text-nova-text-muted hover:text-nova-text transition-colors ${hidden ? 'invisible' : ''}`}
       onClick={onClick}
     >
       <Icon
@@ -162,7 +157,6 @@ function ModuleCard({
   moduleIndex,
   selected,
   onSelect,
-  compact,
   collapsed,
   toggle,
   forceExpand,
@@ -174,7 +168,6 @@ function ModuleCard({
   moduleIndex: number
   selected: AppTreeProps['selected']
   onSelect: AppTreeProps['onSelect']
-  compact?: boolean
   collapsed: Set<string>
   toggle: (key: string) => void
   forceExpand?: Set<string>
@@ -192,13 +185,11 @@ function ModuleCard({
       initial={{ opacity: 0, y: 24 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.5, ease: [0.16, 1, 0.3, 1] }}
-      className={`rounded-xl border transition-colors ${
-        isSelected ? 'border-nova-violet bg-nova-surface' : `border-nova-border bg-nova-deep ${locked ? '' : 'hover:border-nova-border-bright'}`
-      }`}
+      className={`transition-colors border-b border-nova-border last:border-b-0 ${isSelected ? 'bg-nova-surface' : ''}`}
     >
       {/* Module header */}
       <div
-        className={`px-4 py-3 flex items-center justify-between ${locked ? 'pointer-events-none' : 'cursor-pointer'}`}
+        className={`pl-3 pr-3 py-2.5 flex items-center justify-between ${locked ? 'pointer-events-none' : 'cursor-pointer'}`}
         onClick={() => onSelect({ type: 'module', moduleIndex })}
       >
         <div className="flex items-center gap-2">
@@ -320,7 +311,7 @@ function FormCard({
       }`}
     >
       <div
-        className={`px-4 py-2.5 transition-colors flex items-center gap-2 ${locked ? 'pointer-events-none' : 'cursor-pointer hover:bg-nova-surface/30'}`}
+        className={`pl-5 pr-3 py-2.5 transition-colors flex items-center gap-2 ${locked ? 'pointer-events-none' : 'cursor-pointer hover:bg-nova-surface/30'}`}
         onClick={() => onSelect({ type: 'form', moduleIndex, formIndex })}
       >
         {hasQuestions ? (
@@ -350,7 +341,7 @@ function FormCard({
 
       {/* Questions */}
       {hasQuestions && !isCollapsed && (
-        <div className="pl-6 pr-3 pb-1.5">
+        <div className="pb-2">
           <AnimatePresence mode="sync">
             {form.questions!.map((q, qIdx) => (
               <QuestionRow
@@ -400,6 +391,7 @@ function QuestionRow({
   formIndex: number
   onSelect: AppTreeProps['onSelect']
   selected: AppTreeProps['selected']
+  /** Nesting depth — used to extend row backgrounds to the full container width */
   depth: number
   delay: number
   collapsed: Set<string>
@@ -430,24 +422,22 @@ function QuestionRow({
     >
       <div
         data-tree-question={questionPath}
-        className={`flex items-center gap-1.5 py-1.5 px-1.5 -mx-1.5 transition-colors text-xs ${
+        className={`flex items-center gap-1 py-2.5 transition-colors text-xs ${
           locked ? 'pointer-events-none text-nova-text-secondary' :
           isSelected ? 'cursor-pointer bg-nova-violet/10 text-nova-text' : `cursor-pointer ${isOdd ? 'bg-white/[0.025]' : ''} hover:bg-white/10 text-nova-text-secondary`
         }`}
-        style={{ paddingLeft: `${depth * 6}px` }}
+        style={{ paddingLeft: `${28 + depth * 8}px` }}
         onClick={(e) => {
           e.stopPropagation()
           onSelect({ type: 'question', moduleIndex, formIndex, questionPath })
         }}
       >
-        {hasChildren ? (
+        {hasChildren && (
           <CollapseChevron
             isCollapsed={!!isCollapsed}
             onClick={(e) => { e.stopPropagation(); toggle(questionPath) }}
             hidden={locked}
           />
-        ) : (
-          <span className="w-3.5 shrink-0" />
         )}
         <span className="w-4 text-center text-nova-text-muted shrink-0 flex items-center justify-center">
           {iconData ? <Icon icon={iconData} width="12" height="12" /> : '?'}
@@ -475,7 +465,7 @@ function QuestionRow({
 
       {/* Nested children for groups/repeats */}
       {hasChildren && !isCollapsed && (
-        <div className="ml-1 border-l border-nova-text-muted/20">
+        <div>
           {q.children!.map((child, cIdx) => (
             <QuestionRow
               key={child.id ? `${moduleIndex}_${formIndex}_${cIdx}_${child.id}` : `${moduleIndex}_${formIndex}_${cIdx}`}
