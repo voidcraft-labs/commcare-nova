@@ -1,7 +1,7 @@
 'use client'
-import { useState, useCallback, useDeferredValue, useMemo } from 'react'
+import { useState, useCallback, useDeferredValue, useMemo, createContext, use } from 'react'
 import { motion, AnimatePresence } from 'motion/react'
-import { Icon } from '@iconify/react/offline'
+import { Icon, type IconifyIcon } from '@iconify/react/offline'
 import ciMoreGridBig from '@iconify-icons/ci/more-grid-big'
 import ciTable from '@iconify-icons/ci/table'
 import ciChevronRight from '@iconify-icons/ci/chevron-right'
@@ -14,7 +14,13 @@ import { type QuestionPath, qpath } from '@/lib/services/questionPath'
 import { questionTypeIcons, formTypeIcons } from '@/lib/questionTypeIcons'
 import { filterTree, highlightSegments, type MatchIndices } from '@/lib/filterTree'
 import { textWithChips } from '@/lib/references/LabelContent'
-import { useReferenceProvider } from '@/lib/references/ReferenceContext'
+
+/**
+ * Per-form context carrying a question ID → type icon map. Lets QuestionRow
+ * render chips with correct question-type icons without prop drilling through
+ * the recursive tree or depending on the ReferenceProvider.
+ */
+const FormIconContext = createContext<Map<string, IconifyIcon>>(new Map())
 
 interface AppTreeProps {
   data: TreeData | undefined
@@ -301,6 +307,7 @@ function FormCard({
   const isCollapsed = forceExpand?.has(collapseKey) ? false : collapsed.has(collapseKey)
   const hasQuestions = form.questions && form.questions.length > 0
   const oddPaths = hasQuestions ? buildOddPaths(form.questions!, collapsed) : undefined
+  const questionIcons = useMemo(() => hasQuestions ? buildQuestionIconMap(form.questions!) : new Map<string, IconifyIcon>(), [form.questions])
   const nameIndices = matchMap?.get(collapseKey)
 
   return (
@@ -343,29 +350,31 @@ function FormCard({
 
       {/* Questions */}
       {hasQuestions && !isCollapsed && (
-        <div className="pb-2">
-          <AnimatePresence mode="sync">
-            {form.questions!.map((q, qIdx) => (
-              <QuestionRow
-                key={q.id ? `${moduleIndex}_${formIndex}_${qIdx}_${q.id}` : `${moduleIndex}_${formIndex}_${qIdx}`}
-                question={q}
-                questionPath={qpath(q.id)}
-                moduleIndex={moduleIndex}
-                formIndex={formIndex}
-                onSelect={onSelect}
-                selected={selected}
-                depth={0}
-                delay={delay + qIdx * 0.02}
-                collapsed={collapsed}
-                toggle={toggle}
-                oddPaths={oddPaths!}
-                forceExpand={forceExpand}
-                matchMap={matchMap}
-                locked={locked}
-              />
-            ))}
-          </AnimatePresence>
-        </div>
+        <FormIconContext value={questionIcons}>
+          <div className="pb-2">
+            <AnimatePresence mode="sync">
+              {form.questions!.map((q, qIdx) => (
+                <QuestionRow
+                  key={q.id ? `${moduleIndex}_${formIndex}_${qIdx}_${q.id}` : `${moduleIndex}_${formIndex}_${qIdx}`}
+                  question={q}
+                  questionPath={qpath(q.id)}
+                  moduleIndex={moduleIndex}
+                  formIndex={formIndex}
+                  onSelect={onSelect}
+                  selected={selected}
+                  depth={0}
+                  delay={delay + qIdx * 0.02}
+                  collapsed={collapsed}
+                  toggle={toggle}
+                  oddPaths={oddPaths!}
+                  forceExpand={forceExpand}
+                  matchMap={matchMap}
+                  locked={locked}
+                />
+              ))}
+            </AnimatePresence>
+          </div>
+        </FormIconContext>
       )}
     </motion.div>
   )
@@ -403,7 +412,7 @@ function QuestionRow({
   matchMap?: Map<string, MatchIndices>
   locked?: boolean
 }) {
-  const provider = useReferenceProvider()
+  const iconOverrides = use(FormIconContext)
   const isSelected = selected?.type === 'question' && selected.moduleIndex === moduleIndex && selected.formIndex === formIndex && selected.questionPath === questionPath
   const iconData = questionTypeIcons[q.type]
   const hasChildren = q.children && q.children.length > 0
@@ -416,8 +425,8 @@ function QuestionRow({
   // Highlight the main display text: label match, or id match when there's no label
   const textIndices = labelIndices ?? (!q.label ? idIndices : undefined)
   const displayText = q.label || q.id
-  /* Search uses HighlightedText with match indices — skip chip rendering when active. */
-  const chipContent = !textIndices ? textWithChips(displayText, provider) : null
+  /* Search uses HighlightedText — skip chip rendering when active. */
+  const chipContent = !textIndices ? textWithChips(displayText, null, iconOverrides) : null
 
   return (
     <motion.div
@@ -517,6 +526,25 @@ function countQuestions(questions: Question[]): number {
     if (q.children) count += countQuestions(q.children)
   }
   return count
+}
+
+/**
+ * Build a flat map from question ID to its type icon for all questions in a form.
+ * Used by sidebar chip rendering to show the correct question type icon without
+ * going through the ReferenceProvider (which only knows the selected form).
+ */
+function buildQuestionIconMap(questions: Question[]): Map<string, IconifyIcon> {
+  const map = new Map<string, IconifyIcon>()
+  function walk(qs: Question[], parent?: QuestionPath) {
+    for (const q of qs) {
+      const p = qpath(q.id, parent)
+      const icon = questionTypeIcons[q.type]
+      if (icon) map.set(p, icon)
+      if (q.children) walk(q.children, p)
+    }
+  }
+  walk(questions)
+  return map
 }
 
 /** Pre-flatten visible question paths and return the set of odd-indexed ones. */
