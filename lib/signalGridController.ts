@@ -475,8 +475,12 @@ export class SignalGridController {
   setMode(mode: SignalMode, label?: string): void {
     const newLabel = label ?? defaultLabel(mode)
 
-    // Same mode — just update the label
+    // Same mode — just update the label and cancel any stale pending transition.
+    // The pending clear handles a race: triggerSendWave() fires, then a transient
+    // desiredMode ('idle') queues before the real desired mode ('sending') arrives
+    // on the next render. Without clearing, the stale pending fires on settle.
     if (mode === this.mode) {
+      this.pendingMode = null
       if (newLabel !== this.currentLabel) {
         this.currentLabel = newLabel
         this.modeAppliedCallback?.(mode, newLabel)
