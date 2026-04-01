@@ -17,7 +17,7 @@ import { useContentPopoverDismiss } from '@/hooks/useContentPopover'
 import { useCommitField } from '@/hooks/useCommitField'
 import { SavedCheck } from '@/components/builder/EditableTitle'
 import { XPathField } from '@/components/builder/XPathField'
-import { XPathEditorModal } from '@/components/builder/XPathEditorModal'
+import type { XPathLintContext } from '@/lib/codemirror/xpath-lint'
 
 // ── Types ─────────────────────────────────────────────────────────────
 
@@ -109,8 +109,12 @@ export function FormSettingsButton({ form, moduleIndex, formIndex, mb, notifyBlu
 function FormSettingsPanel({
   form, moduleIndex, formIndex, mb, notifyBlueprintChanged, onClose,
 }: FormSettingsPanelProps & { onClose: () => void }) {
-  const [modalOpen, setModalOpen] = useState(false)
-  const dismissRef = useDismissRef(() => { if (!modalOpen) onClose() })
+  const dismissRef = useDismissRef(() => {
+    /* Don't dismiss when a CodeMirror autocomplete tooltip (portal-mounted
+     * to body, outside the panel DOM) received the click. */
+    if (document.querySelector('.cm-tooltip-autocomplete')) return
+    onClose()
+  })
   useContentPopoverDismiss(onClose)
 
   return (
@@ -153,7 +157,6 @@ function FormSettingsPanel({
           formIndex={formIndex}
           mb={mb}
           notifyBlueprintChanged={notifyBlueprintChanged}
-          onModalChange={setModalOpen}
         />
       </div>
     </div>
@@ -226,7 +229,7 @@ function AfterSubmitSection({ form, moduleIndex, formIndex, mb, notifyBlueprintC
 
 // ── Connect Configuration Section ──────────────────────────────────────
 
-function ConnectSection({ form, moduleIndex, formIndex, mb, notifyBlueprintChanged, onModalChange }: FormSettingsPanelProps & { onModalChange: (open: boolean) => void }) {
+function ConnectSection({ form, moduleIndex, formIndex, mb, notifyBlueprintChanged }: FormSettingsPanelProps) {
   const connectType = mb.getBlueprint().connect_type as ConnectType | undefined
   const connect = form.connect
   const enabled = !!connect
@@ -296,14 +299,14 @@ function ConnectSection({ form, moduleIndex, formIndex, mb, notifyBlueprintChang
             <div className="pt-2.5 space-y-3">
               {/* Learn config — sub-toggles for learn_module and assessment */}
               {connectType === 'learn' && (
-                <LearnConfig connect={connect} save={save} mb={mb} moduleIndex={moduleIndex} formIndex={formIndex} onModalChange={onModalChange} />
+                <LearnConfig connect={connect} save={save} mb={mb} moduleIndex={moduleIndex} formIndex={formIndex} />
               )}
 
               {/* Deliver config — name + unit fields + task sub-toggle */}
               {connectType === 'deliver' && (
                 <>
                   <ConnectName connect={connect} connectType={connectType} save={save} />
-                  <DeliverConfig connect={connect} save={save} mb={mb} moduleIndex={moduleIndex} formIndex={formIndex} onModalChange={onModalChange} />
+                  <DeliverConfig connect={connect} save={save} mb={mb} moduleIndex={moduleIndex} formIndex={formIndex} />
                 </>
               )}
 
@@ -336,28 +339,22 @@ interface ConnectSubConfigProps {
   mb: MutableBlueprint
   moduleIndex: number
   formIndex: number
-  onModalChange: (open: boolean) => void
 }
 
-function useXPathModal(mb: MutableBlueprint, moduleIndex: number, formIndex: number, onModalChange: (open: boolean) => void) {
-  const [modal, setModalRaw] = useState<{ label: string; value: string; onSave: (v: string) => void }>()
-  const setModal = useCallback((m: typeof modal) => {
-    setModalRaw(m)
-    onModalChange(!!m)
-  }, [onModalChange])
-  const getLintContext = useCallback(() => {
+/** Shared lint context getter for XPath fields in connect sub-configs. */
+function useConnectLintContext(mb: MutableBlueprint, moduleIndex: number, formIndex: number) {
+  return useCallback((): XPathLintContext | undefined => {
     const blueprint = mb.getBlueprint()
     const form = mb.getForm(moduleIndex, formIndex)
     const mod = mb.getModule(moduleIndex)
     if (!form) return undefined
     return { blueprint, form, moduleCaseType: mod?.case_type ?? undefined }
   }, [mb, moduleIndex, formIndex])
-  return { modal, setModal, getLintContext }
 }
 
 // ── Learn Config Fields ────────────────────────────────────────────────
 
-function LearnConfig({ connect, save, mb, moduleIndex, formIndex, onModalChange }: ConnectSubConfigProps) {
+function LearnConfig({ connect, save, mb, moduleIndex, formIndex }: ConnectSubConfigProps) {
   const lm = connect.learn_module
   const assessment = connect.assessment
   const learnEnabled = !!lm
@@ -366,7 +363,7 @@ function LearnConfig({ connect, save, mb, moduleIndex, formIndex, onModalChange 
   const lastAssessmentRef = useRef(assessment)
   if (lm) lastLearnRef.current = lm
   if (assessment) lastAssessmentRef.current = assessment
-  const { modal, setModal, getLintContext } = useXPathModal(mb, moduleIndex, formIndex, onModalChange)
+  const getLintContext = useConnectLintContext(mb, moduleIndex, formIndex)
 
   const defaultIds = useCallback(() => {
     const mod = mb.getModule(moduleIndex)
@@ -495,11 +492,8 @@ function LearnConfig({ connect, save, mb, moduleIndex, formIndex, onModalChange 
                     </label>
                     <XPathField
                       value={assessment.user_score}
-                      onClick={() => setModal({
-                        label: 'User Score',
-                        value: assessment.user_score,
-                        onSave: (v) => { if (v.trim()) save({ ...connect, assessment: { ...assessment, user_score: v } }) },
-                      })}
+                      onSave={(v) => { if (v.trim()) save({ ...connect, assessment: { ...assessment, user_score: v } }) }}
+                      getLintContext={getLintContext}
                     />
                   </div>
                 </div>
@@ -508,16 +502,6 @@ function LearnConfig({ connect, save, mb, moduleIndex, formIndex, onModalChange 
           </AnimatePresence>
         </div>
       </div>
-
-      {modal && (
-        <XPathEditorModal
-          value={modal.value}
-          label={modal.label}
-          onSave={(v) => { modal.onSave(v); setModal(undefined) }}
-          onClose={() => setModal(undefined)}
-          getLintContext={getLintContext}
-        />
-      )}
     </>
   )
 }
@@ -525,13 +509,13 @@ function LearnConfig({ connect, save, mb, moduleIndex, formIndex, onModalChange 
 
 // ── Deliver Config Fields ──────────────────────────────────────────────
 
-function DeliverConfig({ connect, save, mb, moduleIndex, formIndex, onModalChange }: ConnectSubConfigProps) {
+function DeliverConfig({ connect, save, mb, moduleIndex, formIndex }: ConnectSubConfigProps) {
   const du = connect.deliver_unit
   const task = connect.task
   const taskEnabled = !!task
   const lastTaskRef = useRef(task)
   if (task) lastTaskRef.current = task
-  const { modal, setModal, getLintContext } = useXPathModal(mb, moduleIndex, formIndex, onModalChange)
+  const getLintContext = useConnectLintContext(mb, moduleIndex, formIndex)
 
   const updateDeliverUnit = useCallback((field: string, value: string) => {
     const current = connect.deliver_unit ?? { name: '', entity_id: '', entity_name: '' }
@@ -570,11 +554,8 @@ function DeliverConfig({ connect, save, mb, moduleIndex, formIndex, onModalChang
           </label>
           <XPathField
             value={du?.entity_id ?? ''}
-            onClick={() => setModal({
-              label: 'Entity ID',
-              value: du?.entity_id ?? '',
-              onSave: (v) => { if (v.trim()) updateDeliverUnit('entity_id', v) },
-            })}
+            onSave={(v) => { if (v.trim()) updateDeliverUnit('entity_id', v) }}
+            getLintContext={getLintContext}
           />
         </div>
         <div>
@@ -583,11 +564,8 @@ function DeliverConfig({ connect, save, mb, moduleIndex, formIndex, onModalChang
           </label>
           <XPathField
             value={du?.entity_name ?? ''}
-            onClick={() => setModal({
-              label: 'Entity Name',
-              value: du?.entity_name ?? '',
-              onSave: (v) => { if (v.trim()) updateDeliverUnit('entity_name', v) },
-            })}
+            onSave={(v) => { if (v.trim()) updateDeliverUnit('entity_name', v) }}
+            getLintContext={getLintContext}
           />
         </div>
 
@@ -626,16 +604,6 @@ function DeliverConfig({ connect, save, mb, moduleIndex, formIndex, onModalChang
           </AnimatePresence>
         </div>
       </div>
-
-      {modal && (
-        <XPathEditorModal
-          value={modal.value}
-          label={modal.label}
-          onSave={(v) => { modal.onSave(v); setModal(undefined) }}
-          onClose={() => setModal(undefined)}
-          getLintContext={getLintContext}
-        />
-      )}
     </>
   )
 }
