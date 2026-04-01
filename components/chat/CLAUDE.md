@@ -5,7 +5,7 @@
 Message list + input. Single instance that morphs between centered and sidebar layouts.
 
 - **`centered` prop**: Hero mode below Logo, no header/border. Logo passed via `heroLogo` slot, animates to header via `layoutId="nova-logo"`.
-- **`!centered`**: `CHAT_SIDEBAR_WIDTH` (280px) right sidebar flex child with header (close chevron-left, "Chat" label right) + `border-l`. No floating decoration (no rounded corners, margins, or shadows).
+- **`!centered`**: `CHAT_SIDEBAR_WIDTH` (280px) right sidebar flex child with header ("Chat" label left, close chevron-right right) + `border-l`. No floating decoration (no rounded corners, margins, or shadows).
 - **Layout morph**: Inner panel uses Motion `layout="position"` for GPU-accelerated position animation, enabled only during the 500ms centered↔sidebar transition (via `morphing` state). Disabled otherwise to prevent unwanted animations when toolbar/headers resize the content area. Size/border transition via CSS `transition` on the panel div. One instance stays mounted across the transition.
 - **Always mounted**: ChatSidebar stays mounted even when collapsed — BuilderLayout wraps it in a `motion.div` that animates width to 0. This preserves the singleton controller, scroll state, and observers. The outer `motion.div`'s `shrink-0 overflow-hidden` clips the content when closing.
 
