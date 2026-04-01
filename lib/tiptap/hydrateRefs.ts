@@ -8,13 +8,16 @@
  * the document and promote matching text spans to structured atom nodes.
  *
  * Replacements are applied in reverse document order within a single transaction
- * so earlier positions aren't shifted by later replacements.
+ * so earlier positions aren't shifted by later replacements. Marks (bold, italic,
+ * etc.) from the original text node are preserved on the new atom node so
+ * tiptap-markdown can round-trip them correctly (e.g. `**#form/name**`).
  */
 
 import { HASHTAG_REF_PATTERN } from '@/lib/references/config'
 import { ReferenceProvider } from '@/lib/references/provider'
 import type { ReferenceType } from '@/lib/references/types'
 import type { Editor } from '@tiptap/core'
+import type { Mark } from '@tiptap/pm/model'
 
 /** A hashtag match found in the document with its resolved position and parts. */
 interface RefMatch {
@@ -22,6 +25,8 @@ interface RefMatch {
   to: number
   refType: ReferenceType
   path: string
+  /** Marks from the source text node — preserved on the replacement atom node. */
+  marks: readonly Mark[]
 }
 
 /**
@@ -44,7 +49,13 @@ export function hydrateHashtagRefs(editor: Editor): void {
     while ((match = pattern.exec(node.text)) !== null) {
       const parsed = ReferenceProvider.parse(match[0])
       if (!parsed) continue
-      matches.push({ from: pos + match.index, to: pos + match.index + match[0].length, refType: parsed.type, path: parsed.path })
+      matches.push({
+        from: pos + match.index,
+        to: pos + match.index + match[0].length,
+        refType: parsed.type,
+        path: parsed.path,
+        marks: node.marks,
+      })
     }
   })
 
@@ -54,8 +65,8 @@ export function hydrateHashtagRefs(editor: Editor): void {
    * unaffected by subsequent replacements earlier in the document. */
   const { tr } = editor.state
   for (let i = matches.length - 1; i >= 0; i--) {
-    const { from, to, refType, path } = matches[i]
-    tr.replaceWith(from, to, nodeType.create({ refType, path, label: path }))
+    const { from, to, refType, path, marks } = matches[i]
+    tr.replaceWith(from, to, nodeType.create({ refType, path, label: path }, null, marks))
   }
 
   editor.view.dispatch(tr)

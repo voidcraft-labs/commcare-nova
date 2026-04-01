@@ -2,11 +2,11 @@
  * React component for rendering label text with inline reference chips.
  *
  * Uses markdown-to-jsx (via shared `previewMarkdownOptions`) with a chip
- * injection renderRule that intercepts text nodes containing ref patterns
- * (#form/x, <output value="#form/x"/>) and replaces them with ReferenceChip
- * components directly. Markdown handles all formatting natively; we only
- * touch text nodes that contain refs. The chip rule composes on top of the
- * shared breaksRenderRule via `withChipInjection`.
+ * injection renderRule that intercepts text nodes containing `#type/path`
+ * hashtag patterns and replaces them with ReferenceChip components directly.
+ * Markdown handles all formatting natively; we only touch text nodes that
+ * contain refs. The chip rule composes on top of the shared breaksRenderRule
+ * via `withChipInjection`.
  */
 
 'use client'
@@ -15,13 +15,14 @@ import { Fragment, useMemo, type ReactNode } from 'react'
 import { PREVIEW_OPTIONS, withChipInjection } from '@/lib/markdown'
 import { ReferenceChip } from './ReferenceChip'
 import { useReferenceProvider } from './ReferenceContext'
-import { resolveRefFromExpr, parseLabelSegments, outputTagsToHashtags, LABEL_REF_RE } from './renderLabel'
+import { HASHTAG_REF_PATTERN } from './config'
+import { resolveRefFromExpr, parseLabelSegments } from './renderLabel'
 import type { ReferenceProvider } from './provider'
 
 interface LabelContentProps {
-  /** Raw label text (may contain <output> tags, bare hashtags, and markdown). */
+  /** Raw label text (bare `#type/path` hashtags and markdown). */
   label: string
-  /** Engine-resolved label (output tags replaced with values). Undefined if no output tags. */
+  /** Engine-resolved label (hashtag refs evaluated to values). Undefined when no refs present. */
   resolvedLabel?: string
   /** Whether we're in design/edit mode. */
   isEditMode: boolean
@@ -30,9 +31,12 @@ interface LabelContentProps {
 /**
  * Split a text node on ref patterns and render chips inline. Uses
  * parseLabelSegments (canonical regex split) so the pattern logic lives
- * in one place.
+ * in one place. Exported for use by lightweight rendering surfaces (e.g.
+ * structure sidebar) that need chips without full markdown rendering.
  */
-function textWithChips(text: string, provider: ReferenceProvider | null): ReactNode {
+export function textWithChips(text: string, provider: ReferenceProvider | null): ReactNode {
+  /* Fast path: skip regex work for the ~95% of labels with no refs. */
+  if (!text.includes('#')) return text
   return parseLabelSegments(text).map((seg, i) => {
     if (seg.kind === 'text') return seg.text
     const ref = resolveRefFromExpr(seg.value, provider)
@@ -49,7 +53,7 @@ function chipRenderRule(
   provider: ReferenceProvider | null,
 ): NonNullable<MarkdownToJSX.Options['renderRule']> {
   return (next, node, _renderChildren, state) => {
-    if (node.type === RuleType.text && LABEL_REF_RE.test(node.text)) {
+    if (node.type === RuleType.text && HASHTAG_REF_PATTERN.test(node.text)) {
       return <Fragment key={state.key}>{textWithChips(node.text, provider)}</Fragment>
     }
     return next()
@@ -76,11 +80,9 @@ export function LabelContent({ label, resolvedLabel, isEditMode }: LabelContentP
     )
   }
 
-  const normalized = outputTagsToHashtags(label)
-
   return (
     <div className="preview-markdown">
-      <Markdown options={options}>{normalized}</Markdown>
+      <Markdown options={options}>{label}</Markdown>
     </div>
   )
 }

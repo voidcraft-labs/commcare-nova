@@ -357,11 +357,11 @@ describe('FormEngine', () => {
     })
   })
 
-  describe('output tags', () => {
-    it('resolves output tags in labels with #case refs', () => {
+  describe('hashtag refs in labels', () => {
+    it('resolves hashtag refs in labels with #case refs', () => {
       const form = makeForm([
         { id: 'case_name', type: 'text', label: 'Name', case_property_on: 'patient' },
-        { id: 'greeting', type: 'label', label: 'Hello, <output value="#case/case_name"/>!' },
+        { id: 'greeting', type: 'label', label: 'Hello, #case/case_name!' },
       ], 'followup')
       const caseData = new Map([['case_name', 'John Smith']])
       const engine = new FormEngine(form, sampleCaseTypes, 'patient', caseData)
@@ -369,10 +369,10 @@ describe('FormEngine', () => {
       expect(engine.getState('/data/greeting').resolvedLabel).toBe('Hello, John Smith!')
     })
 
-    it('resolves output tags referencing form fields', () => {
+    it('resolves hashtag refs referencing form fields', () => {
       const form = makeForm([
         { id: 'name', type: 'text', label: 'Name' },
-        { id: 'summary', type: 'label', label: 'You entered: <output value="#form/name"/>' },
+        { id: 'summary', type: 'label', label: 'You entered: #form/name' },
       ])
       const engine = new FormEngine(form, null)
 
@@ -384,11 +384,11 @@ describe('FormEngine', () => {
       expect(engine.getState('/data/summary').resolvedLabel).toBe('You entered: Alice')
     })
 
-    it('resolves multiple output tags in one label', () => {
+    it('resolves multiple hashtag refs in one label', () => {
       const form = makeForm([
         { id: 'first', type: 'text', label: 'First' },
         { id: 'last', type: 'text', label: 'Last' },
-        { id: 'display', type: 'label', label: '<output value="#form/first"/> <output value="#form/last"/>' },
+        { id: 'display', type: 'label', label: '#form/first #form/last' },
       ])
       const engine = new FormEngine(form, null)
 
@@ -397,10 +397,10 @@ describe('FormEngine', () => {
       expect(engine.getState('/data/display').resolvedLabel).toBe('Jane Doe')
     })
 
-    it('resolves output tags in hints', () => {
+    it('resolves hashtag refs in hints', () => {
       const form = makeForm([
         { id: 'name', type: 'text', label: 'Name' },
-        { id: 'age', type: 'int', label: 'Age', hint: 'Age for <output value="#form/name"/>' },
+        { id: 'age', type: 'int', label: 'Age', hint: 'Age for #form/name' },
       ])
       const engine = new FormEngine(form, null)
 
@@ -408,11 +408,11 @@ describe('FormEngine', () => {
       expect(engine.getState('/data/age').resolvedHint).toBe('Age for Bob')
     })
 
-    it('cascades through calculated fields into output tags', () => {
+    it('cascades through calculated fields into hashtag refs', () => {
       const form = makeForm([
         { id: 'age', type: 'int', label: 'Age' },
         { id: 'status', type: 'hidden', calculate: "if(/data/age > 18, 'Adult', 'Minor')" },
-        { id: 'info', type: 'label', label: 'Status: <output value="#form/status"/>' },
+        { id: 'info', type: 'label', label: 'Status: #form/status' },
       ])
       const engine = new FormEngine(form, null)
 
@@ -423,7 +423,7 @@ describe('FormEngine', () => {
       expect(engine.getState('/data/info').resolvedLabel).toBe('Status: Minor')
     })
 
-    it('does not set resolvedLabel when no output tags present', () => {
+    it('does not set resolvedLabel when no hashtag refs present', () => {
       const form = makeForm([
         { id: 'name', type: 'text', label: 'Plain label' },
       ])

@@ -10,11 +10,10 @@
  * Round-trips through HTML via <span data-commcare-ref data-ref-type data-path data-label>.
  *
  * Markdown serialization (tiptap-markdown):
- *   - Serialize: writes `<output value="#type/path"/>` (CommCare standard)
+ *   - Serialize: writes bare `#type/path` hashtags (canonical internal format).
  *   - Parse: handled externally by `hydrateHashtagRefs()` — after tiptap-markdown
  *     parses the markdown string, hydrateRefs walks the resulting ProseMirror
  *     document and replaces bare `#type/path` text with commcareRef atom nodes.
- *     Callers normalize `<output>` tags to bare hashtags before loading content.
  *
  * Backspace-to-revert: when the cursor is right after a commcareRef node,
  * backspace converts it back to raw text minus the last character, causing
@@ -33,15 +32,14 @@ export const CommcareRef = Node.create({
 
   /**
    * Markdown serialization for tiptap-markdown. Writes commcareRef nodes as
-   * `<output value="#type/path"/>` tags — the CommCare standard format for
-   * inline references in labels. Parsing is handled externally by
-   * `hydrateHashtagRefs()` after content is loaded, not via markdown-it rules.
+   * bare `#type/path` hashtags — the canonical internal format. Parsing is
+   * handled externally by `hydrateHashtagRefs()` after content is loaded.
    */
   addStorage() {
     return {
       markdown: {
         serialize(state: { write: (s: string) => void }, node: { attrs: { refType: string; path: string } }) {
-          state.write(`<output value="#${node.attrs.refType}/${node.attrs.path}"/>`)
+          state.write(`#${node.attrs.refType}/${node.attrs.path}`)
         },
       },
     }

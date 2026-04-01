@@ -13,6 +13,8 @@ import { BuilderPhase, type TreeData } from '@/lib/services/builder'
 import { type QuestionPath, qpath } from '@/lib/services/questionPath'
 import { questionTypeIcons, formTypeIcons } from '@/lib/questionTypeIcons'
 import { filterTree, highlightSegments, type MatchIndices } from '@/lib/filterTree'
+import { textWithChips } from '@/lib/references/LabelContent'
+import { useReferenceProvider } from '@/lib/references/ReferenceContext'
 
 interface AppTreeProps {
   data: TreeData | undefined
@@ -401,6 +403,7 @@ function QuestionRow({
   matchMap?: Map<string, MatchIndices>
   locked?: boolean
 }) {
+  const provider = useReferenceProvider()
   const isSelected = selected?.type === 'question' && selected.moduleIndex === moduleIndex && selected.formIndex === formIndex && selected.questionPath === questionPath
   const iconData = questionTypeIcons[q.type]
   const hasChildren = q.children && q.children.length > 0
@@ -413,6 +416,8 @@ function QuestionRow({
   // Highlight the main display text: label match, or id match when there's no label
   const textIndices = labelIndices ?? (!q.label ? idIndices : undefined)
   const displayText = q.label || q.id
+  /* Search uses HighlightedText with match indices — skip chip rendering when active. */
+  const chipContent = !textIndices ? textWithChips(displayText, provider) : null
 
   return (
     <motion.div
@@ -445,7 +450,7 @@ function QuestionRow({
         {showIdMatch ? (
           <span className="flex items-center gap-1.5 min-w-0 flex-1">
             <span className={`truncate shrink ${hasChildren ? 'font-medium text-[#b8b8dd]' : ''}`}>
-              {textIndices ? <HighlightedText text={displayText} indices={textIndices} /> : displayText}
+              {textIndices ? <HighlightedText text={displayText} indices={textIndices} /> : chipContent}
             </span>
             <span className="truncate shrink-0 max-w-[45%] font-mono text-[10px] text-nova-text-muted">
               (<HighlightedText text={q.id} indices={idIndices} />)
@@ -453,7 +458,7 @@ function QuestionRow({
           </span>
         ) : (
           <span className={`truncate ${hasChildren ? 'font-medium text-[#b8b8dd]' : ''}`}>
-            {textIndices ? <HighlightedText text={displayText} indices={textIndices} /> : displayText}
+            {textIndices ? <HighlightedText text={displayText} indices={textIndices} /> : chipContent}
           </span>
         )}
         {hasChildren && isCollapsed && (

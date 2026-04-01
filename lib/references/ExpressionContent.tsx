@@ -7,7 +7,7 @@
 'use client'
 import { ReferenceChip } from './ReferenceChip'
 import { useReferenceProvider } from './ReferenceContext'
-import { parseExpressionSegments, resolveRefFromExpr } from './renderLabel'
+import { parseLabelSegments, resolveRefFromExpr } from './renderLabel'
 
 interface ExpressionContentProps {
   expr: string
@@ -15,7 +15,7 @@ interface ExpressionContentProps {
 
 export function ExpressionContent({ expr }: ExpressionContentProps) {
   const provider = useReferenceProvider()
-  const segments = parseExpressionSegments(expr)
+  const segments = parseLabelSegments(expr)
 
   return (
     <>
