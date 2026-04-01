@@ -21,13 +21,13 @@ export function StructureSidebar({
     <div className="w-80 border-r border-nova-border-bright bg-nova-deep flex flex-col shrink-0 h-full">
       {/* Header */}
       <div className="flex items-center justify-between px-4 h-11 border-b border-nova-border shrink-0">
-        <span className="text-[13px] font-medium text-nova-text-secondary">Structure</span>
         <button
           onClick={onClose}
           className="px-1 h-11 text-nova-text-muted hover:text-nova-text transition-colors cursor-pointer"
         >
           <Icon icon={ciChevronLeft} width="14" height="14" />
         </button>
+        <span className="text-[13px] font-medium text-nova-text-secondary">Structure</span>
       </div>
 
       {/* Structure tree */}
