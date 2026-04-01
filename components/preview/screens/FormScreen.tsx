@@ -9,7 +9,6 @@ import { useFormEngine } from '@/hooks/useFormEngine'
 import { getCaseData, getDummyCases } from '@/lib/preview/engine/dummyData'
 import { FormRenderer } from '../form/FormRenderer'
 import { Icon } from '@iconify/react/offline'
-import { formTypeIcons } from '@/lib/questionTypeIcons'
 import ciArrowReload02 from '@iconify-icons/ci/arrow-reload-02'
 import { FormSettingsButton } from '@/components/builder/detail/FormSettingsPanel'
 import { FormTypeButton } from '@/components/builder/detail/FormDetail'
@@ -134,20 +133,13 @@ export function FormScreen({ blueprint, moduleIndex, formIndex, caseId, onBack, 
       {/* Form header */}
       <div className="px-6 pt-5 pb-4 border-b border-pv-input-border">
         <div className="flex items-center gap-2">
-          {mode === 'edit' && builder?.mb ? (
-            <FormTypeButton
-              form={form}
-              moduleIndex={moduleIndex}
-              formIndex={formIndex}
-              mb={builder.mb}
-              notifyBlueprintChanged={builder.notifyBlueprintChanged}
-            />
-          ) : (
-            // p-1.5 matches FormTypeButton's padding so the title doesn't shift horizontally
-            <span className="p-1.5 shrink-0 text-nova-text-muted">
-              <Icon icon={formTypeIcons[form.type] ?? formTypeIcons.survey} width="18" height="18" />
-            </span>
-          )}
+          <FormTypeButton
+            form={form}
+            moduleIndex={mode === 'edit' && builder?.mb ? moduleIndex : undefined}
+            formIndex={mode === 'edit' && builder?.mb ? formIndex : undefined}
+            mb={mode === 'edit' ? builder?.mb : undefined}
+            notifyBlueprintChanged={mode === 'edit' ? builder?.notifyBlueprintChanged : undefined}
+          />
           {mode === 'edit' && builder?.mb ? (
             <EditableTitle value={form.name} onSave={(name) => { builder.mb!.updateForm(moduleIndex, formIndex, { name }); builder.notifyBlueprintChanged() }} onSaved={handleTitleSaved} />
           ) : (
