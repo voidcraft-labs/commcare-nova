@@ -373,6 +373,12 @@ body {
   white-space: break-spaces;
   position: relative;
 }
+/* ProseMirror injects a trailing <br> inside every block node for cursor
+ * positioning. It adds height the static markdown view doesn't have,
+ * breaking flipbook parity between design and editor states. */
+.tiptap .ProseMirror-trailingBreak {
+  display: none;
+}
 .preview-markdown p {
   margin: 0;
 }
