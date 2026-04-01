@@ -5,9 +5,9 @@
 Message list + input. Single instance that morphs between centered and sidebar layouts.
 
 - **`centered` prop**: Hero mode below Logo, no header/border. Logo passed via `heroLogo` slot, animates to header via `layoutId="nova-logo"`.
-- **`!centered`**: `CHAT_SIDEBAR_WIDTH` (280px) right sidebar with header + close button. Width and slide animation derive from this exported constant.
-- **Layout morph**: Inner panel uses Motion `layout="position"` for GPU-accelerated position animation, enabled only during the 500ms centered↔sidebar transition (via `morphing` state). Disabled otherwise to prevent unwanted animations when toolbar/headers resize the content area. Size/border/shadow transition via CSS `transition` on the panel div. One instance stays mounted across the transition.
-- **Enter/exit**: Sidebar slides in/out (`x: 280`). Centered fades. Handled by outer `motion.div` with `AnimatePresence` in BuilderLayout.
+- **`!centered`**: `CHAT_SIDEBAR_WIDTH` (280px) right sidebar flex child with header (close chevron-left, "Chat" label right) + `border-l`. No floating decoration (no rounded corners, margins, or shadows).
+- **Layout morph**: Inner panel uses Motion `layout="position"` for GPU-accelerated position animation, enabled only during the 500ms centered↔sidebar transition (via `morphing` state). Disabled otherwise to prevent unwanted animations when toolbar/headers resize the content area. Size/border transition via CSS `transition` on the panel div. One instance stays mounted across the transition.
+- **Always mounted**: ChatSidebar stays mounted even when collapsed — BuilderLayout wraps it in a `motion.div` that animates width to 0. This preserves the singleton controller, scroll state, and observers. The outer `motion.div`'s `shrink-0 overflow-hidden` clips the content when closing.
 
 **Layout**: scrollable messages → SignalGrid (permanent, `shrink-0`) → ChatInput (`shrink-0`). The SignalGrid panel sits between messages and input, never scrolls.
 

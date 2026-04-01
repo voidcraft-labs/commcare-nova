@@ -6,8 +6,8 @@ import { DefaultChatTransport, type UIMessage } from 'ai'
 import { motion, AnimatePresence } from 'motion/react'
 import { Icon } from '@iconify/react/offline'
 import ciMessage from '@iconify-icons/ci/message'
-import tablerListTree from '@iconify-icons/tabler/list-tree'
 import ciSettings from '@iconify-icons/ci/settings'
+import tablerListTree from '@iconify-icons/tabler/list-tree'
 import Link from 'next/link'
 import { useApiKey } from '@/hooks/useApiKey'
 import { useSettings } from '@/hooks/useSettings'
@@ -64,6 +64,12 @@ function shouldAutoResend({ messages }: { messages: UIMessage[] }): boolean {
 // lives in a useRef that resets on remount — this bridges the gap.)
 let persistedChatMessages: UIMessage[] = []
 
+/** Shared sidebar open/close animation config. */
+const SIDEBAR_TRANSITION = { duration: 0.2, ease: [0.4, 0, 0.2, 1] } as const
+
+/** Width of the structure sidebar in pixels (w-80). */
+const STRUCTURE_SIDEBAR_WIDTH = 320
+
 export function BuilderLayout({ buildId }: { buildId: string }) {
   const router = useRouter()
   const { apiKey } = useApiKey()
@@ -71,7 +77,7 @@ export function BuilderLayout({ buildId }: { buildId: string }) {
   const builder = useBuilder()
   const initialReplay = getReplayData()
   const [chatOpen, setChatOpen] = useState(true)
-  const [structureOpen, setStructureOpen] = useState(!!initialReplay)
+  const [structureOpen, setStructureOpen] = useState(true)
   const [cursorMode, setCursorMode] = useState<CursorMode>('inspect')
   const cursorModeRef = useRef(cursorMode)
   const scrollAnchorRef = useRef<{ questionPath: string; offsetTop: number; allPaths: string[] } | null>(null)
@@ -171,16 +177,6 @@ export function BuilderLayout({ buildId }: { buildId: string }) {
   // ── Stable ref for builder so onData callback doesn't go stale ──────
   const builderRef = useRef(builder)
   builderRef.current = builder
-
-  // ── Auto-open right panel when tree data first appears during generation ──
-  const prevTreeDataRef = useRef(builder.treeData)
-  useEffect(() => {
-    if (!prevTreeDataRef.current && builder.treeData) {
-      setStructureOpen(true)
-      setChatOpen(true)
-    }
-    prevTreeDataRef.current = builder.treeData
-  }, [builder.treeData])
 
   // ── Navigate to first form when generation completes ──
   const prevPhaseRef = useRef(builder.phase)
@@ -454,8 +450,6 @@ export function BuilderLayout({ buildId }: { buildId: string }) {
   if (shouldRedirect) return null
 
   const showProgress = (isGenerating || builder.phase === BuilderPhase.Done || builder.phase === BuilderPhase.Error) && !progressHidden && !inReplayMode
-  const chatSidebarOpen = cursorMode === 'pointer' ? false : chatOpen
-  const structureSidebarOpen = cursorMode === 'pointer' ? false : structureOpen
   const showToolbar = !!(builder.treeData && builder.phase === BuilderPhase.Done && builder.blueprint)
   const editMode = cursorMode === 'pointer' ? 'test' as const : 'edit' as const
 
@@ -573,46 +567,43 @@ export function BuilderLayout({ buildId }: { buildId: string }) {
           )}
         </AnimatePresence>
 
-        {/* Tier 4: Content area — sidebars float over main content */}
-        <div className="relative flex-1 overflow-hidden">
-          {/* Single chat instance — morphs from centered to sidebar via layout animation */}
-          <ErrorBoundary>
-            <AnimatePresence>
-              {(isCentered ? chatOpen : chatSidebarOpen) && (
-                <ChatSidebar
-                  key="chat"
-                  centered={isCentered}
-                  heroLogo={
-                    <motion.div
-                      layoutId="nova-logo"
-                      transition={{ layout: { duration: 0.45, ease: [0.4, 0, 0.2, 1] } }}
-                    >
-                      <Logo size="hero" />
-                    </motion.div>
-                  }
-                  messages={inReplayMode ? replayMessages : messages}
-                  status={inReplayMode ? 'ready' : status}
-                  onSend={handleSend}
-                  onClose={() => setChatOpen(false)}
-                  addToolOutput={addToolOutput}
-                  readOnly={inReplayMode}
+        {/* Tier 4: Content area — flex row of sidebars and main content.
+         *  Both sidebars animate width on open/close. ChatSidebar stays mounted
+         *  (width: 0) when collapsed to preserve its singleton controller. */}
+        <div className="relative flex-1 overflow-hidden flex">
+          {/* Structure sidebar (left) — width-animated mount/unmount */}
+          <AnimatePresence initial={false}>
+            {!isCentered && builder.treeData && structureOpen && (
+              <motion.div
+                key="structure"
+                initial={{ width: 0 }}
+                animate={{ width: STRUCTURE_SIDEBAR_WIDTH }}
+                exit={{ width: 0 }}
+                transition={SIDEBAR_TRANSITION}
+                className="shrink-0 overflow-hidden"
+              >
+                <StructureSidebar
+                  builder={builder}
+                  onClose={() => setStructureOpen(false)}
+                  onTreeSelect={handleTreeSelect}
                 />
-              )}
-            </AnimatePresence>
-          </ErrorBoundary>
+              </motion.div>
+            )}
+          </AnimatePresence>
 
-          {/* Main scrollable content — full height, scrollbar on far right */}
+          {/* Main scrollable content */}
           <AnimatePresence>
             {!isCentered && (
               <motion.div
-                className="absolute inset-0"
+                className="flex-1 overflow-hidden relative"
                 initial={{ opacity: 0 }}
                 animate={{ opacity: 1 }}
                 exit={{ opacity: 0 }}
                 transition={{ duration: 0.3, delay: 0.15 }}
               >
                 <div className="h-full overflow-auto">
-                  {!structureSidebarOpen && cursorMode !== 'pointer' && builder.treeData && (
+                  {/* Floating reopen buttons — same position as original design */}
+                  {!structureOpen && builder.treeData && (
                     <button
                       onClick={() => setStructureOpen(true)}
                       className="absolute top-3 left-3 z-ground p-2 bg-nova-surface border border-nova-border rounded-lg hover:border-nova-border-bright transition-colors cursor-pointer"
@@ -621,7 +612,7 @@ export function BuilderLayout({ buildId }: { buildId: string }) {
                       <Icon icon={tablerListTree} width="20" height="20" />
                     </button>
                   )}
-                  {!chatSidebarOpen && cursorMode !== 'pointer' && (
+                  {!chatOpen && (
                     <button
                       onClick={() => setChatOpen(true)}
                       className="absolute top-3 right-3 z-ground p-2 bg-nova-surface border border-nova-border rounded-lg hover:border-nova-border-bright transition-colors cursor-pointer"
@@ -669,41 +660,48 @@ export function BuilderLayout({ buildId }: { buildId: string }) {
                     </motion.div>
                   )}
                 </AnimatePresence>
+
+                {/* Cursor mode bar — floats at the right edge of main content */}
+                {showToolbar && (
+                  <div className="absolute top-1/2 right-4 -translate-y-1/2 z-raised">
+                    <CursorModeSelector mode={cursorMode} onChange={handleCursorModeChange} variant="vertical" />
+                  </div>
+                )}
               </motion.div>
             )}
           </AnimatePresence>
 
-          {/* Cursor mode bar — floats in the gap between preview and chat sidebar */}
-          {/* Cursor mode bar — sidebar width + left margin (8px) + gap (12px) */}
-          {showToolbar && (
-            <div
-              className="absolute top-1/2 -translate-y-1/2 z-raised transition-[right] duration-300 ease-[cubic-bezier(0.4,0,0.2,1)]"
-              style={{ right: chatSidebarOpen ? CHAT_SIDEBAR_WIDTH + 20 : 16 }}
-            >
-              <CursorModeSelector mode={cursorMode} onChange={handleCursorModeChange} variant="vertical" />
-            </div>
-          )}
-
-          {/* Right panel (Structure tree) — absolute right, floats over content */}
-          <AnimatePresence>
-            {!isCentered && structureSidebarOpen && (
-              <motion.div
-                initial={{ x: -320, opacity: 0 }}
-                animate={{ x: 0, opacity: 1 }}
-                exit={{ x: -320, opacity: 0 }}
-                transition={{ duration: 0.25, ease: [0.4, 0, 0.2, 1] }}
-                className="absolute left-0 top-0 bottom-0 z-raised"
-              >
-                <StructureSidebar
-                  builder={builder}
-                  onClose={() => setStructureOpen(false)}
-                  onTreeSelect={handleTreeSelect}
-                />
-              </motion.div>
-            )}
-          </AnimatePresence>
-
-          {/* InlineSettingsPanel now renders inside FormRenderer (SortableQuestion) */}
+          {/* Chat sidebar — always mounted, width-animated for open/close.
+           *  In centered mode the wrapper is invisible to layout (auto width,
+           *  no overflow clip) so ChatSidebar's absolute positioning works. */}
+          <motion.div
+            initial={false}
+            animate={{ width: isCentered ? 'auto' : (chatOpen ? CHAT_SIDEBAR_WIDTH : 0) }}
+            transition={isCentered ? { duration: 0 } : SIDEBAR_TRANSITION}
+            className={isCentered ? '' : 'shrink-0 overflow-hidden'}
+          >
+            <ErrorBoundary>
+              <ChatSidebar
+                key="chat"
+                centered={isCentered}
+                heroLogo={isCentered
+                  ? <motion.div
+                      layoutId="nova-logo"
+                      transition={{ layout: { duration: 0.45, ease: [0.4, 0, 0.2, 1] } }}
+                    >
+                      <Logo size="hero" />
+                    </motion.div>
+                  : undefined
+                }
+                messages={inReplayMode ? replayMessages : messages}
+                status={inReplayMode ? 'ready' : status}
+                onSend={handleSend}
+                onClose={() => setChatOpen(false)}
+                addToolOutput={addToolOutput}
+                readOnly={inReplayMode}
+              />
+            </ErrorBoundary>
+          </motion.div>
         </div>
 
       <ToastContainer />
