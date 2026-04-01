@@ -38,11 +38,11 @@ Replaces `Layout.Space` with `Layout.NewLine` + `Layout.Tab`:
 - **Filtered** — newline + indent after `[`, before `]`
 - **AndExpr / OrExpr** — newline before keyword when inside expanded context (depth > 0)
 
-`XPathField` uses `prettyPrintXPath` for display; `XPathEditorModal` opens with `prettyPrintXPath` and saves via `formatXPath` (single-line) for storage/export. `Layout.Tab` renders as 4 spaces (not `\t`) so editor auto-indent matches formatter output.
+`XPathField` uses `prettyPrintXPath` for display and saves via `formatXPath` (single-line) for storage/export. `Layout.Tab` renders as 4 spaces (not `\t`) so editor auto-indent matches formatter output.
 
 ## Linter (`xpath-lint.ts`)
 
-`xpathLinter(getContext)` — CodeMirror lint extension using `@codemirror/lint`. Takes a getter that reads live from the blueprint (`() => { blueprint, form, moduleCaseType }`). On each lint pass, derives valid paths and case properties from the blueprint, then runs `validateXPath()` for full syntax + semantic validation. Blocks save in `XPathEditorModal` when diagnostics are present.
+`xpathLinter(getContext)` — CodeMirror lint extension using `@codemirror/lint`. Takes a getter that reads live from the blueprint (`() => { blueprint, form, moduleCaseType }`). On each lint pass, derives valid paths and case properties from the blueprint, then runs `validateXPath()` for full syntax + semantic validation. Blocks save in `XPathField` (inline editor) when diagnostics are present.
 
 ## Autocomplete (`xpath-autocomplete.ts`)
 
@@ -68,4 +68,4 @@ Replaces `Layout.Space` with `Layout.NewLine` + `Layout.Tab`:
 ## Language & Theme
 
 - `xpath-language.ts` — CodeMirror `LanguageSupport` with `styleTags` highlighting and `foldNodeProp` (folds `ArgumentList` and `Filtered`). `HashtagRef` child nodes (`HashtagType`, `HashtagSegment`) are tagged directly — named children don't inherit parent styles. Scoped overrides (`HashtagRef/"/"`, `HashtagRef/"#"`) keep `#` and `/` tokens cyan instead of falling through to the global separator style.
-- `xpath-theme.ts` — Nova dark theme for CodeMirror. Used by `XPathField` and `XPathEditorModal`. Also exports `novaAutocompleteTheme` (dark tooltip styling for the autocomplete dropdown, z-index 200) and `novaChipTheme` (hover feedback for `.cm-hashtag-chip` widgets).
+- `xpath-theme.ts` — Nova dark theme for CodeMirror. Used by `XPathField` (both read-only and inline editing states). Also exports `novaAutocompleteTheme` (dark tooltip styling for the autocomplete dropdown, z-index 200) and `novaChipTheme` (hover feedback for `.cm-hashtag-chip` widgets).
