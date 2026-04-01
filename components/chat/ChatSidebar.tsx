@@ -3,7 +3,7 @@ import { useRef, useState, useCallback, useEffect, type ReactNode } from 'react'
 import { motion } from 'motion/react'
 import type { UIMessage } from 'ai'
 import { Icon } from '@iconify/react/offline'
-import ciChevronLeft from '@iconify-icons/ci/chevron-left'
+import ciChevronRight from '@iconify-icons/ci/chevron-right'
 import { useBuilder } from '@/hooks/useBuilder'
 import { ChatMessage } from '@/components/chat/ChatMessage'
 import { ChatInput } from '@/components/chat/ChatInput'
@@ -308,13 +308,13 @@ export function ChatSidebar({
 
   return (
     <motion.div
-      initial={centered ? false : { x: -320, opacity: 0 }}
+      initial={centered ? false : { x: 320, opacity: 0 }}
       animate={{ x: 0, opacity: 1 }}
-      exit={centered ? { opacity: 0 } : { x: -320, opacity: 0 }}
+      exit={centered ? { opacity: 0 } : { x: 320, opacity: 0 }}
       transition={{ duration: 0.25, ease: [0.4, 0, 0.2, 1] }}
       className={centered
         ? 'absolute inset-0 z-raised flex flex-col items-center justify-center gap-6 pointer-events-none'
-        : 'absolute left-0 top-0 bottom-0 z-raised'
+        : 'absolute right-0 top-0 bottom-0 z-raised'
       }
     >
       {centered && heroLogo}
@@ -322,20 +322,20 @@ export function ChatSidebar({
         layout={morphing ? 'position' : false}
         className={`pointer-events-auto flex flex-col overflow-hidden transition-[width,max-width,max-height,height,border-radius,box-shadow,border-color,margin] duration-[450ms] ease-[cubic-bezier(0.4,0,0.2,1)] ${centered
           ? 'w-full max-w-2xl max-h-[min(700px,80vh)] rounded-2xl border border-nova-border bg-nova-deep'
-          : 'w-80 h-full border border-nova-border-bright border-l-0 bg-nova-deep rounded-r-xl m-2 ml-0 shadow-[0_2px_12px_rgba(0,0,0,0.4)]'
+          : 'w-80 h-full border border-nova-border-bright border-r-0 bg-nova-deep rounded-l-xl m-2 mr-0 shadow-[0_2px_12px_rgba(0,0,0,0.4)]'
         }`}
         transition={{ layout: { duration: 0.45, ease: [0.4, 0, 0.2, 1] } }}
       >
         {/* Sidebar header */}
         {!centered && (
           <div className="flex items-center justify-between px-4 h-11 border-b border-nova-border shrink-0">
+            <span className="text-[13px] font-medium text-nova-text-secondary">Chat</span>
             <button
               onClick={onClose}
               className="px-1 h-11 text-nova-text-muted hover:text-nova-text transition-colors cursor-pointer"
             >
-              <Icon icon={ciChevronLeft} width="14" height="14" />
+              <Icon icon={ciChevronRight} width="14" height="14" />
             </button>
-            <span className="text-[13px] font-medium text-nova-text-secondary">Chat</span>
           </div>
         )}
 
