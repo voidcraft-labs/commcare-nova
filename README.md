@@ -10,6 +10,8 @@ Nova uses a single AI agent — the **Solutions Architect** — that converses w
 
 ## Getting Started
 
+### Local Development
+
 ```bash
 cp .env.example .env   # Optional — enables run logging by default
 npm install
@@ -19,6 +21,21 @@ npm run dev
 Open [http://localhost:3000](http://localhost:3000) to start building.
 
 You'll be prompted to enter your Anthropic API key before you can generate apps.
+
+### Docker
+
+```bash
+docker build -t commcare-nova .
+docker run -p 8080:8080 commcare-nova
+```
+
+### Deploy to Cloud Run
+
+```bash
+gcloud run deploy nova --source . --region <region>
+```
+
+Cloud Run builds the image from the Dockerfile automatically. No server-side secrets are needed — API keys are stored client-side and sent per request.
 
 ## Commands
 
