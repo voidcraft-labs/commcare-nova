@@ -20,7 +20,7 @@ import { motion } from 'motion/react'
 import { Icon, type IconifyIcon } from '@iconify/react/offline'
 import tablerHandFinger from '@iconify-icons/tabler/hand-finger'
 import tablerCursorText from '@iconify-icons/tabler/cursor-text'
-import ciSettingsFilled from '@iconify-icons/ci/settings-filled'
+import tablerPointer from '@iconify-icons/tabler/pointer'
 import type { CursorMode } from '@/lib/services/builder'
 
 interface CursorModeSelectorProps {
@@ -39,9 +39,9 @@ const MODE_COLORS: Record<CursorMode, { bg: string; text: string }> = {
 }
 
 const segments: { key: CursorMode; label: string; icon: IconifyIcon }[] = [
-  { key: 'pointer', label: 'Pointer', icon: tablerHandFinger },
+  { key: 'pointer', label: 'Pointer', icon: tablerPointer },
   { key: 'text',    label: 'Text',    icon: tablerCursorText },
-  { key: 'inspect', label: 'Inspect', icon: ciSettingsFilled },
+  { key: 'inspect', label: 'Inspect', icon: tablerHandFinger },
 ]
 
 /** Shared animation transition for the sliding mode indicator. */
