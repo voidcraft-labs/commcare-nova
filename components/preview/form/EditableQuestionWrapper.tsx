@@ -79,9 +79,11 @@ export function EditableQuestionWrapper({
       if (parent) {
         const parentRect = parent.getBoundingClientRect()
         const rowRect = treeRow.getBoundingClientRect()
-        const isVisible = rowRect.top >= parentRect.top && rowRect.bottom <= parentRect.bottom
-        if (!isVisible) {
-          treeRow.style.scrollMarginTop = '20px'
+        /* Only scroll if the top of the row is outside the visible area. */
+        const SCROLL_MARGIN = 20
+        const isTopVisible = rowRect.top >= parentRect.top && rowRect.top <= parentRect.bottom - SCROLL_MARGIN
+        if (!isTopVisible) {
+          treeRow.style.scrollMarginTop = `${SCROLL_MARGIN}px`
           treeRow.scrollIntoView({ behavior: 'smooth', block: 'start' })
         }
       }

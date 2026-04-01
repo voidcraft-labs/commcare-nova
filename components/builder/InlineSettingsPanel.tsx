@@ -13,7 +13,7 @@
  */
 
 'use client'
-import { useState, useRef, useLayoutEffect, useCallback } from 'react'
+import { useState, useRef, useCallback } from 'react'
 import { motion, AnimatePresence } from 'motion/react'
 import { Icon } from '@iconify/react/offline'
 import ciChevronDown from '@iconify-icons/ci/chevron-down'
@@ -88,12 +88,6 @@ export function InlineSettingsPanel({ builder, question, questionPath, moduleInd
   /* Stop click from propagating to the parent (which would re-select the question). */
   const stopClick = useCallback((e: React.MouseEvent) => e.stopPropagation(), [])
 
-  /* Scroll the panel into view when it first mounts (smooth, non-blocking). */
-  useLayoutEffect(() => {
-    requestAnimationFrame(() => {
-      panelRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
-    })
-  }, [questionPath])
 
   return (
     <AnimatePresence>
