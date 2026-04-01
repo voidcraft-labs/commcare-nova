@@ -12,7 +12,7 @@
  * **Labels** — Always-visible floating toolbar anchored above the editor via
  * React portal + manual positioning. Full CommCare markdown feature set via
  * official TipTap UI components: MarkButton (bold, italic, strike, code),
- * HeadingDropdownMenu, ListDropdownMenu, LinkButton, ImageButton,
+ * HeadingDropdownMenu, ListDropdownMenu, LinkPopover, ImagePopover,
  * BlockquoteButton, CodeBlockButton, HorizontalRuleButton, and TableButton
  * (dropdown with visual grid picker for selecting dimensions). Portal-mounted
  * to body so overflow-hidden ancestors can't clip it.
@@ -36,8 +36,8 @@ import { HeadingDropdownMenu } from '@/components/tiptap-ui/heading-dropdown-men
 import { ListDropdownMenu } from '@/components/tiptap-ui/list-dropdown-menu'
 import { BlockquoteButton } from '@/components/tiptap-ui/blockquote-button'
 import { CodeBlockButton } from '@/components/tiptap-ui/code-block-button'
-import { LinkButton } from '@/components/tiptap-ui/link-button'
-import { ImageButton } from '@/components/tiptap-ui/image-button'
+import { LinkPopover } from '@/components/tiptap-ui/link-popover'
+import { ImagePopover } from '@/components/tiptap-ui/image-popover'
 import { HorizontalRuleButton } from '@/components/tiptap-ui/horizontal-rule-button'
 import { TableButton } from '@/components/tiptap-ui/table-button'
 import { createInlineEditorExtensions, getMarkdownContent } from '@/lib/tiptap/markdownExtensions'
@@ -133,8 +133,8 @@ function LabelToolbar({ anchorRef }: { anchorRef: React.RefObject<HTMLDivElement
         </ToolbarGroup>
         <ToolbarSeparator />
         <ToolbarGroup>
-          <LinkButton />
-          <ImageButton />
+          <LinkPopover />
+          <ImagePopover />
         </ToolbarGroup>
         <ToolbarSeparator />
         <ToolbarGroup>
