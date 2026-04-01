@@ -8,7 +8,6 @@ import type { MutableBlueprint } from '@/lib/services/mutableBlueprint'
 import type { QuestionPath } from '@/lib/services/questionPath'
 import { questionTypeIcons, questionTypeLabels } from '@/lib/questionTypeIcons'
 import { EditableText } from '@/components/builder/EditableText'
-import { RefLabelInput } from '@/components/builder/RefLabelInput'
 import { QuestionTypeGrid } from '@/components/builder/QuestionTypeGrid'
 import { useDismissRef } from '@/hooks/useDismissRef'
 import { AddPropertyButton } from './AddPropertyButton'
@@ -51,7 +50,7 @@ export function ContextualEditorUI({ question, selected, mb, builder, notifyBlue
 
   const isHidden = question.type === 'hidden'
 
-  // Hidden questions have no visible UI — no label, hint, or help. Only the type
+  // Hidden questions have no visible UI — no hint or help. Only the type
   // picker is relevant, and even that is rarely needed.
   const missingTextFields = isHidden ? [] : addableTextFields.filter(f =>
     (f.field === 'hint' || f.field === 'help') && !question[f.field as keyof Question] && newlyAddedField !== f.field,
@@ -59,17 +58,6 @@ export function ContextualEditorUI({ question, selected, mb, builder, notifyBlue
 
   return (
       <div className="space-y-3">
-        {!isHidden && question.label !== undefined && (
-          <RefLabelInput
-            label="Label"
-            value={question.label ?? ''}
-            onSave={(v) => { saveQuestion('label', v || null); builder.clearNewQuestion() }}
-            onChange={(v) => saveQuestion('label', v || null)}
-            multiline
-            autoFocus={builder.isNewQuestion(selected.questionPath!)}
-            selectAll={builder.isNewQuestion(selected.questionPath!)}
-          />
-        )}
         <div>
           <label className="text-xs text-nova-text-muted uppercase tracking-wider mb-1 block">Type</label>
           <button
