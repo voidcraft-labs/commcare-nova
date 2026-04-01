@@ -360,17 +360,13 @@ body {
   background: rgba(139, 92, 246, 0.08);
 }
 
-/* Preview markdown (form labels, hints, display text) — uses preview theme vars */
+/* Preview markdown (form labels, hints, display text) — uses preview theme vars.
+ * break-spaces + relative match ProseMirror's defaults so the static rendering
+ * is pixel-identical to the TipTap editor in text cursor mode — no layout shift
+ * when switching cursor modes. */
 .preview-markdown {
   line-height: 1.7;
   word-break: break-word;
-}
-
-/* Text-editable surfaces must match ProseMirror's whitespace and positioning
- * defaults so the static rendering is pixel-identical to the TipTap editor.
- * Without this, clicking into an editor causes a layout shift because
- * ProseMirror's injected CSS sets these properties on the editor element. */
-[data-text-editable] .preview-markdown {
   white-space: break-spaces;
   position: relative;
 }
