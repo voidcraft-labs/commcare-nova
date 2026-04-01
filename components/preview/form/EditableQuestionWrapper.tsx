@@ -94,11 +94,11 @@ export function EditableQuestionWrapper({
     return <div style={style}>{children}</div>
   }
 
-  /* Text mode: no outlines, no click capture, no pointer-events-none.
-   * Children are fully interactive so TextEditable instances inside can
-   * receive clicks directly and activate inline editors. */
+  /* Text mode: no outlines, no click capture. Children are fully interactive
+   * so TextEditable instances receive clicks directly. text-mode-cursors
+   * overlays non-text surfaces to suppress interactivity. */
   if (ctx.cursorMode === 'text') {
-    return <div style={style}>{children}</div>
+    return <div className="text-mode-cursors" style={style}>{children}</div>
   }
 
   const isSelected = builder?.selected?.type === 'question'
