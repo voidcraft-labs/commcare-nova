@@ -39,7 +39,6 @@ export function StructureSidebar({
             onSelect={onTreeSelect}
             phase={builder.phase}
             hideHeader
-            compact
           />
         </ErrorBoundary>
 
