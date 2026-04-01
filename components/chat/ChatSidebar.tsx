@@ -100,7 +100,9 @@ export function ChatSidebar({
     return () => gridController.setOnModeApplied(null)
   }, [gridController])
 
-  // Desired mode + label from builder state — sent to controller, which queues if busy
+  // Desired mode + label from builder state — sent to controller, which queues if busy.
+  // Gate reasoning/editing on `status === 'streaming'` so the send wave keeps looping
+  // during the 'submitted' wait period (server hasn't started responding yet).
   const desiredMode = ((): SignalMode => {
     if (introMode) return introMode
     if (builder.phase === BuilderPhase.Error) {
@@ -111,6 +113,10 @@ export function ChatSidebar({
     }
     if (builder.isGenerating) return 'building'
     if (builder.agentActive) {
+      // Keep the send wave looping until the server actually starts streaming.
+      // During 'submitted', no tokens are flowing so reasoning/editing would
+      // look dead — the whole point of the signal grid is to show activity.
+      if (status === 'submitted') return 'sending'
       return builder.postBuildEdit ? 'editing' : 'reasoning'
     }
     // After a post-build edit: show 'done' if the SA actually mutated the blueprint
