@@ -16,11 +16,9 @@ export function LabelField({ question, questionPath, state }: { question: Questi
 
   return (
     <div className="py-1">
-      <div className="flex items-center gap-1">
-        <TextEditable value={question.label ?? ''} onSave={saveField ? (v) => saveField('label', v) : undefined} fieldType="label">
-          <div className="text-sm font-medium text-nova-text"><LabelContent label={question.label ?? ''} resolvedLabel={state.resolvedLabel} isEditMode={isEditMode} /></div>
-        </TextEditable>
-      </div>
+      <TextEditable value={question.label ?? ''} onSave={saveField ? (v) => saveField('label', v) : undefined} fieldType="label">
+        <div className="text-sm font-medium text-nova-text"><LabelContent label={question.label ?? ''} resolvedLabel={state.resolvedLabel} isEditMode={isEditMode} /></div>
+      </TextEditable>
       {question.hint && (
         <div className="mt-0.5">
           <TextEditable value={question.hint} onSave={saveField ? (v) => saveField('hint', v) : undefined} fieldType="hint">
