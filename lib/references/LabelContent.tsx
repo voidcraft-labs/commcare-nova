@@ -16,6 +16,7 @@ import { PREVIEW_OPTIONS, withChipInjection } from '@/lib/markdown'
 import { ReferenceChip } from './ReferenceChip'
 import { useReferenceProvider } from './ReferenceContext'
 import { HASHTAG_REF_PATTERN } from './config'
+import type { IconifyIcon } from '@iconify/react/offline'
 import { resolveRefFromExpr, parseLabelSegments } from './renderLabel'
 import type { ReferenceProvider } from './provider'
 
@@ -31,15 +32,19 @@ interface LabelContentProps {
 /**
  * Split a text node on ref patterns and render chips inline. Uses
  * parseLabelSegments (canonical regex split) so the pattern logic lives
- * in one place. Exported for use by lightweight rendering surfaces (e.g.
- * structure sidebar) that need chips without full markdown rendering.
+ * in one place. Optional `iconOverrides` enriches form refs with
+ * question-type icons when rendering outside the ReferenceProvider context.
  */
-export function textWithChips(text: string, provider: ReferenceProvider | null): ReactNode {
+export function textWithChips(
+  text: string,
+  provider: ReferenceProvider | null,
+  iconOverrides?: Map<string, IconifyIcon>,
+): ReactNode {
   /* Fast path: skip regex work for the ~95% of labels with no refs. */
   if (!text.includes('#')) return text
   return parseLabelSegments(text).map((seg, i) => {
     if (seg.kind === 'text') return seg.text
-    const ref = resolveRefFromExpr(seg.value, provider)
+    const ref = resolveRefFromExpr(seg.value, provider, iconOverrides)
     return ref ? <ReferenceChip key={i} reference={ref} /> : seg.value
   })
 }
