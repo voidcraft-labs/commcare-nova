@@ -371,9 +371,24 @@ body {
   position: relative;
 }
 /* ProseMirror injects a trailing <br> inside every block node for cursor
- * positioning. It adds height the static markdown view doesn't have,
- * breaking flipbook parity between design and editor states. */
-.tiptap .ProseMirror-trailingBreak {
+ * positioning. In non-empty paragraphs this break adds height the static
+ * markdown view doesn't have, breaking flipbook parity. :not(:only-child)
+ * hides it only when the paragraph has other content (text nodes). In empty
+ * paragraphs (created by pressing Enter), the break is the sole child and
+ * stays visible — giving the line height so the cursor can land there. */
+.tiptap .ProseMirror-trailingBreak:not(:only-child) {
+  display: none;
+}
+/* ProseMirror auto-appends an empty <p> after block-level elements (lists,
+ * blockquotes, tables) so the cursor has a valid text position outside the
+ * block. Collapse the last empty <p> when the editor contains any block
+ * element — the trailing paragraph is structural. :has(> :not(p)) detects
+ * the presence of a non-paragraph block child (ul, ol, blockquote, table,
+ * etc.). Pressing Enter N times after exiting a list produces N empty <p>s;
+ * only the last one (structural) is collapsed. When the editor contains
+ * only <p> elements (plain text), :has(> :not(p)) doesn't match — empty
+ * lines from pressing Enter stay visible and functional. */
+.tiptap:has(> :not(p)) > p:last-child > .ProseMirror-trailingBreak:only-child {
   display: none;
 }
 .preview-markdown p {
