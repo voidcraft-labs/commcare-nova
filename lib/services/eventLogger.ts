@@ -47,9 +47,8 @@ export class EventLogger {
   private requestNumber = 0
   private stepIndex = 0
 
-  /* Buffered data matched into the next step event by logStep() */
+  /* Buffered sub-generation results matched into the next step event by logStep() */
   private pendingSubResults: Array<{ label: string; usage: TokenUsage; reasoning: string }> = []
-  private pendingToolOutputs: Array<{ toolName: string; output: JsonValue }> = []
 
   /* Request-level cost accumulator — flushed once in finalize(). */
   private _usageInputTokens = 0
@@ -149,12 +148,6 @@ export class EventLogger {
     }
   }
 
-  /** Buffer a server-side tool output to be matched into the next logStep. */
-  logToolOutput(toolName: string, output: JsonValue) {
-    if (!this.anyEnabled) return
-    this.pendingToolOutputs.push({ toolName, output: structuredClone(output) as JsonValue })
-  }
-
   /** Write an emission event immediately (real-time, not batched). */
   logEmission(type: string, data: unknown) {
     if (!this.anyEnabled) return
@@ -214,13 +207,15 @@ export class EventLogger {
   }
 
   /**
-   * Write a step event for a completed agent turn. Drains buffered sub-results
-   * and tool outputs, matches them to tool calls by name, computes cost.
+   * Write a step event for a completed agent turn. Matches tool results from
+   * the SDK callback to their tool calls by toolCallId, and drains any
+   * buffered sub-generation results by name.
    */
   logStep(step: {
     text?: string
     reasoning?: string
-    tool_calls?: Array<{ name: string; args: unknown }>
+    tool_calls?: Array<{ name: string; args: unknown; toolCallId?: string }>
+    tool_results?: Array<{ toolCallId: string; output: unknown }>
     usage: {
       model: string
       input_tokens: number
@@ -231,23 +226,27 @@ export class EventLogger {
   }) {
     if (!this.anyEnabled) return
 
-    /* Match tool calls to buffered sub-results and outputs */
+    /* Build toolCallId → output lookup from SDK tool results */
+    const resultsByCallId = new Map<string, unknown>()
+    for (const tr of step.tool_results ?? []) {
+      resultsByCallId.set(tr.toolCallId, tr.output)
+    }
+
+    /* Match tool calls to SDK results (by ID) and buffered sub-results (by name) */
     const toolCalls: LogToolCall[] = (step.tool_calls ?? []).map(tc => {
+      const directOutput = tc.toolCallId != null ? resultsByCallId.get(tc.toolCallId) : undefined
       const subIdx = this.pendingSubResults.findIndex(sr => labelMatchesToolName(sr.label, tc.name))
       const subResult = subIdx >= 0 ? this.pendingSubResults.splice(subIdx, 1)[0] : undefined
-      const outIdx = this.pendingToolOutputs.findIndex(to => to.toolName === tc.name)
-      const toolOutput = outIdx >= 0 ? this.pendingToolOutputs.splice(outIdx, 1)[0] : undefined
       return {
         name: tc.name,
         args: tc.args as JsonValue,
-        output: toolOutput?.output ?? null,
+        output: (directOutput !== undefined ? directOutput : null) as JsonValue,
         generation: subResult?.usage ?? null,
         reasoning: subResult?.reasoning ?? '',
       }
     })
 
     this.pendingSubResults = []
-    this.pendingToolOutputs = []
 
     const usage: TokenUsage = {
       model: step.usage.model,

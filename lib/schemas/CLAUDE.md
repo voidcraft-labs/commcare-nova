@@ -89,7 +89,7 @@ The `id` field on each sub-config becomes the XForm wrapper element name, inner 
 
 All Connect forms get auto GPS capture (`orx:pollsensor` + `cc:location` in form metadata).
 
-Scaffold schema has app-level `connect_type` (empty string sentinel for standard apps).
+Scaffold schema has app-level `connect_type` as `z.enum(['learn', 'deliver', ''])` (empty string sentinel for standard apps). The enum constraint prevents garbled model output — `z.string()` with `strict: true` only enforces "any string" in JSON Schema, while the enum forces the model to pick a valid value.
 
 ## Tool Schemas (`toolSchemas.ts`)
 

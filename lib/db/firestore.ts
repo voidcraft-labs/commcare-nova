@@ -54,6 +54,7 @@ export function getDb(): Firestore {
   if (!_db) {
     _db = new Firestore({
       projectId: process.env.GOOGLE_CLOUD_PROJECT,
+      ignoreUndefinedProperties: true,
     })
   }
   return _db
