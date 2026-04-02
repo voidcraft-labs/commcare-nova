@@ -41,7 +41,7 @@ import { PreviewShell } from '@/components/preview/PreviewShell'
 import { usePreviewNav } from '@/hooks/usePreviewNav'
 import { getParentScreen, type PreviewScreen } from '@/lib/preview/engine/types'
 import { ErrorBoundary } from '@/components/ui/ErrorBoundary'
-import { getReplayData, clearReplayData } from '@/lib/services/logReplay'
+import { consumeReplayData } from '@/lib/services/logReplay'
 import { ReferenceProviderWrapper } from '@/lib/references/ReferenceContext'
 import { useAutoSave } from '@/hooks/useAutoSave'
 import { parseApiErrorMessage } from '@/lib/apiError'
@@ -99,7 +99,7 @@ export function BuilderLayout({ buildId }: { buildId: string }) {
   const { isAuthenticated, isPending: authPending } = useAuth()
   const { settings } = useSettings()
   const builder = useBuilder()
-  const initialReplay = getReplayData()
+  const [initialReplay] = useState(consumeReplayData)
   const [chatOpen, setChatOpen] = useState(true)
   const [structureOpen, setStructureOpen] = useState(true)
   const [cursorMode, setCursorMode] = useState<CursorMode>('inspect')
@@ -135,7 +135,6 @@ export function BuilderLayout({ buildId }: { buildId: string }) {
   const handleExitReplay = useCallback(() => {
     setReplayDataState(undefined)
     setReplayMessages([])
-    clearReplayData()
     builder.reset()
   }, [builder])
 
