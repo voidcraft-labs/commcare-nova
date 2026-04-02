@@ -103,7 +103,6 @@ export function BuilderLayout({ buildId }: { buildId: string }) {
   const cursorModeRef = useRef(cursorMode)
   const scrollAnchorRef = useRef<{ questionPath: string; offsetTop: number; allPaths: string[] } | null>(null)
   cursorModeRef.current = cursorMode
-  const [progressHidden, setProgressHidden] = useState(false)
 
   /* Project loading state — gates rendering until the project is fetched (or
    * determined to be a new build). Only authenticated users load from Firestore. */
@@ -320,7 +319,6 @@ export function BuilderLayout({ buildId }: { buildId: string }) {
   const isGenerating = builder.isGenerating
 
   const progressMode = 'centered' as const
-  if (isGenerating && progressHidden) setProgressHidden(false)
 
   const handleSend = useCallback((text: string) => {
     if (!text.trim() || !hasAccess) return
@@ -551,7 +549,10 @@ export function BuilderLayout({ buildId }: { buildId: string }) {
     )
   }
 
-  const showProgress = (isGenerating || builder.phase === BuilderPhase.Done || builder.phase === BuilderPhase.Error) && !progressHidden && !inReplayMode
+  /* Progress card mounts only during active generation or error — never for
+   * hydrated projects that jump straight to Done. AnimatePresence handles the
+   * exit animation when isGenerating flips to false. */
+  const showProgress = (isGenerating || builder.phase === BuilderPhase.Error) && !inReplayMode
   const showToolbar = !!(builder.treeData && builder.phase === BuilderPhase.Done && builder.blueprint)
   const editMode = cursorMode === 'pointer' ? 'test' as const : 'edit' as const
 
@@ -733,6 +734,8 @@ export function BuilderLayout({ buildId }: { buildId: string }) {
                 <AnimatePresence>
                   {showProgress && (
                     <motion.div
+                      exit={{ opacity: 0, y: 30, scale: 0.97 }}
+                      transition={{ duration: 1, ease: [0.4, 0, 0.2, 1] }}
                       className={`absolute z-ground pointer-events-none ${
                         progressMode === 'centered'
                           ? 'inset-0 flex items-center justify-center'
@@ -743,10 +746,7 @@ export function BuilderLayout({ buildId }: { buildId: string }) {
                         <GenerationProgress
                           phase={builder.phase}
                           statusMessage={builder.statusMessage}
-                          completed={builder.progressCompleted}
-                          total={builder.progressTotal}
                           mode={progressMode}
-                          onDone={() => setProgressHidden(true)}
                         />
                       </div>
                     </motion.div>

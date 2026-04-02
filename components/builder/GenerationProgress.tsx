@@ -1,5 +1,5 @@
 'use client'
-import { useRef, useState, useCallback, useSyncExternalStore } from 'react'
+import { useRef, useState, useCallback } from 'react'
 import { motion } from 'motion/react'
 import { Icon } from '@iconify/react/offline'
 import ciCheck from '@iconify-icons/ci/check'
@@ -8,10 +8,7 @@ import { BuilderPhase } from '@/lib/services/builder'
 interface GenerationProgressProps {
   phase: BuilderPhase
   statusMessage?: string
-  completed: number
-  total: number
   mode: 'centered' | 'compact'
-  onDone?: () => void
 }
 
 /** Display stages — Modules+Forms are combined into "Build" */
@@ -54,8 +51,7 @@ function getPhaseStageIndex(phase: BuilderPhase, stageCount: number): number {
   return map[phase] ?? 0
 }
 
-export function GenerationProgress({ phase, statusMessage, completed, total, mode, onDone }: GenerationProgressProps) {
-  const isDone = phase === BuilderPhase.Done
+export function GenerationProgress({ phase, statusMessage, mode }: GenerationProgressProps) {
   const isError = phase === BuilderPhase.Error
 
   // Track the last generating phase so we can show which step failed on error
@@ -70,7 +66,6 @@ export function GenerationProgress({ phase, statusMessage, completed, total, mod
     : baseStages
 
   const isCentered = mode === 'centered'
-  const [dismissing, setDismissing] = useState(false)
 
   // Refs for measuring label centers
   const containerRef = useRef<HTMLDivElement>(null)
@@ -110,45 +105,19 @@ export function GenerationProgress({ phase, statusMessage, completed, total, mod
     return () => ro.disconnect()
   }, [stages.length, phase])
 
-  // Compute progress bar width — just snap to the measured center of the active stage
+  // Compute progress bar width — snap to the measured center of the active stage
   let pct = 0
-  if (isDone) {
-    pct = 100
-  } else if (labelCenters.length > 0) {
+  if (labelCenters.length > 0) {
     const stageIdx = getPhaseStageIndex(phase, stages.length)
     pct = labelCenters[stageIdx] ?? 0
   }
-
-  // 3s after completion, trigger the pulse→slide-out dismiss animation.
-  // Uses useSyncExternalStore's subscribe lifecycle to manage the timer —
-  // when isDone changes the old timer is cleaned up and a new one starts.
-  const subscribeToDismiss = useCallback((notify: () => void) => {
-    // No auto-dismiss on error — user must dismiss manually or retry
-    if (!isDone || isError) {
-      setDismissing(false)
-      return () => {}
-    }
-    setDismissing(true)
-    return () => {}
-  }, [isDone, isError])
-  useSyncExternalStore(subscribeToDismiss, () => 0, () => 0)
 
   return (
     <motion.div
       layout
       layoutId="generation-progress"
       ref={containerRef}
-      animate={dismissing
-        ? { opacity: 0, y: 30, scale: 0.97 }
-        : { opacity: 1, y: 0, scale: 1 }
-      }
-      transition={dismissing
-        ? { duration: 1, ease: [0.4, 0, 0.2, 1] }
-        : { layout: { duration: 0.5, ease: [0.4, 0, 0.2, 1] } }
-      }
-      onAnimationComplete={() => {
-        if (dismissing) onDone?.()
-      }}
+      transition={{ layout: { duration: 0.5, ease: [0.4, 0, 0.2, 1] } }}
       className={`relative rounded-xl shadow-lg backdrop-blur-sm ${
         isCentered
           ? 'border border-nova-violet/30 bg-nova-surface/90 px-8 py-5 shadow-nova-violet/10 min-w-[400px]'
@@ -218,27 +187,16 @@ export function GenerationProgress({ phase, statusMessage, completed, total, mod
           )
         })}
 
-        {/* Done — always present, lights up when complete */}
-        <div className={`flex items-center gap-1.5 font-medium transition-colors duration-300 ${
+        {/* Done — terminal label, never active while card is mounted */}
+        <div className={`flex items-center gap-1.5 font-medium text-nova-text-muted ${
             isCentered ? 'text-sm' : 'text-xs'
-          } ${
-            isDone ? 'text-nova-cyan-bright' : 'text-nova-text-muted'
           }`}
         >
-          {isDone && (
-            <motion.span
-              initial={{ scale: 0 }}
-              animate={{ scale: 1 }}
-              transition={{ type: 'spring', stiffness: 400, damping: 20, delay: 0.15 }}
-            >
-              <Icon icon={ciCheck} width={isCentered ? 14 : 12} height={isCentered ? 14 : 12} />
-            </motion.span>
-          )}
           <span ref={setLabelRef(stages.length)}>Done</span>
         </div>
       </div>
 
-      {/* Progress bar — pulses once before dismissing */}
+      {/* Progress bar */}
       <div
         ref={barRefCallback}
         className={`rounded-full bg-nova-surface overflow-hidden ${
@@ -248,26 +206,16 @@ export function GenerationProgress({ phase, statusMessage, completed, total, mod
         <motion.div
           className="h-full rounded-full"
           style={{
-            background: isDone
-              ? 'var(--nova-cyan-bright)'
-              : isError
-                ? 'linear-gradient(90deg, var(--nova-cyan), var(--nova-rose))'
-                : 'linear-gradient(90deg, var(--nova-cyan), var(--nova-violet-bright))',
-            boxShadow: isDone
-              ? '0 0 10px var(--nova-cyan)'
-              : isError
-                ? '0 0 8px var(--nova-rose)'
-                : '0 0 8px var(--nova-violet)',
+            background: isError
+              ? 'linear-gradient(90deg, var(--nova-cyan), var(--nova-rose))'
+              : 'linear-gradient(90deg, var(--nova-cyan), var(--nova-violet-bright))',
+            boxShadow: isError
+              ? '0 0 8px var(--nova-rose)'
+              : '0 0 8px var(--nova-violet)',
           }}
           initial={{ width: '0%' }}
-          animate={dismissing
-            ? { width: '100%', opacity: [1, 0.4, 1] }
-            : { width: `${pct}%` }
-          }
-          transition={dismissing
-            ? { opacity: { duration: 0.4, ease: 'easeInOut' } }
-            : { type: 'spring', stiffness: 100, damping: 20 }
-          }
+          animate={{ width: `${pct}%` }}
+          transition={{ type: 'spring', stiffness: 100, damping: 20 }}
         />
       </div>
 
