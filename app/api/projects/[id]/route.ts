@@ -31,6 +31,7 @@ export async function GET(
       blueprint: project.blueprint,
       app_name: project.app_name,
       status: project.status,
+      error_type: project.error_type,
     })
   } catch (err) {
     return handleApiError(err instanceof Error ? err : new ApiError('Failed to load project', 500))

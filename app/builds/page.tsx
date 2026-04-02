@@ -193,23 +193,19 @@ export default function BuildsPage() {
           <div className="grid gap-3">
             {projects.map((project, i) => {
               const style = STATUS_STYLES[project.status] ?? STATUS_STYLES.complete
-              return (
-                <motion.div
-                  key={project.id}
-                  initial={{ opacity: 0, y: 10 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  transition={{ delay: i * 0.03 }}
-                >
-                  <Link
-                    href={`/build/${project.id}`}
-                    className="block p-4 bg-nova-surface border border-nova-border rounded-lg hover:border-nova-border-bright transition-colors group"
-                  >
-                    <div className="flex items-center justify-between">
-                      <div>
-                        <h3 className="font-medium group-hover:text-nova-text transition-colors">
-                          {project.app_name || 'Untitled'}
-                        </h3>
-                        <p className="text-sm text-nova-text-secondary mt-1 flex items-center gap-3">
+              const isFailed = project.status === 'error'
+
+              const cardContent = (
+                <div className="flex items-center justify-between">
+                  <div>
+                    <h3 className={`font-medium ${isFailed ? 'text-nova-text-muted' : 'group-hover:text-nova-text'} transition-colors`}>
+                      {project.app_name || 'Untitled'}
+                    </h3>
+                    <p className="text-sm text-nova-text-secondary mt-1 flex items-center gap-3">
+                      {isFailed ? (
+                        <span className="text-nova-rose/70">Generation failed</span>
+                      ) : (
+                        <>
                           <span>{formatRelativeDate(project.updated_at)}</span>
                           <span className="text-nova-text-muted">
                             {project.module_count} module{project.module_count !== 1 ? 's' : ''}
@@ -221,32 +217,56 @@ export default function BuildsPage() {
                               {project.connect_type}
                             </span>
                           )}
-                        </p>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <button
-                          onClick={(e) => {
-                            e.preventDefault()
-                            e.stopPropagation()
-                            if (!replayingId) handleReplay(project.id, project.app_name)
-                          }}
-                          disabled={replayingId !== null}
-                          className="p-1.5 text-nova-text-muted hover:text-nova-violet transition-colors rounded-md hover:bg-nova-violet/10 disabled:opacity-40 disabled:cursor-not-allowed"
-                          title="Replay generation"
-                        >
-                          <Icon
-                            icon={ciPlayCircle}
-                            width="18"
-                            height="18"
-                            className={replayingId === project.id ? 'animate-pulse' : ''}
-                          />
-                        </button>
-                        <span className={`text-xs px-2 py-1 rounded-md ${style.bg} ${style.text}`}>
-                          {style.label}
-                        </span>
-                      </div>
+                        </>
+                      )}
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    {!isFailed && (
+                      <button
+                        onClick={(e) => {
+                          e.preventDefault()
+                          e.stopPropagation()
+                          if (!replayingId) handleReplay(project.id, project.app_name)
+                        }}
+                        disabled={replayingId !== null}
+                        className="p-1.5 text-nova-text-muted hover:text-nova-violet transition-colors rounded-md hover:bg-nova-violet/10 disabled:opacity-40 disabled:cursor-not-allowed"
+                        title="Replay generation"
+                      >
+                        <Icon
+                          icon={ciPlayCircle}
+                          width="18"
+                          height="18"
+                          className={replayingId === project.id ? 'animate-pulse' : ''}
+                        />
+                      </button>
+                    )}
+                    <span className={`text-xs px-2 py-1 rounded-md ${style.bg} ${style.text}`}>
+                      {style.label}
+                    </span>
+                  </div>
+                </div>
+              )
+
+              return (
+                <motion.div
+                  key={project.id}
+                  initial={{ opacity: 0, y: 10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ delay: i * 0.03 }}
+                >
+                  {isFailed ? (
+                    <div className="block p-4 bg-nova-surface border border-nova-border rounded-lg opacity-60">
+                      {cardContent}
                     </div>
-                  </Link>
+                  ) : (
+                    <Link
+                      href={`/build/${project.id}`}
+                      className="block p-4 bg-nova-surface border border-nova-border rounded-lg hover:border-nova-border-bright transition-colors group"
+                    >
+                      {cardContent}
+                    </Link>
+                  )}
                 </motion.div>
               )
             })}

@@ -263,6 +263,8 @@ export const projectDocSchema = z.object({
   form_count: z.number().default(0),
   /** Build lifecycle status. */
   status: z.enum(['generating', 'complete', 'error']).default('complete'),
+  /** Error classification — set when status is 'error'. Null for non-error projects. */
+  error_type: z.string().nullable().default(null),
   /** Run ID of the generation/edit that last modified this project. */
   run_id: z.string().nullable().default(null),
   /** First save timestamp. Set once via FieldValue.serverTimestamp(). */
