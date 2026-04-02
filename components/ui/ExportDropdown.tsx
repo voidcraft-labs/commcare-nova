@@ -1,6 +1,6 @@
 /**
  * Export dropdown — icon-only or labeled trigger button that opens a
- * frosted-glass menu of export format options (JSON, CCZ).
+ * frosted-glass menu of export format options (Web/JSON, Mobile/CCZ).
  *
  * Two variants via `compact` prop:
  * - **Default**: labeled button with chevron, for standalone use.

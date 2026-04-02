@@ -374,8 +374,8 @@ export function BuilderLayout({ buildId }: { buildId: string }) {
   }, [builder])
 
   const exportOptions = useMemo(() => [
-    { label: 'JSON', description: 'CommCare Web Apps', icon: ciFileDocument, onClick: handleExportJson },
-    { label: 'CCZ', description: 'CommCare Mobile', icon: tablerPackageExport, onClick: handleExportCcz },
+    { label: 'Web', description: 'JSON', icon: ciFileDocument, onClick: handleExportJson },
+    { label: 'Mobile', description: 'CCZ', icon: tablerPackageExport, onClick: handleExportCcz },
   ], [handleExportJson, handleExportCcz])
 
   // ── Undo/Redo with view restoration ─────────────────────────────────
