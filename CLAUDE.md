@@ -120,7 +120,8 @@ Server emits transient data parts → `useChat` `onData` callback → builder me
 ### React Patterns
 
 - **External store subscription** — `useBuilder()` and `useFormEngine()` use `useSyncExternalStore` with versioned snapshots. No useState/useEffect for subscription. `getServerSnapshot` must return a **cached** (module-level) value — returning a new object each call causes infinite loops.
-- **Ref callback cleanup** — DOM listeners (click-outside, Escape, ResizeObserver, MutationObserver, focusin) use React 19 ref callback cleanup instead of useEffect. `useDismissRef` hook for the common click-outside + Escape pattern.
+- **Ref callback cleanup** — DOM listeners (click-outside, Escape, ResizeObserver, MutationObserver, focusin) use React 19 ref callback cleanup instead of useEffect. `useDismissRef` hook for the common click-outside + Escape pattern (inline dropdowns where the trigger is inside the container DOM).
+- **Floating dropdowns** — `useFloatingDropdown` hook (`hooks/useFloatingDropdown.tsx`) encapsulates the full portal dropdown lifecycle: open/close state, FloatingUI positioning, entrance animation, trigger-aware dismiss (no race between click-outside and toggle), and optional content popover coordination. Generic `<T extends HTMLElement>` for typed trigger refs. `DropdownPortal` component (same file) renders the `FloatingPortal` + positioned wrapper div — eliminates the repeated 5-line portal boilerplate from every consumer. Used by AccountMenu, FormSettingsButton, FormTypeButton, AppConnectSettings, and ContextualEditorUI type picker.
 - **Hydration-safe settings** — `useSettings()` uses `useSyncExternalStore` with `getServerSnapshot` (defaults) during SSR and hydration, then switches to `getSnapshot` (localStorage) after hydration. Never branch on `typeof window` during render — it creates hydration mismatches. Components render consistently with server defaults, then update post-hydration.
 - **No navigation during render** — `router.push`/`router.replace` must be called from `useEffect`, never from the render body. Conditional redirects use a `shouldRedirect` flag checked by both the effect and the early return.
 - **Error boundaries** — Route-level (`app/error.tsx`, `app/build/[id]/error.tsx`) and component-level (`ErrorBoundary` wrapping ChatSidebar, PreviewShell, ContextualEditor). Route-level error boundaries use `window.location.href` for navigation (not `router.push`) because React's tree is in an error state and can't handle client-side transitions.
@@ -148,7 +149,7 @@ Dual-mode system supporting both authenticated (Google OAuth) and BYOK (bring yo
 
 **Landing page** — Google sign-in button (primary) + API key input (secondary). Redirects to `/build/new` if already authenticated or has a saved BYOK key.
 
-**Account menu** — `AccountMenu` (`components/ui/AccountMenu.tsx`) replaces the settings gear icon in all headers. Authenticated users see an avatar trigger that opens a `FloatingPortal`-based `POPOVER_GLASS` dropdown with profile info, monthly usage progress bar (`GET /api/user/usage`), Settings link, and Sign Out. BYOK users see a plain settings gear link to `/settings`. Uses `useDismissRef` for click-outside/Escape and `POPOVER_ENTER_KEYFRAMES`/`POPOVER_ENTER_OPTIONS` from `lib/animations.ts` for entrance animation.
+**Account menu** — `AccountMenu` (`components/ui/AccountMenu.tsx`) replaces the settings gear icon in all headers. Authenticated users see an avatar trigger that opens a `POPOVER_GLASS` dropdown (via `useFloatingDropdown` + `DropdownPortal`) with profile info, monthly usage progress bar (`GET /api/user/usage`), Settings link, and Sign Out. BYOK users see a plain settings gear link to `/settings`.
 
 **Settings page** — API key field (becomes "API Key Override" for authenticated users), pipeline configuration, and log replay. Account info and sign-out live in the AccountMenu dropdown, not on this page.
 
@@ -186,7 +187,7 @@ Dark "Stellar Minimalism". CSS custom properties in `globals.css`:
 - Accents: `--nova-violet`, `--nova-cyan`, `--nova-emerald`, `--nova-amber`, `--nova-rose`
 - Fonts: Outfit (display), Plus Jakarta Sans (body), JetBrains Mono (code)
 - Popover layers (`lib/styles.ts`): `POPOVER_GLASS` (L1, frosted glass with bright inset border) for base-layer floating panels, `POPOVER_ELEVATED` (L2, nearly opaque) for popovers stacked above glass. Both share a 1px inner highlight (`inset box-shadow`) that catches light. `NAV_ICON_CLASS` (shared header nav icon styling) also lives here.
-- Popover entrance animation (`lib/animations.ts`): `POPOVER_ENTER_KEYFRAMES` + `POPOVER_ENTER_OPTIONS` — shared Web Animations API config used by all FloatingPortal-based dropdowns (AccountMenu, FormTypeDropdown, FormSettingsPanel, AppConnectSettings).
+- Popover entrance animation (`lib/animations.ts`): `POPOVER_ENTER_KEYFRAMES` + `POPOVER_ENTER_OPTIONS` — shared Web Animations API config. Consumed internally by `useFloatingDropdown` for all portal-based dropdowns and by `ExportDropdown`'s inline AnimatePresence (same values in Motion config format).
 
 ### Structured Output Schemas
 

@@ -1,47 +1,20 @@
 'use client'
-import { useState, useCallback, useRef, useLayoutEffect } from 'react'
-import { useFloating, offset, flip, shift, autoUpdate, FloatingPortal } from '@floating-ui/react'
+import { useCallback } from 'react'
 import { ConnectLogomark } from '@/components/icons/ConnectLogomark'
 import { Toggle } from '@/components/ui/Toggle'
-import { useDismissRef } from '@/hooks/useDismissRef'
-import { useContentPopoverDismiss } from '@/hooks/useContentPopover'
+import { useFloatingDropdown, DropdownPortal } from '@/hooks/useFloatingDropdown'
 import type { Builder } from '@/lib/services/builder'
 import type { ConnectType } from '@/lib/schemas/blueprint'
 import { POPOVER_GLASS } from '@/lib/styles'
-import { POPOVER_ENTER_KEYFRAMES, POPOVER_ENTER_OPTIONS } from '@/lib/animations'
 
 interface AppConnectSettingsProps {
   builder: Builder
 }
 
 export function AppConnectSettings({ builder }: AppConnectSettingsProps) {
-  const [open, setOpen] = useState(false)
   const mb = builder.mb
   const connectType = mb?.getBlueprint().connect_type
-  const animRef = useRef<HTMLDivElement>(null)
-  const buttonRef = useRef<HTMLButtonElement>(null)
-
-  const { refs, floatingStyles } = useFloating({
-    placement: 'bottom-end',
-    middleware: [
-      offset(8),
-      flip(),
-      shift({ padding: 12 }),
-    ],
-    whileElementsMounted: autoUpdate,
-  })
-
-  useLayoutEffect(() => {
-    if (buttonRef.current) {
-      refs.setReference(buttonRef.current)
-    }
-  }, [refs])
-
-  useLayoutEffect(() => {
-    if (open) {
-      animRef.current?.animate(POPOVER_ENTER_KEYFRAMES, POPOVER_ENTER_OPTIONS)
-    }
-  }, [open])
+  const dd = useFloatingDropdown<HTMLButtonElement>({ contentPopover: true })
 
   const setConnectType = useCallback((type: ConnectType | null | undefined) => {
     if (!mb) return
@@ -54,8 +27,8 @@ export function AppConnectSettings({ builder }: AppConnectSettingsProps) {
   return (
     <>
       <button
-        ref={buttonRef}
-        onClick={() => setOpen(o => !o)}
+        ref={dd.triggerRef}
+        onClick={dd.toggle}
         className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg transition-colors cursor-pointer ${
           connectType
             ? 'text-nova-violet-bright hover:bg-nova-violet/10'
@@ -69,41 +42,23 @@ export function AppConnectSettings({ builder }: AppConnectSettingsProps) {
         )}
       </button>
 
-      {open && (
-        <FloatingPortal>
-          <div
-            ref={(el) => { animRef.current = el; refs.setFloating(el) }}
-            style={floatingStyles}
-            className="z-popover"
-          >
-            <AppConnectPanel
-              connectType={connectType}
-              setConnectType={setConnectType}
-              onClose={() => setOpen(false)}
-            />
-          </div>
-        </FloatingPortal>
-      )}
+      <DropdownPortal dropdown={dd}>
+        <AppConnectPanel connectType={connectType} setConnectType={setConnectType} />
+      </DropdownPortal>
     </>
   )
 }
 
 function AppConnectPanel({
-  connectType, setConnectType, onClose,
+  connectType, setConnectType,
 }: {
   connectType: ConnectType | undefined
   setConnectType: (type: ConnectType | null | undefined) => void
-  onClose: () => void
 }) {
   const enabled = !!connectType
-  const dismissRef = useDismissRef(onClose)
-  useContentPopoverDismiss(onClose)
 
   return (
-    <div
-      ref={dismissRef}
-      className={`w-64 ${POPOVER_GLASS}`}
-    >
+    <div className={`w-64 ${POPOVER_GLASS}`}>
       <div className="px-3.5 py-3 space-y-3">
         {/* Toggle — undefined signals "re-enable with last mode", resolved inside switchConnectMode */}
         <div className="flex items-center justify-between">

@@ -17,17 +17,15 @@
  */
 
 'use client'
-import { useState, useEffect, useLayoutEffect, useRef } from 'react'
+import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { Icon } from '@iconify/react/offline'
 import ciSettings from '@iconify-icons/ci/settings'
 import ciLogout from '@iconify-icons/ci/log-out'
 import Link from 'next/link'
-import { useFloating, offset, flip, shift, autoUpdate, FloatingPortal } from '@floating-ui/react'
-import { useDismissRef } from '@/hooks/useDismissRef'
+import { useFloatingDropdown, DropdownPortal } from '@/hooks/useFloatingDropdown'
 import { useAuth, type AuthUser } from '@/hooks/useAuth'
 import { POPOVER_GLASS, NAV_ICON_CLASS } from '@/lib/styles'
-import { POPOVER_ENTER_KEYFRAMES, POPOVER_ENTER_OPTIONS } from '@/lib/animations'
 import { formatCurrency } from '@/lib/utils/format'
 
 /** Response shape from GET /api/user/usage. */
@@ -94,33 +92,8 @@ function UserAvatar({ user, size }: { user: AuthUser; size: keyof typeof AVATAR_
 export function AccountMenu() {
   const router = useRouter()
   const { user, isAuthenticated, isPending, signOut } = useAuth()
-  const [open, setOpen] = useState(false)
   const [usage, setUsage] = useState<UsageData | null>(null)
-  const triggerRef = useRef<HTMLButtonElement>(null)
-  const panelRef = useRef<HTMLDivElement>(null)
-  const dismissRef = useDismissRef(() => setOpen(false))
-
-  /* Floating UI positions the portal-rendered dropdown relative to the trigger,
-   * escaping any overflow-hidden ancestors (BuilderLayout header collapse). */
-  const { refs, floatingStyles } = useFloating({
-    placement: 'bottom-end',
-    middleware: [
-      offset(6),
-      flip(),
-      shift({ padding: 12 }),
-    ],
-    whileElementsMounted: autoUpdate,
-  })
-
-  /* Wire the trigger button as the floating reference element. */
-  useLayoutEffect(() => {
-    if (triggerRef.current) refs.setReference(triggerRef.current)
-  }, [refs])
-
-  /* Animate the dropdown on open — shared popover entrance animation. */
-  useLayoutEffect(() => {
-    if (open) panelRef.current?.animate(POPOVER_ENTER_KEYFRAMES, POPOVER_ENTER_OPTIONS)
-  }, [open])
+  const dd = useFloatingDropdown<HTMLButtonElement>({ offset: 6 })
 
   /* Fetch usage data eagerly on mount so the dropdown opens without a loading state.
    * Cancelled flag prevents stale setState if the component unmounts mid-flight. */
@@ -154,8 +127,8 @@ export function AccountMenu() {
     <>
       {/* ── Trigger: avatar or initials ──────────────────────── */}
       <button
-        ref={triggerRef}
-        onClick={() => setOpen(!open)}
+        ref={dd.triggerRef}
+        onClick={dd.toggle}
         className="flex items-center justify-center w-7 h-7 rounded-full cursor-pointer transition-all duration-150 ring-1 ring-transparent hover:ring-nova-border-bright focus-visible:ring-nova-violet outline-none"
         title="Account"
       >
@@ -163,65 +136,57 @@ export function AccountMenu() {
       </button>
 
       {/* ── Dropdown (portal) ────────────────────────────────── */}
-      {open && (
-        <FloatingPortal>
-          <div
-            ref={(el) => { panelRef.current = el; refs.setFloating(el) }}
-            style={floatingStyles}
-            className="z-popover"
-          >
-            <div ref={dismissRef} className={`${POPOVER_GLASS} w-64 overflow-hidden`}>
-              {/* ── Profile ────────────────────────────────────── */}
-              <div className="px-4 pt-4 pb-3 flex items-center gap-3">
-                <UserAvatar user={user} size="md" />
-                <div className="min-w-0">
-                  <p className="text-sm font-medium text-nova-text truncate">{user.name}</p>
-                  <p className="text-xs text-nova-text-muted truncate">{user.email}</p>
-                </div>
-              </div>
-
-              {/* ── Usage bar ──────────────────────────────────── */}
-              {usage && (
-                <div className="px-4 pb-3">
-                  <div className="flex items-baseline justify-between mb-1.5">
-                    <span className="text-[11px] text-nova-text-muted">Usage this month</span>
-                    <span className="text-[11px] text-nova-text-secondary">
-                      {formatCurrency(usage.cost_estimate)} / {formatCurrency(usage.cap)}
-                    </span>
-                  </div>
-                  <div className="h-1.5 rounded-full bg-white/[0.06] overflow-hidden">
-                    <div
-                      className={`h-full rounded-full bg-gradient-to-r ${getBarGradient(usageRatio)} transition-all duration-500`}
-                      style={{ width: `${Math.max(usageRatio * 100, 1)}%` }}
-                    />
-                  </div>
-                </div>
-              )}
-
-              {/* ── Divider ────────────────────────────────────── */}
-              <div className="border-t border-white/[0.06]" />
-
-              {/* ── Menu rows ──────────────────────────────────── */}
-              <div>
-                <button
-                  onClick={() => { router.push('/settings'); setOpen(false) }}
-                  className="w-full flex items-center gap-2.5 px-3 py-2.5 text-sm text-nova-text hover:bg-white/[0.06] transition-colors cursor-pointer"
-                >
-                  <Icon icon={ciSettings} width="16" height="16" className="text-nova-text-muted" />
-                  Settings
-                </button>
-                <button
-                  onClick={() => { signOut(); setOpen(false) }}
-                  className="w-full flex items-center gap-2.5 px-3 py-2.5 text-sm text-nova-text hover:bg-white/[0.06] transition-colors cursor-pointer rounded-b-xl"
-                >
-                  <Icon icon={ciLogout} width="16" height="16" className="text-nova-text-muted" />
-                  Sign out
-                </button>
-              </div>
+      <DropdownPortal dropdown={dd}>
+        <div className={`${POPOVER_GLASS} w-64 overflow-hidden`}>
+          {/* ── Profile ────────────────────────────────────── */}
+          <div className="px-4 pt-4 pb-3 flex items-center gap-3">
+            <UserAvatar user={user} size="md" />
+            <div className="min-w-0">
+              <p className="text-sm font-medium text-nova-text truncate">{user.name}</p>
+              <p className="text-xs text-nova-text-muted truncate">{user.email}</p>
             </div>
           </div>
-        </FloatingPortal>
-      )}
+
+          {/* ── Usage bar ──────────────────────────────────── */}
+          {usage && (
+            <div className="px-4 pb-3">
+              <div className="flex items-baseline justify-between mb-1.5">
+                <span className="text-[11px] text-nova-text-muted">Usage this month</span>
+                <span className="text-[11px] text-nova-text-secondary">
+                  {formatCurrency(usage.cost_estimate)} / {formatCurrency(usage.cap)}
+                </span>
+              </div>
+              <div className="h-1.5 rounded-full bg-white/[0.06] overflow-hidden">
+                <div
+                  className={`h-full rounded-full bg-gradient-to-r ${getBarGradient(usageRatio)} transition-all duration-500`}
+                  style={{ width: `${Math.max(usageRatio * 100, 1)}%` }}
+                />
+              </div>
+            </div>
+          )}
+
+          {/* ── Divider ────────────────────────────────────── */}
+          <div className="border-t border-white/[0.06]" />
+
+          {/* ── Menu rows ──────────────────────────────────── */}
+          <div>
+            <button
+              onClick={() => { router.push('/settings'); dd.close() }}
+              className="w-full flex items-center gap-2.5 px-3 py-2.5 text-sm text-nova-text hover:bg-white/[0.06] transition-colors cursor-pointer"
+            >
+              <Icon icon={ciSettings} width="16" height="16" className="text-nova-text-muted" />
+              Settings
+            </button>
+            <button
+              onClick={() => { signOut(); dd.close() }}
+              className="w-full flex items-center gap-2.5 px-3 py-2.5 text-sm text-nova-text hover:bg-white/[0.06] transition-colors cursor-pointer rounded-b-xl"
+            >
+              <Icon icon={ciLogout} width="16" height="16" className="text-nova-text-muted" />
+              Sign out
+            </button>
+          </div>
+        </div>
+      </DropdownPortal>
     </>
   )
 }
