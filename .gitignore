@@ -39,9 +39,6 @@ yarn-error.log*
 # build data
 /.data/
 
-# run logs
-/.log/
-
 # vercel
 .vercel
 

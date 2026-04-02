@@ -16,9 +16,9 @@ The single endpoint for all agent interaction. Creates `EventLogger`, `Generatio
 
 **Spend cap check**: After API key resolution, authenticated users' monthly spend is checked via `getMonthlyUsage()`. If `cost_estimate >= MONTHLY_SPEND_CAP_USD`, returns `{ error, type: 'spend_cap_exceeded' }` with 429 status. Fails open on Firestore errors — a Firestore outage does not block generation. BYOK users skip this check entirely.
 
-**Input validation**: `chatRequestSchema` (from `lib/schemas/apiSchemas.ts`) validates our fields (`apiKey` (optional), `pipelineConfig`, `blueprint`, etc.) via Zod `safeParse`. `messages` is typed as `UIMessage[]` from the AI SDK — not schema-validated.
+**Input validation**: `chatRequestSchema` (from `lib/schemas/apiSchemas.ts`) validates our fields (`apiKey` (optional), `blueprint`, etc.) via Zod `safeParse`. `messages` is typed as `UIMessage[]` from the AI SDK — not schema-validated.
 
-**Body params** (from `useChat` body): `apiKey` (optional — omitted for authenticated users), `pipelineConfig`, `blueprint` (for edits), `runId` (for log continuation), `projectId` (for updating the same Firestore project on subsequent requests).
+**Body params** (from `useChat` body): `apiKey` (optional — omitted for authenticated users), `blueprint` (for edits), `runId` (for log continuation), `projectId` (for updating the same Firestore project on subsequent requests).
 
 **Streaming**: Uses `createUIMessageStream` with a manual reader loop (not `writer.merge()`) so stream errors can be caught and emitted as `data-error` before the stream closes. Both catch blocks (`route:init` and `route:stream`) delegate to a local `handleRouteError(error, source)` closure that classifies the error, emits `data-error` to the client via `ctx.emitError()`, and marks the project as failed via `failProject()` (fire-and-forget). Server emits transient data parts via `ctx.emit()` which drive builder state on the client.
 
@@ -69,6 +69,3 @@ Returns the authenticated user's current month usage and spend cap. Authenticate
 
 Response: `{ cost_estimate: number, request_count: number, cap: number, period: string }`. `cost_estimate` and `request_count` default to 0 if no usage document exists yet (first request of the month). `cap` is `MONTHLY_SPEND_CAP_USD` from `lib/db/usage.ts`. `period` is the current `yyyy-mm` string. Consumed by `AccountMenu` to render the usage progress bar.
 
-## POST /api/models (`models/route.ts`)
-
-Proxy for Anthropic API model listing. Uses `resolveApiKey()` for dual auth — authenticated users don't need to send an API key. Returns latest version of each model family (Opus, Sonnet, Haiku). Returns proper HTTP status codes for auth failures (401) and upstream errors (502).

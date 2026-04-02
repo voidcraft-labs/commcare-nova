@@ -1,57 +1,25 @@
-'use client'
-import { useEffect, useState } from 'react'
-import { useRouter } from 'next/navigation'
-import { motion } from 'motion/react'
-import { Icon } from '@iconify/react/offline'
-import ciPlus from '@iconify-icons/ci/plus'
 import Link from 'next/link'
+import { Icon } from '@iconify/react/offline'
 import tablerLayoutDashboard from '@iconify-icons/tabler/layout-dashboard'
 import { Logo } from '@/components/ui/Logo'
-import { Button } from '@/components/ui/Button'
-import { ProjectCard } from '@/components/ui/ProjectCard'
 import { AccountMenu } from '@/components/ui/AccountMenu'
 import { NAV_ICON_CLASS } from '@/lib/styles'
-import { useAuth } from '@/hooks/useAuth'
-import { useReplay } from '@/hooks/useReplay'
-import type { ProjectSummary } from '@/lib/db/projects'
+import ciPlus from '@iconify-icons/ci/plus'
+import { requireAuth } from '@/lib/auth-utils'
+import { listProjects } from '@/lib/db/projects'
+import { ReplayableProjectList } from '@/components/ui/ReplayableProjectList'
 
-export default function BuildsPage() {
-  const router = useRouter()
-  const { isAuthenticated, isAdmin, isPending: authPending } = useAuth()
-  const buildUrl = (id: string) => `/api/projects/${id}/logs`
-  const { handleReplay, replayingId, replayError } = useReplay({ buildUrl })
-  const [projects, setProjects] = useState<ProjectSummary[]>([])
-  const [loading, setLoading] = useState(true)
-  const [fetchError, setFetchError] = useState<string | null>(null)
-
-  /* Redirect BYOK / unauthenticated users — they have no saved projects. */
-  useEffect(() => {
-    if (authPending) return
-    if (!isAuthenticated) router.replace('/build/new')
-  }, [authPending, isAuthenticated, router])
-
-  /* Fetch project list from Firestore. */
-  useEffect(() => {
-    if (!isAuthenticated) return
-    fetch('/api/projects')
-      .then(res => {
-        if (!res.ok) throw new Error('Failed to load projects')
-        return res.json() as Promise<{ projects: ProjectSummary[] }>
-      })
-      .then(data => {
-        setProjects(data.projects ?? [])
-        setLoading(false)
-      })
-      .catch(err => {
-        console.error('[builds] fetch failed:', err)
-        setFetchError('Failed to load your projects. Please try again.')
-        setLoading(false)
-      })
-  }, [isAuthenticated])
-
-  const error = fetchError || replayError
-
-  if (authPending || !isAuthenticated) return null
+/**
+ * Builds page — server-rendered project list.
+ *
+ * Auth and data fetch happen server-side before any HTML is sent. The page
+ * structure (header, heading, empty state) renders on the server. Only the
+ * interactive leaves (NewBuildButton, ProjectList with replay) are client components.
+ */
+export default async function BuildsPage() {
+  const session = await requireAuth()
+  const projects = await listProjects(session.user.email)
+  const isAdmin = session.user.isAdmin === true
 
   return (
     <div className="min-h-screen bg-nova-void">
@@ -71,10 +39,13 @@ export default function BuildsPage() {
             </Link>
           )}
           <AccountMenu />
-          <Button onClick={() => router.push('/build/new')} size="sm">
+          <Link
+            href="/build/new"
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium rounded-lg bg-nova-violet text-white border border-transparent hover:bg-nova-violet-bright shadow-[var(--nova-glow-violet)] transition-all duration-200"
+          >
             <Icon icon={ciPlus} width="14" height="14" />
             New Build
-          </Button>
+          </Link>
         </div>
       </header>
 
@@ -82,65 +53,23 @@ export default function BuildsPage() {
       <main className="max-w-4xl mx-auto px-6 py-12">
         <h1 className="text-2xl font-display font-semibold mb-8">Your Projects</h1>
 
-        {/* Error state */}
-        {error && (
-          <div className="text-center py-12" role="alert">
-            <p className="text-nova-rose mb-4">{error}</p>
-            <Button onClick={() => window.location.reload()} size="sm" variant="secondary">
-              Retry
-            </Button>
-          </div>
-        )}
-
-        {/* Loading skeletons */}
-        {loading && !error && (
-          <div className="grid gap-3">
-            {[0, 1, 2].map(i => (
-              <div
-                key={i}
-                className="p-4 bg-nova-surface border border-nova-border rounded-lg animate-pulse"
+        <ReplayableProjectList
+          projects={projects}
+          logsUrlPrefix="/api/projects"
+          linkToProjects
+          showReplay={isAdmin}
+          emptyState={
+            <div className="text-center py-20">
+              <p className="text-nova-text-secondary mb-4">No projects yet</p>
+              <Link
+                href="/build/new"
+                className="inline-flex items-center gap-2 px-4 py-2.5 text-sm leading-6 font-medium rounded-lg bg-nova-violet text-white border border-transparent hover:bg-nova-violet-bright shadow-[var(--nova-glow-violet)] transition-all duration-200"
               >
-                <div className="flex items-center justify-between">
-                  <div className="space-y-2">
-                    <div className="h-5 w-48 bg-nova-border rounded" />
-                    <div className="h-3 w-32 bg-nova-border/50 rounded" />
-                  </div>
-                  <div className="h-6 w-16 bg-nova-border rounded" />
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
-
-        {/* Empty state */}
-        {!loading && !error && projects.length === 0 && (
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            className="text-center py-20"
-          >
-            <p className="text-nova-text-secondary mb-4">No projects yet</p>
-            <Button onClick={() => router.push('/build/new')}>
-              Create your first app
-            </Button>
-          </motion.div>
-        )}
-
-        {/* Project list */}
-        {!loading && !error && projects.length > 0 && (
-          <div className="grid gap-3">
-            {projects.map((project, i) => (
-              <ProjectCard
-                key={project.id}
-                project={project}
-                index={i}
-                href={project.status !== 'error' ? `/build/${project.id}` : undefined}
-                onReplay={isAdmin ? handleReplay : undefined}
-                replayingId={replayingId}
-              />
-            ))}
-          </div>
-        )}
+                Create your first app
+              </Link>
+            </div>
+          }
+        />
       </main>
     </div>
   )

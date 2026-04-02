@@ -87,9 +87,8 @@ Each event is a `StoredEvent` — an envelope (run_id, sequence, request, timest
 fields. No defaults for unused fields, no sparse stripping, no `unknown` payloads. Emission data
 and tool call args use `JsonValue` (recursive JSON type) for serialization safety.
 
-File sink (`EVENT_LOGGER=1`) writes JSONL — one line per event, always valid, no finalize step.
 Firestore sink writes one document per event, fire-and-forget. The replay system (`extractReplayStages`)
-consumes `StoredEvent[]` directly from either source. The project list page has a Replay button.
+consumes `StoredEvent[]` directly from Firestore. The project list page has a Replay button (admin-only).
 The route handler generates `projectId` at request start so Firestore logging starts from the first
 emission. Step events carry `TokenUsage` for Phase 5 cost aggregation.
 

@@ -4,8 +4,6 @@ import {
   createAgentUIStream,
   type UIMessage,
 } from 'ai'
-import { DEFAULT_PIPELINE_CONFIG } from '@/lib/models'
-import type { PipelineConfig } from '@/lib/types/settings'
 import { GenerationContext } from '@/lib/services/generationContext'
 import { EventLogger } from '@/lib/services/eventLogger'
 import { createSolutionsArchitect } from '@/lib/services/solutionsArchitect'
@@ -30,7 +28,7 @@ export async function POST(req: Request) {
     return new Response(JSON.stringify({ error: 'Missing messages array' }), { status: 400 })
   }
 
-  // Validate our fields (apiKey, blueprint, pipelineConfig, etc.)
+  // Validate our fields (apiKey, blueprint, etc.)
   const parsed = chatRequestSchema.safeParse(body)
   if (!parsed.success) {
     return new Response(JSON.stringify({ error: 'Invalid request body' }), { status: 400 })
@@ -70,8 +68,7 @@ export async function POST(req: Request) {
     }
   }
 
-  const { blueprint, runId, pipelineConfig: rawPipelineConfig } = parsed.data
-  const pipelineConfig: PipelineConfig = { ...DEFAULT_PIPELINE_CONFIG, ...rawPipelineConfig }
+  const { blueprint, runId } = parsed.data
 
   const logger = new EventLogger(runId)
 
@@ -110,7 +107,7 @@ export async function POST(req: Request) {
       }
 
       const ctx = new GenerationContext({
-        apiKey: keyResult.apiKey, writer, logger, pipelineConfig,
+        apiKey: keyResult.apiKey, writer, logger,
         session: keyResult.session, projectId,
       })
 

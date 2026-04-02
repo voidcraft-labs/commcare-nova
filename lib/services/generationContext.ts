@@ -9,8 +9,7 @@ import { streamText, generateText, Output } from 'ai'
 import type { CallWarning, ModelMessage, ToolLoopAgent, UIMessageStreamWriter } from 'ai'
 import { createAnthropic } from '@ai-sdk/anthropic'
 import { z } from 'zod'
-import { MODEL_DEFAULT, DEFAULT_PIPELINE_CONFIG, modelSupportsReasoning } from '../models'
-import type { PipelineConfig, ReasoningEffort } from '../types/settings'
+import { MODEL_DEFAULT, type ReasoningEffort } from '../models'
 import { EventLogger } from './eventLogger'
 import { classifyError, type ClassifiedError } from './errorClassifier'
 import type { Session } from '../auth'
@@ -39,7 +38,6 @@ interface GenerationContextOptions {
   apiKey: string
   writer: UIMessageStreamWriter
   logger: EventLogger
-  pipelineConfig?: Partial<PipelineConfig>
   /** Authenticated user session — null for BYOK requests. */
   session?: Session | null
   /** Firestore project ID — present when the project has been saved at least once. */
@@ -50,7 +48,6 @@ export class GenerationContext {
   private anthropic: ReturnType<typeof createAnthropic>
   readonly writer: UIMessageStreamWriter
   readonly logger: EventLogger
-  readonly pipelineConfig: PipelineConfig
   /** Authenticated user session, or null for BYOK requests. */
   readonly session: Session | null
   /** Firestore project ID — set when the project has been saved at least once. */
@@ -60,7 +57,6 @@ export class GenerationContext {
     this.anthropic = createAnthropic({ apiKey: opts.apiKey })
     this.writer = opts.writer
     this.logger = opts.logger
-    this.pipelineConfig = { ...DEFAULT_PIPELINE_CONFIG, ...opts.pipelineConfig }
     this.session = opts.session ?? null
     this.projectId = opts.projectId
   }
@@ -120,13 +116,6 @@ export class GenerationContext {
       this.emitError(classifyError(error), `generatePlainText:${opts.label}`)
       throw error
     }
-  }
-
-  /** Get reasoning config for a pipeline stage (undefined if disabled or model doesn't support it). */
-  reasoningForStage(stage: keyof PipelineConfig): { effort: ReasoningEffort } | undefined {
-    const cfg = this.pipelineConfig[stage]
-    if (!cfg.reasoning || !modelSupportsReasoning(cfg.model)) return undefined
-    return { effort: cfg.reasoningEffort }
   }
 
   /** One-shot structured generation with automatic run logging. */
