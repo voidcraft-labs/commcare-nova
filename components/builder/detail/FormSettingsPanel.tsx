@@ -1,6 +1,5 @@
 'use client'
-import { useState, useCallback, useRef, useLayoutEffect } from 'react'
-import { useFloating, offset, flip, shift, autoUpdate, FloatingPortal } from '@floating-ui/react'
+import { useState, useCallback, useRef } from 'react'
 import { motion, AnimatePresence } from 'motion/react'
 import { Icon } from '@iconify/react/offline'
 import ciSettings from '@iconify-icons/ci/settings'
@@ -9,12 +8,11 @@ import type { BlueprintForm, ConnectConfig, ConnectType, PostSubmitDestination }
 import type { MutableBlueprint } from '@/lib/services/mutableBlueprint'
 import { toSnakeId } from '@/lib/services/commcare/validate'
 import { POPOVER_GLASS } from '@/lib/styles'
-import { POPOVER_ENTER_KEYFRAMES, POPOVER_ENTER_OPTIONS } from '@/lib/animations'
 import { FormDetail } from './FormDetail'
 import { ConnectLogomark } from '@/components/icons/ConnectLogomark'
 import { Toggle } from '@/components/ui/Toggle'
+import { useFloatingDropdown, DropdownPortal } from '@/hooks/useFloatingDropdown'
 import { useDismissRef } from '@/hooks/useDismissRef'
-import { useContentPopoverDismiss } from '@/hooks/useContentPopover'
 import { useCommitField } from '@/hooks/useCommitField'
 import { SavedCheck } from '@/components/builder/EditableTitle'
 import { XPathField } from '@/components/builder/XPathField'
@@ -34,40 +32,21 @@ interface FormSettingsPanelProps {
 // ── Toggle Button (for FormScreen header) ─────────────────────────────
 
 export function FormSettingsButton({ form, moduleIndex, formIndex, mb, notifyBlueprintChanged }: FormSettingsPanelProps) {
-  const [open, setOpen] = useState(false)
   const hasConnect = !!form.connect && !!mb.getBlueprint().connect_type
-  const animRef = useRef<HTMLDivElement>(null)
-  const buttonRef = useRef<HTMLButtonElement>(null)
 
-  const { refs, floatingStyles } = useFloating({
+  /* Don't dismiss when a CodeMirror autocomplete tooltip (portal-mounted
+   * to body, outside the panel DOM) received the click. */
+  const dd = useFloatingDropdown<HTMLButtonElement>({
     placement: 'bottom-start',
-    middleware: [
-      offset(8),
-      flip(),
-      shift({ padding: 12 }),
-    ],
-    whileElementsMounted: autoUpdate,
+    contentPopover: true,
+    shouldDismiss: () => !document.querySelector('.cm-tooltip-autocomplete'),
   })
-
-  // Manually set reference from the button element — same pattern as ContextualEditor
-  useLayoutEffect(() => {
-    if (buttonRef.current) {
-      refs.setReference(buttonRef.current)
-    }
-  }, [refs])
-
-  /* Entrance animation — shared popover scale-up + fade. */
-  useLayoutEffect(() => {
-    if (open) {
-      animRef.current?.animate(POPOVER_ENTER_KEYFRAMES, POPOVER_ENTER_OPTIONS)
-    }
-  }, [open])
 
   return (
     <>
       <button
-        ref={buttonRef}
-        onClick={() => setOpen(o => !o)}
+        ref={dd.triggerRef}
+        onClick={dd.toggle}
         className="flex items-center gap-1 p-1.5 rounded-md transition-colors cursor-pointer text-nova-text-muted hover:text-nova-text hover:bg-white/5"
         aria-label="Form settings"
       >
@@ -77,24 +56,16 @@ export function FormSettingsButton({ form, moduleIndex, formIndex, mb, notifyBlu
         )}
       </button>
 
-      {open && (
-        <FloatingPortal>
-          <div
-            ref={(el) => { animRef.current = el; refs.setFloating(el) }}
-            style={floatingStyles}
-            className="z-popover"
-          >
-            <FormSettingsPanel
-              form={form}
-              moduleIndex={moduleIndex}
-              formIndex={formIndex}
-              mb={mb}
-              notifyBlueprintChanged={notifyBlueprintChanged}
-              onClose={() => setOpen(false)}
-            />
-          </div>
-        </FloatingPortal>
-      )}
+      <DropdownPortal dropdown={dd}>
+        <FormSettingsPanel
+          form={form}
+          moduleIndex={moduleIndex}
+          formIndex={formIndex}
+          mb={mb}
+          notifyBlueprintChanged={notifyBlueprintChanged}
+          onClose={dd.close}
+        />
+      </DropdownPortal>
     </>
   )
 }
@@ -104,19 +75,8 @@ export function FormSettingsButton({ form, moduleIndex, formIndex, mb, notifyBlu
 function FormSettingsPanel({
   form, moduleIndex, formIndex, mb, notifyBlueprintChanged, onClose,
 }: FormSettingsPanelProps & { onClose: () => void }) {
-  const dismissRef = useDismissRef(() => {
-    /* Don't dismiss when a CodeMirror autocomplete tooltip (portal-mounted
-     * to body, outside the panel DOM) received the click. */
-    if (document.querySelector('.cm-tooltip-autocomplete')) return
-    onClose()
-  })
-  useContentPopoverDismiss(onClose)
-
   return (
-    <div
-      ref={dismissRef}
-      className={`w-80 ${POPOVER_GLASS}`}
-    >
+    <div className={`w-80 ${POPOVER_GLASS}`}>
       {/* Header */}
       <div className="flex items-center justify-between px-3.5 py-2.5 border-b border-white/[0.06]">
         <span className="text-xs font-medium text-nova-text-secondary uppercase tracking-wider">Form Settings</span>

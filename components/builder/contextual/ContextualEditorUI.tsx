@@ -1,6 +1,5 @@
 'use client'
-import { useState, useCallback, useRef } from 'react'
-import { useFloating, offset, flip, shift, autoUpdate, FloatingPortal } from '@floating-ui/react'
+import { useState } from 'react'
 import { Icon } from '@iconify/react/offline'
 import type { Question } from '@/lib/schemas/blueprint'
 import type { Builder, SelectedElement } from '@/lib/services/builder'
@@ -9,7 +8,7 @@ import type { QuestionPath } from '@/lib/services/questionPath'
 import { questionTypeIcons, questionTypeLabels } from '@/lib/questionTypeIcons'
 import { EditableText } from '@/components/builder/EditableText'
 import { QuestionTypeGrid } from '@/components/builder/QuestionTypeGrid'
-import { useDismissRef } from '@/hooks/useDismissRef'
+import { useFloatingDropdown, DropdownPortal } from '@/hooks/useFloatingDropdown'
 import { AddPropertyButton } from './AddPropertyButton'
 import { useSaveQuestion } from '@/hooks/useSaveQuestion'
 import { addableTextFields } from './shared'
@@ -24,24 +23,7 @@ interface ContextualEditorUIProps {
 
 export function ContextualEditorUI({ question, selected, mb, builder, notifyBlueprintChanged }: ContextualEditorUIProps) {
   const [newlyAdded, setNewlyAdded] = useState<{ field: string; questionPath: QuestionPath }>()
-  const [typePickerOpen, setTypePickerOpen] = useState(false)
-  const typeButtonRef = useRef<HTMLButtonElement>(null)
-  const typeDismissRef = useDismissRef(() => setTypePickerOpen(false))
-  const { refs: typeRefs, floatingStyles: typeFloatingStyles } = useFloating({
-    placement: 'bottom-start',
-    middleware: [offset(4), flip(), shift({ padding: 8 })],
-    elements: { reference: typeButtonRef.current },
-    whileElementsMounted: autoUpdate,
-  })
-  const typePickerRef = useCallback((el: HTMLDivElement | null) => {
-    typeRefs.setFloating(el)
-    if (!el) return
-    const cleanup = typeDismissRef(el)
-    return () => {
-      cleanup?.()
-      typeRefs.setFloating(null as unknown as HTMLDivElement)
-    }
-  }, [typeRefs, typeDismissRef])
+  const typePicker = useFloatingDropdown<HTMLButtonElement>({ placement: 'bottom-start', offset: 4 })
 
   const saveQuestion = useSaveQuestion(selected, mb, notifyBlueprintChanged)
 
@@ -61,8 +43,8 @@ export function ContextualEditorUI({ question, selected, mb, builder, notifyBlue
         <div>
           <label className="text-xs text-nova-text-muted uppercase tracking-wider mb-1 block">Type</label>
           <button
-            ref={typeButtonRef}
-            onClick={() => setTypePickerOpen(!typePickerOpen)}
+            ref={typePicker.triggerRef}
+            onClick={typePicker.toggle}
             className="flex items-center gap-2 px-2 py-1.5 rounded-lg text-xs text-nova-text-secondary hover:bg-nova-surface hover:text-nova-text transition-colors cursor-pointer"
           >
             {questionTypeIcons[question.type] && (
@@ -70,25 +52,16 @@ export function ContextualEditorUI({ question, selected, mb, builder, notifyBlue
             )}
             <span>{questionTypeLabels[question.type] ?? question.type}</span>
           </button>
-          {typePickerOpen && (
-            <FloatingPortal>
-              <div
-                ref={typePickerRef}
-                style={typeFloatingStyles}
-                className="z-popover-top"
-                onClick={(e) => e.stopPropagation()}
-              >
-                <QuestionTypeGrid
-                  activeType={question.type}
-                  variant="elevated"
-                  onSelect={(type) => {
-                    saveQuestion('type', type)
-                    setTypePickerOpen(false)
-                  }}
-                />
-              </div>
-            </FloatingPortal>
-          )}
+          <DropdownPortal dropdown={typePicker} className="z-popover-top" onClick={(e) => e.stopPropagation()}>
+            <QuestionTypeGrid
+              activeType={question.type}
+              variant="elevated"
+              onSelect={(type) => {
+                saveQuestion('type', type)
+                typePicker.close()
+              }}
+            />
+          </DropdownPortal>
         </div>
         {!isHidden && (question.hint || newlyAddedField === 'hint') && (
           <EditableText

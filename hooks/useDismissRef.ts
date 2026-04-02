@@ -5,6 +5,10 @@ import { useCallback, useRef } from 'react'
  * via React 19 ref callback cleanup.
  *
  * Attach to the container element — clicks outside it or Escape presses trigger onDismiss.
+ *
+ * Best for inline dropdowns where the trigger lives inside the container DOM.
+ * For FloatingPortal-based dropdowns (trigger outside the portal), use
+ * `useFloatingDropdown` instead — it handles trigger-awareness internally.
  */
 export function useDismissRef(onDismiss: () => void) {
   // Ref keeps callback current without changing the ref callback identity
