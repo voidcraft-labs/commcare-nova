@@ -10,6 +10,7 @@ import ciSettings from '@iconify-icons/ci/settings'
 import tablerListTree from '@iconify-icons/tabler/list-tree'
 import Link from 'next/link'
 import { useApiKey } from '@/hooks/useApiKey'
+import { useAuth } from '@/hooks/useAuth'
 import { useSettings } from '@/hooks/useSettings'
 import { useBuilder } from '@/hooks/useBuilder'
 import { BuilderPhase, applyDataPart, type CursorMode } from '@/lib/services/builder'
@@ -73,6 +74,7 @@ const STRUCTURE_SIDEBAR_WIDTH = 320
 export function BuilderLayout({ buildId }: { buildId: string }) {
   const router = useRouter()
   const { apiKey } = useApiKey()
+  const { isAuthenticated, isPending: authPending } = useAuth()
   const { settings } = useSettings()
   const builder = useBuilder()
   const initialReplay = getReplayData()
@@ -172,6 +174,7 @@ export function BuilderLayout({ buildId }: { buildId: string }) {
   }, [cursorMode])
 
   const inReplayMode = !!replayData
+  const hasAccess = isAuthenticated || !!apiKey || inReplayMode
   const isCentered = builder.phase === BuilderPhase.Idle && !builder.treeData
 
   // ── Stable ref for builder so onData callback doesn't go stale ──────
@@ -197,7 +200,8 @@ export function BuilderLayout({ buildId }: { buildId: string }) {
     transport: new DefaultChatTransport({
       api: '/api/chat',
       body: () => ({
-        apiKey: apiKeyRef.current,
+        /* Only send apiKey for BYOK users — authenticated users use the server key */
+        ...(apiKeyRef.current ? { apiKey: apiKeyRef.current } : {}),
         pipelineConfig: settingsRef.current.pipeline,
         blueprint: builder.blueprint ?? undefined,
         runId: runIdRef.current,
@@ -235,9 +239,9 @@ export function BuilderLayout({ buildId }: { buildId: string }) {
   if (isGenerating && progressHidden) setProgressHidden(false)
 
   const handleSend = useCallback((text: string) => {
-    if (!text.trim() || !apiKey) return
+    if (!text.trim() || !hasAccess) return
     sendMessage({ text })
-  }, [apiKey, sendMessage])
+  }, [hasAccess, sendMessage])
 
   const handleExportCcz = useCallback(async () => {
     if (!builder.blueprint) return
@@ -447,11 +451,12 @@ export function BuilderLayout({ buildId }: { buildId: string }) {
   }, [builder])
 
   // ── Redirect guard — all hooks must be above this line ─────────────
-  const shouldRedirect = !apiKey && !inReplayMode
+  // Don't redirect while the auth check is still in flight.
+  const shouldRedirect = !authPending && !hasAccess
   useEffect(() => {
     if (shouldRedirect) router.push('/')
   }, [shouldRedirect, router])
-  if (shouldRedirect) return null
+  if (shouldRedirect || authPending) return null
 
   const showProgress = (isGenerating || builder.phase === BuilderPhase.Done || builder.phase === BuilderPhase.Error) && !progressHidden && !inReplayMode
   const showToolbar = !!(builder.treeData && builder.phase === BuilderPhase.Done && builder.blueprint)

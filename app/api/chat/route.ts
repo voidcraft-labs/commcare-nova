@@ -12,6 +12,7 @@ import { createSolutionsArchitect } from '@/lib/services/solutionsArchitect'
 import { MutableBlueprint } from '@/lib/services/mutableBlueprint'
 import { chatRequestSchema } from '@/lib/schemas/apiSchemas'
 import { classifyError } from '@/lib/services/errorClassifier'
+import { resolveApiKey } from '@/lib/auth-utils'
 
 export const maxDuration = 300
 
@@ -31,7 +32,14 @@ export async function POST(req: Request) {
   if (!parsed.success) {
     return new Response(JSON.stringify({ error: 'Invalid request body' }), { status: 400 })
   }
-  const { apiKey, blueprint, runId, pipelineConfig: rawPipelineConfig } = parsed.data
+
+  // Resolve the API key: authenticated session → server key, otherwise → BYOK
+  const keyResult = await resolveApiKey(req, parsed.data.apiKey)
+  if (!keyResult.ok) {
+    return new Response(JSON.stringify({ error: keyResult.error }), { status: keyResult.status })
+  }
+
+  const { blueprint, runId, pipelineConfig: rawPipelineConfig } = parsed.data
   const pipelineConfig: PipelineConfig = { ...DEFAULT_PIPELINE_CONFIG, ...rawPipelineConfig }
 
   const logger = new RunLogger(runId)
@@ -42,7 +50,7 @@ export async function POST(req: Request) {
     execute: async ({ writer }) => {
       // Send runId to client so it can send it back on subsequent requests
       writer.write({ type: 'data-run-id', data: { runId: logger.runId }, transient: true })
-      const ctx = new GenerationContext(apiKey, writer, logger, pipelineConfig)
+      const ctx = new GenerationContext(keyResult.apiKey, writer, logger, pipelineConfig)
 
       // Create MutableBlueprint — either from existing blueprint (edit/continuation) or empty (new build)
       const mutableBp = new MutableBlueprint(

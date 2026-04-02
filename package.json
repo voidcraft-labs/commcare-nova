@@ -43,6 +43,7 @@
     "@uiw/react-codemirror": "^4.25.8",
     "adm-zip": "^0.5.16",
     "ai": "^6.0.116",
+    "better-auth": "^1.5.6",
     "dom-serializer": "^2.0.0",
     "domutils": "^3.2.2",
     "fuse.js": "^7.1.0",

@@ -15,6 +15,7 @@ Next.js web app that generates CommCare apps from natural language conversation.
 - **Markdown**: markdown-to-jsx — unified read-only renderer in `lib/markdown.tsx`. `ChatMarkdown` (chat): headings, bold, italic, lists, tables, hr, code; strips links/images/HTML via component overrides. `PreviewMarkdown` (preview): same plus links (`target="_blank"`) and images. Both support `breaks: true` semantics via custom `renderRule`. `withChipInjection` composes reference chip rendering on top of either variant. tiptap-markdown handles TipTap editor I/O (markdown ↔ ProseMirror) separately.
 - **XML**: htmlparser2 + domutils + dom-serializer
 - **Icons**: Coolicons (`@iconify-icons/ci`) + Tabler (`@iconify-icons/tabler`) via `@iconify/react/offline`
+- **Auth**: Better Auth (stateless sessions, Google OAuth, `@dimagi.com` domain restriction)
 - **Testing**: Vitest
 
 ## Commands
@@ -83,9 +84,22 @@ Server emits transient data parts → `useChat` `onData` callback → builder me
 
 End-to-end error system: API/stream errors are classified (`lib/services/errorClassifier.ts`), logged to run logs (`RunLogger.logError()`), emitted to the client as `data-error` parts, and surfaced via toast notifications (`lib/services/toastStore.ts` → `ToastContainer`). The signal grid has two error modes: `error-recovering` (reasoning with warm-hued cells) and `error-fatal` (flicker settling into dim rose-pink pulse). `GenerationProgress` shows which step failed with rose indicators. Builder has `errorSeverity` (`'recovering'` | `'failed'`) to distinguish retryable from fatal errors. The route handler uses a manual reader loop (not `writer.merge()`) so stream errors can be caught and emitted before the stream closes. Fallback: if the writer is broken, `useChat`'s error property fires a toast on the client.
 
-### BYOAPI-Key
+### Authentication & API Key Resolution
 
-No auth layer. API key in `localStorage('nova-settings')`, sent per request via `useChat` body. Never server-persisted.
+Dual-mode system supporting both authenticated (Google OAuth) and BYOK (bring your own key) access.
+
+**Auth layer** — Better Auth with stateless JWT sessions (no database for auth). Google OAuth restricted to `@dimagi.com` emails via a `before` hook on the callback path. Server instance in `lib/auth.ts`, client in `lib/auth-client.ts`, route handler at `app/api/auth/[...all]/route.ts`.
+
+**API key resolution** — `resolveApiKey()` in `lib/auth-utils.ts` is the single decision point, shared by all API routes:
+1. Authenticated session exists → use `process.env.ANTHROPIC_API_KEY` (server key)
+2. `apiKey` in request body → use that (BYOK)
+3. Neither → 401
+
+**Client flow** — `useAuth()` hook wraps Better Auth's `useSession`. BuilderLayout's redirect guard checks `isAuthenticated || apiKey || inReplayMode`. The `useChat` body omits `apiKey` when the user is authenticated.
+
+**Landing page** — Google sign-in button (primary) + API key input (secondary). Redirects to `/build/new` if already authenticated or has a saved BYOK key.
+
+**Settings page** — shows Account section (user info + sign out) when authenticated. API key field becomes "API Key Override" for authenticated users.
 
 ## Rules
 
@@ -101,7 +115,7 @@ import ciIconName from '@iconify-icons/ci/icon-name'
 
 ### Inputs
 
-All `<input>` and `<textarea>` elements must include `autoComplete="off"` and `data-1p-ignore` to prevent browser autocomplete and 1Password autofill. Nothing on the site is a real login/signup form.
+All `<input>` and `<textarea>` elements must include `autoComplete="off"` and `data-1p-ignore` to prevent browser autocomplete and 1Password autofill. The Google OAuth sign-in is handled externally by Better Auth — no credential inputs on our pages.
 
 ### Theme
 
