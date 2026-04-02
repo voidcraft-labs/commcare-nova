@@ -13,6 +13,7 @@ import { MODEL_DEFAULT, DEFAULT_PIPELINE_CONFIG, modelSupportsReasoning } from '
 import type { PipelineConfig, ReasoningEffort } from '../types/settings'
 import { RunLogger } from './runLogger'
 import { classifyError, type ClassifiedError } from './errorClassifier'
+import type { Session } from '../auth'
 
 /** Log AI SDK warnings to the console if present. */
 export function logWarnings(label: string, warnings: CallWarning[] | undefined) {
@@ -33,17 +34,35 @@ export function thinkingProviderOptions(effort: ReasoningEffort) {
   }
 }
 
+/** Options for constructing a GenerationContext. */
+interface GenerationContextOptions {
+  apiKey: string
+  writer: UIMessageStreamWriter
+  logger: RunLogger
+  pipelineConfig?: Partial<PipelineConfig>
+  /** Authenticated user session — null for BYOK requests. */
+  session?: Session | null
+  /** Firestore project ID — present when the project has been saved at least once. */
+  projectId?: string
+}
+
 export class GenerationContext {
   private anthropic: ReturnType<typeof createAnthropic>
   readonly writer: UIMessageStreamWriter
   readonly logger: RunLogger
   readonly pipelineConfig: PipelineConfig
+  /** Authenticated user session, or null for BYOK requests. */
+  readonly session: Session | null
+  /** Firestore project ID — set when the project has been saved at least once. */
+  readonly projectId: string | undefined
 
-  constructor(apiKey: string, writer: UIMessageStreamWriter, logger: RunLogger, pipelineConfig?: Partial<PipelineConfig>) {
-    this.anthropic = createAnthropic({ apiKey })
-    this.writer = writer
-    this.logger = logger
-    this.pipelineConfig = { ...DEFAULT_PIPELINE_CONFIG, ...pipelineConfig }
+  constructor(opts: GenerationContextOptions) {
+    this.anthropic = createAnthropic({ apiKey: opts.apiKey })
+    this.writer = opts.writer
+    this.logger = opts.logger
+    this.pipelineConfig = { ...DEFAULT_PIPELINE_CONFIG, ...opts.pipelineConfig }
+    this.session = opts.session ?? null
+    this.projectId = opts.projectId
   }
 
   /** Get the Anthropic model provider for a given model ID. */

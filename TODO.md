@@ -64,7 +64,7 @@ and potentially large, but as a subcollection they're only fetched when needed (
 
 Note: LogEntryDoc schema deferred to Phase 4 — will be a single consistent format, not polymorphic.
 
-## Phase 3: Project Persistence
+## Phase 3: Project Persistence — DONE
 
 Users should be able to close the browser and come back to their app later. Right now, closing the
 tab means starting over (unless you saved a log file and replayed it). This phase makes projects
@@ -73,9 +73,9 @@ first-class — auto-saved on generation and edits, loadable from a project list
 **What "open a project" looks like:** Read one Firestore document, hydrate the blueprint, done. No
 replaying hundreds of data parts. The builder loads instantly with the current state.
 
-- [ ] Save/load blueprints to Firestore (auto-save on generation complete + edits)
-- [ ] Project list page — all your projects, sorted by last modified
-- [ ] Load project on `/build/[id]` from Firestore instead of starting empty
+- [x] Save/load blueprints to Firestore (auto-save on generation complete + edits)
+- [x] Project list page — all your projects, sorted by last modified
+- [x] Load project on `/build/[id]` from Firestore instead of starting empty
 
 ## Phase 4: Log Migration
 

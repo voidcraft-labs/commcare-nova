@@ -22,6 +22,7 @@ import {
 import { MutableBlueprint, type NewQuestion } from './mutableBlueprint'
 import { validateAndFix } from './validationLoop'
 import { errorToString } from './commcare/validate/errors'
+import { saveProject, generateProjectId } from '../db/projects'
 export { validateAndFix } from './validationLoop'
 
 // ── Helper: build a full ConnectConfig from SA's partial input ────────
@@ -630,6 +631,16 @@ export function createSolutionsArchitect(
               hqJson: result.hqJson ?? {},
               success: true,
             })
+
+            /* Persist to Firestore for authenticated users (fire-and-forget). */
+            if (ctx.session) {
+              const email = ctx.session.user.email
+              const projectId = ctx.projectId ?? generateProjectId(email)
+              saveProject(email, projectId, result.blueprint, ctx.logger.runId)
+                .catch(err => console.error('[validateApp] project save failed:', err))
+              ctx.emit('data-project-saved', { projectId })
+            }
+
             const output = { success: true as const }
             ctx.logger.logToolOutput('validateApp', output)
             return output

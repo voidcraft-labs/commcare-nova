@@ -39,6 +39,7 @@ export function applyDataPart(builder: Builder, type: string, data: any): void {
     case 'data-blueprint-updated': builder.updateBlueprint(data.blueprint); break
     case 'data-fix-attempt': builder.setFixAttempt(data.attempt, data.errorCount); break
     case 'data-done': builder.setDone(data); break
+    case 'data-project-saved': builder.setProjectId(data.projectId); break
     case 'data-error':
       if (data.fatal) builder.setError(data.message)
       else builder.setRecovering(data.message)
@@ -145,11 +146,16 @@ export class Builder {
   // ── Edit scope (non-versioned — consumed by SignalGrid rAF loop) ──
   private _editScope: EditScope | null = null
 
+  // ── Project persistence ─────────────────────────────────────────────
+  private _projectId: string | undefined
 
   // ── Read-only public accessors ───────────────────────────────────────
 
   get phase(): BuilderPhase { return this._phase }
   get agentActive(): boolean { return this._agentActive }
+
+  /** Firestore project ID — set after first save, persisted across re-generations. */
+  get projectId(): string | undefined { return this._projectId }
 
   /** True when agent activates in Done phase after the initial summary has completed.
    *  Used by ChatSidebar to distinguish post-build summary (reasoning) from user-initiated edits (editing). */
@@ -567,6 +573,12 @@ export class Builder {
     this.notify()
   }
 
+  /** Store the Firestore project ID after first save. Does not trigger re-render
+   *  — the URL update is handled by BuilderLayout's onData callback directly. */
+  setProjectId(id: string) {
+    this._projectId = id
+  }
+
   /** Set fatal error state — generation is over. */
   setError(message: string) {
     this._phase = BuilderPhase.Error
@@ -677,6 +689,7 @@ export class Builder {
     this._streamEnergy = 0
     this._thinkEnergy = 0
     this._editScope = null
+    this._projectId = undefined
     this.notify()
   }
 }

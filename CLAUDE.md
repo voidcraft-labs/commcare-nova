@@ -55,13 +55,23 @@ Subcollection hierarchy keyed by `@dimagi.com` email:
 - `users/{email}/projects/{projectId}` → `ProjectDoc` — full `AppBlueprint` as a Firestore map
 - `users/{email}/projects/{projectId}/logs/{logId}` → log entries (schema defined in Phase 4)
 
-Zod schemas in `lib/db/types.ts` are the single source of truth — TypeScript types are derived via `z.infer`, and Firestore converters validate reads via `schema.parse()`. `lib/db/firestore.ts` exports a lazy singleton (`getDb()`), typed collection helpers (`collections.*`), and document reference helpers (`docs.*`). ADC on Cloud Run, `gcloud auth application-default login` for local dev.
+Zod schemas in `lib/db/types.ts` are the single source of truth — TypeScript types are derived via `z.infer`, and Firestore converters validate reads via `schema.parse()`. `lib/db/firestore.ts` exports a lazy singleton (`getDb()`), typed collection helpers (`collections.*`), and document reference helpers (`docs.*`). `lib/db/projects.ts` exports CRUD helpers (`saveProject`, `updateProject`, `loadProject`, `listProjects`). ADC on Cloud Run, `gcloud auth application-default login` for local dev.
+
+### Project Persistence
+
+Authenticated users' projects are auto-saved to Firestore. Loading is a single document read — no replay needed.
+
+- **Initial save:** On generation complete (`validateApp` success), the SA saves the blueprint to `users/{email}/projects/{projectId}` and emits `data-project-saved` so the client updates the URL from `/build/new` to `/build/{id}`.
+- **Auto-save:** `useAutoSave` hook subscribes to `builder.subscribeMutation` and debounces edits (2s) to `PUT /api/projects/{id}`. Silent failure — best-effort.
+- **Loading:** `BuilderLayout` fetches `GET /api/projects/{id}` on mount when `buildId !== 'new'`, then calls `builder.setDone()` to hydrate. Chat messages are not restored (Phase 4).
+- **Project list:** `/builds` page fetches `GET /api/projects` (denormalized summaries, no full blueprints).
+- **BYOK exclusion:** BYOK users have no session → no save, no project loading, no project list. Same ephemeral behavior as before.
 
 ### Key Classes
 
-- **Builder** (`lib/services/builder.ts`) — singleton state machine shared via `useBuilder()`. Phases: `Idle → DataModel → Structure → Modules → Forms → Validate → Fix → Done | Error`. Holds a persistent `MutableBlueprint` instance. Exposes `subscribe` + `getSnapshot` for `useSyncExternalStore`.
+- **Builder** (`lib/services/builder.ts`) — singleton state machine shared via `useBuilder()`. Phases: `Idle → DataModel → Structure → Modules → Forms → Validate → Fix → Done | Error`. Holds a persistent `MutableBlueprint` instance. Exposes `subscribe` + `getSnapshot` for `useSyncExternalStore`. Tracks `projectId` for Firestore persistence.
 - **MutableBlueprint** (`lib/services/mutableBlueprint.ts`) — single state container for the entire lifecycle. Progressive population during generation, in-place mutation during editing. Components call mutation methods directly, then `builder.notifyBlueprintChanged()`.
-- **GenerationContext** (`lib/services/generationContext.ts`) — all LLM calls flow through here. Wraps Anthropic client + stream writer + RunLogger + PipelineConfig.
+- **GenerationContext** (`lib/services/generationContext.ts`) — all LLM calls flow through here. Wraps Anthropic client + stream writer + RunLogger + PipelineConfig. Carries `session` (for Firestore saves) and `projectId` (for updating existing projects).
 
 ### Reference Chip System (`lib/references/`)
 

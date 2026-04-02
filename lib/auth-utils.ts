@@ -7,6 +7,7 @@
  * all routes that need an Anthropic key (chat, models, compile).
  */
 import { auth, type Session } from './auth'
+import { ApiError } from './apiError'
 
 /** Successful key resolution — includes the key and optional session for downstream use. */
 interface ApiKeyResolved {
@@ -64,12 +65,27 @@ export async function resolveApiKey(req: Request, bodyApiKey?: string): Promise<
 }
 
 /**
+ * Require an authenticated session or throw a 401.
+ *
+ * Used by project API routes that only serve authenticated users — no
+ * BYOK fallback, no API key involved. Throws an error suitable for
+ * direct catch by `handleApiError`.
+ */
+export async function requireSession(req: Request): Promise<Session> {
+  const session = await getSessionSafe(req)
+  if (!session) {
+    throw new ApiError('Authentication required', 401)
+  }
+  return session
+}
+
+/**
  * Safely attempt to retrieve the session from a request.
  *
  * Returns null instead of throwing when auth headers are missing or invalid.
  * This allows routes to gracefully fall back to BYOK mode.
  */
-async function getSessionSafe(req: Request): Promise<Session | null> {
+export async function getSessionSafe(req: Request): Promise<Session | null> {
   try {
     const result = await auth.api.getSession({ headers: req.headers })
     return result ?? null

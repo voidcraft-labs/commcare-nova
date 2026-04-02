@@ -4,12 +4,15 @@
 
 Main layout with one `useChat` instance targeting `/api/chat`. Wrapped in `ErrorBoundary` around ChatSidebar (right), StructureSidebar (left), PreviewShell, and ContextualEditor.
 
-- **`body`** sends: `apiKey`, `pipelineConfig`, `blueprint` (for edits).
+- **`body`** sends: `apiKey`, `pipelineConfig`, `blueprint` (for edits), `projectId` (for Firestore persistence).
 - **`sendAutomaticallyWhen`** only triggers for `askQuestions` (client-side tool).
-- **`onData`** handles all state updates via `applyDataPart()`.
+- **`onData`** handles all state updates via `applyDataPart()`. Intercepts `data-project-saved` to update the URL via `replaceState` (no navigation/remount).
 - **Agent status sync** — `useEffect` syncs `useChat` status → `builder.setAgentActive()`, enabling `builder.isThinking` for both generation and edit operations.
 - **`messages: persistedChatMessages`** seeds useChat with module-level cached messages on mount. The AI SDK's `Chat` instance lives in a `useRef` inside `useChat`, so it resets on component remount. `persistedChatMessages` (module-level, like the `Builder` singleton) bridges the gap — updated on every render, restored on remount.
 - **Redirect guard** — `if (shouldRedirect) return null` early-exits when no API key is set. All hooks must be declared above this guard to satisfy React's rules of hooks.
+- **Project loading** — when `buildId !== 'new'` and user is authenticated, fetches `GET /api/projects/{id}` on mount. Hydrates via `builder.reset()` → `builder.setDone()`. Gates rendering with `projectLoaded` state (shows pulsing Logo). BYOK users skip the fetch.
+- **Auto-save** — `useAutoSave(builder, isAuthenticated)` subscribes to blueprint mutations and debounces saves (2s) to `PUT /api/projects/{id}`. Tracks `builder.mutationCount` to avoid writes on selection-only changes. Reads all builder state live inside the callback to avoid stale closures.
+- **`NavLinks`** — extracted component rendering Projects + Settings icon links, used in both header and centered-mode corners.
 
 ### Three-Tier Header Layout
 
