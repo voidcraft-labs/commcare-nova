@@ -8,6 +8,7 @@
  */
 import { auth, type Session } from './auth'
 import { ApiError } from './apiError'
+import { isUserAdmin } from './db/users'
 
 /** Successful key resolution — includes the key and optional session for downstream use. */
 interface ApiKeyResolved {
@@ -75,6 +76,21 @@ export async function requireSession(req: Request): Promise<Session> {
   const session = await getSessionSafe(req)
   if (!session) {
     throw new ApiError('Authentication required', 401)
+  }
+  return session
+}
+
+/**
+ * Require an admin session or throw a 403.
+ *
+ * First checks for an authenticated session (401 if missing), then reads
+ * the user's Firestore document to verify `role === 'admin'` (403 if not).
+ * Used by all admin API routes.
+ */
+export async function requireAdmin(req: Request): Promise<Session> {
+  const session = await requireSession(req)
+  if (!await isUserAdmin(session.user.email)) {
+    throw new ApiError('Admin access required', 403)
   }
   return session
 }

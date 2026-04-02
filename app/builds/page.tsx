@@ -1,57 +1,27 @@
 'use client'
-import { useCallback, useEffect, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { motion } from 'motion/react'
 import { Icon } from '@iconify/react/offline'
 import ciSettings from '@iconify-icons/ci/settings'
 import ciPlus from '@iconify-icons/ci/plus'
-import ciPlayCircle from '@iconify-icons/ci/play-circle-outline'
 import Link from 'next/link'
+import tablerLayoutDashboard from '@iconify-icons/tabler/layout-dashboard'
 import { Logo } from '@/components/ui/Logo'
 import { Button } from '@/components/ui/Button'
+import { ProjectCard } from '@/components/ui/ProjectCard'
 import { useAuth } from '@/hooks/useAuth'
+import { useReplay } from '@/hooks/useReplay'
 import type { ProjectSummary } from '@/lib/db/projects'
-import type { StoredEvent } from '@/lib/db/types'
-import { extractReplayStages, setReplayData } from '@/lib/services/logReplay'
-
-/** Status badge colors and labels. */
-const STATUS_STYLES: Record<string, { bg: string; text: string; label: string }> = {
-  complete: { bg: 'bg-nova-emerald/15', text: 'text-emerald-400', label: 'Complete' },
-  generating: { bg: 'bg-nova-violet/15', text: 'text-violet-400', label: 'Generating' },
-  error: { bg: 'bg-nova-rose/15', text: 'text-rose-400', label: 'Error' },
-}
-
-/** Shape of the JSON response from GET /api/projects. */
-interface ProjectsApiResponse {
-  projects: Array<Omit<ProjectSummary, 'created_at' | 'updated_at'> & {
-    created_at: string
-    updated_at: string
-  }>
-}
-
-/** Format a date as a relative string (e.g. "2 hours ago", "Yesterday"). */
-function formatRelativeDate(date: Date): string {
-  const now = new Date()
-  const diffMs = now.getTime() - date.getTime()
-  const diffMins = Math.floor(diffMs / 60_000)
-  const diffHours = Math.floor(diffMs / 3_600_000)
-  const diffDays = Math.floor(diffMs / 86_400_000)
-
-  if (diffMins < 1) return 'Just now'
-  if (diffMins < 60) return `${diffMins}m ago`
-  if (diffHours < 24) return `${diffHours}h ago`
-  if (diffDays === 1) return 'Yesterday'
-  if (diffDays < 30) return `${diffDays}d ago`
-  return date.toLocaleDateString()
-}
 
 export default function BuildsPage() {
   const router = useRouter()
-  const { isAuthenticated, isPending: authPending } = useAuth()
+  const { isAuthenticated, isAdmin, isPending: authPending } = useAuth()
+  const buildUrl = (id: string) => `/api/projects/${id}/logs`
+  const { handleReplay, replayingId, replayError } = useReplay({ buildUrl })
   const [projects, setProjects] = useState<ProjectSummary[]>([])
   const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
-  const [replayingId, setReplayingId] = useState<string | null>(null)
+  const [fetchError, setFetchError] = useState<string | null>(null)
 
   /* Redirect BYOK / unauthenticated users — they have no saved projects. */
   useEffect(() => {
@@ -65,56 +35,20 @@ export default function BuildsPage() {
     fetch('/api/projects')
       .then(res => {
         if (!res.ok) throw new Error('Failed to load projects')
-        return res.json() as Promise<ProjectsApiResponse>
+        return res.json() as Promise<{ projects: ProjectSummary[] }>
       })
       .then(data => {
-        setProjects(
-          (data.projects ?? []).map(p => ({
-            ...p,
-            created_at: new Date(p.created_at),
-            updated_at: new Date(p.updated_at),
-          })),
-        )
+        setProjects(data.projects ?? [])
         setLoading(false)
       })
       .catch(err => {
         console.error('[builds] fetch failed:', err)
-        setError('Failed to load your projects. Please try again.')
+        setFetchError('Failed to load your projects. Please try again.')
         setLoading(false)
       })
   }, [isAuthenticated])
 
-  /**
-   * Load a project's generation log from Firestore and replay it through
-   * the builder — same pipeline as file-based replay, just a different data source.
-   */
-  const handleReplay = useCallback(async (projectId: string, appName: string) => {
-    setReplayingId(projectId)
-    setError(null)
-    try {
-      const res = await fetch(`/api/projects/${projectId}/logs`)
-      if (!res.ok) throw new Error('Failed to load logs')
-      const { events } = await res.json() as { events: StoredEvent[] }
-      if (!events.length) {
-        setError('No generation logs found for this project.')
-        return
-      }
-
-      const result = extractReplayStages(events)
-      if (!result.success) {
-        setError(result.error)
-        return
-      }
-
-      setReplayData(result.stages, result.doneIndex, appName || undefined)
-      router.push('/build/new')
-    } catch (err) {
-      console.error('[builds] replay failed:', err)
-      setError('Failed to load replay data. Please try again.')
-    } finally {
-      setReplayingId(null)
-    }
-  }, [router])
+  const error = fetchError || replayError
 
   if (authPending || !isAuthenticated) return null
 
@@ -126,6 +60,15 @@ export default function BuildsPage() {
           <Logo size="sm" />
         </Link>
         <div className="flex items-center gap-2">
+          {isAdmin && (
+            <Link
+              href="/admin"
+              className="p-1.5 text-nova-text-muted hover:text-nova-text transition-colors rounded-lg hover:bg-nova-surface"
+              title="Admin Dashboard"
+            >
+              <Icon icon={tablerLayoutDashboard} width="18" height="18" />
+            </Link>
+          )}
           <Link
             href="/settings"
             className="p-1.5 text-nova-text-muted hover:text-nova-text transition-colors rounded-lg hover:bg-nova-surface"
@@ -191,85 +134,16 @@ export default function BuildsPage() {
         {/* Project list */}
         {!loading && !error && projects.length > 0 && (
           <div className="grid gap-3">
-            {projects.map((project, i) => {
-              const style = STATUS_STYLES[project.status] ?? STATUS_STYLES.complete
-              const isFailed = project.status === 'error'
-
-              const cardContent = (
-                <div className="flex items-center justify-between">
-                  <div>
-                    <h3 className={`font-medium ${isFailed ? 'text-nova-text-muted' : 'group-hover:text-nova-text'} transition-colors`}>
-                      {project.app_name || 'Untitled'}
-                    </h3>
-                    <p className="text-sm text-nova-text-secondary mt-1 flex items-center gap-3">
-                      {isFailed ? (
-                        <span className="text-nova-rose/70">Generation failed</span>
-                      ) : (
-                        <>
-                          <span>{formatRelativeDate(project.updated_at)}</span>
-                          <span className="text-nova-text-muted">
-                            {project.module_count} module{project.module_count !== 1 ? 's' : ''}
-                            {' \u00b7 '}
-                            {project.form_count} form{project.form_count !== 1 ? 's' : ''}
-                          </span>
-                          {project.connect_type && (
-                            <span className="text-xs px-1.5 py-0.5 rounded bg-nova-cyan/10 text-cyan-400">
-                              {project.connect_type}
-                            </span>
-                          )}
-                        </>
-                      )}
-                    </p>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    {!isFailed && (
-                      <button
-                        onClick={(e) => {
-                          e.preventDefault()
-                          e.stopPropagation()
-                          if (!replayingId) handleReplay(project.id, project.app_name)
-                        }}
-                        disabled={replayingId !== null}
-                        className="p-1.5 text-nova-text-muted hover:text-nova-violet transition-colors rounded-md hover:bg-nova-violet/10 disabled:opacity-40 disabled:cursor-not-allowed"
-                        title="Replay generation"
-                      >
-                        <Icon
-                          icon={ciPlayCircle}
-                          width="18"
-                          height="18"
-                          className={replayingId === project.id ? 'animate-pulse' : ''}
-                        />
-                      </button>
-                    )}
-                    <span className={`text-xs px-2 py-1 rounded-md ${style.bg} ${style.text}`}>
-                      {style.label}
-                    </span>
-                  </div>
-                </div>
-              )
-
-              return (
-                <motion.div
-                  key={project.id}
-                  initial={{ opacity: 0, y: 10 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  transition={{ delay: i * 0.03 }}
-                >
-                  {isFailed ? (
-                    <div className="block p-4 bg-nova-surface border border-nova-border rounded-lg opacity-60">
-                      {cardContent}
-                    </div>
-                  ) : (
-                    <Link
-                      href={`/build/${project.id}`}
-                      className="block p-4 bg-nova-surface border border-nova-border rounded-lg hover:border-nova-border-bright transition-colors group"
-                    >
-                      {cardContent}
-                    </Link>
-                  )}
-                </motion.div>
-              )
-            })}
+            {projects.map((project, i) => (
+              <ProjectCard
+                key={project.id}
+                project={project}
+                index={i}
+                href={project.status !== 'error' ? `/build/${project.id}` : undefined}
+                onReplay={isAdmin ? handleReplay : undefined}
+                replayingId={replayingId}
+              />
+            ))}
           </div>
         )}
       </main>

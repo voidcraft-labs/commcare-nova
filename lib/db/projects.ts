@@ -5,11 +5,11 @@
  * All writes extract denormalized fields from the blueprint automatically
  * so list queries never need to deserialize full blueprints.
  */
-import { FieldValue } from '@google-cloud/firestore'
+import { FieldValue, Timestamp } from '@google-cloud/firestore'
 import type { AppBlueprint } from '../schemas/blueprint'
 import type { ErrorType } from '../services/errorClassifier'
 import type { ProjectDoc } from './types'
-import { collections, docs } from './firestore'
+import { getDb, collections, docs } from './firestore'
 
 // ── Types ──────────────────────────────────────────────────────────
 
@@ -23,8 +23,10 @@ export interface ProjectSummary {
   status: ProjectDoc['status']
   /** Error classification string — present only when status is 'error'. */
   error_type: string | null
-  created_at: Date
-  updated_at: Date
+  /** ISO 8601 string — Firestore Timestamp converted at the query boundary. */
+  created_at: string
+  /** ISO 8601 string — Firestore Timestamp converted at the query boundary. */
+  updated_at: string
 }
 
 /**
@@ -152,19 +154,27 @@ export async function loadProject(
   return snap.exists ? snap.data()! : null
 }
 
+/** The denormalized fields fetched by `listProjects` — no blueprint. */
+const SUMMARY_FIELDS = [
+  'app_name', 'connect_type', 'module_count', 'form_count',
+  'status', 'error_type', 'created_at', 'updated_at',
+] as const
+
 /**
  * List a user's projects sorted by last modified, without full blueprints.
  *
- * Returns denormalized summaries for the project list page. Reads full
- * documents through the Zod converter (validated reads), then extracts
- * only the summary fields — Firestore's `select()` would skip the
- * converter, bypassing validation.
+ * Uses Firestore `select()` to fetch only the denormalized summary fields —
+ * the blueprint (the large nested object) is never read. Validation is
+ * unnecessary here because data is validated on write (completeProject,
+ * updateProject) and defaults are baked in at that time.
  */
 export async function listProjects(
   email: string,
   limit = 50,
 ): Promise<ProjectSummary[]> {
-  const snap = await collections.projects(email)
+  const snap = await getDb()
+    .collection('users').doc(email).collection('projects')
+    .select(...SUMMARY_FIELDS)
     .orderBy('updated_at', 'desc')
     .limit(limit)
     .get()
@@ -174,7 +184,7 @@ export async function listProjects(
 
   return snap.docs.map(doc => {
     const data = doc.data()
-    const createdAt = data.created_at.toDate()
+    const createdAt = (data.created_at as Timestamp).toDate()
 
     /*
      * Timeout inference — if a project has been 'generating' longer than
@@ -188,14 +198,14 @@ export async function listProjects(
 
     return {
       id: doc.id,
-      app_name: data.app_name,
-      connect_type: data.connect_type,
-      module_count: data.module_count,
-      form_count: data.form_count,
-      status: isStale ? 'error' : data.status,
-      error_type: isStale ? 'internal' : (data.error_type ?? null),
-      created_at: createdAt,
-      updated_at: data.updated_at.toDate(),
+      app_name: data.app_name as string,
+      connect_type: (data.connect_type as ProjectDoc['connect_type']) ?? null,
+      module_count: (data.module_count as number) ?? 0,
+      form_count: (data.form_count as number) ?? 0,
+      status: isStale ? 'error' : (data.status as ProjectDoc['status']),
+      error_type: isStale ? 'internal' : ((data.error_type as string | null) ?? null),
+      created_at: createdAt.toISOString(),
+      updated_at: (data.updated_at as Timestamp).toDate().toISOString(),
     }
   })
 }

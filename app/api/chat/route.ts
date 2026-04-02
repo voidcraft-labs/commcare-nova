@@ -14,6 +14,7 @@ import { chatRequestSchema } from '@/lib/schemas/apiSchemas'
 import { classifyError, MESSAGES } from '@/lib/services/errorClassifier'
 import { resolveApiKey } from '@/lib/auth-utils'
 import { createProject, failProject } from '@/lib/db/projects'
+import { touchUser } from '@/lib/db/users'
 import { getMonthlyUsage, MONTHLY_SPEND_CAP_USD } from '@/lib/db/usage'
 
 export const maxDuration = 300
@@ -39,6 +40,18 @@ export async function POST(req: Request) {
   const keyResult = await resolveApiKey(req, parsed.data.apiKey)
   if (!keyResult.ok) {
     return new Response(JSON.stringify({ error: keyResult.error }), { status: keyResult.status })
+  }
+
+  // Update activity timestamp and sync profile changes from Google.
+  // Fire-and-forget — the user doc is created at sign-in time (Better Auth
+  // after hook); this just keeps last_active_at current without blocking
+  // the latency-sensitive chat path.
+  if (keyResult.session) {
+    touchUser(
+      keyResult.session.user.email,
+      keyResult.session.user.name,
+      keyResult.session.user.image ?? null,
+    )
   }
 
   // Spend cap check — only for authenticated users on the shared server key.

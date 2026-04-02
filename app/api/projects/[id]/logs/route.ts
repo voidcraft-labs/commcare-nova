@@ -7,10 +7,12 @@
  * Both return `{ events: StoredEvent[], runId: string | null }`.
  * When no entries exist, returns `{ entries: [], runId: null }`.
  *
- * Authenticated-only — BYOK users have no Firestore logs. The user's email
- * scopes all queries to their own data.
+ * Admin-only — logs contain full conversation transcripts that may include
+ * sensitive information. Regular users cannot access logs. The admin's email
+ * (from session) scopes queries to their own data; cross-user log access
+ * uses the dedicated admin endpoint at /api/admin/users/[email]/projects/[id]/logs.
  */
-import { requireSession } from '@/lib/auth-utils'
+import { requireAdmin } from '@/lib/auth-utils'
 import { ApiError, handleApiError } from '@/lib/apiError'
 import { loadRunEvents, loadLatestRunId } from '@/lib/db/logs'
 
@@ -19,7 +21,7 @@ export async function GET(
   { params }: { params: Promise<{ id: string }> },
 ) {
   try {
-    const session = await requireSession(req)
+    const session = await requireAdmin(req)
     const { id: projectId } = await params
     const { searchParams } = new URL(req.url)
     const email = session.user.email

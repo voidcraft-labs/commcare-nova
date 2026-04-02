@@ -40,7 +40,7 @@ The CczCompiler validates every XForm after case block injection (bind/ref integ
 
 Authenticated-only (no BYOK). All routes use `requireSession()` from `lib/auth-utils.ts` which throws `ApiError(401)` on failure. User's email is derived from the session and scopes all Firestore operations to `users/{email}/projects/`.
 
-- **GET /api/projects** — list user's projects sorted by `updated_at` desc. Returns denormalized summaries (no full blueprints). Reads through the Zod converter for validated data. Includes timeout inference: projects stuck in `generating` longer than `MAX_GENERATION_MINUTES` (10 min) are returned as `status: 'error'` and lazily persisted via `failProject()`.
+- **GET /api/projects** — list user's projects sorted by `updated_at` desc. Returns denormalized summaries (no full blueprints) via Firestore `select()` — the blueprint is never read, data is validated on write. Includes timeout inference: projects stuck in `generating` longer than `MAX_GENERATION_MINUTES` (10 min) are returned as `status: 'error'` and lazily persisted via `failProject()`.
 - **GET /api/projects/[id]** — load a single project. Returns `{ blueprint, app_name, status, error_type }` for builder hydration. BuilderLayout checks `status` and redirects to `/builds` if not `'complete'`.
 - **PUT /api/projects/[id]** — update a project after client-side edits (auto-save). Validates blueprint via `appBlueprintSchema` before writing. Uses `set({ merge: true })` to survive race conditions with the initial fire-and-forget save.
 
@@ -48,12 +48,20 @@ CRUD helpers in `lib/db/projects.ts`: `createProject`, `completeProject`, `failP
 
 ### Log Routes (`projects/[id]/logs/`)
 
-- **GET /api/projects/[id]/logs** — load `StoredEvent[]` for the latest run. Returns `{ events, runId }`. Used by the project list's Replay button.
+- **GET /api/projects/[id]/logs** — load `StoredEvent[]` for the latest run. Returns `{ events, runId }`. **Admin-only** — uses `requireAdmin()` because logs contain full conversation transcripts. Used by the builds page Replay button (hidden for non-admins).
 - **GET /api/projects/[id]/logs?runId={id}** — load events for a specific run, ordered by `sequence`. Returns `{ events, runId }`.
 
 Both return `{ events: [], runId: null }` when no logs exist. Events are the same `StoredEvent` format written by both sinks — consumed directly by `extractReplayStages()` on the client.
 
 CRUD helpers in `lib/db/logs.ts`: `writeLogEvent`, `loadRunEvents`, `loadLatestRunId`.
+
+## Admin Routes (`admin/`)
+
+Admin-only routes for the admin dashboard. All use `requireAdmin()` from `lib/auth-utils.ts` (401 if unauthenticated, 403 if not admin). Types in `lib/types/admin.ts`.
+
+- **GET /api/admin/users** — list all users with current month usage. Fetches all `UserDoc`s via `listAllUsers()`, then enriches each with usage (`docs.usage`) and project count (`collections.projects.count()`) in parallel. Returns `{ users: AdminUserRow[], stats: AdminStats }`. Stats (total users, generations, spend) computed from the same data.
+- **GET /api/admin/users/[email]** — user detail with all-time usage history and project list. Three parallel Firestore reads: `getUser()`, `collections.usage().orderBy()`, `listProjects()`. Email is URL-encoded and decoded before use.
+- **GET /api/admin/users/[email]/projects/[projectId]/logs** — admin log replay endpoint. Mirrors the user-facing logs route but scopes to the target user's email (from URL) instead of the session user. Reuses `loadRunEvents` and `loadLatestRunId`.
 
 ## POST /api/models (`models/route.ts`)
 
