@@ -39,7 +39,7 @@ export async function POST(req: Request) {
     return new Response(JSON.stringify({ error: keyResult.error }), { status: keyResult.status })
   }
 
-  const { blueprint, runId, pipelineConfig: rawPipelineConfig } = parsed.data
+  const { blueprint, runId, projectId, pipelineConfig: rawPipelineConfig } = parsed.data
   const pipelineConfig: PipelineConfig = { ...DEFAULT_PIPELINE_CONFIG, ...rawPipelineConfig }
 
   const logger = new RunLogger(runId)
@@ -50,7 +50,10 @@ export async function POST(req: Request) {
     execute: async ({ writer }) => {
       // Send runId to client so it can send it back on subsequent requests
       writer.write({ type: 'data-run-id', data: { runId: logger.runId }, transient: true })
-      const ctx = new GenerationContext(keyResult.apiKey, writer, logger, pipelineConfig)
+      const ctx = new GenerationContext({
+        apiKey: keyResult.apiKey, writer, logger, pipelineConfig,
+        session: keyResult.session, projectId,
+      })
 
       // Create MutableBlueprint — either from existing blueprint (edit/continuation) or empty (new build)
       const mutableBp = new MutableBlueprint(

@@ -64,11 +64,15 @@ Also re-exports `validateAndFix()` (from `validationLoop.ts`) — runs `runValid
 
 ## GenerationContext
 
-`generationContext.ts` — the single place all LLM calls flow through.
+`generationContext.ts` — the single place all LLM calls flow through. Constructor takes a single `GenerationContextOptions` object.
+
+**Readonly fields:**
+- `session` — Better Auth `Session | null`. Non-null for authenticated users, null for BYOK. Used by `validateApp` to save projects to Firestore.
+- `projectId` — Firestore project ID, present when updating an existing project. Threaded from the chat request body.
+- `pipelineConfig` — readonly `PipelineConfig` (merged with `DEFAULT_PIPELINE_CONFIG`)
 
 **Methods:**
 - `model(id)` — returns Anthropic model provider
-- `pipelineConfig` — readonly `PipelineConfig` (merged with `DEFAULT_PIPELINE_CONFIG`)
 - `emit(type, data)` — writes transient data part to client stream
 - `emitError(error, context?)` — classifies error, logs to RunLogger, emits `data-error` to client. Handles broken writer gracefully (error still in run log).
 - `logger` — the `RunLogger` instance
@@ -150,6 +154,7 @@ If the stream writer is broken (can't emit `data-error`), `emitError` catches si
 | `data-blueprint-updated` | `updateBlueprint()` |
 | `data-fix-attempt` | `setFixAttempt()` |
 | `data-done` | `setDone()` |
+| `data-project-saved` | `setProjectId()` |
 | `data-error` | `setError()` |
 
 `applyDataPart(builder, type, data)` — shared switch used by both real-time streaming (`onData`) and log replay.

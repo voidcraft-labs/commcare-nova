@@ -30,6 +30,7 @@ import type { BreadcrumbPart } from '@/components/builder/SubheaderToolbar'
 import { ScreenNavButtons } from '@/components/preview/ScreenNavButtons'
 import { ExportDropdown } from '@/components/ui/ExportDropdown'
 import { AppConnectSettings } from '@/components/builder/detail/AppConnectSettings'
+import ciFolder from '@iconify-icons/ci/folder'
 import ciFileDocument from '@iconify-icons/ci/file-document'
 import tablerPackageExport from '@iconify-icons/tabler/package-export'
 import ciUndo from '@iconify-icons/ci/undo'
@@ -42,6 +43,7 @@ import { getParentScreen, type PreviewScreen } from '@/lib/preview/engine/types'
 import { ErrorBoundary } from '@/components/ui/ErrorBoundary'
 import { getReplayData, clearReplayData } from '@/lib/services/logReplay'
 import { ReferenceProviderWrapper } from '@/lib/references/ReferenceContext'
+import { useAutoSave } from '@/hooks/useAutoSave'
 
 
 /** Only auto-resend when the assistant's LAST step is askQuestions with all outputs available.
@@ -65,8 +67,27 @@ function shouldAutoResend({ messages }: { messages: UIMessage[] }): boolean {
 // lives in a useRef that resets on remount — this bridges the gap.)
 let persistedChatMessages: UIMessage[] = []
 
+/** Shared icon-link styling for header nav icons. */
+const NAV_ICON_CLASS = 'p-1.5 text-nova-text-muted hover:text-nova-text transition-colors rounded-lg hover:bg-nova-surface'
+
 /** Shared sidebar open/close animation config. */
 const SIDEBAR_TRANSITION = { duration: 0.2, ease: [0.4, 0, 0.2, 1] } as const
+
+/** Projects + Settings icon links — rendered in both the header and centered-mode corners. */
+function NavLinks({ isAuthenticated }: { isAuthenticated: boolean }) {
+  return (
+    <>
+      {isAuthenticated && (
+        <Link href="/builds" className={NAV_ICON_CLASS} title="Projects">
+          <Icon icon={ciFolder} width="18" height="18" />
+        </Link>
+      )}
+      <Link href="/settings" className={NAV_ICON_CLASS} title="Settings">
+        <Icon icon={ciSettings} width="18" height="18" />
+      </Link>
+    </>
+  )
+}
 
 /** Width of the structure sidebar in pixels (w-80). */
 const STRUCTURE_SIDEBAR_WIDTH = 320
@@ -85,6 +106,12 @@ export function BuilderLayout({ buildId }: { buildId: string }) {
   const scrollAnchorRef = useRef<{ questionPath: string; offsetTop: number; allPaths: string[] } | null>(null)
   cursorModeRef.current = cursorMode
   const [progressHidden, setProgressHidden] = useState(false)
+
+  /* Project loading state — gates rendering until the project is fetched (or
+   * determined to be a new build). Only authenticated users load from Firestore. */
+  const isExistingProject = buildId !== 'new' && isAuthenticated
+  const [projectLoaded, setProjectLoaded] = useState(!isExistingProject)
+
   const replayStartIndex = initialReplay?.doneIndex ?? 0
   const [replayData, setReplayDataState] = useState(() => {
     if (initialReplay) {
@@ -110,6 +137,43 @@ export function BuilderLayout({ buildId }: { buildId: string }) {
     clearReplayData()
     builder.reset()
   }, [builder])
+
+  /* Load project from Firestore when navigating to /build/{id} (not "new").
+   * Hydrates the builder to Done phase with the saved blueprint. Chat messages
+   * are not restored (that's Phase 4 — log migration). */
+  useEffect(() => {
+    if (!isExistingProject || !isAuthenticated) {
+      setProjectLoaded(true)
+      return
+    }
+    let cancelled = false
+    fetch(`/api/projects/${buildId}`)
+      .then(res => {
+        if (!res.ok) throw new Error(res.status === 404 ? 'not-found' : 'load-failed')
+        return res.json()
+      })
+      .then(data => {
+        if (cancelled) return
+        if (data.blueprint) {
+          builder.reset()
+          persistedChatMessages = []
+          builder.setProjectId(buildId)
+          builder.setDone({ blueprint: data.blueprint, hqJson: {}, success: true })
+        }
+        setProjectLoaded(true)
+      })
+      .catch(err => {
+        if (cancelled) return
+        if (err.message === 'not-found') {
+          showToast('error', 'Project not found', 'This project may have been deleted.')
+        } else {
+          showToast('error', 'Failed to load project')
+        }
+        router.replace('/build/new')
+        setProjectLoaded(true)
+      })
+    return () => { cancelled = true }
+  }, [buildId, isExistingProject, isAuthenticated]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const nav = usePreviewNav(builder.blueprint)
   const navRef = useRef(nav)
@@ -205,11 +269,22 @@ export function BuilderLayout({ buildId }: { buildId: string }) {
         pipelineConfig: settingsRef.current.pipeline,
         blueprint: builder.blueprint ?? undefined,
         runId: runIdRef.current,
+        projectId: builderRef.current.projectId,
       }),
     }),
     sendAutomaticallyWhen: shouldAutoResend,
     onData: (part: any) => {
       if (part.type === 'data-run-id') { runIdRef.current = part.data.runId; return }
+
+      /* After first save, update the URL from /build/new → /build/{id} without
+       * triggering a navigation or remount. applyDataPart stores the ID on the builder. */
+      if (part.type === 'data-project-saved') {
+        const { projectId } = part.data
+        applyDataPart(builderRef.current, part.type, part.data)
+        window.history.replaceState({}, '', `/build/${projectId}`)
+        return
+      }
+
       applyDataPart(builderRef.current, part.type, part.data)
       if (part.type === 'data-error') {
         showToast(part.data.fatal ? 'error' : 'warning', 'Generation error', part.data.message)
@@ -232,6 +307,9 @@ export function BuilderLayout({ buildId }: { buildId: string }) {
       showToast('error', 'Generation failed', chatError.message)
     }
   }, [chatError, builder])
+
+  // Auto-save blueprint edits to Firestore (authenticated users only)
+  useAutoSave(builder, isAuthenticated)
 
   const isGenerating = builder.isGenerating
 
@@ -458,6 +536,15 @@ export function BuilderLayout({ buildId }: { buildId: string }) {
   }, [shouldRedirect, router])
   if (shouldRedirect || authPending) return null
 
+  /* Gate rendering until the project is loaded from Firestore. */
+  if (!projectLoaded) {
+    return (
+      <div className="min-h-screen bg-nova-void flex items-center justify-center">
+        <div className="animate-pulse"><Logo size="md" /></div>
+      </div>
+    )
+  }
+
   const showProgress = (isGenerating || builder.phase === BuilderPhase.Done || builder.phase === BuilderPhase.Error) && !progressHidden && !inReplayMode
   const showToolbar = !!(builder.treeData && builder.phase === BuilderPhase.Done && builder.blueprint)
   const editMode = cursorMode === 'pointer' ? 'test' as const : 'edit' as const
@@ -497,25 +584,15 @@ export function BuilderLayout({ buildId }: { buildId: string }) {
               <Logo size="sm" />
             </motion.div>
           )}
-          <Link
-            href="/settings"
-            className="p-1.5 text-nova-text-muted hover:text-nova-text transition-colors rounded-lg hover:bg-nova-surface"
-            title="Settings"
-          >
-            <Icon icon={ciSettings} width="18" height="18" />
-          </Link>
+          <NavLinks isAuthenticated={isAuthenticated} />
         </div>
       </motion.header>
 
-      {/* Settings cog — visible in centered/hero mode when header is collapsed */}
+      {/* Nav icons — visible in centered/hero mode when header is collapsed */}
       {isCentered && (
-        <Link
-          href="/settings"
-          className="absolute top-3 right-4 z-raised p-1.5 text-nova-text-muted hover:text-nova-text transition-colors rounded-lg hover:bg-nova-surface"
-          title="Settings"
-        >
-          <Icon icon={ciSettings} width="18" height="18" />
-        </Link>
+        <div className="absolute top-3 right-4 z-raised flex items-center gap-1">
+          <NavLinks isAuthenticated={isAuthenticated} />
+        </div>
       )}
 
         {/* Replay controller — between header and content so it's visible in both centered and sidebar modes */}

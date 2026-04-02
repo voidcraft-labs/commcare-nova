@@ -44,10 +44,13 @@ export default function LandingPage() {
     await signIn()
   }
 
-  /* Redirect if already authenticated or has a saved BYOK key. */
+  /* Redirect based on auth state:
+   * - Authenticated users → project list (they have saved work)
+   * - BYOK users → straight to builder (no persistence) */
   useEffect(() => {
     if (authPending) return
-    if (isAuthenticated || hasByokKey) router.replace('/build/new')
+    if (isAuthenticated) router.replace('/builds')
+    else if (hasByokKey) router.replace('/build/new')
   }, [authPending, isAuthenticated, hasByokKey, router])
 
   /* Don't flash the landing UI while checking auth state. */
