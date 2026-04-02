@@ -209,7 +209,16 @@ function SortableQuestion({
   } else {
     content = (
       <EditableQuestionWrapper questionPath={questionPath} isDragging={showAsPlaceholder}>
-        <label className="block space-y-1.5">
+        {/* In text mode, prevent the <label> from forwarding focus to the
+           wrapped input. The first click is caught by TextEditable's
+           stopPropagation, but subsequent clicks (e.g. the second click of a
+           double-click) land on the now-active editor, bubble up to the
+           <label>, and trigger native focus-forwarding to QuestionField. */}
+        {/* eslint-disable-next-line jsx-a11y/no-noninteractive-element-interactions */}
+        <label
+          className="block space-y-1.5"
+          onClick={ctx?.cursorMode === 'text' ? (e) => e.preventDefault() : undefined}
+        >
           {q.label && (
             <div className="flex items-center gap-1">
               <div className="min-w-0 flex-1">
