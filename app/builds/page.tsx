@@ -1,15 +1,18 @@
 'use client'
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { motion } from 'motion/react'
 import { Icon } from '@iconify/react/offline'
 import ciSettings from '@iconify-icons/ci/settings'
 import ciPlus from '@iconify-icons/ci/plus'
+import ciPlayCircle from '@iconify-icons/ci/play-circle-outline'
 import Link from 'next/link'
 import { Logo } from '@/components/ui/Logo'
 import { Button } from '@/components/ui/Button'
 import { useAuth } from '@/hooks/useAuth'
 import type { ProjectSummary } from '@/lib/db/projects'
+import type { StoredEvent } from '@/lib/db/types'
+import { extractReplayStages, setReplayData } from '@/lib/services/logReplay'
 
 /** Status badge colors and labels. */
 const STATUS_STYLES: Record<string, { bg: string; text: string; label: string }> = {
@@ -48,6 +51,7 @@ export default function BuildsPage() {
   const [projects, setProjects] = useState<ProjectSummary[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [replayingId, setReplayingId] = useState<string | null>(null)
 
   /* Redirect BYOK / unauthenticated users — they have no saved projects. */
   useEffect(() => {
@@ -79,6 +83,38 @@ export default function BuildsPage() {
         setLoading(false)
       })
   }, [isAuthenticated])
+
+  /**
+   * Load a project's generation log from Firestore and replay it through
+   * the builder — same pipeline as file-based replay, just a different data source.
+   */
+  const handleReplay = useCallback(async (projectId: string, appName: string) => {
+    setReplayingId(projectId)
+    setError(null)
+    try {
+      const res = await fetch(`/api/projects/${projectId}/logs`)
+      if (!res.ok) throw new Error('Failed to load logs')
+      const { events } = await res.json() as { events: StoredEvent[] }
+      if (!events.length) {
+        setError('No generation logs found for this project.')
+        return
+      }
+
+      const result = extractReplayStages(events)
+      if (!result.success) {
+        setError(result.error)
+        return
+      }
+
+      setReplayData(result.stages, result.doneIndex, appName || undefined)
+      router.push('/build/new')
+    } catch (err) {
+      console.error('[builds] replay failed:', err)
+      setError('Failed to load replay data. Please try again.')
+    } finally {
+      setReplayingId(null)
+    }
+  }, [router])
 
   if (authPending || !isAuthenticated) return null
 
@@ -187,9 +223,28 @@ export default function BuildsPage() {
                           )}
                         </p>
                       </div>
-                      <span className={`text-xs px-2 py-1 rounded-md ${style.bg} ${style.text}`}>
-                        {style.label}
-                      </span>
+                      <div className="flex items-center gap-2">
+                        <button
+                          onClick={(e) => {
+                            e.preventDefault()
+                            e.stopPropagation()
+                            if (!replayingId) handleReplay(project.id, project.app_name)
+                          }}
+                          disabled={replayingId !== null}
+                          className="p-1.5 text-nova-text-muted hover:text-nova-violet transition-colors rounded-md hover:bg-nova-violet/10 disabled:opacity-40 disabled:cursor-not-allowed"
+                          title="Replay generation"
+                        >
+                          <Icon
+                            icon={ciPlayCircle}
+                            width="18"
+                            height="18"
+                            className={replayingId === project.id ? 'animate-pulse' : ''}
+                          />
+                        </button>
+                        <span className={`text-xs px-2 py-1 rounded-md ${style.bg} ${style.text}`}>
+                          {style.label}
+                        </span>
+                      </div>
                     </div>
                   </Link>
                 </motion.div>

@@ -62,7 +62,7 @@ and potentially large, but as a subcollection they're only fetched when needed (
 - [x] IAM: grant `roles/datastore.user` to Cloud Run service account
 - [ ] Test connection from Cloud Run (next deploy)
 
-Note: LogEntryDoc schema deferred to Phase 4 — will be a single consistent format, not polymorphic.
+Note: Log event schema was implemented in Phase 4 — `StoredEvent` with discriminated `LogEvent` union.
 
 ## Phase 3: Project Persistence — DONE
 
@@ -77,18 +77,25 @@ replaying hundreds of data parts. The builder loads instantly with the current s
 - [x] Project list page — all your projects, sorted by last modified
 - [x] Load project on `/build/[id]` from Firestore instead of starting empty
 
-## Phase 4: Log Migration
+## Phase 4: Log Migration — DONE
 
-Currently, RunLogger writes to local `.log/` files on disk. That works for local dev but not for
-Cloud Run (ephemeral filesystem). Move log storage to Firestore so logs survive deployments and
-are queryable.
+A log is a flat, ordered stream of `StoredEvent` objects. One format, two sinks (JSONL files +
+Firestore documents), no conversion layer. `EventLogger` replaces the old `RunLogger`.
 
-Each `logData()` call becomes a Firestore document write. Real-time writes are better than batching
-at the end — if a generation fails midway, the partial log is still available for debugging.
+Each event is a `StoredEvent` — an envelope (run_id, sequence, request, timestamp) wrapping a
+`LogEvent` discriminated union (message, step, emission, error). Each variant has exactly its own
+fields. No defaults for unused fields, no sparse stripping, no `unknown` payloads. Emission data
+and tool call args use `JsonValue` (recursive JSON type) for serialization safety.
 
-- [ ] RunLogger writes to Firestore (each emission = one document in the logs subcollection)
-- [ ] Replay from Firestore logs (replace file-based replay)
-- [ ] Per-request cost logging (model, input/output tokens, cost) for usage tracking
+File sink (`EVENT_LOGGER=1`) writes JSONL — one line per event, always valid, no finalize step.
+Firestore sink writes one document per event, fire-and-forget. The replay system (`extractReplayStages`)
+consumes `StoredEvent[]` directly from either source. The project list page has a Replay button.
+The route handler generates `projectId` at request start so Firestore logging starts from the first
+emission. Step events carry `TokenUsage` for Phase 5 cost aggregation.
+
+- [x] EventLogger writes to Firestore (each event = one document in the logs subcollection)
+- [x] Replay from Firestore logs and JSONL files (single `extractReplayStages(StoredEvent[])`)
+- [x] Per-request cost logging (model, input/output tokens, cost) in step events
 
 ## Phase 5: Usage Tracking & Spend Cap
 

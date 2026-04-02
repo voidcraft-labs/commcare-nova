@@ -40,34 +40,56 @@ function denormalize(blueprint: AppBlueprint) {
 // ── CRUD ───────────────────────────────────────────────────────────
 
 /**
- * Create or overwrite a project document with a complete blueprint.
+ * Create a new project document at the start of generation.
  *
- * Used on initial save (generation complete). Writes all fields including
- * both timestamps via FieldValue.serverTimestamp().
+ * Called by the route handler when a new build starts (no projectId from client).
+ * The document starts with `status: 'generating'` and an empty blueprint —
+ * `completeProject` fills in the final blueprint when generation succeeds.
+ * Returns the generated projectId for immediate use (logging, URL update).
  */
-export async function saveProject(
+export async function createProject(
+  email: string,
+  runId: string,
+): Promise<string> {
+  const ref = collections.projects(email).doc()
+  const emptyBlueprint: AppBlueprint = { app_name: '', modules: [], case_types: null }
+  await ref.set({
+    ...denormalize(emptyBlueprint),
+    blueprint: emptyBlueprint,
+    status: 'generating',
+    run_id: runId,
+    created_at: FieldValue.serverTimestamp(),
+    updated_at: FieldValue.serverTimestamp(),
+  })
+  return ref.id
+}
+
+/**
+ * Update a project with the final validated blueprint on generation success.
+ *
+ * Called by validateApp after the build pipeline completes. Updates the
+ * blueprint, denormalized fields, status, and run_id — preserves created_at.
+ */
+export async function completeProject(
   email: string,
   projectId: string,
   blueprint: AppBlueprint,
-  runId?: string,
+  runId: string,
 ): Promise<void> {
   await docs.project(email, projectId).set({
     ...denormalize(blueprint),
     blueprint,
     status: 'complete',
-    run_id: runId ?? null,
-    created_at: FieldValue.serverTimestamp(),
+    run_id: runId,
     updated_at: FieldValue.serverTimestamp(),
-  } as any) // FieldValue types require the cast — resolved server-side
+  }, { merge: true })
 }
 
 /**
  * Merge-update an existing project with a new blueprint snapshot.
  *
  * Used by the auto-save hook after client-side edits. Uses `set` with
- * `merge: true` instead of `update` so it succeeds even if the initial
- * fire-and-forget `saveProject` hasn't landed yet — avoids a NOT_FOUND
- * race condition under high Firestore latency.
+ * `merge: true` instead of `update` for consistency with other write paths.
  *
  * Only touches the blueprint, denormalized fields, and updated_at —
  * preserves created_at, run_id, and status from the original save.
@@ -81,7 +103,7 @@ export async function updateProject(
     ...denormalize(blueprint),
     blueprint,
     updated_at: FieldValue.serverTimestamp(),
-  } as any, { merge: true }) // merge: true preserves fields not specified here
+  }, { merge: true })
 }
 
 /**
@@ -130,14 +152,3 @@ export async function listProjects(
   })
 }
 
-/**
- * Generate a new Firestore auto-ID for a project document.
- *
- * Purely local — no network call. The Node.js SDK generates a random
- * 20-char ID client-side via `collection.doc().id`. Used when creating
- * a project for the first time so the ID can be emitted to the client
- * before the write completes.
- */
-export function generateProjectId(email: string): string {
-  return collections.projects(email).doc().id
-}

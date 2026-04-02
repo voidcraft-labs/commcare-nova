@@ -7,12 +7,13 @@ import {
 import { DEFAULT_PIPELINE_CONFIG } from '@/lib/models'
 import type { PipelineConfig } from '@/lib/types/settings'
 import { GenerationContext } from '@/lib/services/generationContext'
-import { RunLogger } from '@/lib/services/runLogger'
+import { EventLogger } from '@/lib/services/eventLogger'
 import { createSolutionsArchitect } from '@/lib/services/solutionsArchitect'
 import { MutableBlueprint } from '@/lib/services/mutableBlueprint'
 import { chatRequestSchema } from '@/lib/schemas/apiSchemas'
 import { classifyError } from '@/lib/services/errorClassifier'
 import { resolveApiKey } from '@/lib/auth-utils'
+import { createProject } from '@/lib/db/projects'
 
 export const maxDuration = 300
 
@@ -39,17 +40,41 @@ export async function POST(req: Request) {
     return new Response(JSON.stringify({ error: keyResult.error }), { status: keyResult.status })
   }
 
-  const { blueprint, runId, projectId, pipelineConfig: rawPipelineConfig } = parsed.data
+  const { blueprint, runId, pipelineConfig: rawPipelineConfig } = parsed.data
   const pipelineConfig: PipelineConfig = { ...DEFAULT_PIPELINE_CONFIG, ...rawPipelineConfig }
 
-  const logger = new RunLogger(runId)
-  logger.setAgent('Solutions Architect')
+  const logger = new EventLogger(runId)
+
+  /*
+   * Resolve projectId for authenticated users. Existing projects already have
+   * an ID from the client. New builds create a real project document in Firestore
+   * (status: 'generating') so log events have a project to live under from the start.
+   */
+  let projectId = parsed.data.projectId
+  if (keyResult.session && !projectId) {
+    try {
+      projectId = await createProject(keyResult.session.user.email, logger.runId)
+    } catch (err) {
+      console.error('[chat] project creation failed:', err)
+    }
+  }
+
+  if (keyResult.session && projectId) {
+    logger.enableFirestore(keyResult.session.user.email, projectId)
+  }
+
   logger.logConversation(messages)
 
   const stream = createUIMessageStream({
     execute: async ({ writer }) => {
       // Send runId to client so it can send it back on subsequent requests
       writer.write({ type: 'data-run-id', data: { runId: logger.runId }, transient: true })
+
+      // Emit projectId immediately so the client can update the URL
+      if (keyResult.session && projectId) {
+        writer.write({ type: 'data-project-saved', data: { projectId }, transient: true })
+      }
+
       const ctx = new GenerationContext({
         apiKey: keyResult.apiKey, writer, logger, pipelineConfig,
         session: keyResult.session, projectId,

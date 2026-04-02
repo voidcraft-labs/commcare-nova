@@ -22,7 +22,7 @@ import {
 import { MutableBlueprint, type NewQuestion } from './mutableBlueprint'
 import { validateAndFix } from './validationLoop'
 import { errorToString } from './commcare/validate/errors'
-import { saveProject, generateProjectId } from '../db/projects'
+import { completeProject } from '../db/projects'
 export { validateAndFix } from './validationLoop'
 
 // ── Helper: build a full ConnectConfig from SA's partial input ────────
@@ -175,7 +175,6 @@ export function createSolutionsArchitect(
           ctx.emit('data-start-build', {})
         },
         execute: async ({ appName, caseTypes }) => {
-          ctx.logger.setAppName(appName)
           mutableBp.setCaseTypes(caseTypes)
           const bp = mutableBp.getBlueprint()
           bp.app_name = appName
@@ -632,13 +631,11 @@ export function createSolutionsArchitect(
               success: true,
             })
 
-            /* Persist to Firestore for authenticated users (fire-and-forget). */
-            if (ctx.session) {
-              const email = ctx.session.user.email
-              const projectId = ctx.projectId ?? generateProjectId(email)
-              saveProject(email, projectId, result.blueprint, ctx.logger.runId)
-                .catch(err => console.error('[validateApp] project save failed:', err))
-              ctx.emit('data-project-saved', { projectId })
+            /* Update the project with the final validated blueprint (fire-and-forget).
+             * The project document was created at the start of the request by the route handler. */
+            if (ctx.session && ctx.projectId) {
+              completeProject(ctx.session.user.email, ctx.projectId, result.blueprint, ctx.logger.runId)
+                .catch(err => console.error('[validateApp] project update failed:', err))
             }
 
             const output = { success: true as const }

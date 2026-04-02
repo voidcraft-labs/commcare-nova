@@ -59,13 +59,13 @@ npx tsx scripts/build-xpath-parser.ts    # Rebuild XPath parser from grammar
 
 ## Developer Tools
 
-### Run Logging
+### Event Logging
 
-Set `RUN_LOGGER=1` in `.env` to enable disk-based run logging. Each pipeline run writes a JSON file to `.log/` with all LLM calls, token usage, cost estimates, and full request/response data. The file is updated incrementally after every event, so it's always valid JSON even if the process crashes mid-run.
+Set `EVENT_LOGGER=1` in `.env` to enable disk-based event logging. Each pipeline run writes a JSONL file to `.log/{runId}.jsonl` — one event per line. Events include user messages, LLM steps (with token usage and cost), data emissions, and errors. Each line is a complete, self-contained event, so the file is always valid even if the process crashes mid-run. Authenticated users also get real-time Firestore logging automatically.
 
 ### Log Replay
 
-You can replay a saved run log through the builder UI without making any API calls. Go to `/settings`, pick a `.log/*.json` file, and click "Load Replay." This opens the builder with a navigation bar that lets you step forward and backward through each stage of the original run — conversation exchanges, scaffold, module columns, forms, and the final blueprint. Useful for iterating on UI changes without re-running the generation pipeline.
+You can replay a saved event log through the builder UI without making any API calls. Go to `/settings`, pick a `.log/*.jsonl` file, and click "Load Replay." This opens the builder with a navigation bar that lets you step forward and backward through each stage of the original run. Authenticated users can also replay from the `/builds` project list. Useful for iterating on UI changes without re-running the generation pipeline.
 
 ### XPath Playground
 

@@ -53,25 +53,37 @@ Subcollection hierarchy keyed by `@dimagi.com` email:
 - `users/{email}` → `UserDoc` — profile from Google OAuth, role
 - `users/{email}/usage/{yyyy-mm}` → `UsageDoc` — monthly token/cost aggregation
 - `users/{email}/projects/{projectId}` → `ProjectDoc` — full `AppBlueprint` as a Firestore map
-- `users/{email}/projects/{projectId}/logs/{logId}` → log entries (schema defined in Phase 4)
+- `users/{email}/projects/{projectId}/logs/{logId}` → `StoredEvent` — flat event stream (discriminated union: message/step/emission/error)
 
-Zod schemas in `lib/db/types.ts` are the single source of truth — TypeScript types are derived via `z.infer`, and Firestore converters validate reads via `schema.parse()`. `lib/db/firestore.ts` exports a lazy singleton (`getDb()`), typed collection helpers (`collections.*`), and document reference helpers (`docs.*`). `lib/db/projects.ts` exports CRUD helpers (`saveProject`, `updateProject`, `loadProject`, `listProjects`). ADC on Cloud Run, `gcloud auth application-default login` for local dev.
+Zod schemas in `lib/db/types.ts` are the single source of truth — TypeScript types are derived via `z.infer`, and Firestore converters validate reads via `schema.parse()`. `lib/db/firestore.ts` exports a lazy singleton (`getDb()`), typed collection helpers (`collections.*`), and document reference helpers (`docs.*`). `lib/db/projects.ts` exports CRUD helpers (`createProject`, `completeProject`, `updateProject`, `loadProject`, `listProjects`). `lib/db/logs.ts` exports log event helpers (`writeLogEvent`, `loadRunEvents`, `loadLatestRunId`). ADC on Cloud Run, `gcloud auth application-default login` for local dev.
 
 ### Project Persistence
 
 Authenticated users' projects are auto-saved to Firestore. Loading is a single document read — no replay needed.
 
-- **Initial save:** On generation complete (`validateApp` success), the SA saves the blueprint to `users/{email}/projects/{projectId}` and emits `data-project-saved` so the client updates the URL from `/build/new` to `/build/{id}`.
+- **Project creation:** The route handler creates the project document (`status: 'generating'`) at the start of the first request for new builds. Emits `data-project-saved` immediately so the client URL updates to `/build/{id}` before generation begins. Log events write to this project's subcollection from the start.
+- **Completion:** On generation success, `validateApp` calls `completeProject` to update the existing project with the final blueprint and `status: 'complete'`.
 - **Auto-save:** `useAutoSave` hook subscribes to `builder.subscribeMutation` and debounces edits (2s) to `PUT /api/projects/{id}`. Silent failure — best-effort.
-- **Loading:** `BuilderLayout` fetches `GET /api/projects/{id}` on mount when `buildId !== 'new'`, then calls `builder.setDone()` to hydrate. Chat messages are not restored (Phase 4).
-- **Project list:** `/builds` page fetches `GET /api/projects` (denormalized summaries, no full blueprints).
-- **BYOK exclusion:** BYOK users have no session → no save, no project loading, no project list. Same ephemeral behavior as before.
+- **Loading:** `BuilderLayout` fetches `GET /api/projects/{id}` on mount when `buildId !== 'new'`, then calls `builder.setDone()` to hydrate.
+- **Project list:** `/builds` page fetches `GET /api/projects` (denormalized summaries, no full blueprints). Each project has a Replay button that loads Firestore logs and drives the builder through `extractReplayStages()`.
+- **BYOK exclusion:** BYOK users have no session → no save, no project loading, no project list, no Firestore logging. Same ephemeral behavior as before.
+
+### Event Logging (`lib/services/eventLogger.ts`)
+
+A log is a flat, ordered stream of `StoredEvent` objects. The storage backend is a transport concern — the same object writes to both sinks. Two sinks, one format, no conversion layer.
+
+- **File sink** (`EVENT_LOGGER=1`): JSONL to `.log/{runId}.jsonl`. One line per event. Always valid — if the process crashes, every previous line is intact. No finalize step.
+- **Firestore sink** (`enableFirestore`): One document per event at `users/{email}/projects/{projectId}/logs/`. Fire-and-forget writes — a Firestore outage never blocks generation.
+- **Event types:** `StoredEvent` wraps a `LogEvent` discriminated union (four variants: `message`, `step`, `emission`, `error`). Each variant has exactly its own fields — no defaults, no sparse stripping, no unused fields.
+- **Typed payloads:** Emission data and tool call args/outputs use `JsonValue` (recursive JSON type) instead of `unknown`. Guarantees serialization round-trip fidelity without losing type safety.
+- **Cost tracking:** Step events carry `TokenUsage` (model, tokens, cost) for direct aggregation by Phase 5.
+- **Replay:** `extractReplayStages()` consumes `StoredEvent[]` directly — same format from both file and Firestore. No intermediate format. The project list page loads events via `GET /api/projects/{id}/logs`.
 
 ### Key Classes
 
 - **Builder** (`lib/services/builder.ts`) — singleton state machine shared via `useBuilder()`. Phases: `Idle → DataModel → Structure → Modules → Forms → Validate → Fix → Done | Error`. Holds a persistent `MutableBlueprint` instance. Exposes `subscribe` + `getSnapshot` for `useSyncExternalStore`. Tracks `projectId` for Firestore persistence.
 - **MutableBlueprint** (`lib/services/mutableBlueprint.ts`) — single state container for the entire lifecycle. Progressive population during generation, in-place mutation during editing. Components call mutation methods directly, then `builder.notifyBlueprintChanged()`.
-- **GenerationContext** (`lib/services/generationContext.ts`) — all LLM calls flow through here. Wraps Anthropic client + stream writer + RunLogger + PipelineConfig. Carries `session` (for Firestore saves) and `projectId` (for updating existing projects).
+- **GenerationContext** (`lib/services/generationContext.ts`) — all LLM calls flow through here. Wraps Anthropic client + stream writer + EventLogger + PipelineConfig. Carries `session` (for Firestore saves) and `projectId` (for updating existing projects).
 
 ### Reference Chip System (`lib/references/`)
 
@@ -104,7 +116,7 @@ Server emits transient data parts → `useChat` `onData` callback → builder me
 
 ### Error Handling
 
-End-to-end error system: API/stream errors are classified (`lib/services/errorClassifier.ts`), logged to run logs (`RunLogger.logError()`), emitted to the client as `data-error` parts, and surfaced via toast notifications (`lib/services/toastStore.ts` → `ToastContainer`). The signal grid has two error modes: `error-recovering` (reasoning with warm-hued cells) and `error-fatal` (flicker settling into dim rose-pink pulse). `GenerationProgress` shows which step failed with rose indicators. Builder has `errorSeverity` (`'recovering'` | `'failed'`) to distinguish retryable from fatal errors. The route handler uses a manual reader loop (not `writer.merge()`) so stream errors can be caught and emitted before the stream closes. Fallback: if the writer is broken, `useChat`'s error property fires a toast on the client.
+End-to-end error system: API/stream errors are classified (`lib/services/errorClassifier.ts`), logged to the event stream (`EventLogger.logError()`), emitted to the client as `data-error` parts, and surfaced via toast notifications (`lib/services/toastStore.ts` → `ToastContainer`). The signal grid has two error modes: `error-recovering` (reasoning with warm-hued cells) and `error-fatal` (flicker settling into dim rose-pink pulse). `GenerationProgress` shows which step failed with rose indicators. Builder has `errorSeverity` (`'recovering'` | `'failed'`) to distinguish retryable from fatal errors. The route handler uses a manual reader loop (not `writer.merge()`) so stream errors can be caught and emitted before the stream closes. Fallback: if the writer is broken, `useChat`'s error property fires a toast on the client.
 
 ### Authentication & API Key Resolution
 

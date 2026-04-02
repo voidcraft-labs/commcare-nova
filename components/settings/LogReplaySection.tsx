@@ -6,16 +6,36 @@ import ciFileUpload from '@iconify-icons/ci/file-upload'
 import ciFileDocument from '@iconify-icons/ci/file-document'
 import { Button } from '@/components/ui/Button'
 import { extractReplayStages, setReplayData } from '@/lib/services/logReplay'
-import type { RunLog } from '@/lib/services/runLogger'
+import type { StoredEvent } from '@/lib/db/types'
+import { parseJsonlEvents } from '@/lib/db/jsonl'
 
 interface ParsedLog {
-  log: RunLog
+  events: StoredEvent[]
   fileName: string
+  /** Derived summary for display. */
+  summary: { stepCount: number; totalCost: number; startedAt: string }
+}
+
+/** Derive display summary from a stream of events. */
+function summarizeEvents(events: StoredEvent[]): ParsedLog['summary'] {
+  let stepCount = 0
+  let totalCost = 0
+  const startedAt = events[0]?.timestamp ?? ''
+  for (const { event } of events) {
+    if (event.type === 'step') {
+      stepCount++
+      totalCost += event.usage.cost
+      for (const tc of event.tool_calls) {
+        if (tc.generation) totalCost += tc.generation.cost
+      }
+    }
+  }
+  return { stepCount, totalCost, startedAt }
 }
 
 /**
  * Log replay section for the settings page.
- * Provides a drop zone for .json run log files, parses them, shows metadata,
+ * Provides a drop zone for .jsonl run log files, parses them, shows metadata,
  * and allows loading them into the builder for replay without API calls.
  */
 export function LogReplaySection() {
@@ -30,22 +50,22 @@ export function LogReplaySection() {
     setReplayError(undefined)
     setParsed(undefined)
 
-    if (!file.name.endsWith('.json')) {
-      setReplayError('Please select a .json file.')
+    if (!file.name.endsWith('.jsonl') && !file.name.endsWith('.json')) {
+      setReplayError('Please select a .jsonl or .json file.')
       return
     }
 
     const reader = new FileReader()
     reader.onload = () => {
       try {
-        const log = JSON.parse(reader.result as string) as RunLog
-        if (log.version !== 3 || !Array.isArray(log.turns)) {
-          setReplayError('This file does not appear to be a valid v3 run log.')
+        const events = parseJsonlEvents(reader.result as string)
+        if (!events.length || !events[0].event) {
+          setReplayError('This file does not appear to be a valid event log.')
           return
         }
-        setParsed({ log, fileName: file.name })
+        setParsed({ events, fileName: file.name, summary: summarizeEvents(events) })
       } catch {
-        setReplayError('Failed to parse JSON file.')
+        setReplayError('Failed to parse log file.')
       }
     }
     reader.readAsText(file)
@@ -60,12 +80,12 @@ export function LogReplaySection() {
 
   const handleLoadReplay = useCallback(() => {
     if (!parsed) return
-    const result = extractReplayStages(parsed.log)
+    const result = extractReplayStages(parsed.events)
     if (!result.success) {
       setReplayError(result.error)
       return
     }
-    setReplayData(result.stages, result.doneIndex, result.appName)
+    setReplayData(result.stages, result.doneIndex)
     router.push('/build/new')
   }, [parsed, router])
 
@@ -76,7 +96,7 @@ export function LogReplaySection() {
     <section className="rounded-xl border border-nova-border bg-nova-deep p-6">
       <h2 className="text-sm font-display font-semibold tracking-wide uppercase text-nova-text-secondary mb-1">Log Replay</h2>
       <p className="text-xs text-nova-text-muted mb-4">
-        Load a run log to replay generation stages without API calls.
+        Load a .jsonl event log to replay generation stages without API calls.
       </p>
 
       {/* Unified drop zone / loaded state */}
@@ -98,7 +118,7 @@ export function LogReplaySection() {
         <input
           ref={fileInputRef}
           type="file"
-          accept=".json"
+          accept=".jsonl,.json"
           className="hidden"
           onChange={(e) => {
             const file = e.target.files?.[0]
@@ -114,7 +134,7 @@ export function LogReplaySection() {
             <span className="text-sm text-nova-text-secondary">
               Drop a log file or click to browse
             </span>
-            <span className="text-xs text-nova-text-muted">.json files from .log/ directory</span>
+            <span className="text-xs text-nova-text-muted">.jsonl files from .log/ directory</span>
           </div>
         )}
 
@@ -138,12 +158,12 @@ export function LogReplaySection() {
             <div className="flex items-start gap-3">
               <Icon icon={ciFileDocument} width={24} height={24} className="text-nova-violet-bright shrink-0 mt-0.5" />
               <div className="flex-1 min-w-0">
-                <p className="font-medium truncate">{parsed.log.app_name ?? parsed.fileName}</p>
+                <p className="font-medium truncate">{parsed.fileName}</p>
                 <div className="mt-2 grid grid-cols-2 gap-x-4 gap-y-1 text-xs text-nova-text-secondary">
-                  <span>Date: {formatDate(parsed.log.started_at)}</span>
-                  <span>Turns: {parsed.log.turns.length}</span>
-                  <span>Cost: {formatCost(parsed.log.totals.cost_estimate)}</span>
-                  <span>{parsed.log.finished_at ? 'Completed' : 'Abandoned'}</span>
+                  <span>Date: {formatDate(parsed.summary.startedAt)}</span>
+                  <span>Steps: {parsed.summary.stepCount}</span>
+                  <span>Cost: {formatCost(parsed.summary.totalCost)}</span>
+                  <span>{parsed.events.length} events</span>
                 </div>
               </div>
             </div>

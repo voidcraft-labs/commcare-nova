@@ -9,7 +9,7 @@
  *   users/{email}                                    → UserDoc
  *   users/{email}/usage/{yyyy-mm}                    → UsageDoc
  *   users/{email}/projects/{projectId}               → ProjectDoc
- *   users/{email}/projects/{projectId}/logs/{logId}  → LogEntryDoc (Phase 4)
+ *   users/{email}/projects/{projectId}/logs/{logId}  → StoredEvent
  *
  * Projects are the fast path — one document read loads the full current state.
  * Logs are the audit/replay path — append-only, fetched only when needed.
@@ -75,18 +75,181 @@ export const usageDocSchema = z.object({
 })
 export type UsageDoc = z.infer<typeof usageDocSchema>
 
-// ── Project ─────────────────────────────────────────────────────────
+// ── Log Events ─────────────────────────────────────────────────────
 
 /**
- * Project document — stored at `users/{email}/projects/{projectId}`.
+ * Log events — stored at `users/{email}/projects/{projectId}/logs/{logId}`.
  *
- * Contains the full current blueprint state as a Firestore map (not a JSON
- * string). Loading a project is a single document read — hydrate the blueprint
- * and the builder is ready. No replay needed for the common "return to my work" flow.
+ * A log is a flat, ordered stream of events. Each event is self-describing —
+ * a shared envelope (who, when, ordering) wrapping one of four event variants
+ * (message, step, emission, error). Each variant has exactly its own fields,
+ * nothing more. No defaults for unused fields. No sparse stripping.
  *
- * Denormalized fields (app_name, connect_type, module_count, form_count) enable
- * the project list page to render without deserializing every blueprint.
+ * The same StoredEvent type is written to both sinks (JSONL files and Firestore
+ * documents). Replay, cost tracking, and UI displays all consume StoredEvent[]
+ * directly — no intermediate format or conversion layer.
  */
+
+/** JSON-safe value type — guarantees round-trip serialization fidelity. */
+export type JsonValue = string | number | boolean | null | JsonValue[] | { [key: string]: JsonValue }
+
+/** Token usage and cost for an LLM call. */
+export interface TokenUsage {
+  model: string
+  input_tokens: number
+  output_tokens: number
+  cache_read_tokens: number
+  cache_write_tokens: number
+  cost: number
+}
+
+/** A tool call made during an agent step. */
+export interface LogToolCall {
+  name: string
+  args: JsonValue
+  output: JsonValue
+  /** Inner LLM call usage. Null when the tool didn't invoke an LLM. */
+  generation: TokenUsage | null
+  reasoning: string
+}
+
+// ── Event variants ────────────────────────────────────────────────
+
+/** User sent a chat message at the start of an HTTP request. */
+export interface MessageEvent {
+  type: 'message'
+  id: string
+  text: string
+}
+
+/** Agent completed one LLM call (may include tool calls and their results). */
+export interface StepEvent {
+  type: 'step'
+  /** Step index within the run (0-based). Emissions reference this to associate with their parent step. */
+  step_index: number
+  text: string
+  reasoning: string
+  tool_calls: LogToolCall[]
+  usage: TokenUsage
+}
+
+/** A data-* part sent to the client stream. Written immediately, not batched into steps. */
+export interface EmissionEvent {
+  type: 'emission'
+  /** Which step this emission belongs to (for replay grouping). */
+  step_index: number
+  emission_type: string
+  emission_data: JsonValue
+}
+
+/** A classified error (api_auth, rate_limit, internal, etc.). */
+export interface ErrorEvent {
+  type: 'error'
+  error_type: string
+  error_message: string
+  error_raw: string
+  error_fatal: boolean
+  error_context: string
+}
+
+/** Discriminated union of all event payloads. */
+export type LogEvent = MessageEvent | StepEvent | EmissionEvent | ErrorEvent
+
+// ── Stored event (envelope + event) ──────────────────────────────
+
+/**
+ * A log event with its storage envelope. This is the unit of persistence —
+ * one StoredEvent = one JSONL line = one Firestore document.
+ */
+export interface StoredEvent {
+  /** Generation run ID — groups events from the same build/edit session. */
+  run_id: string
+  /** Monotonic counter for deterministic ordering within a run. */
+  sequence: number
+  /** HTTP request boundary (0-indexed, increments per chat request in a multi-turn). */
+  request: number
+  /** ISO 8601 timestamp of this event. */
+  timestamp: string
+  /** The event payload — discriminated by `event.type`. */
+  event: LogEvent
+}
+
+// ── Zod schema for Firestore reads ───────────────────────────────
+
+/**
+ * Zod schema for StoredEvent. Used by the Firestore converter to validate
+ * documents on read. Writes pass through unchanged (the converter is a
+ * passthrough for toFirestore).
+ *
+ * The discriminated union ensures each variant is validated with only its
+ * own fields — no defaults for fields that don't belong to the variant.
+ */
+const jsonValue: z.ZodType<JsonValue> = z.lazy(() =>
+  z.union([z.string(), z.number(), z.boolean(), z.null(), z.array(jsonValue), z.record(z.string(), jsonValue)]),
+)
+
+const tokenUsageSchema = z.object({
+  model: z.string(),
+  input_tokens: z.number(),
+  output_tokens: z.number(),
+  cache_read_tokens: z.number(),
+  cache_write_tokens: z.number(),
+  cost: z.number(),
+})
+
+const logToolCallSchema = z.object({
+  name: z.string(),
+  args: jsonValue,
+  output: jsonValue,
+  generation: tokenUsageSchema.nullable(),
+  reasoning: z.string(),
+})
+
+const messageEventSchema = z.object({
+  type: z.literal('message'),
+  id: z.string(),
+  text: z.string(),
+})
+
+const stepEventSchema = z.object({
+  type: z.literal('step'),
+  step_index: z.number(),
+  text: z.string(),
+  reasoning: z.string(),
+  tool_calls: z.array(logToolCallSchema),
+  usage: tokenUsageSchema,
+})
+
+const emissionEventSchema = z.object({
+  type: z.literal('emission'),
+  step_index: z.number(),
+  emission_type: z.string(),
+  emission_data: jsonValue,
+})
+
+const errorEventSchema = z.object({
+  type: z.literal('error'),
+  error_type: z.string(),
+  error_message: z.string(),
+  error_raw: z.string(),
+  error_fatal: z.boolean(),
+  error_context: z.string(),
+})
+
+const logEventSchema = z.discriminatedUnion('type', [
+  messageEventSchema, stepEventSchema, emissionEventSchema, errorEventSchema,
+])
+
+export const storedEventSchema = z.object({
+  run_id: z.string(),
+  sequence: z.number(),
+  request: z.number(),
+  timestamp: z.string(),
+  event: logEventSchema,
+})
+
+// ── Project ─────────────────────────────────────────────────────
+
 export const projectDocSchema = z.object({
   /** App name — denormalized from blueprint for list display. */
   app_name: z.string(),
