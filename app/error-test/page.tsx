@@ -283,10 +283,7 @@ export default function ErrorTestPage() {
                 <GenerationProgress
                   phase={phase}
                   statusMessage={statusMessage}
-                  completed={0}
-                  total={0}
                   mode="centered"
-                  onDone={() => {}}
                 />
               ) : (
                 <span className="text-xs text-nova-text-muted font-mono">No active generation</span>

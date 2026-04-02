@@ -111,7 +111,7 @@ Reads/writes through `builder.mb` (persistent `MutableBlueprint`). Editing patte
 
 ## GenerationProgress
 
-Progress bar with phase labels during generation. Always centered in the content area throughout the entire generation lifecycle — stays centered even after the scaffold tree appears in the structure sidebar, then dismisses immediately on completion with a 1s fade-out. Counts derived from `builder.progressCompleted` / `builder.progressTotal`. Status message text was removed — phase-specific text now lives in the SignalGrid panel's etched label instead.
+Progress bar with phase labels during generation. Always centered in the content area throughout the entire generation lifecycle — stays centered even after the scaffold tree appears in the structure sidebar. Mounted only while `isGenerating` or `phase === Error` — never shown for hydrated projects that jump straight to `Done`. Exit animation (1s fade-out + slide-down) is handled by the parent `AnimatePresence` wrapper in BuilderLayout, not by the component itself. Counts derived from `builder.progressCompleted` / `builder.progressTotal`. Status message text was removed — phase-specific text now lives in the SignalGrid panel's etched label instead.
 
 **Error state:** When `phase === BuilderPhase.Error`, tracks the last active generating phase via `useRef` to show which step failed. The formerly-active stage gets an `'error'` status: static rose dot (no pulse), label in `text-nova-rose`, progress bar gradient shifts to `cyan→rose`. Error message from `statusMessage` prop displayed below the bar. No auto-dismiss on error — user must dismiss manually or retry.
 
