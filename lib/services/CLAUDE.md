@@ -74,8 +74,8 @@ Also re-exports `validateAndFix()` (from `validationLoop.ts`) — runs `runValid
 **Methods:**
 - `model(id)` — returns Anthropic model provider
 - `emit(type, data)` — writes transient data part to client stream
-- `emitError(error, context?)` — classifies error, logs to RunLogger, emits `data-error` to client. Handles broken writer gracefully (error still in run log).
-- `logger` — the `RunLogger` instance
+- `emitError(error, context?)` — classifies error, logs to EventLogger, emits `data-error` to client. Handles broken writer gracefully (error still in event log).
+- `logger` — the `EventLogger` instance
 - `generatePlainText(opts)` — text-only generation with automatic run logging. Wrapped in try/catch → `emitError` + re-throw.
 - `generate(schema, opts)` — one-shot structured generation via `generateText` + `Output.object()`. Accepts `reasoning?: { effort }`. Wrapped in try/catch → `emitError` + re-throw.
 - `streamGenerate(schema, opts)` — streaming structured generation via `streamText` + `Output.object()` + `partialOutputStream` with `onPartial`. Accepts `reasoning?: { effort }`. `onError` callback uses `emitError`.
@@ -338,38 +338,43 @@ Rule-based validation system that catches every error CommCare HQ would catch du
 - **Itemset validation** — FormPlayer validates itemset nodeset/label/copy/value relationships, referenced instances exist, copy targets are repeatable. Source: `XFormParser.java:2554-2619`. Relevant when we support dynamic select lists from lookup tables.
 - **Repeat homogeneity** — FormPlayer validates all repeated nodes for a binding are structurally identical. Source: `XFormParser.java:2383`. Our generator produces uniform repeats, but should validate if we ever allow manual XForm editing.
 
-## Run Logging
+## Event Logging
 
-Set `RUN_LOGGER=1` in `.env` to enable. Each run writes to `.log/` — always valid JSON, even on crash. When disabled (the default), all logging methods (`logStep`, `logEmission`, `logSubResult`, `logToolOutput`, `logError`, `logConversation`, `finalize`) return immediately — zero `structuredClone` overhead or buffer work.
+`eventLogger.ts` — flat event stream logger with two pluggable sinks. Every event is a `StoredEvent` (envelope + discriminated `LogEvent` union). The same object writes identically to both sinks — no conversion, no sparse stripping, no format bridging.
 
-**RunLogger class** (`runLogger.ts`): created once per request.
-- `logStep(step)` — starts a new turn. Drains emission/sub-result/tool-output buffers, computes cost, flushes.
-- `logEmission(type, data)` — buffers an emission (skips transient types like `data-partial-scaffold`)
-- `logSubResult(label, result)` — buffers sub-generation usage data
-- `logToolOutput(toolName, output)` — buffers a server-side tool's return value. Matched to `tool_calls` by name in `logStep()`. Used by `validateApp` to capture success/failure + error details.
-- `logError(error, context?)` — records a `ClassifiedError` with timestamp, type, message, raw error, fatal flag, and context. Flushes immediately (process may crash after fatal error).
-- `logConversation(messages)` — extracts user message text only. Backfills client-side tool outputs (e.g. `askQuestions` answers) into turn `tool_calls`.
-- `finalize()` — recomputes totals, writes final file
-- Abandoned log cleanup on construction (renames UUID-named orphans)
-- Output: `.log/{timestamp}_{app_name|unnamed|abandoned}.json`
+**EventLogger class** (`eventLogger.ts`): created once per request.
+- `enableFirestore(email, projectId)` — activates Firestore sink. Called by the route handler for authenticated users.
+- `logStep(step)` — writes a `StepEvent`. Drains buffered sub-results and tool outputs, matches them to tool calls by name, computes `TokenUsage`.
+- `logEmission(type, data)` — writes an `EmissionEvent` immediately (real-time, not batched). `step_index` associates it with the current step for replay grouping.
+- `logSubResult(label, result)` — buffers sub-generation usage data (consumed by `logStep` for tool call matching).
+- `logToolOutput(toolName, output)` — buffers server-side tool return value (consumed by `logStep`).
+- `logError(error, context?)` — writes an `ErrorEvent` immediately.
+- `logConversation(messages)` — writes a `MessageEvent` for the current request's user message.
+- `finalize()` — no-op. JSONL files are always valid; Firestore events are already written.
+- `estimateCost()` — exported helper for token cost calculation using `MODEL_PRICING`.
 
-**v3 log format** (`RunLog`):
-- `user_messages[]` — user message text only (no full UIMessage objects, no assistant message duplication)
-- `turns[]` — one entry per LLM call. Each turn contains:
-  - `usage` — token counts and cost for this LLM call
-  - `text`, `reasoning` — LLM output
-  - `tool_calls[]` — `TurnToolCall` with `name`, `args`, `output?`, `generation?`
-  - `events[]` — human-readable emission summaries (e.g. `"phase:modules"`, `"form-updated[0:1]"`, `"done"`)
-  - `emissions[]` — full emission payloads for replay
-- `errors[]` — optional `RunLogError` array with classified errors (type, message, raw, fatal, context)
+**File sink** (`EVENT_LOGGER=1`): JSONL to `.log/{runId}.jsonl`. One line per event. Each line is a complete, self-contained `StoredEvent`. If the process crashes, every previous line is intact. On resume (existing `runId`), reads the file to restore sequence/step/request counters.
+
+**Firestore sink**: One document per event at `users/{email}/projects/{projectId}/logs/`. Fire-and-forget writes. Zod `z.discriminatedUnion` validates reads.
+
+**Event types** (`StoredEvent` in `lib/db/types.ts`):
+- Envelope: `run_id`, `sequence` (monotonic), `request` (HTTP boundary), `timestamp` (ISO 8601)
+- `MessageEvent` (`type: 'message'`) — user message `id` + `text`
+- `StepEvent` (`type: 'step'`) — `step_index`, `text`, `reasoning`, `tool_calls: LogToolCall[]`, `usage: TokenUsage`
+- `EmissionEvent` (`type: 'emission'`) — `step_index`, `emission_type`, `emission_data: JsonValue`
+- `ErrorEvent` (`type: 'error'`) — `error_type`, `error_message`, `error_raw`, `error_fatal`, `error_context`
+
+**`JsonValue`** — recursive JSON type (`string | number | boolean | null | JsonValue[] | { [key: string]: JsonValue }`). Used for emission payloads and tool call args/outputs. Guarantees serialization fidelity without `unknown`.
 
 ## Log Replay
 
-Client-side replay of v3 run logs through Builder without API calls.
+Client-side replay of event logs through Builder without API calls. Supports two data sources — both provide `StoredEvent[]` directly.
 
-**Flow:** `/settings` file picker → `extractReplayStages(log)` → module-level store → `/build/new` → `BuilderLayout` reads store → `ReplayController` drives Builder.
+**File-based** (local dev): `/settings` file picker → parse JSONL → `extractReplayStages(events)` → module-level store → `/build/new` → `ReplayController` drives Builder.
 
-`logReplay.ts` — walks `log.turns`, builds progressive chat messages, creates `ReplayStage` per interesting tool call. Multi-tool turns split by `moduleIndex`/`formIndex` via `distributeEmissions`. Uses `applyDataPart()` — same code path as real-time. Extraction returns `doneIndex` — the index of the synthetic "Done" stage — so consumers can start replay at the completed app state without string comparisons.
+**Firestore-based** (production): `/builds` page Replay button → fetch `GET /api/projects/{id}/logs` → `extractReplayStages(events)` → same pipeline.
+
+`logReplay.ts` — `extractReplayStages(events: StoredEvent[])` pre-indexes emissions by `step_index`, then walks step events sequentially. Each step's tool calls become replay stages. Multi-tool steps split by `moduleIndex`/`formIndex` via `distributeEmissions`. Progressive chat messages built from message and step events. Uses `applyDataPart()` — same code path as real-time streaming. Returns `doneIndex` — index of the synthetic "Done" stage — so consumers can start at the completed app state.
 
 ## Pipeline Config
 

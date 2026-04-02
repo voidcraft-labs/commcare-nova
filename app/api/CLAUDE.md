@@ -10,7 +10,7 @@ Better Auth catch-all handler — serves all `/api/auth/*` paths (OAuth flows, s
 
 ## POST /api/chat (`chat/route.ts`)
 
-The single endpoint for all agent interaction. Creates `RunLogger`, `GenerationContext`, `MutableBlueprint`, then `createSolutionsArchitect()`.
+The single endpoint for all agent interaction. Creates `EventLogger`, `GenerationContext`, `MutableBlueprint`, then `createSolutionsArchitect()`.
 
 **API key resolution**: Uses `resolveApiKey()` from `lib/auth-utils.ts` — checks for an authenticated session first (uses server-side `ANTHROPIC_API_KEY`), falls back to `apiKey` in the request body (BYOK), returns 401 if neither.
 
@@ -18,7 +18,7 @@ The single endpoint for all agent interaction. Creates `RunLogger`, `GenerationC
 
 **Body params** (from `useChat` body): `apiKey` (optional — omitted for authenticated users), `pipelineConfig`, `blueprint` (for edits), `runId` (for log continuation), `projectId` (for updating the same Firestore project on subsequent requests).
 
-**Streaming**: Uses `createUIMessageStream` with a manual reader loop (not `writer.merge()`) so stream errors can be caught and emitted as `data-error` before the stream closes. Errors are classified via `errorClassifier.ts`, logged to `RunLogger`, and emitted to the client via `ctx.emitError()`. Server emits transient data parts via `ctx.emit()` which drive builder state on the client.
+**Streaming**: Uses `createUIMessageStream` with a manual reader loop (not `writer.merge()`) so stream errors can be caught and emitted as `data-error` before the stream closes. Errors are classified via `errorClassifier.ts`, logged to `EventLogger`, and emitted to the client via `ctx.emitError()`. Server emits transient data parts via `ctx.emit()` which drive builder state on the client.
 
 `maxDuration = 300` (5 min timeout for long generation runs).
 
@@ -40,7 +40,16 @@ Authenticated-only (no BYOK). All routes use `requireSession()` from `lib/auth-u
 - **GET /api/projects/[id]** — load a single project. Returns `{ blueprint, app_name, status }` for builder hydration.
 - **PUT /api/projects/[id]** — update a project after client-side edits (auto-save). Validates blueprint via `appBlueprintSchema` before writing. Uses `set({ merge: true })` to survive race conditions with the initial fire-and-forget save.
 
-CRUD helpers in `lib/db/projects.ts`: `saveProject`, `updateProject`, `loadProject`, `listProjects`, `generateProjectId`.
+CRUD helpers in `lib/db/projects.ts`: `createProject`, `completeProject`, `updateProject`, `loadProject`, `listProjects`.
+
+### Log Routes (`projects/[id]/logs/`)
+
+- **GET /api/projects/[id]/logs** — load `StoredEvent[]` for the latest run. Returns `{ events, runId }`. Used by the project list's Replay button.
+- **GET /api/projects/[id]/logs?runId={id}** — load events for a specific run, ordered by `sequence`. Returns `{ events, runId }`.
+
+Both return `{ events: [], runId: null }` when no logs exist. Events are the same `StoredEvent` format written by both sinks — consumed directly by `extractReplayStages()` on the client.
+
+CRUD helpers in `lib/db/logs.ts`: `writeLogEvent`, `loadRunEvents`, `loadLatestRunId`.
 
 ## POST /api/models (`models/route.ts`)
 

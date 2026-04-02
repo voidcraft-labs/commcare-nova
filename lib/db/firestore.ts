@@ -17,6 +17,7 @@
  *   collections.users()                    → users/{email}
  *   collections.usage(email)               → users/{email}/usage/{yyyy-mm}
  *   collections.projects(email)            → users/{email}/projects/{projectId}
+ *   collections.logs(email, projectId)     → users/{email}/projects/{projectId}/logs/{logId}
  */
 import {
   Firestore,
@@ -32,6 +33,7 @@ import {
   userDocSchema, type UserDoc,
   usageDocSchema, type UsageDoc,
   projectDocSchema, type ProjectDoc,
+  storedEventSchema, type StoredEvent,
 } from './types'
 
 // ── Singleton ──────────────────────────────────────────────────────
@@ -86,6 +88,7 @@ function zodConverter<T>(schema: ZodType<T>): FirestoreDataConverter<T> {
 const userConverter = zodConverter(userDocSchema)
 const usageConverter = zodConverter(usageDocSchema)
 const projectConverter = zodConverter(projectDocSchema)
+const storedEventConverter = zodConverter(storedEventSchema)
 
 // ── Collection Helpers ─────────────────────────────────────────────
 
@@ -93,8 +96,9 @@ const projectConverter = zodConverter(projectDocSchema)
  * Typed collection references for each document type.
  *
  * Subcollection helpers require parent document IDs to build the path.
- * Returns a CollectionReference with the Zod converter applied, so all
- * reads are validated and writes are type-checked.
+ * Returns a CollectionReference with the Zod converter applied, so reads
+ * are validated and writes accept `WithFieldValue<T>` (allows `FieldValue`
+ * sentinels like `serverTimestamp()` in place of their resolved types).
  *
  * Usage:
  *   const projects = await collections.projects('alice@dimagi.com').get()
@@ -115,6 +119,11 @@ export const collections = {
     getDb().collection('users').doc(email)
       .collection('projects').withConverter(projectConverter),
 
+  /** Per-project log events: `users/{email}/projects/{projectId}/logs/{logId}` */
+  logs: (email: string, projectId: string): CollectionReference<StoredEvent> =>
+    getDb().collection('users').doc(email)
+      .collection('projects').doc(projectId)
+      .collection('logs').withConverter(storedEventConverter),
 }
 
 // ── Document Helpers ───────────────────────────────────────────────
@@ -142,4 +151,7 @@ export const docs = {
   project: (email: string, projectId: string): DocumentReference<ProjectDoc> =>
     collections.projects(email).doc(projectId),
 
+  /** Direct reference: `users/{email}/projects/{projectId}/logs/{logId}` */
+  logEntry: (email: string, projectId: string, logId: string): DocumentReference<StoredEvent> =>
+    collections.logs(email, projectId).doc(logId),
 }

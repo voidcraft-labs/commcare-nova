@@ -1,7 +1,7 @@
 /**
  * GenerationContext — shared abstraction for all LLM calls.
  *
- * Wraps an Anthropic client + UI stream writer + RunLogger. Provides structured
+ * Wraps an Anthropic client + UI stream writer + EventLogger. Provides structured
  * generation (one-shot and streaming) with automatic run logging, plus transient
  * data part emission. Used by the Solutions Architect agent and its generation tools.
  */
@@ -11,7 +11,7 @@ import { createAnthropic } from '@ai-sdk/anthropic'
 import { z } from 'zod'
 import { MODEL_DEFAULT, DEFAULT_PIPELINE_CONFIG, modelSupportsReasoning } from '../models'
 import type { PipelineConfig, ReasoningEffort } from '../types/settings'
-import { RunLogger } from './runLogger'
+import { EventLogger } from './eventLogger'
 import { classifyError, type ClassifiedError } from './errorClassifier'
 import type { Session } from '../auth'
 
@@ -38,7 +38,7 @@ export function thinkingProviderOptions(effort: ReasoningEffort) {
 interface GenerationContextOptions {
   apiKey: string
   writer: UIMessageStreamWriter
-  logger: RunLogger
+  logger: EventLogger
   pipelineConfig?: Partial<PipelineConfig>
   /** Authenticated user session — null for BYOK requests. */
   session?: Session | null
@@ -49,7 +49,7 @@ interface GenerationContextOptions {
 export class GenerationContext {
   private anthropic: ReturnType<typeof createAnthropic>
   readonly writer: UIMessageStreamWriter
-  readonly logger: RunLogger
+  readonly logger: EventLogger
   readonly pipelineConfig: PipelineConfig
   /** Authenticated user session, or null for BYOK requests. */
   readonly session: Session | null
