@@ -4,7 +4,7 @@
 
 Main layout with one `useChat` instance targeting `/api/chat`. Wrapped in `ErrorBoundary` around ChatSidebar (right), StructureSidebar (left), PreviewShell, and ContextualEditor.
 
-- **`body`** sends: `apiKey`, `pipelineConfig`, `blueprint` (for edits), `projectId` (for Firestore persistence).
+- **`body`** sends: `apiKey`, `blueprint` (for edits), `projectId` (for Firestore persistence).
 - **`sendAutomaticallyWhen`** only triggers for `askQuestions` (client-side tool).
 - **`onData`** handles all state updates via `applyDataPart()`. Intercepts `data-project-saved` to update the URL via `replaceState` (no navigation/remount).
 - **Agent status sync** — `useEffect` syncs `useChat` status → `builder.setAgentActive()`, enabling `builder.isThinking` for both generation and edit operations.

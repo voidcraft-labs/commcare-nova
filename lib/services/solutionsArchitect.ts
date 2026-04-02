@@ -7,6 +7,7 @@
 import { ToolLoopAgent, tool, stepCountIs } from 'ai'
 import { z } from 'zod'
 import { GenerationContext, logWarnings } from './generationContext'
+import { SA_MODEL, SA_REASONING } from '../models'
 import { buildSolutionsArchitectPrompt } from '../prompts/solutionsArchitectPrompt'
 import {
   type AppBlueprint, type BlueprintForm, type ConnectConfig, type Question,
@@ -114,11 +115,8 @@ export function createSolutionsArchitect(
   ctx: GenerationContext,
   mutableBp: MutableBlueprint,
 ) {
-  const saCfg = ctx.pipelineConfig.solutionsArchitect
-  const saReasoning = ctx.reasoningForStage('solutionsArchitect')
-
   const agent = new ToolLoopAgent({
-    model: ctx.model(saCfg.model),
+    model: ctx.model(SA_MODEL),
     instructions: buildSolutionsArchitectPrompt(),
     stopWhen: stepCountIs(80),
     prepareStep: ({ steps }: { steps?: Array<{ providerMetadata?: Record<string, any> }> }) => {
@@ -129,9 +127,7 @@ export function createSolutionsArchitect(
       }
 
       // Reasoning (adaptive thinking)
-      if (saReasoning) {
-        anthropic.thinking = { type: 'adaptive' as const, effort: saReasoning.effort }
-      }
+      anthropic.thinking = { type: 'adaptive' as const, effort: SA_REASONING.effort }
 
       return { providerOptions: { anthropic } as Record<string, any> }
     },
@@ -151,7 +147,7 @@ export function createSolutionsArchitect(
             output: tr.output,
           })),
           usage: {
-            model: saCfg.model,
+            model: SA_MODEL,
             input_tokens: usage.inputTokens ?? 0,
             output_tokens: usage.outputTokens ?? 0,
             cache_read_tokens: usage.inputTokenDetails?.cacheReadTokens ?? undefined,

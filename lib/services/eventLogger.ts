@@ -1,42 +1,28 @@
 /**
- * EventLogger — flat event stream logger with pluggable sinks.
+ * EventLogger — flat event stream logger with Firestore sink.
  *
- * A log is a flat, ordered stream of events. The storage backend is a
- * transport concern, not a schema concern. Every event is a self-describing
- * StoredEvent — one object that writes identically to both sinks.
- *
- * **File sink** (EVENT_LOGGER=1): writes one JSONL line per event to
- * `.log/{runId}.jsonl`. Each line is a complete, self-contained event.
- * If the process crashes mid-generation, every previous event is intact.
+ * A log is a flat, ordered stream of events. Every event is a self-describing
+ * StoredEvent — one object that writes identically to the Firestore sink.
  *
  * **Firestore sink** (enableFirestore): writes one document per event to
  * `users/{email}/projects/{projectId}/logs/`. Fire-and-forget — a Firestore
  * outage never blocks generation.
- *
- * Both sinks receive the same StoredEvent object. No conversion, no sparse
- * stripping, no format bridging.
  */
 import type { UIMessage } from 'ai'
-import { readFileSync, appendFileSync, mkdirSync, existsSync } from 'fs'
-import path from 'path'
 import { MODEL_PRICING, DEFAULT_PRICING } from '../models'
 import type { ClassifiedError } from './errorClassifier'
 import type { StoredEvent, LogEvent, LogToolCall, TokenUsage, JsonValue } from '../db/types'
-import { parseJsonlEvents } from '../db/jsonl'
 import { writeLogEvent } from '../db/logs'
 import { incrementUsage } from '../db/usage'
 
 // ── Constants ───────────────────────────────────────────────────────
 
 const SKIP_EMISSIONS = new Set(['data-partial-scaffold', 'data-run-id'])
-const LOG_DIR = path.join(process.cwd(), '.log')
 
 // ── EventLogger ─────────────────────────────────────────────────────
 
 export class EventLogger {
   private _runId: string
-  private filePath: string | null
-  private fileEnabled: boolean
 
   /* Firestore sink */
   private fsEmail: string | null = null
@@ -58,28 +44,6 @@ export class EventLogger {
 
   constructor(existingRunId?: string) {
     this._runId = existingRunId ?? crypto.randomUUID()
-    this.fileEnabled = process.env.EVENT_LOGGER === '1'
-
-    if (this.fileEnabled) {
-      mkdirSync(LOG_DIR, { recursive: true })
-      this.filePath = path.join(LOG_DIR, `${this._runId}.jsonl`)
-
-      /* Resume from existing file — count existing lines to restore sequence/step/request */
-      if (existingRunId && existsSync(this.filePath)) {
-        try {
-          const events = parseJsonlEvents(readFileSync(this.filePath, 'utf-8'))
-          for (const evt of events) {
-            this.sequence = Math.max(this.sequence, evt.sequence + 1)
-            this.requestNumber = Math.max(this.requestNumber, evt.request + 1)
-            if (evt.event.type === 'step') {
-              this.stepIndex = Math.max(this.stepIndex, evt.event.step_index + 1)
-            }
-          }
-        } catch { /* corrupt file — start fresh counters */ }
-      }
-    } else {
-      this.filePath = null
-    }
   }
 
   get runId(): string { return this._runId }
@@ -97,13 +61,11 @@ export class EventLogger {
     return this.fsEmail !== null && this.fsProjectId !== null
   }
 
-  private get anyEnabled(): boolean {
-    return this.fileEnabled || this.firestoreEnabled
-  }
-
-  // ── Core: write a StoredEvent to all active sinks ──────────────
+  // ── Core: write a StoredEvent to the Firestore sink ───────────────
 
   private write(event: LogEvent) {
+    if (!this.firestoreEnabled) return
+
     const stored: StoredEvent = {
       run_id: this._runId,
       sequence: this.sequence++,
@@ -112,13 +74,7 @@ export class EventLogger {
       event,
     }
 
-    if (this.fileEnabled && this.filePath) {
-      appendFileSync(this.filePath, JSON.stringify(stored) + '\n')
-    }
-
-    if (this.firestoreEnabled) {
-      writeLogEvent(this.fsEmail!, this.fsProjectId!, stored)
-    }
+    writeLogEvent(this.fsEmail!, this.fsProjectId!, stored)
   }
 
   // ── Public API ──────────────────────────────────────────────────
@@ -128,7 +84,7 @@ export class EventLogger {
    * and writes one message event per user message in the current request.
    */
   logConversation(messages: UIMessage[]) {
-    if (!this.anyEnabled) return
+    if (!this.firestoreEnabled) return
 
     const userMessages = messages
       .filter(m => m.role === 'user')
@@ -150,7 +106,7 @@ export class EventLogger {
 
   /** Write an emission event immediately (real-time, not batched). */
   logEmission(type: string, data: unknown) {
-    if (!this.anyEnabled) return
+    if (!this.firestoreEnabled) return
     if (SKIP_EMISSIONS.has(type)) return
 
     this.write({
@@ -163,7 +119,7 @@ export class EventLogger {
 
   /** Write an error event immediately. */
   logError(error: ClassifiedError, context?: string) {
-    if (!this.anyEnabled) return
+    if (!this.firestoreEnabled) return
     this.write({
       type: 'error',
       error_type: error.type,
@@ -188,7 +144,7 @@ export class EventLogger {
       reasoningText?: string
     },
   ) {
-    if (!this.anyEnabled) return
+    if (!this.firestoreEnabled) return
     this.pendingSubResults.push({
       label,
       usage: {
@@ -224,7 +180,7 @@ export class EventLogger {
       cache_write_tokens?: number
     }
   }) {
-    if (!this.anyEnabled) return
+    if (!this.firestoreEnabled) return
 
     /* Build toolCallId → output lookup from SDK tool results */
     const resultsByCallId = new Map<string, unknown>()

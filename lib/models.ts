@@ -5,28 +5,17 @@
  * Vercel AI SDK calls use short aliases (e.g. "claude-sonnet-4-6") resolved by the provider.
  */
 
-import type { PipelineConfig } from './types/settings'
+/** Reasoning effort levels for Anthropic adaptive thinking. */
+export type ReasoningEffort = 'low' | 'medium' | 'high' | 'max'
 
 /** Fallback model for GenerationContext methods when no model is specified. */
 export const MODEL_DEFAULT = 'claude-sonnet-4-6'
 
-/** Model families that support extended thinking / reasoning. */
-const REASONING_PREFIXES = ['claude-opus', 'claude-sonnet']
+/** Model ID for the Solutions Architect agent. */
+export const SA_MODEL = 'claude-opus-4-6'
 
-/** Check whether a model ID supports reasoning (extended thinking). */
-export function modelSupportsReasoning(modelId: string): boolean {
-  return REASONING_PREFIXES.some(prefix => modelId.startsWith(prefix))
-}
-
-/** Check whether a model ID supports "max" reasoning effort (only Opus). */
-export function modelSupportsMaxReasoning(modelId: string): boolean {
-  return modelId.startsWith('claude-opus')
-}
-
-/** Default pipeline configuration. */
-export const DEFAULT_PIPELINE_CONFIG: PipelineConfig = {
-  solutionsArchitect: { model: 'claude-opus-4-6', maxOutputTokens: 0, reasoning: true, reasoningEffort: 'max' },
-}
+/** Reasoning configuration for the Solutions Architect agent. */
+export const SA_REASONING: { effort: ReasoningEffort } = { effort: 'max' }
 
 /** Pricing per million tokens, keyed by model ID (either full or alias). */
 export const MODEL_PRICING: Record<string, { input: number; output: number; cacheWrite: number; cacheRead: number }> = {

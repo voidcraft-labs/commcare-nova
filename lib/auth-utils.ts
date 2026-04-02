@@ -6,6 +6,8 @@
  * own key (BYOK). This keeps the resolution logic in one place, shared across
  * all routes that need an Anthropic key (chat, models, compile).
  */
+import { headers } from 'next/headers'
+import { redirect } from 'next/navigation'
 import { auth, type Session } from './auth'
 import { ApiError } from './apiError'
 import { isUserAdmin } from './db/users'
@@ -108,4 +110,46 @@ export async function getSessionSafe(req: Request): Promise<Session | null> {
   } catch {
     return null
   }
+}
+
+// ── RSC Auth Functions ─────────────���─────────────────────────────────
+// Server Component equivalents of the route handler functions above.
+// Use `await headers()` from next/headers instead of `req.headers`.
+
+/**
+ * Get the session in a Server Component or Server Action.
+ *
+ * Returns null if not authenticated — use when authentication is optional
+ * (e.g. the landing page checking whether to redirect).
+ */
+export async function getSession(): Promise<Session | null> {
+  try {
+    return await auth.api.getSession({ headers: await headers() }) ?? null
+  } catch {
+    return null
+  }
+}
+
+/**
+ * Require an authenticated session in a Server Component.
+ *
+ * Redirects to the landing page if not authenticated. Use for pages that
+ * require sign-in (builds, settings).
+ */
+export async function requireAuth(): Promise<Session> {
+  const session = await getSession()
+  if (!session) redirect('/')
+  return session
+}
+
+/**
+ * Require an admin session in a Server Component.
+ *
+ * Redirects to /builds if authenticated but not admin, or to / if not
+ * authenticated at all. Use for the admin layout gate.
+ */
+export async function requireAdminAccess(): Promise<Session> {
+  const session = await requireAuth()
+  if (session.user.isAdmin !== true) redirect('/builds')
+  return session
 }

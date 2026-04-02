@@ -35,7 +35,7 @@ Split across three files:
 
 The SA makes all architecture and form design decisions. All tools are called directly.
 
-**prepareStep:** Inline function that consolidates prompt caching and reasoning (adaptive thinking) into a single provider options builder. Uses request-level `cacheControl: { type: 'ephemeral' }` in `providerOptions.anthropic` — Anthropic automatically places the cache breakpoint on the last cacheable block and advances it as the conversation grows. System prompt stays cached across requests.
+**prepareStep:** Inline function that consolidates prompt caching and reasoning (adaptive thinking) into a single provider options builder. Model and reasoning effort are hardcoded via `SA_MODEL` and `SA_REASONING` from `lib/models.ts`. Uses request-level `cacheControl: { type: 'ephemeral' }` in `providerOptions.anthropic` — Anthropic automatically places the cache breakpoint on the last cacheable block and advances it as the conversation grows. System prompt stays cached across requests.
 
 **Agent limits:** `stopWhen: stepCountIs(80)` — resets per request. Error recovery prompt tells SA to bail after 2-3 failed retries.
 
@@ -69,8 +69,6 @@ Also re-exports `validateAndFix()` (from `validationLoop.ts`) — runs `runValid
 **Readonly fields:**
 - `session` — Better Auth `Session | null`. Non-null for authenticated users, null for BYOK. Used by `validateApp` to save projects to Firestore.
 - `projectId` — Firestore project ID, present when updating an existing project. Threaded from the chat request body.
-- `pipelineConfig` — readonly `PipelineConfig` (merged with `DEFAULT_PIPELINE_CONFIG`)
-
 **Methods:**
 - `model(id)` — returns Anthropic model provider
 - `emit(type, data)` — writes transient data part to client stream
@@ -79,7 +77,6 @@ Also re-exports `validateAndFix()` (from `validationLoop.ts`) — runs `runValid
 - `generatePlainText(opts)` — text-only generation with automatic run logging. Wrapped in try/catch → `emitError` + re-throw.
 - `generate(schema, opts)` — one-shot structured generation via `generateText` + `Output.object()`. Accepts `reasoning?: { effort }`. Wrapped in try/catch → `emitError` + re-throw.
 - `streamGenerate(schema, opts)` — streaming structured generation via `streamText` + `Output.object()` + `partialOutputStream` with `onPartial`. Accepts `reasoning?: { effort }`. `onError` callback uses `emitError`.
-- `reasoningForStage(stage)` — returns `{ effort }` if reasoning enabled and model supports it, `undefined` otherwise.
 
 **Exports:**
 - `thinkingProviderOptions(effort)` — Anthropic adaptive thinking provider options for `generate()`/`streamGenerate()` calls.
@@ -342,7 +339,7 @@ Rule-based validation system that catches every error CommCare HQ would catch du
 
 ## Event Logging
 
-`eventLogger.ts` — flat event stream logger with two pluggable sinks. Every event is a `StoredEvent` (envelope + discriminated `LogEvent` union). The same object writes identically to both sinks — no conversion, no sparse stripping, no format bridging.
+`eventLogger.ts` — flat event stream logger. Every event is a `StoredEvent` (envelope + discriminated `LogEvent` union).
 
 **EventLogger class** (`eventLogger.ts`): created once per request.
 - `enableFirestore(email, projectId)` — activates Firestore sink. Called by the route handler for authenticated users.
@@ -353,8 +350,6 @@ Rule-based validation system that catches every error CommCare HQ would catch du
 - `logConversation(messages)` — writes a `MessageEvent` for the current request's user message.
 - `finalize()` — flushes accumulated request-level cost to the usage document via a single `incrementUsage` call. Idempotent (`_finalized` guard) — safe to call from both `onFinish` and `req.signal.abort` without double-writing. Also accumulates cost across steps in private fields (`_usageInputTokens`, `_usageOutputTokens`, `_usageCost`), including inner tool sub-generation costs.
 - `estimateCost()` — exported helper for token cost calculation using `MODEL_PRICING`.
-
-**File sink** (`EVENT_LOGGER=1`): JSONL to `.log/{runId}.jsonl`. One line per event. Each line is a complete, self-contained `StoredEvent`. If the process crashes, every previous line is intact. On resume (existing `runId`), reads the file to restore sequence/step/request counters.
 
 **Firestore sink**: One document per event at `users/{email}/projects/{projectId}/logs/`. Fire-and-forget writes. `ignoreUndefinedProperties: true` on the Firestore instance silently drops `undefined` values (produced by `stripEmpty()` converting sentinel strings back). Zod `z.discriminatedUnion` validates reads.
 
@@ -369,22 +364,14 @@ Rule-based validation system that catches every error CommCare HQ would catch du
 
 ## Log Replay
 
-Client-side replay of event logs through Builder without API calls. Supports two data sources — both provide `StoredEvent[]` directly.
+Client-side replay of event logs through Builder without API calls. Consumes `StoredEvent[]` from Firestore.
 
-**File-based** (local dev): `/settings` file picker → parse JSONL → `extractReplayStages(events)` → consume-once store → `/build/new` → `ReplayController` drives Builder.
-
-**Firestore-based** (production): `/builds` page Replay button → fetch `GET /api/projects/{id}/logs` → `extractReplayStages(events)` → same pipeline.
+**Firestore-based**: `/builds` page Replay button → fetch `GET /api/projects/{id}/logs` → `extractReplayStages(events)` → consume-once store → `/build/new` → `ReplayController` drives Builder.
 
 `logReplay.ts` — `extractReplayStages(events: StoredEvent[])` pre-indexes emissions by `step_index`, then walks step events sequentially. Each step's tool calls become replay stages. Multi-tool steps split by `moduleIndex`/`formIndex` via `distributeEmissions`. Progressive chat messages built from message and step events. Uses `applyDataPart()` — same code path as real-time streaming. Returns `doneIndex` — index of the synthetic "Done" stage — so consumers can start at the completed app state.
 
 **Replay store** — `setReplayData()` deposits stages into a module-level singleton; `consumeReplayData()` reads and clears it atomically. The store is always drained on first read, so stale replay state can never leak across navigations. BuilderLayout calls `consumeReplayData` inside a `useState` initializer so it executes exactly once on mount.
 
-## Pipeline Config
+## Model Configuration
 
-Single stage: `solutionsArchitect` (model + maxOutputTokens + reasoning + reasoningEffort). Default: Opus, reasoning max. No sub-LLM calls — the SA produces all structured data directly.
-
-`maxOutputTokens` of `0` means no cap. Reasoning uses Anthropic adaptive thinking (`type: 'adaptive'`) with configurable effort (`low`/`medium`/`high`/`max`). `ctx.reasoningForStage(stage)` returns the config or `undefined`.
-
-Users configure via `/settings`. Settings flow: `localStorage → useSettings() → useChat body → route.ts → GenerationContext.pipelineConfig`.
-
-**Models proxy:** `POST /api/models` takes `{ apiKey }`, returns latest version of each family (Opus, Sonnet, Haiku) for settings dropdowns.
+The SA agent uses `SA_MODEL` (Opus) and `SA_REASONING` (max effort) from `lib/models.ts`. These are code constants — not user-configurable. To change the model, update `lib/models.ts` and deploy. Reasoning uses Anthropic adaptive thinking (`type: 'adaptive'`) with the configured effort level.

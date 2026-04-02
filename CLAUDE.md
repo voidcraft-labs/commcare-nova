@@ -71,15 +71,14 @@ Authenticated users' projects are auto-saved to Firestore. Loading is a single d
 
 ### Event Logging (`lib/services/eventLogger.ts`)
 
-A log is a flat, ordered stream of `StoredEvent` objects. The storage backend is a transport concern — the same object writes to both sinks. Two sinks, one format, no conversion layer.
+A log is a flat, ordered stream of `StoredEvent` objects written to Firestore.
 
-- **File sink** (`EVENT_LOGGER=1`): JSONL to `.log/{runId}.jsonl`. One line per event. Always valid — if the process crashes, every previous line is intact. No finalize step.
 - **Firestore sink** (`enableFirestore`): One document per event at `users/{email}/projects/{projectId}/logs/`. Fire-and-forget writes — a Firestore outage never blocks generation.
 - **Event types:** `StoredEvent` wraps a `LogEvent` discriminated union (four variants: `message`, `step`, `emission`, `error`). Each variant has exactly its own fields — no defaults, no sparse stripping, no unused fields.
 - **Typed payloads:** Emission data and tool call args/outputs use `JsonValue` (recursive JSON type) instead of `unknown`. Guarantees serialization round-trip fidelity without losing type safety.
 - **Tool results in logs:** `logStep` receives `tool_results` from the AI SDK's `onStepFinish` callback and matches them to tool calls by `toolCallId`. Every tool's return value (success or error) appears in the log's `output` field automatically — no manual `logToolOutput` plumbing needed.
 - **Cost tracking:** Step events carry `TokenUsage` (model, tokens, cost). EventLogger accumulates request-level cost across all steps and flushes a single `incrementUsage` write in `finalize()`. The route registers `finalize()` on both `onFinish` (normal completion) and `req.signal.abort` (client disconnect) — a `_finalized` guard ensures exactly one write.
-- **Replay:** `extractReplayStages()` consumes `StoredEvent[]` directly — same format from both file and Firestore. No intermediate format. The project list page loads events via `GET /api/projects/{id}/logs`.
+- **Replay:** `extractReplayStages()` consumes `StoredEvent[]` directly from Firestore. The project list page loads events via `GET /api/projects/{id}/logs`.
 
 ### Usage Tracking & Spend Cap (`lib/db/usage.ts`)
 
@@ -94,7 +93,7 @@ Per-user monthly spend tracking for authenticated users on the shared server key
 
 - **Builder** (`lib/services/builder.ts`) — singleton state machine shared via `useBuilder()`. Phases: `Idle → DataModel → Structure → Modules → Forms → Validate → Fix → Done | Error`. Holds a persistent `MutableBlueprint` instance. Exposes `subscribe` + `getSnapshot` for `useSyncExternalStore`. Tracks `projectId` for Firestore persistence.
 - **MutableBlueprint** (`lib/services/mutableBlueprint.ts`) — single state container for the entire lifecycle. Progressive population during generation, in-place mutation during editing. Components call mutation methods directly, then `builder.notifyBlueprintChanged()`.
-- **GenerationContext** (`lib/services/generationContext.ts`) — all LLM calls flow through here. Wraps Anthropic client + stream writer + EventLogger + PipelineConfig. Carries `session` (for Firestore saves) and `projectId` (for updating existing projects).
+- **GenerationContext** (`lib/services/generationContext.ts`) — all LLM calls flow through here. Wraps Anthropic client + stream writer + EventLogger. Carries `session` (for Firestore saves) and `projectId` (for updating existing projects).
 
 ### Reference Chip System (`lib/references/`)
 
@@ -122,6 +121,7 @@ Server emits transient data parts → `useChat` `onData` callback → builder me
 - **External store subscription** — `useBuilder()` and `useFormEngine()` use `useSyncExternalStore` with versioned snapshots. No useState/useEffect for subscription. `getServerSnapshot` must return a **cached** (module-level) value — returning a new object each call causes infinite loops.
 - **Ref callback cleanup** — DOM listeners (click-outside, Escape, ResizeObserver, MutationObserver, focusin) use React 19 ref callback cleanup instead of useEffect. `useDismissRef` hook for the common click-outside + Escape pattern (inline dropdowns where the trigger is inside the container DOM).
 - **Floating dropdowns** — `useFloatingDropdown` hook (`hooks/useFloatingDropdown.tsx`) encapsulates the full portal dropdown lifecycle: open/close state, FloatingUI positioning, entrance animation, trigger-aware dismiss (no race between click-outside and toggle), and optional content popover coordination. Generic `<T extends HTMLElement>` for typed trigger refs. `matchTriggerWidth` option uses FloatingUI's `size` middleware to apply the trigger's width as `min-width` on the floating element — use for form-field dropdowns (select menus) where the menu should match the input width. `DropdownPortal` component (same file) renders the `FloatingPortal` + positioned wrapper div — eliminates the repeated 5-line portal boilerplate from every consumer. Used by AccountMenu, FormSettingsButton, FormTypeButton, AfterSubmitSection, AppConnectSettings, and ContextualEditorUI type picker.
+- **RSC with client leaves** — Pages are Server Components that render structure (headers, headings, cards, tables) and import small client components only for interactive elements (search inputs, sort controls, replay buttons, navigation buttons). Push `'use client'` as far down the tree as possible — don't wrap entire pages. Name components by what they do (`UserTable`, `ProjectList`, `NewBuildButton`), not by runtime (`*Client`). Colocate page-specific components next to their page in `app/` (e.g. `app/admin/user-table.tsx`, `app/builds/project-list.tsx`). Shared components stay in `components/ui/`.
 - **Hydration-safe settings** — `useSettings()` uses `useSyncExternalStore` with `getServerSnapshot` (defaults) during SSR and hydration, then switches to `getSnapshot` (localStorage) after hydration. Never branch on `typeof window` during render — it creates hydration mismatches. Components render consistently with server defaults, then update post-hydration.
 - **No navigation during render** — `router.push`/`router.replace` must be called from `useEffect`, never from the render body. Conditional redirects use a `shouldRedirect` flag checked by both the effect and the early return.
 - **Error boundaries** — Route-level (`app/error.tsx`, `app/build/[id]/error.tsx`) and component-level (`ErrorBoundary` wrapping ChatSidebar, PreviewShell, ContextualEditor). Route-level error boundaries use `window.location.href` for navigation (not `router.push`) because React's tree is in an error state and can't handle client-side transitions.
@@ -145,22 +145,28 @@ Dual-mode system supporting both authenticated (Google OAuth) and BYOK (bring yo
 2. `apiKey` in request body → use that (BYOK)
 3. Neither → 401
 
-**Client flow** — `useAuth()` hook wraps Better Auth's `useSession` with `customSessionClient` for type-safe access to `isAdmin`. Returns `{ user, isAuthenticated, isAdmin, isPending, signIn, signOut }`. BuilderLayout's redirect guard checks `isAuthenticated || apiKey || inReplayMode`. The `useChat` body omits `apiKey` when the user is authenticated.
+**Server-side auth (RSC)** — Protected pages use Server Components that call `auth.api.getSession({ headers: await headers() })` to check auth before rendering. Three RSC functions in `lib/auth-utils.ts`: `getSession()` (returns session or null), `requireAuth()` (redirects to `/` if no session), `requireAdminAccess()` (redirects to `/builds` if not admin). These are separate from the `req`-based functions used by API route handlers (`requireSession(req)`, `requireAdmin(req)`).
 
-**Landing page** — Google sign-in button (primary) + API key input (secondary). Redirects to `/build/new` if already authenticated or has a saved BYOK key.
+**Proxy layer** — `proxy.ts` (Next.js 16 convention, replaces middleware.ts) checks for the session cookie via `getSessionCookie()` from `better-auth/cookies`. Fast optimistic redirect — unauthenticated users hitting `/builds`, `/admin/*`, or `/settings` are redirected to `/` before the page JS downloads. Not a security boundary — RSC does the real auth check.
+
+**Page architecture** — Protected pages are Server Components that handle auth, fetch data, and render structure. Interactive leaves are small colocated client components. Pages: `/` (RSC redirects authenticated → `/builds`, `app/landing.tsx` handles BYOK + sign-in), `/builds` (RSC fetches projects, `project-list.tsx` handles replay, `new-build-button.tsx` handles navigation), `/settings` (RSC resolves auth, `api-key-editor.tsx` handles key input), `/admin` (RSC layout gate + `stat-card.tsx` server-rendered, `user-table.tsx` handles sorting/search), `/admin/users/[email]` (RSC renders profile card + usage table, `user-projects.tsx` handles replay).
+
+**Client-side auth** — `useAuth()` hook wraps Better Auth's `useSession` with `customSessionClient` for type-safe access to `isAdmin`. Returns `{ user, isAuthenticated, isAdmin, isPending, signIn, signOut }`. Used only in client components that need reactive auth state (AccountMenu, BuilderLayout, landing page sign-in). NOT used for page-level auth gates — those use RSC.
+
+**Landing page** — Server component redirects authenticated users to `/builds`. Client component handles Google sign-in button (primary) + API key input (secondary). BYOK users with a saved key are redirected to `/build/new` client-side (requires localStorage).
 
 **Account menu** — `AccountMenu` (`components/ui/AccountMenu.tsx`) replaces the settings gear icon in all headers. Authenticated users see an avatar trigger that opens a `POPOVER_GLASS` dropdown (via `useFloatingDropdown` + `DropdownPortal`) with profile info, monthly usage progress bar (`GET /api/user/usage`), Settings link, and Sign Out. BYOK users see a plain settings gear link to `/settings`.
 
-**Settings page** — API key field (becomes "API Key Override" for authenticated users), pipeline configuration, and log replay. Account info and sign-out live in the AccountMenu dropdown, not on this page.
+**Settings page** — API key field (becomes "API Key Override" for authenticated users). Auth status resolved server-side and passed as prop. Account info and sign-out live in the AccountMenu dropdown, not on this page.
 
 ### Admin Dashboard
 
-Admin-only dashboard at `/admin` for org-wide visibility into usage and user activity. Accessible only to users with `role: 'admin'` in their Firestore user document. The admin nav icon in the builds page header appears instantly (no loading delay) because `isAdmin` is part of the session payload.
+Admin-only dashboard at `/admin` for org-wide visibility into usage and user activity. Protected by `app/admin/layout.tsx` — an async Server Component that calls `requireAdminAccess()` to check `isAdmin` on the session and redirects non-admins before any HTML is sent. All pages under `/admin/*` inherit this gate and can assume admin access without self-gating. Server-side: all admin API routes use `requireAdmin()` from `lib/auth-utils.ts`.
 
 - **Dashboard page** (`/admin`): Headline stat cards (total users, generations this month, total spend) + sortable user table via `@tanstack/react-table` with live search. Columns: user (avatar + name), email, role, projects, generations, spend, last active. Click a row → user profile. Table supports keyboard navigation (`tabIndex`, `role="link"`, Enter/Space).
 - **User profile** (`/admin/users/[email]`): User info card, all-time usage history table (per-month breakdown), and project list with replay buttons. Replay uses the shared `useReplay` hook with the admin log endpoint.
 - **Admin API routes** (`/api/admin/*`): All use `requireAdmin()`. `GET /api/admin/users` returns user list + headline stats (iterates users, fetches current month usage + project count per user in parallel). `GET /api/admin/users/[email]` returns user detail + all-time usage + projects. `GET /api/admin/users/[email]/projects/[projectId]/logs` returns log events for admin replay.
-- **Log replay gating**: All Firestore-based replay is admin-only. The user-facing logs endpoint (`GET /api/projects/[id]/logs`) uses `requireAdmin`. The replay button on `/builds` is hidden for non-admins (`onReplay={isAdmin ? handleReplay : undefined}`). File-based JSONL replay in Settings is unaffected (local data).
+- **Log replay gating**: All Firestore-based replay is admin-only. The user-facing logs endpoint (`GET /api/projects/[id]/logs`) uses `requireAdmin`. The replay button on `/builds` is hidden for non-admins (`onReplay={isAdmin ? handleReplay : undefined}`).
 - **Shared utilities**: `ProjectCard` component, `useReplay` hook, `STATUS_STYLES` constant, `formatRelativeDate`/`formatCurrency`/`formatTokenCount`/`formatPeriodLabel` in `lib/utils/format.ts`.
 
 ## Rules
@@ -197,7 +203,7 @@ All SA tool question schemas are derived from `questionFields` in `blueprint.ts`
 
 ### Model Configuration
 
-`lib/models.ts` is the single source of truth for model IDs and pricing. Single pipeline stage: `solutionsArchitect` (the SA agent). Settings flow: `localStorage → useSettings() → useChat body → route.ts → GenerationContext.pipelineConfig`.
+`lib/models.ts` is the single source of truth for model IDs, pricing, and the SA agent's model/reasoning config (`SA_MODEL`, `SA_REASONING`). These are code constants — not user-configurable. To change the model, update `lib/models.ts` and deploy.
 
 ### Data Model
 

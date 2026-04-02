@@ -12,7 +12,6 @@ import tablerListTree from '@iconify-icons/tabler/list-tree'
 import Link from 'next/link'
 import { useApiKey } from '@/hooks/useApiKey'
 import { useAuth } from '@/hooks/useAuth'
-import { useSettings } from '@/hooks/useSettings'
 import { useBuilder } from '@/hooks/useBuilder'
 import { BuilderPhase, applyDataPart, type CursorMode } from '@/lib/services/builder'
 import { showToast } from '@/lib/services/toastStore'
@@ -94,7 +93,6 @@ export function BuilderLayout({ buildId }: { buildId: string }) {
   const router = useRouter()
   const { apiKey } = useApiKey()
   const { isAuthenticated, isPending: authPending } = useAuth()
-  const { settings } = useSettings()
   const builder = useBuilder()
   const [initialReplay] = useState(consumeReplayData)
   const [chatOpen, setChatOpen] = useState(true)
@@ -124,8 +122,6 @@ export function BuilderLayout({ buildId }: { buildId: string }) {
 
   const apiKeyRef = useRef(apiKey)
   apiKeyRef.current = apiKey
-  const settingsRef = useRef(settings)
-  settingsRef.current = settings
   const runIdRef = useRef<string | undefined>(undefined)
 
   const handleExitReplay = useCallback(() => {
@@ -270,7 +266,6 @@ export function BuilderLayout({ buildId }: { buildId: string }) {
       body: () => ({
         /* Only send apiKey for BYOK users — authenticated users use the server key */
         ...(apiKeyRef.current ? { apiKey: apiKeyRef.current } : {}),
-        pipelineConfig: settingsRef.current.pipeline,
         blueprint: builder.blueprint ?? undefined,
         runId: runIdRef.current,
         projectId: builderRef.current.projectId,
