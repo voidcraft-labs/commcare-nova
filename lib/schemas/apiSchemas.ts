@@ -15,12 +15,14 @@ const pipelineConfigSchema = z.object({
 }).partial()
 
 export const chatRequestSchema = z.object({
-  apiKey: z.string().min(1, 'API key is required'),
+  /** BYOK API key — optional when the user is authenticated (server key used instead). */
+  apiKey: z.string().optional(),
   blueprint: appBlueprintSchema.optional(),
   runId: z.string().optional(),
   pipelineConfig: pipelineConfigSchema.optional(),
 })
 
 export const modelsRequestSchema = z.object({
-  apiKey: z.string().min(1, 'API key is required'),
+  /** BYOK API key — optional when the user is authenticated (server key used instead). */
+  apiKey: z.string().optional(),
 })

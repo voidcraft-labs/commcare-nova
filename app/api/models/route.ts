@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { modelsRequestSchema } from '@/lib/schemas/apiSchemas'
 import { ApiError, handleApiError } from '@/lib/apiError'
+import { resolveApiKey } from '@/lib/auth-utils'
 
 interface AnthropicModel {
   id: string
@@ -18,14 +19,17 @@ export async function POST(req: Request) {
   try {
     const body = await req.json()
     const parsed = modelsRequestSchema.safeParse(body)
-    if (!parsed.success) {
-      throw new ApiError('No API key provided', 400)
+
+    /* Authenticated users don't need to provide a key — server uses its own. */
+    const bodyKey = parsed.success ? parsed.data.apiKey : undefined
+    const keyResult = await resolveApiKey(req, bodyKey)
+    if (!keyResult.ok) {
+      throw new ApiError(keyResult.error, keyResult.status)
     }
-    const { apiKey } = parsed.data
 
     const res = await fetch('https://api.anthropic.com/v1/models', {
       headers: {
-        'x-api-key': apiKey,
+        'x-api-key': keyResult.apiKey,
         'anthropic-version': '2023-06-01',
       },
     })

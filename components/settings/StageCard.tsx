@@ -56,8 +56,10 @@ export const AGENT_STAGE: StageInfo = {
 interface StageCardProps {
   stage: StageInfo
   index: number
-  settings: { apiKey: string; pipeline: PipelineConfig }
+  settings: { pipeline: PipelineConfig }
   models: ModelInfo[]
+  /** Whether the user can access models (has API key or is authenticated). */
+  hasModelAccess: boolean
   updatePipelineStage: (stage: keyof PipelineConfig, updates: Partial<PipelineStageConfig>) => void
 }
 
@@ -65,7 +67,7 @@ interface StageCardProps {
  * Card for configuring a single pipeline stage: model selection, max tokens, and reasoning toggle.
  * Used in the settings page for both the agent and tool stages.
  */
-export function StageCard({ stage, index, settings, models, updatePipelineStage }: StageCardProps) {
+export function StageCard({ stage, index, settings, models, hasModelAccess, updatePipelineStage }: StageCardProps) {
   const cfg = settings.pipeline[stage.key]
   const supportsMax = modelSupportsMaxReasoning(cfg.model)
   const effortLevels = supportsMax ? EFFORT_LEVELS : EFFORT_LEVELS.filter(e => e.value !== 'max')
@@ -111,8 +113,8 @@ export function StageCard({ stage, index, settings, models, updatePipelineStage 
               type="text"
               value={cfg.model}
               onChange={(e) => updatePipelineStage(stage.key, { model: e.target.value })}
-              placeholder={!settings.apiKey ? 'Enter API key first' : 'Model ID...'}
-              disabled={!settings.apiKey}
+              placeholder={!hasModelAccess ? 'Sign in or enter API key' : 'Model ID...'}
+              disabled={!hasModelAccess}
               autoComplete="off"
               data-1p-ignore
               className="w-full px-3 py-2 bg-nova-void border border-nova-border rounded-lg text-sm text-nova-text placeholder:text-nova-text-muted focus:outline-none focus:border-nova-violet transition-colors disabled:opacity-40"
@@ -138,7 +140,7 @@ export function StageCard({ stage, index, settings, models, updatePipelineStage 
           </select>
         </div>
       </div>
-      {settings.apiKey && modelSupportsReasoning(cfg.model) && (
+      {hasModelAccess && modelSupportsReasoning(cfg.model) && (
         <div className="flex items-center gap-3 mt-3 pt-3 border-t border-nova-border/40">
           <Toggle enabled={cfg.reasoning} onToggle={() => updatePipelineStage(stage.key, { reasoning: !cfg.reasoning })} />
           <span className="text-xs text-nova-text-secondary select-none">Reasoning</span>
