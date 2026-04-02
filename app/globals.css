@@ -515,10 +515,13 @@ body {
 
 /* Text mode — everything that isn't a text-editable surface is visually "paused".
  * An invisible overlay blocks hover/click on non-text elements. TextEditable
- * zones rise above the overlay via z-index so they remain fully interactive. */
+ * zones rise above the overlay via z-index so they remain fully interactive.
+ * Form controls get explicit pointer-events: none to block double-click and
+ * drag-to-select focus (the overlay alone doesn't prevent these gestures). */
 .text-mode-cursors {
   position: relative;
   cursor: default !important;
+  user-select: none;
 }
 .text-mode-cursors::after {
   content: '';
@@ -526,10 +529,17 @@ body {
   inset: 0;
   z-index: var(--z-ground);
 }
+.text-mode-cursors input,
+.text-mode-cursors textarea,
+.text-mode-cursors select {
+  pointer-events: none !important;
+}
 .text-mode-cursors [data-text-editable] {
   position: relative;
   z-index: var(--z-raised);
   cursor: text;
+  pointer-events: auto;
+  user-select: text;
 }
 
 /* Subtle noise texture overlay */
