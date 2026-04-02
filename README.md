@@ -6,21 +6,21 @@ A web app that generates CommCare applications from natural language conversatio
 
 Nova uses a single AI agent — the **Solutions Architect** — that converses with you to understand your requirements, then generates a complete CommCare app blueprint through a multi-stage pipeline. The entire conversation and generation happens in one streaming session via the Vercel AI SDK and Anthropic's Claude.
 
-**Bring Your Own API Key** — there's no auth layer or server-side key. You provide your Anthropic API key in the settings UI, and it's stored in your browser's localStorage. It's sent per-request and never persisted on the server.
+**Dual access** — sign in with a `@dimagi.com` Google account to use the shared server key (with monthly spend caps and project persistence), or bring your own Anthropic API key for ephemeral, unauthenticated usage.
 
 ## Getting Started
 
 ### Local Development
 
 ```bash
-cp .env.example .env   # Optional — enables run logging by default
+cp .env.example .env   # Fill in auth + Firestore credentials for full functionality
 npm install
 npm run dev
 ```
 
 Open [http://localhost:3000](http://localhost:3000) to start building.
 
-You'll be prompted to enter your Anthropic API key before you can generate apps.
+Without auth credentials, only BYOK mode is available (enter your Anthropic API key in settings).
 
 ### Docker
 
@@ -35,7 +35,7 @@ docker run -p 8080:8080 commcare-nova
 gcloud run deploy nova --source . --region <region>
 ```
 
-Cloud Run builds the image from the Dockerfile automatically. No server-side secrets are needed — API keys are stored client-side and sent per request.
+Cloud Run builds the image from the Dockerfile automatically. Configure auth secrets, Anthropic API key, and Firestore project via environment variables or Secret Manager.
 
 ## Commands
 
@@ -55,13 +55,15 @@ npx tsx scripts/build-xpath-parser.ts    # Rebuild XPath parser from grammar
 - **Tailwind CSS v4** — dark theme with custom properties
 - **Vercel AI SDK** — streaming chat, tool calls, structured output
 - **Anthropic Claude** — LLM backbone
+- **Better Auth** — Google OAuth with stateless JWT sessions
+- **Google Cloud Firestore** — project persistence, event logging, usage tracking
 - **Vitest** — testing
 
 ## Developer Tools
 
 ### Event Logging
 
-Authenticated users get real-time Firestore logging automatically. Each pipeline run writes events (user messages, LLM steps with token usage and cost, data emissions, and errors) to Firestore documents under the project's log subcollection.
+Every authenticated request writes a real-time event stream to Firestore — user messages, LLM steps with token usage and cost, data emissions, and errors. Events are written fire-and-forget under the project's log subcollection; a Firestore outage never blocks generation.
 
 ### Log Replay
 
