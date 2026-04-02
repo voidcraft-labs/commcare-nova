@@ -202,17 +202,17 @@ export function AccountMenu() {
               <div className="border-t border-white/[0.06]" />
 
               {/* ── Menu rows ──────────────────────────────────── */}
-              <div className="py-1">
+              <div>
                 <button
                   onClick={() => { router.push('/settings'); setOpen(false) }}
-                  className="w-full flex items-center gap-2.5 px-3 py-2 text-sm text-nova-text hover:bg-white/[0.06] transition-colors cursor-pointer"
+                  className="w-full flex items-center gap-2.5 px-3 py-2.5 text-sm text-nova-text hover:bg-white/[0.06] transition-colors cursor-pointer"
                 >
                   <Icon icon={ciSettings} width="16" height="16" className="text-nova-text-muted" />
                   Settings
                 </button>
                 <button
                   onClick={() => { signOut(); setOpen(false) }}
-                  className="w-full flex items-center gap-2.5 px-3 py-2 text-sm text-nova-text hover:bg-white/[0.06] transition-colors cursor-pointer rounded-b-xl"
+                  className="w-full flex items-center gap-2.5 px-3 py-2.5 text-sm text-nova-text hover:bg-white/[0.06] transition-colors cursor-pointer rounded-b-xl"
                 >
                   <Icon icon={ciLogout} width="16" height="16" className="text-nova-text-muted" />
                   Sign out
