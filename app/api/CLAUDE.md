@@ -2,7 +2,7 @@
 
 ## Error Handling
 
-`lib/apiError.ts` — `ApiError` class with `status` and `details` fields + `handleApiError()` utility. Routes throw `ApiError` at the point of failure; a single `handleApiError` call in the catch block produces the response.
+`lib/apiError.ts` — `ApiError` class with `status` and `details` fields + `handleApiError()` utility. Routes throw `ApiError` at the point of failure; a single `handleApiError` call in the catch block produces the response. Also exports `parseApiErrorMessage()` — extracts the `error` field from JSON error response bodies (used by BuilderLayout to parse `useChat` error messages into human-readable toast text).
 
 ## Auth Route (`auth/[...all]/route.ts`)
 
@@ -14,11 +14,15 @@ The single endpoint for all agent interaction. Creates `EventLogger`, `Generatio
 
 **API key resolution**: Uses `resolveApiKey()` from `lib/auth-utils.ts` — checks for an authenticated session first (uses server-side `ANTHROPIC_API_KEY`), falls back to `apiKey` in the request body (BYOK), returns 401 if neither.
 
+**Spend cap check**: After API key resolution, authenticated users' monthly spend is checked via `getMonthlyUsage()`. If `cost_estimate >= MONTHLY_SPEND_CAP_USD`, returns `{ error, type: 'spend_cap_exceeded' }` with 429 status. Fails open on Firestore errors — a Firestore outage does not block generation. BYOK users skip this check entirely.
+
 **Input validation**: `chatRequestSchema` (from `lib/schemas/apiSchemas.ts`) validates our fields (`apiKey` (optional), `pipelineConfig`, `blueprint`, etc.) via Zod `safeParse`. `messages` is typed as `UIMessage[]` from the AI SDK — not schema-validated.
 
 **Body params** (from `useChat` body): `apiKey` (optional — omitted for authenticated users), `pipelineConfig`, `blueprint` (for edits), `runId` (for log continuation), `projectId` (for updating the same Firestore project on subsequent requests).
 
 **Streaming**: Uses `createUIMessageStream` with a manual reader loop (not `writer.merge()`) so stream errors can be caught and emitted as `data-error` before the stream closes. Errors are classified via `errorClassifier.ts`, logged to `EventLogger`, and emitted to the client via `ctx.emitError()`. Server emits transient data parts via `ctx.emit()` which drive builder state on the client.
+
+**Usage flush**: `logger.finalize()` is registered on both `onFinish` (stream completion) and `req.signal.abort` (client disconnect). The idempotent `_finalized` guard ensures exactly one `incrementUsage` Firestore write per request regardless of how the request ends.
 
 `maxDuration = 300` (5 min timeout for long generation runs).
 

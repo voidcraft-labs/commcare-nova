@@ -55,7 +55,7 @@ Subcollection hierarchy keyed by `@dimagi.com` email:
 - `users/{email}/projects/{projectId}` → `ProjectDoc` — full `AppBlueprint` as a Firestore map
 - `users/{email}/projects/{projectId}/logs/{logId}` → `StoredEvent` — flat event stream (discriminated union: message/step/emission/error)
 
-Zod schemas in `lib/db/types.ts` are the single source of truth — TypeScript types are derived via `z.infer`, and Firestore converters validate reads via `schema.parse()`. `lib/db/firestore.ts` exports a lazy singleton (`getDb()`), typed collection helpers (`collections.*`), and document reference helpers (`docs.*`). `lib/db/projects.ts` exports CRUD helpers (`createProject`, `completeProject`, `updateProject`, `loadProject`, `listProjects`). `lib/db/logs.ts` exports log event helpers (`writeLogEvent`, `loadRunEvents`, `loadLatestRunId`). ADC on Cloud Run, `gcloud auth application-default login` for local dev.
+Zod schemas in `lib/db/types.ts` are the single source of truth — TypeScript types are derived via `z.infer`, and Firestore converters validate reads via `schema.parse()`. `lib/db/firestore.ts` exports a lazy singleton (`getDb()`), typed collection helpers (`collections.*`), and document reference helpers (`docs.*`). `lib/db/projects.ts` exports CRUD helpers (`createProject`, `completeProject`, `updateProject`, `loadProject`, `listProjects`). `lib/db/logs.ts` exports log event helpers (`writeLogEvent`, `loadRunEvents`, `loadLatestRunId`). `lib/db/usage.ts` exports usage tracking helpers (`getMonthlyUsage`, `incrementUsage`, `getCurrentPeriod`, `MONTHLY_SPEND_CAP_USD`). ADC on Cloud Run, `gcloud auth application-default login` for local dev.
 
 ### Project Persistence
 
@@ -76,8 +76,17 @@ A log is a flat, ordered stream of `StoredEvent` objects. The storage backend is
 - **Firestore sink** (`enableFirestore`): One document per event at `users/{email}/projects/{projectId}/logs/`. Fire-and-forget writes — a Firestore outage never blocks generation.
 - **Event types:** `StoredEvent` wraps a `LogEvent` discriminated union (four variants: `message`, `step`, `emission`, `error`). Each variant has exactly its own fields — no defaults, no sparse stripping, no unused fields.
 - **Typed payloads:** Emission data and tool call args/outputs use `JsonValue` (recursive JSON type) instead of `unknown`. Guarantees serialization round-trip fidelity without losing type safety.
-- **Cost tracking:** Step events carry `TokenUsage` (model, tokens, cost) for direct aggregation by Phase 5.
+- **Cost tracking:** Step events carry `TokenUsage` (model, tokens, cost). EventLogger accumulates request-level cost across all steps and flushes a single `incrementUsage` write in `finalize()`. The route registers `finalize()` on both `onFinish` (normal completion) and `req.signal.abort` (client disconnect) — a `_finalized` guard ensures exactly one write.
 - **Replay:** `extractReplayStages()` consumes `StoredEvent[]` directly — same format from both file and Firestore. No intermediate format. The project list page loads events via `GET /api/projects/{id}/logs`.
+
+### Usage Tracking & Spend Cap (`lib/db/usage.ts`)
+
+Per-user monthly spend tracking for authenticated users on the shared server key. BYOK users are uncapped and never touch usage documents.
+
+- **Pre-request cap check:** The chat route reads `docs.usage(email, currentPeriod)` — a single O(1) Firestore document lookup by period string (e.g. `"2026-04"`). If `cost_estimate >= MONTHLY_SPEND_CAP_USD`, returns a 429 with a friendly message. Fails open on Firestore errors (logs to console, does not block generation).
+- **Post-request cost flush:** EventLogger accumulates cost across all agent steps (outer step + inner tool sub-generations) in private fields. `finalize()` writes a single atomic `incrementUsage` call using `FieldValue.increment()` — concurrent-safe, creates the document automatically on the first request of a new month via `set({ merge: true })`.
+- **Cancellation safety:** The route registers `logger.finalize()` on both `onFinish` (stream completion) and `req.signal.abort` (client disconnect). A `_finalized` idempotency guard ensures exactly one write regardless of which fires.
+- **Cap configuration:** `MONTHLY_SPEND_CAP_USD` reads from env var, defaults to $30. Applies globally to all authenticated users.
 
 ### Key Classes
 
@@ -116,7 +125,7 @@ Server emits transient data parts → `useChat` `onData` callback → builder me
 
 ### Error Handling
 
-End-to-end error system: API/stream errors are classified (`lib/services/errorClassifier.ts`), logged to the event stream (`EventLogger.logError()`), emitted to the client as `data-error` parts, and surfaced via toast notifications (`lib/services/toastStore.ts` → `ToastContainer`). The signal grid has two error modes: `error-recovering` (reasoning with warm-hued cells) and `error-fatal` (flicker settling into dim rose-pink pulse). `GenerationProgress` shows which step failed with rose indicators. Builder has `errorSeverity` (`'recovering'` | `'failed'`) to distinguish retryable from fatal errors. The route handler uses a manual reader loop (not `writer.merge()`) so stream errors can be caught and emitted before the stream closes. Fallback: if the writer is broken, `useChat`'s error property fires a toast on the client.
+End-to-end error system: API/stream errors are classified (`lib/services/errorClassifier.ts`), logged to the event stream (`EventLogger.logError()`), emitted to the client as `data-error` parts, and surfaced via toast notifications (`lib/services/toastStore.ts` → `ToastContainer`). Error types: `api_auth`, `api_rate_limit`, `api_overloaded`, `api_timeout`, `api_server`, `model_error`, `stream_broken`, `spend_cap_exceeded`, `internal`. The `MESSAGES` record (exported from `errorClassifier.ts`) maps each type to a user-facing string. The signal grid has two error modes: `error-recovering` (reasoning with warm-hued cells) and `error-fatal` (flicker settling into dim rose-pink pulse). `GenerationProgress` shows which step failed with rose indicators. Builder has `errorSeverity` (`'recovering'` | `'failed'`) to distinguish retryable from fatal errors. The route handler uses a manual reader loop (not `writer.merge()`) so stream errors can be caught and emitted before the stream closes. Fallback: if the writer is broken, `useChat`'s error property fires a toast on the client. `parseApiErrorMessage()` in `lib/apiError.ts` extracts the `error` field from JSON error responses so toast messages are human-readable.
 
 ### Authentication & API Key Resolution
 
