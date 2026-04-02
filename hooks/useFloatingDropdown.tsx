@@ -33,7 +33,7 @@
 
 'use client'
 import { useState, useCallback, useMemo, useRef, useEffect, useLayoutEffect, type CSSProperties, type ReactNode, type RefObject } from 'react'
-import { useFloating, offset as floatingOffset, flip, shift, autoUpdate, FloatingPortal, type Placement } from '@floating-ui/react'
+import { useFloating, offset as floatingOffset, flip, shift, size as floatingSize, autoUpdate, FloatingPortal, type Placement } from '@floating-ui/react'
 import { POPOVER_ENTER_KEYFRAMES, POPOVER_ENTER_OPTIONS } from '@/lib/animations'
 import { useContentPopoverDismiss } from './useContentPopover'
 
@@ -56,6 +56,13 @@ export interface FloatingDropdownOptions {
    * menu, type picker inside the contextual editor).
    */
   contentPopover?: boolean
+  /**
+   * Size the dropdown to match the trigger element's width. Use for
+   * form-field dropdowns where the menu should feel like an extension
+   * of the input (e.g. select menus). The trigger width is applied as
+   * a CSS `min-width` so the dropdown can still grow for wider content.
+   */
+  matchTriggerWidth?: boolean
 }
 
 export interface FloatingDropdown<T extends HTMLElement = HTMLElement> {
@@ -94,11 +101,19 @@ export function useFloatingDropdown<T extends HTMLElement = HTMLElement>(
   /* Memoize middleware to avoid recreating the array on every render,
    * which would trigger unnecessary FloatingUI recomputation. */
   const pixelOffset = options?.offset ?? 8
+  const matchWidth = options?.matchTriggerWidth ?? false
   const middleware = useMemo(() => [
     floatingOffset(pixelOffset),
     flip(),
     shift({ padding: 12 }),
-  ], [pixelOffset])
+    /* When matchTriggerWidth is set, apply the trigger's width as the
+     * floating element's min-width so it feels like an inline select. */
+    ...(matchWidth ? [floatingSize({
+      apply({ rects, elements }) {
+        elements.floating.style.minWidth = `${rects.reference.width}px`
+      },
+    })] : []),
+  ], [pixelOffset, matchWidth])
 
   /* FloatingUI positioning — offset/flip/shift with live autoUpdate. */
   const { refs, floatingStyles } = useFloating({

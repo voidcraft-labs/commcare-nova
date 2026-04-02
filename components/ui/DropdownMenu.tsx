@@ -12,7 +12,7 @@
 
 'use client'
 import { Icon, type IconifyIcon } from '@iconify/react/offline'
-import { POPOVER_GLASS } from '@/lib/styles'
+import { POPOVER_GLASS, POPOVER_ELEVATED } from '@/lib/styles'
 
 export interface DropdownMenuItem {
   /** Unique key for the item. */
@@ -33,6 +33,12 @@ interface DropdownMenuProps {
   activeKey?: string
   /** Minimum width of the menu container. */
   minWidth?: string
+  /**
+   * Surface layer variant. Use `'glass'` (default) for standalone popovers and
+   * `'elevated'` when the menu is stacked above an existing glass panel (e.g.
+   * inside FormSettingsPanel).
+   */
+  variant?: 'glass' | 'elevated'
   /** Ref forwarded to the outer container for dismiss handling. */
   menuRef?: React.Ref<HTMLDivElement>
 }
@@ -42,12 +48,13 @@ interface DropdownMenuProps {
  * Matches the FormTypeDropdown visual language: `POPOVER_GLASS` surface,
  * violet dot + highlight for active item, `hover:bg-white/[0.06]`.
  */
-export function DropdownMenu({ items, activeKey, minWidth = '160px', menuRef }: DropdownMenuProps) {
+export function DropdownMenu({ items, activeKey, minWidth = '160px', variant = 'glass', menuRef }: DropdownMenuProps) {
   const showDots = activeKey !== undefined
   const last = items.length - 1
+  const surface = variant === 'elevated' ? POPOVER_ELEVATED : POPOVER_GLASS
 
   return (
-    <div ref={menuRef} className={POPOVER_GLASS} style={{ minWidth }}>
+    <div ref={menuRef} className={surface} style={{ minWidth }}>
       {items.map((item, i) => {
         const isActive = item.key === activeKey
         /* First/last items inherit the container's border radius so their

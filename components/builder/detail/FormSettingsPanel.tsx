@@ -1,9 +1,12 @@
 'use client'
-import { useState, useCallback, useRef } from 'react'
+import { useCallback, useRef } from 'react'
 import { motion, AnimatePresence } from 'motion/react'
 import { Icon } from '@iconify/react/offline'
 import ciSettings from '@iconify-icons/ci/settings'
 import ciClose from '@iconify-icons/ci/close-md'
+import ciHomeAltFill from '@iconify-icons/ci/home-alt-fill'
+import ciFolderOpen from '@iconify-icons/ci/folder-open'
+import ciArrowUndoUpLeft from '@iconify-icons/ci/arrow-undo-up-left'
 import type { BlueprintForm, ConnectConfig, ConnectType, PostSubmitDestination } from '@/lib/schemas/blueprint'
 import type { MutableBlueprint } from '@/lib/services/mutableBlueprint'
 import { toSnakeId } from '@/lib/services/commcare/validate'
@@ -11,8 +14,8 @@ import { POPOVER_GLASS } from '@/lib/styles'
 import { FormDetail } from './FormDetail'
 import { ConnectLogomark } from '@/components/icons/ConnectLogomark'
 import { Toggle } from '@/components/ui/Toggle'
+import { DropdownMenu, type DropdownMenuItem } from '@/components/ui/DropdownMenu'
 import { useFloatingDropdown, DropdownPortal } from '@/hooks/useFloatingDropdown'
-import { useDismissRef } from '@/hooks/useDismissRef'
 import { useCommitField } from '@/hooks/useCommitField'
 import { SavedCheck } from '@/components/builder/EditableTitle'
 import { XPathField } from '@/components/builder/XPathField'
@@ -114,10 +117,10 @@ function FormSettingsPanel({
 
 // ── After Submit Section ──────────────────────────────────────────────
 
-const AFTER_SUBMIT_OPTIONS: Array<{ value: PostSubmitDestination; label: string; description: string }> = [
-  { value: 'default', label: 'App Home', description: 'Back to the main screen' },
-  { value: 'module', label: 'This Module', description: 'Stay in this module\'s form list' },
-  { value: 'previous', label: 'Previous Screen', description: 'Back to where the user was' },
+const AFTER_SUBMIT_OPTIONS: Array<{ value: PostSubmitDestination; label: string; description: string; icon: typeof ciHomeAltFill }> = [
+  { value: 'default', label: 'App Home', description: 'Back to the main screen', icon: ciHomeAltFill },
+  { value: 'module', label: 'This Module', description: 'Stay in this module\'s form list', icon: ciFolderOpen },
+  { value: 'previous', label: 'Previous Screen', description: 'Back to where the user was', icon: ciArrowUndoUpLeft },
 ]
 
 /** Map internal-only values (root, parent_module) to their user-facing equivalent. */
@@ -128,50 +131,50 @@ function resolveUserFacing(dest: PostSubmitDestination): PostSubmitDestination {
 }
 
 function AfterSubmitSection({ form, moduleIndex, formIndex, mb, notifyBlueprintChanged }: FormSettingsPanelProps) {
-  const [open, setOpen] = useState(false)
   const current = resolveUserFacing(form.post_submit ?? 'default')
-  const currentLabel = AFTER_SUBMIT_OPTIONS.find(o => o.value === current)?.label ?? 'App Home'
-  const dismissRef = useDismissRef(() => setOpen(false))
+  const currentOption = AFTER_SUBMIT_OPTIONS.find(o => o.value === current) ?? AFTER_SUBMIT_OPTIONS[0]
+  /* No contentPopover — this is a child of the form settings panel, not a
+   * sibling. Content popover coordination would dismiss the parent on open.
+   * matchTriggerWidth sizes the menu to the trigger button for inline-select feel. */
+  const dd = useFloatingDropdown<HTMLButtonElement>({ placement: 'bottom-start', offset: 4, matchTriggerWidth: true })
 
-  const handleSelect = useCallback((value: PostSubmitDestination) => {
-    mb.updateForm(moduleIndex, formIndex, { post_submit: value === 'default' ? null : value })
+  const handleSelect = useCallback((dest: PostSubmitDestination) => {
+    mb.updateForm(moduleIndex, formIndex, { post_submit: dest === 'default' ? null : dest })
     notifyBlueprintChanged()
-    setOpen(false)
-  }, [mb, moduleIndex, formIndex, notifyBlueprintChanged])
+    dd.close()
+  }, [mb, moduleIndex, formIndex, notifyBlueprintChanged, dd])
+
+  const items: DropdownMenuItem[] = AFTER_SUBMIT_OPTIONS.map((opt) => ({
+    key: opt.value,
+    label: opt.label,
+    description: opt.description,
+    icon: opt.icon,
+    onClick: () => handleSelect(opt.value),
+  }))
 
   return (
     <div>
       <label className="text-xs font-medium text-nova-text-secondary uppercase tracking-wider mb-1.5 block">
         After Submit
       </label>
-      <div className="relative" ref={dismissRef}>
-        <button
-          onClick={() => setOpen(o => !o)}
-          className="w-full flex items-center justify-between px-2 py-1.5 text-xs rounded-md border transition-colors cursor-pointer text-nova-text bg-transparent border-white/[0.06] hover:border-white/[0.12]"
-        >
-          <span>{currentLabel}</span>
-          <svg width="10" height="10" viewBox="0 0 10 10" className={`text-nova-text-muted transition-transform ${open ? 'rotate-180' : ''}`}>
-            <path d="M2 3.5L5 6.5L8 3.5" stroke="currentColor" strokeWidth="1.2" fill="none" strokeLinecap="round" strokeLinejoin="round"/>
-          </svg>
-        </button>
-        {open && (
-          <div className="absolute z-10 mt-1 w-full rounded-md border border-white/[0.08] bg-nova-elevated shadow-lg overflow-hidden">
-            {AFTER_SUBMIT_OPTIONS.map(opt => (
-              <button
-                key={opt.value}
-                onClick={() => handleSelect(opt.value)}
-                className={`w-full text-left px-2.5 py-1.5 text-xs transition-colors cursor-pointer ${
-                  opt.value === current
-                    ? 'text-nova-violet-bright bg-nova-violet/10'
-                    : 'text-nova-text hover:bg-white/[0.04]'
-                }`}
-              >
-                {opt.label}
-              </button>
-            ))}
-          </div>
-        )}
-      </div>
+      <button
+        ref={dd.triggerRef}
+        onClick={dd.toggle}
+        className="w-full flex items-center justify-between px-2 py-1.5 text-xs rounded-md border transition-colors cursor-pointer text-nova-text bg-transparent border-white/[0.06] hover:border-white/[0.12]"
+      >
+        <span>{currentOption.label}</span>
+        <svg width="10" height="10" viewBox="0 0 10 10" className={`text-nova-text-muted transition-transform ${dd.open ? 'rotate-180' : ''}`}>
+          <path d="M2 3.5L5 6.5L8 3.5" stroke="currentColor" strokeWidth="1.2" fill="none" strokeLinecap="round" strokeLinejoin="round"/>
+        </svg>
+      </button>
+
+      {/* Stop mousedown propagation so the parent FormSettingsButton's
+       * document-level dismiss handler doesn't see clicks inside this child
+       * portal. Without this, mousedown fires before click, the parent
+       * unmounts, and the menu item's onClick never runs. */}
+      <DropdownPortal dropdown={dd} onMouseDown={(e) => e.stopPropagation()}>
+        <DropdownMenu items={items} activeKey={current} variant="elevated" />
+      </DropdownPortal>
     </div>
   )
 }
