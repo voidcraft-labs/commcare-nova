@@ -102,7 +102,7 @@ export const caseTypesOutputSchema = z.object({
 export const scaffoldModulesSchema = z.object({
   app_name: z.string().describe('Name of the CommCare application'),
   description: z.string().describe('Brief description of the app purpose and target users'),
-  connect_type: z.string().describe(
+  connect_type: z.enum(['learn', 'deliver', '']).describe(
     'CommCare Connect app type: "learn" for training/certification, "deliver" for paid service delivery. Empty string for standard apps.'
   ),
   modules: z.array(z.object({

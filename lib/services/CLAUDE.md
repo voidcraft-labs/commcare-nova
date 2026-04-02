@@ -344,10 +344,9 @@ Rule-based validation system that catches every error CommCare HQ would catch du
 
 **EventLogger class** (`eventLogger.ts`): created once per request.
 - `enableFirestore(email, projectId)` — activates Firestore sink. Called by the route handler for authenticated users.
-- `logStep(step)` — writes a `StepEvent`. Drains buffered sub-results and tool outputs, matches them to tool calls by name, computes `TokenUsage`.
+- `logStep(step)` — writes a `StepEvent`. Matches tool results from the SDK's `onStepFinish` callback to tool calls by `toolCallId`, so every tool's return value (including errors) appears in the log automatically. Also drains buffered sub-generation results by name. Computes `TokenUsage`.
 - `logEmission(type, data)` — writes an `EmissionEvent` immediately (real-time, not batched). `step_index` associates it with the current step for replay grouping.
 - `logSubResult(label, result)` — buffers sub-generation usage data (consumed by `logStep` for tool call matching).
-- `logToolOutput(toolName, output)` — buffers server-side tool return value (consumed by `logStep`).
 - `logError(error, context?)` — writes an `ErrorEvent` immediately.
 - `logConversation(messages)` — writes a `MessageEvent` for the current request's user message.
 - `finalize()` — flushes accumulated request-level cost to the usage document via a single `incrementUsage` call. Idempotent (`_finalized` guard) — safe to call from both `onFinish` and `req.signal.abort` without double-writing. Also accumulates cost across steps in private fields (`_usageInputTokens`, `_usageOutputTokens`, `_usageCost`), including inner tool sub-generation costs.
@@ -355,7 +354,7 @@ Rule-based validation system that catches every error CommCare HQ would catch du
 
 **File sink** (`EVENT_LOGGER=1`): JSONL to `.log/{runId}.jsonl`. One line per event. Each line is a complete, self-contained `StoredEvent`. If the process crashes, every previous line is intact. On resume (existing `runId`), reads the file to restore sequence/step/request counters.
 
-**Firestore sink**: One document per event at `users/{email}/projects/{projectId}/logs/`. Fire-and-forget writes. Zod `z.discriminatedUnion` validates reads.
+**Firestore sink**: One document per event at `users/{email}/projects/{projectId}/logs/`. Fire-and-forget writes. `ignoreUndefinedProperties: true` on the Firestore instance silently drops `undefined` values (produced by `stripEmpty()` converting sentinel strings back). Zod `z.discriminatedUnion` validates reads.
 
 **Event types** (`StoredEvent` in `lib/db/types.ts`):
 - Envelope: `run_id`, `sequence` (monotonic), `request` (HTTP boundary), `timestamp` (ISO 8601)

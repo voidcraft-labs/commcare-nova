@@ -101,9 +101,9 @@ export class MutableBlueprint {
   }
 
   /** Set app structure from scaffold output. Preserves case_types. */
-  setScaffold(scaffold: { app_name: string; description?: string; connect_type?: string; modules: Array<{ name: string; case_type?: string | null; purpose?: string; forms: Array<{ name: string; type: string; purpose?: string; formDesign?: string }> }> }): void {
+  setScaffold(scaffold: { app_name: string; description?: string; connect_type?: 'learn' | 'deliver' | ''; modules: Array<{ name: string; case_type?: string | null; purpose?: string; forms: Array<{ name: string; type: string; purpose?: string; formDesign?: string }> }> }): void {
     this.blueprint.app_name = scaffold.app_name
-    const connectType = scaffold.connect_type as ConnectType | '' | undefined
+    const connectType = scaffold.connect_type
     if (connectType === 'learn' || connectType === 'deliver') {
       this.blueprint.connect_type = connectType
     }

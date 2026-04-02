@@ -135,13 +135,21 @@ export function createSolutionsArchitect(
 
       return { providerOptions: { anthropic } as Record<string, any> }
     },
-    onStepFinish: ({ usage, text, reasoningText, toolCalls, warnings }) => {
+    onStepFinish: ({ usage, text, reasoningText, toolCalls, toolResults, warnings }) => {
       logWarnings('Solutions Architect', warnings)
       if (usage) {
         ctx.logger.logStep({
           text: text || undefined,
           reasoning: reasoningText || undefined,
-          tool_calls: toolCalls?.map((tc: any) => ({ name: tc.toolName, args: tc.input })),
+          tool_calls: toolCalls?.map((tc: any) => ({
+            name: tc.toolName,
+            args: tc.input,
+            toolCallId: tc.toolCallId,
+          })),
+          tool_results: (toolResults as any[])?.map((tr: any) => ({
+            toolCallId: tr.toolCallId,
+            output: tr.output,
+          })),
           usage: {
             model: saCfg.model,
             input_tokens: usage.inputTokens ?? 0,
@@ -638,14 +646,10 @@ export function createSolutionsArchitect(
                 .catch(err => console.error('[validateApp] project update failed:', err))
             }
 
-            const output = { success: true as const }
-            ctx.logger.logToolOutput('validateApp', output)
-            return output
+            return { success: true as const }
           }
           // Surface remaining errors as strings so the SA can read and fix them
-          const output = { success: false as const, errors: (result.errors ?? []).map(errorToString) }
-          ctx.logger.logToolOutput('validateApp', output)
-          return output
+          return { success: false as const, errors: (result.errors ?? []).map(errorToString) }
         },
       }),
     },

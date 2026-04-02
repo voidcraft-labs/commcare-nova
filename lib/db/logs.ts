@@ -18,6 +18,9 @@ import { collections } from './firestore'
  *
  * Uses deterministic document IDs (`{runId}_{sequence}`) so writes are
  * idempotent if retried by the Firestore SDK on transient network errors.
+ * `undefined` values in event data (e.g. from `stripEmpty()` converting
+ * sentinel strings back) are silently dropped by the Firestore SDK via
+ * `ignoreUndefinedProperties: true` on the client instance.
  */
 export function writeLogEvent(
   email: string,
