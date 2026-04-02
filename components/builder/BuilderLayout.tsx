@@ -6,7 +6,8 @@ import { DefaultChatTransport, type UIMessage } from 'ai'
 import { motion, AnimatePresence } from 'motion/react'
 import { Icon } from '@iconify/react/offline'
 import ciMessage from '@iconify-icons/ci/message'
-import ciSettings from '@iconify-icons/ci/settings'
+import { AccountMenu } from '@/components/ui/AccountMenu'
+import { NAV_ICON_CLASS } from '@/lib/styles'
 import tablerListTree from '@iconify-icons/tabler/list-tree'
 import Link from 'next/link'
 import { useApiKey } from '@/hooks/useApiKey'
@@ -68,8 +69,6 @@ function shouldAutoResend({ messages }: { messages: UIMessage[] }): boolean {
 // lives in a useRef that resets on remount — this bridges the gap.)
 let persistedChatMessages: UIMessage[] = []
 
-/** Shared icon-link styling for header nav icons. */
-const NAV_ICON_CLASS = 'p-1.5 text-nova-text-muted hover:text-nova-text transition-colors rounded-lg hover:bg-nova-surface'
 
 /** Shared sidebar open/close animation config. */
 const SIDEBAR_TRANSITION = { duration: 0.2, ease: [0.4, 0, 0.2, 1] } as const
@@ -83,9 +82,7 @@ function NavLinks({ isAuthenticated }: { isAuthenticated: boolean }) {
           <Icon icon={ciFolder} width="18" height="18" />
         </Link>
       )}
-      <Link href="/settings" className={NAV_ICON_CLASS} title="Settings">
-        <Icon icon={ciSettings} width="18" height="18" />
-      </Link>
+      <AccountMenu />
     </>
   )
 }

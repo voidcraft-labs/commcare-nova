@@ -3,13 +3,14 @@ import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { motion } from 'motion/react'
 import { Icon } from '@iconify/react/offline'
-import ciSettings from '@iconify-icons/ci/settings'
 import ciPlus from '@iconify-icons/ci/plus'
 import Link from 'next/link'
 import tablerLayoutDashboard from '@iconify-icons/tabler/layout-dashboard'
 import { Logo } from '@/components/ui/Logo'
 import { Button } from '@/components/ui/Button'
 import { ProjectCard } from '@/components/ui/ProjectCard'
+import { AccountMenu } from '@/components/ui/AccountMenu'
+import { NAV_ICON_CLASS } from '@/lib/styles'
 import { useAuth } from '@/hooks/useAuth'
 import { useReplay } from '@/hooks/useReplay'
 import type { ProjectSummary } from '@/lib/db/projects'
@@ -63,19 +64,13 @@ export default function BuildsPage() {
           {isAdmin && (
             <Link
               href="/admin"
-              className="p-1.5 text-nova-text-muted hover:text-nova-text transition-colors rounded-lg hover:bg-nova-surface"
+              className={NAV_ICON_CLASS}
               title="Admin Dashboard"
             >
               <Icon icon={tablerLayoutDashboard} width="18" height="18" />
             </Link>
           )}
-          <Link
-            href="/settings"
-            className="p-1.5 text-nova-text-muted hover:text-nova-text transition-colors rounded-lg hover:bg-nova-surface"
-            title="Settings"
-          >
-            <Icon icon={ciSettings} width="18" height="18" />
-          </Link>
+          <AccountMenu />
           <Button onClick={() => router.push('/build/new')} size="sm">
             <Icon icon={ciPlus} width="14" height="14" />
             New Build

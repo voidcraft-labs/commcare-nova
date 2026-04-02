@@ -8,6 +8,7 @@ import { formTypeIcons } from '@/lib/questionTypeIcons'
 import { useDismissRef } from '@/hooks/useDismissRef'
 import { useContentPopoverDismiss } from '@/hooks/useContentPopover'
 import { DropdownMenu, type DropdownMenuItem } from '@/components/ui/DropdownMenu'
+import { POPOVER_ENTER_KEYFRAMES, POPOVER_ENTER_OPTIONS } from '@/lib/animations'
 
 const formTypeOptions: { value: string; label: string }[] = [
   { value: 'registration', label: 'Registration' },
@@ -76,13 +77,7 @@ export function FormTypeButton({ form, moduleIndex, formIndex, mb, notifyBluepri
 
   useLayoutEffect(() => {
     if (open) {
-      animRef.current?.animate(
-        [
-          { opacity: 0, transform: 'scale(0.97) translateY(-4px)' },
-          { opacity: 1, transform: 'scale(1) translateY(0)' },
-        ],
-        { duration: 150, easing: 'ease-out' },
-      )
+      animRef.current?.animate(POPOVER_ENTER_KEYFRAMES, POPOVER_ENTER_OPTIONS)
     }
   }, [open])
 

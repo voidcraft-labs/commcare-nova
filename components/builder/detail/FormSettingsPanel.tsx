@@ -9,6 +9,7 @@ import type { BlueprintForm, ConnectConfig, ConnectType, PostSubmitDestination }
 import type { MutableBlueprint } from '@/lib/services/mutableBlueprint'
 import { toSnakeId } from '@/lib/services/commcare/validate'
 import { POPOVER_GLASS } from '@/lib/styles'
+import { POPOVER_ENTER_KEYFRAMES, POPOVER_ENTER_OPTIONS } from '@/lib/animations'
 import { FormDetail } from './FormDetail'
 import { ConnectLogomark } from '@/components/icons/ConnectLogomark'
 import { Toggle } from '@/components/ui/Toggle'
@@ -55,16 +56,10 @@ export function FormSettingsButton({ form, moduleIndex, formIndex, mb, notifyBlu
     }
   }, [refs])
 
-  // Entrance animation via Web Animations API (matches ContextualEditor pattern)
+  /* Entrance animation — shared popover scale-up + fade. */
   useLayoutEffect(() => {
     if (open) {
-      animRef.current?.animate(
-        [
-          { opacity: 0, transform: 'scale(0.97) translateY(-4px)' },
-          { opacity: 1, transform: 'scale(1) translateY(0)' },
-        ],
-        { duration: 150, easing: 'ease-out' },
-      )
+      animRef.current?.animate(POPOVER_ENTER_KEYFRAMES, POPOVER_ENTER_OPTIONS)
     }
   }, [open])
 

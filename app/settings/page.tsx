@@ -5,7 +5,6 @@ import { motion } from 'motion/react'
 import { Icon } from '@iconify/react/offline'
 import ciArrowLeft from '@iconify-icons/ci/arrow-left-md'
 import ciUndo from '@iconify-icons/ci/undo'
-import ciLogout from '@iconify-icons/ci/log-out'
 import { Logo } from '@/components/ui/Logo'
 import { Button } from '@/components/ui/Button'
 import { ApiKeyInput } from '@/components/ui/ApiKeyInput'
@@ -23,7 +22,7 @@ interface ModelInfo {
 export default function SettingsPage() {
   const router = useRouter()
   const { settings, updateSettings, updatePipelineStage, resetToDefaults } = useSettings()
-  const { user, isAuthenticated, isPending: authPending, signOut } = useAuth()
+  const { isAuthenticated, isPending: authPending } = useAuth()
   const [editingKey, setEditingKey] = useState<string | undefined>(undefined)
   const keyInput = editingKey ?? settings.apiKey
   const keySaved = editingKey === undefined && !!settings.apiKey
@@ -95,33 +94,6 @@ export default function SettingsPage() {
           transition={{ duration: 0.4, ease: [0.16, 1, 0.3, 1] }}
           className="space-y-6"
         >
-          {/* ── Account ─────────────────────────────────────── */}
-          {isAuthenticated && user && (
-            <section className="rounded-xl border border-nova-border bg-nova-deep p-6">
-              <h2 className="text-sm font-display font-semibold tracking-wide uppercase text-nova-text-secondary mb-4">Account</h2>
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-3">
-                  {user.image && (
-                    <img
-                      src={user.image}
-                      alt=""
-                      referrerPolicy="no-referrer"
-                      className="w-9 h-9 rounded-full border border-nova-border"
-                    />
-                  )}
-                  <div>
-                    <p className="text-sm font-medium text-nova-text">{user.name}</p>
-                    <p className="text-xs text-nova-text-muted">{user.email}</p>
-                  </div>
-                </div>
-                <Button onClick={signOut} variant="ghost" size="sm">
-                  <Icon icon={ciLogout} width="14" height="14" />
-                  Sign out
-                </Button>
-              </div>
-            </section>
-          )}
-
           {/* ── API Key ──────────────────────────────────── */}
           <section className="rounded-xl border border-nova-border bg-nova-deep p-6">
             <h2 className="text-sm font-display font-semibold tracking-wide uppercase text-nova-text-secondary mb-1">
