@@ -155,6 +155,14 @@ export function BuilderLayout({ buildId }: { buildId: string }) {
       })
       .then(data => {
         if (cancelled) return
+        /* Non-complete projects (error, stale generating) can't be hydrated —
+         * redirect to the project list with an explanatory toast. */
+        if (data.status !== 'complete') {
+          showToast('error', 'Project unavailable', "This project didn't finish generating.")
+          router.replace('/builds')
+          setProjectLoaded(true)
+          return
+        }
         if (data.blueprint) {
           builder.reset()
           persistedChatMessages = []
@@ -170,7 +178,7 @@ export function BuilderLayout({ buildId }: { buildId: string }) {
         } else {
           showToast('error', 'Failed to load project')
         }
-        router.replace('/build/new')
+        router.replace('/builds')
         setProjectLoaded(true)
       })
     return () => { cancelled = true }

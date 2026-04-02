@@ -13,7 +13,7 @@ import { MutableBlueprint } from '@/lib/services/mutableBlueprint'
 import { chatRequestSchema } from '@/lib/schemas/apiSchemas'
 import { classifyError, MESSAGES } from '@/lib/services/errorClassifier'
 import { resolveApiKey } from '@/lib/auth-utils'
-import { createProject } from '@/lib/db/projects'
+import { createProject, failProject } from '@/lib/db/projects'
 import { getMonthlyUsage, MONTHLY_SPEND_CAP_USD } from '@/lib/db/usage'
 
 export const maxDuration = 300
@@ -101,6 +101,15 @@ export async function POST(req: Request) {
         session: keyResult.session, projectId,
       })
 
+      /** Classify, emit, and persist a generation error. */
+      const handleRouteError = (error: unknown, source: string) => {
+        const classified = classifyError(error)
+        ctx.emitError(classified, source)
+        if (keyResult.session && projectId) {
+          failProject(keyResult.session.user.email, projectId, classified.type)
+        }
+      }
+
       // Create MutableBlueprint — either from existing blueprint (edit/continuation) or empty (new build)
       const mutableBp = new MutableBlueprint(
         blueprint ?? { app_name: '', modules: [], case_types: null }
@@ -123,12 +132,10 @@ export async function POST(req: Request) {
             writer.write(value)
           }
         } catch (streamError) {
-          const classified = classifyError(streamError)
-          ctx.emitError(classified, 'route:stream')
+          handleRouteError(streamError, 'route:stream')
         }
       } catch (error) {
-        const classified = classifyError(error)
-        ctx.emitError(classified, 'route:init')
+        handleRouteError(error, 'route:init')
       }
     },
     onFinish() {

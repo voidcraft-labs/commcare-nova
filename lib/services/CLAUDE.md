@@ -95,6 +95,8 @@ Also re-exports `validateAndFix()` (from `validationLoop.ts`) — runs `runValid
 2. `route.ts` inner catch — errors during stream consumption (manual reader loop replaces `writer.merge()`)
 3. `generationContext.ts` wraps — errors from any LLM call, emits + re-throws so the tool's catch also handles it
 
+Both route-level catch blocks (1 and 2) delegate to a local `handleRouteError(error, source)` closure that classifies, emits `data-error`, and calls `failProject()` to mark the project as `status: 'error'` with the classified `error_type`. `failProject` is fire-and-forget — Firestore failures don't block the error response. For cases where the process dies before any catch block runs (OOM, Cloud Run kill), `listProjects()` applies timeout inference as a backstop.
+
 If the stream writer is broken (can't emit `data-error`), `emitError` catches silently — the error is in the run log, and the `useChat` hook's `error` property fires on the client as a fallback.
 
 ## Toast Notifications

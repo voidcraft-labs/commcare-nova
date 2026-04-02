@@ -7,6 +7,7 @@
  */
 import { FieldValue } from '@google-cloud/firestore'
 import type { AppBlueprint } from '../schemas/blueprint'
+import type { ErrorType } from '../services/errorClassifier'
 import type { ProjectDoc } from './types'
 import { collections, docs } from './firestore'
 
@@ -20,9 +21,20 @@ export interface ProjectSummary {
   module_count: number
   form_count: number
   status: ProjectDoc['status']
+  /** Error classification string — present only when status is 'error'. */
+  error_type: string | null
   created_at: Date
   updated_at: Date
 }
+
+/**
+ * Maximum age (in minutes) before a 'generating' project is considered dead.
+ *
+ * Well above the 5-minute `maxDuration` route timeout — any project still
+ * 'generating' after this threshold was killed by the platform or crashed
+ * without writing a failure status.
+ */
+const MAX_GENERATION_MINUTES = 10
 
 // ── Helpers ────────────────────────────────────────────────────────
 
@@ -57,6 +69,7 @@ export async function createProject(
     ...denormalize(emptyBlueprint),
     blueprint: emptyBlueprint,
     status: 'generating',
+    error_type: null,
     run_id: runId,
     created_at: FieldValue.serverTimestamp(),
     updated_at: FieldValue.serverTimestamp(),
@@ -83,6 +96,25 @@ export async function completeProject(
     run_id: runId,
     updated_at: FieldValue.serverTimestamp(),
   }, { merge: true })
+}
+
+/**
+ * Mark a project as failed after an error during generation.
+ *
+ * Fire-and-forget — a Firestore outage must never block the error response.
+ * The timeout inference in `listProjects()` serves as a backstop if this
+ * write fails or the process dies before reaching this code.
+ */
+export function failProject(
+  email: string,
+  projectId: string,
+  errorType: ErrorType,
+): void {
+  docs.project(email, projectId).set({
+    status: 'error',
+    error_type: errorType,
+  }, { merge: true })
+    .catch(err => console.error('[failProject] Firestore write failed:', err))
 }
 
 /**
@@ -137,16 +169,32 @@ export async function listProjects(
     .limit(limit)
     .get()
 
+  const now = Date.now()
+  const maxAgeMs = MAX_GENERATION_MINUTES * 60_000
+
   return snap.docs.map(doc => {
     const data = doc.data()
+    const createdAt = data.created_at.toDate()
+
+    /*
+     * Timeout inference — if a project has been 'generating' longer than
+     * the platform timeout allows, it's dead. Infer failure on the read
+     * path and persist the correction so it's only inferred once.
+     */
+    const isStale = data.status === 'generating' && (now - createdAt.getTime()) > maxAgeMs
+    if (isStale) {
+      failProject(email, doc.id, 'internal')
+    }
+
     return {
       id: doc.id,
       app_name: data.app_name,
       connect_type: data.connect_type,
       module_count: data.module_count,
       form_count: data.form_count,
-      status: data.status,
-      created_at: data.created_at.toDate(),
+      status: isStale ? 'error' : data.status,
+      error_type: isStale ? 'internal' : (data.error_type ?? null),
+      created_at: createdAt,
       updated_at: data.updated_at.toDate(),
     }
   })
