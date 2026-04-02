@@ -16,6 +16,7 @@ Next.js web app that generates CommCare apps from natural language conversation.
 - **XML**: htmlparser2 + domutils + dom-serializer
 - **Icons**: Coolicons (`@iconify-icons/ci`) + Tabler (`@iconify-icons/tabler`) via `@iconify/react/offline`
 - **Auth**: Better Auth (stateless sessions, Google OAuth, `@dimagi.com` domain restriction)
+- **Database**: Google Cloud Firestore (`@google-cloud/firestore`) — serverless NoSQL, subcollection hierarchy under `users/{email}`
 - **Testing**: Vitest
 
 ## Commands
@@ -44,6 +45,17 @@ gcloud run deploy nova --source . --region <region> # Deploy to Cloud Run
 ### Single Agent, Single Endpoint
 
 `POST /api/chat` runs everything. One `ToolLoopAgent` — the **Solutions Architect (SA)** — converses with users, generates apps through tool calls, and edits them. All within one conversation context and one prompt-caching window. See `lib/services/CLAUDE.md` for the full tool inventory and build sequence.
+
+### Firestore Persistence (`lib/db/`)
+
+Subcollection hierarchy keyed by `@dimagi.com` email:
+
+- `users/{email}` → `UserDoc` — profile from Google OAuth, role
+- `users/{email}/usage/{yyyy-mm}` → `UsageDoc` — monthly token/cost aggregation
+- `users/{email}/projects/{projectId}` → `ProjectDoc` — full `AppBlueprint` as a Firestore map
+- `users/{email}/projects/{projectId}/logs/{logId}` → log entries (schema defined in Phase 4)
+
+Zod schemas in `lib/db/types.ts` are the single source of truth — TypeScript types are derived via `z.infer`, and Firestore converters validate reads via `schema.parse()`. `lib/db/firestore.ts` exports a lazy singleton (`getDb()`), typed collection helpers (`collections.*`), and document reference helpers (`docs.*`). ADC on Cloud Run, `gcloud auth application-default login` for local dev.
 
 ### Key Classes
 

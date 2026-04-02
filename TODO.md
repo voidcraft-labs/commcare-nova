@@ -57,9 +57,12 @@ build on. No user-facing changes yet — just the plumbing.
 Projects are small (one document with the serialized blueprint — fast to load). Logs are append-only
 and potentially large, but as a subcollection they're only fetched when needed (replay, debug, audit).
 
-- [ ] Install Firestore client, create singleton with typed collection helpers
-- [ ] Define TypeScript types for all document shapes
-- [ ] Test connection from Cloud Run (service account IAM)
+- [x] Install Firestore client, create singleton with typed collection helpers
+- [x] Define Zod schemas + derived types for User, Project, Usage documents
+- [x] IAM: grant `roles/datastore.user` to Cloud Run service account
+- [ ] Test connection from Cloud Run (next deploy)
+
+Note: LogEntryDoc schema deferred to Phase 4 — will be a single consistent format, not polymorphic.
 
 ## Phase 3: Project Persistence
 
