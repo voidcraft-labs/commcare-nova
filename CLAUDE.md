@@ -55,7 +55,7 @@ Subcollection hierarchy keyed by `@dimagi.com` email:
 - `users/{email}/projects/{projectId}` → `ProjectDoc` — full `AppBlueprint` as a Firestore map
 - `users/{email}/projects/{projectId}/logs/{logId}` → `StoredEvent` — flat event stream (discriminated union: message/step/emission/error)
 
-Zod schemas in `lib/db/types.ts` are the single source of truth — TypeScript types are derived via `z.infer`, and Firestore converters validate reads via `schema.parse()`. `lib/db/firestore.ts` exports a lazy singleton (`getDb()`) with `ignoreUndefinedProperties: true` (silently drops `undefined` values from writes — needed because `stripEmpty()` converts sentinel strings back to `undefined`), typed collection helpers (`collections.*`), and document reference helpers (`docs.*`). `lib/db/projects.ts` exports CRUD helpers (`createProject`, `completeProject`, `failProject`, `updateProject`, `loadProject`, `listProjects`). `lib/db/logs.ts` exports log event helpers (`writeLogEvent`, `loadRunEvents`, `loadLatestRunId`). `lib/db/usage.ts` exports usage tracking helpers (`getMonthlyUsage`, `incrementUsage`, `getCurrentPeriod`, `MONTHLY_SPEND_CAP_USD`). ADC on Cloud Run, `gcloud auth application-default login` for local dev.
+Zod schemas in `lib/db/types.ts` are the single source of truth — TypeScript types are derived via `z.infer`, and Firestore converters validate reads via `schema.parse()`. `lib/db/firestore.ts` exports a lazy singleton (`getDb()`) with `ignoreUndefinedProperties: true` (silently drops `undefined` values from writes — needed because `stripEmpty()` converts sentinel strings back to `undefined`), typed collection helpers (`collections.*`), and document reference helpers (`docs.*`). `lib/db/projects.ts` exports CRUD helpers (`createProject`, `completeProject`, `failProject`, `updateProject`, `loadProject`, `listProjects`). `listProjects` uses Firestore `select()` to fetch only denormalized summary fields — the blueprint is never read. Data is validated on write, not re-validated on read. `lib/db/logs.ts` exports log event helpers (`writeLogEvent`, `loadRunEvents`, `loadLatestRunId`). `lib/db/usage.ts` exports usage tracking helpers (`getMonthlyUsage`, `incrementUsage`, `getCurrentPeriod`, `MONTHLY_SPEND_CAP_USD`). `lib/db/users.ts` exports user CRUD helpers (`createUser`, `touchUser`, `isUserAdmin`, `getUser`, `listAllUsers`). ADC on Cloud Run, `gcloud auth application-default login` for local dev.
 
 ### Project Persistence
 
@@ -66,7 +66,7 @@ Authenticated users' projects are auto-saved to Firestore. Loading is a single d
 - **Failure detection:** Two-layer system ensures failed projects never stay stuck in `generating`. Layer 1 (server catch): route handler catch blocks call `failProject()` with the classified error type — fire-and-forget, same pattern as `incrementUsage()`. Layer 2 (timeout inference): `listProjects()` checks `created_at` age — any project still `generating` after `MAX_GENERATION_MINUTES` (10 min, well above the 5 min `maxDuration` route timeout) is inferred as failed, returned as `status: 'error'`, and lazily persisted via `failProject()`. The `error_type` field on `ProjectDoc` stores the `ErrorType` string from the classifier (or `'internal'` for timeout-inferred failures).
 - **Auto-save:** `useAutoSave` hook subscribes to `builder.subscribeMutation` and debounces edits (2s) to `PUT /api/projects/{id}`. Silent failure — best-effort.
 - **Loading:** `BuilderLayout` fetches `GET /api/projects/{id}` on mount when `buildId !== 'new'`, then calls `builder.setDone()` to hydrate. If the project's `status !== 'complete'` (error or stale generating), redirects to `/builds` with a toast instead of attempting hydration.
-- **Project list:** `/builds` page fetches `GET /api/projects` (denormalized summaries, no full blueprints). Complete projects are clickable with a Replay button. Failed projects (`status: 'error'`) render as inert cards — muted opacity, "Generation failed" subtitle, no click-through, no replay.
+- **Project list:** `/builds` page fetches `GET /api/projects` (denormalized summaries, no full blueprints). Complete projects are clickable. Replay button visible to admins only (log replay is admin-gated — see Admin Dashboard). Failed projects (`status: 'error'`) render as inert cards — muted opacity, "Generation failed" subtitle, no click-through, no replay. Shared `ProjectCard` component (`components/ui/ProjectCard.tsx`) handles card rendering with optional `href` (Link vs plain card) and optional `onReplay` (show/hide replay button). Used by both the builds page and admin user profile.
 - **BYOK exclusion:** BYOK users have no session → no save, no project loading, no project list, no Firestore logging. Same ephemeral behavior as before.
 
 ### Event Logging (`lib/services/eventLogger.ts`)
@@ -135,16 +135,30 @@ Dual-mode system supporting both authenticated (Google OAuth) and BYOK (bring yo
 
 **Auth layer** — Better Auth with stateless JWT sessions (no database for auth). Google OAuth restricted to `@dimagi.com` emails via a `before` hook on the callback path. Server instance in `lib/auth.ts`, client in `lib/auth-client.ts`, route handler at `app/api/auth/[...all]/route.ts`.
 
+**User provisioning** — Better Auth `after` hook on the callback path calls `createUser()` from `lib/db/users.ts` on every sign-in. `createUser` checks if the Firestore user doc exists: first sign-in creates it (with `role: 'user'` and `created_at`), subsequent sign-ins update mutable fields (`name`, `image`, `last_active_at`) without overwriting `role` or `created_at`. The chat route calls `touchUser()` (fire-and-forget) on every authenticated request to keep `last_active_at` current.
+
+**Admin role** — `UserDoc.role` is `'user' | 'admin'`, managed exclusively via the Firestore console. Application code never writes the `role` field. The `customSession` plugin enriches the session with `isAdmin` by reading the Firestore role server-side — no extra client fetch. `useAuth()` exposes `isAdmin` directly from the session. Server-side: `requireAdmin()` in `lib/auth-utils.ts` calls `isUserAdmin()` from `lib/db/users.ts` and throws 403 if not admin.
+
 **API key resolution** — `resolveApiKey()` in `lib/auth-utils.ts` is the single decision point, shared by all API routes:
 1. Authenticated session exists → use `process.env.ANTHROPIC_API_KEY` (server key)
 2. `apiKey` in request body → use that (BYOK)
 3. Neither → 401
 
-**Client flow** — `useAuth()` hook wraps Better Auth's `useSession`. BuilderLayout's redirect guard checks `isAuthenticated || apiKey || inReplayMode`. The `useChat` body omits `apiKey` when the user is authenticated.
+**Client flow** — `useAuth()` hook wraps Better Auth's `useSession` with `customSessionClient` for type-safe access to `isAdmin`. Returns `{ user, isAuthenticated, isAdmin, isPending, signIn, signOut }`. BuilderLayout's redirect guard checks `isAuthenticated || apiKey || inReplayMode`. The `useChat` body omits `apiKey` when the user is authenticated.
 
 **Landing page** — Google sign-in button (primary) + API key input (secondary). Redirects to `/build/new` if already authenticated or has a saved BYOK key.
 
 **Settings page** — shows Account section (user info + sign out) when authenticated. API key field becomes "API Key Override" for authenticated users.
+
+### Admin Dashboard
+
+Admin-only dashboard at `/admin` for org-wide visibility into usage and user activity. Accessible only to users with `role: 'admin'` in their Firestore user document. The admin nav icon in the builds page header appears instantly (no loading delay) because `isAdmin` is part of the session payload.
+
+- **Dashboard page** (`/admin`): Headline stat cards (total users, generations this month, total spend) + sortable user table via `@tanstack/react-table` with live search. Columns: user (avatar + name), email, role, projects, generations, spend, last active. Click a row → user profile. Table supports keyboard navigation (`tabIndex`, `role="link"`, Enter/Space).
+- **User profile** (`/admin/users/[email]`): User info card, all-time usage history table (per-month breakdown), and project list with replay buttons. Replay uses the shared `useReplay` hook with the admin log endpoint.
+- **Admin API routes** (`/api/admin/*`): All use `requireAdmin()`. `GET /api/admin/users` returns user list + headline stats (iterates users, fetches current month usage + project count per user in parallel). `GET /api/admin/users/[email]` returns user detail + all-time usage + projects. `GET /api/admin/users/[email]/projects/[projectId]/logs` returns log events for admin replay.
+- **Log replay gating**: All Firestore-based replay is admin-only. The user-facing logs endpoint (`GET /api/projects/[id]/logs`) uses `requireAdmin`. The replay button on `/builds` is hidden for non-admins (`onReplay={isAdmin ? handleReplay : undefined}`). File-based JSONL replay in Settings is unaffected (local data).
+- **Shared utilities**: `ProjectCard` component, `useReplay` hook, `STATUS_STYLES` constant, `formatRelativeDate`/`formatCurrency`/`formatTokenCount`/`formatPeriodLabel` in `lib/utils/format.ts`.
 
 ## Rules
 

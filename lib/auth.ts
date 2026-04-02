@@ -13,7 +13,9 @@
  *                         Optional in dev — Better Auth auto-detects from requests.
  */
 import { betterAuth } from 'better-auth'
+import { customSession } from 'better-auth/plugins'
 import { createAuthMiddleware, APIError } from 'better-auth/api'
+import { createUser, isUserAdmin } from './db/users'
 
 /** Email domain allowed for Google OAuth sign-in. */
 const ALLOWED_DOMAIN = 'dimagi.com'
@@ -28,6 +30,25 @@ export const auth = betterAuth({
       clientSecret: process.env.GOOGLE_CLIENT_SECRET!,
     },
   },
+
+  plugins: [
+    /**
+     * Enrich the session with the user's admin role from Firestore.
+     * Runs server-side on every `getSession`/`useSession` call — the result
+     * is cached by Better Auth so this doesn't hit Firestore on every render.
+     * The client receives `isAdmin` as part of the session data, eliminating
+     * the need for a separate admin check fetch.
+     */
+    customSession(async ({ user, session }) => {
+      let isAdmin = false
+      try {
+        isAdmin = await isUserAdmin(user.email)
+      } catch {
+        /* Fail closed — if Firestore is down, user is not admin */
+      }
+      return { user: { ...user, isAdmin }, session }
+    }),
+  ],
 
   hooks: {
     /**
@@ -53,6 +74,32 @@ export const auth = betterAuth({
         throw new APIError('FORBIDDEN', {
           message: `Sign-in is restricted to @${ALLOWED_DOMAIN} accounts.`,
         })
+      }
+    }),
+
+    /**
+     * User provisioning — create/update the Firestore user document on sign-in.
+     *
+     * Fires after the OAuth callback completes successfully. The `newSession`
+     * context field contains the freshly minted session with the user's Google
+     * profile. This is the authoritative moment we know someone is a user —
+     * the Firestore document is created synchronously here so the admin
+     * dashboard always has a complete user list.
+     */
+    after: createAuthMiddleware(async (ctx) => {
+      if (!ctx.path.startsWith('/callback/')) return
+      const newSession = ctx.context.newSession
+      if (!newSession) return
+
+      try {
+        await createUser(
+          newSession.user.email,
+          newSession.user.name,
+          newSession.user.image ?? null,
+        )
+      } catch (err) {
+        /* Log but don't block sign-in — the user can still authenticate. */
+        console.error('[auth] user provisioning failed:', err)
       }
     }),
   },
