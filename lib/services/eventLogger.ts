@@ -24,6 +24,7 @@ import type { ClassifiedError } from './errorClassifier'
 import type { StoredEvent, LogEvent, LogToolCall, TokenUsage, JsonValue } from '../db/types'
 import { parseJsonlEvents } from '../db/jsonl'
 import { writeLogEvent } from '../db/logs'
+import { incrementUsage } from '../db/usage'
 
 // ── Constants ───────────────────────────────────────────────────────
 
@@ -49,6 +50,12 @@ export class EventLogger {
   /* Buffered data matched into the next step event by logStep() */
   private pendingSubResults: Array<{ label: string; usage: TokenUsage; reasoning: string }> = []
   private pendingToolOutputs: Array<{ toolName: string; output: JsonValue }> = []
+
+  /* Request-level cost accumulator — flushed once in finalize(). */
+  private _usageInputTokens = 0
+  private _usageOutputTokens = 0
+  private _usageCost = 0
+  private _finalized = false
 
   constructor(existingRunId?: string) {
     this._runId = existingRunId ?? crypto.randomUUID()
@@ -254,6 +261,19 @@ export class EventLogger {
       ),
     }
 
+    /* Accumulate cost for the single flush in finalize(). Includes both the
+     * outer agent step and any inner LLM calls from tools. */
+    this._usageInputTokens += usage.input_tokens
+    this._usageOutputTokens += usage.output_tokens
+    this._usageCost += usage.cost
+    for (const tc of toolCalls) {
+      if (tc.generation) {
+        this._usageInputTokens += tc.generation.input_tokens
+        this._usageOutputTokens += tc.generation.output_tokens
+        this._usageCost += tc.generation.cost
+      }
+    }
+
     this.write({
       type: 'step',
       step_index: this.stepIndex,
@@ -267,10 +287,22 @@ export class EventLogger {
   }
 
   /**
-   * No-op. JSONL files are always in a valid state — each line is a complete
-   * event, so there's nothing to finalize.
+   * Flush accumulated usage to Firestore (single write per request) and mark
+   * this logger as finalized. Idempotent — safe to call from both onFinish
+   * and an abort handler without double-writing.
    */
-  finalize() {}
+  finalize() {
+    if (this._finalized) return
+    this._finalized = true
+
+    if (this.firestoreEnabled && this._usageCost > 0) {
+      incrementUsage(this.fsEmail!, {
+        input_tokens: this._usageInputTokens,
+        output_tokens: this._usageOutputTokens,
+        cost_estimate: this._usageCost,
+      })
+    }
+  }
 }
 
 // ── Helpers ─────────────────────────────────────────────────────────

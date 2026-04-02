@@ -44,6 +44,7 @@ import { ErrorBoundary } from '@/components/ui/ErrorBoundary'
 import { getReplayData, clearReplayData } from '@/lib/services/logReplay'
 import { ReferenceProviderWrapper } from '@/lib/references/ReferenceContext'
 import { useAutoSave } from '@/hooks/useAutoSave'
+import { parseApiErrorMessage } from '@/lib/apiError'
 
 
 /** Only auto-resend when the assistant's LAST step is askQuestions with all outputs available.
@@ -300,11 +301,12 @@ export function BuilderLayout({ buildId }: { buildId: string }) {
     builder.setAgentActive(status === 'submitted' || status === 'streaming')
   }, [status, builder])
 
-  // Surface stream-level errors from useChat (network, API key, server crash)
+  // Surface stream-level errors from useChat (network, API key, server crash, spend cap)
   useEffect(() => {
     if (chatError && builder.phase !== BuilderPhase.Error) {
-      builder.setError(chatError.message)
-      showToast('error', 'Generation failed', chatError.message)
+      const message = parseApiErrorMessage(chatError.message)
+      builder.setError(message)
+      showToast('error', 'Generation failed', message)
     }
   }, [chatError, builder])
 

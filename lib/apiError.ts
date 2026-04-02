@@ -1,6 +1,20 @@
 import { NextResponse } from 'next/server'
 
 /**
+ * Extract a human-readable error message from a raw error string.
+ * API routes return `{ error: string }` JSON — the AI SDK may pass the
+ * raw response body as the error message. This extracts the `error` field
+ * if the string is parseable JSON, otherwise returns the raw string.
+ */
+export function parseApiErrorMessage(raw: string): string {
+  try {
+    const parsed = JSON.parse(raw)
+    if (typeof parsed?.error === 'string') return parsed.error
+  } catch { /* not JSON — use raw message */ }
+  return raw
+}
+
+/**
  * Structured error class for API route handlers.
  * Carries an HTTP status code and optional detail strings
  * so that catch blocks can throw meaningful, typed errors.

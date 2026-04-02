@@ -97,20 +97,23 @@ emission. Step events carry `TokenUsage` for Phase 5 cost aggregation.
 - [x] Replay from Firestore logs and JSONL files (single `extractReplayStages(StoredEvent[])`)
 - [x] Per-request cost logging (model, input/output tokens, cost) in step events
 
-## Phase 5: Usage Tracking & Spend Cap
+## Phase 5: Usage Tracking & Spend Cap — DONE
 
 The benefit of BYOK is that users are "on the hook" for their own costs. With a shared server key,
 we need a safety net so no one accidentally runs up hundreds of dollars. Track per-user monthly
 spend and enforce a cap.
 
-**Flow:** Before each chat request, check the user's cumulative monthly spend. If over cap, return a
-friendly error. After each request completes, log the actual cost. The AI SDK provides token counts,
-and model pricing is already in `lib/models.ts`.
+**Flow:** Before each chat request, check the user's cumulative monthly spend against `MONTHLY_SPEND_CAP_USD`
+(env var, default $30). If over cap, return a friendly 429. EventLogger accumulates cost across all
+agent steps in-memory, then `finalize()` flushes a single atomic `incrementUsage` write. `finalize()`
+is registered on both `onFinish` (stream completion) and `req.signal.abort` (client disconnect) with
+an idempotency guard — exactly one Firestore write per request regardless of how it ends.
 
-- [ ] Per-user monthly token and cost tracking in Firestore
-- [ ] Pre-request spend cap check (middleware in the chat route)
-- [ ] Post-request cost logging
-- [ ] Friendly error message when cap reached (not a raw 429 — explain what happened and when it resets)
+- [x] Per-user monthly token and cost tracking in Firestore (`lib/db/usage.ts`)
+- [x] Pre-request spend cap check (fail-open on Firestore errors, BYOK users skip)
+- [x] Post-request cost flush (accumulated in EventLogger, flushed once in `finalize()`)
+- [x] Cancellation safety (`req.signal.abort` handler + `_finalized` idempotency guard)
+- [x] Friendly error message when cap reached (`MESSAGES.spend_cap_exceeded`, parsed by `parseApiErrorMessage`)
 
 ## Phase 6: Polish
 

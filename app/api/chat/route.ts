@@ -11,9 +11,10 @@ import { EventLogger } from '@/lib/services/eventLogger'
 import { createSolutionsArchitect } from '@/lib/services/solutionsArchitect'
 import { MutableBlueprint } from '@/lib/services/mutableBlueprint'
 import { chatRequestSchema } from '@/lib/schemas/apiSchemas'
-import { classifyError } from '@/lib/services/errorClassifier'
+import { classifyError, MESSAGES } from '@/lib/services/errorClassifier'
 import { resolveApiKey } from '@/lib/auth-utils'
 import { createProject } from '@/lib/db/projects'
+import { getMonthlyUsage, MONTHLY_SPEND_CAP_USD } from '@/lib/db/usage'
 
 export const maxDuration = 300
 
@@ -40,6 +41,22 @@ export async function POST(req: Request) {
     return new Response(JSON.stringify({ error: keyResult.error }), { status: keyResult.status })
   }
 
+  // Spend cap check — only for authenticated users on the shared server key.
+  // BYOK users are on their own key and uncapped. Fails open on Firestore errors.
+  if (keyResult.session) {
+    try {
+      const usage = await getMonthlyUsage(keyResult.session.user.email)
+      if ((usage?.cost_estimate ?? 0) >= MONTHLY_SPEND_CAP_USD) {
+        return Response.json({
+          error: MESSAGES.spend_cap_exceeded,
+          type: 'spend_cap_exceeded',
+        }, { status: 429 })
+      }
+    } catch (err) {
+      console.error('[chat] spend cap check failed:', err)
+    }
+  }
+
   const { blueprint, runId, pipelineConfig: rawPipelineConfig } = parsed.data
   const pipelineConfig: PipelineConfig = { ...DEFAULT_PIPELINE_CONFIG, ...rawPipelineConfig }
 
@@ -62,6 +79,10 @@ export async function POST(req: Request) {
   if (keyResult.session && projectId) {
     logger.enableFirestore(keyResult.session.user.email, projectId)
   }
+
+  // Flush usage on client disconnect — finalize() is idempotent so this
+  // is safe even if onFinish also fires.
+  req.signal.addEventListener('abort', () => logger.finalize())
 
   logger.logConversation(messages)
 

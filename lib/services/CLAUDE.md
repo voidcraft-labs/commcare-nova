@@ -88,7 +88,7 @@ Also re-exports `validateAndFix()` (from `validationLoop.ts`) — runs `runValid
 
 `errorClassifier.ts` — inspects errors from the AI SDK / API calls and returns a `ClassifiedError` with a human-readable message safe for display.
 
-**Error types:** `api_auth`, `api_rate_limit`, `api_overloaded`, `api_timeout`, `api_server`, `model_error`, `stream_broken`, `internal`. All are `recoverable: false`. Detection: checks `APICallError` from `@ai-sdk/provider` (has `statusCode`, `responseBody`), then falls back to message pattern matching. Unknown errors fall through to `internal` ("Something went wrong during generation.").
+**Error types:** `api_auth`, `api_rate_limit`, `api_overloaded`, `api_timeout`, `api_server`, `model_error`, `stream_broken`, `spend_cap_exceeded`, `internal`. All are `recoverable: false`. Detection: checks `APICallError` from `@ai-sdk/provider` (has `statusCode`, `responseBody`), then falls back to message pattern matching. Unknown errors fall through to `internal` ("Something went wrong during generation."). `spend_cap_exceeded` is not produced by `classifyError()` — it's a pre-flight rejection returned directly by the chat route as a 429 JSON response. The `MESSAGES` record is exported for reuse by route handlers.
 
 **Error flow:** Three catch points cover the full surface:
 1. `route.ts` outer catch — errors from `createSolutionsArchitect` / `createAgentUIStream`
@@ -350,7 +350,7 @@ Rule-based validation system that catches every error CommCare HQ would catch du
 - `logToolOutput(toolName, output)` — buffers server-side tool return value (consumed by `logStep`).
 - `logError(error, context?)` — writes an `ErrorEvent` immediately.
 - `logConversation(messages)` — writes a `MessageEvent` for the current request's user message.
-- `finalize()` — no-op. JSONL files are always valid; Firestore events are already written.
+- `finalize()` — flushes accumulated request-level cost to the usage document via a single `incrementUsage` call. Idempotent (`_finalized` guard) — safe to call from both `onFinish` and `req.signal.abort` without double-writing. Also accumulates cost across steps in private fields (`_usageInputTokens`, `_usageOutputTokens`, `_usageCost`), including inner tool sub-generation costs.
 - `estimateCost()` — exported helper for token cost calculation using `MODEL_PRICING`.
 
 **File sink** (`EVENT_LOGGER=1`): JSONL to `.log/{runId}.jsonl`. One line per event. Each line is a complete, self-contained `StoredEvent`. If the process crashes, every previous line is intact. On resume (existing `runId`), reads the file to restore sequence/step/request counters.
