@@ -371,11 +371,13 @@ Rule-based validation system that catches every error CommCare HQ would catch du
 
 Client-side replay of event logs through Builder without API calls. Supports two data sources — both provide `StoredEvent[]` directly.
 
-**File-based** (local dev): `/settings` file picker → parse JSONL → `extractReplayStages(events)` → module-level store → `/build/new` → `ReplayController` drives Builder.
+**File-based** (local dev): `/settings` file picker → parse JSONL → `extractReplayStages(events)` → consume-once store → `/build/new` → `ReplayController` drives Builder.
 
 **Firestore-based** (production): `/builds` page Replay button → fetch `GET /api/projects/{id}/logs` → `extractReplayStages(events)` → same pipeline.
 
 `logReplay.ts` — `extractReplayStages(events: StoredEvent[])` pre-indexes emissions by `step_index`, then walks step events sequentially. Each step's tool calls become replay stages. Multi-tool steps split by `moduleIndex`/`formIndex` via `distributeEmissions`. Progressive chat messages built from message and step events. Uses `applyDataPart()` — same code path as real-time streaming. Returns `doneIndex` — index of the synthetic "Done" stage — so consumers can start at the completed app state.
+
+**Replay store** — `setReplayData()` deposits stages into a module-level singleton; `consumeReplayData()` reads and clears it atomically. The store is always drained on first read, so stale replay state can never leak across navigations. BuilderLayout calls `consumeReplayData` inside a `useState` initializer so it executes exactly once on mount.
 
 ## Pipeline Config
 

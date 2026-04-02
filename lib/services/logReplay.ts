@@ -332,10 +332,12 @@ export function setReplayData(stages: ReplayStage[], doneIndex: number, appName?
   replayStore = { stages, doneIndex, appName }
 }
 
-export function getReplayData(): ReplayData | undefined {
-  return replayStore
-}
-
-export function clearReplayData() {
+/** Consume replay data. Returns the stored data and clears the store
+ * atomically — subsequent calls return undefined. This ensures replay
+ * state is always one-shot: the store can never leak stale data across
+ * navigations regardless of which path the user takes. */
+export function consumeReplayData(): ReplayData | undefined {
+  const data = replayStore
   replayStore = undefined
+  return data
 }
