@@ -8,6 +8,7 @@ import { useContentPopoverDismiss } from '@/hooks/useContentPopover'
 import type { Builder } from '@/lib/services/builder'
 import type { ConnectType } from '@/lib/schemas/blueprint'
 import { POPOVER_GLASS } from '@/lib/styles'
+import { POPOVER_ENTER_KEYFRAMES, POPOVER_ENTER_OPTIONS } from '@/lib/animations'
 
 interface AppConnectSettingsProps {
   builder: Builder
@@ -38,13 +39,7 @@ export function AppConnectSettings({ builder }: AppConnectSettingsProps) {
 
   useLayoutEffect(() => {
     if (open) {
-      animRef.current?.animate(
-        [
-          { opacity: 0, transform: 'scale(0.97) translateY(-4px)' },
-          { opacity: 1, transform: 'scale(1) translateY(0)' },
-        ],
-        { duration: 150, easing: 'ease-out' },
-      )
+      animRef.current?.animate(POPOVER_ENTER_KEYFRAMES, POPOVER_ENTER_OPTIONS)
     }
   }, [open])
 

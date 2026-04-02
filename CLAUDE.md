@@ -148,7 +148,9 @@ Dual-mode system supporting both authenticated (Google OAuth) and BYOK (bring yo
 
 **Landing page** — Google sign-in button (primary) + API key input (secondary). Redirects to `/build/new` if already authenticated or has a saved BYOK key.
 
-**Settings page** — shows Account section (user info + sign out) when authenticated. API key field becomes "API Key Override" for authenticated users.
+**Account menu** — `AccountMenu` (`components/ui/AccountMenu.tsx`) replaces the settings gear icon in all headers. Authenticated users see an avatar trigger that opens a `FloatingPortal`-based `POPOVER_GLASS` dropdown with profile info, monthly usage progress bar (`GET /api/user/usage`), Settings link, and Sign Out. BYOK users see a plain settings gear link to `/settings`. Uses `useDismissRef` for click-outside/Escape and `POPOVER_ENTER_KEYFRAMES`/`POPOVER_ENTER_OPTIONS` from `lib/animations.ts` for entrance animation.
+
+**Settings page** — API key field (becomes "API Key Override" for authenticated users), pipeline configuration, and log replay. Account info and sign-out live in the AccountMenu dropdown, not on this page.
 
 ### Admin Dashboard
 
@@ -183,7 +185,8 @@ Dark "Stellar Minimalism". CSS custom properties in `globals.css`:
 - Text: `--nova-text` (#e8e8ff) → `--nova-text-muted` (#555577)
 - Accents: `--nova-violet`, `--nova-cyan`, `--nova-emerald`, `--nova-amber`, `--nova-rose`
 - Fonts: Outfit (display), Plus Jakarta Sans (body), JetBrains Mono (code)
-- Popover layers (`lib/styles.ts`): `POPOVER_GLASS` (L1, frosted glass with bright inset border) for base-layer floating panels, `POPOVER_ELEVATED` (L2, nearly opaque) for popovers stacked above glass. Both share a 1px inner highlight (`inset box-shadow`) that catches light.
+- Popover layers (`lib/styles.ts`): `POPOVER_GLASS` (L1, frosted glass with bright inset border) for base-layer floating panels, `POPOVER_ELEVATED` (L2, nearly opaque) for popovers stacked above glass. Both share a 1px inner highlight (`inset box-shadow`) that catches light. `NAV_ICON_CLASS` (shared header nav icon styling) also lives here.
+- Popover entrance animation (`lib/animations.ts`): `POPOVER_ENTER_KEYFRAMES` + `POPOVER_ENTER_OPTIONS` — shared Web Animations API config used by all FloatingPortal-based dropdowns (AccountMenu, FormTypeDropdown, FormSettingsPanel, AppConnectSettings).
 
 ### Structured Output Schemas
 

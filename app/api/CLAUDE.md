@@ -63,6 +63,12 @@ Admin-only routes for the admin dashboard. All use `requireAdmin()` from `lib/au
 - **GET /api/admin/users/[email]** — user detail with all-time usage history and project list. Three parallel Firestore reads: `getUser()`, `collections.usage().orderBy()`, `listProjects()`. Email is URL-encoded and decoded before use.
 - **GET /api/admin/users/[email]/projects/[projectId]/logs** — admin log replay endpoint. Mirrors the user-facing logs route but scopes to the target user's email (from URL) instead of the session user. Reuses `loadRunEvents` and `loadLatestRunId`.
 
+## GET /api/user/usage (`user/usage/route.ts`)
+
+Returns the authenticated user's current month usage and spend cap. Authenticated-only — BYOK users have no usage tracking. Uses `requireSession()` from `lib/auth-utils.ts` which throws `ApiError(401)` on failure.
+
+Response: `{ cost_estimate: number, request_count: number, cap: number, period: string }`. `cost_estimate` and `request_count` default to 0 if no usage document exists yet (first request of the month). `cap` is `MONTHLY_SPEND_CAP_USD` from `lib/db/usage.ts`. `period` is the current `yyyy-mm` string. Consumed by `AccountMenu` to render the usage progress bar.
+
 ## POST /api/models (`models/route.ts`)
 
 Proxy for Anthropic API model listing. Uses `resolveApiKey()` for dual auth — authenticated users don't need to send an API key. Returns latest version of each model family (Opus, Sonnet, Haiku). Returns proper HTTP status codes for auth failures (401) and upstream errors (502).
