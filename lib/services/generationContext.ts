@@ -38,8 +38,8 @@ interface GenerationContextOptions {
   apiKey: string
   writer: UIMessageStreamWriter
   logger: EventLogger
-  /** Authenticated user session — null for BYOK requests. */
-  session?: Session | null
+  /** Authenticated user session — always present (all users are authenticated). */
+  session: Session
   /** Firestore project ID — present when the project has been saved at least once. */
   projectId?: string
 }
@@ -48,8 +48,8 @@ export class GenerationContext {
   private anthropic: ReturnType<typeof createAnthropic>
   readonly writer: UIMessageStreamWriter
   readonly logger: EventLogger
-  /** Authenticated user session, or null for BYOK requests. */
-  readonly session: Session | null
+  /** Authenticated user session. */
+  readonly session: Session
   /** Firestore project ID — set when the project has been saved at least once. */
   readonly projectId: string | undefined
 
@@ -57,7 +57,7 @@ export class GenerationContext {
     this.anthropic = createAnthropic({ apiKey: opts.apiKey })
     this.writer = opts.writer
     this.logger = opts.logger
-    this.session = opts.session ?? null
+    this.session = opts.session
     this.projectId = opts.projectId
   }
 

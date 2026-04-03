@@ -12,17 +12,19 @@ Better Auth catch-all handler — serves all `/api/auth/*` paths (OAuth flows, s
 
 The single endpoint for all agent interaction. Creates `EventLogger`, `GenerationContext`, `MutableBlueprint`, then `createSolutionsArchitect()`.
 
-**API key resolution**: Uses `resolveApiKey()` from `lib/auth-utils.ts` — checks for an authenticated session first (uses server-side `ANTHROPIC_API_KEY`), falls back to `apiKey` in the request body (BYOK), returns 401 if neither.
+**API key resolution**: Uses `resolveApiKey()` from `lib/auth-utils.ts` — requires an authenticated session and uses server-side `ANTHROPIC_API_KEY`. Returns 401 if not authenticated.
 
-**Spend cap check**: After API key resolution, authenticated users' monthly spend is checked via `getMonthlyUsage()`. If `cost_estimate >= MONTHLY_SPEND_CAP_USD`, returns `{ error, type: 'spend_cap_exceeded' }` with 429 status. Fails open on Firestore errors — a Firestore outage does not block generation. BYOK users skip this check entirely.
+**Spend cap check**: After API key resolution, the user's monthly spend is checked via `getMonthlyUsage()`. If `cost_estimate >= MONTHLY_SPEND_CAP_USD`, returns `{ error, type: 'spend_cap_exceeded' }` with 429 status. Fails closed on Firestore errors — returns 503 rather than allowing uncapped spend.
 
-**Input validation**: `chatRequestSchema` (from `lib/schemas/apiSchemas.ts`) validates our fields (`apiKey` (optional), `blueprint`, etc.) via Zod `safeParse`. `messages` is typed as `UIMessage[]` from the AI SDK — not schema-validated.
+**Input validation**: `chatRequestSchema` (from `lib/schemas/apiSchemas.ts`) validates our fields (`blueprint`, etc.) via Zod `safeParse`. `messages` is typed as `UIMessage[]` from the AI SDK — not schema-validated.
 
-**Body params** (from `useChat` body): `apiKey` (optional — omitted for authenticated users), `blueprint` (for edits), `runId` (for log continuation), `projectId` (for updating the same Firestore project on subsequent requests).
+**Body params** (from `useChat` body): `blueprint` (for edits), `runId` (for log continuation), `projectId` (for updating the same Firestore project on subsequent requests).
 
 **Streaming**: Uses `createUIMessageStream` with a manual reader loop (not `writer.merge()`) so stream errors can be caught and emitted as `data-error` before the stream closes. Both catch blocks (`route:init` and `route:stream`) delegate to a local `handleRouteError(error, source)` closure that classifies the error, emits `data-error` to the client via `ctx.emitError()`, and marks the project as failed via `failProject()` (fire-and-forget). Server emits transient data parts via `ctx.emit()` which drive builder state on the client.
 
-**Usage flush**: `logger.finalize()` is registered on both `onFinish` (stream completion) and `req.signal.abort` (client disconnect). The idempotent `_finalized` guard ensures exactly one `incrementUsage` Firestore write per request regardless of how the request ends.
+**Project creation**: New builds create a Firestore project doc (`status: 'generating'`) before generation starts — fails closed (returns 503) to prevent unsaveable ghost generations.
+
+**Usage flush**: `logger.finalize()` is registered on both `onFinish` (stream completion) and `req.signal.abort` (client disconnect). The idempotent `_finalized` guard ensures exactly one `incrementUsage` Firestore write per request regardless of how the request ends. `incrementUsage` retries up to 3 times with backoff — untracked spend would let subsequent requests pass the spend cap with stale data.
 
 `maxDuration = 300` (5 min timeout for long generation runs).
 
@@ -38,7 +40,7 @@ The CczCompiler validates every XForm after case block injection (bind/ref integ
 
 ## Project Routes (`projects/`)
 
-Authenticated-only (no BYOK). All routes use `requireSession()` from `lib/auth-utils.ts` which throws `ApiError(401)` on failure. User's email is derived from the session and scopes all Firestore operations to `users/{email}/projects/`.
+All routes use `requireSession()` from `lib/auth-utils.ts` which throws `ApiError(401)` on failure. User's email is derived from the session and scopes all Firestore operations to `users/{email}/projects/`.
 
 - **GET /api/projects** — list user's projects sorted by `updated_at` desc. Returns denormalized summaries (no full blueprints) via Firestore `select()` — the blueprint is never read, data is validated on write. Includes timeout inference: projects stuck in `generating` longer than `MAX_GENERATION_MINUTES` (10 min) are returned as `status: 'error'` and lazily persisted via `failProject()`.
 - **GET /api/projects/[id]** — load a single project. Returns `{ blueprint, app_name, status, error_type }` for builder hydration. BuilderLayout checks `status` and redirects to `/builds` if not `'complete'`.

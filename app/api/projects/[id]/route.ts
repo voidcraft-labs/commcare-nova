@@ -4,8 +4,8 @@
  * GET  /api/projects/{id} — load a project (full blueprint) for the builder
  * PUT  /api/projects/{id} — update a project after client-side edits (auto-save)
  *
- * Both endpoints require an authenticated session — BYOK users cannot
- * persist projects. The user's email is derived from the session and used
+ * Both endpoints require an authenticated session. The user's email is
+ * derived from the session and used
  * as the Firestore subcollection parent, so users can only access their own data.
  */
 import { requireSession } from '@/lib/auth-utils'

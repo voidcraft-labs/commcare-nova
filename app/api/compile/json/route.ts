@@ -2,9 +2,12 @@ import { NextRequest, NextResponse } from 'next/server'
 import { expandBlueprint } from '@/lib/services/hqJsonExpander'
 import { appBlueprintSchema } from '@/lib/schemas/blueprint'
 import { ApiError, handleApiError } from '@/lib/apiError'
+import { sanitizeFilename } from '@/lib/utils/sanitize'
+import { requireSession } from '@/lib/auth-utils'
 
 export async function POST(req: NextRequest) {
   try {
+    await requireSession(req)
     const body = await req.json()
     const { blueprint } = body
 
@@ -27,7 +30,7 @@ export async function POST(req: NextRequest) {
     return new NextResponse(jsonStr, {
       headers: {
         'Content-Type': 'application/json',
-        'Content-Disposition': `attachment; filename="${parsed.data.app_name || 'app'}.json"`,
+        'Content-Disposition': `attachment; filename="${sanitizeFilename(parsed.data.app_name)}.json"`,
       },
     })
   } catch (err) {

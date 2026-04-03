@@ -1,10 +1,8 @@
 /**
  * Auth utilities for API route handlers.
  *
- * Provides the dual-mode API key resolution pattern: authenticated users get
- * the server-side ANTHROPIC_API_KEY, unauthenticated users must provide their
- * own key (BYOK). This keeps the resolution logic in one place, shared across
- * all routes that need an Anthropic key (chat, models, compile).
+ * All routes require authenticated sessions (@dimagi.com Google OAuth).
+ * The server-side ANTHROPIC_API_KEY is used for all LLM calls.
  */
 import { headers } from 'next/headers'
 import { redirect } from 'next/navigation'
@@ -12,11 +10,11 @@ import { auth, type Session } from './auth'
 import { ApiError } from './apiError'
 import { isUserAdmin } from './db/users'
 
-/** Successful key resolution — includes the key and optional session for downstream use. */
+/** Successful key resolution — includes the API key and authenticated session. */
 interface ApiKeyResolved {
   ok: true
   apiKey: string
-  session: Session | null
+  session: Session
 }
 
 /** Failed key resolution — includes an error message and HTTP status code. */
@@ -29,49 +27,29 @@ interface ApiKeyError {
 type ApiKeyResult = ApiKeyResolved | ApiKeyError
 
 /**
- * Resolve the effective Anthropic API key for a request.
+ * Resolve the Anthropic API key for an authenticated request.
  *
- * Priority:
- * 1. Authenticated session → use server-side ANTHROPIC_API_KEY from env
- * 2. BYOK key in request body → use that directly
- * 3. Neither → reject with 401
- *
- * The server key is only used when ANTHROPIC_API_KEY is set in the environment.
- * If a user is authenticated but the server key isn't configured, falls back to
- * BYOK — this supports local dev where auth is configured but no server key is set.
+ * Requires an authenticated session and a configured ANTHROPIC_API_KEY.
+ * Returns a discriminated union so callers can handle errors without try/catch.
  */
-export async function resolveApiKey(req: Request, bodyApiKey?: string): Promise<ApiKeyResult> {
+export async function resolveApiKey(req: Request): Promise<ApiKeyResult> {
   const session = await getSessionSafe(req)
-
-  /* Authenticated user — prefer server-side key */
-  if (session) {
-    const serverKey = process.env.ANTHROPIC_API_KEY
-    if (serverKey) {
-      return { ok: true, apiKey: serverKey, session }
-    }
-    /* Server key not configured — fall through to BYOK if available */
+  if (!session) {
+    return { ok: false, error: 'Authentication required. Sign in with Google.', status: 401 }
   }
 
-  /* BYOK fallback */
-  if (bodyApiKey) {
-    return { ok: true, apiKey: bodyApiKey, session }
+  const serverKey = process.env.ANTHROPIC_API_KEY
+  if (!serverKey) {
+    return { ok: false, error: 'Server API key not configured.', status: 500 }
   }
 
-  /* No authentication and no key provided */
-  return {
-    ok: false,
-    error: session
-      ? 'Server API key not configured. Please provide your own API key in Settings.'
-      : 'Authentication required. Sign in with Google or provide an API key.',
-    status: 401,
-  }
+  return { ok: true, apiKey: serverKey, session }
 }
 
 /**
  * Require an authenticated session or throw a 401.
  *
- * Used by project API routes that only serve authenticated users — no
- * BYOK fallback, no API key involved. Throws an error suitable for
+ * Used by API routes that require authentication. Throws an error suitable for
  * direct catch by `handleApiError`.
  */
 export async function requireSession(req: Request): Promise<Session> {
@@ -101,7 +79,6 @@ export async function requireAdmin(req: Request): Promise<Session> {
  * Safely attempt to retrieve the session from a request.
  *
  * Returns null instead of throwing when auth headers are missing or invalid.
- * This allows routes to gracefully fall back to BYOK mode.
  */
 export async function getSessionSafe(req: Request): Promise<Session | null> {
   try {

@@ -67,7 +67,7 @@ Also re-exports `validateAndFix()` (from `validationLoop.ts`) — runs `runValid
 `generationContext.ts` — the single place all LLM calls flow through. Constructor takes a single `GenerationContextOptions` object.
 
 **Readonly fields:**
-- `session` — Better Auth `Session | null`. Non-null for authenticated users, null for BYOK. Used by `validateApp` to save projects to Firestore.
+- `session` — Better Auth `Session`. Always present (all users are authenticated). Used by `validateApp` to save projects to Firestore.
 - `projectId` — Firestore project ID, present when updating an existing project. Threaded from the chat request body.
 **Methods:**
 - `model(id)` — returns Anthropic model provider

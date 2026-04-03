@@ -51,6 +51,8 @@ export function handleApiError(err: ApiError | Error): NextResponse {
     return NextResponse.json(body, { status: err.status })
   }
 
-  // Standard Error — treat as an internal server error
-  return NextResponse.json({ error: err.message }, { status: 500 })
+  // Standard Error — return a generic message to avoid leaking internal
+  // details (file paths, stack fragments, library internals) to the client.
+  console.error('[apiError] unhandled:', err.message)
+  return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
 }

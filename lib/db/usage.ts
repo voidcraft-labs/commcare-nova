@@ -6,8 +6,7 @@
  * Increments are atomic via FieldValue.increment() — safe for concurrent
  * requests from the same user.
  *
- * Only applies to authenticated users on the shared server key. BYOK users
- * are uncapped and never touch these documents.
+ * All users are authenticated and share the server key.
  */
 import { FieldValue } from '@google-cloud/firestore'
 import { docs } from './firestore'
@@ -63,19 +62,33 @@ export interface UsageIncrement {
 
 /**
  * Atomically increment the current month's usage counters for a user.
- * Fire-and-forget — a Firestore outage never blocks generation.
+ * Retries up to 3 times on failure — untracked spend would let subsequent
+ * requests pass the spend cap check with stale (understated) usage data.
  *
  * Uses set({ merge: true }) with FieldValue.increment() so the document
  * is created automatically on the first request of a new month. No
  * separate create path, no read-then-write race conditions.
  */
-export function incrementUsage(email: string, deltas: UsageIncrement): void {
-  docs.usage(email, getCurrentPeriod()).set({
+export async function incrementUsage(email: string, deltas: UsageIncrement): Promise<void> {
+  const MAX_RETRIES = 3
+  const data = {
     input_tokens: FieldValue.increment(deltas.input_tokens),
     output_tokens: FieldValue.increment(deltas.output_tokens),
     cost_estimate: FieldValue.increment(deltas.cost_estimate),
     request_count: FieldValue.increment(1),
     updated_at: FieldValue.serverTimestamp(),
-  }, { merge: true })
-    .catch(err => console.error('[incrementUsage] Firestore write failed:', err))
+  }
+
+  for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+    try {
+      await docs.usage(email, getCurrentPeriod()).set(data, { merge: true })
+      return
+    } catch (err) {
+      console.error(`[incrementUsage] attempt ${attempt}/${MAX_RETRIES} failed:`, err)
+      if (attempt < MAX_RETRIES) {
+        await new Promise(r => setTimeout(r, 500 * attempt))
+      }
+    }
+  }
+  console.error('[incrementUsage] all retries exhausted — usage not recorded for', email)
 }

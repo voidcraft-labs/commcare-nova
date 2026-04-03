@@ -2,7 +2,7 @@
  * GET /api/projects — list the authenticated user's projects.
  *
  * Returns denormalized project summaries (no full blueprints) sorted by
- * last modified. Only available to authenticated users — BYOK users get 401.
+ * last modified. Requires authentication.
  */
 import { requireSession } from '@/lib/auth-utils'
 import { ApiError, handleApiError } from '@/lib/apiError'
