@@ -1,10 +1,11 @@
 'use client'
-import { useState, useCallback, useRef, useMemo, useEffect } from 'react'
+import { useState, useCallback, useRef, useMemo, useEffect, useLayoutEffect } from 'react'
 import CodeMirror, { type ReactCodeMirrorRef } from '@uiw/react-codemirror'
 import { EditorView, keymap, tooltips } from '@codemirror/view'
 import { EditorState, Prec } from '@codemirror/state'
 import { completionStatus, closeCompletion } from '@codemirror/autocomplete'
 import { indentOnInput, bracketMatching, indentUnit } from '@codemirror/language'
+import { useFloating, offset, flip, shift, autoUpdate, FloatingPortal } from '@floating-ui/react'
 import { xpath } from '@/lib/codemirror/xpath-language'
 import { novaXPathTheme, novaAutocompleteTheme, novaChipTheme } from '@/lib/codemirror/xpath-theme'
 import { prettyPrintXPath, formatXPath } from '@/lib/codemirror/xpath-format'
@@ -15,6 +16,8 @@ import { validateXPath } from '@/lib/services/commcare/validate/xpathValidator'
 import { collectValidPaths, collectCaseProperties } from '@/lib/services/commcare/validate/index'
 import { useReferenceProvider } from '@/lib/references/ReferenceContext'
 import { ReferenceProvider } from '@/lib/references/provider'
+import { useBuilderInstance } from '@/hooks/useBuilder'
+import { POPOVER_ENTER_KEYFRAMES, POPOVER_ENTER_OPTIONS } from '@/lib/animations'
 
 // ── Read-only theme ────────────────────────────────────────────────────
 
@@ -98,9 +101,10 @@ interface XPathFieldProps {
  *
  * **Editable** (`onSave` provided): Click to activate a full CodeMirror
  * editor with autocomplete, linting, bracket matching, and reference chips.
- * Cmd/Ctrl+Enter validates and saves. Escape and blur cancel (revert).
- * Invalid expressions cannot be saved — the editor shakes on rejected
- * save attempts.
+ * Cmd/Ctrl+Enter validates and saves. Escape cancels (reverts). Blur with
+ * errors shakes and refocuses (holds the editor open). Invalid expressions
+ * cannot be saved — a rose tooltip shows the validation error message on
+ * rejected save attempts.
  *
  * Hashtag references render as styled chips automatically when a
  * ReferenceProvider is available via context.
@@ -197,18 +201,57 @@ interface InlineXPathEditorProps {
  *
  * **Save gate:** Cmd/Ctrl+Enter and blur both validate the expression
  * before committing. If valid, the value is saved. If the expression has
- * errors, the editor shakes — Cmd/Ctrl+Enter stays open after shaking,
- * blur shakes then cancels (reverts). Invalid XPath can never be persisted.
+ * errors, a FloatingUI tooltip shows the first error message and the editor
+ * shakes. Cmd/Ctrl+Enter stays open after shaking; blur shakes then
+ * refocuses (holds the editor open). Invalid XPath can never be persisted.
+ *
+ * **Edit guard:** Registers a builder-level guard that blocks `select()`
+ * while the editor has unsaved invalid content. First navigation attempt
+ * warns (shake + tooltip); second attempt allows through.
  *
  * **Cancel:** Escape always cancels (reverts to the original value).
  * Uses stopPropagation to prevent parent useDismissRef from closing
  * the containing popover.
  */
 function InlineXPathEditor({ value, onSave, onCancel, getLintContext, provider, clickPosition }: InlineXPathEditorProps) {
+  const builder = useBuilderInstance()
   const editorRef = useRef<ReactCodeMirrorRef>(null)
+  const wrapperRef = useRef<HTMLDivElement>(null)
   /** Guards against double-fire: once save or cancel runs, block the other. */
   const doneRef = useRef(false)
   const [shaking, setShaking] = useState(false)
+
+  // ── Error tooltip ───────────────────────────────────────────────────
+
+  const [tooltipMessage, setTooltipMessage] = useState<string | null>(null)
+
+  const { refs, floatingStyles } = useFloating({
+    placement: 'top-start',
+    middleware: [offset(6), flip(), shift({ padding: 8 })],
+    whileElementsMounted: autoUpdate,
+  })
+
+  /* Wire the wrapper div as the FloatingUI reference element. */
+  useLayoutEffect(() => {
+    if (wrapperRef.current) refs.setReference(wrapperRef.current)
+  }, [refs])
+
+  /* Animate tooltip entrance when it appears. */
+  const tooltipRef = useRef<HTMLDivElement | null>(null)
+  useLayoutEffect(() => {
+    if (tooltipMessage && tooltipRef.current) {
+      tooltipRef.current.animate(POPOVER_ENTER_KEYFRAMES, POPOVER_ENTER_OPTIONS)
+    }
+  }, [tooltipMessage])
+
+  /* Auto-dismiss tooltip after 4 seconds. */
+  useEffect(() => {
+    if (!tooltipMessage) return
+    const timer = setTimeout(() => setTooltipMessage(null), 4000)
+    return () => clearTimeout(timer)
+  }, [tooltipMessage])
+
+  // ── Lint context & chip provider ────────────────────────────────────
 
   /* Stable ref so closures always read the latest getLintContext getter. */
   const getLintContextRef = useRef(getLintContext)
@@ -220,18 +263,20 @@ function InlineXPathEditor({ value, onSave, onCancel, getLintContext, provider, 
     [],
   )
 
+  // ── Validation & save gate ──────────────────────────────────────────
+
   /**
-   * Check whether the current editor content has XPath validation errors.
+   * Return validation error messages for the current editor content.
    * Uses the same `validateXPath` + context as the CodeMirror linter so
    * the result is always consistent with the inline diagnostics.
    */
-  const hasErrors = useCallback((): boolean => {
+  const getErrors = useCallback((): string[] => {
     const draft = editorRef.current?.view?.state.doc.toString() ?? ''
-    if (!draft.trim()) return false
+    if (!draft.trim()) return []
     const ctx = getLintContextRef.current?.()
     const validPaths = ctx?.form.questions ? collectValidPaths(ctx.form.questions) : undefined
     const caseProperties = ctx ? collectCaseProperties(ctx.blueprint, ctx.moduleCaseType) : undefined
-    return validateXPath(draft, validPaths, caseProperties).length > 0
+    return validateXPath(draft, validPaths, caseProperties).map(e => e.message)
   }, [])
 
   /** Trigger the reject shake animation on the editor wrapper. */
@@ -242,35 +287,62 @@ function InlineXPathEditor({ value, onSave, onCancel, getLintContext, provider, 
 
   /**
    * Attempt to save. If the expression has validation errors, reject with
-   * a shake animation and refocus the editor instead of committing.
+   * a shake animation, error tooltip, and refocus instead of committing.
    */
   const save = useCallback(() => {
     if (doneRef.current) return
-    if (hasErrors()) {
+    const errors = getErrors()
+    if (errors.length > 0) {
       shake()
+      setTooltipMessage(errors[0])
       editorRef.current?.view?.focus()
       return
     }
     doneRef.current = true
+    builder.clearEditGuard()
     const draft = editorRef.current?.view?.state.doc.toString() ?? ''
     onSave(draft)
-  }, [onSave, hasErrors, shake])
+  }, [onSave, getErrors, shake, builder])
 
   /** Cancel editing — revert to the original value without saving. */
   const cancel = useCallback(() => {
     if (doneRef.current) return
     doneRef.current = true
+    builder.clearEditGuard()
     onCancel()
-  }, [onCancel])
+  }, [onCancel, builder])
 
   const saveRef = useRef(save)
   saveRef.current = save
   const cancelRef = useRef(cancel)
   cancelRef.current = cancel
-  const hasErrorsRef = useRef(hasErrors)
-  hasErrorsRef.current = hasErrors
+  const getErrorsRef = useRef(getErrors)
+  getErrorsRef.current = getErrors
   const shakeRef = useRef(shake)
   shakeRef.current = shake
+
+  // ── Builder edit guard (two-strike pattern) ─────────────────────────
+
+  /** Tracks whether the user has been warned about errors blocking navigation. */
+  const warnedRef = useRef(false)
+
+  useEffect(() => {
+    builder.setEditGuard(() => {
+      const errors = getErrorsRef.current()
+      if (errors.length === 0) return true
+      /* First strike: warn, block navigation. */
+      if (!warnedRef.current) {
+        warnedRef.current = true
+        shakeRef.current()
+        setTooltipMessage(errors[0])
+        return false
+      }
+      /* Second strike: allow navigation through. */
+      builder.clearEditGuard()
+      return true
+    })
+    return () => builder.clearEditGuard()
+  }, [builder])
 
   /* Cmd/Ctrl+Enter saves (with validation gate). Highest precedence so
    * basicSetup keymaps can't intercept it. */
@@ -304,6 +376,16 @@ function InlineXPathEditor({ value, onSave, onCancel, getLintContext, provider, 
     },
   }), [])
 
+  /* Dismiss tooltip and reset two-strike guard when the user types. */
+  const tooltipDismissExt = useMemo(() =>
+    EditorView.updateListener.of((update) => {
+      if (update.docChanged) {
+        setTooltipMessage(null)
+        warnedRef.current = false
+      }
+    }),
+  [])
+
   const extensions = useMemo(
     () => [
       ...baseEditingExtensions,
@@ -317,12 +399,13 @@ function InlineXPathEditor({ value, onSave, onCancel, getLintContext, provider, 
       novaChipTheme,
       saveKeymap,
       escapeDom,
+      tooltipDismissExt,
     ],
-    [chipProvider, saveKeymap, escapeDom],
+    [chipProvider, saveKeymap, escapeDom, tooltipDismissExt],
   )
 
   return (
-    <div className={`rounded-md border border-nova-violet/50 ${shaking ? 'xpath-shake' : ''}`}>
+    <div ref={wrapperRef} className={`rounded-md border border-nova-violet/50 ${shaking ? 'xpath-shake' : ''}`}>
       <CodeMirror
         ref={editorRef}
         value={prettyPrintXPath(value)}
@@ -344,13 +427,24 @@ function InlineXPathEditor({ value, onSave, onCancel, getLintContext, provider, 
         onBlur={() => {
           /* Delay to detect transient blur from autocomplete tooltip
            * interactions (portal-mounted to body). Save if valid; shake
-           * then cancel if errors — invalid XPath never persists. */
+           * and refocus if errors — invalid XPath never persists, but the
+           * editor holds focus so the user can fix errors or press Esc. */
           requestAnimationFrame(() => {
             if (editorRef.current?.view?.hasFocus) return
             if (document.activeElement?.closest('.cm-tooltip')) return
-            if (hasErrorsRef.current()) {
-              shakeRef.current()
-              setTimeout(() => cancelRef.current(), 400)
+            const errors = getErrorsRef.current()
+            if (errors.length > 0) {
+              /* If the edit guard already warned on this interaction (user
+               * clicked a navigation target), skip the duplicate shake/tooltip
+               * — the guard already provided the visual feedback. */
+              if (!warnedRef.current) {
+                shakeRef.current()
+                setTooltipMessage(errors[0])
+              }
+              /* Refocus immediately so Escape works without waiting for the
+               * shake animation to finish. The shake is CSS-only on the wrapper
+               * div — unaffected by focus state. */
+              editorRef.current?.view?.focus()
             } else {
               saveRef.current()
             }
@@ -365,6 +459,23 @@ function InlineXPathEditor({ value, onSave, onCancel, getLintContext, provider, 
           searchKeymap: false,
         }}
       />
+      {tooltipMessage && (
+        <FloatingPortal>
+          <div
+            ref={(el) => {
+              tooltipRef.current = el
+              refs.setFloating(el)
+            }}
+            style={floatingStyles}
+            className="z-popover-top"
+          >
+            <div role="alert" className="px-2.5 py-1.5 rounded-md bg-[rgba(16,16,36,0.95)] border border-nova-rose/20 shadow-lg max-w-xs">
+              <p className="text-xs text-nova-rose font-mono leading-snug">{tooltipMessage}</p>
+              <p className="text-[10px] text-nova-text-muted mt-0.5">Press Esc to discard changes</p>
+            </div>
+          </div>
+        </FloatingPortal>
+      )}
     </div>
   )
 }

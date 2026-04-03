@@ -129,7 +129,7 @@ If the stream writer is broken (can't emit `data-error`), `emitError` catches si
 - `builder.subscribe` / `builder.getSnapshot` — arrow properties for `useSyncExternalStore`. `_version` counter incremented in `notify()`.
 - `builder.subscribeMutation` — arrow property for subscribing to blueprint/selection changes only (not UI-only state changes like phase labels or panel toggles). Fires from `notifyBlueprintChanged`, `undo`, `redo`, `select`, and `updateBlueprint`. Used by `ReferenceProviderWrapper` to invalidate cached question/case data.
 - `builder.questionAnchor` / `builder.setQuestionAnchor` / `builder.subscribeAnchor` / `builder.getAnchorSnapshot` — selected question's DOM element, registered by `EditableQuestionWrapper` ref callback. Uses a **separate** listener set from the main `subscribe`/`notify` to avoid re-rendering the wrapper tree (which would re-trigger the ref callback in an infinite loop). `ContextualEditor` subscribes via `useSyncExternalStore(subscribeAnchor, getAnchorSnapshot)`.
-- `builder.select(el?)` — set selection; call with no args to deselect
+- `builder.select(el?)` — set selection; call with no args to deselect. Consults `_editGuard` before proceeding — an inline editor (e.g. XPathField) can block selection changes while it has unsaved invalid content. `setEditGuard(guard)` / `clearEditGuard()` manage the guard. Intentionally does not gate `undo()`/`redo()` — those restore full snapshots including selection state.
 - Progress counters (`progressCompleted`/`progressTotal`) derived from partialModules map against scaffold.
 
 **New question state** — encapsulated behind methods, not public fields:

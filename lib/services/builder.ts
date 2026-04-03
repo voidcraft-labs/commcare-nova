@@ -155,6 +155,9 @@ export class Builder {
   // ── Edit scope (non-versioned — consumed by SignalGrid rAF loop) ──
   private _editScope: EditScope | null = null
 
+  // ── Edit guard (blocks select() when an inline editor has unsaved invalid content) ──
+  private _editGuard: (() => boolean) | null = null
+
   // ── Project persistence ─────────────────────────────────────────────
   private _projectId: string | undefined
 
@@ -267,6 +270,21 @@ export class Builder {
   /** Deactivate new-question behaviors (called on first save). */
   clearNewQuestion(): void {
     this._newQuestionPath = undefined
+  }
+
+  // ── Edit guard ──────────────────────────────────────────────────────
+
+  /** Register an edit guard that `select()` consults before changing selection.
+   *  The callback returns false to block, true to allow. Only one guard at a time.
+   *  Intentionally does not gate `undo()`/`redo()` — those bypass selection guards
+   *  because they restore full snapshots including selection state. */
+  setEditGuard(guard: () => boolean): void {
+    this._editGuard = guard
+  }
+
+  /** Clear the active edit guard. */
+  clearEditGuard(): void {
+    this._editGuard = null
   }
 
   // ── Progress ─────────────────────────────────────────────────────────
@@ -672,6 +690,10 @@ export class Builder {
   }
 
   select(el?: SelectedElement) {
+    /* Edit guard — an inline editor (e.g. XPathField) can block selection
+     * changes while it has unsaved invalid content. */
+    if (this._editGuard && !this._editGuard()) return
+
     if (this._history && el && this._selected) {
       const prev = this._selected
       if (prev.formIndex !== undefined && el.formIndex !== undefined &&
@@ -721,6 +743,7 @@ export class Builder {
     this._streamEnergy = 0
     this._thinkEnergy = 0
     this._editScope = null
+    this._editGuard = null
     this._projectId = undefined
     this.notify()
   }

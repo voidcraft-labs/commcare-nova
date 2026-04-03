@@ -117,7 +117,7 @@ export function BuilderProvider({
 }
 
 /**
- * useBuilder — access the current Builder from context.
+ * useBuilder — access the current Builder from context with reactive subscription.
  *
  * Must be called within a BuilderProvider (i.e. under the /build/* route).
  * Subscribes to the Builder's state via useSyncExternalStore for
@@ -129,5 +129,21 @@ export function useBuilder(): Builder {
     throw new Error('useBuilder must be used within a BuilderProvider')
   }
   useSyncExternalStore(builder.subscribe, builder.getSnapshot, builder.getSnapshot)
+  return builder
+}
+
+/**
+ * useBuilderInstance — access the Builder instance without subscribing to state.
+ *
+ * Use when a component only needs imperative methods (e.g. `setEditGuard`,
+ * `clearEditGuard`) and does NOT need to re-render when builder state changes.
+ * Avoids `useSyncExternalStore` overhead for components that don't read
+ * reactive builder properties.
+ */
+export function useBuilderInstance(): Builder {
+  const builder = useContext(BuilderContext)
+  if (!builder) {
+    throw new Error('useBuilderInstance must be used within a BuilderProvider')
+  }
   return builder
 }
