@@ -264,7 +264,7 @@ function InlineXPathEditor({ value, onSave, getLintContext, provider, clickPosit
   )
 
   return (
-    <div className="rounded-md ring-2 ring-nova-violet-bright/80 ring-offset-1 ring-offset-transparent">
+    <div className="rounded-md border border-nova-violet/50">
       <CodeMirror
         ref={editorRef}
         value={prettyPrintXPath(value)}
