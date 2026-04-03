@@ -16,30 +16,15 @@ import { Builder, BuilderPhase, GenerationStage } from '@/lib/services/builder'
  *  positioning in BuilderLayout) can derive offsets without magic numbers. */
 export const CHAT_SIDEBAR_WIDTH = 280
 
-// ── Module-level state persisted across ChatSidebar instances ──
-let chatScrollPinned = true
-let chatScrollTop = 0
-
-/** Module-level singleton — survives sidebar close/reopen cycles so the
- *  animation state (phase timers, cell brightness, mode) is never lost.
- *  Energy callbacks close over `singletonBuilderRef`, updated each render. */
-let gridControllerSingleton: SignalGridController | null = null
-
-/** Mutable holder for the builder reference — closures in the controller's
- *  callbacks read `.current` each frame, staying current across remounts. */
-const singletonBuilderRef: { current: Builder | null } = { current: null }
-
-/** Lazily create (or return) the shared controller. The callbacks close over
- *  `singletonBuilderRef` so they always read the latest builder instance. */
-function getGridController(): SignalGridController {
-  if (!gridControllerSingleton) {
-    gridControllerSingleton = new SignalGridController({
-      consumeEnergy: () => singletonBuilderRef.current?.drainEnergy() ?? 0,
-      consumeThinkEnergy: () => singletonBuilderRef.current?.drainThinkEnergy() ?? 0,
-      consumeScaffoldProgress: () => singletonBuilderRef.current?.scaffoldProgress ?? 0,
-    })
-  }
-  return gridControllerSingleton
+/** Create a SignalGridController whose energy callbacks close over a ref (not
+ *  a direct value) so they always read the latest builder instance. Safe across
+ *  the gap between old controller teardown and new controller creation. */
+function createGridController(builderRef: { current: Builder }): SignalGridController {
+  return new SignalGridController({
+    consumeEnergy: () => builderRef.current.drainEnergy(),
+    consumeThinkEnergy: () => builderRef.current.drainThinkEnergy(),
+    consumeScaffoldProgress: () => builderRef.current.scaffoldProgress,
+  })
 }
 
 interface ChatSidebarProps {
@@ -70,15 +55,25 @@ export function ChatSidebar({
   const builder = useBuilder()
   const isLoading = status === 'submitted' || status === 'streaming'
 
-  // ── Signal Grid — singleton controller survives sidebar close/reopen ──
+  // ── Signal Grid — controller scoped to the builder instance ──────────
+  // ChatSidebar is always-mounted (width animated to 0 when "closed"), so
+  // refs persist across sidebar open/close. When the builder changes (new
+  // project via BuilderProvider), we destroy the old controller's animation
+  // loop and create a fresh one. Callbacks close over builderRef so they
+  // always read the latest instance — safe across the teardown gap.
+  const builderRef = useRef(builder)
+  builderRef.current = builder
+  const builderIdentityRef = useRef(builder)
+  const gridControllerRef = useRef<SignalGridController | null>(null)
+  if (builder !== builderIdentityRef.current || !gridControllerRef.current) {
+    gridControllerRef.current?.destroy()
+    builderIdentityRef.current = builder
+    gridControllerRef.current = createGridController(builderRef)
+  }
+  const gridController = gridControllerRef.current
 
-  // Keep the module-level builder ref current so the singleton's callbacks
-  // always read the latest builder instance (survives remounts).
-  singletonBuilderRef.current = builder
-
-  // Stable reference to the singleton controller — must come before useState
-  // so we can initialize React state from the controller's current mode.
-  const gridController = getGridController()
+  // Destroy the controller's animation loop on unmount (page navigation away)
+  useEffect(() => () => { gridControllerRef.current?.destroy() }, [])
 
   const [introMode, setIntroMode] = useState<'reasoning' | null>(null)
   // Initialize from the controller's live state so remounts don't flash
@@ -174,9 +169,14 @@ export function ChatSidebar({
     }
   }, [centered])
 
+  // Scroll state — persists across sidebar open/close because ChatSidebar
+  // stays mounted (width animated to 0). No module-level variables needed.
+  const chatScrollPinnedRef = useRef(true)
+  const chatScrollTopRef = useRef(0)
+
   const pendingAnswerRef = useRef<((text: string) => void) | null>(null)
   const scrollElRef = useRef<HTMLDivElement | null>(null)
-  const isNearBottomRef = useRef(chatScrollPinned)
+  const isNearBottomRef = useRef(chatScrollPinnedRef.current)
   const isUserHoldingRef = useRef(false)
 
   const triggerSendWave = useCallback(() => {
@@ -208,7 +208,7 @@ export function ChatSidebar({
     const THRESHOLD = 50
     let animFrameId: number | undefined
 
-    const wasAtBottom = chatScrollPinned
+    const wasAtBottom = chatScrollPinnedRef.current
     isNearBottomRef.current = wasAtBottom
 
     if (wasAtBottom) {
@@ -224,7 +224,7 @@ export function ChatSidebar({
       }
       animFrameId = requestAnimationFrame(pin)
     } else {
-      el.scrollTop = chatScrollTop
+      el.scrollTop = chatScrollTopRef.current
     }
 
     const autoScroll = () => {
@@ -257,8 +257,8 @@ export function ChatSidebar({
     document.addEventListener('mouseup', onMouseUp)
 
     return () => {
-      chatScrollPinned = isNearBottomRef.current
-      chatScrollTop = el.scrollTop
+      chatScrollPinnedRef.current = isNearBottomRef.current
+      chatScrollTopRef.current = el.scrollTop
       if (animFrameId !== undefined) cancelAnimationFrame(animFrameId)
       mutationObserver.disconnect()
       resizeObserver.disconnect()

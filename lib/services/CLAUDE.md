@@ -102,7 +102,7 @@ If the stream writer is broken (can't emit `data-error`), `emitError` catches si
 
 ## Builder
 
-`builder.ts` — singleton state machine shared via `useBuilder()`.
+`builder.ts` — state machine scoped to the build page via `BuilderProvider` (`hooks/useBuilder.tsx`). `useBuilder()` reads from React context.
 
 **Phases:** `Idle → Loading → Generating → Ready`. Generation progress is tracked via `GenerationStage` (`DataModel`, `Structure`, `Modules`, `Forms`, `Validate`, `Fix`) — metadata only meaningful during `phase === Generating`. Errors during generation are metadata (`GenerationError: { message, severity: 'recovering' | 'failed' } | null`) on the `Generating` phase, not a separate phase.
 

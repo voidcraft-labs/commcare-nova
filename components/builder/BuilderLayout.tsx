@@ -1,7 +1,7 @@
 'use client'
 import { useRef, useState, useCallback, useEffect, useLayoutEffect, useMemo } from 'react'
 import { useRouter } from 'next/navigation'
-import { useChat } from '@ai-sdk/react'
+import { Chat, useChat } from '@ai-sdk/react'
 import { DefaultChatTransport, type UIMessage } from 'ai'
 import { motion, AnimatePresence } from 'motion/react'
 import { Icon } from '@iconify/react/offline'
@@ -11,7 +11,7 @@ import { setHeaderVisible } from '@/lib/stores/headerVisibility'
 import tablerListTree from '@iconify-icons/tabler/list-tree'
 import { useAuth } from '@/hooks/useAuth'
 import { useBuilder } from '@/hooks/useBuilder'
-import { BuilderPhase, applyDataPart, type CursorMode } from '@/lib/services/builder'
+import { type Builder, BuilderPhase, applyDataPart, type CursorMode } from '@/lib/services/builder'
 import { showToast } from '@/lib/services/toastStore'
 import { ToastContainer } from '@/components/ui/ToastContainer'
 import { flattenQuestionPaths } from '@/lib/services/questionNavigation'
@@ -60,12 +60,6 @@ function shouldAutoResend({ messages }: { messages: UIMessage[] }): boolean {
   return askParts.length > 0 && askParts.every((p: any) => p.state === 'output-available')
 }
 
-// ── Persist chat messages at module level so they survive component remounts ──
-// (Builder is a module-level singleton, but useChat's internal Chat instance
-// lives in a useRef that resets on remount — this bridges the gap.)
-let persistedChatMessages: UIMessage[] = []
-
-
 /** Shared sidebar open/close animation config. */
 const SIDEBAR_TRANSITION = { duration: 0.2, ease: [0.4, 0, 0.2, 1] } as const
 
@@ -73,23 +67,62 @@ const SIDEBAR_TRANSITION = { duration: 0.2, ease: [0.4, 0, 0.2, 1] } as const
 /** Width of the structure sidebar in pixels (w-80). */
 const STRUCTURE_SIDEBAR_WIDTH = 320
 
-export function BuilderLayout({ buildId }: { buildId: string }) {
+/** Create a Chat instance with transport, data handling, and auto-resend config.
+ *  Closures capture refs (not direct values) so they always read the latest
+ *  builder and runId — safe across re-renders within the same project session. */
+function createChatInstance(
+  builderRef: { current: Builder },
+  runIdRef: { current: string | undefined },
+): Chat<UIMessage> {
+  return new Chat<UIMessage>({
+    transport: new DefaultChatTransport({
+      api: '/api/chat',
+      body: () => ({
+        blueprint: builderRef.current.blueprint ?? undefined,
+        runId: runIdRef.current,
+        projectId: builderRef.current.projectId,
+      }),
+    }),
+    sendAutomaticallyWhen: shouldAutoResend,
+    onData: (part: any) => {
+      if (part.type === 'data-run-id') { runIdRef.current = part.data.runId; return }
+
+      /* After first save, update the URL from /build/new → /build/{id} without
+       * triggering a navigation or remount. applyDataPart stores the ID on the builder. */
+      if (part.type === 'data-project-saved') {
+        const { projectId } = part.data
+        applyDataPart(builderRef.current, part.type, part.data)
+        window.history.replaceState({}, '', `/build/${projectId}`)
+        return
+      }
+
+      applyDataPart(builderRef.current, part.type, part.data)
+      if (part.type === 'data-error') {
+        showToast(part.data.fatal ? 'error' : 'warning', 'Generation error', part.data.message)
+      }
+    },
+  })
+}
+
+export function BuilderLayout() {
   const router = useRouter()
   const { isAuthenticated, isAdmin, isPending: authPending } = useAuth()
   const builder = useBuilder()
+
+  // ── Stable ref for builder so Chat callbacks always read the latest ────
+  const builderRef = useRef(builder)
+  builderRef.current = builder
+  const runIdRef = useRef<string | undefined>(undefined)
+
+  // ── Chat instance — recreated when builder changes (new project) ──────
+  // When the BuilderProvider creates a fresh builder (buildId change), we
+  // detect the identity change and create a new Chat. This clears messages,
+  // resets the stream, and starts fresh — no persistedChatMessages hack.
+  const prevBuilderRef = useRef(builder)
+  const [chat, setChat] = useState(() => createChatInstance(builderRef, runIdRef))
+
+  // ── Replay — consumed once on mount, cleared on project switch ────────
   const [initialReplay] = useState(consumeReplayData)
-  const [chatOpen, setChatOpen] = useState(true)
-  const [structureOpen, setStructureOpen] = useState(true)
-  const [cursorMode, setCursorMode] = useState<CursorMode>('inspect')
-  const cursorModeRef = useRef(cursorMode)
-  const scrollAnchorRef = useRef<{ questionPath: string; offsetTop: number; allPaths: string[] } | null>(null)
-  cursorModeRef.current = cursorMode
-
-  /* Project loading — existing projects transition to Loading phase immediately
-   * (via useLayoutEffect below) so the layout renders in builder frame from frame 1.
-   * No React useState needed — the builder phase is the single source of truth. */
-  const isExistingProject = buildId !== 'new' && isAuthenticated
-
   const replayStartIndex = initialReplay?.doneIndex ?? 0
   const [replayData, setReplayDataState] = useState(() => {
     if (initialReplay) {
@@ -103,62 +136,33 @@ export function BuilderLayout({ buildId }: { buildId: string }) {
     () => initialReplay?.stages[replayStartIndex]?.messages ?? []
   )
 
-  const runIdRef = useRef<string | undefined>(undefined)
+  /* Detect builder identity change (new project via BuilderProvider). Clear
+   * stale local state from the previous project: replay data, run ID, and
+   * the Chat instance. Uses the React "adjusting state during rendering"
+   * pattern — React discards the current render and re-renders immediately
+   * with the updated state, so no stale frame is ever painted. */
+  if (builder !== prevBuilderRef.current) {
+    prevBuilderRef.current = builder
+    runIdRef.current = undefined
+    setChat(createChatInstance(builderRef, runIdRef))
+    if (replayData) {
+      setReplayDataState(undefined)
+      setReplayMessages([])
+    }
+  }
+
+  const [chatOpen, setChatOpen] = useState(true)
+  const [structureOpen, setStructureOpen] = useState(true)
+  const [cursorMode, setCursorMode] = useState<CursorMode>('inspect')
+  const cursorModeRef = useRef(cursorMode)
+  const scrollAnchorRef = useRef<{ questionPath: string; offsetTop: number; allPaths: string[] } | null>(null)
+  cursorModeRef.current = cursorMode
 
   const handleExitReplay = useCallback(() => {
     setReplayDataState(undefined)
     setReplayMessages([])
     builder.reset()
   }, [builder])
-
-  /* Transition to Loading phase before first paint so the layout renders in builder
-   * frame immediately (header visible, not centered). Without this, the first frame
-   * would show the centered chat layout, then snap to builder frame on fetch complete. */
-  useLayoutEffect(() => {
-    if (isExistingProject && builder.phase === BuilderPhase.Idle) {
-      builder.startLoading()
-    }
-  }, [isExistingProject, builder])
-
-  /* Load project from Firestore when navigating to /build/{id} (not "new").
-   * Hydrates the builder to Ready phase with the saved blueprint via loadProject()
-   * — a single atomic transition with no transient states. */
-  useEffect(() => {
-    if (!isExistingProject || !isAuthenticated) return
-    if (builder.phase !== BuilderPhase.Loading) return
-    let cancelled = false
-    fetch(`/api/projects/${buildId}`)
-      .then(res => {
-        if (!res.ok) throw new Error(res.status === 404 ? 'not-found' : 'load-failed')
-        return res.json()
-      })
-      .then(data => {
-        if (cancelled) return
-        /* Non-complete projects (error, stale generating) can't be hydrated —
-         * redirect to the project list with an explanatory toast. */
-        if (data.status !== 'complete') {
-          showToast('error', 'Project unavailable', "This project didn't finish generating.")
-          router.replace('/builds')
-          builder.reset()
-          return
-        }
-        if (data.blueprint) {
-          persistedChatMessages = []
-          builder.loadProject(buildId, data.blueprint)
-        }
-      })
-      .catch(err => {
-        if (cancelled) return
-        if (err.message === 'not-found') {
-          showToast('error', 'Project not found', 'This project may have been deleted.')
-        } else {
-          showToast('error', 'Failed to load project')
-        }
-        router.replace('/builds')
-        builder.reset()
-      })
-    return () => { cancelled = true }
-  }, [buildId, isExistingProject, isAuthenticated]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const nav = usePreviewNav(builder.blueprint)
   const navRef = useRef(nav)
@@ -236,16 +240,11 @@ export function BuilderLayout({ buildId }: { buildId: string }) {
     return () => setHeaderVisible(true)
   }, [isCentered])
 
-  // ── Stable ref for builder so onData callback doesn't go stale ──────
-  const builderRef = useRef(builder)
-  builderRef.current = builder
-
   // ── Navigate to first form when generation completes ──
   const prevPhaseRef = useRef(builder.phase)
   useEffect(() => {
     const wasGenerating = prevPhaseRef.current === BuilderPhase.Generating
     if (wasGenerating && builder.phase === BuilderPhase.Ready) {
-      // Navigate to first form if available
       if (builder.blueprint && builder.blueprint.modules.length > 0 && builder.blueprint.modules[0].forms.length > 0) {
         nav.navigateToForm(0, 0)
       }
@@ -253,39 +252,8 @@ export function BuilderLayout({ buildId }: { buildId: string }) {
     prevPhaseRef.current = builder.phase
   }, [builder.phase, builder.blueprint, nav.navigateToForm])
 
-  // ── Single useChat — handles chat + generation + editing ────────────
-  const { messages, sendMessage, addToolOutput, status, error: chatError } = useChat({
-    messages: persistedChatMessages,
-    transport: new DefaultChatTransport({
-      api: '/api/chat',
-      body: () => ({
-        blueprint: builder.blueprint ?? undefined,
-        runId: runIdRef.current,
-        projectId: builderRef.current.projectId,
-      }),
-    }),
-    sendAutomaticallyWhen: shouldAutoResend,
-    onData: (part: any) => {
-      if (part.type === 'data-run-id') { runIdRef.current = part.data.runId; return }
-
-      /* After first save, update the URL from /build/new → /build/{id} without
-       * triggering a navigation or remount. applyDataPart stores the ID on the builder. */
-      if (part.type === 'data-project-saved') {
-        const { projectId } = part.data
-        applyDataPart(builderRef.current, part.type, part.data)
-        window.history.replaceState({}, '', `/build/${projectId}`)
-        return
-      }
-
-      applyDataPart(builderRef.current, part.type, part.data)
-      if (part.type === 'data-error') {
-        showToast(part.data.fatal ? 'error' : 'warning', 'Generation error', part.data.message)
-      }
-    },
-  })
-
-  // Keep module-level message cache in sync so remounts restore chat history
-  persistedChatMessages = messages
+  // ── Chat — uses the explicit Chat instance (recreated on project switch) ──
+  const { messages, sendMessage, addToolOutput, status, error: chatError } = useChat({ chat })
 
   // Sync chat transport status → builder agent state (drives builder.isThinking)
   useEffect(() => {
@@ -630,7 +598,7 @@ export function BuilderLayout({ buildId }: { buildId: string }) {
 
         {/* Content area — flex row of sidebars and main content.
          *  Both sidebars animate width on open/close. ChatSidebar stays mounted
-         *  (width: 0) when collapsed to preserve its singleton controller. */}
+         *  (width: 0) when collapsed to preserve scroll state and grid controller. */}
         <div className="relative flex-1 overflow-hidden flex">
           {/* Structure sidebar (left) — width-animated mount/unmount */}
           <AnimatePresence initial={false}>
