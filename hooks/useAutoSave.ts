@@ -1,15 +1,20 @@
 /**
- * useAutoSave — debounced Firestore persistence for blueprint edits.
+ * useAutoSave — leading+trailing throttle for Firestore persistence.
  *
- * Subscribes to blueprint mutations via builder.subscribeMutation and saves
- * the current blueprint to Firestore after 2 seconds of quiet time. Only
- * active when: (a) user is authenticated, (b) a projectId exists, (c) the
- * builder has a blueprint, and (d) phase is Ready.
+ * Subscribes to blueprint mutations via builder.subscribeMutation. On the
+ * first mutation after a quiet period, saves immediately (leading edge).
+ * Mutations that arrive while a save is in-flight or during the post-save
+ * cooldown are batched — a single trailing save fires once the cooldown
+ * expires. This means "Saving…" only appears when a fetch is actually
+ * in-flight (~300ms), not during an artificial debounce window.
+ *
+ * Only active when: (a) user is authenticated, (b) a projectId exists,
+ * (c) the builder has a blueprint, and (d) phase is Ready.
  *
  * Returns a SaveState with the current status and the timestamp of the last
  * successful save. The SaveIndicator uses `savedAt` to display a persistent
  * relative timestamp ("Saved 2m ago") so the user always knows when their
- * work was last persisted — much more reassuring than a transient flash.
+ * work was last persisted.
  *
  * Tracks builder.mutationCount to avoid unnecessary Firestore writes —
  * subscribeMutation fires on selection changes too, but mutationCount only
@@ -24,8 +29,8 @@
 import { useEffect, useRef, useState } from 'react'
 import { BuilderPhase, type Builder } from '@/lib/services/builder'
 
-/** Quiet period before flushing edits to Firestore (ms). */
-const DEBOUNCE_MS = 2000
+/** Post-save cooldown before the trailing edge can fire (ms). */
+const COOLDOWN_MS = 1000
 
 /**
  * Save lifecycle states — drives the subheader indicator.
@@ -59,18 +64,89 @@ export function useAutoSave(
   const authRef = useRef(isAuthenticated)
   authRef.current = isAuthenticated
 
-  /* Reset the saved-mutation watermark when the project changes. */
+  /* Throttle state — all mutable, read/written inside the subscription
+   * callback and cleanup. Never triggers re-renders. */
+  const inFlightRef = useRef(false)
+  const cooldownTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
+  const pendingTrailingRef = useRef(false)
+  const unmountedRef = useRef(false)
+
+  /* Reset state when the project changes — new project means a fresh
+   * save watermark and no pending/in-flight state from the old project.
+   * Clearing inFlightRef ensures the first mutation on the new project
+   * fires the leading edge immediately instead of queuing behind a
+   * stale in-flight save from the previous project. */
   useEffect(() => {
     lastSavedMutationRef.current = builder.mutationCount
+    inFlightRef.current = false
+    if (cooldownTimerRef.current) {
+      clearTimeout(cooldownTimerRef.current)
+      cooldownTimerRef.current = undefined
+    }
+    pendingTrailingRef.current = false
     setState(IDLE_STATE)
   }, [builder.projectId]) // eslint-disable-line react-hooks/exhaustive-deps
 
   /* Single long-lived subscription — reads all state live from the builder
    * singleton inside the callback to avoid stale closure issues. The effect
-   * only re-runs if the builder instance itself changes (it won't — it's a
-   * module-level singleton). */
+   * only re-runs if the builder instance itself changes. */
   useEffect(() => {
-    let timer: ReturnType<typeof setTimeout> | undefined
+    unmountedRef.current = false
+
+    /**
+     * Fire the actual Firestore PUT and transition status honestly:
+     * saving → saved/error. Starts a cooldown timer after completion
+     * so the trailing edge can fire if mutations arrived mid-flight.
+     */
+    async function executeSave() {
+      const bp = builder.blueprint
+      const pid = builder.projectId
+      const count = builder.mutationCount
+      if (!bp || !pid || count === lastSavedMutationRef.current) return
+
+      inFlightRef.current = true
+      if (!unmountedRef.current) {
+        setState(prev => ({ ...prev, status: 'saving' }))
+      }
+
+      try {
+        const res = await fetch(`/api/projects/${pid}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ blueprint: bp }),
+        })
+        if (unmountedRef.current) return
+        if (res.ok) {
+          lastSavedMutationRef.current = count
+          setState({ status: 'saved', savedAt: Date.now() })
+        } else {
+          setState(prev => ({ ...prev, status: 'error' }))
+        }
+      } catch {
+        if (!unmountedRef.current) {
+          setState(prev => ({ ...prev, status: 'error' }))
+        }
+      } finally {
+        inFlightRef.current = false
+        if (!unmountedRef.current) startCooldown()
+      }
+    }
+
+    /**
+     * After a save completes (success or error), pause before allowing
+     * the next save. If mutations arrived during the in-flight save or
+     * this cooldown, the trailing edge fires once the timer expires.
+     * Cooldown after errors provides natural 1s backoff.
+     */
+    function startCooldown() {
+      cooldownTimerRef.current = setTimeout(() => {
+        cooldownTimerRef.current = undefined
+        if (pendingTrailingRef.current) {
+          pendingTrailingRef.current = false
+          executeSave()
+        }
+      }, COOLDOWN_MS)
+    }
 
     const unsub = builder.subscribeMutation(() => {
       /* Gate on auth, phase, and project existence — all read live. */
@@ -81,38 +157,30 @@ export function useAutoSave(
       /* Skip if no actual blueprint mutations since last save. */
       if (builder.mutationCount === lastSavedMutationRef.current) return
 
-      /* Show "Saving…" immediately so the user sees instant feedback.
-       * The actual fetch fires after the debounce settles. */
-      setState(prev => ({ ...prev, status: 'saving' }))
+      /* Save is in-flight — queue for trailing edge after completion. */
+      if (inFlightRef.current) {
+        pendingTrailingRef.current = true
+        return
+      }
 
-      if (timer) clearTimeout(timer)
-      timer = setTimeout(async () => {
-        const bp = builder.blueprint
-        const pid = builder.projectId
-        const count = builder.mutationCount
-        if (!bp || !pid || count === lastSavedMutationRef.current) return
+      /* Cooldown active — queue for trailing edge when it expires. */
+      if (cooldownTimerRef.current) {
+        pendingTrailingRef.current = true
+        return
+      }
 
-        try {
-          const res = await fetch(`/api/projects/${pid}`, {
-            method: 'PUT',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ blueprint: bp }),
-          })
-          if (res.ok) {
-            lastSavedMutationRef.current = count
-            setState({ status: 'saved', savedAt: Date.now() })
-          } else {
-            setState(prev => ({ ...prev, status: 'error' }))
-          }
-        } catch {
-          setState(prev => ({ ...prev, status: 'error' }))
-        }
-      }, DEBOUNCE_MS)
+      /* No save in-flight, no cooldown → leading edge: save immediately. */
+      executeSave()
     })
 
     return () => {
+      unmountedRef.current = true
       unsub()
-      if (timer) clearTimeout(timer)
+      if (cooldownTimerRef.current) {
+        clearTimeout(cooldownTimerRef.current)
+        cooldownTimerRef.current = undefined
+      }
+      pendingTrailingRef.current = false
     }
   }, [builder])
 
