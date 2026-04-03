@@ -12,6 +12,7 @@ import { requireSession } from '@/lib/auth-utils'
 import { ApiError, handleApiError } from '@/lib/apiError'
 import { loadProject, updateProject } from '@/lib/db/projects'
 import { appBlueprintSchema } from '@/lib/schemas/blueprint'
+import { log } from '@/lib/log'
 
 export async function GET(
   req: Request,
@@ -62,6 +63,13 @@ export async function PUT(
     await updateProject(session.user.email, id, parsed.data)
     return Response.json({ ok: true })
   } catch (err) {
+    /* Save failures mean silent data loss — log every rejection so they're
+     * visible in Cloud Logging regardless of whether the client report fires.
+     * handleApiError already logs unhandled Errors; this covers ApiError (401,
+     * 400) which would otherwise be returned without any server-side trace. */
+    if (err instanceof ApiError) {
+      log.warn(`[projects] save rejected (${err.status}): ${err.message}`)
+    }
     return handleApiError(err instanceof Error ? err : new ApiError('Failed to save project', 500))
   }
 }
