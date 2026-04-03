@@ -32,7 +32,7 @@ interface AppTreeProps {
 }
 
 export function AppTree({ data, selected, onSelect, phase, actions, hideHeader }: AppTreeProps) {
-  const locked = phase !== BuilderPhase.Done
+  const locked = phase !== BuilderPhase.Ready
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set())
   const [searchQuery, setSearchQuery] = useState('')
   const deferredQuery = useDeferredValue(searchQuery)

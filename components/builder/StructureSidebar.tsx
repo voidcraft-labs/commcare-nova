@@ -44,7 +44,7 @@ export function StructureSidebar({
 
         {/* Dim overlay — blocks interaction until generation completes */}
         <AnimatePresence>
-          {builder.phase !== BuilderPhase.Done && (
+          {builder.phase !== BuilderPhase.Ready && (
             <motion.div
               exit={{ opacity: 0 }}
               transition={{ duration: 0.3 }}

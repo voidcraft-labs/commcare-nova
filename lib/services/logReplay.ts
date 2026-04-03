@@ -193,7 +193,7 @@ export function extractReplayStages(events: StoredEvent[]): ExtractionResult {
     }
   }
 
-  /* Done stage — synthetic final stage that calls setDone */
+  /* Done stage — synthetic final stage that completes generation */
   const doneIndex = stages.length
   stages.push({
     header: 'Done',
@@ -201,7 +201,7 @@ export function extractReplayStages(events: StoredEvent[]): ExtractionResult {
     applyToBuilder: (b) => {
       const tree = b.treeData
       if (tree) {
-        b.setDone({
+        b.completeGeneration({
           blueprint: { ...tree, case_types: b.caseTypes ?? null } as AppBlueprint,
           hqJson: {},
           success: true,

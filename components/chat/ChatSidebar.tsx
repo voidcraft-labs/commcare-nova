@@ -10,7 +10,7 @@ import { ChatInput } from '@/components/chat/ChatInput'
 import { SignalGrid } from '@/components/chat/SignalGrid'
 import { SignalPanel } from '@/components/chat/SignalPanel'
 import { SignalGridController, defaultLabel, type SignalMode } from '@/lib/signalGridController'
-import { Builder, BuilderPhase } from '@/lib/services/builder'
+import { Builder, BuilderPhase, GenerationStage } from '@/lib/services/builder'
 
 /** Sidebar panel width in pixels. Exported so siblings (e.g. cursor mode bar
  *  positioning in BuilderLayout) can derive offsets without magic numbers. */
@@ -105,12 +105,15 @@ export function ChatSidebar({
   // during the 'submitted' wait period (server hasn't started responding yet).
   const desiredMode = ((): SignalMode => {
     if (introMode) return introMode
-    if (builder.phase === BuilderPhase.Error) {
-      return builder.errorSeverity === 'recovering' ? 'error-recovering' : 'error-fatal'
+    // Generation errors — phase stays Generating, error is metadata
+    if (builder.generationError) {
+      return builder.generationError.severity === 'recovering' ? 'error-recovering' : 'error-fatal'
     }
-    if (builder.phase === BuilderPhase.DataModel || builder.phase === BuilderPhase.Structure) {
+    // Early generation stages get the scaffolding visual (tetris board)
+    if (builder.generationStage === GenerationStage.DataModel || builder.generationStage === GenerationStage.Structure) {
       return 'scaffolding'
     }
+    // Later generation stages get the building visual (pink sweep + bursts)
     if (builder.isGenerating) return 'building'
     if (builder.agentActive) {
       // Keep the send wave looping until the server actually starts streaming.
@@ -121,9 +124,9 @@ export function ChatSidebar({
     }
     // After a post-build edit: show 'done' if the SA actually mutated the blueprint
     // (addQuestion, editQuestion, etc.), 'idle' if it only asked questions.
-    // setDone() also clears postBuildEdit, so initial builds and validated edits
-    // fall through to 'done' via the !postBuildEdit path.
-    if (builder.phase === BuilderPhase.Done) {
+    // completeGeneration() also clears postBuildEdit, so initial builds and validated
+    // edits fall through to 'done' via the !postBuildEdit path.
+    if (builder.phase === BuilderPhase.Ready) {
       return builder.postBuildEdit && !builder.editMadeMutations ? 'idle' : 'done'
     }
     return 'idle'

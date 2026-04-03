@@ -7,7 +7,7 @@ import { BuilderPhase } from '@/lib/services/builder'
 /**
  * Builds the keyboard shortcuts array for the builder layout.
  *
- * Returns an empty array when not in Done phase.
+ * Returns an empty array when not in Ready phase.
  * When active, includes: Escape (deselect/exit pointer), 1/2/3 (switch cursor mode),
  * Tab/Shift+Tab (navigate questions in inspect mode), Delete/Backspace (delete question),
  * Cmd+D (duplicate), ArrowUp/ArrowDown (reorder), Cmd+Z/Cmd+Shift+Z (undo/redo).
@@ -20,9 +20,9 @@ export function useBuilderShortcuts(
   onUndo: () => void,
   onRedo: () => void,
 ): Shortcut[] {
-  const isDone = builder.phase === BuilderPhase.Done
+  const isReady = builder.phase === BuilderPhase.Ready
 
-  if (!isDone) return []
+  if (!isReady) return []
 
   return [
     // Escape — deselect / exit pointer mode

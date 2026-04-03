@@ -26,11 +26,11 @@ export function applyDataPart(builder: Builder, type: string, data: any): void {
   }
 
   switch (type) {
-    case 'data-start-build': builder.startDataModel(); break
+    case 'data-start-build': builder.startGeneration(); break
     case 'data-schema': builder.setSchema(data.caseTypes); break
     case 'data-partial-scaffold': builder.setPartialScaffold(data); break
     case 'data-scaffold': builder.setScaffold(data); break
-    case 'data-phase': builder.setPhase(data.phase); break
+    case 'data-phase': builder.advanceStage(data.phase); break
     case 'data-module-done': builder.setModuleContent(data.moduleIndex, data.caseListColumns); break
     case 'data-form-done':
     case 'data-form-fixed':
@@ -38,38 +38,46 @@ export function applyDataPart(builder: Builder, type: string, data: any): void {
       builder.setFormContent(data.moduleIndex, data.formIndex, data.form); break
     case 'data-blueprint-updated': builder.updateBlueprint(data.blueprint); break
     case 'data-fix-attempt': builder.setFixAttempt(data.attempt, data.errorCount); break
-    case 'data-done': builder.setDone(data); break
+    case 'data-done': builder.completeGeneration(data); break
     case 'data-project-saved': builder.setProjectId(data.projectId); break
     case 'data-error':
-      if (data.fatal) builder.setError(data.message)
-      else builder.setRecovering(data.message)
+      builder.setGenerationError(data.message, data.fatal ? 'failed' : 'recovering')
       break
   }
 }
 
+/** Builder lifecycle phases — what mode the builder is in right now.
+ *  Generation progress (DataModel→Fix) is tracked separately via GenerationStage. */
 export enum BuilderPhase {
   Idle = 'idle',
+  Loading = 'loading',
+  Generating = 'generating',
+  Ready = 'ready',
+}
+
+/** Progress stages within a generation run — metadata on the Generating phase.
+ *  Only meaningful when `builder.phase === Generating`. */
+export enum GenerationStage {
   DataModel = 'data-model',
   Structure = 'structure',
   Modules = 'modules',
   Forms = 'forms',
   Validate = 'validate',
   Fix = 'fix',
-  Done = 'done',
-  Error = 'error',
 }
 
-/** Status label for each build phase, shown in the Signal Grid panel. */
-export const PHASE_LABELS: Record<BuilderPhase, string> = {
-  [BuilderPhase.Idle]: '',
-  [BuilderPhase.DataModel]: 'Designing data model',
-  [BuilderPhase.Structure]: 'Designing app structure',
-  [BuilderPhase.Modules]: 'Building app content',
-  [BuilderPhase.Forms]: 'Building app content',
-  [BuilderPhase.Validate]: 'Validating blueprint',
-  [BuilderPhase.Fix]: 'Fixing validation errors',
-  [BuilderPhase.Done]: '',
-  [BuilderPhase.Error]: 'Error',
+/** Error state during generation — metadata, not a phase.
+ *  The builder stays in Generating; this describes what went wrong. */
+export type GenerationError = { message: string; severity: 'recovering' | 'failed' } | null
+
+/** Status label for each generation stage, shown in the Signal Grid panel. */
+export const STAGE_LABELS: Record<GenerationStage, string> = {
+  [GenerationStage.DataModel]: 'Designing data model',
+  [GenerationStage.Structure]: 'Designing app structure',
+  [GenerationStage.Modules]: 'Building app content',
+  [GenerationStage.Forms]: 'Building app content',
+  [GenerationStage.Validate]: 'Validating blueprint',
+  [GenerationStage.Fix]: 'Fixing validation errors',
 }
 
 export interface SelectedElement {
@@ -134,7 +142,8 @@ export class Builder {
   private _progressTotal = 0
   private _partialModules = new Map<number, PartialModule>()
   private _partialScaffold?: { appName?: string; description?: string; modules: TreeData['modules'] }
-  private _errorSeverity: 'recovering' | 'failed' = 'failed'
+  private _generationStage: GenerationStage | null = null
+  private _generationError: GenerationError = null
   private _listeners = new Set<() => void>()
   private _version = 0
   private _mutationListeners = new Set<() => void>()
@@ -165,14 +174,9 @@ export class Builder {
    *  Distinguishes "agent asked questions" (idle) from "agent made changes" (done). */
   get editMadeMutations(): boolean { return this._editMadeMutations }
 
-  /** True when the build pipeline is running (DataModel through Fix). */
+  /** True when the build pipeline is running. */
   get isGenerating(): boolean {
-    return this._phase === BuilderPhase.DataModel ||
-      this._phase === BuilderPhase.Structure ||
-      this._phase === BuilderPhase.Modules ||
-      this._phase === BuilderPhase.Forms ||
-      this._phase === BuilderPhase.Validate ||
-      this._phase === BuilderPhase.Fix
+    return this._phase === BuilderPhase.Generating
   }
 
   /** True when the agent is actively working but the build pipeline isn't running.
@@ -181,8 +185,14 @@ export class Builder {
     return this._agentActive && !this.isGenerating
   }
 
-  get errorSeverity(): 'recovering' | 'failed' { return this._errorSeverity }
-  get isRecovering(): boolean { return this._phase === BuilderPhase.Error && this._errorSeverity === 'recovering' }
+  /** Current generation stage — only meaningful when phase === Generating. */
+  get generationStage(): GenerationStage | null { return this._generationStage }
+
+  /** Error state during generation — null when no error. Phase stays Generating. */
+  get generationError(): GenerationError { return this._generationError }
+
+  get errorSeverity(): 'recovering' | 'failed' | undefined { return this._generationError?.severity }
+  get isRecovering(): boolean { return this._generationError?.severity === 'recovering' }
 
   get scaffold(): Scaffold | undefined { return this._scaffold }
   get caseTypes(): CaseType[] | undefined { return this._caseTypes }
@@ -194,9 +204,9 @@ export class Builder {
 
   /** Scaffold progress (0-1) derived from current state. Polled by SignalGrid rAF loop. */
   get scaffoldProgress(): number {
-    if (this._phase === BuilderPhase.Idle) return 0
-    if (this._phase === BuilderPhase.DataModel) return this._caseTypes ? 0.30 : 0.05
-    if (this._phase === BuilderPhase.Structure) {
+    if (this._phase !== BuilderPhase.Generating) return this._phase === BuilderPhase.Ready ? 1.0 : 0
+    if (this._generationStage === GenerationStage.DataModel) return this._caseTypes ? 0.30 : 0.05
+    if (this._generationStage === GenerationStage.Structure) {
       if (this._scaffold) return 0.85
       if (this._partialScaffold) return 0.55
       return 0.35
@@ -263,7 +273,7 @@ export class Builder {
 
   /** Derive progress counts from the scaffold and partialModules state. */
   private updateProgress() {
-    if (!this._scaffold || (this._phase !== BuilderPhase.Modules && this._phase !== BuilderPhase.Forms)) {
+    if (!this._scaffold || (this._generationStage !== GenerationStage.Modules && this._generationStage !== GenerationStage.Forms)) {
       this._progressCompleted = 0
       this._progressTotal = 0
       return
@@ -297,8 +307,8 @@ export class Builder {
   /** Called by BuilderLayout to sync chat transport status with builder state. */
   setAgentActive(active: boolean) {
     if (this._agentActive === active) return
-    // Agent reactivating after Done = user-initiated edit (not the post-build summary)
-    if (active && this._phase === BuilderPhase.Done) {
+    // Agent reactivating after Ready = user-initiated edit (not the post-build summary)
+    if (active && this._phase === BuilderPhase.Ready) {
       this._postBuildEdit = true
       this._editMadeMutations = false
     }
@@ -459,14 +469,16 @@ export class Builder {
     return this._history?.canRedo ?? false
   }
 
-  /** Transition to data model phase (SA called generateSchema). */
-  startDataModel() {
+  /** Begin a new generation run — transitions to Generating phase with DataModel stage. */
+  startGeneration() {
     if (this._history) {
       this._history.clear()
       this._history.enabled = false
     }
-    this._phase = BuilderPhase.DataModel
-    this._statusMessage = PHASE_LABELS[BuilderPhase.DataModel]
+    this._phase = BuilderPhase.Generating
+    this._generationStage = GenerationStage.DataModel
+    this._generationError = null
+    this._statusMessage = STAGE_LABELS[GenerationStage.DataModel]
     this.notify()
   }
 
@@ -492,8 +504,8 @@ export class Builder {
         })),
       })),
     }
-    this._phase = BuilderPhase.Structure
-    this._statusMessage = PHASE_LABELS[BuilderPhase.Structure]
+    this._generationStage = GenerationStage.Structure
+    this._statusMessage = STAGE_LABELS[GenerationStage.Structure]
     this.notify()
   }
 
@@ -536,38 +548,33 @@ export class Builder {
     this.notify()
   }
 
-  /** Advance to a named phase with appropriate status message. */
-  setPhase(phase: string) {
-    const phaseMap: Record<string, BuilderPhase> = {
-      structure: BuilderPhase.Structure,
-      modules: BuilderPhase.Modules,
-      forms: BuilderPhase.Forms,
-      validate: BuilderPhase.Validate,
-      fix: BuilderPhase.Fix,
+  /** Advance to a named generation stage. Clears any previous error (auto-recovery). */
+  advanceStage(stage: string) {
+    const stageMap: Record<string, GenerationStage> = {
+      structure: GenerationStage.Structure,
+      modules: GenerationStage.Modules,
+      forms: GenerationStage.Forms,
+      validate: GenerationStage.Validate,
+      fix: GenerationStage.Fix,
     }
-    const newPhase = phaseMap[phase]
-    if (!newPhase) return
-    this._phase = newPhase
-    this._statusMessage = PHASE_LABELS[newPhase] || this._statusMessage
+    const newStage = stageMap[stage]
+    if (!newStage) return
+    this._generationStage = newStage
+    this._generationError = null
+    this._statusMessage = STAGE_LABELS[newStage] || this._statusMessage
     this.updateProgress()
     this.notify()
   }
 
   /** Update status message for fix attempt progress. */
   setFixAttempt(attempt: number, errorCount: number) {
-    this._statusMessage = `${PHASE_LABELS[BuilderPhase.Fix]} — ${errorCount} error${errorCount !== 1 ? 's' : ''} (attempt ${attempt})`
+    this._statusMessage = `${STAGE_LABELS[GenerationStage.Fix]} — ${errorCount} error${errorCount !== 1 ? 's' : ''} (attempt ${attempt})`
     this.notify()
   }
 
-  /** Set the completed blueprint after validation. */
-  setDone(result: { blueprint: AppBlueprint; hqJson: Record<string, any>; success: boolean }) {
-    this._mb = new MutableBlueprint(result.blueprint)
-    this._history = new HistoryManager(this._mb)
-    this._partialModules.clear()
-    this._phase = BuilderPhase.Done
-    this._postBuildEdit = false
-    this._editMadeMutations = false
-    this._statusMessage = ''
+  /** Complete generation — transition Generating → Ready with the final blueprint. */
+  completeGeneration(result: { blueprint: AppBlueprint; hqJson: Record<string, any>; success: boolean }) {
+    this.enterReady(new MutableBlueprint(result.blueprint))
     this._progressCompleted = 0
     this._progressTotal = 0
     this.notify()
@@ -579,20 +586,43 @@ export class Builder {
     this._projectId = id
   }
 
-  /** Set fatal error state — generation is over. */
-  setError(message: string) {
-    this._phase = BuilderPhase.Error
-    this._errorSeverity = 'failed'
-    this._statusMessage = message
-    this._partialModules.clear()
+  /** Transition to Loading phase — fetching a saved project from Firestore.
+   *  Puts the layout in builder frame immediately (not centered). */
+  startLoading() {
+    this._phase = BuilderPhase.Loading
     this.notify()
   }
 
-  /** Set recovering state — the SA is attempting to fix the issue. */
-  setRecovering(message: string) {
-    this._phase = BuilderPhase.Error
-    this._errorSeverity = 'recovering'
+  /** Atomic Loading → Ready transition for hydrating a saved project.
+   *  Single notify() — no transient states, no entrance animations. */
+  loadProject(id: string, blueprint: AppBlueprint) {
+    this.enterReady(new MutableBlueprint(blueprint))
+    this._projectId = id
+    this.notify()
+  }
+
+  /** Shared Ready-state setup — hydrates blueprint + history, clears generation
+   *  metadata and edit tracking. Called by both completeGeneration and loadProject. */
+  private enterReady(mb: MutableBlueprint) {
+    this._mb = mb
+    this._history = new HistoryManager(this._mb)
+    this._partialModules.clear()
+    this._phase = BuilderPhase.Ready
+    this._generationStage = null
+    this._generationError = null
+    this._postBuildEdit = false
+    this._editMadeMutations = false
+    this._statusMessage = ''
+  }
+
+  /** Set error state during generation. Phase stays Generating — error is metadata.
+   *  'failed' = terminal (generation stuck), 'recovering' = SA is retrying. */
+  setGenerationError(message: string, severity: 'failed' | 'recovering' = 'failed') {
+    this._generationError = { message, severity }
     this._statusMessage = message
+    if (severity === 'failed') {
+      this._partialModules.clear()
+    }
     this.notify()
   }
 
@@ -670,6 +700,8 @@ export class Builder {
 
   reset() {
     this._phase = BuilderPhase.Idle
+    this._generationStage = null
+    this._generationError = null
     this._scaffold = undefined
     this._mb = undefined
     this._history?.clear()

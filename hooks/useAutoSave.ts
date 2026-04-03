@@ -4,7 +4,7 @@
  * Subscribes to blueprint mutations via builder.subscribeMutation and saves
  * the current blueprint to Firestore after 2 seconds of quiet time. Only
  * active when: (a) user is authenticated, (b) a projectId exists, (c) the
- * builder has a blueprint, and (d) phase is Done.
+ * builder has a blueprint, and (d) phase is Ready.
  *
  * Tracks builder.mutationCount to avoid unnecessary Firestore writes —
  * subscribeMutation fires on selection changes too, but mutationCount only
@@ -53,7 +53,7 @@ export function useAutoSave(
     const unsub = builder.subscribeMutation(() => {
       /* Gate on auth, phase, and project existence — all read live. */
       if (!authRef.current) return
-      if (builder.phase !== BuilderPhase.Done) return
+      if (builder.phase !== BuilderPhase.Ready) return
       if (!builder.projectId || !builder.blueprint) return
 
       /* Skip if no actual blueprint mutations since last save. */
