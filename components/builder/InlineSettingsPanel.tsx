@@ -14,7 +14,6 @@
 
 'use client'
 import { useState, useRef, useCallback } from 'react'
-import { motion, AnimatePresence } from 'motion/react'
 import { Icon } from '@iconify/react/offline'
 import ciChevronDown from '@iconify-icons/ci/chevron-down'
 import type { Builder } from '@/lib/services/builder'
@@ -85,54 +84,47 @@ export function InlineSettingsPanel({ builder, question, questionPath }: InlineS
   const stopClick = useCallback((e: React.MouseEvent) => e.stopPropagation(), [])
 
   return (
-    <AnimatePresence>
-      <motion.div
-        ref={panelRef}
-        key={questionPath}
-        initial={{ opacity: 0, height: 0 }}
-        animate={{ opacity: 1, height: 'auto' }}
-        exit={{ opacity: 0, height: 0 }}
-        transition={{ duration: 0.2, ease: [0.4, 0, 0.2, 1] }}
-        onClick={stopClick}
-        className="mt-2 rounded-lg border border-nova-border bg-nova-surface/50 overflow-hidden"
-        data-no-drag
-      >
-        <div className="px-4 py-2 space-y-0.5">
-          {/* ── Appearance section (UI tab contents) ── */}
-          {/* Hidden questions have no visual properties — skip the section entirely */}
-          {question.type !== 'hidden' && (
-            <>
-              <SectionHeader label="Appearance" expanded={expanded.appearance} onToggle={() => toggle('appearance')} />
-              {expanded.appearance && (
-                <div className="pb-3">
-                  <ContextualEditorUI question={question} builder={builder} />
-                </div>
-              )}
-            </>
-          )}
+    <div
+      ref={panelRef}
+      onClick={stopClick}
+      className="mt-2 rounded-lg border border-nova-border bg-nova-surface/50 overflow-hidden"
+      data-no-drag
+    >
+      <div className="px-4 py-2 space-y-0.5">
+        {/* ── Appearance section (UI tab contents) ── */}
+        {/* Hidden questions have no visual properties — skip the section entirely */}
+        {question.type !== 'hidden' && (
+          <>
+            <SectionHeader label="Appearance" expanded={expanded.appearance} onToggle={() => toggle('appearance')} />
+            {expanded.appearance && (
+              <div className="pb-3">
+                <ContextualEditorUI question={question} builder={builder} />
+              </div>
+            )}
+          </>
+        )}
 
-          {/* ── Logic section ── */}
-          <SectionHeader label="Logic" expanded={expanded.logic} onToggle={() => toggle('logic')} />
-          {expanded.logic && (
-            <div className="pb-3">
-              <ContextualEditorLogic question={question} builder={builder} />
-            </div>
-          )}
+        {/* ── Logic section ── */}
+        <SectionHeader label="Logic" expanded={expanded.logic} onToggle={() => toggle('logic')} />
+        {expanded.logic && (
+          <div className="pb-3">
+            <ContextualEditorLogic question={question} builder={builder} />
+          </div>
+        )}
 
-          {/* ── Data section ── */}
-          <SectionHeader label="Data" expanded={expanded.data} onToggle={() => toggle('data')} />
-          {expanded.data && (
-            <div className="pb-3">
-              <ContextualEditorData question={question} builder={builder} />
-            </div>
-          )}
-        </div>
+        {/* ── Data section ── */}
+        <SectionHeader label="Data" expanded={expanded.data} onToggle={() => toggle('data')} />
+        {expanded.data && (
+          <div className="pb-3">
+            <ContextualEditorData question={question} builder={builder} />
+          </div>
+        )}
+      </div>
 
-        {/* ── Footer: move, duplicate, delete, type change ── */}
-        <div className="border-t border-nova-border">
-          <ContextualEditorFooter question={question} builder={builder} />
-        </div>
-      </motion.div>
-    </AnimatePresence>
+      {/* ── Footer: move, duplicate, delete, type change ── */}
+      <div className="border-t border-nova-border">
+        <ContextualEditorFooter question={question} builder={builder} />
+      </div>
+    </div>
   )
 }
