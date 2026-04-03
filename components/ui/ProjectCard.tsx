@@ -5,6 +5,7 @@ import ciPlayCircle from '@iconify-icons/ci/play-circle-outline'
 import Link from 'next/link'
 import type { ProjectSummary } from '@/lib/db/projects'
 import { formatRelativeDate, STATUS_STYLES } from '@/lib/utils/format'
+import { ConnectBadge } from './ConnectBadge'
 
 interface ProjectCardProps {
   project: Pick<ProjectSummary, 'id' | 'app_name' | 'connect_type' | 'module_count' | 'form_count' | 'status' | 'updated_at'>
@@ -45,11 +46,7 @@ export function ProjectCard({ project, index, href, onReplay, replayingId }: Pro
                 {' \u00b7 '}
                 {project.form_count} form{project.form_count !== 1 ? 's' : ''}
               </span>
-              {project.connect_type && (
-                <span className="text-xs px-1.5 py-0.5 rounded bg-nova-cyan/10 text-cyan-400">
-                  {project.connect_type}
-                </span>
-              )}
+              {project.connect_type && <ConnectBadge type={project.connect_type} />}
             </>
           )}
         </p>
