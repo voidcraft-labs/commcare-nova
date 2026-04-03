@@ -1,7 +1,7 @@
 'use client'
 import { useCallback } from 'react'
 import { EditableText } from '@/components/builder/EditableText'
-import { CasePropertyPills } from './CasePropertyPills'
+import { CasePropertyDropdown } from './CasePropertyDropdown'
 import { OptionsEditor } from './OptionsEditor'
 import { useSaveQuestion } from '@/hooks/useSaveQuestion'
 import { type QuestionEditorProps, MEDIA_TYPES, getModuleCaseTypes } from './shared'
@@ -37,7 +37,7 @@ export function ContextualEditorData({ question, builder }: QuestionEditorProps)
         color="text-nova-violet-bright"
         selectAll={builder.isNewQuestion(selected.questionPath!)}
       />
-      <CasePropertyPills
+      <CasePropertyDropdown
         value={question.case_property_on}
         isCaseName={question.id === 'case_name'}
         disabled={MEDIA_TYPES.has(question.type)}
