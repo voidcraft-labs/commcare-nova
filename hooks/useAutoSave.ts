@@ -6,6 +6,11 @@
  * active when: (a) user is authenticated, (b) a projectId exists, (c) the
  * builder has a blueprint, and (d) phase is Ready.
  *
+ * Returns a SaveState with the current status and the timestamp of the last
+ * successful save. The SaveIndicator uses `savedAt` to display a persistent
+ * relative timestamp ("Saved 2m ago") so the user always knows when their
+ * work was last persisted — much more reassuring than a transient flash.
+ *
  * Tracks builder.mutationCount to avoid unnecessary Firestore writes —
  * subscribeMutation fires on selection changes too, but mutationCount only
  * increments on actual blueprint mutations. Since Firestore charges per
@@ -14,21 +19,37 @@
  * All builder state is read live inside the subscribeMutation callback
  * (not captured from the render scope) to avoid stale closures — the builder
  * is a stable singleton so direct property access is always current.
- *
- * Silent failure — auto-save is best-effort. A Firestore outage does not
- * interrupt the user's editing experience.
  */
 'use client'
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { BuilderPhase, type Builder } from '@/lib/services/builder'
 
 /** Quiet period before flushing edits to Firestore (ms). */
 const DEBOUNCE_MS = 2000
 
+/**
+ * Save lifecycle states — drives the subheader indicator.
+ * - `idle`: no saves have occurred this session, nothing to show
+ * - `saving`: PUT request in-flight
+ * - `saved`: last save succeeded — `savedAt` carries the timestamp
+ * - `error`: last save failed
+ */
+export type SaveStatus = 'idle' | 'saving' | 'saved' | 'error'
+
+export interface SaveState {
+  status: SaveStatus
+  /** Epoch ms of the last successful save — null until the first save. */
+  savedAt: number | null
+}
+
+const IDLE_STATE: SaveState = { status: 'idle', savedAt: null }
+
 export function useAutoSave(
   builder: Builder,
   isAuthenticated: boolean,
-) {
+): SaveState {
+  const [state, setState] = useState<SaveState>(IDLE_STATE)
+
   /** The mutationCount at the time of the last successful save. When this
    *  matches the current builder.mutationCount, there's nothing new to persist. */
   const lastSavedMutationRef = useRef(builder.mutationCount)
@@ -41,6 +62,7 @@ export function useAutoSave(
   /* Reset the saved-mutation watermark when the project changes. */
   useEffect(() => {
     lastSavedMutationRef.current = builder.mutationCount
+    setState(IDLE_STATE)
   }, [builder.projectId]) // eslint-disable-line react-hooks/exhaustive-deps
 
   /* Single long-lived subscription — reads all state live from the builder
@@ -59,6 +81,10 @@ export function useAutoSave(
       /* Skip if no actual blueprint mutations since last save. */
       if (builder.mutationCount === lastSavedMutationRef.current) return
 
+      /* Show "Saving…" immediately so the user sees instant feedback.
+       * The actual fetch fires after the debounce settles. */
+      setState(prev => ({ ...prev, status: 'saving' }))
+
       if (timer) clearTimeout(timer)
       timer = setTimeout(async () => {
         const bp = builder.blueprint
@@ -74,9 +100,12 @@ export function useAutoSave(
           })
           if (res.ok) {
             lastSavedMutationRef.current = count
+            setState({ status: 'saved', savedAt: Date.now() })
+          } else {
+            setState(prev => ({ ...prev, status: 'error' }))
           }
         } catch {
-          /* Silent — auto-save is best-effort. */
+          setState(prev => ({ ...prev, status: 'error' }))
         }
       }, DEBOUNCE_MS)
     })
@@ -85,5 +114,7 @@ export function useAutoSave(
       unsub()
       if (timer) clearTimeout(timer)
     }
-  }, [builder]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [builder])
+
+  return state
 }

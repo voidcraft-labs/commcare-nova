@@ -41,6 +41,7 @@ import { ErrorBoundary } from '@/components/ui/ErrorBoundary'
 import { consumeReplayData } from '@/lib/services/logReplay'
 import { ReferenceProviderWrapper } from '@/lib/references/ReferenceContext'
 import { useAutoSave } from '@/hooks/useAutoSave'
+import { SaveIndicator } from '@/components/builder/SaveIndicator'
 import { parseApiErrorMessage } from '@/lib/apiError'
 
 
@@ -309,7 +310,7 @@ export function BuilderLayout({ buildId }: { buildId: string }) {
   }, [chatError, builder])
 
   // Auto-save blueprint edits to Firestore (authenticated users only)
-  useAutoSave(builder, isAuthenticated)
+  const saveStatus = useAutoSave(builder, isAuthenticated)
 
   const isGenerating = builder.isGenerating
 
@@ -608,6 +609,7 @@ export function BuilderLayout({ buildId }: { buildId: string }) {
               </div>
               {showToolbar && (
                 <div className="flex items-center gap-1 shrink-0">
+                  <SaveIndicator saveState={saveStatus} />
                   <AppConnectSettings builder={builder} />
                   <button
                     onClick={handleUndo}
