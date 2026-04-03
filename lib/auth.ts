@@ -3,7 +3,7 @@
  *
  * Stateless session management (JWT-based, no database required for auth).
  * Google OAuth restricted to @dimagi.com emails. Authenticated users share
- * the server-side ANTHROPIC_API_KEY; unauthenticated users fall back to BYOK.
+ * the server-side ANTHROPIC_API_KEY.
  *
  * Required env vars:
  *   BETTER_AUTH_SECRET  — JWT signing secret (generate with `openssl rand -hex 32`)
@@ -23,6 +23,11 @@ const ALLOWED_DOMAIN = 'dimagi.com'
 export const auth = betterAuth({
   secret: process.env.BETTER_AUTH_SECRET,
   baseURL: process.env.BETTER_AUTH_URL,
+
+  session: {
+    expiresIn: 60 * 60 * 24 * 2,   // 2 days max lifetime
+    updateAge: 60 * 60 * 12,        // refresh every 12h of activity
+  },
 
   socialProviders: {
     google: {
@@ -91,16 +96,13 @@ export const auth = betterAuth({
       const newSession = ctx.context.newSession
       if (!newSession) return
 
-      try {
-        await createUser(
-          newSession.user.email,
-          newSession.user.name,
-          newSession.user.image ?? null,
-        )
-      } catch (err) {
-        /* Log but don't block sign-in — the user can still authenticate. */
-        console.error('[auth] user provisioning failed:', err)
-      }
+      /* Block sign-in if we can't provision the user doc — downstream
+         operations (spend cap, project creation, logging) all depend on it. */
+      await createUser(
+        newSession.user.email,
+        newSession.user.name,
+        newSession.user.image ?? null,
+      )
     }),
   },
 })

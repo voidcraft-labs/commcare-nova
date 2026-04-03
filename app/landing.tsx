@@ -1,13 +1,7 @@
 'use client'
-import { useEffect, useState } from 'react'
-import { useRouter } from 'next/navigation'
+import { useState } from 'react'
 import { motion } from 'motion/react'
-import { Icon } from '@iconify/react/offline'
-import ciSettings from '@iconify-icons/ci/settings'
-import ciArrowRight from '@iconify-icons/ci/arrow-right-md'
-import Link from 'next/link'
 import { Logo } from '@/components/ui/Logo'
-import { useSettings } from '@/hooks/useSettings'
 import { useAuth } from '@/hooks/useAuth'
 
 /** Google "G" logo for the sign-in button. Inline SVG to avoid external dependencies. */
@@ -23,27 +17,14 @@ function GoogleLogo({ size = 18 }: { size?: number }) {
 }
 
 /**
- * Landing page client component — sign-in UI and BYOK entry.
+ * Landing page client component — Google OAuth sign-in.
  *
  * Server component already redirected authenticated users to /builds.
- * This handles: BYOK redirect (localStorage check), Google OAuth initiation,
- * and API key input.
+ * All users must sign in with a @dimagi.com Google account.
  */
 export function Landing() {
-  const router = useRouter()
-  const { settings, updateSettings } = useSettings()
   const { signIn } = useAuth()
-  const [apiKey, setApiKey] = useState('')
   const [signingIn, setSigningIn] = useState(false)
-
-  const hasByokKey = !!settings.apiKey
-
-  /** BYOK entry — save key and navigate to builder. */
-  const startWithKey = () => {
-    if (!apiKey.trim()) return
-    updateSettings({ apiKey: apiKey.trim() })
-    router.push('/build/new')
-  }
 
   /** Google OAuth entry — sign in and redirect to builder on success. */
   const signInWithGoogle = async () => {
@@ -51,24 +32,8 @@ export function Landing() {
     await signIn()
   }
 
-  /* BYOK users with a saved key go straight to the builder. */
-  useEffect(() => {
-    if (hasByokKey) router.replace('/build/new')
-  }, [hasByokKey, router])
-
-  /* Don't flash the landing UI while redirecting BYOK users. */
-  if (hasByokKey) return null
-
   return (
     <div className="min-h-screen flex flex-col items-center justify-center relative overflow-hidden">
-      <Link
-        href="/settings"
-        className="absolute top-4 right-4 z-20 p-1.5 text-nova-text-muted hover:text-nova-text transition-colors rounded-lg hover:bg-nova-surface"
-        title="Settings"
-      >
-        <Icon icon={ciSettings} width="18" height="18" />
-      </Link>
-
       {/* Cosmic background */}
       <div className="fixed inset-0 pointer-events-none">
         <div className="absolute top-1/4 left-1/2 -translate-x-1/2 w-[800px] h-[800px] rounded-full bg-nova-violet/5 blur-[120px]" />
@@ -92,12 +57,11 @@ export function Landing() {
           Build CommCare apps from conversation
         </motion.p>
 
-        {/* ── Primary: Google sign-in ──────────────────────── */}
         <motion.div
           initial={{ opacity: 0, y: 10 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.5, duration: 0.6 }}
-          className="w-full space-y-6"
+          className="w-full"
         >
           <button
             onClick={signInWithGoogle}
@@ -107,41 +71,6 @@ export function Landing() {
             <GoogleLogo />
             {signingIn ? 'Redirecting...' : 'Sign in with Google'}
           </button>
-
-          {/* ── Divider ────────────────────────────────────── */}
-          <div className="flex items-center gap-4">
-            <div className="flex-1 h-px bg-nova-border" />
-            <span className="text-xs text-nova-text-muted uppercase tracking-wider">or use your own key</span>
-            <div className="flex-1 h-px bg-nova-border" />
-          </div>
-
-          {/* ── Secondary: BYOK input ──────────────────────── */}
-          <div>
-            <div className="relative">
-              <input
-                type="password"
-                placeholder="sk-ant-..."
-                aria-label="Anthropic API key"
-                value={apiKey}
-                onChange={(e) => setApiKey(e.target.value)}
-                onKeyDown={(e) => { if (e.key === 'Enter') startWithKey() }}
-                autoComplete="off"
-                data-1p-ignore
-                className="w-full px-4 py-3 pr-14 bg-nova-deep border border-nova-border rounded-lg text-nova-text placeholder:text-nova-text-muted focus:outline-none focus:border-nova-violet focus:shadow-[var(--nova-glow-violet)] transition-all duration-200"
-              />
-              <button
-                onClick={startWithKey}
-                disabled={!apiKey.trim()}
-                aria-label="Start with API key"
-                className="absolute right-2 top-1/2 -translate-y-1/2 p-2 rounded-md bg-nova-violet text-white hover:bg-nova-violet-bright transition-colors disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer"
-              >
-                <Icon icon={ciArrowRight} width="18" height="18" />
-              </button>
-            </div>
-            <p className="text-xs text-nova-text-muted text-center mt-2">
-              Anthropic API key — stored locally in your browser, never sent to our servers.
-            </p>
-          </div>
         </motion.div>
       </motion.div>
     </div>

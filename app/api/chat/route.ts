@@ -34,8 +34,8 @@ export async function POST(req: Request) {
     return new Response(JSON.stringify({ error: 'Invalid request body' }), { status: 400 })
   }
 
-  // Resolve the API key: authenticated session → server key, otherwise → BYOK
-  const keyResult = await resolveApiKey(req, parsed.data.apiKey)
+  // Require authenticated session + server API key
+  const keyResult = await resolveApiKey(req)
   if (!keyResult.ok) {
     return new Response(JSON.stringify({ error: keyResult.error }), { status: keyResult.status })
   }
@@ -44,28 +44,28 @@ export async function POST(req: Request) {
   // Fire-and-forget — the user doc is created at sign-in time (Better Auth
   // after hook); this just keeps last_active_at current without blocking
   // the latency-sensitive chat path.
-  if (keyResult.session) {
-    touchUser(
-      keyResult.session.user.email,
-      keyResult.session.user.name,
-      keyResult.session.user.image ?? null,
-    )
-  }
+  touchUser(
+    keyResult.session.user.email,
+    keyResult.session.user.name,
+    keyResult.session.user.image ?? null,
+  )
 
-  // Spend cap check — only for authenticated users on the shared server key.
-  // BYOK users are on their own key and uncapped. Fails open on Firestore errors.
-  if (keyResult.session) {
-    try {
-      const usage = await getMonthlyUsage(keyResult.session.user.email)
-      if ((usage?.cost_estimate ?? 0) >= MONTHLY_SPEND_CAP_USD) {
-        return Response.json({
-          error: MESSAGES.spend_cap_exceeded,
-          type: 'spend_cap_exceeded',
-        }, { status: 429 })
-      }
-    } catch (err) {
-      console.error('[chat] spend cap check failed:', err)
+  // Spend cap check — fails closed on Firestore errors. If we can't verify
+  // the user's usage, we reject the request rather than risk uncapped spend.
+  try {
+    const usage = await getMonthlyUsage(keyResult.session.user.email)
+    if ((usage?.cost_estimate ?? 0) >= MONTHLY_SPEND_CAP_USD) {
+      return Response.json({
+        error: MESSAGES.spend_cap_exceeded,
+        type: 'spend_cap_exceeded',
+      }, { status: 429 })
     }
+  } catch (err) {
+    console.error('[chat] spend cap check failed:', err)
+    return Response.json({
+      error: 'Unable to verify usage. Please try again shortly.',
+      type: 'internal',
+    }, { status: 503 })
   }
 
   const { blueprint, runId } = parsed.data
@@ -78,15 +78,19 @@ export async function POST(req: Request) {
    * (status: 'generating') so log events have a project to live under from the start.
    */
   let projectId = parsed.data.projectId
-  if (keyResult.session && !projectId) {
+  if (!projectId) {
     try {
       projectId = await createProject(keyResult.session.user.email, logger.runId)
     } catch (err) {
       console.error('[chat] project creation failed:', err)
+      return Response.json({
+        error: 'Unable to save project. Please try again shortly.',
+        type: 'internal',
+      }, { status: 503 })
     }
   }
 
-  if (keyResult.session && projectId) {
+  if (projectId) {
     logger.enableFirestore(keyResult.session.user.email, projectId)
   }
 
@@ -102,7 +106,7 @@ export async function POST(req: Request) {
       writer.write({ type: 'data-run-id', data: { runId: logger.runId }, transient: true })
 
       // Emit projectId immediately so the client can update the URL
-      if (keyResult.session && projectId) {
+      if (projectId) {
         writer.write({ type: 'data-project-saved', data: { projectId }, transient: true })
       }
 
@@ -115,7 +119,7 @@ export async function POST(req: Request) {
       const handleRouteError = (error: unknown, source: string) => {
         const classified = classifyError(error)
         ctx.emitError(classified, source)
-        if (keyResult.session && projectId) {
+        if (projectId) {
           failProject(keyResult.session.user.email, projectId, classified.type)
         }
       }

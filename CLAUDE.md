@@ -61,13 +61,12 @@ Zod schemas in `lib/db/types.ts` are the single source of truth — TypeScript t
 
 Authenticated users' projects are auto-saved to Firestore. Loading is a single document read — no replay needed.
 
-- **Project creation:** The route handler creates the project document (`status: 'generating'`) at the start of the first request for new builds. Emits `data-project-saved` immediately so the client URL updates to `/build/{id}` before generation begins. Log events write to this project's subcollection from the start.
+- **Project creation:** The route handler creates the project document (`status: 'generating'`) at the start of the first request for new builds — fails closed (returns 503) to prevent unsaveable ghost generations. Emits `data-project-saved` immediately so the client URL updates to `/build/{id}` before generation begins. Log events write to this project's subcollection from the start.
 - **Completion:** On generation success, `validateApp` calls `completeProject` to update the existing project with the final blueprint and `status: 'complete'`.
 - **Failure detection:** Two-layer system ensures failed projects never stay stuck in `generating`. Layer 1 (server catch): route handler catch blocks call `failProject()` with the classified error type — fire-and-forget, same pattern as `incrementUsage()`. Layer 2 (timeout inference): `listProjects()` checks `created_at` age — any project still `generating` after `MAX_GENERATION_MINUTES` (10 min, well above the 5 min `maxDuration` route timeout) is inferred as failed, returned as `status: 'error'`, and lazily persisted via `failProject()`. The `error_type` field on `ProjectDoc` stores the `ErrorType` string from the classifier (or `'internal'` for timeout-inferred failures).
 - **Auto-save:** `useAutoSave` hook subscribes to `builder.subscribeMutation` and debounces edits (2s) to `PUT /api/projects/{id}`. Returns a `SaveState` (`{ status, savedAt }`) consumed by `SaveIndicator` in the builder subheader — shows "Saving…" immediately on mutation, then a persistent relative timestamp ("Saved just now", "Saved 2m ago") so the user always knows their work is persisted. Error state surfaces as "Save failed" with `role="alert"`. Silent failure — a Firestore outage does not interrupt editing.
 - **Loading:** `BuilderLayout` calls `builder.startLoading()` in a `useLayoutEffect` before first paint when `buildId !== 'new'`, then fetches `GET /api/projects/{id}`. On success, `builder.loadProject(id, blueprint)` atomically transitions `Loading → Ready`. If the project's `status !== 'complete'` (error or stale generating), redirects to `/builds` with a toast instead of attempting hydration. The `Loading` phase is the single source of truth — no separate `projectLoaded` React state.
 - **Project list:** `/builds` page fetches `GET /api/projects` (denormalized summaries, no full blueprints). Complete projects are clickable. Replay button visible to admins only (log replay is admin-gated — see Admin Dashboard). Failed projects (`status: 'error'`) render as inert cards — muted opacity, "Generation failed" subtitle, no click-through, no replay. Shared `ProjectCard` component (`components/ui/ProjectCard.tsx`) handles card rendering with optional `href` (Link vs plain card) and optional `onReplay` (show/hide replay button). Used by both the builds page and admin user profile.
-- **BYOK exclusion:** BYOK users have no session → no save, no project loading, no project list, no Firestore logging. Same ephemeral behavior as before.
 
 ### Event Logging (`lib/services/eventLogger.ts`)
 
@@ -82,10 +81,10 @@ A log is a flat, ordered stream of `StoredEvent` objects written to Firestore.
 
 ### Usage Tracking & Spend Cap (`lib/db/usage.ts`)
 
-Per-user monthly spend tracking for authenticated users on the shared server key. BYOK users are uncapped and never touch usage documents.
+Per-user monthly spend tracking for authenticated users.
 
-- **Pre-request cap check:** The chat route reads `docs.usage(email, currentPeriod)` — a single O(1) Firestore document lookup by period string (e.g. `"2026-04"`). If `cost_estimate >= MONTHLY_SPEND_CAP_USD`, returns a 429 with a friendly message. Fails open on Firestore errors (logs to console, does not block generation).
-- **Post-request cost flush:** EventLogger accumulates cost across all agent steps (outer step + inner tool sub-generations) in private fields. `finalize()` writes a single atomic `incrementUsage` call using `FieldValue.increment()` — concurrent-safe, creates the document automatically on the first request of a new month via `set({ merge: true })`.
+- **Pre-request cap check:** The chat route reads `docs.usage(email, currentPeriod)` — a single O(1) Firestore document lookup by period string (e.g. `"2026-04"`). If `cost_estimate >= MONTHLY_SPEND_CAP_USD`, returns a 429 with a friendly message. Fails closed on Firestore errors — returns 503 rather than allowing uncapped spend.
+- **Post-request cost flush:** EventLogger accumulates cost across all agent steps (outer step + inner tool sub-generations) in private fields. `finalize()` writes a single atomic `incrementUsage` call using `FieldValue.increment()` — concurrent-safe, creates the document automatically on the first request of a new month via `set({ merge: true })`. Retries up to 3 times with backoff — untracked spend would let subsequent requests pass the cap check with stale data.
 - **Cancellation safety:** The route registers `logger.finalize()` on both `onFinish` (stream completion) and `req.signal.abort` (client disconnect). A `_finalized` idempotency guard ensures exactly one write regardless of which fires.
 - **Cap configuration:** `MONTHLY_SPEND_CAP_USD` reads from env var, defaults to $30. Applies globally to all authenticated users.
 
@@ -132,22 +131,19 @@ End-to-end error system: API/stream errors are classified (`lib/services/errorCl
 
 ### Authentication & API Key Resolution
 
-Dual-mode system supporting both authenticated (Google OAuth) and BYOK (bring your own key) access.
+All users authenticate via Google OAuth restricted to `@dimagi.com` emails.
 
 **Auth layer** — Better Auth with stateless JWT sessions (no database for auth). Google OAuth restricted to `@dimagi.com` emails via a `before` hook on the callback path. Server instance in `lib/auth.ts`, client in `lib/auth-client.ts`, route handler at `app/api/auth/[...all]/route.ts`.
 
-**User provisioning** — Better Auth `after` hook on the callback path calls `createUser()` from `lib/db/users.ts` on every sign-in. `createUser` checks if the Firestore user doc exists: first sign-in creates it (with `role: 'user'` and `created_at`), subsequent sign-ins update mutable fields (`name`, `image`, `last_active_at`) without overwriting `role` or `created_at`. The chat route calls `touchUser()` (fire-and-forget) on every authenticated request to keep `last_active_at` current.
+**User provisioning** — Better Auth `after` hook on the callback path calls `createUser()` from `lib/db/users.ts` on every sign-in — blocking, so sign-in fails if Firestore is down (downstream operations depend on the user doc). `createUser` checks if the Firestore user doc exists: first sign-in creates it (with `role: 'user'` and `created_at`), subsequent sign-ins update mutable fields (`name`, `image`, `last_active_at`) without overwriting `role` or `created_at`. The chat route calls `touchUser()` (fire-and-forget) on every authenticated request to keep `last_active_at` current.
 
 **Admin role** — `UserDoc.role` is `'user' | 'admin'`, managed exclusively via the Firestore console. Application code never writes the `role` field. The `customSession` plugin enriches the session with `isAdmin` by reading the Firestore role server-side — no extra client fetch. `useAuth()` exposes `isAdmin` directly from the session. Server-side: `requireAdmin()` in `lib/auth-utils.ts` calls `isUserAdmin()` from `lib/db/users.ts` and throws 403 if not admin.
 
-**API key resolution** — `resolveApiKey()` in `lib/auth-utils.ts` is the single decision point, shared by all API routes:
-1. Authenticated session exists → use `process.env.ANTHROPIC_API_KEY` (server key)
-2. `apiKey` in request body → use that (BYOK)
-3. Neither → 401
+**API key resolution** — `resolveApiKey()` in `lib/auth-utils.ts` requires an authenticated session and uses `process.env.ANTHROPIC_API_KEY` (server key). Returns 401 if not authenticated, 500 if server key is not configured.
 
 **Server-side auth (RSC)** — Protected pages use Server Components that call `auth.api.getSession({ headers: await headers() })` to check auth before rendering. Three RSC functions in `lib/auth-utils.ts`: `getSession()` (returns session or null), `requireAuth()` (redirects to `/` if no session), `requireAdminAccess()` (redirects to `/builds` if not admin). These are separate from the `req`-based functions used by API route handlers (`requireSession(req)`, `requireAdmin(req)`).
 
-**Proxy layer** — `proxy.ts` (Next.js 16 convention, replaces middleware.ts) checks for the session cookie via `getSessionCookie()` from `better-auth/cookies`. Fast optimistic redirect — unauthenticated users hitting `/builds`, `/admin/*`, or `/settings` are redirected to `/` before the page JS downloads. Not a security boundary — RSC does the real auth check.
+**Proxy layer** — `proxy.ts` (Next.js 16 convention, replaces middleware.ts) checks for the session cookie via `getSessionCookie()` from `better-auth/cookies`. Fast optimistic redirect — unauthenticated users hitting `/build/*`, `/builds`, or `/admin/*` are redirected to `/` before the page JS downloads. Also sets nonce-based CSP headers on every page route. Not a security boundary — RSC does the real auth check.
 
 **Page architecture** — Protected pages are Server Components that handle auth, fetch data, and render structure. Interactive leaves are small colocated client components. Pages: `/` (RSC redirects authenticated → `/builds`, `app/landing.tsx` handles BYOK + sign-in), `/builds` (Suspense-streamed project list, "New Build" button), `/settings` (RSC resolves auth, in-page back link, `api-key-editor.tsx` handles key input), `/admin` (Suspense-streamed stats + user table), `/admin/users/[email]` (in-page breadcrumb, three independent Suspense streams for profile/usage/projects).
 
@@ -157,11 +153,10 @@ Dual-mode system supporting both authenticated (Google OAuth) and BYOK (bring yo
 
 **Client-side auth** — `useAuth()` hook wraps Better Auth's `useSession` with `customSessionClient` for type-safe access to `isAdmin`. Returns `{ user, isAuthenticated, isAdmin, isPending, signIn, signOut }`. Used only in client components that need reactive auth state (BuilderLayout, AccountMenu, landing page sign-in). NOT used for page-level auth gates — those use RSC.
 
-**Landing page** — Server component redirects authenticated users to `/builds`. Client component handles Google sign-in button (primary) + API key input (secondary). BYOK users with a saved key are redirected to `/build/new` client-side (requires localStorage).
+**Landing page** — Server component redirects authenticated users to `/builds`. Client component renders Google sign-in button.
 
-**Account menu** — `AccountMenu` (`components/ui/AccountMenu.tsx`) is the rightmost element in every header. Authenticated users see an avatar trigger that opens a `POPOVER_GLASS` dropdown (via `useFloatingDropdown` + `DropdownPortal`) with profile info, monthly usage progress bar (`GET /api/user/usage`), Settings link, and Sign Out. BYOK users see a plain settings gear link to `/settings`.
+**Account menu** — `AccountMenu` (`components/ui/AccountMenu.tsx`) is the rightmost element in every header. Avatar trigger opens a `POPOVER_GLASS` dropdown (via `useFloatingDropdown` + `DropdownPortal`) with profile info, monthly usage progress bar (`GET /api/user/usage`), Settings link, and Sign Out.
 
-**Settings page** — API key field (becomes "API Key Override" for authenticated users). In-page back link (→ `/builds` for authenticated, → `/` for BYOK). Auth status resolved server-side and passed as prop. Account info and sign-out live in the AccountMenu dropdown, not on this page.
 
 ### Admin Dashboard
 
@@ -196,7 +191,7 @@ Dark "Stellar Minimalism". CSS custom properties in `globals.css`:
 - Text: `--nova-text` (#e8e8ff) → `--nova-text-muted` (#555577)
 - Accents: `--nova-violet`, `--nova-cyan`, `--nova-emerald`, `--nova-amber`, `--nova-rose`
 - Fonts: Outfit (display), Plus Jakarta Sans (body), JetBrains Mono (code)
-- Popover layers (`lib/styles.ts`): `POPOVER_GLASS` (L1, frosted glass with bright inset border) for base-layer floating panels, `POPOVER_ELEVATED` (L2, nearly opaque) for popovers stacked above glass. Both share a 1px inner highlight (`inset box-shadow`) that catches light. `NAV_ICON_CLASS` (icon-only button styling, used by AccountMenu BYOK fallback and in-page back links) also lives here.
+- Popover layers (`lib/styles.ts`): `POPOVER_GLASS` (L1, frosted glass with bright inset border) for base-layer floating panels, `POPOVER_ELEVATED` (L2, nearly opaque) for popovers stacked above glass. Both share a 1px inner highlight (`inset box-shadow`) that catches light.
 - Shared animation constants (`lib/animations.ts`): `EASE` — standard easing curve tuple `[0.4, 0, 0.2, 1]` for Motion's `ease` prop (used by AppHeader grid collapse, BuilderLayout panel transitions). `POPOVER_ENTER_KEYFRAMES` + `POPOVER_ENTER_OPTIONS` — shared Web Animations API config. Consumed internally by `useFloatingDropdown` for all portal-based dropdowns and by `ExportDropdown`'s inline AnimatePresence (same values in Motion config format).
 
 ### Structured Output Schemas

@@ -5,9 +5,11 @@ import { AutoFixer } from '@/lib/services/autoFixer'
 import { CczCompiler } from '@/lib/services/cczCompiler'
 import { appBlueprintSchema } from '@/lib/schemas/blueprint'
 import { saveCcz } from '@/lib/store'
+import { requireSession } from '@/lib/auth-utils'
 
 export async function POST(req: NextRequest) {
   try {
+    await requireSession(req)
     const body = await req.json()
     const { blueprint } = body
 
@@ -53,7 +55,9 @@ export async function POST(req: NextRequest) {
       appName: parsed.data.app_name,
     })
   } catch (err) {
-    const message = err instanceof Error ? err.message : 'Compilation failed'
-    return NextResponse.json({ error: message }, { status: 500 })
+    // Log the real error server-side but return a generic message to avoid
+    // leaking internal paths or library details to the client.
+    console.error('[compile]', err)
+    return NextResponse.json({ error: 'Compilation failed' }, { status: 500 })
   }
 }

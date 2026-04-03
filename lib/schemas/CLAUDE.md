@@ -3,7 +3,7 @@
 ## API Schemas (`apiSchemas.ts`)
 
 Zod schemas for API route input validation:
-- `chatRequestSchema` — validates `apiKey` (optional — omitted for authenticated users), `blueprint` (reuses `appBlueprintSchema`). Messages are typed as `UIMessage[]` separately — they come from the AI SDK, not validated by us. API key resolution (session → server key vs body → BYOK) is handled by `resolveApiKey()` in `lib/auth-utils.ts`, not the schema.
+- `chatRequestSchema` — validates `blueprint` (reuses `appBlueprintSchema`), `runId`, `projectId`. Messages are typed as `UIMessage[]` separately — they come from the AI SDK, not validated by us.
 
 ## Blueprint Schema (`blueprint.ts`)
 

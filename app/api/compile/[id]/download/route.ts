@@ -1,10 +1,12 @@
 import { type NextRequest } from 'next/server'
 import { getCcz } from '@/lib/store'
+import { requireSession } from '@/lib/auth-utils'
 
 export async function GET(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  await requireSession(req)
   const { id } = await params
   const buffer = await getCcz(id)
 

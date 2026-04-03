@@ -3,7 +3,7 @@
  *
  * Returns the cost estimate, request count, spend cap, and period string
  * so the client can render a usage bar without knowing the cap value.
- * Authenticated-only — BYOK users have no usage tracking.
+ * Authenticated-only.
  */
 import { requireSession } from '@/lib/auth-utils'
 import { ApiError, handleApiError } from '@/lib/apiError'

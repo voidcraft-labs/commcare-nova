@@ -2,12 +2,9 @@
  * Account menu — avatar-triggered dropdown with profile, usage bar,
  * settings link, and sign-out.
  *
- * Two render modes based on auth state:
- * - **Authenticated**: circular avatar (or initials fallback) that opens
- *   a POPOVER_GLASS dropdown with profile info, monthly usage progress,
- *   a Settings navigation row, and a Sign Out action.
- * - **Not authenticated**: falls back to a settings gear icon linking
- *   to `/settings`, preserving BYOK access to pipeline configuration.
+ * Renders a circular avatar (or initials fallback) that opens a
+ * POPOVER_GLASS dropdown with profile info, monthly usage progress,
+ * a Settings navigation row, and a Sign Out action.
  *
  * Uses FloatingPortal so the dropdown escapes `overflow-hidden` ancestors
  * (e.g. the BuilderLayout header's height-collapse animation).
@@ -18,14 +15,11 @@
 
 'use client'
 import { useState, useEffect } from 'react'
-import { useRouter } from 'next/navigation'
 import { Icon } from '@iconify/react/offline'
-import ciSettings from '@iconify-icons/ci/settings'
 import ciLogout from '@iconify-icons/ci/log-out'
-import Link from 'next/link'
 import { useFloatingDropdown, DropdownPortal } from '@/hooks/useFloatingDropdown'
 import { useAuth, type AuthUser } from '@/hooks/useAuth'
-import { POPOVER_GLASS, NAV_ICON_CLASS } from '@/lib/styles'
+import { POPOVER_GLASS } from '@/lib/styles'
 import { formatCurrency } from '@/lib/utils/format'
 
 /** Response shape from GET /api/user/usage. */
@@ -90,7 +84,6 @@ function UserAvatar({ user, size }: { user: AuthUser; size: keyof typeof AVATAR_
 // ── AccountMenu ────────────────────────────────────────────────────
 
 export function AccountMenu() {
-  const router = useRouter()
   const { user, isAuthenticated, isPending, signOut } = useAuth()
   const [usage, setUsage] = useState<UsageData | null>(null)
   const dd = useFloatingDropdown<HTMLButtonElement>({ offset: 6 })
@@ -112,14 +105,8 @@ export function AccountMenu() {
     return <div className="w-7 h-7 rounded-full bg-nova-surface animate-pulse" />
   }
 
-  /* ── Unauthenticated fallback: plain settings link ────────────── */
-  if (!isAuthenticated || !user) {
-    return (
-      <Link href="/settings" className={NAV_ICON_CLASS} title="Settings">
-        <Icon icon={ciSettings} width="18" height="18" />
-      </Link>
-    )
-  }
+  /* Session still loading or somehow unauthenticated — nothing to render */
+  if (!isAuthenticated || !user) return null
 
   const usageRatio = usage ? Math.min(usage.cost_estimate / usage.cap, 1) : 0
 
@@ -168,15 +155,8 @@ export function AccountMenu() {
           {/* ── Divider ────────────────────────────────────── */}
           <div className="border-t border-white/[0.06]" />
 
-          {/* ── Menu rows ──────────────────────────────────── */}
+          {/* ── Sign out ──────────────────────────────────── */}
           <div>
-            <button
-              onClick={() => { router.push('/settings'); dd.close() }}
-              className="w-full flex items-center gap-2.5 px-3 py-2.5 text-sm text-nova-text hover:bg-white/[0.06] transition-colors cursor-pointer"
-            >
-              <Icon icon={ciSettings} width="16" height="16" className="text-nova-text-muted" />
-              Settings
-            </button>
             <button
               onClick={() => { signOut(); dd.close() }}
               className="w-full flex items-center gap-2.5 px-3 py-2.5 text-sm text-nova-text hover:bg-white/[0.06] transition-colors cursor-pointer rounded-b-xl"

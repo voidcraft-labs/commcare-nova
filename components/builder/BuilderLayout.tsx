@@ -9,7 +9,6 @@ import ciMessage from '@iconify-icons/ci/message'
 import { HeaderNav } from '@/components/ui/HeaderNav'
 import { setHeaderVisible } from '@/lib/stores/headerVisibility'
 import tablerListTree from '@iconify-icons/tabler/list-tree'
-import { useApiKey } from '@/hooks/useApiKey'
 import { useAuth } from '@/hooks/useAuth'
 import { useBuilder } from '@/hooks/useBuilder'
 import { BuilderPhase, applyDataPart, type CursorMode } from '@/lib/services/builder'
@@ -76,7 +75,6 @@ const STRUCTURE_SIDEBAR_WIDTH = 320
 
 export function BuilderLayout({ buildId }: { buildId: string }) {
   const router = useRouter()
-  const { apiKey } = useApiKey()
   const { isAuthenticated, isAdmin, isPending: authPending } = useAuth()
   const builder = useBuilder()
   const [initialReplay] = useState(consumeReplayData)
@@ -105,8 +103,6 @@ export function BuilderLayout({ buildId }: { buildId: string }) {
     () => initialReplay?.stages[replayStartIndex]?.messages ?? []
   )
 
-  const apiKeyRef = useRef(apiKey)
-  apiKeyRef.current = apiKey
   const runIdRef = useRef<string | undefined>(undefined)
 
   const handleExitReplay = useCallback(() => {
@@ -227,7 +223,7 @@ export function BuilderLayout({ buildId }: { buildId: string }) {
   }, [cursorMode])
 
   const inReplayMode = !!replayData
-  const hasAccess = isAuthenticated || !!apiKey || inReplayMode
+  const hasAccess = isAuthenticated || inReplayMode
   const isCentered = builder.phase === BuilderPhase.Idle
 
   /* Coordinate with the global AppHeader — hide it when the builder is in
@@ -263,8 +259,6 @@ export function BuilderLayout({ buildId }: { buildId: string }) {
     transport: new DefaultChatTransport({
       api: '/api/chat',
       body: () => ({
-        /* Only send apiKey for BYOK users — authenticated users use the server key */
-        ...(apiKeyRef.current ? { apiKey: apiKeyRef.current } : {}),
         blueprint: builder.blueprint ?? undefined,
         runId: runIdRef.current,
         projectId: builderRef.current.projectId,
