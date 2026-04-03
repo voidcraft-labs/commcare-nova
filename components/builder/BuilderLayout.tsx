@@ -6,10 +6,8 @@ import { DefaultChatTransport, type UIMessage } from 'ai'
 import { motion, AnimatePresence } from 'motion/react'
 import { Icon } from '@iconify/react/offline'
 import ciMessage from '@iconify-icons/ci/message'
-import { AccountMenu } from '@/components/ui/AccountMenu'
-import { NAV_ICON_CLASS } from '@/lib/styles'
+import { HeaderNav } from '@/components/ui/HeaderNav'
 import tablerListTree from '@iconify-icons/tabler/list-tree'
-import Link from 'next/link'
 import { useApiKey } from '@/hooks/useApiKey'
 import { useAuth } from '@/hooks/useAuth'
 import { useBuilder } from '@/hooks/useBuilder'
@@ -30,7 +28,6 @@ import type { BreadcrumbPart } from '@/components/builder/SubheaderToolbar'
 import { ScreenNavButtons } from '@/components/preview/ScreenNavButtons'
 import { ExportDropdown } from '@/components/ui/ExportDropdown'
 import { AppConnectSettings } from '@/components/builder/detail/AppConnectSettings'
-import ciFolder from '@iconify-icons/ci/folder'
 import ciFileDocument from '@iconify-icons/ci/file-document'
 import tablerPackageExport from '@iconify-icons/tabler/package-export'
 import ciUndo from '@iconify-icons/ci/undo'
@@ -72,19 +69,6 @@ let persistedChatMessages: UIMessage[] = []
 /** Shared sidebar open/close animation config. */
 const SIDEBAR_TRANSITION = { duration: 0.2, ease: [0.4, 0, 0.2, 1] } as const
 
-/** Projects + Settings icon links — rendered in both the header and centered-mode corners. */
-function NavLinks({ isAuthenticated }: { isAuthenticated: boolean }) {
-  return (
-    <>
-      {isAuthenticated && (
-        <Link href="/builds" className={NAV_ICON_CLASS} title="Projects">
-          <Icon icon={ciFolder} width="18" height="18" />
-        </Link>
-      )}
-      <AccountMenu />
-    </>
-  )
-}
 
 /** Width of the structure sidebar in pixels (w-80). */
 const STRUCTURE_SIDEBAR_WIDTH = 320
@@ -92,7 +76,7 @@ const STRUCTURE_SIDEBAR_WIDTH = 320
 export function BuilderLayout({ buildId }: { buildId: string }) {
   const router = useRouter()
   const { apiKey } = useApiKey()
-  const { isAuthenticated, isPending: authPending } = useAuth()
+  const { isAuthenticated, isAdmin, isPending: authPending } = useAuth()
   const builder = useBuilder()
   const [initialReplay] = useState(consumeReplayData)
   const [chatOpen, setChatOpen] = useState(true)
@@ -566,34 +550,34 @@ export function BuilderLayout({ buildId }: { buildId: string }) {
   return (
     <ReferenceProviderWrapper getContext={getRefContext} subscribeMutation={builder.subscribeMutation}>
     <div ref={layoutRef} className="h-screen flex flex-col bg-nova-void overflow-hidden">
-      {/* Header — collapses to zero height in hero mode, reveals with border on transition */}
-      <motion.header
-        className="overflow-hidden shrink-0"
-        initial={false}
-        animate={{
-          height: isCentered ? 0 : 'auto',
-        }}
-        transition={{ duration: 0.45, ease: [0.4, 0, 0.2, 1] }}
-      >
-        <div className="flex items-center justify-between px-4 py-2.5 border-b border-nova-border bg-nova-void">
-          {!isCentered && (
-            <motion.div
-              layoutId="nova-logo"
-              className="cursor-pointer"
-              onClick={() => router.push('/')}
-              transition={{ layout: { duration: 0.45, ease: [0.4, 0, 0.2, 1] } }}
-            >
-              <Logo size="sm" />
-            </motion.div>
-          )}
-          <NavLinks isAuthenticated={isAuthenticated} />
+      {/* Header — CSS grid collapse: 1fr → 0fr in centered mode, no motion needed.
+       *  Only one HeaderNav instance at a time — avoids duplicate session subscriptions
+       *  and duplicate DOM for assistive technology. */}
+      {isCentered ? (
+        <div className="absolute top-3 right-4 z-raised">
+          <HeaderNav isAdmin={isAdmin} />
         </div>
-      </motion.header>
-
-      {/* Nav icons — visible in centered/hero mode when header is collapsed */}
-      {isCentered && (
-        <div className="absolute top-3 right-4 z-raised flex items-center gap-1">
-          <NavLinks isAuthenticated={isAuthenticated} />
+      ) : (
+        <div
+          className="grid shrink-0"
+          style={{
+            gridTemplateRows: '1fr',
+            transition: 'grid-template-rows 450ms cubic-bezier(0.4, 0, 0.2, 1)',
+          }}
+        >
+          <div className="overflow-hidden">
+            <div className="flex items-center justify-between px-4 py-2.5 border-b border-nova-border bg-nova-void">
+              <motion.div
+                layoutId="nova-logo"
+                className="cursor-pointer"
+                onClick={() => router.push('/')}
+                transition={{ layout: { duration: 0.45, ease: [0.4, 0, 0.2, 1] } }}
+              >
+                <Logo size="sm" />
+              </motion.div>
+              <HeaderNav isAdmin={isAdmin} />
+            </div>
+          </div>
         </div>
       )}
 
