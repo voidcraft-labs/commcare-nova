@@ -17,7 +17,7 @@ export const POPOVER_ELEVATED =
 
 /**
  * Shared hover/focus styling for icon-only navigation buttons.
- * Used by PageHeader (back arrow) and AccountMenu (BYOK fallback gear link).
+ * Used by AccountMenu (BYOK fallback gear link) and in-page back links.
  */
 export const NAV_ICON_CLASS =
   'p-1.5 text-nova-text-muted hover:text-nova-text transition-colors rounded-lg hover:bg-nova-surface'

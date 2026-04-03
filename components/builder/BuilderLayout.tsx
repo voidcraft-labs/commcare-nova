@@ -7,6 +7,7 @@ import { motion, AnimatePresence } from 'motion/react'
 import { Icon } from '@iconify/react/offline'
 import ciMessage from '@iconify-icons/ci/message'
 import { HeaderNav } from '@/components/ui/HeaderNav'
+import { setHeaderVisible } from '@/lib/stores/headerVisibility'
 import tablerListTree from '@iconify-icons/tabler/list-tree'
 import { useApiKey } from '@/hooks/useApiKey'
 import { useAuth } from '@/hooks/useAuth'
@@ -14,7 +15,6 @@ import { useBuilder } from '@/hooks/useBuilder'
 import { BuilderPhase, applyDataPart, type CursorMode } from '@/lib/services/builder'
 import { showToast } from '@/lib/services/toastStore'
 import { ToastContainer } from '@/components/ui/ToastContainer'
-import type { AppBlueprint } from '@/lib/schemas/blueprint'
 import { flattenQuestionPaths } from '@/lib/services/questionNavigation'
 import { type QuestionPath } from '@/lib/services/questionPath'
 import { useKeyboardShortcuts } from '@/hooks/useKeyboardShortcuts'
@@ -224,6 +224,16 @@ export function BuilderLayout({ buildId }: { buildId: string }) {
   const inReplayMode = !!replayData
   const hasAccess = isAuthenticated || !!apiKey || inReplayMode
   const isCentered = builder.phase === BuilderPhase.Idle && !builder.treeData
+
+  /* Coordinate with the global AppHeader — hide it when the builder is in
+   * centered/hero mode, reveal it when generation starts. useLayoutEffect
+   * ensures the store update fires before paint so React can batch the header
+   * reveal into the same frame as the hero Logo unmount (enabling smooth
+   * Motion layoutId animation between the two Logo positions). */
+  useLayoutEffect(() => {
+    setHeaderVisible(!isCentered)
+    return () => setHeaderVisible(true)
+  }, [isCentered])
 
   // ── Stable ref for builder so onData callback doesn't go stale ──────
   const builderRef = useRef(builder)
@@ -522,7 +532,7 @@ export function BuilderLayout({ buildId }: { buildId: string }) {
   /* Gate rendering until the project is loaded from Firestore. */
   if (!projectLoaded) {
     return (
-      <div className="min-h-screen bg-nova-void flex items-center justify-center">
+      <div className="h-full flex items-center justify-center">
         <div className="animate-pulse"><Logo size="md" /></div>
       </div>
     )
@@ -549,35 +559,13 @@ export function BuilderLayout({ buildId }: { buildId: string }) {
 
   return (
     <ReferenceProviderWrapper getContext={getRefContext} subscribeMutation={builder.subscribeMutation}>
-    <div ref={layoutRef} className="h-screen flex flex-col bg-nova-void overflow-hidden">
-      {/* Header — CSS grid collapse: 1fr → 0fr in centered mode, no motion needed.
-       *  Only one HeaderNav instance at a time — avoids duplicate session subscriptions
-       *  and duplicate DOM for assistive technology. */}
-      {isCentered ? (
+    <div ref={layoutRef} className="h-full flex flex-col overflow-hidden">
+      {/* Floating nav overlay — visible only during centered/hero mode while the
+       *  global AppHeader is collapsed. When the header reveals (generation starts),
+       *  this unmounts and the header's HeaderNav takes over. */}
+      {isCentered && (
         <div className="absolute top-3 right-4 z-raised">
           <HeaderNav isAdmin={isAdmin} />
-        </div>
-      ) : (
-        <div
-          className="grid shrink-0"
-          style={{
-            gridTemplateRows: '1fr',
-            transition: 'grid-template-rows 450ms cubic-bezier(0.4, 0, 0.2, 1)',
-          }}
-        >
-          <div className="overflow-hidden">
-            <div className="flex items-center justify-between px-4 py-2.5 border-b border-nova-border bg-nova-void">
-              <motion.div
-                layoutId="nova-logo"
-                className="cursor-pointer"
-                onClick={() => router.push('/')}
-                transition={{ layout: { duration: 0.45, ease: [0.4, 0, 0.2, 1] } }}
-              >
-                <Logo size="sm" />
-              </motion.div>
-              <HeaderNav isAdmin={isAdmin} />
-            </div>
-          </div>
         </div>
       )}
 
@@ -592,7 +580,8 @@ export function BuilderLayout({ buildId }: { buildId: string }) {
           />
         )}
 
-        {/* Tier 2: Nav + breadcrumbs (left) + action buttons (right) */}
+        {/* Builder subheader: nav + breadcrumbs (left) + action buttons (right).
+         *  Builder-specific toolbar — separate from the global AppHeader. */}
         <AnimatePresence>
           {!isCentered && (
             <motion.div
@@ -639,7 +628,7 @@ export function BuilderLayout({ buildId }: { buildId: string }) {
           )}
         </AnimatePresence>
 
-        {/* Tier 4: Content area — flex row of sidebars and main content.
+        {/* Content area — flex row of sidebars and main content.
          *  Both sidebars animate width on open/close. ChatSidebar stays mounted
          *  (width: 0) when collapsed to preserve its singleton controller. */}
         <div className="relative flex-1 overflow-hidden flex">

@@ -6,7 +6,7 @@
  * and the resulting flash where the Admin link pops in after hydration. Server
  * pages already resolve the session — they pass `isAdmin` directly.
  *
- * Used internally by PageHeader (server component) and exported for BuilderLayout's
+ * Used internally by AppHeader (global header) and exported for BuilderLayout's
  * floating overlay in centered mode.
  */
 
