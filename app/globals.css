@@ -187,6 +187,20 @@ body {
   50% { opacity: 1; }
 }
 
+/* Reject shake — horizontal oscillation for invalid save attempts */
+@keyframes shake {
+  0%, 100% { translate: 0; }
+  15% { translate: -4px; }
+  30% { translate: 4px; }
+  45% { translate: -3px; }
+  60% { translate: 3px; }
+  75% { translate: -1px; }
+  90% { translate: 1px; }
+}
+@utility xpath-shake {
+  animation: shake 0.4s ease-out;
+}
+
 /* Skeleton shimmer — horizontal gradient sweep for loading placeholders */
 @keyframes nova-shimmer {
   0% { background-position: -200% 0; }
