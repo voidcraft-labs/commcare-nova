@@ -14,6 +14,7 @@ import type { ClassifiedError } from './errorClassifier'
 import type { StoredEvent, LogEvent, LogToolCall, TokenUsage, JsonValue } from '../db/types'
 import { writeLogEvent } from '../db/logs'
 import { incrementUsage } from '../db/usage'
+import { log } from '../log'
 
 // ── Constants ───────────────────────────────────────────────────────
 
@@ -242,20 +243,27 @@ export class EventLogger {
   }
 
   /**
-   * Flush accumulated usage to Firestore (single write per request) and mark
-   * this logger as finalized. Idempotent — safe to call from both onFinish
-   * and an abort handler without double-writing.
+   * Flush accumulated usage to Firestore (single write per request).
+   * Idempotent via `_finalized` guard — safe to call from multiple sites
+   * (execute finally, onFinish, abort handler) without double-writing.
+   *
+   * On failure, logs and moves on — the pre-request getMonthlyUsage()
+   * read is the fail-closed gate (see lib/db/usage.ts).
    */
-  finalize() {
+  async finalize(): Promise<void> {
     if (this._finalized) return
     this._finalized = true
 
     if (this.firestoreEnabled && this._usageCost > 0) {
-      incrementUsage(this.fsEmail!, {
-        input_tokens: this._usageInputTokens,
-        output_tokens: this._usageOutputTokens,
-        cost_estimate: this._usageCost,
-      })
+      try {
+        await incrementUsage(this.fsEmail!, {
+          input_tokens: this._usageInputTokens,
+          output_tokens: this._usageOutputTokens,
+          cost_estimate: this._usageCost,
+        })
+      } catch (err) {
+        log.error('[finalize] usage increment failed', err, { email: this.fsEmail! })
+      }
     }
   }
 }

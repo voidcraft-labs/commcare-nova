@@ -348,7 +348,7 @@ Rule-based validation system that catches every error CommCare HQ would catch du
 - `logSubResult(label, result)` — buffers sub-generation usage data (consumed by `logStep` for tool call matching).
 - `logError(error, context?)` — writes an `ErrorEvent` immediately.
 - `logConversation(messages)` — writes a `MessageEvent` for the current request's user message.
-- `finalize()` — flushes accumulated request-level cost to the usage document via a single `incrementUsage` call. Idempotent (`_finalized` guard) — safe to call from both `onFinish` and `req.signal.abort` without double-writing. Also accumulates cost across steps in private fields (`_usageInputTokens`, `_usageOutputTokens`, `_usageCost`), including inner tool sub-generation costs.
+- `finalize()` — async, awaits a single `incrementUsage` call to flush accumulated request-level cost. Idempotent (`_finalized` guard) — safe to call from the execute `finally` block, `onFinish`, and `req.signal.abort` without double-writing. On failure, logs and moves on — the pre-request `getMonthlyUsage()` read is the fail-closed gate (see `lib/db/usage.ts`). Also accumulates cost across steps in private fields (`_usageInputTokens`, `_usageOutputTokens`, `_usageCost`), including inner tool sub-generation costs.
 - `estimateCost()` — exported helper for token cost calculation using `MODEL_PRICING`.
 
 **Firestore sink**: One document per event at `users/{email}/projects/{projectId}/logs/`. Fire-and-forget writes. `ignoreUndefinedProperties: true` on the Firestore instance silently drops `undefined` values (produced by `stripEmpty()` converting sentinel strings back). Zod `z.discriminatedUnion` validates reads.
