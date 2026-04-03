@@ -16,6 +16,14 @@ export const POPOVER_ENTER_KEYFRAMES: Keyframe[] = [
   { opacity: 1, transform: 'scale(1) translateY(0)' },
 ]
 
+/**
+ * Standard easing curve — CSS `ease-out` equivalent.
+ *
+ * Tuple form for Motion's `ease` prop. The CSS string form is used in
+ * POPOVER_ENTER_OPTIONS below and in inline `transition` styles.
+ */
+export const EASE = [0.4, 0, 0.2, 1] as const
+
 /** 150ms ease-out timing for popover entrance. */
 export const POPOVER_ENTER_OPTIONS: KeyframeAnimationOptions = {
   duration: 150,

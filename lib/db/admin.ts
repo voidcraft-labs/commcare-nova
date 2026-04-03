@@ -58,22 +58,33 @@ export async function getAdminUsersWithStats(): Promise<AdminUsersResponse> {
 }
 
 /**
- * Fetch a single user's profile, usage history, and projects.
+ * Fetch a single user's profile — returns null if user doesn't exist.
  *
- * Returns null if the user doesn't exist. Three parallel Firestore reads:
- * user doc, all usage periods, and project list.
+ * Separated so the profile card can stream independently via Suspense.
  */
-export async function getAdminUserDetail(email: string): Promise<AdminUserDetailResponse | null> {
-  const [user, usageSnap, projects] = await Promise.all([
-    getUser(email),
-    collections.usage(email).orderBy('updated_at', 'desc').get(),
-    listProjects(email),
-  ])
-
+export async function getAdminUserProfile(email: string): Promise<AdminUserDetailResponse['user'] | null> {
+  const user = await getUser(email)
   if (!user) return null
 
-  /* Map usage documents to serializable periods */
-  const usage: UsagePeriod[] = usageSnap.docs.map(doc => {
+  return {
+    email,
+    name: user.name,
+    image: user.image,
+    role: user.role,
+    created_at: user.created_at.toDate().toISOString(),
+    last_active_at: user.last_active_at.toDate().toISOString(),
+  }
+}
+
+/**
+ * Fetch a user's usage history — all monthly usage periods, newest first.
+ *
+ * Separated so the usage table can stream independently via Suspense.
+ */
+export async function getAdminUserUsage(email: string): Promise<UsagePeriod[]> {
+  const usageSnap = await collections.usage(email).orderBy('updated_at', 'desc').get()
+
+  return usageSnap.docs.map(doc => {
     const data = doc.data()
     return {
       period: doc.id,
@@ -83,17 +94,31 @@ export async function getAdminUserDetail(email: string): Promise<AdminUserDetail
       cost_estimate: data.cost_estimate,
     }
   })
+}
 
-  return {
-    user: {
-      email,
-      name: user.name,
-      image: user.image,
-      role: user.role,
-      created_at: user.created_at.toDate().toISOString(),
-      last_active_at: user.last_active_at.toDate().toISOString(),
-    },
-    usage,
-    projects,
-  }
+/**
+ * Fetch a user's projects — delegates to `listProjects`.
+ *
+ * Separated so the project list can stream independently via Suspense.
+ */
+export async function getAdminUserProjects(email: string) {
+  return listProjects(email)
+}
+
+/**
+ * Fetch a single user's profile, usage history, and projects.
+ *
+ * Convenience wrapper that calls the three independent functions in parallel.
+ * Used by the admin API route; the RSC page uses the individual functions
+ * directly for granular Suspense streaming.
+ */
+export async function getAdminUserDetail(email: string): Promise<AdminUserDetailResponse | null> {
+  const [user, usage, projects] = await Promise.all([
+    getAdminUserProfile(email),
+    getAdminUserUsage(email),
+    getAdminUserProjects(email),
+  ])
+
+  if (!user) return null
+  return { user, usage, projects }
 }

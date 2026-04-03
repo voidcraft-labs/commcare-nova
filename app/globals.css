@@ -85,6 +85,7 @@
   --z-index-popover-top: var(--z-popover-top);
   --z-index-modal: var(--z-modal);
   --z-index-system: var(--z-system);
+  --animate-shimmer: nova-shimmer 1.5s ease-in-out infinite;
 }
 
 /* Global styles */
@@ -184,6 +185,12 @@ body {
 @keyframes indicator-pulse {
   0%, 100% { opacity: 0.75; }
   50% { opacity: 1; }
+}
+
+/* Skeleton shimmer — horizontal gradient sweep for loading placeholders */
+@keyframes nova-shimmer {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
 }
 
 /* Error recovering — amber LED and label */

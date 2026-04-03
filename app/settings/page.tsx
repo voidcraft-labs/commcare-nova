@@ -1,27 +1,36 @@
-import { PageHeader } from '@/components/ui/PageHeader'
+import Link from 'next/link'
+import { Icon } from '@iconify/react/offline'
+import ciChevronLeft from '@iconify-icons/ci/chevron-left'
 import { getSession } from '@/lib/auth-utils'
 import { ApiKeyEditor } from './api-key-editor'
 
 /**
- * Settings page — server-side auth check with shared header.
+ * Settings page — in-page back link + API key editor.
  *
- * Resolves authentication status server-side. The proxy layer handles
- * unauthenticated redirects; this RSC provides the isAuthenticated flag
- * for UI branching (label text) and isAdmin for the header nav.
+ * The global header is rendered by the root layout. Back navigation lives
+ * in the page content — authenticated users go to /builds, BYOK users go
+ * to the landing page.
  */
 export default async function SettingsPage() {
   const session = await getSession()
   const isAuthenticated = !!session
-  const isAdmin = session?.user?.isAdmin === true
 
   return (
-    <div className="min-h-screen bg-nova-void">
-      <PageHeader
-        isAdmin={isAdmin}
-        back={{ href: isAuthenticated ? '/builds' : '/', label: 'Go back' }}
-        breadcrumb={[{ label: 'Settings' }]}
-      />
+    <main className="max-w-md mx-auto px-6 py-10 space-y-6">
+      {/* ── In-page back navigation ───────────────────────── */}
+      <nav>
+        <Link
+          href={isAuthenticated ? '/builds' : '/'}
+          className="inline-flex items-center gap-0.5 text-sm text-nova-text-muted hover:text-nova-text transition-colors"
+        >
+          <Icon icon={ciChevronLeft} width="16" height="16" />
+          {isAuthenticated ? 'Projects' : 'Home'}
+        </Link>
+      </nav>
+
+      <h1 className="text-2xl font-display font-semibold">Settings</h1>
+
       <ApiKeyEditor isAuthenticated={isAuthenticated} />
-    </div>
+    </main>
   )
 }
