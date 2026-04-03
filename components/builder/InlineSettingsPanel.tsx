@@ -29,8 +29,6 @@ interface InlineSettingsPanelProps {
   builder: Builder
   question: Question
   questionPath: QuestionPath
-  moduleIndex: number
-  formIndex: number
 }
 
 /** Section identifier for collapse state tracking. */
@@ -41,6 +39,7 @@ function SectionHeader({ label, expanded, onToggle }: { label: string; expanded:
   return (
     <button
       onClick={onToggle}
+      aria-expanded={expanded}
       className="flex items-center gap-1.5 w-full py-2 text-xs font-semibold uppercase tracking-wider text-nova-text-muted hover:text-nova-text transition-colors cursor-pointer"
       data-no-drag
     >
@@ -55,10 +54,7 @@ function SectionHeader({ label, expanded, onToggle }: { label: string; expanded:
   )
 }
 
-export function InlineSettingsPanel({ builder, question, questionPath, moduleIndex, formIndex }: InlineSettingsPanelProps) {
-  const mb = builder.mb!
-  const { notifyBlueprintChanged } = builder
-  const selected = builder.selected!
+export function InlineSettingsPanel({ builder, question, questionPath }: InlineSettingsPanelProps) {
   const panelRef = useRef<HTMLDivElement>(null)
 
   /* Track which sections are expanded. All start open. */
@@ -73,7 +69,7 @@ export function InlineSettingsPanel({ builder, question, questionPath, moduleInd
   }, [])
 
   /* Reset section state when the selected question changes. Hidden questions
-   * start with Logic expanded and Appearance collapsed. */
+   * start with Appearance collapsed (though it won't render for them anyway). */
   const prevPathRef = useRef(questionPath)
   if (questionPath !== prevPathRef.current) {
     prevPathRef.current = questionPath
@@ -87,7 +83,6 @@ export function InlineSettingsPanel({ builder, question, questionPath, moduleInd
 
   /* Stop click from propagating to the parent (which would re-select the question). */
   const stopClick = useCallback((e: React.MouseEvent) => e.stopPropagation(), [])
-
 
   return (
     <AnimatePresence>
@@ -104,29 +99,23 @@ export function InlineSettingsPanel({ builder, question, questionPath, moduleInd
       >
         <div className="px-4 py-2 space-y-0.5">
           {/* ── Appearance section (UI tab contents) ── */}
-          <SectionHeader label="Appearance" expanded={expanded.appearance} onToggle={() => toggle('appearance')} />
-          {expanded.appearance && (
-            <div className="pb-3">
-              <ContextualEditorUI
-                question={question}
-                selected={selected}
-                mb={mb}
-                builder={builder}
-                notifyBlueprintChanged={notifyBlueprintChanged}
-              />
-            </div>
+          {/* Hidden questions have no visual properties — skip the section entirely */}
+          {question.type !== 'hidden' && (
+            <>
+              <SectionHeader label="Appearance" expanded={expanded.appearance} onToggle={() => toggle('appearance')} />
+              {expanded.appearance && (
+                <div className="pb-3">
+                  <ContextualEditorUI question={question} builder={builder} />
+                </div>
+              )}
+            </>
           )}
 
           {/* ── Logic section ── */}
           <SectionHeader label="Logic" expanded={expanded.logic} onToggle={() => toggle('logic')} />
           {expanded.logic && (
             <div className="pb-3">
-              <ContextualEditorLogic
-                question={question}
-                selected={selected}
-                mb={mb}
-                notifyBlueprintChanged={notifyBlueprintChanged}
-              />
+              <ContextualEditorLogic question={question} builder={builder} />
             </div>
           )}
 
@@ -134,25 +123,14 @@ export function InlineSettingsPanel({ builder, question, questionPath, moduleInd
           <SectionHeader label="Data" expanded={expanded.data} onToggle={() => toggle('data')} />
           {expanded.data && (
             <div className="pb-3">
-              <ContextualEditorData
-                question={question}
-                selected={selected}
-                mb={mb}
-                builder={builder}
-                notifyBlueprintChanged={notifyBlueprintChanged}
-              />
+              <ContextualEditorData question={question} builder={builder} />
             </div>
           )}
         </div>
 
-        {/* ── Footer: move, duplicate, delete ── */}
+        {/* ── Footer: move, duplicate, delete, type change ── */}
         <div className="border-t border-nova-border">
-          <ContextualEditorFooter
-            selected={selected}
-            mb={mb}
-            builder={builder}
-            notifyBlueprintChanged={notifyBlueprintChanged}
-          />
+          <ContextualEditorFooter question={question} builder={builder} />
         </div>
       </motion.div>
     </AnimatePresence>
