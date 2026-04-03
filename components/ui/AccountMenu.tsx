@@ -10,11 +10,12 @@
  * (e.g. the BuilderLayout header's height-collapse animation).
  *
  * Usage data is fetched eagerly on mount from `GET /api/user/usage`
- * so the dropdown opens instantly with no loading state.
+ * so the dropdown opens instantly with no loading state. Re-fetched
+ * on every subsequent open to stay current after generations.
  */
 
 'use client'
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { Icon } from '@iconify/react/offline'
 import ciLogout from '@iconify-icons/ci/log-out'
 import { useFloatingDropdown, DropdownPortal } from '@/hooks/useFloatingDropdown'
@@ -88,17 +89,23 @@ export function AccountMenu() {
   const [usage, setUsage] = useState<UsageData | null>(null)
   const dd = useFloatingDropdown<HTMLButtonElement>({ offset: 6 })
 
-  /* Fetch usage data eagerly on mount so the dropdown opens without a loading state.
-   * Cancelled flag prevents stale setState if the component unmounts mid-flight. */
-  useEffect(() => {
-    if (!isAuthenticated) return
-    let cancelled = false
+  /** Fetch usage from the API and update state. Best-effort — failures are silent. */
+  const refreshUsage = useCallback(() => {
     fetch('/api/user/usage')
       .then(res => res.ok ? res.json() as Promise<UsageData> : null)
-      .then(data => { if (!cancelled && data) setUsage(data) })
-      .catch(() => { /* Silent — usage display is best-effort */ })
-    return () => { cancelled = true }
-  }, [isAuthenticated])
+      .then(data => { if (data) setUsage(data) })
+      .catch(() => {})
+  }, [])
+
+  /* Pre-cache on mount so the first dropdown open shows data instantly. */
+  useEffect(() => {
+    if (isAuthenticated) refreshUsage()
+  }, [isAuthenticated, refreshUsage])
+
+  /* Re-fetch on each dropdown open to stay current after generations. */
+  useEffect(() => {
+    if (dd.open && isAuthenticated) refreshUsage()
+  }, [dd.open, isAuthenticated, refreshUsage])
 
   /* ── Loading placeholder while session check is in flight ────── */
   if (isPending) {

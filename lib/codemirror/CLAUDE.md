@@ -42,7 +42,7 @@ Replaces `Layout.Space` with `Layout.NewLine` + `Layout.Tab`:
 
 ## Linter (`xpath-lint.ts`)
 
-`xpathLinter(getContext)` — CodeMirror lint extension using `@codemirror/lint`. Takes a getter that reads live from the blueprint (`() => { blueprint, form, moduleCaseType }`). On each lint pass, derives valid paths and case properties from the blueprint, then runs `validateXPath()` for full syntax + semantic validation. Blocks save in `XPathField` (inline editor) when diagnostics are present.
+`xpathLinter(getContext)` — CodeMirror lint extension using `@codemirror/lint`. Takes a getter that reads live from the blueprint (`() => { blueprint, form, moduleCaseType }`). On each lint pass, derives valid paths and case properties from the blueprint, then runs `validateXPath()` for full syntax + semantic validation. `XPathField`'s inline editor uses the same `validateXPath` + context for its save gate — the result is always consistent with the inline diagnostics.
 
 ## Autocomplete (`xpath-autocomplete.ts`)
 

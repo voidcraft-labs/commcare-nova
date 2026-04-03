@@ -169,7 +169,7 @@ All users authenticate via Google OAuth restricted to `@dimagi.com` emails.
 
 **Landing page** — Server component redirects authenticated users to `/builds`. Client component renders Google sign-in button.
 
-**Account menu** — `AccountMenu` (`components/ui/AccountMenu.tsx`) is the rightmost element in every header. Avatar trigger opens a `POPOVER_GLASS` dropdown (via `useFloatingDropdown` + `DropdownPortal`) with profile info, monthly usage progress bar (`GET /api/user/usage`), Settings link, and Sign Out.
+**Account menu** — `AccountMenu` (`components/ui/AccountMenu.tsx`) is the rightmost element in every header. Avatar trigger opens a `POPOVER_GLASS` dropdown (via `useFloatingDropdown` + `DropdownPortal`) with profile info, monthly usage progress bar (`GET /api/user/usage`), Settings link, and Sign Out. Usage is pre-fetched on mount for an instant first open, then re-fetched on every subsequent open to stay current after generations.
 
 
 ### Admin Dashboard
