@@ -24,7 +24,7 @@ The single endpoint for all agent interaction. Creates `EventLogger`, `Generatio
 
 **Project creation**: New builds create a Firestore project doc (`status: 'generating'`) before generation starts — fails closed (returns 503) to prevent unsaveable ghost generations.
 
-**Usage flush**: `logger.finalize()` is registered on both `onFinish` (stream completion) and `req.signal.abort` (client disconnect). The idempotent `_finalized` guard ensures exactly one `incrementUsage` Firestore write per request regardless of how the request ends. `incrementUsage` retries up to 3 times with backoff — untracked spend would let subsequent requests pass the spend cap with stale data.
+**Usage flush**: `logger.finalize()` is awaited in the execute `finally` block (primary path), with `onFinish` and `req.signal.abort` as idempotent safety nets. The `_finalized` guard ensures exactly one `incrementUsage` Firestore write per request. Single attempt, no retries — consistent with all other Firestore writes. If the write fails, the next request's pre-flight `getMonthlyUsage()` read will also fail (same outage), returning 503.
 
 `maxDuration = 300` (5 min timeout for long generation runs).
 

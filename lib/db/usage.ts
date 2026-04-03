@@ -6,7 +6,10 @@
  * Increments are atomic via FieldValue.increment() — safe for concurrent
  * requests from the same user.
  *
- * All users are authenticated and share the server key.
+ * Fail-closed: the pre-request getMonthlyUsage() read is wrapped in a
+ * try/catch by the route — if Firestore is down, the read fails → 503,
+ * which blocks the user from continuing. No separate retry or pending
+ * mechanism needed — a Firestore outage that blocks writes also blocks reads.
  */
 import { FieldValue } from '@google-cloud/firestore'
 import { docs } from './firestore'
@@ -63,33 +66,21 @@ export interface UsageIncrement {
 
 /**
  * Atomically increment the current month's usage counters for a user.
- * Retries up to 3 times on failure — untracked spend would let subsequent
- * requests pass the spend cap check with stale (understated) usage data.
+ * Single attempt, throws on failure — consistent with every other
+ * Firestore write in the codebase. The pre-request cap check (read)
+ * is the fail-closed gate; if Firestore is down for writes, it's down
+ * for reads too, and the route returns 503.
  *
  * Uses set({ merge: true }) with FieldValue.increment() so the document
  * is created automatically on the first request of a new month. No
  * separate create path, no read-then-write race conditions.
  */
 export async function incrementUsage(email: string, deltas: UsageIncrement): Promise<void> {
-  const MAX_RETRIES = 3
-  const data = {
+  await docs.usage(email, getCurrentPeriod()).set({
     input_tokens: FieldValue.increment(deltas.input_tokens),
     output_tokens: FieldValue.increment(deltas.output_tokens),
     cost_estimate: FieldValue.increment(deltas.cost_estimate),
     request_count: FieldValue.increment(1),
     updated_at: FieldValue.serverTimestamp(),
-  }
-
-  for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
-    try {
-      await docs.usage(email, getCurrentPeriod()).set(data, { merge: true })
-      return
-    } catch (err) {
-      log.warn(`[incrementUsage] attempt ${attempt}/${MAX_RETRIES} failed`, { email })
-      if (attempt < MAX_RETRIES) {
-        await new Promise(r => setTimeout(r, 500 * attempt))
-      }
-    }
-  }
-  log.error('[incrementUsage] all retries exhausted — usage not recorded', undefined, { email })
+  }, { merge: true })
 }

@@ -95,9 +95,9 @@ export async function POST(req: Request) {
     logger.enableFirestore(keyResult.session.user.email, projectId)
   }
 
-  // Flush usage on client disconnect — finalize() is idempotent so this
-  // is safe even if onFinish also fires.
-  req.signal.addEventListener('abort', () => logger.finalize())
+  // Safety net on client disconnect — finalize() is idempotent, so this
+  // is a no-op if the execute finally block already ran.
+  req.signal.addEventListener('abort', () => { void logger.finalize() })
 
   logger.logConversation(messages)
 
@@ -151,9 +151,12 @@ export async function POST(req: Request) {
         }
       } catch (error) {
         handleRouteError(error, 'route:init')
+      } finally {
+        await logger.finalize()
       }
     },
     onFinish() {
+      // Fallback finalize; see execute finally block for primary path.
       logger.finalize()
     },
     onError: (error) => {
