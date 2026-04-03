@@ -91,6 +91,14 @@ export function InlineSettingsPanel({ builder, question, questionPath }: InlineS
       data-no-drag
     >
       <div className="px-4 py-2 space-y-0.5">
+        {/* ── Data section ── */}
+        <SectionHeader label="Data" expanded={expanded.data} onToggle={() => toggle('data')} />
+        {expanded.data && (
+          <div className="pb-3">
+            <ContextualEditorData question={question} builder={builder} />
+          </div>
+        )}
+
         {/* ── Appearance section (UI tab contents) ── */}
         {/* Hidden questions have no visual properties — skip the section entirely */}
         {question.type !== 'hidden' && (
@@ -109,14 +117,6 @@ export function InlineSettingsPanel({ builder, question, questionPath }: InlineS
         {expanded.logic && (
           <div className="pb-3">
             <ContextualEditorLogic question={question} builder={builder} />
-          </div>
-        )}
-
-        {/* ── Data section ── */}
-        <SectionHeader label="Data" expanded={expanded.data} onToggle={() => toggle('data')} />
-        {expanded.data && (
-          <div className="pb-3">
-            <ContextualEditorData question={question} builder={builder} />
           </div>
         )}
       </div>
