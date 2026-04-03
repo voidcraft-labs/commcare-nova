@@ -187,7 +187,6 @@ export function ContextualEditorLogic({ question, builder }: QuestionEditorProps
       {/* ── Add Property buttons for missing fields ── */}
       {(!question.required || missingXPathFields.length > 0 || missingValidationMsg.length > 0) && (
         <div className={hasContent ? 'pt-2 border-t border-nova-border/40' : ''}>
-          <label className="text-xs text-nova-text-muted uppercase tracking-wider mb-2 block">Add Property</label>
           <div className="flex flex-wrap gap-1.5">
             {!question.required && (
               <AddPropertyButton label="Required" onClick={() => saveQuestion('required', 'true()')} />

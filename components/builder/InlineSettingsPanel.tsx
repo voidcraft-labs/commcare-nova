@@ -99,6 +99,14 @@ export function InlineSettingsPanel({ builder, question, questionPath }: InlineS
           </div>
         )}
 
+        {/* ── Logic section ── */}
+        <SectionHeader label="Logic" expanded={expanded.logic} onToggle={() => toggle('logic')} />
+        {expanded.logic && (
+          <div className="pb-3">
+            <ContextualEditorLogic question={question} builder={builder} />
+          </div>
+        )}
+
         {/* ── Appearance section (UI tab contents) ── */}
         {/* Hidden questions have no visual properties — skip the section entirely */}
         {question.type !== 'hidden' && (
@@ -110,14 +118,6 @@ export function InlineSettingsPanel({ builder, question, questionPath }: InlineS
               </div>
             )}
           </>
-        )}
-
-        {/* ── Logic section ── */}
-        <SectionHeader label="Logic" expanded={expanded.logic} onToggle={() => toggle('logic')} />
-        {expanded.logic && (
-          <div className="pb-3">
-            <ContextualEditorLogic question={question} builder={builder} />
-          </div>
         )}
       </div>
 
