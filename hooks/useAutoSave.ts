@@ -28,6 +28,7 @@
 'use client'
 import { useEffect, useRef, useState } from 'react'
 import { BuilderPhase, type Builder } from '@/lib/services/builder'
+import { reportClientError } from '@/lib/clientErrorReporter'
 
 /** Post-save cooldown before the trailing edge can fire (ms). */
 const COOLDOWN_MS = 1000
@@ -120,10 +121,30 @@ export function useAutoSave(
           lastSavedMutationRef.current = count
           setState({ status: 'saved', savedAt: Date.now() })
         } else {
+          /* Extract the server's error message for diagnostics. The status
+           * code alone distinguishes auth (401), validation (400), and
+           * Firestore (500) failures — the body adds the human detail. */
+          let detail = `HTTP ${res.status}`
+          try {
+            const body = await res.json()
+            if (typeof body?.error === 'string') detail += `: ${body.error}`
+          } catch { /* body unreadable — status code alone is still useful */ }
+
+          reportClientError({
+            message: `Auto-save failed — ${detail}`,
+            source: 'manual',
+            url: window.location.href,
+          })
           setState(prev => ({ ...prev, status: 'error' }))
         }
-      } catch {
+      } catch (err) {
         if (!unmountedRef.current) {
+          reportClientError({
+            message: `Auto-save network error: ${err instanceof Error ? err.message : String(err)}`,
+            stack: err instanceof Error ? err.stack : undefined,
+            source: 'manual',
+            url: window.location.href,
+          })
           setState(prev => ({ ...prev, status: 'error' }))
         }
       } finally {

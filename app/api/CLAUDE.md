@@ -44,7 +44,7 @@ All routes use `requireSession()` from `lib/auth-utils.ts` which throws `ApiErro
 
 - **GET /api/projects** — list user's projects sorted by `updated_at` desc. Returns denormalized summaries (no full blueprints) via Firestore `select()` — the blueprint is never read, data is validated on write. Includes timeout inference: projects stuck in `generating` longer than `MAX_GENERATION_MINUTES` (10 min) are returned as `status: 'error'` and lazily persisted via `failProject()`.
 - **GET /api/projects/[id]** — load a single project. Returns `{ blueprint, app_name, status, error_type }` for builder hydration. BuilderLayout checks `status` and redirects to `/builds` if not `'complete'`.
-- **PUT /api/projects/[id]** — update a project after client-side edits (auto-save). Validates blueprint via `appBlueprintSchema` before writing. Uses `set({ merge: true })` to survive race conditions with the initial fire-and-forget save.
+- **PUT /api/projects/[id]** — update a project after client-side edits (auto-save). Validates blueprint via `appBlueprintSchema` before writing. Uses `set({ merge: true })` to survive race conditions with the initial fire-and-forget save. Logs `ApiError` rejections (401, 400) via `log.warn` before delegating to `handleApiError` — save failures mean silent data loss, so they need server-side visibility even for expected error types.
 
 CRUD helpers in `lib/db/projects.ts`: `createProject`, `completeProject`, `failProject`, `updateProject`, `loadProject`, `listProjects`.
 
