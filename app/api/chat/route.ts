@@ -11,6 +11,7 @@ import { MutableBlueprint } from '@/lib/services/mutableBlueprint'
 import { chatRequestSchema } from '@/lib/schemas/apiSchemas'
 import { classifyError, MESSAGES } from '@/lib/services/errorClassifier'
 import { resolveApiKey } from '@/lib/auth-utils'
+import { log } from '@/lib/log'
 import { createProject, failProject } from '@/lib/db/projects'
 import { touchUser } from '@/lib/db/users'
 import { getMonthlyUsage, MONTHLY_SPEND_CAP_USD } from '@/lib/db/usage'
@@ -61,7 +62,7 @@ export async function POST(req: Request) {
       }, { status: 429 })
     }
   } catch (err) {
-    console.error('[chat] spend cap check failed:', err)
+    log.error('[chat] spend cap check failed', err)
     return Response.json({
       error: 'Unable to verify usage. Please try again shortly.',
       type: 'internal',
@@ -82,7 +83,7 @@ export async function POST(req: Request) {
     try {
       projectId = await createProject(keyResult.session.user.email, logger.runId)
     } catch (err) {
-      console.error('[chat] project creation failed:', err)
+      log.error('[chat] project creation failed', err)
       return Response.json({
         error: 'Unable to save project. Please try again shortly.',
         type: 'internal',
@@ -157,7 +158,7 @@ export async function POST(req: Request) {
     },
     onError: (error) => {
       // Safety net — most errors are now caught above and emitted as data-error.
-      console.error('[chat] stream error:', error)
+      log.error('[chat] stream error', error)
       return error instanceof Error ? error.message : String(error)
     },
   })

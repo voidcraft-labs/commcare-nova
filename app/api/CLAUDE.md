@@ -65,6 +65,14 @@ Admin-only routes for the admin dashboard. All use `requireAdmin()` from `lib/au
 - **GET /api/admin/users/[email]** — user detail with all-time usage history and project list. Three parallel Firestore reads: `getUser()`, `collections.usage().orderBy()`, `listProjects()`. Email is URL-encoded and decoded before use.
 - **GET /api/admin/users/[email]/projects/[projectId]/logs** — admin log replay endpoint. Mirrors the user-facing logs route but scopes to the target user's email (from URL) instead of the session user. Reuses `loadRunEvents` and `loadLatestRunId`.
 
+## POST /api/log/error (`log/error/route.ts`)
+
+Client error logging endpoint — receives browser-side errors and logs them as structured JSON for GCP Cloud Logging. No auth required — errors can happen before, during, or after authentication. Zod-validated payload with size limits (2KB message, 8KB stack, 2KB URL). Returns 204 on success, 400 on invalid payload. Logs via the structured logger (`lib/log.ts`) with `origin: 'client'` label so client errors are filterable alongside server errors in Cloud Logging Explorer.
+
+Payload: `{ message: string, stack?: string, source: 'window.onerror' | 'unhandledrejection' | 'error-boundary' | 'manual', url: string, componentStack?: string }`. Component stacks (from React error boundaries) are appended to the JS stack for a combined trace in GCP Error Reporting.
+
+Called by `reportClientError()` from `lib/clientErrorReporter.ts` via `navigator.sendBeacon` (survives page unloads). Client-side dedup + rate limiting (max 10 unique errors per page load) prevents crash loop floods.
+
 ## GET /api/user/usage (`user/usage/route.ts`)
 
 Returns the authenticated user's current month usage and spend cap. Authenticated-only — BYOK users have no usage tracking. Uses `requireSession()` from `lib/auth-utils.ts` which throws `ApiError(401)` on failure.

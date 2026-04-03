@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server'
+import { log } from '@/lib/log'
 
 /**
  * Extract a human-readable error message from a raw error string.
@@ -53,6 +54,6 @@ export function handleApiError(err: ApiError | Error): NextResponse {
 
   // Standard Error — return a generic message to avoid leaking internal
   // details (file paths, stack fragments, library internals) to the client.
-  console.error('[apiError] unhandled:', err.message)
+  log.error('[apiError] unhandled', err)
   return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
 }

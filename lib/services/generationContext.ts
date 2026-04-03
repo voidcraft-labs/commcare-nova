@@ -12,6 +12,7 @@ import { z } from 'zod'
 import { MODEL_DEFAULT, type ReasoningEffort } from '../models'
 import { EventLogger } from './eventLogger'
 import { classifyError, type ClassifiedError } from './errorClassifier'
+import { log } from '@/lib/log'
 import type { Session } from '../auth'
 
 /** Log AI SDK warnings to the console if present. */
@@ -84,7 +85,7 @@ export class GenerationContext {
       })
     } catch {
       // Writer is broken — error is already in run log
-      console.error('[emitError] failed to emit:', error.message)
+      log.error('[emitError] failed to emit — error is in run log', undefined, { errorMessage: error.message })
     }
   }
 
