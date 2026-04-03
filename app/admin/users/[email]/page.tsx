@@ -1,8 +1,5 @@
-import Link from 'next/link'
 import { notFound } from 'next/navigation'
-import { Icon } from '@iconify/react/offline'
-import ciArrowLeftSm from '@iconify-icons/ci/arrow-left-sm'
-import { Logo } from '@/components/ui/Logo'
+import { PageHeader } from '@/components/ui/PageHeader'
 import { Badge } from '@/components/ui/Badge'
 import { getAdminUserDetail } from '@/lib/db/admin'
 import { formatRelativeDate, formatCurrency, formatTokenCount, formatPeriodLabel } from '@/lib/utils/format'
@@ -31,25 +28,14 @@ export default async function AdminUserDetailPage({
 
   return (
     <div className="min-h-screen bg-nova-void">
-      {/* ── Header ──────────────────────────────────────────── */}
-      <header className="border-b border-nova-border px-6 py-4 flex items-center gap-4">
-        <Link
-          href="/admin"
-          className="p-1 text-nova-text-muted hover:text-nova-text transition-colors rounded-lg hover:bg-nova-surface"
-          title="Back to Admin Dashboard"
-        >
-          <Icon icon={ciArrowLeftSm} width="20" height="20" />
-        </Link>
-        <Link href="/">
-          <Logo size="sm" />
-        </Link>
-        <div className="h-4 w-px bg-nova-border" />
-        <nav className="text-sm text-nova-text-secondary">
-          <Link href="/admin" className="hover:text-nova-text transition-colors">Admin</Link>
-          <span className="mx-1.5 text-nova-text-muted">/</span>
-          <span className="text-nova-text">{email}</span>
-        </nav>
-      </header>
+      <PageHeader
+        isAdmin
+        back={{ href: '/admin', label: 'Back to Admin Dashboard' }}
+        breadcrumb={[
+          { label: 'Admin', href: '/admin' },
+          { label: email },
+        ]}
+      />
 
       {/* ── Content ─────────────────────────────────────────── */}
       <main className="max-w-4xl mx-auto px-6 py-10 space-y-8">

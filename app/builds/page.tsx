@@ -1,10 +1,7 @@
 import Link from 'next/link'
 import { Icon } from '@iconify/react/offline'
-import tablerLayoutDashboard from '@iconify-icons/tabler/layout-dashboard'
-import { Logo } from '@/components/ui/Logo'
-import { AccountMenu } from '@/components/ui/AccountMenu'
-import { NAV_ICON_CLASS } from '@/lib/styles'
 import ciPlus from '@iconify-icons/ci/plus'
+import { PageHeader } from '@/components/ui/PageHeader'
 import { requireAuth } from '@/lib/auth-utils'
 import { listProjects } from '@/lib/db/projects'
 import { ReplayableProjectList } from '@/components/ui/ReplayableProjectList'
@@ -23,22 +20,12 @@ export default async function BuildsPage() {
 
   return (
     <div className="min-h-screen bg-nova-void">
-      {/* ── Header ──────────────────────────────────────────── */}
-      <header className="border-b border-nova-border px-6 py-4 flex items-center justify-between">
-        <Link href="/">
-          <Logo size="sm" />
-        </Link>
-        <div className="flex items-center gap-2">
-          {isAdmin && (
-            <Link
-              href="/admin"
-              className={NAV_ICON_CLASS}
-              title="Admin Dashboard"
-            >
-              <Icon icon={tablerLayoutDashboard} width="18" height="18" />
-            </Link>
-          )}
-          <AccountMenu />
+      <PageHeader isAdmin={isAdmin} />
+
+      {/* ── Content ─────────────────────────────────────────── */}
+      <main className="max-w-4xl mx-auto px-6 py-12">
+        <div className="flex items-center justify-between mb-8">
+          <h1 className="text-2xl font-display font-semibold">Your Projects</h1>
           <Link
             href="/build/new"
             className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium rounded-lg bg-nova-violet text-white border border-transparent hover:bg-nova-violet-bright shadow-[var(--nova-glow-violet)] transition-all duration-200"
@@ -47,11 +34,6 @@ export default async function BuildsPage() {
             New Build
           </Link>
         </div>
-      </header>
-
-      {/* ── Content ─────────────────────────────────────────── */}
-      <main className="max-w-4xl mx-auto px-6 py-12">
-        <h1 className="text-2xl font-display font-semibold mb-8">Your Projects</h1>
 
         <ReplayableProjectList
           projects={projects}
