@@ -1,13 +1,27 @@
 'use client'
+import { useEffect } from 'react'
 import { Logo } from '@/components/ui/Logo'
 import { Button } from '@/components/ui/Button'
+import { reportClientError } from '@/lib/clientErrorReporter'
 
 /**
  * Error boundary for the build route. Uses hard navigation (window.location)
  * instead of router.push because client-side navigation doesn't work reliably
  * inside an error boundary — React's tree is in an error state.
+ *
+ * Reports the caught error to the server logging endpoint on mount so
+ * builder crashes appear in GCP Cloud Logging alongside JS errors.
  */
 export default function BuildError({ error, reset }: { error: Error; reset: () => void }) {
+  useEffect(() => {
+    reportClientError({
+      message: error.message || 'Builder rendering error',
+      stack: error.stack,
+      source: 'error-boundary',
+      url: window.location.href,
+    })
+  }, [error])
+
   return (
     <div className="min-h-screen bg-nova-void flex flex-col items-center justify-center gap-6 px-6">
       <Logo size="sm" />

@@ -10,6 +10,7 @@
  */
 import { FieldValue } from '@google-cloud/firestore'
 import { docs } from './firestore'
+import { log } from '@/lib/log'
 import type { UsageDoc } from './types'
 
 // ── Configuration ─────────────────────────────────────────────────
@@ -84,11 +85,11 @@ export async function incrementUsage(email: string, deltas: UsageIncrement): Pro
       await docs.usage(email, getCurrentPeriod()).set(data, { merge: true })
       return
     } catch (err) {
-      console.error(`[incrementUsage] attempt ${attempt}/${MAX_RETRIES} failed:`, err)
+      log.warn(`[incrementUsage] attempt ${attempt}/${MAX_RETRIES} failed`, { email })
       if (attempt < MAX_RETRIES) {
         await new Promise(r => setTimeout(r, 500 * attempt))
       }
     }
   }
-  console.error('[incrementUsage] all retries exhausted — usage not recorded for', email)
+  log.error('[incrementUsage] all retries exhausted — usage not recorded', undefined, { email })
 }

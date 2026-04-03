@@ -1,5 +1,6 @@
 'use client'
 import React from 'react'
+import { reportClientError } from '@/lib/clientErrorReporter'
 
 interface ErrorBoundaryProps {
   fallback?: React.ReactNode
@@ -11,7 +12,11 @@ interface ErrorBoundaryState {
   error?: Error
 }
 
-/** Catches render errors in children and displays a fallback instead of crashing the whole tree. */
+/**
+ * Catches render errors in children and displays a fallback instead of
+ * crashing the whole tree. Reports the error to the server logging
+ * endpoint so component-level crashes appear in GCP Cloud Logging.
+ */
 export class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoundaryState> {
   constructor(props: ErrorBoundaryProps) {
     super(props)
@@ -20,6 +25,15 @@ export class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoun
 
   static getDerivedStateFromError(error: Error): ErrorBoundaryState {
     return { hasError: true, error }
+  }
+
+  componentDidCatch(error: Error) {
+    reportClientError({
+      message: error.message || 'Component rendering error',
+      stack: error.stack,
+      source: 'error-boundary',
+      url: typeof window !== 'undefined' ? window.location.href : '',
+    })
   }
 
   render() {

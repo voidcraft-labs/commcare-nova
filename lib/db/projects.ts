@@ -10,6 +10,7 @@ import type { AppBlueprint } from '../schemas/blueprint'
 import type { ErrorType } from '../services/errorClassifier'
 import type { ProjectDoc } from './types'
 import { getDb, collections, docs } from './firestore'
+import { log } from '@/lib/log'
 
 // ── Types ──────────────────────────────────────────────────────────
 
@@ -116,7 +117,7 @@ export function failProject(
     status: 'error',
     error_type: errorType,
   }, { merge: true })
-    .catch(err => console.error('[failProject] Firestore write failed:', err))
+    .catch(err => log.error('[failProject] Firestore write failed', err))
 }
 
 /**

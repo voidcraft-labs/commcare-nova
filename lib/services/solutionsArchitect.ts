@@ -24,6 +24,7 @@ import { MutableBlueprint, type NewQuestion } from './mutableBlueprint'
 import { validateAndFix } from './validationLoop'
 import { errorToString } from './commcare/validate/errors'
 import { completeProject } from '../db/projects'
+import { log } from '@/lib/log'
 export { validateAndFix } from './validationLoop'
 
 // ── Helper: build a full ConnectConfig from SA's partial input ────────
@@ -639,7 +640,7 @@ export function createSolutionsArchitect(
              * The project document was created at the start of the request by the route handler. */
             if (ctx.session && ctx.projectId) {
               completeProject(ctx.session.user.email, ctx.projectId, result.blueprint, ctx.logger.runId)
-                .catch(err => console.error('[validateApp] project update failed:', err))
+                .catch(err => log.error('[validateApp] project update failed', err))
             }
 
             return { success: true as const }

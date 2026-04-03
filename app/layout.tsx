@@ -2,6 +2,7 @@ import type { Metadata } from "next"
 import { Outfit, Plus_Jakarta_Sans, JetBrains_Mono } from "next/font/google"
 import { getSession } from "@/lib/auth-utils"
 import { AppHeader } from "@/components/ui/AppHeader"
+import { ErrorReporter } from "@/components/ErrorReporter"
 import "./globals.css"
 
 const display = Outfit({
@@ -46,6 +47,7 @@ export default async function RootLayout({
     <html lang="en" className="dark">
       <body className={`${display.variable} ${sans.variable} ${mono.variable} antialiased nova-noise`}>
         <div className="flex flex-col h-dvh bg-nova-void">
+          <ErrorReporter />
           <AppHeader isAdmin={isAdmin} />
           <div className="flex-1 overflow-auto">
             {children}

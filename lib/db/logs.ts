@@ -8,6 +8,7 @@
  */
 import type { StoredEvent } from './types'
 import { collections } from './firestore'
+import { log } from '@/lib/log'
 
 // ── Write ──────────────────────────────────────────────────────────
 
@@ -29,7 +30,7 @@ export function writeLogEvent(
 ): void {
   const docId = `${event.run_id}_${String(event.sequence).padStart(6, '0')}`
   collections.logs(email, projectId).doc(docId).set(event)
-    .catch(err => console.error('[writeLogEvent] Firestore write failed:', err))
+    .catch(err => log.error('[writeLogEvent] Firestore write failed', err))
 }
 
 // ── Read ───────────────────────────────────────────────────────────

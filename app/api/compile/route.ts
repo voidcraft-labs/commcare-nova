@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { log } from '@/lib/log'
 import { v4 as uuidv4 } from 'uuid'
 import { expandBlueprint } from '@/lib/services/hqJsonExpander'
 import { AutoFixer } from '@/lib/services/autoFixer'
@@ -57,7 +58,7 @@ export async function POST(req: NextRequest) {
   } catch (err) {
     // Log the real error server-side but return a generic message to avoid
     // leaking internal paths or library details to the client.
-    console.error('[compile]', err)
+    log.error('[compile] compilation failed', err)
     return NextResponse.json({ error: 'Compilation failed' }, { status: 500 })
   }
 }

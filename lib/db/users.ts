@@ -11,6 +11,7 @@
 import { FieldValue } from '@google-cloud/firestore'
 import type { UserDoc } from './types'
 import { collections, docs } from './firestore'
+import { log } from '@/lib/log'
 
 // ── Write ─────────────────────────────────────────────────────────
 
@@ -56,7 +57,7 @@ export function touchUser(email: string, name: string, image: string | null): vo
     image,
     last_active_at: FieldValue.serverTimestamp(),
   }, { merge: true })
-    .catch(err => console.error('[touchUser] Firestore write failed:', err))
+    .catch(err => log.error('[touchUser] Firestore write failed', err))
 }
 
 /**
