@@ -286,7 +286,6 @@ function SortableQuestion({
             <InlineSettingsPanel
               builder={ctx.builder}
               question={q}
-              questionPath={questionPath}
             />
           </motion.div>
         )}

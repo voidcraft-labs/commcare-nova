@@ -78,10 +78,10 @@ Inline property panel for inspect cursor mode (`cursorMode === 'inspect'`). Rend
 
 All sub-editors share the `QuestionEditorProps` interface (`{ question, builder }`) from `contextual/shared.ts`. Each derives `selected`, `mb`, and `notifyBlueprintChanged` from `builder` internally. `useSaveQuestion(builder)` encapsulates the common field mutation + notify pattern.
 
-Collapsible sections (all start expanded; Appearance hidden entirely for hidden questions):
-- **Appearance** (`ContextualEditorUI`) — hint field and add-hint button. Label is intentionally absent — labels are edited directly on the canvas in text mode.
+Always-expanded section cards (each in a `rounded-md bg-nova-deep/60` inset card with a `SectionLabel` — small violet accent bar + uppercase label). Appearance hidden entirely for hidden questions:
+- **Data** (`ContextualEditorData`) — question ID (with rename propagation), `CasePropertyDropdown` ("Saves to" dropdown), options editor for select types
 - **Logic** (`ContextualEditorLogic`) — required (Toggle + optional conditional XPath, hidden until added via "Add Property"), validation (with nested validation_msg), relevant, default_value, calculate. Standard XPath fields use a shared `XPathSection` component. `useAddableField` hook (from `shared.ts`) tracks pending fields added via "Add Property" — two instances: one for text fields, one for XPath fields.
-- **Data** (`ContextualEditorData`) — question ID (with rename propagation), `CasePropertyPills` ("Saves to" header + pill buttons), options editor for select types
+- **Appearance** (`ContextualEditorUI`) — hint field and add-hint button. Label is intentionally absent — labels are edited directly on the canvas in text mode.
 
 **Footer** (`ContextualEditorFooter`) — move up/down, type change, duplicate, delete. The type change button (center, icon + label + chevron) opens a `QuestionTypeGrid` upward (`placement: 'top-start'`) showing only valid conversion targets from `getConvertibleTypes()` (`lib/questionTypeConversions.ts`). Non-convertible types (hidden, label, geopoint, barcode) render a disabled button with a tooltip. Uses `flattenQuestionPaths` with `builder.mutationCount` dependency to keep move button enabled/disabled state fresh after mutations.
 
