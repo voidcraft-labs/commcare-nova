@@ -1,39 +1,31 @@
 'use client'
 import { useCallback } from 'react'
-import type { Question } from '@/lib/schemas/blueprint'
-import type { Builder, SelectedElement } from '@/lib/services/builder'
-import type { MutableBlueprint } from '@/lib/services/mutableBlueprint'
 import { EditableText } from '@/components/builder/EditableText'
 import { CasePropertyPills } from './CasePropertyPills'
 import { OptionsEditor } from './OptionsEditor'
 import { useSaveQuestion } from '@/hooks/useSaveQuestion'
-import { MEDIA_TYPES, getModuleCaseTypes } from './shared'
+import { type QuestionEditorProps, MEDIA_TYPES, getModuleCaseTypes } from './shared'
 
-interface ContextualEditorDataProps {
-  question: Question
-  selected: SelectedElement
-  mb: MutableBlueprint
-  builder: Builder
-  notifyBlueprintChanged: () => void
-}
+export function ContextualEditorData({ question, builder }: QuestionEditorProps) {
+  const selected = builder.selected!
+  const mb = builder.mb!
 
-export function ContextualEditorData({ question, selected, mb, builder, notifyBlueprintChanged }: ContextualEditorDataProps) {
-  const saveQuestion = useSaveQuestion(selected, mb, notifyBlueprintChanged)
+  const saveQuestion = useSaveQuestion(builder)
 
   const setCasePropertyOn = useCallback((caseType: string | null) => {
     if (selected.formIndex === undefined || !selected.questionPath) return
     mb.updateQuestion(selected.moduleIndex, selected.formIndex, selected.questionPath, {
       case_property_on: caseType,
     })
-    notifyBlueprintChanged()
-  }, [mb, selected.moduleIndex, selected.formIndex, selected.questionPath, notifyBlueprintChanged])
+    builder.notifyBlueprintChanged()
+  }, [mb, selected.moduleIndex, selected.formIndex, selected.questionPath, builder])
 
   const renameQuestion = useCallback((newId: string) => {
     if (selected.formIndex === undefined || !selected.questionPath || !newId) return
     const { newPath } = mb.renameQuestion(selected.moduleIndex, selected.formIndex, selected.questionPath, newId)
     builder.select({ ...selected, questionPath: newPath })
-    notifyBlueprintChanged()
-  }, [mb, selected, builder, notifyBlueprintChanged])
+    builder.notifyBlueprintChanged()
+  }, [mb, selected, builder])
 
   return (
     <div className="space-y-3">
@@ -60,7 +52,7 @@ export function ContextualEditorData({ question, selected, mb, builder, notifyBl
             mb.updateQuestion(selected.moduleIndex, selected.formIndex, selected.questionPath, {
               options: options.length > 0 ? options : null,
             })
-            notifyBlueprintChanged()
+            builder.notifyBlueprintChanged()
           }}
         />
       )}

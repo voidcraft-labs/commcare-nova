@@ -270,8 +270,6 @@ function SortableQuestion({
           builder={ctx.builder}
           question={q}
           questionPath={questionPath}
-          moduleIndex={ctx.moduleIndex}
-          formIndex={ctx.formIndex}
         />
       )}
     </div>

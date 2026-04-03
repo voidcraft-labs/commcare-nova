@@ -16,6 +16,9 @@ import ciImage from '@iconify-icons/ci/image'
 import ciBarcode from '@iconify-icons/ci/barcode'
 import ciLabel from '@iconify-icons/ci/label'
 import ciClock from '@iconify-icons/ci/clock'
+import ciMonitorPlay from '@iconify-icons/ci/monitor-play'
+import ciLock from '@iconify-icons/ci/lock'
+import tablerMicrophone from '@iconify-icons/tabler/microphone'
 import ciFileAdd from '@iconify-icons/ci/file-add'
 import ciFileEdit from '@iconify-icons/ci/file-edit'
 import ciFileBlank from '@iconify-icons/ci/file-blank'
@@ -37,6 +40,9 @@ export const questionTypeIcons: Record<string, IconifyIcon> = {
   label: ciLabel,
   time: ciClock,
   datetime: ciClock,
+  audio: tablerMicrophone,
+  video: ciMonitorPlay,
+  secret: ciLock,
 }
 
 export const questionTypeLabels: Record<string, string> = {
@@ -55,6 +61,9 @@ export const questionTypeLabels: Record<string, string> = {
   time: 'Time',
   datetime: 'Date/Time',
   hidden: 'Hidden',
+  audio: 'Audio',
+  video: 'Video',
+  secret: 'Secret',
 }
 
 export const formTypeIcons: Record<string, IconifyIcon> = {
