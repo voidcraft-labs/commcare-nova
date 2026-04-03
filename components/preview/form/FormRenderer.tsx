@@ -1,5 +1,7 @@
 'use client'
 import { useState, useCallback, useEffect, useMemo, useRef, Fragment, createContext, useContext } from 'react'
+import { AnimatePresence, motion } from 'motion/react'
+import { EASE } from '@/lib/animations'
 import { DragDropProvider, DragOverlay, PointerSensor } from '@dnd-kit/react'
 import { useSortable } from '@dnd-kit/react/sortable'
 import { CollisionPriority } from '@dnd-kit/abstract'
@@ -265,13 +267,30 @@ function SortableQuestion({
       <div className={showAsPlaceholder ? 'invisible' : undefined}>
         {content}
       </div>
-      {isSelected && ctx && (
-        <InlineSettingsPanel
-          builder={ctx.builder}
-          question={q}
-          questionPath={questionPath}
-        />
-      )}
+      {/* AnimatePresence wraps the conditional so Motion can run exit animations
+       * when the panel unmounts. Without this, React removes the panel instantly
+       * on deselect — collapsing height in one frame. With it, the old panel's
+       * exit (height auto→0) runs in parallel with the new panel's entry (height
+       * 0→auto) at the same speed, so the total height delta stays near zero
+       * and there's no visible scroll jump between questions. */}
+      <AnimatePresence>
+        {isSelected && ctx && (
+          <motion.div
+            key="inline-settings"
+            initial={{ opacity: 0, height: 0 }}
+            animate={{ opacity: 1, height: 'auto' }}
+            exit={{ opacity: 0, height: 0 }}
+            transition={{ duration: 0.2, ease: EASE }}
+            className="overflow-hidden"
+          >
+            <InlineSettingsPanel
+              builder={ctx.builder}
+              question={q}
+              questionPath={questionPath}
+            />
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   )
 }
