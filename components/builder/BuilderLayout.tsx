@@ -86,10 +86,10 @@ export function BuilderLayout({ buildId }: { buildId: string }) {
   const scrollAnchorRef = useRef<{ questionPath: string; offsetTop: number; allPaths: string[] } | null>(null)
   cursorModeRef.current = cursorMode
 
-  /* Project loading state — gates rendering until the project is fetched (or
-   * determined to be a new build). Only authenticated users load from Firestore. */
+  /* Project loading — existing projects transition to Loading phase immediately
+   * (via useLayoutEffect below) so the layout renders in builder frame from frame 1.
+   * No React useState needed — the builder phase is the single source of truth. */
   const isExistingProject = buildId !== 'new' && isAuthenticated
-  const [projectLoaded, setProjectLoaded] = useState(!isExistingProject)
 
   const replayStartIndex = initialReplay?.doneIndex ?? 0
   const [replayData, setReplayDataState] = useState(() => {
@@ -114,14 +114,21 @@ export function BuilderLayout({ buildId }: { buildId: string }) {
     builder.reset()
   }, [builder])
 
-  /* Load project from Firestore when navigating to /build/{id} (not "new").
-   * Hydrates the builder to Done phase with the saved blueprint. Chat messages
-   * are not restored (that's Phase 4 — log migration). */
-  useEffect(() => {
-    if (!isExistingProject || !isAuthenticated) {
-      setProjectLoaded(true)
-      return
+  /* Transition to Loading phase before first paint so the layout renders in builder
+   * frame immediately (header visible, not centered). Without this, the first frame
+   * would show the centered chat layout, then snap to builder frame on fetch complete. */
+  useLayoutEffect(() => {
+    if (isExistingProject && builder.phase === BuilderPhase.Idle) {
+      builder.startLoading()
     }
+  }, [isExistingProject, builder])
+
+  /* Load project from Firestore when navigating to /build/{id} (not "new").
+   * Hydrates the builder to Ready phase with the saved blueprint via loadProject()
+   * — a single atomic transition with no transient states. */
+  useEffect(() => {
+    if (!isExistingProject || !isAuthenticated) return
+    if (builder.phase !== BuilderPhase.Loading) return
     let cancelled = false
     fetch(`/api/projects/${buildId}`)
       .then(res => {
@@ -135,16 +142,13 @@ export function BuilderLayout({ buildId }: { buildId: string }) {
         if (data.status !== 'complete') {
           showToast('error', 'Project unavailable', "This project didn't finish generating.")
           router.replace('/builds')
-          setProjectLoaded(true)
+          builder.reset()
           return
         }
         if (data.blueprint) {
-          builder.reset()
           persistedChatMessages = []
-          builder.setProjectId(buildId)
-          builder.setDone({ blueprint: data.blueprint, hqJson: {}, success: true })
+          builder.loadProject(buildId, data.blueprint)
         }
-        setProjectLoaded(true)
       })
       .catch(err => {
         if (cancelled) return
@@ -154,7 +158,7 @@ export function BuilderLayout({ buildId }: { buildId: string }) {
           showToast('error', 'Failed to load project')
         }
         router.replace('/builds')
-        setProjectLoaded(true)
+        builder.reset()
       })
     return () => { cancelled = true }
   }, [buildId, isExistingProject, isAuthenticated]) // eslint-disable-line react-hooks/exhaustive-deps
@@ -223,7 +227,7 @@ export function BuilderLayout({ buildId }: { buildId: string }) {
 
   const inReplayMode = !!replayData
   const hasAccess = isAuthenticated || !!apiKey || inReplayMode
-  const isCentered = builder.phase === BuilderPhase.Idle && !builder.treeData
+  const isCentered = builder.phase === BuilderPhase.Idle
 
   /* Coordinate with the global AppHeader — hide it when the builder is in
    * centered/hero mode, reveal it when generation starts. useLayoutEffect
@@ -242,8 +246,8 @@ export function BuilderLayout({ buildId }: { buildId: string }) {
   // ── Navigate to first form when generation completes ──
   const prevPhaseRef = useRef(builder.phase)
   useEffect(() => {
-    const wasGenerating = [BuilderPhase.DataModel, BuilderPhase.Structure, BuilderPhase.Modules, BuilderPhase.Forms, BuilderPhase.Validate, BuilderPhase.Fix].includes(prevPhaseRef.current)
-    if (wasGenerating && builder.phase === BuilderPhase.Done) {
+    const wasGenerating = prevPhaseRef.current === BuilderPhase.Generating
+    if (wasGenerating && builder.phase === BuilderPhase.Ready) {
       // Navigate to first form if available
       if (builder.blueprint && builder.blueprint.modules.length > 0 && builder.blueprint.modules[0].forms.length > 0) {
         nav.navigateToForm(0, 0)
@@ -293,21 +297,21 @@ export function BuilderLayout({ buildId }: { buildId: string }) {
     builder.setAgentActive(status === 'submitted' || status === 'streaming')
   }, [status, builder])
 
-  // Surface stream-level errors from useChat (network, API key, server crash, spend cap)
+  // Surface stream-level errors from useChat (network, API key, server crash, spend cap).
+  // Only set generation error during Generating phase — Idle errors get a toast only.
   useEffect(() => {
-    if (chatError && builder.phase !== BuilderPhase.Error) {
-      const message = parseApiErrorMessage(chatError.message)
-      builder.setError(message)
-      showToast('error', 'Generation failed', message)
+    if (!chatError) return
+    const message = parseApiErrorMessage(chatError.message)
+    if (builder.phase === BuilderPhase.Generating && !builder.generationError) {
+      builder.setGenerationError(message, 'failed')
     }
+    showToast('error', 'Generation failed', message)
   }, [chatError, builder])
 
   // Auto-save blueprint edits to Firestore (authenticated users only)
   useAutoSave(builder, isAuthenticated)
 
   const isGenerating = builder.isGenerating
-
-  const progressMode = 'centered' as const
 
   const handleSend = useCallback((text: string) => {
     if (!text.trim() || !hasAccess) return
@@ -457,7 +461,7 @@ export function BuilderLayout({ buildId }: { buildId: string }) {
 
   const shortcuts = useBuilderShortcuts(builder, cursorMode, handleCursorModeChange, handleDelete, handleUndo, handleRedo)
 
-  useKeyboardShortcuts('builder-layout', shortcuts, [builder.phase === BuilderPhase.Done, cursorMode, builder.selected, builder.blueprint, builder.mutationCount])
+  useKeyboardShortcuts('builder-layout', shortcuts, [builder.phase === BuilderPhase.Ready, cursorMode, builder.selected, builder.blueprint, builder.mutationCount])
 
   /** Sync builder selection to match the given preview screen. */
   const syncSelection = useCallback((screen: PreviewScreen | undefined) => {
@@ -529,8 +533,9 @@ export function BuilderLayout({ buildId }: { buildId: string }) {
   }, [shouldRedirect, router])
   if (shouldRedirect || authPending) return null
 
-  /* Gate rendering until the project is loaded from Firestore. */
-  if (!projectLoaded) {
+  /* Gate rendering until the project is loaded from Firestore.
+   * The Loading phase is the single source of truth — no separate React state. */
+  if (builder.phase === BuilderPhase.Loading) {
     return (
       <div className="h-full flex items-center justify-center">
         <div className="animate-pulse"><Logo size="md" /></div>
@@ -538,11 +543,10 @@ export function BuilderLayout({ buildId }: { buildId: string }) {
     )
   }
 
-  /* Progress card mounts only during active generation or error — never for
-   * hydrated projects that jump straight to Done. AnimatePresence handles the
-   * exit animation when isGenerating flips to false. */
-  const showProgress = (isGenerating || builder.phase === BuilderPhase.Error) && !inReplayMode
-  const showToolbar = !!(builder.treeData && builder.phase === BuilderPhase.Done && builder.blueprint)
+  /* Progress card mounts only during active generation (including errors, which
+   * stay in Generating phase). Never for hydrated projects that go straight to Ready. */
+  const showProgress = builder.phase === BuilderPhase.Generating && !inReplayMode
+  const showToolbar = !!(builder.treeData && builder.phase === BuilderPhase.Ready && builder.blueprint)
   const editMode = cursorMode === 'pointer' ? 'test' as const : 'edit' as const
 
   // Breadcrumb parts — labels are derived unmemoized (for live inline title edits),
@@ -684,7 +688,7 @@ export function BuilderLayout({ buildId }: { buildId: string }) {
                   )}
 
                   <ErrorBoundary>
-                    {builder.phase === BuilderPhase.Done && builder.blueprint ? (
+                    {builder.phase === BuilderPhase.Ready && builder.blueprint ? (
                       <PreviewShell
                         blueprint={builder.blueprint}
                         builder={builder}
@@ -704,17 +708,13 @@ export function BuilderLayout({ buildId }: { buildId: string }) {
                     <motion.div
                       exit={{ opacity: 0, y: 30, scale: 0.97 }}
                       transition={{ duration: 1, ease: [0.4, 0, 0.2, 1] }}
-                      className={`absolute z-ground pointer-events-none ${
-                        progressMode === 'centered'
-                          ? 'inset-0 flex items-center justify-center'
-                          : 'bottom-4 inset-x-0 flex justify-center'
-                      }`}
+                      className="absolute z-ground pointer-events-none inset-0 flex items-center justify-center"
                     >
                       <div className="pointer-events-auto">
                         <GenerationProgress
-                          phase={builder.phase}
+                          stage={builder.generationStage}
+                          generationError={builder.generationError}
                           statusMessage={builder.statusMessage}
-                          mode={progressMode}
                         />
                       </div>
                     </motion.div>

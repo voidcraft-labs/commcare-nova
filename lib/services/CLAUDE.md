@@ -104,19 +104,19 @@ If the stream writer is broken (can't emit `data-error`), `emitError` catches si
 
 `builder.ts` — singleton state machine shared via `useBuilder()`.
 
-**Phases:** `Idle → DataModel → Structure → Modules → Forms → Validate → Fix → Done | Error`
+**Phases:** `Idle → Loading → Generating → Ready`. Generation progress is tracked via `GenerationStage` (`DataModel`, `Structure`, `Modules`, `Forms`, `Validate`, `Fix`) — metadata only meaningful during `phase === Generating`. Errors during generation are metadata (`GenerationError: { message, severity: 'recovering' | 'failed' } | null`) on the `Generating` phase, not a separate phase.
 
 **All state is private with readonly getters.** Consumers read via getters (`builder.phase`, `builder.selected`, `builder.blueprint`, etc.) and mutate through methods only.
 
 **Agent activity state** — five getters separate agent activity from build pipeline phase:
 - `builder.agentActive` — true when the SA is processing a request. Set by BuilderLayout via `setAgentActive()` synced from `useChat` status (`submitted`/`streaming`).
-- `builder.isGenerating` — true when the build pipeline is running (phases DataModel through Fix).
-- `builder.isThinking` — `agentActive && !isGenerating`. Works for both initial generation (before first data part arrives) and edit operations (phase stays `Done`).
-- `builder.postBuildEdit` — true when the agent reactivates after having gone idle in `Done` phase (i.e., the user sent a new message after generation completed). `setDone()` resets it to false; `setAgentActive(true)` sets it to true when `phase === Done`. ChatSidebar uses this to distinguish post-build summary (reasoning) from user-initiated edits (editing).
-- `builder.editMadeMutations` — true when the SA mutated the blueprint during the current post-build edit session (via `setFormContent` or `updateBlueprint`). Reset when a new edit session starts (`setAgentActive(true)` in Done phase) and on `setDone()`/`reset()`. ChatSidebar uses this with `postBuildEdit` to decide done vs idle: if `postBuildEdit && !editMadeMutations` the SA only asked questions → `'idle'`; otherwise → `'done'`.
+- `builder.isGenerating` — true when `phase === Generating`.
+- `builder.isThinking` — `agentActive && !isGenerating`. Works for both initial generation (before first data part arrives) and edit operations (phase stays `Ready`).
+- `builder.postBuildEdit` — true when the agent reactivates after having gone idle in `Ready` phase (i.e., the user sent a new message after generation completed). `completeGeneration()` resets it to false; `setAgentActive(true)` sets it to true when `phase === Ready`. ChatSidebar uses this to distinguish post-build summary (reasoning) from user-initiated edits (editing).
+- `builder.editMadeMutations` — true when the SA mutated the blueprint during the current post-build edit session (via `setFormContent` or `updateBlueprint`). Reset when a new edit session starts (`setAgentActive(true)` in Ready phase) and on `completeGeneration()`/`reset()`. ChatSidebar uses this with `postBuildEdit` to decide done vs idle: if `postBuildEdit && !editMadeMutations` the SA only asked questions → `'idle'`; otherwise → `'done'`.
 
 **Stream energy** — two non-versioned channels for the SignalGrid neural activity display. Never trigger React re-renders.
-- **Burst energy** (`injectEnergy` / `drainEnergy`) — from `applyDataPart()` bursts (200 for module/form completions, 100 for updates, 50 for phase transitions) and the intro sequence. Drives building-mode flashes when UI-visible changes occur.
+- **Burst energy** (`injectEnergy` / `drainEnergy`) — from `applyDataPart()` bursts (200 for module/form completions, 100 for updates, 50 for stage transitions) and the intro sequence. Drives building-mode flashes when UI-visible changes occur.
 - **Think energy** (`injectThinkEnergy` / `drainThinkEnergy`) — from message content deltas (text, reasoning, and tool input parts tracked by SignalGrid component, 2x multiplier). Drives reasoning-style neural firing in all modes. In building and editing modes, think energy creates hotspot/scatter activity layered on the sweep/defrag bars; burst energy triggers delivery flashes.
 
 **Edit scope** — non-versioned `EditScope` tracking what the agent is currently editing. Set by `SignalGrid` from streaming tool call args (`moduleIndex`, `formIndex`, `questionPath`). `computeEditFocus()` maps scope + blueprint structure to a normalized `EditFocus` zone for the signal grid controller. Uses `flatIndexById()` from `questionTree.ts` for question-level precision — walks the tree structurally, no string parsing.
@@ -143,24 +143,24 @@ If the stream writer is broken (can't emit `data-error`), `emitError` catches si
 
 | Emission type | Builder method |
 |---|---|
-| `data-start-build` | `startDataModel()` |
+| `data-start-build` | `startGeneration()` |
 | `data-schema` | `setSchema(caseTypes)` |
 | `data-partial-scaffold` | `setPartialScaffold()` |
 | `data-scaffold` | `setScaffold()` |
-| `data-phase` | `setPhase()` |
+| `data-phase` | `advanceStage()` |
 | `data-module-done` | `setModuleContent()` |
 | `data-form-done` / `data-form-fixed` / `data-form-updated` | `setFormContent()` — updates `_mb.replaceForm()` in edit mode, `_partialModules` during build |
 | `data-blueprint-updated` | `updateBlueprint()` |
 | `data-fix-attempt` | `setFixAttempt()` |
-| `data-done` | `setDone()` |
+| `data-done` | `completeGeneration()` |
 | `data-project-saved` | `setProjectId()` |
-| `data-error` | `setError()` |
+| `data-error` | `setGenerationError()` |
 
 `applyDataPart(builder, type, data)` — shared switch used by both real-time streaming (`onData`) and log replay.
 
 ### Undo/Redo
 
-`HistoryManager` (`historyManager.ts`) — Proxy-based mutation interception on MutableBlueprint. Each snapshot stores `SnapshotEntry { blueprint, meta: SnapshotMeta, viewMode: ViewMode }`. `SnapshotMeta` captures mutation type (`add`/`remove`/`move`/`duplicate`/`update`/`rename`/`structural`), module/form indices, and `QuestionPath` values. `ViewMode` (`'overview' | 'design' | 'preview'`) captures which view the user was in when the edit was made. `deriveMeta()` maps method names + args to metadata; `duplicateQuestion` clone path is patched after execution. `undo()`/`redo()` return `{ mb, meta, viewMode }` — uses `MutableBlueprint.fromOwned()` to adopt popped stack entries without redundant cloning. Builder uses meta to derive smart selection (e.g., undo-remove re-selects the restored question, undo-add clears selection) and returns `viewMode` so BuilderLayout can restore the view. Drag guard: `builder.setDragging()` prevents undo/redo during drag operations. History cleared on form switch (in `select()`) and generation start (`startDataModel()`). Created in `setDone()`, disabled during generation, cleared on `reset()`.
+`HistoryManager` (`historyManager.ts`) — Proxy-based mutation interception on MutableBlueprint. Each snapshot stores `SnapshotEntry { blueprint, meta: SnapshotMeta, viewMode: ViewMode }`. `SnapshotMeta` captures mutation type (`add`/`remove`/`move`/`duplicate`/`update`/`rename`/`structural`), module/form indices, and `QuestionPath` values. `ViewMode` (`'overview' | 'design' | 'preview'`) captures which view the user was in when the edit was made. `deriveMeta()` maps method names + args to metadata; `duplicateQuestion` clone path is patched after execution. `undo()`/`redo()` return `{ mb, meta, viewMode }` — uses `MutableBlueprint.fromOwned()` to adopt popped stack entries without redundant cloning. Builder uses meta to derive smart selection (e.g., undo-remove re-selects the restored question, undo-add clears selection) and returns `viewMode` so BuilderLayout can restore the view. Drag guard: `builder.setDragging()` prevents undo/redo during drag operations. History cleared on form switch (in `select()`) and generation start (`startGeneration()`). Created in `completeGeneration()`, disabled during generation, cleared on `reset()`.
 
 **View restoration:** `builder.setViewMode()` keeps HistoryManager's `viewMode` in sync (called by BuilderLayout on each render). On undo/redo, `builder.undo()`/`redo()` return the captured `ViewMode`. BuilderLayout's `restoreView()` switches viewMode if needed and syncs the preview nav stack to the restored selection when in design/preview mode — so the user is "teleported" back to where the edit was made.
 

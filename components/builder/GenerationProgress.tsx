@@ -3,69 +3,70 @@ import { useRef, useState, useCallback } from 'react'
 import { motion } from 'motion/react'
 import { Icon } from '@iconify/react/offline'
 import ciCheck from '@iconify-icons/ci/check'
-import { BuilderPhase } from '@/lib/services/builder'
+import { GenerationStage, type GenerationError } from '@/lib/services/builder'
 
 interface GenerationProgressProps {
-  phase: BuilderPhase
+  stage: GenerationStage | null
+  generationError: GenerationError
   statusMessage?: string
-  mode: 'centered' | 'compact'
 }
 
 /** Display stages — Modules+Forms are combined into "Build" */
-const baseStages: { key: string; phases: BuilderPhase[]; label: string }[] = [
-  { key: 'data-model', phases: [BuilderPhase.DataModel], label: 'Data Model' },
-  { key: 'structure', phases: [BuilderPhase.Structure], label: 'Structure' },
-  { key: 'build', phases: [BuilderPhase.Modules, BuilderPhase.Forms], label: 'Build' },
-  { key: 'validate', phases: [BuilderPhase.Validate], label: 'Validate' },
+const baseStages: { key: string; stages: GenerationStage[]; label: string }[] = [
+  { key: 'data-model', stages: [GenerationStage.DataModel], label: 'Data Model' },
+  { key: 'structure', stages: [GenerationStage.Structure], label: 'Structure' },
+  { key: 'build', stages: [GenerationStage.Modules, GenerationStage.Forms], label: 'Build' },
+  { key: 'validate', stages: [GenerationStage.Validate], label: 'Validate' },
 ]
 
-const phaseOrder = [BuilderPhase.DataModel, BuilderPhase.Structure, BuilderPhase.Modules, BuilderPhase.Forms, BuilderPhase.Validate, BuilderPhase.Fix, BuilderPhase.Done]
+/** Ordered list of generation stages for determining relative position. */
+const stageOrder = [GenerationStage.DataModel, GenerationStage.Structure, GenerationStage.Modules, GenerationStage.Forms, GenerationStage.Validate, GenerationStage.Fix]
 
 type StageStatus = 'done' | 'active' | 'error' | 'pending'
 
-function getStageStatus(stagePhases: BuilderPhase[], currentPhase: BuilderPhase): StageStatus {
-  const currentIdx = phaseOrder.indexOf(currentPhase)
+/** Determine the status of a display stage relative to the current generation stage. */
+function getStageStatus(displayStages: GenerationStage[], currentStage: GenerationStage | null): StageStatus {
+  if (!currentStage) return 'pending'
+  const currentIdx = stageOrder.indexOf(currentStage)
   if (currentIdx < 0) return 'pending'
 
-  // Stage is active if current phase is any of its phases
-  if (stagePhases.includes(currentPhase)) return 'active'
+  // Stage is active if current generation stage is any of its stages
+  if (displayStages.includes(currentStage)) return 'active'
 
-  // Stage is done if current phase is past all of its phases
-  const lastPhaseIdx = Math.max(...stagePhases.map(p => phaseOrder.indexOf(p)))
-  if (currentIdx > lastPhaseIdx) return 'done'
+  // Stage is done if current generation stage is past all of its stages
+  const lastIdx = Math.max(...displayStages.map(s => stageOrder.indexOf(s)))
+  if (currentIdx > lastIdx) return 'done'
 
   return 'pending'
 }
 
-/** Map phase to its stage index (0-based among displayed stages, + count for Done). */
-function getPhaseStageIndex(phase: BuilderPhase, stageCount: number): number {
+/** Map generation stage to its display stage index (0-based, + stageCount for Done). */
+function getStageIndex(stage: GenerationStage | null, stageCount: number): number {
+  if (!stage) return stageCount
   const map: Record<string, number> = {
-    [BuilderPhase.DataModel]: 0,
-    [BuilderPhase.Structure]: 1,
-    [BuilderPhase.Modules]: 2,
-    [BuilderPhase.Forms]: 2,
-    [BuilderPhase.Validate]: 3,
-    [BuilderPhase.Fix]: 4,
-    [BuilderPhase.Done]: stageCount, // Done is always last
+    [GenerationStage.DataModel]: 0,
+    [GenerationStage.Structure]: 1,
+    [GenerationStage.Modules]: 2,
+    [GenerationStage.Forms]: 2,
+    [GenerationStage.Validate]: 3,
+    [GenerationStage.Fix]: 4,
   }
-  return map[phase] ?? 0
+  return map[stage] ?? 0
 }
 
-export function GenerationProgress({ phase, statusMessage, mode }: GenerationProgressProps) {
-  const isError = phase === BuilderPhase.Error
+export function GenerationProgress({ stage, generationError, statusMessage }: GenerationProgressProps) {
+  const isError = generationError !== null
 
-  // Track the last generating phase so we can show which step failed on error
-  const lastActivePhaseRef = useRef(phase)
-  if (phase !== BuilderPhase.Error && phase !== BuilderPhase.Idle && phase !== BuilderPhase.Done) {
-    lastActivePhaseRef.current = phase
+  // Track the last active stage so we can show which step failed on error
+  const lastActiveStageRef = useRef(stage)
+  if (stage !== null) {
+    lastActiveStageRef.current = stage
   }
 
   // Only show Fix stage if we've reached it
-  const stages = phase === BuilderPhase.Fix || lastActivePhaseRef.current === BuilderPhase.Fix
-    ? [...baseStages, { key: 'fix', phases: [BuilderPhase.Fix], label: 'Fix' }]
+  const displayStages = stage === GenerationStage.Fix || lastActiveStageRef.current === GenerationStage.Fix
+    ? [...baseStages, { key: 'fix', stages: [GenerationStage.Fix], label: 'Fix' }]
     : baseStages
-
-  const isCentered = mode === 'centered'
 
   // Refs for measuring label centers
   const containerRef = useRef<HTMLDivElement>(null)
@@ -78,15 +79,21 @@ export function GenerationProgress({ phase, statusMessage, mode }: GenerationPro
     else labelRefs.current.delete(idx)
   }, [])
 
-  // Measure label centers via ref callback + ResizeObserver
+  // Measure label centers via ref callback + ResizeObserver.
+  // The ResizeObserver is tracked in a ref so it can be disconnected when the
+  // callback identity changes (useCallback deps shift when Fix stage appears).
+  // Without this, the null call from the old callback would skip cleanup.
+  const roRef = useRef<ResizeObserver | null>(null)
   const barRefCallback = useCallback((el: HTMLDivElement | null) => {
+    roRef.current?.disconnect()
+    roRef.current = null
     barElRef.current = el
     if (!el) return
 
     const measure = () => {
       const barRect = el.getBoundingClientRect()
       if (barRect.width === 0) return
-      const totalLabels = stages.length + 1 // stages + Done
+      const totalLabels = displayStages.length + 1 // stages + Done
       const centers: number[] = []
       for (let i = 0; i < totalLabels; i++) {
         const labelEl = labelRefs.current.get(i)
@@ -102,13 +109,15 @@ export function GenerationProgress({ phase, statusMessage, mode }: GenerationPro
     measure()
     const ro = new ResizeObserver(measure)
     ro.observe(el)
-    return () => ro.disconnect()
-  }, [stages.length, phase])
+    roRef.current = ro
+    return () => { ro.disconnect(); roRef.current = null }
+  }, [displayStages.length, stage])
 
-  // Compute progress bar width — snap to the measured center of the active stage
+  // Compute progress bar width — snap to the measured center of the active stage.
+  // On error, use the last active stage so the bar freezes at the point of failure.
   let pct = 0
   if (labelCenters.length > 0) {
-    const stageIdx = getPhaseStageIndex(phase, stages.length)
+    const stageIdx = getStageIndex(isError ? lastActiveStageRef.current : stage, displayStages.length)
     pct = labelCenters[stageIdx] ?? 0
   }
 
@@ -118,31 +127,25 @@ export function GenerationProgress({ phase, statusMessage, mode }: GenerationPro
       layoutId="generation-progress"
       ref={containerRef}
       transition={{ layout: { duration: 0.5, ease: [0.4, 0, 0.2, 1] } }}
-      className={`relative rounded-xl shadow-lg backdrop-blur-sm ${
-        isCentered
-          ? 'border border-nova-violet/30 bg-nova-surface/90 px-8 py-5 shadow-nova-violet/10 min-w-[400px]'
-          : 'border border-nova-violet/20 bg-nova-deep/95 px-5 py-3 shadow-nova-void/50 min-w-[360px]'
-      }`}
+      className="relative rounded-xl shadow-lg backdrop-blur-sm border border-nova-violet/30 bg-nova-surface/90 px-8 py-5 shadow-nova-violet/10 min-w-[400px]"
     >
       {/* Stage indicators */}
-      <div className={`flex items-center ${isCentered ? 'gap-3' : 'gap-2'}`}>
-        {stages.map((stage, i) => {
-          // On error, compute status from the last active phase, then mark the active one as 'error'
+      <div className="flex items-center gap-3">
+        {displayStages.map((displayStage, i) => {
+          // On error, compute status from the last active stage, then mark the active one as 'error'
           let status: StageStatus
           if (isError) {
-            status = getStageStatus(stage.phases, lastActivePhaseRef.current)
+            status = getStageStatus(displayStage.stages, lastActiveStageRef.current)
             if (status === 'active') status = 'error'
           } else {
-            status = getStageStatus(stage.phases, phase)
+            status = getStageStatus(displayStage.stages, stage)
           }
 
           return (
-            <div key={stage.key} className="flex items-center gap-2">
-              <div className={`flex items-center gap-1.5 font-medium transition-colors duration-300 ${
-                  isCentered ? 'text-sm' : 'text-xs'
-                } ${
+            <div key={displayStage.key} className="flex items-center gap-2">
+              <div className={`flex items-center gap-1.5 text-sm font-medium transition-colors duration-300 ${
                   status === 'done' ? 'text-nova-cyan-bright' :
-                  status === 'active' ? (isCentered ? 'text-nova-text' : 'text-nova-violet-bright') :
+                  status === 'active' ? 'text-nova-text' :
                   status === 'error' ? 'text-nova-rose' :
                   'text-nova-text-muted'
                 }`}
@@ -153,7 +156,7 @@ export function GenerationProgress({ phase, statusMessage, mode }: GenerationPro
                     animate={{ scale: 1 }}
                     transition={{ type: 'spring', stiffness: 500, damping: 25 }}
                   >
-                    <Icon icon={ciCheck} width={isCentered ? 12 : 10} height={isCentered ? 12 : 10} />
+                    <Icon icon={ciCheck} width={12} height={12} />
                   </motion.span>
                 )}
                 {status === 'active' && (
@@ -161,9 +164,7 @@ export function GenerationProgress({ phase, statusMessage, mode }: GenerationPro
                     initial={{ scale: 0 }}
                     animate={{ scale: 1 }}
                     transition={{ type: 'spring', stiffness: 500, damping: 25 }}
-                    className={`inline-block rounded-full bg-nova-violet-bright animate-pulse ${
-                      isCentered ? 'w-2 h-2' : 'w-1.5 h-1.5'
-                    }`}
+                    className="inline-block w-2 h-2 rounded-full bg-nova-violet-bright animate-pulse"
                   />
                 )}
                 {status === 'error' && (
@@ -171,16 +172,12 @@ export function GenerationProgress({ phase, statusMessage, mode }: GenerationPro
                     initial={{ scale: 0 }}
                     animate={{ scale: 1 }}
                     transition={{ type: 'spring', stiffness: 500, damping: 25 }}
-                    className={`inline-block rounded-full bg-nova-rose ${
-                      isCentered ? 'w-2 h-2' : 'w-1.5 h-1.5'
-                    }`}
+                    className="inline-block w-2 h-2 rounded-full bg-nova-rose"
                   />
                 )}
-                <span ref={setLabelRef(i)}>{stage.label}</span>
+                <span ref={setLabelRef(i)}>{displayStage.label}</span>
               </div>
-              <span className={`transition-colors duration-300 ${
-                isCentered ? 'text-sm' : 'text-xs'
-              } ${
+              <span className={`text-sm transition-colors duration-300 ${
                 status === 'done' ? 'text-nova-cyan/40' : 'text-nova-text-muted/40'
               }`}>&mdash;</span>
             </div>
@@ -188,20 +185,15 @@ export function GenerationProgress({ phase, statusMessage, mode }: GenerationPro
         })}
 
         {/* Done — terminal label, never active while card is mounted */}
-        <div className={`flex items-center gap-1.5 font-medium text-nova-text-muted ${
-            isCentered ? 'text-sm' : 'text-xs'
-          }`}
-        >
-          <span ref={setLabelRef(stages.length)}>Done</span>
+        <div className="flex items-center gap-1.5 text-sm font-medium text-nova-text-muted">
+          <span ref={setLabelRef(displayStages.length)}>Done</span>
         </div>
       </div>
 
       {/* Progress bar */}
       <div
         ref={barRefCallback}
-        className={`rounded-full bg-nova-surface overflow-hidden ${
-          isCentered ? 'mt-3 h-[3px]' : 'mt-2 h-[2px]'
-        }`}
+        className="mt-3 h-[3px] rounded-full bg-nova-surface overflow-hidden"
       >
         <motion.div
           className="h-full rounded-full"
@@ -224,7 +216,7 @@ export function GenerationProgress({ phase, statusMessage, mode }: GenerationPro
         <motion.p
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
-          className={`text-nova-rose/80 mt-1.5 ${isCentered ? 'text-xs' : 'text-[10px]'}`}
+          className="text-nova-rose/80 mt-1.5 text-xs"
         >
           {statusMessage}
         </motion.p>

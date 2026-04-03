@@ -6,7 +6,7 @@ import { SignalPanel } from '@/components/chat/SignalPanel'
 import { defaultLabel } from '@/lib/signalGridController'
 import { ToastContainer } from '@/components/ui/ToastContainer'
 import { showToast } from '@/lib/services/toastStore'
-import { BuilderPhase, PHASE_LABELS } from '@/lib/services/builder'
+import { BuilderPhase, GenerationStage, STAGE_LABELS, type GenerationError } from '@/lib/services/builder'
 import { GenerationProgress } from '@/components/builder/GenerationProgress'
 
 // ── Simulated error scenarios ──────────────────────────────────────────
@@ -20,6 +20,8 @@ interface ErrorScenario {
 interface ScenarioActions {
   setGridMode: (m: SignalMode) => void
   setPhase: (p: BuilderPhase) => void
+  setStage: (s: GenerationStage | null) => void
+  setGenerationError: (e: GenerationError) => void
   setStatusMessage: (m: string) => void
   injectEnergy: (n: number) => void
 }
@@ -28,16 +30,20 @@ const errorScenarios: ErrorScenario[] = [
   {
     name: 'Invalid API Key',
     description: 'User enters a bad API key. Stream fails immediately after sending — toast + fatal error on first step.',
-    run: ({ setGridMode, setPhase, setStatusMessage }) => {
-      // Start with sending
+    run: ({ setGridMode, setPhase, setStage, setGenerationError, setStatusMessage }) => {
+      // Start with sending — builder is still in Idle (no data-start-build received yet)
       setGridMode('sending')
       setPhase(BuilderPhase.Idle)
+      setStage(null)
+      setGenerationError(null)
       setStatusMessage('')
 
       const t1 = setTimeout(() => {
-        // "Server responds with auth error"
+        // "Server responds with auth error" — show as toast only (Idle phase → no progress bar)
         setGridMode('error-fatal')
-        setPhase(BuilderPhase.Error)
+        setPhase(BuilderPhase.Generating)
+        setStage(GenerationStage.DataModel)
+        setGenerationError({ message: 'Your API key is invalid or expired. Check Settings.', severity: 'failed' })
         setStatusMessage('Your API key is invalid or expired. Check Settings.')
         showToast('error', 'Generation failed', 'Your API key is invalid or expired. Check Settings.')
       }, 1500)
@@ -46,6 +52,8 @@ const errorScenarios: ErrorScenario[] = [
         clearTimeout(t1)
         setGridMode('idle')
         setPhase(BuilderPhase.Idle)
+        setStage(null)
+        setGenerationError(null)
         setStatusMessage('')
       }
     },
@@ -53,9 +61,11 @@ const errorScenarios: ErrorScenario[] = [
   {
     name: 'Mid-Build Stream Error',
     description: 'Generation is progressing, then the stream breaks during Build phase. Progress bar freezes, then shows error.',
-    run: ({ setGridMode, setPhase, setStatusMessage, injectEnergy }) => {
-      setPhase(BuilderPhase.DataModel)
-      setStatusMessage(PHASE_LABELS[BuilderPhase.DataModel])
+    run: ({ setGridMode, setPhase, setStage, setGenerationError, setStatusMessage, injectEnergy }) => {
+      setPhase(BuilderPhase.Generating)
+      setStage(GenerationStage.DataModel)
+      setGenerationError(null)
+      setStatusMessage(STAGE_LABELS[GenerationStage.DataModel])
       setGridMode('building')
 
       const timers: ReturnType<typeof setTimeout>[] = []
@@ -64,18 +74,18 @@ const errorScenarios: ErrorScenario[] = [
       const energyId = setInterval(() => injectEnergy(60 + Math.random() * 40), 200)
       intervals.push(energyId)
 
-      // Progress through phases
-      timers.push(setTimeout(() => { setPhase(BuilderPhase.Structure); setStatusMessage(PHASE_LABELS[BuilderPhase.Structure]) }, 1500))
-      timers.push(setTimeout(() => { setPhase(BuilderPhase.Modules); setStatusMessage(PHASE_LABELS[BuilderPhase.Modules]) }, 3000))
+      // Progress through stages
+      timers.push(setTimeout(() => { setStage(GenerationStage.Structure); setStatusMessage(STAGE_LABELS[GenerationStage.Structure]) }, 1500))
+      timers.push(setTimeout(() => { setStage(GenerationStage.Modules); setStatusMessage(STAGE_LABELS[GenerationStage.Modules]) }, 3000))
       timers.push(setTimeout(() => injectEnergy(200), 3500))
-      timers.push(setTimeout(() => { setPhase(BuilderPhase.Forms); setStatusMessage(PHASE_LABELS[BuilderPhase.Forms]) }, 4500))
+      timers.push(setTimeout(() => { setStage(GenerationStage.Forms); setStatusMessage(STAGE_LABELS[GenerationStage.Forms]) }, 4500))
       timers.push(setTimeout(() => injectEnergy(200), 5000))
 
-      // Error at 6s
+      // Error at 6s — phase stays Generating, error is metadata
       timers.push(setTimeout(() => {
         clearInterval(energyId)
         setGridMode('error-fatal')
-        setPhase(BuilderPhase.Error)
+        setGenerationError({ message: 'The connection was interrupted. Please try again.', severity: 'failed' })
         setStatusMessage('The connection was interrupted. Please try again.')
         showToast('error', 'Generation failed', 'The connection was interrupted. Please try again.')
       }, 6000))
@@ -85,6 +95,8 @@ const errorScenarios: ErrorScenario[] = [
         timers.forEach(clearTimeout)
         setGridMode('idle')
         setPhase(BuilderPhase.Idle)
+        setStage(null)
+        setGenerationError(null)
         setStatusMessage('')
       }
     },
@@ -92,9 +104,11 @@ const errorScenarios: ErrorScenario[] = [
   {
     name: 'Rate Limited',
     description: 'API returns 429 during schema generation. Toast appears, generation stops.',
-    run: ({ setGridMode, setPhase, setStatusMessage, injectEnergy }) => {
-      setPhase(BuilderPhase.DataModel)
-      setStatusMessage(PHASE_LABELS[BuilderPhase.DataModel])
+    run: ({ setGridMode, setPhase, setStage, setGenerationError, setStatusMessage, injectEnergy }) => {
+      setPhase(BuilderPhase.Generating)
+      setStage(GenerationStage.DataModel)
+      setGenerationError(null)
+      setStatusMessage(STAGE_LABELS[GenerationStage.DataModel])
       setGridMode('building')
 
       const timers: ReturnType<typeof setTimeout>[] = []
@@ -103,7 +117,7 @@ const errorScenarios: ErrorScenario[] = [
       timers.push(setTimeout(() => {
         clearInterval(energyId)
         setGridMode('error-fatal')
-        setPhase(BuilderPhase.Error)
+        setGenerationError({ message: 'Rate limited by the AI service. Wait a moment and try again.', severity: 'failed' })
         setStatusMessage('Rate limited by the AI service. Wait a moment and try again.')
         showToast('error', 'Rate limited', 'Rate limited by the AI service. Wait a moment and try again.')
       }, 2500))
@@ -113,6 +127,8 @@ const errorScenarios: ErrorScenario[] = [
         timers.forEach(clearTimeout)
         setGridMode('idle')
         setPhase(BuilderPhase.Idle)
+        setStage(null)
+        setGenerationError(null)
         setStatusMessage('')
       }
     },
@@ -120,9 +136,11 @@ const errorScenarios: ErrorScenario[] = [
   {
     name: 'Overloaded — Retry Recovers',
     description: 'API overloaded, SA tries to recover (warm reasoning), then succeeds. Warning toast, then progress resumes.',
-    run: ({ setGridMode, setPhase, setStatusMessage, injectEnergy }) => {
-      setPhase(BuilderPhase.Modules)
-      setStatusMessage(PHASE_LABELS[BuilderPhase.Modules])
+    run: ({ setGridMode, setPhase, setStage, setGenerationError, setStatusMessage, injectEnergy }) => {
+      setPhase(BuilderPhase.Generating)
+      setStage(GenerationStage.Modules)
+      setGenerationError(null)
+      setStatusMessage(STAGE_LABELS[GenerationStage.Modules])
       setGridMode('building')
 
       const timers: ReturnType<typeof setTimeout>[] = []
@@ -131,23 +149,24 @@ const errorScenarios: ErrorScenario[] = [
       const buildId = setInterval(() => injectEnergy(50 + Math.random() * 40), 200)
       intervals.push(buildId)
 
-      // Error at 2s — recovering
+      // Error at 2s — recovering (phase stays Generating)
       timers.push(setTimeout(() => {
         clearInterval(buildId)
         setGridMode('error-recovering')
-        setPhase(BuilderPhase.Error)
+        setGenerationError({ message: 'The AI service is currently overloaded. Retrying...', severity: 'recovering' })
         setStatusMessage('The AI service is currently overloaded. Retrying...')
         showToast('warning', 'Service overloaded', 'The AI service is currently overloaded. Retrying...')
 
         const recoverEnergy = setInterval(() => injectEnergy(10 + Math.random() * 15), 180)
         intervals.push(recoverEnergy)
 
-        // Recovery at 5s
+        // Recovery at 5s — error clears, stage advances
         timers.push(setTimeout(() => {
           clearInterval(recoverEnergy)
           setGridMode('building')
-          setPhase(BuilderPhase.Forms)
-          setStatusMessage(PHASE_LABELS[BuilderPhase.Forms])
+          setStage(GenerationStage.Forms)
+          setGenerationError(null)
+          setStatusMessage(STAGE_LABELS[GenerationStage.Forms])
           showToast('info', 'Recovered', 'Generation resumed successfully.')
 
           const resumeEnergy = setInterval(() => injectEnergy(60 + Math.random() * 40), 200)
@@ -156,7 +175,8 @@ const errorScenarios: ErrorScenario[] = [
           timers.push(setTimeout(() => injectEnergy(200), 1000))
           timers.push(setTimeout(() => {
             clearInterval(resumeEnergy)
-            setPhase(BuilderPhase.Done)
+            setPhase(BuilderPhase.Ready)
+            setStage(null)
             setStatusMessage('')
             setGridMode('idle')
           }, 3000))
@@ -168,6 +188,8 @@ const errorScenarios: ErrorScenario[] = [
         timers.forEach(clearTimeout)
         setGridMode('idle')
         setPhase(BuilderPhase.Idle)
+        setStage(null)
+        setGenerationError(null)
         setStatusMessage('')
       }
     },
@@ -198,6 +220,8 @@ export default function ErrorTestPage() {
   const [activeScenario, setActiveScenario] = useState<number | null>(null)
   const [gridMode, setGridMode] = useState<SignalMode>('idle')
   const [phase, setPhase] = useState<BuilderPhase>(BuilderPhase.Idle)
+  const [stage, setStage] = useState<GenerationStage | null>(null)
+  const [generationError, setGenerationError] = useState<GenerationError>(null)
   const [statusMessage, setStatusMessage] = useState('')
   const controllerRef = useRef<SignalGridController | null>(null)
   const energyRef = useRef(0)
@@ -229,7 +253,7 @@ export default function ErrorTestPage() {
     cleanupRef.current?.()
     setActiveScenario(index)
     energyRef.current = 0
-    cleanupRef.current = errorScenarios[index].run({ setGridMode, setPhase, setStatusMessage, injectEnergy })
+    cleanupRef.current = errorScenarios[index].run({ setGridMode, setPhase, setStage, setGenerationError, setStatusMessage, injectEnergy })
   }, [injectEnergy])
 
   const stopScenario = useCallback(() => {
@@ -237,12 +261,13 @@ export default function ErrorTestPage() {
     cleanupRef.current = null
     setGridMode('idle')
     setPhase(BuilderPhase.Idle)
+    setStage(null)
+    setGenerationError(null)
     setStatusMessage('')
     setActiveScenario(null)
   }, [])
 
-  const isGenerating = [BuilderPhase.DataModel, BuilderPhase.Structure, BuilderPhase.Modules, BuilderPhase.Forms, BuilderPhase.Validate, BuilderPhase.Fix].includes(phase)
-  const showProgress = isGenerating || phase === BuilderPhase.Done || phase === BuilderPhase.Error
+  const showProgress = phase === BuilderPhase.Generating
 
   return (
     <div className="min-h-screen bg-nova-void text-nova-text p-8">
@@ -281,9 +306,9 @@ export default function ErrorTestPage() {
             <div className="bg-nova-deep border border-nova-border rounded-xl p-4 flex items-center justify-center min-h-[80px]">
               {showProgress ? (
                 <GenerationProgress
-                  phase={phase}
+                  stage={stage}
+                  generationError={generationError}
                   statusMessage={statusMessage}
-                  mode="centered"
                 />
               ) : (
                 <span className="text-xs text-nova-text-muted font-mono">No active generation</span>
@@ -295,10 +320,13 @@ export default function ErrorTestPage() {
         {/* Current state readout */}
         <div className="flex gap-4 text-xs font-mono">
           <div className="px-3 py-1.5 rounded border border-nova-border bg-nova-surface">
-            mode: <span className="text-nova-violet-bright">{gridMode}</span>
+            phase: <span className="text-nova-violet-bright">{phase}</span>
           </div>
           <div className="px-3 py-1.5 rounded border border-nova-border bg-nova-surface">
-            phase: <span className="text-nova-violet-bright">{phase}</span>
+            stage: <span className="text-nova-violet-bright">{stage ?? 'none'}</span>
+          </div>
+          <div className="px-3 py-1.5 rounded border border-nova-border bg-nova-surface">
+            mode: <span className="text-nova-violet-bright">{gridMode}</span>
           </div>
           {statusMessage && (
             <div className="px-3 py-1.5 rounded border border-nova-rose/30 bg-nova-rose/5 text-nova-rose">
