@@ -4,7 +4,7 @@
  * The SA converses with users, incrementally generates apps through focused tool
  * calls, and edits them — all within one conversation context and prompt-caching window.
  */
-import { stepCountIs, ToolLoopAgent, tool } from "ai";
+import { type JSONValue, stepCountIs, ToolLoopAgent, tool } from "ai";
 import { z } from "zod";
 import { log } from "@/lib/log";
 import { completeProject } from "../db/projects";
@@ -143,10 +143,8 @@ export function createSolutionsArchitect(
 		model: ctx.model(SA_MODEL),
 		instructions: buildSolutionsArchitectPrompt(),
 		stopWhen: stepCountIs(80),
-		// biome-ignore lint/suspicious/noExplicitAny: AI SDK's PrepareStepFunction and providerOptions use loosely-typed generics
-		prepareStep: ({ steps: _steps }: any) => {
-			// biome-ignore lint/suspicious/noExplicitAny: Anthropic provider options are loosely typed
-			const anthropic: Record<string, any> = {
+		prepareStep: ({ steps: _steps }) => {
+			const anthropic: Record<string, JSONValue | undefined> = {
 				cacheControl: { type: "ephemeral" },
 			};
 
@@ -155,8 +153,7 @@ export function createSolutionsArchitect(
 				effort: SA_REASONING.effort,
 			};
 
-			// biome-ignore lint/suspicious/noExplicitAny: SharedV3ProviderOptions requires JSONObject values
-			return { providerOptions: { anthropic } as Record<string, any> };
+			return { providerOptions: { anthropic } };
 		},
 		onStepFinish: ({
 			usage,
