@@ -69,6 +69,7 @@ function ToastItem({ toast, onDismiss }: { toast: Toast; onDismiss: (id: string)
 
       {/* Close button */}
       <button
+        type="button"
         onClick={() => onDismiss(toast.id)}
         className="absolute top-2 right-2 p-0.5 rounded text-nova-text-muted hover:text-nova-text transition-colors cursor-pointer"
       >

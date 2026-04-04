@@ -1,3 +1,4 @@
+import { useMemo } from 'react'
 import { flattenQuestionPaths } from '@/lib/services/questionNavigation'
 import type { QuestionPath } from '@/lib/services/questionPath'
 import type { Shortcut } from '@/lib/services/keyboardManager'
@@ -5,12 +6,16 @@ import type { Builder, CursorMode } from '@/lib/services/builder'
 import { BuilderPhase } from '@/lib/services/builder'
 
 /**
- * Builds the keyboard shortcuts array for the builder layout.
+ * Builds a memoized keyboard shortcuts array for the builder layout.
  *
  * Returns an empty array when not in Ready phase.
  * When active, includes: Escape (deselect/exit pointer), 1/2/3 (switch cursor mode),
  * Tab/Shift+Tab (navigate questions in inspect mode), Delete/Backspace (delete question),
  * Cmd+D (duplicate), ArrowUp/ArrowDown (reorder), Cmd+Z/Cmd+Shift+Z (undo/redo).
+ *
+ * Handlers read from `builder` at call time (not at memo time), so the memo
+ * only needs to refresh when the handler identity or mode changes — not on
+ * every blueprint mutation.
  */
 export function useBuilderShortcuts(
   builder: Builder,
@@ -22,6 +27,7 @@ export function useBuilderShortcuts(
 ): Shortcut[] {
   const isReady = builder.phase === BuilderPhase.Ready
 
+  return useMemo(() => {
   if (!isReady) return []
 
   return [
@@ -144,4 +150,5 @@ export function useBuilderShortcuts(
       handler: onRedo,
     },
   ]
+  }, [isReady, builder, cursorMode, handleCursorModeChange, handleDelete, onUndo, onRedo])
 }

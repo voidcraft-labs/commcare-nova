@@ -27,7 +27,7 @@ export function FormDetail({ form }: FormDetailProps) {
 
   return (
     <div>
-      <label className="text-xs text-nova-text-muted uppercase tracking-wider mb-1 block">Close Case</label>
+      <span className="text-xs text-nova-text-muted uppercase tracking-wider mb-1 block">Close Case</span>
       <p className="text-sm text-nova-rose">
         {form.close_case.question
           ? `When ${form.close_case.question} = "${form.close_case.answer}"`
@@ -54,7 +54,7 @@ interface FormTypeButtonProps {
  */
 export function FormTypeButton({ form, moduleIndex, formIndex, mb, notifyBlueprintChanged }: FormTypeButtonProps) {
   const editable = mb != null && moduleIndex != null && formIndex != null && notifyBlueprintChanged != null
-  const dd = useFloatingDropdown<HTMLSpanElement>({ placement: 'bottom-start', offset: 4, contentPopover: true })
+  const dd = useFloatingDropdown<HTMLButtonElement>({ placement: 'bottom-start', offset: 4, contentPopover: true })
 
   const handleSelect = useCallback((type: string) => {
     if (!editable) return
@@ -67,15 +67,21 @@ export function FormTypeButton({ form, moduleIndex, formIndex, mb, notifyBluepri
 
   return (
     <>
-      <span
-        ref={dd.triggerRef}
-        onClick={editable ? dd.toggle : undefined}
-        className={`-ml-1.5 p-1.5 rounded-md shrink-0 text-nova-text-muted ${editable ? 'transition-colors cursor-pointer hover:text-nova-text hover:bg-white/5' : ''}`}
-        role={editable ? 'button' : undefined}
-        aria-label={editable ? 'Change form type' : undefined}
-      >
-        <Icon icon={icon} width="18" height="18" />
-      </span>
+      {editable ? (
+        <button
+          type="button"
+          ref={dd.triggerRef}
+          onClick={dd.toggle}
+          className="-ml-1.5 p-1.5 rounded-md shrink-0 text-nova-text-muted transition-colors cursor-pointer hover:text-nova-text hover:bg-white/5"
+          aria-label="Change form type"
+        >
+          <Icon icon={icon} width="18" height="18" />
+        </button>
+      ) : (
+        <span className="-ml-1.5 p-1.5 shrink-0 text-nova-text-muted">
+          <Icon icon={icon} width="18" height="18" />
+        </span>
+      )}
 
       {editable && (
         <DropdownPortal dropdown={dd}>

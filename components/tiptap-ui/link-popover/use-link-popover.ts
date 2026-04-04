@@ -13,7 +13,6 @@ import { LinkIcon } from "@/components/tiptap-icons/link-icon"
 import {
   isMarkInSchema,
   isNodeTypeSelected,
-  sanitizeUrl,
 } from "@/lib/tiptap-utils"
 
 /**
@@ -173,10 +172,7 @@ export function useLinkHandler(props: LinkHandlerProps) {
     (target: string = "_blank", features: string = "noopener,noreferrer") => {
       if (!url) return
 
-      const safeUrl = sanitizeUrl(url, window.location.href)
-      if (safeUrl !== "#") {
-        window.open(safeUrl, target, features)
-      }
+      window.open(url, target, features)
     },
     [url]
   )

@@ -111,7 +111,7 @@ export function GenerationProgress({ stage, generationError, statusMessage }: Ge
     ro.observe(el)
     roRef.current = ro
     return () => { ro.disconnect(); roRef.current = null }
-  }, [displayStages.length, stage])
+  }, [displayStages.length])
 
   // Compute progress bar width — snap to the measured center of the active stage.
   // On error, use the last active stage so the bar freezes at the point of failure.

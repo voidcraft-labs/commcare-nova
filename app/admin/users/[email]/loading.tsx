@@ -8,6 +8,20 @@
  */
 import { Skeleton } from '@/components/ui/Skeleton'
 
+/** Header column widths for the usage table skeleton (date, count, model, cost). */
+const USAGE_HEADER_WIDTHS = [
+  { id: 'date', width: 48 },
+  { id: 'count', width: 72 },
+  { id: 'model', width: 96 },
+  { id: 'cost', width: 40 },
+] as const
+
+/** Stable keys for usage table body rows. */
+const USAGE_ROW_KEYS = ['usage-a', 'usage-b', 'usage-c'] as const
+
+/** Stable keys for project card placeholders. */
+const PROJECT_CARD_KEYS = ['project-a', 'project-b', 'project-c'] as const
+
 // ── Section Skeletons (reused by page Suspense boundaries) ───────────
 
 /** Profile card skeleton — matches avatar + name + email + dates + badge. */
@@ -35,15 +49,15 @@ export function UsageSkeleton() {
     <section>
       <Skeleton className="w-32 h-5 mb-4" />
       <div className="rounded-xl border border-nova-border overflow-hidden">
-        {/* Header row */}
+        {/* Header row — widths mirror real usage table columns */}
         <div className="flex gap-8 px-4 py-3 border-b border-nova-border bg-nova-deep/50">
-          {[48, 72, 96, 40].map((w, i) => (
-            <Skeleton key={i} className="h-3" style={{ width: w }} />
+          {USAGE_HEADER_WIDTHS.map(({ id, width }) => (
+            <Skeleton key={id} className="h-3" style={{ width }} />
           ))}
         </div>
         {/* Body rows */}
-        {Array.from({ length: 3 }, (_, i) => (
-          <div key={i} className="flex gap-8 px-4 py-3 border-b border-nova-border/50">
+        {USAGE_ROW_KEYS.map((key) => (
+          <div key={key} className="flex gap-8 px-4 py-3 border-b border-nova-border/50">
             <Skeleton className="w-20 h-4" />
             <Skeleton className="w-8 h-4" />
             <Skeleton className="w-24 h-4" />
@@ -61,9 +75,9 @@ export function ProjectsSkeleton() {
     <section>
       <Skeleton className="w-24 h-5 mb-4" />
       <div className="grid gap-3">
-        {Array.from({ length: 3 }, (_, i) => (
+        {PROJECT_CARD_KEYS.map((key) => (
           <div
-            key={i}
+            key={key}
             className="p-4 bg-nova-surface border border-nova-border rounded-lg flex items-center justify-between"
           >
             <div>

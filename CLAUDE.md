@@ -17,6 +17,7 @@ Next.js web app that generates CommCare apps from natural language conversation.
 - **Icons**: Coolicons (`@iconify-icons/ci`) + Tabler (`@iconify-icons/tabler`) via `@iconify/react/offline`
 - **Auth**: Better Auth (Firestore-backed sessions via `better-auth-firestore`, Google OAuth — domain restriction enforced by GCP OAuth consent screen, not application code)
 - **Database**: Google Cloud Firestore (`@google-cloud/firestore`) — app data in subcollection hierarchy under `users/{email}`, auth state in `auth_*` collections managed by Better Auth
+- **Linting**: Biome (`biome.json`) — formatting + lint rules. `noArrayIndexKey` is suppressed where entities lack unique IDs (modules, forms in TreeData)
 - **Testing**: Vitest
 
 ## Commands

@@ -113,9 +113,14 @@ export function InsertionPoint({ atIndex, parentPath, disabled, cursorSpeedRef, 
       }}
       data-insertion-point
     >
-      {/* Invisible hover detector extending into adjacent gaps */}
-      <div
-        className="absolute inset-x-0 -top-2 -bottom-2 z-raised cursor-pointer"
+      {/* Invisible hover detector extending into adjacent gaps. Semantic <button>
+       * with tabIndex={-1} so keyboard users skip it (they use the visible "+"
+       * button below). aria-hidden keeps it out of the a11y tree entirely. */}
+      <button
+        type="button"
+        tabIndex={-1}
+        aria-hidden="true"
+        className="absolute inset-x-0 -top-2 -bottom-2 z-raised cursor-pointer bg-transparent border-none p-0"
         onMouseEnter={handleMouseEnter}
         onMouseMove={handleMouseMove}
         onMouseLeave={handleMouseLeave}
@@ -132,6 +137,7 @@ export function InsertionPoint({ atIndex, parentPath, disabled, cursorSpeedRef, 
       >
         <div className="flex-1 h-px bg-nova-cyan/40" />
         <button
+          type="button"
           onMouseDown={handleOpen}
           onClick={stopClick}
           className="mx-1 w-5 h-5 flex items-center justify-center rounded-full bg-nova-surface border border-nova-cyan/40 text-nova-cyan hover:bg-nova-cyan/10 transition-colors cursor-pointer shrink-0"

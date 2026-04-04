@@ -15,7 +15,7 @@
  */
 
 'use client'
-import { useState, useCallback, useMemo, useRef, useEffect } from 'react'
+import { useState, useCallback, useMemo, useRef, useEffect, useId } from 'react'
 import { useEditor, EditorContent } from '@tiptap/react'
 import StarterKit from '@tiptap/starter-kit'
 import Mention from '@tiptap/extension-mention'
@@ -128,6 +128,7 @@ export function RefLabelInput({
   selectAll,
   labelRight,
 }: RefLabelInputProps) {
+  const labelId = useId()
   const [focused, setFocused] = useState(false)
   const [saved, setSaved] = useState(false)
   const committedRef = useRef(false)
@@ -194,8 +195,7 @@ export function RefLabelInput({
 
   const initialContent = useMemo(
     () => parseValueToContent(value, provider),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [],
+    [value, provider],
   )
 
   const editor = useEditor({
@@ -215,6 +215,8 @@ export function RefLabelInput({
         class: 'outline-none',
         'data-1p-ignore': '',
         autocomplete: 'off',
+        'aria-labelledby': labelId,
+        role: 'textbox',
       },
     },
   })
@@ -240,8 +242,7 @@ export function RefLabelInput({
         editor.commands.focus('end')
       }
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [editor])
+  }, [editor, autoFocus, selectAll])
 
   /**
    * Commit the current editor content as the new label value. Sets the
@@ -349,7 +350,7 @@ export function RefLabelInput({
 
   return (
     <div>
-      <label className="text-xs text-nova-text-muted uppercase tracking-wider mb-1 flex items-center gap-1.5">
+      <span id={labelId} className="text-xs text-nova-text-muted uppercase tracking-wider mb-1 flex items-center gap-1.5">
         {fieldLabel}
         <SavedCheck visible={saved && !focused} size={12} className="shrink-0" />
         {focused && multiline && (
@@ -358,7 +359,7 @@ export function RefLabelInput({
           </span>
         )}
         {labelRight}
-      </label>
+      </span>
       <div className={wrapperCls}>
         <EditorContent editor={editor} />
       </div>

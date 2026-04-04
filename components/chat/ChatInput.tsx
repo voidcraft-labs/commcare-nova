@@ -53,6 +53,7 @@ export function ChatInput({ onSend, disabled, centered }: ChatInputProps) {
           className={`flex-1 resize-none bg-transparent border-none text-sm text-nova-text placeholder:text-nova-text-muted focus:outline-none disabled:opacity-50 ${centered ? 'px-4 py-3' : 'px-3 py-2'}`}
         />
         <button
+          type="button"
           onClick={handleSubmit}
           disabled={!value.trim() || disabled}
           className="shrink-0 p-2 mr-1 text-nova-violet-bright hover:text-white transition-colors disabled:opacity-30 disabled:cursor-not-allowed"

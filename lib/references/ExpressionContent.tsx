@@ -19,13 +19,13 @@ export function ExpressionContent({ expr }: ExpressionContentProps) {
 
   return (
     <>
-      {segments.map((seg, i) => {
-        if (seg.kind === 'text') return <span key={i}>{seg.text}</span>
+      {segments.map(seg => {
+        if (seg.kind === 'text') return <span key={seg.key}>{seg.text}</span>
 
         const ref = resolveRefFromExpr(seg.value, provider)
-        if (!ref) return <span key={i}>{seg.value}</span>
+        if (!ref) return <span key={seg.key}>{seg.value}</span>
 
-        return <span key={i} className="opacity-50"><ReferenceChip reference={ref} /></span>
+        return <span key={seg.key} className="opacity-50"><ReferenceChip reference={ref} /></span>
       })}
     </>
   )

@@ -16,25 +16,27 @@ export function LogicBadges({ question }: LogicBadgesProps) {
   const ctx = useEditContext()
   if (ctx?.mode === 'test') return null
 
-  const badges: Array<{ icon: any; tint: string; title: string }> = []
+  /** Each badge maps 1:1 to a question property — use the property name as
+   *  a stable React key since a given property can only produce one badge. */
+  const badges: Array<{ key: string; icon: any; tint: string; title: string }> = []
 
   if (question.relevant) {
-    badges.push({ icon: ciFilter, tint: 'text-nova-cyan', title: `Show when: ${truncate(question.relevant)}` })
+    badges.push({ key: 'relevant', icon: ciFilter, tint: 'text-nova-cyan', title: `Show when: ${truncate(question.relevant)}` })
   }
   if (question.validation) {
-    badges.push({ icon: ciShieldCheck, tint: 'text-nova-amber', title: `Validation: ${truncate(question.validation)}` })
+    badges.push({ key: 'validation', icon: ciShieldCheck, tint: 'text-nova-amber', title: `Validation: ${truncate(question.validation)}` })
   }
   if (question.calculate) {
-    badges.push({ icon: tablerMath, tint: 'text-nova-violet', title: `Calculate: ${truncate(question.calculate)}` })
+    badges.push({ key: 'calculate', icon: tablerMath, tint: 'text-nova-violet', title: `Calculate: ${truncate(question.calculate)}` })
   }
 
   if (badges.length === 0) return null
 
   return (
     <div className="flex items-center gap-1">
-      {badges.map((b, i) => (
+      {badges.map((b) => (
         <span
-          key={i}
+          key={b.key}
           className={`w-4 h-4 rounded-full flex items-center justify-center ${b.tint} opacity-50 hover:opacity-100 transition-opacity`}
           title={b.title}
         >

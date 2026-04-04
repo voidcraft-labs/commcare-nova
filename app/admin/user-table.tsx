@@ -1,5 +1,6 @@
 'use client'
 import { useState } from 'react'
+import Image from 'next/image'
 import { useRouter } from 'next/navigation'
 import { Icon } from '@iconify/react/offline'
 import tablerChevronUp from '@iconify-icons/tabler/chevron-up'
@@ -27,9 +28,11 @@ const columns: ColumnDef<AdminUserRow>[] = [
     cell: ({ row }) => (
       <div className="flex items-center gap-2.5">
         {row.original.image ? (
-          <img
+          <Image
             src={row.original.image}
             alt=""
+            width={24}
+            height={24}
             className="w-6 h-6 rounded-full border border-nova-border"
           />
         ) : (

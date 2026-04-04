@@ -1,5 +1,5 @@
 'use client'
-import { useState, useCallback, useEffect, useMemo, useRef, Fragment, createContext, useContext } from 'react'
+import { useState, useEffect, useMemo, useRef, Fragment, createContext, useContext } from 'react'
 import { AnimatePresence, motion } from 'motion/react'
 import { EASE } from '@/lib/animations'
 import { DragDropProvider, DragOverlay, PointerSensor } from '@dnd-kit/react'
@@ -125,7 +125,6 @@ function SortableQuestion({
   sortIndex,
   path,
   engine,
-  renderChildren,
   group,
   isActiveDrag,
 }: {
@@ -134,7 +133,6 @@ function SortableQuestion({
   sortIndex: number
   path: string
   engine: FormEngine
-  renderChildren: (children: Question[], childPrefix: string, parentPath: QuestionPath) => React.ReactNode
   group: string
   /** True if this item is the one currently being dragged. */
   isActiveDrag: boolean
@@ -187,13 +185,13 @@ function SortableQuestion({
   if (q.type === 'group') {
     content = (
       <EditableQuestionWrapper questionPath={questionPath} isDragging={showAsPlaceholder}>
-        <GroupField question={q} path={path} questionPath={questionPath} engine={engine} renderChildren={renderChildren} />
+        <GroupField question={q} path={path} questionPath={questionPath} engine={engine} />
       </EditableQuestionWrapper>
     )
   } else if (q.type === 'repeat') {
     content = (
       <EditableQuestionWrapper questionPath={questionPath} isDragging={showAsPlaceholder}>
-        <RepeatField question={q} path={path} questionPath={questionPath} engine={engine} renderChildren={renderChildren} />
+        <RepeatField question={q} path={path} questionPath={questionPath} engine={engine} />
       </EditableQuestionWrapper>
     )
   } else if (q.type === 'label') {
@@ -211,16 +209,13 @@ function SortableQuestion({
   } else {
     content = (
       <EditableQuestionWrapper questionPath={questionPath} isDragging={showAsPlaceholder}>
-        {/* In text mode, prevent the <label> from forwarding focus to the
-           wrapped input. The first click is caught by TextEditable's
-           stopPropagation, but subsequent clicks (e.g. the second click of a
-           double-click) land on the now-active editor, bubble up to the
-           <label>, and trigger native focus-forwarding to QuestionField. */}
-        {/* eslint-disable-next-line jsx-a11y/no-noninteractive-element-interactions */}
-        <label
-          className="block space-y-1.5"
-          onClick={ctx?.cursorMode === 'text' ? (e) => e.preventDefault() : undefined}
-        >
+        {/* Structural wrapper for label + hint + field. Uses a plain div
+           instead of <label> to avoid: (1) native focus-forwarding that
+           interfered with TextEditable in text mode, and (2) the biome
+           noLabelWithoutControl violation from a <label> wrapping deeply
+           nested inputs. Each select/input field component handles its own
+           label association internally. */}
+        <div className="block space-y-1.5">
           {q.label && (
             <div className="flex items-center gap-1">
               <div className="min-w-0 flex-1">
@@ -242,7 +237,7 @@ function SortableQuestion({
             onChange={(value) => engine.setValue(path, value)}
             onBlur={() => engine.touch(path)}
           />
-        </label>
+        </div>
       </EditableQuestionWrapper>
     )
   }
@@ -321,9 +316,13 @@ export function FormRenderer({ questions, engine, prefix = '/data', parentPath }
   const lastCursorRef = isRoot ? ownLastRef : (cursorCtx?.lastRef ?? ownLastRef)
   useEffect(() => {
     if (!isEditMode || !isRoot) return
+    // Use own refs directly — this effect only runs for the root instance,
+    // so ownSpeedRef/ownLastRef are the canonical refs.
+    const speedRef = ownSpeedRef
+    const lastRef = ownLastRef
     const handler = (e: MouseEvent) => {
       const now = performance.now()
-      const last = lastCursorRef.current
+      const last = lastRef.current
       if (last) {
         const dt = now - last.t
         if (dt > 0) {
@@ -331,21 +330,21 @@ export function FormRenderer({ questions, engine, prefix = '/data', parentPath }
           const dy = e.clientY - last.y
           const speed = Math.sqrt(dx * dx + dy * dy) / dt
           // Long gap = cursor was stopped, EMA is stale — reset to raw speed
-          cursorSpeedRef.current = dt > GAP_RESET ? speed : EMA_ALPHA * speed + (1 - EMA_ALPHA) * cursorSpeedRef.current
+          speedRef.current = dt > GAP_RESET ? speed : EMA_ALPHA * speed + (1 - EMA_ALPHA) * speedRef.current
         }
       }
-      lastCursorRef.current = { x: e.clientX, y: e.clientY, t: now }
+      lastRef.current = { x: e.clientX, y: e.clientY, t: now }
     }
     const wheelHandler = (e: WheelEvent) => {
       const now = performance.now()
-      const last = lastCursorRef.current
+      const last = lastRef.current
       if (last) {
         const dt = now - last.t
         if (dt > 0) {
           // Normalize: deltaMode 0=px, 1=lines (~16px each)
           const pxDelta = Math.abs(e.deltaY) * (e.deltaMode === 1 ? 16 : 1)
           const speed = pxDelta / dt
-          cursorSpeedRef.current = dt > GAP_RESET ? speed : EMA_ALPHA * speed + (1 - EMA_ALPHA) * cursorSpeedRef.current
+          speedRef.current = dt > GAP_RESET ? speed : EMA_ALPHA * speed + (1 - EMA_ALPHA) * speedRef.current
         }
         // Update timestamp so poll knows there's activity; position stays unchanged
         last.t = now
@@ -358,10 +357,6 @@ export function FormRenderer({ questions, engine, prefix = '/data', parentPath }
       document.removeEventListener('wheel', wheelHandler)
     }
   }, [isEditMode, isRoot])
-
-  const renderChildren = useCallback((children: Question[], childPrefix: string, parentPath: QuestionPath) => (
-    <FormRenderer questions={children} engine={engine} prefix={childPrefix} parentPath={parentPath} />
-  ), [engine])
 
   // During drag: render from the controlled items map (reflects cross-group moves).
   // Otherwise: render from the questions prop.
@@ -378,7 +373,7 @@ export function FormRenderer({ questions, engine, prefix = '/data', parentPath }
     const isTextMode = ctx?.cursorMode === 'text'
     const showHidden = isEditMode && !isTextMode
     return showHidden ? questions : questions.filter(q => q.type !== 'hidden')
-  }, [questions, activeDragReorder, group, engine, isEditMode, ctx?.cursorMode])
+  }, [questions, activeDragReorder, group, isEditMode, ctx?.cursorMode])
 
   const modifiers = useMemo(() => [
     RestrictToElement.configure({
@@ -407,7 +402,6 @@ export function FormRenderer({ questions, engine, prefix = '/data', parentPath }
               sortIndex={idx}
               path={`${prefix}/${q.id}`}
               engine={engine}
-              renderChildren={renderChildren}
               group={group}
               isActiveDrag={!!activeDragReorder && questionPath === activeDragReorder.activePath}
             />

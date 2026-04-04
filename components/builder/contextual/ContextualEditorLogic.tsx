@@ -29,7 +29,9 @@ function XPathSection({ label, value, onSave, getLintContext, autoEdit, children
 }) {
   return (
     <div>
-      <label className="text-xs text-nova-text-muted uppercase tracking-wider mb-1 block">{label}</label>
+      {/* Visual heading only — XPathField is a CodeMirror editor, not a native
+           input, so <label> can't associate with it and misleads screen readers. */}
+      <span className="text-xs text-nova-text-muted uppercase tracking-wider mb-1 block">{label}</span>
       <XPathField
         value={value}
         onSave={onSave}
@@ -98,7 +100,8 @@ export function ContextualEditorLogic({ question, builder }: QuestionEditorProps
       {question.required && (
         <div>
           <div className="flex items-center justify-between mb-1">
-            <label className="text-xs text-nova-text-muted uppercase tracking-wider">Required</label>
+            {/* Visual heading — Toggle is a custom component, not a native input */}
+            <span className="text-xs text-nova-text-muted uppercase tracking-wider">Required</span>
             <Toggle enabled onToggle={() => saveQuestion('required', null)} />
           </div>
           {hasRequiredCondition || xpathField.activeField === 'required' ? (
@@ -113,6 +116,7 @@ export function ContextualEditorLogic({ question, builder }: QuestionEditorProps
               </div>
               {hasRequiredCondition && (
                 <button
+                  type="button"
                   onClick={() => saveQuestion('required', 'true()')}
                   aria-label="Remove condition"
                   className="shrink-0 p-0.5 text-nova-text-muted opacity-0 group-hover/condition:opacity-100 hover:text-nova-rose transition-all cursor-pointer"

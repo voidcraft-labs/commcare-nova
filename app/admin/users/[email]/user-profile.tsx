@@ -5,6 +5,7 @@
  * Wrapped in a Suspense boundary by the parent page so it streams in
  * independently of the usage table and project list.
  */
+import Image from 'next/image'
 import { notFound } from 'next/navigation'
 import { Badge } from '@/components/ui/Badge'
 import { getAdminUserProfile } from '@/lib/db/admin'
@@ -23,9 +24,11 @@ export async function UserProfileSection({ email }: UserProfileSectionProps) {
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-4">
           {user.image ? (
-            <img
+            <Image
               src={user.image}
               alt=""
+              width={48}
+              height={48}
               className="w-12 h-12 rounded-full border border-nova-border"
             />
           ) : (

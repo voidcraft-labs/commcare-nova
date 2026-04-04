@@ -8,7 +8,7 @@
 
 ## Flipbook Scroll Sync
 
-Switching between design and preview preserves scroll position so the same question stays at the same pixel offset. `handleViewModeChange` captures the topmost visible question and its offset before the state change. A `useLayoutEffect` fires after React updates the DOM but before paint, adjusting `scrollTop` to re-align the anchor. If the anchor is hidden by relevancy in preview mode, the nearest visible question above it is used.
+Switching cursor modes preserves scroll position so the same question stays at the same pixel offset. `handleCursorModeChange` captures the topmost visible question and its offset into `scrollAnchor` state before the mode switch. A `useLayoutEffect` fires after React updates the DOM but before paint, adjusting `scrollTop` to re-align the anchor. `scrollAnchor` must be state (not a ref) because the layout effect depends on it. If the anchor is hidden in the new mode, the nearest visible question above it is used.
 
 ## Flipbook Height Parity — ProseMirror trailingBreak
 
@@ -32,6 +32,10 @@ ProseMirror injects a `<br class="ProseMirror-trailingBreak">` at the end of eve
 **`collisionPriority` layering** — group/repeat `SortableQuestion` uses `CollisionPriority.Lowest` so the inner `useDroppable` container (set to `Low`) wins collision detection when items are dragged over the content area. Without this, the outer sortable intercepts the drop.
 
 **Empty group drop targets** — `useDroppable` with `:container` suffix ID is necessary because dnd-kit's `OptimisticSortingPlugin` only processes `SortableDroppable` instances — plain `useDroppable` targets are invisible to it.
+
+## EditableQuestionWrapper — `div[role=button]`, NOT `<button>`
+
+Uses `<div role="button">` instead of `<button>` because children contain nested interactive elements (InsertionPoint buttons, TextEditable buttons, form inputs/fieldsets). HTML forbids interactive content inside `<button>` and SSR parsers will mangle the tree. Do not "fix" this to a `<button>`.
 
 ## Text Mode Cursor Overlay
 

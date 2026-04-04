@@ -63,12 +63,14 @@ export default function XPathTestPage() {
         {/* Actions */}
         <div className="flex items-center gap-3">
           <button
+            type="button"
             onClick={handleFormat}
             className="px-4 py-2 rounded-lg bg-nova-violet text-white text-sm font-medium hover:bg-nova-violet-bright transition-colors"
           >
             Simple Format
           </button>
           <button
+            type="button"
             onClick={handlePrettyPrint}
             className="px-4 py-2 rounded-lg bg-nova-violet text-white text-sm font-medium hover:bg-nova-violet-bright transition-colors"
           >
@@ -83,9 +85,10 @@ export default function XPathTestPage() {
         <div>
           <h2 className="text-sm font-medium text-nova-text-secondary mb-3">Sample Expressions</h2>
           <div className="space-y-1.5">
-            {SAMPLES.map((sample, i) => (
+            {SAMPLES.map((sample) => (
               <button
-                key={i}
+                type="button"
+                key={sample}
                 onClick={() => loadSample(sample)}
                 className="block w-full text-left px-3 py-2 rounded-lg text-xs font-mono text-nova-text-muted hover:text-nova-text hover:bg-nova-surface transition-colors truncate"
               >

@@ -1,7 +1,7 @@
 import type { SyntaxNode } from '@lezer/common'
 import { parser } from '@/lib/codemirror/xpath-parser'
 import type { XPathValue, EvalContext } from './types'
-import { toNumber, toString, toBoolean, compareEqual, compareRelational } from './coerce'
+import { toNumber, toBoolean, compareEqual, compareRelational } from './coerce'
 import { getFunction } from './functions'
 
 // Pre-resolve all node types from the parser — zero string comparisons at runtime

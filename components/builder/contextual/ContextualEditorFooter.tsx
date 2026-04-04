@@ -1,5 +1,5 @@
 'use client'
-import { useCallback, useMemo } from 'react'
+import { useCallback } from 'react'
 import { Icon } from '@iconify/react/offline'
 import ciArrowUpMd from '@iconify-icons/ci/arrow-up-md'
 import ciArrowDownMd from '@iconify-icons/ci/arrow-down-md'
@@ -21,7 +21,7 @@ export function ContextualEditorFooter({ question, builder }: QuestionEditorProp
   const mb = builder.mb!
 
   const form = selected.formIndex !== undefined ? mb.getForm(selected.moduleIndex, selected.formIndex) : null
-  const paths = useMemo(() => form ? flattenQuestionPaths(form.questions) : [], [form, builder.mutationCount])
+  const paths = form ? flattenQuestionPaths(form.questions) : []
   const curIdx = paths.indexOf(selected.questionPath as QuestionPath)
   const isFirst = curIdx <= 0
   const isLast = curIdx < 0 || curIdx >= paths.length - 1
@@ -75,6 +75,7 @@ export function ContextualEditorFooter({ question, builder }: QuestionEditorProp
       </div>
 
       <button
+        type="button"
         ref={typePicker.triggerRef}
         onClick={typePicker.toggle}
         disabled={!canConvert}
@@ -121,6 +122,7 @@ function FooterButton({ icon, title, onClick, disabled, destructive }: {
 }) {
   return (
     <button
+      type="button"
       onClick={onClick}
       disabled={disabled}
       title={title}

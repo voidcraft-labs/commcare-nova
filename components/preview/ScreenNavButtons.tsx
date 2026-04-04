@@ -26,10 +26,10 @@ export function ScreenNavButtons({ canGoBack, canGoUp, onBack, onUp, compact }: 
 
   return (
     <div className={`flex items-center gap-0.5 ${compact ? '-ml-1' : '-ml-1.5'}`}>
-      <button onClick={onBack} disabled={!canGoBack} className={btnClass(canGoBack ?? false, !!compact)}>
+      <button type="button" onClick={onBack} disabled={!canGoBack} className={btnClass(canGoBack ?? false, !!compact)}>
         <Icon icon={ciArrowLeftMd} width={iconSize} height={iconSize} />
       </button>
-      <button onClick={onUp} disabled={!canGoUp} className={btnClass(canGoUp ?? false, !!compact)}>
+      <button type="button" onClick={onUp} disabled={!canGoUp} className={btnClass(canGoUp ?? false, !!compact)}>
         <Icon icon={ciArrowUpMd} width={iconSize} height={iconSize} />
       </button>
     </div>

@@ -114,6 +114,8 @@ function LabelToolbar({ anchorRef }: { anchorRef: React.RefObject<HTMLDivElement
   return createPortal(
     <div
       ref={portalRef}
+      role="toolbar"
+      aria-label="Text formatting"
       style={{ visibility: 'hidden', zIndex: 'var(--z-popover-top)' }}
       data-no-drag
       data-inline-toolbar
@@ -277,8 +279,7 @@ export function InlineTextEditor({ value, onSave, fieldType, autoFocus, clickPos
       }
       editor.commands.focus('end')
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [editor])
+  }, [editor, value, autoFocus, clickPosition])
 
   if (!editor) return null
 

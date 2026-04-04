@@ -69,6 +69,7 @@ function breaksRenderRule(
     return (
       <Fragment key={state.key}>
         {parts.map((part, i) => (
+          // biome-ignore lint/suspicious/noArrayIndexKey: static text splits from \n — never reorder
           <Fragment key={i}>
             {part}
             {i < parts.length - 1 && <br />}

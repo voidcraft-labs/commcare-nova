@@ -50,6 +50,7 @@ export function ReplayController({ stages, appName, initialIndex = 0, onExit, on
       >
         {/* Left arrow */}
         <button
+          type="button"
           onClick={() => canGoBack && goToStage(currentIndex - 1)}
           disabled={!canGoBack}
           className={`p-0.5 rounded-md transition-colors ${
@@ -92,6 +93,7 @@ export function ReplayController({ stages, appName, initialIndex = 0, onExit, on
 
         {/* Right arrow */}
         <button
+          type="button"
           onClick={() => canGoForward && goToStage(currentIndex + 1)}
           disabled={!canGoForward}
           className={`p-0.5 rounded-md transition-colors ${
@@ -108,6 +110,7 @@ export function ReplayController({ stages, appName, initialIndex = 0, onExit, on
 
         {/* Close */}
         <button
+          type="button"
           onClick={onExit}
           className="p-0.5 rounded-md text-nova-text-muted hover:text-nova-text transition-colors cursor-pointer"
         >

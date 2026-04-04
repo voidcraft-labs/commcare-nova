@@ -31,7 +31,7 @@ export function EditableDropdown({ label, value, options, onSave, renderValue }:
 
   return (
     <div>
-      <label className="text-xs text-nova-text-muted uppercase tracking-wider mb-1 flex items-center gap-1.5">
+      <span className="text-xs text-nova-text-muted uppercase tracking-wider mb-1 flex items-center gap-1.5">
         {label}
         <AnimatePresence>
           {saved && (
@@ -45,16 +45,17 @@ export function EditableDropdown({ label, value, options, onSave, renderValue }:
             </motion.span>
           )}
         </AnimatePresence>
-      </label>
+      </span>
       <div ref={dismissRef} className="relative">
-        <div
+        <button
+          type="button"
           onClick={() => setOpen(!open)}
-          className="cursor-pointer hover:opacity-80 transition-opacity"
+          className="cursor-pointer hover:opacity-80 transition-opacity text-left"
         >
           {renderValue ? renderValue(value) : (
             <span className="text-sm capitalize">{currentLabel}</span>
           )}
-        </div>
+        </button>
         <AnimatePresence>
           {open && (
             <motion.div
@@ -66,6 +67,7 @@ export function EditableDropdown({ label, value, options, onSave, renderValue }:
             >
               {options.map((opt) => (
                 <button
+                  type="button"
                   key={opt.value}
                   onClick={() => handleSelect(opt.value)}
                   className={`w-full text-left px-3 py-1.5 text-sm cursor-pointer hover:bg-nova-elevated/80 transition-colors flex items-center gap-2 ${

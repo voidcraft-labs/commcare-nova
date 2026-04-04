@@ -153,7 +153,7 @@ export function BuilderLayout() {
   const [structureOpen, setStructureOpen] = useState(true)
   const [cursorMode, setCursorMode] = useState<CursorMode>('inspect')
   const cursorModeRef = useRef(cursorMode)
-  const scrollAnchorRef = useRef<{ questionPath: string; offsetTop: number; allPaths: string[] } | null>(null)
+  const [scrollAnchor, setScrollAnchor] = useState<{ questionPath: string; offsetTop: number; allPaths: string[] } | null>(null)
   cursorModeRef.current = cursorMode
 
   const handleExitReplay = useCallback(() => {
@@ -179,11 +179,11 @@ export function BuilderLayout() {
       for (let i = 0; i < questionEls.length; i++) {
         const rect = questionEls[i].getBoundingClientRect()
         if (rect.bottom > containerRect.top) {
-          scrollAnchorRef.current = {
+          setScrollAnchor({
             questionPath: questionEls[i].getAttribute('data-question-id')!,
             offsetTop: rect.top - containerRect.top,
             allPaths: questionEls.map(el => el.getAttribute('data-question-id')!),
-          }
+          })
           break
         }
       }
@@ -193,22 +193,25 @@ export function BuilderLayout() {
     setCursorMode(mode)
   }, [])
 
-  // Restore scroll position after mode switch for flipbook-style alignment
+  // Restore scroll position after mode switch for flipbook-style alignment.
+  // Depends on scrollAnchor (set by handleCursorModeChange before setCursorMode).
+  // React batches both state updates, so this fires once per mode switch with the
+  // anchor data available. setScrollAnchor(null) triggers one extra synchronous
+  // re-render before paint (layout effect), which no-ops via the early return.
   useLayoutEffect(() => {
-    const anchor = scrollAnchorRef.current
-    if (!anchor) return
-    scrollAnchorRef.current = null
+    if (!scrollAnchor) return
+    setScrollAnchor(null)
 
     const scrollContainer = document.querySelector('[data-preview-scroll-container]') as HTMLElement | null
     if (!scrollContainer) return
 
-    let targetEl = scrollContainer.querySelector(`[data-question-id="${anchor.questionPath}"]`) as HTMLElement | null
+    let targetEl = scrollContainer.querySelector(`[data-question-id="${scrollAnchor.questionPath}"]`) as HTMLElement | null
 
     if (!targetEl) {
       // Anchor hidden in new mode — find nearest visible question above it
-      const anchorIdx = anchor.allPaths.indexOf(anchor.questionPath)
+      const anchorIdx = scrollAnchor.allPaths.indexOf(scrollAnchor.questionPath)
       for (let i = anchorIdx - 1; i >= 0; i--) {
-        targetEl = scrollContainer.querySelector(`[data-question-id="${anchor.allPaths[i]}"]`) as HTMLElement | null
+        targetEl = scrollContainer.querySelector(`[data-question-id="${scrollAnchor.allPaths[i]}"]`) as HTMLElement | null
         if (targetEl) break
       }
     }
@@ -216,9 +219,9 @@ export function BuilderLayout() {
     if (targetEl) {
       const containerRect = scrollContainer.getBoundingClientRect()
       const currentOffset = targetEl.getBoundingClientRect().top - containerRect.top
-      scrollContainer.scrollTop += currentOffset - anchor.offsetTop
+      scrollContainer.scrollTop += currentOffset - scrollAnchor.offsetTop
     }
-  }, [cursorMode])
+  }, [scrollAnchor])
 
   const inReplayMode = !!replayData
   const hasAccess = isAuthenticated || inReplayMode
@@ -382,7 +385,7 @@ export function BuilderLayout() {
         }
       }, 250)
     }
-  }, [builder, nav.navigateToHome, nav.navigateToForm, nav.navigateToModule])
+  }, [builder, nav.navigateToHome, nav.navigateToForm, nav.navigateToModule, nav.current])
 
   const handleDelete = useCallback(() => {
     const sel = builder.selected
@@ -408,7 +411,7 @@ export function BuilderLayout() {
 
   const shortcuts = useBuilderShortcuts(builder, cursorMode, handleCursorModeChange, handleDelete, handleUndo, handleRedo)
 
-  useKeyboardShortcuts('builder-layout', shortcuts, [builder.phase === BuilderPhase.Ready, cursorMode, builder.selected, builder.blueprint, builder.mutationCount])
+  useKeyboardShortcuts('builder-layout', shortcuts)
 
   /** Sync builder selection to match the given preview screen. */
   const syncSelection = useCallback((screen: PreviewScreen | undefined) => {
@@ -497,15 +500,17 @@ export function BuilderLayout() {
   const editMode = cursorMode === 'pointer' ? 'test' as const : 'edit' as const
 
   // Breadcrumb parts — labels are derived unmemoized (for live inline title edits),
-  // handlers are stable memoized references. During generation (no blueprint),
-  // show app name as a static non-clickable breadcrumb.
+  // handlers are stable memoized references. Keys are derived from the underlying
+  // PreviewScreen identity (type + indices) since labels aren't unique ("App > Intake > Intake").
+  // During generation (no blueprint), show app name as a static non-clickable breadcrumb.
   const breadcrumbParts: BreadcrumbPart[] = builder.blueprint
-    ? nav.breadcrumb.map((label, i) => ({
-        label,
+    ? nav.breadcrumb.map((item, i) => ({
+        key: item.key,
+        label: item.label,
         onClick: breadcrumbHandlers[i] ?? noop,
       }))
     : builder.treeData?.app_name
-      ? [{ label: builder.treeData.app_name, onClick: noop }]
+      ? [{ key: 'home', label: builder.treeData.app_name, onClick: noop }]
       : []
 
   return (
@@ -549,6 +554,7 @@ export function BuilderLayout() {
                   <SaveIndicator saveState={saveStatus} />
                   <AppConnectSettings builder={builder} />
                   <button
+                    type="button"
                     onClick={handleUndo}
                     disabled={!builder.canUndo}
                     className="flex items-center justify-center w-8 h-8 rounded-lg text-nova-text-muted transition-colors cursor-pointer enabled:hover:text-nova-text enabled:hover:bg-white/5 disabled:opacity-25 disabled:cursor-default"
@@ -557,6 +563,7 @@ export function BuilderLayout() {
                     <Icon icon={ciUndo} width="18" height="18" />
                   </button>
                   <button
+                    type="button"
                     onClick={handleRedo}
                     disabled={!builder.canRedo}
                     className="flex items-center justify-center w-8 h-8 rounded-lg text-nova-text-muted transition-colors cursor-pointer enabled:hover:text-nova-text enabled:hover:bg-white/5 disabled:opacity-25 disabled:cursor-default"
@@ -609,6 +616,7 @@ export function BuilderLayout() {
                   {/* Floating reopen buttons — same position as original design */}
                   {!structureOpen && builder.treeData && (
                     <button
+                      type="button"
                       onClick={() => setStructureOpen(true)}
                       className="absolute top-3 left-3 z-ground p-2 bg-nova-surface border border-nova-border rounded-lg hover:border-nova-border-bright transition-colors cursor-pointer"
                       title="Open structure"
@@ -618,6 +626,7 @@ export function BuilderLayout() {
                   )}
                   {!chatOpen && (
                     <button
+                      type="button"
                       onClick={() => setChatOpen(true)}
                       className="absolute top-3 right-3 z-ground p-2 bg-nova-surface border border-nova-border rounded-lg hover:border-nova-border-bright transition-colors cursor-pointer"
                       title="Open chat"

@@ -52,6 +52,17 @@ export function TextEditable({ value, onSave, fieldType, children }: TextEditabl
     setEditing(true)
   }, [])
 
+  /** Keyboard activation — Enter or Space activates the inline editor
+   *  without a click position (cursor lands at end of text). */
+  const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
+    if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault()
+      e.stopPropagation()
+      clickPosRef.current = null
+      setEditing(true)
+    }
+  }, [])
+
   /* Not in text mode or no save handler — render children as-is.
    * Still wrap in a div with matching padding so content doesn't shift
    * when switching cursor modes (flipbook parity). */
@@ -74,14 +85,17 @@ export function TextEditable({ value, onSave, fieldType, children }: TextEditabl
     )
   }
 
-  /* Text mode idle — show children with hover indicator. */
+  /* Text mode idle — semantic <button> with hover indicator. Enter/Space
+   * activates inline editing for keyboard users, click for mouse users. */
   return (
-    <div
+    <button
+      type="button"
       data-text-editable
       onClick={handleClick}
-      className="cursor-text rounded px-[5px] py-[5px] transition-colors hover:ring-1 hover:ring-nova-violet/30 hover:ring-offset-1 hover:ring-offset-transparent"
+      onKeyDown={handleKeyDown}
+      className="w-full text-left bg-transparent border-none p-0 font-[inherit] cursor-text rounded px-[5px] py-[5px] transition-colors hover:ring-1 hover:ring-nova-violet/30 hover:ring-offset-1 hover:ring-offset-transparent"
     >
       {children}
-    </div>
+    </button>
   )
 }

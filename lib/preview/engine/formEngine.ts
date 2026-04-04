@@ -268,7 +268,7 @@ export class FormEngine {
 
   private notify(): void {
     this._version++
-    this.listeners.forEach(fn => fn())
+    for (const fn of this.listeners) fn()
   }
 
   /** Pre-populate case property values into the data instance for followup forms. */

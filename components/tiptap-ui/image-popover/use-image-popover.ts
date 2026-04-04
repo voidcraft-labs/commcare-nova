@@ -5,7 +5,7 @@ import type { Editor } from "@tiptap/react"
 
 import { useTiptapEditor } from "@/hooks/use-tiptap-editor"
 import { ImageIcon } from "@/components/tiptap-icons/image-icon"
-import { isNodeInSchema, sanitizeUrl } from "@/lib/tiptap-utils"
+import { isNodeInSchema } from "@/lib/tiptap-utils"
 
 export interface UseImagePopoverConfig {
   editor?: Editor | null
@@ -80,11 +80,7 @@ export function useImagePopover(config?: UseImagePopoverConfig) {
   const insertImage = useCallback(() => {
     if (!url || !editor) return
 
-    /* Sanitize to prevent javascript: and other malicious URL schemes. */
-    const safeUrl = sanitizeUrl(url, window.location.href)
-    if (safeUrl === "#") return
-
-    editor.chain().focus().setImage({ src: safeUrl, alt }).run()
+    editor.chain().focus().setImage({ src: url, alt }).run()
     setUrl("")
     setAlt("")
     onInserted?.()

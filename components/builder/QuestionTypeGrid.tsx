@@ -33,6 +33,7 @@ export function QuestionTypeGrid({ onSelect, activeType, types, variant = 'glass
         const isActive = type === activeType
         return (
           <button
+            type="button"
             key={type}
             onClick={() => onSelect(type)}
             className={`flex items-center gap-2 px-2 py-1.5 rounded-lg text-xs transition-colors cursor-pointer

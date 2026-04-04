@@ -41,13 +41,13 @@ export function ModuleDetail({ mod, moduleIndex, mb, notifyBlueprintChanged }: M
       <EditableText label="Name" value={mod.name} onSave={(v) => saveModule({ name: v })} />
       {mod.case_type && (
         <div>
-          <label className="text-xs text-nova-text-muted uppercase tracking-wider mb-1 block">Case Type</label>
+          <span className="text-xs text-nova-text-muted uppercase tracking-wider mb-1 block">Case Type</span>
           <p className="text-sm font-mono text-nova-cyan-bright">{mod.case_type}</p>
         </div>
       )}
       {mod.case_list_columns && mod.case_list_columns.length > 0 && (
         <div>
-          <label className="text-xs text-nova-text-muted uppercase tracking-wider mb-2 block">Case List Columns</label>
+          <span className="text-xs text-nova-text-muted uppercase tracking-wider mb-2 block">Case List Columns</span>
           <div className="rounded-lg border border-nova-cyan/10 overflow-hidden">
             <div className="grid grid-cols-[1fr_auto] bg-nova-cyan/[0.04]">
               <div className="px-3 py-1.5 text-[11px] font-medium tracking-wide text-nova-cyan-bright uppercase">
@@ -57,8 +57,8 @@ export function ModuleDetail({ mod, moduleIndex, mb, notifyBlueprintChanged }: M
                 Field
               </div>
             </div>
-            {mod.case_list_columns.map((col, i) => (
-              <div key={i} className="grid grid-cols-[1fr_auto] border-t border-nova-border/40">
+            {mod.case_list_columns.map((col) => (
+              <div key={`${col.header}-${col.field}`} className="grid grid-cols-[1fr_auto] border-t border-nova-border/40">
                 <div className="px-3 py-1.5 text-sm text-nova-text-secondary">
                   {col.header}
                 </div>
@@ -71,10 +71,11 @@ export function ModuleDetail({ mod, moduleIndex, mb, notifyBlueprintChanged }: M
         </div>
       )}
       <div>
-        <label className="text-xs text-nova-text-muted uppercase tracking-wider mb-1 block">Forms</label>
+        <span className="text-xs text-nova-text-muted uppercase tracking-wider mb-1 block">Forms</span>
         <div className="space-y-1">
-          {mod.forms.map((f, i) => (
-            <div key={i} className="flex items-center gap-2 text-sm">
+          {mod.forms.map((f, fIdx) => (
+            // biome-ignore lint/suspicious/noArrayIndexKey: forms have no unique ID field
+            <div key={fIdx} className="flex items-center gap-2 text-sm">
               <Icon icon={formTypeIcons[f.type as keyof typeof formTypeIcons] ?? ciFileBlank} width="14" height="14" className="text-nova-text-muted shrink-0" />
               <span>{f.name}</span>
             </div>

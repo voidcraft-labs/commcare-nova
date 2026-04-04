@@ -11,7 +11,7 @@ export function toNumber(v: XPathValue): number {
 }
 
 /** XPath 1.0 type coercion: value → string */
-export function toString(v: XPathValue): string {
+export function xpathToString(v: XPathValue): string {
   if (typeof v === 'string') return v
   if (typeof v === 'boolean') return v ? 'true' : 'false'
   if (Number.isNaN(v)) return 'NaN'
@@ -36,7 +36,7 @@ export function toBoolean(v: XPathValue): boolean {
 export function compareEqual(a: XPathValue, b: XPathValue): boolean {
   if (typeof a === 'boolean' || typeof b === 'boolean') return toBoolean(a) === toBoolean(b)
   if (typeof a === 'number' || typeof b === 'number') return toNumber(a) === toNumber(b)
-  return toString(a) === toString(b)
+  return xpathToString(a) === xpathToString(b)
 }
 
 /**

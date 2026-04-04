@@ -8,15 +8,18 @@
  */
 import { Skeleton } from '@/components/ui/Skeleton'
 
+/** Stable keys for project card skeleton placeholders. */
+const PROJECT_CARD_KEYS = ['project-a', 'project-b', 'project-c', 'project-d'] as const
+
 // ── Shared Skeleton (reused by page Suspense boundary) ───────────────
 
 /** Skeleton for the project card grid — matches `ProjectCard` layout. */
 export function ProjectListSkeleton() {
   return (
     <div className="grid gap-3">
-      {Array.from({ length: 4 }, (_, i) => (
+      {PROJECT_CARD_KEYS.map((key) => (
         <div
-          key={i}
+          key={key}
           className="p-4 bg-nova-surface border border-nova-border rounded-lg flex items-center justify-between"
         >
           <div>

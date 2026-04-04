@@ -17,9 +17,10 @@ export function parseBareHashtags(text: string): string[] {
   if (!text) return []
   const refs: string[] = []
   const re = new RegExp(HASHTAG_REF_PATTERN, 'g')
-  let match: RegExpExecArray | null
-  while ((match = re.exec(text)) !== null) {
+  let match: RegExpExecArray | null = re.exec(text)
+  while (match !== null) {
     refs.push(match[0])
+    match = re.exec(text)
   }
   return refs
 }

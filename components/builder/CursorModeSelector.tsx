@@ -60,6 +60,7 @@ export function CursorModeSelector({ mode, onChange, variant = 'horizontal' }: C
         const colors = MODE_COLORS[key]
         return (
           <button
+            type="button"
             key={key}
             onClick={() => onChange(key)}
             title={vertical ? label : undefined}

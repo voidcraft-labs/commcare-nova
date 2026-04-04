@@ -59,6 +59,26 @@ export function EditableQuestionWrapper({
   const moduleIndex = ctx?.moduleIndex
   const formIndex = ctx?.formIndex
 
+  /** Select this question in the builder and scroll its tree row into view. */
+  const selectQuestion = useCallback(() => {
+    if (!builder || moduleIndex === undefined || formIndex === undefined) return
+    builder.select({ type: 'question', moduleIndex, formIndex, questionPath })
+    const treeRow = document.querySelector(`[data-tree-question="${questionPath}"]`) as HTMLElement | null
+    if (treeRow) {
+      const parent = treeRow.closest('[class*="overflow-auto"]') as HTMLElement | null
+      if (parent) {
+        const parentRect = parent.getBoundingClientRect()
+        const rowRect = treeRow.getBoundingClientRect()
+        const SCROLL_MARGIN = 20
+        const isTopVisible = rowRect.top >= parentRect.top && rowRect.top <= parentRect.bottom - SCROLL_MARGIN
+        if (!isTopVisible) {
+          treeRow.style.scrollMarginTop = `${SCROLL_MARGIN}px`
+          treeRow.scrollIntoView({ behavior: 'smooth', block: 'start' })
+        }
+      }
+    }
+  }, [builder, moduleIndex, formIndex, questionPath])
+
   const handleClick = useCallback((e: React.MouseEvent) => {
     if (!builder || moduleIndex === undefined || formIndex === undefined) return
     // Ignore clicks from portal-rendered elements (e.g. QuestionTypePicker FloatingPortal).
@@ -71,24 +91,18 @@ export function EditableQuestionWrapper({
     const closestWrapper = target.closest('[data-question-wrapper]')
     if (closestWrapper && closestWrapper !== e.currentTarget) return
     e.stopPropagation()
-    builder.select({ type: 'question', moduleIndex, formIndex, questionPath })
-    // Scroll the matching tree row into view if not already visible
-    const treeRow = document.querySelector(`[data-tree-question="${questionPath}"]`) as HTMLElement | null
-    if (treeRow) {
-      const parent = treeRow.closest('[class*="overflow-auto"]') as HTMLElement | null
-      if (parent) {
-        const parentRect = parent.getBoundingClientRect()
-        const rowRect = treeRow.getBoundingClientRect()
-        /* Only scroll if the top of the row is outside the visible area. */
-        const SCROLL_MARGIN = 20
-        const isTopVisible = rowRect.top >= parentRect.top && rowRect.top <= parentRect.bottom - SCROLL_MARGIN
-        if (!isTopVisible) {
-          treeRow.style.scrollMarginTop = `${SCROLL_MARGIN}px`
-          treeRow.scrollIntoView({ behavior: 'smooth', block: 'start' })
-        }
-      }
+    selectQuestion()
+  }, [builder, moduleIndex, formIndex, selectQuestion])
+
+  /** Keyboard activation — Enter or Space selects this question, matching
+   *  the click behavior for keyboard-only users (role="button" contract). */
+  const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
+    if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault()
+      e.stopPropagation()
+      selectQuestion()
     }
-  }, [builder, moduleIndex, formIndex, questionPath])
+  }, [selectQuestion])
 
   if (!ctx || ctx.mode === 'test') {
     return <div style={style}>{children}</div>
@@ -108,10 +122,18 @@ export function EditableQuestionWrapper({
 
   const mergedStyle = holdReady ? { ...style, cursor: 'grabbing' as const } : style
 
+  /* Use div[role=button] instead of <button> because children contain
+   * interactive elements (InsertionPoint buttons, TextEditable buttons,
+   * form inputs). HTML forbids nesting interactive content inside <button>,
+   * and browsers/SSR parsers will mangle the tree. */
   return (
+    // biome-ignore lint/a11y/useSemanticElements: can't use <button> — children contain nested interactive elements (buttons, inputs, fieldsets) which is forbidden in HTML
     <div
+      role="button"
+      tabIndex={0}
       data-question-wrapper
-      className={`group/qw relative rounded-lg transition-all duration-150 cursor-pointer outline-offset-3 ${
+      aria-label="Select question"
+      className={`group/qw relative w-full text-left rounded-lg transition-all duration-150 cursor-pointer outline-offset-3 ${
         isSelected
           ? 'outline-2 outline-nova-cyan bg-nova-cyan/[0.03]'
           : hovered
@@ -125,6 +147,7 @@ export function EditableQuestionWrapper({
       onPointerUp={handlePointerUp}
       onPointerLeave={handlePointerLeave}
       onClickCapture={handleClick}
+      onKeyDown={handleKeyDown}
     >
       <div className="pointer-events-none" tabIndex={-1}>
         {children}
