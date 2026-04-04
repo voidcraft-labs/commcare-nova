@@ -30,8 +30,10 @@ const Chevron = (
 
 /** Shared base styles for all segments. Both ancestor and current use font-medium
  *  so the rendered text width stays constant when a segment transitions between
- *  states — preventing content shift from font-weight changes. */
-const SEGMENT_BASE = "font-medium shrink-0 whitespace-nowrap";
+ *  states — preventing content shift from font-weight changes.
+ *  `min-h-[44px]` ensures WCAG 2.5.8 minimum target size compliance. */
+const SEGMENT_BASE =
+	"font-medium shrink-0 whitespace-nowrap min-h-[44px] flex items-center";
 
 /** Ancestor segment — muted text, clickable to navigate up. */
 const ANCESTOR_CLASS = `${SEGMENT_BASE} text-nova-text-muted hover:text-nova-text transition-colors cursor-pointer`;
@@ -109,7 +111,7 @@ export const CollapsibleBreadcrumb = memo(function CollapsibleBreadcrumb({
 								<button
 									type="button"
 									onClick={() => setMenuOpen(!menuOpen)}
-									className="text-nova-text-muted hover:text-nova-text hover:bg-nova-surface w-7 h-7 flex items-center justify-center rounded-md transition-colors cursor-pointer"
+									className="text-nova-text-muted hover:text-nova-text hover:bg-nova-surface min-w-[44px] min-h-[44px] flex items-center justify-center rounded-md transition-colors cursor-pointer"
 								>
 									&hellip;
 								</button>

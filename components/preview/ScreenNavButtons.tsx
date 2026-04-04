@@ -15,7 +15,7 @@ interface ScreenNavButtonsProps {
 /** Hover uses `bg-white/5` instead of a theme-specific color so buttons
  *  work in both the violet Tier 2 breadcrumb bar and the cyan PreviewHeader. */
 const btnClass = (enabled: boolean, compact: boolean) =>
-	`${compact ? "p-1" : "p-1.5"} rounded-md shrink-0 ${enabled ? "text-nova-text-muted hover:text-nova-text hover:bg-white/5 cursor-pointer" : "text-nova-text-muted/30 cursor-default"}`;
+	`${compact ? "p-1 min-w-[44px] min-h-[44px]" : "p-1.5 min-w-[44px] min-h-[44px]"} flex items-center justify-center rounded-md shrink-0 ${enabled ? "text-nova-text-muted hover:text-nova-text hover:bg-white/5 cursor-pointer" : "text-nova-text-muted/30 cursor-default"}`;
 
 /**
  * Nav buttons (back + up) rendered in the breadcrumb bar. Back steps through
