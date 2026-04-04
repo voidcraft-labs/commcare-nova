@@ -6,7 +6,8 @@
 		"dev": "next dev",
 		"build": "next build",
 		"start": "next start",
-		"lint": "eslint",
+		"lint": "biome check",
+		"format": "biome format --write",
 		"test": "vitest run",
 		"test:watch": "vitest"
 	},
@@ -78,6 +79,7 @@
 		"eslint": "^9",
 		"eslint-config-next": "16.1.6",
 		"jsdom": "^29.0.0",
+		"lefthook": "^2.1.4",
 		"sass": "^1.98.0",
 		"tailwindcss": "^4",
 		"typescript": "^5",
