@@ -5,20 +5,21 @@
  * the entire lifecycle: progressive population during generation and surgical
  * edits during editing.
  */
+
+import { transformBareHashtags } from "../preview/engine/labelRefs";
+import { rewriteHashtagRefs, rewriteXPathRefs } from "../preview/xpath/rewrite";
 import type {
 	AppBlueprint,
-	BlueprintModule,
 	BlueprintForm,
-	Question,
-	CaseType,
+	BlueprintModule,
 	CaseProperty,
+	CaseType,
 	ConnectConfig,
 	ConnectType,
 	PostSubmitDestination,
+	Question,
 } from "../schemas/blueprint";
 import { normalizeConnectConfig } from "./connectConfig";
-import { rewriteXPathRefs, rewriteHashtagRefs } from "../preview/xpath/rewrite";
-import { transformBareHashtags } from "../preview/engine/labelRefs";
 import { type QuestionPath, qpath, qpathId, qpathParent } from "./questionPath";
 
 // ── Result types ────────────────────────────────────────────────────────

@@ -1,36 +1,36 @@
 "use client";
-import { useCallback, useRef, useId } from "react";
-import { motion, AnimatePresence } from "motion/react";
 import { Icon } from "@iconify/react/offline";
-import ciSettings from "@iconify-icons/ci/settings";
-import ciClose from "@iconify-icons/ci/close-md";
-import ciHomeAltFill from "@iconify-icons/ci/home-alt-fill";
-import ciFolderOpen from "@iconify-icons/ci/folder-open";
 import ciArrowUndoUpLeft from "@iconify-icons/ci/arrow-undo-up-left";
+import ciClose from "@iconify-icons/ci/close-md";
+import ciFolderOpen from "@iconify-icons/ci/folder-open";
+import ciHomeAltFill from "@iconify-icons/ci/home-alt-fill";
+import ciSettings from "@iconify-icons/ci/settings";
+import { AnimatePresence, motion } from "motion/react";
+import { useCallback, useId, useRef } from "react";
+import { SavedCheck } from "@/components/builder/EditableTitle";
+import { XPathField } from "@/components/builder/XPathField";
+import { ConnectLogomark } from "@/components/icons/ConnectLogomark";
+import {
+	DropdownMenu,
+	type DropdownMenuItem,
+} from "@/components/ui/DropdownMenu";
+import { Toggle } from "@/components/ui/Toggle";
+import { useCommitField } from "@/hooks/useCommitField";
+import {
+	DropdownPortal,
+	useFloatingDropdown,
+} from "@/hooks/useFloatingDropdown";
+import type { XPathLintContext } from "@/lib/codemirror/xpath-lint";
 import type {
 	BlueprintForm,
 	ConnectConfig,
 	ConnectType,
 	PostSubmitDestination,
 } from "@/lib/schemas/blueprint";
-import type { MutableBlueprint } from "@/lib/services/mutableBlueprint";
 import { toSnakeId } from "@/lib/services/commcare/validate";
+import type { MutableBlueprint } from "@/lib/services/mutableBlueprint";
 import { POPOVER_GLASS } from "@/lib/styles";
 import { FormDetail } from "./FormDetail";
-import { ConnectLogomark } from "@/components/icons/ConnectLogomark";
-import { Toggle } from "@/components/ui/Toggle";
-import {
-	DropdownMenu,
-	type DropdownMenuItem,
-} from "@/components/ui/DropdownMenu";
-import {
-	useFloatingDropdown,
-	DropdownPortal,
-} from "@/hooks/useFloatingDropdown";
-import { useCommitField } from "@/hooks/useCommitField";
-import { SavedCheck } from "@/components/builder/EditableTitle";
-import { XPathField } from "@/components/builder/XPathField";
-import type { XPathLintContext } from "@/lib/codemirror/xpath-lint";
 
 // ── Types ─────────────────────────────────────────────────────────────
 

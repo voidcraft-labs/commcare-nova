@@ -1,29 +1,24 @@
 "use client";
 
-import { useCallback, useState } from "react";
 import type { Editor } from "@tiptap/react";
-
-// --- Hooks ---
-import { useTiptapEditor } from "@/hooks/use-tiptap-editor";
-
+import { useCallback, useState } from "react";
 // --- Icons ---
 import { ChevronDownIcon } from "@/components/tiptap-icons/chevron-down-icon";
-
 // --- Tiptap UI ---
 import { ListButton, type ListType } from "@/components/tiptap-ui/list-button";
-
 import { useListDropdownMenu } from "@/components/tiptap-ui/list-dropdown-menu/use-list-dropdown-menu";
-
 // --- UI Primitives ---
 import type { ButtonProps } from "@/components/tiptap-ui-primitive/button";
 import { Button } from "@/components/tiptap-ui-primitive/button";
 import {
 	DropdownMenu,
-	DropdownMenuTrigger,
 	DropdownMenuContent,
-	DropdownMenuItem,
 	DropdownMenuGroup,
+	DropdownMenuItem,
+	DropdownMenuTrigger,
 } from "@/components/tiptap-ui-primitive/dropdown-menu";
+// --- Hooks ---
+import { useTiptapEditor } from "@/hooks/use-tiptap-editor";
 
 export interface ListDropdownMenuProps extends Omit<ButtonProps, "type"> {
 	/**

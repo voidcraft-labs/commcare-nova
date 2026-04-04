@@ -1,8 +1,6 @@
 "use client";
 
 import { forwardRef, useCallback, useState } from "react";
-
-import { useIsBreakpoint } from "@/hooks/use-is-breakpoint";
 import { CornerDownLeftIcon } from "@/components/tiptap-icons/corner-down-left-icon";
 import { ImageIcon } from "@/components/tiptap-icons/image-icon";
 import type { UseImagePopoverConfig } from "@/components/tiptap-ui/image-popover";
@@ -11,16 +9,17 @@ import type { ButtonProps } from "@/components/tiptap-ui-primitive/button";
 import { Button } from "@/components/tiptap-ui-primitive/button";
 import { ButtonGroup } from "@/components/tiptap-ui-primitive/button-group";
 import {
-	Popover,
-	PopoverTrigger,
-	ToolbarPopoverContent,
-} from "@/components/tiptap-ui-primitive/popover";
-import {
 	Card,
 	CardBody,
 	CardItemGroup,
 } from "@/components/tiptap-ui-primitive/card";
 import { Input } from "@/components/tiptap-ui-primitive/input";
+import {
+	Popover,
+	PopoverTrigger,
+	ToolbarPopoverContent,
+} from "@/components/tiptap-ui-primitive/popover";
+import { useIsBreakpoint } from "@/hooks/use-is-breakpoint";
 
 import "./image-popover.scss";
 

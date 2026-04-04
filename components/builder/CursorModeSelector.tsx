@@ -16,11 +16,11 @@
  */
 
 "use client";
-import { motion } from "motion/react";
 import { Icon, type IconifyIcon } from "@iconify/react/offline";
-import tablerHandFinger from "@iconify-icons/tabler/hand-finger";
 import tablerCursorText from "@iconify-icons/tabler/cursor-text";
+import tablerHandFinger from "@iconify-icons/tabler/hand-finger";
 import tablerPointer from "@iconify-icons/tabler/pointer";
+import { motion } from "motion/react";
 import type { CursorMode } from "@/lib/services/builder";
 
 interface CursorModeSelectorProps {

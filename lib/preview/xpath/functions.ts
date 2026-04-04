@@ -1,5 +1,5 @@
+import { toBoolean, toNumber, xpathToString } from "./coerce";
 import type { XPathValue } from "./types";
-import { toNumber, xpathToString, toBoolean } from "./coerce";
 
 type XPathFn = (args: XPathValue[]) => XPathValue;
 

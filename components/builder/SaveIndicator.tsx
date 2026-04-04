@@ -12,14 +12,14 @@
  * update text and icon in place — no fade, no flash.
  */
 "use client";
-import { useEffect, useState } from "react";
-import { AnimatePresence, motion } from "motion/react";
 import { Icon } from "@iconify/react/offline";
 import ciCloudCheck from "@iconify-icons/ci/cloud-check";
-import ciCloudUp from "@iconify-icons/ci/cloud-up";
 import ciCloudClose from "@iconify-icons/ci/cloud-close";
-import { formatRelativeDate } from "@/lib/utils/format";
+import ciCloudUp from "@iconify-icons/ci/cloud-up";
+import { AnimatePresence, motion } from "motion/react";
+import { useEffect, useState } from "react";
 import type { SaveState } from "@/hooks/useAutoSave";
+import { formatRelativeDate } from "@/lib/utils/format";
 
 /** How often to re-render for the relative timestamp (ms). */
 const TICK_MS = 15_000;

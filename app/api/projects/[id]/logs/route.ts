@@ -12,9 +12,10 @@
  * (from session) scopes queries to their own data; cross-user log access
  * uses the dedicated admin endpoint at /api/admin/users/[email]/projects/[id]/logs.
  */
-import { requireAdmin } from "@/lib/auth-utils";
+
 import { ApiError, handleApiError } from "@/lib/apiError";
-import { loadRunEvents, loadLatestRunId } from "@/lib/db/logs";
+import { requireAdmin } from "@/lib/auth-utils";
+import { loadLatestRunId, loadRunEvents } from "@/lib/db/logs";
 
 export async function GET(
 	req: Request,

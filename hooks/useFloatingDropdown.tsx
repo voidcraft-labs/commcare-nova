@@ -33,25 +33,25 @@
 
 "use client";
 import {
-	useState,
-	useCallback,
-	useMemo,
-	useRef,
-	useEffect,
-	useLayoutEffect,
-	type CSSProperties,
-	type ReactNode,
-} from "react";
-import {
-	useFloating,
-	offset as floatingOffset,
-	flip,
-	shift,
-	size as floatingSize,
 	autoUpdate,
 	FloatingPortal,
+	flip,
+	offset as floatingOffset,
+	size as floatingSize,
 	type Placement,
+	shift,
+	useFloating,
 } from "@floating-ui/react";
+import {
+	type CSSProperties,
+	type ReactNode,
+	useCallback,
+	useEffect,
+	useLayoutEffect,
+	useMemo,
+	useRef,
+	useState,
+} from "react";
 import {
 	POPOVER_ENTER_KEYFRAMES,
 	POPOVER_ENTER_OPTIONS,

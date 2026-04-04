@@ -14,12 +14,12 @@
 
 "use client";
 import { useCallback } from "react";
-import type { Builder } from "@/lib/services/builder";
 import type { Question } from "@/lib/schemas/blueprint";
-import { ContextualEditorUI } from "./contextual/ContextualEditorUI";
-import { ContextualEditorLogic } from "./contextual/ContextualEditorLogic";
+import type { Builder } from "@/lib/services/builder";
 import { ContextualEditorData } from "./contextual/ContextualEditorData";
 import { ContextualEditorFooter } from "./contextual/ContextualEditorFooter";
+import { ContextualEditorLogic } from "./contextual/ContextualEditorLogic";
+import { ContextualEditorUI } from "./contextual/ContextualEditorUI";
 
 interface InlineSettingsPanelProps {
 	builder: Builder;

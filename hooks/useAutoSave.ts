@@ -27,8 +27,8 @@
  */
 "use client";
 import { useEffect, useRef, useState } from "react";
-import { BuilderPhase, type Builder } from "@/lib/services/builder";
 import { reportClientError } from "@/lib/clientErrorReporter";
+import { type Builder, BuilderPhase } from "@/lib/services/builder";
 
 /** Post-save cooldown before the trailing edge can fire (ms). */
 const COOLDOWN_MS = 1000;

@@ -1,12 +1,12 @@
 "use client";
-import { useCallback } from "react";
 import { Icon } from "@iconify/react/offline";
 import ciFileAdd from "@iconify-icons/ci/file-add";
-import ciFileEdit from "@iconify-icons/ci/file-edit";
 import ciFileBlank from "@iconify-icons/ci/file-blank";
+import ciFileEdit from "@iconify-icons/ci/file-edit";
+import { useCallback } from "react";
+import { EditableText } from "@/components/builder/EditableText";
 import type { BlueprintModule } from "@/lib/schemas/blueprint";
 import type { MutableBlueprint } from "@/lib/services/mutableBlueprint";
-import { EditableText } from "@/components/builder/EditableText";
 
 const formTypeIcons = {
 	registration: ciFileAdd,

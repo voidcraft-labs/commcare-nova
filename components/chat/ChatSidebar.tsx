@@ -1,30 +1,30 @@
 "use client";
-import {
-	useRef,
-	useState,
-	useCallback,
-	useEffect,
-	type ReactNode,
-} from "react";
-import { motion } from "motion/react";
-import type { UIMessage } from "ai";
 import { Icon } from "@iconify/react/offline";
 import ciChevronRight from "@iconify-icons/ci/chevron-right";
-import { useBuilder } from "@/hooks/useBuilder";
-import { ChatMessage } from "@/components/chat/ChatMessage";
+import type { UIMessage } from "ai";
+import { motion } from "motion/react";
+import {
+	type ReactNode,
+	useCallback,
+	useEffect,
+	useRef,
+	useState,
+} from "react";
 import { ChatInput } from "@/components/chat/ChatInput";
+import { ChatMessage } from "@/components/chat/ChatMessage";
 import { SignalGrid } from "@/components/chat/SignalGrid";
 import { SignalPanel } from "@/components/chat/SignalPanel";
-import {
-	SignalGridController,
-	defaultLabel,
-	type SignalMode,
-} from "@/lib/signalGridController";
+import { useBuilder } from "@/hooks/useBuilder";
 import {
 	type Builder,
 	BuilderPhase,
 	GenerationStage,
 } from "@/lib/services/builder";
+import {
+	defaultLabel,
+	SignalGridController,
+	type SignalMode,
+} from "@/lib/signalGridController";
 
 /** Sidebar panel width in pixels. Exported so siblings (e.g. cursor mode bar
  *  positioning in BuilderLayout) can derive offsets without magic numbers. */

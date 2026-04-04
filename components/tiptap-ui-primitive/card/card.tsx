@@ -80,9 +80,9 @@ CardFooter.displayName = "CardFooter";
 
 export {
 	Card,
-	CardHeader,
-	CardFooter,
 	CardBody,
-	CardItemGroup,
+	CardFooter,
 	CardGroupLabel,
+	CardHeader,
+	CardItemGroup,
 };

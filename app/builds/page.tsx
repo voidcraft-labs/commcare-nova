@@ -1,10 +1,10 @@
-import { Suspense } from "react";
-import Link from "next/link";
 import { Icon } from "@iconify/react/offline";
 import ciPlus from "@iconify-icons/ci/plus";
+import Link from "next/link";
+import { Suspense } from "react";
 import { requireAuth } from "@/lib/auth-utils";
-import { ProjectList } from "./project-list";
 import { ProjectListSkeleton } from "./loading";
+import { ProjectList } from "./project-list";
 
 /**
  * Builds page — streams the page shell immediately, project list via Suspense.

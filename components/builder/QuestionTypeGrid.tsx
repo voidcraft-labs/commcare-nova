@@ -1,8 +1,8 @@
 "use client";
 import { Icon } from "@iconify/react/offline";
 import { questionTypeIcons, questionTypeLabels } from "@/lib/questionTypeIcons";
-import { POPOVER_GLASS, POPOVER_ELEVATED } from "@/lib/styles";
 import type { Question } from "@/lib/schemas/blueprint";
+import { POPOVER_ELEVATED, POPOVER_GLASS } from "@/lib/styles";
 
 /** Types shown in the insertion grid — excludes hidden (rarely manually inserted). */
 const GRID_TYPES: readonly Question["type"][] = [

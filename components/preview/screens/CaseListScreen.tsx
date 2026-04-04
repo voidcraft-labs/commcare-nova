@@ -1,9 +1,9 @@
 "use client";
-import { useMemo } from "react";
 import { motion } from "motion/react";
-import type { AppBlueprint } from "@/lib/schemas/blueprint";
-import type { PreviewScreen } from "@/lib/preview/engine/types";
+import { useMemo } from "react";
 import { getDummyCases } from "@/lib/preview/engine/dummyData";
+import type { PreviewScreen } from "@/lib/preview/engine/types";
+import type { AppBlueprint } from "@/lib/schemas/blueprint";
 
 interface CaseListScreenProps {
 	blueprint: AppBlueprint;

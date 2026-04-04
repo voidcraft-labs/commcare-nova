@@ -12,19 +12,19 @@
 
 import type { Editor, Range } from "@tiptap/core";
 import type {
+	SuggestionKeyDownProps,
 	SuggestionOptions,
 	SuggestionProps,
-	SuggestionKeyDownProps,
 } from "@tiptap/suggestion";
-import type { ReferenceProvider } from "@/lib/references/provider";
-import type { Reference, ReferenceType } from "@/lib/references/types";
-import { REFERENCE_TYPES } from "@/lib/references/config";
+import { createElement, createRef } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import {
 	ReferenceAutocomplete,
 	type ReferenceAutocompleteHandle,
 } from "@/components/builder/ReferenceAutocomplete";
-import { createElement, createRef } from "react";
+import { REFERENCE_TYPES } from "@/lib/references/config";
+import type { ReferenceProvider } from "@/lib/references/provider";
+import type { Reference, ReferenceType } from "@/lib/references/types";
 
 /** A namespace option for Phase 1 (before "/" is typed). */
 interface NamespaceItem {

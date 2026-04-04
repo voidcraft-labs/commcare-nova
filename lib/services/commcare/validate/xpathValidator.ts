@@ -11,11 +11,11 @@
 
 import type { SyntaxNode } from "@lezer/common";
 import { parser } from "@/lib/codemirror/xpath-parser";
+import { extractPathRefs } from "@/lib/preview/xpath/dependencies";
 import {
 	FUNCTION_REGISTRY,
 	findCaseInsensitiveMatch,
 } from "./functionRegistry";
-import { extractPathRefs } from "@/lib/preview/xpath/dependencies";
 import { checkTypes } from "./typeChecker";
 
 export interface XPathError {

@@ -9,18 +9,18 @@
  * outage never blocks generation.
  */
 import type { UIMessage } from "ai";
-import { MODEL_PRICING, DEFAULT_PRICING } from "../models";
-import type { ClassifiedError } from "./errorClassifier";
+import { writeLogEvent } from "../db/logs";
 import type {
-	StoredEvent,
+	JsonValue,
 	LogEvent,
 	LogToolCall,
+	StoredEvent,
 	TokenUsage,
-	JsonValue,
 } from "../db/types";
-import { writeLogEvent } from "../db/logs";
 import { incrementUsage } from "../db/usage";
 import { log } from "../log";
+import { DEFAULT_PRICING, MODEL_PRICING } from "../models";
+import type { ClassifiedError } from "./errorClassifier";
 
 // ── Constants ───────────────────────────────────────────────────────
 

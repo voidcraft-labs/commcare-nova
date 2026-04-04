@@ -1,8 +1,8 @@
-import { describe, it, expect } from "vitest";
 import AdmZip from "adm-zip";
+import { describe, expect, it } from "vitest";
+import type { AppBlueprint } from "../../schemas/blueprint";
 import { CczCompiler } from "../cczCompiler";
 import { expandBlueprint } from "../hqJsonExpander";
-import type { AppBlueprint } from "../../schemas/blueprint";
 
 const blueprint: AppBlueprint = {
 	app_name: "CHW App",

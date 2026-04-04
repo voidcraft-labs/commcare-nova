@@ -2,10 +2,10 @@
 
 import * as fs from "fs";
 import * as path from "path";
-import { ConfluenceClient } from "./confluence.js";
 import { cleanStorageFormat } from "./clean-content.js";
-import type { PipelineConfig, DiscoveryResult, CrawledPage } from "./types.js";
+import { ConfluenceClient } from "./confluence.js";
 import { log, logSummary } from "./log.js";
+import type { CrawledPage, DiscoveryResult, PipelineConfig } from "./types.js";
 
 const CACHE_DIR = ".data/confluence-cache";
 const PAGES_DIR = path.join(CACHE_DIR, "pages");

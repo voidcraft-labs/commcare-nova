@@ -6,8 +6,8 @@
  * Usage: npx tsx scripts/test-schema.ts [opus]
  */
 import "dotenv/config";
-import { generateText, Output } from "ai";
 import { createAnthropic } from "@ai-sdk/anthropic";
+import { generateText, Output } from "ai";
 import { addQuestionsSchema } from "../lib/schemas/toolSchemas";
 
 const apiKey = process.env.ANTHROPIC_API_KEY;

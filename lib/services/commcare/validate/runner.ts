@@ -8,11 +8,11 @@
 import type { AppBlueprint } from "@/lib/schemas/blueprint";
 import type { ValidationError } from "./errors";
 import { validationError } from "./errors";
-import { APP_RULES } from "./rules/app";
-import { MODULE_RULES } from "./rules/module";
-import { runFormRules } from "./rules/form";
-import { runQuestionRules } from "./rules/question";
 import { validateBlueprintDeep } from "./index";
+import { APP_RULES } from "./rules/app";
+import { runFormRules } from "./rules/form";
+import { MODULE_RULES } from "./rules/module";
+import { runQuestionRules } from "./rules/question";
 
 /**
  * Run all validation rules on a blueprint.

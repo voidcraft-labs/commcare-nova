@@ -1,7 +1,7 @@
 "use client";
-import { motion } from "motion/react";
 import { Icon } from "@iconify/react/offline";
 import ciPlayCircle from "@iconify-icons/ci/play-circle-outline";
+import { motion } from "motion/react";
 import Link from "next/link";
 import type { ProjectSummary } from "@/lib/db/projects";
 import { formatRelativeDate, STATUS_STYLES } from "@/lib/utils/format";

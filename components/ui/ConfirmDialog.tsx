@@ -1,7 +1,7 @@
 "use client";
+import { AnimatePresence, motion } from "motion/react";
 import { useCallback, useRef } from "react";
 import { createPortal } from "react-dom";
-import { motion, AnimatePresence } from "motion/react";
 
 interface ConfirmDialogProps {
 	open: boolean;

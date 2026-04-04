@@ -1,6 +1,6 @@
 "use client";
 
-import { forwardRef, Fragment, useMemo } from "react";
+import { Fragment, forwardRef, useMemo } from "react";
 
 // --- Tiptap UI Primitive ---
 import {

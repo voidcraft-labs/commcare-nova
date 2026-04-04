@@ -1,14 +1,14 @@
 import type {
 	BlueprintForm,
-	Question,
 	CaseType,
+	Question,
 } from "@/lib/schemas/blueprint";
-import type { EvalContext } from "../xpath/types";
-import { evaluate } from "../xpath/evaluator";
 import { toBoolean } from "../xpath/coerce";
+import { evaluate } from "../xpath/evaluator";
+import type { EvalContext } from "../xpath/types";
 import { DataInstance } from "./dataInstance";
-import { TriggerDag } from "./triggerDag";
 import { resolveLabel } from "./labelRefs";
+import { TriggerDag } from "./triggerDag";
 import type { QuestionState } from "./types";
 
 /**

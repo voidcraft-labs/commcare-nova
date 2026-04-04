@@ -1,13 +1,13 @@
 /** Phase 4: Reorganize — two-pass Opus reorganization of distilled knowledge files */
 
+import { createAnthropic } from "@ai-sdk/anthropic";
+import { Output, streamText } from "ai";
 import * as fs from "fs";
 import * as path from "path";
 import * as readline from "readline";
-import { streamText, Output } from "ai";
-import { createAnthropic } from "@ai-sdk/anthropic";
 import { z } from "zod";
-import type { PipelineConfig } from "./types.js";
 import { log, logCost, logSummary } from "./log.js";
+import type { PipelineConfig } from "./types.js";
 
 const DISTILL_DIR = ".data/confluence-cache/distilled";
 const KNOWLEDGE_DIR = "lib/services/commcare/knowledge";

@@ -1,6 +1,6 @@
 "use client";
-import { useRef } from "react";
 import type { UIMessage } from "ai";
+import { useRef } from "react";
 import { QuestionCard } from "@/components/chat/QuestionCard";
 import { ChatMarkdown } from "@/lib/markdown";
 

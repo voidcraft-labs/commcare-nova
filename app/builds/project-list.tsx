@@ -5,9 +5,10 @@
  * The data fetch (Firestore query) happens here while the page shell — header,
  * title, "New Build" button — renders and streams to the client immediately.
  */
-import { listProjects } from "@/lib/db/projects";
-import { ReplayableProjectList } from "@/components/ui/ReplayableProjectList";
+
 import Link from "next/link";
+import { ReplayableProjectList } from "@/components/ui/ReplayableProjectList";
+import { listProjects } from "@/lib/db/projects";
 
 interface ProjectListProps {
 	/** User email for the Firestore query. */

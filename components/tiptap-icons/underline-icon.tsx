@@ -1,5 +1,5 @@
 import { memo } from "react";
-import { TiptapSvg, type TiptapIconProps } from "./TiptapSvg";
+import { type TiptapIconProps, TiptapSvg } from "./TiptapSvg";
 
 /** Underline text formatting icon. */
 export const UnderlineIcon = memo((props: TiptapIconProps) => (

@@ -11,18 +11,18 @@
  */
 "use client";
 
+import { useRouter } from "next/navigation";
 import {
 	createContext,
+	type ReactNode,
 	useContext,
-	useState,
 	useEffect,
 	useLayoutEffect,
-	type ReactNode,
+	useState,
+	useSyncExternalStore,
 } from "react";
-import { useSyncExternalStore } from "react";
-import { useRouter } from "next/navigation";
-import { Builder, BuilderPhase } from "@/lib/services/builder";
 import { useAuth } from "@/hooks/useAuth";
+import { Builder, BuilderPhase } from "@/lib/services/builder";
 import { showToast } from "@/lib/services/toastStore";
 
 /** React context carrying the current Builder instance. Null outside the build page. */

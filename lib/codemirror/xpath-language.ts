@@ -1,8 +1,8 @@
 import {
-	LRLanguage,
-	LanguageSupport,
-	foldNodeProp,
 	foldInside,
+	foldNodeProp,
+	LanguageSupport,
+	LRLanguage,
 } from "@codemirror/language";
 import { styleTags, tags as t } from "@lezer/highlight";
 import { parser } from "./xpath-parser";

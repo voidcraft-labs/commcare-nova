@@ -1,19 +1,19 @@
 "use client";
-import { useCallback } from "react";
 import {
-	useFloating,
-	offset,
-	flip,
-	shift,
 	autoUpdate,
 	FloatingPortal,
+	flip,
+	offset,
+	shift,
+	useFloating,
 } from "@floating-ui/react";
-import { useEditContext } from "@/hooks/useEditContext";
-import { type QuestionPath, qpath } from "@/lib/services/questionPath";
-import { useDismissRef } from "@/hooks/useDismissRef";
-import { useContentPopoverDismiss } from "@/hooks/useContentPopover";
-import type { Question } from "@/lib/schemas/blueprint";
+import { useCallback } from "react";
 import { QuestionTypeGrid } from "@/components/builder/QuestionTypeGrid";
+import { useContentPopoverDismiss } from "@/hooks/useContentPopover";
+import { useDismissRef } from "@/hooks/useDismissRef";
+import { useEditContext } from "@/hooks/useEditContext";
+import type { Question } from "@/lib/schemas/blueprint";
+import { type QuestionPath, qpath } from "@/lib/services/questionPath";
 
 interface QuestionTypePickerProps {
 	anchorEl: HTMLElement;

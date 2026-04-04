@@ -20,24 +20,24 @@
  *   collections.logs(email, projectId)     → users/{email}/projects/{projectId}/logs/{logId}
  */
 import {
-	Firestore,
 	type CollectionReference,
 	type DocumentData,
 	type DocumentReference,
+	Firestore,
 	type FirestoreDataConverter,
 	type QueryDocumentSnapshot,
 	type WithFieldValue,
 } from "@google-cloud/firestore";
 import type { ZodType } from "zod";
 import {
-	userDocSchema,
+	type ProjectDoc,
+	projectDocSchema,
+	type StoredEvent,
+	storedEventSchema,
+	type UsageDoc,
 	type UserDoc,
 	usageDocSchema,
-	type UsageDoc,
-	projectDocSchema,
-	type ProjectDoc,
-	storedEventSchema,
-	type StoredEvent,
+	userDocSchema,
 } from "./types";
 
 // ── Singleton ──────────────────────────────────────────────────────

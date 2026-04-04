@@ -1,19 +1,19 @@
+import { parser } from "@/lib/codemirror/xpath-parser";
+import { NameTest } from "@/lib/codemirror/xpath-parser.terms";
 import type { AppBlueprint } from "../schemas/blueprint";
+import type { HqApplication } from "./commcare";
 import {
-	genHexId,
-	genShortId,
+	applicationShell,
 	detailColumn,
 	detailPair,
-	applicationShell,
 	formShell,
+	genHexId,
+	genShortId,
 	moduleShell,
 } from "./commcare";
 import { toHqWorkflow } from "./commcare/session";
-import type { HqApplication } from "./commcare";
+import { buildCaseReferencesLoad, buildFormActions } from "./formActions";
 import { buildXForm } from "./xformBuilder";
-import { buildFormActions, buildCaseReferencesLoad } from "./formActions";
-import { parser } from "@/lib/codemirror/xpath-parser";
-import { NameTest } from "@/lib/codemirror/xpath-parser.terms";
 
 /**
  * Detect unquoted string literals in XPath expressions using the Lezer parser.

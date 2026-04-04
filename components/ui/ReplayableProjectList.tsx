@@ -1,7 +1,7 @@
 "use client";
-import { ProjectCard } from "./ProjectCard";
 import { useReplay } from "@/hooks/useReplay";
 import type { ProjectSummary } from "@/lib/db/projects";
+import { ProjectCard } from "./ProjectCard";
 
 interface ReplayableProjectListProps {
 	projects: ProjectSummary[];

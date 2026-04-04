@@ -13,18 +13,20 @@
  * This editor is a full WYSIWYG surface.
  */
 
-import StarterKit from "@tiptap/starter-kit";
-import Mention from "@tiptap/extension-mention";
+import type { Extensions } from "@tiptap/core";
 import { Image } from "@tiptap/extension-image";
-import { Table } from "@tiptap/extension-table";
-import { TableRow } from "@tiptap/extension-table";
-import { TableHeader } from "@tiptap/extension-table";
-import { TableCell } from "@tiptap/extension-table";
+import Mention from "@tiptap/extension-mention";
+import {
+	Table,
+	TableCell,
+	TableHeader,
+	TableRow,
+} from "@tiptap/extension-table";
+import StarterKit from "@tiptap/starter-kit";
 import { Markdown } from "tiptap-markdown";
+import type { ReferenceProvider } from "@/lib/references/provider";
 import { CommcareRef } from "./commcareRefNode";
 import { createRefSuggestion } from "./refSuggestion";
-import type { ReferenceProvider } from "@/lib/references/provider";
-import type { Extensions } from "@tiptap/core";
 
 /**
  * Create the full WYSIWYG extension set for inline text editing.

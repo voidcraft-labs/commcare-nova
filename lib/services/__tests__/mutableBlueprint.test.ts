@@ -1,7 +1,7 @@
-import { describe, it, expect } from "vitest";
+import { describe, expect, it } from "vitest";
+import type { AppBlueprint } from "../../schemas/blueprint";
 import { MutableBlueprint } from "../mutableBlueprint";
 import { qpath } from "../questionPath";
-import type { AppBlueprint } from "../../schemas/blueprint";
 
 /** Minimal test blueprint with two modules, two forms each. */
 function makeBlueprint(): AppBlueprint {

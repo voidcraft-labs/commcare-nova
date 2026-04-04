@@ -12,8 +12,8 @@
  * mechanism needed — a Firestore outage that blocks writes also blocks reads.
  */
 import { FieldValue } from "@google-cloud/firestore";
-import { docs } from "./firestore";
 import { log } from "@/lib/log";
+import { docs } from "./firestore";
 import type { UsageDoc } from "./types";
 
 // ── Configuration ─────────────────────────────────────────────────

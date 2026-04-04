@@ -10,10 +10,10 @@
  * `applyDataPart` function — the same code path as real-time streaming.
  */
 import type { UIMessage } from "ai";
-import type { StoredEvent, JsonValue } from "@/lib/db/types";
+import type { JsonValue, StoredEvent } from "@/lib/db/types";
+import type { AppBlueprint } from "@/lib/schemas/blueprint";
 import type { Builder } from "./builder";
 import { applyDataPart } from "./builder";
-import type { AppBlueprint } from "@/lib/schemas/blueprint";
 
 // ── Types ───────────────────────────────────────────────────────────────
 

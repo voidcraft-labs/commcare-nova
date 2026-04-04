@@ -25,31 +25,31 @@
  */
 
 "use client";
-import { useCallback, useMemo, useRef, useEffect } from "react";
-import { createPortal } from "react-dom";
+import { type Editor, Extension } from "@tiptap/core";
 import { Tiptap, useEditor } from "@tiptap/react";
 import { BubbleMenu } from "@tiptap/react/menus";
-import { Extension, type Editor } from "@tiptap/core";
+import { useCallback, useEffect, useMemo, useRef } from "react";
+import { createPortal } from "react-dom";
+import { BlockquoteButton } from "@/components/tiptap-ui/blockquote-button";
+import { CodeBlockButton } from "@/components/tiptap-ui/code-block-button";
+import { HeadingDropdownMenu } from "@/components/tiptap-ui/heading-dropdown-menu";
+import { HorizontalRuleButton } from "@/components/tiptap-ui/horizontal-rule-button";
+import { ImagePopover } from "@/components/tiptap-ui/image-popover";
+import { LinkPopover } from "@/components/tiptap-ui/link-popover";
+import { ListDropdownMenu } from "@/components/tiptap-ui/list-dropdown-menu";
+import { MarkButton } from "@/components/tiptap-ui/mark-button";
+import { TableButton } from "@/components/tiptap-ui/table-button";
 import {
 	Toolbar,
 	ToolbarGroup,
 	ToolbarSeparator,
 } from "@/components/tiptap-ui-primitive/toolbar";
-import { MarkButton } from "@/components/tiptap-ui/mark-button";
-import { HeadingDropdownMenu } from "@/components/tiptap-ui/heading-dropdown-menu";
-import { ListDropdownMenu } from "@/components/tiptap-ui/list-dropdown-menu";
-import { BlockquoteButton } from "@/components/tiptap-ui/blockquote-button";
-import { CodeBlockButton } from "@/components/tiptap-ui/code-block-button";
-import { LinkPopover } from "@/components/tiptap-ui/link-popover";
-import { ImagePopover } from "@/components/tiptap-ui/image-popover";
-import { HorizontalRuleButton } from "@/components/tiptap-ui/horizontal-rule-button";
-import { TableButton } from "@/components/tiptap-ui/table-button";
+import { useReferenceProvider } from "@/lib/references/ReferenceContext";
+import { hydrateHashtagRefs } from "@/lib/tiptap/hydrateRefs";
 import {
 	createInlineEditorExtensions,
 	getMarkdownContent,
 } from "@/lib/tiptap/markdownExtensions";
-import { useReferenceProvider } from "@/lib/references/ReferenceContext";
-import { hydrateHashtagRefs } from "@/lib/tiptap/hydrateRefs";
 
 type FieldType = "label" | "hint";
 

@@ -1,16 +1,16 @@
 import {
+	applyPlacement,
 	type Board,
-	type Placement,
-	type PieceDefinition,
-	type Shape,
-	type TilingPlan,
-	PIECES,
 	createEmptyBoard,
 	fillCount,
-	isBoardFull,
 	fillFront,
 	generateTilingPlan,
-	applyPlacement,
+	isBoardFull,
+	PIECES,
+	type PieceDefinition,
+	type Placement,
+	type Shape,
+	type TilingPlan,
 } from "./tetrisProgressSolver";
 
 // ── Color constants (pre-computed RGB for interpolation) ──────────────

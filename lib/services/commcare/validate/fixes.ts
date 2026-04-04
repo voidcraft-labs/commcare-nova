@@ -10,8 +10,8 @@ import type {
 	BlueprintForm,
 	Question,
 } from "@/lib/schemas/blueprint";
-import type { ValidationError, ValidationErrorCode } from "./errors";
 import { XML_ELEMENT_NAME_REGEX } from "../constants";
+import type { ValidationError, ValidationErrorCode } from "./errors";
 
 type FixFn = (error: ValidationError, blueprint: AppBlueprint) => boolean;
 

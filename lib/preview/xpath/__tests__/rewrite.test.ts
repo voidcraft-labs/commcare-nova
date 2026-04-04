@@ -1,5 +1,5 @@
-import { describe, it, expect } from "vitest";
-import { rewriteXPathRefs, rewriteHashtagRefs } from "../rewrite";
+import { describe, expect, it } from "vitest";
+import { rewriteHashtagRefs, rewriteXPathRefs } from "../rewrite";
 
 describe("rewriteXPathRefs", () => {
 	describe("absolute paths", () => {

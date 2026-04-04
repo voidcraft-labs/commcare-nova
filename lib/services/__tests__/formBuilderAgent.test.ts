@@ -5,11 +5,11 @@
  * They verify that the form builder's addQuestion, setCloseCaseCondition, and
  * case derivation via case_property_on correctly modify the MutableBlueprint shell.
  */
-import { describe, it, expect } from "vitest";
+import { describe, expect, it } from "vitest";
+import type { AppBlueprint, Question } from "../../schemas/blueprint";
+import { deriveCaseConfig } from "../../schemas/blueprint";
 import { MutableBlueprint } from "../mutableBlueprint";
 import { qpath } from "../questionPath";
-import { deriveCaseConfig } from "../../schemas/blueprint";
-import type { AppBlueprint, Question } from "../../schemas/blueprint";
 
 /** Create a minimal shell blueprint for form builder testing. */
 function makeShell(

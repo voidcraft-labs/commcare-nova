@@ -4,37 +4,38 @@
  * The SA converses with users, incrementally generates apps through focused tool
  * calls, and edits them — all within one conversation context and prompt-caching window.
  */
-import { ToolLoopAgent, tool, stepCountIs } from "ai";
+import { stepCountIs, ToolLoopAgent, tool } from "ai";
 import { z } from "zod";
-import { type GenerationContext, logWarnings } from "./generationContext";
+import { log } from "@/lib/log";
+import { completeProject } from "../db/projects";
 import { SA_MODEL, SA_REASONING } from "../models";
 import { buildSolutionsArchitectPrompt } from "../prompts/solutionsArchitectPrompt";
 import {
 	type AppBlueprint,
 	type BlueprintForm,
 	type ConnectConfig,
-	type Question,
 	caseTypesOutputSchema,
-	scaffoldModulesSchema,
 	moduleContentSchema,
+	type Question,
+	scaffoldModulesSchema,
 } from "../schemas/blueprint";
 import {
-	addQuestionsQuestionSchema,
-	editQuestionUpdatesSchema,
-	addQuestionQuestionSchema,
-} from "../schemas/toolSchemas";
-import {
-	type FlatQuestion,
-	stripEmpty,
 	applyDefaults,
 	buildQuestionTree,
+	type FlatQuestion,
 	flattenToFlat,
+	stripEmpty,
 } from "../schemas/contentProcessing";
+import {
+	addQuestionQuestionSchema,
+	addQuestionsQuestionSchema,
+	editQuestionUpdatesSchema,
+} from "../schemas/toolSchemas";
+import { errorToString } from "./commcare/validate/errors";
+import { type GenerationContext, logWarnings } from "./generationContext";
 import type { MutableBlueprint, NewQuestion } from "./mutableBlueprint";
 import { validateAndFix } from "./validationLoop";
-import { errorToString } from "./commcare/validate/errors";
-import { completeProject } from "../db/projects";
-import { log } from "@/lib/log";
+
 export { validateAndFix } from "./validationLoop";
 
 // ── Helper: build a full ConnectConfig from SA's partial input ────────

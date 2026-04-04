@@ -1,6 +1,6 @@
-import { describe, it, expect } from "vitest";
-import { filterTree, highlightSegments } from "../filterTree";
+import { describe, expect, it } from "vitest";
 import type { TreeData } from "@/lib/services/builder";
+import { filterTree, highlightSegments } from "../filterTree";
 
 const makeTree = (overrides?: Partial<TreeData>): TreeData => ({
 	app_name: "Test App",

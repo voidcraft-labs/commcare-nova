@@ -1,10 +1,10 @@
 "use client";
 import { Icon } from "@iconify/react/offline";
 import ciChevronLeft from "@iconify-icons/ci/chevron-left";
-import { motion, AnimatePresence } from "motion/react";
-import { ErrorBoundary } from "@/components/ui/ErrorBoundary";
+import { AnimatePresence, motion } from "motion/react";
 import { AppTree } from "@/components/builder/AppTree";
-import { BuilderPhase, type Builder } from "@/lib/services/builder";
+import { ErrorBoundary } from "@/components/ui/ErrorBoundary";
+import { type Builder, BuilderPhase } from "@/lib/services/builder";
 
 interface StructureSidebarProps {
 	builder: Builder;

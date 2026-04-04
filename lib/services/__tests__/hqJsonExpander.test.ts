@@ -1,7 +1,7 @@
-import { describe, it, expect } from "vitest";
-import { expandBlueprint } from "../hqJsonExpander";
-import { runValidation } from "../commcare/validate/runner";
+import { describe, expect, it } from "vitest";
 import type { AppBlueprint, Question } from "../../schemas/blueprint";
+import { runValidation } from "../commcare/validate/runner";
+import { expandBlueprint } from "../hqJsonExpander";
 
 const followupBlueprint: AppBlueprint = {
 	app_name: "Test App",

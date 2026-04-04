@@ -13,16 +13,16 @@
  * to reject the form during a CommCare HQ build.
  */
 
-import { parseDocument } from "htmlparser2";
+import type { Document, Element } from "domhandler";
 import {
 	findAll,
 	getAttributeValue,
-	getElementsByTagName,
 	getChildren,
+	getElementsByTagName,
 	getText,
 	isTag,
 } from "domutils";
-import type { Document, Element } from "domhandler";
+import { parseDocument } from "htmlparser2";
 import { type ValidationError, validationError } from "./errors";
 
 const XML_OPTS = { xmlMode: true } as const;

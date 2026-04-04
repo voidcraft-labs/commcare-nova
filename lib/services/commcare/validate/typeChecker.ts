@@ -9,8 +9,7 @@
  * in numeric contexts (e.g. - 'hello', 'text' * 2, round('foo')).
  */
 
-import type { SyntaxNode } from "@lezer/common";
-import type { NodeType } from "@lezer/common";
+import type { NodeType, SyntaxNode } from "@lezer/common";
 import { parser } from "@/lib/codemirror/xpath-parser";
 import { FUNCTION_REGISTRY, type XPathType } from "./functionRegistry";
 

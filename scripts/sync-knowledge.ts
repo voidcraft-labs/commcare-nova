@@ -22,20 +22,20 @@
 
 import * as fs from "fs";
 import * as path from "path";
-import type {
-	PipelineConfig,
-	DiscoveryResult,
-	TriageResult,
-} from "./knowledge/types.js";
-import { discover } from "./knowledge/phase-discover.js";
 import { crawl } from "./knowledge/phase-crawl.js";
-import { triage } from "./knowledge/phase-triage.js";
+import { discover } from "./knowledge/phase-discover.js";
 import { distill } from "./knowledge/phase-distill.js";
 import {
 	reorganize,
-	reorgPlan,
 	reorgExecute,
+	reorgPlan,
 } from "./knowledge/phase-reorganize.js";
+import { triage } from "./knowledge/phase-triage.js";
+import type {
+	DiscoveryResult,
+	PipelineConfig,
+	TriageResult,
+} from "./knowledge/types.js";
 
 // Load .env if dotenv is available (optional)
 try {

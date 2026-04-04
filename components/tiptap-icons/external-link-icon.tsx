@@ -1,5 +1,5 @@
 import { memo } from "react";
-import { TiptapSvg, type TiptapIconProps } from "./TiptapSvg";
+import { type TiptapIconProps, TiptapSvg } from "./TiptapSvg";
 
 /** External link icon (arrow pointing out). */
 export const ExternalLinkIcon = memo((props: TiptapIconProps) => (

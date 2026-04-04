@@ -1,15 +1,15 @@
 "use client";
 import { AnimatePresence, motion } from "motion/react";
-import type { AppBlueprint } from "@/lib/schemas/blueprint";
-import type { Builder, CursorMode } from "@/lib/services/builder";
 import type { EditMode } from "@/hooks/useEditContext";
 import { usePreviewNav } from "@/hooks/usePreviewNav";
+import type { AppBlueprint } from "@/lib/schemas/blueprint";
+import type { Builder, CursorMode } from "@/lib/services/builder";
 import { PreviewHeader } from "./PreviewHeader";
-import { SCREEN_TRANSITION } from "./screenTransition";
-import { HomeScreen } from "./screens/HomeScreen";
-import { ModuleScreen } from "./screens/ModuleScreen";
 import { CaseListScreen } from "./screens/CaseListScreen";
 import { FormScreen } from "./screens/FormScreen";
+import { HomeScreen } from "./screens/HomeScreen";
+import { ModuleScreen } from "./screens/ModuleScreen";
+import { SCREEN_TRANSITION } from "./screenTransition";
 
 interface PreviewShellProps {
 	blueprint: AppBlueprint;

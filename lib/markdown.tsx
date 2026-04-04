@@ -20,7 +20,7 @@
  * that's a serialization layer, not a renderer.
  */
 
-import Markdown, { RuleType, type MarkdownToJSX } from "markdown-to-jsx";
+import Markdown, { type MarkdownToJSX, RuleType } from "markdown-to-jsx";
 import { Children, createElement, Fragment, type ReactNode } from "react";
 
 /* ---------------------------------------------------------------------------

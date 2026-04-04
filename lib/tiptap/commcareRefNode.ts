@@ -20,7 +20,7 @@
  * the suggestion popup to re-trigger on the partial match.
  */
 
-import { Node, mergeAttributes } from "@tiptap/core";
+import { mergeAttributes, Node } from "@tiptap/core";
 import { ReactNodeViewRenderer } from "@tiptap/react";
 import { CommcareRefView } from "./CommcareRefView";
 

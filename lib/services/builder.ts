@@ -1,18 +1,19 @@
 import type {
 	AppBlueprint,
-	Scaffold,
 	BlueprintForm,
 	CaseType,
+	Scaffold,
 } from "@/lib/schemas/blueprint";
-import type { QuestionPath } from "./questionPath";
 import type { EditFocus } from "@/lib/signalGridController";
-import { countDeep } from "./questionTree";
-import { MutableBlueprint } from "./mutableBlueprint";
 import {
+	type CursorMode,
 	HistoryManager,
 	type SnapshotMeta,
-	type CursorMode,
 } from "./historyManager";
+import { MutableBlueprint } from "./mutableBlueprint";
+import type { QuestionPath } from "./questionPath";
+import { countDeep } from "./questionTree";
+
 export type { CursorMode } from "./historyManager";
 
 /** Apply a data part to a builder — shared between real-time streaming (onData) and replay. */

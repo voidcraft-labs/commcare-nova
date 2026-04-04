@@ -1,8 +1,8 @@
-import { describe, it, expect } from "vitest";
-import { validateXFormXml } from "../commcare/validate/xformValidator";
-import { runValidation } from "../commcare/validate/runner";
-import { expandBlueprint } from "../hqJsonExpander";
+import { describe, expect, it } from "vitest";
 import type { AppBlueprint } from "../../schemas/blueprint";
+import { runValidation } from "../commcare/validate/runner";
+import { validateXFormXml } from "../commcare/validate/xformValidator";
+import { expandBlueprint } from "../hqJsonExpander";
 
 // ── XForm XML Validator ────────────────────────────────────────────
 

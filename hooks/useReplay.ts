@@ -4,8 +4,8 @@
  * admin user detail page (any user's projects).
  */
 "use client";
-import { useCallback, useState } from "react";
 import { useRouter } from "next/navigation";
+import { useCallback, useState } from "react";
 import type { StoredEvent } from "@/lib/db/types";
 import { extractReplayStages, setReplayData } from "@/lib/services/logReplay";
 

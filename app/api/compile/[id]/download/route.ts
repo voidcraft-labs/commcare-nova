@@ -1,6 +1,6 @@
 import type { NextRequest } from "next/server";
-import { getCcz } from "@/lib/store";
 import { requireSession } from "@/lib/auth-utils";
+import { getCcz } from "@/lib/store";
 
 export async function GET(
 	req: NextRequest,

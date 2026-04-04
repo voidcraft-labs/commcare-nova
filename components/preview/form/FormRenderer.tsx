@@ -1,36 +1,36 @@
 "use client";
-import {
-	useState,
-	useEffect,
-	useMemo,
-	useRef,
-	Fragment,
-	createContext,
-	useContext,
-} from "react";
-import { AnimatePresence, motion } from "motion/react";
-import { EASE } from "@/lib/animations";
-import { DragDropProvider, DragOverlay, PointerSensor } from "@dnd-kit/react";
-import { useSortable } from "@dnd-kit/react/sortable";
 import { CollisionPriority } from "@dnd-kit/abstract";
 import { PointerActivationConstraints } from "@dnd-kit/dom";
 import { RestrictToElement } from "@dnd-kit/dom/modifiers";
 import { move } from "@dnd-kit/helpers";
-import type { Question } from "@/lib/schemas/blueprint";
-import { type QuestionPath, qpath, qpathId } from "@/lib/services/questionPath";
-import type { FormEngine } from "@/lib/preview/engine/formEngine";
-import { LabelContent } from "@/lib/references/LabelContent";
+import { DragDropProvider, DragOverlay, PointerSensor } from "@dnd-kit/react";
+import { useSortable } from "@dnd-kit/react/sortable";
+import { AnimatePresence, motion } from "motion/react";
+import {
+	createContext,
+	Fragment,
+	useContext,
+	useEffect,
+	useMemo,
+	useRef,
+	useState,
+} from "react";
+import { InlineSettingsPanel } from "@/components/builder/InlineSettingsPanel";
 import { useEditContext } from "@/hooks/useEditContext";
 import { useTextEditSave } from "@/hooks/useTextEditSave";
-import { TextEditable } from "./TextEditable";
-import { QuestionField } from "./QuestionField";
+import { EASE } from "@/lib/animations";
+import type { FormEngine } from "@/lib/preview/engine/formEngine";
+import { LabelContent } from "@/lib/references/LabelContent";
+import type { Question } from "@/lib/schemas/blueprint";
+import { type QuestionPath, qpath, qpathId } from "@/lib/services/questionPath";
+import { EditableQuestionWrapper } from "./EditableQuestionWrapper";
 import { GroupField } from "./fields/GroupField";
+import { HiddenField } from "./fields/HiddenField";
 import { LabelField } from "./fields/LabelField";
 import { RepeatField } from "./fields/RepeatField";
-import { EditableQuestionWrapper } from "./EditableQuestionWrapper";
-import { HiddenField } from "./fields/HiddenField";
 import { InsertionPoint } from "./InsertionPoint";
-import { InlineSettingsPanel } from "@/components/builder/InlineSettingsPanel";
+import { QuestionField } from "./QuestionField";
+import { TextEditable } from "./TextEditable";
 
 /** EMA smoothing factor for cursor velocity. Lower = smoother, slower response. */
 const EMA_ALPHA = 0.01;

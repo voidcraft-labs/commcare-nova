@@ -3,9 +3,10 @@
  * Run: npx tsx scripts/build-xpath-parser.ts
  * Output: lib/codemirror/xpath-parser.ts
  */
+
+import { buildParserFile } from "@lezer/generator";
 import { readFileSync, writeFileSync } from "fs";
 import { join } from "path";
-import { buildParserFile } from "@lezer/generator";
 
 const grammarPath = join(__dirname, "..", "lib", "codemirror", "xpath.grammar");
 const outputPath = join(

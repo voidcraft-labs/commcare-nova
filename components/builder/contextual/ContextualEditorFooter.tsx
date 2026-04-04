@@ -1,22 +1,22 @@
 "use client";
-import { useCallback } from "react";
+import type { IconifyIcon } from "@iconify/react/offline";
 import { Icon } from "@iconify/react/offline";
-import ciArrowUpMd from "@iconify-icons/ci/arrow-up-md";
 import ciArrowDownMd from "@iconify-icons/ci/arrow-down-md";
+import ciArrowUpMd from "@iconify-icons/ci/arrow-up-md";
+import ciChevronDown from "@iconify-icons/ci/chevron-down";
 import ciCopy from "@iconify-icons/ci/copy";
 import ciTrashFull from "@iconify-icons/ci/trash-full";
-import ciChevronDown from "@iconify-icons/ci/chevron-down";
-import type { IconifyIcon } from "@iconify/react/offline";
-import { flattenQuestionPaths } from "@/lib/services/questionNavigation";
-import type { QuestionPath } from "@/lib/services/questionPath";
-import { questionTypeIcons, questionTypeLabels } from "@/lib/questionTypeIcons";
-import { getConvertibleTypes } from "@/lib/questionTypeConversions";
+import { useCallback } from "react";
 import { QuestionTypeGrid } from "@/components/builder/QuestionTypeGrid";
 import {
-	useFloatingDropdown,
 	DropdownPortal,
+	useFloatingDropdown,
 } from "@/hooks/useFloatingDropdown";
 import { useSaveQuestion } from "@/hooks/useSaveQuestion";
+import { getConvertibleTypes } from "@/lib/questionTypeConversions";
+import { questionTypeIcons, questionTypeLabels } from "@/lib/questionTypeIcons";
+import { flattenQuestionPaths } from "@/lib/services/questionNavigation";
+import type { QuestionPath } from "@/lib/services/questionPath";
 import type { QuestionEditorProps } from "./shared";
 
 export function ContextualEditorFooter({

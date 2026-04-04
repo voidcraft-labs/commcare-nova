@@ -1,5 +1,5 @@
 import { memo } from "react";
-import { TiptapSvg, type TiptapIconProps } from "./TiptapSvg";
+import { type TiptapIconProps, TiptapSvg } from "./TiptapSvg";
 
 /** Downward chevron / caret icon. */
 export const ChevronDownIcon = memo((props: TiptapIconProps) => (

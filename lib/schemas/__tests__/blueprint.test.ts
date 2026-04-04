@@ -1,7 +1,7 @@
-import { describe, it, expect } from "vitest";
+import { describe, expect, it } from "vitest";
 import {
-	appBlueprintSchema,
 	type AppBlueprint,
+	appBlueprintSchema,
 	type Question,
 } from "../blueprint";
 
