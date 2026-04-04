@@ -5,6 +5,7 @@
 		}
 	},
 	"files": {
-		"includes": ["**", "!!.*", "!!**/dist"]
+		"includes": ["**", "!!.*", "!!**/dist"],
+		"ignoreUnknown": true
 	}
 }

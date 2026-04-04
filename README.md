@@ -42,11 +42,17 @@ Cloud Run builds the image from the Dockerfile automatically. Configure auth sec
 ```bash
 npm run dev                              # Start dev server (Turbopack)
 npm run build                            # Production build
+npm run lint                             # Biome lint + format check
+npm run format                           # Biome auto-format
 npm test                                 # Run tests
 npm run test:watch                       # Watch mode tests
 npx tsx scripts/test-schema.ts           # Test structured output schemas (requires ANTHROPIC_API_KEY)
 npx tsx scripts/build-xpath-parser.ts    # Rebuild XPath parser from grammar
 ```
+
+### Pre-commit Hook
+
+[Lefthook](https://github.com/evilmartians/lefthook) runs `biome check --staged` before every commit. It installs automatically on `npm install` — no extra setup needed. If the check fails, fix with `npm run format` and re-stage.
 
 ## Stack
 
