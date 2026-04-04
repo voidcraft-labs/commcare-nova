@@ -15,14 +15,14 @@
  */
 
 "use client";
-import { useState, useEffect, useCallback } from "react";
 import { Icon } from "@iconify/react/offline";
 import ciLogout from "@iconify-icons/ci/log-out";
+import { useCallback, useEffect, useState } from "react";
+import { type AuthUser, useAuth } from "@/hooks/useAuth";
 import {
-	useFloatingDropdown,
 	DropdownPortal,
+	useFloatingDropdown,
 } from "@/hooks/useFloatingDropdown";
-import { useAuth, type AuthUser } from "@/hooks/useAuth";
 import { POPOVER_GLASS } from "@/lib/styles";
 import { formatCurrency } from "@/lib/utils/format";
 
@@ -57,7 +57,7 @@ function getBarGradient(ratio: number): string {
 
 /** Size presets for the avatar — trigger (28px) and profile (36px). */
 const AVATAR_SIZES = {
-	sm: { box: "w-7 h-7", text: "text-[10px]", border: "" },
+	sm: { box: "w-9 h-9", text: "text-xs", border: "" },
 	md: {
 		box: "w-9 h-9",
 		text: "text-xs",
@@ -143,8 +143,8 @@ export function AccountMenu() {
 				type="button"
 				ref={dd.triggerRef}
 				onClick={dd.toggle}
-				className="flex items-center justify-center w-7 h-7 rounded-full cursor-pointer transition-all duration-150 ring-1 ring-transparent hover:ring-nova-border-bright focus-visible:ring-nova-violet outline-none"
-				title="Account"
+				className="flex items-center justify-center w-9 h-9 rounded-full cursor-pointer transition-all duration-150 ring-1 ring-transparent hover:ring-nova-border-bright focus-visible:ring-nova-violet outline-none"
+				aria-label="Account menu"
 			>
 				<UserAvatar user={user} size="sm" />
 			</button>
@@ -197,13 +197,13 @@ export function AccountMenu() {
 								signOut();
 								dd.close();
 							}}
-							className="w-full flex items-center gap-2.5 px-3 py-2.5 text-sm text-nova-text hover:bg-white/[0.06] transition-colors cursor-pointer rounded-b-xl"
+							className="w-full flex items-center gap-2.5 px-3 py-2.5 text-sm text-nova-text-secondary hover:text-nova-rose hover:bg-nova-rose/[0.06] transition-colors cursor-pointer rounded-b-xl"
 						>
 							<Icon
 								icon={ciLogout}
 								width="16"
 								height="16"
-								className="text-nova-text-muted"
+								className="transition-colors"
 							/>
 							Sign out
 						</button>

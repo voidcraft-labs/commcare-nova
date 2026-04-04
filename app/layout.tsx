@@ -1,8 +1,8 @@
 import type { Metadata } from "next";
-import { Outfit, Plus_Jakarta_Sans, JetBrains_Mono } from "next/font/google";
-import { getSession } from "@/lib/auth-utils";
-import { AppHeader } from "@/components/ui/AppHeader";
+import { JetBrains_Mono, Outfit, Plus_Jakarta_Sans } from "next/font/google";
 import { ErrorReporter } from "@/components/ErrorReporter";
+import { AppHeader } from "@/components/ui/AppHeader";
+import { getSession } from "@/lib/auth-utils";
 import "./globals.css";
 
 const display = Outfit({
@@ -49,9 +49,18 @@ export default async function RootLayout({
 				className={`${display.variable} ${sans.variable} ${mono.variable} antialiased nova-noise`}
 			>
 				<div className="flex flex-col h-dvh bg-nova-void">
+					{/* Skip link — visually hidden until focused, jumps keyboard users past the header nav. */}
+					<a
+						href="#main-content"
+						className="sr-only focus:not-sr-only focus:absolute focus:z-system focus:top-2 focus:left-2 focus:px-4 focus:py-2 focus:rounded-lg focus:bg-nova-violet focus:text-white focus:text-sm focus:font-medium focus:outline-none"
+					>
+						Skip to main content
+					</a>
 					<ErrorReporter />
 					<AppHeader isAdmin={isAdmin} />
-					<div className="flex-1 overflow-auto">{children}</div>
+					<div id="main-content" className="flex-1 overflow-auto">
+						{children}
+					</div>
 				</div>
 			</body>
 		</html>

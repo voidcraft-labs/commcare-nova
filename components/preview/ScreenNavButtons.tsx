@@ -39,6 +39,7 @@ export function ScreenNavButtons({
 				onClick={onBack}
 				disabled={!canGoBack}
 				className={btnClass(canGoBack ?? false, !!compact)}
+				aria-label="Go back"
 			>
 				<Icon icon={ciArrowLeftMd} width={iconSize} height={iconSize} />
 			</button>
@@ -47,6 +48,7 @@ export function ScreenNavButtons({
 				onClick={onUp}
 				disabled={!canGoUp}
 				className={btnClass(canGoUp ?? false, !!compact)}
+				aria-label="Go to parent"
 			>
 				<Icon icon={ciArrowUpMd} width={iconSize} height={iconSize} />
 			</button>

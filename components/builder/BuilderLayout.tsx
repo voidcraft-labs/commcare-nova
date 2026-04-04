@@ -1,60 +1,60 @@
 "use client";
+import { Chat, useChat } from "@ai-sdk/react";
+import { Icon } from "@iconify/react/offline";
+import ciFileDocument from "@iconify-icons/ci/file-document";
+import ciMessage from "@iconify-icons/ci/message";
+import ciRedo from "@iconify-icons/ci/redo";
+import ciUndo from "@iconify-icons/ci/undo";
+import tablerListTree from "@iconify-icons/tabler/list-tree";
+import tablerPackageExport from "@iconify-icons/tabler/package-export";
+import { DefaultChatTransport, type UIMessage } from "ai";
+import { AnimatePresence, motion } from "motion/react";
+import { useRouter } from "next/navigation";
 import {
-	useRef,
-	useState,
 	useCallback,
 	useEffect,
 	useLayoutEffect,
 	useMemo,
+	useRef,
+	useState,
 } from "react";
-import { useRouter } from "next/navigation";
-import { Chat, useChat } from "@ai-sdk/react";
-import { DefaultChatTransport, type UIMessage } from "ai";
-import { motion, AnimatePresence } from "motion/react";
-import { Icon } from "@iconify/react/offline";
-import ciMessage from "@iconify-icons/ci/message";
-import tablerListTree from "@iconify-icons/tabler/list-tree";
-import { useAuth } from "@/hooks/useAuth";
-import { useBuilder } from "@/hooks/useBuilder";
-import {
-	type Builder,
-	BuilderPhase,
-	applyDataPart,
-	type CursorMode,
-} from "@/lib/services/builder";
-import { showToast } from "@/lib/services/toastStore";
-import { ToastContainer } from "@/components/ui/ToastContainer";
-import { flattenQuestionPaths } from "@/lib/services/questionNavigation";
-import type { QuestionPath } from "@/lib/services/questionPath";
-import { useKeyboardShortcuts } from "@/hooks/useKeyboardShortcuts";
-import { Logo } from "@/components/ui/Logo";
-import { ChatSidebar, CHAT_SIDEBAR_WIDTH } from "@/components/chat/ChatSidebar";
-import { StructureSidebar } from "@/components/builder/StructureSidebar";
+import { CursorModeSelector } from "@/components/builder/CursorModeSelector";
+import { AppConnectSettings } from "@/components/builder/detail/AppConnectSettings";
 import { GenerationProgress } from "@/components/builder/GenerationProgress";
 import { ReplayController } from "@/components/builder/ReplayController";
-import { CollapsibleBreadcrumb } from "@/components/builder/SubheaderToolbar";
+import { SaveIndicator } from "@/components/builder/SaveIndicator";
+import { StructureSidebar } from "@/components/builder/StructureSidebar";
 import type { BreadcrumbPart } from "@/components/builder/SubheaderToolbar";
-import { ScreenNavButtons } from "@/components/preview/ScreenNavButtons";
-import { ExportDropdown } from "@/components/ui/ExportDropdown";
-import { AppConnectSettings } from "@/components/builder/detail/AppConnectSettings";
-import ciFileDocument from "@iconify-icons/ci/file-document";
-import tablerPackageExport from "@iconify-icons/tabler/package-export";
-import ciUndo from "@iconify-icons/ci/undo";
-import ciRedo from "@iconify-icons/ci/redo";
-import { CursorModeSelector } from "@/components/builder/CursorModeSelector";
+import { CollapsibleBreadcrumb } from "@/components/builder/SubheaderToolbar";
 import { useBuilderShortcuts } from "@/components/builder/useBuilderShortcuts";
+import { CHAT_SIDEBAR_WIDTH, ChatSidebar } from "@/components/chat/ChatSidebar";
 import { PreviewShell } from "@/components/preview/PreviewShell";
+import { ScreenNavButtons } from "@/components/preview/ScreenNavButtons";
+import { ErrorBoundary } from "@/components/ui/ErrorBoundary";
+import { ExportDropdown } from "@/components/ui/ExportDropdown";
+import { Logo } from "@/components/ui/Logo";
+import { ToastContainer } from "@/components/ui/ToastContainer";
+import { useAuth } from "@/hooks/useAuth";
+import { useAutoSave } from "@/hooks/useAutoSave";
+import { useBuilder } from "@/hooks/useBuilder";
+import { useKeyboardShortcuts } from "@/hooks/useKeyboardShortcuts";
 import { usePreviewNav } from "@/hooks/usePreviewNav";
+import { parseApiErrorMessage } from "@/lib/apiError";
 import {
 	getParentScreen,
 	type PreviewScreen,
 } from "@/lib/preview/engine/types";
-import { ErrorBoundary } from "@/components/ui/ErrorBoundary";
-import { consumeReplayData } from "@/lib/services/logReplay";
 import { ReferenceProviderWrapper } from "@/lib/references/ReferenceContext";
-import { useAutoSave } from "@/hooks/useAutoSave";
-import { SaveIndicator } from "@/components/builder/SaveIndicator";
-import { parseApiErrorMessage } from "@/lib/apiError";
+import {
+	applyDataPart,
+	type Builder,
+	BuilderPhase,
+	type CursorMode,
+} from "@/lib/services/builder";
+import { consumeReplayData } from "@/lib/services/logReplay";
+import { flattenQuestionPaths } from "@/lib/services/questionNavigation";
+import type { QuestionPath } from "@/lib/services/questionPath";
+import { showToast } from "@/lib/services/toastStore";
 
 /** Only auto-resend when the assistant's LAST step is askQuestions with all outputs available.
  *  If the SA continued past tool calls to ask a freeform text question, don't auto-resend —
@@ -681,11 +681,15 @@ export function BuilderLayout() {
 				<AnimatePresence>
 					{!isCentered && (
 						<motion.div
-							initial={{ opacity: 0 }}
-							animate={{ opacity: 1 }}
-							exit={{ opacity: 0 }}
-							transition={{ duration: 0.2 }}
-							className="flex items-center justify-between px-5 h-12 border-b border-nova-border shrink-0 bg-nova-deep"
+							initial={{ opacity: 0, y: -8 }}
+							animate={{ opacity: 1, y: 0 }}
+							exit={{
+								opacity: 0,
+								y: -8,
+								transition: { duration: 0.15, ease: [0.4, 0, 0.2, 1] },
+							}}
+							transition={{ duration: 0.2, ease: [0.4, 0, 0.2, 1] }}
+							className="flex items-center justify-between px-5 h-12 border-b border-nova-border shrink-0 bg-[#0c0c20]"
 						>
 							<div className="flex items-center gap-2 min-w-0">
 								{builder.blueprint && (
@@ -706,8 +710,9 @@ export function BuilderLayout() {
 										type="button"
 										onClick={handleUndo}
 										disabled={!builder.canUndo}
-										className="flex items-center justify-center w-8 h-8 rounded-lg text-nova-text-muted transition-colors cursor-pointer enabled:hover:text-nova-text enabled:hover:bg-white/5 disabled:opacity-25 disabled:cursor-default"
+										className="flex items-center justify-center w-8 h-8 rounded-lg text-nova-text-muted transition-colors cursor-pointer enabled:hover:text-nova-text enabled:hover:bg-white/5 disabled:opacity-[0.38] disabled:cursor-default"
 										title="Undo (⌘Z)"
+										aria-label="Undo"
 									>
 										<Icon icon={ciUndo} width="18" height="18" />
 									</button>
@@ -715,8 +720,9 @@ export function BuilderLayout() {
 										type="button"
 										onClick={handleRedo}
 										disabled={!builder.canRedo}
-										className="flex items-center justify-center w-8 h-8 rounded-lg text-nova-text-muted transition-colors cursor-pointer enabled:hover:text-nova-text enabled:hover:bg-white/5 disabled:opacity-25 disabled:cursor-default"
+										className="flex items-center justify-center w-8 h-8 rounded-lg text-nova-text-muted transition-colors cursor-pointer enabled:hover:text-nova-text enabled:hover:bg-white/5 disabled:opacity-[0.38] disabled:cursor-default"
 										title="Redo (⌘⇧Z)"
+										aria-label="Redo"
 									>
 										<Icon icon={ciRedo} width="18" height="18" />
 									</button>
@@ -769,6 +775,7 @@ export function BuilderLayout() {
 											onClick={() => setStructureOpen(true)}
 											className="absolute top-3 left-3 z-ground p-2 bg-nova-surface border border-nova-border rounded-lg hover:border-nova-border-bright transition-colors cursor-pointer"
 											title="Open structure"
+											aria-label="Open structure sidebar"
 										>
 											<Icon icon={tablerListTree} width="20" height="20" />
 										</button>
@@ -779,6 +786,7 @@ export function BuilderLayout() {
 											onClick={() => setChatOpen(true)}
 											className="absolute top-3 right-3 z-ground p-2 bg-nova-surface border border-nova-border rounded-lg hover:border-nova-border-bright transition-colors cursor-pointer"
 											title="Open chat"
+											aria-label="Open chat sidebar"
 										>
 											<Icon icon={ciMessage} width="20" height="20" />
 										</button>

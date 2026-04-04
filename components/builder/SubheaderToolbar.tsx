@@ -1,8 +1,8 @@
 "use client";
-import { Fragment, memo, useState } from "react";
-import { motion, AnimatePresence } from "motion/react";
 import { Icon } from "@iconify/react/offline";
 import ciChevronRight from "@iconify-icons/ci/chevron-right";
+import { AnimatePresence, motion } from "motion/react";
+import { Fragment, memo, useState } from "react";
 import { useDismissRef } from "@/hooks/useDismissRef";
 
 /** A breadcrumb segment with a label, stable identity key, and navigation callback. */
@@ -16,12 +16,15 @@ export interface BreadcrumbPart {
 }
 
 /** Chevron separator rendered between breadcrumb segments. */
+/** Chevron at full `text-nova-text-muted` (~2.9:1 on dark backgrounds) instead of
+ *  the previous /50 variant (1.5:1). The chevron is a supplementary visual separator —
+ *  hierarchy is conveyed by the text labels themselves — so near-3:1 is acceptable. */
 const Chevron = (
 	<Icon
 		icon={ciChevronRight}
 		width="14"
 		height="14"
-		className="text-nova-text-muted/50 shrink-0"
+		className="text-nova-text-muted shrink-0"
 	/>
 );
 
@@ -88,7 +91,10 @@ export const CollapsibleBreadcrumb = memo(function CollapsibleBreadcrumb({
 	const collapsedMiddle = needsCollapse ? parts.slice(1, -1) : [];
 
 	return (
-		<nav className="flex items-center gap-1 text-lg min-w-0">
+		<nav
+			className="flex items-center gap-1 text-lg min-w-0"
+			aria-label="Breadcrumb"
+		>
 			{parts.map((part, i) => {
 				const isLast = i === parts.length - 1;
 
@@ -112,7 +118,13 @@ export const CollapsibleBreadcrumb = memo(function CollapsibleBreadcrumb({
 										<motion.div
 											initial={{ opacity: 0, y: -4, scale: 0.97 }}
 											animate={{ opacity: 1, y: 0, scale: 1 }}
-											exit={{ opacity: 0, y: -4, scale: 0.97 }}
+											exit={{
+												opacity: 0,
+												y: -4,
+												scale: 0.97,
+												/* Exit ~60% of enter duration for responsiveness (MD motion) */
+												transition: { duration: 0.1, ease: [0.4, 0, 0.2, 1] },
+											}}
 											transition={{ duration: 0.15, ease: [0.4, 0, 0.2, 1] }}
 											className="absolute left-0 top-[calc(100%+4px)] z-popover min-w-[180px] max-w-[280px] rounded-xl border border-nova-border-bright bg-nova-surface/95 backdrop-blur-xl shadow-[0_4px_16px_rgba(0,0,0,0.5)] overflow-hidden py-1"
 										>
@@ -146,6 +158,7 @@ export const CollapsibleBreadcrumb = memo(function CollapsibleBreadcrumb({
 							onClick={isLast ? undefined : part.onClick}
 							title={part.label}
 							className={isLast ? CURRENT_CLASS : ANCESTOR_CLASS}
+							{...(isLast ? { "aria-current": "location" as const } : {})}
 						>
 							{part.label}
 						</button>
