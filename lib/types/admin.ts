@@ -2,7 +2,7 @@
  * Admin dashboard types — shared between API routes and client components.
  * All dates are ISO 8601 strings — consistent from Firestore through JSON to client.
  */
-import type { ProjectSummary } from "../db/projects";
+import type { AppSummary } from "../db/apps";
 
 /** A single row in the admin user table. */
 export interface AdminUserRow {
@@ -16,8 +16,8 @@ export interface AdminUserRow {
 	generations: number;
 	/** Estimated spend in USD this month. */
 	cost: number;
-	/** Total number of saved projects. */
-	project_count: number;
+	/** Total number of saved apps. */
+	app_count: number;
 }
 
 /** Headline statistics for the admin dashboard. */
@@ -55,5 +55,5 @@ export interface AdminUserDetailResponse {
 		last_active_at: string;
 	};
 	usage: UsagePeriod[];
-	projects: ProjectSummary[];
+	apps: AppSummary[];
 }

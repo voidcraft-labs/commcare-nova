@@ -45,7 +45,7 @@ All itext entries (labels, hints, option labels) emit both `<value>` and `<value
 
 ## Error Flow
 
-Three catch points cover the full surface: (1) route outer catch — errors from agent creation, (2) route inner catch — errors during stream consumption via the manual reader loop, (3) `generationContext.ts` wraps — errors from any LLM call, emits + re-throws. Both route-level catches delegate to `handleRouteError()` which classifies, emits `data-error`, and calls `failProject()` fire-and-forget (Firestore failure doesn't block the error response).
+Three catch points cover the full surface: (1) route outer catch — errors from agent creation, (2) route inner catch — errors during stream consumption via the manual reader loop, (3) `generationContext.ts` wraps — errors from any LLM call, emits + re-throws. Both route-level catches delegate to `handleRouteError()` which classifies, emits `data-error`, and calls `failApp()` fire-and-forget (Firestore failure doesn't block the error response).
 
 ## Validation Gap Inventory
 

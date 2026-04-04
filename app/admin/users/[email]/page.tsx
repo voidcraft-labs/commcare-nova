@@ -2,9 +2,9 @@ import { Icon } from "@iconify/react/offline";
 import tablerChevronLeft from "@iconify-icons/tabler/chevron-left";
 import Link from "next/link";
 import { Suspense } from "react";
-import { ProfileSkeleton, ProjectsSkeleton, UsageSkeleton } from "./loading";
+import { AppsSkeleton, ProfileSkeleton, UsageSkeleton } from "./loading";
+import { UserAppsSection } from "./user-apps";
 import { UserProfileSection } from "./user-profile";
-import { UserProjectsSection } from "./user-projects";
 import { UserUsageSection } from "./user-usage";
 
 /**
@@ -47,8 +47,8 @@ export default async function AdminUserDetailPage({
 				<UserUsageSection email={email} />
 			</Suspense>
 
-			<Suspense fallback={<ProjectsSkeleton />}>
-				<UserProjectsSection email={email} encodedEmail={encodedEmail} />
+			<Suspense fallback={<AppsSkeleton />}>
+				<UserAppsSection email={email} encodedEmail={encodedEmail} />
 			</Suspense>
 		</main>
 	);

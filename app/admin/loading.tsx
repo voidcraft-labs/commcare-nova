@@ -8,12 +8,12 @@
  */
 import { Skeleton } from "@/components/ui/Skeleton";
 
-/** Header column widths matching the real UserTable columns (user, email, role, projects, generations, spend, last active). */
+/** Header column widths matching the real UserTable columns (user, email, role, apps, generations, spend, last active). */
 const ADMIN_TABLE_HEADER_WIDTHS = [
 	{ id: "user", width: 56 },
 	{ id: "email", width: 80 },
 	{ id: "role", width: 40 },
-	{ id: "projects", width: 48 },
+	{ id: "apps", width: 48 },
 	{ id: "generations", width: 64 },
 	{ id: "spend", width: 48 },
 	{ id: "last-active", width: 64 },

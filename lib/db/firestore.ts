@@ -14,10 +14,10 @@
  * accept them (with FieldValue support via WithFieldValue<T>). Subcollection
  * helpers take parent IDs to navigate the hierarchy:
  *
- *   collections.users()                    → users/{email}
- *   collections.usage(email)               → users/{email}/usage/{yyyy-mm}
- *   collections.projects(email)            → users/{email}/projects/{projectId}
- *   collections.logs(email, projectId)     → users/{email}/projects/{projectId}/logs/{logId}
+ *   collections.users()                → users/{email}
+ *   collections.usage(email)           → users/{email}/usage/{yyyy-mm}
+ *   collections.apps(email)            → users/{email}/apps/{appId}
+ *   collections.logs(email, appId)     → users/{email}/apps/{appId}/logs/{logId}
  */
 import {
 	type CollectionReference,
@@ -30,8 +30,8 @@ import {
 } from "@google-cloud/firestore";
 import type { ZodType } from "zod";
 import {
-	type ProjectDoc,
-	projectDocSchema,
+	type AppDoc,
+	appDocSchema,
 	type StoredEvent,
 	storedEventSchema,
 	type UsageDoc,
@@ -93,7 +93,7 @@ function zodConverter<T>(schema: ZodType<T>): FirestoreDataConverter<T> {
 
 const userConverter = zodConverter(userDocSchema);
 const usageConverter = zodConverter(usageDocSchema);
-const projectConverter = zodConverter(projectDocSchema);
+const appConverter = zodConverter(appDocSchema);
 const storedEventConverter = zodConverter(storedEventSchema);
 
 // ── Collection Helpers ─────────────────────────────────────────────
@@ -107,8 +107,8 @@ const storedEventConverter = zodConverter(storedEventSchema);
  * sentinels like `serverTimestamp()` in place of their resolved types).
  *
  * Usage:
- *   const projects = await collections.projects('alice@dimagi.com').get()
- *   projects.docs.forEach(doc => doc.data())  // → ProjectDoc (validated)
+ *   const apps = await collections.apps('alice@dimagi.com').get()
+ *   apps.docs.forEach(doc => doc.data())  // → AppDoc (validated)
  */
 export const collections = {
 	/** Top-level users collection: `users/{email}` */
@@ -123,21 +123,21 @@ export const collections = {
 			.collection("usage")
 			.withConverter(usageConverter),
 
-	/** Per-user projects: `users/{email}/projects/{projectId}` */
-	projects: (email: string): CollectionReference<ProjectDoc> =>
+	/** Per-user apps: `users/{email}/apps/{appId}` */
+	apps: (email: string): CollectionReference<AppDoc> =>
 		getDb()
 			.collection("users")
 			.doc(email)
-			.collection("projects")
-			.withConverter(projectConverter),
+			.collection("apps")
+			.withConverter(appConverter),
 
-	/** Per-project log events: `users/{email}/projects/{projectId}/logs/{logId}` */
-	logs: (email: string, projectId: string): CollectionReference<StoredEvent> =>
+	/** Per-app log events: `users/{email}/apps/{appId}/logs/{logId}` */
+	logs: (email: string, appId: string): CollectionReference<StoredEvent> =>
 		getDb()
 			.collection("users")
 			.doc(email)
-			.collection("projects")
-			.doc(projectId)
+			.collection("apps")
+			.doc(appId)
 			.collection("logs")
 			.withConverter(storedEventConverter),
 };
@@ -151,7 +151,7 @@ export const collections = {
  * or write without querying the collection.
  *
  * Usage:
- *   const snap = await docs.project('alice@dimagi.com', 'abc123').get()
+ *   const snap = await docs.app('alice@dimagi.com', 'abc123').get()
  *   if (snap.exists) console.log(snap.data()!.app_name)  // → string (validated)
  */
 export const docs = {
@@ -163,15 +163,15 @@ export const docs = {
 	usage: (email: string, period: string): DocumentReference<UsageDoc> =>
 		collections.usage(email).doc(period),
 
-	/** Direct reference: `users/{email}/projects/{projectId}` */
-	project: (email: string, projectId: string): DocumentReference<ProjectDoc> =>
-		collections.projects(email).doc(projectId),
+	/** Direct reference: `users/{email}/apps/{appId}` */
+	app: (email: string, appId: string): DocumentReference<AppDoc> =>
+		collections.apps(email).doc(appId),
 
-	/** Direct reference: `users/{email}/projects/{projectId}/logs/{logId}` */
+	/** Direct reference: `users/{email}/apps/{appId}/logs/{logId}` */
 	logEntry: (
 		email: string,
-		projectId: string,
+		appId: string,
 		logId: string,
 	): DocumentReference<StoredEvent> =>
-		collections.logs(email, projectId).doc(logId),
+		collections.logs(email, appId).doc(logId),
 };

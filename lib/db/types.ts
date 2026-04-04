@@ -6,12 +6,12 @@
  *
  * Subcollection hierarchy (keyed by @dimagi.com email for human-readable paths):
  *
- *   users/{email}                                    → UserDoc
- *   users/{email}/usage/{yyyy-mm}                    → UsageDoc
- *   users/{email}/projects/{projectId}               → ProjectDoc
- *   users/{email}/projects/{projectId}/logs/{logId}  → StoredEvent
+ *   users/{email}                              → UserDoc
+ *   users/{email}/usage/{yyyy-mm}              → UsageDoc
+ *   users/{email}/apps/{appId}                 → AppDoc
+ *   users/{email}/apps/{appId}/logs/{logId}    → StoredEvent
  *
- * Projects are the fast path — one document read loads the full current state.
+ * Apps are the fast path — one document read loads the full current state.
  * Logs are the audit/replay path — append-only, fetched only when needed.
  * Usage is the spend-cap path — one document per user per month for direct lookups.
  */
@@ -79,7 +79,7 @@ export type UsageDoc = z.infer<typeof usageDocSchema>;
 // ── Log Events ─────────────────────────────────────────────────────
 
 /**
- * Log events — stored at `users/{email}/projects/{projectId}/logs/{logId}`.
+ * Log events — stored at `users/{email}/apps/{appId}/logs/{logId}`.
  *
  * A log is a flat, ordered stream of events. Each event is self-describing —
  * a shared envelope (who, when, ordering) wrapping one of four event variants
@@ -265,9 +265,9 @@ export const storedEventSchema = z.object({
 	event: logEventSchema,
 });
 
-// ── Project ─────────────────────────────────────────────────────
+// ── App ─────────────────────────────────────────────────────────
 
-export const projectDocSchema = z.object({
+export const appDocSchema = z.object({
 	/** App name — denormalized from blueprint for list display. */
 	app_name: z.string(),
 	/** The full blueprint, stored as a nested Firestore map. */
@@ -280,13 +280,13 @@ export const projectDocSchema = z.object({
 	form_count: z.number().default(0),
 	/** Build lifecycle status. */
 	status: z.enum(["generating", "complete", "error"]).default("complete"),
-	/** Error classification — set when status is 'error'. Null for non-error projects. */
+	/** Error classification — set when status is 'error'. Null for non-error apps. */
 	error_type: z.string().nullable().default(null),
-	/** Run ID of the generation/edit that last modified this project. */
+	/** Run ID of the generation/edit that last modified this app. */
 	run_id: z.string().nullable().default(null),
 	/** First save timestamp. Set once via FieldValue.serverTimestamp(). */
 	created_at: timestamp,
 	/** Updated on every save via FieldValue.serverTimestamp(). */
 	updated_at: timestamp,
 });
-export type ProjectDoc = z.infer<typeof projectDocSchema>;
+export type AppDoc = z.infer<typeof appDocSchema>;

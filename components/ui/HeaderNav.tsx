@@ -26,18 +26,20 @@ interface NavItem {
 	href: string;
 	label: string;
 	icon: IconifyIcon;
-	/** Pathname prefix for active detection (e.g. '/build' matches '/builds' and '/build/abc'). */
-	matchPrefix: string;
+	/** Pathname prefix for active detection (e.g. '/admin' matches '/admin/*'). */
+	matchPrefix?: string;
+	/** Exact pathname match instead of prefix (e.g. '/' matches only '/'). */
+	matchExact?: boolean;
 	/** Only render when user has admin role. */
 	adminOnly?: boolean;
 }
 
 const NAV_ITEMS: NavItem[] = [
 	{
-		href: "/builds",
-		label: "Projects",
+		href: "/",
+		label: "Apps",
 		icon: tablerFolder,
-		matchPrefix: "/build",
+		matchExact: true,
 	},
 	{
 		href: "/admin",
@@ -75,7 +77,9 @@ export function HeaderNav({ isAdmin }: HeaderNavProps) {
 		<nav className="flex items-center gap-1" aria-label="Main navigation">
 			{NAV_ITEMS.map((item) => {
 				if (item.adminOnly && !isAdmin) return null;
-				const isActive = pathname.startsWith(item.matchPrefix);
+				const isActive = item.matchExact
+					? pathname === item.href
+					: !!item.matchPrefix && pathname.startsWith(item.matchPrefix);
 				return (
 					<Link
 						key={item.href}

@@ -89,7 +89,7 @@ const STRUCTURE_SIDEBAR_WIDTH = 320;
 
 /** Create a Chat instance with transport, data handling, and auto-resend config.
  *  Closures capture refs (not direct values) so they always read the latest
- *  builder and runId — safe across re-renders within the same project session. */
+ *  builder and runId — safe across re-renders within the same app session. */
 function createChatInstance(
 	builderRef: { current: Builder },
 	runIdRef: { current: string | undefined },
@@ -100,7 +100,7 @@ function createChatInstance(
 			body: () => ({
 				blueprint: builderRef.current.blueprint ?? undefined,
 				runId: runIdRef.current,
-				projectId: builderRef.current.projectId,
+				appId: builderRef.current.appId,
 			}),
 		}),
 		sendAutomaticallyWhen: shouldAutoResend,
@@ -116,10 +116,10 @@ function createChatInstance(
 
 			/* After first save, update the URL from /build/new → /build/{id} without
 			 * triggering a navigation or remount. applyDataPart stores the ID on the builder. */
-			if (type === "data-project-saved") {
-				const projectId = data.projectId as string;
+			if (type === "data-app-saved") {
+				const appId = data.appId as string;
 				applyDataPart(builderRef.current, type, data);
-				window.history.replaceState({}, "", `/build/${projectId}`);
+				window.history.replaceState({}, "", `/build/${appId}`);
 				return;
 			}
 
@@ -145,7 +145,7 @@ export function BuilderLayout() {
 	builderRef.current = builder;
 	const runIdRef = useRef<string | undefined>(undefined);
 
-	// ── Chat instance — recreated when builder changes (new project) ──────
+	// ── Chat instance — recreated when builder changes (new app) ─────────
 	// When the BuilderProvider creates a fresh builder (buildId change), we
 	// detect the identity change and create a new Chat. This clears messages,
 	// resets the stream, and starts fresh — no persistedChatMessages hack.
@@ -154,7 +154,7 @@ export function BuilderLayout() {
 		createChatInstance(builderRef, runIdRef),
 	);
 
-	// ── Replay — consumed once on mount, cleared on project switch ────────
+	// ── Replay — consumed once on mount, cleared on app switch ───────────
 	const [initialReplay] = useState(consumeReplayData);
 	const replayStartIndex = initialReplay?.doneIndex ?? 0;
 	const [replayData, setReplayDataState] = useState(() => {
@@ -169,8 +169,8 @@ export function BuilderLayout() {
 		() => initialReplay?.stages[replayStartIndex]?.messages ?? [],
 	);
 
-	/* Detect builder identity change (new project via BuilderProvider). Clear
-	 * stale local state from the previous project: replay data, run ID, and
+	/* Detect builder identity change (new app via BuilderProvider). Clear
+	 * stale local state from the previous app: replay data, run ID, and
 	 * the Chat instance. Uses the React "adjusting state during rendering"
 	 * pattern — React discards the current render and re-renders immediately
 	 * with the updated state, so no stale frame is ever painted. */
@@ -297,7 +297,7 @@ export function BuilderLayout() {
 		prevPhaseRef.current = builder.phase;
 	}, [builder.phase, builder.blueprint, nav.navigateToForm]);
 
-	// ── Chat — uses the explicit Chat instance (recreated on project switch) ──
+	// ── Chat — uses the explicit Chat instance (recreated on app switch) ─────
 	const {
 		messages,
 		sendMessage,
@@ -627,7 +627,7 @@ export function BuilderLayout() {
 	}, [shouldRedirect, router]);
 	if (shouldRedirect || authPending) return null;
 
-	/* Gate rendering until the project is loaded from Firestore.
+	/* Gate rendering until the app is loaded from Firestore.
 	 * The Loading phase is the single source of truth — no separate React state. */
 	if (builder.phase === BuilderPhase.Loading) {
 		return (
@@ -640,7 +640,7 @@ export function BuilderLayout() {
 	}
 
 	/* Progress card mounts only during active generation (including errors, which
-	 * stay in Generating phase). Never for hydrated projects that go straight to Ready. */
+	 * stay in Generating phase). Never for hydrated apps that go straight to Ready. */
 	const showProgress =
 		builder.phase === BuilderPhase.Generating && !inReplayMode;
 	const showToolbar = !!(

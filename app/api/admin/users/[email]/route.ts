@@ -1,5 +1,5 @@
 /**
- * Admin user detail endpoint — returns a single user's profile, usage history, and projects.
+ * Admin user detail endpoint — returns a single user's profile, usage history, and apps.
  *
  * GET /api/admin/users/{email} → AdminUserDetailResponse
  *

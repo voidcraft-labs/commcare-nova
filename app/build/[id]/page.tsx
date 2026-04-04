@@ -5,7 +5,7 @@ import { BuilderProvider } from "@/hooks/useBuilder";
 
 /**
  * Build page — wraps BuilderLayout with BuilderProvider to scope the Builder
- * lifecycle to this route. When buildId changes (navigation between projects),
+ * lifecycle to this route. When buildId changes (navigation between apps),
  * the provider creates a fresh Builder. When the page unmounts (navigation away
  * from /build/*), the Builder is garbage collected.
  */

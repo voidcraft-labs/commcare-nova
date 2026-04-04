@@ -49,8 +49,8 @@ interface GenerationContextOptions {
 	logger: EventLogger;
 	/** Authenticated user session — always present (all users are authenticated). */
 	session: Session;
-	/** Firestore project ID — present when the project has been saved at least once. */
-	projectId?: string;
+	/** Firestore app ID — present when the app has been saved at least once. */
+	appId?: string;
 }
 
 export class GenerationContext {
@@ -59,15 +59,15 @@ export class GenerationContext {
 	readonly logger: EventLogger;
 	/** Authenticated user session. */
 	readonly session: Session;
-	/** Firestore project ID — set when the project has been saved at least once. */
-	readonly projectId: string | undefined;
+	/** Firestore app ID — set when the app has been saved at least once. */
+	readonly appId: string | undefined;
 
 	constructor(opts: GenerationContextOptions) {
 		this.anthropic = createAnthropic({ apiKey: opts.apiKey });
 		this.writer = opts.writer;
 		this.logger = opts.logger;
 		this.session = opts.session;
-		this.projectId = opts.projectId;
+		this.appId = opts.appId;
 	}
 
 	/** Get the Anthropic model provider for a given model ID. */

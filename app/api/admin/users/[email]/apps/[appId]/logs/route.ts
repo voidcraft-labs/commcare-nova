@@ -1,8 +1,8 @@
 /**
- * Admin log replay endpoint — load generation logs for any user's project.
+ * Admin log replay endpoint — load generation logs for any user's app.
  *
- * GET /api/admin/users/{email}/projects/{projectId}/logs
- * GET /api/admin/users/{email}/projects/{projectId}/logs?runId={id}
+ * GET /api/admin/users/{email}/apps/{appId}/logs
+ * GET /api/admin/users/{email}/apps/{appId}/logs?runId={id}
  *
  * Mirrors the user-facing logs endpoint but scopes to the target user's email
  * (from URL path) instead of the session user's email. Admin-only access.
@@ -15,19 +15,19 @@ import { loadLatestRunId, loadRunEvents } from "@/lib/db/logs";
 
 export async function GET(
 	req: Request,
-	{ params }: { params: Promise<{ email: string; projectId: string }> },
+	{ params }: { params: Promise<{ email: string; appId: string }> },
 ) {
 	try {
 		await requireAdmin(req);
-		const { email: rawEmail, projectId } = await params;
+		const { email: rawEmail, appId } = await params;
 		const email = decodeURIComponent(rawEmail);
 		const { searchParams } = new URL(req.url);
 
 		const runId =
-			searchParams.get("runId") ?? (await loadLatestRunId(email, projectId));
+			searchParams.get("runId") ?? (await loadLatestRunId(email, appId));
 		if (!runId) return Response.json({ events: [], runId: null });
 
-		const events = await loadRunEvents(email, projectId, runId);
+		const events = await loadRunEvents(email, appId, runId);
 		return Response.json({ events, runId });
 	} catch (err) {
 		return handleApiError(

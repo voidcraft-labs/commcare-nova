@@ -2,27 +2,22 @@
  * Loading skeleton for the builds page.
  *
  * Shows during client-side navigation while the RSC payload is in flight.
- * Mirrors the page shell structure: heading row + project card grid.
+ * Mirrors the page shell structure: heading row + app card grid.
  * The global header is rendered by the root layout (no duplication needed here).
- * `ProjectListSkeleton` is exported for reuse as a Suspense fallback in the page.
+ * `AppListSkeleton` is exported for reuse as a Suspense fallback in the page.
  */
 import { Skeleton } from "@/components/ui/Skeleton";
 
-/** Stable keys for project card skeleton placeholders. */
-const PROJECT_CARD_KEYS = [
-	"project-a",
-	"project-b",
-	"project-c",
-	"project-d",
-] as const;
+/** Stable keys for app card skeleton placeholders. */
+const APP_CARD_KEYS = ["app-a", "app-b", "app-c", "app-d"] as const;
 
 // ── Shared Skeleton (reused by page Suspense boundary) ───────────────
 
-/** Skeleton for the project card grid — matches `ProjectCard` layout. */
-export function ProjectListSkeleton() {
+/** Skeleton for the app card grid — matches `AppCard` layout. */
+export function AppListSkeleton() {
 	return (
 		<div className="grid gap-3">
-			{PROJECT_CARD_KEYS.map((key) => (
+			{APP_CARD_KEYS.map((key) => (
 				<div
 					key={key}
 					className="p-4 bg-nova-surface border border-nova-border rounded-lg flex items-center justify-between"
@@ -52,7 +47,7 @@ export default function BuildsLoading() {
 				<Skeleton className="w-24 h-8 rounded-lg" />
 			</div>
 
-			<ProjectListSkeleton />
+			<AppListSkeleton />
 		</main>
 	);
 }

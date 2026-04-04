@@ -8,7 +8,7 @@
  * expires. This means "Saving…" only appears when a fetch is actually
  * in-flight (~300ms), not during an artificial debounce window.
  *
- * Only active when: (a) user is authenticated, (b) a projectId exists,
+ * Only active when: (a) user is authenticated, (b) an appId exists,
  * (c) the builder has a blueprint, and (d) phase is Ready.
  *
  * Returns a SaveState with the current status and the timestamp of the last
@@ -74,14 +74,14 @@ export function useAutoSave(
 	const pendingTrailingRef = useRef(false);
 	const unmountedRef = useRef(false);
 
-	/* Reset state when the project changes — new project means a fresh
-	 * save watermark and no pending/in-flight state from the old project.
-	 * Uses React's "derive state from props" pattern: detect the change during
-	 * render so the effect doesn't reference mutationCount (which would cause
-	 * a reset on every mutation). clearTimeout is idempotent so safe in render. */
-	const prevProjectIdRef = useRef(builder.projectId);
-	if (prevProjectIdRef.current !== builder.projectId) {
-		prevProjectIdRef.current = builder.projectId;
+	/* Reset state when the app changes — new app means a fresh save watermark
+	 * and no pending/in-flight state from the old app. Uses React's "derive
+	 * state from props" pattern: detect the change during render so the effect
+	 * doesn't reference mutationCount (which would cause a reset on every
+	 * mutation). clearTimeout is idempotent so safe in render. */
+	const prevAppIdRef = useRef(builder.appId);
+	if (prevAppIdRef.current !== builder.appId) {
+		prevAppIdRef.current = builder.appId;
 		lastSavedMutationRef.current = builder.mutationCount;
 		inFlightRef.current = false;
 		if (cooldownTimerRef.current) {
@@ -105,7 +105,7 @@ export function useAutoSave(
 		 */
 		async function executeSave() {
 			const bp = builder.blueprint;
-			const pid = builder.projectId;
+			const pid = builder.appId;
 			const count = builder.mutationCount;
 			if (!bp || !pid || count === lastSavedMutationRef.current) return;
 
@@ -115,7 +115,7 @@ export function useAutoSave(
 			}
 
 			try {
-				const res = await fetch(`/api/projects/${pid}`, {
+				const res = await fetch(`/api/apps/${pid}`, {
 					method: "PUT",
 					headers: { "Content-Type": "application/json" },
 					body: JSON.stringify({ blueprint: bp }),
@@ -176,10 +176,10 @@ export function useAutoSave(
 		}
 
 		const unsub = builder.subscribeMutation(() => {
-			/* Gate on auth, phase, and project existence — all read live. */
+			/* Gate on auth, phase, and app existence — all read live. */
 			if (!authRef.current) return;
 			if (builder.phase !== BuilderPhase.Ready) return;
-			if (!builder.projectId || !builder.blueprint) return;
+			if (!builder.appId || !builder.blueprint) return;
 
 			/* Skip if no actual blueprint mutations since last save. */
 			if (builder.mutationCount === lastSavedMutationRef.current) return;

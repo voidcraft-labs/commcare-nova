@@ -66,7 +66,7 @@ function breadcrumbPartsEqual(
 }
 
 /**
- * Navigable breadcrumb trail for the Tier 2 project subheader.
+ * Navigable breadcrumb trail for the builder subheader.
  *
  * Uses a single, stable DOM structure via `.map()` over all parts — every segment
  * is a `<button>` element, just styled differently for ancestor vs. current. This

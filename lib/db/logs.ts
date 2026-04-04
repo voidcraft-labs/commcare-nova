@@ -26,12 +26,12 @@ import type { StoredEvent } from "./types";
  */
 export function writeLogEvent(
 	email: string,
-	projectId: string,
+	appId: string,
 	event: StoredEvent,
 ): void {
 	const docId = `${event.run_id}_${String(event.sequence).padStart(6, "0")}`;
 	collections
-		.logs(email, projectId)
+		.logs(email, appId)
 		.doc(docId)
 		.set(event)
 		.catch((err) => log.error("[writeLogEvent] Firestore write failed", err));
@@ -47,11 +47,11 @@ export function writeLogEvent(
  */
 export async function loadRunEvents(
 	email: string,
-	projectId: string,
+	appId: string,
 	runId: string,
 ): Promise<StoredEvent[]> {
 	const snap = await collections
-		.logs(email, projectId)
+		.logs(email, appId)
 		.where("run_id", "==", runId)
 		.orderBy("sequence")
 		.get();
@@ -59,19 +59,19 @@ export async function loadRunEvents(
 }
 
 /**
- * Get the most recent run_id for a project.
+ * Get the most recent run_id for an app.
  *
  * Queries the single highest-sequence event and returns its run_id.
- * Returns null if no log events exist for the project.
+ * Returns null if no log events exist for the app.
  */
 export async function loadLatestRunId(
 	email: string,
-	projectId: string,
+	appId: string,
 ): Promise<string | null> {
 	/* Order by timestamp (not sequence) because sequence is per-run and resets
 	 * to 0 for each EventLogger instance. Timestamp is globally monotonic. */
 	const snap = await collections
-		.logs(email, projectId)
+		.logs(email, appId)
 		.orderBy("timestamp", "desc")
 		.limit(1)
 		.get();

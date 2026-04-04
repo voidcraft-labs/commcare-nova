@@ -2,7 +2,7 @@
  * Async server component for admin dashboard content.
  *
  * Separated from the admin page so it can be wrapped in a Suspense boundary.
- * The data fetch (all users + usage + project counts) happens here while the
+ * The data fetch (all users + usage + app counts) happens here while the
  * page shell — header, title — renders and streams immediately.
  *
  * Stats and user table share a single Suspense boundary because they come from

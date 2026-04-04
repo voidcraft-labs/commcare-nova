@@ -62,8 +62,8 @@ const columns: ColumnDef<AdminUserRow>[] = [
 		},
 	},
 	{
-		accessorKey: "project_count",
-		header: "Projects",
+		accessorKey: "app_count",
+		header: "Apps",
 		cell: ({ getValue }) => (
 			<span className="tabular-nums">{getValue<number>()}</span>
 		),

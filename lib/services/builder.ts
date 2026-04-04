@@ -93,8 +93,8 @@ export function applyDataPart(
 				},
 			);
 			break;
-		case "data-project-saved":
-			builder.setProjectId(data.projectId as string);
+		case "data-app-saved":
+			builder.setAppId(data.appId as string);
 			break;
 		case "data-error":
 			builder.setGenerationError(
@@ -224,8 +224,8 @@ export class Builder {
 	// ── Edit guard (blocks select() when an inline editor has unsaved invalid content) ──
 	private _editGuard: (() => boolean) | null = null;
 
-	// ── Project persistence ─────────────────────────────────────────────
-	private _projectId: string | undefined;
+	// ── App persistence ─────────────────────────────────────────────────
+	private _appId: string | undefined;
 
 	// ── Read-only public accessors ───────────────────────────────────────
 
@@ -236,9 +236,9 @@ export class Builder {
 		return this._agentActive;
 	}
 
-	/** Firestore project ID — set after first save, persisted across re-generations. */
-	get projectId(): string | undefined {
-		return this._projectId;
+	/** Firestore app ID — set after first save, persisted across re-generations. */
+	get appId(): string | undefined {
+		return this._appId;
 	}
 
 	/** True when agent activates in Done phase after the initial summary has completed.
@@ -747,29 +747,29 @@ export class Builder {
 		this.notify();
 	}
 
-	/** Store the Firestore project ID after first save. Does not trigger re-render
+	/** Store the Firestore app ID after first save. Does not trigger re-render
 	 *  — the URL update is handled by BuilderLayout's onData callback directly. */
-	setProjectId(id: string) {
-		this._projectId = id;
+	setAppId(id: string) {
+		this._appId = id;
 	}
 
-	/** Transition to Loading phase — fetching a saved project from Firestore.
+	/** Transition to Loading phase — fetching a saved app from Firestore.
 	 *  Puts the layout in builder frame immediately (not centered). */
 	startLoading() {
 		this._phase = BuilderPhase.Loading;
 		this.notify();
 	}
 
-	/** Atomic Loading → Ready transition for hydrating a saved project.
+	/** Atomic Loading → Ready transition for hydrating a saved app.
 	 *  Single notify() — no transient states, no entrance animations. */
-	loadProject(id: string, blueprint: AppBlueprint) {
+	loadApp(id: string, blueprint: AppBlueprint) {
 		this.enterReady(new MutableBlueprint(blueprint));
-		this._projectId = id;
+		this._appId = id;
 		this.notify();
 	}
 
 	/** Shared Ready-state setup — hydrates blueprint + history, clears generation
-	 *  metadata and edit tracking. Called by both completeGeneration and loadProject. */
+	 *  metadata and edit tracking. Called by both completeGeneration and loadApp. */
 	private enterReady(mb: MutableBlueprint) {
 		this._mb = mb;
 		this._history = new HistoryManager(this._mb);
@@ -900,7 +900,7 @@ export class Builder {
 		this._thinkEnergy = 0;
 		this._editScope = null;
 		this._editGuard = null;
-		this._projectId = undefined;
+		this._appId = undefined;
 		this.notify();
 	}
 }

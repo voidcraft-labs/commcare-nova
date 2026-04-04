@@ -7,7 +7,7 @@
 import { type JSONValue, stepCountIs, ToolLoopAgent, tool } from "ai";
 import { z } from "zod";
 import { log } from "@/lib/log";
-import { completeProject } from "../db/projects";
+import { completeApp } from "../db/apps";
 import { SA_MODEL, SA_REASONING } from "../models";
 import { buildSolutionsArchitectPrompt } from "../prompts/solutionsArchitectPrompt";
 import {
@@ -982,16 +982,16 @@ export function createSolutionsArchitect(
 							success: true,
 						});
 
-						/* Update the project with the final validated blueprint (fire-and-forget).
-						 * The project document was created at the start of the request by the route handler. */
-						if (ctx.session && ctx.projectId) {
-							completeProject(
+						/* Update the app with the final validated blueprint (fire-and-forget).
+						 * The app document was created at the start of the request by the route handler. */
+						if (ctx.session && ctx.appId) {
+							completeApp(
 								ctx.session.user.email,
-								ctx.projectId,
+								ctx.appId,
 								result.blueprint,
 								ctx.logger.runId,
 							).catch((err) =>
-								log.error("[validateApp] project update failed", err),
+								log.error("[validateApp] app update failed", err),
 							);
 						}
 

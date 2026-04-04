@@ -74,7 +74,7 @@ export function ChatSidebar({
 	// ── Signal Grid — controller scoped to the builder instance ──────────
 	// ChatSidebar is always-mounted (width animated to 0 when "closed"), so
 	// refs persist across sidebar open/close. When the builder changes (new
-	// project via BuilderProvider), we destroy the old controller's animation
+	// app via BuilderProvider), we destroy the old controller's animation
 	// loop and create a fresh one. Callbacks close over builderRef so they
 	// always read the latest instance — safe across the teardown gap.
 	const builderRef = useRef(builder);

@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { JetBrains_Mono, Outfit, Plus_Jakarta_Sans } from "next/font/google";
 import { ErrorReporter } from "@/components/ErrorReporter";
 import { AppHeader } from "@/components/ui/AppHeader";
+import { ThemeSwitcher } from "@/components/ui/ThemeSwitcher";
 import { getSession } from "@/lib/auth-utils";
 import "./globals.css";
 
@@ -23,14 +24,14 @@ const mono = JetBrains_Mono({
 
 export const metadata: Metadata = {
 	title: "commcare nova",
-	description: "Build CommCare mobile apps from natural language",
+	description: "Build CommCare apps from natural language",
 };
 
 /**
  * Root layout — fonts, global header, page wrapper.
  *
  * The flex-col + h-dvh container lets the global header take its natural
- * height while the page content fills the rest. On the landing page, the
+ * height while the page content fills the rest. When unauthenticated, the
  * header returns null so the full viewport is available. On builder pages,
  * BuilderLayout uses flex-1 to fill the remaining space below the header.
  * On regular pages, the overflow-auto wrapper scrolls naturally.
@@ -57,10 +58,11 @@ export default async function RootLayout({
 						Skip to main content
 					</a>
 					<ErrorReporter />
-					<AppHeader isAdmin={isAdmin} />
+					<AppHeader isAdmin={isAdmin} isAuthenticated={!!session} />
 					<div id="main-content" className="flex-1 overflow-auto">
 						{children}
 					</div>
+					<ThemeSwitcher />
 				</div>
 			</body>
 		</html>

@@ -6,8 +6,8 @@
  * is created. When the page unmounts, the Builder is garbage collected. No
  * singleton, no stale state, no manual reset.
  *
- * BuilderProvider also handles project loading from Firestore — it's the
- * single owner of the buildId → Builder → project data lifecycle.
+ * BuilderProvider also handles app loading from Firestore — it's the
+ * single owner of the buildId → Builder → app data lifecycle.
  */
 "use client";
 
@@ -32,14 +32,14 @@ const BuilderContext = createContext<Builder | null>(null);
  * BuilderProvider — owns the Builder lifecycle for a specific buildId.
  *
  * Creates a fresh Builder when buildId changes using the React "adjusting state
- * during rendering" pattern (synchronous, no stale frame). Handles project
- * loading from Firestore for existing projects. Provides the Builder via
+ * during rendering" pattern (synchronous, no stale frame). Handles app
+ * loading from Firestore for existing apps. Provides the Builder via
  * context to all descendant components.
  *
  * Lifecycle:
- * - `/builds` → `/build/{id}`: provider mounts, fresh Builder, loads project
+ * - `/` → `/build/{id}`: provider mounts, fresh Builder, loads app
  * - `/build/A` → `/build/B`: buildId changes, fresh Builder, loads B
- * - `/build/*` → `/builds`: provider unmounts, Builder is garbage collected
+ * - `/build/*` → `/`: provider unmounts, Builder is garbage collected
  * - `/build/new` generation: buildId stays 'new' (replaceState), no reset
  */
 export function BuilderProvider({
@@ -67,25 +67,25 @@ export function BuilderProvider({
 	}
 
 	const { builder } = state;
-	const isExistingProject = buildId !== "new" && isAuthenticated;
+	const isExistingApp = buildId !== "new" && isAuthenticated;
 
 	/* Transition to Loading phase before first paint so the layout renders
 	 * the loading spinner immediately (not the centered chat). */
 	useLayoutEffect(() => {
-		if (isExistingProject && builder.phase === BuilderPhase.Idle) {
+		if (isExistingApp && builder.phase === BuilderPhase.Idle) {
 			builder.startLoading();
 		}
-	}, [isExistingProject, builder]);
+	}, [isExistingApp, builder]);
 
-	/* Fetch the project from Firestore for existing projects. Hydrates the
-	 * builder to Ready phase with the saved blueprint via loadProject() —
+	/* Fetch the app from Firestore for existing apps. Hydrates the
+	 * builder to Ready phase with the saved blueprint via loadApp() —
 	 * a single atomic transition with no transient states. */
 	useEffect(() => {
-		if (!isExistingProject || !isAuthenticated) return;
+		if (!isExistingApp || !isAuthenticated) return;
 		if (builder.phase !== BuilderPhase.Loading) return;
 		let cancelled = false;
 
-		fetch(`/api/projects/${buildId}`)
+		fetch(`/api/apps/${buildId}`)
 			.then((res) => {
 				if (!res.ok)
 					throw new Error(res.status === 404 ? "not-found" : "load-failed");
@@ -93,19 +93,19 @@ export function BuilderProvider({
 			})
 			.then((data) => {
 				if (cancelled) return;
-				/* Non-complete projects (error, stale generating) can't be hydrated —
-				 * redirect to the project list with an explanatory toast. */
+				/* Non-complete apps (error, stale generating) can't be hydrated —
+				 * redirect to the app list with an explanatory toast. */
 				if (data.status !== "complete") {
 					showToast(
 						"error",
-						"Project unavailable",
-						"This project didn't finish generating.",
+						"App unavailable",
+						"This app didn't finish generating.",
 					);
-					router.replace("/builds");
+					router.replace("/");
 					return;
 				}
 				if (data.blueprint) {
-					builder.loadProject(buildId, data.blueprint);
+					builder.loadApp(buildId, data.blueprint);
 				}
 			})
 			.catch((err) => {
@@ -113,19 +113,19 @@ export function BuilderProvider({
 				if (err.message === "not-found") {
 					showToast(
 						"error",
-						"Project not found",
-						"This project may have been deleted.",
+						"App not found",
+						"This app may have been deleted.",
 					);
 				} else {
-					showToast("error", "Failed to load project");
+					showToast("error", "Failed to load app");
 				}
-				router.replace("/builds");
+				router.replace("/");
 			});
 
 		return () => {
 			cancelled = true;
 		};
-	}, [buildId, isExistingProject, isAuthenticated, builder, router]);
+	}, [buildId, isExistingApp, isAuthenticated, builder, router]);
 
 	return <BuilderContext value={builder}>{children}</BuilderContext>;
 }
