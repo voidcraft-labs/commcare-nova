@@ -145,7 +145,7 @@ const EDIT_ZONE_LERP_SPEED = 3.0
 /** One defrag op at a time — a single 2-column bar, just like building's sweep. */
 const MAX_DEFRAG_OPS = 1
 
-const enum DefragPhase { Seek, Select, Crawl, Place }
+enum DefragPhase { Seek, Select, Crawl, Place }
 
 /** A tracked defrag operation — a vertical bar that selects, crawls, and places. */
 interface DefragOp {
@@ -165,7 +165,7 @@ interface DefragOp {
 
 // ── Scaffolding (solver-driven tetris progress bar) ────────────────────
 
-const enum ScaffoldAnimPhase { Preview, Select, Slide, Lock }
+enum ScaffoldAnimPhase { Preview, Select, Slide, Lock }
 
 /** A preview candidate: shape + row, ready to render. */
 interface ScaffoldPreview { shape: Shape; originRow: number }

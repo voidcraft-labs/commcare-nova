@@ -6,7 +6,7 @@
  */
 import { ToolLoopAgent, tool, stepCountIs } from 'ai'
 import { z } from 'zod'
-import { GenerationContext, logWarnings } from './generationContext'
+import { type GenerationContext, logWarnings } from './generationContext'
 import { SA_MODEL, SA_REASONING } from '../models'
 import { buildSolutionsArchitectPrompt } from '../prompts/solutionsArchitectPrompt'
 import {
@@ -20,7 +20,7 @@ import {
   type FlatQuestion,
   stripEmpty, applyDefaults, buildQuestionTree, flattenToFlat,
 } from '../schemas/contentProcessing'
-import { MutableBlueprint, type NewQuestion } from './mutableBlueprint'
+import type { MutableBlueprint, NewQuestion } from './mutableBlueprint'
 import { validateAndFix } from './validationLoop'
 import { errorToString } from './commcare/validate/errors'
 import { completeProject } from '../db/projects'

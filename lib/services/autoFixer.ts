@@ -104,7 +104,7 @@ export class AutoFixer {
     // or <select1 ref="/data/xyz">...<label>Text</label>
     // Also handle <item><label>Text</label><value>val</value></item>
 
-    let bodyResult = body
+    const bodyResult = body
     let hasInlineLabels = false
 
     // First pass: collect all question/item labels with their context

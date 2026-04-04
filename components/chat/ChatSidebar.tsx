@@ -10,7 +10,7 @@ import { ChatInput } from '@/components/chat/ChatInput'
 import { SignalGrid } from '@/components/chat/SignalGrid'
 import { SignalPanel } from '@/components/chat/SignalPanel'
 import { SignalGridController, defaultLabel, type SignalMode } from '@/lib/signalGridController'
-import { Builder, BuilderPhase, GenerationStage } from '@/lib/services/builder'
+import { type Builder, BuilderPhase, GenerationStage } from '@/lib/services/builder'
 
 /** Sidebar panel width in pixels. Exported so siblings (e.g. cursor mode bar
  *  positioning in BuilderLayout) can derive offsets without magic numbers. */

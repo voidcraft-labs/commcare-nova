@@ -2,7 +2,7 @@
 import { useRef, useEffect, useCallback } from 'react'
 import type { UIMessage } from 'ai'
 import { useBuilder } from '@/hooks/useBuilder'
-import { SignalGridController } from '@/lib/signalGridController'
+import type { SignalGridController } from '@/lib/signalGridController'
 import type { EditScope } from '@/lib/services/builder'
 import { qpathId, type QuestionPath } from '@/lib/services/questionPath'
 import { flatIndexById } from '@/lib/services/questionTree'

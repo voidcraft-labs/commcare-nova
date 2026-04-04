@@ -12,7 +12,7 @@
  *    the landing page's server component handles the reverse direction
  *    with full session validation, so stale cookies can't cause a loop.
  */
-import { NextRequest, NextResponse } from 'next/server'
+import { type NextRequest, NextResponse } from 'next/server'
 import { getSessionCookie } from 'better-auth/cookies'
 
 export function proxy(request: NextRequest) {

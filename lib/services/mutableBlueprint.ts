@@ -5,9 +5,9 @@
  * the entire lifecycle: progressive population during generation and surgical
  * edits during editing.
  */
-import {
-  type AppBlueprint, type BlueprintModule, type BlueprintForm, type Question,
-  type CaseType, type CaseProperty, type ConnectConfig, type ConnectType, type PostSubmitDestination,
+import type {
+  AppBlueprint, BlueprintModule, BlueprintForm, Question,
+  CaseType, CaseProperty, ConnectConfig, ConnectType, PostSubmitDestination,
 } from '../schemas/blueprint'
 import { normalizeConnectConfig } from './connectConfig'
 import { rewriteXPathRefs, rewriteHashtagRefs } from '../preview/xpath/rewrite'

@@ -1,4 +1,4 @@
-import { type NextRequest } from 'next/server'
+import type { NextRequest } from 'next/server'
 import { getCcz } from '@/lib/store'
 import { requireSession } from '@/lib/auth-utils'
 
