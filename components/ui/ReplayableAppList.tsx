@@ -1,41 +1,41 @@
 "use client";
 import { useReplay } from "@/hooks/useReplay";
-import type { ProjectSummary } from "@/lib/db/projects";
-import { ProjectCard } from "./ProjectCard";
+import type { AppSummary } from "@/lib/db/apps";
+import { AppCard } from "./AppCard";
 
-interface ReplayableProjectListProps {
-	projects: ProjectSummary[];
-	/** URL prefix for the replay logs endpoint — `${prefix}/${projectId}/logs`. */
+interface ReplayableAppListProps {
+	apps: AppSummary[];
+	/** URL prefix for the replay logs endpoint — `${prefix}/${appId}/logs`. */
 	logsUrlPrefix: string;
-	/** When true, non-error projects link to `/build/{id}`. Defaults to false. */
-	linkToProjects?: boolean;
+	/** When true, non-error apps link to `/build/{id}`. Defaults to false. */
+	linkToApps?: boolean;
 	/** When false, replay buttons are hidden. Defaults to true. */
 	showReplay?: boolean;
-	/** Content to show when the project list is empty. */
+	/** Content to show when the app list is empty. */
 	emptyState?: React.ReactNode;
 }
 
 /**
- * Project list with integrated replay support.
+ * App list with integrated replay support.
  *
  * Client component because useReplay manages state and the replay callback
- * is an event handler passed to ProjectCard. Shared between the builds page
- * (user's own projects) and admin user detail page (admin viewing any user's projects).
+ * is an event handler passed to AppCard. Shared between the builds page
+ * (user's own apps) and admin user detail page (admin viewing any user's apps).
  *
  * Props are all serializable (no functions) so this component can be rendered
  * from a Server Component parent.
  */
-export function ReplayableProjectList({
-	projects,
+export function ReplayableAppList({
+	apps,
 	logsUrlPrefix,
-	linkToProjects = false,
+	linkToApps = false,
 	showReplay = true,
 	emptyState,
-}: ReplayableProjectListProps) {
+}: ReplayableAppListProps) {
 	const buildUrl = (id: string) => `${logsUrlPrefix}/${id}/logs`;
 	const { handleReplay, replayingId, replayError } = useReplay({ buildUrl });
 
-	if (projects.length === 0 && emptyState) {
+	if (apps.length === 0 && emptyState) {
 		return <>{emptyState}</>;
 	}
 
@@ -48,14 +48,14 @@ export function ReplayableProjectList({
 			)}
 
 			<div className="grid gap-3">
-				{projects.map((project, i) => (
-					<ProjectCard
-						key={project.id}
-						project={project}
+				{apps.map((app, i) => (
+					<AppCard
+						key={app.id}
+						app={app}
 						index={i}
 						href={
-							linkToProjects && project.status !== "error"
-								? `/build/${project.id}`
+							linkToApps && app.status !== "error"
+								? `/build/${app.id}`
 								: undefined
 						}
 						onReplay={showReplay ? handleReplay : undefined}

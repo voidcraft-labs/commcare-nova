@@ -12,16 +12,16 @@ import type {
 	AdminUsersResponse,
 	UsagePeriod,
 } from "../types/admin";
+import { listApps } from "./apps";
 import { collections, docs, getDb } from "./firestore";
-import { listProjects } from "./projects";
 import { getCurrentPeriod } from "./usage";
 import { getUser, listAllUsers } from "./users";
 
 /**
- * Fetch all users with current month usage and project counts.
+ * Fetch all users with current month usage and app counts.
  *
  * Batch-reads all usage docs in a single Firestore getAll() call (1 round trip
- * for N users instead of N individual reads). Project counts are aggregation
+ * for N users instead of N individual reads). App counts are aggregation
  * queries and can't be batched, so those run in parallel per user.
  */
 export async function getAdminUsersWithStats(): Promise<AdminUsersResponse> {
@@ -33,9 +33,9 @@ export async function getAdminUsersWithStats(): Promise<AdminUsersResponse> {
 	const usageSnaps =
 		usageRefs.length > 0 ? await getDb().getAll(...usageRefs) : [];
 
-	/* Project counts are aggregation queries — run in parallel */
-	const projectCounts = await Promise.all(
-		allUsers.map((u) => collections.projects(u.email).count().get()),
+	/* App counts are aggregation queries — run in parallel */
+	const appCounts = await Promise.all(
+		allUsers.map((u) => collections.apps(u.email).count().get()),
 	);
 
 	const enriched: AdminUserRow[] = allUsers.map((user, i) => {
@@ -55,7 +55,7 @@ export async function getAdminUsersWithStats(): Promise<AdminUsersResponse> {
 			last_active_at: user.last_active_at.toDate().toISOString(),
 			generations: usageData?.request_count ?? 0,
 			cost: usageData?.cost_estimate ?? 0,
-			project_count: projectCounts[i].data().count,
+			app_count: appCounts[i].data().count,
 		};
 	});
 
@@ -115,16 +115,16 @@ export async function getAdminUserUsage(email: string): Promise<UsagePeriod[]> {
 }
 
 /**
- * Fetch a user's projects — delegates to `listProjects`.
+ * Fetch a user's apps — delegates to `listApps`.
  *
- * Separated so the project list can stream independently via Suspense.
+ * Separated so the app list can stream independently via Suspense.
  */
-export async function getAdminUserProjects(email: string) {
-	return listProjects(email);
+export async function getAdminUserApps(email: string) {
+	return listApps(email);
 }
 
 /**
- * Fetch a single user's profile, usage history, and projects.
+ * Fetch a single user's profile, usage history, and apps.
  *
  * Convenience wrapper that calls the three independent functions in parallel.
  * Used by the admin API route; the RSC page uses the individual functions
@@ -133,12 +133,12 @@ export async function getAdminUserProjects(email: string) {
 export async function getAdminUserDetail(
 	email: string,
 ): Promise<AdminUserDetailResponse | null> {
-	const [user, usage, projects] = await Promise.all([
+	const [user, usage, apps] = await Promise.all([
 		getAdminUserProfile(email),
 		getAdminUserUsage(email),
-		getAdminUserProjects(email),
+		getAdminUserApps(email),
 	]);
 
 	if (!user) return null;
-	return { user, usage, projects };
+	return { user, usage, apps };
 }

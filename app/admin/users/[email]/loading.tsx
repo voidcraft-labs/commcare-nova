@@ -3,7 +3,7 @@
  *
  * Shows during client-side navigation while the RSC payload is in flight.
  * Mirrors the page shell: in-page breadcrumb, profile card, usage table,
- * and project list. The global header is rendered by the root layout.
+ * and app list. The global header is rendered by the root layout.
  * Individual skeleton components are exported for reuse as Suspense fallbacks.
  */
 import { Skeleton } from "@/components/ui/Skeleton";
@@ -19,8 +19,8 @@ const USAGE_HEADER_WIDTHS = [
 /** Stable keys for usage table body rows. */
 const USAGE_ROW_KEYS = ["usage-a", "usage-b", "usage-c"] as const;
 
-/** Stable keys for project card placeholders. */
-const PROJECT_CARD_KEYS = ["project-a", "project-b", "project-c"] as const;
+/** Stable keys for app card placeholders. */
+const APP_CARD_KEYS = ["app-a", "app-b", "app-c"] as const;
 
 // ── Section Skeletons (reused by page Suspense boundaries) ───────────
 
@@ -72,13 +72,13 @@ export function UsageSkeleton() {
 	);
 }
 
-/** Project list skeleton — section heading + 3 project card placeholders. */
-export function ProjectsSkeleton() {
+/** App list skeleton — section heading + 3 app card placeholders. */
+export function AppsSkeleton() {
 	return (
 		<section>
 			<Skeleton className="w-24 h-5 mb-4" />
 			<div className="grid gap-3">
-				{PROJECT_CARD_KEYS.map((key) => (
+				{APP_CARD_KEYS.map((key) => (
 					<div
 						key={key}
 						className="p-4 bg-nova-surface border border-nova-border rounded-lg flex items-center justify-between"
@@ -112,7 +112,7 @@ export default function AdminUserDetailLoading() {
 
 			<ProfileSkeleton />
 			<UsageSkeleton />
-			<ProjectsSkeleton />
+			<AppsSkeleton />
 		</main>
 	);
 }

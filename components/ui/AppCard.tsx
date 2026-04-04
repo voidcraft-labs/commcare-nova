@@ -3,13 +3,13 @@ import { Icon } from "@iconify/react/offline";
 import tablerPlayerPlay from "@iconify-icons/tabler/player-play";
 import { motion } from "motion/react";
 import Link from "next/link";
-import type { ProjectSummary } from "@/lib/db/projects";
+import type { AppSummary } from "@/lib/db/apps";
 import { formatRelativeDate, STATUS_STYLES } from "@/lib/utils/format";
 import { ConnectBadge } from "./ConnectBadge";
 
-interface ProjectCardProps {
-	project: Pick<
-		ProjectSummary,
+interface AppCardProps {
+	app: Pick<
+		AppSummary,
 		| "id"
 		| "app_name"
 		| "connect_type"
@@ -23,26 +23,26 @@ interface ProjectCardProps {
 	/** If provided, the card links to this URL on click. */
 	href?: string;
 	/** Called when the replay button is clicked. Omit to hide replay. */
-	onReplay?: (projectId: string, appName: string) => void;
-	/** The project ID currently being replayed (disables all replay buttons). */
+	onReplay?: (appId: string, appName: string) => void;
+	/** The app ID currently being replayed (disables all replay buttons). */
 	replayingId?: string | null;
 }
 
 /**
- * Shared project card used by the builds page and admin user profile.
- * Renders project name, metadata, status badge, and optional replay button.
+ * Shared app card used by the builds page and admin user profile.
+ * Renders app name, metadata, status badge, and optional replay button.
  * When `href` is provided, the card is a clickable link.
  */
-export function ProjectCard({
-	project,
+export function AppCard({
+	app,
 	index,
 	href,
 	onReplay,
 	replayingId,
-}: ProjectCardProps) {
-	const style = STATUS_STYLES[project.status];
-	const isFailed = project.status === "error";
-	const updatedAt = new Date(project.updated_at);
+}: AppCardProps) {
+	const style = STATUS_STYLES[app.status];
+	const isFailed = app.status === "error";
+	const updatedAt = new Date(app.updated_at);
 
 	const content = (
 		<div className="flex items-center justify-between">
@@ -50,7 +50,7 @@ export function ProjectCard({
 				<h3
 					className={`font-medium ${isFailed ? "text-nova-text-muted" : href ? "group-hover:text-nova-text" : ""} transition-colors`}
 				>
-					{project.app_name || "Untitled"}
+					{app.app_name || "Untitled"}
 				</h3>
 				<p className="text-sm text-nova-text-secondary mt-1 flex items-center gap-3">
 					{isFailed ? (
@@ -59,14 +59,12 @@ export function ProjectCard({
 						<>
 							<span>{formatRelativeDate(updatedAt)}</span>
 							<span className="text-nova-text-muted">
-								{project.module_count} module
-								{project.module_count !== 1 ? "s" : ""}
+								{app.module_count} module
+								{app.module_count !== 1 ? "s" : ""}
 								{" \u00b7 "}
-								{project.form_count} form{project.form_count !== 1 ? "s" : ""}
+								{app.form_count} form{app.form_count !== 1 ? "s" : ""}
 							</span>
-							{project.connect_type && (
-								<ConnectBadge type={project.connect_type} />
-							)}
+							{app.connect_type && <ConnectBadge type={app.connect_type} />}
 						</>
 					)}
 				</p>
@@ -78,7 +76,7 @@ export function ProjectCard({
 						onClick={(e) => {
 							e.preventDefault();
 							e.stopPropagation();
-							if (!replayingId) onReplay(project.id, project.app_name);
+							if (!replayingId) onReplay(app.id, app.app_name);
 						}}
 						disabled={replayingId !== undefined && replayingId !== null}
 						className="p-1.5 text-nova-text-muted hover:text-nova-violet transition-colors rounded-md hover:bg-nova-violet/10 disabled:opacity-40 disabled:cursor-not-allowed"
@@ -88,7 +86,7 @@ export function ProjectCard({
 							icon={tablerPlayerPlay}
 							width="18"
 							height="18"
-							className={replayingId === project.id ? "animate-pulse" : ""}
+							className={replayingId === app.id ? "animate-pulse" : ""}
 						/>
 					</button>
 				)}

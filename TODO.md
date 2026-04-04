@@ -7,17 +7,17 @@ Anthropic API key), which is a barrier for non-technical users — the exact peo
 
 **The goal:** Any Dimagi employee can sign in with their Google account and start building apps
 immediately, no API key needed. A single server-side Anthropic key is shared across all
-authenticated users. Usage is logged, capped per user per month, and projects are persisted so
+authenticated users. Usage is logged, capped per user per month, and apps are persisted so
 users can return to their work.
 
 **Design principles:**
 - Google OAuth is the primary entry. BYOK stays as a fallback for power users or external collaborators.
 - Authenticated users share a server-side API key. The server resolves which key to use — session
   means server key, no session means BYOK from the request body.
-- Firestore for all persistence (projects, logs, usage). No SQL database — Firestore is serverless,
+- Firestore for all persistence (apps, logs, usage). No SQL database — Firestore is serverless,
   zero-management, and has a generous free tier. Perfect for a POC at Dimagi scale.
-- Projects are the current state (fast loading). Logs are the immutable event stream (debugging,
-  replay, audit). The "duplication" is a feature — projects let you skip replay.
+- Apps are the current state (fast loading). Logs are the immutable event stream (debugging,
+  replay, audit). The "duplication" is a feature — apps let you skip replay.
 - Spend cap is a safety net. Generous enough to not impede real work, tight enough to prevent
   runaway costs on a shared API key.
 
@@ -51,31 +51,31 @@ build on. No user-facing changes yet — just the plumbing.
 
 **Data model:**
 - `users/{email}/usage/{yyyy-mm}` — monthly spend tracking (input tokens, output tokens, cost, request count)
-- `users/{email}/projects/{projectId}` — current blueprint state (name, blueprint JSON, timestamps, status)
-- `users/{email}/projects/{projectId}/logs/{logId}` — immutable event stream (timestamp, type, data, model, tokens, cost)
+- `users/{email}/apps/{appId}` — current blueprint state (name, blueprint JSON, timestamps, status)
+- `users/{email}/apps/{appId}/logs/{logId}` — immutable event stream (timestamp, type, data, model, tokens, cost)
 
-Projects are small (one document with the serialized blueprint — fast to load). Logs are append-only
+Apps are small (one document with the serialized blueprint — fast to load). Logs are append-only
 and potentially large, but as a subcollection they're only fetched when needed (replay, debug, audit).
 
 - [x] Install Firestore client, create singleton with typed collection helpers
-- [x] Define Zod schemas + derived types for User, Project, Usage documents
+- [x] Define Zod schemas + derived types for User, App, Usage documents
 - [x] IAM: grant `roles/datastore.user` to Cloud Run service account
 - [ ] Test connection from Cloud Run (next deploy)
 
 Note: Log event schema was implemented in Phase 4 — `StoredEvent` with discriminated `LogEvent` union.
 
-## Phase 3: Project Persistence — DONE
+## Phase 3: App Persistence — DONE
 
 Users should be able to close the browser and come back to their app later. Right now, closing the
-tab means starting over (unless you saved a log file and replayed it). This phase makes projects
-first-class — auto-saved on generation and edits, loadable from a project list.
+tab means starting over (unless you saved a log file and replayed it). This phase makes apps
+first-class — auto-saved on generation and edits, loadable from an app list.
 
-**What "open a project" looks like:** Read one Firestore document, hydrate the blueprint, done. No
+**What "open an app" looks like:** Read one Firestore document, hydrate the blueprint, done. No
 replaying hundreds of data parts. The builder loads instantly with the current state.
 
 - [x] Save/load blueprints to Firestore (auto-save on generation complete + edits)
-- [x] Project list page — all your projects, sorted by last modified
-- [x] Load project on `/build/[id]` from Firestore instead of starting empty
+- [x] App list page — all your apps, sorted by last modified
+- [x] Load app on `/build/[id]` from Firestore instead of starting empty
 
 ## Phase 4: Log Migration — DONE
 
@@ -88,8 +88,8 @@ fields. No defaults for unused fields, no sparse stripping, no `unknown` payload
 and tool call args use `JsonValue` (recursive JSON type) for serialization safety.
 
 Firestore sink writes one document per event, fire-and-forget. The replay system (`extractReplayStages`)
-consumes `StoredEvent[]` directly from Firestore. The project list page has a Replay button (admin-only).
-The route handler generates `projectId` at request start so Firestore logging starts from the first
+consumes `StoredEvent[]` directly from Firestore. The app list page has a Replay button (admin-only).
+The route handler generates `appId` at request start so Firestore logging starts from the first
 emission. Step events carry `TokenUsage` for Phase 5 cost aggregation.
 
 - [x] EventLogger writes to Firestore (each event = one document in the logs subcollection)

@@ -1,5 +1,5 @@
 /**
- * Async server component for the project list.
+ * Async server component for the app list.
  *
  * Separated from the builds page so it can be wrapped in a Suspense boundary.
  * The data fetch (Firestore query) happens here while the page shell — header,
@@ -7,28 +7,28 @@
  */
 
 import Link from "next/link";
-import { ReplayableProjectList } from "@/components/ui/ReplayableProjectList";
-import { listProjects } from "@/lib/db/projects";
+import { ReplayableAppList } from "@/components/ui/ReplayableAppList";
+import { listApps } from "@/lib/db/apps";
 
-interface ProjectListProps {
+interface AppListProps {
 	/** User email for the Firestore query. */
 	email: string;
 	/** Whether to show replay buttons (admin-only feature). */
 	isAdmin: boolean;
 }
 
-export async function ProjectList({ email, isAdmin }: ProjectListProps) {
-	const projects = await listProjects(email);
+export async function AppList({ email, isAdmin }: AppListProps) {
+	const apps = await listApps(email);
 
 	return (
-		<ReplayableProjectList
-			projects={projects}
-			logsUrlPrefix="/api/projects"
-			linkToProjects
+		<ReplayableAppList
+			apps={apps}
+			logsUrlPrefix="/api/apps"
+			linkToApps
 			showReplay={isAdmin}
 			emptyState={
 				<div className="text-center py-20">
-					<p className="text-nova-text-secondary mb-4">No projects yet</p>
+					<p className="text-nova-text-secondary mb-4">No apps yet</p>
 					<Link
 						href="/build/new"
 						className="inline-flex items-center gap-2 px-4 py-2.5 text-sm leading-6 font-medium rounded-lg bg-nova-violet text-white border border-transparent hover:bg-nova-violet-bright shadow-[var(--nova-glow-violet)] transition-all duration-200"

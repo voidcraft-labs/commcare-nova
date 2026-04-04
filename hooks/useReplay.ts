@@ -1,7 +1,7 @@
 /**
  * Shared replay hook — fetches logs, extracts stages, and navigates
- * to the builder. Used by both the builds page (own projects) and the
- * admin user detail page (any user's projects).
+ * to the builder. Used by both the builds page (own apps) and the
+ * admin user detail page (any user's apps).
  */
 "use client";
 import { useRouter } from "next/navigation";
@@ -10,8 +10,8 @@ import type { StoredEvent } from "@/lib/db/types";
 import { extractReplayStages, setReplayData } from "@/lib/services/logReplay";
 
 interface UseReplayOptions {
-	/** Build the logs fetch URL for a given project ID. */
-	buildUrl: (projectId: string) => string;
+	/** Build the logs fetch URL for a given app ID. */
+	buildUrl: (appId: string) => string;
 }
 
 export function useReplay({ buildUrl }: UseReplayOptions) {
@@ -20,15 +20,15 @@ export function useReplay({ buildUrl }: UseReplayOptions) {
 	const [replayError, setReplayError] = useState<string | null>(null);
 
 	const handleReplay = useCallback(
-		async (projectId: string, appName: string) => {
-			setReplayingId(projectId);
+		async (appId: string, appName: string) => {
+			setReplayingId(appId);
 			setReplayError(null);
 			try {
-				const res = await fetch(buildUrl(projectId));
+				const res = await fetch(buildUrl(appId));
 				if (!res.ok) throw new Error("Failed to load logs");
 				const { events } = (await res.json()) as { events: StoredEvent[] };
 				if (!events.length) {
-					setReplayError("No generation logs found for this project.");
+					setReplayError("No generation logs found for this app.");
 					return;
 				}
 

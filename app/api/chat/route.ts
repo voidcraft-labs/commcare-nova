@@ -5,7 +5,7 @@ import {
 	type UIMessage,
 } from "ai";
 import { resolveApiKey } from "@/lib/auth-utils";
-import { createProject, failProject } from "@/lib/db/projects";
+import { createApp, failApp } from "@/lib/db/apps";
 import { getMonthlyUsage, MONTHLY_SPEND_CAP_USD } from "@/lib/db/usage";
 import { log } from "@/lib/log";
 import { chatRequestSchema } from "@/lib/schemas/apiSchemas";
@@ -75,22 +75,19 @@ export async function POST(req: Request) {
 	const logger = new EventLogger(runId);
 
 	/*
-	 * Resolve projectId for authenticated users. Existing projects already have
-	 * an ID from the client. New builds create a real project document in Firestore
-	 * (status: 'generating') so log events have a project to live under from the start.
+	 * Resolve appId for authenticated users. Existing apps already have
+	 * an ID from the client. New builds create a real app document in Firestore
+	 * (status: 'generating') so log events have an app to live under from the start.
 	 */
-	let projectId = parsed.data.projectId;
-	if (!projectId) {
+	let appId = parsed.data.appId;
+	if (!appId) {
 		try {
-			projectId = await createProject(
-				keyResult.session.user.email,
-				logger.runId,
-			);
+			appId = await createApp(keyResult.session.user.email, logger.runId);
 		} catch (err) {
-			log.error("[chat] project creation failed", err);
+			log.error("[chat] app creation failed", err);
 			return Response.json(
 				{
-					error: "Unable to save project. Please try again shortly.",
+					error: "Unable to save app. Please try again shortly.",
 					type: "internal",
 				},
 				{ status: 503 },
@@ -98,8 +95,8 @@ export async function POST(req: Request) {
 		}
 	}
 
-	if (projectId) {
-		logger.enableFirestore(keyResult.session.user.email, projectId);
+	if (appId) {
+		logger.enableFirestore(keyResult.session.user.email, appId);
 	}
 
 	// Safety net on client disconnect — finalize() is idempotent, so this
@@ -119,11 +116,11 @@ export async function POST(req: Request) {
 				transient: true,
 			});
 
-			// Emit projectId immediately so the client can update the URL
-			if (projectId) {
+			// Emit appId immediately so the client can update the URL
+			if (appId) {
 				writer.write({
-					type: "data-project-saved",
-					data: { projectId },
+					type: "data-app-saved",
+					data: { appId },
 					transient: true,
 				});
 			}
@@ -133,15 +130,15 @@ export async function POST(req: Request) {
 				writer,
 				logger,
 				session: keyResult.session,
-				projectId,
+				appId,
 			});
 
 			/** Classify, emit, and persist a generation error. */
 			const handleRouteError = (error: unknown, source: string) => {
 				const classified = classifyError(error);
 				ctx.emitError(classified, source);
-				if (projectId) {
-					failProject(keyResult.session.user.email, projectId, classified.type);
+				if (appId) {
+					failApp(keyResult.session.user.email, appId, classified.type);
 				}
 			};
 

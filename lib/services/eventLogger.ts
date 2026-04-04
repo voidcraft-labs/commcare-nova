@@ -5,7 +5,7 @@
  * StoredEvent — one object that writes identically to the Firestore sink.
  *
  * **Firestore sink** (enableFirestore): writes one document per event to
- * `users/{email}/projects/{projectId}/logs/`. Fire-and-forget — a Firestore
+ * `users/{email}/apps/{appId}/logs/`. Fire-and-forget — a Firestore
  * outage never blocks generation.
  */
 import type { UIMessage } from "ai";
@@ -33,7 +33,7 @@ export class EventLogger {
 
 	/* Firestore sink */
 	private fsEmail: string | null = null;
-	private fsProjectId: string | null = null;
+	private fsAppId: string | null = null;
 
 	/* Ordering */
 	private sequence = 0;
@@ -63,15 +63,15 @@ export class EventLogger {
 
 	/**
 	 * Enable real-time Firestore logging. Each emit/logStep/logError/logMessage
-	 * call writes a document to `users/{email}/projects/{projectId}/logs/`.
+	 * call writes a document to `users/{email}/apps/{appId}/logs/`.
 	 */
-	enableFirestore(email: string, projectId: string) {
+	enableFirestore(email: string, appId: string) {
 		this.fsEmail = email;
-		this.fsProjectId = projectId;
+		this.fsAppId = appId;
 	}
 
 	private get firestoreEnabled(): boolean {
-		return this.fsEmail !== null && this.fsProjectId !== null;
+		return this.fsEmail !== null && this.fsAppId !== null;
 	}
 
 	// ── Core: write a StoredEvent to the Firestore sink ───────────────
@@ -87,8 +87,8 @@ export class EventLogger {
 			event,
 		};
 
-		if (!this.fsEmail || !this.fsProjectId) return;
-		writeLogEvent(this.fsEmail, this.fsProjectId, stored);
+		if (!this.fsEmail || !this.fsAppId) return;
+		writeLogEvent(this.fsEmail, this.fsAppId, stored);
 	}
 
 	// ── Public API ──────────────────────────────────────────────────

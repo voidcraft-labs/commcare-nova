@@ -3,7 +3,7 @@
  *
  * Fetches all monthly usage periods from Firestore and renders a data table.
  * Wrapped in a Suspense boundary by the parent page so it streams in
- * independently of the profile card and project list.
+ * independently of the profile card and app list.
  */
 import { getAdminUserUsage } from "@/lib/db/admin";
 import type { UsagePeriod } from "@/lib/types/admin";

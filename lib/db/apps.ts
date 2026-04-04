@@ -1,7 +1,7 @@
 /**
- * Project CRUD helpers — thin wrappers over Firestore collection/document helpers.
+ * App CRUD helpers — thin wrappers over Firestore collection/document helpers.
  *
- * Provides typed, validated read/write operations for project documents.
+ * Provides typed, validated read/write operations for app documents.
  * All writes extract denormalized fields from the blueprint automatically
  * so list queries never need to deserialize full blueprints.
  */
@@ -10,18 +10,18 @@ import { log } from "@/lib/log";
 import type { AppBlueprint } from "../schemas/blueprint";
 import type { ErrorType } from "../services/errorClassifier";
 import { collections, docs, getDb } from "./firestore";
-import type { ProjectDoc } from "./types";
+import type { AppDoc } from "./types";
 
 // ── Types ──────────────────────────────────────────────────────────
 
-/** Subset of ProjectDoc fields returned by list queries (no full blueprint). */
-export interface ProjectSummary {
+/** Subset of AppDoc fields returned by list queries (no full blueprint). */
+export interface AppSummary {
 	id: string;
 	app_name: string;
-	connect_type: ProjectDoc["connect_type"];
+	connect_type: AppDoc["connect_type"];
 	module_count: number;
 	form_count: number;
-	status: ProjectDoc["status"];
+	status: AppDoc["status"];
 	/** Error classification string — present only when status is 'error'. */
 	error_type: string | null;
 	/** ISO 8601 string — Firestore Timestamp converted at the query boundary. */
@@ -31,9 +31,9 @@ export interface ProjectSummary {
 }
 
 /**
- * Maximum age (in minutes) before a 'generating' project is considered dead.
+ * Maximum age (in minutes) before a 'generating' app is considered dead.
  *
- * Well above the 5-minute `maxDuration` route timeout — any project still
+ * Well above the 5-minute `maxDuration` route timeout — any app still
  * 'generating' after this threshold was killed by the platform or crashed
  * without writing a failure status.
  */
@@ -55,18 +55,15 @@ function denormalize(blueprint: AppBlueprint) {
 // ── CRUD ───────────────────────────────────────────────────────────
 
 /**
- * Create a new project document at the start of generation.
+ * Create a new app document at the start of generation.
  *
- * Called by the route handler when a new build starts (no projectId from client).
+ * Called by the route handler when a new build starts (no appId from client).
  * The document starts with `status: 'generating'` and an empty blueprint —
- * `completeProject` fills in the final blueprint when generation succeeds.
- * Returns the generated projectId for immediate use (logging, URL update).
+ * `completeApp` fills in the final blueprint when generation succeeds.
+ * Returns the generated appId for immediate use (logging, URL update).
  */
-export async function createProject(
-	email: string,
-	runId: string,
-): Promise<string> {
-	const ref = collections.projects(email).doc();
+export async function createApp(email: string, runId: string): Promise<string> {
+	const ref = collections.apps(email).doc();
 	const emptyBlueprint: AppBlueprint = {
 		app_name: "",
 		modules: [],
@@ -85,18 +82,18 @@ export async function createProject(
 }
 
 /**
- * Update a project with the final validated blueprint on generation success.
+ * Update an app with the final validated blueprint on generation success.
  *
  * Called by validateApp after the build pipeline completes. Updates the
  * blueprint, denormalized fields, status, and run_id — preserves created_at.
  */
-export async function completeProject(
+export async function completeApp(
 	email: string,
-	projectId: string,
+	appId: string,
 	blueprint: AppBlueprint,
 	runId: string,
 ): Promise<void> {
-	await docs.project(email, projectId).set(
+	await docs.app(email, appId).set(
 		{
 			...denormalize(blueprint),
 			blueprint,
@@ -109,19 +106,19 @@ export async function completeProject(
 }
 
 /**
- * Mark a project as failed after an error during generation.
+ * Mark an app as failed after an error during generation.
  *
  * Fire-and-forget — a Firestore outage must never block the error response.
- * The timeout inference in `listProjects()` serves as a backstop if this
+ * The timeout inference in `listApps()` serves as a backstop if this
  * write fails or the process dies before reaching this code.
  */
-export function failProject(
+export function failApp(
 	email: string,
-	projectId: string,
+	appId: string,
 	errorType: ErrorType,
 ): void {
 	docs
-		.project(email, projectId)
+		.app(email, appId)
 		.set(
 			{
 				status: "error",
@@ -129,11 +126,11 @@ export function failProject(
 			},
 			{ merge: true },
 		)
-		.catch((err) => log.error("[failProject] Firestore write failed", err));
+		.catch((err) => log.error("[failApp] Firestore write failed", err));
 }
 
 /**
- * Merge-update an existing project with a new blueprint snapshot.
+ * Merge-update an existing app with a new blueprint snapshot.
  *
  * Used by the auto-save hook after client-side edits. Uses `set` with
  * `merge: true` instead of `update` for consistency with other write paths.
@@ -141,12 +138,12 @@ export function failProject(
  * Only touches the blueprint, denormalized fields, and updated_at —
  * preserves created_at, run_id, and status from the original save.
  */
-export async function updateProject(
+export async function updateApp(
 	email: string,
-	projectId: string,
+	appId: string,
 	blueprint: AppBlueprint,
 ): Promise<void> {
-	await docs.project(email, projectId).set(
+	await docs.app(email, appId).set(
 		{
 			...denormalize(blueprint),
 			blueprint,
@@ -157,20 +154,20 @@ export async function updateProject(
 }
 
 /**
- * Load a single project document by ID.
+ * Load a single app document by ID.
  *
- * Returns the full ProjectDoc (including blueprint) or null if not found.
+ * Returns the full AppDoc (including blueprint) or null if not found.
  * The Zod converter validates the document on read.
  */
-export async function loadProject(
+export async function loadApp(
 	email: string,
-	projectId: string,
-): Promise<ProjectDoc | null> {
-	const snap = await docs.project(email, projectId).get();
+	appId: string,
+): Promise<AppDoc | null> {
+	const snap = await docs.app(email, appId).get();
 	return snap.exists ? (snap.data() ?? null) : null;
 }
 
-/** The denormalized fields fetched by `listProjects` — no blueprint. */
+/** The denormalized fields fetched by `listApps` — no blueprint. */
 const SUMMARY_FIELDS = [
 	"app_name",
 	"connect_type",
@@ -183,21 +180,21 @@ const SUMMARY_FIELDS = [
 ] as const;
 
 /**
- * List a user's projects sorted by last modified, without full blueprints.
+ * List a user's apps sorted by last modified, without full blueprints.
  *
  * Uses Firestore `select()` to fetch only the denormalized summary fields —
  * the blueprint (the large nested object) is never read. Validation is
- * unnecessary here because data is validated on write (completeProject,
- * updateProject) and defaults are baked in at that time.
+ * unnecessary here because data is validated on write (completeApp,
+ * updateApp) and defaults are baked in at that time.
  */
-export async function listProjects(
+export async function listApps(
 	email: string,
 	limit = 50,
-): Promise<ProjectSummary[]> {
+): Promise<AppSummary[]> {
 	const snap = await getDb()
 		.collection("users")
 		.doc(email)
-		.collection("projects")
+		.collection("apps")
 		.select(...SUMMARY_FIELDS)
 		.orderBy("updated_at", "desc")
 		.limit(limit)
@@ -211,23 +208,23 @@ export async function listProjects(
 		const createdAt = (data.created_at as Timestamp).toDate();
 
 		/*
-		 * Timeout inference — if a project has been 'generating' longer than
+		 * Timeout inference — if an app has been 'generating' longer than
 		 * the platform timeout allows, it's dead. Infer failure on the read
 		 * path and persist the correction so it's only inferred once.
 		 */
 		const isStale =
 			data.status === "generating" && now - createdAt.getTime() > maxAgeMs;
 		if (isStale) {
-			failProject(email, doc.id, "internal");
+			failApp(email, doc.id, "internal");
 		}
 
 		return {
 			id: doc.id,
 			app_name: data.app_name as string,
-			connect_type: (data.connect_type as ProjectDoc["connect_type"]) ?? null,
+			connect_type: (data.connect_type as AppDoc["connect_type"]) ?? null,
 			module_count: (data.module_count as number) ?? 0,
 			form_count: (data.form_count as number) ?? 0,
-			status: isStale ? "error" : (data.status as ProjectDoc["status"]),
+			status: isStale ? "error" : (data.status as AppDoc["status"]),
 			error_type: isStale
 				? "internal"
 				: ((data.error_type as string | null) ?? null),

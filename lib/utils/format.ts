@@ -1,5 +1,5 @@
 /**
- * Shared formatting utilities for dates, currency, and project display.
+ * Shared formatting utilities for dates, currency, and app display.
  *
  * Used by the builds page, admin dashboard, and admin user profile.
  */
@@ -47,7 +47,7 @@ export function formatPeriodLabel(period: string): string {
 	return date.toLocaleDateString("en-US", { month: "long", year: "numeric" });
 }
 
-/** Status badge colors and labels for project cards. */
+/** Status badge colors and labels for app cards. */
 export const STATUS_STYLES: Record<
 	"complete" | "generating" | "error",
 	{ bg: string; text: string; label: string }

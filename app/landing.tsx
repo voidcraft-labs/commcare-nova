@@ -38,7 +38,7 @@ function GoogleLogo({ size = 18 }: { size?: number }) {
 /**
  * Landing page client component — Google OAuth sign-in.
  *
- * Server component already redirected authenticated users to /builds.
+ * Rendered by the root page when the user is not authenticated.
  * All users must sign in with a @dimagi.com Google account.
  */
 export function Landing() {

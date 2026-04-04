@@ -3,7 +3,7 @@
  *
  * Fetches the user document from Firestore and renders the profile card.
  * Wrapped in a Suspense boundary by the parent page so it streams in
- * independently of the usage table and project list.
+ * independently of the usage table and app list.
  */
 import Image from "next/image";
 import { notFound } from "next/navigation";

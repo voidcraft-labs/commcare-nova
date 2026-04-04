@@ -49,9 +49,13 @@ gcloud run deploy nova --source . --region <region>
 
 `POST /api/chat` runs everything. One `ToolLoopAgent` (the **Solutions Architect / SA**) converses with users, generates apps through tool calls, and edits them. Why: one conversation context means one prompt-caching window — the SA has full memory of every design decision it made. No orchestration layer, no sub-agents, no routing. See `lib/services/CLAUDE.md` for tool inventory and build sequence.
 
+### Unified Root Route
+
+`/` renders the app list for authenticated users and the sign-in landing for unauthenticated users — same route, server-side conditional. The header hides via `isAuthenticated` prop, not pathname. `/build/[id]` is the builder (auth-gated by `app/build/layout.tsx`). No `/apps` route — the domain *is* the namespace.
+
 ### Fail-Closed Persistence
 
-The route handler creates the Firestore project document (`status: 'generating'`) **before** generation starts — if Firestore is down, the request returns 503 rather than generating an app that can't be saved. Two-layer failure detection ensures projects never stay stuck in `generating`: (1) route handler catch blocks call `failProject()` fire-and-forget, (2) `listProjects()` infers failure for any project still `generating` after 10 minutes (well above the 5-min route timeout). Layer 2 exists because Cloud Run can kill processes before catch blocks run (OOM, platform restart).
+The route handler creates the Firestore app document (`status: 'generating'`) **before** generation starts — if Firestore is down, the request returns 503 rather than generating an app that can't be saved. Two-layer failure detection ensures apps never stay stuck in `generating`: (1) route handler catch blocks call `failApp()` fire-and-forget, (2) `listApps()` infers failure for any app still `generating` after 10 minutes (well above the 5-min route timeout). Layer 2 exists because Cloud Run can kill processes before catch blocks run (OOM, platform restart).
 
 ### Manual Stream Reader Loop
 
@@ -93,7 +97,7 @@ All `<input>` and `<textarea>` elements must include `autoComplete="off"` and `d
 
 ### RSC Architecture
 
-Pages are Server Components that handle auth, fetch data, and render structure. Interactive leaves are small colocated client components. Push `'use client'` as far down the tree as possible. Name components by what they do (`UserTable`, `ProjectList`), not by runtime (`*Client`). Colocate page-specific components next to their page in `app/`.
+Pages are Server Components that handle auth, fetch data, and render structure. Interactive leaves are small colocated client components. Push `'use client'` as far down the tree as possible. Name components by what they do (`UserTable`, `AppList`), not by runtime (`*Client`). Colocate page-specific components next to their page in `app/`.
 
 ### External Store Pattern
 

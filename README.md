@@ -6,7 +6,7 @@ A web app that generates CommCare applications from natural language conversatio
 
 Nova uses a single AI agent — the **Solutions Architect** — that converses with you to understand your requirements, then generates a complete CommCare app blueprint through a multi-stage pipeline. The entire conversation and generation happens in one streaming session via the Vercel AI SDK and Anthropic's Claude.
 
-**Dual access** — sign in with a `@dimagi.com` Google account to use the shared server key (with monthly spend caps and project persistence), or bring your own Anthropic API key for ephemeral, unauthenticated usage.
+**Dual access** — sign in with a `@dimagi.com` Google account to use the shared server key (with monthly spend caps and app persistence), or bring your own Anthropic API key for ephemeral, unauthenticated usage.
 
 ## Getting Started
 
@@ -62,18 +62,18 @@ npx tsx scripts/build-xpath-parser.ts    # Rebuild XPath parser from grammar
 - **Vercel AI SDK** — streaming chat, tool calls, structured output
 - **Anthropic Claude** — LLM backbone
 - **Better Auth** — Google OAuth with stateless JWT sessions
-- **Google Cloud Firestore** — project persistence, event logging, usage tracking
+- **Google Cloud Firestore** — app persistence, event logging, usage tracking
 - **Vitest** — testing
 
 ## Developer Tools
 
 ### Event Logging
 
-Every authenticated request writes a real-time event stream to Firestore — user messages, LLM steps with token usage and cost, data emissions, and errors. Events are written fire-and-forget under the project's log subcollection; a Firestore outage never blocks generation.
+Every authenticated request writes a real-time event stream to Firestore — user messages, LLM steps with token usage and cost, data emissions, and errors. Events are written fire-and-forget under the app's log subcollection; a Firestore outage never blocks generation.
 
 ### Log Replay
 
-Admins can replay saved event logs through the builder UI without making any API calls. Click the Replay button on a project in `/builds` to open the builder with a navigation bar that lets you step forward and backward through each stage of the original run. Useful for iterating on UI changes without re-running the generation pipeline.
+Admins can replay saved event logs through the builder UI without making any API calls. Click the Replay button on an app in `/builds` to open the builder with a navigation bar that lets you step forward and backward through each stage of the original run. Useful for iterating on UI changes without re-running the generation pipeline.
 
 ### XPath Playground
 
