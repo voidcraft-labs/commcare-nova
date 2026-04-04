@@ -10,7 +10,7 @@
 import type { AppBlueprint } from '../schemas/blueprint'
 import { expandBlueprint } from './hqJsonExpander'
 import type { HqApplication } from './commcare'
-import { GenerationContext } from './generationContext'
+import type { GenerationContext } from './generationContext'
 import { deriveConnectDefaults } from './connectConfig'
 import { runValidation } from './commcare/validate/runner'
 import { type ValidationError, errorToString } from './commcare/validate/errors'

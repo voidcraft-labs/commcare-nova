@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse } from 'next/server'
+import { type NextRequest, NextResponse } from 'next/server'
 import { expandBlueprint } from '@/lib/services/hqJsonExpander'
 import { appBlueprintSchema } from '@/lib/schemas/blueprint'
 import { ApiError, handleApiError } from '@/lib/apiError'

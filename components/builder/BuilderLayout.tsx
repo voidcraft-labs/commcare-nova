@@ -13,7 +13,7 @@ import { type Builder, BuilderPhase, applyDataPart, type CursorMode } from '@/li
 import { showToast } from '@/lib/services/toastStore'
 import { ToastContainer } from '@/components/ui/ToastContainer'
 import { flattenQuestionPaths } from '@/lib/services/questionNavigation'
-import { type QuestionPath } from '@/lib/services/questionPath'
+import type { QuestionPath } from '@/lib/services/questionPath'
 import { useKeyboardShortcuts } from '@/hooks/useKeyboardShortcuts'
 import { Logo } from '@/components/ui/Logo'
 import { ChatSidebar, CHAT_SIDEBAR_WIDTH } from '@/components/chat/ChatSidebar'

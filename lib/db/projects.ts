@@ -5,7 +5,7 @@
  * All writes extract denormalized fields from the blueprint automatically
  * so list queries never need to deserialize full blueprints.
  */
-import { FieldValue, Timestamp } from '@google-cloud/firestore'
+import { FieldValue, type Timestamp } from '@google-cloud/firestore'
 import type { AppBlueprint } from '../schemas/blueprint'
 import type { ErrorType } from '../services/errorClassifier'
 import type { ProjectDoc } from './types'

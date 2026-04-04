@@ -29,7 +29,7 @@ export function displayId(ref: Reference): string {
  * Exported WITHOUT the `g` flag to avoid shared mutable `lastIndex` state —
  * consumers create a global instance via `new RegExp(HASHTAG_REF_PATTERN, 'g')`.
  */
-export const HASHTAG_REF_PATTERN = /#(form|user|case)\/[\w.\/]+/
+export const HASHTAG_REF_PATTERN = /#(form|user|case)\/[\w./]+/
 
 /** The three hashtag namespaces — single source of truth for iteration and validation. */
 export const REFERENCE_TYPES: readonly ReferenceType[] = ['form', 'case', 'user'] as const

@@ -40,7 +40,7 @@ register('round', (args) => {
   const n = toNumber(args[0] ?? '')
   const decimals = args.length > 1 ? toNumber(args[1]!) : 0
   if (Number.isNaN(n)) return NaN
-  const factor = Math.pow(10, decimals)
+  const factor = 10 ** decimals
   return Math.round(n * factor) / factor
 })
 
@@ -108,7 +108,7 @@ register('coalesce', (args) => {
 register('ceiling', (args) => Math.ceil(toNumber(args[0] ?? '')))
 register('floor', (args) => Math.floor(toNumber(args[0] ?? '')))
 register('abs', (args) => Math.abs(toNumber(args[0] ?? '')))
-register('pow', (args) => Math.pow(toNumber(args[0] ?? 0), toNumber(args[1] ?? 0)))
+register('pow', (args) => toNumber(args[0] ?? 0) ** toNumber(args[1] ?? 0))
 register('min', (args) => Math.min(...args.map(a => toNumber(a))))
 register('max', (args) => Math.max(...args.map(a => toNumber(a))))
 

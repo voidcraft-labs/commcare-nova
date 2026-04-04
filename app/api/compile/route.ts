@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse } from 'next/server'
+import { type NextRequest, NextResponse } from 'next/server'
 import { log } from '@/lib/log'
 import { v4 as uuidv4 } from 'uuid'
 import { expandBlueprint } from '@/lib/services/hqJsonExpander'

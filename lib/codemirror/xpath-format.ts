@@ -182,8 +182,6 @@ function prettyPrint(node: FormatNode, depth: number): FormatNode {
         result.push(child)
         insertIndent(result, innerDepth)
       } else if (child.type === Layout.Space) {
-        // Drop spaces between args — replaced by NewLine + Tabs above
-        continue
       } else {
         result.push(prettyPrint(child, innerDepth))
       }
