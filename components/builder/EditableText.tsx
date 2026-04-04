@@ -65,9 +65,9 @@ export function EditableText({
 	);
 
 	const fontClass = mono ? "font-mono" : "";
-	const baseCls = `w-full text-sm ${fontClass} rounded px-2 py-1 border outline-none transition-colors`;
-	const focusedCls = `${baseCls} bg-nova-surface text-nova-text border-nova-violet/60`;
-	const unfocusedCls = `${baseCls} bg-transparent border-transparent cursor-text ${color || ""} ${!draft && placeholder ? "text-nova-text-muted italic" : "font-medium"} hover:border-nova-border/40`;
+	const baseCls = `w-full text-sm ${fontClass} rounded-md px-2 py-1.5 border outline-none transition-colors`;
+	const focusedCls = `${baseCls} bg-nova-surface text-nova-text border-nova-violet/50 shadow-[0_0_0_1px_rgba(139,92,246,0.1)]`;
+	const unfocusedCls = `${baseCls} bg-nova-deep/50 border-white/[0.06] cursor-text ${color || ""} ${!draft && placeholder ? "text-nova-text-muted italic" : "font-medium"} hover:border-nova-violet/30`;
 	const cls = focused ? focusedCls : unfocusedCls;
 
 	const lineCount = multiline ? draft.split("\n").length : 1;

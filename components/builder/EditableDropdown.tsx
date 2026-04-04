@@ -54,7 +54,7 @@ export function EditableDropdown({
 								icon={tablerCheck}
 								width="12"
 								height="12"
-								className="text-emerald-400"
+								className="text-nova-emerald"
 							/>
 						</motion.span>
 					)}

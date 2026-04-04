@@ -54,7 +54,7 @@ export const STATUS_STYLES: Record<
 > = {
 	complete: {
 		bg: "bg-nova-emerald/15",
-		text: "text-emerald-400",
+		text: "text-nova-emerald",
 		label: "Complete",
 	},
 	generating: {
@@ -62,5 +62,5 @@ export const STATUS_STYLES: Record<
 		text: "text-violet-400",
 		label: "Generating",
 	},
-	error: { bg: "bg-nova-rose/15", text: "text-rose-400", label: "Error" },
+	error: { bg: "bg-nova-rose/15", text: "text-nova-rose", label: "Error" },
 };

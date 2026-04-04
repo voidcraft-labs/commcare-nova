@@ -328,7 +328,7 @@ function SortableQuestion({
 			data-question-id={questionPath}
 		>
 			{showAsPlaceholder && (
-				<div className="absolute inset-0 rounded-lg border-2 border-dashed border-nova-cyan/30 bg-nova-cyan/[0.02]" />
+				<div className="absolute inset-0 rounded-lg border-2 border-dashed border-nova-violet/30 bg-nova-violet/[0.02]" />
 			)}
 			<div className={showAsPlaceholder ? "invisible" : undefined}>
 				{content}
@@ -701,7 +701,7 @@ export function FormRenderer({
 					{list}
 					<DragOverlay>
 						{activeQuestion && (
-							<div className="rounded-lg bg-nova-surface/80 border border-nova-cyan/40 px-3 py-2 shadow-lg text-sm text-nova-text">
+							<div className="rounded-lg bg-nova-surface/80 border border-nova-violet/40 px-3 py-2 shadow-lg text-sm text-nova-text">
 								{activeQuestion.label || activeQuestion.id}
 							</div>
 						)}

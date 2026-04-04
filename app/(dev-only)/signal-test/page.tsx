@@ -812,7 +812,7 @@ export default function SignalTestPage() {
 															return (
 																<div
 																	key={`${r},${c}`}
-																	className={`rounded-[1.5px] ${on ? "bg-nova-cyan" : "bg-nova-void/50"}`}
+																	className={`rounded-[1.5px] ${on ? "bg-nova-violet" : "bg-nova-void/50"}`}
 																	style={{
 																		width: 8,
 																		height: 8,
@@ -927,7 +927,7 @@ export default function SignalTestPage() {
 									type="button"
 									key={`t-${amount}`}
 									onClick={() => injectThink(amount)}
-									className="text-xs px-3 py-1.5 rounded border border-nova-border text-nova-text-secondary hover:border-nova-cyan/40 hover:bg-nova-cyan/5 transition-colors cursor-pointer font-mono"
+									className="text-xs px-3 py-1.5 rounded border border-nova-border text-nova-text-secondary hover:border-nova-violet/40 hover:bg-nova-violet/5 transition-colors cursor-pointer font-mono"
 								>
 									+{amount}
 								</button>
@@ -1016,7 +1016,7 @@ export default function SignalTestPage() {
 									type="button"
 									key={label}
 									onClick={() => setFocus(f)}
-									className="text-xs px-3 py-1.5 rounded border border-nova-border text-nova-text-secondary hover:border-nova-cyan/40 hover:bg-nova-cyan/5 transition-colors cursor-pointer font-mono"
+									className="text-xs px-3 py-1.5 rounded border border-nova-border text-nova-text-secondary hover:border-nova-violet/40 hover:bg-nova-violet/5 transition-colors cursor-pointer font-mono"
 								>
 									{label}
 								</button>

@@ -31,11 +31,11 @@ interface CursorModeSelectorProps {
 	variant?: "horizontal" | "vertical";
 }
 
-/** Color per mode — pointer uses emerald (live), text uses violet (content), inspect uses cyan (structure). */
+/** Color per mode — pointer uses emerald (live), text uses violet (edit), inspect uses neutral white (examine). */
 const MODE_COLORS: Record<CursorMode, { bg: string; text: string }> = {
 	pointer: { bg: "bg-nova-emerald/15", text: "text-nova-emerald" },
 	text: { bg: "bg-nova-violet/15", text: "text-nova-violet-bright" },
-	inspect: { bg: "bg-nova-cyan/15", text: "text-nova-cyan" },
+	inspect: { bg: "bg-white/[0.08]", text: "text-nova-text" },
 };
 
 const segments: { key: CursorMode; label: string; icon: IconifyIcon }[] = [

@@ -12,20 +12,17 @@
 	--nova-border: rgba(139, 92, 246, 0.15);
 	--nova-border-bright: rgba(139, 92, 246, 0.3);
 
-	--nova-text: #e8e8ff;
-	--nova-text-secondary: #8888aa;
-	--nova-text-muted: #555577;
+	--nova-text: #ededf4;
+	--nova-text-secondary: #9494b8;
+	--nova-text-muted: #6b6b8a;
 
 	--nova-violet: #8b5cf6;
 	--nova-violet-bright: #a78bfa;
-	--nova-cyan: #06b6d4;
-	--nova-cyan-bright: #22d3ee;
-	--nova-emerald: #10b981;
-	--nova-amber: #f59e0b;
-	--nova-rose: #f43f5e;
+	--nova-emerald: #86cebc;
+	--nova-amber: #d4a76a;
+	--nova-rose: #d4708f;
 
 	--nova-glow-violet: 0 0 40px rgba(139, 92, 246, 0.15);
-	--nova-glow-cyan: 0 0 40px rgba(6, 182, 212, 0.15);
 
 	--background: var(--nova-void);
 	--foreground: var(--nova-text);
@@ -43,10 +40,10 @@
 	--pv-surface: #141430;
 	--pv-elevated: #1c1c40;
 	--pv-input-bg: #10102a;
-	--pv-input-border: rgba(6, 182, 212, 0.2);
-	--pv-input-focus: rgba(6, 182, 212, 0.4);
-	--pv-accent: var(--nova-cyan);
-	--pv-accent-bright: var(--nova-cyan-bright);
+	--pv-input-border: rgba(139, 92, 246, 0.2);
+	--pv-input-focus: rgba(139, 92, 246, 0.4);
+	--pv-accent: var(--nova-violet);
+	--pv-accent-bright: var(--nova-violet-bright);
 }
 
 @theme inline {
@@ -63,8 +60,6 @@
 	--color-nova-text-muted: var(--nova-text-muted);
 	--color-nova-violet: var(--nova-violet);
 	--color-nova-violet-bright: var(--nova-violet-bright);
-	--color-nova-cyan: var(--nova-cyan);
-	--color-nova-cyan-bright: var(--nova-cyan-bright);
 	--color-nova-emerald: var(--nova-emerald);
 	--color-nova-amber: var(--nova-amber);
 	--color-nova-rose: var(--nova-rose);
@@ -264,10 +259,10 @@ body {
 	background: var(--nova-amber);
 	box-shadow:
 		inset 0 0.5px 1px rgba(0, 0, 0, 0.1),
-		0 0 5px rgba(245, 158, 11, 0.5);
+		0 0 5px rgba(212, 167, 106, 0.5);
 }
 .nova-panel[data-recovering] .nova-panel-etch {
-	color: rgba(245, 158, 11, 0.7);
+	color: rgba(212, 167, 106, 0.7);
 }
 
 /* Error fatal — rose LED and label */
@@ -275,10 +270,10 @@ body {
 	background: var(--nova-rose);
 	box-shadow:
 		inset 0 0.5px 1px rgba(0, 0, 0, 0.1),
-		0 0 5px rgba(244, 63, 94, 0.5);
+		0 0 5px rgba(212, 112, 143, 0.5);
 }
 .nova-panel[data-error] .nova-panel-etch {
-	color: rgba(244, 63, 94, 0.7);
+	color: rgba(212, 112, 143, 0.7);
 }
 
 /* Done state — emerald LED and label */
@@ -286,10 +281,10 @@ body {
 	background: var(--nova-emerald);
 	box-shadow:
 		inset 0 0.5px 1px rgba(0, 0, 0, 0.1),
-		0 0 5px rgba(16, 185, 129, 0.5);
+		0 0 5px rgba(134, 206, 188, 0.5);
 }
 .nova-panel[data-done] .nova-panel-etch {
-	color: rgba(16, 185, 129, 0.7);
+	color: rgba(134, 206, 188, 0.7);
 }
 
 /* Display well — recessed cavity where the LED grid sits */
@@ -574,19 +569,19 @@ body {
 	margin: 0.6em 0;
 }
 
-/* Preview mode theme — cyan accent, warmer surfaces */
+/* Preview mode theme — violet accent, warmer surfaces */
 .preview-theme {
 	--pv-bg: #0c0c1e;
 	--pv-surface: #141430;
 	--pv-elevated: #1c1c40;
 	--pv-input-bg: #10102a;
-	--pv-input-border: rgba(6, 182, 212, 0.2);
-	--pv-input-focus: rgba(6, 182, 212, 0.4);
-	--pv-accent: var(--nova-cyan);
-	--pv-accent-bright: var(--nova-cyan-bright);
+	--pv-input-border: rgba(139, 92, 246, 0.2);
+	--pv-input-focus: rgba(139, 92, 246, 0.4);
+	--pv-accent: var(--nova-violet);
+	--pv-accent-bright: var(--nova-violet-bright);
 }
 
-/* Design mode — neutral input borders so cyan edit chrome stands out */
+/* Design mode — neutral input borders so violet edit chrome stands out */
 .design-theme {
 	--pv-input-border: rgba(136, 136, 170, 0.15);
 	--pv-input-focus: rgba(136, 136, 170, 0.25);

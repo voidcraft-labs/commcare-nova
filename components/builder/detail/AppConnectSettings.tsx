@@ -99,8 +99,8 @@ function AppConnectPanel({
                     flex items-center
                     ${
 											isActive
-												? "bg-nova-cyan/10 border-nova-cyan/30 text-nova-cyan-bright shadow-[0_0_6px_rgba(0,210,255,0.1)]"
-												: "bg-nova-surface border-nova-border/60 text-nova-text-muted hover:border-nova-cyan/50 hover:text-nova-text-secondary"
+												? "bg-nova-violet/10 border-nova-violet/30 text-nova-violet-bright shadow-[0_0_6px_rgba(139,92,246,0.1)]"
+												: "bg-nova-surface border-nova-border/60 text-nova-text-muted hover:border-nova-violet/50 hover:text-nova-text-secondary"
 										}
                   `}
 								>

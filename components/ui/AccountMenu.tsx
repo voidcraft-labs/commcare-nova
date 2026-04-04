@@ -51,7 +51,7 @@ function getInitials(name: string): string {
  */
 function getBarGradient(ratio: number): string {
 	if (ratio > 0.8) return "from-nova-amber to-nova-rose";
-	return "from-nova-violet to-nova-cyan";
+	return "from-nova-violet to-nova-violet-bright";
 }
 
 // ── Avatar helper ──────────────────────────────────────────────────

@@ -141,7 +141,7 @@ export function OptionsEditor({ options, onSave }: OptionsEditorProps) {
 								onKeyDown={handleKeyDown}
 								placeholder="Label"
 								ref={focusIndex === i ? (el) => el?.focus() : undefined}
-								className="flex-1 min-w-0 text-xs px-2 py-1 rounded bg-nova-surface border border-transparent focus:border-nova-violet/60 text-nova-text outline-none transition-colors"
+								className="flex-1 min-w-0 text-xs px-2 py-1.5 rounded-md bg-nova-deep/50 border border-white/[0.06] focus:border-nova-violet/50 focus:shadow-[0_0_0_1px_rgba(139,92,246,0.1)] text-nova-text outline-none transition-colors"
 								autoComplete="off"
 								data-1p-ignore
 							/>
@@ -150,7 +150,7 @@ export function OptionsEditor({ options, onSave }: OptionsEditorProps) {
 								onChange={(e) => updateOption(i, "value", e.target.value)}
 								onKeyDown={handleKeyDown}
 								placeholder="value"
-								className="w-24 shrink-0 text-xs font-mono px-2 py-1 rounded bg-nova-surface border border-transparent focus:border-nova-violet/60 text-nova-text-muted outline-none transition-colors"
+								className="w-24 shrink-0 text-xs font-mono px-2 py-1.5 rounded-md bg-nova-deep/50 border border-white/[0.06] focus:border-nova-violet/50 focus:shadow-[0_0_0_1px_rgba(139,92,246,0.1)] text-nova-text-muted outline-none transition-colors"
 								autoComplete="off"
 								data-1p-ignore
 							/>

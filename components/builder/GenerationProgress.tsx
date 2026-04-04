@@ -196,7 +196,7 @@ export function GenerationProgress({
 							<div
 								className={`flex items-center gap-1.5 text-sm font-medium transition-colors duration-300 ${
 									status === "done"
-										? "text-nova-cyan-bright"
+										? "text-nova-emerald"
 										: status === "active"
 											? "text-nova-text"
 											: status === "error"
@@ -234,7 +234,7 @@ export function GenerationProgress({
 							<span
 								className={`text-sm transition-colors duration-300 ${
 									status === "done"
-										? "text-nova-cyan/40"
+										? "text-nova-emerald/40"
 										: "text-nova-text-muted/40"
 								}`}
 							>
@@ -259,8 +259,8 @@ export function GenerationProgress({
 					className="h-full rounded-full"
 					style={{
 						background: isError
-							? "linear-gradient(90deg, var(--nova-cyan), var(--nova-rose))"
-							: "linear-gradient(90deg, var(--nova-cyan), var(--nova-violet-bright))",
+							? "linear-gradient(90deg, var(--nova-violet), var(--nova-rose))"
+							: "linear-gradient(90deg, var(--nova-violet), var(--nova-violet-bright))",
 						boxShadow: isError
 							? "0 0 8px var(--nova-rose)"
 							: "0 0 8px var(--nova-violet)",

@@ -4,8 +4,8 @@
  *
  * Color mapping:
  *   form  = violet  (primary building block)
- *   case  = cyan    (persistent external data)
- *   user  = emerald (stable system properties)
+ *   case  = violet  (persistent external data — distinguished by icon + prefix)
+ *   user  = orchid  (stable system properties — warm pink-purple)
  */
 
 import tablerDatabase from "@iconify-icons/tabler/database";
@@ -56,6 +56,16 @@ export const REF_TYPE_CONFIG: Record<ReferenceType, ReferenceTypeConfig> = {
 	form: {
 		type: "form",
 		icon: tablerFileText,
+		bgClass: "bg-[rgba(146,143,214,0.15)]",
+		textClass: "text-[#928fd6]",
+		borderClass: "border-[rgba(146,143,214,0.2)]",
+		cssColor: "#928fd6",
+		cssBg: "rgba(146, 143, 214, 0.15)",
+		cssBorder: "rgba(146, 143, 214, 0.2)",
+	},
+	case: {
+		type: "case",
+		icon: tablerDatabase,
 		bgClass: "bg-nova-violet/15",
 		textClass: "text-nova-violet-bright",
 		borderClass: "border-nova-violet/20",
@@ -63,24 +73,14 @@ export const REF_TYPE_CONFIG: Record<ReferenceType, ReferenceTypeConfig> = {
 		cssBg: "rgba(139, 92, 246, 0.15)",
 		cssBorder: "rgba(139, 92, 246, 0.2)",
 	},
-	case: {
-		type: "case",
-		icon: tablerDatabase,
-		bgClass: "bg-nova-cyan/15",
-		textClass: "text-nova-cyan-bright",
-		borderClass: "border-nova-cyan/20",
-		cssColor: "#22d3ee",
-		cssBg: "rgba(6, 182, 212, 0.15)",
-		cssBorder: "rgba(6, 182, 212, 0.2)",
-	},
 	user: {
 		type: "user",
 		icon: tablerUser,
-		bgClass: "bg-nova-emerald/15",
-		textClass: "text-emerald-400",
-		borderClass: "border-nova-emerald/20",
-		cssColor: "#34d399",
-		cssBg: "rgba(16, 185, 129, 0.15)",
-		cssBorder: "rgba(16, 185, 129, 0.2)",
+		bgClass: "bg-[rgba(197,149,208,0.15)]",
+		textClass: "text-[#c595d0]",
+		borderClass: "border-[rgba(197,149,208,0.2)]",
+		cssColor: "#c595d0",
+		cssBg: "rgba(197, 149, 208, 0.15)",
+		cssBorder: "rgba(197, 149, 208, 0.2)",
 	},
 };

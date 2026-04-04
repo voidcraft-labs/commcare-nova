@@ -13,29 +13,29 @@ import {
 
 // ── Color constants (pre-computed RGB for interpolation) ──────────────
 
-const VIOLET = [139, 92, 246] as const; // #8b5cf6
-const CYAN = [6, 182, 212] as const; // #06b6d4
+const VIOLET = [139, 92, 246] as const; // #8b5cf6 (--nova-violet)
+const VIOLET_BRIGHT = [167, 139, 250] as const; // #a78bfa (--nova-violet-bright)
 const PINK = [255, 105, 140] as const; // bubblegum pink (building sweep)
-const WHITE = [232, 232, 255] as const; // #e8e8ff (nova-text)
-const AMBER = [245, 158, 11] as const; // #f59e0b (--nova-amber)
-const ROSE = [244, 63, 94] as const; // #f43f5e (--nova-rose)
-const EMERALD = [16, 185, 129] as const; // #10b981 (--nova-emerald)
+const WHITE = [237, 237, 244] as const; // #ededf4 (--nova-text)
+const AMBER = [212, 167, 106] as const; // #d4a76a (--nova-amber)
+const ROSE = [212, 112, 143] as const; // #d4708f (--nova-rose)
+const EMERALD = [134, 206, 188] as const; // #86cebc (--nova-emerald)
 
 function lerp(a: number, b: number, t: number): number {
 	return a + (b - a) * t;
 }
 
 function cellColor(brightness: number, hue: number): string {
-	// hue: 0 = violet, 1 = cyan, <0 = violet→pink (building sweep).
+	// hue: 0 = violet, 1 = violet-bright, <0 = violet→pink (building sweep).
 	//       >1 = warm error tones: 1–1.5 = violet→amber, 1.5–2.0 = amber→rose.
-	//       3.0–4.0 = cyan→emerald (scaffolding fill / done celebration).
-	// Negative hues decay back through violet on the way to cyan — all cool tones.
+	//       3.0–4.0 = violet-bright→emerald (scaffolding fill / done celebration).
+	// Negative hues decay back through violet on the way to violet-bright — all cool tones.
 	let r: number, g: number, b: number;
 	if (hue >= 3.0) {
 		const t = Math.min(hue - 3.0, 1);
-		r = lerp(CYAN[0], EMERALD[0], t);
-		g = lerp(CYAN[1], EMERALD[1], t);
-		b = lerp(CYAN[2], EMERALD[2], t);
+		r = lerp(VIOLET_BRIGHT[0], EMERALD[0], t);
+		g = lerp(VIOLET_BRIGHT[1], EMERALD[1], t);
+		b = lerp(VIOLET_BRIGHT[2], EMERALD[2], t);
 	} else if (hue > 1) {
 		// Warm error tones
 		if (hue <= 1.5) {
@@ -55,9 +55,9 @@ function cellColor(brightness: number, hue: number): string {
 		g = lerp(VIOLET[1], PINK[1], t);
 		b = lerp(VIOLET[2], PINK[2], t);
 	} else {
-		r = lerp(VIOLET[0], CYAN[0], Math.min(hue, 1));
-		g = lerp(VIOLET[1], CYAN[1], Math.min(hue, 1));
-		b = lerp(VIOLET[2], CYAN[2], Math.min(hue, 1));
+		r = lerp(VIOLET[0], VIOLET_BRIGHT[0], Math.min(hue, 1));
+		g = lerp(VIOLET[1], VIOLET_BRIGHT[1], Math.min(hue, 1));
+		b = lerp(VIOLET[2], VIOLET_BRIGHT[2], Math.min(hue, 1));
 	}
 
 	if (brightness > 0.55) {
@@ -136,7 +136,7 @@ interface ThinkLayerOpts {
 interface BackplateOpts {
 	/** ThinkLayer tuning (fire density, response speed, warm hue probability). */
 	think?: ThinkLayerOpts;
-	/** Target hue for active cells (B > 0.05) to drift toward. Default 1.0 (cyan).
+	/** Target hue for active cells (B > 0.05) to drift toward. Default 1.0 (violet-bright).
 	 *  Values >1 drift toward warm tones (e.g. 1.3 for amber). */
 	hueDriftTarget?: number;
 	/** Hue drift speed per second. Default 0.4. Set to 0 to disable drift. */
@@ -160,7 +160,7 @@ interface BackplateState {
 
 /** Shared backplate opts for modes with fast-decaying foreground animations (building, editing).
  *  Faster decay (1.2 vs 0.7) keeps the sweep/defrag visually dominant. No hue drift so
- *  the foreground's bubblegum pink doesn't get pulled toward cyan. */
+ *  the foreground's bubblegum pink doesn't get pulled toward violet-bright. */
 const FOREGROUND_BACKPLATE_OPTS: BackplateOpts = {
 	decayRate: 1.2,
 	hueDriftRate: 0,
@@ -272,7 +272,7 @@ const CELL_SLOT = CELL_SIZE + CELL_GAP;
 // even when modes write discontinuous target values.
 const STRIDE = 6;
 const B = 0; // brightness (current interpolated value)
-const H = 1; // hue (current interpolated value, 0=violet 1=cyan)
+const H = 1; // hue (current interpolated value, 0=violet 1=violet-bright)
 const TB = 2; // target brightness (set by mode tick methods)
 const TH = 3; // target hue (set by mode tick methods)
 const DR = 4; // decay/interpolation rate (higher = faster tracking, per second)
@@ -680,8 +680,8 @@ export class SignalGridController {
 		}
 		// When leaving done/emerald (hue 4.0), snap hue to a cool base so interpolation
 		// never passes through the warm error tone range (hue 1.0–3.0 = amber/rose).
-		// Scaffolding lives in the emerald range (3.0–4.0), so snap to the cyan–emerald
-		// boundary. All other modes live at hue ≤ 1.0, so snap to cyan.
+		// Scaffolding lives in the emerald range (3.0–4.0), so snap to the violet-bright–emerald
+		// boundary. All other modes live at hue ≤ 1.0, so snap to violet-bright.
 		if (this.prevMode === "done" && mode !== "done") {
 			const snapHue = mode === "scaffolding" ? 3.0 : 1.0;
 			for (let i = 0; i < this.cellCount; i++) {
@@ -1467,8 +1467,8 @@ export class SignalGridController {
 	): void {
 		this.sweepPhase += dt * 1.8;
 
-		// Pink scanner beam — bubblegum pink bars contrasting the cyan thinking cells.
-		// Negative hue = pink; decays through violet back to cyan (all cool tones).
+		// Pink scanner beam — bubblegum pink bars contrasting the violet-bright thinking cells.
+		// Negative hue = pink; decays through violet back to violet-bright (all cool tones).
 		const activeCol = Math.floor(this.sweepPhase % this.cols);
 		const nextCol = (activeCol + 1) % this.cols;
 		const trailCol = (activeCol - 1 + this.cols) % this.cols;
@@ -1490,7 +1490,7 @@ export class SignalGridController {
 
 		// Delivery bursts — only from data parts (UI-visible changes like module/form done)
 		if (burstEnergy >= 150) {
-			// Large burst: flash all cells bright cyan
+			// Large burst: flash all cells bright violet
 			for (let i = 0; i < this.cellCount; i++) {
 				const off = i * STRIDE;
 				this.cells[off + TB] = 0.85 + Math.random() * 0.15;

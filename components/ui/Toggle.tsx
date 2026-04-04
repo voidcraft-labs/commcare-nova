@@ -20,7 +20,7 @@ export function Toggle({
 			onClick={onToggle}
 			className={`relative inline-flex shrink-0 items-center rounded-full transition-colors cursor-pointer ${
 				isSub
-					? `h-4 w-7 ${enabled ? "bg-nova-cyan" : "bg-nova-border"}`
+					? `h-4 w-7 ${enabled ? "bg-nova-violet" : "bg-nova-border"}`
 					: `h-5 w-9 ${enabled ? "bg-nova-violet" : "bg-nova-border"}`
 			}`}
 		>

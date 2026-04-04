@@ -98,12 +98,12 @@ export function CasePropertyDropdown({
 				disabled={!isInteractive}
 				className={`w-full flex items-center justify-between px-2 py-1.5 text-xs rounded-md border transition-colors ${
 					isInteractive
-						? "cursor-pointer text-nova-text bg-transparent border-white/[0.06] hover:border-white/[0.12]"
-						: `${isCaseName && value ? "opacity-70" : "opacity-50"} cursor-not-allowed text-nova-text bg-transparent border-white/[0.06]`
+						? "cursor-pointer text-nova-text bg-nova-deep/50 border-white/[0.06] hover:border-nova-violet/30"
+						: `${isCaseName && value ? "opacity-70" : "opacity-50"} cursor-not-allowed text-nova-text bg-nova-deep/50 border-white/[0.06]`
 				}`}
 			>
 				<span
-					className={value ? "text-nova-cyan-bright" : "text-nova-text-muted"}
+					className={value ? "text-nova-violet-bright" : "text-nova-text-muted"}
 				>
 					{displayLabel}
 				</span>

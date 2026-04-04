@@ -2,7 +2,7 @@
 
 ## Design vs Preview Mode
 
-**Design (edit):** frozen, stateless view. Inputs appear empty, no validation errors, submit bar hidden. Engine state is preserved internally but suppressed at the display layer. **All questions are shown regardless of relevant conditions** — the visibility check is skipped so the full form structure is always visible for editing. Hidden questions render as compact `HiddenField` cards in inspect/pointer modes but are excluded from text mode (no inline-editable surface). Cyan accent for edit chrome (outlines, insertion points, drag overlays).
+**Design (edit):** frozen, stateless view. Inputs appear empty, no validation errors, submit bar hidden. Engine state is preserved internally but suppressed at the display layer. **All questions are shown regardless of relevant conditions** — the visibility check is skipped so the full form structure is always visible for editing. Hidden questions render as compact `HiddenField` cards in inspect/pointer modes but are excluded from text mode (no inline-editable surface). Violet accent for edit chrome (outlines, insertion points, drag overlays).
 
 **Preview (test):** persistent testing sandbox. Values survive round-trips through design. Validation state resets on exit via `engine.resetValidation()` so fields start clean on re-entry. On switch back, all rules re-evaluate with the current schema against persisted values. Blueprint mutations recreate the engine, but only user-touched values are restored — untouched fields pick up new defaults.
 

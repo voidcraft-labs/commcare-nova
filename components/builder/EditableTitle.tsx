@@ -191,7 +191,7 @@ export function SavedCheck({
 						icon={tablerCheck}
 						width={size}
 						height={size}
-						className="text-emerald-400"
+						className="text-nova-emerald"
 					/>
 				</motion.span>
 			)}

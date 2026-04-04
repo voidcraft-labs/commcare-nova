@@ -160,10 +160,10 @@ export function EditableQuestionWrapper({
 			aria-label="Select question"
 			className={`group/qw relative w-full text-left rounded-lg transition-all duration-150 cursor-pointer outline-offset-3 ${
 				isSelected
-					? "outline-2 outline-nova-cyan bg-nova-cyan/[0.03]"
+					? "outline-2 outline-nova-violet bg-nova-violet/[0.03]"
 					: hovered
-						? "outline-1 outline-nova-cyan/30"
-						: "outline-1 outline-nova-cyan/10"
+						? "outline-1 outline-nova-violet/30"
+						: "outline-1 outline-nova-violet/10"
 			}`}
 			style={mergedStyle}
 			onMouseEnter={() => setHovered(true)}
