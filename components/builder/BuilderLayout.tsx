@@ -137,7 +137,12 @@ function createChatInstance(
 
 export function BuilderLayout() {
 	const router = useRouter();
-	const { isAuthenticated, isPending: authPending } = useAuth();
+	/* Server layout (`app/build/layout.tsx`) already gates auth — by the time
+	 * this component mounts, the user is guaranteed authenticated. We still
+	 * call useAuth() for the `isAuthenticated` flag (used by useAutoSave and
+	 * the hasAccess guard for replay mode), but we never block rendering on
+	 * the client-side pending state since the server already resolved it. */
+	const { isAuthenticated } = useAuth();
 	const builder = useBuilder();
 
 	// ── Stable ref for builder so Chat callbacks always read the latest ────
@@ -620,12 +625,13 @@ export function BuilderLayout() {
 	}, [builder]);
 
 	// ── Redirect guard — all hooks must be above this line ─────────────
-	// Don't redirect while the auth check is still in flight.
-	const shouldRedirect = !authPending && !hasAccess;
+	// Server layout handles auth; this only catches edge cases like an
+	// expired session or unauthenticated replay-mode exit.
+	const shouldRedirect = !hasAccess;
 	useEffect(() => {
 		if (shouldRedirect) router.push("/");
 	}, [shouldRedirect, router]);
-	if (shouldRedirect || authPending) return null;
+	if (shouldRedirect) return null;
 
 	/* Gate rendering until the app is loaded from Firestore.
 	 * The Loading phase is the single source of truth — no separate React state. */
