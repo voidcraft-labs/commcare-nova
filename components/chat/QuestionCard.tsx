@@ -1,6 +1,6 @@
 "use client";
 import { Icon } from "@iconify/react/offline";
-import ciCheck from "@iconify-icons/ci/check";
+import tablerCheck from "@iconify-icons/tabler/check";
 import { AnimatePresence, motion } from "motion/react";
 import { useRef, useState } from "react";
 
@@ -138,7 +138,7 @@ export function QuestionCard({
 								{(isComplete || isPast) && answer && (
 									<div className="flex items-start gap-2 text-xs">
 										<Icon
-											icon={ciCheck}
+											icon={tablerCheck}
 											width="14"
 											height="14"
 											className="mt-0.5 shrink-0"

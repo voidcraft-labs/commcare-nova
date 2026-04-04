@@ -4,46 +4,46 @@
  */
 
 import type { IconifyIcon } from "@iconify/react/offline";
-import ciBarcode from "@iconify-icons/ci/barcode";
-import ciCalendar from "@iconify-icons/ci/calendar";
-import ciCheckboxCheck from "@iconify-icons/ci/checkbox-check";
-import ciClock from "@iconify-icons/ci/clock";
-import ciFileAdd from "@iconify-icons/ci/file-add";
-import ciFileBlank from "@iconify-icons/ci/file-blank";
-import ciFileEdit from "@iconify-icons/ci/file-edit";
-import ciGroup from "@iconify-icons/ci/group";
-import ciHide from "@iconify-icons/ci/hide";
-import ciImage from "@iconify-icons/ci/image";
-import ciLabel from "@iconify-icons/ci/label";
-import ciLocation from "@iconify-icons/ci/location";
-import ciLock from "@iconify-icons/ci/lock";
-import ciMonitorPlay from "@iconify-icons/ci/monitor-play";
-import ciRadioFill from "@iconify-icons/ci/radio-fill";
-import ciRepeat from "@iconify-icons/ci/repeat";
-import ciText from "@iconify-icons/ci/text";
 import tabler123 from "@iconify-icons/tabler/123";
+import tablerBarcode from "@iconify-icons/tabler/barcode";
+import tablerCalendar from "@iconify-icons/tabler/calendar";
+import tablerCircleDot from "@iconify-icons/tabler/circle-dot";
+import tablerClock from "@iconify-icons/tabler/clock";
 import tablerDecimal from "@iconify-icons/tabler/decimal";
+import tablerDeviceTv from "@iconify-icons/tabler/device-tv";
+import tablerEyeOff from "@iconify-icons/tabler/eye-off";
+import tablerFile from "@iconify-icons/tabler/file";
+import tablerFilePencil from "@iconify-icons/tabler/file-pencil";
+import tablerFilePlus from "@iconify-icons/tabler/file-plus";
+import tablerFolder from "@iconify-icons/tabler/folder";
+import tablerLock from "@iconify-icons/tabler/lock";
+import tablerMapPin from "@iconify-icons/tabler/map-pin";
 import tablerMicrophone from "@iconify-icons/tabler/microphone";
+import tablerPhoto from "@iconify-icons/tabler/photo";
+import tablerRepeat from "@iconify-icons/tabler/repeat";
+import tablerSquareCheck from "@iconify-icons/tabler/square-check";
+import tablerTag from "@iconify-icons/tabler/tag";
+import tablerTypography from "@iconify-icons/tabler/typography";
 
 export const questionTypeIcons: Record<string, IconifyIcon> = {
-	text: ciText,
+	text: tablerTypography,
 	int: tabler123,
 	decimal: tablerDecimal,
-	date: ciCalendar,
-	single_select: ciRadioFill,
-	multi_select: ciCheckboxCheck,
-	group: ciGroup,
-	repeat: ciRepeat,
-	hidden: ciHide,
-	geopoint: ciLocation,
-	image: ciImage,
-	barcode: ciBarcode,
-	label: ciLabel,
-	time: ciClock,
-	datetime: ciClock,
+	date: tablerCalendar,
+	single_select: tablerCircleDot,
+	multi_select: tablerSquareCheck,
+	group: tablerFolder,
+	repeat: tablerRepeat,
+	hidden: tablerEyeOff,
+	geopoint: tablerMapPin,
+	image: tablerPhoto,
+	barcode: tablerBarcode,
+	label: tablerTag,
+	time: tablerClock,
+	datetime: tablerClock,
 	audio: tablerMicrophone,
-	video: ciMonitorPlay,
-	secret: ciLock,
+	video: tablerDeviceTv,
+	secret: tablerLock,
 };
 
 export const questionTypeLabels: Record<string, string> = {
@@ -68,7 +68,7 @@ export const questionTypeLabels: Record<string, string> = {
 };
 
 export const formTypeIcons: Record<string, IconifyIcon> = {
-	registration: ciFileAdd,
-	followup: ciFileEdit,
-	survey: ciFileBlank,
+	registration: tablerFilePlus,
+	followup: tablerFilePencil,
+	survey: tablerFile,
 };

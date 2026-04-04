@@ -2,8 +2,8 @@
 import { CollisionPriority } from "@dnd-kit/abstract";
 import { useDroppable } from "@dnd-kit/react";
 import { Icon } from "@iconify/react/offline";
-import ciPlus from "@iconify-icons/ci/plus";
-import ciTrash from "@iconify-icons/ci/trash-full";
+import tablerPlus from "@iconify-icons/tabler/plus";
+import tablerTrash from "@iconify-icons/tabler/trash";
 import { useEditContext } from "@/hooks/useEditContext";
 import { useTextEditSave } from "@/hooks/useTextEditSave";
 import type { FormEngine } from "@/lib/preview/engine/formEngine";
@@ -77,7 +77,7 @@ export function RepeatField({
 								onClick={() => engine.removeRepeat(path, idx)}
 								className="p-1 text-nova-text-muted hover:text-nova-rose transition-colors cursor-pointer"
 							>
-								<Icon icon={ciTrash} width="14" height="14" />
+								<Icon icon={tablerTrash} width="14" height="14" />
 							</button>
 						)}
 					</div>
@@ -96,7 +96,7 @@ export function RepeatField({
 				onClick={() => engine.addRepeat(path)}
 				className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-pv-accent hover:text-pv-accent-bright border border-pv-input-border hover:border-pv-input-focus rounded-lg transition-colors cursor-pointer"
 			>
-				<Icon icon={ciPlus} width="14" height="14" />
+				<Icon icon={tablerPlus} width="14" height="14" />
 				Add {state.resolvedLabel ?? question.label ?? "entry"}
 			</button>
 		</div>

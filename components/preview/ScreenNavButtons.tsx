@@ -1,7 +1,7 @@
 "use client";
 import { Icon } from "@iconify/react/offline";
-import ciArrowLeftMd from "@iconify-icons/ci/arrow-left-md";
-import ciArrowUpMd from "@iconify-icons/ci/arrow-up-md";
+import tablerArrowLeft from "@iconify-icons/tabler/arrow-left";
+import tablerArrowUp from "@iconify-icons/tabler/arrow-up";
 
 interface ScreenNavButtonsProps {
 	canGoBack?: boolean;
@@ -41,7 +41,7 @@ export function ScreenNavButtons({
 				className={btnClass(canGoBack ?? false, !!compact)}
 				aria-label="Go back"
 			>
-				<Icon icon={ciArrowLeftMd} width={iconSize} height={iconSize} />
+				<Icon icon={tablerArrowLeft} width={iconSize} height={iconSize} />
 			</button>
 			<button
 				type="button"
@@ -50,7 +50,7 @@ export function ScreenNavButtons({
 				className={btnClass(canGoUp ?? false, !!compact)}
 				aria-label="Go to parent"
 			>
-				<Icon icon={ciArrowUpMd} width={iconSize} height={iconSize} />
+				<Icon icon={tablerArrowUp} width={iconSize} height={iconSize} />
 			</button>
 		</div>
 	);

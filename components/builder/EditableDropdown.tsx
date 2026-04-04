@@ -1,6 +1,6 @@
 "use client";
 import { Icon } from "@iconify/react/offline";
-import ciCheck from "@iconify-icons/ci/check";
+import tablerCheck from "@iconify-icons/tabler/check";
 import { AnimatePresence, motion } from "motion/react";
 import { useCallback, useState } from "react";
 import { useDismissRef } from "@/hooks/useDismissRef";
@@ -51,7 +51,7 @@ export function EditableDropdown({
 							transition={{ duration: 0.2 }}
 						>
 							<Icon
-								icon={ciCheck}
+								icon={tablerCheck}
 								width="12"
 								height="12"
 								className="text-emerald-400"

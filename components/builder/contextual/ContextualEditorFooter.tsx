@@ -1,13 +1,13 @@
 "use client";
 import type { IconifyIcon } from "@iconify/react/offline";
 import { Icon } from "@iconify/react/offline";
-import ciArrowDownMd from "@iconify-icons/ci/arrow-down-md";
-import ciArrowUpMd from "@iconify-icons/ci/arrow-up-md";
-import ciChevronDown from "@iconify-icons/ci/chevron-down";
-import ciCopy from "@iconify-icons/ci/copy";
-import ciTrashFull from "@iconify-icons/ci/trash-full";
+import tablerArrowDown from "@iconify-icons/tabler/arrow-down";
+import tablerArrowUp from "@iconify-icons/tabler/arrow-up";
+import tablerChevronDown from "@iconify-icons/tabler/chevron-down";
+import tablerTrash from "@iconify-icons/tabler/trash";
 import { useCallback } from "react";
 import { QuestionTypeGrid } from "@/components/builder/QuestionTypeGrid";
+import { tablerCopyPlus } from "@/components/icons/tablerExtras";
 import {
 	DropdownPortal,
 	useFloatingDropdown,
@@ -148,13 +148,13 @@ export function ContextualEditorFooter({
 		<div className="flex items-center justify-between px-2 py-1.5 border-t border-white/[0.06]">
 			<div className="flex items-center gap-0.5">
 				<FooterButton
-					icon={ciArrowUpMd}
+					icon={tablerArrowUp}
 					title="Move Up"
 					onClick={handleMoveUp}
 					disabled={isFirst}
 				/>
 				<FooterButton
-					icon={ciArrowDownMd}
+					icon={tablerArrowDown}
 					title="Move Down"
 					onClick={handleMoveDown}
 					disabled={isLast}
@@ -186,7 +186,7 @@ export function ContextualEditorFooter({
 				<span>{typeLabel}</span>
 				{canConvert && (
 					<Icon
-						icon={ciChevronDown}
+						icon={tablerChevronDown}
 						width="12"
 						height="12"
 						className="shrink-0 opacity-50"
@@ -212,12 +212,12 @@ export function ContextualEditorFooter({
 
 			<div className="flex items-center gap-0.5">
 				<FooterButton
-					icon={ciCopy}
+					icon={tablerCopyPlus}
 					title="Duplicate"
 					onClick={handleDuplicate}
 				/>
 				<FooterButton
-					icon={ciTrashFull}
+					icon={tablerTrash}
 					title="Delete"
 					onClick={handleDelete}
 					destructive

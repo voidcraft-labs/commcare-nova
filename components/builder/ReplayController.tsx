@@ -1,8 +1,8 @@
 "use client";
 import { Icon } from "@iconify/react/offline";
-import ciChevronLeft from "@iconify-icons/ci/chevron-left";
-import ciChevronRight from "@iconify-icons/ci/chevron-right";
-import ciCloseMd from "@iconify-icons/ci/close-md";
+import tablerChevronLeft from "@iconify-icons/tabler/chevron-left";
+import tablerChevronRight from "@iconify-icons/tabler/chevron-right";
+import tablerX from "@iconify-icons/tabler/x";
 import type { UIMessage } from "ai";
 import { AnimatePresence, motion } from "motion/react";
 import { useCallback, useState } from "react";
@@ -70,7 +70,7 @@ export function ReplayController({
 							: "text-nova-text-muted cursor-not-allowed"
 					}`}
 				>
-					<Icon icon={ciChevronLeft} width={20} height={20} />
+					<Icon icon={tablerChevronLeft} width={20} height={20} />
 				</button>
 
 				{/* Stage info — fixed width to prevent layout shift */}
@@ -113,7 +113,7 @@ export function ReplayController({
 							: "text-nova-text-muted cursor-not-allowed"
 					}`}
 				>
-					<Icon icon={ciChevronRight} width={20} height={20} />
+					<Icon icon={tablerChevronRight} width={20} height={20} />
 				</button>
 
 				{/* Divider */}
@@ -125,7 +125,7 @@ export function ReplayController({
 					onClick={onExit}
 					className="p-0.5 rounded-md text-nova-text-muted hover:text-nova-text transition-colors cursor-pointer"
 				>
-					<Icon icon={ciCloseMd} width={18} height={18} />
+					<Icon icon={tablerX} width={18} height={18} />
 				</button>
 			</motion.div>
 

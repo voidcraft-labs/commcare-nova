@@ -1,3 +1,4 @@
+import { Icon, type IconifyIcon } from "@iconify/react/offline";
 import type { ComponentPropsWithoutRef } from "react";
 
 /**
@@ -7,26 +8,17 @@ import type { ComponentPropsWithoutRef } from "react";
 export type TiptapIconProps = ComponentPropsWithoutRef<"svg">;
 
 /**
- * Base SVG wrapper for tiptap toolbar icons. Centralizes common attributes
- * (24×24, "0 0 24 24" viewBox, currentColor fill) and marks the SVG as
- * `aria-hidden` — these icons are always decorative, rendered inside labeled
- * buttons that carry their own accessible name via `aria-label`.
- *
- * Stroke-variant icons (image, table) override `fill` / `stroke` via props.
+ * Renders a Tabler icon via Iconify's offline renderer. Passes through
+ * `className` for styling and marks the SVG as `aria-hidden` — these icons
+ * are always decorative, rendered inside labeled buttons that carry their
+ * own accessible name via `aria-label`.
  */
-export function TiptapSvg({ children, className, ...props }: TiptapIconProps) {
-	return (
-		<svg
-			width="24"
-			height="24"
-			viewBox="0 0 24 24"
-			fill="currentColor"
-			xmlns="http://www.w3.org/2000/svg"
-			aria-hidden="true"
-			className={className}
-			{...props}
-		>
-			{children}
-		</svg>
-	);
+export function TiptapIcon({
+	icon,
+	className,
+}: {
+	icon: IconifyIcon;
+	className?: string;
+}) {
+	return <Icon icon={icon} width="24" height="24" className={className} />;
 }

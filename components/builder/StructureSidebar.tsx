@@ -1,6 +1,6 @@
 "use client";
 import { Icon } from "@iconify/react/offline";
-import ciChevronLeft from "@iconify-icons/ci/chevron-left";
+import tablerChevronLeft from "@iconify-icons/tabler/chevron-left";
 import { AnimatePresence, motion } from "motion/react";
 import { AppTree } from "@/components/builder/AppTree";
 import { ErrorBoundary } from "@/components/ui/ErrorBoundary";
@@ -30,7 +30,7 @@ export function StructureSidebar({
 					onClick={onClose}
 					className="px-1 h-11 text-nova-text-muted hover:text-nova-text transition-colors cursor-pointer"
 				>
-					<Icon icon={ciChevronLeft} width="14" height="14" />
+					<Icon icon={tablerChevronLeft} width="14" height="14" />
 				</button>
 				<span className="text-[13px] font-medium text-nova-text-secondary">
 					Structure

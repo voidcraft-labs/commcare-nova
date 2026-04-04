@@ -1,6 +1,6 @@
 "use client";
 import { Icon } from "@iconify/react/offline";
-import ciAddPlus from "@iconify-icons/ci/add-plus";
+import tablerPlus from "@iconify-icons/tabler/plus";
 import { type RefObject, useCallback, useRef, useState } from "react";
 import { dismissContentPopovers } from "@/hooks/useContentPopover";
 import { useEditContext } from "@/hooks/useEditContext";
@@ -151,7 +151,7 @@ export function InsertionPoint({
 					className="mx-1 w-5 h-5 flex items-center justify-center rounded-full bg-nova-surface border border-nova-cyan/40 text-nova-cyan hover:bg-nova-cyan/10 transition-colors cursor-pointer shrink-0"
 					title="Insert question"
 				>
-					<Icon icon={ciAddPlus} width="12" height="12" />
+					<Icon icon={tablerPlus} width="12" height="12" />
 				</button>
 				<div className="flex-1 h-px bg-nova-cyan/40" />
 			</div>

@@ -1,6 +1,6 @@
 "use client";
 import { Icon } from "@iconify/react/offline";
-import ciCheck from "@iconify-icons/ci/check";
+import tablerCheck from "@iconify-icons/tabler/check";
 import { motion } from "motion/react";
 import { useCallback, useRef, useState } from "react";
 import { type GenerationError, GenerationStage } from "@/lib/services/builder";
@@ -210,7 +210,7 @@ export function GenerationProgress({
 										animate={{ scale: 1 }}
 										transition={{ type: "spring", stiffness: 500, damping: 25 }}
 									>
-										<Icon icon={ciCheck} width={12} height={12} />
+										<Icon icon={tablerCheck} width={12} height={12} />
 									</motion.span>
 								)}
 								{status === "active" && (

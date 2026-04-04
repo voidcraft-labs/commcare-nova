@@ -1,11 +1,11 @@
 "use client";
 import { Chat, useChat } from "@ai-sdk/react";
 import { Icon } from "@iconify/react/offline";
-import ciFileDocument from "@iconify-icons/ci/file-document";
-import ciMessage from "@iconify-icons/ci/message";
-import ciRedo from "@iconify-icons/ci/redo";
-import ciUndo from "@iconify-icons/ci/undo";
+import tablerArrowBackUp from "@iconify-icons/tabler/arrow-back-up";
+import tablerArrowForwardUp from "@iconify-icons/tabler/arrow-forward-up";
+import tablerFileText from "@iconify-icons/tabler/file-text";
 import tablerListTree from "@iconify-icons/tabler/list-tree";
+import tablerMessageChatbot from "@iconify-icons/tabler/message-chatbot";
 import tablerPackageExport from "@iconify-icons/tabler/package-export";
 import { DefaultChatTransport, type UIMessage } from "ai";
 import { AnimatePresence, motion } from "motion/react";
@@ -392,7 +392,7 @@ export function BuilderLayout() {
 			{
 				label: "Web",
 				description: "JSON",
-				icon: ciFileDocument,
+				icon: tablerFileText,
 				onClick: handleExportJson,
 			},
 			{
@@ -720,7 +720,7 @@ export function BuilderLayout() {
 										title="Undo (⌘Z)"
 										aria-label="Undo"
 									>
-										<Icon icon={ciUndo} width="18" height="18" />
+										<Icon icon={tablerArrowBackUp} width="18" height="18" />
 									</button>
 									<button
 										type="button"
@@ -730,7 +730,7 @@ export function BuilderLayout() {
 										title="Redo (⌘⇧Z)"
 										aria-label="Redo"
 									>
-										<Icon icon={ciRedo} width="18" height="18" />
+										<Icon icon={tablerArrowForwardUp} width="18" height="18" />
 									</button>
 									<ExportDropdown options={exportOptions} compact />
 								</div>
@@ -794,7 +794,11 @@ export function BuilderLayout() {
 											title="Open chat"
 											aria-label="Open chat sidebar"
 										>
-											<Icon icon={ciMessage} width="20" height="20" />
+											<Icon
+												icon={tablerMessageChatbot}
+												width="20"
+												height="20"
+											/>
 										</button>
 									)}
 

@@ -1,5 +1,5 @@
 import { Icon } from "@iconify/react/offline";
-import ciChevronLeft from "@iconify-icons/ci/chevron-left";
+import tablerChevronLeft from "@iconify-icons/tabler/chevron-left";
 import Link from "next/link";
 import { Suspense } from "react";
 import { ProfileSkeleton, ProjectsSkeleton, UsageSkeleton } from "./loading";
@@ -31,7 +31,7 @@ export default async function AdminUserDetailPage({
 					href="/admin"
 					className="flex items-center gap-0.5 hover:text-nova-text transition-colors"
 				>
-					<Icon icon={ciChevronLeft} width="16" height="16" />
+					<Icon icon={tablerChevronLeft} width="16" height="16" />
 					Admin
 				</Link>
 				<span className="text-nova-text-muted/50">/</span>
