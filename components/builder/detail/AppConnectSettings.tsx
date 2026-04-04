@@ -36,7 +36,7 @@ export function AppConnectSettings({ builder }: AppConnectSettingsProps) {
 				type="button"
 				ref={dd.triggerRef}
 				onClick={dd.toggle}
-				className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg transition-colors cursor-pointer ${
+				className={`flex items-center gap-1.5 px-2.5 min-h-[44px] rounded-lg transition-colors cursor-pointer ${
 					connectType
 						? "text-nova-violet-bright hover:bg-nova-violet/10"
 						: "text-nova-text-muted hover:text-nova-text hover:bg-white/5"

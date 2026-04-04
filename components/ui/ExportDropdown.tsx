@@ -59,7 +59,7 @@ export function ExportDropdown({ options, compact }: ExportDropdownProps) {
 				title="Export"
 				className={
 					compact
-						? "inline-flex items-center justify-center w-8 h-8 rounded-lg text-nova-text-muted hover:text-nova-text hover:bg-white/5 transition-colors cursor-pointer"
+						? "inline-flex items-center justify-center min-w-[44px] min-h-[44px] rounded-lg text-nova-text-muted hover:text-nova-text hover:bg-white/5 transition-colors cursor-pointer"
 						: "inline-flex items-center gap-1.5 px-3 py-1.5 text-lg font-medium rounded-lg bg-nova-surface text-nova-text border border-nova-border hover:border-nova-border-bright hover:bg-nova-elevated transition-all duration-200 cursor-pointer"
 				}
 			>

@@ -716,7 +716,7 @@ export function BuilderLayout() {
 										type="button"
 										onClick={handleUndo}
 										disabled={!builder.canUndo}
-										className="flex items-center justify-center w-8 h-8 rounded-lg text-nova-text-muted transition-colors cursor-pointer enabled:hover:text-nova-text enabled:hover:bg-white/5 disabled:opacity-[0.38] disabled:cursor-default"
+										className="flex items-center justify-center min-w-[44px] min-h-[44px] rounded-lg text-nova-text-muted transition-colors cursor-pointer enabled:hover:text-nova-text enabled:hover:bg-white/5 disabled:opacity-[0.38] disabled:cursor-default"
 										title="Undo (⌘Z)"
 										aria-label="Undo"
 									>
@@ -726,7 +726,7 @@ export function BuilderLayout() {
 										type="button"
 										onClick={handleRedo}
 										disabled={!builder.canRedo}
-										className="flex items-center justify-center w-8 h-8 rounded-lg text-nova-text-muted transition-colors cursor-pointer enabled:hover:text-nova-text enabled:hover:bg-white/5 disabled:opacity-[0.38] disabled:cursor-default"
+										className="flex items-center justify-center min-w-[44px] min-h-[44px] rounded-lg text-nova-text-muted transition-colors cursor-pointer enabled:hover:text-nova-text enabled:hover:bg-white/5 disabled:opacity-[0.38] disabled:cursor-default"
 										title="Redo (⌘⇧Z)"
 										aria-label="Redo"
 									>
