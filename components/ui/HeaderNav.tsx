@@ -14,7 +14,7 @@
 
 import type { IconifyIcon } from "@iconify/react/offline";
 import { Icon } from "@iconify/react/offline";
-import tablerFolder from "@iconify-icons/tabler/folder";
+import tablerApps from "@iconify-icons/tabler/apps";
 import tablerUserShield from "@iconify-icons/tabler/user-shield";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
@@ -38,7 +38,7 @@ const NAV_ITEMS: NavItem[] = [
 	{
 		href: "/",
 		label: "Apps",
-		icon: tablerFolder,
+		icon: tablerApps,
 		matchExact: true,
 	},
 	{
