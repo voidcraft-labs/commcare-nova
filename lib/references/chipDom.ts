@@ -6,9 +6,9 @@
  * via inline CSS using the shared CHIP dimension constants from config.ts.
  */
 
-import type { IconifyIcon } from '@iconify/react/offline'
-import { CHIP, displayId } from './config'
-import type { Reference, ReferenceTypeConfig } from './types'
+import type { IconifyIcon } from "@iconify/react/offline";
+import { CHIP, displayId } from "./config";
+import type { Reference, ReferenceTypeConfig } from "./types";
 
 /**
  * Build an inline SVG element from an Iconify icon data object.
@@ -16,15 +16,15 @@ import type { Reference, ReferenceTypeConfig } from './types'
  * with stroke/color matching the reference type.
  */
 function buildIconSvg(icon: IconifyIcon, color: string): SVGSVGElement {
-  const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg')
-  const w = icon.width ?? 24
-  const h = icon.height ?? 24
-  svg.setAttribute('viewBox', `0 0 ${w} ${h}`)
-  svg.setAttribute('width', String(CHIP.iconSize))
-  svg.setAttribute('height', String(CHIP.iconSize))
-  svg.style.cssText = `flex-shrink: 0; fill: none; stroke: ${color}; color: ${color};`
-  svg.innerHTML = icon.body
-  return svg
+	const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+	const w = icon.width ?? 24;
+	const h = icon.height ?? 24;
+	svg.setAttribute("viewBox", `0 0 ${w} ${h}`);
+	svg.setAttribute("width", String(CHIP.iconSize));
+	svg.setAttribute("height", String(CHIP.iconSize));
+	svg.style.cssText = `flex-shrink: 0; fill: none; stroke: ${color}; color: ${color};`;
+	svg.innerHTML = icon.body;
+	return svg;
 }
 
 /**
@@ -32,12 +32,15 @@ function buildIconSvg(icon: IconifyIcon, color: string): SVGSVGElement {
  * as ReferenceChip.tsx (Tailwind), but as a live DOM node for CodeMirror's
  * WidgetType.toDOM() where React can't render.
  */
-export function createChipElement(ref: Reference, config: ReferenceTypeConfig): HTMLElement {
-  const chip = document.createElement('span')
-  chip.className = 'cm-hashtag-chip'
-  chip.setAttribute('data-ref-type', ref.type)
-  chip.setAttribute('data-ref-raw', ref.raw)
-  chip.style.cssText = `
+export function createChipElement(
+	ref: Reference,
+	config: ReferenceTypeConfig,
+): HTMLElement {
+	const chip = document.createElement("span");
+	chip.className = "cm-hashtag-chip";
+	chip.setAttribute("data-ref-type", ref.type);
+	chip.setAttribute("data-ref-raw", ref.raw);
+	chip.style.cssText = `
     display: inline-flex;
     align-items: center;
     gap: ${CHIP.gap}px;
@@ -53,15 +56,15 @@ export function createChipElement(ref: Reference, config: ReferenceTypeConfig): 
     border: 1px solid ${config.cssBorder};
     user-select: none;
     vertical-align: baseline;
-  `
+  `;
 
-  const iconSvg = buildIconSvg(ref.icon ?? config.icon, config.cssColor)
-  chip.appendChild(iconSvg)
+	const iconSvg = buildIconSvg(ref.icon ?? config.icon, config.cssColor);
+	chip.appendChild(iconSvg);
 
-  const labelSpan = document.createElement('span')
-  labelSpan.textContent = displayId(ref)
-  labelSpan.style.cssText = `white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: ${CHIP.maxLabelWidth}px;`
-  chip.appendChild(labelSpan)
+	const labelSpan = document.createElement("span");
+	labelSpan.textContent = displayId(ref);
+	labelSpan.style.cssText = `white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: ${CHIP.maxLabelWidth}px;`;
+	chip.appendChild(labelSpan);
 
-  return chip
+	return chip;
 }

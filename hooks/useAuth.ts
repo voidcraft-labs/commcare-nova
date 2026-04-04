@@ -6,40 +6,42 @@
  * The `isAdmin` field comes from `session.additionalFields` in the auth
  * config — stored in Firestore, arrives with the session data.
  */
-'use client'
-import { authClient } from '@/lib/auth-client'
+"use client";
+import { authClient } from "@/lib/auth-client";
 
 /** The authenticated user's profile. Mirrors Better Auth's user shape. */
-export type AuthUser = NonNullable<NonNullable<ReturnType<typeof authClient.useSession>['data']>['user']>
+export type AuthUser = NonNullable<
+	NonNullable<ReturnType<typeof authClient.useSession>["data"]>["user"]
+>;
 
 export function useAuth() {
-  const { data: session, isPending, error } = authClient.useSession()
+	const { data: session, isPending, error } = authClient.useSession();
 
-  const signIn = () =>
-    authClient.signIn.social({
-      provider: 'google',
-      callbackURL: '/build/new',
-    })
+	const signIn = () =>
+		authClient.signIn.social({
+			provider: "google",
+			callbackURL: "/build/new",
+		});
 
-  const signOut = () =>
-    authClient.signOut({
-      fetchOptions: { onSuccess: () => window.location.assign('/') },
-    })
+	const signOut = () =>
+		authClient.signOut({
+			fetchOptions: { onSuccess: () => window.location.assign("/") },
+		});
 
-  return {
-    /** The authenticated user, or null if not signed in. */
-    user: session?.user ?? null,
-    /** Whether the user is currently authenticated. */
-    isAuthenticated: !!session,
-    /** Whether the user has the admin role. False while session is loading. */
-    isAdmin: session?.session?.isAdmin === true,
-    /** Whether the initial session check is still in flight. */
-    isPending,
-    /** Any error from the session check. */
-    error,
-    /** Initiate Google OAuth sign-in flow. */
-    signIn,
-    /** Sign out and redirect to landing page. */
-    signOut,
-  }
+	return {
+		/** The authenticated user, or null if not signed in. */
+		user: session?.user ?? null,
+		/** Whether the user is currently authenticated. */
+		isAuthenticated: !!session,
+		/** Whether the user has the admin role. False while session is loading. */
+		isAdmin: session?.session?.isAdmin === true,
+		/** Whether the initial session check is still in flight. */
+		isPending,
+		/** Any error from the session check. */
+		error,
+		/** Initiate Google OAuth sign-in flow. */
+		signIn,
+		/** Sign out and redirect to landing page. */
+		signOut,
+	};
 }

@@ -1,37 +1,37 @@
-"use client"
+"use client";
 
-import * as PopoverPrimitive from "@radix-ui/react-popover"
-import { cn } from "@/lib/tiptap-utils"
-import "@/components/tiptap-ui-primitive/popover/popover.scss"
+import * as PopoverPrimitive from "@radix-ui/react-popover";
+import { cn } from "@/lib/tiptap-utils";
+import "@/components/tiptap-ui-primitive/popover/popover.scss";
 
 function Popover({
-  ...props
+	...props
 }: React.ComponentProps<typeof PopoverPrimitive.Root>) {
-  return <PopoverPrimitive.Root {...props} />
+	return <PopoverPrimitive.Root {...props} />;
 }
 
 function PopoverTrigger({
-  ...props
+	...props
 }: React.ComponentProps<typeof PopoverPrimitive.Trigger>) {
-  return <PopoverPrimitive.Trigger {...props} />
+	return <PopoverPrimitive.Trigger {...props} />;
 }
 
 function PopoverContent({
-  className,
-  align = "center",
-  sideOffset = 4,
-  ...props
+	className,
+	align = "center",
+	sideOffset = 4,
+	...props
 }: React.ComponentProps<typeof PopoverPrimitive.Content>) {
-  return (
-    <PopoverPrimitive.Portal>
-      <PopoverPrimitive.Content
-        align={align}
-        sideOffset={sideOffset}
-        className={cn("tiptap-popover", className)}
-        {...props}
-      />
-    </PopoverPrimitive.Portal>
-  )
+	return (
+		<PopoverPrimitive.Portal>
+			<PopoverPrimitive.Content
+				align={align}
+				sideOffset={sideOffset}
+				className={cn("tiptap-popover", className)}
+				{...props}
+			/>
+		</PopoverPrimitive.Portal>
+	);
 }
 
 /**
@@ -45,15 +45,15 @@ function PopoverContent({
  *   (React portal events bubble through the React tree, not the DOM tree.)
  */
 function ToolbarPopoverContent(
-  props: React.ComponentProps<typeof PopoverPrimitive.Content>
+	props: React.ComponentProps<typeof PopoverPrimitive.Content>,
 ) {
-  return (
-    <PopoverContent
-      data-inline-toolbar
-      onMouseDown={(e) => e.stopPropagation()}
-      {...props}
-    />
-  )
+	return (
+		<PopoverContent
+			data-inline-toolbar
+			onMouseDown={(e) => e.stopPropagation()}
+			{...props}
+		/>
+	);
 }
 
-export { Popover, PopoverTrigger, PopoverContent, ToolbarPopoverContent }
+export { Popover, PopoverTrigger, PopoverContent, ToolbarPopoverContent };

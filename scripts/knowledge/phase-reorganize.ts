@@ -1,101 +1,139 @@
 /** Phase 4: Reorganize — two-pass Opus reorganization of distilled knowledge files */
 
-import * as fs from 'fs'
-import * as path from 'path'
-import * as readline from 'readline'
-import { streamText, Output } from 'ai'
-import { createAnthropic } from '@ai-sdk/anthropic'
-import { z } from 'zod'
-import type { PipelineConfig } from './types.js'
-import { log, logCost, logSummary } from './log.js'
+import * as fs from "fs";
+import * as path from "path";
+import * as readline from "readline";
+import { streamText, Output } from "ai";
+import { createAnthropic } from "@ai-sdk/anthropic";
+import { z } from "zod";
+import type { PipelineConfig } from "./types.js";
+import { log, logCost, logSummary } from "./log.js";
 
-const DISTILL_DIR = '.data/confluence-cache/distilled'
-const KNOWLEDGE_DIR = 'lib/services/commcare/knowledge'
-const CACHE_DIR = '.data/confluence-cache'
-const PLAN_PATH = path.join(CACHE_DIR, 'reorg-plan.json')
-const OPUS_MODEL = 'claude-opus-4-6'
-const OPUS_INPUT_COST = 15   // $/M tokens
-const OPUS_OUTPUT_COST = 75  // $/M tokens
+const DISTILL_DIR = ".data/confluence-cache/distilled";
+const KNOWLEDGE_DIR = "lib/services/commcare/knowledge";
+const CACHE_DIR = ".data/confluence-cache";
+const PLAN_PATH = path.join(CACHE_DIR, "reorg-plan.json");
+const OPUS_MODEL = "claude-opus-4-6";
+const OPUS_INPUT_COST = 15; // $/M tokens
+const OPUS_OUTPUT_COST = 75; // $/M tokens
 
 function estimateTokens(chars: number): number {
-  return Math.ceil(chars / 4)
+	return Math.ceil(chars / 4);
 }
 
 async function confirm(message: string): Promise<boolean> {
-  const rl = readline.createInterface({ input: process.stdin, output: process.stdout })
-  return new Promise(resolve => {
-    rl.question(`${message} (y/N) `, answer => {
-      rl.close()
-      resolve(answer.trim().toLowerCase() === 'y')
-    })
-  })
+	const rl = readline.createInterface({
+		input: process.stdin,
+		output: process.stdout,
+	});
+	return new Promise((resolve) => {
+		rl.question(`${message} (y/N) `, (answer) => {
+			rl.close();
+			resolve(answer.trim().toLowerCase() === "y");
+		});
+	});
 }
 
 // --- Schemas ---
 
 const reorgPlanSchema = z.object({
-  files: z.array(z.object({
-    filename: z.string().describe('Kebab-case filename without .md extension'),
-    title: z.string().describe('Human-readable title for the knowledge file'),
-    description: z.string().describe('1-2 sentence summary of what this file covers'),
-    sources: z.array(z.object({
-      sourceFile: z.string().describe('Filename of the source knowledge file (with .md extension)'),
-      sections: z.array(z.string()).describe('Section headings or descriptions of which parts to pull from this source file. Use "all" if the entire file is relevant.'),
-    })),
-    contentGuidance: z.string().describe('Specific instructions for what to include, exclude, combine, or restructure when writing this file'),
-  })),
-  cuts: z.array(z.object({
-    sourceFile: z.string().describe('Filename of the source knowledge file (with .md extension)'),
-    what: z.string().describe('Description of content being cut'),
-    why: z.string(),
-  })),
-})
+	files: z.array(
+		z.object({
+			filename: z
+				.string()
+				.describe("Kebab-case filename without .md extension"),
+			title: z.string().describe("Human-readable title for the knowledge file"),
+			description: z
+				.string()
+				.describe("1-2 sentence summary of what this file covers"),
+			sources: z.array(
+				z.object({
+					sourceFile: z
+						.string()
+						.describe(
+							"Filename of the source knowledge file (with .md extension)",
+						),
+					sections: z
+						.array(z.string())
+						.describe(
+							'Section headings or descriptions of which parts to pull from this source file. Use "all" if the entire file is relevant.',
+						),
+				}),
+			),
+			contentGuidance: z
+				.string()
+				.describe(
+					"Specific instructions for what to include, exclude, combine, or restructure when writing this file",
+				),
+		}),
+	),
+	cuts: z.array(
+		z.object({
+			sourceFile: z
+				.string()
+				.describe("Filename of the source knowledge file (with .md extension)"),
+			what: z.string().describe("Description of content being cut"),
+			why: z.string(),
+		}),
+	),
+});
 
-type ReorgPlan = z.infer<typeof reorgPlanSchema>
+type ReorgPlan = z.infer<typeof reorgPlanSchema>;
 
 // --- Pass 1: Plan ---
 
 function loadDistilledFiles(): Map<string, string> {
-  if (!fs.existsSync(DISTILL_DIR)) {
-    throw new Error(`No distilled files found at ${DISTILL_DIR}. Run --phase distill first.`)
-  }
-  const files = new Map<string, string>()
-  const entries = fs.readdirSync(DISTILL_DIR).filter(f => f.endsWith('.md') && f !== 'index.md')
-  for (const filename of entries) {
-    const content = fs.readFileSync(path.join(DISTILL_DIR, filename), 'utf-8')
-    files.set(filename, content)
-  }
-  return files
+	if (!fs.existsSync(DISTILL_DIR)) {
+		throw new Error(
+			`No distilled files found at ${DISTILL_DIR}. Run --phase distill first.`,
+		);
+	}
+	const files = new Map<string, string>();
+	const entries = fs
+		.readdirSync(DISTILL_DIR)
+		.filter((f) => f.endsWith(".md") && f !== "index.md");
+	for (const filename of entries) {
+		const content = fs.readFileSync(path.join(DISTILL_DIR, filename), "utf-8");
+		files.set(filename, content);
+	}
+	return files;
 }
 
 export async function reorgPlan(config: PipelineConfig): Promise<ReorgPlan> {
-  const anthropic = createAnthropic({ apiKey: config.anthropicApiKey })
-  const files = loadDistilledFiles()
+	const anthropic = createAnthropic({ apiKey: config.anthropicApiKey });
+	const files = loadDistilledFiles();
 
-  log('Reorganize', `Loaded ${files.size} knowledge files`)
+	log("Reorganize", `Loaded ${files.size} knowledge files`);
 
-  // Build the combined input
-  const allContent = [...files.entries()]
-    .map(([filename, content]) => `=== ${filename} ===\n\n${content}`)
-    .join('\n\n' + '='.repeat(80) + '\n\n')
+	// Build the combined input
+	const allContent = [...files.entries()]
+		.map(([filename, content]) => `=== ${filename} ===\n\n${content}`)
+		.join("\n\n" + "=".repeat(80) + "\n\n");
 
-  const inputTokens = estimateTokens(allContent.length)
-  const outputTokensEst = 8000
-  const estCost = (inputTokens / 1_000_000) * OPUS_INPUT_COST + (outputTokensEst / 1_000_000) * OPUS_OUTPUT_COST
+	const inputTokens = estimateTokens(allContent.length);
+	const outputTokensEst = 8000;
+	const estCost =
+		(inputTokens / 1_000_000) * OPUS_INPUT_COST +
+		(outputTokensEst / 1_000_000) * OPUS_OUTPUT_COST;
 
-  log('Reorganize', `Pass 1: Planning reorganization`)
-  log('Reorganize', `  ${files.size} source files, ~${inputTokens.toLocaleString()} input tokens`)
-  log('Reorganize', `  Estimated cost: ~$${estCost.toFixed(2)}`)
+	log("Reorganize", `Pass 1: Planning reorganization`);
+	log(
+		"Reorganize",
+		`  ${files.size} source files, ~${inputTokens.toLocaleString()} input tokens`,
+	);
+	log("Reorganize", `  Estimated cost: ~$${estCost.toFixed(2)}`);
 
-  if (!config.skipConfirmation) {
-    const ok = await confirm(`[Reorganize] Run Pass 1 (plan)? (~$${estCost.toFixed(2)})`)
-    if (!ok) {
-      log('Reorganize', 'Aborted by user.')
-      process.exit(0)
-    }
-  }
+	if (!config.skipConfirmation) {
+		const ok = await confirm(
+			`[Reorganize] Run Pass 1 (plan)? (~$${estCost.toFixed(2)})`,
+		);
+		if (!ok) {
+			log("Reorganize", "Aborted by user.");
+			process.exit(0);
+		}
+	}
 
-  const system = `You are reorganizing a CommCare knowledge base for an AI agent (the "Solutions Architect") that designs CommCare mobile apps from natural language. The SA generates app blueprints: modules, forms, questions (with types, labels, case properties, logic), case types, and case list columns. The SA also writes expressions — relevant conditions, calculate, validation, default_value, and itemset configurations (nodeset, value, label, filter predicates). That is the SA's ENTIRE interface. It does not touch XML, does not use CommCare HQ's web interface, does not make API calls, does not manage users/locations/infrastructure, does not do data import/export, does not configure servers or integrations.
+	const system = `You are reorganizing a CommCare knowledge base for an AI agent (the "Solutions Architect") that designs CommCare mobile apps from natural language. The SA generates app blueprints: modules, forms, questions (with types, labels, case properties, logic), case types, and case list columns. The SA also writes expressions — relevant conditions, calculate, validation, default_value, and itemset configurations (nodeset, value, label, filter predicates). That is the SA's ENTIRE interface. It does not touch XML, does not use CommCare HQ's web interface, does not make API calls, does not manage users/locations/infrastructure, does not do data import/export, does not configure servers or integrations.
 
 The SA's output is an app blueprint that gets deterministically converted into a working CommCare app by a separate pipeline. The SA never sees or writes XML, never interacts with submission endpoints, never configures case import spreadsheets, never sets up cross-domain data sharing, never manages user accounts. If a human couldn't do it while sitting in the CommCare app builder designing forms and modules, the SA can't do it either.
 
@@ -150,135 +188,157 @@ KEEP — XPath expression patterns:
 "#form/question_id → shorthand for /data/question_id; #case/case_property_name → load from current case; In validation conditions, . (dot) refers to the current question's value."
 
 KEEP — Blueprint-level design guidance:
-"A case list has a case type. Each column can be a case property or a calculate condition. In calculate conditions, the calculation runs over each row — use current()/property_name to reference the current row. If a parent case property is needed for display or search, denormalize it."`
+"A case list has a case type. Each column can be a case property or a calculate condition. In calculate conditions, the calculation runs over each row — use current()/property_name to reference the current row. If a parent case property is needed for display or search, denormalize it."`;
 
-  log('Reorganize', `  Sending to Opus...`)
+	log("Reorganize", `  Sending to Opus...`);
 
-  const stream = streamText({
-    model: anthropic(OPUS_MODEL),
-    output: Output.object({ schema: reorgPlanSchema }),
-    system,
-    prompt: allContent,
-  })
+	const stream = streamText({
+		model: anthropic(OPUS_MODEL),
+		output: Output.object({ schema: reorgPlanSchema }),
+		system,
+		prompt: allContent,
+	});
 
-  // Stream progress — show files as they appear
-  let lastLineCount = 0
-  for await (const partial of stream.partialOutputStream) {
-    const plan = partial as ReorgPlan
-    if (!plan?.files?.length) continue
+	// Stream progress — show files as they appear
+	let lastLineCount = 0;
+	for await (const partial of stream.partialOutputStream) {
+		const plan = partial as ReorgPlan;
+		if (!plan?.files?.length) continue;
 
-    if (lastLineCount > 0) {
-      process.stdout.write(`\x1b[${lastLineCount}A`)
-    }
+		if (lastLineCount > 0) {
+			process.stdout.write(`\x1b[${lastLineCount}A`);
+		}
 
-    const lines: string[] = []
-    for (let i = 0; i < plan.files.length; i++) {
-      const f = plan.files[i]
-      const name = f?.filename ?? '...'
-      const sourceCount = f?.sources?.length ?? 0
-      const status = i < plan.files.length - 1 ? '\x1b[32m✓\x1b[0m' : '\x1b[33m⟳\x1b[0m'
-      lines.push(`  ${status} ${(i + 1).toString().padStart(2)}. ${(name + '.md').padEnd(40).slice(0, 40)} ${String(sourceCount).padStart(2)} sources`)
-    }
+		const lines: string[] = [];
+		for (let i = 0; i < plan.files.length; i++) {
+			const f = plan.files[i];
+			const name = f?.filename ?? "...";
+			const sourceCount = f?.sources?.length ?? 0;
+			const status =
+				i < plan.files.length - 1 ? "\x1b[32m✓\x1b[0m" : "\x1b[33m⟳\x1b[0m";
+			lines.push(
+				`  ${status} ${(i + 1).toString().padStart(2)}. ${(name + ".md").padEnd(40).slice(0, 40)} ${String(sourceCount).padStart(2)} sources`,
+			);
+		}
 
-    const cutCount = plan.cuts?.length ?? 0
-    if (cutCount > 0) {
-      lines.push(`  \x1b[31m✂\x1b[0m  ${cutCount} cuts identified`)
-    }
+		const cutCount = plan.cuts?.length ?? 0;
+		if (cutCount > 0) {
+			lines.push(`  \x1b[31m✂\x1b[0m  ${cutCount} cuts identified`);
+		}
 
-    for (const line of lines) {
-      process.stdout.write(`\x1b[2K${line}\n`)
-    }
-    lastLineCount = lines.length
-  }
-  process.stdout.write('\n')
+		for (const line of lines) {
+			process.stdout.write(`\x1b[2K${line}\n`);
+		}
+		lastLineCount = lines.length;
+	}
+	process.stdout.write("\n");
 
-  const finalOutput = await stream.output
-  const plan = finalOutput!
-  const usage = await stream.usage
-  const cost = logCost('Reorganize', '  Pass 1 done', usage.inputTokens ?? 0, usage.outputTokens ?? 0, OPUS_INPUT_COST, OPUS_OUTPUT_COST)
+	const finalOutput = await stream.output;
+	const plan = finalOutput!;
+	const usage = await stream.usage;
+	const cost = logCost(
+		"Reorganize",
+		"  Pass 1 done",
+		usage.inputTokens ?? 0,
+		usage.outputTokens ?? 0,
+		OPUS_INPUT_COST,
+		OPUS_OUTPUT_COST,
+	);
 
-  // Save plan
-  fs.mkdirSync(CACHE_DIR, { recursive: true })
-  fs.writeFileSync(PLAN_PATH, JSON.stringify(plan, null, 2))
-  log('Reorganize', `  Plan saved to ${PLAN_PATH}`)
+	// Save plan
+	fs.mkdirSync(CACHE_DIR, { recursive: true });
+	fs.writeFileSync(PLAN_PATH, JSON.stringify(plan, null, 2));
+	log("Reorganize", `  Plan saved to ${PLAN_PATH}`);
 
-  // Print the plan
-  printPlan(plan)
+	// Print the plan
+	printPlan(plan);
 
-  return plan
+	return plan;
 }
 
 function printPlan(plan: ReorgPlan): void {
-  console.log('\n' + '='.repeat(70))
-  console.log('  REORGANIZATION PLAN')
-  console.log('='.repeat(70))
+	console.log("\n" + "=".repeat(70));
+	console.log("  REORGANIZATION PLAN");
+	console.log("=".repeat(70));
 
-  console.log(`\n  ${plan.files.length} output files:\n`)
-  for (let i = 0; i < plan.files.length; i++) {
-    const f = plan.files[i]
-    console.log(`  ${(i + 1).toString().padStart(2)}. \x1b[36m${f.filename}.md\x1b[0m — ${f.title}`)
-    console.log(`      ${f.description}`)
-    console.log(`      Sources:`)
-    for (const s of f.sources) {
-      const sections = s.sections.join(', ')
-      console.log(`        - ${s.sourceFile} [${sections}]`)
-    }
-    console.log(`      Guidance: ${f.contentGuidance}`)
-    console.log()
-  }
+	console.log(`\n  ${plan.files.length} output files:\n`);
+	for (let i = 0; i < plan.files.length; i++) {
+		const f = plan.files[i];
+		console.log(
+			`  ${(i + 1).toString().padStart(2)}. \x1b[36m${f.filename}.md\x1b[0m — ${f.title}`,
+		);
+		console.log(`      ${f.description}`);
+		console.log(`      Sources:`);
+		for (const s of f.sources) {
+			const sections = s.sections.join(", ");
+			console.log(`        - ${s.sourceFile} [${sections}]`);
+		}
+		console.log(`      Guidance: ${f.contentGuidance}`);
+		console.log();
+	}
 
-  if (plan.cuts.length > 0) {
-    console.log(`  ${plan.cuts.length} cuts:\n`)
-    for (const cut of plan.cuts) {
-      console.log(`  \x1b[31m✂\x1b[0m  ${cut.sourceFile}: ${cut.what}`)
-      console.log(`      Why: ${cut.why}`)
-    }
-    console.log()
-  }
+	if (plan.cuts.length > 0) {
+		console.log(`  ${plan.cuts.length} cuts:\n`);
+		for (const cut of plan.cuts) {
+			console.log(`  \x1b[31m✂\x1b[0m  ${cut.sourceFile}: ${cut.what}`);
+			console.log(`      Why: ${cut.why}`);
+		}
+		console.log();
+	}
 
-  console.log('='.repeat(70))
+	console.log("=".repeat(70));
 }
 
 // --- Pass 2: Execute ---
 
 export async function reorgExecute(config: PipelineConfig): Promise<void> {
-  const anthropic = createAnthropic({ apiKey: config.anthropicApiKey })
+	const anthropic = createAnthropic({ apiKey: config.anthropicApiKey });
 
-  // Load the plan
-  if (!fs.existsSync(PLAN_PATH)) {
-    throw new Error(`No reorganization plan found at ${PLAN_PATH}. Run --phase reorg-plan first.`)
-  }
-  const plan: ReorgPlan = JSON.parse(fs.readFileSync(PLAN_PATH, 'utf-8'))
+	// Load the plan
+	if (!fs.existsSync(PLAN_PATH)) {
+		throw new Error(
+			`No reorganization plan found at ${PLAN_PATH}. Run --phase reorg-plan first.`,
+		);
+	}
+	const plan: ReorgPlan = JSON.parse(fs.readFileSync(PLAN_PATH, "utf-8"));
 
-  log('Reorganize', `Pass 2: Writing ${plan.files.length} files`)
+	log("Reorganize", `Pass 2: Writing ${plan.files.length} files`);
 
-  // Load all source knowledge files
-  const sourceFiles = loadDistilledFiles()
+	// Load all source knowledge files
+	const sourceFiles = loadDistilledFiles();
 
-  // Estimate cost
-  let totalSourceChars = 0
-  for (const file of plan.files) {
-    for (const src of file.sources) {
-      const content = sourceFiles.get(src.sourceFile)
-      if (content) totalSourceChars += content.length
-    }
-  }
-  const inputTokensEst = estimateTokens(totalSourceChars) + plan.files.length * 500 // system prompt overhead per call
-  const outputTokensEst = estimateTokens(totalSourceChars * 0.7) // output ~70% of input size
-  const estCost = (inputTokensEst / 1_000_000) * OPUS_INPUT_COST + (outputTokensEst / 1_000_000) * OPUS_OUTPUT_COST
+	// Estimate cost
+	let totalSourceChars = 0;
+	for (const file of plan.files) {
+		for (const src of file.sources) {
+			const content = sourceFiles.get(src.sourceFile);
+			if (content) totalSourceChars += content.length;
+		}
+	}
+	const inputTokensEst =
+		estimateTokens(totalSourceChars) + plan.files.length * 500; // system prompt overhead per call
+	const outputTokensEst = estimateTokens(totalSourceChars * 0.7); // output ~70% of input size
+	const estCost =
+		(inputTokensEst / 1_000_000) * OPUS_INPUT_COST +
+		(outputTokensEst / 1_000_000) * OPUS_OUTPUT_COST;
 
-  log('Reorganize', `  ~${inputTokensEst.toLocaleString()} input tokens across ${plan.files.length} calls`)
-  log('Reorganize', `  Estimated cost: ~$${estCost.toFixed(2)}`)
+	log(
+		"Reorganize",
+		`  ~${inputTokensEst.toLocaleString()} input tokens across ${plan.files.length} calls`,
+	);
+	log("Reorganize", `  Estimated cost: ~$${estCost.toFixed(2)}`);
 
-  if (!config.skipConfirmation) {
-    const ok = await confirm(`[Reorganize] Run Pass 2 (write ${plan.files.length} files)? (~$${estCost.toFixed(2)})`)
-    if (!ok) {
-      log('Reorganize', 'Aborted by user.')
-      process.exit(0)
-    }
-  }
+	if (!config.skipConfirmation) {
+		const ok = await confirm(
+			`[Reorganize] Run Pass 2 (write ${plan.files.length} files)? (~$${estCost.toFixed(2)})`,
+		);
+		if (!ok) {
+			log("Reorganize", "Aborted by user.");
+			process.exit(0);
+		}
+	}
 
-  const system = `You are writing one file of a CommCare knowledge base for an AI agent (the "Solutions Architect") that designs CommCare mobile apps from natural language.
+	const system = `You are writing one file of a CommCare knowledge base for an AI agent (the "Solutions Architect") that designs CommCare mobile apps from natural language.
 
 The SA generates app blueprints: modules, forms, questions (with types, labels, case properties, logic), case types, and case list columns. The SA's "coding" surface is expressions — relevant, calculate, validation, default_value, and itemset configurations (nodeset, value, label, filter predicates). That is the SA's ENTIRE interface.
 
@@ -333,44 +393,58 @@ KEEP:
 
 Be precise, information-dense, and structured for quick lookup. This is a reference card for an expert AI agent, not a tutorial for a human learner. Use headers and short sections for scannability. Preserve concrete details — instance URIs, XPath function signatures, property names, expression patterns.
 
-Write the file described below using the source material provided. Follow the content guidance from the plan exactly.`
+Write the file described below using the source material provided. Follow the content guidance from the plan exactly.`;
 
-  let totalInputTokens = 0
-  let totalOutputTokens = 0
-  let totalCost = 0
+	let totalInputTokens = 0;
+	let totalOutputTokens = 0;
+	let totalCost = 0;
 
-  // Clear old knowledge files and write fresh
-  fs.mkdirSync(KNOWLEDGE_DIR, { recursive: true })
-  const oldFiles = fs.readdirSync(KNOWLEDGE_DIR).filter(f => f.endsWith('.md') && f !== 'index.md')
-  for (const f of oldFiles) {
-    fs.unlinkSync(path.join(KNOWLEDGE_DIR, f))
-  }
-  log('Reorganize', `  Cleared ${oldFiles.length} old knowledge files`)
+	// Clear old knowledge files and write fresh
+	fs.mkdirSync(KNOWLEDGE_DIR, { recursive: true });
+	const oldFiles = fs
+		.readdirSync(KNOWLEDGE_DIR)
+		.filter((f) => f.endsWith(".md") && f !== "index.md");
+	for (const f of oldFiles) {
+		fs.unlinkSync(path.join(KNOWLEDGE_DIR, f));
+	}
+	log("Reorganize", `  Cleared ${oldFiles.length} old knowledge files`);
 
-  for (let i = 0; i < plan.files.length; i++) {
-    const file = plan.files[i]
-    const outputPath = path.join(KNOWLEDGE_DIR, `${file.filename}.md`)
+	for (let i = 0; i < plan.files.length; i++) {
+		const file = plan.files[i];
+		const outputPath = path.join(KNOWLEDGE_DIR, `${file.filename}.md`);
 
-    // Gather source content for this file
-    const sourceContent = file.sources.map(src => {
-      const content = sourceFiles.get(src.sourceFile)
-      if (!content) {
-        log('Reorganize', `    WARNING: Source file ${src.sourceFile} not found`)
-        return ''
-      }
-      const sections = src.sections.join(', ')
-      return `=== Source: ${src.sourceFile} [sections: ${sections}] ===\n\n${content}`
-    }).filter(s => s.length > 0).join('\n\n' + '-'.repeat(60) + '\n\n')
+		// Gather source content for this file
+		const sourceContent = file.sources
+			.map((src) => {
+				const content = sourceFiles.get(src.sourceFile);
+				if (!content) {
+					log(
+						"Reorganize",
+						`    WARNING: Source file ${src.sourceFile} not found`,
+					);
+					return "";
+				}
+				const sections = src.sections.join(", ");
+				return `=== Source: ${src.sourceFile} [sections: ${sections}] ===\n\n${content}`;
+			})
+			.filter((s) => s.length > 0)
+			.join("\n\n" + "-".repeat(60) + "\n\n");
 
-    if (sourceContent.length === 0) {
-      log('Reorganize', `  [${i + 1}/${plan.files.length}] ${file.filename}.md — no source content, skipping`)
-      continue
-    }
+		if (sourceContent.length === 0) {
+			log(
+				"Reorganize",
+				`  [${i + 1}/${plan.files.length}] ${file.filename}.md — no source content, skipping`,
+			);
+			continue;
+		}
 
-    const inputTokenEst = estimateTokens(sourceContent.length)
-    log('Reorganize', `  [${i + 1}/${plan.files.length}] ${file.filename}.md — ${file.sources.length} sources, ~${inputTokenEst.toLocaleString()} tokens`)
+		const inputTokenEst = estimateTokens(sourceContent.length);
+		log(
+			"Reorganize",
+			`  [${i + 1}/${plan.files.length}] ${file.filename}.md — ${file.sources.length} sources, ~${inputTokenEst.toLocaleString()} tokens`,
+		);
 
-    const prompt = `File: ${file.filename}.md
+		const prompt = `File: ${file.filename}.md
 Title: ${file.title}
 Description: ${file.description}
 
@@ -378,89 +452,106 @@ Content guidance: ${file.contentGuidance}
 
 Source material:
 
-${sourceContent}`
+${sourceContent}`;
 
-    try {
-      const result = streamText({
-        model: anthropic(OPUS_MODEL),
-        system,
-        prompt,
-      })
+		try {
+			const result = streamText({
+				model: anthropic(OPUS_MODEL),
+				system,
+				prompt,
+			});
 
-      let fullText = ''
-      process.stdout.write('\n')
-      for await (const chunk of result.textStream) {
-        fullText += chunk
-        process.stdout.write(chunk)
-      }
-      process.stdout.write('\n\n')
+			let fullText = "";
+			process.stdout.write("\n");
+			for await (const chunk of result.textStream) {
+				fullText += chunk;
+				process.stdout.write(chunk);
+			}
+			process.stdout.write("\n\n");
 
-      if (fullText.length > 0) {
-        fs.writeFileSync(outputPath, fullText)
-        log('Reorganize', `    Saved: ${outputPath} (${fullText.length.toLocaleString()} chars)`)
-      }
+			if (fullText.length > 0) {
+				fs.writeFileSync(outputPath, fullText);
+				log(
+					"Reorganize",
+					`    Saved: ${outputPath} (${fullText.length.toLocaleString()} chars)`,
+				);
+			}
 
-      const usage = await result.usage
-      totalInputTokens += usage.inputTokens ?? 0
-      totalOutputTokens += usage.outputTokens ?? 0
-      const fileCost = logCost('Reorganize', `    ${file.filename}.md`, usage.inputTokens ?? 0, usage.outputTokens ?? 0, OPUS_INPUT_COST, OPUS_OUTPUT_COST)
-      totalCost += fileCost
-      log('Reorganize', `    Running total: $${totalCost.toFixed(4)}`)
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err)
-      log('Reorganize', `    ERROR: ${msg}`)
-    }
-  }
+			const usage = await result.usage;
+			totalInputTokens += usage.inputTokens ?? 0;
+			totalOutputTokens += usage.outputTokens ?? 0;
+			const fileCost = logCost(
+				"Reorganize",
+				`    ${file.filename}.md`,
+				usage.inputTokens ?? 0,
+				usage.outputTokens ?? 0,
+				OPUS_INPUT_COST,
+				OPUS_OUTPUT_COST,
+			);
+			totalCost += fileCost;
+			log("Reorganize", `    Running total: $${totalCost.toFixed(4)}`);
+		} catch (err) {
+			const msg = err instanceof Error ? err.message : String(err);
+			log("Reorganize", `    ERROR: ${msg}`);
+		}
+	}
 
-  // Generate new index.md
-  log('Reorganize', '')
-  log('Reorganize', 'Generating index.md...')
+	// Generate new index.md
+	log("Reorganize", "");
+	log("Reorganize", "Generating index.md...");
 
-  const indexContent = [
-    '# CommCare Knowledge Base',
-    '',
-    'Reorganized platform knowledge for the Solutions Architect agent.',
-    `Generated on ${new Date().toISOString().split('T')[0]}.`,
-    '',
-    '## Topics',
-    '',
-    ...plan.files.map(f => {
-      const outputPath = path.join(KNOWLEDGE_DIR, `${f.filename}.md`)
-      const exists = fs.existsSync(outputPath)
-      return `- **[${f.title}](${f.filename}.md)** — ${f.description}${exists ? '' : ' *(failed to generate)*'}`
-    }),
-    '',
-  ].join('\n')
+	const indexContent = [
+		"# CommCare Knowledge Base",
+		"",
+		"Reorganized platform knowledge for the Solutions Architect agent.",
+		`Generated on ${new Date().toISOString().split("T")[0]}.`,
+		"",
+		"## Topics",
+		"",
+		...plan.files.map((f) => {
+			const outputPath = path.join(KNOWLEDGE_DIR, `${f.filename}.md`);
+			const exists = fs.existsSync(outputPath);
+			return `- **[${f.title}](${f.filename}.md)** — ${f.description}${exists ? "" : " *(failed to generate)*"}`;
+		}),
+		"",
+	].join("\n");
 
-  fs.writeFileSync(path.join(KNOWLEDGE_DIR, 'index.md'), indexContent)
-  log('Reorganize', `Written: ${path.join(KNOWLEDGE_DIR, 'index.md')}`)
+	fs.writeFileSync(path.join(KNOWLEDGE_DIR, "index.md"), indexContent);
+	log("Reorganize", `Written: ${path.join(KNOWLEDGE_DIR, "index.md")}`);
 
-  // Summary
-  const generatedFiles = plan.files.filter(f => fs.existsSync(path.join(KNOWLEDGE_DIR, `${f.filename}.md`)))
+	// Summary
+	const generatedFiles = plan.files.filter((f) =>
+		fs.existsSync(path.join(KNOWLEDGE_DIR, `${f.filename}.md`)),
+	);
 
-  logSummary('Reorganize', [
-    `Output files: ${generatedFiles.length}/${plan.files.length}`,
-    `Content cuts: ${plan.cuts.length}`,
-    '',
-    'Files:',
-    ...generatedFiles.map(f => `  ${f.filename}.md — ${f.title}`),
-    '',
-    `Total cost: $${totalCost.toFixed(4)} (${totalInputTokens.toLocaleString()} in / ${totalOutputTokens.toLocaleString()} out)`,
-  ])
+	logSummary("Reorganize", [
+		`Output files: ${generatedFiles.length}/${plan.files.length}`,
+		`Content cuts: ${plan.cuts.length}`,
+		"",
+		"Files:",
+		...generatedFiles.map((f) => `  ${f.filename}.md — ${f.title}`),
+		"",
+		`Total cost: $${totalCost.toFixed(4)} (${totalInputTokens.toLocaleString()} in / ${totalOutputTokens.toLocaleString()} out)`,
+	]);
 }
 
 // --- Combined: Plan + Confirm + Execute ---
 
 export async function reorganize(config: PipelineConfig): Promise<void> {
-  const plan = await reorgPlan(config)
+	const plan = await reorgPlan(config);
 
-  if (!config.skipConfirmation) {
-    const ok = await confirm(`[Reorganize] Proceed to Pass 2 (write ${plan.files.length} files with Opus)?`)
-    if (!ok) {
-      log('Reorganize', 'Stopped after Pass 1. Run --phase reorg-execute to continue later.')
-      return
-    }
-  }
+	if (!config.skipConfirmation) {
+		const ok = await confirm(
+			`[Reorganize] Proceed to Pass 2 (write ${plan.files.length} files with Opus)?`,
+		);
+		if (!ok) {
+			log(
+				"Reorganize",
+				"Stopped after Pass 1. Run --phase reorg-execute to continue later.",
+			);
+			return;
+		}
+	}
 
-  await reorgExecute(config)
+	await reorgExecute(config);
 }

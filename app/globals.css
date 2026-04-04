@@ -1,98 +1,98 @@
-@import '../components/tiptap-ui/_variables.scss';
-@import '../components/tiptap-ui/_keyframe-animations.scss';
+@import "../components/tiptap-ui/_variables.scss";
+@import "../components/tiptap-ui/_keyframe-animations.scss";
 
 @import "tailwindcss";
 
 :root {
-  /* Nova color system */
-  --nova-void: #050510;
-  --nova-deep: #0a0a1a;
-  --nova-surface: #12122a;
-  --nova-elevated: #1a1a3e;
-  --nova-border: rgba(139, 92, 246, 0.15);
-  --nova-border-bright: rgba(139, 92, 246, 0.3);
+	/* Nova color system */
+	--nova-void: #050510;
+	--nova-deep: #0a0a1a;
+	--nova-surface: #12122a;
+	--nova-elevated: #1a1a3e;
+	--nova-border: rgba(139, 92, 246, 0.15);
+	--nova-border-bright: rgba(139, 92, 246, 0.3);
 
-  --nova-text: #e8e8ff;
-  --nova-text-secondary: #8888aa;
-  --nova-text-muted: #555577;
+	--nova-text: #e8e8ff;
+	--nova-text-secondary: #8888aa;
+	--nova-text-muted: #555577;
 
-  --nova-violet: #8b5cf6;
-  --nova-violet-bright: #a78bfa;
-  --nova-cyan: #06b6d4;
-  --nova-cyan-bright: #22d3ee;
-  --nova-emerald: #10b981;
-  --nova-amber: #f59e0b;
-  --nova-rose: #f43f5e;
+	--nova-violet: #8b5cf6;
+	--nova-violet-bright: #a78bfa;
+	--nova-cyan: #06b6d4;
+	--nova-cyan-bright: #22d3ee;
+	--nova-emerald: #10b981;
+	--nova-amber: #f59e0b;
+	--nova-rose: #f43f5e;
 
-  --nova-glow-violet: 0 0 40px rgba(139, 92, 246, 0.15);
-  --nova-glow-cyan: 0 0 40px rgba(6, 182, 212, 0.15);
+	--nova-glow-violet: 0 0 40px rgba(139, 92, 246, 0.15);
+	--nova-glow-cyan: 0 0 40px rgba(6, 182, 212, 0.15);
 
-  --background: var(--nova-void);
-  --foreground: var(--nova-text);
+	--background: var(--nova-void);
+	--foreground: var(--nova-text);
 
-  /* Z-index layers — single source of truth for stacking order */
-  --z-ground: 10;        /* Inline interactive elements: hover zones, sidebar dividers, page backgrounds */
-  --z-raised: 20;        /* Slightly elevated UI: insertion points, settings buttons, sidebar overlays */
-  --z-popover: 50;       /* Floating menus: dropdowns, pickers, popovers, confirm dialogs */
-  --z-popover-top: 60;   /* Popovers above other popovers: type picker over contextual editor */
-  --z-modal: 100;        /* Modal backdrops and dialogs */
-  --z-system: 9999;      /* System overlays: noise texture */
+	/* Z-index layers — single source of truth for stacking order */
+	--z-ground: 10; /* Inline interactive elements: hover zones, sidebar dividers, page backgrounds */
+	--z-raised: 20; /* Slightly elevated UI: insertion points, settings buttons, sidebar overlays */
+	--z-popover: 50; /* Floating menus: dropdowns, pickers, popovers, confirm dialogs */
+	--z-popover-top: 60; /* Popovers above other popovers: type picker over contextual editor */
+	--z-modal: 100; /* Modal backdrops and dialogs */
+	--z-system: 9999; /* System overlays: noise texture */
 
-  /* Preview theme defaults (overridden by .preview-theme) */
-  --pv-bg: #0c0c1e;
-  --pv-surface: #141430;
-  --pv-elevated: #1c1c40;
-  --pv-input-bg: #10102a;
-  --pv-input-border: rgba(6, 182, 212, 0.2);
-  --pv-input-focus: rgba(6, 182, 212, 0.4);
-  --pv-accent: var(--nova-cyan);
-  --pv-accent-bright: var(--nova-cyan-bright);
+	/* Preview theme defaults (overridden by .preview-theme) */
+	--pv-bg: #0c0c1e;
+	--pv-surface: #141430;
+	--pv-elevated: #1c1c40;
+	--pv-input-bg: #10102a;
+	--pv-input-border: rgba(6, 182, 212, 0.2);
+	--pv-input-focus: rgba(6, 182, 212, 0.4);
+	--pv-accent: var(--nova-cyan);
+	--pv-accent-bright: var(--nova-cyan-bright);
 }
 
 @theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --color-nova-void: var(--nova-void);
-  --color-nova-deep: var(--nova-deep);
-  --color-nova-surface: var(--nova-surface);
-  --color-nova-elevated: var(--nova-elevated);
-  --color-nova-border: var(--nova-border);
-  --color-nova-border-bright: var(--nova-border-bright);
-  --color-nova-text: var(--nova-text);
-  --color-nova-text-secondary: var(--nova-text-secondary);
-  --color-nova-text-muted: var(--nova-text-muted);
-  --color-nova-violet: var(--nova-violet);
-  --color-nova-violet-bright: var(--nova-violet-bright);
-  --color-nova-cyan: var(--nova-cyan);
-  --color-nova-cyan-bright: var(--nova-cyan-bright);
-  --color-nova-emerald: var(--nova-emerald);
-  --color-nova-amber: var(--nova-amber);
-  --color-nova-rose: var(--nova-rose);
-  --color-pv-bg: var(--pv-bg);
-  --color-pv-surface: var(--pv-surface);
-  --color-pv-elevated: var(--pv-elevated);
-  --color-pv-input-bg: var(--pv-input-bg);
-  --color-pv-input-border: var(--pv-input-border);
-  --color-pv-input-focus: var(--pv-input-focus);
-  --color-pv-accent: var(--pv-accent);
-  --color-pv-accent-bright: var(--pv-accent-bright);
-  --font-sans: var(--font-nova-sans);
-  --font-display: var(--font-nova-display);
-  --font-mono: var(--font-nova-mono);
-  --z-index-ground: var(--z-ground);
-  --z-index-raised: var(--z-raised);
-  --z-index-popover: var(--z-popover);
-  --z-index-popover-top: var(--z-popover-top);
-  --z-index-modal: var(--z-modal);
-  --z-index-system: var(--z-system);
-  --animate-shimmer: nova-shimmer 1.5s ease-in-out infinite;
+	--color-background: var(--background);
+	--color-foreground: var(--foreground);
+	--color-nova-void: var(--nova-void);
+	--color-nova-deep: var(--nova-deep);
+	--color-nova-surface: var(--nova-surface);
+	--color-nova-elevated: var(--nova-elevated);
+	--color-nova-border: var(--nova-border);
+	--color-nova-border-bright: var(--nova-border-bright);
+	--color-nova-text: var(--nova-text);
+	--color-nova-text-secondary: var(--nova-text-secondary);
+	--color-nova-text-muted: var(--nova-text-muted);
+	--color-nova-violet: var(--nova-violet);
+	--color-nova-violet-bright: var(--nova-violet-bright);
+	--color-nova-cyan: var(--nova-cyan);
+	--color-nova-cyan-bright: var(--nova-cyan-bright);
+	--color-nova-emerald: var(--nova-emerald);
+	--color-nova-amber: var(--nova-amber);
+	--color-nova-rose: var(--nova-rose);
+	--color-pv-bg: var(--pv-bg);
+	--color-pv-surface: var(--pv-surface);
+	--color-pv-elevated: var(--pv-elevated);
+	--color-pv-input-bg: var(--pv-input-bg);
+	--color-pv-input-border: var(--pv-input-border);
+	--color-pv-input-focus: var(--pv-input-focus);
+	--color-pv-accent: var(--pv-accent);
+	--color-pv-accent-bright: var(--pv-accent-bright);
+	--font-sans: var(--font-nova-sans);
+	--font-display: var(--font-nova-display);
+	--font-mono: var(--font-nova-mono);
+	--z-index-ground: var(--z-ground);
+	--z-index-raised: var(--z-raised);
+	--z-index-popover: var(--z-popover);
+	--z-index-popover-top: var(--z-popover-top);
+	--z-index-modal: var(--z-modal);
+	--z-index-system: var(--z-system);
+	--animate-shimmer: nova-shimmer 1.5s ease-in-out infinite;
 }
 
 /* Global styles */
 body {
-  background: var(--nova-void);
-  color: var(--nova-text);
-  font-family: var(--font-sans);
+	background: var(--nova-void);
+	color: var(--nova-text);
+	font-family: var(--font-sans);
 }
 
 /* Custom scrollbar — reserve gutter space only on actual scroll containers
@@ -101,284 +101,327 @@ body {
    blank gutter gap next to children that showed real scrollbars. */
 .overflow-y-auto,
 .overflow-y-scroll {
-  scrollbar-gutter: stable;
+	scrollbar-gutter: stable;
 }
 ::-webkit-scrollbar {
-  width: 6px;
+	width: 6px;
 }
 ::-webkit-scrollbar-track {
-  background: transparent;
+	background: transparent;
 }
 ::-webkit-scrollbar-thumb {
-  background: var(--nova-border-bright);
-  border-radius: 3px;
+	background: var(--nova-border-bright);
+	border-radius: 3px;
 }
 
 /* Selection color */
 ::selection {
-  background: rgba(139, 92, 246, 0.3);
-  color: white;
+	background: rgba(139, 92, 246, 0.3);
+	color: white;
 }
 
 /* Nova Panel — recessed hardware enclosure for the neural display */
 .nova-panel {
-  margin: 0 6px 4px;
-  border-radius: 6px;
-  user-select: none;
-  background: linear-gradient(180deg, rgba(10, 10, 26, 0.6), rgba(5, 5, 16, 0.8));
-  border: 1px solid rgba(139, 92, 246, 0.08);
-  box-shadow:
-    inset 0 1px 3px rgba(0, 0, 0, 0.4),
-    0 1px 0 rgba(139, 92, 246, 0.04);
-  transition: border-color 0.6s ease, box-shadow 0.8s ease;
+	margin: 0 6px 4px;
+	border-radius: 6px;
+	user-select: none;
+	background: linear-gradient(
+		180deg,
+		rgba(10, 10, 26, 0.6),
+		rgba(5, 5, 16, 0.8)
+	);
+	border: 1px solid rgba(139, 92, 246, 0.08);
+	box-shadow:
+		inset 0 1px 3px rgba(0, 0, 0, 0.4),
+		0 1px 0 rgba(139, 92, 246, 0.04);
+	transition:
+		border-color 0.6s ease,
+		box-shadow 0.8s ease;
 }
 .nova-panel[data-active] {
-  border-color: rgba(139, 92, 246, 0.15);
-  box-shadow:
-    inset 0 1px 3px rgba(0, 0, 0, 0.4),
-    0 1px 0 rgba(139, 92, 246, 0.06),
-    0 0 12px rgba(139, 92, 246, 0.04);
+	border-color: rgba(139, 92, 246, 0.15);
+	box-shadow:
+		inset 0 1px 3px rgba(0, 0, 0, 0.4),
+		0 1px 0 rgba(139, 92, 246, 0.06),
+		0 0 12px rgba(139, 92, 246, 0.04);
 }
 
 /* Bezel — top and bottom frame edges */
 .nova-panel-bezel {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  padding: 0 8px;
-  height: 14px;
+	display: flex;
+	align-items: center;
+	gap: 4px;
+	padding: 0 8px;
+	height: 14px;
 }
-.nova-panel-bezel-top { padding-top: 2px; }
-.nova-panel-bezel-bottom { padding-bottom: 2px; }
+.nova-panel-bezel-top {
+	padding-top: 2px;
+}
+.nova-panel-bezel-bottom {
+	padding-bottom: 2px;
+}
 
 /* Etched groove lines that run across the bezel */
 .nova-panel-groove {
-  flex: 1;
-  height: 1px;
-  background: rgba(139, 92, 246, 0.12);
+	flex: 1;
+	height: 1px;
+	background: rgba(139, 92, 246, 0.12);
 }
 
 /* Corner notches — small square cutouts at the bezel edges */
 .nova-panel-notch {
-  width: 3px;
-  height: 3px;
-  border-radius: 1px;
-  background: rgba(139, 92, 246, 0.12);
+	width: 3px;
+	height: 3px;
+	border-radius: 1px;
+	background: rgba(139, 92, 246, 0.12);
 }
 
 /* Status indicator — small LED recessed into the top bezel */
 .nova-panel-indicator {
-  width: 4px;
-  height: 4px;
-  border-radius: 50%;
-  background: rgba(85, 85, 119, 0.25);
-  box-shadow: inset 0 0.5px 1px rgba(0, 0, 0, 0.3);
-  transition: background 1.5s ease, box-shadow 1.5s ease, opacity 1.5s ease;
+	width: 4px;
+	height: 4px;
+	border-radius: 50%;
+	background: rgba(85, 85, 119, 0.25);
+	box-shadow: inset 0 0.5px 1px rgba(0, 0, 0, 0.3);
+	transition:
+		background 1.5s ease,
+		box-shadow 1.5s ease,
+		opacity 1.5s ease;
 }
 .nova-panel-indicator.active {
-  background: var(--nova-violet);
-  box-shadow:
-    inset 0 0.5px 1px rgba(0, 0, 0, 0.1),
-    0 0 5px rgba(139, 92, 246, 0.5);
-  animation: indicator-pulse 3s ease-in-out infinite;
+	background: var(--nova-violet);
+	box-shadow:
+		inset 0 0.5px 1px rgba(0, 0, 0, 0.1),
+		0 0 5px rgba(139, 92, 246, 0.5);
+	animation: indicator-pulse 3s ease-in-out infinite;
 }
 @keyframes indicator-pulse {
-  0%, 100% { opacity: 0.75; }
-  50% { opacity: 1; }
+	0%,
+	100% {
+		opacity: 0.75;
+	}
+	50% {
+		opacity: 1;
+	}
 }
 
 /* Reject shake — horizontal oscillation for invalid save attempts */
 @keyframes shake {
-  0%, 100% { translate: 0; }
-  15% { translate: -4px; }
-  30% { translate: 4px; }
-  45% { translate: -3px; }
-  60% { translate: 3px; }
-  75% { translate: -1px; }
-  90% { translate: 1px; }
+	0%,
+	100% {
+		translate: 0;
+	}
+	15% {
+		translate: -4px;
+	}
+	30% {
+		translate: 4px;
+	}
+	45% {
+		translate: -3px;
+	}
+	60% {
+		translate: 3px;
+	}
+	75% {
+		translate: -1px;
+	}
+	90% {
+		translate: 1px;
+	}
 }
 @utility xpath-shake {
-  animation: shake 0.4s ease-out;
+	animation: shake 0.4s ease-out;
 }
 
 /* Skeleton shimmer — horizontal gradient sweep for loading placeholders */
 @keyframes nova-shimmer {
-  0% { background-position: -200% 0; }
-  100% { background-position: 200% 0; }
+	0% {
+		background-position: -200% 0;
+	}
+	100% {
+		background-position: 200% 0;
+	}
 }
 
 /* Etched label in the bottom bezel */
 .nova-panel-etch {
-  font-family: var(--font-mono);
-  font-size: 7px;
-  letter-spacing: 0.15em;
-  text-transform: uppercase;
-  color: rgba(140, 140, 175, 0.6);
-  white-space: nowrap;
-  user-select: none;
-  transition: color 0.5s ease;
+	font-family: var(--font-mono);
+	font-size: 7px;
+	letter-spacing: 0.15em;
+	text-transform: uppercase;
+	color: rgba(140, 140, 175, 0.6);
+	white-space: nowrap;
+	user-select: none;
+	transition: color 0.5s ease;
 }
 .nova-panel[data-active] .nova-panel-etch {
-  color: rgba(180, 180, 208, 0.8);
+	color: rgba(180, 180, 208, 0.8);
 }
 
 /* Error recovering — amber LED and label */
 .nova-panel[data-recovering] .nova-panel-indicator.active {
-  background: var(--nova-amber);
-  box-shadow:
-    inset 0 0.5px 1px rgba(0, 0, 0, 0.1),
-    0 0 5px rgba(245, 158, 11, 0.5);
+	background: var(--nova-amber);
+	box-shadow:
+		inset 0 0.5px 1px rgba(0, 0, 0, 0.1),
+		0 0 5px rgba(245, 158, 11, 0.5);
 }
 .nova-panel[data-recovering] .nova-panel-etch {
-  color: rgba(245, 158, 11, 0.7);
+	color: rgba(245, 158, 11, 0.7);
 }
 
 /* Error fatal — rose LED and label */
 .nova-panel[data-error] .nova-panel-indicator.active {
-  background: var(--nova-rose);
-  box-shadow:
-    inset 0 0.5px 1px rgba(0, 0, 0, 0.1),
-    0 0 5px rgba(244, 63, 94, 0.5);
+	background: var(--nova-rose);
+	box-shadow:
+		inset 0 0.5px 1px rgba(0, 0, 0, 0.1),
+		0 0 5px rgba(244, 63, 94, 0.5);
 }
 .nova-panel[data-error] .nova-panel-etch {
-  color: rgba(244, 63, 94, 0.7);
+	color: rgba(244, 63, 94, 0.7);
 }
 
 /* Done state — emerald LED and label */
 .nova-panel[data-done] .nova-panel-indicator.active {
-  background: var(--nova-emerald);
-  box-shadow:
-    inset 0 0.5px 1px rgba(0, 0, 0, 0.1),
-    0 0 5px rgba(16, 185, 129, 0.5);
+	background: var(--nova-emerald);
+	box-shadow:
+		inset 0 0.5px 1px rgba(0, 0, 0, 0.1),
+		0 0 5px rgba(16, 185, 129, 0.5);
 }
 .nova-panel[data-done] .nova-panel-etch {
-  color: rgba(16, 185, 129, 0.7);
+	color: rgba(16, 185, 129, 0.7);
 }
 
 /* Display well — recessed cavity where the LED grid sits */
 .nova-panel-well {
-  margin: 0 6px;
-  padding: 2px;
-  border-radius: 3px;
-  background: rgba(3, 3, 10, 0.5);
-  box-shadow: inset 0 1px 4px rgba(0, 0, 0, 0.5);
+	margin: 0 6px;
+	padding: 2px;
+	border-radius: 3px;
+	background: rgba(3, 3, 10, 0.5);
+	box-shadow: inset 0 1px 4px rgba(0, 0, 0, 0.5);
 }
 
 /* Signal Grid — the LED array inside the well */
 .signal-grid {
-  position: relative;
-  display: grid;
-  grid-template-columns: repeat(auto-fill, 6px);
-  grid-template-rows: repeat(3, 6px);
-  gap: 3px;
-  justify-content: center;
-  padding: 4px;
-  border-radius: 2px;
-  overflow: hidden;
+	position: relative;
+	display: grid;
+	grid-template-columns: repeat(auto-fill, 6px);
+	grid-template-rows: repeat(3, 6px);
+	gap: 3px;
+	justify-content: center;
+	padding: 4px;
+	border-radius: 2px;
+	overflow: hidden;
 }
 .signal-grid::after {
-  content: '';
-  position: absolute;
-  inset: 0;
-  background: repeating-linear-gradient(
-    0deg,
-    transparent,
-    transparent 2px,
-    rgba(5, 5, 16, 0.15) 2px,
-    rgba(5, 5, 16, 0.15) 4px
-  );
-  pointer-events: none;
-  border-radius: inherit;
+	content: "";
+	position: absolute;
+	inset: 0;
+	background: repeating-linear-gradient(
+		0deg,
+		transparent,
+		transparent 2px,
+		rgba(5, 5, 16, 0.15) 2px,
+		rgba(5, 5, 16, 0.15) 4px
+	);
+	pointer-events: none;
+	border-radius: inherit;
 }
 
 /* Chat markdown (assistant messages) */
 .chat-markdown {
-  line-height: 1.6;
-  word-break: break-word;
+	line-height: 1.6;
+	word-break: break-word;
 }
 .chat-markdown p {
-  margin: 0;
+	margin: 0;
 }
 .chat-markdown p + p {
-  margin-top: 0.5em;
+	margin-top: 0.5em;
 }
 .chat-markdown h1,
 .chat-markdown h2,
 .chat-markdown h3,
 .chat-markdown h4 {
-  font-weight: 600;
-  margin: 0.75em 0 0.25em;
-  line-height: 1.3;
+	font-weight: 600;
+	margin: 0.75em 0 0.25em;
+	line-height: 1.3;
 }
-.chat-markdown h1 { font-size: 1.15em; }
-.chat-markdown h2 { font-size: 1.1em; }
-.chat-markdown h3 { font-size: 1.05em; }
+.chat-markdown h1 {
+	font-size: 1.15em;
+}
+.chat-markdown h2 {
+	font-size: 1.1em;
+}
+.chat-markdown h3 {
+	font-size: 1.05em;
+}
 .chat-markdown h1:first-child,
 .chat-markdown h2:first-child,
 .chat-markdown h3:first-child,
 .chat-markdown h4:first-child {
-  margin-top: 0;
+	margin-top: 0;
 }
 .chat-markdown strong {
-  font-weight: 600;
-  color: var(--nova-text);
+	font-weight: 600;
+	color: var(--nova-text);
 }
 .chat-markdown em {
-  font-style: italic;
+	font-style: italic;
 }
 .chat-markdown del {
-  text-decoration: line-through;
-  opacity: 0.7;
+	text-decoration: line-through;
+	opacity: 0.7;
 }
 .chat-markdown code {
-  font-family: var(--font-mono);
-  font-size: 0.85em;
-  background: rgba(139, 92, 246, 0.1);
-  border: 1px solid rgba(139, 92, 246, 0.15);
-  border-radius: 4px;
-  padding: 0.1em 0.35em;
+	font-family: var(--font-mono);
+	font-size: 0.85em;
+	background: rgba(139, 92, 246, 0.1);
+	border: 1px solid rgba(139, 92, 246, 0.15);
+	border-radius: 4px;
+	padding: 0.1em 0.35em;
 }
 .chat-markdown pre {
-  margin: 0.5em 0;
-  overflow-x: auto;
+	margin: 0.5em 0;
+	overflow-x: auto;
 }
 .chat-markdown pre code {
-  display: block;
-  padding: 0.5em 0.75em;
+	display: block;
+	padding: 0.5em 0.75em;
 }
 .chat-markdown hr {
-  border: none;
-  border-top: 1px solid var(--nova-border);
-  margin: 0.75em 0;
+	border: none;
+	border-top: 1px solid var(--nova-border);
+	margin: 0.75em 0;
 }
 .chat-markdown ul,
 .chat-markdown ol {
-  margin: 0.35em 0;
-  padding-left: 1.5em;
+	margin: 0.35em 0;
+	padding-left: 1.5em;
 }
 .chat-markdown ul {
-  list-style: disc;
+	list-style: disc;
 }
 .chat-markdown ol {
-  list-style: decimal;
+	list-style: decimal;
 }
 .chat-markdown li {
-  margin: 0.15em 0;
+	margin: 0.15em 0;
 }
 .chat-markdown table {
-  border-collapse: collapse;
-  margin: 0.5em 0;
-  font-size: 0.9em;
-  width: 100%;
+	border-collapse: collapse;
+	margin: 0.5em 0;
+	font-size: 0.9em;
+	width: 100%;
 }
 .chat-markdown th,
 .chat-markdown td {
-  border: 1px solid var(--nova-border);
-  padding: 0.35em 0.6em;
+	border: 1px solid var(--nova-border);
+	padding: 0.35em 0.6em;
 }
 .chat-markdown th {
-  font-weight: 600;
-  background: rgba(139, 92, 246, 0.08);
+	font-weight: 600;
+	background: rgba(139, 92, 246, 0.08);
 }
 
 /* Preview markdown (form labels, hints, display text) — uses preview theme vars.
@@ -386,10 +429,10 @@ body {
  * is pixel-identical to the TipTap editor in text cursor mode — no layout shift
  * when switching cursor modes. */
 .preview-markdown {
-  line-height: 1.7;
-  word-break: break-word;
-  white-space: break-spaces;
-  position: relative;
+	line-height: 1.7;
+	word-break: break-word;
+	white-space: break-spaces;
+	position: relative;
 }
 /* ProseMirror injects a trailing <br> inside every block node for cursor
  * positioning. In non-empty paragraphs this break adds height the static
@@ -398,7 +441,7 @@ body {
  * paragraphs (created by pressing Enter), the break is the sole child and
  * stays visible — giving the line height so the cursor can land there. */
 .tiptap .ProseMirror-trailingBreak:not(:only-child) {
-  display: none;
+	display: none;
 }
 /* ProseMirror auto-appends an empty <p> after block-level elements (lists,
  * blockquotes, tables) so the cursor has a valid text position outside the
@@ -410,143 +453,143 @@ body {
  * only <p> elements (plain text), :has(> :not(p)) doesn't match — empty
  * lines from pressing Enter stay visible and functional. */
 .tiptap:has(> :not(p)) > p:last-child > .ProseMirror-trailingBreak:only-child {
-  display: none;
+	display: none;
 }
 .preview-markdown p {
-  margin: 0;
+	margin: 0;
 }
 .preview-markdown p + p {
-  margin-top: 0.85em;
+	margin-top: 0.85em;
 }
 .preview-markdown h1,
 .preview-markdown h2,
 .preview-markdown h3,
 .preview-markdown h4 {
-  font-weight: 700;
-  line-height: 1.3;
-  letter-spacing: -0.01em;
-  color: var(--nova-text);
+	font-weight: 700;
+	line-height: 1.3;
+	letter-spacing: -0.01em;
+	color: var(--nova-text);
 }
 .preview-markdown h1 {
-  font-size: 1.3em;
-  margin: 1.2em 0 0.5em;
+	font-size: 1.3em;
+	margin: 1.2em 0 0.5em;
 }
 .preview-markdown h2 {
-  font-size: 1.15em;
-  margin: 1.1em 0 0.45em;
+	font-size: 1.15em;
+	margin: 1.1em 0 0.45em;
 }
 .preview-markdown h3 {
-  font-size: 1.05em;
-  margin: 1em 0 0.4em;
-  font-weight: 600;
+	font-size: 1.05em;
+	margin: 1em 0 0.4em;
+	font-weight: 600;
 }
 .preview-markdown h4 {
-  font-size: 1em;
-  margin: 0.9em 0 0.35em;
-  font-weight: 600;
+	font-size: 1em;
+	margin: 0.9em 0 0.35em;
+	font-weight: 600;
 }
 .preview-markdown h1:first-child,
 .preview-markdown h2:first-child,
 .preview-markdown h3:first-child,
 .preview-markdown h4:first-child {
-  margin-top: 0;
+	margin-top: 0;
 }
 .preview-markdown strong {
-  font-weight: 600;
-  color: var(--nova-text);
+	font-weight: 600;
+	color: var(--nova-text);
 }
 .preview-markdown em {
-  font-style: italic;
+	font-style: italic;
 }
 .preview-markdown del {
-  text-decoration: line-through;
-  opacity: 0.7;
+	text-decoration: line-through;
+	opacity: 0.7;
 }
 .preview-markdown code {
-  font-family: var(--font-mono);
-  font-size: 0.85em;
-  background: var(--pv-input-bg);
-  border: 1px solid var(--pv-input-border);
-  border-radius: 4px;
-  padding: 0.15em 0.4em;
+	font-family: var(--font-mono);
+	font-size: 0.85em;
+	background: var(--pv-input-bg);
+	border: 1px solid var(--pv-input-border);
+	border-radius: 4px;
+	padding: 0.15em 0.4em;
 }
 .preview-markdown pre {
-  margin: 0.85em 0;
-  overflow-x: auto;
+	margin: 0.85em 0;
+	overflow-x: auto;
 }
 .preview-markdown pre code {
-  display: block;
-  padding: 0.6em 0.85em;
+	display: block;
+	padding: 0.6em 0.85em;
 }
 .preview-markdown hr {
-  border: none;
-  border-top: 1px solid var(--pv-input-border);
-  margin: 1em 0;
+	border: none;
+	border-top: 1px solid var(--pv-input-border);
+	margin: 1em 0;
 }
 .preview-markdown ul,
 .preview-markdown ol {
-  margin: 0.7em 0;
-  padding-left: 1.75em;
+	margin: 0.7em 0;
+	padding-left: 1.75em;
 }
 .preview-markdown ul {
-  list-style: disc;
+	list-style: disc;
 }
 .preview-markdown ol {
-  list-style: decimal;
+	list-style: decimal;
 }
 .preview-markdown li {
-  margin: 0.3em 0;
-  line-height: 1.6;
+	margin: 0.3em 0;
+	line-height: 1.6;
 }
 .preview-markdown li p {
-  margin: 0;
+	margin: 0;
 }
 .preview-markdown table {
-  border-collapse: collapse;
-  margin: 0.85em 0;
-  font-size: 0.9em;
-  width: 100%;
+	border-collapse: collapse;
+	margin: 0.85em 0;
+	font-size: 0.9em;
+	width: 100%;
 }
 .preview-markdown th,
 .preview-markdown td {
-  border: 1px solid var(--pv-input-border);
-  padding: 0.4em 0.6em;
+	border: 1px solid var(--pv-input-border);
+	padding: 0.4em 0.6em;
 }
 .preview-markdown th {
-  font-weight: 600;
-  background: var(--pv-surface);
+	font-weight: 600;
+	background: var(--pv-surface);
 }
 .preview-markdown a {
-  color: var(--pv-accent);
-  text-decoration: underline;
-  text-underline-offset: 2px;
+	color: var(--pv-accent);
+	text-decoration: underline;
+	text-underline-offset: 2px;
 }
 .preview-markdown a:hover {
-  color: var(--pv-accent-bright);
+	color: var(--pv-accent-bright);
 }
 .preview-markdown img {
-  max-width: 100%;
-  height: auto;
-  border-radius: 6px;
-  margin: 0.6em 0;
+	max-width: 100%;
+	height: auto;
+	border-radius: 6px;
+	margin: 0.6em 0;
 }
 
 /* Preview mode theme — cyan accent, warmer surfaces */
 .preview-theme {
-  --pv-bg: #0c0c1e;
-  --pv-surface: #141430;
-  --pv-elevated: #1c1c40;
-  --pv-input-bg: #10102a;
-  --pv-input-border: rgba(6, 182, 212, 0.2);
-  --pv-input-focus: rgba(6, 182, 212, 0.4);
-  --pv-accent: var(--nova-cyan);
-  --pv-accent-bright: var(--nova-cyan-bright);
+	--pv-bg: #0c0c1e;
+	--pv-surface: #141430;
+	--pv-elevated: #1c1c40;
+	--pv-input-bg: #10102a;
+	--pv-input-border: rgba(6, 182, 212, 0.2);
+	--pv-input-focus: rgba(6, 182, 212, 0.4);
+	--pv-accent: var(--nova-cyan);
+	--pv-accent-bright: var(--nova-cyan-bright);
 }
 
 /* Design mode — neutral input borders so cyan edit chrome stands out */
 .design-theme {
-  --pv-input-border: rgba(136, 136, 170, 0.15);
-  --pv-input-focus: rgba(136, 136, 170, 0.25);
+	--pv-input-border: rgba(136, 136, 170, 0.15);
+	--pv-input-focus: rgba(136, 136, 170, 0.25);
 }
 
 /* Text mode — everything that isn't a text-editable surface is visually "paused".
@@ -555,36 +598,36 @@ body {
  * Form controls get explicit pointer-events: none to block double-click and
  * drag-to-select focus (the overlay alone doesn't prevent these gestures). */
 .text-mode-cursors {
-  position: relative;
-  cursor: default;
-  user-select: none;
+	position: relative;
+	cursor: default;
+	user-select: none;
 }
 .text-mode-cursors::after {
-  content: '';
-  position: absolute;
-  inset: 0;
-  z-index: var(--z-ground);
+	content: "";
+	position: absolute;
+	inset: 0;
+	z-index: var(--z-ground);
 }
 .text-mode-cursors input,
 .text-mode-cursors textarea,
 .text-mode-cursors select {
-  pointer-events: none;
+	pointer-events: none;
 }
 .text-mode-cursors [data-text-editable] {
-  position: relative;
-  z-index: var(--z-raised);
-  cursor: text;
-  pointer-events: auto;
-  user-select: text;
+	position: relative;
+	z-index: var(--z-raised);
+	cursor: text;
+	pointer-events: auto;
+	user-select: text;
 }
 
 /* Subtle noise texture overlay */
 .nova-noise::before {
-  content: '';
-  position: fixed;
-  inset: 0;
-  opacity: 0.015;
-  pointer-events: none;
-  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
-  z-index: var(--z-system);
+	content: "";
+	position: fixed;
+	inset: 0;
+	opacity: 0.015;
+	pointer-events: none;
+	background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+	z-index: var(--z-system);
 }

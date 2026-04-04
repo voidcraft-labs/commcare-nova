@@ -190,8 +190,8 @@ Even if the user requests something different than the general Connect guideline
 
 If a tool call fails, try a different approach — do not retry the same call more than twice. If you are still stuck after two or three attempts, stop and tell the user something went wrong. Ask them to share the run log with the support team so the issue can be investigated. Do not keep looping.
 
-If you receive an API error (authentication, rate limit, overloaded), do not retry — the user has already been notified. Acknowledge the issue and stop.`
+If you receive an API error (authentication, rate limit, overloaded), do not retry — the user has already been notified. Acknowledge the issue and stop.`;
 
 export function buildSolutionsArchitectPrompt(): string {
-  return BASE_PROMPT
+	return BASE_PROMPT;
 }

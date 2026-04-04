@@ -6,9 +6,9 @@
  * nothing to strip. Reads go through the Zod converter which validates the
  * discriminated union on read.
  */
-import type { StoredEvent } from './types'
-import { collections } from './firestore'
-import { log } from '@/lib/log'
+import type { StoredEvent } from "./types";
+import { collections } from "./firestore";
+import { log } from "@/lib/log";
 
 // ── Write ──────────────────────────────────────────────────────────
 
@@ -24,13 +24,16 @@ import { log } from '@/lib/log'
  * `ignoreUndefinedProperties: true` on the client instance.
  */
 export function writeLogEvent(
-  email: string,
-  projectId: string,
-  event: StoredEvent,
+	email: string,
+	projectId: string,
+	event: StoredEvent,
 ): void {
-  const docId = `${event.run_id}_${String(event.sequence).padStart(6, '0')}`
-  collections.logs(email, projectId).doc(docId).set(event)
-    .catch(err => log.error('[writeLogEvent] Firestore write failed', err))
+	const docId = `${event.run_id}_${String(event.sequence).padStart(6, "0")}`;
+	collections
+		.logs(email, projectId)
+		.doc(docId)
+		.set(event)
+		.catch((err) => log.error("[writeLogEvent] Firestore write failed", err));
 }
 
 // ── Read ───────────────────────────────────────────────────────────
@@ -42,15 +45,16 @@ export function writeLogEvent(
  * Used by the replay system and the logs API endpoint.
  */
 export async function loadRunEvents(
-  email: string,
-  projectId: string,
-  runId: string,
+	email: string,
+	projectId: string,
+	runId: string,
 ): Promise<StoredEvent[]> {
-  const snap = await collections.logs(email, projectId)
-    .where('run_id', '==', runId)
-    .orderBy('sequence')
-    .get()
-  return snap.docs.map(doc => doc.data())
+	const snap = await collections
+		.logs(email, projectId)
+		.where("run_id", "==", runId)
+		.orderBy("sequence")
+		.get();
+	return snap.docs.map((doc) => doc.data());
 }
 
 /**
@@ -60,15 +64,16 @@ export async function loadRunEvents(
  * Returns null if no log events exist for the project.
  */
 export async function loadLatestRunId(
-  email: string,
-  projectId: string,
+	email: string,
+	projectId: string,
 ): Promise<string | null> {
-  /* Order by timestamp (not sequence) because sequence is per-run and resets
-   * to 0 for each EventLogger instance. Timestamp is globally monotonic. */
-  const snap = await collections.logs(email, projectId)
-    .orderBy('timestamp', 'desc')
-    .limit(1)
-    .get()
-  if (snap.empty) return null
-  return snap.docs[0].data().run_id
+	/* Order by timestamp (not sequence) because sequence is per-run and resets
+	 * to 0 for each EventLogger instance. Timestamp is globally monotonic. */
+	const snap = await collections
+		.logs(email, projectId)
+		.orderBy("timestamp", "desc")
+		.limit(1)
+		.get();
+	if (snap.empty) return null;
+	return snap.docs[0].data().run_id;
 }

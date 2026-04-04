@@ -15,9 +15,9 @@
  * Logs are the audit/replay path — append-only, fetched only when needed.
  * Usage is the spend-cap path — one document per user per month for direct lookups.
  */
-import { z } from 'zod'
-import { Timestamp } from '@google-cloud/firestore'
-import { appBlueprintSchema } from '../schemas/blueprint'
+import { z } from "zod";
+import { Timestamp } from "@google-cloud/firestore";
+import { appBlueprintSchema } from "../schemas/blueprint";
 
 // ── Shared ──────────────────────────────────────────────────────────
 
@@ -25,7 +25,7 @@ import { appBlueprintSchema } from '../schemas/blueprint'
  * Firestore Timestamp validator. On reads, Firestore always returns Timestamp
  * instances — this validates that invariant rather than blindly casting.
  */
-const timestamp = z.instanceof(Timestamp)
+const timestamp = z.instanceof(Timestamp);
 
 // ── User ────────────────────────────────────────────────────────────
 
@@ -38,18 +38,18 @@ const timestamp = z.instanceof(Timestamp)
  * this document exists for Firestore references and future admin features.
  */
 export const userDocSchema = z.object({
-  /** Display name from Google OAuth (e.g. "Alice Smith"). */
-  name: z.string(),
-  /** Google profile avatar URL. Null when no avatar is set. */
-  image: z.string().nullable(),
-  /** User role — controls access to admin dashboard (Phase 6). */
-  role: z.enum(['user', 'admin']).default('user'),
-  /** First sign-in timestamp. Set once via FieldValue.serverTimestamp(). */
-  created_at: timestamp,
-  /** Updated on each authenticated request via FieldValue.serverTimestamp(). */
-  last_active_at: timestamp,
-})
-export type UserDoc = z.infer<typeof userDocSchema>
+	/** Display name from Google OAuth (e.g. "Alice Smith"). */
+	name: z.string(),
+	/** Google profile avatar URL. Null when no avatar is set. */
+	image: z.string().nullable(),
+	/** User role — controls access to admin dashboard (Phase 6). */
+	role: z.enum(["user", "admin"]).default("user"),
+	/** First sign-in timestamp. Set once via FieldValue.serverTimestamp(). */
+	created_at: timestamp,
+	/** Updated on each authenticated request via FieldValue.serverTimestamp(). */
+	last_active_at: timestamp,
+});
+export type UserDoc = z.infer<typeof userDocSchema>;
 
 // ── Usage ───────────────────────────────────────────────────────────
 
@@ -62,18 +62,18 @@ export type UserDoc = z.infer<typeof userDocSchema>
  * after each run completes (Phase 5).
  */
 export const usageDocSchema = z.object({
-  /** Total input tokens consumed across all runs this period. */
-  input_tokens: z.number().default(0),
-  /** Total output tokens produced across all runs this period. */
-  output_tokens: z.number().default(0),
-  /** Estimated cost in USD, summed across all runs. */
-  cost_estimate: z.number().default(0),
-  /** Number of chat requests (generation runs) this period. */
-  request_count: z.number().default(0),
-  /** Last time this document was updated via FieldValue.serverTimestamp(). */
-  updated_at: timestamp,
-})
-export type UsageDoc = z.infer<typeof usageDocSchema>
+	/** Total input tokens consumed across all runs this period. */
+	input_tokens: z.number().default(0),
+	/** Total output tokens produced across all runs this period. */
+	output_tokens: z.number().default(0),
+	/** Estimated cost in USD, summed across all runs. */
+	cost_estimate: z.number().default(0),
+	/** Number of chat requests (generation runs) this period. */
+	request_count: z.number().default(0),
+	/** Last time this document was updated via FieldValue.serverTimestamp(). */
+	updated_at: timestamp,
+});
+export type UsageDoc = z.infer<typeof usageDocSchema>;
 
 // ── Log Events ─────────────────────────────────────────────────────
 
@@ -91,69 +91,75 @@ export type UsageDoc = z.infer<typeof usageDocSchema>
  */
 
 /** JSON-safe value type — guarantees round-trip serialization fidelity. */
-export type JsonValue = string | number | boolean | null | JsonValue[] | { [key: string]: JsonValue }
+export type JsonValue =
+	| string
+	| number
+	| boolean
+	| null
+	| JsonValue[]
+	| { [key: string]: JsonValue };
 
 /** Token usage and cost for an LLM call. */
 export interface TokenUsage {
-  model: string
-  input_tokens: number
-  output_tokens: number
-  cache_read_tokens: number
-  cache_write_tokens: number
-  cost: number
+	model: string;
+	input_tokens: number;
+	output_tokens: number;
+	cache_read_tokens: number;
+	cache_write_tokens: number;
+	cost: number;
 }
 
 /** A tool call made during an agent step. */
 export interface LogToolCall {
-  name: string
-  args: JsonValue
-  output: JsonValue
-  /** Inner LLM call usage. Null when the tool didn't invoke an LLM. */
-  generation: TokenUsage | null
-  reasoning: string
+	name: string;
+	args: JsonValue;
+	output: JsonValue;
+	/** Inner LLM call usage. Null when the tool didn't invoke an LLM. */
+	generation: TokenUsage | null;
+	reasoning: string;
 }
 
 // ── Event variants ────────────────────────────────────────────────
 
 /** User sent a chat message at the start of an HTTP request. */
 export interface MessageEvent {
-  type: 'message'
-  id: string
-  text: string
+	type: "message";
+	id: string;
+	text: string;
 }
 
 /** Agent completed one LLM call (may include tool calls and their results). */
 export interface StepEvent {
-  type: 'step'
-  /** Step index within the run (0-based). Emissions reference this to associate with their parent step. */
-  step_index: number
-  text: string
-  reasoning: string
-  tool_calls: LogToolCall[]
-  usage: TokenUsage
+	type: "step";
+	/** Step index within the run (0-based). Emissions reference this to associate with their parent step. */
+	step_index: number;
+	text: string;
+	reasoning: string;
+	tool_calls: LogToolCall[];
+	usage: TokenUsage;
 }
 
 /** A data-* part sent to the client stream. Written immediately, not batched into steps. */
 export interface EmissionEvent {
-  type: 'emission'
-  /** Which step this emission belongs to (for replay grouping). */
-  step_index: number
-  emission_type: string
-  emission_data: JsonValue
+	type: "emission";
+	/** Which step this emission belongs to (for replay grouping). */
+	step_index: number;
+	emission_type: string;
+	emission_data: JsonValue;
 }
 
 /** A classified error (api_auth, rate_limit, internal, etc.). */
 export interface ErrorEvent {
-  type: 'error'
-  error_type: string
-  error_message: string
-  error_raw: string
-  error_fatal: boolean
-  error_context: string
+	type: "error";
+	error_type: string;
+	error_message: string;
+	error_raw: string;
+	error_fatal: boolean;
+	error_context: string;
 }
 
 /** Discriminated union of all event payloads. */
-export type LogEvent = MessageEvent | StepEvent | EmissionEvent | ErrorEvent
+export type LogEvent = MessageEvent | StepEvent | EmissionEvent | ErrorEvent;
 
 // ── Stored event (envelope + event) ──────────────────────────────
 
@@ -162,16 +168,16 @@ export type LogEvent = MessageEvent | StepEvent | EmissionEvent | ErrorEvent
  * one StoredEvent = one JSONL line = one Firestore document.
  */
 export interface StoredEvent {
-  /** Generation run ID — groups events from the same build/edit session. */
-  run_id: string
-  /** Monotonic counter for deterministic ordering within a run. */
-  sequence: number
-  /** HTTP request boundary (0-indexed, increments per chat request in a multi-turn). */
-  request: number
-  /** ISO 8601 timestamp of this event. */
-  timestamp: string
-  /** The event payload — discriminated by `event.type`. */
-  event: LogEvent
+	/** Generation run ID — groups events from the same build/edit session. */
+	run_id: string;
+	/** Monotonic counter for deterministic ordering within a run. */
+	sequence: number;
+	/** HTTP request boundary (0-indexed, increments per chat request in a multi-turn). */
+	request: number;
+	/** ISO 8601 timestamp of this event. */
+	timestamp: string;
+	/** The event payload — discriminated by `event.type`. */
+	event: LogEvent;
 }
 
 // ── Zod schema for Firestore reads ───────────────────────────────
@@ -185,91 +191,101 @@ export interface StoredEvent {
  * own fields — no defaults for fields that don't belong to the variant.
  */
 const jsonValue: z.ZodType<JsonValue> = z.lazy(() =>
-  z.union([z.string(), z.number(), z.boolean(), z.null(), z.array(jsonValue), z.record(z.string(), jsonValue)]),
-)
+	z.union([
+		z.string(),
+		z.number(),
+		z.boolean(),
+		z.null(),
+		z.array(jsonValue),
+		z.record(z.string(), jsonValue),
+	]),
+);
 
 const tokenUsageSchema = z.object({
-  model: z.string(),
-  input_tokens: z.number(),
-  output_tokens: z.number(),
-  cache_read_tokens: z.number(),
-  cache_write_tokens: z.number(),
-  cost: z.number(),
-})
+	model: z.string(),
+	input_tokens: z.number(),
+	output_tokens: z.number(),
+	cache_read_tokens: z.number(),
+	cache_write_tokens: z.number(),
+	cost: z.number(),
+});
 
 const logToolCallSchema = z.object({
-  name: z.string(),
-  args: jsonValue,
-  output: jsonValue,
-  generation: tokenUsageSchema.nullable(),
-  reasoning: z.string(),
-})
+	name: z.string(),
+	args: jsonValue,
+	output: jsonValue,
+	generation: tokenUsageSchema.nullable(),
+	reasoning: z.string(),
+});
 
 const messageEventSchema = z.object({
-  type: z.literal('message'),
-  id: z.string(),
-  text: z.string(),
-})
+	type: z.literal("message"),
+	id: z.string(),
+	text: z.string(),
+});
 
 const stepEventSchema = z.object({
-  type: z.literal('step'),
-  step_index: z.number(),
-  text: z.string(),
-  reasoning: z.string(),
-  tool_calls: z.array(logToolCallSchema),
-  usage: tokenUsageSchema,
-})
+	type: z.literal("step"),
+	step_index: z.number(),
+	text: z.string(),
+	reasoning: z.string(),
+	tool_calls: z.array(logToolCallSchema),
+	usage: tokenUsageSchema,
+});
 
 const emissionEventSchema = z.object({
-  type: z.literal('emission'),
-  step_index: z.number(),
-  emission_type: z.string(),
-  emission_data: jsonValue,
-})
+	type: z.literal("emission"),
+	step_index: z.number(),
+	emission_type: z.string(),
+	emission_data: jsonValue,
+});
 
 const errorEventSchema = z.object({
-  type: z.literal('error'),
-  error_type: z.string(),
-  error_message: z.string(),
-  error_raw: z.string(),
-  error_fatal: z.boolean(),
-  error_context: z.string(),
-})
+	type: z.literal("error"),
+	error_type: z.string(),
+	error_message: z.string(),
+	error_raw: z.string(),
+	error_fatal: z.boolean(),
+	error_context: z.string(),
+});
 
-const logEventSchema = z.discriminatedUnion('type', [
-  messageEventSchema, stepEventSchema, emissionEventSchema, errorEventSchema,
-])
+const logEventSchema = z.discriminatedUnion("type", [
+	messageEventSchema,
+	stepEventSchema,
+	emissionEventSchema,
+	errorEventSchema,
+]);
 
 export const storedEventSchema = z.object({
-  run_id: z.string(),
-  sequence: z.number(),
-  request: z.number(),
-  timestamp: z.string(),
-  event: logEventSchema,
-})
+	run_id: z.string(),
+	sequence: z.number(),
+	request: z.number(),
+	timestamp: z.string(),
+	event: logEventSchema,
+});
 
 // ── Project ─────────────────────────────────────────────────────
 
 export const projectDocSchema = z.object({
-  /** App name — denormalized from blueprint for list display. */
-  app_name: z.string(),
-  /** The full blueprint, stored as a nested Firestore map. */
-  blueprint: appBlueprintSchema,
-  /** Connect app type — denormalized for list filtering. Null for standard apps. */
-  connect_type: z.enum(['learn', 'deliver']).nullable().default(null),
-  /** Number of modules — denormalized for list display. */
-  module_count: z.number().default(0),
-  /** Number of forms across all modules — denormalized for list display. */
-  form_count: z.number().default(0),
-  /** Build lifecycle status. */
-  status: z.enum(['generating', 'complete', 'error']).default('complete'),
-  /** Error classification — set when status is 'error'. Null for non-error projects. */
-  error_type: z.string().nullable().default(null),
-  /** Run ID of the generation/edit that last modified this project. */
-  run_id: z.string().nullable().default(null),
-  /** First save timestamp. Set once via FieldValue.serverTimestamp(). */
-  created_at: timestamp,
-  /** Updated on every save via FieldValue.serverTimestamp(). */
-  updated_at: timestamp,
-})
-export type ProjectDoc = z.infer<typeof projectDocSchema>
+	/** App name — denormalized from blueprint for list display. */
+	app_name: z.string(),
+	/** The full blueprint, stored as a nested Firestore map. */
+	blueprint: appBlueprintSchema,
+	/** Connect app type — denormalized for list filtering. Null for standard apps. */
+	connect_type: z.enum(["learn", "deliver"]).nullable().default(null),
+	/** Number of modules — denormalized for list display. */
+	module_count: z.number().default(0),
+	/** Number of forms across all modules — denormalized for list display. */
+	form_count: z.number().default(0),
+	/** Build lifecycle status. */
+	status: z.enum(["generating", "complete", "error"]).default("complete"),
+	/** Error classification — set when status is 'error'. Null for non-error projects. */
+	error_type: z.string().nullable().default(null),
+	/** Run ID of the generation/edit that last modified this project. */
+	run_id: z.string().nullable().default(null),
+	/** First save timestamp. Set once via FieldValue.serverTimestamp(). */
+	created_at: timestamp,
+	/** Updated on every save via FieldValue.serverTimestamp(). */
+	updated_at: timestamp,
+});
+export type ProjectDoc = z.infer<typeof projectDocSchema>;

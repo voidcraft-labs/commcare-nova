@@ -1,4 +1,4 @@
-import { useCallback, useRef } from 'react'
+import { useCallback, useRef } from "react";
 
 /**
  * Returns a stable ref callback that registers dismiss listeners (click-outside + Escape)
@@ -11,23 +11,23 @@ import { useCallback, useRef } from 'react'
  * `useFloatingDropdown` instead — it handles trigger-awareness internally.
  */
 export function useDismissRef(onDismiss: () => void) {
-  // Ref keeps callback current without changing the ref callback identity
-  const callbackRef = useRef(onDismiss)
-  callbackRef.current = onDismiss
+	// Ref keeps callback current without changing the ref callback identity
+	const callbackRef = useRef(onDismiss);
+	callbackRef.current = onDismiss;
 
-  return useCallback((el: HTMLElement | null): (() => void) | void => {
-    if (!el) return
-    const onMouseDown = (e: MouseEvent) => {
-      if (!el.contains(e.target as Node)) callbackRef.current()
-    }
-    const onKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') callbackRef.current()
-    }
-    document.addEventListener('mousedown', onMouseDown)
-    document.addEventListener('keydown', onKeyDown)
-    return () => {
-      document.removeEventListener('mousedown', onMouseDown)
-      document.removeEventListener('keydown', onKeyDown)
-    }
-  }, [])
+	return useCallback((el: HTMLElement | null): (() => void) | void => {
+		if (!el) return;
+		const onMouseDown = (e: MouseEvent) => {
+			if (!el.contains(e.target as Node)) callbackRef.current();
+		};
+		const onKeyDown = (e: KeyboardEvent) => {
+			if (e.key === "Escape") callbackRef.current();
+		};
+		document.addEventListener("mousedown", onMouseDown);
+		document.addEventListener("keydown", onKeyDown);
+		return () => {
+			document.removeEventListener("mousedown", onMouseDown);
+			document.removeEventListener("keydown", onKeyDown);
+		};
+	}, []);
 }

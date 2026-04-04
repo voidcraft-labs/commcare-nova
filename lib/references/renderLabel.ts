@@ -9,19 +9,19 @@
  * format.
  */
 
-import type { IconifyIcon } from '@iconify/react/offline'
-import { HASHTAG_REF_PATTERN } from './config'
-import { ReferenceProvider } from './provider'
-import type { Reference } from './types'
-import type { QuestionPath } from '@/lib/services/questionPath'
+import type { IconifyIcon } from "@iconify/react/offline";
+import { HASHTAG_REF_PATTERN } from "./config";
+import { ReferenceProvider } from "./provider";
+import type { Reference } from "./types";
+import type { QuestionPath } from "@/lib/services/questionPath";
 
 /** A segment from splitting text on a reference-matching pattern.
  *  Each segment gets a unique `key` at creation time via `crypto.randomUUID()`.
  *  `parseLabelSegments` caches results by input string, so the same text always
  *  returns the same segment objects with the same keys. */
 export type LabelSegment =
-  | { kind: 'text'; text: string; key: string }
-  | { kind: 'ref'; value: string; key: string }
+	| { kind: "text"; text: string; key: string }
+	| { kind: "ref"; value: string; key: string };
 
 /**
  * Split text into alternating text and reference segments based on a regex.
@@ -30,29 +30,41 @@ export type LabelSegment =
  * match to the string stored in the ref segment.
  */
 export function splitOnPattern(
-  text: string,
-  pattern: RegExp,
-  extractValue: (match: RegExpExecArray) => string,
+	text: string,
+	pattern: RegExp,
+	extractValue: (match: RegExpExecArray) => string,
 ): LabelSegment[] {
-  const segments: LabelSegment[] = []
-  const globalPattern = new RegExp(pattern, 'g')
-  let lastIndex = 0
-  let match: RegExpExecArray | null = globalPattern.exec(text)
+	const segments: LabelSegment[] = [];
+	const globalPattern = new RegExp(pattern, "g");
+	let lastIndex = 0;
+	let match: RegExpExecArray | null = globalPattern.exec(text);
 
-  while (match !== null) {
-    if (match.index > lastIndex) {
-      segments.push({ kind: 'text', text: text.slice(lastIndex, match.index), key: crypto.randomUUID() })
-    }
-    segments.push({ kind: 'ref', value: extractValue(match), key: crypto.randomUUID() })
-    lastIndex = globalPattern.lastIndex
-    match = globalPattern.exec(text)
-  }
+	while (match !== null) {
+		if (match.index > lastIndex) {
+			segments.push({
+				kind: "text",
+				text: text.slice(lastIndex, match.index),
+				key: crypto.randomUUID(),
+			});
+		}
+		segments.push({
+			kind: "ref",
+			value: extractValue(match),
+			key: crypto.randomUUID(),
+		});
+		lastIndex = globalPattern.lastIndex;
+		match = globalPattern.exec(text);
+	}
 
-  if (lastIndex < text.length) {
-    segments.push({ kind: 'text', text: text.slice(lastIndex), key: crypto.randomUUID() })
-  }
+	if (lastIndex < text.length) {
+		segments.push({
+			kind: "text",
+			text: text.slice(lastIndex),
+			key: crypto.randomUUID(),
+		});
+	}
 
-  return segments
+	return segments;
 }
 
 /**
@@ -67,16 +79,16 @@ export function splitOnPattern(
 /** Bounded cache — evicts all entries when full to avoid unbounded memory growth
  *  in long editing sessions with many label variations. 512 entries covers a
  *  large form's worth of unique label strings with room to spare. */
-const SEGMENT_CACHE_MAX = 512
-const segmentCache = new Map<string, LabelSegment[]>()
+const SEGMENT_CACHE_MAX = 512;
+const segmentCache = new Map<string, LabelSegment[]>();
 
 export function parseLabelSegments(text: string): LabelSegment[] {
-  const cached = segmentCache.get(text)
-  if (cached) return cached
-  if (segmentCache.size >= SEGMENT_CACHE_MAX) segmentCache.clear()
-  const segments = splitOnPattern(text, HASHTAG_REF_PATTERN, m => m[0])
-  segmentCache.set(text, segments)
-  return segments
+	const cached = segmentCache.get(text);
+	if (cached) return cached;
+	if (segmentCache.size >= SEGMENT_CACHE_MAX) segmentCache.clear();
+	const segments = splitOnPattern(text, HASHTAG_REF_PATTERN, (m) => m[0]);
+	segmentCache.set(text, segments);
+	return segments;
 }
 
 /**
@@ -91,14 +103,20 @@ export function parseLabelSegments(text: string): LabelSegment[] {
  * `iconOverrides` enriches form refs with question-type icons in this mode.
  */
 export function resolveRefFromExpr(
-  expr: string,
-  provider: ReferenceProvider | null,
-  iconOverrides?: Map<string, IconifyIcon>,
+	expr: string,
+	provider: ReferenceProvider | null,
+	iconOverrides?: Map<string, IconifyIcon>,
 ): Reference | null {
-  if (provider) return provider.resolve(expr)
-  const parsed = ReferenceProvider.parse(expr)
-  if (!parsed) return null
-  return parsed.type === 'form'
-    ? { type: 'form', path: parsed.path as QuestionPath, label: parsed.path, raw: expr, icon: iconOverrides?.get(parsed.path) }
-    : { type: parsed.type, path: parsed.path, label: parsed.path, raw: expr }
+	if (provider) return provider.resolve(expr);
+	const parsed = ReferenceProvider.parse(expr);
+	if (!parsed) return null;
+	return parsed.type === "form"
+		? {
+				type: "form",
+				path: parsed.path as QuestionPath,
+				label: parsed.path,
+				raw: expr,
+				icon: iconOverrides?.get(parsed.path),
+			}
+		: { type: parsed.type, path: parsed.path, label: parsed.path, raw: expr };
 }

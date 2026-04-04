@@ -1,6 +1,6 @@
-'use client'
-import { useCallback, useSyncExternalStore } from 'react'
-import { keyboardManager, type Shortcut } from '@/lib/services/keyboardManager'
+"use client";
+import { useCallback, useSyncExternalStore } from "react";
+import { keyboardManager, type Shortcut } from "@/lib/services/keyboardManager";
 
 /**
  * Register keyboard shortcuts with the global KeyboardManager.
@@ -11,9 +11,16 @@ import { keyboardManager, type Shortcut } from '@/lib/services/keyboardManager'
  * callback only regenerates when the shortcut definitions actually change.
  */
 export function useKeyboardShortcuts(id: string, shortcuts: Shortcut[]) {
-  const subscribe = useCallback((_notify: () => void) => {
-    keyboardManager.register(id, shortcuts)
-    return () => keyboardManager.unregister(id)
-  }, [id, shortcuts])
-  useSyncExternalStore(subscribe, () => 0, () => 0)
+	const subscribe = useCallback(
+		(_notify: () => void) => {
+			keyboardManager.register(id, shortcuts);
+			return () => keyboardManager.unregister(id);
+		},
+		[id, shortcuts],
+	);
+	useSyncExternalStore(
+		subscribe,
+		() => 0,
+		() => 0,
+	);
 }

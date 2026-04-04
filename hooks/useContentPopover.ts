@@ -1,5 +1,5 @@
-'use client'
-import { useEffect, useRef } from 'react'
+"use client";
+import { useEffect, useRef } from "react";
 
 /**
  * Module-level singleton store for coordinating content popovers in the main
@@ -14,18 +14,20 @@ import { useEffect, useRef } from 'react'
  * clear the deck before opening their own UI.
  */
 
-type DismissFn = () => void
+type DismissFn = () => void;
 
 /** Currently active content popover dismiss callbacks. */
-const active = new Set<DismissFn>()
+const active = new Set<DismissFn>();
 
 /**
  * Register a content popover's dismiss callback.
  * Returns an unregister function (call on unmount / popover close).
  */
 export function registerContentPopover(dismiss: DismissFn): () => void {
-  active.add(dismiss)
-  return () => { active.delete(dismiss) }
+	active.add(dismiss);
+	return () => {
+		active.delete(dismiss);
+	};
 }
 
 /**
@@ -34,14 +36,14 @@ export function registerContentPopover(dismiss: DismissFn): () => void {
  * whether to proceed with their own action).
  */
 export function dismissContentPopovers(): boolean {
-  if (active.size === 0) return false
-  /* Snapshot before clearing — dismiss callbacks may trigger re-renders
+	if (active.size === 0) return false;
+	/* Snapshot before clearing — dismiss callbacks may trigger re-renders
      that unmount the popover and call the unregister cleanup. Working
      from a snapshot avoids mutating the set during iteration. */
-  const snapshot = [...active]
-  active.clear()
-  for (const fn of snapshot) fn()
-  return true
+	const snapshot = [...active];
+	active.clear();
+	for (const fn of snapshot) fn();
+	return true;
 }
 
 /**
@@ -55,11 +57,14 @@ export function dismissContentPopovers(): boolean {
  * The `onDismiss` callback is captured by ref so the hook never re-registers
  * when the callback identity changes.
  */
-export function useContentPopoverDismiss(onDismiss: () => void, enabled = true): void {
-  const ref = useRef(onDismiss)
-  ref.current = onDismiss
-  useEffect(() => {
-    if (!enabled) return
-    return registerContentPopover(() => ref.current())
-  }, [enabled])
+export function useContentPopoverDismiss(
+	onDismiss: () => void,
+	enabled = true,
+): void {
+	const ref = useRef(onDismiss);
+	ref.current = onDismiss;
+	useEffect(() => {
+		if (!enabled) return;
+		return registerContentPopover(() => ref.current());
+	}, [enabled]);
 }

@@ -1,6 +1,6 @@
-import { Suspense } from 'react'
-import { AdminContent } from './admin-content'
-import { AdminContentSkeleton } from './loading'
+import { Suspense } from "react";
+import { AdminContent } from "./admin-content";
+import { AdminContentSkeleton } from "./loading";
 
 /**
  * Admin dashboard — streams the shell instantly, data via Suspense.
@@ -10,13 +10,15 @@ import { AdminContentSkeleton } from './loading'
  * table stream in together via a single Suspense boundary.
  */
 export default function AdminDashboardPage() {
-  return (
-    <main className="max-w-6xl mx-auto px-6 py-12">
-      <h1 className="text-2xl font-display font-semibold mb-8">Admin Dashboard</h1>
+	return (
+		<main className="max-w-6xl mx-auto px-6 py-12">
+			<h1 className="text-2xl font-display font-semibold mb-8">
+				Admin Dashboard
+			</h1>
 
-      <Suspense fallback={<AdminContentSkeleton />}>
-        <AdminContent />
-      </Suspense>
-    </main>
-  )
+			<Suspense fallback={<AdminContentSkeleton />}>
+				<AdminContent />
+			</Suspense>
+		</main>
+	);
 }

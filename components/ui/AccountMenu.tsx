@@ -14,21 +14,24 @@
  * on every subsequent open to stay current after generations.
  */
 
-'use client'
-import { useState, useEffect, useCallback } from 'react'
-import { Icon } from '@iconify/react/offline'
-import ciLogout from '@iconify-icons/ci/log-out'
-import { useFloatingDropdown, DropdownPortal } from '@/hooks/useFloatingDropdown'
-import { useAuth, type AuthUser } from '@/hooks/useAuth'
-import { POPOVER_GLASS } from '@/lib/styles'
-import { formatCurrency } from '@/lib/utils/format'
+"use client";
+import { useState, useEffect, useCallback } from "react";
+import { Icon } from "@iconify/react/offline";
+import ciLogout from "@iconify-icons/ci/log-out";
+import {
+	useFloatingDropdown,
+	DropdownPortal,
+} from "@/hooks/useFloatingDropdown";
+import { useAuth, type AuthUser } from "@/hooks/useAuth";
+import { POPOVER_GLASS } from "@/lib/styles";
+import { formatCurrency } from "@/lib/utils/format";
 
 /** Response shape from GET /api/user/usage. */
 interface UsageData {
-  cost_estimate: number
-  request_count: number
-  cap: number
-  period: string
+	cost_estimate: number;
+	request_count: number;
+	cap: number;
+	period: string;
 }
 
 /**
@@ -36,9 +39,9 @@ interface UsageData {
  * Falls back to "?" if the name is empty.
  */
 function getInitials(name: string): string {
-  const parts = name.trim().split(/\s+/)
-  if (parts.length >= 2) return `${parts[0][0]}${parts[1][0]}`.toUpperCase()
-  return parts[0]?.[0]?.toUpperCase() ?? '?'
+	const parts = name.trim().split(/\s+/);
+	if (parts.length >= 2) return `${parts[0][0]}${parts[1][0]}`.toUpperCase();
+	return parts[0]?.[0]?.toUpperCase() ?? "?";
 }
 
 /**
@@ -46,136 +49,167 @@ function getInitials(name: string): string {
  * when usage exceeds 80% of the cap to signal proximity to the limit.
  */
 function getBarGradient(ratio: number): string {
-  if (ratio > 0.8) return 'from-nova-amber to-nova-rose'
-  return 'from-nova-violet to-nova-cyan'
+	if (ratio > 0.8) return "from-nova-amber to-nova-rose";
+	return "from-nova-violet to-nova-cyan";
 }
 
 // ── Avatar helper ──────────────────────────────────────────────────
 
 /** Size presets for the avatar — trigger (28px) and profile (36px). */
 const AVATAR_SIZES = {
-  sm: { box: 'w-7 h-7', text: 'text-[10px]', border: '' },
-  md: { box: 'w-9 h-9', text: 'text-xs', border: 'border border-white/[0.08] shrink-0' },
-} as const
+	sm: { box: "w-7 h-7", text: "text-[10px]", border: "" },
+	md: {
+		box: "w-9 h-9",
+		text: "text-xs",
+		border: "border border-white/[0.08] shrink-0",
+	},
+} as const;
 
 /**
  * User avatar with initials fallback. Renders a circular image when the
  * user has a Google profile photo, otherwise shows extracted initials
  * on a solid surface background.
  */
-function UserAvatar({ user, size }: { user: AuthUser; size: keyof typeof AVATAR_SIZES }) {
-  const s = AVATAR_SIZES[size]
-  if (user.image) {
-    return (
-      <img
-        src={user.image}
-        alt=""
-        referrerPolicy="no-referrer"
-        className={`${s.box} rounded-full ${s.border}`}
-      />
-    )
-  }
-  return (
-    <span className={`${s.box} rounded-full bg-nova-surface ${s.text} font-semibold text-nova-text flex items-center justify-center ${s.border}`}>
-      {getInitials(user.name)}
-    </span>
-  )
+function UserAvatar({
+	user,
+	size,
+}: {
+	user: AuthUser;
+	size: keyof typeof AVATAR_SIZES;
+}) {
+	const s = AVATAR_SIZES[size];
+	if (user.image) {
+		return (
+			<img
+				src={user.image}
+				alt=""
+				referrerPolicy="no-referrer"
+				className={`${s.box} rounded-full ${s.border}`}
+			/>
+		);
+	}
+	return (
+		<span
+			className={`${s.box} rounded-full bg-nova-surface ${s.text} font-semibold text-nova-text flex items-center justify-center ${s.border}`}
+		>
+			{getInitials(user.name)}
+		</span>
+	);
 }
 
 // ── AccountMenu ────────────────────────────────────────────────────
 
 export function AccountMenu() {
-  const { user, isAuthenticated, isPending, signOut } = useAuth()
-  const [usage, setUsage] = useState<UsageData | null>(null)
-  const dd = useFloatingDropdown<HTMLButtonElement>({ offset: 6 })
+	const { user, isAuthenticated, isPending, signOut } = useAuth();
+	const [usage, setUsage] = useState<UsageData | null>(null);
+	const dd = useFloatingDropdown<HTMLButtonElement>({ offset: 6 });
 
-  /** Fetch usage from the API and update state. Best-effort — failures are silent. */
-  const refreshUsage = useCallback(() => {
-    fetch('/api/user/usage')
-      .then(res => res.ok ? res.json() as Promise<UsageData> : null)
-      .then(data => { if (data) setUsage(data) })
-      .catch(() => {})
-  }, [])
+	/** Fetch usage from the API and update state. Best-effort — failures are silent. */
+	const refreshUsage = useCallback(() => {
+		fetch("/api/user/usage")
+			.then((res) => (res.ok ? (res.json() as Promise<UsageData>) : null))
+			.then((data) => {
+				if (data) setUsage(data);
+			})
+			.catch(() => {});
+	}, []);
 
-  /* Pre-cache on mount so the first dropdown open shows data instantly. */
-  useEffect(() => {
-    if (isAuthenticated) refreshUsage()
-  }, [isAuthenticated, refreshUsage])
+	/* Pre-cache on mount so the first dropdown open shows data instantly. */
+	useEffect(() => {
+		if (isAuthenticated) refreshUsage();
+	}, [isAuthenticated, refreshUsage]);
 
-  /* Re-fetch on each dropdown open to stay current after generations. */
-  useEffect(() => {
-    if (dd.open && isAuthenticated) refreshUsage()
-  }, [dd.open, isAuthenticated, refreshUsage])
+	/* Re-fetch on each dropdown open to stay current after generations. */
+	useEffect(() => {
+		if (dd.open && isAuthenticated) refreshUsage();
+	}, [dd.open, isAuthenticated, refreshUsage]);
 
-  /* ── Loading placeholder while session check is in flight ────── */
-  if (isPending) {
-    return <div className="w-7 h-7 rounded-full bg-nova-surface animate-pulse" />
-  }
+	/* ── Loading placeholder while session check is in flight ────── */
+	if (isPending) {
+		return (
+			<div className="w-7 h-7 rounded-full bg-nova-surface animate-pulse" />
+		);
+	}
 
-  /* Session still loading or somehow unauthenticated — nothing to render */
-  if (!isAuthenticated || !user) return null
+	/* Session still loading or somehow unauthenticated — nothing to render */
+	if (!isAuthenticated || !user) return null;
 
-  const usageRatio = usage ? Math.min(usage.cost_estimate / usage.cap, 1) : 0
+	const usageRatio = usage ? Math.min(usage.cost_estimate / usage.cap, 1) : 0;
 
-  return (
-    <>
-      {/* ── Trigger: avatar or initials ──────────────────────── */}
-      <button
-        type="button"
-        ref={dd.triggerRef}
-        onClick={dd.toggle}
-        className="flex items-center justify-center w-7 h-7 rounded-full cursor-pointer transition-all duration-150 ring-1 ring-transparent hover:ring-nova-border-bright focus-visible:ring-nova-violet outline-none"
-        title="Account"
-      >
-        <UserAvatar user={user} size="sm" />
-      </button>
+	return (
+		<>
+			{/* ── Trigger: avatar or initials ──────────────────────── */}
+			<button
+				type="button"
+				ref={dd.triggerRef}
+				onClick={dd.toggle}
+				className="flex items-center justify-center w-7 h-7 rounded-full cursor-pointer transition-all duration-150 ring-1 ring-transparent hover:ring-nova-border-bright focus-visible:ring-nova-violet outline-none"
+				title="Account"
+			>
+				<UserAvatar user={user} size="sm" />
+			</button>
 
-      {/* ── Dropdown (portal) ────────────────────────────────── */}
-      <DropdownPortal dropdown={dd}>
-        <div className={`${POPOVER_GLASS} w-64 overflow-hidden`}>
-          {/* ── Profile ────────────────────────────────────── */}
-          <div className="px-4 pt-4 pb-3 flex items-center gap-3">
-            <UserAvatar user={user} size="md" />
-            <div className="min-w-0">
-              <p className="text-sm font-medium text-nova-text truncate">{user.name}</p>
-              <p className="text-xs text-nova-text-muted truncate">{user.email}</p>
-            </div>
-          </div>
+			{/* ── Dropdown (portal) ────────────────────────────────── */}
+			<DropdownPortal dropdown={dd}>
+				<div className={`${POPOVER_GLASS} w-64 overflow-hidden`}>
+					{/* ── Profile ────────────────────────────────────── */}
+					<div className="px-4 pt-4 pb-3 flex items-center gap-3">
+						<UserAvatar user={user} size="md" />
+						<div className="min-w-0">
+							<p className="text-sm font-medium text-nova-text truncate">
+								{user.name}
+							</p>
+							<p className="text-xs text-nova-text-muted truncate">
+								{user.email}
+							</p>
+						</div>
+					</div>
 
-          {/* ── Usage bar ──────────────────────────────────── */}
-          {usage && (
-            <div className="px-4 pb-3">
-              <div className="flex items-baseline justify-between mb-1.5">
-                <span className="text-[11px] text-nova-text-muted">Usage this month</span>
-                <span className="text-[11px] text-nova-text-secondary">
-                  {formatCurrency(usage.cost_estimate)} / {formatCurrency(usage.cap)}
-                </span>
-              </div>
-              <div className="h-1.5 rounded-full bg-white/[0.06] overflow-hidden">
-                <div
-                  className={`h-full rounded-full bg-gradient-to-r ${getBarGradient(usageRatio)} transition-all duration-500`}
-                  style={{ width: `${Math.max(usageRatio * 100, 1)}%` }}
-                />
-              </div>
-            </div>
-          )}
+					{/* ── Usage bar ──────────────────────────────────── */}
+					{usage && (
+						<div className="px-4 pb-3">
+							<div className="flex items-baseline justify-between mb-1.5">
+								<span className="text-[11px] text-nova-text-muted">
+									Usage this month
+								</span>
+								<span className="text-[11px] text-nova-text-secondary">
+									{formatCurrency(usage.cost_estimate)} /{" "}
+									{formatCurrency(usage.cap)}
+								</span>
+							</div>
+							<div className="h-1.5 rounded-full bg-white/[0.06] overflow-hidden">
+								<div
+									className={`h-full rounded-full bg-gradient-to-r ${getBarGradient(usageRatio)} transition-all duration-500`}
+									style={{ width: `${Math.max(usageRatio * 100, 1)}%` }}
+								/>
+							</div>
+						</div>
+					)}
 
-          {/* ── Divider ────────────────────────────────────── */}
-          <div className="border-t border-white/[0.06]" />
+					{/* ── Divider ────────────────────────────────────── */}
+					<div className="border-t border-white/[0.06]" />
 
-          {/* ── Sign out ──────────────────────────────────── */}
-          <div>
-            <button
-              type="button"
-              onClick={() => { signOut(); dd.close() }}
-              className="w-full flex items-center gap-2.5 px-3 py-2.5 text-sm text-nova-text hover:bg-white/[0.06] transition-colors cursor-pointer rounded-b-xl"
-            >
-              <Icon icon={ciLogout} width="16" height="16" className="text-nova-text-muted" />
-              Sign out
-            </button>
-          </div>
-        </div>
-      </DropdownPortal>
-    </>
-  )
+					{/* ── Sign out ──────────────────────────────────── */}
+					<div>
+						<button
+							type="button"
+							onClick={() => {
+								signOut();
+								dd.close();
+							}}
+							className="w-full flex items-center gap-2.5 px-3 py-2.5 text-sm text-nova-text hover:bg-white/[0.06] transition-colors cursor-pointer rounded-b-xl"
+						>
+							<Icon
+								icon={ciLogout}
+								width="16"
+								height="16"
+								className="text-nova-text-muted"
+							/>
+							Sign out
+						</button>
+					</div>
+				</div>
+			</DropdownPortal>
+		</>
+	);
 }
