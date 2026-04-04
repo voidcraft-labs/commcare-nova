@@ -121,13 +121,15 @@ Route-level (`app/error.tsx`, `app/build/[id]/error.tsx`) use `window.location.h
 
 ## Theme
 
-Dark "Stellar Minimalism" — CSS custom properties in `globals.css`:
+Dark "Violet Monochrome" — violet is the single non-semantic accent. CSS custom properties in `globals.css`:
 - Backgrounds: `--nova-void` (#050510) → `--nova-elevated` (#1a1a3e)
-- Text: `--nova-text` (#e8e8ff) → `--nova-text-muted` (#555577)
-- Accents: `--nova-violet`, `--nova-cyan`, `--nova-emerald`, `--nova-amber`, `--nova-rose`
+- Text: `--nova-text` (#ededf4) → `--nova-text-muted` (#6b6b8a) — warm whites, no blue tint
+- Brand accent: `--nova-violet` (#8b5cf6), `--nova-violet-bright` (#a78bfa) — used for all interactive chrome
+- Semantic only: `--nova-emerald` (#86cebc, sage-mint), `--nova-amber` (#d4a76a, muted gold), `--nova-rose` (#d4708f, dusty mauve) — never decorative, only for success/warning/error states
 - Fonts: Outfit (display), Plus Jakarta Sans (body), JetBrains Mono (code)
 - Popover layers (`lib/styles.ts`): `POPOVER_GLASS` (L1, frosted glass) for base-layer panels, `POPOVER_ELEVATED` (L2, nearly opaque) for stacked popovers
 - Animation constants (`lib/animations.ts`): `EASE` curve tuple, `POPOVER_ENTER_KEYFRAMES` + `POPOVER_ENTER_OPTIONS` for Web Animations API
+- CodeMirror theme (`lib/codemirror/xpath-theme.ts`): "lavender milk bath" palette — all syntax colors in the purple/orchid family, differentiated by lightness and warmth, not by clashing hues
 
 ## Structured Output Constraint
 

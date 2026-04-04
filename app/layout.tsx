@@ -2,7 +2,6 @@ import type { Metadata } from "next";
 import { JetBrains_Mono, Outfit, Plus_Jakarta_Sans } from "next/font/google";
 import { ErrorReporter } from "@/components/ErrorReporter";
 import { AppHeader } from "@/components/ui/AppHeader";
-import { ThemeSwitcher } from "@/components/ui/ThemeSwitcher";
 import { getSession } from "@/lib/auth-utils";
 import "./globals.css";
 
@@ -62,7 +61,6 @@ export default async function RootLayout({
 					<div id="main-content" className="flex-1 overflow-auto">
 						{children}
 					</div>
-					<ThemeSwitcher />
 				</div>
 			</body>
 		</html>

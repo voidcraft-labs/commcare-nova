@@ -1,5 +1,5 @@
 interface BadgeProps {
-	variant?: "violet" | "cyan" | "emerald" | "amber" | "rose" | "muted";
+	variant?: "violet" | "emerald" | "amber" | "rose" | "muted";
 	children: React.ReactNode;
 	className?: string;
 }
@@ -11,10 +11,9 @@ export function Badge({
 }: BadgeProps) {
 	const variants = {
 		violet: "bg-nova-violet/15 text-nova-violet-bright border-nova-violet/20",
-		cyan: "bg-nova-cyan/15 text-nova-cyan-bright border-nova-cyan/20",
-		emerald: "bg-nova-emerald/15 text-emerald-400 border-nova-emerald/20",
-		amber: "bg-nova-amber/15 text-amber-400 border-nova-amber/20",
-		rose: "bg-nova-rose/15 text-rose-400 border-nova-rose/20",
+		emerald: "bg-nova-emerald/15 text-nova-emerald border-nova-emerald/20",
+		amber: "bg-nova-amber/15 text-nova-amber border-nova-amber/20",
+		rose: "bg-nova-rose/15 text-nova-rose border-nova-rose/20",
 		muted: "bg-nova-surface text-nova-text-secondary border-nova-border",
 	};
 

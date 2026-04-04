@@ -228,7 +228,7 @@ function AfterSubmitSection({
 				type="button"
 				ref={dd.triggerRef}
 				onClick={dd.toggle}
-				className="w-full flex items-center justify-between px-2 py-1.5 text-xs rounded-md border transition-colors cursor-pointer text-nova-text bg-transparent border-white/[0.06] hover:border-white/[0.12]"
+				className="w-full flex items-center justify-between px-2 py-1.5 text-xs rounded-md border transition-colors cursor-pointer text-nova-text bg-nova-deep/50 border-white/[0.06] hover:border-nova-violet/30"
 			>
 				<span>{currentOption.label}</span>
 				<svg
@@ -839,11 +839,11 @@ function InlineField({
 					rows={multiline ? 2 : undefined}
 					min={type === "number" ? 1 : undefined}
 					className={`w-full text-xs px-2 py-1.5 rounded-md border transition-colors outline-none resize-none ${
-						mono ? "font-mono text-nova-cyan-bright" : "text-nova-text"
+						mono ? "font-mono text-nova-violet-bright" : "text-nova-text"
 					} ${
 						focused
-							? "bg-nova-surface border-nova-violet/50"
-							: "bg-transparent border-white/[0.06] hover:border-white/[0.12]"
+							? "bg-nova-surface border-nova-violet/50 shadow-[0_0_0_1px_rgba(139,92,246,0.1)]"
+							: "bg-nova-deep/50 border-white/[0.06] hover:border-nova-violet/30"
 					} ${suffix ? "pr-8" : ""}`}
 				/>
 				{suffix && (

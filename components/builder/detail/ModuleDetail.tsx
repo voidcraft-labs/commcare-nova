@@ -56,7 +56,7 @@ export function ModuleDetail({
 					<span className="text-xs text-nova-text-muted uppercase tracking-wider mb-1 block">
 						Case Type
 					</span>
-					<p className="text-sm font-mono text-nova-cyan-bright">
+					<p className="text-sm font-mono text-nova-violet-bright">
 						{mod.case_type}
 					</p>
 				</div>
@@ -66,12 +66,12 @@ export function ModuleDetail({
 					<span className="text-xs text-nova-text-muted uppercase tracking-wider mb-2 block">
 						Case List Columns
 					</span>
-					<div className="rounded-lg border border-nova-cyan/10 overflow-hidden">
-						<div className="grid grid-cols-[1fr_auto] bg-nova-cyan/[0.04]">
-							<div className="px-3 py-1.5 text-[11px] font-medium tracking-wide text-nova-cyan-bright uppercase">
+					<div className="rounded-lg border border-white/[0.06] overflow-hidden">
+						<div className="grid grid-cols-[1fr_auto] bg-white/[0.02]">
+							<div className="px-3 py-1.5 text-[11px] font-medium tracking-wide text-nova-text-secondary uppercase">
 								Header
 							</div>
-							<div className="px-3 py-1.5 text-[11px] font-medium tracking-wide text-nova-text-muted uppercase border-l border-nova-cyan/10">
+							<div className="px-3 py-1.5 text-[11px] font-medium tracking-wide text-nova-text-muted uppercase border-l border-white/[0.06]">
 								Field
 							</div>
 						</div>

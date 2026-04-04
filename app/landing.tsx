@@ -56,7 +56,7 @@ export function Landing() {
 			{/* Cosmic background */}
 			<div className="fixed inset-0 pointer-events-none">
 				<div className="absolute top-1/4 left-1/2 -translate-x-1/2 w-[800px] h-[800px] rounded-full bg-nova-violet/5 blur-[120px]" />
-				<div className="absolute bottom-0 left-1/4 w-[600px] h-[600px] rounded-full bg-nova-cyan/3 blur-[100px]" />
+				<div className="absolute bottom-0 left-1/4 w-[600px] h-[600px] rounded-full bg-nova-violet/3 blur-[100px]" />
 			</div>
 
 			<motion.div

@@ -31,7 +31,7 @@ export function LogicBadges({ question }: LogicBadgesProps) {
 		badges.push({
 			key: "relevant",
 			icon: tablerFilter,
-			tint: "text-nova-cyan",
+			tint: "text-nova-violet",
 			title: `Show when: ${truncate(question.relevant)}`,
 		});
 	}

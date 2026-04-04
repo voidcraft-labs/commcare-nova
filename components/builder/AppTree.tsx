@@ -280,7 +280,7 @@ function ModuleCard({
 			initial={{ opacity: 0, y: 24 }}
 			animate={{ opacity: 1, y: 0 }}
 			transition={{ duration: 0.5, ease: [0.16, 1, 0.3, 1] }}
-			className={`transition-colors border-b border-nova-border last:border-b-0 ${isSelected ? "bg-nova-surface" : ""}`}
+			className={`transition-colors border-b border-nova-border last:border-b-0 ${isSelected ? "bg-nova-violet/[0.04]" : ""}`}
 		>
 			{/* Module header */}
 			<TreeItemRow
@@ -325,15 +325,15 @@ function ModuleCard({
 				<>
 					{/* Case list columns */}
 					{mod.case_list_columns && mod.case_list_columns.length > 0 && (
-						<div className="mx-4 mb-3 rounded-lg border border-nova-cyan/12 bg-nova-cyan/[0.03] overflow-hidden">
-							<div className="flex items-center gap-1.5 px-3 py-1.5 border-b border-nova-cyan/8">
+						<div className="mx-4 mb-3 rounded-lg border border-white/[0.06] bg-white/[0.02] overflow-hidden">
+							<div className="flex items-center gap-1.5 px-3 py-1.5 border-b border-white/[0.04]">
 								<Icon
 									icon={tablerTable}
 									width="12"
 									height="12"
-									className="text-nova-cyan/50"
+									className="text-nova-text-muted"
 								/>
-								<span className="text-[10px] font-medium text-nova-cyan/50 uppercase tracking-widest">
+								<span className="text-[10px] font-medium text-nova-text-muted uppercase tracking-widest">
 									Case List
 								</span>
 							</div>
@@ -341,8 +341,8 @@ function ModuleCard({
 								{mod.case_list_columns.map((col, colIdx) => (
 									<div
 										key={`${col.header}-${col.field}`}
-										className={`flex-1 px-3 py-2 text-xs font-medium text-nova-cyan-bright ${
-											colIdx > 0 ? "border-l border-nova-cyan/8" : ""
+										className={`flex-1 px-3 py-2 text-xs font-medium text-nova-text-secondary ${
+											colIdx > 0 ? "border-l border-white/[0.04]" : ""
 										}`}
 									>
 										{col.header}
@@ -436,11 +436,11 @@ function FormCard({
 			animate={{ opacity: 1, x: 0 }}
 			transition={{ delay, duration: 0.35, ease: [0.16, 1, 0.3, 1] }}
 			className={`border-b border-nova-border last:border-b-0 ${
-				isSelected ? "bg-nova-surface/50" : ""
+				isSelected ? "bg-nova-violet/[0.04]" : ""
 			}`}
 		>
 			<TreeItemRow
-				className={`pl-5 pr-3 py-2.5 transition-colors flex items-center gap-2 ${locked ? "pointer-events-none" : "cursor-pointer hover:bg-nova-surface/30"}`}
+				className={`pl-5 pr-3 py-2.5 transition-colors flex items-center gap-2 ${locked ? "pointer-events-none" : "cursor-pointer hover:bg-nova-violet/[0.06]"}`}
 				onClick={() => onSelect({ type: "form", moduleIndex, formIndex })}
 			>
 				{hasQuestions ? (
@@ -589,8 +589,8 @@ function QuestionRow({
 					locked
 						? "pointer-events-none text-nova-text-secondary"
 						: isSelected
-							? "cursor-pointer bg-nova-violet/10 text-nova-text"
-							: `cursor-pointer ${isOdd ? "bg-white/[0.025]" : ""} hover:bg-white/10 text-nova-text-secondary`
+							? "cursor-pointer bg-nova-violet/[0.08] text-nova-text shadow-[inset_2px_0_0_var(--nova-violet)]"
+							: `cursor-pointer ${isOdd ? "bg-nova-violet/[0.02]" : ""} hover:bg-nova-violet/[0.06] text-nova-text-secondary`
 				}`}
 				style={{ paddingLeft: `${28 + depth * 8}px` }}
 				onClick={(e) => {

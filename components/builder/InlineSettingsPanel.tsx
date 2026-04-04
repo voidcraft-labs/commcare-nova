@@ -43,25 +43,25 @@ export function InlineSettingsPanel({
 }: InlineSettingsPanelProps) {
 	return (
 		<div
-			className="mt-2 rounded-lg border border-nova-border bg-nova-surface/50 overflow-hidden"
+			className="mt-2 rounded-lg border border-nova-violet/15 bg-nova-deep/90 shadow-[0_2px_12px_rgba(0,0,0,0.3)] overflow-hidden"
 			data-no-drag
 		>
 			<div className="p-2 space-y-2">
 				{/* ── Data section ── */}
-				<div className="rounded-md bg-nova-deep/60 px-3 py-2.5">
+				<div className="rounded-md bg-nova-surface/40 border border-white/[0.04] px-3 py-2.5">
 					<SectionLabel label="Data" />
 					<ContextualEditorData question={question} builder={builder} />
 				</div>
 
 				{/* ── Logic section ── */}
-				<div className="rounded-md bg-nova-deep/60 px-3 py-2.5">
+				<div className="rounded-md bg-nova-surface/40 border border-white/[0.04] px-3 py-2.5">
 					<SectionLabel label="Logic" />
 					<ContextualEditorLogic question={question} builder={builder} />
 				</div>
 
 				{/* ── Appearance section — hidden questions have no visual properties ── */}
 				{question.type !== "hidden" && (
-					<div className="rounded-md bg-nova-deep/60 px-3 py-2.5">
+					<div className="rounded-md bg-nova-surface/40 border border-white/[0.04] px-3 py-2.5">
 						<SectionLabel label="Appearance" />
 						<ContextualEditorUI question={question} builder={builder} />
 					</div>
@@ -69,7 +69,7 @@ export function InlineSettingsPanel({
 			</div>
 
 			{/* ── Footer: move, duplicate, delete, type change ── */}
-			<div className="border-t border-nova-border">
+			<div className="border-t border-white/[0.06]">
 				<ContextualEditorFooter question={question} builder={builder} />
 			</div>
 		</div>

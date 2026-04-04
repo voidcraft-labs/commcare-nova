@@ -139,7 +139,7 @@ export function ReplayController({
 						onAnimationComplete={() => {
 							setTimeout(() => setError(undefined), 3000);
 						}}
-						className="px-3 py-1.5 bg-nova-rose/15 border border-nova-rose/30 rounded-full text-xs text-rose-400"
+						className="px-3 py-1.5 bg-nova-rose/15 border border-nova-rose/30 rounded-full text-xs text-nova-rose"
 					>
 						{error}
 					</motion.div>
