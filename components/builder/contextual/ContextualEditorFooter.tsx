@@ -23,21 +23,10 @@ export function ContextualEditorFooter({
 	question,
 	builder,
 }: QuestionEditorProps) {
-	const selected = builder.selected!;
-	const mb = builder.mb!;
-
-	const form =
-		selected.formIndex !== undefined
-			? mb.getForm(selected.moduleIndex, selected.formIndex)
-			: null;
-	const paths = form ? flattenQuestionPaths(form.questions) : [];
-	const curIdx = paths.indexOf(selected.questionPath as QuestionPath);
-	const isFirst = curIdx <= 0;
-	const isLast = curIdx < 0 || curIdx >= paths.length - 1;
+	const selected = builder.selected;
+	const mb = builder.mb;
 
 	const saveQuestion = useSaveQuestion(builder);
-	const conversionTargets = getConvertibleTypes(question.type);
-	const canConvert = conversionTargets.length > 0;
 
 	/* Opens upward since the footer sits at the bottom of the panel */
 	const typePicker = useFloatingDropdown<HTMLButtonElement>({
@@ -46,8 +35,17 @@ export function ContextualEditorFooter({
 	});
 
 	const handleMoveUp = useCallback(() => {
-		if (isFirst || selected.formIndex === undefined || !selected.questionPath)
+		if (
+			!selected ||
+			!mb ||
+			selected.formIndex === undefined ||
+			!selected.questionPath
+		)
 			return;
+		const form = mb.getForm(selected.moduleIndex, selected.formIndex);
+		const paths = form ? flattenQuestionPaths(form.questions) : [];
+		const curIdx = paths.indexOf(selected.questionPath as QuestionPath);
+		if (curIdx <= 0) return;
 		mb.moveQuestion(
 			selected.moduleIndex,
 			selected.formIndex,
@@ -55,11 +53,20 @@ export function ContextualEditorFooter({
 			{ beforePath: paths[curIdx - 1] },
 		);
 		builder.notifyBlueprintChanged();
-	}, [mb, selected, paths, curIdx, isFirst, builder]);
+	}, [mb, selected, builder]);
 
 	const handleMoveDown = useCallback(() => {
-		if (isLast || selected.formIndex === undefined || !selected.questionPath)
+		if (
+			!selected ||
+			!mb ||
+			selected.formIndex === undefined ||
+			!selected.questionPath
+		)
 			return;
+		const form = mb.getForm(selected.moduleIndex, selected.formIndex);
+		const paths = form ? flattenQuestionPaths(form.questions) : [];
+		const curIdx = paths.indexOf(selected.questionPath as QuestionPath);
+		if (curIdx < 0 || curIdx >= paths.length - 1) return;
 		mb.moveQuestion(
 			selected.moduleIndex,
 			selected.formIndex,
@@ -67,10 +74,16 @@ export function ContextualEditorFooter({
 			{ afterPath: paths[curIdx + 1] },
 		);
 		builder.notifyBlueprintChanged();
-	}, [mb, selected, paths, curIdx, isLast, builder]);
+	}, [mb, selected, builder]);
 
 	const handleDuplicate = useCallback(() => {
-		if (selected.formIndex === undefined || !selected.questionPath) return;
+		if (
+			!selected ||
+			!mb ||
+			selected.formIndex === undefined ||
+			!selected.questionPath
+		)
+			return;
 		const newPath = mb.duplicateQuestion(
 			selected.moduleIndex,
 			selected.formIndex,
@@ -86,7 +99,16 @@ export function ContextualEditorFooter({
 	}, [mb, selected, builder]);
 
 	const handleDelete = useCallback(() => {
-		if (selected.formIndex === undefined || !selected.questionPath) return;
+		if (
+			!selected ||
+			!mb ||
+			selected.formIndex === undefined ||
+			!selected.questionPath
+		)
+			return;
+		const form = mb.getForm(selected.moduleIndex, selected.formIndex);
+		const paths = form ? flattenQuestionPaths(form.questions) : [];
+		const curIdx = paths.indexOf(selected.questionPath as QuestionPath);
 		const nextPath = paths[curIdx + 1] ?? paths[curIdx - 1];
 		mb.removeQuestion(
 			selected.moduleIndex,
@@ -98,13 +120,26 @@ export function ContextualEditorFooter({
 			builder.select({
 				type: "question",
 				moduleIndex: selected.moduleIndex,
-				formIndex: selected.formIndex!,
+				formIndex: selected.formIndex,
 				questionPath: nextPath,
 			});
 		} else {
 			builder.select();
 		}
-	}, [mb, selected, builder, paths, curIdx]);
+	}, [mb, selected, builder]);
+
+	if (!selected || !mb) return null;
+
+	const form =
+		selected.formIndex !== undefined
+			? mb.getForm(selected.moduleIndex, selected.formIndex)
+			: null;
+	const paths = form ? flattenQuestionPaths(form.questions) : [];
+	const curIdx = paths.indexOf(selected.questionPath as QuestionPath);
+	const isFirst = curIdx <= 0;
+	const isLast = curIdx < 0 || curIdx >= paths.length - 1;
+	const conversionTargets = getConvertibleTypes(question.type);
+	const canConvert = conversionTargets.length > 0;
 
 	const typeIcon = questionTypeIcons[question.type];
 	const typeLabel = questionTypeLabels[question.type] ?? question.type;

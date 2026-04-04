@@ -337,7 +337,8 @@ describe("expanded XForm validation", () => {
 		const hqJson = expandBlueprint(bp);
 		const xmlKey = Object.keys(hqJson._attachments).find((k) =>
 			k.endsWith(".xml"),
-		)!;
+		);
+		if (!xmlKey) throw new Error("expected XML attachment");
 		const xml = hqJson._attachments[xmlKey] as string;
 		const errors = validateXFormXml(xml, "Register", "Patients");
 		expect(errors).toEqual([]);
@@ -381,7 +382,8 @@ describe("expanded XForm validation", () => {
 		const hqJson = expandBlueprint(bp);
 		const xmlKey = Object.keys(hqJson._attachments).find((k) =>
 			k.endsWith(".xml"),
-		)!;
+		);
+		if (!xmlKey) throw new Error("expected XML attachment");
 		const xml = hqJson._attachments[xmlKey] as string;
 		const errors = validateXFormXml(xml, "Survey", "Surveys");
 		expect(errors).toEqual([]);
@@ -427,7 +429,8 @@ describe("expanded XForm validation", () => {
 		const hqJson = expandBlueprint(bp);
 		const xmlKey = Object.keys(hqJson._attachments).find((k) =>
 			k.endsWith(".xml"),
-		)!;
+		);
+		if (!xmlKey) throw new Error("expected XML attachment");
 		const xml = hqJson._attachments[xmlKey] as string;
 		const errors = validateXFormXml(xml, "F", "M");
 		expect(errors).toEqual([]);

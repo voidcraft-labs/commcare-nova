@@ -2,7 +2,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { SignalPanel } from "@/components/chat/SignalPanel";
 import {
-	defaultLabel,
 	type EditFocus,
 	SignalGridController,
 	type SignalMode,

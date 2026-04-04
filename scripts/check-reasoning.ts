@@ -2,7 +2,9 @@ import { createAnthropic } from "@ai-sdk/anthropic";
 import { Output, streamText } from "ai";
 import { z } from "zod";
 
-const apiKey = process.env.ANTHROPIC_API_KEY!;
+const apiKey = process.env.ANTHROPIC_API_KEY;
+if (!apiKey) throw new Error("ANTHROPIC_API_KEY is required");
+
 const anthropic = createAnthropic({ apiKey });
 
 async function main() {
@@ -16,7 +18,7 @@ async function main() {
 		},
 	});
 
-	for await (const p of result.partialOutputStream) {
+	for await (const _p of result.partialOutputStream) {
 	}
 
 	const usage = await result.usage;

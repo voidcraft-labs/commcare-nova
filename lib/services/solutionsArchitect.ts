@@ -11,7 +11,6 @@ import { completeProject } from "../db/projects";
 import { SA_MODEL, SA_REASONING } from "../models";
 import { buildSolutionsArchitectPrompt } from "../prompts/solutionsArchitectPrompt";
 import {
-	type AppBlueprint,
 	type BlueprintForm,
 	type ConnectConfig,
 	caseTypesOutputSchema,
@@ -108,11 +107,11 @@ interface QuestionSummary {
 }
 
 /** Compact question tree summary so the SA can see IDs, types, and nesting at a glance. */
-function summarizeQuestions(questions: Question[]): QuestionSummary[] {
+function _summarizeQuestions(questions: Question[]): QuestionSummary[] {
 	return questions.map((q) => {
 		const entry: QuestionSummary = { id: q.id, type: q.type };
 		if (q.case_property_on) entry.case_property_on = q.case_property_on;
-		if (q.children?.length) entry.children = summarizeQuestions(q.children);
+		if (q.children?.length) entry.children = _summarizeQuestions(q.children);
 		return entry;
 	});
 }
@@ -144,23 +143,19 @@ export function createSolutionsArchitect(
 		model: ctx.model(SA_MODEL),
 		instructions: buildSolutionsArchitectPrompt(),
 		stopWhen: stepCountIs(80),
-		prepareStep: ({
-			steps,
-		}: {
-			steps?: Array<{ providerMetadata?: Record<string, any> }>;
-		}) => {
+		// biome-ignore lint/suspicious/noExplicitAny: AI SDK's PrepareStepFunction and providerOptions use loosely-typed generics
+		prepareStep: ({ steps: _steps }: any) => {
+			// biome-ignore lint/suspicious/noExplicitAny: Anthropic provider options are loosely typed
 			const anthropic: Record<string, any> = {
-				// Automatic prompt caching — Anthropic places the cache breakpoint on the
-				// last cacheable block and advances it as the conversation grows.
 				cacheControl: { type: "ephemeral" },
 			};
 
-			// Reasoning (adaptive thinking)
 			anthropic.thinking = {
 				type: "adaptive" as const,
 				effort: SA_REASONING.effort,
 			};
 
+			// biome-ignore lint/suspicious/noExplicitAny: SharedV3ProviderOptions requires JSONObject values
 			return { providerOptions: { anthropic } as Record<string, any> };
 		},
 		onStepFinish: ({
@@ -176,12 +171,14 @@ export function createSolutionsArchitect(
 				ctx.logger.logStep({
 					text: text || undefined,
 					reasoning: reasoningText || undefined,
-					tool_calls: toolCalls?.map((tc: any) => ({
+					tool_calls: toolCalls?.map((tc) => ({
 						name: tc.toolName,
 						args: tc.input,
 						toolCallId: tc.toolCallId,
 					})),
-					tool_results: (toolResults as any[])?.map((tr: any) => ({
+					tool_results: (
+						toolResults as Array<{ toolCallId: string; output: unknown }>
+					)?.map((tr) => ({
 						toolCallId: tr.toolCallId,
 						output: tr.output,
 					})),
@@ -508,11 +505,14 @@ export function createSolutionsArchitect(
 								);
 							}
 							// Re-resolve path after rename
-							currentPath = mutableBp.resolveQuestionId(
+							const resolved = mutableBp.resolveQuestionId(
 								moduleIndex,
 								formIndex,
 								newId,
-							)!;
+							);
+							if (!resolved)
+								return { error: `Question "${newId}" not found after rename` };
+							currentPath = resolved;
 						}
 
 						// Apply remaining field updates
@@ -531,8 +531,9 @@ export function createSolutionsArchitect(
 								blueprint: mutableBp.getBlueprint(),
 							});
 						} else {
-							const form = mutableBp.getForm(moduleIndex, formIndex)!;
-							ctx.emit("data-form-updated", { moduleIndex, formIndex, form });
+							const form = mutableBp.getForm(moduleIndex, formIndex);
+							if (form)
+								ctx.emit("data-form-updated", { moduleIndex, formIndex, form });
 						}
 						return {
 							moduleIndex,
@@ -600,7 +601,11 @@ export function createSolutionsArchitect(
 							question as NewQuestion,
 							{ afterPath, beforePath, parentPath },
 						);
-						const form = mutableBp.getForm(moduleIndex, formIndex)!;
+						const form = mutableBp.getForm(moduleIndex, formIndex);
+						if (!form)
+							return {
+								error: `Form m${moduleIndex}-f${formIndex} not found after add`,
+							};
 						ctx.emit("data-form-updated", { moduleIndex, formIndex, form });
 						return {
 							moduleIndex,
@@ -635,10 +640,14 @@ export function createSolutionsArchitect(
 								error: `Question "${questionId}" not found in m${moduleIndex}-f${formIndex}`,
 							};
 						const beforeCount = countQuestionsRecursive(
-							mutableBp.getForm(moduleIndex, formIndex)!.questions,
+							mutableBp.getForm(moduleIndex, formIndex)?.questions ?? [],
 						);
 						mutableBp.removeQuestion(moduleIndex, formIndex, questionPath);
-						const form = mutableBp.getForm(moduleIndex, formIndex)!;
+						const form = mutableBp.getForm(moduleIndex, formIndex);
+						if (!form)
+							return {
+								error: `Form m${moduleIndex}-f${formIndex} not found after remove`,
+							};
 						ctx.emit("data-form-updated", { moduleIndex, formIndex, form });
 						const afterCount = countQuestionsRecursive(form.questions);
 						return {
@@ -699,7 +708,9 @@ export function createSolutionsArchitect(
 						ctx.emit("data-blueprint-updated", {
 							blueprint: mutableBp.getBlueprint(),
 						});
-						const mod = mutableBp.getModule(moduleIndex)!;
+						const mod = mutableBp.getModule(moduleIndex);
+						if (!mod)
+							return { error: `Module ${moduleIndex} not found after update` };
 						return {
 							moduleIndex,
 							name: mod.name,
@@ -790,7 +801,11 @@ export function createSolutionsArchitect(
 								),
 							}),
 						});
-						const form = mutableBp.getForm(moduleIndex, formIndex)!;
+						const form = mutableBp.getForm(moduleIndex, formIndex);
+						if (!form)
+							return {
+								error: `Form m${moduleIndex}-f${formIndex} not found after update`,
+							};
 						ctx.emit("data-form-updated", { moduleIndex, formIndex, form });
 						return {
 							moduleIndex,
@@ -835,7 +850,9 @@ export function createSolutionsArchitect(
 						ctx.emit("data-blueprint-updated", {
 							blueprint: mutableBp.getBlueprint(),
 						});
-						const mod = mutableBp.getModule(moduleIndex)!;
+						const mod = mutableBp.getModule(moduleIndex);
+						if (!mod)
+							return { error: `Module ${moduleIndex} not found after addForm` };
 						return {
 							moduleIndex,
 							formIndex: mod.forms.length - 1,

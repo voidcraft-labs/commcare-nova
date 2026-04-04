@@ -53,7 +53,7 @@ export function SaveIndicator({ saveState }: SaveIndicatorProps) {
 		? "Save failed"
 		: isSaving
 			? "Saving…"
-			: `Saved ${formatRelativeDate(new Date(savedAt!)).toLowerCase()}`;
+			: `Saved ${formatRelativeDate(new Date(savedAt ?? Date.now())).toLowerCase()}`;
 
 	return (
 		<AnimatePresence>

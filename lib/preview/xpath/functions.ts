@@ -38,7 +38,7 @@ register("int", (args) => {
 });
 register("round", (args) => {
 	const n = toNumber(args[0] ?? "");
-	const decimals = args.length > 1 ? toNumber(args[1]!) : 0;
+	const decimals = args.length > 1 ? toNumber(args[1] ?? 0) : 0;
 	if (Number.isNaN(n)) return NaN;
 	const factor = 10 ** decimals;
 	return Math.round(n * factor) / factor;
@@ -77,7 +77,7 @@ register("substr", (args) => {
 	// CommCare substr is 0-based: substr(string, start, end?)
 	const start = Math.max(0, toNumber(args[1] ?? 0));
 	if (args.length > 2) {
-		const end = toNumber(args[2]!);
+		const end = toNumber(args[2] ?? 0);
 		return str.substring(start, end);
 	}
 	return str.substring(start);

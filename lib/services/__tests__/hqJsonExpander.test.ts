@@ -361,7 +361,7 @@ describe("case_name in case list columns", () => {
 	it("expander keeps case_name column in case details", () => {
 		const hq = expandBlueprint(bp);
 		const cols = hq.modules[0].case_details.short.columns;
-		expect(cols.some((c: any) => c.field === "case_name")).toBe(true);
+		expect(cols.some((c) => c.field === "case_name")).toBe(true);
 	});
 
 	it("validator allows case_name in case_list_columns", () => {

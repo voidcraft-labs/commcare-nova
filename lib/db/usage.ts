@@ -12,7 +12,6 @@
  * mechanism needed — a Firestore outage that blocks writes also blocks reads.
  */
 import { FieldValue } from "@google-cloud/firestore";
-import { log } from "@/lib/log";
 import { docs } from "./firestore";
 import type { UsageDoc } from "./types";
 
@@ -53,7 +52,7 @@ export function getCurrentPeriod(): string {
  */
 export async function getMonthlyUsage(email: string): Promise<UsageDoc | null> {
 	const snap = await docs.usage(email, getCurrentPeriod()).get();
-	return snap.exists ? snap.data()! : null;
+	return snap.exists ? (snap.data() ?? null) : null;
 }
 
 // ── Write ─────────────────────────────────────────────────────────

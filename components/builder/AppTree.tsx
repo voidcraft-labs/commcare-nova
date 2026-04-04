@@ -23,7 +23,11 @@ import {
 import { formTypeIcons, questionTypeIcons } from "@/lib/questionTypeIcons";
 import { textWithChips } from "@/lib/references/LabelContent";
 import type { Question } from "@/lib/schemas/blueprint";
-import { BuilderPhase, type TreeData } from "@/lib/services/builder";
+import {
+	BuilderPhase,
+	type SelectedElement,
+	type TreeData,
+} from "@/lib/services/builder";
 import { type QuestionPath, qpath } from "@/lib/services/questionPath";
 
 /**
@@ -43,7 +47,7 @@ interface AppTreeProps {
 				questionPath?: QuestionPath;
 		  }
 		| undefined;
-	onSelect: (selected: any) => void;
+	onSelect: (selected: SelectedElement) => void;
 	phase: BuilderPhase;
 	actions?: React.ReactNode;
 	hideHeader?: boolean;
@@ -415,7 +419,7 @@ function FormCard({
 		: collapsed.has(collapseKey);
 	const hasQuestions = form.questions && form.questions.length > 0;
 	const oddPaths = hasQuestions
-		? buildOddPaths(form.questions!, collapsed)
+		? buildOddPaths(form.questions ?? [], collapsed)
 		: undefined;
 	const questionIcons = useMemo(
 		() =>
@@ -476,7 +480,7 @@ function FormCard({
 				</div>
 				{hasQuestions && (
 					<span className="text-xs text-nova-text-muted shrink-0">
-						{countQuestions(form.questions!)} q
+						{countQuestions(form.questions ?? [])} q
 					</span>
 				)}
 			</TreeItemRow>
@@ -486,7 +490,7 @@ function FormCard({
 				<FormIconContext value={questionIcons}>
 					<div className="pb-2">
 						<AnimatePresence mode="sync">
-							{form.questions!.map((q, qIdx) => (
+							{form.questions?.map((q, qIdx) => (
 								<QuestionRow
 									key={
 										q.id
@@ -503,7 +507,7 @@ function FormCard({
 									delay={delay + qIdx * 0.02}
 									collapsed={collapsed}
 									toggle={toggle}
-									oddPaths={oddPaths!}
+									oddPaths={oddPaths ?? new Set()}
 									forceExpand={forceExpand}
 									matchMap={matchMap}
 									locked={locked}
@@ -635,7 +639,7 @@ function QuestionRow({
 				)}
 				{hasChildren && isCollapsed && (
 					<span className="text-[10px] text-nova-text-muted ml-auto shrink-0">
-						{countQuestions(q.children!)}
+						{countQuestions(q.children ?? [])}
 					</span>
 				)}
 			</TreeItemRow>
@@ -643,7 +647,7 @@ function QuestionRow({
 			{/* Nested children for groups/repeats */}
 			{hasChildren && !isCollapsed && (
 				<div>
-					{q.children!.map((child, cIdx) => (
+					{q.children?.map((child, cIdx) => (
 						<QuestionRow
 							key={
 								child.id

@@ -1,11 +1,16 @@
+import { randomUUID } from "node:crypto";
 import AdmZip from "adm-zip";
-import { randomUUID } from "crypto";
 import {
 	escapeXml,
 	validateCaseType,
 	validatePropertyName,
 	validateXFormPath,
 } from "./commcare";
+import type {
+	DetailColumn,
+	FormActions,
+	HqApplication,
+} from "./commcare/hqTypes";
 import {
 	deriveEntryDefinition,
 	fromHqWorkflow,
@@ -22,9 +27,9 @@ import { validateXFormXml } from "./commcare/validate/xformValidator";
  * dangling refs, and other structural issues before packaging.
  */
 export class CczCompiler {
-	async compile(hqJson: Record<string, any>, appName: string): Promise<Buffer> {
-		const modules: any[] = hqJson.modules || [];
-		const attachments: Record<string, string> = hqJson._attachments || {};
+	async compile(hqJson: HqApplication, appName: string): Promise<Buffer> {
+		const modules = hqJson.modules || [];
+		const attachments = hqJson._attachments || {};
 
 		// Generate all CCZ files
 		const files: Record<string, string> = {};
@@ -42,14 +47,13 @@ export class CczCompiler {
 			const mod = modules[mIdx];
 			const modName = mod.name?.en || `Module ${mIdx}`;
 			const caseType = mod.case_type || "";
-			const forms: any[] = mod.forms || [];
+			const forms = mod.forms || [];
 
 			appStrings[`modules.m${mIdx}`] = modName;
 
 			// Case detail definitions (if module uses cases)
 			if (caseType) {
-				appStrings["case_list_title"] =
-					appStrings["case_list_title"] || `${modName}`;
+				appStrings.case_list_title = appStrings.case_list_title || `${modName}`;
 
 				suiteDetails.push(
 					this.generateDetail(
@@ -199,14 +203,18 @@ export class CczCompiler {
 </profile>`;
 	}
 
-	private generateDetail(id: string, display: string, columns: any[]): string {
+	private generateDetail(
+		id: string,
+		display: string,
+		columns: DetailColumn[],
+	): string {
 		if (columns.length === 0 && display === "long") {
 			return `  <detail id="${id}">\n    <title><text><locale id="case_list_title"/></text></title>\n  </detail>`;
 		}
 
-		const fields = columns.map((col: any) => {
+		const fields = columns.map((col) => {
 			const field = col.field || "name";
-			const header = col.header?.en || field;
+			const _header = col.header?.en || field;
 			return `    <field>\n      <header><text><locale id="${id}_${field}_header"/></text></header>\n      <template><text><xpath function="${field}"/></text></template>\n    </field>`;
 		});
 
@@ -214,13 +222,17 @@ export class CczCompiler {
 	}
 
 	/** Add case blocks back into an XForm based on form actions (for mobile runtime). */
-	private addCaseBlocks(xform: string, actions: any, caseType: string): string {
+	private addCaseBlocks(
+		xform: string,
+		actions: FormActions,
+		caseType: string,
+	): string {
 		if (!actions) return xform;
 
 		const openCase = actions.open_case;
 		const updateCase = actions.update_case;
 		const closeCase = actions.close_case;
-		const subcases: any[] = actions.subcases || [];
+		const subcases = actions.subcases || [];
 		const isCreate = openCase?.condition?.type === "always";
 		const isUpdate = updateCase?.condition?.type === "always";
 		const isClose =
@@ -258,7 +270,7 @@ export class CczCompiler {
 				caseChildren += `\n            <update>\n${propElements}\n            </update>`;
 				for (const [prop, mapping] of Object.entries(updateCase.update)) {
 					const validProp = validatePropertyName(prop);
-					const qPath = (mapping as any).question_path || `/data/${prop}`;
+					const qPath = mapping.question_path || `/data/${prop}`;
 					binds.push(
 						`      <bind nodeset="/data/case/update/${validProp}" calculate="${validateXFormPath(qPath)}"/>`,
 					);
@@ -317,7 +329,7 @@ export class CczCompiler {
 				scChildren += `\n            <update>\n${propElements}\n            </update>`;
 				for (const [prop, mapping] of props) {
 					const validProp = validatePropertyName(prop);
-					const qPath = (mapping as any).question_path || `/data/${prop}`;
+					const qPath = mapping.question_path || `/data/${prop}`;
 					binds.push(
 						`      <bind nodeset="${basePath}/update/${validProp}" calculate="${validateXFormPath(qPath)}"/>`,
 					);
@@ -357,7 +369,7 @@ export class CczCompiler {
 		return xform;
 	}
 
-	private packageCcz(files: Record<string, string>, appName: string): Buffer {
+	private packageCcz(files: Record<string, string>, _appName: string): Buffer {
 		const zip = new AdmZip();
 		for (const [filePath, content] of Object.entries(files)) {
 			zip.addFile(filePath, Buffer.from(content, "utf-8"));

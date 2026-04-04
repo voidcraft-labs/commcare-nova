@@ -8,7 +8,11 @@ import type { EvalContext, XPathValue } from "./types";
 // Child and Descendant appear twice in the grammar (rootStep vs expr), so use many().
 const T = (() => {
 	const all = parser.nodeSet.types;
-	const one = (name: string) => all.find((t) => t.name === name)!;
+	const one = (name: string) => {
+		const found = all.find((t) => t.name === name);
+		if (!found) throw new Error(`Unknown node type: ${name}`);
+		return found;
+	};
 	const many = (name: string) => new Set(all.filter((t) => t.name === name));
 	return {
 		XPath: one("XPath"),
@@ -124,7 +128,7 @@ function evalNode(
 	if (type === T.NameTest) {
 		const name = source.slice(node.from, node.to);
 		// Try as a path relative to context
-		const path = ctx.contextPath + "/" + name;
+		const path = `${ctx.contextPath}/${name}`;
 		return ctx.getValue(path) ?? "";
 	}
 
@@ -160,83 +164,94 @@ function evalNode(
 	// ── Binary arithmetic ──
 	if (type === T.AddExpr) {
 		const [left, right] = getBinaryOperands(node);
+		if (!left || !right) return NaN;
 		return (
-			toNumber(evalNode(left!, source, ctx)) +
-			toNumber(evalNode(right!, source, ctx))
+			toNumber(evalNode(left, source, ctx)) +
+			toNumber(evalNode(right, source, ctx))
 		);
 	}
 	if (type === T.SubtractExpr) {
 		const [left, right] = getBinaryOperands(node);
+		if (!left || !right) return NaN;
 		return (
-			toNumber(evalNode(left!, source, ctx)) -
-			toNumber(evalNode(right!, source, ctx))
+			toNumber(evalNode(left, source, ctx)) -
+			toNumber(evalNode(right, source, ctx))
 		);
 	}
 	if (type === T.MultiplyExpr) {
 		const [left, right] = getBinaryOperands(node);
+		if (!left || !right) return NaN;
 		return (
-			toNumber(evalNode(left!, source, ctx)) *
-			toNumber(evalNode(right!, source, ctx))
+			toNumber(evalNode(left, source, ctx)) *
+			toNumber(evalNode(right, source, ctx))
 		);
 	}
 	if (type === T.DivideExpr) {
 		const [left, right] = getBinaryOperands(node);
-		const divisor = toNumber(evalNode(right!, source, ctx));
+		if (!left || !right) return NaN;
+		const divisor = toNumber(evalNode(right, source, ctx));
 		if (divisor === 0) return NaN;
-		return toNumber(evalNode(left!, source, ctx)) / divisor;
+		return toNumber(evalNode(left, source, ctx)) / divisor;
 	}
 	if (type === T.ModulusExpr) {
 		const [left, right] = getBinaryOperands(node);
+		if (!left || !right) return NaN;
 		return (
-			toNumber(evalNode(left!, source, ctx)) %
-			toNumber(evalNode(right!, source, ctx))
+			toNumber(evalNode(left, source, ctx)) %
+			toNumber(evalNode(right, source, ctx))
 		);
 	}
 
 	// ── Comparison ──
 	if (type === T.EqualsExpr) {
 		const [left, right] = getBinaryOperands(node);
+		if (!left || !right) return false;
 		return compareEqual(
-			evalNode(left!, source, ctx),
-			evalNode(right!, source, ctx),
+			evalNode(left, source, ctx),
+			evalNode(right, source, ctx),
 		);
 	}
 	if (type === T.NotEqualsExpr) {
 		const [left, right] = getBinaryOperands(node);
+		if (!left || !right) return false;
 		return !compareEqual(
-			evalNode(left!, source, ctx),
-			evalNode(right!, source, ctx),
+			evalNode(left, source, ctx),
+			evalNode(right, source, ctx),
 		);
 	}
 	if (type === T.LessThanExpr) {
 		const [left, right] = getBinaryOperands(node);
+		if (!left || !right) return false;
 		return compareRelational(
-			evalNode(left!, source, ctx),
-			evalNode(right!, source, ctx),
+			evalNode(left, source, ctx),
+			evalNode(right, source, ctx),
 			"<",
 		);
 	}
 	if (type === T.LessEqualExpr) {
 		const [left, right] = getBinaryOperands(node);
+		if (!left || !right) return false;
 		return compareRelational(
-			evalNode(left!, source, ctx),
-			evalNode(right!, source, ctx),
+			evalNode(left, source, ctx),
+			evalNode(right, source, ctx),
 			"<=",
 		);
 	}
 	if (type === T.GreaterThanExpr) {
 		const [left, right] = getBinaryOperands(node);
+		if (!left || !right) return false;
 		return compareRelational(
-			evalNode(left!, source, ctx),
-			evalNode(right!, source, ctx),
+			evalNode(left, source, ctx),
+			evalNode(right, source, ctx),
 			">",
 		);
 	}
 	if (type === T.GreaterEqualExpr) {
 		const [left, right] = getBinaryOperands(node);
+		if (!left || !right) return false;
 		return compareRelational(
-			evalNode(left!, source, ctx),
-			evalNode(right!, source, ctx),
+			evalNode(left, source, ctx),
+			evalNode(right, source, ctx),
 			">=",
 		);
 	}
@@ -244,16 +259,18 @@ function evalNode(
 	// ── Logical (short-circuit) ──
 	if (type === T.AndExpr) {
 		const [left, right] = getBinaryOperands(node);
+		if (!left || !right) return false;
 		return (
-			toBoolean(evalNode(left!, source, ctx)) &&
-			toBoolean(evalNode(right!, source, ctx))
+			toBoolean(evalNode(left, source, ctx)) &&
+			toBoolean(evalNode(right, source, ctx))
 		);
 	}
 	if (type === T.OrExpr) {
 		const [left, right] = getBinaryOperands(node);
+		if (!left || !right) return false;
 		return (
-			toBoolean(evalNode(left!, source, ctx)) ||
-			toBoolean(evalNode(right!, source, ctx))
+			toBoolean(evalNode(left, source, ctx)) ||
+			toBoolean(evalNode(right, source, ctx))
 		);
 	}
 
@@ -333,7 +350,7 @@ function buildPath(node: SyntaxNode, source: string): string | null {
 	const segments: string[] = [];
 	collectSegments(node, source, segments);
 	if (segments.length === 0) return null;
-	return "/" + segments.join("/");
+	return `/${segments.join("/")}`;
 }
 
 function collectSegments(

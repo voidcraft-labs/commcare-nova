@@ -109,7 +109,7 @@ export function cleanStorageFormat(html: string): string {
 	text = text.replace(/&#39;/g, "'");
 	text = text.replace(/&nbsp;/g, " ");
 	text = text.replace(/&#(\d+);/g, (_, code) =>
-		String.fromCharCode(parseInt(code)),
+		String.fromCharCode(parseInt(code, 10)),
 	);
 
 	// 15. Restore code blocks

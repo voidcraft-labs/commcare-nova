@@ -2,6 +2,7 @@
 import { EditableText } from "@/components/builder/EditableText";
 import { useSaveQuestion } from "@/hooks/useSaveQuestion";
 import type { Question } from "@/lib/schemas/blueprint";
+import type { QuestionPath } from "@/lib/services/questionPath";
 import { AddPropertyButton } from "./AddPropertyButton";
 import {
 	addableTextFields,
@@ -15,11 +16,13 @@ import {
  * `InlineSettingsPanel` skips the section entirely for them.
  */
 export function ContextualEditorUI({ question, builder }: QuestionEditorProps) {
-	const selected = builder.selected!;
+	const selected = builder.selected;
 	const saveQuestion = useSaveQuestion(builder);
 	const { activeField, activate, clear } = useAddableField(
-		selected.questionPath!,
+		selected?.questionPath ?? ("" as QuestionPath),
 	);
+
+	if (!selected) return null;
 
 	/** Text fields not yet set on this question, available to add. */
 	const missingTextFields = addableTextFields.filter(

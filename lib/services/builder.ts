@@ -2,9 +2,11 @@ import type {
 	AppBlueprint,
 	BlueprintForm,
 	CaseType,
+	Question,
 	Scaffold,
 } from "@/lib/schemas/blueprint";
 import type { EditFocus } from "@/lib/signalGridController";
+import type { HqApplication } from "./commcare/hqTypes";
 import {
 	type CursorMode,
 	HistoryManager,
@@ -17,7 +19,11 @@ import { countDeep } from "./questionTree";
 export type { CursorMode } from "./historyManager";
 
 /** Apply a data part to a builder — shared between real-time streaming (onData) and replay. */
-export function applyDataPart(builder: Builder, type: string, data: any): void {
+export function applyDataPart(
+	builder: Builder,
+	type: string,
+	data: Record<string, unknown>,
+): void {
 	// Inject energy for signal grid based on data part significance
 	switch (type) {
 		case "data-module-done":
@@ -43,41 +49,57 @@ export function applyDataPart(builder: Builder, type: string, data: any): void {
 			builder.startGeneration();
 			break;
 		case "data-schema":
-			builder.setSchema(data.caseTypes);
+			builder.setSchema(data.caseTypes as CaseType[]);
 			break;
 		case "data-partial-scaffold":
 			builder.setPartialScaffold(data);
 			break;
 		case "data-scaffold":
-			builder.setScaffold(data);
+			builder.setScaffold(data as unknown as Scaffold);
 			break;
 		case "data-phase":
-			builder.advanceStage(data.phase);
+			builder.advanceStage(data.phase as string);
 			break;
 		case "data-module-done":
-			builder.setModuleContent(data.moduleIndex, data.caseListColumns);
+			builder.setModuleContent(
+				data.moduleIndex as number,
+				(data.caseListColumns as Array<{
+					field: string;
+					header: string;
+				}> | null) ?? null,
+			);
 			break;
 		case "data-form-done":
 		case "data-form-fixed":
 		case "data-form-updated":
-			builder.setFormContent(data.moduleIndex, data.formIndex, data.form);
+			builder.setFormContent(
+				data.moduleIndex as number,
+				data.formIndex as number,
+				data.form as BlueprintForm,
+			);
 			break;
 		case "data-blueprint-updated":
-			builder.updateBlueprint(data.blueprint);
+			builder.updateBlueprint(data.blueprint as AppBlueprint);
 			break;
 		case "data-fix-attempt":
-			builder.setFixAttempt(data.attempt, data.errorCount);
+			builder.setFixAttempt(data.attempt as number, data.errorCount as number);
 			break;
 		case "data-done":
-			builder.completeGeneration(data);
+			builder.completeGeneration(
+				data as {
+					blueprint: AppBlueprint;
+					hqJson: HqApplication;
+					success: boolean;
+				},
+			);
 			break;
 		case "data-project-saved":
-			builder.setProjectId(data.projectId);
+			builder.setProjectId(data.projectId as string);
 			break;
 		case "data-error":
 			builder.setGenerationError(
-				data.message,
-				data.fatal ? "failed" : "recovering",
+				data.message as string,
+				(data.fatal as boolean) ? "failed" : "recovering",
 			);
 			break;
 	}
@@ -147,7 +169,7 @@ export interface TreeData {
 			name: string;
 			type: string;
 			purpose?: string;
-			questions?: Array<any>;
+			questions?: Question[];
 			connect?: Record<string, unknown>;
 		}>;
 		case_list_columns?: Array<{ field: string; header: string }> | null;
@@ -159,7 +181,7 @@ export interface TreeData {
  *  caseListColumns is undefined (not yet received), null (server said no columns), or an array. */
 interface PartialModule {
 	caseListColumns?: Array<{ field: string; header: string }> | null;
-	forms: Map<number, any>; // formIndex → assembled BlueprintForm
+	forms: Map<number, BlueprintForm>;
 }
 
 export class Builder {
@@ -620,22 +642,25 @@ export class Builder {
 	}
 
 	/** Update partial scaffold from streaming tool call args. */
-	setPartialScaffold(partial: any) {
-		if (!partial?.modules?.length) return;
+	setPartialScaffold(partial: Record<string, unknown>) {
+		const modules = partial?.modules as
+			| Array<Record<string, unknown>>
+			| undefined;
+		if (!modules?.length) return;
 		this._partialScaffold = {
-			appName: partial.app_name,
-			modules: partial.modules
-				.filter((m: any) => m?.name)
-				.map((m: any) => ({
-					name: m.name,
-					case_type: m.case_type,
-					purpose: m.purpose,
-					forms: (m.forms ?? [])
-						.filter((f: any) => f?.name)
-						.map((f: any) => ({
-							name: f.name,
-							type: f.type,
-							purpose: f.purpose,
+			appName: partial.app_name as string | undefined,
+			modules: modules
+				.filter((m) => m?.name)
+				.map((m) => ({
+					name: m.name as string,
+					case_type: m.case_type as string | undefined,
+					purpose: m.purpose as string | undefined,
+					forms: ((m.forms as Array<Record<string, unknown>> | undefined) ?? [])
+						.filter((f) => f?.name)
+						.map((f) => ({
+							name: f.name as string,
+							type: f.type as string,
+							purpose: f.purpose as string | undefined,
 						})),
 				})),
 		};
@@ -713,7 +738,7 @@ export class Builder {
 	/** Complete generation — transition Generating → Ready with the final blueprint. */
 	completeGeneration(result: {
 		blueprint: AppBlueprint;
-		hqJson: Record<string, any>;
+		hqJson: HqApplication;
 		success: boolean;
 	}) {
 		this.enterReady(new MutableBlueprint(result.blueprint));

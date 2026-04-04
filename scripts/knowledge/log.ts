@@ -28,5 +28,5 @@ export function logSummary(phase: Phase, lines: string[]) {
 	console.log(`[${phase}] Summary`);
 	console.log("=".repeat(60));
 	for (const line of lines) console.log(`  ${line}`);
-	console.log("=".repeat(60) + "\n");
+	console.log(`${"=".repeat(60)}\n`);
 }

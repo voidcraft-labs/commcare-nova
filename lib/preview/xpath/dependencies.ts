@@ -4,7 +4,11 @@ import { parser } from "@/lib/codemirror/xpath-parser";
 // Pre-resolve node types for zero string comparisons at runtime
 const T = (() => {
 	const all = parser.nodeSet.types;
-	const one = (name: string) => all.find((t) => t.name === name)!;
+	const one = (name: string) => {
+		const found = all.find((t) => t.name === name);
+		if (!found) throw new Error(`Unknown node type: ${name}`);
+		return found;
+	};
 	const many = (name: string) => new Set(all.filter((t) => t.name === name));
 	return {
 		Children: many("Child"),
@@ -38,7 +42,7 @@ export function extractPathRefs(expr: string): string[] {
 				const text = expr.slice(node.from, node.to);
 				if (text.startsWith("#form/")) {
 					// #form/question_id → /data/question_id
-					refs.add("/data/" + text.slice(6));
+					refs.add(`/data/${text.slice(6)}`);
 				}
 				// #case/ and #user/ are external — skip
 			}
@@ -50,7 +54,7 @@ export function extractPathRefs(expr: string): string[] {
 	function walkPaths(node: SyntaxNode) {
 		// Try to build a full path from this node
 		const path = tryBuildPath(node, expr);
-		if (path && path.startsWith("/data/")) {
+		if (path?.startsWith("/data/")) {
 			refs.add(path);
 		}
 
@@ -75,7 +79,7 @@ function tryBuildPath(node: SyntaxNode, source: string): string | null {
 	collectPathSegments(node, source, segments);
 
 	if (segments.length === 0) return null;
-	const path = "/" + segments.join("/");
+	const path = `/${segments.join("/")}`;
 	return path;
 }
 

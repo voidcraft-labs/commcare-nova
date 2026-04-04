@@ -58,7 +58,7 @@ export async function validateAndFix(
 ): Promise<{
 	success: boolean;
 	blueprint: AppBlueprint;
-	hqJson?: Record<string, any>;
+	hqJson?: HqApplication;
 	errors?: ValidationError[];
 }> {
 	// Auto-populate Connect config defaults before validation
@@ -123,7 +123,7 @@ export async function validateAndFix(
 		let anyFixed = false;
 		for (const error of errors) {
 			const fix = FIX_REGISTRY.get(error.code);
-			if (fix && fix(error, blueprint)) {
+			if (fix?.(error, blueprint)) {
 				anyFixed = true;
 			}
 		}

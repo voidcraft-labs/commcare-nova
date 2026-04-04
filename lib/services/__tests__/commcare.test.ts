@@ -15,7 +15,6 @@ import {
 	hasHashtags,
 	ifCondition,
 	isReservedProperty,
-	MEDIA_QUESTION_TYPES,
 	moduleShell,
 	neverCondition,
 	RESERVED_CASE_PROPERTIES,

@@ -1,4 +1,4 @@
-import { randomBytes } from "crypto";
+import { randomBytes } from "node:crypto";
 
 /** Generate a 40-char hex ID for HQ unique_id fields. */
 export function genHexId(): string {

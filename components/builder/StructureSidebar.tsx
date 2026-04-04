@@ -4,12 +4,16 @@ import ciChevronLeft from "@iconify-icons/ci/chevron-left";
 import { AnimatePresence, motion } from "motion/react";
 import { AppTree } from "@/components/builder/AppTree";
 import { ErrorBoundary } from "@/components/ui/ErrorBoundary";
-import { type Builder, BuilderPhase } from "@/lib/services/builder";
+import {
+	type Builder,
+	BuilderPhase,
+	type SelectedElement,
+} from "@/lib/services/builder";
 
 interface StructureSidebarProps {
 	builder: Builder;
 	onClose: () => void;
-	onTreeSelect: (selection: any) => void;
+	onTreeSelect: (selection: SelectedElement) => void;
 }
 
 export function StructureSidebar({

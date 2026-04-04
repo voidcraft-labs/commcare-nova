@@ -44,8 +44,9 @@ describe("appBlueprintSchema recursive questions", () => {
 		const result = appBlueprintSchema.safeParse(blueprint);
 
 		expect(result.success).toBe(true);
-		const questions = result.data!.modules[0].forms[0].questions;
-		expect(questions[0].children![0].children![0]).toMatchObject({
+		const questions = result.data?.modules[0].forms[0].questions;
+		if (!questions) throw new Error("Expected questions");
+		expect(questions[0].children?.[0].children?.[0]).toMatchObject({
 			id: "inner",
 			type: "text",
 			label: "Deeply nested",

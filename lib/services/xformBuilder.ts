@@ -288,11 +288,11 @@ export function buildXForm(form: BlueprintForm, xmlns: string): string {
 			: "";
 
 	const bindContent =
-		binds.length > 0 ? "\n" + binds.map((b) => `      ${b}`).join("\n") : "";
+		binds.length > 0 ? `\n${binds.map((b) => `      ${b}`).join("\n")}` : "";
 
 	const setvalueContent =
 		setvalues.length > 0
-			? "\n" + setvalues.map((s) => `      ${s}`).join("\n")
+			? `\n${setvalues.map((s) => `      ${s}`).join("\n")}`
 			: "";
 
 	const formName = form.name;
@@ -305,7 +305,7 @@ export function buildXForm(form: BlueprintForm, xmlns: string): string {
 
 	const secondaryInstances = instances.toXml();
 	const secondaryContent =
-		secondaryInstances.length > 0 ? "\n" + secondaryInstances.join("\n") : "";
+		secondaryInstances.length > 0 ? `\n${secondaryInstances.join("\n")}` : "";
 
 	return `<?xml version="1.0"?>
 <h:html xmlns:h="http://www.w3.org/1999/xhtml" xmlns="http://www.w3.org/2002/xforms" xmlns:xsd="http://www.w3.org/2001/XMLSchema" xmlns:jr="http://openrosa.org/javarosa" xmlns:vellum="http://commcarehq.org/xforms/vellum">
@@ -366,7 +366,7 @@ function buildQuestionParts(
 	dataElements.push(`<${q.id}/>`);
 
 	// Bind — real attributes get expanded XPath, vellum: attributes keep shorthand
-	const vellumPath = "#form" + nodePath.slice(5); // /data/x → #form/x
+	const vellumPath = `#form${nodePath.slice(5)}`; // /data/x → #form/x
 	const bindParts = [`vellum:nodeset="${vellumPath}"`, `nodeset="${nodePath}"`];
 	const xsdType = getXsdType(q.type);
 	if (xsdType) bindParts.push(`type="${xsdType}"`);

@@ -138,7 +138,8 @@ describe("module rules", () => {
 
 	it("catches missing case list columns", () => {
 		const bp = minBlueprint();
-		delete (bp.modules[0] as any).case_list_columns;
+		delete (bp.modules[0] as unknown as Record<string, unknown>)
+			.case_list_columns;
 		expect(
 			runValidation(bp).some((e) => e.code === "MISSING_CASE_LIST_COLUMNS"),
 		).toBe(true);
@@ -314,8 +315,10 @@ describe("fix registry", () => {
 	it("fixes invalid question ID", () => {
 		const bp = surveyBlueprint([{ id: "123-bad", type: "text", label: "Q" }]);
 		const errors = runValidation(bp);
-		const err = errors.find((e) => e.code === "INVALID_QUESTION_ID")!;
-		const fix = FIX_REGISTRY.get("INVALID_QUESTION_ID")!;
+		const err = errors.find((e) => e.code === "INVALID_QUESTION_ID");
+		if (!err) throw new Error("expected INVALID_QUESTION_ID error");
+		const fix = FIX_REGISTRY.get("INVALID_QUESTION_ID");
+		if (!fix) throw new Error("expected INVALID_QUESTION_ID fix");
 		expect(fix(err, bp)).toBe(true);
 		expect(bp.modules[0].forms[0].questions[0].id).toBe("q_123_bad");
 	});
@@ -338,8 +341,10 @@ describe("fix registry", () => {
 			case_types: null,
 		};
 		const errors = runValidation(bp);
-		const err = errors.find((e) => e.code === "NO_CASE_TYPE")!;
-		const fix = FIX_REGISTRY.get("NO_CASE_TYPE")!;
+		const err = errors.find((e) => e.code === "NO_CASE_TYPE");
+		if (!err) throw new Error("expected NO_CASE_TYPE error");
+		const fix = FIX_REGISTRY.get("NO_CASE_TYPE");
+		if (!fix) throw new Error("expected NO_CASE_TYPE fix");
 		expect(fix(err, bp)).toBe(true);
 		expect(bp.modules[0].case_type).toBe("patient_records");
 	});
@@ -349,8 +354,10 @@ describe("fix registry", () => {
 			{ id: "q", type: "single_select", label: "Q" },
 		]);
 		const errors = runValidation(bp);
-		const err = errors.find((e) => e.code === "SELECT_NO_OPTIONS")!;
-		const fix = FIX_REGISTRY.get("SELECT_NO_OPTIONS")!;
+		const err = errors.find((e) => e.code === "SELECT_NO_OPTIONS");
+		if (!err) throw new Error("expected SELECT_NO_OPTIONS error");
+		const fix = FIX_REGISTRY.get("SELECT_NO_OPTIONS");
+		if (!fix) throw new Error("expected SELECT_NO_OPTIONS fix");
 		expect(fix(err, bp)).toBe(true);
 		expect(bp.modules[0].forms[0].questions[0].options).toHaveLength(2);
 	});
@@ -376,14 +383,14 @@ describe("post_submit validation", () => {
 
 	it("catches invalid destination with helpful message", () => {
 		const bp = minBlueprint();
-		(bp.modules[0].forms[0] as any).post_submit = "nowhere";
+		Object.assign(bp.modules[0].forms[0], { post_submit: "nowhere" });
 		const errors = runValidation(bp);
 		const err = errors.find((e) => e.code === "INVALID_POST_SUBMIT");
 		expect(err).toBeDefined();
-		expect(err!.message).toContain('"nowhere"');
-		expect(err!.message).toContain("default");
-		expect(err!.message).toContain("module");
-		expect(err!.message).toContain("previous");
+		expect(err?.message).toContain('"nowhere"');
+		expect(err?.message).toContain("default");
+		expect(err?.message).toContain("module");
+		expect(err?.message).toContain("previous");
 	});
 
 	it("errors on parent_module since parent modules are not yet supported", () => {
@@ -394,9 +401,9 @@ describe("post_submit validation", () => {
 			(e) => e.code === "POST_SUBMIT_PARENT_MODULE_UNSUPPORTED",
 		);
 		expect(err).toBeDefined();
-		expect(err!.message).toContain("doesn't have a parent module");
-		expect(err!.message).toContain('"module"');
-		expect(err!.message).toContain('"previous"');
+		expect(err?.message).toContain("doesn't have a parent module");
+		expect(err?.message).toContain('"module"');
+		expect(err?.message).toContain('"previous"');
 	});
 
 	it("catches module destination on case_list_only modules", () => {
@@ -427,8 +434,8 @@ describe("post_submit validation", () => {
 			(e) => e.code === "POST_SUBMIT_MODULE_CASE_LIST_ONLY",
 		);
 		expect(err).toBeDefined();
-		expect(err!.message).toContain("case-list-only");
-		expect(err!.message).toContain('"previous"');
+		expect(err?.message).toContain("case-list-only");
+		expect(err?.message).toContain('"previous"');
 	});
 
 	it("does not produce errors when post_submit is absent", () => {
@@ -462,7 +469,7 @@ describe("form_links validation", () => {
 		const errors = runValidation(bp);
 		const err = errors.find((e) => e.code === "FORM_LINK_TARGET_NOT_FOUND");
 		expect(err).toBeDefined();
-		expect(err!.message).toContain("module 99");
+		expect(err?.message).toContain("module 99");
 	});
 
 	it("catches non-existent target form", () => {
@@ -488,7 +495,7 @@ describe("form_links validation", () => {
 		const errors = runValidation(bp);
 		const err = errors.find((e) => e.code === "FORM_LINK_TARGET_NOT_FOUND");
 		expect(err).toBeDefined();
-		expect(err!.message).toContain("form 99");
+		expect(err?.message).toContain("form 99");
 	});
 
 	it("catches self-referencing link", () => {

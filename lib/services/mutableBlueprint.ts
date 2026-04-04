@@ -383,7 +383,7 @@ export class MutableBlueprint {
 
 			if (q.id.toLowerCase().includes(query))
 				matchFields.push({ field: "id", value: q.id });
-			if (q.label && q.label.toLowerCase().includes(query))
+			if (q.label?.toLowerCase().includes(query))
 				matchFields.push({ field: "label", value: q.label });
 			if (q.case_property_on && q.id.toLowerCase().includes(query))
 				matchFields.push({
@@ -398,9 +398,9 @@ export class MutableBlueprint {
 				matchFields.push({ field: "calculate", value: q.calculate });
 			if (q.default_value?.toLowerCase().includes(query))
 				matchFields.push({ field: "default_value", value: q.default_value });
-			if (q.validation_msg && q.validation_msg.toLowerCase().includes(query))
+			if (q.validation_msg?.toLowerCase().includes(query))
 				matchFields.push({ field: "validation_msg", value: q.validation_msg });
-			if (q.hint && q.hint.toLowerCase().includes(query))
+			if (q.hint?.toLowerCase().includes(query))
 				matchFields.push({ field: "hint", value: q.hint });
 
 			// Search options
@@ -464,12 +464,13 @@ export class MutableBlueprint {
 		const question = found.question;
 
 		// Apply updates — null deletes the field, value sets it
+		const record = question as unknown as Record<string, unknown>;
 		for (const [key, value] of Object.entries(updates)) {
 			if (value === undefined) continue;
 			if (value === null) {
-				delete (question as any)[key];
+				delete record[key];
 			} else {
-				(question as any)[key] = value;
+				record[key] = value;
 			}
 		}
 
@@ -556,7 +557,7 @@ export class MutableBlueprint {
 		if (isCrossLevel && opts.targetParentPath !== undefined) {
 			const targetStr = opts.targetParentPath as string;
 			const draggedStr = questionPath as string;
-			if (targetStr === draggedStr || targetStr.startsWith(draggedStr + "/"))
+			if (targetStr === draggedStr || targetStr.startsWith(`${draggedStr}/`))
 				return;
 		}
 
@@ -939,7 +940,7 @@ export class MutableBlueprint {
 				if (!val) continue;
 				const rewritten = rewriter(val);
 				if (rewritten !== val) {
-					(q as any)[field] = rewritten;
+					(q as unknown as Record<string, unknown>)[field] = rewritten;
 					count++;
 				}
 			}
@@ -948,7 +949,7 @@ export class MutableBlueprint {
 				if (!text) continue;
 				const rewritten = transformBareHashtags(text, rewriter);
 				if (rewritten !== text) {
-					(q as any)[field] = rewritten;
+					(q as unknown as Record<string, unknown>)[field] = rewritten;
 					count++;
 				}
 			}
@@ -989,7 +990,7 @@ export class MutableBlueprint {
 				let rewritten = hashtagRewriter(val);
 				rewritten = pathRewriter(rewritten);
 				if (rewritten !== val) {
-					(q as any)[field] = rewritten;
+					(q as unknown as Record<string, unknown>)[field] = rewritten;
 					changed = true;
 				}
 			}
@@ -1000,7 +1001,7 @@ export class MutableBlueprint {
 					pathRewriter(hashtagRewriter(hashtag)),
 				);
 				if (rewritten !== text) {
-					(q as any)[field] = rewritten;
+					(q as unknown as Record<string, unknown>)[field] = rewritten;
 					changed = true;
 				}
 			}

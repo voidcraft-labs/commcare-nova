@@ -92,7 +92,8 @@ export function createInlineEditorExtensions(
  * is dynamically typed — tiptap-markdown adds it at runtime.
  */
 export function getMarkdownContent(editor: {
+	// biome-ignore lint/suspicious/noExplicitAny: TipTap's storage is typed as Record<string, any>
 	storage: Record<string, any>;
 }): string {
-	return editor.storage.markdown?.getMarkdown() ?? "";
+	return editor.storage.markdown?.getMarkdown?.() ?? "";
 }

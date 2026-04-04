@@ -9,8 +9,8 @@
 import { createAnthropic } from "@ai-sdk/anthropic";
 import type {
 	CallWarning,
-	ModelMessage,
 	ToolLoopAgent,
+	ToolSet,
 	UIMessageStreamWriter,
 } from "ai";
 import { generateText, Output, streamText } from "ai";
@@ -232,7 +232,7 @@ export class GenerationContext {
 	 * All agent execution should go through this method so logging and token
 	 * tracking happen in one place.
 	 */
-	async runAgent<CO, T extends Record<string, any>>(
+	async runAgent<CO, T extends ToolSet>(
 		agent: ToolLoopAgent<CO, T>,
 		opts: {
 			prompt: string;
@@ -251,7 +251,7 @@ export class GenerationContext {
 					this.logger.logStep({
 						text: text || undefined,
 						reasoning: reasoningText || undefined,
-						tool_calls: toolCalls?.map((tc: any) => ({
+						tool_calls: toolCalls?.map((tc) => ({
 							name: tc.toolName,
 							args: tc.input,
 						})),

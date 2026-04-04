@@ -168,8 +168,8 @@ export const TooltipTrigger = forwardRef<HTMLElement, TooltipTriggerProps>(
 		const context = useTooltipContext();
 		const childrenRef = isValidElement(children)
 			? parseInt(version, 10) >= 19
-				? (children as { props: { ref?: React.Ref<any> } }).props.ref
-				: (children as any).ref
+				? (children as { props: { ref?: React.Ref<HTMLElement> } }).props.ref
+				: (children as { ref?: React.Ref<HTMLElement> }).ref
 			: undefined;
 		const ref = useMergeRefs([context.refs.setReference, propRef, childrenRef]);
 

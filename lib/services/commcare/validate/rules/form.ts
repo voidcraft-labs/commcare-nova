@@ -9,7 +9,6 @@ import type {
 	BlueprintForm,
 	BlueprintModule,
 	DerivedCaseConfig,
-	FormLink,
 	Question,
 } from "@/lib/schemas/blueprint";
 import {
@@ -128,7 +127,7 @@ export function caseNameFieldMissing(
 }
 
 export function reservedCaseProperty(
-	form: BlueprintForm,
+	_form: BlueprintForm,
 	ctx: FormContext,
 	caseConfig: DerivedCaseConfig,
 ): ValidationError[] {
@@ -230,7 +229,7 @@ export function casePreloadMissingQuestion(
 }
 
 export function casePreloadReserved(
-	form: BlueprintForm,
+	_form: BlueprintForm,
 	ctx: FormContext,
 	caseConfig: DerivedCaseConfig,
 ): ValidationError[] {
@@ -252,7 +251,7 @@ export function casePreloadReserved(
 }
 
 export function duplicateCasePropertyMapping(
-	form: BlueprintForm,
+	_form: BlueprintForm,
 	ctx: FormContext,
 	caseConfig: DerivedCaseConfig,
 ): ValidationError[] {
@@ -733,7 +732,7 @@ function checkDuplicatesInScope(
 }
 
 export function casePropertyBadFormat(
-	form: BlueprintForm,
+	_form: BlueprintForm,
 	ctx: FormContext,
 	caseConfig: DerivedCaseConfig,
 ): ValidationError[] {
@@ -757,7 +756,7 @@ export function casePropertyBadFormat(
 }
 
 export function casePropertyTooLong(
-	form: BlueprintForm,
+	_form: BlueprintForm,
 	ctx: FormContext,
 	caseConfig: DerivedCaseConfig,
 ): ValidationError[] {

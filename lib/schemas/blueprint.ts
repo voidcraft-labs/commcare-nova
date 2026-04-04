@@ -673,8 +673,8 @@ export function deriveCaseConfig(
 					if (!childGroups.has(q.case_property_on))
 						childGroups.set(q.case_property_on, []);
 					childGroups
-						.get(q.case_property_on)!
-						.push({ id: q.id, repeatAncestor: currentRepeat });
+						.get(q.case_property_on)
+						?.push({ id: q.id, repeatAncestor: currentRepeat });
 				}
 			}
 

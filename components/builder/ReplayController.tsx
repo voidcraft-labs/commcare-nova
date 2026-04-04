@@ -19,7 +19,7 @@ interface ReplayControllerProps {
 
 export function ReplayController({
 	stages,
-	appName,
+	appName: _appName,
 	initialIndex = 0,
 	onExit,
 	onMessagesChange,

@@ -14,6 +14,7 @@ import type { JsonValue, StoredEvent } from "@/lib/db/types";
 import type { AppBlueprint } from "@/lib/schemas/blueprint";
 import type { Builder } from "./builder";
 import { applyDataPart } from "./builder";
+import type { HqApplication } from "./commcare/hqTypes";
 
 // ── Types ───────────────────────────────────────────────────────────────
 
@@ -71,7 +72,7 @@ export function extractReplayStages(events: StoredEvent[]): ExtractionResult {
 		if (event.type !== "emission") continue;
 		if (!emissionsByStep.has(event.step_index))
 			emissionsByStep.set(event.step_index, []);
-		emissionsByStep.get(event.step_index)!.push({
+		emissionsByStep.get(event.step_index)?.push({
 			type: event.emission_type,
 			data: event.emission_data,
 		});
@@ -140,12 +141,16 @@ export function extractReplayStages(events: StoredEvent[]): ExtractionResult {
 		/* Accumulate parts into progressive assistant message */
 		if (event.reasoning) {
 			accumulatedParts.push({
-				type: "reasoning",
+				type: "reasoning" as const,
 				reasoning: event.reasoning,
-			} as any);
+				text: event.reasoning,
+			} as unknown as UIMessage["parts"][number]);
 		}
 		if (event.text) {
-			accumulatedParts.push({ type: "text", text: event.text } as any);
+			accumulatedParts.push({
+				type: "text" as const,
+				text: event.text,
+			} as UIMessage["parts"][number]);
 		}
 		for (const tc of event.tool_calls) {
 			accumulatedParts.push({
@@ -155,7 +160,7 @@ export function extractReplayStages(events: StoredEvent[]): ExtractionResult {
 				input: tc.args,
 				state: "output-available",
 				...(tc.output !== null ? { output: tc.output } : {}),
-			} as any);
+			} as UIMessage["parts"][number]);
 		}
 
 		/* Create stages from interesting tool calls */
@@ -169,17 +174,19 @@ export function extractReplayStages(events: StoredEvent[]): ExtractionResult {
 					header: "Update",
 					messages: buildProgressiveMessages(),
 					applyToBuilder: (b) => {
-						for (const em of stepEmissions) applyDataPart(b, em.type, em.data);
+						for (const em of stepEmissions)
+							applyDataPart(b, em.type, em.data as Record<string, unknown>);
 					},
 				});
 			}
 		} else if (interestingCalls.length === 1) {
 			stages.push({
-				header: toolToHeader(interestingCalls[0].name)!,
+				header: toolToHeader(interestingCalls[0].name) ?? "Update",
 				subtitle: deriveSubtitle(interestingCalls[0], stepEmissions, scaffold),
 				messages: buildProgressiveMessages(),
 				applyToBuilder: (b) => {
-					for (const em of stepEmissions) applyDataPart(b, em.type, em.data);
+					for (const em of stepEmissions)
+						applyDataPart(b, em.type, em.data as Record<string, unknown>);
 				},
 			});
 		} else {
@@ -188,11 +195,12 @@ export function extractReplayStages(events: StoredEvent[]): ExtractionResult {
 				const tc = interestingCalls[i];
 				const distributed = emissionMap.get(i) ?? [];
 				stages.push({
-					header: toolToHeader(tc.name)!,
+					header: toolToHeader(tc.name) ?? "Update",
 					subtitle: deriveSubtitle(tc, distributed, scaffold),
 					messages: buildProgressiveMessages(),
 					applyToBuilder: (b) => {
-						for (const em of distributed) applyDataPart(b, em.type, em.data);
+						for (const em of distributed)
+							applyDataPart(b, em.type, em.data as Record<string, unknown>);
 					},
 				});
 			}
@@ -212,7 +220,7 @@ export function extractReplayStages(events: StoredEvent[]): ExtractionResult {
 						...tree,
 						case_types: b.caseTypes ?? null,
 					} as AppBlueprint,
-					hqJson: {},
+					hqJson: {} as HqApplication,
 					success: true,
 				});
 			}
@@ -241,12 +249,12 @@ function distributeEmissions(
 	for (let i = 0; i < toolCalls.length; i++) result.set(i, []);
 
 	for (const em of emissions) {
-		const d = em.data as Record<string, any>;
+		const d = em.data as Record<string, unknown>;
 		let matchedIdx = -1;
 
 		for (let i = 0; i < toolCalls.length; i++) {
 			const tc = toolCalls[i];
-			const args = tc.args as Record<string, any>;
+			const args = tc.args as Record<string, unknown>;
 
 			if (
 				tc.name === "addQuestions" &&
@@ -284,9 +292,9 @@ function distributeEmissions(
 		}
 
 		if (matchedIdx >= 0) {
-			result.get(matchedIdx)!.push(em);
+			result.get(matchedIdx)?.push(em);
 		} else {
-			result.get(0)!.push(em);
+			result.get(0)?.push(em);
 		}
 	}
 
@@ -329,30 +337,44 @@ function deriveSubtitle(
 	emissions: ReplayEmission[],
 	scaffold: JsonValue,
 ): string | undefined {
-	const args = tc.args as Record<string, any>;
+	const args = tc.args as Record<string, unknown>;
 
 	switch (tc.name) {
 		case "askQuestions":
-			return args?.header;
+			return args?.header as string | undefined;
 		case "addModule": {
-			const name = (scaffold as any)?.modules?.[args?.moduleIndex]?.name;
+			const sf = scaffold as Record<string, unknown> | null;
+			const modules = (sf as Record<string, unknown>)?.modules as
+				| Array<Record<string, unknown>>
+				| undefined;
+			const name = modules?.[args?.moduleIndex as number]?.name as
+				| string
+				| undefined;
 			return name ?? `Module ${args?.moduleIndex}`;
 		}
 		case "addQuestions": {
 			const formEm = emissions.find(
 				(e) => e.type === "data-form-done" || e.type === "data-form-updated",
 			);
-			const formName = (formEm?.data as any)?.form?.name;
+			const formData = formEm?.data as Record<string, unknown> | undefined;
+			const formName = (formData?.form as Record<string, unknown> | undefined)
+				?.name as string | undefined;
 			if (formName) return formName;
-			const sfName = (scaffold as any)?.modules?.[args?.moduleIndex]?.forms?.[
-				args?.formIndex
-			]?.name;
+			const sf2 = scaffold as Record<string, unknown> | null;
+			const mods = (sf2 as Record<string, unknown>)?.modules as
+				| Array<Record<string, unknown>>
+				| undefined;
+			const sfName = (
+				mods?.[args?.moduleIndex as number]?.forms as
+					| Array<Record<string, unknown>>
+					| undefined
+			)?.[args?.formIndex as number]?.name as string | undefined;
 			return sfName ?? `Form ${args?.formIndex}`;
 		}
 		case "editQuestion":
 			return `Update ${args?.questionId}`;
 		case "addQuestion":
-			return `Add ${(args?.question as any)?.id ?? "question"}`;
+			return `Add ${(args?.question as Record<string, unknown> | undefined)?.id ?? "question"}`;
 		case "removeQuestion":
 			return `Remove ${args?.questionId}`;
 		case "updateModule":

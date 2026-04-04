@@ -3,6 +3,7 @@ import type {
 	AppBlueprint,
 	BlueprintForm,
 	ConnectConfig,
+	ConnectLearnModule,
 	ConnectType,
 } from "../../schemas/blueprint";
 import { runValidation } from "../commcare/validate/runner";
@@ -100,10 +101,13 @@ describe("deriveConnectDefaults", () => {
 
 	it("fills learn_module defaults when learn_module is present", () => {
 		const form = makeLearnForm({
-			learn_module: { name: "", description: "" } as any,
+			learn_module: {
+				name: "",
+				description: "",
+			} as Partial<ConnectLearnModule> as ConnectLearnModule,
 		});
 		deriveConnectDefaults("learn", form, "Main");
-		expect(form.connect!.learn_module).toEqual({
+		expect(form.connect?.learn_module).toEqual({
 			id: "main",
 			name: "ILC Training",
 			description: "ILC Training",
@@ -114,7 +118,7 @@ describe("deriveConnectDefaults", () => {
 	it("auto-detects assessment score when assessment is present", () => {
 		const form = makeLearnForm({ assessment: { user_score: "" } });
 		deriveConnectDefaults("learn", form, "Main");
-		expect(form.connect!.assessment).toEqual({
+		expect(form.connect?.assessment).toEqual({
 			id: "main_ilc_training",
 			user_score: "if(/data/q1 = 'b' and /data/q2 = 'daily', 100, 0)",
 		});
@@ -123,8 +127,8 @@ describe("deriveConnectDefaults", () => {
 	it("does not auto-create learn_module or assessment from empty connect", () => {
 		const form = makeLearnForm({});
 		deriveConnectDefaults("learn", form, "Main");
-		expect(form.connect!.learn_module).toBeUndefined();
-		expect(form.connect!.assessment).toBeUndefined();
+		expect(form.connect?.learn_module).toBeUndefined();
+		expect(form.connect?.assessment).toBeUndefined();
 	});
 
 	it("does not overwrite existing learn_module", () => {
@@ -136,8 +140,8 @@ describe("deriveConnectDefaults", () => {
 			},
 		});
 		deriveConnectDefaults("learn", form);
-		expect(form.connect!.learn_module!.name).toBe("Custom Name");
-		expect(form.connect!.learn_module!.time_estimate).toBe(10);
+		expect(form.connect?.learn_module?.name).toBe("Custom Name");
+		expect(form.connect?.learn_module?.time_estimate).toBe(10);
 	});
 
 	it("does not overwrite existing assessment", () => {
@@ -145,7 +149,7 @@ describe("deriveConnectDefaults", () => {
 			assessment: { user_score: "50" },
 		});
 		deriveConnectDefaults("learn", form);
-		expect(form.connect!.assessment!.user_score).toBe("50");
+		expect(form.connect?.assessment?.user_score).toBe("50");
 	});
 
 	it("fills deliver_unit defaults when deliver_unit is present", () => {
@@ -153,7 +157,7 @@ describe("deriveConnectDefaults", () => {
 			deliver_unit: { name: "", entity_id: "", entity_name: "" },
 		});
 		deriveConnectDefaults("deliver", form, "Main");
-		expect(form.connect!.deliver_unit).toEqual({
+		expect(form.connect?.deliver_unit).toEqual({
 			id: "main",
 			name: "Weekly Report",
 			entity_id: "concat(#user/username, '-', today())",
@@ -170,7 +174,7 @@ describe("deriveConnectDefaults", () => {
 			},
 		});
 		deriveConnectDefaults("deliver", form);
-		expect(form.connect!.deliver_unit!.name).toBe("Custom Unit");
+		expect(form.connect?.deliver_unit?.name).toBe("Custom Unit");
 	});
 
 	it("fills assessment default score of 100 when no score question exists", () => {
@@ -181,7 +185,7 @@ describe("deriveConnectDefaults", () => {
 			questions: [{ id: "content", type: "label", label: "Read this." }],
 		};
 		deriveConnectDefaults("learn", form, "Training");
-		expect(form.connect!.assessment).toEqual({
+		expect(form.connect?.assessment).toEqual({
 			id: "training_simple_learn",
 			user_score: "100",
 		});
@@ -399,7 +403,7 @@ describe("MutableBlueprint Connect support", () => {
 				learn_module: { name: "Mod", description: "Desc", time_estimate: 5 },
 			},
 		});
-		expect(mb.getForm(0, 0)!.connect!.learn_module!.name).toBe("Mod");
+		expect(mb.getForm(0, 0)?.connect?.learn_module?.name).toBe("Mod");
 	});
 
 	it("updateForm removes connect with null", () => {
@@ -415,6 +419,6 @@ describe("MutableBlueprint Connect support", () => {
 			case_types: null,
 		});
 		mb.updateForm(0, 0, { connect: null });
-		expect(mb.getForm(0, 0)!.connect).toBeUndefined();
+		expect(mb.getForm(0, 0)?.connect).toBeUndefined();
 	});
 });

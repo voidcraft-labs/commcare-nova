@@ -233,8 +233,8 @@ const fixUnknownFunction: FixFn = (error, blueprint) => {
 	let changed = false;
 	for (const field of fields) {
 		const val = q[field];
-		if (typeof val === "string" && val.includes(wrong + "(")) {
-			q[field] = val.replaceAll(wrong + "(", correct + "(");
+		if (typeof val === "string" && val.includes(`${wrong}(`)) {
+			q[field] = val.replaceAll(`${wrong}(`, `${correct}(`);
 			changed = true;
 		}
 	}

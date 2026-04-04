@@ -57,7 +57,7 @@ export function canExecuteUndoRedoAction(
 	editor: Editor | null,
 	action: UndoRedoAction,
 ): boolean {
-	if (!editor || !editor.isEditable) return false;
+	if (!editor?.isEditable) return false;
 	if (isNodeTypeSelected(editor, ["image"])) return false;
 
 	return action === "undo" ? editor.can().undo() : editor.can().redo();
@@ -70,7 +70,7 @@ export function executeUndoRedoAction(
 	editor: Editor | null,
 	action: UndoRedoAction,
 ): boolean {
-	if (!editor || !editor.isEditable) return false;
+	if (!editor?.isEditable) return false;
 	if (!canExecuteUndoRedoAction(editor, action)) return false;
 
 	const chain = editor.chain().focus();

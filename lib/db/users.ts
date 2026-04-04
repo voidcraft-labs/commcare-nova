@@ -44,7 +44,7 @@ export async function provisionUser(
 			},
 			{ merge: true },
 		);
-		return snap.data()!.role === "admin";
+		return snap.data()?.role === "admin";
 	} else {
 		/* First sign-in — set created_at and default role */
 		await ref.set({
@@ -77,7 +77,7 @@ export function touchUser(email: string): void {
  */
 export async function isUserAdmin(email: string): Promise<boolean> {
 	const snap = await docs.user(email).get();
-	return snap.exists && snap.data()!.role === "admin";
+	return snap.exists && snap.data()?.role === "admin";
 }
 
 // ── Read ──────────────────────────────────────────────────────────
@@ -88,7 +88,7 @@ export async function isUserAdmin(email: string): Promise<boolean> {
  */
 export async function getUser(email: string): Promise<UserDoc | null> {
 	const snap = await docs.user(email).get();
-	return snap.exists ? snap.data()! : null;
+	return snap.exists ? (snap.data() ?? null) : null;
 }
 
 /**

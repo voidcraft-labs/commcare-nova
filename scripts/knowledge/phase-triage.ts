@@ -1,15 +1,14 @@
 /** Phase 2: Triage — classify crawled pages for relevance using Haiku */
 
+import * as fs from "node:fs";
+import * as path from "node:path";
+import * as readline from "node:readline";
 import { createAnthropic } from "@ai-sdk/anthropic";
 import { generateObject } from "ai";
-import * as fs from "fs";
-import * as path from "path";
-import * as readline from "readline";
 import { z } from "zod";
 import { log, logCost, logSummary } from "./log.js";
 import { loadCrawledPages } from "./phase-crawl.js";
 import type {
-	CrawledPage,
 	DiscoveryResult,
 	PipelineConfig,
 	TriageEntry,
@@ -46,7 +45,7 @@ const triageBatchSchema = z.object({
 
 function truncateContent(content: string): string {
 	if (content.length <= MAX_CONTENT_CHARS) return content;
-	return content.slice(0, MAX_CONTENT_CHARS) + "\n... [truncated]";
+	return `${content.slice(0, MAX_CONTENT_CHARS)}\n... [truncated]`;
 }
 
 function estimateTokens(chars: number): number {

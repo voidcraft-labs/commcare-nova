@@ -10,8 +10,12 @@ import type { Builder } from "@/lib/services/builder";
 export function useSaveQuestion(
 	builder: Builder,
 ): (field: string, value: string | null) => void {
-	const selected = builder.selected!;
-	const mb = builder.mb!;
+	if (!builder.selected || !builder.mb)
+		throw new Error(
+			"useSaveQuestion requires an active selection and MutableBlueprint",
+		);
+	const selected = builder.selected;
+	const mb = builder.mb;
 	return useCallback(
 		(field: string, value: string | null) => {
 			if (selected.formIndex === undefined || !selected.questionPath) return;

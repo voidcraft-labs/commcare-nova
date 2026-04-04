@@ -20,7 +20,11 @@ export type FormatNode = {
 // Pre-resolved from the parser's nodeSet for typed comparisons
 const T = (() => {
 	const all = parser.nodeSet.types;
-	const one = (name: string) => all.find((t) => t.name === name)!;
+	const one = (name: string) => {
+		const found = all.find((t) => t.name === name);
+		if (!found) throw new Error(`Unknown node type: ${name}`);
+		return found;
+	};
 	const many = (name: string) => new Set(all.filter((t) => t.name === name));
 
 	return {
@@ -150,7 +154,7 @@ const LAYOUT_TEXT: Record<Layout, string> = {
 function render(node: FormatNode): string {
 	if (typeof node.type === "number") return LAYOUT_TEXT[node.type];
 	if (node.text !== undefined) return node.text;
-	return node.children!.map(render).join("");
+	return node.children?.map(render).join("") ?? "";
 }
 
 // --------------- Public API ---------------
@@ -200,7 +204,7 @@ function prettyPrint(node: FormatNode, depth: number): FormatNode {
 		const innerDepth = depth + 1;
 		const result: FormatNode[] = [];
 
-		for (const child of node.children!) {
+		for (const child of node.children ?? []) {
 			if (child.type === T.OpenParen) {
 				result.push(child);
 				insertIndent(result, innerDepth);
@@ -225,7 +229,7 @@ function prettyPrint(node: FormatNode, depth: number): FormatNode {
 		const result: FormatNode[] = [];
 		let insideBracket = false;
 
-		for (const child of node.children!) {
+		for (const child of node.children ?? []) {
 			if (child.type === T.OpenBracket) {
 				result.push(child);
 				insertIndent(result, innerDepth);
@@ -246,13 +250,18 @@ function prettyPrint(node: FormatNode, depth: number): FormatNode {
 	if ((type === T.AndExpr || type === T.OrExpr) && depth > 0) {
 		const result: FormatNode[] = [];
 
-		for (let i = 0; i < node.children!.length; i++) {
-			const child = node.children![i];
+		const children = node.children ?? [];
+		for (let i = 0; i < children.length; i++) {
+			const child = children[i];
 
 			// Replace the Space before the keyword with NewLine + Tabs
 			if (child.type === Layout.Space) {
-				const next = node.children![i + 1];
-				if (typeof next?.type !== "number" && T.Keywords.has(next.type)) {
+				const next = children[i + 1];
+				if (
+					next &&
+					typeof next.type !== "number" &&
+					T.Keywords.has(next.type)
+				) {
 					insertIndent(result, depth);
 					continue;
 				}
@@ -267,7 +276,7 @@ function prettyPrint(node: FormatNode, depth: number): FormatNode {
 	// Default: recurse into children
 	return {
 		type,
-		children: node.children!.map((child) => prettyPrint(child, depth)),
+		children: node.children?.map((child) => prettyPrint(child, depth)),
 	};
 }
 

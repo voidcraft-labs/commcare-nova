@@ -210,7 +210,7 @@ export function XPathField({
 				setEditing(false);
 				const normalized = formatXPath(v);
 				if (normalized !== formatXPath(value)) {
-					onSave!(normalized);
+					onSave?.(normalized);
 				}
 			}}
 			onCancel={() => {
@@ -260,7 +260,7 @@ function InlineXPathEditor({
 	onSave,
 	onCancel,
 	getLintContext,
-	provider,
+	provider: _provider,
 	clickPosition,
 }: InlineXPathEditorProps) {
 	const builder = useBuilderInstance();

@@ -16,7 +16,7 @@ export interface UseImagePopoverConfig {
  * Requires the image node extension to be registered in the editor schema.
  */
 export function canInsertImage(editor: Editor | null): boolean {
-	if (!editor || !editor.isEditable) return false;
+	if (!editor?.isEditable) return false;
 	return isNodeInSchema("image", editor);
 }
 
@@ -24,7 +24,7 @@ export function canInsertImage(editor: Editor | null): boolean {
  * True when the cursor or selection is positioned on an image node.
  */
 export function isImageActive(editor: Editor | null): boolean {
-	if (!editor || !editor.isEditable) return false;
+	if (!editor?.isEditable) return false;
 	return editor.isActive("image");
 }
 

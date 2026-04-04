@@ -71,7 +71,7 @@ export const MARK_SHORTCUT_KEYS: Record<Mark, string> = {
  * Checks if a mark can be toggled in the current editor state
  */
 export function canToggleMark(editor: Editor | null, type: Mark): boolean {
-	if (!editor || !editor.isEditable) return false;
+	if (!editor?.isEditable) return false;
 	if (!isMarkInSchema(type, editor) || isNodeTypeSelected(editor, ["image"]))
 		return false;
 
@@ -82,7 +82,7 @@ export function canToggleMark(editor: Editor | null, type: Mark): boolean {
  * Checks if a mark is currently active
  */
 export function isMarkActive(editor: Editor | null, type: Mark): boolean {
-	if (!editor || !editor.isEditable) return false;
+	if (!editor?.isEditable) return false;
 	return editor.isActive(type);
 }
 
@@ -90,7 +90,7 @@ export function isMarkActive(editor: Editor | null, type: Mark): boolean {
  * Toggles a mark in the editor
  */
 export function toggleMark(editor: Editor | null, type: Mark): boolean {
-	if (!editor || !editor.isEditable) return false;
+	if (!editor?.isEditable) return false;
 	if (!canToggleMark(editor, type)) return false;
 
 	return editor.chain().focus().toggleMark(type).run();

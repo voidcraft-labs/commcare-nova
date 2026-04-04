@@ -228,8 +228,8 @@ describe("deriveEntryDefinition", () => {
 		expect(entry.commandId).toBe("m0-f1");
 		expect(entry.localeId).toBe("forms.m0f1");
 		expect(entry.instances).toHaveLength(1);
-		expect(entry.session!.datums).toHaveLength(1);
-		expect(entry.stack!.operations).toHaveLength(1);
+		expect(entry.session?.datums).toHaveLength(1);
+		expect(entry.stack?.operations).toHaveLength(1);
 	});
 
 	it("omits stack for default destination", () => {
@@ -260,8 +260,8 @@ describe("deriveEntryDefinition", () => {
 			links,
 		);
 		// Should have link + fallback
-		expect(entry.stack!.operations).toHaveLength(2);
-		expect(entry.stack!.operations[0].ifClause).toBe("x = 1");
+		expect(entry.stack?.operations).toHaveLength(2);
+		expect(entry.stack?.operations[0].ifClause).toBe("x = 1");
 	});
 
 	it("form_links override post_submit", () => {

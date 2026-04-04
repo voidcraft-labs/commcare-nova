@@ -1,7 +1,7 @@
 /** Phase 0: Discover — map out what's in the Confluence */
 
-import * as fs from "fs";
-import * as path from "path";
+import * as fs from "node:fs";
+import * as path from "node:path";
 import { ConfluenceClient } from "./confluence.js";
 import { log, logSummary } from "./log.js";
 import type {

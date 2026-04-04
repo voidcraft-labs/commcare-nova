@@ -81,7 +81,7 @@ export class DataInstance {
 			for (const key of [...this.data.keys()]) {
 				if (key.startsWith(oldPrefix)) {
 					const suffix = key.slice(oldPrefix.length);
-					const value = this.data.get(key)!;
+					const value = this.data.get(key) ?? "";
 					this.data.delete(key);
 					this.data.set(newPrefix + suffix, value);
 				}

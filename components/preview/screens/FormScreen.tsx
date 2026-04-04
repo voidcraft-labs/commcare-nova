@@ -59,8 +59,11 @@ export function FormScreen({
 		return undefined;
 	}, [caseId, mod?.case_type, form?.type, blueprint.case_types]);
 
+	if (!form)
+		throw new Error(`Form not found at [${moduleIndex}][${formIndex}]`);
+
 	const engine = useFormEngine(
-		form!,
+		form,
 		blueprint.case_types ?? undefined,
 		mod?.case_type ?? undefined,
 		caseData,
@@ -140,7 +143,6 @@ export function FormScreen({
 					if (onNavigate) onNavigate({ type: "home" });
 					else onBack();
 					break;
-				case "previous":
 				default:
 					onBack();
 					break;
@@ -173,7 +175,7 @@ export function FormScreen({
 						<EditableTitle
 							value={form.name}
 							onSave={(name) => {
-								builder.mb!.updateForm(moduleIndex, formIndex, { name });
+								builder.mb?.updateForm(moduleIndex, formIndex, { name });
 								builder.notifyBlueprintChanged();
 							}}
 							onSaved={handleTitleSaved}
@@ -181,12 +183,12 @@ export function FormScreen({
 					) : (
 						<EditableTitle value={form.name} readOnly />
 					)}
-					{mode === "edit" && builder && (
+					{mode === "edit" && builder?.mb && (
 						<FormSettingsButton
 							form={form}
 							moduleIndex={moduleIndex}
 							formIndex={formIndex}
-							mb={builder.mb!}
+							mb={builder.mb}
 							notifyBlueprintChanged={builder.notifyBlueprintChanged}
 						/>
 					)}

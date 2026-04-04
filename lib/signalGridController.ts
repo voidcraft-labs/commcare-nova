@@ -6,8 +6,6 @@ import {
 	fillFront,
 	generateTilingPlan,
 	isBoardFull,
-	PIECES,
-	type PieceDefinition,
 	type Placement,
 	type Shape,
 	type TilingPlan,
@@ -169,7 +167,7 @@ const FOREGROUND_BACKPLATE_OPTS: BackplateOpts = {
 };
 
 /** Minimum zone width as a fraction of total columns (prevents tiny slivers). */
-const MIN_EDIT_ZONE = 0.15;
+const _MIN_EDIT_ZONE = 0.15;
 /** How fast the current zone lerps toward the target zone (per second). */
 const EDIT_ZONE_LERP_SPEED = 3.0;
 /** One defrag op at a time — a single 2-column bar, just like building's sweep. */
@@ -386,7 +384,6 @@ export class SignalGridController {
 	private editTarget: EditFocus = { start: 0, end: 1 };
 	private editCurrent: EditFocus = { start: 0, end: 1 };
 	private editOps: DefragOp[] = [];
-	private editSpawnTimer = 0;
 
 	// Error fatal
 	private fatalTimer = 0;
@@ -679,7 +676,6 @@ export class SignalGridController {
 		}
 		if (mode === "editing") {
 			this.editOps = [];
-			this.editSpawnTimer = 0;
 			this.editBP = { accum: 0, ambientTimer: 0, sendingFade: fade };
 		}
 		// When leaving done/emerald (hue 4.0), snap hue to a cool base so interpolation
@@ -1214,7 +1210,9 @@ export class SignalGridController {
 	 *  Rush mode skips preview/select theatrics — piece appears pre-selected at its
 	 *  final rotation a few columns out and slides directly into landing position. */
 	private startScaffoldTurn(optimal: Placement, rush: boolean): ScaffoldAnim {
-		const front = fillFront(this.scaffoldBoard!);
+		const board = this.scaffoldBoard;
+		if (!board) return this.scaffoldAnim as ScaffoldAnim;
+		const front = fillFront(board);
 		const pieceWidth = Math.max(...optimal.shape.map(([, c]) => c)) + 1;
 		const previewCol = front + pieceWidth + 3;
 
@@ -1286,7 +1284,8 @@ export class SignalGridController {
 	/** Advance the scaffold piece animation state machine.
 	 *  All phase durations use base constants (S_*) scaled by SCAFFOLD_TEMPO and per-piece speed. */
 	private advanceScaffoldAnim(dt: number): void {
-		const a = this.scaffoldAnim!;
+		const a = this.scaffoldAnim;
+		if (!a) return;
 		const tempo = SCAFFOLD_TEMPO * a.speed;
 		a.timer += dt;
 
@@ -1416,7 +1415,10 @@ export class SignalGridController {
 					}
 				}
 				if (p >= 1.0) {
-					this.scaffoldBoard = applyPlacement(this.scaffoldBoard!, a.optimal);
+					this.scaffoldBoard = applyPlacement(
+						this.scaffoldBoard ?? [],
+						a.optimal,
+					);
 					this.scaffoldPlanIdx++;
 					this.scaffoldAnim = null;
 				}
@@ -1546,7 +1548,7 @@ export class SignalGridController {
 			this.cols,
 		);
 		const zoneCols = Math.max(1, endCol - startCol);
-		const density = this.cellCount / 93;
+		const _density = this.cellCount / 93;
 
 		// ── Defrag bar — one 2-column bar at a time, like building's sweep ──
 		// Immediately spawn a new op when the previous one finishes.
