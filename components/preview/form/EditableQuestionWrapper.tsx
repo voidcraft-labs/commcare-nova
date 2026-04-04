@@ -98,7 +98,8 @@ export function EditableQuestionWrapper({
 			// but the DOM target is outside this wrapper's subtree.
 			const target = e.target as HTMLElement;
 			if (!e.currentTarget.contains(target)) return;
-			// Don't intercept clicks that belong to nested question wrappers or insertion points
+			// Don't intercept clicks inside the inline settings panel, nested wrappers, or insertion points
+			if (target.closest("[data-no-drag]")) return;
 			if (target.closest("[data-insertion-point]")) return;
 			const closestWrapper = target.closest("[data-question-wrapper]");
 			if (closestWrapper && closestWrapper !== e.currentTarget) return;
