@@ -12,12 +12,12 @@
 
 "use client";
 
+import type { IconifyIcon } from "@iconify/react/offline";
+import { Icon } from "@iconify/react/offline";
+import tablerFolder from "@iconify-icons/tabler/folder";
+import tablerUserShield from "@iconify-icons/tabler/user-shield";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Icon } from "@iconify/react/offline";
-import type { IconifyIcon } from "@iconify/react/offline";
-import ciFolder from "@iconify-icons/ci/folder";
-import tablerUserShield from "@iconify-icons/tabler/user-shield";
 import { AccountMenu } from "@/components/ui/AccountMenu";
 
 // ── Nav definition ────────────────────────────────────────────────────
@@ -33,7 +33,12 @@ interface NavItem {
 }
 
 const NAV_ITEMS: NavItem[] = [
-	{ href: "/builds", label: "Projects", icon: ciFolder, matchPrefix: "/build" },
+	{
+		href: "/builds",
+		label: "Projects",
+		icon: tablerFolder,
+		matchPrefix: "/build",
+	},
 	{
 		href: "/admin",
 		label: "Admin",
@@ -45,12 +50,15 @@ const NAV_ITEMS: NavItem[] = [
 
 // ── Styles ────────────────────────────────────────────────────────────
 
+/** Active state uses `bg-white/[0.08]` for a visible indicator against the
+ *  void header background (the previous `bg-nova-surface` produced only 1.1:1).
+ *  `active:scale-[0.97]` provides tactile press feedback on click. */
 function navLinkClass(active: boolean): string {
 	const base =
-		"flex items-center gap-1.5 px-2.5 py-1.5 text-sm rounded-lg transition-colors";
+		"flex items-center gap-1.5 px-2.5 py-2.5 text-sm rounded-lg transition-all active:scale-[0.97] cursor-pointer";
 	return active
-		? `${base} text-nova-text bg-nova-surface`
-		: `${base} text-nova-text-secondary hover:text-nova-text hover:bg-nova-surface`;
+		? `${base} text-nova-text bg-white/[0.08]`
+		: `${base} text-nova-text-secondary hover:text-nova-text hover:bg-white/[0.06]`;
 }
 
 // ── Component ─────────────────────────────────────────────────────────
@@ -64,7 +72,7 @@ export function HeaderNav({ isAdmin }: HeaderNavProps) {
 	const pathname = usePathname();
 
 	return (
-		<div className="flex items-center gap-1">
+		<nav className="flex items-center gap-1" aria-label="Main navigation">
 			{NAV_ITEMS.map((item) => {
 				if (item.adminOnly && !isAdmin) return null;
 				const isActive = pathname.startsWith(item.matchPrefix);
@@ -73,6 +81,7 @@ export function HeaderNav({ isAdmin }: HeaderNavProps) {
 						key={item.href}
 						href={item.href}
 						className={navLinkClass(isActive)}
+						{...(isActive ? { "aria-current": "page" as const } : {})}
 					>
 						<Icon icon={item.icon} width="16" height="16" />
 						{item.label}
@@ -80,6 +89,6 @@ export function HeaderNav({ isAdmin }: HeaderNavProps) {
 				);
 			})}
 			<AccountMenu />
-		</div>
+		</nav>
 	);
 }

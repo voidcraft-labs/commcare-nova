@@ -27,7 +27,7 @@ export function Logo({ size = "md" }: { size?: "sm" | "md" | "lg" | "hero" }) {
 			<div className={`relative ${dotSizes[size]} shrink-0`}>
 				<div className={`${dotSizes[size]} rounded-full bg-nova-violet`} />
 				<div
-					className={`absolute inset-0 ${dotSizes[size]} rounded-full bg-nova-violet animate-ping opacity-30`}
+					className={`absolute inset-0 ${dotSizes[size]} rounded-full bg-nova-violet animate-ping opacity-30 motion-reduce:hidden`}
 				/>
 			</div>
 			<span className="bg-gradient-to-r from-nova-text to-nova-violet-bright bg-clip-text text-transparent [text-box:trim-both_ex_alphabetic]">
