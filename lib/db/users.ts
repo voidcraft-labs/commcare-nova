@@ -3,15 +3,15 @@
  *
  * UserDoc lives at `users/{email}`. Two write paths:
  * - `provisionUser` — called on every sign-in (Better Auth after hook), creates or updates
- * - `touchUser` — called on every chat request (fire-and-forget), updates `last_active_at`
+ * - `touchUser` — called on every authenticated request (fire-and-forget), updates `last_active_at`
  *
  * The `role` field is intentionally never set by application code — changes
  * happen via direct Firestore console edits only.
  */
 import { FieldValue } from "@google-cloud/firestore";
-import type { UserDoc } from "./types";
-import { collections, docs } from "./firestore";
 import { log } from "@/lib/log";
+import { collections, docs } from "./firestore";
+import type { UserDoc } from "./types";
 
 // ── Write ─────────────────────────────────────────────────────────
 
@@ -59,25 +59,15 @@ export async function provisionUser(
 }
 
 /**
- * Update the user's activity timestamp and sync profile fields.
- * Fire-and-forget — called from the chat route on every authenticated
- * request. Never touches `created_at` or `role`.
+ * Bump the user's activity timestamp. Fire-and-forget — called from auth
+ * utilities on every authenticated request (API routes, RSC pages, chat).
+ * Only writes `last_active_at`; profile fields (name, image) are synced
+ * exclusively by `provisionUser` with fresh OAuth data on sign-in.
  */
-export function touchUser(
-	email: string,
-	name: string,
-	image: string | null,
-): void {
+export function touchUser(email: string): void {
 	docs
 		.user(email)
-		.set(
-			{
-				name,
-				image,
-				last_active_at: FieldValue.serverTimestamp(),
-			},
-			{ merge: true },
-		)
+		.set({ last_active_at: FieldValue.serverTimestamp() }, { merge: true })
 		.catch((err) => log.error("[touchUser] Firestore write failed", err));
 }
 

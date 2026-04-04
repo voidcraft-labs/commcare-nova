@@ -15,8 +15,9 @@
  * Logs are the audit/replay path — append-only, fetched only when needed.
  * Usage is the spend-cap path — one document per user per month for direct lookups.
  */
-import { z } from "zod";
+
 import { Timestamp } from "@google-cloud/firestore";
+import { z } from "zod";
 import { appBlueprintSchema } from "../schemas/blueprint";
 
 // ── Shared ──────────────────────────────────────────────────────────
@@ -46,7 +47,7 @@ export const userDocSchema = z.object({
 	role: z.enum(["user", "admin"]).default("user"),
 	/** First sign-in timestamp. Set once via FieldValue.serverTimestamp(). */
 	created_at: timestamp,
-	/** Updated on each authenticated request via FieldValue.serverTimestamp(). */
+	/** Updated on every authenticated interaction via FieldValue.serverTimestamp(). */
 	last_active_at: timestamp,
 });
 export type UserDoc = z.infer<typeof userDocSchema>;
