@@ -13,7 +13,6 @@
  */
 
 "use client";
-import { useCallback } from "react";
 import type { Question } from "@/lib/schemas/blueprint";
 import type { Builder } from "@/lib/services/builder";
 import { ContextualEditorData } from "./contextual/ContextualEditorData";
@@ -42,19 +41,8 @@ export function InlineSettingsPanel({
 	builder,
 	question,
 }: InlineSettingsPanelProps) {
-	/* Ref callback attaches a native click listener to block propagation to the
-	 * parent (which would re-select the question). Native listener avoids JSX
-	 * onClick, which triggers a11y lint rules on non-interactive elements. */
-	const panelRef = useCallback((el: HTMLDivElement | null) => {
-		if (!el) return;
-		const stop = (e: Event) => e.stopPropagation();
-		el.addEventListener("click", stop);
-		return () => el.removeEventListener("click", stop);
-	}, []);
-
 	return (
 		<div
-			ref={panelRef}
 			className="mt-2 rounded-lg border border-nova-border bg-nova-surface/50 overflow-hidden"
 			data-no-drag
 		>
