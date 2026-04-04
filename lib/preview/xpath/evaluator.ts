@@ -1,8 +1,8 @@
 import type { SyntaxNode } from "@lezer/common";
 import { parser } from "@/lib/codemirror/xpath-parser";
-import type { XPathValue, EvalContext } from "./types";
-import { toNumber, toBoolean, compareEqual, compareRelational } from "./coerce";
+import { compareEqual, compareRelational, toBoolean, toNumber } from "./coerce";
 import { getFunction } from "./functions";
+import type { EvalContext, XPathValue } from "./types";
 
 // Pre-resolve all node types from the parser — zero string comparisons at runtime
 // Child and Descendant appear twice in the grammar (rootStep vs expr), so use many().

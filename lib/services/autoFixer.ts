@@ -5,13 +5,14 @@
  */
 
 import {
+	CASE_TYPE_REGEX,
+	escapeRegex,
+	escapeXml,
 	RESERVED_CASE_PROPERTIES,
 	RESERVED_RENAME_MAP,
-	CASE_TYPE_REGEX,
 	XFORM_PATH_REGEX,
 	XML_ELEMENT_NAME_REGEX,
 } from "./commcare";
-import { escapeXml, escapeRegex } from "./commcare";
 
 export class AutoFixer {
 	/**

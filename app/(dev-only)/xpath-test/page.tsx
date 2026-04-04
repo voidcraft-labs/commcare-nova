@@ -1,10 +1,10 @@
 "use client";
-import { useState, useCallback } from "react";
-import CodeMirror from "@uiw/react-codemirror";
 import { EditorView } from "@codemirror/view";
+import CodeMirror from "@uiw/react-codemirror";
+import { useCallback, useState } from "react";
+import { formatXPath, prettyPrintXPath } from "@/lib/codemirror/xpath-format";
 import { xpath } from "@/lib/codemirror/xpath-language";
 import { novaXPathTheme } from "@/lib/codemirror/xpath-theme";
-import { formatXPath, prettyPrintXPath } from "@/lib/codemirror/xpath-format";
 
 const editorExtensions = [xpath(), EditorView.lineWrapping];
 

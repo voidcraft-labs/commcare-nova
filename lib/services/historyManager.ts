@@ -1,6 +1,6 @@
 import type { AppBlueprint } from "@/lib/schemas/blueprint";
-import { type QuestionPath, qpath, qpathParent } from "./questionPath";
 import { MutableBlueprint } from "./mutableBlueprint";
+import { type QuestionPath, qpath, qpathParent } from "./questionPath";
 
 /** Method names that mutate blueprint state and should create undo snapshots. */
 const MUTATION_METHODS = new Set([

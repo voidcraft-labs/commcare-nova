@@ -6,9 +6,10 @@
  * nothing to strip. Reads go through the Zod converter which validates the
  * discriminated union on read.
  */
-import type { StoredEvent } from "./types";
-import { collections } from "./firestore";
+
 import { log } from "@/lib/log";
+import { collections } from "./firestore";
+import type { StoredEvent } from "./types";
 
 // ── Write ──────────────────────────────────────────────────────────
 

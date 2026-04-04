@@ -10,15 +10,15 @@
  */
 
 "use client";
-import Markdown, { RuleType, type MarkdownToJSX } from "markdown-to-jsx";
-import { Fragment, useMemo, type ReactNode } from "react";
+import type { IconifyIcon } from "@iconify/react/offline";
+import Markdown, { type MarkdownToJSX, RuleType } from "markdown-to-jsx";
+import { Fragment, type ReactNode, useMemo } from "react";
 import { PREVIEW_OPTIONS, withChipInjection } from "@/lib/markdown";
+import { HASHTAG_REF_PATTERN } from "./config";
+import type { ReferenceProvider } from "./provider";
 import { ReferenceChip } from "./ReferenceChip";
 import { useReferenceProvider } from "./ReferenceContext";
-import { HASHTAG_REF_PATTERN } from "./config";
-import type { IconifyIcon } from "@iconify/react/offline";
-import { resolveRefFromExpr, parseLabelSegments } from "./renderLabel";
-import type { ReferenceProvider } from "./provider";
+import { parseLabelSegments, resolveRefFromExpr } from "./renderLabel";
 
 interface LabelContentProps {
 	/** Raw label text (bare `#type/path` hashtags and markdown). */

@@ -12,7 +12,7 @@
 
 "use client";
 import { Icon, type IconifyIcon } from "@iconify/react/offline";
-import { POPOVER_GLASS, POPOVER_ELEVATED } from "@/lib/styles";
+import { POPOVER_ELEVATED, POPOVER_GLASS } from "@/lib/styles";
 
 export interface DropdownMenuItem {
 	/** Unique key for the item. */

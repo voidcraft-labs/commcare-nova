@@ -3,11 +3,11 @@ import { useCallback } from "react";
 import { ConnectLogomark } from "@/components/icons/ConnectLogomark";
 import { Toggle } from "@/components/ui/Toggle";
 import {
-	useFloatingDropdown,
 	DropdownPortal,
+	useFloatingDropdown,
 } from "@/hooks/useFloatingDropdown";
-import type { Builder } from "@/lib/services/builder";
 import type { ConnectType } from "@/lib/schemas/blueprint";
+import type { Builder } from "@/lib/services/builder";
 import { POPOVER_GLASS } from "@/lib/styles";
 
 interface AppConnectSettingsProps {

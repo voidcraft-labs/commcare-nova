@@ -2,9 +2,9 @@
 
 import {
 	CASE_TYPE_REGEX,
+	RESERVED_CASE_PROPERTIES,
 	XFORM_PATH_REGEX,
 	XML_ELEMENT_NAME_REGEX,
-	RESERVED_CASE_PROPERTIES,
 } from "./constants";
 
 /** Validate a CommCare case type identifier. Throws on invalid. */

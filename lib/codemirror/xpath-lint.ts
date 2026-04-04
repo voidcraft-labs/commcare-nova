@@ -6,13 +6,13 @@
  * then validates the draft expression against the live blueprint state.
  */
 
-import { linter, type Diagnostic } from "@codemirror/lint";
+import { type Diagnostic, linter } from "@codemirror/lint";
 import type { AppBlueprint, BlueprintForm } from "@/lib/schemas/blueprint";
-import { validateXPath } from "@/lib/services/commcare/validate/xpathValidator";
 import {
-	collectValidPaths,
 	collectCaseProperties,
+	collectValidPaths,
 } from "@/lib/services/commcare/validate/index";
+import { validateXPath } from "@/lib/services/commcare/validate/xpathValidator";
 
 export interface XPathLintContext {
 	blueprint: AppBlueprint;

@@ -1,8 +1,8 @@
 "use client";
 import { Icon } from "@iconify/react/offline";
-import type { Question } from "@/lib/schemas/blueprint";
 import { questionTypeIcons } from "@/lib/questionTypeIcons";
 import { ExpressionContent } from "@/lib/references/ExpressionContent";
+import type { Question } from "@/lib/schemas/blueprint";
 
 /**
  * Edit-mode-only representation of a hidden question. These have no label or

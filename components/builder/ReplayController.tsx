@@ -1,12 +1,12 @@
 "use client";
-import { useState, useCallback } from "react";
-import { motion, AnimatePresence } from "motion/react";
 import { Icon } from "@iconify/react/offline";
 import ciChevronLeft from "@iconify-icons/ci/chevron-left";
 import ciChevronRight from "@iconify-icons/ci/chevron-right";
 import ciCloseMd from "@iconify-icons/ci/close-md";
-import { useBuilder } from "@/hooks/useBuilder";
 import type { UIMessage } from "ai";
+import { AnimatePresence, motion } from "motion/react";
+import { useCallback, useState } from "react";
+import { useBuilder } from "@/hooks/useBuilder";
 import type { ReplayStage } from "@/lib/services/logReplay";
 
 interface ReplayControllerProps {

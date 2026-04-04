@@ -6,12 +6,12 @@
  * independently of the profile card and project list.
  */
 import { getAdminUserUsage } from "@/lib/db/admin";
+import type { UsagePeriod } from "@/lib/types/admin";
 import {
 	formatCurrency,
-	formatTokenCount,
 	formatPeriodLabel,
+	formatTokenCount,
 } from "@/lib/utils/format";
-import type { UsagePeriod } from "@/lib/types/admin";
 
 interface UserUsageSectionProps {
 	email: string;

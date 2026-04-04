@@ -1,6 +1,6 @@
-import { describe, it, expect } from "vitest";
-import { FormEngine } from "../formEngine";
+import { describe, expect, it } from "vitest";
 import type { BlueprintForm, CaseType } from "@/lib/schemas/blueprint";
+import { FormEngine } from "../formEngine";
 
 function makeForm(
 	questions: BlueprintForm["questions"],

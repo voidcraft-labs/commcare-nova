@@ -1,7 +1,7 @@
 import Fuse from "fuse.js";
 import type { Question } from "@/lib/schemas/blueprint";
 import type { TreeData } from "@/lib/services/builder";
-import { qpath, type QuestionPath } from "@/lib/services/questionPath";
+import { type QuestionPath, qpath } from "@/lib/services/questionPath";
 
 /** Match indices as [start, end] pairs for highlighting */
 export type MatchIndices = ReadonlyArray<readonly [number, number]>;

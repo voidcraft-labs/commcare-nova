@@ -1,7 +1,7 @@
 "use client";
 import { use } from "react";
-import { BuilderProvider } from "@/hooks/useBuilder";
 import { BuilderLayout } from "@/components/builder/BuilderLayout";
+import { BuilderProvider } from "@/hooks/useBuilder";
 
 /**
  * Build page — wraps BuilderLayout with BuilderProvider to scope the Builder

@@ -8,11 +8,12 @@
  * derived from the session and used
  * as the Firestore subcollection parent, so users can only access their own data.
  */
-import { requireSession } from "@/lib/auth-utils";
+
 import { ApiError, handleApiError } from "@/lib/apiError";
+import { requireSession } from "@/lib/auth-utils";
 import { loadProject, updateProject } from "@/lib/db/projects";
-import { appBlueprintSchema } from "@/lib/schemas/blueprint";
 import { log } from "@/lib/log";
+import { appBlueprintSchema } from "@/lib/schemas/blueprint";
 
 export async function GET(
 	req: Request,

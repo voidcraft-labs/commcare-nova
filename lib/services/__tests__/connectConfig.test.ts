@@ -1,14 +1,14 @@
-import { describe, it, expect } from "vitest";
-import { deriveConnectDefaults } from "../connectConfig";
-import { expandBlueprint } from "../hqJsonExpander";
-import { runValidation } from "../commcare/validate/runner";
-import { MutableBlueprint } from "../mutableBlueprint";
+import { describe, expect, it } from "vitest";
 import type {
 	AppBlueprint,
 	BlueprintForm,
 	ConnectConfig,
 	ConnectType,
 } from "../../schemas/blueprint";
+import { runValidation } from "../commcare/validate/runner";
+import { deriveConnectDefaults } from "../connectConfig";
+import { expandBlueprint } from "../hqJsonExpander";
+import { MutableBlueprint } from "../mutableBlueprint";
 
 // ── Helpers ──────────────────────────────────────────────────────────
 

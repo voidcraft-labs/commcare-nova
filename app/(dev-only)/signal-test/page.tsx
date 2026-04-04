@@ -1,12 +1,12 @@
 "use client";
-import { useState, useRef, useCallback, useEffect, useMemo } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { SignalPanel } from "@/components/chat/SignalPanel";
 import {
+	defaultLabel,
+	type EditFocus,
 	SignalGridController,
 	type SignalMode,
-	type EditFocus,
 } from "@/lib/signalGridController";
-import { SignalPanel } from "@/components/chat/SignalPanel";
-import { defaultLabel } from "@/lib/signalGridController";
 import { PIECES } from "@/lib/tetrisProgressSolver";
 
 // Standalone test page — no builder dependency, simulates energy directly.

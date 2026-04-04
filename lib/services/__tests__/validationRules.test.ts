@@ -1,7 +1,7 @@
-import { describe, it, expect } from "vitest";
-import { runValidation } from "../commcare/validate/runner";
-import { FIX_REGISTRY } from "../commcare/validate/fixes";
+import { describe, expect, it } from "vitest";
 import type { AppBlueprint } from "../../schemas/blueprint";
+import { FIX_REGISTRY } from "../commcare/validate/fixes";
+import { runValidation } from "../commcare/validate/runner";
 
 // ── Helpers ────────────────────────────────────────────────────────
 

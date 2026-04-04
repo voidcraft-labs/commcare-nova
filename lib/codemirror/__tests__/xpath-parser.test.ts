@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { describe, expect, it } from "vitest";
 import { parser } from "../xpath-parser";
 
 /** Returns true if the parse tree contains no error nodes (⚠). */

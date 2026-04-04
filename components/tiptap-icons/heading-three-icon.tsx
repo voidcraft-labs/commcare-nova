@@ -1,5 +1,5 @@
 import { memo } from "react";
-import { TiptapSvg, type TiptapIconProps } from "./TiptapSvg";
+import { type TiptapIconProps, TiptapSvg } from "./TiptapSvg";
 
 /** Heading level 3 icon (H3). */
 export const HeadingThreeIcon = memo((props: TiptapIconProps) => (

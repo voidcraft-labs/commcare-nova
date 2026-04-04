@@ -7,21 +7,21 @@
  */
 import type {
 	BlueprintForm,
+	CaseType,
 	ConnectConfig,
 	Question,
-	CaseType,
 } from "../schemas/blueprint";
 import { deriveCaseConfig } from "../schemas/blueprint";
-import {
-	RESERVED_CASE_PROPERTIES,
-	MEDIA_QUESTION_TYPES,
-	extractHashtags,
-	emptyFormActions,
-	alwaysCondition,
-	neverCondition,
-	ifCondition,
-} from "./commcare";
 import type { FormActions, OpenSubCaseAction } from "./commcare";
+import {
+	alwaysCondition,
+	emptyFormActions,
+	extractHashtags,
+	ifCondition,
+	MEDIA_QUESTION_TYPES,
+	neverCondition,
+	RESERVED_CASE_PROPERTIES,
+} from "./commcare";
 
 /**
  * Resolve a question ID to its full /data/... path (including parent groups/repeats).

@@ -5,9 +5,9 @@
  */
 
 import type { Question } from "@/lib/schemas/blueprint";
+import { detectUnquotedStringLiteral } from "../../../hqJsonExpander";
 import { XML_ELEMENT_NAME_REGEX } from "../../constants";
 import { type ValidationError, validationError } from "../errors";
-import { detectUnquotedStringLiteral } from "../../../hqJsonExpander";
 
 const XPATH_FIELDS = [
 	"relevant",

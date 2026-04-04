@@ -3,13 +3,13 @@
 import * as fs from "fs";
 import * as path from "path";
 import { ConfluenceClient } from "./confluence.js";
-import type {
-	PipelineConfig,
-	DiscoveryResult,
-	SpaceInfo,
-	PageMeta,
-} from "./types.js";
 import { log, logSummary } from "./log.js";
+import type {
+	DiscoveryResult,
+	PageMeta,
+	PipelineConfig,
+	SpaceInfo,
+} from "./types.js";
 
 const RELEVANT_SPACE_NAMES = [
 	"CommCare Division",

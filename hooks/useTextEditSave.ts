@@ -7,8 +7,8 @@
  */
 
 import { useCallback } from "react";
-import { useEditContext } from "./useEditContext";
 import type { QuestionPath } from "@/lib/services/questionPath";
+import { useEditContext } from "./useEditContext";
 
 /**
  * Returns a `(field, value) => void` callback for saving question fields,

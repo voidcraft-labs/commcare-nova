@@ -1,6 +1,6 @@
-import { describe, it, expect } from "vitest";
-import { applyDefaults } from "../contentProcessing";
+import { describe, expect, it } from "vitest";
 import type { CaseType } from "../blueprint";
+import { applyDefaults } from "../contentProcessing";
 
 const testCaseType: CaseType = {
 	name: "patient",

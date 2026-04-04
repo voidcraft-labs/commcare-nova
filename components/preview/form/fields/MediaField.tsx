@@ -1,9 +1,9 @@
 "use client";
 import { Icon } from "@iconify/react/offline";
 import ciImage from "@iconify-icons/ci/image";
-import type { Question } from "@/lib/schemas/blueprint";
-import { questionTypeIcons, questionTypeLabels } from "@/lib/questionTypeIcons";
 import { useEditContext } from "@/hooks/useEditContext";
+import { questionTypeIcons, questionTypeLabels } from "@/lib/questionTypeIcons";
+import type { Question } from "@/lib/schemas/blueprint";
 
 export function MediaField({ question }: { question: Question }) {
 	const ctx = useEditContext();

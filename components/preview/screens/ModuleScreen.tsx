@@ -1,15 +1,15 @@
 "use client";
-import { useState, useCallback } from "react";
-import { motion } from "motion/react";
 import { Icon } from "@iconify/react/offline";
 import ciFileAdd from "@iconify-icons/ci/file-add";
-import ciFileEdit from "@iconify-icons/ci/file-edit";
 import ciFileBlank from "@iconify-icons/ci/file-blank";
-import type { AppBlueprint } from "@/lib/schemas/blueprint";
-import type { Builder } from "@/lib/services/builder";
+import ciFileEdit from "@iconify-icons/ci/file-edit";
+import { motion } from "motion/react";
+import { useCallback, useState } from "react";
+import { EditableTitle, SavedCheck } from "@/components/builder/EditableTitle";
 import type { EditMode } from "@/hooks/useEditContext";
 import type { PreviewScreen } from "@/lib/preview/engine/types";
-import { EditableTitle, SavedCheck } from "@/components/builder/EditableTitle";
+import type { AppBlueprint } from "@/lib/schemas/blueprint";
+import type { Builder } from "@/lib/services/builder";
 
 interface ModuleScreenProps {
 	blueprint: AppBlueprint;

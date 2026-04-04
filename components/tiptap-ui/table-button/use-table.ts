@@ -1,11 +1,10 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
 import type { Editor } from "@tiptap/react";
-
+import { useCallback, useEffect, useState } from "react";
+import { TableIcon } from "@/components/tiptap-icons/table-icon";
 import { useTiptapEditor } from "@/hooks/use-tiptap-editor";
 import { isNodeInSchema } from "@/lib/tiptap-utils";
-import { TableIcon } from "@/components/tiptap-icons/table-icon";
 
 /**
  * Configuration for the table button hook.

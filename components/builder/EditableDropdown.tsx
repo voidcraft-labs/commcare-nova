@@ -1,8 +1,8 @@
 "use client";
-import { useState, useCallback } from "react";
-import { motion, AnimatePresence } from "motion/react";
 import { Icon } from "@iconify/react/offline";
 import ciCheck from "@iconify-icons/ci/check";
+import { AnimatePresence, motion } from "motion/react";
+import { useCallback, useState } from "react";
 import { useDismissRef } from "@/hooks/useDismissRef";
 
 interface EditableDropdownProps {

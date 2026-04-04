@@ -25,9 +25,9 @@
 import type {
 	AppBlueprint,
 	BlueprintForm,
+	FormLink,
 	PostSubmitDestination,
 } from "../../schemas/blueprint";
-import type { FormLink } from "../../schemas/blueprint";
 import { validateCaseType } from "./validate";
 
 // ── Session Datums ─────────────────────────────────────────────────────
@@ -92,8 +92,8 @@ export interface StackOperation {
 
 // ── Re-export FormLink types from schema for convenience ───────────────
 
-export type { FormLink };
 export type { FormLinkDatum } from "../../schemas/blueprint";
+export type { FormLink };
 
 // ── Entry Definition ───────────────────────────────────────────────────
 

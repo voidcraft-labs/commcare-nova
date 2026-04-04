@@ -5,20 +5,21 @@
  * generation (one-shot and streaming) with automatic run logging, plus transient
  * data part emission. Used by the Solutions Architect agent and its generation tools.
  */
-import { streamText, generateText, Output } from "ai";
+
+import { createAnthropic } from "@ai-sdk/anthropic";
 import type {
 	CallWarning,
 	ModelMessage,
 	ToolLoopAgent,
 	UIMessageStreamWriter,
 } from "ai";
-import { createAnthropic } from "@ai-sdk/anthropic";
+import { generateText, Output, streamText } from "ai";
 import type { z } from "zod";
-import { MODEL_DEFAULT, type ReasoningEffort } from "../models";
-import type { EventLogger } from "./eventLogger";
-import { classifyError, type ClassifiedError } from "./errorClassifier";
 import { log } from "@/lib/log";
 import type { Session } from "../auth";
+import { MODEL_DEFAULT, type ReasoningEffort } from "../models";
+import { type ClassifiedError, classifyError } from "./errorClassifier";
+import type { EventLogger } from "./eventLogger";
 
 /** Log AI SDK warnings to the console if present. */
 export function logWarnings(

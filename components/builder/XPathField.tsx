@@ -1,54 +1,54 @@
 "use client";
+import { closeCompletion, completionStatus } from "@codemirror/autocomplete";
 import {
-	useState,
-	useCallback,
-	useRef,
-	useMemo,
-	useEffect,
-	useLayoutEffect,
-} from "react";
-import CodeMirror, { type ReactCodeMirrorRef } from "@uiw/react-codemirror";
-import { EditorView, keymap, tooltips } from "@codemirror/view";
-import { EditorState, Prec } from "@codemirror/state";
-import { completionStatus, closeCompletion } from "@codemirror/autocomplete";
-import {
-	indentOnInput,
 	bracketMatching,
+	indentOnInput,
 	indentUnit,
 } from "@codemirror/language";
+import { EditorState, Prec } from "@codemirror/state";
+import { EditorView, keymap, tooltips } from "@codemirror/view";
 import {
-	useFloating,
-	offset,
-	flip,
-	shift,
 	autoUpdate,
 	FloatingPortal,
+	flip,
+	offset,
+	shift,
+	useFloating,
 } from "@floating-ui/react";
-import { xpath } from "@/lib/codemirror/xpath-language";
+import CodeMirror, { type ReactCodeMirrorRef } from "@uiw/react-codemirror";
 import {
-	novaXPathTheme,
-	novaAutocompleteTheme,
-	novaChipTheme,
-} from "@/lib/codemirror/xpath-theme";
-import { prettyPrintXPath, formatXPath } from "@/lib/codemirror/xpath-format";
-import {
-	xpathLinter,
-	type XPathLintContext,
-} from "@/lib/codemirror/xpath-lint";
-import { xpathAutocomplete } from "@/lib/codemirror/xpath-autocomplete";
-import { xpathChips } from "@/lib/codemirror/xpath-chips";
-import { validateXPath } from "@/lib/services/commcare/validate/xpathValidator";
-import {
-	collectValidPaths,
-	collectCaseProperties,
-} from "@/lib/services/commcare/validate/index";
-import { useReferenceProvider } from "@/lib/references/ReferenceContext";
-import { ReferenceProvider } from "@/lib/references/provider";
+	useCallback,
+	useEffect,
+	useLayoutEffect,
+	useMemo,
+	useRef,
+	useState,
+} from "react";
 import { useBuilderInstance } from "@/hooks/useBuilder";
 import {
 	POPOVER_ENTER_KEYFRAMES,
 	POPOVER_ENTER_OPTIONS,
 } from "@/lib/animations";
+import { xpathAutocomplete } from "@/lib/codemirror/xpath-autocomplete";
+import { xpathChips } from "@/lib/codemirror/xpath-chips";
+import { formatXPath, prettyPrintXPath } from "@/lib/codemirror/xpath-format";
+import { xpath } from "@/lib/codemirror/xpath-language";
+import {
+	type XPathLintContext,
+	xpathLinter,
+} from "@/lib/codemirror/xpath-lint";
+import {
+	novaAutocompleteTheme,
+	novaChipTheme,
+	novaXPathTheme,
+} from "@/lib/codemirror/xpath-theme";
+import { ReferenceProvider } from "@/lib/references/provider";
+import { useReferenceProvider } from "@/lib/references/ReferenceContext";
+import {
+	collectCaseProperties,
+	collectValidPaths,
+} from "@/lib/services/commcare/validate/index";
+import { validateXPath } from "@/lib/services/commcare/validate/xpathValidator";
 
 // ── Read-only theme ────────────────────────────────────────────────────
 

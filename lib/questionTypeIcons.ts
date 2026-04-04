@@ -2,27 +2,28 @@
  * Shared icon data for question types — used by AppTree and QuestionTypePicker.
  * Raw icon data objects (not JSX) so consumers can render at any size.
  */
+
+import type { IconifyIcon } from "@iconify/react/offline";
+import ciBarcode from "@iconify-icons/ci/barcode";
+import ciCalendar from "@iconify-icons/ci/calendar";
+import ciCheckboxCheck from "@iconify-icons/ci/checkbox-check";
+import ciClock from "@iconify-icons/ci/clock";
+import ciFileAdd from "@iconify-icons/ci/file-add";
+import ciFileBlank from "@iconify-icons/ci/file-blank";
+import ciFileEdit from "@iconify-icons/ci/file-edit";
+import ciGroup from "@iconify-icons/ci/group";
+import ciHide from "@iconify-icons/ci/hide";
+import ciImage from "@iconify-icons/ci/image";
+import ciLabel from "@iconify-icons/ci/label";
+import ciLocation from "@iconify-icons/ci/location";
+import ciLock from "@iconify-icons/ci/lock";
+import ciMonitorPlay from "@iconify-icons/ci/monitor-play";
+import ciRadioFill from "@iconify-icons/ci/radio-fill";
+import ciRepeat from "@iconify-icons/ci/repeat";
 import ciText from "@iconify-icons/ci/text";
 import tabler123 from "@iconify-icons/tabler/123";
 import tablerDecimal from "@iconify-icons/tabler/decimal";
-import ciCalendar from "@iconify-icons/ci/calendar";
-import ciRadioFill from "@iconify-icons/ci/radio-fill";
-import ciCheckboxCheck from "@iconify-icons/ci/checkbox-check";
-import ciGroup from "@iconify-icons/ci/group";
-import ciRepeat from "@iconify-icons/ci/repeat";
-import ciHide from "@iconify-icons/ci/hide";
-import ciLocation from "@iconify-icons/ci/location";
-import ciImage from "@iconify-icons/ci/image";
-import ciBarcode from "@iconify-icons/ci/barcode";
-import ciLabel from "@iconify-icons/ci/label";
-import ciClock from "@iconify-icons/ci/clock";
-import ciMonitorPlay from "@iconify-icons/ci/monitor-play";
-import ciLock from "@iconify-icons/ci/lock";
 import tablerMicrophone from "@iconify-icons/tabler/microphone";
-import ciFileAdd from "@iconify-icons/ci/file-add";
-import ciFileEdit from "@iconify-icons/ci/file-edit";
-import ciFileBlank from "@iconify-icons/ci/file-blank";
-import type { IconifyIcon } from "@iconify/react/offline";
 
 export const questionTypeIcons: Record<string, IconifyIcon> = {
 	text: ciText,

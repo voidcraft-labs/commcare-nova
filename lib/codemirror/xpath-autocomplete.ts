@@ -14,26 +14,26 @@
 
 import {
 	autocompletion,
-	snippetCompletion,
-	completionKeymap,
-	ifNotIn,
+	type Completion,
 	type CompletionContext,
 	type CompletionResult,
-	type Completion,
+	completionKeymap,
+	ifNotIn,
+	snippetCompletion,
 } from "@codemirror/autocomplete";
-import { keymap } from "@codemirror/view";
 import { syntaxTree } from "@codemirror/language";
 import type { Extension } from "@codemirror/state";
+import { keymap } from "@codemirror/view";
 import type { SyntaxNode } from "@lezer/common";
+import {
+	collectQuestionEntries,
+	USER_PROPERTIES,
+} from "@/lib/references/provider";
 import { FUNCTION_REGISTRY } from "@/lib/services/commcare/validate/functionRegistry";
 import {
-	collectValidPaths,
 	collectCaseProperties,
+	collectValidPaths,
 } from "@/lib/services/commcare/validate/index";
-import {
-	USER_PROPERTIES,
-	collectQuestionEntries,
-} from "@/lib/references/provider";
 import type { XPathLintContext } from "./xpath-lint";
 
 // ── Static data ────────────────────────────────────────────────────────

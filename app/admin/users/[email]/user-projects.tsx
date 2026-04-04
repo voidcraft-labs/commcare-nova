@@ -5,8 +5,9 @@
  * Wrapped in a Suspense boundary by the parent page so it streams in
  * independently of the profile card and usage table.
  */
-import { getAdminUserProjects } from "@/lib/db/admin";
+
 import { ReplayableProjectList } from "@/components/ui/ReplayableProjectList";
+import { getAdminUserProjects } from "@/lib/db/admin";
 
 interface UserProjectsSectionProps {
 	email: string;

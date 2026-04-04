@@ -1,18 +1,17 @@
 "use client";
 
 import { forwardRef, useCallback, useState } from "react";
-
+import { ChevronDownIcon } from "@/components/tiptap-icons/chevron-down-icon";
 import type { UseTableConfig } from "@/components/tiptap-ui/table-button";
 import { useTable } from "@/components/tiptap-ui/table-button";
-import { ChevronDownIcon } from "@/components/tiptap-icons/chevron-down-icon";
-import { useTiptapEditor } from "@/hooks/use-tiptap-editor";
 import type { ButtonProps } from "@/components/tiptap-ui-primitive/button";
 import { Button } from "@/components/tiptap-ui-primitive/button";
 import {
 	DropdownMenu,
-	DropdownMenuTrigger,
 	DropdownMenuContent,
+	DropdownMenuTrigger,
 } from "@/components/tiptap-ui-primitive/dropdown-menu";
+import { useTiptapEditor } from "@/hooks/use-tiptap-editor";
 
 /** Maximum grid dimensions for the picker. */
 const MAX_ROWS = 6;

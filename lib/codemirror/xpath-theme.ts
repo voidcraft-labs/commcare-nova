@@ -1,6 +1,6 @@
-import { createTheme } from "@uiw/codemirror-themes";
 import { EditorView } from "@codemirror/view";
 import { tags as t } from "@lezer/highlight";
+import { createTheme } from "@uiw/codemirror-themes";
 
 /** Dark CodeMirror theme matching the Nova design system. */
 export const novaXPathTheme = createTheme({

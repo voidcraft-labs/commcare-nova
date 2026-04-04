@@ -1,6 +1,6 @@
 "use client";
-import type { ReactNode } from "react";
 import { AnimatePresence, motion } from "motion/react";
+import type { ReactNode } from "react";
 
 interface SignalPanelProps {
 	active: boolean;

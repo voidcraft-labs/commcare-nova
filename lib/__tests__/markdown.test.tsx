@@ -1,13 +1,13 @@
-import { describe, it, expect } from "vitest";
+import Markdown, { type MarkdownToJSX, RuleType } from "markdown-to-jsx";
 import { renderToStaticMarkup } from "react-dom/server";
+import { describe, expect, it } from "vitest";
 import {
 	ChatMarkdown,
-	PreviewMarkdown,
-	PREVIEW_OPTIONS,
 	composeRenderRules,
+	PREVIEW_OPTIONS,
+	PreviewMarkdown,
 	withChipInjection,
 } from "../markdown";
-import Markdown, { RuleType, type MarkdownToJSX } from "markdown-to-jsx";
 
 /** Render a React element to an HTML string for assertion. */
 function html(element: React.ReactElement): string {

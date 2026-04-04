@@ -1,12 +1,12 @@
 "use client";
-import type { Question } from "@/lib/schemas/blueprint";
 import { EditableText } from "@/components/builder/EditableText";
-import { AddPropertyButton } from "./AddPropertyButton";
 import { useSaveQuestion } from "@/hooks/useSaveQuestion";
+import type { Question } from "@/lib/schemas/blueprint";
+import { AddPropertyButton } from "./AddPropertyButton";
 import {
+	addableTextFields,
 	type QuestionEditorProps,
 	useAddableField,
-	addableTextFields,
 } from "./shared";
 
 /**

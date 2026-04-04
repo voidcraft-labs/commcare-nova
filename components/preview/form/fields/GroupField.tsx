@@ -1,14 +1,14 @@
 "use client";
-import { useDroppable } from "@dnd-kit/react";
 import { CollisionPriority } from "@dnd-kit/abstract";
-import type { Question } from "@/lib/schemas/blueprint";
-import type { QuestionPath } from "@/lib/services/questionPath";
-import type { FormEngine } from "@/lib/preview/engine/formEngine";
-import { LabelContent } from "@/lib/references/LabelContent";
+import { useDroppable } from "@dnd-kit/react";
 import { useEditContext } from "@/hooks/useEditContext";
 import { useTextEditSave } from "@/hooks/useTextEditSave";
-import { TextEditable } from "../TextEditable";
+import type { FormEngine } from "@/lib/preview/engine/formEngine";
+import { LabelContent } from "@/lib/references/LabelContent";
+import type { Question } from "@/lib/schemas/blueprint";
+import type { QuestionPath } from "@/lib/services/questionPath";
 import { FormRenderer } from "../FormRenderer";
+import { TextEditable } from "../TextEditable";
 
 interface GroupFieldProps {
 	question: Question;

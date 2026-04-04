@@ -4,8 +4,9 @@
  * Returns denormalized project summaries (no full blueprints) sorted by
  * last modified. Requires authentication.
  */
-import { requireSession } from "@/lib/auth-utils";
+
 import { ApiError, handleApiError } from "@/lib/apiError";
+import { requireSession } from "@/lib/auth-utils";
 import { listProjects } from "@/lib/db/projects";
 
 export async function GET(req: Request) {

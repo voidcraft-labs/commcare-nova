@@ -1,11 +1,11 @@
 /** Factory functions for boilerplate HQ JSON structures. */
 
 import type {
-	FormActionCondition,
-	FormActions,
 	DetailBase,
 	DetailColumn,
 	DetailPair,
+	FormActionCondition,
+	FormActions,
 	HqApplication,
 	HqForm,
 	HqModule,

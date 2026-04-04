@@ -8,17 +8,17 @@
  * Auto-fixes from the fix registry are applied between validation attempts.
  */
 import type { AppBlueprint } from "../schemas/blueprint";
-import { expandBlueprint } from "./hqJsonExpander";
 import type { HqApplication } from "./commcare";
-import type { GenerationContext } from "./generationContext";
-import { deriveConnectDefaults } from "./connectConfig";
-import { runValidation } from "./commcare/validate/runner";
 import {
-	type ValidationError,
 	errorToString,
+	type ValidationError,
 } from "./commcare/validate/errors";
 import { FIX_REGISTRY } from "./commcare/validate/fixes";
+import { runValidation } from "./commcare/validate/runner";
 import { validateXFormXml } from "./commcare/validate/xformValidator";
+import { deriveConnectDefaults } from "./connectConfig";
+import type { GenerationContext } from "./generationContext";
+import { expandBlueprint } from "./hqJsonExpander";
 
 // ── Post-expansion validation ────────────────────────────────────────
 

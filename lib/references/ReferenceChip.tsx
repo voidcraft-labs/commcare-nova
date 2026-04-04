@@ -9,7 +9,7 @@
  */
 
 import { Icon } from "@iconify/react/offline";
-import { CHIP, REF_TYPE_CONFIG, displayId } from "./config";
+import { CHIP, displayId, REF_TYPE_CONFIG } from "./config";
 import type { Reference } from "./types";
 
 interface ReferenceChipProps {

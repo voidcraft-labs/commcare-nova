@@ -4,7 +4,7 @@
  * Converts flat questions (parentId-based) to nested trees, strips empty sentinel
  * values from structured output, and merges data model defaults from case types.
  */
-import type { CaseType, BlueprintForm, Question } from "./blueprint";
+import type { BlueprintForm, CaseType, Question } from "./blueprint";
 
 type CaseTypes = CaseType[] | null;
 

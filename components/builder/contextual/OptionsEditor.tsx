@@ -1,7 +1,7 @@
 "use client";
-import { useState, useCallback, useRef, useId } from "react";
 import { Icon } from "@iconify/react/offline";
 import ciTrashFull from "@iconify-icons/ci/trash-full";
+import { useCallback, useId, useRef, useState } from "react";
 import { AddPropertyButton } from "./AddPropertyButton";
 
 interface Option {

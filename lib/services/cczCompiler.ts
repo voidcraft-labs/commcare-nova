@@ -3,16 +3,16 @@ import { randomUUID } from "crypto";
 import {
 	escapeXml,
 	validateCaseType,
-	validateXFormPath,
 	validatePropertyName,
+	validateXFormPath,
 } from "./commcare";
 import {
 	deriveEntryDefinition,
-	renderEntryXml,
 	fromHqWorkflow,
+	renderEntryXml,
 } from "./commcare/session";
-import { validateXFormXml } from "./commcare/validate/xformValidator";
 import { errorToString } from "./commcare/validate/errors";
+import { validateXFormXml } from "./commcare/validate/xformValidator";
 
 /**
  * Compiles HQ import JSON into a .ccz archive for deployment.

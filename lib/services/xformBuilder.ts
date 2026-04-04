@@ -5,6 +5,11 @@
  * itext translations, binds, setvalues, body elements, and secondary instances.
  * Extracted from hqJsonExpander.ts to isolate XForm construction logic.
  */
+
+import render from "dom-serializer";
+import type { Element } from "domhandler";
+import { findAll } from "domutils";
+import { parseDocument } from "htmlparser2";
 import type {
 	BlueprintForm,
 	ConnectConfig,
@@ -12,15 +17,11 @@ import type {
 } from "../schemas/blueprint";
 import {
 	escapeXml,
-	VELLUM_HASHTAG_TRANSFORMS,
 	expandHashtags,
-	hasHashtags,
 	extractHashtags,
+	hasHashtags,
+	VELLUM_HASHTAG_TRANSFORMS,
 } from "./commcare";
-import { parseDocument } from "htmlparser2";
-import { findAll } from "domutils";
-import render from "dom-serializer";
-import type { Element } from "domhandler";
 
 const PARSE_OPTS = { xmlMode: true } as const;
 const RENDER_OPTS = {

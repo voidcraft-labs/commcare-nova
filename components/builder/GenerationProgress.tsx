@@ -1,9 +1,9 @@
 "use client";
-import { useRef, useState, useCallback } from "react";
-import { motion } from "motion/react";
 import { Icon } from "@iconify/react/offline";
 import ciCheck from "@iconify-icons/ci/check";
-import { GenerationStage, type GenerationError } from "@/lib/services/builder";
+import { motion } from "motion/react";
+import { useCallback, useRef, useState } from "react";
+import { type GenerationError, GenerationStage } from "@/lib/services/builder";
 
 interface GenerationProgressProps {
 	stage: GenerationStage | null;

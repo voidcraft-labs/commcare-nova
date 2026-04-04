@@ -12,7 +12,7 @@
  * via stripEmpty() converts sentinels back. See contentProcessing.ts.
  */
 import { z } from "zod";
-import { questionFields, selectOptionSchema, QUESTION_DOCS } from "./blueprint";
+import { QUESTION_DOCS, questionFields, selectOptionSchema } from "./blueprint";
 
 // ── addQuestions: batch generation (flat with parentId, 3 sentinels) ──
 

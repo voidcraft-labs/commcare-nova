@@ -1,13 +1,13 @@
 "use client";
-import { useState, useCallback, useMemo } from "react";
+import { useCallback, useMemo, useState } from "react";
+import { getCaseData } from "@/lib/preview/engine/dummyData";
 import type { PreviewScreen } from "@/lib/preview/engine/types";
 import {
-	screensEqual,
 	getParentScreen,
 	screenKey,
+	screensEqual,
 } from "@/lib/preview/engine/types";
 import type { AppBlueprint } from "@/lib/schemas/blueprint";
-import { getCaseData } from "@/lib/preview/engine/dummyData";
 
 const MAX_HISTORY = 50;
 

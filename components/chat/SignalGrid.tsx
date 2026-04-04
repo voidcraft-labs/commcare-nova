@@ -1,11 +1,11 @@
 "use client";
-import { useRef, useEffect, useCallback } from "react";
 import type { UIMessage } from "ai";
+import { useCallback, useEffect, useRef } from "react";
 import { useBuilder } from "@/hooks/useBuilder";
-import type { SignalGridController } from "@/lib/signalGridController";
 import type { EditScope } from "@/lib/services/builder";
-import { qpathId, type QuestionPath } from "@/lib/services/questionPath";
+import { type QuestionPath, qpathId } from "@/lib/services/questionPath";
 import { flatIndexById } from "@/lib/services/questionTree";
+import type { SignalGridController } from "@/lib/signalGridController";
 
 interface SignalGridProps {
 	/** Controller instance — created and owned by the parent (ChatSidebar). */

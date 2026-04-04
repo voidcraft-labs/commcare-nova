@@ -1,10 +1,10 @@
 "use client";
-import type { Question } from "@/lib/schemas/blueprint";
-import type { QuestionPath } from "@/lib/services/questionPath";
-import type { QuestionState } from "@/lib/preview/engine/types";
-import { LabelContent } from "@/lib/references/LabelContent";
 import { useEditContext } from "@/hooks/useEditContext";
 import { useTextEditSave } from "@/hooks/useTextEditSave";
+import type { QuestionState } from "@/lib/preview/engine/types";
+import { LabelContent } from "@/lib/references/LabelContent";
+import type { Question } from "@/lib/schemas/blueprint";
+import type { QuestionPath } from "@/lib/services/questionPath";
 import { TextEditable } from "../TextEditable";
 
 export function LabelField({

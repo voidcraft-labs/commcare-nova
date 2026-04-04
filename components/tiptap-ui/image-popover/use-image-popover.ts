@@ -1,10 +1,9 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
 import type { Editor } from "@tiptap/react";
-
-import { useTiptapEditor } from "@/hooks/use-tiptap-editor";
+import { useCallback, useEffect, useState } from "react";
 import { ImageIcon } from "@/components/tiptap-icons/image-icon";
+import { useTiptapEditor } from "@/hooks/use-tiptap-editor";
 import { isNodeInSchema } from "@/lib/tiptap-utils";
 
 export interface UseImagePopoverConfig {

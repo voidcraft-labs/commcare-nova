@@ -1,8 +1,8 @@
-import { describe, it, expect } from "vitest";
-import { MutableBlueprint } from "../mutableBlueprint";
-import { HistoryManager } from "../historyManager";
-import { qpath } from "../questionPath";
+import { describe, expect, it } from "vitest";
 import type { AppBlueprint } from "../../schemas/blueprint";
+import { HistoryManager } from "../historyManager";
+import { MutableBlueprint } from "../mutableBlueprint";
+import { qpath } from "../questionPath";
 
 function makeBlueprint(): AppBlueprint {
 	return {

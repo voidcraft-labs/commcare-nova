@@ -3,8 +3,8 @@ import { Icon } from "@iconify/react/offline";
 import ciFilter from "@iconify-icons/ci/filter";
 import ciShieldCheck from "@iconify-icons/ci/shield-check";
 import tablerMath from "@iconify-icons/tabler/math";
-import type { Question } from "@/lib/schemas/blueprint";
 import { useEditContext } from "@/hooks/useEditContext";
+import type { Question } from "@/lib/schemas/blueprint";
 
 interface LogicBadgesProps {
 	question: Question;

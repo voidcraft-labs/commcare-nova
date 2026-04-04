@@ -7,7 +7,7 @@
  * (including the question type icon for #form/ refs).
  */
 
-import { NodeViewWrapper, type NodeViewProps } from "@tiptap/react";
+import { type NodeViewProps, NodeViewWrapper } from "@tiptap/react";
 import { ReferenceChip } from "@/lib/references/ReferenceChip";
 import { useReferenceProvider } from "@/lib/references/ReferenceContext";
 import type { Reference, ReferenceType } from "@/lib/references/types";

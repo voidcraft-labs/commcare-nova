@@ -7,8 +7,9 @@
  * shared with the RSC admin user detail page. This route is retained for
  * external API consumers — the RSC page calls the DB function directly.
  */
-import { requireAdmin } from "@/lib/auth-utils";
+
 import { ApiError, handleApiError } from "@/lib/apiError";
+import { requireAdmin } from "@/lib/auth-utils";
 import { getAdminUserDetail } from "@/lib/db/admin";
 
 export async function GET(

@@ -1,20 +1,20 @@
 "use client";
-import { useState, useRef, useCallback, useEffect } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { GenerationProgress } from "@/components/builder/GenerationProgress";
+import { SignalPanel } from "@/components/chat/SignalPanel";
+import { ToastContainer } from "@/components/ui/ToastContainer";
 import {
+	BuilderPhase,
+	type GenerationError,
+	GenerationStage,
+	STAGE_LABELS,
+} from "@/lib/services/builder";
+import { showToast } from "@/lib/services/toastStore";
+import {
+	defaultLabel,
 	SignalGridController,
 	type SignalMode,
 } from "@/lib/signalGridController";
-import { SignalPanel } from "@/components/chat/SignalPanel";
-import { defaultLabel } from "@/lib/signalGridController";
-import { ToastContainer } from "@/components/ui/ToastContainer";
-import { showToast } from "@/lib/services/toastStore";
-import {
-	BuilderPhase,
-	GenerationStage,
-	STAGE_LABELS,
-	type GenerationError,
-} from "@/lib/services/builder";
-import { GenerationProgress } from "@/components/builder/GenerationProgress";
 
 // ── Simulated error scenarios ──────────────────────────────────────────
 

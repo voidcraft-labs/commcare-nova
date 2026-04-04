@@ -4,17 +4,18 @@
  * Extracted from the admin API route handlers so Server Components can
  * call the same logic directly without going through HTTP.
  */
-import { listAllUsers, getUser } from "./users";
-import { getDb, collections, docs } from "./firestore";
-import { getCurrentPeriod } from "./usage";
-import { listProjects } from "./projects";
+
 import type {
-	AdminUserRow,
 	AdminStats,
-	AdminUsersResponse,
 	AdminUserDetailResponse,
+	AdminUserRow,
+	AdminUsersResponse,
 	UsagePeriod,
 } from "../types/admin";
+import { collections, docs, getDb } from "./firestore";
+import { listProjects } from "./projects";
+import { getCurrentPeriod } from "./usage";
+import { getUser, listAllUsers } from "./users";
 
 /**
  * Fetch all users with current month usage and project counts.

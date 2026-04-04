@@ -4,9 +4,9 @@ import { forwardRef, useCallback } from "react";
 
 import type { UseHorizontalRuleConfig } from "@/components/tiptap-ui/horizontal-rule-button";
 import { useHorizontalRule } from "@/components/tiptap-ui/horizontal-rule-button";
-import { useTiptapEditor } from "@/hooks/use-tiptap-editor";
 import type { ButtonProps } from "@/components/tiptap-ui-primitive/button";
 import { Button } from "@/components/tiptap-ui-primitive/button";
+import { useTiptapEditor } from "@/hooks/use-tiptap-editor";
 
 export interface HorizontalRuleButtonProps
 	extends Omit<ButtonProps, "type">,

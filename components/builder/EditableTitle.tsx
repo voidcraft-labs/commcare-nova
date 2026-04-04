@@ -1,8 +1,8 @@
 "use client";
-import { useState, useRef, useCallback } from "react";
-import { motion, AnimatePresence } from "motion/react";
 import { Icon } from "@iconify/react/offline";
 import ciCheck from "@iconify-icons/ci/check";
+import { AnimatePresence, motion } from "motion/react";
+import { useCallback, useRef, useState } from "react";
 
 // Shared className constants — single source of truth for the typographic and box-model
 // properties that must be identical across the readOnly and editable render paths.

@@ -9,10 +9,10 @@
  */
 
 import type { XPathLintContext } from "@/lib/codemirror/xpath-lint";
+import { questionTypeIcons } from "@/lib/questionTypeIcons";
 import type { Question } from "@/lib/schemas/blueprint";
 import { collectCaseProperties } from "@/lib/services/commcare/validate/index";
-import { questionTypeIcons } from "@/lib/questionTypeIcons";
-import { qpath, type QuestionPath } from "@/lib/services/questionPath";
+import { type QuestionPath, qpath } from "@/lib/services/questionPath";
 import { REFERENCE_TYPES } from "./config";
 import type { Reference, ReferenceType } from "./types";
 

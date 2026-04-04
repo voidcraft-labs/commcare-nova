@@ -13,11 +13,11 @@
  * tiptap-markdown can round-trip them correctly (e.g. `**#form/name**`).
  */
 
+import type { Editor } from "@tiptap/core";
+import type { Mark } from "@tiptap/pm/model";
 import { HASHTAG_REF_PATTERN } from "@/lib/references/config";
 import { ReferenceProvider } from "@/lib/references/provider";
 import type { ReferenceType } from "@/lib/references/types";
-import type { Editor } from "@tiptap/core";
-import type { Mark } from "@tiptap/pm/model";
 
 /** A hashtag match found in the document with its resolved position and parts. */
 interface RefMatch {

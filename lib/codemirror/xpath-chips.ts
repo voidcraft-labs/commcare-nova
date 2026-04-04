@@ -14,6 +14,13 @@
  * purely visual decorations. This preserves XPath evaluation fidelity.
  */
 
+import { startCompletion } from "@codemirror/autocomplete";
+import {
+	type ChangeSpec,
+	EditorState,
+	type Extension,
+	StateEffect,
+} from "@codemirror/state";
 import {
 	Decoration,
 	type DecorationSet,
@@ -23,13 +30,6 @@ import {
 	type ViewUpdate,
 	WidgetType,
 } from "@codemirror/view";
-import {
-	type ChangeSpec,
-	EditorState,
-	type Extension,
-	StateEffect,
-} from "@codemirror/state";
-import { startCompletion } from "@codemirror/autocomplete";
 import { createChipElement } from "@/lib/references/chipDom";
 import { HASHTAG_REF_PATTERN, REF_TYPE_CONFIG } from "@/lib/references/config";
 import type { ReferenceProvider } from "@/lib/references/provider";

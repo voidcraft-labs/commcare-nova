@@ -1,5 +1,5 @@
-import { streamText, Output } from "ai";
 import { createAnthropic } from "@ai-sdk/anthropic";
+import { Output, streamText } from "ai";
 import { z } from "zod";
 
 const apiKey = process.env.ANTHROPIC_API_KEY!;

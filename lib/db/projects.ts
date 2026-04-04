@@ -6,11 +6,11 @@
  * so list queries never need to deserialize full blueprints.
  */
 import { FieldValue, type Timestamp } from "@google-cloud/firestore";
+import { log } from "@/lib/log";
 import type { AppBlueprint } from "../schemas/blueprint";
 import type { ErrorType } from "../services/errorClassifier";
+import { collections, docs, getDb } from "./firestore";
 import type { ProjectDoc } from "./types";
-import { getDb, collections, docs } from "./firestore";
-import { log } from "@/lib/log";
 
 // ── Types ──────────────────────────────────────────────────────────
 

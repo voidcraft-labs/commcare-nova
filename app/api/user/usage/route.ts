@@ -5,12 +5,13 @@
  * so the client can render a usage bar without knowing the cap value.
  * Authenticated-only.
  */
-import { requireSession } from "@/lib/auth-utils";
+
 import { ApiError, handleApiError } from "@/lib/apiError";
+import { requireSession } from "@/lib/auth-utils";
 import {
+	getCurrentPeriod,
 	getMonthlyUsage,
 	MONTHLY_SPEND_CAP_USD,
-	getCurrentPeriod,
 } from "@/lib/db/usage";
 
 export async function GET(req: Request) {

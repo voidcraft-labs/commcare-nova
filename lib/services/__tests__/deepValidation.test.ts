@@ -1,13 +1,13 @@
-import { describe, it, expect } from "vitest";
-import { validateXPath } from "../commcare/validate/xpathValidator";
+import { describe, expect, it } from "vitest";
+import { TriggerDag } from "../../preview/engine/triggerDag";
+import type { AppBlueprint } from "../../schemas/blueprint";
 import {
 	FUNCTION_REGISTRY,
 	findCaseInsensitiveMatch,
 } from "../commcare/validate/functionRegistry";
 import { validateBlueprintDeep } from "../commcare/validate/index";
 import { runValidation } from "../commcare/validate/runner";
-import type { AppBlueprint } from "../../schemas/blueprint";
-import { TriggerDag } from "../../preview/engine/triggerDag";
+import { validateXPath } from "../commcare/validate/xpathValidator";
 
 // ── XPath Validator ─────────────────────────────────────────────────
 

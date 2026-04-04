@@ -1,9 +1,9 @@
 import { useMemo } from "react";
-import { flattenQuestionPaths } from "@/lib/services/questionNavigation";
-import type { QuestionPath } from "@/lib/services/questionPath";
-import type { Shortcut } from "@/lib/services/keyboardManager";
 import type { Builder, CursorMode } from "@/lib/services/builder";
 import { BuilderPhase } from "@/lib/services/builder";
+import type { Shortcut } from "@/lib/services/keyboardManager";
+import { flattenQuestionPaths } from "@/lib/services/questionNavigation";
+import type { QuestionPath } from "@/lib/services/questionPath";
 
 /**
  * Builds a memoized keyboard shortcuts array for the builder layout.

@@ -1,6 +1,6 @@
 /** Confluence REST API v2 client */
 
-import type { SpaceInfo, PageMeta } from "./types.js";
+import type { PageMeta, SpaceInfo } from "./types.js";
 
 export class ConfluenceClient {
 	private baseUrl: string;

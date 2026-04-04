@@ -4,8 +4,8 @@
  */
 
 import type { AppBlueprint } from "@/lib/schemas/blueprint";
-import { type ValidationError, validationError } from "../errors";
 import { detectFormLinkCycles } from "../../session";
+import { type ValidationError, validationError } from "../errors";
 
 export function emptyAppName(blueprint: AppBlueprint): ValidationError[] {
 	if (!blueprint.app_name || !blueprint.app_name.trim()) {

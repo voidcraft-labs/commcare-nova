@@ -1,11 +1,11 @@
-import { Suspense } from "react";
-import Link from "next/link";
 import { Icon } from "@iconify/react/offline";
 import ciChevronLeft from "@iconify-icons/ci/chevron-left";
+import Link from "next/link";
+import { Suspense } from "react";
+import { ProfileSkeleton, ProjectsSkeleton, UsageSkeleton } from "./loading";
 import { UserProfileSection } from "./user-profile";
-import { UserUsageSection } from "./user-usage";
 import { UserProjectsSection } from "./user-projects";
-import { ProfileSkeleton, UsageSkeleton, ProjectsSkeleton } from "./loading";
+import { UserUsageSection } from "./user-usage";
 
 /**
  * Admin user detail — in-page breadcrumb + three streamed sections.

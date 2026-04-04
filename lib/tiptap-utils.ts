@@ -6,10 +6,10 @@ import {
 	Selection,
 	TextSelection,
 } from "@tiptap/pm/state";
-import { cellAround, CellSelection } from "@tiptap/pm/tables";
+import { CellSelection, cellAround } from "@tiptap/pm/tables";
 import {
-	findParentNodeClosestToPos,
 	type Editor,
+	findParentNodeClosestToPos,
 	type NodeWithPos,
 } from "@tiptap/react";
 

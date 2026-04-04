@@ -8,9 +8,9 @@
  * Called by runner.ts which wraps the string output into structured ValidationError objects.
  */
 
+import { TriggerDag } from "@/lib/preview/engine/triggerDag";
 import type { AppBlueprint, Question } from "@/lib/schemas/blueprint";
 import { validateXPath } from "./xpathValidator";
-import { TriggerDag } from "@/lib/preview/engine/triggerDag";
 
 const XPATH_FIELDS = [
 	"relevant",

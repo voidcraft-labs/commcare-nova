@@ -1,20 +1,20 @@
 "use client";
-import { useCallback } from "react";
-import type { XPathLintContext } from "@/lib/codemirror/xpath-lint";
 import { Icon } from "@iconify/react/offline";
 import ciTrashFull from "@iconify-icons/ci/trash-full";
-import type { Question } from "@/lib/schemas/blueprint";
+import { useCallback } from "react";
 import { EditableText } from "@/components/builder/EditableText";
-import { Toggle } from "@/components/ui/Toggle";
 import { XPathField } from "@/components/builder/XPathField";
-import { AddPropertyButton } from "./AddPropertyButton";
+import { Toggle } from "@/components/ui/Toggle";
 import { useSaveQuestion } from "@/hooks/useSaveQuestion";
+import type { XPathLintContext } from "@/lib/codemirror/xpath-lint";
+import type { Question } from "@/lib/schemas/blueprint";
+import { AddPropertyButton } from "./AddPropertyButton";
 import {
-	type QuestionEditorProps,
-	type XPathFieldKey,
-	useAddableField,
-	xpathFields,
 	addableTextFields,
+	type QuestionEditorProps,
+	useAddableField,
+	type XPathFieldKey,
+	xpathFields,
 } from "./shared";
 
 /**

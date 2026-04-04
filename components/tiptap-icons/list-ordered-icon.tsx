@@ -1,5 +1,5 @@
 import { memo } from "react";
-import { TiptapSvg, type TiptapIconProps } from "./TiptapSvg";
+import { type TiptapIconProps, TiptapSvg } from "./TiptapSvg";
 
 /** Ordered / numbered list icon. */
 export const ListOrderedIcon = memo((props: TiptapIconProps) => (

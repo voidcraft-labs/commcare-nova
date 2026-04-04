@@ -1,19 +1,19 @@
 /** Phase 3: Distill — cluster relevant pages by tags and generate knowledge files */
 
+import { createAnthropic } from "@ai-sdk/anthropic";
+import { Output, streamText } from "ai";
 import * as fs from "fs";
 import * as path from "path";
 import * as readline from "readline";
-import { streamText, Output } from "ai";
-import { createAnthropic } from "@ai-sdk/anthropic";
 import { z } from "zod";
-import type {
-	PipelineConfig,
-	DiscoveryResult,
-	TriageResult,
-	CrawledPage,
-} from "./types.js";
-import { loadCrawledPages } from "./phase-crawl.js";
 import { log, logCost, logSummary } from "./log.js";
+import { loadCrawledPages } from "./phase-crawl.js";
+import type {
+	CrawledPage,
+	DiscoveryResult,
+	PipelineConfig,
+	TriageResult,
+} from "./types.js";
 
 const DISTILL_DIR = ".data/confluence-cache/distilled";
 const SONNET_MODEL = "claude-sonnet-4-6";

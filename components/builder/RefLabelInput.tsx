@@ -15,25 +15,25 @@
  */
 
 "use client";
+import type { JSONContent } from "@tiptap/core";
+import { Extension } from "@tiptap/core";
+import Mention from "@tiptap/extension-mention";
+import { EditorContent, useEditor } from "@tiptap/react";
+import StarterKit from "@tiptap/starter-kit";
 import {
-	useState,
 	useCallback,
-	useMemo,
-	useRef,
 	useEffect,
 	useId,
+	useMemo,
+	useRef,
+	useState,
 } from "react";
-import { useEditor, EditorContent } from "@tiptap/react";
-import StarterKit from "@tiptap/starter-kit";
-import Mention from "@tiptap/extension-mention";
-import { Extension } from "@tiptap/core";
-import { CommcareRef } from "@/lib/tiptap/commcareRefNode";
-import { createRefSuggestion } from "@/lib/tiptap/refSuggestion";
+import { SavedCheck } from "@/components/builder/EditableTitle";
 import { ReferenceProvider } from "@/lib/references/provider";
 import { useReferenceProvider } from "@/lib/references/ReferenceContext";
-import { SavedCheck } from "@/components/builder/EditableTitle";
 import { parseLabelSegments } from "@/lib/references/renderLabel";
-import type { JSONContent } from "@tiptap/core";
+import { CommcareRef } from "@/lib/tiptap/commcareRefNode";
+import { createRefSuggestion } from "@/lib/tiptap/refSuggestion";
 
 interface RefLabelInputProps {
 	label: string;

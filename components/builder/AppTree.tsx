@@ -1,30 +1,30 @@
 "use client";
+import { Icon, type IconifyIcon } from "@iconify/react/offline";
+import ciChevronRight from "@iconify-icons/ci/chevron-right";
+import ciCloseSm from "@iconify-icons/ci/close-sm";
+import ciMoreGridBig from "@iconify-icons/ci/more-grid-big";
+import ciSearchMagnifyingGlass from "@iconify-icons/ci/search-magnifying-glass";
+import ciTable from "@iconify-icons/ci/table";
+import { AnimatePresence, motion } from "motion/react";
 import {
-	useState,
+	createContext,
+	use,
 	useCallback,
 	useDeferredValue,
 	useMemo,
-	createContext,
-	use,
+	useState,
 } from "react";
-import { motion, AnimatePresence } from "motion/react";
-import { Icon, type IconifyIcon } from "@iconify/react/offline";
-import ciMoreGridBig from "@iconify-icons/ci/more-grid-big";
-import ciTable from "@iconify-icons/ci/table";
-import ciChevronRight from "@iconify-icons/ci/chevron-right";
-import ciSearchMagnifyingGlass from "@iconify-icons/ci/search-magnifying-glass";
-import ciCloseSm from "@iconify-icons/ci/close-sm";
-import type { Question } from "@/lib/schemas/blueprint";
 import { ConnectLogomark } from "@/components/icons/ConnectLogomark";
-import { BuilderPhase, type TreeData } from "@/lib/services/builder";
-import { type QuestionPath, qpath } from "@/lib/services/questionPath";
-import { questionTypeIcons, formTypeIcons } from "@/lib/questionTypeIcons";
 import {
 	filterTree,
 	highlightSegments,
 	type MatchIndices,
 } from "@/lib/filterTree";
+import { formTypeIcons, questionTypeIcons } from "@/lib/questionTypeIcons";
 import { textWithChips } from "@/lib/references/LabelContent";
+import type { Question } from "@/lib/schemas/blueprint";
+import { BuilderPhase, type TreeData } from "@/lib/services/builder";
+import { type QuestionPath, qpath } from "@/lib/services/questionPath";
 
 /**
  * Per-form context carrying a question ID → type icon map. Lets QuestionRow

@@ -1,5 +1,5 @@
 import { memo } from "react";
-import { TiptapSvg, type TiptapIconProps } from "./TiptapSvg";
+import { type TiptapIconProps, TiptapSvg } from "./TiptapSvg";
 
 /** Enter / return arrow icon. */
 export const CornerDownLeftIcon = memo((props: TiptapIconProps) => (

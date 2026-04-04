@@ -1,20 +1,20 @@
 /** Phase 2: Triage — classify crawled pages for relevance using Haiku */
 
+import { createAnthropic } from "@ai-sdk/anthropic";
+import { generateObject } from "ai";
 import * as fs from "fs";
 import * as path from "path";
 import * as readline from "readline";
-import { generateObject } from "ai";
-import { createAnthropic } from "@ai-sdk/anthropic";
 import { z } from "zod";
+import { log, logCost, logSummary } from "./log.js";
+import { loadCrawledPages } from "./phase-crawl.js";
 import type {
-	PipelineConfig,
-	DiscoveryResult,
 	CrawledPage,
+	DiscoveryResult,
+	PipelineConfig,
 	TriageEntry,
 	TriageResult,
 } from "./types.js";
-import { loadCrawledPages } from "./phase-crawl.js";
-import { log, logCost, logSummary } from "./log.js";
 
 const CACHE_DIR = ".data/confluence-cache";
 const TRIAGE_PATH = path.join(CACHE_DIR, "triage.json");

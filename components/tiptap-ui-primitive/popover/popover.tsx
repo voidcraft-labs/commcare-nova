@@ -56,4 +56,4 @@ function ToolbarPopoverContent(
 	);
 }
 
-export { Popover, PopoverTrigger, PopoverContent, ToolbarPopoverContent };
+export { Popover, PopoverContent, PopoverTrigger, ToolbarPopoverContent };
