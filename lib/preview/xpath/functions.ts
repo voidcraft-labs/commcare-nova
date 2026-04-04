@@ -1,5 +1,5 @@
 import type { XPathValue } from './types'
-import { toNumber, toString, toBoolean } from './coerce'
+import { toNumber, xpathToString, toBoolean } from './coerce'
 
 type XPathFn = (args: XPathValue[]) => XPathValue
 
@@ -30,7 +30,7 @@ register('if', (args) => {
 
 // ── Type conversion ─────────────────────────────────────────────────
 
-register('string', (args) => toString(args[0] ?? ''))
+register('string', (args) => xpathToString(args[0] ?? ''))
 register('number', (args) => toNumber(args[0] ?? ''))
 register('int', (args) => {
   const n = toNumber(args[0] ?? '')
@@ -46,15 +46,15 @@ register('round', (args) => {
 
 // ── String functions ────────────────────────────────────────────────
 
-register('concat', (args) => args.map(a => toString(a)).join(''))
-register('string-length', (args) => toString(args[0] ?? '').length)
-register('contains', (args) => toString(args[0] ?? '').includes(toString(args[1] ?? '')))
-register('starts-with', (args) => toString(args[0] ?? '').startsWith(toString(args[1] ?? '')))
-register('normalize-space', (args) => toString(args[0] ?? '').trim().replace(/\s+/g, ' '))
+register('concat', (args) => args.map(a => xpathToString(a)).join(''))
+register('string-length', (args) => xpathToString(args[0] ?? '').length)
+register('contains', (args) => xpathToString(args[0] ?? '').includes(xpathToString(args[1] ?? '')))
+register('starts-with', (args) => xpathToString(args[0] ?? '').startsWith(xpathToString(args[1] ?? '')))
+register('normalize-space', (args) => xpathToString(args[0] ?? '').trim().replace(/\s+/g, ' '))
 register('translate', (args) => {
-  const str = toString(args[0] ?? '')
-  const from = toString(args[1] ?? '')
-  const to = toString(args[2] ?? '')
+  const str = xpathToString(args[0] ?? '')
+  const from = xpathToString(args[1] ?? '')
+  const to = xpathToString(args[2] ?? '')
   let result = ''
   for (const ch of str) {
     const idx = from.indexOf(ch)
@@ -65,7 +65,7 @@ register('translate', (args) => {
   return result
 })
 register('substr', (args) => {
-  const str = toString(args[0] ?? '')
+  const str = xpathToString(args[0] ?? '')
   // CommCare substr is 0-based: substr(string, start, end?)
   const start = Math.max(0, toNumber(args[1] ?? 0))
   if (args.length > 2) {
@@ -76,19 +76,19 @@ register('substr', (args) => {
 })
 register('join', (args) => {
   // join(separator, ...items)
-  const sep = toString(args[0] ?? '')
-  return args.slice(1).map(a => toString(a)).join(sep)
+  const sep = xpathToString(args[0] ?? '')
+  return args.slice(1).map(a => xpathToString(a)).join(sep)
 })
 
 // ── CommCare selected() — multi-select check ────────────────────────
 
 register('selected', (args) => {
-  const value = toString(args[0] ?? '')
-  const option = toString(args[1] ?? '')
+  const value = xpathToString(args[0] ?? '')
+  const option = xpathToString(args[1] ?? '')
   return value.split(' ').includes(option)
 })
 register('count-selected', (args) => {
-  const value = toString(args[0] ?? '').trim()
+  const value = xpathToString(args[0] ?? '').trim()
   if (value === '') return 0
   return value.split(' ').length
 })
@@ -97,7 +97,7 @@ register('count-selected', (args) => {
 
 register('coalesce', (args) => {
   for (const a of args) {
-    const s = toString(a)
+    const s = xpathToString(a)
     if (s !== '') return s
   }
   return ''
@@ -146,12 +146,12 @@ register('date', (args) => {
     const d = new Date(ms)
     return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
   }
-  return toString(v)
+  return xpathToString(v)
 })
 register('format-date', (args) => {
   // format-date(date, format) — simplified implementation
-  const dateStr = toString(args[0] ?? '')
-  const format = toString(args[1] ?? '%Y-%m-%d')
+  const dateStr = xpathToString(args[0] ?? '')
+  const format = xpathToString(args[1] ?? '%Y-%m-%d')
   const d = new Date(dateStr)
   if (Number.isNaN(d.getTime())) return dateStr
   return format
@@ -169,8 +169,8 @@ register('format-date', (args) => {
 register('uuid', () => crypto.randomUUID())
 register('regex', (args) => {
   try {
-    const str = toString(args[0] ?? '')
-    const pattern = toString(args[1] ?? '')
+    const str = xpathToString(args[0] ?? '')
+    const pattern = xpathToString(args[1] ?? '')
     return new RegExp(pattern).test(str)
   } catch {
     return false

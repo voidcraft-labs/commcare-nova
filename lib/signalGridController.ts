@@ -23,7 +23,7 @@ function cellColor(brightness: number, hue: number): string {
   //       >1 = warm error tones: 1–1.5 = violet→amber, 1.5–2.0 = amber→rose.
   //       3.0–4.0 = cyan→emerald (scaffolding fill / done celebration).
   // Negative hues decay back through violet on the way to cyan — all cool tones.
-  let r, g, b
+  let r: number, g: number, b: number
   if (hue >= 3.0) {
     const t = Math.min(hue - 3.0, 1)
     r = lerp(CYAN[0], EMERALD[0], t)

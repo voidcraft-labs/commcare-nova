@@ -248,7 +248,7 @@ export class Builder {
 
   private notify() {
     this._version++
-    this._listeners.forEach(fn => fn())
+    for (const fn of this._listeners) fn()
   }
 
   private notifyMutation() {

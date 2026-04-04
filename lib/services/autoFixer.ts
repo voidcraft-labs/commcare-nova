@@ -210,9 +210,9 @@ export class AutoFixer {
 
     // Parse question blocks: <input ref="/data/xyz">, <select1 ref="/data/xyz">, <select ref="/data/xyz">
     const questionBlockRegex = /<(input|select1?|trigger|upload)\s+ref="\/data\/([^"]+)"[^>]*>([\s\S]*?)(?:<\/\1>)/g
-    let match
+    let match: RegExpExecArray | null = questionBlockRegex.exec(body)
 
-    while ((match = questionBlockRegex.exec(body)) !== null) {
+    while (match !== null) {
       const questionId = match[2]
       const blockContent = match[3]
 
@@ -232,21 +232,25 @@ export class AutoFixer {
 
       // Check for inline item labels
       const itemRegex = /<item>\s*<label>([^<]+)<\/label>\s*<value>([^<]+)<\/value>\s*<\/item>/g
-      let itemMatch
-      while ((itemMatch = itemRegex.exec(blockContent)) !== null) {
+      let itemMatch: RegExpExecArray | null = itemRegex.exec(blockContent)
+      while (itemMatch !== null) {
         entries.push({
           type: 'item-label',
           questionId,
           text: itemMatch[1].trim(),
           itemValue: itemMatch[2].trim()
         })
+        itemMatch = itemRegex.exec(blockContent)
       }
+      match = questionBlockRegex.exec(body)
     }
 
     // Also handle <group> labels
     const groupRegex = /<group[^>]*ref="\/data\/([^"]+)"[^>]*>[\s\S]*?<label>([^<]+)<\/label>/g
-    while ((match = groupRegex.exec(body)) !== null) {
+    match = groupRegex.exec(body)
+    while (match !== null) {
       entries.push({ type: 'question-label', questionId: match[1], text: match[2].trim() })
+      match = groupRegex.exec(body)
     }
 
     return entries

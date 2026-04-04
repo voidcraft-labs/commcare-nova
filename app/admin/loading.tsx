@@ -8,6 +8,20 @@
  */
 import { Skeleton } from '@/components/ui/Skeleton'
 
+/** Header column widths matching the real UserTable columns (user, email, role, projects, generations, spend, last active). */
+const ADMIN_TABLE_HEADER_WIDTHS = [
+  { id: 'user', width: 56 },
+  { id: 'email', width: 80 },
+  { id: 'role', width: 40 },
+  { id: 'projects', width: 48 },
+  { id: 'generations', width: 64 },
+  { id: 'spend', width: 48 },
+  { id: 'last-active', width: 64 },
+] as const
+
+/** Stable keys for skeleton body rows — avoids array index keys. */
+const SKELETON_ROW_KEYS = ['row-a', 'row-b', 'row-c', 'row-d', 'row-e', 'row-f'] as const
+
 // ── Shared Skeleton (reused by page Suspense boundary) ───────────────
 
 /** Skeleton for the stat cards + user table — matches real content layout. */
@@ -16,13 +30,22 @@ export function AdminContentSkeleton() {
     <div className="space-y-8">
       {/* Stat cards */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-        {Array.from({ length: 3 }, (_, i) => (
-          <div key={i} className="bg-nova-deep border border-nova-border rounded-xl p-6">
-            <Skeleton className="w-20 h-3" />
-            <Skeleton className="w-24 h-9 mt-2" />
-            {i > 0 && <Skeleton className="w-16 h-3 mt-1.5" />}
-          </div>
-        ))}
+        {/* Stat card skeletons — first card is the primary count (no subtitle),
+            remaining two include a subtitle line to match the real layout. */}
+        <div className="bg-nova-deep border border-nova-border rounded-xl p-6">
+          <Skeleton className="w-20 h-3" />
+          <Skeleton className="w-24 h-9 mt-2" />
+        </div>
+        <div className="bg-nova-deep border border-nova-border rounded-xl p-6">
+          <Skeleton className="w-20 h-3" />
+          <Skeleton className="w-24 h-9 mt-2" />
+          <Skeleton className="w-16 h-3 mt-1.5" />
+        </div>
+        <div className="bg-nova-deep border border-nova-border rounded-xl p-6">
+          <Skeleton className="w-20 h-3" />
+          <Skeleton className="w-24 h-9 mt-2" />
+          <Skeleton className="w-16 h-3 mt-1.5" />
+        </div>
       </div>
 
       {/* User table */}
@@ -32,15 +55,15 @@ export function AdminContentSkeleton() {
 
         {/* Table */}
         <div className="rounded-xl border border-nova-border overflow-hidden">
-          {/* Header row */}
+          {/* Header row — widths mirror the 7 real table columns */}
           <div className="flex gap-4 px-4 py-3 border-b border-nova-border bg-nova-deep/50">
-            {[56, 80, 40, 48, 64, 48, 64].map((w, i) => (
-              <Skeleton key={i} className="h-3" style={{ width: w }} />
+            {ADMIN_TABLE_HEADER_WIDTHS.map(({ id, width }) => (
+              <Skeleton key={id} className="h-3" style={{ width }} />
             ))}
           </div>
           {/* Body rows */}
-          {Array.from({ length: 6 }, (_, i) => (
-            <div key={i} className="flex items-center gap-4 px-4 py-3 border-b border-nova-border/50">
+          {SKELETON_ROW_KEYS.map((key) => (
+            <div key={key} className="flex items-center gap-4 px-4 py-3 border-b border-nova-border/50">
               <div className="flex items-center gap-2.5">
                 <Skeleton variant="circle" className="w-6 h-6" />
                 <Skeleton className="w-24 h-4" />

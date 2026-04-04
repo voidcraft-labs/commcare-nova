@@ -67,6 +67,7 @@ export function ModuleScreen({ blueprint, moduleIndex, onNavigate, builder, mode
 
           return (
             <motion.button
+              // biome-ignore lint/suspicious/noArrayIndexKey: forms have no unique ID field
               key={fIdx}
               initial={{ opacity: 0, y: 12 }}
               animate={{ opacity: 1, y: 0 }}

@@ -207,6 +207,21 @@ body {
   100% { background-position: 200% 0; }
 }
 
+/* Etched label in the bottom bezel */
+.nova-panel-etch {
+  font-family: var(--font-mono);
+  font-size: 7px;
+  letter-spacing: 0.15em;
+  text-transform: uppercase;
+  color: rgba(140, 140, 175, 0.6);
+  white-space: nowrap;
+  user-select: none;
+  transition: color 0.5s ease;
+}
+.nova-panel[data-active] .nova-panel-etch {
+  color: rgba(180, 180, 208, 0.8);
+}
+
 /* Error recovering — amber LED and label */
 .nova-panel[data-recovering] .nova-panel-indicator.active {
   background: var(--nova-amber);
@@ -238,21 +253,6 @@ body {
 }
 .nova-panel[data-done] .nova-panel-etch {
   color: rgba(16, 185, 129, 0.7);
-}
-
-/* Etched label in the bottom bezel */
-.nova-panel-etch {
-  font-family: var(--font-mono);
-  font-size: 7px;
-  letter-spacing: 0.15em;
-  text-transform: uppercase;
-  color: rgba(140, 140, 175, 0.6);
-  white-space: nowrap;
-  user-select: none;
-  transition: color 0.5s ease;
-}
-.nova-panel[data-active] .nova-panel-etch {
-  color: rgba(180, 180, 208, 0.8);
 }
 
 /* Display well — recessed cavity where the LED grid sits */
@@ -556,7 +556,7 @@ body {
  * drag-to-select focus (the overlay alone doesn't prevent these gestures). */
 .text-mode-cursors {
   position: relative;
-  cursor: default !important;
+  cursor: default;
   user-select: none;
 }
 .text-mode-cursors::after {
@@ -568,7 +568,7 @@ body {
 .text-mode-cursors input,
 .text-mode-cursors textarea,
 .text-mode-cursors select {
-  pointer-events: none !important;
+  pointer-events: none;
 }
 .text-mode-cursors [data-text-editable] {
   position: relative;

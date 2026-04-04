@@ -1,5 +1,5 @@
 'use client'
-import { useCallback, useRef } from 'react'
+import { useCallback, useRef, useId } from 'react'
 import { motion, AnimatePresence } from 'motion/react'
 import { Icon } from '@iconify/react/offline'
 import ciSettings from '@iconify-icons/ci/settings'
@@ -48,6 +48,7 @@ export function FormSettingsButton({ form, moduleIndex, formIndex, mb, notifyBlu
   return (
     <>
       <button
+        type="button"
         ref={dd.triggerRef}
         onClick={dd.toggle}
         className="flex items-center gap-1 p-1.5 rounded-md transition-colors cursor-pointer text-nova-text-muted hover:text-nova-text hover:bg-white/5"
@@ -84,6 +85,7 @@ function FormSettingsPanel({
       <div className="flex items-center justify-between px-3.5 py-2.5 border-b border-white/[0.06]">
         <span className="text-xs font-medium text-nova-text-secondary uppercase tracking-wider">Form Settings</span>
         <button
+          type="button"
           onClick={onClose}
           className="p-1 -mr-1 rounded-md text-nova-text-muted hover:text-nova-text hover:bg-white/[0.06] transition-colors cursor-pointer"
         >
@@ -133,6 +135,7 @@ function resolveUserFacing(dest: PostSubmitDestination): PostSubmitDestination {
 function AfterSubmitSection({ form, moduleIndex, formIndex, mb, notifyBlueprintChanged }: FormSettingsPanelProps) {
   const current = resolveUserFacing(form.post_submit ?? 'default')
   const currentOption = AFTER_SUBMIT_OPTIONS.find(o => o.value === current) ?? AFTER_SUBMIT_OPTIONS[0]
+  const triggerId = useId()
   /* No contentPopover — this is a child of the form settings panel, not a
    * sibling. Content popover coordination would dismiss the parent on open.
    * matchTriggerWidth sizes the menu to the trigger button for inline-select feel. */
@@ -154,16 +157,18 @@ function AfterSubmitSection({ form, moduleIndex, formIndex, mb, notifyBlueprintC
 
   return (
     <div>
-      <label className="text-xs font-medium text-nova-text-secondary uppercase tracking-wider mb-1.5 block">
+      <label htmlFor={triggerId} className="text-xs font-medium text-nova-text-secondary uppercase tracking-wider mb-1.5 block">
         After Submit
       </label>
       <button
+        id={triggerId}
+        type="button"
         ref={dd.triggerRef}
         onClick={dd.toggle}
         className="w-full flex items-center justify-between px-2 py-1.5 text-xs rounded-md border transition-colors cursor-pointer text-nova-text bg-transparent border-white/[0.06] hover:border-white/[0.12]"
       >
         <span>{currentOption.label}</span>
-        <svg width="10" height="10" viewBox="0 0 10 10" className={`text-nova-text-muted transition-transform ${dd.open ? 'rotate-180' : ''}`}>
+        <svg aria-hidden="true" width="10" height="10" viewBox="0 0 10 10" className={`text-nova-text-muted transition-transform ${dd.open ? 'rotate-180' : ''}`}>
           <path d="M2 3.5L5 6.5L8 3.5" stroke="currentColor" strokeWidth="1.2" fill="none" strokeLinecap="round" strokeLinejoin="round"/>
         </svg>
       </button>
@@ -439,9 +444,9 @@ function LearnConfig({ connect, save, mb, moduleIndex, formIndex }: ConnectSubCo
                     required
                   />
                   <div>
-                    <label className="text-[10px] text-nova-text-muted uppercase tracking-wider mb-0.5 flex items-center gap-0.5">
+                    <span className="text-[10px] text-nova-text-muted uppercase tracking-wider mb-0.5 flex items-center gap-0.5">
                       User Score<span className="text-nova-rose">*</span>
-                    </label>
+                    </span>
                     <XPathField
                       value={assessment.user_score}
                       onSave={(v) => { if (v.trim()) save({ ...connect, assessment: { ...assessment, user_score: v } }) }}
@@ -501,9 +506,9 @@ function DeliverConfig({ connect, save, mb, moduleIndex, formIndex }: ConnectSub
     <>
       <div className="space-y-2">
         <div>
-          <label className="text-[10px] text-nova-text-muted uppercase tracking-wider mb-0.5 flex items-center gap-0.5">
+          <span className="text-[10px] text-nova-text-muted uppercase tracking-wider mb-0.5 flex items-center gap-0.5">
             Entity ID<span className="text-nova-rose">*</span>
-          </label>
+          </span>
           <XPathField
             value={du?.entity_id ?? ''}
             onSave={(v) => { if (v.trim()) updateDeliverUnit('entity_id', v) }}
@@ -511,9 +516,9 @@ function DeliverConfig({ connect, save, mb, moduleIndex, formIndex }: ConnectSub
           />
         </div>
         <div>
-          <label className="text-[10px] text-nova-text-muted uppercase tracking-wider mb-0.5 flex items-center gap-0.5">
+          <span className="text-[10px] text-nova-text-muted uppercase tracking-wider mb-0.5 flex items-center gap-0.5">
             Entity Name<span className="text-nova-rose">*</span>
-          </label>
+          </span>
           <XPathField
             value={du?.entity_name ?? ''}
             onSave={(v) => { if (v.trim()) updateDeliverUnit('entity_name', v) }}
@@ -581,6 +586,7 @@ function InlineField({
   type?: string
   required?: boolean
 }) {
+  const fieldId = useId()
   const { draft, setDraft, focused, saved, ref, handleFocus, handleBlur, handleKeyDown } = useCommitField({
     value,
     onSave: onChange,
@@ -592,13 +598,14 @@ function InlineField({
 
   return (
     <div>
-      <label className="text-[10px] text-nova-text-muted uppercase tracking-wider mb-0.5 flex items-center gap-0.5">
+      <label htmlFor={fieldId} className="text-[10px] text-nova-text-muted uppercase tracking-wider mb-0.5 flex items-center gap-0.5">
         {label}
         {required && <span className="text-nova-rose ml-0.5">*</span>}
         <SavedCheck visible={saved && !focused} size={10} className="shrink-0" />
       </label>
       <div className="relative">
         <Tag
+          id={fieldId}
           ref={ref as React.RefCallback<HTMLInputElement & HTMLTextAreaElement>}
           type={type === 'number' ? 'number' : 'text'}
           value={draft}

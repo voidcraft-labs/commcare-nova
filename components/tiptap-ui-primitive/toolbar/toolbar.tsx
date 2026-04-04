@@ -101,16 +101,19 @@ export const Toolbar = forwardRef<HTMLDivElement, ToolbarProps>(
 )
 Toolbar.displayName = "Toolbar"
 
-export const ToolbarGroup = forwardRef<HTMLDivElement, BaseProps>(
+/**
+ * Semantic grouping within a toolbar. Uses `<fieldset>` for native group
+ * semantics instead of `<div role="group">`.
+ */
+export const ToolbarGroup = forwardRef<HTMLFieldSetElement, React.HTMLAttributes<HTMLFieldSetElement>>(
   ({ children, className, ...props }, ref) => (
-    <div
+    <fieldset
       ref={ref}
-      role="group"
       className={cn("tiptap-toolbar-group", className)}
       {...props}
     >
       {children}
-    </div>
+    </fieldset>
   )
 )
 ToolbarGroup.displayName = "ToolbarGroup"

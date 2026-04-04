@@ -5,6 +5,13 @@ const nextConfig: NextConfig = {
   /* Produces a self-contained build with only necessary node_modules. */
   output: "standalone",
 
+  /* Allow next/image optimization for Google OAuth profile avatars. */
+  images: {
+    remotePatterns: [
+      { protocol: "https", hostname: "lh3.googleusercontent.com" },
+    ],
+  },
+
   async headers() {
     return [
       {

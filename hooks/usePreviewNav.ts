@@ -1,7 +1,7 @@
 'use client'
 import { useState, useCallback, useMemo } from 'react'
 import type { PreviewScreen } from '@/lib/preview/engine/types'
-import { screensEqual, getParentScreen } from '@/lib/preview/engine/types'
+import { screensEqual, getParentScreen, screenKey } from '@/lib/preview/engine/types'
 import type { AppBlueprint } from '@/lib/schemas/blueprint'
 import { getCaseData } from '@/lib/preview/engine/dummyData'
 
@@ -115,7 +115,7 @@ export function usePreviewNav(blueprint?: AppBlueprint) {
 
   // Labels derived from the live blueprint — not memoized so in-place name
   // mutations are reflected immediately on re-render
-  const breadcrumb = deriveBreadcrumbLabels(breadcrumbPath, blueprint)
+  const breadcrumb = deriveBreadcrumb(breadcrumbPath, blueprint)
 
   // Navigate to a breadcrumb level (ancestor screen)
   const navigateTo = useCallback((index: number) => {
@@ -141,22 +141,36 @@ export function usePreviewNav(blueprint?: AppBlueprint) {
   }
 }
 
-function deriveBreadcrumbLabels(path: PreviewScreen[], blueprint?: AppBlueprint): string[] {
+/** Breadcrumb item with a stable identity key derived from the navigation screen. */
+export interface BreadcrumbItem {
+  /** Stable React key from `screenKey()` — encodes screen type + hierarchy indices. */
+  key: string
+  /** Display label for this breadcrumb level (derived from the live blueprint). */
+  label: string
+}
+
+/**
+ * Derive breadcrumb items from the screen path, pairing each screen's
+ * stable identity key with its human-readable label from the blueprint.
+ */
+function deriveBreadcrumb(path: PreviewScreen[], blueprint?: AppBlueprint): BreadcrumbItem[] {
   if (!blueprint) return []
   return path.map((screen, i) => {
-    if (screen.type === 'home') return blueprint.app_name
-    if (screen.type === 'module') return blueprint.modules[screen.moduleIndex]?.name ?? 'Module'
-    if (screen.type === 'caseList') return blueprint.modules[screen.moduleIndex]?.forms[screen.formIndex]?.name ?? 'Form'
+    const key = screenKey(screen)
+    if (screen.type === 'home') return { key, label: blueprint.app_name }
+    if (screen.type === 'module') return { key, label: blueprint.modules[screen.moduleIndex]?.name ?? 'Module' }
+    if (screen.type === 'caseList') return { key, label: blueprint.modules[screen.moduleIndex]?.forms[screen.formIndex]?.name ?? 'Form' }
     if (screen.type === 'form') {
       // If preceded by caseList, this level shows the case name
       if (i > 0 && path[i - 1].type === 'caseList') {
         const mod = blueprint.modules[screen.moduleIndex]
-        return (screen.caseId && mod?.case_type
+        const label = (screen.caseId && mod?.case_type
           ? getCaseData(mod.case_type, screen.caseId)?.get('case_name')
           : undefined) ?? 'Case'
+        return { key, label }
       }
-      return blueprint.modules[screen.moduleIndex]?.forms[screen.formIndex]?.name ?? 'Form'
+      return { key, label: blueprint.modules[screen.moduleIndex]?.forms[screen.formIndex]?.name ?? 'Form' }
     }
-    return ''
+    return { key, label: '' }
   })
 }

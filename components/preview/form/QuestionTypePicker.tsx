@@ -74,9 +74,12 @@ export function QuestionTypePicker({ anchorEl, atIndex, parentPath, onClose }: Q
     <FloatingPortal>
       <div
         ref={composedRef}
+        role="dialog"
+        aria-label="Choose question type"
         style={floatingStyles}
         className="z-popover-top"
         onClick={(e) => e.stopPropagation()}
+        onKeyDown={(e) => { if (e.key === 'Escape') onClose() }}
       >
         <QuestionTypeGrid onSelect={handleSelect} />
       </div>

@@ -74,10 +74,12 @@ export function useAutoSave(
 
   /* Reset state when the project changes — new project means a fresh
    * save watermark and no pending/in-flight state from the old project.
-   * Clearing inFlightRef ensures the first mutation on the new project
-   * fires the leading edge immediately instead of queuing behind a
-   * stale in-flight save from the previous project. */
-  useEffect(() => {
+   * Uses React's "derive state from props" pattern: detect the change during
+   * render so the effect doesn't reference mutationCount (which would cause
+   * a reset on every mutation). clearTimeout is idempotent so safe in render. */
+  const prevProjectIdRef = useRef(builder.projectId)
+  if (prevProjectIdRef.current !== builder.projectId) {
+    prevProjectIdRef.current = builder.projectId
     lastSavedMutationRef.current = builder.mutationCount
     inFlightRef.current = false
     if (cooldownTimerRef.current) {
@@ -86,7 +88,7 @@ export function useAutoSave(
     }
     pendingTrailingRef.current = false
     setState(IDLE_STATE)
-  }, [builder.projectId]) // eslint-disable-line react-hooks/exhaustive-deps
+  }
 
   /* Single long-lived subscription — reads all state live from the builder
    * singleton inside the callback to avoid stale closure issues. The effect

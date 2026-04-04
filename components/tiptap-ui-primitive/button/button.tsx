@@ -33,10 +33,10 @@ export const ShortcutDisplay: React.FC<{ shortcuts: string[] }> = ({
 
   return (
     <div>
-      {shortcuts.map((key, index) => (
-        <Fragment key={index}>
-          {index > 0 && <kbd>+</kbd>}
-          <kbd>{key}</kbd>
+      {shortcuts.map((shortcutKey, position) => (
+        <Fragment key={shortcutKey}>
+          {position > 0 && <kbd>+</kbd>}
+          <kbd>{shortcutKey}</kbd>
         </Fragment>
       ))}
     </div>

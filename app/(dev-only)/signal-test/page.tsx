@@ -1,5 +1,5 @@
 'use client'
-import { useState, useRef, useCallback, useEffect } from 'react'
+import { useState, useRef, useCallback, useEffect, useMemo } from 'react'
 import { SignalGridController, type SignalMode, type EditFocus } from '@/lib/signalGridController'
 import { SignalPanel } from '@/components/chat/SignalPanel'
 import { defaultLabel } from '@/lib/signalGridController'
@@ -583,7 +583,10 @@ export default function SignalTestPage() {
     controllerRef.current?.onSettled(cb)
   }, [])
 
-  const ctx: ScenarioContext = { setMode, inject, injectThink, setFocus, setScaffoldProgress, onSettled }
+  const ctx: ScenarioContext = useMemo(
+    () => ({ setMode, inject, injectThink, setFocus, setScaffoldProgress, onSettled }),
+    [inject, injectThink, setFocus, setScaffoldProgress, onSettled],
+  )
 
   const runScenario = useCallback((index: number) => {
     cleanupRef.current?.()
@@ -602,9 +605,11 @@ export default function SignalTestPage() {
     setActiveScenario(null)
   }, [])
 
-  // Resize the controller when width slider changes
+  // Resize the controller when the width slider changes. `width` drives the
+  // container's inline style — once React applies the new width to the DOM,
+  // we tell the controller to re-measure its grid dimensions.
   useEffect(() => {
-    controllerRef.current?.resize()
+    if (width > 0) controllerRef.current?.resize()
   }, [width])
 
   return (
@@ -619,20 +624,23 @@ export default function SignalTestPage() {
 
         {/* Piece gallery — all pieces × all rotations on a 3-row mini grid */}
         <div className="space-y-2">
-          <label className="text-xs text-nova-text-muted uppercase tracking-wider font-mono">
+          <span className="text-xs text-nova-text-muted uppercase tracking-wider font-mono">
             Piece Catalogue
-          </label>
+          </span>
           <div className="flex gap-6 flex-wrap">
             {PIECES.map(piece => (
               <div key={piece.id} className="space-y-1.5">
                 <span className="text-xs text-nova-text-secondary font-mono">{piece.name}</span>
                 <div className="flex gap-3">
-                  {piece.rotations.map((shape, ri) => {
+                  {piece.rotations.map((shape, rotationIndex) => {
                     const maxR = Math.max(...shape.map(([r]) => r))
                     const maxC = Math.max(...shape.map(([, c]) => c))
                     const cells = new Set(shape.map(([r, c]) => `${r},${c}`))
+                    /* Each rotation is a unique cell arrangement — serialize coordinates
+                       to produce a stable content-derived key instead of the array index. */
+                    const shapeKey = shape.map(([r, c]) => `${r}${c}`).join('')
                     return (
-                      <div key={ri} className="flex flex-col items-center gap-1">
+                      <div key={`${piece.id}-${shapeKey}`} className="flex flex-col items-center gap-1">
                         <div
                           className="grid gap-[2px]"
                           style={{
@@ -646,14 +654,14 @@ export default function SignalTestPage() {
                             const on = cells.has(`${r},${c}`)
                             return (
                               <div
-                                key={i}
+                                key={`${r},${c}`}
                                 className={`rounded-[1.5px] ${on ? 'bg-nova-cyan' : 'bg-nova-void/50'}`}
                                 style={{ width: 8, height: 8, opacity: on ? 1 : 0.15 }}
                               />
                             )
                           })}
                         </div>
-                        <span className="text-[9px] text-nova-text-muted font-mono">r{ri}</span>
+                        <span className="text-[9px] text-nova-text-muted font-mono">r{rotationIndex}</span>
                       </div>
                     )
                   })}
@@ -666,9 +674,9 @@ export default function SignalTestPage() {
         {/* Width control */}
         <div className="space-y-2">
           <div className="flex items-center gap-3">
-            <label className="text-xs text-nova-text-muted uppercase tracking-wider font-mono">
+            <span className="text-xs text-nova-text-muted uppercase tracking-wider font-mono">
               Container Width
-            </label>
+            </span>
             <span className="text-xs text-nova-text-secondary font-mono">{width}px</span>
           </div>
           <input
@@ -688,6 +696,7 @@ export default function SignalTestPage() {
               ['Narrow', 160],
             ].map(([label, w]) => (
               <button
+                type="button"
                 key={label as string}
                 onClick={() => setWidth(w as number)}
                 className={`text-xs px-2.5 py-1 rounded border cursor-pointer transition-colors ${
@@ -704,9 +713,9 @@ export default function SignalTestPage() {
 
         {/* Grid preview */}
         <div className="space-y-2">
-          <label className="text-xs text-nova-text-muted uppercase tracking-wider font-mono">
+          <span className="text-xs text-nova-text-muted uppercase tracking-wider font-mono">
             Preview
-          </label>
+          </span>
           <div
             className="bg-nova-deep border border-nova-border rounded-xl p-4 flex justify-center"
           >
@@ -720,14 +729,15 @@ export default function SignalTestPage() {
 
         {/* Manual energy injection */}
         <div className="space-y-2">
-          <label className="text-xs text-nova-text-muted uppercase tracking-wider font-mono">
+          <span className="text-xs text-nova-text-muted uppercase tracking-wider font-mono">
             Manual Energy Injection
-          </label>
+          </span>
           <div className="flex gap-2 flex-wrap">
             <div className="flex gap-2 flex-wrap items-center">
               <span className="text-xs text-nova-text-muted font-mono">Burst:</span>
               {[5, 20, 50, 100, 200, 500].map(amount => (
                 <button
+                  type="button"
                   key={`b-${amount}`}
                   onClick={() => inject(amount)}
                   className="text-xs px-3 py-1.5 rounded border border-nova-border text-nova-text-secondary hover:border-nova-violet/40 hover:bg-nova-violet/5 transition-colors cursor-pointer font-mono"
@@ -740,6 +750,7 @@ export default function SignalTestPage() {
               <span className="text-xs text-nova-text-muted font-mono">Think:</span>
               {[5, 20, 50, 100, 200, 500].map(amount => (
                 <button
+                  type="button"
                   key={`t-${amount}`}
                   onClick={() => injectThink(amount)}
                   className="text-xs px-3 py-1.5 rounded border border-nova-border text-nova-text-secondary hover:border-nova-cyan/40 hover:bg-nova-cyan/5 transition-colors cursor-pointer font-mono"
@@ -753,12 +764,13 @@ export default function SignalTestPage() {
 
         {/* Mode buttons */}
         <div className="space-y-2">
-          <label className="text-xs text-nova-text-muted uppercase tracking-wider font-mono">
+          <span className="text-xs text-nova-text-muted uppercase tracking-wider font-mono">
             Direct Mode Control
-          </label>
+          </span>
           <div className="flex gap-2 flex-wrap">
             {(['sending', 'reasoning', 'scaffolding', 'building', 'editing', 'error-recovering', 'error-fatal', 'done', 'idle'] as SignalMode[]).map(m => (
               <button
+                type="button"
                 key={m}
                 onClick={() => {
                   cleanupRef.current?.()
@@ -791,9 +803,9 @@ export default function SignalTestPage() {
         {/* Edit focus control — only visible in editing mode */}
         {mode === 'editing' && (
           <div className="space-y-2">
-            <label className="text-xs text-nova-text-muted uppercase tracking-wider font-mono">
+            <span className="text-xs text-nova-text-muted uppercase tracking-wider font-mono">
               Edit Focus Zone
-            </label>
+            </span>
             <div className="flex gap-2 flex-wrap">
               {([
                 ['Full', null],
@@ -804,6 +816,7 @@ export default function SignalTestPage() {
                 ['Tight', { start: 0.15, end: 0.25 }],
               ] as [string, EditFocus | null][]).map(([label, f]) => (
                 <button
+                  type="button"
                   key={label}
                   onClick={() => setFocus(f)}
                   className="text-xs px-3 py-1.5 rounded border border-nova-border text-nova-text-secondary hover:border-nova-cyan/40 hover:bg-nova-cyan/5 transition-colors cursor-pointer font-mono"
@@ -818,15 +831,16 @@ export default function SignalTestPage() {
         {/* Scaffold progress control — only visible in scaffolding mode */}
         {mode === 'scaffolding' && (
           <div className="space-y-2">
-            <label className="text-xs text-nova-text-muted uppercase tracking-wider font-mono">
+            <span className="text-xs text-nova-text-muted uppercase tracking-wider font-mono">
               Scaffold Progress
-            </label>
+            </span>
             <div className="flex gap-2 flex-wrap">
               {([
                 ['5%', 0.05], ['30%', 0.30], ['55%', 0.55],
                 ['85%', 0.85], ['100%', 1.0],
               ] as [string, number][]).map(([label, p]) => (
                 <button
+                  type="button"
                   key={label}
                   onClick={() => setScaffoldProgress(p)}
                   className="text-xs px-3 py-1.5 rounded border border-nova-border text-nova-text-secondary hover:border-nova-emerald/40 hover:bg-nova-emerald/5 transition-colors cursor-pointer font-mono"
@@ -840,9 +854,9 @@ export default function SignalTestPage() {
 
         {/* Scenarios */}
         <div className="space-y-3">
-          <label className="text-xs text-nova-text-muted uppercase tracking-wider font-mono">
+          <span className="text-xs text-nova-text-muted uppercase tracking-wider font-mono">
             Simulation Scenarios
-          </label>
+          </span>
           <div className="grid gap-2">
             {scenarios.map((s, i) => (
               <div
@@ -859,6 +873,7 @@ export default function SignalTestPage() {
                 </div>
                 {activeScenario === i ? (
                   <button
+                    type="button"
                     onClick={stopScenario}
                     className="shrink-0 text-xs px-3 py-1.5 rounded border border-nova-rose/40 bg-nova-rose/10 text-nova-rose hover:bg-nova-rose/20 transition-colors cursor-pointer font-mono"
                   >
@@ -866,6 +881,7 @@ export default function SignalTestPage() {
                   </button>
                 ) : (
                   <button
+                    type="button"
                     onClick={() => runScenario(i)}
                     className="shrink-0 text-xs px-3 py-1.5 rounded border border-nova-violet/40 bg-nova-violet/10 text-nova-violet-bright hover:bg-nova-violet/20 transition-colors cursor-pointer font-mono"
                   >

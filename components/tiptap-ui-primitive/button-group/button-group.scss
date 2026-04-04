@@ -1,4 +1,11 @@
 .tiptap-button-group {
+  /* Reset native fieldset defaults — the element is used for
+     semantic grouping, not for form chrome. */
+  border: none;
+  margin: 0;
+  padding: 0;
+  min-width: 0;
+
   display: flex;
   width: fit-content;
   align-items: stretch;

@@ -17,14 +17,18 @@ const buttonGroupVariants = cva("tiptap-button-group", {
   },
 })
 
+/**
+ * Semantic grouping for toolbar buttons. Uses `<fieldset>` instead of
+ * `<div role="group">` so assistive technology gets native group semantics
+ * without an ARIA role override.
+ */
 function ButtonGroup({
   className,
   orientation,
   ...props
-}: React.ComponentProps<"div"> & VariantProps<typeof buttonGroupVariants>) {
+}: React.ComponentProps<"fieldset"> & VariantProps<typeof buttonGroupVariants>) {
   return (
-    <div
-      role="group"
+    <fieldset
       data-slot="tiptap-button-group"
       data-orientation={orientation}
       className={cn(buttonGroupVariants({ orientation }), className)}

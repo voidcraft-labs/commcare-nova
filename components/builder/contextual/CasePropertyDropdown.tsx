@@ -1,5 +1,5 @@
 'use client'
-import { useCallback, useMemo } from 'react'
+import { useCallback, useId, useMemo } from 'react'
 import tablerCircleOff from '@iconify-icons/tabler/circle-off'
 import tablerDatabase from '@iconify-icons/tabler/database'
 import { DropdownMenu, type DropdownMenuItem } from '@/components/ui/DropdownMenu'
@@ -21,6 +21,8 @@ interface CasePropertyDropdownProps {
  */
 export function CasePropertyDropdown({ value, isCaseName, disabled, caseTypes, onChange }: CasePropertyDropdownProps) {
   const isInteractive = !disabled && !isCaseName
+
+  const triggerId = useId()
 
   /* All hooks must be called before the early return (rules of hooks). */
   const dd = useFloatingDropdown<HTMLButtonElement>({
@@ -65,10 +67,12 @@ export function CasePropertyDropdown({ value, isCaseName, disabled, caseTypes, o
 
   return (
     <div>
-      <label className="text-xs text-nova-text-muted uppercase tracking-wider mb-1 block">
+      <label htmlFor={triggerId} className="text-xs text-nova-text-muted uppercase tracking-wider mb-1 block">
         Saves to
       </label>
       <button
+        id={triggerId}
+        type="button"
         ref={dd.triggerRef}
         onClick={isInteractive ? dd.toggle : undefined}
         aria-label={`Saves to: ${displayLabel}`}
@@ -81,7 +85,7 @@ export function CasePropertyDropdown({ value, isCaseName, disabled, caseTypes, o
       >
         <span className={value ? 'text-nova-cyan-bright' : 'text-nova-text-muted'}>{displayLabel}</span>
         {isInteractive && (
-          <svg width="10" height="10" viewBox="0 0 10 10" className={`text-nova-text-muted transition-transform ${dd.open ? 'rotate-180' : ''}`}>
+          <svg aria-hidden="true" width="10" height="10" viewBox="0 0 10 10" className={`text-nova-text-muted transition-transform ${dd.open ? 'rotate-180' : ''}`}>
             <path d="M2 3.5L5 6.5L8 3.5" stroke="currentColor" strokeWidth="1.2" fill="none" strokeLinecap="round" strokeLinejoin="round" />
           </svg>
         )}

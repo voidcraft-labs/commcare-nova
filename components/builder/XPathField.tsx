@@ -146,15 +146,16 @@ export function XPathField({ value, onSave, getLintContext, autoEdit, onEditingC
 
     /* Editable idle — show static display with hover chrome. */
     return (
-      <div
+      <button
+        type="button"
         onClick={(e) => {
           clickPosRef.current = { x: e.clientX, y: e.clientY }
           setEditing(true)
         }}
-        className="cursor-pointer rounded-md border border-transparent hover:border-nova-violet/30 transition-colors"
+        className="w-full text-left cursor-pointer rounded-md border border-transparent hover:border-nova-violet/30 transition-colors p-0"
       >
         {display}
-      </div>
+      </button>
     )
   }
 

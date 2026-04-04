@@ -5,8 +5,12 @@ import { Icon } from '@iconify/react/offline'
 import ciChevronRight from '@iconify-icons/ci/chevron-right'
 import { useDismissRef } from '@/hooks/useDismissRef'
 
-/** A breadcrumb segment with a label and navigation callback. */
+/** A breadcrumb segment with a label, stable identity key, and navigation callback. */
 export interface BreadcrumbPart {
+  /** Stable identity derived from the underlying PreviewScreen (e.g. "home", "module-0").
+   *  Labels aren't unique — "App > Intake > Intake" is valid — so we need a
+   *  semantic key from the navigation hierarchy. */
+  key: string
   label: string
   onClick: () => void
 }
@@ -35,7 +39,7 @@ function breadcrumbPartsEqual(prev: { parts: BreadcrumbPart[] }, next: { parts: 
   const a = prev.parts, b = next.parts
   if (a.length !== b.length) return false
   for (let i = 0; i < a.length; i++) {
-    if (a[i].label !== b[i].label || a[i].onClick !== b[i].onClick) return false
+    if (a[i].key !== b[i].key || a[i].label !== b[i].label || a[i].onClick !== b[i].onClick) return false
   }
   return true
 }
@@ -77,6 +81,7 @@ export const CollapsibleBreadcrumb = memo(function CollapsibleBreadcrumb({ parts
               {Chevron}
               <div ref={dismissRef} className="relative shrink-0">
                 <button
+                  type="button"
                   onClick={() => setMenuOpen(!menuOpen)}
                   className="text-nova-text-muted hover:text-nova-text hover:bg-nova-surface w-7 h-7 flex items-center justify-center rounded-md transition-colors cursor-pointer"
                 >
@@ -91,9 +96,10 @@ export const CollapsibleBreadcrumb = memo(function CollapsibleBreadcrumb({ parts
                       transition={{ duration: 0.15, ease: [0.4, 0, 0.2, 1] }}
                       className="absolute left-0 top-[calc(100%+4px)] z-popover min-w-[180px] max-w-[280px] rounded-xl border border-nova-border-bright bg-nova-surface/95 backdrop-blur-xl shadow-[0_4px_16px_rgba(0,0,0,0.5)] overflow-hidden py-1"
                     >
-                      {collapsedMiddle.map((mp, mi) => (
+                      {collapsedMiddle.map((mp) => (
                         <button
-                          key={mi}
+                          key={mp.key}
+                          type="button"
                           onClick={() => { mp.onClick(); setMenuOpen(false) }}
                           className="w-full px-3 py-2 text-left text-sm text-nova-text-muted hover:text-nova-text hover:bg-nova-elevated/80 transition-colors cursor-pointer truncate"
                         >
@@ -110,9 +116,10 @@ export const CollapsibleBreadcrumb = memo(function CollapsibleBreadcrumb({ parts
 
         /* ── Standard segment: chevron (if not first) + button ── */
         return (
-          <Fragment key={i}>
+          <Fragment key={part.key}>
             {i > 0 && Chevron}
             <button
+              type="button"
               onClick={isLast ? undefined : part.onClick}
               title={part.label}
               className={isLast ? CURRENT_CLASS : ANCESTOR_CLASS}

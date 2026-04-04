@@ -42,10 +42,10 @@ export function textWithChips(
 ): ReactNode {
   /* Fast path: skip regex work for the ~95% of labels with no refs. */
   if (!text.includes('#')) return text
-  return parseLabelSegments(text).map((seg, i) => {
+  return parseLabelSegments(text).map(seg => {
     if (seg.kind === 'text') return seg.text
     const ref = resolveRefFromExpr(seg.value, provider, iconOverrides)
-    return ref ? <ReferenceChip key={i} reference={ref} /> : seg.value
+    return ref ? <ReferenceChip key={seg.key} reference={ref} /> : seg.value
   })
 }
 

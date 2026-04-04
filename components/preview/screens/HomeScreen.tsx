@@ -39,6 +39,7 @@ export function HomeScreen({ blueprint, onNavigate, builder, mode = 'edit' }: Ho
       <div className="grid gap-3">
         {blueprint.modules.map((mod, mIdx) => (
           <motion.button
+            // biome-ignore lint/suspicious/noArrayIndexKey: modules have no unique ID — name is user-editable and not unique
             key={mIdx}
             initial={{ opacity: 0, y: 12 }}
             animate={{ opacity: 1, y: 0 }}

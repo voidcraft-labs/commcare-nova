@@ -11,7 +11,7 @@
  */
 
 'use client'
-import { forwardRef, useEffect, useImperativeHandle, useState } from 'react'
+import { forwardRef, useImperativeHandle, useRef, useState } from 'react'
 import { Icon } from '@iconify/react/offline'
 import { REF_TYPE_CONFIG } from '@/lib/references/config'
 import type { Reference, ReferenceType } from '@/lib/references/types'
@@ -66,7 +66,14 @@ export const ReferenceAutocomplete = forwardRef<ReferenceAutocompleteHandle, Ref
       ? NAMESPACE_OPTIONS.map(ns => ({ kind: 'namespace', ...ns }))
       : items.map(r => ({ kind: 'reference', reference: r }))
 
-    useEffect(() => setSelectedIndex(0), [items, showNamespaces])
+    // Reset selection when the list contents change (typing narrows results,
+    // namespace toggle swaps the entire list). Content key handles both cases.
+    const listKey = allItems.map(item => item.kind === 'namespace' ? item.type : item.reference.raw).join('\0')
+    const prevListKeyRef = useRef(listKey)
+    if (prevListKeyRef.current !== listKey) {
+      prevListKeyRef.current = listKey
+      setSelectedIndex(0)
+    }
 
     useImperativeHandle(ref, () => ({
       onKeyDown: (event: KeyboardEvent) => {
@@ -103,35 +110,43 @@ export const ReferenceAutocomplete = forwardRef<ReferenceAutocompleteHandle, Ref
         className="rounded-lg border border-nova-violet/20 bg-[#0d0d24] shadow-[0_4px_20px_rgba(0,0,0,0.5)] overflow-hidden font-mono text-xs"
         style={{ minWidth: 200, maxWidth: 320 }}
       >
-        <ul className="max-h-[200px] overflow-y-auto py-1" role="listbox">
+        {/* ARIA listbox pattern: generic divs with roles, not ul/li which carry
+             conflicting implicit roles. Keyboard nav is imperative (TipTap drives
+             ArrowUp/Down/Enter through the useImperativeHandle ref), so per-item
+             onKeyDown handles Enter/Space as a fallback for direct focus. */}
+        <div className="max-h-[200px] overflow-y-auto py-1" role="listbox">
           {allItems.map((item, index) => {
             const isSelected = index === selectedIndex
             if (item.kind === 'namespace') {
               const config = REF_TYPE_CONFIG[item.type]
               return (
-                <li
+                <div
                   key={item.type}
                   role="option"
+                  tabIndex={-1}
                   aria-selected={isSelected}
                   className={`flex items-center gap-2 px-2 py-[3px] cursor-pointer ${isSelected ? 'bg-nova-violet/15' : ''}`}
                   onClick={() => selectItem(index)}
+                  onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); selectItem(index) } }}
                   onMouseEnter={() => setSelectedIndex(index)}
                 >
                   <Icon icon={config.icon} width="14" height="14" className={config.textClass} />
                   <span className="text-nova-text">{item.label}</span>
                   <span className="ml-auto text-nova-text-muted">{item.description}</span>
-                </li>
+                </div>
               )
             }
             const r = item.reference
             const config = REF_TYPE_CONFIG[r.type]
             return (
-              <li
+              <div
                 key={r.raw}
                 role="option"
+                tabIndex={-1}
                 aria-selected={isSelected}
                 className={`flex items-center gap-2 px-2 py-[3px] cursor-pointer ${isSelected ? 'bg-nova-violet/15' : ''}`}
                 onClick={() => selectItem(index)}
+                onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); selectItem(index) } }}
                 onMouseEnter={() => setSelectedIndex(index)}
               >
                 <Icon icon={r.icon ?? config.icon} width="14" height="14" className={`shrink-0 ${config.textClass}`} />
@@ -139,10 +154,10 @@ export const ReferenceAutocomplete = forwardRef<ReferenceAutocompleteHandle, Ref
                 {r.label !== r.path && (
                   <span className="ml-auto text-nova-text-muted truncate">{r.path}</span>
                 )}
-              </li>
+              </div>
             )
           })}
-        </ul>
+        </div>
       </div>
     )
   },

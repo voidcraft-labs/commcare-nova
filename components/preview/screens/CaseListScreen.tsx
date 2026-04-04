@@ -54,8 +54,8 @@ export function CaseListScreen({ blueprint, moduleIndex, formIndex, onNavigate }
         <table className="w-full text-sm">
           <thead>
             <tr className="bg-pv-surface">
-              {columns.map((col, i) => (
-                <th key={i} className="text-left px-4 py-2.5 font-medium text-pv-accent-bright border-b border-pv-input-border">
+              {columns.map((col) => (
+                <th key={`${col.header}-${col.field}`} className="text-left px-4 py-2.5 font-medium text-pv-accent-bright border-b border-pv-input-border">
                   {col.header}
                 </th>
               ))}
@@ -73,8 +73,8 @@ export function CaseListScreen({ blueprint, moduleIndex, formIndex, onNavigate }
                   rIdx % 2 === 0 ? 'bg-pv-bg' : 'bg-pv-surface/50'
                 } transition-colors`}
               >
-                {columns.map((col, cIdx) => (
-                  <td key={cIdx} className="px-4 py-2 text-nova-text-secondary border-b border-pv-input-border/50">
+                {columns.map((col) => (
+                  <td key={`${col.header}-${col.field}`} className="px-4 py-2 text-nova-text-secondary border-b border-pv-input-border/50">
                     {row.properties.get(col.field) ?? ''}
                   </td>
                 ))}

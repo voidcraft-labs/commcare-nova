@@ -8,16 +8,16 @@ import { LabelContent } from '@/lib/references/LabelContent'
 import { useEditContext } from '@/hooks/useEditContext'
 import { useTextEditSave } from '@/hooks/useTextEditSave'
 import { TextEditable } from '../TextEditable'
+import { FormRenderer } from '../FormRenderer'
 
 interface GroupFieldProps {
   question: Question
   path: string
   questionPath: QuestionPath
   engine: FormEngine
-  renderChildren: (questions: Question[], prefix: string, parentPath: QuestionPath) => React.ReactNode
 }
 
-export function GroupField({ question, path, questionPath, engine, renderChildren }: GroupFieldProps) {
+export function GroupField({ question, path, questionPath, engine }: GroupFieldProps) {
   const state = engine.getState(path)
   const ctx = useEditContext()
   const isEditMode = ctx?.mode === 'edit'
@@ -50,7 +50,7 @@ export function GroupField({ question, path, questionPath, engine, renderChildre
         </div>
       )}
       <div ref={droppableRef} className="p-4 space-y-4 min-h-[72px] bg-pv-bg">
-        {renderChildren(question.children ?? [], path, questionPath)}
+        <FormRenderer questions={question.children ?? []} engine={engine} prefix={path} parentPath={questionPath} />
       </div>
     </div>
   )

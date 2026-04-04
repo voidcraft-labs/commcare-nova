@@ -39,8 +39,9 @@ function TableGridPicker({ onSelect }: { onSelect: (rows: number, cols: number) 
 
   return (
     <div className="flex flex-col items-center gap-1.5 p-2" data-inline-toolbar>
-      <div
-        className="grid gap-0.5"
+      <fieldset
+        className="grid gap-0.5 border-none m-0 p-0 min-w-0"
+        aria-label="Table size"
         style={{ gridTemplateColumns: `repeat(${MAX_COLS}, 1fr)` }}
         onMouseLeave={() => { setHoverRow(-1); setHoverCol(-1) }}
       >
@@ -51,7 +52,7 @@ function TableGridPicker({ onSelect }: { onSelect: (rows: number, cols: number) 
 
           return (
             <button
-              key={i}
+              key={`${row}-${col}`}
               type="button"
               className={`w-4 h-4 rounded-[2px] border transition-colors ${
                 isHighlighted
@@ -63,7 +64,7 @@ function TableGridPicker({ onSelect }: { onSelect: (rows: number, cols: number) 
             />
           )
         })}
-      </div>
+      </fieldset>
       <span className="text-[10px] text-nova-text-muted tabular-nums">
         {hoverRow >= 0 ? `${hoverRow + 1} × ${hoverCol + 1}` : 'Select size'}
       </span>

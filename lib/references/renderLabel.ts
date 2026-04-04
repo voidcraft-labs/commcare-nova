@@ -15,8 +15,13 @@ import { ReferenceProvider } from './provider'
 import type { Reference } from './types'
 import type { QuestionPath } from '@/lib/services/questionPath'
 
-/** A segment from splitting text on a reference-matching pattern. */
-export type LabelSegment = { kind: 'text'; text: string } | { kind: 'ref'; value: string }
+/** A segment from splitting text on a reference-matching pattern.
+ *  Each segment gets a unique `key` at creation time via `crypto.randomUUID()`.
+ *  `parseLabelSegments` caches results by input string, so the same text always
+ *  returns the same segment objects with the same keys. */
+export type LabelSegment =
+  | { kind: 'text'; text: string; key: string }
+  | { kind: 'ref'; value: string; key: string }
 
 /**
  * Split text into alternating text and reference segments based on a regex.
@@ -32,18 +37,19 @@ export function splitOnPattern(
   const segments: LabelSegment[] = []
   const globalPattern = new RegExp(pattern, 'g')
   let lastIndex = 0
-  let match: RegExpExecArray | null
+  let match: RegExpExecArray | null = globalPattern.exec(text)
 
-  while ((match = globalPattern.exec(text)) !== null) {
+  while (match !== null) {
     if (match.index > lastIndex) {
-      segments.push({ kind: 'text', text: text.slice(lastIndex, match.index) })
+      segments.push({ kind: 'text', text: text.slice(lastIndex, match.index), key: crypto.randomUUID() })
     }
-    segments.push({ kind: 'ref', value: extractValue(match) })
+    segments.push({ kind: 'ref', value: extractValue(match), key: crypto.randomUUID() })
     lastIndex = globalPattern.lastIndex
+    match = globalPattern.exec(text)
   }
 
   if (lastIndex < text.length) {
-    segments.push({ kind: 'text', text: text.slice(lastIndex) })
+    segments.push({ kind: 'text', text: text.slice(lastIndex), key: crypto.randomUUID() })
   }
 
   return segments
@@ -53,9 +59,24 @@ export function splitOnPattern(
  * Parse text into segments of plain text and `#type/path` hashtag references.
  * Used by RefLabelInput (TipTap hydration), LabelContent (markdown chip rule),
  * ExpressionContent (calculate/default chips), and AppTree (sidebar chips).
+ *
+ * Results are cached by input string — same text always returns the same
+ * segment objects with the same `key` values, so callers don't need to
+ * memoize. Cache invalidates naturally when label text changes (different key).
  */
+/** Bounded cache — evicts all entries when full to avoid unbounded memory growth
+ *  in long editing sessions with many label variations. 512 entries covers a
+ *  large form's worth of unique label strings with room to spare. */
+const SEGMENT_CACHE_MAX = 512
+const segmentCache = new Map<string, LabelSegment[]>()
+
 export function parseLabelSegments(text: string): LabelSegment[] {
-  return splitOnPattern(text, HASHTAG_REF_PATTERN, m => m[0])
+  const cached = segmentCache.get(text)
+  if (cached) return cached
+  if (segmentCache.size >= SEGMENT_CACHE_MAX) segmentCache.clear()
+  const segments = splitOnPattern(text, HASHTAG_REF_PATTERN, m => m[0])
+  segmentCache.set(text, segments)
+  return segments
 }
 
 /**

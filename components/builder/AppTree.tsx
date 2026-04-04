@@ -101,6 +101,7 @@ export function AppTree({ data, selected, onSelect, phase, actions, hideHeader }
             />
             {searchQuery && (
               <button
+                type="button"
                 onClick={() => setSearchQuery('')}
                 className="absolute right-1.5 top-1/2 -translate-y-1/2 w-5 h-5 flex items-center justify-center rounded text-nova-text-muted hover:text-nova-text transition-colors cursor-pointer"
               >
@@ -121,6 +122,7 @@ export function AppTree({ data, selected, onSelect, phase, actions, hideHeader }
             <AnimatePresence mode="sync">
               {displayModules.map((mod, mIdx) => (
                 <ModuleCard
+                  // biome-ignore lint/suspicious/noArrayIndexKey: modules have no unique ID — name is user-editable and not unique
                   key={mIdx}
                   module={mod}
                   moduleIndex={mIdx}
@@ -146,6 +148,7 @@ export function AppTree({ data, selected, onSelect, phase, actions, hideHeader }
 function CollapseChevron({ isCollapsed, onClick, hidden }: { isCollapsed: boolean; onClick: (e: React.MouseEvent) => void; hidden?: boolean }) {
   return (
     <button
+      type="button"
       className={`w-4 h-4 flex items-center justify-center shrink-0 cursor-pointer rounded text-nova-text-muted hover:text-nova-text transition-colors ${hidden ? 'invisible' : ''}`}
       onClick={onClick}
     >
@@ -157,6 +160,39 @@ function CollapseChevron({ isCollapsed, onClick, hidden }: { isCollapsed: boolea
         style={{ transform: isCollapsed ? 'rotate(0deg)' : 'rotate(90deg)' }}
       />
     </button>
+  )
+}
+
+/**
+ * Accessible interactive wrapper for tree items. Uses a native `<div>` with
+ * ARIA treeitem semantics so the layout can contain nested interactive children
+ * (collapse chevrons) without violating the "no button inside button" rule.
+ * Handles Enter/Space keyboard activation for keyboard-only navigation.
+ */
+function TreeItemRow({ onClick, className, style, children, ...rest }: {
+  onClick: (e: React.MouseEvent | React.KeyboardEvent) => void
+  className?: string
+  style?: React.CSSProperties
+  children: React.ReactNode
+  'data-tree-question'?: string
+}) {
+  return (
+    <div
+      role="treeitem"
+      tabIndex={0}
+      className={className}
+      style={style}
+      onClick={onClick}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault()
+          onClick(e)
+        }
+      }}
+      {...rest}
+    >
+      {children}
+    </div>
   )
 }
 
@@ -196,7 +232,7 @@ function ModuleCard({
       className={`transition-colors border-b border-nova-border last:border-b-0 ${isSelected ? 'bg-nova-surface' : ''}`}
     >
       {/* Module header */}
-      <div
+      <TreeItemRow
         className={`pl-3 pr-3 py-2.5 flex items-center justify-between ${locked ? 'pointer-events-none' : 'cursor-pointer'}`}
         onClick={() => onSelect({ type: 'module', moduleIndex })}
       >
@@ -220,7 +256,7 @@ function ModuleCard({
             )}
           </div>
         </div>
-      </div>
+      </TreeItemRow>
 
       {!isCollapsed && (
         <>
@@ -232,11 +268,11 @@ function ModuleCard({
                 <span className="text-[10px] font-medium text-nova-cyan/50 uppercase tracking-widest">Case List</span>
               </div>
               <div className="flex">
-                {mod.case_list_columns.map((col, i) => (
+                {mod.case_list_columns.map((col, colIdx) => (
                   <div
-                    key={i}
+                    key={`${col.header}-${col.field}`}
                     className={`flex-1 px-3 py-2 text-xs font-medium text-nova-cyan-bright ${
-                      i > 0 ? 'border-l border-nova-cyan/8' : ''
+                      colIdx > 0 ? 'border-l border-nova-cyan/8' : ''
                     }`}
                   >
                     {col.header}
@@ -251,7 +287,8 @@ function ModuleCard({
             <AnimatePresence mode="sync">
               {mod.forms.map((form, fIdx) => (
                 <FormCard
-                  key={`${moduleIndex}-${fIdx}`}
+                  // biome-ignore lint/suspicious/noArrayIndexKey: TreeData forms have no unique ID field
+                  key={fIdx}
                   form={form}
                   moduleIndex={moduleIndex}
                   formIndex={fIdx}
@@ -307,7 +344,7 @@ function FormCard({
   const isCollapsed = forceExpand?.has(collapseKey) ? false : collapsed.has(collapseKey)
   const hasQuestions = form.questions && form.questions.length > 0
   const oddPaths = hasQuestions ? buildOddPaths(form.questions!, collapsed) : undefined
-  const questionIcons = useMemo(() => hasQuestions ? buildQuestionIconMap(form.questions!) : new Map<string, IconifyIcon>(), [form.questions])
+  const questionIcons = useMemo(() => form.questions?.length ? buildQuestionIconMap(form.questions) : new Map<string, IconifyIcon>(), [form.questions])
   const nameIndices = matchMap?.get(collapseKey)
 
   return (
@@ -319,7 +356,7 @@ function FormCard({
         isSelected ? 'bg-nova-surface/50' : ''
       }`}
     >
-      <div
+      <TreeItemRow
         className={`pl-5 pr-3 py-2.5 transition-colors flex items-center gap-2 ${locked ? 'pointer-events-none' : 'cursor-pointer hover:bg-nova-surface/30'}`}
         onClick={() => onSelect({ type: 'form', moduleIndex, formIndex })}
       >
@@ -346,7 +383,7 @@ function FormCard({
             {countQuestions(form.questions!)} q
           </span>
         )}
-      </div>
+      </TreeItemRow>
 
       {/* Questions */}
       {hasQuestions && !isCollapsed && (
@@ -434,7 +471,7 @@ function QuestionRow({
       animate={{ opacity: 1, x: 0 }}
       transition={{ delay, duration: 0.2 }}
     >
-      <div
+      <TreeItemRow
         data-tree-question={questionPath}
         className={`flex items-center gap-1 py-2.5 transition-colors text-xs ${
           locked ? 'pointer-events-none text-nova-text-secondary' :
@@ -475,7 +512,7 @@ function QuestionRow({
             {countQuestions(q.children!)}
           </span>
         )}
-      </div>
+      </TreeItemRow>
 
       {/* Nested children for groups/repeats */}
       {hasChildren && !isCollapsed && (
@@ -505,16 +542,23 @@ function QuestionRow({
   )
 }
 
-/** Inline highlighted text with match indices */
+/**
+ * Inline highlighted text with match indices. Each segment is keyed by its
+ * character offset within the source string — a stable identity that doesn't
+ * depend on array position and survives changes to surrounding segments.
+ */
 function HighlightedText({ text, indices }: { text: string; indices: MatchIndices }) {
   const segments = highlightSegments(text, indices)
+  let offset = 0
   return (
     <>
-      {segments.map((seg, i) =>
-        seg.highlight
-          ? <mark key={i} className="bg-nova-violet/20 text-inherit rounded-sm">{seg.text}</mark>
-          : <span key={i}>{seg.text}</span>
-      )}
+      {segments.map((seg) => {
+        const key = offset
+        offset += seg.text.length
+        return seg.highlight
+          ? <mark key={key} className="bg-nova-violet/20 text-inherit rounded-sm">{seg.text}</mark>
+          : <span key={key}>{seg.text}</span>
+      })}
     </>
   )
 }

@@ -1,6 +1,5 @@
 'use client'
-import { useCallback } from 'react'
-import { Icon } from '@iconify/react/offline'
+import { useCallback, useId } from 'react'
 import { SavedCheck } from '@/components/builder/EditableTitle'
 import { useCommitField } from '@/hooks/useCommitField'
 
@@ -20,6 +19,7 @@ interface EditableTextProps {
 }
 
 export function EditableText({ label, value, onSave, onEmpty, mono, color, placeholder, multiline, autoFocus, selectAll, labelRight }: EditableTextProps) {
+  const fieldId = useId()
   const { draft, setDraft, focused, saved, ref, handleFocus, handleBlur, handleKeyDown } = useCommitField({
     value,
     onSave,
@@ -38,8 +38,7 @@ export function EditableText({ label, value, onSave, onEmpty, mono, color, place
       if (selectAll) el.select()
       else el.setSelectionRange(el.value.length, el.value.length)
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
+  }, [ref, autoFocus, selectAll])
 
   const fontClass = mono ? 'font-mono' : ''
   const baseCls = `w-full text-sm ${fontClass} rounded px-2 py-1 border outline-none transition-colors`
@@ -52,7 +51,7 @@ export function EditableText({ label, value, onSave, onEmpty, mono, color, place
 
   return (
     <div>
-      <label className="text-xs text-nova-text-muted uppercase tracking-wider mb-1 flex items-center gap-1.5">
+      <label htmlFor={fieldId} className="text-xs text-nova-text-muted uppercase tracking-wider mb-1 flex items-center gap-1.5">
         {label}
         <SavedCheck visible={saved && !focused} size={12} className="shrink-0" />
         {focused && multiline && (
@@ -64,6 +63,7 @@ export function EditableText({ label, value, onSave, onEmpty, mono, color, place
       </label>
       {multiline ? (
         <textarea
+          id={fieldId}
           ref={setInputRef as React.RefCallback<HTMLTextAreaElement>}
           value={draft}
           onChange={(e) => setDraft(e.target.value)}
@@ -78,6 +78,7 @@ export function EditableText({ label, value, onSave, onEmpty, mono, color, place
         />
       ) : (
         <input
+          id={fieldId}
           ref={setInputRef as React.RefCallback<HTMLInputElement>}
           value={draft}
           onChange={(e) => setDraft(e.target.value)}

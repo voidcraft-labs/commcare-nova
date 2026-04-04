@@ -69,6 +69,7 @@ export function DropdownMenu({ items, activeKey, minWidth = '160px', variant = '
 
         return (
           <button
+            type="button"
             key={item.key}
             onClick={item.onClick}
             className={`w-full flex items-center gap-2.5 px-3 py-2 text-sm transition-colors cursor-pointer ${corners} ${

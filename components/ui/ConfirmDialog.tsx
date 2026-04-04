@@ -47,8 +47,16 @@ export function ConfirmDialog({
           exit={{ opacity: 0 }}
           transition={{ duration: 0.15 }}
         >
-          {/* Backdrop */}
-          <div className="absolute inset-0 bg-black/60" onClick={onCancel} />
+          {/* Backdrop — button element so keyboard and pointer dismiss
+              both work natively. tabIndex={-1} keeps it out of tab order
+              since Escape (handled above) is the keyboard dismiss path. */}
+          <button
+            type="button"
+            className="absolute inset-0 bg-black/60 cursor-default appearance-none border-none p-0"
+            onClick={onCancel}
+            tabIndex={-1}
+            aria-label="Close dialog"
+          />
 
           {/* Dialog */}
           <motion.div
@@ -62,12 +70,14 @@ export function ConfirmDialog({
             <p className="text-sm text-nova-text-secondary mb-4">{message}</p>
             <div className="flex justify-end gap-2">
               <button
+                type="button"
                 onClick={onCancel}
                 className="px-3 py-1.5 text-xs font-medium rounded-lg border border-nova-border text-nova-text-secondary hover:text-nova-text transition-colors cursor-pointer"
               >
                 Cancel
               </button>
               <button
+                type="button"
                 onClick={onConfirm}
                 className={`px-3 py-1.5 text-xs font-medium rounded-lg transition-colors cursor-pointer ${
                   confirmVariant === 'danger'

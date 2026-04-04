@@ -55,7 +55,7 @@ export async function PUT(
     }
 
     /* Validate the blueprint before writing — prevents malformed data in Firestore. */
-    const parsed = appBlueprintSchema.safeParse((body as any)?.blueprint)
+    const parsed = appBlueprintSchema.safeParse((body as Record<string, unknown>)?.blueprint)
     if (!parsed.success) {
       throw new ApiError('Invalid blueprint', 400)
     }

@@ -16,6 +16,12 @@
   gap: 0.25rem;
 
   &-group {
+    /* Reset native fieldset defaults — semantic grouping only. */
+    border: none;
+    margin: 0;
+    padding: 0;
+    min-width: 0;
+
     display: flex;
     align-items: center;
     gap: 0.125rem;

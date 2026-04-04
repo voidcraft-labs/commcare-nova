@@ -11,12 +11,18 @@ interface SelectOneFieldProps {
   onBlur: () => void
 }
 
+/**
+ * Single-select radio field for form preview. Each option renders a real
+ * `<input type="radio">` (visually hidden via sr-only) inside a `<label>`.
+ * The outer `<fieldset>` groups the radios semantically and captures `onBlur`
+ * for touch tracking.
+ */
 export function SelectOneField({ question, state, onChange, onBlur }: SelectOneFieldProps) {
   const options = question.options ?? []
   const showError = state.touched && !state.valid
 
   return (
-    <div onBlur={onBlur}>
+    <fieldset className="m-0 border-none p-0" onBlur={onBlur}>
       <div className="space-y-1.5">
         {options.map((opt) => (
           <label
@@ -53,6 +59,6 @@ export function SelectOneField({ question, state, onChange, onBlur }: SelectOneF
         ))}
       </div>
       {showError && state.errorMessage && <ValidationError message={state.errorMessage} />}
-    </div>
+    </fieldset>
   )
 }

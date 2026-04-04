@@ -47,6 +47,18 @@ export function QuestionCard({
   const questions = input?.questions ?? []
   const isLoading = !isWaiting && !isComplete
 
+  /**
+   * Stable ID map for questions within this tool call. Questions arrive from
+   * the SA without intrinsic IDs — the `toolCallId` is globally unique, and
+   * questions within a tool call are immutable (never reordered/removed).
+   * IDs are assigned once on first observation and stored in this ref.
+   */
+  const questionIds = useRef<string[]>([])
+  while (questionIds.current.length < questions.length) {
+    const idx = questionIds.current.length
+    questionIds.current.push(crypto.randomUUID())
+  }
+
   const applyAnswer = (questionText: string, answerText: string) => {
     const { answers: ans, currentIndex: ci } = stateRef.current
     const newAnswers = { ...ans, [questionText]: answerText }
@@ -116,7 +128,7 @@ export function QuestionCard({
             if (isFuture) return null
 
             return (
-              <div key={i}>
+              <div key={questionIds.current[i]}>
                 {/* Answered question */}
                 {(isComplete || isPast) && answer && (
                   <div className="flex items-start gap-2 text-xs">
@@ -132,7 +144,7 @@ export function QuestionCard({
                 {isCurrent && (
                   <AnimatePresence mode="wait">
                     <motion.div
-                      key={i}
+                      key={questionIds.current[i]}
                       initial={{ opacity: 0, y: 8 }}
                       animate={{ opacity: 1, y: 0 }}
                       exit={{ opacity: 0, y: -8 }}

@@ -27,6 +27,7 @@ export function AppConnectSettings({ builder }: AppConnectSettingsProps) {
   return (
     <>
       <button
+        type="button"
         ref={dd.triggerRef}
         onClick={dd.toggle}
         className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg transition-colors cursor-pointer ${
@@ -74,21 +75,26 @@ function AppConnectPanel({
             {(['learn', 'deliver'] as const).map(type => {
               const isActive = connectType === type
               return (
-                <button
+                <label
                   key={type}
-                  type="button"
-                  role="radio"
-                  aria-checked={isActive}
-                  onClick={() => setConnectType(type)}
                   className={`
                     h-[22px] px-2 text-[11px] font-medium rounded-full border outline-none transition-all duration-200 cursor-pointer
+                    flex items-center
                     ${isActive
                       ? 'bg-nova-cyan/10 border-nova-cyan/30 text-nova-cyan-bright shadow-[0_0_6px_rgba(0,210,255,0.1)]'
                       : 'bg-nova-surface border-nova-border/60 text-nova-text-muted hover:border-nova-cyan/50 hover:text-nova-text-secondary'}
                   `}
                 >
+                  <input
+                    type="radio"
+                    name="connect-type"
+                    value={type}
+                    checked={isActive}
+                    onChange={() => setConnectType(type)}
+                    className="sr-only"
+                  />
                   {type.charAt(0).toUpperCase() + type.slice(1)}
-                </button>
+                </label>
               )
             })}
           </div>

@@ -22,6 +22,7 @@ export function StructureSidebar({
       {/* Header */}
       <div className="flex items-center justify-between px-4 h-11 border-b border-nova-border shrink-0">
         <button
+          type="button"
           onClick={onClose}
           className="px-1 h-11 text-nova-text-muted hover:text-nova-text transition-colors cursor-pointer"
         >

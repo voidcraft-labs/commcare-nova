@@ -11,16 +11,16 @@ import { LabelContent } from '@/lib/references/LabelContent'
 import { useEditContext } from '@/hooks/useEditContext'
 import { useTextEditSave } from '@/hooks/useTextEditSave'
 import { TextEditable } from '../TextEditable'
+import { FormRenderer } from '../FormRenderer'
 
 interface RepeatFieldProps {
   question: Question
   path: string
   questionPath: QuestionPath
   engine: FormEngine
-  renderChildren: (questions: Question[], prefix: string, parentPath: QuestionPath) => React.ReactNode
 }
 
-export function RepeatField({ question, path, questionPath, engine, renderChildren }: RepeatFieldProps) {
+export function RepeatField({ question, path, questionPath, engine }: RepeatFieldProps) {
   const state = engine.getState(path)
   const ctx = useEditContext()
   const isEditMode = ctx?.mode === 'edit'
@@ -55,6 +55,7 @@ export function RepeatField({ question, path, questionPath, engine, renderChildr
             </span>
             {count > 1 && (
               <button
+                type="button"
                 onClick={() => engine.removeRepeat(path, idx)}
                 className="p-1 text-nova-text-muted hover:text-nova-rose transition-colors cursor-pointer"
               >
@@ -63,11 +64,12 @@ export function RepeatField({ question, path, questionPath, engine, renderChildr
             )}
           </div>
           <div ref={droppableRef} className="p-4 space-y-4 min-h-[72px]">
-            {renderChildren(question.children ?? [], `${path}[${idx}]`, questionPath)}
+            <FormRenderer questions={question.children ?? []} engine={engine} prefix={`${path}[${idx}]`} parentPath={questionPath} />
           </div>
         </div>
       ))}
       <button
+        type="button"
         onClick={() => engine.addRepeat(path)}
         className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-pv-accent hover:text-pv-accent-bright border border-pv-input-border hover:border-pv-input-focus rounded-lg transition-colors cursor-pointer"
       >

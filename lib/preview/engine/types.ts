@@ -45,6 +45,18 @@ export function screensEqual(a: PreviewScreen, b: PreviewScreen): boolean {
   return false
 }
 
+/** Stable string key for a PreviewScreen, suitable as a React key.
+ *  Encodes the screen's type and hierarchy indices so two screens at
+ *  different navigation depths never collide, even if their labels match. */
+export function screenKey(screen: PreviewScreen): string {
+  switch (screen.type) {
+    case 'home': return 'home'
+    case 'module': return `module-${screen.moduleIndex}`
+    case 'caseList': return `caseList-${screen.moduleIndex}-${screen.formIndex}`
+    case 'form': return `form-${screen.moduleIndex}-${screen.formIndex}`
+  }
+}
+
 /** A row of dummy case data for case list display. */
 export interface DummyCaseRow {
   case_id: string

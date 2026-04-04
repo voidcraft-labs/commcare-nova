@@ -45,8 +45,11 @@ export function hydrateHashtagRefs(editor: Editor): void {
   doc.descendants((node, pos) => {
     if (!node.isText || !node.text) return
     pattern.lastIndex = 0
-    let match: RegExpExecArray | null
-    while ((match = pattern.exec(node.text)) !== null) {
+    for (
+      let match = pattern.exec(node.text);
+      match !== null;
+      match = pattern.exec(node.text)
+    ) {
       const parsed = ReferenceProvider.parse(match[0])
       if (!parsed) continue
       matches.push({

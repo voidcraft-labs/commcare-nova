@@ -1,6 +1,5 @@
 'use client'
 import { useState, useRef, useCallback, useEffect } from 'react'
-import { motion } from 'motion/react'
 import { SignalGridController, type SignalMode } from '@/lib/signalGridController'
 import { SignalPanel } from '@/components/chat/SignalPanel'
 import { defaultLabel } from '@/lib/signalGridController'
@@ -283,9 +282,9 @@ export default function ErrorTestPage() {
         <div className="space-y-4">
           {/* Signal Grid */}
           <div className="space-y-2">
-            <label className="text-xs text-nova-text-muted uppercase tracking-wider font-mono">
+            <span className="text-xs text-nova-text-muted uppercase tracking-wider font-mono">
               Signal Grid
-            </label>
+            </span>
             <div className="bg-nova-deep border border-nova-border rounded-xl p-4">
               <SignalPanel
                 active={gridMode !== 'idle'}
@@ -300,9 +299,9 @@ export default function ErrorTestPage() {
 
           {/* Generation Progress */}
           <div className="space-y-2">
-            <label className="text-xs text-nova-text-muted uppercase tracking-wider font-mono">
+            <span className="text-xs text-nova-text-muted uppercase tracking-wider font-mono">
               Generation Progress
-            </label>
+            </span>
             <div className="bg-nova-deep border border-nova-border rounded-xl p-4 flex items-center justify-center min-h-[80px]">
               {showProgress ? (
                 <GenerationProgress
@@ -337,23 +336,26 @@ export default function ErrorTestPage() {
 
         {/* Manual toast triggers */}
         <div className="space-y-2">
-          <label className="text-xs text-nova-text-muted uppercase tracking-wider font-mono">
+          <span className="text-xs text-nova-text-muted uppercase tracking-wider font-mono">
             Manual Toast Triggers
-          </label>
+          </span>
           <div className="flex gap-2 flex-wrap">
             <button
+              type="button"
               onClick={() => showToast('error', 'Test Error', 'Something went wrong during generation.')}
               className="text-xs px-3 py-1.5 rounded border border-nova-rose/40 bg-nova-rose/10 text-nova-rose hover:bg-nova-rose/20 transition-colors cursor-pointer font-mono"
             >
               Error Toast
             </button>
             <button
+              type="button"
               onClick={() => showToast('warning', 'Test Warning', 'The AI service is retrying...')}
               className="text-xs px-3 py-1.5 rounded border border-nova-amber/40 bg-nova-amber/10 text-nova-amber hover:bg-nova-amber/20 transition-colors cursor-pointer font-mono"
             >
               Warning Toast
             </button>
             <button
+              type="button"
               onClick={() => showToast('info', 'Test Info', 'Generation resumed successfully.')}
               className="text-xs px-3 py-1.5 rounded border border-nova-violet/40 bg-nova-violet/10 text-nova-violet-bright hover:bg-nova-violet/20 transition-colors cursor-pointer font-mono"
             >
@@ -364,9 +366,9 @@ export default function ErrorTestPage() {
 
         {/* Scenarios */}
         <div className="space-y-3">
-          <label className="text-xs text-nova-text-muted uppercase tracking-wider font-mono">
+          <span className="text-xs text-nova-text-muted uppercase tracking-wider font-mono">
             Error Scenarios
-          </label>
+          </span>
           <div className="grid gap-2">
             {errorScenarios.map((s, i) => (
               <div
@@ -383,6 +385,7 @@ export default function ErrorTestPage() {
                 </div>
                 {activeScenario === i ? (
                   <button
+                    type="button"
                     onClick={stopScenario}
                     className="shrink-0 text-xs px-3 py-1.5 rounded border border-nova-rose/40 bg-nova-rose/10 text-nova-rose hover:bg-nova-rose/20 transition-colors cursor-pointer font-mono"
                   >
@@ -390,6 +393,7 @@ export default function ErrorTestPage() {
                   </button>
                 ) : (
                   <button
+                    type="button"
                     onClick={() => runScenario(i)}
                     className="shrink-0 text-xs px-3 py-1.5 rounded border border-nova-violet/40 bg-nova-violet/10 text-nova-violet-bright hover:bg-nova-violet/20 transition-colors cursor-pointer font-mono"
                   >

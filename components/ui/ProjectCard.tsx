@@ -54,6 +54,7 @@ export function ProjectCard({ project, index, href, onReplay, replayingId }: Pro
       <div className="flex items-center gap-2">
         {!isFailed && onReplay && (
           <button
+            type="button"
             onClick={(e) => {
               e.preventDefault()
               e.stopPropagation()

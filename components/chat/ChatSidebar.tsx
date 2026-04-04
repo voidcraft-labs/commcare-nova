@@ -135,10 +135,20 @@ export function ChatSidebar({
     gridController.setMode(desiredMode, desiredLabel)
   }, [desiredMode, desiredLabel, gridController])
 
-  // Elapsed timer — resets when the controller's active label changes
+  // Elapsed timer — resets when the controller's active label or mode changes.
+  // Label changes (e.g. "Building forms" → "Validating") reset the timer during
+  // render via React's "derive state from props" pattern, so the interval continues
+  // with the new base time. Mode changes are handled by the effect (start/stop).
   const [elapsed, setElapsed] = useState(0)
   const modeStartRef = useRef(0)
   const timerRef = useRef<ReturnType<typeof setInterval>>(undefined)
+
+  const prevLabelRef = useRef(activeLabel)
+  if (prevLabelRef.current !== activeLabel) {
+    prevLabelRef.current = activeLabel
+    setElapsed(0)
+    modeStartRef.current = Date.now()
+  }
 
   useEffect(() => {
     clearInterval(timerRef.current)
@@ -151,7 +161,7 @@ export function ChatSidebar({
       setElapsed(secs)
     }, 1000)
     return () => clearInterval(timerRef.current)
-  }, [activeMode, activeLabel])
+  }, [activeMode])
 
   const gridSuffix = elapsed >= 30
     ? `(${elapsed >= 60 ? `${Math.floor(elapsed / 60)}m ${elapsed % 60}s` : `${elapsed}s`})`
@@ -344,6 +354,7 @@ export function ChatSidebar({
           <div className="flex items-center justify-between px-4 h-11 border-b border-nova-border shrink-0">
             <span className="text-[13px] font-medium text-nova-text-secondary">Chat</span>
             <button
+              type="button"
               onClick={onClose}
               className="px-1 h-11 text-nova-text-muted hover:text-nova-text transition-colors cursor-pointer"
             >
