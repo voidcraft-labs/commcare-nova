@@ -1,20 +1,19 @@
 import {
+	createAgentUIStream,
 	createUIMessageStream,
 	createUIMessageStreamResponse,
-	createAgentUIStream,
 	type UIMessage,
 } from "ai";
-import { GenerationContext } from "@/lib/services/generationContext";
-import { EventLogger } from "@/lib/services/eventLogger";
-import { createSolutionsArchitect } from "@/lib/services/solutionsArchitect";
-import { MutableBlueprint } from "@/lib/services/mutableBlueprint";
+import { resolveApiKey } from "@/lib/auth-utils";
+import { createProject, failProject } from "@/lib/db/projects";
+import { getMonthlyUsage, MONTHLY_SPEND_CAP_USD } from "@/lib/db/usage";
+import { log } from "@/lib/log";
 import { chatRequestSchema } from "@/lib/schemas/apiSchemas";
 import { classifyError, MESSAGES } from "@/lib/services/errorClassifier";
-import { resolveApiKey } from "@/lib/auth-utils";
-import { log } from "@/lib/log";
-import { createProject, failProject } from "@/lib/db/projects";
-import { touchUser } from "@/lib/db/users";
-import { getMonthlyUsage, MONTHLY_SPEND_CAP_USD } from "@/lib/db/usage";
+import { EventLogger } from "@/lib/services/eventLogger";
+import { GenerationContext } from "@/lib/services/generationContext";
+import { MutableBlueprint } from "@/lib/services/mutableBlueprint";
+import { createSolutionsArchitect } from "@/lib/services/solutionsArchitect";
 
 export const maxDuration = 300;
 
@@ -46,16 +45,6 @@ export async function POST(req: Request) {
 			status: keyResult.status,
 		});
 	}
-
-	// Update activity timestamp and sync profile changes from Google.
-	// Fire-and-forget — the user doc is created at sign-in time (Better Auth
-	// after hook); this just keeps last_active_at current without blocking
-	// the latency-sensitive chat path.
-	touchUser(
-		keyResult.session.user.email,
-		keyResult.session.user.name,
-		keyResult.session.user.image ?? null,
-	);
 
 	// Spend cap check — fails closed on Firestore errors. If we can't verify
 	// the user's usage, we reject the request rather than risk uncapped spend.

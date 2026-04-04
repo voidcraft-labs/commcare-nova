@@ -4,12 +4,13 @@
  * All routes require authenticated sessions (@dimagi.com Google OAuth).
  * The server-side ANTHROPIC_API_KEY is used for all LLM calls.
  */
-import { cache } from "react";
+
 import { headers } from "next/headers";
 import { redirect } from "next/navigation";
-import { auth, type Session } from "./auth";
+import { cache } from "react";
 import { ApiError } from "./apiError";
-import { isUserAdmin } from "./db/users";
+import { auth, type Session } from "./auth";
+import { isUserAdmin, touchUser } from "./db/users";
 
 /** Successful key resolution — includes the API key and authenticated session. */
 interface ApiKeyResolved {
@@ -43,6 +44,8 @@ export async function resolveApiKey(req: Request): Promise<ApiKeyResult> {
 		};
 	}
 
+	touchUser(session.user.email);
+
 	const serverKey = process.env.ANTHROPIC_API_KEY;
 	if (!serverKey) {
 		return { ok: false, error: "Server API key not configured.", status: 500 };
@@ -55,13 +58,15 @@ export async function resolveApiKey(req: Request): Promise<ApiKeyResult> {
  * Require an authenticated session or throw a 401.
  *
  * Used by API routes that require authentication. Throws an error suitable for
- * direct catch by `handleApiError`.
+ * direct catch by `handleApiError`. Also updates the user's activity timestamp
+ * so the admin dashboard reflects actual app usage, not just chat activity.
  */
 export async function requireSession(req: Request): Promise<Session> {
 	const session = await getSessionSafe(req);
 	if (!session) {
 		throw new ApiError("Authentication required", 401);
 	}
+	touchUser(session.user.email);
 	return session;
 }
 
@@ -120,11 +125,13 @@ export const getSession = cache(async (): Promise<Session | null> => {
  * Require an authenticated session in a Server Component.
  *
  * Redirects to the landing page if not authenticated. Use for pages that
- * require sign-in (builds, settings).
+ * require sign-in (builds, settings). Also updates the user's activity
+ * timestamp so page visits are reflected in the admin dashboard.
  */
 export async function requireAuth(): Promise<Session> {
 	const session = await getSession();
 	if (!session) redirect("/");
+	touchUser(session.user.email);
 	return session;
 }
 
