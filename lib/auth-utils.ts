@@ -4,6 +4,7 @@
  * All routes require authenticated sessions (@dimagi.com Google OAuth).
  * The server-side ANTHROPIC_API_KEY is used for all LLM calls.
  */
+import { cache } from 'react'
 import { headers } from 'next/headers'
 import { redirect } from 'next/navigation'
 import { auth, type Session } from './auth'
@@ -96,16 +97,20 @@ export async function getSessionSafe(req: Request): Promise<Session | null> {
 /**
  * Get the session in a Server Component or Server Action.
  *
+ * Wrapped in React `cache()` to deduplicate within a single RSC render pass.
+ * The root layout and page-level auth checks both call `getSession()` — without
+ * caching, each would be a separate Firestore read for the same session.
+ *
  * Returns null if not authenticated — use when authentication is optional
  * (e.g. the landing page checking whether to redirect).
  */
-export async function getSession(): Promise<Session | null> {
+export const getSession = cache(async (): Promise<Session | null> => {
   try {
     return await auth.api.getSession({ headers: await headers() }) ?? null
   } catch {
     return null
   }
-}
+})
 
 /**
  * Require an authenticated session in a Server Component.
@@ -122,11 +127,20 @@ export async function requireAuth(): Promise<Session> {
 /**
  * Require an admin session in a Server Component.
  *
- * Redirects to /builds if authenticated but not admin, or to / if not
- * authenticated at all. Use for the admin layout gate.
+ * Checks the app's Firestore user doc directly (not the session's cached
+ * `isAdmin`) so demotions take effect immediately. If admin access was
+ * revoked, the session is deleted from Firestore (live revocation) and
+ * the user is redirected to the landing page to re-authenticate. The
+ * stale auth cookies become harmless — the next `getSession()` returns
+ * null because the session no longer exists in the database.
  */
 export async function requireAdminAccess(): Promise<Session> {
   const session = await requireAuth()
-  if (session.user.isAdmin !== true) redirect('/builds')
+  if (!await isUserAdmin(session.user.email)) {
+    /* Live revocation — sign out clears the session from Firestore and
+     * wipes auth cookies so stale `isAdmin` can't linger. */
+    await auth.api.signOut({ headers: await headers() })
+    redirect('/')
+  }
   return session
 }

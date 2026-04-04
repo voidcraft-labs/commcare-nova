@@ -15,8 +15,8 @@ Next.js web app that generates CommCare apps from natural language conversation.
 - **Markdown**: markdown-to-jsx (read-only rendering in `lib/markdown.tsx`); tiptap-markdown handles TipTap editor I/O separately
 - **XML**: htmlparser2 + domutils + dom-serializer
 - **Icons**: Coolicons (`@iconify-icons/ci`) + Tabler (`@iconify-icons/tabler`) via `@iconify/react/offline`
-- **Auth**: Better Auth (stateless JWT sessions, Google OAuth, `@dimagi.com` domain restriction)
-- **Database**: Google Cloud Firestore (`@google-cloud/firestore`) — subcollection hierarchy under `users/{email}`
+- **Auth**: Better Auth (Firestore-backed sessions via `better-auth-firestore`, Google OAuth — domain restriction enforced by GCP OAuth consent screen, not application code)
+- **Database**: Google Cloud Firestore (`@google-cloud/firestore`) — app data in subcollection hierarchy under `users/{email}`, auth state in `auth_*` collections managed by Better Auth
 - **Testing**: Vitest
 
 ## Commands
