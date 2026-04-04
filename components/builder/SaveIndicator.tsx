@@ -13,9 +13,9 @@
  */
 "use client";
 import { Icon } from "@iconify/react/offline";
-import ciCloudCheck from "@iconify-icons/ci/cloud-check";
-import ciCloudClose from "@iconify-icons/ci/cloud-close";
-import ciCloudUp from "@iconify-icons/ci/cloud-up";
+import tablerCloudCheck from "@iconify-icons/tabler/cloud-check";
+import tablerCloudOff from "@iconify-icons/tabler/cloud-off";
+import tablerCloudUpload from "@iconify-icons/tabler/cloud-upload";
 import { AnimatePresence, motion } from "motion/react";
 import { useEffect, useState } from "react";
 import type { SaveState } from "@/hooks/useAutoSave";
@@ -47,7 +47,11 @@ export function SaveIndicator({ saveState }: SaveIndicatorProps) {
 	const isSaving = status === "saving";
 	const isError = status === "error";
 
-	const icon = isError ? ciCloudClose : isSaving ? ciCloudUp : ciCloudCheck;
+	const icon = isError
+		? tablerCloudOff
+		: isSaving
+			? tablerCloudUpload
+			: tablerCloudCheck;
 	const colorClass = isError ? "text-nova-rose/80" : "text-nova-text-muted";
 	const label = isError
 		? "Save failed"

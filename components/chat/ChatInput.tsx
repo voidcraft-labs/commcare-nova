@@ -1,6 +1,6 @@
 "use client";
 import { Icon } from "@iconify/react/offline";
-import ciArrowRightMd from "@iconify-icons/ci/arrow-right-md";
+import tablerArrowRight from "@iconify-icons/tabler/arrow-right";
 import { useCallback, useRef, useState } from "react";
 
 interface ChatInputProps {
@@ -67,7 +67,7 @@ export function ChatInput({ onSend, disabled, centered }: ChatInputProps) {
 					disabled={!value.trim() || disabled}
 					className="shrink-0 p-2 mr-1 text-nova-violet-bright hover:text-white transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
 				>
-					<Icon icon={ciArrowRightMd} width="16" height="16" />
+					<Icon icon={tablerArrowRight} width="16" height="16" />
 				</button>
 			</div>
 		</div>

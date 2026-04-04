@@ -1,6 +1,6 @@
 "use client";
 import { Icon } from "@iconify/react/offline";
-import ciMoreGridBig from "@iconify-icons/ci/more-grid-big";
+import tablerGridDots from "@iconify-icons/tabler/grid-dots";
 import { motion } from "motion/react";
 import { useCallback, useState } from "react";
 import { EditableTitle, SavedCheck } from "@/components/builder/EditableTitle";
@@ -68,7 +68,7 @@ export function HomeScreen({
 					>
 						<div className="w-10 h-10 rounded-lg bg-pv-accent/10 flex items-center justify-center shrink-0">
 							<Icon
-								icon={ciMoreGridBig}
+								icon={tablerGridDots}
 								width="20"
 								height="20"
 								className="text-pv-accent"

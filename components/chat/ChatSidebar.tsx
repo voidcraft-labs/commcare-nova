@@ -1,6 +1,6 @@
 "use client";
 import { Icon } from "@iconify/react/offline";
-import ciChevronRight from "@iconify-icons/ci/chevron-right";
+import tablerChevronRight from "@iconify-icons/tabler/chevron-right";
 import type { UIMessage } from "ai";
 import { motion } from "motion/react";
 import {
@@ -418,7 +418,7 @@ export function ChatSidebar({
 							onClick={onClose}
 							className="px-1 h-11 text-nova-text-muted hover:text-nova-text transition-colors cursor-pointer"
 						>
-							<Icon icon={ciChevronRight} width="14" height="14" />
+							<Icon icon={tablerChevronRight} width="14" height="14" />
 						</button>
 					</div>
 				)}

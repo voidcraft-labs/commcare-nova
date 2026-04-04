@@ -12,8 +12,8 @@
 
 "use client";
 import { Icon, type IconifyIcon } from "@iconify/react/offline";
-import ciChevronDown from "@iconify-icons/ci/chevron-down";
-import ciShareIosExport from "@iconify-icons/ci/share-ios-export";
+import tablerChevronDown from "@iconify-icons/tabler/chevron-down";
+import tablerDownload from "@iconify-icons/tabler/download";
 import { AnimatePresence, motion } from "motion/react";
 import { useState } from "react";
 import {
@@ -64,7 +64,7 @@ export function ExportDropdown({ options, compact }: ExportDropdownProps) {
 				}
 			>
 				<Icon
-					icon={ciShareIosExport}
+					icon={tablerDownload}
 					width={compact ? 18 : 14}
 					height={compact ? 18 : 14}
 					className={compact ? "" : "opacity-70"}
@@ -73,7 +73,7 @@ export function ExportDropdown({ options, compact }: ExportDropdownProps) {
 					<>
 						Export
 						<Icon
-							icon={ciChevronDown}
+							icon={tablerChevronDown}
 							width="10"
 							height="10"
 							className={`opacity-50 transition-transform duration-200 ${open ? "rotate-180" : ""}`}

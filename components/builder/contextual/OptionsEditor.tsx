@@ -1,6 +1,6 @@
 "use client";
 import { Icon } from "@iconify/react/offline";
-import ciTrashFull from "@iconify-icons/ci/trash-full";
+import tablerTrash from "@iconify-icons/tabler/trash";
 import { useCallback, useId, useRef, useState } from "react";
 import { AddPropertyButton } from "./AddPropertyButton";
 
@@ -161,7 +161,7 @@ export function OptionsEditor({ options, onSave }: OptionsEditorProps) {
 							className="shrink-0 p-0.5 text-nova-text-muted opacity-0 group-hover:opacity-100 hover:text-nova-rose transition-all cursor-pointer"
 							tabIndex={-1}
 						>
-							<Icon icon={ciTrashFull} width="12" height="12" />
+							<Icon icon={tablerTrash} width="12" height="12" />
 						</button>
 					</div>
 				))}

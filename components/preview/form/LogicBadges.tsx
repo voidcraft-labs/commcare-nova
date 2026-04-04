@@ -1,9 +1,9 @@
 "use client";
 import type { IconifyIcon } from "@iconify/react/offline";
 import { Icon } from "@iconify/react/offline";
-import ciFilter from "@iconify-icons/ci/filter";
-import ciShieldCheck from "@iconify-icons/ci/shield-check";
+import tablerFilter from "@iconify-icons/tabler/filter";
 import tablerMath from "@iconify-icons/tabler/math";
+import tablerShieldCheck from "@iconify-icons/tabler/shield-check";
 import { useEditContext } from "@/hooks/useEditContext";
 import type { Question } from "@/lib/schemas/blueprint";
 
@@ -30,7 +30,7 @@ export function LogicBadges({ question }: LogicBadgesProps) {
 	if (question.relevant) {
 		badges.push({
 			key: "relevant",
-			icon: ciFilter,
+			icon: tablerFilter,
 			tint: "text-nova-cyan",
 			title: `Show when: ${truncate(question.relevant)}`,
 		});
@@ -38,7 +38,7 @@ export function LogicBadges({ question }: LogicBadgesProps) {
 	if (question.validation) {
 		badges.push({
 			key: "validation",
-			icon: ciShieldCheck,
+			icon: tablerShieldCheck,
 			tint: "text-nova-amber",
 			title: `Validation: ${truncate(question.validation)}`,
 		});

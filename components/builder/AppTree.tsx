@@ -1,10 +1,10 @@
 "use client";
 import { Icon, type IconifyIcon } from "@iconify/react/offline";
-import ciChevronRight from "@iconify-icons/ci/chevron-right";
-import ciCloseSm from "@iconify-icons/ci/close-sm";
-import ciMoreGridBig from "@iconify-icons/ci/more-grid-big";
-import ciSearchMagnifyingGlass from "@iconify-icons/ci/search-magnifying-glass";
-import ciTable from "@iconify-icons/ci/table";
+import tablerChevronRight from "@iconify-icons/tabler/chevron-right";
+import tablerGridDots from "@iconify-icons/tabler/grid-dots";
+import tablerSearch from "@iconify-icons/tabler/search";
+import tablerTable from "@iconify-icons/tabler/table";
+import tablerX from "@iconify-icons/tabler/x";
 import { AnimatePresence, motion } from "motion/react";
 import {
 	createContext,
@@ -113,7 +113,7 @@ export function AppTree({
 			>
 				<div className="relative">
 					<Icon
-						icon={ciSearchMagnifyingGlass}
+						icon={tablerSearch}
 						width="14"
 						height="14"
 						className="absolute left-2.5 top-1/2 -translate-y-1/2 text-nova-text-muted pointer-events-none"
@@ -139,7 +139,7 @@ export function AppTree({
 							onClick={() => setSearchQuery("")}
 							className="absolute right-1.5 top-1/2 -translate-y-1/2 w-5 h-5 flex items-center justify-center rounded text-nova-text-muted hover:text-nova-text transition-colors cursor-pointer"
 						>
-							<Icon icon={ciCloseSm} width="12" height="12" />
+							<Icon icon={tablerX} width="12" height="12" />
 						</button>
 					)}
 				</div>
@@ -195,7 +195,7 @@ function CollapseChevron({
 			onClick={onClick}
 		>
 			<Icon
-				icon={ciChevronRight}
+				icon={tablerChevronRight}
 				width="10"
 				height="10"
 				className="transition-transform duration-150"
@@ -298,7 +298,7 @@ function ModuleCard({
 					/>
 					<div className="w-8 h-8 rounded-lg bg-nova-violet/10 flex items-center justify-center">
 						<Icon
-							icon={ciMoreGridBig}
+							icon={tablerGridDots}
 							width="16"
 							height="16"
 							className="text-nova-violet-bright"
@@ -328,7 +328,7 @@ function ModuleCard({
 						<div className="mx-4 mb-3 rounded-lg border border-nova-cyan/12 bg-nova-cyan/[0.03] overflow-hidden">
 							<div className="flex items-center gap-1.5 px-3 py-1.5 border-b border-nova-cyan/8">
 								<Icon
-									icon={ciTable}
+									icon={tablerTable}
 									width="12"
 									height="12"
 									className="text-nova-cyan/50"

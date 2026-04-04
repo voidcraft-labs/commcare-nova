@@ -1,10 +1,10 @@
 "use client";
 import { Icon } from "@iconify/react/offline";
-import ciArrowUndoUpLeft from "@iconify-icons/ci/arrow-undo-up-left";
-import ciClose from "@iconify-icons/ci/close-md";
-import ciFolderOpen from "@iconify-icons/ci/folder-open";
-import ciHomeAltFill from "@iconify-icons/ci/home-alt-fill";
-import ciSettings from "@iconify-icons/ci/settings";
+import tablerArrowBackUp from "@iconify-icons/tabler/arrow-back-up";
+import tablerHome from "@iconify-icons/tabler/home";
+import tablerSettings from "@iconify-icons/tabler/settings";
+import tablerTable from "@iconify-icons/tabler/table";
+import tablerX from "@iconify-icons/tabler/x";
 import { AnimatePresence, motion } from "motion/react";
 import { useCallback, useId, useRef } from "react";
 import { SavedCheck } from "@/components/builder/EditableTitle";
@@ -70,7 +70,7 @@ export function FormSettingsButton({
 				className="flex items-center gap-1 p-1.5 rounded-md transition-colors cursor-pointer text-nova-text-muted hover:text-nova-text hover:bg-white/5"
 				aria-label="Form settings"
 			>
-				<Icon icon={ciSettings} width="18" height="18" />
+				<Icon icon={tablerSettings} width="18" height="18" />
 				{hasConnect && (
 					<ConnectLogomark size={12} className="text-nova-violet-bright" />
 				)}
@@ -112,7 +112,7 @@ function FormSettingsPanel({
 					onClick={onClose}
 					className="p-1 -mr-1 rounded-md text-nova-text-muted hover:text-nova-text hover:bg-white/[0.06] transition-colors cursor-pointer"
 				>
-					<Icon icon={ciClose} width="14" height="14" />
+					<Icon icon={tablerX} width="14" height="14" />
 				</button>
 			</div>
 
@@ -146,25 +146,25 @@ const AFTER_SUBMIT_OPTIONS: Array<{
 	value: PostSubmitDestination;
 	label: string;
 	description: string;
-	icon: typeof ciHomeAltFill;
+	icon: typeof tablerHome;
 }> = [
 	{
 		value: "default",
 		label: "App Home",
 		description: "Back to the main screen",
-		icon: ciHomeAltFill,
+		icon: tablerHome,
 	},
 	{
 		value: "module",
 		label: "This Module",
 		description: "Stay in this module's form list",
-		icon: ciFolderOpen,
+		icon: tablerTable,
 	},
 	{
 		value: "previous",
 		label: "Previous Screen",
 		description: "Back to where the user was",
-		icon: ciArrowUndoUpLeft,
+		icon: tablerArrowBackUp,
 	},
 ];
 

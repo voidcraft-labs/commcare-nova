@@ -1,17 +1,17 @@
 "use client";
 import { Icon } from "@iconify/react/offline";
-import ciFileAdd from "@iconify-icons/ci/file-add";
-import ciFileBlank from "@iconify-icons/ci/file-blank";
-import ciFileEdit from "@iconify-icons/ci/file-edit";
+import tablerFile from "@iconify-icons/tabler/file";
+import tablerFilePencil from "@iconify-icons/tabler/file-pencil";
+import tablerFilePlus from "@iconify-icons/tabler/file-plus";
 import { useCallback } from "react";
 import { EditableText } from "@/components/builder/EditableText";
 import type { BlueprintModule } from "@/lib/schemas/blueprint";
 import type { MutableBlueprint } from "@/lib/services/mutableBlueprint";
 
 const formTypeIcons = {
-	registration: ciFileAdd,
-	followup: ciFileEdit,
-	survey: ciFileBlank,
+	registration: tablerFilePlus,
+	followup: tablerFilePencil,
+	survey: tablerFile,
 } as const;
 
 interface ModuleDetailProps {
@@ -102,7 +102,7 @@ export function ModuleDetail({
 							<Icon
 								icon={
 									formTypeIcons[f.type as keyof typeof formTypeIcons] ??
-									ciFileBlank
+									tablerFile
 								}
 								width="14"
 								height="14"

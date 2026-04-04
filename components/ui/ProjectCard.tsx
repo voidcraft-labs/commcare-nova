@@ -1,6 +1,6 @@
 "use client";
 import { Icon } from "@iconify/react/offline";
-import ciPlayCircle from "@iconify-icons/ci/play-circle-outline";
+import tablerPlayerPlay from "@iconify-icons/tabler/player-play";
 import { motion } from "motion/react";
 import Link from "next/link";
 import type { ProjectSummary } from "@/lib/db/projects";
@@ -85,7 +85,7 @@ export function ProjectCard({
 						title="Replay generation"
 					>
 						<Icon
-							icon={ciPlayCircle}
+							icon={tablerPlayerPlay}
 							width="18"
 							height="18"
 							className={replayingId === project.id ? "animate-pulse" : ""}

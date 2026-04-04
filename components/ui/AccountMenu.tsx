@@ -16,7 +16,7 @@
 
 "use client";
 import { Icon } from "@iconify/react/offline";
-import ciLogout from "@iconify-icons/ci/log-out";
+import tablerLogout from "@iconify-icons/tabler/logout";
 import Image from "next/image";
 import { useCallback, useEffect, useState } from "react";
 import { type AuthUser, useAuth } from "@/hooks/useAuth";
@@ -204,7 +204,7 @@ export function AccountMenu() {
 							className="w-full flex items-center gap-2.5 px-3 py-2.5 text-sm text-nova-text-secondary hover:text-nova-rose hover:bg-nova-rose/[0.06] transition-colors cursor-pointer rounded-b-xl"
 						>
 							<Icon
-								icon={ciLogout}
+								icon={tablerLogout}
 								width="16"
 								height="16"
 								className="transition-colors"

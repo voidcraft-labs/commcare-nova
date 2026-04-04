@@ -1,8 +1,8 @@
 "use client";
 import { Icon } from "@iconify/react/offline";
-import ciFileAdd from "@iconify-icons/ci/file-add";
-import ciFileBlank from "@iconify-icons/ci/file-blank";
-import ciFileEdit from "@iconify-icons/ci/file-edit";
+import tablerFile from "@iconify-icons/tabler/file";
+import tablerFilePencil from "@iconify-icons/tabler/file-pencil";
+import tablerFilePlus from "@iconify-icons/tabler/file-plus";
 import { motion } from "motion/react";
 import { useCallback, useState } from "react";
 import { EditableTitle, SavedCheck } from "@/components/builder/EditableTitle";
@@ -20,9 +20,9 @@ interface ModuleScreenProps {
 }
 
 const formTypeIcons = {
-	registration: ciFileAdd,
-	followup: ciFileEdit,
-	survey: ciFileBlank,
+	registration: tablerFilePlus,
+	followup: tablerFilePencil,
+	survey: tablerFile,
 } as const;
 
 export function ModuleScreen({
@@ -71,7 +71,7 @@ export function ModuleScreen({
 				{mod.forms.map((form, fIdx) => {
 					const icon =
 						formTypeIcons[form.type as keyof typeof formTypeIcons] ??
-						ciFileBlank;
+						tablerFile;
 
 					const handleClick = () => {
 						if (form.type === "followup" && hasCase) {

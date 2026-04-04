@@ -8,9 +8,9 @@
  *   user  = emerald (stable system properties)
  */
 
-import ciFileDocument from "@iconify-icons/ci/file-document";
-import ciUser02 from "@iconify-icons/ci/user-02";
 import tablerDatabase from "@iconify-icons/tabler/database";
+import tablerFileText from "@iconify-icons/tabler/file-text";
+import tablerUser from "@iconify-icons/tabler/user";
 import { qpathId } from "@/lib/services/questionPath";
 import type { Reference, ReferenceType, ReferenceTypeConfig } from "./types";
 
@@ -55,7 +55,7 @@ export const CHIP = {
 export const REF_TYPE_CONFIG: Record<ReferenceType, ReferenceTypeConfig> = {
 	form: {
 		type: "form",
-		icon: ciFileDocument,
+		icon: tablerFileText,
 		bgClass: "bg-nova-violet/15",
 		textClass: "text-nova-violet-bright",
 		borderClass: "border-nova-violet/20",
@@ -75,7 +75,7 @@ export const REF_TYPE_CONFIG: Record<ReferenceType, ReferenceTypeConfig> = {
 	},
 	user: {
 		type: "user",
-		icon: ciUser02,
+		icon: tablerUser,
 		bgClass: "bg-nova-emerald/15",
 		textClass: "text-emerald-400",
 		borderClass: "border-nova-emerald/20",

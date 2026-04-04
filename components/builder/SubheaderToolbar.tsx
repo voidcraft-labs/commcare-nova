@@ -1,6 +1,6 @@
 "use client";
 import { Icon } from "@iconify/react/offline";
-import ciChevronRight from "@iconify-icons/ci/chevron-right";
+import tablerChevronRight from "@iconify-icons/tabler/chevron-right";
 import { AnimatePresence, motion } from "motion/react";
 import { Fragment, memo, useState } from "react";
 import { useDismissRef } from "@/hooks/useDismissRef";
@@ -21,7 +21,7 @@ export interface BreadcrumbPart {
  *  hierarchy is conveyed by the text labels themselves — so near-3:1 is acceptable. */
 const Chevron = (
 	<Icon
-		icon={ciChevronRight}
+		icon={tablerChevronRight}
 		width="14"
 		height="14"
 		className="text-nova-text-muted shrink-0"

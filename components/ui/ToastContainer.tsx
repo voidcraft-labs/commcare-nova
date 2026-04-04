@@ -1,6 +1,6 @@
 "use client";
 import { Icon } from "@iconify/react/offline";
-import ciCloseSm from "@iconify-icons/ci/close-sm";
+import tablerX from "@iconify-icons/tabler/x";
 import { AnimatePresence, motion } from "motion/react";
 import { useCallback, useEffect, useRef } from "react";
 import { createPortal } from "react-dom";
@@ -91,7 +91,7 @@ function ToastItem({
 				onClick={() => onDismiss(toast.id)}
 				className="absolute top-2 right-2 p-0.5 rounded text-nova-text-muted hover:text-nova-text transition-colors cursor-pointer"
 			>
-				<Icon icon={ciCloseSm} width={14} height={14} />
+				<Icon icon={tablerX} width={14} height={14} />
 			</button>
 		</motion.div>
 	);

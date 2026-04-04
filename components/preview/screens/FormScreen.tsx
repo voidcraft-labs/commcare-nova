@@ -1,6 +1,6 @@
 "use client";
 import { Icon } from "@iconify/react/offline";
-import ciArrowReload02 from "@iconify-icons/ci/arrow-reload-02";
+import tablerRefresh from "@iconify-icons/tabler/refresh";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { FormTypeButton } from "@/components/builder/detail/FormDetail";
 import { FormSettingsButton } from "@/components/builder/detail/FormSettingsPanel";
@@ -199,7 +199,7 @@ export function FormScreen({
 							onClick={() => engine.reset()}
 							className="ml-auto inline-flex items-center gap-1.5 px-2.5 py-1 text-sm text-nova-text-muted hover:text-nova-text hover:bg-white/5 transition-colors cursor-pointer rounded"
 						>
-							<Icon icon={ciArrowReload02} width="14" height="14" />
+							<Icon icon={tablerRefresh} width="14" height="14" />
 							Reset
 						</button>
 					)}

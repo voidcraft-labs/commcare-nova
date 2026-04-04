@@ -1,5 +1,5 @@
 import { Icon } from "@iconify/react/offline";
-import ciPlus from "@iconify-icons/ci/plus";
+import tablerPlus from "@iconify-icons/tabler/plus";
 import Link from "next/link";
 import { Suspense } from "react";
 import { requireAuth } from "@/lib/auth-utils";
@@ -25,7 +25,7 @@ export default async function BuildsPage() {
 					href="/build/new"
 					className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium rounded-lg bg-nova-violet text-white border border-transparent hover:bg-nova-violet-bright shadow-[var(--nova-glow-violet)] transition-all duration-200"
 				>
-					<Icon icon={ciPlus} width="14" height="14" />
+					<Icon icon={tablerPlus} width="14" height="14" />
 					New Build
 				</Link>
 			</div>

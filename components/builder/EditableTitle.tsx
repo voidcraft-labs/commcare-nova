@@ -1,6 +1,6 @@
 "use client";
 import { Icon } from "@iconify/react/offline";
-import ciCheck from "@iconify-icons/ci/check";
+import tablerCheck from "@iconify-icons/tabler/check";
 import { AnimatePresence, motion } from "motion/react";
 import { useCallback, useRef, useState } from "react";
 
@@ -188,7 +188,7 @@ export function SavedCheck({
 					className={className}
 				>
 					<Icon
-						icon={ciCheck}
+						icon={tablerCheck}
 						width={size}
 						height={size}
 						className="text-emerald-400"

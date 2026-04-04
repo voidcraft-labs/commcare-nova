@@ -14,7 +14,7 @@ Next.js web app that generates CommCare apps from natural language conversation.
 - **Rich Text**: TipTap 3 (`@tiptap/react`, `@tiptap/starter-kit`, `@tiptap/extension-mention`, `@tiptap/suggestion`, `@tiptap/extension-image`, `@tiptap/extension-table`)
 - **Markdown**: markdown-to-jsx (read-only rendering in `lib/markdown.tsx`); tiptap-markdown handles TipTap editor I/O separately
 - **XML**: htmlparser2 + domutils + dom-serializer
-- **Icons**: Coolicons (`@iconify-icons/ci`) + Tabler (`@iconify-icons/tabler`) via `@iconify/react/offline`
+- **Icons**: Tabler (`@iconify-icons/tabler`) via `@iconify/react/offline`
 - **Auth**: Better Auth (Firestore-backed sessions via `better-auth-firestore`, Google OAuth — domain restriction enforced by GCP OAuth consent screen, not application code)
 - **Database**: Google Cloud Firestore (`@google-cloud/firestore`) — app data in subcollection hierarchy under `users/{email}`, auth state in `auth_*` collections managed by Better Auth
 - **Linting**: Biome (`biome.json`) — formatting + lint rules. Lefthook (`lefthook.yml`) runs `biome check --staged` as a pre-commit hook. `noArrayIndexKey` is suppressed where entities lack unique IDs (modules, forms in TreeData)
@@ -79,11 +79,13 @@ The chat route uses a manual reader loop instead of `writer.merge()` so stream e
 
 ```tsx
 import { Icon } from '@iconify/react/offline'
-import ciIconName from '@iconify-icons/ci/icon-name'
-<Icon icon={ciIconName} width="16" height="16" />
+import tablerIconName from '@iconify-icons/tabler/icon-name'
+<Icon icon={tablerIconName} width="16" height="16" />
 ```
 
 Always import from `@iconify/react/offline`, never `@iconify/react`. The default export uses `useState` + `useEffect` for hydration safety, which renders an empty `<span>` for 1–3 frames before the SVG appears. The `/offline` export renders synchronously.
+
+The `@iconify-icons/tabler` package is stale (v1.2.95, ~5010 icons) while Tabler has 6000+. Icons missing from the package go in `components/icons/tablerExtras.ts` as `IconifyIcon` data objects with SVG sourced from [tabler.io/icons](https://tabler.io/icons). TipTap toolbar icons (`components/tiptap-icons/`) use the same tabler set via a `TiptapIcon` wrapper.
 
 ### Inputs
 
