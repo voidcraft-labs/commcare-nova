@@ -7,22 +7,22 @@
  * `resolveLabel()` is the unified entry point for the form engine — evaluates
  * bare hashtag refs and returns the resolved text.
  */
-import { HASHTAG_REF_PATTERN } from '@/lib/references/config'
+import { HASHTAG_REF_PATTERN } from "@/lib/references/config";
 
 /**
  * Extract bare hashtag references (#form/x, #case/x, #user/x) from label text.
  * Used by the TriggerDag to register label dependencies.
  */
 export function parseBareHashtags(text: string): string[] {
-  if (!text) return []
-  const refs: string[] = []
-  const re = new RegExp(HASHTAG_REF_PATTERN, 'g')
-  let match: RegExpExecArray | null = re.exec(text)
-  while (match !== null) {
-    refs.push(match[0])
-    match = re.exec(text)
-  }
-  return refs
+	if (!text) return [];
+	const refs: string[] = [];
+	const re = new RegExp(HASHTAG_REF_PATTERN, "g");
+	let match: RegExpExecArray | null = re.exec(text);
+	while (match !== null) {
+		refs.push(match[0]);
+		match = re.exec(text);
+	}
+	return refs;
 }
 
 /**
@@ -33,11 +33,13 @@ export function parseBareHashtags(text: string): string[] {
  * is stateful — sharing a module-level regex would be a correctness bug.
  */
 export function transformBareHashtags(
-  text: string,
-  fn: (hashtag: string) => string,
+	text: string,
+	fn: (hashtag: string) => string,
 ): string {
-  if (!text) return text
-  return text.replace(new RegExp(HASHTAG_REF_PATTERN, 'g'), match => fn(match))
+	if (!text) return text;
+	return text.replace(new RegExp(HASHTAG_REF_PATTERN, "g"), (match) =>
+		fn(match),
+	);
 }
 
 /**
@@ -47,12 +49,12 @@ export function transformBareHashtags(
  * "no refs" from "refs resolved to empty").
  */
 export function resolveLabel(
-  text: string | undefined,
-  evaluator: (expr: string) => string,
+	text: string | undefined,
+	evaluator: (expr: string) => string,
 ): string | undefined {
-  if (!text) return undefined
-  const resolved = transformBareHashtags(text, evaluator)
-  /* Return undefined when nothing was resolved — matches the engine's convention
+	if (!text) return undefined;
+	const resolved = transformBareHashtags(text, evaluator);
+	/* Return undefined when nothing was resolved — matches the engine's convention
      where resolvedLabel is only set when the label contains dynamic refs. */
-  return resolved !== text ? resolved : undefined
+	return resolved !== text ? resolved : undefined;
 }

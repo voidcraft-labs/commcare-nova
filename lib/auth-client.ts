@@ -6,10 +6,10 @@
  * plugin infers session `additionalFields` (like `isAdmin`) from the
  * server auth config for type-safe client access.
  */
-import { createAuthClient } from 'better-auth/react'
-import { inferAdditionalFields } from 'better-auth/client/plugins'
-import type { auth } from './auth'
+import { createAuthClient } from "better-auth/react";
+import { inferAdditionalFields } from "better-auth/client/plugins";
+import type { auth } from "./auth";
 
 export const authClient = createAuthClient({
-  plugins: [inferAdditionalFields<typeof auth>()],
-})
+	plugins: [inferAdditionalFields<typeof auth>()],
+});

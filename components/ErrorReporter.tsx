@@ -1,4 +1,4 @@
-'use client'
+"use client";
 
 /**
  * Global client-side error reporter — captures unhandled errors and
@@ -17,55 +17,56 @@
  * in their respective error.tsx files.
  */
 
-import { useEffect } from 'react'
-import { reportClientError } from '@/lib/clientErrorReporter'
+import { useEffect } from "react";
+import { reportClientError } from "@/lib/clientErrorReporter";
 
 export function ErrorReporter() {
-  useEffect(() => {
-    /**
-     * Global error handler — fires on uncaught synchronous JS errors.
-     * The ErrorEvent includes the error object with its stack trace.
-     */
-    function handleError(event: ErrorEvent) {
-      reportClientError({
-        message: event.message || 'Unknown error',
-        stack: event.error?.stack,
-        source: 'window.onerror',
-        url: window.location.href,
-      })
-    }
+	useEffect(() => {
+		/**
+		 * Global error handler — fires on uncaught synchronous JS errors.
+		 * The ErrorEvent includes the error object with its stack trace.
+		 */
+		function handleError(event: ErrorEvent) {
+			reportClientError({
+				message: event.message || "Unknown error",
+				stack: event.error?.stack,
+				source: "window.onerror",
+				url: window.location.href,
+			});
+		}
 
-    /**
-     * Unhandled promise rejection handler — fires when a promise rejects
-     * without a .catch(). The PromiseRejectionEvent includes the rejection
-     * reason, which may or may not be an Error object.
-     */
-    function handleRejection(event: PromiseRejectionEvent) {
-      const reason = event.reason
-      const message = reason instanceof Error
-        ? reason.message
-        : typeof reason === 'string'
-          ? reason
-          : 'Unhandled promise rejection'
-      const stack = reason instanceof Error ? reason.stack : undefined
+		/**
+		 * Unhandled promise rejection handler — fires when a promise rejects
+		 * without a .catch(). The PromiseRejectionEvent includes the rejection
+		 * reason, which may or may not be an Error object.
+		 */
+		function handleRejection(event: PromiseRejectionEvent) {
+			const reason = event.reason;
+			const message =
+				reason instanceof Error
+					? reason.message
+					: typeof reason === "string"
+						? reason
+						: "Unhandled promise rejection";
+			const stack = reason instanceof Error ? reason.stack : undefined;
 
-      reportClientError({
-        message,
-        stack,
-        source: 'unhandledrejection',
-        url: window.location.href,
-      })
-    }
+			reportClientError({
+				message,
+				stack,
+				source: "unhandledrejection",
+				url: window.location.href,
+			});
+		}
 
-    window.addEventListener('error', handleError)
-    window.addEventListener('unhandledrejection', handleRejection)
+		window.addEventListener("error", handleError);
+		window.addEventListener("unhandledrejection", handleRejection);
 
-    return () => {
-      window.removeEventListener('error', handleError)
-      window.removeEventListener('unhandledrejection', handleRejection)
-    }
-  }, [])
+		return () => {
+			window.removeEventListener("error", handleError);
+			window.removeEventListener("unhandledrejection", handleRejection);
+		};
+	}, []);
 
-  /* Pure side effect — no UI output. */
-  return null
+	/* Pure side effect — no UI output. */
+	return null;
 }

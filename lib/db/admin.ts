@@ -4,11 +4,17 @@
  * Extracted from the admin API route handlers so Server Components can
  * call the same logic directly without going through HTTP.
  */
-import { listAllUsers, getUser } from './users'
-import { getDb, collections, docs } from './firestore'
-import { getCurrentPeriod } from './usage'
-import { listProjects } from './projects'
-import type { AdminUserRow, AdminStats, AdminUsersResponse, AdminUserDetailResponse, UsagePeriod } from '../types/admin'
+import { listAllUsers, getUser } from "./users";
+import { getDb, collections, docs } from "./firestore";
+import { getCurrentPeriod } from "./usage";
+import { listProjects } from "./projects";
+import type {
+	AdminUserRow,
+	AdminStats,
+	AdminUsersResponse,
+	AdminUserDetailResponse,
+	UsagePeriod,
+} from "../types/admin";
 
 /**
  * Fetch all users with current month usage and project counts.
@@ -18,43 +24,49 @@ import type { AdminUserRow, AdminStats, AdminUsersResponse, AdminUserDetailRespo
  * queries and can't be batched, so those run in parallel per user.
  */
 export async function getAdminUsersWithStats(): Promise<AdminUsersResponse> {
-  const allUsers = await listAllUsers()
-  const period = getCurrentPeriod()
+	const allUsers = await listAllUsers();
+	const period = getCurrentPeriod();
 
-  /* Batch-read all usage docs in a single round trip */
-  const usageRefs = allUsers.map(u => docs.usage(u.email, period))
-  const usageSnaps = usageRefs.length > 0 ? await getDb().getAll(...usageRefs) : []
+	/* Batch-read all usage docs in a single round trip */
+	const usageRefs = allUsers.map((u) => docs.usage(u.email, period));
+	const usageSnaps =
+		usageRefs.length > 0 ? await getDb().getAll(...usageRefs) : [];
 
-  /* Project counts are aggregation queries — run in parallel */
-  const projectCounts = await Promise.all(
-    allUsers.map(u => collections.projects(u.email).count().get()),
-  )
+	/* Project counts are aggregation queries — run in parallel */
+	const projectCounts = await Promise.all(
+		allUsers.map((u) => collections.projects(u.email).count().get()),
+	);
 
-  const enriched: AdminUserRow[] = allUsers.map((user, i) => {
-    const usageData = usageSnaps[i]?.exists ? usageSnaps[i].data() as { request_count?: number; cost_estimate?: number } : null
+	const enriched: AdminUserRow[] = allUsers.map((user, i) => {
+		const usageData = usageSnaps[i]?.exists
+			? (usageSnaps[i].data() as {
+					request_count?: number;
+					cost_estimate?: number;
+				})
+			: null;
 
-    return {
-      email: user.email,
-      name: user.name,
-      image: user.image,
-      role: user.role,
-      created_at: user.created_at.toDate().toISOString(),
-      last_active_at: user.last_active_at.toDate().toISOString(),
-      generations: usageData?.request_count ?? 0,
-      cost: usageData?.cost_estimate ?? 0,
-      project_count: projectCounts[i].data().count,
-    }
-  })
+		return {
+			email: user.email,
+			name: user.name,
+			image: user.image,
+			role: user.role,
+			created_at: user.created_at.toDate().toISOString(),
+			last_active_at: user.last_active_at.toDate().toISOString(),
+			generations: usageData?.request_count ?? 0,
+			cost: usageData?.cost_estimate ?? 0,
+			project_count: projectCounts[i].data().count,
+		};
+	});
 
-  /* Compute headline stats from the enriched data */
-  const stats: AdminStats = {
-    totalUsers: enriched.length,
-    totalGenerations: enriched.reduce((sum, u) => sum + u.generations, 0),
-    totalSpend: enriched.reduce((sum, u) => sum + u.cost, 0),
-    period,
-  }
+	/* Compute headline stats from the enriched data */
+	const stats: AdminStats = {
+		totalUsers: enriched.length,
+		totalGenerations: enriched.reduce((sum, u) => sum + u.generations, 0),
+		totalSpend: enriched.reduce((sum, u) => sum + u.cost, 0),
+		period,
+	};
 
-  return { users: enriched, stats }
+	return { users: enriched, stats };
 }
 
 /**
@@ -62,18 +74,20 @@ export async function getAdminUsersWithStats(): Promise<AdminUsersResponse> {
  *
  * Separated so the profile card can stream independently via Suspense.
  */
-export async function getAdminUserProfile(email: string): Promise<AdminUserDetailResponse['user'] | null> {
-  const user = await getUser(email)
-  if (!user) return null
+export async function getAdminUserProfile(
+	email: string,
+): Promise<AdminUserDetailResponse["user"] | null> {
+	const user = await getUser(email);
+	if (!user) return null;
 
-  return {
-    email,
-    name: user.name,
-    image: user.image,
-    role: user.role,
-    created_at: user.created_at.toDate().toISOString(),
-    last_active_at: user.last_active_at.toDate().toISOString(),
-  }
+	return {
+		email,
+		name: user.name,
+		image: user.image,
+		role: user.role,
+		created_at: user.created_at.toDate().toISOString(),
+		last_active_at: user.last_active_at.toDate().toISOString(),
+	};
 }
 
 /**
@@ -82,18 +96,21 @@ export async function getAdminUserProfile(email: string): Promise<AdminUserDetai
  * Separated so the usage table can stream independently via Suspense.
  */
 export async function getAdminUserUsage(email: string): Promise<UsagePeriod[]> {
-  const usageSnap = await collections.usage(email).orderBy('updated_at', 'desc').get()
+	const usageSnap = await collections
+		.usage(email)
+		.orderBy("updated_at", "desc")
+		.get();
 
-  return usageSnap.docs.map(doc => {
-    const data = doc.data()
-    return {
-      period: doc.id,
-      request_count: data.request_count,
-      input_tokens: data.input_tokens,
-      output_tokens: data.output_tokens,
-      cost_estimate: data.cost_estimate,
-    }
-  })
+	return usageSnap.docs.map((doc) => {
+		const data = doc.data();
+		return {
+			period: doc.id,
+			request_count: data.request_count,
+			input_tokens: data.input_tokens,
+			output_tokens: data.output_tokens,
+			cost_estimate: data.cost_estimate,
+		};
+	});
 }
 
 /**
@@ -102,7 +119,7 @@ export async function getAdminUserUsage(email: string): Promise<UsagePeriod[]> {
  * Separated so the project list can stream independently via Suspense.
  */
 export async function getAdminUserProjects(email: string) {
-  return listProjects(email)
+	return listProjects(email);
 }
 
 /**
@@ -112,13 +129,15 @@ export async function getAdminUserProjects(email: string) {
  * Used by the admin API route; the RSC page uses the individual functions
  * directly for granular Suspense streaming.
  */
-export async function getAdminUserDetail(email: string): Promise<AdminUserDetailResponse | null> {
-  const [user, usage, projects] = await Promise.all([
-    getAdminUserProfile(email),
-    getAdminUserUsage(email),
-    getAdminUserProjects(email),
-  ])
+export async function getAdminUserDetail(
+	email: string,
+): Promise<AdminUserDetailResponse | null> {
+	const [user, usage, projects] = await Promise.all([
+		getAdminUserProfile(email),
+		getAdminUserUsage(email),
+		getAdminUserProjects(email),
+	]);
 
-  if (!user) return null
-  return { user, usage, projects }
+	if (!user) return null;
+	return { user, usage, projects };
 }

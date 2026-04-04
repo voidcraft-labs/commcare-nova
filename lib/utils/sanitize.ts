@@ -13,5 +13,5 @@
  * a fallback if the sanitized result is empty.
  */
 export function sanitizeFilename(name: string): string {
-  return name.replace(/[^\w\s.()-]/g, '').trim() || 'app'
+	return name.replace(/[^\w\s.()-]/g, "").trim() || "app";
 }

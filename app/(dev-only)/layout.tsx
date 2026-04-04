@@ -1,4 +1,4 @@
-import { notFound } from 'next/navigation'
+import { notFound } from "next/navigation";
 
 /**
  * Route group layout that gates dev-only pages behind NODE_ENV.
@@ -8,7 +8,11 @@ import { notFound } from 'next/navigation'
  * 404 in production builds. The route group parentheses ensure this
  * directory doesn't create a URL segment.
  */
-export default function DevOnlyLayout({ children }: { children: React.ReactNode }) {
-  if (process.env.NODE_ENV === 'production') notFound()
-  return <>{children}</>
+export default function DevOnlyLayout({
+	children,
+}: {
+	children: React.ReactNode;
+}) {
+	if (process.env.NODE_ENV === "production") notFound();
+	return <>{children}</>;
 }

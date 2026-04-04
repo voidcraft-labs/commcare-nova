@@ -1,24 +1,24 @@
 {
-  "indexes": [
-    {
-      "collectionGroup": "logs",
-      "queryScope": "COLLECTION",
-      "fields": [
-        {
-          "fieldPath": "run_id",
-          "order": "ASCENDING"
-        },
-        {
-          "fieldPath": "sequence",
-          "order": "ASCENDING"
-        },
-        {
-          "fieldPath": "__name__",
-          "order": "ASCENDING"
-        }
-      ],
-      "density": "SPARSE_ALL"
-    }
-  ],
-  "fieldOverrides": []
+	"indexes": [
+		{
+			"collectionGroup": "logs",
+			"queryScope": "COLLECTION",
+			"fields": [
+				{
+					"fieldPath": "run_id",
+					"order": "ASCENDING"
+				},
+				{
+					"fieldPath": "sequence",
+					"order": "ASCENDING"
+				},
+				{
+					"fieldPath": "__name__",
+					"order": "ASCENDING"
+				}
+			],
+			"density": "SPARSE_ALL"
+		}
+	],
+	"fieldOverrides": []
 }

@@ -1,176 +1,222 @@
-'use client'
-import { useState, useCallback, useMemo } from 'react'
-import type { PreviewScreen } from '@/lib/preview/engine/types'
-import { screensEqual, getParentScreen, screenKey } from '@/lib/preview/engine/types'
-import type { AppBlueprint } from '@/lib/schemas/blueprint'
-import { getCaseData } from '@/lib/preview/engine/dummyData'
+"use client";
+import { useState, useCallback, useMemo } from "react";
+import type { PreviewScreen } from "@/lib/preview/engine/types";
+import {
+	screensEqual,
+	getParentScreen,
+	screenKey,
+} from "@/lib/preview/engine/types";
+import type { AppBlueprint } from "@/lib/schemas/blueprint";
+import { getCaseData } from "@/lib/preview/engine/dummyData";
 
-const MAX_HISTORY = 50
+const MAX_HISTORY = 50;
 
 interface NavHistoryState {
-  entries: PreviewScreen[]
-  cursor: number
+	entries: PreviewScreen[];
+	cursor: number;
 }
 
 /** Append a screen to history, truncating forward entries and capping at MAX_HISTORY. */
-function appendEntry(prev: NavHistoryState, screen: PreviewScreen): NavHistoryState {
-  const entries = prev.entries.slice(0, prev.cursor + 1)
-  entries.push(screen)
-  if (entries.length > MAX_HISTORY) {
-    return { entries: entries.slice(entries.length - MAX_HISTORY), cursor: MAX_HISTORY - 1 }
-  }
-  return { entries, cursor: prev.cursor + 1 }
+function appendEntry(
+	prev: NavHistoryState,
+	screen: PreviewScreen,
+): NavHistoryState {
+	const entries = prev.entries.slice(0, prev.cursor + 1);
+	entries.push(screen);
+	if (entries.length > MAX_HISTORY) {
+		return {
+			entries: entries.slice(entries.length - MAX_HISTORY),
+			cursor: MAX_HISTORY - 1,
+		};
+	}
+	return { entries, cursor: prev.cursor + 1 };
 }
 
 export function usePreviewNav(blueprint?: AppBlueprint) {
-  const [state, setState] = useState<NavHistoryState>({
-    entries: [{ type: 'home' }],
-    cursor: 0,
-  })
+	const [state, setState] = useState<NavHistoryState>({
+		entries: [{ type: "home" }],
+		cursor: 0,
+	});
 
-  const current = state.entries[state.cursor]
-  const canGoBack = state.cursor > 0
+	const current = state.entries[state.cursor];
+	const canGoBack = state.cursor > 0;
 
-  // Unconditional push — always adds to history, clears forward entries
-  const push = useCallback((screen: PreviewScreen) => {
-    setState(prev => appendEntry(prev, screen))
-  }, [])
+	// Unconditional push — always adds to history, clears forward entries
+	const push = useCallback((screen: PreviewScreen) => {
+		setState((prev) => appendEntry(prev, screen));
+	}, []);
 
-  // Idempotent push — skips if already on the target screen
-  const pushIfDifferent = useCallback((screen: PreviewScreen) => {
-    setState(prev => {
-      if (screensEqual(prev.entries[prev.cursor], screen)) return prev
-      return appendEntry(prev, screen)
-    })
-  }, [])
+	// Idempotent push — skips if already on the target screen
+	const pushIfDifferent = useCallback((screen: PreviewScreen) => {
+		setState((prev) => {
+			if (screensEqual(prev.entries[prev.cursor], screen)) return prev;
+			return appendEntry(prev, screen);
+		});
+	}, []);
 
-  // ── Typed navigation methods ────────────────────────────────────────
+	// ── Typed navigation methods ────────────────────────────────────────
 
-  const navigateToHome = useCallback(() => {
-    pushIfDifferent({ type: 'home' })
-  }, [pushIfDifferent])
+	const navigateToHome = useCallback(() => {
+		pushIfDifferent({ type: "home" });
+	}, [pushIfDifferent]);
 
-  const navigateToModule = useCallback((moduleIndex: number) => {
-    pushIfDifferent({ type: 'module', moduleIndex })
-  }, [pushIfDifferent])
+	const navigateToModule = useCallback(
+		(moduleIndex: number) => {
+			pushIfDifferent({ type: "module", moduleIndex });
+		},
+		[pushIfDifferent],
+	);
 
-  const navigateToForm = useCallback((moduleIndex: number, formIndex: number, caseId?: string) => {
-    pushIfDifferent({ type: 'form', moduleIndex, formIndex, caseId })
-  }, [pushIfDifferent])
+	const navigateToForm = useCallback(
+		(moduleIndex: number, formIndex: number, caseId?: string) => {
+			pushIfDifferent({ type: "form", moduleIndex, formIndex, caseId });
+		},
+		[pushIfDifferent],
+	);
 
-  const navigateToCaseList = useCallback((moduleIndex: number, formIndex: number) => {
-    pushIfDifferent({ type: 'caseList', moduleIndex, formIndex })
-  }, [pushIfDifferent])
+	const navigateToCaseList = useCallback(
+		(moduleIndex: number, formIndex: number) => {
+			pushIfDifferent({ type: "caseList", moduleIndex, formIndex });
+		},
+		[pushIfDifferent],
+	);
 
-  // Go back one step in history, returns the new current screen
-  const back = useCallback((): PreviewScreen | undefined => {
-    let newScreen: PreviewScreen | undefined
-    setState(prev => {
-      if (prev.cursor <= 0) return prev
-      newScreen = prev.entries[prev.cursor - 1]
-      return { ...prev, cursor: prev.cursor - 1 }
-    })
-    return newScreen
-  }, [])
+	// Go back one step in history, returns the new current screen
+	const back = useCallback((): PreviewScreen | undefined => {
+		let newScreen: PreviewScreen | undefined;
+		setState((prev) => {
+			if (prev.cursor <= 0) return prev;
+			newScreen = prev.entries[prev.cursor - 1];
+			return { ...prev, cursor: prev.cursor - 1 };
+		});
+		return newScreen;
+	}, []);
 
-  // Navigate up one level in the screen hierarchy (pushes onto history)
-  const canGoUp = current.type !== 'home'
-  const navigateUp = useCallback(() => {
-    setState(prev => {
-      const parent = getParentScreen(prev.entries[prev.cursor])
-      if (!parent) return prev
-      return appendEntry(prev, parent)
-    })
-  }, [])
+	// Navigate up one level in the screen hierarchy (pushes onto history)
+	const canGoUp = current.type !== "home";
+	const navigateUp = useCallback(() => {
+		setState((prev) => {
+			const parent = getParentScreen(prev.entries[prev.cursor]);
+			if (!parent) return prev;
+			return appendEntry(prev, parent);
+		});
+	}, []);
 
-  // Screen path structure — stable across name edits, only changes on navigation
-  const breadcrumbPath = useMemo(() => {
-    if (!blueprint) return [] as PreviewScreen[]
+	// Screen path structure — stable across name edits, only changes on navigation
+	const breadcrumbPath = useMemo(() => {
+		if (!blueprint) return [] as PreviewScreen[];
 
-    const screens: PreviewScreen[] = [{ type: 'home' }]
+		const screens: PreviewScreen[] = [{ type: "home" }];
 
-    if (current.type === 'home') return screens
+		if (current.type === "home") return screens;
 
-    screens.push({ type: 'module', moduleIndex: current.moduleIndex })
-    if (current.type === 'module') return screens
+		screens.push({ type: "module", moduleIndex: current.moduleIndex });
+		if (current.type === "module") return screens;
 
-    if (current.type === 'caseList') {
-      screens.push(current)
-      return screens
-    }
+		if (current.type === "caseList") {
+			screens.push(current);
+			return screens;
+		}
 
-    if (current.type === 'form') {
-      const mod = blueprint.modules[current.moduleIndex]
-      const caseName = current.caseId && mod?.case_type
-        ? getCaseData(mod.case_type, current.caseId)?.get('case_name')
-        : undefined
-      if (caseName) {
-        screens.push({ type: 'caseList', moduleIndex: current.moduleIndex, formIndex: current.formIndex })
-      }
-      screens.push(current)
-    }
+		if (current.type === "form") {
+			const mod = blueprint.modules[current.moduleIndex];
+			const caseName =
+				current.caseId && mod?.case_type
+					? getCaseData(mod.case_type, current.caseId)?.get("case_name")
+					: undefined;
+			if (caseName) {
+				screens.push({
+					type: "caseList",
+					moduleIndex: current.moduleIndex,
+					formIndex: current.formIndex,
+				});
+			}
+			screens.push(current);
+		}
 
-    return screens
-  }, [current, blueprint])
+		return screens;
+	}, [current, blueprint]);
 
-  // Labels derived from the live blueprint — not memoized so in-place name
-  // mutations are reflected immediately on re-render
-  const breadcrumb = deriveBreadcrumb(breadcrumbPath, blueprint)
+	// Labels derived from the live blueprint — not memoized so in-place name
+	// mutations are reflected immediately on re-render
+	const breadcrumb = deriveBreadcrumb(breadcrumbPath, blueprint);
 
-  // Navigate to a breadcrumb level (ancestor screen)
-  const navigateTo = useCallback((index: number) => {
-    if (index < breadcrumbPath.length - 1) {
-      push(breadcrumbPath[index])
-    }
-  }, [breadcrumbPath, push])
+	// Navigate to a breadcrumb level (ancestor screen)
+	const navigateTo = useCallback(
+		(index: number) => {
+			if (index < breadcrumbPath.length - 1) {
+				push(breadcrumbPath[index]);
+			}
+		},
+		[breadcrumbPath, push],
+	);
 
-  return {
-    current,
-    canGoBack,
-    canGoUp,
-    push,
-    back,
-    navigateUp,
-    navigateToHome,
-    navigateToModule,
-    navigateToForm,
-    navigateToCaseList,
-    navigateTo,
-    breadcrumb,
-    breadcrumbPath,
-  }
+	return {
+		current,
+		canGoBack,
+		canGoUp,
+		push,
+		back,
+		navigateUp,
+		navigateToHome,
+		navigateToModule,
+		navigateToForm,
+		navigateToCaseList,
+		navigateTo,
+		breadcrumb,
+		breadcrumbPath,
+	};
 }
 
 /** Breadcrumb item with a stable identity key derived from the navigation screen. */
 export interface BreadcrumbItem {
-  /** Stable React key from `screenKey()` — encodes screen type + hierarchy indices. */
-  key: string
-  /** Display label for this breadcrumb level (derived from the live blueprint). */
-  label: string
+	/** Stable React key from `screenKey()` — encodes screen type + hierarchy indices. */
+	key: string;
+	/** Display label for this breadcrumb level (derived from the live blueprint). */
+	label: string;
 }
 
 /**
  * Derive breadcrumb items from the screen path, pairing each screen's
  * stable identity key with its human-readable label from the blueprint.
  */
-function deriveBreadcrumb(path: PreviewScreen[], blueprint?: AppBlueprint): BreadcrumbItem[] {
-  if (!blueprint) return []
-  return path.map((screen, i) => {
-    const key = screenKey(screen)
-    if (screen.type === 'home') return { key, label: blueprint.app_name }
-    if (screen.type === 'module') return { key, label: blueprint.modules[screen.moduleIndex]?.name ?? 'Module' }
-    if (screen.type === 'caseList') return { key, label: blueprint.modules[screen.moduleIndex]?.forms[screen.formIndex]?.name ?? 'Form' }
-    if (screen.type === 'form') {
-      // If preceded by caseList, this level shows the case name
-      if (i > 0 && path[i - 1].type === 'caseList') {
-        const mod = blueprint.modules[screen.moduleIndex]
-        const label = (screen.caseId && mod?.case_type
-          ? getCaseData(mod.case_type, screen.caseId)?.get('case_name')
-          : undefined) ?? 'Case'
-        return { key, label }
-      }
-      return { key, label: blueprint.modules[screen.moduleIndex]?.forms[screen.formIndex]?.name ?? 'Form' }
-    }
-    return { key, label: '' }
-  })
+function deriveBreadcrumb(
+	path: PreviewScreen[],
+	blueprint?: AppBlueprint,
+): BreadcrumbItem[] {
+	if (!blueprint) return [];
+	return path.map((screen, i) => {
+		const key = screenKey(screen);
+		if (screen.type === "home") return { key, label: blueprint.app_name };
+		if (screen.type === "module")
+			return {
+				key,
+				label: blueprint.modules[screen.moduleIndex]?.name ?? "Module",
+			};
+		if (screen.type === "caseList")
+			return {
+				key,
+				label:
+					blueprint.modules[screen.moduleIndex]?.forms[screen.formIndex]
+						?.name ?? "Form",
+			};
+		if (screen.type === "form") {
+			// If preceded by caseList, this level shows the case name
+			if (i > 0 && path[i - 1].type === "caseList") {
+				const mod = blueprint.modules[screen.moduleIndex];
+				const label =
+					(screen.caseId && mod?.case_type
+						? getCaseData(mod.case_type, screen.caseId)?.get("case_name")
+						: undefined) ?? "Case";
+				return { key, label };
+			}
+			return {
+				key,
+				label:
+					blueprint.modules[screen.moduleIndex]?.forms[screen.formIndex]
+						?.name ?? "Form",
+			};
+		}
+		return { key, label: "" };
+	});
 }

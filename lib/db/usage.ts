@@ -11,10 +11,10 @@
  * which blocks the user from continuing. No separate retry or pending
  * mechanism needed — a Firestore outage that blocks writes also blocks reads.
  */
-import { FieldValue } from '@google-cloud/firestore'
-import { docs } from './firestore'
-import { log } from '@/lib/log'
-import type { UsageDoc } from './types'
+import { FieldValue } from "@google-cloud/firestore";
+import { docs } from "./firestore";
+import { log } from "@/lib/log";
+import type { UsageDoc } from "./types";
 
 // ── Configuration ─────────────────────────────────────────────────
 
@@ -27,7 +27,8 @@ import type { UsageDoc } from './types'
  * for real work (~15-60 full builds/month), tight enough to prevent
  * runaway costs on the shared Anthropic key.
  */
-export const MONTHLY_SPEND_CAP_USD = Number(process.env.MONTHLY_SPEND_CAP_USD) || 30
+export const MONTHLY_SPEND_CAP_USD =
+	Number(process.env.MONTHLY_SPEND_CAP_USD) || 30;
 
 // ── Helpers ───────────────────────────────────────────────────────
 
@@ -37,8 +38,8 @@ export const MONTHLY_SPEND_CAP_USD = Number(process.env.MONTHLY_SPEND_CAP_USD) |
  * UTC-based — consistent across Cloud Run instances.
  */
 export function getCurrentPeriod(): string {
-  const now = new Date()
-  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`
+	const now = new Date();
+	return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
 }
 
 // ── Read ──────────────────────────────────────────────────────────
@@ -51,17 +52,17 @@ export function getCurrentPeriod(): string {
  * This is a blocking read — used for the pre-request spend cap check.
  */
 export async function getMonthlyUsage(email: string): Promise<UsageDoc | null> {
-  const snap = await docs.usage(email, getCurrentPeriod()).get()
-  return snap.exists ? snap.data()! : null
+	const snap = await docs.usage(email, getCurrentPeriod()).get();
+	return snap.exists ? snap.data()! : null;
 }
 
 // ── Write ─────────────────────────────────────────────────────────
 
 /** Deltas to increment on the usage document after a request completes. */
 export interface UsageIncrement {
-  input_tokens: number
-  output_tokens: number
-  cost_estimate: number
+	input_tokens: number;
+	output_tokens: number;
+	cost_estimate: number;
 }
 
 /**
@@ -75,12 +76,18 @@ export interface UsageIncrement {
  * is created automatically on the first request of a new month. No
  * separate create path, no read-then-write race conditions.
  */
-export async function incrementUsage(email: string, deltas: UsageIncrement): Promise<void> {
-  await docs.usage(email, getCurrentPeriod()).set({
-    input_tokens: FieldValue.increment(deltas.input_tokens),
-    output_tokens: FieldValue.increment(deltas.output_tokens),
-    cost_estimate: FieldValue.increment(deltas.cost_estimate),
-    request_count: FieldValue.increment(1),
-    updated_at: FieldValue.serverTimestamp(),
-  }, { merge: true })
+export async function incrementUsage(
+	email: string,
+	deltas: UsageIncrement,
+): Promise<void> {
+	await docs.usage(email, getCurrentPeriod()).set(
+		{
+			input_tokens: FieldValue.increment(deltas.input_tokens),
+			output_tokens: FieldValue.increment(deltas.output_tokens),
+			cost_estimate: FieldValue.increment(deltas.cost_estimate),
+			request_count: FieldValue.increment(1),
+			updated_at: FieldValue.serverTimestamp(),
+		},
+		{ merge: true },
+	);
 }

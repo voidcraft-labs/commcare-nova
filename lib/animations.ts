@@ -12,9 +12,9 @@
 
 /** Scale-up + fade entrance keyframes for Web Animations API. */
 export const POPOVER_ENTER_KEYFRAMES: Keyframe[] = [
-  { opacity: 0, transform: 'scale(0.97) translateY(-4px)' },
-  { opacity: 1, transform: 'scale(1) translateY(0)' },
-]
+	{ opacity: 0, transform: "scale(0.97) translateY(-4px)" },
+	{ opacity: 1, transform: "scale(1) translateY(0)" },
+];
 
 /**
  * Standard easing curve — CSS `ease-out` equivalent.
@@ -22,10 +22,10 @@ export const POPOVER_ENTER_KEYFRAMES: Keyframe[] = [
  * Tuple form for Motion's `ease` prop. The CSS string form is used in
  * POPOVER_ENTER_OPTIONS below and in inline `transition` styles.
  */
-export const EASE = [0.4, 0, 0.2, 1] as const
+export const EASE = [0.4, 0, 0.2, 1] as const;
 
 /** 150ms ease-out timing for popover entrance. */
 export const POPOVER_ENTER_OPTIONS: KeyframeAnimationOptions = {
-  duration: 150,
-  easing: 'cubic-bezier(0.4, 0, 0.2, 1)',
-}
+	duration: 150,
+	easing: "cubic-bezier(0.4, 0, 0.2, 1)",
+};

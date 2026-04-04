@@ -5,9 +5,13 @@
  * enforces authentication — unauthenticated users are redirected to `/`
  * before any page content is sent.
  */
-import { requireAuth } from '@/lib/auth-utils'
+import { requireAuth } from "@/lib/auth-utils";
 
-export default async function BuildsLayout({ children }: { children: React.ReactNode }) {
-  await requireAuth()
-  return children
+export default async function BuildsLayout({
+	children,
+}: {
+	children: React.ReactNode;
+}) {
+	await requireAuth();
+	return children;
 }

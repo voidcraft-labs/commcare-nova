@@ -5,29 +5,29 @@
  * All writes extract denormalized fields from the blueprint automatically
  * so list queries never need to deserialize full blueprints.
  */
-import { FieldValue, type Timestamp } from '@google-cloud/firestore'
-import type { AppBlueprint } from '../schemas/blueprint'
-import type { ErrorType } from '../services/errorClassifier'
-import type { ProjectDoc } from './types'
-import { getDb, collections, docs } from './firestore'
-import { log } from '@/lib/log'
+import { FieldValue, type Timestamp } from "@google-cloud/firestore";
+import type { AppBlueprint } from "../schemas/blueprint";
+import type { ErrorType } from "../services/errorClassifier";
+import type { ProjectDoc } from "./types";
+import { getDb, collections, docs } from "./firestore";
+import { log } from "@/lib/log";
 
 // ── Types ──────────────────────────────────────────────────────────
 
 /** Subset of ProjectDoc fields returned by list queries (no full blueprint). */
 export interface ProjectSummary {
-  id: string
-  app_name: string
-  connect_type: ProjectDoc['connect_type']
-  module_count: number
-  form_count: number
-  status: ProjectDoc['status']
-  /** Error classification string — present only when status is 'error'. */
-  error_type: string | null
-  /** ISO 8601 string — Firestore Timestamp converted at the query boundary. */
-  created_at: string
-  /** ISO 8601 string — Firestore Timestamp converted at the query boundary. */
-  updated_at: string
+	id: string;
+	app_name: string;
+	connect_type: ProjectDoc["connect_type"];
+	module_count: number;
+	form_count: number;
+	status: ProjectDoc["status"];
+	/** Error classification string — present only when status is 'error'. */
+	error_type: string | null;
+	/** ISO 8601 string — Firestore Timestamp converted at the query boundary. */
+	created_at: string;
+	/** ISO 8601 string — Firestore Timestamp converted at the query boundary. */
+	updated_at: string;
 }
 
 /**
@@ -37,19 +37,19 @@ export interface ProjectSummary {
  * 'generating' after this threshold was killed by the platform or crashed
  * without writing a failure status.
  */
-const MAX_GENERATION_MINUTES = 10
+const MAX_GENERATION_MINUTES = 10;
 
 // ── Helpers ────────────────────────────────────────────────────────
 
 /** Extract denormalized fields from a blueprint for list display. */
 function denormalize(blueprint: AppBlueprint) {
-  const modules = blueprint.modules ?? []
-  return {
-    app_name: blueprint.app_name || 'Untitled',
-    connect_type: blueprint.connect_type ?? null,
-    module_count: modules.length,
-    form_count: modules.reduce((sum, m) => sum + (m.forms?.length ?? 0), 0),
-  }
+	const modules = blueprint.modules ?? [];
+	return {
+		app_name: blueprint.app_name || "Untitled",
+		connect_type: blueprint.connect_type ?? null,
+		module_count: modules.length,
+		form_count: modules.reduce((sum, m) => sum + (m.forms?.length ?? 0), 0),
+	};
 }
 
 // ── CRUD ───────────────────────────────────────────────────────────
@@ -63,21 +63,25 @@ function denormalize(blueprint: AppBlueprint) {
  * Returns the generated projectId for immediate use (logging, URL update).
  */
 export async function createProject(
-  email: string,
-  runId: string,
+	email: string,
+	runId: string,
 ): Promise<string> {
-  const ref = collections.projects(email).doc()
-  const emptyBlueprint: AppBlueprint = { app_name: '', modules: [], case_types: null }
-  await ref.set({
-    ...denormalize(emptyBlueprint),
-    blueprint: emptyBlueprint,
-    status: 'generating',
-    error_type: null,
-    run_id: runId,
-    created_at: FieldValue.serverTimestamp(),
-    updated_at: FieldValue.serverTimestamp(),
-  })
-  return ref.id
+	const ref = collections.projects(email).doc();
+	const emptyBlueprint: AppBlueprint = {
+		app_name: "",
+		modules: [],
+		case_types: null,
+	};
+	await ref.set({
+		...denormalize(emptyBlueprint),
+		blueprint: emptyBlueprint,
+		status: "generating",
+		error_type: null,
+		run_id: runId,
+		created_at: FieldValue.serverTimestamp(),
+		updated_at: FieldValue.serverTimestamp(),
+	});
+	return ref.id;
 }
 
 /**
@@ -87,18 +91,21 @@ export async function createProject(
  * blueprint, denormalized fields, status, and run_id — preserves created_at.
  */
 export async function completeProject(
-  email: string,
-  projectId: string,
-  blueprint: AppBlueprint,
-  runId: string,
+	email: string,
+	projectId: string,
+	blueprint: AppBlueprint,
+	runId: string,
 ): Promise<void> {
-  await docs.project(email, projectId).set({
-    ...denormalize(blueprint),
-    blueprint,
-    status: 'complete',
-    run_id: runId,
-    updated_at: FieldValue.serverTimestamp(),
-  }, { merge: true })
+	await docs.project(email, projectId).set(
+		{
+			...denormalize(blueprint),
+			blueprint,
+			status: "complete",
+			run_id: runId,
+			updated_at: FieldValue.serverTimestamp(),
+		},
+		{ merge: true },
+	);
 }
 
 /**
@@ -109,15 +116,20 @@ export async function completeProject(
  * write fails or the process dies before reaching this code.
  */
 export function failProject(
-  email: string,
-  projectId: string,
-  errorType: ErrorType,
+	email: string,
+	projectId: string,
+	errorType: ErrorType,
 ): void {
-  docs.project(email, projectId).set({
-    status: 'error',
-    error_type: errorType,
-  }, { merge: true })
-    .catch(err => log.error('[failProject] Firestore write failed', err))
+	docs
+		.project(email, projectId)
+		.set(
+			{
+				status: "error",
+				error_type: errorType,
+			},
+			{ merge: true },
+		)
+		.catch((err) => log.error("[failProject] Firestore write failed", err));
 }
 
 /**
@@ -130,15 +142,18 @@ export function failProject(
  * preserves created_at, run_id, and status from the original save.
  */
 export async function updateProject(
-  email: string,
-  projectId: string,
-  blueprint: AppBlueprint,
+	email: string,
+	projectId: string,
+	blueprint: AppBlueprint,
 ): Promise<void> {
-  await docs.project(email, projectId).set({
-    ...denormalize(blueprint),
-    blueprint,
-    updated_at: FieldValue.serverTimestamp(),
-  }, { merge: true })
+	await docs.project(email, projectId).set(
+		{
+			...denormalize(blueprint),
+			blueprint,
+			updated_at: FieldValue.serverTimestamp(),
+		},
+		{ merge: true },
+	);
 }
 
 /**
@@ -148,18 +163,24 @@ export async function updateProject(
  * The Zod converter validates the document on read.
  */
 export async function loadProject(
-  email: string,
-  projectId: string,
+	email: string,
+	projectId: string,
 ): Promise<ProjectDoc | null> {
-  const snap = await docs.project(email, projectId).get()
-  return snap.exists ? snap.data()! : null
+	const snap = await docs.project(email, projectId).get();
+	return snap.exists ? snap.data()! : null;
 }
 
 /** The denormalized fields fetched by `listProjects` — no blueprint. */
 const SUMMARY_FIELDS = [
-  'app_name', 'connect_type', 'module_count', 'form_count',
-  'status', 'error_type', 'created_at', 'updated_at',
-] as const
+	"app_name",
+	"connect_type",
+	"module_count",
+	"form_count",
+	"status",
+	"error_type",
+	"created_at",
+	"updated_at",
+] as const;
 
 /**
  * List a user's projects sorted by last modified, without full blueprints.
@@ -170,44 +191,48 @@ const SUMMARY_FIELDS = [
  * updateProject) and defaults are baked in at that time.
  */
 export async function listProjects(
-  email: string,
-  limit = 50,
+	email: string,
+	limit = 50,
 ): Promise<ProjectSummary[]> {
-  const snap = await getDb()
-    .collection('users').doc(email).collection('projects')
-    .select(...SUMMARY_FIELDS)
-    .orderBy('updated_at', 'desc')
-    .limit(limit)
-    .get()
+	const snap = await getDb()
+		.collection("users")
+		.doc(email)
+		.collection("projects")
+		.select(...SUMMARY_FIELDS)
+		.orderBy("updated_at", "desc")
+		.limit(limit)
+		.get();
 
-  const now = Date.now()
-  const maxAgeMs = MAX_GENERATION_MINUTES * 60_000
+	const now = Date.now();
+	const maxAgeMs = MAX_GENERATION_MINUTES * 60_000;
 
-  return snap.docs.map(doc => {
-    const data = doc.data()
-    const createdAt = (data.created_at as Timestamp).toDate()
+	return snap.docs.map((doc) => {
+		const data = doc.data();
+		const createdAt = (data.created_at as Timestamp).toDate();
 
-    /*
-     * Timeout inference — if a project has been 'generating' longer than
-     * the platform timeout allows, it's dead. Infer failure on the read
-     * path and persist the correction so it's only inferred once.
-     */
-    const isStale = data.status === 'generating' && (now - createdAt.getTime()) > maxAgeMs
-    if (isStale) {
-      failProject(email, doc.id, 'internal')
-    }
+		/*
+		 * Timeout inference — if a project has been 'generating' longer than
+		 * the platform timeout allows, it's dead. Infer failure on the read
+		 * path and persist the correction so it's only inferred once.
+		 */
+		const isStale =
+			data.status === "generating" && now - createdAt.getTime() > maxAgeMs;
+		if (isStale) {
+			failProject(email, doc.id, "internal");
+		}
 
-    return {
-      id: doc.id,
-      app_name: data.app_name as string,
-      connect_type: (data.connect_type as ProjectDoc['connect_type']) ?? null,
-      module_count: (data.module_count as number) ?? 0,
-      form_count: (data.form_count as number) ?? 0,
-      status: isStale ? 'error' : (data.status as ProjectDoc['status']),
-      error_type: isStale ? 'internal' : ((data.error_type as string | null) ?? null),
-      created_at: createdAt.toISOString(),
-      updated_at: (data.updated_at as Timestamp).toDate().toISOString(),
-    }
-  })
+		return {
+			id: doc.id,
+			app_name: data.app_name as string,
+			connect_type: (data.connect_type as ProjectDoc["connect_type"]) ?? null,
+			module_count: (data.module_count as number) ?? 0,
+			form_count: (data.form_count as number) ?? 0,
+			status: isStale ? "error" : (data.status as ProjectDoc["status"]),
+			error_type: isStale
+				? "internal"
+				: ((data.error_type as string | null) ?? null),
+			created_at: createdAt.toISOString(),
+			updated_at: (data.updated_at as Timestamp).toDate().toISOString(),
+		};
+	});
 }
-

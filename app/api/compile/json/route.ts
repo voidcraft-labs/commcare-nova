@@ -1,39 +1,44 @@
-import { type NextRequest, NextResponse } from 'next/server'
-import { expandBlueprint } from '@/lib/services/hqJsonExpander'
-import { appBlueprintSchema } from '@/lib/schemas/blueprint'
-import { ApiError, handleApiError } from '@/lib/apiError'
-import { sanitizeFilename } from '@/lib/utils/sanitize'
-import { requireSession } from '@/lib/auth-utils'
+import { type NextRequest, NextResponse } from "next/server";
+import { expandBlueprint } from "@/lib/services/hqJsonExpander";
+import { appBlueprintSchema } from "@/lib/schemas/blueprint";
+import { ApiError, handleApiError } from "@/lib/apiError";
+import { sanitizeFilename } from "@/lib/utils/sanitize";
+import { requireSession } from "@/lib/auth-utils";
 
 export async function POST(req: NextRequest) {
-  try {
-    await requireSession(req)
-    const body = await req.json()
-    const { blueprint } = body
+	try {
+		await requireSession(req);
+		const body = await req.json();
+		const { blueprint } = body;
 
-    if (!blueprint) {
-      throw new ApiError('blueprint is required', 400)
-    }
+		if (!blueprint) {
+			throw new ApiError("blueprint is required", 400);
+		}
 
-    const parsed = appBlueprintSchema.safeParse(blueprint)
-    if (!parsed.success) {
-      throw new ApiError(
-        'Invalid blueprint',
-        400,
-        parsed.error.issues.map((e: { path: PropertyKey[]; message: string }) => `${e.path.join('.')}: ${e.message}`),
-      )
-    }
+		const parsed = appBlueprintSchema.safeParse(blueprint);
+		if (!parsed.success) {
+			throw new ApiError(
+				"Invalid blueprint",
+				400,
+				parsed.error.issues.map(
+					(e: { path: PropertyKey[]; message: string }) =>
+						`${e.path.join(".")}: ${e.message}`,
+				),
+			);
+		}
 
-    const hqJson = expandBlueprint(parsed.data)
-    const jsonStr = JSON.stringify(hqJson, null, 2)
+		const hqJson = expandBlueprint(parsed.data);
+		const jsonStr = JSON.stringify(hqJson, null, 2);
 
-    return new NextResponse(jsonStr, {
-      headers: {
-        'Content-Type': 'application/json',
-        'Content-Disposition': `attachment; filename="${sanitizeFilename(parsed.data.app_name)}.json"`,
-      },
-    })
-  } catch (err) {
-    return handleApiError(err instanceof Error ? err : new Error('JSON export failed'))
-  }
+		return new NextResponse(jsonStr, {
+			headers: {
+				"Content-Type": "application/json",
+				"Content-Disposition": `attachment; filename="${sanitizeFilename(parsed.data.app_name)}.json"`,
+			},
+		});
+	} catch (err) {
+		return handleApiError(
+			err instanceof Error ? err : new Error("JSON export failed"),
+		);
+	}
 }

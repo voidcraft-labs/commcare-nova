@@ -9,23 +9,31 @@
  * the same `getAdminUsersWithStats()` call — splitting them would require either
  * duplicating the user fetch or restructuring the data layer.
  */
-import { getAdminUsersWithStats } from '@/lib/db/admin'
-import { formatCurrency } from '@/lib/utils/format'
-import { StatCard } from './stat-card'
-import { UserTable } from './user-table'
+import { getAdminUsersWithStats } from "@/lib/db/admin";
+import { formatCurrency } from "@/lib/utils/format";
+import { StatCard } from "./stat-card";
+import { UserTable } from "./user-table";
 
 export async function AdminContent() {
-  const { users, stats } = await getAdminUsersWithStats()
+	const { users, stats } = await getAdminUsersWithStats();
 
-  return (
-    <div className="space-y-8">
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-        <StatCard label="Total Users" value={String(stats.totalUsers)} />
-        <StatCard label="Generations" value={String(stats.totalGenerations)} subtitle="this month" />
-        <StatCard label="Total Spend" value={formatCurrency(stats.totalSpend)} subtitle="this month" />
-      </div>
+	return (
+		<div className="space-y-8">
+			<div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+				<StatCard label="Total Users" value={String(stats.totalUsers)} />
+				<StatCard
+					label="Generations"
+					value={String(stats.totalGenerations)}
+					subtitle="this month"
+				/>
+				<StatCard
+					label="Total Spend"
+					value={formatCurrency(stats.totalSpend)}
+					subtitle="this month"
+				/>
+			</div>
 
-      <UserTable users={users} />
-    </div>
-  )
+			<UserTable users={users} />
+		</div>
+	);
 }

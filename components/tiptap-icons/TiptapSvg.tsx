@@ -1,10 +1,10 @@
-import type { ComponentPropsWithoutRef } from "react"
+import type { ComponentPropsWithoutRef } from "react";
 
 /**
  * Shared prop type for all tiptap toolbar icon components.
  * Re-exported here so individual icon files don't each define it locally.
  */
-export type TiptapIconProps = ComponentPropsWithoutRef<"svg">
+export type TiptapIconProps = ComponentPropsWithoutRef<"svg">;
 
 /**
  * Base SVG wrapper for tiptap toolbar icons. Centralizes common attributes
@@ -15,18 +15,18 @@ export type TiptapIconProps = ComponentPropsWithoutRef<"svg">
  * Stroke-variant icons (image, table) override `fill` / `stroke` via props.
  */
 export function TiptapSvg({ children, className, ...props }: TiptapIconProps) {
-  return (
-    <svg
-      width="24"
-      height="24"
-      viewBox="0 0 24 24"
-      fill="currentColor"
-      xmlns="http://www.w3.org/2000/svg"
-      aria-hidden="true"
-      className={className}
-      {...props}
-    >
-      {children}
-    </svg>
-  )
+	return (
+		<svg
+			width="24"
+			height="24"
+			viewBox="0 0 24 24"
+			fill="currentColor"
+			xmlns="http://www.w3.org/2000/svg"
+			aria-hidden="true"
+			className={className}
+			{...props}
+		>
+			{children}
+		</svg>
+	);
 }

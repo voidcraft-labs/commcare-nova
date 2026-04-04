@@ -12,26 +12,29 @@
  * (from session) scopes queries to their own data; cross-user log access
  * uses the dedicated admin endpoint at /api/admin/users/[email]/projects/[id]/logs.
  */
-import { requireAdmin } from '@/lib/auth-utils'
-import { ApiError, handleApiError } from '@/lib/apiError'
-import { loadRunEvents, loadLatestRunId } from '@/lib/db/logs'
+import { requireAdmin } from "@/lib/auth-utils";
+import { ApiError, handleApiError } from "@/lib/apiError";
+import { loadRunEvents, loadLatestRunId } from "@/lib/db/logs";
 
 export async function GET(
-  req: Request,
-  { params }: { params: Promise<{ id: string }> },
+	req: Request,
+	{ params }: { params: Promise<{ id: string }> },
 ) {
-  try {
-    const session = await requireAdmin(req)
-    const { id: projectId } = await params
-    const { searchParams } = new URL(req.url)
-    const email = session.user.email
+	try {
+		const session = await requireAdmin(req);
+		const { id: projectId } = await params;
+		const { searchParams } = new URL(req.url);
+		const email = session.user.email;
 
-    const runId = searchParams.get('runId') ?? await loadLatestRunId(email, projectId)
-    if (!runId) return Response.json({ events: [], runId: null })
+		const runId =
+			searchParams.get("runId") ?? (await loadLatestRunId(email, projectId));
+		if (!runId) return Response.json({ events: [], runId: null });
 
-    const events = await loadRunEvents(email, projectId, runId)
-    return Response.json({ events, runId })
-  } catch (err) {
-    return handleApiError(err instanceof Error ? err : new ApiError('Failed to load logs', 500))
-  }
+		const events = await loadRunEvents(email, projectId, runId);
+		return Response.json({ events, runId });
+	} catch (err) {
+		return handleApiError(
+			err instanceof Error ? err : new ApiError("Failed to load logs", 500),
+		);
+	}
 }

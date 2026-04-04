@@ -4,29 +4,33 @@
  * is rendered as-is. Used by HiddenField for calculate/default_value display.
  */
 
-'use client'
-import { ReferenceChip } from './ReferenceChip'
-import { useReferenceProvider } from './ReferenceContext'
-import { parseLabelSegments, resolveRefFromExpr } from './renderLabel'
+"use client";
+import { ReferenceChip } from "./ReferenceChip";
+import { useReferenceProvider } from "./ReferenceContext";
+import { parseLabelSegments, resolveRefFromExpr } from "./renderLabel";
 
 interface ExpressionContentProps {
-  expr: string
+	expr: string;
 }
 
 export function ExpressionContent({ expr }: ExpressionContentProps) {
-  const provider = useReferenceProvider()
-  const segments = parseLabelSegments(expr)
+	const provider = useReferenceProvider();
+	const segments = parseLabelSegments(expr);
 
-  return (
-    <>
-      {segments.map(seg => {
-        if (seg.kind === 'text') return <span key={seg.key}>{seg.text}</span>
+	return (
+		<>
+			{segments.map((seg) => {
+				if (seg.kind === "text") return <span key={seg.key}>{seg.text}</span>;
 
-        const ref = resolveRefFromExpr(seg.value, provider)
-        if (!ref) return <span key={seg.key}>{seg.value}</span>
+				const ref = resolveRefFromExpr(seg.value, provider);
+				if (!ref) return <span key={seg.key}>{seg.value}</span>;
 
-        return <span key={seg.key} className="opacity-50"><ReferenceChip reference={ref} /></span>
-      })}
-    </>
-  )
+				return (
+					<span key={seg.key} className="opacity-50">
+						<ReferenceChip reference={ref} />
+					</span>
+				);
+			})}
+		</>
+	);
 }

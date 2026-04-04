@@ -4,28 +4,28 @@
  * All routes require authenticated sessions (@dimagi.com Google OAuth).
  * The server-side ANTHROPIC_API_KEY is used for all LLM calls.
  */
-import { cache } from 'react'
-import { headers } from 'next/headers'
-import { redirect } from 'next/navigation'
-import { auth, type Session } from './auth'
-import { ApiError } from './apiError'
-import { isUserAdmin } from './db/users'
+import { cache } from "react";
+import { headers } from "next/headers";
+import { redirect } from "next/navigation";
+import { auth, type Session } from "./auth";
+import { ApiError } from "./apiError";
+import { isUserAdmin } from "./db/users";
 
 /** Successful key resolution — includes the API key and authenticated session. */
 interface ApiKeyResolved {
-  ok: true
-  apiKey: string
-  session: Session
+	ok: true;
+	apiKey: string;
+	session: Session;
 }
 
 /** Failed key resolution — includes an error message and HTTP status code. */
 interface ApiKeyError {
-  ok: false
-  error: string
-  status: number
+	ok: false;
+	error: string;
+	status: number;
 }
 
-type ApiKeyResult = ApiKeyResolved | ApiKeyError
+type ApiKeyResult = ApiKeyResolved | ApiKeyError;
 
 /**
  * Resolve the Anthropic API key for an authenticated request.
@@ -34,17 +34,21 @@ type ApiKeyResult = ApiKeyResolved | ApiKeyError
  * Returns a discriminated union so callers can handle errors without try/catch.
  */
 export async function resolveApiKey(req: Request): Promise<ApiKeyResult> {
-  const session = await getSessionSafe(req)
-  if (!session) {
-    return { ok: false, error: 'Authentication required. Sign in with Google.', status: 401 }
-  }
+	const session = await getSessionSafe(req);
+	if (!session) {
+		return {
+			ok: false,
+			error: "Authentication required. Sign in with Google.",
+			status: 401,
+		};
+	}
 
-  const serverKey = process.env.ANTHROPIC_API_KEY
-  if (!serverKey) {
-    return { ok: false, error: 'Server API key not configured.', status: 500 }
-  }
+	const serverKey = process.env.ANTHROPIC_API_KEY;
+	if (!serverKey) {
+		return { ok: false, error: "Server API key not configured.", status: 500 };
+	}
 
-  return { ok: true, apiKey: serverKey, session }
+	return { ok: true, apiKey: serverKey, session };
 }
 
 /**
@@ -54,11 +58,11 @@ export async function resolveApiKey(req: Request): Promise<ApiKeyResult> {
  * direct catch by `handleApiError`.
  */
 export async function requireSession(req: Request): Promise<Session> {
-  const session = await getSessionSafe(req)
-  if (!session) {
-    throw new ApiError('Authentication required', 401)
-  }
-  return session
+	const session = await getSessionSafe(req);
+	if (!session) {
+		throw new ApiError("Authentication required", 401);
+	}
+	return session;
 }
 
 /**
@@ -69,11 +73,11 @@ export async function requireSession(req: Request): Promise<Session> {
  * Used by all admin API routes.
  */
 export async function requireAdmin(req: Request): Promise<Session> {
-  const session = await requireSession(req)
-  if (!await isUserAdmin(session.user.email)) {
-    throw new ApiError('Admin access required', 403)
-  }
-  return session
+	const session = await requireSession(req);
+	if (!(await isUserAdmin(session.user.email))) {
+		throw new ApiError("Admin access required", 403);
+	}
+	return session;
 }
 
 /**
@@ -82,12 +86,12 @@ export async function requireAdmin(req: Request): Promise<Session> {
  * Returns null instead of throwing when auth headers are missing or invalid.
  */
 export async function getSessionSafe(req: Request): Promise<Session | null> {
-  try {
-    const result = await auth.api.getSession({ headers: req.headers })
-    return result ?? null
-  } catch {
-    return null
-  }
+	try {
+		const result = await auth.api.getSession({ headers: req.headers });
+		return result ?? null;
+	} catch {
+		return null;
+	}
 }
 
 // ── RSC Auth Functions ─────────────���─────────────────────────────────
@@ -105,12 +109,12 @@ export async function getSessionSafe(req: Request): Promise<Session | null> {
  * (e.g. the landing page checking whether to redirect).
  */
 export const getSession = cache(async (): Promise<Session | null> => {
-  try {
-    return await auth.api.getSession({ headers: await headers() }) ?? null
-  } catch {
-    return null
-  }
-})
+	try {
+		return (await auth.api.getSession({ headers: await headers() })) ?? null;
+	} catch {
+		return null;
+	}
+});
 
 /**
  * Require an authenticated session in a Server Component.
@@ -119,9 +123,9 @@ export const getSession = cache(async (): Promise<Session | null> => {
  * require sign-in (builds, settings).
  */
 export async function requireAuth(): Promise<Session> {
-  const session = await getSession()
-  if (!session) redirect('/')
-  return session
+	const session = await getSession();
+	if (!session) redirect("/");
+	return session;
 }
 
 /**
@@ -135,12 +139,12 @@ export async function requireAuth(): Promise<Session> {
  * null because the session no longer exists in the database.
  */
 export async function requireAdminAccess(): Promise<Session> {
-  const session = await requireAuth()
-  if (!await isUserAdmin(session.user.email)) {
-    /* Live revocation — sign out clears the session from Firestore and
-     * wipes auth cookies so stale `isAdmin` can't linger. */
-    await auth.api.signOut({ headers: await headers() })
-    redirect('/')
-  }
-  return session
+	const session = await requireAuth();
+	if (!(await isUserAdmin(session.user.email))) {
+		/* Live revocation — sign out clears the session from Firestore and
+		 * wipes auth cookies so stale `isAdmin` can't linger. */
+		await auth.api.signOut({ headers: await headers() });
+		redirect("/");
+	}
+	return session;
 }

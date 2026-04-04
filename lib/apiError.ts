@@ -1,5 +1,5 @@
-import { NextResponse } from 'next/server'
-import { log } from '@/lib/log'
+import { NextResponse } from "next/server";
+import { log } from "@/lib/log";
 
 /**
  * Extract a human-readable error message from a raw error string.
@@ -8,11 +8,13 @@ import { log } from '@/lib/log'
  * if the string is parseable JSON, otherwise returns the raw string.
  */
 export function parseApiErrorMessage(raw: string): string {
-  try {
-    const parsed = JSON.parse(raw)
-    if (typeof parsed?.error === 'string') return parsed.error
-  } catch { /* not JSON — use raw message */ }
-  return raw
+	try {
+		const parsed = JSON.parse(raw);
+		if (typeof parsed?.error === "string") return parsed.error;
+	} catch {
+		/* not JSON — use raw message */
+	}
+	return raw;
 }
 
 /**
@@ -21,17 +23,17 @@ export function parseApiErrorMessage(raw: string): string {
  * so that catch blocks can throw meaningful, typed errors.
  */
 export class ApiError extends Error {
-  /** HTTP status code to return to the client (e.g. 400, 401, 502). */
-  readonly status: number
-  /** Optional detail lines surfaced in the JSON response body. */
-  readonly details: string[]
+	/** HTTP status code to return to the client (e.g. 400, 401, 502). */
+	readonly status: number;
+	/** Optional detail lines surfaced in the JSON response body. */
+	readonly details: string[];
 
-  constructor(message: string, status: number, details: string[] = []) {
-    super(message)
-    this.name = 'ApiError'
-    this.status = status
-    this.details = details
-  }
+	constructor(message: string, status: number, details: string[] = []) {
+		super(message);
+		this.name = "ApiError";
+		this.status = status;
+		this.details = details;
+	}
 }
 
 /**
@@ -44,16 +46,16 @@ export class ApiError extends Error {
  * Response shape: `{ error: string, details?: string[] }`
  */
 export function handleApiError(err: ApiError | Error): NextResponse {
-  if (err instanceof ApiError) {
-    const body: { error: string; details?: string[] } = { error: err.message }
-    if (err.details.length > 0) {
-      body.details = err.details
-    }
-    return NextResponse.json(body, { status: err.status })
-  }
+	if (err instanceof ApiError) {
+		const body: { error: string; details?: string[] } = { error: err.message };
+		if (err.details.length > 0) {
+			body.details = err.details;
+		}
+		return NextResponse.json(body, { status: err.status });
+	}
 
-  // Standard Error — return a generic message to avoid leaking internal
-  // details (file paths, stack fragments, library internals) to the client.
-  log.error('[apiError] unhandled', err)
-  return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
+	// Standard Error — return a generic message to avoid leaking internal
+	// details (file paths, stack fragments, library internals) to the client.
+	log.error("[apiError] unhandled", err);
+	return NextResponse.json({ error: "Internal server error" }, { status: 500 });
 }

@@ -1,61 +1,101 @@
-'use client'
-import { useCallback } from 'react'
-import { EditableText } from '@/components/builder/EditableText'
-import { CasePropertyDropdown } from './CasePropertyDropdown'
-import { OptionsEditor } from './OptionsEditor'
-import { useSaveQuestion } from '@/hooks/useSaveQuestion'
-import { type QuestionEditorProps, MEDIA_TYPES, getModuleCaseTypes } from './shared'
+"use client";
+import { useCallback } from "react";
+import { EditableText } from "@/components/builder/EditableText";
+import { CasePropertyDropdown } from "./CasePropertyDropdown";
+import { OptionsEditor } from "./OptionsEditor";
+import { useSaveQuestion } from "@/hooks/useSaveQuestion";
+import {
+	type QuestionEditorProps,
+	MEDIA_TYPES,
+	getModuleCaseTypes,
+} from "./shared";
 
-export function ContextualEditorData({ question, builder }: QuestionEditorProps) {
-  const selected = builder.selected!
-  const mb = builder.mb!
+export function ContextualEditorData({
+	question,
+	builder,
+}: QuestionEditorProps) {
+	const selected = builder.selected!;
+	const mb = builder.mb!;
 
-  const saveQuestion = useSaveQuestion(builder)
+	const saveQuestion = useSaveQuestion(builder);
 
-  const setCasePropertyOn = useCallback((caseType: string | null) => {
-    if (selected.formIndex === undefined || !selected.questionPath) return
-    mb.updateQuestion(selected.moduleIndex, selected.formIndex, selected.questionPath, {
-      case_property_on: caseType,
-    })
-    builder.notifyBlueprintChanged()
-  }, [mb, selected.moduleIndex, selected.formIndex, selected.questionPath, builder])
+	const setCasePropertyOn = useCallback(
+		(caseType: string | null) => {
+			if (selected.formIndex === undefined || !selected.questionPath) return;
+			mb.updateQuestion(
+				selected.moduleIndex,
+				selected.formIndex,
+				selected.questionPath,
+				{
+					case_property_on: caseType,
+				},
+			);
+			builder.notifyBlueprintChanged();
+		},
+		[
+			mb,
+			selected.moduleIndex,
+			selected.formIndex,
+			selected.questionPath,
+			builder,
+		],
+	);
 
-  const renameQuestion = useCallback((newId: string) => {
-    if (selected.formIndex === undefined || !selected.questionPath || !newId) return
-    const { newPath } = mb.renameQuestion(selected.moduleIndex, selected.formIndex, selected.questionPath, newId)
-    builder.select({ ...selected, questionPath: newPath })
-    builder.notifyBlueprintChanged()
-  }, [mb, selected, builder])
+	const renameQuestion = useCallback(
+		(newId: string) => {
+			if (selected.formIndex === undefined || !selected.questionPath || !newId)
+				return;
+			const { newPath } = mb.renameQuestion(
+				selected.moduleIndex,
+				selected.formIndex,
+				selected.questionPath,
+				newId,
+			);
+			builder.select({ ...selected, questionPath: newPath });
+			builder.notifyBlueprintChanged();
+		},
+		[mb, selected, builder],
+	);
 
-  return (
-    <div className="space-y-3">
-      <EditableText
-        label="ID"
-        value={question.id}
-        onSave={(v) => { renameQuestion(v); builder.clearNewQuestion() }}
-        mono
-        color="text-nova-violet-bright"
-        selectAll={builder.isNewQuestion(selected.questionPath!)}
-      />
-      <CasePropertyDropdown
-        value={question.case_property_on}
-        isCaseName={question.id === 'case_name'}
-        disabled={MEDIA_TYPES.has(question.type)}
-        caseTypes={getModuleCaseTypes(mb, selected.moduleIndex)}
-        onChange={setCasePropertyOn}
-      />
-      {(question.type === 'single_select' || question.type === 'multi_select') && (
-        <OptionsEditor
-          options={question.options ?? []}
-          onSave={(options) => {
-            if (selected.formIndex === undefined || !selected.questionPath) return
-            mb.updateQuestion(selected.moduleIndex, selected.formIndex, selected.questionPath, {
-              options: options.length > 0 ? options : null,
-            })
-            builder.notifyBlueprintChanged()
-          }}
-        />
-      )}
-    </div>
-  )
+	return (
+		<div className="space-y-3">
+			<EditableText
+				label="ID"
+				value={question.id}
+				onSave={(v) => {
+					renameQuestion(v);
+					builder.clearNewQuestion();
+				}}
+				mono
+				color="text-nova-violet-bright"
+				selectAll={builder.isNewQuestion(selected.questionPath!)}
+			/>
+			<CasePropertyDropdown
+				value={question.case_property_on}
+				isCaseName={question.id === "case_name"}
+				disabled={MEDIA_TYPES.has(question.type)}
+				caseTypes={getModuleCaseTypes(mb, selected.moduleIndex)}
+				onChange={setCasePropertyOn}
+			/>
+			{(question.type === "single_select" ||
+				question.type === "multi_select") && (
+				<OptionsEditor
+					options={question.options ?? []}
+					onSave={(options) => {
+						if (selected.formIndex === undefined || !selected.questionPath)
+							return;
+						mb.updateQuestion(
+							selected.moduleIndex,
+							selected.formIndex,
+							selected.questionPath,
+							{
+								options: options.length > 0 ? options : null,
+							},
+						);
+						builder.notifyBlueprintChanged();
+					}}
+				/>
+			)}
+		</div>
+	);
 }

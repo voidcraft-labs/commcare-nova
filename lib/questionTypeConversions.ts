@@ -11,50 +11,52 @@
  * nearly identical types.
  */
 
-import type { Question } from '@/lib/schemas/blueprint'
+import type { Question } from "@/lib/schemas/blueprint";
 
-type QuestionType = Question['type']
+type QuestionType = Question["type"];
 
 /** Strict conversion families — types map only to their logical siblings. */
 const CONVERSION_MAP: Record<QuestionType, readonly QuestionType[]> = {
-  /* Text input: both capture free-form text, secret just masks display */
-  text: ['secret'],
-  secret: ['text'],
+	/* Text input: both capture free-form text, secret just masks display */
+	text: ["secret"],
+	secret: ["text"],
 
-  /* Numeric: both capture numbers, just precision difference */
-  int: ['decimal'],
-  decimal: ['int'],
+	/* Numeric: both capture numbers, just precision difference */
+	int: ["decimal"],
+	decimal: ["int"],
 
-  /* Temporal: all time-based inputs, properties transfer cleanly */
-  date: ['time', 'datetime'],
-  time: ['date', 'datetime'],
-  datetime: ['date', 'time'],
+	/* Temporal: all time-based inputs, properties transfer cleanly */
+	date: ["time", "datetime"],
+	time: ["date", "datetime"],
+	datetime: ["date", "time"],
 
-  /* Selection: same options/UI paradigm, just cardinality */
-  single_select: ['multi_select'],
-  multi_select: ['single_select'],
+	/* Selection: same options/UI paradigm, just cardinality */
+	single_select: ["multi_select"],
+	multi_select: ["single_select"],
 
-  /* Media capture: all binary capture with identical property sets */
-  image: ['audio', 'video', 'signature'],
-  audio: ['image', 'video', 'signature'],
-  video: ['image', 'audio', 'signature'],
-  signature: ['image', 'audio', 'video'],
+	/* Media capture: all binary capture with identical property sets */
+	image: ["audio", "video", "signature"],
+	audio: ["image", "video", "signature"],
+	video: ["image", "audio", "signature"],
+	signature: ["image", "audio", "video"],
 
-  /* Structural: both contain children, repeat just adds iteration */
-  group: ['repeat'],
-  repeat: ['group'],
+	/* Structural: both contain children, repeat just adds iteration */
+	group: ["repeat"],
+	repeat: ["group"],
 
-  /* Non-convertible: fundamentally unique input paradigms */
-  hidden: [],
-  label: [],
-  geopoint: [],
-  barcode: [],
-}
+	/* Non-convertible: fundamentally unique input paradigms */
+	hidden: [],
+	label: [],
+	geopoint: [],
+	barcode: [],
+};
 
 /**
  * Returns the types a given question type can logically convert to.
  * Empty array means the type has no valid conversions (button should be disabled).
  */
-export function getConvertibleTypes(type: QuestionType): readonly QuestionType[] {
-  return CONVERSION_MAP[type]
+export function getConvertibleTypes(
+	type: QuestionType,
+): readonly QuestionType[] {
+	return CONVERSION_MAP[type];
 }

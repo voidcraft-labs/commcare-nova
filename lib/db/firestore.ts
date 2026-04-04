@@ -20,25 +20,29 @@
  *   collections.logs(email, projectId)     → users/{email}/projects/{projectId}/logs/{logId}
  */
 import {
-  Firestore,
-  type CollectionReference,
-  type DocumentData,
-  type DocumentReference,
-  type FirestoreDataConverter,
-  type QueryDocumentSnapshot,
-  type WithFieldValue,
-} from '@google-cloud/firestore'
-import type { ZodType } from 'zod'
+	Firestore,
+	type CollectionReference,
+	type DocumentData,
+	type DocumentReference,
+	type FirestoreDataConverter,
+	type QueryDocumentSnapshot,
+	type WithFieldValue,
+} from "@google-cloud/firestore";
+import type { ZodType } from "zod";
 import {
-  userDocSchema, type UserDoc,
-  usageDocSchema, type UsageDoc,
-  projectDocSchema, type ProjectDoc,
-  storedEventSchema, type StoredEvent,
-} from './types'
+	userDocSchema,
+	type UserDoc,
+	usageDocSchema,
+	type UsageDoc,
+	projectDocSchema,
+	type ProjectDoc,
+	storedEventSchema,
+	type StoredEvent,
+} from "./types";
 
 // ── Singleton ──────────────────────────────────────────────────────
 
-let _db: Firestore | null = null
+let _db: Firestore | null = null;
 
 /**
  * Returns the Firestore client singleton, lazily initialized on first call.
@@ -51,13 +55,13 @@ let _db: Firestore | null = null
  * this at the route level.
  */
 export function getDb(): Firestore {
-  if (!_db) {
-    _db = new Firestore({
-      projectId: process.env.GOOGLE_CLOUD_PROJECT,
-      ignoreUndefinedProperties: true,
-    })
-  }
-  return _db
+	if (!_db) {
+		_db = new Firestore({
+			projectId: process.env.GOOGLE_CLOUD_PROJECT,
+			ignoreUndefinedProperties: true,
+		});
+	}
+	return _db;
 }
 
 // ── Converters ─────────────────────────────────────────────────────
@@ -74,22 +78,23 @@ export function getDb(): Firestore {
  * fields automatically — no manual null-coalescing in converters.
  */
 function zodConverter<T>(schema: ZodType<T>): FirestoreDataConverter<T> {
-  /*
-   * Cast required because FirestoreDataConverter has two toFirestore overloads
-   * (full write + merge write) that can't both be satisfied by a single arrow
-   * function signature. The runtime behavior is correct — data passes through
-   * as DocumentData, and the SDK handles FieldValue resolution.
-   */
-  return {
-    toFirestore: (data: WithFieldValue<T>) => data as unknown as DocumentData,
-    fromFirestore: (snapshot: QueryDocumentSnapshot) => schema.parse(snapshot.data()),
-  } as FirestoreDataConverter<T>
+	/*
+	 * Cast required because FirestoreDataConverter has two toFirestore overloads
+	 * (full write + merge write) that can't both be satisfied by a single arrow
+	 * function signature. The runtime behavior is correct — data passes through
+	 * as DocumentData, and the SDK handles FieldValue resolution.
+	 */
+	return {
+		toFirestore: (data: WithFieldValue<T>) => data as unknown as DocumentData,
+		fromFirestore: (snapshot: QueryDocumentSnapshot) =>
+			schema.parse(snapshot.data()),
+	} as FirestoreDataConverter<T>;
 }
 
-const userConverter = zodConverter(userDocSchema)
-const usageConverter = zodConverter(usageDocSchema)
-const projectConverter = zodConverter(projectDocSchema)
-const storedEventConverter = zodConverter(storedEventSchema)
+const userConverter = zodConverter(userDocSchema);
+const usageConverter = zodConverter(usageDocSchema);
+const projectConverter = zodConverter(projectDocSchema);
+const storedEventConverter = zodConverter(storedEventSchema);
 
 // ── Collection Helpers ─────────────────────────────────────────────
 
@@ -106,26 +111,36 @@ const storedEventConverter = zodConverter(storedEventSchema)
  *   projects.docs.forEach(doc => doc.data())  // → ProjectDoc (validated)
  */
 export const collections = {
-  /** Top-level users collection: `users/{email}` */
-  users: (): CollectionReference<UserDoc> =>
-    getDb().collection('users').withConverter(userConverter),
+	/** Top-level users collection: `users/{email}` */
+	users: (): CollectionReference<UserDoc> =>
+		getDb().collection("users").withConverter(userConverter),
 
-  /** Per-user monthly usage: `users/{email}/usage/{yyyy-mm}` */
-  usage: (email: string): CollectionReference<UsageDoc> =>
-    getDb().collection('users').doc(email)
-      .collection('usage').withConverter(usageConverter),
+	/** Per-user monthly usage: `users/{email}/usage/{yyyy-mm}` */
+	usage: (email: string): CollectionReference<UsageDoc> =>
+		getDb()
+			.collection("users")
+			.doc(email)
+			.collection("usage")
+			.withConverter(usageConverter),
 
-  /** Per-user projects: `users/{email}/projects/{projectId}` */
-  projects: (email: string): CollectionReference<ProjectDoc> =>
-    getDb().collection('users').doc(email)
-      .collection('projects').withConverter(projectConverter),
+	/** Per-user projects: `users/{email}/projects/{projectId}` */
+	projects: (email: string): CollectionReference<ProjectDoc> =>
+		getDb()
+			.collection("users")
+			.doc(email)
+			.collection("projects")
+			.withConverter(projectConverter),
 
-  /** Per-project log events: `users/{email}/projects/{projectId}/logs/{logId}` */
-  logs: (email: string, projectId: string): CollectionReference<StoredEvent> =>
-    getDb().collection('users').doc(email)
-      .collection('projects').doc(projectId)
-      .collection('logs').withConverter(storedEventConverter),
-}
+	/** Per-project log events: `users/{email}/projects/{projectId}/logs/{logId}` */
+	logs: (email: string, projectId: string): CollectionReference<StoredEvent> =>
+		getDb()
+			.collection("users")
+			.doc(email)
+			.collection("projects")
+			.doc(projectId)
+			.collection("logs")
+			.withConverter(storedEventConverter),
+};
 
 // ── Document Helpers ───────────────────────────────────────────────
 
@@ -140,19 +155,23 @@ export const collections = {
  *   if (snap.exists) console.log(snap.data()!.app_name)  // → string (validated)
  */
 export const docs = {
-  /** Direct reference: `users/{email}` */
-  user: (email: string): DocumentReference<UserDoc> =>
-    collections.users().doc(email),
+	/** Direct reference: `users/{email}` */
+	user: (email: string): DocumentReference<UserDoc> =>
+		collections.users().doc(email),
 
-  /** Direct reference: `users/{email}/usage/{yyyy-mm}` */
-  usage: (email: string, period: string): DocumentReference<UsageDoc> =>
-    collections.usage(email).doc(period),
+	/** Direct reference: `users/{email}/usage/{yyyy-mm}` */
+	usage: (email: string, period: string): DocumentReference<UsageDoc> =>
+		collections.usage(email).doc(period),
 
-  /** Direct reference: `users/{email}/projects/{projectId}` */
-  project: (email: string, projectId: string): DocumentReference<ProjectDoc> =>
-    collections.projects(email).doc(projectId),
+	/** Direct reference: `users/{email}/projects/{projectId}` */
+	project: (email: string, projectId: string): DocumentReference<ProjectDoc> =>
+		collections.projects(email).doc(projectId),
 
-  /** Direct reference: `users/{email}/projects/{projectId}/logs/{logId}` */
-  logEntry: (email: string, projectId: string, logId: string): DocumentReference<StoredEvent> =>
-    collections.logs(email, projectId).doc(logId),
-}
+	/** Direct reference: `users/{email}/projects/{projectId}/logs/{logId}` */
+	logEntry: (
+		email: string,
+		projectId: string,
+		logId: string,
+	): DocumentReference<StoredEvent> =>
+		collections.logs(email, projectId).doc(logId),
+};

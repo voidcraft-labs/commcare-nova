@@ -9,24 +9,24 @@
  * via `withChipInjection`.
  */
 
-'use client'
-import Markdown, { RuleType, type MarkdownToJSX } from 'markdown-to-jsx'
-import { Fragment, useMemo, type ReactNode } from 'react'
-import { PREVIEW_OPTIONS, withChipInjection } from '@/lib/markdown'
-import { ReferenceChip } from './ReferenceChip'
-import { useReferenceProvider } from './ReferenceContext'
-import { HASHTAG_REF_PATTERN } from './config'
-import type { IconifyIcon } from '@iconify/react/offline'
-import { resolveRefFromExpr, parseLabelSegments } from './renderLabel'
-import type { ReferenceProvider } from './provider'
+"use client";
+import Markdown, { RuleType, type MarkdownToJSX } from "markdown-to-jsx";
+import { Fragment, useMemo, type ReactNode } from "react";
+import { PREVIEW_OPTIONS, withChipInjection } from "@/lib/markdown";
+import { ReferenceChip } from "./ReferenceChip";
+import { useReferenceProvider } from "./ReferenceContext";
+import { HASHTAG_REF_PATTERN } from "./config";
+import type { IconifyIcon } from "@iconify/react/offline";
+import { resolveRefFromExpr, parseLabelSegments } from "./renderLabel";
+import type { ReferenceProvider } from "./provider";
 
 interface LabelContentProps {
-  /** Raw label text (bare `#type/path` hashtags and markdown). */
-  label: string
-  /** Engine-resolved label (hashtag refs evaluated to values). Undefined when no refs present. */
-  resolvedLabel?: string
-  /** Whether we're in design/edit mode. */
-  isEditMode: boolean
+	/** Raw label text (bare `#type/path` hashtags and markdown). */
+	label: string;
+	/** Engine-resolved label (hashtag refs evaluated to values). Undefined when no refs present. */
+	resolvedLabel?: string;
+	/** Whether we're in design/edit mode. */
+	isEditMode: boolean;
 }
 
 /**
@@ -36,17 +36,17 @@ interface LabelContentProps {
  * question-type icons when rendering outside the ReferenceProvider context.
  */
 export function textWithChips(
-  text: string,
-  provider: ReferenceProvider | null,
-  iconOverrides?: Map<string, IconifyIcon>,
+	text: string,
+	provider: ReferenceProvider | null,
+	iconOverrides?: Map<string, IconifyIcon>,
 ): ReactNode {
-  /* Fast path: skip regex work for the ~95% of labels with no refs. */
-  if (!text.includes('#')) return text
-  return parseLabelSegments(text).map(seg => {
-    if (seg.kind === 'text') return seg.text
-    const ref = resolveRefFromExpr(seg.value, provider, iconOverrides)
-    return ref ? <ReferenceChip key={seg.key} reference={ref} /> : seg.value
-  })
+	/* Fast path: skip regex work for the ~95% of labels with no refs. */
+	if (!text.includes("#")) return text;
+	return parseLabelSegments(text).map((seg) => {
+		if (seg.kind === "text") return seg.text;
+		const ref = resolveRefFromExpr(seg.value, provider, iconOverrides);
+		return ref ? <ReferenceChip key={seg.key} reference={ref} /> : seg.value;
+	});
 }
 
 /**
@@ -55,39 +55,47 @@ export function textWithChips(
  * preview options (which include breaksRenderRule) via withChipInjection.
  */
 function chipRenderRule(
-  provider: ReferenceProvider | null,
-): NonNullable<MarkdownToJSX.Options['renderRule']> {
-  return (next, node, _renderChildren, state) => {
-    if (node.type === RuleType.text && HASHTAG_REF_PATTERN.test(node.text)) {
-      return <Fragment key={state.key}>{textWithChips(node.text, provider)}</Fragment>
-    }
-    return next()
-  }
+	provider: ReferenceProvider | null,
+): NonNullable<MarkdownToJSX.Options["renderRule"]> {
+	return (next, node, _renderChildren, state) => {
+		if (node.type === RuleType.text && HASHTAG_REF_PATTERN.test(node.text)) {
+			return (
+				<Fragment key={state.key}>
+					{textWithChips(node.text, provider)}
+				</Fragment>
+			);
+		}
+		return next();
+	};
 }
 
 function useMarkdownOptions(): MarkdownToJSX.Options {
-  const provider = useReferenceProvider()
-  return useMemo(
-    () => withChipInjection(PREVIEW_OPTIONS, chipRenderRule(provider)),
-    [provider],
-  )
+	const provider = useReferenceProvider();
+	return useMemo(
+		() => withChipInjection(PREVIEW_OPTIONS, chipRenderRule(provider)),
+		[provider],
+	);
 }
 
-export function LabelContent({ label, resolvedLabel, isEditMode }: LabelContentProps) {
-  const options = useMarkdownOptions()
+export function LabelContent({
+	label,
+	resolvedLabel,
+	isEditMode,
+}: LabelContentProps) {
+	const options = useMarkdownOptions();
 
-  /* Preview mode: use engine-resolved values (no chips, just substituted text). */
-  if (!isEditMode && resolvedLabel !== undefined) {
-    return (
-      <div className="preview-markdown">
-        <Markdown options={options}>{resolvedLabel}</Markdown>
-      </div>
-    )
-  }
+	/* Preview mode: use engine-resolved values (no chips, just substituted text). */
+	if (!isEditMode && resolvedLabel !== undefined) {
+		return (
+			<div className="preview-markdown">
+				<Markdown options={options}>{resolvedLabel}</Markdown>
+			</div>
+		);
+	}
 
-  return (
-    <div className="preview-markdown">
-      <Markdown options={options}>{label}</Markdown>
-    </div>
-  )
+	return (
+		<div className="preview-markdown">
+			<Markdown options={options}>{label}</Markdown>
+		</div>
+	);
 }

@@ -1,1 +1,5 @@
-export type { ValidationError, ValidationErrorCode, ValidationLocation } from './errors'
+export type {
+	ValidationError,
+	ValidationErrorCode,
+	ValidationLocation,
+} from "./errors";

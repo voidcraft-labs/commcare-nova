@@ -20,8 +20,8 @@
  * that's a serialization layer, not a renderer.
  */
 
-import Markdown, { RuleType, type MarkdownToJSX } from 'markdown-to-jsx'
-import { Children, createElement, Fragment, type ReactNode } from 'react'
+import Markdown, { RuleType, type MarkdownToJSX } from "markdown-to-jsx";
+import { Children, createElement, Fragment, type ReactNode } from "react";
 
 /* ---------------------------------------------------------------------------
  * Table key workaround
@@ -36,18 +36,18 @@ import { Children, createElement, Fragment, type ReactNode } from 'react'
  * ------------------------------------------------------------------------ */
 
 interface KeyedElProps extends React.PropsWithChildren {
-  [key: string]: unknown
+	[key: string]: unknown;
 }
 
 function keyedEl(tag: string, { children, ...rest }: KeyedElProps) {
-  return createElement(tag, rest, ...Children.toArray(children))
+	return createElement(tag, rest, ...Children.toArray(children));
 }
 
 const TABLE_KEY_OVERRIDES: MarkdownToJSX.Overrides = {
-  table: { component: (p: KeyedElProps) => keyedEl('table', p) },
-  thead: { component: (p: KeyedElProps) => keyedEl('thead', p) },
-  tbody: { component: (p: KeyedElProps) => keyedEl('tbody', p) },
-}
+	table: { component: (p: KeyedElProps) => keyedEl("table", p) },
+	thead: { component: (p: KeyedElProps) => keyedEl("thead", p) },
+	tbody: { component: (p: KeyedElProps) => keyedEl("tbody", p) },
+};
 
 /* ---------------------------------------------------------------------------
  * Breaks renderRule
@@ -59,26 +59,30 @@ const TABLE_KEY_OVERRIDES: MarkdownToJSX.Overrides = {
  * ------------------------------------------------------------------------ */
 
 function breaksRenderRule(
-  next: () => ReactNode,
-  node: MarkdownToJSX.ASTNode,
-  _renderChildren: MarkdownToJSX.ASTRender,
-  state: MarkdownToJSX.State,
+	next: () => ReactNode,
+	node: MarkdownToJSX.ASTNode,
+	_renderChildren: MarkdownToJSX.ASTRender,
+	state: MarkdownToJSX.State,
 ): ReactNode {
-  if (node.type === RuleType.text && typeof node.text === 'string' && node.text.includes('\n')) {
-    const parts = node.text.split('\n')
-    return (
-      <Fragment key={state.key}>
-        {parts.map((part, i) => (
-          // biome-ignore lint/suspicious/noArrayIndexKey: static text splits from \n — never reorder
-          <Fragment key={i}>
-            {part}
-            {i < parts.length - 1 && <br />}
-          </Fragment>
-        ))}
-      </Fragment>
-    )
-  }
-  return next()
+	if (
+		node.type === RuleType.text &&
+		typeof node.text === "string" &&
+		node.text.includes("\n")
+	) {
+		const parts = node.text.split("\n");
+		return (
+			<Fragment key={state.key}>
+				{parts.map((part, i) => (
+					// biome-ignore lint/suspicious/noArrayIndexKey: static text splits from \n — never reorder
+					<Fragment key={i}>
+						{part}
+						{i < parts.length - 1 && <br />}
+					</Fragment>
+				))}
+			</Fragment>
+		);
+	}
+	return next();
 }
 
 /* ---------------------------------------------------------------------------
@@ -90,23 +94,23 @@ function breaksRenderRule(
  * of breaks handling without either knowing about the other.
  * ------------------------------------------------------------------------ */
 
-type RenderRule = NonNullable<MarkdownToJSX.Options['renderRule']>
+type RenderRule = NonNullable<MarkdownToJSX.Options["renderRule"]>;
 
 export function composeRenderRules(
-  ...rules: (MarkdownToJSX.Options['renderRule'] | undefined)[]
-): MarkdownToJSX.Options['renderRule'] {
-  const defined = rules.filter(Boolean) as RenderRule[]
-  if (defined.length === 0) return undefined
-  if (defined.length === 1) return defined[0]
-  return (next, node, renderChildren, state) => {
-    let i = 0
-    const chain = (): ReactNode => {
-      if (i >= defined.length) return next()
-      const rule = defined[i++]
-      return rule(chain, node, renderChildren, state)
-    }
-    return chain()
-  }
+	...rules: (MarkdownToJSX.Options["renderRule"] | undefined)[]
+): MarkdownToJSX.Options["renderRule"] {
+	const defined = rules.filter(Boolean) as RenderRule[];
+	if (defined.length === 0) return undefined;
+	if (defined.length === 1) return defined[0];
+	return (next, node, renderChildren, state) => {
+		let i = 0;
+		const chain = (): ReactNode => {
+			if (i >= defined.length) return next();
+			const rule = defined[i++];
+			return rule(chain, node, renderChildren, state);
+		};
+		return chain();
+	};
 }
 
 /* ---------------------------------------------------------------------------
@@ -118,27 +122,27 @@ export function composeRenderRules(
  * ------------------------------------------------------------------------ */
 
 function StripLink({ children }: React.PropsWithChildren) {
-  return <>{children}</>
+	return <>{children}</>;
 }
 
 function StripImage({ alt, title }: { alt?: string; title?: string }) {
-  return <>{title || alt || ''}</>
+	return <>{title || alt || ""}</>;
 }
 
 function StripInput() {
-  return null
+	return null;
 }
 
 function PassthroughBlockquote({ children }: React.PropsWithChildren) {
-  return <>{children}</>
+	return <>{children}</>;
 }
 
 const CHAT_SECURITY_OVERRIDES: MarkdownToJSX.Overrides = {
-  a: { component: StripLink },
-  img: { component: StripImage },
-  input: { component: StripInput },
-  blockquote: { component: PassthroughBlockquote },
-}
+	a: { component: StripLink },
+	img: { component: StripImage },
+	input: { component: StripInput },
+	blockquote: { component: PassthroughBlockquote },
+};
 
 /* ---------------------------------------------------------------------------
  * Preview link override
@@ -147,17 +151,21 @@ const CHAT_SECURITY_OVERRIDES: MarkdownToJSX.Overrides = {
  * behavior for user-authored content.
  * ------------------------------------------------------------------------ */
 
-function ExternalLink({ children, href, ...rest }: React.AnchorHTMLAttributes<HTMLAnchorElement>) {
-  return (
-    <a href={href} target="_blank" rel="noopener noreferrer" {...rest}>
-      {children}
-    </a>
-  )
+function ExternalLink({
+	children,
+	href,
+	...rest
+}: React.AnchorHTMLAttributes<HTMLAnchorElement>) {
+	return (
+		<a href={href} target="_blank" rel="noopener noreferrer" {...rest}>
+			{children}
+		</a>
+	);
 }
 
 const PREVIEW_LINK_OVERRIDES: MarkdownToJSX.Overrides = {
-  a: { component: ExternalLink },
-}
+	a: { component: ExternalLink },
+};
 
 /* ---------------------------------------------------------------------------
  * Stable options objects
@@ -166,27 +174,27 @@ const PREVIEW_LINK_OVERRIDES: MarkdownToJSX.Overrides = {
  * reference across renders and skips re-parsing unchanged content.
  * ------------------------------------------------------------------------ */
 
-const noSlug = () => ''
+const noSlug = () => "";
 
 /** Options for chat messages — strips links, images, and raw HTML. */
 export const CHAT_OPTIONS: MarkdownToJSX.Options = {
-  overrides: { ...TABLE_KEY_OVERRIDES, ...CHAT_SECURITY_OVERRIDES },
-  renderRule: breaksRenderRule,
-  slugify: noSlug,
-}
+	overrides: { ...TABLE_KEY_OVERRIDES, ...CHAT_SECURITY_OVERRIDES },
+	renderRule: breaksRenderRule,
+	slugify: noSlug,
+};
 
 /** Options for preview surfaces — links open in new tab, images allowed. */
 export const PREVIEW_OPTIONS: MarkdownToJSX.Options = {
-  overrides: { ...TABLE_KEY_OVERRIDES, ...PREVIEW_LINK_OVERRIDES },
-  renderRule: breaksRenderRule,
-  slugify: noSlug,
-}
+	overrides: { ...TABLE_KEY_OVERRIDES, ...PREVIEW_LINK_OVERRIDES },
+	renderRule: breaksRenderRule,
+	slugify: noSlug,
+};
 
 /** Preview with forceInline — for rendering inside <span> contexts. */
 const PREVIEW_OPTIONS_INLINE: MarkdownToJSX.Options = {
-  ...PREVIEW_OPTIONS,
-  forceInline: true,
-}
+	...PREVIEW_OPTIONS,
+	forceInline: true,
+};
 
 /* ---------------------------------------------------------------------------
  * Chip injection composition
@@ -200,13 +208,13 @@ const PREVIEW_OPTIONS_INLINE: MarkdownToJSX.Options = {
 
 /** Compose a chip-detecting renderRule on top of existing options. */
 export function withChipInjection(
-  baseOptions: MarkdownToJSX.Options,
-  chipRule: RenderRule,
+	baseOptions: MarkdownToJSX.Options,
+	chipRule: RenderRule,
 ): MarkdownToJSX.Options {
-  return {
-    ...baseOptions,
-    renderRule: composeRenderRules(chipRule, baseOptions.renderRule),
-  }
+	return {
+		...baseOptions,
+		renderRule: composeRenderRules(chipRule, baseOptions.renderRule),
+	};
 }
 
 /* ---------------------------------------------------------------------------
@@ -215,19 +223,23 @@ export function withChipInjection(
 
 /** Render markdown for chat messages (links/images/HTML stripped). */
 export function ChatMarkdown({ children }: { children: string }) {
-  return <Markdown options={CHAT_OPTIONS}>{children}</Markdown>
+	return <Markdown options={CHAT_OPTIONS}>{children}</Markdown>;
 }
 
 interface PreviewMarkdownProps {
-  children: string
-  /**
-   * When true, forces inline rendering (no block elements like <p>).
-   * Use when the markdown content lives inside a <span> or other inline context.
-   */
-  inline?: boolean
+	children: string;
+	/**
+	 * When true, forces inline rendering (no block elements like <p>).
+	 * Use when the markdown content lives inside a <span> or other inline context.
+	 */
+	inline?: boolean;
 }
 
 /** Render markdown for preview surfaces (links/images allowed). */
 export function PreviewMarkdown({ children, inline }: PreviewMarkdownProps) {
-  return <Markdown options={inline ? PREVIEW_OPTIONS_INLINE : PREVIEW_OPTIONS}>{children}</Markdown>
+	return (
+		<Markdown options={inline ? PREVIEW_OPTIONS_INLINE : PREVIEW_OPTIONS}>
+			{children}
+		</Markdown>
+	);
 }

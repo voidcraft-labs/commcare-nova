@@ -1,14 +1,10 @@
 {
-  "css": {
-    "parser": {
-      "tailwindDirectives": true
-    }
-  },
-  "files": {
-    "includes": [
-      "**",
-      "!!.*",
-      "!!**/dist"
-    ]
-  }
+	"css": {
+		"parser": {
+			"tailwindDirectives": true
+		}
+	},
+	"files": {
+		"includes": ["**", "!!.*", "!!**/dist"]
+	}
 }

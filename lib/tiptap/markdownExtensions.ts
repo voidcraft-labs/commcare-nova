@@ -13,18 +13,18 @@
  * This editor is a full WYSIWYG surface.
  */
 
-import StarterKit from '@tiptap/starter-kit'
-import Mention from '@tiptap/extension-mention'
-import { Image } from '@tiptap/extension-image'
-import { Table } from '@tiptap/extension-table'
-import { TableRow } from '@tiptap/extension-table'
-import { TableHeader } from '@tiptap/extension-table'
-import { TableCell } from '@tiptap/extension-table'
-import { Markdown } from 'tiptap-markdown'
-import { CommcareRef } from './commcareRefNode'
-import { createRefSuggestion } from './refSuggestion'
-import type { ReferenceProvider } from '@/lib/references/provider'
-import type { Extensions } from '@tiptap/core'
+import StarterKit from "@tiptap/starter-kit";
+import Mention from "@tiptap/extension-mention";
+import { Image } from "@tiptap/extension-image";
+import { Table } from "@tiptap/extension-table";
+import { TableRow } from "@tiptap/extension-table";
+import { TableHeader } from "@tiptap/extension-table";
+import { TableCell } from "@tiptap/extension-table";
+import { Markdown } from "tiptap-markdown";
+import { CommcareRef } from "./commcareRefNode";
+import { createRefSuggestion } from "./refSuggestion";
+import type { ReferenceProvider } from "@/lib/references/provider";
+import type { Extensions } from "@tiptap/core";
 
 /**
  * Create the full WYSIWYG extension set for inline text editing.
@@ -38,43 +38,47 @@ import type { Extensions } from '@tiptap/core'
  *
  * @param provider - ReferenceProvider for hashtag autocomplete (null disables autocomplete)
  */
-export function createInlineEditorExtensions(provider: ReferenceProvider | null): Extensions {
-  const suggestion = provider ? createRefSuggestion(provider) : undefined
+export function createInlineEditorExtensions(
+	provider: ReferenceProvider | null,
+): Extensions {
+	const suggestion = provider ? createRefSuggestion(provider) : undefined;
 
-  return [
-    StarterKit.configure({
-      /* Headings limited to 1-3 — deeper levels aren't useful in form labels. */
-      heading: { levels: [1, 2, 3] },
-      /* Links open in new tab (CommCare default) and don't activate on click
-       * inside the editor — users need to click to position their cursor. */
-      link: {
-        openOnClick: false,
-        HTMLAttributes: { target: '_blank', rel: 'noopener noreferrer' },
-      },
-    }),
-    /* Inline images — `![alt](url)` in markdown. */
-    Image.configure({ inline: true }),
-    /* GFM pipe tables — `| col | col |` syntax. Requires all four table
-     * node types (table, row, header cell, body cell) for ProseMirror. */
-    Table.configure({ resizable: false }),
-    TableRow,
-    TableHeader,
-    TableCell,
-    Markdown.configure({
-      html: true,
-      breaks: true,
-      transformPastedText: true,
-      transformCopiedText: true,
-    }),
-    CommcareRef,
-    ...(suggestion ? [
-      Mention.configure({
-        HTMLAttributes: { class: 'commcare-ref-mention' },
-        suggestion,
-        renderLabel: () => '',
-      }),
-    ] : []),
-  ]
+	return [
+		StarterKit.configure({
+			/* Headings limited to 1-3 — deeper levels aren't useful in form labels. */
+			heading: { levels: [1, 2, 3] },
+			/* Links open in new tab (CommCare default) and don't activate on click
+			 * inside the editor — users need to click to position their cursor. */
+			link: {
+				openOnClick: false,
+				HTMLAttributes: { target: "_blank", rel: "noopener noreferrer" },
+			},
+		}),
+		/* Inline images — `![alt](url)` in markdown. */
+		Image.configure({ inline: true }),
+		/* GFM pipe tables — `| col | col |` syntax. Requires all four table
+		 * node types (table, row, header cell, body cell) for ProseMirror. */
+		Table.configure({ resizable: false }),
+		TableRow,
+		TableHeader,
+		TableCell,
+		Markdown.configure({
+			html: true,
+			breaks: true,
+			transformPastedText: true,
+			transformCopiedText: true,
+		}),
+		CommcareRef,
+		...(suggestion
+			? [
+					Mention.configure({
+						HTMLAttributes: { class: "commcare-ref-mention" },
+						suggestion,
+						renderLabel: () => "",
+					}),
+				]
+			: []),
+	];
 }
 
 /**
@@ -85,6 +89,8 @@ export function createInlineEditorExtensions(provider: ReferenceProvider | null)
  * `Record<string, any>` by TipTap, so the `markdown.getMarkdown()` access
  * is dynamically typed — tiptap-markdown adds it at runtime.
  */
-export function getMarkdownContent(editor: { storage: Record<string, any> }): string {
-  return editor.storage.markdown?.getMarkdown() ?? ''
+export function getMarkdownContent(editor: {
+	storage: Record<string, any>;
+}): string {
+	return editor.storage.markdown?.getMarkdown() ?? "";
 }

@@ -8,10 +8,10 @@
  * The `role` field is intentionally never set by application code — changes
  * happen via direct Firestore console edits only.
  */
-import { FieldValue } from '@google-cloud/firestore'
-import type { UserDoc } from './types'
-import { collections, docs } from './firestore'
-import { log } from '@/lib/log'
+import { FieldValue } from "@google-cloud/firestore";
+import type { UserDoc } from "./types";
+import { collections, docs } from "./firestore";
+import { log } from "@/lib/log";
 
 // ── Write ─────────────────────────────────────────────────────────
 
@@ -27,28 +27,35 @@ import { log } from '@/lib/log'
  * Firestore read that checks existence, avoiding a redundant second read
  * in the auth after-hook.
  */
-export async function provisionUser(email: string, name: string, image: string | null): Promise<boolean> {
-  const ref = docs.user(email)
-  const snap = await ref.get()
-  if (snap.exists) {
-    /* Profile sync — update mutable fields only, preserve created_at and role */
-    await ref.set({
-      name,
-      image,
-      last_active_at: FieldValue.serverTimestamp(),
-    }, { merge: true })
-    return snap.data()!.role === 'admin'
-  } else {
-    /* First sign-in — set created_at and default role */
-    await ref.set({
-      name,
-      image,
-      role: 'user',
-      created_at: FieldValue.serverTimestamp(),
-      last_active_at: FieldValue.serverTimestamp(),
-    })
-    return false
-  }
+export async function provisionUser(
+	email: string,
+	name: string,
+	image: string | null,
+): Promise<boolean> {
+	const ref = docs.user(email);
+	const snap = await ref.get();
+	if (snap.exists) {
+		/* Profile sync — update mutable fields only, preserve created_at and role */
+		await ref.set(
+			{
+				name,
+				image,
+				last_active_at: FieldValue.serverTimestamp(),
+			},
+			{ merge: true },
+		);
+		return snap.data()!.role === "admin";
+	} else {
+		/* First sign-in — set created_at and default role */
+		await ref.set({
+			name,
+			image,
+			role: "user",
+			created_at: FieldValue.serverTimestamp(),
+			last_active_at: FieldValue.serverTimestamp(),
+		});
+		return false;
+	}
 }
 
 /**
@@ -56,13 +63,22 @@ export async function provisionUser(email: string, name: string, image: string |
  * Fire-and-forget — called from the chat route on every authenticated
  * request. Never touches `created_at` or `role`.
  */
-export function touchUser(email: string, name: string, image: string | null): void {
-  docs.user(email).set({
-    name,
-    image,
-    last_active_at: FieldValue.serverTimestamp(),
-  }, { merge: true })
-    .catch(err => log.error('[touchUser] Firestore write failed', err))
+export function touchUser(
+	email: string,
+	name: string,
+	image: string | null,
+): void {
+	docs
+		.user(email)
+		.set(
+			{
+				name,
+				image,
+				last_active_at: FieldValue.serverTimestamp(),
+			},
+			{ merge: true },
+		)
+		.catch((err) => log.error("[touchUser] Firestore write failed", err));
 }
 
 /**
@@ -70,8 +86,8 @@ export function touchUser(email: string, name: string, image: string | null): vo
  * false) and the `/api/admin/check` endpoint (returns boolean).
  */
 export async function isUserAdmin(email: string): Promise<boolean> {
-  const snap = await docs.user(email).get()
-  return snap.exists && snap.data()!.role === 'admin'
+	const snap = await docs.user(email).get();
+	return snap.exists && snap.data()!.role === "admin";
 }
 
 // ── Read ──────────────────────────────────────────────────────────
@@ -81,8 +97,8 @@ export async function isUserAdmin(email: string): Promise<boolean> {
  * (user signed in via OAuth but never chatted).
  */
 export async function getUser(email: string): Promise<UserDoc | null> {
-  const snap = await docs.user(email).get()
-  return snap.exists ? snap.data()! : null
+	const snap = await docs.user(email).get();
+	return snap.exists ? snap.data()! : null;
 }
 
 /**
@@ -91,7 +107,9 @@ export async function getUser(email: string): Promise<UserDoc | null> {
  * Used by the admin dashboard to list all users. For a small org (<100 users),
  * this is a single collection read — no pagination needed.
  */
-export async function listAllUsers(): Promise<Array<UserDoc & { email: string }>> {
-  const snap = await collections.users().get()
-  return snap.docs.map(doc => ({ ...doc.data(), email: doc.id }))
+export async function listAllUsers(): Promise<
+	Array<UserDoc & { email: string }>
+> {
+	const snap = await collections.users().get();
+	return snap.docs.map((doc) => ({ ...doc.data(), email: doc.id }));
 }
