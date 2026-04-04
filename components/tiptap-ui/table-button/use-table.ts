@@ -19,7 +19,7 @@ export interface UseTableConfig {
  * Checks whether a table can be inserted in the current editor state.
  */
 export function canInsertTable(editor: Editor | null): boolean {
-	if (!editor || !editor.isEditable) return false;
+	if (!editor?.isEditable) return false;
 	return isNodeInSchema("table", editor);
 }
 
@@ -33,7 +33,7 @@ export function insertTable(
 	rows: number = 3,
 	cols: number = 3,
 ): boolean {
-	if (!editor || !editor.isEditable) return false;
+	if (!editor?.isEditable) return false;
 	if (!canInsertTable(editor)) return false;
 	return editor
 		.chain()

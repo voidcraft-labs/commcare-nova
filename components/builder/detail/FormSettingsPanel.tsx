@@ -488,7 +488,7 @@ function LearnConfig({
 			save(rest as ConnectConfig);
 		} else {
 			const restored = lastLearnRef.current;
-			if (restored && restored.name.trim()) {
+			if (restored?.name.trim()) {
 				save({ ...connect, learn_module: restored });
 			} else {
 				const { learnId } = defaultIds();
@@ -512,7 +512,7 @@ function LearnConfig({
 			save(rest as ConnectConfig);
 		} else {
 			const restored = lastAssessmentRef.current;
-			if (restored && restored.user_score.trim()) {
+			if (restored?.user_score.trim()) {
 				save({ ...connect, assessment: restored });
 			} else {
 				const { assessmentId } = defaultIds();
@@ -525,123 +525,117 @@ function LearnConfig({
 	}, [assessmentEnabled, connect, save, defaultIds]);
 
 	return (
-		<>
-			<div className="space-y-2">
-				{/* Learn Module sub-toggle */}
-				<div className="rounded-lg bg-white/[0.03] border border-white/[0.05] px-2.5 py-2">
-					<div className="flex items-center justify-between">
-						<span className="text-[10px] text-nova-text-muted uppercase tracking-wider">
-							Learn Module
-						</span>
-						<Toggle
-							enabled={learnEnabled}
-							onToggle={toggleLearn}
-							variant="sub"
-						/>
-					</div>
-					<AnimatePresence>
-						{lm && (
-							<motion.div
-								initial={{ opacity: 0, height: 0 }}
-								animate={{ opacity: 1, height: "auto" }}
-								exit={{ opacity: 0, height: 0 }}
-								transition={{ duration: 0.15, ease: "easeOut" }}
-								className="overflow-hidden"
-							>
-								<div className="space-y-2 pt-2.5 mt-2 border-t border-white/[0.05]">
-									<InlineField
-										label="Module ID"
-										value={lm.id ?? "connect_learn"}
-										onChange={(v) => updateLearnModule("id", v)}
-										mono
-										required
-									/>
-									<InlineField
-										label="Name"
-										value={lm.name}
-										onChange={(v) => updateLearnModule("name", v)}
-										required
-									/>
-									<InlineField
-										label="Description"
-										value={lm.description}
-										onChange={(v) => updateLearnModule("description", v)}
-										multiline
-										required
-									/>
-									<InlineField
-										label="Time Estimate"
-										value={String(lm.time_estimate)}
-										onChange={(v) =>
-											updateLearnModule(
-												"time_estimate",
-												Math.max(1, parseInt(v) || 1),
-											)
-										}
-										suffix="min"
-										type="number"
-										required
-									/>
-								</div>
-							</motion.div>
-						)}
-					</AnimatePresence>
+		<div className="space-y-2">
+			{/* Learn Module sub-toggle */}
+			<div className="rounded-lg bg-white/[0.03] border border-white/[0.05] px-2.5 py-2">
+				<div className="flex items-center justify-between">
+					<span className="text-[10px] text-nova-text-muted uppercase tracking-wider">
+						Learn Module
+					</span>
+					<Toggle enabled={learnEnabled} onToggle={toggleLearn} variant="sub" />
 				</div>
-
-				{/* Assessment sub-toggle */}
-				<div className="rounded-lg bg-white/[0.03] border border-white/[0.05] px-2.5 py-2">
-					<div className="flex items-center justify-between">
-						<span className="text-[10px] text-nova-text-muted uppercase tracking-wider">
-							Assessment
-						</span>
-						<Toggle
-							enabled={assessmentEnabled}
-							onToggle={toggleAssessment}
-							variant="sub"
-						/>
-					</div>
-					<AnimatePresence>
-						{assessment && (
-							<motion.div
-								initial={{ opacity: 0, height: 0 }}
-								animate={{ opacity: 1, height: "auto" }}
-								exit={{ opacity: 0, height: 0 }}
-								transition={{ duration: 0.15, ease: "easeOut" }}
-								className="overflow-hidden"
-							>
-								<div className="space-y-2 pt-2.5 mt-2 border-t border-white/[0.05]">
-									<InlineField
-										label="Assessment ID"
-										value={assessment.id ?? "connect_assessment"}
-										onChange={(v) =>
-											save({ ...connect, assessment: { ...assessment, id: v } })
-										}
-										mono
-										required
-									/>
-									<div>
-										<span className="text-[10px] text-nova-text-muted uppercase tracking-wider mb-0.5 flex items-center gap-0.5">
-											User Score<span className="text-nova-rose">*</span>
-										</span>
-										<XPathField
-											value={assessment.user_score}
-											onSave={(v) => {
-												if (v.trim())
-													save({
-														...connect,
-														assessment: { ...assessment, user_score: v },
-													});
-											}}
-											getLintContext={getLintContext}
-										/>
-									</div>
-								</div>
-							</motion.div>
-						)}
-					</AnimatePresence>
-				</div>
+				<AnimatePresence>
+					{lm && (
+						<motion.div
+							initial={{ opacity: 0, height: 0 }}
+							animate={{ opacity: 1, height: "auto" }}
+							exit={{ opacity: 0, height: 0 }}
+							transition={{ duration: 0.15, ease: "easeOut" }}
+							className="overflow-hidden"
+						>
+							<div className="space-y-2 pt-2.5 mt-2 border-t border-white/[0.05]">
+								<InlineField
+									label="Module ID"
+									value={lm.id ?? "connect_learn"}
+									onChange={(v) => updateLearnModule("id", v)}
+									mono
+									required
+								/>
+								<InlineField
+									label="Name"
+									value={lm.name}
+									onChange={(v) => updateLearnModule("name", v)}
+									required
+								/>
+								<InlineField
+									label="Description"
+									value={lm.description}
+									onChange={(v) => updateLearnModule("description", v)}
+									multiline
+									required
+								/>
+								<InlineField
+									label="Time Estimate"
+									value={String(lm.time_estimate)}
+									onChange={(v) =>
+										updateLearnModule(
+											"time_estimate",
+											Math.max(1, parseInt(v, 10) || 1),
+										)
+									}
+									suffix="min"
+									type="number"
+									required
+								/>
+							</div>
+						</motion.div>
+					)}
+				</AnimatePresence>
 			</div>
-		</>
+
+			{/* Assessment sub-toggle */}
+			<div className="rounded-lg bg-white/[0.03] border border-white/[0.05] px-2.5 py-2">
+				<div className="flex items-center justify-between">
+					<span className="text-[10px] text-nova-text-muted uppercase tracking-wider">
+						Assessment
+					</span>
+					<Toggle
+						enabled={assessmentEnabled}
+						onToggle={toggleAssessment}
+						variant="sub"
+					/>
+				</div>
+				<AnimatePresence>
+					{assessment && (
+						<motion.div
+							initial={{ opacity: 0, height: 0 }}
+							animate={{ opacity: 1, height: "auto" }}
+							exit={{ opacity: 0, height: 0 }}
+							transition={{ duration: 0.15, ease: "easeOut" }}
+							className="overflow-hidden"
+						>
+							<div className="space-y-2 pt-2.5 mt-2 border-t border-white/[0.05]">
+								<InlineField
+									label="Assessment ID"
+									value={assessment.id ?? "connect_assessment"}
+									onChange={(v) =>
+										save({ ...connect, assessment: { ...assessment, id: v } })
+									}
+									mono
+									required
+								/>
+								<div>
+									<span className="text-[10px] text-nova-text-muted uppercase tracking-wider mb-0.5 flex items-center gap-0.5">
+										User Score<span className="text-nova-rose">*</span>
+									</span>
+									<XPathField
+										value={assessment.user_score}
+										onSave={(v) => {
+											if (v.trim())
+												save({
+													...connect,
+													assessment: { ...assessment, user_score: v },
+												});
+										}}
+										getLintContext={getLintContext}
+									/>
+								</div>
+							</div>
+						</motion.div>
+					)}
+				</AnimatePresence>
+			</div>
+		</div>
 	);
 }
 
@@ -701,71 +695,69 @@ function DeliverConfig({
 	}, [taskEnabled, connect, save, mb, moduleIndex, formIndex]);
 
 	return (
-		<>
-			<div className="space-y-2">
-				<div>
-					<span className="text-[10px] text-nova-text-muted uppercase tracking-wider mb-0.5 flex items-center gap-0.5">
-						Entity ID<span className="text-nova-rose">*</span>
-					</span>
-					<XPathField
-						value={du?.entity_id ?? ""}
-						onSave={(v) => {
-							if (v.trim()) updateDeliverUnit("entity_id", v);
-						}}
-						getLintContext={getLintContext}
-					/>
-				</div>
-				<div>
-					<span className="text-[10px] text-nova-text-muted uppercase tracking-wider mb-0.5 flex items-center gap-0.5">
-						Entity Name<span className="text-nova-rose">*</span>
-					</span>
-					<XPathField
-						value={du?.entity_name ?? ""}
-						onSave={(v) => {
-							if (v.trim()) updateDeliverUnit("entity_name", v);
-						}}
-						getLintContext={getLintContext}
-					/>
-				</div>
-
-				{/* Task sub-toggle */}
-				<div className="rounded-lg bg-white/[0.03] border border-white/[0.05] px-2.5 py-2 mt-1">
-					<div className="flex items-center justify-between">
-						<span className="text-[10px] text-nova-text-muted uppercase tracking-wider">
-							Task
-						</span>
-						<Toggle enabled={taskEnabled} onToggle={toggleTask} variant="sub" />
-					</div>
-					<AnimatePresence>
-						{task && (
-							<motion.div
-								initial={{ opacity: 0, height: 0 }}
-								animate={{ opacity: 1, height: "auto" }}
-								exit={{ opacity: 0, height: 0 }}
-								transition={{ duration: 0.15, ease: "easeOut" }}
-								className="overflow-hidden"
-							>
-								<div className="space-y-2 pt-2.5 mt-2 border-t border-white/[0.05]">
-									<InlineField
-										label="Task Name"
-										value={task.name}
-										onChange={(v) => updateTask("name", v)}
-										required
-									/>
-									<InlineField
-										label="Task Description"
-										value={task.description}
-										onChange={(v) => updateTask("description", v)}
-										multiline
-										required
-									/>
-								</div>
-							</motion.div>
-						)}
-					</AnimatePresence>
-				</div>
+		<div className="space-y-2">
+			<div>
+				<span className="text-[10px] text-nova-text-muted uppercase tracking-wider mb-0.5 flex items-center gap-0.5">
+					Entity ID<span className="text-nova-rose">*</span>
+				</span>
+				<XPathField
+					value={du?.entity_id ?? ""}
+					onSave={(v) => {
+						if (v.trim()) updateDeliverUnit("entity_id", v);
+					}}
+					getLintContext={getLintContext}
+				/>
 			</div>
-		</>
+			<div>
+				<span className="text-[10px] text-nova-text-muted uppercase tracking-wider mb-0.5 flex items-center gap-0.5">
+					Entity Name<span className="text-nova-rose">*</span>
+				</span>
+				<XPathField
+					value={du?.entity_name ?? ""}
+					onSave={(v) => {
+						if (v.trim()) updateDeliverUnit("entity_name", v);
+					}}
+					getLintContext={getLintContext}
+				/>
+			</div>
+
+			{/* Task sub-toggle */}
+			<div className="rounded-lg bg-white/[0.03] border border-white/[0.05] px-2.5 py-2 mt-1">
+				<div className="flex items-center justify-between">
+					<span className="text-[10px] text-nova-text-muted uppercase tracking-wider">
+						Task
+					</span>
+					<Toggle enabled={taskEnabled} onToggle={toggleTask} variant="sub" />
+				</div>
+				<AnimatePresence>
+					{task && (
+						<motion.div
+							initial={{ opacity: 0, height: 0 }}
+							animate={{ opacity: 1, height: "auto" }}
+							exit={{ opacity: 0, height: 0 }}
+							transition={{ duration: 0.15, ease: "easeOut" }}
+							className="overflow-hidden"
+						>
+							<div className="space-y-2 pt-2.5 mt-2 border-t border-white/[0.05]">
+								<InlineField
+									label="Task Name"
+									value={task.name}
+									onChange={(v) => updateTask("name", v)}
+									required
+								/>
+								<InlineField
+									label="Task Description"
+									value={task.description}
+									onChange={(v) => updateTask("description", v)}
+									multiline
+									required
+								/>
+							</div>
+						</motion.div>
+					)}
+				</AnimatePresence>
+			</div>
+		</div>
 	);
 }
 

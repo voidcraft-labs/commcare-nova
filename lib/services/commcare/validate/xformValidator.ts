@@ -14,14 +14,7 @@
  */
 
 import type { Document, Element } from "domhandler";
-import {
-	findAll,
-	getAttributeValue,
-	getChildren,
-	getElementsByTagName,
-	getText,
-	isTag,
-} from "domutils";
+import { findAll, getAttributeValue, getChildren, isTag } from "domutils";
 import { parseDocument } from "htmlparser2";
 import { type ValidationError, validationError } from "./errors";
 
@@ -218,7 +211,8 @@ export function validateXFormXml(
 		}, doc.children);
 
 		for (const el of itextRefs) {
-			const ref = getAttributeValue(el, "ref")!;
+			const ref = getAttributeValue(el, "ref");
+			if (!ref) continue;
 			const match = ref.match(/^jr:itext\('([^']+)'\)$/);
 			if (!match) continue;
 			const textId = match[1];

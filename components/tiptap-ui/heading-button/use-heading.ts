@@ -74,7 +74,7 @@ export function canToggle(
 	level?: Level,
 	turnInto: boolean = true,
 ): boolean {
-	if (!editor || !editor.isEditable) return false;
+	if (!editor?.isEditable) return false;
 	if (
 		!isNodeInSchema("heading", editor) ||
 		isNodeTypeSelected(editor, ["image"])
@@ -115,7 +115,7 @@ export function isHeadingActive(
 	editor: Editor | null,
 	level?: Level | Level[],
 ): boolean {
-	if (!editor || !editor.isEditable) return false;
+	if (!editor?.isEditable) return false;
 
 	if (Array.isArray(level)) {
 		return level.some((l) => editor.isActive("heading", { level: l }));
@@ -133,7 +133,7 @@ export function toggleHeading(
 	editor: Editor | null,
 	level: Level | Level[],
 ): boolean {
-	if (!editor || !editor.isEditable) return false;
+	if (!editor?.isEditable) return false;
 
 	const levels = Array.isArray(level) ? level : [level];
 	const toggleLevel = levels.find((l) => canToggle(editor, l));

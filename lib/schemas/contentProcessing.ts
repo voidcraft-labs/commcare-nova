@@ -59,7 +59,7 @@ export interface FormContentOutput {
 /** Convert empty strings to undefined, empty arrays to undefined, false booleans to undefined.
  *  With optional schema fields, values may already be undefined — pass through as-is. */
 export function stripEmpty(q: FlatQuestion): Partial<FlatQuestion> {
-	const result: any = {};
+	const result: Record<string, unknown> = {};
 	for (const [k, v] of Object.entries(q)) {
 		if (v === undefined) continue;
 		if (v === "") continue;
@@ -70,7 +70,7 @@ export function stripEmpty(q: FlatQuestion): Partial<FlatQuestion> {
 	// parentId: empty string → null for tree building
 	if (result.parentId === undefined) result.parentId = null;
 	else if (result.parentId === "") result.parentId = null;
-	return result;
+	return result as Partial<FlatQuestion>;
 }
 
 // ── Flat → nested tree conversion ───────────────────────────────────
@@ -86,14 +86,14 @@ export function buildQuestionTree(
 	for (const q of flat) {
 		const parent = q.parentId || null;
 		if (!byParent.has(parent)) byParent.set(parent, []);
-		byParent.get(parent)!.push(q);
+		byParent.get(parent)?.push(q);
 	}
 
 	function buildLevel(parentId: string | null): Question[] {
 		const children = byParent.get(parentId) ?? [];
 		return children.map((q) => {
 			const { parentId: _, ...rest } = q;
-			const nested = buildLevel(q.id!);
+			const nested = buildLevel(q.id ?? null);
 			if (nested.length > 0) {
 				return { ...rest, children: nested } as Question;
 			}
@@ -124,9 +124,9 @@ export function applyDefaults(
 
 	// Unescape HTML entities in XPath fields
 	for (const f of XPATH_FIELDS) {
-		const val = result[f as keyof FlatQuestion];
+		const val = result[f];
 		if (typeof val === "string") {
-			(result as any)[f] = unescapeXPath(val);
+			result[f] = unescapeXPath(val);
 		}
 	}
 
@@ -135,7 +135,7 @@ export function applyDefaults(
 		const ct = caseTypes.find((c) => c.name === result.case_property_on);
 		const prop = ct?.properties.find((p) => p.name === result.id);
 		if (prop) {
-			result.type ??= (prop.data_type ?? "text") as any;
+			result.type ??= prop.data_type ?? "text";
 			result.label ??= prop.label;
 			result.hint ??= prop.hint;
 			result.required ??= prop.required;

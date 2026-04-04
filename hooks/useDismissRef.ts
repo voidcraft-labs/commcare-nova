@@ -15,7 +15,7 @@ export function useDismissRef(onDismiss: () => void) {
 	const callbackRef = useRef(onDismiss);
 	callbackRef.current = onDismiss;
 
-	return useCallback((el: HTMLElement | null): (() => void) | void => {
+	return useCallback((el: HTMLElement | null): (() => void) | undefined => {
 		if (!el) return;
 		const onMouseDown = (e: MouseEvent) => {
 			if (!el.contains(e.target as Node)) callbackRef.current();

@@ -11,7 +11,11 @@ import { parser } from "@/lib/codemirror/xpath-parser";
 // Pre-resolve node types — zero string comparisons at runtime
 const T = (() => {
 	const all = parser.nodeSet.types;
-	const one = (name: string) => all.find((t) => t.name === name)!;
+	const one = (name: string) => {
+		const found = all.find((t) => t.name === name);
+		if (!found) throw new Error(`Missing parser node type: ${name}`);
+		return found;
+	};
 	return {
 		HashtagRef: one("HashtagRef"),
 		HashtagType: one("HashtagType"),
@@ -69,7 +73,8 @@ export function expandHashtags(expr: string): string {
 		enter(node) {
 			if (node.type === T.HashtagRef) {
 				const ref = node.node;
-				const type = ref.getChild(T.HashtagType.id)!;
+				const type = ref.getChild(T.HashtagType.id);
+				if (!type) return;
 				const segments = ref.getChildren(T.HashtagSegment.id);
 				const typeName = expr.slice(type.from, type.to);
 				const path = segments.map((s) => expr.slice(s.from, s.to)).join("/");
@@ -103,7 +108,8 @@ export function extractHashtags(exprs: string[]): string[] {
 		parser.parse(expr).iterate({
 			enter(node) {
 				if (node.type === T.HashtagRef) {
-					const type = node.node.getChild(T.HashtagType.id)!;
+					const type = node.node.getChild(T.HashtagType.id);
+					if (!type) return false;
 					const typeName = expr.slice(type.from, type.to);
 					if (HQ_HASHTAG_TYPES.has(typeName)) {
 						hashtags.add(expr.slice(node.from, node.to));

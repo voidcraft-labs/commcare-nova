@@ -1,10 +1,10 @@
 /** Phase 3: Distill — cluster relevant pages by tags and generate knowledge files */
 
+import * as fs from "node:fs";
+import * as path from "node:path";
+import * as readline from "node:readline";
 import { createAnthropic } from "@ai-sdk/anthropic";
 import { Output, streamText } from "ai";
-import * as fs from "fs";
-import * as path from "path";
-import * as readline from "readline";
 import { z } from "zod";
 import { log, logCost, logSummary } from "./log.js";
 import { loadCrawledPages } from "./phase-crawl.js";
@@ -96,7 +96,7 @@ function assignPagesToClusters(
 					largestSize = pages.length;
 				}
 			}
-			clusterPages.get(largest)!.push(entry.pageId);
+			clusterPages.get(largest)?.push(entry.pageId);
 		} else {
 			// Assign to the cluster with the most tag hits
 			let bestCluster = "";
@@ -107,7 +107,7 @@ function assignPagesToClusters(
 					bestCount = count;
 				}
 			}
-			clusterPages.get(bestCluster)!.push(entry.pageId);
+			clusterPages.get(bestCluster)?.push(entry.pageId);
 		}
 	}
 
@@ -257,7 +257,7 @@ Guidelines:
 	process.stdout.write("\n");
 
 	const finalOutput = await clusterStream.output;
-	const tagClusters = finalOutput!.clusters;
+	const tagClusters = finalOutput?.clusters;
 	const clusterUsage = await clusterStream.usage;
 	totalInputTokens += clusterUsage.inputTokens ?? 0;
 	totalOutputTokens += clusterUsage.outputTokens ?? 0;

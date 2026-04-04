@@ -1,4 +1,5 @@
 "use client";
+import type { IconifyIcon } from "@iconify/react/offline";
 import { Icon } from "@iconify/react/offline";
 import ciFilter from "@iconify-icons/ci/filter";
 import ciShieldCheck from "@iconify-icons/ci/shield-check";
@@ -11,7 +12,7 @@ interface LogicBadgesProps {
 }
 
 const truncate = (s: string, max = 80) =>
-	s.length > max ? s.slice(0, max) + "..." : s;
+	s.length > max ? `${s.slice(0, max)}...` : s;
 
 export function LogicBadges({ question }: LogicBadgesProps) {
 	const ctx = useEditContext();
@@ -19,8 +20,12 @@ export function LogicBadges({ question }: LogicBadgesProps) {
 
 	/** Each badge maps 1:1 to a question property — use the property name as
 	 *  a stable React key since a given property can only produce one badge. */
-	const badges: Array<{ key: string; icon: any; tint: string; title: string }> =
-		[];
+	const badges: Array<{
+		key: string;
+		icon: IconifyIcon;
+		tint: string;
+		title: string;
+	}> = [];
 
 	if (question.relevant) {
 		badges.push({

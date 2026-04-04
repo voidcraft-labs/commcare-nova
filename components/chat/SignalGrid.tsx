@@ -49,21 +49,25 @@ export function SignalGrid({ controller, messages }: SignalGridProps) {
 		let contentLen = 0;
 		let latestToolScope: EditScope | null = null;
 
-		for (const part of lastAssistant.parts as any[]) {
+		for (const part of lastAssistant.parts) {
 			if ((part.type === "text" || part.type === "reasoning") && part.text) {
 				contentLen += part.text.length;
 			}
-			if (part.type?.startsWith("tool-") && part.input != null) {
+			if (
+				part.type?.startsWith("tool-") &&
+				"input" in part &&
+				part.input != null
+			) {
 				contentLen += JSON.stringify(part.input).length;
 
-				const input = part.input;
+				const input = part.input as Record<string, unknown>;
 				if (typeof input.moduleIndex === "number") {
 					latestToolScope = { moduleIndex: input.moduleIndex };
 					if (typeof input.formIndex === "number") {
 						latestToolScope.formIndex = input.formIndex;
 
-						const qRef: string | undefined =
-							input.questionPath ?? input.questionId ?? input.path;
+						const rawRef = input.questionPath ?? input.questionId ?? input.path;
+						const qRef = typeof rawRef === "string" ? rawRef : undefined;
 						if (typeof qRef === "string" && qRef) {
 							const questions =
 								builderRef.current.blueprint?.modules[input.moduleIndex]?.forms[

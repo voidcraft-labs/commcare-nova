@@ -28,9 +28,12 @@ export function QuestionTypePicker({
 	parentPath,
 	onClose,
 }: QuestionTypePickerProps) {
-	const ctx = useEditContext()!;
+	const ctx = useEditContext();
+	if (!ctx) throw new Error("QuestionTypePicker requires EditContext");
 	const { builder, moduleIndex, formIndex } = ctx;
-	const mb = builder.mb!;
+	if (!builder.mb)
+		throw new Error("QuestionTypePicker requires MutableBlueprint");
+	const mb = builder.mb;
 	const dismissRef = useDismissRef(onClose);
 	useContentPopoverDismiss(onClose);
 
@@ -58,7 +61,7 @@ export function QuestionTypePicker({
 		// Generate unique ID
 		const form = mb.getForm(moduleIndex, formIndex);
 		const existingIds = new Set<string>();
-		const collectIds = (qs: any[]) => {
+		const collectIds = (qs: Question[]) => {
 			for (const q of qs) {
 				existingIds.add(q.id);
 				if (q.children) collectIds(q.children);

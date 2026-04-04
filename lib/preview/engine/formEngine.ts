@@ -29,7 +29,7 @@ export class FormEngine {
 
 	constructor(
 		form: BlueprintForm,
-		caseTypes?: CaseType[] | null,
+		_caseTypes?: CaseType[] | null,
 		moduleCaseType?: string,
 		caseData?: Map<string, string>,
 	) {
@@ -291,7 +291,7 @@ export class FormEngine {
 				q.case_property_on === this.moduleCaseType &&
 				this.caseData.has(q.id)
 			) {
-				this.instance.set(path, this.caseData.get(q.id)!);
+				this.instance.set(path, this.caseData.get(q.id) ?? "");
 			}
 			if (q.children) {
 				const childPrefix = q.type === "repeat" ? `${path}[0]` : path;

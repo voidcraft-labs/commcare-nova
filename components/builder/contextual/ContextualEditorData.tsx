@@ -14,14 +14,20 @@ export function ContextualEditorData({
 	question,
 	builder,
 }: QuestionEditorProps) {
-	const selected = builder.selected!;
-	const mb = builder.mb!;
+	const selected = builder.selected;
+	const mb = builder.mb;
 
-	const saveQuestion = useSaveQuestion(builder);
+	const _saveQuestion = useSaveQuestion(builder);
 
 	const setCasePropertyOn = useCallback(
 		(caseType: string | null) => {
-			if (selected.formIndex === undefined || !selected.questionPath) return;
+			if (
+				!selected ||
+				!mb ||
+				selected.formIndex === undefined ||
+				!selected.questionPath
+			)
+				return;
 			mb.updateQuestion(
 				selected.moduleIndex,
 				selected.formIndex,
@@ -32,18 +38,18 @@ export function ContextualEditorData({
 			);
 			builder.notifyBlueprintChanged();
 		},
-		[
-			mb,
-			selected.moduleIndex,
-			selected.formIndex,
-			selected.questionPath,
-			builder,
-		],
+		[mb, selected, builder],
 	);
 
 	const renameQuestion = useCallback(
 		(newId: string) => {
-			if (selected.formIndex === undefined || !selected.questionPath || !newId)
+			if (
+				!selected ||
+				!mb ||
+				selected.formIndex === undefined ||
+				!selected.questionPath ||
+				!newId
+			)
 				return;
 			const { newPath } = mb.renameQuestion(
 				selected.moduleIndex,
@@ -57,6 +63,8 @@ export function ContextualEditorData({
 		[mb, selected, builder],
 	);
 
+	if (!selected || !mb) return null;
+
 	return (
 		<div className="space-y-3">
 			<EditableText
@@ -68,7 +76,10 @@ export function ContextualEditorData({
 				}}
 				mono
 				color="text-nova-violet-bright"
-				selectAll={builder.isNewQuestion(selected.questionPath!)}
+				selectAll={
+					!!selected.questionPath &&
+					builder.isNewQuestion(selected.questionPath)
+				}
 			/>
 			<CasePropertyDropdown
 				value={question.case_property_on}

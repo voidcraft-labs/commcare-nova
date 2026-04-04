@@ -8,7 +8,7 @@ import { detectFormLinkCycles } from "../../session";
 import { type ValidationError, validationError } from "../errors";
 
 export function emptyAppName(blueprint: AppBlueprint): ValidationError[] {
-	if (!blueprint.app_name || !blueprint.app_name.trim()) {
+	if (!blueprint.app_name?.trim()) {
 		return [
 			validationError(
 				"EMPTY_APP_NAME",

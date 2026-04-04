@@ -87,7 +87,8 @@ export class EventLogger {
 			event,
 		};
 
-		writeLogEvent(this.fsEmail!, this.fsProjectId!, stored);
+		if (!this.fsEmail || !this.fsProjectId) return;
+		writeLogEvent(this.fsEmail, this.fsProjectId, stored);
 	}
 
 	// ── Public API ──────────────────────────────────────────────────
@@ -278,14 +279,14 @@ export class EventLogger {
 
 		if (this.firestoreEnabled && this._usageCost > 0) {
 			try {
-				await incrementUsage(this.fsEmail!, {
+				await incrementUsage(this.fsEmail ?? "", {
 					input_tokens: this._usageInputTokens,
 					output_tokens: this._usageOutputTokens,
 					cost_estimate: this._usageCost,
 				});
 			} catch (err) {
 				log.error("[finalize] usage increment failed", err, {
-					email: this.fsEmail!,
+					email: this.fsEmail ?? "",
 				});
 			}
 		}

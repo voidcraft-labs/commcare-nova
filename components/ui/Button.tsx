@@ -1,8 +1,8 @@
 "use client";
-import { motion } from "motion/react";
+import { type HTMLMotionProps, motion } from "motion/react";
 import { forwardRef } from "react";
 
-interface ButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElement> {
+interface ButtonProps extends HTMLMotionProps<"button"> {
 	variant?: "primary" | "secondary" | "ghost";
 	size?: "sm" | "md" | "lg";
 	children: React.ReactNode;
@@ -36,7 +36,7 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(
 				ref={ref}
 				whileTap={{ scale: 0.98 }}
 				className={`${base} ${variants[variant]} ${sizes[size]} ${className}`}
-				{...(props as any)}
+				{...props}
 			>
 				{children}
 			</motion.button>

@@ -53,7 +53,7 @@ function emit(payload: LogPayload): void {
 		payload.severity === "ERROR" || payload.severity === "CRITICAL"
 			? process.stderr
 			: process.stdout;
-	stream.write(JSON.stringify(payload) + "\n");
+	stream.write(`${JSON.stringify(payload)}\n`);
 }
 
 /**

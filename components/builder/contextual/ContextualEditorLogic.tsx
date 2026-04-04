@@ -8,6 +8,7 @@ import { Toggle } from "@/components/ui/Toggle";
 import { useSaveQuestion } from "@/hooks/useSaveQuestion";
 import type { XPathLintContext } from "@/lib/codemirror/xpath-lint";
 import type { Question } from "@/lib/schemas/blueprint";
+import type { QuestionPath } from "@/lib/services/questionPath";
 import { AddPropertyButton } from "./AddPropertyButton";
 import {
 	addableTextFields,
@@ -59,27 +60,26 @@ export function ContextualEditorLogic({
 	question,
 	builder,
 }: QuestionEditorProps) {
-	const selected = builder.selected!;
-	const mb = builder.mb!;
+	const selected = builder.selected;
+	const mb = builder.mb;
 	const saveQuestion = useSaveQuestion(builder);
 
+	const questionPath = selected?.questionPath ?? ("" as QuestionPath);
 	/** Tracks text fields (validation_msg) added via "Add Property". */
-	const textField = useAddableField(selected.questionPath!);
+	const textField = useAddableField(questionPath);
 	/** Tracks XPath fields added via "Add Property" — separate from text
 	 *  fields so both can be pending simultaneously. */
-	const xpathField = useAddableField(selected.questionPath!);
+	const xpathField = useAddableField(questionPath);
 
 	/** Context getter for XPath linting and autocomplete. */
 	const getLintContext = useCallback((): XPathLintContext | undefined => {
+		if (!selected || !mb || selected.formIndex === undefined) return undefined;
 		const blueprint = mb.getBlueprint();
-		const form = mb.getForm(selected.moduleIndex, selected.formIndex!);
+		const form = mb.getForm(selected.moduleIndex, selected.formIndex);
 		const mod = mb.getModule(selected.moduleIndex);
 		if (!form) return undefined;
 		return { blueprint, form, moduleCaseType: mod?.case_type ?? undefined };
-	}, [mb, selected.moduleIndex, selected.formIndex]);
-
-	const hasRequiredCondition =
-		!!question.required && question.required !== "true()";
+	}, [mb, selected]);
 
 	/** Save handler for XPath fields. Clears pending state after save.
 	 *  Empty values fall back to true() for required, null (removal) for others. */
@@ -94,6 +94,11 @@ export function ContextualEditorLogic({
 		},
 		[saveQuestion, xpathField],
 	);
+
+	if (!selected || !mb) return null;
+
+	const hasRequiredCondition =
+		!!question.required && question.required !== "true()";
 
 	/** XPath fields not yet set on this question, available to add. */
 	const missingXPathFields = xpathFields.filter(
@@ -139,7 +144,7 @@ export function ContextualEditorLogic({
 						<div className="flex items-center gap-1.5 group/condition">
 							<div className="flex-1 min-w-0">
 								<XPathField
-									value={hasRequiredCondition ? question.required! : ""}
+									value={hasRequiredCondition ? (question.required ?? "") : ""}
 									onSave={(v) => saveXPath("required", v)}
 									getLintContext={getLintContext}
 									autoEdit={xpathField.activeField === "required"}

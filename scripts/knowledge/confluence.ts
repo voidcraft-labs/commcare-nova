@@ -23,8 +23,7 @@ export class ConfluenceClient {
 		this.wikiPath = parsed.pathname.replace(/\/+$/, "");
 		this.headers = { Accept: "application/json" };
 		if (email && apiToken) {
-			this.headers.Authorization =
-				"Basic " + Buffer.from(`${email}:${apiToken}`).toString("base64");
+			this.headers.Authorization = `Basic ${Buffer.from(`${email}:${apiToken}`).toString("base64")}`;
 		}
 		this.rateLimitMs = rateLimitMs;
 	}
@@ -51,13 +50,13 @@ export class ConfluenceClient {
 		// _links.next is relative to the site origin (e.g., "/wiki/api/v2/spaces?cursor=...")
 		// Strip the site-relative prefix ("/wiki") and append the API path to our baseUrl
 		// This works for both direct URLs and cloud gateway URLs
-		if (next.startsWith("/wiki/")) {
-			return this.baseUrl + next.slice("/wiki".length);
+		if (this.wikiPath && next.startsWith(`${this.wikiPath}/`)) {
+			return this.baseUrl + next.slice(this.wikiPath.length);
 		}
 		if (next.startsWith("/")) {
 			return this.baseUrl + next;
 		}
-		return this.baseUrl + "/" + next;
+		return `${this.baseUrl}/${next}`;
 	}
 
 	/** Paginate through all results for a v2 endpoint */

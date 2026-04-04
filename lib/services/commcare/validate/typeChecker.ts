@@ -23,7 +23,11 @@ export interface TypeError {
 
 const T = (() => {
 	const all = parser.nodeSet.types;
-	const one = (name: string) => all.find((t) => t.name === name)!;
+	const one = (name: string) => {
+		const found = all.find((t) => t.name === name);
+		if (!found) throw new Error(`Missing parser node type: ${name}`);
+		return found;
+	};
 	const many = (name: string) => new Set(all.filter((t) => t.name === name));
 	return {
 		XPath: one("XPath"),

@@ -50,9 +50,9 @@ describe("HistoryManager", () => {
 
 		const result = hm.undo();
 		expect(result).toBeDefined();
-		expect(result!.mb).toBeInstanceOf(MutableBlueprint);
-		expect(result!.meta.type).toBe("update");
-		expect(result!.meta.questionPath).toBe(qpath("q1"));
+		expect(result?.mb).toBeInstanceOf(MutableBlueprint);
+		expect(result?.meta.type).toBe("update");
+		expect(result?.meta.questionPath).toBe(qpath("q1"));
 		expect(hm.proxied.getQuestion(0, 0, qpath("q1"))?.label).toBe("Q1");
 	});
 
@@ -65,7 +65,7 @@ describe("HistoryManager", () => {
 
 		const result = hm.redo();
 		expect(result).toBeDefined();
-		expect(result!.meta.type).toBe("update");
+		expect(result?.meta.type).toBe("update");
 		expect(hm.proxied.getQuestion(0, 0, qpath("q1"))?.label).toBe("Changed");
 	});
 
@@ -168,7 +168,8 @@ describe("HistoryManager", () => {
 			hm.cursorMode = "inspect";
 			hm.proxied.updateQuestion(0, 0, qpath("q1"), { label: "Changed" });
 
-			const result = hm.undo()!;
+			const result = hm.undo();
+			if (!result) throw new Error("expected undo result");
 			expect(result.cursorMode).toBe("inspect");
 		});
 
@@ -181,10 +182,12 @@ describe("HistoryManager", () => {
 			hm.proxied.updateQuestion(0, 0, qpath("q1"), { label: "Second" });
 
 			// Undo the pointer edit → returns 'pointer' (where the edit was made)
-			const r1 = hm.undo()!;
+			const r1 = hm.undo();
+			if (!r1) throw new Error("expected undo result");
 			expect(r1.cursorMode).toBe("pointer");
 			// Undo the inspect edit → returns 'inspect'
-			const r2 = hm.undo()!;
+			const r2 = hm.undo();
+			if (!r2) throw new Error("expected undo result");
 			expect(r2.cursorMode).toBe("inspect");
 		});
 
@@ -198,7 +201,8 @@ describe("HistoryManager", () => {
 			hm.cursorMode = "pointer";
 			hm.undo();
 
-			const result = hm.redo()!;
+			const result = hm.redo();
+			if (!result) throw new Error("expected redo result");
 			expect(result.cursorMode).toBe("pointer");
 		});
 	});
@@ -211,7 +215,8 @@ describe("HistoryManager", () => {
 			const hm = new HistoryManager(mb);
 			hm.proxied.addQuestion(0, 0, { id: "q4", type: "text", label: "Q4" });
 
-			const result = hm.undo()!;
+			const result = hm.undo();
+			if (!result) throw new Error("expected undo result");
 			expect(result.meta).toEqual({
 				type: "add",
 				moduleIndex: 0,
@@ -225,7 +230,8 @@ describe("HistoryManager", () => {
 			const hm = new HistoryManager(mb);
 			hm.proxied.removeQuestion(0, 0, qpath("q2"));
 
-			const result = hm.undo()!;
+			const result = hm.undo();
+			if (!result) throw new Error("expected undo result");
 			expect(result.meta).toEqual({
 				type: "remove",
 				moduleIndex: 0,
@@ -239,7 +245,8 @@ describe("HistoryManager", () => {
 			const hm = new HistoryManager(mb);
 			hm.proxied.moveQuestion(0, 0, qpath("q3"), { afterPath: qpath("q1") });
 
-			const result = hm.undo()!;
+			const result = hm.undo();
+			if (!result) throw new Error("expected undo result");
 			expect(result.meta).toEqual({
 				type: "move",
 				moduleIndex: 0,
@@ -253,7 +260,8 @@ describe("HistoryManager", () => {
 			const hm = new HistoryManager(mb);
 			const cloneId = hm.proxied.duplicateQuestion(0, 0, qpath("q1"));
 
-			const result = hm.undo()!;
+			const result = hm.undo();
+			if (!result) throw new Error("expected undo result");
 			expect(result.meta.type).toBe("duplicate");
 			expect(result.meta.questionPath).toBe(qpath("q1"));
 			expect(result.meta.secondaryPath).toBe(cloneId);
@@ -264,7 +272,8 @@ describe("HistoryManager", () => {
 			const hm = new HistoryManager(mb);
 			hm.proxied.renameQuestion(0, 0, qpath("q1"), "q1_renamed");
 
-			const result = hm.undo()!;
+			const result = hm.undo();
+			if (!result) throw new Error("expected undo result");
 			expect(result.meta).toEqual({
 				type: "rename",
 				moduleIndex: 0,
@@ -279,7 +288,8 @@ describe("HistoryManager", () => {
 			const hm = new HistoryManager(mb);
 			hm.proxied.updateModule(0, { name: "Renamed Module" });
 
-			const result = hm.undo()!;
+			const result = hm.undo();
+			if (!result) throw new Error("expected undo result");
 			expect(result.meta.type).toBe("structural");
 		});
 
@@ -289,7 +299,8 @@ describe("HistoryManager", () => {
 			hm.proxied.removeQuestion(0, 0, qpath("q2"));
 
 			hm.undo();
-			const result = hm.redo()!;
+			const result = hm.redo();
+			if (!result) throw new Error("expected redo result");
 			expect(result.meta.type).toBe("remove");
 			expect(result.meta.questionPath).toBe(qpath("q2"));
 		});

@@ -167,7 +167,7 @@ export async function loadProject(
 	projectId: string,
 ): Promise<ProjectDoc | null> {
 	const snap = await docs.project(email, projectId).get();
-	return snap.exists ? snap.data()! : null;
+	return snap.exists ? (snap.data() ?? null) : null;
 }
 
 /** The denormalized fields fetched by `listProjects` — no blueprint. */

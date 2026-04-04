@@ -70,7 +70,7 @@ export function expandBlueprint(blueprint: AppBlueprint): HqApplication {
 		const hasCases =
 			bm.case_type &&
 			(bm.case_list_only || bm.forms.some((f) => f.type !== "survey"));
-		const caseType = hasCases ? bm.case_type! : "";
+		const caseType = hasCases ? (bm.case_type ?? "") : "";
 
 		const forms = bm.forms.map((bf) => {
 			const formUniqueId = genHexId();

@@ -10,7 +10,6 @@ import {
 	escapeXml,
 	RESERVED_CASE_PROPERTIES,
 	RESERVED_RENAME_MAP,
-	XFORM_PATH_REGEX,
 	XML_ELEMENT_NAME_REGEX,
 } from "./commcare";
 
@@ -118,8 +117,8 @@ export class AutoFixer {
 
 		// Collect all inline labels from the body
 		// Matches: <label>Some Text</label> (NOT <label ref="..."/>)
-		const inlineLabelRegex = /<label>([^<]+)<\/label>/g;
-		const inlineLabels: { full: string; text: string; questionId: string }[] =
+		const _inlineLabelRegex = /<label>([^<]+)<\/label>/g;
+		const _inlineLabels: { full: string; text: string; questionId: string }[] =
 			[];
 
 		// We need the context around each label to figure out the question ID
@@ -127,7 +126,7 @@ export class AutoFixer {
 		// or <select1 ref="/data/xyz">...<label>Text</label>
 		// Also handle <item><label>Text</label><value>val</value></item>
 
-		const bodyResult = body;
+		const _bodyResult = body;
 		let hasInlineLabels = false;
 
 		// First pass: collect all question/item labels with their context
@@ -190,7 +189,7 @@ export class AutoFixer {
 				fixedBody = this.replaceItemLabel(
 					fixedBody,
 					entry.text,
-					entry.itemValue!,
+					entry.itemValue ?? "",
 					id,
 				);
 			}

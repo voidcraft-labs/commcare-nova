@@ -1,7 +1,7 @@
 /** Phase 1: Crawl — fetch page content for all discovered pages */
 
-import * as fs from "fs";
-import * as path from "path";
+import * as fs from "node:fs";
+import * as path from "node:path";
 import { cleanStorageFormat } from "./clean-content.js";
 import { ConfluenceClient } from "./confluence.js";
 import { log, logSummary } from "./log.js";

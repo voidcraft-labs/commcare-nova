@@ -50,6 +50,7 @@ import {
 	type Builder,
 	BuilderPhase,
 	type CursorMode,
+	type SelectedElement,
 } from "@/lib/services/builder";
 import { consumeReplayData } from "@/lib/services/logReplay";
 import { flattenQuestionPaths } from "@/lib/services/questionNavigation";
@@ -64,18 +65,19 @@ function shouldAutoResend({ messages }: { messages: UIMessage[] }): boolean {
 	if (!last || last.role !== "assistant") return false;
 
 	// Only look at the last step — earlier answered questions don't matter
+	type Part = UIMessage["parts"][number];
 	const lastStepIdx = last.parts.reduce(
-		(idx: number, p: any, i: number) => (p.type === "step-start" ? i : idx),
+		(idx: number, p: Part, i: number) => (p.type === "step-start" ? i : idx),
 		-1,
 	);
 	const lastStepParts = last.parts.slice(lastStepIdx + 1);
 
 	const askParts = lastStepParts.filter(
-		(p: any) => p.type === "tool-askQuestions",
+		(p: Part) => p.type === "tool-askQuestions",
 	);
 	return (
 		askParts.length > 0 &&
-		askParts.every((p: any) => p.state === "output-available")
+		askParts.every((p) => "state" in p && p.state === "output-available")
 	);
 }
 
@@ -102,27 +104,31 @@ function createChatInstance(
 			}),
 		}),
 		sendAutomaticallyWhen: shouldAutoResend,
-		onData: (part: any) => {
-			if (part.type === "data-run-id") {
-				runIdRef.current = part.data.runId;
+		onData: (part) => {
+			const { type, data } = part as {
+				type: string;
+				data: Record<string, unknown>;
+			};
+			if (type === "data-run-id") {
+				runIdRef.current = data.runId as string;
 				return;
 			}
 
 			/* After first save, update the URL from /build/new → /build/{id} without
 			 * triggering a navigation or remount. applyDataPart stores the ID on the builder. */
-			if (part.type === "data-project-saved") {
-				const { projectId } = part.data;
-				applyDataPart(builderRef.current, part.type, part.data);
+			if (type === "data-project-saved") {
+				const projectId = data.projectId as string;
+				applyDataPart(builderRef.current, type, data);
 				window.history.replaceState({}, "", `/build/${projectId}`);
 				return;
 			}
 
-			applyDataPart(builderRef.current, part.type, part.data);
-			if (part.type === "data-error") {
+			applyDataPart(builderRef.current, type, data);
+			if (type === "data-error") {
 				showToast(
-					part.data.fatal ? "error" : "warning",
+					data.fatal ? "error" : "warning",
 					"Generation error",
-					part.data.message,
+					data.message as string,
 				);
 			}
 		},
@@ -217,10 +223,10 @@ export function BuilderLayout() {
 				const rect = questionEls[i].getBoundingClientRect();
 				if (rect.bottom > containerRect.top) {
 					setScrollAnchor({
-						questionPath: questionEls[i].getAttribute("data-question-id")!,
+						questionPath: questionEls[i].getAttribute("data-question-id") ?? "",
 						offsetTop: rect.top - containerRect.top,
 						allPaths: questionEls.map(
-							(el) => el.getAttribute("data-question-id")!,
+							(el) => el.getAttribute("data-question-id") ?? "",
 						),
 					});
 					break;
@@ -319,7 +325,7 @@ export function BuilderLayout() {
 	// Auto-save blueprint edits to Firestore (authenticated users only)
 	const saveStatus = useAutoSave(builder, isAuthenticated);
 
-	const isGenerating = builder.isGenerating;
+	const _isGenerating = builder.isGenerating;
 
 	const handleSend = useCallback(
 		(text: string) => {
@@ -440,7 +446,7 @@ export function BuilderLayout() {
 
 	// ── Structure tree selection → select + navigate canvas ─────────────
 	const handleTreeSelect = useCallback(
-		(sel: any) => {
+		(sel: SelectedElement) => {
 			builder.select(sel);
 			if (!sel) {
 				nav.navigateToHome();

@@ -17,6 +17,7 @@
 "use client";
 import { Icon } from "@iconify/react/offline";
 import ciLogout from "@iconify-icons/ci/log-out";
+import Image from "next/image";
 import { useCallback, useEffect, useState } from "react";
 import { type AuthUser, useAuth } from "@/hooks/useAuth";
 import {
@@ -80,10 +81,13 @@ function UserAvatar({
 	const s = AVATAR_SIZES[size];
 	if (user.image) {
 		return (
-			<img
+			<Image
 				src={user.image}
 				alt=""
+				width={36}
+				height={36}
 				referrerPolicy="no-referrer"
+				unoptimized
 				className={`${s.box} rounded-full ${s.border}`}
 			/>
 		);

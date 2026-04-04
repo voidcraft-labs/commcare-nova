@@ -6,7 +6,7 @@
  * case derivation via case_property_on correctly modify the MutableBlueprint shell.
  */
 import { describe, expect, it } from "vitest";
-import type { AppBlueprint, Question } from "../../schemas/blueprint";
+import type { AppBlueprint } from "../../schemas/blueprint";
 import { deriveCaseConfig } from "../../schemas/blueprint";
 import { MutableBlueprint } from "../mutableBlueprint";
 import { qpath } from "../questionPath";
@@ -47,7 +47,8 @@ describe("Form Builder Agent Integration", () => {
 				case_property_on: "patient",
 			});
 
-			const form = mb.getForm(0, 0)!;
+			const form = mb.getForm(0, 0);
+			if (!form) throw new Error("expected form");
 			expect(form.questions).toHaveLength(1);
 			expect(form.questions[0].id).toBe("case_name");
 			expect(form.questions[0].type).toBe("text");
@@ -64,7 +65,8 @@ describe("Form Builder Agent Integration", () => {
 			mb.addQuestion(0, 0, { id: "q2", type: "int", label: "Q2" });
 			mb.addQuestion(0, 0, { id: "q3", type: "date", label: "Q3" });
 
-			const form = mb.getForm(0, 0)!;
+			const form = mb.getForm(0, 0);
+			if (!form) throw new Error("expected form");
 			expect(form.questions.map((q) => q.id)).toEqual(["q1", "q2", "q3"]);
 		});
 
@@ -81,10 +83,11 @@ describe("Form Builder Agent Integration", () => {
 				case_property_on: "patient",
 			});
 
-			const form = mb.getForm(0, 0)!;
+			const form = mb.getForm(0, 0);
+			if (!form) throw new Error("expected form");
 			const q = form.questions[0];
 			expect(q.options).toHaveLength(2);
-			expect(q.options![0].value).toBe("male");
+			expect(q.options?.[0].value).toBe("male");
 		});
 
 		it("adds a hidden calculated question", () => {
@@ -97,8 +100,10 @@ describe("Form Builder Agent Integration", () => {
 				case_property_on: "patient",
 			});
 
-			const form = mb.getForm(0, 0)!;
-			const q = form.questions.find((q) => q.id === "age_group")!;
+			const form = mb.getForm(0, 0);
+			if (!form) throw new Error("expected form");
+			const q = form.questions.find((q) => q.id === "age_group");
+			if (!q) throw new Error("expected age_group question");
 			expect(q.type).toBe("hidden");
 			expect(q.calculate).toBe("if(/data/age < 18, 'child', 'adult')");
 			expect(q.label).toBeUndefined(); // hidden questions have no label
@@ -124,12 +129,13 @@ describe("Form Builder Agent Integration", () => {
 				{ parentPath: qpath("demographics") },
 			);
 
-			const form = mb.getForm(0, 0)!;
+			const form = mb.getForm(0, 0);
+			if (!form) throw new Error("expected form");
 			expect(form.questions).toHaveLength(1);
 			expect(form.questions[0].id).toBe("demographics");
 			expect(form.questions[0].children).toHaveLength(2);
-			expect(form.questions[0].children![0].id).toBe("first_name");
-			expect(form.questions[0].children![1].id).toBe("last_name");
+			expect(form.questions[0].children?.[0].id).toBe("first_name");
+			expect(form.questions[0].children?.[1].id).toBe("last_name");
 		});
 
 		it("nests questions inside a repeat", () => {
@@ -152,7 +158,8 @@ describe("Form Builder Agent Integration", () => {
 				{ parentPath: qpath("household_members") },
 			);
 
-			const form = mb.getForm(0, 0)!;
+			const form = mb.getForm(0, 0);
+			if (!form) throw new Error("expected form");
 			const repeat = form.questions[0];
 			expect(repeat.type).toBe("repeat");
 			expect(repeat.children).toHaveLength(2);
@@ -169,7 +176,8 @@ describe("Form Builder Agent Integration", () => {
 				{ afterPath: qpath("q1") },
 			);
 
-			const form = mb.getForm(0, 0)!;
+			const form = mb.getForm(0, 0);
+			if (!form) throw new Error("expected form");
 			expect(form.questions.map((q) => q.id)).toEqual(["q1", "q2", "q3"]);
 		});
 
@@ -191,8 +199,10 @@ describe("Form Builder Agent Integration", () => {
 				relevant: "/data/has_symptoms = 'yes'",
 			});
 
-			const form = mb.getForm(0, 0)!;
-			const q = form.questions.find((q) => q.id === "symptom_details")!;
+			const form = mb.getForm(0, 0);
+			if (!form) throw new Error("expected form");
+			const q = form.questions.find((q) => q.id === "symptom_details");
+			if (!q) throw new Error("expected symptom_details question");
 			expect(q.relevant).toBe("/data/has_symptoms = 'yes'");
 		});
 	});
@@ -202,7 +212,8 @@ describe("Form Builder Agent Integration", () => {
 			const mb = new MutableBlueprint(makeShell("followup"));
 			mb.updateForm(0, 0, { close_case: {} });
 
-			const form = mb.getForm(0, 0)!;
+			const form = mb.getForm(0, 0);
+			if (!form) throw new Error("expected form");
 			expect(form.close_case).toEqual({});
 		});
 
@@ -221,7 +232,8 @@ describe("Form Builder Agent Integration", () => {
 				close_case: { question: "discharge", answer: "yes" },
 			});
 
-			const form = mb.getForm(0, 0)!;
+			const form = mb.getForm(0, 0);
+			if (!form) throw new Error("expected form");
 			expect(form.close_case).toEqual({ question: "discharge", answer: "yes" });
 		});
 	});
@@ -242,7 +254,8 @@ describe("Form Builder Agent Integration", () => {
 				case_property_on: "referral",
 			});
 
-			const form = mb.getForm(0, 0)!;
+			const form = mb.getForm(0, 0);
+			if (!form) throw new Error("expected form");
 			const config = deriveCaseConfig(form.questions, form.type, "patient", [
 				{
 					name: "patient",
@@ -255,8 +268,8 @@ describe("Form Builder Agent Integration", () => {
 			]);
 
 			expect(config.child_cases).toHaveLength(1);
-			expect(config.child_cases![0].case_type).toBe("referral");
-			expect(config.child_cases![0].case_name_field).toBe("case_name");
+			expect(config.child_cases?.[0].case_type).toBe("referral");
+			expect(config.child_cases?.[0].case_name_field).toBe("case_name");
 		});
 
 		it("derives multiple child cases from different case_property_on values", () => {
@@ -274,7 +287,8 @@ describe("Form Builder Agent Integration", () => {
 				case_property_on: "child_b",
 			});
 
-			const form = mb.getForm(0, 0)!;
+			const form = mb.getForm(0, 0);
+			if (!form) throw new Error("expected form");
 			const config = deriveCaseConfig(form.questions, form.type, "patient", [
 				{
 					name: "patient",
@@ -314,7 +328,8 @@ describe("Form Builder Agent Integration", () => {
 				case_property_on: "referral",
 			});
 
-			const form = mb.getForm(0, 0)!;
+			const form = mb.getForm(0, 0);
+			if (!form) throw new Error("expected form");
 			const config = deriveCaseConfig(form.questions, form.type, "patient", [
 				{
 					name: "patient",
@@ -330,8 +345,8 @@ describe("Form Builder Agent Integration", () => {
 			expect(config.case_name_field).toBe("case_name");
 			// Child case
 			expect(config.child_cases).toHaveLength(1);
-			expect(config.child_cases![0].case_type).toBe("referral");
-			expect(config.child_cases![0].case_properties).toEqual([
+			expect(config.child_cases?.[0].case_type).toBe("referral");
+			expect(config.child_cases?.[0].case_properties).toEqual([
 				{ case_property: "referral_reason", question_id: "referral_reason" },
 			]);
 		});
@@ -372,7 +387,8 @@ describe("Form Builder Agent Integration", () => {
 				{ parentPath: qpath("vitals") },
 			);
 
-			const form = mb.getForm(0, 0)!;
+			const form = mb.getForm(0, 0);
+			if (!form) throw new Error("expected form");
 			expect(form.name).toBe("Test Form");
 			expect(form.type).toBe("registration");
 			expect(form.questions).toHaveLength(3); // case_name, age, vitals (with child)

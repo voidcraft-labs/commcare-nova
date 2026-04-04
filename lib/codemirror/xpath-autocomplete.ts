@@ -147,7 +147,7 @@ function hashtagSource(
 				: node.parent?.name === "HashtagRef"
 					? node.parent
 					: node.parent?.parent?.name === "HashtagRef"
-						? node.parent!.parent
+						? node.parent?.parent
 						: null;
 
 		if (hashtagAncestor) {

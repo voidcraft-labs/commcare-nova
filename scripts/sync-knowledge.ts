@@ -20,8 +20,8 @@
  *   ANTHROPIC_API_KEY     — Anthropic API key (for triage + distillation)
  */
 
-import * as fs from "fs";
-import * as path from "path";
+import * as fs from "node:fs";
+import * as path from "node:path";
 import { crawl } from "./knowledge/phase-crawl.js";
 import { discover } from "./knowledge/phase-discover.js";
 import { distill } from "./knowledge/phase-distill.js";

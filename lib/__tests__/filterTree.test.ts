@@ -70,31 +70,31 @@ describe("filterTree", () => {
 		const result = filterTree(makeTree(), "Phone");
 		expect(result).not.toBeNull();
 		// Should include module 0 with the form containing Phone Number
-		expect(result!.data.modules).toHaveLength(1);
-		expect(result!.data.modules[0].name).toBe("Patient Registration");
+		expect(result?.data.modules).toHaveLength(1);
+		expect(result?.data.modules[0].name).toBe("Patient Registration");
 		// Form should be included
-		expect(result!.data.modules[0].forms).toHaveLength(1);
-		expect(result!.data.modules[0].forms[0].name).toBe("Register Patient");
+		expect(result?.data.modules[0].forms).toHaveLength(1);
+		expect(result?.data.modules[0].forms[0].name).toBe("Register Patient");
 	});
 
 	it("filters by question id", () => {
 		const result = filterTree(makeTree(), "patient_name");
 		expect(result).not.toBeNull();
-		expect(result!.data.modules).toHaveLength(1);
-		expect(result!.data.modules[0].forms[0].questions).toBeDefined();
+		expect(result?.data.modules).toHaveLength(1);
+		expect(result?.data.modules[0].forms[0].questions).toBeDefined();
 	});
 
 	it("returns empty modules for no matches", () => {
 		const result = filterTree(makeTree(), "zzzznonexistent");
 		expect(result).not.toBeNull();
-		expect(result!.data.modules).toHaveLength(0);
+		expect(result?.data.modules).toHaveLength(0);
 	});
 
 	it("matches module names", () => {
 		const result = filterTree(makeTree(), "Follow-up");
 		expect(result).not.toBeNull();
 		// Should include the Follow-up Visits module
-		const followUpModule = result!.data.modules.find(
+		const followUpModule = result?.data.modules.find(
 			(m) => m.name === "Follow-up Visits",
 		);
 		expect(followUpModule).toBeDefined();
@@ -103,7 +103,7 @@ describe("filterTree", () => {
 	it("matches form names", () => {
 		const result = filterTree(makeTree(), "Lab Results");
 		expect(result).not.toBeNull();
-		const mod = result!.data.modules.find((m) =>
+		const mod = result?.data.modules.find((m) =>
 			m.forms.some((f) => f.name === "Lab Results"),
 		);
 		expect(mod).toBeDefined();
@@ -113,7 +113,8 @@ describe("filterTree", () => {
 		const result = filterTree(makeTree(), "Email");
 		expect(result).not.toBeNull();
 		// Should include the parent group (Contact Information) containing Email Address
-		const form = result!.data.modules[0].forms[0];
+		const form = result?.data.modules[0].forms[0];
+		if (!form) throw new Error("Expected form to exist");
 		expect(form.questions).toBeDefined();
 		// The group or question containing email should be present
 		const hasEmail = JSON.stringify(form.questions).includes("email");
@@ -124,15 +125,15 @@ describe("filterTree", () => {
 		const result = filterTree(makeTree(), "Temperature");
 		expect(result).not.toBeNull();
 		// Module 1 (Follow-up Visits, original index 1) should be force-expanded
-		expect(result!.forceExpand.has("m1")).toBe(true);
+		expect(result?.forceExpand.has("m1")).toBe(true);
 		// Form 0 in module 1 (Daily Checkup) should be force-expanded
-		expect(result!.forceExpand.has("f1_0")).toBe(true);
+		expect(result?.forceExpand.has("f1_0")).toBe(true);
 	});
 
 	it("populates matchMap with match indices", () => {
 		const result = filterTree(makeTree(), "Patient");
 		expect(result).not.toBeNull();
-		expect(result!.matchMap.size).toBeGreaterThan(0);
+		expect(result?.matchMap.size).toBeGreaterThan(0);
 	});
 
 	it("performs fuzzy matching", () => {
@@ -140,13 +141,13 @@ describe("filterTree", () => {
 		const result = filterTree(makeTree(), "ptient");
 		expect(result).not.toBeNull();
 		// With fuse.js threshold 0.4, this should still match "patient" related items
-		expect(result!.data.modules.length).toBeGreaterThanOrEqual(0);
+		expect(result?.data.modules.length).toBeGreaterThanOrEqual(0);
 	});
 
 	it("preserves app_name in filtered data", () => {
 		const result = filterTree(makeTree(), "Phone");
 		expect(result).not.toBeNull();
-		expect(result!.data.app_name).toBe("Test App");
+		expect(result?.data.app_name).toBe("Test App");
 	});
 });
 

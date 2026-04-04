@@ -24,7 +24,6 @@
 
 import type {
 	AppBlueprint,
-	BlueprintForm,
 	FormLink,
 	PostSubmitDestination,
 } from "../../schemas/blueprint";
@@ -450,7 +449,9 @@ export function detectFormLinkCycles(
 		const stack = [{ key: startKey, chain: [startKey] }];
 
 		while (stack.length > 0) {
-			const { key, chain } = stack.pop()!;
+			const popped = stack.pop();
+			if (!popped) break;
+			const { key, chain } = popped;
 			const targets = adj.get(key);
 			if (!targets) continue;
 

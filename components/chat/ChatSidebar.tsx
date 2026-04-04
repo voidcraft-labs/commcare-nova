@@ -355,7 +355,7 @@ export function ChatSidebar({
 	// ── Auto-scroll question cards into view when they appear ──
 	let activeQuestionCount = 0;
 	for (const msg of messages) {
-		for (const part of msg.parts as any[]) {
+		for (const part of msg.parts) {
 			if (
 				part.type === "tool-askQuestions" &&
 				part.state === "input-available"

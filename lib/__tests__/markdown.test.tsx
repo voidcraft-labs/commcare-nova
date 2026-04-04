@@ -177,7 +177,8 @@ describe("composeRenderRules", () => {
 		const composed = composeRenderRules(
 			markerRule("hello", "FIRST"),
 			markerRule("hello", "SECOND"),
-		)!;
+		);
+		expect(composed).toBeDefined();
 		const output = html(
 			<Markdown options={{ renderRule: composed }}>{"hello world"}</Markdown>,
 		);
@@ -189,7 +190,8 @@ describe("composeRenderRules", () => {
 		const composed = composeRenderRules(
 			markerRule("NOMATCH", "FIRST"),
 			markerRule("hello", "SECOND"),
-		)!;
+		);
+		expect(composed).toBeDefined();
 		const output = html(
 			<Markdown options={{ renderRule: composed }}>{"hello world"}</Markdown>,
 		);
@@ -200,7 +202,8 @@ describe("composeRenderRules", () => {
 		const composed = composeRenderRules(
 			markerRule("NOMATCH1", "FIRST"),
 			markerRule("NOMATCH2", "SECOND"),
-		)!;
+		);
+		expect(composed).toBeDefined();
 		const output = html(
 			<Markdown options={{ renderRule: composed }}>{"hello world"}</Markdown>,
 		);

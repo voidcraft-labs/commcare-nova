@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { TriggerDag } from "../../preview/engine/triggerDag";
-import type { AppBlueprint } from "../../schemas/blueprint";
+import type { AppBlueprint, CaseType, Question } from "../../schemas/blueprint";
 import {
 	FUNCTION_REGISTRY,
 	findCaseInsensitiveMatch,
@@ -257,19 +257,22 @@ describe("functionRegistry", () => {
 	});
 
 	it("has correct arity for round (exactly 1)", () => {
-		const spec = FUNCTION_REGISTRY.get("round")!;
+		const spec = FUNCTION_REGISTRY.get("round");
+		if (!spec) throw new Error("expected round in registry");
 		expect(spec.minArgs).toBe(1);
 		expect(spec.maxArgs).toBe(1);
 	});
 
 	it("has correct arity for if (exactly 3)", () => {
-		const spec = FUNCTION_REGISTRY.get("if")!;
+		const spec = FUNCTION_REGISTRY.get("if");
+		if (!spec) throw new Error("expected if in registry");
 		expect(spec.minArgs).toBe(3);
 		expect(spec.maxArgs).toBe(3);
 	});
 
 	it("has correct arity for concat (0+)", () => {
-		const spec = FUNCTION_REGISTRY.get("concat")!;
+		const spec = FUNCTION_REGISTRY.get("concat");
+		if (!spec) throw new Error("expected concat in registry");
 		expect(spec.minArgs).toBe(0);
 		expect(spec.maxArgs).toBe(-1);
 	});
@@ -330,8 +333,8 @@ describe("TriggerDag.reportCycles", () => {
 
 describe("validateBlueprintDeep", () => {
 	const makeBlueprint = (
-		questions: any[],
-		caseTypes: any[] | null = null,
+		questions: Question[],
+		caseTypes: CaseType[] | null = null,
 	): AppBlueprint => ({
 		app_name: "Test",
 		modules: [

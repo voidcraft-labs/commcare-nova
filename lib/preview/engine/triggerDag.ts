@@ -50,7 +50,8 @@ export class TriggerDag {
 		const queue = [changedPath];
 
 		while (queue.length > 0) {
-			const current = queue.shift()!;
+			const current = queue.shift();
+			if (current === undefined) continue;
 			const dependents = this.dependedOnBy.get(current);
 			if (!dependents) continue;
 			for (const dep of dependents) {
@@ -176,8 +177,9 @@ export class TriggerDag {
 						const cycle = [v, u];
 						let cur = u;
 						while (cur !== v) {
-							cur = parent.get(cur)!;
-							if (cur === undefined) break;
+							const next = parent.get(cur);
+							if (next === undefined) break;
+							cur = next;
 							cycle.push(cur);
 						}
 						cycle.reverse();
@@ -261,7 +263,8 @@ export class TriggerDag {
 
 		const sorted: string[] = [];
 		while (queue.length > 0) {
-			const current = queue.shift()!;
+			const current = queue.shift();
+			if (current === undefined) continue;
 			sorted.push(current);
 
 			const dependents = this.dependedOnBy.get(current);

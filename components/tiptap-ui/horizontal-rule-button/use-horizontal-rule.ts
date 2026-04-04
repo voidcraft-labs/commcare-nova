@@ -19,7 +19,7 @@ export interface UseHorizontalRuleConfig {
  * Checks whether a horizontal rule can be inserted.
  */
 export function canInsertHorizontalRule(editor: Editor | null): boolean {
-	if (!editor || !editor.isEditable) return false;
+	if (!editor?.isEditable) return false;
 	return isNodeInSchema("horizontalRule", editor);
 }
 
@@ -27,7 +27,7 @@ export function canInsertHorizontalRule(editor: Editor | null): boolean {
  * Inserts a horizontal rule at the current cursor position.
  */
 export function insertHorizontalRule(editor: Editor | null): boolean {
-	if (!editor || !editor.isEditable) return false;
+	if (!editor?.isEditable) return false;
 	if (!canInsertHorizontalRule(editor)) return false;
 	return editor.chain().focus().setHorizontalRule().run();
 }

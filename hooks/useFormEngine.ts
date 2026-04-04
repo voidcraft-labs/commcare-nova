@@ -56,7 +56,8 @@ export function useFormEngine(
 		prevCaseDataRef.current = caseData;
 	}
 
-	const engine = engineRef.current!;
+	if (!engineRef.current) throw new Error("FormEngine was not initialized");
+	const engine = engineRef.current;
 
 	// Re-render when the engine notifies (value changes, validation, etc.)
 	// Wrapped in useCallback because engine identity changes on deps

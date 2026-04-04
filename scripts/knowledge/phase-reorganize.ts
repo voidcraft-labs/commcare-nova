@@ -1,10 +1,10 @@
 /** Phase 4: Reorganize — two-pass Opus reorganization of distilled knowledge files */
 
+import * as fs from "node:fs";
+import * as path from "node:path";
+import * as readline from "node:readline";
 import { createAnthropic } from "@ai-sdk/anthropic";
 import { Output, streamText } from "ai";
-import * as fs from "fs";
-import * as path from "path";
-import * as readline from "readline";
 import { z } from "zod";
 import { log, logCost, logSummary } from "./log.js";
 import type { PipelineConfig } from "./types.js";
@@ -108,7 +108,7 @@ export async function reorgPlan(config: PipelineConfig): Promise<ReorgPlan> {
 	// Build the combined input
 	const allContent = [...files.entries()]
 		.map(([filename, content]) => `=== ${filename} ===\n\n${content}`)
-		.join("\n\n" + "=".repeat(80) + "\n\n");
+		.join(`\n\n${"=".repeat(80)}\n\n`);
 
 	const inputTokens = estimateTokens(allContent.length);
 	const outputTokensEst = 8000;
@@ -217,7 +217,7 @@ KEEP — Blueprint-level design guidance:
 			const status =
 				i < plan.files.length - 1 ? "\x1b[32m✓\x1b[0m" : "\x1b[33m⟳\x1b[0m";
 			lines.push(
-				`  ${status} ${(i + 1).toString().padStart(2)}. ${(name + ".md").padEnd(40).slice(0, 40)} ${String(sourceCount).padStart(2)} sources`,
+				`  ${status} ${(i + 1).toString().padStart(2)}. ${`${name}.md`.padEnd(40).slice(0, 40)} ${String(sourceCount).padStart(2)} sources`,
 			);
 		}
 
@@ -234,9 +234,10 @@ KEEP — Blueprint-level design guidance:
 	process.stdout.write("\n");
 
 	const finalOutput = await stream.output;
-	const plan = finalOutput!;
+	if (!finalOutput) throw new Error("Reorganize stream produced no output");
+	const plan = finalOutput;
 	const usage = await stream.usage;
-	const cost = logCost(
+	const _cost = logCost(
 		"Reorganize",
 		"  Pass 1 done",
 		usage.inputTokens ?? 0,
@@ -257,7 +258,7 @@ KEEP — Blueprint-level design guidance:
 }
 
 function printPlan(plan: ReorgPlan): void {
-	console.log("\n" + "=".repeat(70));
+	console.log(`\n${"=".repeat(70)}`);
 	console.log("  REORGANIZATION PLAN");
 	console.log("=".repeat(70));
 
@@ -428,7 +429,7 @@ Write the file described below using the source material provided. Follow the co
 				return `=== Source: ${src.sourceFile} [sections: ${sections}] ===\n\n${content}`;
 			})
 			.filter((s) => s.length > 0)
-			.join("\n\n" + "-".repeat(60) + "\n\n");
+			.join(`\n\n${"-".repeat(60)}\n\n`);
 
 		if (sourceContent.length === 0) {
 			log(

@@ -33,7 +33,7 @@ export function ChatInput({ onSend, disabled, centered }: ChatInputProps) {
 		const el = textareaRef.current;
 		if (el) {
 			el.style.height = "auto";
-			el.style.height = Math.min(el.scrollHeight, 120) + "px";
+			el.style.height = `${Math.min(el.scrollHeight, 120)}px`;
 		}
 	};
 

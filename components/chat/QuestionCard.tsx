@@ -3,7 +3,6 @@ import { Icon } from "@iconify/react/offline";
 import ciCheck from "@iconify-icons/ci/check";
 import { AnimatePresence, motion } from "motion/react";
 import { useRef, useState } from "react";
-import { Badge } from "@/components/ui/Badge";
 
 interface QuestionInput {
 	header: string;
@@ -55,7 +54,7 @@ export function QuestionCard({
 	 */
 	const questionIds = useRef<string[]>([]);
 	while (questionIds.current.length < questions.length) {
-		const idx = questionIds.current.length;
+		const _idx = questionIds.current.length;
 		questionIds.current.push(crypto.randomUUID());
 	}
 
