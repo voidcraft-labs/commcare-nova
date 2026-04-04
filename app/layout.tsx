@@ -41,7 +41,7 @@ export default async function RootLayout({
   children: React.ReactNode
 }) {
   const session = await getSession()
-  const isAdmin = session?.user?.isAdmin === true
+  const isAdmin = session?.session?.isAdmin === true
 
   return (
     <html lang="en" className="dark">

@@ -3,38 +3,22 @@
  *
  * Runs on every page route (not API/static). Two responsibilities:
  *
- * 1. **Nonce-based CSP** — generates a per-request nonce, sets it in the
- *    `Content-Security-Policy` response header and `x-nonce` request header.
- *    Next.js reads the CSP header automatically and applies the nonce to all
- *    framework scripts, styles, and `<Script>` components.
+ * 1. **Nonce-based CSP** — per-request nonce in `Content-Security-Policy`
+ *    response header and `x-nonce` request header.
  *
- * 2. **Optimistic auth redirect** — checks for a session cookie on protected
- *    routes (`/build/*`, `/builds`, `/admin/*`) and redirects to `/` if absent.
- *    UX optimization only — Server Components do the real auth check.
- *
- * Does NOT match / (handles its own redirect logic server-side).
+ * 2. **Optimistic auth redirect** — `getSessionCookie()` checks cookie
+ *    presence (fast, no validation). Unauthenticated users on protected
+ *    routes are redirected to `/`. Only redirects TO `/`, never FROM it —
+ *    the landing page's server component handles the reverse direction
+ *    with full session validation, so stale cookies can't cause a loop.
  */
 import { NextRequest, NextResponse } from 'next/server'
 import { getSessionCookie } from 'better-auth/cookies'
-
-/** Routes that require an authenticated session cookie for the optimistic redirect. */
-const AUTH_ROUTES = ['/build', '/builds', '/admin']
 
 export function proxy(request: NextRequest) {
   const nonce = Buffer.from(crypto.randomUUID()).toString('base64')
   const isDev = process.env.NODE_ENV === 'development'
 
-  /*
-   * Nonce-based CSP:
-   * - script-src: nonce + strict-dynamic lets Next.js load chunks dynamically.
-   *   Dev adds unsafe-eval for hot reload / React Refresh.
-   * - style-src: unsafe-inline required — Motion injects runtime styles that
-   *   can't carry a nonce. Inline style XSS is far harder to exploit than
-   *   script injection, so this is an accepted trade-off.
-   * - img-src: Google profile avatars live on *.googleusercontent.com.
-   * - frame-ancestors 'none': replaces X-Frame-Options DENY.
-   * - upgrade-insecure-requests: production-only (dev may run on HTTP).
-   */
   const csp = [
     "default-src 'self'",
     `script-src 'self' 'nonce-${nonce}' 'strict-dynamic'${isDev ? " 'unsafe-eval'" : ''}`,
@@ -49,12 +33,10 @@ export function proxy(request: NextRequest) {
     ...(!isDev ? ['upgrade-insecure-requests'] : []),
   ].join('; ')
 
-  // Optimistic auth redirect on protected routes
+  // Optimistic auth — cookie presence only, server does full validation
   const { pathname } = request.nextUrl
-  if (AUTH_ROUTES.some(r => pathname === r || pathname.startsWith(r + '/'))) {
-    if (!getSessionCookie(request)) {
-      return NextResponse.redirect(new URL('/', request.url))
-    }
+  if (pathname !== '/' && !getSessionCookie(request)) {
+    return NextResponse.redirect(new URL('/', request.url))
   }
 
   // Pass nonce to RSC via request header; set CSP on the response

@@ -32,7 +32,7 @@
  */
 
 'use client'
-import { useState, useCallback, useMemo, useRef, useEffect, useLayoutEffect, type CSSProperties, type ReactNode, type RefObject } from 'react'
+import { useState, useCallback, useMemo, useRef, useEffect, useLayoutEffect, type CSSProperties, type ReactNode } from 'react'
 import { useFloating, offset as floatingOffset, flip, shift, size as floatingSize, autoUpdate, FloatingPortal, type Placement } from '@floating-ui/react'
 import { POPOVER_ENTER_KEYFRAMES, POPOVER_ENTER_OPTIONS } from '@/lib/animations'
 import { useContentPopoverDismiss } from './useContentPopover'
@@ -73,10 +73,12 @@ export interface FloatingDropdown<T extends HTMLElement = HTMLElement> {
   /** Close the dropdown unconditionally. */
   close: () => void
   /**
-   * Attach to the trigger element. Doubles as the FloatingUI reference
-   * anchor and the dismiss-exclusion target.
+   * Attach to the trigger element. Callback ref that registers the element
+   * with FloatingUI for positioning and stores it for dismiss detection.
+   * Fires whenever the trigger mounts/unmounts, so late-mounting triggers
+   * (e.g. after auth resolves) are picked up automatically.
    */
-  triggerRef: RefObject<T | null>
+  triggerRef: (el: T | null) => void
   /**
    * Ref callback for the portal content wrapper. Registers the element
    * with FloatingUI for positioning — no side effects, no cleanup needed.
@@ -90,7 +92,7 @@ export function useFloatingDropdown<T extends HTMLElement = HTMLElement>(
   options?: FloatingDropdownOptions,
 ): FloatingDropdown<T> {
   const [open, setOpen] = useState(false)
-  const triggerRef = useRef<T>(null)
+  const triggerElRef = useRef<T | null>(null)
   const contentElRef = useRef<HTMLDivElement | null>(null)
 
   /* Guard predicate stored in a ref so the dismiss effect always reads
@@ -122,9 +124,13 @@ export function useFloatingDropdown<T extends HTMLElement = HTMLElement>(
     whileElementsMounted: autoUpdate,
   })
 
-  /* Wire the trigger as the FloatingUI reference element. */
-  useLayoutEffect(() => {
-    if (triggerRef.current) refs.setReference(triggerRef.current)
+  /* Callback ref for the trigger — registers the element with FloatingUI
+   * the moment it mounts. Handles late-mounting triggers (e.g. components
+   * that return a placeholder during auth loading before rendering the
+   * real trigger button). */
+  const triggerRef = useCallback((el: T | null) => {
+    triggerElRef.current = el
+    if (el) refs.setReference(el)
   }, [refs])
 
   const toggle = useCallback(() => setOpen(o => !o), [])
@@ -154,7 +160,7 @@ export function useFloatingDropdown<T extends HTMLElement = HTMLElement>(
     const onMouseDown = (e: MouseEvent) => {
       const target = e.target as Node
       if (contentElRef.current?.contains(target)) return
-      if (triggerRef.current?.contains(target)) return
+      if (triggerElRef.current?.contains(target)) return
       if (shouldDismissRef.current && !shouldDismissRef.current()) return
       setOpen(false)
     }

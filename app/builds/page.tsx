@@ -15,7 +15,7 @@ import { ProjectListSkeleton } from './loading'
  */
 export default async function BuildsPage() {
   const session = await requireAuth()
-  const isAdmin = session.user.isAdmin === true
+  const isAdmin = session.session.isAdmin === true
 
   return (
     <main className="max-w-4xl mx-auto px-6 py-12">

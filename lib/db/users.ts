@@ -2,7 +2,7 @@
  * User document CRUD helpers.
  *
  * UserDoc lives at `users/{email}`. Two write paths:
- * - `createUser` — called once at sign-in (Better Auth after hook), sets `created_at`
+ * - `provisionUser` — called on every sign-in (Better Auth after hook), creates or updates
  * - `touchUser` — called on every chat request (fire-and-forget), updates `last_active_at`
  *
  * The `role` field is intentionally never set by application code — changes
@@ -16,15 +16,18 @@ import { log } from '@/lib/log'
 // ── Write ─────────────────────────────────────────────────────────
 
 /**
- * Create the user profile on first sign-in. Uses `merge: true` so
- * subsequent sign-ins update `name` and `image` (profile changes from
- * Google) without overwriting `role` or `created_at`.
+ * Ensure the app's user doc exists and has a current profile.
  *
- * `created_at` is only set here, not in `touchUser`, because `merge: true`
- * overwrites all fields in the payload — if `created_at` were included in
- * every call, the "joined" date would silently advance.
+ * Called on every OAuth sign-in (new and returning users). First sign-in
+ * creates the doc with a default `user` role. Subsequent sign-ins sync
+ * `name` and `image` (profile changes from Google) via `merge: true`
+ * without overwriting `role` or `created_at`.
+ *
+ * Returns whether the user has the admin role — derived from the same
+ * Firestore read that checks existence, avoiding a redundant second read
+ * in the auth after-hook.
  */
-export async function createUser(email: string, name: string, image: string | null): Promise<void> {
+export async function provisionUser(email: string, name: string, image: string | null): Promise<boolean> {
   const ref = docs.user(email)
   const snap = await ref.get()
   if (snap.exists) {
@@ -34,6 +37,7 @@ export async function createUser(email: string, name: string, image: string | nu
       image,
       last_active_at: FieldValue.serverTimestamp(),
     }, { merge: true })
+    return snap.data()!.role === 'admin'
   } else {
     /* First sign-in — set created_at and default role */
     await ref.set({
@@ -43,6 +47,7 @@ export async function createUser(email: string, name: string, image: string | nu
       created_at: FieldValue.serverTimestamp(),
       last_active_at: FieldValue.serverTimestamp(),
     })
+    return false
   }
 }
 

@@ -6,8 +6,6 @@ import { DefaultChatTransport, type UIMessage } from 'ai'
 import { motion, AnimatePresence } from 'motion/react'
 import { Icon } from '@iconify/react/offline'
 import ciMessage from '@iconify-icons/ci/message'
-import { HeaderNav } from '@/components/ui/HeaderNav'
-import { setHeaderVisible } from '@/lib/stores/headerVisibility'
 import tablerListTree from '@iconify-icons/tabler/list-tree'
 import { useAuth } from '@/hooks/useAuth'
 import { useBuilder } from '@/hooks/useBuilder'
@@ -106,7 +104,7 @@ function createChatInstance(
 
 export function BuilderLayout() {
   const router = useRouter()
-  const { isAuthenticated, isAdmin, isPending: authPending } = useAuth()
+  const { isAuthenticated, isPending: authPending } = useAuth()
   const builder = useBuilder()
 
   // ── Stable ref for builder so Chat callbacks always read the latest ────
@@ -168,10 +166,6 @@ export function BuilderLayout() {
   const navRef = useRef(nav)
   navRef.current = nav
 
-  const layoutRef = useCallback((el: HTMLDivElement | null) => {
-    if (!el) return
-  }, [])
-
   // Keep builder's cursorMode in sync for undo/redo snapshot capture
   builder.setCursorMode(cursorMode)
 
@@ -229,16 +223,6 @@ export function BuilderLayout() {
   const inReplayMode = !!replayData
   const hasAccess = isAuthenticated || inReplayMode
   const isCentered = builder.phase === BuilderPhase.Idle
-
-  /* Coordinate with the global AppHeader — hide it when the builder is in
-   * centered/hero mode, reveal it when generation starts. useLayoutEffect
-   * ensures the store update fires before paint so React can batch the header
-   * reveal into the same frame as the hero Logo unmount (enabling smooth
-   * Motion layoutId animation between the two Logo positions). */
-  useLayoutEffect(() => {
-    setHeaderVisible(!isCentered)
-    return () => setHeaderVisible(true)
-  }, [isCentered])
 
   // ── Navigate to first form when generation completes ──
   const prevPhaseRef = useRef(builder.phase)
@@ -526,16 +510,7 @@ export function BuilderLayout() {
 
   return (
     <ReferenceProviderWrapper getContext={getRefContext} subscribeMutation={builder.subscribeMutation}>
-    <div ref={layoutRef} className="h-full flex flex-col overflow-hidden">
-      {/* Floating nav overlay — visible only during centered/hero mode while the
-       *  global AppHeader is collapsed. When the header reveals (generation starts),
-       *  this unmounts and the header's HeaderNav takes over. */}
-      {isCentered && (
-        <div className="absolute top-3 right-4 z-raised">
-          <HeaderNav isAdmin={isAdmin} />
-        </div>
-      )}
-
+    <div className="h-full flex flex-col overflow-hidden">
         {/* Replay controller — between header and content so it's visible in both centered and sidebar modes */}
         {inReplayMode && replayData && (
           <ReplayController
@@ -714,15 +689,7 @@ export function BuilderLayout() {
               <ChatSidebar
                 key="chat"
                 centered={isCentered}
-                heroLogo={isCentered
-                  ? <motion.div
-                      layoutId="nova-logo"
-                      transition={{ layout: { duration: 0.45, ease: [0.4, 0, 0.2, 1] } }}
-                    >
-                      <Logo size="hero" />
-                    </motion.div>
-                  : undefined
-                }
+                heroLogo={isCentered ? <Logo size="hero" /> : undefined}
                 messages={inReplayMode ? replayMessages : messages}
                 status={inReplayMode ? 'ready' : status}
                 onSend={handleSend}

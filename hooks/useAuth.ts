@@ -3,8 +3,8 @@
  *
  * Provides a stable interface for components that need to know the current
  * auth state (authenticated user, pending check, sign-in/sign-out methods).
- * The `isAdmin` field comes from the `customSession` plugin — no extra
- * fetch needed, it arrives with the session data.
+ * The `isAdmin` field comes from `session.additionalFields` in the auth
+ * config — stored in Firestore, arrives with the session data.
  */
 'use client'
 import { authClient } from '@/lib/auth-client'
@@ -32,7 +32,7 @@ export function useAuth() {
     /** Whether the user is currently authenticated. */
     isAuthenticated: !!session,
     /** Whether the user has the admin role. False while session is loading. */
-    isAdmin: session?.user?.isAdmin === true,
+    isAdmin: session?.session?.isAdmin === true,
     /** Whether the initial session check is still in flight. */
     isPending,
     /** Any error from the session check. */

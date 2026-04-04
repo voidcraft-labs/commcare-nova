@@ -5,8 +5,10 @@ import { Landing } from './landing'
 /**
  * Landing page — server-side redirect for authenticated users.
  *
- * Authenticated users are redirected to /builds before the page renders.
- * Unauthenticated users see the Google sign-in UI.
+ * Full session validation via `getSession()` — if the session exists in
+ * Firestore, redirect to `/builds`. Stale/expired cookies correctly fall
+ * through to the sign-in UI. The proxy handles the reverse direction
+ * (no cookie on protected routes → `/`).
  */
 export default async function LandingPage() {
   const session = await getSession()
