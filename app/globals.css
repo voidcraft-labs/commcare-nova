@@ -358,7 +358,7 @@ body {
 	margin-top: 0;
 }
 .chat-markdown strong {
-	font-weight: 600;
+	font-weight: 700;
 	color: var(--nova-text);
 }
 .chat-markdown em {
@@ -435,6 +435,12 @@ body {
  * hides it only when the paragraph has other content (text nodes). In empty
  * paragraphs (created by pressing Enter), the break is the sole child and
  * stays visible — giving the line height so the cursor can land there. */
+/* Bold text in the TipTap editor needs explicit weight to stand out against
+ * the font-medium (500) label containers — browser-default bold (700) works
+ * but this ensures parity with preview-markdown strong. */
+.tiptap strong {
+	font-weight: 700;
+}
 .tiptap .ProseMirror-trailingBreak:not(:only-child) {
 	display: none;
 }
@@ -490,7 +496,7 @@ body {
 	margin-top: 0;
 }
 .preview-markdown strong {
-	font-weight: 600;
+	font-weight: 700;
 	color: var(--nova-text);
 }
 .preview-markdown em {
