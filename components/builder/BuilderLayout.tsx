@@ -468,39 +468,6 @@ export function BuilderLayout() {
 			} else {
 				nav.navigateToModule(sel.moduleIndex);
 			}
-			// Scroll the design canvas to the selected question (only if not already visible).
-			if (sel.questionPath) {
-				setTimeout(() => {
-					const el = document.querySelector(
-						`[data-question-id="${sel.questionPath}"]`,
-					) as HTMLElement | null;
-					const scrollContainer = el?.closest(
-						"[data-preview-scroll-container]",
-					) as HTMLElement | null;
-					if (el && scrollContainer) {
-						const containerRect = scrollContainer.getBoundingClientRect();
-						const elRect = el.getBoundingClientRect();
-						/* Only scroll if the top of the element is outside the visible viewport.
-             For tall elements (groups/repeats), we only care about the top being visible —
-             requiring the full element to fit would always trigger a scroll. */
-						const SCROLL_MARGIN = 20;
-						const isTopVisible =
-							elRect.top >= containerRect.top + SCROLL_MARGIN &&
-							elRect.top <= containerRect.bottom - SCROLL_MARGIN;
-						if (!isTopVisible) {
-							const targetScrollTop =
-								scrollContainer.scrollTop +
-								elRect.top -
-								containerRect.top -
-								SCROLL_MARGIN;
-							scrollContainer.scrollTo({
-								top: Math.max(0, targetScrollTop),
-								behavior: "smooth",
-							});
-						}
-					}
-				}, 250);
-			}
 		},
 		[
 			builder,
@@ -510,6 +477,41 @@ export function BuilderLayout() {
 			nav.current,
 		],
 	);
+
+	/* Scroll the design canvas to the selected question after React commits.
+	 * Fires reactively when selection changes — no timer needed since the
+	 * effect runs after the DOM update that renders the target element. */
+	const selectedQuestionPath = builder.selected?.questionPath;
+	useEffect(() => {
+		if (!selectedQuestionPath) return;
+		const el = document.querySelector(
+			`[data-question-id="${selectedQuestionPath}"]`,
+		) as HTMLElement | null;
+		const scrollContainer = el?.closest(
+			"[data-preview-scroll-container]",
+		) as HTMLElement | null;
+		if (!el || !scrollContainer) return;
+		const containerRect = scrollContainer.getBoundingClientRect();
+		const elRect = el.getBoundingClientRect();
+		/* Only scroll if the top of the element is outside the visible viewport.
+		 * For tall elements (groups/repeats), we only care about the top being
+		 * visible — requiring the full element to fit would always trigger a scroll. */
+		const SCROLL_MARGIN = 20;
+		const isTopVisible =
+			elRect.top >= containerRect.top + SCROLL_MARGIN &&
+			elRect.top <= containerRect.bottom - SCROLL_MARGIN;
+		if (!isTopVisible) {
+			const targetScrollTop =
+				scrollContainer.scrollTop +
+				elRect.top -
+				containerRect.top -
+				SCROLL_MARGIN;
+			scrollContainer.scrollTo({
+				top: Math.max(0, targetScrollTop),
+				behavior: "smooth",
+			});
+		}
+	}, [selectedQuestionPath]);
 
 	const handleDelete = useCallback(() => {
 		const sel = builder.selected;

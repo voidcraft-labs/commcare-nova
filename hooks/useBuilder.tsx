@@ -87,16 +87,15 @@ export function BuilderProvider({
 	useEffect(() => {
 		if (!isExistingApp) return;
 		if (builder.phase !== BuilderPhase.Loading) return;
-		let cancelled = false;
+		const controller = new AbortController();
 
-		fetch(`/api/apps/${buildId}`)
+		fetch(`/api/apps/${buildId}`, { signal: controller.signal })
 			.then((res) => {
 				if (!res.ok)
 					throw new Error(res.status === 404 ? "not-found" : "load-failed");
 				return res.json();
 			})
 			.then((data) => {
-				if (cancelled) return;
 				/* Non-complete apps (error, stale generating) can't be hydrated —
 				 * redirect to the app list with an explanatory toast. */
 				if (data.status !== "complete") {
@@ -113,7 +112,8 @@ export function BuilderProvider({
 				}
 			})
 			.catch((err) => {
-				if (cancelled) return;
+				/* Aborted fetches throw — silently ignore them. */
+				if (err.name === "AbortError") return;
 				if (err.message === "not-found") {
 					showToast(
 						"error",
@@ -127,7 +127,7 @@ export function BuilderProvider({
 			});
 
 		return () => {
-			cancelled = true;
+			controller.abort();
 		};
 	}, [buildId, isExistingApp, builder, router]);
 

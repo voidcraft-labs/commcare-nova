@@ -108,9 +108,10 @@ export function AccountMenu() {
 	const [usage, setUsage] = useState<UsageData | null>(null);
 	const dd = useFloatingDropdown<HTMLButtonElement>({ offset: 6 });
 
-	/** Fetch usage from the API and update state. Best-effort — failures are silent. */
-	const refreshUsage = useCallback(() => {
-		fetch("/api/user/usage")
+	/** Fetch usage from the API and update state. Best-effort — failures are silent.
+	 * Accepts an AbortSignal so callers can cancel in-flight requests on cleanup. */
+	const refreshUsage = useCallback((signal?: AbortSignal) => {
+		fetch("/api/user/usage", { signal })
 			.then((res) => (res.ok ? (res.json() as Promise<UsageData>) : null))
 			.then((data) => {
 				if (data) setUsage(data);
@@ -120,12 +121,18 @@ export function AccountMenu() {
 
 	/* Pre-cache on mount so the first dropdown open shows data instantly. */
 	useEffect(() => {
-		if (isAuthenticated) refreshUsage();
+		if (!isAuthenticated) return;
+		const controller = new AbortController();
+		refreshUsage(controller.signal);
+		return () => controller.abort();
 	}, [isAuthenticated, refreshUsage]);
 
 	/* Re-fetch on each dropdown open to stay current after generations. */
 	useEffect(() => {
-		if (dd.open && isAuthenticated) refreshUsage();
+		if (!dd.open || !isAuthenticated) return;
+		const controller = new AbortController();
+		refreshUsage(controller.signal);
+		return () => controller.abort();
 	}, [dd.open, isAuthenticated, refreshUsage]);
 
 	/* ── Loading placeholder while session check is in flight ────── */
