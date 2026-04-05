@@ -10,7 +10,8 @@
 "use client";
 
 import Link from "next/link";
-import { HeaderNav } from "@/components/ui/HeaderNav";
+import { AccountMenu } from "@/components/ui/AccountMenu";
+import { HeaderNavLinks } from "@/components/ui/HeaderNav";
 import { Logo } from "@/components/ui/Logo";
 
 interface AppHeaderProps {
@@ -25,14 +26,19 @@ export function AppHeader({ isAdmin, isAuthenticated }: AppHeaderProps) {
 	if (!isAuthenticated) return null;
 
 	return (
-		<header className="border-b border-nova-border px-4 py-2.5 flex items-center justify-between bg-nova-void shrink-0">
+		<header className="border-b border-nova-border px-4 py-2.5 flex items-center bg-nova-void shrink-0">
 			<Link
 				href="/"
 				className="rounded-lg focus-visible:ring-2 focus-visible:ring-nova-violet focus-visible:outline-none"
 			>
 				<Logo size="sm" />
 			</Link>
-			<HeaderNav isAdmin={isAdmin} />
+			<div className="ml-4">
+				<HeaderNavLinks isAdmin={isAdmin} />
+			</div>
+			<div className="ml-auto">
+				<AccountMenu />
+			</div>
 		</header>
 	);
 }

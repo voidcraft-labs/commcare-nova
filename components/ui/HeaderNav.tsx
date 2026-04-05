@@ -1,13 +1,10 @@
 /**
- * Right-side header nav links + AccountMenu.
+ * Nav links rendered left-aligned next to the logo in AppHeader.
  *
  * Client component — needs `usePathname()` for active state. Accepts `isAdmin`
  * as a prop rather than reading from `useAuth()` to avoid a client session fetch
  * and the resulting flash where the Admin link pops in after hydration. Server
  * pages already resolve the session — they pass `isAdmin` directly.
- *
- * Used internally by AppHeader (global header) and exported for BuilderLayout's
- * floating overlay in centered mode.
  */
 
 "use client";
@@ -18,7 +15,6 @@ import tablerApps from "@iconify-icons/tabler/apps";
 import tablerUserShield from "@iconify-icons/tabler/user-shield";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { AccountMenu } from "@/components/ui/AccountMenu";
 
 // ── Nav definition ────────────────────────────────────────────────────
 
@@ -70,7 +66,8 @@ interface HeaderNavProps {
 	isAdmin?: boolean;
 }
 
-export function HeaderNav({ isAdmin }: HeaderNavProps) {
+/** Nav links only — rendered left-aligned next to the logo. */
+export function HeaderNavLinks({ isAdmin }: HeaderNavProps) {
 	const pathname = usePathname();
 
 	return (
@@ -92,7 +89,6 @@ export function HeaderNav({ isAdmin }: HeaderNavProps) {
 					</Link>
 				);
 			})}
-			<AccountMenu />
 		</nav>
 	);
 }
