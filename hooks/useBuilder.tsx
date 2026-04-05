@@ -17,11 +17,9 @@ import {
 	type ReactNode,
 	useContext,
 	useEffect,
-	useLayoutEffect,
 	useState,
 	useSyncExternalStore,
 } from "react";
-import { useAuth } from "@/hooks/useAuth";
 import { Builder, BuilderPhase } from "@/lib/services/builder";
 import { showToast } from "@/lib/services/toastStore";
 
@@ -50,38 +48,44 @@ export function BuilderProvider({
 	children: ReactNode;
 }) {
 	const router = useRouter();
-	const { isAuthenticated } = useAuth();
+
+	const isExistingApp = buildId !== "new";
 
 	/* Track which buildId the current builder was created for. When buildId
 	 * changes (same-route navigation, e.g. /build/A → /build/B), create a
 	 * fresh builder synchronously during render — no stale frame, no effect
 	 * delay. This is the React-recommended "adjusting state during rendering"
-	 * pattern (https://react.dev/reference/react/useState#storing-information-from-previous-renders). */
+	 * pattern (https://react.dev/reference/react/useState#storing-information-from-previous-renders).
+	 *
+	 * Existing apps start in Loading phase — they never pass through Idle.
+	 * New builds start in Idle (centered chat). The initial phase is baked
+	 * into the Builder at construction time so the very first render shows
+	 * the correct layout with zero intermediate states. */
 	const [state, setState] = useState(() => ({
-		builder: new Builder(),
+		builder: new Builder(
+			isExistingApp ? BuilderPhase.Loading : BuilderPhase.Idle,
+		),
 		buildId,
 	}));
 
 	if (buildId !== state.buildId) {
-		setState({ builder: new Builder(), buildId });
+		setState({
+			builder: new Builder(
+				isExistingApp ? BuilderPhase.Loading : BuilderPhase.Idle,
+			),
+			buildId,
+		});
 	}
 
 	const { builder } = state;
-	const isExistingApp = buildId !== "new" && isAuthenticated;
-
-	/* Transition to Loading phase before first paint so the layout renders
-	 * the loading spinner immediately (not the centered chat). */
-	useLayoutEffect(() => {
-		if (isExistingApp && builder.phase === BuilderPhase.Idle) {
-			builder.startLoading();
-		}
-	}, [isExistingApp, builder]);
 
 	/* Fetch the app from Firestore for existing apps. Hydrates the
 	 * builder to Ready phase with the saved blueprint via loadApp() —
-	 * a single atomic transition with no transient states. */
+	 * a single atomic transition with no transient states. Auth is
+	 * cookie-based — the browser sends it automatically, and the API
+	 * returns 401 if invalid (handled by the catch block). */
 	useEffect(() => {
-		if (!isExistingApp || !isAuthenticated) return;
+		if (!isExistingApp) return;
 		if (builder.phase !== BuilderPhase.Loading) return;
 		let cancelled = false;
 
@@ -125,7 +129,7 @@ export function BuilderProvider({
 		return () => {
 			cancelled = true;
 		};
-	}, [buildId, isExistingApp, isAuthenticated, builder, router]);
+	}, [buildId, isExistingApp, builder, router]);
 
 	return <BuilderContext value={builder}>{children}</BuilderContext>;
 }

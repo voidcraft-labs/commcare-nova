@@ -33,7 +33,6 @@ import { ScreenNavButtons } from "@/components/preview/ScreenNavButtons";
 import { ErrorBoundary } from "@/components/ui/ErrorBoundary";
 import { ExportDropdown } from "@/components/ui/ExportDropdown";
 import { Logo } from "@/components/ui/Logo";
-import { ToastContainer } from "@/components/ui/ToastContainer";
 import { useAuth } from "@/hooks/useAuth";
 import { useAutoSave } from "@/hooks/useAutoSave";
 import { useBuilder } from "@/hooks/useBuilder";
@@ -142,7 +141,7 @@ export function BuilderLayout() {
 	 * call useAuth() for the `isAuthenticated` flag (used by useAutoSave and
 	 * the hasAccess guard for replay mode), but we never block rendering on
 	 * the client-side pending state since the server already resolved it. */
-	const { isAuthenticated } = useAuth();
+	const { isAuthenticated, isPending: isAuthPending } = useAuth();
 	const builder = useBuilder();
 
 	// ── Stable ref for builder so Chat callbacks always read the latest ────
@@ -626,8 +625,10 @@ export function BuilderLayout() {
 
 	// ── Redirect guard — all hooks must be above this line ─────────────
 	// Server layout handles auth; this only catches edge cases like an
-	// expired session or unauthenticated replay-mode exit.
-	const shouldRedirect = !hasAccess;
+	// expired session or unauthenticated replay-mode exit. Skip while
+	// the client-side session check is still in flight — the server layout
+	// already verified the cookie, so the pending state is always transient.
+	const shouldRedirect = !hasAccess && !isAuthPending;
 	useEffect(() => {
 		if (shouldRedirect) router.push("/");
 	}, [shouldRedirect, router]);
@@ -889,8 +890,6 @@ export function BuilderLayout() {
 						</ErrorBoundary>
 					</motion.div>
 				</div>
-
-				<ToastContainer />
 			</div>
 		</ReferenceProviderWrapper>
 	);
