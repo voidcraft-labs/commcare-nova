@@ -8,7 +8,7 @@ Next.js web app that generates CommCare apps from natural language conversation.
 - **Language**: TypeScript (strict mode)
 - **Styling**: Tailwind CSS v4 with `@theme inline` custom properties
 - **Animation**: Motion (import from `motion/react`, NOT `framer-motion`)
-- **Drag & Drop**: `@dnd-kit/react` — `DragDropProvider`, `useSortable` from `@dnd-kit/react/sortable`, modifiers from `@dnd-kit/dom/modifiers`
+- **Drag & Drop**: `@dnd-kit/react` — `DragDropProvider`, `useSortable` from `@dnd-kit/react/sortable`, `move` from `@dnd-kit/helpers`, modifiers from `@dnd-kit/dom/modifiers`
 - **Validation**: Zod v4
 - **AI**: Vercel AI SDK (`ai` + `@ai-sdk/react` + `@ai-sdk/anthropic`) — `ToolLoopAgent`, `createUIMessageStream`, `useChat`, `generateText`, `streamText`, `Output.object()`
 - **Rich Text**: TipTap 3 (`@tiptap/react`, `@tiptap/starter-kit`, `@tiptap/extension-mention`, `@tiptap/suggestion`, `@tiptap/extension-image`, `@tiptap/extension-table`)
@@ -60,6 +60,14 @@ The route handler creates the Firestore app document (`status: 'generating'`) **
 ### Manual Stream Reader Loop
 
 The chat route uses a manual reader loop instead of `writer.merge()` so stream errors can be caught and emitted as `data-error` parts before the stream closes. If the writer is already broken, the error still lands in the Firestore event log, and `useChat`'s error property fires on the client as a fallback.
+
+### Controlled Drag State (No OptimisticSortingPlugin)
+
+Question reordering uses the controlled state pattern: `onDragOver` → `move(itemsMap, event)` → React state → re-render. `useSortable` passes `plugins: []` to disable the default `OptimisticSortingPlugin` — the plugin independently reorders DOM elements and mutates sortable indices, conflicting with React's reconciliation. Do not remove `plugins: []`.
+
+`InlineSettingsPanel` renders as a **sibling** of the sortable element (`<div ref={ref}>`), not inside it. If the panel were a child, its expanded height would inflate the sortable's collision shape, breaking group droppable detection on subsequent drags. `RestrictToElement` targets `[data-preview-scroll-container]` (the visible editor viewport).
+
+`RepeatField` renders a **single template instance** in edit mode — all repeat instances share the same question schema, so rendering N copies creates duplicate `useSortable` IDs that corrupt dnd-kit state. Preview mode renders all instances normally (no `DragDropProvider` in preview, so hooks are no-ops).
 
 ### Firestore Configuration
 

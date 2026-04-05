@@ -3,6 +3,7 @@ import { CollisionPriority } from "@dnd-kit/abstract";
 import { useDroppable } from "@dnd-kit/react";
 import { Icon } from "@iconify/react/offline";
 import tablerPlus from "@iconify-icons/tabler/plus";
+import tablerRepeat from "@iconify-icons/tabler/repeat";
 import tablerTrash from "@iconify-icons/tabler/trash";
 import { useEditContext } from "@/hooks/useEditContext";
 import { useTextEditSave } from "@/hooks/useTextEditSave";
@@ -20,6 +21,41 @@ interface RepeatFieldProps {
 	engine: FormEngine;
 }
 
+// ── RepeatInstance ────────────────────────────────────────────────────
+// Visual wrapper for a single repeat instance: bordered card with a
+// header bar and a body area. Shared between edit and preview modes.
+
+interface RepeatInstanceProps {
+	/** Content rendered in the header's leading position */
+	headerLeft: React.ReactNode;
+	/** Optional action rendered in the header's trailing position */
+	headerRight?: React.ReactNode;
+	/** Ref forwarded to the body div (used for droppable targeting) */
+	bodyRef?: React.Ref<HTMLDivElement>;
+	children: React.ReactNode;
+}
+
+function RepeatInstance({
+	headerLeft,
+	headerRight,
+	bodyRef,
+	children,
+}: RepeatInstanceProps) {
+	return (
+		<div className="rounded-lg border border-pv-input-border overflow-hidden">
+			<div className="flex items-center justify-between px-4 py-2 bg-pv-surface border-b border-pv-input-border">
+				{headerLeft}
+				{headerRight}
+			</div>
+			<div ref={bodyRef} className="p-4 space-y-4 min-h-[72px]">
+				{children}
+			</div>
+		</div>
+	);
+}
+
+// ── RepeatField ──────────────────────────────────────────────────────
+
 export function RepeatField({
 	question,
 	path,
@@ -31,7 +67,9 @@ export function RepeatField({
 	const isEditMode = ctx?.mode === "edit";
 	const saveField = useTextEditSave(questionPath);
 
-	// Make the repeat's children area a droppable target so items can be dropped into empty repeats
+	/* Droppable target for the repeat's children area — enables dropping items
+	 * into empty repeats. The ID matches the group key used by the nested
+	 * FormRenderer so the move() helper can route items correctly. */
 	const { ref: droppableRef } = useDroppable({
 		id: `${questionPath}:container`,
 		type: "container",
@@ -43,7 +81,6 @@ export function RepeatField({
 	if (!state.visible) return null;
 
 	const count = engine.getRepeatCount(path);
-	const instances = Array.from({ length: count }, (_, i) => i);
 
 	return (
 		<div className="space-y-3">
@@ -62,43 +99,82 @@ export function RepeatField({
 					</div>
 				</TextEditable>
 			)}
-			{instances.map((idx) => (
-				<div
-					key={idx}
-					className="rounded-lg border border-pv-input-border overflow-hidden"
-				>
-					<div className="flex items-center justify-between px-4 py-2 bg-pv-surface border-b border-pv-input-border">
-						<span className="text-xs font-medium text-nova-text-secondary">
-							#{idx + 1}
+
+			{isEditMode ? (
+				/* Edit mode: single template instance. Repeat children share the
+				 * same question schema — rendering N copies creates duplicate
+				 * useSortable IDs and a shared useDroppable ref that corrupt
+				 * dnd-kit's state. One instance keeps the drag system clean.
+				 * All instances show identical empty state in edit mode anyway
+				 * (displayState overrides values), so nothing is lost visually. */
+				<RepeatInstance
+					headerLeft={
+						<span className="flex items-center gap-1.5 text-xs font-medium text-nova-text-secondary">
+							<Icon icon={tablerRepeat} width="13" height="13" />
+							Template
+							{count > 1 && (
+								<span className="text-nova-text-muted font-normal">
+									· {count} instances
+								</span>
+							)}
 						</span>
-						{count > 1 && (
-							<button
-								type="button"
-								onClick={() => engine.removeRepeat(path, idx)}
-								className="p-1 text-nova-text-muted hover:text-nova-rose transition-colors cursor-pointer"
-							>
-								<Icon icon={tablerTrash} width="14" height="14" />
-							</button>
-						)}
-					</div>
-					<div ref={droppableRef} className="p-4 space-y-4 min-h-[72px]">
+					}
+					bodyRef={droppableRef}
+				>
+					<FormRenderer
+						questions={question.children ?? []}
+						engine={engine}
+						prefix={`${path}[0]`}
+						parentPath={questionPath}
+					/>
+				</RepeatInstance>
+			) : (
+				/* Preview / live mode: render all instances. No DragDropProvider
+				 * wraps preview mode, so useSortable hooks in nested FormRenderers
+				 * are harmless no-ops despite the duplicate paths. */
+				Array.from({ length: count }, (_, idx) => (
+					<RepeatInstance
+						// biome-ignore lint/suspicious/noArrayIndexKey: repeat instances have no unique ID — index is the only stable key
+						key={`${questionPath as string}[${idx}]`}
+						headerLeft={
+							<span className="text-xs font-medium text-nova-text-secondary">
+								#{idx + 1}
+							</span>
+						}
+						headerRight={
+							count > 1 ? (
+								<button
+									type="button"
+									onClick={() => engine.removeRepeat(path, idx)}
+									className="p-1 text-nova-text-muted hover:text-nova-rose transition-colors cursor-pointer"
+								>
+									<Icon icon={tablerTrash} width="14" height="14" />
+								</button>
+							) : undefined
+						}
+					>
 						<FormRenderer
 							questions={question.children ?? []}
 							engine={engine}
 							prefix={`${path}[${idx}]`}
 							parentPath={questionPath}
 						/>
-					</div>
-				</div>
-			))}
-			<button
-				type="button"
-				onClick={() => engine.addRepeat(path)}
-				className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-pv-accent hover:text-pv-accent-bright border border-pv-input-border hover:border-pv-input-focus rounded-lg transition-colors cursor-pointer"
-			>
-				<Icon icon={tablerPlus} width="14" height="14" />
-				Add {state.resolvedLabel ?? question.label ?? "entry"}
-			</button>
+					</RepeatInstance>
+				))
+			)}
+
+			{/* Add instance — only in preview where instances are visible and
+			 * the user is interacting with form data, not the schema template. */}
+			{!isEditMode && (
+				<button
+					type="button"
+					onClick={() => engine.addRepeat(path)}
+					className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-pv-accent hover:text-pv-accent-bright border border-pv-input-border hover:border-pv-input-focus rounded-lg transition-colors cursor-pointer"
+				>
+					<Icon icon={tablerPlus} width="14" height="14" />
+					Add {state.resolvedLabel ?? question.label ?? "entry"}
+				</button>
+			)}
 		</div>
 	);
 }
