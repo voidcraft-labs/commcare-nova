@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
+import { xpathToString } from "../coerce";
 import { evaluate } from "../evaluator";
 import type { EvalContext } from "../types";
+import { isXPathDate } from "../types";
 
 function makeCtx(
 	values: Record<string, string> = {},
@@ -182,9 +184,11 @@ describe("XPath evaluator", () => {
 			expect(evaluate("count-selected(/data/items)", ctx)).toBe(3);
 		});
 
-		it("today() returns date string", () => {
+		it("today() returns an XPathDate", () => {
 			const result = evaluate("today()", makeCtx());
-			expect(result).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+			expect(isXPathDate(result)).toBe(true);
+			/* String coercion produces ISO date format */
+			expect(xpathToString(result)).toMatch(/^\d{4}-\d{2}-\d{2}$/);
 		});
 
 		it("int()", () => {
@@ -217,6 +221,99 @@ describe("XPath evaluator", () => {
 			expect(evaluate('normalize-space("  hello   world  ")', makeCtx())).toBe(
 				"hello world",
 			);
+		});
+	});
+
+	describe("date arithmetic", () => {
+		it("today() + 1 returns an XPathDate representing tomorrow", () => {
+			const todayPlus1 = evaluate("today() + 1", makeCtx());
+			expect(isXPathDate(todayPlus1)).toBe(true);
+			/* String output is tomorrow's ISO date */
+			const todayStr = xpathToString(evaluate("today()", makeCtx()));
+			const tomorrow = new Date(`${todayStr}T00:00:00Z`);
+			tomorrow.setUTCDate(tomorrow.getUTCDate() + 1);
+			expect(xpathToString(todayPlus1)).toBe(
+				tomorrow.toISOString().slice(0, 10),
+			);
+		});
+
+		it("today() - 1 returns an XPathDate representing yesterday", () => {
+			const result = evaluate("today() - 1", makeCtx());
+			expect(isXPathDate(result)).toBe(true);
+			const todayStr = xpathToString(evaluate("today()", makeCtx()));
+			const yesterday = new Date(`${todayStr}T00:00:00Z`);
+			yesterday.setUTCDate(yesterday.getUTCDate() - 1);
+			expect(xpathToString(result)).toBe(yesterday.toISOString().slice(0, 10));
+		});
+
+		it("date(today() + 1) also works (idempotent wrapping)", () => {
+			const bare = evaluate("today() + 1", makeCtx());
+			const wrapped = evaluate("date(today() + 1)", makeCtx());
+			expect(xpathToString(bare)).toBe(xpathToString(wrapped));
+		});
+
+		it("date - date returns a plain number (day difference)", () => {
+			const result = evaluate(
+				"date('2024-01-15') - date('2024-01-10')",
+				makeCtx(),
+			);
+			expect(typeof result).toBe("number");
+			expect(result).toBe(5);
+		});
+
+		it("date + number returns an XPathDate", () => {
+			const result = evaluate("date('1970-01-01') + 0", makeCtx());
+			expect(isXPathDate(result)).toBe(true);
+			expect(xpathToString(result)).toBe("1970-01-01");
+		});
+
+		it("date + 1 shifts forward by one day", () => {
+			const result = evaluate("date('1970-01-01') + 1", makeCtx());
+			expect(isXPathDate(result)).toBe(true);
+			expect(xpathToString(result)).toBe("1970-01-02");
+		});
+
+		it("date(0) gives epoch", () => {
+			const result = evaluate("date(0)", makeCtx());
+			expect(isXPathDate(result)).toBe(true);
+			expect(xpathToString(result)).toBe("1970-01-01");
+		});
+
+		it("date comparison works via numeric coercion", () => {
+			expect(
+				evaluate("date('2024-06-15') > date('2024-01-01')", makeCtx()),
+			).toBe(true);
+			expect(
+				evaluate("date('2024-01-01') > date('2024-06-15')", makeCtx()),
+			).toBe(false);
+		});
+
+		it("today() is truthy", () => {
+			expect(evaluate("boolean(today())", makeCtx())).toBe(true);
+		});
+
+		it("format-date works with XPathDate from today()", () => {
+			const result = evaluate("format-date(today(), '%Y')", makeCtx());
+			expect(result).toBe(String(new Date().getUTCFullYear()));
+		});
+
+		it("number(date('2008-09-05')) returns days since epoch", () => {
+			const result = evaluate("number(date('2008-09-05'))", makeCtx());
+			/* 2008-09-05 = 14127 days since epoch (matches CommCare test suite) */
+			expect(result).toBe(14127);
+		});
+
+		it("string(today()) produces ISO date string", () => {
+			const result = evaluate("string(today())", makeCtx());
+			expect(result).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+		});
+
+		it("concat works with date values", () => {
+			const result = evaluate(
+				"concat(\"Date: \", date('2024-01-15'))",
+				makeCtx(),
+			);
+			expect(result).toBe("Date: 2024-01-15");
 		});
 	});
 
