@@ -1,6 +1,13 @@
 import type { SyntaxNode } from "@lezer/common";
 import { parser } from "@/lib/codemirror/xpath-parser";
-import { compareEqual, compareRelational, toBoolean, toNumber } from "./coerce";
+import {
+	compareEqual,
+	compareRelational,
+	dateAwareAdd,
+	dateAwareSubtract,
+	toBoolean,
+	toNumber,
+} from "./coerce";
 import { getFunction } from "./functions";
 import type { EvalContext, XPathValue } from "./types";
 
@@ -165,17 +172,17 @@ function evalNode(
 	if (type === T.AddExpr) {
 		const [left, right] = getBinaryOperands(node);
 		if (!left || !right) return NaN;
-		return (
-			toNumber(evalNode(left, source, ctx)) +
-			toNumber(evalNode(right, source, ctx))
+		return dateAwareAdd(
+			evalNode(left, source, ctx),
+			evalNode(right, source, ctx),
 		);
 	}
 	if (type === T.SubtractExpr) {
 		const [left, right] = getBinaryOperands(node);
 		if (!left || !right) return NaN;
-		return (
-			toNumber(evalNode(left, source, ctx)) -
-			toNumber(evalNode(right, source, ctx))
+		return dateAwareSubtract(
+			evalNode(left, source, ctx),
+			evalNode(right, source, ctx),
 		);
 	}
 	if (type === T.MultiplyExpr) {

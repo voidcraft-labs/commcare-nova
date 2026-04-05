@@ -3,7 +3,7 @@ import type {
 	CaseType,
 	Question,
 } from "@/lib/schemas/blueprint";
-import { toBoolean } from "../xpath/coerce";
+import { toBoolean, xpathToString } from "../xpath/coerce";
 import { evaluate } from "../xpath/evaluator";
 import type { EvalContext } from "../xpath/types";
 import { DataInstance } from "./dataInstance";
@@ -347,7 +347,7 @@ export class FormEngine {
 			if (q.default_value) {
 				const ctx = this.createEvalContext(path);
 				const result = evaluate(q.default_value, ctx);
-				const value = String(result);
+				const value = xpathToString(result);
 				if (value && value !== "false") {
 					this.instance.set(path, value);
 					const state = this.states.get(path);
@@ -383,7 +383,7 @@ export class FormEngine {
 			switch (type) {
 				case "calculate": {
 					const result = evaluate(expr, ctx);
-					const value = String(result);
+					const value = xpathToString(result);
 					this.instance.set(path, value);
 					state.value = value;
 					break;
@@ -406,7 +406,7 @@ export class FormEngine {
 					const q = this.findQuestion(path);
 					if (q) {
 						const resolve = (exprStr: string): string => {
-							return String(evaluate(exprStr, ctx));
+							return xpathToString(evaluate(exprStr, ctx));
 						};
 						state.resolvedLabel = resolveLabel(q.label, resolve);
 						state.resolvedHint = resolveLabel(q.hint, resolve);

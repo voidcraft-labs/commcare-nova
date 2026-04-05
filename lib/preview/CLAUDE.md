@@ -2,6 +2,12 @@
 
 Client-side form preview running entirely from `AppBlueprint` — no XForm parsing, no server calls. Three subsystems: XPath evaluator (`xpath/`), form engine (`engine/`), preview UI (`components/preview/`).
 
+## XPath Evaluator — First-Class Date Type
+
+`XPathValue = string | number | boolean | XPathDate`. Dates are not strings — `today()` returns an `XPathDate` (days since epoch internally, ISO string on coercion). This makes `today() + 1` produce an XPathDate representing tomorrow, not `NaN`. CommCare's runtime doesn't do this (it returns a raw day-number), so `lib/transpiler/` wraps date-producing arithmetic in `date()` at export time.
+
+Always use `xpathToString(result)` to stringify XPath results, never `String(result)` — `String(XPathDate)` gives `[object Object]`.
+
 ## XPath Evaluator — Two `Child` Node Types
 
 The Lezer grammar produces **two distinct `Child` node types** (one from `rootStep`, one from `expr`) and two `Descendant` types. `one('Child')` only finds the first. The evaluator and dependency extractor use `many('Child')` to create `Set` collections and check with `.has()` — same pattern the formatter uses for `Keywords`.

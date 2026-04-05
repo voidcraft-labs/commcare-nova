@@ -1,5 +1,6 @@
-import { toBoolean, toNumber, xpathToString } from "./coerce";
+import { toBoolean, toDate, toNumber, xpathToString } from "./coerce";
 import type { XPathValue } from "./types";
+import { XPathDate } from "./types";
 
 type XPathFn = (args: XPathValue[]) => XPathValue;
 
@@ -143,36 +144,60 @@ register("last", () => 1);
 
 // ── Date / Time ─────────────────────────────────────────────────────
 
-register("today", () => {
-	const d = new Date();
-	return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
-});
-register("now", () => new Date().toISOString());
+/**
+ * today() → XPathDate representing midnight of the current day.
+ * Matches CommCare core's XPathTodayFunc: `DateUtils.roundDate(new Date())`.
+ */
+register("today", () => XPathDate.fromJSDateOnly(new Date()));
+
+/**
+ * now() → XPathDate with time component preserved.
+ * String coercion emits full ISO-8601 timestamp; numeric coercion
+ * still truncates to whole days (matching CommCare behavior).
+ */
+register("now", () => XPathDate.fromJSDate(new Date()));
+
+/**
+ * date(value) → XPathDate.
+ *
+ * - number → days since epoch (e.g. `date(0)` = 1970-01-01)
+ * - string → parse ISO-8601 date
+ * - XPathDate → returned as-is
+ *
+ * Matches CommCare core's XPathDateFunc / FunctionUtils.toDate().
+ */
 register("date", (args) => {
-	// date(days) → date string from epoch, or date(string) → passthrough
 	const v = args[0] ?? "";
-	if (typeof v === "number" || !Number.isNaN(Number(v))) {
-		const days = toNumber(v);
-		const ms = days * 86400000;
-		const d = new Date(ms);
-		return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
-	}
+	const d = toDate(v);
+	if (d) return d;
+	/* Unparseable — return the string unchanged (CommCare passthrough). */
 	return xpathToString(v);
 });
+
+/**
+ * format-date(date, format) — format a date value with %-tokens.
+ *
+ * Accepts XPathDate, date strings, or day-numbers. The first argument
+ * is coerced via toDate() so expressions like `format-date(today(), '%Y')`
+ * and `format-date('2024-01-15', '%e')` both work.
+ */
 register("format-date", (args) => {
-	// format-date(date, format) — simplified implementation
-	const dateStr = xpathToString(args[0] ?? "");
+	const raw = args[0] ?? "";
 	const format = xpathToString(args[1] ?? "%Y-%m-%d");
-	const d = new Date(dateStr);
-	if (Number.isNaN(d.getTime())) return dateStr;
+
+	/* Coerce first arg to a date, then to a JS Date for field extraction. */
+	const xd = toDate(raw);
+	if (!xd) return xpathToString(raw);
+	const d = xd.toJSDate();
+
 	return format
-		.replace("%Y", String(d.getFullYear()))
-		.replace("%m", String(d.getMonth() + 1).padStart(2, "0"))
-		.replace("%d", String(d.getDate()).padStart(2, "0"))
-		.replace("%H", String(d.getHours()).padStart(2, "0"))
-		.replace("%M", String(d.getMinutes()).padStart(2, "0"))
-		.replace("%S", String(d.getSeconds()).padStart(2, "0"))
-		.replace("%e", String(d.getDate()));
+		.replace("%Y", String(d.getUTCFullYear()))
+		.replace("%m", String(d.getUTCMonth() + 1).padStart(2, "0"))
+		.replace("%d", String(d.getUTCDate()).padStart(2, "0"))
+		.replace("%H", String(d.getUTCHours()).padStart(2, "0"))
+		.replace("%M", String(d.getUTCMinutes()).padStart(2, "0"))
+		.replace("%S", String(d.getUTCSeconds()).padStart(2, "0"))
+		.replace("%e", String(d.getUTCDate()));
 });
 
 // ── Misc ────────────────────────────────────────────────────────────
