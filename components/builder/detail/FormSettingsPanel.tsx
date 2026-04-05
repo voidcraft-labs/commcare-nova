@@ -320,6 +320,11 @@ function ConnectSection({
 							entity_id: "concat(#user/username, '-', today())",
 							entity_name: "#user/username",
 						},
+						task: {
+							id: `${modSlug}_${formSlug}`,
+							name: formData?.name ?? "",
+							description: formData?.name ?? "",
+						},
 					});
 				}
 			}
@@ -364,22 +369,15 @@ function ConnectSection({
 								/>
 							)}
 
-							{/* Deliver config — name + unit fields + task sub-toggle */}
+							{/* Deliver config — sub-toggles for deliver_unit and task */}
 							{connectType === "deliver" && (
-								<>
-									<ConnectName
-										connect={connect}
-										connectType={connectType}
-										save={save}
-									/>
-									<DeliverConfig
-										connect={connect}
-										save={save}
-										mb={mb}
-										moduleIndex={moduleIndex}
-										formIndex={formIndex}
-									/>
-								</>
+								<DeliverConfig
+									connect={connect}
+									save={save}
+									mb={mb}
+									moduleIndex={moduleIndex}
+									formIndex={formIndex}
+								/>
 							)}
 						</div>
 					</motion.div>
@@ -387,33 +385,6 @@ function ConnectSection({
 			</AnimatePresence>
 		</div>
 	);
-}
-
-// ── Connect Name (shared) ──────────────────────────────────────────────
-
-function ConnectName({
-	connect,
-	save,
-}: {
-	connect: ConnectConfig;
-	connectType: ConnectType;
-	save: (c: ConnectConfig) => void;
-}) {
-	const name = connect.deliver_unit?.name ?? "";
-
-	const onChange = useCallback(
-		(v: string) => {
-			const current = connect.deliver_unit ?? {
-				name: "",
-				entity_id: "",
-				entity_name: "",
-			};
-			save({ ...connect, deliver_unit: { ...current, name: v } });
-		},
-		[connect, save],
-	);
-
-	return <InlineField label="Name" value={name} onChange={onChange} required />;
 }
 
 // ── Shared types for sub-configs ───────────────────────────────────────
@@ -641,6 +612,10 @@ function LearnConfig({
 
 // ── Deliver Config Fields ──────────────────────────────────────────────
 
+/**
+ * Deliver config — two independent sub-toggles (deliver_unit + task),
+ * mirroring LearnConfig's pattern with learn_module + assessment.
+ */
 function DeliverConfig({
 	connect,
 	save,
@@ -650,10 +625,21 @@ function DeliverConfig({
 }: ConnectSubConfigProps) {
 	const du = connect.deliver_unit;
 	const task = connect.task;
+	const deliverEnabled = !!du;
 	const taskEnabled = !!task;
+	const lastDeliverRef = useRef(du);
 	const lastTaskRef = useRef(task);
+	if (du) lastDeliverRef.current = du;
 	if (task) lastTaskRef.current = task;
 	const getLintContext = useConnectLintContext(mb, moduleIndex, formIndex);
+
+	const defaultIds = useCallback(() => {
+		const mod = mb.getModule(moduleIndex);
+		const formData = mb.getForm(moduleIndex, formIndex);
+		const modSlug = toSnakeId(mod?.name ?? "");
+		const formSlug = toSnakeId(formData?.name ?? "");
+		return { deliverId: modSlug, taskId: `${modSlug}_${formSlug}` };
+	}, [mb, moduleIndex, formIndex]);
 
 	const updateDeliverUnit = useCallback(
 		(field: string, value: string) => {
@@ -675,54 +661,115 @@ function DeliverConfig({
 		[connect, save],
 	);
 
+	const toggleDeliver = useCallback(() => {
+		if (deliverEnabled) {
+			const { deliver_unit: _removed, ...rest } = connect;
+			save(rest as ConnectConfig);
+		} else {
+			const restored = lastDeliverRef.current;
+			if (restored?.name.trim()) {
+				save({ ...connect, deliver_unit: restored });
+			} else {
+				const { deliverId } = defaultIds();
+				const formData = mb.getForm(moduleIndex, formIndex);
+				save({
+					...connect,
+					deliver_unit: {
+						id: deliverId,
+						name: formData?.name ?? "",
+						entity_id: "concat(#user/username, '-', today())",
+						entity_name: "#user/username",
+					},
+				});
+			}
+		}
+	}, [deliverEnabled, connect, save, mb, moduleIndex, formIndex, defaultIds]);
+
 	const toggleTask = useCallback(() => {
 		if (taskEnabled) {
-			// Save task data before removing
 			const { task: _removed, ...rest } = connect;
 			save(rest as ConnectConfig);
 		} else {
-			// Restore previous or create defaults
 			const restored = lastTaskRef.current;
-			const formData = mb.getForm(moduleIndex, formIndex);
-			save({
-				...connect,
-				task:
-					restored && (restored.name.trim() || restored.description.trim())
-						? restored
-						: { name: formData?.name ?? "", description: formData?.name ?? "" },
-			});
+			if (restored && (restored.name.trim() || restored.description.trim())) {
+				save({ ...connect, task: restored });
+			} else {
+				const { taskId } = defaultIds();
+				const formData = mb.getForm(moduleIndex, formIndex);
+				save({
+					...connect,
+					task: {
+						id: taskId,
+						name: formData?.name ?? "",
+						description: formData?.name ?? "",
+					},
+				});
+			}
 		}
-	}, [taskEnabled, connect, save, mb, moduleIndex, formIndex]);
+	}, [taskEnabled, connect, save, mb, moduleIndex, formIndex, defaultIds]);
 
 	return (
 		<div className="space-y-2">
-			<div>
-				<span className="text-[10px] text-nova-text-muted uppercase tracking-wider mb-0.5 flex items-center gap-0.5">
-					Entity ID<span className="text-nova-rose">*</span>
-				</span>
-				<XPathField
-					value={du?.entity_id ?? ""}
-					onSave={(v) => {
-						if (v.trim()) updateDeliverUnit("entity_id", v);
-					}}
-					getLintContext={getLintContext}
-				/>
-			</div>
-			<div>
-				<span className="text-[10px] text-nova-text-muted uppercase tracking-wider mb-0.5 flex items-center gap-0.5">
-					Entity Name<span className="text-nova-rose">*</span>
-				</span>
-				<XPathField
-					value={du?.entity_name ?? ""}
-					onSave={(v) => {
-						if (v.trim()) updateDeliverUnit("entity_name", v);
-					}}
-					getLintContext={getLintContext}
-				/>
+			{/* Deliver Unit sub-toggle */}
+			<div className="rounded-lg bg-white/[0.03] border border-white/[0.05] px-2.5 py-2">
+				<div className="flex items-center justify-between">
+					<span className="text-[10px] text-nova-text-muted uppercase tracking-wider">
+						Deliver Unit
+					</span>
+					<Toggle
+						enabled={deliverEnabled}
+						onToggle={toggleDeliver}
+						variant="sub"
+					/>
+				</div>
+				<AnimatePresence>
+					{du && (
+						<motion.div
+							initial={{ opacity: 0, height: 0 }}
+							animate={{ opacity: 1, height: "auto" }}
+							exit={{ opacity: 0, height: 0 }}
+							transition={{ duration: 0.15, ease: "easeOut" }}
+							className="overflow-hidden"
+						>
+							<div className="space-y-2 pt-2.5 mt-2 border-t border-white/[0.05]">
+								<InlineField
+									label="Name"
+									value={du.name}
+									onChange={(v) => updateDeliverUnit("name", v)}
+									required
+								/>
+								<div>
+									<span className="text-[10px] text-nova-text-muted uppercase tracking-wider mb-0.5 flex items-center gap-0.5">
+										Entity ID<span className="text-nova-rose">*</span>
+									</span>
+									<XPathField
+										value={du.entity_id}
+										onSave={(v) => {
+											if (v.trim()) updateDeliverUnit("entity_id", v);
+										}}
+										getLintContext={getLintContext}
+									/>
+								</div>
+								<div>
+									<span className="text-[10px] text-nova-text-muted uppercase tracking-wider mb-0.5 flex items-center gap-0.5">
+										Entity Name<span className="text-nova-rose">*</span>
+									</span>
+									<XPathField
+										value={du.entity_name}
+										onSave={(v) => {
+											if (v.trim()) updateDeliverUnit("entity_name", v);
+										}}
+										getLintContext={getLintContext}
+									/>
+								</div>
+							</div>
+						</motion.div>
+					)}
+				</AnimatePresence>
 			</div>
 
 			{/* Task sub-toggle */}
-			<div className="rounded-lg bg-white/[0.03] border border-white/[0.05] px-2.5 py-2 mt-1">
+			<div className="rounded-lg bg-white/[0.03] border border-white/[0.05] px-2.5 py-2">
 				<div className="flex items-center justify-between">
 					<span className="text-[10px] text-nova-text-muted uppercase tracking-wider">
 						Task

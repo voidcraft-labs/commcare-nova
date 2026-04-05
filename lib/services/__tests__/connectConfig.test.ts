@@ -315,11 +315,22 @@ describe("Connect validation", () => {
 		expect(errors.some((e) => e.code === "CONNECT_MISSING_LEARN")).toBe(false);
 	});
 
-	it("validates deliver form missing deliver_unit", () => {
+	it("validates deliver form missing both deliver_unit and task", () => {
 		const form = makeDeliverForm({});
 		const bp = makeConnectBlueprint("deliver", form);
 		const errors = runValidation(bp);
 		expect(errors.some((e) => e.code === "CONNECT_MISSING_DELIVER")).toBe(true);
+	});
+
+	it("passes validation for deliver form with only task", () => {
+		const form = makeDeliverForm({
+			task: { name: "Delivery Task", description: "Complete the delivery" },
+		});
+		const bp = makeConnectBlueprint("deliver", form);
+		const errors = runValidation(bp);
+		expect(errors.some((e) => e.code === "CONNECT_MISSING_DELIVER")).toBe(
+			false,
+		);
 	});
 
 	it("passes validation for well-formed learn config", () => {

@@ -155,4 +155,4 @@ The Anthropic schema compiler times out with >8 `.optional()` fields per array i
 
 **Content-based sub-config assignment** for learn apps: educational content → `learn_module` only, quiz/test → `assessment` only, combined → both. Never add `learn_module` to a quiz-only form or `assessment` to a content-only form. The SA prompt enforces this.
 
-**Sub-configs are independent.** Each has an optional `id` field (XForm wrapper element name, bind paths). IDs follow question ID rules (alphanumeric snake_case, starts with letter). Learn apps require at least one of `learn_module` or `assessment`. Deliver apps require `deliver_unit`. `task` is always optional.
+**Sub-configs are independent.** Each has an optional `id` field (XForm wrapper element name, bind paths). IDs follow question ID rules (alphanumeric snake_case, starts with letter). Learn apps require at least one of `learn_module` or `assessment`. Deliver apps require at least one of `deliver_unit` or `task`. Both connect types follow the same pattern: independent sub-toggles that can be enabled/disabled individually.

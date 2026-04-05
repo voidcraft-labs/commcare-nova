@@ -775,7 +775,7 @@ export function createSolutionsArchitect(
 						.nullable()
 						.optional()
 						.describe(
-							"Set Connect config on this form. null to remove. Learn apps: set learn_module and/or assessment independently — match to form content.",
+							"Set Connect config on this form. null to remove. Learn apps: set learn_module and/or assessment independently. Deliver apps: set deliver_unit and/or task independently.",
 						),
 				}),
 				execute: async ({

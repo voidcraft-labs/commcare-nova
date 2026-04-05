@@ -640,12 +640,16 @@ export function connectValidation(
 			),
 		);
 	}
-	if (blueprint.connect_type === "deliver" && !form.connect.deliver_unit) {
+	if (
+		blueprint.connect_type === "deliver" &&
+		!form.connect.deliver_unit &&
+		!form.connect.task
+	) {
 		errors.push(
 			validationError(
 				"CONNECT_MISSING_DELIVER",
 				"form",
-				`"${ctx.formName}" is opted into Connect but is missing deliver_unit config. This app is a Connect Deliver app, so each Connect form needs a deliver_unit with at least a name.`,
+				`"${ctx.formName}" is opted into Connect but has neither a deliver unit nor a task. Enable at least one.`,
 				loc,
 			),
 		);
