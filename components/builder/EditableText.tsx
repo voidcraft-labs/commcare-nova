@@ -1,6 +1,7 @@
 "use client";
 import { useCallback, useId } from "react";
 import { SavedCheck } from "@/components/builder/EditableTitle";
+import { SaveShortcutHint } from "@/components/builder/SaveShortcutHint";
 import { useCommitField } from "@/hooks/useCommitField";
 
 interface EditableTextProps {
@@ -89,19 +90,7 @@ export function EditableText({
 					size={12}
 					className="shrink-0"
 				/>
-				{focused && multiline && (
-					<span className="ml-auto text-[10px] tracking-normal text-nova-text-secondary font-normal">
-						{typeof navigator !== "undefined" &&
-						/Mac|iPhone|iPad/.test(navigator.platform)
-							? "⌘"
-							: "Ctrl"}{" "}
-						+{" "}
-						{typeof navigator !== "undefined" && /Win/.test(navigator.platform)
-							? "ENTER"
-							: "RETURN"}{" "}
-						TO SAVE
-					</span>
-				)}
+				{focused && multiline && <SaveShortcutHint />}
 				{labelRight}
 			</label>
 			{multiline ? (

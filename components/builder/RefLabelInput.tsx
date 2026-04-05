@@ -29,6 +29,7 @@ import {
 	useState,
 } from "react";
 import { SavedCheck } from "@/components/builder/EditableTitle";
+import { SaveShortcutHint } from "@/components/builder/SaveShortcutHint";
 import { ReferenceProvider } from "@/lib/references/provider";
 import { useReferenceProvider } from "@/lib/references/ReferenceContext";
 import { parseLabelSegments } from "@/lib/references/renderLabel";
@@ -50,9 +51,6 @@ interface RefLabelInputProps {
 }
 
 // ── Serialization ───────────────────────────────────────────────────────
-
-const IS_MAC = /Mac|iPhone|iPad/;
-const IS_WIN = /Win/;
 
 /**
  * Parse a label string into TipTap JSON content.
@@ -395,18 +393,7 @@ export function RefLabelInput({
 					size={12}
 					className="shrink-0"
 				/>
-				{focused && multiline && (
-					<span className="ml-auto text-[10px] tracking-normal text-nova-text-secondary font-normal">
-						{typeof navigator !== "undefined" && IS_MAC.test(navigator.platform)
-							? "⌘"
-							: "Ctrl"}{" "}
-						+{" "}
-						{typeof navigator !== "undefined" && IS_WIN.test(navigator.platform)
-							? "ENTER"
-							: "RETURN"}{" "}
-						TO SAVE
-					</span>
-				)}
+				{focused && multiline && <SaveShortcutHint />}
 				{labelRight}
 			</span>
 			<div className={wrapperCls}>

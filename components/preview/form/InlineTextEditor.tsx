@@ -20,8 +20,9 @@
  * **Hints** — BubbleMenu with default shouldShow (text selection only).
  * Bold and italic MarkButton only.
  *
- * Save: blur or Escape. Cancel: no separate cancel — every blur saves.
- * Tab/Shift+Tab: save current, activate next/previous TextEditable in DOM order.
+ * Save: blur, Escape, or Cmd/Ctrl+Enter. Cancel: no separate cancel — every
+ * blur saves. Tab/Shift+Tab: save current, activate next/previous TextEditable
+ * in DOM order.
  */
 
 "use client";
@@ -30,6 +31,7 @@ import { Tiptap, useEditor } from "@tiptap/react";
 import { BubbleMenu } from "@tiptap/react/menus";
 import { useCallback, useEffect, useMemo, useRef } from "react";
 import { createPortal } from "react-dom";
+import { ToolbarSaveHint } from "@/components/builder/SaveShortcutHint";
 import { BlockquoteButton } from "@/components/tiptap-ui/blockquote-button";
 import { CodeBlockButton } from "@/components/tiptap-ui/code-block-button";
 import { HeadingDropdownMenu } from "@/components/tiptap-ui/heading-dropdown-menu";
@@ -159,6 +161,8 @@ function LabelToolbar({
 					<HorizontalRuleButton />
 					<TableButton />
 				</ToolbarGroup>
+				<ToolbarSeparator />
+				<ToolbarSaveHint />
 			</Toolbar>
 		</div>,
 		document.body,
@@ -231,6 +235,11 @@ export function InlineTextEditor({
 						"Shift-Tab": ({ editor }) => {
 							saveRef.current(editor);
 							requestAnimationFrame(() => activateAdjacentEditable("prev"));
+							return true;
+						},
+						"Mod-Enter": ({ editor }) => {
+							saveRef.current(editor);
+							editor.commands.blur();
 							return true;
 						},
 						Escape: ({ editor }) => {
