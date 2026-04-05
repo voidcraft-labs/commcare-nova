@@ -23,6 +23,8 @@ ProseMirror injects a `<br class="ProseMirror-trailingBreak">` at the end of eve
 
 The glassmorphic toolbar must be absolutely positioned in BuilderLayout's `overflow-hidden relative` wrapper — **not** inside PreviewShell's scroll container (`data-preview-scroll-container`). If placed inside as `sticky`, `backdrop-filter` samples the opaque `bg-pv-bg` background instead of the scrolling content, killing the glass effect. It also creates double scrollbars (BuilderLayout's wrapper + PreviewShell's internal scroller). `topInset` on PreviewShell offsets content below the overlay so the first screen element isn't hidden on initial load.
 
+**Scroll-to-selection accounts for two overlaps:** (1) the toolbar overlay — the visible region starts at `containerRect.top + paddingTop`, not `containerRect.top`; (2) the collapsing InlineSettingsPanel — when selection changes, the old panel (`[data-settings-panel]`) is still at full height in the DOM (AnimatePresence exit hasn't started). If it's above the target, its height is subtracted from the scroll target to compensate for the layout shift that will occur during the 200ms exit animation. Do not replace this with a timeout — the deterministic measurement is correct and animation-duration-independent.
+
 ## Selection Behavior
 
 **Sticky selection** — clicking empty space in the form does not deselect. Selection changes only when the user clicks a different question or navigates away. This is intentional: deselecting on click-outside would constantly dismiss the contextual editor panel.

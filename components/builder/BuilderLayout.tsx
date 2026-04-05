@@ -479,11 +479,22 @@ export function BuilderLayout() {
 	);
 
 	/* Scroll the design canvas to the selected question after React commits.
-	 * Fires reactively when selection changes — no timer needed since the
-	 * effect runs after the DOM update that renders the target element. */
+	 * When the selection changes, the previously-selected question's
+	 * InlineSettingsPanel is still in the DOM at full height (AnimatePresence
+	 * keeps it for its 200ms exit animation). If that panel is *above* the
+	 * new target, its collapse will shift the target upward during the smooth
+	 * scroll — causing overshoot. We compensate deterministically: measure
+	 * the collapsing panel's current height and subtract it from the scroll
+	 * target so the final position accounts for the layout shift.
+	 * The toolbar overlay covers the top of the scroll container, so the
+	 * visible region starts at containerRect.top + paddingTop (set by topInset). */
 	const selectedQuestionPath = builder.selected?.questionPath;
+	const prevSelectedPathRef = useRef<string | undefined>(undefined);
 	useEffect(() => {
+		const prevPath = prevSelectedPathRef.current;
+		prevSelectedPathRef.current = selectedQuestionPath;
 		if (!selectedQuestionPath) return;
+
 		const el = document.querySelector(
 			`[data-question-id="${selectedQuestionPath}"]`,
 		) as HTMLElement | null;
@@ -491,21 +502,46 @@ export function BuilderLayout() {
 			"[data-preview-scroll-container]",
 		) as HTMLElement | null;
 		if (!el || !scrollContainer) return;
+
+		/* Measure the collapsing panel's height. The old InlineSettingsPanel
+		 * wrapper ([data-settings-panel]) is still in the DOM at full height —
+		 * AnimatePresence hasn't started the exit animation yet. If the old
+		 * question is above the new target, the panel's collapse will shift
+		 * everything below it upward by this amount during the scroll. */
+		let collapsingShift = 0;
+		if (prevPath && prevPath !== selectedQuestionPath) {
+			const prevEl = scrollContainer.querySelector(
+				`[data-question-id="${prevPath}"]`,
+			) as HTMLElement | null;
+			if (prevEl) {
+				const panel = prevEl.nextElementSibling as HTMLElement | null;
+				if (
+					panel?.hasAttribute("data-settings-panel") &&
+					prevEl.getBoundingClientRect().top < el.getBoundingClientRect().top
+				) {
+					collapsingShift = panel.getBoundingClientRect().height;
+				}
+			}
+		}
+
 		const containerRect = scrollContainer.getBoundingClientRect();
 		const elRect = el.getBoundingClientRect();
-		/* Only scroll if the top of the element is outside the visible viewport.
-		 * For tall elements (groups/repeats), we only care about the top being
-		 * visible — requiring the full element to fit would always trigger a scroll. */
 		const SCROLL_MARGIN = 20;
+		const visibleTop =
+			containerRect.top +
+			(scrollContainer.style.paddingTop
+				? Number.parseInt(scrollContainer.style.paddingTop, 10)
+				: 0);
+		/* Subtract the collapsing panel's height from the element's current
+		 * position — this is where it will actually end up after the exit
+		 * animation finishes and the layout reflows. */
+		const adjustedTop = elRect.top - collapsingShift;
 		const isTopVisible =
-			elRect.top >= containerRect.top + SCROLL_MARGIN &&
-			elRect.top <= containerRect.bottom - SCROLL_MARGIN;
+			adjustedTop >= visibleTop + SCROLL_MARGIN &&
+			adjustedTop <= containerRect.bottom - SCROLL_MARGIN;
 		if (!isTopVisible) {
 			const targetScrollTop =
-				scrollContainer.scrollTop +
-				elRect.top -
-				containerRect.top -
-				SCROLL_MARGIN;
+				scrollContainer.scrollTop + adjustedTop - visibleTop - SCROLL_MARGIN;
 			scrollContainer.scrollTo({
 				top: Math.max(0, targetScrollTop),
 				behavior: "smooth",

@@ -361,6 +361,7 @@ function SortableQuestion({
 				{isSelected && ctx && (
 					<motion.div
 						key="inline-settings"
+						data-settings-panel
 						initial={{ opacity: 0, height: 0 }}
 						animate={{ opacity: 1, height: "auto" }}
 						exit={{ opacity: 0, height: 0 }}
