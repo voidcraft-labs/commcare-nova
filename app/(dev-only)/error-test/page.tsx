@@ -2,7 +2,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { GenerationProgress } from "@/components/builder/GenerationProgress";
 import { SignalPanel } from "@/components/chat/SignalPanel";
-import { ToastContainer } from "@/components/ui/ToastContainer";
 import {
 	BuilderPhase,
 	type GenerationError,
@@ -578,8 +577,6 @@ export default function ErrorTestPage() {
 					</div>
 				</div>
 			</div>
-
-			<ToastContainer />
 		</div>
 	);
 }

@@ -187,7 +187,7 @@ interface PartialModule {
 export class Builder {
 	// ── Private state ────────────────────────────────────────────────────
 
-	private _phase = BuilderPhase.Idle;
+	private _phase: BuilderPhase;
 	private _scaffold?: Scaffold;
 	private _mb?: MutableBlueprint;
 	private _history?: HistoryManager;
@@ -226,6 +226,10 @@ export class Builder {
 
 	// ── App persistence ─────────────────────────────────────────────────
 	private _appId: string | undefined;
+
+	constructor(initialPhase: BuilderPhase = BuilderPhase.Idle) {
+		this._phase = initialPhase;
+	}
 
 	// ── Read-only public accessors ───────────────────────────────────────
 
@@ -751,13 +755,6 @@ export class Builder {
 	 *  — the URL update is handled by BuilderLayout's onData callback directly. */
 	setAppId(id: string) {
 		this._appId = id;
-	}
-
-	/** Transition to Loading phase — fetching a saved app from Firestore.
-	 *  Puts the layout in builder frame immediately (not centered). */
-	startLoading() {
-		this._phase = BuilderPhase.Loading;
-		this.notify();
 	}
 
 	/** Atomic Loading → Ready transition for hydrating a saved app.

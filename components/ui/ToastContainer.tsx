@@ -3,7 +3,6 @@ import { Icon } from "@iconify/react/offline";
 import tablerX from "@iconify-icons/tabler/x";
 import { AnimatePresence, motion } from "motion/react";
 import { useCallback, useEffect, useRef } from "react";
-import { createPortal } from "react-dom";
 import { useToasts } from "@/hooks/useToasts";
 import type { Toast, ToastSeverity } from "@/lib/services/toastStore";
 
@@ -97,12 +96,18 @@ function ToastItem({
 	);
 }
 
+/**
+ * ToastContainer — fixed-position toast stack rendered as a normal component.
+ *
+ * Placed in the root layout as a client component leaf — `position: fixed`
+ * renders at the viewport level regardless of DOM position. No portal needed,
+ * which avoids the server/client hydration mismatch that `createPortal` to
+ * `document.body` would cause (body doesn't exist during SSR).
+ */
 export function ToastContainer() {
 	const store = useToasts();
 
-	if (typeof document === "undefined") return null;
-
-	return createPortal(
+	return (
 		<div className="fixed top-4 right-4 z-50 flex flex-col gap-2 pointer-events-none">
 			<AnimatePresence mode="popLayout">
 				{store.toasts.map((toast) => (
@@ -111,7 +116,6 @@ export function ToastContainer() {
 					</div>
 				))}
 			</AnimatePresence>
-		</div>,
-		document.body,
+		</div>
 	);
 }
