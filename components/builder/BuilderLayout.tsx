@@ -86,9 +86,9 @@ const SIDEBAR_TRANSITION = { duration: 0.2, ease: [0.4, 0, 0.2, 1] } as const;
 /** Width of the structure sidebar in pixels (w-80). */
 const STRUCTURE_SIDEBAR_WIDTH = 320;
 
-/** Height of the glassmorphic cursor mode toolbar (py-2.5 + 34px control).
+/** Height of the glassmorphic cursor mode pill (top-2.5 + py-1.5 + 34px control + py-1.5).
  *  Used as top inset on PreviewShell so content starts below the overlay. */
-const TOOLBAR_INSET = 54;
+const TOOLBAR_INSET = 56;
 
 /** Create a Chat instance with transport, data handling, and auto-resend config.
  *  Closures capture refs (not direct values) so they always read the latest
@@ -861,18 +861,21 @@ export function BuilderLayout() {
 									) : null}
 								</ErrorBoundary>
 
-								{/* Cursor mode bar — absolutely positioned over the scroll
-								 *  container so backdrop-filter samples the scrolling content
-								 *  beneath. topInset on PreviewShell offsets content so it
-								 *  starts below this bar at initial scroll position. */}
+								{/* Cursor mode pill — absolutely positioned centered pill over
+								 *  the scroll container so backdrop-filter samples the scrolling
+								 *  content beneath. Pill shape avoids covering sidebar expand
+								 *  icons at the edges. topInset on PreviewShell offsets content
+								 *  so it starts below this overlay at initial scroll position. */}
 								{showToolbar && (
-									<div className="absolute top-0 inset-x-0 z-raised flex justify-center py-2.5 bg-[rgba(10,10,26,0.4)] backdrop-blur-[12px] [-webkit-backdrop-filter:blur(12px)] border-b border-white/[0.06] shadow-[0_8px_24px_rgba(0,0,0,0.3)]">
-										<CursorModeSelector
-											mode={cursorMode}
-											onChange={handleCursorModeChange}
-											variant="horizontal"
-											glass
-										/>
+									<div className="absolute top-2.5 inset-x-0 z-raised flex justify-center pointer-events-none">
+										<div className="pointer-events-auto rounded-full bg-[rgba(10,10,26,0.5)] backdrop-blur-[12px] [-webkit-backdrop-filter:blur(12px)] border border-white/[0.06] shadow-[0_8px_24px_rgba(0,0,0,0.3)] px-1.5 py-1.5">
+											<CursorModeSelector
+												mode={cursorMode}
+												onChange={handleCursorModeChange}
+												variant="horizontal"
+												glass
+											/>
+										</div>
 									</div>
 								)}
 
