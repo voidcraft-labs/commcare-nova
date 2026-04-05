@@ -1,0 +1,145 @@
+/**
+ * RequiredSection — self-contained editor for the `required` field's tri-state lifecycle.
+ *
+ * The `required` field on a question encodes three states in one string:
+ *   - `undefined`  → not required (toggle off)
+ *   - `"true()"`   → always required (toggle on, no condition)
+ *   - any other XPath → conditionally required (toggle on + condition)
+ *
+ * This component encapsulates all three transitions so no other code needs
+ * to know about the `"true()"` sentinel. It owns the toggle, the "Add
+ * Condition" button, the XPathField, and the save semantics — calling
+ * `useSaveQuestion` directly with the pre-computed value instead of routing
+ * through `saveXPath`.
+ */
+
+"use client";
+import { Icon } from "@iconify/react/offline";
+import tablerTrash from "@iconify-icons/tabler/trash";
+import { useCallback, useState } from "react";
+import { SaveShortcutHint } from "@/components/builder/SaveShortcutHint";
+import { XPathField } from "@/components/builder/XPathField";
+import { Toggle } from "@/components/ui/Toggle";
+import { useSaveQuestion } from "@/hooks/useSaveQuestion";
+import type { XPathLintContext } from "@/lib/codemirror/xpath-lint";
+import type { Builder } from "@/lib/services/builder";
+import { AddPropertyButton } from "./AddPropertyButton";
+
+/** Sentinel value CommCare uses for "always required" (no condition). */
+const ALWAYS_REQUIRED = "true()";
+
+interface RequiredSectionProps {
+	/** Current value of the `required` field — truthy means the toggle is on. */
+	required: string | undefined;
+	builder: Builder;
+	getLintContext: () => XPathLintContext | undefined;
+}
+
+/**
+ * Full editor for the required field: toggle, optional condition XPath,
+ * add/remove condition controls.
+ *
+ * **State ownership:** This component owns a single piece of local state —
+ * whether the user is actively adding a new condition (the XPath editor is
+ * open for the first time). Once saved, the condition lives on the question
+ * and the "adding" state resets. This avoids sharing addable-field state
+ * with other XPath fields in the parent.
+ */
+export function RequiredSection({
+	required,
+	builder,
+	getLintContext,
+}: RequiredSectionProps) {
+	const saveQuestion = useSaveQuestion(builder);
+
+	/** True while the user is adding a brand-new condition (editor open, no
+	 *  persisted condition yet). Distinct from editing an existing condition,
+	 *  which the XPathField manages internally. */
+	const [addingCondition, setAddingCondition] = useState(false);
+
+	/** Tracks whether the XPath editor is active (for the save-hint label). */
+	const [editing, setEditing] = useState(false);
+
+	const hasCondition = !!required && required !== ALWAYS_REQUIRED;
+
+	// ── Save helpers ────────────────────────────────────────────────────
+
+	/** Toggle required off → removes the field entirely. */
+	const handleToggleOff = useCallback(() => {
+		saveQuestion("required", null);
+		setAddingCondition(false);
+	}, [saveQuestion]);
+
+	/** Toggle required on → sets to "always required" sentinel. */
+	const handleToggleOn = useCallback(() => {
+		saveQuestion("required", ALWAYS_REQUIRED);
+	}, [saveQuestion]);
+
+	/** Save an XPath condition. Empty input reverts to "always required"
+	 *  rather than removing the field — the toggle stays on. */
+	const handleConditionSave = useCallback(
+		(value: string) => {
+			saveQuestion("required", value || ALWAYS_REQUIRED);
+			setAddingCondition(false);
+		},
+		[saveQuestion],
+	);
+
+	/** Remove the condition but keep the toggle on. */
+	const handleConditionRemove = useCallback(() => {
+		saveQuestion("required", ALWAYS_REQUIRED);
+		setAddingCondition(false);
+	}, [saveQuestion]);
+
+	// ── Not required — show "Add Property" button ───────────────────────
+
+	if (!required) {
+		return <AddPropertyButton label="Required" onClick={handleToggleOn} />;
+	}
+
+	// ── Required (toggle on) — show toggle + optional condition ─────────
+
+	const showEditor = hasCondition || addingCondition;
+
+	return (
+		<div>
+			<div className="flex items-center justify-between mb-1">
+				{/* Visual heading — Toggle is a custom component, not a native input */}
+				<span className="text-xs text-nova-text-muted uppercase tracking-wider flex items-center gap-1.5 min-w-0">
+					Required
+					{editing && <SaveShortcutHint />}
+				</span>
+				<Toggle enabled onToggle={handleToggleOff} />
+			</div>
+			{showEditor ? (
+				<div className="flex items-center gap-1.5 group/condition">
+					<div className="flex-1 min-w-0">
+						<XPathField
+							value={hasCondition ? required : ""}
+							onSave={handleConditionSave}
+							getLintContext={getLintContext}
+							autoEdit={addingCondition}
+							onEditingChange={setEditing}
+						/>
+					</div>
+					{hasCondition && (
+						<button
+							type="button"
+							onClick={handleConditionRemove}
+							aria-label="Remove condition"
+							className="shrink-0 p-0.5 text-nova-text-muted opacity-0 group-hover/condition:opacity-100 hover:text-nova-rose transition-all cursor-pointer"
+							tabIndex={-1}
+						>
+							<Icon icon={tablerTrash} width="12" height="12" />
+						</button>
+					)}
+				</div>
+			) : (
+				<AddPropertyButton
+					label="Condition"
+					onClick={() => setAddingCondition(true)}
+				/>
+			)}
+		</div>
+	);
+}

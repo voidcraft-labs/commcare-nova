@@ -1,15 +1,14 @@
 "use client";
-import { Icon } from "@iconify/react/offline";
-import tablerTrash from "@iconify-icons/tabler/trash";
-import { useCallback } from "react";
+import { useCallback, useState } from "react";
 import { EditableText } from "@/components/builder/EditableText";
+import { SaveShortcutHint } from "@/components/builder/SaveShortcutHint";
 import { XPathField } from "@/components/builder/XPathField";
-import { Toggle } from "@/components/ui/Toggle";
 import { useSaveQuestion } from "@/hooks/useSaveQuestion";
 import type { XPathLintContext } from "@/lib/codemirror/xpath-lint";
 import type { Question } from "@/lib/schemas/blueprint";
 import type { QuestionPath } from "@/lib/services/questionPath";
 import { AddPropertyButton } from "./AddPropertyButton";
+import { RequiredSection } from "./RequiredSection";
 import {
 	addableTextFields,
 	type QuestionEditorProps,
@@ -38,18 +37,22 @@ function XPathSection({
 	autoEdit: boolean;
 	children?: React.ReactNode;
 }) {
+	const [editing, setEditing] = useState(false);
+
 	return (
 		<div>
 			{/* Visual heading only — XPathField is a CodeMirror editor, not a native
            input, so <label> can't associate with it and misleads screen readers. */}
-			<span className="text-xs text-nova-text-muted uppercase tracking-wider mb-1 block">
+			<span className="text-xs text-nova-text-muted uppercase tracking-wider mb-1 flex items-center gap-1.5">
 				{label}
+				{editing && <SaveShortcutHint />}
 			</span>
 			<XPathField
 				value={value}
 				onSave={onSave}
 				getLintContext={getLintContext}
 				autoEdit={autoEdit}
+				onEditingChange={setEditing}
 			/>
 			{children}
 		</div>
@@ -81,24 +84,17 @@ export function ContextualEditorLogic({
 		return { blueprint, form, moduleCaseType: mod?.case_type ?? undefined };
 	}, [mb, selected]);
 
-	/** Save handler for XPath fields. Clears pending state after save.
-	 *  Empty values fall back to true() for required, null (removal) for others. */
+	/** Save handler for standard XPath fields (validation, relevant, etc.).
+	 *  Empty values become null (field removal). Clears pending add-property state. */
 	const saveXPath = useCallback(
 		(field: string, value: string) => {
-			if (field === "required") {
-				saveQuestion("required", value || "true()");
-			} else {
-				saveQuestion(field, value || null);
-			}
+			saveQuestion(field, value || null);
 			xpathField.clear();
 		},
 		[saveQuestion, xpathField],
 	);
 
 	if (!selected || !mb) return null;
-
-	const hasRequiredCondition =
-		!!question.required && question.required !== "true()";
 
 	/** XPath fields not yet set on this question, available to add. */
 	const missingXPathFields = xpathFields.filter(
@@ -131,45 +127,11 @@ export function ContextualEditorLogic({
 	return (
 		<div className="space-y-3">
 			{/* ── Required: toggle + optional conditional XPath expression ── */}
-			{question.required && (
-				<div>
-					<div className="flex items-center justify-between mb-1">
-						{/* Visual heading — Toggle is a custom component, not a native input */}
-						<span className="text-xs text-nova-text-muted uppercase tracking-wider">
-							Required
-						</span>
-						<Toggle enabled onToggle={() => saveQuestion("required", null)} />
-					</div>
-					{hasRequiredCondition || xpathField.activeField === "required" ? (
-						<div className="flex items-center gap-1.5 group/condition">
-							<div className="flex-1 min-w-0">
-								<XPathField
-									value={hasRequiredCondition ? (question.required ?? "") : ""}
-									onSave={(v) => saveXPath("required", v)}
-									getLintContext={getLintContext}
-									autoEdit={xpathField.activeField === "required"}
-								/>
-							</div>
-							{hasRequiredCondition && (
-								<button
-									type="button"
-									onClick={() => saveQuestion("required", "true()")}
-									aria-label="Remove condition"
-									className="shrink-0 p-0.5 text-nova-text-muted opacity-0 group-hover/condition:opacity-100 hover:text-nova-rose transition-all cursor-pointer"
-									tabIndex={-1}
-								>
-									<Icon icon={tablerTrash} width="12" height="12" />
-								</button>
-							)}
-						</div>
-					) : (
-						<AddPropertyButton
-							label="Condition"
-							onClick={() => xpathField.activate("required")}
-						/>
-					)}
-				</div>
-			)}
+			<RequiredSection
+				required={question.required}
+				builder={builder}
+				getLintContext={getLintContext}
+			/>
 
 			{/* ── Standard XPath fields: validation (with validation_msg), relevant, default_value, calculate ── */}
 			{isVisible("validation") && (
@@ -230,19 +192,11 @@ export function ContextualEditorLogic({
 			)}
 
 			{/* ── Add Property buttons for missing fields ── */}
-			{(!question.required ||
-				missingXPathFields.length > 0 ||
-				missingValidationMsg.length > 0) && (
+			{(missingXPathFields.length > 0 || missingValidationMsg.length > 0) && (
 				<div
 					className={hasContent ? "pt-2 border-t border-nova-border/40" : ""}
 				>
 					<div className="flex flex-wrap gap-1.5">
-						{!question.required && (
-							<AddPropertyButton
-								label="Required"
-								onClick={() => saveQuestion("required", "true()")}
-							/>
-						)}
 						{missingValidationMsg.map(({ field, label }) => (
 							<AddPropertyButton
 								key={field}

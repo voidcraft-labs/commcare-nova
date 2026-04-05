@@ -6,8 +6,9 @@ import tablerSettings from "@iconify-icons/tabler/settings";
 import tablerTable from "@iconify-icons/tabler/table";
 import tablerX from "@iconify-icons/tabler/x";
 import { AnimatePresence, motion } from "motion/react";
-import { useCallback, useId, useRef } from "react";
+import { useCallback, useId, useRef, useState } from "react";
 import { SavedCheck } from "@/components/builder/EditableTitle";
+import { SaveShortcutHint } from "@/components/builder/SaveShortcutHint";
 import { XPathField } from "@/components/builder/XPathField";
 import { ConnectLogomark } from "@/components/icons/ConnectLogomark";
 import {
@@ -261,6 +262,42 @@ function AfterSubmitSection({
 }
 
 // ── Connect Configuration Section ──────────────────────────────────────
+
+/**
+ * Compact labeled XPathField for settings panels. Shows the save shortcut
+ * hint beside the label while the editor is active.
+ */
+function LabeledXPathField({
+	label,
+	required,
+	value,
+	onSave,
+	getLintContext,
+}: {
+	label: string;
+	required?: boolean;
+	value: string;
+	onSave: (value: string) => void;
+	getLintContext: () => XPathLintContext | undefined;
+}) {
+	const [editing, setEditing] = useState(false);
+
+	return (
+		<div>
+			<span className="text-[10px] text-nova-text-muted uppercase tracking-wider mb-0.5 flex items-center gap-0.5">
+				{label}
+				{required && <span className="text-nova-rose">*</span>}
+				{editing && <SaveShortcutHint />}
+			</span>
+			<XPathField
+				value={value}
+				onSave={onSave}
+				getLintContext={getLintContext}
+				onEditingChange={setEditing}
+			/>
+		</div>
+	);
+}
 
 function ConnectSection({
 	form,
@@ -585,22 +622,19 @@ function LearnConfig({
 									mono
 									required
 								/>
-								<div>
-									<span className="text-[10px] text-nova-text-muted uppercase tracking-wider mb-0.5 flex items-center gap-0.5">
-										User Score<span className="text-nova-rose">*</span>
-									</span>
-									<XPathField
-										value={assessment.user_score}
-										onSave={(v) => {
-											if (v.trim())
-												save({
-													...connect,
-													assessment: { ...assessment, user_score: v },
-												});
-										}}
-										getLintContext={getLintContext}
-									/>
-								</div>
+								<LabeledXPathField
+									label="User Score"
+									required
+									value={assessment.user_score}
+									onSave={(v) => {
+										if (v.trim())
+											save({
+												...connect,
+												assessment: { ...assessment, user_score: v },
+											});
+									}}
+									getLintContext={getLintContext}
+								/>
 							</div>
 						</motion.div>
 					)}
@@ -738,30 +772,24 @@ function DeliverConfig({
 									onChange={(v) => updateDeliverUnit("name", v)}
 									required
 								/>
-								<div>
-									<span className="text-[10px] text-nova-text-muted uppercase tracking-wider mb-0.5 flex items-center gap-0.5">
-										Entity ID<span className="text-nova-rose">*</span>
-									</span>
-									<XPathField
-										value={du.entity_id}
-										onSave={(v) => {
-											if (v.trim()) updateDeliverUnit("entity_id", v);
-										}}
-										getLintContext={getLintContext}
-									/>
-								</div>
-								<div>
-									<span className="text-[10px] text-nova-text-muted uppercase tracking-wider mb-0.5 flex items-center gap-0.5">
-										Entity Name<span className="text-nova-rose">*</span>
-									</span>
-									<XPathField
-										value={du.entity_name}
-										onSave={(v) => {
-											if (v.trim()) updateDeliverUnit("entity_name", v);
-										}}
-										getLintContext={getLintContext}
-									/>
-								</div>
+								<LabeledXPathField
+									label="Entity ID"
+									required
+									value={du.entity_id}
+									onSave={(v) => {
+										if (v.trim()) updateDeliverUnit("entity_id", v);
+									}}
+									getLintContext={getLintContext}
+								/>
+								<LabeledXPathField
+									label="Entity Name"
+									required
+									value={du.entity_name}
+									onSave={(v) => {
+										if (v.trim()) updateDeliverUnit("entity_name", v);
+									}}
+									getLintContext={getLintContext}
+								/>
 							</div>
 						</motion.div>
 					)}

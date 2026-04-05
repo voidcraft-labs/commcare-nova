@@ -207,11 +207,16 @@ export function XPathField({
 			value={value}
 			onSave={(v) => {
 				clickPosRef.current = null;
-				setEditing(false);
 				const normalized = formatXPath(v);
 				if (normalized !== formatXPath(value)) {
 					onSave?.(normalized);
 				}
+				/* setEditing after the save callback so the external store
+				 * update (from onSave → notifyBlueprintChanged) and the local
+				 * state update batch in the same React render cycle. Calling
+				 * setEditing first could trigger a synchronous re-render via
+				 * useSyncExternalStore before the save fires. */
+				setEditing(false);
 			}}
 			onCancel={() => {
 				clickPosRef.current = null;
