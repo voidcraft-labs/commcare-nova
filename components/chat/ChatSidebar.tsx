@@ -28,7 +28,7 @@ import {
 
 /** Sidebar panel width in pixels. Exported so siblings (e.g. cursor mode bar
  *  positioning in BuilderLayout) can derive offsets without magic numbers. */
-export const CHAT_SIDEBAR_WIDTH = 280;
+export const CHAT_SIDEBAR_WIDTH = 320;
 
 /** Create a SignalGridController whose energy callbacks close over a ref (not
  *  a direct value) so they always read the latest builder instance. Safe across

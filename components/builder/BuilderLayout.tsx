@@ -86,6 +86,10 @@ const SIDEBAR_TRANSITION = { duration: 0.2, ease: [0.4, 0, 0.2, 1] } as const;
 /** Width of the structure sidebar in pixels (w-80). */
 const STRUCTURE_SIDEBAR_WIDTH = 320;
 
+/** Height of the glassmorphic cursor mode toolbar (py-2.5 + 34px control).
+ *  Used as top inset on PreviewShell so content starts below the overlay. */
+const TOOLBAR_INSET = 54;
+
 /** Create a Chat instance with transport, data handling, and auto-resend config.
  *  Closures capture refs (not direct values) so they always read the latest
  *  builder and runId — safe across re-renders within the same app session. */
@@ -780,50 +784,59 @@ export function BuilderLayout() {
 								exit={{ opacity: 0 }}
 								transition={{ duration: 0.3, delay: 0.15 }}
 							>
-								<div className="h-full overflow-auto">
-									{/* Floating reopen buttons — same position as original design */}
-									{!structureOpen && builder.treeData && (
-										<button
-											type="button"
-											onClick={() => setStructureOpen(true)}
-											className="absolute top-3 left-3 z-ground p-2 bg-nova-surface border border-nova-border rounded-lg hover:border-nova-border-bright transition-colors cursor-pointer"
-											title="Open structure"
-											aria-label="Open structure sidebar"
-										>
-											<Icon icon={tablerListTree} width="20" height="20" />
-										</button>
-									)}
-									{!chatOpen && (
-										<button
-											type="button"
-											onClick={() => setChatOpen(true)}
-											className="absolute top-3 right-3 z-ground p-2 bg-nova-surface border border-nova-border rounded-lg hover:border-nova-border-bright transition-colors cursor-pointer"
-											title="Open chat"
-											aria-label="Open chat sidebar"
-										>
-											<Icon
-												icon={tablerMessageChatbot}
-												width="20"
-												height="20"
-											/>
-										</button>
-									)}
+								{/* Floating reopen buttons for collapsed sidebars */}
+								{!structureOpen && builder.treeData && (
+									<button
+										type="button"
+										onClick={() => setStructureOpen(true)}
+										className="absolute top-3 left-3 z-ground p-2 bg-nova-surface border border-nova-border rounded-lg hover:border-nova-border-bright transition-colors cursor-pointer"
+										title="Open structure"
+										aria-label="Open structure sidebar"
+									>
+										<Icon icon={tablerListTree} width="20" height="20" />
+									</button>
+								)}
+								{!chatOpen && (
+									<button
+										type="button"
+										onClick={() => setChatOpen(true)}
+										className="absolute top-3 right-3 z-ground p-2 bg-nova-surface border border-nova-border rounded-lg hover:border-nova-border-bright transition-colors cursor-pointer"
+										title="Open chat"
+										aria-label="Open chat sidebar"
+									>
+										<Icon icon={tablerMessageChatbot} width="20" height="20" />
+									</button>
+								)}
 
-									<ErrorBoundary>
-										{builder.phase === BuilderPhase.Ready &&
-										builder.blueprint ? (
-											<PreviewShell
-												blueprint={builder.blueprint}
-												builder={builder}
-												mode={editMode}
-												cursorMode={cursorMode}
-												nav={nav}
-												hideHeader
-												onBack={handlePreviewBack}
-											/>
-										) : null}
-									</ErrorBoundary>
-								</div>
+								<ErrorBoundary>
+									{builder.phase === BuilderPhase.Ready && builder.blueprint ? (
+										<PreviewShell
+											blueprint={builder.blueprint}
+											builder={builder}
+											mode={editMode}
+											cursorMode={cursorMode}
+											nav={nav}
+											hideHeader
+											topInset={showToolbar ? TOOLBAR_INSET : 0}
+											onBack={handlePreviewBack}
+										/>
+									) : null}
+								</ErrorBoundary>
+
+								{/* Cursor mode bar — absolutely positioned over the scroll
+								 *  container so backdrop-filter samples the scrolling content
+								 *  beneath. topInset on PreviewShell offsets content so it
+								 *  starts below this bar at initial scroll position. */}
+								{showToolbar && (
+									<div className="absolute top-0 inset-x-0 z-raised flex justify-center py-2.5 bg-[rgba(10,10,26,0.4)] backdrop-blur-[12px] [-webkit-backdrop-filter:blur(12px)] border-b border-white/[0.06] shadow-[0_8px_24px_rgba(0,0,0,0.3)]">
+										<CursorModeSelector
+											mode={cursorMode}
+											onChange={handleCursorModeChange}
+											variant="horizontal"
+											glass
+										/>
+									</div>
+								)}
 
 								{/* Progress overlay */}
 								<AnimatePresence>
@@ -843,23 +856,6 @@ export function BuilderLayout() {
 										</motion.div>
 									)}
 								</AnimatePresence>
-
-								{/* Cursor mode bar — anchored to the right edge of the centered
-								 *  form content (max-w-3xl) so it stays at a fixed distance from
-								 *  the form regardless of which sidebars are open or closed. */}
-								{showToolbar && (
-									<div className="absolute inset-0 pointer-events-none z-raised">
-										<div className="max-w-3xl mx-auto h-full relative">
-											<div className="absolute top-1/2 -translate-y-1/2 -right-7 pointer-events-auto">
-												<CursorModeSelector
-													mode={cursorMode}
-													onChange={handleCursorModeChange}
-													variant="vertical"
-												/>
-											</div>
-										</div>
-									</div>
-								)}
 							</motion.div>
 						)}
 					</AnimatePresence>
