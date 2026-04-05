@@ -84,9 +84,20 @@ export function CursorModeSelector({
 						: "flex items-center h-[34px] bg-nova-deep border border-nova-border rounded-lg p-0.5"
 			}
 		>
-			{segments.map(({ key, label, icon }) => {
+			{segments.map(({ key, label, icon }, index) => {
 				const isActive = mode === key;
 				const colors = MODE_COLORS[key];
+				/* Edge segments get pill-matched rounding: full on the outer side,
+				 * standard on the inner side so the indicator slides smoothly. */
+				const isFirst = index === 0;
+				const isLast = index === segments.length - 1;
+				const pillRounding = glass
+					? isFirst
+						? "rounded-l-full rounded-r-md"
+						: isLast
+							? "rounded-r-full rounded-l-md"
+							: "rounded-md"
+					: "rounded-md";
 				return (
 					<button
 						type="button"
@@ -96,7 +107,7 @@ export function CursorModeSelector({
 						className={
 							vertical
 								? "relative w-8 h-8 rounded-lg transition-colors cursor-pointer"
-								: `relative h-full px-2.5 text-[13px] font-medium rounded-md transition-colors cursor-pointer ${
+								: `relative h-full px-2.5 text-[13px] font-medium ${pillRounding} transition-colors cursor-pointer ${
 										!isActive && glass ? "hover:bg-white/[0.08]" : ""
 									}`
 						}
@@ -108,7 +119,7 @@ export function CursorModeSelector({
 										? "cursor-mode-bar-indicator"
 										: "cursor-mode-indicator"
 								}
-								className={`absolute inset-0 ${vertical ? "rounded-lg" : "rounded-md"} ${glass ? colors.glassBg : colors.bg}`}
+								className={`absolute inset-0 ${vertical ? "rounded-lg" : pillRounding} ${glass ? colors.glassBg : colors.bg}`}
 								transition={INDICATOR_TRANSITION}
 							/>
 						)}
