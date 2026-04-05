@@ -20,6 +20,10 @@ interface PreviewShellProps {
 	cursorMode?: CursorMode;
 	nav?: ReturnType<typeof usePreviewNav>;
 	hideHeader?: boolean;
+	/** Pixels of top padding inside the scroll container — used by BuilderLayout
+	 *  to offset content below the absolutely-positioned glassmorphic toolbar so
+	 *  the first screen element isn't hidden behind the overlay on initial load. */
+	topInset?: number;
 	/** Back handler override — used by BuilderLayout to sync selection on back navigation.
 	 *  Also used by FormScreen for post-submit navigation. */
 	onBack?: () => void;
@@ -33,6 +37,7 @@ export function PreviewShell({
 	cursorMode,
 	nav: navProp,
 	hideHeader,
+	topInset = 0,
 	onBack,
 }: PreviewShellProps) {
 	const ownNav = usePreviewNav(blueprint);
@@ -58,6 +63,7 @@ export function PreviewShell({
 			<div
 				data-preview-scroll-container
 				className="flex-1 overflow-y-auto overflow-x-hidden bg-pv-bg"
+				style={topInset ? { paddingTop: topInset } : undefined}
 			>
 				<AnimatePresence mode="wait">
 					<motion.div
