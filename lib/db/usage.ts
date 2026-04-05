@@ -22,12 +22,12 @@ import type { UsageDoc } from "./types";
  * monthly cost reaches this threshold are blocked from further requests
  * until the next calendar month.
  *
- * Set via MONTHLY_SPEND_CAP_USD env var. Default $30 — generous enough
- * for real work (~15-60 full builds/month), tight enough to prevent
+ * Set via MONTHLY_SPEND_CAP_USD env var. Default $15 — enough for
+ * real work (~7-30 full builds/month), tight enough to prevent
  * runaway costs on the shared Anthropic key.
  */
 export const MONTHLY_SPEND_CAP_USD =
-	Number(process.env.MONTHLY_SPEND_CAP_USD) || 30;
+	Number(process.env.MONTHLY_SPEND_CAP_USD) || 15;
 
 // ── Helpers ───────────────────────────────────────────────────────
 
