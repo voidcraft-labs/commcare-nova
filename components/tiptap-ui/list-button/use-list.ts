@@ -145,15 +145,33 @@ export function toggleList(editor: Editor | null, type: ListType): boolean {
 	if (!canToggleList(editor, type)) return false;
 
 	try {
+		/* When the list is already active, use TipTap's built-in toggle commands
+		 * directly — they handle unwrapping correctly without needing the
+		 * NodeSelection conversion dance that the "turn into" path requires. */
+		if (editor.isActive(type)) {
+			const toggleMap: Record<ListType, () => boolean> = {
+				bulletList: () => editor.chain().focus().toggleBulletList().run(),
+				orderedList: () => editor.chain().focus().toggleOrderedList().run(),
+				taskList: () =>
+					editor.chain().focus().toggleList("taskList", "taskItem").run(),
+			};
+
+			const toggle = toggleMap[type];
+			if (!toggle) return false;
+
+			toggle();
+			editor.chain().focus().selectTextblockEnd().run();
+			return true;
+		}
+
 		const view = editor.view;
 		let state = view.state;
 		let tr = state.tr;
 
 		const blocks = getSelectedBlockNodes(editor);
 
-		// In case a selection contains multiple blocks, we only allow
-		// toggling to nide if there's exactly one block selected
-		// we also dont block the canToggle since it will fall back to the bottom logic
+		/* When converting a non-list block into a list, we only allow
+		 * "turn into" when there's exactly one block selected */
 		const isPossibleToTurnInto =
 			selectionWithinConvertibleTypes(editor, [
 				"paragraph",
@@ -165,7 +183,8 @@ export function toggleList(editor: Editor | null, type: ListType): boolean {
 				"codeBlock",
 			]) && blocks.length === 1;
 
-		// No selection, find the the cursor position
+		/* For a collapsed cursor or text selection, convert to a NodeSelection
+		 * around the parent block so clearNodes can normalize it first */
 		if (
 			(state.selection.empty || state.selection instanceof TextSelection) &&
 			isPossibleToTurnInto
@@ -185,7 +204,8 @@ export function toggleList(editor: Editor | null, type: ListType): boolean {
 
 		let chain = editor.chain().focus();
 
-		// Handle NodeSelection
+		/* Handle NodeSelection — clear the block structure first,
+		 * then wrap in the target list type */
 		if (selection instanceof NodeSelection) {
 			const firstChild = selection.node.firstChild?.firstChild;
 			const lastChild = selection.node.lastChild?.lastChild;
@@ -206,27 +226,16 @@ export function toggleList(editor: Editor | null, type: ListType): boolean {
 				.clearNodes();
 		}
 
-		if (editor.isActive(type)) {
-			// Unwrap list
-			chain
-				.liftListItem("listItem")
-				.lift("bulletList")
-				.lift("orderedList")
-				.lift("taskList")
-				.run();
-		} else {
-			// Wrap in specific list type
-			const toggleMap: Record<ListType, () => typeof chain> = {
-				bulletList: () => chain.toggleBulletList(),
-				orderedList: () => chain.toggleOrderedList(),
-				taskList: () => chain.toggleList("taskList", "taskItem"),
-			};
+		const toggleMap: Record<ListType, () => typeof chain> = {
+			bulletList: () => chain.toggleBulletList(),
+			orderedList: () => chain.toggleOrderedList(),
+			taskList: () => chain.toggleList("taskList", "taskItem"),
+		};
 
-			const toggle = toggleMap[type];
-			if (!toggle) return false;
+		const toggle = toggleMap[type];
+		if (!toggle) return false;
 
-			toggle().run();
-		}
+		toggle().run();
 
 		editor.chain().focus().selectTextblockEnd().run();
 

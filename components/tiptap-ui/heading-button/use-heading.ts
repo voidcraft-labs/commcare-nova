@@ -141,15 +141,26 @@ export function toggleHeading(
 	if (!toggleLevel) return false;
 
 	try {
+		/* When the heading is already active, toggle back to paragraph directly —
+		 * TipTap handles this without needing the NodeSelection conversion path. */
+		const isActive = levels.some((l) =>
+			editor.isActive("heading", { level: l }),
+		);
+
+		if (isActive) {
+			editor.chain().focus().setNode("paragraph").run();
+			editor.chain().focus().selectTextblockEnd().run();
+			return true;
+		}
+
 		const view = editor.view;
 		let state = view.state;
 		let tr = state.tr;
 
 		const blocks = getSelectedBlockNodes(editor);
 
-		// In case a selection contains multiple blocks, we only allow
-		// toggling to nide if there's exactly one block selected
-		// we also dont block the canToggle since it will fall back to the bottom logic
+		/* When converting a non-heading block, we only allow
+		 * "turn into" when there's exactly one block selected */
 		const isPossibleToTurnInto =
 			selectionWithinConvertibleTypes(editor, [
 				"paragraph",
@@ -161,7 +172,8 @@ export function toggleHeading(
 				"codeBlock",
 			]) && blocks.length === 1;
 
-		// No selection, find the the cursor position
+		/* For a collapsed cursor or text selection, convert to a NodeSelection
+		 * around the parent block so clearNodes can normalize it first */
 		if (
 			(state.selection.empty || state.selection instanceof TextSelection) &&
 			isPossibleToTurnInto
@@ -180,7 +192,8 @@ export function toggleHeading(
 		const selection = state.selection;
 		let chain = editor.chain().focus();
 
-		// Handle NodeSelection
+		/* Handle NodeSelection — clear the block structure first,
+		 * then set the heading */
 		if (selection instanceof NodeSelection) {
 			const firstChild = selection.node.firstChild?.firstChild;
 			const lastChild = selection.node.lastChild?.lastChild;
@@ -201,15 +214,7 @@ export function toggleHeading(
 				.clearNodes();
 		}
 
-		const isActive = levels.some((l) =>
-			editor.isActive("heading", { level: l }),
-		);
-
-		const toggle = isActive
-			? chain.setNode("paragraph")
-			: chain.setNode("heading", { level: toggleLevel });
-
-		toggle.run();
+		chain.setNode("heading", { level: toggleLevel }).run();
 
 		editor.chain().focus().selectTextblockEnd().run();
 
