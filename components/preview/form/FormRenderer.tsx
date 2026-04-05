@@ -165,6 +165,14 @@ function SortableQuestion({
 	/* Text mode is for inline editing, not reordering. */
 	const isTextMode = ctx?.cursorMode === "text";
 
+	/* Disable all per-sortable plugins (OptimisticSortingPlugin, SortableKeyboardPlugin).
+	 * We use the controlled state pattern: onDragOver → move() → React state → re-render.
+	 * The OptimisticSortingPlugin independently calls move() on sortable instances AND
+	 * reorders DOM elements directly, conflicting with React's reconciliation. The two
+	 * systems fight: stale indices produce undefined entries in move()'s output, and
+	 * the plugin then crashes setting .index on undefined. Disabling the plugin makes
+	 * React the sole owner of DOM order. SortableKeyboardPlugin is also excluded since
+	 * we only use PointerSensor. */
 	const { ref, isDragging } = useSortable({
 		id: questionPath,
 		index: sortIndex,
@@ -172,6 +180,7 @@ function SortableQuestion({
 		type: "question",
 		accept: "question",
 		disabled: !isEditMode || isTextMode,
+		plugins: [],
 		...(isContainer && { collisionPriority: CollisionPriority.Lowest }),
 	});
 
@@ -320,18 +329,27 @@ function SortableQuestion({
 		ctx.builder.selected.formIndex === ctx.formIndex &&
 		ctx.builder.selected.questionPath === questionPath;
 
+	/* The panel renders OUTSIDE the sortable element (as a sibling, not a child)
+	 * so its expanded height doesn't inflate the sortable's collision shape.
+	 * If the panel were inside <div ref={ref}>, dnd-kit would see a much taller
+	 * element after selection — and when the panel collapses on the next drag
+	 * start (deselect), the shape change mid-drag confuses collision detection
+	 * for group droppables. Keeping them as siblings means the sortable shape
+	 * is always just the question content, stable across selection changes. */
 	return (
-		<div
-			ref={ref}
-			className="relative mb-4"
-			data-invalid={showInvalid ? "true" : undefined}
-			data-question-id={questionPath}
-		>
-			{showAsPlaceholder && (
-				<div className="absolute inset-0 rounded-lg border-2 border-dashed border-nova-violet/30 bg-nova-violet/[0.02]" />
-			)}
-			<div className={showAsPlaceholder ? "invisible" : undefined}>
-				{content}
+		<>
+			<div
+				ref={ref}
+				className="relative mb-4"
+				data-invalid={showInvalid ? "true" : undefined}
+				data-question-id={questionPath}
+			>
+				{showAsPlaceholder && (
+					<div className="absolute inset-0 rounded-lg border-2 border-dashed border-nova-violet/30 bg-nova-violet/[0.02]" />
+				)}
+				<div className={showAsPlaceholder ? "invisible" : undefined}>
+					{content}
+				</div>
 			</div>
 			{/* AnimatePresence wraps the conditional so Motion can run exit animations
 			 * when the panel unmounts. Without this, React removes the panel instantly
@@ -353,7 +371,7 @@ function SortableQuestion({
 					</motion.div>
 				)}
 			</AnimatePresence>
-		</div>
+		</>
 	);
 }
 
@@ -369,7 +387,6 @@ export function FormRenderer({
 	const isEditMode = ctx?.mode === "edit";
 	const isRoot = !parentPath;
 	const [dragState, setDragState] = useState<DragReorderState | null>(null);
-	const containerRef = useRef<HTMLDivElement>(null);
 
 	/** Group identifier for sortable items at this level.
 	 *  Nested levels use the `:container` suffix to match the droppable id in
@@ -464,10 +481,17 @@ export function FormRenderer({
 			: questions.filter((q) => q.type !== "hidden");
 	}, [questions, activeDragReorder, group, isEditMode, ctx?.cursorMode]);
 
+	/* Restrict drag overlay to the visible editor viewport. Uses the scroll
+	 * container (not the inner content div) so the restriction bounds match
+	 * the visible area — the inner content can be taller than the viewport
+	 * when scrolled, which would let the overlay escape above the form header. */
 	const modifiers = useMemo(
 		() => [
 			RestrictToElement.configure({
-				element: () => containerRef.current,
+				element: () =>
+					document.querySelector<HTMLElement>(
+						"[data-preview-scroll-container]",
+					),
 			}),
 		],
 		[],
@@ -481,10 +505,7 @@ export function FormRenderer({
 	const isDragging = !!activePath;
 
 	const list = (
-		<div
-			ref={isRoot ? containerRef : undefined}
-			className="min-h-full pointer-events-auto"
-		>
+		<div className="min-h-full pointer-events-auto">
 			{isEditMode && (
 				<InsertionPoint
 					atIndex={0}
