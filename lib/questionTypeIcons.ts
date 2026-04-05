@@ -16,6 +16,7 @@ import tablerFile from "@iconify-icons/tabler/file";
 import tablerFilePencil from "@iconify-icons/tabler/file-pencil";
 import tablerFilePlus from "@iconify-icons/tabler/file-plus";
 import tablerFolder from "@iconify-icons/tabler/folder";
+import tablerForms from "@iconify-icons/tabler/forms";
 import tablerLock from "@iconify-icons/tabler/lock";
 import tablerMapPin from "@iconify-icons/tabler/map-pin";
 import tablerMicrophone from "@iconify-icons/tabler/microphone";
@@ -23,10 +24,9 @@ import tablerPhoto from "@iconify-icons/tabler/photo";
 import tablerRepeat from "@iconify-icons/tabler/repeat";
 import tablerSquareCheck from "@iconify-icons/tabler/square-check";
 import tablerTag from "@iconify-icons/tabler/tag";
-import tablerTypography from "@iconify-icons/tabler/typography";
 
 export const questionTypeIcons: Record<string, IconifyIcon> = {
-	text: tablerTypography,
+	text: tablerForms,
 	int: tabler123,
 	decimal: tablerDecimal,
 	date: tablerCalendar,
