@@ -30,11 +30,14 @@ function unescapeXPath(s: string): string {
 
 // ── Types ───────────────────────────────────────────────────────────
 
-/** The flat question shape as it comes from structured output (before tree conversion). */
+/** The flat question shape as it comes from structured output (before tree conversion).
+ *  `uuid` is carried through the flat representation so round-tripped questions
+ *  (via `flattenToFlat`) preserve their identity through `buildQuestionTree`. */
 export interface FlatQuestion {
 	id: string;
 	type: string;
 	parentId: string;
+	uuid?: string;
 	label?: string;
 	hint?: string;
 	required?: string;
@@ -193,9 +196,10 @@ export function processSingleFormOutput(
 	moduleCaseType?: string,
 ): BlueprintForm {
 	const stripped = formOutput.questions.map((q) => stripEmpty(q));
-	const withDefaults = stripped.map((q) =>
-		applyDefaults(q, caseTypes, formType, moduleCaseType),
-	);
+	const withDefaults = stripped.map((q) => ({
+		...applyDefaults(q, caseTypes, formType, moduleCaseType),
+		uuid: crypto.randomUUID(),
+	}));
 	const nestedQuestions = buildQuestionTree(withDefaults);
 
 	const hasCloseCase =

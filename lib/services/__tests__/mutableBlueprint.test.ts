@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { q } from "../../__tests__/testHelpers";
 import type { AppBlueprint } from "../../schemas/blueprint";
 import { MutableBlueprint } from "../mutableBlueprint";
 import { qpath } from "../questionPath";
@@ -20,46 +21,46 @@ function makeBlueprint(): AppBlueprint {
 						name: "Register Client",
 						type: "registration",
 						questions: [
-							{
+							q({
 								id: "case_name",
 								type: "text",
 								label: "Client Name",
 								case_property_on: "client",
 								required: "true()",
-							},
-							{
+							}),
+							q({
 								id: "email_address",
 								type: "text",
 								label: "Client Email",
 								case_property_on: "client",
 								validation: "regex(., '[^@]+@[^@]+\\.[^@]+')",
 								validation_msg: "Please enter a valid email",
-							},
-							{ id: "client_phone", type: "text", label: "Phone Number" },
+							}),
+							q({ id: "client_phone", type: "text", label: "Phone Number" }),
 						],
 					},
 					{
 						name: "Update Client",
 						type: "followup",
 						questions: [
-							{
+							q({
 								id: "case_name",
 								type: "text",
 								label: "Client Name",
 								case_property_on: "client",
-							},
-							{
+							}),
+							q({
 								id: "email_address",
 								type: "text",
 								label: "Email",
 								case_property_on: "client",
-							},
-							{
+							}),
+							q({
 								id: "risk_level",
 								type: "hidden",
 								calculate: "#case/email_address",
 								case_property_on: "client",
-							},
+							}),
 						],
 					},
 				],
@@ -71,7 +72,7 @@ function makeBlueprint(): AppBlueprint {
 						name: "Satisfaction Survey",
 						type: "survey",
 						questions: [
-							{
+							q({
 								id: "rating",
 								type: "single_select",
 								label: "How satisfied are you?",
@@ -79,7 +80,7 @@ function makeBlueprint(): AppBlueprint {
 									{ value: "good", label: "Good" },
 									{ value: "bad", label: "Bad" },
 								],
-							},
+							}),
 						],
 					},
 				],
@@ -258,8 +259,8 @@ describe("MutableBlueprint", () => {
 			});
 			const form = mb.getForm(0, 0);
 			if (!form) throw new Error("expected form");
-			const q = form.questions.find((q) => q.id === "age");
-			expect(q?.case_property_on).toBe("client");
+			const found = form.questions.find((item) => item.id === "age");
+			expect(found?.case_property_on).toBe("client");
 		});
 	});
 
@@ -405,42 +406,48 @@ describe("MutableBlueprint", () => {
 
 		it("rewrites #case/ refs in labels", () => {
 			const bp = makeBlueprint();
-			bp.modules[0].forms[1].questions.push({
-				id: "display_label",
-				type: "label",
-				label: "Updating record for: #case/email_address",
-			});
+			bp.modules[0].forms[1].questions.push(
+				q({
+					id: "display_label",
+					type: "label",
+					label: "Updating record for: #case/email_address",
+				}),
+			);
 			const mb = new MutableBlueprint(bp);
 			mb.renameCaseProperty("client", "email_address", "contact_email");
-			const q = mb.getQuestion(0, 1, qpath("display_label"));
-			expect(q?.label).toBe("Updating record for: #case/contact_email");
+			const found = mb.getQuestion(0, 1, qpath("display_label"));
+			expect(found?.label).toBe("Updating record for: #case/contact_email");
 		});
 
 		it("rewrites #case/ refs in hints", () => {
 			const bp = makeBlueprint();
-			bp.modules[0].forms[1].questions.push({
-				id: "hint_q",
-				type: "text",
-				label: "Update",
-				hint: "Current: #case/case_name",
-			});
+			bp.modules[0].forms[1].questions.push(
+				q({
+					id: "hint_q",
+					type: "text",
+					label: "Update",
+					hint: "Current: #case/case_name",
+				}),
+			);
 			const mb = new MutableBlueprint(bp);
 			mb.renameCaseProperty("client", "case_name", "legal_name");
-			const q = mb.getQuestion(0, 1, qpath("hint_q"));
-			expect(q?.hint).toBe("Current: #case/legal_name");
+			const found = mb.getQuestion(0, 1, qpath("hint_q"));
+			expect(found?.hint).toBe("Current: #case/legal_name");
 		});
 
 		it("rewrites multiple hashtag refs in one label", () => {
 			const bp = makeBlueprint();
-			bp.modules[0].forms[1].questions.push({
-				id: "multi_label",
-				type: "label",
-				label: "#case/case_name (#case/case_name)",
-			});
+			bp.modules[0].forms[1].questions.push(
+				q({
+					id: "multi_label",
+					type: "label",
+					label: "#case/case_name (#case/case_name)",
+				}),
+			);
 			const mb = new MutableBlueprint(bp);
 			mb.renameCaseProperty("client", "case_name", "legal_name");
-			const q = mb.getQuestion(0, 1, qpath("multi_label"));
-			expect(q?.label).toBe("#case/legal_name (#case/legal_name)");
+			const found = mb.getQuestion(0, 1, qpath("multi_label"));
+			expect(found?.label).toBe("#case/legal_name (#case/legal_name)");
 		});
 	});
 
@@ -520,37 +527,41 @@ describe("MutableBlueprint", () => {
 		it("renames the question ID", () => {
 			const mb = new MutableBlueprint(makeBlueprint());
 			mb.renameQuestion(0, 0, qpath("case_name"), "full_name_q");
-			const q = mb.getQuestion(0, 0, qpath("full_name_q"));
-			expect(q).toBeDefined();
-			expect(q?.id).toBe("full_name_q");
+			const found = mb.getQuestion(0, 0, qpath("full_name_q"));
+			expect(found).toBeDefined();
+			expect(found?.id).toBe("full_name_q");
 		});
 
 		it("rewrites XPath references in sibling questions", () => {
 			const bp = makeBlueprint();
 			// Add a question that references case_name in its relevant
-			bp.modules[0].forms[0].questions.push({
-				id: "followup_q",
-				type: "text",
-				label: "Followup",
-				relevant: '/data/case_name != ""',
-			});
+			bp.modules[0].forms[0].questions.push(
+				q({
+					id: "followup_q",
+					type: "text",
+					label: "Followup",
+					relevant: '/data/case_name != ""',
+				}),
+			);
 			const mb = new MutableBlueprint(bp);
 			mb.renameQuestion(0, 0, qpath("case_name"), "full_name_q");
-			const q = mb.getQuestion(0, 0, qpath("followup_q"));
-			expect(q?.relevant).toBe('/data/full_name_q != ""');
+			const found = mb.getQuestion(0, 0, qpath("followup_q"));
+			expect(found?.relevant).toBe('/data/full_name_q != ""');
 		});
 
 		it("rewrites #form/ hashtag references", () => {
 			const bp = makeBlueprint();
-			bp.modules[0].forms[0].questions.push({
-				id: "calc_q",
-				type: "hidden",
-				calculate: "#form/case_name",
-			});
+			bp.modules[0].forms[0].questions.push(
+				q({
+					id: "calc_q",
+					type: "hidden",
+					calculate: "#form/case_name",
+				}),
+			);
 			const mb = new MutableBlueprint(bp);
 			mb.renameQuestion(0, 0, qpath("case_name"), "full_name_q");
-			const q = mb.getQuestion(0, 0, qpath("calc_q"));
-			expect(q?.calculate).toBe("#form/full_name_q");
+			const found = mb.getQuestion(0, 0, qpath("calc_q"));
+			expect(found?.calculate).toBe("#form/full_name_q");
 		});
 
 		it("updates close_case.question reference", () => {
@@ -568,8 +579,8 @@ describe("MutableBlueprint", () => {
 		it("returns count of rewritten XPath fields", () => {
 			const bp = makeBlueprint();
 			bp.modules[0].forms[0].questions.push(
-				{ id: "q1", type: "text", relevant: '/data/case_name != ""' },
-				{ id: "q2", type: "text", calculate: "/data/case_name" },
+				q({ id: "q1", type: "text", relevant: '/data/case_name != ""' }),
+				q({ id: "q2", type: "text", calculate: "/data/case_name" }),
 			);
 			const mb = new MutableBlueprint(bp);
 			const result = mb.renameQuestion(0, 0, qpath("case_name"), "renamed");
@@ -578,45 +589,49 @@ describe("MutableBlueprint", () => {
 
 		it("rewrites hashtag refs in label", () => {
 			const bp = makeBlueprint();
-			bp.modules[0].forms[0].questions.push({
-				id: "summary",
-				type: "label",
-				label: "Name: #form/case_name",
-			});
+			bp.modules[0].forms[0].questions.push(
+				q({
+					id: "summary",
+					type: "label",
+					label: "Name: #form/case_name",
+				}),
+			);
 			const mb = new MutableBlueprint(bp);
 			mb.renameQuestion(0, 0, qpath("case_name"), "full_name_q");
-			const q = mb.getQuestion(0, 0, qpath("summary"));
-			expect(q?.label).toBe("Name: #form/full_name_q");
+			const found = mb.getQuestion(0, 0, qpath("summary"));
+			expect(found?.label).toBe("Name: #form/full_name_q");
 		});
 
 		it("rewrites hashtag refs in hint", () => {
 			const bp = makeBlueprint();
-			bp.modules[0].forms[0].questions.push({
-				id: "age_q",
-				type: "int",
-				label: "Age",
-				hint: "Age for #form/case_name",
-			});
+			bp.modules[0].forms[0].questions.push(
+				q({
+					id: "age_q",
+					type: "int",
+					label: "Age",
+					hint: "Age for #form/case_name",
+				}),
+			);
 			const mb = new MutableBlueprint(bp);
 			mb.renameQuestion(0, 0, qpath("case_name"), "full_name_q");
-			const q = mb.getQuestion(0, 0, qpath("age_q"));
-			expect(q?.hint).toBe("Age for #form/full_name_q");
+			const found = mb.getQuestion(0, 0, qpath("age_q"));
+			expect(found?.hint).toBe("Age for #form/full_name_q");
 		});
 
 		it("handles nested group questions", () => {
 			const bp = makeBlueprint();
 			bp.modules[0].forms[0].questions = [
-				{
+				q({
 					id: "grp",
 					type: "group",
-					children: [{ id: "inner_q", type: "text", label: "Inner" }],
-				},
-				{ id: "outer_q", type: "text", relevant: '/data/grp/inner_q != ""' },
+					children: [q({ id: "inner_q", type: "text", label: "Inner" })],
+				}),
+				q({ id: "outer_q", type: "text", relevant: '/data/grp/inner_q != ""' }),
 			];
 			const mb = new MutableBlueprint(bp);
 			mb.renameQuestion(0, 0, qpath("inner_q", qpath("grp")), "renamed_inner");
-			const q = mb.getQuestion(0, 0, qpath("outer_q"));
-			expect(q?.relevant).toBe('/data/grp/renamed_inner != ""');
+			const found = mb.getQuestion(0, 0, qpath("outer_q"));
+			expect(found?.relevant).toBe('/data/grp/renamed_inner != ""');
 		});
 	});
 
@@ -671,17 +686,17 @@ describe("MutableBlueprint", () => {
 								name: "F",
 								type: "registration" as const,
 								questions: [
-									{ id: "q1", type: "text" as const, label: "Q1" },
-									{
+									q({ id: "q1", type: "text", label: "Q1" }),
+									q({
 										id: "grp",
-										type: "group" as const,
+										type: "group",
 										label: "Group",
 										children: [
-											{ id: "child1", type: "text" as const, label: "Child 1" },
-											{ id: "child2", type: "text" as const, label: "Child 2" },
+											q({ id: "child1", type: "text", label: "Child 1" }),
+											q({ id: "child2", type: "text", label: "Child 2" }),
 										],
-									},
-									{ id: "q2", type: "text" as const, label: "Q2" },
+									}),
+									q({ id: "q2", type: "text", label: "Q2" }),
 								],
 							},
 						],
@@ -716,16 +731,16 @@ describe("MutableBlueprint", () => {
 								name: "F",
 								type: "registration" as const,
 								questions: [
-									{ id: "q1", type: "text" as const, label: "Q1" },
-									{
+									q({ id: "q1", type: "text", label: "Q1" }),
+									q({
 										id: "grp",
-										type: "group" as const,
+										type: "group",
 										label: "Group",
 										children: [
-											{ id: "child1", type: "text" as const, label: "Child 1" },
+											q({ id: "child1", type: "text", label: "Child 1" }),
 										],
-									},
-									{ id: "q2", type: "text" as const, label: "Q2" },
+									}),
+									q({ id: "q2", type: "text", label: "Q2" }),
 								],
 							},
 						],
@@ -758,21 +773,21 @@ describe("MutableBlueprint", () => {
 								name: "F",
 								type: "registration" as const,
 								questions: [
-									{
+									q({
 										id: "grp",
-										type: "group" as const,
+										type: "group",
 										label: "Group",
 										children: [
-											{
+											q({
 												id: "sub",
-												type: "group" as const,
+												type: "group",
 												label: "Sub",
 												children: [
-													{ id: "deep", type: "text" as const, label: "Deep" },
+													q({ id: "deep", type: "text", label: "Deep" }),
 												],
-											},
+											}),
 										],
-									},
+									}),
 								],
 							},
 						],
@@ -801,13 +816,13 @@ describe("MutableBlueprint", () => {
 								name: "F",
 								type: "registration" as const,
 								questions: [
-									{ id: "q1", type: "text" as const, label: "Q1" },
-									{
+									q({ id: "q1", type: "text", label: "Q1" }),
+									q({
 										id: "grp",
-										type: "group" as const,
+										type: "group",
 										label: "Group",
 										children: [],
-									},
+									}),
 								],
 							},
 						],
@@ -840,8 +855,8 @@ describe("MutableBlueprint", () => {
 		it("clears case_property_on on the clone", () => {
 			const mb = new MutableBlueprint(makeBlueprint());
 			const { newPath } = mb.duplicateQuestion(0, 0, qpath("case_name"));
-			const q = mb.getQuestion(0, 0, newPath);
-			expect(q?.case_property_on).toBeUndefined();
+			const found = mb.getQuestion(0, 0, newPath);
+			expect(found?.case_property_on).toBeUndefined();
 		});
 
 		it("assigns fresh UUIDs to duplicated questions", () => {

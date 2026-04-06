@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { q } from "../../__tests__/testHelpers";
 import { TriggerDag } from "../../preview/engine/triggerDag";
 import type { AppBlueprint, CaseType, Question } from "../../schemas/blueprint";
 import {
@@ -294,8 +295,8 @@ describe("TriggerDag.reportCycles", () => {
 	it("returns empty for acyclic graph", () => {
 		const dag = new TriggerDag();
 		const questions = [
-			{ id: "a", type: "int" as const, label: "A" },
-			{ id: "b", type: "int" as const, label: "B", calculate: "/data/a + 1" },
+			q({ id: "a", type: "int", label: "A" }),
+			q({ id: "b", type: "int", label: "B", calculate: "/data/a + 1" }),
 		];
 		const cycles = dag.reportCycles(questions);
 		expect(cycles).toEqual([]);
@@ -304,8 +305,8 @@ describe("TriggerDag.reportCycles", () => {
 	it("detects A→B→A cycle", () => {
 		const dag = new TriggerDag();
 		const questions = [
-			{ id: "a", type: "int" as const, label: "A", calculate: "/data/b + 1" },
-			{ id: "b", type: "int" as const, label: "B", calculate: "/data/a + 1" },
+			q({ id: "a", type: "int", label: "A", calculate: "/data/b + 1" }),
+			q({ id: "b", type: "int", label: "B", calculate: "/data/a + 1" }),
 		];
 		const cycles = dag.reportCycles(questions);
 		expect(cycles.length).toBeGreaterThan(0);
@@ -314,15 +315,15 @@ describe("TriggerDag.reportCycles", () => {
 	it("handles diamond dependency (no cycle)", () => {
 		const dag = new TriggerDag();
 		const questions = [
-			{ id: "a", type: "int" as const, label: "A" },
-			{ id: "b", type: "int" as const, label: "B", calculate: "/data/a + 1" },
-			{ id: "c", type: "int" as const, label: "C", calculate: "/data/a + 2" },
-			{
+			q({ id: "a", type: "int", label: "A" }),
+			q({ id: "b", type: "int", label: "B", calculate: "/data/a + 1" }),
+			q({ id: "c", type: "int", label: "C", calculate: "/data/a + 2" }),
+			q({
 				id: "d",
-				type: "int" as const,
+				type: "int",
 				label: "D",
 				calculate: "/data/b + /data/c",
-			},
+			}),
 		];
 		const cycles = dag.reportCycles(questions);
 		expect(cycles).toEqual([]);
@@ -350,18 +351,18 @@ describe("validateBlueprintDeep", () => {
 	it("returns no errors for valid blueprint", () => {
 		const bp = makeBlueprint(
 			[
-				{
+				q({
 					id: "case_name",
 					type: "text",
 					label: "Name",
 					case_property_on: "patient",
-				},
-				{
+				}),
+				q({
 					id: "age",
 					type: "int",
 					label: "Age",
 					relevant: "/data/case_name != ''",
-				},
+				}),
 			],
 			[{ name: "patient", properties: [{ name: "case_name", label: "Name" }] }],
 		);
@@ -371,8 +372,8 @@ describe("validateBlueprintDeep", () => {
 
 	it("catches unknown function in XPath", () => {
 		const bp = makeBlueprint([
-			{ id: "name", type: "text", label: "Name" },
-			{ id: "val", type: "hidden", calculate: "foobar(1)" },
+			q({ id: "name", type: "text", label: "Name" }),
+			q({ id: "val", type: "hidden", calculate: "foobar(1)" }),
 		]);
 		const errors = validateBlueprintDeep(bp);
 		expect(errors.some((e) => e.includes("Unknown function"))).toBe(true);
@@ -380,8 +381,8 @@ describe("validateBlueprintDeep", () => {
 
 	it("catches wrong arity", () => {
 		const bp = makeBlueprint([
-			{ id: "name", type: "text", label: "Name" },
-			{ id: "val", type: "hidden", calculate: "round(3.14, 2)" },
+			q({ id: "name", type: "text", label: "Name" }),
+			q({ id: "val", type: "hidden", calculate: "round(3.14, 2)" }),
 		]);
 		const errors = validateBlueprintDeep(bp);
 		expect(errors.some((e) => e.includes("round()"))).toBe(true);
@@ -389,8 +390,8 @@ describe("validateBlueprintDeep", () => {
 
 	it("catches circular dependencies", () => {
 		const bp = makeBlueprint([
-			{ id: "a", type: "hidden", calculate: "/data/b + 1" },
-			{ id: "b", type: "hidden", calculate: "/data/a + 1" },
+			q({ id: "a", type: "hidden", calculate: "/data/b + 1" }),
+			q({ id: "b", type: "hidden", calculate: "/data/a + 1" }),
 		]);
 		const errors = validateBlueprintDeep(bp);
 		expect(errors.some((e) => e.includes("circular dependency"))).toBe(true);
@@ -399,13 +400,13 @@ describe("validateBlueprintDeep", () => {
 	it("catches unknown case property in #case/ ref", () => {
 		const bp = makeBlueprint(
 			[
-				{
+				q({
 					id: "case_name",
 					type: "text",
 					label: "Name",
 					case_property_on: "patient",
-				},
-				{ id: "val", type: "hidden", calculate: "#case/nonexistent + 1" },
+				}),
+				q({ id: "val", type: "hidden", calculate: "#case/nonexistent + 1" }),
 			],
 			[{ name: "patient", properties: [{ name: "case_name", label: "Name" }] }],
 		);
@@ -429,13 +430,13 @@ describe("runValidation with deep validation", () => {
 							name: "Reg",
 							type: "registration",
 							questions: [
-								{
+								q({
 									id: "case_name",
 									type: "text",
 									label: "Name",
 									case_property_on: "patient",
-								},
-								{ id: "calc", type: "hidden", calculate: "foobar(1)" },
+								}),
+								q({ id: "calc", type: "hidden", calculate: "foobar(1)" }),
 							],
 						},
 					],

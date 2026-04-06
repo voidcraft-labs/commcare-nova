@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { q } from "../../__tests__/testHelpers";
 import type { AppBlueprint } from "../../schemas/blueprint";
 import { FIX_REGISTRY } from "../commcare/validate/fixes";
 import { runValidation } from "../commcare/validate/runner";
@@ -17,12 +18,12 @@ const minBlueprint = (overrides: Partial<AppBlueprint> = {}): AppBlueprint => ({
 					name: "Form",
 					type: "registration",
 					questions: [
-						{
+						q({
 							id: "case_name",
 							type: "text",
 							label: "Name",
 							case_property_on: "patient",
-						},
+						}),
 					],
 				},
 			],
@@ -59,7 +60,7 @@ describe("app rules", () => {
 						{
 							name: "F1",
 							type: "survey",
-							questions: [{ id: "q", type: "text", label: "Q" }],
+							questions: [q({ id: "q", type: "text", label: "Q" })],
 						},
 					],
 				},
@@ -69,7 +70,7 @@ describe("app rules", () => {
 						{
 							name: "F2",
 							type: "survey",
-							questions: [{ id: "q", type: "text", label: "Q" }],
+							questions: [q({ id: "q", type: "text", label: "Q" })],
 						},
 					],
 				},
@@ -163,13 +164,13 @@ describe("form rules", () => {
 	it("allows different questions saving to different case properties", () => {
 		const bp = minBlueprint();
 		bp.modules[0].forms[0].questions = [
-			{
+			q({
 				id: "case_name",
 				type: "text",
 				label: "Name",
 				case_property_on: "patient",
-			},
-			{ id: "age", type: "int", label: "Age", case_property_on: "patient" },
+			}),
+			q({ id: "age", type: "int", label: "Age", case_property_on: "patient" }),
 		];
 		expect(
 			runValidation(bp).some((e) => e.code === "DUPLICATE_CASE_PROPERTY"),
@@ -179,7 +180,7 @@ describe("form rules", () => {
 	it("catches registration form with no case properties", () => {
 		const bp = minBlueprint();
 		bp.modules[0].forms[0].questions = [
-			{ id: "q", type: "text", label: "Name" }, // no case_property_on
+			q({ id: "q", type: "text", label: "Name" }), // no case_property_on
 		];
 		expect(
 			runValidation(bp).some((e) => e.code === "REGISTRATION_NO_CASE_PROPS"),
@@ -194,13 +195,18 @@ describe("form rules", () => {
 		// Leading digits fail both — so use a separate survey form to isolate.
 		const bp = minBlueprint();
 		bp.modules[0].forms[0].questions = [
-			{
+			q({
 				id: "case_name",
 				type: "text",
 				label: "Name",
 				case_property_on: "patient",
-			},
-			{ id: "123bad", type: "text", label: "Bad", case_property_on: "patient" },
+			}),
+			q({
+				id: "123bad",
+				type: "text",
+				label: "Bad",
+				case_property_on: "patient",
+			}),
 		];
 		// This fires both INVALID_QUESTION_ID and CASE_PROPERTY_BAD_FORMAT
 		const errors = runValidation(bp);
@@ -214,13 +220,18 @@ describe("form rules", () => {
 		const longId = "a".repeat(256);
 		const bp = minBlueprint();
 		bp.modules[0].forms[0].questions = [
-			{
+			q({
 				id: "case_name",
 				type: "text",
 				label: "Name",
 				case_property_on: "patient",
-			},
-			{ id: longId, type: "text", label: "Long", case_property_on: "patient" },
+			}),
+			q({
+				id: longId,
+				type: "text",
+				label: "Long",
+				case_property_on: "patient",
+			}),
 		];
 		expect(
 			runValidation(bp).some((e) => e.code === "CASE_PROPERTY_TOO_LONG"),
@@ -236,8 +247,8 @@ describe("form rules", () => {
 
 	it("duplicate question IDs at the same scope are caught", () => {
 		const bp = surveyBlueprint([
-			{ id: "name", type: "text", label: "A" },
-			{ id: "name", type: "text", label: "B" },
+			q({ id: "name", type: "text", label: "A" }),
+			q({ id: "name", type: "text", label: "B" }),
 		]);
 		expect(
 			runValidation(bp).some((e) => e.code === "DUPLICATE_QUESTION_ID"),
@@ -246,13 +257,13 @@ describe("form rules", () => {
 
 	it("same question ID in different groups is allowed (different XML paths)", () => {
 		const bp = surveyBlueprint([
-			{ id: "name", type: "text", label: "Top-level name" },
-			{
+			q({ id: "name", type: "text", label: "Top-level name" }),
+			q({
 				id: "details",
 				type: "group",
 				label: "Details",
-				children: [{ id: "name", type: "text", label: "Nested name" }],
-			},
+				children: [q({ id: "name", type: "text", label: "Nested name" })],
+			}),
 		]);
 		expect(
 			runValidation(bp).some((e) => e.code === "DUPLICATE_QUESTION_ID"),
@@ -261,15 +272,15 @@ describe("form rules", () => {
 
 	it("duplicate question IDs within a group are caught", () => {
 		const bp = surveyBlueprint([
-			{
+			q({
 				id: "grp",
 				type: "group",
 				label: "G",
 				children: [
-					{ id: "q", type: "text", label: "A" },
-					{ id: "q", type: "text", label: "B" },
+					q({ id: "q", type: "text", label: "A" }),
+					q({ id: "q", type: "text", label: "B" }),
 				],
-			},
+			}),
 		]);
 		expect(
 			runValidation(bp).some((e) => e.code === "DUPLICATE_QUESTION_ID"),
@@ -282,28 +293,28 @@ describe("form rules", () => {
 describe("question rules", () => {
 	it("catches question ID starting with digit", () => {
 		const errors = runValidation(
-			surveyBlueprint([{ id: "123_bad", type: "text", label: "Q" }]),
+			surveyBlueprint([q({ id: "123_bad", type: "text", label: "Q" })]),
 		);
 		expect(errors.some((e) => e.code === "INVALID_QUESTION_ID")).toBe(true);
 	});
 
 	it("catches question ID with hyphens (not valid XML element name)", () => {
 		const errors = runValidation(
-			surveyBlueprint([{ id: "my-question", type: "text", label: "Q" }]),
+			surveyBlueprint([q({ id: "my-question", type: "text", label: "Q" })]),
 		);
 		expect(errors.some((e) => e.code === "INVALID_QUESTION_ID")).toBe(true);
 	});
 
 	it("allows question IDs with underscores", () => {
 		const errors = runValidation(
-			surveyBlueprint([{ id: "my_question", type: "text", label: "Q" }]),
+			surveyBlueprint([q({ id: "my_question", type: "text", label: "Q" })]),
 		);
 		expect(errors.some((e) => e.code === "INVALID_QUESTION_ID")).toBe(false);
 	});
 
 	it("allows question IDs starting with underscore", () => {
 		const errors = runValidation(
-			surveyBlueprint([{ id: "_hidden", type: "text", label: "Q" }]),
+			surveyBlueprint([q({ id: "_hidden", type: "text", label: "Q" })]),
 		);
 		expect(errors.some((e) => e.code === "INVALID_QUESTION_ID")).toBe(false);
 	});
@@ -313,7 +324,9 @@ describe("question rules", () => {
 
 describe("fix registry", () => {
 	it("fixes invalid question ID", () => {
-		const bp = surveyBlueprint([{ id: "123-bad", type: "text", label: "Q" }]);
+		const bp = surveyBlueprint([
+			q({ id: "123-bad", type: "text", label: "Q" }),
+		]);
 		const errors = runValidation(bp);
 		const err = errors.find((e) => e.code === "INVALID_QUESTION_ID");
 		if (!err) throw new Error("expected INVALID_QUESTION_ID error");
@@ -333,7 +346,7 @@ describe("fix registry", () => {
 						{
 							name: "F",
 							type: "registration",
-							questions: [{ id: "case_name", type: "text", label: "N" }],
+							questions: [q({ id: "case_name", type: "text", label: "N" })],
 						},
 					],
 				},
@@ -351,7 +364,7 @@ describe("fix registry", () => {
 
 	it("fixes SELECT_NO_OPTIONS by adding defaults", () => {
 		const bp = surveyBlueprint([
-			{ id: "q", type: "single_select", label: "Q" },
+			q({ id: "q", type: "single_select", label: "Q" }),
 		]);
 		const errors = runValidation(bp);
 		const err = errors.find((e) => e.code === "SELECT_NO_OPTIONS");
@@ -419,7 +432,7 @@ describe("post_submit validation", () => {
 							name: "F",
 							type: "survey",
 							post_submit: "module",
-							questions: [{ id: "q", type: "text", label: "Q" }],
+							questions: [q({ id: "q", type: "text", label: "Q" })],
 						},
 					],
 					case_list_columns: [{ field: "case_name", header: "Name" }],
@@ -455,14 +468,14 @@ describe("post_submit validation", () => {
 
 describe("form_links validation", () => {
 	it("catches empty form_links array", () => {
-		const bp = surveyBlueprint([{ id: "q", type: "text", label: "Q" }]);
+		const bp = surveyBlueprint([q({ id: "q", type: "text", label: "Q" })]);
 		bp.modules[0].forms[0].form_links = [];
 		const errors = runValidation(bp);
 		expect(errors.find((e) => e.code === "FORM_LINK_EMPTY")).toBeDefined();
 	});
 
 	it("catches non-existent target module", () => {
-		const bp = surveyBlueprint([{ id: "q", type: "text", label: "Q" }]);
+		const bp = surveyBlueprint([q({ id: "q", type: "text", label: "Q" })]);
 		bp.modules[0].forms[0].form_links = [
 			{ target: { type: "form", moduleIndex: 99, formIndex: 0 } },
 		];
@@ -482,7 +495,7 @@ describe("form_links validation", () => {
 						{
 							name: "F0",
 							type: "survey",
-							questions: [{ id: "q", type: "text", label: "Q" }],
+							questions: [q({ id: "q", type: "text", label: "Q" })],
 							form_links: [
 								{ target: { type: "form", moduleIndex: 0, formIndex: 99 } },
 							],
@@ -499,7 +512,7 @@ describe("form_links validation", () => {
 	});
 
 	it("catches self-referencing link", () => {
-		const bp = surveyBlueprint([{ id: "q", type: "text", label: "Q" }]);
+		const bp = surveyBlueprint([q({ id: "q", type: "text", label: "Q" })]);
 		bp.modules[0].forms[0].form_links = [
 			{ target: { type: "form", moduleIndex: 0, formIndex: 0 } },
 		];
@@ -519,7 +532,7 @@ describe("form_links validation", () => {
 						{
 							name: "F0",
 							type: "survey",
-							questions: [{ id: "q", type: "text", label: "Q" }],
+							questions: [q({ id: "q", type: "text", label: "Q" })],
 							form_links: [
 								{
 									condition: "x = 1",
@@ -530,7 +543,7 @@ describe("form_links validation", () => {
 						{
 							name: "F1",
 							type: "survey",
-							questions: [{ id: "q", type: "text", label: "Q" }],
+							questions: [q({ id: "q", type: "text", label: "Q" })],
 						},
 					],
 				},
@@ -553,7 +566,7 @@ describe("form_links validation", () => {
 						{
 							name: "F0",
 							type: "survey",
-							questions: [{ id: "q", type: "text", label: "Q" }],
+							questions: [q({ id: "q", type: "text", label: "Q" })],
 							post_submit: "module",
 							form_links: [
 								{
@@ -565,7 +578,7 @@ describe("form_links validation", () => {
 						{
 							name: "F1",
 							type: "survey",
-							questions: [{ id: "q", type: "text", label: "Q" }],
+							questions: [q({ id: "q", type: "text", label: "Q" })],
 						},
 					],
 				},
@@ -588,7 +601,7 @@ describe("form_links validation", () => {
 						{
 							name: "F0",
 							type: "survey",
-							questions: [{ id: "q", type: "text", label: "Q" }],
+							questions: [q({ id: "q", type: "text", label: "Q" })],
 							form_links: [
 								{ target: { type: "form", moduleIndex: 0, formIndex: 1 } },
 							],
@@ -596,7 +609,7 @@ describe("form_links validation", () => {
 						{
 							name: "F1",
 							type: "survey",
-							questions: [{ id: "q", type: "text", label: "Q" }],
+							questions: [q({ id: "q", type: "text", label: "Q" })],
 							form_links: [
 								{ target: { type: "form", moduleIndex: 0, formIndex: 0 } },
 							],
@@ -620,7 +633,7 @@ describe("form_links validation", () => {
 						{
 							name: "F0",
 							type: "survey",
-							questions: [{ id: "q", type: "text", label: "Q" }],
+							questions: [q({ id: "q", type: "text", label: "Q" })],
 							form_links: [
 								{ target: { type: "form", moduleIndex: 0, formIndex: 1 } },
 							],
@@ -628,7 +641,7 @@ describe("form_links validation", () => {
 						{
 							name: "F1",
 							type: "survey",
-							questions: [{ id: "q", type: "text", label: "Q" }],
+							questions: [q({ id: "q", type: "text", label: "Q" })],
 						},
 					],
 				},
@@ -650,7 +663,7 @@ describe("form_links validation", () => {
 						{
 							name: "F0",
 							type: "survey",
-							questions: [{ id: "q", type: "text", label: "Q" }],
+							questions: [q({ id: "q", type: "text", label: "Q" })],
 							form_links: [{ target: { type: "module", moduleIndex: 1 } }],
 						},
 					],
@@ -661,7 +674,7 @@ describe("form_links validation", () => {
 						{
 							name: "F0",
 							type: "survey",
-							questions: [{ id: "q", type: "text", label: "Q" }],
+							questions: [q({ id: "q", type: "text", label: "Q" })],
 						},
 					],
 				},

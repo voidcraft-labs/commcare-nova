@@ -112,7 +112,7 @@ function buildDragState(
 	function walk(qs: Question[], groupKey: string, pathPrefix: string) {
 		if (!itemsMap[groupKey]) itemsMap[groupKey] = [];
 		for (const q of qs) {
-			const uuid = q.uuid!;
+			const uuid = q.uuid;
 			const qPath = pathPrefix ? `${pathPrefix}/${q.id}` : q.id;
 			itemsMap[groupKey].push(uuid);
 			questionsById.set(uuid, q);
@@ -194,7 +194,7 @@ function SortableQuestion({
 	 * React the sole owner of DOM order. SortableKeyboardPlugin is also excluded since
 	 * we only use PointerSensor. */
 	const { ref, isDragging } = useSortable({
-		id: q.uuid!,
+		id: q.uuid,
 		index: sortIndex,
 		group,
 		type: "question",
@@ -233,7 +233,7 @@ function SortableQuestion({
 		content = (
 			<EditableQuestionWrapper
 				questionPath={questionPath}
-				questionUuid={q.uuid!}
+				questionUuid={q.uuid}
 				isDragging={showAsPlaceholder}
 			>
 				<GroupField
@@ -248,7 +248,7 @@ function SortableQuestion({
 		content = (
 			<EditableQuestionWrapper
 				questionPath={questionPath}
-				questionUuid={q.uuid!}
+				questionUuid={q.uuid}
 				isDragging={showAsPlaceholder}
 			>
 				<RepeatField
@@ -263,7 +263,7 @@ function SortableQuestion({
 		content = (
 			<EditableQuestionWrapper
 				questionPath={questionPath}
-				questionUuid={q.uuid!}
+				questionUuid={q.uuid}
 				isDragging={showAsPlaceholder}
 			>
 				<LabelField
@@ -277,7 +277,7 @@ function SortableQuestion({
 		content = (
 			<EditableQuestionWrapper
 				questionPath={questionPath}
-				questionUuid={q.uuid!}
+				questionUuid={q.uuid}
 				isDragging={showAsPlaceholder}
 			>
 				<HiddenField question={q} />
@@ -287,7 +287,7 @@ function SortableQuestion({
 		content = (
 			<EditableQuestionWrapper
 				questionPath={questionPath}
-				questionUuid={q.uuid!}
+				questionUuid={q.uuid}
 				isDragging={showAsPlaceholder}
 			>
 				{/* Structural wrapper for label + hint + field. Uses a plain div
@@ -398,7 +398,7 @@ function SortableQuestion({
 						 * UUID guard ensures only the entrance triggers the scroll
 						 * (exit carries the old question's UUID in its closure). */
 						onAnimationComplete={() =>
-							ctx.builder.completePanelAnimation(q.uuid!)
+							ctx.builder.completePanelAnimation(q.uuid)
 						}
 					>
 						<InlineSettingsPanel builder={ctx.builder} question={q} />
@@ -554,7 +554,7 @@ export function FormRenderer({
 				/* During drag, derive questionPath from the UUID→path map (items may
 				 * have moved between groups). Outside drag, build from ID + parent. */
 				const questionPath = activeDragReorder
-					? (activeDragReorder.uuidToPath.get(q.uuid!) ??
+					? (activeDragReorder.uuidToPath.get(q.uuid) ??
 						qpath(q.id, parentPath))
 					: qpath(q.id, parentPath);
 				return (

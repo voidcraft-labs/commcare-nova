@@ -519,7 +519,7 @@ export class MutableBlueprint {
 			this.insertIntoArray(arr, newQ, afterId, beforeId);
 		}
 
-		return newQ.uuid!;
+		return newQ.uuid;
 	}
 
 	removeQuestion(mIdx: number, fIdx: number, questionPath: QuestionPath): void {
@@ -626,7 +626,7 @@ export class MutableBlueprint {
 		this.insertIntoArray(found.parent, clone, qpathId(questionPath));
 		return {
 			newPath: qpath(newId, qpathParent(questionPath)),
-			newUuid: clone.uuid!,
+			newUuid: clone.uuid,
 		};
 	}
 

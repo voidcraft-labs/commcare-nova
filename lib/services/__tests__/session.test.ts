@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { q } from "../../__tests__/testHelpers";
 import type {
 	AppBlueprint,
 	FormLink,
@@ -299,7 +300,7 @@ describe("detectFormLinkCycles", () => {
 					{
 						name: "F0",
 						type: "survey",
-						questions: [{ id: "q", type: "text" }],
+						questions: [q({ id: "q", type: "text" })],
 						form_links: [
 							{ target: { type: "form", moduleIndex: 0, formIndex: 1 } },
 						],
@@ -307,7 +308,7 @@ describe("detectFormLinkCycles", () => {
 					{
 						name: "F1",
 						type: "survey",
-						questions: [{ id: "q", type: "text" }],
+						questions: [q({ id: "q", type: "text" })],
 						form_links: [
 							{ target: { type: "form", moduleIndex: 0, formIndex: 0 } },
 						],
@@ -327,7 +328,7 @@ describe("detectFormLinkCycles", () => {
 					{
 						name: "F0",
 						type: "survey",
-						questions: [{ id: "q", type: "text" }],
+						questions: [q({ id: "q", type: "text" })],
 						form_links: [
 							{ target: { type: "form", moduleIndex: 0, formIndex: 1 } },
 						],
@@ -335,7 +336,7 @@ describe("detectFormLinkCycles", () => {
 					{
 						name: "F1",
 						type: "survey",
-						questions: [{ id: "q", type: "text" }],
+						questions: [q({ id: "q", type: "text" })],
 					},
 				],
 			},
@@ -351,7 +352,7 @@ describe("detectFormLinkCycles", () => {
 					{
 						name: "F0",
 						type: "survey",
-						questions: [{ id: "q", type: "text" }],
+						questions: [q({ id: "q", type: "text" })],
 						form_links: [{ target: { type: "module", moduleIndex: 0 } }],
 					},
 				],

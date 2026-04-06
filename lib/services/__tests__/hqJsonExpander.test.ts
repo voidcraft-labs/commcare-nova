@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { q } from "@/lib/__tests__/testHelpers";
 import type { AppBlueprint, Question } from "../../schemas/blueprint";
 import { runValidation } from "../commcare/validate/runner";
 import { expandBlueprint } from "../hqJsonExpander";
@@ -14,26 +15,26 @@ const followupBlueprint: AppBlueprint = {
 					name: "Follow-up Visit",
 					type: "followup",
 					questions: [
-						{
+						q({
 							id: "client_info",
 							type: "group",
 							label: "Client Info",
 							children: [
-								{
+								q({
 									id: "full_name",
 									type: "text",
 									label: "Name",
 									case_property_on: "patient",
-								},
+								}),
 							],
-						},
-						{
+						}),
+						q({
 							id: "total_visits",
 							type: "hidden",
 							calculate: "#case/total_visits + 1",
 							case_property_on: "patient",
-						},
-						{ id: "notes", type: "text", label: "Notes" },
+						}),
+						q({ id: "notes", type: "text", label: "Notes" }),
 					],
 				},
 			],
@@ -66,25 +67,25 @@ const registrationBlueprint: AppBlueprint = {
 					name: "Register Patient",
 					type: "registration",
 					questions: [
-						{
+						q({
 							id: "case_name",
 							type: "text",
 							label: "Full Name",
 							required: "true()",
 							case_property_on: "patient",
-						},
-						{
+						}),
+						q({
 							id: "age",
 							type: "int",
 							label: "Age",
 							validation: ". > 0 and . < 150",
 							case_property_on: "patient",
-						},
-						{
+						}),
+						q({
 							id: "risk",
 							type: "hidden",
 							calculate: "if(/data/age > 65, 'high', 'low')",
-						},
+						}),
 					],
 				},
 			],
@@ -131,19 +132,19 @@ describe("expandBlueprint", () => {
 							name: "F",
 							type: "followup",
 							questions: [
-								{
+								q({
 									id: "grp",
 									type: "group",
 									label: "G",
 									children: [
-										{
+										q({
 											id: "some_prop",
 											type: "hidden",
 											calculate: "#case/some_prop + #user/role",
 											case_property_on: "case",
-										},
+										}),
 									],
-								},
+								}),
 							],
 						},
 					],
@@ -216,7 +217,7 @@ describe("expandBlueprint", () => {
 							name: "F",
 							type: "survey",
 							questions: [
-								{ id: "status", type: "hidden", default_value: "'pending'" },
+								q({ id: "status", type: "hidden", default_value: "'pending'" }),
 							],
 						},
 					],
@@ -244,13 +245,13 @@ describe("expandBlueprint", () => {
 							name: "F",
 							type: "followup",
 							questions: [
-								{
+								q({
 									id: "full_name",
 									type: "text",
 									label: "Name",
 									default_value: "#case/full_name",
 									case_property_on: "c",
-								},
+								}),
 							],
 						},
 					],
@@ -291,7 +292,7 @@ describe("expandBlueprint", () => {
 							type: "followup",
 							close_case: { question: "confirm", answer: "yes" },
 							questions: [
-								{
+								q({
 									id: "confirm",
 									type: "single_select",
 									label: "Close?",
@@ -299,14 +300,14 @@ describe("expandBlueprint", () => {
 										{ value: "yes", label: "Yes" },
 										{ value: "no", label: "No" },
 									],
-								},
+								}),
 							],
 						},
 						{
 							name: "Always Close",
 							type: "followup",
 							close_case: {},
-							questions: [{ id: "note", type: "text", label: "Note" }],
+							questions: [q({ id: "note", type: "text", label: "Note" })],
 						},
 					],
 				},
@@ -338,12 +339,12 @@ describe("case_name in case list columns", () => {
 						name: "F",
 						type: "registration",
 						questions: [
-							{
+							q({
 								id: "case_name",
 								type: "text",
 								label: "Name",
 								case_property_on: "patient",
-							},
+							}),
 						],
 					},
 				],
@@ -387,12 +388,12 @@ describe("runValidation", () => {
 							name: "F",
 							type: "registration",
 							questions: [
-								{
+								q({
 									id: "case_name",
 									type: "text",
 									label: "Q",
 									case_property_on: "patient",
-								},
+								}),
 							],
 						},
 					],
@@ -416,7 +417,12 @@ describe("runValidation", () => {
 							name: "F",
 							type: "registration",
 							questions: [
-								{ id: "name", type: "text", label: "Q", case_property_on: "c" },
+								q({
+									id: "name",
+									type: "text",
+									label: "Q",
+									case_property_on: "c",
+								}),
 							],
 						},
 					],
@@ -439,7 +445,7 @@ describe("runValidation", () => {
 						{
 							name: "F",
 							type: "registration",
-							questions: [{ id: "q", type: "text", label: "Q" }],
+							questions: [q({ id: "q", type: "text", label: "Q" })],
 						},
 					],
 				},
@@ -465,12 +471,12 @@ describe("output references in labels", () => {
 							name: "F",
 							type: "survey",
 							questions: [
-								{ id: "name", type: "text", label: "Name" },
-								{
+								q({ id: "name", type: "text", label: "Name" }),
+								q({
 									id: "greeting",
 									type: "label",
 									label: 'Hello <output value="/data/name"/>, welcome!',
-								},
+								}),
 							],
 						},
 					],
@@ -497,17 +503,17 @@ describe("output references in labels", () => {
 							name: "F",
 							type: "followup",
 							questions: [
-								{
+								q({
 									id: "full_name",
 									type: "text",
 									label: "Name",
 									case_property_on: "c",
-								},
-								{
+								}),
+								q({
 									id: "msg",
 									type: "label",
 									label: 'Patient: <output value="#case/full_name"/>',
-								},
+								}),
 							],
 						},
 					],
@@ -536,30 +542,30 @@ describe("output references in labels", () => {
 							name: "F",
 							type: "followup",
 							questions: [
-								{
+								q({
 									id: "case_name",
 									type: "text",
 									label: "Name",
 									case_property_on: "c",
-								},
-								{
+								}),
+								q({
 									id: "start_date",
 									type: "date",
 									label: "Start",
 									case_property_on: "c",
-								},
-								{
+								}),
+								q({
 									id: "end_date",
 									type: "date",
 									label: "End",
 									case_property_on: "c",
-								},
-								{
+								}),
+								q({
 									id: "summary",
 									type: "label",
 									label:
 										"Plan: **#case/case_name**, from #case/start_date to #case/end_date",
-								},
+								}),
 							],
 						},
 					],
@@ -603,12 +609,12 @@ describe("output references in labels", () => {
 							name: "F",
 							type: "survey",
 							questions: [
-								{ id: "user_name", type: "text", label: "Your name" },
-								{
+								q({ id: "user_name", type: "text", label: "Your name" }),
+								q({
 									id: "greeting",
 									type: "label",
 									label: "Hello #form/user_name!",
-								},
+								}),
 							],
 						},
 					],
@@ -636,24 +642,24 @@ describe("output references in labels", () => {
 							name: "F",
 							type: "followup",
 							questions: [
-								{
+								q({
 									id: "case_name",
 									type: "text",
 									label: "Name",
 									case_property_on: "c",
-								},
-								{
+								}),
+								q({
 									id: "status",
 									type: "text",
 									label: "Status",
 									case_property_on: "c",
-								},
-								{
+								}),
+								q({
 									id: "info",
 									type: "label",
 									label:
 										'Hello <output value="#case/case_name"/>, status: #case/status',
-								},
+								}),
 							],
 						},
 					],
@@ -702,7 +708,11 @@ describe("markdown itext for all question types", () => {
 							name: "F",
 							type: "survey",
 							questions: [
-								{ id: "name", type: "text", label: "Enter your **full name**" },
+								q({
+									id: "name",
+									type: "text",
+									label: "Enter your **full name**",
+								}),
 							],
 						},
 					],
@@ -731,7 +741,7 @@ describe("markdown itext for all question types", () => {
 							name: "F",
 							type: "survey",
 							questions: [
-								{
+								q({
 									id: "status",
 									type: "single_select",
 									label: "Current **status**",
@@ -742,7 +752,7 @@ describe("markdown itext for all question types", () => {
 										},
 										{ value: "inactive", label: "_Inactive_" },
 									],
-								},
+								}),
 							],
 						},
 					],
@@ -778,12 +788,12 @@ describe("markdown itext for all question types", () => {
 							name: "F",
 							type: "survey",
 							questions: [
-								{
+								q({
 									id: "age",
 									type: "int",
 									label: "Age",
 									hint: "Enter age in **years**",
-								},
+								}),
 							],
 						},
 					],
@@ -811,12 +821,12 @@ describe("markdown itext for all question types", () => {
 							name: "F",
 							type: "survey",
 							questions: [
-								{
+								q({
 									id: "demographics",
 									type: "group",
 									label: "## Demographics",
-									children: [{ id: "name", type: "text", label: "Name" }],
-								},
+									children: [q({ id: "name", type: "text", label: "Name" })],
+								}),
 							],
 						},
 					],
@@ -843,14 +853,14 @@ describe("markdown itext for all question types", () => {
 							name: "F",
 							type: "survey",
 							questions: [
-								{
+								q({
 									id: "children",
 									type: "repeat",
 									label: "Add **child** details",
 									children: [
-										{ id: "child_name", type: "text", label: "Child name" },
+										q({ id: "child_name", type: "text", label: "Child name" }),
 									],
-								},
+								}),
 							],
 						},
 					],
@@ -878,9 +888,13 @@ describe("markdown itext for all question types", () => {
 							name: "F",
 							type: "survey",
 							questions: [
-								{ id: "visit_date", type: "date", label: "Date of **visit**" },
-								{ id: "weight", type: "decimal", label: "Weight _(kg)_" },
-								{ id: "photo", type: "image", label: "Take a **photo**" },
+								q({
+									id: "visit_date",
+									type: "date",
+									label: "Date of **visit**",
+								}),
+								q({ id: "weight", type: "decimal", label: "Weight _(kg)_" }),
+								q({ id: "photo", type: "image", label: "Take a **photo**" }),
 							],
 						},
 					],
@@ -917,13 +931,13 @@ describe("#form/ hashtag expansion", () => {
 							name: "F",
 							type: "survey",
 							questions: [
-								{ id: "first_name", type: "text", label: "First" },
-								{ id: "last_name", type: "text", label: "Last" },
-								{
+								q({ id: "first_name", type: "text", label: "First" }),
+								q({ id: "last_name", type: "text", label: "Last" }),
+								q({
 									id: "full_name",
 									type: "hidden",
 									calculate: "concat(#form/first_name, ' ', #form/last_name)",
-								},
+								}),
 							],
 						},
 					],
@@ -952,7 +966,7 @@ describe("#form/ hashtag expansion", () => {
 							name: "F",
 							type: "survey",
 							questions: [
-								{
+								q({
 									id: "consent",
 									type: "single_select",
 									label: "Consent?",
@@ -960,13 +974,13 @@ describe("#form/ hashtag expansion", () => {
 										{ value: "yes", label: "Yes" },
 										{ value: "no", label: "No" },
 									],
-								},
-								{
+								}),
+								q({
 									id: "details",
 									type: "text",
 									label: "Details",
 									relevant: "#form/consent = 'yes'",
-								},
+								}),
 							],
 						},
 					],
@@ -991,13 +1005,13 @@ describe("#form/ hashtag expansion", () => {
 							name: "F",
 							type: "survey",
 							questions: [
-								{ id: "start_date", type: "date", label: "Start" },
-								{
+								q({ id: "start_date", type: "date", label: "Start" }),
+								q({
 									id: "end_date",
 									type: "date",
 									label: "End",
 									validation: ". >= #form/start_date",
-								},
+								}),
 							],
 						},
 					],
@@ -1022,7 +1036,7 @@ describe("#form/ hashtag expansion", () => {
 							name: "F",
 							type: "survey",
 							questions: [
-								{
+								q({
 									id: "has_issue",
 									type: "single_select",
 									label: "Issue?",
@@ -1030,13 +1044,13 @@ describe("#form/ hashtag expansion", () => {
 										{ value: "yes", label: "Yes" },
 										{ value: "no", label: "No" },
 									],
-								},
-								{
+								}),
+								q({
 									id: "details",
 									type: "text",
 									label: "Details",
 									required: "#form/has_issue = 'yes'",
-								},
+								}),
 							],
 						},
 					],
@@ -1061,12 +1075,16 @@ describe("#form/ hashtag expansion", () => {
 							name: "F",
 							type: "survey",
 							questions: [
-								{ id: "text_value", type: "hidden", default_value: "'Text'" },
-								{
+								q({
+									id: "text_value",
+									type: "hidden",
+									default_value: "'Text'",
+								}),
+								q({
 									id: "here",
 									type: "label",
 									label: 'Here <output value="#form/text_value"/>',
-								},
+								}),
 							],
 						},
 					],
@@ -1092,13 +1110,13 @@ describe("#form/ hashtag expansion", () => {
 							name: "F",
 							type: "survey",
 							questions: [
-								{ id: "score_a", type: "int", label: "Score A" },
-								{ id: "score_b", type: "int", label: "Score B" },
-								{
+								q({ id: "score_a", type: "int", label: "Score A" }),
+								q({ id: "score_b", type: "int", label: "Score B" }),
+								q({
 									id: "total",
 									type: "hidden",
 									default_value: "#form/score_a + #form/score_b",
-								},
+								}),
 							],
 						},
 					],
@@ -1123,8 +1141,8 @@ describe("#form/ hashtag expansion", () => {
 							name: "F",
 							type: "survey",
 							questions: [
-								{ id: "name", type: "text", label: "Name" },
-								{ id: "age", type: "int", label: "Age" },
+								q({ id: "name", type: "text", label: "Name" }),
+								q({ id: "age", type: "int", label: "Age" }),
 							],
 						},
 					],
@@ -1149,12 +1167,12 @@ describe("#form/ hashtag expansion", () => {
 							name: "F",
 							type: "survey",
 							questions: [
-								{
+								q({
 									id: "grp",
 									type: "group",
 									label: "Group",
-									children: [{ id: "inner", type: "text", label: "Inner" }],
-								},
+									children: [q({ id: "inner", type: "text", label: "Inner" })],
+								}),
 							],
 						},
 					],
@@ -1179,7 +1197,9 @@ describe("#form/ hashtag expansion", () => {
 						{
 							name: "F",
 							type: "survey",
-							questions: [{ id: "ts", type: "hidden", default_value: "now()" }],
+							questions: [
+								q({ id: "ts", type: "hidden", default_value: "now()" }),
+							],
 						},
 					],
 				},
@@ -1202,7 +1222,7 @@ describe("#form/ hashtag expansion", () => {
 							name: "F",
 							type: "survey",
 							questions: [
-								{
+								q({
 									id: "show",
 									type: "single_select",
 									label: "Show?",
@@ -1210,14 +1230,14 @@ describe("#form/ hashtag expansion", () => {
 										{ value: "yes", label: "Yes" },
 										{ value: "no", label: "No" },
 									],
-								},
-								{
+								}),
+								q({
 									id: "details",
 									type: "group",
 									label: "Details",
 									relevant: "#form/show = 'yes'",
-									children: [{ id: "info", type: "text", label: "Info" }],
-								},
+									children: [q({ id: "info", type: "text", label: "Info" })],
+								}),
 							],
 						},
 					],
@@ -1243,8 +1263,8 @@ describe("#form/ hashtag expansion", () => {
 							name: "F",
 							type: "survey",
 							questions: [
-								{ id: "a", type: "int", label: "A" },
-								{ id: "b", type: "hidden", calculate: "#form/a * 2" },
+								q({ id: "a", type: "int", label: "A" }),
+								q({ id: "b", type: "hidden", calculate: "#form/a * 2" }),
 							],
 						},
 					],
@@ -1273,8 +1293,8 @@ describe("#form/ hashtag expansion", () => {
 							name: "F",
 							type: "survey",
 							questions: [
-								{ id: "a", type: "int", label: "A" },
-								{ id: "b", type: "hidden", calculate: "#form/a * 2" },
+								q({ id: "a", type: "int", label: "A" }),
+								q({ id: "b", type: "hidden", calculate: "#form/a * 2" }),
 							],
 						},
 					],
@@ -1303,7 +1323,7 @@ describe("conditional required", () => {
 							name: "F",
 							type: "survey",
 							questions: [
-								{ id: "q", type: "text", label: "Q", required: "true()" },
+								q({ id: "q", type: "text", label: "Q", required: "true()" }),
 							],
 						},
 					],
@@ -1327,7 +1347,7 @@ describe("conditional required", () => {
 							name: "F",
 							type: "survey",
 							questions: [
-								{
+								q({
 									id: "consent",
 									type: "single_select",
 									label: "Consent?",
@@ -1335,13 +1355,13 @@ describe("conditional required", () => {
 										{ value: "yes", label: "Yes" },
 										{ value: "no", label: "No" },
 									],
-								},
-								{
+								}),
+								q({
 									id: "details",
 									type: "text",
 									label: "Details",
 									required: "/data/consent = 'yes'",
-								},
+								}),
 							],
 						},
 					],
@@ -1367,13 +1387,18 @@ describe("conditional required", () => {
 							name: "F",
 							type: "followup",
 							questions: [
-								{ id: "risk", type: "text", label: "Q", case_property_on: "c" },
-								{
+								q({
+									id: "risk",
+									type: "text",
+									label: "Q",
+									case_property_on: "c",
+								}),
+								q({
 									id: "notes",
 									type: "text",
 									label: "Notes",
 									required: "#case/risk = 'high'",
-								},
+								}),
 							],
 						},
 					],
@@ -1405,12 +1430,12 @@ describe("case detail (long) view", () => {
 							name: "F",
 							type: "registration",
 							questions: [
-								{
+								q({
 									id: "case_name",
 									type: "text",
 									label: "Name",
 									case_property_on: "c",
-								},
+								}),
 							],
 						},
 					],
@@ -1442,12 +1467,12 @@ describe("case detail (long) view", () => {
 							name: "F",
 							type: "registration",
 							questions: [
-								{
+								q({
 									id: "case_name",
 									type: "text",
 									label: "Name",
 									case_property_on: "c",
-								},
+								}),
 							],
 						},
 					],
@@ -1484,7 +1509,9 @@ describe("single language itext", () => {
 						{
 							name: "F",
 							type: "survey",
-							questions: [{ id: "name", type: "text", label: "Patient Name" }],
+							questions: [
+								q({ id: "name", type: "text", label: "Patient Name" }),
+							],
 						},
 					],
 				},
@@ -1513,18 +1540,18 @@ describe("jr-insert for repeat defaults", () => {
 							name: "F",
 							type: "survey",
 							questions: [
-								{
+								q({
 									id: "items",
 									type: "repeat",
 									label: "Items",
 									children: [
-										{
+										q({
 											id: "status",
 											type: "hidden",
 											default_value: "'pending'",
-										},
+										}),
 									],
-								},
+								}),
 							],
 						},
 					],
@@ -1549,7 +1576,7 @@ describe("jr-insert for repeat defaults", () => {
 							name: "F",
 							type: "survey",
 							questions: [
-								{ id: "status", type: "hidden", default_value: "'pending'" },
+								q({ id: "status", type: "hidden", default_value: "'pending'" }),
 							],
 						},
 					],
@@ -1574,12 +1601,14 @@ describe("jr-insert for repeat defaults", () => {
 							name: "F",
 							type: "survey",
 							questions: [
-								{
+								q({
 									id: "items",
 									type: "repeat",
 									label: "Items",
-									children: [{ id: "item_name", type: "text", label: "Item" }],
-								},
+									children: [
+										q({ id: "item_name", type: "text", label: "Item" }),
+									],
+								}),
 							],
 						},
 					],
@@ -1611,18 +1640,18 @@ describe("expansion with complete questions", () => {
 							name: "Register",
 							type: "registration",
 							questions: [
-								{
+								q({
 									id: "case_name",
 									type: "text",
 									label: "Patient Name",
 									case_property_on: "patient",
-								},
-								{
+								}),
+								q({
 									id: "age",
 									type: "int",
 									label: "Age",
 									case_property_on: "patient",
-								},
+								}),
 							],
 						},
 					],
@@ -1653,12 +1682,12 @@ describe("expansion with complete questions", () => {
 							name: "F",
 							type: "registration",
 							questions: [
-								{
+								q({
 									id: "case_name",
 									type: "text",
 									label: "Patient Name",
 									case_property_on: "patient",
-								},
+								}),
 							],
 						},
 					],
@@ -1686,7 +1715,7 @@ describe("unquoted string literal detection", () => {
 						name: "F",
 						type: "survey",
 						questions: [
-							{ id: "q", type: "text", label: "Q", ...questionOverrides },
+							q({ id: "q", type: "text", label: "Q", ...questionOverrides }),
 						],
 					},
 				],
@@ -1800,14 +1829,18 @@ describe("unquoted string literal detection", () => {
 							name: "F",
 							type: "survey",
 							questions: [
-								{
+								q({
 									id: "grp",
 									type: "group",
 									label: "Group",
 									children: [
-										{ id: "status", type: "hidden", default_value: "active" },
+										q({
+											id: "status",
+											type: "hidden",
+											default_value: "active",
+										}),
 									],
-								},
+								}),
 							],
 						},
 					],
@@ -1841,12 +1874,12 @@ describe("child case type module requirement", () => {
 							name: "Create Plan",
 							type: "registration",
 							questions: [
-								{
+								q({
 									id: "case_name",
 									type: "text",
 									label: "Plan Name",
 									case_property_on: "plan",
-								},
+								}),
 							],
 						},
 					],
@@ -1882,12 +1915,12 @@ describe("child case type module requirement", () => {
 							name: "Create Plan",
 							type: "registration",
 							questions: [
-								{
+								q({
 									id: "case_name",
 									type: "text",
 									label: "Plan Name",
 									case_property_on: "plan",
-								},
+								}),
 							],
 						},
 					],
@@ -1941,7 +1974,7 @@ describe("case_list_only validation", () => {
 						{
 							name: "F",
 							type: "followup",
-							questions: [{ id: "q", type: "text", label: "Q" }],
+							questions: [q({ id: "q", type: "text", label: "Q" })],
 						},
 					],
 				},
@@ -2004,12 +2037,12 @@ describe("case_list_only expansion", () => {
 							name: "Create Plan",
 							type: "registration",
 							questions: [
-								{
+								q({
 									id: "case_name",
 									type: "text",
 									label: "Plan Name",
 									case_property_on: "plan",
-								},
+								}),
 							],
 						},
 					],
@@ -2072,12 +2105,12 @@ describe("case_list_only expansion", () => {
 							name: "Create Plan",
 							type: "registration",
 							questions: [
-								{
+								q({
 									id: "case_name",
 									type: "text",
 									label: "Plan Name",
 									case_property_on: "plan",
-								},
+								}),
 							],
 						},
 					],

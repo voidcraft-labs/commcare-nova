@@ -368,8 +368,9 @@ export const questionFields = {
 const questionSchema: z.ZodType<Question> = z.object({
 	/* uuid is internal — NOT in questionFields (which feeds SA tool schemas).
 	 * Must be in the Zod schema so it survives Firestore read validation
-	 * (z.object strips unknown keys by default). */
-	uuid: z.string().optional(),
+	 * (z.object strips unknown keys by default). Always present: assigned by
+	 * buildQuestionTree (generation) or newQuestionToBlueprint (manual add). */
+	uuid: z.string(),
 	...questionFields,
 	children: z
 		.lazy(() => z.array(questionSchema))
@@ -542,7 +543,7 @@ export type ConnectType = NonNullable<AppBlueprint["connect_type"]>;
  *  key for React reconciliation, dnd-kit, DOM selectors, and selection state.
  *  The user-editable `id` stays the semantic CommCare property name. */
 export interface Question {
-	uuid?: string;
+	uuid: string;
 	id: string;
 	type: (typeof QUESTION_TYPES)[number];
 	label?: string;
