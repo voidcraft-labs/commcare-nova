@@ -15,27 +15,6 @@
   align-items: center;
   gap: 0.25rem;
 
-  &-group {
-    /* Reset native fieldset defaults — semantic grouping only. */
-    border: none;
-    margin: 0;
-    padding: 0;
-    min-width: 0;
-
-    display: flex;
-    align-items: center;
-    gap: 0.125rem;
-
-    &:empty {
-      display: none;
-    }
-
-    &:empty + .tiptap-separator,
-    .tiptap-separator + &:empty {
-      display: none;
-    }
-  }
-
   &[data-variant="fixed"] {
     position: sticky;
     top: 0;
@@ -100,5 +79,25 @@
       border: none;
       box-shadow: none;
     }
+  }
+}
+
+/* Extracted from nested &-group (SCSS concatenation not valid in CSS). */
+.tiptap-toolbar-group {
+  border: none;
+  margin: 0;
+  padding: 0;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 0.125rem;
+
+  &:empty {
+    display: none;
+  }
+
+  &:empty + .tiptap-separator,
+  .tiptap-separator + &:empty {
+    display: none;
   }
 }

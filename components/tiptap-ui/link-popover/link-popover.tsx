@@ -30,7 +30,7 @@ import { Separator } from "@/components/tiptap-ui-primitive/separator";
 import { useIsBreakpoint } from "@/hooks/use-is-breakpoint";
 import { useTiptapEditor } from "@/hooks/use-tiptap-editor";
 
-import "./link-popover.scss";
+import "./link-popover.css";
 
 export interface LinkMainProps {
 	/**

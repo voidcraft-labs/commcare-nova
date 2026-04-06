@@ -1,4 +1,4 @@
-@use "../../tiptap-ui/popover-input";
+@import "../../tiptap-ui/popover-input.css";
 
 /* Stacks URL and alt text inputs vertically inside the horizontal card row. */
 .image-popover-fields {
