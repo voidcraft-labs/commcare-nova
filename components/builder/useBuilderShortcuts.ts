@@ -1,6 +1,5 @@
 import { useMemo } from "react";
 import type { Builder, CursorMode } from "@/lib/services/builder";
-import { BuilderPhase } from "@/lib/services/builder";
 import type { Shortcut } from "@/lib/services/keyboardManager";
 import {
 	flattenQuestionRefs,
@@ -27,7 +26,7 @@ export function useBuilderShortcuts(
 	onUndo: () => void,
 	onRedo: () => void,
 ): Shortcut[] {
-	const isReady = builder.phase === BuilderPhase.Ready;
+	const isReady = builder.isReady;
 
 	return useMemo(() => {
 		if (!isReady) return [];

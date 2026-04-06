@@ -61,7 +61,8 @@ export function AppTree({
 	actions,
 	hideHeader,
 }: AppTreeProps) {
-	const locked = phase !== BuilderPhase.Ready;
+	const locked =
+		phase !== BuilderPhase.Ready && phase !== BuilderPhase.Completed;
 	const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
 	const [searchQuery, setSearchQuery] = useState("");
 	const deferredQuery = useDeferredValue(searchQuery);

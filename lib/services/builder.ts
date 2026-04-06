@@ -128,6 +128,9 @@ export enum BuilderPhase {
 	Idle = "idle",
 	Loading = "loading",
 	Generating = "generating",
+	/** Transient celebration phase — a generation or edit just finished successfully.
+	 *  Auto-decays to Ready after the signal grid's done animation settles. */
+	Completed = "completed",
 	Ready = "ready",
 }
 
@@ -296,10 +299,14 @@ export class Builder {
 		return this._postBuildEdit;
 	}
 
-	/** True when the SA made blueprint mutations during the current post-build edit session.
-	 *  Distinguishes "agent asked questions" (idle) from "agent made changes" (done). */
-	get editMadeMutations(): boolean {
-		return this._editMadeMutations;
+	/** True when the blueprint is hydrated and interactive — covers both the
+	 *  transient Completed celebration and the steady-state Ready phase. Use this
+	 *  instead of `phase === Ready` when gating on "builder has a usable blueprint." */
+	get isReady(): boolean {
+		return (
+			this._phase === BuilderPhase.Ready ||
+			this._phase === BuilderPhase.Completed
+		);
 	}
 
 	/** True when the build pipeline is running. */
@@ -399,8 +406,7 @@ export class Builder {
 
 	/** Scaffold progress (0-1) derived from current state. Polled by SignalGrid rAF loop. */
 	get scaffoldProgress(): number {
-		if (this._phase !== BuilderPhase.Generating)
-			return this._phase === BuilderPhase.Ready ? 1.0 : 0;
+		if (this._phase !== BuilderPhase.Generating) return this.isReady ? 1.0 : 0;
 		if (this._generationStage === GenerationStage.DataModel)
 			return this._caseTypes ? 0.3 : 0.05;
 		if (this._generationStage === GenerationStage.Structure) {
@@ -581,9 +587,22 @@ export class Builder {
 	/** Called by BuilderLayout to sync chat transport status with builder state. */
 	setAgentActive(active: boolean) {
 		if (this._agentActive === active) return;
-		// Agent reactivating after Ready = user-initiated edit (not the post-build summary)
-		if (active && this._phase === BuilderPhase.Ready) {
+		// Agent reactivating after Ready/Completed = user-initiated edit
+		if (
+			active &&
+			(this._phase === BuilderPhase.Ready ||
+				this._phase === BuilderPhase.Completed)
+		) {
+			// Absorb any lingering Completed phase — new edit supersedes old celebration
+			this._phase = BuilderPhase.Ready;
 			this._postBuildEdit = true;
+			this._editMadeMutations = false;
+		}
+		// Agent deactivating after a post-build edit that mutated the blueprint —
+		// transition to Completed so the signal grid shows the done celebration.
+		if (!active && this._postBuildEdit && this._editMadeMutations) {
+			this._phase = BuilderPhase.Completed;
+			this._postBuildEdit = false;
 			this._editMadeMutations = false;
 		}
 		this._agentActive = active;
@@ -855,15 +874,25 @@ export class Builder {
 		this.notify();
 	}
 
-	/** Complete generation — transition Generating → Ready with the final blueprint. */
+	/** Complete generation — transition Generating → Completed with the final blueprint.
+	 *  Completed is a transient celebration phase; call acknowledgeCompletion() to decay to Ready. */
 	completeGeneration(result: {
 		blueprint: AppBlueprint;
 		hqJson: HqApplication;
 		success: boolean;
 	}) {
 		this.enterReady(new MutableBlueprint(result.blueprint));
+		this._phase = BuilderPhase.Completed;
 		this._progressCompleted = 0;
 		this._progressTotal = 0;
+		this.notify();
+	}
+
+	/** Decay Completed → Ready after the done celebration finishes.
+	 *  No-ops if the builder has already moved on (e.g. a new edit started). */
+	acknowledgeCompletion() {
+		if (this._phase !== BuilderPhase.Completed) return;
+		this._phase = BuilderPhase.Ready;
 		this.notify();
 	}
 
