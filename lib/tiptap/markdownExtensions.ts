@@ -3,9 +3,11 @@
  *
  * Used by InlineTextEditor (text cursor mode) to enable full markdown
  * rendering with round-trip serialization via tiptap-markdown. Supports
- * the full CommCare markdown feature set: headings, bold, italic,
- * strikethrough, links, images, lists, code (inline + block), blockquotes,
- * horizontal rules, and GFM tables. CommcareRef nodes serialize as
+ * the CommCare Web Apps markdown feature set: headings, bold, italic,
+ * links, images, lists, code (inline + block), horizontal rules, and
+ * GFM tables. Blockquote and strikethrough are intentionally disabled —
+ * CommCare Web Apps has no visible styling for blockquotes and doesn't
+ * load the markdown-it strikethrough plugin. CommcareRef nodes serialize as
  * bare `#type/path` hashtags and parse back via `hydrateHashtagRefs()`.
  *
  * Contrast with RefLabelInput which uses StarterKit with everything
@@ -32,7 +34,7 @@ import { createRefSuggestion } from "./refSuggestion";
  * Create the full WYSIWYG extension set for inline text editing.
  *
  * StarterKit provides the core formatting: headings (1-3), bold, italic,
- * strike, code, blockquote, lists, horizontal rule, and links. Additional
+ * code, lists, horizontal rule, and links. Additional
  * extensions add image and GFM table support — the full CommCare markdown
  * feature set. The Markdown extension handles bidirectional conversion.
  * CommcareRef provides bare hashtag round-tripping. Mention wires
@@ -55,6 +57,13 @@ export function createInlineEditorExtensions(
 				openOnClick: false,
 				HTMLAttributes: { target: "_blank", rel: "noopener noreferrer" },
 			},
+			/* Blockquote and strikethrough are disabled because CommCare Web Apps
+			 * has no visible styling for either — blockquotes render identically to
+			 * paragraphs (Bootstrap reboot margin only), and markdown-it's
+			 * strikethrough plugin is not loaded. Exposing them here would give
+			 * users a false impression of how their content will render. */
+			blockquote: false,
+			strike: false,
 		}),
 		/* Inline images — `![alt](url)` in markdown. */
 		Image.configure({ inline: true }),
