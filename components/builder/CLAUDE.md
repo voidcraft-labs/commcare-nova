@@ -57,6 +57,10 @@ Text mode uses a `::after` overlay (z-index `--z-ground`) on the question wrappe
 
 **Focus restoration after undo/redo** uses a `focusHint` string stored on `builder` — the `[data-field-id]` key of whichever field the user was editing when the snapshot was taken. `InlineSettingsPanel` tracks the active field via a delegated `onFocus` handler calling `builder.setActiveField()`. This persists through blur → commit → snapshot so blur-triggered saves capture the correct field. The hint is consumed once by `useFocusHint` in the matching editor section, then cleared. Do not query `document.activeElement` for this — blur moves focus before the snapshot fires.
 
+## `ContextualEditorFooter` — Don't Memoize Move Targets
+
+`mb.moveQuestion` mutates the blueprint **in-place**. After a move, `mb` is the same object reference and `selected` is unchanged (same question UUID/path). A `useMemo([selected, mb])` for `isFirst`/`isLast` therefore never invalidates — the arrows stay frozen at the pre-move position. Compute move targets and adjacency flags **inline in the render body** so they pick up the fresh blueprint on every re-render triggered by `notifyBlueprintChanged()`.
+
 ## `MutableBlueprint.fromOwned()`
 
 Skips the defensive `structuredClone` — the caller must guarantee exclusive ownership. Used by HistoryManager to adopt popped undo/redo stack entries without redundant deep cloning. Every snapshot is already an independent blueprint copy.

@@ -55,38 +55,36 @@ export function InlineSettingsPanel({
 		[builder],
 	);
 
+	/* Flat top corners attach flush to the question's flat-bottomed outline.
+	 * cursor-auto resets the inherited cursor-pointer from the question's
+	 * div[role=button] so inputs/labels get their natural cursors. */
 	return (
 		// biome-ignore lint/a11y/noStaticElementInteractions: delegated focusin for undo/redo field tracking
 		<div
-			className="mt-2 rounded-lg border border-nova-violet/15 bg-nova-deep/90 shadow-[0_2px_12px_rgba(0,0,0,0.3)] overflow-hidden"
+			className="rounded-t-none rounded-b-lg border border-nova-violet/60 bg-nova-deep/90 overflow-hidden cursor-auto"
 			data-no-drag
 			onFocus={handleFocus}
 		>
+			<ContextualEditorFooter question={question} builder={builder} />
+
 			<div className="p-2 space-y-2">
-				{/* ── Data section ── */}
 				<div className="rounded-md bg-nova-surface/40 border border-white/[0.04] px-3 py-2.5">
 					<SectionLabel label="Data" />
 					<ContextualEditorData question={question} builder={builder} />
 				</div>
 
-				{/* ── Logic section ── */}
 				<div className="rounded-md bg-nova-surface/40 border border-white/[0.04] px-3 py-2.5">
 					<SectionLabel label="Logic" />
 					<ContextualEditorLogic question={question} builder={builder} />
 				</div>
 
-				{/* ── Appearance section — hidden questions have no visual properties ── */}
+				{/* Hidden questions have no visual properties */}
 				{question.type !== "hidden" && (
 					<div className="rounded-md bg-nova-surface/40 border border-white/[0.04] px-3 py-2.5">
 						<SectionLabel label="Appearance" />
 						<ContextualEditorUI question={question} builder={builder} />
 					</div>
 				)}
-			</div>
-
-			{/* ── Footer: move, duplicate, delete, type change ── */}
-			<div className="border-t border-white/[0.06]">
-				<ContextualEditorFooter question={question} builder={builder} />
 			</div>
 		</div>
 	);

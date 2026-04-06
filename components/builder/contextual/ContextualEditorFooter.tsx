@@ -3,9 +3,9 @@ import type { IconifyIcon } from "@iconify/react/offline";
 import { Icon } from "@iconify/react/offline";
 import tablerArrowDown from "@iconify-icons/tabler/arrow-down";
 import tablerArrowUp from "@iconify-icons/tabler/arrow-up";
-import tablerChevronDown from "@iconify-icons/tabler/chevron-down";
+import tablerArrowsExchange from "@iconify-icons/tabler/arrows-exchange";
 import tablerTrash from "@iconify-icons/tabler/trash";
-import { useCallback } from "react";
+import { type AriaAttributes, forwardRef, useCallback } from "react";
 import { QuestionTypeGrid } from "@/components/builder/QuestionTypeGrid";
 import { tablerCopyPlus } from "@/components/icons/tablerExtras";
 import {
@@ -15,11 +15,8 @@ import {
 import { useSaveQuestion } from "@/hooks/useSaveQuestion";
 import { getConvertibleTypes } from "@/lib/questionTypeConversions";
 import { questionTypeIcons, questionTypeLabels } from "@/lib/questionTypeIcons";
-import { flattenQuestionPaths } from "@/lib/services/questionNavigation";
-import {
-	flattenQuestionRefs,
-	type QuestionPath,
-} from "@/lib/services/questionPath";
+import { getQuestionMoveTargets } from "@/lib/services/questionNavigation";
+import { flattenQuestionRefs } from "@/lib/services/questionPath";
 import type { QuestionEditorProps } from "./shared";
 
 export function ContextualEditorFooter({
@@ -31,12 +28,17 @@ export function ContextualEditorFooter({
 
 	const saveQuestion = useSaveQuestion(builder);
 
-	/* Opens upward since the footer sits at the bottom of the panel */
+	/* Opens downward since the control bar sits at the top of the panel. */
 	const typePicker = useFloatingDropdown<HTMLButtonElement>({
-		placement: "top-start",
+		placement: "bottom-end",
 		offset: 4,
 	});
 
+	/* Handlers resolve move targets fresh at call time — NOT from a useMemo.
+	 * mb.moveQuestion mutates the blueprint in-place, so mb keeps the same
+	 * object reference after a move. A useMemo keyed on [selected, mb] would
+	 * never invalidate, leaving isFirst/isLast stale until the next unrelated
+	 * re-render. Reading from the blueprint at call time is always correct. */
 	const handleMoveUp = useCallback(() => {
 		if (
 			!selected ||
@@ -46,14 +48,17 @@ export function ContextualEditorFooter({
 		)
 			return;
 		const form = mb.getForm(selected.moduleIndex, selected.formIndex);
-		const paths = form ? flattenQuestionPaths(form.questions) : [];
-		const curIdx = paths.indexOf(selected.questionPath as QuestionPath);
-		if (curIdx <= 0) return;
+		if (!form) return;
+		const { beforePath } = getQuestionMoveTargets(
+			form.questions,
+			selected.questionPath,
+		);
+		if (!beforePath) return;
 		mb.moveQuestion(
 			selected.moduleIndex,
 			selected.formIndex,
 			selected.questionPath,
-			{ beforePath: paths[curIdx - 1] },
+			{ beforePath },
 		);
 		builder.notifyBlueprintChanged();
 	}, [mb, selected, builder]);
@@ -67,14 +72,17 @@ export function ContextualEditorFooter({
 		)
 			return;
 		const form = mb.getForm(selected.moduleIndex, selected.formIndex);
-		const paths = form ? flattenQuestionPaths(form.questions) : [];
-		const curIdx = paths.indexOf(selected.questionPath as QuestionPath);
-		if (curIdx < 0 || curIdx >= paths.length - 1) return;
+		if (!form) return;
+		const { afterPath } = getQuestionMoveTargets(
+			form.questions,
+			selected.questionPath,
+		);
+		if (!afterPath) return;
 		mb.moveQuestion(
 			selected.moduleIndex,
 			selected.formIndex,
 			selected.questionPath,
-			{ afterPath: paths[curIdx + 1] },
+			{ afterPath },
 		);
 		builder.notifyBlueprintChanged();
 	}, [mb, selected, builder]);
@@ -111,8 +119,9 @@ export function ContextualEditorFooter({
 		)
 			return;
 		const form = mb.getForm(selected.moduleIndex, selected.formIndex);
-		/* Use flattenQuestionRefs to get both path (for mutations) and UUID
-		 * (for selection) when navigating to the next question after delete. */
+		/* Use flattenQuestionRefs to navigate to the nearest visible question
+		 * after deletion — visible questions are the natural navigation targets
+		 * since hidden fields have no rendered surface to select. */
 		const refs = form ? flattenQuestionRefs(form.questions) : [];
 		const curIdx = refs.findIndex((r) => r.uuid === selected.questionUuid);
 		const next = refs[curIdx + 1] ?? refs[curIdx - 1];
@@ -137,69 +146,79 @@ export function ContextualEditorFooter({
 
 	if (!selected || !mb) return null;
 
+	/* Compute adjacency inline so isFirst/isLast always reflect the current
+	 * blueprint. Doing this in a useMemo would produce stale values because
+	 * mb is mutated in-place — its reference never changes after a move. */
 	const form =
 		selected.formIndex !== undefined
 			? mb.getForm(selected.moduleIndex, selected.formIndex)
 			: null;
-	const refs = form ? flattenQuestionRefs(form.questions) : [];
-	const curIdx = refs.findIndex((r) => r.uuid === selected.questionUuid);
-	const isFirst = curIdx <= 0;
-	const isLast = curIdx < 0 || curIdx >= refs.length - 1;
+	const { beforePath, afterPath } =
+		form && selected.questionPath
+			? getQuestionMoveTargets(form.questions, selected.questionPath)
+			: { beforePath: undefined, afterPath: undefined };
+	const isFirst = beforePath === undefined;
+	const isLast = afterPath === undefined;
 	const conversionTargets = getConvertibleTypes(question.type);
 	const canConvert = conversionTargets.length > 0;
-
 	const typeIcon = questionTypeIcons[question.type];
 	const typeLabel = questionTypeLabels[question.type] ?? question.type;
 
 	return (
-		<div className="flex items-center justify-between px-2 py-1.5 border-t border-white/[0.06]">
-			<div className="flex items-center gap-0.5">
-				<FooterButton
-					icon={tablerArrowUp}
-					title="Move Up"
-					onClick={handleMoveUp}
-					disabled={isFirst}
-				/>
-				<FooterButton
-					icon={tablerArrowDown}
-					title="Move Down"
-					onClick={handleMoveDown}
-					disabled={isLast}
-				/>
+		<>
+			<div className="flex items-center justify-between px-2 min-h-[52px] border-b border-white/[0.06]">
+				<div className="flex items-center gap-0.5">
+					<ControlButton
+						icon={tablerArrowUp}
+						title="Move Up"
+						onClick={handleMoveUp}
+						disabled={isFirst}
+					/>
+					<ControlButton
+						icon={tablerArrowDown}
+						title="Move Down"
+						onClick={handleMoveDown}
+						disabled={isLast}
+					/>
+				</div>
+
+				{/* Type label — always visible, never interactive. Keeps the user
+				    oriented to what kind of field they're editing. */}
+				<div className="flex items-center gap-1.5 text-xs text-nova-text-muted pointer-events-none select-none">
+					{typeIcon && (
+						<Icon icon={typeIcon} width="18" height="18" className="shrink-0" />
+					)}
+					<span>{typeLabel}</span>
+				</div>
+
+				<div className="flex items-center gap-0.5">
+					<ControlButton
+						ref={typePicker.triggerRef}
+						icon={tablerArrowsExchange}
+						title={
+							canConvert
+								? "Convert type"
+								: "Can't convert — remove and add a new question instead"
+						}
+						onClick={typePicker.toggle}
+						disabled={!canConvert}
+						aria-haspopup="true"
+						aria-expanded={typePicker.open}
+					/>
+					<ControlButton
+						icon={tablerCopyPlus}
+						title="Duplicate"
+						onClick={handleDuplicate}
+					/>
+					<ControlButton
+						icon={tablerTrash}
+						title="Delete"
+						onClick={handleDelete}
+						destructive
+					/>
+				</div>
 			</div>
 
-			<button
-				type="button"
-				ref={typePicker.triggerRef}
-				onClick={typePicker.toggle}
-				disabled={!canConvert}
-				title={
-					canConvert
-						? "Change type"
-						: "Can't change type — remove and add a new question instead"
-				}
-				aria-haspopup="true"
-				aria-expanded={typePicker.open}
-				className={`flex items-center gap-1.5 px-2 h-7 rounded-md text-xs transition-colors
-          ${
-						canConvert
-							? "text-nova-text-muted hover:text-nova-text hover:bg-white/[0.06] cursor-pointer"
-							: "text-nova-text-muted/30 cursor-not-allowed"
-					}`}
-			>
-				{typeIcon && (
-					<Icon icon={typeIcon} width="14" height="14" className="shrink-0" />
-				)}
-				<span>{typeLabel}</span>
-				{canConvert && (
-					<Icon
-						icon={tablerChevronDown}
-						width="12"
-						height="12"
-						className="shrink-0 opacity-50"
-					/>
-				)}
-			</button>
 			{canConvert && (
 				<DropdownPortal
 					dropdown={typePicker}
@@ -216,54 +235,45 @@ export function ContextualEditorFooter({
 					/>
 				</DropdownPortal>
 			)}
-
-			<div className="flex items-center gap-0.5">
-				<FooterButton
-					icon={tablerCopyPlus}
-					title="Duplicate"
-					onClick={handleDuplicate}
-				/>
-				<FooterButton
-					icon={tablerTrash}
-					title="Delete"
-					onClick={handleDelete}
-					destructive
-				/>
-			</div>
-		</div>
+		</>
 	);
 }
 
-function FooterButton({
-	icon,
-	title,
-	onClick,
-	disabled,
-	destructive,
-}: {
-	icon: IconifyIcon;
-	title: string;
-	onClick: () => void;
-	disabled?: boolean;
-	destructive?: boolean;
-}) {
+/** Icon button for the control bar. 44×44px touch target with 20px icon. */
+const ControlButton = forwardRef<
+	HTMLButtonElement,
+	{
+		icon: IconifyIcon;
+		title: string;
+		onClick: () => void;
+		disabled?: boolean;
+		destructive?: boolean;
+		"aria-haspopup"?: AriaAttributes["aria-haspopup"];
+		"aria-expanded"?: AriaAttributes["aria-expanded"];
+	}
+>(function ControlButton(
+	{ icon, title, onClick, disabled, destructive, ...ariaProps },
+	ref,
+) {
 	return (
 		<button
+			ref={ref}
 			type="button"
 			onClick={onClick}
 			disabled={disabled}
 			title={title}
 			aria-label={title}
-			className={`w-7 h-7 flex items-center justify-center rounded-md transition-colors cursor-pointer
+			{...ariaProps}
+			className={`w-11 h-11 flex items-center justify-center rounded-md transition-colors
         ${
 					disabled
 						? "text-nova-text-muted/30 cursor-not-allowed"
 						: destructive
-							? "text-nova-text-muted hover:text-nova-rose hover:bg-nova-rose/10"
-							: "text-nova-text-muted hover:text-nova-text hover:bg-white/[0.06]"
+							? "text-nova-text-muted hover:text-nova-rose hover:bg-nova-rose/10 cursor-pointer"
+							: "text-nova-text-muted hover:text-nova-text hover:bg-white/[0.06] cursor-pointer"
 				}`}
 		>
-			<Icon icon={icon} width="16" height="16" />
+			<Icon icon={icon} width="20" height="20" />
 		</button>
 	);
-}
+});

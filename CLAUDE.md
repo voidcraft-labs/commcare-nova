@@ -67,6 +67,8 @@ Question reordering uses the controlled state pattern: `onDragOver` → `move(it
 
 `InlineSettingsPanel` renders as a **sibling** of the sortable element (`<div ref={ref}>`), not inside it. If the panel were a child, its expanded height would inflate the sortable's collision shape, breaking group droppable detection on subsequent drags. `RestrictToElement` targets `[data-preview-scroll-container]` (the visible editor viewport).
 
+**Connected card visual design** — when a question is selected, `EditableQuestionWrapper` gains `rounded-b-none outline-offset-0` (flat bottom, outline flush to the element edge) and the panel gets `rounded-t-none cursor-auto`. These look like mistakes but are intentional: they make the question and its properties panel read as one connected card. `cursor-auto` resets the `cursor-pointer` the panel would otherwise inherit from the `div[role=button]`. Do not "fix" these back to `rounded-lg` or `outline-offset-3`.
+
 `RepeatField` renders a **single template instance** in edit mode — all repeat instances share the same question schema, so rendering N copies creates duplicate `useSortable` IDs that corrupt dnd-kit state. Preview mode renders all instances normally (no `DragDropProvider` in preview, so hooks are no-ops).
 
 Sortable items are keyed by **UUID** (`q.uuid`), not `questionPath` — so sortable IDs survive renames. Group/repeat droppable containers use `${uuid}:container`. `buildDragState()` builds a `uuidToPath` reverse map so mutation calls (`moveQuestion` etc.) still receive `QuestionPath` arguments.

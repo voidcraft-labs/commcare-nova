@@ -366,7 +366,11 @@ function SortableQuestion({
 		<>
 			<div
 				ref={ref}
-				className="relative mb-4"
+				/* Collapse bottom margin when the panel is open so the panel
+				 * appears attached to the question. The panel itself carries a
+				 * pb-4 spacer (clipped by overflow-hidden) that provides the
+				 * inter-question gap and shrinks away cleanly on exit. */
+				className={`relative ${isSelected ? "mb-0" : "mb-4"}`}
 				data-invalid={showInvalid ? "true" : undefined}
 				data-question-uuid={q.uuid}
 			>
@@ -401,7 +405,14 @@ function SortableQuestion({
 							ctx.builder.completePanelAnimation(q.uuid)
 						}
 					>
-						<InlineSettingsPanel builder={ctx.builder} question={q} />
+						{/* pb-4 is clipped by overflow-hidden during the height animation,
+						 * so it provides the inter-question gap below the panel and
+						 * shrinks away cleanly on exit — no external margin, no jump.
+						 * The panel itself carries no top margin; it attaches flush to
+						 * the question's flat-bottomed selection outline. */}
+						<div className="pb-4">
+							<InlineSettingsPanel builder={ctx.builder} question={q} />
+						</div>
 					</motion.div>
 				)}
 			</AnimatePresence>
