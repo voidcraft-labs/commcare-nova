@@ -87,10 +87,10 @@ export function FormScreen({
 		(el: HTMLDivElement | null) => {
 			formBodyElRef.current = el;
 			if (!el || mode !== "test") return;
-			const qId = builder?.selected?.questionPath;
-			if (!qId) return;
+			const uuid = builder?.selected?.questionUuid;
+			if (!uuid) return;
 			const raf = requestAnimationFrame(() => {
-				const qEl = el.querySelector(`[data-question-id="${qId}"]`);
+				const qEl = el.querySelector(`[data-question-uuid="${uuid}"]`);
 				const input = qEl?.querySelector(
 					"input, select, textarea",
 				) as HTMLElement | null;
@@ -98,7 +98,7 @@ export function FormScreen({
 			});
 			return () => cancelAnimationFrame(raf);
 		},
-		[mode, builder?.selected?.questionPath],
+		[mode, builder?.selected?.questionUuid],
 	);
 
 	if (!form) {

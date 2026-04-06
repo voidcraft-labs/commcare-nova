@@ -16,7 +16,10 @@ import { useSaveQuestion } from "@/hooks/useSaveQuestion";
 import { getConvertibleTypes } from "@/lib/questionTypeConversions";
 import { questionTypeIcons, questionTypeLabels } from "@/lib/questionTypeIcons";
 import { flattenQuestionPaths } from "@/lib/services/questionNavigation";
-import type { QuestionPath } from "@/lib/services/questionPath";
+import {
+	flattenQuestionRefs,
+	type QuestionPath,
+} from "@/lib/services/questionPath";
 import type { QuestionEditorProps } from "./shared";
 
 export function ContextualEditorFooter({
@@ -84,17 +87,18 @@ export function ContextualEditorFooter({
 			!selected.questionPath
 		)
 			return;
-		const newPath = mb.duplicateQuestion(
+		const { newPath, newUuid } = mb.duplicateQuestion(
 			selected.moduleIndex,
 			selected.formIndex,
 			selected.questionPath,
 		);
 		builder.notifyBlueprintChanged();
-		builder.select({
+		builder.navigateTo({
 			type: "question",
 			moduleIndex: selected.moduleIndex,
 			formIndex: selected.formIndex,
 			questionPath: newPath,
+			questionUuid: newUuid,
 		});
 	}, [mb, selected, builder]);
 
@@ -107,21 +111,24 @@ export function ContextualEditorFooter({
 		)
 			return;
 		const form = mb.getForm(selected.moduleIndex, selected.formIndex);
-		const paths = form ? flattenQuestionPaths(form.questions) : [];
-		const curIdx = paths.indexOf(selected.questionPath as QuestionPath);
-		const nextPath = paths[curIdx + 1] ?? paths[curIdx - 1];
+		/* Use flattenQuestionRefs to get both path (for mutations) and UUID
+		 * (for selection) when navigating to the next question after delete. */
+		const refs = form ? flattenQuestionRefs(form.questions) : [];
+		const curIdx = refs.findIndex((r) => r.uuid === selected.questionUuid);
+		const next = refs[curIdx + 1] ?? refs[curIdx - 1];
 		mb.removeQuestion(
 			selected.moduleIndex,
 			selected.formIndex,
 			selected.questionPath,
 		);
 		builder.notifyBlueprintChanged();
-		if (nextPath) {
-			builder.select({
+		if (next) {
+			builder.navigateTo({
 				type: "question",
 				moduleIndex: selected.moduleIndex,
 				formIndex: selected.formIndex,
-				questionPath: nextPath,
+				questionPath: next.path,
+				questionUuid: next.uuid,
 			});
 		} else {
 			builder.select();
@@ -134,10 +141,10 @@ export function ContextualEditorFooter({
 		selected.formIndex !== undefined
 			? mb.getForm(selected.moduleIndex, selected.formIndex)
 			: null;
-	const paths = form ? flattenQuestionPaths(form.questions) : [];
-	const curIdx = paths.indexOf(selected.questionPath as QuestionPath);
+	const refs = form ? flattenQuestionRefs(form.questions) : [];
+	const curIdx = refs.findIndex((r) => r.uuid === selected.questionUuid);
 	const isFirst = curIdx <= 0;
-	const isLast = curIdx < 0 || curIdx >= paths.length - 1;
+	const isLast = curIdx < 0 || curIdx >= refs.length - 1;
 	const conversionTargets = getConvertibleTypes(question.type);
 	const canConvert = conversionTargets.length > 0;
 

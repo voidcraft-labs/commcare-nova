@@ -2,8 +2,10 @@ import { useMemo } from "react";
 import type { Builder, CursorMode } from "@/lib/services/builder";
 import { BuilderPhase } from "@/lib/services/builder";
 import type { Shortcut } from "@/lib/services/keyboardManager";
-import { flattenQuestionPaths } from "@/lib/services/questionNavigation";
-import type { QuestionPath } from "@/lib/services/questionPath";
+import {
+	flattenQuestionRefs,
+	type QuestionRef,
+} from "@/lib/services/questionPath";
 
 /**
  * Builds a memoized keyboard shortcuts array for the builder layout.
@@ -30,6 +32,19 @@ export function useBuilderShortcuts(
 	return useMemo(() => {
 		if (!isReady) return [];
 
+		/** Get the flat question refs for the current form. */
+		const getFormRefs = (): QuestionRef[] | undefined => {
+			const sel = builder.selected;
+			if (!sel || sel.formIndex === undefined) return undefined;
+			const form =
+				builder.blueprint?.modules[sel.moduleIndex]?.forms[sel.formIndex];
+			return form ? flattenQuestionRefs(form.questions) : undefined;
+		};
+
+		/** Find the current question's index in the ref list by UUID. */
+		const findCurrent = (refs: QuestionRef[]): number =>
+			refs.findIndex((r) => r.uuid === builder.selected?.questionUuid);
+
 		return [
 			// Escape — deselect / exit pointer mode
 			{
@@ -54,20 +69,16 @@ export function useBuilderShortcuts(
 				key: "Tab",
 				handler: () => {
 					if (cursorMode !== "inspect") return;
-					if (!builder.selected || !builder.blueprint) return;
-					const sel = builder.selected;
-					if (sel.formIndex === undefined) return;
-					const form =
-						builder.blueprint.modules[sel.moduleIndex]?.forms[sel.formIndex];
-					if (!form) return;
-					const ids = flattenQuestionPaths(form.questions);
-					const curIdx = ids.indexOf(sel.questionPath as QuestionPath);
-					const nextIdx = (curIdx + 1) % ids.length;
-					builder.select({
+					const refs = getFormRefs();
+					if (!refs?.length) return;
+					const curIdx = findCurrent(refs);
+					const next = refs[(curIdx + 1) % refs.length];
+					builder.navigateTo({
 						type: "question",
-						moduleIndex: sel.moduleIndex,
-						formIndex: sel.formIndex,
-						questionPath: ids[nextIdx],
+						moduleIndex: builder.selected!.moduleIndex,
+						formIndex: builder.selected!.formIndex,
+						questionPath: next.path,
+						questionUuid: next.uuid,
 					});
 				},
 			},
@@ -76,20 +87,16 @@ export function useBuilderShortcuts(
 				shift: true,
 				handler: () => {
 					if (cursorMode !== "inspect") return;
-					if (!builder.selected || !builder.blueprint) return;
-					const sel = builder.selected;
-					if (sel.formIndex === undefined) return;
-					const form =
-						builder.blueprint.modules[sel.moduleIndex]?.forms[sel.formIndex];
-					if (!form) return;
-					const ids = flattenQuestionPaths(form.questions);
-					const curIdx = ids.indexOf(sel.questionPath as QuestionPath);
-					const prevIdx = curIdx <= 0 ? ids.length - 1 : curIdx - 1;
-					builder.select({
+					const refs = getFormRefs();
+					if (!refs?.length) return;
+					const curIdx = findCurrent(refs);
+					const prev = refs[curIdx <= 0 ? refs.length - 1 : curIdx - 1];
+					builder.navigateTo({
 						type: "question",
-						moduleIndex: sel.moduleIndex,
-						formIndex: sel.formIndex,
-						questionPath: ids[prevIdx],
+						moduleIndex: builder.selected!.moduleIndex,
+						formIndex: builder.selected!.formIndex,
+						questionPath: prev.path,
+						questionUuid: prev.uuid,
 					});
 				},
 			},
@@ -121,17 +128,18 @@ export function useBuilderShortcuts(
 						return;
 					const mb = builder.mb;
 					if (!mb) return;
-					const newPath = mb.duplicateQuestion(
+					const { newPath, newUuid } = mb.duplicateQuestion(
 						sel.moduleIndex,
 						sel.formIndex,
 						sel.questionPath,
 					);
 					builder.notifyBlueprintChanged();
-					builder.select({
+					builder.navigateTo({
 						type: "question",
 						moduleIndex: sel.moduleIndex,
 						formIndex: sel.formIndex,
 						questionPath: newPath,
+						questionUuid: newUuid,
 					});
 				},
 			},
@@ -149,13 +157,12 @@ export function useBuilderShortcuts(
 						return;
 					const mb = builder.mb;
 					if (!mb) return;
-					const form = mb.getForm(sel.moduleIndex, sel.formIndex);
-					if (!form) return;
-					const ids = flattenQuestionPaths(form.questions);
-					const curIdx = ids.indexOf(sel.questionPath as QuestionPath);
+					const refs = getFormRefs();
+					if (!refs) return;
+					const curIdx = findCurrent(refs);
 					if (curIdx <= 0) return;
 					mb.moveQuestion(sel.moduleIndex, sel.formIndex, sel.questionPath, {
-						beforePath: ids[curIdx - 1],
+						beforePath: refs[curIdx - 1].path,
 					});
 					builder.notifyBlueprintChanged();
 				},
@@ -173,13 +180,12 @@ export function useBuilderShortcuts(
 						return;
 					const mb = builder.mb;
 					if (!mb) return;
-					const form = mb.getForm(sel.moduleIndex, sel.formIndex);
-					if (!form) return;
-					const ids = flattenQuestionPaths(form.questions);
-					const curIdx = ids.indexOf(sel.questionPath as QuestionPath);
-					if (curIdx < 0 || curIdx >= ids.length - 1) return;
+					const refs = getFormRefs();
+					if (!refs) return;
+					const curIdx = findCurrent(refs);
+					if (curIdx < 0 || curIdx >= refs.length - 1) return;
 					mb.moveQuestion(sel.moduleIndex, sel.formIndex, sel.questionPath, {
-						afterPath: ids[curIdx + 1],
+						afterPath: refs[curIdx + 1].path,
 					});
 					builder.notifyBlueprintChanged();
 				},

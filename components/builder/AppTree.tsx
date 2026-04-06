@@ -492,11 +492,8 @@ function FormCard({
 						<AnimatePresence mode="sync">
 							{form.questions?.map((q, qIdx) => (
 								<QuestionRow
-									key={
-										q.id
-											? `${moduleIndex}_${formIndex}_${qIdx}_${q.id}`
-											: `${moduleIndex}_${formIndex}_${qIdx}`
-									}
+									// biome-ignore lint/suspicious/noArrayIndexKey: positional key is intentional — questions have no stable UUID, and using q.id causes remount + animation flash on rename
+									key={qIdx}
 									question={q}
 									questionPath={qpath(q.id)}
 									moduleIndex={moduleIndex}
@@ -595,7 +592,13 @@ function QuestionRow({
 				style={{ paddingLeft: `${28 + depth * 8}px` }}
 				onClick={(e) => {
 					e.stopPropagation();
-					onSelect({ type: "question", moduleIndex, formIndex, questionPath });
+					onSelect({
+						type: "question",
+						moduleIndex,
+						formIndex,
+						questionPath,
+						questionUuid: q.uuid,
+					});
 				}}
 			>
 				{hasChildren && (
@@ -649,11 +652,8 @@ function QuestionRow({
 				<div>
 					{q.children?.map((child, cIdx) => (
 						<QuestionRow
-							key={
-								child.id
-									? `${moduleIndex}_${formIndex}_${cIdx}_${child.id}`
-									: `${moduleIndex}_${formIndex}_${cIdx}`
-							}
+							// biome-ignore lint/suspicious/noArrayIndexKey: positional key — same rationale as parent QuestionRow
+							key={cIdx}
 							question={child}
 							questionPath={qpath(child.id, questionPath)}
 							moduleIndex={moduleIndex}

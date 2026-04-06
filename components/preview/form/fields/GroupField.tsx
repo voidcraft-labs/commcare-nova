@@ -29,7 +29,7 @@ export function GroupField({
 	const saveField = useTextEditSave(questionPath);
 
 	const { ref: droppableRef } = useDroppable({
-		id: `${questionPath}:container`,
+		id: `${question.uuid}:container`,
 		type: "container",
 		accept: "question",
 		collisionPriority: CollisionPriority.Low,
@@ -80,6 +80,7 @@ export function GroupField({
 					engine={engine}
 					prefix={path}
 					parentPath={questionPath}
+					parentUuid={question.uuid}
 				/>
 			</div>
 		</div>

@@ -13,6 +13,7 @@
  */
 
 "use client";
+import { useCallback } from "react";
 import type { Question } from "@/lib/schemas/blueprint";
 import type { Builder } from "@/lib/services/builder";
 import { ContextualEditorData } from "./contextual/ContextualEditorData";
@@ -41,10 +42,25 @@ export function InlineSettingsPanel({
 	builder,
 	question,
 }: InlineSettingsPanelProps) {
+	/** Delegated focusin handler — tracks which [data-field-id] element has
+	 *  focus so undo/redo snapshots capture the correct field even for
+	 *  blur-triggered saves (where document.activeElement has already moved). */
+	const handleFocus = useCallback(
+		(e: React.FocusEvent) => {
+			const fieldEl = (e.target as HTMLElement).closest("[data-field-id]");
+			builder.setActiveField(
+				fieldEl?.getAttribute("data-field-id") ?? undefined,
+			);
+		},
+		[builder],
+	);
+
 	return (
+		// biome-ignore lint/a11y/noStaticElementInteractions: delegated focusin for undo/redo field tracking
 		<div
 			className="mt-2 rounded-lg border border-nova-violet/15 bg-nova-deep/90 shadow-[0_2px_12px_rgba(0,0,0,0.3)] overflow-hidden"
 			data-no-drag
+			onFocus={handleFocus}
 		>
 			<div className="p-2 space-y-2">
 				{/* ── Data section ── */}

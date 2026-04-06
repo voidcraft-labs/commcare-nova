@@ -20,7 +20,13 @@ import type {
 	Question,
 } from "../schemas/blueprint";
 import { normalizeConnectConfig } from "./connectConfig";
-import { type QuestionPath, qpath, qpathId, qpathParent } from "./questionPath";
+import {
+	type QuestionPath,
+	qpath,
+	qpathId,
+	qpathParent,
+	reassignUuids,
+} from "./questionPath";
 
 // ── Result types ────────────────────────────────────────────────────────
 
@@ -477,6 +483,7 @@ export class MutableBlueprint {
 		return question;
 	}
 
+	/** Add a question to a form. Returns the new question's stable UUID. */
 	addQuestion(
 		mIdx: number,
 		fIdx: number,
@@ -487,7 +494,7 @@ export class MutableBlueprint {
 			atIndex?: number;
 			parentPath?: QuestionPath;
 		},
-	): void {
+	): string {
 		const form = this.blueprint.modules[mIdx]?.forms[fIdx];
 		if (!form) throw new Error(`Form m${mIdx}-f${fIdx} not found`);
 
@@ -511,6 +518,8 @@ export class MutableBlueprint {
 			const beforeId = opts?.beforePath ? qpathId(opts.beforePath) : undefined;
 			this.insertIntoArray(arr, newQ, afterId, beforeId);
 		}
+
+		return newQ.uuid!;
 	}
 
 	removeQuestion(mIdx: number, fIdx: number, questionPath: QuestionPath): void {
@@ -581,11 +590,12 @@ export class MutableBlueprint {
 		this.insertIntoArray(targetArray, found.question, afterId, beforeId);
 	}
 
+	/** Duplicate a question, returning its new path and stable UUID. */
 	duplicateQuestion(
 		mIdx: number,
 		fIdx: number,
 		questionPath: QuestionPath,
-	): QuestionPath {
+	): { newPath: QuestionPath; newUuid: string } {
 		const form = this.blueprint.modules[mIdx]?.forms[fIdx];
 		if (!form) throw new Error(`Form m${mIdx}-f${fIdx} not found`);
 
@@ -606,12 +616,18 @@ export class MutableBlueprint {
 		}
 		clone.id = newId;
 
+		// Fresh UUIDs for the clone and all descendants — identity must be unique
+		reassignUuids([clone]);
+
 		// Clear case mapping on the clone to avoid duplicate mappings
 		delete clone.case_property_on;
 
 		// Insert after original in same parent array
 		this.insertIntoArray(found.parent, clone, qpathId(questionPath));
-		return qpath(newId, qpathParent(questionPath));
+		return {
+			newPath: qpath(newId, qpathParent(questionPath)),
+			newUuid: clone.uuid!,
+		};
 	}
 
 	private collectAllIds(questions: Question[]): Set<string> {
@@ -833,6 +849,17 @@ export class MutableBlueprint {
 		return current;
 	}
 
+	/** Look up a question's stable UUID given its tree path. Returns undefined if not found. */
+	findUuidByPath(
+		mIdx: number,
+		fIdx: number,
+		path: QuestionPath,
+	): string | undefined {
+		const form = this.blueprint.modules[mIdx]?.forms[fIdx];
+		if (!form) return undefined;
+		return this.findByPath(form.questions, path)?.question.uuid;
+	}
+
 	/** Walk the tree matching path segments to find a question and its parent array. */
 	private findByPath(
 		questions: Question[],
@@ -897,6 +924,7 @@ export class MutableBlueprint {
 
 	private newQuestionToBlueprint(nq: NewQuestion): Question {
 		return {
+			uuid: crypto.randomUUID(),
 			id: nq.id,
 			type: nq.type,
 			...(nq.label != null && { label: nq.label }),
