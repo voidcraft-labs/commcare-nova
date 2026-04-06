@@ -12,8 +12,8 @@
 import type { UIMessage } from "ai";
 import type { JsonValue, StoredEvent } from "@/lib/db/types";
 import type { AppBlueprint } from "@/lib/schemas/blueprint";
-import type { Builder } from "./builder";
 import { applyDataPart } from "./builder";
+import type { BuilderEngine } from "./builderEngine";
 import type { HqApplication } from "./commcare/hqTypes";
 
 // ── Types ───────────────────────────────────────────────────────────────
@@ -22,7 +22,7 @@ export interface ReplayStage {
 	header: string;
 	subtitle?: string;
 	messages: UIMessage[];
-	applyToBuilder: (builder: Builder) => void;
+	applyToBuilder: (engine: BuilderEngine) => void;
 }
 
 interface ExtractionSuccess {
@@ -213,16 +213,15 @@ export function extractReplayStages(events: StoredEvent[]): ExtractionResult {
 		header: "Done",
 		messages: buildProgressiveMessages(),
 		applyToBuilder: (b) => {
-			const tree = b.treeData;
-			if (tree) {
-				b.completeGeneration({
-					blueprint: {
-						...tree,
-						case_types: b.caseTypes ?? null,
-					} as AppBlueprint,
-					hqJson: {} as HqApplication,
-					success: true,
-				});
+			const s = b.store.getState();
+			/* Derive a blueprint from the generation data for the final replay stage. */
+			const gen = s.generationData;
+			const scaffold = gen?.scaffold;
+			if (scaffold) {
+				s.completeGeneration({
+					...scaffold,
+					case_types: s.caseTypes ?? null,
+				} as unknown as AppBlueprint);
 			}
 		},
 	});

@@ -16,6 +16,12 @@ import {
 } from "react";
 import { ConnectLogomark } from "@/components/icons/ConnectLogomark";
 import {
+	useBuilderEngine,
+	useBuilderPhase,
+	useBuilderSelected,
+	useBuilderTreeData,
+} from "@/hooks/useBuilder";
+import {
 	filterTree,
 	highlightSegments,
 	type MatchIndices,
@@ -37,32 +43,39 @@ import { type QuestionPath, qpath } from "@/lib/services/questionPath";
  */
 const FormIconContext = createContext<Map<string, IconifyIcon>>(new Map());
 
+/** Subset of SelectedElement used by internal tree components for highlight matching. */
+type TreeSelection =
+	| {
+			type: string;
+			moduleIndex: number;
+			formIndex?: number;
+			questionPath?: QuestionPath;
+	  }
+	| undefined;
+
+/** Handler for tree item selection — passed down through the recursive tree. */
+type TreeSelectHandler = (selected: SelectedElement) => void;
+
 interface AppTreeProps {
-	data: TreeData | undefined;
-	selected:
-		| {
-				type: string;
-				moduleIndex: number;
-				formIndex?: number;
-				questionPath?: QuestionPath;
-		  }
-		| undefined;
-	onSelect: (selected: SelectedElement) => void;
-	phase: BuilderPhase;
 	actions?: React.ReactNode;
 	hideHeader?: boolean;
 }
 
-export function AppTree({
-	data,
-	selected,
-	onSelect,
-	phase,
-	actions,
-	hideHeader,
-}: AppTreeProps) {
+export function AppTree({ actions, hideHeader }: AppTreeProps) {
+	/* All state read from the store — no prop drilling from parent. */
+	const data = useBuilderTreeData();
+	const selected = useBuilderSelected();
+	const phase = useBuilderPhase();
+	const engine = useBuilderEngine();
+
 	const locked =
 		phase !== BuilderPhase.Ready && phase !== BuilderPhase.Completed;
+
+	/** Navigate engine (select + scroll) and push the correct preview screen. */
+	const handleSelect: TreeSelectHandler = useCallback(
+		(sel: SelectedElement) => engine.navigateToSelection(sel),
+		[engine],
+	);
 	const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
 	const [searchQuery, setSearchQuery] = useState("");
 	const deferredQuery = useDeferredValue(searchQuery);
@@ -162,7 +175,7 @@ export function AppTree({
 									module={mod}
 									moduleIndex={mIdx}
 									selected={selected}
-									onSelect={onSelect}
+									onSelect={handleSelect}
 									collapsed={collapsed}
 									toggle={toggle}
 									forceExpand={filtered?.forceExpand}
@@ -245,6 +258,10 @@ function TreeItemRow({
 	);
 }
 
+/* Not memoized — MutableBlueprint mutates in place, so module/form objects
+ * are the same reference before and after mutation. React.memo's shallow
+ * comparison would block legitimate re-renders on data changes. The tree
+ * re-renders on selection changes and blueprint mutations, both correct. */
 function ModuleCard({
 	module: mod,
 	moduleIndex,
@@ -259,8 +276,8 @@ function ModuleCard({
 }: {
 	module: TreeData["modules"][number];
 	moduleIndex: number;
-	selected: AppTreeProps["selected"];
-	onSelect: AppTreeProps["onSelect"];
+	selected: TreeSelection;
+	onSelect: TreeSelectHandler;
 	collapsed: Set<string>;
 	toggle: (key: string) => void;
 	forceExpand?: Set<string>;
@@ -399,8 +416,8 @@ function FormCard({
 	form: TreeData["modules"][number]["forms"][number];
 	moduleIndex: number;
 	formIndex: number;
-	selected: AppTreeProps["selected"];
-	onSelect: AppTreeProps["onSelect"];
+	selected: TreeSelection;
+	onSelect: TreeSelectHandler;
 	delay: number;
 	collapsed: Set<string>;
 	toggle: (key: string) => void;
@@ -539,8 +556,8 @@ function QuestionRow({
 	questionPath: QuestionPath;
 	moduleIndex: number;
 	formIndex: number;
-	onSelect: AppTreeProps["onSelect"];
-	selected: AppTreeProps["selected"];
+	onSelect: TreeSelectHandler;
+	selected: TreeSelection;
 	/** Nesting depth — used to extend row backgrounds to the full container width */
 	depth: number;
 	delay: number;

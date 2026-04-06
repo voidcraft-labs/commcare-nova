@@ -6,7 +6,7 @@ import tablerX from "@iconify-icons/tabler/x";
 import type { UIMessage } from "ai";
 import { AnimatePresence, motion } from "motion/react";
 import { useCallback, useState } from "react";
-import { useBuilder } from "@/hooks/useBuilder";
+import { useBuilderEngine } from "@/hooks/useBuilder";
 import type { ReplayStage } from "@/lib/services/logReplay";
 
 interface ReplayControllerProps {
@@ -24,7 +24,7 @@ export function ReplayController({
 	onExit,
 	onMessagesChange,
 }: ReplayControllerProps) {
-	const builder = useBuilder();
+	const builder = useBuilderEngine();
 	const [currentIndex, setCurrentIndex] = useState(initialIndex);
 	const [error, setError] = useState<string>();
 

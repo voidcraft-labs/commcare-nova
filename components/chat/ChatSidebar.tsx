@@ -14,12 +14,13 @@ import { ChatInput } from "@/components/chat/ChatInput";
 import { ChatMessage } from "@/components/chat/ChatMessage";
 import { SignalGrid } from "@/components/chat/SignalGrid";
 import { SignalPanel } from "@/components/chat/SignalPanel";
-import { useBuilder } from "@/hooks/useBuilder";
 import {
-	type Builder,
-	BuilderPhase,
-	GenerationStage,
-} from "@/lib/services/builder";
+	useBuilderEngine,
+	useBuilderPhase,
+	useBuilderStoreShallow,
+} from "@/hooks/useBuilder";
+import { BuilderPhase, GenerationStage } from "@/lib/services/builder";
+import type { BuilderEngine } from "@/lib/services/builderEngine";
 import {
 	defaultLabel,
 	SignalGridController,
@@ -34,7 +35,7 @@ export const CHAT_SIDEBAR_WIDTH = 320;
  *  a direct value) so they always read the latest builder instance. Safe across
  *  the gap between old controller teardown and new controller creation. */
 function createGridController(builderRef: {
-	current: Builder;
+	current: BuilderEngine;
 }): SignalGridController {
 	return new SignalGridController({
 		consumeEnergy: () => builderRef.current.drainEnergy(),
@@ -68,7 +69,22 @@ export function ChatSidebar({
 	addToolOutput,
 	readOnly,
 }: ChatSidebarProps) {
-	const builder = useBuilder();
+	const engine = useBuilderEngine();
+	const phase = useBuilderPhase();
+	const {
+		generationError,
+		generationStage,
+		agentActive,
+		postBuildEdit,
+		statusMessage,
+	} = useBuilderStoreShallow((s) => ({
+		generationError: s.generationError,
+		generationStage: s.generationStage,
+		agentActive: s.agentActive,
+		postBuildEdit: s.postBuildEdit,
+		statusMessage: s.statusMessage,
+	}));
+	const isGenerating = phase === BuilderPhase.Generating;
 	const isLoading = status === "submitted" || status === "streaming";
 
 	// ── Signal Grid — controller scoped to the builder instance ──────────
@@ -77,14 +93,14 @@ export function ChatSidebar({
 	// app via BuilderProvider), we destroy the old controller's animation
 	// loop and create a fresh one. Callbacks close over builderRef so they
 	// always read the latest instance — safe across the teardown gap.
-	const builderRef = useRef(builder);
-	builderRef.current = builder;
-	const builderIdentityRef = useRef(builder);
+	const engineRef = useRef(engine);
+	engineRef.current = engine;
+	const engineIdentityRef = useRef(engine);
 	const gridControllerRef = useRef<SignalGridController | null>(null);
-	if (builder !== builderIdentityRef.current || !gridControllerRef.current) {
+	if (engine !== engineIdentityRef.current || !gridControllerRef.current) {
 		gridControllerRef.current?.destroy();
-		builderIdentityRef.current = builder;
-		gridControllerRef.current = createGridController(builderRef);
+		engineIdentityRef.current = engine;
+		gridControllerRef.current = createGridController(engineRef);
 	}
 	const gridController = gridControllerRef.current;
 
@@ -126,38 +142,36 @@ export function ChatSidebar({
 	const desiredMode = ((): SignalMode => {
 		if (introMode) return introMode;
 		// Generation errors — phase stays Generating, error is metadata
-		if (builder.generationError) {
-			return builder.generationError.severity === "recovering"
+		if (generationError) {
+			return generationError.severity === "recovering"
 				? "error-recovering"
 				: "error-fatal";
 		}
 		// Early generation stages get the scaffolding visual (tetris board)
 		if (
-			builder.generationStage === GenerationStage.DataModel ||
-			builder.generationStage === GenerationStage.Structure
+			generationStage === GenerationStage.DataModel ||
+			generationStage === GenerationStage.Structure
 		) {
 			return "scaffolding";
 		}
 		// Later generation stages get the building visual (pink sweep + bursts)
-		if (builder.isGenerating) return "building";
-		if (builder.agentActive) {
+		if (isGenerating) return "building";
+		if (agentActive) {
 			// Keep the send wave looping until the server actually starts streaming.
 			// During 'submitted', no tokens are flowing so reasoning/editing would
 			// look dead — the whole point of the signal grid is to show activity.
 			if (status === "submitted") return "sending";
-			return builder.postBuildEdit ? "editing" : "reasoning";
+			return postBuildEdit ? "editing" : "reasoning";
 		}
 		// Completed = transient celebration after generation or a mutating edit.
 		// Ready = steady-state idle (including freshly loaded apps).
-		if (builder.phase === BuilderPhase.Completed) return "done";
-		if (builder.phase === BuilderPhase.Ready) return "idle";
+		if (phase === BuilderPhase.Completed) return "done";
+		if (phase === BuilderPhase.Ready) return "idle";
 		return "idle";
 	})();
 
 	const desiredLabel =
-		builder.isGenerating && builder.statusMessage
-			? builder.statusMessage
-			: defaultLabel(desiredMode);
+		isGenerating && statusMessage ? statusMessage : defaultLabel(desiredMode);
 
 	useEffect(() => {
 		gridController.setMode(desiredMode, desiredLabel);
@@ -168,10 +182,13 @@ export function ChatSidebar({
 	// pulse so the transition feels unhurried. If the builder leaves Completed
 	// before the timer fires (e.g. user starts a new edit), the cleanup cancels it.
 	useEffect(() => {
-		if (builder.phase !== BuilderPhase.Completed) return;
-		const id = setTimeout(() => builder.acknowledgeCompletion(), 3500);
+		if (phase !== BuilderPhase.Completed) return;
+		const id = setTimeout(
+			() => engine.store.getState().acknowledgeCompletion(),
+			3500,
+		);
 		return () => clearTimeout(id);
-	}, [builder.phase, builder]);
+	}, [phase, engine]);
 
 	// Elapsed timer — resets when the controller's active label or mode changes.
 	// Label changes (e.g. "Building forms" → "Validating") reset the timer during
@@ -436,7 +453,7 @@ export function ChatSidebar({
 					{messages.length === 0 && !isLoading && (
 						<div className={centered ? "text-center" : "text-center py-8"}>
 							{centered ? (
-								<WelcomeIntro builder={builder} setIntroMode={setIntroMode} />
+								<WelcomeIntro engine={engine} setIntroMode={setIntroMode} />
 							) : (
 								<p className="text-sm text-nova-text-muted">
 									Describe the CommCare app you want to build.
@@ -473,7 +490,7 @@ export function ChatSidebar({
 					<div className="shrink-0">
 						<ChatInput
 							onSend={handleSend}
-							disabled={isLoading || builder.isGenerating}
+							disabled={isLoading || isGenerating}
 							centered={centered}
 						/>
 					</div>
@@ -485,10 +502,10 @@ export function ChatSidebar({
 
 /** Staggered welcome text with a coordinated burst on the signal grid. */
 function WelcomeIntro({
-	builder,
+	engine,
 	setIntroMode,
 }: {
-	builder: ReturnType<typeof useBuilder>;
+	engine: BuilderEngine;
 	setIntroMode: (mode: "reasoning" | null) => void;
 }) {
 	const [stage, setStage] = useState(0); // 0: nothing, 1: heading, 2: subtitle
@@ -496,16 +513,16 @@ function WelcomeIntro({
 	useEffect(() => {
 		// Activate reasoning mode for the intro bursts
 		setIntroMode("reasoning");
-		builder.injectEnergy(40);
+		engine.injectEnergy(40);
 
 		const t1 = setTimeout(() => {
 			setStage(1);
-			builder.injectEnergy(40);
+			engine.injectEnergy(40);
 		}, 1200);
 
 		const t2 = setTimeout(() => {
 			setStage(2);
-			builder.injectEnergy(80);
+			engine.injectEnergy(80);
 		}, 1700);
 
 		// Let the grid settle, then back to idle
@@ -518,7 +535,7 @@ function WelcomeIntro({
 			clearTimeout(t2);
 			clearTimeout(t3);
 		};
-	}, [builder, setIntroMode]);
+	}, [engine, setIntroMode]);
 
 	return (
 		<>

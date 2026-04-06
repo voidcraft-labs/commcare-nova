@@ -15,6 +15,7 @@
 
 "use client";
 import { type ReactNode, useCallback, useRef, useState } from "react";
+import { useBuilderStore } from "@/hooks/useBuilder";
 import { useEditContext } from "@/hooks/useEditContext";
 import { InlineTextEditor } from "./InlineTextEditor";
 
@@ -38,6 +39,7 @@ export function TextEditable({
 	children,
 }: TextEditableProps) {
 	const ctx = useEditContext();
+	const cursorMode = useBuilderStore((s) => s.cursorMode);
 	const [editing, setEditing] = useState(false);
 	/** Viewport coordinates of the activation click — passed to the editor
 	 *  so it can place the cursor at the correct text position via posAtCoords. */
@@ -74,7 +76,7 @@ export function TextEditable({
 	/* Not in text mode or no save handler — render children as-is.
 	 * Still wrap in a div with matching padding so content doesn't shift
 	 * when switching cursor modes (flipbook parity). */
-	if (ctx?.cursorMode !== "text" || !onSave) {
+	if (cursorMode !== "text" || !onSave) {
 		return <div className="px-[5px] py-[5px]">{children}</div>;
 	}
 

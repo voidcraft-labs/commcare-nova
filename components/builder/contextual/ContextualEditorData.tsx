@@ -1,6 +1,11 @@
 "use client";
 import { useCallback } from "react";
 import { EditableText } from "@/components/builder/EditableText";
+import {
+	useBuilderEngine,
+	useBuilderStore,
+	useModule,
+} from "@/hooks/useBuilder";
 import { useSaveQuestion } from "@/hooks/useSaveQuestion";
 import { CasePropertyDropdown } from "./CasePropertyDropdown";
 import { OptionsEditor } from "./OptionsEditor";
@@ -19,26 +24,26 @@ const DATA_FIELDS = new Set<FocusableFieldKey>([
 	"options",
 ]);
 
-export function ContextualEditorData({
-	question,
-	builder,
-}: QuestionEditorProps) {
-	const selected = builder.selected;
-	const mb = builder.mb;
+export function ContextualEditorData({ question }: QuestionEditorProps) {
+	const engine = useBuilderEngine();
+	const selected = useBuilderStore((s) => s.selected);
+	const caseTypes = useBuilderStore((s) => s.caseTypes);
+	const mod = useModule(selected?.moduleIndex ?? 0);
+	const updateQuestion = useBuilderStore((s) => s.updateQuestion);
+	const renameQuestionAction = useBuilderStore((s) => s.renameQuestion);
 
-	const _saveQuestion = useSaveQuestion(builder);
-	const focusHint = useFocusHint(builder, DATA_FIELDS);
+	const _saveQuestion = useSaveQuestion();
+	const focusHint = useFocusHint(DATA_FIELDS);
 
 	const setCasePropertyOn = useCallback(
 		(caseType: string | null) => {
 			if (
 				!selected ||
-				!mb ||
 				selected.formIndex === undefined ||
 				!selected.questionPath
 			)
 				return;
-			mb.updateQuestion(
+			updateQuestion(
 				selected.moduleIndex,
 				selected.formIndex,
 				selected.questionPath,
@@ -46,34 +51,31 @@ export function ContextualEditorData({
 					case_property_on: caseType,
 				},
 			);
-			builder.notifyBlueprintChanged();
 		},
-		[mb, selected, builder],
+		[selected, updateQuestion],
 	);
 
-	const renameQuestion = useCallback(
+	const handleRename = useCallback(
 		(newId: string) => {
 			if (
 				!selected ||
-				!mb ||
 				selected.formIndex === undefined ||
 				!selected.questionPath ||
 				!newId
 			)
 				return;
-			const { newPath } = mb.renameQuestion(
+			const { newPath } = renameQuestionAction(
 				selected.moduleIndex,
 				selected.formIndex,
 				selected.questionPath,
 				newId,
 			);
-			builder.select({ ...selected, questionPath: newPath });
-			builder.notifyBlueprintChanged();
+			engine.select({ ...selected, questionPath: newPath });
 		},
-		[mb, selected, builder],
+		[selected, renameQuestionAction, engine],
 	);
 
-	if (!selected || !mb) return null;
+	if (!selected) return null;
 
 	return (
 		<div className="space-y-3">
@@ -82,15 +84,14 @@ export function ContextualEditorData({
 				dataFieldId="id"
 				value={question.id}
 				onSave={(v) => {
-					renameQuestion(v);
-					builder.clearNewQuestion();
+					handleRename(v);
+					engine.clearNewQuestion();
 				}}
 				mono
 				color="text-nova-violet-bright"
 				autoFocus={focusHint === "id"}
 				selectAll={
-					!!selected.questionUuid &&
-					builder.isNewQuestion(selected.questionUuid)
+					!!selected.questionUuid && engine.isNewQuestion(selected.questionUuid)
 				}
 			/>
 			<div data-field-id="case_property_on">
@@ -98,7 +99,7 @@ export function ContextualEditorData({
 					value={question.case_property_on}
 					isCaseName={question.id === "case_name"}
 					disabled={MEDIA_TYPES.has(question.type)}
-					caseTypes={getModuleCaseTypes(mb, selected.moduleIndex)}
+					caseTypes={getModuleCaseTypes(mod?.caseType, caseTypes)}
 					onChange={setCasePropertyOn}
 					autoFocus={focusHint === "case_property_on"}
 				/>
@@ -110,17 +111,18 @@ export function ContextualEditorData({
 						options={question.options ?? []}
 						autoFocus={focusHint === "options"}
 						onSave={(options) => {
-							if (selected.formIndex === undefined || !selected.questionPath)
+							if (
+								!selected ||
+								selected.formIndex === undefined ||
+								!selected.questionPath
+							)
 								return;
-							mb.updateQuestion(
+							updateQuestion(
 								selected.moduleIndex,
 								selected.formIndex,
 								selected.questionPath,
-								{
-									options: options.length > 0 ? options : null,
-								},
+								{ options: options.length > 0 ? options : null },
 							);
-							builder.notifyBlueprintChanged();
 						}}
 					/>
 				</div>

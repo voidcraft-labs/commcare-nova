@@ -24,7 +24,7 @@ import {
 	useRef,
 	useState,
 } from "react";
-import { useBuilderInstance } from "@/hooks/useBuilder";
+import { useBuilderEngine } from "@/hooks/useBuilder";
 import {
 	POPOVER_ENTER_KEYFRAMES,
 	POPOVER_ENTER_OPTIONS,
@@ -268,7 +268,7 @@ function InlineXPathEditor({
 	provider: _provider,
 	clickPosition,
 }: InlineXPathEditorProps) {
-	const builder = useBuilderInstance();
+	const builder = useBuilderEngine();
 	const editorRef = useRef<ReactCodeMirrorRef>(null);
 	const wrapperRef = useRef<HTMLDivElement>(null);
 	/** Guards against double-fire: once save or cancel runs, block the other. */

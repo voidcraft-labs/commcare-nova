@@ -11,6 +11,7 @@ import { completeApp } from "../db/apps";
 import { SA_MODEL, SA_REASONING } from "../models";
 import { buildSolutionsArchitectPrompt } from "../prompts/solutionsArchitectPrompt";
 import {
+	type AppBlueprint,
 	type BlueprintForm,
 	type ConnectConfig,
 	caseTypesOutputSchema,
@@ -30,9 +31,28 @@ import {
 	addQuestionsQuestionSchema,
 	editQuestionUpdatesSchema,
 } from "../schemas/toolSchemas";
+import {
+	addForm as bpAddForm,
+	addModule as bpAddModule,
+	addQuestion as bpAddQuestion,
+	removeForm as bpRemoveForm,
+	removeModule as bpRemoveModule,
+	removeQuestion as bpRemoveQuestion,
+	renameCaseProperty as bpRenameCaseProperty,
+	renameQuestion as bpRenameQuestion,
+	replaceForm as bpReplaceForm,
+	setCaseTypes as bpSetCaseTypes,
+	setScaffold as bpSetScaffold,
+	updateForm as bpUpdateForm,
+	updateModule as bpUpdateModule,
+	updateQuestion as bpUpdateQuestion,
+	findByPath,
+	type NewQuestion,
+	resolveQuestionId,
+	searchBlueprint,
+} from "./blueprintHelpers";
 import { errorToString } from "./commcare/validate/errors";
 import { type GenerationContext, logWarnings } from "./generationContext";
-import type { MutableBlueprint, NewQuestion } from "./mutableBlueprint";
 import { validateAndFix } from "./validationLoop";
 
 export { validateAndFix } from "./validationLoop";
@@ -137,7 +157,7 @@ const askQuestionsSchema = z.object({
 
 export function createSolutionsArchitect(
 	ctx: GenerationContext,
-	mutableBp: MutableBlueprint,
+	bp: AppBlueprint,
 ) {
 	const agent = new ToolLoopAgent({
 		model: ctx.model(SA_MODEL),
@@ -215,8 +235,7 @@ export function createSolutionsArchitect(
 					ctx.emit("data-start-build", {});
 				},
 				execute: async ({ appName, caseTypes }) => {
-					mutableBp.setCaseTypes(caseTypes);
-					const bp = mutableBp.getBlueprint();
+					bpSetCaseTypes(bp, caseTypes);
 					bp.app_name = appName;
 					ctx.emit("data-schema", { caseTypes });
 
@@ -240,7 +259,7 @@ export function createSolutionsArchitect(
 					ctx.emit("data-phase", { phase: "structure" });
 				},
 				execute: async (scaffold) => {
-					mutableBp.setScaffold(scaffold);
+					bpSetScaffold(bp, scaffold);
 					ctx.emit("data-scaffold", scaffold);
 
 					return {
@@ -276,7 +295,7 @@ export function createSolutionsArchitect(
 					case_list_columns,
 					case_detail_columns,
 				}) => {
-					const mod = mutableBp.getModule(moduleIndex);
+					const mod = bp.modules[moduleIndex];
 					if (!mod) return { error: `Module ${moduleIndex} not found` };
 
 					if (!mod.case_type || !case_list_columns) {
@@ -287,7 +306,7 @@ export function createSolutionsArchitect(
 						return { moduleIndex, name: mod.name, columns: null };
 					}
 
-					mutableBp.updateModule(moduleIndex, {
+					bpUpdateModule(bp, moduleIndex, {
 						case_list_columns,
 						...(case_detail_columns && { case_detail_columns }),
 					});
@@ -315,7 +334,7 @@ export function createSolutionsArchitect(
 					questions: z.array(addQuestionsQuestionSchema),
 				}),
 				execute: async ({ moduleIndex, formIndex, questions }) => {
-					const blueprint = mutableBp.getBlueprint();
+					const blueprint = bp;
 					const mod = blueprint.modules[moduleIndex];
 					if (!mod) return { error: `Module ${moduleIndex} not found` };
 					const form = mod.forms[formIndex];
@@ -341,7 +360,7 @@ export function createSolutionsArchitect(
 					const allFlat = [...existingFlat, ...processed];
 					const newTree = buildQuestionTree(allFlat);
 
-					mutableBp.replaceForm(moduleIndex, formIndex, {
+					bpReplaceForm(bp, moduleIndex, formIndex, {
 						...form,
 						questions: newTree,
 					});
@@ -373,7 +392,7 @@ export function createSolutionsArchitect(
 						),
 				}),
 				execute: async ({ query }) => {
-					const results = mutableBp.search(query);
+					const results = searchBlueprint(bp, query);
 					return { query, results };
 				},
 			}),
@@ -385,7 +404,7 @@ export function createSolutionsArchitect(
 					moduleIndex: z.number().describe("0-based module index"),
 				}),
 				execute: async ({ moduleIndex }) => {
-					const mod = mutableBp.getModule(moduleIndex);
+					const mod = bp.modules[moduleIndex];
 					if (!mod) return { error: `Module ${moduleIndex} not found` };
 					return {
 						moduleIndex,
@@ -410,7 +429,7 @@ export function createSolutionsArchitect(
 					formIndex: z.number().describe("0-based form index"),
 				}),
 				execute: async ({ moduleIndex, formIndex }) => {
-					const form = mutableBp.getForm(moduleIndex, formIndex);
+					const form = bp.modules[moduleIndex]?.forms[formIndex];
 					if (!form)
 						return { error: `Form m${moduleIndex}-f${formIndex} not found` };
 					return { moduleIndex, formIndex, form };
@@ -425,7 +444,8 @@ export function createSolutionsArchitect(
 					questionId: z.string().describe("Question id"),
 				}),
 				execute: async ({ moduleIndex, formIndex, questionId }) => {
-					const questionPath = mutableBp.resolveQuestionId(
+					const questionPath = resolveQuestionId(
+						bp,
 						moduleIndex,
 						formIndex,
 						questionId,
@@ -434,11 +454,10 @@ export function createSolutionsArchitect(
 						return {
 							error: `Question "${questionId}" not found in m${moduleIndex}-f${formIndex}`,
 						};
-					const question = mutableBp.getQuestion(
-						moduleIndex,
-						formIndex,
-						questionPath,
-					);
+					const form_ = bp.modules[moduleIndex]?.forms[formIndex];
+					const question = form_
+						? findByPath(form_.questions, questionPath)?.question
+						: undefined;
 					if (!question)
 						return {
 							error: `Question "${questionId}" not found in m${moduleIndex}-f${formIndex}`,
@@ -466,7 +485,8 @@ export function createSolutionsArchitect(
 				}),
 				execute: async ({ moduleIndex, formIndex, questionId, updates }) => {
 					try {
-						let currentPath = mutableBp.resolveQuestionId(
+						let currentPath = resolveQuestionId(
+							bp,
 							moduleIndex,
 							formIndex,
 							questionId,
@@ -479,24 +499,20 @@ export function createSolutionsArchitect(
 						// Handle ID rename with automatic propagation
 						const { id: newId, ...fieldUpdates } = updates;
 						if (newId && newId !== questionId) {
-							const question = mutableBp.getQuestion(
-								moduleIndex,
-								formIndex,
-								currentPath,
-							);
+							const editForm = bp.modules[moduleIndex]?.forms[formIndex];
+							const question = editForm
+								? findByPath(editForm.questions, currentPath)?.question
+								: undefined;
 							if (question?.case_property_on) {
 								// Cross-form rename: all forms in module + columns + #case/ refs
-								const mod = mutableBp.getModule(moduleIndex);
+								const mod = bp.modules[moduleIndex];
 								if (mod?.case_type) {
-									mutableBp.renameCaseProperty(
-										mod.case_type,
-										questionId,
-										newId,
-									);
+									bpRenameCaseProperty(bp, mod.case_type, questionId, newId);
 								}
 							} else {
 								// Single-form rename: XPath path refs within this form
-								mutableBp.renameQuestion(
+								bpRenameQuestion(
+									bp,
 									moduleIndex,
 									formIndex,
 									currentPath,
@@ -504,7 +520,8 @@ export function createSolutionsArchitect(
 								);
 							}
 							// Re-resolve path after rename
-							const resolved = mutableBp.resolveQuestionId(
+							const resolved = resolveQuestionId(
+								bp,
 								moduleIndex,
 								formIndex,
 								newId,
@@ -516,7 +533,8 @@ export function createSolutionsArchitect(
 
 						// Apply remaining field updates
 						if (Object.keys(fieldUpdates).length > 0) {
-							mutableBp.updateQuestion(
+							bpUpdateQuestion(
+								bp,
 								moduleIndex,
 								formIndex,
 								currentPath,
@@ -527,10 +545,10 @@ export function createSolutionsArchitect(
 						// Emit update for all affected forms
 						if (newId && newId !== questionId) {
 							ctx.emit("data-blueprint-updated", {
-								blueprint: mutableBp.getBlueprint(),
+								blueprint: bp,
 							});
 						} else {
-							const form = mutableBp.getForm(moduleIndex, formIndex);
+							const form = bp.modules[moduleIndex]?.forms[formIndex];
 							if (form)
 								ctx.emit("data-form-updated", { moduleIndex, formIndex, form });
 						}
@@ -578,29 +596,20 @@ export function createSolutionsArchitect(
 				}) => {
 					try {
 						const afterPath = afterQuestionId
-							? mutableBp.resolveQuestionId(
-									moduleIndex,
-									formIndex,
-									afterQuestionId,
-								)
+							? resolveQuestionId(bp, moduleIndex, formIndex, afterQuestionId)
 							: undefined;
 						const beforePath = beforeQuestionId
-							? mutableBp.resolveQuestionId(
-									moduleIndex,
-									formIndex,
-									beforeQuestionId,
-								)
+							? resolveQuestionId(bp, moduleIndex, formIndex, beforeQuestionId)
 							: undefined;
 						const parentPath = parentId
-							? mutableBp.resolveQuestionId(moduleIndex, formIndex, parentId)
+							? resolveQuestionId(bp, moduleIndex, formIndex, parentId)
 							: undefined;
-						mutableBp.addQuestion(
-							moduleIndex,
-							formIndex,
-							question as NewQuestion,
-							{ afterPath, beforePath, parentPath },
-						);
-						const form = mutableBp.getForm(moduleIndex, formIndex);
+						bpAddQuestion(bp, moduleIndex, formIndex, question as NewQuestion, {
+							afterPath,
+							beforePath,
+							parentPath,
+						});
+						const form = bp.modules[moduleIndex]?.forms[formIndex];
 						if (!form)
 							return {
 								error: `Form m${moduleIndex}-f${formIndex} not found after add`,
@@ -629,7 +638,8 @@ export function createSolutionsArchitect(
 				}),
 				execute: async ({ moduleIndex, formIndex, questionId }) => {
 					try {
-						const questionPath = mutableBp.resolveQuestionId(
+						const questionPath = resolveQuestionId(
+							bp,
 							moduleIndex,
 							formIndex,
 							questionId,
@@ -639,10 +649,10 @@ export function createSolutionsArchitect(
 								error: `Question "${questionId}" not found in m${moduleIndex}-f${formIndex}`,
 							};
 						const beforeCount = countQuestionsRecursive(
-							mutableBp.getForm(moduleIndex, formIndex)?.questions ?? [],
+							bp.modules[moduleIndex]?.forms[formIndex]?.questions ?? [],
 						);
-						mutableBp.removeQuestion(moduleIndex, formIndex, questionPath);
-						const form = mutableBp.getForm(moduleIndex, formIndex);
+						bpRemoveQuestion(bp, moduleIndex, formIndex, questionPath);
+						const form = bp.modules[moduleIndex]?.forms[formIndex];
 						if (!form)
 							return {
 								error: `Form m${moduleIndex}-f${formIndex} not found after remove`,
@@ -699,15 +709,15 @@ export function createSolutionsArchitect(
 					case_detail_columns,
 				}) => {
 					try {
-						mutableBp.updateModule(moduleIndex, {
+						bpUpdateModule(bp, moduleIndex, {
 							...(name !== undefined && { name }),
 							...(case_list_columns !== undefined && { case_list_columns }),
 							...(case_detail_columns !== undefined && { case_detail_columns }),
 						});
 						ctx.emit("data-blueprint-updated", {
-							blueprint: mutableBp.getBlueprint(),
+							blueprint: bp,
 						});
-						const mod = mutableBp.getModule(moduleIndex);
+						const mod = bp.modules[moduleIndex];
 						if (!mod)
 							return { error: `Module ${moduleIndex} not found after update` };
 						return {
@@ -789,18 +799,18 @@ export function createSolutionsArchitect(
 					connect,
 				}) => {
 					try {
-						mutableBp.updateForm(moduleIndex, formIndex, {
+						bpUpdateForm(bp, moduleIndex, formIndex, {
 							...(name !== undefined && { name }),
 							...(close_case !== undefined && { close_case }),
 							...(post_submit !== undefined && { post_submit }),
 							...(connect !== undefined && {
 								connect: buildConnectConfig(
 									connect,
-									mutableBp.getForm(moduleIndex, formIndex)?.connect,
+									bp.modules[moduleIndex]?.forms[formIndex]?.connect,
 								),
 							}),
 						});
-						const form = mutableBp.getForm(moduleIndex, formIndex);
+						const form = bp.modules[moduleIndex]?.forms[formIndex];
 						if (!form)
 							return {
 								error: `Form m${moduleIndex}-f${formIndex} not found after update`,
@@ -845,11 +855,11 @@ export function createSolutionsArchitect(
 							questions: [],
 							...(post_submit && post_submit !== "default" && { post_submit }),
 						};
-						mutableBp.addForm(moduleIndex, form);
+						bpAddForm(bp, moduleIndex, form);
 						ctx.emit("data-blueprint-updated", {
-							blueprint: mutableBp.getBlueprint(),
+							blueprint: bp,
 						});
-						const mod = mutableBp.getModule(moduleIndex);
+						const mod = bp.modules[moduleIndex];
 						if (!mod)
 							return { error: `Module ${moduleIndex} not found after addForm` };
 						return {
@@ -873,11 +883,11 @@ export function createSolutionsArchitect(
 				}),
 				execute: async ({ moduleIndex, formIndex }) => {
 					try {
-						const form = mutableBp.getForm(moduleIndex, formIndex);
+						const form = bp.modules[moduleIndex]?.forms[formIndex];
 						const name = form?.name ?? null;
-						mutableBp.removeForm(moduleIndex, formIndex);
+						bpRemoveForm(bp, moduleIndex, formIndex);
 						ctx.emit("data-blueprint-updated", {
-							blueprint: mutableBp.getBlueprint(),
+							blueprint: bp,
 						});
 						return {
 							moduleIndex,
@@ -923,7 +933,7 @@ export function createSolutionsArchitect(
 					case_list_columns,
 				}) => {
 					try {
-						mutableBp.addModule({
+						bpAddModule(bp, {
 							name,
 							...(case_type && { case_type }),
 							...(case_list_only && { case_list_only }),
@@ -931,9 +941,8 @@ export function createSolutionsArchitect(
 							...(case_list_columns && { case_list_columns }),
 						});
 						ctx.emit("data-blueprint-updated", {
-							blueprint: mutableBp.getBlueprint(),
+							blueprint: bp,
 						});
-						const bp = mutableBp.getBlueprint();
 						return {
 							moduleIndex: bp.modules.length - 1,
 							name,
@@ -952,11 +961,11 @@ export function createSolutionsArchitect(
 				}),
 				execute: async ({ moduleIndex }) => {
 					try {
-						const mod = mutableBp.getModule(moduleIndex);
+						const mod = bp.modules[moduleIndex];
 						const name = mod?.name ?? null;
-						mutableBp.removeModule(moduleIndex);
+						bpRemoveModule(bp, moduleIndex);
 						ctx.emit("data-blueprint-updated", {
-							blueprint: mutableBp.getBlueprint(),
+							blueprint: bp,
 						});
 						return { removedModuleIndex: moduleIndex, removedModuleName: name };
 					} catch (err) {
@@ -975,7 +984,7 @@ export function createSolutionsArchitect(
 					ctx.emit("data-phase", { phase: "validate" });
 				},
 				execute: async () => {
-					const blueprint = mutableBp.getBlueprint();
+					const blueprint = bp;
 					const result = await validateAndFix(ctx, blueprint);
 					if (result.success) {
 						ctx.emit("data-done", {

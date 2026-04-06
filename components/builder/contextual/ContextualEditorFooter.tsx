@@ -10,6 +10,11 @@ import { QuestionTypeGrid } from "@/components/builder/QuestionTypeGrid";
 import { tablerCopyPlus } from "@/components/icons/tablerExtras";
 import { Tooltip } from "@/components/ui/Tooltip";
 import {
+	useAssembledForm,
+	useBuilderEngine,
+	useBuilderStore,
+} from "@/hooks/useBuilder";
+import {
 	DropdownPortal,
 	useFloatingDropdown,
 } from "@/hooks/useFloatingDropdown";
@@ -20,120 +25,107 @@ import { getQuestionMoveTargets } from "@/lib/services/questionNavigation";
 import { flattenQuestionRefs } from "@/lib/services/questionPath";
 import type { QuestionEditorProps } from "./shared";
 
-export function ContextualEditorFooter({
-	question,
-	builder,
-}: QuestionEditorProps) {
-	const selected = builder.selected;
-	const mb = builder.mb;
+export function ContextualEditorFooter({ question }: QuestionEditorProps) {
+	const engine = useBuilderEngine();
+	const selected = useBuilderStore((s) => s.selected);
+	const moveQuestion = useBuilderStore((s) => s.moveQuestion);
+	const duplicateQuestion = useBuilderStore((s) => s.duplicateQuestion);
+	const removeQuestion = useBuilderStore((s) => s.removeQuestion);
+	const assembledForm = useAssembledForm(
+		selected?.moduleIndex ?? 0,
+		selected?.formIndex ?? 0,
+	);
 
-	const saveQuestion = useSaveQuestion(builder);
+	const saveQuestion = useSaveQuestion();
 
-	/* Opens downward since the control bar sits at the top of the panel. */
 	const typePicker = useFloatingDropdown<HTMLButtonElement>({
 		placement: "bottom-end",
 		offset: 4,
 	});
 
-	/* Handlers resolve move targets fresh at call time — NOT from a useMemo.
-	 * mb.moveQuestion mutates the blueprint in-place, so mb keeps the same
-	 * object reference after a move. A useMemo keyed on [selected, mb] would
-	 * never invalidate, leaving isFirst/isLast stale until the next unrelated
-	 * re-render. Reading from the blueprint at call time is always correct. */
+	/* Handlers resolve move targets fresh at call time — reading the assembled
+	 * form ensures values reflect the latest state after mutations. */
 	const handleMoveUp = useCallback(() => {
 		if (
 			!selected ||
-			!mb ||
 			selected.formIndex === undefined ||
-			!selected.questionPath
+			!selected.questionPath ||
+			!assembledForm
 		)
 			return;
-		const form = mb.getForm(selected.moduleIndex, selected.formIndex);
-		if (!form) return;
 		const { beforePath } = getQuestionMoveTargets(
-			form.questions,
+			assembledForm.questions,
 			selected.questionPath,
 		);
 		if (!beforePath) return;
-		mb.moveQuestion(
+		moveQuestion(
 			selected.moduleIndex,
 			selected.formIndex,
 			selected.questionPath,
-			{ beforePath },
+			{
+				beforePath,
+			},
 		);
-		builder.notifyBlueprintChanged();
-	}, [mb, selected, builder]);
+	}, [selected, assembledForm, moveQuestion]);
 
 	const handleMoveDown = useCallback(() => {
 		if (
 			!selected ||
-			!mb ||
 			selected.formIndex === undefined ||
-			!selected.questionPath
+			!selected.questionPath ||
+			!assembledForm
 		)
 			return;
-		const form = mb.getForm(selected.moduleIndex, selected.formIndex);
-		if (!form) return;
 		const { afterPath } = getQuestionMoveTargets(
-			form.questions,
+			assembledForm.questions,
 			selected.questionPath,
 		);
 		if (!afterPath) return;
-		mb.moveQuestion(
+		moveQuestion(
 			selected.moduleIndex,
 			selected.formIndex,
 			selected.questionPath,
-			{ afterPath },
+			{
+				afterPath,
+			},
 		);
-		builder.notifyBlueprintChanged();
-	}, [mb, selected, builder]);
+	}, [selected, assembledForm, moveQuestion]);
 
 	const handleDuplicate = useCallback(() => {
-		if (
-			!selected ||
-			!mb ||
-			selected.formIndex === undefined ||
-			!selected.questionPath
-		)
+		if (!selected || selected.formIndex === undefined || !selected.questionPath)
 			return;
-		const { newPath, newUuid } = mb.duplicateQuestion(
+		const { newPath, newUuid } = duplicateQuestion(
 			selected.moduleIndex,
 			selected.formIndex,
 			selected.questionPath,
 		);
-		builder.notifyBlueprintChanged();
-		builder.navigateTo({
+		engine.navigateTo({
 			type: "question",
 			moduleIndex: selected.moduleIndex,
 			formIndex: selected.formIndex,
 			questionPath: newPath,
 			questionUuid: newUuid,
 		});
-	}, [mb, selected, builder]);
+	}, [selected, duplicateQuestion, engine]);
 
 	const handleDelete = useCallback(() => {
 		if (
 			!selected ||
-			!mb ||
 			selected.formIndex === undefined ||
-			!selected.questionPath
+			!selected.questionPath ||
+			!assembledForm
 		)
 			return;
-		const form = mb.getForm(selected.moduleIndex, selected.formIndex);
-		/* Use flattenQuestionRefs to navigate to the nearest visible question
-		 * after deletion — visible questions are the natural navigation targets
-		 * since hidden fields have no rendered surface to select. */
-		const refs = form ? flattenQuestionRefs(form.questions) : [];
+		const refs = flattenQuestionRefs(assembledForm.questions);
 		const curIdx = refs.findIndex((r) => r.uuid === selected.questionUuid);
 		const next = refs[curIdx + 1] ?? refs[curIdx - 1];
-		mb.removeQuestion(
+		removeQuestion(
 			selected.moduleIndex,
 			selected.formIndex,
 			selected.questionPath,
 		);
-		builder.notifyBlueprintChanged();
 		if (next) {
-			builder.navigateTo({
+			engine.navigateTo({
 				type: "question",
 				moduleIndex: selected.moduleIndex,
 				formIndex: selected.formIndex,
@@ -141,23 +133,18 @@ export function ContextualEditorFooter({
 				questionUuid: next.uuid,
 			});
 		} else {
-			builder.select();
+			engine.select();
 		}
-	}, [mb, selected, builder]);
+	}, [selected, assembledForm, removeQuestion, engine]);
 
-	if (!selected || !mb) return null;
+	if (!selected || !assembledForm) return null;
 
 	/* Compute adjacency inline so isFirst/isLast always reflect the current
-	 * blueprint. Doing this in a useMemo would produce stale values because
-	 * mb is mutated in-place — its reference never changes after a move. */
-	const form =
-		selected.formIndex !== undefined
-			? mb.getForm(selected.moduleIndex, selected.formIndex)
-			: null;
-	const { beforePath, afterPath } =
-		form && selected.questionPath
-			? getQuestionMoveTargets(form.questions, selected.questionPath)
-			: { beforePath: undefined, afterPath: undefined };
+	 * state. Re-derives when the assembled form reference changes (i.e.,
+	 * after a mutation updates normalized entities). */
+	const { beforePath, afterPath } = selected.questionPath
+		? getQuestionMoveTargets(assembledForm.questions, selected.questionPath)
+		: { beforePath: undefined, afterPath: undefined };
 	const isFirst = beforePath === undefined;
 	const isLast = afterPath === undefined;
 	const conversionTargets = getConvertibleTypes(question.type);

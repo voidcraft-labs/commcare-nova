@@ -6,18 +6,13 @@ import tablerFilePlus from "@iconify-icons/tabler/file-plus";
 import { motion } from "motion/react";
 import { useCallback, useState } from "react";
 import { EditableTitle, SavedCheck } from "@/components/builder/EditableTitle";
-import type { EditMode } from "@/hooks/useEditContext";
-import type { PreviewScreen } from "@/lib/preview/engine/types";
-import type { AppBlueprint } from "@/lib/schemas/blueprint";
-import type { Builder } from "@/lib/services/builder";
-
-interface ModuleScreenProps {
-	blueprint: AppBlueprint;
-	moduleIndex: number;
-	onNavigate: (screen: PreviewScreen) => void;
-	builder?: Builder;
-	mode?: EditMode;
-}
+import {
+	useBuilderStore,
+	useModule,
+	useOrderedForms,
+	useScreenData,
+} from "@/hooks/useBuilder";
+import { selectEditMode, selectIsReady } from "@/lib/services/builderSelectors";
 
 const formTypeIcons = {
 	registration: tablerFilePlus,
@@ -25,37 +20,41 @@ const formTypeIcons = {
 	survey: tablerFile,
 } as const;
 
-export function ModuleScreen({
-	blueprint,
-	moduleIndex,
-	onNavigate,
-	builder,
-	mode = "edit",
-}: ModuleScreenProps) {
-	const mod = blueprint.modules[moduleIndex];
+export function ModuleScreen() {
+	/* Read screen indices from the store — no props needed. Returns undefined
+	 * during AnimatePresence exit overlap when the store's screen type has
+	 * already changed to the next screen. */
+	const screen = useScreenData("module");
+	const moduleIndex = screen?.moduleIndex ?? 0;
+	const navPush = useBuilderStore((s) => s.navPush);
+	const updateModule = useBuilderStore((s) => s.updateModule);
+	const isReady = useBuilderStore(selectIsReady);
+	const mode = useBuilderStore(selectEditMode);
+
+	const mod = useModule(moduleIndex);
+	const forms = useOrderedForms(moduleIndex);
 
 	const [saved, setSaved] = useState(false);
 	const saveModuleName = useCallback(
 		(name: string) => {
-			if (!builder?.mb) return;
-			builder.mb.updateModule(moduleIndex, { name });
-			builder.notifyBlueprintChanged();
+			updateModule(moduleIndex, { name });
 		},
-		[builder, moduleIndex],
+		[updateModule, moduleIndex],
 	);
 	const handleSaved = useCallback(() => {
 		setSaved(true);
 		setTimeout(() => setSaved(false), 1500);
 	}, []);
 
-	if (!mod) return null;
+	if (!screen || !mod) return null;
 
-	const hasCase = !!mod.case_type;
+	const hasCase = !!mod.caseType;
+	const canEdit = mode === "edit" && isReady;
 
 	return (
 		<div className="p-6 space-y-4 max-w-3xl mx-auto">
 			<div className="flex items-center gap-2">
-				{mode === "edit" && builder?.mb ? (
+				{canEdit ? (
 					<EditableTitle
 						value={mod.name}
 						onSave={saveModuleName}
@@ -68,24 +67,23 @@ export function ModuleScreen({
 			</div>
 
 			<div className="space-y-2">
-				{mod.forms.map((form, fIdx) => {
+				{forms.map((form, fIdx) => {
 					const icon =
 						formTypeIcons[form.type as keyof typeof formTypeIcons] ??
 						tablerFile;
 
 					const handleClick = () => {
 						if (form.type === "followup" && hasCase) {
-							// Followup forms show the case list first — selecting a row opens the form
-							onNavigate({ type: "caseList", moduleIndex, formIndex: fIdx });
+							/* Followup forms show the case list first — selecting a row opens the form */
+							navPush({ type: "caseList", moduleIndex, formIndex: fIdx });
 						} else {
-							onNavigate({ type: "form", moduleIndex, formIndex: fIdx });
+							navPush({ type: "form", moduleIndex, formIndex: fIdx });
 						}
 					};
 
 					return (
 						<motion.button
-							// biome-ignore lint/suspicious/noArrayIndexKey: forms have no unique ID field
-							key={fIdx}
+							key={form.uuid}
 							initial={{ opacity: 0, y: 12 }}
 							animate={{ opacity: 1, y: 0 }}
 							transition={{

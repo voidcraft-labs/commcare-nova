@@ -20,7 +20,7 @@ interface ReferenceProviderWrapperProps {
 	getContext: () => XPathLintContext | undefined;
 	/** Subscribe to external mutations that invalidate cached data.
 	 *  Follows the useSyncExternalStore contract: subscribe(listener) → unsubscribe.
-	 *  Fires only on blueprint mutations and selection changes — not on UI state changes. */
+	 *  Fires when question entities change — not on UI state changes. */
 	subscribeMutation: (listener: () => void) => () => void;
 	children: React.ReactNode;
 }

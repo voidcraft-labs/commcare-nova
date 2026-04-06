@@ -17,6 +17,7 @@ Next.js web app that generates CommCare apps from natural language conversation.
 - **Icons**: Tabler (`@iconify-icons/tabler`) via `@iconify/react/offline`
 - **Auth**: Better Auth (Firestore-backed sessions via `better-auth-firestore`, Google OAuth — domain restriction enforced by GCP OAuth consent screen, not application code)
 - **Database**: Google Cloud Firestore (`@google-cloud/firestore`) — app data in subcollection hierarchy under `users/{email}`, auth state in `auth_*` collections managed by Better Auth
+- **State**: Zustand (`zustand/vanilla` + `zustand/middleware`) — builder reactive state in a scoped Zustand store per buildId, imperative logic in `BuilderEngine` class
 - **Linting**: Biome (`biome.json`) — formatting + lint rules. Lefthook (`lefthook.yml`) runs `biome check --staged` as a pre-commit hook. `noArrayIndexKey` is suppressed where entities lack unique IDs (modules, forms in TreeData)
 - **Testing**: Vitest
 
@@ -117,13 +118,31 @@ Pages are Server Components that handle auth, fetch data, and render structure. 
 
 **No portals for fixed-position elements.** `createPortal` to `document.body` causes SSR hydration mismatches (`document` doesn't exist on the server). Fixed-position elements render at the viewport level regardless of DOM position — place them in the component tree directly. Global UI (toasts, modals) belongs in the root layout as client component leaves.
 
-### External Store Pattern
+### Builder State (Zustand)
 
-`useBuilder()` and `useFormEngine()` use `useSyncExternalStore`. `getServerSnapshot` must return a **cached** module-level value — returning a new object each call causes infinite loops. `useBuilderInstance()` reads the same context without subscribing — use when a component only needs imperative methods and doesn't read reactive state.
+Two objects, two contexts. **BuilderEngine** (`lib/services/builderEngine.ts`) holds imperative state (energy, guards, scroll callbacks, focus hints, drag) and composing methods. **Zustand store** (`lib/services/builderStore.ts`) holds ALL reactive state that drives React renders (phase, selected, screen, cursorMode, navigation history, treeData, generation metadata, mutationCount). Engine methods call `store.setState()` with only the fields that changed.
 
-**Builder initial phase.** `Builder` accepts an `initialPhase` constructor argument. `BuilderProvider` passes `BuilderPhase.Loading` for existing apps (`buildId !== "new"`) so the very first render shows the loading screen — never the centered Idle chat. Do not use effects to transition from Idle to Loading; that causes a flash.
+**Hook API** (`hooks/useBuilder.tsx`):
+- `useBuilderStore(selector)` — reactive subscription to a precise state slice. Only re-renders when the selected value changes (`Object.is`).
+- `useBuilderStoreShallow(selector)` — same, with shallow equality (for multi-field object selectors).
+- `useBuilderEngine()` — imperative access, no subscription, no re-renders.
+- Convenience hooks: `useBuilderPhase()`, `useBuilderSelected()`, `useBuilderIsReady()`, `useBuilderTreeData()`, `useBuilderScreen()`, `useBuilderCursorMode()`, `useBuilderCanGoBack()`, `useBuilderCanGoUp()`, `useScreenData(type)`, `useIsQuestionSelected(mIdx, fIdx, uuid)`.
 
-**Completed vs Ready.** `Completed` is a transient celebration phase after generation or a mutating edit — the signal grid shows the done animation, then `acknowledgeCompletion()` auto-decays it to `Ready`. `loadApp()` goes straight to `Ready` (no celebration). Gate on `builder.isReady` (covers both phases) when checking "has a usable blueprint" — not `phase === Ready` directly.
+**Navigation is store-owned.** `screen`, `cursorMode`, navigation history (`navEntries`/`navCursor`) all live in the store. Navigation actions (`navPush`, `navBack`, `navigateToForm`, etc.) atomically update `screen` + history in a single `set()` call. Breadcrumbs are derived via `useBreadcrumbs()` hook (selects primitive strings, memoizes via `useMemo`). Edit mode is a derived selector (`selectEditMode` in `builderSelectors.ts`). Screen components read their own context via `useScreenData(type)` — a type-safe selector that returns the typed screen or `undefined` during AnimatePresence exit overlap. `navEntries`/`navCursor` are NOT tracked by zundo — only `screen` is snapshotted. On undo/redo, `navResetTo(restoredScreen)` replaces the history with a single entry.
+
+**No prop drilling — the store owns the state, selectors derive the view.** Components subscribe directly to the store via hooks. `AppTree` reads `useBuilderTreeData()`, `useBuilderSelected()`, `useBuilderPhase()` internally — no state props from parent. `PreviewHeader` reads breadcrumbs and nav state from hooks. Screen components (`HomeScreen`, `ModuleScreen`, `FormScreen`, `CaseListScreen`) read their screen indices via `useScreenData()`. `PreviewShell` only passes `onBack` to `FormScreen` (legitimate coordination callback for post-submit navigation). Navigation + selection sync is encapsulated in engine methods (`engine.navBackWithSync()`, `engine.navUpWithSync()`, `engine.navigateToScreen()`, `engine.navigateToSelection()`).
+
+**Selection changes re-render only the 2 affected components** (old + new) via `useIsQuestionSelected()`, not the entire tree. Components that only call engine methods (mutations, scroll, energy) use `useBuilderEngine()` with zero re-render cost. `ModuleCard`/`FormCard` are wrapped in `React.memo`.
+
+**Selector naming convention** in `builderSelectors.ts`: `select*` functions return primitives or Immer-stable references — safe to pass directly to `useBuilderStore(selectFoo)`. `derive*` functions (e.g. `deriveTreeData`, `deriveBreadcrumbs`) construct new object trees via `.map()` — they MUST be wrapped in `useMemo` by the consuming hook, never passed to `useBuilderStore`. Passing a `derive*` function to `useBuilderStore` causes an infinite loop because `Object.is` always sees a new reference.
+
+**treeData** is derived by `useBuilderTreeData()` — subscribes to entity maps via `useBuilderStoreShallow`, then memoizes `deriveTreeData(data)`. Immer structural sharing keeps unchanged map references stable, so the shallow-equality selector prevents recomputation when unrelated state changes. During generation, derives a merged scaffold+partials view.
+
+**subscribeMutation** is `engine.subscribeMutation()` which wraps `store.subscribe(s => s.mutationCount, callback)` via the `subscribeWithSelector` middleware.
+
+**Builder initial phase.** `BuilderEngine` accepts an `initialPhase` constructor argument. `BuilderProvider` passes `BuilderPhase.Loading` for existing apps (`buildId !== "new"`) so the very first render shows the loading screen — never the centered Idle chat. Do not use effects to transition from Idle to Loading; that causes a flash.
+
+**Completed vs Ready.** `Completed` is a transient celebration phase after generation or a mutating edit — the signal grid shows the done animation, then `acknowledgeCompletion()` auto-decays it to `Ready`. `loadApp()` goes straight to `Ready` (no celebration). Gate on `useBuilderIsReady()` (covers both phases) when checking "has a usable blueprint" — not `phase === Ready` directly.
 
 ### Ref Callback Cleanup
 

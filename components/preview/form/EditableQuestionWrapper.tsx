@@ -1,5 +1,10 @@
 "use client";
 import { type ReactNode, useCallback, useRef, useState } from "react";
+import {
+	useBuilderEngine,
+	useBuilderStore,
+	useIsQuestionSelected,
+} from "@/hooks/useBuilder";
 import { useEditContext } from "@/hooks/useEditContext";
 import type { QuestionPath } from "@/lib/services/questionPath";
 
@@ -20,10 +25,24 @@ export function EditableQuestionWrapper({
 	isDragging,
 }: EditableQuestionWrapperProps) {
 	const ctx = useEditContext();
+	const engine = useBuilderEngine();
+	const cursorMode = useBuilderStore((s) => s.cursorMode);
 	const [hovered, setHovered] = useState(false);
 	const [holdReady, setHoldReady] = useState(false);
 	const holdTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 	const wasDraggingRef = useRef(false);
+
+	const moduleIndex = ctx?.moduleIndex;
+	const formIndex = ctx?.formIndex;
+
+	/* Selection via targeted boolean selector — only this wrapper and the
+	 * previously-selected wrapper re-render on selection change. All other
+	 * wrappers return the same `false` and skip rendering entirely. */
+	const isSelected = useIsQuestionSelected(
+		moduleIndex ?? 0,
+		formIndex ?? 0,
+		questionUuid,
+	);
 
 	const clearHoldTimer = useCallback(() => {
 		if (holdTimerRef.current) {
@@ -61,15 +80,10 @@ export function EditableQuestionWrapper({
 		if (holdReady) setHoldReady(false);
 	}
 
-	const builder = ctx?.builder;
-	const moduleIndex = ctx?.moduleIndex;
-	const formIndex = ctx?.formIndex;
-
 	/** Select this question in the builder and scroll its tree row into view. */
 	const selectQuestion = useCallback(() => {
-		if (!builder || moduleIndex === undefined || formIndex === undefined)
-			return;
-		builder.navigateTo({
+		if (moduleIndex === undefined || formIndex === undefined) return;
+		engine.navigateTo({
 			type: "question",
 			moduleIndex,
 			formIndex,
@@ -96,12 +110,11 @@ export function EditableQuestionWrapper({
 				}
 			}
 		}
-	}, [builder, moduleIndex, formIndex, questionPath, questionUuid]);
+	}, [engine, moduleIndex, formIndex, questionPath, questionUuid]);
 
 	const handleClick = useCallback(
 		(e: React.MouseEvent) => {
-			if (!builder || moduleIndex === undefined || formIndex === undefined)
-				return;
+			if (moduleIndex === undefined || formIndex === undefined) return;
 			// Ignore clicks from portal-rendered elements (e.g. QuestionTypePicker FloatingPortal).
 			// React synthetic events still bubble through the React tree from portals,
 			// but the DOM target is outside this wrapper's subtree.
@@ -115,7 +128,7 @@ export function EditableQuestionWrapper({
 			e.stopPropagation();
 			selectQuestion();
 		},
-		[builder, moduleIndex, formIndex, selectQuestion],
+		[moduleIndex, formIndex, selectQuestion],
 	);
 
 	/** Keyboard activation — Enter or Space selects this question, matching
@@ -138,19 +151,13 @@ export function EditableQuestionWrapper({
 	/* Text mode: no outlines, no click capture. Children are fully interactive
 	 * so TextEditable instances receive clicks directly. text-mode-cursors
 	 * overlays non-text surfaces to suppress interactivity. */
-	if (ctx.cursorMode === "text") {
+	if (cursorMode === "text") {
 		return (
 			<div className="text-mode-cursors" style={style}>
 				{children}
 			</div>
 		);
 	}
-
-	const isSelected =
-		builder?.selected?.type === "question" &&
-		builder.selected.moduleIndex === moduleIndex &&
-		builder.selected.formIndex === formIndex &&
-		builder.selected.questionUuid === questionUuid;
 
 	const mergedStyle = holdReady
 		? { ...style, cursor: "grabbing" as const }

@@ -1,0 +1,548 @@
+/**
+ * BuilderEngine — thin adapter between the Zustand store and the DOM.
+ *
+ * The Zustand store (`builderStore.ts`) holds ALL reactive state and mutation
+ * actions. The engine holds only non-reactive imperative state that doesn't
+ * belong in the store:
+ *
+ * - **Energy counters** — consumed by SignalGrid's rAF loop, never triggers renders
+ * - **Scroll callback** — DOM scroll implementation registered by BuilderLayout
+ * - **Edit guard** — blocks selection changes when an editor has unsaved content
+ * - **Drag state** — blocks undo during dnd-kit drag operations
+ * - **Focus/panel hints** — one-shot transient state consumed by specific components
+ * - **Edit scope** — signal grid zone focus
+ * - **Connect stash** — session state for mode switching (not undoable)
+ *
+ * The engine also provides composing methods that combine store actions with
+ * DOM side effects (e.g., `navigateTo` = store select + scroll callback).
+ */
+
+import type { PreviewScreen } from "@/lib/preview/engine/types";
+import type { ConnectConfig, ConnectType } from "@/lib/schemas/blueprint";
+import type { EditFocus } from "@/lib/signalGridController";
+import {
+	BuilderPhase,
+	type EditScope,
+	GenerationStage,
+	type SelectedElement,
+} from "./builder";
+import { type BuilderStoreApi, createBuilderStore } from "./builderStore";
+import { countQuestionsDeep } from "./normalizedState";
+
+// ── Re-export types consumers need ──────────────────────────────────────
+
+export type { CursorMode } from "./builderStore";
+
+// ── BuilderEngine ───────────────────────────────────────────────────────
+
+export class BuilderEngine {
+	/** The Zustand store — holds all reactive state and mutation actions.
+	 *  Provided to components via StoreContext. */
+	readonly store: BuilderStoreApi;
+
+	// ── Non-reactive state (never triggers React re-renders) ────────────
+
+	/** Accumulated burst energy from data parts. Drained by SignalGrid rAF loop. */
+	private _streamEnergy = 0;
+	/** Accumulated token/reasoning energy. Drained by SignalGrid rAF loop. */
+	private _thinkEnergy = 0;
+	/** Current agent edit zone — read by computeEditFocus(). */
+	private _editScope: EditScope | null = null;
+	/** Callback that can block select() when an inline editor has unsaved content. */
+	private _editGuard: (() => boolean) | null = null;
+	/** Scroll implementation owned by BuilderLayout. Called by navigateTo(). */
+	private _scrollCallback:
+		| ((questionUuid: string, prevUuid?: string) => void)
+		| null = null;
+	/** Transient field key to focus after undo/redo. Consumed once by InlineSettingsPanel. */
+	private _focusHint: string | undefined;
+	/** One-shot scroll callback for undo/redo scroll-after-animation. */
+	private _pendingPanelScroll?: {
+		questionUuid: string;
+		callback: () => void;
+	};
+	/** Blocks undo/redo during dnd-kit drag operations. */
+	private _isDragging = false;
+	/** UUID of a just-added question — activates auto-focus and select-all behaviors. */
+	private _newQuestionUuid?: string;
+	/** Tracks whether post-build edits have mutated the blueprint (gates Completed phase). */
+	private _editMadeMutations = false;
+
+	// ── Connect stash (session state, not undoable) ─────────────────────
+
+	/** Preserved form connect configs across mode switches. */
+	private _connectStash = {
+		learn: new Map<number, Map<number, ConnectConfig>>(),
+		deliver: new Map<number, Map<number, ConnectConfig>>(),
+	};
+	/** Last active connect type — restored on toggle off/on. */
+	private _lastConnectType: ConnectType | undefined;
+
+	constructor(initialPhase: BuilderPhase = BuilderPhase.Idle) {
+		this.store = createBuilderStore(initialPhase);
+	}
+
+	// ── Convenience readers (non-reactive, for imperative code) ─────────
+
+	get isReady(): boolean {
+		const phase = this.store.getState().phase;
+		return phase === BuilderPhase.Ready || phase === BuilderPhase.Completed;
+	}
+
+	get isGenerating(): boolean {
+		return this.store.getState().phase === BuilderPhase.Generating;
+	}
+
+	get isThinking(): boolean {
+		const s = this.store.getState();
+		return s.agentActive && s.phase !== BuilderPhase.Generating;
+	}
+
+	/** Scaffold progress (0-1) derived from current state. Polled by SignalGrid rAF loop. */
+	get scaffoldProgress(): number {
+		const s = this.store.getState();
+		if (s.phase !== BuilderPhase.Generating) return this.isReady ? 1.0 : 0;
+		if (s.generationStage === GenerationStage.DataModel)
+			return s.caseTypes.length > 0 ? 0.3 : 0.05;
+		if (s.generationStage === GenerationStage.Structure) {
+			const gen = s.generationData;
+			if (gen?.scaffold) return 0.85;
+			if (gen?.partialScaffold) return 0.55;
+			return 0.35;
+		}
+		return 1.0;
+	}
+
+	// ── Focus hint (transient — consumed once by InlineSettingsPanel) ────
+
+	get focusHint(): string | undefined {
+		return this._focusHint;
+	}
+
+	/** Set the transient focus hint — used by undo/redo to tell
+	 *  InlineSettingsPanel which field to focus after restoration. */
+	setFocusHint(fieldId: string | undefined): void {
+		this._focusHint = fieldId;
+	}
+
+	clearFocusHint(): void {
+		this._focusHint = undefined;
+	}
+
+	// ── Pending panel scroll (one-shot callback for undo/redo) ───────────
+
+	setPendingPanelScroll(questionUuid: string, callback: () => void): void {
+		this._pendingPanelScroll = { questionUuid, callback };
+	}
+
+	completePanelAnimation(questionUuid: string): void {
+		if (this._pendingPanelScroll?.questionUuid === questionUuid) {
+			const cb = this._pendingPanelScroll.callback;
+			this._pendingPanelScroll = undefined;
+			cb();
+		}
+	}
+
+	// ── New question state ──────────────────────────────────────────────
+
+	markNewQuestion(uuid: string): void {
+		this._newQuestionUuid = uuid;
+	}
+
+	isNewQuestion(uuid: string): boolean {
+		return this._newQuestionUuid === uuid;
+	}
+
+	clearNewQuestion(): void {
+		this._newQuestionUuid = undefined;
+	}
+
+	// ── Edit guard ──────────────────────────────────────────────────────
+
+	setEditGuard(guard: () => boolean): void {
+		this._editGuard = guard;
+	}
+
+	clearEditGuard(): void {
+		this._editGuard = null;
+	}
+
+	// ── Scroll callback ─────────────────────────────────────────────────
+
+	registerScrollCallback(
+		cb: (questionUuid: string, prevUuid?: string) => void,
+	): void {
+		this._scrollCallback = cb;
+	}
+
+	clearScrollCallback(): void {
+		this._scrollCallback = null;
+	}
+
+	// ── Drag state ──────────────────────────────────────────────────────
+
+	setDragging(active: boolean): void {
+		this._isDragging = active;
+	}
+
+	get isDragging(): boolean {
+		return this._isDragging;
+	}
+
+	// ── Energy (non-reactive — consumed by SignalGrid rAF loop) ─────────
+
+	injectEnergy(amount: number): void {
+		this._streamEnergy += amount;
+	}
+
+	injectThinkEnergy(amount: number): void {
+		this._thinkEnergy += amount;
+	}
+
+	drainEnergy(): number {
+		const e = this._streamEnergy;
+		this._streamEnergy = 0;
+		return e;
+	}
+
+	drainThinkEnergy(): number {
+		const e = this._thinkEnergy;
+		this._thinkEnergy = 0;
+		return e;
+	}
+
+	// ── Edit focus (non-reactive — signal grid zone) ────────────────────
+
+	setEditScope(scope: EditScope | null): void {
+		this._editScope = scope;
+	}
+
+	computeEditFocus(): EditFocus | null {
+		const s = this.store.getState();
+		if (s.moduleOrder.length === 0 || !this._editScope) return null;
+
+		/* Count total questions and build positional map for each form */
+		let total = 0;
+		const formPositions: Array<{
+			moduleIndex: number;
+			formIndex: number;
+			start: number;
+			count: number;
+		}> = [];
+
+		for (let mi = 0; mi < s.moduleOrder.length; mi++) {
+			const moduleId = s.moduleOrder[mi];
+			const formIds = s.formOrder[moduleId] ?? [];
+			for (let fi = 0; fi < formIds.length; fi++) {
+				const formId = formIds[fi];
+				const count = countQuestionsDeep(s.questionOrder, formId);
+				formPositions.push({
+					moduleIndex: mi,
+					formIndex: fi,
+					start: total,
+					count,
+				});
+				total += count;
+			}
+		}
+
+		if (total === 0) return null;
+
+		const scope = this._editScope;
+
+		if (scope.formIndex == null) {
+			const modForms = formPositions.filter(
+				(f) => f.moduleIndex === scope.moduleIndex,
+			);
+			if (modForms.length === 0) return null;
+			const start = modForms[0].start / total;
+			const end =
+				(modForms[modForms.length - 1].start +
+					modForms[modForms.length - 1].count) /
+				total;
+			return clampEditFocus(start, end);
+		}
+
+		const form = formPositions.find(
+			(f) =>
+				f.moduleIndex === scope.moduleIndex && f.formIndex === scope.formIndex,
+		);
+		if (!form || form.count === 0) return null;
+
+		if (scope.questionIndex != null) {
+			const qPos =
+				(form.start + Math.min(scope.questionIndex, form.count - 1)) / total;
+			const halfZone = Math.max(MIN_EDIT_ZONE / 2, (form.count / total) * 0.3);
+			return clampEditFocus(qPos - halfZone, qPos + halfZone);
+		}
+
+		return clampEditFocus(
+			form.start / total,
+			(form.start + form.count) / total,
+		);
+	}
+
+	// ── Selection with guard + scroll ───────────────────────────────────
+
+	/** Pure state update — sets the selected element without any UI side effects.
+	 *  Use for state maintenance (rename path update, deselect). */
+	select(el?: SelectedElement): void {
+		if (this._editGuard && !this._editGuard()) return;
+		this.store.getState().select(el);
+	}
+
+	/** Navigate to a question — sets selection and scrolls the design canvas. */
+	navigateTo(el: SelectedElement): void {
+		const prevUuid = this.store.getState().selected?.questionUuid;
+		this.select(el);
+		if (el.questionUuid && this._scrollCallback) {
+			this._scrollCallback(el.questionUuid, prevUuid);
+		}
+	}
+
+	// ── Navigation + selection sync ─────────────────────────────────────
+	//
+	// These methods combine store navigation actions with tree selection
+	// sync. Previously scattered as callbacks in BuilderLayout, but the
+	// logic is a pure engine concern: store writes + optional scroll.
+
+	/**
+	 * Map a navigation screen to the corresponding tree selection element.
+	 * Home → deselect, module → module selection, form/caseList → form selection.
+	 */
+	private syncSelectionToScreen(screen: PreviewScreen): void {
+		if (screen.type === "home") {
+			this.select();
+		} else if (screen.type === "module") {
+			this.select({ type: "module", moduleIndex: screen.moduleIndex });
+		} else {
+			/* form | caseList — both carry moduleIndex + formIndex */
+			this.select({
+				type: "form",
+				moduleIndex: screen.moduleIndex,
+				formIndex: screen.formIndex,
+			});
+		}
+	}
+
+	/** Navigate back in history and sync tree selection to the resulting screen. */
+	navBackWithSync(): void {
+		const newScreen = this.store.getState().navBack();
+		if (newScreen) this.syncSelectionToScreen(newScreen);
+	}
+
+	/** Navigate up to parent screen and sync tree selection. */
+	navUpWithSync(): void {
+		this.store.getState().navUp();
+		this.syncSelectionToScreen(this.store.getState().screen);
+	}
+
+	/** Push a screen and sync tree selection to match. Used by breadcrumb
+	 *  clicks and any navigation that should update the tree highlight. */
+	navigateToScreen(screen: PreviewScreen): void {
+		this.store.getState().navPush(screen);
+		this.syncSelectionToScreen(screen);
+	}
+
+	/**
+	 * Handle tree selection: navigate engine (select + scroll) and push the
+	 * correct preview screen. Combines `navigateTo()` (scroll side effect)
+	 * with screen-level navigation based on the selection type.
+	 */
+	navigateToSelection(sel: SelectedElement): void {
+		this.navigateTo(sel);
+		const s = this.store.getState();
+		if (!sel) {
+			s.navigateToHome();
+			return;
+		}
+		if (s.moduleOrder.length === 0) return;
+		if (sel.formIndex !== undefined) {
+			/* Preserve the current caseId when navigating between forms in the
+			 * same module — the user might be reviewing a specific case. */
+			const currentCaseId =
+				s.screen.type === "form" ? s.screen.caseId : undefined;
+			s.navigateToForm(sel.moduleIndex, sel.formIndex, currentCaseId);
+		} else {
+			s.navigateToModule(sel.moduleIndex);
+		}
+	}
+
+	// ── Connect stash ───────────────────────────────────────────────────
+
+	/**
+	 * Switch the app-level connect mode, or toggle it off/on.
+	 *
+	 * Passing a mode (`'learn'` or `'deliver'`) enables that mode — stashing
+	 * the outgoing mode's form configs and restoring the incoming mode's stashed configs.
+	 *
+	 * Passing `null` disables Connect entirely. Passing `undefined` re-enables
+	 * with the user's last active mode (falling back to `'learn'` for first-time enable).
+	 */
+	switchConnectMode(type: ConnectType | null | undefined): void {
+		const s = this.store.getState();
+		if (s.moduleOrder.length === 0) return;
+
+		const currentType = s.connectType as ConnectType | undefined;
+		const resolved =
+			type === undefined ? (this._lastConnectType ?? "learn") : type;
+
+		if (resolved === currentType) return;
+
+		/* Stash outgoing mode's form configs */
+		if (currentType) {
+			this._lastConnectType = currentType;
+			this.stashAllFormConnect(currentType);
+		}
+
+		/* Apply the new mode via store's setState with Immer */
+		this.store.setState((draft) => {
+			if (resolved) {
+				draft.connectType = resolved;
+				this.restoreAllFormConnect(draft, resolved);
+			} else {
+				draft.connectType = undefined;
+			}
+		});
+	}
+
+	/** Stash a single form's connect config. Used by form-level toggles. */
+	stashFormConnect(
+		mode: ConnectType,
+		mIdx: number,
+		fIdx: number,
+		config: ConnectConfig,
+	): void {
+		const stash = this._connectStash[mode];
+		let moduleMap = stash.get(mIdx);
+		if (!moduleMap) {
+			moduleMap = new Map();
+			stash.set(mIdx, moduleMap);
+		}
+		moduleMap.set(fIdx, structuredClone(config));
+	}
+
+	/** Get a single form's stashed connect config (does not remove it). */
+	getFormConnectStash(
+		mode: ConnectType,
+		mIdx: number,
+		fIdx: number,
+	): ConnectConfig | undefined {
+		return this._connectStash[mode].get(mIdx)?.get(fIdx);
+	}
+
+	/** Stash all forms' connect configs from the current store state. */
+	private stashAllFormConnect(mode: ConnectType): void {
+		const s = this.store.getState();
+		const stash = this._connectStash[mode];
+		stash.clear();
+
+		for (let mIdx = 0; mIdx < s.moduleOrder.length; mIdx++) {
+			const moduleId = s.moduleOrder[mIdx];
+			const formIds = s.formOrder[moduleId] ?? [];
+			for (let fIdx = 0; fIdx < formIds.length; fIdx++) {
+				const form = s.forms[formIds[fIdx]];
+				if (form?.connect) {
+					let moduleMap = stash.get(mIdx);
+					if (!moduleMap) {
+						moduleMap = new Map();
+						stash.set(mIdx, moduleMap);
+					}
+					moduleMap.set(fIdx, structuredClone(form.connect));
+				}
+			}
+		}
+	}
+
+	/** Restore stashed connect configs onto forms in the draft. */
+	private restoreAllFormConnect(
+		draft: {
+			forms: Record<string, { connect: ConnectConfig | null | undefined }>;
+			moduleOrder: string[];
+			formOrder: Record<string, string[]>;
+		},
+		mode: ConnectType,
+	): void {
+		for (const [mIdx, moduleMap] of this._connectStash[mode]) {
+			const moduleId = draft.moduleOrder[mIdx];
+			if (!moduleId) continue;
+			const formIds = draft.formOrder[moduleId] ?? [];
+			for (const [fIdx, config] of moduleMap) {
+				const formId = formIds[fIdx];
+				if (formId && draft.forms[formId]) {
+					draft.forms[formId].connect = structuredClone(config);
+				}
+			}
+		}
+	}
+
+	// ── Agent status ────────────────────────────────────────────────────
+
+	setAgentActive(active: boolean): void {
+		const s = this.store.getState();
+		if (s.agentActive === active) return;
+
+		s.setAgentActive(active);
+
+		/* Track whether post-build edits produced mutations for Completed phase gating. */
+		if (
+			active &&
+			(s.phase === BuilderPhase.Ready || s.phase === BuilderPhase.Completed)
+		) {
+			this._editMadeMutations = false;
+		}
+
+		if (!active && s.postBuildEdit && this._editMadeMutations) {
+			this._editMadeMutations = false;
+		}
+	}
+
+	/** Mark that a post-build edit made mutations (for Completed phase gating). */
+	markEditMadeMutations(): void {
+		this._editMadeMutations = true;
+	}
+
+	get editMadeMutations(): boolean {
+		return this._editMadeMutations;
+	}
+
+	// ── Reset ───────────────────────────────────────────────────────────
+
+	reset(): void {
+		this._streamEnergy = 0;
+		this._thinkEnergy = 0;
+		this._editScope = null;
+		this._editGuard = null;
+		this._newQuestionUuid = undefined;
+		this._editMadeMutations = false;
+		this._connectStash.learn.clear();
+		this._connectStash.deliver.clear();
+		this._lastConnectType = undefined;
+		this.store.getState().reset();
+		/* Clear zundo history */
+		this.store.temporal?.getState().clear();
+	}
+}
+
+// ── Helpers ─────────────────────────────────────────────────────────────
+
+const MIN_EDIT_ZONE = 0.15;
+
+function clampEditFocus(start: number, end: number): EditFocus {
+	let width = end - start;
+	if (width < MIN_EDIT_ZONE) {
+		const center = (start + end) / 2;
+		start = center - MIN_EDIT_ZONE / 2;
+		end = center + MIN_EDIT_ZONE / 2;
+		width = MIN_EDIT_ZONE;
+	}
+	if (start < 0) {
+		end -= start;
+		start = 0;
+	}
+	if (end > 1) {
+		start -= end - 1;
+		end = 1;
+	}
+	return { start: Math.max(0, start), end: Math.min(1, end) };
+}

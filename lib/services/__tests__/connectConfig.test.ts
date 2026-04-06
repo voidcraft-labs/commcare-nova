@@ -10,7 +10,6 @@ import type {
 import { runValidation } from "../commcare/validate/runner";
 import { deriveConnectDefaults } from "../connectConfig";
 import { expandBlueprint } from "../hqJsonExpander";
-import { MutableBlueprint } from "../mutableBlueprint";
 
 // ── Helpers ──────────────────────────────────────────────────────────
 
@@ -358,79 +357,6 @@ describe("Connect validation", () => {
 	});
 });
 
-// ── MutableBlueprint ────────────────────────────────────────────────
-
-describe("MutableBlueprint Connect support", () => {
-	it("setScaffold stores app-level connect_type", () => {
-		const mb = new MutableBlueprint({
-			app_name: "",
-			modules: [],
-			case_types: null,
-		});
-		mb.setScaffold({
-			app_name: "Connect App",
-			connect_type: "learn",
-			modules: [
-				{
-					name: "Training",
-					case_type: null,
-					forms: [{ name: "Learn Form", type: "survey" }],
-				},
-			],
-		});
-		expect(mb.getBlueprint().connect_type).toBe("learn");
-	});
-
-	it("setScaffold ignores empty connect_type", () => {
-		const mb = new MutableBlueprint({
-			app_name: "",
-			modules: [],
-			case_types: null,
-		});
-		mb.setScaffold({
-			app_name: "Normal App",
-			connect_type: "",
-			modules: [
-				{
-					name: "Main",
-					case_type: null,
-					forms: [{ name: "Survey", type: "survey" }],
-				},
-			],
-		});
-		expect(mb.getBlueprint().connect_type).toBeUndefined();
-	});
-
-	it("updateForm sets connect config", () => {
-		const mb = new MutableBlueprint({
-			app_name: "Test",
-			connect_type: "learn",
-			modules: [
-				{ name: "M", forms: [{ name: "F", type: "survey", questions: [] }] },
-			],
-			case_types: null,
-		});
-		mb.updateForm(0, 0, {
-			connect: {
-				learn_module: { name: "Mod", description: "Desc", time_estimate: 5 },
-			},
-		});
-		expect(mb.getForm(0, 0)?.connect?.learn_module?.name).toBe("Mod");
-	});
-
-	it("updateForm removes connect with null", () => {
-		const mb = new MutableBlueprint({
-			app_name: "Test",
-			connect_type: "learn",
-			modules: [
-				{
-					name: "M",
-					forms: [{ name: "F", type: "survey", connect: {}, questions: [] }],
-				},
-			],
-			case_types: null,
-		});
-		mb.updateForm(0, 0, { connect: null });
-		expect(mb.getForm(0, 0)?.connect).toBeUndefined();
-	});
-});
+/* MutableBlueprint Connect tests removed — class replaced by standalone
+ * functions in blueprintHelpers.ts. Connect stash logic moved to BuilderEngine.
+ * TODO: add equivalent tests for blueprintHelpers.setScaffold and updateForm. */

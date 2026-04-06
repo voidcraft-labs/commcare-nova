@@ -23,7 +23,6 @@ import { XPathField } from "@/components/builder/XPathField";
 import { Toggle } from "@/components/ui/Toggle";
 import { useSaveQuestion } from "@/hooks/useSaveQuestion";
 import type { XPathLintContext } from "@/lib/codemirror/xpath-lint";
-import type { Builder } from "@/lib/services/builder";
 import { AddPropertyButton } from "./AddPropertyButton";
 
 /** Sentinel value CommCare uses for "always required" (no condition). */
@@ -32,7 +31,6 @@ const ALWAYS_REQUIRED = "true()";
 interface RequiredSectionProps {
 	/** Current value of the `required` field — truthy means the toggle is on. */
 	required: string | undefined;
-	builder: Builder;
 	getLintContext: () => XPathLintContext | undefined;
 	/** Transient focus hint from undo/redo — when "required", focuses the toggle. */
 	focusHint?: string;
@@ -53,12 +51,11 @@ interface RequiredSectionProps {
  */
 export function RequiredSection({
 	required,
-	builder,
 	getLintContext,
 	focusHint,
 	dataFieldId,
 }: RequiredSectionProps) {
-	const saveQuestion = useSaveQuestion(builder);
+	const saveQuestion = useSaveQuestion();
 
 	/** True while the user is adding a brand-new condition (editor open, no
 	 *  persisted condition yet). Distinct from editing an existing condition,

@@ -5,13 +5,12 @@ import {
 	DropdownMenu,
 	type DropdownMenuItem,
 } from "@/components/ui/DropdownMenu";
+import { useBuilderStore, useForm, useModule } from "@/hooks/useBuilder";
 import {
 	DropdownPortal,
 	useFloatingDropdown,
 } from "@/hooks/useFloatingDropdown";
 import { formTypeIcons } from "@/lib/questionTypeIcons";
-import type { BlueprintForm } from "@/lib/schemas/blueprint";
-import type { MutableBlueprint } from "@/lib/services/mutableBlueprint";
 
 /** Form types that require a case type on the parent module to be selectable. */
 const CASE_DEPENDENT_TYPES = new Set(["registration", "followup"]);
@@ -23,16 +22,19 @@ const formTypeOptions: { value: string; label: string }[] = [
 ];
 
 interface FormDetailProps {
-	/** The form to display close case info for. */
-	form: BlueprintForm;
+	/** Module index to look up the form entity. */
+	moduleIndex: number;
+	/** Form index to look up the form entity. */
+	formIndex: number;
 }
 
 /**
  * Read-only close case info panel within FormSettingsPanel.
  * Renders only when the form has a close_case configuration.
  */
-export function FormDetail({ form }: FormDetailProps) {
-	if (!form.close_case) return null;
+export function FormDetail({ moduleIndex, formIndex }: FormDetailProps) {
+	const form = useForm(moduleIndex, formIndex);
+	if (!form?.closeCase) return null;
 
 	return (
 		<div>
@@ -40,8 +42,8 @@ export function FormDetail({ form }: FormDetailProps) {
 				Close Case
 			</span>
 			<p className="text-sm text-nova-rose">
-				{form.close_case.question
-					? `When ${form.close_case.question} = "${form.close_case.answer}"`
+				{form.closeCase.question
+					? `When ${form.closeCase.question} = "${form.closeCase.answer}"`
 					: "Always (unconditional)"}
 			</p>
 		</div>
@@ -51,30 +53,24 @@ export function FormDetail({ form }: FormDetailProps) {
 // ── Form Type Button (for FormScreen header) ──────────────────────────
 
 interface FormTypeButtonProps {
-	form: BlueprintForm;
-	/** When provided, the icon becomes a clickable button that opens a type picker. */
-	moduleIndex?: number;
-	formIndex?: number;
-	mb?: MutableBlueprint;
-	notifyBlueprintChanged?: () => void;
+	moduleIndex: number;
+	formIndex: number;
+	/** When false, renders as a static icon (no dropdown). */
+	editable?: boolean;
 }
 
 /**
- * Form type icon in the form header. Interactive (dropdown to change type) when
- * mutation props are provided, static icon otherwise.
+ * Form type icon in the form header. Interactive (dropdown to change type)
+ * when editable, static icon otherwise. Uses the Zustand store for mutations.
  */
 export function FormTypeButton({
-	form,
 	moduleIndex,
 	formIndex,
-	mb,
-	notifyBlueprintChanged,
+	editable = false,
 }: FormTypeButtonProps) {
-	const editable =
-		mb != null &&
-		moduleIndex != null &&
-		formIndex != null &&
-		notifyBlueprintChanged != null;
+	const form = useForm(moduleIndex, formIndex);
+	const mod = useModule(moduleIndex);
+	const updateForm = useBuilderStore((s) => s.updateForm);
 	const dd = useFloatingDropdown<HTMLButtonElement>({
 		placement: "bottom-start",
 		offset: 4,
@@ -84,17 +80,16 @@ export function FormTypeButton({
 	const handleSelect = useCallback(
 		(type: string) => {
 			if (!editable) return;
-			mb.updateForm(moduleIndex, formIndex, {
+			updateForm(moduleIndex, formIndex, {
 				type: type as "registration" | "followup" | "survey",
 			});
-			notifyBlueprintChanged();
 			dd.close();
 		},
-		[editable, mb, moduleIndex, formIndex, notifyBlueprintChanged, dd],
+		[editable, updateForm, moduleIndex, formIndex, dd],
 	);
 
-	const icon = formTypeIcons[form.type] ?? formTypeIcons.survey;
-	const hasCaseType = editable && !!mb.getModule(moduleIndex)?.case_type;
+	const icon = formTypeIcons[form?.type ?? "survey"] ?? formTypeIcons.survey;
+	const hasCaseType = editable && !!mod?.caseType;
 
 	return (
 		<>
@@ -109,49 +104,27 @@ export function FormTypeButton({
 					<Icon icon={icon} width="18" height="18" />
 				</button>
 			) : (
-				<span className="-ml-1.5 p-1.5 shrink-0 text-nova-text-muted">
+				<span className="-ml-1.5 p-1.5 text-nova-text-muted shrink-0">
 					<Icon icon={icon} width="18" height="18" />
 				</span>
 			)}
 
 			{editable && (
 				<DropdownPortal dropdown={dd}>
-					<FormTypeDropdown
-						currentType={form.type}
-						onSelect={handleSelect}
-						hasCaseType={hasCaseType}
+					<DropdownMenu
+						activeKey={form?.type ?? "survey"}
+						items={formTypeOptions.map(
+							(opt): DropdownMenuItem => ({
+								key: opt.value,
+								label: opt.label,
+								icon: formTypeIcons[opt.value] ?? formTypeIcons.survey,
+								onClick: () => handleSelect(opt.value),
+								disabled: CASE_DEPENDENT_TYPES.has(opt.value) && !hasCaseType,
+							}),
+						)}
 					/>
 				</DropdownPortal>
 			)}
 		</>
 	);
-}
-
-/** Form type dropdown using the shared DropdownMenu for consistent POPOVER_GLASS styling. */
-function FormTypeDropdown({
-	currentType,
-	onSelect,
-	hasCaseType,
-}: {
-	currentType: string;
-	onSelect: (type: string) => void;
-	/** Whether the parent module has a case type — case-dependent form types are disabled without one. */
-	hasCaseType: boolean;
-}) {
-	const items: DropdownMenuItem[] = formTypeOptions.map((opt) => {
-		const needsCase = CASE_DEPENDENT_TYPES.has(opt.value);
-		const disabled = needsCase && !hasCaseType;
-		return {
-			key: opt.value,
-			label: opt.label,
-			icon: formTypeIcons[opt.value] ?? formTypeIcons.survey,
-			onClick: () => onSelect(opt.value),
-			disabled,
-			tooltip: disabled
-				? "Add a case type in module settings first"
-				: undefined,
-		};
-	});
-
-	return <DropdownMenu items={items} activeKey={currentType} />;
 }
