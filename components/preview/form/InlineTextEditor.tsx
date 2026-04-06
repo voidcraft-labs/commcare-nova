@@ -2,18 +2,19 @@
  * WYSIWYG inline text editor for text cursor mode.
  *
  * Replaces static LabelContent in-place when the user clicks a text surface
- * in text mode. Full CommCare markdown rendering — headings, bold, italic,
- * strikethrough, links, images, lists, code (inline + block), blockquotes,
- * horizontal rules, and GFM tables — via tiptap-markdown. Uses the TipTap
- * composable API (`<Tiptap>` provider + `<Tiptap.Content>`).
+ * in text mode. CommCare Web Apps markdown rendering — headings, bold, italic,
+ * links, images, lists, code (inline + block), horizontal rules, and GFM
+ * tables — via tiptap-markdown. Uses the TipTap composable API (`<Tiptap>`
+ * provider + `<Tiptap.Content>`). Blockquote and strikethrough are disabled
+ * because CommCare Web Apps has no visible styling for either.
  *
  * Two toolbar variants:
  *
  * **Labels** — Always-visible floating toolbar anchored above the editor via
- * React portal + manual positioning. Full CommCare markdown feature set via
- * official TipTap UI components: MarkButton (bold, italic, strike, code),
+ * React portal + manual positioning. CommCare Web Apps markdown feature set
+ * via official TipTap UI components: MarkButton (bold, italic, code),
  * HeadingDropdownMenu, ListDropdownMenu, LinkPopover, ImagePopover,
- * BlockquoteButton, CodeBlockButton, HorizontalRuleButton, and TableButton
+ * CodeBlockButton, HorizontalRuleButton, and TableButton
  * (dropdown with visual grid picker for selecting dimensions). Portal-mounted
  * to body so overflow-hidden ancestors can't clip it.
  *
@@ -32,7 +33,6 @@ import { BubbleMenu } from "@tiptap/react/menus";
 import { useCallback, useEffect, useMemo, useRef } from "react";
 import { createPortal } from "react-dom";
 import { ToolbarSaveHint } from "@/components/builder/SaveShortcutHint";
-import { BlockquoteButton } from "@/components/tiptap-ui/blockquote-button";
 import { CodeBlockButton } from "@/components/tiptap-ui/code-block-button";
 import { HeadingDropdownMenu } from "@/components/tiptap-ui/heading-dropdown-menu";
 import { HorizontalRuleButton } from "@/components/tiptap-ui/horizontal-rule-button";
@@ -138,7 +138,6 @@ function LabelToolbar({
 				<ToolbarGroup>
 					<MarkButton type="bold" />
 					<MarkButton type="italic" />
-					<MarkButton type="strike" />
 					<MarkButton type="code" />
 				</ToolbarGroup>
 				<ToolbarSeparator />
@@ -156,7 +155,6 @@ function LabelToolbar({
 				</ToolbarGroup>
 				<ToolbarSeparator />
 				<ToolbarGroup>
-					<BlockquoteButton />
 					<CodeBlockButton />
 					<HorizontalRuleButton />
 					<TableButton />
