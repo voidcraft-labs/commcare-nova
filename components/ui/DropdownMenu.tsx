@@ -25,6 +25,10 @@ export interface DropdownMenuItem {
 	icon: IconifyIcon;
 	/** Click handler — called when the item is selected. */
 	onClick: () => void;
+	/** When true, the item is visually muted and non-interactive. */
+	disabled?: boolean;
+	/** Native tooltip shown on hover (useful for explaining why an item is disabled). */
+	tooltip?: string;
 }
 
 interface DropdownMenuProps {
@@ -78,11 +82,15 @@ export function DropdownMenu({
 					<button
 						type="button"
 						key={item.key}
-						onClick={item.onClick}
-						className={`w-full flex items-center gap-2.5 px-3 py-2 text-sm transition-colors cursor-pointer ${corners} ${
-							isActive
-								? "text-nova-violet-bright bg-nova-violet/10"
-								: "text-nova-text hover:bg-white/[0.06]"
+						onClick={item.disabled ? undefined : item.onClick}
+						disabled={item.disabled}
+						title={item.tooltip}
+						className={`w-full flex items-center gap-2.5 px-3 py-2 text-sm transition-colors ${corners} ${
+							item.disabled
+								? "opacity-40 cursor-not-allowed"
+								: isActive
+									? "text-nova-violet-bright bg-nova-violet/10 cursor-pointer"
+									: "text-nova-text hover:bg-white/[0.06] cursor-pointer"
 						}`}
 					>
 						{/* Active dot indicator — only rendered when the menu tracks selection */}

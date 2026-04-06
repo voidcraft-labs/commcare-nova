@@ -13,6 +13,9 @@ import { formTypeIcons } from "@/lib/questionTypeIcons";
 import type { BlueprintForm } from "@/lib/schemas/blueprint";
 import type { MutableBlueprint } from "@/lib/services/mutableBlueprint";
 
+/** Form types that require a case type on the parent module to be selectable. */
+const CASE_DEPENDENT_TYPES = new Set(["registration", "followup"]);
+
 const formTypeOptions: { value: string; label: string }[] = [
 	{ value: "registration", label: "Registration" },
 	{ value: "followup", label: "Followup" },
@@ -91,6 +94,7 @@ export function FormTypeButton({
 	);
 
 	const icon = formTypeIcons[form.type] ?? formTypeIcons.survey;
+	const hasCaseType = editable && !!mb.getModule(moduleIndex)?.case_type;
 
 	return (
 		<>
@@ -112,7 +116,11 @@ export function FormTypeButton({
 
 			{editable && (
 				<DropdownPortal dropdown={dd}>
-					<FormTypeDropdown currentType={form.type} onSelect={handleSelect} />
+					<FormTypeDropdown
+						currentType={form.type}
+						onSelect={handleSelect}
+						hasCaseType={hasCaseType}
+					/>
 				</DropdownPortal>
 			)}
 		</>
@@ -123,16 +131,27 @@ export function FormTypeButton({
 function FormTypeDropdown({
 	currentType,
 	onSelect,
+	hasCaseType,
 }: {
 	currentType: string;
 	onSelect: (type: string) => void;
+	/** Whether the parent module has a case type — case-dependent form types are disabled without one. */
+	hasCaseType: boolean;
 }) {
-	const items: DropdownMenuItem[] = formTypeOptions.map((opt) => ({
-		key: opt.value,
-		label: opt.label,
-		icon: formTypeIcons[opt.value] ?? formTypeIcons.survey,
-		onClick: () => onSelect(opt.value),
-	}));
+	const items: DropdownMenuItem[] = formTypeOptions.map((opt) => {
+		const needsCase = CASE_DEPENDENT_TYPES.has(opt.value);
+		const disabled = needsCase && !hasCaseType;
+		return {
+			key: opt.value,
+			label: opt.label,
+			icon: formTypeIcons[opt.value] ?? formTypeIcons.survey,
+			onClick: () => onSelect(opt.value),
+			disabled,
+			tooltip: disabled
+				? "Add a case type in module settings first"
+				: undefined,
+		};
+	});
 
 	return <DropdownMenu items={items} activeKey={currentType} />;
 }
