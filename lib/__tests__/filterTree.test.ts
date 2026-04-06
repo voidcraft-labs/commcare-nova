@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { q } from "@/lib/__tests__/testHelpers";
 import type { TreeData } from "@/lib/services/builder";
 import { filterTree, highlightSegments } from "../filterTree";
 
@@ -15,18 +16,18 @@ const makeTree = (overrides?: Partial<TreeData>): TreeData => ({
 					type: "registration",
 					purpose: "",
 					questions: [
-						{ id: "patient_name", type: "text", label: "Patient Name" },
-						{ id: "patient_age", type: "int", label: "Age" },
-						{ id: "patient_dob", type: "date", label: "Date of Birth" },
-						{
+						q({ id: "patient_name", type: "text", label: "Patient Name" }),
+						q({ id: "patient_age", type: "int", label: "Age" }),
+						q({ id: "patient_dob", type: "date", label: "Date of Birth" }),
+						q({
 							id: "contact_info",
 							type: "group",
 							label: "Contact Information",
 							children: [
-								{ id: "phone_number", type: "text", label: "Phone Number" },
-								{ id: "email", type: "text", label: "Email Address" },
+								q({ id: "phone_number", type: "text", label: "Phone Number" }),
+								q({ id: "email", type: "text", label: "Email Address" }),
 							],
-						},
+						}),
 					],
 				},
 			],
@@ -40,9 +41,9 @@ const makeTree = (overrides?: Partial<TreeData>): TreeData => ({
 					type: "followup",
 					purpose: "",
 					questions: [
-						{ id: "visit_date", type: "date", label: "Visit Date" },
-						{ id: "symptoms", type: "text", label: "Symptoms" },
-						{ id: "temperature", type: "decimal", label: "Temperature" },
+						q({ id: "visit_date", type: "date", label: "Visit Date" }),
+						q({ id: "symptoms", type: "text", label: "Symptoms" }),
+						q({ id: "temperature", type: "decimal", label: "Temperature" }),
 					],
 				},
 				{
@@ -50,8 +51,8 @@ const makeTree = (overrides?: Partial<TreeData>): TreeData => ({
 					type: "followup",
 					purpose: "",
 					questions: [
-						{ id: "test_type", type: "single_select", label: "Test Type" },
-						{ id: "result_value", type: "text", label: "Result Value" },
+						q({ id: "test_type", type: "single_select", label: "Test Type" }),
+						q({ id: "result_value", type: "text", label: "Result Value" }),
 					],
 				},
 			],

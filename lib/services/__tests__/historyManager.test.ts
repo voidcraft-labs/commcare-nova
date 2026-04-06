@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { q } from "../../__tests__/testHelpers";
 import type { AppBlueprint } from "../../schemas/blueprint";
 import { HistoryManager } from "../historyManager";
 import { MutableBlueprint } from "../mutableBlueprint";
@@ -23,9 +24,9 @@ function makeBlueprint(): AppBlueprint {
 						name: "Form",
 						type: "registration",
 						questions: [
-							{ id: "q1", type: "text", label: "Q1" },
-							{ id: "q2", type: "text", label: "Q2" },
-							{ id: "q3", type: "text", label: "Q3" },
+							q({ id: "q1", type: "text", label: "Q1" }),
+							q({ id: "q2", type: "text", label: "Q2" }),
+							q({ id: "q3", type: "text", label: "Q3" }),
 						],
 					},
 				],

@@ -1,5 +1,6 @@
 import AdmZip from "adm-zip";
 import { describe, expect, it } from "vitest";
+import { q } from "../../__tests__/testHelpers";
 import type { AppBlueprint } from "../../schemas/blueprint";
 import { CczCompiler } from "../cczCompiler";
 import { expandBlueprint } from "../hqJsonExpander";
@@ -15,31 +16,31 @@ const blueprint: AppBlueprint = {
 					name: "Register",
 					type: "registration",
 					questions: [
-						{
+						q({
 							id: "case_name",
 							type: "text",
 							label: "Name",
 							case_property_on: "patient",
-						},
-						{
+						}),
+						q({
 							id: "age",
 							type: "int",
 							label: "Age",
 							case_property_on: "patient",
-						},
+						}),
 					],
 				},
 				{
 					name: "Visit",
 					type: "followup",
 					questions: [
-						{
+						q({
 							id: "total_visits",
 							type: "hidden",
 							calculate: "#case/total_visits + 1",
 							case_property_on: "patient",
-						},
-						{ id: "notes", type: "text", label: "Notes" },
+						}),
+						q({ id: "notes", type: "text", label: "Notes" }),
 					],
 				},
 			],

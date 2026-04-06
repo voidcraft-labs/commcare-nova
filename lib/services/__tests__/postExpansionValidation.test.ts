@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { q } from "../../__tests__/testHelpers";
 import type { AppBlueprint } from "../../schemas/blueprint";
 import { runValidation } from "../commcare/validate/runner";
 import { validateXFormXml } from "../commcare/validate/xformValidator";
@@ -183,12 +184,12 @@ describe("case list column validation", () => {
 							name: "Reg",
 							type: "registration",
 							questions: [
-								{
+								q({
 									id: "case_name",
 									type: "text",
 									label: "Name",
 									case_property_on: "patient",
-								},
+								}),
 							],
 						},
 					],
@@ -224,12 +225,12 @@ describe("case list column validation", () => {
 							name: "Reg",
 							type: "registration",
 							questions: [
-								{
+								q({
 									id: "case_name",
 									type: "text",
 									label: "Name",
 									case_property_on: "patient",
-								},
+								}),
 							],
 						},
 					],
@@ -259,18 +260,18 @@ describe("case list column validation", () => {
 							name: "Reg",
 							type: "registration",
 							questions: [
-								{
+								q({
 									id: "case_name",
 									type: "text",
 									label: "Name",
 									case_property_on: "patient",
-								},
-								{
+								}),
+								q({
 									id: "age",
 									type: "int",
 									label: "Age",
 									case_property_on: "patient",
-								},
+								}),
 							],
 						},
 					],
@@ -307,23 +308,23 @@ describe("expanded XForm validation", () => {
 							name: "Register",
 							type: "registration",
 							questions: [
-								{
+								q({
 									id: "case_name",
 									type: "text",
 									label: "Full Name",
 									case_property_on: "patient",
-								},
-								{
+								}),
+								q({
 									id: "age",
 									type: "int",
 									label: "Age",
 									case_property_on: "patient",
-								},
-								{
+								}),
+								q({
 									id: "risk",
 									type: "hidden",
 									calculate: "if(/data/age > 65, 'high', 'low')",
-								},
+								}),
 							],
 						},
 					],
@@ -355,22 +356,22 @@ describe("expanded XForm validation", () => {
 							name: "Survey",
 							type: "survey",
 							questions: [
-								{ id: "intro", type: "text", label: "Intro" },
-								{
+								q({ id: "intro", type: "text", label: "Intro" }),
+								q({
 									id: "details",
 									type: "group",
 									label: "Details",
-									children: [{ id: "item", type: "text", label: "Item" }],
-								},
-								{
+									children: [q({ id: "item", type: "text", label: "Item" })],
+								}),
+								q({
 									id: "visits",
 									type: "repeat",
 									label: "Visits",
 									children: [
-										{ id: "visit_date", type: "date", label: "Date" },
-										{ id: "notes", type: "text", label: "Notes" },
+										q({ id: "visit_date", type: "date", label: "Date" }),
+										q({ id: "notes", type: "text", label: "Notes" }),
 									],
-								},
+								}),
 							],
 						},
 					],
@@ -400,7 +401,7 @@ describe("expanded XForm validation", () => {
 							name: "F",
 							type: "survey",
 							questions: [
-								{
+								q({
 									id: "color",
 									type: "single_select",
 									label: "Color",
@@ -408,8 +409,8 @@ describe("expanded XForm validation", () => {
 										{ value: "red", label: "Red" },
 										{ value: "blue", label: "Blue" },
 									],
-								},
-								{
+								}),
+								q({
 									id: "tags",
 									type: "multi_select",
 									label: "Tags",
@@ -417,7 +418,7 @@ describe("expanded XForm validation", () => {
 										{ value: "a", label: "A" },
 										{ value: "b", label: "B" },
 									],
-								},
+								}),
 							],
 						},
 					],

@@ -68,14 +68,16 @@ export function useBuilderShortcuts(
 				key: "Tab",
 				handler: () => {
 					if (cursorMode !== "inspect") return;
+					const sel = builder.selected;
+					if (!sel) return;
 					const refs = getFormRefs();
 					if (!refs?.length) return;
 					const curIdx = findCurrent(refs);
 					const next = refs[(curIdx + 1) % refs.length];
 					builder.navigateTo({
 						type: "question",
-						moduleIndex: builder.selected!.moduleIndex,
-						formIndex: builder.selected!.formIndex,
+						moduleIndex: sel.moduleIndex,
+						formIndex: sel.formIndex,
 						questionPath: next.path,
 						questionUuid: next.uuid,
 					});
@@ -86,14 +88,16 @@ export function useBuilderShortcuts(
 				shift: true,
 				handler: () => {
 					if (cursorMode !== "inspect") return;
+					const sel = builder.selected;
+					if (!sel) return;
 					const refs = getFormRefs();
 					if (!refs?.length) return;
 					const curIdx = findCurrent(refs);
 					const prev = refs[curIdx <= 0 ? refs.length - 1 : curIdx - 1];
 					builder.navigateTo({
 						type: "question",
-						moduleIndex: builder.selected!.moduleIndex,
-						formIndex: builder.selected!.formIndex,
+						moduleIndex: sel.moduleIndex,
+						formIndex: sel.formIndex,
 						questionPath: prev.path,
 						questionUuid: prev.uuid,
 					});

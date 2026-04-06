@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { q } from "../../__tests__/testHelpers";
 import type {
 	AppBlueprint,
 	BlueprintForm,
@@ -24,12 +25,12 @@ function makeLearnForm(
 		questions: questions.length
 			? questions
 			: [
-					{
+					q({
 						id: "intro",
 						type: "label",
 						label: "Welcome to the training module",
-					},
-					{
+					}),
+					q({
 						id: "q1",
 						type: "single_select",
 						label: "What is the correct dosage?",
@@ -37,8 +38,8 @@ function makeLearnForm(
 							{ value: "a", label: "10mg" },
 							{ value: "b", label: "20mg" },
 						],
-					},
-					{
+					}),
+					q({
 						id: "q2",
 						type: "single_select",
 						label: "How often should you check?",
@@ -46,12 +47,12 @@ function makeLearnForm(
 							{ value: "daily", label: "Daily" },
 							{ value: "weekly", label: "Weekly" },
 						],
-					},
-					{
+					}),
+					q({
 						id: "assessment_score",
 						type: "hidden",
 						calculate: "if(/data/q1 = 'b' and /data/q2 = 'daily', 100, 0)",
-					},
+					}),
 				],
 	};
 }
@@ -62,18 +63,18 @@ function makeDeliverForm(connect?: ConnectConfig): BlueprintForm {
 		type: "survey",
 		connect,
 		questions: [
-			{
+			q({
 				id: "report_date",
 				type: "date",
 				label: "Report Date",
 				required: "true()",
-			},
-			{
+			}),
+			q({
 				id: "chlorine_level",
 				type: "int",
 				label: "Chlorine Level",
 				validation: ". >= 0 and . <= 10",
-			},
+			}),
 		],
 	};
 }
@@ -182,7 +183,7 @@ describe("deriveConnectDefaults", () => {
 			name: "Simple Learn",
 			type: "survey",
 			connect: { assessment: { user_score: "" } },
-			questions: [{ id: "content", type: "label", label: "Read this." }],
+			questions: [q({ id: "content", type: "label", label: "Read this." })],
 		};
 		deriveConnectDefaults("learn", form, "Training");
 		expect(form.connect?.assessment).toEqual({

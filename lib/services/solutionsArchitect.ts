@@ -33,7 +33,6 @@ import {
 import { errorToString } from "./commcare/validate/errors";
 import { type GenerationContext, logWarnings } from "./generationContext";
 import type { MutableBlueprint, NewQuestion } from "./mutableBlueprint";
-import { ensureUuids } from "./questionPath";
 import { validateAndFix } from "./validationLoop";
 
 export { validateAndFix } from "./validationLoop";
@@ -325,24 +324,22 @@ export function createSolutionsArchitect(
 							error: `Form ${formIndex} not found in module ${moduleIndex}`,
 						};
 
-					// Process new questions: strip sentinels → apply case property defaults
-					const processed = questions.map((q) =>
-						applyDefaults(
+					// Process new questions: strip sentinels → apply case property defaults → assign UUID
+					const processed = questions.map((q) => ({
+						...applyDefaults(
 							stripEmpty(q as unknown as FlatQuestion),
 							blueprint.case_types,
 							form.type,
 							mod.case_type,
 						),
-					);
+						uuid: crypto.randomUUID(),
+					}));
 
-					// Merge with existing: flatten existing tree, append new, rebuild
+					// Merge with existing: flatten existing tree, append new, rebuild.
+					// Existing questions carry their UUIDs through flattenToFlat's spread.
 					const existingFlat = flattenToFlat(form.questions);
 					const allFlat = [...existingFlat, ...processed];
 					const newTree = buildQuestionTree(allFlat);
-
-					/* Preserve existing UUIDs (carried through flattenToFlat's spread)
-					 * and assign fresh UUIDs to newly added questions. */
-					ensureUuids(newTree);
 
 					mutableBp.replaceForm(moduleIndex, formIndex, {
 						...form,

@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { q } from "@/lib/__tests__/testHelpers";
 import {
 	type AppBlueprint,
 	appBlueprintSchema,
@@ -22,23 +23,23 @@ function wrapQuestions(questions: Question[]): AppBlueprint {
 describe("appBlueprintSchema recursive questions", () => {
 	it("accepts three levels of nesting and preserves all children", () => {
 		const blueprint = wrapQuestions([
-			{
+			q({
 				id: "outer",
 				type: "group",
 				children: [
-					{
+					q({
 						id: "middle",
 						type: "group",
 						children: [
-							{
+							q({
 								id: "inner",
 								type: "text",
 								label: "Deeply nested",
-							},
+							}),
 						],
-					},
+					}),
 				],
-			},
+			}),
 		]);
 
 		const result = appBlueprintSchema.safeParse(blueprint);

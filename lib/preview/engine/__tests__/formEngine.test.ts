@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { q } from "@/lib/__tests__/testHelpers";
 import type { BlueprintForm, CaseType } from "@/lib/schemas/blueprint";
 import { FormEngine } from "../formEngine";
 
@@ -31,8 +32,8 @@ const sampleCaseTypes: CaseType[] = [
 describe("FormEngine", () => {
 	it("initializes with question states", () => {
 		const form = makeForm([
-			{ id: "name", type: "text", label: "Name" },
-			{ id: "age", type: "int", label: "Age" },
+			q({ id: "name", type: "text", label: "Name" }),
+			q({ id: "age", type: "int", label: "Age" }),
 		]);
 		const engine = new FormEngine(form, null);
 
@@ -42,7 +43,7 @@ describe("FormEngine", () => {
 	});
 
 	it("sets and gets values", () => {
-		const form = makeForm([{ id: "name", type: "text", label: "Name" }]);
+		const form = makeForm([q({ id: "name", type: "text", label: "Name" })]);
 		const engine = new FormEngine(form, null);
 
 		engine.setValue("/data/name", "Alice");
@@ -52,7 +53,7 @@ describe("FormEngine", () => {
 	describe("relevant (visibility)", () => {
 		it("hides questions when relevant evaluates to false", () => {
 			const form = makeForm([
-				{
+				q({
 					id: "has_children",
 					type: "single_select",
 					label: "Has children?",
@@ -60,13 +61,13 @@ describe("FormEngine", () => {
 						{ value: "yes", label: "Yes" },
 						{ value: "no", label: "No" },
 					],
-				},
-				{
+				}),
+				q({
 					id: "num_children",
 					type: "int",
 					label: "How many?",
 					relevant: '/data/has_children = "yes"',
-				},
+				}),
 			]);
 			const engine = new FormEngine(form, null);
 
@@ -84,13 +85,13 @@ describe("FormEngine", () => {
 	describe("calculate", () => {
 		it("computes calculated values", () => {
 			const form = makeForm([
-				{ id: "weight", type: "decimal", label: "Weight (kg)" },
-				{ id: "height", type: "decimal", label: "Height (m)" },
-				{
+				q({ id: "weight", type: "decimal", label: "Weight (kg)" }),
+				q({ id: "height", type: "decimal", label: "Height (m)" }),
+				q({
 					id: "bmi",
 					type: "hidden",
 					calculate: "/data/weight div (/data/height * /data/height)",
-				},
+				}),
 			]);
 			const engine = new FormEngine(form, null);
 
@@ -105,13 +106,13 @@ describe("FormEngine", () => {
 	describe("validation", () => {
 		it("validates on value change", () => {
 			const form = makeForm([
-				{
+				q({
 					id: "age",
 					type: "int",
 					label: "Age",
 					validation: ". > 0 and . < 150",
 					validation_msg: "Must be 1-149",
-				},
+				}),
 			]);
 			const engine = new FormEngine(form, null);
 
@@ -127,8 +128,8 @@ describe("FormEngine", () => {
 	describe("required", () => {
 		it("marks statically required questions", () => {
 			const form = makeForm([
-				{ id: "name", type: "text", label: "Name", required: "true()" },
-				{ id: "notes", type: "text", label: "Notes" },
+				q({ id: "name", type: "text", label: "Name", required: "true()" }),
+				q({ id: "notes", type: "text", label: "Notes" }),
 			]);
 			const engine = new FormEngine(form, null);
 
@@ -140,13 +141,18 @@ describe("FormEngine", () => {
 	describe("questions are self-contained", () => {
 		it("uses question labels directly without case_types merge", () => {
 			const form = makeForm([
-				{
+				q({
 					id: "case_name",
 					type: "text",
 					label: "Patient Name",
 					case_property_on: "patient",
-				},
-				{ id: "age", type: "int", label: "Age", case_property_on: "patient" },
+				}),
+				q({
+					id: "age",
+					type: "int",
+					label: "Age",
+					case_property_on: "patient",
+				}),
 			]);
 			const engine = new FormEngine(form, sampleCaseTypes, "patient");
 			const questions = engine.getQuestions();
@@ -160,8 +166,8 @@ describe("FormEngine", () => {
 		it("pre-populates case data into the instance", () => {
 			const form = makeForm(
 				[
-					{ id: "case_name", type: "text", case_property_on: "patient" },
-					{ id: "age", type: "int", case_property_on: "patient" },
+					q({ id: "case_name", type: "text", case_property_on: "patient" }),
+					q({ id: "age", type: "int", case_property_on: "patient" }),
 				],
 				"followup",
 			);
@@ -180,12 +186,12 @@ describe("FormEngine", () => {
 	describe("default_value", () => {
 		it("applies default values on init", () => {
 			const form = makeForm([
-				{
+				q({
 					id: "visit_date",
 					type: "date",
 					label: "Visit Date",
 					default_value: "today()",
-				},
+				}),
 			]);
 			const engine = new FormEngine(form, null);
 
@@ -197,13 +203,13 @@ describe("FormEngine", () => {
 		it("overrides preloaded case data with default_value on followup forms", () => {
 			const form = makeForm(
 				[
-					{
+					q({
 						id: "case_name",
 						type: "text",
 						label: "Name",
 						case_property_on: "patient",
 						default_value: "concat(#case/age, ' - ', #case/case_name)",
-					},
+					}),
 				],
 				"followup",
 			);
@@ -220,13 +226,13 @@ describe("FormEngine", () => {
 		it("overrides preloaded case data after reset()", () => {
 			const form = makeForm(
 				[
-					{
+					q({
 						id: "case_name",
 						type: "text",
 						label: "Name",
 						case_property_on: "patient",
 						default_value: "concat(#case/age, ' - ', #case/case_name)",
-					},
+					}),
 				],
 				"followup",
 			);
@@ -246,13 +252,13 @@ describe("FormEngine", () => {
 		it("restores only user-touched values, preserving new defaults", () => {
 			// Simulate engine recreation: old engine had a default, user touched a different field
 			const form = makeForm([
-				{
+				q({
 					id: "greeting",
 					type: "text",
 					label: "Greeting",
 					default_value: "'hello'",
-				},
-				{ id: "name", type: "text", label: "Name" },
+				}),
+				q({ id: "name", type: "text", label: "Name" }),
 			]);
 			const engine = new FormEngine(form, null);
 			expect(engine.getState("/data/greeting").value).toBe("hello");
@@ -264,13 +270,13 @@ describe("FormEngine", () => {
 
 			// Simulate engine recreation with updated default
 			const updatedForm = makeForm([
-				{
+				q({
 					id: "greeting",
 					type: "text",
 					label: "Greeting",
 					default_value: "'goodbye'",
-				},
-				{ id: "name", type: "text", label: "Name" },
+				}),
+				q({ id: "name", type: "text", label: "Name" }),
 			]);
 			const newEngine = new FormEngine(updatedForm, null);
 			expect(newEngine.getState("/data/greeting").value).toBe("goodbye");
@@ -283,12 +289,12 @@ describe("FormEngine", () => {
 
 		it("does not overwrite new defaults with stale untouched values", () => {
 			const form = makeForm([
-				{
+				q({
 					id: "status",
 					type: "text",
 					label: "Status",
 					default_value: "'active'",
-				},
+				}),
 			]);
 			const engine = new FormEngine(form, null);
 			expect(engine.getState("/data/status").value).toBe("active");
@@ -300,12 +306,12 @@ describe("FormEngine", () => {
 
 			// New engine with different default
 			const updatedForm = makeForm([
-				{
+				q({
 					id: "status",
 					type: "text",
 					label: "Status",
 					default_value: "'archived'",
-				},
+				}),
 			]);
 			const newEngine = new FormEngine(updatedForm, null);
 			newEngine.restoreValues(snapshot);
@@ -318,15 +324,15 @@ describe("FormEngine", () => {
 	describe("groups", () => {
 		it("handles nested group questions", () => {
 			const form = makeForm([
-				{
+				q({
 					id: "demographics",
 					type: "group",
 					label: "Demographics",
 					children: [
-						{ id: "name", type: "text", label: "Name" },
-						{ id: "age", type: "int", label: "Age" },
+						q({ id: "name", type: "text", label: "Name" }),
+						q({ id: "age", type: "int", label: "Age" }),
 					],
-				},
+				}),
 			]);
 			const engine = new FormEngine(form, null);
 
@@ -338,7 +344,7 @@ describe("FormEngine", () => {
 	describe("touch (blur validation)", () => {
 		it("marks field as touched — required validation deferred to submit", () => {
 			const form = makeForm([
-				{ id: "name", type: "text", label: "Name", required: "true()" },
+				q({ id: "name", type: "text", label: "Name", required: "true()" }),
 			]);
 			const engine = new FormEngine(form, null);
 
@@ -366,13 +372,13 @@ describe("FormEngine", () => {
 
 		it("runs validation on touch when field has a value", () => {
 			const form = makeForm([
-				{
+				q({
 					id: "age",
 					type: "int",
 					label: "Age",
 					validation: ". > 0",
 					validation_msg: "Must be positive",
-				},
+				}),
 			]);
 			const engine = new FormEngine(form, null);
 
@@ -393,9 +399,9 @@ describe("FormEngine", () => {
 	describe("validateAll (submit validation)", () => {
 		it("marks all visible required empty fields as invalid", () => {
 			const form = makeForm([
-				{ id: "name", type: "text", label: "Name", required: "true()" },
-				{ id: "email", type: "text", label: "Email", required: "true()" },
-				{ id: "notes", type: "text", label: "Notes" },
+				q({ id: "name", type: "text", label: "Name", required: "true()" }),
+				q({ id: "email", type: "text", label: "Email", required: "true()" }),
+				q({ id: "notes", type: "text", label: "Notes" }),
 			]);
 			const engine = new FormEngine(form, null);
 
@@ -409,7 +415,7 @@ describe("FormEngine", () => {
 
 		it("returns true when all required fields are filled", () => {
 			const form = makeForm([
-				{ id: "name", type: "text", label: "Name", required: "true()" },
+				q({ id: "name", type: "text", label: "Name", required: "true()" }),
 			]);
 			const engine = new FormEngine(form, null);
 
@@ -419,7 +425,7 @@ describe("FormEngine", () => {
 
 		it("skips hidden (not visible) fields", () => {
 			const form = makeForm([
-				{
+				q({
 					id: "toggle",
 					type: "single_select",
 					label: "Show?",
@@ -427,14 +433,14 @@ describe("FormEngine", () => {
 						{ value: "yes", label: "Yes" },
 						{ value: "no", label: "No" },
 					],
-				},
-				{
+				}),
+				q({
 					id: "conditional",
 					type: "text",
 					label: "Details",
 					required: "true()",
 					relevant: '/data/toggle = "yes"',
-				},
+				}),
 			]);
 			const engine = new FormEngine(form, null);
 
@@ -446,7 +452,7 @@ describe("FormEngine", () => {
 
 	describe("subscription", () => {
 		it("notifies subscribers on value change", () => {
-			const form = makeForm([{ id: "name", type: "text", label: "Name" }]);
+			const form = makeForm([q({ id: "name", type: "text", label: "Name" })]);
 			const engine = new FormEngine(form, null);
 
 			let called = false;
@@ -459,7 +465,7 @@ describe("FormEngine", () => {
 		});
 
 		it("allows unsubscribing", () => {
-			const form = makeForm([{ id: "name", type: "text", label: "Name" }]);
+			const form = makeForm([q({ id: "name", type: "text", label: "Name" })]);
 			const engine = new FormEngine(form, null);
 
 			let callCount = 0;
@@ -480,13 +486,17 @@ describe("FormEngine", () => {
 		it("resolves hashtag refs in labels with #case refs", () => {
 			const form = makeForm(
 				[
-					{
+					q({
 						id: "case_name",
 						type: "text",
 						label: "Name",
 						case_property_on: "patient",
-					},
-					{ id: "greeting", type: "label", label: "Hello, #case/case_name!" },
+					}),
+					q({
+						id: "greeting",
+						type: "label",
+						label: "Hello, #case/case_name!",
+					}),
 				],
 				"followup",
 			);
@@ -500,8 +510,8 @@ describe("FormEngine", () => {
 
 		it("resolves hashtag refs referencing form fields", () => {
 			const form = makeForm([
-				{ id: "name", type: "text", label: "Name" },
-				{ id: "summary", type: "label", label: "You entered: #form/name" },
+				q({ id: "name", type: "text", label: "Name" }),
+				q({ id: "summary", type: "label", label: "You entered: #form/name" }),
 			]);
 			const engine = new FormEngine(form, null);
 
@@ -519,9 +529,9 @@ describe("FormEngine", () => {
 
 		it("resolves multiple hashtag refs in one label", () => {
 			const form = makeForm([
-				{ id: "first", type: "text", label: "First" },
-				{ id: "last", type: "text", label: "Last" },
-				{ id: "display", type: "label", label: "#form/first #form/last" },
+				q({ id: "first", type: "text", label: "First" }),
+				q({ id: "last", type: "text", label: "Last" }),
+				q({ id: "display", type: "label", label: "#form/first #form/last" }),
 			]);
 			const engine = new FormEngine(form, null);
 
@@ -532,8 +542,8 @@ describe("FormEngine", () => {
 
 		it("resolves hashtag refs in hints", () => {
 			const form = makeForm([
-				{ id: "name", type: "text", label: "Name" },
-				{ id: "age", type: "int", label: "Age", hint: "Age for #form/name" },
+				q({ id: "name", type: "text", label: "Name" }),
+				q({ id: "age", type: "int", label: "Age", hint: "Age for #form/name" }),
 			]);
 			const engine = new FormEngine(form, null);
 
@@ -543,13 +553,13 @@ describe("FormEngine", () => {
 
 		it("cascades through calculated fields into hashtag refs", () => {
 			const form = makeForm([
-				{ id: "age", type: "int", label: "Age" },
-				{
+				q({ id: "age", type: "int", label: "Age" }),
+				q({
 					id: "status",
 					type: "hidden",
 					calculate: "if(/data/age > 18, 'Adult', 'Minor')",
-				},
-				{ id: "info", type: "label", label: "Status: #form/status" },
+				}),
+				q({ id: "info", type: "label", label: "Status: #form/status" }),
 			]);
 			const engine = new FormEngine(form, null);
 
@@ -562,7 +572,7 @@ describe("FormEngine", () => {
 
 		it("does not set resolvedLabel when no hashtag refs present", () => {
 			const form = makeForm([
-				{ id: "name", type: "text", label: "Plain label" },
+				q({ id: "name", type: "text", label: "Plain label" }),
 			]);
 			const engine = new FormEngine(form, null);
 
