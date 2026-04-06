@@ -42,8 +42,8 @@
 
 	/* last [data-slot] child: restore right radius */
 	& > [data-slot]:not(:has(~ [data-slot])) {
-		border-top-right-radius: var(--tt-radius-lg) !important;
-		border-bottom-right-radius: var(--tt-radius-lg) !important;
+		border-top-right-radius: var(--tt-radius-lg);
+		border-bottom-right-radius: var(--tt-radius-lg);
 	}
 
 	/* non-first [data-slot] children: remove left radius + left border */
@@ -73,8 +73,8 @@
 
 	/* last [data-slot] child: restore bottom radius */
 	& > [data-slot]:not(:has(~ [data-slot])) {
-		border-bottom-left-radius: var(--tt-radius-lg) !important;
-		border-bottom-right-radius: var(--tt-radius-lg) !important;
+		border-bottom-left-radius: var(--tt-radius-lg);
+		border-bottom-right-radius: var(--tt-radius-lg);
 	}
 
 	/* non-first [data-slot] children: remove top radius + top border */

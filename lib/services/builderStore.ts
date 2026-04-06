@@ -63,19 +63,12 @@ import {
 	getEntityData,
 	type NForm,
 	type NModule,
-	type NormalizedData,
 	type NQuestion,
 	removeQuestionDeep,
 	resolveQuestionContext,
 	resolveQuestionUuid,
 } from "./normalizedState";
-import {
-	type QuestionPath,
-	qpath,
-	qpathId,
-	qpathParent,
-	reassignUuids,
-} from "./questionPath";
+import { type QuestionPath, qpath, qpathId, qpathParent } from "./questionPath";
 
 /* Enable Immer's Map/Set support for any Map/Set values that might appear
  * in blueprint data (future-proofing — current schema uses plain objects). */
@@ -559,7 +552,8 @@ export function createBuilderStore(initialPhase: BuilderPhase) {
 									);
 									if (
 										targetUuid === ctx.uuid ||
-										isDescendant(draft.questionOrder, ctx.uuid, targetUuid!)
+										(targetUuid !== undefined &&
+											isDescendant(draft.questionOrder, ctx.uuid, targetUuid))
 									)
 										return;
 								}
