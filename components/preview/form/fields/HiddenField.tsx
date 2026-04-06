@@ -1,5 +1,6 @@
 "use client";
 import { Icon } from "@iconify/react/offline";
+import { Tooltip } from "@/components/ui/Tooltip";
 import { questionTypeIcons } from "@/lib/questionTypeIcons";
 import { ExpressionContent } from "@/lib/references/ExpressionContent";
 import type { Question } from "@/lib/schemas/blueprint";
@@ -37,21 +38,20 @@ export function HiddenField({ question }: { question: Question }) {
 			{expr && (
 				<>
 					<div className="w-px h-4 bg-nova-text-muted/15 shrink-0" />
-					<span
-						className="text-[11px] font-mono text-nova-text-muted/50 truncate min-w-0"
-						title={expr}
-					>
-						{question.calculate ? (
-							<>
-								<span className="text-nova-violet/50">f</span>{" "}
-							</>
-						) : (
-							<>
-								<span className="text-nova-amber/50">=</span>{" "}
-							</>
-						)}
-						<ExpressionContent expr={expr} />
-					</span>
+					<Tooltip content={expr}>
+						<span className="min-w-0 text-[11px] font-mono text-nova-text-muted/50 truncate">
+							{question.calculate ? (
+								<>
+									<span className="text-nova-violet/50">f</span>{" "}
+								</>
+							) : (
+								<>
+									<span className="text-nova-amber/50">=</span>{" "}
+								</>
+							)}
+							<ExpressionContent expr={expr} />
+						</span>
+					</Tooltip>
 				</>
 			)}
 		</div>

@@ -12,6 +12,7 @@
 
 "use client";
 import { Icon, type IconifyIcon } from "@iconify/react/offline";
+import { Tooltip } from "@/components/ui/Tooltip";
 import { POPOVER_ELEVATED, POPOVER_GLASS } from "@/lib/styles";
 
 export interface DropdownMenuItem {
@@ -27,7 +28,7 @@ export interface DropdownMenuItem {
 	onClick: () => void;
 	/** When true, the item is visually muted and non-interactive. */
 	disabled?: boolean;
-	/** Native tooltip shown on hover (useful for explaining why an item is disabled). */
+	/** Styled tooltip shown on hover (useful for explaining why an item is disabled). */
 	tooltip?: string;
 }
 
@@ -78,13 +79,12 @@ export function DropdownMenu({
 								? "rounded-b-xl"
 								: "";
 
-				return (
+				const btn = (
 					<button
 						type="button"
 						key={item.key}
 						onClick={item.disabled ? undefined : item.onClick}
 						disabled={item.disabled}
-						title={item.tooltip}
 						className={`w-full flex items-center gap-2.5 px-3 py-2 text-sm transition-colors ${corners} ${
 							item.disabled
 								? "opacity-40 cursor-not-allowed"
@@ -120,6 +120,16 @@ export function DropdownMenu({
 							item.label
 						)}
 					</button>
+				);
+
+				/* Wrap in Tooltip when a tooltip string is provided (e.g. to explain
+				 * why a disabled item can't be selected). */
+				return item.tooltip ? (
+					<Tooltip key={item.key} content={item.tooltip}>
+						{btn}
+					</Tooltip>
+				) : (
+					btn
 				);
 			})}
 		</div>

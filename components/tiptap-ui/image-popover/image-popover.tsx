@@ -113,7 +113,7 @@ function ImageMain({
 						<Button
 							type="button"
 							onClick={insertImage}
-							title="Insert image"
+							tooltip="Insert image"
 							disabled={!url}
 							variant="ghost"
 						>

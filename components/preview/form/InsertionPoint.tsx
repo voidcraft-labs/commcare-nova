@@ -2,6 +2,7 @@
 import { Icon } from "@iconify/react/offline";
 import tablerPlus from "@iconify-icons/tabler/plus";
 import { type RefObject, useCallback, useRef, useState } from "react";
+import { Tooltip } from "@/components/ui/Tooltip";
 import { dismissContentPopovers } from "@/hooks/useContentPopover";
 import { useEditContext } from "@/hooks/useEditContext";
 import type { QuestionPath } from "@/lib/services/questionPath";
@@ -144,15 +145,17 @@ export function InsertionPoint({
 				}`}
 			>
 				<div className="flex-1 h-px bg-nova-violet/40" />
-				<button
-					type="button"
-					onMouseDown={handleOpen}
-					onClick={stopClick}
-					className="mx-1 w-5 h-5 flex items-center justify-center rounded-full bg-nova-surface border border-nova-violet/40 text-nova-violet hover:bg-nova-violet/10 transition-colors cursor-pointer shrink-0"
-					title="Insert question"
-				>
-					<Icon icon={tablerPlus} width="12" height="12" />
-				</button>
+				<Tooltip content="Insert question">
+					<button
+						type="button"
+						onMouseDown={handleOpen}
+						onClick={stopClick}
+						className="mx-1 w-5 h-5 flex items-center justify-center rounded-full bg-nova-surface border border-nova-violet/40 text-nova-violet hover:bg-nova-violet/10 transition-colors cursor-pointer shrink-0"
+						aria-label="Insert question"
+					>
+						<Icon icon={tablerPlus} width="12" height="12" />
+					</button>
+				</Tooltip>
 				<div className="flex-1 h-px bg-nova-violet/40" />
 			</div>
 

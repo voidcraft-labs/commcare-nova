@@ -21,6 +21,7 @@ import tablerCursorText from "@iconify-icons/tabler/cursor-text";
 import tablerHandFinger from "@iconify-icons/tabler/hand-finger";
 import tablerPointer from "@iconify-icons/tabler/pointer";
 import { motion } from "motion/react";
+import { Tooltip } from "@/components/ui/Tooltip";
 import type { CursorMode } from "@/lib/services/builder";
 
 interface CursorModeSelectorProps {
@@ -98,12 +99,12 @@ export function CursorModeSelector({
 							? "rounded-r-full rounded-l-md"
 							: "rounded-md"
 					: "rounded-md";
-				return (
+				const btn = (
 					<button
 						type="button"
 						key={key}
 						onClick={() => onChange(key)}
-						title={vertical ? label : undefined}
+						aria-label={vertical ? label : undefined}
 						className={
 							vertical
 								? "relative w-8 h-8 rounded-lg transition-colors cursor-pointer"
@@ -138,6 +139,15 @@ export function CursorModeSelector({
 							{!vertical && label}
 						</span>
 					</button>
+				);
+				/* Vertical mode shows icon-only buttons — wrap with a tooltip
+				 * so the mode name is discoverable on hover. */
+				return vertical ? (
+					<Tooltip key={key} content={label} placement="right">
+						{btn}
+					</Tooltip>
+				) : (
+					btn
 				);
 			})}
 		</div>

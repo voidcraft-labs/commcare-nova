@@ -3,6 +3,7 @@ import { Icon } from "@iconify/react/offline";
 import tablerPlayerPlay from "@iconify-icons/tabler/player-play";
 import { motion } from "motion/react";
 import Link from "next/link";
+import { Tooltip } from "@/components/ui/Tooltip";
 import type { AppSummary } from "@/lib/db/apps";
 import { formatRelativeDate, STATUS_STYLES } from "@/lib/utils/format";
 import { ConnectBadge } from "./ConnectBadge";
@@ -71,24 +72,26 @@ export function AppCard({
 			</div>
 			<div className="flex items-center gap-2">
 				{!isFailed && onReplay && (
-					<button
-						type="button"
-						onClick={(e) => {
-							e.preventDefault();
-							e.stopPropagation();
-							if (!replayingId) onReplay(app.id, app.app_name);
-						}}
-						disabled={replayingId !== undefined && replayingId !== null}
-						className="p-1.5 text-nova-text-muted hover:text-nova-violet transition-colors rounded-md hover:bg-nova-violet/10 disabled:opacity-40 disabled:cursor-not-allowed"
-						title="Replay generation"
-					>
-						<Icon
-							icon={tablerPlayerPlay}
-							width="18"
-							height="18"
-							className={replayingId === app.id ? "animate-pulse" : ""}
-						/>
-					</button>
+					<Tooltip content="Replay generation">
+						<button
+							type="button"
+							onClick={(e) => {
+								e.preventDefault();
+								e.stopPropagation();
+								if (!replayingId) onReplay(app.id, app.app_name);
+							}}
+							disabled={replayingId !== undefined && replayingId !== null}
+							className="p-1.5 text-nova-text-muted hover:text-nova-violet transition-colors rounded-md hover:bg-nova-violet/10 disabled:opacity-40 disabled:cursor-not-allowed"
+							aria-label="Replay generation"
+						>
+							<Icon
+								icon={tablerPlayerPlay}
+								width="18"
+								height="18"
+								className={replayingId === app.id ? "animate-pulse" : ""}
+							/>
+						</button>
+					</Tooltip>
 				)}
 				<span
 					className={`text-xs px-2 py-1 rounded-md ${style.bg} ${style.text}`}
