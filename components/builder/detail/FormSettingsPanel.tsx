@@ -16,6 +16,12 @@ import {
 	type DropdownMenuItem,
 } from "@/components/ui/DropdownMenu";
 import { Toggle } from "@/components/ui/Toggle";
+import {
+	useBuilderEngine,
+	useBuilderStore,
+	useForm,
+	useModule,
+} from "@/hooks/useBuilder";
 import { useCommitField } from "@/hooks/useCommitField";
 import {
 	DropdownPortal,
@@ -23,36 +29,35 @@ import {
 } from "@/hooks/useFloatingDropdown";
 import type { XPathLintContext } from "@/lib/codemirror/xpath-lint";
 import type {
-	BlueprintForm,
 	ConnectConfig,
 	ConnectType,
 	PostSubmitDestination,
 } from "@/lib/schemas/blueprint";
 import { toSnakeId } from "@/lib/services/commcare/validate";
-import type { MutableBlueprint } from "@/lib/services/mutableBlueprint";
+import {
+	assembleBlueprint,
+	assembleForm,
+	getEntityData,
+} from "@/lib/services/normalizedState";
 import { POPOVER_GLASS } from "@/lib/styles";
 import { FormDetail } from "./FormDetail";
 
 // ── Types ─────────────────────────────────────────────────────────────
 
 interface FormSettingsPanelProps {
-	form: BlueprintForm;
 	moduleIndex: number;
 	formIndex: number;
-	mb: MutableBlueprint;
-	notifyBlueprintChanged: () => void;
 }
 
 // ── Toggle Button (for FormScreen header) ─────────────────────────────
 
 export function FormSettingsButton({
-	form,
 	moduleIndex,
 	formIndex,
-	mb,
-	notifyBlueprintChanged,
 }: FormSettingsPanelProps) {
-	const hasConnect = !!form.connect && !!mb.getBlueprint().connect_type;
+	const form = useForm(moduleIndex, formIndex);
+	const connectType = useBuilderStore((s) => s.connectType);
+	const hasConnect = !!form?.connect && !!connectType;
 
 	/* Don't dismiss when a CodeMirror autocomplete tooltip (portal-mounted
 	 * to body, outside the panel DOM) received the click. */
@@ -79,11 +84,8 @@ export function FormSettingsButton({
 
 			<DropdownPortal dropdown={dd}>
 				<FormSettingsPanel
-					form={form}
 					moduleIndex={moduleIndex}
 					formIndex={formIndex}
-					mb={mb}
-					notifyBlueprintChanged={notifyBlueprintChanged}
 					onClose={dd.close}
 				/>
 			</DropdownPortal>
@@ -94,11 +96,8 @@ export function FormSettingsButton({
 // ── Panel ──────────────────────────────────────────────────────────────
 
 function FormSettingsPanel({
-	form,
 	moduleIndex,
 	formIndex,
-	mb,
-	notifyBlueprintChanged,
 	onClose,
 }: FormSettingsPanelProps & { onClose: () => void }) {
 	return (
@@ -119,23 +118,11 @@ function FormSettingsPanel({
 
 			{/* Content */}
 			<div className="px-3.5 py-3 space-y-3 overflow-y-auto max-h-[480px]">
-				<FormDetail form={form} />
+				<FormDetail moduleIndex={moduleIndex} formIndex={formIndex} />
 
-				<AfterSubmitSection
-					form={form}
-					moduleIndex={moduleIndex}
-					formIndex={formIndex}
-					mb={mb}
-					notifyBlueprintChanged={notifyBlueprintChanged}
-				/>
+				<AfterSubmitSection moduleIndex={moduleIndex} formIndex={formIndex} />
 
-				<ConnectSection
-					form={form}
-					moduleIndex={moduleIndex}
-					formIndex={formIndex}
-					mb={mb}
-					notifyBlueprintChanged={notifyBlueprintChanged}
-				/>
+				<ConnectSection moduleIndex={moduleIndex} formIndex={formIndex} />
 			</div>
 		</div>
 	);
@@ -177,13 +164,12 @@ function resolveUserFacing(dest: PostSubmitDestination): PostSubmitDestination {
 }
 
 function AfterSubmitSection({
-	form,
 	moduleIndex,
 	formIndex,
-	mb,
-	notifyBlueprintChanged,
 }: FormSettingsPanelProps) {
-	const current = resolveUserFacing(form.post_submit ?? "default");
+	const form = useForm(moduleIndex, formIndex);
+	const updateForm = useBuilderStore((s) => s.updateForm);
+	const current = resolveUserFacing(form?.postSubmit ?? "default");
 	const currentOption =
 		AFTER_SUBMIT_OPTIONS.find((o) => o.value === current) ??
 		AFTER_SUBMIT_OPTIONS[0];
@@ -199,13 +185,12 @@ function AfterSubmitSection({
 
 	const handleSelect = useCallback(
 		(dest: PostSubmitDestination) => {
-			mb.updateForm(moduleIndex, formIndex, {
+			updateForm(moduleIndex, formIndex, {
 				post_submit: dest === "default" ? null : dest,
 			});
-			notifyBlueprintChanged();
 			dd.close();
 		},
-		[mb, moduleIndex, formIndex, notifyBlueprintChanged, dd],
+		[updateForm, moduleIndex, formIndex, dd],
 	);
 
 	const items: DropdownMenuItem[] = AFTER_SUBMIT_OPTIONS.map((opt) => ({
@@ -299,35 +284,34 @@ function LabeledXPathField({
 	);
 }
 
-function ConnectSection({
-	form,
-	moduleIndex,
-	formIndex,
-	mb,
-	notifyBlueprintChanged,
-}: FormSettingsPanelProps) {
-	const connectType = mb.getBlueprint().connect_type as ConnectType | undefined;
-	const connect = form.connect;
+function ConnectSection({ moduleIndex, formIndex }: FormSettingsPanelProps) {
+	const engine = useBuilderEngine();
+	const form = useForm(moduleIndex, formIndex);
+	const mod = useModule(moduleIndex);
+	const updateFormAction = useBuilderStore((s) => s.updateForm);
+	const connectType = useBuilderStore((s) => s.connectType) as
+		| ConnectType
+		| undefined;
+	const connect = form?.connect;
 	const enabled = !!connect;
 
 	const save = useCallback(
 		(config: ConnectConfig | null) => {
-			mb.updateForm(moduleIndex, formIndex, { connect: config });
-			notifyBlueprintChanged();
+			updateFormAction(moduleIndex, formIndex, {
+				connect: config,
+			});
 		},
-		[mb, moduleIndex, formIndex, notifyBlueprintChanged],
+		[updateFormAction, moduleIndex, formIndex],
 	);
 
 	const toggle = useCallback(() => {
 		if (enabled) {
-			// Stash before toggling off
 			if (connect && connectType) {
-				mb.stashFormConnect(connectType, moduleIndex, formIndex, connect);
+				engine.stashFormConnect(connectType, moduleIndex, formIndex, connect);
 			}
 			save(null);
 		} else if (connectType) {
-			// Restore from stash, or create defaults
-			const stashed = mb.getFormConnectStash(
+			const stashed = engine.getFormConnectStash(
 				connectType,
 				moduleIndex,
 				formIndex,
@@ -335,38 +319,49 @@ function ConnectSection({
 			if (stashed) {
 				save(stashed);
 			} else {
-				const mod = mb.getModule(moduleIndex);
-				const formData = mb.getForm(moduleIndex, formIndex);
 				const modSlug = toSnakeId(mod?.name ?? "");
-				const formSlug = toSnakeId(formData?.name ?? "");
+				const formSlug = toSnakeId(form?.name ?? "");
 				if (connectType === "learn") {
 					save({
 						learn_module: {
 							id: modSlug,
-							name: formData?.name ?? "",
-							description: formData?.name ?? "",
+							name: form?.name ?? "",
+							description: form?.name ?? "",
 							time_estimate: 5,
 						},
-						assessment: { id: `${modSlug}_${formSlug}`, user_score: "100" },
+						assessment: {
+							id: `${modSlug}_${formSlug}`,
+							user_score: "100",
+						},
 					});
 				} else {
 					save({
 						deliver_unit: {
 							id: modSlug,
-							name: formData?.name ?? "",
+							name: form?.name ?? "",
 							entity_id: "concat(#user/username, '-', today())",
 							entity_name: "#user/username",
 						},
 						task: {
 							id: `${modSlug}_${formSlug}`,
-							name: formData?.name ?? "",
-							description: formData?.name ?? "",
+							name: form?.name ?? "",
+							description: form?.name ?? "",
 						},
 					});
 				}
 			}
 		}
-	}, [enabled, connect, connectType, mb, moduleIndex, formIndex, save]);
+	}, [
+		enabled,
+		connect,
+		connectType,
+		engine,
+		mod,
+		form,
+		moduleIndex,
+		formIndex,
+		save,
+	]);
 
 	if (!connectType) return null;
 
@@ -400,7 +395,6 @@ function ConnectSection({
 								<LearnConfig
 									connect={connect}
 									save={save}
-									mb={mb}
 									moduleIndex={moduleIndex}
 									formIndex={formIndex}
 								/>
@@ -411,7 +405,6 @@ function ConnectSection({
 								<DeliverConfig
 									connect={connect}
 									save={save}
-									mb={mb}
 									moduleIndex={moduleIndex}
 									formIndex={formIndex}
 								/>
@@ -429,24 +422,28 @@ function ConnectSection({
 interface ConnectSubConfigProps {
 	connect: ConnectConfig;
 	save: (c: ConnectConfig) => void;
-	mb: MutableBlueprint;
 	moduleIndex: number;
 	formIndex: number;
 }
 
-/** Shared lint context getter for XPath fields in connect sub-configs. */
-function useConnectLintContext(
-	mb: MutableBlueprint,
-	moduleIndex: number,
-	formIndex: number,
-) {
+/** Shared lint context getter for XPath fields in connect sub-configs.
+ *  Reads from the Zustand store imperatively — always reflects latest state. */
+function useConnectLintContext(moduleIndex: number, formIndex: number) {
+	const builder = useBuilderEngine();
 	return useCallback((): XPathLintContext | undefined => {
-		const blueprint = mb.getBlueprint();
-		const form = mb.getForm(moduleIndex, formIndex);
-		const mod = mb.getModule(moduleIndex);
-		if (!form) return undefined;
-		return { blueprint, form, moduleCaseType: mod?.case_type ?? undefined };
-	}, [mb, moduleIndex, formIndex]);
+		const s = builder.store.getState();
+		const moduleId = s.moduleOrder[moduleIndex];
+		if (!moduleId) return undefined;
+		const mod = s.modules[moduleId];
+		const formIds = s.formOrder[moduleId];
+		const formId = formIds?.[formIndex];
+		if (!formId) return undefined;
+		const formEntity = s.forms[formId];
+		if (!formEntity) return undefined;
+		const form = assembleForm(formEntity, formId, s.questions, s.questionOrder);
+		const blueprint = assembleBlueprint(getEntityData(s));
+		return { blueprint, form, moduleCaseType: mod?.caseType ?? undefined };
+	}, [builder, moduleIndex, formIndex]);
 }
 
 // ── Learn Config Fields ────────────────────────────────────────────────
@@ -454,10 +451,11 @@ function useConnectLintContext(
 function LearnConfig({
 	connect,
 	save,
-	mb,
 	moduleIndex,
 	formIndex,
 }: ConnectSubConfigProps) {
+	const mod = useModule(moduleIndex);
+	const form = useForm(moduleIndex, formIndex);
 	const lm = connect.learn_module;
 	const assessment = connect.assessment;
 	const learnEnabled = !!lm;
@@ -466,15 +464,13 @@ function LearnConfig({
 	const lastAssessmentRef = useRef(assessment);
 	if (lm) lastLearnRef.current = lm;
 	if (assessment) lastAssessmentRef.current = assessment;
-	const getLintContext = useConnectLintContext(mb, moduleIndex, formIndex);
+	const getLintContext = useConnectLintContext(moduleIndex, formIndex);
 
 	const defaultIds = useCallback(() => {
-		const mod = mb.getModule(moduleIndex);
-		const formData = mb.getForm(moduleIndex, formIndex);
 		const modSlug = toSnakeId(mod?.name ?? "");
-		const formSlug = toSnakeId(formData?.name ?? "");
+		const formSlug = toSnakeId(form?.name ?? "");
 		return { learnId: modSlug, assessmentId: `${modSlug}_${formSlug}` };
-	}, [mb, moduleIndex, formIndex]);
+	}, [mod, form]);
 
 	const updateLearnModule = useCallback(
 		(field: string, value: string | number) => {
@@ -500,19 +496,18 @@ function LearnConfig({
 				save({ ...connect, learn_module: restored });
 			} else {
 				const { learnId } = defaultIds();
-				const formData = mb.getForm(moduleIndex, formIndex);
 				save({
 					...connect,
 					learn_module: {
 						id: learnId,
-						name: formData?.name ?? "",
-						description: formData?.name ?? "",
+						name: form?.name ?? "",
+						description: form?.name ?? "",
 						time_estimate: 5,
 					},
 				});
 			}
 		}
-	}, [learnEnabled, connect, save, mb, moduleIndex, formIndex, defaultIds]);
+	}, [learnEnabled, connect, save, form, defaultIds]);
 
 	const toggleAssessment = useCallback(() => {
 		if (assessmentEnabled) {
@@ -653,10 +648,11 @@ function LearnConfig({
 function DeliverConfig({
 	connect,
 	save,
-	mb,
 	moduleIndex,
 	formIndex,
 }: ConnectSubConfigProps) {
+	const mod = useModule(moduleIndex);
+	const form = useForm(moduleIndex, formIndex);
 	const du = connect.deliver_unit;
 	const task = connect.task;
 	const deliverEnabled = !!du;
@@ -665,15 +661,13 @@ function DeliverConfig({
 	const lastTaskRef = useRef(task);
 	if (du) lastDeliverRef.current = du;
 	if (task) lastTaskRef.current = task;
-	const getLintContext = useConnectLintContext(mb, moduleIndex, formIndex);
+	const getLintContext = useConnectLintContext(moduleIndex, formIndex);
 
 	const defaultIds = useCallback(() => {
-		const mod = mb.getModule(moduleIndex);
-		const formData = mb.getForm(moduleIndex, formIndex);
 		const modSlug = toSnakeId(mod?.name ?? "");
-		const formSlug = toSnakeId(formData?.name ?? "");
+		const formSlug = toSnakeId(form?.name ?? "");
 		return { deliverId: modSlug, taskId: `${modSlug}_${formSlug}` };
-	}, [mb, moduleIndex, formIndex]);
+	}, [mod, form]);
 
 	const updateDeliverUnit = useCallback(
 		(field: string, value: string) => {
@@ -705,19 +699,18 @@ function DeliverConfig({
 				save({ ...connect, deliver_unit: restored });
 			} else {
 				const { deliverId } = defaultIds();
-				const formData = mb.getForm(moduleIndex, formIndex);
 				save({
 					...connect,
 					deliver_unit: {
 						id: deliverId,
-						name: formData?.name ?? "",
+						name: form?.name ?? "",
 						entity_id: "concat(#user/username, '-', today())",
 						entity_name: "#user/username",
 					},
 				});
 			}
 		}
-	}, [deliverEnabled, connect, save, mb, moduleIndex, formIndex, defaultIds]);
+	}, [deliverEnabled, connect, save, form, defaultIds]);
 
 	const toggleTask = useCallback(() => {
 		if (taskEnabled) {
@@ -729,18 +722,17 @@ function DeliverConfig({
 				save({ ...connect, task: restored });
 			} else {
 				const { taskId } = defaultIds();
-				const formData = mb.getForm(moduleIndex, formIndex);
 				save({
 					...connect,
 					task: {
 						id: taskId,
-						name: formData?.name ?? "",
-						description: formData?.name ?? "",
+						name: form?.name ?? "",
+						description: form?.name ?? "",
 					},
 				});
 			}
 		}
-	}, [taskEnabled, connect, save, mb, moduleIndex, formIndex, defaultIds]);
+	}, [taskEnabled, connect, save, form, defaultIds]);
 
 	return (
 		<div className="space-y-2">

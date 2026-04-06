@@ -1,40 +1,37 @@
 /**
  * Shared hook for saving a single question field. Used by all contextual
  * editor sections (UI, Logic, Data, Footer) to avoid duplicating the same
- * mutation + notify boilerplate. Converts empty strings to null (removal).
+ * mutation boilerplate. Converts empty strings to null (removal).
+ *
+ * Reads selection from the store — no props needed. Throws if called
+ * without an active question selection (callers gate on selection first).
  */
 
 import { useCallback } from "react";
-import type { Builder } from "@/lib/services/builder";
+import { useBuilderStore } from "./useBuilder";
 
-export function useSaveQuestion(
-	builder: Builder,
-): (field: string, value: string | null) => void {
-	if (!builder.selected || !builder.mb)
-		throw new Error(
-			"useSaveQuestion requires an active selection and MutableBlueprint",
-		);
-	const selected = builder.selected;
-	const mb = builder.mb;
+export function useSaveQuestion(): (
+	field: string,
+	value: string | null,
+) => void {
+	const selected = useBuilderStore((s) => s.selected);
+	const updateQuestion = useBuilderStore((s) => s.updateQuestion);
+
 	return useCallback(
 		(field: string, value: string | null) => {
-			if (selected.formIndex === undefined || !selected.questionPath) return;
-			mb.updateQuestion(
+			if (
+				!selected ||
+				selected.formIndex === undefined ||
+				!selected.questionPath
+			)
+				return;
+			updateQuestion(
 				selected.moduleIndex,
 				selected.formIndex,
 				selected.questionPath,
-				{
-					[field]: value === "" ? null : value,
-				},
+				{ [field]: value === "" ? null : value },
 			);
-			builder.notifyBlueprintChanged();
 		},
-		[
-			mb,
-			selected.moduleIndex,
-			selected.formIndex,
-			selected.questionPath,
-			builder,
-		],
+		[selected, updateQuestion],
 	);
 }

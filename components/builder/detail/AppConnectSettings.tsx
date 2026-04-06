@@ -7,28 +7,27 @@ import {
 	useFloatingDropdown,
 } from "@/hooks/useFloatingDropdown";
 import type { ConnectType } from "@/lib/schemas/blueprint";
-import type { Builder } from "@/lib/services/builder";
+import type { BuilderEngine } from "@/lib/services/builderEngine";
 import { POPOVER_GLASS } from "@/lib/styles";
 
 interface AppConnectSettingsProps {
-	builder: Builder;
+	builder: BuilderEngine;
 }
 
 export function AppConnectSettings({ builder }: AppConnectSettingsProps) {
-	const mb = builder.mb;
-	const connectType = mb?.getBlueprint().connect_type;
+	const connectType = builder.store.getState().connectType;
 	const dd = useFloatingDropdown<HTMLButtonElement>({ contentPopover: true });
 
+	/** Delegate to the engine's switchConnectMode which handles the connect
+	 *  stash lifecycle + store mutation in a single composing method. */
 	const setConnectType = useCallback(
 		(type: ConnectType | null | undefined) => {
-			if (!mb) return;
-			mb.switchConnectMode(type);
-			builder.notifyBlueprintChanged();
+			builder.switchConnectMode(type);
 		},
-		[mb, builder],
+		[builder],
 	);
 
-	if (!mb) return null;
+	if (builder.store.getState().moduleOrder.length === 0) return null;
 
 	return (
 		<>

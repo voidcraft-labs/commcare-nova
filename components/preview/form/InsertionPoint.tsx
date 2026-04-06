@@ -3,6 +3,7 @@ import { Icon } from "@iconify/react/offline";
 import tablerPlus from "@iconify-icons/tabler/plus";
 import { type RefObject, useCallback, useRef, useState } from "react";
 import { Tooltip } from "@/components/ui/Tooltip";
+import { useBuilderStore } from "@/hooks/useBuilder";
 import { dismissContentPopovers } from "@/hooks/useContentPopover";
 import { useEditContext } from "@/hooks/useEditContext";
 import type { QuestionPath } from "@/lib/services/questionPath";
@@ -33,6 +34,7 @@ export function InsertionPoint({
 	lastCursorRef,
 }: InsertionPointProps) {
 	const ctx = useEditContext();
+	const cursorMode = useBuilderStore((s) => s.cursorMode);
 	const [hovered, setHovered] = useState(false);
 	const [isOpen, setIsOpen] = useState(false);
 	const anchorRef = useRef<HTMLDivElement>(null);
@@ -105,7 +107,7 @@ export function InsertionPoint({
 
 	if (!ctx || ctx.mode === "test") return null;
 	/* Text mode: insertion points are hidden — editing text, not adding questions. */
-	if (ctx.cursorMode === "text") return null;
+	if (cursorMode === "text") return null;
 	if (disabled) return null;
 
 	const isActive = hovered || isOpen;

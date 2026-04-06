@@ -2,8 +2,8 @@
 
 /* Stacks URL and alt text inputs vertically inside the horizontal card row. */
 .image-popover-fields {
-  display: flex;
-  flex-direction: column;
-  gap: 0.25rem;
-  min-width: 12rem;
+	display: flex;
+	flex-direction: column;
+	gap: 0.25rem;
+	min-width: 12rem;
 }

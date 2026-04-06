@@ -53,14 +53,10 @@ Text mode uses a `::after` overlay (z-index `--z-ground`) on the question wrappe
 
 ## Undo/Redo
 
-`applyUndoRedo` in `BuilderLayout` wraps `restoreView` in `flushSync` to force React to commit all pending state — external store update from `builder.undo/redo` plus component state changes (cursor mode, nav screen) — before any DOM queries. Without this, `[data-field-id]` elements toggled into existence by the undo (e.g. a Required toggle just enabled) wouldn't be in the DOM yet. Do not replace with `requestAnimationFrame`.
+`applyUndoRedo` in `BuilderLayout` wraps `syncViewFromStore` in `flushSync` to force React to commit the store update before any DOM queries. zundo atomically restores `blueprint + selected + screen + cursorMode + activeFieldId` in the store — `screen` and `cursorMode` are read directly from the store (no local state sync needed). `syncViewFromStore` only resets the navigation history to a single entry matching the restored screen via `navResetTo()`. Without `flushSync`, `[data-field-id]` elements toggled into existence by the undo (e.g. a Required toggle just enabled) wouldn't be in the DOM yet. Do not replace with `requestAnimationFrame`.
 
 **Focus restoration after undo/redo** uses a `focusHint` string stored on `builder` — the `[data-field-id]` key of whichever field the user was editing when the snapshot was taken. `InlineSettingsPanel` tracks the active field via a delegated `onFocus` handler calling `builder.setActiveField()`. This persists through blur → commit → snapshot so blur-triggered saves capture the correct field. The hint is consumed once by `useFocusHint` in the matching editor section, then cleared. Do not query `document.activeElement` for this — blur moves focus before the snapshot fires.
 
 ## `ContextualEditorFooter` — Don't Memoize Move Targets
 
-`mb.moveQuestion` mutates the blueprint **in-place**. After a move, `mb` is the same object reference and `selected` is unchanged (same question UUID/path). A `useMemo([selected, mb])` for `isFirst`/`isLast` therefore never invalidates — the arrows stay frozen at the pre-move position. Compute move targets and adjacency flags **inline in the render body** so they pick up the fresh blueprint on every re-render triggered by `notifyBlueprintChanged()`.
-
-## `MutableBlueprint.fromOwned()`
-
-Skips the defensive `structuredClone` — the caller must guarantee exclusive ownership. Used by HistoryManager to adopt popped undo/redo stack entries without redundant deep cloning. Every snapshot is already an independent blueprint copy.
+Move targets and adjacency flags (`isFirst`/`isLast`) are computed **inline in the render body**, not in `useMemo`. After `moveQuestion`, Immer produces new entity map references that trigger a re-render — the inline computation picks up the fresh state automatically. Memoizing on `[selected]` alone would miss the entity change because selection doesn't change on a reorder.

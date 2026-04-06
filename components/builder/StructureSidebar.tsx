@@ -1,22 +1,23 @@
+/**
+ * StructureSidebar — collapsible panel showing the app's module/form/question
+ * tree. All state is read from the Zustand store via AppTree's internal hooks.
+ * The only prop is `onClose` for sidebar visibility state owned by BuilderLayout.
+ */
 "use client";
 import { Icon } from "@iconify/react/offline";
 import tablerChevronLeft from "@iconify-icons/tabler/chevron-left";
 import { AnimatePresence, motion } from "motion/react";
 import { AppTree } from "@/components/builder/AppTree";
 import { ErrorBoundary } from "@/components/ui/ErrorBoundary";
-import type { Builder, SelectedElement } from "@/lib/services/builder";
+import { useBuilderIsReady } from "@/hooks/useBuilder";
 
 interface StructureSidebarProps {
-	builder: Builder;
 	onClose: () => void;
-	onTreeSelect: (selection: SelectedElement) => void;
 }
 
-export function StructureSidebar({
-	builder,
-	onClose,
-	onTreeSelect,
-}: StructureSidebarProps) {
+export function StructureSidebar({ onClose }: StructureSidebarProps) {
+	const isReady = useBuilderIsReady();
+
 	return (
 		<div className="w-80 border-r border-nova-border-bright bg-nova-deep flex flex-col shrink-0 h-full">
 			{/* Header */}
@@ -33,21 +34,15 @@ export function StructureSidebar({
 				</span>
 			</div>
 
-			{/* Structure tree */}
+			{/* Structure tree — reads all state from hooks internally */}
 			<div className="flex-1 overflow-hidden flex flex-col relative">
 				<ErrorBoundary>
-					<AppTree
-						data={builder.treeData}
-						selected={builder.selected}
-						onSelect={onTreeSelect}
-						phase={builder.phase}
-						hideHeader
-					/>
+					<AppTree hideHeader />
 				</ErrorBoundary>
 
 				{/* Dim overlay — blocks interaction until generation completes */}
 				<AnimatePresence>
-					{!builder.isReady && (
+					{!isReady && (
 						<motion.div
 							exit={{ opacity: 0 }}
 							transition={{ duration: 0.3 }}

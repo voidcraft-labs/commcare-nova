@@ -9,6 +9,11 @@ import {
 } from "@floating-ui/react";
 import { useCallback } from "react";
 import { QuestionTypeGrid } from "@/components/builder/QuestionTypeGrid";
+import {
+	useAssembledForm,
+	useBuilderEngine,
+	useBuilderStore,
+} from "@/hooks/useBuilder";
 import { useContentPopoverDismiss } from "@/hooks/useContentPopover";
 import { useDismissRef } from "@/hooks/useDismissRef";
 import { useEditContext } from "@/hooks/useEditContext";
@@ -30,10 +35,12 @@ export function QuestionTypePicker({
 }: QuestionTypePickerProps) {
 	const ctx = useEditContext();
 	if (!ctx) throw new Error("QuestionTypePicker requires EditContext");
-	const { builder, moduleIndex, formIndex } = ctx;
-	if (!builder.mb)
-		throw new Error("QuestionTypePicker requires MutableBlueprint");
-	const mb = builder.mb;
+	const { moduleIndex, formIndex } = ctx;
+	const engine = useBuilderEngine();
+	const assembledForm = useAssembledForm(moduleIndex, formIndex);
+	const addQuestionAction = useBuilderStore((s) => s.addQuestion);
+	if (!assembledForm)
+		throw new Error("QuestionTypePicker requires a valid form");
 	const dismissRef = useDismissRef(onClose);
 	useContentPopoverDismiss(onClose);
 
@@ -58,8 +65,7 @@ export function QuestionTypePicker({
 	);
 
 	const handleSelect = (type: Question["type"]) => {
-		// Generate unique ID
-		const form = mb.getForm(moduleIndex, formIndex);
+		/* Generate unique ID by scanning existing question IDs in the form. */
 		const existingIds = new Set<string>();
 		const collectIds = (qs: Question[]) => {
 			for (const q of qs) {
@@ -67,7 +73,7 @@ export function QuestionTypePicker({
 				if (q.children) collectIds(q.children);
 			}
 		};
-		if (form?.questions) collectIds(form.questions);
+		if (assembledForm.questions) collectIds(assembledForm.questions);
 
 		let newId = `new_${type}`;
 		if (existingIds.has(newId)) {
@@ -83,16 +89,15 @@ export function QuestionTypePicker({
 					{ value: "option_2", label: "Option 2" },
 				]
 			: undefined;
-		const newUuid = mb.addQuestion(
+		const newUuid = addQuestionAction(
 			moduleIndex,
 			formIndex,
 			{ id: newId, type, label: "New Question", options: defaultOptions },
 			{ atIndex, parentPath },
 		);
-		builder.notifyBlueprintChanged();
 		const newPath = qpath(newId, parentPath);
-		builder.markNewQuestion(newUuid);
-		builder.navigateTo({
+		engine.markNewQuestion(newUuid);
+		engine.navigateTo({
 			type: "question",
 			moduleIndex,
 			formIndex,

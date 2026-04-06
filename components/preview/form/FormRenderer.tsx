@@ -16,6 +16,7 @@ import {
 	useState,
 } from "react";
 import { InlineSettingsPanel } from "@/components/builder/InlineSettingsPanel";
+import { useBuilderEngine, useBuilderStore } from "@/hooks/useBuilder";
 import { useEditContext } from "@/hooks/useEditContext";
 import { useTextEditSave } from "@/hooks/useTextEditSave";
 import { EASE } from "@/lib/animations";
@@ -175,6 +176,9 @@ function SortableQuestion({
 }) {
 	const state = engine.getState(path);
 	const ctx = useEditContext();
+	const engine_ = useBuilderEngine();
+	const cursorMode = useBuilderStore((s) => s.cursorMode);
+	const selected = useBuilderStore((s) => s.selected);
 	const isEditMode = ctx?.mode === "edit";
 	const saveField = useTextEditSave(questionPath);
 
@@ -183,7 +187,7 @@ function SortableQuestion({
 	const isContainer = q.type === "group" || q.type === "repeat";
 
 	/* Text mode is for inline editing, not reordering. */
-	const isTextMode = ctx?.cursorMode === "text";
+	const isTextMode = cursorMode === "text";
 
 	/* Disable all per-sortable plugins (OptimisticSortingPlugin, SortableKeyboardPlugin).
 	 * We use the controlled state pattern: onDragOver → move() → React state → re-render.
@@ -349,11 +353,11 @@ function SortableQuestion({
 	 * Matches by UUID (stable across renames) instead of QuestionPath. */
 	const isSelected =
 		isEditMode &&
-		ctx?.cursorMode === "inspect" &&
-		ctx.builder.selected?.type === "question" &&
-		ctx.builder.selected.moduleIndex === ctx.moduleIndex &&
-		ctx.builder.selected.formIndex === ctx.formIndex &&
-		ctx.builder.selected.questionUuid === q.uuid;
+		cursorMode === "inspect" &&
+		selected?.type === "question" &&
+		selected.moduleIndex === (ctx?.moduleIndex ?? -1) &&
+		selected.formIndex === (ctx?.formIndex ?? -1) &&
+		selected.questionUuid === q.uuid;
 
 	/* The panel renders OUTSIDE the sortable element (as a sibling, not a child)
 	 * so its expanded height doesn't inflate the sortable's collision shape.
@@ -401,9 +405,7 @@ function SortableQuestion({
 						 * Fires for both entrance and exit animations, but the builder's
 						 * UUID guard ensures only the entrance triggers the scroll
 						 * (exit carries the old question's UUID in its closure). */
-						onAnimationComplete={() =>
-							ctx.builder.completePanelAnimation(q.uuid)
-						}
+						onAnimationComplete={() => engine_.completePanelAnimation(q.uuid)}
 					>
 						{/* pb-4 is clipped by overflow-hidden during the height animation,
 						 * so it provides the inter-question gap below the panel and
@@ -411,7 +413,7 @@ function SortableQuestion({
 						 * The panel itself carries no top margin; it attaches flush to
 						 * the question's flat-bottomed selection outline. */}
 						<div className="pb-4">
-							<InlineSettingsPanel builder={ctx.builder} question={q} />
+							<InlineSettingsPanel question={q} />
 						</div>
 					</motion.div>
 				)}
@@ -430,6 +432,9 @@ export function FormRenderer({
 	parentUuid,
 }: FormRendererProps) {
 	const ctx = useEditContext();
+	const builderEngine = useBuilderEngine();
+	const cursorMode_ = useBuilderStore((s) => s.cursorMode);
+	const moveQuestion_ = useBuilderStore((s) => s.moveQuestion);
 	const isEditMode = ctx?.mode === "edit";
 	const isRoot = !parentPath;
 	const [dragState, setDragState] = useState<DragReorderState | null>(null);
@@ -519,12 +524,12 @@ export function FormRenderer({
 		// Filter hidden questions in preview mode and text mode — nothing to interact
 		// with, and skipping them avoids unnecessary useSortable hook execution.
 		// In inspect/pointer edit modes, hidden questions are visible and draggable.
-		const isTextMode = ctx?.cursorMode === "text";
+		const isTextMode = cursorMode_ === "text";
 		const showHidden = isEditMode && !isTextMode;
 		return showHidden
 			? questions
 			: questions.filter((q) => q.type !== "hidden");
-	}, [questions, activeDragReorder, group, isEditMode, ctx?.cursorMode]);
+	}, [questions, activeDragReorder, group, isEditMode, cursorMode_]);
 
 	/* Restrict drag overlay to the visible editor viewport. Uses the scroll
 	 * container (not the inner content div) so the restriction bounds match
@@ -620,8 +625,8 @@ export function FormRenderer({
 						}
 						document.body.style.cursor = "grabbing";
 						if (ctx) {
-							ctx.builder.setDragging(true);
-							ctx.builder.select();
+							builderEngine.setDragging(true);
+							builderEngine.select();
 						}
 					}}
 					onDragOver={(event) => {
@@ -641,12 +646,9 @@ export function FormRenderer({
 						queueMicrotask(() => {
 							setDragState(null);
 							document.body.style.cursor = "";
-							if (ctx) ctx.builder.setDragging(false);
+							if (ctx) builderEngine.setDragging(false);
 
 							if (canceled || !ctx || !ds) return;
-
-							const mb = ctx.builder.mb;
-							if (!mb) return;
 
 							const { activeUuid, activePath, itemsMap, uuidToPath } = ds;
 
@@ -697,7 +699,7 @@ export function FormRenderer({
 									initialIds.length === finalIds.length
 								) {
 									// No movement — just select
-									ctx.builder.select({
+									builderEngine.select({
 										type: "question",
 										moduleIndex: ctx.moduleIndex,
 										formIndex: ctx.formIndex,
@@ -724,15 +726,12 @@ export function FormRenderer({
 								// Same-level reorder
 								if (finalIndex === 0) {
 									if (finalIds.length > 1) {
-										mb.moveQuestion(
-											ctx.moduleIndex,
-											ctx.formIndex,
-											activePath,
-											{ beforePath: pathOf(finalIds[1]) },
-										);
+										moveQuestion_(ctx.moduleIndex, ctx.formIndex, activePath, {
+											beforePath: pathOf(finalIds[1]),
+										});
 									}
 								} else {
-									mb.moveQuestion(ctx.moduleIndex, ctx.formIndex, activePath, {
+									moveQuestion_(ctx.moduleIndex, ctx.formIndex, activePath, {
 										afterPath: pathOf(finalIds[finalIndex - 1]),
 									});
 								}
@@ -740,20 +739,20 @@ export function FormRenderer({
 								// Cross-group transfer — resolve neighbor paths relative
 								// to the target parent for correct tree placement.
 								if (finalIds.length <= 1) {
-									mb.moveQuestion(ctx.moduleIndex, ctx.formIndex, activePath, {
+									moveQuestion_(ctx.moduleIndex, ctx.formIndex, activePath, {
 										targetParentPath,
 									});
 								} else if (finalIndex === 0) {
 									const nextId = qpathId(pathOf(finalIds[1]));
 									const beforePath = qpath(nextId, targetParentPath);
-									mb.moveQuestion(ctx.moduleIndex, ctx.formIndex, activePath, {
+									moveQuestion_(ctx.moduleIndex, ctx.formIndex, activePath, {
 										beforePath,
 										targetParentPath,
 									});
 								} else {
 									const prevId = qpathId(pathOf(finalIds[finalIndex - 1]));
 									const afterPath = qpath(prevId, targetParentPath);
-									mb.moveQuestion(ctx.moduleIndex, ctx.formIndex, activePath, {
+									moveQuestion_(ctx.moduleIndex, ctx.formIndex, activePath, {
 										afterPath,
 										targetParentPath,
 									});
@@ -763,9 +762,9 @@ export function FormRenderer({
 							const newPath = sameGroup
 								? activePath
 								: qpath(qpathId(activePath), targetParentPath);
-							ctx.builder.notifyBlueprintChanged();
+							/* Store action handled reactivity — no notification needed. */
 
-							ctx.builder.select({
+							builderEngine.select({
 								type: "question",
 								moduleIndex: ctx.moduleIndex,
 								formIndex: ctx.formIndex,

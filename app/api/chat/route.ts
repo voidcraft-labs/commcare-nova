@@ -9,10 +9,10 @@ import { createApp, failApp } from "@/lib/db/apps";
 import { getMonthlyUsage, MONTHLY_SPEND_CAP_USD } from "@/lib/db/usage";
 import { log } from "@/lib/log";
 import { chatRequestSchema } from "@/lib/schemas/apiSchemas";
+import type { AppBlueprint } from "@/lib/schemas/blueprint";
 import { classifyError, MESSAGES } from "@/lib/services/errorClassifier";
 import { EventLogger } from "@/lib/services/eventLogger";
 import { GenerationContext } from "@/lib/services/generationContext";
-import { MutableBlueprint } from "@/lib/services/mutableBlueprint";
 import { createSolutionsArchitect } from "@/lib/services/solutionsArchitect";
 
 export const maxDuration = 300;
@@ -142,8 +142,10 @@ export async function POST(req: Request) {
 				}
 			};
 
-			// Create MutableBlueprint — either from existing blueprint (edit/continuation) or empty (new build)
-			const mutableBp = new MutableBlueprint(
+			/* Create a mutable blueprint copy for the SA to modify in place.
+			 * structuredClone isolates the working copy from the input so
+			 * in-flight mutations don't corrupt the caller's reference. */
+			const mutableBp: AppBlueprint = structuredClone(
 				blueprint ?? { app_name: "", modules: [], case_types: null },
 			);
 

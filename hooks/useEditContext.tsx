@@ -1,32 +1,32 @@
+/**
+ * EditContext — provides the identity of the currently-viewed form to
+ * preview components so they can select the right slice of store state.
+ *
+ * Only carries positional identity (moduleIndex, formIndex) and rendering
+ * mode. Components access blueprint data and mutation actions via
+ * `useBuilderStore` directly — no prop drilling of engine/store references.
+ */
 "use client";
 import { createContext, type ReactNode, useContext } from "react";
-import type { Builder, CursorMode } from "@/lib/services/builder";
 
 export type EditMode = "edit" | "test";
 
 interface EditContextValue {
-	builder: Builder;
 	moduleIndex: number;
 	formIndex: number;
 	mode: EditMode;
-	/** Current cursor mode — undefined when PreviewShell is used standalone (no builder). */
-	cursorMode?: CursorMode;
 }
 
 const EditContext = createContext<EditContextValue | null>(null);
 
 export function EditContextProvider({
-	builder,
 	moduleIndex,
 	formIndex,
 	mode,
-	cursorMode,
 	children,
 }: EditContextValue & { children: ReactNode }) {
 	return (
-		<EditContext.Provider
-			value={{ builder, moduleIndex, formIndex, mode, cursorMode }}
-		>
+		<EditContext.Provider value={{ moduleIndex, formIndex, mode }}>
 			{children}
 		</EditContext.Provider>
 	);

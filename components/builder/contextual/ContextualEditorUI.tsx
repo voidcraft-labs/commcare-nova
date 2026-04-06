@@ -1,5 +1,6 @@
 "use client";
 import { EditableText } from "@/components/builder/EditableText";
+import { useBuilderStore } from "@/hooks/useBuilder";
 import { useSaveQuestion } from "@/hooks/useSaveQuestion";
 import type { Question } from "@/lib/schemas/blueprint";
 import type { QuestionPath } from "@/lib/services/questionPath";
@@ -20,14 +21,14 @@ const UI_FIELDS = new Set<FocusableFieldKey>(["hint"]);
  * Hidden questions never render this component; the parent
  * `InlineSettingsPanel` skips the section entirely for them.
  */
-export function ContextualEditorUI({ question, builder }: QuestionEditorProps) {
-	const selected = builder.selected;
-	const saveQuestion = useSaveQuestion(builder);
+export function ContextualEditorUI({ question }: QuestionEditorProps) {
+	const selected = useBuilderStore((s) => s.selected);
+	const saveQuestion = useSaveQuestion();
 	const { activeField, activate, clear } = useAddableField(
 		selected?.questionPath ?? ("" as QuestionPath),
 	);
 
-	const focusHint = useFocusHint(builder, UI_FIELDS);
+	const focusHint = useFocusHint(UI_FIELDS);
 
 	if (!selected) return null;
 

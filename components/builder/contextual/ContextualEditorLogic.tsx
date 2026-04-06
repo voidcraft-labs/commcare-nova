@@ -4,9 +4,15 @@ import { useCallback, useState } from "react";
 import { EditableText } from "@/components/builder/EditableText";
 import { SaveShortcutHint } from "@/components/builder/SaveShortcutHint";
 import { XPathField } from "@/components/builder/XPathField";
+import { useBuilderEngine, useBuilderStore } from "@/hooks/useBuilder";
 import { useSaveQuestion } from "@/hooks/useSaveQuestion";
 import type { XPathLintContext } from "@/lib/codemirror/xpath-lint";
 import type { Question } from "@/lib/schemas/blueprint";
+import {
+	assembleBlueprint,
+	assembleForm,
+	getEntityData,
+} from "@/lib/services/normalizedState";
 import type { QuestionPath } from "@/lib/services/questionPath";
 import { AddPropertyButton } from "./AddPropertyButton";
 import { RequiredSection } from "./RequiredSection";
@@ -78,13 +84,10 @@ const LOGIC_FIELDS = new Set<FocusableFieldKey>([
 	"calculate",
 ]);
 
-export function ContextualEditorLogic({
-	question,
-	builder,
-}: QuestionEditorProps) {
-	const selected = builder.selected;
-	const mb = builder.mb;
-	const saveQuestion = useSaveQuestion(builder);
+export function ContextualEditorLogic({ question }: QuestionEditorProps) {
+	const selected = useBuilderStore((s) => s.selected);
+	const builder = useBuilderEngine();
+	const saveQuestion = useSaveQuestion();
 
 	const questionPath = selected?.questionPath ?? ("" as QuestionPath);
 	/** Tracks text fields (validation_msg) added via "Add Property". */
@@ -93,17 +96,26 @@ export function ContextualEditorLogic({
 	 *  fields so both can be pending simultaneously. */
 	const xpathField = useAddableField(questionPath);
 
-	const focusHint = useFocusHint(builder, LOGIC_FIELDS);
+	const focusHint = useFocusHint(LOGIC_FIELDS);
 
-	/** Context getter for XPath linting and autocomplete. */
+	/** Context getter for XPath linting and autocomplete. Reads from the
+	 *  store imperatively so the closure always reflects the latest state
+	 *  without triggering re-renders on every entity change. */
 	const getLintContext = useCallback((): XPathLintContext | undefined => {
-		if (!selected || !mb || selected.formIndex === undefined) return undefined;
-		const blueprint = mb.getBlueprint();
-		const form = mb.getForm(selected.moduleIndex, selected.formIndex);
-		const mod = mb.getModule(selected.moduleIndex);
-		if (!form) return undefined;
-		return { blueprint, form, moduleCaseType: mod?.case_type ?? undefined };
-	}, [mb, selected]);
+		if (!selected || selected.formIndex === undefined) return undefined;
+		const s = builder.store.getState();
+		const moduleId = s.moduleOrder[selected.moduleIndex];
+		if (!moduleId) return undefined;
+		const mod = s.modules[moduleId];
+		const formIds = s.formOrder[moduleId];
+		const formId = formIds?.[selected.formIndex];
+		if (!formId) return undefined;
+		const formEntity = s.forms[formId];
+		if (!formEntity) return undefined;
+		const form = assembleForm(formEntity, formId, s.questions, s.questionOrder);
+		const blueprint = assembleBlueprint(getEntityData(s));
+		return { blueprint, form, moduleCaseType: mod?.caseType ?? undefined };
+	}, [selected, builder]);
 
 	/** Save handler for standard XPath fields (validation, relevant, etc.).
 	 *  Empty values become null (field removal). Clears pending add-property state. */
@@ -115,7 +127,7 @@ export function ContextualEditorLogic({
 		[saveQuestion, xpathField],
 	);
 
-	if (!selected || !mb) return null;
+	if (!selected) return null;
 
 	/** XPath fields not yet set on this question, available to add. */
 	const missingXPathFields = xpathFields.filter(
@@ -152,7 +164,6 @@ export function ContextualEditorLogic({
 			{/* ── Required: toggle + optional conditional XPath expression ── */}
 			<RequiredSection
 				required={question.required}
-				builder={builder}
 				getLintContext={getLintContext}
 				focusHint={focusHint}
 				dataFieldId="required"

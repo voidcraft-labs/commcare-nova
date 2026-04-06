@@ -1,12 +1,14 @@
 /**
  * Hook that creates a save callback for TextEditable inline editors.
  *
- * Combines the edit context (builder, module, form) with a question path
- * to produce a `(field, value) => void` function that mutates the blueprint.
- * Returns null outside of text mode or when no context is available.
+ * Combines the edit context (moduleIndex, formIndex) with a question path
+ * to produce a `(field, value) => void` function that mutates the blueprint
+ * via the store's updateQuestion action. Returns null outside of text mode
+ * or when no context is available.
  */
 
 import { useCallback } from "react";
+import { useBuilderStore } from "@/hooks/useBuilder";
 import type { QuestionPath } from "@/lib/services/questionPath";
 import { useEditContext } from "./useEditContext";
 
@@ -18,20 +20,19 @@ export function useTextEditSave(
 	questionPath: QuestionPath | undefined,
 ): ((field: string, value: string) => void) | null {
 	const ctx = useEditContext();
+	const cursorMode = useBuilderStore((s) => s.cursorMode);
+	const updateQuestion = useBuilderStore((s) => s.updateQuestion);
 
 	const save = useCallback(
 		(field: string, value: string) => {
 			if (!ctx || !questionPath) return;
-			const mb = ctx.builder.mb;
-			if (!mb) return;
-			mb.updateQuestion(ctx.moduleIndex, ctx.formIndex, questionPath, {
+			updateQuestion(ctx.moduleIndex, ctx.formIndex, questionPath, {
 				[field]: value === "" ? null : value,
 			});
-			ctx.builder.notifyBlueprintChanged();
 		},
-		[ctx, questionPath],
+		[ctx, questionPath, updateQuestion],
 	);
 
-	if (!ctx || ctx.cursorMode !== "text" || !questionPath) return null;
+	if (!ctx || cursorMode !== "text" || !questionPath) return null;
 	return save;
 }

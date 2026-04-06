@@ -14,15 +14,14 @@
 
 "use client";
 import { useCallback } from "react";
+import { useBuilderStore } from "@/hooks/useBuilder";
 import type { Question } from "@/lib/schemas/blueprint";
-import type { Builder } from "@/lib/services/builder";
 import { ContextualEditorData } from "./contextual/ContextualEditorData";
 import { ContextualEditorFooter } from "./contextual/ContextualEditorFooter";
 import { ContextualEditorLogic } from "./contextual/ContextualEditorLogic";
 import { ContextualEditorUI } from "./contextual/ContextualEditorUI";
 
 interface InlineSettingsPanelProps {
-	builder: Builder;
 	question: Question;
 }
 
@@ -38,21 +37,18 @@ function SectionLabel({ label }: { label: string }) {
 	);
 }
 
-export function InlineSettingsPanel({
-	builder,
-	question,
-}: InlineSettingsPanelProps) {
+export function InlineSettingsPanel({ question }: InlineSettingsPanelProps) {
+	const setActiveFieldId = useBuilderStore((s) => s.setActiveFieldId);
+
 	/** Delegated focusin handler — tracks which [data-field-id] element has
-	 *  focus so undo/redo snapshots capture the correct field even for
+	 *  focus so zundo snapshots capture the correct field even for
 	 *  blur-triggered saves (where document.activeElement has already moved). */
 	const handleFocus = useCallback(
 		(e: React.FocusEvent) => {
 			const fieldEl = (e.target as HTMLElement).closest("[data-field-id]");
-			builder.setActiveField(
-				fieldEl?.getAttribute("data-field-id") ?? undefined,
-			);
+			setActiveFieldId(fieldEl?.getAttribute("data-field-id") ?? undefined);
 		},
-		[builder],
+		[setActiveFieldId],
 	);
 
 	/* Flat top corners attach flush to the question's flat-bottomed outline.
@@ -65,24 +61,24 @@ export function InlineSettingsPanel({
 			data-no-drag
 			onFocus={handleFocus}
 		>
-			<ContextualEditorFooter question={question} builder={builder} />
+			<ContextualEditorFooter question={question} />
 
 			<div className="p-2 space-y-2">
 				<div className="rounded-md bg-nova-surface/40 border border-white/[0.04] px-3 py-2.5">
 					<SectionLabel label="Data" />
-					<ContextualEditorData question={question} builder={builder} />
+					<ContextualEditorData question={question} />
 				</div>
 
 				<div className="rounded-md bg-nova-surface/40 border border-white/[0.04] px-3 py-2.5">
 					<SectionLabel label="Logic" />
-					<ContextualEditorLogic question={question} builder={builder} />
+					<ContextualEditorLogic question={question} />
 				</div>
 
 				{/* Hidden questions have no visual properties */}
 				{question.type !== "hidden" && (
 					<div className="rounded-md bg-nova-surface/40 border border-white/[0.04] px-3 py-2.5">
 						<SectionLabel label="Appearance" />
-						<ContextualEditorUI question={question} builder={builder} />
+						<ContextualEditorUI question={question} />
 					</div>
 				)}
 			</div>

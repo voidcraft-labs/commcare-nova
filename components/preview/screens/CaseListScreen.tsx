@@ -1,36 +1,34 @@
 "use client";
 import { motion } from "motion/react";
 import { useMemo } from "react";
+import {
+	useBuilderStore,
+	useForm,
+	useModule,
+	useScreenData,
+} from "@/hooks/useBuilder";
 import { getDummyCases } from "@/lib/preview/engine/dummyData";
-import type { PreviewScreen } from "@/lib/preview/engine/types";
-import type { AppBlueprint } from "@/lib/schemas/blueprint";
 
-interface CaseListScreenProps {
-	blueprint: AppBlueprint;
-	moduleIndex: number;
-	formIndex: number;
-	onNavigate: (screen: PreviewScreen) => void;
-}
+export function CaseListScreen() {
+	/* Read screen indices from the store — no props needed. */
+	const screen = useScreenData("caseList");
+	const moduleIndex = screen?.moduleIndex ?? 0;
+	const formIndex = screen?.formIndex ?? 0;
 
-export function CaseListScreen({
-	blueprint,
-	moduleIndex,
-	formIndex,
-	onNavigate,
-}: CaseListScreenProps) {
-	const mod = blueprint.modules[moduleIndex];
-	const form = mod?.forms[formIndex];
-	const caseType = blueprint.case_types?.find(
-		(ct) => ct.name === mod?.case_type,
-	);
-	const columns = mod?.case_list_columns ?? [];
+	const caseTypes = useBuilderStore((s) => s.caseTypes);
+	const navPush = useBuilderStore((s) => s.navPush);
+
+	const mod = useModule(moduleIndex);
+	const form = useForm(moduleIndex, formIndex);
+	const caseType = caseTypes?.find((ct) => ct.name === mod?.caseType);
+	const columns = mod?.caseListColumns ?? [];
 
 	const rows = useMemo(() => {
 		if (!caseType) return [];
 		return getDummyCases(caseType);
 	}, [caseType]);
 
-	if (!mod || !caseType || columns.length === 0) {
+	if (!screen || !mod || !caseType || columns.length === 0) {
 		return (
 			<div className="p-6 text-center text-nova-text-muted">
 				No case list configured for this module.
@@ -40,7 +38,7 @@ export function CaseListScreen({
 
 	const handleRowClick = (rowIndex: number) => {
 		const row = rows[rowIndex];
-		onNavigate({
+		navPush({
 			type: "form",
 			moduleIndex,
 			formIndex,

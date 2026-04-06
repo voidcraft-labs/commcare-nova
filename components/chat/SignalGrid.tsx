@@ -1,8 +1,9 @@
 "use client";
 import type { UIMessage } from "ai";
 import { useCallback, useEffect, useRef } from "react";
-import { useBuilder } from "@/hooks/useBuilder";
+import { useBuilderEngine } from "@/hooks/useBuilder";
 import type { EditScope } from "@/lib/services/builder";
+import { assembleQuestions as assembleQuestionsForGrid } from "@/lib/services/normalizedState";
 import { type QuestionPath, qpathId } from "@/lib/services/questionPath";
 import { flatIndexById } from "@/lib/services/questionTree";
 import type { SignalGridController } from "@/lib/signalGridController";
@@ -14,7 +15,7 @@ interface SignalGridProps {
 }
 
 export function SignalGrid({ controller, messages }: SignalGridProps) {
-	const builder = useBuilder();
+	const builder = useBuilderEngine();
 	const builderRef = useRef(builder);
 	builderRef.current = builder;
 	/** Null on mount — the first effect records the baseline content length
@@ -69,14 +70,22 @@ export function SignalGrid({ controller, messages }: SignalGridProps) {
 						const rawRef = input.questionPath ?? input.questionId ?? input.path;
 						const qRef = typeof rawRef === "string" ? rawRef : undefined;
 						if (typeof qRef === "string" && qRef) {
-							const questions =
-								builderRef.current.blueprint?.modules[input.moduleIndex]?.forms[
-									input.formIndex
-								]?.questions;
-							if (questions) {
-								const bareId = qpathId(qRef as QuestionPath);
-								const flatIdx = flatIndexById(questions, bareId);
-								if (flatIdx >= 0) latestToolScope.questionIndex = flatIdx;
+							const s = builderRef.current.store.getState();
+							const moduleId = s.moduleOrder[input.moduleIndex as number];
+							const formId = moduleId
+								? s.formOrder[moduleId]?.[input.formIndex as number]
+								: undefined;
+							if (formId) {
+								const questions = assembleQuestionsForGrid(
+									s.questions,
+									s.questionOrder,
+									formId,
+								);
+								if (questions.length > 0) {
+									const bareId = qpathId(qRef as QuestionPath);
+									const flatIdx = flatIndexById(questions, bareId);
+									if (flatIdx >= 0) latestToolScope.questionIndex = flatIdx;
+								}
 							}
 						}
 					}
@@ -95,7 +104,8 @@ export function SignalGrid({ controller, messages }: SignalGridProps) {
 		}
 		prevContentLenRef.current = contentLen;
 
-		if (builder.postBuildEdit && builder.agentActive) {
+		const { postBuildEdit, agentActive } = builder.store.getState();
+		if (postBuildEdit && agentActive) {
 			builder.setEditScope(latestToolScope);
 			controller.setEditFocus(builder.computeEditFocus());
 		}

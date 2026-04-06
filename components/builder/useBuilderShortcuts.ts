@@ -1,6 +1,7 @@
 import { useMemo } from "react";
-import type { Builder, CursorMode } from "@/lib/services/builder";
+import type { BuilderEngine } from "@/lib/services/builderEngine";
 import type { Shortcut } from "@/lib/services/keyboardManager";
+import { assembleForm } from "@/lib/services/normalizedState";
 import {
 	flattenQuestionRefs,
 	type QuestionRef,
@@ -14,14 +15,13 @@ import {
  * Tab/Shift+Tab (navigate questions in inspect mode), Delete/Backspace (delete question),
  * Cmd+D (duplicate), ArrowUp/ArrowDown (reorder), Cmd+Z/Cmd+Shift+Z (undo/redo).
  *
- * Handlers read from `builder` at call time (not at memo time), so the memo
- * only needs to refresh when the handler identity or mode changes — not on
- * every blueprint mutation.
+ * All handlers read from the store at call time — the memo only refreshes when
+ * the handler identity changes, not on state transitions like cursor mode or
+ * blueprint mutations.
  */
 export function useBuilderShortcuts(
-	builder: Builder,
-	cursorMode: CursorMode,
-	handleCursorModeChange: (mode: CursorMode) => void,
+	builder: BuilderEngine,
+	handleCursorModeChange: (mode: "pointer" | "text" | "inspect") => void,
 	handleDelete: () => void,
 	onUndo: () => void,
 	onRedo: () => void,
@@ -33,27 +33,38 @@ export function useBuilderShortcuts(
 
 		/** Get the flat question refs for the current form. */
 		const getFormRefs = (): QuestionRef[] | undefined => {
-			const sel = builder.selected;
+			const s = builder.store.getState();
+			const sel = s.selected;
 			if (!sel || sel.formIndex === undefined) return undefined;
-			const form =
-				builder.blueprint?.modules[sel.moduleIndex]?.forms[sel.formIndex];
-			return form ? flattenQuestionRefs(form.questions) : undefined;
+			const moduleId = s.moduleOrder[sel.moduleIndex];
+			if (!moduleId) return undefined;
+			const formId = s.formOrder[moduleId]?.[sel.formIndex];
+			if (!formId) return undefined;
+			const form = assembleForm(
+				s.forms[formId],
+				formId,
+				s.questions,
+				s.questionOrder,
+			);
+			return flattenQuestionRefs(form.questions);
 		};
 
 		/** Find the current question's index in the ref list by UUID. */
 		const findCurrent = (refs: QuestionRef[]): number =>
-			refs.findIndex((r) => r.uuid === builder.selected?.questionUuid);
+			refs.findIndex(
+				(r) => r.uuid === builder.store.getState().selected?.questionUuid,
+			);
 
 		return [
 			// Escape — deselect / exit pointer mode
 			{
 				key: "Escape",
 				handler: () => {
-					if (cursorMode === "pointer") {
+					if (builder.store.getState().cursorMode === "pointer") {
 						handleCursorModeChange("inspect");
 						return;
 					}
-					if (builder.selected) {
+					if (builder.store.getState().selected) {
 						builder.select();
 						return;
 					}
@@ -67,8 +78,8 @@ export function useBuilderShortcuts(
 			{
 				key: "Tab",
 				handler: () => {
-					if (cursorMode !== "inspect") return;
-					const sel = builder.selected;
+					if (builder.store.getState().cursorMode !== "inspect") return;
+					const sel = builder.store.getState().selected;
 					if (!sel) return;
 					const refs = getFormRefs();
 					if (!refs?.length) return;
@@ -87,8 +98,8 @@ export function useBuilderShortcuts(
 				key: "Tab",
 				shift: true,
 				handler: () => {
-					if (cursorMode !== "inspect") return;
-					const sel = builder.selected;
+					if (builder.store.getState().cursorMode !== "inspect") return;
+					const sel = builder.store.getState().selected;
 					if (!sel) return;
 					const refs = getFormRefs();
 					if (!refs?.length) return;
@@ -107,21 +118,24 @@ export function useBuilderShortcuts(
 			{
 				key: "Delete",
 				handler: () => {
-					if (builder.selected?.type === "question") handleDelete();
+					if (builder.store.getState().selected?.type === "question")
+						handleDelete();
 				},
 			},
 			{
 				key: "Backspace",
 				handler: () => {
-					if (builder.selected?.type === "question") handleDelete();
+					if (builder.store.getState().selected?.type === "question")
+						handleDelete();
 				},
 			},
-			// Cmd+D — duplicate
+			// Cmd+D — duplicate question via store action
 			{
 				key: "d",
 				meta: true,
 				handler: () => {
-					const sel = builder.selected;
+					const s = builder.store.getState();
+					const sel = s.selected;
 					if (
 						!sel ||
 						sel.type !== "question" ||
@@ -129,14 +143,12 @@ export function useBuilderShortcuts(
 						!sel.questionPath
 					)
 						return;
-					const mb = builder.mb;
-					if (!mb) return;
-					const { newPath, newUuid } = mb.duplicateQuestion(
+					if (s.moduleOrder.length === 0) return;
+					const { newPath, newUuid } = s.duplicateQuestion(
 						sel.moduleIndex,
 						sel.formIndex,
 						sel.questionPath,
 					);
-					builder.notifyBlueprintChanged();
 					builder.navigateTo({
 						type: "question",
 						moduleIndex: sel.moduleIndex,
@@ -146,11 +158,12 @@ export function useBuilderShortcuts(
 					});
 				},
 			},
-			// ArrowUp/ArrowDown — reorder
+			// ArrowUp/ArrowDown — reorder via store action
 			{
 				key: "ArrowUp",
 				handler: () => {
-					const sel = builder.selected;
+					const s = builder.store.getState();
+					const sel = s.selected;
 					if (
 						!sel ||
 						sel.type !== "question" ||
@@ -158,22 +171,21 @@ export function useBuilderShortcuts(
 						!sel.questionPath
 					)
 						return;
-					const mb = builder.mb;
-					if (!mb) return;
+					if (s.moduleOrder.length === 0) return;
 					const refs = getFormRefs();
 					if (!refs) return;
 					const curIdx = findCurrent(refs);
 					if (curIdx <= 0) return;
-					mb.moveQuestion(sel.moduleIndex, sel.formIndex, sel.questionPath, {
+					s.moveQuestion(sel.moduleIndex, sel.formIndex, sel.questionPath, {
 						beforePath: refs[curIdx - 1].path,
 					});
-					builder.notifyBlueprintChanged();
 				},
 			},
 			{
 				key: "ArrowDown",
 				handler: () => {
-					const sel = builder.selected;
+					const s = builder.store.getState();
+					const sel = s.selected;
 					if (
 						!sel ||
 						sel.type !== "question" ||
@@ -181,16 +193,14 @@ export function useBuilderShortcuts(
 						!sel.questionPath
 					)
 						return;
-					const mb = builder.mb;
-					if (!mb) return;
+					if (s.moduleOrder.length === 0) return;
 					const refs = getFormRefs();
 					if (!refs) return;
 					const curIdx = findCurrent(refs);
 					if (curIdx < 0 || curIdx >= refs.length - 1) return;
-					mb.moveQuestion(sel.moduleIndex, sel.formIndex, sel.questionPath, {
+					s.moveQuestion(sel.moduleIndex, sel.formIndex, sel.questionPath, {
 						afterPath: refs[curIdx + 1].path,
 					});
-					builder.notifyBlueprintChanged();
 				},
 			},
 			// Cmd+Z / Cmd+Shift+Z — undo/redo
@@ -208,13 +218,5 @@ export function useBuilderShortcuts(
 				handler: onRedo,
 			},
 		];
-	}, [
-		isReady,
-		builder,
-		cursorMode,
-		handleCursorModeChange,
-		handleDelete,
-		onUndo,
-		onRedo,
-	]);
+	}, [isReady, builder, handleCursorModeChange, handleDelete, onUndo, onRedo]);
 }

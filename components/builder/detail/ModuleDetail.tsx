@@ -5,8 +5,11 @@ import tablerFilePencil from "@iconify-icons/tabler/file-pencil";
 import tablerFilePlus from "@iconify-icons/tabler/file-plus";
 import { useCallback } from "react";
 import { EditableText } from "@/components/builder/EditableText";
-import type { BlueprintModule } from "@/lib/schemas/blueprint";
-import type { MutableBlueprint } from "@/lib/services/mutableBlueprint";
+import {
+	useBuilderStore,
+	useModule,
+	useOrderedForms,
+} from "@/hooks/useBuilder";
 
 const formTypeIcons = {
 	registration: tablerFilePlus,
@@ -15,14 +18,8 @@ const formTypeIcons = {
 } as const;
 
 interface ModuleDetailProps {
-	/** The module being edited. */
-	mod: BlueprintModule;
 	/** Module index in the blueprint. */
 	moduleIndex: number;
-	/** The MutableBlueprint instance for direct mutation. */
-	mb: MutableBlueprint;
-	/** Notify the builder that the blueprint has changed. */
-	notifyBlueprintChanged: () => void;
 }
 
 /**
@@ -30,19 +27,19 @@ interface ModuleDetailProps {
  * Displays and allows editing of: module name, case type (read-only),
  * case list columns, and a summary of forms in the module.
  */
-export function ModuleDetail({
-	mod,
-	moduleIndex,
-	mb,
-	notifyBlueprintChanged,
-}: ModuleDetailProps) {
+export function ModuleDetail({ moduleIndex }: ModuleDetailProps) {
+	const mod = useModule(moduleIndex);
+	const forms = useOrderedForms(moduleIndex);
+	const updateModule = useBuilderStore((s) => s.updateModule);
+
 	const saveModule = useCallback(
 		(updates: { name?: string }) => {
-			mb.updateModule(moduleIndex, updates);
-			notifyBlueprintChanged();
+			updateModule(moduleIndex, updates);
 		},
-		[mb, moduleIndex, notifyBlueprintChanged],
+		[updateModule, moduleIndex],
 	);
+
+	if (!mod) return null;
 
 	return (
 		<>
@@ -51,17 +48,17 @@ export function ModuleDetail({
 				value={mod.name}
 				onSave={(v) => saveModule({ name: v })}
 			/>
-			{mod.case_type && (
+			{mod.caseType && (
 				<div>
 					<span className="text-xs text-nova-text-muted uppercase tracking-wider mb-1 block">
 						Case Type
 					</span>
 					<p className="text-sm font-mono text-nova-violet-bright">
-						{mod.case_type}
+						{mod.caseType}
 					</p>
 				</div>
 			)}
-			{mod.case_list_columns && mod.case_list_columns.length > 0 && (
+			{mod.caseListColumns && mod.caseListColumns.length > 0 && (
 				<div>
 					<span className="text-xs text-nova-text-muted uppercase tracking-wider mb-2 block">
 						Case List Columns
@@ -75,7 +72,7 @@ export function ModuleDetail({
 								Field
 							</div>
 						</div>
-						{mod.case_list_columns.map((col) => (
+						{mod.caseListColumns.map((col) => (
 							<div
 								key={`${col.header}-${col.field}`}
 								className="grid grid-cols-[1fr_auto] border-t border-nova-border/40"
@@ -96,9 +93,8 @@ export function ModuleDetail({
 					Forms
 				</span>
 				<div className="space-y-1">
-					{mod.forms.map((f, fIdx) => (
-						// biome-ignore lint/suspicious/noArrayIndexKey: forms have no unique ID field
-						<div key={fIdx} className="flex items-center gap-2 text-sm">
+					{forms.map((f) => (
+						<div key={f.uuid} className="flex items-center gap-2 text-sm">
 							<Icon
 								icon={
 									formTypeIcons[f.type as keyof typeof formTypeIcons] ??

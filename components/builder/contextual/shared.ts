@@ -1,13 +1,12 @@
 import { useEffect, useState } from "react";
-import type { Question } from "@/lib/schemas/blueprint";
-import type { Builder } from "@/lib/services/builder";
-import type { MutableBlueprint } from "@/lib/services/mutableBlueprint";
+import { useBuilderEngine } from "@/hooks/useBuilder";
+import type { CaseType, Question } from "@/lib/schemas/blueprint";
 import type { QuestionPath } from "@/lib/services/questionPath";
 
-/** Shared prop shape for all contextual editor sections (UI, Logic, Data, Footer). */
+/** Shared prop shape for all contextual editor sections (UI, Logic, Data, Footer).
+ *  Only the question data — store access is via hooks, not props. */
 export interface QuestionEditorProps {
 	question: Question;
-	builder: Builder;
 }
 
 /** XPath question fields that can be added via "Add Property" buttons. */
@@ -23,7 +22,7 @@ export type TextFieldKey = "hint" | "validation_msg";
 /**
  * All field keys that can receive focus after undo/redo.
  * Derived from the `data-field-id` attributes on field wrappers across the
- * contextual editor sections. Used to type `ViewContext.focusHint` and the
+ * contextual editor sections. Used to type `ViewContext.activeFieldId` and the
  * `useFocusHint` hook so typos are caught at compile time.
  */
 export type FocusableFieldKey =
@@ -88,31 +87,29 @@ export function useAddableField(questionPath: QuestionPath) {
  * between sibling sections (Data, Logic, UI) rendered by InlineSettingsPanel.
  */
 export function useFocusHint(
-	builder: Builder,
 	ownedFields: ReadonlySet<FocusableFieldKey>,
 ): FocusableFieldKey | undefined {
-	const raw = builder.focusHint;
+	const engine = useBuilderEngine();
+	const raw = engine.focusHint;
 	const hint =
 		raw && ownedFields.has(raw as FocusableFieldKey)
 			? (raw as FocusableFieldKey)
 			: undefined;
 	useEffect(() => {
-		if (hint) builder.clearFocusHint();
-	}, [hint, builder]);
+		if (hint) engine.clearFocusHint();
+	}, [hint, engine]);
 	return hint;
 }
 
 /** Returns case type names this module can write to: its own type + any child types. */
 export function getModuleCaseTypes(
-	mb: MutableBlueprint,
-	moduleIndex: number,
+	caseType: string | undefined,
+	caseTypes: CaseType[],
 ): string[] {
-	const mod = mb.getModule(moduleIndex);
-	const bp = mb.getBlueprint();
-	if (!mod?.case_type || !bp.case_types) return [];
-	const result = [mod.case_type];
-	for (const ct of bp.case_types) {
-		if (ct.parent_type === mod.case_type) result.push(ct.name);
+	if (!caseType) return [];
+	const result = [caseType];
+	for (const ct of caseTypes) {
+		if (ct.parent_type === caseType) result.push(ct.name);
 	}
 	return result;
 }

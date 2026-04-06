@@ -5,72 +5,79 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { FormTypeButton } from "@/components/builder/detail/FormDetail";
 import { FormSettingsButton } from "@/components/builder/detail/FormSettingsPanel";
 import { EditableTitle, SavedCheck } from "@/components/builder/EditableTitle";
-import type { EditMode } from "@/hooks/useEditContext";
+import {
+	useAssembledForm,
+	useBuilderStore,
+	useModule,
+	useScreenData,
+} from "@/hooks/useBuilder";
 import { EditContextProvider } from "@/hooks/useEditContext";
 import { useFormEngine } from "@/hooks/useFormEngine";
 import { getCaseData, getDummyCases } from "@/lib/preview/engine/dummyData";
-import type { PreviewScreen } from "@/lib/preview/engine/types";
-import type { AppBlueprint } from "@/lib/schemas/blueprint";
-import type { Builder, CursorMode } from "@/lib/services/builder";
+import type { BlueprintForm } from "@/lib/schemas/blueprint";
+import { selectEditMode, selectIsReady } from "@/lib/services/builderSelectors";
 import { FormRenderer } from "../form/FormRenderer";
 
+/** Minimal stub form for unconditional hook calls during AnimatePresence exit
+ *  overlap. useFormEngine receives this when screen is undefined; the result
+ *  is never rendered because the component early-returns null. */
+const EMPTY_FORM: BlueprintForm = {
+	name: "",
+	type: "survey",
+	questions: [],
+};
+
 interface FormScreenProps {
-	blueprint: AppBlueprint;
-	moduleIndex: number;
-	formIndex: number;
-	caseId?: string;
+	/** Back handler override — used by BuilderLayout to sync selection on back navigation.
+	 *  Also used as the fallback post-submit destination for `previous` forms. */
 	onBack: () => void;
-	onNavigate?: (screen: PreviewScreen) => void;
-	builder?: Builder;
-	mode?: EditMode;
-	/** Current cursor mode — threaded to EditContextProvider for mode-aware components. */
-	cursorMode?: CursorMode;
 }
 
-export function FormScreen({
-	blueprint,
-	moduleIndex,
-	formIndex,
-	caseId,
-	onBack,
-	onNavigate,
-	builder,
-	mode = "edit",
-	cursorMode,
-}: FormScreenProps) {
+export function FormScreen({ onBack }: FormScreenProps) {
+	/* Read screen indices from the store — no props needed for identity.
+	 * Returns undefined during AnimatePresence exit overlap. */
+	const screen = useScreenData("form");
+	const moduleIndex = screen?.moduleIndex ?? 0;
+	const formIndex = screen?.formIndex ?? 0;
+	const caseId = screen?.caseId;
+	const caseTypes = useBuilderStore((s) => s.caseTypes);
+	const selected = useBuilderStore((s) => s.selected);
+	const updateForm = useBuilderStore((s) => s.updateForm);
+	const navPush = useBuilderStore((s) => s.navPush);
+	const isReady = useBuilderStore(selectIsReady);
+	const mode = useBuilderStore(selectEditMode);
+
 	const [titleSaved, setTitleSaved] = useState(false);
 	const handleTitleSaved = useCallback(() => {
 		setTitleSaved(true);
 		setTimeout(() => setTitleSaved(false), 1500);
 	}, []);
-	const mod = blueprint.modules[moduleIndex];
-	const form = mod?.forms[formIndex];
+
+	const mod = useModule(moduleIndex);
+	const form = useAssembledForm(moduleIndex, formIndex);
 
 	const caseData = useMemo(() => {
-		if (!mod?.case_type) return undefined;
-		if (caseId) return getCaseData(mod.case_type, caseId);
-		// Followup forms without a caseId: fall back to first dummy case
+		if (!mod?.caseType) return undefined;
+		if (caseId) return getCaseData(mod.caseType, caseId);
 		if (form?.type === "followup") {
-			const caseType = blueprint.case_types?.find(
-				(ct) => ct.name === mod.case_type,
-			);
-			if (caseType) return getDummyCases(caseType)[0]?.properties;
+			const ct = caseTypes?.find((c) => c.name === mod.caseType);
+			if (ct) return getDummyCases(ct)[0]?.properties;
 		}
 		return undefined;
-	}, [caseId, mod?.case_type, form?.type, blueprint.case_types]);
+	}, [caseId, mod?.caseType, form?.type, caseTypes]);
 
-	if (!form)
-		throw new Error(`Form not found at [${moduleIndex}][${formIndex}]`);
+	const editable = isReady;
 
+	/* useFormEngine needs a BlueprintForm — pass a minimal stub when screen is
+	 * undefined (AnimatePresence exit overlap) so hooks are called unconditionally.
+	 * The engine result is never used because we early-return below. */
 	const engine = useFormEngine(
-		form,
-		blueprint.case_types ?? undefined,
-		mod?.case_type ?? undefined,
+		form ?? EMPTY_FORM,
+		caseTypes ?? undefined,
+		mod?.caseType ?? undefined,
 		caseData,
-		builder?.mutationCount,
 	);
 
-	// Reset validation when leaving test mode so fields start clean on re-entry
 	const prevModeRef = useRef(mode);
 	useEffect(() => {
 		if (prevModeRef.current === "test" && mode !== "test") {
@@ -81,13 +88,11 @@ export function FormScreen({
 
 	const formBodyElRef = useRef<HTMLDivElement>(null);
 
-	// In live/test mode, focus the selected question's input when the form mounts
-	// or when the selection changes. rAF ensures the DOM is painted first.
 	const formBodyRef = useCallback(
 		(el: HTMLDivElement | null) => {
 			formBodyElRef.current = el;
 			if (!el || mode !== "test") return;
-			const uuid = builder?.selected?.questionUuid;
+			const uuid = selected?.questionUuid;
 			if (!uuid) return;
 			const raf = requestAnimationFrame(() => {
 				const qEl = el.querySelector(`[data-question-uuid="${uuid}"]`);
@@ -98,18 +103,13 @@ export function FormScreen({
 			});
 			return () => cancelAnimationFrame(raf);
 		},
-		[mode, builder?.selected?.questionUuid],
+		[mode, selected?.questionUuid],
 	);
 
-	if (!form) {
-		return (
-			<div className="p-6 text-center text-nova-text-muted">
-				Form not found.
-			</div>
-		);
-	}
+	/* All hooks called above — safe to early-return now. During AnimatePresence
+	 * exit overlap, screen is undefined and form may be missing. */
+	if (!screen || !form) return null;
 
-	// Followup form with no case data at all (no case type configured, no dummy data available)
 	if (mode === "test" && form.type === "followup" && !caseData) {
 		return (
 			<div className="flex flex-col items-center justify-center h-full gap-4 px-6">
@@ -135,13 +135,11 @@ export function FormScreen({
 			switch (dest) {
 				case "module":
 				case "parent_module":
-					if (onNavigate) onNavigate({ type: "module", moduleIndex });
-					else onBack();
+					navPush({ type: "module", moduleIndex });
 					break;
 				case "root":
 				case "default":
-					if (onNavigate) onNavigate({ type: "home" });
-					else onBack();
+					navPush({ type: "home" });
 					break;
 				default:
 					onBack();
@@ -155,41 +153,33 @@ export function FormScreen({
 		}
 	};
 
+	const canEdit = mode === "edit" && editable;
+
 	const formBody = (
 		<>
 			{/* Form header */}
 			<div className="px-6 pt-5 pb-4 border-b border-pv-input-border">
 				<div className="flex items-center gap-2">
 					<FormTypeButton
-						form={form}
-						moduleIndex={
-							mode === "edit" && builder?.mb ? moduleIndex : undefined
-						}
-						formIndex={mode === "edit" && builder?.mb ? formIndex : undefined}
-						mb={mode === "edit" ? builder?.mb : undefined}
-						notifyBlueprintChanged={
-							mode === "edit" ? builder?.notifyBlueprintChanged : undefined
-						}
+						moduleIndex={moduleIndex}
+						formIndex={formIndex}
+						editable={canEdit}
 					/>
-					{mode === "edit" && builder?.mb ? (
+					{canEdit ? (
 						<EditableTitle
 							value={form.name}
 							onSave={(name) => {
-								builder.mb?.updateForm(moduleIndex, formIndex, { name });
-								builder.notifyBlueprintChanged();
+								updateForm(moduleIndex, formIndex, { name });
 							}}
 							onSaved={handleTitleSaved}
 						/>
 					) : (
 						<EditableTitle value={form.name} readOnly />
 					)}
-					{mode === "edit" && builder?.mb && (
+					{canEdit && (
 						<FormSettingsButton
-							form={form}
 							moduleIndex={moduleIndex}
 							formIndex={formIndex}
-							mb={builder.mb}
-							notifyBlueprintChanged={builder.notifyBlueprintChanged}
 						/>
 					)}
 					<SavedCheck visible={titleSaved} />
@@ -235,13 +225,11 @@ export function FormScreen({
 	return (
 		<div className="h-full">
 			<div className="flex flex-col h-full max-w-3xl mx-auto w-full">
-				{builder ? (
+				{editable ? (
 					<EditContextProvider
-						builder={builder}
 						moduleIndex={moduleIndex}
 						formIndex={formIndex}
 						mode={mode}
-						cursorMode={cursorMode}
 					>
 						{formBody}
 					</EditContextProvider>
