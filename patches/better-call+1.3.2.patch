@@ -1,0 +1,13 @@
+diff --git a/node_modules/better-call/dist/middleware.mjs b/node_modules/better-call/dist/middleware.mjs
+index 6730654..43cc251 100644
+--- a/node_modules/better-call/dist/middleware.mjs
++++ b/node_modules/better-call/dist/middleware.mjs
+@@ -23,7 +23,7 @@ function createMiddleware(optionsOrHandler, handler) {
+ 		} catch (e) {
+ 			if (isAPIError(e)) Object.defineProperty(e, kAPIErrorHeaderSymbol, {
+ 				enumerable: false,
+-				configurable: false,
++				configurable: true,
+ 				get() {
+ 					return internalContext.responseHeaders;
+ 				}

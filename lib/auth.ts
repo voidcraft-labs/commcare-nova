@@ -84,8 +84,12 @@ export const auth = betterAuth({
 		 *    app's own user record for usage tracking, admin dashboard, etc.
 		 *
 		 * 2. Sync admin status from the app's user doc to the Better Auth session
-		 *    via `auth.api.updateSession`. Promotions happen via the Firestore
-		 *    console (setting `role` to 'admin') — the next sign-in picks it up.
+		 *    via `internalAdapter.updateSession`. Uses the internal adapter directly
+		 *    because the public API requires an authenticated session cookie in the
+		 *    headers, but during the OAuth callback the cookie hasn't been sent to
+		 *    the client yet — `ctx.headers` only has the inbound redirect headers.
+		 *    Promotions happen via the Firestore console (setting `role` to 'admin')
+		 *    — the next sign-in picks it up.
 		 */
 		after: createAuthMiddleware(async (ctx) => {
 			if (!ctx.path.startsWith("/callback/")) return;
@@ -107,10 +111,10 @@ export const auth = betterAuth({
 				console.error("[auth] Failed to provision user on sign-in:", err);
 			}
 
-			await auth.api.updateSession({
-				headers: ctx.headers,
-				body: { isAdmin },
-			});
+			await ctx.context.internalAdapter.updateSession(
+				newSession.session.token,
+				{ isAdmin },
+			);
 		}),
 	},
 });
