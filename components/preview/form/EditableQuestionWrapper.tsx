@@ -167,12 +167,15 @@ export function EditableQuestionWrapper({
 			tabIndex={0}
 			data-question-wrapper
 			aria-label="Select question"
-			className={`group/qw relative w-full text-left rounded-lg transition-all duration-150 cursor-pointer outline-offset-3 ${
+			/* Selected: flatten the bottom corners so the inline settings panel
+			 * attaches flush, and collapse outline-offset so the violet outline
+			 * sits at the element edge rather than floating 3px above the panel. */
+			className={`group/qw relative w-full text-left rounded-lg transition-all duration-150 cursor-pointer ${
 				isSelected
-					? "outline-2 outline-nova-violet bg-nova-violet/[0.03]"
+					? "rounded-b-none outline-2 outline-nova-violet outline-offset-0 bg-nova-violet/[0.03]"
 					: hovered
-						? "outline-1 outline-nova-violet/30"
-						: "outline-1 outline-nova-violet/10"
+						? "outline-1 outline-nova-violet/30 outline-offset-3"
+						: "outline-1 outline-nova-violet/10 outline-offset-3"
 			}`}
 			style={mergedStyle}
 			onMouseEnter={() => setHovered(true)}
