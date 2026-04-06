@@ -1,4 +1,5 @@
 "use client";
+import { AnimatePresence, motion } from "motion/react";
 import { useCallback, useState } from "react";
 import { EditableText } from "@/components/builder/EditableText";
 import { SaveShortcutHint } from "@/components/builder/SaveShortcutHint";
@@ -11,8 +12,10 @@ import { AddPropertyButton } from "./AddPropertyButton";
 import { RequiredSection } from "./RequiredSection";
 import {
 	addableTextFields,
+	type FocusableFieldKey,
 	type QuestionEditorProps,
 	useAddableField,
+	useFocusHint,
 	type XPathFieldKey,
 	xpathFields,
 } from "./shared";
@@ -28,6 +31,7 @@ function XPathSection({
 	onSave,
 	getLintContext,
 	autoEdit,
+	dataFieldId,
 	children,
 }: {
 	label: string;
@@ -35,6 +39,8 @@ function XPathSection({
 	onSave: (value: string) => void;
 	getLintContext: () => XPathLintContext | undefined;
 	autoEdit: boolean;
+	/** Undo/redo scroll + flash target — scoped to the editor, not the label. */
+	dataFieldId?: string;
 	children?: React.ReactNode;
 }) {
 	const [editing, setEditing] = useState(false);
@@ -47,17 +53,30 @@ function XPathSection({
 				{label}
 				{editing && <SaveShortcutHint />}
 			</span>
-			<XPathField
-				value={value}
-				onSave={onSave}
-				getLintContext={getLintContext}
-				autoEdit={autoEdit}
-				onEditingChange={setEditing}
-			/>
+			<div data-field-id={dataFieldId}>
+				<XPathField
+					value={value}
+					onSave={onSave}
+					getLintContext={getLintContext}
+					autoEdit={autoEdit}
+					onEditingChange={setEditing}
+				/>
+			</div>
 			{children}
 		</div>
 	);
 }
+
+/** Field keys owned by the Logic section — only these trigger focusHint clearing. */
+const LOGIC_FIELDS = new Set<FocusableFieldKey>([
+	"required",
+	"required_condition",
+	"validation",
+	"validation_msg",
+	"relevant",
+	"default_value",
+	"calculate",
+]);
 
 export function ContextualEditorLogic({
 	question,
@@ -73,6 +92,8 @@ export function ContextualEditorLogic({
 	/** Tracks XPath fields added via "Add Property" — separate from text
 	 *  fields so both can be pending simultaneously. */
 	const xpathField = useAddableField(questionPath);
+
+	const focusHint = useFocusHint(builder, LOGIC_FIELDS);
 
 	/** Context getter for XPath linting and autocomplete. */
 	const getLintContext = useCallback((): XPathLintContext | undefined => {
@@ -112,9 +133,11 @@ export function ContextualEditorLogic({
 			(question.validation || xpathField.activeField === "validation"),
 	);
 
-	/** Whether the field is visible (has a value or is pending addition). */
+	/** Whether the field is visible (has a value, is pending addition, or is being focus-restored). */
 	const isVisible = (field: XPathFieldKey) =>
-		!!question[field] || xpathField.activeField === field;
+		!!question[field] ||
+		xpathField.activeField === field ||
+		focusHint === field;
 
 	const hasContent =
 		question.required ||
@@ -131,65 +154,128 @@ export function ContextualEditorLogic({
 				required={question.required}
 				builder={builder}
 				getLintContext={getLintContext}
+				focusHint={focusHint}
+				dataFieldId="required"
 			/>
 
 			{/* ── Standard XPath fields: validation (with validation_msg), relevant, default_value, calculate ── */}
-			{isVisible("validation") && (
-				<XPathSection
-					label="Validation"
-					value={question.validation ?? ""}
-					onSave={(v) => saveXPath("validation", v)}
-					getLintContext={getLintContext}
-					autoEdit={xpathField.activeField === "validation"}
-				>
-					{(question.validation_msg ||
-						textField.activeField === "validation_msg") && (
-						<div className="mt-1">
-							<EditableText
-								label="Validation Message"
-								value={question.validation_msg ?? ""}
-								onSave={(v) => {
-									saveQuestion("validation_msg", v || null);
-									textField.clear();
-								}}
-								autoFocus={textField.activeField === "validation_msg"}
-								onEmpty={
-									textField.activeField === "validation_msg"
-										? textField.clear
-										: undefined
-								}
-							/>
-						</div>
-					)}
-				</XPathSection>
-			)}
-			{isVisible("relevant") && (
-				<XPathSection
-					label="Show When"
-					value={question.relevant ?? ""}
-					onSave={(v) => saveXPath("relevant", v)}
-					getLintContext={getLintContext}
-					autoEdit={xpathField.activeField === "relevant"}
-				/>
-			)}
-			{isVisible("default_value") && (
-				<XPathSection
-					label="Default Value"
-					value={question.default_value ?? ""}
-					onSave={(v) => saveXPath("default_value", v)}
-					getLintContext={getLintContext}
-					autoEdit={xpathField.activeField === "default_value"}
-				/>
-			)}
-			{isVisible("calculate") && (
-				<XPathSection
-					label="Calculate"
-					value={question.calculate ?? ""}
-					onSave={(v) => saveXPath("calculate", v)}
-					getLintContext={getLintContext}
-					autoEdit={xpathField.activeField === "calculate"}
-				/>
-			)}
+			{/* AnimatePresence provides smooth height collapse on undo/redo removal
+			    instead of an abrupt vanish when flushSync commits state synchronously. */}
+			<AnimatePresence>
+				{isVisible("validation") && (
+					<motion.div
+						key="validation"
+						initial={{ opacity: 0, height: 0 }}
+						animate={{ opacity: 1, height: "auto" }}
+						exit={{ opacity: 0, height: 0 }}
+						transition={{ duration: 0.15, ease: "easeOut" }}
+						className="overflow-hidden"
+					>
+						<XPathSection
+							label="Validation"
+							dataFieldId="validation"
+							value={question.validation ?? ""}
+							onSave={(v) => saveXPath("validation", v)}
+							getLintContext={getLintContext}
+							autoEdit={
+								xpathField.activeField === "validation" ||
+								focusHint === "validation"
+							}
+						>
+							{(question.validation_msg ||
+								textField.activeField === "validation_msg" ||
+								focusHint === "validation_msg") && (
+								<div className="mt-1">
+									<EditableText
+										label="Validation Message"
+										dataFieldId="validation_msg"
+										value={question.validation_msg ?? ""}
+										onSave={(v) => {
+											saveQuestion("validation_msg", v || null);
+											textField.clear();
+										}}
+										autoFocus={
+											textField.activeField === "validation_msg" ||
+											focusHint === "validation_msg"
+										}
+										onEmpty={
+											textField.activeField === "validation_msg"
+												? textField.clear
+												: undefined
+										}
+									/>
+								</div>
+							)}
+						</XPathSection>
+					</motion.div>
+				)}
+				{isVisible("relevant") && (
+					<motion.div
+						key="relevant"
+						initial={{ opacity: 0, height: 0 }}
+						animate={{ opacity: 1, height: "auto" }}
+						exit={{ opacity: 0, height: 0 }}
+						transition={{ duration: 0.15, ease: "easeOut" }}
+						className="overflow-hidden"
+					>
+						<XPathSection
+							label="Show When"
+							dataFieldId="relevant"
+							value={question.relevant ?? ""}
+							onSave={(v) => saveXPath("relevant", v)}
+							getLintContext={getLintContext}
+							autoEdit={
+								xpathField.activeField === "relevant" ||
+								focusHint === "relevant"
+							}
+						/>
+					</motion.div>
+				)}
+				{isVisible("default_value") && (
+					<motion.div
+						key="default_value"
+						initial={{ opacity: 0, height: 0 }}
+						animate={{ opacity: 1, height: "auto" }}
+						exit={{ opacity: 0, height: 0 }}
+						transition={{ duration: 0.15, ease: "easeOut" }}
+						className="overflow-hidden"
+					>
+						<XPathSection
+							label="Default Value"
+							dataFieldId="default_value"
+							value={question.default_value ?? ""}
+							onSave={(v) => saveXPath("default_value", v)}
+							getLintContext={getLintContext}
+							autoEdit={
+								xpathField.activeField === "default_value" ||
+								focusHint === "default_value"
+							}
+						/>
+					</motion.div>
+				)}
+				{isVisible("calculate") && (
+					<motion.div
+						key="calculate"
+						initial={{ opacity: 0, height: 0 }}
+						animate={{ opacity: 1, height: "auto" }}
+						exit={{ opacity: 0, height: 0 }}
+						transition={{ duration: 0.15, ease: "easeOut" }}
+						className="overflow-hidden"
+					>
+						<XPathSection
+							label="Calculate"
+							dataFieldId="calculate"
+							value={question.calculate ?? ""}
+							onSave={(v) => saveXPath("calculate", v)}
+							getLintContext={getLintContext}
+							autoEdit={
+								xpathField.activeField === "calculate" ||
+								focusHint === "calculate"
+							}
+						/>
+					</motion.div>
+				)}
+			</AnimatePresence>
 
 			{/* ── Add Property buttons for missing fields ── */}
 			{(missingXPathFields.length > 0 || missingValidationMsg.length > 0) && (

@@ -1,3 +1,5 @@
+import type { Question } from "@/lib/schemas/blueprint";
+
 /** Slash-delimited path identifying a question's position in the tree. e.g. "group1/child_q" or "top_level_q" */
 export type QuestionPath = string & { readonly __brand: "QuestionPath" };
 
@@ -16,4 +18,60 @@ export function qpathId(path: QuestionPath): string {
 export function qpathParent(path: QuestionPath): QuestionPath | undefined {
 	const idx = path.lastIndexOf("/");
 	return idx === -1 ? undefined : (path.slice(0, idx) as QuestionPath);
+}
+
+// ── UUID helpers ─────────────────────────────────────────────────────
+
+/**
+ * Assign crypto UUIDs to any question in the tree that doesn't already have one.
+ * Used for migration (existing Firestore docs) and for batch-add (SA tool
+ * pipeline) where existing questions keep their UUIDs and new ones get assigned.
+ */
+export function ensureUuids(questions: Question[]): void {
+	for (const q of questions) {
+		if (!q.uuid) q.uuid = crypto.randomUUID();
+		if (q.children) ensureUuids(q.children);
+	}
+}
+
+/**
+ * Force-assign fresh UUIDs to every question in the tree.
+ * Used after `structuredClone` in duplication — the clone must not share
+ * the original's UUIDs since identity must be unique.
+ */
+export function reassignUuids(questions: Question[]): void {
+	for (const q of questions) {
+		q.uuid = crypto.randomUUID();
+		if (q.children) reassignUuids(q.children);
+	}
+}
+
+// ── Flattening helpers ───────────────────────────────────────────────
+
+/** A question's stable identity (UUID) paired with its current tree path. */
+export interface QuestionRef {
+	path: QuestionPath;
+	uuid: string;
+}
+
+/**
+ * Walk a question tree depth-first, returning {path, uuid} pairs in visual
+ * render order (skipping hidden questions). Use this instead of
+ * `flattenQuestionPaths` when callers need both path (for mutations) and
+ * UUID (for selection / DOM targeting).
+ */
+export function flattenQuestionRefs(
+	questions: Question[],
+	parent?: QuestionPath,
+): QuestionRef[] {
+	const refs: QuestionRef[] = [];
+	for (const q of questions) {
+		if (q.type === "hidden") continue;
+		const path = qpath(q.id, parent);
+		refs.push({ path, uuid: q.uuid! });
+		if (q.children) {
+			refs.push(...flattenQuestionRefs(q.children, path));
+		}
+	}
+	return refs;
 }

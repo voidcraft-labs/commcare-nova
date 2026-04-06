@@ -29,7 +29,11 @@ The glassmorphic toolbar must be absolutely positioned in BuilderLayout's `overf
 
 **Sticky selection** — clicking empty space in the form does not deselect. Selection changes only when the user clicks a different question or navigates away. This is intentional: deselecting on click-outside would constantly dismiss the contextual editor panel.
 
+**`navigateTo()` vs `select()`** — use `builder.navigateTo(el)` for intentional user navigation (click, keyboard, insert, duplicate, delete-to-next); it scrolls the design canvas in addition to updating selection. Use `builder.select(el)` for non-navigating selection changes (rename path update, undo/redo restore). Never call `navigateTo` from undo/redo — the scroll is handled separately by `applyUndoRedo`.
+
 **Edit guard** — `XPathField` can block `builder.select()` while it has unsaved invalid content via `builder.setEditGuard()`. Two-strike pattern: first navigation attempt warns (shake + tooltip), second attempt allows through. Keystroke resets the warning counter.
+
+**`SelectedElement.questionUuid`** is the stable question identity — survives renames. Components compare by UUID to determine panel visibility and scroll targets. `questionPath` is still carried for blueprint mutation calls.
 
 ## dnd-kit Gotchas
 
@@ -37,7 +41,7 @@ The glassmorphic toolbar must be absolutely positioned in BuilderLayout's `overf
 
 **`collisionPriority` layering** — group/repeat `SortableQuestion` uses `CollisionPriority.Lowest` so the inner `useDroppable` container (set to `Low`) wins collision detection when items are dragged over the content area. Without this, the outer sortable intercepts the drop.
 
-**Empty group drop targets** — `useDroppable` with `:container` suffix ID is necessary because dnd-kit's `OptimisticSortingPlugin` only processes `SortableDroppable` instances — plain `useDroppable` targets are invisible to it.
+**Empty group drop targets** — `useDroppable` with `:container` suffix ID is necessary because dnd-kit's `OptimisticSortingPlugin` only processes `SortableDroppable` instances — plain `useDroppable` targets are invisible to it. Container IDs use `${question.uuid}:container`, not `${questionPath}:container` — rename-safe and consistent with sortable item IDs.
 
 ## EditableQuestionWrapper — `div[role=button]`, NOT `<button>`
 
@@ -46,6 +50,12 @@ Uses `<div role="button">` instead of `<button>` because children contain nested
 ## Text Mode Cursor Overlay
 
 Text mode uses a `::after` overlay (z-index `--z-ground`) on the question wrapper to block hover/click on non-text elements. `[data-text-editable]` zones rise above it (z-index `--z-raised`). Form controls (`input`, `textarea`, `select`) additionally get `pointer-events: none !important` and the container gets `user-select: none` to block double-click and drag-to-select focus gestures that bypass the CSS overlay.
+
+## Undo/Redo
+
+`applyUndoRedo` in `BuilderLayout` wraps `restoreView` in `flushSync` to force React to commit all pending state — external store update from `builder.undo/redo` plus component state changes (cursor mode, nav screen) — before any DOM queries. Without this, `[data-field-id]` elements toggled into existence by the undo (e.g. a Required toggle just enabled) wouldn't be in the DOM yet. Do not replace with `requestAnimationFrame`.
+
+**Focus restoration after undo/redo** uses a `focusHint` string stored on `builder` — the `[data-field-id]` key of whichever field the user was editing when the snapshot was taken. `InlineSettingsPanel` tracks the active field via a delegated `onFocus` handler calling `builder.setActiveField()`. This persists through blur → commit → snapshot so blur-triggered saves capture the correct field. The hint is consumed once by `useFocusHint` in the matching editor section, then cleared. Do not query `document.activeElement` for this — blur moves focus before the snapshot fires.
 
 ## `MutableBlueprint.fromOwned()`
 

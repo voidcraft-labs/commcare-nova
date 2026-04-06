@@ -21,10 +21,17 @@ interface DraftOption extends Option {
 interface OptionsEditorProps {
 	options: Option[];
 	onSave: (options: Option[]) => void;
+	/** When true, the first option label input receives focus on mount (undo/redo restore). */
+	autoFocus?: boolean;
 }
 
 /** Counter for generating monotonically increasing draft IDs. */
 let nextDraftId = 0;
+
+/** Stable ref callback that focuses the element on mount. Defined at module
+ *  scope so React doesn't see a new function identity each render. */
+const focusOnMount = (el: HTMLInputElement | null) =>
+	el?.focus({ preventScroll: true });
 
 /** Wrap raw options with stable draft IDs. */
 function toDraftOptions(options: Option[]): DraftOption[] {
@@ -36,7 +43,11 @@ function toOptions(draft: DraftOption[]): Option[] {
 	return draft.map(({ value, label }) => ({ value, label }));
 }
 
-export function OptionsEditor({ options, onSave }: OptionsEditorProps) {
+export function OptionsEditor({
+	options,
+	onSave,
+	autoFocus,
+}: OptionsEditorProps) {
 	const [draft, setDraft] = useState<DraftOption[]>(() =>
 		toDraftOptions(options),
 	);
@@ -140,7 +151,11 @@ export function OptionsEditor({ options, onSave }: OptionsEditorProps) {
 								onChange={(e) => updateOption(i, "label", e.target.value)}
 								onKeyDown={handleKeyDown}
 								placeholder="Label"
-								ref={focusIndex === i ? (el) => el?.focus() : undefined}
+								ref={
+									focusIndex === i || (autoFocus && i === 0)
+										? focusOnMount
+										: undefined
+								}
 								className="flex-1 min-w-0 text-xs px-2 py-1.5 rounded-md bg-nova-deep/50 border border-white/[0.06] focus:border-nova-violet/50 focus:shadow-[0_0_0_1px_rgba(139,92,246,0.1)] text-nova-text outline-none transition-colors"
 								autoComplete="off"
 								data-1p-ignore

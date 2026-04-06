@@ -17,6 +17,9 @@ interface EditableTextProps {
 	selectAll?: boolean;
 	/** Content rendered right-aligned in the label row (e.g. a toggle). */
 	labelRight?: React.ReactNode;
+	/** Undo/redo scroll + flash target — placed on the input element so
+	 *  the flash highlights only the control, not the label above it. */
+	dataFieldId?: string;
 }
 
 export function EditableText({
@@ -31,6 +34,7 @@ export function EditableText({
 	autoFocus,
 	selectAll,
 	labelRight,
+	dataFieldId,
 }: EditableTextProps) {
 	const fieldId = useId();
 	const {
@@ -57,7 +61,7 @@ export function EditableText({
 		(el: HTMLInputElement | HTMLTextAreaElement | null) => {
 			ref(el);
 			if (el && autoFocus) {
-				el.focus();
+				el.focus({ preventScroll: true });
 				if (selectAll) el.select();
 				else el.setSelectionRange(el.value.length, el.value.length);
 			}
@@ -107,6 +111,7 @@ export function EditableText({
 					placeholder={placeholder}
 					autoComplete="off"
 					data-1p-ignore
+					data-field-id={dataFieldId}
 				/>
 			) : (
 				<input
@@ -121,6 +126,7 @@ export function EditableText({
 					placeholder={placeholder}
 					autoComplete="off"
 					data-1p-ignore
+					data-field-id={dataFieldId}
 				/>
 			)}
 		</div>

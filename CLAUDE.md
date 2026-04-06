@@ -69,6 +69,8 @@ Question reordering uses the controlled state pattern: `onDragOver` → `move(it
 
 `RepeatField` renders a **single template instance** in edit mode — all repeat instances share the same question schema, so rendering N copies creates duplicate `useSortable` IDs that corrupt dnd-kit state. Preview mode renders all instances normally (no `DragDropProvider` in preview, so hooks are no-ops).
 
+Sortable items are keyed by **UUID** (`q.uuid`), not `questionPath` — so sortable IDs survive renames. Group/repeat droppable containers use `${uuid}:container`. `buildDragState()` builds a `uuidToPath` reverse map so mutation calls (`moveQuestion` etc.) still receive `QuestionPath` arguments.
+
 ### Firestore Configuration
 
 `ignoreUndefinedProperties: true` on the Firestore instance because `stripEmpty()` converts sentinel strings back to `undefined` during post-processing — without this flag, Firestore would throw on any write containing `undefined` values.
@@ -80,6 +82,8 @@ Question reordering uses the controlled state pattern: `onDragOver` → `move(it
 **Question ID = case property name.** Questions with `case_property_on: "<case_type>"` save to that case type. When it matches the module's case type, it's a normal property. When it names a different type, child case creation is auto-derived.
 
 **`deriveCaseConfig()` is on-demand.** Form-level case wiring (primary config, child creation, repeat context) is derived by scanning questions — never stored on the form. Called by the expander and validator.
+
+**Questions have two identity fields.** `id` is the semantic CommCare name (e.g. `case_name`) — mutable, used as the XForm node name and CommCare property key. `uuid` is a stable crypto UUID assigned at creation, never changed on rename. Use `uuid` for UI-layer identity: React keys, DOM selectors (`[data-question-uuid]`), dnd-kit sortable IDs, and `SelectedElement.questionUuid`. Use `id`/`QuestionPath` for blueprint mutations and CommCare expander/compiler calls.
 
 **`QuestionPath` is a branded string type** (`questionPath.ts`). Slash-delimited tree path like `"group1/child_q"`. Always built via `qpath(id, parent?)`, never by string concatenation.
 

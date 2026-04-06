@@ -366,6 +366,10 @@ export const questionFields = {
 };
 
 const questionSchema: z.ZodType<Question> = z.object({
+	/* uuid is internal — NOT in questionFields (which feeds SA tool schemas).
+	 * Must be in the Zod schema so it survives Firestore read validation
+	 * (z.object strips unknown keys by default). */
+	uuid: z.string().optional(),
 	...questionFields,
 	children: z
 		.lazy(() => z.array(questionSchema))
@@ -533,8 +537,12 @@ export type BlueprintModule = z.infer<typeof blueprintModuleSchema>;
 export type AppBlueprint = z.infer<typeof appBlueprintSchema>;
 /** The two CommCare Connect app modes — learn (training/certification) or deliver (paid service delivery). */
 export type ConnectType = NonNullable<AppBlueprint["connect_type"]>;
-/** Recursive question type — supports arbitrary nesting depth for groups/repeats. */
+/** Recursive question type — supports arbitrary nesting depth for groups/repeats.
+ *  `uuid` is a stable crypto UUID assigned at creation time — used as the identity
+ *  key for React reconciliation, dnd-kit, DOM selectors, and selection state.
+ *  The user-editable `id` stays the semantic CommCare property name. */
 export interface Question {
+	uuid?: string;
 	id: string;
 	type: (typeof QUESTION_TYPES)[number];
 	label?: string;

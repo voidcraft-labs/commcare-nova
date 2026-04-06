@@ -16,6 +16,7 @@
 "use client";
 import { Icon } from "@iconify/react/offline";
 import tablerTrash from "@iconify-icons/tabler/trash";
+import { AnimatePresence, motion } from "motion/react";
 import { useCallback, useState } from "react";
 import { SaveShortcutHint } from "@/components/builder/SaveShortcutHint";
 import { XPathField } from "@/components/builder/XPathField";
@@ -33,6 +34,11 @@ interface RequiredSectionProps {
 	required: string | undefined;
 	builder: Builder;
 	getLintContext: () => XPathLintContext | undefined;
+	/** Transient focus hint from undo/redo — when "required", focuses the toggle. */
+	focusHint?: string;
+	/** Undo/redo scroll + flash target — placed on the toggle so
+	 *  the flash highlights only the control, not the label. */
+	dataFieldId?: string;
 }
 
 /**
@@ -49,6 +55,8 @@ export function RequiredSection({
 	required,
 	builder,
 	getLintContext,
+	focusHint,
+	dataFieldId,
 }: RequiredSectionProps) {
 	const saveQuestion = useSaveQuestion(builder);
 
@@ -59,6 +67,8 @@ export function RequiredSection({
 
 	/** Tracks whether the XPath editor is active (for the save-hint label). */
 	const [editing, setEditing] = useState(false);
+
+	const shouldFocusToggle = focusHint === "required";
 
 	const hasCondition = !!required && required !== ALWAYS_REQUIRED;
 
@@ -91,15 +101,14 @@ export function RequiredSection({
 		setAddingCondition(false);
 	}, [saveQuestion]);
 
-	// ── Not required — show "Add Property" button ───────────────────────
+	// ── Always render toggle so it stays in the DOM across undo/redo ────
+	// CSS transitions animate the flip naturally when `enabled` changes.
 
-	if (!required) {
-		return <AddPropertyButton label="Required" onClick={handleToggleOn} />;
-	}
+	const isRequired = !!required;
 
-	// ── Required (toggle on) — show toggle + optional condition ─────────
-
-	const showEditor = hasCondition || addingCondition;
+	const showEditor =
+		isRequired &&
+		(hasCondition || addingCondition || focusHint === "required_condition");
 
 	return (
 		<div>
@@ -109,37 +118,60 @@ export function RequiredSection({
 					Required
 					{editing && <SaveShortcutHint />}
 				</span>
-				<Toggle enabled onToggle={handleToggleOff} />
-			</div>
-			{showEditor ? (
-				<div className="flex items-center gap-1.5 group/condition">
-					<div className="flex-1 min-w-0">
-						<XPathField
-							value={hasCondition ? required : ""}
-							onSave={handleConditionSave}
-							getLintContext={getLintContext}
-							autoEdit={addingCondition}
-							onEditingChange={setEditing}
-						/>
-					</div>
-					{hasCondition && (
-						<button
-							type="button"
-							onClick={handleConditionRemove}
-							aria-label="Remove condition"
-							className="shrink-0 p-0.5 text-nova-text-muted opacity-0 group-hover/condition:opacity-100 hover:text-nova-rose transition-all cursor-pointer"
-							tabIndex={-1}
-						>
-							<Icon icon={tablerTrash} width="12" height="12" />
-						</button>
-					)}
-				</div>
-			) : (
-				<AddPropertyButton
-					label="Condition"
-					onClick={() => setAddingCondition(true)}
+				<Toggle
+					enabled={isRequired}
+					onToggle={isRequired ? handleToggleOff : handleToggleOn}
+					autoFocus={shouldFocusToggle}
+					dataFieldId={dataFieldId}
 				/>
-			)}
+			</div>
+			<AnimatePresence>
+				{isRequired && (
+					<motion.div
+						key="required-content"
+						initial={{ opacity: 0, height: 0 }}
+						animate={{ opacity: 1, height: "auto" }}
+						exit={{ opacity: 0, height: 0 }}
+						transition={{ duration: 0.15, ease: "easeOut" }}
+						className="overflow-hidden"
+					>
+						{showEditor ? (
+							<div
+								className="flex items-center gap-1.5 group/condition"
+								data-field-id="required_condition"
+							>
+								<div className="flex-1 min-w-0">
+									<XPathField
+										value={hasCondition ? required : ""}
+										onSave={handleConditionSave}
+										getLintContext={getLintContext}
+										autoEdit={
+											addingCondition || focusHint === "required_condition"
+										}
+										onEditingChange={setEditing}
+									/>
+								</div>
+								{hasCondition && (
+									<button
+										type="button"
+										onClick={handleConditionRemove}
+										aria-label="Remove condition"
+										className="shrink-0 p-0.5 text-nova-text-muted opacity-0 group-hover/condition:opacity-100 hover:text-nova-rose transition-all cursor-pointer"
+										tabIndex={-1}
+									>
+										<Icon icon={tablerTrash} width="12" height="12" />
+									</button>
+								)}
+							</div>
+						) : (
+							<AddPropertyButton
+								label="Condition"
+								onClick={() => setAddingCondition(true)}
+							/>
+						)}
+					</motion.div>
+				)}
+			</AnimatePresence>
 		</div>
 	);
 }

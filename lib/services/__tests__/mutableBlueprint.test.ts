@@ -827,8 +827,8 @@ describe("MutableBlueprint", () => {
 	describe("duplicateQuestion", () => {
 		it("duplicates a question with _copy suffix", () => {
 			const mb = new MutableBlueprint(makeBlueprint());
-			const newId = mb.duplicateQuestion(0, 0, qpath("case_name"));
-			expect(newId).toBe("case_name_copy");
+			const { newPath } = mb.duplicateQuestion(0, 0, qpath("case_name"));
+			expect(newPath).toBe("case_name_copy");
 			const form = mb.getForm(0, 0);
 			if (!form) throw new Error("expected form");
 			const ids = form.questions.map((q) => q.id);
@@ -839,16 +839,35 @@ describe("MutableBlueprint", () => {
 
 		it("clears case_property_on on the clone", () => {
 			const mb = new MutableBlueprint(makeBlueprint());
-			const newId = mb.duplicateQuestion(0, 0, qpath("case_name"));
-			const q = mb.getQuestion(0, 0, newId);
+			const { newPath } = mb.duplicateQuestion(0, 0, qpath("case_name"));
+			const q = mb.getQuestion(0, 0, newPath);
 			expect(q?.case_property_on).toBeUndefined();
+		});
+
+		it("assigns fresh UUIDs to duplicated questions", () => {
+			const mb = new MutableBlueprint(makeBlueprint());
+			const origQ = mb.getQuestion(0, 0, qpath("case_name"));
+			const origUuid = origQ?.uuid;
+			const { newPath, newUuid } = mb.duplicateQuestion(
+				0,
+				0,
+				qpath("case_name"),
+			);
+			const cloneQ = mb.getQuestion(0, 0, newPath);
+			expect(newUuid).toBeDefined();
+			expect(cloneQ?.uuid).toBe(newUuid);
+			expect(newUuid).not.toBe(origUuid);
 		});
 
 		it("uses numeric suffix when _copy exists", () => {
 			const mb = new MutableBlueprint(makeBlueprint());
 			mb.duplicateQuestion(0, 0, qpath("case_name")); // creates case_name_copy
-			const newId2 = mb.duplicateQuestion(0, 0, qpath("case_name")); // should be case_name_2
-			expect(newId2).toBe("case_name_2");
+			const { newPath: newPath2 } = mb.duplicateQuestion(
+				0,
+				0,
+				qpath("case_name"),
+			); // should be case_name_2
+			expect(newPath2).toBe("case_name_2");
 		});
 
 		it("throws for nonexistent question", () => {

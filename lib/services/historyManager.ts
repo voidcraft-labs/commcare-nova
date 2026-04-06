@@ -1,8 +1,11 @@
 import type { AppBlueprint } from "@/lib/schemas/blueprint";
 import { MutableBlueprint } from "./mutableBlueprint";
-import { type QuestionPath, qpath, qpathParent } from "./questionPath";
 
-/** Method names that mutate blueprint state and should create undo snapshots. */
+/**
+ * Method names that mutate blueprint state and trigger undo snapshots.
+ * The proxy intercepts calls to these methods, captures the current state
+ * before the mutation executes, and pushes it onto the undo stack.
+ */
 const MUTATION_METHODS = new Set([
 	"updateQuestion",
 	"addQuestion",
@@ -21,99 +24,70 @@ const MUTATION_METHODS = new Set([
 	"updateCaseProperty",
 ]);
 
-export type MutationType =
-	| "add"
-	| "remove"
-	| "move"
-	| "duplicate"
-	| "update"
-	| "rename"
-	| "structural";
-
 export type CursorMode = "pointer" | "text" | "inspect";
 
-export interface SnapshotMeta {
-	type: MutationType;
-	moduleIndex: number;
-	formIndex: number;
-	questionPath?: QuestionPath;
-	secondaryPath?: QuestionPath;
-}
-
-interface SnapshotEntry {
+/**
+ * Each snapshot pairs the full blueprint with an opaque view context `V`
+ * that captures exactly where the user was (selection, nav screen, cursor mode)
+ * at the moment the mutation occurred. On undo/redo the view context is restored
+ * atomically — no derivation, no inference from mutation type.
+ */
+interface SnapshotEntry<V> {
 	blueprint: AppBlueprint;
-	meta: SnapshotMeta;
-	cursorMode: CursorMode;
+	view: V;
 }
 
-/** Maps a proxy-intercepted method call to SnapshotMeta. */
-function deriveMeta(method: string, args: unknown[]): SnapshotMeta {
-	const moduleIndex = typeof args[0] === "number" ? args[0] : -1;
-	const formIndex = typeof args[1] === "number" ? args[1] : -1;
-	const arg2 = args[2] as QuestionPath | undefined;
-	const arg3 = args[3] as string | undefined;
-
-	switch (method) {
-		case "addQuestion": {
-			const q = args[2] as { id?: string; parentPath?: string } | undefined;
-			const parent = args[3] as { parentPath?: string } | undefined;
-			return {
-				type: "add",
-				moduleIndex,
-				formIndex,
-				questionPath: qpath(
-					q?.id ?? "",
-					parent?.parentPath as QuestionPath | undefined,
-				),
-			};
-		}
-		case "removeQuestion":
-			return { type: "remove", moduleIndex, formIndex, questionPath: arg2 };
-		case "moveQuestion":
-			return { type: "move", moduleIndex, formIndex, questionPath: arg2 };
-		case "duplicateQuestion":
-			// secondaryPath patched after execution with the clone's path
-			return {
-				type: "duplicate",
-				moduleIndex,
-				formIndex,
-				questionPath: arg2,
-			};
-		case "updateQuestion":
-			return { type: "update", moduleIndex, formIndex, questionPath: arg2 };
-		case "renameQuestion":
-			return {
-				type: "rename",
-				moduleIndex,
-				formIndex,
-				questionPath: arg2,
-				secondaryPath:
-					arg2 && arg3 ? qpath(arg3, qpathParent(arg2)) : undefined,
-			};
-		default:
-			return { type: "structural", moduleIndex, formIndex };
-	}
-}
-
-export class HistoryManager {
-	private undoStack: SnapshotEntry[] = [];
-	private redoStack: SnapshotEntry[] = [];
+/**
+ * Generic undo/redo manager for blueprint mutations.
+ *
+ * Type parameter `V` is the view context — an opaque payload that captures
+ * the UI state (selection, navigation screen, cursor mode, active field)
+ * alongside each blueprint snapshot. The HistoryManager stores and returns
+ * it without inspecting its contents, keeping the service layer decoupled
+ * from UI types.
+ *
+ * View context is derived lazily via a `deriveView` callback rather than
+ * stored eagerly. This ensures the snapshot captures the live UI state at
+ * the exact moment of the mutation (during a user interaction / event handler)
+ * rather than a stale copy from the last React render. It also avoids DOM
+ * reads during render, which would be a side effect and cause SSR mismatches.
+ *
+ * Snapshots are captured automatically via a Proxy wrapper around MutableBlueprint.
+ * Any call to a method in `MUTATION_METHODS` triggers a snapshot before the
+ * mutation executes, recording both the blueprint state and the current view
+ * context for faithful restoration on undo.
+ */
+export class HistoryManager<V> {
+	private undoStack: SnapshotEntry<V>[] = [];
+	private redoStack: SnapshotEntry<V>[] = [];
 	private maxDepth: number;
 	enabled = true;
 
-	/** Current cursor mode — set by Builder, captured in each snapshot. */
-	cursorMode: CursorMode = "inspect";
+	/**
+	 * Callback that returns the current view context on demand.
+	 * Called at snapshot time (during mutations) and when pushing to the
+	 * opposite stack (during undo/redo). Never called during render.
+	 * Set by Builder and updated whenever the view-producing dependencies change.
+	 */
+	deriveView: () => V;
 
-	/** Current MutableBlueprint — can be swapped on undo/redo. */
+	/** Current MutableBlueprint — swapped on undo/redo to the restored snapshot. */
 	private _mb: MutableBlueprint;
 
-	/** The Proxy-wrapped MutableBlueprint — use this instead of the raw instance. */
+	/** Proxy-wrapped MutableBlueprint — all external reads and mutations go through this. */
 	readonly proxied: MutableBlueprint;
 
-	constructor(mb: MutableBlueprint, maxDepth = 50) {
+	constructor(mb: MutableBlueprint, deriveView: () => V, maxDepth = 50) {
 		this._mb = mb;
+		this.deriveView = deriveView;
 		this.maxDepth = maxDepth;
-		// Proxy delegates to this._mb, which can be swapped
+
+		/**
+		 * Proxy that delegates all property access to the current `_mb` instance.
+		 * For mutation methods, it intercepts the call to snapshot state before
+		 * the mutation executes. `_mb` can be swapped on undo/redo, so the proxy
+		 * always reads from the live instance via closure.
+		 */
 		this.proxied = new Proxy({} as MutableBlueprint, {
 			get: (_target, prop, _receiver) => {
 				const value = Reflect.get(this._mb, prop, this._mb);
@@ -123,19 +97,8 @@ export class HistoryManager {
 					typeof value === "function"
 				) {
 					return (...args: unknown[]) => {
-						const meta = deriveMeta(prop, args);
-						this.snapshot(meta);
-						const result = value.apply(this._mb, args);
-						// Patch duplicate clone ID after execution
-						if (
-							prop === "duplicateQuestion" &&
-							typeof result === "string" &&
-							this.undoStack.length > 0
-						) {
-							this.undoStack[this.undoStack.length - 1].meta.secondaryPath =
-								result as QuestionPath;
-						}
-						return result;
+						this.snapshot();
+						return value.apply(this._mb, args);
 					};
 				}
 				if (typeof value === "function") {
@@ -146,12 +109,17 @@ export class HistoryManager {
 		});
 	}
 
-	private snapshot(meta: SnapshotMeta) {
+	/**
+	 * Capture the current blueprint + view context before a mutation.
+	 * Calls `deriveView()` to get the live UI state at this exact moment.
+	 * Clears the redo stack (new mutation invalidates the forward history)
+	 * and enforces the max depth by discarding the oldest entry.
+	 */
+	private snapshot() {
 		if (!this.enabled) return;
 		this.undoStack.push({
 			blueprint: structuredClone(this._mb.getBlueprint()),
-			meta,
-			cursorMode: this.cursorMode,
+			view: this.deriveView(),
 		});
 		this.redoStack = [];
 		if (this.undoStack.length > this.maxDepth) {
@@ -159,38 +127,46 @@ export class HistoryManager {
 		}
 	}
 
-	/** Undo: returns the new MutableBlueprint + meta + cursorMode, or undefined if nothing to undo. */
-	undo():
-		| { mb: MutableBlueprint; meta: SnapshotMeta; cursorMode: CursorMode }
-		| undefined {
-		if (this.undoStack.length === 0) return undefined;
+	/**
+	 * Undo the most recent mutation.
+	 * Pushes the current state onto the redo stack (so redo can get back here),
+	 * then restores the popped snapshot's blueprint and view context.
+	 *
+	 * @returns The restored MutableBlueprint and view context, or undefined if
+	 *          the undo stack is empty.
+	 */
+	undo(): { mb: MutableBlueprint; view: V } | undefined {
 		const entry = this.undoStack.pop();
 		if (!entry) return undefined;
 		this.redoStack.push({
 			blueprint: structuredClone(this._mb.getBlueprint()),
-			meta: entry.meta,
-			cursorMode: this.cursorMode,
+			view: this.deriveView(),
 		});
-		// entry was popped — no other reference exists, safe to adopt without cloning
+		/* Entry was popped — no other reference exists, safe to adopt without
+		 * redundant deep cloning via `fromOwned`. */
 		this._mb = MutableBlueprint.fromOwned(entry.blueprint);
-		return { mb: this._mb, meta: entry.meta, cursorMode: entry.cursorMode };
+		return { mb: this._mb, view: entry.view };
 	}
 
-	/** Redo: returns the new MutableBlueprint + meta + cursorMode, or undefined if nothing to redo. */
-	redo():
-		| { mb: MutableBlueprint; meta: SnapshotMeta; cursorMode: CursorMode }
-		| undefined {
-		if (this.redoStack.length === 0) return undefined;
+	/**
+	 * Redo the most recently undone mutation.
+	 * Pushes the current state onto the undo stack (so undo can get back here),
+	 * then restores the popped redo entry's blueprint and view context.
+	 *
+	 * @returns The restored MutableBlueprint and view context, or undefined if
+	 *          the redo stack is empty.
+	 */
+	redo(): { mb: MutableBlueprint; view: V } | undefined {
 		const entry = this.redoStack.pop();
 		if (!entry) return undefined;
 		this.undoStack.push({
 			blueprint: structuredClone(this._mb.getBlueprint()),
-			meta: entry.meta,
-			cursorMode: this.cursorMode,
+			view: this.deriveView(),
 		});
-		// entry was popped — no other reference exists, safe to adopt without cloning
+		/* Entry was popped — no other reference exists, safe to adopt without
+		 * redundant deep cloning via `fromOwned`. */
 		this._mb = MutableBlueprint.fromOwned(entry.blueprint);
-		return { mb: this._mb, meta: entry.meta, cursorMode: entry.cursorMode };
+		return { mb: this._mb, view: entry.view };
 	}
 
 	get canUndo(): boolean {

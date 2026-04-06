@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type { Question } from "@/lib/schemas/blueprint";
 import type { Builder } from "@/lib/services/builder";
 import type { MutableBlueprint } from "@/lib/services/mutableBlueprint";
@@ -19,6 +19,21 @@ export type XPathFieldKey =
 
 /** Text question fields that can be added via "Add Property" buttons. */
 export type TextFieldKey = "hint" | "validation_msg";
+
+/**
+ * All field keys that can receive focus after undo/redo.
+ * Derived from the `data-field-id` attributes on field wrappers across the
+ * contextual editor sections. Used to type `ViewContext.focusHint` and the
+ * `useFocusHint` hook so typos are caught at compile time.
+ */
+export type FocusableFieldKey =
+	| XPathFieldKey
+	| TextFieldKey
+	| "required"
+	| "required_condition"
+	| "id"
+	| "case_property_on"
+	| "options";
 
 export const MEDIA_TYPES = new Set(["image", "audio", "video", "signature"]);
 
@@ -60,6 +75,31 @@ export function useAddableField(questionPath: QuestionPath) {
 	const clear = () => setPending(undefined);
 
 	return { activeField, activate, clear } as const;
+}
+
+/**
+ * Consume the transient focusHint from undo/redo for a specific set of fields.
+ * Only clears the hint if it matches one of this component's owned fields —
+ * prevents one section from swallowing hints intended for another section.
+ * Returns the hint value (valid for one render) or undefined.
+ *
+ * Single-owner clearing: each section declares its owned fields, and only
+ * the matching owner clears the hint. This eliminates the ordering dependency
+ * between sibling sections (Data, Logic, UI) rendered by InlineSettingsPanel.
+ */
+export function useFocusHint(
+	builder: Builder,
+	ownedFields: ReadonlySet<FocusableFieldKey>,
+): FocusableFieldKey | undefined {
+	const raw = builder.focusHint;
+	const hint =
+		raw && ownedFields.has(raw as FocusableFieldKey)
+			? (raw as FocusableFieldKey)
+			: undefined;
+	useEffect(() => {
+		if (hint) builder.clearFocusHint();
+	}, [hint, builder]);
+	return hint;
 }
 
 /** Returns case type names this module can write to: its own type + any child types. */

@@ -17,6 +17,8 @@ interface CasePropertyDropdownProps {
 	disabled: boolean;
 	caseTypes: string[];
 	onChange: (caseType: string | null) => void;
+	/** When true, the trigger button receives focus on mount (undo/redo restore). */
+	autoFocus?: boolean;
 }
 
 /**
@@ -28,6 +30,7 @@ interface CasePropertyDropdownProps {
 export function CasePropertyDropdown({
 	value,
 	isCaseName,
+	autoFocus,
 	disabled,
 	caseTypes,
 	onChange,
@@ -43,6 +46,16 @@ export function CasePropertyDropdown({
 		matchTriggerWidth: true,
 	});
 	const { close } = dd;
+
+	/** Compose the floating trigger ref with autoFocus — focuses the button
+	 *  on mount when restoring focus after undo/redo. */
+	const composedTriggerRef = useCallback(
+		(el: HTMLButtonElement | null) => {
+			dd.triggerRef(el);
+			if (el && autoFocus) el.focus({ preventScroll: true });
+		},
+		[dd.triggerRef, autoFocus],
+	);
 
 	const handleSelect = useCallback(
 		(caseType: string | null) => {
@@ -92,7 +105,7 @@ export function CasePropertyDropdown({
 			<button
 				id={triggerId}
 				type="button"
-				ref={dd.triggerRef}
+				ref={composedTriggerRef}
 				onClick={isInteractive ? dd.toggle : undefined}
 				aria-label={`Saves to: ${displayLabel}`}
 				disabled={!isInteractive}

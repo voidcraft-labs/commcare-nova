@@ -71,7 +71,7 @@ export function RepeatField({
 	 * into empty repeats. The ID matches the group key used by the nested
 	 * FormRenderer so the move() helper can route items correctly. */
 	const { ref: droppableRef } = useDroppable({
-		id: `${questionPath}:container`,
+		id: `${question.uuid}:container`,
 		type: "container",
 		accept: "question",
 		collisionPriority: CollisionPriority.Low,
@@ -126,6 +126,7 @@ export function RepeatField({
 						engine={engine}
 						prefix={`${path}[0]`}
 						parentPath={questionPath}
+						parentUuid={question.uuid}
 					/>
 				</RepeatInstance>
 			) : (
@@ -134,8 +135,8 @@ export function RepeatField({
 				 * are harmless no-ops despite the duplicate paths. */
 				Array.from({ length: count }, (_, idx) => (
 					<RepeatInstance
-						// biome-ignore lint/suspicious/noArrayIndexKey: repeat instances have no unique ID — index is the only stable key
-						key={`${questionPath as string}[${idx}]`}
+						// biome-ignore lint/suspicious/noArrayIndexKey: repeat instances have no stable identity beyond position
+						key={idx}
 						headerLeft={
 							<span className="text-xs font-medium text-nova-text-secondary">
 								#{idx + 1}
@@ -158,6 +159,7 @@ export function RepeatField({
 							engine={engine}
 							prefix={`${path}[${idx}]`}
 							parentPath={questionPath}
+							parentUuid={question.uuid}
 						/>
 					</RepeatInstance>
 				))

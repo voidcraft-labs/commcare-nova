@@ -18,6 +18,7 @@ import {
 	useRef,
 	useState,
 } from "react";
+import { flushSync } from "react-dom";
 import { CursorModeSelector } from "@/components/builder/CursorModeSelector";
 import { AppConnectSettings } from "@/components/builder/detail/AppConnectSettings";
 import { GenerationProgress } from "@/components/builder/GenerationProgress";
@@ -50,10 +51,10 @@ import {
 	BuilderPhase,
 	type CursorMode,
 	type SelectedElement,
+	type ViewContext,
 } from "@/lib/services/builder";
 import { consumeReplayData } from "@/lib/services/logReplay";
-import { flattenQuestionPaths } from "@/lib/services/questionNavigation";
-import type { QuestionPath } from "@/lib/services/questionPath";
+import { flattenQuestionRefs } from "@/lib/services/questionPath";
 import { showToast } from "@/lib/services/toastStore";
 
 /** Only auto-resend when the assistant's LAST step is askQuestions with all outputs available.
@@ -89,6 +90,10 @@ const STRUCTURE_SIDEBAR_WIDTH = 320;
 /** Height of the glassmorphic cursor mode pill (top-2.5 + py-1.5 + 34px control + py-1.5).
  *  Used as top inset on PreviewShell so content starts below the overlay. */
 const TOOLBAR_INSET = 56;
+
+/** Scroll margin below the toolbar overlay — keeps the target element from
+ *  being flush against the overlay when snapping to the top. */
+const SCROLL_MARGIN = 20;
 
 /** Create a Chat instance with transport, data handling, and auto-resend config.
  *  Closures capture refs (not direct values) so they always read the latest
@@ -213,7 +218,13 @@ export function BuilderLayout() {
 	const navRef = useRef(nav);
 	navRef.current = nav;
 
-	// Keep builder's cursorMode in sync for undo/redo snapshot capture
+	/* Sync non-DOM view state to Builder so HistoryManager's deriveView()
+	 * callback can assemble the full ViewContext at snapshot time.
+	 * Plain assignments during render — no DOM reads, no side effects.
+	 * focusHint is captured lazily by Builder.deriveViewContext() at mutation
+	 * time via document.activeElement, which is safe because mutations only
+	 * happen during user interactions (never during SSR or render). */
+	builder.setScreen(nav.current);
 	builder.setCursorMode(cursorMode);
 
 	const handleCursorModeChange = useCallback((mode: CursorMode) => {
@@ -225,16 +236,17 @@ export function BuilderLayout() {
 		if (scrollContainer) {
 			const containerRect = scrollContainer.getBoundingClientRect();
 			const questionEls = Array.from(
-				scrollContainer.querySelectorAll("[data-question-id]"),
+				scrollContainer.querySelectorAll("[data-question-uuid]"),
 			);
 			for (let i = 0; i < questionEls.length; i++) {
 				const rect = questionEls[i].getBoundingClientRect();
 				if (rect.bottom > containerRect.top) {
 					setScrollAnchor({
-						questionPath: questionEls[i].getAttribute("data-question-id") ?? "",
+						questionPath:
+							questionEls[i].getAttribute("data-question-uuid") ?? "",
 						offsetTop: rect.top - containerRect.top,
 						allPaths: questionEls.map(
-							(el) => el.getAttribute("data-question-id") ?? "",
+							(el) => el.getAttribute("data-question-uuid") ?? "",
 						),
 					});
 					break;
@@ -261,7 +273,7 @@ export function BuilderLayout() {
 		if (!scrollContainer) return;
 
 		let targetEl = scrollContainer.querySelector(
-			`[data-question-id="${scrollAnchor.questionPath}"]`,
+			`[data-question-uuid="${scrollAnchor.questionPath}"]`,
 		) as HTMLElement | null;
 
 		if (!targetEl) {
@@ -271,7 +283,7 @@ export function BuilderLayout() {
 			);
 			for (let i = anchorIdx - 1; i >= 0; i--) {
 				targetEl = scrollContainer.querySelector(
-					`[data-question-id="${scrollAnchor.allPaths[i]}"]`,
+					`[data-question-uuid="${scrollAnchor.allPaths[i]}"]`,
 				) as HTMLElement | null;
 				if (targetEl) break;
 			}
@@ -413,49 +425,292 @@ export function BuilderLayout() {
 		[handleExportJson, handleExportCcz],
 	);
 
-	// ── Undo/Redo with view restoration ─────────────────────────────────
-	const restoreView = useCallback(
-		(targetMode: CursorMode) => {
-			// Switch cursor mode if needed
-			if (targetMode !== cursorModeRef.current) {
-				cursorModeRef.current = targetMode;
-				setCursorMode(targetMode);
+	// ── Scroll-to-question ──────────────────────────────────────────────
+
+	/** Flash a subtle violet highlight on an element to signal an undo/redo
+	 *  state change. Web Animations API — fire-and-forget, no cleanup needed.
+	 *  Toggles get a scale press instead of a backgroundColor overlay — a
+	 *  brief squish mimics a click, and the toggle's own track color +
+	 *  thumb slide transition provides the state-change cue. */
+	const flashUndoHighlight = useCallback((el: HTMLElement): void => {
+		if (el.getAttribute("role") === "switch") {
+			el.animate(
+				[
+					{ transform: "scale(1)" },
+					{ transform: "scale(0.8)" },
+					{ transform: "scale(1)" },
+				],
+				{ duration: 300, easing: "cubic-bezier(0.4, 0, 0.2, 1)" },
+			);
+			return;
+		}
+		el.animate(
+			[
+				{ backgroundColor: "rgba(139, 92, 246, 0.12)" },
+				{ backgroundColor: "transparent" },
+			],
+			{ duration: 600, easing: "cubic-bezier(0.4, 0, 0.2, 1)" },
+		);
+	}, []);
+
+	/**
+	 * Scroll the design canvas so the target element is pinned to the top
+	 * of the visible region (below the toolbar overlay).
+	 *
+	 * Accounts for two layout complexities:
+	 * 1. **Toolbar overlay** — the glassmorphic cursor mode toolbar is absolutely
+	 *    positioned over the top of the scroll container. The visible region starts
+	 *    at `containerRect.top + paddingTop` (set by PreviewShell's `topInset`).
+	 * 2. **Collapsing InlineSettingsPanel** — when selection changes, the old
+	 *    panel is still at full height in the DOM (AnimatePresence exit hasn't
+	 *    started). If it's above the target, its height is subtracted from the
+	 *    scroll target to compensate for the layout shift during collapse.
+	 */
+	const scrollToQuestion = useCallback(
+		(
+			questionUuid: string,
+			prevUuid?: string,
+			overrideTarget?: HTMLElement,
+			behavior: ScrollBehavior = "smooth",
+		) => {
+			const questionEl = document.querySelector(
+				`[data-question-uuid="${questionUuid}"]`,
+			) as HTMLElement | null;
+			const scrollContainer = questionEl?.closest(
+				"[data-preview-scroll-container]",
+			) as HTMLElement | null;
+			if (!questionEl || !scrollContainer) return;
+
+			/* The element to actually scroll into view — either an override
+			 * (e.g. a specific field within the InlineSettingsPanel) or the
+			 * question wrapper itself. */
+			const el = overrideTarget ?? questionEl;
+
+			/* Measure collapsing panel height shift when switching questions.
+			 * The old InlineSettingsPanel is still at full height in the DOM
+			 * (AnimatePresence exit hasn't started). Only compensate when the
+			 * panel is above the target — i.e., its collapse will shift the
+			 * target upward. Check the panel's position directly, not the
+			 * previous question's, because children inside a group are above
+			 * the group's panel even though they're below the group element. */
+			let collapsingShift = 0;
+			if (prevUuid && prevUuid !== questionUuid) {
+				const prevEl = scrollContainer.querySelector(
+					`[data-question-uuid="${prevUuid}"]`,
+				) as HTMLElement | null;
+				if (prevEl) {
+					const panel = prevEl.nextElementSibling as HTMLElement | null;
+					if (panel?.hasAttribute("data-settings-panel")) {
+						const panelRect = panel.getBoundingClientRect();
+						if (panelRect.top < el.getBoundingClientRect().top) {
+							collapsingShift = panelRect.height;
+						}
+					}
+				}
 			}
-			// Sync nav to the restored selection
-			const sel = builder.selected;
-			if (!sel || !builder.blueprint) {
-				nav.navigateToHome();
-			} else if (sel.formIndex !== undefined) {
-				const currentCaseId =
-					nav.current.type === "form" ? nav.current.caseId : undefined;
-				nav.navigateToForm(sel.moduleIndex, sel.formIndex, currentCaseId);
+
+			const containerRect = scrollContainer.getBoundingClientRect();
+			const elRect = el.getBoundingClientRect();
+			/* Top of the visible region, accounting for the toolbar overlay. */
+			const visibleTop =
+				containerRect.top +
+				(scrollContainer.style.paddingTop
+					? Number.parseInt(scrollContainer.style.paddingTop, 10)
+					: 0);
+			const adjustedTop = elRect.top - collapsingShift;
+			/* Always pin to the top — don't skip when already visible. */
+			const targetScrollTop =
+				scrollContainer.scrollTop + adjustedTop - visibleTop - SCROLL_MARGIN;
+			scrollContainer.scrollTo({
+				top: Math.max(0, targetScrollTop),
+				behavior,
+			});
+		},
+		[],
+	);
+
+	/* Register the scroll implementation so `builder.navigateTo()` can
+	 * scroll the design canvas. BuilderLayout owns the DOM — the Builder
+	 * service just invokes the callback when navigation intent is expressed. */
+	useEffect(() => {
+		builder.registerScrollCallback(scrollToQuestion);
+		return () => builder.clearScrollCallback();
+	}, [builder, scrollToQuestion]);
+
+	// ── Undo/Redo with atomic view restoration ──────────────────────────
+	/**
+	 * Restore the full UI context from a snapshot's ViewContext.
+	 * Selection is already set by builder.undo/redo; this handles
+	 * the navigation screen and cursor mode that live in component state.
+	 */
+	const restoreView = useCallback(
+		(view: ViewContext) => {
+			/* Restore cursor mode */
+			if (view.cursorMode !== cursorModeRef.current) {
+				cursorModeRef.current = view.cursorMode;
+				setCursorMode(view.cursorMode);
+			}
+
+			/* Restore navigation screen from the snapshot — navigates to the
+			 * exact screen the user was on when they made the mutation. */
+			const screen = view.screen;
+			switch (screen.type) {
+				case "home":
+					nav.navigateToHome();
+					break;
+				case "module":
+					nav.navigateToModule(screen.moduleIndex);
+					break;
+				case "caseList":
+					nav.navigateToCaseList(screen.moduleIndex, screen.formIndex);
+					break;
+				case "form":
+					nav.navigateToForm(
+						screen.moduleIndex,
+						screen.formIndex,
+						screen.caseId,
+					);
+					break;
+			}
+		},
+		[
+			nav.navigateToHome,
+			nav.navigateToModule,
+			nav.navigateToCaseList,
+			nav.navigateToForm,
+		],
+	);
+
+	/**
+	 * Find a specific field element within a question's InlineSettingsPanel.
+	 * Queries by stable UUID so the element is found even after renames.
+	 * Returns the `[data-field-id]` wrapper if the panel is mounted and the
+	 * field exists, null otherwise. Used by undo/redo to scroll to the exact
+	 * field the user was editing before the mutation.
+	 */
+	const findFieldElement = useCallback(
+		(questionUuid: string, fieldId?: string): HTMLElement | null => {
+			if (!fieldId) return null;
+			const questionEl = document.querySelector(
+				`[data-question-uuid="${questionUuid}"]`,
+			) as HTMLElement | null;
+			const panel = questionEl?.nextElementSibling as HTMLElement | null;
+			if (!panel?.hasAttribute("data-settings-panel")) return null;
+			return panel.querySelector(`[data-field-id="${fieldId}"]`);
+		},
+		[],
+	);
+
+	/**
+	 * Check whether the InlineSettingsPanel is currently mounted for a
+	 * given question (by UUID). The panel renders as the next sibling of
+	 * the question wrapper, tagged with `data-settings-panel`.
+	 *
+	 * Because UUIDs are stable across renames, this returns true for
+	 * same-question rename undos — the panel never unmounted.
+	 */
+	const isPanelMounted = useCallback((questionUuid: string): boolean => {
+		const questionEl = document.querySelector(
+			`[data-question-uuid="${questionUuid}"]`,
+		) as HTMLElement | null;
+		const next = questionEl?.nextElementSibling as HTMLElement | null;
+		return next?.hasAttribute("data-settings-panel") ?? false;
+	}, []);
+
+	/**
+	 * Shared restore logic for undo/redo — restores view context then
+	 * scrolls to the affected field with a violet flash highlight.
+	 *
+	 * `flushSync` around `restoreView` forces React to commit all pending
+	 * state (external store + component state) before any DOM queries.
+	 * This eliminates the need for requestAnimationFrame timing hacks —
+	 * fields toggled into existence by the undo are immediately queryable.
+	 *
+	 * Two scroll strategies based on panel state:
+	 * 1. **Panel already mounted** (same question — UUID matches even after
+	 *    rename): smooth scroll to the field. The user is already viewing
+	 *    this panel, so the smooth motion guides their eye to the change.
+	 * 2. **Panel will mount** (cross-question or cross-form undo): defer to
+	 *    motion's `onAnimationComplete` via `setPendingPanelScroll`, then
+	 *    instant-scroll. The entrance animation provides the visual cue;
+	 *    the flash fires after it completes to pinpoint the field.
+	 *
+	 * With UUID-based identity, rename undos always take path 1 — the UUID
+	 * never changes, so `isPanelMounted` always finds the panel.
+	 */
+	const applyUndoRedo = useCallback(
+		(view: ViewContext | undefined) => {
+			if (!view) return;
+
+			/* flushSync forces React to commit all pending state — both the
+			 * external store update from builder.undo/redo (via notify()) AND
+			 * the component state from restoreView (cursor mode, nav screen).
+			 * After this returns the DOM reflects the new blueprint, so field
+			 * elements toggled by the undo (e.g. Required) are queryable
+			 * without a requestAnimationFrame hack. */
+			flushSync(() => {
+				restoreView(view);
+			});
+
+			const questionUuid = view.selected?.questionUuid;
+			if (!questionUuid) return;
+			const fieldId = view.focusHint;
+
+			/** Scroll to the affected element, then flash it.
+			 *  The specific field wrapper if focusHint names one, otherwise
+			 *  the question card itself. */
+			const scrollAndFlash = (behavior: ScrollBehavior) => {
+				const targetEl = findFieldElement(questionUuid, fieldId);
+				scrollToQuestion(
+					questionUuid,
+					undefined,
+					targetEl ?? undefined,
+					behavior,
+				);
+				const flashEl =
+					targetEl ??
+					(document.querySelector(
+						`[data-question-uuid="${questionUuid}"]`,
+					) as HTMLElement | null);
+				if (flashEl) flashUndoHighlight(flashEl);
+			};
+
+			if (isPanelMounted(questionUuid)) {
+				/* Same-question undo (UUID is stable — true even for rename
+				 * undos). Instant scroll + flash — undo/redo is a state-change
+				 * affordance ("this changed"), not navigation. */
+				scrollAndFlash("instant");
 			} else {
-				nav.navigateToModule(sel.moduleIndex);
+				/* Cross-question or cross-form undo — panel will mount with an
+				 * entrance animation. Defer until `onAnimationComplete`, then
+				 * instant-scroll (the animation itself provides the visual cue). */
+				builder.setPendingPanelScroll(questionUuid, () =>
+					scrollAndFlash("instant"),
+				);
 			}
 		},
 		[
 			builder,
-			nav.current,
-			nav.navigateToHome,
-			nav.navigateToForm,
-			nav.navigateToModule,
+			restoreView,
+			scrollToQuestion,
+			findFieldElement,
+			isPanelMounted,
+			flashUndoHighlight,
 		],
 	);
 
 	const handleUndo = useCallback(() => {
-		const mode = builder.undo();
-		if (mode) restoreView(mode);
-	}, [builder, restoreView]);
+		applyUndoRedo(builder.undo());
+	}, [builder, applyUndoRedo]);
 
 	const handleRedo = useCallback(() => {
-		const mode = builder.redo();
-		if (mode) restoreView(mode);
-	}, [builder, restoreView]);
+		applyUndoRedo(builder.redo());
+	}, [builder, applyUndoRedo]);
 
 	// ── Structure tree selection → select + navigate canvas ─────────────
 	const handleTreeSelect = useCallback(
 		(sel: SelectedElement) => {
-			builder.select(sel);
+			builder.navigateTo(sel);
 			if (!sel) {
 				nav.navigateToHome();
 				return;
@@ -478,77 +733,6 @@ export function BuilderLayout() {
 		],
 	);
 
-	/* Scroll the design canvas to the selected question after React commits.
-	 * When the selection changes, the previously-selected question's
-	 * InlineSettingsPanel is still in the DOM at full height (AnimatePresence
-	 * keeps it for its 200ms exit animation). If that panel is *above* the
-	 * new target, its collapse will shift the target upward during the smooth
-	 * scroll — causing overshoot. We compensate deterministically: measure
-	 * the collapsing panel's current height and subtract it from the scroll
-	 * target so the final position accounts for the layout shift.
-	 * The toolbar overlay covers the top of the scroll container, so the
-	 * visible region starts at containerRect.top + paddingTop (set by topInset). */
-	const selectedQuestionPath = builder.selected?.questionPath;
-	const prevSelectedPathRef = useRef<string | undefined>(undefined);
-	useEffect(() => {
-		const prevPath = prevSelectedPathRef.current;
-		prevSelectedPathRef.current = selectedQuestionPath;
-		if (!selectedQuestionPath) return;
-
-		const el = document.querySelector(
-			`[data-question-id="${selectedQuestionPath}"]`,
-		) as HTMLElement | null;
-		const scrollContainer = el?.closest(
-			"[data-preview-scroll-container]",
-		) as HTMLElement | null;
-		if (!el || !scrollContainer) return;
-
-		/* Measure the collapsing panel's height. The old InlineSettingsPanel
-		 * wrapper ([data-settings-panel]) is still in the DOM at full height —
-		 * AnimatePresence hasn't started the exit animation yet. If the old
-		 * question is above the new target, the panel's collapse will shift
-		 * everything below it upward by this amount during the scroll. */
-		let collapsingShift = 0;
-		if (prevPath && prevPath !== selectedQuestionPath) {
-			const prevEl = scrollContainer.querySelector(
-				`[data-question-id="${prevPath}"]`,
-			) as HTMLElement | null;
-			if (prevEl) {
-				const panel = prevEl.nextElementSibling as HTMLElement | null;
-				if (
-					panel?.hasAttribute("data-settings-panel") &&
-					prevEl.getBoundingClientRect().top < el.getBoundingClientRect().top
-				) {
-					collapsingShift = panel.getBoundingClientRect().height;
-				}
-			}
-		}
-
-		const containerRect = scrollContainer.getBoundingClientRect();
-		const elRect = el.getBoundingClientRect();
-		const SCROLL_MARGIN = 20;
-		const visibleTop =
-			containerRect.top +
-			(scrollContainer.style.paddingTop
-				? Number.parseInt(scrollContainer.style.paddingTop, 10)
-				: 0);
-		/* Subtract the collapsing panel's height from the element's current
-		 * position — this is where it will actually end up after the exit
-		 * animation finishes and the layout reflows. */
-		const adjustedTop = elRect.top - collapsingShift;
-		const isTopVisible =
-			adjustedTop >= visibleTop + SCROLL_MARGIN &&
-			adjustedTop <= containerRect.bottom - SCROLL_MARGIN;
-		if (!isTopVisible) {
-			const targetScrollTop =
-				scrollContainer.scrollTop + adjustedTop - visibleTop - SCROLL_MARGIN;
-			scrollContainer.scrollTo({
-				top: Math.max(0, targetScrollTop),
-				behavior: "smooth",
-			});
-		}
-	}, [selectedQuestionPath]);
-
 	const handleDelete = useCallback(() => {
 		const sel = builder.selected;
 		if (
@@ -563,19 +747,20 @@ export function BuilderLayout() {
 		const form = mb.getForm(sel.moduleIndex, sel.formIndex);
 		if (!form) return;
 
-		const paths = flattenQuestionPaths(form.questions);
-		const curIdx = paths.indexOf(sel.questionPath as QuestionPath);
-		const nextPath = paths[curIdx + 1] ?? paths[curIdx - 1];
+		const refs = flattenQuestionRefs(form.questions);
+		const curIdx = refs.findIndex((r) => r.uuid === sel.questionUuid);
+		const next = refs[curIdx + 1] ?? refs[curIdx - 1];
 
 		mb.removeQuestion(sel.moduleIndex, sel.formIndex, sel.questionPath);
 		builder.notifyBlueprintChanged();
 
-		if (nextPath) {
-			builder.select({
+		if (next) {
+			builder.navigateTo({
 				type: "question",
 				moduleIndex: sel.moduleIndex,
 				formIndex: sel.formIndex,
-				questionPath: nextPath,
+				questionPath: next.path,
+				questionUuid: next.uuid,
 			});
 		} else {
 			builder.select();

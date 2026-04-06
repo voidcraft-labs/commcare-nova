@@ -83,7 +83,7 @@ export function QuestionTypePicker({
 					{ value: "option_2", label: "Option 2" },
 				]
 			: undefined;
-		mb.addQuestion(
+		const newUuid = mb.addQuestion(
 			moduleIndex,
 			formIndex,
 			{ id: newId, type, label: "New Question", options: defaultOptions },
@@ -91,12 +91,13 @@ export function QuestionTypePicker({
 		);
 		builder.notifyBlueprintChanged();
 		const newPath = qpath(newId, parentPath);
-		builder.markNewQuestion(newPath);
-		builder.select({
+		builder.markNewQuestion(newUuid);
+		builder.navigateTo({
 			type: "question",
 			moduleIndex,
 			formIndex,
 			questionPath: newPath,
+			questionUuid: newUuid,
 		});
 		onClose();
 	};

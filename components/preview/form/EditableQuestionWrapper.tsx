@@ -5,6 +5,8 @@ import type { QuestionPath } from "@/lib/services/questionPath";
 
 interface EditableQuestionWrapperProps {
 	questionPath: QuestionPath;
+	/** Stable crypto UUID — used for selection identity (survives renames). */
+	questionUuid: string;
 	children: ReactNode;
 	style?: React.CSSProperties;
 	isDragging?: boolean;
@@ -12,6 +14,7 @@ interface EditableQuestionWrapperProps {
 
 export function EditableQuestionWrapper({
 	questionPath,
+	questionUuid,
 	children,
 	style,
 	isDragging,
@@ -66,7 +69,15 @@ export function EditableQuestionWrapper({
 	const selectQuestion = useCallback(() => {
 		if (!builder || moduleIndex === undefined || formIndex === undefined)
 			return;
-		builder.select({ type: "question", moduleIndex, formIndex, questionPath });
+		builder.navigateTo({
+			type: "question",
+			moduleIndex,
+			formIndex,
+			questionPath,
+			questionUuid,
+		});
+		/* Scroll the structure sidebar tree row into view only if it's
+		 * off-screen — don't disrupt the tree position when the row is visible. */
 		const treeRow = document.querySelector(
 			`[data-tree-question="${questionPath}"]`,
 		) as HTMLElement | null;
@@ -77,17 +88,15 @@ export function EditableQuestionWrapper({
 			if (parent) {
 				const parentRect = parent.getBoundingClientRect();
 				const rowRect = treeRow.getBoundingClientRect();
-				const SCROLL_MARGIN = 20;
-				const isTopVisible =
-					rowRect.top >= parentRect.top &&
-					rowRect.top <= parentRect.bottom - SCROLL_MARGIN;
-				if (!isTopVisible) {
-					treeRow.style.scrollMarginTop = `${SCROLL_MARGIN}px`;
+				const isVisible =
+					rowRect.top >= parentRect.top && rowRect.bottom <= parentRect.bottom;
+				if (!isVisible) {
+					treeRow.style.scrollMarginTop = "20px";
 					treeRow.scrollIntoView({ behavior: "smooth", block: "start" });
 				}
 			}
 		}
-	}, [builder, moduleIndex, formIndex, questionPath]);
+	}, [builder, moduleIndex, formIndex, questionPath, questionUuid]);
 
 	const handleClick = useCallback(
 		(e: React.MouseEvent) => {
@@ -141,7 +150,7 @@ export function EditableQuestionWrapper({
 		builder?.selected?.type === "question" &&
 		builder.selected.moduleIndex === moduleIndex &&
 		builder.selected.formIndex === formIndex &&
-		builder.selected.questionPath === questionPath;
+		builder.selected.questionUuid === questionUuid;
 
 	const mergedStyle = holdReady
 		? { ...style, cursor: "grabbing" as const }

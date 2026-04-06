@@ -1,3 +1,4 @@
+import type { PreviewScreen } from "@/lib/preview/engine/types";
 import type {
 	AppBlueprint,
 	BlueprintForm,
@@ -7,16 +8,32 @@ import type {
 } from "@/lib/schemas/blueprint";
 import type { EditFocus } from "@/lib/signalGridController";
 import type { HqApplication } from "./commcare/hqTypes";
-import {
-	type CursorMode,
-	HistoryManager,
-	type SnapshotMeta,
-} from "./historyManager";
+import { type CursorMode, HistoryManager } from "./historyManager";
 import { MutableBlueprint } from "./mutableBlueprint";
 import type { QuestionPath } from "./questionPath";
 import { countDeep } from "./questionTree";
 
 export type { CursorMode } from "./historyManager";
+
+/**
+ * Complete UI context captured alongside each blueprint snapshot.
+ * Stores the exact user state at mutation time so undo/redo can restore
+ * selection, navigation screen, and cursor mode atomically — no derivation
+ * from mutation metadata, no fragile type-based inference.
+ */
+export interface ViewContext {
+	selected: SelectedElement | undefined;
+	screen: PreviewScreen;
+	cursorMode: CursorMode;
+	/**
+	 * Field key to focus after undo/redo restores this snapshot.
+	 * Captured at snapshot time from the active DOM element's closest
+	 * `[data-field-id]` ancestor — identifies which field within the
+	 * InlineSettingsPanel the user was interacting with (e.g. "required",
+	 * "validation", "hint"). Undefined when focus was outside a tracked field.
+	 */
+	focusHint?: string;
+}
 
 /** Apply a data part to a builder — shared between real-time streaming (onData) and replay. */
 export function applyDataPart(
@@ -147,6 +164,10 @@ export interface SelectedElement {
 	moduleIndex: number;
 	formIndex?: number;
 	questionPath?: QuestionPath;
+	/** Stable crypto UUID — the primary identity key for UI-layer concerns
+	 *  (React keys, DOM selectors, dnd-kit, scroll targeting). Unlike
+	 *  `questionPath` (which changes on rename), UUID never changes. */
+	questionUuid?: string;
 }
 
 /** Scope the agent is currently editing — drives signal grid focus zone. */
@@ -190,7 +211,7 @@ export class Builder {
 	private _phase: BuilderPhase;
 	private _scaffold?: Scaffold;
 	private _mb?: MutableBlueprint;
-	private _history?: HistoryManager;
+	private _history?: HistoryManager<ViewContext>;
 	private _isDragging = false;
 	private _agentActive = false;
 	private _postBuildEdit = false;
@@ -198,7 +219,7 @@ export class Builder {
 	private _caseTypes?: CaseType[];
 	private _statusMessage = "";
 	private _selected?: SelectedElement;
-	private _newQuestionPath?: QuestionPath;
+	private _newQuestionUuid?: string;
 	private _mutationCount = 0;
 	private _progressCompleted = 0;
 	private _progressTotal = 0;
@@ -223,6 +244,30 @@ export class Builder {
 
 	// ── Edit guard (blocks select() when an inline editor has unsaved invalid content) ──
 	private _editGuard: (() => boolean) | null = null;
+
+	// ── Active field tracking (for undo/redo focus restoration) ──
+	// Set eagerly on focusin within a [data-field-id] element, persists through
+	// blur → commit → snapshot cycle so deriveViewContext captures the right field
+	// even for blur-triggered saves. Cleared on selection change.
+	private _activeFieldId: string | undefined;
+
+	// ── Scroll callback (registered by BuilderLayout, which owns the DOM) ──
+	private _scrollCallback:
+		| ((questionUuid: string, prevUuid?: string) => void)
+		| null = null;
+
+	// ── View state (synced from component layer for undo/redo snapshots) ──
+	private _currentScreen: PreviewScreen = { type: "home" };
+	private _currentCursorMode: CursorMode = "inspect";
+
+	// ── Focus hint (transient — consumed once by InlineSettingsPanel after undo/redo) ──
+	private _focusHint: string | undefined;
+
+	// ── Pending panel scroll (one-shot callback for undo/redo scroll-after-animation) ──
+	private _pendingPanelScroll?: {
+		questionUuid: string;
+		callback: () => void;
+	};
 
 	// ── App persistence ─────────────────────────────────────────────────
 	private _appId: string | undefined;
@@ -297,6 +342,51 @@ export class Builder {
 	get selected(): SelectedElement | undefined {
 		return this._selected;
 	}
+
+	/**
+	 * Transient field key to focus after undo/redo restore.
+	 * Read once by InlineSettingsPanel to auto-focus the matching control,
+	 * then cleared via `clearFocusHint()`. Undefined outside of undo/redo.
+	 */
+	get focusHint(): string | undefined {
+		return this._focusHint;
+	}
+
+	/** Clear the focus hint after the target field has consumed it. */
+	clearFocusHint() {
+		this._focusHint = undefined;
+	}
+
+	/**
+	 * Register a one-shot scroll callback to fire when the InlineSettingsPanel
+	 * finishes its entrance animation for the given question.
+	 *
+	 * Used by undo/redo to defer scroll-to-field until the panel reaches full
+	 * height. The UUID acts as a guard — only the matching panel's
+	 * `onAnimationComplete` fires the callback, preventing stale exit animations
+	 * from triggering premature scrolls.
+	 */
+	setPendingPanelScroll(questionUuid: string, callback: () => void): void {
+		this._pendingPanelScroll = { questionUuid, callback };
+	}
+
+	/**
+	 * Signal that the InlineSettingsPanel's entrance animation has completed.
+	 * Called by FormRenderer's motion.div `onAnimationComplete` callback.
+	 * Fires and clears the pending scroll callback if the question UUID matches.
+	 *
+	 * When undo/redo changes selection, both the old panel (exit) and new panel
+	 * (entrance) fire this — but only the new panel's UUID matches, so only
+	 * the entrance triggers the scroll.
+	 */
+	completePanelAnimation(questionUuid: string): void {
+		if (this._pendingPanelScroll?.questionUuid === questionUuid) {
+			const cb = this._pendingPanelScroll.callback;
+			this._pendingPanelScroll = undefined;
+			cb();
+		}
+	}
+
 	get mutationCount(): number {
 		return this._mutationCount;
 	}
@@ -366,18 +456,18 @@ export class Builder {
 	// ── New question state ───────────────────────────────────────────────
 
 	/** Mark a question as newly added. Activates auto-focus and select-all behaviors. */
-	markNewQuestion(path: QuestionPath): void {
-		this._newQuestionPath = path;
+	markNewQuestion(uuid: string): void {
+		this._newQuestionUuid = uuid;
 	}
 
-	/** Returns true if the question at `path` was just added and hasn't been saved yet. */
-	isNewQuestion(path: QuestionPath): boolean {
-		return this._newQuestionPath === path;
+	/** Returns true if the question with `uuid` was just added and hasn't been saved yet. */
+	isNewQuestion(uuid: string): boolean {
+		return this._newQuestionUuid === uuid;
 	}
 
 	/** Deactivate new-question behaviors (called on first save). */
 	clearNewQuestion(): void {
-		this._newQuestionPath = undefined;
+		this._newQuestionUuid = undefined;
 	}
 
 	// ── Edit guard ──────────────────────────────────────────────────────
@@ -393,6 +483,32 @@ export class Builder {
 	/** Clear the active edit guard. */
 	clearEditGuard(): void {
 		this._editGuard = null;
+	}
+
+	// ── Active field tracking ───────────────────────────────────────────
+
+	/** Record which [data-field-id] element currently has focus.
+	 *  Called by InlineSettingsPanel's delegated focusin handler so the
+	 *  value persists through blur → commit → snapshot for blur-triggered saves. */
+	setActiveField(fieldId: string | undefined): void {
+		if (fieldId === this._activeFieldId) return;
+		this._activeFieldId = fieldId;
+	}
+
+	// ── Scroll callback ─────────────────────────────────────────────────
+
+	/** Register the scroll implementation owned by BuilderLayout.
+	 *  The callback receives the target question UUID and the previously
+	 *  selected UUID (used for collapsing-panel compensation). */
+	registerScrollCallback(
+		cb: (questionUuid: string, prevUuid?: string) => void,
+	): void {
+		this._scrollCallback = cb;
+	}
+
+	/** Unregister the scroll callback (cleanup on unmount). */
+	clearScrollCallback(): void {
+		this._scrollCallback = null;
 	}
 
 	// ── Progress ─────────────────────────────────────────────────────────
@@ -422,12 +538,39 @@ export class Builder {
 		}
 	}
 
-	// ── Cursor mode ──────────────────────────────────────────────────
+	// ── View context sync ────────────────────────────────────────────
 
-	/** Update the current cursor mode — kept in sync by BuilderLayout. */
-	setCursorMode(mode: CursorMode) {
-		if (this._history) this._history.cursorMode = mode;
+	/**
+	 * Sync the current navigation screen from the component layer.
+	 * Called by BuilderLayout during render — plain assignment, no side effects.
+	 * The HistoryManager reads this lazily at snapshot time via deriveView().
+	 */
+	setScreen(screen: PreviewScreen) {
+		this._currentScreen = screen;
 	}
+
+	/**
+	 * Sync the current cursor mode from the component layer.
+	 * Same pattern as setScreen — plain assignment consumed at snapshot time.
+	 */
+	setCursorMode(mode: CursorMode) {
+		this._currentCursorMode = mode;
+	}
+
+	/**
+	 * Assemble the full ViewContext from current state.
+	 * Called lazily by HistoryManager at snapshot time (during mutations and
+	 * undo/redo), never during render. Uses `_activeFieldId` (set eagerly on
+	 * focusin) rather than querying `document.activeElement` — blur-triggered
+	 * commits move focus away before the snapshot fires, so the DOM query would
+	 * miss the field.
+	 */
+	private deriveViewContext = (): ViewContext => ({
+		selected: this._selected,
+		screen: this._currentScreen,
+		cursorMode: this._currentCursorMode,
+		focusHint: this._activeFieldId,
+	});
 
 	// ── Drag state ────────────────────────────────────────────────────
 
@@ -552,70 +695,43 @@ export class Builder {
 
 	// ── Undo/Redo ──────────────────────────────────────────────────────
 
-	private deriveSelection(
-		meta: SnapshotMeta,
-		direction: "undo" | "redo",
-	): SelectedElement | undefined {
-		const isUndo = direction === "undo";
-		let questionPath: QuestionPath | undefined;
-
-		switch (meta.type) {
-			case "add":
-				questionPath = isUndo ? undefined : meta.questionPath;
-				break;
-			case "remove":
-				questionPath = isUndo ? meta.questionPath : undefined;
-				break;
-			case "move":
-			case "update":
-				questionPath = meta.questionPath;
-				break;
-			case "duplicate":
-				questionPath = isUndo ? meta.questionPath : meta.secondaryPath;
-				break;
-			case "rename":
-				questionPath = isUndo ? meta.questionPath : meta.secondaryPath;
-				break;
-			case "structural":
-				return undefined;
-		}
-
-		if (!questionPath) return undefined;
-
-		// Verify the question exists in the restored blueprint
-		if (!this._mb?.getQuestion(meta.moduleIndex, meta.formIndex, questionPath))
-			return undefined;
-
-		return {
-			type: "question",
-			moduleIndex: meta.moduleIndex,
-			formIndex: meta.formIndex,
-			questionPath,
-		};
-	}
-
-	undo(): CursorMode | undefined {
+	/**
+	 * Undo the most recent mutation.
+	 * Restores the blueprint and selection from the snapshot, then returns
+	 * the full ViewContext so BuilderLayout can atomically restore the
+	 * navigation screen and cursor mode.
+	 *
+	 * Blocked during drag — dnd-kit state would become inconsistent.
+	 */
+	undo(): ViewContext | undefined {
 		if (this._isDragging) return undefined;
 		const result = this._history?.undo();
 		if (!result) return undefined;
 		this._mb = result.mb;
-		this._selected = this.deriveSelection(result.meta, "undo");
+		this._selected = result.view.selected;
+		this._focusHint = result.view.focusHint;
 		this._mutationCount++;
 		this.notifyMutation();
 		this.notify();
-		return result.cursorMode;
+		return result.view;
 	}
 
-	redo(): CursorMode | undefined {
+	/**
+	 * Redo the most recently undone mutation.
+	 * Same restoration logic as undo — blueprint + selection from snapshot,
+	 * ViewContext returned for screen + cursor mode restoration.
+	 */
+	redo(): ViewContext | undefined {
 		if (this._isDragging) return undefined;
 		const result = this._history?.redo();
 		if (!result) return undefined;
 		this._mb = result.mb;
-		this._selected = this.deriveSelection(result.meta, "redo");
+		this._selected = result.view.selected;
+		this._focusHint = result.view.focusHint;
 		this._mutationCount++;
 		this.notifyMutation();
 		this.notify();
-		return result.cursorMode;
+		return result.view;
 	}
 
 	get canUndo(): boolean {
@@ -769,7 +885,10 @@ export class Builder {
 	 *  metadata and edit tracking. Called by both completeGeneration and loadApp. */
 	private enterReady(mb: MutableBlueprint) {
 		this._mb = mb;
-		this._history = new HistoryManager(this._mb);
+		this._history = new HistoryManager<ViewContext>(
+			this._mb,
+			this.deriveViewContext,
+		);
 		this._partialModules.clear();
 		this._phase = BuilderPhase.Ready;
 		this._generationStage = null;
@@ -839,24 +958,45 @@ export class Builder {
 		return undefined;
 	}
 
+	/** Pure state update — sets the selected element without any UI side effects.
+	 *  Use for state maintenance (e.g. rename changing the path, deselect) where
+	 *  the user is already looking at the right place. */
 	select(el?: SelectedElement) {
 		/* Edit guard — an inline editor (e.g. XPathField) can block selection
 		 * changes while it has unsaved invalid content. */
 		if (this._editGuard && !this._editGuard()) return;
 
-		if (this._history && el && this._selected) {
-			const prev = this._selected;
-			if (
-				prev.formIndex !== undefined &&
-				el.formIndex !== undefined &&
-				(prev.moduleIndex !== el.moduleIndex || prev.formIndex !== el.formIndex)
-			) {
-				this._history.clear();
-			}
+		/* History intentionally NOT cleared on form/module navigation.
+		 * Undo is app-wide: each snapshot captures the full view context
+		 * (selection + screen + cursor mode) so undo/redo navigates the user
+		 * back to wherever they were when the mutation occurred. */
+		/* Only clear active field tracking when navigating away from the
+		 * current question. Rename calls select() to update the path but the
+		 * user stays on the same field — preserving _activeFieldId ensures the
+		 * redo snapshot captures the correct focusHint even before React has
+		 * re-rendered the autoFocus. navigateTo() always means a different
+		 * question, so it handles its own clearing via the focusin handler. */
+		if (!el || el.type !== "question") {
+			this._activeFieldId = undefined;
 		}
 		this._selected = el;
 		this.notifyMutation();
 		this.notify();
+	}
+
+	/** Navigate to a question — sets selection and scrolls the design canvas
+	 *  to bring the question into view. Use for intentional user navigation
+	 *  (click, keyboard nav, insert, duplicate, delete-to-next). */
+	navigateTo(el: SelectedElement) {
+		const prevUuid = this._selected?.questionUuid;
+		/* Clear active field — navigating to a different question means the
+		 * previous question's field context is stale. The new question's
+		 * focusin handler will set it fresh when the user interacts. */
+		this._activeFieldId = undefined;
+		this.select(el);
+		if (el.questionUuid && this._scrollCallback) {
+			this._scrollCallback(el.questionUuid, prevUuid);
+		}
 	}
 
 	updateBlueprint(bp: AppBlueprint) {
@@ -884,7 +1024,7 @@ export class Builder {
 		this._caseTypes = undefined;
 		this._statusMessage = "";
 		this._selected = undefined;
-		this._newQuestionPath = undefined;
+		this._newQuestionUuid = undefined;
 		this._agentActive = false;
 		this._postBuildEdit = false;
 		this._editMadeMutations = false;

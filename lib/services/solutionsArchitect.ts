@@ -33,6 +33,7 @@ import {
 import { errorToString } from "./commcare/validate/errors";
 import { type GenerationContext, logWarnings } from "./generationContext";
 import type { MutableBlueprint, NewQuestion } from "./mutableBlueprint";
+import { ensureUuids } from "./questionPath";
 import { validateAndFix } from "./validationLoop";
 
 export { validateAndFix } from "./validationLoop";
@@ -338,6 +339,10 @@ export function createSolutionsArchitect(
 					const existingFlat = flattenToFlat(form.questions);
 					const allFlat = [...existingFlat, ...processed];
 					const newTree = buildQuestionTree(allFlat);
+
+					/* Preserve existing UUIDs (carried through flattenToFlat's spread)
+					 * and assign fresh UUIDs to newly added questions. */
+					ensureUuids(newTree);
 
 					mutableBp.replaceForm(moduleIndex, formIndex, {
 						...form,
