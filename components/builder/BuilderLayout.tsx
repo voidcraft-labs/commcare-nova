@@ -3,10 +3,10 @@ import { Chat, useChat } from "@ai-sdk/react";
 import { Icon } from "@iconify/react/offline";
 import tablerArrowBackUp from "@iconify-icons/tabler/arrow-back-up";
 import tablerArrowForwardUp from "@iconify-icons/tabler/arrow-forward-up";
-import tablerFileText from "@iconify-icons/tabler/file-text";
+import tablerBrowser from "@iconify-icons/tabler/browser";
+import tablerDeviceMobile from "@iconify-icons/tabler/device-mobile";
 import tablerListTree from "@iconify-icons/tabler/list-tree";
 import tablerMessageChatbot from "@iconify-icons/tabler/message-chatbot";
-import tablerPackageExport from "@iconify-icons/tabler/package-export";
 import { DefaultChatTransport, type UIMessage } from "ai";
 import { AnimatePresence, motion } from "motion/react";
 import { useRouter } from "next/navigation";
@@ -412,13 +412,13 @@ export function BuilderLayout() {
 			{
 				label: "Web",
 				description: "JSON",
-				icon: tablerFileText,
+				icon: tablerBrowser,
 				onClick: handleExportJson,
 			},
 			{
 				label: "Mobile",
 				description: "CCZ",
-				icon: tablerPackageExport,
+				icon: tablerDeviceMobile,
 				onClick: handleExportCcz,
 			},
 		],
