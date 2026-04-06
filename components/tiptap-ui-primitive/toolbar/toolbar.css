@@ -44,7 +44,7 @@
 			flex-wrap: nowrap;
 			justify-content: flex-start;
 
-			.tiptap-toolbar-group {
+			:where(.tiptap-toolbar-group) {
 				flex: 0 0 auto;
 			}
 		}

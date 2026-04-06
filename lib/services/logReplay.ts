@@ -14,7 +14,6 @@ import type { JsonValue, StoredEvent } from "@/lib/db/types";
 import type { AppBlueprint } from "@/lib/schemas/blueprint";
 import { applyDataPart } from "./builder";
 import type { BuilderEngine } from "./builderEngine";
-import type { HqApplication } from "./commcare/hqTypes";
 
 // ── Types ───────────────────────────────────────────────────────────────
 

@@ -16,7 +16,7 @@
 "use client";
 import { type ReactNode, useCallback, useRef, useState } from "react";
 import { useBuilderStore } from "@/hooks/useBuilder";
-import { useEditContext } from "@/hooks/useEditContext";
+
 import { InlineTextEditor } from "./InlineTextEditor";
 
 type FieldType = "label" | "hint";
@@ -38,7 +38,6 @@ export function TextEditable({
 	fieldType,
 	children,
 }: TextEditableProps) {
-	const ctx = useEditContext();
 	const cursorMode = useBuilderStore((s) => s.cursorMode);
 	const [editing, setEditing] = useState(false);
 	/** Viewport coordinates of the activation click — passed to the editor
