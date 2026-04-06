@@ -21,7 +21,7 @@ import {
 } from "@/components/tiptap-ui-primitive/popover";
 import { useIsBreakpoint } from "@/hooks/use-is-breakpoint";
 
-import "./image-popover.scss";
+import "./image-popover.css";
 
 export interface ImagePopoverProps
 	extends Omit<ButtonProps, "type">,

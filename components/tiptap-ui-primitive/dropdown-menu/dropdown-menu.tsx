@@ -4,7 +4,7 @@ import * as DropdownMenuPrimitive from "@radix-ui/react-dropdown-menu";
 import { CheckIcon } from "@/components/tiptap-icons/check-icon";
 import { cn } from "@/lib/tiptap-utils";
 
-import "@/components/tiptap-ui-primitive/dropdown-menu/dropdown-menu.scss";
+import "@/components/tiptap-ui-primitive/dropdown-menu/dropdown-menu.css";
 
 function DropdownMenu({
 	...props
