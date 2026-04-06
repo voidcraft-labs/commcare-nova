@@ -147,15 +147,10 @@ export function ChatSidebar({
 			if (status === "submitted") return "sending";
 			return builder.postBuildEdit ? "editing" : "reasoning";
 		}
-		// After a post-build edit: show 'done' if the SA actually mutated the blueprint
-		// (addQuestion, editQuestion, etc.), 'idle' if it only asked questions.
-		// completeGeneration() also clears postBuildEdit, so initial builds and validated
-		// edits fall through to 'done' via the !postBuildEdit path.
-		if (builder.phase === BuilderPhase.Ready) {
-			return builder.postBuildEdit && !builder.editMadeMutations
-				? "idle"
-				: "done";
-		}
+		// Completed = transient celebration after generation or a mutating edit.
+		// Ready = steady-state idle (including freshly loaded apps).
+		if (builder.phase === BuilderPhase.Completed) return "done";
+		if (builder.phase === BuilderPhase.Ready) return "idle";
 		return "idle";
 	})();
 
@@ -167,6 +162,16 @@ export function ChatSidebar({
 	useEffect(() => {
 		gridController.setMode(desiredMode, desiredLabel);
 	}, [desiredMode, desiredLabel, gridController]);
+
+	// Auto-decay Completed → Ready after the done celebration finishes.
+	// The 3.5s delay covers the 2s celebration burst + 1.5s of the resting emerald
+	// pulse so the transition feels unhurried. If the builder leaves Completed
+	// before the timer fires (e.g. user starts a new edit), the cleanup cancels it.
+	useEffect(() => {
+		if (builder.phase !== BuilderPhase.Completed) return;
+		const id = setTimeout(() => builder.acknowledgeCompletion(), 3500);
+		return () => clearTimeout(id);
+	}, [builder.phase, builder]);
 
 	// Elapsed timer — resets when the controller's active label or mode changes.
 	// Label changes (e.g. "Building forms" → "Validating") reset the timer during

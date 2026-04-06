@@ -305,7 +305,7 @@ export function BuilderLayout() {
 	const prevPhaseRef = useRef(builder.phase);
 	useEffect(() => {
 		const wasGenerating = prevPhaseRef.current === BuilderPhase.Generating;
-		if (wasGenerating && builder.phase === BuilderPhase.Ready) {
+		if (wasGenerating && builder.phase === BuilderPhase.Completed) {
 			if (
 				builder.blueprint &&
 				builder.blueprint.modules.length > 0 &&
@@ -879,7 +879,7 @@ export function BuilderLayout() {
 		builder.phase === BuilderPhase.Generating && !inReplayMode;
 	const showToolbar = !!(
 		builder.treeData &&
-		builder.phase === BuilderPhase.Ready &&
+		builder.isReady &&
 		builder.blueprint
 	);
 	const editMode =
@@ -1032,7 +1032,7 @@ export function BuilderLayout() {
 								)}
 
 								<ErrorBoundary>
-									{builder.phase === BuilderPhase.Ready && builder.blueprint ? (
+									{builder.isReady && builder.blueprint ? (
 										<PreviewShell
 											blueprint={builder.blueprint}
 											builder={builder}

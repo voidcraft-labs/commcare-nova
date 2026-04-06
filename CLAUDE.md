@@ -121,6 +121,8 @@ Pages are Server Components that handle auth, fetch data, and render structure. 
 
 **Builder initial phase.** `Builder` accepts an `initialPhase` constructor argument. `BuilderProvider` passes `BuilderPhase.Loading` for existing apps (`buildId !== "new"`) so the very first render shows the loading screen — never the centered Idle chat. Do not use effects to transition from Idle to Loading; that causes a flash.
 
+**Completed vs Ready.** `Completed` is a transient celebration phase after generation or a mutating edit — the signal grid shows the done animation, then `acknowledgeCompletion()` auto-decays it to `Ready`. `loadApp()` goes straight to `Ready` (no celebration). Gate on `builder.isReady` (covers both phases) when checking "has a usable blueprint" — not `phase === Ready` directly.
+
 ### Ref Callback Cleanup
 
 DOM listeners (click-outside, Escape, ResizeObserver, MutationObserver, focusin) use React 19 ref callback cleanup instead of useEffect. `useDismissRef` hook for the common click-outside + Escape pattern.

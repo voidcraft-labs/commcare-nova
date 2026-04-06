@@ -28,7 +28,7 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
 import { reportClientError } from "@/lib/clientErrorReporter";
-import { type Builder, BuilderPhase } from "@/lib/services/builder";
+import type { Builder } from "@/lib/services/builder";
 
 /** Post-save cooldown before the trailing edge can fire (ms). */
 const COOLDOWN_MS = 1000;
@@ -178,7 +178,7 @@ export function useAutoSave(
 		const unsub = builder.subscribeMutation(() => {
 			/* Gate on auth, phase, and app existence — all read live. */
 			if (!authRef.current) return;
-			if (builder.phase !== BuilderPhase.Ready) return;
+			if (!builder.isReady) return;
 			if (!builder.appId || !builder.blueprint) return;
 
 			/* Skip if no actual blueprint mutations since last save. */

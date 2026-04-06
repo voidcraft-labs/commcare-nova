@@ -4,11 +4,7 @@ import tablerChevronLeft from "@iconify-icons/tabler/chevron-left";
 import { AnimatePresence, motion } from "motion/react";
 import { AppTree } from "@/components/builder/AppTree";
 import { ErrorBoundary } from "@/components/ui/ErrorBoundary";
-import {
-	type Builder,
-	BuilderPhase,
-	type SelectedElement,
-} from "@/lib/services/builder";
+import type { Builder, SelectedElement } from "@/lib/services/builder";
 
 interface StructureSidebarProps {
 	builder: Builder;
@@ -51,7 +47,7 @@ export function StructureSidebar({
 
 				{/* Dim overlay — blocks interaction until generation completes */}
 				<AnimatePresence>
-					{builder.phase !== BuilderPhase.Ready && (
+					{!builder.isReady && (
 						<motion.div
 							exit={{ opacity: 0 }}
 							transition={{ duration: 0.3 }}
