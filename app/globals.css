@@ -32,6 +32,7 @@
 	--z-raised: 20; /* Slightly elevated UI: insertion points, settings buttons, sidebar overlays */
 	--z-popover: 50; /* Floating menus: dropdowns, pickers, popovers, confirm dialogs */
 	--z-popover-top: 60; /* Popovers above other popovers: type picker over contextual editor */
+	--z-tooltip: 70; /* Tooltips — above all popovers so they're never occluded */
 	--z-modal: 100; /* Modal backdrops and dialogs */
 	--z-system: 9999; /* System overlays: noise texture */
 
@@ -78,6 +79,7 @@
 	--z-index-raised: var(--z-raised);
 	--z-index-popover: var(--z-popover);
 	--z-index-popover-top: var(--z-popover-top);
+	--z-index-tooltip: var(--z-tooltip);
 	--z-index-modal: var(--z-modal);
 	--z-index-system: var(--z-system);
 	--animate-shimmer: nova-shimmer 1.5s ease-in-out infinite;

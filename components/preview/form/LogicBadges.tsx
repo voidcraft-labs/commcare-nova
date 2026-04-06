@@ -4,6 +4,7 @@ import { Icon } from "@iconify/react/offline";
 import tablerFilter from "@iconify-icons/tabler/filter";
 import tablerMath from "@iconify-icons/tabler/math";
 import tablerShieldCheck from "@iconify-icons/tabler/shield-check";
+import { Tooltip } from "@/components/ui/Tooltip";
 import { useEditContext } from "@/hooks/useEditContext";
 import type { Question } from "@/lib/schemas/blueprint";
 
@@ -57,13 +58,13 @@ export function LogicBadges({ question }: LogicBadgesProps) {
 	return (
 		<div className="flex items-center gap-1">
 			{badges.map((b) => (
-				<span
-					key={b.key}
-					className={`w-4 h-4 rounded-full flex items-center justify-center ${b.tint} opacity-50 hover:opacity-100 transition-opacity`}
-					title={b.title}
-				>
-					<Icon icon={b.icon} width="10" height="10" />
-				</span>
+				<Tooltip key={b.key} content={b.title}>
+					<span
+						className={`w-4 h-4 rounded-full flex items-center justify-center ${b.tint} opacity-50 hover:opacity-100 transition-opacity`}
+					>
+						<Icon icon={b.icon} width="10" height="10" />
+					</span>
+				</Tooltip>
 			))}
 		</div>
 	);

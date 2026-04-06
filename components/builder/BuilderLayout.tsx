@@ -34,6 +34,7 @@ import { ScreenNavButtons } from "@/components/preview/ScreenNavButtons";
 import { ErrorBoundary } from "@/components/ui/ErrorBoundary";
 import { ExportDropdown } from "@/components/ui/ExportDropdown";
 import { Logo } from "@/components/ui/Logo";
+import { Tooltip } from "@/components/ui/Tooltip";
 import { useAuth } from "@/hooks/useAuth";
 import { useAutoSave } from "@/hooks/useAutoSave";
 import { useBuilder } from "@/hooks/useBuilder";
@@ -946,26 +947,32 @@ export function BuilderLayout() {
 								<div className="flex items-center gap-1 shrink-0">
 									<SaveIndicator saveState={saveStatus} />
 									<AppConnectSettings builder={builder} />
-									<button
-										type="button"
-										onClick={handleUndo}
-										disabled={!builder.canUndo}
-										className="flex items-center justify-center min-w-[44px] min-h-[44px] rounded-lg text-nova-text-muted transition-colors cursor-pointer enabled:hover:text-nova-text enabled:hover:bg-white/5 disabled:opacity-[0.38] disabled:cursor-default"
-										title="Undo (⌘Z)"
-										aria-label="Undo"
-									>
-										<Icon icon={tablerArrowBackUp} width="18" height="18" />
-									</button>
-									<button
-										type="button"
-										onClick={handleRedo}
-										disabled={!builder.canRedo}
-										className="flex items-center justify-center min-w-[44px] min-h-[44px] rounded-lg text-nova-text-muted transition-colors cursor-pointer enabled:hover:text-nova-text enabled:hover:bg-white/5 disabled:opacity-[0.38] disabled:cursor-default"
-										title="Redo (⌘⇧Z)"
-										aria-label="Redo"
-									>
-										<Icon icon={tablerArrowForwardUp} width="18" height="18" />
-									</button>
+									<Tooltip content="Undo (⌘Z)">
+										<button
+											type="button"
+											onClick={handleUndo}
+											disabled={!builder.canUndo}
+											className="flex items-center justify-center min-w-[44px] min-h-[44px] rounded-lg text-nova-text-muted transition-colors cursor-pointer enabled:hover:text-nova-text enabled:hover:bg-white/5 disabled:opacity-[0.38] disabled:cursor-default"
+											aria-label="Undo"
+										>
+											<Icon icon={tablerArrowBackUp} width="18" height="18" />
+										</button>
+									</Tooltip>
+									<Tooltip content="Redo (⌘⇧Z)">
+										<button
+											type="button"
+											onClick={handleRedo}
+											disabled={!builder.canRedo}
+											className="flex items-center justify-center min-w-[44px] min-h-[44px] rounded-lg text-nova-text-muted transition-colors cursor-pointer enabled:hover:text-nova-text enabled:hover:bg-white/5 disabled:opacity-[0.38] disabled:cursor-default"
+											aria-label="Redo"
+										>
+											<Icon
+												icon={tablerArrowForwardUp}
+												width="18"
+												height="18"
+											/>
+										</button>
+									</Tooltip>
 									<ExportDropdown options={exportOptions} compact />
 								</div>
 							)}
@@ -1009,26 +1016,32 @@ export function BuilderLayout() {
 							>
 								{/* Floating reopen buttons for collapsed sidebars */}
 								{!structureOpen && builder.treeData && (
-									<button
-										type="button"
-										onClick={() => setStructureOpen(true)}
-										className="absolute top-3 left-3 z-ground p-2 bg-nova-surface border border-nova-border rounded-lg hover:border-nova-border-bright transition-colors cursor-pointer"
-										title="Open structure"
-										aria-label="Open structure sidebar"
-									>
-										<Icon icon={tablerListTree} width="20" height="20" />
-									</button>
+									<Tooltip content="Open structure" placement="right">
+										<button
+											type="button"
+											onClick={() => setStructureOpen(true)}
+											className="absolute top-3 left-3 z-ground p-2 bg-nova-surface border border-nova-border rounded-lg hover:border-nova-border-bright transition-colors cursor-pointer"
+											aria-label="Open structure sidebar"
+										>
+											<Icon icon={tablerListTree} width="20" height="20" />
+										</button>
+									</Tooltip>
 								)}
 								{!chatOpen && (
-									<button
-										type="button"
-										onClick={() => setChatOpen(true)}
-										className="absolute top-3 right-3 z-ground p-2 bg-nova-surface border border-nova-border rounded-lg hover:border-nova-border-bright transition-colors cursor-pointer"
-										title="Open chat"
-										aria-label="Open chat sidebar"
-									>
-										<Icon icon={tablerMessageChatbot} width="20" height="20" />
-									</button>
+									<Tooltip content="Open chat" placement="left">
+										<button
+											type="button"
+											onClick={() => setChatOpen(true)}
+											className="absolute top-3 right-3 z-ground p-2 bg-nova-surface border border-nova-border rounded-lg hover:border-nova-border-bright transition-colors cursor-pointer"
+											aria-label="Open chat sidebar"
+										>
+											<Icon
+												icon={tablerMessageChatbot}
+												width="20"
+												height="20"
+											/>
+										</button>
+									</Tooltip>
 								)}
 
 								<ErrorBoundary>

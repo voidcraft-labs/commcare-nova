@@ -20,6 +20,7 @@ import {
 	DropdownMenu,
 	type DropdownMenuItem,
 } from "@/components/ui/DropdownMenu";
+import { Tooltip } from "@/components/ui/Tooltip";
 import { useDismissRef } from "@/hooks/useDismissRef";
 
 export interface ExportOption {
@@ -53,34 +54,36 @@ export function ExportDropdown({ options, compact }: ExportDropdownProps) {
 
 	return (
 		<div ref={dismissRef} className="relative">
-			<motion.button
-				whileTap={{ scale: 0.98 }}
-				onClick={() => setOpen(!open)}
-				title="Export"
-				className={
-					compact
-						? "inline-flex items-center justify-center min-w-[44px] min-h-[44px] rounded-lg text-nova-text-muted hover:text-nova-text hover:bg-white/5 transition-colors cursor-pointer"
-						: "inline-flex items-center gap-1.5 px-3 py-1.5 text-lg font-medium rounded-lg bg-nova-surface text-nova-text border border-nova-border hover:border-nova-border-bright hover:bg-nova-elevated transition-all duration-200 cursor-pointer"
-				}
-			>
-				<Icon
-					icon={tablerDownload}
-					width={compact ? 18 : 14}
-					height={compact ? 18 : 14}
-					className={compact ? "" : "opacity-70"}
-				/>
-				{!compact && (
-					<>
-						Export
-						<Icon
-							icon={tablerChevronDown}
-							width="10"
-							height="10"
-							className={`opacity-50 transition-transform duration-200 ${open ? "rotate-180" : ""}`}
-						/>
-					</>
-				)}
-			</motion.button>
+			<Tooltip content="Export">
+				<motion.button
+					whileTap={{ scale: 0.98 }}
+					onClick={() => setOpen(!open)}
+					aria-label="Export"
+					className={
+						compact
+							? "inline-flex items-center justify-center min-w-[44px] min-h-[44px] rounded-lg text-nova-text-muted hover:text-nova-text hover:bg-white/5 transition-colors cursor-pointer"
+							: "inline-flex items-center gap-1.5 px-3 py-1.5 text-lg font-medium rounded-lg bg-nova-surface text-nova-text border border-nova-border hover:border-nova-border-bright hover:bg-nova-elevated transition-all duration-200 cursor-pointer"
+					}
+				>
+					<Icon
+						icon={tablerDownload}
+						width={compact ? 18 : 14}
+						height={compact ? 18 : 14}
+						className={compact ? "" : "opacity-70"}
+					/>
+					{!compact && (
+						<>
+							Export
+							<Icon
+								icon={tablerChevronDown}
+								width="10"
+								height="10"
+								className={`opacity-50 transition-transform duration-200 ${open ? "rotate-180" : ""}`}
+							/>
+						</>
+					)}
+				</motion.button>
+			</Tooltip>
 
 			<AnimatePresence>
 				{open && (

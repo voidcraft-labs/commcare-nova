@@ -8,6 +8,7 @@ import tablerTrash from "@iconify-icons/tabler/trash";
 import { type AriaAttributes, forwardRef, useCallback } from "react";
 import { QuestionTypeGrid } from "@/components/builder/QuestionTypeGrid";
 import { tablerCopyPlus } from "@/components/icons/tablerExtras";
+import { Tooltip } from "@/components/ui/Tooltip";
 import {
 	DropdownPortal,
 	useFloatingDropdown,
@@ -256,15 +257,15 @@ const ControlButton = forwardRef<
 	ref,
 ) {
 	return (
-		<button
-			ref={ref}
-			type="button"
-			onClick={onClick}
-			disabled={disabled}
-			title={title}
-			aria-label={title}
-			{...ariaProps}
-			className={`w-11 h-11 flex items-center justify-center rounded-md transition-colors
+		<Tooltip content={title} placement="bottom">
+			<button
+				ref={ref}
+				type="button"
+				onClick={onClick}
+				disabled={disabled}
+				aria-label={title}
+				{...ariaProps}
+				className={`w-11 h-11 flex items-center justify-center rounded-md transition-colors
         ${
 					disabled
 						? "text-nova-text-muted/30 cursor-not-allowed"
@@ -272,8 +273,9 @@ const ControlButton = forwardRef<
 							? "text-nova-text-muted hover:text-nova-rose hover:bg-nova-rose/10 cursor-pointer"
 							: "text-nova-text-muted hover:text-nova-text hover:bg-white/[0.06] cursor-pointer"
 				}`}
-		>
-			<Icon icon={icon} width="20" height="20" />
-		</button>
+			>
+				<Icon icon={icon} width="20" height="20" />
+			</button>
+		</Tooltip>
 	);
 });
