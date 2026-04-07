@@ -57,6 +57,12 @@ export function TextEditable({
 		[value, onSave],
 	);
 
+	/** Cancel editing — revert to the static view without persisting changes. */
+	const handleCancel = useCallback(() => {
+		clickPosRef.current = null;
+		setEditing(false);
+	}, []);
+
 	const handleClick = useCallback((e: React.MouseEvent) => {
 		e.stopPropagation();
 		clickPosRef.current = { x: e.clientX, y: e.clientY };
@@ -92,6 +98,7 @@ export function TextEditable({
 				<InlineTextEditor
 					value={value}
 					onSave={handleSave}
+					onCancel={handleCancel}
 					fieldType={fieldType}
 					autoFocus
 					clickPosition={clickPosRef.current}
