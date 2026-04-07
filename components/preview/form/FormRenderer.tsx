@@ -5,7 +5,6 @@ import { RestrictToElement } from "@dnd-kit/dom/modifiers";
 import { move } from "@dnd-kit/helpers";
 import { DragDropProvider, DragOverlay, PointerSensor } from "@dnd-kit/react";
 import { useSortable } from "@dnd-kit/react/sortable";
-import { AnimatePresence, motion } from "motion/react";
 import {
 	createContext,
 	Fragment,
@@ -19,7 +18,6 @@ import { InlineSettingsPanel } from "@/components/builder/InlineSettingsPanel";
 import { useBuilderEngine, useBuilderStore } from "@/hooks/useBuilder";
 import { useEditContext } from "@/hooks/useEditContext";
 import { useTextEditSave } from "@/hooks/useTextEditSave";
-import { EASE } from "@/lib/animations";
 import type { FormEngine } from "@/lib/preview/engine/formEngine";
 import { LabelContent } from "@/lib/references/LabelContent";
 import type { Question } from "@/lib/schemas/blueprint";
@@ -176,7 +174,6 @@ function SortableQuestion({
 }) {
 	const state = engine.getState(path);
 	const ctx = useEditContext();
-	const engine_ = useBuilderEngine();
 	const cursorMode = useBuilderStore((s) => s.cursorMode);
 	const selected = useBuilderStore((s) => s.selected);
 	const isEditMode = ctx?.mode === "edit";
@@ -204,6 +201,30 @@ function SortableQuestion({
 		plugins: [],
 		...(isContainer && { collisionPriority: CollisionPriority.Lowest }),
 	});
+
+	/* Show inline settings panel below the selected question in inspect mode.
+	 * Matches by UUID (stable across renames) instead of QuestionPath. */
+	const isSelected =
+		isEditMode &&
+		cursorMode === "edit" &&
+		selected?.type === "question" &&
+		selected.moduleIndex === (ctx?.moduleIndex ?? -1) &&
+		selected.formIndex === (ctx?.formIndex ?? -1) &&
+		selected.questionUuid === q.uuid;
+
+	/* Fulfill pending scroll after the panel mounts and the browser paints.
+	 * useEffect (not useLayoutEffect) fires after paint — layout is stable,
+	 * the old panel's AnimatePresence exit has started, and the browser's
+	 * smooth-scroll algorithm can interpolate without being disrupted by
+	 * concurrent layout shifts. The tradeoff is one painted frame at the
+	 * un-scrolled position, but this is imperceptible because the smooth
+	 * animation begins immediately after. */
+	const engine_ = useBuilderEngine();
+	useEffect(() => {
+		if (isSelected) {
+			engine_.fulfillPendingScroll(q.uuid);
+		}
+	}, [isSelected, q.uuid, engine_]);
 
 	if (q.type === "hidden" && !isEditMode) return null;
 	if (!isEditMode && !state.visible) return null;
@@ -345,16 +366,6 @@ function SortableQuestion({
 		);
 	}
 
-	/* Show inline settings panel below the selected question in inspect mode.
-	 * Matches by UUID (stable across renames) instead of QuestionPath. */
-	const isSelected =
-		isEditMode &&
-		cursorMode === "edit" &&
-		selected?.type === "question" &&
-		selected.moduleIndex === (ctx?.moduleIndex ?? -1) &&
-		selected.formIndex === (ctx?.formIndex ?? -1) &&
-		selected.questionUuid === q.uuid;
-
 	/* The panel renders OUTSIDE the sortable element (as a sibling, not a child)
 	 * so its expanded height doesn't inflate the sortable's collision shape.
 	 * If the panel were inside <div ref={ref}>, dnd-kit would see a much taller
@@ -381,39 +392,11 @@ function SortableQuestion({
 					{content}
 				</div>
 			</div>
-			{/* AnimatePresence wraps the conditional so Motion can run exit animations
-			 * when the panel unmounts. Without this, React removes the panel instantly
-			 * on deselect — collapsing height in one frame. With it, the old panel's
-			 * exit (height auto→0) runs in parallel with the new panel's entry (height
-			 * 0→auto) at the same speed, so the total height delta stays near zero
-			 * and there's no visible scroll jump between questions. */}
-			<AnimatePresence>
-				{isSelected && ctx && (
-					<motion.div
-						key="inline-settings"
-						data-settings-panel
-						initial={{ opacity: 0, height: 0 }}
-						animate={{ opacity: 1, height: "auto" }}
-						exit={{ opacity: 0, height: 0 }}
-						transition={{ duration: 0.2, ease: EASE }}
-						className="overflow-hidden"
-						/* Signal undo/redo scroll logic that the panel reached full height.
-						 * Fires for both entrance and exit animations, but the builder's
-						 * UUID guard ensures only the entrance triggers the scroll
-						 * (exit carries the old question's UUID in its closure). */
-						onAnimationComplete={() => engine_.completePanelAnimation(q.uuid)}
-					>
-						{/* pb-4 is clipped by overflow-hidden during the height animation,
-						 * so it provides the inter-question gap below the panel and
-						 * shrinks away cleanly on exit — no external margin, no jump.
-						 * The panel itself carries no top margin; it attaches flush to
-						 * the question's flat-bottomed selection outline. */}
-						<div className="pb-4">
-							<InlineSettingsPanel question={q} />
-						</div>
-					</motion.div>
-				)}
-			</AnimatePresence>
+			{isSelected && ctx && (
+				<div data-settings-panel className="pb-4">
+					<InlineSettingsPanel question={q} />
+				</div>
+			)}
 		</>
 	);
 }

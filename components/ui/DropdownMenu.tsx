@@ -3,8 +3,9 @@
  * and any future toolbar/header dropdowns.
  *
  * Renders a `POPOVER_GLASS` container with uniformly styled menu items.
- * Each item supports an icon, label, optional description, and optional
- * active state (violet highlight + dot indicator).
+ * Each item supports an icon, label, optional description, optional
+ * active state (violet highlight + dot indicator), keyboard shortcut
+ * hints, and destructive styling.
  *
  * Animation is handled by the parent (either Motion's AnimatePresence or
  * the Web Animations API via `useLayoutEffect`).
@@ -30,6 +31,10 @@ export interface DropdownMenuItem {
 	disabled?: boolean;
 	/** Styled tooltip shown on hover (useful for explaining why an item is disabled). */
 	tooltip?: string;
+	/** Keyboard shortcut hint displayed right-aligned (e.g. "⌘D", "↑"). */
+	shortcut?: string;
+	/** When true, the item is styled with rose/destructive colors. */
+	destructive?: boolean;
 }
 
 interface DropdownMenuProps {
@@ -88,9 +93,11 @@ export function DropdownMenu({
 						className={`w-full flex items-center gap-2.5 px-3 py-2 text-sm transition-colors ${corners} ${
 							item.disabled
 								? "opacity-40 cursor-not-allowed"
-								: isActive
-									? "text-nova-violet-bright bg-nova-violet/10 cursor-pointer"
-									: "text-nova-text hover:bg-white/[0.06] cursor-pointer"
+								: item.destructive
+									? "text-nova-text hover:text-nova-rose hover:bg-nova-rose/10 cursor-pointer"
+									: isActive
+										? "text-nova-violet-bright bg-nova-violet/10 cursor-pointer"
+										: "text-nova-text hover:bg-white/[0.06] cursor-pointer"
 						}`}
 					>
 						{/* Active dot indicator — only rendered when the menu tracks selection */}
@@ -104,20 +111,31 @@ export function DropdownMenu({
 							width="16"
 							height="16"
 							className={
-								isActive ? "text-nova-violet-bright" : "text-nova-text-muted"
+								item.destructive
+									? ""
+									: isActive
+										? "text-nova-violet-bright"
+										: "text-nova-text-muted"
 							}
 						/>
-						{item.description ? (
-							<div className="min-w-0 text-left">
-								<div>{item.label}</div>
-								<div
-									className={`text-xs leading-tight ${isActive ? "text-nova-violet-bright/60" : "text-nova-text-muted"}`}
-								>
-									{item.description}
-								</div>
-							</div>
-						) : (
-							item.label
+						<span className="flex-1 text-left">
+							{item.description ? (
+								<>
+									<div>{item.label}</div>
+									<div
+										className={`text-xs leading-tight ${isActive ? "text-nova-violet-bright/60" : "text-nova-text-muted"}`}
+									>
+										{item.description}
+									</div>
+								</>
+							) : (
+								item.label
+							)}
+						</span>
+						{item.shortcut && (
+							<kbd className="text-[10px] text-nova-text-muted/50 font-mono ml-4 shrink-0">
+								{item.shortcut}
+							</kbd>
 						)}
 					</button>
 				);

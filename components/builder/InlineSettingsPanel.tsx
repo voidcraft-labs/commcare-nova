@@ -26,7 +26,7 @@ interface InlineSettingsPanelProps {
 }
 
 /** Static section label with a left accent bar for visual grouping. */
-function SectionLabel({ label }: { label: string }) {
+export function SectionLabel({ label }: { label: string }) {
 	return (
 		<div className="flex items-center gap-2 mb-2">
 			<div className="w-0.5 h-3 rounded-full bg-nova-violet/40" />
@@ -36,6 +36,10 @@ function SectionLabel({ label }: { label: string }) {
 		</div>
 	);
 }
+
+/** Shared styling for each section card inside the panel. */
+export const SECTION_CARD_CLASS =
+	"rounded-md bg-nova-surface/40 border border-white/[0.04] px-3 py-2.5";
 
 export function InlineSettingsPanel({ question }: InlineSettingsPanelProps) {
 	const setActiveFieldId = useBuilderStore((s) => s.setActiveFieldId);
@@ -64,19 +68,18 @@ export function InlineSettingsPanel({ question }: InlineSettingsPanelProps) {
 			<ContextualEditorFooter question={question} />
 
 			<div className="p-2 space-y-2">
-				<div className="rounded-md bg-nova-surface/40 border border-white/[0.04] px-3 py-2.5">
-					<SectionLabel label="Data" />
-					<ContextualEditorData question={question} />
-				</div>
+				{/* Data owns its own visibility — returns null when it has
+				    no fields to display (ID lives in the header). */}
+				<ContextualEditorData question={question} />
 
-				<div className="rounded-md bg-nova-surface/40 border border-white/[0.04] px-3 py-2.5">
+				<div className={SECTION_CARD_CLASS}>
 					<SectionLabel label="Logic" />
 					<ContextualEditorLogic question={question} />
 				</div>
 
 				{/* Hidden questions have no visual properties */}
 				{question.type !== "hidden" && (
-					<div className="rounded-md bg-nova-surface/40 border border-white/[0.04] px-3 py-2.5">
+					<div className={SECTION_CARD_CLASS}>
 						<SectionLabel label="Appearance" />
 						<ContextualEditorUI question={question} />
 					</div>
