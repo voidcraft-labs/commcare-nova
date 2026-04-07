@@ -32,6 +32,13 @@ import {
 	qpath,
 	qpathId,
 } from "@/lib/services/questionPath";
+import {
+	MENU_ITEM_CLS,
+	MENU_ITEM_DISABLED_CLS,
+	MENU_POPUP_CLS,
+	MENU_POSITIONER_CLS,
+	MENU_SUBMENU_POSITIONER_CLS,
+} from "@/lib/styles";
 import type { FocusableFieldKey, QuestionEditorProps } from "./shared";
 import { useFocusHint } from "./shared";
 
@@ -44,28 +51,8 @@ const IS_MAC =
 	/Mac|iPod|iPhone|iPad/.test(navigator.userAgent);
 const MOD = IS_MAC ? "⌘" : "Ctrl+";
 
-/* ── Shared menu item styles ─────────────────────────────────────────── */
-
-/** Base classes shared by every menu item (normal, disabled, submenu trigger). */
-const MENU_ITEM_BASE =
-	"flex w-full items-center gap-2.5 px-3 py-2 text-sm outline-none select-none transition-colors";
-
-/** Interactive item: violet highlight on hover/keyboard focus. */
-const MENU_ITEM_CLS = `${MENU_ITEM_BASE} text-nova-text cursor-pointer data-[highlighted]:bg-white/[0.06]`;
-
-/** Disabled item: muted and non-interactive. */
-const MENU_ITEM_DISABLED_CLS = `${MENU_ITEM_BASE} opacity-40 cursor-not-allowed`;
-
-/** Positioner — carries the glass surface because Base UI's positioner sets
- *  `will-change: transform` which creates a compositing layer. `backdrop-filter`
- *  on a descendant would only sample that empty layer, not the page behind it.
- *  Placing the glass here means the blur samples correctly. */
-const POSITIONER_CLS =
-	"outline-none z-popover-top rounded-xl bg-[rgba(10,10,26,0.4)] backdrop-blur-[10px] [-webkit-backdrop-filter:blur(10px)] outline-[rgba(255,255,255,0.06)] outline-1 shadow-[inset_0_0_0_1px_rgba(200,200,255,0.18),0_24px_48px_rgba(0,0,0,0.5)]";
-
-/** Popup — animation only, no surface (positioner owns the glass). */
-const POPUP_CLS =
-	"overflow-hidden rounded-xl origin-[var(--transform-origin)] transition-[transform,scale,opacity] data-[ending-style]:scale-95 data-[ending-style]:opacity-0 data-[starting-style]:scale-95 data-[starting-style]:opacity-0";
+/* Menu style constants (MENU_ITEM_CLS, MENU_ITEM_DISABLED_CLS,
+ * MENU_POSITIONER_CLS, MENU_POPUP_CLS) imported from lib/styles.ts. */
 
 /** Track whether the Shift key is currently held. Resets on window blur
  *  so a tab-switch doesn't leave a phantom pressed state. */
@@ -357,11 +344,11 @@ export function ContextualEditorFooter({ question }: QuestionEditorProps) {
 
 					<Menu.Portal>
 						<Menu.Positioner
-							className={POSITIONER_CLS}
+							className={MENU_POSITIONER_CLS}
 							sideOffset={4}
 							align="end"
 						>
-							<Menu.Popup className={POPUP_CLS} style={{ minWidth: 200 }}>
+							<Menu.Popup className={MENU_POPUP_CLS} style={{ minWidth: 200 }}>
 								{/* Move Up / cross-level up (Shift swaps) */}
 								<MenuItem
 									icon={tablerArrowUp}
@@ -402,7 +389,7 @@ export function ContextualEditorFooter({ question }: QuestionEditorProps) {
 
 								<Menu.Separator className="mx-2 h-px bg-white/[0.06]" />
 
-								{/* Convert Type — submenu with QuestionTypeGrid */}
+								{/* Convert Type — submenu with conversion targets */}
 								{canConvert ? (
 									<Menu.SubmenuRoot>
 										<Menu.SubmenuTrigger className={MENU_ITEM_CLS}>
@@ -422,10 +409,10 @@ export function ContextualEditorFooter({ question }: QuestionEditorProps) {
 										</Menu.SubmenuTrigger>
 										<Menu.Portal>
 											<Menu.Positioner
-												className="outline-none z-popover-top"
+												className={MENU_SUBMENU_POSITIONER_CLS}
 												sideOffset={4}
 											>
-												<Menu.Popup className="origin-[var(--transform-origin)] transition-[transform,scale,opacity] data-[ending-style]:scale-95 data-[ending-style]:opacity-0 data-[starting-style]:scale-95 data-[starting-style]:opacity-0">
+												<Menu.Popup className={MENU_POPUP_CLS}>
 													<QuestionTypeList
 														types={conversionTargets}
 														activeType={question.type}

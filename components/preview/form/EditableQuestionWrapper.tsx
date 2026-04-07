@@ -120,7 +120,7 @@ export function EditableQuestionWrapper({
 	const handleClick = useCallback(
 		(e: React.MouseEvent) => {
 			if (moduleIndex === undefined || formIndex === undefined) return;
-			// Ignore clicks from portal-rendered elements (e.g. QuestionTypePicker FloatingPortal).
+			// Ignore clicks from portal-rendered elements (e.g. insertion menu portal).
 			// React synthetic events still bubble through the React tree from portals,
 			// but the DOM target is outside this wrapper's subtree.
 			const target = e.target as HTMLElement;

@@ -2,7 +2,6 @@
 import { Icon } from "@iconify/react/offline";
 import { questionTypeIcons, questionTypeLabels } from "@/lib/questionTypeIcons";
 import type { Question } from "@/lib/schemas/blueprint";
-import { POPOVER_ELEVATED } from "@/lib/styles";
 
 interface QuestionTypeListProps {
 	/** The conversion targets to display. */
@@ -13,15 +12,17 @@ interface QuestionTypeListProps {
 }
 
 /** Single-column list for converting a question to a sibling type.
+ *  Surface styling (background, border, shadow) comes from the parent
+ *  Menu.Positioner — this component only renders the item rows.
  *  Conversion targets are always a short list (1–3 items), so a
- *  compact vertical layout fits better than the 2-column insertion grid. */
+ *  compact vertical layout fits better than a categorised menu. */
 export function QuestionTypeList({
 	types,
 	activeType,
 	onSelect,
 }: QuestionTypeListProps) {
 	return (
-		<div className={`overflow-hidden ${POPOVER_ELEVATED}`}>
+		<div className="overflow-hidden">
 			{types.map((type) => {
 				const icon = questionTypeIcons[type];
 				const isActive = type === activeType;
