@@ -228,37 +228,46 @@ export function ContextualEditorFooter({ question }: QuestionEditorProps) {
 		<div className="flex items-center justify-between px-3 py-3 border-b border-white/[0.06]">
 			{/* Left: joined type icon + ID input — the icon acts as a
 			 *  leading adornment inside the input's visual boundary. */}
-			<div className="relative flex items-center min-w-0" data-field-id="id">
-				<div
-					className={`flex items-center rounded-md border outline-none transition-colors ${
-						idField.focused
-							? "bg-nova-surface border-nova-violet/50 shadow-[0_0_0_1px_rgba(139,92,246,0.1)]"
-							: "bg-nova-deep/50 border-white/[0.06] hover:border-nova-violet/30"
-					}`}
-				>
-					{/* Icon adornment — violet-tinted badge flush with the input */}
-					<Tooltip content={typeLabel} placement="bottom">
-						<span className="flex items-center justify-center w-9 h-9 shrink-0 text-nova-violet-bright border-r border-white/[0.06] rounded-l-md bg-nova-violet/10">
-							{typeIcon && <Icon icon={typeIcon} width="16" height="16" />}
-						</span>
-					</Tooltip>
-					<input
-						ref={setIdInputRef}
-						value={idField.draft}
-						onChange={(e) => idField.setDraft(e.target.value)}
-						onFocus={idField.handleFocus}
-						onBlur={idField.handleBlur}
-						onKeyDown={idField.handleKeyDown}
-						className="w-full text-sm font-mono px-2 py-1.5 bg-transparent text-nova-text font-medium outline-none cursor-text"
-						autoComplete="off"
-						data-1p-ignore
+			<div
+				className="relative flex flex-col gap-1.5 min-w-0"
+				data-field-id="id"
+			>
+				{/* Micro-label — same vocabulary as SectionLabel but inline-compact. */}
+				<span className="text-[10px] font-semibold uppercase tracking-widest text-nova-text-muted/60 pl-0.5 select-none">
+					Question ID
+				</span>
+				<div className="relative flex items-center">
+					<div
+						className={`flex items-center rounded-md border outline-none transition-colors ${
+							idField.focused
+								? "bg-nova-surface border-nova-violet/50 shadow-[0_0_0_1px_rgba(139,92,246,0.1)]"
+								: "bg-nova-deep/50 border-white/[0.06] hover:border-nova-violet/30"
+						}`}
+					>
+						{/* Icon adornment — violet-tinted badge flush with the input */}
+						<Tooltip content={typeLabel} placement="bottom">
+							<span className="flex items-center justify-center w-9 h-9 shrink-0 text-nova-violet-bright border-r border-white/[0.06] rounded-l-md bg-nova-violet/10">
+								{typeIcon && <Icon icon={typeIcon} width="16" height="16" />}
+							</span>
+						</Tooltip>
+						<input
+							ref={setIdInputRef}
+							value={idField.draft}
+							onChange={(e) => idField.setDraft(e.target.value)}
+							onFocus={idField.handleFocus}
+							onBlur={idField.handleBlur}
+							onKeyDown={idField.handleKeyDown}
+							className="w-full text-sm font-mono px-2 py-1.5 bg-transparent text-nova-text font-medium outline-none cursor-text"
+							autoComplete="off"
+							data-1p-ignore
+						/>
+					</div>
+					<SavedCheck
+						visible={idField.saved && !idField.focused}
+						size={12}
+						className="absolute right-1.5 shrink-0"
 					/>
 				</div>
-				<SavedCheck
-					visible={idField.saved && !idField.focused}
-					size={12}
-					className="absolute right-1.5 shrink-0"
-				/>
 			</div>
 
 			{/* Right: delete button + overflow dots menu (Base UI) */}
