@@ -1,16 +1,14 @@
 "use client";
+import { Popover } from "@base-ui/react/popover";
 import { Icon } from "@iconify/react/offline";
-import { useCallback } from "react";
+import { useCallback, useState } from "react";
 import {
 	DropdownMenu,
 	type DropdownMenuItem,
 } from "@/components/ui/DropdownMenu";
 import { useBuilderStore, useForm, useModule } from "@/hooks/useBuilder";
-import {
-	DropdownPortal,
-	useFloatingDropdown,
-} from "@/hooks/useFloatingDropdown";
 import { formTypeIcons } from "@/lib/questionTypeIcons";
+import { POPOVER_POPUP_CLS, POPOVER_POSITIONER_GLASS_CLS } from "@/lib/styles";
 
 /** Form types that require a case type on the parent module to be selectable. */
 const CASE_DEPENDENT_TYPES = new Set(["registration", "followup"]);
@@ -71,11 +69,7 @@ export function FormTypeButton({
 	const form = useForm(moduleIndex, formIndex);
 	const mod = useModule(moduleIndex);
 	const updateForm = useBuilderStore((s) => s.updateForm);
-	const dd = useFloatingDropdown<HTMLButtonElement>({
-		placement: "bottom-start",
-		offset: 4,
-		contentPopover: true,
-	});
+	const [open, setOpen] = useState(false);
 
 	const handleSelect = useCallback(
 		(type: string) => {
@@ -83,9 +77,9 @@ export function FormTypeButton({
 			updateForm(moduleIndex, formIndex, {
 				type: type as "registration" | "followup" | "survey",
 			});
-			dd.close();
+			setOpen(false);
 		},
-		[editable, updateForm, moduleIndex, formIndex, dd],
+		[editable, updateForm, moduleIndex, formIndex],
 	);
 
 	const icon = formTypeIcons[form?.type ?? "survey"] ?? formTypeIcons.survey;
@@ -94,36 +88,43 @@ export function FormTypeButton({
 	return (
 		<>
 			{editable ? (
-				<button
-					type="button"
-					ref={dd.triggerRef}
-					onClick={dd.toggle}
-					className="-ml-1.5 p-1.5 rounded-md shrink-0 text-nova-text-muted transition-colors cursor-pointer hover:text-nova-text hover:bg-white/5"
-					aria-label="Change form type"
-				>
-					<Icon icon={icon} width="18" height="18" />
-				</button>
+				<Popover.Root open={open} onOpenChange={setOpen}>
+					<Popover.Trigger
+						className="-ml-1.5 p-1.5 rounded-md shrink-0 text-nova-text-muted transition-colors cursor-pointer hover:text-nova-text hover:bg-white/5"
+						aria-label="Change form type"
+					>
+						<Icon icon={icon} width="18" height="18" />
+					</Popover.Trigger>
+
+					<Popover.Portal>
+						<Popover.Positioner
+							side="bottom"
+							align="start"
+							sideOffset={4}
+							className={POPOVER_POSITIONER_GLASS_CLS}
+						>
+							<Popover.Popup className={POPOVER_POPUP_CLS}>
+								<DropdownMenu
+									activeKey={form?.type ?? "survey"}
+									items={formTypeOptions.map(
+										(opt): DropdownMenuItem => ({
+											key: opt.value,
+											label: opt.label,
+											icon: formTypeIcons[opt.value] ?? formTypeIcons.survey,
+											onClick: () => handleSelect(opt.value),
+											disabled:
+												CASE_DEPENDENT_TYPES.has(opt.value) && !hasCaseType,
+										}),
+									)}
+								/>
+							</Popover.Popup>
+						</Popover.Positioner>
+					</Popover.Portal>
+				</Popover.Root>
 			) : (
 				<span className="-ml-1.5 p-1.5 text-nova-text-muted shrink-0">
 					<Icon icon={icon} width="18" height="18" />
 				</span>
-			)}
-
-			{editable && (
-				<DropdownPortal dropdown={dd}>
-					<DropdownMenu
-						activeKey={form?.type ?? "survey"}
-						items={formTypeOptions.map(
-							(opt): DropdownMenuItem => ({
-								key: opt.value,
-								label: opt.label,
-								icon: formTypeIcons[opt.value] ?? formTypeIcons.survey,
-								onClick: () => handleSelect(opt.value),
-								disabled: CASE_DEPENDENT_TYPES.has(opt.value) && !hasCaseType,
-							}),
-						)}
-					/>
-				</DropdownPortal>
 			)}
 		</>
 	);

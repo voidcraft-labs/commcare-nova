@@ -1,27 +1,23 @@
 /**
- * Export dropdown — icon-only or labeled trigger button that opens a
- * frosted-glass menu of export format options (Web/JSON, Mobile/CCZ).
+ * Export dropdown — trigger button that opens a menu of export format options.
  *
  * Two variants via `compact` prop:
  * - **Default**: labeled button with chevron, for standalone use.
- * - **Compact**: icon-only 32px button, for toolbar placement alongside other icon actions.
- *
- * Uses the shared `DropdownMenu` for the popover surface so all dropdown
- * menus in the app share the same POPOVER_GLASS styling.
+ * - **Compact**: icon-only button, for toolbar placement alongside other icon actions.
  */
 
 "use client";
+import { Popover } from "@base-ui/react/popover";
 import { Icon, type IconifyIcon } from "@iconify/react/offline";
 import tablerChevronDown from "@iconify-icons/tabler/chevron-down";
 import tablerDownload from "@iconify-icons/tabler/download";
-import { AnimatePresence, motion } from "motion/react";
 import { useState } from "react";
 import {
 	DropdownMenu,
 	type DropdownMenuItem,
 } from "@/components/ui/DropdownMenu";
 import { Tooltip } from "@/components/ui/Tooltip";
-import { useDismissRef } from "@/hooks/useDismissRef";
+import { POPOVER_POPUP_CLS, POPOVER_POSITIONER_GLASS_CLS } from "@/lib/styles";
 
 export interface ExportOption {
 	label: string;
@@ -38,7 +34,6 @@ interface ExportDropdownProps {
 
 export function ExportDropdown({ options, compact }: ExportDropdownProps) {
 	const [open, setOpen] = useState(false);
-	const dismissRef = useDismissRef(() => setOpen(false));
 
 	/** Map ExportOption[] to the shared DropdownMenuItem shape. */
 	const items: DropdownMenuItem[] = options.map((opt, i) => ({
@@ -53,11 +48,9 @@ export function ExportDropdown({ options, compact }: ExportDropdownProps) {
 	}));
 
 	return (
-		<div ref={dismissRef} className="relative">
+		<Popover.Root open={open} onOpenChange={setOpen}>
 			<Tooltip content="Export">
-				<motion.button
-					whileTap={{ scale: 0.98 }}
-					onClick={() => setOpen(!open)}
+				<Popover.Trigger
 					aria-label="Export"
 					className={
 						compact
@@ -82,22 +75,21 @@ export function ExportDropdown({ options, compact }: ExportDropdownProps) {
 							/>
 						</>
 					)}
-				</motion.button>
+				</Popover.Trigger>
 			</Tooltip>
 
-			<AnimatePresence>
-				{open && (
-					<motion.div
-						initial={{ opacity: 0, y: -4, scale: 0.97 }}
-						animate={{ opacity: 1, y: 0, scale: 1 }}
-						exit={{ opacity: 0, y: -4, scale: 0.97 }}
-						transition={{ duration: 0.15, ease: [0.4, 0, 0.2, 1] }}
-						className="absolute right-0 top-[calc(100%+6px)] z-popover"
-					>
+			<Popover.Portal>
+				<Popover.Positioner
+					side="bottom"
+					align="end"
+					sideOffset={6}
+					className={POPOVER_POSITIONER_GLASS_CLS}
+				>
+					<Popover.Popup className={POPOVER_POPUP_CLS}>
 						<DropdownMenu items={items} minWidth="180px" />
-					</motion.div>
-				)}
-			</AnimatePresence>
-		</div>
+					</Popover.Popup>
+				</Popover.Positioner>
+			</Popover.Portal>
+		</Popover.Root>
 	);
 }

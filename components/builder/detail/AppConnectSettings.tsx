@@ -1,14 +1,11 @@
 "use client";
-import { useCallback } from "react";
+import { Popover } from "@base-ui/react/popover";
+import { useCallback, useState } from "react";
 import { ConnectLogomark } from "@/components/icons/ConnectLogomark";
 import { Toggle } from "@/components/ui/Toggle";
-import {
-	DropdownPortal,
-	useFloatingDropdown,
-} from "@/hooks/useFloatingDropdown";
 import type { ConnectType } from "@/lib/schemas/blueprint";
 import type { BuilderEngine } from "@/lib/services/builderEngine";
-import { POPOVER_GLASS } from "@/lib/styles";
+import { POPOVER_POPUP_CLS, POPOVER_POSITIONER_GLASS_CLS } from "@/lib/styles";
 
 interface AppConnectSettingsProps {
 	builder: BuilderEngine;
@@ -16,7 +13,7 @@ interface AppConnectSettingsProps {
 
 export function AppConnectSettings({ builder }: AppConnectSettingsProps) {
 	const connectType = builder.store.getState().connectType;
-	const dd = useFloatingDropdown<HTMLButtonElement>({ contentPopover: true });
+	const [open, setOpen] = useState(false);
 
 	/** Delegate to the engine's switchConnectMode which handles the connect
 	 *  stash lifecycle + store mutation in a single composing method. */
@@ -30,11 +27,8 @@ export function AppConnectSettings({ builder }: AppConnectSettingsProps) {
 	if (builder.store.getState().moduleOrder.length === 0) return null;
 
 	return (
-		<>
-			<button
-				type="button"
-				ref={dd.triggerRef}
-				onClick={dd.toggle}
+		<Popover.Root open={open} onOpenChange={setOpen}>
+			<Popover.Trigger
 				className={`flex items-center gap-1.5 px-2.5 min-h-[44px] rounded-lg transition-colors cursor-pointer ${
 					connectType
 						? "text-nova-violet-bright hover:bg-nova-violet/10"
@@ -46,15 +40,24 @@ export function AppConnectSettings({ builder }: AppConnectSettingsProps) {
 				{connectType && (
 					<span className="text-xs font-medium capitalize">{connectType}</span>
 				)}
-			</button>
+			</Popover.Trigger>
 
-			<DropdownPortal dropdown={dd}>
-				<AppConnectPanel
-					connectType={connectType}
-					setConnectType={setConnectType}
-				/>
-			</DropdownPortal>
-		</>
+			<Popover.Portal>
+				<Popover.Positioner
+					side="bottom"
+					align="end"
+					sideOffset={8}
+					className={POPOVER_POSITIONER_GLASS_CLS}
+				>
+					<Popover.Popup className={POPOVER_POPUP_CLS}>
+						<AppConnectPanel
+							connectType={connectType}
+							setConnectType={setConnectType}
+						/>
+					</Popover.Popup>
+				</Popover.Positioner>
+			</Popover.Portal>
+		</Popover.Root>
 	);
 }
 
@@ -68,7 +71,7 @@ function AppConnectPanel({
 	const enabled = !!connectType;
 
 	return (
-		<div className={`w-64 ${POPOVER_GLASS}`}>
+		<div className="w-64">
 			<div className="px-3.5 py-3 space-y-3">
 				{/* Toggle — undefined signals "re-enable with last mode", resolved inside switchConnectMode */}
 				<div className="flex items-center justify-between">

@@ -1,4 +1,5 @@
 "use client";
+import { Popover } from "@base-ui/react/popover";
 import { Icon } from "@iconify/react/offline";
 import tablerArrowBackUp from "@iconify-icons/tabler/arrow-back-up";
 import tablerHome from "@iconify-icons/tabler/home";
@@ -23,10 +24,6 @@ import {
 	useModule,
 } from "@/hooks/useBuilder";
 import { useCommitField } from "@/hooks/useCommitField";
-import {
-	DropdownPortal,
-	useFloatingDropdown,
-} from "@/hooks/useFloatingDropdown";
 import type { XPathLintContext } from "@/lib/codemirror/xpath-lint";
 import type {
 	ConnectConfig,
@@ -39,7 +36,11 @@ import {
 	assembleForm,
 	getEntityData,
 } from "@/lib/services/normalizedState";
-import { POPOVER_GLASS } from "@/lib/styles";
+import {
+	POPOVER_POPUP_CLS,
+	POPOVER_POSITIONER_ELEVATED_CLS,
+	POPOVER_POSITIONER_GLASS_CLS,
+} from "@/lib/styles";
 import { FormDetail } from "./FormDetail";
 
 // ── Types ─────────────────────────────────────────────────────────────
@@ -58,21 +59,28 @@ export function FormSettingsButton({
 	const form = useForm(moduleIndex, formIndex);
 	const connectType = useBuilderStore((s) => s.connectType);
 	const hasConnect = !!form?.connect && !!connectType;
+	const [open, setOpen] = useState(false);
 
-	/* Don't dismiss when a CodeMirror autocomplete tooltip (portal-mounted
-	 * to body, outside the panel DOM) received the click. */
-	const dd = useFloatingDropdown<HTMLButtonElement>({
-		placement: "bottom-start",
-		contentPopover: true,
-		shouldDismiss: () => !document.querySelector(".cm-tooltip-autocomplete"),
-	});
+	/** Guard dismiss when a CodeMirror autocomplete tooltip (portal-mounted
+	 *  to body, outside the panel DOM) received the click. */
+	const handleOpenChange = useCallback(
+		(nextOpen: boolean, details: Popover.Root.ChangeEventDetails) => {
+			if (
+				!nextOpen &&
+				(details.reason === "outside-press" ||
+					details.reason === "escape-key") &&
+				document.querySelector(".cm-tooltip-autocomplete")
+			) {
+				return;
+			}
+			setOpen(nextOpen);
+		},
+		[],
+	);
 
 	return (
-		<>
-			<button
-				type="button"
-				ref={dd.triggerRef}
-				onClick={dd.toggle}
+		<Popover.Root open={open} onOpenChange={handleOpenChange}>
+			<Popover.Trigger
 				className="flex items-center gap-1 p-1.5 rounded-md transition-colors cursor-pointer text-nova-text-muted hover:text-nova-text hover:bg-white/5"
 				aria-label="Form settings"
 			>
@@ -80,16 +88,25 @@ export function FormSettingsButton({
 				{hasConnect && (
 					<ConnectLogomark size={12} className="text-nova-violet-bright" />
 				)}
-			</button>
+			</Popover.Trigger>
 
-			<DropdownPortal dropdown={dd}>
-				<FormSettingsPanel
-					moduleIndex={moduleIndex}
-					formIndex={formIndex}
-					onClose={dd.close}
-				/>
-			</DropdownPortal>
-		</>
+			<Popover.Portal>
+				<Popover.Positioner
+					side="bottom"
+					align="start"
+					sideOffset={8}
+					className={POPOVER_POSITIONER_GLASS_CLS}
+				>
+					<Popover.Popup className={POPOVER_POPUP_CLS}>
+						<FormSettingsPanel
+							moduleIndex={moduleIndex}
+							formIndex={formIndex}
+							onClose={() => setOpen(false)}
+						/>
+					</Popover.Popup>
+				</Popover.Positioner>
+			</Popover.Portal>
+		</Popover.Root>
 	);
 }
 
@@ -101,7 +118,7 @@ function FormSettingsPanel({
 	onClose,
 }: FormSettingsPanelProps & { onClose: () => void }) {
 	return (
-		<div className={`w-80 ${POPOVER_GLASS}`}>
+		<div className="w-80">
 			{/* Header */}
 			<div className="flex items-center justify-between px-3.5 py-2.5 border-b border-white/[0.06]">
 				<span className="text-xs font-medium text-nova-text-secondary uppercase tracking-wider">
@@ -174,23 +191,17 @@ function AfterSubmitSection({
 		AFTER_SUBMIT_OPTIONS.find((o) => o.value === current) ??
 		AFTER_SUBMIT_OPTIONS[0];
 	const triggerId = useId();
-	/* No contentPopover — this is a child of the form settings panel, not a
-	 * sibling. Content popover coordination would dismiss the parent on open.
-	 * matchTriggerWidth sizes the menu to the trigger button for inline-select feel. */
-	const dd = useFloatingDropdown<HTMLButtonElement>({
-		placement: "bottom-start",
-		offset: 4,
-		matchTriggerWidth: true,
-	});
+	const triggerRef = useRef<HTMLButtonElement>(null);
+	const [open, setOpen] = useState(false);
 
 	const handleSelect = useCallback(
 		(dest: PostSubmitDestination) => {
 			updateForm(moduleIndex, formIndex, {
 				post_submit: dest === "default" ? null : dest,
 			});
-			dd.close();
+			setOpen(false);
 		},
-		[updateForm, moduleIndex, formIndex, dd],
+		[updateForm, moduleIndex, formIndex],
 	);
 
 	const items: DropdownMenuItem[] = AFTER_SUBMIT_OPTIONS.map((opt) => ({
@@ -209,39 +220,50 @@ function AfterSubmitSection({
 			>
 				After Submit
 			</label>
-			<button
-				id={triggerId}
-				type="button"
-				ref={dd.triggerRef}
-				onClick={dd.toggle}
-				className="w-full flex items-center justify-between px-2 py-1.5 text-xs rounded-md border transition-colors cursor-pointer text-nova-text bg-nova-deep/50 border-white/[0.06] hover:border-nova-violet/30"
-			>
-				<span>{currentOption.label}</span>
-				<svg
-					aria-hidden="true"
-					width="10"
-					height="10"
-					viewBox="0 0 10 10"
-					className={`text-nova-text-muted transition-transform ${dd.open ? "rotate-180" : ""}`}
+			<Popover.Root open={open} onOpenChange={setOpen}>
+				<Popover.Trigger
+					ref={triggerRef}
+					id={triggerId}
+					className="w-full flex items-center justify-between px-2 py-1.5 text-xs rounded-md border transition-colors cursor-pointer text-nova-text bg-nova-deep/50 border-white/[0.06] hover:border-nova-violet/30"
 				>
-					<path
-						d="M2 3.5L5 6.5L8 3.5"
-						stroke="currentColor"
-						strokeWidth="1.2"
-						fill="none"
-						strokeLinecap="round"
-						strokeLinejoin="round"
-					/>
-				</svg>
-			</button>
+					<span>{currentOption.label}</span>
+					<svg
+						aria-hidden="true"
+						width="10"
+						height="10"
+						viewBox="0 0 10 10"
+						className={`text-nova-text-muted transition-transform ${open ? "rotate-180" : ""}`}
+					>
+						<path
+							d="M2 3.5L5 6.5L8 3.5"
+							stroke="currentColor"
+							strokeWidth="1.2"
+							fill="none"
+							strokeLinecap="round"
+							strokeLinejoin="round"
+						/>
+					</svg>
+				</Popover.Trigger>
 
-			{/* Stop mousedown propagation so the parent FormSettingsButton's
-			 * document-level dismiss handler doesn't see clicks inside this child
-			 * portal. Without this, mousedown fires before click, the parent
-			 * unmounts, and the menu item's onClick never runs. */}
-			<DropdownPortal dropdown={dd} onMouseDown={(e) => e.stopPropagation()}>
-				<DropdownMenu items={items} activeKey={current} variant="elevated" />
-			</DropdownPortal>
+				<Popover.Portal>
+					<Popover.Positioner
+						side="bottom"
+						align="start"
+						sideOffset={4}
+						anchor={triggerRef}
+						className={POPOVER_POSITIONER_ELEVATED_CLS}
+						style={{ minWidth: "var(--anchor-width)" }}
+					>
+						<Popover.Popup className={POPOVER_POPUP_CLS}>
+							<DropdownMenu
+								items={items}
+								activeKey={current}
+								variant="elevated"
+							/>
+						</Popover.Popup>
+					</Popover.Positioner>
+				</Popover.Portal>
+			</Popover.Root>
 		</div>
 	);
 }
