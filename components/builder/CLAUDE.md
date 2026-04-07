@@ -2,7 +2,7 @@
 
 ## Design vs Preview Mode
 
-**Design (edit):** frozen, stateless view. Inputs appear empty, no validation errors, submit bar hidden. Engine state is preserved internally but suppressed at the display layer. **All questions are shown regardless of relevant conditions** — the visibility check is skipped so the full form structure is always visible for editing. Hidden questions render as compact `HiddenField` cards in inspect/pointer modes but are excluded from text mode (no inline-editable surface). Violet accent for edit chrome (outlines, insertion points, drag overlays).
+**Design (edit):** frozen, stateless view. Inputs appear empty, no validation errors, submit bar hidden. Engine state is preserved internally but suppressed at the display layer. **All questions are shown regardless of relevant conditions** — the visibility check is skipped so the full form structure is always visible for editing. Hidden questions render as compact `HiddenField` cards. Violet accent for edit chrome (outlines, insertion points, drag overlays).
 
 **Preview (test):** persistent testing sandbox. Values survive round-trips through design. Validation state resets on exit via `engine.resetValidation()` so fields start clean on re-entry. On switch back, all rules re-evaluate with the current schema against persisted values. Blueprint mutations recreate the engine, but only user-touched values are restored — untouched fields pick up new defaults.
 
@@ -47,13 +47,13 @@ The glassmorphic toolbar must be absolutely positioned in BuilderLayout's `overf
 
 Uses `<div role="button">` instead of `<button>` because children contain nested interactive elements (InsertionPoint buttons, TextEditable buttons, form inputs/fieldsets). HTML forbids interactive content inside `<button>` and SSR parsers will mangle the tree. Do not "fix" this to a `<button>`.
 
-## Text Mode Cursor Overlay
+## Edit Mode — Combined Inspect + Text Editing
 
-Text mode uses a `::after` overlay (z-index `--z-ground`) on the question wrapper to block hover/click on non-text elements. `[data-text-editable]` zones rise above it (z-index `--z-raised`). Form controls (`input`, `textarea`, `select`) additionally get `pointer-events: none !important` and the container gets `user-select: none` to block double-click and drag-to-select focus gestures that bypass the CSS overlay.
+Edit mode merges the former "inspect" and "text" cursor modes into a single unified mode. `EditableQuestionWrapper` renders `div[role=button]` with `cursor-pointer` (click-to-select) and wraps children in `pointer-events-none`. `[data-text-editable]` zones punch through via CSS (`pointer-events: auto; cursor: text; z-index: 1`). The wrapper's `onClickCapture` handler checks for text-editable targets: if found, it selects the question but doesn't stop propagation, allowing `TextEditable` to also activate inline editing. Non-text clicks select the question and stop propagation as before. Properties panel has `cursor-auto` (unchanged).
 
 ## Undo/Redo
 
-`applyUndoRedo` in `BuilderLayout` wraps `syncViewFromStore` in `flushSync` to force React to commit the store update before any DOM queries. zundo atomically restores `blueprint + selected + screen + cursorMode + activeFieldId` in the store — `screen` and `cursorMode` are read directly from the store (no local state sync needed). `syncViewFromStore` only resets the navigation history to a single entry matching the restored screen via `navResetTo()`. Without `flushSync`, `[data-field-id]` elements toggled into existence by the undo (e.g. a Required toggle just enabled) wouldn't be in the DOM yet. Do not replace with `requestAnimationFrame`.
+`applyUndoRedo` in `BuilderLayout` wraps `syncViewFromStore` in `flushSync` to force React to commit the store update before any DOM queries. zundo atomically restores `blueprint + selected + screen + cursorMode + activeFieldId` in the store — `screen` is read directly from the store (no local state sync needed). `syncViewFromStore` only resets the navigation history to a single entry matching the restored screen via `navResetTo()`. Without `flushSync`, `[data-field-id]` elements toggled into existence by the undo (e.g. a Required toggle just enabled) wouldn't be in the DOM yet. Do not replace with `requestAnimationFrame`.
 
 **Focus restoration after undo/redo** uses a `focusHint` string stored on `builder` — the `[data-field-id]` key of whichever field the user was editing when the snapshot was taken. `InlineSettingsPanel` tracks the active field via a delegated `onFocus` handler calling `builder.setActiveField()`. This persists through blur → commit → snapshot so blur-triggered saves capture the correct field. The hint is consumed once by `useFocusHint` in the matching editor section, then cleared. Do not query `document.activeElement` for this — blur moves focus before the snapshot fires.
 

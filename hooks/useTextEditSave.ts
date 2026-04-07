@@ -3,7 +3,7 @@
  *
  * Combines the edit context (moduleIndex, formIndex) with a question path
  * to produce a `(field, value) => void` function that mutates the blueprint
- * via the store's updateQuestion action. Returns null outside of text mode
+ * via the store's updateQuestion action. Returns null outside of edit mode
  * or when no context is available.
  */
 
@@ -33,6 +33,6 @@ export function useTextEditSave(
 		[ctx, questionPath, updateQuestion],
 	);
 
-	if (!ctx || cursorMode !== "text" || !questionPath) return null;
+	if (!ctx || cursorMode !== "edit" || !questionPath) return null;
 	return save;
 }

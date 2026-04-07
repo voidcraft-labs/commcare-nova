@@ -1,10 +1,6 @@
 "use client";
 import { type ReactNode, useCallback, useRef, useState } from "react";
-import {
-	useBuilderEngine,
-	useBuilderStore,
-	useIsQuestionSelected,
-} from "@/hooks/useBuilder";
+import { useBuilderEngine, useIsQuestionSelected } from "@/hooks/useBuilder";
 import { useEditContext } from "@/hooks/useEditContext";
 import type { QuestionPath } from "@/lib/services/questionPath";
 
@@ -26,7 +22,6 @@ export function EditableQuestionWrapper({
 }: EditableQuestionWrapperProps) {
 	const ctx = useEditContext();
 	const engine = useBuilderEngine();
-	const cursorMode = useBuilderStore((s) => s.cursorMode);
 	const [hovered, setHovered] = useState(false);
 	const [holdReady, setHoldReady] = useState(false);
 	const holdTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -122,6 +117,12 @@ export function EditableQuestionWrapper({
 			if (!e.currentTarget.contains(target)) return;
 			// Don't intercept clicks inside the inline settings panel, nested wrappers, or insertion points
 			if (target.closest("[data-no-drag]")) return;
+			/* Let clicks on text-editable zones pass through — select the question
+			 * but don't stop propagation so TextEditable's handler also fires. */
+			if (target.closest("[data-text-editable]")) {
+				selectQuestion();
+				return;
+			}
 			if (target.closest("[data-insertion-point]")) return;
 			const closestWrapper = target.closest("[data-question-wrapper]");
 			if (closestWrapper && closestWrapper !== e.currentTarget) return;
@@ -146,17 +147,6 @@ export function EditableQuestionWrapper({
 
 	if (!ctx || ctx.mode === "test") {
 		return <div style={style}>{children}</div>;
-	}
-
-	/* Text mode: no outlines, no click capture. Children are fully interactive
-	 * so TextEditable instances receive clicks directly. text-mode-cursors
-	 * overlays non-text surfaces to suppress interactivity. */
-	if (cursorMode === "text") {
-		return (
-			<div className="text-mode-cursors" style={style}>
-				{children}
-			</div>
-		);
 	}
 
 	const mergedStyle = holdReady

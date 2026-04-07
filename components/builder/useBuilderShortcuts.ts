@@ -11,8 +11,8 @@ import {
  * Builds a memoized keyboard shortcuts array for the builder layout.
  *
  * Returns an empty array when not in Ready phase.
- * When active, includes: Escape (deselect/exit pointer), 1/2/3 (switch cursor mode),
- * Tab/Shift+Tab (navigate questions in inspect mode), Delete/Backspace (delete question),
+ * When active, includes: Escape (deselect/exit pointer), V/E (switch cursor mode),
+ * Tab/Shift+Tab (navigate questions in edit mode), Delete/Backspace (delete question),
  * Cmd+D (duplicate), ArrowUp/ArrowDown (reorder), Cmd+Z/Cmd+Shift+Z (undo/redo).
  *
  * All handlers read from the store at call time — the memo only refreshes when
@@ -21,7 +21,7 @@ import {
  */
 export function useBuilderShortcuts(
 	builder: BuilderEngine,
-	handleCursorModeChange: (mode: "pointer" | "text" | "inspect") => void,
+	handleCursorModeChange: (mode: "pointer" | "edit") => void,
 	handleDelete: () => void,
 	onUndo: () => void,
 	onRedo: () => void,
@@ -61,7 +61,7 @@ export function useBuilderShortcuts(
 				key: "Escape",
 				handler: () => {
 					if (builder.store.getState().cursorMode === "pointer") {
-						handleCursorModeChange("inspect");
+						handleCursorModeChange("edit");
 						return;
 					}
 					if (builder.store.getState().selected) {
@@ -70,15 +70,15 @@ export function useBuilderShortcuts(
 					}
 				},
 			},
-			// 1/2/3 — switch cursor mode
-			{ key: "1", handler: () => handleCursorModeChange("pointer") },
-			{ key: "2", handler: () => handleCursorModeChange("text") },
-			{ key: "3", handler: () => handleCursorModeChange("inspect") },
+			// V/E — switch cursor mode (Figma-style single-key shortcuts,
+			// suppressed when an input/editor is focused via keyboardManager)
+			{ key: "v", handler: () => handleCursorModeChange("pointer") },
+			{ key: "e", handler: () => handleCursorModeChange("edit") },
 			// Tab / Shift+Tab — navigate questions (inspect mode only; text mode uses Tab for text fields)
 			{
 				key: "Tab",
 				handler: () => {
-					if (builder.store.getState().cursorMode !== "inspect") return;
+					if (builder.store.getState().cursorMode !== "edit") return;
 					const sel = builder.store.getState().selected;
 					if (!sel) return;
 					const refs = getFormRefs();
@@ -98,7 +98,7 @@ export function useBuilderShortcuts(
 				key: "Tab",
 				shift: true,
 				handler: () => {
-					if (builder.store.getState().cursorMode !== "inspect") return;
+					if (builder.store.getState().cursorMode !== "edit") return;
 					const sel = builder.store.getState().selected;
 					if (!sel) return;
 					const refs = getFormRefs();
