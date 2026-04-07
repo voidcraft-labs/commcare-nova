@@ -24,7 +24,6 @@ import { getConvertibleTypes } from "@/lib/questionTypeConversions";
 import { questionTypeIcons, questionTypeLabels } from "@/lib/questionTypeIcons";
 import { getQuestionMoveTargets } from "@/lib/services/questionNavigation";
 import { flattenQuestionRefs } from "@/lib/services/questionPath";
-import { POPOVER_ELEVATED } from "@/lib/styles";
 import type { FocusableFieldKey, QuestionEditorProps } from "./shared";
 import { useFocusHint } from "./shared";
 
