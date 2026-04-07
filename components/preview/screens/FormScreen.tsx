@@ -14,18 +14,8 @@ import {
 import { EditContextProvider } from "@/hooks/useEditContext";
 import { useFormEngine } from "@/hooks/useFormEngine";
 import { getCaseData, getDummyCases } from "@/lib/preview/engine/dummyData";
-import type { BlueprintForm } from "@/lib/schemas/blueprint";
 import { selectEditMode, selectIsReady } from "@/lib/services/builderSelectors";
 import { FormRenderer } from "../form/FormRenderer";
-
-/** Minimal stub form for unconditional hook calls during AnimatePresence exit
- *  overlap. useFormEngine receives this when screen is undefined; the result
- *  is never rendered because the component early-returns null. */
-const EMPTY_FORM: BlueprintForm = {
-	name: "",
-	type: "survey",
-	questions: [],
-};
 
 interface FormScreenProps {
 	/** Back handler override — used by BuilderLayout to sync selection on back navigation.
@@ -34,8 +24,6 @@ interface FormScreenProps {
 }
 
 export function FormScreen({ onBack }: FormScreenProps) {
-	/* Read screen indices from the store — no props needed for identity.
-	 * Returns undefined during AnimatePresence exit overlap. */
 	const screen = useScreenData("form");
 	const moduleIndex = screen?.moduleIndex ?? 0;
 	const formIndex = screen?.formIndex ?? 0;
@@ -68,11 +56,8 @@ export function FormScreen({ onBack }: FormScreenProps) {
 
 	const editable = isReady;
 
-	/* useFormEngine needs a BlueprintForm — pass a minimal stub when screen is
-	 * undefined (AnimatePresence exit overlap) so hooks are called unconditionally.
-	 * The engine result is never used because we early-return below. */
 	const engine = useFormEngine(
-		form ?? EMPTY_FORM,
+		form ?? { name: "", type: "survey", questions: [] },
 		caseTypes ?? undefined,
 		mod?.caseType ?? undefined,
 		caseData,
@@ -106,8 +91,6 @@ export function FormScreen({ onBack }: FormScreenProps) {
 		[mode, selected?.questionUuid],
 	);
 
-	/* All hooks called above — safe to early-return now. During AnimatePresence
-	 * exit overlap, screen is undefined and form may be missing. */
 	if (!screen || !form) return null;
 
 	if (mode === "test" && form.type === "followup" && !caseData) {
