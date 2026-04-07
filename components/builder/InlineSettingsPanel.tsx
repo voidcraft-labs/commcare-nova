@@ -17,7 +17,7 @@ import { useCallback } from "react";
 import { useBuilderStore } from "@/hooks/useBuilder";
 import type { Question } from "@/lib/schemas/blueprint";
 import { ContextualEditorData } from "./contextual/ContextualEditorData";
-import { ContextualEditorFooter } from "./contextual/ContextualEditorFooter";
+import { ContextualEditorHeader } from "./contextual/ContextualEditorHeader";
 import { ContextualEditorLogic } from "./contextual/ContextualEditorLogic";
 import { ContextualEditorUI } from "./contextual/ContextualEditorUI";
 
@@ -65,7 +65,7 @@ export function InlineSettingsPanel({ question }: InlineSettingsPanelProps) {
 			data-no-drag
 			onFocus={handleFocus}
 		>
-			<ContextualEditorFooter question={question} />
+			<ContextualEditorHeader question={question} />
 
 			<div className="p-2 space-y-2">
 				{/* Data and Appearance own their own visibility — return null

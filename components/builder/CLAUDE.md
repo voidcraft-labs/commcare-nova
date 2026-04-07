@@ -67,6 +67,6 @@ When adding a new question property, add it to `FIELD_TYPE_SUPPORT` — fields a
 
 `ContextualEditorData` and `ContextualEditorUI` own their section visibility — they wrap their own card and return `null` when the question type has no applicable fields. `ContextualEditorLogic` always renders (every type has at least `relevant`).
 
-## `ContextualEditorFooter` — Don't Memoize Move Targets
+## `ContextualEditorHeader` — Don't Memoize Move Targets
 
 Move targets and adjacency flags (`isFirst`/`isLast`) are computed **inline in the render body**, not in `useMemo`. After `moveQuestion`, Immer produces new entity map references that trigger a re-render — the inline computation picks up the fresh state automatically. Memoizing on `[selected]` alone would miss the entity change because selection doesn't change on a reorder.

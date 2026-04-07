@@ -1,6 +1,6 @@
 /**
  * Shared icon data and categorisation for question types — used by AppTree,
- * QuestionTypePickerPopup, and ContextualEditorFooter.
+ * QuestionTypePickerPopup, and ContextualEditorHeader.
  * Raw icon data objects (not JSX) so consumers can render at any size.
  */
 

@@ -16,7 +16,7 @@ export const POPOVER_ELEVATED =
 	"rounded-xl bg-[rgba(16,16,36,0.95)] border border-white/[0.06] shadow-[inset_0_0_0_1px_rgba(200,200,255,0.15),0_16px_40px_rgba(0,0,0,0.6)]";
 
 /* ── Base UI Menu shared styles ────────────────────────────────────────────
- * Used by ContextualEditorFooter (overflow menu) and QuestionTypePickerPopup
+ * Used by ContextualEditorHeader (overflow menu) and QuestionTypePickerPopup
  * (insertion menu). Glass surface lives on the Positioner because Base UI's
  * `will-change: transform` on that layer creates a compositing boundary —
  * placing `backdrop-filter` on a descendant would sample the empty layer. */
