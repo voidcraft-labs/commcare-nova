@@ -3,8 +3,14 @@ import type { BuilderEngine } from "@/lib/services/builderEngine";
 import type { Shortcut } from "@/lib/services/keyboardManager";
 import { assembleForm } from "@/lib/services/normalizedState";
 import {
+	getCrossLevelMoveTargets,
+	getQuestionMoveTargets,
+} from "@/lib/services/questionNavigation";
+import {
 	flattenQuestionRefs,
 	type QuestionRef,
+	qpath,
+	qpathId,
 } from "@/lib/services/questionPath";
 
 /**
@@ -31,8 +37,8 @@ export function useBuilderShortcuts(
 	return useMemo(() => {
 		if (!isReady) return [];
 
-		/** Get the flat question refs for the current form. */
-		const getFormRefs = (): QuestionRef[] | undefined => {
+		/** Assemble the current form from normalized state. */
+		const getAssembledForm = () => {
 			const s = builder.store.getState();
 			const sel = s.selected;
 			if (!sel || sel.formIndex === undefined) return undefined;
@@ -40,13 +46,19 @@ export function useBuilderShortcuts(
 			if (!moduleId) return undefined;
 			const formId = s.formOrder[moduleId]?.[sel.formIndex];
 			if (!formId) return undefined;
-			const form = assembleForm(
+			return assembleForm(
 				s.forms[formId],
 				formId,
 				s.questions,
 				s.questionOrder,
 			);
-			return flattenQuestionRefs(form.questions);
+		};
+
+		/** Get the flat question refs for the current form (depth-first,
+		 *  used by Tab/Shift+Tab navigation which should cross group levels). */
+		const getFormRefs = (): QuestionRef[] | undefined => {
+			const form = getAssembledForm();
+			return form ? flattenQuestionRefs(form.questions) : undefined;
 		};
 
 		/** Find the current question's index in the ref list by UUID. */
@@ -158,7 +170,7 @@ export function useBuilderShortcuts(
 					});
 				},
 			},
-			// ArrowUp/ArrowDown — reorder via store action
+			// ArrowUp/ArrowDown — reorder within sibling level via store action
 			{
 				key: "ArrowUp",
 				handler: () => {
@@ -172,12 +184,15 @@ export function useBuilderShortcuts(
 					)
 						return;
 					if (s.moduleOrder.length === 0) return;
-					const refs = getFormRefs();
-					if (!refs) return;
-					const curIdx = findCurrent(refs);
-					if (curIdx <= 0) return;
+					const form = getAssembledForm();
+					if (!form) return;
+					const { beforePath } = getQuestionMoveTargets(
+						form.questions,
+						sel.questionPath,
+					);
+					if (!beforePath) return;
 					s.moveQuestion(sel.moduleIndex, sel.formIndex, sel.questionPath, {
-						beforePath: refs[curIdx - 1].path,
+						beforePath,
 					});
 				},
 			},
@@ -194,12 +209,90 @@ export function useBuilderShortcuts(
 					)
 						return;
 					if (s.moduleOrder.length === 0) return;
-					const refs = getFormRefs();
-					if (!refs) return;
-					const curIdx = findCurrent(refs);
-					if (curIdx < 0 || curIdx >= refs.length - 1) return;
+					const form = getAssembledForm();
+					if (!form) return;
+					const { afterPath } = getQuestionMoveTargets(
+						form.questions,
+						sel.questionPath,
+					);
+					if (!afterPath) return;
 					s.moveQuestion(sel.moduleIndex, sel.formIndex, sel.questionPath, {
-						afterPath: refs[curIdx + 1].path,
+						afterPath,
+					});
+				},
+			},
+			// Shift+ArrowUp/Shift+ArrowDown — cross-level (indent/outdent) reorder
+			{
+				key: "ArrowUp",
+				shift: true,
+				handler: () => {
+					const s = builder.store.getState();
+					const sel = s.selected;
+					if (
+						!sel ||
+						sel.type !== "question" ||
+						sel.formIndex === undefined ||
+						!sel.questionPath
+					)
+						return;
+					if (s.moduleOrder.length === 0) return;
+					const form = getAssembledForm();
+					if (!form) return;
+					const { up } = getCrossLevelMoveTargets(
+						form.questions,
+						sel.questionPath,
+					);
+					if (!up) return;
+					const { direction: _, ...opts } = up;
+					s.moveQuestion(
+						sel.moduleIndex,
+						sel.formIndex,
+						sel.questionPath,
+						opts,
+					);
+					/* Navigate to new path — scrolls into view after cross-level move */
+					const newPath = qpath(qpathId(sel.questionPath), up.targetParentPath);
+					builder.navigateTo({
+						...sel,
+						questionPath: newPath,
+					});
+				},
+			},
+			{
+				key: "ArrowDown",
+				shift: true,
+				handler: () => {
+					const s = builder.store.getState();
+					const sel = s.selected;
+					if (
+						!sel ||
+						sel.type !== "question" ||
+						sel.formIndex === undefined ||
+						!sel.questionPath
+					)
+						return;
+					if (s.moduleOrder.length === 0) return;
+					const form = getAssembledForm();
+					if (!form) return;
+					const { down } = getCrossLevelMoveTargets(
+						form.questions,
+						sel.questionPath,
+					);
+					if (!down) return;
+					const { direction: _, ...opts } = down;
+					s.moveQuestion(
+						sel.moduleIndex,
+						sel.formIndex,
+						sel.questionPath,
+						opts,
+					);
+					const newPath = qpath(
+						qpathId(sel.questionPath),
+						down.targetParentPath,
+					);
+					builder.navigateTo({
+						...sel,
+						questionPath: newPath,
 					});
 				},
 			},

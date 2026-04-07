@@ -8,7 +8,7 @@ import tablerArrowsExchange from "@iconify-icons/tabler/arrows-exchange";
 import tablerChevronRight from "@iconify-icons/tabler/chevron-right";
 import tablerDotsVertical from "@iconify-icons/tabler/dots-vertical";
 import tablerTrash from "@iconify-icons/tabler/trash";
-import { useCallback } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { SavedCheck } from "@/components/builder/EditableTitle";
 import { QuestionTypeList } from "@/components/builder/QuestionTypeList";
 import { tablerCopyPlus } from "@/components/icons/tablerExtras";
@@ -22,8 +22,16 @@ import { useCommitField } from "@/hooks/useCommitField";
 import { useSaveQuestion } from "@/hooks/useSaveQuestion";
 import { getConvertibleTypes } from "@/lib/questionTypeConversions";
 import { questionTypeIcons, questionTypeLabels } from "@/lib/questionTypeIcons";
-import { getQuestionMoveTargets } from "@/lib/services/questionNavigation";
-import { flattenQuestionRefs } from "@/lib/services/questionPath";
+import {
+	type CrossLevelMoveTarget,
+	getCrossLevelMoveTargets,
+	getQuestionMoveTargets,
+} from "@/lib/services/questionNavigation";
+import {
+	flattenQuestionRefs,
+	qpath,
+	qpathId,
+} from "@/lib/services/questionPath";
 import type { FocusableFieldKey, QuestionEditorProps } from "./shared";
 import { useFocusHint } from "./shared";
 
@@ -59,6 +67,30 @@ const POSITIONER_CLS =
 const POPUP_CLS =
 	"overflow-hidden rounded-xl origin-[var(--transform-origin)] transition-[transform,scale,opacity] data-[ending-style]:scale-95 data-[ending-style]:opacity-0 data-[starting-style]:scale-95 data-[starting-style]:opacity-0";
 
+/** Track whether the Shift key is currently held. Resets on window blur
+ *  so a tab-switch doesn't leave a phantom pressed state. */
+function useShiftKey(): boolean {
+	const [shift, setShift] = useState(false);
+	useEffect(() => {
+		const down = (e: KeyboardEvent) => {
+			if (e.key === "Shift") setShift(true);
+		};
+		const up = (e: KeyboardEvent) => {
+			if (e.key === "Shift") setShift(false);
+		};
+		const blur = () => setShift(false);
+		window.addEventListener("keydown", down);
+		window.addEventListener("keyup", up);
+		window.addEventListener("blur", blur);
+		return () => {
+			window.removeEventListener("keydown", down);
+			window.removeEventListener("keyup", up);
+			window.removeEventListener("blur", blur);
+		};
+	}, []);
+	return shift;
+}
+
 export function ContextualEditorFooter({ question }: QuestionEditorProps) {
 	const engine = useBuilderEngine();
 	const selected = useBuilderStore((s) => s.selected);
@@ -73,6 +105,7 @@ export function ContextualEditorFooter({ question }: QuestionEditorProps) {
 
 	const saveQuestion = useSaveQuestion();
 	const focusHint = useFocusHint(FOOTER_FIELDS);
+	const shiftHeld = useShiftKey();
 
 	/* ── ID rename ── */
 
@@ -163,6 +196,31 @@ export function ContextualEditorFooter({ question }: QuestionEditorProps) {
 		);
 	}, [selected, assembledForm, moveQuestion]);
 
+	/** Execute a cross-level move and update selection to the new path. */
+	const executeCrossLevel = useCallback(
+		(target: CrossLevelMoveTarget) => {
+			if (
+				!selected ||
+				selected.formIndex === undefined ||
+				!selected.questionPath
+			)
+				return;
+			const { direction: _, ...opts } = target;
+			moveQuestion(
+				selected.moduleIndex,
+				selected.formIndex,
+				selected.questionPath,
+				opts,
+			);
+			const newPath = qpath(
+				qpathId(selected.questionPath),
+				target.targetParentPath,
+			);
+			engine.navigateTo({ ...selected, questionPath: newPath });
+		},
+		[selected, moveQuestion, engine],
+	);
+
 	const handleDuplicate = useCallback(() => {
 		if (!selected || selected.formIndex === undefined || !selected.questionPath)
 			return;
@@ -219,6 +277,12 @@ export function ContextualEditorFooter({ question }: QuestionEditorProps) {
 		: { beforePath: undefined, afterPath: undefined };
 	const isFirst = beforePath === undefined;
 	const isLast = afterPath === undefined;
+
+	/* Cross-level (indent/outdent) targets — shown when Shift is held. */
+	const { up: crossUp, down: crossDown } = selected.questionPath
+		? getCrossLevelMoveTargets(assembledForm.questions, selected.questionPath)
+		: { up: undefined, down: undefined };
+
 	const conversionTargets = getConvertibleTypes(question.type);
 	const canConvert = conversionTargets.length > 0;
 	const typeIcon = questionTypeIcons[question.type];
@@ -298,22 +362,42 @@ export function ContextualEditorFooter({ question }: QuestionEditorProps) {
 							align="end"
 						>
 							<Menu.Popup className={POPUP_CLS} style={{ minWidth: 200 }}>
-								{/* Move Up */}
+								{/* Move Up / cross-level up (Shift swaps) */}
 								<MenuItem
 									icon={tablerArrowUp}
-									label="Move Up"
-									shortcut="↑"
-									disabled={isFirst}
-									onClick={handleMoveUp}
+									label={
+										shiftHeld
+											? crossUp?.direction === "into"
+												? "Move Into Group"
+												: "Move Out of Group"
+											: "Move Up"
+									}
+									shortcut={shiftHeld ? "⇧↑" : "↑"}
+									disabled={shiftHeld ? !crossUp : isFirst}
+									onClick={
+										shiftHeld
+											? () => crossUp && executeCrossLevel(crossUp)
+											: handleMoveUp
+									}
 								/>
 
-								{/* Move Down */}
+								{/* Move Down / cross-level down (Shift swaps) */}
 								<MenuItem
 									icon={tablerArrowDown}
-									label="Move Down"
-									shortcut="↓"
-									disabled={isLast}
-									onClick={handleMoveDown}
+									label={
+										shiftHeld
+											? crossDown?.direction === "into"
+												? "Move Into Group"
+												: "Move Out of Group"
+											: "Move Down"
+									}
+									shortcut={shiftHeld ? "⇧↓" : "↓"}
+									disabled={shiftHeld ? !crossDown : isLast}
+									onClick={
+										shiftHeld
+											? () => crossDown && executeCrossLevel(crossDown)
+											: handleMoveDown
+									}
 								/>
 
 								<Menu.Separator className="mx-2 h-px bg-white/[0.06]" />

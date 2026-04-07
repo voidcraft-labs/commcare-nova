@@ -49,7 +49,7 @@ export function PreviewShell({
 
 			<div
 				data-preview-scroll-container
-				className="flex-1 overflow-y-auto overflow-x-hidden bg-pv-bg"
+				className="flex-1 overflow-y-auto overflow-x-hidden bg-pv-bg [overflow-anchor:none]"
 				style={topInset ? { paddingTop: topInset } : undefined}
 			>
 				{screen.type === "home" && <HomeScreen />}
