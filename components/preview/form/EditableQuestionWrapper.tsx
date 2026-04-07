@@ -75,37 +75,47 @@ export function EditableQuestionWrapper({
 		if (holdReady) setHoldReady(false);
 	}
 
-	/** Select this question in the builder and scroll its tree row into view. */
-	const selectQuestion = useCallback(() => {
-		if (moduleIndex === undefined || formIndex === undefined) return;
-		engine.navigateTo({
-			type: "question",
-			moduleIndex,
-			formIndex,
-			questionPath,
-			questionUuid,
-		});
-		/* Scroll the structure sidebar tree row into view only if it's
-		 * off-screen — don't disrupt the tree position when the row is visible. */
-		const treeRow = document.querySelector(
-			`[data-tree-question="${questionPath}"]`,
-		) as HTMLElement | null;
-		if (treeRow) {
-			const parent = treeRow.closest(
-				'[class*="overflow-auto"]',
+	/** Select this question in the builder and scroll its tree row into view.
+	 *  `hasToolbar` signals that a text-editable zone was clicked — the scroll
+	 *  target needs extra clearance for the floating TipTap label toolbar. */
+	const selectQuestion = useCallback(
+		(hasToolbar = false) => {
+			if (moduleIndex === undefined || formIndex === undefined) return;
+			engine.navigateTo(
+				{
+					type: "question",
+					moduleIndex,
+					formIndex,
+					questionPath,
+					questionUuid,
+				},
+				"smooth",
+				hasToolbar,
+			);
+			/* Scroll the structure sidebar tree row into view only if it's
+			 * off-screen — don't disrupt the tree position when the row is visible. */
+			const treeRow = document.querySelector(
+				`[data-tree-question="${questionPath}"]`,
 			) as HTMLElement | null;
-			if (parent) {
-				const parentRect = parent.getBoundingClientRect();
-				const rowRect = treeRow.getBoundingClientRect();
-				const isVisible =
-					rowRect.top >= parentRect.top && rowRect.bottom <= parentRect.bottom;
-				if (!isVisible) {
-					treeRow.style.scrollMarginTop = "20px";
-					treeRow.scrollIntoView({ behavior: "smooth", block: "start" });
+			if (treeRow) {
+				const parent = treeRow.closest(
+					'[class*="overflow-auto"]',
+				) as HTMLElement | null;
+				if (parent) {
+					const parentRect = parent.getBoundingClientRect();
+					const rowRect = treeRow.getBoundingClientRect();
+					const isVisible =
+						rowRect.top >= parentRect.top &&
+						rowRect.bottom <= parentRect.bottom;
+					if (!isVisible) {
+						treeRow.style.scrollMarginTop = "20px";
+						treeRow.scrollIntoView({ behavior: "smooth", block: "start" });
+					}
 				}
 			}
-		}
-	}, [engine, moduleIndex, formIndex, questionPath, questionUuid]);
+		},
+		[engine, moduleIndex, formIndex, questionPath, questionUuid],
+	);
 
 	const handleClick = useCallback(
 		(e: React.MouseEvent) => {
@@ -117,19 +127,37 @@ export function EditableQuestionWrapper({
 			if (!e.currentTarget.contains(target)) return;
 			// Don't intercept clicks inside the inline settings panel, nested wrappers, or insertion points
 			if (target.closest("[data-no-drag]")) return;
+			/* Nested wrapper guard — if the click landed inside a child question's
+			 * wrapper, bail so only that child handles selection. Must run before
+			 * the text-editable check: without this, clicking a nested question's
+			 * label (a [data-text-editable] zone) would match here and select the
+			 * GROUP, then the child's handler would re-select the child — two
+			 * navigateTo calls with two scrollTo targets, the second missing the
+			 * collapsing panel compensation from the first. */
+			const closestWrapper = target.closest("[data-question-wrapper]");
+			if (closestWrapper && closestWrapper !== e.currentTarget) return;
 			/* Let clicks on text-editable zones pass through — select the question
-			 * but don't stop propagation so TextEditable's handler also fires. */
+			 * but don't stop propagation so TextEditable's handler also fires.
+			 * Pass hasToolbar so the scroll leaves clearance for the floating
+			 * TipTap label toolbar that will render above the question.
+			 *
+			 * If the question is already selected, navigateTo won't trigger a
+			 * re-render (selection unchanged), so fulfillPendingScroll never
+			 * fires. Call scrollToQuestion directly to ensure the toolbar gets
+			 * clearance when activating a text editor on the current question. */
 			if (target.closest("[data-text-editable]")) {
-				selectQuestion();
+				if (isSelected) {
+					engine.scrollToQuestion(questionUuid, undefined, "smooth", true);
+				} else {
+					selectQuestion(true);
+				}
 				return;
 			}
 			if (target.closest("[data-insertion-point]")) return;
-			const closestWrapper = target.closest("[data-question-wrapper]");
-			if (closestWrapper && closestWrapper !== e.currentTarget) return;
 			e.stopPropagation();
 			selectQuestion();
 		},
-		[moduleIndex, formIndex, selectQuestion],
+		[moduleIndex, formIndex, selectQuestion, isSelected, questionUuid, engine],
 	);
 
 	/** Keyboard activation — Enter or Space selects this question, matching

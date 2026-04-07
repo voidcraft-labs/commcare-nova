@@ -100,10 +100,17 @@ const STRUCTURE_SIDEBAR_WIDTH = 320;
  *  Used as top inset on PreviewShell so content starts below the overlay. */
 const TOOLBAR_INSET = 56;
 
-/** Scroll margin below the toolbar overlay. In edit mode the floating TipTap
- *  label toolbar (~44px + 6px gap) renders above the question — this margin
- *  ensures the toolbar stays visible below the cursor mode overlay. */
-const SCROLL_MARGIN = 60;
+/** Extra space above the scroll target so the question isn't flush with the
+ *  cursor mode overlay. Two values: a compact margin for plain selection,
+ *  and an expanded margin when a TipTap inline editor is active (the
+ *  floating label toolbar ~44px + 6px gap renders above the question via
+ *  portal — the expanded margin keeps the toolbar in its "free" positioning
+ *  regime, not immediately clamped against the overlay). The scroll function
+ *  checks for a `.tiptap` element inside the question to pick the right
+ *  margin — present when a text-editable click activated the editor in the
+ *  same React commit, absent for non-text clicks and tree sidebar nav. */
+const SCROLL_MARGIN = 20;
+const SCROLL_MARGIN_WITH_TOOLBAR = 60;
 
 /** Create a Chat instance with transport, data handling, and auto-resend config.
  *  Closures capture refs (not direct values) so they always read the latest
@@ -495,22 +502,31 @@ export function BuilderLayout() {
 	 * Scroll the design canvas so the target element is pinned to the top
 	 * of the visible region (below the toolbar overlay).
 	 *
-	 * Accounts for two layout complexities:
-	 * 1. **Toolbar overlay** — the glassmorphic cursor mode toolbar is absolutely
-	 *    positioned over the top of the scroll container. The visible region starts
-	 *    at `containerRect.top + paddingTop` (set by PreviewShell's `topInset`).
-	 * 2. **Collapsing InlineSettingsPanel** — when selection changes, the old
-	 *    panel is still at full height in the DOM (AnimatePresence exit hasn't
-	 *    started). If it's above the target, its height is subtracted from the
-	 *    scroll target to compensate for the layout shift during collapse.
+	 * Uses a rAF-driven animation instead of native `scrollTo({ behavior:
+	 * "smooth" })` because panel mount/unmount causes layout shifts that
+	 * make the browser abandon native smooth scrolling mid-flight. The rAF
+	 * loop recalculates the element's position every frame, so it tracks
+	 * the target correctly even when the old InlineSettingsPanel unmounts
+	 * and shifts content upward.
+	 *
+	 * The glassmorphic cursor mode toolbar is absolutely positioned over the
+	 * top of the scroll container. The visible region starts at
+	 * `containerRect.top + paddingTop` (set by PreviewShell's `topInset`).
 	 */
+	const scrollAnimationRef = useRef<number | null>(null);
 	const scrollToQuestion = useCallback(
 		(
 			questionUuid: string,
-			prevUuid?: string,
 			overrideTarget?: HTMLElement,
 			behavior: ScrollBehavior = "smooth",
+			hasToolbar = false,
 		) => {
+			/* Cancel any in-flight scroll animation. */
+			if (scrollAnimationRef.current !== null) {
+				cancelAnimationFrame(scrollAnimationRef.current);
+				scrollAnimationRef.current = null;
+			}
+
 			const questionEl = document.querySelector(
 				`[data-question-uuid="${questionUuid}"]`,
 			) as HTMLElement | null;
@@ -524,52 +540,69 @@ export function BuilderLayout() {
 			 * question wrapper itself. */
 			const el = overrideTarget ?? questionEl;
 
-			/* Measure collapsing panel height shift when switching questions.
-			 * The old InlineSettingsPanel is still at full height in the DOM
-			 * (AnimatePresence exit hasn't started). Only compensate when the
-			 * panel is above the target — i.e., its collapse will shift the
-			 * target upward. Check the panel's position directly, not the
-			 * previous question's, because children inside a group are above
-			 * the group's panel even though they're below the group element. */
-			let collapsingShift = 0;
-			if (prevUuid && prevUuid !== questionUuid) {
-				const prevEl = scrollContainer.querySelector(
-					`[data-question-uuid="${prevUuid}"]`,
-				) as HTMLElement | null;
-				if (prevEl) {
-					const panel = prevEl.nextElementSibling as HTMLElement | null;
-					if (panel?.hasAttribute("data-settings-panel")) {
-						const panelRect = panel.getBoundingClientRect();
-						if (panelRect.top < el.getBoundingClientRect().top) {
-							collapsingShift = panelRect.height;
-						}
-					}
-				}
+			/** Compute the element's absolute offset within the scroll
+			 *  container — independent of the current scrollTop. This is
+			 *  the scrollTop value that would pin the element to the top
+			 *  of the visible region. Recalculated each frame so panel
+			 *  mount/unmount layout shifts are tracked correctly. */
+			const paddingTop = scrollContainer.style.paddingTop
+				? Number.parseInt(scrollContainer.style.paddingTop, 10)
+				: 0;
+			/* Use the expanded margin when the click activated a text-editable
+			 * zone — the floating TipTap label toolbar will render above the
+			 * question and needs clearance below the cursor mode overlay. */
+			const margin = hasToolbar ? SCROLL_MARGIN_WITH_TOOLBAR : SCROLL_MARGIN;
+			const measureTarget = (): number => {
+				const containerRect = scrollContainer.getBoundingClientRect();
+				const elRect = el.getBoundingClientRect();
+				/* elRect.top - containerRect.top gives the element's visual
+				 * offset from the container's top edge. Adding scrollTop
+				 * converts that to an absolute offset within the scrollable
+				 * content. Subtracting paddingTop and margin pins it below
+				 * the toolbar overlay. */
+				const absoluteOffset =
+					elRect.top - containerRect.top + scrollContainer.scrollTop;
+				return Math.max(0, absoluteOffset - paddingTop - margin);
+			};
+
+			/* Instant scroll — no animation needed. */
+			if (behavior === "instant") {
+				scrollContainer.scrollTop = measureTarget();
+				return;
 			}
 
-			const containerRect = scrollContainer.getBoundingClientRect();
-			const elRect = el.getBoundingClientRect();
-			/* Top of the visible region, accounting for the toolbar overlay. */
-			const visibleTop =
-				containerRect.top +
-				(scrollContainer.style.paddingTop
-					? Number.parseInt(scrollContainer.style.paddingTop, 10)
-					: 0);
-			const adjustedTop = elRect.top - collapsingShift;
-			/* Always pin to the top — don't skip when already visible. */
-			const targetScrollTop =
-				scrollContainer.scrollTop + adjustedTop - visibleTop - SCROLL_MARGIN;
-			scrollContainer.scrollTo({
-				top: Math.max(0, targetScrollTop),
-				behavior,
-			});
+			/* rAF-driven smooth scroll — ease-out over ~300ms. Each frame
+			 * recalculates the target position so panel transitions (old
+			 * panel unmounting, content shifting upward) don't invalidate
+			 * the destination. startTop is captured once; the easing curve
+			 * interpolates between startTop and the live target. */
+			const duration = 300;
+			const startTime = performance.now();
+			const startTop = scrollContainer.scrollTop;
+
+			const step = (now: number) => {
+				const elapsed = now - startTime;
+				const progress = Math.min(elapsed / duration, 1);
+				/* Ease-out cubic — fast start, gentle deceleration. */
+				const eased = 1 - (1 - progress) ** 3;
+
+				const targetTop = measureTarget();
+				scrollContainer.scrollTop = startTop + (targetTop - startTop) * eased;
+
+				if (progress < 1) {
+					scrollAnimationRef.current = requestAnimationFrame(step);
+				} else {
+					scrollAnimationRef.current = null;
+				}
+			};
+			scrollAnimationRef.current = requestAnimationFrame(step);
 		},
 		[],
 	);
 
-	/* Register the scroll implementation so `builder.navigateTo()` can
-	 * scroll the design canvas. BuilderLayout owns the DOM — the Builder
-	 * service just invokes the callback when navigation intent is expressed. */
+	/* Register the scroll implementation so the engine can invoke it.
+	 * Called directly by `engine.fulfillPendingScroll()` (from the panel
+	 * mount effect) and `engine.scrollToQuestion()` (from undo/redo). */
 	useEffect(() => {
 		builder.registerScrollCallback(scrollToQuestion);
 		return () => builder.clearScrollCallback();
@@ -598,22 +631,6 @@ export function BuilderLayout() {
 	);
 
 	/**
-	 * Check whether the InlineSettingsPanel is currently mounted for a
-	 * given question (by UUID). The panel renders as the next sibling of
-	 * the question wrapper, tagged with `data-settings-panel`.
-	 *
-	 * Because UUIDs are stable across renames, this returns true for
-	 * same-question rename undos — the panel never unmounted.
-	 */
-	const isPanelMounted = useCallback((questionUuid: string): boolean => {
-		const questionEl = document.querySelector(
-			`[data-question-uuid="${questionUuid}"]`,
-		) as HTMLElement | null;
-		const next = questionEl?.nextElementSibling as HTMLElement | null;
-		return next?.hasAttribute("data-settings-panel") ?? false;
-	}, []);
-
-	/**
 	 * Shared restore logic for undo/redo — calls temporal undo/redo,
 	 * then scrolls to the affected field with a violet flash highlight.
 	 *
@@ -622,19 +639,8 @@ export function BuilderLayout() {
 	 * `flushSync` forces React to commit the external store update before
 	 * any DOM queries. This eliminates the need for requestAnimationFrame
 	 * timing hacks — fields toggled into existence by the undo are
-	 * immediately queryable.
-	 *
-	 * Two scroll strategies based on panel state:
-	 * 1. **Panel already mounted** (same question — UUID matches even after
-	 *    rename): instant scroll + flash. The user is already viewing this
-	 *    panel, so the flash guides their eye to the change.
-	 * 2. **Panel will mount** (cross-question or cross-form undo): defer to
-	 *    motion's `onAnimationComplete` via `setPendingPanelScroll`, then
-	 *    instant-scroll. The entrance animation provides the visual cue;
-	 *    the flash fires after it completes to pinpoint the field.
-	 *
-	 * With UUID-based identity, rename undos always take path 1 — the UUID
-	 * never changes, so `isPanelMounted` always finds the panel.
+	 * immediately queryable. The panel mounts synchronously (no animation),
+	 * so fields are always in the DOM after flushSync.
 	 */
 	const applyUndoRedo = useCallback(
 		(action: "undo" | "redo") => {
@@ -663,46 +669,19 @@ export function BuilderLayout() {
 				builder.setFocusHint(fieldId);
 			}
 
-			/** Scroll to the affected element, then flash it.
-			 *  The specific field wrapper if activeFieldId names one, otherwise
-			 *  the question card itself. */
-			const scrollAndFlash = (behavior: ScrollBehavior) => {
-				const targetEl = findFieldElement(questionUuid, fieldId);
-				scrollToQuestion(
-					questionUuid,
-					undefined,
-					targetEl ?? undefined,
-					behavior,
-				);
-				const flashEl =
-					targetEl ??
-					(document.querySelector(
-						`[data-question-uuid="${questionUuid}"]`,
-					) as HTMLElement | null);
-				if (flashEl) flashUndoHighlight(flashEl);
-			};
-
-			if (isPanelMounted(questionUuid)) {
-				/* Same-question undo (UUID is stable — true even for rename
-				 * undos). Instant scroll + flash — undo/redo is a state-change
-				 * affordance ("this changed"), not navigation. */
-				scrollAndFlash("instant");
-			} else {
-				/* Cross-question or cross-form undo — panel will mount with an
-				 * entrance animation. Defer until `onAnimationComplete`, then
-				 * instant-scroll (the animation itself provides the visual cue). */
-				builder.setPendingPanelScroll(questionUuid, () =>
-					scrollAndFlash("instant"),
-				);
-			}
+			/* Instant scroll + flash — undo/redo is a state-change affordance
+			 * ("this changed"), not navigation. Target the specific field wrapper
+			 * if activeFieldId names one, otherwise the question card itself. */
+			const targetEl = findFieldElement(questionUuid, fieldId);
+			builder.scrollToQuestion(questionUuid, targetEl ?? undefined, "instant");
+			const flashEl =
+				targetEl ??
+				(document.querySelector(
+					`[data-question-uuid="${questionUuid}"]`,
+				) as HTMLElement | null);
+			if (flashEl) flashUndoHighlight(flashEl);
 		},
-		[
-			builder,
-			scrollToQuestion,
-			findFieldElement,
-			isPanelMounted,
-			flashUndoHighlight,
-		],
+		[builder, findFieldElement, flashUndoHighlight],
 	);
 
 	const handleUndo = useCallback(() => {

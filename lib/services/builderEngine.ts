@@ -50,17 +50,27 @@ export class BuilderEngine {
 	private _editScope: EditScope | null = null;
 	/** Callback that can block select() when an inline editor has unsaved content. */
 	private _editGuard: (() => boolean) | null = null;
-	/** Scroll implementation owned by BuilderLayout. Called by navigateTo(). */
+	/** Scroll implementation owned by BuilderLayout. Fulfilled by the panel
+	 *  mount effect when a pending scroll request exists. */
 	private _scrollCallback:
-		| ((questionUuid: string, prevUuid?: string) => void)
+		| ((
+				questionUuid: string,
+				overrideTarget?: HTMLElement,
+				behavior?: ScrollBehavior,
+				hasToolbar?: boolean,
+		  ) => void)
 		| null = null;
+	/** Pending scroll request — set by `navigateTo()`, consumed by the
+	 *  selected question's mount effect. This decouples intent ("scroll to
+	 *  this question") from timing ("the panel is in the DOM and ready").
+	 *  Carries the target UUID and desired scroll behavior so cross-screen
+	 *  navigations can request instant scroll (smooth is meaningless when
+	 *  the entire form content swaps out). */
+	private _pendingScroll:
+		| { uuid: string; behavior: ScrollBehavior; hasToolbar: boolean }
+		| undefined;
 	/** Transient field key to focus after undo/redo. Consumed once by InlineSettingsPanel. */
 	private _focusHint: string | undefined;
-	/** One-shot scroll callback for undo/redo scroll-after-animation. */
-	private _pendingPanelScroll?: {
-		questionUuid: string;
-		callback: () => void;
-	};
 	/** Blocks undo/redo during dnd-kit drag operations. */
 	private _isDragging = false;
 	/** UUID of a just-added question — activates auto-focus and select-all behaviors. */
@@ -129,20 +139,6 @@ export class BuilderEngine {
 		this._focusHint = undefined;
 	}
 
-	// ── Pending panel scroll (one-shot callback for undo/redo) ───────────
-
-	setPendingPanelScroll(questionUuid: string, callback: () => void): void {
-		this._pendingPanelScroll = { questionUuid, callback };
-	}
-
-	completePanelAnimation(questionUuid: string): void {
-		if (this._pendingPanelScroll?.questionUuid === questionUuid) {
-			const cb = this._pendingPanelScroll.callback;
-			this._pendingPanelScroll = undefined;
-			cb();
-		}
-	}
-
 	// ── New question state ──────────────────────────────────────────────
 
 	markNewQuestion(uuid: string): void {
@@ -167,16 +163,45 @@ export class BuilderEngine {
 		this._editGuard = null;
 	}
 
-	// ── Scroll callback ─────────────────────────────────────────────────
+	// ── Scroll ─────────────────────────────────────────────────────────
 
+	/** Register the DOM scroll implementation owned by BuilderLayout. */
 	registerScrollCallback(
-		cb: (questionUuid: string, prevUuid?: string) => void,
+		cb: (
+			questionUuid: string,
+			overrideTarget?: HTMLElement,
+			behavior?: ScrollBehavior,
+			hasToolbar?: boolean,
+		) => void,
 	): void {
 		this._scrollCallback = cb;
 	}
 
 	clearScrollCallback(): void {
 		this._scrollCallback = null;
+	}
+
+	/** Consume the pending scroll request if it matches the given UUID.
+	 *  Called by the selected question's mount effect — the panel is in the
+	 *  DOM and ready to be measured. Returns true if a scroll was executed. */
+	fulfillPendingScroll(questionUuid: string): boolean {
+		if (this._pendingScroll?.uuid !== questionUuid) return false;
+		const { behavior, hasToolbar } = this._pendingScroll;
+		this._pendingScroll = undefined;
+		this._scrollCallback?.(questionUuid, undefined, behavior, hasToolbar);
+		return true;
+	}
+
+	/** Directly scroll to a question without pending — used by undo/redo
+	 *  where `flushSync` guarantees the DOM is already committed, and by
+	 *  text-editable activation on an already-selected question. */
+	scrollToQuestion(
+		questionUuid: string,
+		overrideTarget?: HTMLElement,
+		behavior?: ScrollBehavior,
+		hasToolbar?: boolean,
+	): void {
+		this._scrollCallback?.(questionUuid, overrideTarget, behavior, hasToolbar);
 	}
 
 	// ── Drag state ──────────────────────────────────────────────────────
@@ -291,13 +316,25 @@ export class BuilderEngine {
 		this.store.getState().select(el);
 	}
 
-	/** Navigate to a question — sets selection and scrolls the design canvas. */
-	navigateTo(el: SelectedElement): void {
-		const prevUuid = this.store.getState().selected?.questionUuid;
-		this.select(el);
-		if (el.questionUuid && this._scrollCallback) {
-			this._scrollCallback(el.questionUuid, prevUuid);
+	/** Navigate to a question — sets selection and requests a scroll.
+	 *  The scroll executes when the selected question's panel mounts and
+	 *  calls `fulfillPendingScroll()` from its effect. This guarantees the
+	 *  panel is in the DOM before any position measurement — no flushSync,
+	 *  no rAF, no collapsing-panel compensation.
+	 *
+	 *  `behavior` defaults to `"smooth"` for same-screen navigation (panel
+	 *  swap within the same form). Cross-screen callers pass `"instant"`
+	 *  because the entire form content swaps out — smooth scrolling from a
+	 *  stale scroll position produces a disorienting animation. */
+	navigateTo(
+		el: SelectedElement,
+		behavior: ScrollBehavior = "smooth",
+		hasToolbar = false,
+	): void {
+		if (el.questionUuid) {
+			this._pendingScroll = { uuid: el.questionUuid, behavior, hasToolbar };
 		}
+		this.select(el);
 	}
 
 	// ── Navigation + selection sync ─────────────────────────────────────
@@ -348,9 +385,14 @@ export class BuilderEngine {
 	 * Handle tree selection: navigate engine (select + scroll) and push the
 	 * correct preview screen. Combines `navigateTo()` (scroll side effect)
 	 * with screen-level navigation based on the selection type.
-	 */
+	 *
+	 * Uses instant scroll because tree clicks typically trigger a screen
+	 * change (different form/module) — the entire content swaps out, so
+	 * smooth scrolling from the old scroll position is disorienting. For
+	 * same-form clicks the screen key is unchanged and AnimatePresence
+	 * doesn't re-mount, so instant still feels natural. */
 	navigateToSelection(sel: SelectedElement): void {
-		this.navigateTo(sel);
+		this.navigateTo(sel, "instant");
 		const s = this.store.getState();
 		if (!sel) {
 			s.navigateToHome();
