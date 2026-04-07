@@ -105,14 +105,59 @@ function LabelToolbar({
 		if (!anchor || !portal) return;
 
 		/** Reposition the toolbar via direct DOM mutation — no React re-render.
-		 * Fires on every scroll (capture) and resize, so it must be cheap. */
+		 * Fires on every scroll (capture) and resize, so it must be cheap.
+		 *
+		 * Three regimes as the editor scrolls up:
+		 * 1. **Free** — toolbar floats above the anchor with a 6px gap (default).
+		 * 2. **Clamped** — toolbar would escape above the cursor-mode overlay,
+		 *    so it pins to the overlay's bottom edge and the gap compresses.
+		 * 3. **Hidden** — anchor itself has scrolled under the pinned toolbar
+		 *    (gap compressed to zero), so the toolbar disappears. */
+		const GAP = 6;
+
 		const update = () => {
 			const rect = anchor.getBoundingClientRect();
+			const container = anchor.closest(
+				"[data-preview-scroll-container]",
+			) as HTMLElement | null;
+			const containerRect = container?.getBoundingClientRect();
+
+			/* The scroll container may have top padding (topInset) to push content
+			 * below the glassmorphic cursor-mode toolbar overlay. The visible
+			 * content region starts at containerTop + paddingTop, not containerTop. */
+			const paddingTop = container
+				? Number.parseFloat(getComputedStyle(container).paddingTop) || 0
+				: 0;
+			const visibleTop = containerRect ? containerRect.top + paddingTop : 0;
+			const visibleBottom = containerRect
+				? containerRect.bottom
+				: window.innerHeight;
+
+			const toolbarHeight = portal.offsetHeight;
+
+			/* Ideal top edge: above anchor with a 6px gap. */
+			const idealTop = rect.top - toolbarHeight - GAP;
+			/* Clamped: toolbar pins just below the subheader instead of escaping
+			 * above it. The floor is 10px below the subheader so the push-down
+			 * engages slightly before the toolbar would hit the actual edge,
+			 * making the transition feel smooth rather than abrupt. */
+			const clampFloor = visibleTop + 20;
+			const clampedTop = Math.max(clampFloor, idealTop);
+
+			/* Hide when the anchor has fully scrolled above the visible region,
+			 * when the toolbar's bottom would overlap the anchor's bottom edge
+			 * (editor scrolled down past the toolbar), or below the container. */
+			const toolbarBottom = clampedTop + toolbarHeight;
+			const hidden =
+				rect.bottom < visibleTop ||
+				toolbarBottom >= rect.bottom ||
+				rect.top > visibleBottom;
+
 			portal.style.position = "fixed";
 			portal.style.left = `${rect.left}px`;
-			portal.style.top = `${rect.top}px`;
-			portal.style.transform = "translateY(-100%) translateY(-6px)";
-			portal.style.visibility = "visible";
+			portal.style.top = `${clampedTop}px`;
+			portal.style.transform = "none";
+			portal.style.visibility = hidden ? "hidden" : "visible";
 		};
 
 		update();

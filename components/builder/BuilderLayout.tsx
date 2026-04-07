@@ -100,9 +100,10 @@ const STRUCTURE_SIDEBAR_WIDTH = 320;
  *  Used as top inset on PreviewShell so content starts below the overlay. */
 const TOOLBAR_INSET = 56;
 
-/** Scroll margin below the toolbar overlay — keeps the target element from
- *  being flush against the overlay when snapping to the top. */
-const SCROLL_MARGIN = 20;
+/** Scroll margin below the toolbar overlay. In edit mode the floating TipTap
+ *  label toolbar (~44px + 6px gap) renders above the question — this margin
+ *  ensures the toolbar stays visible below the cursor mode overlay. */
+const SCROLL_MARGIN = 60;
 
 /** Create a Chat instance with transport, data handling, and auto-resend config.
  *  Closures capture refs (not direct values) so they always read the latest
