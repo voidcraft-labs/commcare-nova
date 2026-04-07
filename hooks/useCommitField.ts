@@ -153,11 +153,13 @@ export function useCommitField({
 				if (multiline) {
 					if (e.metaKey || e.ctrlKey) {
 						e.preventDefault();
+						e.stopPropagation();
 						commit();
 					}
 					return;
 				}
 				e.preventDefault();
+				e.stopPropagation();
 				commit();
 			}
 			if (e.key === "Escape") {
