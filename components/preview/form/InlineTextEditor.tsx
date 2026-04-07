@@ -21,9 +21,9 @@
  * **Hints** — BubbleMenu with default shouldShow (text selection only).
  * Bold and italic MarkButton only.
  *
- * Save: blur, Escape, or Cmd/Ctrl+Enter. Cancel: no separate cancel — every
- * blur saves. Tab/Shift+Tab: save current, activate next/previous TextEditable
- * in DOM order.
+ * Save: blur, Cmd/Ctrl+Enter. Cancel: Escape reverts to original value.
+ * Tab/Shift+Tab: save current, activate next/previous TextEditable in DOM
+ * order.
  */
 
 "use client";
@@ -58,8 +58,10 @@ type FieldType = "label" | "hint";
 interface InlineTextEditorProps {
 	/** Current markdown value for this field. */
 	value: string;
-	/** Called with the new markdown value when the editor saves (blur/Escape). */
+	/** Called with the new markdown value when the editor saves (blur/Cmd+Enter). */
 	onSave: (value: string) => void;
+	/** Called when the user cancels editing (Escape). Reverts to original value. */
+	onCancel: () => void;
 	/** Which text surface this editor replaces — drives styling to match. */
 	fieldType: FieldType;
 	/** Whether to auto-focus the editor on mount. */
@@ -191,6 +193,7 @@ function CompactToolbar() {
 export function InlineTextEditor({
 	value,
 	onSave,
+	onCancel,
 	fieldType,
 	autoFocus,
 	clickPosition,
@@ -199,7 +202,7 @@ export function InlineTextEditor({
 	const savedRef = useRef(false);
 	const anchorRef = useRef<HTMLDivElement>(null);
 
-	/** Save the current editor content as markdown. Guards against double-save. */
+	/** Save the current editor content as markdown. Guards against double-fire. */
 	const saveAndDeactivate = useCallback(
 		(editor: Editor | null) => {
 			if (savedRef.current || !editor) return;
@@ -210,8 +213,17 @@ export function InlineTextEditor({
 		[onSave],
 	);
 
+	/** Cancel editing — revert to the original value without saving. */
+	const cancelAndDeactivate = useCallback(() => {
+		if (savedRef.current) return;
+		savedRef.current = true;
+		onCancel();
+	}, [onCancel]);
+
 	const saveRef = useRef(saveAndDeactivate);
 	saveRef.current = saveAndDeactivate;
+	const cancelRef = useRef(cancelAndDeactivate);
+	cancelRef.current = cancelAndDeactivate;
 
 	/**
 	 * TipTap keyboard extension for Tab/Shift+Tab navigation between
@@ -241,7 +253,7 @@ export function InlineTextEditor({
 							return true;
 						},
 						Escape: ({ editor }) => {
-							saveRef.current(editor);
+							cancelRef.current();
 							editor.commands.blur();
 							return true;
 						},
