@@ -68,8 +68,8 @@ export function InlineSettingsPanel({ question }: InlineSettingsPanelProps) {
 			<ContextualEditorFooter question={question} />
 
 			<div className="p-2 space-y-2">
-				{/* Data owns its own visibility — returns null when it has
-				    no fields to display (ID lives in the header). */}
+				{/* Data and Appearance own their own visibility — return null
+				    when the question type has no applicable fields. */}
 				<ContextualEditorData question={question} />
 
 				<div className={SECTION_CARD_CLASS}>
@@ -77,13 +77,7 @@ export function InlineSettingsPanel({ question }: InlineSettingsPanelProps) {
 					<ContextualEditorLogic question={question} />
 				</div>
 
-				{/* Hidden questions have no visual properties */}
-				{question.type !== "hidden" && (
-					<div className={SECTION_CARD_CLASS}>
-						<SectionLabel label="Appearance" />
-						<ContextualEditorUI question={question} />
-					</div>
-				)}
+				<ContextualEditorUI question={question} />
 			</div>
 		</div>
 	);
