@@ -4,10 +4,6 @@ import { Icon } from "@iconify/react/offline";
 import tablerPlus from "@iconify-icons/tabler/plus";
 import { type RefObject, useCallback, useRef, useState } from "react";
 import { Tooltip } from "@/components/ui/Tooltip";
-import {
-	dismissContentPopovers,
-	useContentPopoverDismiss,
-} from "@/hooks/useContentPopover";
 import { useEditContext } from "@/hooks/useEditContext";
 import type { QuestionPath } from "@/lib/services/questionPath";
 import { QuestionTypePickerPopup } from "./QuestionTypePicker";
@@ -56,11 +52,6 @@ export function InsertionPoint({
 	const triggerRef = useRef<HTMLButtonElement>(null);
 	const pendingRef = useRef(false);
 	const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
-
-	/* ── Content popover coordination ──
-	 * Register for coordinated dismissal so opening another panel (e.g. form
-	 * settings) closes this menu. Only active while the menu is open. */
-	useContentPopoverDismiss(() => setMenuOpen(false), menuOpen);
 
 	const clearPoll = useCallback(() => {
 		if (pollRef.current) {
@@ -137,11 +128,10 @@ export function InsertionPoint({
 	}, []);
 
 	/** Sync local visual state when the Base UI menu opens or closes.
-	 *  Dismisses competing content popovers on open so only one floating
-	 *  panel is visible at a time. Resets hover state on close so the
-	 *  insertion line collapses back to zero-height. */
+	 *  Base UI's FloatingTreeStore handles dismissing competing floating
+	 *  elements automatically (outside-click). Resets hover state on close
+	 *  so the insertion line collapses back to zero-height. */
 	const handleOpenChange = useCallback((nextOpen: boolean) => {
-		if (nextOpen) dismissContentPopovers();
 		setMenuOpen(nextOpen);
 		if (!nextOpen) setHovered(false);
 	}, []);

@@ -3,6 +3,7 @@ import { JetBrains_Mono, Outfit, Plus_Jakarta_Sans } from "next/font/google";
 import { ErrorReporter } from "@/components/ErrorReporter";
 import { AppHeader } from "@/components/ui/AppHeader";
 import { ToastContainer } from "@/components/ui/ToastContainer";
+import { TooltipProvider } from "@/components/ui/TooltipProvider";
 import { getSession } from "@/lib/auth-utils";
 import "./globals.css";
 
@@ -58,11 +59,13 @@ export default async function RootLayout({
 						Skip to main content
 					</a>
 					<ErrorReporter />
-					<AppHeader isAdmin={isAdmin} isAuthenticated={!!session} />
-					<div id="main-content" className="flex-1 overflow-auto">
-						{children}
-					</div>
-					<ToastContainer />
+					<TooltipProvider>
+						<AppHeader isAdmin={isAdmin} isAuthenticated={!!session} />
+						<div id="main-content" className="flex-1 overflow-auto">
+							{children}
+						</div>
+						<ToastContainer />
+					</TooltipProvider>
 				</div>
 			</body>
 		</html>

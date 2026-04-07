@@ -16,10 +16,11 @@ export const POPOVER_ELEVATED =
 	"rounded-xl bg-[rgba(16,16,36,0.95)] border border-white/[0.06] shadow-[inset_0_0_0_1px_rgba(200,200,255,0.15),0_16px_40px_rgba(0,0,0,0.6)]";
 
 /* ── Base UI Menu shared styles ────────────────────────────────────────────
- * Used by ContextualEditorHeader (overflow menu) and QuestionTypePickerPopup
- * (insertion menu). Glass surface lives on the Positioner because Base UI's
- * `will-change: transform` on that layer creates a compositing boundary —
- * placing `backdrop-filter` on a descendant would sample the empty layer. */
+ * Glass/elevated surfaces live on the Positioner, not the Popup — Base UI's
+ * `will-change: transform` on the Positioner creates a compositing boundary,
+ * so `backdrop-filter` on a descendant would sample that empty layer instead
+ * of the page behind it. This constraint applies to all floating elements
+ * (menus, popovers, tooltips). */
 
 /** Base classes shared by every menu item (normal, disabled, submenu trigger). */
 export const MENU_ITEM_BASE =
@@ -42,3 +43,18 @@ export const MENU_SUBMENU_POSITIONER_CLS =
 /** Popup animation — scale + fade entrance/exit via Base UI data attributes. */
 export const MENU_POPUP_CLS =
 	"overflow-hidden rounded-xl origin-[var(--transform-origin)] transition-[transform,scale,opacity] data-[ending-style]:scale-95 data-[ending-style]:opacity-0 data-[starting-style]:scale-95 data-[starting-style]:opacity-0";
+
+/* ── Base UI Popover shared styles ────────────────────────────────────────
+ * Same glass/elevated surface split as menus (see constraint above). */
+
+/** Glass-surfaced positioner (L1) for primary popover panels. */
+export const POPOVER_POSITIONER_GLASS_CLS =
+	"outline-none z-popover rounded-xl bg-[rgba(10,10,26,0.4)] backdrop-blur-[10px] [-webkit-backdrop-filter:blur(10px)] outline-[rgba(255,255,255,0.06)] outline-1 shadow-[inset_0_0_0_1px_rgba(200,200,255,0.18),0_24px_48px_rgba(0,0,0,0.5)]";
+
+/** Elevated positioner (L2) for popovers stacked above a glass parent. */
+export const POPOVER_POSITIONER_ELEVATED_CLS =
+	"outline-none z-popover rounded-xl bg-[rgba(16,16,36,0.95)] outline-[rgba(255,255,255,0.06)] outline-1 shadow-[inset_0_0_0_1px_rgba(200,200,255,0.15),0_16px_40px_rgba(0,0,0,0.6)]";
+
+/** Popup animation — scale + fade, same motion language as menus. */
+export const POPOVER_POPUP_CLS =
+	"rounded-xl origin-[var(--transform-origin)] transition-[transform,scale,opacity] data-[ending-style]:scale-[0.97] data-[ending-style]:opacity-0 data-[starting-style]:scale-[0.97] data-[starting-style]:opacity-0";

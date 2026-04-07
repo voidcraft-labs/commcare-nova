@@ -1,9 +1,10 @@
 "use client";
+import { Popover } from "@base-ui/react/popover";
 import { Icon } from "@iconify/react/offline";
 import tablerCheck from "@iconify-icons/tabler/check";
 import { AnimatePresence, motion } from "motion/react";
 import { useCallback, useState } from "react";
-import { useDismissRef } from "@/hooks/useDismissRef";
+import { POPOVER_POPUP_CLS, POPOVER_POSITIONER_GLASS_CLS } from "@/lib/styles";
 
 interface EditableDropdownProps {
 	label: string;
@@ -22,7 +23,6 @@ export function EditableDropdown({
 }: EditableDropdownProps) {
 	const [open, setOpen] = useState(false);
 	const [saved, setSaved] = useState(false);
-	const dismissRef = useDismissRef(() => setOpen(false));
 
 	const handleSelect = useCallback(
 		(v: string) => {
@@ -60,48 +60,45 @@ export function EditableDropdown({
 					)}
 				</AnimatePresence>
 			</span>
-			<div ref={dismissRef} className="relative">
-				<button
-					type="button"
-					onClick={() => setOpen(!open)}
-					className="cursor-pointer hover:opacity-80 transition-opacity text-left"
-				>
+			<Popover.Root open={open} onOpenChange={setOpen}>
+				<Popover.Trigger className="cursor-pointer hover:opacity-80 transition-opacity text-left">
 					{renderValue ? (
 						renderValue(value)
 					) : (
 						<span className="text-sm capitalize">{currentLabel}</span>
 					)}
-				</button>
-				<AnimatePresence>
-					{open && (
-						<motion.div
-							initial={{ opacity: 0, y: -4 }}
-							animate={{ opacity: 1, y: 0 }}
-							exit={{ opacity: 0, y: -4 }}
-							transition={{ duration: 0.12 }}
-							className="absolute z-popover top-full mt-1 left-0 min-w-[160px] bg-nova-surface border border-nova-border rounded-lg shadow-lg overflow-hidden"
-						>
-							{options.map((opt) => (
-								<button
-									type="button"
-									key={opt.value}
-									onClick={() => handleSelect(opt.value)}
-									className={`w-full text-left px-3 py-1.5 text-sm cursor-pointer hover:bg-nova-elevated/80 transition-colors flex items-center gap-2 ${
-										opt.value === value
-											? "text-nova-violet-bright"
-											: "text-nova-text-secondary"
-									}`}
-								>
-									<span
-										className={`w-1.5 h-1.5 rounded-full shrink-0 ${opt.value === value ? "bg-nova-violet" : "bg-transparent"}`}
-									/>
-									{opt.label}
-								</button>
-							))}
-						</motion.div>
-					)}
-				</AnimatePresence>
-			</div>
+				</Popover.Trigger>
+				<Popover.Portal>
+					<Popover.Positioner
+						side="bottom"
+						align="start"
+						sideOffset={4}
+						className={POPOVER_POSITIONER_GLASS_CLS}
+					>
+						<Popover.Popup className={POPOVER_POPUP_CLS}>
+							<div className="min-w-[160px] overflow-hidden">
+								{options.map((opt) => (
+									<button
+										type="button"
+										key={opt.value}
+										onClick={() => handleSelect(opt.value)}
+										className={`w-full text-left px-3 py-1.5 text-sm cursor-pointer hover:bg-nova-elevated/80 transition-colors flex items-center gap-2 ${
+											opt.value === value
+												? "text-nova-violet-bright"
+												: "text-nova-text-secondary"
+										}`}
+									>
+										<span
+											className={`w-1.5 h-1.5 rounded-full shrink-0 ${opt.value === value ? "bg-nova-violet" : "bg-transparent"}`}
+										/>
+										{opt.label}
+									</button>
+								))}
+							</div>
+						</Popover.Popup>
+					</Popover.Positioner>
+				</Popover.Portal>
+			</Popover.Root>
 		</div>
 	);
 }

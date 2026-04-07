@@ -1,10 +1,10 @@
 "use client";
+import { Popover } from "@base-ui/react/popover";
 import { Icon } from "@iconify/react/offline";
 import tablerChevronRight from "@iconify-icons/tabler/chevron-right";
-import { AnimatePresence, motion } from "motion/react";
 import { Fragment, memo, useState } from "react";
 import { Tooltip } from "@/components/ui/Tooltip";
-import { useDismissRef } from "@/hooks/useDismissRef";
+import { POPOVER_POPUP_CLS, POPOVER_POSITIONER_GLASS_CLS } from "@/lib/styles";
 
 /** A breadcrumb segment with a label, stable identity key, and navigation callback. */
 export interface BreadcrumbPart {
@@ -85,7 +85,6 @@ export const CollapsibleBreadcrumb = memo(function CollapsibleBreadcrumb({
 	parts: BreadcrumbPart[];
 }) {
 	const [menuOpen, setMenuOpen] = useState(false);
-	const dismissRef = useDismissRef(() => setMenuOpen(false));
 
 	if (parts.length === 0) return null;
 
@@ -108,46 +107,37 @@ export const CollapsibleBreadcrumb = memo(function CollapsibleBreadcrumb({
 					return (
 						<Fragment key="collapse">
 							{Chevron}
-							<div ref={dismissRef} className="relative shrink-0">
-								<button
-									type="button"
-									onClick={() => setMenuOpen(!menuOpen)}
-									className="text-nova-text-muted hover:text-nova-text hover:bg-nova-surface min-w-[44px] min-h-[44px] flex items-center justify-center rounded-md transition-colors cursor-pointer"
-								>
+							<Popover.Root open={menuOpen} onOpenChange={setMenuOpen}>
+								<Popover.Trigger className="text-nova-text-muted hover:text-nova-text hover:bg-nova-surface min-w-[44px] min-h-[44px] flex items-center justify-center rounded-md transition-colors cursor-pointer">
 									&hellip;
-								</button>
-								<AnimatePresence>
-									{menuOpen && (
-										<motion.div
-											initial={{ opacity: 0, y: -4, scale: 0.97 }}
-											animate={{ opacity: 1, y: 0, scale: 1 }}
-											exit={{
-												opacity: 0,
-												y: -4,
-												scale: 0.97,
-												/* Exit ~60% of enter duration for responsiveness (MD motion) */
-												transition: { duration: 0.1, ease: [0.4, 0, 0.2, 1] },
-											}}
-											transition={{ duration: 0.15, ease: [0.4, 0, 0.2, 1] }}
-											className="absolute left-0 top-[calc(100%+4px)] z-popover min-w-[180px] max-w-[280px] rounded-xl border border-nova-border-bright bg-nova-surface/95 backdrop-blur-xl shadow-[0_4px_16px_rgba(0,0,0,0.5)] overflow-hidden py-1"
-										>
-											{collapsedMiddle.map((mp) => (
-												<button
-													key={mp.key}
-													type="button"
-													onClick={() => {
-														mp.onClick();
-														setMenuOpen(false);
-													}}
-													className="w-full px-3 py-2 text-left text-sm text-nova-text-muted hover:text-nova-text hover:bg-nova-elevated/80 transition-colors cursor-pointer truncate"
-												>
-													{mp.label}
-												</button>
-											))}
-										</motion.div>
-									)}
-								</AnimatePresence>
-							</div>
+								</Popover.Trigger>
+								<Popover.Portal>
+									<Popover.Positioner
+										side="bottom"
+										align="start"
+										sideOffset={4}
+										className={POPOVER_POSITIONER_GLASS_CLS}
+									>
+										<Popover.Popup className={POPOVER_POPUP_CLS}>
+											<div className="min-w-[180px] max-w-[280px] overflow-hidden py-1">
+												{collapsedMiddle.map((mp) => (
+													<button
+														key={mp.key}
+														type="button"
+														onClick={() => {
+															mp.onClick();
+															setMenuOpen(false);
+														}}
+														className="w-full px-3 py-2 text-left text-sm text-nova-text-muted hover:text-nova-text hover:bg-nova-elevated/80 transition-colors cursor-pointer truncate"
+													>
+														{mp.label}
+													</button>
+												))}
+											</div>
+										</Popover.Popup>
+									</Popover.Positioner>
+								</Popover.Portal>
+							</Popover.Root>
 						</Fragment>
 					);
 				}

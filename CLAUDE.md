@@ -148,11 +148,11 @@ Two objects, two contexts. **BuilderEngine** (`lib/services/builderEngine.ts`) h
 
 ### Ref Callback Cleanup
 
-DOM listeners (click-outside, Escape, ResizeObserver, MutationObserver, focusin) use React 19 ref callback cleanup instead of useEffect. `useDismissRef` hook for the common click-outside + Escape pattern.
+DOM listeners (click-outside, Escape, ResizeObserver, MutationObserver, focusin) use React 19 ref callback cleanup instead of useEffect.
 
-### Floating Dropdowns
+### Floating Elements (Base UI)
 
-`useFloatingDropdown` hook (`hooks/useFloatingDropdown.tsx`) encapsulates the full portal dropdown lifecycle: open/close, FloatingUI positioning, entrance animation, trigger-aware dismiss, and content popover coordination. `DropdownPortal` component renders the portal wrapper. `matchTriggerWidth` option for select-style menus.
+All floating elements (popovers, tooltips, menus) use `@base-ui/react` — no raw `@floating-ui/react` in application code (only vendored tiptap-ui-primitive). Base UI's `FloatingTreeStore` coordinates dismiss/focus across all floating elements automatically. `Tooltip.Provider` in the root layout provides shared delay grouping (400ms hover delay, instant adjacent reveal). Glass/elevated surface styles live on the `Positioner`, not the `Popup` — `will-change: transform` on the Positioner breaks `backdrop-filter` on descendants. Style constants: `POPOVER_POSITIONER_GLASS_CLS`, `POPOVER_POSITIONER_ELEVATED_CLS`, `POPOVER_POPUP_CLS` in `lib/styles.ts`.
 
 ### No Navigation During Render
 
@@ -170,8 +170,7 @@ Dark "Violet Monochrome" — violet is the single non-semantic accent. CSS custo
 - Brand accent: `--nova-violet` (#8b5cf6), `--nova-violet-bright` (#a78bfa) — used for all interactive chrome
 - Semantic only: `--nova-emerald` (#86cebc, sage-mint), `--nova-amber` (#d4a76a, muted gold), `--nova-rose` (#d4708f, dusty mauve) — never decorative, only for success/warning/error states
 - Fonts: Outfit (display), Plus Jakarta Sans (body), JetBrains Mono (code)
-- Popover layers (`lib/styles.ts`): `POPOVER_GLASS` (L1, frosted glass) for base-layer panels, `POPOVER_ELEVATED` (L2, nearly opaque) for stacked popovers
-- Animation constants (`lib/animations.ts`): `EASE` curve tuple, `POPOVER_ENTER_KEYFRAMES` + `POPOVER_ENTER_OPTIONS` for Web Animations API
+- Popover layers (`lib/styles.ts`): `POPOVER_GLASS` (L1, frosted glass) for base-layer panels, `POPOVER_ELEVATED` (L2, nearly opaque) for stacked popovers. Base UI popover/tooltip animations use CSS `data-[starting-style]`/`data-[ending-style]` data attributes
 - CodeMirror theme (`lib/codemirror/xpath-theme.ts`): "lavender milk bath" palette — all syntax colors in the purple/orchid family, differentiated by lightness and warmth, not by clashing hues
 
 ## Structured Output Constraint

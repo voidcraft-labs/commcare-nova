@@ -330,8 +330,8 @@ export function RefLabelInput({
 
 	/* Register focus/blur handlers on the editor. Escape is handled here as a
      DOM keydown listener (rather than via TipTap addKeyboardShortcuts) so we
-     can call stopPropagation — preventing the document-level useDismissRef
-     listener from closing the contextual editor during an edit cancel. */
+     can call stopPropagation — preventing the parent popover dismiss
+     handler from closing the contextual editor during an edit cancel. */
 	useEffect(() => {
 		if (!editor) return;
 

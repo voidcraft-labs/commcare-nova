@@ -1,4 +1,5 @@
 "use client";
+import { Popover } from "@base-ui/react/popover";
 import { closeCompletion, completionStatus } from "@codemirror/autocomplete";
 import {
 	bracketMatching,
@@ -7,28 +8,9 @@ import {
 } from "@codemirror/language";
 import { EditorState, Prec } from "@codemirror/state";
 import { EditorView, keymap, tooltips } from "@codemirror/view";
-import {
-	autoUpdate,
-	FloatingPortal,
-	flip,
-	offset,
-	shift,
-	useFloating,
-} from "@floating-ui/react";
 import CodeMirror, { type ReactCodeMirrorRef } from "@uiw/react-codemirror";
-import {
-	useCallback,
-	useEffect,
-	useLayoutEffect,
-	useMemo,
-	useRef,
-	useState,
-} from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useBuilderEngine } from "@/hooks/useBuilder";
-import {
-	POPOVER_ENTER_KEYFRAMES,
-	POPOVER_ENTER_OPTIONS,
-} from "@/lib/animations";
 import { xpathAutocomplete } from "@/lib/codemirror/xpath-autocomplete";
 import { xpathChips } from "@/lib/codemirror/xpath-chips";
 import { formatXPath, prettyPrintXPath } from "@/lib/codemirror/xpath-format";
@@ -49,6 +31,7 @@ import {
 	collectValidPaths,
 } from "@/lib/services/commcare/validate/index";
 import { validateXPath } from "@/lib/services/commcare/validate/xpathValidator";
+import { POPOVER_POPUP_CLS } from "@/lib/styles";
 
 // ── Read-only theme ────────────────────────────────────────────────────
 
@@ -257,7 +240,7 @@ interface InlineXPathEditorProps {
  * warns (shake + tooltip); second attempt allows through.
  *
  * **Cancel:** Escape always cancels (reverts to the original value).
- * Uses stopPropagation to prevent parent useDismissRef from closing
+ * Uses stopPropagation to prevent parent popover dismiss from closing
  * the containing popover.
  */
 function InlineXPathEditor({
@@ -278,28 +261,6 @@ function InlineXPathEditor({
 	// ── Error tooltip ───────────────────────────────────────────────────
 
 	const [tooltipMessage, setTooltipMessage] = useState<string | null>(null);
-
-	const { refs, floatingStyles } = useFloating({
-		placement: "top-start",
-		middleware: [offset(6), flip(), shift({ padding: 8 })],
-		whileElementsMounted: autoUpdate,
-	});
-
-	/* Wire the wrapper div as the FloatingUI reference element. */
-	useLayoutEffect(() => {
-		if (wrapperRef.current) refs.setReference(wrapperRef.current);
-	}, [refs]);
-
-	/* Animate tooltip entrance when it appears. */
-	const tooltipRef = useRef<HTMLDivElement | null>(null);
-	useLayoutEffect(() => {
-		if (tooltipMessage && tooltipRef.current) {
-			tooltipRef.current.animate(
-				POPOVER_ENTER_KEYFRAMES,
-				POPOVER_ENTER_OPTIONS,
-			);
-		}
-	}, [tooltipMessage]);
 
 	/* Auto-dismiss tooltip after 4 seconds. */
 	useEffect(() => {
@@ -430,7 +391,7 @@ function InlineXPathEditor({
 	 * internal keymap handlers, so we must check for active autocomplete first:
 	 * if the completion dropdown is showing, close it (first Escape). Second
 	 * Escape cancels editing and reverts to the original value. stopPropagation
-	 * on all Escape presses prevents parent useDismissRef from closing the panel.
+	 * on all Escape presses prevents parent popover dismiss from closing the panel.
 	 */
 	const escapeDom = useMemo(
 		() =>
@@ -540,30 +501,32 @@ function InlineXPathEditor({
 					searchKeymap: false,
 				}}
 			/>
-			{tooltipMessage && (
-				<FloatingPortal>
-					<div
-						ref={(el) => {
-							tooltipRef.current = el;
-							refs.setFloating(el);
-						}}
-						style={floatingStyles}
+			<Popover.Root open={!!tooltipMessage}>
+				<Popover.Portal>
+					<Popover.Positioner
+						side="top"
+						align="start"
+						sideOffset={6}
+						collisionPadding={8}
+						anchor={wrapperRef}
 						className="z-popover-top"
 					>
-						<div
-							role="alert"
-							className="px-2.5 py-1.5 rounded-md bg-[rgba(16,16,36,0.95)] border border-nova-rose/20 shadow-lg max-w-xs"
-						>
-							<p className="text-xs text-nova-rose font-mono leading-snug">
-								{tooltipMessage}
-							</p>
-							<p className="text-[10px] text-nova-text-muted mt-0.5">
-								Press Esc to discard changes
-							</p>
-						</div>
-					</div>
-				</FloatingPortal>
-			)}
+						<Popover.Popup className={POPOVER_POPUP_CLS}>
+							<div
+								role="alert"
+								className="px-2.5 py-1.5 rounded-md bg-[rgba(16,16,36,0.95)] border border-nova-rose/20 shadow-lg max-w-xs"
+							>
+								<p className="text-xs text-nova-rose font-mono leading-snug">
+									{tooltipMessage}
+								</p>
+								<p className="text-[10px] text-nova-text-muted mt-0.5">
+									Press Esc to discard changes
+								</p>
+							</div>
+						</Popover.Popup>
+					</Popover.Positioner>
+				</Popover.Portal>
+			</Popover.Root>
 		</div>
 	);
 }

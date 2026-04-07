@@ -1,15 +1,13 @@
 "use client";
+import { Popover } from "@base-ui/react/popover";
 import tablerCircleOff from "@iconify-icons/tabler/circle-off";
 import tablerDatabase from "@iconify-icons/tabler/database";
-import { useCallback, useId, useMemo } from "react";
+import { useCallback, useId, useMemo, useRef, useState } from "react";
 import {
 	DropdownMenu,
 	type DropdownMenuItem,
 } from "@/components/ui/DropdownMenu";
-import {
-	DropdownPortal,
-	useFloatingDropdown,
-} from "@/hooks/useFloatingDropdown";
+import { POPOVER_POPUP_CLS, POPOVER_POSITIONER_GLASS_CLS } from "@/lib/styles";
 
 interface CasePropertyDropdownProps {
 	value: string | undefined;
@@ -24,8 +22,6 @@ interface CasePropertyDropdownProps {
 /**
  * Dropdown for selecting which case type a question's value is saved to.
  * Options: "None" (no persistence) + one entry per writable case type.
- * Matches the AfterSubmitSection select-style pattern: full-width trigger
- * button with chevron, portal-rendered DropdownMenu with active highlight.
  */
 export function CasePropertyDropdown({
 	value,
@@ -36,33 +32,27 @@ export function CasePropertyDropdown({
 	onChange,
 }: CasePropertyDropdownProps) {
 	const isInteractive = !disabled && !isCaseName;
-
 	const triggerId = useId();
+	const [open, setOpen] = useState(false);
+	const triggerRef = useRef<HTMLButtonElement>(null);
 
-	/* All hooks must be called before the early return (rules of hooks). */
-	const dd = useFloatingDropdown<HTMLButtonElement>({
-		placement: "bottom-start",
-		offset: 4,
-		matchTriggerWidth: true,
-	});
-	const { close } = dd;
-
-	/** Compose the floating trigger ref with autoFocus — focuses the button
-	 *  on mount when restoring focus after undo/redo. */
+	/** Compose autoFocus — focuses the button on mount when restoring focus
+	 *  after undo/redo. Uses a ref callback to fire once on mount. */
 	const composedTriggerRef = useCallback(
 		(el: HTMLButtonElement | null) => {
-			dd.triggerRef(el);
+			(triggerRef as React.MutableRefObject<HTMLButtonElement | null>).current =
+				el;
 			if (el && autoFocus) el.focus({ preventScroll: true });
 		},
-		[dd.triggerRef, autoFocus],
+		[autoFocus],
 	);
 
 	const handleSelect = useCallback(
 		(caseType: string | null) => {
 			onChange(caseType);
-			close();
+			setOpen(false);
 		},
-		[onChange, close],
+		[onChange],
 	);
 
 	const items: DropdownMenuItem[] = useMemo(() => {
@@ -102,47 +92,63 @@ export function CasePropertyDropdown({
 			>
 				Saves to
 			</label>
-			<button
-				id={triggerId}
-				type="button"
-				ref={composedTriggerRef}
-				onClick={isInteractive ? dd.toggle : undefined}
-				aria-label={`Saves to: ${displayLabel}`}
-				disabled={!isInteractive}
-				className={`w-full flex items-center justify-between px-2 py-1.5 text-xs rounded-md border transition-colors ${
-					isInteractive
-						? "cursor-pointer text-nova-text bg-nova-deep/50 border-white/[0.06] hover:border-nova-violet/30"
-						: `${isCaseName && value ? "opacity-70" : "opacity-50"} cursor-not-allowed text-nova-text bg-nova-deep/50 border-white/[0.06]`
-				}`}
+			<Popover.Root
+				open={open}
+				onOpenChange={isInteractive ? setOpen : undefined}
 			>
-				<span
-					className={value ? "text-nova-violet-bright" : "text-nova-text-muted"}
+				<Popover.Trigger
+					ref={composedTriggerRef}
+					id={triggerId}
+					aria-label={`Saves to: ${displayLabel}`}
+					disabled={!isInteractive}
+					className={`w-full flex items-center justify-between px-2 py-1.5 text-xs rounded-md border transition-colors ${
+						isInteractive
+							? "cursor-pointer text-nova-text bg-nova-deep/50 border-white/[0.06] hover:border-nova-violet/30"
+							: `${isCaseName && value ? "opacity-70" : "opacity-50"} cursor-not-allowed text-nova-text bg-nova-deep/50 border-white/[0.06]`
+					}`}
 				>
-					{displayLabel}
-				</span>
-				{isInteractive && (
-					<svg
-						aria-hidden="true"
-						width="10"
-						height="10"
-						viewBox="0 0 10 10"
-						className={`text-nova-text-muted transition-transform ${dd.open ? "rotate-180" : ""}`}
+					<span
+						className={
+							value ? "text-nova-violet-bright" : "text-nova-text-muted"
+						}
 					>
-						<path
-							d="M2 3.5L5 6.5L8 3.5"
-							stroke="currentColor"
-							strokeWidth="1.2"
-							fill="none"
-							strokeLinecap="round"
-							strokeLinejoin="round"
-						/>
-					</svg>
-				)}
-			</button>
+						{displayLabel}
+					</span>
+					{isInteractive && (
+						<svg
+							aria-hidden="true"
+							width="10"
+							height="10"
+							viewBox="0 0 10 10"
+							className={`text-nova-text-muted transition-transform ${open ? "rotate-180" : ""}`}
+						>
+							<path
+								d="M2 3.5L5 6.5L8 3.5"
+								stroke="currentColor"
+								strokeWidth="1.2"
+								fill="none"
+								strokeLinecap="round"
+								strokeLinejoin="round"
+							/>
+						</svg>
+					)}
+				</Popover.Trigger>
 
-			<DropdownPortal dropdown={dd}>
-				<DropdownMenu items={items} activeKey={activeKey} />
-			</DropdownPortal>
+				<Popover.Portal>
+					<Popover.Positioner
+						side="bottom"
+						align="start"
+						sideOffset={4}
+						anchor={triggerRef}
+						className={POPOVER_POSITIONER_GLASS_CLS}
+						style={{ minWidth: "var(--anchor-width)" }}
+					>
+						<Popover.Popup className={POPOVER_POPUP_CLS}>
+							<DropdownMenu items={items} activeKey={activeKey} />
+						</Popover.Popup>
+					</Popover.Positioner>
+				</Popover.Portal>
+			</Popover.Root>
 		</div>
 	);
 }

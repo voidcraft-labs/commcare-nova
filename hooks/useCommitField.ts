@@ -54,8 +54,8 @@ export interface UseCommitFieldResult {
 	 * Wire to the input's onKeyDown.
 	 * - Single-line: Enter commits.
 	 * - Multiline: Cmd/Ctrl+Enter commits; plain Enter inserts a newline.
-	 * - Escape: cancels and stopPropagation (prevents useDismissRef from
-	 *   closing the parent popover when the user only wants to cancel the edit).
+	 * - Escape: cancels and stopPropagation (prevents the parent popover from
+	 *   closing when the user only wants to cancel the edit).
 	 */
 	handleKeyDown: (e: React.KeyboardEvent) => void;
 }
