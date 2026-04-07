@@ -166,16 +166,6 @@ export function FormScreen({ onBack }: FormScreenProps) {
 						/>
 					)}
 					<SavedCheck visible={titleSaved} />
-					{mode === "test" && (
-						<button
-							type="button"
-							onClick={() => engine.reset()}
-							className="ml-auto inline-flex items-center gap-1.5 px-2.5 py-1 text-sm text-nova-text-muted hover:text-nova-text hover:bg-white/5 transition-colors cursor-pointer rounded"
-						>
-							<Icon icon={tablerRefresh} width="14" height="14" />
-							Reset
-						</button>
-					)}
 				</div>
 			</div>
 
@@ -192,13 +182,21 @@ export function FormScreen({ onBack }: FormScreenProps) {
 
 			{/* Bottom bar — hidden in design mode where it's non-functional */}
 			{mode === "test" && (
-				<div className="px-6 py-3 border-t border-pv-input-border bg-pv-surface">
+				<div className="flex items-center justify-between px-6 py-3 border-t border-pv-input-border bg-pv-surface">
 					<button
 						type="button"
 						onClick={handleSubmit}
 						className="px-4 py-2 text-sm font-medium rounded-lg bg-pv-accent text-white hover:brightness-110 transition-all cursor-pointer"
 					>
 						Submit
+					</button>
+					<button
+						type="button"
+						onClick={() => engine.reset()}
+						className="inline-flex items-center gap-1.5 px-3 py-2 text-sm text-nova-text-muted hover:text-nova-text hover:bg-white/5 transition-colors cursor-pointer rounded-lg"
+					>
+						<Icon icon={tablerRefresh} width="14" height="14" />
+						Clear form
 					</button>
 				</div>
 			)}
