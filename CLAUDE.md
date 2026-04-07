@@ -122,6 +122,8 @@ Pages are Server Components that handle auth, fetch data, and render structure. 
 
 Two objects, two contexts. **BuilderEngine** (`lib/services/builderEngine.ts`) holds imperative state (energy, guards, scroll callbacks, focus hints, drag) and composing methods. **Zustand store** (`lib/services/builderStore.ts`) holds ALL reactive state that drives React renders (phase, selected, screen, cursorMode, navigation history, treeData, generation metadata, mutationCount). Engine methods call `store.setState()` with only the fields that changed.
 
+**Two cursor modes:** `"pointer"` (live form test) and `"edit"` (combined inspect + text editing). Edit mode shows click-to-select outlines AND inline text editing simultaneously — `cursor: pointer` on question wrappers, `cursor: text` on `[data-text-editable]` zones, `cursor: auto` on the properties panel.
+
 **Hook API** (`hooks/useBuilder.tsx`):
 - `useBuilderStore(selector)` — reactive subscription to a precise state slice. Only re-renders when the selected value changes (`Object.is`).
 - `useBuilderStoreShallow(selector)` — same, with shallow equality (for multi-field object selectors).

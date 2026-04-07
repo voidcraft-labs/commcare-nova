@@ -186,9 +186,6 @@ function SortableQuestion({
 	// droppable (Low) wins when items are dragged over the content area.
 	const isContainer = q.type === "group" || q.type === "repeat";
 
-	/* Text mode is for inline editing, not reordering. */
-	const isTextMode = cursorMode === "text";
-
 	/* Disable all per-sortable plugins (OptimisticSortingPlugin, SortableKeyboardPlugin).
 	 * We use the controlled state pattern: onDragOver → move() → React state → re-render.
 	 * The OptimisticSortingPlugin independently calls move() on sortable instances AND
@@ -203,13 +200,12 @@ function SortableQuestion({
 		group,
 		type: "question",
 		accept: "question",
-		disabled: !isEditMode || isTextMode,
+		disabled: !isEditMode,
 		plugins: [],
 		...(isContainer && { collisionPriority: CollisionPriority.Lowest }),
 	});
 
-	/* Hidden questions have no inline-editable surface — skip in text mode. */
-	if (q.type === "hidden" && (!isEditMode || isTextMode)) return null;
+	if (q.type === "hidden" && !isEditMode) return null;
 	if (!isEditMode && !state.visible) return null;
 
 	// Use isDragging from dnd-kit OR the context flag (covers cross-group remount where isDragging resets)
@@ -353,7 +349,7 @@ function SortableQuestion({
 	 * Matches by UUID (stable across renames) instead of QuestionPath. */
 	const isSelected =
 		isEditMode &&
-		cursorMode === "inspect" &&
+		cursorMode === "edit" &&
 		selected?.type === "question" &&
 		selected.moduleIndex === (ctx?.moduleIndex ?? -1) &&
 		selected.formIndex === (ctx?.formIndex ?? -1) &&
@@ -433,7 +429,7 @@ export function FormRenderer({
 }: FormRendererProps) {
 	const ctx = useEditContext();
 	const builderEngine = useBuilderEngine();
-	const cursorMode_ = useBuilderStore((s) => s.cursorMode);
+
 	const moveQuestion_ = useBuilderStore((s) => s.moveQuestion);
 	const isEditMode = ctx?.mode === "edit";
 	const isRoot = !parentPath;
@@ -521,15 +517,14 @@ export function FormRenderer({
 				.map((id) => activeDragReorder.questionsById.get(id))
 				.filter((q): q is Question => !!q);
 		}
-		// Filter hidden questions in preview mode and text mode — nothing to interact
-		// with, and skipping them avoids unnecessary useSortable hook execution.
-		// In inspect/pointer edit modes, hidden questions are visible and draggable.
-		const isTextMode = cursorMode_ === "text";
-		const showHidden = isEditMode && !isTextMode;
+		// Filter hidden questions in preview mode — nothing to interact with, and
+		// skipping them avoids unnecessary useSortable hook execution. In edit mode,
+		// hidden questions are visible and draggable.
+		const showHidden = isEditMode;
 		return showHidden
 			? questions
 			: questions.filter((q) => q.type !== "hidden");
-	}, [questions, activeDragReorder, group, isEditMode, cursorMode_]);
+	}, [questions, activeDragReorder, group, isEditMode]);
 
 	/* Restrict drag overlay to the visible editor viewport. Uses the scroll
 	 * container (not the inner content div) so the restriction bounds match

@@ -1030,7 +1030,7 @@ export function BuilderLayout() {
 								 *  so it starts below this overlay at initial scroll position. */}
 								{showToolbar && (
 									<div className="absolute top-2.5 inset-x-0 z-raised flex justify-center pointer-events-none">
-										<div className="pointer-events-auto rounded-full bg-[rgba(10,10,26,0.5)] backdrop-blur-[12px] [-webkit-backdrop-filter:blur(12px)] border border-white/[0.06] shadow-[0_8px_24px_rgba(0,0,0,0.3)] px-1.5 py-1.5">
+										<div className="pointer-events-auto rounded-full bg-[rgba(93,88,167,0.25)] backdrop-blur-[12px] [-webkit-backdrop-filter:blur(12px)] border border-white/[0.1] shadow-[0_4px_20px_rgba(139,92,246,0.1),0_2px_8px_rgba(0,0,0,0.2)] px-1.5 py-1.5">
 											<CursorModeSelector
 												mode={cursorMode}
 												onChange={handleCursorModeChange}

@@ -1,12 +1,14 @@
 /**
  * Wrapper that makes a text surface (LabelContent) click-activatable in
- * text cursor mode.
+ * edit mode.
  *
- * In text mode: wraps children with a subtle hover indicator and cursor-text.
- * On click, swaps the static children for an InlineTextEditor. On save,
- * swaps back to static rendering.
+ * In edit mode: wraps children with a subtle hover background tint. On
+ * click, swaps the static children for an InlineTextEditor. On save,
+ * swaps back to static rendering. No cursor: text on idle fields — the
+ * background tint is the editability affordance, and the text cursor
+ * appears naturally when the TipTap editor opens.
  *
- * In other modes: renders children as-is (zero overhead).
+ * In interact mode: renders children as-is (zero overhead).
  *
  * The `data-text-editable` attribute enables Tab navigation discovery —
  * InlineTextEditor's Tab handler queries all [data-text-editable] elements
@@ -72,10 +74,10 @@ export function TextEditable({
 		}
 	}, []);
 
-	/* Not in text mode or no save handler — render children as-is.
+	/* Not in edit mode or no save handler — render children as-is.
 	 * Still wrap in a div with matching padding so content doesn't shift
 	 * when switching cursor modes (flipbook parity). */
-	if (cursorMode !== "text" || !onSave) {
+	if (cursorMode !== "edit" || !onSave) {
 		return <div className="px-[5px] py-[5px]">{children}</div>;
 	}
 
@@ -83,7 +85,7 @@ export function TextEditable({
 	if (editing) {
 		return (
 			<div
-				className="rounded px-[5px] py-[5px] ring-2 ring-nova-violet-bright/80"
+				className="rounded px-[5px] py-[5px] cursor-text"
 				data-text-editable
 				data-no-drag
 			>
@@ -98,15 +100,16 @@ export function TextEditable({
 		);
 	}
 
-	/* Text mode idle — semantic <button> with hover indicator. Enter/Space
-	 * activates inline editing for keyboard users, click for mouse users. */
+	/* Edit mode idle — semantic <button> with background tint on hover.
+	 * No cursor: text — the tint is the editability affordance, and
+	 * cursor becomes text naturally when the TipTap editor activates. */
 	return (
 		<button
 			type="button"
 			data-text-editable
 			onClick={handleClick}
 			onKeyDown={handleKeyDown}
-			className="w-full text-left bg-transparent border-none p-0 font-[inherit] cursor-text rounded px-[5px] py-[5px] transition-colors hover:ring-1 hover:ring-nova-violet/30 hover:ring-offset-1 hover:ring-offset-transparent"
+			className="w-full text-left bg-transparent border-none p-0 font-[inherit] rounded px-[5px] py-[5px] transition-colors hover:bg-nova-violet/[0.06]"
 		>
 			{children}
 		</button>

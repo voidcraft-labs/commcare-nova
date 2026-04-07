@@ -76,7 +76,7 @@ enableMapSet();
 
 // ── Cursor mode ──────────────────────────────────────────────────────
 
-export type CursorMode = "pointer" | "text" | "inspect";
+export type CursorMode = "pointer" | "edit";
 
 // ── Navigation history ────────────────────────────────────────────────
 
@@ -369,7 +369,7 @@ export function createBuilderStore(initialPhase: BuilderPhase) {
 						phase: initialPhase,
 						selected: undefined,
 						screen: { type: "home" } as PreviewScreen,
-						cursorMode: "inspect" as CursorMode,
+						cursorMode: "edit" as CursorMode,
 						activeFieldId: undefined,
 						navEntries: [{ type: "home" }] as PreviewScreen[],
 						navCursor: 0,
@@ -1466,7 +1466,7 @@ export function createBuilderStore(initialPhase: BuilderPhase) {
 								draft.phase = BuilderPhase.Idle;
 								draft.selected = undefined;
 								draft.screen = { type: "home" };
-								draft.cursorMode = "inspect";
+								draft.cursorMode = "edit";
 								draft.activeFieldId = undefined;
 								draft.navEntries = [{ type: "home" }];
 								draft.navCursor = 0;

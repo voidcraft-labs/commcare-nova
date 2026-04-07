@@ -589,33 +589,18 @@ body {
 	--pv-input-focus: rgba(136, 136, 170, 0.25);
 }
 
-/* Text mode — everything that isn't a text-editable surface is visually "paused".
- * An invisible overlay blocks hover/click on non-text elements. TextEditable
- * zones rise above the overlay via z-index so they remain fully interactive.
- * Form controls get explicit pointer-events: none to block double-click and
- * drag-to-select focus (the overlay alone doesn't prevent these gestures). */
-.text-mode-cursors {
-	position: relative;
-	cursor: default;
-	user-select: none;
-}
-.text-mode-cursors::after {
-	content: "";
-	position: absolute;
-	inset: 0;
-	z-index: var(--z-ground);
-}
-.text-mode-cursors input,
-.text-mode-cursors textarea,
-.text-mode-cursors select {
-	pointer-events: none;
-}
-.text-mode-cursors [data-text-editable] {
-	position: relative;
-	z-index: var(--z-raised);
-	cursor: text;
+/* Edit mode — text-editable zones punch through the pointer-events-none
+ * children container in EditableQuestionWrapper so inline text editing
+ * coexists with click-to-select. The wrapper's children div blocks form
+ * input interaction; these rules re-enable only text-editable surfaces.
+ *
+ * No cursor: text here — idle editable fields use the default pointer so
+ * users can distinguish "editable label" from "just text" in interact mode.
+ * The text cursor appears naturally when the TipTap inline editor opens. */
+[data-question-wrapper] [data-text-editable] {
 	pointer-events: auto;
-	user-select: text;
+	position: relative;
+	z-index: 1;
 }
 
 /* Subtle noise texture overlay */
