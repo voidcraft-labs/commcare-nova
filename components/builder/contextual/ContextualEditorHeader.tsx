@@ -42,8 +42,8 @@ import {
 import type { FocusableFieldKey, QuestionEditorProps } from "./shared";
 import { useFocusHint } from "./shared";
 
-/** Field keys owned by the Footer — only "id" for undo/redo focus hints. */
-const FOOTER_FIELDS = new Set<FocusableFieldKey>(["id"]);
+/** Field keys owned by the Header — only "id" for undo/redo focus hints. */
+const HEADER_FIELDS = new Set<FocusableFieldKey>(["id"]);
 
 /** Platform-aware modifier glyph for shortcut hints. */
 const IS_MAC =
@@ -78,7 +78,7 @@ function useShiftKey(): boolean {
 	return shift;
 }
 
-export function ContextualEditorFooter({ question }: QuestionEditorProps) {
+export function ContextualEditorHeader({ question }: QuestionEditorProps) {
 	const engine = useBuilderEngine();
 	const selected = useBuilderStore((s) => s.selected);
 	const moveQuestion = useBuilderStore((s) => s.moveQuestion);
@@ -91,7 +91,7 @@ export function ContextualEditorFooter({ question }: QuestionEditorProps) {
 	);
 
 	const saveQuestion = useSaveQuestion();
-	const focusHint = useFocusHint(FOOTER_FIELDS);
+	const focusHint = useFocusHint(HEADER_FIELDS);
 	const shiftHeld = useShiftKey();
 
 	/* ── ID rename ── */
