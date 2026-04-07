@@ -58,6 +58,7 @@ import { normalizeConnectConfig } from "./connectConfig";
 import {
 	assembleBlueprint,
 	collectAllQuestionIds,
+	collectSiblingIds,
 	decomposeBlueprint,
 	decomposeForm,
 	getEntityData,
@@ -77,6 +78,19 @@ enableMapSet();
 // ── Cursor mode ──────────────────────────────────────────────────────
 
 export type CursorMode = "pointer" | "edit";
+
+// ── Move result ─────────────────────────────────────────────────────
+
+/** Returned by moveQuestion when a cross-level move triggers auto-rename
+ *  to avoid a sibling ID collision (CommCare requires unique IDs per level). */
+export interface MoveQuestionResult {
+	renamed?: {
+		oldId: string;
+		newId: string;
+		newPath: QuestionPath;
+		xpathFieldsRewritten: number;
+	};
+}
 
 // ── Navigation history ────────────────────────────────────────────────
 
@@ -218,7 +232,7 @@ export interface BuilderState {
 			beforePath?: QuestionPath;
 			targetParentPath?: QuestionPath;
 		},
-	) => void;
+	) => MoveQuestionResult;
 	duplicateQuestion: (
 		mIdx: number,
 		fIdx: number,
@@ -525,6 +539,7 @@ export function createBuilderStore(initialPhase: BuilderPhase) {
 						},
 
 						moveQuestion(mIdx, fIdx, path, opts) {
+							let result: MoveQuestionResult = {};
 							set((draft) => {
 								const formId = resolveFormId(draft, mIdx, fIdx);
 								if (!formId) return;
@@ -602,7 +617,71 @@ export function createBuilderStore(initialPhase: BuilderPhase) {
 									afterId,
 									beforeId,
 								);
+
+								/* ── Same-level ID dedup on cross-level move ──
+								 * CommCare requires unique question IDs per parent level.
+								 * If the moved question's ID collides with a sibling at the
+								 * target level, auto-rename with a _2/_3/... suffix and
+								 * rewrite all XPath references in the form. */
+								if (isCrossLevel) {
+									const siblingIds = collectSiblingIds(
+										draft.questions,
+										draft.questionOrder,
+										targetParentId,
+										ctx.uuid,
+									);
+									const oldId = draft.questions[ctx.uuid].id;
+									const uniqueId = deduplicateId(oldId, siblingIds);
+
+									if (uniqueId !== oldId) {
+										/* Use the post-move path for XPath rewriting, not the
+										 * original pre-move path. The question has already been
+										 * relocated in the tree — references at the old level
+										 * are broken by the move itself (a pre-existing gap
+										 * unrelated to dedup). Rewriting from the new path
+										 * ensures we only touch references that correctly target
+										 * the question at its current location. */
+										const postMovePath = qpath(
+											oldId,
+											opts.targetParentPath,
+										) as string;
+										draft.questions[ctx.uuid].id = uniqueId;
+
+										/* Rewrite XPath references across all form questions */
+										let xpathFieldsRewritten = 0;
+										const allUuids = getAllQuestionUuids(
+											draft.questionOrder,
+											formId,
+										);
+										for (const qUuid of allUuids) {
+											const q = draft.questions[qUuid];
+											if (!q) continue;
+											xpathFieldsRewritten += rewriteXPathInQuestion(
+												q,
+												postMovePath,
+												uniqueId,
+											);
+										}
+
+										/* Update close_case reference if it matched the old ID */
+										const form = draft.forms[formId];
+										if (form?.closeCase?.question === oldId) {
+											form.closeCase.question = uniqueId;
+										}
+
+										const newPath = qpath(uniqueId, opts.targetParentPath);
+										result = {
+											renamed: {
+												oldId,
+												newId: uniqueId,
+												newPath,
+												xpathFieldsRewritten,
+											},
+										};
+									}
+								}
 							});
+							return result;
 						},
 
 						duplicateQuestion(mIdx, fIdx, path) {
@@ -682,17 +761,34 @@ export function createBuilderStore(initialPhase: BuilderPhase) {
 							set((draft) => {
 								const formId = resolveFormId(draft, mIdx, fIdx);
 								if (!formId) return;
-								const uuid = resolveQuestionUuid(
+								const ctx = resolveQuestionContext(
 									draft.questions,
 									draft.questionOrder,
 									formId,
 									path,
 								);
-								if (!uuid) return;
+								if (!ctx) return;
 
-								const oldId = draft.questions[uuid].id;
+								/* Block rename if a sibling already has the requested ID.
+								 * CommCare requires unique question IDs per parent level. */
+								const siblingIds = collectSiblingIds(
+									draft.questions,
+									draft.questionOrder,
+									ctx.parentId,
+									ctx.uuid,
+								);
+								if (siblingIds.has(newId)) {
+									result = {
+										newPath: path,
+										xpathFieldsRewritten: 0,
+										conflict: true,
+									};
+									return;
+								}
+
+								const oldId = draft.questions[ctx.uuid].id;
 								const oldXPathPath = path as string;
-								draft.questions[uuid].id = newId;
+								draft.questions[ctx.uuid].id = newId;
 
 								/* Rewrite XPath references in all questions in this form */
 								let xpathFieldsRewritten = 0;
@@ -1775,6 +1871,18 @@ function rewriteCasePropertyInQuestion(
 	}
 
 	return changed;
+}
+
+/**
+ * Generate a unique ID by appending _2, _3, ... suffix if the base ID
+ * conflicts with existing sibling IDs. Returns the original ID unchanged
+ * when no conflict exists.
+ */
+function deduplicateId(baseId: string, siblingIds: Set<string>): string {
+	if (!siblingIds.has(baseId)) return baseId;
+	let counter = 2;
+	while (siblingIds.has(`${baseId}_${counter}`)) counter++;
+	return `${baseId}_${counter}`;
 }
 
 /** Compute generation progress from partialModules data. */

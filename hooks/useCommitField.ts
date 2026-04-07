@@ -5,8 +5,13 @@ import { useCallback, useEffect, useRef, useState } from "react";
 interface UseCommitFieldOptions {
 	/** Current persisted value — the source of truth outside of editing. */
 	value: string;
-	/** Called when a changed value is committed. */
-	onSave: (value: string) => void;
+	/**
+	 * Called when a changed value is committed. Return `false` to signal that
+	 * the save was rejected (e.g. validation failure) — the checkmark animation
+	 * will be suppressed. All other return values (including void) are treated
+	 * as success.
+	 */
+	onSave: (value: string) => undefined | false;
 	/**
 	 * Called when the field is committed empty (value cleared + committed).
 	 * Typically used to trigger deletion of the associated item.
@@ -115,8 +120,8 @@ export function useCommitField({
 		}
 		if (required && !trimmed) return;
 		if (trimmed !== value) {
-			onSave(trimmed);
-			setSaved(true);
+			const result = onSave(trimmed);
+			if (result !== false) setSaved(true);
 		}
 	}, [internalDraft, value, onSave, onEmpty, required]);
 

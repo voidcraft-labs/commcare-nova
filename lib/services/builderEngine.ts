@@ -73,6 +73,12 @@ export class BuilderEngine {
 	private _focusHint: string | undefined;
 	/** Blocks undo/redo during dnd-kit drag operations. */
 	private _isDragging = false;
+	/** Transient rename notice — set after a cross-level move auto-renames
+	 *  to avoid a sibling ID collision. Consumed once by ContextualEditorHeader
+	 *  to show an inline notice on the ID field. */
+	private _renameNotice:
+		| { oldId: string; newId: string; xpathFieldsRewritten: number }
+		| undefined;
 	/** UUID of a just-added question — activates auto-focus and select-all behaviors. */
 	private _newQuestionUuid?: string;
 	/** Tracks whether post-build edits have mutated the blueprint (gates Completed phase). */
@@ -137,6 +143,26 @@ export class BuilderEngine {
 
 	clearFocusHint(): void {
 		this._focusHint = undefined;
+	}
+
+	// ── Rename notice (transient — consumed once by ContextualEditorHeader) ──
+
+	get renameNotice() {
+		return this._renameNotice;
+	}
+
+	setRenameNotice(notice: {
+		oldId: string;
+		newId: string;
+		xpathFieldsRewritten: number;
+	}): void {
+		this._renameNotice = notice;
+	}
+
+	consumeRenameNotice() {
+		const notice = this._renameNotice;
+		this._renameNotice = undefined;
+		return notice;
 	}
 
 	// ── New question state ──────────────────────────────────────────────

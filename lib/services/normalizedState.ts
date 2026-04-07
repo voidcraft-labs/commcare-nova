@@ -325,6 +325,28 @@ export function collectAllQuestionIds(
 }
 
 /**
+ * Collect question IDs of direct children of a given parent (non-recursive).
+ * Used for same-level ID deduplication during move and rename — CommCare
+ * requires siblings to have unique IDs, but cousins in different groups may share.
+ */
+export function collectSiblingIds(
+	questions: Record<string, NQuestion>,
+	questionOrder: Record<string, string[]>,
+	parentId: string,
+	excludeUuid?: string,
+): Set<string> {
+	const ids = new Set<string>();
+	const childUuids = questionOrder[parentId];
+	if (!childUuids) return ids;
+	for (const uuid of childUuids) {
+		if (uuid === excludeUuid) continue;
+		const q = questions[uuid];
+		if (q) ids.add(q.id);
+	}
+	return ids;
+}
+
+/**
  * Count all questions reachable from a parent in the questionOrder tree.
  * Used by computeEditFocus for signal grid zone calculation.
  */

@@ -244,14 +244,19 @@ export function useBuilderShortcuts(
 					);
 					if (!up) return;
 					const { direction: _, ...opts } = up;
-					s.moveQuestion(
+					const moveResult = s.moveQuestion(
 						sel.moduleIndex,
 						sel.formIndex,
 						sel.questionPath,
 						opts,
 					);
-					/* Navigate to new path — scrolls into view after cross-level move */
-					const newPath = qpath(qpathId(sel.questionPath), up.targetParentPath);
+					/* Navigate to new path — scrolls into view after cross-level move.
+					 * If the move triggered an auto-rename (sibling ID collision), use
+					 * the renamed path so selection tracks the question correctly. */
+					const newPath = moveResult.renamed
+						? moveResult.renamed.newPath
+						: qpath(qpathId(sel.questionPath), up.targetParentPath);
+					if (moveResult.renamed) builder.setRenameNotice(moveResult.renamed);
 					builder.navigateTo({
 						...sel,
 						questionPath: newPath,
@@ -280,16 +285,16 @@ export function useBuilderShortcuts(
 					);
 					if (!down) return;
 					const { direction: _, ...opts } = down;
-					s.moveQuestion(
+					const moveResult = s.moveQuestion(
 						sel.moduleIndex,
 						sel.formIndex,
 						sel.questionPath,
 						opts,
 					);
-					const newPath = qpath(
-						qpathId(sel.questionPath),
-						down.targetParentPath,
-					);
+					const newPath = moveResult.renamed
+						? moveResult.renamed.newPath
+						: qpath(qpathId(sel.questionPath), down.targetParentPath);
+					if (moveResult.renamed) builder.setRenameNotice(moveResult.renamed);
 					builder.navigateTo({
 						...sel,
 						questionPath: newPath,
