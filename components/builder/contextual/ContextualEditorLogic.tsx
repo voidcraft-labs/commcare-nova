@@ -19,6 +19,7 @@ import { RequiredSection } from "./RequiredSection";
 import {
 	addableTextFields,
 	type FocusableFieldKey,
+	fieldSupportedForType,
 	type QuestionEditorProps,
 	useAddableField,
 	useFocusHint,
@@ -129,27 +130,42 @@ export function ContextualEditorLogic({ question }: QuestionEditorProps) {
 
 	if (!selected) return null;
 
-	/** XPath fields not yet set on this question, available to add. */
+	const type = question.type;
+
+	/** XPath fields not yet set on this question, available to add.
+	 *  Filtered by type support — only offer fields that CommCare honors
+	 *  for this question type. Fields with existing values are still shown
+	 *  (graceful degradation for stale data after type conversion). */
 	const missingXPathFields = xpathFields.filter(
 		(f) =>
 			!question[f.field as keyof Question] &&
-			xpathField.activeField !== f.field,
+			xpathField.activeField !== f.field &&
+			fieldSupportedForType(f.field, type),
 	);
 
-	/** Show "Validation Message" add button only when validation is present or being added. */
+	/** Show "Validation Message" add button only when validation is present
+	 *  or being added, AND the type actually supports validation (avoids
+	 *  offering it alongside stale validation fields from type conversion). */
 	const missingValidationMsg = addableTextFields.filter(
 		(f) =>
 			f.field === "validation_msg" &&
 			!question.validation_msg &&
 			textField.activeField !== "validation_msg" &&
-			(question.validation || xpathField.activeField === "validation"),
+			(question.validation || xpathField.activeField === "validation") &&
+			fieldSupportedForType("validation", type),
 	);
 
-	/** Whether the field is visible (has a value, is pending addition, or is being focus-restored). */
+	/** Whether the field is visible — type supports it AND it either has a
+	 *  value, is pending addition, or is being focus-restored. Type conversions
+	 *  only happen within families with identical field support, so stale
+	 *  fields from conversion are impossible. */
 	const isVisible = (field: XPathFieldKey) =>
-		!!question[field] ||
-		xpathField.activeField === field ||
-		focusHint === field;
+		fieldSupportedForType(field, type) &&
+		(!!question[field] ||
+			xpathField.activeField === field ||
+			focusHint === field);
+
+	const showRequired = fieldSupportedForType("required", type);
 
 	const hasContent =
 		question.required ||
@@ -162,12 +178,14 @@ export function ContextualEditorLogic({ question }: QuestionEditorProps) {
 	return (
 		<div className="space-y-3">
 			{/* ── Required: toggle + optional conditional XPath expression ── */}
-			<RequiredSection
-				required={question.required}
-				getLintContext={getLintContext}
-				focusHint={focusHint}
-				dataFieldId="required"
-			/>
+			{showRequired && (
+				<RequiredSection
+					required={question.required}
+					getLintContext={getLintContext}
+					focusHint={focusHint}
+					dataFieldId="required"
+				/>
+			)}
 
 			{/* ── Standard XPath fields: validation (with validation_msg), relevant, default_value, calculate ── */}
 			{/* AnimatePresence provides smooth height collapse on undo/redo removal

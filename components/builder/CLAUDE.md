@@ -59,6 +59,14 @@ Edit mode merges the former "inspect" and "text" cursor modes into a single unif
 
 **Focus restoration after undo/redo** uses a `focusHint` string stored on `builder` — the `[data-field-id]` key of whichever field the user was editing when the snapshot was taken. `InlineSettingsPanel` tracks the active field via a delegated `onFocus` handler calling `builder.setActiveField()`. This persists through blur → commit → snapshot so blur-triggered saves capture the correct field. The hint is consumed once by `useFocusHint` in the matching editor section, then cleared. Do not query `document.activeElement` for this — blur moves focus before the snapshot fires.
 
+## Properties Panel — Per-Type Field Support
+
+Not every question property applies to every question type. `FIELD_TYPE_SUPPORT` in `contextual/shared.ts` maps each logic field to the set of types that support it. CommCare/Formplayer constraints drive these sets — e.g., `calculate` overwrites user input so only `hidden` fields should have it; `required` is ignored on groups by Formplayer; media types have no XPath-expressible value to validate.
+
+When adding a new question property, add it to `FIELD_TYPE_SUPPORT` — fields absent from the map are allowed on all types (safe default). Type conversion families (`questionTypeConversions.ts`) are designed so every member shares identical field support — conversions can't produce stale properties.
+
+`ContextualEditorData` and `ContextualEditorUI` own their section visibility — they wrap their own card and return `null` when the question type has no applicable fields. `ContextualEditorLogic` always renders (every type has at least `relevant`).
+
 ## `ContextualEditorFooter` — Don't Memoize Move Targets
 
 Move targets and adjacency flags (`isFirst`/`isLast`) are computed **inline in the render body**, not in `useMemo`. After `moveQuestion`, Immer produces new entity map references that trigger a re-render — the inline computation picks up the fresh state automatically. Memoizing on `[selected]` alone would miss the entity change because selection doesn't change on a reorder.

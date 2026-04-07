@@ -36,6 +36,97 @@ export type FocusableFieldKey =
 
 export const MEDIA_TYPES = new Set(["image", "audio", "video", "signature"]);
 
+// ── Per-type field support ──────────────────────────────────────────────
+// CommCare/Formplayer constraints on which logic properties are meaningful
+// per question type. Verified against CommCare HQ xform.py bind handling,
+// Formplayer FormEntryController (validation only runs on input questions),
+// and JavaRosa Recalculate.apply() (calculate overwrites user input).
+
+type QuestionType = Question["type"];
+
+/** User-input types where `required` is enforced by Formplayer. Excludes
+ *  hidden (no interaction), label (display-only), group/repeat (containers —
+ *  Formplayer ignores required on groups). */
+const TYPES_WITH_REQUIRED = new Set<QuestionType>([
+	"text",
+	"int",
+	"decimal",
+	"date",
+	"time",
+	"datetime",
+	"single_select",
+	"multi_select",
+	"geopoint",
+	"image",
+	"audio",
+	"video",
+	"signature",
+	"barcode",
+	"secret",
+]);
+
+/** Types with XPath-expressible values that can be meaningfully constrained.
+ *  Excludes media types (binary data — nothing to validate in XPath),
+ *  hidden (user can't see or fix validation errors), and containers/labels. */
+const TYPES_WITH_VALIDATION = new Set<QuestionType>([
+	"text",
+	"int",
+	"decimal",
+	"date",
+	"time",
+	"datetime",
+	"single_select",
+	"multi_select",
+	"geopoint",
+	"barcode",
+	"secret",
+]);
+
+/** Calculate overwrites user input on every dependency change (confirmed in
+ *  Formplayer's Recalculate.apply()). Only hidden fields should have
+ *  calculate — they exist primarily to hold computed values. */
+const TYPES_WITH_CALCULATE = new Set<QuestionType>(["hidden"]);
+
+/** Types where a starting value is meaningful. Not geopoint (can't default
+ *  GPS coordinates), not barcode (can't default a scan), not media (binary),
+ *  not label/group/repeat (no data node). */
+const TYPES_WITH_DEFAULT = new Set<QuestionType>([
+	"text",
+	"int",
+	"decimal",
+	"date",
+	"time",
+	"datetime",
+	"single_select",
+	"multi_select",
+	"hidden",
+	"secret",
+]);
+
+/** Fields that have per-type restrictions. `relevant` is intentionally absent
+ *  — it's universal across all types, so lookup returns undefined → allowed. */
+type FilteredFieldKey = XPathFieldKey | "required" | "hint";
+
+const FIELD_TYPE_SUPPORT: Partial<
+	Record<FilteredFieldKey, ReadonlySet<QuestionType>>
+> = {
+	required: TYPES_WITH_REQUIRED,
+	validation: TYPES_WITH_VALIDATION,
+	calculate: TYPES_WITH_CALCULATE,
+	default_value: TYPES_WITH_DEFAULT,
+	hint: TYPES_WITH_REQUIRED, // Same set — hint applies to all user-input types
+};
+
+/** Whether a logic field is supported for a given question type. Returns true
+ *  for `relevant` (universal) and any field not in the support map (safe default). */
+export function fieldSupportedForType(
+	field: FilteredFieldKey,
+	type: QuestionType,
+): boolean {
+	const supported = FIELD_TYPE_SUPPORT[field];
+	return !supported || supported.has(type);
+}
+
 export const xpathFields: readonly { field: XPathFieldKey; label: string }[] = [
 	{ field: "validation", label: "Validation" },
 	{ field: "relevant", label: "Show When" },
