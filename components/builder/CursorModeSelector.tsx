@@ -77,7 +77,7 @@ export function CursorModeSelector({
 				vertical
 					? "flex flex-col items-center gap-1 rounded-xl bg-nova-deep border border-nova-border p-1"
 					: glass
-						? "flex items-center h-10 p-1 gap-0.5"
+						? "flex items-center h-8 p-0.5 gap-0.5"
 						: "flex items-center h-10 bg-nova-deep border border-nova-border rounded-lg p-1 gap-0.5"
 			}
 		>
@@ -117,7 +117,7 @@ export function CursorModeSelector({
 							className={
 								vertical
 									? "relative w-10 h-10 rounded-lg transition-colors cursor-pointer"
-									: `relative h-full px-4 ${pillRounding} transition-colors cursor-pointer ${
+									: `relative h-full px-3 ${pillRounding} transition-colors cursor-pointer ${
 											!isActive && glass ? "hover:bg-white/[0.08]" : ""
 										}`
 							}
