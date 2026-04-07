@@ -47,6 +47,7 @@ import {
 	ToolbarSeparator,
 } from "@/components/tiptap-ui-primitive/toolbar";
 import { useReferenceProvider } from "@/lib/references/ReferenceContext";
+import { POPOVER_GLASS } from "@/lib/styles";
 import { hydrateHashtagRefs } from "@/lib/tiptap/hydrateRefs";
 import {
 	createInlineEditorExtensions,
@@ -156,7 +157,6 @@ function LabelToolbar({
 			portal.style.position = "fixed";
 			portal.style.left = `${rect.left}px`;
 			portal.style.top = `${clampedTop}px`;
-			portal.style.transform = "none";
 			portal.style.visibility = hidden ? "hidden" : "visible";
 		};
 
@@ -181,7 +181,7 @@ function LabelToolbar({
 			data-inline-toolbar
 			onMouseDown={(e) => e.preventDefault()}
 		>
-			<Toolbar variant="floating">
+			<Toolbar variant="floating" className={POPOVER_GLASS}>
 				<ToolbarGroup>
 					<MarkButton type="bold" />
 					<MarkButton type="italic" />
@@ -223,7 +223,7 @@ function LabelToolbar({
 function CompactToolbar() {
 	return (
 		<BubbleMenu>
-			<Toolbar variant="floating" data-no-drag>
+			<Toolbar variant="floating" className={POPOVER_GLASS} data-no-drag>
 				<ToolbarGroup>
 					<MarkButton type="bold" />
 					<MarkButton type="italic" />
