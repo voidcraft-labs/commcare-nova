@@ -88,6 +88,8 @@ Sortable items are keyed by **UUID** (`q.uuid`), not `questionPath` — so sorta
 
 **Questions have two identity fields.** `id` is the semantic CommCare name (e.g. `case_name`) — mutable, used as the XForm node name and CommCare property key. `uuid` is a stable crypto UUID assigned at creation, never changed on rename. Use `uuid` for UI-layer identity: React keys, DOM selectors (`[data-question-uuid]`), dnd-kit sortable IDs, and `SelectedElement.questionUuid`. Use `id`/`QuestionPath` for blueprint mutations and CommCare expander/compiler calls.
 
+**Sibling IDs must be unique.** CommCare requires unique question IDs within each parent level (siblings can't share IDs; cousins in different groups can). Enforced at two points: `moveQuestion()` auto-deduplicates with `_2`/`_3` suffix on cross-level moves and rewrites XPath references; `ContextualEditorHeader` blocks renames that conflict with siblings.
+
 **`QuestionPath` is a branded string type** (`questionPath.ts`). Slash-delimited tree path like `"group1/child_q"`. Always built via `qpath(id, parent?)`, never by string concatenation.
 
 **Case list columns are fully LLM-controlled** — no auto-prepend or filtering by the expander or compiler.

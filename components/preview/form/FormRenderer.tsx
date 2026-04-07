@@ -21,6 +21,7 @@ import { useTextEditSave } from "@/hooks/useTextEditSave";
 import type { FormEngine } from "@/lib/preview/engine/formEngine";
 import { LabelContent } from "@/lib/references/LabelContent";
 import type { Question } from "@/lib/schemas/blueprint";
+import type { MoveQuestionResult } from "@/lib/services/builderStore";
 import {
 	type QuestionPath,
 	qpath,
@@ -699,8 +700,10 @@ export function FormRenderer({
 								? pathOf(targetParentUuid)
 								: undefined;
 
+							let newPath: QuestionPath;
+
 							if (sameGroup) {
-								// Same-level reorder
+								// Same-level reorder — no ID conflict possible
 								if (finalIndex === 0) {
 									if (finalIds.length > 1) {
 										moveQuestion_(ctx.moduleIndex, ctx.formIndex, activePath, {
@@ -712,34 +715,54 @@ export function FormRenderer({
 										afterPath: pathOf(finalIds[finalIndex - 1]),
 									});
 								}
+								newPath = activePath;
 							} else {
 								// Cross-group transfer — resolve neighbor paths relative
 								// to the target parent for correct tree placement.
+								let moveResult: MoveQuestionResult;
 								if (finalIds.length <= 1) {
-									moveQuestion_(ctx.moduleIndex, ctx.formIndex, activePath, {
-										targetParentPath,
-									});
+									moveResult = moveQuestion_(
+										ctx.moduleIndex,
+										ctx.formIndex,
+										activePath,
+										{
+											targetParentPath,
+										},
+									);
 								} else if (finalIndex === 0) {
 									const nextId = qpathId(pathOf(finalIds[1]));
 									const beforePath = qpath(nextId, targetParentPath);
-									moveQuestion_(ctx.moduleIndex, ctx.formIndex, activePath, {
-										beforePath,
-										targetParentPath,
-									});
+									moveResult = moveQuestion_(
+										ctx.moduleIndex,
+										ctx.formIndex,
+										activePath,
+										{
+											beforePath,
+											targetParentPath,
+										},
+									);
 								} else {
 									const prevId = qpathId(pathOf(finalIds[finalIndex - 1]));
 									const afterPath = qpath(prevId, targetParentPath);
-									moveQuestion_(ctx.moduleIndex, ctx.formIndex, activePath, {
-										afterPath,
-										targetParentPath,
-									});
+									moveResult = moveQuestion_(
+										ctx.moduleIndex,
+										ctx.formIndex,
+										activePath,
+										{
+											afterPath,
+											targetParentPath,
+										},
+									);
 								}
-							}
 
-							const newPath = sameGroup
-								? activePath
-								: qpath(qpathId(activePath), targetParentPath);
-							/* Store action handled reactivity — no notification needed. */
+								/* If the move triggered an auto-rename to avoid a sibling
+								 * ID collision, use the renamed path and notify the user. */
+								newPath = moveResult.renamed
+									? moveResult.renamed.newPath
+									: qpath(qpathId(activePath), targetParentPath);
+								if (moveResult.renamed)
+									builderEngine.setRenameNotice(moveResult.renamed);
+							}
 
 							builderEngine.select({
 								type: "question",

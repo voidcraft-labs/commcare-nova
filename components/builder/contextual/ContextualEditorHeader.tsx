@@ -1,5 +1,6 @@
 "use client";
 import { Menu } from "@base-ui/react/menu";
+import { Popover } from "@base-ui/react/popover";
 import type { IconifyIcon } from "@iconify/react/offline";
 import { Icon } from "@iconify/react/offline";
 import tablerArrowDown from "@iconify-icons/tabler/arrow-down";
@@ -8,7 +9,7 @@ import tablerArrowsExchange from "@iconify-icons/tabler/arrows-exchange";
 import tablerChevronRight from "@iconify-icons/tabler/chevron-right";
 import tablerDotsVertical from "@iconify-icons/tabler/dots-vertical";
 import tablerTrash from "@iconify-icons/tabler/trash";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { SavedCheck } from "@/components/builder/EditableTitle";
 import { QuestionTypeList } from "@/components/builder/QuestionTypeList";
 import { tablerCopyPlus } from "@/components/icons/tablerExtras";
@@ -38,6 +39,7 @@ import {
 	MENU_POPUP_CLS,
 	MENU_POSITIONER_CLS,
 	MENU_SUBMENU_POSITIONER_CLS,
+	POPOVER_POPUP_CLS,
 } from "@/lib/styles";
 import type { FocusableFieldKey, QuestionEditorProps } from "./shared";
 import { useFocusHint } from "./shared";
@@ -94,24 +96,67 @@ export function ContextualEditorHeader({ question }: QuestionEditorProps) {
 	const focusHint = useFocusHint(HEADER_FIELDS);
 	const shiftHeld = useShiftKey();
 
-	/* ── ID rename ── */
+	/* ── ID field notices (errors + rename info) ── */
+
+	type IdNotice = { severity: "error" | "info"; message: string };
+	const [idNotice, setIdNotice] = useState<IdNotice | null>(null);
+	const [shaking, setShaking] = useState(false);
+	const idWrapperRef = useRef<HTMLDivElement>(null);
+
+	/* Auto-dismiss the notice popover after 4 seconds (matches XPathField). */
+	useEffect(() => {
+		if (!idNotice) return;
+		const timer = setTimeout(() => setIdNotice(null), 4000);
+		return () => clearTimeout(timer);
+	}, [idNotice]);
+
+	/* Consume rename notice from the engine — set after a cross-level move
+	 * auto-renames to avoid a sibling ID collision. Shown inline on the ID
+	 * field so the user sees what changed right where it happened. */
+	useEffect(() => {
+		const notice = engine.consumeRenameNotice();
+		if (!notice) return;
+		const refsMsg =
+			notice.xpathFieldsRewritten > 0
+				? ` — ${notice.xpathFieldsRewritten} reference${notice.xpathFieldsRewritten === 1 ? "" : "s"} updated`
+				: "";
+		setIdNotice({
+			severity: "info",
+			message: `Renamed from ${notice.oldId}${refsMsg}`,
+		});
+	});
 
 	const handleRename = useCallback(
-		(newId: string) => {
+		(newId: string): undefined | false => {
 			if (
 				!selected ||
 				selected.formIndex === undefined ||
 				!selected.questionPath ||
 				!newId
 			)
-				return;
-			const { newPath } = renameQuestionAction(
+				return false;
+
+			const result = renameQuestionAction(
 				selected.moduleIndex,
 				selected.formIndex,
 				selected.questionPath,
 				newId,
 			);
-			engine.select({ ...selected, questionPath: newPath });
+
+			/* Store blocked the rename — sibling conflict. Show shake +
+			 * error popover matching the XPathField validation pattern. */
+			if (result.conflict) {
+				setShaking(true);
+				setIdNotice({
+					severity: "error",
+					message: `A sibling field already has the ID "${newId}"`,
+				});
+				setTimeout(() => setShaking(false), 400);
+				return false;
+			}
+
+			setIdNotice(null);
+			engine.select({ ...selected, questionPath: result.newPath });
 			engine.clearNewQuestion();
 		},
 		[selected, renameQuestionAction, engine],
@@ -193,16 +238,16 @@ export function ContextualEditorHeader({ question }: QuestionEditorProps) {
 			)
 				return;
 			const { direction: _, ...opts } = target;
-			moveQuestion(
+			const moveResult = moveQuestion(
 				selected.moduleIndex,
 				selected.formIndex,
 				selected.questionPath,
 				opts,
 			);
-			const newPath = qpath(
-				qpathId(selected.questionPath),
-				target.targetParentPath,
-			);
+			const newPath = moveResult.renamed
+				? moveResult.renamed.newPath
+				: qpath(qpathId(selected.questionPath), target.targetParentPath);
+			if (moveResult.renamed) engine.setRenameNotice(moveResult.renamed);
 			engine.navigateTo({ ...selected, questionPath: newPath });
 		},
 		[selected, moveQuestion, engine],
@@ -285,11 +330,12 @@ export function ContextualEditorHeader({ question }: QuestionEditorProps) {
 			>
 				{/* Micro-label — same vocabulary as SectionLabel but inline-compact. */}
 				<span className="text-[10px] font-semibold uppercase tracking-widest text-nova-text-muted/60 pl-0.5 select-none">
-					Question ID
+					ID
 				</span>
 				<div className="relative flex items-center">
 					<div
-						className={`flex items-center rounded-md border outline-none transition-colors ${
+						ref={idWrapperRef}
+						className={`flex items-center rounded-md border outline-none transition-colors ${shaking ? "xpath-shake" : ""} ${
 							idField.focused
 								? "bg-nova-surface border-nova-violet/50 shadow-[0_0_0_1px_rgba(139,92,246,0.1)]"
 								: "bg-nova-deep/50 border-white/[0.06] hover:border-nova-violet/30"
@@ -304,7 +350,10 @@ export function ContextualEditorHeader({ question }: QuestionEditorProps) {
 						<input
 							ref={setIdInputRef}
 							value={idField.draft}
-							onChange={(e) => idField.setDraft(e.target.value)}
+							onChange={(e) => {
+								idField.setDraft(e.target.value);
+								if (idNotice) setIdNotice(null);
+							}}
 							onFocus={idField.handleFocus}
 							onBlur={idField.handleBlur}
 							onKeyDown={idField.handleKeyDown}
@@ -318,6 +367,41 @@ export function ContextualEditorHeader({ question }: QuestionEditorProps) {
 						size={12}
 						className="absolute right-1.5 shrink-0"
 					/>
+					{/* ID notice popover — error (conflict) or info (auto-rename).
+					 *  Matches the XPathField validation popover pattern. */}
+					<Popover.Root open={!!idNotice}>
+						<Popover.Portal>
+							<Popover.Positioner
+								side="top"
+								align="start"
+								sideOffset={6}
+								collisionPadding={8}
+								anchor={idWrapperRef}
+								className="z-popover-top"
+							>
+								<Popover.Popup className={POPOVER_POPUP_CLS}>
+									<div
+										role="alert"
+										className={`px-2.5 py-1.5 rounded-md bg-[rgba(16,16,36,0.95)] shadow-lg max-w-xs border ${
+											idNotice?.severity === "error"
+												? "border-nova-rose/20"
+												: "border-nova-violet/20"
+										}`}
+									>
+										<p
+											className={`text-xs font-mono leading-snug ${
+												idNotice?.severity === "error"
+													? "text-nova-rose"
+													: "text-nova-violet-bright"
+											}`}
+										>
+											{idNotice?.message}
+										</p>
+									</div>
+								</Popover.Popup>
+							</Popover.Positioner>
+						</Popover.Portal>
+					</Popover.Root>
 				</div>
 			</div>
 

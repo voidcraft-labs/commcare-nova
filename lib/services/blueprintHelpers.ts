@@ -57,6 +57,9 @@ export interface RenameResult {
 export interface QuestionRenameResult {
 	newPath: QuestionPath;
 	xpathFieldsRewritten: number;
+	/** True when the rename was blocked because a sibling already has the
+	 *  requested ID. When true, no mutation was applied. */
+	conflict?: boolean;
 }
 
 // ── QuestionUpdate type ─────────────────────────────────────────────────
