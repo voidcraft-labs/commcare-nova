@@ -21,9 +21,6 @@ const formTypeIcons = {
 } as const;
 
 export function ModuleScreen() {
-	/* Read screen indices from the store — no props needed. Returns undefined
-	 * during AnimatePresence exit overlap when the store's screen type has
-	 * already changed to the next screen. */
 	const screen = useScreenData("module");
 	const moduleIndex = screen?.moduleIndex ?? 0;
 	const navPush = useBuilderStore((s) => s.navPush);

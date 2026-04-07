@@ -213,11 +213,10 @@ function SortableQuestion({
 		selected.questionUuid === q.uuid;
 
 	/* Fulfill pending scroll after the panel mounts and the browser paints.
-	 * useEffect (not useLayoutEffect) fires after paint — layout is stable,
-	 * the old panel's AnimatePresence exit has started, and the browser's
-	 * smooth-scroll algorithm can interpolate without being disrupted by
-	 * concurrent layout shifts. The tradeoff is one painted frame at the
-	 * un-scrolled position, but this is imperceptible because the smooth
+	 * useEffect (not useLayoutEffect) fires after paint — layout is stable and
+	 * the browser's smooth-scroll algorithm can interpolate without being
+	 * disrupted by concurrent layout shifts. The tradeoff is one painted frame
+	 * at the un-scrolled position, but this is imperceptible because the smooth
 	 * animation begins immediately after. */
 	const engine_ = useBuilderEngine();
 	useEffect(() => {
