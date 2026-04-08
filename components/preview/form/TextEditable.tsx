@@ -2,11 +2,10 @@
  * Wrapper that makes a text surface (LabelContent) click-activatable in
  * edit mode.
  *
- * In edit mode: wraps children with a subtle hover background tint. On
- * click, swaps the static children for an InlineTextEditor. On save,
- * swaps back to static rendering. No cursor: text on idle fields — the
- * background tint is the editability affordance, and the text cursor
- * appears naturally when the TipTap editor opens.
+ * In edit mode: wraps children with a subtle hover background tint and
+ * pointer cursor. On click, swaps the static children for an
+ * InlineTextEditor. On save, swaps back to static rendering. The text
+ * cursor appears naturally when the TipTap editor opens.
  *
  * In interact mode: renders children as-is (zero overhead).
  *
@@ -106,16 +105,15 @@ export function TextEditable({
 		);
 	}
 
-	/* Edit mode idle — semantic <button> with background tint on hover.
-	 * No cursor: text — the tint is the editability affordance, and
-	 * cursor becomes text naturally when the TipTap editor activates. */
+	/* Edit mode idle — semantic <button> with background tint + pointer
+	 * cursor on hover. Cursor becomes text naturally when TipTap activates. */
 	return (
 		<button
 			type="button"
 			data-text-editable
 			onClick={handleClick}
 			onKeyDown={handleKeyDown}
-			className="w-full text-left bg-transparent border-none p-0 font-[inherit] rounded px-[5px] py-[5px] transition-colors hover:bg-nova-violet/[0.06]"
+			className="w-full text-left bg-transparent border-none p-0 font-[inherit] rounded px-[5px] py-[5px] transition-colors hover:bg-nova-violet/[0.06] cursor-pointer"
 		>
 			{children}
 		</button>
