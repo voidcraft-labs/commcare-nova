@@ -21,6 +21,7 @@ import {
 } from "@/hooks/useBuilder";
 import { useCommitField } from "@/hooks/useCommitField";
 import { useSaveQuestion } from "@/hooks/useSaveQuestion";
+import { shortcutLabel } from "@/lib/platform";
 import { getConvertibleTypes } from "@/lib/questionTypeConversions";
 import { questionTypeIcons, questionTypeLabels } from "@/lib/questionTypeIcons";
 import {
@@ -46,15 +47,6 @@ import { useFocusHint } from "./shared";
 
 /** Field keys owned by the Header — only "id" for undo/redo focus hints. */
 const HEADER_FIELDS = new Set<FocusableFieldKey>(["id"]);
-
-/** Platform-aware modifier glyph for shortcut hints. */
-const IS_MAC =
-	typeof navigator !== "undefined" &&
-	/Mac|iPod|iPhone|iPad/.test(navigator.userAgent);
-const MOD = IS_MAC ? "⌘" : "Ctrl+";
-
-/* Menu style constants (MENU_ITEM_CLS, MENU_ITEM_DISABLED_CLS,
- * MENU_POSITIONER_CLS, MENU_POPUP_CLS) imported from lib/styles.ts. */
 
 /** Track whether the Shift key is currently held. Resets on window blur
  *  so a tab-switch doesn't leave a phantom pressed state. */
@@ -551,7 +543,7 @@ export function ContextualEditorHeader({ question }: QuestionEditorProps) {
 								<MenuItem
 									icon={tablerCopyPlus}
 									label="Duplicate"
-									shortcut={`${MOD}D`}
+									shortcut={shortcutLabel("mod", "D")}
 									onClick={handleDuplicate}
 								/>
 							</Menu.Popup>

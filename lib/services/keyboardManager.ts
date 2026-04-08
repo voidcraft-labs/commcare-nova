@@ -1,6 +1,4 @@
-const isMac =
-	typeof navigator !== "undefined" &&
-	/Mac|iPod|iPhone|iPad/.test(navigator.userAgent);
+import { IS_MAC } from "@/lib/platform";
 
 export interface Shortcut {
 	key: string;
@@ -33,7 +31,7 @@ class KeyboardManager {
 
 	private handleKeyDown = (e: KeyboardEvent) => {
 		const inInput = isInputFocused();
-		const metaDown = isMac ? e.metaKey : e.ctrlKey;
+		const metaDown = IS_MAC ? e.metaKey : e.ctrlKey;
 
 		for (let i = this.registrations.length - 1; i >= 0; i--) {
 			for (const shortcut of this.registrations[i].shortcuts) {

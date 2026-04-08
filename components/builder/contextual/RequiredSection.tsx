@@ -71,10 +71,13 @@ export function RequiredSection({
 
 	// ── Save helpers ────────────────────────────────────────────────────
 
-	/** Toggle required off → removes the field entirely. */
+	/** Toggle required off → removes the field entirely.
+	 *  Resets editing because the XPathField unmounts in the same React batch,
+	 *  so its onEditingChange(false) effect never fires. */
 	const handleToggleOff = useCallback(() => {
 		saveQuestion("required", null);
 		setAddingCondition(false);
+		setEditing(false);
 	}, [saveQuestion]);
 
 	/** Toggle required on → sets to "always required" sentinel. */
@@ -83,19 +86,25 @@ export function RequiredSection({
 	}, [saveQuestion]);
 
 	/** Save an XPath condition. Empty input reverts to "always required"
-	 *  rather than removing the field — the toggle stays on. */
+	 *  rather than removing the field — the toggle stays on.
+	 *  Empty saves unmount the XPathField (showEditor becomes false) in the same
+	 *  React batch as setEditing(false) inside XPathField, so its onEditingChange
+	 *  effect never fires — reset explicitly here. */
 	const handleConditionSave = useCallback(
 		(value: string) => {
 			saveQuestion("required", value || ALWAYS_REQUIRED);
 			setAddingCondition(false);
+			if (!value) setEditing(false);
 		},
 		[saveQuestion],
 	);
 
-	/** Remove the condition but keep the toggle on. */
+	/** Remove the condition but keep the toggle on.
+	 *  Same batching issue as handleConditionSave — reset editing explicitly. */
 	const handleConditionRemove = useCallback(() => {
 		saveQuestion("required", ALWAYS_REQUIRED);
 		setAddingCondition(false);
+		setEditing(false);
 	}, [saveQuestion]);
 
 	// ── Always render toggle so it stays in the DOM across undo/redo ────
