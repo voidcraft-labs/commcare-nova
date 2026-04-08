@@ -59,6 +59,18 @@ export function getDb(): Firestore {
 		_db = new Firestore({
 			projectId: process.env.GOOGLE_CLOUD_PROJECT,
 			ignoreUndefinedProperties: true,
+			/* Use REST instead of gRPC. Two reasons:
+			 *
+			 * 1. Build safety — gRPC channel establishment hangs indefinitely when
+			 *    credentials aren't available (e.g. Docker build with no ADC/metadata
+			 *    server). REST fails fast with an HTTP error, which the caller's
+			 *    try/catch can handle gracefully.
+			 *
+			 * 2. Serverless fit — Cloud Run scales to zero. gRPC keeps a persistent
+			 *    channel that must be re-established after cold starts and competes
+			 *    with connection pooling across instances. REST is stateless and
+			 *    avoids these issues. Recommended by Google for serverless. */
+			preferRest: true,
 		});
 	}
 	return _db;
