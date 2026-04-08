@@ -170,9 +170,9 @@ function createChatInstance(
 export function BuilderLayout() {
 	const router = useRouter();
 	/* Server layout gates auth — useAuth() here is only for the isAuthenticated
-	 * flag (useAutoSave, redirect guard). Never block on isPending since the
-	 * server already verified the cookie. */
-	const { isAuthenticated, isPending: isAuthPending } = useAuth();
+	 * flag (useAutoSave, chat guard). The server layout already verified the
+	 * cookie via requireAuth(), so this is never used for redirect decisions. */
+	const { isAuthenticated } = useAuth();
 	const builder = useBuilderEngine();
 	const phase = useBuilderPhase();
 	const isReady = useBuilderIsReady();
@@ -896,17 +896,6 @@ export function BuilderLayout() {
 			),
 		[builder],
 	);
-
-	// ── Redirect guard — all hooks must be above this line ─────────────
-	// Server layout handles auth; this only catches edge cases like an
-	// expired session mid-use. Skip while the client-side session check
-	// is still in flight — the server layout already verified the cookie,
-	// so the pending state is always transient.
-	const shouldRedirect = !isAuthenticated && !isAuthPending;
-	useEffect(() => {
-		if (shouldRedirect) router.push("/");
-	}, [shouldRedirect, router]);
-	if (shouldRedirect) return null;
 
 	/* Gate rendering until the app is loaded from Firestore.
 	 * The Loading phase is the single source of truth — no separate React state. */

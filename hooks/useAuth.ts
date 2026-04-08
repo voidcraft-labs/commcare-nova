@@ -20,7 +20,7 @@ export function useAuth() {
 	const signIn = () =>
 		authClient.signIn.social({
 			provider: "google",
-			callbackURL: "/build/new",
+			callbackURL: "/",
 		});
 
 	const signOut = () =>
