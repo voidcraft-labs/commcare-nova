@@ -81,7 +81,7 @@ export function FormSettingsButton({
 	return (
 		<Popover.Root open={open} onOpenChange={handleOpenChange}>
 			<Popover.Trigger
-				className="flex items-center gap-1 p-1.5 rounded-md transition-colors cursor-pointer text-nova-text-muted hover:text-nova-text hover:bg-white/5"
+				className="ml-auto flex items-center gap-1 p-1.5 rounded-md transition-colors cursor-pointer text-nova-text-muted hover:text-nova-text hover:bg-white/5"
 				aria-label="Form settings"
 			>
 				<Icon icon={tablerSettings} width="18" height="18" />
@@ -93,7 +93,7 @@ export function FormSettingsButton({
 			<Popover.Portal>
 				<Popover.Positioner
 					side="bottom"
-					align="start"
+					align="end"
 					sideOffset={8}
 					className={POPOVER_POSITIONER_GLASS_CLS}
 				>
