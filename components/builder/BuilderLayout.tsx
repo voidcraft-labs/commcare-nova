@@ -244,10 +244,26 @@ export function BuilderLayout() {
 	const [chatOpen, setChatOpen] = useState(true);
 	const [structureOpen, setStructureOpen] = useState(true);
 	const cursorMode = useBuilderStore((s) => s.cursorMode);
-	const [scrollAnchor, setScrollAnchor] = useState<{
-		questionPath: string;
+
+	/** Stashed sidebar open/closed state from before entering pointer mode.
+	 *  Restored when switching back to edit. Ref (not state) because these
+	 *  values are only read at one moment — the edit-mode transition. */
+	const sidebarStashRef = useRef<{
+		chatOpen: boolean;
+		structureOpen: boolean;
+	} | null>(null);
+
+	/** Pending scroll anchor for ResizeObserver-based correction during
+	 *  sidebar width animation. Cleared after animation settles (~250ms). */
+	const pendingScrollAnchorRef = useRef<{
+		questionUuid: string;
 		offsetTop: number;
-		allPaths: string[];
+	} | null>(null);
+
+	const [scrollAnchor, setScrollAnchor] = useState<{
+		questionUuid: string;
+		offsetTop: number;
+		allUuids: string[];
 	} | null>(null);
 
 	const handleExitReplay = useCallback(() => {
@@ -265,6 +281,11 @@ export function BuilderLayout() {
 
 	const handleCursorModeChange = useCallback(
 		(mode: CursorMode) => {
+			// Guard against no-op switches (e.g. pressing V while already in pointer).
+			// Without this, entering pointer mode twice overwrites the sidebar stash
+			// with { chatOpen: false, structureOpen: false }, destroying the real values.
+			if (mode === builder.store.getState().cursorMode) return;
+
 			// Capture scroll anchor before mode switch for flipbook-style alignment
 			// (switching to/from pointer triggers different rendering which may shift scroll)
 			const scrollContainer = document.querySelector(
@@ -279,10 +300,10 @@ export function BuilderLayout() {
 					const rect = questionEls[i].getBoundingClientRect();
 					if (rect.bottom > containerRect.top) {
 						setScrollAnchor({
-							questionPath:
+							questionUuid:
 								questionEls[i].getAttribute("data-question-uuid") ?? "",
 							offsetTop: rect.top - containerRect.top,
-							allPaths: questionEls.map(
+							allUuids: questionEls.map(
 								(el) => el.getAttribute("data-question-uuid") ?? "",
 							),
 						});
@@ -291,9 +312,22 @@ export function BuilderLayout() {
 				}
 			}
 
+			// Stash/restore sidebar state across mode transitions.
+			// Pointer mode is immersive — both sidebars hide. Edit mode restores
+			// whatever the user had open before entering pointer.
+			if (mode === "pointer") {
+				sidebarStashRef.current = { chatOpen, structureOpen };
+				setChatOpen(false);
+				setStructureOpen(false);
+			} else if (mode === "edit" && sidebarStashRef.current) {
+				setChatOpen(sidebarStashRef.current.chatOpen);
+				setStructureOpen(sidebarStashRef.current.structureOpen);
+				sidebarStashRef.current = null;
+			}
+
 			builder.store.getState().setCursorMode(mode);
 		},
-		[builder],
+		[builder, chatOpen, structureOpen],
 	);
 
 	// Restore scroll position after mode switch for flipbook-style alignment.
@@ -311,19 +345,32 @@ export function BuilderLayout() {
 		if (!scrollContainer) return;
 
 		let targetEl = scrollContainer.querySelector(
-			`[data-question-uuid="${scrollAnchor.questionPath}"]`,
+			`[data-question-uuid="${scrollAnchor.questionUuid}"]`,
 		) as HTMLElement | null;
 
 		if (!targetEl) {
-			// Anchor hidden in new mode — find nearest visible question above it
-			const anchorIdx = scrollAnchor.allPaths.indexOf(
-				scrollAnchor.questionPath,
+			// Anchor hidden in new mode — find nearest visible question in either
+			// direction, preferring backward (above) at each distance. Bidirectional
+			// search handles the edge case where the anchor is the first question
+			// (a hidden field at the top), so backward-only would find nothing.
+			const anchorIdx = scrollAnchor.allUuids.indexOf(
+				scrollAnchor.questionUuid,
 			);
-			for (let i = anchorIdx - 1; i >= 0; i--) {
-				targetEl = scrollContainer.querySelector(
-					`[data-question-uuid="${scrollAnchor.allPaths[i]}"]`,
-				) as HTMLElement | null;
-				if (targetEl) break;
+			for (let dist = 1; dist < scrollAnchor.allUuids.length; dist++) {
+				const backIdx = anchorIdx - dist;
+				if (backIdx >= 0) {
+					targetEl = scrollContainer.querySelector(
+						`[data-question-uuid="${scrollAnchor.allUuids[backIdx]}"]`,
+					) as HTMLElement | null;
+					if (targetEl) break;
+				}
+				const fwdIdx = anchorIdx + dist;
+				if (fwdIdx < scrollAnchor.allUuids.length) {
+					targetEl = scrollContainer.querySelector(
+						`[data-question-uuid="${scrollAnchor.allUuids[fwdIdx]}"]`,
+					) as HTMLElement | null;
+					if (targetEl) break;
+				}
 			}
 		}
 
@@ -332,8 +379,57 @@ export function BuilderLayout() {
 			const currentOffset =
 				targetEl.getBoundingClientRect().top - containerRect.top;
 			scrollContainer.scrollTop += currentOffset - scrollAnchor.offsetTop;
+
+			// Store for ResizeObserver-based correction during sidebar width
+			// animation. On narrow viewports (<1440px), sidebar hide/show changes
+			// the form container width, causing text reflow that shifts the anchor.
+			// The observer re-corrects as the container settles.
+			pendingScrollAnchorRef.current = {
+				questionUuid:
+					targetEl.getAttribute("data-question-uuid") ??
+					scrollAnchor.questionUuid,
+				offsetTop: scrollAnchor.offsetTop,
+			};
+			// Fire-and-forget timeout — NOT returned as cleanup. setScrollAnchor(null)
+			// above triggers a synchronous re-render that would cancel a cleanup
+			// function immediately, leaving the ref permanently stale.
+			setTimeout(() => {
+				pendingScrollAnchorRef.current = null;
+			}, 250);
 		}
 	}, [scrollAnchor]);
+
+	// Re-correct scroll position as the scroll container resizes during sidebar
+	// width animation. The initial useLayoutEffect adjusts scroll before paint,
+	// but sidebar motion.div animations run async over ~200ms. On narrow viewports
+	// the form container width changes, reflowing text and invalidating the initial
+	// correction. This observer fires on each resize frame and re-aligns the anchor.
+	// Deps include isReady/hasData so the observer re-attaches when PreviewShell
+	// mounts (scroll container doesn't exist during Idle/Generating phases).
+	useEffect(() => {
+		if (!isReady || !hasData) return;
+		const scrollContainer = document.querySelector(
+			"[data-preview-scroll-container]",
+		) as HTMLElement | null;
+		if (!scrollContainer) return;
+
+		const observer = new ResizeObserver(() => {
+			const anchor = pendingScrollAnchorRef.current;
+			if (!anchor) return;
+
+			const el = scrollContainer.querySelector(
+				`[data-question-uuid="${anchor.questionUuid}"]`,
+			) as HTMLElement | null;
+			if (!el) return;
+
+			const containerRect = scrollContainer.getBoundingClientRect();
+			const currentOffset = el.getBoundingClientRect().top - containerRect.top;
+			scrollContainer.scrollTop += currentOffset - anchor.offsetTop;
+		});
+
+		observer.observe(scrollContainer);
+		return () => observer.disconnect();
+	}, [isReady, hasData]);
 
 	const inReplayMode = !!replayData;
 	const hasAccess = isAuthenticated || inReplayMode;
@@ -963,8 +1059,10 @@ export function BuilderLayout() {
 								exit={{ opacity: 0 }}
 								transition={{ duration: 0.3, delay: 0.15 }}
 							>
-								{/* Floating reopen buttons for collapsed sidebars */}
-								{!structureOpen && hasData && (
+								{/* Floating reopen buttons for collapsed sidebars.
+								 *  Hidden in pointer mode — sidebars are force-closed for
+								 *  immersive testing, so expand icons would be misleading. */}
+								{cursorMode !== "pointer" && !structureOpen && hasData && (
 									<Tooltip content="Open structure" placement="right">
 										<button
 											type="button"
@@ -976,7 +1074,7 @@ export function BuilderLayout() {
 										</button>
 									</Tooltip>
 								)}
-								{!chatOpen && (
+								{cursorMode !== "pointer" && !chatOpen && (
 									<Tooltip content="Open chat" placement="left">
 										<button
 											type="button"

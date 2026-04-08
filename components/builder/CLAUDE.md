@@ -6,9 +6,17 @@
 
 **Preview (test):** persistent testing sandbox. Values survive round-trips through design. Validation state resets on exit via `engine.resetValidation()` so fields start clean on re-entry. On switch back, all rules re-evaluate with the current schema against persisted values. Blueprint mutations recreate the engine, but only user-touched values are restored — untouched fields pick up new defaults.
 
+## Immersive Pointer Mode
+
+Pointer mode hides both sidebars for an immersive form-testing experience. `handleCursorModeChange` stashes the current `{ chatOpen, structureOpen }` state into a ref before closing both, then restores on return to edit mode. The floating reopen buttons are also hidden (gated on `cursorMode !== "pointer"`). An early-return guard prevents no-op mode switches — without it, pressing V while in pointer mode overwrites the stash with `{ false, false }`.
+
 ## Flipbook Scroll Sync
 
-Switching cursor modes preserves scroll position so the same question stays at the same pixel offset. `handleCursorModeChange` captures the topmost visible question and its offset into `scrollAnchor` state before the mode switch. A `useLayoutEffect` fires after React updates the DOM but before paint, adjusting `scrollTop` to re-align the anchor. `scrollAnchor` must be state (not a ref) because the layout effect depends on it. If the anchor is hidden in the new mode, the nearest visible question above it is used.
+Switching cursor modes preserves scroll position so the same question stays at the same pixel offset. `handleCursorModeChange` captures the topmost visible question and its offset into `scrollAnchor` state before the mode switch. A `useLayoutEffect` fires after React updates the DOM but before paint, adjusting `scrollTop` to re-align the anchor. `scrollAnchor` must be state (not a ref) because the layout effect depends on it.
+
+**Bidirectional fallback** — if the anchor is hidden in the new mode (e.g. a hidden field switching edit→pointer), the fallback searches outward from the anchor index: backward first at each distance, then forward. This handles the edge case where the anchor is the first question in the form (backward-only search would find nothing).
+
+**ResizeObserver correction** — sidebar width animations run async (~200ms) after the initial `useLayoutEffect` correction. On narrow viewports (<1440px), the form container width changes as sidebars collapse, reflowing text and shifting content. A `ResizeObserver` on the scroll container re-corrects scroll position during the animation. The pending anchor is cleared after 250ms to prevent false corrections on later unrelated resizes.
 
 ## Flipbook Height Parity — ProseMirror trailingBreak
 
