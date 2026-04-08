@@ -19,17 +19,17 @@
  *                          Optional in dev — Better Auth auto-detects from requests.
  */
 import { betterAuth } from "better-auth";
-import { createAuthMiddleware } from "better-auth/api";
+import { admin } from "better-auth/plugins";
 import { firestoreAdapter } from "better-auth-firestore";
 import type { Firestore } from "firebase-admin/firestore";
 import { getDb } from "./db/firestore";
-import { type ProvisionResult, provisionUser } from "./db/users";
+import { createUserDoc, ensureUserDoc } from "./db/users";
 
 /**
  * Creates the Better Auth instance. Extracted as a named function so
  * `typeof createAuth` captures the full config-specific return type —
  * needed by the client's `inferAdditionalFields` plugin to pick up
- * the `isAdmin` session field.
+ * plugin-added fields (admin plugin's `role` on user, etc.).
  */
 function createAuth() {
 	return betterAuth({
@@ -92,30 +92,13 @@ function createAuth() {
 			 * Compact strategy (Base64url + HMAC) has the smallest cookie payload.
 			 * 5-minute maxAge means session data is re-fetched from Firestore at
 			 * most every 5 minutes. Admin checks (`requireAdminAccess`) bypass
-			 * the cache entirely — they read Firestore directly — so cached
-			 * `isAdmin` staleness is a display-only concern, not a security one.
+			 * the cache entirely — they read `auth_users` directly — so cached
+			 * role staleness is a display-only concern, not a security one.
 			 */
 			cookieCache: {
 				enabled: true,
 				maxAge: 60 * 5, // 5 minutes
 				strategy: "compact",
-			},
-
-			/**
-			 * Session-level field synced from the app's user doc on every sign-in
-			 * via the `after` hook calling `internalAdapter.updateSession`.
-			 *
-			 * `isAdmin` — from `users/{userId}.role`. Promotions happen via
-			 * Firestore console — the next sign-in picks up the change.
-			 *
-			 * User identity uses Better Auth's built-in `session.user.id` directly
-			 * — no custom session field needed. All Firestore user docs, app
-			 * ownership, and usage tracking key off this ID.
-			 */
-			additionalFields: {
-				isAdmin: {
-					type: "boolean",
-				},
 			},
 		},
 
@@ -125,6 +108,24 @@ function createAuth() {
 				clientSecret: process.env.GOOGLE_CLIENT_SECRET ?? "",
 			},
 		},
+
+		/**
+		 * Better Auth admin plugin — adds `role` to the auth user schema,
+		 * plus banning, impersonation, and user management APIs.
+		 *
+		 * `role` lives on `auth_users` (Better Auth's user table) and is
+		 * available as `session.user.role`. No custom session field needed.
+		 *
+		 * `adminUserIds` bootstraps admin access from an env var so the first
+		 * admin doesn't need to manually edit Firestore. Users in this list
+		 * are always treated as admin regardless of their `role` field.
+		 */
+		plugins: [
+			admin({
+				adminUserIds:
+					process.env.ADMIN_USER_IDS?.split(",").filter(Boolean) ?? [],
+			}),
+		],
 
 		/**
 		 * Encrypt OAuth access/refresh tokens at rest with AES-256-GCM.
@@ -152,45 +153,43 @@ function createAuth() {
 			},
 		},
 
-		hooks: {
-			/**
-			 * User provisioning + session field sync on sign-in.
-			 *
-			 * On OAuth callback: provision the user doc (keyed by Better Auth's
-			 * `user.id`), then write `isAdmin` to the session so every subsequent
-			 * request has it without extra Firestore reads.
-			 *
-			 * Uses `internalAdapter.updateSession` directly — during the callback
-			 * the session cookie hasn't been sent yet, so the public API can't be used.
-			 */
-			after: createAuthMiddleware(async (ctx) => {
-				if (!ctx.path.startsWith("/callback/")) return;
-				const newSession = ctx.context.newSession;
-				if (!newSession) return;
-
-				/* Provision the app's user doc — uses Better Auth's user ID as
-				 * the document key and returns admin status for the session. */
-				let result: ProvisionResult | null = null;
-				try {
-					result = await provisionUser(
-						newSession.user.id,
-						newSession.user.email,
-						newSession.user.name,
-						newSession.user.image ?? null,
-					);
-				} catch (err) {
-					/* Fail closed — if Firestore is down, skip the session update.
-					 * isAdmin defaults to false (safe), and the next sign-in retries. */
-					console.error("[auth] Failed to provision user on sign-in:", err);
-				}
-
-				if (result) {
-					await ctx.context.internalAdapter.updateSession(
-						newSession.session.token,
-						{ isAdmin: result.isAdmin },
-					);
-				}
-			}),
+		/**
+		 * Database lifecycle hooks for user provisioning.
+		 *
+		 * The app's `users/{userId}` doc is the foundation of the user's
+		 * experience — activity tracking, admin dashboard, usage queries all
+		 * depend on it. Two hooks guarantee it exists before the user can
+		 * interact with the app:
+		 *
+		 * 1. `user.create.after` — creates the user doc on first sign-in.
+		 *    Receives the full auth user object (id, email, name, image).
+		 *
+		 * 2. `session.create.before` — verifies the user doc exists before
+		 *    every session is created. If it's missing (Firestore was down
+		 *    during user.create.after, or the doc was manually deleted),
+		 *    throws to abort the sign-in. The user can't end up
+		 *    with a valid session but no user doc.
+		 */
+		databaseHooks: {
+			user: {
+				create: {
+					after: async (user) => {
+						await createUserDoc(
+							user.id,
+							user.email,
+							user.name,
+							user.image ?? null,
+						);
+					},
+				},
+			},
+			session: {
+				create: {
+					before: async (session) => {
+						await ensureUserDoc(session.userId);
+					},
+				},
+			},
 		},
 	});
 }

@@ -1,13 +1,12 @@
 /**
  * Replay page — admin-only debug tool for reviewing generation logs.
  *
- * Loads generation logs directly by appId. Admin access is enforced here
- * (not by a parent layout) since the build layout only gates on auth.
+ * Admin access is enforced by the parent layout (`app/build/replay/layout.tsx`)
+ * which calls `requireAdminAccess()` before any page renders. No additional
+ * admin check needed here.
  */
-import { requireAuth } from "@/lib/auth-utils";
 import { loadLatestRunId, loadRunEvents } from "@/lib/db/logs";
 import type { StoredEvent } from "@/lib/db/types";
-import { isUserAdmin } from "@/lib/db/users";
 import { ReplayBuilder } from "./replay-builder";
 
 interface ReplayPageProps {
@@ -15,15 +14,7 @@ interface ReplayPageProps {
 }
 
 export default async function ReplayPage({ params }: ReplayPageProps) {
-	const [{ id }, session] = await Promise.all([params, requireAuth()]);
-
-	if (!(await isUserAdmin(session.user.id))) {
-		return (
-			<div className="h-full flex items-center justify-center">
-				<p className="text-nova-rose text-sm">App not found.</p>
-			</div>
-		);
-	}
+	const { id } = await params;
 
 	const runId = await loadLatestRunId(id);
 	if (!runId) {

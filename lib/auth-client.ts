@@ -2,17 +2,18 @@
  * Better Auth — client-side authentication instance.
  *
  * Provides React hooks (useSession) and methods (signIn, signOut) for
- * interacting with the Better Auth server. The `inferAdditionalFields`
- * plugin infers session `additionalFields` (like `isAdmin`) from the
- * server auth config for type-safe client access.
+ * interacting with the Better Auth server. The `adminClient` plugin adds
+ * type definitions for the admin plugin's user fields (`role`, `banned`,
+ * etc.) and admin API methods. `inferAdditionalFields` infers any
+ * remaining custom session/user fields from the server config.
  */
 
-import { inferAdditionalFields } from "better-auth/client/plugins";
+import { adminClient, inferAdditionalFields } from "better-auth/client/plugins";
 import { createAuthClient } from "better-auth/react";
 import type { Auth } from "./auth";
 
 export const authClient = createAuthClient({
-	plugins: [inferAdditionalFields<Auth>()],
+	plugins: [inferAdditionalFields<Auth>(), adminClient()],
 	/* Disable automatic session refetch on window focus. Better Auth's default
 	 * (refetchOnWindowFocus: true) causes useSession() to briefly transition
 	 * through { data: null, isPending: false, isRefetching: true } on every

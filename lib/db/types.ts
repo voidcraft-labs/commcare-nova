@@ -6,7 +6,7 @@
  *
  * Document hierarchy:
  *
- *   users/{userId}                  → UserDoc      (profile + role)
+ *   users/{userId}                  → UserDoc      (profile + activity)
  *   users/{userId}/usage/{yyyy-mm}  → UsageDoc     (monthly spend tracking)
  *   apps/{appId}                    → AppDoc       (root-level, owner field links to user)
  *   apps/{appId}/logs/{logId}       → StoredEvent  (generation event stream)
@@ -38,8 +38,8 @@ const timestamp = z.instanceof(Timestamp);
  *
  * The document ID is Better Auth's built-in user ID (`session.user.id`).
  * Email is stored as a field for display and lookup. Better Auth handles
- * session management statelessly; this document exists for Firestore
- * references and admin features.
+ * session management and auth state (including `role` on `auth_users`);
+ * this document stores app-level user data (profile cache, activity).
  */
 export const userDocSchema = z.object({
 	/** Email address from Google OAuth. Used for display and email-to-userId lookup. */
@@ -48,8 +48,6 @@ export const userDocSchema = z.object({
 	name: z.string(),
 	/** Google profile avatar URL. Null when no avatar is set. */
 	image: z.string().nullable(),
-	/** User role — controls access to admin dashboard. */
-	role: z.enum(["user", "admin"]).default("user"),
 	/** First sign-in timestamp. Set once via FieldValue.serverTimestamp(). */
 	created_at: timestamp,
 	/** Updated on every authenticated interaction via FieldValue.serverTimestamp(). */

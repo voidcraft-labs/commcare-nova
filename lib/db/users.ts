@@ -2,12 +2,15 @@
  * User document CRUD helpers.
  *
  * UserDoc lives at `users/{userId}` where userId is Better Auth's user ID
- * (`session.user.id`). Two write paths:
- * - `provisionUser` — called on every sign-in (Better Auth after hook), creates or updates
- * - `touchUser` — called on every authenticated request (fire-and-forget), updates `last_active_at`
+ * (`session.user.id`). Three write paths:
  *
- * The `role` field is intentionally never set by application code — changes
- * happen via direct Firestore console edits only.
+ * - `createUserDoc`   — `databaseHooks.user.create.after`: first sign-in only
+ * - `ensureUserDoc`   — `databaseHooks.session.create.before`: every sign-in
+ * - `touchUser`       — auth utilities on every authenticated request (fire-and-forget)
+ *
+ * Admin role is managed by Better Auth's admin plugin — `role` lives on
+ * `auth_users`, not here. This collection stores app-level user data
+ * (profile cache, activity timestamps) separate from auth state.
  */
 import { FieldValue } from "@google-cloud/firestore";
 import { log } from "@/lib/log";
@@ -16,60 +19,54 @@ import type { UserDoc } from "./types";
 
 // ── Write ─────────────────────────────────────────────────────────
 
-/** Result from provisioning — the auth after-hook writes isAdmin to the session. */
-export interface ProvisionResult {
-	isAdmin: boolean;
-}
-
 /**
- * Ensure the app's user doc exists and has a current profile.
+ * Create the app's user doc on first sign-in.
  *
- * Called on every OAuth sign-in (new and returning users). The `userId`
- * parameter is Better Auth's built-in user ID — used directly as the
- * Firestore document ID so there's no indirection or email-based lookup.
- *
- * Returning users get a profile sync (name, image, activity timestamp).
- * First-time users get a fresh document. Returns admin status so the
- * after-hook can write it to the session.
+ * Called from `databaseHooks.user.create.after` — fires once when Better Auth
+ * creates the auth user in `auth_users`. If this throws, the session creation
+ * gate (`ensureUserDoc`) will detect the missing doc and abort the sign-in.
  */
-export async function provisionUser(
+export async function createUserDoc(
 	userId: string,
 	email: string,
 	name: string,
 	image: string | null,
-): Promise<ProvisionResult> {
-	const snap = await docs.user(userId).get();
-	if (snap.exists) {
-		/* Returning user — sync profile fields, preserve created_at and role. */
-		await docs.user(userId).set(
-			{
-				email,
-				name,
-				image,
-				last_active_at: FieldValue.serverTimestamp(),
-			},
-			{ merge: true },
-		);
-		return { isAdmin: snap.data()?.role === "admin" };
-	}
-
-	/* First sign-in — create the user doc keyed by Better Auth's user ID */
+): Promise<void> {
 	await docs.user(userId).set({
 		email,
 		name,
 		image,
-		role: "user",
 		created_at: FieldValue.serverTimestamp(),
 		last_active_at: FieldValue.serverTimestamp(),
 	});
-	return { isAdmin: false };
+}
+
+/**
+ * Verify the app's user doc exists before allowing session creation.
+ *
+ * Called from `databaseHooks.session.create.before` — fires on every new
+ * session. For new users, the doc was just created by `createUserDoc`. For
+ * returning users, the doc already exists from their first sign-in.
+ *
+ * If the doc is missing (Firestore was down during `createUserDoc`, or it
+ * was manually deleted), this throws — Better Auth aborts session creation
+ * and the sign-in fails. The user can't end up with a valid session but
+ * no user doc.
+ */
+export async function ensureUserDoc(userId: string): Promise<void> {
+	const snap = await docs.user(userId).get();
+	if (!snap.exists) {
+		throw new Error(
+			`User doc missing for ${userId} — cannot create session without it`,
+		);
+	}
 }
 
 /**
  * Bump the user's activity timestamp. Fire-and-forget — called from auth
  * utilities on every authenticated request (API routes, RSC pages, chat).
- * Only writes `last_active_at`; profile fields (name, image) are synced
- * exclusively by `provisionUser` with fresh OAuth data on sign-in.
+ * Only writes `last_active_at`; profile fields (name, image) are set once
+ * by `createUserDoc` on first sign-in via the `user.create.after` hook.
  */
 export function touchUser(userId: string): void {
 	docs
@@ -78,20 +75,10 @@ export function touchUser(userId: string): void {
 		.catch((err) => log.error("[touchUser] Firestore write failed", err));
 }
 
-/**
- * Check if a user has the admin role. Shared by `requireAdmin` (throws on
- * false) and the `/api/admin/check` endpoint (returns boolean).
- */
-export async function isUserAdmin(userId: string): Promise<boolean> {
-	const snap = await docs.user(userId).get();
-	return snap.exists && snap.data()?.role === "admin";
-}
-
 // ── Read ──────────────────────────────────────────────────────────
 
 /**
- * Load a single user's profile. Returns null if no document exists
- * (user signed in via OAuth but never chatted).
+ * Load a single user's profile. Returns null if no document exists.
  */
 export async function getUser(userId: string): Promise<UserDoc | null> {
 	const snap = await docs.user(userId).get();
