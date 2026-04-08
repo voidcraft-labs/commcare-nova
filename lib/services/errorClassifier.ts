@@ -15,6 +15,7 @@ export type ErrorType =
 	| "model_error"
 	| "stream_broken"
 	| "spend_cap_exceeded"
+	| "generation_in_progress"
 	| "internal";
 
 export interface ClassifiedError {
@@ -38,6 +39,8 @@ export const MESSAGES: Record<ErrorType, string> = {
 	stream_broken: "The connection was interrupted. Please try again.",
 	spend_cap_exceeded:
 		"You've reached your monthly usage limit. Your allowance resets on the 1st of next month.",
+	generation_in_progress:
+		"You already have a build in progress. Please wait for it to finish before starting another.",
 	internal: "Something went wrong during generation.",
 };
 

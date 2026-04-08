@@ -5,7 +5,7 @@ import {
 	type UIMessage,
 } from "ai";
 import { resolveApiKey } from "@/lib/auth-utils";
-import { createApp, failApp } from "@/lib/db/apps";
+import { createApp, failApp, hasActiveGeneration } from "@/lib/db/apps";
 import { getMonthlyUsage, MONTHLY_SPEND_CAP_USD } from "@/lib/db/usage";
 import { log } from "@/lib/log";
 import { chatRequestSchema } from "@/lib/schemas/apiSchemas";
@@ -78,6 +78,11 @@ export async function POST(req: Request) {
 	 * Resolve appId for authenticated users. Existing apps already have
 	 * an ID from the client. New builds create a real app document in Firestore
 	 * (status: 'generating') so log events have an app to live under from the start.
+	 *
+	 * The app doc is created BEFORE the concurrency check so it acts as a
+	 * lock — a second concurrent request will see this doc in `hasActiveGeneration`
+	 * and reject. Without this ordering, two simultaneous requests could both
+	 * pass the check before either writes a doc (classic TOCTOU).
 	 */
 	let appId = parsed.data.appId;
 	if (!appId) {
@@ -93,6 +98,37 @@ export async function POST(req: Request) {
 				{ status: 503 },
 			);
 		}
+	}
+
+	// Concurrency guard — only one generation at a time per user. Prevents
+	// concurrent requests from blowing past the spend cap and works across
+	// Cloud Run instances because the check is Firestore-based.
+	//
+	// Runs AFTER createApp so the new doc acts as a lock. If another build
+	// is already in progress, we fail the just-created doc and return 429.
+	// Retries on the same app pass through (excludeAppId).
+	try {
+		const inFlight = await hasActiveGeneration(
+			keyResult.session.user.email,
+			appId,
+		);
+		if (inFlight) {
+			if (appId && !parsed.data.appId) {
+				failApp(keyResult.session.user.email, appId, "generation_in_progress");
+			}
+			return Response.json(
+				{
+					error: MESSAGES.generation_in_progress,
+					type: "generation_in_progress",
+				},
+				{ status: 429 },
+			);
+		}
+	} catch (err) {
+		log.error("[chat] concurrency check failed", err);
+		// Fail open — if we can't check, let the request through rather than
+		// blocking users due to a transient Firestore read error. The spend
+		// cap check above already fails closed for budget protection.
 	}
 
 	if (appId) {

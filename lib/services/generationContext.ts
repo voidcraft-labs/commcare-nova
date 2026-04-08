@@ -98,6 +98,42 @@ export class GenerationContext {
 		}
 	}
 
+	/**
+	 * Log a sub-generation result with full token + cache breakdown.
+	 * Shared by generatePlainText, generate, and streamGenerate so the
+	 * usage-to-logSubResult mapping lives in one place.
+	 */
+	private logUsage(
+		label: string,
+		model: string,
+		usage: {
+			inputTokens?: number;
+			outputTokens?: number;
+			inputTokenDetails?: {
+				cacheReadTokens?: number;
+				cacheWriteTokens?: number;
+			};
+		},
+		opts: {
+			system: string;
+			prompt: string;
+			output: unknown;
+			reasoningText?: string;
+		},
+	) {
+		this.logger.logSubResult(label, {
+			model,
+			input_tokens: usage.inputTokens ?? 0,
+			output_tokens: usage.outputTokens ?? 0,
+			cache_read_tokens: usage.inputTokenDetails?.cacheReadTokens ?? undefined,
+			cache_write_tokens:
+				usage.inputTokenDetails?.cacheWriteTokens ?? undefined,
+			input: { system: opts.system, message: opts.prompt },
+			output: opts.output,
+			...(opts.reasoningText && { reasoningText: opts.reasoningText }),
+		});
+	}
+
 	/** Text-only generation (no schema) with automatic run logging. */
 	async generatePlainText(opts: {
 		system: string;
@@ -116,13 +152,11 @@ export class GenerationContext {
 			});
 			logWarnings(`generatePlainText:${opts.label}`, result.warnings);
 			if (result.usage) {
-				this.logger.logSubResult(opts.label, {
-					model,
-					input_tokens: result.usage.inputTokens ?? 0,
-					output_tokens: result.usage.outputTokens ?? 0,
-					input: { system: opts.system, message: opts.prompt },
+				this.logUsage(opts.label, model, result.usage, {
+					system: opts.system,
+					prompt: opts.prompt,
 					output: result.text,
-					...(result.reasoningText && { reasoningText: result.reasoningText }),
+					reasoningText: result.reasoningText ?? undefined,
 				});
 			}
 			return result.text;
@@ -158,13 +192,11 @@ export class GenerationContext {
 			});
 			logWarnings(`generate:${opts.label}`, result.warnings);
 			if (result.usage) {
-				this.logger.logSubResult(opts.label, {
-					model,
-					input_tokens: result.usage.inputTokens ?? 0,
-					output_tokens: result.usage.outputTokens ?? 0,
-					input: { system: opts.system, message: opts.prompt },
+				this.logUsage(opts.label, model, result.usage, {
+					system: opts.system,
+					prompt: opts.prompt,
 					output: result.output,
-					...(result.reasoningText && { reasoningText: result.reasoningText }),
+					reasoningText: result.reasoningText ?? undefined,
 				});
 			}
 			return result.output ?? null;
@@ -214,13 +246,11 @@ export class GenerationContext {
 			result.reasoningText,
 		]);
 		if (usage) {
-			this.logger.logSubResult(opts.label, {
-				model,
-				input_tokens: usage.inputTokens ?? 0,
-				output_tokens: usage.outputTokens ?? 0,
-				input: { system: opts.system, message: opts.prompt },
+			this.logUsage(opts.label, model, usage, {
+				system: opts.system,
+				prompt: opts.prompt,
 				output: last,
-				...(reasoningText && { reasoningText }),
+				reasoningText: reasoningText ?? undefined,
 			});
 		}
 		return last;

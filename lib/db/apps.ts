@@ -52,6 +52,51 @@ function denormalize(blueprint: AppBlueprint) {
 	};
 }
 
+// ── Concurrency Guard ─────────────────────────────────────────────
+
+/**
+ * Check whether the user has an active generation in progress.
+ *
+ * Queries for any app with `status: 'generating'` created within the last
+ * 10 minutes (same stale threshold as `listApps`). Returns `true` if an
+ * active generation exists that isn't the given `excludeAppId` — so retries
+ * on the same build are allowed, but concurrent new builds are blocked.
+ *
+ * Single Firestore query with `limit(5)` — enough to find a live one
+ * even if the first few results are stale or the excluded app.
+ */
+export async function hasActiveGeneration(
+	email: string,
+	excludeAppId?: string,
+): Promise<boolean> {
+	const snap = await getDb()
+		.collection("users")
+		.doc(email)
+		.collection("apps")
+		.where("status", "==", "generating")
+		.limit(5)
+		.get();
+
+	if (snap.empty) return false;
+
+	const now = Date.now();
+	const maxAgeMs = MAX_GENERATION_MINUTES * 60_000;
+
+	for (const doc of snap.docs) {
+		if (doc.id === excludeAppId) continue;
+		const createdAt = (doc.data().created_at as Timestamp)?.toDate();
+		if (!createdAt) continue;
+
+		/* Still within the generation window — a live build is in progress. */
+		if (now - createdAt.getTime() <= maxAgeMs) return true;
+
+		/* Stale — infer failure so it won't block future checks. */
+		failApp(email, doc.id, "internal");
+	}
+
+	return false;
+}
+
 // ── CRUD ───────────────────────────────────────────────────────────
 
 /**
