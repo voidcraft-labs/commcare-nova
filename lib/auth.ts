@@ -11,7 +11,7 @@
  * with the app's existing `users/{email}` document hierarchy.
  *
  * Required env vars:
- *   BETTER_AUTH_SECRET   — cookie signing secret (generate with `openssl rand -hex 32`)
+ *   BETTER_AUTH_SECRET   — cookie signing secret (generate with `openssl rand -base64 32`)
  *   GOOGLE_CLIENT_ID     — Google OAuth client ID
  *   GOOGLE_CLIENT_SECRET — Google OAuth client secret
  *   BETTER_AUTH_URL      — Base URL (e.g. http://localhost:3000 or production URL).
@@ -23,6 +23,20 @@ import { firestoreAdapter } from "better-auth-firestore";
 import type { Firestore } from "firebase-admin/firestore";
 import { getDb } from "./db/firestore";
 import { provisionUser } from "./db/users";
+
+/* ── Startup guards ─────────────────────────────────────────────────
+ * Fail fast if required OAuth credentials are missing. Without these the
+ * server starts but every sign-in attempt produces a cryptic OAuth error.
+ * Checked at module load time so misconfigured deploys surface immediately. */
+const googleClientId = process.env.GOOGLE_CLIENT_ID;
+const googleClientSecret = process.env.GOOGLE_CLIENT_SECRET;
+if (process.env.NODE_ENV === "production") {
+	if (!googleClientId || !googleClientSecret) {
+		throw new Error(
+			"GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET must be set in production",
+		);
+	}
+}
 
 export const auth = betterAuth({
 	secret: process.env.BETTER_AUTH_SECRET,
@@ -48,9 +62,50 @@ export const auth = betterAuth({
 		},
 	}),
 
+	/**
+	 * Trusted origins for CSRF validation.
+	 *
+	 * The baseURL origin is automatically trusted, but we declare it
+	 * explicitly so CSRF validation doesn't silently break if
+	 * BETTER_AUTH_URL is misconfigured or unset in a deploy.
+	 */
+	trustedOrigins: process.env.BETTER_AUTH_URL
+		? [process.env.BETTER_AUTH_URL]
+		: [],
+
+	/**
+	 * Rate limiting — persistent storage shared across Cloud Run instances.
+	 *
+	 * Default "memory" storage resets on restart and is per-instance, making
+	 * it effectively useless on Cloud Run. "database" stores counters in
+	 * Firestore so all instances share the same rate limit state. Custom
+	 * rules tighten sensitive auth endpoints beyond the 100 req/10s default.
+	 */
+	rateLimit: {
+		storage: "database",
+		customRules: {
+			"/api/auth/callback/:path": { window: 60, max: 10 },
+		},
+	},
+
 	session: {
 		expiresIn: 60 * 60 * 24 * 2, // 2 days max lifetime
 		updateAge: 60 * 60 * 12, // refresh every 12h of activity
+
+		/**
+		 * Session cookie cache — avoids a Firestore read on every request.
+		 *
+		 * Compact strategy (Base64url + HMAC) has the smallest cookie payload.
+		 * 5-minute maxAge means session data is re-fetched from Firestore at
+		 * most every 5 minutes. Admin checks (`requireAdminAccess`) bypass
+		 * the cache entirely — they read Firestore directly — so cached
+		 * `isAdmin` staleness is a display-only concern, not a security one.
+		 */
+		cookieCache: {
+			enabled: true,
+			maxAge: 60 * 5, // 5 minutes
+			strategy: "compact",
+		},
 
 		/**
 		 * Admin role stored on the session record in Firestore.
@@ -69,8 +124,34 @@ export const auth = betterAuth({
 
 	socialProviders: {
 		google: {
-			clientId: process.env.GOOGLE_CLIENT_ID ?? "",
-			clientSecret: process.env.GOOGLE_CLIENT_SECRET ?? "",
+			clientId: googleClientId ?? "",
+			clientSecret: googleClientSecret ?? "",
+		},
+	},
+
+	/**
+	 * Encrypt OAuth access/refresh tokens at rest with AES-256-GCM.
+	 *
+	 * Even though we only use Google OAuth for sign-in (not API access on
+	 * behalf of users), encrypting stored tokens is defense-in-depth — if
+	 * the Firestore `auth_accounts` collection is ever exposed, raw tokens
+	 * can't be reused.
+	 */
+	account: {
+		encryptOAuthTokens: true,
+	},
+
+	/**
+	 * Cloud Run proxy and IP tracking configuration.
+	 *
+	 * Cloud Run sits behind a Google load balancer that sets x-forwarded-for.
+	 * Without this, Better Auth sees the LB's IP for every request — rate
+	 * limiting treats all users as a single client, and IP-based security
+	 * auditing is useless.
+	 */
+	advanced: {
+		ipAddress: {
+			ipAddressHeaders: ["x-forwarded-for"],
 		},
 	},
 
