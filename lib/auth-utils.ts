@@ -9,7 +9,7 @@ import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { cache } from "react";
 import { ApiError } from "./apiError";
-import { auth, type Session } from "./auth";
+import { getAuth, type Session } from "./auth";
 import { isUserAdmin, touchUser } from "./db/users";
 
 /** Successful key resolution — includes the API key and authenticated session. */
@@ -92,7 +92,7 @@ export async function requireAdmin(req: Request): Promise<Session> {
  */
 export async function getSessionSafe(req: Request): Promise<Session | null> {
 	try {
-		const result = await auth.api.getSession({ headers: req.headers });
+		const result = await getAuth().api.getSession({ headers: req.headers });
 		return result ?? null;
 	} catch {
 		return null;
@@ -115,7 +115,9 @@ export async function getSessionSafe(req: Request): Promise<Session | null> {
  */
 export const getSession = cache(async (): Promise<Session | null> => {
 	try {
-		return (await auth.api.getSession({ headers: await headers() })) ?? null;
+		return (
+			(await getAuth().api.getSession({ headers: await headers() })) ?? null
+		);
 	} catch {
 		return null;
 	}
@@ -150,7 +152,7 @@ export async function requireAdminAccess(): Promise<Session> {
 	if (!(await isUserAdmin(session.user.email))) {
 		/* Live revocation — sign out clears the session from Firestore and
 		 * wipes auth cookies so stale `isAdmin` can't linger. */
-		await auth.api.signOut({ headers: await headers() });
+		await getAuth().api.signOut({ headers: await headers() });
 		redirect("/");
 	}
 	return session;
