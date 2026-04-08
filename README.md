@@ -57,7 +57,7 @@ npx tsx scripts/build-xpath-parser.ts    # Rebuild XPath parser from grammar
 - **Tailwind CSS v4** — dark theme with custom properties
 - **Vercel AI SDK** — streaming chat, tool calls, structured output
 - **Anthropic Claude** — LLM backbone
-- **Better Auth** — Google OAuth with stateless JWT sessions
+- **Better Auth** — Google OAuth with Firestore-backed database sessions
 - **Google Cloud Firestore** — app persistence, event logging, usage tracking
 - **Vitest** — testing
 
