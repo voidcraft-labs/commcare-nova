@@ -165,7 +165,19 @@ export function ContextualEditorLogic({ question }: QuestionEditorProps) {
 			xpathField.activeField === field ||
 			focusHint === field);
 
-	const showRequired = fieldSupportedForType("required", type);
+	/** Required follows the same visibility pattern as XPath fields: only
+	 *  shown when it has a value or is being focus-restored from undo/redo.
+	 *  "Add Property" saves required directly (toggled on), so no pending
+	 *  addable state is needed — the value check covers it. */
+	const showRequired =
+		fieldSupportedForType("required", type) &&
+		(!!question.required ||
+			focusHint === "required" ||
+			focusHint === "required_condition");
+
+	/** Whether a Required "Add Property" button should be shown. */
+	const missingRequired =
+		fieldSupportedForType("required", type) && !question.required;
 
 	const hasContent =
 		question.required ||
@@ -177,20 +189,27 @@ export function ContextualEditorLogic({ question }: QuestionEditorProps) {
 
 	return (
 		<div className="space-y-3">
-			{/* ── Required: toggle + optional conditional XPath expression ── */}
-			{showRequired && (
-				<RequiredSection
-					required={question.required}
-					getLintContext={getLintContext}
-					focusHint={focusHint}
-					dataFieldId="required"
-				/>
-			)}
-
-			{/* ── Standard XPath fields: validation (with validation_msg), relevant, default_value, calculate ── */}
+			{/* ── All logic fields: required + standard XPath fields ── */}
 			{/* AnimatePresence provides smooth height collapse on undo/redo removal
-			    instead of an abrupt vanish when flushSync commits state synchronously. */}
+			    and on Add Property / dismiss transitions. */}
 			<AnimatePresence>
+				{showRequired && (
+					<motion.div
+						key="required"
+						initial={{ opacity: 0, height: 0 }}
+						animate={{ opacity: 1, height: "auto" }}
+						exit={{ opacity: 0, height: 0 }}
+						transition={{ duration: 0.15, ease: "easeOut" }}
+						className="overflow-hidden"
+					>
+						<RequiredSection
+							required={question.required}
+							getLintContext={getLintContext}
+							focusHint={focusHint}
+							dataFieldId="required"
+						/>
+					</motion.div>
+				)}
 				{isVisible("validation") && (
 					<motion.div
 						key="validation"
@@ -307,11 +326,19 @@ export function ContextualEditorLogic({ question }: QuestionEditorProps) {
 			</AnimatePresence>
 
 			{/* ── Add Property buttons for missing fields ── */}
-			{(missingXPathFields.length > 0 || missingValidationMsg.length > 0) && (
+			{(missingRequired ||
+				missingXPathFields.length > 0 ||
+				missingValidationMsg.length > 0) && (
 				<div
 					className={hasContent ? "pt-2 border-t border-nova-border/40" : ""}
 				>
 					<div className="flex flex-wrap gap-1.5">
+						{missingRequired && (
+							<AddPropertyButton
+								label="Required"
+								onClick={() => saveQuestion("required", "true()")}
+							/>
+						)}
 						{missingValidationMsg.map(({ field, label }) => (
 							<AddPropertyButton
 								key={field}
