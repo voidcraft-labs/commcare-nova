@@ -95,6 +95,10 @@ export function applyDataPart(
 			break;
 		case "data-done":
 			store.completeGeneration((data as { blueprint: AppBlueprint }).blueprint);
+			/* Resume undo tracking — generation is complete, user edits are now
+			 * undoable. Tracking was paused in the engine constructor so intermediate
+			 * generation steps (scaffold, addModule, addQuestions) stay out of history. */
+			engine.store.temporal.getState().resume();
 			break;
 		case "data-app-saved":
 			store.setAppId(data.appId as string);

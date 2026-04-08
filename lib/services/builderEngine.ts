@@ -96,6 +96,11 @@ export class BuilderEngine {
 
 	constructor(initialPhase: BuilderPhase = BuilderPhase.Idle) {
 		this.store = createBuilderStore(initialPhase);
+		/* Pause undo tracking until the app is loaded (existing) or generated
+		 * (new). Without this, the empty→populated hydration transition creates
+		 * an undoable entry whose undo restores a blank state. Call sites resume
+		 * tracking after loadApp() or completeGeneration(). */
+		this.store.temporal.getState().pause();
 	}
 
 	// ── Convenience readers (non-reactive, for imperative code) ─────────
@@ -587,8 +592,12 @@ export class BuilderEngine {
 		this._connectStash.deliver.clear();
 		this._lastConnectType = undefined;
 		this.store.getState().reset();
-		/* Clear zundo history */
-		this.store.temporal?.getState().clear();
+		/* Clear undo history and pause tracking — the engine is back to its
+		 * initial state, so the next loadApp/generation hydration should be
+		 * invisible to undo just like the first one. */
+		const temporal = this.store.temporal.getState();
+		temporal.clear();
+		temporal.pause();
 	}
 }
 
