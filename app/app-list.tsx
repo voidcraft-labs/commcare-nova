@@ -14,7 +14,7 @@ import { Icon } from "@iconify/react/offline";
 import tablerPlus from "@iconify-icons/tabler/plus";
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { ReplayableAppList } from "@/components/ui/ReplayableAppList";
+import { AppCardList } from "@/components/ui/AppCardList";
 import { listApps } from "@/lib/db/apps";
 
 interface AppListProps {
@@ -42,7 +42,7 @@ export async function AppList({ email, isAdmin }: AppListProps) {
 				</Link>
 			</div>
 
-			<ReplayableAppList apps={apps} linkToApps showReplay={isAdmin} />
+			<AppCardList apps={apps} linkToApps showReplay={isAdmin} />
 		</>
 	);
 }
