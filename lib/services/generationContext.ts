@@ -1,9 +1,10 @@
 /**
- * GenerationContext — shared abstraction for all LLM calls.
+ * GenerationContext — shared abstraction for all LLM calls and generation state.
  *
  * Wraps an Anthropic client + UI stream writer + EventLogger. Provides structured
- * generation (one-shot and streaming) with automatic run logging, plus transient
- * data part emission. Used by the Solutions Architect agent and its generation tools.
+ * generation (one-shot and streaming) with automatic run logging, transient data
+ * part emission, and intermediate Firestore saves (so `updated_at` advances
+ * during generation for accurate staleness detection).
  */
 
 import { createAnthropic } from "@ai-sdk/anthropic";
@@ -17,7 +18,9 @@ import { generateText, Output, streamText } from "ai";
 import type { z } from "zod";
 import { log } from "@/lib/log";
 import type { Session } from "../auth";
+import { updateApp } from "../db/apps";
 import { MODEL_DEFAULT, type ReasoningEffort } from "../models";
+import type { AppBlueprint } from "../schemas/blueprint";
 import { type ClassifiedError, classifyError } from "./errorClassifier";
 import type { EventLogger } from "./eventLogger";
 
@@ -42,6 +45,23 @@ export function thinkingProviderOptions(effort: ReasoningEffort) {
 	};
 }
 
+/**
+ * Emission types that indicate the in-memory blueprint was mutated.
+ *
+ * When `emit()` sees one of these, it fires a background Firestore save so
+ * the app document's `updated_at` advances during generation — enabling
+ * accurate staleness detection. `data-done` is excluded because
+ * `completeApp()` already handles the final save with `status: "complete"`.
+ */
+const SAVE_TRIGGER_TYPES: ReadonlySet<string> = new Set([
+	"data-schema",
+	"data-scaffold",
+	"data-module-done",
+	"data-form-updated",
+	"data-blueprint-updated",
+	"data-form-fixed",
+]);
+
 /** Options for constructing a GenerationContext. */
 interface GenerationContextOptions {
 	apiKey: string;
@@ -51,6 +71,12 @@ interface GenerationContextOptions {
 	session: Session;
 	/** Firestore app ID — present when the app has been saved at least once. */
 	appId?: string;
+	/**
+	 * Mutable blueprint reference shared with the SA agent. Passed by
+	 * reference so intermediate saves capture the latest mutations without
+	 * extra plumbing.
+	 */
+	blueprint?: AppBlueprint;
 }
 
 export class GenerationContext {
@@ -61,6 +87,8 @@ export class GenerationContext {
 	readonly session: Session;
 	/** Firestore app ID — set when the app has been saved at least once. */
 	readonly appId: string | undefined;
+	/** Mutable blueprint reference — same object the SA mutates in-place. */
+	private readonly blueprint: AppBlueprint | undefined;
 
 	constructor(opts: GenerationContextOptions) {
 		this.anthropic = createAnthropic({ apiKey: opts.apiKey });
@@ -68,6 +96,7 @@ export class GenerationContext {
 		this.logger = opts.logger;
 		this.session = opts.session;
 		this.appId = opts.appId;
+		this.blueprint = opts.blueprint;
 	}
 
 	/** Get the Anthropic model provider for a given model ID. */
@@ -75,10 +104,28 @@ export class GenerationContext {
 		return this.anthropic(id);
 	}
 
+	/**
+	 * Fire-and-forget save of the current blueprint snapshot to Firestore.
+	 *
+	 * Called after each blueprint-mutating emission so the app document's
+	 * `updated_at` advances during generation. This lets the staleness check
+	 * in `listApps()` distinguish "still actively generating" from "process
+	 * died" — without this, `updated_at === created_at` for the entire run.
+	 */
+	private saveBlueprint() {
+		if (!this.appId || !this.blueprint) return;
+		updateApp(this.session.user.email, this.appId, this.blueprint).catch(
+			(err) => log.error("[intermediate-save] failed", err),
+		);
+	}
+
 	/** Emit a transient data part to the client stream. Also buffers for run logging. */
 	emit(type: `data-${string}`, data: unknown) {
 		this.writer.write({ type, data, transient: true });
 		this.logger.logEmission(type, data);
+		if (SAVE_TRIGGER_TYPES.has(type)) {
+			this.saveBlueprint();
+		}
 	}
 
 	/** Emit a classified error to the client and log it. */

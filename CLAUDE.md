@@ -56,7 +56,7 @@ gcloud run deploy nova --source . --region <region>
 
 ### Fail-Closed Persistence
 
-The route handler creates the Firestore app document (`status: 'generating'`) **before** generation starts — if Firestore is down, the request returns 503 rather than generating an app that can't be saved. Two-layer failure detection ensures apps never stay stuck in `generating`: (1) route handler catch blocks call `failApp()` fire-and-forget, (2) `listApps()` infers failure for any app still `generating` after 10 minutes (well above the 5-min route timeout). Layer 2 exists because Cloud Run can kill processes before catch blocks run (OOM, platform restart).
+The route handler creates the Firestore app document (`status: 'generating'`) **before** generation starts — if Firestore is down, the request returns 503 rather than generating an app that can't be saved. `GenerationContext.emit()` fires background `updateApp()` calls on each blueprint-mutating emission, advancing `updated_at` throughout generation. Two-layer failure detection ensures apps never stay stuck in `generating`: (1) route handler catch blocks call `failApp()` fire-and-forget, (2) `listApps()` infers failure for any app whose `updated_at` hasn't advanced in 10 minutes. Layer 2 exists because Cloud Run can kill processes before catch blocks run (OOM, platform restart).
 
 ### Manual Stream Reader Loop
 

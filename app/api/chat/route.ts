@@ -161,12 +161,20 @@ export async function POST(req: Request) {
 				});
 			}
 
+			/* Create a mutable blueprint copy for the SA to modify in place.
+			 * structuredClone isolates the working copy from the input so
+			 * in-flight mutations don't corrupt the caller's reference. */
+			const mutableBp: AppBlueprint = structuredClone(
+				blueprint ?? { app_name: "", modules: [], case_types: null },
+			);
+
 			const ctx = new GenerationContext({
 				apiKey: keyResult.apiKey,
 				writer,
 				logger,
 				session: keyResult.session,
 				appId,
+				blueprint: mutableBp,
 			});
 
 			/** Classify, emit, and persist a generation error. */
@@ -177,13 +185,6 @@ export async function POST(req: Request) {
 					failApp(keyResult.session.user.email, appId, classified.type);
 				}
 			};
-
-			/* Create a mutable blueprint copy for the SA to modify in place.
-			 * structuredClone isolates the working copy from the input so
-			 * in-flight mutations don't corrupt the caller's reference. */
-			const mutableBp: AppBlueprint = structuredClone(
-				blueprint ?? { app_name: "", modules: [], case_types: null },
-			);
 
 			try {
 				const sa = createSolutionsArchitect(ctx, mutableBp);

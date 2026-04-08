@@ -31,11 +31,13 @@ export interface AppSummary {
 }
 
 /**
- * Maximum age (in minutes) before a 'generating' app is considered dead.
+ * Maximum age (in minutes) since the last Firestore write before a
+ * 'generating' app is considered dead.
  *
- * Well above the 5-minute `maxDuration` route timeout — any app still
- * 'generating' after this threshold was killed by the platform or crashed
- * without writing a failure status.
+ * Intermediate saves advance `updated_at` during generation, so an
+ * actively-running build always has a recent timestamp. If `updated_at`
+ * hasn't advanced in this window, the process was killed by the platform
+ * or crashed without writing a failure status.
  */
 const MAX_GENERATION_MINUTES = 10;
 
@@ -57,8 +59,8 @@ function denormalize(blueprint: AppBlueprint) {
 /**
  * Check whether the user has an active generation in progress.
  *
- * Queries for any app with `status: 'generating'` created within the last
- * 10 minutes (same stale threshold as `listApps`). Returns `true` if an
+ * Queries for any app with `status: 'generating'` whose last Firestore
+ * write was within the staleness window. Returns `true` if an
  * active generation exists that isn't the given `excludeAppId` — so retries
  * on the same build are allowed, but concurrent new builds are blocked.
  *
@@ -84,11 +86,15 @@ export async function hasActiveGeneration(
 
 	for (const doc of snap.docs) {
 		if (doc.id === excludeAppId) continue;
-		const createdAt = (doc.data().created_at as Timestamp)?.toDate();
-		if (!createdAt) continue;
+		const updatedAt = (doc.data().updated_at as Timestamp)?.toDate();
+		if (!updatedAt) {
+			/* No updated_at means a corrupt or very old doc — definitively dead. */
+			failApp(email, doc.id, "internal");
+			continue;
+		}
 
 		/* Still within the generation window — a live build is in progress. */
-		if (now - createdAt.getTime() <= maxAgeMs) return true;
+		if (now - updatedAt.getTime() <= maxAgeMs) return true;
 
 		/* Stale — infer failure so it won't block future checks. */
 		failApp(email, doc.id, "internal");
@@ -103,8 +109,9 @@ export async function hasActiveGeneration(
  * Create a new app document at the start of generation.
  *
  * Called by the route handler when a new build starts (no appId from client).
- * The document starts with `status: 'generating'` and an empty blueprint —
- * `completeApp` fills in the final blueprint when generation succeeds.
+ * The document starts with `status: 'generating'` and an empty blueprint.
+ * `updateApp` writes intermediate snapshots during generation (advancing
+ * `updated_at`), and `completeApp` writes the final validated blueprint.
  * Returns the generated appId for immediate use (logging, URL update).
  */
 export async function createApp(email: string, runId: string): Promise<string> {
@@ -177,8 +184,9 @@ export function failApp(
 /**
  * Merge-update an existing app with a new blueprint snapshot.
  *
- * Used by the auto-save hook after client-side edits. Uses `set` with
- * `merge: true` instead of `update` for consistency with other write paths.
+ * Two callers: (1) `GenerationContext.saveBlueprint()` fires this on each
+ * blueprint-mutating emission so `updated_at` advances during generation,
+ * (2) the client-side auto-save hook after user edits.
  *
  * Only touches the blueprint, denormalized fields, and updated_at —
  * preserves created_at, run_id, and status from the original save.
@@ -251,14 +259,16 @@ export async function listApps(
 	return snap.docs.map((doc) => {
 		const data = doc.data();
 		const createdAt = (data.created_at as Timestamp).toDate();
+		const updatedAt = (data.updated_at as Timestamp)?.toDate() ?? createdAt;
 
 		/*
-		 * Timeout inference — if an app has been 'generating' longer than
-		 * the platform timeout allows, it's dead. Infer failure on the read
-		 * path and persist the correction so it's only inferred once.
+		 * Timeout inference — if an app's last Firestore write was longer ago
+		 * than the staleness window, the generation process is dead. Intermediate
+		 * saves advance `updated_at` during generation, so an actively-running
+		 * build always has a recent `updated_at`.
 		 */
 		const isStale =
-			data.status === "generating" && now - createdAt.getTime() > maxAgeMs;
+			data.status === "generating" && now - updatedAt.getTime() > maxAgeMs;
 		if (isStale) {
 			failApp(email, doc.id, "internal");
 		}
@@ -274,7 +284,7 @@ export async function listApps(
 				? "internal"
 				: ((data.error_type as string | null) ?? null),
 			created_at: createdAt.toISOString(),
-			updated_at: (data.updated_at as Timestamp).toDate().toISOString(),
+			updated_at: updatedAt.toISOString(),
 		};
 	});
 }
