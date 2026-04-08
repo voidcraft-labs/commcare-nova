@@ -3,7 +3,6 @@ import { Popover } from "@base-ui/react/popover";
 import { Icon } from "@iconify/react/offline";
 import tablerChevronRight from "@iconify-icons/tabler/chevron-right";
 import { Fragment, memo, useState } from "react";
-import { Tooltip } from "@/components/ui/Tooltip";
 import { POPOVER_POPUP_CLS, POPOVER_POSITIONER_GLASS_CLS } from "@/lib/styles";
 
 /** A breadcrumb segment with a label, stable identity key, and navigation callback. */
@@ -146,16 +145,14 @@ export const CollapsibleBreadcrumb = memo(function CollapsibleBreadcrumb({
 				return (
 					<Fragment key={part.key}>
 						{i > 0 && Chevron}
-						<Tooltip content={part.label}>
-							<button
-								type="button"
-								onClick={isLast ? undefined : part.onClick}
-								className={isLast ? CURRENT_CLASS : ANCESTOR_CLASS}
-								{...(isLast ? { "aria-current": "location" as const } : {})}
-							>
-								{part.label}
-							</button>
-						</Tooltip>
+						<button
+							type="button"
+							onClick={isLast ? undefined : part.onClick}
+							className={isLast ? CURRENT_CLASS : ANCESTOR_CLASS}
+							{...(isLast ? { "aria-current": "location" as const } : {})}
+						>
+							{part.label}
+						</button>
 					</Fragment>
 				);
 			})}
