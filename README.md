@@ -20,8 +20,6 @@ npm run dev
 
 Open [http://localhost:3000](http://localhost:3000) to start building.
 
-Without auth credentials, only BYOK mode is available (enter your Anthropic API key in settings).
-
 ### Docker
 
 ```bash
