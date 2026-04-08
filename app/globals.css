@@ -596,13 +596,18 @@ body {
  * coexists with click-to-select. The wrapper's children div blocks form
  * input interaction; these rules re-enable only text-editable surfaces.
  *
- * No cursor: text here — idle editable fields use the default pointer so
- * users can distinguish "editable label" from "just text" in interact mode.
- * The text cursor appears naturally when the TipTap inline editor opens. */
+ * Pointer cursor signals editability on hover — switches to text cursor
+ * naturally when the TipTap inline editor opens. */
 [data-question-wrapper] [data-text-editable] {
 	pointer-events: auto;
 	position: relative;
 	z-index: 1;
+}
+
+/* Pointer cursor on idle text-editable buttons; active editors (div with
+ * cursor-text) are left alone so the text cursor takes over. */
+[data-question-wrapper] button[data-text-editable] {
+	cursor: pointer;
 }
 
 /* Subtle noise texture overlay */

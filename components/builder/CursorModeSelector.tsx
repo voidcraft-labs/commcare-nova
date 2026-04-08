@@ -12,7 +12,7 @@
 
 "use client";
 import { Icon, type IconifyIcon } from "@iconify/react/offline";
-import tablerHandFinger from "@iconify-icons/tabler/hand-finger";
+import tablerPencil from "@iconify-icons/tabler/pencil";
 import tablerPointer from "@iconify-icons/tabler/pointer";
 import { motion } from "motion/react";
 import { Tooltip } from "@/components/ui/Tooltip";
@@ -54,7 +54,7 @@ const segments: {
 	icon: IconifyIcon;
 }[] = [
 	{ key: "pointer", label: "Interact", shortcut: "V", icon: tablerPointer },
-	{ key: "edit", label: "Edit", shortcut: "E", icon: tablerHandFinger },
+	{ key: "edit", label: "Edit", shortcut: "E", icon: tablerPencil },
 ];
 
 /** Shared animation transition for the sliding mode indicator. */
