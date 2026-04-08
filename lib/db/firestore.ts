@@ -11,13 +11,14 @@
  *
  * The typed collection helpers use Firestore's `withConverter` pattern so
  * reads return validated document types (via Zod schema.parse) and writes
- * accept them (with FieldValue support via WithFieldValue<T>). Subcollection
- * helpers take parent IDs to navigate the hierarchy:
+ * accept them (with FieldValue support via WithFieldValue<T>).
  *
- *   collections.users()                → users/{email}
- *   collections.usage(email)           → users/{email}/usage/{yyyy-mm}
- *   collections.apps(email)            → users/{email}/apps/{appId}
- *   collections.logs(email, appId)     → users/{email}/apps/{appId}/logs/{logId}
+ * Document hierarchy:
+ *
+ *   collections.users()          → users/{email}
+ *   collections.usage(email)     → users/{email}/usage/{yyyy-mm}
+ *   collections.apps()           → apps/{appId}          (root-level)
+ *   collections.logs(appId)      → apps/{appId}/logs/{logId}
  */
 import {
 	type CollectionReference,
@@ -113,13 +114,16 @@ const storedEventConverter = zodConverter(storedEventSchema);
 /**
  * Typed collection references for each document type.
  *
- * Subcollection helpers require parent document IDs to build the path.
  * Returns a CollectionReference with the Zod converter applied, so reads
  * are validated and writes accept `WithFieldValue<T>` (allows `FieldValue`
  * sentinels like `serverTimestamp()` in place of their resolved types).
  *
+ * Apps are a root-level collection — no parent ID needed.
+ * Logs are subcollections of their app document.
+ * Usage is a subcollection of the user document.
+ *
  * Usage:
- *   const apps = await collections.apps('alice@dimagi.com').get()
+ *   const apps = await collections.apps().where('owner', '==', email).get()
  *   apps.docs.forEach(doc => doc.data())  // → AppDoc (validated)
  */
 export const collections = {
@@ -135,19 +139,13 @@ export const collections = {
 			.collection("usage")
 			.withConverter(usageConverter),
 
-	/** Per-user apps: `users/{email}/apps/{appId}` */
-	apps: (email: string): CollectionReference<AppDoc> =>
-		getDb()
-			.collection("users")
-			.doc(email)
-			.collection("apps")
-			.withConverter(appConverter),
+	/** Root-level apps collection: `apps/{appId}` */
+	apps: (): CollectionReference<AppDoc> =>
+		getDb().collection("apps").withConverter(appConverter),
 
-	/** Per-app log events: `users/{email}/apps/{appId}/logs/{logId}` */
-	logs: (email: string, appId: string): CollectionReference<StoredEvent> =>
+	/** Per-app log events: `apps/{appId}/logs/{logId}` */
+	logs: (appId: string): CollectionReference<StoredEvent> =>
 		getDb()
-			.collection("users")
-			.doc(email)
 			.collection("apps")
 			.doc(appId)
 			.collection("logs")
@@ -163,7 +161,7 @@ export const collections = {
  * or write without querying the collection.
  *
  * Usage:
- *   const snap = await docs.app('alice@dimagi.com', 'abc123').get()
+ *   const snap = await docs.app('abc123').get()
  *   if (snap.exists) console.log(snap.data()!.app_name)  // → string (validated)
  */
 export const docs = {
@@ -175,15 +173,11 @@ export const docs = {
 	usage: (email: string, period: string): DocumentReference<UsageDoc> =>
 		collections.usage(email).doc(period),
 
-	/** Direct reference: `users/{email}/apps/{appId}` */
-	app: (email: string, appId: string): DocumentReference<AppDoc> =>
-		collections.apps(email).doc(appId),
+	/** Direct reference: `apps/{appId}` */
+	app: (appId: string): DocumentReference<AppDoc> =>
+		collections.apps().doc(appId),
 
-	/** Direct reference: `users/{email}/apps/{appId}/logs/{logId}` */
-	logEntry: (
-		email: string,
-		appId: string,
-		logId: string,
-	): DocumentReference<StoredEvent> =>
-		collections.logs(email, appId).doc(logId),
+	/** Direct reference: `apps/{appId}/logs/{logId}` */
+	logEntry: (appId: string, logId: string): DocumentReference<StoredEvent> =>
+		collections.logs(appId).doc(logId),
 };

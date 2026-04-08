@@ -8,9 +8,7 @@
  * When no entries exist, returns `{ entries: [], runId: null }`.
  *
  * Admin-only — logs contain full conversation transcripts that may include
- * sensitive information. Regular users cannot access logs. The admin's email
- * (from session) scopes queries to their own data; cross-user log access
- * uses the dedicated admin endpoint at /api/admin/users/[email]/apps/[id]/logs.
+ * sensitive information. Regular users cannot access logs.
  */
 
 import { ApiError, handleApiError } from "@/lib/apiError";
@@ -22,16 +20,14 @@ export async function GET(
 	{ params }: { params: Promise<{ id: string }> },
 ) {
 	try {
-		const session = await requireAdmin(req);
+		await requireAdmin(req);
 		const { id: appId } = await params;
 		const { searchParams } = new URL(req.url);
-		const email = session.user.email;
 
-		const runId =
-			searchParams.get("runId") ?? (await loadLatestRunId(email, appId));
+		const runId = searchParams.get("runId") ?? (await loadLatestRunId(appId));
 		if (!runId) return Response.json({ events: [], runId: null });
 
-		const events = await loadRunEvents(email, appId, runId);
+		const events = await loadRunEvents(appId, runId);
 		return Response.json({ events, runId });
 	} catch (err) {
 		return handleApiError(

@@ -11,7 +11,7 @@ import { ReplayableAppList } from "@/components/ui/ReplayableAppList";
 import { listApps } from "@/lib/db/apps";
 
 interface AppListProps {
-	/** User email for the Firestore query. */
+	/** Owner email — used to query apps by owner. */
 	email: string;
 	/** Whether to show replay buttons (admin-only feature). */
 	isAdmin: boolean;
@@ -23,7 +23,6 @@ export async function AppList({ email, isAdmin }: AppListProps) {
 	return (
 		<ReplayableAppList
 			apps={apps}
-			ownerEmail={email}
 			linkToApps
 			showReplay={isAdmin}
 			emptyState={

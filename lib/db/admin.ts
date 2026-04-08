@@ -33,9 +33,12 @@ export async function getAdminUsersWithStats(): Promise<AdminUsersResponse> {
 	const usageSnaps =
 		usageRefs.length > 0 ? await getDb().getAll(...usageRefs) : [];
 
-	/* App counts are aggregation queries — run in parallel */
+	/* App counts are aggregation queries — run in parallel.
+	 * Each query filters the root-level apps collection by owner email. */
 	const appCounts = await Promise.all(
-		allUsers.map((u) => collections.apps(u.email).count().get()),
+		allUsers.map((u) =>
+			collections.apps().where("owner", "==", u.email).count().get(),
+		),
 	);
 
 	const enriched: AdminUserRow[] = allUsers.map((user, i) => {

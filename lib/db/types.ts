@@ -4,16 +4,19 @@
  * Zod schemas are the single source of truth — TypeScript types are derived
  * via z.infer, and Firestore converters use schema.parse() for validated reads.
  *
- * Subcollection hierarchy (keyed by @dimagi.com email for human-readable paths):
+ * Document hierarchy:
  *
- *   users/{email}                              → UserDoc
- *   users/{email}/usage/{yyyy-mm}              → UsageDoc
- *   users/{email}/apps/{appId}                 → AppDoc
- *   users/{email}/apps/{appId}/logs/{logId}    → StoredEvent
+ *   users/{email}                  → UserDoc      (profile + role)
+ *   users/{email}/usage/{yyyy-mm}  → UsageDoc     (monthly spend tracking)
+ *   apps/{appId}                   → AppDoc       (root-level, owner field links to user)
+ *   apps/{appId}/logs/{logId}      → StoredEvent  (generation event stream)
  *
- * Apps are the fast path — one document read loads the full current state.
- * Logs are the audit/replay path — append-only, fetched only when needed.
- * Usage is the spend-cap path — one document per user per month for direct lookups.
+ * Apps are a root-level collection so they can be loaded by ID without knowing
+ * the owner. The `owner` field on AppDoc links back to the user's email for
+ * list queries and authorization. Logs are a subcollection of the app they
+ * belong to — accessed by appId alone.
+ *
+ * Usage lives under the user document for direct per-user lookups.
  */
 
 import { Timestamp } from "@google-cloud/firestore";
@@ -79,16 +82,16 @@ export type UsageDoc = z.infer<typeof usageDocSchema>;
 // ── Log Events ─────────────────────────────────────────────────────
 
 /**
- * Log events — stored at `users/{email}/apps/{appId}/logs/{logId}`.
+ * Log events — stored at `apps/{appId}/logs/{logId}`.
  *
  * A log is a flat, ordered stream of events. Each event is self-describing —
  * a shared envelope (who, when, ordering) wrapping one of four event variants
  * (message, step, emission, error). Each variant has exactly its own fields,
  * nothing more. No defaults for unused fields. No sparse stripping.
  *
- * The same StoredEvent type is written to both sinks (JSONL files and Firestore
- * documents). Replay, cost tracking, and UI displays all consume StoredEvent[]
- * directly — no intermediate format or conversion layer.
+ * StoredEvent is the unit of persistence — one Firestore document per event.
+ * Replay, cost tracking, and UI displays all consume StoredEvent[] directly —
+ * no intermediate format or conversion layer.
  */
 
 /** JSON-safe value type — guarantees round-trip serialization fidelity. */
@@ -166,7 +169,7 @@ export type LogEvent = MessageEvent | StepEvent | EmissionEvent | ErrorEvent;
 
 /**
  * A log event with its storage envelope. This is the unit of persistence —
- * one StoredEvent = one JSONL line = one Firestore document.
+ * one StoredEvent = one Firestore document at `apps/{appId}/logs/{docId}`.
  */
 export interface StoredEvent {
 	/** Generation run ID — groups events from the same build/edit session. */
@@ -268,6 +271,8 @@ export const storedEventSchema = z.object({
 // ── App ─────────────────────────────────────────────────────────
 
 export const appDocSchema = z.object({
+	/** Owner email — the user who created this app. Used for list queries and authorization. */
+	owner: z.string(),
 	/** App name — denormalized from blueprint for list display. */
 	app_name: z.string(),
 	/** The full blueprint, stored as a nested Firestore map. */

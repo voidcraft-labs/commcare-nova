@@ -4,14 +4,13 @@
  * GET  /api/apps/{id} — load an app (full blueprint) for the builder
  * PUT  /api/apps/{id} — update an app after client-side edits (auto-save)
  *
- * Both endpoints require an authenticated session. The user's email is
- * derived from the session and used as the Firestore subcollection parent,
- * so users can only access their own data.
+ * Both endpoints require an authenticated session. Ownership is verified
+ * explicitly — the app's `owner` field must match the session user's email.
  */
 
 import { ApiError, handleApiError } from "@/lib/apiError";
 import { requireSession } from "@/lib/auth-utils";
-import { loadApp, updateApp } from "@/lib/db/apps";
+import { loadApp, loadAppOwner, updateApp } from "@/lib/db/apps";
 import { log } from "@/lib/log";
 import { appBlueprintSchema } from "@/lib/schemas/blueprint";
 
@@ -22,8 +21,11 @@ export async function GET(
 	try {
 		const session = await requireSession(req);
 		const { id } = await params;
-		const app = await loadApp(session.user.email, id);
+		const app = await loadApp(id);
 		if (!app) {
+			throw new ApiError("App not found", 404);
+		}
+		if (app.owner !== session.user.email) {
 			throw new ApiError("App not found", 404);
 		}
 		/* Return only the fields the client needs for hydration. Firestore Timestamp
@@ -50,6 +52,13 @@ export async function PUT(
 		const session = await requireSession(req);
 		const { id } = await params;
 
+		/* Verify ownership before accepting the write. Returns 404 (not 403) to
+		 * avoid leaking the existence of other users' apps. */
+		const owner = await loadAppOwner(id);
+		if (!owner || owner !== session.user.email) {
+			throw new ApiError("App not found", 404);
+		}
+
 		let body: unknown;
 		try {
 			body = await req.json();
@@ -65,7 +74,7 @@ export async function PUT(
 			throw new ApiError("Invalid blueprint", 400);
 		}
 
-		await updateApp(session.user.email, id, parsed.data);
+		await updateApp(id, parsed.data);
 		return Response.json({ ok: true });
 	} catch (err) {
 		/* Save failures mean silent data loss — log every rejection so they're

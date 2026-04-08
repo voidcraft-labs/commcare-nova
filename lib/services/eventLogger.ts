@@ -5,8 +5,8 @@
  * StoredEvent — one object that writes identically to the Firestore sink.
  *
  * **Firestore sink** (enableFirestore): writes one document per event to
- * `users/{email}/apps/{appId}/logs/`. Fire-and-forget — a Firestore
- * outage never blocks generation.
+ * `apps/{appId}/logs/`. Fire-and-forget — a Firestore outage never
+ * blocks generation.
  */
 import type { UIMessage } from "ai";
 import { writeLogEvent } from "../db/logs";
@@ -31,9 +31,9 @@ const SKIP_EMISSIONS = new Set(["data-partial-scaffold", "data-run-id"]);
 export class EventLogger {
 	private _runId: string;
 
-	/* Firestore sink */
-	private fsEmail: string | null = null;
+	/* Firestore sink — appId for log writes, ownerEmail for usage tracking */
 	private fsAppId: string | null = null;
+	private fsOwnerEmail: string | null = null;
 
 	/* Ordering */
 	private sequence = 0;
@@ -62,16 +62,18 @@ export class EventLogger {
 	}
 
 	/**
-	 * Enable real-time Firestore logging. Each emit/logStep/logError/logMessage
-	 * call writes a document to `users/{email}/apps/{appId}/logs/`.
+	 * Enable real-time Firestore logging and usage tracking.
+	 *
+	 * Log events write to `apps/{appId}/logs/`. Usage increments write to
+	 * `users/{ownerEmail}/usage/{period}` on finalize.
 	 */
-	enableFirestore(email: string, appId: string) {
-		this.fsEmail = email;
+	enableFirestore(appId: string, ownerEmail: string) {
 		this.fsAppId = appId;
+		this.fsOwnerEmail = ownerEmail;
 	}
 
 	private get firestoreEnabled(): boolean {
-		return this.fsEmail !== null && this.fsAppId !== null;
+		return this.fsAppId !== null;
 	}
 
 	// ── Core: write a StoredEvent to the Firestore sink ───────────────
@@ -87,8 +89,8 @@ export class EventLogger {
 			event,
 		};
 
-		if (!this.fsEmail || !this.fsAppId) return;
-		writeLogEvent(this.fsEmail, this.fsAppId, stored);
+		if (!this.fsAppId) return;
+		writeLogEvent(this.fsAppId, stored);
 	}
 
 	// ── Public API ──────────────────────────────────────────────────
@@ -277,16 +279,16 @@ export class EventLogger {
 		if (this._finalized) return;
 		this._finalized = true;
 
-		if (this.firestoreEnabled && this._usageCost > 0) {
+		if (this.firestoreEnabled && this.fsOwnerEmail && this._usageCost > 0) {
 			try {
-				await incrementUsage(this.fsEmail ?? "", {
+				await incrementUsage(this.fsOwnerEmail, {
 					input_tokens: this._usageInputTokens,
 					output_tokens: this._usageOutputTokens,
 					cost_estimate: this._usageCost,
 				});
 			} catch (err) {
 				log.error("[finalize] usage increment failed", err, {
-					email: this.fsEmail ?? "",
+					email: this.fsOwnerEmail,
 				});
 			}
 		}

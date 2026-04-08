@@ -995,14 +995,9 @@ export function createSolutionsArchitect(
 
 						/* Update the app with the final validated blueprint (fire-and-forget).
 						 * The app document was created at the start of the request by the route handler. */
-						if (ctx.session && ctx.appId) {
-							completeApp(
-								ctx.session.user.email,
-								ctx.appId,
-								result.blueprint,
-								ctx.logger.runId,
-							).catch((err) =>
-								log.error("[validateApp] app update failed", err),
+						if (ctx.appId) {
+							completeApp(ctx.appId, result.blueprint, ctx.logger.runId).catch(
+								(err) => log.error("[validateApp] app update failed", err),
 							);
 						}
 

@@ -16,7 +16,7 @@ Next.js web app that generates CommCare apps from natural language conversation.
 - **XML**: htmlparser2 + domutils + dom-serializer
 - **Icons**: Tabler (`@iconify-icons/tabler`) via `@iconify/react/offline`
 - **Auth**: Better Auth (Firestore-backed sessions via `better-auth-firestore`, Google OAuth — domain restriction enforced by GCP OAuth consent screen, not application code)
-- **Database**: Google Cloud Firestore (`@google-cloud/firestore`) — app data in subcollection hierarchy under `users/{email}`, auth state in `auth_*` collections managed by Better Auth
+- **Database**: Google Cloud Firestore (`@google-cloud/firestore`) — apps in root-level `apps/{appId}` collection (owner field links to user), user profiles at `users/{email}`, auth state in `auth_*` collections managed by Better Auth
 - **State**: Zustand (`zustand/vanilla` + `zustand/middleware`) — builder reactive state in a scoped Zustand store per buildId, imperative logic in `BuilderEngine` class
 - **Linting**: Biome (`biome.json`) — formatting + lint rules. Lefthook (`lefthook.yml`) runs `biome check --staged` as a pre-commit hook. `noArrayIndexKey` is suppressed where entities lack unique IDs (modules, forms in TreeData)
 - **Testing**: Vitest
@@ -79,6 +79,8 @@ Sortable items are keyed by **UUID** (`q.uuid`), not `questionPath` — so sorta
 ### Firestore Configuration
 
 `ignoreUndefinedProperties: true` on the Firestore instance because `stripEmpty()` converts sentinel strings back to `undefined` during post-processing — without this flag, Firestore would throw on any write containing `undefined` values.
+
+**App ownership is explicit, not path-scoped.** Apps live at `apps/{appId}` (root-level) with an `owner` field. API routes that serve user data must verify `app.owner === session.user.email` — the collection path doesn't scope access. Admin routes skip this check. `loadAppOwner(appId)` reads just the owner field without pulling the full blueprint.
 
 ## Data Model Decisions
 
