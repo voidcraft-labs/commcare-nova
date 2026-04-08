@@ -28,16 +28,17 @@ interface InsertionPointProps {
 /**
  * Hover-reveal insertion gap between questions.
  *
- * Renders an invisible hover zone that expands into a visible divider line with
- * a centred "+" button. The button is a `Menu.Trigger` inside a `Menu.Root`,
- * so Base UI fully manages the menu lifecycle — floating tree, dismiss, focus
- * return, and submenu safe-polygon all work natively.
+ * Occupies a fixed resting height (the gap between questions) and reveals a
+ * visible divider line with a centred "+" button on hover. The hover detector
+ * covers only the insertion point's own area — no negative margins extending
+ * into adjacent question space — so the user won't accidentally trigger it
+ * while interacting with a nearby field.
  *
- * The invisible hover detector covers a wider area than the button to make
- * the insertion point discoverable. Clicks anywhere in the detector zone are
- * forwarded to the `Menu.Trigger` via a dispatched `mousedown` event, preserving
- * the "click anywhere in the gap" UX while keeping the trigger as the canonical
- * interaction source for Base UI's floating context.
+ * The button is a `Menu.Trigger` inside a `Menu.Root`, so Base UI fully manages
+ * the menu lifecycle — floating tree, dismiss, focus return, and submenu
+ * safe-polygon all work natively. Clicks anywhere in the gap open the menu
+ * via controlled state (`setMenuOpen(true)`) with a one-interaction guard
+ * against Base UI's outside-click immediately closing it.
  */
 export function InsertionPoint({
 	atIndex,
@@ -52,6 +53,9 @@ export function InsertionPoint({
 	const triggerRef = useRef<HTMLButtonElement>(null);
 	const pendingRef = useRef(false);
 	const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+	/** Guards against Base UI's outside-click detection immediately closing
+	 *  the menu when it was just opened programmatically from the detector. */
+	const justOpenedRef = useRef(false);
 
 	const clearPoll = useCallback(() => {
 		if (pollRef.current) {
@@ -103,22 +107,26 @@ export function InsertionPoint({
 		if (!menuOpen) setHovered(false);
 	}, [menuOpen, clearPoll]);
 
-	/** Forward mousedown from the invisible hover detector to the `Menu.Trigger`.
-	 *  Base UI's `useClick` on the trigger listens for `mousedown` events, so a
-	 *  dispatched native `mousedown` triggers the standard open/toggle path —
-	 *  including `FloatingTreeStore` registration and `activeTriggerElement` sync
-	 *  via `useImplicitActiveTrigger`. This preserves the "click anywhere in the
-	 *  gap" UX without bypassing Base UI's menu lifecycle. */
+	/** Open the menu programmatically when clicking anywhere in the gap.
+	 *  Uses controlled state rather than dispatching synthetic events to the
+	 *  trigger — a synthetic mousedown would open the menu, but the native
+	 *  click that follows is treated as "outside" by Base UI's floating
+	 *  dismiss (the detector isn't part of the menu tree), closing it
+	 *  immediately. The `justOpenedRef` guard lets `handleOpenChange` ignore
+	 *  that spurious close within the same pointer interaction. Cleared on
+	 *  the next pointerdown so normal dismiss works for subsequent clicks. */
 	const handleDetectorMouseDown = useCallback((e: React.MouseEvent) => {
 		if (e.button !== 0) return;
 		e.stopPropagation();
 		e.preventDefault();
-		triggerRef.current?.dispatchEvent(
-			new MouseEvent("mousedown", {
-				bubbles: true,
-				cancelable: true,
-				button: 0,
-			}),
+		justOpenedRef.current = true;
+		setMenuOpen(true);
+		document.addEventListener(
+			"pointerdown",
+			() => {
+				justOpenedRef.current = false;
+			},
+			{ once: true },
 		);
 	}, []);
 
@@ -129,9 +137,11 @@ export function InsertionPoint({
 
 	/** Sync local visual state when the Base UI menu opens or closes.
 	 *  Base UI's FloatingTreeStore handles dismissing competing floating
-	 *  elements automatically (outside-click). Resets hover state on close
-	 *  so the insertion line collapses back to zero-height. */
+	 *  elements automatically (outside-click). Ignores the spurious close
+	 *  that fires in the same frame as a programmatic open from the detector.
+	 *  Resets hover state on close so the insertion line collapses. */
 	const handleOpenChange = useCallback((nextOpen: boolean) => {
+		if (!nextOpen && justOpenedRef.current) return;
 		setMenuOpen(nextOpen);
 		if (!nextOpen) setHovered(false);
 	}, []);
@@ -145,23 +155,24 @@ export function InsertionPoint({
 		<div
 			className="relative"
 			style={{
-				height: isActive ? 24 : 0,
-				marginBottom: isActive ? 16 : 0,
+				height: isActive ? 32 : 24,
 				transition: isActive
-					? "height 200ms cubic-bezier(0.6, 0, 0.1, 1) 50ms, margin 200ms cubic-bezier(0.6, 0, 0.1, 1) 50ms"
-					: "height 50ms ease-in, margin 50ms ease-in",
+					? "height 200ms cubic-bezier(0.6, 0, 0.1, 1) 50ms"
+					: "height 50ms ease-in",
 			}}
 			data-insertion-point
 		>
-			{/* Invisible hover detector extending into adjacent gaps. Semantic <button>
-			 * with tabIndex={-1} so keyboard users skip it (they use the visible "+"
-			 * button below). aria-hidden keeps it out of the a11y tree entirely.
-			 * Clicks are forwarded to the Menu.Trigger via dispatched mousedown. */}
+			{/* Invisible hover detector covering the insertion point's own area.
+			 * No negative margins — the detector stays within the gap so the user
+			 * won't accidentally trigger it from an adjacent question field.
+			 * Semantic <button> with tabIndex={-1} so keyboard users skip it (they
+			 * use the visible "+" button below). aria-hidden keeps it out of the
+			 * a11y tree. Clicks open the menu via controlled state. */}
 			<button
 				type="button"
 				tabIndex={-1}
 				aria-hidden="true"
-				className="absolute inset-x-0 -top-2 -bottom-2 z-raised cursor-pointer bg-transparent border-none p-0"
+				className="absolute inset-0 z-raised cursor-pointer bg-transparent border-none p-0"
 				onMouseEnter={handleMouseEnter}
 				onMouseMove={handleMouseMove}
 				onMouseLeave={handleMouseLeave}

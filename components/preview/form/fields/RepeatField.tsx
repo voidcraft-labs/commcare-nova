@@ -32,6 +32,9 @@ interface RepeatInstanceProps {
 	headerRight?: React.ReactNode;
 	/** Ref forwarded to the body div (used for droppable targeting) */
 	bodyRef?: React.Ref<HTMLDivElement>;
+	/** When true, vertical padding is omitted — inner field spacing handles
+	 *  the inset. Empty instances keep full p-4 + min-height for the target. */
+	hasChildren?: boolean;
 	children: React.ReactNode;
 }
 
@@ -39,6 +42,7 @@ function RepeatInstance({
 	headerLeft,
 	headerRight,
 	bodyRef,
+	hasChildren,
 	children,
 }: RepeatInstanceProps) {
 	return (
@@ -47,7 +51,7 @@ function RepeatInstance({
 				{headerLeft}
 				{headerRight}
 			</div>
-			<div ref={bodyRef} className="p-4 space-y-4 min-h-[72px]">
+			<div ref={bodyRef} className={hasChildren ? "px-4" : "p-4 min-h-[72px]"}>
 				{children}
 			</div>
 		</div>
@@ -120,6 +124,7 @@ export function RepeatField({
 						</span>
 					}
 					bodyRef={droppableRef}
+					hasChildren={(question.children?.length ?? 0) > 0}
 				>
 					<FormRenderer
 						questions={question.children ?? []}
@@ -153,6 +158,7 @@ export function RepeatField({
 								</button>
 							) : undefined
 						}
+						hasChildren={(question.children?.length ?? 0) > 0}
 					>
 						<FormRenderer
 							questions={question.children ?? []}

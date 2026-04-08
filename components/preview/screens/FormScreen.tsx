@@ -169,8 +169,13 @@ export function FormScreen({ onBack }: FormScreenProps) {
 				</div>
 			</div>
 
-			{/* Form body */}
-			<div ref={formBodyRef} className="flex-1 px-6 py-6">
+			{/* Form body — in edit mode InsertionPoints own the vertical
+			 * spacing, so only horizontal padding is needed. Interact mode
+			 * keeps py-6 for the same 24px inset. */}
+			<div
+				ref={formBodyRef}
+				className={`flex-1 px-6 ${mode === "edit" ? "" : "py-6"}`}
+			>
 				{questions.length === 0 ? (
 					<div className="text-center text-nova-text-muted py-8">
 						This form has no questions.
