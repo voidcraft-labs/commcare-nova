@@ -1,10 +1,10 @@
 /**
- * Loading skeleton for the admin dashboard.
+ * Skeleton components for the admin dashboard.
  *
- * Shows during client-side navigation while the RSC payload is in flight.
- * Mirrors the page shell: title, stat cards, and user table.
- * The global header is rendered by the root layout (no duplication needed here).
- * `AdminContentSkeleton` is exported for reuse as a Suspense fallback in the page.
+ * Used as Suspense fallbacks in admin pages. Extracted from `loading.tsx`
+ * because Next.js `loading.tsx` files trigger prerender attempts on routes
+ * whose layouts use `headers()` — a known framework bug. Using explicit
+ * `<Suspense fallback={...}>` in each page avoids the issue entirely.
  */
 import { Skeleton } from "@/components/ui/Skeleton";
 
@@ -92,9 +92,8 @@ export function AdminContentSkeleton() {
 	);
 }
 
-// ── Full Page Skeleton ───────────────────────────────────────────────
-
-export default function AdminLoading() {
+/** Full-page skeleton — title + content. Used by navigation-level Suspense. */
+export function AdminPageSkeleton() {
 	return (
 		<main className="max-w-6xl mx-auto px-6 py-12">
 			<Skeleton className="w-48 h-7 mb-8" />

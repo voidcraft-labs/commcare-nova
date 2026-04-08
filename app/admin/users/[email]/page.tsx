@@ -2,7 +2,7 @@ import { Icon } from "@iconify/react/offline";
 import tablerChevronLeft from "@iconify-icons/tabler/chevron-left";
 import Link from "next/link";
 import { Suspense } from "react";
-import { AppsSkeleton, ProfileSkeleton, UsageSkeleton } from "./loading";
+import { AppsSkeleton, ProfileSkeleton, UsageSkeleton } from "./skeletons";
 import { UserAppsSection } from "./user-apps";
 import { UserProfileSection } from "./user-profile";
 import { UserUsageSection } from "./user-usage";
