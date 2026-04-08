@@ -6,8 +6,6 @@ A web app that generates CommCare applications from natural language conversatio
 
 Nova uses a single AI agent — the **Solutions Architect** — that converses with you to understand your requirements, then generates a complete CommCare app blueprint through a multi-stage pipeline. The entire conversation and generation happens in one streaming session via the Vercel AI SDK and Anthropic's Claude.
 
-**Dual access** — sign in with a `@dimagi.com` Google account to use the shared server key (with monthly spend caps and app persistence), or bring your own Anthropic API key for ephemeral, unauthenticated usage.
-
 ## Getting Started
 
 ### Local Development
