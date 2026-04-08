@@ -24,20 +24,6 @@ import type { Firestore } from "firebase-admin/firestore";
 import { getDb } from "./db/firestore";
 import { provisionUser } from "./db/users";
 
-/* ── Startup guards ─────────────────────────────────────────────────
- * Fail fast if required OAuth credentials are missing. Without these the
- * server starts but every sign-in attempt produces a cryptic OAuth error.
- * Checked at module load time so misconfigured deploys surface immediately. */
-const googleClientId = process.env.GOOGLE_CLIENT_ID;
-const googleClientSecret = process.env.GOOGLE_CLIENT_SECRET;
-if (process.env.NODE_ENV === "production") {
-	if (!googleClientId || !googleClientSecret) {
-		throw new Error(
-			"GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET must be set in production",
-		);
-	}
-}
-
 export const auth = betterAuth({
 	secret: process.env.BETTER_AUTH_SECRET,
 	baseURL: process.env.BETTER_AUTH_URL,
@@ -124,8 +110,8 @@ export const auth = betterAuth({
 
 	socialProviders: {
 		google: {
-			clientId: googleClientId ?? "",
-			clientSecret: googleClientSecret ?? "",
+			clientId: process.env.GOOGLE_CLIENT_ID ?? "",
+			clientSecret: process.env.GOOGLE_CLIENT_SECRET ?? "",
 		},
 	},
 
