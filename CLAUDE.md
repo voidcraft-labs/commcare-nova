@@ -122,7 +122,7 @@ All `<input>` and `<textarea>` elements must include `autoComplete="off"` and `d
 
 Pages are Server Components that handle auth, fetch data, and render structure. Interactive leaves are small colocated client components. Push `'use client'` as far down the tree as possible. Name components by what they do (`UserTable`, `AppList`), not by runtime (`*Client`). Colocate page-specific components next to their page in `app/`.
 
-**Server layout is the auth gate.** `app/build/layout.tsx` calls `requireAuth()` — by the time any client component mounts, auth is guaranteed. Client components must not re-gate on `useAuth().isAuthenticated` because `useSession()` starts with `isPending: true` / `data: null`, causing false-negative redirects or flash of wrong UI state. Use `useAuth()` only for display concerns (user name, avatar, admin badge).
+**Server layout is the auth gate.** `app/build/layout.tsx` calls `requireAuth()` — by the time any client component mounts, auth is guaranteed. Client components must not re-gate on `useAuth().isAuthenticated` — no redirect guards, no conditional renders that return to login. Use `useAuth()` only for display concerns (user name, avatar, admin badge). `auth-client.ts` sets `refetchOnWindowFocus: false` because Better Auth's default refetch briefly nulls session data on every tab switch, causing false "unauthenticated" flashes even in non-redirect contexts.
 
 **No portals for fixed-position elements.** `createPortal` to `document.body` causes SSR hydration mismatches (`document` doesn't exist on the server). Fixed-position elements render at the viewport level regardless of DOM position — place them in the component tree directly. Global UI (toasts, modals) belongs in the root layout as client component leaves.
 
