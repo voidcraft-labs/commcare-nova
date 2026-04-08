@@ -29,6 +29,7 @@ import {
 	qpathParent,
 } from "@/lib/services/questionPath";
 import { EditableQuestionWrapper } from "./EditableQuestionWrapper";
+import { FIELD_STYLES } from "./fieldStyles";
 import { GroupField } from "./fields/GroupField";
 import { HiddenField } from "./fields/HiddenField";
 import { LabelField } from "./fields/LabelField";
@@ -326,13 +327,12 @@ function SortableQuestion({
 									onSave={saveField ? (v) => saveField("label", v) : undefined}
 									fieldType="label"
 								>
-									<div className="text-sm font-medium text-nova-text">
-										<LabelContent
-											label={q.label}
-											resolvedLabel={state.resolvedLabel}
-											isEditMode={isEditMode}
-										/>
-									</div>
+									<LabelContent
+										label={q.label}
+										resolvedLabel={state.resolvedLabel}
+										isEditMode={isEditMode}
+										className={FIELD_STYLES.label}
+									/>
 								</TextEditable>
 							</div>
 							{state.required && (
@@ -346,13 +346,12 @@ function SortableQuestion({
 							onSave={saveField ? (v) => saveField("hint", v) : undefined}
 							fieldType="hint"
 						>
-							<div className="text-xs text-nova-text-muted">
-								<LabelContent
-									label={q.hint}
-									resolvedLabel={state.resolvedHint}
-									isEditMode={isEditMode}
-								/>
-							</div>
+							<LabelContent
+								label={q.hint}
+								resolvedLabel={state.resolvedHint}
+								isEditMode={isEditMode}
+								className={FIELD_STYLES.hint}
+							/>
 						</TextEditable>
 					)}
 					<QuestionField
