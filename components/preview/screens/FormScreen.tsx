@@ -159,13 +159,13 @@ export function FormScreen({ onBack }: FormScreenProps) {
 					) : (
 						<EditableTitle value={form.name} readOnly />
 					)}
+					<SavedCheck visible={titleSaved} />
 					{canEdit && (
 						<FormSettingsButton
 							moduleIndex={moduleIndex}
 							formIndex={formIndex}
 						/>
 					)}
-					<SavedCheck visible={titleSaved} />
 				</div>
 			</div>
 
