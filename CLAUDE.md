@@ -74,6 +74,8 @@ Question reordering uses the controlled state pattern: `onDragOver` → `move(it
 
 Sortable items are keyed by **UUID** (`q.uuid`), not `questionPath` — so sortable IDs survive renames. Group/repeat droppable containers use `${uuid}:container`. `buildDragState()` builds a `uuidToPath` reverse map so mutation calls (`moveQuestion` etc.) still receive `QuestionPath` arguments.
 
+**InsertionPoints own the inter-question gap in edit mode.** Each `InsertionPoint` has a 24px resting height that IS the gap between questions — the hover detector covers only this area (no negative margins into adjacent fields). Questions have zero bottom margin in edit mode. In interact mode (no InsertionPoints), `mb-6` on each question provides the same 24px gap. Group/repeat body containers use `px-4` only (no vertical padding) when they have children — InsertionPoints (edit) or `pt-6` on the nested FormRenderer (interact) provide the vertical inset. Empty containers keep `p-4 min-h-[72px]` for the droppable target. `FormScreen`'s body container follows the same pattern. Do not re-add `mb-*` to questions in edit mode or `py-*` to group containers with children.
+
 ### Firestore Configuration
 
 `ignoreUndefinedProperties: true` on the Firestore instance because `stripEmpty()` converts sentinel strings back to `undefined` during post-processing — without this flag, Firestore would throw on any write containing `undefined` values.

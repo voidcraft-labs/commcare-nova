@@ -377,11 +377,10 @@ function SortableQuestion({
 		<>
 			<div
 				ref={ref}
-				/* Collapse bottom margin when the panel is open so the panel
-				 * appears attached to the question. The panel itself carries a
-				 * pb-4 spacer (clipped by overflow-hidden) that provides the
-				 * inter-question gap and shrinks away cleanly on exit. */
-				className={`relative ${isSelected ? "mb-0" : "mb-4"}`}
+				/* In edit mode, InsertionPoints own the inter-question gap (24px
+				 * resting height). In interact mode (no InsertionPoints), mb-6
+				 * provides the same 24px gap so spacing is identical across modes. */
+				className={`relative ${isEditMode ? "" : "mb-6"}`}
 				data-invalid={showInvalid ? "true" : undefined}
 				data-question-uuid={q.uuid}
 			>
@@ -393,7 +392,7 @@ function SortableQuestion({
 				</div>
 			</div>
 			{isSelected && ctx && (
-				<div data-settings-panel className="pb-4">
+				<div data-settings-panel>
 					<InlineSettingsPanel question={q} />
 				</div>
 			)}
@@ -532,8 +531,13 @@ export function FormRenderer({
 		: undefined;
 	const isDragging = !!activePath;
 
+	/* In interact mode inside groups/repeats, pt-6 provides the top inset
+	 * that InsertionPoints handle in edit mode. Bottom inset comes from the
+	 * last question's mb-6 collapsing through to the container border. */
+	const nestedTestPad = !isEditMode && !isRoot ? " pt-6" : "";
+
 	const list = (
-		<div className="min-h-full pointer-events-auto">
+		<div className={`min-h-full pointer-events-auto${nestedTestPad}`}>
 			{isEditMode && (
 				<InsertionPoint
 					atIndex={0}

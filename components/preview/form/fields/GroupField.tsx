@@ -74,7 +74,13 @@ export function GroupField({
 					)}
 				</div>
 			)}
-			<div ref={droppableRef} className="p-4 space-y-4 min-h-[72px] bg-pv-bg">
+			{/* When children exist, only horizontal padding — InsertionPoints (edit)
+			 * or the nested FormRenderer's pt-6 (interact) provide vertical inset.
+			 * Empty groups keep full p-4 + min-height for the droppable target. */}
+			<div
+				ref={droppableRef}
+				className={`bg-pv-bg ${(question.children?.length ?? 0) > 0 ? "px-4" : "p-4 min-h-[72px]"}`}
+			>
 				<FormRenderer
 					questions={question.children ?? []}
 					engine={engine}
