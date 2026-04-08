@@ -136,8 +136,10 @@ export function ContextualEditorHeader({ question }: QuestionEditorProps) {
 		});
 	});
 
-	const handleRename = useCallback(
-		(newId: string): undefined | false => {
+	/** Attempts the rename and returns false if blocked by a sibling conflict.
+	 * On success the mutation has already been applied by the store. */
+	const validateRename = useCallback(
+		(newId: string): boolean => {
 			if (
 				!selected ||
 				selected.formIndex === undefined ||
@@ -165,16 +167,20 @@ export function ContextualEditorHeader({ question }: QuestionEditorProps) {
 				return false;
 			}
 
+			/* Rename succeeded — update selection to the new path and clear
+			 * the new-question highlight so subsequent edits are normal. */
 			setIdNotice(null);
 			engine.select({ ...selected, questionPath: result.newPath });
 			engine.clearNewQuestion();
+			return true;
 		},
 		[selected, renameQuestionAction, engine],
 	);
 
 	const idField = useCommitField({
 		value: question.id,
-		onSave: handleRename,
+		validate: validateRename,
+		onSave: () => {},
 	});
 
 	/** Callback ref for the ID input — merges the commit hook ref with

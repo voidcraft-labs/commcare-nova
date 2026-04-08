@@ -5,13 +5,14 @@ import { useCallback, useEffect, useRef, useState } from "react";
 interface UseCommitFieldOptions {
 	/** Current persisted value — the source of truth outside of editing. */
 	value: string;
+	/** Called when a changed value is committed (after validation, if any). */
+	onSave: (value: string) => void;
 	/**
-	 * Called when a changed value is committed. Return `false` to signal that
-	 * the save was rejected (e.g. validation failure) — the checkmark animation
-	 * will be suppressed. All other return values (including void) are treated
-	 * as success.
+	 * Optional pre-save validation. Return `false` to reject the commit —
+	 * the save will not fire and the checkmark animation will be suppressed.
+	 * Useful for blocking renames on sibling conflicts, invalid XPath, etc.
 	 */
-	onSave: (value: string) => undefined | false;
+	validate?: (value: string) => boolean;
 	/**
 	 * Called when the field is committed empty (value cleared + committed).
 	 * Typically used to trigger deletion of the associated item.
@@ -76,6 +77,7 @@ export interface UseCommitFieldResult {
 export function useCommitField({
 	value,
 	onSave,
+	validate,
 	onEmpty,
 	required,
 	multiline,
@@ -120,10 +122,11 @@ export function useCommitField({
 		}
 		if (required && !trimmed) return;
 		if (trimmed !== value) {
-			const result = onSave(trimmed);
-			if (result !== false) setSaved(true);
+			if (validate && !validate(trimmed)) return;
+			onSave(trimmed);
+			setSaved(true);
 		}
-	}, [internalDraft, value, onSave, onEmpty, required]);
+	}, [internalDraft, value, onSave, validate, onEmpty, required]);
 
 	const cancel = useCallback(() => {
 		committedRef.current = true;
