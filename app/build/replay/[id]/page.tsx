@@ -17,7 +17,7 @@ interface ReplayPageProps {
 export default async function ReplayPage({ params }: ReplayPageProps) {
 	const [{ id }, session] = await Promise.all([params, requireAuth()]);
 
-	if (!(await isUserAdmin(session.session.userId))) {
+	if (!(await isUserAdmin(session.user.id))) {
 		return (
 			<div className="h-full flex items-center justify-center">
 				<p className="text-nova-rose text-sm">App not found.</p>

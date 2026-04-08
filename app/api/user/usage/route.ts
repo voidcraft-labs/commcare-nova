@@ -17,7 +17,7 @@ import {
 export async function GET(req: Request) {
 	try {
 		const session = await requireSession(req);
-		const usage = await getMonthlyUsage(session.session.userId);
+		const usage = await getMonthlyUsage(session.user.id);
 		return Response.json({
 			cost_estimate: usage?.cost_estimate ?? 0,
 			request_count: usage?.request_count ?? 0,

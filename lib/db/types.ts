@@ -36,7 +36,7 @@ const timestamp = z.instanceof(Timestamp);
 /**
  * User profile — stored at `users/{userId}`.
  *
- * The document ID is a UUID (crypto.randomUUID()), generated on first sign-in.
+ * The document ID is Better Auth's built-in user ID (`session.user.id`).
  * Email is stored as a field for display and lookup. Better Auth handles
  * session management statelessly; this document exists for Firestore
  * references and admin features.

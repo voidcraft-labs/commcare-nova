@@ -18,7 +18,7 @@ import { AppCardList } from "@/components/ui/AppCardList";
 import { listApps } from "@/lib/db/apps";
 
 interface AppListProps {
-	/** Owner userId (UUID) — used to query apps by owner. */
+	/** Owner ID (Better Auth user ID) — used to query apps by owner. */
 	userId: string;
 	/** Whether to show replay buttons (admin-only feature). */
 	isAdmin: boolean;
