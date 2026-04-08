@@ -4,32 +4,26 @@ import { useCallback } from "react";
 import type { AppSummary } from "@/lib/db/apps";
 import { AppCard } from "./AppCard";
 
-interface ReplayableAppListProps {
+interface AppCardListProps {
 	apps: AppSummary[];
 	/** When true, non-error apps link to `/build/{id}`. Defaults to false. */
 	linkToApps?: boolean;
-	/** When false, replay buttons are hidden. Defaults to true. */
+	/** When true, replay buttons are shown (admin-only feature). Defaults to false. */
 	showReplay?: boolean;
 	/** Content to show when the app list is empty. */
 	emptyState?: React.ReactNode;
 }
 
 /**
- * App list with integrated replay support.
- *
- * Client component because the replay callback uses `router.push` for
- * navigation. Shared between the builds page (user's own apps) and
- * admin user detail page (admin viewing any user's apps).
- *
- * Replay navigates by appId alone — no owner email needed since apps
- * are a root-level collection.
+ * Grid of app cards. Shared between the home page (user's own apps)
+ * and admin user detail page (admin viewing any user's apps).
  */
-export function ReplayableAppList({
+export function AppCardList({
 	apps,
 	linkToApps = false,
-	showReplay = true,
+	showReplay = false,
 	emptyState,
-}: ReplayableAppListProps) {
+}: AppCardListProps) {
 	const router = useRouter();
 
 	const handleReplay = useCallback(
