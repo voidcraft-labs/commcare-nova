@@ -106,6 +106,24 @@ export async function hasActiveGeneration(
 	return false;
 }
 
+// ── Existence Check ───────────────────────────────────────────────
+
+/**
+ * Lightweight existence check — does the user own at least one app?
+ *
+ * Uses `limit(1)` with no field projection so it's as cheap as a
+ * Firestore read can be. Called by the root page before the Suspense
+ * boundary to choose between the get-started state and the app list.
+ */
+export async function userHasApps(owner: string): Promise<boolean> {
+	const snap = await getDb()
+		.collection("apps")
+		.where("owner", "==", owner)
+		.limit(1)
+		.get();
+	return !snap.empty;
+}
+
 // ── CRUD ───────────────────────────────────────────────────────────
 
 /**

@@ -1,19 +1,15 @@
 /**
  * Async server component for the app list.
  *
- * Separated from the builds page so it can be wrapped in a Suspense boundary.
- * The data fetch (Firestore query) happens here — the page shell streams
- * immediately while this component resolves.
- *
- * If the user has no apps, redirects straight to `/build/new` — no empty
- * state to maintain, and matches the post-sign-in flow (which also lands
- * on `/build/new` via callbackURL).
+ * Separated from the page so it can be wrapped in a Suspense boundary —
+ * the page shell streams immediately while this component resolves the
+ * Firestore query. Only rendered when `userHasApps` returns true (checked
+ * at the page level before the Suspense boundary).
  */
 
 import { Icon } from "@iconify/react/offline";
 import tablerPlus from "@iconify-icons/tabler/plus";
 import Link from "next/link";
-import { redirect } from "next/navigation";
 import { AppCardList } from "@/components/ui/AppCardList";
 import { listApps } from "@/lib/db/apps";
 
@@ -26,8 +22,6 @@ interface AppListProps {
 
 export async function AppList({ userId, isAdmin }: AppListProps) {
 	const apps = await listApps(userId);
-
-	if (apps.length === 0) redirect("/build/new");
 
 	return (
 		<>

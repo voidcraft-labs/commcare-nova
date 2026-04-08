@@ -10,8 +10,6 @@ interface AppCardListProps {
 	linkToApps?: boolean;
 	/** When true, replay buttons are shown (admin-only feature). Defaults to false. */
 	showReplay?: boolean;
-	/** Content to show when the app list is empty. */
-	emptyState?: React.ReactNode;
 }
 
 /**
@@ -22,7 +20,6 @@ export function AppCardList({
 	apps,
 	linkToApps = false,
 	showReplay = false,
-	emptyState,
 }: AppCardListProps) {
 	const router = useRouter();
 
@@ -33,8 +30,12 @@ export function AppCardList({
 		[router],
 	);
 
-	if (apps.length === 0 && emptyState) {
-		return <>{emptyState}</>;
+	if (apps.length === 0) {
+		return (
+			<p className="py-12 text-center text-sm text-nova-text-muted">
+				No apps yet.
+			</p>
+		);
 	}
 
 	return (
