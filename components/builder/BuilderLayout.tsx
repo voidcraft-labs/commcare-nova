@@ -49,6 +49,7 @@ import {
 } from "@/hooks/useBuilder";
 import { useKeyboardShortcuts } from "@/hooks/useKeyboardShortcuts";
 import { parseApiErrorMessage } from "@/lib/apiError";
+import { shortcutLabel } from "@/lib/platform";
 import { ReferenceProviderWrapper } from "@/lib/references/ReferenceContext";
 import { applyDataPart, BuilderPhase } from "@/lib/services/builder";
 import type { BuilderEngine } from "@/lib/services/builderEngine";
@@ -980,7 +981,7 @@ export function BuilderLayout() {
 								<div className="flex items-center gap-1 shrink-0">
 									<SaveIndicator saveState={saveStatus} />
 									<AppConnectSettings builder={builder} />
-									<Tooltip content="Undo (⌘Z)">
+									<Tooltip content={`Undo (${shortcutLabel("mod", "Z")})`}>
 										<button
 											type="button"
 											onClick={handleUndo}
@@ -991,7 +992,9 @@ export function BuilderLayout() {
 											<Icon icon={tablerArrowBackUp} width="18" height="18" />
 										</button>
 									</Tooltip>
-									<Tooltip content="Redo (⌘⇧Z)">
+									<Tooltip
+										content={`Redo (${shortcutLabel("mod", "shift", "Z")})`}
+									>
 										<button
 											type="button"
 											onClick={handleRedo}

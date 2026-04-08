@@ -12,6 +12,7 @@ import {
 	findParentNodeClosestToPos,
 	type NodeWithPos,
 } from "@tiptap/react";
+import { IS_MAC } from "@/lib/platform";
 
 export const MAX_FILE_SIZE = 5 * 1024 * 1024; // 5MB
 
@@ -50,14 +51,12 @@ export function cn(
 }
 
 /**
- * Determines if the current platform is macOS
- * @returns boolean indicating if the current platform is Mac
+ * Determines if the current platform is macOS.
+ * Re-exports the shared platform constant as a function for backwards compatibility
+ * with TipTap's `formatShortcutKey` / `parseShortcutKeys`.
  */
 export function isMac(): boolean {
-	return (
-		typeof navigator !== "undefined" &&
-		navigator.platform.toLowerCase().includes("mac")
-	);
+	return IS_MAC;
 }
 
 /**
