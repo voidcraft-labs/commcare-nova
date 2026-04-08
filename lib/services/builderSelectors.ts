@@ -126,6 +126,13 @@ export function selectEditMode(s: BuilderState): "edit" | "test" {
 	return s.cursorMode === "pointer" ? "test" : "edit";
 }
 
+// ── Replay selectors ──────────────────────────────────────────────────
+
+/** True when the builder is in replay mode (replay stages loaded in store). */
+export function selectInReplayMode(s: BuilderState): boolean {
+	return s.replayStages !== undefined;
+}
+
 // ── Navigation selectors ───────────────────────────────────────────────
 
 /** True when the user can navigate back in preview history. */

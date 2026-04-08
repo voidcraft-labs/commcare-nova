@@ -21,8 +21,6 @@ export default async function AdminUserDetailPage({
 }) {
 	const { email: rawEmail } = await params;
 	const email = decodeURIComponent(rawEmail);
-	const encodedEmail = encodeURIComponent(email);
-
 	return (
 		<main className="max-w-4xl mx-auto px-6 py-10 space-y-8">
 			{/* ── In-page breadcrumb navigation ──────────────────── */}
@@ -48,7 +46,7 @@ export default async function AdminUserDetailPage({
 			</Suspense>
 
 			<Suspense fallback={<AppsSkeleton />}>
-				<UserAppsSection email={email} encodedEmail={encodedEmail} />
+				<UserAppsSection email={email} />
 			</Suspense>
 		</main>
 	);

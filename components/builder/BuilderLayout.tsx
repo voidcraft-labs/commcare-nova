@@ -55,9 +55,9 @@ import type { BuilderEngine } from "@/lib/services/builderEngine";
 import {
 	selectCanGoBack,
 	selectCanGoUp,
+	selectInReplayMode,
 } from "@/lib/services/builderSelectors";
 import type { CursorMode } from "@/lib/services/builderStore";
-import { consumeReplayData } from "@/lib/services/logReplay";
 import {
 	assembleBlueprint,
 	assembleForm,
@@ -168,11 +168,9 @@ function createChatInstance(
 
 export function BuilderLayout() {
 	const router = useRouter();
-	/* Server layout (`app/build/layout.tsx`) already gates auth — by the time
-	 * this component mounts, the user is guaranteed authenticated. We still
-	 * call useAuth() for the `isAuthenticated` flag (used by useAutoSave and
-	 * the hasAccess guard for replay mode), but we never block rendering on
-	 * the client-side pending state since the server already resolved it. */
+	/* Server layout gates auth — useAuth() here is only for the isAuthenticated
+	 * flag (useAutoSave, redirect guard). Never block on isPending since the
+	 * server already verified the cookie. */
 	const { isAuthenticated, isPending: isAuthPending } = useAuth();
 	const builder = useBuilderEngine();
 	const phase = useBuilderPhase();
@@ -211,34 +209,25 @@ export function BuilderLayout() {
 		createChatInstance(builderRef, runIdRef),
 	);
 
-	// ── Replay — consumed once on mount, cleared on app switch ───────────
-	const [initialReplay] = useState(consumeReplayData);
-	const replayStartIndex = initialReplay?.doneIndex ?? 0;
-	const [replayData, setReplayDataState] = useState(() => {
-		if (initialReplay) {
-			for (let i = 0; i <= replayStartIndex; i++) {
-				initialReplay.stages[i]?.applyToBuilder(builder);
-			}
-		}
-		return initialReplay;
-	});
-	const [replayMessages, setReplayMessages] = useState(
-		() => initialReplay?.stages[replayStartIndex]?.messages ?? [],
+	// ── Replay ────────────────────────────────────────────────────────────
+	const inReplayMode = useBuilderStore(selectInReplayMode);
+	const replayDoneIndex = useBuilderStore((s) => s.replayDoneIndex);
+	const replayStages = useBuilderStore((s) => s.replayStages);
+	/** Local replay chat messages — updated by ReplayController as the user
+	 *  steps through stages. Not store state (transient view state). */
+	const [replayMessages, setReplayMessages] = useState<UIMessage[]>(
+		() => replayStages?.[replayDoneIndex]?.messages ?? [],
 	);
 
 	/* Detect builder identity change (new app via BuilderProvider). Clear
-	 * stale local state from the previous app: replay data, run ID, and
-	 * the Chat instance. Uses the React "adjusting state during rendering"
-	 * pattern — React discards the current render and re-renders immediately
-	 * with the updated state, so no stale frame is ever painted. */
+	 * stale local state from the previous app: run ID and the Chat instance.
+	 * Uses the React "adjusting state during rendering" pattern — React
+	 * discards the current render and re-renders immediately with the
+	 * updated state, so no stale frame is ever painted. */
 	if (builder !== prevBuilderRef.current) {
 		prevBuilderRef.current = builder;
 		runIdRef.current = undefined;
 		setChat(createChatInstance(builderRef, runIdRef));
-		if (replayData) {
-			setReplayDataState(undefined);
-			setReplayMessages([]);
-		}
 	}
 
 	const [chatOpen, setChatOpen] = useState(true);
@@ -267,10 +256,10 @@ export function BuilderLayout() {
 	} | null>(null);
 
 	const handleExitReplay = useCallback(() => {
-		setReplayDataState(undefined);
-		setReplayMessages([]);
+		const exitPath = builder.store.getState().replayExitPath ?? "/";
 		builder.reset();
-	}, [builder]);
+		router.push(exitPath);
+	}, [builder, router]);
 
 	// ── Navigation state — read directly from the store ────────────────
 	const canGoBack = useBuilderStore(selectCanGoBack);
@@ -431,8 +420,6 @@ export function BuilderLayout() {
 		return () => observer.disconnect();
 	}, [isReady, hasData]);
 
-	const inReplayMode = !!replayData;
-	const hasAccess = isAuthenticated || inReplayMode;
 	const isCentered = phase === BuilderPhase.Idle;
 
 	// ── Navigate to first form when generation completes ──
@@ -486,10 +473,10 @@ export function BuilderLayout() {
 
 	const handleSend = useCallback(
 		(text: string) => {
-			if (!text.trim() || !hasAccess) return;
+			if (!text.trim() || !isAuthenticated) return;
 			sendMessage({ text });
 		},
-		[hasAccess, sendMessage],
+		[isAuthenticated, sendMessage],
 	);
 
 	const handleExportCcz = useCallback(async () => {
@@ -911,10 +898,10 @@ export function BuilderLayout() {
 
 	// ── Redirect guard — all hooks must be above this line ─────────────
 	// Server layout handles auth; this only catches edge cases like an
-	// expired session or unauthenticated replay-mode exit. Skip while
-	// the client-side session check is still in flight — the server layout
-	// already verified the cookie, so the pending state is always transient.
-	const shouldRedirect = !hasAccess && !isAuthPending;
+	// expired session mid-use. Skip while the client-side session check
+	// is still in flight — the server layout already verified the cookie,
+	// so the pending state is always transient.
+	const shouldRedirect = !isAuthenticated && !isAuthPending;
 	useEffect(() => {
 		if (shouldRedirect) router.push("/");
 	}, [shouldRedirect, router]);
@@ -956,11 +943,8 @@ export function BuilderLayout() {
 		>
 			<div className="h-full flex flex-col overflow-hidden">
 				{/* Replay controller — between header and content so it's visible in both centered and sidebar modes */}
-				{inReplayMode && replayData && (
+				{inReplayMode && (
 					<ReplayController
-						stages={replayData.stages}
-						appName={replayData.appName}
-						initialIndex={replayStartIndex}
 						onExit={handleExitReplay}
 						onMessagesChange={setReplayMessages}
 					/>

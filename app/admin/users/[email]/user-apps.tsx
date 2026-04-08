@@ -11,14 +11,9 @@ import { getAdminUserApps } from "@/lib/db/admin";
 
 interface UserAppsSectionProps {
 	email: string;
-	/** URL-encoded email for building the logs endpoint URL. */
-	encodedEmail: string;
 }
 
-export async function UserAppsSection({
-	email,
-	encodedEmail,
-}: UserAppsSectionProps) {
+export async function UserAppsSection({ email }: UserAppsSectionProps) {
 	const apps = await getAdminUserApps(email);
 
 	return (
@@ -28,7 +23,7 @@ export async function UserAppsSection({
 			</h3>
 			<ReplayableAppList
 				apps={apps}
-				logsUrlPrefix={`/api/admin/users/${encodedEmail}/apps`}
+				ownerEmail={email}
 				emptyState={
 					<p className="text-sm text-nova-text-secondary">No apps yet.</p>
 				}

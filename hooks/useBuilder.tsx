@@ -40,6 +40,7 @@ import {
 	selectCanGoBack,
 	selectCanGoUp,
 	selectHasData,
+	selectInReplayMode,
 	selectIsReady,
 } from "@/lib/services/builderSelectors";
 import type {
@@ -47,6 +48,7 @@ import type {
 	BuilderStoreApi,
 	CursorMode,
 } from "@/lib/services/builderStore";
+import type { ReplayStage } from "@/lib/services/logReplay";
 import type { NForm, NModule, NQuestion } from "@/lib/services/normalizedState";
 import { assembleForm } from "@/lib/services/normalizedState";
 import { showToast } from "@/lib/services/toastStore";
@@ -201,6 +203,11 @@ export function useBuilderScreen(): PreviewScreen {
 /** Current cursor mode (inspect, text, pointer). */
 export function useBuilderCursorMode(): CursorMode {
 	return useBuilderStore((s) => s.cursorMode);
+}
+
+/** True when the builder is in replay mode (stages loaded in store). */
+export function useBuilderInReplayMode(): boolean {
+	return useBuilderStore(selectInReplayMode);
 }
 
 /** Whether the user can navigate back in preview history. */
@@ -370,6 +377,13 @@ export function useIsQuestionSelected(
 
 // ── Provider ────────────────────────────────────────────────────────────
 
+/** Replay data extracted from server-fetched events, passed to BuilderProvider. */
+export interface ReplayInit {
+	stages: ReplayStage[];
+	doneIndex: number;
+	exitPath: string;
+}
+
 /**
  * BuilderProvider — owns the BuilderEngine lifecycle for a specific buildId.
  *
@@ -382,30 +396,32 @@ export function useIsQuestionSelected(
  * - `/build/A` → `/build/B`: buildId changes, fresh engine, loads B
  * - `/build/*` → `/`: provider unmounts, engine is garbage collected
  * - `/build/new` generation: buildId stays 'new' (replaceState), no reset
+ * - `/build/replay/{id}`: replay prop provided, hydrates store with stages
  */
 export function BuilderProvider({
 	buildId,
 	children,
+	replay,
 }: {
 	buildId: string;
 	children: ReactNode;
+	replay?: ReplayInit;
 }) {
 	const router = useRouter();
 
-	const isExistingApp = buildId !== "new";
+	const isReplay = !!replay;
+	const isExistingApp = !isReplay && buildId !== "new";
 
 	const [state, setState] = useState(() => ({
-		engine: new BuilderEngine(
-			isExistingApp ? BuilderPhase.Loading : BuilderPhase.Idle,
-		),
+		engine: createEngine(isExistingApp, replay),
 		buildId,
 	}));
 
+	/* Adjusting state during rendering — React discards the current render
+	 * and re-renders immediately with the new engine. */
 	if (buildId !== state.buildId) {
 		setState({
-			engine: new BuilderEngine(
-				isExistingApp ? BuilderPhase.Loading : BuilderPhase.Idle,
-			),
+			engine: createEngine(isExistingApp, replay),
 			buildId,
 		});
 	}
@@ -414,7 +430,8 @@ export function BuilderProvider({
 
 	/* Fetch the app from Firestore for existing apps. Hydrates the
 	 * engine to Ready phase with the saved blueprint via loadApp() —
-	 * a single atomic transition with no transient states. */
+	 * a single atomic transition with no transient states.
+	 * Skipped for replay mode (data already hydrated) and new builds. */
 	useEffect(() => {
 		if (!isExistingApp) return;
 		if (engine.store.getState().phase !== BuilderPhase.Loading) return;
@@ -468,4 +485,28 @@ export function BuilderProvider({
 			<StoreContext value={engine.store}>{children}</StoreContext>
 		</EngineContext>
 	);
+}
+
+// ── Engine factory ──────────────────────────────────────────────────────
+
+/** Create a BuilderEngine, optionally hydrating replay data into the store.
+ *  Replay hydration mirrors loadApp — synchronous atomic transition from
+ *  empty to populated, invisible to undo history. */
+function createEngine(
+	isExistingApp: boolean,
+	replay?: ReplayInit,
+): BuilderEngine {
+	const initialPhase = isExistingApp ? BuilderPhase.Loading : BuilderPhase.Idle;
+	const engine = new BuilderEngine(initialPhase);
+
+	if (replay) {
+		engine.store
+			.getState()
+			.loadReplay(replay.stages, replay.doneIndex, replay.exitPath);
+		for (let i = 0; i <= replay.doneIndex; i++) {
+			replay.stages[i]?.applyToBuilder(engine);
+		}
+	}
+
+	return engine;
 }

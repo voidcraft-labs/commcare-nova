@@ -24,9 +24,7 @@ interface AppCardProps {
 	/** If provided, the card links to this URL on click. */
 	href?: string;
 	/** Called when the replay button is clicked. Omit to hide replay. */
-	onReplay?: (appId: string, appName: string) => void;
-	/** The app ID currently being replayed (disables all replay buttons). */
-	replayingId?: string | null;
+	onReplay?: (appId: string) => void;
 }
 
 /**
@@ -34,13 +32,7 @@ interface AppCardProps {
  * Renders app name, metadata, status badge, and optional replay button.
  * When `href` is provided, the card is a clickable link.
  */
-export function AppCard({
-	app,
-	index,
-	href,
-	onReplay,
-	replayingId,
-}: AppCardProps) {
+export function AppCard({ app, index, href, onReplay }: AppCardProps) {
 	const style = STATUS_STYLES[app.status];
 	const isFailed = app.status === "error";
 	const updatedAt = new Date(app.updated_at);
@@ -78,18 +70,12 @@ export function AppCard({
 							onClick={(e) => {
 								e.preventDefault();
 								e.stopPropagation();
-								if (!replayingId) onReplay(app.id, app.app_name);
+								onReplay(app.id);
 							}}
-							disabled={replayingId !== undefined && replayingId !== null}
-							className="p-1.5 text-nova-text-muted hover:text-nova-violet transition-colors rounded-md hover:bg-nova-violet/10 disabled:opacity-40 disabled:cursor-not-allowed"
+							className="p-1.5 text-nova-text-muted hover:text-nova-violet transition-colors rounded-md hover:bg-nova-violet/10 cursor-pointer"
 							aria-label="Replay generation"
 						>
-							<Icon
-								icon={tablerPlayerPlay}
-								width="18"
-								height="18"
-								className={replayingId === app.id ? "animate-pulse" : ""}
-							/>
+							<Icon icon={tablerPlayerPlay} width="18" height="18" />
 						</button>
 					</Tooltip>
 				)}

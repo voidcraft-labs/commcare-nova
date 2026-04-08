@@ -132,7 +132,7 @@ Two objects, two contexts. **BuilderEngine** (`lib/services/builderEngine.ts`) h
 - `useBuilderStore(selector)` — reactive subscription to a precise state slice. Only re-renders when the selected value changes (`Object.is`).
 - `useBuilderStoreShallow(selector)` — same, with shallow equality (for multi-field object selectors).
 - `useBuilderEngine()` — imperative access, no subscription, no re-renders.
-- Convenience hooks: `useBuilderPhase()`, `useBuilderSelected()`, `useBuilderIsReady()`, `useBuilderTreeData()`, `useBuilderScreen()`, `useBuilderCursorMode()`, `useBuilderCanGoBack()`, `useBuilderCanGoUp()`, `useScreenData(type)`, `useIsQuestionSelected(mIdx, fIdx, uuid)`.
+- Convenience hooks: `useBuilderPhase()`, `useBuilderSelected()`, `useBuilderIsReady()`, `useBuilderInReplayMode()`, `useBuilderTreeData()`, `useBuilderScreen()`, `useBuilderCursorMode()`, `useBuilderCanGoBack()`, `useBuilderCanGoUp()`, `useScreenData(type)`, `useIsQuestionSelected(mIdx, fIdx, uuid)`.
 
 **Navigation is store-owned.** `screen`, `cursorMode`, navigation history (`navEntries`/`navCursor`) all live in the store. Navigation actions (`navPush`, `navBack`, `navigateToForm`, etc.) atomically update `screen` + history in a single `set()` call. Breadcrumbs are derived via `useBreadcrumbs()` hook (selects primitive strings, memoizes via `useMemo`). Edit mode is a derived selector (`selectEditMode` in `builderSelectors.ts`). Screen components read their own context via `useScreenData(type)` — a type-safe selector that returns the typed screen or `undefined` when the current screen type doesn't match. `navEntries`/`navCursor` are NOT tracked by zundo — only `screen` is snapshotted. On undo/redo, `navResetTo(restoredScreen)` replaces the history with a single entry.
 
@@ -148,7 +148,7 @@ Two objects, two contexts. **BuilderEngine** (`lib/services/builderEngine.ts`) h
 
 **subscribeMutation** is `engine.subscribeMutation()` which wraps `store.subscribe(s => s.mutationCount, callback)` via the `subscribeWithSelector` middleware.
 
-**Builder initial phase.** `BuilderEngine` accepts an `initialPhase` constructor argument. `BuilderProvider` passes `BuilderPhase.Loading` for existing apps (`buildId !== "new"`) so the very first render shows the loading screen — never the centered Idle chat. Do not use effects to transition from Idle to Loading; that causes a flash.
+**Builder initial phase.** `createEngine()` in `useBuilder.tsx` determines the initial phase: `Loading` for existing apps (triggers Firestore fetch), `Idle` for new builds and replay. Replay mode hydrates stages synchronously in the factory before returning the engine. Do not use effects to transition from Idle to Loading; that causes a flash.
 
 **Completed vs Ready.** `Completed` is a transient celebration phase after generation or a mutating edit — the signal grid shows the done animation, then `acknowledgeCompletion()` auto-decays it to `Ready`. `loadApp()` goes straight to `Ready` (no celebration). Gate on `useBuilderIsReady()` (covers both phases) when checking "has a usable blueprint" — not `phase === Ready` directly.
 
