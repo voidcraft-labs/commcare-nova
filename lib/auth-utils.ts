@@ -7,6 +7,7 @@
 
 import { headers } from "next/headers";
 import { redirect } from "next/navigation";
+import { connection } from "next/server";
 import { cache } from "react";
 import { ApiError } from "./apiError";
 import { getAuth, type Session } from "./auth";
@@ -112,8 +113,14 @@ export async function getSessionSafe(req: Request): Promise<Session | null> {
  *
  * Returns null if not authenticated — use when authentication is optional
  * (e.g. the landing page checking whether to redirect).
+ *
+ * `connection()` explicitly signals that this code requires a live request,
+ * preventing Next.js from attempting to prerender pages that call this
+ * function. Without it, `loading.tsx` files cause Next.js to prerender the
+ * static shell even when `headers()` is used — a known framework issue.
  */
 export const getSession = cache(async (): Promise<Session | null> => {
+	await connection();
 	try {
 		return (
 			(await getAuth().api.getSession({ headers: await headers() })) ?? null
