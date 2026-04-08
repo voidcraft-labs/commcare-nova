@@ -1,20 +1,39 @@
+import { Icon } from "@iconify/react/offline";
+import tablerSparkles from "@iconify-icons/tabler/sparkles";
+import Link from "next/link";
 import { Suspense } from "react";
 import { Skeleton } from "@/components/ui/Skeleton";
 import { getSession } from "@/lib/auth-utils";
+import { userHasApps } from "@/lib/db/apps";
 import { AppList } from "./app-list";
 import { Landing } from "./landing";
 
 /**
- * Root page — app list for authenticated users, sign-in for everyone else.
+ * Root page — three branches, zero redirects:
  *
- * Server component that resolves the session once. Authenticated users see
- * their apps immediately (the list streams via Suspense). Unauthenticated
- * users see the landing page with Google OAuth sign-in.
+ * 1. Unauthenticated → Landing page with Google OAuth sign-in.
+ * 2. Authenticated, no apps → Get-started prompt (rendered immediately,
+ *    no Suspense skeleton) linking to `/build/new`.
+ * 3. Authenticated, has apps → App list skeleton streams via Suspense
+ *    while the full list loads from Firestore.
+ *
+ * The `userHasApps` existence check (`limit(1)`) runs before the Suspense
+ * boundary so new users never see the app-list skeleton.
  */
 export default async function HomePage() {
 	const session = await getSession();
 
 	if (!session) return <Landing />;
+
+	const hasApps = await userHasApps(session.user.id);
+
+	if (!hasApps) {
+		return (
+			<main className="min-h-full flex items-center justify-center px-6">
+				<GetStarted />
+			</main>
+		);
+	}
 
 	const isAdmin = session.session?.isAdmin === true;
 
@@ -24,6 +43,29 @@ export default async function HomePage() {
 				<AppList userId={session.user.id} isAdmin={isAdmin} />
 			</Suspense>
 		</main>
+	);
+}
+
+// ── First-time experience ─────────────────────────────────────────────
+
+/** Shown when an authenticated user has no apps yet. */
+function GetStarted() {
+	return (
+		<div className="flex flex-col items-center text-center">
+			<h1 className="text-3xl font-display font-semibold mb-3">
+				Build your first app
+			</h1>
+			<p className="text-nova-text-muted mb-8 max-w-md">
+				Describe what you need and Nova will generate a CommCare app for you.
+			</p>
+			<Link
+				href="/build/new"
+				className="inline-flex items-center gap-2 px-5 py-2.5 text-sm font-medium rounded-lg bg-nova-violet text-white hover:bg-nova-violet-bright shadow-[var(--nova-glow-violet)] transition-all duration-200"
+			>
+				<Icon icon={tablerSparkles} width="16" height="16" />
+				Get Started
+			</Link>
+		</div>
 	);
 }
 

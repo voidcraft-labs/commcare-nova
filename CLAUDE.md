@@ -52,7 +52,7 @@ gcloud run deploy nova --source . --region <region>
 
 ### Unified Root Route
 
-`/` renders the app list for authenticated users and the sign-in landing for unauthenticated users — same route, server-side conditional. The header hides via `isAuthenticated` prop, not pathname. `/build/[id]` is the builder (auth-gated by `app/build/layout.tsx`). No `/apps` route — the domain *is* the namespace.
+`/` has three branches, zero redirects: unauthenticated → landing page, authenticated with no apps → get-started prompt, authenticated with apps → app list (Suspense-streamed). A lightweight `userHasApps` existence check (`limit(1)`) runs before the Suspense boundary so new users see the get-started state immediately without the app-list skeleton flashing. The header hides via `isAuthenticated` prop, not pathname. `/build/[id]` is the builder (auth-gated by `app/build/layout.tsx`). No `/apps` route — the domain *is* the namespace.
 
 ### Fail-Closed Persistence
 
