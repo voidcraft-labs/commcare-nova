@@ -7,6 +7,7 @@
 
 import { headers } from "next/headers";
 import { redirect } from "next/navigation";
+import { connection } from "next/server";
 import { cache } from "react";
 import { ApiError } from "./apiError";
 import { getAuth, type Session } from "./auth";
@@ -114,6 +115,12 @@ export async function getSessionSafe(req: Request): Promise<Session | null> {
  * (e.g. the landing page checking whether to redirect).
  */
 export const getSession = cache(async (): Promise<Session | null> => {
+	/* Bail out of static prerendering before touching auth or Firestore.
+	 * Without this, `getAuth()` initializes Better Auth (reads BETTER_AUTH_SECRET,
+	 * creates the Firestore adapter) synchronously before `headers()` signals
+	 * dynamic rendering — the missing secret throws a warning and the Firestore
+	 * session read hangs indefinitely in Cloud Build where there's no database. */
+	await connection();
 	try {
 		return (
 			(await getAuth().api.getSession({ headers: await headers() })) ?? null
