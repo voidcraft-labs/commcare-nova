@@ -9,10 +9,15 @@
 
 "use client";
 
+import { Icon } from "@iconify/react/offline";
+import externalLinkIcon from "@iconify-icons/tabler/external-link";
 import Link from "next/link";
 import { AccountMenu } from "@/components/ui/AccountMenu";
 import { HeaderNavLinks } from "@/components/ui/HeaderNav";
 import { Logo } from "@/components/ui/Logo";
+
+const FEEDBACK_FORM_URL =
+	"https://docs.google.com/forms/d/e/1FAIpQLSdUHQuE9kYhG-py9pojdCDc5ChSrl2LnhLofY4kDlOQi6ghGw/viewform";
 
 interface AppHeaderProps {
 	/** Whether the current user has admin role — passed through to HeaderNav. */
@@ -36,7 +41,16 @@ export function AppHeader({ isAdmin, isAuthenticated }: AppHeaderProps) {
 			<div className="ml-4">
 				<HeaderNavLinks isAdmin={isAdmin} />
 			</div>
-			<div className="ml-auto">
+			<div className="ml-auto flex items-center gap-2">
+				<a
+					href={FEEDBACK_FORM_URL}
+					target="_blank"
+					rel="noopener noreferrer"
+					className="flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-sm text-nova-text-muted transition-colors hover:text-nova-text hover:bg-white/5 focus-visible:ring-2 focus-visible:ring-nova-violet focus-visible:outline-none"
+				>
+					Give Feedback
+					<Icon icon={externalLinkIcon} width="16" height="16" />
+				</a>
 				<AccountMenu />
 			</div>
 		</header>
