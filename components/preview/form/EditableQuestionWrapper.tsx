@@ -161,10 +161,15 @@ export function EditableQuestionWrapper({
 	);
 
 	/** Keyboard activation — Enter or Space selects this question, matching
-	 *  the click behavior for keyboard-only users (role="button" contract). */
+	 *  the click behavior for keyboard-only users (role="button" contract).
+	 *  Skip when the event originates from an active text editor (TipTap
+	 *  contenteditable) — otherwise the bubbling keydown swallows spaces
+	 *  and prevents typing. */
 	const handleKeyDown = useCallback(
 		(e: React.KeyboardEvent) => {
 			if (e.key === "Enter" || e.key === " ") {
+				const target = e.target as HTMLElement;
+				if (target.closest("[contenteditable]")) return;
 				e.preventDefault();
 				e.stopPropagation();
 				selectQuestion();
