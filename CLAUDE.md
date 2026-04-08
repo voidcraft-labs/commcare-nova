@@ -144,6 +144,8 @@ Two objects, two contexts. **BuilderEngine** (`lib/services/builderEngine.ts`) h
 
 **treeData** is derived by `useBuilderTreeData()` — subscribes to entity maps via `useBuilderStoreShallow`, then memoizes `deriveTreeData(data)`. Immer structural sharing keeps unchanged map references stable, so the shallow-equality selector prevents recomputation when unrelated state changes. During generation, derives a merged scaffold+partials view.
 
+**Undo tracking is paused during hydration.** The engine constructor pauses zundo's temporal middleware so the empty→populated store transition (from `loadApp` or generation steps) never enters undo history. `loadApp()` and `data-done` (generation complete) resume tracking — from that point, user and SA edits are undoable. `reset()` clears history and re-pauses for the next hydration cycle. Do not remove the pause/resume calls; without them the first undo restores a blank state.
+
 **subscribeMutation** is `engine.subscribeMutation()` which wraps `store.subscribe(s => s.mutationCount, callback)` via the `subscribeWithSelector` middleware.
 
 **Builder initial phase.** `BuilderEngine` accepts an `initialPhase` constructor argument. `BuilderProvider` passes `BuilderPhase.Loading` for existing apps (`buildId !== "new"`) so the very first render shows the loading screen — never the centered Idle chat. Do not use effects to transition from Idle to Loading; that causes a flash.

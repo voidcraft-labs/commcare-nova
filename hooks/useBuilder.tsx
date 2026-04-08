@@ -438,6 +438,10 @@ export function BuilderProvider({
 				}
 				if (data.blueprint) {
 					engine.store.getState().loadApp(buildId, data.blueprint);
+					/* Resume undo tracking — the loaded state is the baseline.
+					 * Tracking was paused in the engine constructor to prevent
+					 * the empty→populated hydration from being undoable. */
+					engine.store.temporal.getState().resume();
 				}
 			})
 			.catch((err) => {
