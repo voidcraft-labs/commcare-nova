@@ -1,5 +1,7 @@
+import { redirect } from "next/navigation";
 import { Suspense } from "react";
 import { Skeleton } from "@/components/ui/Skeleton";
+import { getAuth } from "@/lib/auth";
 import { getSession } from "@/lib/auth-utils";
 import { AppList } from "./app-list";
 import { Landing } from "./landing";
@@ -10,18 +12,30 @@ import { Landing } from "./landing";
  * Server component that resolves the session once. Authenticated users see
  * their apps immediately (the list streams via Suspense). Unauthenticated
  * users see the landing page with Google OAuth sign-in.
+ *
+ * Pre-migration sessions that lack a userId are signed out so the next
+ * login triggers the after-hook and provisions the UUID.
  */
 export default async function HomePage() {
 	const session = await getSession();
 
 	if (!session) return <Landing />;
 
+	/* Pre-migration sessions don't have userId — sign out and redirect
+	 * so the next OAuth callback provisions the UUID. */
+	const userId = session.session?.userId;
+	if (!userId) {
+		const { headers } = await import("next/headers");
+		await getAuth().api.signOut({ headers: await headers() });
+		redirect("/");
+	}
+
 	const isAdmin = session.session?.isAdmin === true;
 
 	return (
 		<main className="max-w-4xl mx-auto px-6 py-12">
 			<Suspense fallback={<AppListFallback />}>
-				<AppList email={session.user.email} isAdmin={isAdmin} />
+				<AppList userId={userId} isAdmin={isAdmin} />
 			</Suspense>
 		</main>
 	);

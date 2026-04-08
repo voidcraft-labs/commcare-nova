@@ -31,9 +31,9 @@ const SKIP_EMISSIONS = new Set(["data-partial-scaffold", "data-run-id"]);
 export class EventLogger {
 	private _runId: string;
 
-	/* Firestore sink — appId for log writes, ownerEmail for usage tracking */
+	/* Firestore sink — appId for log writes, userId for usage tracking */
 	private fsAppId: string | null = null;
-	private fsOwnerEmail: string | null = null;
+	private fsUserId: string | null = null;
 
 	/* Ordering */
 	private sequence = 0;
@@ -65,11 +65,11 @@ export class EventLogger {
 	 * Enable real-time Firestore logging and usage tracking.
 	 *
 	 * Log events write to `apps/{appId}/logs/`. Usage increments write to
-	 * `users/{ownerEmail}/usage/{period}` on finalize.
+	 * `users/{userId}/usage/{period}` on finalize.
 	 */
-	enableFirestore(appId: string, ownerEmail: string) {
+	enableFirestore(appId: string, userId: string) {
 		this.fsAppId = appId;
-		this.fsOwnerEmail = ownerEmail;
+		this.fsUserId = userId;
 	}
 
 	private get firestoreEnabled(): boolean {
@@ -279,16 +279,16 @@ export class EventLogger {
 		if (this._finalized) return;
 		this._finalized = true;
 
-		if (this.firestoreEnabled && this.fsOwnerEmail && this._usageCost > 0) {
+		if (this.firestoreEnabled && this.fsUserId && this._usageCost > 0) {
 			try {
-				await incrementUsage(this.fsOwnerEmail, {
+				await incrementUsage(this.fsUserId, {
 					input_tokens: this._usageInputTokens,
 					output_tokens: this._usageOutputTokens,
 					cost_estimate: this._usageCost,
 				});
 			} catch (err) {
 				log.error("[finalize] usage increment failed", err, {
-					email: this.fsOwnerEmail,
+					userId: this.fsUserId,
 				});
 			}
 		}

@@ -29,15 +29,15 @@ export async function getAdminUsersWithStats(): Promise<AdminUsersResponse> {
 	const period = getCurrentPeriod();
 
 	/* Batch-read all usage docs in a single round trip */
-	const usageRefs = allUsers.map((u) => docs.usage(u.email, period));
+	const usageRefs = allUsers.map((u) => docs.usage(u.id, period));
 	const usageSnaps =
 		usageRefs.length > 0 ? await getDb().getAll(...usageRefs) : [];
 
 	/* App counts are aggregation queries — run in parallel.
-	 * Each query filters the root-level apps collection by owner email. */
+	 * Each query filters the root-level apps collection by owner userId. */
 	const appCounts = await Promise.all(
 		allUsers.map((u) =>
-			collections.apps().where("owner", "==", u.email).count().get(),
+			collections.apps().where("owner", "==", u.id).count().get(),
 		),
 	);
 
@@ -50,6 +50,7 @@ export async function getAdminUsersWithStats(): Promise<AdminUsersResponse> {
 			: null;
 
 		return {
+			id: user.id,
 			email: user.email,
 			name: user.name,
 			image: user.image,
@@ -79,13 +80,14 @@ export async function getAdminUsersWithStats(): Promise<AdminUsersResponse> {
  * Separated so the profile card can stream independently via Suspense.
  */
 export async function getAdminUserProfile(
-	email: string,
+	userId: string,
 ): Promise<AdminUserDetailResponse["user"] | null> {
-	const user = await getUser(email);
+	const user = await getUser(userId);
 	if (!user) return null;
 
 	return {
-		email,
+		id: userId,
+		email: user.email,
 		name: user.name,
 		image: user.image,
 		role: user.role,
@@ -99,9 +101,11 @@ export async function getAdminUserProfile(
  *
  * Separated so the usage table can stream independently via Suspense.
  */
-export async function getAdminUserUsage(email: string): Promise<UsagePeriod[]> {
+export async function getAdminUserUsage(
+	userId: string,
+): Promise<UsagePeriod[]> {
 	const usageSnap = await collections
-		.usage(email)
+		.usage(userId)
 		.orderBy("updated_at", "desc")
 		.get();
 
@@ -122,8 +126,8 @@ export async function getAdminUserUsage(email: string): Promise<UsagePeriod[]> {
  *
  * Separated so the app list can stream independently via Suspense.
  */
-export async function getAdminUserApps(email: string) {
-	return listApps(email);
+export async function getAdminUserApps(userId: string) {
+	return listApps(userId);
 }
 
 /**
@@ -134,12 +138,12 @@ export async function getAdminUserApps(email: string) {
  * directly for granular Suspense streaming.
  */
 export async function getAdminUserDetail(
-	email: string,
+	userId: string,
 ): Promise<AdminUserDetailResponse | null> {
 	const [user, usage, apps] = await Promise.all([
-		getAdminUserProfile(email),
-		getAdminUserUsage(email),
-		getAdminUserApps(email),
+		getAdminUserProfile(userId),
+		getAdminUserUsage(userId),
+		getAdminUserApps(userId),
 	]);
 
 	if (!user) return null;

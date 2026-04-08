@@ -6,13 +6,13 @@
  *
  * Document hierarchy:
  *
- *   users/{email}                  → UserDoc      (profile + role)
- *   users/{email}/usage/{yyyy-mm}  → UsageDoc     (monthly spend tracking)
- *   apps/{appId}                   → AppDoc       (root-level, owner field links to user)
- *   apps/{appId}/logs/{logId}      → StoredEvent  (generation event stream)
+ *   users/{userId}                  → UserDoc      (profile + role)
+ *   users/{userId}/usage/{yyyy-mm}  → UsageDoc     (monthly spend tracking)
+ *   apps/{appId}                    → AppDoc       (root-level, owner field links to user)
+ *   apps/{appId}/logs/{logId}       → StoredEvent  (generation event stream)
  *
  * Apps are a root-level collection so they can be loaded by ID without knowing
- * the owner. The `owner` field on AppDoc links back to the user's email for
+ * the owner. The `owner` field on AppDoc links back to the user's UUID for
  * list queries and authorization. Logs are a subcollection of the app they
  * belong to — accessed by appId alone.
  *
@@ -34,19 +34,21 @@ const timestamp = z.instanceof(Timestamp);
 // ── User ────────────────────────────────────────────────────────────
 
 /**
- * User profile — stored at `users/{email}`.
+ * User profile — stored at `users/{userId}`.
  *
- * Mirrors identity from Google OAuth. The document ID is the user's email
- * (e.g. "alice@dimagi.com") — stable, unique within the org, and readable
- * in the Firebase console. Better Auth handles session management statelessly;
- * this document exists for Firestore references and future admin features.
+ * The document ID is a UUID (crypto.randomUUID()), generated on first sign-in.
+ * Email is stored as a field for display and lookup. Better Auth handles
+ * session management statelessly; this document exists for Firestore
+ * references and admin features.
  */
 export const userDocSchema = z.object({
+	/** Email address from Google OAuth. Used for display and email-to-userId lookup. */
+	email: z.string(),
 	/** Display name from Google OAuth (e.g. "Alice Smith"). */
 	name: z.string(),
 	/** Google profile avatar URL. Null when no avatar is set. */
 	image: z.string().nullable(),
-	/** User role — controls access to admin dashboard (Phase 6). */
+	/** User role — controls access to admin dashboard. */
 	role: z.enum(["user", "admin"]).default("user"),
 	/** First sign-in timestamp. Set once via FieldValue.serverTimestamp(). */
 	created_at: timestamp,
@@ -58,12 +60,12 @@ export type UserDoc = z.infer<typeof userDocSchema>;
 // ── Usage ───────────────────────────────────────────────────────────
 
 /**
- * Monthly usage aggregation — stored at `users/{email}/usage/{yyyy-mm}`.
+ * Monthly usage aggregation — stored at `users/{userId}/usage/{yyyy-mm}`.
  *
  * One document per user per calendar month. The document ID is the period
  * string (e.g. "2026-04") so spend-cap checks are a single document read,
  * not a query. Fields are atomically incremented via FieldValue.increment()
- * after each run completes (Phase 5).
+ * after each run completes.
  */
 export const usageDocSchema = z.object({
 	/** Total input tokens consumed across all runs this period. */
@@ -271,7 +273,7 @@ export const storedEventSchema = z.object({
 // ── App ─────────────────────────────────────────────────────────
 
 export const appDocSchema = z.object({
-	/** Owner email — the user who created this app. Used for list queries and authorization. */
+	/** Owner userId (UUID) — the user who created this app. Used for list queries and authorization. */
 	owner: z.string(),
 	/** App name — denormalized from blueprint for list display. */
 	app_name: z.string(),

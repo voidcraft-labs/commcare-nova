@@ -1,7 +1,7 @@
 /**
  * Admin user detail endpoint — returns a single user's profile, usage history, and apps.
  *
- * GET /api/admin/users/{email} → AdminUserDetailResponse
+ * GET /api/admin/users/{userId} → AdminUserDetailResponse
  *
  * Data fetching is delegated to getAdminUserDetail() in lib/db/admin.ts,
  * shared with the RSC admin user detail page. This route is retained for
@@ -14,14 +14,13 @@ import { getAdminUserDetail } from "@/lib/db/admin";
 
 export async function GET(
 	req: Request,
-	{ params }: { params: Promise<{ email: string }> },
+	{ params }: { params: Promise<{ id: string }> },
 ) {
 	try {
 		await requireAdmin(req);
-		const { email: rawEmail } = await params;
-		const email = decodeURIComponent(rawEmail);
+		const { id: userId } = await params;
 
-		const response = await getAdminUserDetail(email);
+		const response = await getAdminUserDetail(userId);
 		if (!response) {
 			throw new ApiError("User not found", 404);
 		}

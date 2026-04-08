@@ -6,6 +6,9 @@ import type { AppSummary } from "../db/apps";
 
 /** A single row in the admin user table. */
 export interface AdminUserRow {
+	/** User UUID — used for navigation and Firestore lookups. */
+	id: string;
+	/** Email address — for display only. */
 	email: string;
 	name: string;
 	image: string | null;
@@ -44,9 +47,12 @@ export interface UsagePeriod {
 	cost_estimate: number;
 }
 
-/** JSON response from GET /api/admin/users/[email]. */
+/** JSON response from GET /api/admin/users/[id]. */
 export interface AdminUserDetailResponse {
 	user: {
+		/** User UUID. */
+		id: string;
+		/** Email address — for display. */
 		email: string;
 		name: string;
 		image: string | null;
