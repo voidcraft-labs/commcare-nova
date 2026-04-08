@@ -2,9 +2,9 @@
  * App CRUD helpers — thin wrappers over Firestore collection/document helpers.
  *
  * Apps live in a root-level `apps/{appId}` collection with an `owner` field
- * linking back to the user's email. Most operations only need the appId —
- * the owner is embedded in the document. List and concurrency queries filter
- * by `owner` with a composite index.
+ * storing the user's UUID. Most operations only need the appId — the owner
+ * is embedded in the document. List and concurrency queries filter by
+ * `owner` with a composite index.
  *
  * All writes extract denormalized fields from the blueprint automatically
  * so list queries never need to deserialize full blueprints.
@@ -210,7 +210,7 @@ export async function updateApp(
  *
  * Returns the full AppDoc (including blueprint) or null if not found.
  * The Zod converter validates the document on read. Callers that serve
- * user-facing data must verify `app.owner === session.user.email` for
+ * user-facing data must verify `app.owner === session.session.userId` for
  * authorization — the root-level collection doesn't scope by user.
  */
 export async function loadApp(appId: string): Promise<AppDoc | null> {
@@ -219,7 +219,7 @@ export async function loadApp(appId: string): Promise<AppDoc | null> {
 }
 
 /**
- * Load just the owner email for an app document.
+ * Load just the owner userId for an app document.
  *
  * Reads only the `owner` field via an untyped document reference — avoids
  * pulling the full blueprint or running Zod validation. Used by API routes

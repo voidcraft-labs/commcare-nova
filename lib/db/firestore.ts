@@ -15,8 +15,8 @@
  *
  * Document hierarchy:
  *
- *   collections.users()          → users/{email}
- *   collections.usage(email)     → users/{email}/usage/{yyyy-mm}
+ *   collections.users()          → users/{userId}
+ *   collections.usage(userId)    → users/{userId}/usage/{yyyy-mm}
  *   collections.apps()           → apps/{appId}          (root-level)
  *   collections.logs(appId)      → apps/{appId}/logs/{logId}
  */
@@ -123,19 +123,19 @@ const storedEventConverter = zodConverter(storedEventSchema);
  * Usage is a subcollection of the user document.
  *
  * Usage:
- *   const apps = await collections.apps().where('owner', '==', email).get()
+ *   const apps = await collections.apps().where('owner', '==', userId).get()
  *   apps.docs.forEach(doc => doc.data())  // → AppDoc (validated)
  */
 export const collections = {
-	/** Top-level users collection: `users/{email}` */
+	/** Top-level users collection: `users/{userId}` */
 	users: (): CollectionReference<UserDoc> =>
 		getDb().collection("users").withConverter(userConverter),
 
-	/** Per-user monthly usage: `users/{email}/usage/{yyyy-mm}` */
-	usage: (email: string): CollectionReference<UsageDoc> =>
+	/** Per-user monthly usage: `users/{userId}/usage/{yyyy-mm}` */
+	usage: (userId: string): CollectionReference<UsageDoc> =>
 		getDb()
 			.collection("users")
-			.doc(email)
+			.doc(userId)
 			.collection("usage")
 			.withConverter(usageConverter),
 
@@ -165,13 +165,13 @@ export const collections = {
  *   if (snap.exists) console.log(snap.data()!.app_name)  // → string (validated)
  */
 export const docs = {
-	/** Direct reference: `users/{email}` */
-	user: (email: string): DocumentReference<UserDoc> =>
-		collections.users().doc(email),
+	/** Direct reference: `users/{userId}` */
+	user: (userId: string): DocumentReference<UserDoc> =>
+		collections.users().doc(userId),
 
-	/** Direct reference: `users/{email}/usage/{yyyy-mm}` */
-	usage: (email: string, period: string): DocumentReference<UsageDoc> =>
-		collections.usage(email).doc(period),
+	/** Direct reference: `users/{userId}/usage/{yyyy-mm}` */
+	usage: (userId: string, period: string): DocumentReference<UsageDoc> =>
+		collections.usage(userId).doc(period),
 
 	/** Direct reference: `apps/{appId}` */
 	app: (appId: string): DocumentReference<AppDoc> =>

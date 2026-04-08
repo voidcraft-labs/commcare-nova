@@ -14,11 +14,11 @@ import {
 } from "@/lib/utils/format";
 
 interface UserUsageSectionProps {
-	email: string;
+	userId: string;
 }
 
-export async function UserUsageSection({ email }: UserUsageSectionProps) {
-	const usage = await getAdminUserUsage(email);
+export async function UserUsageSection({ userId }: UserUsageSectionProps) {
+	const usage = await getAdminUserUsage(userId);
 
 	return (
 		<section>

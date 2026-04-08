@@ -54,7 +54,7 @@ export async function POST(req: Request) {
 	// Spend cap check — fails closed on Firestore errors. If we can't verify
 	// the user's usage, we reject the request rather than risk uncapped spend.
 	try {
-		const usage = await getMonthlyUsage(keyResult.session.user.email);
+		const usage = await getMonthlyUsage(keyResult.session.session.userId);
 		if ((usage?.cost_estimate ?? 0) >= MONTHLY_SPEND_CAP_USD) {
 			return Response.json(
 				{
@@ -92,7 +92,7 @@ export async function POST(req: Request) {
 	let appId = parsed.data.appId;
 	if (!appId) {
 		try {
-			appId = await createApp(keyResult.session.user.email, logger.runId);
+			appId = await createApp(keyResult.session.session.userId, logger.runId);
 		} catch (err) {
 			log.error("[chat] app creation failed", err);
 			return Response.json(
@@ -108,7 +108,7 @@ export async function POST(req: Request) {
 		 * longer scopes writes to the authenticated user. Without this check,
 		 * a crafted request with another user's appId would overwrite their app. */
 		const owner = await loadAppOwner(appId);
-		if (!owner || owner !== keyResult.session.user.email) {
+		if (!owner || owner !== keyResult.session.session.userId) {
 			return Response.json(
 				{ error: "App not found", type: "not_found" },
 				{ status: 404 },
@@ -125,7 +125,7 @@ export async function POST(req: Request) {
 	// Retries on the same app pass through (excludeAppId).
 	try {
 		const inFlight = await hasActiveGeneration(
-			keyResult.session.user.email,
+			keyResult.session.session.userId,
 			appId,
 		);
 		if (inFlight) {
@@ -148,7 +148,7 @@ export async function POST(req: Request) {
 	}
 
 	if (appId) {
-		logger.enableFirestore(appId, keyResult.session.user.email);
+		logger.enableFirestore(appId, keyResult.session.session.userId);
 	}
 
 	// Safety net on client disconnect — finalize() is idempotent, so this

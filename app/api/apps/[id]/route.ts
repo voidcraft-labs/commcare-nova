@@ -5,7 +5,7 @@
  * PUT  /api/apps/{id} — update an app after client-side edits (auto-save)
  *
  * Both endpoints require an authenticated session. Ownership is verified
- * explicitly — the app's `owner` field must match the session user's email.
+ * explicitly — the app's `owner` field must match the session user's UUID.
  */
 
 import { ApiError, handleApiError } from "@/lib/apiError";
@@ -25,7 +25,7 @@ export async function GET(
 		if (!app) {
 			throw new ApiError("App not found", 404);
 		}
-		if (app.owner !== session.user.email) {
+		if (app.owner !== session.session.userId) {
 			throw new ApiError("App not found", 404);
 		}
 		/* Return only the fields the client needs for hydration. Firestore Timestamp
@@ -55,7 +55,7 @@ export async function PUT(
 		/* Verify ownership before accepting the write. Returns 404 (not 403) to
 		 * avoid leaking the existence of other users' apps. */
 		const owner = await loadAppOwner(id);
-		if (!owner || owner !== session.user.email) {
+		if (!owner || owner !== session.session.userId) {
 			throw new ApiError("App not found", 404);
 		}
 

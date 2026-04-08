@@ -1,8 +1,13 @@
 /**
- * Auth utilities for API route handlers.
+ * Auth utilities for API route handlers and Server Components.
  *
  * All routes require authenticated sessions (@dimagi.com Google OAuth).
  * The server-side ANTHROPIC_API_KEY is used for all LLM calls.
+ *
+ * User identity is the app's own UUID (`session.session.userId`), written
+ * to the Better Auth session on every sign-in. Pre-migration sessions
+ * that lack userId are rejected with a 401 — the user re-authenticates,
+ * and the after-hook populates the field.
  */
 
 import { headers } from "next/headers";
@@ -12,6 +17,22 @@ import { cache } from "react";
 import { ApiError } from "./apiError";
 import { getAuth, type Session } from "./auth";
 import { isUserAdmin, touchUser } from "./db/users";
+
+// ── Session User ID ──────────────────────────────────────────────────
+
+/**
+ * Extract userId from session. Throws 401 for pre-migration sessions
+ * that lack userId, forcing re-auth so the after-hook provisions it.
+ */
+function getSessionUserId(session: Session): string {
+	const userId = session.session?.userId;
+	if (!userId) {
+		throw new ApiError("Session expired — please sign in again", 401);
+	}
+	return userId;
+}
+
+// ── API Route Auth ──────────────────────────────────────────────────
 
 /** Successful key resolution — includes the API key and authenticated session. */
 interface ApiKeyResolved {
@@ -45,7 +66,16 @@ export async function resolveApiKey(req: Request): Promise<ApiKeyResult> {
 		};
 	}
 
-	touchUser(session.user.email);
+	const userId = session.session?.userId;
+	if (!userId) {
+		return {
+			ok: false,
+			error: "Session expired — please sign in again.",
+			status: 401,
+		};
+	}
+
+	touchUser(userId);
 
 	const serverKey = process.env.ANTHROPIC_API_KEY;
 	if (!serverKey) {
@@ -67,7 +97,7 @@ export async function requireSession(req: Request): Promise<Session> {
 	if (!session) {
 		throw new ApiError("Authentication required", 401);
 	}
-	touchUser(session.user.email);
+	touchUser(getSessionUserId(session));
 	return session;
 }
 
@@ -80,7 +110,7 @@ export async function requireSession(req: Request): Promise<Session> {
  */
 export async function requireAdmin(req: Request): Promise<Session> {
 	const session = await requireSession(req);
-	if (!(await isUserAdmin(session.user.email))) {
+	if (!(await isUserAdmin(getSessionUserId(session)))) {
 		throw new ApiError("Admin access required", 403);
 	}
 	return session;
@@ -100,7 +130,7 @@ export async function getSessionSafe(req: Request): Promise<Session | null> {
 	}
 }
 
-// ── RSC Auth Functions ─────────────���─────────────────────────────────
+// ── RSC Auth Functions ────────────────────────────────────────────────
 // Server Component equivalents of the route handler functions above.
 // Use `await headers()` from next/headers instead of `req.headers`.
 
@@ -140,7 +170,7 @@ export const getSession = cache(async (): Promise<Session | null> => {
 export async function requireAuth(): Promise<Session> {
 	const session = await getSession();
 	if (!session) redirect("/");
-	touchUser(session.user.email);
+	touchUser(getSessionUserId(session));
 	return session;
 }
 
@@ -156,7 +186,7 @@ export async function requireAuth(): Promise<Session> {
  */
 export async function requireAdminAccess(): Promise<Session> {
 	const session = await requireAuth();
-	if (!(await isUserAdmin(session.user.email))) {
+	if (!(await isUserAdmin(getSessionUserId(session)))) {
 		/* Live revocation — sign out clears the session from Firestore and
 		 * wipes auth cookies so stale `isAdmin` can't linger. */
 		await getAuth().api.signOut({ headers: await headers() });

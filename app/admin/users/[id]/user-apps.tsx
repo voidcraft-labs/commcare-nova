@@ -10,11 +10,11 @@ import { AppCardList } from "@/components/ui/AppCardList";
 import { getAdminUserApps } from "@/lib/db/admin";
 
 interface UserAppsSectionProps {
-	email: string;
+	userId: string;
 }
 
-export async function UserAppsSection({ email }: UserAppsSectionProps) {
-	const apps = await getAdminUserApps(email);
+export async function UserAppsSection({ userId }: UserAppsSectionProps) {
+	const apps = await getAdminUserApps(userId);
 
 	return (
 		<section>

@@ -1,10 +1,10 @@
 /**
  * Admin log replay endpoint — load generation logs for any user's app.
  *
- * GET /api/admin/users/{email}/apps/{appId}/logs
- * GET /api/admin/users/{email}/apps/{appId}/logs?runId={id}
+ * GET /api/admin/users/{userId}/apps/{appId}/logs
+ * GET /api/admin/users/{userId}/apps/{appId}/logs?runId={id}
  *
- * The email URL segment is retained for admin navigation context but is no
+ * The userId URL segment is retained for admin navigation context but is no
  * longer used for Firestore access — logs are read directly by appId from
  * the root-level `apps/{appId}/logs/` subcollection.
  *
@@ -17,7 +17,7 @@ import { loadLatestRunId, loadRunEvents } from "@/lib/db/logs";
 
 export async function GET(
 	req: Request,
-	{ params }: { params: Promise<{ email: string; appId: string }> },
+	{ params }: { params: Promise<{ id: string; appId: string }> },
 ) {
 	try {
 		await requireAdmin(req);

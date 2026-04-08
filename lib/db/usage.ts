@@ -1,7 +1,7 @@
 /**
  * Usage tracking — per-user monthly spend aggregation.
  *
- * Reads and writes to `users/{email}/usage/{yyyy-mm}` documents.
+ * Reads and writes to `users/{userId}/usage/{yyyy-mm}` documents.
  * Spend cap checks are a single document read (period string = doc ID).
  * Increments are atomic via FieldValue.increment() — safe for concurrent
  * requests from the same user.
@@ -50,8 +50,10 @@ export function getCurrentPeriod(): string {
  *
  * This is a blocking read — used for the pre-request spend cap check.
  */
-export async function getMonthlyUsage(email: string): Promise<UsageDoc | null> {
-	const snap = await docs.usage(email, getCurrentPeriod()).get();
+export async function getMonthlyUsage(
+	userId: string,
+): Promise<UsageDoc | null> {
+	const snap = await docs.usage(userId, getCurrentPeriod()).get();
 	return snap.exists ? (snap.data() ?? null) : null;
 }
 
@@ -76,10 +78,10 @@ export interface UsageIncrement {
  * separate create path, no read-then-write race conditions.
  */
 export async function incrementUsage(
-	email: string,
+	userId: string,
 	deltas: UsageIncrement,
 ): Promise<void> {
-	await docs.usage(email, getCurrentPeriod()).set(
+	await docs.usage(userId, getCurrentPeriod()).set(
 		{
 			input_tokens: FieldValue.increment(deltas.input_tokens),
 			output_tokens: FieldValue.increment(deltas.output_tokens),

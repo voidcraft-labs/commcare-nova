@@ -18,14 +18,14 @@ import { AppCardList } from "@/components/ui/AppCardList";
 import { listApps } from "@/lib/db/apps";
 
 interface AppListProps {
-	/** Owner email — used to query apps by owner. */
-	email: string;
+	/** Owner userId (UUID) — used to query apps by owner. */
+	userId: string;
 	/** Whether to show replay buttons (admin-only feature). */
 	isAdmin: boolean;
 }
 
-export async function AppList({ email, isAdmin }: AppListProps) {
-	const apps = await listApps(email);
+export async function AppList({ userId, isAdmin }: AppListProps) {
+	const apps = await listApps(userId);
 
 	if (apps.length === 0) redirect("/build/new");
 

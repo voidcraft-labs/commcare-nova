@@ -12,7 +12,7 @@ import { listApps } from "@/lib/db/apps";
 export async function GET(req: Request) {
 	try {
 		const session = await requireSession(req);
-		const apps = await listApps(session.user.email);
+		const apps = await listApps(session.session.userId);
 		return Response.json({ apps });
 	} catch (err) {
 		return handleApiError(

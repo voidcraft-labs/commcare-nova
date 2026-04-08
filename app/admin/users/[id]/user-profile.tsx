@@ -12,11 +12,11 @@ import { getAdminUserProfile } from "@/lib/db/admin";
 import { formatRelativeDate } from "@/lib/utils/format";
 
 interface UserProfileSectionProps {
-	email: string;
+	userId: string;
 }
 
-export async function UserProfileSection({ email }: UserProfileSectionProps) {
-	const user = await getAdminUserProfile(email);
+export async function UserProfileSection({ userId }: UserProfileSectionProps) {
+	const user = await getAdminUserProfile(userId);
 	if (!user) notFound();
 
 	return (

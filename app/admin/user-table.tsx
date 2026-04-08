@@ -203,17 +203,11 @@ export function UserTable({ users }: { users: AdminUserRow[] }) {
 								key={row.id}
 								tabIndex={0}
 								aria-label={`View ${row.original.name}'s profile`}
-								onClick={() =>
-									router.push(
-										`/admin/users/${encodeURIComponent(row.original.email)}`,
-									)
-								}
+								onClick={() => router.push(`/admin/users/${row.original.id}`)}
 								onKeyDown={(e) => {
 									if (e.key === "Enter" || e.key === " ") {
 										e.preventDefault();
-										router.push(
-											`/admin/users/${encodeURIComponent(row.original.email)}`,
-										);
+										router.push(`/admin/users/${row.original.id}`);
 									}
 								}}
 								className="border-b border-nova-border/50 hover:bg-nova-surface/50 transition-colors cursor-pointer focus:outline-none focus:ring-1 focus:ring-nova-violet/50"
