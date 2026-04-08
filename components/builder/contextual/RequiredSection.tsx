@@ -122,7 +122,7 @@ export function RequiredSection({
 					dataFieldId={dataFieldId}
 				/>
 			</div>
-			<AnimatePresence>
+			<AnimatePresence initial={false}>
 				{isRequired && (
 					<motion.div
 						key="required-content"

@@ -190,9 +190,11 @@ export function ContextualEditorLogic({ question }: QuestionEditorProps) {
 	return (
 		<div className="space-y-3">
 			{/* ── All logic fields: required + standard XPath fields ── */}
-			{/* AnimatePresence provides smooth height collapse on undo/redo removal
-			    and on Add Property / dismiss transitions. */}
-			<AnimatePresence>
+			{/* initial={false} skips entrance animations for fields already present
+			    when the panel mounts — only fields added/removed after mount animate
+			    (Add Property, undo/redo, clearing a value). Without this, opening the
+			    panel replays height-expand on every existing field. */}
+			<AnimatePresence initial={false}>
 				{showRequired && (
 					<motion.div
 						key="required"
