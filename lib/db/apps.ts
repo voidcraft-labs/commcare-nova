@@ -210,7 +210,7 @@ export async function updateApp(
  *
  * Returns the full AppDoc (including blueprint) or null if not found.
  * The Zod converter validates the document on read. Callers that serve
- * user-facing data must verify `app.owner === session.session.userId` for
+ * user-facing data must verify `app.owner === session.user.id` for
  * authorization — the root-level collection doesn't scope by user.
  */
 export async function loadApp(appId: string): Promise<AppDoc | null> {

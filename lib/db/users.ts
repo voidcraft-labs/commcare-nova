@@ -1,14 +1,10 @@
 /**
  * User document CRUD helpers.
  *
- * UserDoc lives at `users/{userId}` where userId is a UUID. Two write paths:
+ * UserDoc lives at `users/{userId}` where userId is Better Auth's user ID
+ * (`session.user.id`). Two write paths:
  * - `provisionUser` — called on every sign-in (Better Auth after hook), creates or updates
  * - `touchUser` — called on every authenticated request (fire-and-forget), updates `last_active_at`
- *
- * On first sign-in, a new UUID is generated via `crypto.randomUUID()` and
- * becomes the permanent document ID. Email is stored as a field for display
- * and lookup. `findUserByEmail` resolves email → userId via a Firestore
- * query (requires index on `users.email`).
  *
  * The `role` field is intentionally never set by application code — changes
  * happen via direct Firestore console edits only.
@@ -18,70 +14,46 @@ import { log } from "@/lib/log";
 import { collections, docs } from "./firestore";
 import type { UserDoc } from "./types";
 
-// ── Lookup ─────────────────────────────────────────────────────────
-
-/** Result of resolving an existing user by email. */
-interface ExistingUser {
-	userId: string;
-	isAdmin: boolean;
-}
-
-/**
- * Resolve an existing user by email. Requires Firestore index on `users.email`.
- * Returns userId + admin status from the same query so `provisionUser` avoids
- * a second read.
- */
-async function findUserByEmail(email: string): Promise<ExistingUser | null> {
-	const snap = await collections
-		.users()
-		.where("email", "==", email)
-		.limit(1)
-		.get();
-	if (snap.empty) return null;
-	const doc = snap.docs[0];
-	return { userId: doc.id, isAdmin: doc.data().role === "admin" };
-}
-
 // ── Write ─────────────────────────────────────────────────────────
 
-/** Result from provisioning — the auth after-hook needs both values. */
+/** Result from provisioning — the auth after-hook writes isAdmin to the session. */
 export interface ProvisionResult {
 	isAdmin: boolean;
-	userId: string;
 }
 
 /**
  * Ensure the app's user doc exists and has a current profile.
  *
- * Called on every OAuth sign-in (new and returning users). Returning users
- * are found via `findUserByEmail` and get a profile sync. First-time users
- * get a new UUID and a fresh document.
+ * Called on every OAuth sign-in (new and returning users). The `userId`
+ * parameter is Better Auth's built-in user ID — used directly as the
+ * Firestore document ID so there's no indirection or email-based lookup.
  *
- * Returns the user's UUID and admin status — the after-hook writes both
- * to the Better Auth session so they're available on every request.
+ * Returning users get a profile sync (name, image, activity timestamp).
+ * First-time users get a fresh document. Returns admin status so the
+ * after-hook can write it to the session.
  */
 export async function provisionUser(
+	userId: string,
 	email: string,
 	name: string,
 	image: string | null,
 ): Promise<ProvisionResult> {
-	const existing = await findUserByEmail(email);
-	if (existing) {
-		/* Returning user — sync profile fields, preserve created_at and role.
-		 * Admin status was already read by findUserByEmail — no second read. */
-		await docs.user(existing.userId).set(
+	const snap = await docs.user(userId).get();
+	if (snap.exists) {
+		/* Returning user — sync profile fields, preserve created_at and role. */
+		await docs.user(userId).set(
 			{
+				email,
 				name,
 				image,
 				last_active_at: FieldValue.serverTimestamp(),
 			},
 			{ merge: true },
 		);
-		return existing;
+		return { isAdmin: snap.data()?.role === "admin" };
 	}
 
-	/* First sign-in — generate a UUID and create the user doc */
-	const userId = crypto.randomUUID();
+	/* First sign-in — create the user doc keyed by Better Auth's user ID */
 	await docs.user(userId).set({
 		email,
 		name,
@@ -90,7 +62,7 @@ export async function provisionUser(
 		created_at: FieldValue.serverTimestamp(),
 		last_active_at: FieldValue.serverTimestamp(),
 	});
-	return { isAdmin: false, userId };
+	return { isAdmin: false };
 }
 
 /**
@@ -127,7 +99,7 @@ export async function getUser(userId: string): Promise<UserDoc | null> {
 }
 
 /**
- * Load all user profiles with their IDs (document IDs = UUIDs).
+ * Load all user profiles with their IDs (document IDs = Better Auth user IDs).
  *
  * Used by the admin dashboard to list all users. For a small org (<100 users),
  * this is a single collection read — no pagination needed. Email is available
