@@ -1,10 +1,8 @@
 /**
- * Loading skeleton for the admin user detail page.
+ * Skeleton components for the admin user detail page.
  *
- * Shows during client-side navigation while the RSC payload is in flight.
- * Mirrors the page shell: in-page breadcrumb, profile card, usage table,
- * and app list. The global header is rendered by the root layout.
- * Individual skeleton components are exported for reuse as Suspense fallbacks.
+ * Used as Suspense fallbacks in the user detail page. See
+ * `app/admin/skeletons.tsx` for why these live here instead of `loading.tsx`.
  */
 import { Skeleton } from "@/components/ui/Skeleton";
 
@@ -98,9 +96,8 @@ export function AppsSkeleton() {
 	);
 }
 
-// ── Full Page Skeleton ───────────────────────────────────────────────
-
-export default function AdminUserDetailLoading() {
+/** Full-page skeleton — breadcrumb + all sections. Used by navigation-level Suspense. */
+export function UserDetailPageSkeleton() {
 	return (
 		<main className="max-w-4xl mx-auto px-6 py-10 space-y-8">
 			{/* Breadcrumb skeleton */}

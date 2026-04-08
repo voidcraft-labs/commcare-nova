@@ -1,6 +1,6 @@
 import { Suspense } from "react";
 import { AdminContent } from "./admin-content";
-import { AdminContentSkeleton } from "./loading";
+import { AdminContentSkeleton } from "./skeletons";
 
 /**
  * Admin dashboard — streams the shell instantly, data via Suspense.
