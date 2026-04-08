@@ -102,6 +102,16 @@ export function ContextualEditorHeader({ question }: QuestionEditorProps) {
 	const [idNotice, setIdNotice] = useState<IdNotice | null>(null);
 	const [shaking, setShaking] = useState(false);
 	const idWrapperRef = useRef<HTMLDivElement>(null);
+	const idInputRef = useRef<HTMLInputElement>(null);
+	const idMeasureRef = useRef<HTMLSpanElement>(null);
+
+	/** Size the ID input to its content via a hidden mirror span (same
+	 *  pattern as EditableTitle). Called on mount, value change, and draft edit. */
+	const syncIdWidth = useCallback(() => {
+		if (idMeasureRef.current && idInputRef.current) {
+			idInputRef.current.style.width = `${idMeasureRef.current.scrollWidth + 4}px`;
+		}
+	}, []);
 
 	/* Auto-dismiss the notice popover after 4 seconds (matches XPathField). */
 	useEffect(() => {
@@ -168,10 +178,12 @@ export function ContextualEditorHeader({ question }: QuestionEditorProps) {
 	});
 
 	/** Callback ref for the ID input — merges the commit hook ref with
-	 *  autoFocus behavior for undo/redo focus restoration and new questions. */
+	 *  autoFocus behavior, undo/redo focus restoration, and content-width sync. */
 	const setIdInputRef = useCallback(
 		(el: HTMLInputElement | null) => {
+			idInputRef.current = el;
 			idField.ref(el);
+			syncIdWidth();
 			const shouldAutoFocus =
 				focusHint === "id" ||
 				(!!selected?.questionUuid &&
@@ -181,7 +193,7 @@ export function ContextualEditorHeader({ question }: QuestionEditorProps) {
 				el.select();
 			}
 		},
-		[idField.ref, focusHint, selected?.questionUuid, engine],
+		[idField.ref, focusHint, selected?.questionUuid, engine, syncIdWidth],
 	);
 
 	/* ── Action handlers ── */
@@ -333,6 +345,17 @@ export function ContextualEditorHeader({ question }: QuestionEditorProps) {
 					ID
 				</span>
 				<div className="relative flex items-center">
+					{/* Hidden span mirror — sizes the input to its content (EditableTitle pattern). */}
+					<span
+						ref={(el) => {
+							idMeasureRef.current = el;
+							syncIdWidth();
+						}}
+						className="text-sm font-mono font-medium px-2 border border-transparent absolute invisible whitespace-pre"
+						aria-hidden
+					>
+						{idField.draft || "\u00A0"}
+					</span>
 					<div
 						ref={idWrapperRef}
 						className={`flex items-center rounded-md border outline-none transition-colors ${shaking ? "xpath-shake" : ""} ${
@@ -353,11 +376,12 @@ export function ContextualEditorHeader({ question }: QuestionEditorProps) {
 							onChange={(e) => {
 								idField.setDraft(e.target.value);
 								if (idNotice) setIdNotice(null);
+								requestAnimationFrame(syncIdWidth);
 							}}
 							onFocus={idField.handleFocus}
 							onBlur={idField.handleBlur}
 							onKeyDown={idField.handleKeyDown}
-							className="w-full text-sm font-mono px-2 py-1.5 bg-transparent text-nova-text font-medium outline-none cursor-text"
+							className="min-w-0 text-sm font-mono px-2 py-1.5 bg-transparent text-nova-text font-medium outline-none cursor-text"
 							autoComplete="off"
 							data-1p-ignore
 						/>
