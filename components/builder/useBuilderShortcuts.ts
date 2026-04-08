@@ -301,18 +301,17 @@ export function useBuilderShortcuts(
 					});
 				},
 			},
-			// Cmd+Z / Cmd+Shift+Z — undo/redo
+			// Cmd+Z / Cmd+Shift+Z — undo/redo (not global: TipTap and CodeMirror
+			// have their own undo stacks that should handle Cmd+Z when focused)
 			{
 				key: "z",
 				meta: true,
-				global: true,
 				handler: onUndo,
 			},
 			{
 				key: "z",
 				meta: true,
 				shift: true,
-				global: true,
 				handler: onRedo,
 			},
 		];
