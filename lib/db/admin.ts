@@ -3,6 +3,10 @@
  *
  * Extracted from the admin API route handlers so Server Components can
  * call the same logic directly without going through HTTP.
+ *
+ * Role data comes from `auth_users` (Better Auth's admin plugin), while
+ * app-level user data (activity timestamps) comes from `users/`. Both
+ * are read and merged by user ID.
  */
 
 import type {
@@ -17,15 +21,42 @@ import { collections, docs, getDb } from "./firestore";
 import { getCurrentPeriod } from "./usage";
 import { getUser, listAllUsers } from "./users";
 
+/** Read a user's role from the auth_users collection (Better Auth admin plugin). */
+async function getAuthUserRole(userId: string): Promise<"user" | "admin"> {
+	const snap = await getDb().collection("auth_users").doc(userId).get();
+	return snap.data()?.role === "admin" ? "admin" : "user";
+}
+
+/**
+ * Build a userId → role map by batch-reading all auth_users documents.
+ *
+ * Used by `getAdminUsersWithStats` to merge role data from auth_users
+ * into the admin user table without N+1 individual reads.
+ */
+async function getAuthUserRoles(): Promise<Map<string, "user" | "admin">> {
+	const snap = await getDb().collection("auth_users").get();
+	const roles = new Map<string, "user" | "admin">();
+	for (const doc of snap.docs) {
+		roles.set(doc.id, doc.data().role === "admin" ? "admin" : "user");
+	}
+	return roles;
+}
+
 /**
  * Fetch all users with current month usage and app counts.
  *
- * Batch-reads all usage docs in a single Firestore getAll() call (1 round trip
- * for N users instead of N individual reads). App counts are aggregation
- * queries and can't be batched, so those run in parallel per user.
+ * Reads from four sources:
+ * - `users/` — profile data and activity timestamps
+ * - `auth_users` — role (from Better Auth admin plugin)
+ * - `users/{id}/usage/{period}` — monthly spend/generation counts
+ * - `apps` collection — per-user app count aggregations
  */
 export async function getAdminUsersWithStats(): Promise<AdminUsersResponse> {
-	const allUsers = await listAllUsers();
+	/* Read app users and auth roles in parallel */
+	const [allUsers, roleMap] = await Promise.all([
+		listAllUsers(),
+		getAuthUserRoles(),
+	]);
 	const period = getCurrentPeriod();
 
 	/* Batch-read all usage docs in a single round trip */
@@ -54,7 +85,7 @@ export async function getAdminUsersWithStats(): Promise<AdminUsersResponse> {
 			email: user.email,
 			name: user.name,
 			image: user.image,
-			role: user.role,
+			role: roleMap.get(user.id) ?? "user",
 			created_at: user.created_at.toDate().toISOString(),
 			last_active_at: user.last_active_at.toDate().toISOString(),
 			generations: usageData?.request_count ?? 0,
@@ -77,12 +108,16 @@ export async function getAdminUsersWithStats(): Promise<AdminUsersResponse> {
 /**
  * Fetch a single user's profile — returns null if user doesn't exist.
  *
+ * Reads profile data from `users/` and role from `auth_users` in parallel.
  * Separated so the profile card can stream independently via Suspense.
  */
 export async function getAdminUserProfile(
 	userId: string,
 ): Promise<AdminUserDetailResponse["user"] | null> {
-	const user = await getUser(userId);
+	const [user, role] = await Promise.all([
+		getUser(userId),
+		getAuthUserRole(userId),
+	]);
 	if (!user) return null;
 
 	return {
@@ -90,7 +125,7 @@ export async function getAdminUserProfile(
 		email: user.email,
 		name: user.name,
 		image: user.image,
-		role: user.role,
+		role,
 		created_at: user.created_at.toDate().toISOString(),
 		last_active_at: user.last_active_at.toDate().toISOString(),
 	};

@@ -3,8 +3,8 @@
  *
  * Provides a stable interface for components that need to know the current
  * auth state (authenticated user, pending check, sign-in/sign-out methods).
- * The `isAdmin` field comes from `session.additionalFields` in the auth
- * config — stored in Firestore, arrives with the session data.
+ * The `role` field comes from Better Auth's admin plugin — stored on the
+ * auth user in `auth_users`, arrives as `session.user.role`.
  */
 "use client";
 import { authClient } from "@/lib/auth-client";
@@ -34,7 +34,7 @@ export function useAuth() {
 		/** Whether the user is currently authenticated. */
 		isAuthenticated: !!session,
 		/** Whether the user has the admin role. False while session is loading. */
-		isAdmin: session?.session?.isAdmin === true,
+		isAdmin: session?.user?.role === "admin",
 		/** Whether the initial session check is still in flight. */
 		isPending,
 		/** Any error from the session check. */

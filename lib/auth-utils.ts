@@ -14,7 +14,8 @@ import { connection } from "next/server";
 import { cache } from "react";
 import { ApiError } from "./apiError";
 import { getAuth, type Session } from "./auth";
-import { isUserAdmin, touchUser } from "./db/users";
+import { getDb } from "./db/firestore";
+import { touchUser } from "./db/users";
 
 // ── API Route Auth ──────────────────────────────────────────────────
 
@@ -79,13 +80,13 @@ export async function requireSession(req: Request): Promise<Session> {
 /**
  * Require an admin session or throw a 403.
  *
- * First checks for an authenticated session (401 if missing), then reads
- * the user's Firestore document to verify `role === 'admin'` (403 if not).
- * Used by all admin API routes.
+ * Checks `session.user.role` from the admin plugin — the role lives on
+ * `auth_users` and is included in the session by Better Auth. Used by
+ * all admin API routes.
  */
 export async function requireAdmin(req: Request): Promise<Session> {
 	const session = await requireSession(req);
-	if (!(await isUserAdmin(session.user.id))) {
+	if (session.user.role !== "admin") {
 		throw new ApiError("Admin access required", 403);
 	}
 	return session;
@@ -152,18 +153,24 @@ export async function requireAuth(): Promise<Session> {
 /**
  * Require an admin session in a Server Component.
  *
- * Checks the app's Firestore user doc directly (not the session's cached
- * `isAdmin`) so demotions take effect immediately. If admin access was
- * revoked, the session is deleted from Firestore (live revocation) and
- * the user is redirected to the landing page to re-authenticate. The
- * stale auth cookies become harmless — the next `getSession()` returns
- * null because the session no longer exists in the database.
+ * Reads the auth user's `role` directly from `auth_users` to bypass the
+ * 5-minute session cookie cache, ensuring demotions take effect immediately.
+ * If admin access was revoked, the session is deleted from Firestore (live
+ * revocation) and the user is redirected to the landing page. Stale auth
+ * cookies become harmless — the next `getSession()` returns null.
  */
 export async function requireAdminAccess(): Promise<Session> {
 	const session = await requireAuth();
-	if (!(await isUserAdmin(session.user.id))) {
+
+	/* Bypass the cookie cache — read the role from auth_users directly so
+	 * admin demotions take effect on the next page load, not after 5 minutes. */
+	const authUserSnap = await getDb()
+		.collection("auth_users")
+		.doc(session.user.id)
+		.get();
+	if (authUserSnap.data()?.role !== "admin") {
 		/* Live revocation — sign out clears the session from Firestore and
-		 * wipes auth cookies so stale `isAdmin` can't linger. */
+		 * wipes auth cookies so stale role data can't linger. */
 		await getAuth().api.signOut({ headers: await headers() });
 		redirect("/");
 	}

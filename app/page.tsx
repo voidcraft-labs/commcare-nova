@@ -35,7 +35,7 @@ export default async function HomePage() {
 		);
 	}
 
-	const isAdmin = session.session?.isAdmin === true;
+	const isAdmin = session.user.role === "admin";
 
 	return (
 		<main className="max-w-4xl mx-auto px-6 py-12">
