@@ -421,22 +421,12 @@ body {
 	background: rgba(139, 92, 246, 0.08);
 }
 
-/* Preview markdown (form labels, hints, display text) — uses preview theme vars.
- * break-spaces + relative match ProseMirror's defaults so the static rendering
- * is pixel-identical to the TipTap editor in text cursor mode — no layout shift
- * when switching cursor modes.
- *
- * `all: initial` severs inheritance from every ancestor — no stray text-align,
- * font-style, color, or letter-spacing leaking through wrapper divs, buttons,
- * or role=button elements. We then re-declare every property we need from a
- * known baseline. Without this, the two renderers (static markdown-to-jsx vs
- * TipTap ProseMirror) produce different computed styles because they sit in
- * different DOM trees with different ancestor chains. */
+/* Preview markdown (form labels, hints, display text) — pure content namespace.
+ * Text variant styling (font-size, weight, color) lives on the element itself
+ * via Tailwind classes. break-spaces + relative match ProseMirror's defaults
+ * so static rendering is pixel-identical to the TipTap editor — no layout
+ * shift when switching cursor modes. */
 .preview-markdown {
-	all: initial;
-	display: block;
-	font: inherit;
-	color: inherit;
 	line-height: 1.7;
 	word-break: break-word;
 	white-space: break-spaces;

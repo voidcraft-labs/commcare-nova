@@ -12,6 +12,7 @@ import { LabelContent } from "@/lib/references/LabelContent";
 import type { Question } from "@/lib/schemas/blueprint";
 import type { QuestionPath } from "@/lib/services/questionPath";
 import { FormRenderer } from "../FormRenderer";
+import { FIELD_STYLES } from "../fieldStyles";
 import { TextEditable } from "../TextEditable";
 
 interface RepeatFieldProps {
@@ -94,13 +95,12 @@ export function RepeatField({
 					onSave={saveField ? (v) => saveField("label", v) : undefined}
 					fieldType="label"
 				>
-					<div className="text-sm font-medium text-nova-text">
-						<LabelContent
-							label={question.label ?? ""}
-							resolvedLabel={state.resolvedLabel}
-							isEditMode={isEditMode}
-						/>
-					</div>
+					<LabelContent
+						label={question.label ?? ""}
+						resolvedLabel={state.resolvedLabel}
+						isEditMode={isEditMode}
+						className={FIELD_STYLES.label}
+					/>
 				</TextEditable>
 			)}
 

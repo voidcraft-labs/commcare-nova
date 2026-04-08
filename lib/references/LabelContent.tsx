@@ -27,6 +27,9 @@ interface LabelContentProps {
 	resolvedLabel?: string;
 	/** Whether we're in design/edit mode. */
 	isEditMode: boolean;
+	/** Text variant classes (font-size, weight, color) merged onto the
+	 *  `preview-markdown` wrapper. Use `FIELD_STYLES.label` or `.hint`. */
+	className: string;
 }
 
 /**
@@ -81,20 +84,22 @@ export function LabelContent({
 	label,
 	resolvedLabel,
 	isEditMode,
+	className,
 }: LabelContentProps) {
 	const options = useMarkdownOptions();
+	const wrapperCls = `preview-markdown ${className}`;
 
 	/* Preview mode: use engine-resolved values (no chips, just substituted text). */
 	if (!isEditMode && resolvedLabel !== undefined) {
 		return (
-			<div className="preview-markdown">
+			<div className={wrapperCls}>
 				<Markdown options={options}>{resolvedLabel}</Markdown>
 			</div>
 		);
 	}
 
 	return (
-		<div className="preview-markdown">
+		<div className={wrapperCls}>
 			<Markdown options={options}>{label}</Markdown>
 		</div>
 	);

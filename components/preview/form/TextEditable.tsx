@@ -19,9 +19,8 @@
 import { type ReactNode, useCallback, useRef, useState } from "react";
 import { useBuilderStore } from "@/hooks/useBuilder";
 
+import type { FieldType } from "./fieldStyles";
 import { InlineTextEditor } from "./InlineTextEditor";
-
-type FieldType = "label" | "hint";
 
 interface TextEditableProps {
 	/** Raw markdown value for this field. */

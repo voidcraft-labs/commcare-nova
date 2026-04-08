@@ -53,8 +53,7 @@ import {
 	createInlineEditorExtensions,
 	getMarkdownContent,
 } from "@/lib/tiptap/markdownExtensions";
-
-type FieldType = "label" | "hint";
+import { FIELD_STYLES, type FieldType } from "./fieldStyles";
 
 interface InlineTextEditorProps {
 	/** Current markdown value for this field. */
@@ -72,12 +71,6 @@ interface InlineTextEditorProps {
 	 *  instead of jumping to the end of the field. */
 	clickPosition?: { x: number; y: number } | null;
 }
-
-/** Style classes per field type so the editor matches the static LabelContent it replaces. */
-const FIELD_STYLES: Record<FieldType, string> = {
-	label: "text-sm font-medium text-nova-text",
-	hint: "text-xs text-nova-text-muted",
-};
 
 // ── Label toolbar (full StarterKit formatting via TipTap UI) ─────────
 
@@ -325,11 +318,9 @@ export function InlineTextEditor({
 		immediatelyRender: false,
 		editorProps: {
 			attributes: {
-				/* Font styles and preview-markdown are on ancestor wrapper divs
-				 * (matching the static LabelContent nesting), so the editor element
-				 * only needs outline suppression. Typography inherits from the
-				 * wrappers, and ProseMirror's injected white-space/position are
-				 * matched by the [data-text-editable] .preview-markdown rule. */
+				/* Typography classes live on the preview-markdown wrapper (matching
+				 * static LabelContent). ProseMirror's injected white-space/position
+				 * are matched by the preview-markdown rule in globals.css. */
 				class: "outline-none",
 				"data-1p-ignore": "",
 				autocomplete: "off",
@@ -385,13 +376,10 @@ export function InlineTextEditor({
 				) : (
 					<CompactToolbar />
 				)}
-				{/* Wrapper nesting mirrors the static LabelContent structure (font-style
-				 * div → preview-markdown div → content) so the CSS cascade produces
-				 * identical computed values in both states — true flipbook parity. */}
-				<div className={FIELD_STYLES[fieldType]}>
-					<div className="preview-markdown">
-						<Tiptap.Content />
-					</div>
+				{/* Text styling + preview-markdown on a single wrapper — matches the
+				 * static LabelContent structure for flipbook parity. */}
+				<div className={`preview-markdown ${FIELD_STYLES[fieldType]}`}>
+					<Tiptap.Content />
 				</div>
 			</div>
 		</Tiptap>

@@ -8,6 +8,7 @@ import { LabelContent } from "@/lib/references/LabelContent";
 import type { Question } from "@/lib/schemas/blueprint";
 import type { QuestionPath } from "@/lib/services/questionPath";
 import { FormRenderer } from "../FormRenderer";
+import { FIELD_STYLES } from "../fieldStyles";
 import { TextEditable } from "../TextEditable";
 
 interface GroupFieldProps {
@@ -47,13 +48,12 @@ export function GroupField({
 						onSave={saveField ? (v) => saveField("label", v) : undefined}
 						fieldType="label"
 					>
-						<div className="text-sm font-medium text-nova-text">
-							<LabelContent
-								label={question.label ?? ""}
-								resolvedLabel={state.resolvedLabel}
-								isEditMode={isEditMode}
-							/>
-						</div>
+						<LabelContent
+							label={question.label ?? ""}
+							resolvedLabel={state.resolvedLabel}
+							isEditMode={isEditMode}
+							className={FIELD_STYLES.label}
+						/>
 					</TextEditable>
 					{question.hint && (
 						<div className="mt-0.5">
@@ -62,13 +62,12 @@ export function GroupField({
 								onSave={saveField ? (v) => saveField("hint", v) : undefined}
 								fieldType="hint"
 							>
-								<div className="text-xs text-nova-text-muted">
-									<LabelContent
-										label={question.hint}
-										resolvedLabel={state.resolvedHint}
-										isEditMode={isEditMode}
-									/>
-								</div>
+								<LabelContent
+									label={question.hint}
+									resolvedLabel={state.resolvedHint}
+									isEditMode={isEditMode}
+									className={FIELD_STYLES.hint}
+								/>
 							</TextEditable>
 						</div>
 					)}
