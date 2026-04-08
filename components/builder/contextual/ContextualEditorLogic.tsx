@@ -151,7 +151,7 @@ export function ContextualEditorLogic({ question }: QuestionEditorProps) {
 			f.field === "validation_msg" &&
 			!question.validation_msg &&
 			textField.activeField !== "validation_msg" &&
-			(question.validation || xpathField.activeField === "validation") &&
+			question.validation &&
 			fieldSupportedForType("validation", type),
 	);
 

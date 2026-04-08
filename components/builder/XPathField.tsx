@@ -191,7 +191,10 @@ export function XPathField({
 			onSave={(v) => {
 				clickPosRef.current = null;
 				const normalized = formatXPath(v);
-				if (normalized !== formatXPath(value)) {
+				/* Always propagate empty commits — the parent needs the callback
+				 * to clean up addable-field state (e.g. xpathField.clear(),
+				 * setAddingCondition(false)). Skip only non-empty no-ops. */
+				if (!normalized.trim() || normalized !== formatXPath(value)) {
 					onSave?.(normalized);
 				}
 				/* setEditing after the save callback so the external store
