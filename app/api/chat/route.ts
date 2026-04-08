@@ -5,7 +5,12 @@ import {
 	type UIMessage,
 } from "ai";
 import { resolveApiKey } from "@/lib/auth-utils";
-import { createApp, failApp, hasActiveGeneration } from "@/lib/db/apps";
+import {
+	createApp,
+	failApp,
+	hasActiveGeneration,
+	loadAppOwner,
+} from "@/lib/db/apps";
 import { getMonthlyUsage, MONTHLY_SPEND_CAP_USD } from "@/lib/db/usage";
 import { log } from "@/lib/log";
 import { chatRequestSchema } from "@/lib/schemas/apiSchemas";
@@ -98,6 +103,17 @@ export async function POST(req: Request) {
 				{ status: 503 },
 			);
 		}
+	} else {
+		/* Verify ownership — apps are a root-level collection, so the path no
+		 * longer scopes writes to the authenticated user. Without this check,
+		 * a crafted request with another user's appId would overwrite their app. */
+		const owner = await loadAppOwner(appId);
+		if (!owner || owner !== keyResult.session.user.email) {
+			return Response.json(
+				{ error: "App not found", type: "not_found" },
+				{ status: 404 },
+			);
+		}
 	}
 
 	// Concurrency guard — only one generation at a time per user. Prevents
@@ -114,7 +130,7 @@ export async function POST(req: Request) {
 		);
 		if (inFlight) {
 			if (appId && !parsed.data.appId) {
-				failApp(keyResult.session.user.email, appId, "generation_in_progress");
+				failApp(appId, "generation_in_progress");
 			}
 			return Response.json(
 				{
@@ -132,7 +148,7 @@ export async function POST(req: Request) {
 	}
 
 	if (appId) {
-		logger.enableFirestore(keyResult.session.user.email, appId);
+		logger.enableFirestore(appId, keyResult.session.user.email);
 	}
 
 	// Safety net on client disconnect — finalize() is idempotent, so this
@@ -182,7 +198,7 @@ export async function POST(req: Request) {
 				const classified = classifyError(error);
 				ctx.emitError(classified, source);
 				if (appId) {
-					failApp(keyResult.session.user.email, appId, classified.type);
+					failApp(appId, classified.type);
 				}
 			};
 

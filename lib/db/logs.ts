@@ -5,6 +5,9 @@
  * no defaults map — each event variant only contains its own fields so there's
  * nothing to strip. Reads go through the Zod converter which validates the
  * discriminated union on read.
+ *
+ * Logs live at `apps/{appId}/logs/{logId}` — a subcollection of the app
+ * document. Only the appId is needed to read or write logs.
  */
 
 import { log } from "@/lib/log";
@@ -24,14 +27,10 @@ import type { StoredEvent } from "./types";
  * sentinel strings back) are silently dropped by the Firestore SDK via
  * `ignoreUndefinedProperties: true` on the client instance.
  */
-export function writeLogEvent(
-	email: string,
-	appId: string,
-	event: StoredEvent,
-): void {
+export function writeLogEvent(appId: string, event: StoredEvent): void {
 	const docId = `${event.run_id}_${String(event.sequence).padStart(6, "0")}`;
 	collections
-		.logs(email, appId)
+		.logs(appId)
 		.doc(docId)
 		.set(event)
 		.catch((err) => log.error("[writeLogEvent] Firestore write failed", err));
@@ -46,12 +45,11 @@ export function writeLogEvent(
  * Used by the replay system and the logs API endpoint.
  */
 export async function loadRunEvents(
-	email: string,
 	appId: string,
 	runId: string,
 ): Promise<StoredEvent[]> {
 	const snap = await collections
-		.logs(email, appId)
+		.logs(appId)
 		.where("run_id", "==", runId)
 		.orderBy("sequence")
 		.get();
@@ -64,14 +62,11 @@ export async function loadRunEvents(
  * Queries the single highest-sequence event and returns its run_id.
  * Returns null if no log events exist for the app.
  */
-export async function loadLatestRunId(
-	email: string,
-	appId: string,
-): Promise<string | null> {
+export async function loadLatestRunId(appId: string): Promise<string | null> {
 	/* Order by timestamp (not sequence) because sequence is per-run and resets
 	 * to 0 for each EventLogger instance. Timestamp is globally monotonic. */
 	const snap = await collections
-		.logs(email, appId)
+		.logs(appId)
 		.orderBy("timestamp", "desc")
 		.limit(1)
 		.get();

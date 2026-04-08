@@ -6,8 +6,6 @@ import { AppCard } from "./AppCard";
 
 interface ReplayableAppListProps {
 	apps: AppSummary[];
-	/** Email of the app owner — used to build the replay route URL. */
-	ownerEmail?: string;
 	/** When true, non-error apps link to `/build/{id}`. Defaults to false. */
 	linkToApps?: boolean;
 	/** When false, replay buttons are hidden. Defaults to true. */
@@ -22,10 +20,12 @@ interface ReplayableAppListProps {
  * Client component because the replay callback uses `router.push` for
  * navigation. Shared between the builds page (user's own apps) and
  * admin user detail page (admin viewing any user's apps).
+ *
+ * Replay navigates by appId alone — no owner email needed since apps
+ * are a root-level collection.
  */
 export function ReplayableAppList({
 	apps,
-	ownerEmail,
 	linkToApps = false,
 	showReplay = true,
 	emptyState,
@@ -34,12 +34,9 @@ export function ReplayableAppList({
 
 	const handleReplay = useCallback(
 		(appId: string) => {
-			const params = ownerEmail
-				? `?owner=${encodeURIComponent(ownerEmail)}`
-				: "";
-			router.push(`/build/replay/${appId}${params}`);
+			router.push(`/build/replay/${appId}`);
 		},
-		[ownerEmail, router],
+		[router],
 	);
 
 	if (apps.length === 0 && emptyState) {

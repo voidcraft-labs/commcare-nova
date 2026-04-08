@@ -114,8 +114,8 @@ export class GenerationContext {
 	 */
 	private saveBlueprint() {
 		if (!this.appId || !this.blueprint) return;
-		updateApp(this.session.user.email, this.appId, this.blueprint).catch(
-			(err) => log.error("[intermediate-save] failed", err),
+		updateApp(this.appId, this.blueprint).catch((err) =>
+			log.error("[intermediate-save] failed", err),
 		);
 	}
 

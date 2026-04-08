@@ -1,7 +1,11 @@
 /**
  * App CRUD helpers — thin wrappers over Firestore collection/document helpers.
  *
- * Provides typed, validated read/write operations for app documents.
+ * Apps live in a root-level `apps/{appId}` collection with an `owner` field
+ * linking back to the user's email. Most operations only need the appId —
+ * the owner is embedded in the document. List and concurrency queries filter
+ * by `owner` with a composite index.
+ *
  * All writes extract denormalized fields from the blueprint automatically
  * so list queries never need to deserialize full blueprints.
  */
@@ -59,22 +63,21 @@ function denormalize(blueprint: AppBlueprint) {
 /**
  * Check whether the user has an active generation in progress.
  *
- * Queries for any app with `status: 'generating'` whose last Firestore
- * write was within the staleness window. Returns `true` if an
- * active generation exists that isn't the given `excludeAppId` — so retries
- * on the same build are allowed, but concurrent new builds are blocked.
+ * Queries for any app owned by `owner` with `status: 'generating'` whose
+ * last Firestore write was within the staleness window. Returns `true` if
+ * an active generation exists that isn't the given `excludeAppId` — so
+ * retries on the same build are allowed, but concurrent new builds are blocked.
  *
  * Single Firestore query with `limit(5)` — enough to find a live one
  * even if the first few results are stale or the excluded app.
  */
 export async function hasActiveGeneration(
-	email: string,
+	owner: string,
 	excludeAppId?: string,
 ): Promise<boolean> {
-	const snap = await getDb()
-		.collection("users")
-		.doc(email)
-		.collection("apps")
+	const snap = await collections
+		.apps()
+		.where("owner", "==", owner)
 		.where("status", "==", "generating")
 		.limit(5)
 		.get();
@@ -89,7 +92,7 @@ export async function hasActiveGeneration(
 		const updatedAt = (doc.data().updated_at as Timestamp)?.toDate();
 		if (!updatedAt) {
 			/* No updated_at means a corrupt or very old doc — definitively dead. */
-			failApp(email, doc.id, "internal");
+			failApp(doc.id, "internal");
 			continue;
 		}
 
@@ -97,7 +100,7 @@ export async function hasActiveGeneration(
 		if (now - updatedAt.getTime() <= maxAgeMs) return true;
 
 		/* Stale — infer failure so it won't block future checks. */
-		failApp(email, doc.id, "internal");
+		failApp(doc.id, "internal");
 	}
 
 	return false;
@@ -114,14 +117,15 @@ export async function hasActiveGeneration(
  * `updated_at`), and `completeApp` writes the final validated blueprint.
  * Returns the generated appId for immediate use (logging, URL update).
  */
-export async function createApp(email: string, runId: string): Promise<string> {
-	const ref = collections.apps(email).doc();
+export async function createApp(owner: string, runId: string): Promise<string> {
+	const ref = collections.apps().doc();
 	const emptyBlueprint: AppBlueprint = {
 		app_name: "",
 		modules: [],
 		case_types: null,
 	};
 	await ref.set({
+		owner,
 		...denormalize(emptyBlueprint),
 		blueprint: emptyBlueprint,
 		status: "generating",
@@ -137,15 +141,15 @@ export async function createApp(email: string, runId: string): Promise<string> {
  * Update an app with the final validated blueprint on generation success.
  *
  * Called by validateApp after the build pipeline completes. Updates the
- * blueprint, denormalized fields, status, and run_id — preserves created_at.
+ * blueprint, denormalized fields, status, and run_id — preserves created_at
+ * and owner.
  */
 export async function completeApp(
-	email: string,
 	appId: string,
 	blueprint: AppBlueprint,
 	runId: string,
 ): Promise<void> {
-	await docs.app(email, appId).set(
+	await docs.app(appId).set(
 		{
 			...denormalize(blueprint),
 			blueprint,
@@ -164,13 +168,9 @@ export async function completeApp(
  * The timeout inference in `listApps()` serves as a backstop if this
  * write fails or the process dies before reaching this code.
  */
-export function failApp(
-	email: string,
-	appId: string,
-	errorType: ErrorType,
-): void {
+export function failApp(appId: string, errorType: ErrorType): void {
 	docs
-		.app(email, appId)
+		.app(appId)
 		.set(
 			{
 				status: "error",
@@ -189,14 +189,13 @@ export function failApp(
  * (2) the client-side auto-save hook after user edits.
  *
  * Only touches the blueprint, denormalized fields, and updated_at —
- * preserves created_at, run_id, and status from the original save.
+ * preserves created_at, owner, run_id, and status from the original save.
  */
 export async function updateApp(
-	email: string,
 	appId: string,
 	blueprint: AppBlueprint,
 ): Promise<void> {
-	await docs.app(email, appId).set(
+	await docs.app(appId).set(
 		{
 			...denormalize(blueprint),
 			blueprint,
@@ -210,14 +209,28 @@ export async function updateApp(
  * Load a single app document by ID.
  *
  * Returns the full AppDoc (including blueprint) or null if not found.
- * The Zod converter validates the document on read.
+ * The Zod converter validates the document on read. Callers that serve
+ * user-facing data must verify `app.owner === session.user.email` for
+ * authorization — the root-level collection doesn't scope by user.
  */
-export async function loadApp(
-	email: string,
-	appId: string,
-): Promise<AppDoc | null> {
-	const snap = await docs.app(email, appId).get();
+export async function loadApp(appId: string): Promise<AppDoc | null> {
+	const snap = await docs.app(appId).get();
 	return snap.exists ? (snap.data() ?? null) : null;
+}
+
+/**
+ * Load just the owner email for an app document.
+ *
+ * Reads only the `owner` field via an untyped document reference — avoids
+ * pulling the full blueprint or running Zod validation. Used by API routes
+ * that need to verify ownership before writing.
+ */
+export async function loadAppOwner(appId: string): Promise<string | null> {
+	/* Direct untyped read — `select()` is only available on queries, not
+	 * document references, so we read the raw doc and extract the one field. */
+	const snap = await getDb().collection("apps").doc(appId).get();
+	if (!snap.exists) return null;
+	return (snap.data()?.owner as string) ?? null;
 }
 
 /** The denormalized fields fetched by `listApps` — no blueprint. */
@@ -235,19 +248,24 @@ const SUMMARY_FIELDS = [
 /**
  * List a user's apps sorted by last modified, without full blueprints.
  *
- * Uses Firestore `select()` to fetch only the denormalized summary fields —
+ * Queries the root-level `apps` collection filtered by `owner`. Uses
+ * Firestore `select()` to fetch only the denormalized summary fields —
  * the blueprint (the large nested object) is never read. Validation is
  * unnecessary here because data is validated on write (completeApp,
  * updateApp) and defaults are baked in at that time.
+ *
+ * Requires composite index: `(owner ASC, updated_at DESC)`.
  */
 export async function listApps(
-	email: string,
+	owner: string,
 	limit = 50,
 ): Promise<AppSummary[]> {
+	/* Use the untyped collection — `select()` returns partial documents that
+	 * would fail the Zod converter's full-schema validation (missing owner,
+	 * blueprint). Raw DocumentData is fine here since we cast each field below. */
 	const snap = await getDb()
-		.collection("users")
-		.doc(email)
 		.collection("apps")
+		.where("owner", "==", owner)
 		.select(...SUMMARY_FIELDS)
 		.orderBy("updated_at", "desc")
 		.limit(limit)
@@ -270,7 +288,7 @@ export async function listApps(
 		const isStale =
 			data.status === "generating" && now - updatedAt.getTime() > maxAgeMs;
 		if (isStale) {
-			failApp(email, doc.id, "internal");
+			failApp(doc.id, "internal");
 		}
 
 		return {

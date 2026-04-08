@@ -23,7 +23,6 @@ export async function UserAppsSection({ email }: UserAppsSectionProps) {
 			</h3>
 			<ReplayableAppList
 				apps={apps}
-				ownerEmail={email}
 				emptyState={
 					<p className="text-sm text-nova-text-secondary">No apps yet.</p>
 				}
