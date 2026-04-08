@@ -55,6 +55,7 @@ import {
 	STAGE_LABELS,
 } from "./builder";
 import { normalizeConnectConfig } from "./connectConfig";
+import type { ReplayStage } from "./logReplay";
 import {
 	assembleBlueprint,
 	collectAllQuestionIds,
@@ -202,6 +203,14 @@ export interface BuilderState {
 	// ── App persistence ──
 	appId: string | undefined;
 
+	// ── Replay ──
+	/** Replay stages for replay mode. Undefined when not replaying. */
+	replayStages: ReplayStage[] | undefined;
+	/** Index of the final "Done" stage in replayStages (ReplayController starts here). */
+	replayDoneIndex: number;
+	/** Path to navigate to when exiting replay mode (set by the replay route). */
+	replayExitPath: string | undefined;
+
 	// ── Actions ────────────────────────────────────────────────────────
 
 	// -- Blueprint mutation actions --
@@ -341,6 +350,15 @@ export interface BuilderState {
 		message: string,
 		severity?: "failed" | "recovering",
 	) => void;
+
+	// -- Replay lifecycle actions --
+	/** Hydrate replay metadata into the store. Stage application (applyToBuilder)
+	 *  is handled separately by the engine factory. */
+	loadReplay: (
+		stages: ReplayStage[],
+		doneIndex: number,
+		exitPath: string,
+	) => void;
 	reset: () => void;
 }
 
@@ -408,6 +426,10 @@ export function createBuilderStore(initialPhase: BuilderPhase) {
 						progressCompleted: 0,
 						progressTotal: 0,
 						appId: undefined,
+
+						replayStages: undefined,
+						replayDoneIndex: 0,
+						replayExitPath: undefined,
 
 						// ── Blueprint mutation actions ──────────────────────────
 
@@ -1554,6 +1576,14 @@ export function createBuilderStore(initialPhase: BuilderPhase) {
 								if (severity === "failed" && draft.generationData) {
 									draft.generationData.partialModules = {};
 								}
+							});
+						},
+
+						loadReplay(stages, doneIndex, exitPath) {
+							set((draft) => {
+								draft.replayStages = stages;
+								draft.replayDoneIndex = doneIndex;
+								draft.replayExitPath = exitPath;
 							});
 						},
 

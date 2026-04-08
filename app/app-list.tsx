@@ -23,7 +23,7 @@ export async function AppList({ email, isAdmin }: AppListProps) {
 	return (
 		<ReplayableAppList
 			apps={apps}
-			logsUrlPrefix="/api/apps"
+			ownerEmail={email}
 			linkToApps
 			showReplay={isAdmin}
 			emptyState={

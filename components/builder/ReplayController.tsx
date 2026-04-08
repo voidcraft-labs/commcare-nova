@@ -1,3 +1,9 @@
+/**
+ * ReplayController — floating transport bar for stepping through generation
+ * replay stages. Reads stages and initial index from the Zustand store
+ * (hydrated by BuilderProvider). Navigation callbacks (onExit, onMessagesChange)
+ * are provided by BuilderLayout as parent→child view-state coordination.
+ */
 "use client";
 import { Icon } from "@iconify/react/offline";
 import tablerChevronLeft from "@iconify-icons/tabler/chevron-left";
@@ -6,26 +12,24 @@ import tablerX from "@iconify-icons/tabler/x";
 import type { UIMessage } from "ai";
 import { AnimatePresence, motion } from "motion/react";
 import { useCallback, useState } from "react";
-import { useBuilderEngine } from "@/hooks/useBuilder";
-import type { ReplayStage } from "@/lib/services/logReplay";
+import { useBuilderEngine, useBuilderStore } from "@/hooks/useBuilder";
 
 interface ReplayControllerProps {
-	stages: ReplayStage[];
-	appName?: string;
-	initialIndex?: number;
 	onExit: () => void;
 	onMessagesChange: (messages: UIMessage[]) => void;
 }
 
 export function ReplayController({
-	stages,
-	appName: _appName,
-	initialIndex = 0,
 	onExit,
 	onMessagesChange,
 }: ReplayControllerProps) {
 	const builder = useBuilderEngine();
-	const [currentIndex, setCurrentIndex] = useState(initialIndex);
+	/* Replay stages are guaranteed defined — this component only renders when
+	 * inReplayMode is true (BuilderLayout guards the mount). The empty-array
+	 * fallback satisfies the type checker without a non-null assertion. */
+	const stages = useBuilderStore((s) => s.replayStages) ?? [];
+	const doneIndex = useBuilderStore((s) => s.replayDoneIndex);
+	const [currentIndex, setCurrentIndex] = useState(doneIndex);
 	const [error, setError] = useState<string>();
 
 	const goToStage = useCallback(
