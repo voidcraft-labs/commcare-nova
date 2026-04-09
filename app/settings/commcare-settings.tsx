@@ -294,7 +294,7 @@ export function CommCareSettings({
 									className="shrink-0 text-nova-emerald"
 								/>
 								<span className="text-sm text-nova-text">
-									Uploading to{" "}
+									Connected to{" "}
 									<span className="font-semibold text-nova-emerald">
 										{domain.displayName}
 									</span>
