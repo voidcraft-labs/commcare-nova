@@ -50,6 +50,8 @@ gcloud run deploy nova --source . --region <region>
 
 `POST /api/chat` runs everything. One `ToolLoopAgent` (the **Solutions Architect / SA**) converses with users, generates apps through tool calls, and edits them. Why: one conversation context means one prompt-caching window — the SA has full memory of every design decision it made. No orchestration layer, no sub-agents, no routing. See `lib/services/CLAUDE.md` for tool inventory and build sequence.
 
+**Fresh-edit mode.** When the Anthropic prompt cache has expired (>5 min since last response) or the user reloads the page, re-sending the full conversation history is expensive and wasteful. Instead, the route creates a fresh SA session with an editing prompt + compact blueprint summary (~2k tokens vs ~40-80k for full history). Generation tools (`generateSchema`, `generateScaffold`, `addModule`) are excluded — the SA only gets read + mutation + validation tools. The decision uses two client signals: `appReady` (builder phase is Ready/Completed — prevents activation mid-generation) and `lastResponseAt` (cache window check). Within the cache window, the SA keeps its full context and full tool set unchanged.
+
 ### Unified Root Route
 
 `/` has three branches, zero redirects: unauthenticated → landing page, authenticated with no apps → get-started prompt, authenticated with apps → app list (Suspense-streamed). A lightweight `userHasApps` existence check (`limit(1)`) runs before the Suspense boundary so new users see the get-started state immediately without the app-list skeleton flashing. The header hides via `isAuthenticated` prop, not pathname. `/build/[id]` is the builder (auth-gated by `app/build/layout.tsx`). No `/apps` route — the domain *is* the namespace.

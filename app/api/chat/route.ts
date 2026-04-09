@@ -13,7 +13,7 @@ import {
 } from "@/lib/db/apps";
 import { getMonthlyUsage, MONTHLY_SPEND_CAP_USD } from "@/lib/db/usage";
 import { log } from "@/lib/log";
-import { chatRequestSchema } from "@/lib/schemas/apiSchemas";
+import { CACHE_TTL_MS, chatRequestSchema } from "@/lib/schemas/apiSchemas";
 import type { AppBlueprint } from "@/lib/schemas/blueprint";
 import { classifyError, MESSAGES } from "@/lib/services/errorClassifier";
 import { EventLogger } from "@/lib/services/eventLogger";
@@ -75,7 +75,15 @@ export async function POST(req: Request) {
 		);
 	}
 
-	const { blueprint, runId } = parsed.data;
+	const { blueprint, runId, lastResponseAt, appReady } = parsed.data;
+
+	// TODO: remove after verifying fresh-edit mode works
+	console.log("[chat] freshEdit signals", {
+		appReady,
+		lastResponseAt,
+		hasBlueprint: !!blueprint,
+		moduleCount: blueprint?.modules?.length ?? 0,
+	});
 
 	const logger = new EventLogger(runId);
 
@@ -203,7 +211,20 @@ export async function POST(req: Request) {
 			};
 
 			try {
-				const sa = createSolutionsArchitect(ctx, mutableBp);
+				/* Fresh edit: the app has completed initial generation but the prior
+				 * conversation's prompt cache has expired (or never existed — page
+				 * reload). The SA gets an editing prompt with a compact blueprint
+				 * summary instead of the full history, and generation tools are excluded.
+				 *
+				 * appReady comes from the client's builder phase (Ready/Completed) —
+				 * it's false during initial generation even after modules exist, so
+				 * we never accidentally strip generation tools mid-build. */
+				const cacheExpired =
+					!lastResponseAt ||
+					Date.now() - new Date(lastResponseAt).getTime() > CACHE_TTL_MS;
+				const freshEdit = !!appReady && cacheExpired;
+
+				const sa = createSolutionsArchitect(ctx, mutableBp, freshEdit);
 				const agentStream = await createAgentUIStream({
 					agent: sa,
 					uiMessages: messages,

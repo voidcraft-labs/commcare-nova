@@ -10,16 +10,21 @@ The SA makes all architecture and form design decisions. All tools are called di
 
 ### Tool Groups
 
-- **Conversation** (1): `askQuestions` (client-side, rendered as QuestionCard)
-- **Generation** (3): `generateSchema`, `generateScaffold`, `addModule` — SA calls with structured data, `strict: true`
-- **Form Building** (1): `addQuestions` — batch-append with `stripEmpty → applyDefaults → buildQuestionTree`
-- **Read** (4): `searchBlueprint`, `getModule`, `getForm`, `getQuestion`
-- **Mutation** (10): `editQuestion`, `addQuestion`, `removeQuestion`, `updateModule`, `updateForm`, `createForm`, `removeForm`, `createModule`, `removeModule`
-- **Validation** (1): `validateApp` — runs `validateAndFix()` loop
+Tools are split into `generationTools` and `sharedTools` in `solutionsArchitect.ts`:
+
+- **Generation** (3, build mode only): `generateSchema`, `generateScaffold`, `addModule` — SA calls with structured data, `strict: true`. Excluded in fresh-edit mode.
+- **Shared** (all modes):
+  - *Conversation* (1): `askQuestions` (client-side, rendered as QuestionCard)
+  - *Form Building* (1): `addQuestions` — batch-append with `stripEmpty → applyDefaults → buildQuestionTree`
+  - *Read* (4): `searchBlueprint`, `getModule`, `getForm`, `getQuestion`
+  - *Mutation* (10): `editQuestion`, `addQuestion`, `removeQuestion`, `updateModule`, `updateForm`, `createForm`, `removeForm`, `createModule`, `removeModule`
+  - *Validation* (1): `validateApp` — runs `validateAndFix()` loop
+
+Mutation tools return human-readable success strings (not JSON metadata) so the SA trusts its own edits without re-reading.
 
 ### Prompt Caching
 
-`prepareStep` sets request-level `cacheControl: { type: 'ephemeral' }` in Anthropic provider options. The API automatically places the cache breakpoint on the last cacheable block and advances it as the conversation grows — the system prompt stays cached across all requests within a session.
+`prepareStep` sets request-level `cacheControl: { type: 'ephemeral' }` in Anthropic provider options. The API automatically places the cache breakpoint on the last cacheable block and advances it as the conversation grows — the system prompt stays cached across all requests within a session. Cache TTL is 5 minutes — the route uses `lastResponseAt` from the client to detect expiry and switch to fresh-edit mode (smaller prompt + blueprint summary instead of full history).
 
 ## Expander Decisions
 

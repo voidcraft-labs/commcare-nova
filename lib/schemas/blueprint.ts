@@ -578,40 +578,6 @@ export function getAppBlueprintJsonSchema(): Record<string, unknown> {
 	return z.toJSONSchema(appBlueprintSchema);
 }
 
-// ── Summary utility ────────────────────────────────────────────────────
-
-/** Generate a concise text summary of an AppBlueprint for chat context. */
-export function summarizeBlueprint(bp: AppBlueprint): string {
-	const lines = [
-		`App: "${bp.app_name}"${bp.connect_type ? ` (Connect: ${bp.connect_type})` : ""}`,
-	];
-	if (bp.case_types) {
-		for (const ct of bp.case_types) {
-			lines.push(
-				`  Case type "${ct.name}": ${ct.properties.map((p) => p.name).join(", ")}`,
-			);
-		}
-	}
-	for (const mod of bp.modules) {
-		lines.push(
-			`  Module: "${mod.name}" (case_type: ${mod.case_type ?? "none"})`,
-		);
-		if (mod.case_list_columns?.length) {
-			lines.push(
-				`    Columns: ${mod.case_list_columns.map((c) => c.header).join(", ")}`,
-			);
-		}
-		for (const form of mod.forms) {
-			const qCount = form.questions?.length ?? 0;
-			const connectTag = form.connect ? ", connect" : "";
-			lines.push(
-				`    Form: "${form.name}" (${form.type}, ${qCount} questions${connectTag})`,
-			);
-		}
-	}
-	return lines.join("\n");
-}
-
 // ── Case config derivation ─────────────────────────────────────────────
 
 /**
