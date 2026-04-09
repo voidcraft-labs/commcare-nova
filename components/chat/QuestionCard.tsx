@@ -54,13 +54,14 @@ export function QuestionCard({
 	 */
 	const questionIds = useRef<string[]>([]);
 	while (questionIds.current.length < questions.length) {
-		const _idx = questionIds.current.length;
 		questionIds.current.push(crypto.randomUUID());
 	}
 
-	const applyAnswer = (questionText: string, answerText: string) => {
+	/** Apply an answer keyed by the current question index. Questions are
+	 * immutable after the SA emits them — index is a stable identity key. */
+	const applyAnswer = (answerText: string) => {
 		const { answers: ans, currentIndex: ci } = stateRef.current;
-		const newAnswers = { ...ans, [questionText]: answerText };
+		const newAnswers = { ...ans, [String(ci)]: answerText };
 		setAnswers(newAnswers);
 		stateRef.current.answers = newAnswers;
 
@@ -77,8 +78,9 @@ export function QuestionCard({
 	if (pendingAnswerRef) {
 		if (isWaiting) {
 			pendingAnswerRef.current = (text: string) => {
-				const q = questions[stateRef.current.currentIndex];
-				if (q) applyAnswer(q.question, `User Responded: ${text}`);
+				if (stateRef.current.currentIndex < questions.length) {
+					applyAnswer(`User Responded: ${text}`);
+				}
 			};
 		} else {
 			pendingAnswerRef.current = null;
@@ -125,7 +127,7 @@ export function QuestionCard({
 						</div>
 					)}
 					{questions.map((q, i) => {
-						const answer = displayAnswers[q.question];
+						const answer = displayAnswers[String(i)];
 						const isCurrent = isWaiting && i === currentIndex;
 						const isPast = i < currentIndex;
 						const isFuture = isWaiting && i > currentIndex;
@@ -170,7 +172,7 @@ export function QuestionCard({
 														key={opt.label}
 														whileHover={{ scale: 1.01 }}
 														whileTap={{ scale: 0.99 }}
-														onClick={() => applyAnswer(q.question, opt.label)}
+														onClick={() => applyAnswer(opt.label)}
 														className="w-full text-left px-3 py-2 rounded-lg border border-nova-border bg-nova-surface hover:border-nova-violet/40 hover:bg-nova-violet/5 transition-colors cursor-pointer"
 													>
 														<div className="text-sm text-nova-text">
