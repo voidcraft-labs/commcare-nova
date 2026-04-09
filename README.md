@@ -50,6 +50,28 @@ npx tsx scripts/test-schema.ts           # Test structured output schemas (requi
 npx tsx scripts/build-xpath-parser.ts    # Rebuild XPath parser from grammar
 ```
 
+### Production Diagnostic Scripts
+
+Read-only tools for inspecting production Firestore data. Requires `gcloud auth application-default login`. Excluded from Docker builds via `.dockerignore`.
+
+```bash
+npx tsx scripts/inspect-app.ts <appId>                 # App metadata, blueprint structure, threads
+npx tsx scripts/inspect-app.ts <appId> --questions      # Include question-level detail
+npx tsx scripts/inspect-app.ts <appId> --blueprint      # Dump full blueprint JSON
+
+npx tsx scripts/inspect-logs.ts <appId>                 # All events, summary view
+npx tsx scripts/inspect-logs.ts <appId> --cost          # Cost breakdown per run
+npx tsx scripts/inspect-logs.ts <appId> --type=error    # Filter by event type
+npx tsx scripts/inspect-logs.ts <appId> --run=<runId>   # Filter to specific run
+npx tsx scripts/inspect-logs.ts <appId> --verbose       # Full event detail
+
+npx tsx scripts/inspect-usage.ts <userId>               # Current month usage + app list
+npx tsx scripts/inspect-usage.ts <userId> --all         # All months
+
+npx tsx scripts/recover-app.ts <appId>                  # Dry run — shows what would change
+npx tsx scripts/recover-app.ts <appId> --confirm        # ⚠️ Actually writes: sets status to "complete"
+```
+
 ### Pre-commit Hook
 
 [Lefthook](https://github.com/evilmartians/lefthook) runs `biome check --staged` before every commit. It installs automatically on `npm install` — no extra setup needed. If the check fails, fix with `npm run format` and re-stage.
