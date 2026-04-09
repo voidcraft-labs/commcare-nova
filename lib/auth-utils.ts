@@ -87,6 +87,12 @@ export async function requireSession(req: Request): Promise<Session> {
  */
 export async function requireAdmin(req: Request): Promise<Session> {
 	const session = await requireSession(req);
+	/* Block impersonated sessions from admin endpoints — even if the
+	 * impersonated user happens to be an admin. Prevents impersonation
+	 * chains (admin → admin → impersonate again). */
+	if (session.session.impersonatedBy) {
+		throw new ApiError("Admin access denied during impersonation", 403);
+	}
 	if (session.user.role !== "admin") {
 		throw new ApiError("Admin access required", 403);
 	}
@@ -162,6 +168,12 @@ export async function requireAuth(): Promise<Session> {
  */
 export async function requireAdminAccess(): Promise<Session> {
 	const session = await requireAuth();
+
+	/* Block impersonated sessions from admin pages — even if the target
+	 * user is also an admin. This prevents impersonation chains. */
+	if (session.session.impersonatedBy) {
+		redirect("/");
+	}
 
 	/* Bypass the cookie cache — read the role from auth_users directly so
 	 * admin demotions take effect on the next page load, not after 5 minutes. */

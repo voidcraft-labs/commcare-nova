@@ -15,7 +15,7 @@ Next.js web app that generates CommCare apps from natural language conversation.
 - **Markdown**: markdown-to-jsx (read-only rendering in `lib/markdown.tsx`); tiptap-markdown handles TipTap editor I/O separately
 - **XML**: htmlparser2 + domutils + dom-serializer
 - **Icons**: Tabler (`@iconify-icons/tabler`) via `@iconify/react/offline`
-- **Auth**: Better Auth (Firestore-backed sessions via `better-auth-firestore`, Google OAuth — domain restriction enforced by GCP OAuth consent screen, not application code) with admin plugin (`better-auth/plugins/admin`) for role-based access, banning, and user management
+- **Auth**: Better Auth (Firestore-backed sessions via `better-auth-firestore`, Google OAuth — domain restriction enforced by GCP OAuth consent screen, not application code) with admin plugin (`better-auth/plugins/admin`) for role-based access, banning, impersonation, and user management
 - **Database**: Google Cloud Firestore (`@google-cloud/firestore`) — apps in root-level `apps/{appId}` collection (owner field stores Better Auth user ID), per-app chat threads at `apps/{appId}/threads/{threadId}` (threadId = runId), per-user monthly usage at `usage/{userId}/months/{yyyy-mm}`, auth state (including user identity) in `auth_*` collections managed by Better Auth
 - **State**: Zustand (`zustand/vanilla` + `zustand/middleware`) — builder reactive state in a scoped Zustand store per buildId, imperative logic in `BuilderEngine` class
 - **Linting**: Biome (`biome.json`) — formatting + lint rules. Lefthook (`lefthook.yml`) runs `biome check --staged` as a pre-commit hook. `noArrayIndexKey` is suppressed where entities lack unique IDs (modules, forms in TreeData)
@@ -196,6 +196,7 @@ Dark "Violet Monochrome" — violet is the single non-semantic accent. CSS custo
 - Text: `--nova-text` (#ededf4) → `--nova-text-muted` (#6b6b8a) — warm whites, no blue tint
 - Brand accent: `--nova-violet` (#8b5cf6), `--nova-violet-bright` (#a78bfa) — used for all interactive chrome
 - Semantic only: `--nova-emerald` (#86cebc, sage-mint), `--nova-amber` (#d4a76a, muted gold), `--nova-rose` (#d4708f, dusty mauve) — never decorative, only for success/warning/error states
+- In-theme accent: `--nova-orchid` (#cda0d4, warm pink-purple) — from the xpath "lavender milk bath" palette, used for UI states that need distinction without semantic warning weight (e.g. impersonation banner)
 - Fonts: Outfit (display), Plus Jakarta Sans (body), JetBrains Mono (code)
 - Popover layers (`lib/styles.ts`): `POPOVER_GLASS` (L1, frosted glass) for base-layer panels, `POPOVER_ELEVATED` (L2, nearly opaque) for stacked popovers. Base UI popover/tooltip animations use CSS `data-[starting-style]`/`data-[ending-style]` data attributes
 - CodeMirror theme (`lib/codemirror/xpath-theme.ts`): "lavender milk bath" palette — all syntax colors in the purple/orchid family, differentiated by lightness and warmth, not by clashing hues

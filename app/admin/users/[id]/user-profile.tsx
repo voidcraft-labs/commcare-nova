@@ -1,23 +1,31 @@
 /**
  * Async server component — user profile card.
  *
- * Fetches the user document from Firestore and renders the profile card.
+ * Fetches the user document from Firestore and renders the profile card
+ * with an impersonate action for admins viewing another user's profile.
  * Wrapped in a Suspense boundary by the parent page so it streams in
  * independently of the usage table and app list.
  */
 import Image from "next/image";
 import { notFound } from "next/navigation";
 import { Badge } from "@/components/ui/Badge";
+import { getSession } from "@/lib/auth-utils";
 import { getAdminUserProfile } from "@/lib/db/admin";
 import { formatRelativeDate } from "@/lib/utils/format";
+import { ImpersonateButton } from "./impersonate-button";
 
 interface UserProfileSectionProps {
 	userId: string;
 }
 
 export async function UserProfileSection({ userId }: UserProfileSectionProps) {
-	const user = await getAdminUserProfile(userId);
+	const [user, session] = await Promise.all([
+		getAdminUserProfile(userId),
+		getSession(),
+	]);
 	if (!user) notFound();
+
+	const isSelf = session?.user?.id === userId;
 
 	return (
 		<div className="bg-nova-deep border border-nova-border rounded-xl p-6">
@@ -51,9 +59,14 @@ export async function UserProfileSection({ userId }: UserProfileSectionProps) {
 						</p>
 					</div>
 				</div>
-				<Badge variant={user.role === "admin" ? "violet" : "muted"}>
-					{user.role}
-				</Badge>
+				<div className="flex items-center gap-3">
+					{!isSelf && (
+						<ImpersonateButton userId={userId} userName={user.name} />
+					)}
+					<Badge variant={user.role === "admin" ? "violet" : "muted"}>
+						{user.role}
+					</Badge>
+				</div>
 			</div>
 		</div>
 	);

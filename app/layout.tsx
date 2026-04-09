@@ -43,7 +43,15 @@ export default async function RootLayout({
 	children: React.ReactNode;
 }) {
 	const session = await getSession();
-	const isAdmin = session?.user?.role === "admin";
+	/* Impersonated sessions are blocked from admin routes, so hide the nav link. */
+	const isAdmin =
+		session?.user?.role === "admin" && !session?.session?.impersonatedBy;
+
+	/* During impersonation, session.user is the target — pass their
+	 * identity so the header banner shows who is being viewed. */
+	const impersonating = session?.session?.impersonatedBy
+		? { userName: session.user.name, userEmail: session.user.email }
+		: null;
 
 	return (
 		<html lang="en" className="dark">
@@ -60,7 +68,11 @@ export default async function RootLayout({
 					</a>
 					<ErrorReporter />
 					<TooltipProvider>
-						<AppHeader isAdmin={isAdmin} isAuthenticated={!!session} />
+						<AppHeader
+							isAdmin={isAdmin}
+							isAuthenticated={!!session}
+							impersonating={impersonating}
+						/>
 						<div id="main-content" className="flex-1 overflow-auto">
 							{children}
 						</div>

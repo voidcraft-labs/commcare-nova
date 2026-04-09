@@ -21,6 +21,7 @@
 	--nova-emerald: #86cebc;
 	--nova-amber: #d4a76a;
 	--nova-rose: #d4708f;
+	--nova-orchid: #cda0d4;
 
 	--nova-glow-violet: 0 0 40px rgba(139, 92, 246, 0.15);
 
@@ -64,6 +65,7 @@
 	--color-nova-emerald: var(--nova-emerald);
 	--color-nova-amber: var(--nova-amber);
 	--color-nova-rose: var(--nova-rose);
+	--color-nova-orchid: var(--nova-orchid);
 	--color-pv-bg: var(--pv-bg);
 	--color-pv-surface: var(--pv-surface);
 	--color-pv-elevated: var(--pv-elevated);
