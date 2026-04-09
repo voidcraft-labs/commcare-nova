@@ -16,7 +16,8 @@ Next.js web app that generates CommCare apps from natural language conversation.
 - **XML**: htmlparser2 + domutils + dom-serializer
 - **Icons**: Tabler (`@iconify-icons/tabler`) via `@iconify/react/offline`
 - **Auth**: Better Auth (Firestore-backed sessions via `better-auth-firestore`, Google OAuth — domain restriction enforced by GCP OAuth consent screen, not application code) with admin plugin (`better-auth/plugins/admin`) for role-based access, banning, impersonation, and user management
-- **Database**: Google Cloud Firestore (`@google-cloud/firestore`) — apps in root-level `apps/{appId}` collection (owner field stores Better Auth user ID), per-app chat threads at `apps/{appId}/threads/{threadId}` (threadId = runId), per-user monthly usage at `usage/{userId}/months/{yyyy-mm}`, auth state (including user identity) in `auth_*` collections managed by Better Auth
+- **Database**: Google Cloud Firestore (`@google-cloud/firestore`) — apps in root-level `apps/{appId}` collection (owner field stores Better Auth user ID), per-app chat threads at `apps/{appId}/threads/{threadId}` (threadId = runId), per-user monthly usage at `usage/{userId}/months/{yyyy-mm}`, per-user settings at `user_settings/{userId}` (CommCare HQ credentials, encrypted via Cloud KMS), auth state (including user identity) in `auth_*` collections managed by Better Auth
+- **Encryption**: Google Cloud KMS (`@google-cloud/kms`) — symmetric encrypt/decrypt for credentials at rest. Key resource derived from `GOOGLE_CLOUD_PROJECT` (already required for Firestore) + hardcoded ring/key names — no extra env var. Key rotation handled by KMS automatically.
 - **State**: Zustand (`zustand/vanilla` + `zustand/middleware`) — builder reactive state in a scoped Zustand store per buildId, imperative logic in `BuilderEngine` class
 - **Linting**: Biome (`biome.json`) — formatting + lint rules. Lefthook (`lefthook.yml`) runs `biome check --staged` as a pre-commit hook. `noArrayIndexKey` is suppressed where entities lack unique IDs (modules, forms in TreeData)
 - **Testing**: Vitest
@@ -116,6 +117,22 @@ Sortable items are keyed by **UUID** (`q.uuid`), not `questionPath` — so sorta
 **`QuestionPath` is a branded string type** (`questionPath.ts`). Slash-delimited tree path like `"group1/child_q"`. Always built via `qpath(id, parent?)`, never by string concatenation.
 
 **Case list columns are fully LLM-controlled** — no auto-prepend or filtering by the expander or compiler.
+
+### CommCare HQ Integration
+
+Users can upload apps directly to CommCare HQ from the builder. The upload flow creates a **new app** each time — CommCare HQ has no atomic update API yet.
+
+**Architecture:** Client → our API routes (`/api/commcare/*`) → CommCare HQ. The user's CommCare API key stays server-side, encrypted via Cloud KMS in `user_settings/{userId}`. The HQ base URL is hardcoded (`COMMCARE_HQ_URL` in `lib/commcare/client.ts`) to prevent SSRF — never user-configurable.
+
+**CommCare HQ API endpoints used:**
+- `GET /api/user_domains/v1/` — list user's project spaces
+- `POST /a/{domain}/apps/api/import_app/` — import app from JSON (multipart: `app_name` + `app_file`)
+
+**Settings page** (`/settings`) — auth-gated, linked from the account menu. Card-based UI with real-time verification progress. CommCare API keys are scoped to a single domain, so the PUT endpoint streams NDJSON progress events (`testing`, `complete`, `no_access`, `error`) while testing domains one at a time, bailing on first match. The API key field swaps to a masked disabled input during verification and stays masked on success — on error it reverts to plaintext with the original value intact. Auth and body validation happen before streaming starts (regular HTTP errors), so the client checks `res.ok` before reading the stream.
+
+**Export dropdown** — CommCare HQ upload is the primary option; file downloads (JSON/CCZ) are secondary below a divider. When credentials aren't configured, an informative prompt links to Settings instead of a disabled button.
+
+**Domain slug validation** — the upload route validates domain names against `^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$` to prevent path traversal in the import URL template.
 
 ## Conventions
 
