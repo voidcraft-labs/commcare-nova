@@ -14,19 +14,31 @@ import externalLinkIcon from "@iconify-icons/tabler/external-link";
 import Link from "next/link";
 import { AccountMenu } from "@/components/ui/AccountMenu";
 import { HeaderNavLinks } from "@/components/ui/HeaderNav";
+import { ImpersonationBanner } from "@/components/ui/ImpersonationBanner";
 import { Logo } from "@/components/ui/Logo";
 
 const FEEDBACK_FORM_URL =
 	"https://docs.google.com/forms/d/e/1FAIpQLSdUHQuE9kYhG-py9pojdCDc5ChSrl2LnhLofY4kDlOQi6ghGw/viewform";
+
+interface ImpersonationState {
+	userName: string;
+	userEmail: string;
+}
 
 interface AppHeaderProps {
 	/** Whether the current user has admin role — passed through to HeaderNav. */
 	isAdmin: boolean;
 	/** Whether the user is authenticated — controls header visibility. */
 	isAuthenticated: boolean;
+	/** Active impersonation info, or null when viewing as yourself. */
+	impersonating: ImpersonationState | null;
 }
 
-export function AppHeader({ isAdmin, isAuthenticated }: AppHeaderProps) {
+export function AppHeader({
+	isAdmin,
+	isAuthenticated,
+	impersonating,
+}: AppHeaderProps) {
 	/* Landing page (unauthenticated) — no header. */
 	if (!isAuthenticated) return null;
 
@@ -41,6 +53,16 @@ export function AppHeader({ isAdmin, isAuthenticated }: AppHeaderProps) {
 			<div className="ml-4">
 				<HeaderNavLinks isAdmin={isAdmin} />
 			</div>
+
+			{impersonating ? (
+				<div className="flex-1 flex justify-center">
+					<ImpersonationBanner
+						userName={impersonating.userName}
+						userEmail={impersonating.userEmail}
+					/>
+				</div>
+			) : null}
+
 			<div className="ml-auto flex items-center gap-2">
 				<a
 					href={FEEDBACK_FORM_URL}

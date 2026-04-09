@@ -33,8 +33,12 @@ export function useAuth() {
 		user: session?.user ?? null,
 		/** Whether the user is currently authenticated. */
 		isAuthenticated: !!session,
-		/** Whether the user has the admin role. False while session is loading. */
-		isAdmin: session?.user?.role === "admin",
+		/** Whether the user has the admin role. False while session is loading
+		 * and during impersonation (admin routes are server-blocked anyway). */
+		isAdmin:
+			session?.user?.role === "admin" && !session?.session?.impersonatedBy,
+		/** Whether the current session is an admin impersonation session. */
+		isImpersonating: !!session?.session?.impersonatedBy,
 		/** Whether the initial session check is still in flight. */
 		isPending,
 		/** Any error from the session check. */
