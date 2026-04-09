@@ -128,6 +128,8 @@ Users can upload apps directly to CommCare HQ from the builder. The upload flow 
 - `GET /api/user_domains/v1/` — list user's project spaces
 - `POST /a/{domain}/apps/api/import_app/` — import app from JSON (multipart: `app_name` + `app_file`)
 
+**CSRF workaround for import_app.** The import endpoint is missing `@csrf_exempt` (unlike every other POST API endpoint in HQ). Django's CSRF middleware rejects the POST with 403 before any auth or permission logic runs. The client fetches a token from `/accounts/login/` (unauthenticated GET) immediately before each import, then sends it as `X-CSRFToken` + `Cookie` + `Referer` headers on the POST. API endpoints don't set the `csrftoken` cookie — only HTML pages do, so the login page is the lightest option. If HQ fixes the decorator upstream, the extra GET is harmless.
+
 **Settings page** (`/settings`) — auth-gated, linked from the account menu. Card-based UI with real-time verification progress. CommCare API keys are scoped to a single domain, so the PUT endpoint streams NDJSON progress events (`testing`, `complete`, `no_access`, `error`) while testing domains one at a time, bailing on first match. The API key field swaps to a masked disabled input during verification and stays masked on success — on error it reverts to plaintext with the original value intact. Auth and body validation happen before streaming starts (regular HTTP errors), so the client checks `res.ok` before reading the stream.
 
 **Export dropdown** — CommCare HQ upload is the primary option; file downloads (JSON/CCZ) are secondary below a divider. When credentials aren't configured, an informative prompt links to Settings instead of a disabled button.

@@ -106,7 +106,10 @@ async function logAndReturnError(
 	try {
 		body = await res.text();
 	} catch {}
-	log.error(`[commcare] ${context}`, { status: res.status, body });
+	log.error(`[commcare] ${context}`, {
+		status: res.status,
+		body: body.substring(0, 200),
+	});
 	return { success: false, status: res.status };
 }
 
@@ -180,11 +183,50 @@ export async function testDomainAccess(
 }
 
 /**
+ * Extract a named cookie value from a response's Set-Cookie headers.
+ *
+ * Uses the standard `getSetCookie()` API (Node 20+) which returns one
+ * raw header string per cookie. Each string is `name=value; attrs...`.
+ */
+function getCookie(res: Response, cookieName: string): string | null {
+	for (const raw of res.headers.getSetCookie()) {
+		const [pair] = raw.split(";", 1);
+		const [name, value] = pair.split("=", 2);
+		if (name === cookieName && value) return value;
+	}
+	return null;
+}
+
+/**
+ * Fetch a CSRF token from CommCare HQ.
+ *
+ * The import_app endpoint requires Django CSRF validation (it's missing
+ * the `@csrf_exempt` decorator that other HQ API endpoints have). API
+ * endpoints don't set the `csrftoken` cookie — only HTML pages do — so
+ * we hit the unauthenticated login page to obtain one. The token is
+ * ephemeral (used immediately on the next POST) and not stored.
+ *
+ * Returns null if the token can't be obtained (caller should still
+ * attempt the import — the CSRF requirement may be fixed upstream).
+ */
+async function fetchCsrfToken(): Promise<string | null> {
+	try {
+		const res = await fetch(`${COMMCARE_HQ_URL}/accounts/login/`);
+		return getCookie(res, "csrftoken");
+	} catch {
+		return null;
+	}
+}
+
+/**
  * Import an app into a CommCare HQ project space.
  *
  * Sends the expanded HQ JSON as a multipart form upload. CommCare HQ
  * creates a brand-new app each time — there is no atomic update API,
  * so each call produces a fresh app in the target domain.
+ *
+ * The import endpoint requires a Django CSRF token, so we make a
+ * lightweight GET first to obtain one, then include it on the POST.
  */
 export async function importApp(
 	creds: CommCareCredentials,
@@ -193,6 +235,9 @@ export async function importApp(
 	appJson: object,
 ): Promise<ImportResponse> {
 	const url = `${COMMCARE_HQ_URL}/a/${domain}/apps/api/import_app/`;
+
+	/* Obtain a CSRF token before the POST — see fetchCsrfToken() for why. */
+	const csrfToken = await fetchCsrfToken();
 
 	/*
 	 * CommCare HQ expects multipart/form-data with:
@@ -211,9 +256,18 @@ export async function importApp(
 		"app.json",
 	);
 
+	const headers: Record<string, string> = {
+		Authorization: authHeader(creds),
+	};
+	if (csrfToken) {
+		headers["X-CSRFToken"] = csrfToken;
+		headers["Cookie"] = `csrftoken=${csrfToken}`;
+		headers["Referer"] = url;
+	}
+
 	const res = await fetch(url, {
 		method: "POST",
-		headers: { Authorization: authHeader(creds) },
+		headers,
 		body: formData,
 	});
 
