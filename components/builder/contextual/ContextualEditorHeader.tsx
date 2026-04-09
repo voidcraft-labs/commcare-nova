@@ -427,19 +427,8 @@ export function ContextualEditorHeader({ question }: QuestionEditorProps) {
 				</div>
 			</div>
 
-			{/* Right: delete button + overflow dots menu (Base UI) */}
+			{/* Right: overflow dots menu + delete (destructive action rightmost) */}
 			<div className="flex items-center gap-0.5 shrink-0">
-				<Tooltip content="Delete" placement="bottom">
-					<button
-						type="button"
-						onClick={handleDelete}
-						aria-label="Delete"
-						className="w-9 h-9 flex items-center justify-center rounded-md transition-colors text-nova-text-muted hover:text-nova-rose hover:bg-nova-rose/10 cursor-pointer"
-					>
-						<Icon icon={tablerTrash} width="18" height="18" />
-					</button>
-				</Tooltip>
-
 				<Menu.Root>
 					<Menu.Trigger
 						aria-label="More actions"
@@ -550,6 +539,17 @@ export function ContextualEditorHeader({ question }: QuestionEditorProps) {
 						</Menu.Positioner>
 					</Menu.Portal>
 				</Menu.Root>
+
+				<Tooltip content="Delete" placement="bottom">
+					<button
+						type="button"
+						onClick={handleDelete}
+						aria-label="Delete"
+						className="w-9 h-9 flex items-center justify-center rounded-md transition-colors text-nova-text-muted hover:text-nova-rose hover:bg-nova-rose/10 cursor-pointer"
+					>
+						<Icon icon={tablerTrash} width="18" height="18" />
+					</button>
+				</Tooltip>
 			</div>
 		</div>
 	);
