@@ -164,6 +164,11 @@ export function ChatSidebar({
 		}
 		// Later generation stages get the building visual (pink sweep + bursts)
 		if (isGenerating) return "building";
+		// Completed = celebration after generation finishes. Takes priority over
+		// agentActive because data-done fires mid-stream (the LLM's wrap-up text
+		// keeps the stream open). Without this, the grid shows "Thinking" for 5–15s
+		// after generation is already complete.
+		if (phase === BuilderPhase.Completed) return "done";
 		if (agentActive) {
 			// Keep the send wave looping until the server actually starts streaming.
 			// During 'submitted', no tokens are flowing so reasoning/editing would
@@ -171,9 +176,6 @@ export function ChatSidebar({
 			if (status === "submitted") return "sending";
 			return postBuildEdit ? "editing" : "reasoning";
 		}
-		// Completed = transient celebration after generation or a mutating edit.
-		// Ready = steady-state idle (including freshly loaded apps).
-		if (phase === BuilderPhase.Completed) return "done";
 		if (phase === BuilderPhase.Ready) return "idle";
 		return "idle";
 	})();

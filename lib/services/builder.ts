@@ -82,12 +82,16 @@ export function applyDataPart(
 			);
 			break;
 		case "data-blueprint-updated": {
-			/* Full blueprint replacement during edit — set directly in the store. */
+			/* Full blueprint replacement during edit — set directly in the store.
+			 * completeGeneration() decomposes the blueprint into normalized entities
+			 * but also resets generation flags (phase, postBuildEdit). Preserve
+			 * postBuildEdit so fresh-edit sessions keep "editing" mode on the signal
+			 * grid — without this, the first mutation clears postBuildEdit and the
+			 * grid falls back to "reasoning" ("Thinking") for the rest of the session. */
 			const bp = data.blueprint as AppBlueprint;
+			const { postBuildEdit } = engine.store.getState();
 			store.completeGeneration(bp);
-			/* Stay in Ready, not Completed — this is an incremental update, not a
-			 * full generation completion. Override the phase set by completeGeneration. */
-			engine.store.setState({ phase: BuilderPhase.Ready });
+			engine.store.setState({ phase: BuilderPhase.Ready, postBuildEdit });
 			break;
 		}
 		case "data-fix-attempt":
