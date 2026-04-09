@@ -75,10 +75,13 @@ export function GroupField({
 			)}
 			{/* When children exist, only horizontal padding — InsertionPoints (edit)
 			 * or the nested FormRenderer's pt-6 (interact) provide vertical inset.
-			 * Empty groups keep full p-4 + min-height for the droppable target. */}
+			 * Empty groups keep full p-4 + min-height for the droppable target.
+			 * `flow-root` creates a block formatting context so the last question's
+			 * mb-6 (interact mode) stays contained — without it the margin collapses
+			 * through, and bg-pv-bg ends early, exposing bg-pv-surface behind it. */}
 			<div
 				ref={droppableRef}
-				className={`bg-pv-bg ${(question.children?.length ?? 0) > 0 ? "px-4" : "p-4 min-h-[72px]"}`}
+				className={`flow-root bg-pv-bg ${(question.children?.length ?? 0) > 0 ? "px-4" : "p-4 min-h-[72px]"}`}
 			>
 				<FormRenderer
 					questions={question.children ?? []}
