@@ -225,9 +225,20 @@ export async function POST(req: Request) {
 				const freshEdit = !!appReady && cacheExpired;
 
 				const sa = createSolutionsArchitect(ctx, mutableBp, freshEdit);
+
+				/* In fresh-edit mode, only send the latest user message. The SA's
+				 * system prompt already includes a compact blueprint summary for
+				 * context. Sending the full history would (a) waste tokens on a
+				 * dead cache and (b) fail SDK validation because tool call parts
+				 * from generation (generateSchema, etc.) reference tools that are
+				 * excluded in edit mode. */
+				const effectiveMessages = freshEdit
+					? messages.filter((m) => m.role === "user").slice(-1)
+					: messages;
+
 				const agentStream = await createAgentUIStream({
 					agent: sa,
-					uiMessages: messages,
+					uiMessages: effectiveMessages,
 				});
 
 				// Manual consumption instead of writer.merge() — lets us catch stream
