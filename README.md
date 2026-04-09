@@ -8,7 +8,7 @@ Nova uses a single AI agent — the **Solutions Architect (SA)** — powered by 
 
 Users authenticate via Google OAuth, and each app is persisted to Firestore with full ownership tracking. After initial generation, users can revisit their apps, edit them through chat or the visual builder, and pick up where they left off. Chat history is preserved per-app as threaded conversations.
 
-The home page (`/`) serves as the app list for returning users, or a get-started prompt for new ones. The builder (`/build/[id]`) is where generation and editing happen. An admin dashboard (`/admin`) provides user management and usage visibility.
+The home page (`/`) serves as the app list for returning users, or a get-started prompt for new ones. The builder (`/build/[id]`) is where generation and editing happen — including direct upload to CommCare HQ. A settings page (`/settings`) manages CommCare HQ credentials. An admin dashboard (`/admin`) provides user management and usage visibility.
 
 ## Getting Started
 
@@ -36,6 +36,26 @@ gcloud run deploy nova --source . --region <region>
 ```
 
 Cloud Run builds the image from the Dockerfile automatically. Configure auth secrets, Anthropic API key, and Firestore project via environment variables or Secret Manager.
+
+### Cloud KMS Setup
+
+CommCare HQ API keys are encrypted at rest using a Cloud KMS symmetric key. Create the key ring and key in the same region as Cloud Run:
+
+```bash
+gcloud kms keyrings create nova --location=us-central1
+gcloud kms keys create commcare-api-keys --keyring=nova --location=us-central1 --purpose=encryption
+```
+
+Grant the Cloud Run service account the encrypter/decrypter role:
+
+```bash
+gcloud kms keys add-iam-policy-binding commcare-api-keys \
+  --keyring=nova --location=us-central1 \
+  --member="serviceAccount:$(gcloud run services describe nova --region=us-central1 --format='value(spec.template.spec.serviceAccountName)')" \
+  --role="roles/cloudkms.cryptoKeyEncrypterDecrypter"
+```
+
+The key resource name is derived from `GOOGLE_CLOUD_PROJECT` (already set for Firestore) — no extra env var needed. Enable automatic rotation in the GCP console or via `gcloud kms keys update ... --rotation-period=90d`.
 
 ## Commands
 
@@ -85,6 +105,7 @@ npx tsx scripts/recover-app.ts <appId> --confirm        # ⚠️ Actually writes
 - **Anthropic Claude** — LLM backbone
 - **Better Auth** — Google OAuth with Firestore-backed sessions
 - **Google Cloud Firestore** — app persistence, chat threads, event logging, usage tracking
+- **Google Cloud KMS** — credential encryption at rest (CommCare API keys)
 - **Zustand** — builder reactive state
 - **Motion** — animations
 - **dnd-kit** — drag-and-drop question reordering

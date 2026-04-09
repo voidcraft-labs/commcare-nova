@@ -1,23 +1,31 @@
 /**
- * Export dropdown — trigger button that opens a menu of export format options.
+ * Export dropdown — trigger button that opens a menu with CommCare HQ upload
+ * as the primary action and file downloads as secondary options.
  *
- * Two variants via `compact` prop:
- * - **Default**: labeled button with chevron, for standalone use.
- * - **Compact**: icon-only button, for toolbar placement alongside other icon actions.
+ * Two layout zones separated by a divider:
+ *   1. **CommCare HQ** — upload to a project space (primary workflow)
+ *   2. **File downloads** — JSON / CCZ export (secondary)
+ *
+ * When CommCare HQ isn't configured, the primary zone shows an informative
+ * prompt with a link to Settings instead of a disabled button.
+ *
+ * Renders all items directly rather than delegating to DropdownMenu — the
+ * two-zone layout with a divider needs a single unified surface, not a
+ * glass panel containing a nested glass panel.
  */
 
 "use client";
 import { Popover } from "@base-ui/react/popover";
 import { Icon, type IconifyIcon } from "@iconify/react/offline";
-import tablerChevronDown from "@iconify-icons/tabler/chevron-down";
+import tablerChevronRight from "@iconify-icons/tabler/chevron-right";
+import tablerCloudUpload from "@iconify-icons/tabler/cloud-upload";
 import tablerDownload from "@iconify-icons/tabler/download";
+import Link from "next/link";
 import { useState } from "react";
-import {
-	DropdownMenu,
-	type DropdownMenuItem,
-} from "@/components/ui/DropdownMenu";
 import { Tooltip } from "@/components/ui/Tooltip";
 import { POPOVER_POPUP_CLS, POPOVER_POSITIONER_GLASS_CLS } from "@/lib/styles";
+
+// ── Types ──────────────────────────────────────────────────────────
 
 export interface ExportOption {
 	label: string;
@@ -27,25 +35,25 @@ export interface ExportOption {
 }
 
 interface ExportDropdownProps {
+	/** File download options (JSON, CCZ). */
 	options: ExportOption[];
+	/** Whether CommCare HQ credentials are configured. */
+	commcareConfigured: boolean;
+	/** Called when the user clicks "CommCare HQ" (only when configured). */
+	onCommCareUpload: () => void;
 	/** Icon-only trigger button for compact toolbar placement. */
 	compact?: boolean;
 }
 
-export function ExportDropdown({ options, compact }: ExportDropdownProps) {
-	const [open, setOpen] = useState(false);
+// ── Component ──────────────────────────────────────────────────────
 
-	/** Map ExportOption[] to the shared DropdownMenuItem shape. */
-	const items: DropdownMenuItem[] = options.map((opt, i) => ({
-		key: `${i}-${opt.label}`,
-		label: opt.label,
-		description: opt.description,
-		icon: opt.icon,
-		onClick: () => {
-			opt.onClick();
-			setOpen(false);
-		},
-	}));
+export function ExportDropdown({
+	options,
+	commcareConfigured,
+	onCommCareUpload,
+	compact,
+}: ExportDropdownProps) {
+	const [open, setOpen] = useState(false);
 
 	return (
 		<Popover.Root open={open} onOpenChange={setOpen}>
@@ -64,17 +72,6 @@ export function ExportDropdown({ options, compact }: ExportDropdownProps) {
 						height={compact ? 18 : 14}
 						className={compact ? "" : "opacity-70"}
 					/>
-					{!compact && (
-						<>
-							Export
-							<Icon
-								icon={tablerChevronDown}
-								width="10"
-								height="10"
-								className={`opacity-50 transition-transform duration-200 ${open ? "rotate-180" : ""}`}
-							/>
-						</>
-					)}
 				</Popover.Trigger>
 			</Tooltip>
 
@@ -86,10 +83,105 @@ export function ExportDropdown({ options, compact }: ExportDropdownProps) {
 					className={POPOVER_POSITIONER_GLASS_CLS}
 				>
 					<Popover.Popup className={POPOVER_POPUP_CLS}>
-						<DropdownMenu items={items} minWidth="180px" />
+						<div style={{ minWidth: "220px" }}>
+							{/* ── CommCare HQ section (primary) ─────────────── */}
+							{commcareConfigured ? (
+								<button
+									type="button"
+									onClick={() => {
+										onCommCareUpload();
+										setOpen(false);
+									}}
+									className="w-full flex items-center gap-2.5 px-3 py-2.5 text-sm text-nova-text hover:bg-white/[0.06] transition-colors cursor-pointer rounded-t-xl"
+								>
+									<Icon
+										icon={tablerCloudUpload}
+										width="16"
+										height="16"
+										className="text-nova-violet-bright"
+									/>
+									<span className="flex-1 text-left">
+										<div className="font-medium">CommCare HQ</div>
+										<div className="text-xs text-nova-text-muted leading-tight">
+											Upload to a project space
+										</div>
+									</span>
+								</button>
+							) : (
+								<CommCareSetupPrompt onClose={() => setOpen(false)} />
+							)}
+
+							{/* ── Divider ──────────────────────────────────── */}
+							<div className="border-t border-white/[0.06]" />
+
+							{/* ── File downloads (secondary) ────────────────── */}
+							{options.map((opt, i) => (
+								<button
+									type="button"
+									// biome-ignore lint/suspicious/noArrayIndexKey: static options from useMemo, never reordered
+									key={i}
+									onClick={() => {
+										opt.onClick();
+										setOpen(false);
+									}}
+									className={`w-full flex items-center gap-2.5 px-3 py-2 text-sm text-nova-text hover:bg-white/[0.06] transition-colors cursor-pointer ${
+										i === options.length - 1 ? "rounded-b-xl" : ""
+									}`}
+								>
+									<Icon
+										icon={opt.icon}
+										width="16"
+										height="16"
+										className="text-nova-text-muted"
+									/>
+									<span className="flex-1 text-left">
+										<div>{opt.label}</div>
+										<div className="text-xs text-nova-text-muted leading-tight">
+											{opt.description}
+										</div>
+									</span>
+								</button>
+							))}
+						</div>
 					</Popover.Popup>
 				</Popover.Positioner>
 			</Popover.Portal>
 		</Popover.Root>
+	);
+}
+
+// ── Unconfigured prompt ────────────────────────────────────────────
+
+/**
+ * Shown when CommCare HQ credentials haven't been set up yet.
+ * Informative and actionable — links directly to Settings rather
+ * than just showing a disabled menu item with a tooltip.
+ */
+function CommCareSetupPrompt({ onClose }: { onClose: () => void }) {
+	return (
+		<div className="px-3 py-3 rounded-t-xl">
+			<div className="flex items-start gap-2.5">
+				<Icon
+					icon={tablerCloudUpload}
+					width="16"
+					height="16"
+					className="text-nova-text-muted mt-0.5 shrink-0"
+				/>
+				<div className="min-w-0">
+					<div className="text-sm font-medium text-nova-text">CommCare HQ</div>
+					<p className="text-xs text-nova-text-muted leading-relaxed mt-0.5">
+						Connect in Settings to upload apps directly.
+					</p>
+					<Link
+						href="/settings"
+						onClick={onClose}
+						className="inline-flex items-center gap-1 mt-1.5 text-xs font-medium text-nova-violet-bright hover:text-nova-violet transition-colors"
+					>
+						Set up
+						<Icon icon={tablerChevronRight} width="12" height="12" />
+					</Link>
+				</div>
+			</div>
+		</div>
 	);
 }

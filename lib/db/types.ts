@@ -239,6 +239,39 @@ export const storedEventSchema = z.object({
 	event: logEventSchema,
 });
 
+// ── User Settings ──────────────────────────────────────────────
+
+/**
+ * User settings — stored at `user_settings/{userId}`.
+ *
+ * Separate from `auth_users` because API keys must not enter session
+ * cookies (Better Auth's additionalFields propagate to sessions), and
+ * settings grow independently of auth concerns.
+ *
+ * The `commcare_api_key` field stores a Cloud KMS-encrypted ciphertext
+ * (base64-encoded). Decryption only happens server-side when proxying
+ * API calls to CommCare HQ. Key rotation is handled by KMS automatically.
+ */
+export const userSettingsDocSchema = z.object({
+	/** CommCare HQ username (typically email). */
+	commcare_username: z.string(),
+	/** Cloud KMS-encrypted CommCare HQ API key (base64). Never sent to the client. */
+	commcare_api_key: z.string(),
+	/** CommCare HQ base URL. Hardcoded server-side to prevent SSRF. */
+	commcare_hq_url: z.string().default("https://www.commcarehq.org"),
+	/**
+	 * Domains the API key can access, tested on credential save.
+	 * Safe to store permanently because API key scope
+	 * and domain slugs are both immutable in CommCare HQ.
+	 */
+	approved_domains: z
+		.array(z.object({ name: z.string(), displayName: z.string() }))
+		.default([]),
+	/** Last time settings were modified. */
+	updated_at: timestamp,
+});
+export type UserSettingsDoc = z.infer<typeof userSettingsDocSchema>;
+
 // ── App ─────────────────────────────────────────────────────────
 
 export const appDocSchema = z.object({
