@@ -86,7 +86,7 @@ Sortable items are keyed by **UUID** (`q.uuid`), not `questionPath` — so sorta
 
 **Admin role lives on `auth_users`.** Available as `session.user.role` in sessions. `requireAdminAccess()` (RSC gate) reads `auth_users` directly to bypass the 5-minute cookie cache for immediate demotion detection. Bootstrap via `ADMIN_USER_IDS` env var or set `role: "admin"` on the `auth_users` record in Firestore console.
 
-**Chat threads at `apps/{appId}/threads/{threadId}`.** Each thread captures one conversation session (initial build or subsequent edit). Messages are embedded in the document (not a subcollection) — threads are small (2–10 messages) and always loaded together. `threadId` = `runId` (1:1 mapping with generation sessions). Only display-relevant parts are stored: user text and answered `askQuestions` Q&A pairs. Thread persistence is fire-and-forget on each `status=ready` transition. Historical threads load in parallel with the app fetch (best-effort, doesn't block the builder).
+**Chat threads at `apps/{appId}/threads/{threadId}`.** Each thread captures one conversation session (initial build or subsequent edit). Messages are embedded in the document (not a subcollection) — threads are small (2–10 messages) and always loaded together. `threadId` = `runId` (1:1 mapping with generation sessions). Only display-relevant parts are stored: user text and answered `askQuestions` Q&A pairs. Thread persistence is fire-and-forget via server action (`saveThread` in `lib/db/threads.ts`) on each `status=ready` transition. Historical threads are loaded by `ThreadHistory` (async Server Component at `app/build/[id]/thread-history.tsx`) inside a Suspense boundary — they stream in independently without blocking the builder. The pre-rendered thread markup passes through the client boundary as `children` of ChatSidebar.
 
 ## Data Model Decisions
 
@@ -156,7 +156,7 @@ Two objects, two contexts. **BuilderEngine** (`lib/services/builderEngine.ts`) h
 
 **subscribeMutation** is `engine.subscribeMutation()` which wraps `store.subscribe(s => s.mutationCount, callback)` via the `subscribeWithSelector` middleware.
 
-**Builder initial phase.** `createEngine()` in `useBuilder.tsx` determines the initial phase: `Loading` for existing apps (triggers Firestore fetch), `Idle` for new builds and replay. Replay mode hydrates stages synchronously in the factory before returning the engine. Do not use effects to transition from Idle to Loading; that causes a flash.
+**Builder initial phase.** `createEngine()` in `useBuilder.tsx` starts with `BuilderPhase.Loading` when `initialBlueprint` or `replay` is provided, `Idle` otherwise. For existing apps, the RSC page (`app/build/[id]/page.tsx`) fetches the blueprint server-side and passes it to `BuilderProvider` — the factory calls `loadApp()` synchronously, transitioning to `Ready` before the first render. `Loading` is a safe fallback: if any frame paints before `loadApp` completes, BuilderLayout shows the loading skeleton instead of the centered chat. `loading.tsx` at `app/build/[id]/` covers the server-side wait (auth + Firestore read). New builds start in `Idle` for chat-driven generation.
 
 **Completed vs Ready.** `Completed` is a transient celebration phase after generation or a mutating edit — the signal grid shows the done animation, then `acknowledgeCompletion()` auto-decays it to `Ready`. `loadApp()` goes straight to `Ready` (no celebration). Gate on `useBuilderIsReady()` (covers both phases) when checking "has a usable blueprint" — not `phase === Ready` directly.
 

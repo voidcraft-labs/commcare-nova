@@ -36,7 +36,6 @@ import { ErrorBoundary } from "@/components/ui/ErrorBoundary";
 import { ExportDropdown } from "@/components/ui/ExportDropdown";
 import { Logo } from "@/components/ui/Logo";
 import { Tooltip } from "@/components/ui/Tooltip";
-import { useAuth } from "@/hooks/useAuth";
 import { useAutoSave } from "@/hooks/useAutoSave";
 import {
 	useBreadcrumbs,
@@ -169,12 +168,17 @@ function createChatInstance(
 	});
 }
 
-export function BuilderLayout() {
+interface BuilderLayoutProps {
+	/** Server-rendered thread history — passed through to ChatSidebar.
+	 *  Rendered inside a Suspense boundary by the RSC page. */
+	children?: React.ReactNode;
+	/** True when the app was loaded from Firestore (not a new build).
+	 *  Drives thread type classification (build vs edit). */
+	isExistingApp?: boolean;
+}
+
+export function BuilderLayout({ children, isExistingApp }: BuilderLayoutProps) {
 	const router = useRouter();
-	/* Server layout gates auth — useAuth() here is only for the isAuthenticated
-	 * flag (useAutoSave, chat guard). The server layout already verified the
-	 * cookie via requireAuth(), so this is never used for redirect decisions. */
-	const { isAuthenticated } = useAuth();
 	const builder = useBuilderEngine();
 	const phase = useBuilderPhase();
 	const isReady = useBuilderIsReady();
@@ -469,26 +473,10 @@ export function BuilderLayout() {
 		showToast("error", "Generation failed", message);
 	}, [chatError, builder]);
 
-	// Auto-save blueprint edits to Firestore (authenticated users only)
-	const saveStatus = useAutoSave(builder, isAuthenticated);
-
-	// ── Thread persistence — save chat history on each completed turn ──
-	// Historical threads are loaded asynchronously by BuilderProvider. They're
-	// set on the engine after the app fetch completes, which triggers a phase
-	// transition to Ready. This effect reads them reactively when the builder
-	// reaches a usable phase — at that point loadedThreads is populated.
-	const [historicalThreads, setHistoricalThreads] = useState<
-		import("@/lib/db/types").ThreadDoc[]
-	>([]);
-	useEffect(() => {
-		if (phase === BuilderPhase.Ready || phase === BuilderPhase.Completed) {
-			setHistoricalThreads(builder.loadedThreads);
-		}
-	}, [phase, builder]);
-	const hasHistoricalThreads = historicalThreads.length > 0;
+	const saveStatus = useAutoSave(builder);
 
 	// Persist the active conversation thread on each status=ready transition.
-	// Fire-and-forget — a Firestore outage never blocks the UI.
+	// Fire-and-forget via server action — a Firestore outage never blocks the UI.
 	// The threadStartRef captures the timestamp once so `created_at` doesn't
 	// drift forward on every incremental save.
 	const threadStartRef = useRef<string | undefined>(undefined);
@@ -505,20 +493,20 @@ export function BuilderLayout() {
 		const thread = extractThread(
 			messages,
 			runId,
-			hasHistoricalThreads,
+			!!isExistingApp,
 			threadStartRef.current,
 		);
 		saveThread(appId, thread);
-	}, [status, messages, hasHistoricalThreads]);
+	}, [status, messages, isExistingApp]);
 
 	const _isGenerating = phase === BuilderPhase.Generating;
 
 	const handleSend = useCallback(
 		(text: string) => {
-			if (!text.trim() || !isAuthenticated) return;
+			if (!text.trim()) return;
 			sendMessage({ text });
 		},
-		[isAuthenticated, sendMessage],
+		[sendMessage],
 	);
 
 	const handleExportCcz = useCallback(async () => {
@@ -938,8 +926,10 @@ export function BuilderLayout() {
 		[builder],
 	);
 
-	/* Gate rendering until the app is loaded from Firestore.
-	 * The Loading phase is the single source of truth — no separate React state. */
+	/* Safe fallback — Loading is the initial phase for existing apps. loadApp()
+	 * transitions to Ready synchronously in the engine factory, so this never
+	 * paints in practice. But if any frame slips through, show the same skeleton
+	 * as loading.tsx instead of the centered chat (Idle). */
 	if (phase === BuilderPhase.Loading) {
 		return (
 			<div className="h-full flex items-center justify-center">
@@ -1180,8 +1170,13 @@ export function BuilderLayout() {
 								onClose={() => setChatOpen(false)}
 								addToolOutput={addToolOutput}
 								readOnly={inReplayMode}
-								historicalThreads={inReplayMode ? undefined : historicalThreads}
-							/>
+								isExistingApp={!!isExistingApp}
+							>
+								{/* Server-rendered thread history — passed through from
+								 *  the RSC page's Suspense boundary. Undefined for new
+								 *  apps and replay mode. */}
+								{!inReplayMode && children}
+							</ChatSidebar>
 						</ErrorBoundary>
 					</motion.div>
 				</div>

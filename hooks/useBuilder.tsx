@@ -16,12 +16,10 @@
  */
 "use client";
 
-import { useRouter } from "next/navigation";
 import {
 	createContext,
 	type ReactNode,
 	useContext,
-	useEffect,
 	useMemo,
 	useState,
 } from "react";
@@ -29,7 +27,7 @@ import { useStore } from "zustand";
 import { shallow } from "zustand/shallow";
 import { useStoreWithEqualityFn } from "zustand/traditional";
 import type { PreviewScreen } from "@/lib/preview/engine/types";
-import type { BlueprintForm } from "@/lib/schemas/blueprint";
+import type { AppBlueprint, BlueprintForm } from "@/lib/schemas/blueprint";
 import type { TreeData } from "@/lib/services/builder";
 import { BuilderPhase, type SelectedElement } from "@/lib/services/builder";
 import { BuilderEngine } from "@/lib/services/builderEngine";
@@ -51,7 +49,6 @@ import type {
 import type { ReplayStage } from "@/lib/services/logReplay";
 import type { NForm, NModule, NQuestion } from "@/lib/services/normalizedState";
 import { assembleForm } from "@/lib/services/normalizedState";
-import { showToast } from "@/lib/services/toastStore";
 
 // ── Contexts ────────────────────────────────────────────────────────────
 
@@ -402,18 +399,18 @@ export function BuilderProvider({
 	buildId,
 	children,
 	replay,
+	initialBlueprint,
 }: {
 	buildId: string;
 	children: ReactNode;
 	replay?: ReplayInit;
+	/** Server-fetched blueprint — hydrates the store synchronously in the
+	 *  factory so the first render sees Ready state. Provided by the RSC
+	 *  page for existing apps. */
+	initialBlueprint?: AppBlueprint;
 }) {
-	const router = useRouter();
-
-	const isReplay = !!replay;
-	const isExistingApp = !isReplay && buildId !== "new";
-
 	const [state, setState] = useState(() => ({
-		engine: createEngine(isExistingApp, replay),
+		engine: createEngine(buildId, replay, initialBlueprint),
 		buildId,
 	}));
 
@@ -421,76 +418,12 @@ export function BuilderProvider({
 	 * and re-renders immediately with the new engine. */
 	if (buildId !== state.buildId) {
 		setState({
-			engine: createEngine(isExistingApp, replay),
+			engine: createEngine(buildId, replay, initialBlueprint),
 			buildId,
 		});
 	}
 
 	const { engine } = state;
-
-	/* Fetch the app and its chat threads from Firestore for existing apps.
-	 * Both requests run in parallel — threads are historical context that
-	 * never blocks the builder. Hydrates the engine to Ready phase with the
-	 * saved blueprint via loadApp(), and stores loaded threads as non-reactive
-	 * data on the engine instance.
-	 * Skipped for replay mode (data already hydrated) and new builds. */
-	useEffect(() => {
-		if (!isExistingApp) return;
-		if (engine.store.getState().phase !== BuilderPhase.Loading) return;
-		const controller = new AbortController();
-		const signal = controller.signal;
-
-		Promise.all([
-			fetch(`/api/apps/${buildId}`, { signal }).then((res) => {
-				if (!res.ok)
-					throw new Error(res.status === 404 ? "not-found" : "load-failed");
-				return res.json();
-			}),
-			/* Thread fetch is best-effort — a failure here should not block the
-			 * app from loading. Returns empty array on any error. */
-			fetch(`/api/apps/${buildId}/threads`, { signal })
-				.then((res) => (res.ok ? res.json() : { threads: [] }))
-				.catch(() => ({ threads: [] })),
-		])
-			.then(([appData, threadsData]) => {
-				if (appData.status !== "complete") {
-					showToast(
-						"error",
-						"App unavailable",
-						"This app didn't finish generating.",
-					);
-					router.replace("/");
-					return;
-				}
-				if (appData.blueprint) {
-					engine.store.getState().loadApp(buildId, appData.blueprint);
-					/* Resume undo tracking — the loaded state is the baseline.
-					 * Tracking was paused in the engine constructor to prevent
-					 * the empty→populated hydration from being undoable. */
-					engine.store.temporal.getState().resume();
-				}
-				/* Store loaded threads on the engine — immutable historical data
-				 * read once by BuilderLayout. Not reactive state. */
-				engine.loadedThreads = threadsData.threads ?? [];
-			})
-			.catch((err) => {
-				if (err.name === "AbortError") return;
-				if (err.message === "not-found") {
-					showToast(
-						"error",
-						"App not found",
-						"This app may have been deleted.",
-					);
-				} else {
-					showToast("error", "Failed to load app");
-				}
-				router.replace("/");
-			});
-
-		return () => {
-			controller.abort();
-		};
-	}, [buildId, isExistingApp, engine, router]);
 
 	return (
 		<EngineContext value={engine}>
@@ -501,14 +434,23 @@ export function BuilderProvider({
 
 // ── Engine factory ──────────────────────────────────────────────────────
 
-/** Create a BuilderEngine, optionally hydrating replay data into the store.
- *  Replay hydration mirrors loadApp — synchronous atomic transition from
- *  empty to populated, invisible to undo history. */
+/**
+ * Create a BuilderEngine, optionally hydrating it with server-fetched data
+ * or replay stages. Both paths use synchronous hydration in the factory —
+ * the store transitions from empty to populated atomically, invisible to
+ * undo history (tracking is paused in the constructor, resumed here).
+ *
+ * Existing apps and replays start in Loading (safe fallback if a frame
+ * paints before loadApp/loadReplay transitions to Ready). New builds
+ * start in Idle for chat-driven generation.
+ */
 function createEngine(
-	isExistingApp: boolean,
+	buildId: string,
 	replay?: ReplayInit,
+	initialBlueprint?: AppBlueprint,
 ): BuilderEngine {
-	const initialPhase = isExistingApp ? BuilderPhase.Loading : BuilderPhase.Idle;
+	const initialPhase =
+		replay || initialBlueprint ? BuilderPhase.Loading : BuilderPhase.Idle;
 	const engine = new BuilderEngine(initialPhase);
 
 	if (replay) {
@@ -518,6 +460,12 @@ function createEngine(
 		for (let i = 0; i <= replay.doneIndex; i++) {
 			replay.stages[i]?.applyToBuilder(engine);
 		}
+	} else if (initialBlueprint) {
+		/* Hydrate the store with the server-fetched blueprint. `loadApp`
+		 * transitions to Ready and populates all entity maps. Resume undo
+		 * tracking so the hydrated state is the undo baseline. */
+		engine.store.getState().loadApp(buildId, initialBlueprint);
+		engine.store.temporal.getState().resume();
 	}
 
 	return engine;

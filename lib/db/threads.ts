@@ -1,13 +1,15 @@
 /**
- * Chat thread CRUD helpers — Firestore persistence for conversation history.
+ * Chat thread persistence — Firestore read/write for conversation history.
+ *
+ * Marked `"use server"` so the Firestore Admin SDK never enters the client
+ * bundle. Client components import `saveThread` as a server action reference;
+ * the actual Firestore write runs server-side.
  *
  * Threads live at `apps/{appId}/threads/{threadId}` where threadId = runId
  * (the generation session UUID). Each thread captures one conversation
  * session — the initial build or a subsequent edit.
- *
- * Writes are fire-and-forget (same pattern as event logging). Reads return
- * Zod-validated ThreadDoc arrays ordered chronologically.
  */
+"use server";
 
 import { log } from "@/lib/log";
 import { collections } from "./firestore";
@@ -21,14 +23,15 @@ import type { ThreadDoc } from "./types";
  * idempotent (each status=ready transition overwrites with the latest
  * snapshot of the same thread).
  */
-export function saveThread(appId: string, thread: ThreadDoc): void {
-	collections
-		.threads(appId)
-		.doc(thread.run_id)
-		.set(thread)
-		.catch((err) =>
-			log.error("[saveThread] Firestore write failed", err, { appId }),
-		);
+export async function saveThread(
+	appId: string,
+	thread: ThreadDoc,
+): Promise<void> {
+	try {
+		await collections.threads(appId).doc(thread.run_id).set(thread);
+	} catch (err) {
+		log.error("[saveThread] Firestore write failed", err, { appId });
+	}
 }
 
 // ── Read ───────────────────────────────────────────────────────────

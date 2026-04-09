@@ -8,8 +8,8 @@
  * expires. This means "Saving..." only appears when a fetch is actually
  * in-flight (~300ms), not during an artificial debounce window.
  *
- * Only active when: (a) user is authenticated, (b) an appId exists,
- * (c) the builder has entity data, and (d) phase is Ready.
+ * Only active when: (a) an appId exists, (b) the builder has entity
+ * data, and (c) phase is Ready. Auth is guaranteed by the server layout.
  *
  * Returns a SaveState with the current status and the timestamp of the last
  * successful save. The SaveIndicator uses `savedAt` to display a persistent
@@ -50,16 +50,14 @@ export interface SaveState {
 
 const IDLE_STATE: SaveState = { status: "idle", savedAt: null };
 
-export function useAutoSave(
-	builder: BuilderEngine,
-	isAuthenticated: boolean,
-): SaveState {
+/**
+ * Auto-save hook — persists blueprint edits to Firestore via API route.
+ *
+ * Auth is guaranteed by the server layout (`requireAuth` in
+ * `app/build/layout.tsx`) — no client-side auth check needed.
+ */
+export function useAutoSave(builder: BuilderEngine): SaveState {
 	const [state, setState] = useState<SaveState>(IDLE_STATE);
-
-	/* Track the current auth state in a ref so the subscription callback
-	 * always reads the latest value without needing to re-subscribe. */
-	const authRef = useRef(isAuthenticated);
-	authRef.current = isAuthenticated;
 
 	/* Throttle state — all mutable, read/written inside the subscription
 	 * callback and cleanup. Never triggers re-renders. */
@@ -181,8 +179,7 @@ export function useAutoSave(
 				caseTypes: s.caseTypes,
 			}),
 			() => {
-				/* Gate on auth, phase, and app existence — all read live. */
-				if (!authRef.current) return;
+				/* Gate on phase and app existence — read live from the store. */
 				if (!builder.isReady) return;
 				const snap = builder.store.getState();
 				if (!snap.appId || snap.moduleOrder.length === 0) return;
