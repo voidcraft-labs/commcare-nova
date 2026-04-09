@@ -528,26 +528,35 @@ function WelcomeIntro({
 	const [stage, setStage] = useState(0); // 0: nothing, 1: heading, 2: subtitle
 
 	useEffect(() => {
-		// Activate reasoning mode for the intro bursts
+		// Activate reasoning mode with a steady energy drip that tapers after subtitle
 		setIntroMode("reasoning");
-		engine.injectEnergy(40);
+		const t0 = performance.now();
+		const pulse = setInterval(() => {
+			const elapsed = performance.now() - t0;
+			// After subtitle (2000ms), linearly taper from full → 0 over the remaining 1500ms
+			const scale =
+				elapsed < 2000 ? 1 : Math.max(0, 1 - (elapsed - 2000) / 1500);
+			engine.injectEnergy((10 + Math.random() * 20) * scale);
+		}, 150);
 
 		const t1 = setTimeout(() => {
 			setStage(1);
-			engine.injectEnergy(40);
-		}, 1200);
+			engine.injectEnergy(120);
+		}, 1500);
 
 		const t2 = setTimeout(() => {
 			setStage(2);
-			engine.injectEnergy(80);
-		}, 1700);
+			engine.injectEnergy(120);
+		}, 2000);
 
 		// Let the grid settle, then back to idle
 		const t3 = setTimeout(() => {
+			clearInterval(pulse);
 			setIntroMode(null);
-		}, 2400);
+		}, 3500);
 
 		return () => {
+			clearInterval(pulse);
 			clearTimeout(t1);
 			clearTimeout(t2);
 			clearTimeout(t3);
