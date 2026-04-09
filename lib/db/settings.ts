@@ -55,23 +55,6 @@ export async function getCommCareSettings(
 }
 
 /**
- * Get the stored list of domains the user's API key can access.
- *
- * Returns null if no settings exist. The list is populated during credential
- * save and doesn't require a live API call — safe because API key scope
- * and domain slugs are immutable in CommCare HQ.
- */
-export async function getApprovedDomains(
-	userId: string,
-): Promise<CommCareDomain[] | null> {
-	const snap = await docs.settings(userId).get();
-	if (!snap.exists) return null;
-	const data = snap.data();
-	if (!data) return null;
-	return data.approved_domains;
-}
-
-/**
  * Retrieve decrypted CommCare HQ credentials for server-side API calls.
  *
  * Returns null if no settings exist. Decryption is delegated to Cloud KMS —
