@@ -34,6 +34,17 @@ npx tsx scripts/test-schema.ts       # Test structured output schemas (reads ANT
 npx tsx scripts/build-xpath-parser.ts # Rebuild Lezer parser from xpath.grammar
 ```
 
+### Production Diagnostic Scripts
+
+Read-only Firestore inspection tools for debugging production issues. Excluded from Docker builds (`.dockerignore`).
+
+```bash
+npx tsx scripts/inspect-app.ts <appId> [--questions] [--blueprint]  # App status, blueprint structure, threads
+npx tsx scripts/inspect-logs.ts <appId> [--verbose] [--type=error] [--run=<runId>] [--cost] [--last=N]  # Event logs
+npx tsx scripts/inspect-usage.ts <userId> [--all]                   # User usage, apps, monthly cost
+npx tsx scripts/recover-app.ts <appId> [--confirm]                  # ⚠️ WRITES: recover error→complete (dry run without --confirm)
+```
+
 ## Deployment
 
 Deployed to **Google Cloud Run** via Docker. `next.config.ts` uses `output: "standalone"`.
