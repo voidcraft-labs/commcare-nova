@@ -1,10 +1,14 @@
 # commcare nova
 
-A web app that generates CommCare applications from natural language conversation. Describe what you need, and Nova builds a fully structured CommCare app — forms, case management, logic, and all.
+A web app for designing CommCare applications through natural language conversation. Describe what you need, and Nova builds a fully structured CommCare app — forms, case management, logic, and all. Then keep editing it conversationally or directly in the visual builder.
 
 ## How It Works
 
-Nova uses a single AI agent — the **Solutions Architect** — that converses with you to understand your requirements, then generates a complete CommCare app blueprint through a multi-stage pipeline. The entire conversation and generation happens in one streaming session via the Vercel AI SDK and Anthropic's Claude.
+Nova uses a single AI agent — the **Solutions Architect (SA)** — powered by Anthropic's Claude via the Vercel AI SDK. The SA converses with users to understand requirements, generates a complete app blueprint through tool calls, and handles subsequent edits in the same conversational interface.
+
+Users authenticate via Google OAuth, and each app is persisted to Firestore with full ownership tracking. After initial generation, users can revisit their apps, edit them through chat or the visual builder, and pick up where they left off. Chat history is preserved per-app as threaded conversations.
+
+The home page (`/`) serves as the app list for returning users, or a get-started prompt for new ones. The builder (`/build/[id]`) is where generation and editing happen. An admin dashboard (`/admin`) provides user management and usage visibility.
 
 ## Getting Started
 
@@ -57,8 +61,13 @@ npx tsx scripts/build-xpath-parser.ts    # Rebuild XPath parser from grammar
 - **Tailwind CSS v4** — dark theme with custom properties
 - **Vercel AI SDK** — streaming chat, tool calls, structured output
 - **Anthropic Claude** — LLM backbone
-- **Better Auth** — Google OAuth with Firestore-backed database sessions
-- **Google Cloud Firestore** — app persistence, event logging, usage tracking
+- **Better Auth** — Google OAuth with Firestore-backed sessions
+- **Google Cloud Firestore** — app persistence, chat threads, event logging, usage tracking
+- **Zustand** — builder reactive state
+- **Motion** — animations
+- **dnd-kit** — drag-and-drop question reordering
+- **TipTap 3** — rich text editing
+- **Base UI** — floating elements (popovers, tooltips, menus)
 - **Vitest** — testing
 
 ## Developer Tools
@@ -69,7 +78,7 @@ Every authenticated request writes a real-time event stream to Firestore — use
 
 ### Log Replay
 
-Admins can replay saved event logs through the builder UI without making any API calls. Click the Replay button on an app in `/builds` to open the builder with a navigation bar that lets you step forward and backward through each stage of the original run. Useful for iterating on UI changes without re-running the generation pipeline.
+Admins can replay saved event logs through the builder UI without making any API calls (`/build/replay/[id]`). A navigation bar lets you step forward and backward through each stage of the original run. Useful for iterating on UI changes without re-running the generation pipeline.
 
 ### XPath Playground
 
