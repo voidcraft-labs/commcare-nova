@@ -532,7 +532,7 @@ export function FormRenderer({
 
 	/* In interact mode inside groups/repeats, pt-6 provides the top inset
 	 * that InsertionPoints handle in edit mode. Bottom inset comes from the
-	 * last question's mb-6 collapsing through to the container border. */
+	 * last question's mb-6, contained by the parent's flow-root BFC. */
 	const nestedTestPad = !isEditMode && !isRoot ? " pt-6" : "";
 
 	const list = (

@@ -52,7 +52,13 @@ function RepeatInstance({
 				{headerLeft}
 				{headerRight}
 			</div>
-			<div ref={bodyRef} className={hasChildren ? "px-4" : "p-4 min-h-[72px]"}>
+			{/* flow-root creates a BFC so the last question's mb-6 (interact mode)
+			 * stays contained — without it the margin collapses through, and the
+			 * body bg ends early, exposing bg-pv-surface behind it. */}
+			<div
+				ref={bodyRef}
+				className={`flow-root ${hasChildren ? "px-4" : "p-4 min-h-[72px]"}`}
+			>
 				{children}
 			</div>
 		</div>
