@@ -16,7 +16,7 @@ Next.js web app that generates CommCare apps from natural language conversation.
 - **XML**: htmlparser2 + domutils + dom-serializer
 - **Icons**: Tabler (`@iconify-icons/tabler`) via `@iconify/react/offline`
 - **Auth**: Better Auth (Firestore-backed sessions via `better-auth-firestore`, Google OAuth — domain restriction enforced by GCP OAuth consent screen, not application code) with admin plugin (`better-auth/plugins/admin`) for role-based access, banning, and user management
-- **Database**: Google Cloud Firestore (`@google-cloud/firestore`) — apps in root-level `apps/{appId}` collection (owner field stores Better Auth user ID), user profiles at `users/{userId}`, auth state in `auth_*` collections managed by Better Auth
+- **Database**: Google Cloud Firestore (`@google-cloud/firestore`) — apps in root-level `apps/{appId}` collection (owner field stores Better Auth user ID), per-user monthly usage at `usage/{userId}/months/{yyyy-mm}`, auth state (including user identity) in `auth_*` collections managed by Better Auth
 - **State**: Zustand (`zustand/vanilla` + `zustand/middleware`) — builder reactive state in a scoped Zustand store per buildId, imperative logic in `BuilderEngine` class
 - **Linting**: Biome (`biome.json`) — formatting + lint rules. Lefthook (`lefthook.yml`) runs `biome check --staged` as a pre-commit hook. `noArrayIndexKey` is suppressed where entities lack unique IDs (modules, forms in TreeData)
 - **Testing**: Vitest
@@ -82,9 +82,9 @@ Sortable items are keyed by **UUID** (`q.uuid`), not `questionPath` — so sorta
 
 **App ownership is explicit, not path-scoped.** Apps live at `apps/{appId}` (root-level) with an `owner` field storing the user's ID. API routes that serve user data must verify `app.owner === session.user.id` — the collection path doesn't scope access. Admin routes skip this check. `loadAppOwner(appId)` reads just the owner field without pulling the full blueprint.
 
-**User identity uses Better Auth's built-in user ID.** `session.user.id` is the canonical user identifier — used as the Firestore document ID at `users/{userId}`, app ownership key, and usage tracking key. `databaseHooks.user.create.after` creates the user doc on first sign-in; `databaseHooks.session.create.before` verifies it exists before every session is created — if the doc is missing, the sign-in is aborted.
+**`auth_users` is the single source of truth for user identity.** No separate user collection — `auth_users` stores profile, role (admin plugin), and `lastActiveAt` (app's `additionalFields` extension). `session.user.id` is the canonical identifier used for app ownership and usage tracking. Usage lives at `usage/{userId}/months/{yyyy-mm}` (root-level). Admin dashboard reads `auth_users` directly via Firestore SDK because Better Auth's admin plugin types (`UserWithRole`) don't include `additionalFields` — the data is there at runtime but invisible to TypeScript.
 
-**Admin role lives on `auth_users`, not `users/`.** The Better Auth admin plugin manages `role` on the auth user table (`auth_users`). Available as `session.user.role` in sessions. Security checks in API routes use the session role directly; `requireAdminAccess()` (RSC gate) reads `auth_users` directly to bypass the 5-minute cookie cache for immediate demotion detection. The `users/{userId}` collection stores app-level data only (profile cache, activity timestamps) — no role field. Admin dashboard queries merge role data from `auth_users` with app data from `users/`. Bootstrap an admin via `ADMIN_USER_IDS` env var or set `role: "admin"` on the `auth_users` record in Firestore console.
+**Admin role lives on `auth_users`.** Available as `session.user.role` in sessions. `requireAdminAccess()` (RSC gate) reads `auth_users` directly to bypass the 5-minute cookie cache for immediate demotion detection. Bootstrap via `ADMIN_USER_IDS` env var or set `role: "admin"` on the `auth_users` record in Firestore console.
 
 ## Data Model Decisions
 

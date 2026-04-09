@@ -1,14 +1,13 @@
 /**
  * Admin data queries — shared between API routes and RSC pages.
  *
- * Extracted from the admin API route handlers so Server Components can
- * call the same logic directly without going through HTTP.
- *
- * Role data comes from `auth_users` (Better Auth's admin plugin), while
- * app-level user data (activity timestamps) comes from `users/`. Both
- * are read and merged by user ID.
+ * Reads `auth_users` directly via Firestore SDK rather than Better Auth's
+ * admin API (`listUsers`/`getUser`) because those return `UserWithRole`
+ * which doesn't include `additionalFields` in its TypeScript types.
+ * Our `lastActiveAt` field is there at runtime but invisible to TS.
  */
 
+import { Timestamp } from "@google-cloud/firestore";
 import type {
 	AdminStats,
 	AdminUserDetailResponse,
@@ -19,44 +18,44 @@ import type {
 import { listApps } from "./apps";
 import { collections, docs, getDb } from "./firestore";
 import { getCurrentPeriod } from "./usage";
-import { getUser, listAllUsers } from "./users";
 
-/** Read a user's role from the auth_users collection (Better Auth admin plugin). */
-async function getAuthUserRole(userId: string): Promise<"user" | "admin"> {
-	const snap = await getDb().collection("auth_users").doc(userId).get();
-	return snap.data()?.role === "admin" ? "admin" : "user";
-}
+// ── Auth User Data ───────────────────────────────────────────────────
 
 /**
- * Build a userId → role map by batch-reading all auth_users documents.
- *
- * Used by `getAdminUsersWithStats` to merge role data from auth_users
- * into the admin user table without N+1 individual reads.
+ * Fields we read from `auth_users` documents. Typed as potentially
+ * undefined because raw Firestore reads bypass Better Auth's validation.
  */
-async function getAuthUserRoles(): Promise<Map<string, "user" | "admin">> {
-	const snap = await getDb().collection("auth_users").get();
-	const roles = new Map<string, "user" | "admin">();
-	for (const doc of snap.docs) {
-		roles.set(doc.id, doc.data().role === "admin" ? "admin" : "user");
-	}
-	return roles;
+interface AuthUserData {
+	email: string | undefined;
+	name: string | undefined;
+	image: string | null | undefined;
+	role: "admin" | "user" | undefined;
+	createdAt: Timestamp | Date;
+	lastActiveAt: Timestamp | Date | undefined;
 }
+
+/** Raw Firestore reads return Timestamps, not Dates — handle both. */
+function toISOString(val: Timestamp | Date): string {
+	if (val instanceof Timestamp) return val.toDate().toISOString();
+	return val.toISOString();
+}
+
+// ── Queries ──────────────────────────────────────────────────────────
 
 /**
  * Fetch all users with current month usage and app counts.
  *
- * Reads from four sources:
- * - `users/` — profile data and activity timestamps
- * - `auth_users` — role (from Better Auth admin plugin)
- * - `users/{id}/usage/{period}` — monthly spend/generation counts
+ * Reads from three sources:
+ * - `auth_users` — profile, role, activity timestamps (direct Firestore read)
+ * - `usage/{userId}/months/{period}` — monthly spend/generation counts
  * - `apps` collection — per-user app count aggregations
  */
 export async function getAdminUsersWithStats(): Promise<AdminUsersResponse> {
-	/* Read app users and auth roles in parallel */
-	const [allUsers, roleMap] = await Promise.all([
-		listAllUsers(),
-		getAuthUserRoles(),
-	]);
+	const authUsersSnap = await getDb().collection("auth_users").get();
+	const allUsers = authUsersSnap.docs.map((doc) => ({
+		id: doc.id,
+		...(doc.data() as AuthUserData),
+	}));
 	const period = getCurrentPeriod();
 
 	/* Batch-read all usage docs in a single round trip */
@@ -82,12 +81,16 @@ export async function getAdminUsersWithStats(): Promise<AdminUsersResponse> {
 
 		return {
 			id: user.id,
-			email: user.email,
-			name: user.name,
-			image: user.image,
-			role: roleMap.get(user.id) ?? "user",
-			created_at: user.created_at.toDate().toISOString(),
-			last_active_at: user.last_active_at.toDate().toISOString(),
+			email: user.email ?? "",
+			name: user.name ?? "",
+			image: user.image ?? null,
+			role: user.role === "admin" ? ("admin" as const) : ("user" as const),
+			created_at: toISOString(user.createdAt),
+			/* Fall back to createdAt for users who haven't interacted since
+			 * the lastActiveAt field was added. */
+			last_active_at: user.lastActiveAt
+				? toISOString(user.lastActiveAt)
+				: toISOString(user.createdAt),
 			generations: usageData?.request_count ?? 0,
 			cost: usageData?.cost_estimate ?? 0,
 			app_count: appCounts[i].data().count,
@@ -108,26 +111,26 @@ export async function getAdminUsersWithStats(): Promise<AdminUsersResponse> {
 /**
  * Fetch a single user's profile — returns null if user doesn't exist.
  *
- * Reads profile data from `users/` and role from `auth_users` in parallel.
+ * Reads directly from `auth_users` — one document read, no merge needed.
  * Separated so the profile card can stream independently via Suspense.
  */
 export async function getAdminUserProfile(
 	userId: string,
 ): Promise<AdminUserDetailResponse["user"] | null> {
-	const [user, role] = await Promise.all([
-		getUser(userId),
-		getAuthUserRole(userId),
-	]);
-	if (!user) return null;
+	const snap = await getDb().collection("auth_users").doc(userId).get();
+	if (!snap.exists) return null;
+	const data = snap.data() as AuthUserData;
 
 	return {
 		id: userId,
-		email: user.email,
-		name: user.name,
-		image: user.image,
-		role,
-		created_at: user.created_at.toDate().toISOString(),
-		last_active_at: user.last_active_at.toDate().toISOString(),
+		email: data.email ?? "",
+		name: data.name ?? "",
+		image: data.image ?? null,
+		role: data.role === "admin" ? "admin" : "user",
+		created_at: toISOString(data.createdAt),
+		last_active_at: data.lastActiveAt
+			? toISOString(data.lastActiveAt)
+			: toISOString(data.createdAt),
 	};
 }
 

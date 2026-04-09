@@ -8,6 +8,7 @@
  * present on valid sessions, no custom session fields needed.
  */
 
+import { FieldValue } from "@google-cloud/firestore";
 import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { connection } from "next/server";
@@ -15,7 +16,7 @@ import { cache } from "react";
 import { ApiError } from "./apiError";
 import { getAuth, type Session } from "./auth";
 import { getDb } from "./db/firestore";
-import { touchUser } from "./db/users";
+import { log } from "./log";
 
 // ── API Route Auth ──────────────────────────────────────────────────
 
@@ -175,4 +176,19 @@ export async function requireAdminAccess(): Promise<Session> {
 		redirect("/");
 	}
 	return session;
+}
+
+// ── Activity Tracking ──────────────────────────────────────────────
+
+/**
+ * Bump `lastActiveAt` on `auth_users`. Fire-and-forget merge-set on
+ * every authenticated request — direct Firestore write, consistent
+ * with `requireAdminAccess()` which also reads `auth_users` directly.
+ */
+function touchUser(userId: string): void {
+	getDb()
+		.collection("auth_users")
+		.doc(userId)
+		.set({ lastActiveAt: FieldValue.serverTimestamp() }, { merge: true })
+		.catch((err) => log.error("[touchUser] Firestore write failed", err));
 }

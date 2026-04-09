@@ -15,8 +15,7 @@
  *
  * Document hierarchy:
  *
- *   collections.users()          → users/{userId}
- *   collections.usage(userId)    → users/{userId}/usage/{yyyy-mm}
+ *   collections.usage(userId)    → usage/{userId}/months/{yyyy-mm}
  *   collections.apps()           → apps/{appId}          (root-level)
  *   collections.logs(appId)      → apps/{appId}/logs/{logId}
  */
@@ -36,9 +35,7 @@ import {
 	type StoredEvent,
 	storedEventSchema,
 	type UsageDoc,
-	type UserDoc,
 	usageDocSchema,
-	userDocSchema,
 } from "./types";
 
 // ── Singleton ──────────────────────────────────────────────────────
@@ -104,7 +101,6 @@ function zodConverter<T>(schema: ZodType<T>): FirestoreDataConverter<T> {
 	} as FirestoreDataConverter<T>;
 }
 
-const userConverter = zodConverter(userDocSchema);
 const usageConverter = zodConverter(usageDocSchema);
 const appConverter = zodConverter(appDocSchema);
 const storedEventConverter = zodConverter(storedEventSchema);
@@ -120,23 +116,19 @@ const storedEventConverter = zodConverter(storedEventSchema);
  *
  * Apps are a root-level collection — no parent ID needed.
  * Logs are subcollections of their app document.
- * Usage is a subcollection of the user document.
+ * Usage is a root-level collection keyed by userId with a months subcollection.
  *
  * Usage:
  *   const apps = await collections.apps().where('owner', '==', userId).get()
  *   apps.docs.forEach(doc => doc.data())  // → AppDoc (validated)
  */
 export const collections = {
-	/** Top-level users collection: `users/{userId}` */
-	users: (): CollectionReference<UserDoc> =>
-		getDb().collection("users").withConverter(userConverter),
-
-	/** Per-user monthly usage: `users/{userId}/usage/{yyyy-mm}` */
+	/** Per-user monthly usage: `usage/{userId}/months/{yyyy-mm}` */
 	usage: (userId: string): CollectionReference<UsageDoc> =>
 		getDb()
-			.collection("users")
-			.doc(userId)
 			.collection("usage")
+			.doc(userId)
+			.collection("months")
 			.withConverter(usageConverter),
 
 	/** Root-level apps collection: `apps/{appId}` */
@@ -165,11 +157,7 @@ export const collections = {
  *   if (snap.exists) console.log(snap.data()!.app_name)  // → string (validated)
  */
 export const docs = {
-	/** Direct reference: `users/{userId}` */
-	user: (userId: string): DocumentReference<UserDoc> =>
-		collections.users().doc(userId),
-
-	/** Direct reference: `users/{userId}/usage/{yyyy-mm}` */
+	/** Direct reference: `usage/{userId}/months/{yyyy-mm}` */
 	usage: (userId: string, period: string): DocumentReference<UsageDoc> =>
 		collections.usage(userId).doc(period),
 
