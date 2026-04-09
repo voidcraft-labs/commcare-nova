@@ -260,6 +260,11 @@ function InlineXPathEditor({
 	/** Guards against double-fire: once save or cancel runs, block the other. */
 	const doneRef = useRef(false);
 	const [shaking, setShaking] = useState(false);
+	/** Set true by a document-level mousedown outside the editor wrapper.
+	 *  Read by the blur handler to distinguish genuine outside-clicks from
+	 *  Chrome's contentEditable focus bounce (where blur fires but no
+	 *  mousedown preceded it outside the editor). */
+	const clickedOutsideRef = useRef(false);
 
 	// ── Error tooltip ───────────────────────────────────────────────────
 
@@ -428,6 +433,32 @@ function InlineXPathEditor({
 		[],
 	);
 
+	// ── Click-outside detection ────────────────────────────────────────
+	// Chrome's contentEditable focus management can bounce focus back to
+	// cm-content when the user clicks a non-focusable ancestor element.
+	// The blur handler's `hasFocus` check races with this bounce and
+	// sometimes bails, requiring a second click. Instead of relying on
+	// focus state in a rAF, we track mousedown-outside as the definitive
+	// signal that the user intended to leave the editor.
+
+	useEffect(() => {
+		const onMousedown = (e: MouseEvent) => {
+			const wrapper = wrapperRef.current;
+			if (!wrapper) return;
+			const target = e.target as Node;
+			/* Clicks inside the editor wrapper or inside a portal-mounted
+			 * autocomplete tooltip are not "outside" clicks. */
+			if (
+				wrapper.contains(target) ||
+				(target instanceof HTMLElement && target.closest(".cm-tooltip"))
+			)
+				return;
+			clickedOutsideRef.current = true;
+		};
+		document.addEventListener("mousedown", onMousedown, true);
+		return () => document.removeEventListener("mousedown", onMousedown, true);
+	}, []);
+
 	const extensions = useMemo(
 		() => [
 			...baseEditingExtensions,
@@ -470,30 +501,39 @@ function InlineXPathEditor({
 					view.dispatch({ selection: { anchor: end } });
 				}}
 				onBlur={() => {
-					/* Delay to detect transient blur from autocomplete tooltip
-					 * interactions (portal-mounted to body). Save if valid; shake
-					 * and refocus if errors — invalid XPath never persists, but the
-					 * editor holds focus so the user can fix errors or press Esc. */
-					requestAnimationFrame(() => {
-						if (editorRef.current?.view?.hasFocus) return;
-						if (document.activeElement?.closest(".cm-tooltip")) return;
-						const errors = getErrorsRef.current();
-						if (errors.length > 0) {
-							/* If the edit guard already warned on this interaction (user
-							 * clicked a navigation target), skip the duplicate shake/tooltip
-							 * — the guard already provided the visual feedback. */
-							if (!warnedRef.current) {
-								shakeRef.current();
-								setTooltipMessage(errors[0]);
-							}
-							/* Refocus immediately so Escape works without waiting for the
-							 * shake animation to finish. The shake is CSS-only on the wrapper
-							 * div — unaffected by focus state. */
-							editorRef.current?.view?.focus();
-						} else {
-							saveRef.current();
+					/* Mousedown-outside as the authoritative blur signal.
+					 * The capture-phase mousedown listener sets clickedOutsideRef
+					 * synchronously before blur fires, so we can read it directly
+					 * here — no rAF or setTimeout needed.
+					 *
+					 * This sidesteps Chrome's contentEditable focus bounce: when
+					 * the user clicks a non-focusable ancestor of cm-content,
+					 * Chrome fires blur → focusin (bounce) → blur. A hasFocus
+					 * check in a rAF races with the bounce. The mousedown flag
+					 * doesn't — it's set once, definitively, before any focus
+					 * events fire.
+					 *
+					 * Autocomplete tooltip clicks are excluded in the mousedown
+					 * listener, so transient blurs from tooltip interactions
+					 * (portal-mounted to body) are ignored automatically. */
+					if (!clickedOutsideRef.current) return;
+					clickedOutsideRef.current = false;
+					const errors = getErrorsRef.current();
+					if (errors.length > 0) {
+						/* If the edit guard already warned on this interaction (user
+						 * clicked a navigation target), skip the duplicate shake/tooltip
+						 * — the guard already provided the visual feedback. */
+						if (!warnedRef.current) {
+							shakeRef.current();
+							setTooltipMessage(errors[0]);
 						}
-					});
+						/* Refocus so Escape works without waiting for the shake
+						 * animation to finish. The shake is CSS-only on the wrapper
+						 * div — unaffected by focus state. */
+						editorRef.current?.view?.focus();
+					} else {
+						saveRef.current();
+					}
 				}}
 				basicSetup={{
 					lineNumbers: false,
