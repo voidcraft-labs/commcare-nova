@@ -65,7 +65,7 @@ export class EventLogger {
 	 * Enable real-time Firestore logging and usage tracking.
 	 *
 	 * Log events write to `apps/{appId}/logs/`. Usage increments write to
-	 * `users/{userId}/usage/{period}` on finalize.
+	 * `usage/{userId}/months/{period}` on finalize.
 	 */
 	enableFirestore(appId: string, userId: string) {
 		this.fsAppId = appId;

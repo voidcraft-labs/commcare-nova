@@ -1,7 +1,7 @@
 /**
  * Usage tracking — per-user monthly spend aggregation.
  *
- * Reads and writes to `users/{userId}/usage/{yyyy-mm}` documents.
+ * Reads and writes to `usage/{userId}/months/{yyyy-mm}` documents.
  * Spend cap checks are a single document read (period string = doc ID).
  * Increments are atomic via FieldValue.increment() — safe for concurrent
  * requests from the same user.

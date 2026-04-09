@@ -6,17 +6,11 @@
  *
  * Document hierarchy:
  *
- *   users/{userId}                  → UserDoc      (profile + activity)
- *   users/{userId}/usage/{yyyy-mm}  → UsageDoc     (monthly spend tracking)
+ *   usage/{userId}/months/{yyyy-mm} → UsageDoc     (monthly spend tracking)
  *   apps/{appId}                    → AppDoc       (root-level, owner field links to user)
  *   apps/{appId}/logs/{logId}       → StoredEvent  (generation event stream)
  *
- * Apps are a root-level collection so they can be loaded by ID without knowing
- * the owner. The `owner` field on AppDoc links back to the user's UUID for
- * list queries and authorization. Logs are a subcollection of the app they
- * belong to — accessed by appId alone.
- *
- * Usage lives under the user document for direct per-user lookups.
+ * User identity lives on `auth_users` (see lib/auth.ts).
  */
 
 import { Timestamp } from "@google-cloud/firestore";
@@ -31,34 +25,10 @@ import { appBlueprintSchema } from "../schemas/blueprint";
  */
 const timestamp = z.instanceof(Timestamp);
 
-// ── User ────────────────────────────────────────────────────────────
-
-/**
- * User profile — stored at `users/{userId}`.
- *
- * The document ID is Better Auth's built-in user ID (`session.user.id`).
- * Email is stored as a field for display and lookup. Better Auth handles
- * session management and auth state (including `role` on `auth_users`);
- * this document stores app-level user data (profile cache, activity).
- */
-export const userDocSchema = z.object({
-	/** Email address from Google OAuth. Used for display and email-to-userId lookup. */
-	email: z.string(),
-	/** Display name from Google OAuth (e.g. "Alice Smith"). */
-	name: z.string(),
-	/** Google profile avatar URL. Null when no avatar is set. */
-	image: z.string().nullable(),
-	/** First sign-in timestamp. Set once via FieldValue.serverTimestamp(). */
-	created_at: timestamp,
-	/** Updated on every authenticated interaction via FieldValue.serverTimestamp(). */
-	last_active_at: timestamp,
-});
-export type UserDoc = z.infer<typeof userDocSchema>;
-
 // ── Usage ───────────────────────────────────────────────────────────
 
 /**
- * Monthly usage aggregation — stored at `users/{userId}/usage/{yyyy-mm}`.
+ * Monthly usage aggregation — stored at `usage/{userId}/months/{yyyy-mm}`.
  *
  * One document per user per calendar month. The document ID is the period
  * string (e.g. "2026-04") so spend-cap checks are a single document read,

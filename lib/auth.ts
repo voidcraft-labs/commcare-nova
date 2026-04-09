@@ -7,9 +7,10 @@
  * module-level initialization would try to connect to Firestore and read
  * secrets that don't exist in the build environment.
  *
- * Auth collections live in their own Firestore namespace (auth_users,
- * auth_sessions, auth_accounts, auth_verifications) to avoid collision
- * with the app's `users/{userId}` document hierarchy.
+ * `auth_users` is the single source of truth for user identity. The app
+ * extends it with `lastActiveAt` via `additionalFields` — no separate
+ * user collection. Auth state lives in `auth_users`, `auth_sessions`,
+ * `auth_accounts`, and `auth_verifications`.
  *
  * Required env vars (at runtime, not build time):
  *   BETTER_AUTH_SECRET   — cookie signing secret (generate with `openssl rand -base64 32`)
@@ -23,7 +24,6 @@ import { admin } from "better-auth/plugins";
 import { firestoreAdapter } from "better-auth-firestore";
 import type { Firestore } from "firebase-admin/firestore";
 import { getDb } from "./db/firestore";
-import { createUserDoc, ensureUserDoc } from "./db/users";
 
 /**
  * Creates the Better Auth instance. Extracted as a named function so
@@ -37,11 +37,29 @@ function createAuth() {
 		baseURL: process.env.BETTER_AUTH_URL,
 
 		/**
+		 * Extend the auth user model with app-level fields.
+		 *
+		 * `lastActiveAt` — most recent authenticated interaction. Updated
+		 * fire-and-forget on every request by `touchUser()` in auth-utils.ts.
+		 * `required: false` because pre-migration users lack this field.
+		 */
+		user: {
+			additionalFields: {
+				lastActiveAt: {
+					type: "date" as const,
+					required: false,
+					input: false,
+					returned: true,
+				},
+			},
+		},
+
+		/**
 		 * Firestore database for auth state (users, sessions, accounts).
 		 *
 		 * Reuses the app's existing Firestore singleton — same project, same
 		 * credentials. Collections are prefixed with `auth_` to namespace them
-		 * away from the app's `users/{userId}` collection hierarchy.
+		 * away from application data collections (apps, usage, etc.).
 		 *
 		 * The type cast bridges `@google-cloud/firestore` → `firebase-admin/firestore`.
 		 * They're the same underlying class — firebase-admin re-exports it.
@@ -150,45 +168,6 @@ function createAuth() {
 		advanced: {
 			ipAddress: {
 				ipAddressHeaders: ["x-forwarded-for"],
-			},
-		},
-
-		/**
-		 * Database lifecycle hooks for user provisioning.
-		 *
-		 * The app's `users/{userId}` doc is the foundation of the user's
-		 * experience — activity tracking, admin dashboard, usage queries all
-		 * depend on it. Two hooks guarantee it exists before the user can
-		 * interact with the app:
-		 *
-		 * 1. `user.create.after` — creates the user doc on first sign-in.
-		 *    Receives the full auth user object (id, email, name, image).
-		 *
-		 * 2. `session.create.before` — verifies the user doc exists before
-		 *    every session is created. If it's missing (Firestore was down
-		 *    during user.create.after, or the doc was manually deleted),
-		 *    throws to abort the sign-in. The user can't end up
-		 *    with a valid session but no user doc.
-		 */
-		databaseHooks: {
-			user: {
-				create: {
-					after: async (user) => {
-						await createUserDoc(
-							user.id,
-							user.email,
-							user.name,
-							user.image ?? null,
-						);
-					},
-				},
-			},
-			session: {
-				create: {
-					before: async (session) => {
-						await ensureUserDoc(session.userId);
-					},
-				},
 			},
 		},
 	});
