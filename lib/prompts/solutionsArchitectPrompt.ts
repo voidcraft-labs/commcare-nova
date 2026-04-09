@@ -1,15 +1,29 @@
 /**
  * System prompt for the Solutions Architect agent.
  *
- * The SA is the single agent — it converses with users, designs apps incrementally
- * through focused tool calls, and edits them. All within one conversation context.
+ * Two prompt modes, selected by the route based on cache window state:
+ *
+ * - **Build / within-cache continuation**: base prompt only. The SA either has
+ *   no blueprint (new build) or has full conversation context still cached.
+ * - **Fresh edit** (cache expired or page reload on existing app): base prompt +
+ *   editing preamble + compact blueprint summary. Gives the SA the context it
+ *   lost without re-sending the full conversation history.
  */
 
-const BASE_PROMPT = `You are a Senior Solutions Architect at Dimagi. Be direct, warm, and conversational — speak as you would to a respected client and collaborator.
+import type {
+	AppBlueprint,
+	BlueprintForm,
+	BlueprintModule,
+	Question,
+} from "../schemas/blueprint";
+
+// ── Core prompt (shared across build and edit modes) ──────────────────
+
+const CORE_PROMPT = `You are a Senior Solutions Architect at Dimagi. Be direct, warm, and conversational — speak as you would to a respected client and collaborator.
 
 You operate within the chat interface of **CommCare Nova**, a conversational way to build CommCare applications. Nova lets users build and edit applications through dialogue with you, alongside a combined design and live preview mode.
 
-When Nova opens, the user lands in a fresh chat with you. Your goal is to understand what they need and generate the most complete first pass possible. Your replies render in a narrow chat sidebar. 
+Your replies render in a narrow chat sidebar.
 
 For markdown in chat messages: use bullet points instead of tables and keep formatting compact (two levels of nesting is fine). Do NOT end your chat messages referencing an action with a trailing colon.
 
@@ -144,11 +158,18 @@ In any XPath Expression or label-type field, use the correct hashtag reference w
 - \`checklist(min, max, bool1, bool2, ...)\` → true if count of true bools is between min and max (-1 = no limit)
 - \`weighted-checklist(min, max, bool1, weight1, bool2, weight2, ...)\` → true if weighted sum is in range
 
----
+---`;
 
-## Initial Interaction
+// ── Build-mode interaction guidance ───────────────────────────────────
+// Only included when building a new app. Replaced by the edit preamble
+// in fresh-edit mode so the SA doesn't ask discovery questions about an
+// app that already exists.
 
-Your top priority is understanding the user's goal for the application. CommCare is primarily used in healthcare contexts, so draw on your deep knowledge of healthcare standards when suggesting options or generating mock data. Although CommCare originally served low- and middle-income countries with a mobile- and offline-first approach, it now also supports web- and live-data-first use cases through Web Apps. You do not need to worry about data liveness — CommCare abstracts that away.
+const BUILD_INTERACTION = `## Initial Interaction
+
+Your goal is to understand what the user needs and generate the most complete first pass possible.
+
+CommCare is primarily used in healthcare contexts, so draw on your deep knowledge of healthcare standards when suggesting options or generating mock data. Although CommCare originally served low- and middle-income countries with a mobile- and offline-first approach, it now also supports web- and live-data-first use cases through Web Apps. You do not need to worry about data liveness — CommCare abstracts that away.
 
 Start from whatever the user gives you — even if it's vague — and build your understanding outward. Your job is to figure out what's really going on in the real-world process before thinking about how to model it in CommCare.
 
@@ -156,11 +177,12 @@ Every application is, at its core, a set of real-world things that people need t
 
 From there, understand how those things connect to each other, how they move through stages, what information matters at each stage, and what the people using the app actually need to see and do. Pay attention to where the process branches or gets complicated — that's where hidden complexity lives.
 
-It is always better to ask the user for clarification than to build something they didn't ask for. Once you have full clarity, give a brief acknowledgment and begin generation. Do not provide summaries or requirement recaps.
+It is always better to ask the user for clarification than to build something they didn't ask for. Once you have full clarity, give a brief acknowledgment and begin generation. Do not provide summaries or requirement recaps.`;
 
----
+// ── Shared tail (architecture, Connect, error recovery) ──────────────
+// Appended to both build and edit prompts — these rules apply regardless.
 
-## Architecture Principles
+const SHARED_TAIL = `## Architecture Principles
 
 ### Case Type Module Requirement
 
@@ -192,6 +214,118 @@ If a tool call fails, try a different approach — do not retry the same call mo
 
 If you receive an API error (authentication, rate limit, overloaded), do not retry — the user has already been notified. Acknowledge the issue and stop.`;
 
-export function buildSolutionsArchitectPrompt(): string {
-	return BASE_PROMPT;
+// ── Edit mode prompt ──────────────────────────────────────────────────
+
+const EDIT_PREAMBLE = `## Editing Mode
+
+You are editing an existing app — not building one from scratch. The current app state is summarized below. Use your read and mutation tools to make targeted changes, then call validateApp when done.
+
+Trust your tool outputs. When a mutation tool returns a success message, the change is applied. Do not re-read to verify.`;
+
+// ── Blueprint summarizer ──────────────────────────────────────────────
+
+/** Count questions recursively (groups/repeats contain children). */
+function countQuestions(questions: Question[]): number {
+	let count = 0;
+	for (const q of questions) {
+		count++;
+		if (q.children) count += countQuestions(q.children);
+	}
+	return count;
+}
+
+/** Summarize a form's questions as a compact list of IDs with types. */
+function summarizeQuestions(questions: Question[], indent = "    "): string {
+	return questions
+		.map((q) => {
+			const parts = [`${indent}- ${q.id} (${q.type})`];
+			if (q.label) parts[0] += `: "${q.label}"`;
+			if (q.case_property_on) parts[0] += ` → ${q.case_property_on}`;
+			if (q.children?.length) {
+				parts.push(summarizeQuestions(q.children, `${indent}  `));
+			}
+			return parts.join("\n");
+		})
+		.join("\n");
+}
+
+/** Summarize a form: name, type, question count, and question list. */
+function summarizeForm(form: BlueprintForm, formIndex: number): string {
+	const qCount = countQuestions(form.questions);
+	const header = `  - Form ${formIndex}: "${form.name}" (${form.type}, ${qCount} question${qCount === 1 ? "" : "s"})`;
+	const extras: string[] = [];
+	if (form.post_submit && form.post_submit !== "default") {
+		extras.push(`    post_submit: ${form.post_submit}`);
+	}
+	if (form.connect) extras.push("    [Connect enabled]");
+	if (form.close_case) extras.push("    [Closes case]");
+	const questions =
+		form.questions.length > 0
+			? summarizeQuestions(form.questions)
+			: "    (no questions)";
+	return [header, ...extras, questions].join("\n");
+}
+
+/** Summarize a module: name, case type, forms. */
+function summarizeModule(mod: BlueprintModule, index: number): string {
+	const caseInfo = mod.case_type ? ` (case_type: ${mod.case_type})` : "";
+	const listOnly = mod.case_list_only ? " [case list only]" : "";
+	const header = `- Module ${index}: "${mod.name}"${caseInfo}${listOnly}`;
+	const forms = mod.forms.map((f, fi) => summarizeForm(f, fi)).join("\n");
+	return forms ? `${header}\n${forms}` : header;
+}
+
+/**
+ * Build a compact text summary of an app blueprint for the SA's editing context.
+ * Includes the full structure and question inventory so the SA can make edits
+ * without needing to read every form first.
+ */
+function summarizeBlueprint(bp: AppBlueprint): string {
+	const lines: string[] = [];
+
+	lines.push(`### App: "${bp.app_name}"`);
+	if (bp.connect_type) lines.push(`Connect type: ${bp.connect_type}`);
+
+	/* Case types with properties */
+	if (bp.case_types?.length) {
+		lines.push("");
+		lines.push("**Case types:**");
+		for (const ct of bp.case_types) {
+			const props = ct.properties.map((p) => p.name).join(", ");
+			const parentInfo = ct.parent_type ? ` (child of ${ct.parent_type})` : "";
+			lines.push(`- ${ct.name}${parentInfo}: ${props}`);
+		}
+	}
+
+	/* Module/form/question structure */
+	lines.push("");
+	lines.push("**Structure:**");
+	for (let i = 0; i < bp.modules.length; i++) {
+		lines.push(summarizeModule(bp.modules[i], i));
+	}
+
+	return lines.join("\n");
+}
+
+// ── Public API ────────────────────────────────────────────────────────
+
+/**
+ * Build the SA system prompt by composing mode-specific sections:
+ *
+ * - **Build mode** (no blueprint): core + build interaction + shared tail
+ * - **Fresh edit** (blueprint provided): core + edit preamble + summary + shared tail
+ *
+ * The "Initial Interaction" section is replaced, not appended to, in edit mode —
+ * otherwise the SA still asks discovery questions about an app that already exists.
+ */
+export function buildSolutionsArchitectPrompt(
+	blueprint?: AppBlueprint,
+): string {
+	const isEditing = blueprint && blueprint.modules.length > 0;
+
+	if (!isEditing) {
+		return `${CORE_PROMPT}\n\n---\n\n${BUILD_INTERACTION}\n\n---\n\n${SHARED_TAIL}`;
+	}
+
+	return `${CORE_PROMPT}\n\n---\n\n${EDIT_PREAMBLE}\n\n${summarizeBlueprint(blueprint)}\n\n---\n\n${SHARED_TAIL}`;
 }

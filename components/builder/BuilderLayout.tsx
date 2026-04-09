@@ -58,6 +58,7 @@ import {
 	selectCanGoBack,
 	selectCanGoUp,
 	selectInReplayMode,
+	selectIsReady,
 } from "@/lib/services/builderSelectors";
 import type { CursorMode } from "@/lib/services/builderStore";
 import {
@@ -120,6 +121,7 @@ const SCROLL_MARGIN_WITH_TOOLBAR = 60;
 function createChatInstance(
 	builderRef: { current: BuilderEngine },
 	runIdRef: { current: string | undefined },
+	lastResponseAtRef: { current: string | undefined },
 ): Chat<UIMessage> {
 	return new Chat<UIMessage>({
 		transport: new DefaultChatTransport({
@@ -133,6 +135,8 @@ function createChatInstance(
 							: undefined,
 					runId: runIdRef.current,
 					appId: s.appId,
+					lastResponseAt: lastResponseAtRef.current,
+					appReady: selectIsReady(s),
 				};
 			},
 		}),
@@ -206,6 +210,9 @@ export function BuilderLayout({ children, isExistingApp }: BuilderLayoutProps) {
 	const builderRef = useRef(builder);
 	builderRef.current = builder;
 	const runIdRef = useRef<string | undefined>(undefined);
+	/** ISO timestamp of the SA's last response — used to determine if the
+	 *  Anthropic prompt cache is still warm on subsequent requests. */
+	const lastResponseAtRef = useRef<string | undefined>(undefined);
 
 	// ── Chat instance — recreated when builder changes (new app) ─────────
 	// When the BuilderProvider creates a fresh builder (buildId change), we
@@ -213,7 +220,7 @@ export function BuilderLayout({ children, isExistingApp }: BuilderLayoutProps) {
 	// resets the stream, and starts fresh — no persistedChatMessages hack.
 	const prevBuilderRef = useRef(builder);
 	const [chat, setChat] = useState(() =>
-		createChatInstance(builderRef, runIdRef),
+		createChatInstance(builderRef, runIdRef, lastResponseAtRef),
 	);
 
 	// ── Replay ────────────────────────────────────────────────────────────
@@ -234,7 +241,8 @@ export function BuilderLayout({ children, isExistingApp }: BuilderLayoutProps) {
 	if (builder !== prevBuilderRef.current) {
 		prevBuilderRef.current = builder;
 		runIdRef.current = undefined;
-		setChat(createChatInstance(builderRef, runIdRef));
+		lastResponseAtRef.current = undefined;
+		setChat(createChatInstance(builderRef, runIdRef, lastResponseAtRef));
 	}
 
 	const [chatOpen, setChatOpen] = useState(true);
@@ -454,9 +462,19 @@ export function BuilderLayout({ children, isExistingApp }: BuilderLayoutProps) {
 		error: chatError,
 	} = useChat({ chat });
 
-	// Sync chat transport status → builder agent state (drives builder.isThinking)
+	// Sync chat transport status → builder agent state (drives builder.isThinking).
+	// Also stamps lastResponseAtRef when the SA finishes so the route can
+	// determine if the Anthropic prompt cache is still warm on the next request.
+	// Only stamp on active→ready transitions (agentActive was true before we set
+	// it false), not on the initial "ready" mount — otherwise a page reload would
+	// look like a warm cache and skip fresh-edit mode.
 	useEffect(() => {
-		builder.setAgentActive(status === "submitted" || status === "streaming");
+		const active = status === "submitted" || status === "streaming";
+		const wasActive = builder.store.getState().agentActive;
+		builder.setAgentActive(active);
+		if (status === "ready" && wasActive) {
+			lastResponseAtRef.current = new Date().toISOString();
+		}
 	}, [status, builder]);
 
 	// Surface stream-level errors from useChat (network, API key, server crash, spend cap).
