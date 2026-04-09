@@ -379,7 +379,7 @@ export function ContextualEditorHeader({ question }: QuestionEditorProps) {
 							onFocus={idField.handleFocus}
 							onBlur={idField.handleBlur}
 							onKeyDown={idField.handleKeyDown}
-							className="min-w-0 text-sm font-mono px-2 py-1.5 bg-transparent text-nova-text font-medium outline-none cursor-text"
+							className="min-w-[20ch] text-sm font-mono px-2 py-1.5 bg-transparent text-nova-text font-medium outline-none cursor-text"
 							autoComplete="off"
 							data-1p-ignore
 						/>
