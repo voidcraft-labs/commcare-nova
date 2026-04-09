@@ -428,23 +428,32 @@ export function BuilderProvider({
 
 	const { engine } = state;
 
-	/* Fetch the app from Firestore for existing apps. Hydrates the
-	 * engine to Ready phase with the saved blueprint via loadApp() —
-	 * a single atomic transition with no transient states.
+	/* Fetch the app and its chat threads from Firestore for existing apps.
+	 * Both requests run in parallel — threads are historical context that
+	 * never blocks the builder. Hydrates the engine to Ready phase with the
+	 * saved blueprint via loadApp(), and stores loaded threads as non-reactive
+	 * data on the engine instance.
 	 * Skipped for replay mode (data already hydrated) and new builds. */
 	useEffect(() => {
 		if (!isExistingApp) return;
 		if (engine.store.getState().phase !== BuilderPhase.Loading) return;
 		const controller = new AbortController();
+		const signal = controller.signal;
 
-		fetch(`/api/apps/${buildId}`, { signal: controller.signal })
-			.then((res) => {
+		Promise.all([
+			fetch(`/api/apps/${buildId}`, { signal }).then((res) => {
 				if (!res.ok)
 					throw new Error(res.status === 404 ? "not-found" : "load-failed");
 				return res.json();
-			})
-			.then((data) => {
-				if (data.status !== "complete") {
+			}),
+			/* Thread fetch is best-effort — a failure here should not block the
+			 * app from loading. Returns empty array on any error. */
+			fetch(`/api/apps/${buildId}/threads`, { signal })
+				.then((res) => (res.ok ? res.json() : { threads: [] }))
+				.catch(() => ({ threads: [] })),
+		])
+			.then(([appData, threadsData]) => {
+				if (appData.status !== "complete") {
 					showToast(
 						"error",
 						"App unavailable",
@@ -453,13 +462,16 @@ export function BuilderProvider({
 					router.replace("/");
 					return;
 				}
-				if (data.blueprint) {
-					engine.store.getState().loadApp(buildId, data.blueprint);
+				if (appData.blueprint) {
+					engine.store.getState().loadApp(buildId, appData.blueprint);
 					/* Resume undo tracking — the loaded state is the baseline.
 					 * Tracking was paused in the engine constructor to prevent
 					 * the empty→populated hydration from being undoable. */
 					engine.store.temporal.getState().resume();
 				}
+				/* Store loaded threads on the engine — immutable historical data
+				 * read once by BuilderLayout. Not reactive state. */
+				engine.loadedThreads = threadsData.threads ?? [];
 			})
 			.catch((err) => {
 				if (err.name === "AbortError") return;

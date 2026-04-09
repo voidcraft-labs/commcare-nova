@@ -12,13 +12,16 @@ import {
 } from "react";
 import { ChatInput } from "@/components/chat/ChatInput";
 import { ChatMessage } from "@/components/chat/ChatMessage";
+import { HistoricalThread } from "@/components/chat/HistoricalThread";
 import { SignalGrid } from "@/components/chat/SignalGrid";
 import { SignalPanel } from "@/components/chat/SignalPanel";
+import { ThreadDivider } from "@/components/chat/ThreadDivider";
 import {
 	useBuilderEngine,
 	useBuilderPhase,
 	useBuilderStoreShallow,
 } from "@/hooks/useBuilder";
+import type { ThreadDoc } from "@/lib/db/types";
 import { BuilderPhase, GenerationStage } from "@/lib/services/builder";
 import type { BuilderEngine } from "@/lib/services/builderEngine";
 import {
@@ -57,6 +60,9 @@ interface ChatSidebarProps {
 		output: unknown;
 	}) => void;
 	readOnly?: boolean;
+	/** Historical threads loaded from Firestore — displayed as collapsed,
+	 *  muted blocks above the active conversation. Empty for new builds. */
+	historicalThreads?: ThreadDoc[];
 }
 
 export function ChatSidebar({
@@ -68,6 +74,7 @@ export function ChatSidebar({
 	onClose,
 	addToolOutput,
 	readOnly,
+	historicalThreads = [],
 }: ChatSidebarProps) {
 	const engine = useBuilderEngine();
 	const phase = useBuilderPhase();
@@ -445,22 +452,37 @@ export function ChatSidebar({
 					</div>
 				)}
 
-				{/* Messages */}
+				{/* Messages — historical threads above, active thread below */}
 				<div
 					ref={scrollRef}
 					className={`${centered ? "" : "flex-1"} overflow-y-auto p-4 space-y-4`}
 				>
+					{/* Historical threads — collapsed by default, muted styling */}
+					{historicalThreads.length > 0 && (
+						<div className="space-y-1">
+							{historicalThreads.map((thread) => (
+								<HistoricalThread key={thread.run_id} thread={thread} />
+							))}
+							<ThreadDivider />
+						</div>
+					)}
+
+					{/* Active thread empty state */}
 					{messages.length === 0 && !isLoading && (
 						<div className={centered ? "text-center" : "text-center py-8"}>
 							{centered ? (
 								<WelcomeIntro engine={engine} setIntroMode={setIntroMode} />
 							) : (
 								<p className="text-sm text-nova-text-muted">
-									Describe the CommCare app you want to build.
+									{historicalThreads.length > 0
+										? "What changes would you like to make?"
+										: "Describe the CommCare app you want to build."}
 								</p>
 							)}
 						</div>
 					)}
+
+					{/* Live messages from the active useChat session */}
 					{messages.map((msg) => (
 						<ChatMessage
 							key={msg.id}

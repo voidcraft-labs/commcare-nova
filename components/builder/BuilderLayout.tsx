@@ -49,6 +49,8 @@ import {
 } from "@/hooks/useBuilder";
 import { useKeyboardShortcuts } from "@/hooks/useKeyboardShortcuts";
 import { parseApiErrorMessage } from "@/lib/apiError";
+import { extractThread } from "@/lib/chat/threadUtils";
+import { saveThread } from "@/lib/db/threads";
 import { shortcutLabel } from "@/lib/platform";
 import { ReferenceProviderWrapper } from "@/lib/references/ReferenceContext";
 import { applyDataPart, BuilderPhase } from "@/lib/services/builder";
@@ -469,6 +471,45 @@ export function BuilderLayout() {
 
 	// Auto-save blueprint edits to Firestore (authenticated users only)
 	const saveStatus = useAutoSave(builder, isAuthenticated);
+
+	// ── Thread persistence — save chat history on each completed turn ──
+	// Historical threads are loaded asynchronously by BuilderProvider. They're
+	// set on the engine after the app fetch completes, which triggers a phase
+	// transition to Ready. This effect reads them reactively when the builder
+	// reaches a usable phase — at that point loadedThreads is populated.
+	const [historicalThreads, setHistoricalThreads] = useState<
+		import("@/lib/db/types").ThreadDoc[]
+	>([]);
+	useEffect(() => {
+		if (phase === BuilderPhase.Ready || phase === BuilderPhase.Completed) {
+			setHistoricalThreads(builder.loadedThreads);
+		}
+	}, [phase, builder]);
+	const hasHistoricalThreads = historicalThreads.length > 0;
+
+	// Persist the active conversation thread on each status=ready transition.
+	// Fire-and-forget — a Firestore outage never blocks the UI.
+	// The threadStartRef captures the timestamp once so `created_at` doesn't
+	// drift forward on every incremental save.
+	const threadStartRef = useRef<string | undefined>(undefined);
+	// biome-ignore lint/correctness/useExhaustiveDependencies: builder read at fire time for appId
+	useEffect(() => {
+		if (status !== "ready" || messages.length === 0) return;
+		const appId = builder.store.getState().appId;
+		const runId = runIdRef.current;
+		if (!appId || !runId) return;
+
+		if (!threadStartRef.current) {
+			threadStartRef.current = new Date().toISOString();
+		}
+		const thread = extractThread(
+			messages,
+			runId,
+			hasHistoricalThreads,
+			threadStartRef.current,
+		);
+		saveThread(appId, thread);
+	}, [status, messages, hasHistoricalThreads]);
 
 	const _isGenerating = phase === BuilderPhase.Generating;
 
@@ -1139,6 +1180,7 @@ export function BuilderLayout() {
 								onClose={() => setChatOpen(false)}
 								addToolOutput={addToolOutput}
 								readOnly={inReplayMode}
+								historicalThreads={inReplayMode ? undefined : historicalThreads}
 							/>
 						</ErrorBoundary>
 					</motion.div>

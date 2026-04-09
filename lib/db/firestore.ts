@@ -18,6 +18,7 @@
  *   collections.usage(userId)    → usage/{userId}/months/{yyyy-mm}
  *   collections.apps()           → apps/{appId}          (root-level)
  *   collections.logs(appId)      → apps/{appId}/logs/{logId}
+ *   collections.threads(appId)   → apps/{appId}/threads/{threadId}
  */
 import {
 	type CollectionReference,
@@ -34,6 +35,8 @@ import {
 	appDocSchema,
 	type StoredEvent,
 	storedEventSchema,
+	type ThreadDoc,
+	threadDocSchema,
 	type UsageDoc,
 	usageDocSchema,
 } from "./types";
@@ -104,6 +107,7 @@ function zodConverter<T>(schema: ZodType<T>): FirestoreDataConverter<T> {
 const usageConverter = zodConverter(usageDocSchema);
 const appConverter = zodConverter(appDocSchema);
 const storedEventConverter = zodConverter(storedEventSchema);
+const threadConverter = zodConverter(threadDocSchema);
 
 // ── Collection Helpers ─────────────────────────────────────────────
 
@@ -142,6 +146,14 @@ export const collections = {
 			.doc(appId)
 			.collection("logs")
 			.withConverter(storedEventConverter),
+
+	/** Per-app chat threads: `apps/{appId}/threads/{threadId}` */
+	threads: (appId: string): CollectionReference<ThreadDoc> =>
+		getDb()
+			.collection("apps")
+			.doc(appId)
+			.collection("threads")
+			.withConverter(threadConverter),
 };
 
 // ── Document Helpers ───────────────────────────────────────────────
@@ -168,4 +180,8 @@ export const docs = {
 	/** Direct reference: `apps/{appId}/logs/{logId}` */
 	logEntry: (appId: string, logId: string): DocumentReference<StoredEvent> =>
 		collections.logs(appId).doc(logId),
+
+	/** Direct reference: `apps/{appId}/threads/{threadId}` */
+	thread: (appId: string, threadId: string): DocumentReference<ThreadDoc> =>
+		collections.threads(appId).doc(threadId),
 };
