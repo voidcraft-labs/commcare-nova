@@ -16,7 +16,7 @@ Next.js web app that generates CommCare apps from natural language conversation.
 - **XML**: htmlparser2 + domutils + dom-serializer
 - **Icons**: Tabler (`@iconify-icons/tabler`) via `@iconify/react/offline`
 - **Auth**: Better Auth (Firestore-backed sessions via `better-auth-firestore`, Google OAuth — domain restriction enforced by GCP OAuth consent screen, not application code) with admin plugin (`better-auth/plugins/admin`) for role-based access, banning, and user management
-- **Database**: Google Cloud Firestore (`@google-cloud/firestore`) — apps in root-level `apps/{appId}` collection (owner field stores Better Auth user ID), per-user monthly usage at `usage/{userId}/months/{yyyy-mm}`, auth state (including user identity) in `auth_*` collections managed by Better Auth
+- **Database**: Google Cloud Firestore (`@google-cloud/firestore`) — apps in root-level `apps/{appId}` collection (owner field stores Better Auth user ID), per-app chat threads at `apps/{appId}/threads/{threadId}` (threadId = runId), per-user monthly usage at `usage/{userId}/months/{yyyy-mm}`, auth state (including user identity) in `auth_*` collections managed by Better Auth
 - **State**: Zustand (`zustand/vanilla` + `zustand/middleware`) — builder reactive state in a scoped Zustand store per buildId, imperative logic in `BuilderEngine` class
 - **Linting**: Biome (`biome.json`) — formatting + lint rules. Lefthook (`lefthook.yml`) runs `biome check --staged` as a pre-commit hook. `noArrayIndexKey` is suppressed where entities lack unique IDs (modules, forms in TreeData)
 - **Testing**: Vitest
@@ -85,6 +85,8 @@ Sortable items are keyed by **UUID** (`q.uuid`), not `questionPath` — so sorta
 **`auth_users` is the single source of truth for user identity.** No separate user collection — `auth_users` stores profile, role (admin plugin), and `lastActiveAt` (app's `additionalFields` extension). `session.user.id` is the canonical identifier used for app ownership and usage tracking. Usage lives at `usage/{userId}/months/{yyyy-mm}` (root-level). Admin dashboard reads `auth_users` directly via Firestore SDK because Better Auth's admin plugin types (`UserWithRole`) don't include `additionalFields` — the data is there at runtime but invisible to TypeScript.
 
 **Admin role lives on `auth_users`.** Available as `session.user.role` in sessions. `requireAdminAccess()` (RSC gate) reads `auth_users` directly to bypass the 5-minute cookie cache for immediate demotion detection. Bootstrap via `ADMIN_USER_IDS` env var or set `role: "admin"` on the `auth_users` record in Firestore console.
+
+**Chat threads at `apps/{appId}/threads/{threadId}`.** Each thread captures one conversation session (initial build or subsequent edit). Messages are embedded in the document (not a subcollection) — threads are small (2–10 messages) and always loaded together. `threadId` = `runId` (1:1 mapping with generation sessions). Only display-relevant parts are stored: user text and answered `askQuestions` Q&A pairs. Thread persistence is fire-and-forget on each `status=ready` transition. Historical threads load in parallel with the app fetch (best-effort, doesn't block the builder).
 
 ## Data Model Decisions
 

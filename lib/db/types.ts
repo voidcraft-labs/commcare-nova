@@ -6,9 +6,10 @@
  *
  * Document hierarchy:
  *
- *   usage/{userId}/months/{yyyy-mm} → UsageDoc     (monthly spend tracking)
- *   apps/{appId}                    → AppDoc       (root-level, owner field links to user)
- *   apps/{appId}/logs/{logId}       → StoredEvent  (generation event stream)
+ *   usage/{userId}/months/{yyyy-mm}    → UsageDoc     (monthly spend tracking)
+ *   apps/{appId}                       → AppDoc       (root-level, owner field links to user)
+ *   apps/{appId}/logs/{logId}          → StoredEvent  (generation event stream)
+ *   apps/{appId}/threads/{threadId}    → ThreadDoc    (chat conversation history)
  *
  * User identity lives on `auth_users` (see lib/auth.ts).
  */
@@ -265,3 +266,70 @@ export const appDocSchema = z.object({
 	updated_at: timestamp,
 });
 export type AppDoc = z.infer<typeof appDocSchema>;
+
+// ── Chat Threads ──────────────────────────────────────────────────
+
+/**
+ * Chat threads — stored at `apps/{appId}/threads/{threadId}`.
+ *
+ * A thread captures one conversation session (initial build or subsequent
+ * edit). Messages are embedded in the document — threads are small (2–10
+ * messages) and always loaded together, so a subcollection would just add
+ * unnecessary reads.
+ *
+ * The threadId is the `runId` from that session — a 1:1 mapping that
+ * also links the thread to the event log for detailed replay.
+ *
+ * Only display-relevant parts are stored: user text and answered
+ * askQuestions. Tool calls, data-* parts, and step-start markers are
+ * omitted — they're in the event log if needed for debugging.
+ */
+
+/** A visible chat part preserved for historical display. */
+const storedMessagePartSchema = z.discriminatedUnion("type", [
+	z.object({
+		type: z.literal("text"),
+		/** The visible text content. */
+		text: z.string(),
+	}),
+	z.object({
+		type: z.literal("askQuestions"),
+		/** Tool call ID from the original UIMessage part. */
+		toolCallId: z.string(),
+		/** Section header the SA provided for this question block. */
+		header: z.string(),
+		/** Flattened question–answer pairs — just the text, no options array. */
+		questions: z.array(
+			z.object({
+				question: z.string(),
+				answer: z.string(),
+			}),
+		),
+	}),
+]);
+export type StoredMessagePart = z.infer<typeof storedMessagePartSchema>;
+
+/** A single display message within a stored thread. */
+const storedThreadMessageSchema = z.object({
+	/** Original UIMessage ID — used for deduplication on incremental saves. */
+	id: z.string(),
+	role: z.enum(["user", "assistant"]),
+	/** Visible parts only — text and answered askQuestions. */
+	parts: z.array(storedMessagePartSchema),
+});
+export type StoredThreadMessage = z.infer<typeof storedThreadMessageSchema>;
+
+/** Thread document at `apps/{appId}/threads/{threadId}`. */
+export const threadDocSchema = z.object({
+	/** ISO 8601 timestamp when the thread started. */
+	created_at: z.string(),
+	/** Whether this was the initial build or a subsequent edit session. */
+	thread_type: z.enum(["build", "edit"]),
+	/** First user message text, truncated to ~200 chars — for collapsed display. */
+	summary: z.string(),
+	/** Generation run ID — links to the event log at `apps/{appId}/logs/`. */
+	run_id: z.string(),
+	/** Ordered array of display messages. Embedded, not a subcollection. */
+	messages: z.array(storedThreadMessageSchema),
+});
+export type ThreadDoc = z.infer<typeof threadDocSchema>;

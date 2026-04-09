@@ -17,6 +17,7 @@
  * DOM side effects (e.g., `navigateTo` = store select + scroll callback).
  */
 
+import type { ThreadDoc } from "@/lib/db/types";
 import type { PreviewScreen } from "@/lib/preview/engine/types";
 import type { ConnectConfig, ConnectType } from "@/lib/schemas/blueprint";
 import type { EditFocus } from "@/lib/signalGridController";
@@ -84,6 +85,10 @@ export class BuilderEngine {
 	/** Tracks whether post-build edits have mutated the blueprint (gates Completed phase). */
 	private _editMadeMutations = false;
 
+	/** Historical chat threads loaded from Firestore on app open. Set once
+	 *  by BuilderProvider, read by BuilderLayout. Not reactive. */
+	private _loadedThreads: ThreadDoc[] = [];
+
 	// ── Connect stash (session state, not undoable) ─────────────────────
 
 	/** Preserved form connect configs across mode switches. */
@@ -104,6 +109,14 @@ export class BuilderEngine {
 	}
 
 	// ── Convenience readers (non-reactive, for imperative code) ─────────
+
+	/** Historical chat threads loaded from Firestore on app open. */
+	get loadedThreads(): ThreadDoc[] {
+		return this._loadedThreads;
+	}
+	set loadedThreads(threads: ThreadDoc[]) {
+		this._loadedThreads = threads;
+	}
 
 	get isReady(): boolean {
 		const phase = this.store.getState().phase;
@@ -588,6 +601,7 @@ export class BuilderEngine {
 		this._editGuard = null;
 		this._newQuestionUuid = undefined;
 		this._editMadeMutations = false;
+		this._loadedThreads = [];
 		this._connectStash.learn.clear();
 		this._connectStash.deliver.clear();
 		this._lastConnectType = undefined;
