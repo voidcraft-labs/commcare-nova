@@ -521,19 +521,31 @@ export function BuilderLayout({ children, isExistingApp }: BuilderLayoutProps) {
 	const _isGenerating = phase === BuilderPhase.Generating;
 
 	// ── CommCare HQ integration state ──────────────────────────────────
-	// Fetched once on mount to determine whether the export dropdown should
-	// show the upload-to-HQ option as active or as a setup prompt.
+	// Fetched once on mount — drives the export dropdown's configured/unconfigured
+	// state and provides the authorized domain to the upload dialog.
 	const [commcareConfigured, setCommcareConfigured] = useState(false);
+	const [commcareDomain, setCommcareDomain] = useState<{
+		name: string;
+		displayName: string;
+	} | null>(null);
 	const [uploadDialogOpen, setUploadDialogOpen] = useState(false);
 
 	useEffect(() => {
 		const controller = new AbortController();
 		fetch("/api/settings/commcare", { signal: controller.signal })
 			.then((res) =>
-				res.ok ? (res.json() as Promise<{ configured: boolean }>) : null,
+				res.ok
+					? (res.json() as Promise<{
+							configured: boolean;
+							domain: { name: string; displayName: string } | null;
+						}>)
+					: null,
 			)
 			.then((data) => {
-				if (data) setCommcareConfigured(data.configured);
+				if (data) {
+					setCommcareConfigured(data.configured);
+					setCommcareDomain(data.domain);
+				}
 			})
 			.catch(() => {});
 		return () => controller.abort();
@@ -1240,6 +1252,7 @@ export function BuilderLayout({ children, isExistingApp }: BuilderLayoutProps) {
 				onClose={() => setUploadDialogOpen(false)}
 				getBlueprint={getBlueprint}
 				appName={appName}
+				domain={commcareDomain}
 			/>
 		</>
 	);

@@ -1,18 +1,18 @@
 /**
- * Upload to CommCare HQ dialog — modal for selecting a project space
- * and uploading the current app as a new CommCare application.
+ * Upload to CommCare HQ dialog — modal for uploading the current app
+ * as a new CommCare application to the user's project space.
  *
- * Domains and upload status are independent state — a failed upload
- * never wipes the form. The user can change their selection and retry
- * without re-fetching anything.
+ * The domain is resolved from the user's stored settings (an API key
+ * is scoped to exactly one domain) and shown as static text — no
+ * selection needed.
  */
 
 "use client";
 
 import { Icon } from "@iconify/react/offline";
 import tablerCheck from "@iconify-icons/tabler/check";
-import tablerChevronDown from "@iconify-icons/tabler/chevron-down";
 import tablerChevronRight from "@iconify-icons/tabler/chevron-right";
+import tablerCircleCheck from "@iconify-icons/tabler/circle-check";
 import tablerExternalLink from "@iconify-icons/tabler/external-link";
 import tablerInfoCircle from "@iconify-icons/tabler/info-circle";
 import tablerLoader2 from "@iconify-icons/tabler/loader-2";
@@ -31,14 +31,11 @@ interface UploadToHqDialogProps {
 	getBlueprint: () => AppBlueprint;
 	/** The app name from the builder (pre-fills the name field). */
 	appName: string;
+	/** The user's authorized project space, resolved from settings on mount. */
+	domain: { name: string; displayName: string } | null;
 }
 
-interface Domain {
-	name: string;
-	displayName: string;
-}
-
-/** Upload status — independent of the domains list. */
+/** Upload status — independent of the form fields. */
 type UploadStatus =
 	| { type: "idle" }
 	| { type: "uploading" }
@@ -52,52 +49,20 @@ export function UploadToHqDialog({
 	onClose,
 	getBlueprint,
 	appName: initialAppName,
+	domain,
 }: UploadToHqDialogProps) {
-	/* Domains and upload status are separate — a failed upload never wipes the form. */
-	const [domains, setDomains] = useState<Domain[]>([]);
-	const [domainsLoading, setDomainsLoading] = useState(true);
-	const [domainsError, setDomainsError] = useState<string | null>(null);
 	const [uploadStatus, setUploadStatus] = useState<UploadStatus>({
 		type: "idle",
 	});
-
-	const [selectedDomain, setSelectedDomain] = useState("");
 	const [appName, setAppName] = useState(initialAppName);
 	const cancelRef = useRef(onClose);
 	cancelRef.current = onClose;
 
-	/* ── Fetch domains when dialog opens ───────────────────────────── */
+	/* ── Reset form state when dialog opens ────────────────────────── */
 	useEffect(() => {
 		if (!open) return;
-
-		/* Reset for fresh open. */
-		setDomainsLoading(true);
-		setDomainsError(null);
-		setDomains([]);
 		setUploadStatus({ type: "idle" });
-		setSelectedDomain("");
 		setAppName(initialAppName);
-
-		const controller = new AbortController();
-		fetch("/api/commcare/domains", { signal: controller.signal })
-			.then(async (res) => {
-				if (!res.ok) {
-					const data = (await res.json()) as { error?: string };
-					setDomainsError(
-						data.error ?? `Failed to load project spaces (HTTP ${res.status})`,
-					);
-					return;
-				}
-				const data = (await res.json()) as { domains: Domain[] };
-				setDomains(data.domains);
-			})
-			.catch((err) => {
-				if (err instanceof DOMException && err.name === "AbortError") return;
-				setDomainsError("Failed to connect to CommCare HQ.");
-			})
-			.finally(() => setDomainsLoading(false));
-
-		return () => controller.abort();
 	}, [open, initialAppName]);
 
 	/* ── Escape key dismissal ──────────────────────────────────────── */
@@ -112,7 +77,7 @@ export function UploadToHqDialog({
 
 	/* ── Upload handler ────────────────────────────────────────────── */
 	const handleUpload = useCallback(async () => {
-		if (!selectedDomain || !appName.trim()) return;
+		if (!domain || !appName.trim()) return;
 
 		setUploadStatus({ type: "uploading" });
 
@@ -122,7 +87,7 @@ export function UploadToHqDialog({
 				method: "POST",
 				headers: { "Content-Type": "application/json" },
 				body: JSON.stringify({
-					domain: selectedDomain,
+					domain: domain.name,
 					appName: appName.trim(),
 					blueprint,
 				}),
@@ -156,15 +121,10 @@ export function UploadToHqDialog({
 				status: 0,
 			});
 		}
-	}, [selectedDomain, appName, getBlueprint]);
+	}, [domain, appName, getBlueprint]);
 
 	const isUploading = uploadStatus.type === "uploading";
-	const canUpload =
-		!domainsLoading &&
-		!domainsError &&
-		!isUploading &&
-		selectedDomain !== "" &&
-		appName.trim().length > 0;
+	const canUpload = !!domain && !isUploading && appName.trim().length > 0;
 
 	return (
 		<AnimatePresence>
@@ -219,60 +179,38 @@ export function UploadToHqDialog({
 									warnings={uploadStatus.warnings}
 									onClose={onClose}
 								/>
-							) : domainsError && domains.length === 0 ? (
-								<LoadErrorView message={domainsError} onClose={onClose} />
+							) : !domain ? (
+								<LoadErrorView
+									message="CommCare HQ is not configured. Add your API key in Settings."
+									onClose={onClose}
+								/>
 							) : (
 								<>
 									<div className="space-y-4">
-										{/* Project space selector */}
-										<label
-											htmlFor="hq-domain-select"
-											className="flex flex-col gap-1.5"
-										>
+										{/* Project space — verified badge, API key is scoped to one domain */}
+										<div className="flex flex-col gap-1.5">
 											<span className="text-sm text-nova-text-secondary font-medium">
 												Project Space
 											</span>
-											<div className="relative">
-												{domainsLoading ? (
-													<div className="w-full px-4 py-2.5 bg-nova-deep border border-nova-border rounded-lg flex items-center gap-2 text-sm text-nova-text-muted">
-														<Icon
-															icon={tablerLoader2}
-															width="14"
-															height="14"
-															className="animate-spin"
-														/>
-														Loading project spaces...
-													</div>
-												) : (
-													<>
-														<select
-															id="hq-domain-select"
-															value={selectedDomain}
-															onChange={(e) =>
-																setSelectedDomain(e.target.value)
-															}
-															disabled={isUploading}
-															className="w-full px-4 py-2.5 pr-9 bg-nova-deep border border-nova-border rounded-lg text-nova-text appearance-none focus:outline-none focus:border-nova-violet focus:shadow-[var(--nova-glow-violet)] transition-all duration-200 disabled:opacity-50 cursor-pointer"
-														>
-															<option value="" disabled>
-																Select a project space
-															</option>
-															{domains.map((d) => (
-																<option key={d.name} value={d.name}>
-																	{d.displayName}
-																</option>
-															))}
-														</select>
-														<Icon
-															icon={tablerChevronDown}
-															width="14"
-															height="14"
-															className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none text-nova-text-muted"
-														/>
-													</>
-												)}
+											<div className="flex items-center gap-3 px-3.5 py-2.5 rounded-lg bg-nova-emerald/[0.04] border border-nova-emerald/15">
+												<div className="flex items-center justify-center w-7 h-7 rounded-full bg-nova-emerald/10 shrink-0">
+													<Icon
+														icon={tablerCircleCheck}
+														width="16"
+														height="16"
+														className="text-nova-emerald"
+													/>
+												</div>
+												<div className="min-w-0">
+													<p className="text-sm font-medium text-nova-text truncate leading-snug">
+														{domain.displayName}
+													</p>
+													<p className="text-[11px] text-nova-text-muted leading-snug">
+														{domain.name}
+													</p>
+												</div>
 											</div>
-										</label>
+										</div>
 
 										{/* App name input */}
 										<label className="flex flex-col gap-1.5">
@@ -299,8 +237,8 @@ export function UploadToHqDialog({
 												className="text-nova-text-muted mt-0.5 shrink-0"
 											/>
 											<p className="text-xs text-nova-text-muted leading-relaxed">
-												Creates a new app in the selected project space. Does
-												not update existing apps.
+												Creates a new app in your project space. Does not update
+												existing apps.
 											</p>
 										</div>
 									</div>
@@ -438,7 +376,7 @@ function SuccessView({
 	);
 }
 
-/** Load error view — shown when domains can't be fetched at all. */
+/** Load error view — shown when domain is missing (settings not configured). */
 function LoadErrorView({
 	message,
 	onClose,
