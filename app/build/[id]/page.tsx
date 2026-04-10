@@ -2,13 +2,12 @@
  * Build page — Server Component that fetches app data and composes
  * the client-side builder tree.
  *
- * For existing apps: fetches the blueprint and CommCare settings
- * server-side in parallel, verifies ownership, and passes both to
- * BuilderProvider/BuilderLayout. Historical threads load inside a
- * Suspense boundary so they don't block the builder.
+ * For existing apps: fetches the blueprint server-side, verifies
+ * ownership, and passes it to BuilderProvider. Historical threads
+ * load inside a Suspense boundary so they don't block the builder.
  *
- * For new apps (`/build/new`): no blueprint fetch. CommCare settings
- * are still read so the export dropdown is populated on first paint.
+ * CommCare settings are read eagerly for both new and existing apps
+ * so the export dropdown is populated on first paint.
  */
 import { notFound, redirect } from "next/navigation";
 import { Suspense } from "react";

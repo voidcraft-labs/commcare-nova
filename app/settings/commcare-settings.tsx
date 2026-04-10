@@ -2,14 +2,12 @@
  * CommCare HQ integration settings — client component.
  *
  * Card-based UI for managing CommCare HQ API credentials. Verification
- * calls a Server Action that tests domains sequentially and returns the
- * result — no streaming, no progress bar. The operation typically
- * completes in 1-3 seconds.
+ * and deletion use Server Actions (`actions.ts`).
  *
  * API key field behavior:
  *   - Idle / error: plaintext text input, editable
- *   - Verifying / configured / deleting: masked password field, disabled
- *   - On success: stays masked (credentials saved)
+ *   - Verifying / configured / deleting: masked, disabled
+ *   - On success: stays masked (credentials saved server-side)
  *   - On error: reverts to plaintext with the original value intact
  */
 

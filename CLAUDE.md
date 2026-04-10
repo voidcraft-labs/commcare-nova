@@ -122,7 +122,7 @@ Sortable items are keyed by **UUID** (`q.uuid`), not `questionPath` — so sorta
 
 Users can upload apps directly to CommCare HQ from the builder. The upload flow creates a **new app** each time — CommCare HQ has no atomic update API yet.
 
-**Architecture:** Client → our API routes (`/api/commcare/*`) → CommCare HQ. The user's CommCare API key stays server-side, encrypted via Cloud KMS in `user_settings/{userId}`. The HQ base URL is hardcoded (`COMMCARE_HQ_URL` in `lib/commcare/client.ts`) to prevent SSRF — never user-configurable.
+**Architecture:** Upload goes through an API route (`/api/commcare/upload`) that expands the blueprint and proxies to CommCare HQ. Settings management uses Server Actions (`app/settings/actions.ts`). The user's CommCare API key stays server-side, encrypted via Cloud KMS in `user_settings/{userId}`. The HQ base URL is hardcoded (`COMMCARE_HQ_URL` in `lib/commcare/client.ts`) to prevent SSRF — never user-configurable.
 
 **CommCare HQ API endpoints used:**
 - `GET /api/user_domains/v1/` — list user's project spaces
@@ -132,9 +132,9 @@ Users can upload apps directly to CommCare HQ from the builder. The upload flow 
 
 **WAF bypass for import_app.** The import endpoint is also missing the `waf_allow('XSS_BODY')` decorator that all other XForms-handling endpoints in HQ have. AWS WAF scans the multipart request body for XSS patterns and blocks when it finds XForms elements (`<input>`, `<select1>`, `<label>`) that look like HTML tags. The fix is a 16KB padding form field (`waf_padding`) inserted before `app_file` in the multipart body — this pushes the JSON (which contains XForms XML) past the WAF inspection window. Django ignores unknown POST fields, so the padding never reaches HQ's handler. CouchDB rejects `_`-prefixed keys as reserved, so the field must NOT start with underscore. Symptom of WAF block: bare nginx 403 (`<center><h1>403 Forbidden</h1></center>`) — distinct from Django's verbose CSRF 403 page.
 
-**Settings page** (`/settings`) — auth-gated, linked from the account menu. Card-based UI for CommCare HQ API credentials. Verification and deletion use Server Actions (`app/settings/actions.ts`) — no API route. CommCare API keys are scoped to a single domain, so `verifyAndSaveCredentials` tests domains sequentially and bails on first match. The API key field swaps to a masked disabled input during verification and stays masked on success — on error it reverts to plaintext with the original value intact.
+**Settings page** (`/settings`) — auth-gated, Server Actions for verify+save and delete (`app/settings/actions.ts`). CommCare API keys are scoped to a single domain, so verification tests domains sequentially and bails on first match.
 
-**Export dropdown** — CommCare HQ upload is the primary option; file downloads (JSON/CCZ) are secondary below a divider. When credentials aren't configured, an informative prompt links to Settings instead of a disabled button. CommCare settings are read by the builder's RSC page and threaded as props — no client-side fetch.
+**Export dropdown** — CommCare HQ upload is the primary option; file downloads (JSON/CCZ) are secondary below a divider. When credentials aren't configured, an informative prompt links to Settings. CommCare settings are read by the builder's RSC page (`app/build/[id]/page.tsx`) — no client-side fetch.
 
 **Domain slug validation** — `isValidDomainSlug()` in `lib/commcare/client.ts` validates domain names against HQ's `legacy_domain_re` pattern (`^[\w.:-]+$`) to prevent path traversal in the import URL template. The permissive pattern accepts all three tiers of HQ domain slugs: new (alphanum + hyphens), grandfathered (+ dots, colons), and legacy (+ underscores).
 
