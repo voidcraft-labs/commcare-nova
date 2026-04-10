@@ -153,7 +153,7 @@ export function derivePostSubmitStack(
 	caseType?: string,
 ): StackOperation[] {
 	switch (postSubmit) {
-		case "default":
+		case "app_home":
 			return [{ op: "create", children: [] }];
 
 		case "root":
@@ -317,7 +317,7 @@ export function deriveEntryDefinition(
 			formType,
 			caseType,
 		);
-	} else if (postSubmit !== "default") {
+	} else if (postSubmit !== "app_home") {
 		operations = derivePostSubmitStack(
 			postSubmit,
 			moduleIndex,
@@ -472,7 +472,7 @@ export function detectFormLinkCycles(
 // ── HQ Workflow Mapping ────────────────────────────────────────────────
 
 const NOVA_TO_HQ: Record<PostSubmitDestination, string> = {
-	default: "default",
+	app_home: "default",
 	root: "root",
 	module: "module",
 	parent_module: "parent_module",
@@ -480,7 +480,7 @@ const NOVA_TO_HQ: Record<PostSubmitDestination, string> = {
 };
 
 const HQ_TO_NOVA: Record<string, PostSubmitDestination> = {
-	default: "default",
+	default: "app_home",
 	root: "root",
 	module: "module",
 	parent_module: "parent_module",
@@ -492,5 +492,5 @@ export function toHqWorkflow(postSubmit: PostSubmitDestination): string {
 }
 
 export function fromHqWorkflow(workflow: string): PostSubmitDestination {
-	return HQ_TO_NOVA[workflow] ?? "default";
+	return HQ_TO_NOVA[workflow] ?? "app_home";
 }

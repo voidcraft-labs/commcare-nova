@@ -1,6 +1,6 @@
 import { parser } from "@/lib/codemirror/xpath-parser";
 import { NameTest } from "@/lib/codemirror/xpath-parser.terms";
-import type { AppBlueprint } from "../schemas/blueprint";
+import { type AppBlueprint, defaultPostSubmit } from "../schemas/blueprint";
 import type { HqApplication } from "./commcare";
 import {
 	applicationShell,
@@ -92,7 +92,7 @@ export function expandBlueprint(blueprint: AppBlueprint): HqApplication {
 				bf.type === "followup" ? "case" : "none",
 				buildFormActions(bf, caseType, blueprint.case_types),
 				buildCaseReferencesLoad(bf.questions || [], effectiveConnect),
-				toHqWorkflow(bf.post_submit ?? "default"),
+				toHqWorkflow(bf.post_submit ?? defaultPostSubmit(bf.type)),
 			);
 		});
 

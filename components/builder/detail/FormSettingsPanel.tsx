@@ -22,10 +22,11 @@ import {
 } from "@/hooks/useBuilder";
 import { useCommitField } from "@/hooks/useCommitField";
 import type { XPathLintContext } from "@/lib/codemirror/xpath-lint";
-import type {
-	ConnectConfig,
-	ConnectType,
-	PostSubmitDestination,
+import {
+	type ConnectConfig,
+	type ConnectType,
+	defaultPostSubmit,
+	type PostSubmitDestination,
 } from "@/lib/schemas/blueprint";
 import { toSnakeId } from "@/lib/services/commcare/validate";
 import {
@@ -154,7 +155,7 @@ const AFTER_SUBMIT_OPTIONS: Array<{
 	icon: typeof tablerHome;
 }> = [
 	{
-		value: "default",
+		value: "app_home",
 		label: "App Home",
 		description: "Back to the main screen",
 		icon: tablerHome,
@@ -175,7 +176,7 @@ const AFTER_SUBMIT_OPTIONS: Array<{
 
 /** Map internal-only values (root, parent_module) to their user-facing equivalent. */
 function resolveUserFacing(dest: PostSubmitDestination): PostSubmitDestination {
-	if (dest === "root") return "default";
+	if (dest === "root") return "app_home";
 	if (dest === "parent_module") return "module";
 	return dest;
 }
@@ -186,7 +187,10 @@ function AfterSubmitSection({
 }: FormSettingsPanelProps) {
 	const form = useForm(moduleIndex, formIndex);
 	const updateForm = useBuilderStore((s) => s.updateForm);
-	const current = resolveUserFacing(form?.postSubmit ?? "default");
+	const formType = form?.type ?? "survey";
+	const current = resolveUserFacing(
+		form?.postSubmit ?? defaultPostSubmit(formType),
+	);
 	const currentOption =
 		AFTER_SUBMIT_OPTIONS.find((o) => o.value === current) ??
 		AFTER_SUBMIT_OPTIONS[0];
@@ -196,10 +200,10 @@ function AfterSubmitSection({
 	const handleSelect = useCallback(
 		(dest: PostSubmitDestination) => {
 			updateForm(moduleIndex, formIndex, {
-				post_submit: dest === "default" ? null : dest,
+				post_submit: dest === defaultPostSubmit(formType) ? null : dest,
 			});
 		},
-		[updateForm, moduleIndex, formIndex],
+		[updateForm, moduleIndex, formIndex, formType],
 	);
 
 	const last = AFTER_SUBMIT_OPTIONS.length - 1;

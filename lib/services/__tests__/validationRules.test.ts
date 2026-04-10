@@ -380,7 +380,7 @@ describe("fix registry", () => {
 
 describe("post_submit validation", () => {
 	it("accepts valid destinations without errors", () => {
-		for (const dest of ["default", "root", "module", "previous"] as const) {
+		for (const dest of ["app_home", "root", "module", "previous"] as const) {
 			const bp = minBlueprint();
 			bp.modules[0].forms[0].post_submit = dest;
 			const errors = runValidation(bp);
@@ -401,7 +401,7 @@ describe("post_submit validation", () => {
 		const err = errors.find((e) => e.code === "INVALID_POST_SUBMIT");
 		expect(err).toBeDefined();
 		expect(err?.message).toContain('"nowhere"');
-		expect(err?.message).toContain("default");
+		expect(err?.message).toContain("app_home");
 		expect(err?.message).toContain("module");
 		expect(err?.message).toContain("previous");
 	});

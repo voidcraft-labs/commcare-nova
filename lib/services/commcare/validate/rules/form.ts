@@ -405,7 +405,7 @@ export function postSubmitValidation(
 				"form",
 				`"${ctx.formName}" has post_submit set to "${dest}", which is not a recognized destination.\n\n` +
 					`The valid options are:\n` +
-					`  "default"        — Navigate to the app home screen\n` +
+					`  "app_home"       — Navigate to the app home screen\n` +
 					`  "root"           — Navigate to the first menu (module select)\n` +
 					`  "module"         — Navigate back to this module's form list\n` +
 					`  "parent_module"  — Navigate to the parent module's menu\n` +
@@ -435,7 +435,7 @@ export function postSubmitValidation(
 					`If you intended a different destination, the options are:\n` +
 					`  "module"    — Stay in "${ctx.moduleName}" (same behavior, explicit)\n` +
 					`  "previous"  — Go back to where the user was before this form\n` +
-					`  "default"   — Go to the app home screen`,
+					`  "app_home"  — Go to the app home screen`,
 				loc,
 			),
 		);
@@ -452,7 +452,7 @@ export function postSubmitValidation(
 				"form",
 				`"${ctx.formName}" has post_submit set to "module", but "${ctx.moduleName}" is a case-list-only module with no form list to navigate to.\n\n` +
 					`After submitting this form, the user would land on an empty module menu. ` +
-					`Consider using "previous" to return the user to where they were, or "default" to go home.`,
+					`Consider using "previous" to return the user to where they were, or "app_home" to go home.`,
 				loc,
 			),
 		);
@@ -518,7 +518,7 @@ export function formLinkValidation(
 				`"${ctx.formName}" has form_links set to an empty array.\n\n` +
 					`form_links is meant to hold one or more navigation links to other forms or modules. ` +
 					`An empty array has no effect — either add links or remove the form_links field entirely.\n\n` +
-					`Without form_links, the form will use its post_submit destination ("${form.post_submit ?? "default"}").`,
+					`Without form_links, the form will use its post_submit destination ("${form.post_submit ?? "form-type default"}").`,
 				loc,
 			),
 		);
@@ -536,7 +536,7 @@ export function formLinkValidation(
 				`"${ctx.formName}" has conditional form links but no post_submit fallback.\n\n` +
 					`When form links have XPath conditions, CommCare evaluates them after submission. ` +
 					`If none of the conditions match, the user needs somewhere to go — that's what post_submit provides.\n\n` +
-					`Set post_submit to a destination like "module" or "default" so there's always a valid navigation path.`,
+					`Set post_submit to a destination like "module" or "app_home" so there's always a valid navigation path.`,
 				loc,
 			),
 		);

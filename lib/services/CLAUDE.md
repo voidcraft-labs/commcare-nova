@@ -80,14 +80,14 @@ Add validation for these when we build the corresponding features:
 
 ### Post-Submit Overview
 
-`post_submit` on forms controls where the user goes after submission. Three user-facing choices: `default` (App Home), `module` (This Module), `previous` (Previous Screen). Two internal-only values exist for future CommCare export fidelity: `root` (for `put_in_root`) and `parent_module` (for nested modules).
+`post_submit` on forms controls where the user goes after submission. Three user-facing choices: `app_home` (App Home), `module` (This Module), `previous` (Previous Screen). Two internal-only values exist for future CommCare export fidelity: `root` (for `put_in_root`) and `parent_module` (for nested modules). Form-type-aware defaults when absent: followup → `previous`, registration/survey → `app_home` (`defaultPostSubmit()` in `blueprint.ts`). The SA only needs to set `post_submit` when overriding the default.
 
 ### `put_in_root` Impact (Not Yet Modeled)
 
 CommCare's `put_in_root` boolean flattens navigation — module forms appear at the parent menu level. When this is added:
 
 1. `'module'` becomes invalid (there IS no module menu). HQ errors: "form link to display only forms."
-2. `'root'` and `'default'` diverge: `'root'` shows the root menu (includes flattened forms), `'default'` clears the session entirely.
+2. `'root'` and `'app_home'` diverge: `'root'` shows the root menu (includes flattened forms), `'app_home'` clears the session entirely.
 3. `'parent_module'` with a `put_in_root` parent is also invalid.
 4. Validation should auto-resolve `'module'` → `'root'` for `put_in_root` modules.
 5. Surface `'root'` as a separate UI option ("Main Menu" vs "App Home") only when `put_in_root` modules exist.
