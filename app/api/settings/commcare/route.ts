@@ -21,6 +21,7 @@ import {
 	getCommCareSettings,
 	saveCommCareSettings,
 } from "@/lib/db/settings";
+import { log } from "@/lib/log";
 
 // ── Stream event types ──────────────────────────────────────────────
 
@@ -178,11 +179,11 @@ export async function PUT(req: NextRequest) {
 
 					emit({ type: "complete", domain: foundDomain });
 				} catch (err) {
-					const message =
-						err instanceof Error
-							? err.message
-							: "An unexpected error occurred.";
-					emit({ type: "error", message });
+					log.error("[settings/commcare] stream error", err);
+					emit({
+						type: "error",
+						message: "An unexpected error occurred. Please try again.",
+					});
 				}
 
 				controller.close();

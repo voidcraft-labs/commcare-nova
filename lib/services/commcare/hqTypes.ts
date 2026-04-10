@@ -210,7 +210,7 @@ export interface HqApplication {
 	secure_submissions: boolean;
 	multimedia_map: Record<string, never>;
 	translations: Record<string, never>;
-	/** Standard HQ app properties (push _attachments past WAF 16KB inspection window) */
+	/** Standard HQ app properties before _attachments (secondary WAF defense — see client.ts) */
 	admin_password: null;
 	admin_password_charset: string;
 	amplifies_project: string;
