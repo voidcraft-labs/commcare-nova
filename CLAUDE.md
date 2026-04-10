@@ -219,6 +219,7 @@ Dark "Violet Monochrome" — violet is the single non-semantic accent. CSS custo
 - Semantic only: `--nova-emerald` (#86cebc, sage-mint), `--nova-amber` (#d4a76a, muted gold), `--nova-rose` (#d4708f, dusty mauve) — never decorative, only for success/warning/error states
 - In-theme accent: `--nova-orchid` (#cda0d4, warm pink-purple) — from the xpath "lavender milk bath" palette, used for UI states that need distinction without semantic warning weight (e.g. impersonation banner)
 - Fonts: Outfit (display), Plus Jakarta Sans (body), JetBrains Mono (code)
+- Z-index scale (`globals.css`): 7 semantic tokens — `z-ground` → `z-raised` → `z-popover` → `z-popover-top` → `z-tooltip` → `z-modal` → `z-system`. Use Tailwind `z-{token}` classes, never hardcoded `z-{number}`. Dialogs and their backdrops use `z-modal`; toasts use `z-system` so they're visible over modals.
 - Popover layers (`lib/styles.ts`): `POPOVER_GLASS` (L1, frosted glass) for base-layer panels, `POPOVER_ELEVATED` (L2, nearly opaque) for stacked popovers. Base UI popover/tooltip animations use CSS `data-[starting-style]`/`data-[ending-style]` data attributes
 - CodeMirror theme (`lib/codemirror/xpath-theme.ts`): "lavender milk bath" palette — all syntax colors in the purple/orchid family, differentiated by lightness and warmth, not by clashing hues
 
