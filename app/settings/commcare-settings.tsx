@@ -266,25 +266,6 @@ export function CommCareSettings({
 				{/* ── Status feedback area ───────────────────────────── */}
 				<div aria-live="polite">
 					<AnimatePresence mode="wait">
-						{isVerifying && (
-							<motion.div
-								key="verifying"
-								initial={STATUS_ENTER}
-								animate={STATUS_VISIBLE}
-								exit={STATUS_EXIT}
-								transition={STATUS_TRANSITION}
-								className="mt-5 flex items-center gap-2 text-sm text-nova-text-muted"
-							>
-								<Icon
-									icon={tablerLoader2}
-									width="14"
-									height="14"
-									className="animate-spin"
-								/>
-								<span>Verifying credentials...</span>
-							</motion.div>
-						)}
-
 						{status.type === "error" && (
 							<motion.div
 								key="error"
