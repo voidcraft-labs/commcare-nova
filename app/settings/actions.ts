@@ -1,13 +1,9 @@
 /**
  * CommCare HQ settings Server Actions — verify credentials and manage storage.
  *
- * These replace the former `/api/settings/commcare` route handler. Server
- * Actions run on the server with full access to Firestore and KMS, while
- * being callable directly from client components — no HTTP round-trip.
- *
  * Both actions return result objects and never throw — Next.js surfaces
- * unhandled Server Action errors differently than route handlers, so we
- * catch everything internally.
+ * unhandled Server Action errors as full-page error boundaries, so we
+ * catch everything internally and return structured error responses.
  */
 
 "use server";
