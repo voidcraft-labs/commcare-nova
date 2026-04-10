@@ -18,6 +18,7 @@ import tablerCheck from "@iconify-icons/tabler/check";
 import tablerCloudUpload from "@iconify-icons/tabler/cloud-upload";
 import tablerExternalLink from "@iconify-icons/tabler/external-link";
 import tablerLoader2 from "@iconify-icons/tabler/loader-2";
+import tablerShieldLock from "@iconify-icons/tabler/shield-lock";
 import tablerTrash from "@iconify-icons/tabler/trash";
 import { AnimatePresence, motion } from "motion/react";
 import { useCallback, useState } from "react";
@@ -332,6 +333,19 @@ export function CommCareSettings({
 						</button>
 					)}
 				</div>
+			</div>
+
+			{/* ── Encryption assurance footer ────────────────────── */}
+			<div className="flex items-center gap-2 border-t border-nova-border/30 px-6 py-3">
+				<Icon
+					icon={tablerShieldLock}
+					width="14"
+					height="14"
+					className="shrink-0 text-nova-violet/50"
+				/>
+				<p className="text-xs text-nova-text-muted/70">
+					Your credentials are encrypted at rest and stored server-side.
+				</p>
 			</div>
 		</section>
 	);
