@@ -19,7 +19,7 @@ import { Popover } from "@base-ui/react/popover";
 import { Icon, type IconifyIcon } from "@iconify/react/offline";
 import tablerChevronRight from "@iconify-icons/tabler/chevron-right";
 import tablerCloudUpload from "@iconify-icons/tabler/cloud-upload";
-import tablerDownload from "@iconify-icons/tabler/download";
+import tablerUpload from "@iconify-icons/tabler/upload";
 import Link from "next/link";
 import { useState } from "react";
 import { Tooltip } from "@/components/ui/Tooltip";
@@ -67,7 +67,7 @@ export function ExportDropdown({
 					}
 				>
 					<Icon
-						icon={tablerDownload}
+						icon={tablerUpload}
 						width={compact ? 18 : 14}
 						height={compact ? 18 : 14}
 						className={compact ? "" : "opacity-70"}
