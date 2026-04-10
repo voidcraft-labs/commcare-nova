@@ -25,6 +25,7 @@ import { AnimatePresence, motion } from "motion/react";
 import { useCallback, useState } from "react";
 import type { SettingsStreamEvent } from "@/app/api/settings/commcare/route";
 import type { CommCareDomain } from "@/lib/commcare/client";
+import { readNdjsonStream } from "@/lib/commcare/ndjson";
 import type { CommCareSettingsPublic } from "@/lib/db/settings";
 
 // ── Types ──────────────────────────────────────────────────────────
@@ -56,48 +57,6 @@ const INPUT_LOCKED = `${INPUT_BASE} bg-nova-deep/50 border-nova-border/50 text-n
 
 /** Placeholder shown in the masked API key field. The actual key never leaves the server. */
 const API_KEY_MASK = "\u2022".repeat(32);
-
-// ── NDJSON stream reader ───────────────────────────────────────────
-
-/**
- * Read an NDJSON response body line-by-line, dispatching each parsed
- * event to the callback. Handles partial lines across chunk boundaries.
- *
- * If a line fails to parse (e.g. a proxy injected HTML, or a chunk split
- * corrupted JSON), emits a synthetic error event and stops — continuing
- * would leave the UI stuck in a progress state with no resolution.
- */
-async function readNdjsonStream(
-	body: ReadableStream<Uint8Array>,
-	onEvent: (event: SettingsStreamEvent) => void,
-): Promise<void> {
-	const reader = body.getReader();
-	const decoder = new TextDecoder();
-	let buffer = "";
-
-	for (;;) {
-		const { done, value } = await reader.read();
-		if (done) break;
-
-		buffer += decoder.decode(value, { stream: true });
-		const lines = buffer.split("\n");
-		/* Last element is either an incomplete line or empty — keep it. */
-		buffer = lines.pop() ?? "";
-
-		for (const line of lines) {
-			if (!line.trim()) continue;
-			try {
-				onEvent(JSON.parse(line) as SettingsStreamEvent);
-			} catch {
-				onEvent({
-					type: "error",
-					message: "Received invalid data from the server.",
-				});
-				return;
-			}
-		}
-	}
-}
 
 // ── Animation presets ──────────────────────────────────────────────
 
@@ -168,7 +127,7 @@ export function CommCareSettings({
 			}
 
 			/* Read the NDJSON stream for progress + result events. */
-			await readNdjsonStream(res.body, (event) => {
+			await readNdjsonStream<SettingsStreamEvent>(res.body, (event) => {
 				switch (event.type) {
 					case "testing":
 						setStatus({
