@@ -997,239 +997,235 @@ export function BuilderLayout({
 			: [];
 
 	return (
-		<>
-			<ReferenceProviderWrapper
-				getContext={getRefContext}
-				subscribeMutation={subscribeMutation}
-			>
-				<div className="h-full flex flex-col overflow-hidden">
-					{/* Replay controller — between header and content so it's visible in both centered and sidebar modes */}
-					{inReplayMode && (
-						<ReplayController
-							onExit={handleExitReplay}
-							onMessagesChange={setReplayMessages}
-						/>
-					)}
+		<ReferenceProviderWrapper
+			getContext={getRefContext}
+			subscribeMutation={subscribeMutation}
+		>
+			<div className="h-full flex flex-col overflow-hidden">
+				{/* Replay controller — between header and content so it's visible in both centered and sidebar modes */}
+				{inReplayMode && (
+					<ReplayController
+						onExit={handleExitReplay}
+						onMessagesChange={setReplayMessages}
+					/>
+				)}
 
-					{/* Builder subheader: nav + breadcrumbs (left) + action buttons (right).
-					 *  Builder-specific toolbar — separate from the global AppHeader. */}
-					<AnimatePresence>
-						{!isCentered && (
-							<motion.div
-								initial={{ opacity: 0, y: -8 }}
-								animate={{ opacity: 1, y: 0 }}
-								exit={{
-									opacity: 0,
-									y: -8,
-									transition: { duration: 0.15, ease: [0.4, 0, 0.2, 1] },
-								}}
-								transition={{ duration: 0.2, ease: [0.4, 0, 0.2, 1] }}
-								className="flex items-center justify-between px-5 h-12 border-b border-nova-border shrink-0 bg-[#0c0c20]"
-							>
-								<div className="flex items-center gap-2 min-w-0">
-									{hasData && (
-										<ScreenNavButtons
-											canGoBack={canGoBack}
-											canGoUp={canGoUp}
-											onBack={handlePreviewBack}
-											onUp={handlePreviewUp}
-										/>
-									)}
-									<CollapsibleBreadcrumb parts={breadcrumbParts} />
-								</div>
-								{showToolbar && (
-									<div className="flex items-center gap-1 shrink-0">
-										<SaveIndicator saveState={saveStatus} />
-										<AppConnectSettings builder={builder} />
-										<Tooltip content={`Undo (${shortcutLabel("mod", "Z")})`}>
-											<button
-												type="button"
-												onClick={handleUndo}
-												disabled={!canUndo}
-												className="flex items-center justify-center min-w-[44px] min-h-[44px] rounded-lg text-nova-text-muted transition-colors cursor-pointer enabled:hover:text-nova-text enabled:hover:bg-white/5 disabled:opacity-[0.38] disabled:cursor-default"
-												aria-label="Undo"
-											>
-												<Icon icon={tablerArrowBackUp} width="18" height="18" />
-											</button>
-										</Tooltip>
-										<Tooltip
-											content={`Redo (${shortcutLabel("mod", "shift", "Z")})`}
-										>
-											<button
-												type="button"
-												onClick={handleRedo}
-												disabled={!canRedo}
-												className="flex items-center justify-center min-w-[44px] min-h-[44px] rounded-lg text-nova-text-muted transition-colors cursor-pointer enabled:hover:text-nova-text enabled:hover:bg-white/5 disabled:opacity-[0.38] disabled:cursor-default"
-												aria-label="Redo"
-											>
-												<Icon
-													icon={tablerArrowForwardUp}
-													width="18"
-													height="18"
-												/>
-											</button>
-										</Tooltip>
-										<ExportDropdown
-											options={exportOptions}
-											commcareConfigured={commcareConfigured}
-											onCommCareUpload={() => setUploadDialogOpen(true)}
-											compact
-										/>
-									</div>
+				{/* Builder subheader: nav + breadcrumbs (left) + action buttons (right).
+				 *  Builder-specific toolbar — separate from the global AppHeader. */}
+				<AnimatePresence>
+					{!isCentered && (
+						<motion.div
+							initial={{ opacity: 0, y: -8 }}
+							animate={{ opacity: 1, y: 0 }}
+							exit={{
+								opacity: 0,
+								y: -8,
+								transition: { duration: 0.15, ease: [0.4, 0, 0.2, 1] },
+							}}
+							transition={{ duration: 0.2, ease: [0.4, 0, 0.2, 1] }}
+							className="flex items-center justify-between px-5 h-12 border-b border-nova-border shrink-0 bg-[#0c0c20]"
+						>
+							<div className="flex items-center gap-2 min-w-0">
+								{hasData && (
+									<ScreenNavButtons
+										canGoBack={canGoBack}
+										canGoUp={canGoUp}
+										onBack={handlePreviewBack}
+										onUp={handlePreviewUp}
+									/>
 								)}
+								<CollapsibleBreadcrumb parts={breadcrumbParts} />
+							</div>
+							{showToolbar && (
+								<div className="flex items-center gap-1 shrink-0">
+									<SaveIndicator saveState={saveStatus} />
+									<AppConnectSettings builder={builder} />
+									<Tooltip content={`Undo (${shortcutLabel("mod", "Z")})`}>
+										<button
+											type="button"
+											onClick={handleUndo}
+											disabled={!canUndo}
+											className="flex items-center justify-center min-w-[44px] min-h-[44px] rounded-lg text-nova-text-muted transition-colors cursor-pointer enabled:hover:text-nova-text enabled:hover:bg-white/5 disabled:opacity-[0.38] disabled:cursor-default"
+											aria-label="Undo"
+										>
+											<Icon icon={tablerArrowBackUp} width="18" height="18" />
+										</button>
+									</Tooltip>
+									<Tooltip
+										content={`Redo (${shortcutLabel("mod", "shift", "Z")})`}
+									>
+										<button
+											type="button"
+											onClick={handleRedo}
+											disabled={!canRedo}
+											className="flex items-center justify-center min-w-[44px] min-h-[44px] rounded-lg text-nova-text-muted transition-colors cursor-pointer enabled:hover:text-nova-text enabled:hover:bg-white/5 disabled:opacity-[0.38] disabled:cursor-default"
+											aria-label="Redo"
+										>
+											<Icon
+												icon={tablerArrowForwardUp}
+												width="18"
+												height="18"
+											/>
+										</button>
+									</Tooltip>
+									<ExportDropdown
+										options={exportOptions}
+										commcareConfigured={commcareConfigured}
+										onCommCareUpload={() => setUploadDialogOpen(true)}
+									/>
+								</div>
+							)}
+						</motion.div>
+					)}
+				</AnimatePresence>
+
+				{/* Content area — flex row of sidebars and main content.
+				 *  Both sidebars animate width on open/close. ChatSidebar stays mounted
+				 *  (width: 0) when collapsed to preserve scroll state and grid controller. */}
+				<div className="relative flex-1 overflow-hidden flex">
+					{/* Structure sidebar (left) — width-animated mount/unmount */}
+					<AnimatePresence initial={false}>
+						{!isCentered && hasData && structureOpen && (
+							<motion.div
+								key="structure"
+								initial={{ width: 0 }}
+								animate={{ width: STRUCTURE_SIDEBAR_WIDTH }}
+								exit={{ width: 0 }}
+								transition={SIDEBAR_TRANSITION}
+								className="shrink-0 overflow-hidden"
+							>
+								<StructureSidebar onClose={() => setStructureOpen(false)} />
 							</motion.div>
 						)}
 					</AnimatePresence>
 
-					{/* Content area — flex row of sidebars and main content.
-					 *  Both sidebars animate width on open/close. ChatSidebar stays mounted
-					 *  (width: 0) when collapsed to preserve scroll state and grid controller. */}
-					<div className="relative flex-1 overflow-hidden flex">
-						{/* Structure sidebar (left) — width-animated mount/unmount */}
-						<AnimatePresence initial={false}>
-							{!isCentered && hasData && structureOpen && (
-								<motion.div
-									key="structure"
-									initial={{ width: 0 }}
-									animate={{ width: STRUCTURE_SIDEBAR_WIDTH }}
-									exit={{ width: 0 }}
-									transition={SIDEBAR_TRANSITION}
-									className="shrink-0 overflow-hidden"
-								>
-									<StructureSidebar onClose={() => setStructureOpen(false)} />
-								</motion.div>
-							)}
-						</AnimatePresence>
-
-						{/* Main scrollable content */}
-						<AnimatePresence>
-							{!isCentered && (
-								<motion.div
-									className="flex-1 overflow-hidden relative"
-									initial={{ opacity: 0 }}
-									animate={{ opacity: 1 }}
-									exit={{ opacity: 0 }}
-									transition={{ duration: 0.3, delay: 0.15 }}
-								>
-									{/* Floating reopen buttons for collapsed sidebars.
-									 *  Hidden in pointer mode — sidebars are force-closed for
-									 *  immersive testing, so expand icons would be misleading. */}
-									{cursorMode !== "pointer" && !structureOpen && hasData && (
-										<Tooltip content="Open structure" placement="right">
-											<button
-												type="button"
-												onClick={() => setStructureOpen(true)}
-												className="absolute top-3 left-3 z-ground p-2 bg-nova-surface border border-nova-border rounded-lg hover:border-nova-border-bright transition-colors cursor-pointer"
-												aria-label="Open structure sidebar"
-											>
-												<Icon icon={tablerListTree} width="20" height="20" />
-											</button>
-										</Tooltip>
-									)}
-									{cursorMode !== "pointer" && !chatOpen && (
-										<Tooltip content="Open chat" placement="left">
-											<button
-												type="button"
-												onClick={() => setChatOpen(true)}
-												className="absolute top-3 right-3 z-ground p-2 bg-nova-surface border border-nova-border rounded-lg hover:border-nova-border-bright transition-colors cursor-pointer"
-												aria-label="Open chat sidebar"
-											>
-												<Icon
-													icon={tablerMessageChatbot}
-													width="20"
-													height="20"
-												/>
-											</button>
-										</Tooltip>
-									)}
-
-									<ErrorBoundary>
-										{isReady && hasData ? (
-											<PreviewShell
-												hideHeader
-												topInset={showToolbar ? TOOLBAR_INSET : 0}
-												onBack={handlePreviewBack}
+					{/* Main scrollable content */}
+					<AnimatePresence>
+						{!isCentered && (
+							<motion.div
+								className="flex-1 overflow-hidden relative"
+								initial={{ opacity: 0 }}
+								animate={{ opacity: 1 }}
+								exit={{ opacity: 0 }}
+								transition={{ duration: 0.3, delay: 0.15 }}
+							>
+								{/* Floating reopen buttons for collapsed sidebars.
+								 *  Hidden in pointer mode — sidebars are force-closed for
+								 *  immersive testing, so expand icons would be misleading. */}
+								{cursorMode !== "pointer" && !structureOpen && hasData && (
+									<Tooltip content="Open structure" placement="right">
+										<button
+											type="button"
+											onClick={() => setStructureOpen(true)}
+											className="absolute top-3 left-3 z-ground p-2 bg-nova-surface border border-nova-border rounded-lg hover:border-nova-border-bright transition-colors cursor-pointer"
+											aria-label="Open structure sidebar"
+										>
+											<Icon icon={tablerListTree} width="20" height="20" />
+										</button>
+									</Tooltip>
+								)}
+								{cursorMode !== "pointer" && !chatOpen && (
+									<Tooltip content="Open chat" placement="left">
+										<button
+											type="button"
+											onClick={() => setChatOpen(true)}
+											className="absolute top-3 right-3 z-ground p-2 bg-nova-surface border border-nova-border rounded-lg hover:border-nova-border-bright transition-colors cursor-pointer"
+											aria-label="Open chat sidebar"
+										>
+											<Icon
+												icon={tablerMessageChatbot}
+												width="20"
+												height="20"
 											/>
-										) : null}
-									</ErrorBoundary>
+										</button>
+									</Tooltip>
+								)}
 
-									{/* Cursor mode pill — absolutely positioned centered pill over
-									 *  the scroll container so backdrop-filter samples the scrolling
-									 *  content beneath. Pill shape avoids covering sidebar expand
-									 *  icons at the edges. topInset on PreviewShell offsets content
-									 *  so it starts below this overlay at initial scroll position. */}
-									{showToolbar && (
-										<div className="absolute top-2.5 inset-x-0 z-raised flex justify-center pointer-events-none">
-											<div className="pointer-events-auto rounded-full bg-[rgba(93,88,167,0.25)] backdrop-blur-[12px] [-webkit-backdrop-filter:blur(12px)] border border-white/[0.1] shadow-[0_4px_20px_rgba(139,92,246,0.1),0_2px_8px_rgba(0,0,0,0.2)] px-1 py-1">
-												<CursorModeSelector
-													mode={cursorMode}
-													onChange={handleCursorModeChange}
-													variant="horizontal"
-													glass
+								<ErrorBoundary>
+									{isReady && hasData ? (
+										<PreviewShell
+											hideHeader
+											topInset={showToolbar ? TOOLBAR_INSET : 0}
+											onBack={handlePreviewBack}
+										/>
+									) : null}
+								</ErrorBoundary>
+
+								{/* Cursor mode pill — absolutely positioned centered pill over
+								 *  the scroll container so backdrop-filter samples the scrolling
+								 *  content beneath. Pill shape avoids covering sidebar expand
+								 *  icons at the edges. topInset on PreviewShell offsets content
+								 *  so it starts below this overlay at initial scroll position. */}
+								{showToolbar && (
+									<div className="absolute top-2.5 inset-x-0 z-raised flex justify-center pointer-events-none">
+										<div className="pointer-events-auto rounded-full bg-[rgba(93,88,167,0.25)] backdrop-blur-[12px] [-webkit-backdrop-filter:blur(12px)] border border-white/[0.1] shadow-[0_4px_20px_rgba(139,92,246,0.1),0_2px_8px_rgba(0,0,0,0.2)] px-1 py-1">
+											<CursorModeSelector
+												mode={cursorMode}
+												onChange={handleCursorModeChange}
+												variant="horizontal"
+												glass
+											/>
+										</div>
+									</div>
+								)}
+
+								{/* Progress overlay */}
+								<AnimatePresence>
+									{showProgress && (
+										<motion.div
+											exit={{ opacity: 0, y: 30, scale: 0.97 }}
+											transition={{ duration: 1, ease: [0.4, 0, 0.2, 1] }}
+											className="absolute z-ground pointer-events-none inset-0 flex items-center justify-center"
+										>
+											<div className="pointer-events-auto">
+												<GenerationProgress
+													stage={generationStage}
+													generationError={generationError}
+													statusMessage={statusMessage}
 												/>
 											</div>
-										</div>
+										</motion.div>
 									)}
+								</AnimatePresence>
+							</motion.div>
+						)}
+					</AnimatePresence>
 
-									{/* Progress overlay */}
-									<AnimatePresence>
-										{showProgress && (
-											<motion.div
-												exit={{ opacity: 0, y: 30, scale: 0.97 }}
-												transition={{ duration: 1, ease: [0.4, 0, 0.2, 1] }}
-												className="absolute z-ground pointer-events-none inset-0 flex items-center justify-center"
-											>
-												<div className="pointer-events-auto">
-													<GenerationProgress
-														stage={generationStage}
-														generationError={generationError}
-														statusMessage={statusMessage}
-													/>
-												</div>
-											</motion.div>
-										)}
-									</AnimatePresence>
-								</motion.div>
-							)}
-						</AnimatePresence>
-
-						{/* Chat sidebar — always mounted, width-animated for open/close.
-						 *  In centered mode the wrapper is invisible to layout (auto width,
-						 *  no overflow clip) so ChatSidebar's absolute positioning works. */}
-						<motion.div
-							initial={false}
-							animate={{
-								width: isCentered ? "auto" : chatOpen ? CHAT_SIDEBAR_WIDTH : 0,
-							}}
-							transition={isCentered ? { duration: 0 } : SIDEBAR_TRANSITION}
-							className={isCentered ? "" : "shrink-0 overflow-hidden"}
-						>
-							<ErrorBoundary>
-								<ChatSidebar
-									key="chat"
-									centered={isCentered}
-									heroLogo={isCentered ? <Logo size="hero" /> : undefined}
-									messages={inReplayMode ? replayMessages : messages}
-									status={inReplayMode ? "ready" : status}
-									onSend={handleSend}
-									onClose={() => setChatOpen(false)}
-									addToolOutput={addToolOutput}
-									readOnly={inReplayMode}
-									isExistingApp={!!isExistingApp}
-								>
-									{/* Server-rendered thread history — passed through from
-									 *  the RSC page's Suspense boundary. Undefined for new
-									 *  apps and replay mode. */}
-									{!inReplayMode && children}
-								</ChatSidebar>
-							</ErrorBoundary>
-						</motion.div>
-					</div>
+					{/* Chat sidebar — always mounted, width-animated for open/close.
+					 *  In centered mode the wrapper is invisible to layout (auto width,
+					 *  no overflow clip) so ChatSidebar's absolute positioning works. */}
+					<motion.div
+						initial={false}
+						animate={{
+							width: isCentered ? "auto" : chatOpen ? CHAT_SIDEBAR_WIDTH : 0,
+						}}
+						transition={isCentered ? { duration: 0 } : SIDEBAR_TRANSITION}
+						className={isCentered ? "" : "shrink-0 overflow-hidden"}
+					>
+						<ErrorBoundary>
+							<ChatSidebar
+								key="chat"
+								centered={isCentered}
+								heroLogo={isCentered ? <Logo size="hero" /> : undefined}
+								messages={inReplayMode ? replayMessages : messages}
+								status={inReplayMode ? "ready" : status}
+								onSend={handleSend}
+								onClose={() => setChatOpen(false)}
+								addToolOutput={addToolOutput}
+								readOnly={inReplayMode}
+								isExistingApp={!!isExistingApp}
+							>
+								{/* Server-rendered thread history — passed through from
+								 *  the RSC page's Suspense boundary. Undefined for new
+								 *  apps and replay mode. */}
+								{!inReplayMode && children}
+							</ChatSidebar>
+						</ErrorBoundary>
+					</motion.div>
 				</div>
-			</ReferenceProviderWrapper>
-
-			{/* Upload to CommCare HQ dialog — fixed overlay, outside the
-			 *  ReferenceProvider since it doesn't need builder context. */}
+			</div>
+			{/* Upload to CommCare HQ dialog — fixed overlay, doesn't use
+			 *  reference context but lives here to avoid an extra Fragment. */}
 			<UploadToHqDialog
 				open={uploadDialogOpen}
 				onClose={() => setUploadDialogOpen(false)}
@@ -1237,6 +1233,6 @@ export function BuilderLayout({
 				appName={appName}
 				domain={commcareDomain}
 			/>
-		</>
+		</ReferenceProviderWrapper>
 	);
 }

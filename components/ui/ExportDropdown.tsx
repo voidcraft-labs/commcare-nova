@@ -41,8 +41,6 @@ interface ExportDropdownProps {
 	commcareConfigured: boolean;
 	/** Called when the user clicks "CommCare HQ" (only when configured). */
 	onCommCareUpload: () => void;
-	/** Icon-only trigger button for compact toolbar placement. */
-	compact?: boolean;
 }
 
 // ── Component ──────────────────────────────────────────────────────
@@ -51,7 +49,6 @@ export function ExportDropdown({
 	options,
 	commcareConfigured,
 	onCommCareUpload,
-	compact,
 }: ExportDropdownProps) {
 	const [open, setOpen] = useState(false);
 
@@ -60,18 +57,9 @@ export function ExportDropdown({
 			<Tooltip content="Export">
 				<Popover.Trigger
 					aria-label="Export"
-					className={
-						compact
-							? "inline-flex items-center justify-center min-w-[44px] min-h-[44px] rounded-lg text-nova-text-muted hover:text-nova-text hover:bg-white/5 transition-colors cursor-pointer"
-							: "inline-flex items-center gap-1.5 px-3 py-1.5 text-lg font-medium rounded-lg bg-nova-surface text-nova-text border border-nova-border hover:border-nova-border-bright hover:bg-nova-elevated transition-all duration-200 cursor-pointer"
-					}
+					className="inline-flex items-center justify-center min-w-[44px] min-h-[44px] rounded-lg text-nova-text-muted hover:text-nova-text hover:bg-white/5 transition-colors cursor-pointer"
 				>
-					<Icon
-						icon={tablerUpload}
-						width={compact ? 18 : 14}
-						height={compact ? 18 : 14}
-						className={compact ? "" : "opacity-70"}
-					/>
+					<Icon icon={tablerUpload} width={18} height={18} />
 				</Popover.Trigger>
 			</Tooltip>
 
