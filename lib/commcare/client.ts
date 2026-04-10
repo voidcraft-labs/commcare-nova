@@ -314,6 +314,14 @@ export async function importApp(
 		warnings?: string[];
 	};
 
+	/* HQ can return HTTP 200 with success:false for application-level
+	 * import failures (malformed JSON, schema violations). The response
+	 * body is already consumed so we log the parsed result directly. */
+	if (!data.success) {
+		log.error("[commcare] import rejected by HQ", { domain, data });
+		return { success: false, status: 422 };
+	}
+
 	return {
 		success: true,
 		appId: data.app_id,
