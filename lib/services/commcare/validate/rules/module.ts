@@ -149,7 +149,17 @@ export function missingCaseListColumns(
 	return [];
 }
 
-/** Collect all case property names defined by forms in modules with this case type. */
+/**
+ * Collect all case property names saved to a given case type across the app.
+ *
+ * Walks modules with the target case type AND parent modules that create
+ * children of this type — child case creation means a form in a parent
+ * module (e.g. "measles_case") can save properties to a child case type
+ * (e.g. "contact") via `case_property_on`. The per-question filter
+ * (`q.case_property_on === caseType`) ensures only properties targeting
+ * the requested type are collected, even when walking a parent module
+ * whose own questions save to its primary type.
+ */
 function collectKnownCaseProperties(
 	bp: AppBlueprint,
 	caseType: string,
@@ -161,8 +171,13 @@ function collectKnownCaseProperties(
 			if (q.children) walk(q.children);
 		}
 	}
+
+	const moduleTypes = new Set([caseType]);
+	const ct = bp.case_types?.find((c) => c.name === caseType);
+	if (ct?.parent_type) moduleTypes.add(ct.parent_type);
+
 	for (const mod of bp.modules) {
-		if (mod.case_type !== caseType) continue;
+		if (!mod.case_type || !moduleTypes.has(mod.case_type)) continue;
 		for (const form of mod.forms) {
 			walk(form.questions || []);
 		}
