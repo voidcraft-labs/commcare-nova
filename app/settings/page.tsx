@@ -5,9 +5,12 @@
  * and passes it to the client component for interactive editing.
  * Auth is handled by the settings layout (requireAuth).
  */
+import type { Metadata } from "next";
 import { getSession } from "@/lib/auth-utils";
 import { getCommCareSettings } from "@/lib/db/settings";
 import { CommCareSettings } from "./commcare-settings";
+
+export const metadata: Metadata = { title: "Settings" };
 
 export default async function SettingsPage() {
 	const session = await getSession();
