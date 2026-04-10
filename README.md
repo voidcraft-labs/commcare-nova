@@ -77,6 +77,7 @@ Read-only tools for inspecting production Firestore data. Requires `gcloud auth 
 ```bash
 npx tsx scripts/inspect-app.ts <appId>                 # App metadata, blueprint structure, threads
 npx tsx scripts/inspect-app.ts <appId> --questions      # Include question-level detail
+npx tsx scripts/inspect-app.ts <appId> --threads        # Full chat content + config events per request
 npx tsx scripts/inspect-app.ts <appId> --blueprint      # Dump full blueprint JSON
 
 npx tsx scripts/inspect-logs.ts <appId>                 # All events, summary view
