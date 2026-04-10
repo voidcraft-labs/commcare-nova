@@ -1,4 +1,5 @@
 "use client";
+import { Menu } from "@base-ui/react/menu";
 import { Popover } from "@base-ui/react/popover";
 import { Icon } from "@iconify/react/offline";
 import tablerArrowBackUp from "@iconify-icons/tabler/arrow-back-up";
@@ -12,10 +13,6 @@ import { SavedCheck } from "@/components/builder/EditableTitle";
 import { SaveShortcutHint } from "@/components/builder/SaveShortcutHint";
 import { XPathField } from "@/components/builder/XPathField";
 import { ConnectLogomark } from "@/components/icons/ConnectLogomark";
-import {
-	DropdownMenu,
-	type DropdownMenuItem,
-} from "@/components/ui/DropdownMenu";
 import { Toggle } from "@/components/ui/Toggle";
 import {
 	useBuilderEngine,
@@ -37,8 +34,11 @@ import {
 	getEntityData,
 } from "@/lib/services/normalizedState";
 import {
+	MENU_ITEM_BASE,
+	MENU_ITEM_CLS,
+	MENU_POPUP_CLS,
+	MENU_SUBMENU_POSITIONER_CLS,
 	POPOVER_POPUP_CLS,
-	POPOVER_POSITIONER_ELEVATED_CLS,
 	POPOVER_POSITIONER_GLASS_CLS,
 } from "@/lib/styles";
 import { FormDetail } from "./FormDetail";
@@ -192,25 +192,17 @@ function AfterSubmitSection({
 		AFTER_SUBMIT_OPTIONS[0];
 	const triggerId = useId();
 	const triggerRef = useRef<HTMLButtonElement>(null);
-	const [open, setOpen] = useState(false);
 
 	const handleSelect = useCallback(
 		(dest: PostSubmitDestination) => {
 			updateForm(moduleIndex, formIndex, {
 				post_submit: dest === "default" ? null : dest,
 			});
-			setOpen(false);
 		},
 		[updateForm, moduleIndex, formIndex],
 	);
 
-	const items: DropdownMenuItem[] = AFTER_SUBMIT_OPTIONS.map((opt) => ({
-		key: opt.value,
-		label: opt.label,
-		description: opt.description,
-		icon: opt.icon,
-		onClick: () => handleSelect(opt.value),
-	}));
+	const last = AFTER_SUBMIT_OPTIONS.length - 1;
 
 	return (
 		<div>
@@ -220,11 +212,11 @@ function AfterSubmitSection({
 			>
 				After Submit
 			</label>
-			<Popover.Root open={open} onOpenChange={setOpen}>
-				<Popover.Trigger
+			<Menu.Root>
+				<Menu.Trigger
 					ref={triggerRef}
 					id={triggerId}
-					className="w-full flex items-center justify-between px-2 py-1.5 text-xs rounded-md border transition-colors cursor-pointer text-nova-text bg-nova-deep/50 border-white/[0.06] hover:border-nova-violet/30"
+					className="group w-full flex items-center justify-between px-2 py-1.5 text-xs rounded-md border transition-colors cursor-pointer text-nova-text bg-nova-deep/50 border-white/[0.06] hover:border-nova-violet/30"
 				>
 					<span>{currentOption.label}</span>
 					<svg
@@ -232,7 +224,7 @@ function AfterSubmitSection({
 						width="10"
 						height="10"
 						viewBox="0 0 10 10"
-						className={`text-nova-text-muted transition-transform ${open ? "rotate-180" : ""}`}
+						className="text-nova-text-muted transition-transform group-data-[popup-open]:rotate-180"
 					>
 						<path
 							d="M2 3.5L5 6.5L8 3.5"
@@ -243,27 +235,68 @@ function AfterSubmitSection({
 							strokeLinejoin="round"
 						/>
 					</svg>
-				</Popover.Trigger>
+				</Menu.Trigger>
 
-				<Popover.Portal>
-					<Popover.Positioner
+				<Menu.Portal>
+					<Menu.Positioner
 						side="bottom"
 						align="start"
 						sideOffset={4}
 						anchor={triggerRef}
-						className={POPOVER_POSITIONER_ELEVATED_CLS}
+						className={MENU_SUBMENU_POSITIONER_CLS}
 						style={{ minWidth: "var(--anchor-width)" }}
 					>
-						<Popover.Popup className={POPOVER_POPUP_CLS}>
-							<DropdownMenu
-								items={items}
-								activeKey={current}
-								variant="elevated"
-							/>
-						</Popover.Popup>
-					</Popover.Positioner>
-				</Popover.Portal>
-			</Popover.Root>
+						<Menu.Popup className={MENU_POPUP_CLS}>
+							{AFTER_SUBMIT_OPTIONS.map((opt, i) => {
+								const isActive = opt.value === current;
+								const corners =
+									i === 0 && i === last
+										? "rounded-xl"
+										: i === 0
+											? "rounded-t-xl"
+											: i === last
+												? "rounded-b-xl"
+												: "";
+
+								return (
+									<Menu.Item
+										key={opt.value}
+										onClick={() => handleSelect(opt.value)}
+										className={`${corners} ${
+											isActive
+												? `${MENU_ITEM_BASE} text-nova-violet-bright bg-nova-violet/10 cursor-pointer`
+												: MENU_ITEM_CLS
+										}`}
+									>
+										<Icon
+											icon={opt.icon}
+											width="16"
+											height="16"
+											className={
+												isActive
+													? "text-nova-violet-bright"
+													: "text-nova-text-muted"
+											}
+										/>
+										<span className="flex-1 text-left">
+											<div>{opt.label}</div>
+											<div
+												className={`text-xs leading-tight ${
+													isActive
+														? "text-nova-violet-bright/60"
+														: "text-nova-text-muted"
+												}`}
+											>
+												{opt.description}
+											</div>
+										</span>
+									</Menu.Item>
+								);
+							})}
+						</Menu.Popup>
+					</Menu.Positioner>
+				</Menu.Portal>
+			</Menu.Root>
 		</div>
 	);
 }

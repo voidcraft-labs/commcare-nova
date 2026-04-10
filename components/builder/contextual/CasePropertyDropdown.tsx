@@ -1,13 +1,15 @@
 "use client";
-import { Popover } from "@base-ui/react/popover";
+import { Menu } from "@base-ui/react/menu";
+import { Icon } from "@iconify/react/offline";
 import tablerCircleOff from "@iconify-icons/tabler/circle-off";
 import tablerDatabase from "@iconify-icons/tabler/database";
-import { useCallback, useId, useMemo, useRef, useState } from "react";
+import { useCallback, useId, useMemo, useRef } from "react";
 import {
-	DropdownMenu,
-	type DropdownMenuItem,
-} from "@/components/ui/DropdownMenu";
-import { POPOVER_POPUP_CLS, POPOVER_POSITIONER_GLASS_CLS } from "@/lib/styles";
+	MENU_ITEM_BASE,
+	MENU_ITEM_CLS,
+	MENU_POPUP_CLS,
+	MENU_POSITIONER_CLS,
+} from "@/lib/styles";
 
 interface CasePropertyDropdownProps {
 	value: string | undefined;
@@ -22,6 +24,7 @@ interface CasePropertyDropdownProps {
 /**
  * Dropdown for selecting which case type a question's value is saved to.
  * Options: "None" (no persistence) + one entry per writable case type.
+ * Uses Base UI Menu for proper keyboard navigation and ARIA semantics.
  */
 export function CasePropertyDropdown({
 	value,
@@ -33,7 +36,6 @@ export function CasePropertyDropdown({
 }: CasePropertyDropdownProps) {
 	const isInteractive = !disabled && !isCaseName;
 	const triggerId = useId();
-	const [open, setOpen] = useState(false);
 	const triggerRef = useRef<HTMLButtonElement>(null);
 
 	/** Compose autoFocus — focuses the button on mount when restoring focus
@@ -50,19 +52,16 @@ export function CasePropertyDropdown({
 	const handleSelect = useCallback(
 		(caseType: string | null) => {
 			onChange(caseType);
-			setOpen(false);
 		},
 		[onChange],
 	);
 
-	const items: DropdownMenuItem[] = useMemo(() => {
-		const result: DropdownMenuItem[] = [
+	const items = useMemo(() => {
+		const result: { key: string; label: string; description: string }[] = [
 			{
 				key: "__none__",
 				label: "None",
 				description: "Don't save to a case",
-				icon: tablerCircleOff,
-				onClick: () => handleSelect(null),
 			},
 		];
 		for (const ct of caseTypes) {
@@ -71,12 +70,10 @@ export function CasePropertyDropdown({
 				label: ct,
 				description:
 					ct === caseTypes[0] ? "Primary case type" : "Child case type",
-				icon: tablerDatabase,
-				onClick: () => handleSelect(ct),
 			});
 		}
 		return result;
-	}, [caseTypes, handleSelect]);
+	}, [caseTypes]);
 
 	/* Hide entirely when no case types exist and this isn't a case_name question */
 	if (caseTypes.length === 0 && !isCaseName) return null;
@@ -92,35 +89,28 @@ export function CasePropertyDropdown({
 			>
 				Saves to
 			</label>
-			<Popover.Root
-				open={open}
-				onOpenChange={isInteractive ? setOpen : undefined}
-			>
-				<Popover.Trigger
-					ref={composedTriggerRef}
-					id={triggerId}
-					aria-label={`Saves to: ${displayLabel}`}
-					disabled={!isInteractive}
-					className={`w-full flex items-center justify-between px-2 py-1.5 text-xs rounded-md border transition-colors ${
-						isInteractive
-							? "cursor-pointer text-nova-text bg-nova-deep/50 border-white/[0.06] hover:border-nova-violet/30"
-							: `${isCaseName && value ? "opacity-70" : "opacity-50"} cursor-not-allowed text-nova-text bg-nova-deep/50 border-white/[0.06]`
-					}`}
-				>
-					<span
-						className={
-							value ? "text-nova-violet-bright" : "text-nova-text-muted"
-						}
+
+			{isInteractive ? (
+				<Menu.Root>
+					<Menu.Trigger
+						ref={composedTriggerRef}
+						id={triggerId}
+						aria-label={`Saves to: ${displayLabel}`}
+						className="group w-full flex items-center justify-between px-2 py-1.5 text-xs rounded-md border transition-colors cursor-pointer text-nova-text bg-nova-deep/50 border-white/[0.06] hover:border-nova-violet/30"
 					>
-						{displayLabel}
-					</span>
-					{isInteractive && (
+						<span
+							className={
+								value ? "text-nova-violet-bright" : "text-nova-text-muted"
+							}
+						>
+							{displayLabel}
+						</span>
 						<svg
 							aria-hidden="true"
 							width="10"
 							height="10"
 							viewBox="0 0 10 10"
-							className={`text-nova-text-muted transition-transform ${open ? "rotate-180" : ""}`}
+							className="text-nova-text-muted transition-transform group-data-[popup-open]:rotate-180"
 						>
 							<path
 								d="M2 3.5L5 6.5L8 3.5"
@@ -131,24 +121,96 @@ export function CasePropertyDropdown({
 								strokeLinejoin="round"
 							/>
 						</svg>
-					)}
-				</Popover.Trigger>
+					</Menu.Trigger>
 
-				<Popover.Portal>
-					<Popover.Positioner
-						side="bottom"
-						align="start"
-						sideOffset={4}
-						anchor={triggerRef}
-						className={POPOVER_POSITIONER_GLASS_CLS}
-						style={{ minWidth: "var(--anchor-width)" }}
+					<Menu.Portal>
+						<Menu.Positioner
+							side="bottom"
+							align="start"
+							sideOffset={4}
+							anchor={triggerRef}
+							className={MENU_POSITIONER_CLS}
+							style={{ minWidth: "var(--anchor-width)" }}
+						>
+							<Menu.Popup className={MENU_POPUP_CLS}>
+								{items.map((item, i) => {
+									const isActive = item.key === activeKey;
+									const last = items.length - 1;
+									const corners =
+										i === 0 && i === last
+											? "rounded-xl"
+											: i === 0
+												? "rounded-t-xl"
+												: i === last
+													? "rounded-b-xl"
+													: "";
+
+									return (
+										<Menu.Item
+											key={item.key}
+											onClick={() =>
+												handleSelect(item.key === "__none__" ? null : item.key)
+											}
+											className={`${corners} ${
+												isActive
+													? `${MENU_ITEM_BASE} text-nova-violet-bright bg-nova-violet/10 cursor-pointer`
+													: MENU_ITEM_CLS
+											}`}
+										>
+											<Icon
+												icon={
+													item.key === "__none__"
+														? tablerCircleOff
+														: tablerDatabase
+												}
+												width="16"
+												height="16"
+												className={
+													isActive
+														? "text-nova-violet-bright"
+														: "text-nova-text-muted"
+												}
+											/>
+											<span className="flex-1 text-left">
+												<div>{item.label}</div>
+												<div
+													className={`text-xs leading-tight ${
+														isActive
+															? "text-nova-violet-bright/60"
+															: "text-nova-text-muted"
+													}`}
+												>
+													{item.description}
+												</div>
+											</span>
+										</Menu.Item>
+									);
+								})}
+							</Menu.Popup>
+						</Menu.Positioner>
+					</Menu.Portal>
+				</Menu.Root>
+			) : (
+				/* Static trigger when non-interactive (disabled or case_name) */
+				<button
+					type="button"
+					ref={composedTriggerRef}
+					id={triggerId}
+					aria-label={`Saves to: ${displayLabel}`}
+					disabled
+					className={`w-full flex items-center justify-between px-2 py-1.5 text-xs rounded-md border transition-colors ${
+						isCaseName && value ? "opacity-70" : "opacity-50"
+					} cursor-not-allowed text-nova-text bg-nova-deep/50 border-white/[0.06]`}
+				>
+					<span
+						className={
+							value ? "text-nova-violet-bright" : "text-nova-text-muted"
+						}
 					>
-						<Popover.Popup className={POPOVER_POPUP_CLS}>
-							<DropdownMenu items={items} activeKey={activeKey} />
-						</Popover.Popup>
-					</Popover.Positioner>
-				</Popover.Portal>
-			</Popover.Root>
+						{displayLabel}
+					</span>
+				</button>
+			)}
 		</div>
 	);
 }

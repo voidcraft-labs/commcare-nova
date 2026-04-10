@@ -1,8 +1,12 @@
 /**
  * Themed tooltip wrapping Base UI's `Tooltip.*` with Nova styling and defaults.
  *
- * The child must be a single React element that accepts a ref — Base UI's
- * `render` prop attaches handlers directly, no wrapper `<span>`.
+ * Handles disabled children transparently: when the child has `disabled={true}`,
+ * it's wrapped in a `<div role="presentation">` so hover events fire regardless
+ * of whether the child is a native form element (browser suppresses pointer
+ * events) or a Base UI component (render-prop composition doesn't reliably
+ * forward tooltip handlers). The presentation role keeps the wrapper invisible
+ * to the accessibility tree.
  *
  * Falsy `content` is a passthrough — the child renders unmodified, so
  * conditional tooltips don't need ternaries at the call site.
@@ -11,7 +15,12 @@
 "use client";
 
 import { Tooltip as BaseTooltip } from "@base-ui/react/tooltip";
-import type { ReactElement, ReactNode, RefAttributes } from "react";
+import {
+	isValidElement,
+	type ReactElement,
+	type ReactNode,
+	type RefAttributes,
+} from "react";
 
 type Side = "top" | "bottom" | "left" | "right";
 
@@ -23,9 +32,9 @@ interface TooltipProps {
 	/** Hover delay in ms before the tooltip appears. Default: `400`.
 	 *  Overrides the Provider-level delay for this specific trigger. */
 	delay?: number;
-	/** Tooltip trigger content. Must be a single React element that accepts a
-	 *  ref. Interaction handlers are merged non-destructively via Base UI's
-	 *  `render` prop — no cloneElement, no wrapper element. */
+	/** Tooltip trigger element. Must accept a ref. For non-disabled elements,
+	 *  Base UI's `render` prop attaches handlers directly (no wrapper). Disabled
+	 *  elements get a transparent `<div>` wrapper that captures hover events. */
 	children: ReactElement<RefAttributes<HTMLElement>>;
 }
 
@@ -40,9 +49,25 @@ export function Tooltip({
 	 * without branching. */
 	if (!content) return children;
 
+	const isDisabled =
+		isValidElement(children) &&
+		(children.props as Record<string, unknown>).disabled === true;
+
+	/* Disabled elements can't reliably serve as tooltip triggers — native form
+	 * elements suppress pointer events, and Base UI component composition via
+	 * `render` doesn't forward hover handlers. One strategy handles both:
+	 * wrap in a `<div role="presentation">` that receives hover events directly. */
+	const trigger = isDisabled ? (
+		<BaseTooltip.Trigger delay={delay} render={<div role="presentation" />}>
+			{children}
+		</BaseTooltip.Trigger>
+	) : (
+		<BaseTooltip.Trigger delay={delay} render={children} />
+	);
+
 	return (
 		<BaseTooltip.Root>
-			<BaseTooltip.Trigger delay={delay} render={children} />
+			{trigger}
 			<BaseTooltip.Portal>
 				<BaseTooltip.Positioner
 					side={placement}

@@ -1,14 +1,17 @@
 "use client";
-import { Popover } from "@base-ui/react/popover";
+import { Menu } from "@base-ui/react/menu";
 import { Icon } from "@iconify/react/offline";
-import { useCallback, useState } from "react";
-import {
-	DropdownMenu,
-	type DropdownMenuItem,
-} from "@/components/ui/DropdownMenu";
+import { useCallback } from "react";
+import { Tooltip } from "@/components/ui/Tooltip";
 import { useBuilderStore, useForm, useModule } from "@/hooks/useBuilder";
 import { formTypeIcons } from "@/lib/questionTypeIcons";
-import { POPOVER_POPUP_CLS, POPOVER_POSITIONER_GLASS_CLS } from "@/lib/styles";
+import {
+	MENU_ITEM_BASE,
+	MENU_ITEM_CLS,
+	MENU_ITEM_DISABLED_CLS,
+	MENU_POPUP_CLS,
+	MENU_POSITIONER_CLS,
+} from "@/lib/styles";
 
 /** Form types that require a case type on the parent module to be selectable. */
 const CASE_DEPENDENT_TYPES = new Set(["registration", "followup"]);
@@ -58,8 +61,9 @@ interface FormTypeButtonProps {
 }
 
 /**
- * Form type icon in the form header. Interactive (dropdown to change type)
- * when editable, static icon otherwise. Uses the Zustand store for mutations.
+ * Form type icon in the form header. Interactive (menu to change type)
+ * when editable, static icon otherwise. Uses Base UI Menu for proper
+ * keyboard navigation and ARIA roles.
  */
 export function FormTypeButton({
 	moduleIndex,
@@ -69,7 +73,6 @@ export function FormTypeButton({
 	const form = useForm(moduleIndex, formIndex);
 	const mod = useModule(moduleIndex);
 	const updateForm = useBuilderStore((s) => s.updateForm);
-	const [open, setOpen] = useState(false);
 
 	const handleSelect = useCallback(
 		(type: string) => {
@@ -77,50 +80,95 @@ export function FormTypeButton({
 			updateForm(moduleIndex, formIndex, {
 				type: type as "registration" | "followup" | "survey",
 			});
-			setOpen(false);
 		},
 		[editable, updateForm, moduleIndex, formIndex],
 	);
 
 	const icon = formTypeIcons[form?.type ?? "survey"] ?? formTypeIcons.survey;
 	const hasCaseType = editable && !!mod?.caseType;
+	const activeType = form?.type ?? "survey";
+	const last = formTypeOptions.length - 1;
 
 	return (
 		<>
 			{editable ? (
-				<Popover.Root open={open} onOpenChange={setOpen}>
-					<Popover.Trigger
+				<Menu.Root>
+					<Menu.Trigger
 						className="-ml-1.5 p-1.5 rounded-md shrink-0 text-nova-text-muted transition-colors cursor-pointer hover:text-nova-text hover:bg-white/5"
 						aria-label="Change form type"
 					>
 						<Icon icon={icon} width="18" height="18" />
-					</Popover.Trigger>
+					</Menu.Trigger>
 
-					<Popover.Portal>
-						<Popover.Positioner
+					<Menu.Portal>
+						<Menu.Positioner
 							side="bottom"
 							align="start"
 							sideOffset={4}
-							className={POPOVER_POSITIONER_GLASS_CLS}
+							className={MENU_POSITIONER_CLS}
 						>
-							<Popover.Popup className={POPOVER_POPUP_CLS}>
-								<DropdownMenu
-									activeKey={form?.type ?? "survey"}
-									items={formTypeOptions.map(
-										(opt): DropdownMenuItem => ({
-											key: opt.value,
-											label: opt.label,
-											icon: formTypeIcons[opt.value] ?? formTypeIcons.survey,
-											onClick: () => handleSelect(opt.value),
-											disabled:
-												CASE_DEPENDENT_TYPES.has(opt.value) && !hasCaseType,
-										}),
-									)}
-								/>
-							</Popover.Popup>
-						</Popover.Positioner>
-					</Popover.Portal>
-				</Popover.Root>
+							<Menu.Popup className={MENU_POPUP_CLS}>
+								{formTypeOptions.map((opt, i) => {
+									const needsCase =
+										CASE_DEPENDENT_TYPES.has(opt.value) && !hasCaseType;
+									const isActive = opt.value === activeType;
+									/* First/last items inherit the container's border radius so
+									 * their hover/active backgrounds tile flush. */
+									const corners =
+										i === 0 && i === last
+											? "rounded-xl"
+											: i === 0
+												? "rounded-t-xl"
+												: i === last
+													? "rounded-b-xl"
+													: "";
+
+									const item = (
+										<Menu.Item
+											key={opt.value}
+											disabled={needsCase}
+											onClick={() => handleSelect(opt.value)}
+											className={`${corners} ${
+												needsCase
+													? MENU_ITEM_DISABLED_CLS
+													: isActive
+														? `${MENU_ITEM_BASE} text-nova-violet-bright bg-nova-violet/10 cursor-pointer`
+														: MENU_ITEM_CLS
+											}`}
+										>
+											<span
+												className={`w-1.5 h-1.5 rounded-full shrink-0 ${isActive ? "bg-nova-violet" : "bg-transparent"}`}
+											/>
+											<Icon
+												icon={formTypeIcons[opt.value] ?? formTypeIcons.survey}
+												width="16"
+												height="16"
+												className={
+													isActive
+														? "text-nova-violet-bright"
+														: "text-nova-text-muted"
+												}
+											/>
+											<span className="flex-1 text-left">{opt.label}</span>
+										</Menu.Item>
+									);
+
+									return needsCase ? (
+										<Tooltip
+											key={opt.value}
+											content="Requires a case type on this module"
+											placement="right"
+										>
+											{item}
+										</Tooltip>
+									) : (
+										item
+									);
+								})}
+							</Menu.Popup>
+						</Menu.Positioner>
+					</Menu.Portal>
+				</Menu.Root>
 			) : (
 				<span className="-ml-1.5 p-1.5 text-nova-text-muted shrink-0">
 					<Icon icon={icon} width="18" height="18" />
