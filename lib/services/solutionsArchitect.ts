@@ -2,10 +2,9 @@
  * Solutions Architect — single ToolLoopAgent for conversation, generation, and editing.
  *
  * Tools are split into two groups: **generation** (schema, scaffold, columns) and
- * **shared** (conversation, read, mutation, validation). In fresh-edit mode (cache
- * expired on an existing app), generation tools are excluded — the SA only gets
- * shared tools and an editing prompt with a blueprint summary. Within the cache
- * window, all tools are available and the prompt is unchanged.
+ * **shared** (conversation, read, mutation, validation). In edit mode (existing app),
+ * generation tools are excluded — the SA only gets shared tools and an editing prompt
+ * with a blueprint summary. In build mode (new app), all tools are available.
  */
 import { type JSONValue, stepCountIs, ToolLoopAgent, tool } from "ai";
 import { z } from "zod";
@@ -135,20 +134,19 @@ const askQuestionsSchema = z.object({
 /**
  * Create the Solutions Architect agent.
  *
- * @param freshEdit - True when the cache window has expired and the SA needs
- *   the editing preamble + blueprint summary injected into its prompt. When
- *   false (build mode or within-cache continuation), the SA gets the full
- *   tool set and standard prompt. Generation tools are excluded in freshEdit
- *   mode — the SA only has read + mutation + validation tools.
+ * @param editing - True when the app already exists (appReady). The SA gets
+ *   the editing preamble + blueprint summary in its prompt and only has access
+ *   to read + mutation + validation tools. False during initial builds, where
+ *   the SA gets the full tool set and build-mode prompt.
  */
 export function createSolutionsArchitect(
 	ctx: GenerationContext,
 	bp: AppBlueprint,
-	freshEdit = false,
+	editing = false,
 ) {
 	// ── Generation tools (build mode only) ────────────────────────────
 	// These drive the initial build sequence: schema → scaffold → columns → questions.
-	// Excluded in fresh-edit mode — the SA uses mutation tools instead.
+	// Excluded in edit mode — the SA uses mutation tools instead.
 
 	const generationTools = {
 		generateSchema: tool({
@@ -957,16 +955,14 @@ export function createSolutionsArchitect(
 	};
 
 	// ── Compose tools and build agent ────────────────────────────────
-	// Fresh-edit mode: only shared tools (read + mutation + validate).
+	// Edit mode: only shared tools (read + mutation + validate).
 	// Build mode: shared tools + generation tools (schema → scaffold → columns).
 
-	const tools = freshEdit
-		? sharedTools
-		: { ...sharedTools, ...generationTools };
+	const tools = editing ? sharedTools : { ...sharedTools, ...generationTools };
 
 	const agent = new ToolLoopAgent({
 		model: ctx.model(SA_MODEL),
-		instructions: buildSolutionsArchitectPrompt(freshEdit ? bp : undefined),
+		instructions: buildSolutionsArchitectPrompt(editing ? bp : undefined),
 		stopWhen: stepCountIs(80),
 		prepareStep: ({ steps: _steps }) => {
 			const anthropic: Record<string, JSONValue | undefined> = {

@@ -1,13 +1,12 @@
 /**
  * System prompt for the Solutions Architect agent.
  *
- * Two prompt modes, selected by the route based on cache window state:
+ * Two prompt modes, selected by the route based on appReady:
  *
- * - **Build / within-cache continuation**: base prompt only. The SA either has
- *   no blueprint (new build) or has full conversation context still cached.
- * - **Fresh edit** (cache expired or page reload on existing app): base prompt +
- *   editing preamble + compact blueprint summary. Gives the SA the context it
- *   lost without re-sending the full conversation history.
+ * - **Build mode** (new app): core prompt + build interaction + shared tail.
+ * - **Edit mode** (existing app): core prompt + editing preamble + compact
+ *   blueprint summary + shared tail. Always active when the app exists,
+ *   regardless of cache state.
  */
 
 import type {
@@ -162,8 +161,8 @@ In any XPath Expression or label-type field, use the correct hashtag reference w
 
 // ── Build-mode interaction guidance ───────────────────────────────────
 // Only included when building a new app. Replaced by the edit preamble
-// in fresh-edit mode so the SA doesn't ask discovery questions about an
-// app that already exists.
+// in edit mode so the SA doesn't ask discovery questions about an app
+// that already exists.
 
 const BUILD_INTERACTION = `## Initial Interaction
 
@@ -219,6 +218,8 @@ If you receive an API error (authentication, rate limit, overloaded), do not ret
 const EDIT_PREAMBLE = `## Editing Mode
 
 You are editing an existing app — not building one from scratch. The current app state is summarized below. Use your read and mutation tools to make targeted changes, then call validateApp when done.
+
+**You already have full visibility into this app.** The blueprint summary below shows every module, form, question, and case type. Never ask the user about what exists in the app — you can see it. Use searchBlueprint or the summary to answer any question about current state. Only ask clarifying questions about the user's *intent* — what they want to change, add, or remove — never about what is or isn't already there.
 
 Trust your tool outputs. When a mutation tool returns a success message, the change is applied. Do not re-read to verify.`;
 
@@ -313,7 +314,7 @@ function summarizeBlueprint(bp: AppBlueprint): string {
  * Build the SA system prompt by composing mode-specific sections:
  *
  * - **Build mode** (no blueprint): core + build interaction + shared tail
- * - **Fresh edit** (blueprint provided): core + edit preamble + summary + shared tail
+ * - **Edit mode** (blueprint provided): core + edit preamble + summary + shared tail
  *
  * The "Initial Interaction" section is replaced, not appended to, in edit mode —
  * otherwise the SA still asks discovery questions about an app that already exists.
