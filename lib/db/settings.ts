@@ -73,6 +73,32 @@ export async function getDecryptedCredentials(
 	return { username: data.commcare_username, apiKey };
 }
 
+/**
+ * Retrieve decrypted credentials AND the approved domain in a single
+ * Firestore read. Used by the upload route which needs both to
+ * authorize the target domain and execute the import.
+ */
+export async function getDecryptedCredentialsWithDomain(
+	userId: string,
+): Promise<{
+	creds: CommCareCredentials;
+	domain: CommCareDomain;
+} | null> {
+	const snap = await docs.settings(userId).get();
+	if (!snap.exists) return null;
+	const data = snap.data();
+	if (!data) return null;
+
+	const domain = data.approved_domains?.[0];
+	if (!domain) return null;
+
+	const apiKey = await decrypt(data.commcare_api_key);
+	return {
+		creds: { username: data.commcare_username, apiKey },
+		domain,
+	};
+}
+
 // ── Write operations ───────────────────────────────────────────────
 
 /** Input shape for saving CommCare credentials. */
