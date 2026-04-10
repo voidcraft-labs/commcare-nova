@@ -387,7 +387,15 @@ function LoadErrorView({
 	return (
 		<div className="py-2">
 			<p className="text-sm text-nova-rose mb-4">{message}</p>
-			<div className="flex justify-end">
+			<div className="flex items-center justify-between">
+				<Link
+					href="/settings"
+					onClick={onClose}
+					className="inline-flex items-center gap-1 text-sm font-medium text-nova-violet-bright hover:text-nova-violet transition-colors"
+				>
+					Go to Settings
+					<Icon icon={tablerChevronRight} width="14" height="14" />
+				</Link>
 				<button
 					type="button"
 					onClick={onClose}
