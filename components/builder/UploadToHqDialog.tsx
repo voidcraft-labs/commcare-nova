@@ -46,13 +46,14 @@ type UploadStatus =
 
 // ── Styles ─────────────────────────────────────────────────────────
 
-/** Backdrop: semi-transparent black overlay with fade animation. */
+/** Backdrop: semi-transparent black overlay with fade animation.
+ *  z-modal ensures the backdrop covers all lower layers (toolbar, popovers). */
 const BACKDROP_CLS =
-	"fixed inset-0 bg-black/60 transition-opacity data-[ending-style]:opacity-0 data-[starting-style]:opacity-0";
+	"fixed inset-0 z-modal bg-black/60 transition-opacity data-[ending-style]:opacity-0 data-[starting-style]:opacity-0";
 
 /** Dialog panel: centered card with scale + fade animation. */
 const POPUP_CLS =
-	"fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-full max-w-md rounded-xl bg-nova-deep border border-nova-border shadow-xl outline-none transition-[transform,opacity] data-[ending-style]:scale-95 data-[ending-style]:opacity-0 data-[starting-style]:scale-95 data-[starting-style]:opacity-0";
+	"fixed z-modal top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-full max-w-md rounded-xl bg-nova-deep border border-nova-border shadow-xl outline-none transition-[transform,opacity] data-[ending-style]:scale-95 data-[ending-style]:opacity-0 data-[starting-style]:scale-95 data-[starting-style]:opacity-0";
 
 // ── Component ──────────────────────────────────────────────────────
 
