@@ -697,14 +697,15 @@ export function createSolutionsArchitect(
 						"Set close_case config. null to remove. {} for unconditional.",
 					),
 				post_submit: z
-					.enum(["default", "module", "previous"])
+					.enum(["app_home", "module", "previous"])
 					.nullable()
 					.optional()
 					.describe(
 						"Where the user goes after submitting this form. " +
-							'"default" = app home screen. ' +
-							'"module" = back to this module\'s form list. ' +
-							'"previous" = back to where the user was before this form (e.g. case list for followup forms). ' +
+							'"app_home" = main menu. ' +
+							'"module" = this module\'s form list. ' +
+							'"previous" = back to where the user was (e.g. case list). ' +
+							'Defaults to "previous" for followup, "app_home" for registration/survey. ' +
 							"null to reset to default. Omit to leave unchanged.",
 					),
 				connect: z
@@ -771,7 +772,7 @@ export function createSolutionsArchitect(
 						);
 					if (post_submit !== undefined)
 						formChanges.push(
-							`post_submit → "${form.post_submit ?? "default"}"`,
+							`post_submit → "${form.post_submit ?? "form-type default"}"`,
 						);
 					if (connect !== undefined)
 						formChanges.push(
@@ -794,10 +795,10 @@ export function createSolutionsArchitect(
 					.enum(["registration", "followup", "survey"])
 					.describe("Form type"),
 				post_submit: z
-					.enum(["default", "module", "previous"])
+					.enum(["app_home", "module", "previous"])
 					.optional()
 					.describe(
-						"Where the user goes after submitting this form. Omit for default (app home).",
+						'Where the user goes after submitting. Defaults to "previous" for followup, "app_home" for registration/survey. Only set to override.',
 					),
 			}),
 			execute: async ({ moduleIndex, name, type, post_submit }) => {
@@ -806,7 +807,7 @@ export function createSolutionsArchitect(
 						name,
 						type,
 						questions: [],
-						...(post_submit && post_submit !== "default" && { post_submit }),
+						...(post_submit && { post_submit }),
 					};
 					bpAddForm(bp, moduleIndex, form);
 					ctx.emit("data-blueprint-updated", {

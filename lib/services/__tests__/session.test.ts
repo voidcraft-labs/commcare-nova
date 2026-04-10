@@ -52,10 +52,10 @@ describe("deriveSessionDatums", () => {
 // ── derivePostSubmitStack ──────────────────────────────────────────
 
 describe("derivePostSubmitStack", () => {
-	describe("default", () => {
+	describe("app_home", () => {
 		it("produces empty create operation for any form type", () => {
 			for (const formType of ["registration", "followup", "survey"] as const) {
-				const ops = derivePostSubmitStack("default", 0, formType, "patient");
+				const ops = derivePostSubmitStack("app_home", 0, formType, "patient");
 				expect(ops).toHaveLength(1);
 				expect(ops[0].op).toBe("create");
 				expect(ops[0].children).toEqual([]);
@@ -137,7 +137,7 @@ describe("deriveFormLinkStack", () => {
 		const links: FormLink[] = [
 			{ target: { type: "form", moduleIndex: 1, formIndex: 0 } },
 		];
-		const ops = deriveFormLinkStack(links, "default", 0, "registration");
+		const ops = deriveFormLinkStack(links, "app_home", 0, "registration");
 		expect(ops).toHaveLength(1);
 		expect(ops[0].op).toBe("create");
 		expect(ops[0].children).toEqual([
@@ -148,7 +148,7 @@ describe("deriveFormLinkStack", () => {
 
 	it("generates module-only command for module targets", () => {
 		const links: FormLink[] = [{ target: { type: "module", moduleIndex: 2 } }];
-		const ops = deriveFormLinkStack(links, "default", 0, "registration");
+		const ops = deriveFormLinkStack(links, "app_home", 0, "registration");
 		expect(ops[0].children).toEqual([{ type: "command", value: "'m2'" }]);
 	});
 
@@ -164,7 +164,13 @@ describe("deriveFormLinkStack", () => {
 				],
 			},
 		];
-		const ops = deriveFormLinkStack(links, "default", 0, "followup", "patient");
+		const ops = deriveFormLinkStack(
+			links,
+			"app_home",
+			0,
+			"followup",
+			"patient",
+		);
 		const datumChild = ops[0].children.find((c) => c.type === "datum");
 		expect(datumChild).toEqual({
 			type: "datum",
@@ -200,7 +206,7 @@ describe("deriveFormLinkStack", () => {
 				target: { type: "form", moduleIndex: 2, formIndex: 0 },
 			},
 		];
-		const ops = deriveFormLinkStack(links, "default", 0, "registration");
+		const ops = deriveFormLinkStack(links, "app_home", 0, "registration");
 		expect(ops).toHaveLength(3); // 2 links + 1 fallback
 		expect(ops[2].ifClause).toBe("not(x = 1) and not(x = 2)");
 	});
@@ -209,7 +215,7 @@ describe("deriveFormLinkStack", () => {
 		const links: FormLink[] = [
 			{ target: { type: "form", moduleIndex: 1, formIndex: 0 } },
 		];
-		const ops = deriveFormLinkStack(links, "default", 0, "registration");
+		const ops = deriveFormLinkStack(links, "app_home", 0, "registration");
 		expect(ops).toHaveLength(1); // no fallback needed
 	});
 });
@@ -239,7 +245,7 @@ describe("deriveEntryDefinition", () => {
 			0,
 			0,
 			"registration",
-			"default",
+			"app_home",
 		);
 		expect(entry.stack).toBeUndefined();
 	});
@@ -274,11 +280,11 @@ describe("deriveEntryDefinition", () => {
 			0,
 			0,
 			"registration",
-			"default",
+			"app_home",
 			undefined,
 			links,
 		);
-		// Even with post_submit='default', stack is generated because form_links exist
+		// Even with post_submit='app_home', stack is generated because form_links exist
 		expect(entry.stack).toBeDefined();
 	});
 });
@@ -435,7 +441,7 @@ describe("renderEntryXml", () => {
 			0,
 			0,
 			"registration",
-			"default",
+			"app_home",
 		);
 		const xml = renderEntryXml(entry);
 		expect(xml).toContain("<entry>");
@@ -465,7 +471,7 @@ describe("renderEntryXml", () => {
 
 describe("toHqWorkflow", () => {
 	it("maps all destinations correctly", () => {
-		expect(toHqWorkflow("default")).toBe("default");
+		expect(toHqWorkflow("app_home")).toBe("default");
 		expect(toHqWorkflow("root")).toBe("root");
 		expect(toHqWorkflow("module")).toBe("module");
 		expect(toHqWorkflow("parent_module")).toBe("parent_module");
@@ -475,22 +481,22 @@ describe("toHqWorkflow", () => {
 
 describe("fromHqWorkflow", () => {
 	it("maps all HQ values correctly", () => {
-		expect(fromHqWorkflow("default")).toBe("default");
+		expect(fromHqWorkflow("default")).toBe("app_home");
 		expect(fromHqWorkflow("root")).toBe("root");
 		expect(fromHqWorkflow("module")).toBe("module");
 		expect(fromHqWorkflow("parent_module")).toBe("parent_module");
 		expect(fromHqWorkflow("previous_screen")).toBe("previous");
 	});
 
-	it("falls back to default for unknown values", () => {
-		expect(fromHqWorkflow("unknown")).toBe("default");
-		expect(fromHqWorkflow("")).toBe("default");
-		expect(fromHqWorkflow("form")).toBe("default");
+	it("falls back to app_home for unknown values", () => {
+		expect(fromHqWorkflow("unknown")).toBe("app_home");
+		expect(fromHqWorkflow("")).toBe("app_home");
+		expect(fromHqWorkflow("form")).toBe("app_home");
 	});
 
 	it("round-trips with toHqWorkflow", () => {
 		const destinations: PostSubmitDestination[] = [
-			"default",
+			"app_home",
 			"root",
 			"module",
 			"parent_module",

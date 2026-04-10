@@ -358,7 +358,7 @@ export function updateForm(
 		}
 	}
 	if (updates.post_submit !== undefined) {
-		if (updates.post_submit === null || updates.post_submit === "default") {
+		if (updates.post_submit === null) {
 			delete form.post_submit;
 		} else {
 			form.post_submit = updates.post_submit;

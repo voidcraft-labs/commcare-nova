@@ -887,8 +887,7 @@ export function createBuilderStore(initialPhase: BuilderPhase) {
 								}
 								if (updates.post_submit !== undefined) {
 									form.postSubmit =
-										updates.post_submit === null ||
-										updates.post_submit === "default"
+										updates.post_submit === null
 											? undefined
 											: updates.post_submit;
 								}

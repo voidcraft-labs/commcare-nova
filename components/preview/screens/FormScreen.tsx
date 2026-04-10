@@ -14,6 +14,7 @@ import {
 import { EditContextProvider } from "@/hooks/useEditContext";
 import { useFormEngine } from "@/hooks/useFormEngine";
 import { getCaseData, getDummyCases } from "@/lib/preview/engine/dummyData";
+import { defaultPostSubmit } from "@/lib/schemas/blueprint";
 import { selectEditMode, selectIsReady } from "@/lib/services/builderSelectors";
 import { FormRenderer } from "../form/FormRenderer";
 
@@ -114,14 +115,14 @@ export function FormScreen({ onBack }: FormScreenProps) {
 	const handleSubmit = () => {
 		const valid = engine.validateAll();
 		if (valid) {
-			const dest = form.post_submit ?? "default";
+			const dest = form.post_submit ?? defaultPostSubmit(form.type);
 			switch (dest) {
 				case "module":
 				case "parent_module":
 					navPush({ type: "module", moduleIndex });
 					break;
 				case "root":
-				case "default":
+				case "app_home":
 					navPush({ type: "home" });
 					break;
 				default:

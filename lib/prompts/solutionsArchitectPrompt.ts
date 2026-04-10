@@ -255,7 +255,7 @@ function summarizeForm(form: BlueprintForm, formIndex: number): string {
 	const qCount = countQuestions(form.questions);
 	const header = `  - Form ${formIndex}: "${form.name}" (${form.type}, ${qCount} question${qCount === 1 ? "" : "s"})`;
 	const extras: string[] = [];
-	if (form.post_submit && form.post_submit !== "default") {
+	if (form.post_submit) {
 		extras.push(`    post_submit: ${form.post_submit}`);
 	}
 	if (form.connect) extras.push("    [Connect enabled]");

@@ -16,7 +16,7 @@ import { z } from "zod";
 
 /** All destinations (internal). Includes root/parent_module for CommCare export fidelity. */
 export const POST_SUBMIT_DESTINATIONS = [
-	"default",
+	"app_home",
 	"root",
 	"module",
 	"parent_module",
@@ -26,19 +26,29 @@ export type PostSubmitDestination = (typeof POST_SUBMIT_DESTINATIONS)[number];
 
 /**
  * User-facing destinations (UI + SA tools). Three clear choices:
- *   "default"  → App Home
- *   "module"   → This Module
- *   "previous" → Previous Screen
+ *   "app_home" → App Home (main menu)
+ *   "module"   → This Module (case list / form list)
+ *   "previous" → Previous Screen (back to where the user was)
  *
  * Internal-only values (not exposed to users):
  *   "root"           → resolved automatically when put_in_root is modeled
  *   "parent_module"  → resolved automatically when nested modules are modeled
  */
 export const USER_FACING_DESTINATIONS = [
-	"default",
+	"app_home",
 	"module",
 	"previous",
 ] as const;
+
+/**
+ * Form-type-aware default for post_submit when the field is absent.
+ * Followup forms return to the case list; registration/survey go home.
+ */
+export function defaultPostSubmit(
+	formType: "registration" | "followup" | "survey",
+): PostSubmitDestination {
+	return formType === "followup" ? "previous" : "app_home";
+}
 
 // ── Question types ──────────────────────────────────────────────────────
 
@@ -216,7 +226,7 @@ export const scaffoldModulesSchema = z.object({
 						.enum(USER_FACING_DESTINATIONS)
 						.optional()
 						.describe(
-							"Where the user goes after submitting this form. Omit for default (app home).",
+							'Where the user goes after submitting. Defaults to "previous" for followup forms, "app_home" for registration/survey. Only set to override.',
 						),
 					formDesign: z
 						.string()
@@ -439,11 +449,11 @@ export const blueprintFormSchema = z
 			.optional()
 			.describe(
 				"Where the user goes after submitting this form (also serves as fallback when form_links have conditions). " +
-					'"default" = app home. ' +
+					'"app_home" = main menu. ' +
 					'"module" = this module\'s form list. ' +
 					'"previous" = back to where the user was (e.g. case list for followup forms). ' +
 					'Internal values "root" and "parent_module" are resolved automatically during build. ' +
-					"Omit for default (app home).",
+					'Defaults to "previous" for followup, "app_home" for registration/survey.',
 			),
 		form_links: z
 			.array(formLinkSchema)
