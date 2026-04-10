@@ -11,8 +11,11 @@
 import { type NextRequest, NextResponse } from "next/server";
 import { ApiError, handleApiError } from "@/lib/apiError";
 import { requireSession } from "@/lib/auth-utils";
-import { importApp } from "@/lib/commcare/client";
-import { getDecryptedCredentials } from "@/lib/db/settings";
+import { importApp, isValidDomainSlug } from "@/lib/commcare/client";
+import {
+	getCommCareSettings,
+	getDecryptedCredentials,
+} from "@/lib/db/settings";
 import { log } from "@/lib/log";
 import { appBlueprintSchema } from "@/lib/schemas/blueprint";
 import { expandBlueprint } from "@/lib/services/hqJsonExpander";
@@ -30,9 +33,7 @@ export async function POST(req: NextRequest) {
 		if (!body.domain?.trim()) {
 			throw new ApiError("Project space is required", 400);
 		}
-		/* CommCare HQ domains are slug-format — validate to prevent path traversal
-		 * in the URL template used by importApp(). */
-		if (!/^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/.test(body.domain.trim())) {
+		if (!isValidDomainSlug(body.domain.trim())) {
 			throw new ApiError("Invalid project space name", 400);
 		}
 		if (!body.appName?.trim()) {
@@ -54,12 +55,22 @@ export async function POST(req: NextRequest) {
 			);
 		}
 
-		/* ── Resolve credentials ────────────────────────────────────── */
-		const creds = await getDecryptedCredentials(session.user.id);
+		/* ── Resolve credentials + verify domain authorization ──────── */
+		const [creds, settings] = await Promise.all([
+			getDecryptedCredentials(session.user.id),
+			getCommCareSettings(session.user.id),
+		]);
 		if (!creds) {
 			throw new ApiError(
 				"CommCare HQ is not configured. Add your API key in Settings.",
 				400,
+			);
+		}
+		const approvedDomain = settings.domain?.name;
+		if (!approvedDomain || approvedDomain !== body.domain.trim()) {
+			throw new ApiError(
+				"You can only upload to your authorized project space.",
+				403,
 			);
 		}
 
@@ -75,7 +86,10 @@ export async function POST(req: NextRequest) {
 		);
 
 		if (!result.success) {
-			throw new ApiError(uploadErrorMessage(result.status), result.status);
+			/* Map HQ 5xx → 502 so our monitoring distinguishes upstream failures
+			 * from our own errors. Client-facing message stays the same. */
+			const status = result.status >= 500 ? 502 : result.status;
+			throw new ApiError(uploadErrorMessage(result.status), status);
 		}
 
 		log.info("[commcare/upload] app imported", {
