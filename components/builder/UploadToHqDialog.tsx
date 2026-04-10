@@ -2,13 +2,15 @@
  * Upload to CommCare HQ dialog — modal for uploading the current app
  * as a new CommCare application to the user's project space.
  *
- * The domain is resolved from the user's stored settings (an API key
- * is scoped to exactly one domain) and shown as static text — no
- * selection needed.
+ * Uses Base UI Dialog for accessible dismiss/focus coordination via
+ * FloatingTreeStore. The domain is resolved from the user's stored
+ * settings (an API key is scoped to exactly one domain) and shown as
+ * static text — no selection needed.
  */
 
 "use client";
 
+import { Dialog } from "@base-ui/react/dialog";
 import { Icon } from "@iconify/react/offline";
 import tablerCheck from "@iconify-icons/tabler/check";
 import tablerChevronRight from "@iconify-icons/tabler/chevron-right";
@@ -17,9 +19,9 @@ import tablerExternalLink from "@iconify-icons/tabler/external-link";
 import tablerInfoCircle from "@iconify-icons/tabler/info-circle";
 import tablerLoader2 from "@iconify-icons/tabler/loader-2";
 import tablerX from "@iconify-icons/tabler/x";
-import { AnimatePresence, motion } from "motion/react";
+import { motion } from "motion/react";
 import Link from "next/link";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import type { AppBlueprint } from "@/lib/schemas/blueprint";
 
 // ── Types ──────────────────────────────────────────────────────────
@@ -42,6 +44,16 @@ type UploadStatus =
 	| { type: "success"; appUrl: string; warnings: string[] }
 	| { type: "error"; message: string; status: number };
 
+// ── Styles ─────────────────────────────────────────────────────────
+
+/** Backdrop: semi-transparent black overlay with fade animation. */
+const BACKDROP_CLS =
+	"fixed inset-0 bg-black/60 transition-opacity data-[ending-style]:opacity-0 data-[starting-style]:opacity-0";
+
+/** Dialog panel: centered card with scale + fade animation. */
+const POPUP_CLS =
+	"fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-full max-w-md rounded-xl bg-nova-deep border border-nova-border shadow-xl outline-none transition-[transform,opacity] data-[ending-style]:scale-95 data-[ending-style]:opacity-0 data-[starting-style]:scale-95 data-[starting-style]:opacity-0";
+
 // ── Component ──────────────────────────────────────────────────────
 
 export function UploadToHqDialog({
@@ -55,8 +67,6 @@ export function UploadToHqDialog({
 		type: "idle",
 	});
 	const [appName, setAppName] = useState(initialAppName);
-	const cancelRef = useRef(onClose);
-	cancelRef.current = onClose;
 
 	/* ── Reset form state when dialog opens ────────────────────────── */
 	useEffect(() => {
@@ -64,16 +74,6 @@ export function UploadToHqDialog({
 		setUploadStatus({ type: "idle" });
 		setAppName(initialAppName);
 	}, [open, initialAppName]);
-
-	/* ── Escape key dismissal ──────────────────────────────────────── */
-	useEffect(() => {
-		if (!open) return;
-		const handler = (e: KeyboardEvent) => {
-			if (e.key === "Escape") cancelRef.current();
-		};
-		document.addEventListener("keydown", handler);
-		return () => document.removeEventListener("keydown", handler);
-	}, [open]);
 
 	/* ── Upload handler ────────────────────────────────────────────── */
 	const handleUpload = useCallback(async () => {
@@ -127,183 +127,147 @@ export function UploadToHqDialog({
 	const canUpload = !!domain && !isUploading && appName.trim().length > 0;
 
 	return (
-		<AnimatePresence>
-			{open && (
-				<motion.div
-					className="fixed inset-0 z-popover flex items-center justify-center"
-					initial={{ opacity: 0 }}
-					animate={{ opacity: 1 }}
-					exit={{ opacity: 0 }}
-					transition={{ duration: 0.15 }}
-				>
-					{/* ── Backdrop ──────────────────────────────────────── */}
-					<button
-						type="button"
-						className="absolute inset-0 bg-black/60 cursor-default appearance-none border-none p-0"
-						onClick={onClose}
-						tabIndex={-1}
-						aria-label="Close dialog"
-					/>
+		<Dialog.Root open={open} onOpenChange={(isOpen) => !isOpen && onClose()}>
+			<Dialog.Portal>
+				<Dialog.Backdrop className={BACKDROP_CLS} />
+				<Dialog.Popup className={POPUP_CLS}>
+					{/* ── Header ───────────────────────────────────── */}
+					<div className="flex items-center justify-between px-5 pt-5 pb-0">
+						<Dialog.Title className="text-base font-display font-semibold text-nova-text">
+							Upload to CommCare HQ
+						</Dialog.Title>
+						<Dialog.Close className="p-1 rounded-lg text-nova-text-muted hover:text-nova-text hover:bg-white/[0.06] transition-colors cursor-pointer">
+							<Icon icon={tablerX} width="16" height="16" />
+						</Dialog.Close>
+					</div>
 
-					{/* ── Dialog panel ──────────────────────────────────── */}
-					<motion.div
-						role="dialog"
-						aria-modal="true"
-						aria-label="Upload to CommCare HQ"
-						className="relative z-10 w-full max-w-md rounded-xl bg-nova-deep border border-nova-border shadow-xl"
-						initial={{ scale: 0.95, opacity: 0 }}
-						animate={{ scale: 1, opacity: 1 }}
-						exit={{ scale: 0.95, opacity: 0 }}
-						transition={{ duration: 0.15 }}
-					>
-						{/* ── Header ───────────────────────────────────── */}
-						<div className="flex items-center justify-between px-5 pt-5 pb-0">
-							<h2 className="text-base font-display font-semibold text-nova-text">
-								Upload to CommCare HQ
-							</h2>
-							<button
-								type="button"
-								onClick={onClose}
-								className="p-1 rounded-lg text-nova-text-muted hover:text-nova-text hover:bg-white/[0.06] transition-colors cursor-pointer"
-								aria-label="Close"
-							>
-								<Icon icon={tablerX} width="16" height="16" />
-							</button>
-						</div>
-
-						{/* ── Body ─────────────────────────────────────── */}
-						<div className="px-5 py-4">
-							{uploadStatus.type === "success" ? (
-								<SuccessView
-									appUrl={uploadStatus.appUrl}
-									warnings={uploadStatus.warnings}
-									onClose={onClose}
-								/>
-							) : !domain ? (
-								<LoadErrorView
-									message="CommCare HQ is not configured. Add your API key in Settings."
-									onClose={onClose}
-								/>
-							) : (
-								<>
-									<div className="space-y-4">
-										{/* Project space — verified badge, API key is scoped to one domain */}
-										<div className="flex flex-col gap-1.5">
-											<span className="text-sm text-nova-text-secondary font-medium">
-												Project Space
-											</span>
-											<div className="flex items-center gap-3 px-3.5 py-2.5 rounded-lg bg-nova-emerald/[0.04] border border-nova-emerald/15">
-												<div className="flex items-center justify-center w-7 h-7 rounded-full bg-nova-emerald/10 shrink-0">
-													<Icon
-														icon={tablerCircleCheck}
-														width="16"
-														height="16"
-														className="text-nova-emerald"
-													/>
-												</div>
-												<div className="min-w-0">
-													<p className="text-sm font-medium text-nova-text truncate leading-snug">
-														{domain.displayName}
-													</p>
-													<p className="text-[11px] text-nova-text-muted leading-snug">
-														{domain.name}
-													</p>
-												</div>
+					{/* ── Body ─────────────────────────────────────── */}
+					<div className="px-5 py-4">
+						{uploadStatus.type === "success" ? (
+							<SuccessView
+								appUrl={uploadStatus.appUrl}
+								warnings={uploadStatus.warnings}
+								onClose={onClose}
+							/>
+						) : !domain ? (
+							<LoadErrorView
+								message="CommCare HQ is not configured. Add your API key in Settings."
+								onClose={onClose}
+							/>
+						) : (
+							<>
+								<div className="space-y-4">
+									{/* Project space — verified badge, API key is scoped to one domain */}
+									<div className="flex flex-col gap-1.5">
+										<span className="text-sm text-nova-text-secondary font-medium">
+											Project Space
+										</span>
+										<div className="flex items-center gap-3 px-3.5 py-2.5 rounded-lg bg-nova-emerald/[0.04] border border-nova-emerald/15">
+											<div className="flex items-center justify-center w-7 h-7 rounded-full bg-nova-emerald/10 shrink-0">
+												<Icon
+													icon={tablerCircleCheck}
+													width="16"
+													height="16"
+													className="text-nova-emerald"
+												/>
+											</div>
+											<div className="min-w-0">
+												<p className="text-sm font-medium text-nova-text truncate leading-snug">
+													{domain.displayName}
+												</p>
+												<p className="text-[11px] text-nova-text-muted leading-snug">
+													{domain.name}
+												</p>
 											</div>
 										</div>
-
-										{/* App name input */}
-										<label className="flex flex-col gap-1.5">
-											<span className="text-sm text-nova-text-secondary font-medium">
-												App Name
-											</span>
-											<input
-												type="text"
-												value={appName}
-												onChange={(e) => setAppName(e.target.value)}
-												disabled={isUploading}
-												autoComplete="off"
-												data-1p-ignore
-												className="w-full px-4 py-2.5 bg-nova-deep border border-nova-border rounded-lg text-nova-text placeholder:text-nova-text-muted focus:outline-none focus:border-nova-violet focus:shadow-[var(--nova-glow-violet)] transition-all duration-200 disabled:opacity-50"
-											/>
-										</label>
-
-										{/* Info callout — sets expectations about new app creation */}
-										<div className="flex items-start gap-2 px-3 py-2.5 rounded-lg bg-white/[0.03] border border-white/[0.04]">
-											<Icon
-												icon={tablerInfoCircle}
-												width="15"
-												height="15"
-												className="text-nova-text-muted mt-0.5 shrink-0"
-											/>
-											<p className="text-xs text-nova-text-muted leading-relaxed">
-												Creates a new app in your project space. Does not update
-												existing apps.
-											</p>
-										</div>
 									</div>
 
-									{/* Upload error — inline, form stays intact for retry */}
-									{uploadStatus.type === "error" && (
-										<div className="mt-3">
-											<p className="text-sm text-nova-rose">
-												{uploadStatus.message}
-											</p>
-											{uploadStatus.status === 401 && (
-												<Link
-													href="/settings"
-													onClick={onClose}
-													className="inline-flex items-center gap-1 mt-1.5 text-xs font-medium text-nova-violet-bright hover:text-nova-violet transition-colors"
-												>
-													Go to Settings
-													<Icon
-														icon={tablerChevronRight}
-														width="12"
-														height="12"
-													/>
-												</Link>
-											)}
-										</div>
-									)}
-
-									{/* Action buttons */}
-									<div className="mt-5 flex justify-end gap-2">
-										<button
-											type="button"
-											onClick={onClose}
+									{/* App name input */}
+									<label className="flex flex-col gap-1.5">
+										<span className="text-sm text-nova-text-secondary font-medium">
+											App Name
+										</span>
+										<input
+											type="text"
+											value={appName}
+											onChange={(e) => setAppName(e.target.value)}
 											disabled={isUploading}
-											className="px-4 py-2 text-sm font-medium rounded-lg border border-nova-border text-nova-text-secondary hover:text-nova-text transition-colors cursor-pointer disabled:opacity-50"
-										>
-											Cancel
-										</button>
-										<button
-											type="button"
-											onClick={handleUpload}
-											disabled={!canUpload}
-											className="inline-flex items-center gap-2 px-5 py-2 rounded-lg text-sm font-medium bg-nova-violet text-white hover:bg-nova-violet-bright transition-all duration-200 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
-										>
-											{isUploading ? (
-												<>
-													<Icon
-														icon={tablerLoader2}
-														width="15"
-														height="15"
-														className="animate-spin"
-													/>
-													Uploading...
-												</>
-											) : (
-												"Upload"
-											)}
-										</button>
+											autoComplete="off"
+											data-1p-ignore
+											className="w-full px-4 py-2.5 bg-nova-deep border border-nova-border rounded-lg text-nova-text placeholder:text-nova-text-muted focus:outline-none focus:border-nova-violet focus:shadow-[var(--nova-glow-violet)] transition-all duration-200 disabled:opacity-50"
+										/>
+									</label>
+
+									{/* Info callout — sets expectations about new app creation */}
+									<div className="flex items-start gap-2 px-3 py-2.5 rounded-lg bg-white/[0.03] border border-white/[0.04]">
+										<Icon
+											icon={tablerInfoCircle}
+											width="15"
+											height="15"
+											className="text-nova-text-muted mt-0.5 shrink-0"
+										/>
+										<p className="text-xs text-nova-text-muted leading-relaxed">
+											Creates a new app in your project space. Does not update
+											existing apps.
+										</p>
 									</div>
-								</>
-							)}
-						</div>
-					</motion.div>
-				</motion.div>
-			)}
-		</AnimatePresence>
+								</div>
+
+								{/* Upload error — inline, form stays intact for retry */}
+								{uploadStatus.type === "error" && (
+									<div className="mt-3">
+										<p className="text-sm text-nova-rose">
+											{uploadStatus.message}
+										</p>
+										{uploadStatus.status === 401 && (
+											<Link
+												href="/settings"
+												onClick={onClose}
+												className="inline-flex items-center gap-1 mt-1.5 text-xs font-medium text-nova-violet-bright hover:text-nova-violet transition-colors"
+											>
+												Go to Settings
+												<Icon
+													icon={tablerChevronRight}
+													width="12"
+													height="12"
+												/>
+											</Link>
+										)}
+									</div>
+								)}
+
+								{/* Action buttons */}
+								<div className="mt-5 flex justify-end gap-2">
+									<Dialog.Close className="px-4 py-2 text-sm font-medium rounded-lg border border-nova-border text-nova-text-secondary hover:text-nova-text transition-colors cursor-pointer disabled:opacity-50">
+										Cancel
+									</Dialog.Close>
+									<button
+										type="button"
+										onClick={handleUpload}
+										disabled={!canUpload}
+										className="inline-flex items-center gap-2 px-5 py-2 rounded-lg text-sm font-medium bg-nova-violet text-white hover:bg-nova-violet-bright transition-all duration-200 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+									>
+										{isUploading ? (
+											<>
+												<Icon
+													icon={tablerLoader2}
+													width="15"
+													height="15"
+													className="animate-spin"
+												/>
+												Uploading...
+											</>
+										) : (
+											"Upload"
+										)}
+									</button>
+								</div>
+							</>
+						)}
+					</div>
+				</Dialog.Popup>
+			</Dialog.Portal>
+		</Dialog.Root>
 	);
 }
 
@@ -396,13 +360,9 @@ function LoadErrorView({
 					Go to Settings
 					<Icon icon={tablerChevronRight} width="14" height="14" />
 				</Link>
-				<button
-					type="button"
-					onClick={onClose}
-					className="px-4 py-2 text-sm font-medium rounded-lg border border-nova-border text-nova-text-secondary hover:text-nova-text transition-colors cursor-pointer"
-				>
+				<Dialog.Close className="px-4 py-2 text-sm font-medium rounded-lg border border-nova-border text-nova-text-secondary hover:text-nova-text transition-colors cursor-pointer">
 					Close
-				</button>
+				</Dialog.Close>
 			</div>
 		</div>
 	);
