@@ -28,6 +28,7 @@ import { SaveIndicator } from "@/components/builder/SaveIndicator";
 import { StructureSidebar } from "@/components/builder/StructureSidebar";
 import type { BreadcrumbPart } from "@/components/builder/SubheaderToolbar";
 import { CollapsibleBreadcrumb } from "@/components/builder/SubheaderToolbar";
+import { UploadToHqDialog } from "@/components/builder/UploadToHqDialog";
 import { useBuilderShortcuts } from "@/components/builder/useBuilderShortcuts";
 import { CHAT_SIDEBAR_WIDTH, ChatSidebar } from "@/components/chat/ChatSidebar";
 import { PreviewShell } from "@/components/preview/PreviewShell";
@@ -49,6 +50,7 @@ import {
 import { useKeyboardShortcuts } from "@/hooks/useKeyboardShortcuts";
 import { parseApiErrorMessage } from "@/lib/apiError";
 import { extractThread } from "@/lib/chat/threadUtils";
+import type { CommCareSettingsPublic } from "@/lib/db/settings";
 import { saveThread } from "@/lib/db/threads";
 import { shortcutLabel } from "@/lib/platform";
 import { ReferenceProviderWrapper } from "@/lib/references/ReferenceContext";
@@ -179,9 +181,16 @@ interface BuilderLayoutProps {
 	/** True when the app was loaded from Firestore (not a new build).
 	 *  Drives thread type classification (build vs edit). */
 	isExistingApp?: boolean;
+	/** CommCare HQ settings read by the RSC page — drives the export
+	 *  dropdown's configured/unconfigured state and upload dialog domain. */
+	commcareSettings?: CommCareSettingsPublic;
 }
 
-export function BuilderLayout({ children, isExistingApp }: BuilderLayoutProps) {
+export function BuilderLayout({
+	children,
+	isExistingApp,
+	commcareSettings,
+}: BuilderLayoutProps) {
 	const router = useRouter();
 	const builder = useBuilderEngine();
 	const phase = useBuilderPhase();
@@ -518,6 +527,18 @@ export function BuilderLayout({ children, isExistingApp }: BuilderLayoutProps) {
 	}, [status, messages, isExistingApp]);
 
 	const _isGenerating = phase === BuilderPhase.Generating;
+
+	// ── CommCare HQ integration state ──────────────────────────────────
+	// Read by the RSC page and passed as props — no client-side fetch needed.
+	const commcareConfigured = commcareSettings?.configured ?? false;
+	const commcareDomain = commcareSettings?.domain ?? null;
+	const [uploadDialogOpen, setUploadDialogOpen] = useState(false);
+
+	/** Assemble the current blueprint for the upload dialog. */
+	const getBlueprint = useCallback(() => {
+		const s = builder.store.getState();
+		return assembleBlueprint(getEntityData(s));
+	}, [builder]);
 
 	const handleSend = useCallback(
 		(text: string) => {
@@ -1047,7 +1068,11 @@ export function BuilderLayout({ children, isExistingApp }: BuilderLayoutProps) {
 											/>
 										</button>
 									</Tooltip>
-									<ExportDropdown options={exportOptions} compact />
+									<ExportDropdown
+										options={exportOptions}
+										commcareConfigured={commcareConfigured}
+										onCommCareUpload={() => setUploadDialogOpen(true)}
+									/>
 								</div>
 							)}
 						</motion.div>
@@ -1199,6 +1224,15 @@ export function BuilderLayout({ children, isExistingApp }: BuilderLayoutProps) {
 					</motion.div>
 				</div>
 			</div>
+			{/* Upload to CommCare HQ dialog — fixed overlay, doesn't use
+			 *  reference context but lives here to avoid an extra Fragment. */}
+			<UploadToHqDialog
+				open={uploadDialogOpen}
+				onClose={() => setUploadDialogOpen(false)}
+				getBlueprint={getBlueprint}
+				appName={appName}
+				domain={commcareDomain}
+			/>
 		</ReferenceProviderWrapper>
 	);
 }

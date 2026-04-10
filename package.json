@@ -22,6 +22,7 @@
 		"@dnd-kit/react": "^0.3.2",
 		"@floating-ui/react": "^0.27.19",
 		"@google-cloud/firestore": "^8.3.0",
+		"@google-cloud/kms": "^5.4.0",
 		"@iconify/react": "^6.0.2",
 		"@lezer/common": "^1.5.1",
 		"@lezer/highlight": "^1.2.3",

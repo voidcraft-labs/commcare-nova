@@ -1,5 +1,6 @@
 /**
- * Account menu — avatar-triggered dropdown with profile, usage, and sign-out.
+ * Account menu — avatar-triggered dropdown with profile, usage, settings link,
+ * and sign-out.
  *
  * Usage data is fetched eagerly on mount so the dropdown opens instantly
  * with no loading state. Re-fetched on every subsequent open to stay
@@ -10,7 +11,9 @@
 import { Popover } from "@base-ui/react/popover";
 import { Icon } from "@iconify/react/offline";
 import tablerLogout from "@iconify-icons/tabler/logout";
+import tablerSettings from "@iconify-icons/tabler/settings";
 import Image from "next/image";
+import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import { type AuthUser, useAuth } from "@/hooks/useAuth";
 import { POPOVER_POPUP_CLS, POPOVER_POSITIONER_GLASS_CLS } from "@/lib/styles";
@@ -189,6 +192,19 @@ export function AccountMenu() {
 									</div>
 								</div>
 							)}
+
+							{/* ── Divider ────────────────────────────────────── */}
+							<div className="border-t border-white/[0.06]" />
+
+							{/* ── Settings link ────────────────────────────── */}
+							<Link
+								href="/settings"
+								onClick={() => setOpen(false)}
+								className="w-full flex items-center gap-2.5 px-3 py-2.5 text-sm text-nova-text-secondary hover:text-nova-text hover:bg-white/[0.06] transition-colors cursor-pointer"
+							>
+								<Icon icon={tablerSettings} width="16" height="16" />
+								Settings
+							</Link>
 
 							{/* ── Divider ────────────────────────────────────── */}
 							<div className="border-t border-white/[0.06]" />

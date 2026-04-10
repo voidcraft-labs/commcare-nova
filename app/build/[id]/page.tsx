@@ -4,11 +4,10 @@
  *
  * For existing apps: fetches the blueprint server-side, verifies
  * ownership, and passes it to BuilderProvider. Historical threads
- * load inside a Suspense boundary so they don't block the builder —
- * the user can start editing immediately while threads stream in.
+ * load inside a Suspense boundary so they don't block the builder.
  *
- * For new apps (`/build/new`): no server fetch. BuilderProvider starts
- * in Idle phase for chat-driven generation.
+ * CommCare settings are read eagerly for both new and existing apps
+ * so the export dropdown is populated on first paint.
  */
 import { notFound, redirect } from "next/navigation";
 import { Suspense } from "react";
@@ -16,6 +15,7 @@ import { BuilderLayout } from "@/components/builder/BuilderLayout";
 import { BuilderProvider } from "@/hooks/useBuilder";
 import { getSession } from "@/lib/auth-utils";
 import { loadApp } from "@/lib/db/apps";
+import { getCommCareSettings } from "@/lib/db/settings";
 import { ThreadHistory } from "./thread-history";
 
 export default async function BuilderPage({
@@ -25,19 +25,23 @@ export default async function BuilderPage({
 }) {
 	const { id } = await params;
 
-	/* New apps — no server fetch needed. */
+	/* getSession() is React-cached — deduplicates with the layout's
+	 * requireAuth() call (zero extra Firestore reads). */
+	const session = await getSession();
+	const commcareSettings = session
+		? await getCommCareSettings(session.user.id)
+		: { configured: false as const, username: "", domain: null };
+
+	/* New apps — no blueprint fetch needed. */
 	if (id === "new") {
 		return (
 			<BuilderProvider buildId={id}>
-				<BuilderLayout />
+				<BuilderLayout commcareSettings={commcareSettings} />
 			</BuilderProvider>
 		);
 	}
 
-	/* Existing apps — fetch blueprint on the server. getSession() is
-	 * React-cached, so this deduplicates with the layout's requireAuth()
-	 * call (zero extra Firestore reads). */
-	const session = await getSession();
+	/* Existing apps — fetch blueprint on the server. */
 	if (!session) redirect("/");
 
 	const app = await loadApp(id);
@@ -46,7 +50,7 @@ export default async function BuilderPage({
 
 	return (
 		<BuilderProvider buildId={id} initialBlueprint={app.blueprint}>
-			<BuilderLayout isExistingApp>
+			<BuilderLayout isExistingApp commcareSettings={commcareSettings}>
 				<Suspense fallback={null}>
 					<ThreadHistory appId={id} />
 				</Suspense>
