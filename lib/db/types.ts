@@ -257,8 +257,6 @@ export const userSettingsDocSchema = z.object({
 	commcare_username: z.string(),
 	/** Cloud KMS-encrypted CommCare HQ API key (base64). Never sent to the client. */
 	commcare_api_key: z.string(),
-	/** CommCare HQ base URL. Hardcoded server-side to prevent SSRF. */
-	commcare_hq_url: z.string().default("https://www.commcarehq.org"),
 	/**
 	 * Domains the API key can access, tested on credential save.
 	 * Safe to store permanently because API key scope

@@ -100,7 +100,6 @@ export async function saveCommCareSettings(
 		{
 			commcare_username: input.username,
 			commcare_api_key: encryptedKey,
-			commcare_hq_url: "https://www.commcarehq.org",
 			approved_domains: input.approvedDomains,
 			updated_at: FieldValue.serverTimestamp(),
 		} as unknown as UserSettingsDoc,
