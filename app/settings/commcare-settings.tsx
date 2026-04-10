@@ -1,10 +1,10 @@
 /**
  * CommCare HQ integration settings — client component.
  *
- * Card-based UI for managing CommCare HQ API credentials. The verification
- * flow reads an NDJSON stream from the PUT endpoint, showing real-time
- * domain-testing progress ("Checking 2 / 5"). CommCare API keys are scoped
- * to a single domain, so verification bails on the first match.
+ * Card-based UI for managing CommCare HQ API credentials. Verification
+ * calls a Server Action that tests domains sequentially and returns the
+ * result — no streaming, no progress bar. The operation typically
+ * completes in 1-3 seconds.
  *
  * API key field behavior:
  *   - Idle / error: plaintext text input, editable
@@ -23,10 +23,9 @@ import tablerLoader2 from "@iconify-icons/tabler/loader-2";
 import tablerTrash from "@iconify-icons/tabler/trash";
 import { AnimatePresence, motion } from "motion/react";
 import { useCallback, useState } from "react";
-import type { SettingsStreamEvent } from "@/app/api/settings/commcare/route";
 import type { CommCareDomain } from "@/lib/commcare/client";
-import { readNdjsonStream } from "@/lib/commcare/ndjson";
 import type { CommCareSettingsPublic } from "@/lib/db/settings";
+import { deleteCredentials, verifyAndSaveCredentials } from "./actions";
 
 // ── Types ──────────────────────────────────────────────────────────
 
@@ -39,8 +38,7 @@ interface CommCareSettingsProps {
 /** State machine for the form UI. */
 type FormStatus =
 	| { type: "idle" }
-	| { type: "connecting" }
-	| { type: "testing"; tested: number; total: number }
+	| { type: "verifying" }
 	| { type: "configured" }
 	| { type: "error"; message: string }
 	| { type: "deleting" };
@@ -83,7 +81,7 @@ export function CommCareSettings({
 
 	/* ── Derived states ──────────────────────────────────────────── */
 	const isConfigured = status.type === "configured";
-	const isVerifying = status.type === "connecting" || status.type === "testing";
+	const isVerifying = status.type === "verifying";
 	const fieldsLocked =
 		isVerifying || isConfigured || status.type === "deleting";
 	const canSave =
@@ -93,70 +91,21 @@ export function CommCareSettings({
 	const showSaveArea = !isConfigured && status.type !== "deleting";
 	const showDisconnectArea = isConfigured || status.type === "deleting";
 
-	/* Progress percentage for the verification bar. */
-	const progress =
-		status.type === "testing" && status.total > 0
-			? Math.round((status.tested / status.total) * 100)
-			: 0;
-
-	/* ── Save handler (streams NDJSON progress) ──────────────────── */
+	/* ── Save handler ────────────────────────────────────────────── */
 	const handleSave = useCallback(async () => {
 		if (!username.trim() || !apiKey.trim()) return;
-		setStatus({ type: "connecting" });
+		setStatus({ type: "verifying" });
 
-		try {
-			const res = await fetch("/api/settings/commcare", {
-				method: "PUT",
-				headers: { "Content-Type": "application/json" },
-				body: JSON.stringify({
-					username: username.trim(),
-					apiKey: apiKey.trim(),
-				}),
-			});
+		const result = await verifyAndSaveCredentials(
+			username.trim(),
+			apiKey.trim(),
+		);
 
-			/* Auth or body validation failures return regular JSON errors. */
-			if (!res.ok || !res.body) {
-				const data = (await res.json().catch(() => ({}))) as {
-					error?: string;
-				};
-				setStatus({
-					type: "error",
-					message: data.error ?? `Failed to save (HTTP ${res.status})`,
-				});
-				return;
-			}
-
-			/* Read the NDJSON stream for progress + result events. */
-			await readNdjsonStream<SettingsStreamEvent>(res.body, (event) => {
-				switch (event.type) {
-					case "testing":
-						setStatus({
-							type: "testing",
-							tested: event.tested,
-							total: event.total,
-						});
-						break;
-					case "complete":
-						setDomain(event.domain);
-						setStatus({ type: "configured" });
-						break;
-					case "no_access":
-						setStatus({
-							type: "error",
-							message:
-								"API key doesn't have access to any project space. CommCare keys are scoped to one domain — make sure this key matches the right project.",
-						});
-						break;
-					case "error":
-						setStatus({ type: "error", message: event.message });
-						break;
-				}
-			});
-		} catch {
-			setStatus({
-				type: "error",
-				message: "Network error. Please try again.",
-			});
+		if (result.success) {
+			setDomain(result.domain);
+			setStatus({ type: "configured" });
+		} else {
+			setStatus({ type: "error", message: result.error });
 		}
 	}, [username, apiKey]);
 
@@ -164,28 +113,15 @@ export function CommCareSettings({
 	const handleDisconnect = useCallback(async () => {
 		setStatus({ type: "deleting" });
 
-		try {
-			const res = await fetch("/api/settings/commcare", {
-				method: "DELETE",
-			});
+		const result = await deleteCredentials();
 
-			if (!res.ok) {
-				setStatus({
-					type: "error",
-					message: "Failed to disconnect. Please try again.",
-				});
-				return;
-			}
-
+		if (result.success) {
 			setDomain(null);
 			setUsername(userEmail);
 			setApiKey("");
 			setStatus({ type: "idle" });
-		} catch {
-			setStatus({
-				type: "error",
-				message: "Failed to disconnect. Please try again.",
-			});
+		} else {
+			setStatus({ type: "error", message: result.error });
 		}
 	}, [userEmail]);
 
@@ -332,9 +268,9 @@ export function CommCareSettings({
 				{/* ── Status feedback area ───────────────────────────── */}
 				<div aria-live="polite">
 					<AnimatePresence mode="wait">
-						{status.type === "connecting" && (
+						{isVerifying && (
 							<motion.div
-								key="connecting"
+								key="verifying"
 								initial={STATUS_ENTER}
 								animate={STATUS_VISIBLE}
 								exit={STATUS_EXIT}
@@ -347,39 +283,7 @@ export function CommCareSettings({
 									height="14"
 									className="animate-spin"
 								/>
-								<span>Connecting to CommCare HQ...</span>
-							</motion.div>
-						)}
-
-						{status.type === "testing" && (
-							<motion.div
-								key="testing"
-								initial={STATUS_ENTER}
-								animate={STATUS_VISIBLE}
-								exit={STATUS_EXIT}
-								transition={STATUS_TRANSITION}
-								className="mt-5 space-y-2"
-							>
-								{/* Progress bar */}
-								<div className="h-1 w-full overflow-hidden rounded-full bg-white/[0.04]">
-									<motion.div
-										className="h-full rounded-full bg-gradient-to-r from-nova-violet to-nova-violet-bright shadow-[0_0_8px_rgba(139,92,246,0.3)]"
-										initial={{ width: 0 }}
-										animate={{ width: `${progress}%` }}
-										transition={{
-											ease: "easeOut",
-											duration: 0.3,
-										}}
-									/>
-								</div>
-								<p className="text-xs text-nova-text-muted">
-									Checking domain access{" "}
-									<span className="tabular-nums text-nova-text-secondary">
-										{status.tested}
-									</span>
-									<span className="mx-0.5 text-nova-text-muted/50">/</span>
-									<span className="tabular-nums">{status.total}</span>
-								</p>
+								<span>Verifying credentials...</span>
 							</motion.div>
 						)}
 

@@ -50,6 +50,7 @@ import {
 import { useKeyboardShortcuts } from "@/hooks/useKeyboardShortcuts";
 import { parseApiErrorMessage } from "@/lib/apiError";
 import { extractThread } from "@/lib/chat/threadUtils";
+import type { CommCareSettingsPublic } from "@/lib/db/settings";
 import { saveThread } from "@/lib/db/threads";
 import { shortcutLabel } from "@/lib/platform";
 import { ReferenceProviderWrapper } from "@/lib/references/ReferenceContext";
@@ -180,9 +181,16 @@ interface BuilderLayoutProps {
 	/** True when the app was loaded from Firestore (not a new build).
 	 *  Drives thread type classification (build vs edit). */
 	isExistingApp?: boolean;
+	/** CommCare HQ settings read by the RSC page — drives the export
+	 *  dropdown's configured/unconfigured state and upload dialog domain. */
+	commcareSettings?: CommCareSettingsPublic;
 }
 
-export function BuilderLayout({ children, isExistingApp }: BuilderLayoutProps) {
+export function BuilderLayout({
+	children,
+	isExistingApp,
+	commcareSettings,
+}: BuilderLayoutProps) {
 	const router = useRouter();
 	const builder = useBuilderEngine();
 	const phase = useBuilderPhase();
@@ -521,42 +529,10 @@ export function BuilderLayout({ children, isExistingApp }: BuilderLayoutProps) {
 	const _isGenerating = phase === BuilderPhase.Generating;
 
 	// ── CommCare HQ integration state ──────────────────────────────────
-	// Fetched lazily on first export dropdown open — avoids an API call on
-	// every builder page load when the user may never use the export feature.
-	const [commcareConfigured, setCommcareConfigured] = useState(false);
-	const [commcareDomain, setCommcareDomain] = useState<{
-		name: string;
-		displayName: string;
-	} | null>(null);
-	const [commcareStatus, setCommcareStatus] = useState<
-		"pending" | "loading" | "loaded"
-	>("pending");
+	// Read by the RSC page and passed as props — no client-side fetch needed.
+	const commcareConfigured = commcareSettings?.configured ?? false;
+	const commcareDomain = commcareSettings?.domain ?? null;
 	const [uploadDialogOpen, setUploadDialogOpen] = useState(false);
-
-	/** Fetch CommCare settings on demand (first export dropdown open). Cached after first load. */
-	const loadCommcareSettings = useCallback(() => {
-		if (commcareStatus !== "pending") return;
-		setCommcareStatus("loading");
-		fetch("/api/settings/commcare")
-			.then((res) =>
-				res.ok
-					? (res.json() as Promise<{
-							configured: boolean;
-							domain: { name: string; displayName: string } | null;
-						}>)
-					: null,
-			)
-			.then((data) => {
-				if (data) {
-					setCommcareConfigured(data.configured);
-					setCommcareDomain(data.domain);
-				}
-				setCommcareStatus("loaded");
-			})
-			.catch(() => {
-				setCommcareStatus("loaded");
-			});
-	}, [commcareStatus]);
 
 	/** Assemble the current blueprint for the upload dialog. */
 	const getBlueprint = useCallback(() => {
@@ -1096,8 +1072,6 @@ export function BuilderLayout({ children, isExistingApp }: BuilderLayoutProps) {
 										<ExportDropdown
 											options={exportOptions}
 											commcareConfigured={commcareConfigured}
-											commcareStatus={commcareStatus}
-											onLoad={loadCommcareSettings}
 											onCommCareUpload={() => setUploadDialogOpen(true)}
 											compact
 										/>

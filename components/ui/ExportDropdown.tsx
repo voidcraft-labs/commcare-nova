@@ -19,10 +19,9 @@ import { Popover } from "@base-ui/react/popover";
 import { Icon, type IconifyIcon } from "@iconify/react/offline";
 import tablerChevronRight from "@iconify-icons/tabler/chevron-right";
 import tablerCloudUpload from "@iconify-icons/tabler/cloud-upload";
-import tablerLoader2 from "@iconify-icons/tabler/loader-2";
 import tablerUpload from "@iconify-icons/tabler/upload";
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { Tooltip } from "@/components/ui/Tooltip";
 import { POPOVER_POPUP_CLS, POPOVER_POSITIONER_GLASS_CLS } from "@/lib/styles";
 
@@ -38,12 +37,8 @@ export interface ExportOption {
 interface ExportDropdownProps {
 	/** File download options (JSON, CCZ). */
 	options: ExportOption[];
-	/** Whether CommCare HQ credentials are configured (only meaningful when loaded). */
+	/** Whether CommCare HQ credentials are configured. */
 	commcareConfigured: boolean;
-	/** Load status: pending (not fetched), loading, or loaded. */
-	commcareStatus: "pending" | "loading" | "loaded";
-	/** Called on first open to trigger a lazy settings fetch. */
-	onLoad: () => void;
 	/** Called when the user clicks "CommCare HQ" (only when configured). */
 	onCommCareUpload: () => void;
 	/** Icon-only trigger button for compact toolbar placement. */
@@ -55,17 +50,10 @@ interface ExportDropdownProps {
 export function ExportDropdown({
 	options,
 	commcareConfigured,
-	commcareStatus,
-	onLoad,
 	onCommCareUpload,
 	compact,
 }: ExportDropdownProps) {
 	const [open, setOpen] = useState(false);
-
-	/* Trigger lazy settings fetch on first open. */
-	useEffect(() => {
-		if (open && commcareStatus === "pending") onLoad();
-	}, [open, commcareStatus, onLoad]);
 
 	return (
 		<Popover.Root open={open} onOpenChange={setOpen}>
@@ -97,9 +85,7 @@ export function ExportDropdown({
 					<Popover.Popup className={POPOVER_POPUP_CLS}>
 						<div style={{ minWidth: "220px" }}>
 							{/* ── CommCare HQ section (primary) ─────────────── */}
-							{commcareStatus !== "loaded" ? (
-								<CommCareLoadingRow />
-							) : commcareConfigured ? (
+							{commcareConfigured ? (
 								<button
 									type="button"
 									onClick={() => {
@@ -161,23 +147,6 @@ export function ExportDropdown({
 				</Popover.Positioner>
 			</Popover.Portal>
 		</Popover.Root>
-	);
-}
-
-// ── Loading state ───────────────────────────────────────────────────
-
-/** Brief loading row shown while CommCare settings are being fetched. */
-function CommCareLoadingRow() {
-	return (
-		<div className="flex items-center gap-2.5 px-3 py-2.5 rounded-t-xl">
-			<Icon
-				icon={tablerLoader2}
-				width="16"
-				height="16"
-				className="text-nova-text-muted animate-spin"
-			/>
-			<span className="text-sm text-nova-text-muted">CommCare HQ</span>
-		</div>
 	);
 }
 
