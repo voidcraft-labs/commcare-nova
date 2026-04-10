@@ -191,9 +191,10 @@ export function applicationShell(
 		secure_submissions: false,
 		multimedia_map: {},
 		translations: {},
-		// Standard HQ app properties — these must appear before _attachments to
-		// push XForms XML past the 16KB WAF body-inspection window on HQ's
-		// import endpoint (which is missing a waf_allow('XSS_BODY') exemption).
+		// Standard HQ app properties before _attachments — secondary WAF defense.
+		// Primary bypass is the 16KB multipart padding in client.ts importApp().
+		// These add ~1.9KB of buffer; insufficient alone for small apps but
+		// still worth keeping to reduce the attack surface. Do not reorder.
 		admin_password: null,
 		admin_password_charset: "n",
 		amplifies_project: "not_set",

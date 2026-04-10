@@ -19,6 +19,7 @@
  *   collections.apps()           → apps/{appId}          (root-level)
  *   collections.logs(appId)      → apps/{appId}/logs/{logId}
  *   collections.threads(appId)   → apps/{appId}/threads/{threadId}
+ *   collections.settings()       → user_settings/{userId} (CommCare HQ credentials)
  */
 import {
 	type CollectionReference,
@@ -38,7 +39,9 @@ import {
 	type ThreadDoc,
 	threadDocSchema,
 	type UsageDoc,
+	type UserSettingsDoc,
 	usageDocSchema,
+	userSettingsDocSchema,
 } from "./types";
 
 // ── Singleton ──────────────────────────────────────────────────────
@@ -108,6 +111,7 @@ const usageConverter = zodConverter(usageDocSchema);
 const appConverter = zodConverter(appDocSchema);
 const storedEventConverter = zodConverter(storedEventSchema);
 const threadConverter = zodConverter(threadDocSchema);
+const userSettingsConverter = zodConverter(userSettingsDocSchema);
 
 // ── Collection Helpers ─────────────────────────────────────────────
 
@@ -154,6 +158,10 @@ export const collections = {
 			.doc(appId)
 			.collection("threads")
 			.withConverter(threadConverter),
+
+	/** User settings: `user_settings/{userId}` (single doc per user) */
+	settings: (): CollectionReference<UserSettingsDoc> =>
+		getDb().collection("user_settings").withConverter(userSettingsConverter),
 };
 
 // ── Document Helpers ───────────────────────────────────────────────
@@ -184,4 +192,8 @@ export const docs = {
 	/** Direct reference: `apps/{appId}/threads/{threadId}` */
 	thread: (appId: string, threadId: string): DocumentReference<ThreadDoc> =>
 		collections.threads(appId).doc(threadId),
+
+	/** Direct reference: `user_settings/{userId}` */
+	settings: (userId: string): DocumentReference<UserSettingsDoc> =>
+		collections.settings().doc(userId),
 };
