@@ -12,10 +12,7 @@ import { type NextRequest, NextResponse } from "next/server";
 import { ApiError, handleApiError } from "@/lib/apiError";
 import { requireSession } from "@/lib/auth-utils";
 import { importApp, isValidDomainSlug } from "@/lib/commcare/client";
-import {
-	getCommCareSettings,
-	getDecryptedCredentials,
-} from "@/lib/db/settings";
+import { getDecryptedCredentialsWithDomain } from "@/lib/db/settings";
 import { log } from "@/lib/log";
 import { appBlueprintSchema } from "@/lib/schemas/blueprint";
 import { expandBlueprint } from "@/lib/services/hqJsonExpander";
@@ -56,23 +53,20 @@ export async function POST(req: NextRequest) {
 		}
 
 		/* ── Resolve credentials + verify domain authorization ──────── */
-		const [creds, settings] = await Promise.all([
-			getDecryptedCredentials(session.user.id),
-			getCommCareSettings(session.user.id),
-		]);
-		if (!creds) {
+		const settings = await getDecryptedCredentialsWithDomain(session.user.id);
+		if (!settings) {
 			throw new ApiError(
 				"CommCare HQ is not configured. Add your API key in Settings.",
 				400,
 			);
 		}
-		const approvedDomain = settings.domain?.name;
-		if (!approvedDomain || approvedDomain !== body.domain.trim()) {
+		if (settings.domain.name !== body.domain.trim()) {
 			throw new ApiError(
 				"You can only upload to your authorized project space.",
 				403,
 			);
 		}
+		const { creds } = settings;
 
 		/* ── Expand blueprint to HQ JSON ────────────────────────────── */
 		const hqJson = expandBlueprint(parsed.data);
