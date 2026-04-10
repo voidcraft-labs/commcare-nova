@@ -56,6 +56,12 @@ interface ToolCall {
 
 interface LogEvent {
 	type: string;
+	/* Config fields */
+	prompt_mode?: string;
+	fresh_edit?: boolean;
+	app_ready?: boolean;
+	cache_expired?: boolean;
+	module_count?: number;
 	/* Step fields */
 	step_index?: number;
 	text?: string;
@@ -95,6 +101,12 @@ function printEventSummary(e: StoredEvent) {
 	const prefix = `  [seq=${String(e.sequence).padStart(3)} req=${e.request}] ${ts}`;
 
 	switch (evt.type) {
+		case "config":
+			console.log(
+				`${prefix}  ⚙️  config: prompt=${evt.prompt_mode} freshEdit=${evt.fresh_edit} appReady=${evt.app_ready} cacheExpired=${evt.cache_expired} modules=${evt.module_count}`,
+			);
+			break;
+
 		case "message":
 			console.log(`${prefix}  📨 message: ${truncate(evt.text ?? "", 80)}`);
 			break;
@@ -138,6 +150,14 @@ function printEventVerbose(e: StoredEvent) {
 	);
 
 	switch (evt.type) {
+		case "config":
+			console.log(`  │ prompt_mode: ${evt.prompt_mode}`);
+			console.log(`  │ fresh_edit:  ${evt.fresh_edit}`);
+			console.log(`  │ app_ready:   ${evt.app_ready}`);
+			console.log(`  │ cache_expired: ${evt.cache_expired}`);
+			console.log(`  │ module_count: ${evt.module_count}`);
+			break;
+
 		case "message":
 			console.log(`  │ text: ${evt.text}`);
 			break;
