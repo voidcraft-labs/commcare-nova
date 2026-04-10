@@ -521,18 +521,23 @@ export function BuilderLayout({ children, isExistingApp }: BuilderLayoutProps) {
 	const _isGenerating = phase === BuilderPhase.Generating;
 
 	// ── CommCare HQ integration state ──────────────────────────────────
-	// Fetched once on mount — drives the export dropdown's configured/unconfigured
-	// state and provides the authorized domain to the upload dialog.
+	// Fetched lazily on first export dropdown open — avoids an API call on
+	// every builder page load when the user may never use the export feature.
 	const [commcareConfigured, setCommcareConfigured] = useState(false);
 	const [commcareDomain, setCommcareDomain] = useState<{
 		name: string;
 		displayName: string;
 	} | null>(null);
+	const [commcareStatus, setCommcareStatus] = useState<
+		"pending" | "loading" | "loaded"
+	>("pending");
 	const [uploadDialogOpen, setUploadDialogOpen] = useState(false);
 
-	useEffect(() => {
-		const controller = new AbortController();
-		fetch("/api/settings/commcare", { signal: controller.signal })
+	/** Fetch CommCare settings on demand (first export dropdown open). Cached after first load. */
+	const loadCommcareSettings = useCallback(() => {
+		if (commcareStatus !== "pending") return;
+		setCommcareStatus("loading");
+		fetch("/api/settings/commcare")
 			.then((res) =>
 				res.ok
 					? (res.json() as Promise<{
@@ -546,10 +551,12 @@ export function BuilderLayout({ children, isExistingApp }: BuilderLayoutProps) {
 					setCommcareConfigured(data.configured);
 					setCommcareDomain(data.domain);
 				}
+				setCommcareStatus("loaded");
 			})
-			.catch(() => {});
-		return () => controller.abort();
-	}, []);
+			.catch(() => {
+				setCommcareStatus("loaded");
+			});
+	}, [commcareStatus]);
 
 	/** Assemble the current blueprint for the upload dialog. */
 	const getBlueprint = useCallback(() => {
@@ -1089,6 +1096,8 @@ export function BuilderLayout({ children, isExistingApp }: BuilderLayoutProps) {
 										<ExportDropdown
 											options={exportOptions}
 											commcareConfigured={commcareConfigured}
+											commcareStatus={commcareStatus}
+											onLoad={loadCommcareSettings}
 											onCommCareUpload={() => setUploadDialogOpen(true)}
 											compact
 										/>
