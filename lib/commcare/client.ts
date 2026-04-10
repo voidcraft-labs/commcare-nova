@@ -294,8 +294,8 @@ export async function importApp(
 	};
 	if (csrfToken) {
 		headers["X-CSRFToken"] = csrfToken;
-		headers["Cookie"] = `csrftoken=${csrfToken}`;
-		headers["Referer"] = url;
+		headers.Cookie = `csrftoken=${csrfToken}`;
+		headers.Referer = url;
 	}
 
 	const res = await fetch(url, {
