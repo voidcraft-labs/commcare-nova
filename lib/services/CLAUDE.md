@@ -12,7 +12,7 @@ The SA makes all architecture and form design decisions. All tools are called di
 
 Tools are split into `generationTools` and `sharedTools` in `solutionsArchitect.ts`:
 
-- **Generation** (3, build mode only): `generateSchema`, `generateScaffold`, `addModule` — SA calls with structured data, `strict: true`. Excluded in fresh-edit mode.
+- **Generation** (3, build mode only): `generateSchema`, `generateScaffold`, `addModule` — SA calls with structured data, `strict: true`. Excluded in edit mode.
 - **Shared** (all modes):
   - *Conversation* (1): `askQuestions` (client-side, rendered as QuestionCard)
   - *Form Building* (1): `addQuestions` — batch-append with `stripEmpty → applyDefaults → buildQuestionTree`
@@ -24,7 +24,7 @@ Mutation tools return human-readable success strings (not JSON metadata) so the 
 
 ### Prompt Caching
 
-`prepareStep` sets request-level `cacheControl: { type: 'ephemeral' }` in Anthropic provider options. The API automatically places the cache breakpoint on the last cacheable block and advances it as the conversation grows — the system prompt stays cached across all requests within a session. Cache TTL is 5 minutes — the route uses `lastResponseAt` from the client to detect expiry and switch to fresh-edit mode (smaller prompt + blueprint summary instead of full history).
+`prepareStep` sets request-level `cacheControl: { type: 'ephemeral' }` in Anthropic provider options. The API automatically places the cache breakpoint on the last cacheable block and advances it as the conversation grows — the system prompt stays cached across all requests within a session. Cache TTL is 5 minutes — the route uses `lastResponseAt` from the client to control the message strategy: within the cache window, full conversation history is sent; after expiry, only the last user message is sent (one-shot). Edit vs. build mode is determined by `appReady` alone (see root CLAUDE.md).
 
 ## Expander Decisions
 

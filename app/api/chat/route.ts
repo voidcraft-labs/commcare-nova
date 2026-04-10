@@ -77,14 +77,6 @@ export async function POST(req: Request) {
 
 	const { blueprint, runId, lastResponseAt, appReady } = parsed.data;
 
-	// TODO: remove after verifying fresh-edit mode works
-	console.log("[chat] freshEdit signals", {
-		appReady,
-		lastResponseAt,
-		hasBlueprint: !!blueprint,
-		moduleCount: blueprint?.modules?.length ?? 0,
-	});
-
 	const logger = new EventLogger(runId);
 
 	/*
@@ -211,30 +203,48 @@ export async function POST(req: Request) {
 			};
 
 			try {
-				/* Fresh edit: the app has completed initial generation but the prior
-				 * conversation's prompt cache has expired (or never existed — page
-				 * reload). The SA gets an editing prompt with a compact blueprint
-				 * summary instead of the full history, and generation tools are excluded.
+				/* Two orthogonal decisions:
 				 *
-				 * appReady comes from the client's builder phase (Ready/Completed) —
-				 * it's false during initial generation even after modules exist, so
-				 * we never accidentally strip generation tools mid-build. */
+				 * 1. **Editing vs. build** — determined by appReady alone. If the app
+				 *    exists (builder phase Ready/Completed), the SA always gets the
+				 *    editing prompt + blueprint summary and only shared tools. This
+				 *    holds for the entire edit session, including follow-up requests
+				 *    after askQuestions rounds.
+				 *
+				 * 2. **Message strategy** — determined by cache expiry. When the
+				 *    Anthropic prompt cache has expired (>5 min since last response),
+				 *    only the last user message is sent (one-shot). Within the cache
+				 *    window, full conversation history is sent so the SA can iterate
+				 *    with context from prior turns (e.g. askQuestions answers).
+				 *
+				 * appReady is false during initial generation even after modules
+				 * exist, so generation tools are never stripped mid-build. */
+				const editing = !!appReady;
 				const cacheExpired =
 					!lastResponseAt ||
 					Date.now() - new Date(lastResponseAt).getTime() > CACHE_TTL_MS;
-				const freshEdit = !!appReady && cacheExpired;
 
-				const sa = createSolutionsArchitect(ctx, mutableBp, freshEdit);
+				logger.logConfig({
+					prompt_mode: editing ? "edit" : "build",
+					fresh_edit: editing && cacheExpired,
+					app_ready: editing,
+					cache_expired: cacheExpired,
+					module_count: mutableBp.modules.length,
+				});
 
-				/* In fresh-edit mode, only send the latest user message. The SA's
-				 * system prompt already includes a compact blueprint summary for
-				 * context. Sending the full history would (a) waste tokens on a
-				 * dead cache and (b) fail SDK validation because tool call parts
-				 * from generation (generateSchema, etc.) reference tools that are
-				 * excluded in edit mode. */
-				const effectiveMessages = freshEdit
-					? messages.filter((m) => m.role === "user").slice(-1)
-					: messages;
+				const sa = createSolutionsArchitect(ctx, mutableBp, editing);
+
+				/* When editing with an expired cache, only send the last user message.
+				 * The SA's system prompt includes a compact blueprint summary for
+				 * context. Sending the full build history would (a) waste tokens on a
+				 * dead cache and (b) fail SDK validation because tool call parts from
+				 * generation (generateSchema, etc.) reference tools excluded in edit
+				 * mode. Within the cache window, full history is safe — it only
+				 * contains edit-session messages with shared-tool references. */
+				const effectiveMessages =
+					editing && cacheExpired
+						? messages.filter((m) => m.role === "user").slice(-1)
+						: messages;
 
 				const agentStream = await createAgentUIStream({
 					agent: sa,
