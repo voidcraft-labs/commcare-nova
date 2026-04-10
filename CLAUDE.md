@@ -136,7 +136,7 @@ Users can upload apps directly to CommCare HQ from the builder. The upload flow 
 
 **Export dropdown** — CommCare HQ upload is the primary option; file downloads (JSON/CCZ) are secondary below a divider. When credentials aren't configured, an informative prompt links to Settings instead of a disabled button.
 
-**Domain slug validation** — the upload route validates domain names against `^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$` to prevent path traversal in the import URL template.
+**Domain slug validation** — `isValidDomainSlug()` in `lib/commcare/client.ts` validates domain names against HQ's `legacy_domain_re` pattern (`^[\w.:-]+$`) to prevent path traversal in the import URL template. The permissive pattern accepts all three tiers of HQ domain slugs: new (alphanum + hyphens), grandfathered (+ dots, colons), and legacy (+ underscores).
 
 ## Conventions
 
