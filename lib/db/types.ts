@@ -123,6 +123,21 @@ export interface EmissionEvent {
 	emission_data: JsonValue;
 }
 
+/** Session configuration snapshot — written once at the start of each run. */
+export interface ConfigEvent {
+	type: "config";
+	/** Which prompt the SA received: 'build' for new apps, 'edit' for fresh-edit mode. */
+	prompt_mode: "build" | "edit";
+	/** Whether fresh-edit mode was activated. */
+	fresh_edit: boolean;
+	/** Client signal: builder phase was Ready/Completed when the request was sent. */
+	app_ready: boolean;
+	/** Whether the prompt cache TTL had expired (>5 min since last response). */
+	cache_expired: boolean;
+	/** Number of modules in the blueprint at request time (0 for new builds). */
+	module_count: number;
+}
+
 /** A classified error (api_auth, rate_limit, internal, etc.). */
 export interface ErrorEvent {
 	type: "error";
@@ -134,7 +149,12 @@ export interface ErrorEvent {
 }
 
 /** Discriminated union of all event payloads. */
-export type LogEvent = MessageEvent | StepEvent | EmissionEvent | ErrorEvent;
+export type LogEvent =
+	| ConfigEvent
+	| MessageEvent
+	| StepEvent
+	| EmissionEvent
+	| ErrorEvent;
 
 // ── Stored event (envelope + event) ──────────────────────────────
 
@@ -215,6 +235,15 @@ const emissionEventSchema = z.object({
 	emission_data: jsonValue,
 });
 
+const configEventSchema = z.object({
+	type: z.literal("config"),
+	prompt_mode: z.enum(["build", "edit"]),
+	fresh_edit: z.boolean(),
+	app_ready: z.boolean(),
+	cache_expired: z.boolean(),
+	module_count: z.number(),
+});
+
 const errorEventSchema = z.object({
 	type: z.literal("error"),
 	error_type: z.string(),
@@ -225,6 +254,7 @@ const errorEventSchema = z.object({
 });
 
 const logEventSchema = z.discriminatedUnion("type", [
+	configEventSchema,
 	messageEventSchema,
 	stepEventSchema,
 	emissionEventSchema,

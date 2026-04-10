@@ -11,6 +11,7 @@
 import type { UIMessage } from "ai";
 import { writeLogEvent } from "../db/logs";
 import type {
+	ConfigEvent,
 	JsonValue,
 	LogEvent,
 	LogToolCall,
@@ -94,6 +95,15 @@ export class EventLogger {
 	}
 
 	// ── Public API ──────────────────────────────────────────────────
+
+	/**
+	 * Record which prompt mode the SA received and the signals that determined it.
+	 * Written once at seq=0 so inspect-logs can show the session config at a glance.
+	 */
+	logConfig(config: Omit<ConfigEvent, "type">) {
+		if (!this.firestoreEnabled) return;
+		this.write({ type: "config", ...config });
+	}
 
 	/**
 	 * Log user messages from the current request. Extracts user-role messages
