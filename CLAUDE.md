@@ -200,7 +200,7 @@ DOM listeners (click-outside, Escape, ResizeObserver, MutationObserver, focusin)
 
 ### Floating Elements (Base UI)
 
-All floating elements (popovers, tooltips, menus) use `@base-ui/react` — no raw `@floating-ui/react` in application code (only vendored tiptap-ui-primitive). Base UI's `FloatingTreeStore` coordinates dismiss/focus across all floating elements automatically. `Tooltip.Provider` in the root layout provides shared delay grouping (400ms hover delay, instant adjacent reveal). Glass/elevated surface styles live on the `Positioner`, not the `Popup` — `will-change: transform` on the Positioner breaks `backdrop-filter` on descendants. Style constants: `POPOVER_POSITIONER_GLASS_CLS`, `POPOVER_POSITIONER_ELEVATED_CLS`, `POPOVER_POPUP_CLS` in `lib/styles.ts`.
+All floating elements (popovers, tooltips, menus) use `@base-ui/react` — no raw `@floating-ui/react` in application code (only vendored tiptap-ui-primitive). Base UI's `FloatingTreeStore` coordinates dismiss/focus across all floating elements automatically. `Tooltip.Provider` in the root layout provides shared delay grouping (400ms hover delay, instant adjacent reveal). Glass/elevated surface styles live on the `Positioner`, not the `Popup` — `will-change: transform` on the Positioner breaks `backdrop-filter` on descendants. Style constants in `lib/styles.ts`: `MENU_POSITIONER_CLS` / `MENU_SUBMENU_POSITIONER_CLS` / `MENU_POPUP_CLS` / `MENU_ITEM_CLS` for menus, `POPOVER_POSITIONER_GLASS_CLS` / `POPOVER_POSITIONER_ELEVATED_CLS` / `POPOVER_POPUP_CLS` for popovers. All selectable-option dropdowns use `Menu.*` (not `Popover.*`) for proper ARIA roles and keyboard navigation.
 
 ### No Navigation During Render
 
@@ -220,7 +220,7 @@ Dark "Violet Monochrome" — violet is the single non-semantic accent. CSS custo
 - In-theme accent: `--nova-orchid` (#cda0d4, warm pink-purple) — from the xpath "lavender milk bath" palette, used for UI states that need distinction without semantic warning weight (e.g. impersonation banner)
 - Fonts: Outfit (display), Plus Jakarta Sans (body), JetBrains Mono (code)
 - Z-index scale (`globals.css`): 7 semantic tokens — `z-ground` → `z-raised` → `z-popover` → `z-popover-top` → `z-tooltip` → `z-modal` → `z-system`. Use Tailwind `z-{token}` classes, never hardcoded `z-{number}`. Dialogs and their backdrops use `z-modal`; toasts use `z-system` so they're visible over modals.
-- Popover layers (`lib/styles.ts`): `POPOVER_GLASS` (L1, frosted glass) for base-layer panels, `POPOVER_ELEVATED` (L2, nearly opaque) for stacked popovers. Base UI popover/tooltip animations use CSS `data-[starting-style]`/`data-[ending-style]` data attributes
+- Floating surface layers (`lib/styles.ts`): L1 (frosted glass, backdrop-blur) for primary panels, L2 (nearly opaque, no blur) for panels stacked above glass. Both menus and popovers have glass/elevated positioner variants. Animations use CSS `data-[starting-style]`/`data-[ending-style]` data attributes
 - CodeMirror theme (`lib/codemirror/xpath-theme.ts`): "lavender milk bath" palette — all syntax colors in the purple/orchid family, differentiated by lightness and warmth, not by clashing hues
 
 ## Structured Output Constraint

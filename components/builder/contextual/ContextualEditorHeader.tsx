@@ -518,7 +518,7 @@ export function ContextualEditorHeader({ question }: QuestionEditorProps) {
 										</Menu.Portal>
 									</Menu.SubmenuRoot>
 								) : (
-									<Tooltip content="Can't convert — remove and add a new question instead">
+									<Tooltip content="This field type doesn't support conversion">
 										<MenuItem
 											icon={tablerArrowsExchange}
 											label="Convert Type"
