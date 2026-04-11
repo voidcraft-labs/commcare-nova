@@ -3,17 +3,14 @@
  * Each rule receives a module, its index, and the full blueprint.
  */
 
-import type {
-	AppBlueprint,
-	BlueprintModule,
-	Question,
-} from "@/lib/schemas/blueprint";
+import type { AppBlueprint, BlueprintModule } from "@/lib/schemas/blueprint";
 import {
 	CASE_TYPE_REGEX,
 	MAX_CASE_TYPE_LENGTH,
 	STANDARD_CASE_LIST_PROPERTIES,
 } from "../../constants";
 import { type ValidationError, validationError } from "../errors";
+import { collectCaseProperties } from "../index";
 
 export function caseFormsNoCaseType(
 	mod: BlueprintModule,
@@ -149,42 +146,6 @@ export function missingCaseListColumns(
 	return [];
 }
 
-/**
- * Collect all case property names saved to a given case type across the app.
- *
- * Walks modules with the target case type AND parent modules that create
- * children of this type — child case creation means a form in a parent
- * module (e.g. "measles_case") can save properties to a child case type
- * (e.g. "contact") via `case_property_on`. The per-question filter
- * (`q.case_property_on === caseType`) ensures only properties targeting
- * the requested type are collected, even when walking a parent module
- * whose own questions save to its primary type.
- */
-function collectKnownCaseProperties(
-	bp: AppBlueprint,
-	caseType: string,
-): Set<string> {
-	const props = new Set<string>();
-	function walk(questions: Question[]) {
-		for (const q of questions) {
-			if (q.case_property_on === caseType) props.add(q.id);
-			if (q.children) walk(q.children);
-		}
-	}
-
-	const moduleTypes = new Set([caseType]);
-	const ct = bp.case_types?.find((c) => c.name === caseType);
-	if (ct?.parent_type) moduleTypes.add(ct.parent_type);
-
-	for (const mod of bp.modules) {
-		if (!mod.case_type || !moduleTypes.has(mod.case_type)) continue;
-		for (const form of mod.forms) {
-			walk(form.questions || []);
-		}
-	}
-	return props;
-}
-
 /** Case list column fields must reference known case properties or standard properties. */
 export function invalidColumnField(
 	mod: BlueprintModule,
@@ -198,7 +159,7 @@ export function invalidColumnField(
 	)
 		return [];
 	const errors: ValidationError[] = [];
-	const knownProps = collectKnownCaseProperties(bp, mod.case_type);
+	const knownProps = collectCaseProperties(bp, mod.case_type) ?? new Set();
 
 	for (const col of mod.case_list_columns) {
 		if (STANDARD_CASE_LIST_PROPERTIES.has(col.field)) continue;
