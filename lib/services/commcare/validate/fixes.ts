@@ -198,10 +198,10 @@ const fixSelectNoOptions: FixFn = (error, blueprint) => {
 	return false;
 };
 
-const fixCloseCase: FixFn = (error, blueprint) => {
+const fixCloseCondition: FixFn = (error, blueprint) => {
 	const form = findForm(blueprint, error);
 	if (!form) return false;
-	delete form.close_case;
+	delete form.close_condition;
 	return true;
 };
 
@@ -312,10 +312,9 @@ export const FIX_REGISTRY = new Map<ValidationErrorCode, FixFn>([
 	["MEDIA_CASE_PROPERTY", fixMediaCaseProperty],
 	["UNQUOTED_STRING_LITERAL", fixUnquotedStringLiteral],
 	["SELECT_NO_OPTIONS", fixSelectNoOptions],
-	["CLOSE_CASE_NOT_FOLLOWUP", fixCloseCase],
-	["CLOSE_CASE_MISSING_ANSWER", fixCloseCase],
-	["CLOSE_CASE_MISSING_QUESTION", fixCloseCase],
-	["CLOSE_CASE_QUESTION_NOT_FOUND", fixCloseCase],
+	["CLOSE_CONDITION_WRONG_TYPE", fixCloseCondition],
+	["CLOSE_CONDITION_INCOMPLETE", fixCloseCondition],
+	["CLOSE_CONDITION_QUESTION_NOT_FOUND", fixCloseCondition],
 	["UNKNOWN_FUNCTION", fixUnknownFunction],
 	["WRONG_ARITY", fixWrongArity],
 	["INVALID_QUESTION_ID", fixInvalidQuestionId],

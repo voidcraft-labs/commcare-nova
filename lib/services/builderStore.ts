@@ -35,6 +35,7 @@ import type {
 	CaseType,
 	ConnectConfig,
 	ConnectType,
+	FormType,
 	PostSubmitDestination,
 	Scaffold,
 } from "@/lib/schemas/blueprint";
@@ -266,8 +267,12 @@ export interface BuilderState {
 		fIdx: number,
 		updates: {
 			name?: string;
-			type?: "registration" | "followup" | "survey";
-			close_case?: { question?: string; answer?: string } | null;
+			type?: FormType;
+			close_condition?: {
+				question: string;
+				answer: string;
+				operator?: "=" | "selected";
+			} | null;
 			connect?: ConnectConfig | null;
 			post_submit?: PostSubmitDestination | null;
 		},
@@ -544,11 +549,11 @@ export function createBuilderStore(initialPhase: BuilderPhase) {
 									if (idx !== -1) siblings.splice(idx, 1);
 								}
 
-								/* Check if this question is referenced by close_case */
+								/* Check if this question is referenced by close_condition */
 								const form = draft.forms[formId];
 								const bareId = qpathId(path);
-								if (form?.closeCase?.question === bareId) {
-									form.closeCase = undefined;
+								if (form?.closeCondition?.question === bareId) {
+									form.closeCondition = undefined;
 								}
 
 								/* Remove entity and all descendants */
@@ -685,10 +690,10 @@ export function createBuilderStore(initialPhase: BuilderPhase) {
 											);
 										}
 
-										/* Update close_case reference if it matched the old ID */
+										/* Update close_condition reference if it matched the old ID */
 										const form = draft.forms[formId];
-										if (form?.closeCase?.question === oldId) {
-											form.closeCase.question = uniqueId;
+										if (form?.closeCondition?.question === oldId) {
+											form.closeCondition.question = uniqueId;
 										}
 
 										const newPath = qpath(uniqueId, opts.targetParentPath);
@@ -828,10 +833,10 @@ export function createBuilderStore(initialPhase: BuilderPhase) {
 									);
 								}
 
-								/* Update close_case reference */
+								/* Update close_condition reference */
 								const form = draft.forms[formId];
-								if (form?.closeCase?.question === oldId) {
-									form.closeCase.question = newId;
+								if (form?.closeCondition?.question === oldId) {
+									form.closeCondition.question = newId;
 								}
 
 								result = {
@@ -871,11 +876,11 @@ export function createBuilderStore(initialPhase: BuilderPhase) {
 
 								if (updates.name !== undefined) form.name = updates.name;
 								if (updates.type !== undefined) form.type = updates.type;
-								if (updates.close_case !== undefined) {
-									form.closeCase =
-										updates.close_case === null
+								if (updates.close_condition !== undefined) {
+									form.closeCondition =
+										updates.close_condition === null
 											? undefined
-											: updates.close_case;
+											: updates.close_condition;
 								}
 								if (updates.connect !== undefined) {
 									if (updates.connect === null) {
@@ -1356,9 +1361,9 @@ export function createBuilderStore(initialPhase: BuilderPhase) {
 										draft.forms[formId] = {
 											uuid: formId,
 											name: sf.name,
-											type: sf.type as "registration" | "followup" | "survey",
+											type: sf.type as FormType,
 											purpose: sf.purpose ?? undefined,
-											closeCase: undefined,
+											closeCondition: undefined,
 											connect: undefined,
 											postSubmit: (sf as Record<string, unknown>).post_submit as
 												| PostSubmitDestination

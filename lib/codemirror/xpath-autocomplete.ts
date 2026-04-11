@@ -28,6 +28,7 @@ import type { SyntaxNode } from "@lezer/common";
 import {
 	collectQuestionEntries,
 	USER_PROPERTIES,
+	VALUE_PRODUCING_TYPES,
 } from "@/lib/references/provider";
 import { FUNCTION_REGISTRY } from "@/lib/services/commcare/validate/functionRegistry";
 import {
@@ -209,11 +210,13 @@ function hashtagSource(
 			}
 		} else if (namespace === "form" && lintCtx?.form.questions) {
 			const entries = collectQuestionEntries(lintCtx.form.questions);
-			options = entries.map(({ path, label }) => ({
-				label: `#form/${path}`,
-				detail: label,
-				type: "variable",
-			}));
+			options = entries
+				.filter((e) => VALUE_PRODUCING_TYPES.has(e.questionType))
+				.map(({ path, label }) => ({
+					label: `#form/${path}`,
+					detail: label,
+					type: "variable",
+				}));
 		} else if (namespace === "user") {
 			options = USER_PROPERTIES.map((p) => ({
 				label: `#user/${p.name}`,

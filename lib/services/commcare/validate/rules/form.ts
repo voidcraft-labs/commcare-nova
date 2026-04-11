@@ -305,60 +305,80 @@ export function registrationNoCaseProperties(
 	return [];
 }
 
-export function closeCaseValidation(
+/**
+ * Validate close_condition on close forms.
+ *
+ * close_condition is only valid on forms with type "close". When present,
+ * both question and answer must be specified, and the referenced question
+ * must exist in the form.
+ */
+export function closeConditionValidation(
 	form: BlueprintForm,
 	ctx: FormContext,
+	_caseConfig: DerivedCaseConfig,
+	mod: BlueprintModule,
 ): ValidationError[] {
-	if (!form.close_case) return [];
 	const errors: ValidationError[] = [];
-	const loc = { formIndex: ctx.formIndex, formName: ctx.formName };
+	const loc = {
+		moduleIndex: ctx.modIndex,
+		moduleName: ctx.moduleName,
+		formIndex: ctx.formIndex,
+		formName: ctx.formName,
+	};
 
-	if (form.type !== "followup") {
+	/* close_condition on a non-close form is always an error */
+	if (form.close_condition && form.type !== "close") {
 		errors.push(
 			validationError(
-				"CLOSE_CASE_NOT_FOLLOWUP",
+				"CLOSE_CONDITION_WRONG_TYPE",
 				"form",
-				`"${ctx.formName}" has a close_case block but isn't a followup form. Only followup forms can close cases because they're the ones that load an existing case. Change the form type to "followup" or remove the close_case block.`,
+				`"${ctx.formName}" has a close_condition but isn't a close form. close_condition is only valid on forms with type "close". Either change the form type to "close" or remove the close_condition.`,
 				loc,
 			),
 		);
 		return errors;
 	}
 
-	const cc = form.close_case;
-	if (cc.question && !cc.answer) {
+	/* Close forms require a case type on the module */
+	if (form.type === "close" && !mod.case_type) {
 		errors.push(
 			validationError(
-				"CLOSE_CASE_MISSING_ANSWER",
+				"CLOSE_FORM_NO_CASE_TYPE",
 				"form",
-				`"${ctx.formName}" has a conditional close_case with a question ("${cc.question}") but no answer to match against. Add an "answer" value so CommCare knows when to close the case (e.g. answer: "yes"), or use an empty close_case {} for unconditional close.`,
+				`"${ctx.formName}" is a close form but "${ctx.moduleName}" has no case type. Close forms need a case to close — add a case_type to the module or change the form type.`,
 				loc,
 			),
 		);
 	}
-	if (!cc.question && cc.answer) {
-		errors.push(
-			validationError(
-				"CLOSE_CASE_MISSING_QUESTION",
-				"form",
-				`"${ctx.formName}" has a conditional close_case with an answer ("${cc.answer}") but no question to check. Add a "question" ID so CommCare knows which answer to compare, or use an empty close_case {} for unconditional close.`,
-				loc,
-			),
-		);
-	}
-	if (cc.question) {
-		const ids = collectQuestionIds(form.questions || []);
-		if (!ids.includes(cc.question)) {
+
+	/* Validate the conditional close fields if present */
+	if (form.close_condition) {
+		const cc = form.close_condition;
+		if (!cc.question || !cc.answer) {
 			errors.push(
 				validationError(
-					"CLOSE_CASE_QUESTION_NOT_FOUND",
+					"CLOSE_CONDITION_INCOMPLETE",
 					"form",
-					`"${ctx.formName}" has close_case checking question "${cc.question}", but no question with that ID exists in the form. Either add the question or update close_case to reference an existing one.`,
+					`"${ctx.formName}" has a close_condition but is missing the ${!cc.question ? "question" : "answer"} field. Both question and answer are required for conditional close. To close unconditionally, remove the close_condition entirely.`,
 					loc,
 				),
 			);
 		}
+		if (cc.question) {
+			const ids = collectQuestionIds(form.questions || []);
+			if (!ids.includes(cc.question)) {
+				errors.push(
+					validationError(
+						"CLOSE_CONDITION_QUESTION_NOT_FOUND",
+						"form",
+						`"${ctx.formName}" has close_condition checking question "${cc.question}", but no question with that ID exists in the form. Either add the question or update close_condition to reference an existing one.`,
+						loc,
+					),
+				);
+			}
+		}
 	}
+
 	return errors;
 }
 
@@ -806,7 +826,7 @@ export function runFormRules(
 	const errors: ValidationError[] = [];
 
 	errors.push(...emptyForm(form, ctx));
-	errors.push(...closeCaseValidation(form, ctx));
+	errors.push(...closeConditionValidation(form, ctx, caseConfig, mod));
 	errors.push(...duplicateQuestionIds(form, ctx));
 	errors.push(...noCaseNameField(form, ctx, caseConfig));
 	errors.push(...caseNameFieldMissing(form, ctx, caseConfig));

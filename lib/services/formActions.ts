@@ -49,7 +49,7 @@ function resolveQuestionPath(
 /**
  * Build the HQ FormActions object for a form.
  *
- * Maps blueprint case config (case_properties, case_preload, close_case,
+ * Maps blueprint case config (case_properties, case_preload, close_condition,
  * child_cases) to HQ's action format with question_path references.
  * Silently filters reserved property names and media questions.
  * All question paths are resolved through the group/repeat hierarchy.
@@ -130,7 +130,7 @@ export function buildFormActions(
 		}
 	}
 
-	if (form.type === "followup") {
+	if (form.type === "followup" || form.type === "close") {
 		// Update case (filtered)
 		const updateMap = buildSafeUpdateMap(case_properties);
 		if (Object.keys(updateMap).length > 0) {
@@ -158,20 +158,24 @@ export function buildFormActions(
 		}
 	}
 
-	// Close case (followup forms only)
-	if (form.type === "followup" && form.close_case) {
-		if (form.close_case.question && form.close_case.answer) {
-			// Conditional close
+	// Close case action (close forms only — type IS the signal)
+	if (form.type === "close") {
+		if (form.close_condition?.question && form.close_condition?.answer) {
+			// Conditional close — operator defaults to "=" (exact match),
+			// "selected" for multi-select questions
 			base.close_case = {
 				doc_type: "FormAction",
 				condition: ifCondition(
-					resolveQuestionPath(form.questions || [], form.close_case.question) ||
-						`/data/${form.close_case.question}`,
-					form.close_case.answer,
+					resolveQuestionPath(
+						form.questions || [],
+						form.close_condition.question,
+					) || `/data/${form.close_condition.question}`,
+					form.close_condition.answer,
+					form.close_condition.operator ?? "=",
 				),
 			};
 		} else {
-			// Unconditional close
+			// Unconditional close (default for close forms)
 			base.close_case = {
 				doc_type: "FormAction",
 				condition: alwaysCondition(),

@@ -36,12 +36,13 @@ export function alwaysCondition(): FormActionCondition {
 export function ifCondition(
 	question: string,
 	answer: string,
+	operator: "=" | "selected" = "=",
 ): FormActionCondition {
 	return {
 		type: "if",
 		question,
 		answer,
-		operator: "=",
+		operator,
 		doc_type: "FormActionCondition",
 	};
 }

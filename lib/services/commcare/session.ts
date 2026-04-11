@@ -25,8 +25,10 @@
 import type {
 	AppBlueprint,
 	FormLink,
+	FormType,
 	PostSubmitDestination,
 } from "../../schemas/blueprint";
+import { CASE_LOADING_FORM_TYPES } from "../../schemas/blueprint";
 import { validateCaseType } from "./validate";
 
 // ── Session Datums ─────────────────────────────────────────────────────
@@ -113,15 +115,15 @@ const SESSION_REF = "instance('commcaresession')/session/data";
 /**
  * Derive session datums required by a form entry.
  *
- * Currently: single case_id datum for followup forms.
+ * Currently: single case_id datum for case-loading forms (followup, close).
  * Future: multiple datums for advanced modules, parent datums, search datums.
  */
 export function deriveSessionDatums(
-	formType: "registration" | "followup" | "survey",
+	formType: FormType,
 	moduleIndex: number,
 	caseType?: string,
 ): SessionDatum[] {
-	if (formType !== "followup" || !caseType) return [];
+	if (!CASE_LOADING_FORM_TYPES.has(formType) || !caseType) return [];
 
 	return [
 		{
@@ -149,7 +151,7 @@ export function deriveSessionDatums(
 export function derivePostSubmitStack(
 	postSubmit: PostSubmitDestination,
 	moduleIndex: number,
-	formType: "registration" | "followup" | "survey",
+	formType: FormType,
 	caseType?: string,
 ): StackOperation[] {
 	switch (postSubmit) {
@@ -184,7 +186,7 @@ export function derivePostSubmitStack(
 					op: "create",
 					children: [
 						{ type: "command", value: `'m${moduleIndex}'` },
-						...(formType === "followup" && caseType
+						...(CASE_LOADING_FORM_TYPES.has(formType) && caseType
 							? [
 									{
 										type: "datum" as const,
@@ -218,7 +220,7 @@ export function deriveFormLinkStack(
 	links: FormLink[],
 	fallback: PostSubmitDestination,
 	sourceModuleIndex: number,
-	sourceFormType: "registration" | "followup" | "survey",
+	sourceFormType: FormType,
 	sourceCaseType?: string,
 ): StackOperation[] {
 	const ops: StackOperation[] = [];
@@ -284,7 +286,7 @@ export function deriveEntryDefinition(
 	formXmlns: string,
 	moduleIndex: number,
 	formIndex: number,
-	formType: "registration" | "followup" | "survey",
+	formType: FormType,
 	postSubmit: PostSubmitDestination,
 	caseType?: string,
 	formLinks?: FormLink[],

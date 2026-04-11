@@ -4,7 +4,8 @@
  * Converts flat questions (parentId-based) to nested trees, strips empty sentinel
  * values from structured output, and merges data model defaults from case types.
  */
-import type { BlueprintForm, CaseType, Question } from "./blueprint";
+import type { BlueprintForm, CaseType, FormType, Question } from "./blueprint";
+import { CASE_LOADING_FORM_TYPES } from "./blueprint";
 
 type CaseTypes = CaseType[] | null;
 
@@ -54,7 +55,6 @@ export interface FlatQuestion {
 export interface FormContentOutput {
 	formIndex: number;
 	questions: FlatQuestion[];
-	close_case?: { question: string; answer: string };
 }
 
 // ── Strip empty sentinel values ─────────────────────────────────────
@@ -113,14 +113,14 @@ export function buildQuestionTree(
  * Apply data model defaults from case type metadata and sanitize XPath.
  * Looks up the case type by the question's case_property_on value.
  *
- * When formType is 'followup' and a question is a primary case property
- * (case_property_on matches moduleCaseType), auto-sets default_value to
- * `#case/{id}` so the value is visible in the UI and exported as a <setvalue>.
+ * When formType is 'followup' or 'close' and a question is a primary case
+ * property (case_property_on matches moduleCaseType), auto-sets default_value
+ * to `#case/{id}` so the value is visible in the UI and exported as a <setvalue>.
  */
 export function applyDefaults(
 	q: Partial<FlatQuestion>,
 	caseTypes: CaseTypes,
-	formType?: "registration" | "followup" | "survey",
+	formType?: FormType,
 	moduleCaseType?: string,
 ): Partial<FlatQuestion> {
 	const result = { ...q };
@@ -148,12 +148,14 @@ export function applyDefaults(
 		}
 	}
 
-	// Auto-set default_value for primary case properties in follow-up forms.
-	// Mirrors the case_preload logic in deriveCaseConfig: primary props (excluding
-	// case_name) get preloaded from the case. Setting default_value here makes the
-	// preload visible in the UI and exports it as a <setvalue>.
+	// Auto-set default_value for primary case properties in case-loading forms
+	// (followup, close). Mirrors the case_preload logic in deriveCaseConfig:
+	// primary props (excluding case_name) get preloaded from the case. Setting
+	// default_value here makes the preload visible in the UI and exports it
+	// as a <setvalue>.
 	if (
-		formType === "followup" &&
+		formType &&
+		CASE_LOADING_FORM_TYPES.has(formType) &&
 		result.case_property_on &&
 		result.case_property_on === moduleCaseType &&
 		result.id !== "case_name" &&
@@ -191,7 +193,7 @@ export function flattenToFlat(
 export function processSingleFormOutput(
 	formOutput: FormContentOutput,
 	formName: string,
-	formType: "registration" | "followup" | "survey",
+	formType: FormType,
 	caseTypes: CaseTypes,
 	moduleCaseType?: string,
 ): BlueprintForm {
@@ -202,23 +204,9 @@ export function processSingleFormOutput(
 	}));
 	const nestedQuestions = buildQuestionTree(withDefaults);
 
-	const hasCloseCase =
-		formOutput.close_case?.question || formOutput.close_case?.answer;
-	const closeCase = hasCloseCase
-		? {
-				...(formOutput.close_case?.question && {
-					question: formOutput.close_case.question,
-				}),
-				...(formOutput.close_case?.answer && {
-					answer: formOutput.close_case.answer,
-				}),
-			}
-		: undefined;
-
 	return {
 		name: formName,
 		type: formType,
 		questions: nestedQuestions,
-		...(closeCase && { close_case: closeCase }),
 	};
 }

@@ -80,7 +80,7 @@ Add validation for these when we build the corresponding features:
 
 ### Post-Submit Overview
 
-`post_submit` on forms controls where the user goes after submission. Three user-facing choices: `app_home` (App Home), `module` (This Module), `previous` (Previous Screen). Two internal-only values exist for future CommCare export fidelity: `root` (for `put_in_root`) and `parent_module` (for nested modules). Form-type-aware defaults when absent: followup → `previous`, registration/survey → `app_home` (`defaultPostSubmit()` in `blueprint.ts`). The SA only needs to set `post_submit` when overriding the default.
+`post_submit` on forms controls where the user goes after submission. Three user-facing choices: `app_home` (App Home), `module` (This Module), `previous` (Previous Screen). Two internal-only values exist for future CommCare export fidelity: `root` (for `put_in_root`) and `parent_module` (for nested modules). Form-type-aware defaults when absent: followup/close → `previous`, registration/survey → `app_home` (`defaultPostSubmit()` in `blueprint.ts`). The SA only needs to set `post_submit` when overriding the default.
 
 ### `put_in_root` Impact (Not Yet Modeled)
 

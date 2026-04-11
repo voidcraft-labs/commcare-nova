@@ -22,6 +22,7 @@ import type {
 	CaseProperty,
 	CaseType,
 	ConnectConfig,
+	FormType,
 	PostSubmitDestination,
 	Question,
 } from "../schemas/blueprint";
@@ -283,7 +284,7 @@ export function setScaffold(
 		...(sm.case_type != null && { case_type: sm.case_type }),
 		forms: sm.forms.map((sf) => ({
 			name: sf.name,
-			type: sf.type as "registration" | "followup" | "survey",
+			type: sf.type as FormType,
 			questions: [],
 		})),
 	}));
@@ -330,8 +331,12 @@ export function updateForm(
 	fIdx: number,
 	updates: {
 		name?: string;
-		type?: "registration" | "followup" | "survey";
-		close_case?: { question?: string; answer?: string } | null;
+		type?: FormType;
+		close_condition?: {
+			question: string;
+			answer: string;
+			operator?: "=" | "selected";
+		} | null;
 		connect?: ConnectConfig | null;
 		post_submit?: PostSubmitDestination | null;
 	},
@@ -341,11 +346,11 @@ export function updateForm(
 
 	if (updates.name !== undefined) form.name = updates.name;
 	if (updates.type !== undefined) form.type = updates.type;
-	if (updates.close_case !== undefined) {
-		if (updates.close_case === null) {
-			delete form.close_case;
+	if (updates.close_condition !== undefined) {
+		if (updates.close_condition === null) {
+			delete form.close_condition;
 		} else {
-			form.close_case = updates.close_case;
+			form.close_condition = updates.close_condition;
 		}
 	}
 	if (updates.connect !== undefined) {
@@ -503,8 +508,8 @@ export function removeQuestion(
 	if (idx !== -1) found.parent.splice(idx, 1);
 
 	const bareId = qpathId(questionPath);
-	if (form.close_case?.question === bareId) {
-		delete form.close_case;
+	if (form.close_condition?.question === bareId) {
+		delete form.close_condition;
 	}
 }
 
@@ -625,8 +630,8 @@ export function renameQuestion(
 		newId,
 	);
 
-	if (form.close_case?.question === oldId) {
-		form.close_case.question = newId;
+	if (form.close_condition?.question === oldId) {
+		form.close_condition.question = newId;
 	}
 
 	const newPath = qpath(newId, qpathParent(questionPath));

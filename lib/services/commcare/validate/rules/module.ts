@@ -23,7 +23,7 @@ export function caseFormsNoCaseType(
 			validationError(
 				"NO_CASE_TYPE",
 				"module",
-				`Module "${mod.name}" has registration or followup forms but no case_type. These form types create and update cases, so the module needs to know which case type to work with. Set case_type to the type of case this module manages (e.g. "patient", "household").`,
+				`Module "${mod.name}" has registration, followup, or close forms but no case_type. These form types require cases, so the module needs to know which case type to work with. Set case_type to the type of case this module manages (e.g. "patient", "household").`,
 				{ moduleIndex: index, moduleName: mod.name },
 			),
 		];

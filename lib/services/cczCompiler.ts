@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import AdmZip from "adm-zip";
+import type { AppBlueprint } from "../schemas/blueprint";
 import {
 	escapeXml,
 	validateCaseType,
@@ -27,7 +28,11 @@ import { validateXFormXml } from "./commcare/validate/xformValidator";
  * dangling refs, and other structural issues before packaging.
  */
 export class CczCompiler {
-	async compile(hqJson: HqApplication, appName: string): Promise<Buffer> {
+	async compile(
+		hqJson: HqApplication,
+		appName: string,
+		blueprint: AppBlueprint,
+	): Promise<Buffer> {
 		const modules = hqJson.modules || [];
 		const attachments = hqJson._attachments || {};
 
@@ -90,7 +95,6 @@ export class CczCompiler {
 				const formName = form.name?.en || `Form ${fIdx}`;
 				const xmlns = form.xmlns || "";
 				const uniqueId = form.unique_id || "";
-				const requires = form.requires || "none";
 				const cmdId = `m${mIdx}-f${fIdx}`;
 				const filePath = `modules-${mIdx}/forms-${fIdx}.xml`;
 
@@ -122,10 +126,7 @@ export class CczCompiler {
 
 				// Entry — derived from session module (datums + post-submit stack)
 				const postSubmit = fromHqWorkflow(form.post_form_workflow || "default");
-				const formType =
-					requires === "case"
-						? ("followup" as const)
-						: ("registration" as const);
+				const formType = blueprint.modules[mIdx]?.forms[fIdx]?.type ?? "survey";
 				const entryDef = deriveEntryDefinition(
 					xmlns,
 					mIdx,
@@ -283,8 +284,13 @@ export class CczCompiler {
 			if (closeCase.condition.type === "if" && closeCase.condition.question) {
 				const qPath = validateXFormPath(closeCase.condition.question);
 				const answer = closeCase.condition.answer || "";
+				const op = closeCase.condition.operator ?? "=";
+				const relevantExpr =
+					op === "selected"
+						? `selected(${qPath}, '${answer}')`
+						: `${qPath} = '${answer}'`;
 				binds.push(
-					`      <bind nodeset="/data/case/close" relevant="${qPath} = '${answer}'"/>`,
+					`      <bind nodeset="/data/case/close" relevant="${relevantExpr}"/>`,
 				);
 			}
 		}
