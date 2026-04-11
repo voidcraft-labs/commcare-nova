@@ -38,15 +38,31 @@ export function collectValidPaths(
 	return paths;
 }
 
-/** Collect case property names by scanning questions with case_property_on matching the module's case type. */
+/**
+ * Collect case property names saved to a given case type across the app.
+ *
+ * Walks modules with the target case type AND parent modules that create
+ * children of this type — child case creation means a form in a parent
+ * module (e.g. "measles_case") can save properties to a child case type
+ * (e.g. "contact") via `case_property_on`. The per-question filter
+ * (`q.case_property_on === caseType`) ensures only properties targeting
+ * the requested type are collected, even when walking a parent module
+ * whose own questions save to its primary type.
+ */
 export function collectCaseProperties(
 	blueprint: AppBlueprint,
 	moduleCaseType: string | undefined,
 ): Set<string> | undefined {
 	if (!moduleCaseType) return undefined;
 	const props = new Set<string>();
+
+	/* Which module case_types to walk: the target + its parent (if any). */
+	const moduleTypes = new Set([moduleCaseType]);
+	const ct = blueprint.case_types?.find((c) => c.name === moduleCaseType);
+	if (ct?.parent_type) moduleTypes.add(ct.parent_type);
+
 	for (const mod of blueprint.modules) {
-		if (mod.case_type !== moduleCaseType) continue;
+		if (!mod.case_type || !moduleTypes.has(mod.case_type)) continue;
 		for (const form of mod.forms) {
 			collectFromQuestions(form.questions || [], moduleCaseType, props);
 		}
