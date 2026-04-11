@@ -1,23 +1,26 @@
 /**
- * Tests for the form builder agent's tool integration with MutableBlueprint.
+ * Tests for the form builder agent's tool integration with blueprint helpers.
  *
- * These are unit tests that exercise the tool executors directly (no LLM calls).
- * They verify that the form builder's addQuestion, setCloseCaseCondition, and
- * case derivation via case_property_on correctly modify the MutableBlueprint shell.
+ * Unit tests that exercise the tool executors directly (no LLM calls).
+ * Covers addQuestion, updateForm (close_condition), and case derivation
+ * via case_property_on.
  */
 import { describe, expect, it } from "vitest";
-import type { AppBlueprint } from "../../schemas/blueprint";
+import type {
+	AppBlueprint,
+	BlueprintForm,
+	FormType,
+} from "../../schemas/blueprint";
 import { deriveCaseConfig } from "../../schemas/blueprint";
 import {
 	addQuestion as bpAddQuestion,
 	updateForm as bpUpdateForm,
 } from "../blueprintHelpers";
+import { decomposeBlueprint } from "../normalizedState";
 import { qpath } from "../questionPath";
 
 /** Create a minimal shell blueprint for form builder testing. */
-function makeShell(
-	type: "registration" | "followup" | "survey" = "registration",
-): AppBlueprint {
+function makeShell(type: FormType = "registration"): AppBlueprint {
 	return {
 		app_name: "Test App",
 		modules: [
@@ -215,18 +218,17 @@ describe("Form Builder Agent Integration", () => {
 		});
 	});
 
-	describe("setCloseCaseCondition", () => {
-		it("sets unconditional close_case", () => {
-			const bp = makeShell("followup");
-			bpUpdateForm(bp, 0, 0, { close_case: {} });
-
+	describe("close form type and close_condition", () => {
+		it("close form with no close_condition = unconditional close", () => {
+			const bp = makeShell("close");
 			const form = bp.modules[0]?.forms[0];
 			if (!form) throw new Error("expected form");
-			expect(form.close_case).toEqual({});
+			expect(form.type).toBe("close");
+			expect(form.close_condition).toBeUndefined();
 		});
 
-		it("sets conditional close_case", () => {
-			const bp = makeShell("followup");
+		it("sets conditional close_condition on close form", () => {
+			const bp = makeShell("close");
 			bpAddQuestion(bp, 0, 0, {
 				id: "discharge",
 				type: "single_select",
@@ -237,12 +239,134 @@ describe("Form Builder Agent Integration", () => {
 				],
 			});
 			bpUpdateForm(bp, 0, 0, {
-				close_case: { question: "discharge", answer: "yes" },
+				close_condition: { question: "discharge", answer: "yes" },
 			});
 
 			const form = bp.modules[0]?.forms[0];
 			if (!form) throw new Error("expected form");
-			expect(form.close_case).toEqual({ question: "discharge", answer: "yes" });
+			expect(form.close_condition).toEqual({
+				question: "discharge",
+				answer: "yes",
+			});
+		});
+
+		it("removes close_condition with null", () => {
+			const bp = makeShell("close");
+			bpUpdateForm(bp, 0, 0, {
+				close_condition: { question: "q", answer: "a" },
+			});
+			bpUpdateForm(bp, 0, 0, { close_condition: null });
+
+			const form = bp.modules[0]?.forms[0];
+			if (!form) throw new Error("expected form");
+			expect(form.close_condition).toBeUndefined();
+		});
+	});
+
+	describe("Firestore migration: close_case → close form type", () => {
+		/** Build a minimal old-format blueprint with close_case on a followup form. */
+		function oldFormatBp(closeCase: Record<string, string>): AppBlueprint {
+			return {
+				app_name: "Migration Test",
+				modules: [
+					{
+						name: "M",
+						case_type: "patient",
+						forms: [
+							{
+								name: "Close Form",
+								type: "followup",
+								close_case: closeCase,
+								questions: [
+									{
+										uuid: "q1",
+										id: "confirm",
+										type: "single_select",
+										options: [
+											{ value: "yes", label: "Yes" },
+											{ value: "no", label: "No" },
+										],
+									},
+								],
+							} as BlueprintForm,
+						],
+					},
+				],
+				case_types: [
+					{
+						name: "patient",
+						properties: [{ name: "case_name", label: "Name" }],
+					},
+				],
+			};
+		}
+
+		it("migrates conditional close_case to close form with closeCondition", () => {
+			const bp = oldFormatBp({ question: "confirm", answer: "yes" });
+			const data = decomposeBlueprint(bp);
+			const formId = data.formOrder[data.moduleOrder[0]][0];
+			const form = data.forms[formId];
+
+			expect(form.type).toBe("close");
+			expect(form.closeCondition).toEqual({
+				question: "confirm",
+				answer: "yes",
+			});
+		});
+
+		it("migrates unconditional close_case ({}) to close form without closeCondition", () => {
+			const bp = oldFormatBp({});
+			const data = decomposeBlueprint(bp);
+			const formId = data.formOrder[data.moduleOrder[0]][0];
+			const form = data.forms[formId];
+
+			expect(form.type).toBe("close");
+			expect(form.closeCondition).toBeUndefined();
+		});
+
+		it("passes through new-format close form with close_condition unchanged", () => {
+			const bp: AppBlueprint = {
+				app_name: "New Format",
+				modules: [
+					{
+						name: "M",
+						case_type: "patient",
+						forms: [
+							{
+								name: "Close Form",
+								type: "close",
+								close_condition: { question: "confirm", answer: "yes" },
+								questions: [
+									{
+										uuid: "q1",
+										id: "confirm",
+										type: "single_select",
+										options: [
+											{ value: "yes", label: "Yes" },
+											{ value: "no", label: "No" },
+										],
+									},
+								],
+							},
+						],
+					},
+				],
+				case_types: [
+					{
+						name: "patient",
+						properties: [{ name: "case_name", label: "Name" }],
+					},
+				],
+			};
+			const data = decomposeBlueprint(bp);
+			const formId = data.formOrder[data.moduleOrder[0]][0];
+			const form = data.forms[formId];
+
+			expect(form.type).toBe("close");
+			expect(form.closeCondition).toEqual({
+				question: "confirm",
+				answer: "yes",
+			});
 		});
 	});
 

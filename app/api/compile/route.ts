@@ -52,7 +52,11 @@ export async function POST(req: NextRequest) {
 
 		// Compile to CCZ
 		const compiler = new CczCompiler();
-		const buffer = await compiler.compile(hqJson, parsed.data.app_name);
+		const buffer = await compiler.compile(
+			hqJson,
+			parsed.data.app_name,
+			parsed.data,
+		);
 
 		// Store buffer for download
 		const compileId = uuidv4();

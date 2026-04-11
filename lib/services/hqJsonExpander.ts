@@ -89,7 +89,7 @@ export function expandBlueprint(blueprint: AppBlueprint): HqApplication {
 				formUniqueId,
 				bf.name,
 				xmlns,
-				bf.type === "followup" ? "case" : "none",
+				bf.type === "followup" || bf.type === "close" ? "case" : "none",
 				buildFormActions(bf, caseType, blueprint.case_types),
 				buildCaseReferencesLoad(bf.questions || [], effectiveConnect),
 				toHqWorkflow(bf.post_submit ?? defaultPostSubmit(bf.type)),

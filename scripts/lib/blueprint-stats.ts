@@ -253,7 +253,7 @@ export function analyzeForm(form: BlueprintForm): FormStats {
 		logic: countLogicElements(questions),
 		hasPostSubmit: form.post_submit !== undefined,
 		postSubmitValue: form.post_submit,
-		hasCloseCase: form.close_case !== undefined,
+		hasCloseCase: form.type === "close",
 		hasFormLinks: (form.form_links?.length ?? 0) > 0,
 		hasConnect: form.connect !== undefined,
 		casePropertyCount: countCaseProperties(questions),

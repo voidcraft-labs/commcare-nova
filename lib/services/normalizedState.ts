@@ -20,6 +20,7 @@ import type {
 	ConnectConfig,
 	ConnectType,
 	FormLink,
+	FormType,
 	PostSubmitDestination,
 	Question,
 } from "@/lib/schemas/blueprint";
@@ -49,9 +50,11 @@ export interface NModule {
 export interface NForm {
 	uuid: string;
 	name: string;
-	type: "registration" | "followup" | "survey";
+	type: FormType;
 	purpose: string | undefined;
-	closeCase: { question?: string; answer?: string } | undefined;
+	closeCondition:
+		| { question: string; answer: string; operator?: "=" | "selected" }
+		| undefined;
 	connect: ConnectConfig | null | undefined;
 	postSubmit: PostSubmitDestination | undefined;
 	formLinks: FormLink[] | undefined;
@@ -202,7 +205,7 @@ export function assembleForm(
 	return {
 		name: form.name,
 		type: form.type,
-		...(form.closeCase && { close_case: form.closeCase }),
+		...(form.closeCondition && { close_condition: form.closeCondition }),
 		...(form.postSubmit && { post_submit: form.postSubmit }),
 		...(form.formLinks && { form_links: form.formLinks }),
 		...(form.connect && { connect: form.connect }),
@@ -385,14 +388,41 @@ export function removeQuestionDeep(
 
 // ── Internal helpers ─────────────────────────────────────────────────
 
-/** Convert a BlueprintForm to an NForm entity (no questions). */
+/**
+ * Convert a BlueprintForm to an NForm entity (no questions).
+ *
+ * Migration: old blueprints have `close_case` on followup forms. When present,
+ * the form is promoted to type "close" and `close_case` is converted to
+ * `closeCondition`. Unconditional close (empty close_case `{}`) maps to
+ * closeCondition = undefined (the default for close forms).
+ */
 function decomposeFormEntity(form: BlueprintForm, formId: string): NForm {
+	let type: FormType = form.type;
+	let closeCondition:
+		| { question: string; answer: string; operator?: "=" | "selected" }
+		| undefined;
+
+	if (form.close_condition) {
+		/* New-format blueprint — use close_condition directly */
+		closeCondition = form.close_condition;
+	} else if (form.close_case) {
+		/* Old-format migration: followup + close_case → close form */
+		type = "close";
+		if (form.close_case.question && form.close_case.answer) {
+			closeCondition = {
+				question: form.close_case.question,
+				answer: form.close_case.answer,
+			};
+		}
+		/* else unconditional: closeCondition stays undefined */
+	}
+
 	return {
 		uuid: formId,
 		name: form.name,
-		type: form.type,
+		type,
 		purpose: undefined,
-		closeCase: form.close_case ?? undefined,
+		closeCondition,
 		connect: form.connect ?? undefined,
 		postSubmit: form.post_submit ?? undefined,
 		formLinks: form.form_links ?? undefined,

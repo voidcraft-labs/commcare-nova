@@ -16,6 +16,7 @@ import tablerEyeOff from "@iconify-icons/tabler/eye-off";
 import tablerFile from "@iconify-icons/tabler/file";
 import tablerFilePencil from "@iconify-icons/tabler/file-pencil";
 import tablerFilePlus from "@iconify-icons/tabler/file-plus";
+import tablerFileX from "@iconify-icons/tabler/file-x";
 import tablerFolder from "@iconify-icons/tabler/folder";
 import tablerForms from "@iconify-icons/tabler/forms";
 import tablerLock from "@iconify-icons/tabler/lock";
@@ -75,6 +76,7 @@ export const questionTypeLabels: Record<string, string> = {
 export const formTypeIcons: Record<string, IconifyIcon> = {
 	registration: tablerFilePlus,
 	followup: tablerFilePencil,
+	close: tablerFileX,
 	survey: tablerFile,
 };
 

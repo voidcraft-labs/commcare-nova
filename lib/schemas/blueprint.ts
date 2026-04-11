@@ -12,6 +12,36 @@ import { z } from "zod";
 
 // ── Question types ──────────────────────────────────────────────────────
 
+// ── Form types ──────────────────────────────────────────────────────
+
+/**
+ * The four form types that determine a form's case behavior:
+ * - "registration" — creates a new case
+ * - "followup" — loads and updates an existing case
+ * - "close" — loads an existing case, can update properties, and closes it
+ * - "survey" — standalone data collection with no case management
+ */
+export const FORM_TYPES = [
+	"registration",
+	"followup",
+	"close",
+	"survey",
+] as const;
+export type FormType = (typeof FORM_TYPES)[number];
+
+/** Form types that require a case type on the parent module. */
+export const CASE_FORM_TYPES: ReadonlySet<FormType> = new Set([
+	"registration",
+	"followup",
+	"close",
+]);
+
+/** Form types that load an existing case (need a case datum / case preloads). */
+export const CASE_LOADING_FORM_TYPES: ReadonlySet<FormType> = new Set([
+	"followup",
+	"close",
+]);
+
 // ── Post-submit navigation ───────────────────────────────────────────
 
 /** All destinations (internal). Includes root/parent_module for CommCare export fidelity. */
@@ -42,15 +72,25 @@ export const USER_FACING_DESTINATIONS = [
 
 /**
  * Form-type-aware default for post_submit when the field is absent.
- * Followup forms return to the case list; registration/survey go home.
+ * Case-loading forms (followup, close) return to the case list;
+ * registration and survey go home.
  */
-export function defaultPostSubmit(
-	formType: "registration" | "followup" | "survey",
-): PostSubmitDestination {
-	return formType === "followup" ? "previous" : "app_home";
+export function defaultPostSubmit(formType: FormType): PostSubmitDestination {
+	return CASE_LOADING_FORM_TYPES.has(formType) ? "previous" : "app_home";
 }
 
 // ── Question types ──────────────────────────────────────────────────────
+
+/**
+ * Structural question types — containers (group, repeat) and display-only
+ * (label). These don't produce referenceable values in XPath expressions
+ * or conditions. Derived sets like VALUE_PRODUCING_TYPES exclude these.
+ */
+export const STRUCTURAL_QUESTION_TYPES: ReadonlySet<string> = new Set([
+	"group",
+	"repeat",
+	"label",
+]);
 
 export const QUESTION_TYPES = [
 	"text",
@@ -200,7 +240,7 @@ export const scaffoldModulesSchema = z.object({
 				.string()
 				.nullable()
 				.describe(
-					'References a case_type name from the data model. Required if any form is "registration" or "followup". null for survey-only modules.',
+					'References a case_type name from the data model. Required if any form is "registration", "followup", or "close". null for survey-only modules.',
 				),
 			case_list_only: z
 				.boolean()
@@ -215,9 +255,9 @@ export const scaffoldModulesSchema = z.object({
 				z.object({
 					name: z.string().describe("Display name for the form"),
 					type: z
-						.enum(["registration", "followup", "survey"])
+						.enum(FORM_TYPES)
 						.describe(
-							'"registration" creates a new case. "followup" updates an existing case. "survey" is standalone.',
+							'"registration" creates a new case. "followup" updates an existing case. "close" loads and closes an existing case. "survey" is standalone.',
 						),
 					purpose: z
 						.string()
@@ -425,25 +465,35 @@ export const blueprintFormSchema = z
 	.object({
 		name: z.string().describe("Display name for the form"),
 		type: z
-			.enum(["registration", "followup", "survey"])
+			.enum(FORM_TYPES)
 			.describe(
-				'"registration" creates a new case. "followup" updates an existing case. "survey" is standalone data collection with no case management.',
+				'"registration" creates a new case. "followup" updates an existing case. "close" loads and closes an existing case. "survey" is standalone data collection with no case management.',
 			),
-		close_case: z
+		close_condition: z
 			.object({
 				question: z
 					.string()
-					.optional()
 					.describe("Question id to check for conditional close"),
-				answer: z
-					.string()
+				answer: z.string().describe("Value that triggers case closure"),
+				operator: z
+					.enum(["=", "selected"])
 					.optional()
-					.describe("Value that triggers case closure"),
+					.describe(
+						'Comparison operator. "=" for exact match (default). "selected" for multi-select questions (checks if the option is among selected values).',
+					),
 			})
 			.optional()
 			.describe(
-				"Followup forms only. Present = close the case. Empty {} = always close. {question, answer} = close only when that answer is selected. Omit entirely if form should not close the case.",
+				'Close forms only. When present, the case is closed only when the condition is met. When absent, the case is always closed unconditionally. Use operator "selected" for multi-select questions.',
 			),
+		/** @deprecated Replaced by form type "close" + close_condition. Kept for Firestore migration. */
+		close_case: z
+			.object({
+				question: z.string().optional(),
+				answer: z.string().optional(),
+			})
+			.optional()
+			.describe("Deprecated — migrated to close form type on read."),
 		post_submit: z
 			.enum(POST_SUBMIT_DESTINATIONS)
 			.optional()
@@ -453,7 +503,7 @@ export const blueprintFormSchema = z
 					'"module" = this module\'s form list. ' +
 					'"previous" = back to where the user was (e.g. case list for followup forms). ' +
 					'Internal values "root" and "parent_module" are resolved automatically during build. ' +
-					'Defaults to "previous" for followup, "app_home" for registration/survey.',
+					'Defaults to "previous" for followup/close, "app_home" for registration/survey.',
 			),
 		form_links: z
 			.array(formLinkSchema)
@@ -621,7 +671,7 @@ export interface DerivedCaseConfig {
 
 export function deriveCaseConfig(
 	questions: CaseConfigQuestion[],
-	formType: "registration" | "followup" | "survey",
+	formType: FormType,
 	moduleCaseType?: string,
 	caseTypes?: CaseType[] | null,
 ): DerivedCaseConfig {
@@ -648,7 +698,7 @@ export function deriveCaseConfig(
 					if (q.id === "case_name") {
 						case_name_field = q.id;
 					} else {
-						if (formType === "followup") {
+						if (CASE_LOADING_FORM_TYPES.has(formType)) {
 							primaryPreload.push({ case_property: q.id, question_id: q.id });
 						}
 						primaryProps.push({ case_property: q.id, question_id: q.id });

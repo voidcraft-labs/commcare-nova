@@ -259,7 +259,13 @@ function summarizeForm(form: BlueprintForm, formIndex: number): string {
 		extras.push(`    post_submit: ${form.post_submit}`);
 	}
 	if (form.connect) extras.push("    [Connect enabled]");
-	if (form.close_case) extras.push("    [Closes case]");
+	if (form.close_condition) {
+		const op =
+			form.close_condition.operator === "selected" ? "has selected" : "=";
+		extras.push(
+			`    close_condition: ${form.close_condition.question} ${op} "${form.close_condition.answer}"`,
+		);
+	}
 	const questions =
 		form.questions.length > 0
 			? summarizeQuestions(form.questions)

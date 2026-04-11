@@ -279,7 +279,7 @@ describe("expandBlueprint", () => {
 		expect(xform).toContain('id="notes-label"');
 	});
 
-	it("handles close_case — conditional and unconditional", () => {
+	it("handles close forms — conditional and unconditional", () => {
 		const bp: AppBlueprint = {
 			app_name: "Close",
 			modules: [
@@ -289,8 +289,8 @@ describe("expandBlueprint", () => {
 					forms: [
 						{
 							name: "Conditional Close",
-							type: "followup",
-							close_case: { question: "confirm", answer: "yes" },
+							type: "close",
+							close_condition: { question: "confirm", answer: "yes" },
 							questions: [
 								q({
 									id: "confirm",
@@ -305,8 +305,7 @@ describe("expandBlueprint", () => {
 						},
 						{
 							name: "Always Close",
-							type: "followup",
-							close_case: {},
+							type: "close",
 							questions: [q({ id: "note", type: "text", label: "Note" })],
 						},
 					],
@@ -317,13 +316,18 @@ describe("expandBlueprint", () => {
 			],
 		};
 		const hq = expandBlueprint(bp);
+		/* Conditional close form → "if" condition */
 		expect(hq.modules[0].forms[0].actions.close_case.condition.type).toBe("if");
 		expect(hq.modules[0].forms[0].actions.close_case.condition.answer).toBe(
 			"yes",
 		);
+		/* Unconditional close form → "always" condition */
 		expect(hq.modules[0].forms[1].actions.close_case.condition.type).toBe(
 			"always",
 		);
+		/* Close forms require a case datum (requires: "case") */
+		expect(hq.modules[0].forms[0].requires).toBe("case");
+		expect(hq.modules[0].forms[1].requires).toBe("case");
 	});
 });
 

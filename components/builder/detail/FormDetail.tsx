@@ -5,6 +5,7 @@ import { useCallback } from "react";
 import { Tooltip } from "@/components/ui/Tooltip";
 import { useBuilderStore, useForm, useModule } from "@/hooks/useBuilder";
 import { formTypeIcons } from "@/lib/questionTypeIcons";
+import { CASE_FORM_TYPES, type FormType } from "@/lib/schemas/blueprint";
 import {
 	MENU_ITEM_BASE,
 	MENU_ITEM_CLS,
@@ -13,12 +14,10 @@ import {
 	MENU_POSITIONER_CLS,
 } from "@/lib/styles";
 
-/** Form types that require a case type on the parent module to be selectable. */
-const CASE_DEPENDENT_TYPES = new Set(["registration", "followup"]);
-
-const formTypeOptions: { value: string; label: string }[] = [
+const formTypeOptions: { value: FormType; label: string }[] = [
 	{ value: "registration", label: "Registration" },
 	{ value: "followup", label: "Followup" },
+	{ value: "close", label: "Close" },
 	{ value: "survey", label: "Survey" },
 ];
 
@@ -30,22 +29,22 @@ interface FormDetailProps {
 }
 
 /**
- * Read-only close case info panel within FormSettingsPanel.
- * Renders only when the form has a close_case configuration.
+ * Read-only close condition info within FormSettingsPanel.
+ * Renders only when the form is a close form — shows conditional vs unconditional.
  */
 export function FormDetail({ moduleIndex, formIndex }: FormDetailProps) {
 	const form = useForm(moduleIndex, formIndex);
-	if (!form?.closeCase) return null;
+	if (form?.type !== "close") return null;
 
 	return (
 		<div>
 			<span className="text-xs text-nova-text-muted uppercase tracking-wider mb-1 block">
-				Close Case
+				Close Behavior
 			</span>
 			<p className="text-sm text-nova-rose">
-				{form.closeCase.question
-					? `When ${form.closeCase.question} = "${form.closeCase.answer}"`
-					: "Always (unconditional)"}
+				{form.closeCondition?.question
+					? `Conditional: when ${form.closeCondition.question} ${form.closeCondition.operator === "selected" ? "has selected" : "is"} "${form.closeCondition.answer}"`
+					: "Always closes case on submit"}
 			</p>
 		</div>
 	);
@@ -78,7 +77,7 @@ export function FormTypeButton({
 		(type: string) => {
 			if (!editable) return;
 			updateForm(moduleIndex, formIndex, {
-				type: type as "registration" | "followup" | "survey",
+				type: type as FormType,
 			});
 		},
 		[editable, updateForm, moduleIndex, formIndex],
@@ -110,7 +109,7 @@ export function FormTypeButton({
 							<Menu.Popup className={MENU_POPUP_CLS}>
 								{formTypeOptions.map((opt, i) => {
 									const needsCase =
-										CASE_DEPENDENT_TYPES.has(opt.value) && !hasCaseType;
+										CASE_FORM_TYPES.has(opt.value) && !hasCaseType;
 									const isActive = opt.value === activeType;
 									/* First/last items inherit the container's border radius so
 									 * their hover/active backgrounds tile flush. */

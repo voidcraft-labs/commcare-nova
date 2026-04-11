@@ -17,6 +17,7 @@ import {
 	type BlueprintForm,
 	type ConnectConfig,
 	caseTypesOutputSchema,
+	FORM_TYPES,
 	moduleContentSchema,
 	type Question,
 	scaffoldModulesSchema,
@@ -681,20 +682,26 @@ export function createSolutionsArchitect(
 
 		updateForm: tool({
 			description:
-				"Update form metadata: name, close_case config, Connect integration, or post-submit navigation.",
+				"Update form metadata: name, close condition (close forms only), Connect integration, or post-submit navigation.",
 			inputSchema: z.object({
 				moduleIndex: z.number().describe("0-based module index"),
 				formIndex: z.number().describe("0-based form index"),
 				name: z.string().optional().describe("New form name"),
-				close_case: z
+				close_condition: z
 					.object({
-						question: z.string().optional(),
-						answer: z.string().optional(),
+						question: z.string().describe("Question id to check"),
+						answer: z.string().describe("Value that triggers closure"),
+						operator: z
+							.enum(["=", "selected"])
+							.optional()
+							.describe(
+								'"=" for exact match (default). "selected" for multi-select questions.',
+							),
 					})
 					.nullable()
 					.optional()
 					.describe(
-						"Set close_case config. null to remove. {} for unconditional.",
+						'Close forms only. Set conditional close. Use operator "selected" for multi-select questions. null to make unconditional (default). Omit to leave unchanged.',
 					),
 				post_submit: z
 					.enum(["app_home", "module", "previous"])
@@ -742,14 +749,14 @@ export function createSolutionsArchitect(
 				moduleIndex,
 				formIndex,
 				name,
-				close_case,
+				close_condition,
 				post_submit,
 				connect,
 			}) => {
 				try {
 					bpUpdateForm(bp, moduleIndex, formIndex, {
 						...(name !== undefined && { name }),
-						...(close_case !== undefined && { close_case }),
+						...(close_condition !== undefined && { close_condition }),
 						...(post_submit !== undefined && { post_submit }),
 						...(connect !== undefined && {
 							connect: buildConnectConfig(
@@ -766,9 +773,11 @@ export function createSolutionsArchitect(
 					ctx.emit("data-form-updated", { moduleIndex, formIndex, form });
 					const formChanges: string[] = [];
 					if (name !== undefined) formChanges.push(`name → "${form.name}"`);
-					if (close_case !== undefined)
+					if (close_condition !== undefined)
 						formChanges.push(
-							close_case === null ? "close_case removed" : "close_case updated",
+							close_condition === null
+								? "close_condition removed (unconditional close)"
+								: "close_condition updated",
 						);
 					if (post_submit !== undefined)
 						formChanges.push(
@@ -792,13 +801,15 @@ export function createSolutionsArchitect(
 				moduleIndex: z.number().describe("0-based module index"),
 				name: z.string().describe("Form display name"),
 				type: z
-					.enum(["registration", "followup", "survey"])
-					.describe("Form type"),
+					.enum(FORM_TYPES)
+					.describe(
+						'"registration" creates a new case. "followup" updates an existing case. "close" loads and closes an existing case. "survey" is standalone.',
+					),
 				post_submit: z
 					.enum(["app_home", "module", "previous"])
 					.optional()
 					.describe(
-						'Where the user goes after submitting. Defaults to "previous" for followup, "app_home" for registration/survey. Only set to override.',
+						'Where the user goes after submitting. Defaults to "previous" for followup/close, "app_home" for registration/survey. Only set to override.',
 					),
 			}),
 			execute: async ({ moduleIndex, name, type, post_submit }) => {

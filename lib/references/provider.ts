@@ -10,11 +10,25 @@
 
 import type { XPathLintContext } from "@/lib/codemirror/xpath-lint";
 import { questionTypeIcons } from "@/lib/questionTypeIcons";
-import type { Question } from "@/lib/schemas/blueprint";
+import {
+	QUESTION_TYPES,
+	type Question,
+	STRUCTURAL_QUESTION_TYPES,
+} from "@/lib/schemas/blueprint";
 import { collectCaseProperties } from "@/lib/services/commcare/validate/index";
 import { type QuestionPath, qpath } from "@/lib/services/questionPath";
 import { REFERENCE_TYPES } from "./config";
 import type { Reference, ReferenceType } from "./types";
+
+/**
+ * Question types that produce referenceable values — derived from
+ * QUESTION_TYPES minus STRUCTURAL_QUESTION_TYPES. Used by FieldPicker,
+ * XPath autocomplete (#form/), and TipTap reference chips to filter
+ * suggestions down to fields that have values.
+ */
+export const VALUE_PRODUCING_TYPES: ReadonlySet<string> = new Set(
+	QUESTION_TYPES.filter((t) => !STRUCTURAL_QUESTION_TYPES.has(t)),
+);
 
 /** User properties with human-readable labels — single source of truth. */
 export const USER_PROPERTIES: ReadonlyArray<{ name: string; label: string }> = [
@@ -106,8 +120,9 @@ export class ReferenceProvider {
 			return cache.entries
 				.filter(
 					(e) =>
-						e.path.includes(lowerQuery) ||
-						e.label.toLowerCase().includes(lowerQuery),
+						VALUE_PRODUCING_TYPES.has(e.questionType) &&
+						(e.path.includes(lowerQuery) ||
+							e.label.toLowerCase().includes(lowerQuery)),
 				)
 				.map((e) => ({
 					type: "form" as const,

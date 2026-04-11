@@ -62,7 +62,7 @@ const blueprint: AppBlueprint = {
 describe("CczCompiler", () => {
 	it("produces a valid zip with expected files", async () => {
 		const hq = expandBlueprint(blueprint);
-		const buf = await new CczCompiler().compile(hq, "CHW App");
+		const buf = await new CczCompiler().compile(hq, "CHW App", blueprint);
 		const zip = new AdmZip(buf);
 		const entries = zip
 			.getEntries()
@@ -80,7 +80,7 @@ describe("CczCompiler", () => {
 
 	it("injects case create block into registration XForms", async () => {
 		const hq = expandBlueprint(blueprint);
-		const buf = await new CczCompiler().compile(hq, "CHW App");
+		const buf = await new CczCompiler().compile(hq, "CHW App", blueprint);
 		const zip = new AdmZip(buf);
 		const regXform = zip.readAsText("modules-0/forms-0.xml");
 
@@ -92,7 +92,7 @@ describe("CczCompiler", () => {
 
 	it("injects case update block into followup XForms", async () => {
 		const hq = expandBlueprint(blueprint);
-		const buf = await new CczCompiler().compile(hq, "CHW App");
+		const buf = await new CczCompiler().compile(hq, "CHW App", blueprint);
 		const zip = new AdmZip(buf);
 		const followupXform = zip.readAsText("modules-0/forms-1.xml");
 
@@ -113,7 +113,9 @@ describe("CczCompiler", () => {
 			'      <bind nodeset="/data/meta/location" type="xsd:geopoint"/>\n    </model>',
 		);
 
-		const err = await new CczCompiler().compile(hq, "CHW App").catch((e) => e);
+		const err = await new CczCompiler()
+			.compile(hq, "CHW App", blueprint)
+			.catch((e) => e);
 		expect(err).toBeInstanceOf(Error);
 		expect(err.message).toContain("/data/meta/location");
 		expect(err.message).toContain("XForm validation failed");
@@ -121,7 +123,7 @@ describe("CczCompiler", () => {
 
 	it("generates suite.xml with case detail and menu entries", async () => {
 		const hq = expandBlueprint(blueprint);
-		const buf = await new CczCompiler().compile(hq, "CHW App");
+		const buf = await new CczCompiler().compile(hq, "CHW App", blueprint);
 		const zip = new AdmZip(buf);
 		const suite = zip.readAsText("suite.xml");
 
