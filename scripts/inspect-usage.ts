@@ -8,7 +8,8 @@
  *   npx tsx scripts/inspect-usage.ts <userId>
  *   npx tsx scripts/inspect-usage.ts <userId> --all    # show all months, not just current
  */
-import { db, tok, tsToISO } from "./lib/firestore";
+import { db } from "./lib/firestore";
+import { printHeader, printSection, tok, tsToISO, usd } from "./lib/format";
 
 const userId = process.argv[2];
 const showAll = process.argv.includes("--all");
@@ -31,9 +32,7 @@ async function main() {
 				)
 				.get();
 
-	console.log("╔══════════════════════════════════════════════════════════╗");
-	console.log("║  USAGE INSPECTION (read-only)                           ║");
-	console.log("╚══════════════════════════════════════════════════════════╝\n");
+	printHeader("USAGE INSPECTION (read-only)");
 
 	console.log(`  User ID: ${userId}\n`);
 
@@ -42,7 +41,7 @@ async function main() {
 		return;
 	}
 
-	/* Also fetch user record for context */
+	/* Also fetch user record for context. */
 	const userSnap = await db.collection("auth_users").doc(userId).get();
 	if (userSnap.exists) {
 		// biome-ignore lint/style/noNonNullAssertion: guarded by userSnap.exists check
@@ -53,7 +52,7 @@ async function main() {
 		console.log();
 	}
 
-	/* List their apps for reference */
+	/* List their apps for reference. */
 	const appsSnap = await db
 		.collection("apps")
 		.where("owner", "==", userId)
@@ -63,7 +62,7 @@ async function main() {
 		.get();
 
 	if (!appsSnap.empty) {
-		console.log("── Apps ────────────────────────────────────────────────\n");
+		printSection("Apps");
 		for (const doc of appsSnap.docs) {
 			const a = doc.data();
 			const status =
@@ -75,7 +74,7 @@ async function main() {
 		console.log();
 	}
 
-	console.log("── Monthly Usage ───────────────────────────────────────────\n");
+	printSection("Monthly Usage");
 
 	for (const doc of snap.docs) {
 		const d = doc.data();
@@ -83,7 +82,7 @@ async function main() {
 		console.log(`  Requests:  ${d.request_count ?? 0}`);
 		console.log(`  Input:     ${tok(d.input_tokens ?? 0)} tokens`);
 		console.log(`  Output:    ${tok(d.output_tokens ?? 0)} tokens`);
-		console.log(`  Cost:      $${(d.cost_estimate ?? 0).toFixed(4)}`);
+		console.log(`  Cost:      ${usd(d.cost_estimate ?? 0)}`);
 		console.log(`  Updated:   ${tsToISO(d.updated_at)}`);
 		console.log();
 	}
