@@ -9,7 +9,8 @@
  *   npx tsx scripts/recover-app.ts <appId> --confirm     # actually writes
  */
 import { FieldValue } from "@google-cloud/firestore";
-import { db, tsToISO } from "./lib/firestore";
+import { db } from "./lib/firestore";
+import { tsToISO } from "./lib/format";
 
 const appId = process.argv[2];
 const confirmed = process.argv.includes("--confirm");
@@ -47,7 +48,7 @@ async function main() {
 	console.log(`  Modules:   ${modules.length}`);
 	console.log(`  Forms:     ${formCount}`);
 
-	/* Pre-flight checks */
+	/* Pre-flight checks. */
 	if (data.status === "complete" && !data.error_type) {
 		console.log(`\n  Status:    ${data.status}`);
 		console.log(
@@ -64,7 +65,7 @@ async function main() {
 		process.exit(1);
 	}
 
-	/* Show the planned transition only when there's something to change */
+	/* Show the planned transition only when there's something to change. */
 	console.log(`  Status:    ${data.status} → complete`);
 	console.log(`  Error:     ${data.error_type ?? "(none)"} → (cleared)`);
 
@@ -73,7 +74,7 @@ async function main() {
 		return;
 	}
 
-	/* Write */
+	/* Write. */
 	await ref.set(
 		{
 			status: "complete",

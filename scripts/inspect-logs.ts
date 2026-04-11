@@ -2,30 +2,56 @@
  * Read-only inspection of event logs for an app.
  *
  * Shows all events grouped by run_id, with filtering by event type and run.
- * Useful for diagnosing generation failures, understanding cost, and tracing
- * edit-mode errors. Never writes to Firestore.
+ * Cost summary is always shown in the run header. Analytical views (--steps,
+ * --timeline, --tools) replace the default event list for focused analysis.
+ * Never writes to Firestore.
  *
  * Usage:
- *   npx tsx scripts/inspect-logs.ts <appId>                  # all events, summary view
+ *   npx tsx scripts/inspect-logs.ts <appId>                  # events + cost in header
  *   npx tsx scripts/inspect-logs.ts <appId> --verbose         # full event detail
+ *   npx tsx scripts/inspect-logs.ts <appId> --steps           # per-step breakdown table
+ *   npx tsx scripts/inspect-logs.ts <appId> --timeline        # step timing analysis
+ *   npx tsx scripts/inspect-logs.ts <appId> --tools           # tool usage distribution
+ *   npx tsx scripts/inspect-logs.ts <appId> --steps --tools   # combinable
  *   npx tsx scripts/inspect-logs.ts <appId> --type=error      # only error events
  *   npx tsx scripts/inspect-logs.ts <appId> --type=step       # only step events
  *   npx tsx scripts/inspect-logs.ts <appId> --run=<runId>     # filter to specific run
- *   npx tsx scripts/inspect-logs.ts <appId> --cost            # cost breakdown per run
  *   npx tsx scripts/inspect-logs.ts <appId> --last=20         # last N events only
  */
-import { db, tok, truncate } from "./lib/firestore";
+import { db } from "./lib/firestore";
+import {
+	duration,
+	pct,
+	printHeader,
+	printSection,
+	printTable,
+	tok,
+	truncate,
+	usd,
+} from "./lib/format";
+import {
+	analyzeRun,
+	computeStepBreakdown,
+	computeTimeline,
+	computeToolUsage,
+	groupByRun,
+} from "./lib/log-stats";
+import type { StoredEvent } from "./lib/types";
+
+// ── CLI argument parsing ────────────────────────────────────────────
 
 const appId = process.argv[2];
 if (!appId) {
 	console.error(
-		"Usage: npx tsx scripts/inspect-logs.ts <appId> [--verbose] [--type=<type>] [--run=<runId>] [--cost] [--last=N]",
+		"Usage: npx tsx scripts/inspect-logs.ts <appId> [--verbose] [--steps] [--timeline] [--tools] [--type=<type>] [--run=<runId>] [--last=N]",
 	);
 	process.exit(1);
 }
 
 const verbose = process.argv.includes("--verbose");
-const costOnly = process.argv.includes("--cost");
+const showSteps = process.argv.includes("--steps");
+const showTimeline = process.argv.includes("--timeline");
+const showTools = process.argv.includes("--tools");
 const typeFilter = process.argv
 	.find((a) => a.startsWith("--type="))
 	?.split("=")[1];
@@ -37,64 +63,12 @@ const lastN = Number.parseInt(
 	10,
 );
 
-interface TokenUsage {
-	model: string;
-	input_tokens: number;
-	output_tokens: number;
-	cache_read_tokens: number;
-	cache_write_tokens: number;
-	cost: number;
-}
+/** Whether any analytical view was requested (replaces default event list). */
+const hasAnalyticalView = showSteps || showTimeline || showTools;
 
-interface ToolCall {
-	name: string;
-	args: unknown;
-	output: unknown;
-	generation: TokenUsage | null;
-	reasoning: string;
-}
+// ── Event display ───────────────────────────────────────────────────
 
-interface LogEvent {
-	type: string;
-	/* Config fields */
-	prompt_mode?: string;
-	fresh_edit?: boolean;
-	app_ready?: boolean;
-	cache_expired?: boolean;
-	module_count?: number;
-	/* Step fields */
-	step_index?: number;
-	text?: string;
-	reasoning?: string;
-	tool_calls?: ToolCall[];
-	usage?: TokenUsage;
-	/* Emission fields */
-	emission_type?: string;
-	emission_data?: unknown;
-	/* Error fields */
-	error_type?: string;
-	error_message?: string;
-	error_raw?: string;
-	error_fatal?: boolean;
-	error_context?: string;
-	/* Message fields */
-	id?: string;
-}
-
-interface StoredEvent {
-	run_id: string;
-	sequence: number;
-	request: number;
-	timestamp: string;
-	event: LogEvent;
-}
-
-/** Format a cost value as USD string. */
-function usd(cost: number): string {
-	return `$${cost.toFixed(4)}`;
-}
-
-/** Print a single event in summary mode. */
+/** Print a single event in summary mode (one-line-per-event). */
 function printEventSummary(e: StoredEvent) {
 	const evt = e.event;
 	const ts = e.timestamp.split("T")[1]?.slice(0, 12) ?? e.timestamp;
@@ -138,11 +112,13 @@ function printEventSummary(e: StoredEvent) {
 			break;
 
 		default:
-			console.log(`${prefix}  ❓ unknown type: ${evt.type}`);
+			console.log(
+				`${prefix}  ❓ unknown type: ${(evt as { type: string }).type}`,
+			);
 	}
 }
 
-/** Print a single event in verbose mode. */
+/** Print a single event in verbose mode (multi-line detail). */
 function printEventVerbose(e: StoredEvent) {
 	const evt = e.event;
 	console.log(
@@ -213,53 +189,93 @@ function printEventVerbose(e: StoredEvent) {
 	console.log("  └─");
 }
 
-/** Print cost breakdown for a set of events. */
-function printCostBreakdown(events: StoredEvent[]) {
-	let totalInput = 0;
-	let totalOutput = 0;
-	let totalCacheRead = 0;
-	let totalCacheWrite = 0;
-	let totalCost = 0;
-	let stepCount = 0;
+// ── Analytical views ────────────────────────────────────────────────
 
-	/* Also track inner tool LLM calls separately */
-	let innerInput = 0;
-	let innerOutput = 0;
-	let innerCost = 0;
-
-	for (const e of events) {
-		if (e.event.type !== "step") continue;
-		stepCount++;
-		const u = e.event.usage;
-		if (u) {
-			totalInput += u.input_tokens;
-			totalOutput += u.output_tokens;
-			totalCacheRead += u.cache_read_tokens;
-			totalCacheWrite += u.cache_write_tokens;
-			totalCost += u.cost;
-		}
-		for (const tc of e.event.tool_calls ?? []) {
-			if (tc.generation) {
-				innerInput += tc.generation.input_tokens;
-				innerOutput += tc.generation.output_tokens;
-				innerCost += tc.generation.cost;
-			}
-		}
+/** Print the --steps per-step breakdown table. */
+function printStepsView(events: StoredEvent[]) {
+	const steps = computeStepBreakdown(events);
+	if (steps.length === 0) {
+		console.log("  (no steps)");
+		return;
 	}
 
-	console.log(`    Steps:          ${stepCount}`);
-	console.log(`    Agent input:    ${tok(totalInput)} tokens`);
-	console.log(`    Agent output:   ${tok(totalOutput)} tokens`);
-	console.log(`    Cache reads:    ${tok(totalCacheRead)} tokens`);
-	console.log(`    Cache writes:   ${tok(totalCacheWrite)} tokens`);
-	console.log(`    Agent cost:     ${usd(totalCost)}`);
-	if (innerCost > 0) {
-		console.log(`    Tool LLM in:    ${tok(innerInput)} tokens`);
-		console.log(`    Tool LLM out:   ${tok(innerOutput)} tokens`);
-		console.log(`    Tool LLM cost:  ${usd(innerCost)}`);
-	}
-	console.log(`    TOTAL cost:     ${usd(totalCost + innerCost)}`);
+	printSection("Per-Step Breakdown");
+
+	printTable(
+		[
+			{ header: "Step", align: "right" },
+			{ header: "Tools" },
+			{ header: "Input", align: "right" },
+			{ header: "Output", align: "right" },
+			{ header: "Cache%", align: "right" },
+			{ header: "Cost", align: "right" },
+			{ header: "Reasoning" },
+		],
+		steps.map((s) => [
+			String(s.stepIndex),
+			s.tools.join(", ") || "(none)",
+			tok(s.inputTokens),
+			tok(s.outputTokens),
+			pct(s.cacheReadTokens, s.inputTokens),
+			usd(s.totalCost),
+			truncate(s.reasoningSnippet || s.textSnippet, 50),
+		]),
+	);
 }
+
+/** Print the --timeline step timing table. */
+function printTimelineView(events: StoredEvent[]) {
+	const timeline = computeTimeline(events);
+	if (timeline.length === 0) {
+		console.log("  (no steps)");
+		return;
+	}
+
+	printSection("Step Timeline");
+
+	printTable(
+		[
+			{ header: "Step", align: "right" },
+			{ header: "Time" },
+			{ header: "Delta", align: "right" },
+			{ header: "Tools" },
+			{ header: "Cost", align: "right" },
+		],
+		timeline.map((t) => [
+			String(t.stepIndex),
+			t.timestamp.split("T")[1]?.slice(0, 12) ?? t.timestamp,
+			t.deltaMs > 0 ? `${(t.deltaMs / 1000).toFixed(1)}s` : "—",
+			t.tools.join(", ") || "(none)",
+			usd(t.cost),
+		]),
+	);
+}
+
+/** Print the --tools tool usage distribution table. */
+function printToolsView(events: StoredEvent[]) {
+	const tools = computeToolUsage(events);
+	if (tools.length === 0) {
+		console.log("  (no tool calls)");
+		return;
+	}
+
+	printSection("Tool Usage");
+
+	printTable(
+		[
+			{ header: "Tool" },
+			{ header: "Calls", align: "right" },
+			{ header: "Inner LLM", align: "right" },
+		],
+		tools.map((t) => [
+			t.name,
+			String(t.callCount),
+			t.innerLLMCost > 0 ? usd(t.innerLLMCost) : "—",
+		]),
+	);
+}
+
+// ── Main ────────────────────────────────────────────────────────────
 
 async function main() {
 	/* Fetch log events — push filters into the Firestore query where possible
@@ -292,17 +308,10 @@ async function main() {
 		events = events.slice(-lastN);
 	}
 
-	/* Group by run_id */
-	const runs = new Map<string, StoredEvent[]>();
-	for (const e of events) {
-		const group = runs.get(e.run_id) ?? [];
-		group.push(e);
-		runs.set(e.run_id, group);
-	}
+	/* Group by run_id. */
+	const runs = groupByRun(events);
 
-	console.log("╔══════════════════════════════════════════════════════════╗");
-	console.log("║  LOG INSPECTION (read-only)                             ║");
-	console.log("╚══════════════════════════════════════════════════════════╝\n");
+	printHeader("LOG INSPECTION (read-only)");
 
 	console.log(
 		`  App:    ${appId}\n  Events: ${events.length} total across ${runs.size} run(s)\n`,
@@ -312,24 +321,39 @@ async function main() {
 	if (lastN) console.log(`  Filter: last ${lastN} events`);
 
 	for (const [runId, runEvents] of runs) {
-		const types = new Map<string, number>();
-		for (const e of runEvents) {
-			types.set(e.event.type, (types.get(e.event.type) ?? 0) + 1);
-		}
-		const typeSummary = [...types.entries()]
+		/* Run header — always includes cost summary. */
+		const analysis = analyzeRun(runId, runEvents);
+		const typeSummary = Object.entries(analysis.eventTypes)
 			.map(([t, c]) => `${t}:${c}`)
 			.join(" ");
-		const timeRange = `${runEvents[0].timestamp.split("T")[1]?.slice(0, 8)} → ${runEvents[runEvents.length - 1].timestamp.split("T")[1]?.slice(0, 8)}`;
-		const hasError = runEvents.some((e) => e.event.type === "error");
+		const start = analysis.timeRange.start.split("T")[1]?.slice(0, 8) ?? "";
+		const end = analysis.timeRange.end.split("T")[1]?.slice(0, 8) ?? "";
 
 		console.log(
-			`\n── Run ${runId.slice(0, 8)}… ${hasError ? "❌" : "✓"} ──────────────────────────────`,
+			`\n── Run ${runId.slice(0, 8)}… ${analysis.hasError ? "❌" : "✓"} ──────────────────────────────`,
 		);
-		console.log(`  ${runEvents.length} events (${typeSummary}) | ${timeRange}`);
+		console.log(
+			`  ${analysis.eventCount} events (${typeSummary}) | ${start} → ${end}`,
+		);
 
-		if (costOnly) {
-			printCostBreakdown(runEvents);
-		} else {
+		/* Cost summary is always shown — this was the --cost bug fix. */
+		const c = analysis.cost;
+		console.log(
+			`    Steps: ${c.stepCount}  |  Duration: ${duration(analysis.durationMs)}  |  Input: ${tok(c.agentInputTokens)}  |  Output: ${tok(c.agentOutputTokens)}  |  Cache: ${pct(c.cacheReadTokens, c.agentInputTokens)}  |  Cost: ${usd(c.totalCost)}`,
+		);
+		if (c.toolLLM.cost > 0) {
+			console.log(
+				`    Tool LLM: ${tok(c.toolLLM.inputTokens)} in / ${tok(c.toolLLM.outputTokens)} out / ${usd(c.toolLLM.cost)}`,
+			);
+		}
+
+		/* Analytical views replace the event list when requested. */
+		if (showSteps) printStepsView(runEvents);
+		if (showTimeline) printTimelineView(runEvents);
+		if (showTools) printToolsView(runEvents);
+
+		/* Default: show event list when no analytical view was requested. */
+		if (!hasAnalyticalView) {
 			console.log();
 			for (const e of runEvents) {
 				if (verbose) {

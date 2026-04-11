@@ -37,13 +37,69 @@ npx tsx scripts/build-xpath-parser.ts # Rebuild Lezer parser from xpath.grammar
 
 ### Production Diagnostic Scripts
 
-Read-only Firestore inspection tools for debugging production issues. Excluded from Docker builds (`.dockerignore`).
+Read-only Firestore inspection tools for debugging production issues. Excluded from Docker builds (`.dockerignore`). Shared analysis libraries in `scripts/lib/` — `blueprint-stats.ts` (blueprint analysis), `log-stats.ts` (event log analysis), `format.ts` (display formatting), `types.ts` (canonical type re-exports).
 
-```bash
-npx tsx scripts/inspect-app.ts <appId> [--questions] [--threads] [--blueprint]  # App status, blueprint structure, threads
-npx tsx scripts/inspect-logs.ts <appId> [--verbose] [--type=error] [--run=<runId>] [--cost] [--last=N]  # Event logs
-npx tsx scripts/inspect-usage.ts <userId> [--all]                   # User usage, apps, monthly cost
-npx tsx scripts/recover-app.ts <appId> [--confirm]                  # ⚠️ WRITES: recover error→complete (dry run without --confirm)
+**inspect-app** — App metadata, blueprint structure, quality analysis
+
+```
+npx tsx scripts/inspect-app.ts <appId> [options]
+
+  --stats        Quality analytics: logic counts, question types, form types, quality flags
+  --questions    Full question tree with types, labels, and UUIDs
+  --logic        Only questions with logic elements (calculates, show-whens, defaults, etc.)
+  --case-lists   Case list and detail columns per module
+  --threads      Full chat thread content and config events
+  --blueprint    Raw blueprint JSON only (standalone mode, skips structure view)
+
+Flags are combinable (e.g. --stats --case-lists) except --blueprint which is standalone.
+```
+
+**inspect-logs** — Generation event stream, cost analysis, agent behavior
+
+```
+npx tsx scripts/inspect-logs.ts <appId> [options]
+
+  --steps        Per-step breakdown table (tools, tokens, cache%, cost, reasoning snippet)
+  --timeline     Step timing analysis (delta between steps, identifies slow steps)
+  --tools        Tool usage distribution (call counts, inner LLM cost per tool)
+  --verbose      Full event detail (reasoning text, tool args/output, inner LLM usage)
+  --type=<type>  Filter by event type (step, emission, error, config, message)
+  --run=<runId>  Filter to a specific run
+  --last=N       Show only last N events
+
+Cost summary (steps, duration, tokens, cache hit rate, total cost) is always shown in the
+run header. Analytical views (--steps, --timeline, --tools) replace the default event list.
+```
+
+**inspect-compare** — Side-by-side app comparison
+
+```
+npx tsx scripts/inspect-compare.ts <appId1> <appId2> [options]
+
+  --run=build    Compare initial build runs (default)
+  --run=latest   Compare most recent run (may be an edit)
+  --run=<a>,<b>  Compare specific run IDs (comma-separated, one per app)
+  --verbose      Include per-module form-by-form detail
+
+Outputs: header, structure, quality metrics, case design, cost, agent behavior, quality flags.
+```
+
+**inspect-usage** — User token consumption and spend
+
+```
+npx tsx scripts/inspect-usage.ts <userId> [--all]
+
+  --all          Show all historical months (default: current month only)
+```
+
+**recover-app** — Recover stuck apps (⚠️ WRITES to production)
+
+```
+npx tsx scripts/recover-app.ts <appId> [--confirm]
+
+  --confirm      Actually write (without this flag, dry run only)
+
+Sets status to "complete" and clears error_type. Only works if blueprint has modules.
 ```
 
 ## Deployment
