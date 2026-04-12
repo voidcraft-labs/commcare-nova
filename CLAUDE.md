@@ -102,6 +102,27 @@ npx tsx scripts/recover-app.ts <appId> [--confirm]
 Sets status to "complete" and clears error_type. Only works if blueprint has modules.
 ```
 
+### Performance Diagnostic Scripts
+
+**analyze-react-profile** — React DevTools profiler trace analysis
+
+```
+python3 scripts/analyze-react-profile.py <file.json> [options]
+
+  (no flags)                  Summary of all commits + top components + wasted renders
+  --frame N                   Detail for frame N (1-indexed): all components, durations, change causes
+  --frame N --ancestors Name  Ancestor chain for a component in that frame
+  --component Name            All frames where a component rendered (with change causes)
+  --wasted                    Components with highest wasted render counts
+  --top N                     Top N components by cumulative self duration
+  --min-duration F            Min ms to show in frame detail (default 0.05)
+
+Parses JSON exported from React DevTools Profiler tab. Change descriptions show what
+triggered each re-render: props (which ones), hooks (which indices), context, state,
+first mount, or parent cascade (wasted). Ancestor chains trace the re-render cause
+from a leaf component up to the root.
+```
+
 ## Deployment
 
 Deployed to **Google Cloud Run** via Docker. `next.config.ts` uses `output: "standalone"`.
