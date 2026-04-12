@@ -1,3 +1,16 @@
+/**
+ * AppTree — structure sidebar with per-entity subscriptions.
+ *
+ * Each tree component (ModuleCard, FormCard, QuestionRow) subscribes to its
+ * own entity in the builder store by ID/UUID. Immer structural sharing means
+ * editing question A's label only re-renders QuestionRow(A) in the sidebar —
+ * not the other 166 QuestionRows, not the FormCards, not the ModuleCards.
+ *
+ * Selection uses boolean selectors — only the old and new selected components
+ * re-render on selection change (2 total), not every tree item.
+ *
+ * Search filtering operates directly on entity maps — no assembled TreeData.
+ */
 "use client";
 import { Icon, type IconifyIcon } from "@iconify/react/offline";
 import tablerChevronRight from "@iconify-icons/tabler/chevron-right";
@@ -8,6 +21,7 @@ import tablerX from "@iconify-icons/tabler/x";
 import { AnimatePresence, motion } from "motion/react";
 import {
 	createContext,
+	memo,
 	use,
 	useCallback,
 	useDeferredValue,
@@ -18,22 +32,14 @@ import { ConnectLogomark } from "@/components/icons/ConnectLogomark";
 import {
 	useBuilderEngine,
 	useBuilderPhase,
-	useBuilderSelected,
-	useBuilderTreeData,
+	useBuilderStore,
+	useBuilderStoreShallow,
 } from "@/hooks/useBuilder";
-import {
-	filterTree,
-	highlightSegments,
-	type MatchIndices,
-} from "@/lib/filterTree";
+import { highlightSegments, type MatchIndices } from "@/lib/filterTree";
 import { formTypeIcons, questionTypeIcons } from "@/lib/questionTypeIcons";
 import { textWithChips } from "@/lib/references/LabelContent";
-import type { Question } from "@/lib/schemas/blueprint";
-import {
-	BuilderPhase,
-	type SelectedElement,
-	type TreeData,
-} from "@/lib/services/builder";
+import { BuilderPhase, type SelectedElement } from "@/lib/services/builder";
+import type { NForm, NModule, NQuestion } from "@/lib/services/normalizedState";
 import { type QuestionPath, qpath } from "@/lib/services/questionPath";
 
 /**
@@ -42,16 +48,6 @@ import { type QuestionPath, qpath } from "@/lib/services/questionPath";
  * the recursive tree or depending on the ReferenceProvider.
  */
 const FormIconContext = createContext<Map<string, IconifyIcon>>(new Map());
-
-/** Subset of SelectedElement used by internal tree components for highlight matching. */
-type TreeSelection =
-	| {
-			type: string;
-			moduleIndex: number;
-			formIndex?: number;
-			questionPath?: QuestionPath;
-	  }
-	| undefined;
 
 /** Handler for tree item selection — passed down through the recursive tree. */
 type TreeSelectHandler = (selected: SelectedElement) => void;
@@ -62,16 +58,14 @@ interface AppTreeProps {
 }
 
 export function AppTree({ actions, hideHeader }: AppTreeProps) {
-	/* All state read from the store — no prop drilling from parent. */
-	const data = useBuilderTreeData();
-	const selected = useBuilderSelected();
+	const moduleOrder = useBuilderStore((s) => s.moduleOrder);
+	const appName = useBuilderStore((s) => s.appName);
 	const phase = useBuilderPhase();
 	const engine = useBuilderEngine();
 
 	const locked =
 		phase !== BuilderPhase.Ready && phase !== BuilderPhase.Completed;
 
-	/** Navigate engine (select + scroll) and push the correct preview screen. */
 	const handleSelect: TreeSelectHandler = useCallback(
 		(sel: SelectedElement) => engine.navigateToSelection(sel),
 		[engine],
@@ -79,13 +73,6 @@ export function AppTree({ actions, hideHeader }: AppTreeProps) {
 	const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
 	const [searchQuery, setSearchQuery] = useState("");
 	const deferredQuery = useDeferredValue(searchQuery);
-	const filtered = useMemo(
-		() =>
-			data && deferredQuery.trim()
-				? filterTree(data, deferredQuery.trim())
-				: null,
-		[data, deferredQuery],
-	);
 
 	const toggle = useCallback((key: string) => {
 		setCollapsed((prev) => {
@@ -96,7 +83,11 @@ export function AppTree({ actions, hideHeader }: AppTreeProps) {
 		});
 	}, []);
 
-	if (!data) {
+	/* Search: compute match indices from entity maps.
+	 * Only fires when the deferred query or entities change. */
+	const searchResult = useSearchFilter(deferredQuery);
+
+	if (!moduleOrder || moduleOrder.length === 0) {
 		return (
 			<div className="h-full flex items-center justify-center text-nova-text-muted text-sm">
 				Waiting for generation...
@@ -104,15 +95,13 @@ export function AppTree({ actions, hideHeader }: AppTreeProps) {
 		);
 	}
 
-	const displayModules = filtered ? filtered.data.modules : data.modules;
-
 	return (
 		<div className="h-full flex flex-col">
 			{!hideHeader && (
 				<div className="flex items-center justify-between px-6 h-12 border-b border-nova-border shrink-0">
 					<div className="flex items-center min-w-0">
 						<span className="text-sm font-medium text-nova-text truncate">
-							{data.app_name}
+							{appName}
 						</span>
 					</div>
 					{actions && (
@@ -161,29 +150,31 @@ export function AppTree({ actions, hideHeader }: AppTreeProps) {
 
 			{/* Scrollable module cards */}
 			<div className="flex-1 overflow-auto">
-				{filtered && displayModules.length === 0 ? (
+				{searchResult && searchResult.visibleModuleIndices.size === 0 ? (
 					<div className="flex items-center justify-center py-8 text-nova-text-muted text-xs">
 						No matches
 					</div>
 				) : (
 					<div>
 						<AnimatePresence mode="sync">
-							{displayModules.map((mod, mIdx) => (
-								<ModuleCard
-									// biome-ignore lint/suspicious/noArrayIndexKey: modules have no unique ID — name is user-editable and not unique
-									key={mIdx}
-									module={mod}
-									moduleIndex={mIdx}
-									selected={selected}
-									onSelect={handleSelect}
-									collapsed={collapsed}
-									toggle={toggle}
-									forceExpand={filtered?.forceExpand}
-									matchMap={filtered?.matchMap}
-									appConnectType={data?.connect_type}
-									locked={locked}
-								/>
-							))}
+							{moduleOrder.map((_moduleId, mIdx) => {
+								if (
+									searchResult &&
+									!searchResult.visibleModuleIndices.has(mIdx)
+								)
+									return null;
+								return (
+									<ModuleCard
+										key={_moduleId}
+										moduleIndex={mIdx}
+										onSelect={handleSelect}
+										collapsed={collapsed}
+										toggle={toggle}
+										searchResult={searchResult}
+										locked={locked}
+									/>
+								);
+							})}
 						</AnimatePresence>
 					</div>
 				)}
@@ -192,7 +183,153 @@ export function AppTree({ actions, hideHeader }: AppTreeProps) {
 	);
 }
 
-/** Reusable disclosure chevron — rotates 90deg when expanded */
+// ── Search filter (entity-map-based) ─────────────────────────────────
+
+interface SearchResult {
+	matchMap: Map<string, MatchIndices>;
+	forceExpand: Set<string>;
+	visibleModuleIndices: Set<number>;
+	visibleFormIds: Set<string>;
+	visibleQuestionUuids: Set<string>;
+}
+
+/** Stable empty data for when search is inactive — same reference every time.
+ *  Prevents `useBuilderStoreShallow` from firing on entity map changes when
+ *  the user isn't searching. Without this, every entity edit triggers the
+ *  search subscription (6 entity maps changed) → AppTree re-renders. */
+const SEARCH_IDLE = {
+	moduleOrder: [] as string[],
+	formOrder: {} as Record<string, string[]>,
+	questionOrder: {} as Record<string, string[]>,
+	modules: {} as Record<string, NModule>,
+	forms: {} as Record<string, NForm>,
+	questions: {} as Record<string, NQuestion>,
+};
+
+/**
+ * Compute search filter results directly from entity maps.
+ * No assembled TreeData needed — iterates normalized entities.
+ *
+ * When query is empty, returns SEARCH_IDLE from the selector — a stable
+ * reference that shallow comparison sees as unchanged. This means entity
+ * edits during normal (non-search) use cause zero work in this hook.
+ */
+function useSearchFilter(query: string): SearchResult | null {
+	const isSearching = query.trim().length > 0;
+
+	const { moduleOrder, formOrder, questionOrder, modules, forms, questions } =
+		useBuilderStoreShallow((s) =>
+			isSearching
+				? {
+						moduleOrder: s.moduleOrder,
+						formOrder: s.formOrder,
+						questionOrder: s.questionOrder,
+						modules: s.modules,
+						forms: s.forms,
+						questions: s.questions,
+					}
+				: SEARCH_IDLE,
+		);
+
+	return useMemo(() => {
+		const q = query.trim().toLowerCase();
+		if (!q) return null;
+
+		const matchMap = new Map<string, MatchIndices>();
+		const forceExpand = new Set<string>();
+		const visibleModuleIndices = new Set<number>();
+		const visibleFormIds = new Set<string>();
+		const visibleQuestionUuids = new Set<string>();
+
+		for (let mIdx = 0; mIdx < moduleOrder.length; mIdx++) {
+			const moduleId = moduleOrder[mIdx];
+			const mod = modules[moduleId];
+			if (!mod) continue;
+
+			/* Check module name */
+			const moduleKey = `m${mIdx}`;
+			const modIndices = findMatchIndices(mod.name, q);
+			if (modIndices) matchMap.set(moduleKey, modIndices);
+
+			const formIds = formOrder[moduleId] ?? [];
+			let moduleHasMatch = !!modIndices;
+
+			for (let fIdx = 0; fIdx < formIds.length; fIdx++) {
+				const formId = formIds[fIdx];
+				const form = forms[formId];
+				if (!form) continue;
+
+				const formKey = `f${mIdx}_${fIdx}`;
+				const formIndices = findMatchIndices(form.name, q);
+				if (formIndices) matchMap.set(formKey, formIndices);
+
+				/* Check questions recursively */
+				let formHasMatch = !!formIndices;
+				const checkQuestions = (
+					parentId: string,
+					parentPath?: QuestionPath,
+				) => {
+					const uuids = questionOrder[parentId] ?? [];
+					for (const uuid of uuids) {
+						const question = questions[uuid];
+						if (!question) continue;
+						const questionPath = qpath(question.id, parentPath);
+
+						const labelIndices = findMatchIndices(question.label ?? "", q);
+						const idIndices = findMatchIndices(question.id, q);
+
+						if (labelIndices) matchMap.set(questionPath, labelIndices);
+						if (idIndices) matchMap.set(`${questionPath}__id`, idIndices);
+
+						if (labelIndices || idIndices) {
+							visibleQuestionUuids.add(uuid);
+							formHasMatch = true;
+							/* Force-expand parent groups */
+							if (parentPath) forceExpand.add(parentPath);
+						}
+
+						/* Recurse into children */
+						checkQuestions(uuid, questionPath);
+					}
+				};
+				checkQuestions(formId);
+
+				if (formHasMatch) {
+					visibleFormIds.add(formId);
+					forceExpand.add(formKey);
+					moduleHasMatch = true;
+				}
+			}
+
+			if (moduleHasMatch) {
+				visibleModuleIndices.add(mIdx);
+				forceExpand.add(moduleKey);
+			}
+		}
+
+		return {
+			matchMap,
+			forceExpand,
+			visibleModuleIndices,
+			visibleFormIds,
+			visibleQuestionUuids,
+		};
+	}, [query, moduleOrder, formOrder, questionOrder, modules, forms, questions]);
+}
+
+/** Find match indices for a fuzzy substring search. */
+function findMatchIndices(
+	text: string,
+	query: string,
+): MatchIndices | undefined {
+	const lower = text.toLowerCase();
+	const idx = lower.indexOf(query);
+	if (idx === -1) return undefined;
+	return [[idx, idx + query.length]];
+}
+
+// ── Shared components ────────────────────────────────────────────────
+
 function CollapseChevron({
 	isCollapsed,
 	onClick,
@@ -213,18 +350,14 @@ function CollapseChevron({
 				width="10"
 				height="10"
 				className="transition-transform duration-150"
-				style={{ transform: isCollapsed ? "rotate(0deg)" : "rotate(90deg)" }}
+				style={{
+					transform: isCollapsed ? "rotate(0deg)" : "rotate(90deg)",
+				}}
 			/>
 		</button>
 	);
 }
 
-/**
- * Accessible interactive wrapper for tree items. Uses a native `<div>` with
- * ARIA treeitem semantics so the layout can contain nested interactive children
- * (collapse chevrons) without violating the "no button inside button" rule.
- * Handles Enter/Space keyboard activation for keyboard-only navigation.
- */
 function TreeItemRow({
 	onClick,
 	className,
@@ -258,40 +391,76 @@ function TreeItemRow({
 	);
 }
 
-/* Not memoized — MutableBlueprint mutates in place, so module/form objects
- * are the same reference before and after mutation. React.memo's shallow
- * comparison would block legitimate re-renders on data changes. The tree
- * re-renders on selection changes and blueprint mutations, both correct. */
-function ModuleCard({
-	module: mod,
+function HighlightedText({
+	text,
+	indices,
+}: {
+	text: string;
+	indices: MatchIndices;
+}) {
+	const segments = highlightSegments(text, indices);
+	let offset = 0;
+	return (
+		<>
+			{segments.map((seg) => {
+				const key = offset;
+				offset += seg.text.length;
+				return seg.highlight ? (
+					<mark key={key} className="bg-nova-violet/20 text-inherit rounded-sm">
+						{seg.text}
+					</mark>
+				) : (
+					<span key={key}>{seg.text}</span>
+				);
+			})}
+		</>
+	);
+}
+
+// ── ModuleCard ───────────────────────────────────────────────────────
+
+const ModuleCard = memo(function ModuleCard({
 	moduleIndex,
-	selected,
 	onSelect,
 	collapsed,
 	toggle,
-	forceExpand,
-	matchMap,
-	appConnectType,
+	searchResult,
 	locked,
 }: {
-	module: TreeData["modules"][number];
 	moduleIndex: number;
-	selected: TreeSelection;
 	onSelect: TreeSelectHandler;
 	collapsed: Set<string>;
 	toggle: (key: string) => void;
-	forceExpand?: Set<string>;
-	matchMap?: Map<string, MatchIndices>;
-	appConnectType?: string;
+	searchResult: SearchResult | null;
 	locked?: boolean;
 }) {
-	const isSelected =
-		selected?.type === "module" && selected.moduleIndex === moduleIndex;
+	/** Subscribe to this module's entity. Only re-renders when THIS module changes. */
+	const mod = useBuilderStore((s) => {
+		const moduleId = s.moduleOrder[moduleIndex];
+		return moduleId ? s.modules[moduleId] : undefined;
+	});
+
+	/** Subscribe to this module's form IDs. */
+	const formIds = useBuilderStore((s) => {
+		const moduleId = s.moduleOrder[moduleIndex];
+		return moduleId ? s.formOrder[moduleId] : undefined;
+	});
+
+	const connectType = useBuilderStore((s) => s.connectType);
+
+	/** Boolean selection — only this module + the previously selected re-render. */
+	const isSelected = useBuilderStore(
+		(s) =>
+			s.selected?.type === "module" && s.selected.moduleIndex === moduleIndex,
+	);
+
 	const collapseKey = `m${moduleIndex}`;
-	const isCollapsed = forceExpand?.has(collapseKey)
+	const isCollapsed = searchResult?.forceExpand?.has(collapseKey)
 		? false
 		: collapsed.has(collapseKey);
-	const nameIndices = matchMap?.get(collapseKey);
+	const nameIndices = searchResult?.matchMap?.get(collapseKey);
+
+	if (!mod || !formIds) return null;
 
 	return (
 		<motion.div
@@ -300,7 +469,6 @@ function ModuleCard({
 			transition={{ duration: 0.5, ease: [0.16, 1, 0.3, 1] }}
 			className={`transition-colors border-b border-nova-border last:border-b-0 ${isSelected ? "bg-nova-violet/[0.04]" : ""}`}
 		>
-			{/* Module header */}
 			<TreeItemRow
 				className={`pl-3 pr-3 py-2.5 flex items-center justify-between ${locked ? "pointer-events-none" : "cursor-pointer"}`}
 				onClick={() => onSelect({ type: "module", moduleIndex })}
@@ -330,9 +498,9 @@ function ModuleCard({
 								mod.name
 							)}
 						</h3>
-						{mod.case_type && (
+						{mod.caseType && (
 							<span className="text-xs text-nova-text-muted font-mono">
-								{mod.case_type}
+								{mod.caseType}
 							</span>
 						)}
 					</div>
@@ -341,8 +509,7 @@ function ModuleCard({
 
 			{!isCollapsed && (
 				<>
-					{/* Case list columns */}
-					{mod.case_list_columns && mod.case_list_columns.length > 0 && (
+					{mod.caseListColumns && mod.caseListColumns.length > 0 && (
 						<div className="mx-4 mb-3 rounded-lg border border-white/[0.06] bg-white/[0.02] overflow-hidden">
 							<div className="flex items-center gap-1.5 px-3 py-1.5 border-b border-white/[0.04]">
 								<Icon
@@ -356,7 +523,7 @@ function ModuleCard({
 								</span>
 							</div>
 							<div className="flex">
-								{mod.case_list_columns.map((col, colIdx) => (
+								{mod.caseListColumns.map((col, colIdx) => (
 									<div
 										key={`${col.header}-${col.field}`}
 										className={`flex-1 px-3 py-2 text-xs font-medium text-nova-text-secondary ${
@@ -370,83 +537,90 @@ function ModuleCard({
 						</div>
 					)}
 
-					{/* Forms */}
 					<div className="border-t border-nova-border">
 						<AnimatePresence mode="sync">
-							{mod.forms.map((form, fIdx) => (
-								<FormCard
-									// biome-ignore lint/suspicious/noArrayIndexKey: TreeData forms have no unique ID field
-									key={fIdx}
-									form={form}
-									moduleIndex={moduleIndex}
-									formIndex={fIdx}
-									selected={selected}
-									onSelect={onSelect}
-									delay={fIdx * 0.08}
-									collapsed={collapsed}
-									toggle={toggle}
-									forceExpand={forceExpand}
-									matchMap={matchMap}
-									appConnectType={appConnectType}
-									locked={locked}
-								/>
-							))}
+							{formIds.map((formId, fIdx) => {
+								if (searchResult && !searchResult.visibleFormIds.has(formId))
+									return null;
+								return (
+									<FormCard
+										key={formId}
+										formId={formId}
+										moduleIndex={moduleIndex}
+										formIndex={fIdx}
+										onSelect={onSelect}
+										delay={fIdx * 0.08}
+										collapsed={collapsed}
+										toggle={toggle}
+										searchResult={searchResult}
+										connectType={connectType}
+										locked={locked}
+									/>
+								);
+							})}
 						</AnimatePresence>
 					</div>
 				</>
 			)}
 		</motion.div>
 	);
-}
+});
 
-function FormCard({
-	form,
+// ── FormCard ─────────────────────────────────────────────────────────
+
+const FormCard = memo(function FormCard({
+	formId,
 	moduleIndex,
 	formIndex,
-	selected,
 	onSelect,
 	delay,
 	collapsed,
 	toggle,
-	forceExpand,
-	matchMap,
-	appConnectType,
+	searchResult,
+	connectType,
 	locked,
 }: {
-	form: TreeData["modules"][number]["forms"][number];
+	formId: string;
 	moduleIndex: number;
 	formIndex: number;
-	selected: TreeSelection;
 	onSelect: TreeSelectHandler;
 	delay: number;
 	collapsed: Set<string>;
 	toggle: (key: string) => void;
-	forceExpand?: Set<string>;
-	matchMap?: Map<string, MatchIndices>;
-	appConnectType?: string;
+	searchResult: SearchResult | null;
+	connectType?: string;
 	locked?: boolean;
 }) {
-	const isSelected =
-		selected?.type === "form" &&
-		selected.moduleIndex === moduleIndex &&
-		selected.formIndex === formIndex;
-	const formIcon = formTypeIcons[form.type] ?? formTypeIcons.survey;
+	/** Subscribe to this form's entity. */
+	const form = useBuilderStore((s) => s.forms[formId]) as NForm | undefined;
+
+	/** Subscribe to this form's question UUIDs. */
+	const questionUuids = useBuilderStore((s) => s.questionOrder[formId]);
+
+	/** Full questionOrder for recursive question counting. */
+	const questionOrder = useBuilderStore((s) => s.questionOrder);
+
+	/** Boolean selection. */
+	const isSelected = useBuilderStore(
+		(s) =>
+			s.selected?.type === "form" &&
+			s.selected.moduleIndex === moduleIndex &&
+			s.selected.formIndex === formIndex,
+	);
+
 	const collapseKey = `f${moduleIndex}_${formIndex}`;
-	const isCollapsed = forceExpand?.has(collapseKey)
+	const isCollapsed = searchResult?.forceExpand?.has(collapseKey)
 		? false
 		: collapsed.has(collapseKey);
-	const hasQuestions = form.questions && form.questions.length > 0;
-	const oddPaths = hasQuestions
-		? buildOddPaths(form.questions ?? [], collapsed)
-		: undefined;
-	const questionIcons = useMemo(
-		() =>
-			form.questions?.length
-				? buildQuestionIconMap(form.questions)
-				: new Map<string, IconifyIcon>(),
-		[form.questions],
-	);
-	const nameIndices = matchMap?.get(collapseKey);
+	const hasQuestions = questionUuids && questionUuids.length > 0;
+	const nameIndices = searchResult?.matchMap?.get(collapseKey);
+
+	/** Build icon map for reference chips in question labels. */
+	const questionIcons = useQuestionIconMap(formId);
+
+	if (!form) return null;
+
+	const formIcon = formTypeIcons[form.type] ?? formTypeIcons.survey;
 
 	return (
 		<motion.div
@@ -488,7 +662,7 @@ function FormCard({
 								form.name
 							)}
 						</span>
-						{form.connect && appConnectType && (
+						{form.connect && connectType && (
 							<ConnectLogomark
 								size={11}
 								className="text-nova-violet-bright shrink-0"
@@ -498,96 +672,141 @@ function FormCard({
 				</div>
 				{hasQuestions && (
 					<span className="text-xs text-nova-text-muted shrink-0">
-						{countQuestions(form.questions ?? [])} q
+						{countQuestionsFromOrder(formId, questionOrder)} q
 					</span>
 				)}
 			</TreeItemRow>
 
-			{/* Questions */}
 			{hasQuestions && !isCollapsed && (
 				<FormIconContext value={questionIcons}>
 					<div className="pb-2">
 						<AnimatePresence mode="sync">
-							{form.questions?.map((q, qIdx) => (
-								<QuestionRow
-									// biome-ignore lint/suspicious/noArrayIndexKey: positional key is intentional — questions have no stable UUID, and using q.id causes remount + animation flash on rename
-									key={qIdx}
-									question={q}
-									questionPath={qpath(q.id)}
-									moduleIndex={moduleIndex}
-									formIndex={formIndex}
-									onSelect={onSelect}
-									selected={selected}
-									depth={0}
-									delay={delay + qIdx * 0.02}
-									collapsed={collapsed}
-									toggle={toggle}
-									oddPaths={oddPaths ?? new Set()}
-									forceExpand={forceExpand}
-									matchMap={matchMap}
-									locked={locked}
-								/>
-							))}
+							{questionUuids?.map((uuid, qIdx) => {
+								if (
+									searchResult &&
+									!searchResult.visibleQuestionUuids.has(uuid)
+								)
+									return null;
+								return (
+									<QuestionRow
+										key={uuid}
+										uuid={uuid}
+										moduleIndex={moduleIndex}
+										formIndex={formIndex}
+										onSelect={onSelect}
+										depth={0}
+										delay={delay + qIdx * 0.02}
+										collapsed={collapsed}
+										toggle={toggle}
+										searchResult={searchResult}
+										locked={locked}
+									/>
+								);
+							})}
 						</AnimatePresence>
 					</div>
 				</FormIconContext>
 			)}
 		</motion.div>
 	);
+});
+
+/** Build a question ID → type icon map for a form's questions (recursive). */
+function useQuestionIconMap(formId: string): Map<string, IconifyIcon> {
+	const questions = useBuilderStore((s) => s.questions);
+	const questionOrder = useBuilderStore((s) => s.questionOrder);
+
+	return useMemo(() => {
+		const map = new Map<string, IconifyIcon>();
+		function walk(parentId: string, parentPath?: QuestionPath) {
+			const uuids = questionOrder[parentId] ?? [];
+			for (const uuid of uuids) {
+				const q = questions[uuid];
+				if (!q) continue;
+				const p = qpath(q.id, parentPath);
+				const icon = questionTypeIcons[q.type];
+				if (icon) map.set(p, icon);
+				walk(uuid, p);
+			}
+		}
+		walk(formId);
+		return map;
+	}, [formId, questions, questionOrder]);
 }
 
-function QuestionRow({
-	question: q,
-	questionPath,
+/** Count questions recursively from questionOrder. Pure function —
+ *  takes the questionOrder map directly (read from store by the caller). */
+function countQuestionsFromOrder(
+	parentId: string,
+	questionOrder: Record<string, string[]>,
+): number {
+	let count = 0;
+	function walk(pid: string) {
+		const uuids = questionOrder[pid] ?? [];
+		count += uuids.length;
+		for (const uuid of uuids) {
+			walk(uuid);
+		}
+	}
+	walk(parentId);
+	return count;
+}
+
+// ── QuestionRow ──────────────────────────────────────────────────────
+
+const QuestionRow = memo(function QuestionRow({
+	uuid,
 	moduleIndex,
 	formIndex,
 	onSelect,
-	selected,
 	depth,
 	delay,
 	collapsed,
 	toggle,
-	oddPaths,
-	forceExpand,
-	matchMap,
+	searchResult,
 	locked,
+	parentPath,
 }: {
-	question: Question;
-	questionPath: QuestionPath;
+	uuid: string;
 	moduleIndex: number;
 	formIndex: number;
 	onSelect: TreeSelectHandler;
-	selected: TreeSelection;
-	/** Nesting depth — used to extend row backgrounds to the full container width */
 	depth: number;
 	delay: number;
 	collapsed: Set<string>;
 	toggle: (key: string) => void;
-	oddPaths: Set<string>;
-	forceExpand?: Set<string>;
-	matchMap?: Map<string, MatchIndices>;
+	searchResult: SearchResult | null;
 	locked?: boolean;
+	parentPath?: QuestionPath;
 }) {
+	/** Subscribe to this question's entity by UUID. */
+	const q = useBuilderStore((s) => s.questions[uuid]) as NQuestion | undefined;
+
+	/** Subscribe to children UUIDs (for groups/repeats). */
+	const childUuids = useBuilderStore((s) => s.questionOrder[uuid]);
+
+	/** Boolean selection — only this question + the old selection re-render. */
+	const isSelected = useBuilderStore(
+		(s) => s.selected?.type === "question" && s.selected.questionUuid === uuid,
+	);
+
 	const iconOverrides = use(FormIconContext);
-	const isSelected =
-		selected?.type === "question" &&
-		selected.moduleIndex === moduleIndex &&
-		selected.formIndex === formIndex &&
-		selected.questionPath === questionPath;
+
+	if (!q) return null;
+
+	const questionPath = qpath(q.id, parentPath);
 	const iconData = questionTypeIcons[q.type];
-	const hasChildren = q.children && q.children.length > 0;
+	const hasChildren = childUuids && childUuids.length > 0;
 	const isCollapsed =
 		hasChildren &&
-		(forceExpand?.has(questionPath) ? false : collapsed.has(questionPath));
-	const isOdd = oddPaths.has(questionPath);
-	const labelIndices = matchMap?.get(questionPath);
-	const idIndices = matchMap?.get(`${questionPath}__id`);
-	// Show the ID badge when the match came from the ID (and question has a separate label)
+		(searchResult?.forceExpand?.has(questionPath)
+			? false
+			: collapsed.has(questionPath));
+	const labelIndices = searchResult?.matchMap?.get(questionPath);
+	const idIndices = searchResult?.matchMap?.get(`${questionPath}__id`);
 	const showIdMatch = !!(idIndices && q.label);
-	// Highlight the main display text: label match, or id match when there's no label
 	const textIndices = labelIndices ?? (!q.label ? idIndices : undefined);
 	const displayText = q.label || q.id;
-	/* Search uses HighlightedText — skip chip rendering when active. */
 	const chipContent = !textIndices
 		? textWithChips(displayText, null, iconOverrides)
 		: null;
@@ -605,7 +824,7 @@ function QuestionRow({
 						? "pointer-events-none text-nova-text-secondary"
 						: isSelected
 							? "cursor-pointer bg-nova-violet/[0.08] text-nova-text shadow-[inset_2px_0_0_var(--nova-violet)]"
-							: `cursor-pointer ${isOdd ? "bg-nova-violet/[0.02]" : ""} hover:bg-nova-violet/[0.06] text-nova-text-secondary`
+							: "cursor-pointer hover:bg-nova-violet/[0.06] text-nova-text-secondary"
 				}`}
 				style={{ paddingLeft: `${28 + depth * 8}px` }}
 				onClick={(e) => {
@@ -615,7 +834,7 @@ function QuestionRow({
 						moduleIndex,
 						formIndex,
 						questionPath,
-						questionUuid: q.uuid,
+						questionUuid: uuid,
 					});
 				}}
 			>
@@ -644,7 +863,8 @@ function QuestionRow({
 							)}
 						</span>
 						<span className="truncate shrink-0 max-w-[45%] font-mono text-[10px] text-nova-text-muted">
-							(<HighlightedText text={q.id} indices={idIndices} />)
+							(
+							<HighlightedText text={q.id} indices={idIndices} />)
 						</span>
 					</span>
 				) : (
@@ -660,7 +880,7 @@ function QuestionRow({
 				)}
 				{hasChildren && isCollapsed && (
 					<span className="text-[10px] text-nova-text-muted ml-auto shrink-0">
-						{countQuestions(q.children ?? [])}
+						{childUuids?.length ?? 0}
 					</span>
 				)}
 			</TreeItemRow>
@@ -668,109 +888,24 @@ function QuestionRow({
 			{/* Nested children for groups/repeats */}
 			{hasChildren && !isCollapsed && (
 				<div>
-					{q.children?.map((child, cIdx) => (
+					{childUuids?.map((childUuid, cIdx) => (
 						<QuestionRow
-							// biome-ignore lint/suspicious/noArrayIndexKey: positional key — same rationale as parent QuestionRow
-							key={cIdx}
-							question={child}
-							questionPath={qpath(child.id, questionPath)}
+							key={childUuid}
+							uuid={childUuid}
 							moduleIndex={moduleIndex}
 							formIndex={formIndex}
 							onSelect={onSelect}
-							selected={selected}
 							depth={depth + 1}
 							delay={delay + (cIdx + 1) * 0.02}
 							collapsed={collapsed}
 							toggle={toggle}
-							oddPaths={oddPaths}
-							forceExpand={forceExpand}
-							matchMap={matchMap}
+							searchResult={searchResult}
 							locked={locked}
+							parentPath={questionPath}
 						/>
 					))}
 				</div>
 			)}
 		</motion.div>
 	);
-}
-
-/**
- * Inline highlighted text with match indices. Each segment is keyed by its
- * character offset within the source string — a stable identity that doesn't
- * depend on array position and survives changes to surrounding segments.
- */
-function HighlightedText({
-	text,
-	indices,
-}: {
-	text: string;
-	indices: MatchIndices;
-}) {
-	const segments = highlightSegments(text, indices);
-	let offset = 0;
-	return (
-		<>
-			{segments.map((seg) => {
-				const key = offset;
-				offset += seg.text.length;
-				return seg.highlight ? (
-					<mark key={key} className="bg-nova-violet/20 text-inherit rounded-sm">
-						{seg.text}
-					</mark>
-				) : (
-					<span key={key}>{seg.text}</span>
-				);
-			})}
-		</>
-	);
-}
-
-function countQuestions(questions: Question[]): number {
-	let count = 0;
-	for (const q of questions) {
-		count++;
-		if (q.children) count += countQuestions(q.children);
-	}
-	return count;
-}
-
-/**
- * Build a flat map from question ID to its type icon for all questions in a form.
- * Used by sidebar chip rendering to show the correct question type icon without
- * going through the ReferenceProvider (which only knows the selected form).
- */
-function buildQuestionIconMap(questions: Question[]): Map<string, IconifyIcon> {
-	const map = new Map<string, IconifyIcon>();
-	function walk(qs: Question[], parent?: QuestionPath) {
-		for (const q of qs) {
-			const p = qpath(q.id, parent);
-			const icon = questionTypeIcons[q.type];
-			if (icon) map.set(p, icon);
-			if (q.children) walk(q.children, p);
-		}
-	}
-	walk(questions);
-	return map;
-}
-
-/** Pre-flatten visible question paths and return the set of odd-indexed ones. */
-function buildOddPaths(
-	questions: Question[],
-	collapsed: Set<string>,
-	parentPath?: QuestionPath,
-): Set<string> {
-	const flat: string[] = [];
-	function walk(qs: Question[], parent?: QuestionPath) {
-		for (const q of qs) {
-			const p = qpath(q.id, parent);
-			flat.push(p);
-			if (q.children && q.children.length > 0 && !collapsed.has(p)) {
-				walk(q.children, p);
-			}
-		}
-	}
-	walk(questions, parentPath);
-	const odd = new Set<string>();
-	for (let i = 1; i < flat.length; i += 2) odd.add(flat[i]);
-	return odd;
-}
+});

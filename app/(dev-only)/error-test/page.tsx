@@ -1,6 +1,5 @@
 "use client";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { GenerationProgress } from "@/components/builder/GenerationProgress";
 import { SignalPanel } from "@/components/chat/SignalPanel";
 import {
 	BuilderPhase,
@@ -342,9 +341,13 @@ export default function ErrorTestPage() {
 	const [activeScenario, setActiveScenario] = useState<number | null>(null);
 	const [gridMode, setGridMode] = useState<SignalMode>("idle");
 	const [phase, setPhase] = useState<BuilderPhase>(BuilderPhase.Idle);
-	const [stage, setStage] = useState<GenerationStage | null>(null);
-	const [generationError, setGenerationError] = useState<GenerationError>(null);
-	const [statusMessage, setStatusMessage] = useState("");
+	/* Stage/error/status state — used by the error scenario runner to drive
+	 * generation lifecycle simulations. GenerationProgress self-subscribes from
+	 * the store in production, but these are needed here for the scenario
+	 * callbacks that simulate generation state transitions. */
+	const [, setStage] = useState<GenerationStage | null>(null);
+	const [, setGenerationError] = useState<GenerationError>(null);
+	const [, setStatusMessage] = useState("");
 	const controllerRef = useRef<SignalGridController | null>(null);
 	const energyRef = useRef(0);
 	const thinkEnergyRef = useRef(0);
@@ -412,8 +415,6 @@ export default function ErrorTestPage() {
 		setActiveScenario(null);
 	}, []);
 
-	const showProgress = phase === BuilderPhase.Generating;
-
 	return (
 		<div className="min-h-screen bg-nova-void text-nova-text p-8">
 			<div className="max-w-3xl mx-auto space-y-8">
@@ -446,25 +447,9 @@ export default function ErrorTestPage() {
 						</div>
 					</div>
 
-					{/* Generation Progress */}
-					<div className="space-y-2">
-						<span className="text-xs text-nova-text-muted uppercase tracking-wider font-mono">
-							Generation Progress
-						</span>
-						<div className="bg-nova-deep border border-nova-border rounded-xl p-4 flex items-center justify-center min-h-[80px]">
-							{showProgress ? (
-								<GenerationProgress
-									stage={stage}
-									generationError={generationError}
-									statusMessage={statusMessage}
-								/>
-							) : (
-								<span className="text-xs text-nova-text-muted font-mono">
-									No active generation
-								</span>
-							)}
-						</div>
-					</div>
+					{/* GenerationProgress removed — it self-subscribes from the Zustand
+					 *  store, which this dev page doesn't provide. The error scenarios
+					 *  still drive the signal grid via the controller ref below. */}
 				</div>
 
 				{/* Current state readout */}
@@ -473,17 +458,8 @@ export default function ErrorTestPage() {
 						phase: <span className="text-nova-violet-bright">{phase}</span>
 					</div>
 					<div className="px-3 py-1.5 rounded border border-nova-border bg-nova-surface">
-						stage:{" "}
-						<span className="text-nova-violet-bright">{stage ?? "none"}</span>
-					</div>
-					<div className="px-3 py-1.5 rounded border border-nova-border bg-nova-surface">
 						mode: <span className="text-nova-violet-bright">{gridMode}</span>
 					</div>
-					{statusMessage && (
-						<div className="px-3 py-1.5 rounded border border-nova-rose/30 bg-nova-rose/5 text-nova-rose">
-							{statusMessage}
-						</div>
-					)}
 				</div>
 
 				{/* Manual toast triggers */}

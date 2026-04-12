@@ -6,13 +6,13 @@ import { FormTypeButton } from "@/components/builder/detail/FormDetail";
 import { FormSettingsButton } from "@/components/builder/detail/FormSettingsPanel";
 import { EditableTitle, SavedCheck } from "@/components/builder/EditableTitle";
 import {
-	useAssembledForm,
 	useBuilderStore,
+	useForm,
 	useModule,
 	useScreenData,
 } from "@/hooks/useBuilder";
 import { EditContextProvider } from "@/hooks/useEditContext";
-import { useFormEngine } from "@/hooks/useFormEngine";
+import { EngineControllerContext, useFormEngine } from "@/hooks/useFormEngine";
 import { getCaseData, getDummyCases } from "@/lib/preview/engine/dummyData";
 import { defaultPostSubmit } from "@/lib/schemas/blueprint";
 import { selectEditMode, selectIsReady } from "@/lib/services/builderSelectors";
@@ -24,6 +24,18 @@ interface FormScreenProps {
 	onBack: () => void;
 }
 
+/**
+ * Form screen — renders the form header + body inside EditContext and
+ * EngineController context providers.
+ *
+ * Reads the form ENTITY (NForm — no children) for header display.
+ * The EngineController manages its own runtime store via selective
+ * blueprint store subscriptions that fire outside the React render cycle.
+ *
+ * No memo needed — PreviewShell re-renders only when screen or mode change,
+ * which are cases where FormScreen should re-render too. All internal state
+ * comes from targeted Zustand selectors.
+ */
 export function FormScreen({ onBack }: FormScreenProps) {
 	const screen = useScreenData("form");
 	const moduleIndex = screen?.moduleIndex ?? 0;
@@ -43,7 +55,20 @@ export function FormScreen({ onBack }: FormScreenProps) {
 	}, []);
 
 	const mod = useModule(moduleIndex);
-	const form = useAssembledForm(moduleIndex, formIndex);
+	const form = useForm(moduleIndex, formIndex);
+
+	/** Resolve formId for UUID-based rendering. FormRenderer subscribes
+	 *  to `questionOrder[formId]` for the ordered UUID list. */
+	const formId = useBuilderStore((s) => {
+		const moduleId = s.moduleOrder[moduleIndex];
+		if (!moduleId) return undefined;
+		return s.formOrder[moduleId]?.[formIndex];
+	});
+
+	/** Whether the form has any questions — drives the empty state. */
+	const hasQuestions = useBuilderStore((s) =>
+		formId ? (s.questionOrder[formId]?.length ?? 0) > 0 : false,
+	);
 
 	const caseData = useMemo(() => {
 		if (!mod?.caseType) return undefined;
@@ -57,20 +82,18 @@ export function FormScreen({ onBack }: FormScreenProps) {
 
 	const editable = isReady;
 
-	const engine = useFormEngine(
-		form ?? { name: "", type: "survey", questions: [] },
-		caseTypes ?? undefined,
-		mod?.caseType ?? undefined,
-		caseData,
-	);
+	/* Activate the engine controller for this form. The controller manages
+	 * its own runtime store via selective blueprint subscriptions — no
+	 * entity-map subscription here, no "setState during render" issues. */
+	const controller = useFormEngine(moduleIndex, formIndex, caseData);
 
 	const prevModeRef = useRef(mode);
 	useEffect(() => {
 		if (prevModeRef.current === "test" && mode !== "test") {
-			engine.resetValidation();
+			controller.resetValidation();
 		}
 		prevModeRef.current = mode;
-	}, [mode, engine]);
+	}, [mode, controller]);
 
 	const formBodyElRef = useRef<HTMLDivElement>(null);
 
@@ -92,7 +115,7 @@ export function FormScreen({ onBack }: FormScreenProps) {
 		[mode, selected?.questionUuid],
 	);
 
-	if (!screen || !form) return null;
+	if (!screen || !form || !formId) return null;
 
 	if (mode === "test" && form.type === "followup" && !caseData) {
 		return (
@@ -110,12 +133,10 @@ export function FormScreen({ onBack }: FormScreenProps) {
 		);
 	}
 
-	const questions = engine.getQuestions();
-
 	const handleSubmit = () => {
-		const valid = engine.validateAll();
+		const valid = controller.validateAll();
 		if (valid) {
-			const dest = form.post_submit ?? defaultPostSubmit(form.type);
+			const dest = form.postSubmit ?? defaultPostSubmit(form.type);
 			switch (dest) {
 				case "module":
 				case "parent_module":
@@ -170,19 +191,17 @@ export function FormScreen({ onBack }: FormScreenProps) {
 				</div>
 			</div>
 
-			{/* Form body — in edit mode InsertionPoints own the vertical
-			 * spacing, so only horizontal padding is needed. Interact mode
-			 * keeps py-6 for the same 24px inset. */}
+			{/* Form body */}
 			<div
 				ref={formBodyRef}
 				className={`flex-1 px-6 ${mode === "edit" ? "" : "py-6"}`}
 			>
-				{questions.length === 0 ? (
+				{hasQuestions ? (
+					<FormRenderer parentEntityId={formId} />
+				) : (
 					<div className="text-center text-nova-text-muted py-8">
 						This form has no questions.
 					</div>
-				) : (
-					<FormRenderer questions={questions} engine={engine} />
 				)}
 			</div>
 
@@ -198,7 +217,7 @@ export function FormScreen({ onBack }: FormScreenProps) {
 					</button>
 					<button
 						type="button"
-						onClick={() => engine.reset()}
+						onClick={() => controller.reset()}
 						className="inline-flex items-center gap-1.5 px-3 py-2 text-sm text-nova-text-muted hover:text-nova-text hover:bg-white/5 transition-colors cursor-pointer rounded-lg"
 					>
 						<Icon icon={tablerRefresh} width="14" height="14" />
@@ -210,20 +229,22 @@ export function FormScreen({ onBack }: FormScreenProps) {
 	);
 
 	return (
-		<div className="h-full">
-			<div className="flex flex-col h-full max-w-3xl mx-auto w-full">
-				{editable ? (
-					<EditContextProvider
-						moduleIndex={moduleIndex}
-						formIndex={formIndex}
-						mode={mode}
-					>
-						{formBody}
-					</EditContextProvider>
-				) : (
-					formBody
-				)}
+		<EngineControllerContext.Provider value={controller}>
+			<div className="h-full">
+				<div className="flex flex-col h-full max-w-3xl mx-auto w-full">
+					{editable ? (
+						<EditContextProvider
+							moduleIndex={moduleIndex}
+							formIndex={formIndex}
+							mode={mode}
+						>
+							{formBody}
+						</EditContextProvider>
+					) : (
+						formBody
+					)}
+				</div>
 			</div>
-		</div>
+		</EngineControllerContext.Provider>
 	);
 }

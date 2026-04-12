@@ -8,7 +8,7 @@
 
 ## Immersive Pointer Mode
 
-Pointer mode hides both sidebars for an immersive form-testing experience. `handleCursorModeChange` stashes the current `{ chatOpen, structureOpen }` state into a ref before closing both, then restores on return to edit mode. The floating reopen buttons are also hidden (gated on `cursorMode !== "pointer"`). An early-return guard prevents no-op mode switches — without it, pressing V while in pointer mode overwrites the stash with `{ false, false }`.
+Pointer mode hides both sidebars for an immersive form-testing experience. `store.switchCursorMode("pointer")` atomically stashes the current `{ chatOpen, structureOpen }` state and closes both in a single `set()` call. Switching back to edit restores the stashed state. The floating reopen buttons are also hidden (gated on `cursorMode !== "pointer"` in `BuilderContentArea`). An early-return guard in `switchCursorMode` prevents no-op mode switches — without it, entering pointer mode twice overwrites the stash with `{ false, false }`.
 
 ## Flipbook Scroll Sync
 
@@ -29,7 +29,7 @@ ProseMirror injects a `<br class="ProseMirror-trailingBreak">` at the end of eve
 
 ## Cursor Mode Toolbar — Absolute, Not Sticky
 
-The glassmorphic toolbar must be absolutely positioned in BuilderLayout's `overflow-hidden relative` wrapper — **not** inside PreviewShell's scroll container (`data-preview-scroll-container`). If placed inside as `sticky`, `backdrop-filter` samples the opaque `bg-pv-bg` background instead of the scrolling content, killing the glass effect. It also creates double scrollbars (BuilderLayout's wrapper + PreviewShell's internal scroller). `topInset` on PreviewShell offsets content below the overlay so the first screen element isn't hidden on initial load.
+The glassmorphic toolbar must be absolutely positioned in `BuilderContentArea`'s `overflow-hidden relative` wrapper — **not** inside PreviewShell's scroll container (`data-preview-scroll-container`). If placed inside as `sticky`, `backdrop-filter` samples the opaque `bg-pv-bg` background instead of the scrolling content, killing the glass effect. It also creates double scrollbars. `topInset` on PreviewShell offsets content below the overlay so the first screen element isn't hidden on initial load.
 
 **Scroll-to-selection uses a rAF-driven animation** instead of native `scrollTo({ behavior: "smooth" })` — panel mount/unmount causes layout shifts that make the browser abandon native smooth scrolling mid-flight. The rAF loop recalculates the element's absolute offset within the scroll container each frame, so it tracks the target correctly even when the old InlineSettingsPanel unmounts and shifts content upward. Cross-screen navigation (`navigateToSelection`) uses `"instant"` behavior because the entire form swaps out via AnimatePresence — smooth scrolling from a stale scroll position is disorienting. Do not switch back to native `scrollTo` smooth scrolling.
 
@@ -39,7 +39,7 @@ The glassmorphic toolbar must be absolutely positioned in BuilderLayout's `overf
 
 **Sticky selection** — clicking empty space in the form does not deselect. Selection changes only when the user clicks a different question or navigates away. This is intentional: deselecting on click-outside would constantly dismiss the contextual editor panel.
 
-**`navigateTo()` vs `select()`** — use `builder.navigateTo(el)` for intentional user navigation (click, keyboard, insert, duplicate, delete-to-next); it scrolls the design canvas in addition to updating selection. Accepts an optional `behavior` parameter (`"smooth"` default for same-form, `"instant"` for cross-screen). `navigateToSelection()` (tree sidebar clicks) always passes `"instant"`. Use `builder.select(el)` for non-navigating selection changes (rename path update, undo/redo restore). Never call `navigateTo` from undo/redo — the scroll is handled separately by `applyUndoRedo`.
+**`navigateTo()` vs `select()`** — use `builder.navigateTo(el)` for intentional user navigation (click, keyboard, insert, duplicate, delete-to-next); it scrolls the design canvas in addition to updating selection. Accepts an optional `behavior` parameter (`"smooth"` default for same-form, `"instant"` for cross-screen). `navigateToSelection()` (tree sidebar clicks) always passes `"instant"`. Use `builder.select(el)` for non-navigating selection changes (rename path update, undo/redo restore). Never call `navigateTo` from undo/redo — scroll is handled internally by `engine.undo()`/`engine.redo()`.
 
 **Edit guard** — `XPathField` can block `builder.select()` while it has unsaved invalid content via `builder.setEditGuard()`. Two-strike pattern: first navigation attempt warns (shake + tooltip), second attempt allows through. Keystroke resets the warning counter.
 
@@ -63,7 +63,9 @@ Edit mode merges the former "inspect" and "text" cursor modes into a single unif
 
 ## Undo/Redo
 
-`applyUndoRedo` in `BuilderLayout` wraps `syncViewFromStore` in `flushSync` to force React to commit the store update before any DOM queries. zundo atomically restores `blueprint + selected + screen + cursorMode + activeFieldId` in the store — `screen` is read directly from the store (no local state sync needed). `syncViewFromStore` only resets the navigation history to a single entry matching the restored screen via `navResetTo()`. Without `flushSync`, `[data-field-id]` elements toggled into existence by the undo (e.g. a Required toggle just enabled) wouldn't be in the DOM yet. Do not replace with `requestAnimationFrame`.
+`engine.undo()`/`engine.redo()` encapsulate the full undo/redo flow: temporal store action + `flushSync` (forces React to commit the store update before DOM queries) + scroll to the affected field + violet flash highlight. zundo atomically restores entity data + navigation state in the store. Without `flushSync`, `[data-field-id]` elements toggled into existence by the undo wouldn't be in the DOM yet. Do not replace with `requestAnimationFrame`.
+
+**Temporal store subscriptions** — use `useStoreWithEqualityFn` from `zustand/traditional` (zundo's recommended API), not plain `useStore`. Plain `useStore` re-renders on every temporal state change regardless of selector result. `useStoreWithEqualityFn` with `Object.is` correctly compares boolean selector results and skips re-renders when canUndo stays `true→true`.
 
 **Focus restoration after undo/redo** uses a `focusHint` string stored on `builder` — the `[data-field-id]` key of whichever field the user was editing when the snapshot was taken. `InlineSettingsPanel` tracks the active field via a delegated `onFocus` handler calling `builder.setActiveField()`. This persists through blur → commit → snapshot so blur-triggered saves capture the correct field. The hint is consumed once by `useFocusHint` in the matching editor section, then cleared. Do not query `document.activeElement` for this — blur moves focus before the snapshot fires.
 

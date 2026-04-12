@@ -5,8 +5,12 @@
  * All state is read from the Zustand store via hooks — no blueprint, builder,
  * nav, or mode props. Child screen components also read from the store
  * directly via `useScreenData()`. The only props are layout concerns
- * (hideHeader, topInset, actions) and the onBack override for BuilderLayout's
+ * (hideHeader, topInset) and the onBack override for BuilderLayout's
  * selection sync coordination.
+ *
+ * No memo needed — BuilderLayout's subscriptions are now minimal (structural
+ * state only). PreviewShell re-renders only when its own store subscriptions
+ * (screen, mode) change or when the parent legitimately re-renders.
  */
 "use client";
 import { useBuilderStore } from "@/hooks/useBuilder";

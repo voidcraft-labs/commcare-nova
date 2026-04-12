@@ -7,7 +7,7 @@
  * `useBuilderStore` directly — no prop drilling of engine/store references.
  */
 "use client";
-import { createContext, type ReactNode, useContext } from "react";
+import { createContext, type ReactNode, useContext, useMemo } from "react";
 
 export type EditMode = "edit" | "test";
 
@@ -25,11 +25,15 @@ export function EditContextProvider({
 	mode,
 	children,
 }: EditContextValue & { children: ReactNode }) {
-	return (
-		<EditContext.Provider value={{ moduleIndex, formIndex, mode }}>
-			{children}
-		</EditContext.Provider>
+	/* Memoize the context value so consumer components only re-render when
+	 * the positional identity or mode actually changes — not on every parent
+	 * render. Without this, FormScreen re-renders (from entity map changes)
+	 * would cascade through all 488+ context consumers in the form tree. */
+	const value = useMemo(
+		() => ({ moduleIndex, formIndex, mode }),
+		[moduleIndex, formIndex, mode],
 	);
+	return <EditContext.Provider value={value}>{children}</EditContext.Provider>;
 }
 
 export function useEditContext(): EditContextValue | null {

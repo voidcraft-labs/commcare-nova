@@ -1,3 +1,21 @@
+/**
+ * FormRenderer — UUID-based rendering with per-entity subscriptions.
+ *
+ * Instead of receiving an assembled `Question[]` tree from FormScreen,
+ * FormRenderer subscribes to `questionOrder[parentEntityId]` for the ordered
+ * list of question UUIDs at this nesting level. Each SortableQuestion
+ * subscribes to `s.questions[uuid]` for its own entity data. This means:
+ *
+ * - Editing question A only re-renders SortableQuestion(A) — not B, C, D.
+ * - Adding/removing/reordering questions re-renders FormRenderer (UUID list
+ *   changed) but not unaffected SortableQuestions.
+ * - The FormEngine is read from context, not passed as props. Engine state
+ *   changes (test-mode values, validation) trigger SortableQuestion re-renders
+ *   via `useEngineState`, not via prop cascades.
+ *
+ * Drag-and-drop state is built from the store imperatively in `onDragStart` —
+ * no reactive subscription to entity maps during drag.
+ */
 "use client";
 import { CollisionPriority } from "@dnd-kit/abstract";
 import { PointerActivationConstraints } from "@dnd-kit/dom";
@@ -8,6 +26,7 @@ import { useSortable } from "@dnd-kit/react/sortable";
 import {
 	createContext,
 	Fragment,
+	memo,
 	useContext,
 	useEffect,
 	useMemo,
@@ -15,13 +34,17 @@ import {
 	useState,
 } from "react";
 import { InlineSettingsPanel } from "@/components/builder/InlineSettingsPanel";
-import { useBuilderEngine, useBuilderStore } from "@/hooks/useBuilder";
+import {
+	useBuilderEngine,
+	useBuilderStore,
+	useIsQuestionSelected,
+} from "@/hooks/useBuilder";
 import { useEditContext } from "@/hooks/useEditContext";
+import { useEngineController, useEngineState } from "@/hooks/useFormEngine";
 import { useTextEditSave } from "@/hooks/useTextEditSave";
-import type { FormEngine } from "@/lib/preview/engine/formEngine";
 import { LabelContent } from "@/lib/references/LabelContent";
-import type { Question } from "@/lib/schemas/blueprint";
 import type { MoveQuestionResult } from "@/lib/services/builderStore";
+import type { NQuestion } from "@/lib/services/normalizedState";
 import {
 	type QuestionPath,
 	qpath,
@@ -51,37 +74,15 @@ const ROOT_GROUP = "__root__";
  *  route dragged items into empty containers. */
 const CONTAINER_SUFFIX = ":container";
 
-interface FormRendererProps {
-	questions: Question[];
-	engine: FormEngine;
-	prefix?: string;
-	parentPath?: QuestionPath;
-	/** Parent question's stable UUID — used for UUID-based dnd-kit group keys. */
-	parentUuid?: string;
-}
+/** Stable empty array for UUID selectors that return no children. Prevents
+ *  new array allocations on every render for leaf-level FormRenderers. */
+const EMPTY_UUIDS: string[] = [];
 
-/** Sensor config: 5px distance to distinguish click from drag. */
-const SENSORS = [
-	PointerSensor.configure({
-		activationConstraints: [
-			new PointerActivationConstraints.Distance({ value: 5 }),
-		],
-	}),
-];
-
-// ── Controlled drag state ─────────────────────────────────────────────
-// Follows the official dnd-kit "droppable columns" pattern: onDragOver +
-// move() + React state + render from state. Required because the
-// OptimisticSortingPlugin only processes SortableDroppable instances —
-// plain useDroppable targets (used for empty group containers) are invisible
-// to it. The controlled approach lets the move() helper detect container
-// drops via target.id matching items-map keys.
+// ── Drag state ───────────────────────────────────────────────────────────
 
 interface DragReorderState {
 	/** Group → ordered question UUIDs. Updated by `move` helper during drag. */
 	itemsMap: Record<string, string[]>;
-	/** Flat lookup: UUID → Question object (stable for the drag). */
-	questionsById: Map<string, Question>;
 	/** UUID → QuestionPath reverse lookup (for mutation calls in onDragEnd). */
 	uuidToPath: Map<string, QuestionPath>;
 	/** The UUID of the question currently being dragged. */
@@ -98,53 +99,48 @@ const CursorSpeedContext = createContext<{
 	lastRef: React.RefObject<{ x: number; y: number; t: number } | undefined>;
 } | null>(null);
 
-/** Build controlled drag state from the question tree.
- *  Items are keyed by UUID (stable identity). Group keys use parent UUID
- *  with `:container` suffix, matching the droppable IDs in GroupField/RepeatField.
- *  A reverse `uuidToPath` map is built for mutation calls in onDragEnd. */
-function buildDragState(
-	questions: Question[],
+/** Sensor config: 5px distance to distinguish click from drag. */
+const SENSORS = [
+	PointerSensor.configure({
+		activationConstraints: [
+			new PointerActivationConstraints.Distance({ value: 5 }),
+		],
+	}),
+];
+
+/**
+ * Build controlled drag state from the store's normalized entity maps.
+ *
+ * Walks the `questionOrder` tree to build an items map (group → ordered UUIDs)
+ * and a UUID → QuestionPath reverse map for mutation calls. Called imperatively
+ * in `onDragStart` — no reactive subscription to entity maps during drag.
+ */
+function buildDragStateFromStore(
+	questions: Record<string, NQuestion>,
+	questionOrder: Record<string, string[]>,
+	parentEntityId: string,
 	activeUuid: string,
 ): DragReorderState {
 	const itemsMap: Record<string, string[]> = {};
-	const questionsById = new Map<string, Question>();
 	const uuidToPath = new Map<string, QuestionPath>();
 
-	function walk(qs: Question[], groupKey: string, pathPrefix: string) {
-		if (!itemsMap[groupKey]) itemsMap[groupKey] = [];
-		for (const q of qs) {
-			const uuid = q.uuid;
+	function walk(parentId: string, groupKey: string, pathPrefix: string) {
+		const childUuids = questionOrder[parentId] ?? [];
+		itemsMap[groupKey] = [...childUuids];
+		for (const uuid of childUuids) {
+			const q = questions[uuid];
+			if (!q) continue;
 			const qPath = pathPrefix ? `${pathPrefix}/${q.id}` : q.id;
-			itemsMap[groupKey].push(uuid);
-			questionsById.set(uuid, q);
 			uuidToPath.set(uuid, qPath as QuestionPath);
-			if ((q.type === "group" || q.type === "repeat") && q.children) {
-				const containerKey = `${uuid}${CONTAINER_SUFFIX}`;
-				if (!itemsMap[containerKey]) itemsMap[containerKey] = [];
-				walk(q.children, containerKey, qPath);
+			if (q.type === "group" || q.type === "repeat") {
+				walk(uuid, `${uuid}${CONTAINER_SUFFIX}`, qPath);
 			}
 		}
 	}
-	walk(questions, ROOT_GROUP, "");
+	walk(parentEntityId, ROOT_GROUP, "");
 
-	/* Derive activePath from the UUID→path map — no need to pass it separately. */
 	const activePath = uuidToPath.get(activeUuid) ?? ("" as QuestionPath);
-	return { itemsMap, questionsById, uuidToPath, activeUuid, activePath };
-}
-
-/** Find a question by bare ID anywhere in the tree. */
-function findQuestionInTree(
-	questions: Question[],
-	id: string,
-): Question | undefined {
-	for (const q of questions) {
-		if (q.id === id) return q;
-		if (q.children) {
-			const found = findQuestionInTree(q.children, id);
-			if (found) return found;
-		}
-	}
-	return undefined;
+	return { itemsMap, uuidToPath, activeUuid, activePath };
 }
 
 /** Strip the :container suffix to recover the actual QuestionPath. */
@@ -156,45 +152,73 @@ function stripContainerSuffix(group: string): string {
 
 // ── SortableQuestion ──────────────────────────────────────────────────
 
+/**
+ * Renders a single question in the form preview. Subscribes to its own
+ * entity in the builder store (`s.questions[uuid]`) and engine state via
+ * `useEngineState`. Only re-renders when THIS question's entity or engine
+ * state changes — not when other questions in the form change.
+ */
 function SortableQuestion({
-	q,
-	questionPath,
+	uuid,
 	sortIndex,
-	path,
-	engine,
+	prefix,
+	parentPath,
 	group,
 	isActiveDrag,
 }: {
-	q: Question;
-	questionPath: QuestionPath;
+	uuid: string;
 	sortIndex: number;
-	path: string;
-	engine: FormEngine;
+	/** XForm data path prefix (e.g. "/data" or "/data/group_id"). */
+	prefix: string;
+	parentPath?: QuestionPath;
 	group: string;
 	/** True if this item is the one currently being dragged. */
 	isActiveDrag: boolean;
 }) {
-	const state = engine.getState(path);
+	/* Subscribe to this question's entity — only re-renders when THIS entity
+	 * changes. Other questions in the same form don't trigger a re-render
+	 * because Immer structural sharing keeps unchanged entity references stable. */
+	const q = useBuilderStore((s) => s.questions[uuid]);
+
+	/* Derive paths from the entity's ID. These are stable as long as the
+	 * question hasn't been renamed. */
+	const qId = q?.id ?? "";
+	const path = `${prefix}/${qId}`;
+	const questionPath = qpath(qId, parentPath);
+
+	/* Subscribe to this question's runtime state by UUID. The EngineController's
+	 * Zustand store is keyed by UUID — aligned with the blueprint store. Only
+	 * re-renders when THIS question's computed state changes (visibility,
+	 * required, value, validation). */
+	const state = useEngineState(uuid);
+	const controller = useEngineController();
+
 	const ctx = useEditContext();
 	const cursorMode = useBuilderStore((s) => s.cursorMode);
-	const selected = useBuilderStore((s) => s.selected);
 	const isEditMode = ctx?.mode === "edit";
 	const saveField = useTextEditSave(questionPath);
 
+	/* Boolean selector — returns true only for the one selected question.
+	 * When selection changes, only the old and new selected components
+	 * re-render (true→false, false→true). All other SortableQuestions stay
+	 * false→false and skip re-rendering via Object.is. */
+	const isQuestionSelected = useIsQuestionSelected(
+		ctx?.moduleIndex ?? -1,
+		ctx?.formIndex ?? -1,
+		uuid,
+	);
+	const isSelected = isEditMode && cursorMode === "edit" && isQuestionSelected;
+
 	// Groups/repeats get Lowest collision priority so their inner container
 	// droppable (Low) wins when items are dragged over the content area.
-	const isContainer = q.type === "group" || q.type === "repeat";
+	const isContainer = q?.type === "group" || q?.type === "repeat";
 
 	/* Disable all per-sortable plugins (OptimisticSortingPlugin, SortableKeyboardPlugin).
 	 * We use the controlled state pattern: onDragOver → move() → React state → re-render.
 	 * The OptimisticSortingPlugin independently calls move() on sortable instances AND
-	 * reorders DOM elements directly, conflicting with React's reconciliation. The two
-	 * systems fight: stale indices produce undefined entries in move()'s output, and
-	 * the plugin then crashes setting .index on undefined. Disabling the plugin makes
-	 * React the sole owner of DOM order. SortableKeyboardPlugin is also excluded since
-	 * we only use PointerSensor. */
+	 * reorders DOM elements directly, conflicting with React's reconciliation. */
 	const { ref, isDragging } = useSortable({
-		id: q.uuid,
+		id: uuid,
 		index: sortIndex,
 		group,
 		type: "question",
@@ -204,29 +228,15 @@ function SortableQuestion({
 		...(isContainer && { collisionPriority: CollisionPriority.Lowest }),
 	});
 
-	/* Show inline settings panel below the selected question in inspect mode.
-	 * Matches by UUID (stable across renames) instead of QuestionPath. */
-	const isSelected =
-		isEditMode &&
-		cursorMode === "edit" &&
-		selected?.type === "question" &&
-		selected.moduleIndex === (ctx?.moduleIndex ?? -1) &&
-		selected.formIndex === (ctx?.formIndex ?? -1) &&
-		selected.questionUuid === q.uuid;
-
-	/* Fulfill pending scroll after the panel mounts and the browser paints.
-	 * useEffect (not useLayoutEffect) fires after paint — layout is stable and
-	 * the browser's smooth-scroll algorithm can interpolate without being
-	 * disrupted by concurrent layout shifts. The tradeoff is one painted frame
-	 * at the un-scrolled position, but this is imperceptible because the smooth
-	 * animation begins immediately after. */
-	const engine_ = useBuilderEngine();
+	/* Fulfill pending scroll after the panel mounts and the browser paints. */
+	const builderEngine = useBuilderEngine();
 	useEffect(() => {
 		if (isSelected) {
-			engine_.fulfillPendingScroll(q.uuid);
+			builderEngine.fulfillPendingScroll(uuid);
 		}
-	}, [isSelected, q.uuid, engine_]);
+	}, [isSelected, uuid, builderEngine]);
 
+	if (!q) return null;
 	if (q.type === "hidden" && !isEditMode) return null;
 	if (!isEditMode && !state.visible) return null;
 
@@ -255,37 +265,27 @@ function SortableQuestion({
 		content = (
 			<EditableQuestionWrapper
 				questionPath={questionPath}
-				questionUuid={q.uuid}
+				questionUuid={uuid}
 				isDragging={showAsPlaceholder}
 			>
-				<GroupField
-					question={q}
-					path={path}
-					questionPath={questionPath}
-					engine={engine}
-				/>
+				<GroupField question={q} path={path} questionPath={questionPath} />
 			</EditableQuestionWrapper>
 		);
 	} else if (q.type === "repeat") {
 		content = (
 			<EditableQuestionWrapper
 				questionPath={questionPath}
-				questionUuid={q.uuid}
+				questionUuid={uuid}
 				isDragging={showAsPlaceholder}
 			>
-				<RepeatField
-					question={q}
-					path={path}
-					questionPath={questionPath}
-					engine={engine}
-				/>
+				<RepeatField question={q} path={path} questionPath={questionPath} />
 			</EditableQuestionWrapper>
 		);
 	} else if (q.type === "label") {
 		content = (
 			<EditableQuestionWrapper
 				questionPath={questionPath}
-				questionUuid={q.uuid}
+				questionUuid={uuid}
 				isDragging={showAsPlaceholder}
 			>
 				<LabelField
@@ -299,7 +299,7 @@ function SortableQuestion({
 		content = (
 			<EditableQuestionWrapper
 				questionPath={questionPath}
-				questionUuid={q.uuid}
+				questionUuid={uuid}
 				isDragging={showAsPlaceholder}
 			>
 				<HiddenField question={q} />
@@ -309,7 +309,7 @@ function SortableQuestion({
 		content = (
 			<EditableQuestionWrapper
 				questionPath={questionPath}
-				questionUuid={q.uuid}
+				questionUuid={uuid}
 				isDragging={showAsPlaceholder}
 			>
 				{/* Structural wrapper for label + hint + field. Uses a plain div
@@ -357,8 +357,8 @@ function SortableQuestion({
 					<QuestionField
 						question={q}
 						state={displayState}
-						onChange={(value) => engine.setValue(path, value)}
-						onBlur={() => engine.touch(path)}
+						onChange={(value) => controller.onValueChange(uuid, value)}
+						onBlur={() => controller.onTouch(uuid)}
 					/>
 				</div>
 			</EditableQuestionWrapper>
@@ -366,12 +366,7 @@ function SortableQuestion({
 	}
 
 	/* The panel renders OUTSIDE the sortable element (as a sibling, not a child)
-	 * so its expanded height doesn't inflate the sortable's collision shape.
-	 * If the panel were inside <div ref={ref}>, dnd-kit would see a much taller
-	 * element after selection — and when the panel collapses on the next drag
-	 * start (deselect), the shape change mid-drag confuses collision detection
-	 * for group droppables. Keeping them as siblings means the sortable shape
-	 * is always just the question content, stable across selection changes. */
+	 * so its expanded height doesn't inflate the sortable's collision shape. */
 	return (
 		<>
 			<div
@@ -381,7 +376,7 @@ function SortableQuestion({
 				 * provides the same 24px gap so spacing is identical across modes. */
 				className={`relative ${isEditMode ? "" : "mb-6"}`}
 				data-invalid={showInvalid ? "true" : undefined}
-				data-question-uuid={q.uuid}
+				data-question-uuid={uuid}
 			>
 				{showAsPlaceholder && (
 					<div className="absolute inset-0 rounded-lg border-2 border-dashed border-nova-violet/30 bg-nova-violet/[0.02]" />
@@ -401,12 +396,32 @@ function SortableQuestion({
 
 // ── FormRenderer ──────────────────────────────────────────────────────
 
-export function FormRenderer({
-	questions,
-	engine,
+interface FormRendererProps {
+	/** Entity ID that owns questions at this level — formId for root,
+	 *  parent group/repeat UUID for nested levels. */
+	parentEntityId: string;
+	/** XForm data path prefix. Defaults to "/data" for root. */
+	prefix?: string;
+	/** Blueprint question path of the parent (for nested FormRenderers). */
+	parentPath?: QuestionPath;
+}
+
+/**
+ * Renders an ordered list of questions at one nesting level.
+ *
+ * Subscribes to `questionOrder[parentEntityId]` for the UUID list — only
+ * re-renders when questions are added, removed, or reordered at this level.
+ * Individual question content changes are handled by SortableQuestion's
+ * per-entity subscriptions.
+ *
+ * Wrapped in React.memo because its props are stable primitives (parentEntityId,
+ * prefix, parentPath). When the parent re-renders (e.g., FormScreen due to
+ * engine schema update), memo bails out since the props haven't changed.
+ */
+export const FormRenderer = memo(function FormRenderer({
+	parentEntityId,
 	prefix = "/data",
 	parentPath,
-	parentUuid,
 }: FormRendererProps) {
 	const ctx = useEditContext();
 	const builderEngine = useBuilderEngine();
@@ -416,11 +431,18 @@ export function FormRenderer({
 	const isRoot = !parentPath;
 	const [dragState, setDragState] = useState<DragReorderState | null>(null);
 
+	/** Subscribe to the question UUID order for this level. Stable reference
+	 *  when order hasn't changed — Immer structural sharing on the array. */
+	const questionUuids = useBuilderStore(
+		(s) => s.questionOrder[parentEntityId] ?? EMPTY_UUIDS,
+	);
+
 	/** Group identifier for sortable items at this level.
-	 *  Uses the parent question's stable UUID so group keys survive renames.
-	 *  Nested levels use the `:container` suffix to match the droppable id in
-	 *  GroupField / RepeatField so the `move` helper can route items there. */
-	const group = parentUuid ? `${parentUuid}${CONTAINER_SUFFIX}` : ROOT_GROUP;
+	 *  Uses the parent entity ID — for nested levels this is the parent
+	 *  question's UUID with `:container` suffix to match droppable IDs. */
+	const group = parentPath
+		? `${parentEntityId}${CONTAINER_SUFFIX}`
+		: ROOT_GROUP;
 
 	// Nested FormRenderers read drag state from context; root uses its own state.
 	const dragCtx = useContext(DragReorderContext);
@@ -441,8 +463,6 @@ export function FormRenderer({
 		: (cursorCtx?.lastRef ?? ownLastRef);
 	useEffect(() => {
 		if (!isEditMode || !isRoot) return;
-		// Use own refs directly — this effect only runs for the root instance,
-		// so ownSpeedRef/ownLastRef are the canonical refs.
 		const speedRef = ownSpeedRef;
 		const lastRef = ownLastRef;
 		const handler = (e: MouseEvent) => {
@@ -454,7 +474,6 @@ export function FormRenderer({
 					const dx = e.clientX - last.x;
 					const dy = e.clientY - last.y;
 					const speed = Math.sqrt(dx * dx + dy * dy) / dt;
-					// Long gap = cursor was stopped, EMA is stale — reset to raw speed
 					speedRef.current =
 						dt > GAP_RESET
 							? speed
@@ -469,7 +488,6 @@ export function FormRenderer({
 			if (last) {
 				const dt = now - last.t;
 				if (dt > 0) {
-					// Normalize: deltaMode 0=px, 1=lines (~16px each)
 					const pxDelta = Math.abs(e.deltaY) * (e.deltaMode === 1 ? 16 : 1);
 					const speed = pxDelta / dt;
 					speedRef.current =
@@ -477,7 +495,6 @@ export function FormRenderer({
 							? speed
 							: EMA_ALPHA * speed + (1 - EMA_ALPHA) * speedRef.current;
 				}
-				// Update timestamp so poll knows there's activity; position stays unchanged
 				last.t = now;
 			}
 		};
@@ -489,28 +506,16 @@ export function FormRenderer({
 		};
 	}, [isEditMode, isRoot]);
 
-	// During drag: render from the controlled items map (reflects cross-group moves).
-	// Otherwise: render from the questions prop.
-	const visibleQuestions = useMemo(() => {
+	/* During drag: render from the reordered items map (reflects cross-group
+	 * moves). Outside drag: render from the store's question order. */
+	const orderedUuids = useMemo(() => {
 		if (activeDragReorder) {
-			const ids = activeDragReorder.itemsMap[group] ?? [];
-			return ids
-				.map((id) => activeDragReorder.questionsById.get(id))
-				.filter((q): q is Question => !!q);
+			return activeDragReorder.itemsMap[group] ?? [];
 		}
-		// Filter hidden questions in preview mode — nothing to interact with, and
-		// skipping them avoids unnecessary useSortable hook execution. In edit mode,
-		// hidden questions are visible and draggable.
-		const showHidden = isEditMode;
-		return showHidden
-			? questions
-			: questions.filter((q) => q.type !== "hidden");
-	}, [questions, activeDragReorder, group, isEditMode]);
+		return questionUuids;
+	}, [activeDragReorder, group, questionUuids]);
 
-	/* Restrict drag overlay to the visible editor viewport. Uses the scroll
-	 * container (not the inner content div) so the restriction bounds match
-	 * the visible area — the inner content can be taller than the viewport
-	 * when scrolled, which would let the overlay escape above the form header. */
+	/* Restrict drag overlay to the visible editor viewport. */
 	const modifiers = useMemo(
 		() => [
 			RestrictToElement.configure({
@@ -523,12 +528,17 @@ export function FormRenderer({
 		[],
 	);
 
-	// For root: search entire tree for the active question (supports nested items).
 	const activePath = dragState?.activePath;
-	const activeQuestion = activePath
-		? findQuestionInTree(questions, qpathId(activePath))
-		: undefined;
 	const isDragging = !!activePath;
+
+	/* Read the active question's label for the drag overlay. Subscribes to
+	 * just the single active entity — not the entire questions map. */
+	const activeUuid = dragState?.activeUuid;
+	const activeLabel = useBuilderStore((s) => {
+		if (!activeUuid) return undefined;
+		const q = s.questions[activeUuid];
+		return q ? q.label || q.id : undefined;
+	});
 
 	/* In interact mode inside groups/repeats, pt-6 provides the top inset
 	 * that InsertionPoints handle in edit mode. Bottom inset comes from the
@@ -546,39 +556,29 @@ export function FormRenderer({
 					lastCursorRef={lastCursorRef}
 				/>
 			)}
-			{visibleQuestions.map((q, idx) => {
-				const actualIdx = questions.indexOf(q);
-				/* During drag, derive questionPath from the UUID→path map (items may
-				 * have moved between groups). Outside drag, build from ID + parent. */
-				const questionPath = activeDragReorder
-					? (activeDragReorder.uuidToPath.get(q.uuid) ??
-						qpath(q.id, parentPath))
-					: qpath(q.id, parentPath);
-				return (
-					<Fragment key={q.uuid}>
-						<SortableQuestion
-							q={q}
-							questionPath={questionPath}
-							sortIndex={idx}
-							path={`${prefix}/${q.id}`}
-							engine={engine}
-							group={group}
-							isActiveDrag={
-								!!activeDragReorder && q.uuid === activeDragReorder.activeUuid
-							}
+			{orderedUuids.map((uuid, idx) => (
+				<Fragment key={uuid}>
+					<SortableQuestion
+						uuid={uuid}
+						sortIndex={idx}
+						prefix={prefix}
+						parentPath={parentPath}
+						group={group}
+						isActiveDrag={
+							!!activeDragReorder && uuid === activeDragReorder.activeUuid
+						}
+					/>
+					{isEditMode && (
+						<InsertionPoint
+							atIndex={idx + 1}
+							parentPath={parentPath}
+							disabled={isDragging}
+							cursorSpeedRef={cursorSpeedRef}
+							lastCursorRef={lastCursorRef}
 						/>
-						{isEditMode && (
-							<InsertionPoint
-								atIndex={actualIdx >= 0 ? actualIdx + 1 : idx + 1}
-								parentPath={parentPath}
-								disabled={isDragging}
-								cursorSpeedRef={cursorSpeedRef}
-								lastCursorRef={lastCursorRef}
-							/>
-						)}
-					</Fragment>
-				);
-			})}
+					)}
+				</Fragment>
+			))}
 		</div>
 	);
 
@@ -602,7 +602,17 @@ export function FormRenderer({
 					onDragStart={(event) => {
 						const sourceUuid = event.operation.source?.id as string | undefined;
 						if (sourceUuid) {
-							setDragState(buildDragState(questions, sourceUuid));
+							/* Read entity maps imperatively from the store — no reactive
+							 * subscription. Drag state is a snapshot, not a live view. */
+							const s = builderEngine.store.getState();
+							setDragState(
+								buildDragStateFromStore(
+									s.questions,
+									s.questionOrder,
+									parentEntityId,
+									sourceUuid,
+								),
+							);
 						}
 						document.body.style.cursor = "grabbing";
 						if (ctx) {
@@ -631,21 +641,26 @@ export function FormRenderer({
 
 							if (canceled || !ctx || !ds) return;
 
-							const { activeUuid, activePath, itemsMap, uuidToPath } = ds;
+							const {
+								activeUuid: dragUuid,
+								activePath: dragPath,
+								itemsMap,
+								uuidToPath,
+							} = ds;
 
 							/* Helper: resolve a UUID from the items map to a QuestionPath
 							 * for mutation calls. Falls back to the pre-drag path map. */
-							const pathOf = (uuid: string): QuestionPath =>
-								uuidToPath.get(uuid) ?? ("" as QuestionPath);
+							const pathOf = (u: string): QuestionPath =>
+								uuidToPath.get(u) ?? ("" as QuestionPath);
 
 							// Find where the item ended up in the controlled items map
 							let finalGroup: string | undefined;
 							let finalIndex = -1;
 							for (const [g, ids] of Object.entries(itemsMap)) {
-								const idx = ids.indexOf(activeUuid);
-								if (idx !== -1) {
+								const i = ids.indexOf(dragUuid);
+								if (i !== -1) {
 									finalGroup = g;
-									finalIndex = idx;
+									finalIndex = i;
 									break;
 								}
 							}
@@ -655,10 +670,18 @@ export function FormRenderer({
 							/* Determine the initial group from the dragged question's
 							 * parent. The parent UUID is encoded in the container key
 							 * for nested questions, or ROOT_GROUP for top-level ones. */
-							const draggedParentPath = qpathParent(activePath);
+							const draggedParentPath = qpathParent(dragPath);
 							const draggedParentUuid = draggedParentPath
-								? findQuestionInTree(questions, qpathId(draggedParentPath))
-										?.uuid
+								? (() => {
+										/* Look up the parent question's UUID from the store
+										 * by finding the question whose id matches the
+										 * last segment of the parent path. */
+										const parentId = qpathId(draggedParentPath);
+										for (const [u, p] of uuidToPath.entries()) {
+											if (qpathId(p) === parentId) return u;
+										}
+										return undefined;
+									})()
 								: undefined;
 							const initialGroup = draggedParentUuid
 								? `${draggedParentUuid}${CONTAINER_SUFFIX}`
@@ -668,13 +691,15 @@ export function FormRenderer({
 
 							// Check if position actually changed
 							if (sameGroup) {
-								const initialMap = buildDragState(
-									questions,
-									activeUuid,
-								).itemsMap;
-								const initialIds = initialMap[initialGroup] ?? [];
+								const initialState = buildDragStateFromStore(
+									builderEngine.store.getState().questions,
+									builderEngine.store.getState().questionOrder,
+									parentEntityId,
+									dragUuid,
+								);
+								const initialIds = initialState.itemsMap[initialGroup] ?? [];
 								const finalIds = itemsMap[finalGroup] ?? [];
-								const initialIdx = initialIds.indexOf(activeUuid);
+								const initialIdx = initialIds.indexOf(dragUuid);
 								if (
 									initialIdx === finalIndex &&
 									initialIds.length === finalIds.length
@@ -684,16 +709,14 @@ export function FormRenderer({
 										type: "question",
 										moduleIndex: ctx.moduleIndex,
 										formIndex: ctx.formIndex,
-										questionPath: activePath,
-										questionUuid: activeUuid,
+										questionPath: dragPath,
+										questionUuid: dragUuid,
 									});
 									return;
 								}
 							}
 
-							/* Resolve the target parent path from the final group key.
-							 * Group keys are `${parentUuid}:container` — strip the suffix
-							 * to get the parent UUID, then look up its QuestionPath. */
+							/* Resolve the target parent path from the final group key. */
 							const finalIds = itemsMap[finalGroup] ?? [];
 							const targetParentUuid =
 								finalGroup === ROOT_GROUP
@@ -709,16 +732,16 @@ export function FormRenderer({
 								// Same-level reorder — no ID conflict possible
 								if (finalIndex === 0) {
 									if (finalIds.length > 1) {
-										moveQuestion_(ctx.moduleIndex, ctx.formIndex, activePath, {
+										moveQuestion_(ctx.moduleIndex, ctx.formIndex, dragPath, {
 											beforePath: pathOf(finalIds[1]),
 										});
 									}
 								} else {
-									moveQuestion_(ctx.moduleIndex, ctx.formIndex, activePath, {
+									moveQuestion_(ctx.moduleIndex, ctx.formIndex, dragPath, {
 										afterPath: pathOf(finalIds[finalIndex - 1]),
 									});
 								}
-								newPath = activePath;
+								newPath = dragPath;
 							} else {
 								// Cross-group transfer — resolve neighbor paths relative
 								// to the target parent for correct tree placement.
@@ -727,7 +750,7 @@ export function FormRenderer({
 									moveResult = moveQuestion_(
 										ctx.moduleIndex,
 										ctx.formIndex,
-										activePath,
+										dragPath,
 										{
 											targetParentPath,
 										},
@@ -738,7 +761,7 @@ export function FormRenderer({
 									moveResult = moveQuestion_(
 										ctx.moduleIndex,
 										ctx.formIndex,
-										activePath,
+										dragPath,
 										{
 											beforePath,
 											targetParentPath,
@@ -750,7 +773,7 @@ export function FormRenderer({
 									moveResult = moveQuestion_(
 										ctx.moduleIndex,
 										ctx.formIndex,
-										activePath,
+										dragPath,
 										{
 											afterPath,
 											targetParentPath,
@@ -762,7 +785,7 @@ export function FormRenderer({
 								 * ID collision, use the renamed path and notify the user. */
 								newPath = moveResult.renamed
 									? moveResult.renamed.newPath
-									: qpath(qpathId(activePath), targetParentPath);
+									: qpath(qpathId(dragPath), targetParentPath);
 								if (moveResult.renamed)
 									builderEngine.setRenameNotice(moveResult.renamed);
 							}
@@ -772,16 +795,16 @@ export function FormRenderer({
 								moduleIndex: ctx.moduleIndex,
 								formIndex: ctx.formIndex,
 								questionPath: newPath,
-								questionUuid: activeUuid,
+								questionUuid: dragUuid,
 							});
 						});
 					}}
 				>
 					{list}
 					<DragOverlay>
-						{activeQuestion && (
+						{activeLabel && (
 							<div className="rounded-lg bg-nova-surface/80 border border-nova-violet/40 px-3 py-2 shadow-lg text-sm text-nova-text">
-								{activeQuestion.label || activeQuestion.id}
+								{activeLabel}
 							</div>
 						)}
 					</DragOverlay>
@@ -789,4 +812,4 @@ export function FormRenderer({
 			</DragReorderContext.Provider>
 		</CursorSpeedContext.Provider>
 	);
-}
+});

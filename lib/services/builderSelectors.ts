@@ -16,9 +16,15 @@
 import { getCaseData } from "@/lib/preview/engine/dummyData";
 import { type PreviewScreen, screenKey } from "@/lib/preview/engine/types";
 import type { ConnectType, Scaffold } from "@/lib/schemas/blueprint";
-import { BuilderPhase, type TreeData } from "./builder";
+import {
+	BuilderPhase,
+	type GenerationError,
+	type GenerationStage,
+	type TreeData,
+} from "./builder";
 import type {
 	BuilderState,
+	CursorMode,
 	GenerationData,
 	PartialModule,
 } from "./builderStore";
@@ -143,6 +149,43 @@ export function selectCanGoBack(s: BuilderState): boolean {
 /** True when the current screen has a parent (i.e. not home). */
 export function selectCanGoUp(s: BuilderState): boolean {
 	return s.screen.type !== "home";
+}
+
+// ── Field selectors (single-field reads for component subscriptions) ──
+
+/** Current cursor mode. */
+export function selectCursorMode(s: BuilderState): CursorMode {
+	return s.cursorMode;
+}
+
+/** App display name. */
+export function selectAppName(s: BuilderState): string {
+	return s.appName;
+}
+
+/** Whether the chat sidebar is open. */
+export function selectChatOpen(s: BuilderState): boolean {
+	return s.chatOpen;
+}
+
+/** Whether the structure sidebar is open. */
+export function selectStructureOpen(s: BuilderState): boolean {
+	return s.structureOpen;
+}
+
+/** Current generation stage (null when not generating). */
+export function selectGenStage(s: BuilderState): GenerationStage | null {
+	return s.generationStage;
+}
+
+/** Current generation error (null when no error). */
+export function selectGenError(s: BuilderState): GenerationError {
+	return s.generationError;
+}
+
+/** Current generation status message. */
+export function selectStatusMsg(s: BuilderState): string {
+	return s.statusMessage;
 }
 
 // ── Breadcrumb types (used by useBreadcrumbs hook) ────────────────────

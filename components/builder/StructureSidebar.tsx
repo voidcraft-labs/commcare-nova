@@ -1,7 +1,7 @@
 /**
  * StructureSidebar — collapsible panel showing the app's module/form/question
- * tree. All state is read from the Zustand store via AppTree's internal hooks.
- * The only prop is `onClose` for sidebar visibility state owned by BuilderLayout.
+ * tree. Fully self-sufficient — subscribes to store state directly, no props
+ * needed from BuilderLayout. Calls store actions to close itself.
  */
 "use client";
 import { Icon } from "@iconify/react/offline";
@@ -9,14 +9,11 @@ import tablerChevronLeft from "@iconify-icons/tabler/chevron-left";
 import { AnimatePresence, motion } from "motion/react";
 import { AppTree } from "@/components/builder/AppTree";
 import { ErrorBoundary } from "@/components/ui/ErrorBoundary";
-import { useBuilderIsReady } from "@/hooks/useBuilder";
+import { useBuilderEngine, useBuilderIsReady } from "@/hooks/useBuilder";
 
-interface StructureSidebarProps {
-	onClose: () => void;
-}
-
-export function StructureSidebar({ onClose }: StructureSidebarProps) {
+export function StructureSidebar() {
 	const isReady = useBuilderIsReady();
+	const engine = useBuilderEngine();
 
 	return (
 		<div className="w-80 border-r border-nova-border-bright bg-nova-deep flex flex-col shrink-0 h-full">
@@ -24,7 +21,7 @@ export function StructureSidebar({ onClose }: StructureSidebarProps) {
 			<div className="flex items-center justify-between px-4 h-11 border-b border-nova-border shrink-0">
 				<button
 					type="button"
-					onClick={onClose}
+					onClick={() => engine.store.getState().setStructureOpen(false)}
 					className="px-1 h-11 text-nova-text-muted hover:text-nova-text transition-colors cursor-pointer"
 				>
 					<Icon icon={tablerChevronLeft} width="14" height="14" />

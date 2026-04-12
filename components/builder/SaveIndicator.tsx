@@ -7,6 +7,11 @@
  * ticks on a 15-second interval — frequent enough to feel alive, infrequent
  * enough to avoid needless re-renders.
  *
+ * Owns the `useAutoSave` subscription internally — save status transitions
+ * (idle → saving → saved) re-render only this component, not the parent
+ * BuilderLayout. The hook subscribes to entity map changes and fires
+ * Firestore PUTs; the indicator displays the result.
+ *
  * AnimatePresence handles only the mount/unmount transition (idle ↔ visible).
  * Status changes within the visible state (saving → saved, timestamp ticks)
  * update text and icon in place — no fade, no flash.
@@ -18,18 +23,16 @@ import tablerCloudOff from "@iconify-icons/tabler/cloud-off";
 import tablerCloudUpload from "@iconify-icons/tabler/cloud-upload";
 import { AnimatePresence, motion } from "motion/react";
 import { useEffect, useState } from "react";
-import type { SaveState } from "@/hooks/useAutoSave";
+import { useAutoSave } from "@/hooks/useAutoSave";
+import { useBuilderEngine } from "@/hooks/useBuilder";
 import { formatRelativeDate } from "@/lib/utils/format";
 
 /** How often to re-render for the relative timestamp (ms). */
 const TICK_MS = 15_000;
 
-interface SaveIndicatorProps {
-	saveState: SaveState;
-}
-
-export function SaveIndicator({ saveState }: SaveIndicatorProps) {
-	const { status, savedAt } = saveState;
+export function SaveIndicator() {
+	const builder = useBuilderEngine();
+	const { status, savedAt } = useAutoSave(builder);
 
 	/* Tick on a fixed interval to keep the relative timestamp current.
 	 * Only active when displaying a "Saved" timestamp — paused during

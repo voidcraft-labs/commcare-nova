@@ -1,15 +1,22 @@
+/**
+ * GenerationProgress — self-subscribing progress card for app generation.
+ *
+ * Subscribes directly to generationStage, generationError, and statusMessage
+ * from the Zustand store. No props needed — BuilderLayout just controls
+ * mount/unmount visibility, this component owns its own data.
+ */
 "use client";
 import { Icon } from "@iconify/react/offline";
 import tablerCheck from "@iconify-icons/tabler/check";
 import { motion } from "motion/react";
 import { useCallback, useRef, useState } from "react";
-import { type GenerationError, GenerationStage } from "@/lib/services/builder";
-
-interface GenerationProgressProps {
-	stage: GenerationStage | null;
-	generationError: GenerationError;
-	statusMessage?: string;
-}
+import { useBuilderStore } from "@/hooks/useBuilder";
+import { GenerationStage } from "@/lib/services/builder";
+import {
+	selectGenError,
+	selectGenStage,
+	selectStatusMsg,
+} from "@/lib/services/builderSelectors";
 
 /** Display stages — Modules+Forms are combined into "Build" */
 const baseStages: { key: string; stages: GenerationStage[]; label: string }[] =
@@ -80,11 +87,10 @@ function getStageIndex(
 	return map[stage] ?? 0;
 }
 
-export function GenerationProgress({
-	stage,
-	generationError,
-	statusMessage,
-}: GenerationProgressProps) {
+export function GenerationProgress() {
+	const stage = useBuilderStore(selectGenStage);
+	const generationError = useBuilderStore(selectGenError);
+	const statusMessage = useBuilderStore(selectStatusMsg);
 	const isError = generationError !== null;
 
 	// Track the last active stage so we can show which step failed on error
