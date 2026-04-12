@@ -17,6 +17,8 @@
  * DOM side effects (e.g., `navigateTo` = store select + scroll callback).
  */
 
+import { flushSync } from "react-dom";
+import { EngineController } from "@/lib/preview/engine/engineController";
 import type { PreviewScreen } from "@/lib/preview/engine/types";
 import type { ConnectConfig, ConnectType } from "@/lib/schemas/blueprint";
 import type { EditFocus } from "@/lib/signalGridController";
@@ -27,7 +29,8 @@ import {
 	type SelectedElement,
 } from "./builder";
 import { type BuilderStoreApi, createBuilderStore } from "./builderStore";
-import { countQuestionsDeep } from "./normalizedState";
+import { assembleForm, countQuestionsDeep } from "./normalizedState";
+import { flattenQuestionRefs } from "./questionPath";
 
 // ── Re-export types consumers need ──────────────────────────────────────
 
@@ -39,6 +42,12 @@ export class BuilderEngine {
 	/** The Zustand store — holds all reactive state and mutation actions.
 	 *  Provided to components via StoreContext. */
 	readonly store: BuilderStoreApi;
+
+	/** Form engine controller — manages the UUID-keyed runtime store for
+	 *  test-mode values, computed visibility, validation, and expression
+	 *  evaluation. Lives here (not in a React hook) so its lifecycle matches
+	 *  the builder, not the component tree. */
+	readonly engineController: EngineController;
 
 	// ── Non-reactive state (never triggers React re-renders) ────────────
 
@@ -101,6 +110,12 @@ export class BuilderEngine {
 		 * an undoable entry whose undo restores a blank state. Call sites resume
 		 * tracking after loadApp() or completeGeneration(). */
 		this.store.temporal.getState().pause();
+
+		/* Initialize the form engine controller and connect it to the blueprint
+		 * store. The controller creates its own UUID-keyed runtime store —
+		 * components subscribe to it for test-mode values and computed state. */
+		this.engineController = new EngineController();
+		this.engineController.setBlueprintStore(this.store);
 	}
 
 	// ── Convenience readers (non-reactive, for imperative code) ─────────
@@ -438,6 +453,156 @@ export class BuilderEngine {
 			s.navigateToForm(sel.moduleIndex, sel.formIndex, currentCaseId);
 		} else {
 			s.navigateToModule(sel.moduleIndex);
+		}
+	}
+
+	// ── Undo/Redo ──────────────────────────────────────────────────────
+	//
+	// These methods encapsulate the full undo/redo flow: temporal store
+	// action + flushSync (for immediate DOM commit) + scroll + flash.
+	// Previously scattered as callbacks in BuilderLayout, but the logic
+	// is purely imperative coordination — no React hooks needed.
+
+	/**
+	 * Undo the last mutation and scroll to the affected field with a
+	 * violet flash highlight.
+	 *
+	 * zundo atomically restores entity data + navigation state. `flushSync`
+	 * forces React to commit the store update before DOM queries — fields
+	 * toggled into existence by the undo are immediately queryable.
+	 */
+	undo(): void {
+		this.applyUndoRedo("undo");
+	}
+
+	/** Redo the last undone mutation. Same flow as undo. */
+	redo(): void {
+		this.applyUndoRedo("redo");
+	}
+
+	/** Shared implementation for undo/redo. */
+	private applyUndoRedo(action: "undo" | "redo"): void {
+		const temporal = this.store.temporal.getState();
+		const canDo =
+			action === "undo"
+				? temporal.pastStates.length > 0
+				: temporal.futureStates.length > 0;
+		if (!canDo) return;
+
+		/* Execute the undo/redo — zundo atomically restores entity data +
+		 * screen + navEntries + navCursor + cursorMode + activeFieldId.
+		 * flushSync ensures React commits the external store update to the
+		 * DOM synchronously so element queries below find the right targets. */
+		flushSync(() => {
+			temporal[action]();
+		});
+
+		/* Read selected + activeFieldId from the LIVE store (excluded from
+		 * partialize — they're derived from the restored entity state). */
+		const s = this.store.getState();
+		const questionUuid = s.selected?.questionUuid;
+		if (!questionUuid) return;
+		const fieldId = s.activeFieldId;
+
+		/* Set focus hint so InlineSettingsPanel can consume it. */
+		if (fieldId) {
+			this.setFocusHint(fieldId);
+		}
+
+		/* Instant scroll + flash — undo/redo is a state-change affordance
+		 * ("this changed"), not navigation. Target the specific field wrapper
+		 * if activeFieldId names one, otherwise the question card itself. */
+		const targetEl = this.findFieldElement(questionUuid, fieldId);
+		this.scrollToQuestion(questionUuid, targetEl ?? undefined, "instant");
+		const flashEl =
+			targetEl ??
+			(document.querySelector(
+				`[data-question-uuid="${questionUuid}"]`,
+			) as HTMLElement | null);
+		if (flashEl) this.flashUndoHighlight(flashEl);
+	}
+
+	/**
+	 * Find a specific field element within a question's InlineSettingsPanel.
+	 * Queries by stable UUID so the element is found even after renames.
+	 */
+	private findFieldElement(
+		questionUuid: string,
+		fieldId?: string,
+	): HTMLElement | null {
+		if (!fieldId) return null;
+		const questionEl = document.querySelector(
+			`[data-question-uuid="${questionUuid}"]`,
+		) as HTMLElement | null;
+		const panel = questionEl?.nextElementSibling as HTMLElement | null;
+		if (!panel?.hasAttribute("data-settings-panel")) return null;
+		return panel.querySelector(`[data-field-id="${fieldId}"]`);
+	}
+
+	/** Flash a subtle violet highlight on an element to signal an undo/redo
+	 *  state change. Web Animations API — fire-and-forget, no cleanup needed.
+	 *  Toggles get a scale press instead of a backgroundColor overlay. */
+	private flashUndoHighlight(el: HTMLElement): void {
+		if (el.getAttribute("role") === "switch") {
+			el.animate(
+				[
+					{ transform: "scale(1)" },
+					{ transform: "scale(0.8)" },
+					{ transform: "scale(1)" },
+				],
+				{ duration: 300, easing: "cubic-bezier(0.4, 0, 0.2, 1)" },
+			);
+			return;
+		}
+		el.animate(
+			[
+				{ backgroundColor: "rgba(139, 92, 246, 0.12)" },
+				{ backgroundColor: "transparent" },
+			],
+			{ duration: 600, easing: "cubic-bezier(0.4, 0, 0.2, 1)" },
+		);
+	}
+
+	// ── Delete ──────────────────────────────────────────────────────────
+
+	/** Delete the currently selected question and navigate to the adjacent one. */
+	deleteSelected(): void {
+		const s = this.store.getState();
+		const sel = s.selected;
+		if (
+			!sel ||
+			sel.type !== "question" ||
+			sel.formIndex === undefined ||
+			!sel.questionPath
+		)
+			return;
+
+		/* Assemble the form from normalized entities to get the question tree
+		 * for adjacency lookup (flattenQuestionRefs). */
+		const moduleId = s.moduleOrder[sel.moduleIndex];
+		const formId = moduleId
+			? s.formOrder[moduleId]?.[sel.formIndex]
+			: undefined;
+		const formEntity = formId ? s.forms[formId] : undefined;
+		if (!formId || !formEntity) return;
+		const form = assembleForm(formEntity, formId, s.questions, s.questionOrder);
+
+		const refs = flattenQuestionRefs(form.questions);
+		const curIdx = refs.findIndex((r) => r.uuid === sel.questionUuid);
+		const next = refs[curIdx + 1] ?? refs[curIdx - 1];
+
+		s.removeQuestion(sel.moduleIndex, sel.formIndex, sel.questionPath);
+
+		if (next) {
+			this.navigateTo({
+				type: "question",
+				moduleIndex: sel.moduleIndex,
+				formIndex: sel.formIndex,
+				questionPath: next.path,
+				questionUuid: next.uuid,
+			});
+		} else {
+			this.select();
 		}
 	}
 

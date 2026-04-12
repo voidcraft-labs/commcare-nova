@@ -22,7 +22,9 @@ import tablerX from "@iconify-icons/tabler/x";
 import { motion } from "motion/react";
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
+import { useBuilderStore } from "@/hooks/useBuilder";
 import type { AppBlueprint } from "@/lib/schemas/blueprint";
+import { selectAppName } from "@/lib/services/builderSelectors";
 
 // ── Types ──────────────────────────────────────────────────────────
 
@@ -31,8 +33,6 @@ interface UploadToHqDialogProps {
 	onClose: () => void;
 	/** Retrieves the current blueprint for upload. Called when the user clicks Upload. */
 	getBlueprint: () => AppBlueprint;
-	/** The app name from the builder (pre-fills the name field). */
-	appName: string;
 	/** The user's authorized project space, resolved from settings on mount. */
 	domain: { name: string; displayName: string } | null;
 }
@@ -61,20 +61,22 @@ export function UploadToHqDialog({
 	open,
 	onClose,
 	getBlueprint,
-	appName: initialAppName,
 	domain,
 }: UploadToHqDialogProps) {
+	/* Self-subscribe to app name from the store — no prop drilling from
+	 * BuilderLayout needed. Only re-renders when appName actually changes. */
+	const storeAppName = useBuilderStore(selectAppName);
 	const [uploadStatus, setUploadStatus] = useState<UploadStatus>({
 		type: "idle",
 	});
-	const [appName, setAppName] = useState(initialAppName);
+	const [appName, setAppName] = useState(storeAppName);
 
 	/* ── Reset form state when dialog opens ────────────────────────── */
 	useEffect(() => {
 		if (!open) return;
 		setUploadStatus({ type: "idle" });
-		setAppName(initialAppName);
-	}, [open, initialAppName]);
+		setAppName(storeAppName);
+	}, [open, storeAppName]);
 
 	/* ── Upload handler ────────────────────────────────────────────── */
 	const handleUpload = useCallback(async () => {

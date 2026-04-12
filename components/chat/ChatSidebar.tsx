@@ -50,7 +50,6 @@ interface ChatSidebarProps {
 	messages: UIMessage[];
 	status: "submitted" | "streaming" | "ready" | "error";
 	onSend: (message: string) => void;
-	onClose?: () => void;
 	addToolOutput: (params: {
 		tool: string;
 		toolCallId: string;
@@ -71,7 +70,6 @@ export function ChatSidebar({
 	messages,
 	status,
 	onSend,
-	onClose,
 	addToolOutput,
 	readOnly,
 	isExistingApp,
@@ -447,7 +445,7 @@ export function ChatSidebar({
 						</span>
 						<button
 							type="button"
-							onClick={onClose}
+							onClick={() => engine.store.getState().setChatOpen(false)}
 							className="px-1 h-11 text-nova-text-muted hover:text-nova-text transition-colors cursor-pointer"
 						>
 							<Icon icon={tablerChevronRight} width="14" height="14" />

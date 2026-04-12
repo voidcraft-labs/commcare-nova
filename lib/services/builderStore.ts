@@ -19,6 +19,7 @@
  * page via React Context in BuilderProvider.
  */
 
+import type { UIMessage } from "ai";
 import { enableMapSet } from "immer";
 import { temporal } from "zundo";
 import { devtools, subscribeWithSelector } from "zustand/middleware";
@@ -170,6 +171,19 @@ export interface BuilderState {
 	 *  — transient interaction state that stays at its live value through undo/redo. */
 	activeFieldId: string | undefined;
 
+	// ── Layout state (sidebar visibility) ──
+	/** Whether the chat sidebar is open. Lives in the store (not component
+	 *  state) so consumers subscribe directly — no prop drilling or cascade.
+	 *  NOT tracked by zundo (transient UI state). */
+	chatOpen: boolean;
+	/** Whether the structure sidebar is open. Same rationale as chatOpen. */
+	structureOpen: boolean;
+	/** Stashed sidebar state from before entering pointer mode. Restored
+	 *  when switching back to edit. Ref-like (only read at one moment —
+	 *  the edit-mode transition) but stored here so switchCursorMode can
+	 *  atomically stash/restore in a single set() call. */
+	sidebarStash: { chatOpen: boolean; structureOpen: boolean } | undefined;
+
 	// ── Navigation history ──
 	/** Back/forward navigation stack. `screen` is always `navEntries[navCursor]`. */
 	navEntries: PreviewScreen[];
@@ -211,6 +225,10 @@ export interface BuilderState {
 	replayDoneIndex: number;
 	/** Path to navigate to when exiting replay mode (set by the replay route). */
 	replayExitPath: string | undefined;
+	/** Chat messages for the current replay stage. Written by ReplayController
+	 *  (via store action), read by ChatContainer. Stored here so the two
+	 *  components communicate through the store, not through a shared parent. */
+	replayMessages: UIMessage[];
 
 	// ── Actions ────────────────────────────────────────────────────────
 
@@ -301,6 +319,16 @@ export interface BuilderState {
 	// -- View context actions --
 	setCursorMode: (mode: CursorMode) => void;
 	setActiveFieldId: (fieldId: string | undefined) => void;
+	/** Set chat sidebar visibility. */
+	setChatOpen: (open: boolean) => void;
+	/** Set structure sidebar visibility. */
+	setStructureOpen: (open: boolean) => void;
+	/** Atomically switch cursor mode with sidebar stash/restore.
+	 *  Pointer mode stashes current sidebar state and closes both.
+	 *  Edit mode restores the stashed state. Combines what was previously
+	 *  handleCursorModeChange + refs + multiple setState calls in BuilderLayout
+	 *  into one atomic store update. */
+	switchCursorMode: (mode: CursorMode) => void;
 
 	// -- Navigation actions --
 	navPush: (screen: PreviewScreen) => void;
@@ -364,6 +392,9 @@ export interface BuilderState {
 		doneIndex: number,
 		exitPath: string,
 	) => void;
+	/** Set replay messages for the current stage. Called by ReplayController
+	 *  when navigating between stages, read by ChatContainer for display. */
+	setReplayMessages: (messages: UIMessage[]) => void;
 	reset: () => void;
 }
 
@@ -408,6 +439,11 @@ export function createBuilderStore(initialPhase: BuilderPhase) {
 						screen: { type: "home" } as PreviewScreen,
 						cursorMode: "edit" as CursorMode,
 						activeFieldId: undefined,
+						chatOpen: true,
+						structureOpen: true,
+						sidebarStash: undefined as
+							| { chatOpen: boolean; structureOpen: boolean }
+							| undefined,
 						navEntries: [{ type: "home" }] as PreviewScreen[],
 						navCursor: 0,
 
@@ -435,6 +471,7 @@ export function createBuilderStore(initialPhase: BuilderPhase) {
 						replayStages: undefined,
 						replayDoneIndex: 0,
 						replayExitPath: undefined,
+						replayMessages: [] as UIMessage[],
 
 						// ── Blueprint mutation actions ──────────────────────────
 
@@ -1168,6 +1205,48 @@ export function createBuilderStore(initialPhase: BuilderPhase) {
 							set({ activeFieldId: fieldId });
 						},
 
+						setChatOpen(open) {
+							if (open === get().chatOpen) return;
+							set({ chatOpen: open });
+						},
+
+						setStructureOpen(open) {
+							if (open === get().structureOpen) return;
+							set({ structureOpen: open });
+						},
+
+						switchCursorMode(mode) {
+							const s = get();
+							/* Guard against no-op switches. Without this, entering
+							 * pointer mode twice overwrites the sidebar stash with
+							 * { chatOpen: false, structureOpen: false }. */
+							if (mode === s.cursorMode) return;
+
+							if (mode === "pointer") {
+								/* Stash current sidebar state, then close both for
+								 * the immersive pointer mode experience. */
+								set({
+									cursorMode: mode,
+									sidebarStash: {
+										chatOpen: s.chatOpen,
+										structureOpen: s.structureOpen,
+									},
+									chatOpen: false,
+									structureOpen: false,
+								});
+							} else if (mode === "edit" && s.sidebarStash) {
+								/* Restore pre-pointer sidebar state. */
+								set({
+									cursorMode: mode,
+									chatOpen: s.sidebarStash.chatOpen,
+									structureOpen: s.sidebarStash.structureOpen,
+									sidebarStash: undefined,
+								});
+							} else {
+								set({ cursorMode: mode });
+							}
+						},
+
 						// ── Navigation actions ────────────────────────────────
 
 						navPush(screen) {
@@ -1588,7 +1667,14 @@ export function createBuilderStore(initialPhase: BuilderPhase) {
 								draft.replayStages = stages;
 								draft.replayDoneIndex = doneIndex;
 								draft.replayExitPath = exitPath;
+								/* Initialize replay messages to the done stage's messages
+								 * so ChatContainer has content immediately on mount. */
+								draft.replayMessages = stages[doneIndex]?.messages ?? [];
 							});
+						},
+
+						setReplayMessages(messages) {
+							set({ replayMessages: messages });
 						},
 
 						reset() {
@@ -1620,6 +1706,7 @@ export function createBuilderStore(initialPhase: BuilderPhase) {
 								draft.progressCompleted = 0;
 								draft.progressTotal = 0;
 								draft.appId = undefined;
+								draft.replayMessages = [];
 							});
 						},
 					})),

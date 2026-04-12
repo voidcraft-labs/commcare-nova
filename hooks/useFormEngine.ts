@@ -1,72 +1,100 @@
 /**
- * React hook wrapping FormEngine with subscription-based re-rendering.
- * Persists live-mode values across engine recreations (caused by entity mutations).
+ * useFormEngine — thin React wrapper around the EngineController.
  *
- * The form object passed in is assembled from normalized entities via
- * useAssembledForm — it's a new reference when any entity in the form changes
- * (Immer structural sharing). The prevFormRef comparison handles recreation.
- * No mutationCount needed.
+ * The EngineController (plain class on BuilderEngine) owns the computation
+ * engine, blueprint store subscriptions, and the UUID-keyed runtime store.
+ * This hook just activates/deactivates the controller when the form screen
+ * mounts/unmounts, and provides the runtime store to descendant components
+ * via context.
+ *
+ * Components read runtime state via `useEngineState(uuid)` — a Zustand
+ * selector on the controller's store. Only questions whose computed state
+ * actually changed re-render.
  */
 "use client";
-import { useCallback, useRef, useSyncExternalStore } from "react";
-import { FormEngine } from "@/lib/preview/engine/formEngine";
-import type { BlueprintForm, CaseType } from "@/lib/schemas/blueprint";
+import { createContext, useContext, useEffect } from "react";
+import { useStore } from "zustand";
+import { useBuilderEngine, useBuilderStore } from "@/hooks/useBuilder";
+import type { RuntimeStoreState } from "@/lib/preview/engine/engineController";
+import {
+	DEFAULT_RUNTIME_STATE,
+	type EngineController,
+} from "@/lib/preview/engine/engineController";
+import type { QuestionState } from "@/lib/preview/engine/types";
 
-export function useFormEngine(
-	form: BlueprintForm,
-	caseTypes?: CaseType[],
-	moduleCaseType?: string,
-	caseData?: Map<string, string>,
-): FormEngine {
-	/* Persist live values across engine recreations so edits in preview
-	 * don't wipe test data. Engine is recreated when any input reference
-	 * changes — the assembled form gets a new reference from useMemo when
-	 * the underlying entities change. */
-	const liveSnapshotRef = useRef<
-		{ values: Map<string, string>; touched: Set<string> } | undefined
-	>(undefined);
-	const engineRef = useRef<FormEngine | undefined>(undefined);
-	const prevFormRef = useRef(form);
-	const prevCaseTypesRef = useRef(caseTypes);
-	const prevModuleCaseTypeRef = useRef(moduleCaseType);
-	const prevCaseDataRef = useRef(caseData);
+// ── Context ─────────────────────────────────────────────────────────────
 
-	if (
-		!engineRef.current ||
-		prevFormRef.current !== form ||
-		prevCaseTypesRef.current !== caseTypes ||
-		prevModuleCaseTypeRef.current !== moduleCaseType ||
-		prevCaseDataRef.current !== caseData
-	) {
-		/* Snapshot values from previous engine before creating new one */
-		if (engineRef.current) {
-			liveSnapshotRef.current = engineRef.current.getValueSnapshot();
-		}
+/**
+ * Provides the EngineController to descendant components. The controller
+ * reference is stable (lives on BuilderEngine), so context consumers don't
+ * re-render from context value changes.
+ */
+export const EngineControllerContext = createContext<EngineController | null>(
+	null,
+);
 
-		const newEngine = new FormEngine(form, caseTypes, moduleCaseType, caseData);
+/**
+ * Read the EngineController from context. Throws if outside a provider.
+ * Use `useEngineState(uuid)` for reactive runtime state subscriptions.
+ */
+export function useEngineController(): EngineController {
+	const controller = useContext(EngineControllerContext);
+	if (!controller)
+		throw new Error(
+			"useEngineController must be used within EngineControllerContext",
+		);
+	return controller;
+}
 
-		/* Restore values if we have a snapshot */
-		if (liveSnapshotRef.current) {
-			newEngine.restoreValues(liveSnapshotRef.current);
-		}
-
-		engineRef.current = newEngine;
-		prevFormRef.current = form;
-		prevCaseTypesRef.current = caseTypes;
-		prevModuleCaseTypeRef.current = moduleCaseType;
-		prevCaseDataRef.current = caseData;
-	}
-
-	if (!engineRef.current) throw new Error("FormEngine was not initialized");
-	const engine = engineRef.current;
-
-	/* Re-render when the engine notifies (value changes, validation, etc.) */
-	const subscribe = useCallback(
-		(cb: () => void) => engine.subscribe(cb),
-		[engine],
+/**
+ * Subscribe to runtime state for a specific question by UUID.
+ *
+ * Delegates to Zustand's `useStore` with a UUID-based selector on the
+ * controller's runtime store. Zustand compares by reference — unchanged
+ * UUIDs keep their old RuntimeState object and skip re-rendering.
+ *
+ * Editing question A only re-renders SortableQuestion(A). SortableQuestion(B)
+ * keeps the same state reference and skips.
+ */
+export function useEngineState(uuid: string): QuestionState {
+	const controller = useEngineController();
+	return useStore(
+		controller.store,
+		(s: RuntimeStoreState) => s[uuid] ?? DEFAULT_RUNTIME_STATE,
 	);
-	const getSnapshot = useCallback(() => engine.getSnapshot(), [engine]);
-	useSyncExternalStore(subscribe, getSnapshot, getSnapshot);
+}
 
-	return engine;
+// ── Hook ────────────────────────────────────────────────────────────────
+
+/**
+ * Activate the engine controller for the given form. Returns the controller
+ * for imperative access (setValue, touch, validateAll, etc.).
+ *
+ * The controller's blueprint store subscriptions (expression fingerprint,
+ * question order, form metadata) are set up during `activateForm` and
+ * cleaned up by `deactivate` on unmount or form navigation.
+ */
+export function useFormEngine(
+	moduleIndex: number,
+	formIndex: number,
+	caseData?: Map<string, string>,
+): EngineController {
+	const builderEngine = useBuilderEngine();
+	const controller = builderEngine.engineController;
+
+	/** Reactive formId subscription — when the form identity at these indices
+	 *  changes (e.g., form deleted and another takes its index), the effect
+	 *  re-runs and reactivates the controller with the new form. */
+	const formId = useBuilderStore((s) => {
+		const moduleId = s.moduleOrder[moduleIndex];
+		return moduleId ? s.formOrder[moduleId]?.[formIndex] : undefined;
+	});
+
+	useEffect(() => {
+		if (!formId) return;
+		controller.activateForm(moduleIndex, formIndex, caseData);
+		return () => controller.deactivate();
+	}, [controller, moduleIndex, formIndex, formId, caseData]);
+
+	return controller;
 }

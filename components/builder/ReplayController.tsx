@@ -1,32 +1,27 @@
 /**
  * ReplayController — floating transport bar for stepping through generation
- * replay stages. Reads stages and initial index from the Zustand store
- * (hydrated by BuilderProvider). Navigation callbacks (onExit, onMessagesChange)
- * are provided by BuilderLayout as parent→child view-state coordination.
+ * replay stages. Fully self-sufficient — reads stages from the store,
+ * writes replay messages to the store, and navigates via the engine.
+ *
+ * No props needed from BuilderLayout. Mount/unmount is controlled by
+ * BuilderLayout based on `inReplayMode`, but the component owns all
+ * its own data and actions.
  */
 "use client";
 import { Icon } from "@iconify/react/offline";
 import tablerChevronLeft from "@iconify-icons/tabler/chevron-left";
 import tablerChevronRight from "@iconify-icons/tabler/chevron-right";
 import tablerX from "@iconify-icons/tabler/x";
-import type { UIMessage } from "ai";
 import { AnimatePresence, motion } from "motion/react";
+import { useRouter } from "next/navigation";
 import { useCallback, useState } from "react";
 import { useBuilderEngine, useBuilderStore } from "@/hooks/useBuilder";
 
-interface ReplayControllerProps {
-	onExit: () => void;
-	onMessagesChange: (messages: UIMessage[]) => void;
-}
-
-export function ReplayController({
-	onExit,
-	onMessagesChange,
-}: ReplayControllerProps) {
+export function ReplayController() {
 	const builder = useBuilderEngine();
-	/* Replay stages are guaranteed defined — this component only renders when
-	 * inReplayMode is true (BuilderLayout guards the mount). The empty-array
-	 * fallback satisfies the type checker without a non-null assertion. */
+	const router = useRouter();
+
+	/* Self-subscribe to replay state — no props from parent. */
 	const stages = useBuilderStore((s) => s.replayStages) ?? [];
 	const doneIndex = useBuilderStore((s) => s.replayDoneIndex);
 	const [currentIndex, setCurrentIndex] = useState(doneIndex);
@@ -39,7 +34,10 @@ export function ReplayController({
 				for (let i = 0; i <= targetIndex; i++) {
 					stages[i].applyToBuilder(builder);
 				}
-				onMessagesChange(stages[targetIndex].messages);
+				/* Write replay messages to the store — ChatContainer reads them. */
+				builder.store
+					.getState()
+					.setReplayMessages(stages[targetIndex].messages);
 				setCurrentIndex(targetIndex);
 				setError(undefined);
 			} catch (err) {
@@ -48,8 +46,15 @@ export function ReplayController({
 				);
 			}
 		},
-		[builder, stages, onMessagesChange],
+		[builder, stages],
 	);
+
+	/** Exit replay mode — reset the builder and navigate to the exit path. */
+	const handleExit = useCallback(() => {
+		const exitPath = builder.store.getState().replayExitPath ?? "/";
+		builder.reset();
+		router.push(exitPath);
+	}, [builder, router]);
 
 	const canGoBack = currentIndex > 0;
 	const canGoForward = currentIndex < stages.length - 1;
@@ -126,7 +131,7 @@ export function ReplayController({
 				{/* Close */}
 				<button
 					type="button"
-					onClick={onExit}
+					onClick={handleExit}
 					className="p-0.5 rounded-md text-nova-text-muted hover:text-nova-text transition-colors cursor-pointer"
 				>
 					<Icon icon={tablerX} width={18} height={18} />

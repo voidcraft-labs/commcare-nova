@@ -450,26 +450,27 @@ describe("FormEngine", () => {
 		});
 	});
 
-	describe("subscription", () => {
-		it("notifies subscribers on value change", () => {
+	describe("Zustand store reactivity", () => {
+		it("updates store state on value change", () => {
 			const form = makeForm([q({ id: "name", type: "text", label: "Name" })]);
 			const engine = new FormEngine(form, null);
 
 			let called = false;
-			engine.subscribe(() => {
+			engine.store.subscribe(() => {
 				called = true;
 			});
 
 			engine.setValue("/data/name", "Test");
 			expect(called).toBe(true);
+			expect(engine.store.getState()["/data/name"]?.value).toBe("Test");
 		});
 
-		it("allows unsubscribing", () => {
+		it("allows unsubscribing from store", () => {
 			const form = makeForm([q({ id: "name", type: "text", label: "Name" })]);
 			const engine = new FormEngine(form, null);
 
 			let callCount = 0;
-			const unsub = engine.subscribe(() => {
+			const unsub = engine.store.subscribe(() => {
 				callCount++;
 			});
 
@@ -479,6 +480,30 @@ describe("FormEngine", () => {
 			unsub();
 			engine.setValue("/data/name", "B");
 			expect(callCount).toBe(1);
+		});
+
+		it("only creates new state objects for changed paths", () => {
+			const form = makeForm([
+				q({ id: "age", type: "text", label: "Age" }),
+				q({ id: "name", type: "text", label: "Name" }),
+			]);
+			const engine = new FormEngine(form, null);
+
+			/* Capture state references before the change */
+			const nameBefore = engine.store.getState()["/data/name"];
+			const ageBefore = engine.store.getState()["/data/age"];
+
+			engine.setValue("/data/age", "25");
+
+			/* The changed path gets a new object */
+			const ageAfter = engine.store.getState()["/data/age"];
+			expect(ageAfter).not.toBe(ageBefore);
+			expect(ageAfter?.value).toBe("25");
+
+			/* The unchanged path keeps the same reference — Zustand selectors
+			 * using Object.is would correctly skip re-rendering this path. */
+			const nameAfter = engine.store.getState()["/data/name"];
+			expect(nameAfter).toBe(nameBefore);
 		});
 	});
 

@@ -5,9 +5,10 @@ import { Icon } from "@iconify/react/offline";
 import tablerPlus from "@iconify-icons/tabler/plus";
 import tablerRepeat from "@iconify-icons/tabler/repeat";
 import tablerTrash from "@iconify-icons/tabler/trash";
+import { useBuilderStore } from "@/hooks/useBuilder";
 import { useEditContext } from "@/hooks/useEditContext";
+import { useEngineController, useEngineState } from "@/hooks/useFormEngine";
 import { useTextEditSave } from "@/hooks/useTextEditSave";
-import type { FormEngine } from "@/lib/preview/engine/formEngine";
 import { LabelContent } from "@/lib/references/LabelContent";
 import type { Question } from "@/lib/schemas/blueprint";
 import type { QuestionPath } from "@/lib/services/questionPath";
@@ -19,7 +20,6 @@ interface RepeatFieldProps {
 	question: Question;
 	path: string;
 	questionPath: QuestionPath;
-	engine: FormEngine;
 }
 
 // ── RepeatInstance ────────────────────────────────────────────────────
@@ -71,12 +71,18 @@ export function RepeatField({
 	question,
 	path,
 	questionPath,
-	engine,
 }: RepeatFieldProps) {
-	const state = engine.getState(path);
+	const controller = useEngineController();
+	const state = useEngineState(question.uuid);
 	const ctx = useEditContext();
 	const isEditMode = ctx?.mode === "edit";
 	const saveField = useTextEditSave(questionPath);
+
+	/** Subscribe to children count from the store — drives hasChildren styling
+	 *  for the repeat container. Only fires on count change (0→1, 1→0). */
+	const hasChildren = useBuilderStore(
+		(s) => (s.questionOrder[question.uuid]?.length ?? 0) > 0,
+	);
 
 	/* Droppable target for the repeat's children area — enables dropping items
 	 * into empty repeats. The ID matches the group key used by the nested
@@ -91,7 +97,7 @@ export function RepeatField({
 
 	if (!state.visible) return null;
 
-	const count = engine.getRepeatCount(path);
+	const count = controller.getRepeatCount(question.uuid);
 
 	return (
 		<div className="space-y-3">
@@ -130,14 +136,12 @@ export function RepeatField({
 						</span>
 					}
 					bodyRef={droppableRef}
-					hasChildren={(question.children?.length ?? 0) > 0}
+					hasChildren={hasChildren}
 				>
 					<FormRenderer
-						questions={question.children ?? []}
-						engine={engine}
+						parentEntityId={question.uuid}
 						prefix={`${path}[0]`}
 						parentPath={questionPath}
-						parentUuid={question.uuid}
 					/>
 				</RepeatInstance>
 			) : (
@@ -157,21 +161,19 @@ export function RepeatField({
 							count > 1 ? (
 								<button
 									type="button"
-									onClick={() => engine.removeRepeat(path, idx)}
+									onClick={() => controller.removeRepeat(question.uuid, idx)}
 									className="p-1 text-nova-text-muted hover:text-nova-rose transition-colors cursor-pointer"
 								>
 									<Icon icon={tablerTrash} width="14" height="14" />
 								</button>
 							) : undefined
 						}
-						hasChildren={(question.children?.length ?? 0) > 0}
+						hasChildren={hasChildren}
 					>
 						<FormRenderer
-							questions={question.children ?? []}
-							engine={engine}
+							parentEntityId={question.uuid}
 							prefix={`${path}[${idx}]`}
 							parentPath={questionPath}
-							parentUuid={question.uuid}
 						/>
 					</RepeatInstance>
 				))
@@ -182,7 +184,7 @@ export function RepeatField({
 			{!isEditMode && (
 				<button
 					type="button"
-					onClick={() => engine.addRepeat(path)}
+					onClick={() => controller.addRepeat(question.uuid)}
 					className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-pv-accent hover:text-pv-accent-bright border border-pv-input-border hover:border-pv-input-focus rounded-lg transition-colors cursor-pointer"
 				>
 					<Icon icon={tablerPlus} width="14" height="14" />

@@ -3,11 +3,7 @@ import { Menu } from "@base-ui/react/menu";
 import { Icon } from "@iconify/react/offline";
 import tablerChevronRight from "@iconify-icons/tabler/chevron-right";
 import { useCallback } from "react";
-import {
-	useAssembledForm,
-	useBuilderEngine,
-	useBuilderStore,
-} from "@/hooks/useBuilder";
+import { useBuilderEngine, useBuilderStore } from "@/hooks/useBuilder";
 import { useEditContext } from "@/hooks/useEditContext";
 import {
 	INSERTION_CATEGORIES,
@@ -16,6 +12,7 @@ import {
 	questionTypeLabels,
 } from "@/lib/questionTypeIcons";
 import type { Question } from "@/lib/schemas/blueprint";
+import { assembleForm } from "@/lib/services/normalizedState";
 import { type QuestionPath, qpath } from "@/lib/services/questionPath";
 import {
 	MENU_ITEM_CLS,
@@ -51,16 +48,29 @@ export function QuestionTypePickerPopup({
 	if (!ctx) throw new Error("QuestionTypePickerPopup requires EditContext");
 	const { moduleIndex, formIndex } = ctx;
 	const engine = useBuilderEngine();
-	const assembledForm = useAssembledForm(moduleIndex, formIndex);
 	const addQuestionAction = useBuilderStore((s) => s.addQuestion);
-	if (!assembledForm)
-		throw new Error("QuestionTypePickerPopup requires a valid form");
 
 	/** Generate a unique ID, create the question, and navigate to it.
-	 *  The menu closes automatically via Base UI's `closeOnClick` after
-	 *  this handler returns — no manual close needed. */
+	 *  Reads the assembled form imperatively at insert time — avoids 28
+	 *  reactive subscriptions to entity maps that would fire on every
+	 *  unrelated question edit (~56ms wasted per commit). */
 	const handleSelect = useCallback(
 		(type: Question["type"]) => {
+			/* Assemble the current form from store state at call time. */
+			const s = engine.store.getState();
+			const moduleId = s.moduleOrder[moduleIndex];
+			if (!moduleId) return;
+			const formId = s.formOrder[moduleId]?.[formIndex];
+			if (!formId) return;
+			const form = s.forms[formId];
+			if (!form) return;
+			const assembled = assembleForm(
+				form,
+				formId,
+				s.questions,
+				s.questionOrder,
+			);
+
 			const existingIds = new Set<string>();
 			const collectIds = (qs: Question[]) => {
 				for (const q of qs) {
@@ -68,7 +78,7 @@ export function QuestionTypePickerPopup({
 					if (q.children) collectIds(q.children);
 				}
 			};
-			if (assembledForm.questions) collectIds(assembledForm.questions);
+			if (assembled.questions) collectIds(assembled.questions);
 
 			let newId = `new_${type}`;
 			if (existingIds.has(newId)) {
@@ -100,15 +110,7 @@ export function QuestionTypePickerPopup({
 				questionUuid: newUuid,
 			});
 		},
-		[
-			assembledForm,
-			moduleIndex,
-			formIndex,
-			atIndex,
-			parentPath,
-			addQuestionAction,
-			engine,
-		],
+		[moduleIndex, formIndex, atIndex, parentPath, addQuestionAction, engine],
 	);
 
 	return (

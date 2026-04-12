@@ -1,9 +1,10 @@
 "use client";
 import { CollisionPriority } from "@dnd-kit/abstract";
 import { useDroppable } from "@dnd-kit/react";
+import { useBuilderStore } from "@/hooks/useBuilder";
 import { useEditContext } from "@/hooks/useEditContext";
+import { useEngineState } from "@/hooks/useFormEngine";
 import { useTextEditSave } from "@/hooks/useTextEditSave";
-import type { FormEngine } from "@/lib/preview/engine/formEngine";
 import { LabelContent } from "@/lib/references/LabelContent";
 import type { Question } from "@/lib/schemas/blueprint";
 import type { QuestionPath } from "@/lib/services/questionPath";
@@ -15,19 +16,21 @@ interface GroupFieldProps {
 	question: Question;
 	path: string;
 	questionPath: QuestionPath;
-	engine: FormEngine;
 }
 
-export function GroupField({
-	question,
-	path,
-	questionPath,
-	engine,
-}: GroupFieldProps) {
-	const state = engine.getState(path);
+export function GroupField({ question, path, questionPath }: GroupFieldProps) {
+	const state = useEngineState(question.uuid);
 	const ctx = useEditContext();
 	const isEditMode = ctx?.mode === "edit";
 	const saveField = useTextEditSave(questionPath);
+
+	/** Subscribe to the children count for this group. Drives the container
+	 *  styling — groups with children get horizontal-only padding (InsertionPoints
+	 *  own vertical spacing), empty groups get full padding + min-height for
+	 *  the droppable target. Only re-renders on children count change (0→1, 1→0). */
+	const hasChildren = useBuilderStore(
+		(s) => (s.questionOrder[question.uuid]?.length ?? 0) > 0,
+	);
 
 	const { ref: droppableRef } = useDroppable({
 		id: `${question.uuid}:container`,
@@ -81,14 +84,12 @@ export function GroupField({
 			 * through, and bg-pv-bg ends early, exposing bg-pv-surface behind it. */}
 			<div
 				ref={droppableRef}
-				className={`flow-root bg-pv-bg ${(question.children?.length ?? 0) > 0 ? "px-4" : "p-4 min-h-[72px]"}`}
+				className={`flow-root bg-pv-bg ${hasChildren ? "px-4" : "p-4 min-h-[72px]"}`}
 			>
 				<FormRenderer
-					questions={question.children ?? []}
-					engine={engine}
+					parentEntityId={question.uuid}
 					prefix={path}
 					parentPath={questionPath}
-					parentUuid={question.uuid}
 				/>
 			</div>
 		</div>

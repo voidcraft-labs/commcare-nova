@@ -1,9 +1,12 @@
 /**
  * Two-segment icon-only cursor mode selector with animated sliding indicator.
  *
- * Both layout variants (horizontal toolbar pill, vertical sidebar stack)
- * render icon-only buttons with tooltips showing the mode name and keyboard
- * shortcut. `layoutId` is unique per variant to prevent cross-animation.
+ * Self-subscribes to `store.cursorMode` — only re-renders when the cursor
+ * mode actually changes, not when BuilderLayout re-renders for unrelated
+ * reasons (chat updates, sidebar toggles, undo/redo state).
+ *
+ * Accepts an `onChange` callback for coordination logic that must happen
+ * before the mode switch (e.g., scroll anchor capture in BuilderLayout).
  *
  * Modes:
  * - **Pointer** (`V`): live form experience (no edit chrome)
@@ -16,10 +19,13 @@ import tablerPencil from "@iconify-icons/tabler/pencil";
 import tablerPointer from "@iconify-icons/tabler/pointer";
 import { motion } from "motion/react";
 import { Tooltip } from "@/components/ui/Tooltip";
+import { useBuilderStore } from "@/hooks/useBuilder";
 import type { CursorMode } from "@/lib/services/builder";
+import { selectCursorMode } from "@/lib/services/builderSelectors";
 
 interface CursorModeSelectorProps {
-	mode: CursorMode;
+	/** Callback invoked when the user clicks a mode button. BuilderLayout
+	 *  wraps this to capture scroll anchors before the store update. */
 	onChange: (mode: CursorMode) => void;
 	/** Layout variant. `horizontal` renders a pill-shaped row for toolbar embedding;
 	 *  `vertical` stacks buttons for compact sidebar placement. */
@@ -64,11 +70,11 @@ const INDICATOR_TRANSITION = {
 } as const;
 
 export function CursorModeSelector({
-	mode,
 	onChange,
 	variant = "horizontal",
 	glass = false,
 }: CursorModeSelectorProps) {
+	const mode = useBuilderStore(selectCursorMode);
 	const vertical = variant === "vertical";
 
 	return (
