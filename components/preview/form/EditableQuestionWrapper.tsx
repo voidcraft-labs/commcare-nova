@@ -1,20 +1,31 @@
 "use client";
 import { type ReactNode, useCallback, useRef, useState } from "react";
-import { useBuilderEngine, useIsQuestionSelected } from "@/hooks/useBuilder";
+import { useBuilderEngine } from "@/hooks/useBuilder";
 import { useEditContext } from "@/hooks/useEditContext";
-import type { QuestionPath } from "@/lib/services/questionPath";
+import { asUuid } from "@/lib/doc/types";
+import { useIsQuestionSelected, useSelect } from "@/lib/routing/hooks";
 
 interface EditableQuestionWrapperProps {
-	questionPath: QuestionPath;
-	/** Stable crypto UUID — used for selection identity (survives renames). */
+	/** Stable crypto UUID — the sole identity prop (survives renames). */
 	questionUuid: string;
 	children: ReactNode;
 	style?: React.CSSProperties;
 	isDragging?: boolean;
 }
 
+/**
+ * Wrapper that makes a question selectable by click in edit mode.
+ *
+ * Selection is driven by the URL (`sel=` query param). `useIsQuestionSelected`
+ * reads the URL's `sel` and returns `true` for exactly one wrapper at a time.
+ * On click, `useSelect()` replaces the `sel=` param via `router.replace` —
+ * no Zustand write, no re-render cascade.
+ *
+ * Scroll behavior is delegated to `BuilderEngine.setPendingScroll` so the
+ * selected question's panel (mounted by SortableQuestion) can honor it
+ * via `fulfillPendingScroll` once the panel paints.
+ */
 export function EditableQuestionWrapper({
-	questionPath,
 	questionUuid,
 	children,
 	style,
@@ -22,22 +33,16 @@ export function EditableQuestionWrapper({
 }: EditableQuestionWrapperProps) {
 	const ctx = useEditContext();
 	const engine = useBuilderEngine();
+	const select = useSelect();
 	const [hovered, setHovered] = useState(false);
 	const [holdReady, setHoldReady] = useState(false);
 	const holdTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 	const wasDraggingRef = useRef(false);
 
-	const moduleIndex = ctx?.moduleIndex;
-	const formIndex = ctx?.formIndex;
-
-	/* Selection via targeted boolean selector — only this wrapper and the
+	/* Selection via URL-driven boolean selector — only this wrapper and the
 	 * previously-selected wrapper re-render on selection change. All other
 	 * wrappers return the same `false` and skip rendering entirely. */
-	const isSelected = useIsQuestionSelected(
-		moduleIndex ?? 0,
-		formIndex ?? 0,
-		questionUuid,
-	);
+	const isSelected = useIsQuestionSelected(questionUuid);
 
 	const clearHoldTimer = useCallback(() => {
 		if (holdTimerRef.current) {
@@ -80,46 +85,14 @@ export function EditableQuestionWrapper({
 	 *  target needs extra clearance for the floating TipTap label toolbar. */
 	const selectQuestion = useCallback(
 		(hasToolbar = false) => {
-			if (moduleIndex === undefined || formIndex === undefined) return;
-			engine.navigateTo(
-				{
-					type: "question",
-					moduleIndex,
-					formIndex,
-					questionPath,
-					questionUuid,
-				},
-				"smooth",
-				hasToolbar,
-			);
-			/* Scroll the structure sidebar tree row into view only if it's
-			 * off-screen — don't disrupt the tree position when the row is visible. */
-			const treeRow = document.querySelector(
-				`[data-tree-question="${questionPath}"]`,
-			) as HTMLElement | null;
-			if (treeRow) {
-				const parent = treeRow.closest(
-					'[class*="overflow-auto"]',
-				) as HTMLElement | null;
-				if (parent) {
-					const parentRect = parent.getBoundingClientRect();
-					const rowRect = treeRow.getBoundingClientRect();
-					const isVisible =
-						rowRect.top >= parentRect.top &&
-						rowRect.bottom <= parentRect.bottom;
-					if (!isVisible) {
-						treeRow.style.scrollMarginTop = "20px";
-						treeRow.scrollIntoView({ behavior: "smooth", block: "start" });
-					}
-				}
-			}
+			engine.setPendingScroll(questionUuid, "smooth", hasToolbar);
+			select(asUuid(questionUuid));
 		},
-		[engine, moduleIndex, formIndex, questionPath, questionUuid],
+		[engine, questionUuid, select],
 	);
 
 	const handleClick = useCallback(
 		(e: React.MouseEvent) => {
-			if (moduleIndex === undefined || formIndex === undefined) return;
 			// Ignore clicks from portal-rendered elements (e.g. insertion menu portal).
 			// React synthetic events still bubble through the React tree from portals,
 			// but the DOM target is outside this wrapper's subtree.
@@ -132,7 +105,7 @@ export function EditableQuestionWrapper({
 			 * the text-editable check: without this, clicking a nested question's
 			 * label (a [data-text-editable] zone) would match here and select the
 			 * GROUP, then the child's handler would re-select the child — two
-			 * navigateTo calls with two scrollTo targets, the second missing the
+			 * select calls with two scrollTo targets, the second missing the
 			 * collapsing panel compensation from the first. */
 			const closestWrapper = target.closest("[data-question-wrapper]");
 			if (closestWrapper && closestWrapper !== e.currentTarget) return;
@@ -141,10 +114,10 @@ export function EditableQuestionWrapper({
 			 * Pass hasToolbar so the scroll leaves clearance for the floating
 			 * TipTap label toolbar that will render above the question.
 			 *
-			 * If the question is already selected, navigateTo won't trigger a
-			 * re-render (selection unchanged), so fulfillPendingScroll never
-			 * fires. Call scrollToQuestion directly to ensure the toolbar gets
-			 * clearance when activating a text editor on the current question. */
+			 * If the question is already selected, the URL `sel=` won't change,
+			 * so fulfillPendingScroll never fires. Call scrollToQuestion directly
+			 * to ensure the toolbar gets clearance when activating a text editor
+			 * on the current question. */
 			if (target.closest("[data-text-editable]")) {
 				if (isSelected) {
 					engine.scrollToQuestion(questionUuid, undefined, "smooth", true);
@@ -157,7 +130,7 @@ export function EditableQuestionWrapper({
 			e.stopPropagation();
 			selectQuestion();
 		},
-		[moduleIndex, formIndex, selectQuestion, isSelected, questionUuid, engine],
+		[selectQuestion, isSelected, questionUuid, engine],
 	);
 
 	/** Keyboard activation — Enter or Space selects this question, matching

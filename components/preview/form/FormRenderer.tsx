@@ -36,26 +36,18 @@ import {
 	useState,
 } from "react";
 import { InlineSettingsPanel } from "@/components/builder/InlineSettingsPanel";
-import {
-	useBuilderEngine,
-	useBuilderStore,
-	useIsQuestionSelected,
-} from "@/hooks/useBuilder";
+import { useBuilderEngine, useBuilderStore } from "@/hooks/useBuilder";
 import { useEditContext } from "@/hooks/useEditContext";
 import { useEngineController, useEngineState } from "@/hooks/useFormEngine";
 import { useTextEditSave } from "@/hooks/useTextEditSave";
 import { useBlueprintDoc } from "@/lib/doc/hooks/useBlueprintDoc";
 import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
 import { useQuestion as useQuestionDoc } from "@/lib/doc/hooks/useEntity";
-import type { Uuid } from "@/lib/doc/types";
+import { asUuid, type Uuid } from "@/lib/doc/types";
 import { LabelContent } from "@/lib/references/LabelContent";
+import { useIsQuestionSelected, useSelect } from "@/lib/routing/hooks";
 import type { NQuestion } from "@/lib/services/normalizedState";
-import {
-	type QuestionPath,
-	qpath,
-	qpathId,
-	qpathParent,
-} from "@/lib/services/questionPath";
+import { type QuestionPath, qpath } from "@/lib/services/questionPath";
 import { EditableQuestionWrapper } from "./EditableQuestionWrapper";
 import { FIELD_STYLES } from "./fieldStyles";
 import { GroupField } from "./fields/GroupField";
@@ -93,12 +85,8 @@ const EMPTY_UUIDS: string[] = [];
 interface DragReorderState {
 	/** Group → ordered question UUIDs. Updated by `move` helper during drag. */
 	itemsMap: Record<string, string[]>;
-	/** UUID → QuestionPath reverse lookup (for mutation calls in onDragEnd). */
-	uuidToPath: Map<string, QuestionPath>;
 	/** The UUID of the question currently being dragged. */
 	activeUuid: string;
-	/** The QuestionPath currently being dragged (kept for mutation calls). */
-	activePath: QuestionPath;
 }
 
 const DragReorderContext = createContext<DragReorderState | null>(null);
@@ -121,9 +109,9 @@ const SENSORS = [
 /**
  * Build controlled drag state from the store's normalized entity maps.
  *
- * Walks the `questionOrder` tree to build an items map (group → ordered UUIDs)
- * and a UUID → QuestionPath reverse map for mutation calls. Called imperatively
- * in `onDragStart` — no reactive subscription to entity maps during drag.
+ * Walks the `questionOrder` tree to build an items map (group → ordered UUIDs).
+ * Called imperatively in `onDragStart` — no reactive subscription to entity
+ * maps during drag.
  */
 function buildDragStateFromStore(
 	questions: Record<string, NQuestion>,
@@ -132,28 +120,24 @@ function buildDragStateFromStore(
 	activeUuid: string,
 ): DragReorderState {
 	const itemsMap: Record<string, string[]> = {};
-	const uuidToPath = new Map<string, QuestionPath>();
 
-	function walk(parentId: string, groupKey: string, pathPrefix: string) {
+	function walk(parentId: string, groupKey: string) {
 		const childUuids = questionOrder[parentId] ?? [];
 		itemsMap[groupKey] = [...childUuids];
 		for (const uuid of childUuids) {
 			const q = questions[uuid];
 			if (!q) continue;
-			const qPath = pathPrefix ? `${pathPrefix}/${q.id}` : q.id;
-			uuidToPath.set(uuid, qPath as QuestionPath);
 			if (q.type === "group" || q.type === "repeat") {
-				walk(uuid, `${uuid}${CONTAINER_SUFFIX}`, qPath);
+				walk(uuid, `${uuid}${CONTAINER_SUFFIX}`);
 			}
 		}
 	}
-	walk(parentEntityId, ROOT_GROUP, "");
+	walk(parentEntityId, ROOT_GROUP);
 
-	const activePath = uuidToPath.get(activeUuid) ?? ("" as QuestionPath);
-	return { itemsMap, uuidToPath, activeUuid, activePath };
+	return { itemsMap, activeUuid };
 }
 
-/** Strip the :container suffix to recover the actual QuestionPath. */
+/** Strip the `:container` suffix to recover the raw UUID. */
 function stripContainerSuffix(group: string): string {
 	return group.endsWith(CONTAINER_SUFFIX)
 		? group.slice(0, -CONTAINER_SUFFIX.length)
@@ -209,15 +193,11 @@ function SortableQuestion({
 	const isEditMode = ctx?.mode === "edit";
 	const saveField = useTextEditSave(questionPath);
 
-	/* Boolean selector — returns true only for the one selected question.
-	 * When selection changes, only the old and new selected components
-	 * re-render (true→false, false→true). All other SortableQuestions stay
-	 * false→false and skip re-rendering via Object.is. */
-	const isQuestionSelected = useIsQuestionSelected(
-		ctx?.moduleIndex ?? -1,
-		ctx?.formIndex ?? -1,
-		uuid,
-	);
+	/* URL-driven boolean selector — returns true only for the one selected
+	 * question. When selection changes, only the old and new selected
+	 * components re-render (true→false, false→true). All other
+	 * SortableQuestions stay false→false and skip re-rendering. */
+	const isQuestionSelected = useIsQuestionSelected(uuid);
 	const isSelected = isEditMode && cursorMode === "edit" && isQuestionSelected;
 
 	// Groups/repeats get Lowest collision priority so their inner container
@@ -275,7 +255,6 @@ function SortableQuestion({
 	if (q.type === "group") {
 		content = (
 			<EditableQuestionWrapper
-				questionPath={questionPath}
 				questionUuid={uuid}
 				isDragging={showAsPlaceholder}
 			>
@@ -285,7 +264,6 @@ function SortableQuestion({
 	} else if (q.type === "repeat") {
 		content = (
 			<EditableQuestionWrapper
-				questionPath={questionPath}
 				questionUuid={uuid}
 				isDragging={showAsPlaceholder}
 			>
@@ -295,7 +273,6 @@ function SortableQuestion({
 	} else if (q.type === "label") {
 		content = (
 			<EditableQuestionWrapper
-				questionPath={questionPath}
 				questionUuid={uuid}
 				isDragging={showAsPlaceholder}
 			>
@@ -309,7 +286,6 @@ function SortableQuestion({
 	} else if (q.type === "hidden") {
 		content = (
 			<EditableQuestionWrapper
-				questionPath={questionPath}
 				questionUuid={uuid}
 				isDragging={showAsPlaceholder}
 			>
@@ -319,7 +295,6 @@ function SortableQuestion({
 	} else {
 		content = (
 			<EditableQuestionWrapper
-				questionPath={questionPath}
 				questionUuid={uuid}
 				isDragging={showAsPlaceholder}
 			>
@@ -436,6 +411,7 @@ export const FormRenderer = memo(function FormRenderer({
 }: FormRendererProps) {
 	const ctx = useEditContext();
 	const builderEngine = useBuilderEngine();
+	const select = useSelect();
 
 	const { moveQuestion: moveQuestion_ } = useBlueprintMutations();
 	const isEditMode = ctx?.mode === "edit";
@@ -539,8 +515,7 @@ export const FormRenderer = memo(function FormRenderer({
 		[],
 	);
 
-	const activePath = dragState?.activePath;
-	const isDragging = !!activePath;
+	const isDragging = !!dragState?.activeUuid;
 
 	/* Read the active question's label for the drag overlay. Subscribes to
 	 * just the single active entity — not the entire questions map. */
@@ -561,7 +536,7 @@ export const FormRenderer = memo(function FormRenderer({
 			{isEditMode && (
 				<InsertionPoint
 					atIndex={0}
-					parentPath={parentPath}
+					parentUuid={parentEntityId as Uuid}
 					disabled={isDragging}
 					cursorSpeedRef={cursorSpeedRef}
 					lastCursorRef={lastCursorRef}
@@ -582,7 +557,7 @@ export const FormRenderer = memo(function FormRenderer({
 					{isEditMode && (
 						<InsertionPoint
 							atIndex={idx + 1}
-							parentPath={parentPath}
+							parentUuid={parentEntityId as Uuid}
 							disabled={isDragging}
 							cursorSpeedRef={cursorSpeedRef}
 							lastCursorRef={lastCursorRef}
@@ -665,7 +640,7 @@ export const FormRenderer = memo(function FormRenderer({
 							document.body.style.cursor = "grabbing";
 							if (ctx) {
 								builderEngine.setDragging(true);
-								builderEngine.select();
+								select(undefined);
 							}
 						}}
 						onDragOver={(event) => {
@@ -689,17 +664,7 @@ export const FormRenderer = memo(function FormRenderer({
 
 								if (canceled || !ctx || !ds) return;
 
-								const {
-									activeUuid: dragUuid,
-									activePath: dragPath,
-									itemsMap,
-									uuidToPath,
-								} = ds;
-
-								/* Helper: resolve a UUID from the items map to a QuestionPath
-								 * for mutation calls. Falls back to the pre-drag path map. */
-								const pathOf = (u: string): QuestionPath =>
-									uuidToPath.get(u) ?? ("" as QuestionPath);
+								const { activeUuid: dragUuid, itemsMap } = ds;
 
 								// Find where the item ended up in the controlled items map
 								let finalGroup: string | undefined;
@@ -715,22 +680,24 @@ export const FormRenderer = memo(function FormRenderer({
 
 								if (finalGroup === undefined || finalIndex === -1) return;
 
-								/* Determine the initial group from the dragged question's
-								 * parent. The parent UUID is encoded in the container key
-								 * for nested questions, or ROOT_GROUP for top-level ones. */
-								const draggedParentPath = qpathParent(dragPath);
-								const draggedParentUuid = draggedParentPath
-									? (() => {
-											/* Look up the parent question's UUID from the store
-											 * by finding the question whose id matches the
-											 * last segment of the parent path. */
-											const parentId = qpathId(draggedParentPath);
-											for (const [u, p] of uuidToPath.entries()) {
-												if (qpathId(p) === parentId) return u;
-											}
-											return undefined;
-										})()
-									: undefined;
+								/* Determine the initial group from the doc store's
+								 * questionOrder. Scan for the parent that contains the
+								 * dragged UUID, then map to the items-map key format. */
+								const currentDoc = builderEngine.store.getState();
+								let draggedParentUuid: string | undefined;
+								for (const [pUuid, order] of Object.entries(
+									currentDoc.questionOrder,
+								)) {
+									if (order.includes(dragUuid)) {
+										/* Parent is either a form (root level) or a group/repeat
+										 * question. Forms are root-level → ROOT_GROUP; questions
+										 * use the `:container` suffix convention. */
+										draggedParentUuid = currentDoc.questions[pUuid as Uuid]
+											? pUuid
+											: undefined;
+										break;
+									}
+								}
 								const initialGroup = draggedParentUuid
 									? `${draggedParentUuid}${CONTAINER_SUFFIX}`
 									: ROOT_GROUP;
@@ -753,78 +720,64 @@ export const FormRenderer = memo(function FormRenderer({
 										initialIds.length === finalIds.length
 									) {
 										// No movement — just select
-										builderEngine.select({
-											type: "question",
-											moduleIndex: ctx.moduleIndex,
-											formIndex: ctx.formIndex,
-											questionPath: dragPath,
-											questionUuid: dragUuid,
-										});
+										select(asUuid(dragUuid));
 										return;
 									}
 								}
 
-								/* Resolve the target parent path from the final group key. */
+								/* Resolve the target parent uuid from the final group key.
+								 * Root-level items have no explicit parent (the form is
+								 * implicit); nested items use the group/repeat uuid. */
 								const finalIds = itemsMap[finalGroup] ?? [];
 								const targetParentUuid =
 									finalGroup === ROOT_GROUP
 										? undefined
 										: stripContainerSuffix(finalGroup);
-								const targetParentPath = targetParentUuid
-									? pathOf(targetParentUuid)
-									: undefined;
-
-								let newPath: QuestionPath;
 
 								if (sameGroup) {
-									// Same-level reorder — no ID conflict possible
+									/* Same-level reorder — no ID conflict possible.
+									 * Use uuid-first moveQuestion with neighbor uuids. */
 									if (finalIndex === 0) {
 										if (finalIds.length > 1) {
-											moveQuestion_(ctx.moduleIndex, ctx.formIndex, dragPath, {
-												beforePath: pathOf(finalIds[1]),
+											moveQuestion_(asUuid(dragUuid), {
+												beforeUuid: asUuid(finalIds[1]),
 											});
 										}
 									} else {
-										moveQuestion_(ctx.moduleIndex, ctx.formIndex, dragPath, {
-											afterPath: pathOf(finalIds[finalIndex - 1]),
+										moveQuestion_(asUuid(dragUuid), {
+											afterUuid: asUuid(finalIds[finalIndex - 1]),
 										});
 									}
-									newPath = dragPath;
 								} else {
-									// Cross-group transfer — resolve neighbor paths relative
-									// to the target parent for correct tree placement.
-									// phase-1b-task-10: cross-level move auto-rename notification is synthesized
-									// by Task 10's path-to-path rewriter. Hook returns void for now.
+									/* Cross-group transfer — pass the target parent uuid so
+									 * the reducer moves the question into the new container.
+									 * phase-1b-task-10: cross-level move auto-rename notification
+									 * is deferred to Phase 3. */
 									if (finalIds.length <= 1) {
-										moveQuestion_(ctx.moduleIndex, ctx.formIndex, dragPath, {
-											targetParentPath,
+										moveQuestion_(asUuid(dragUuid), {
+											toParentUuid: targetParentUuid
+												? asUuid(targetParentUuid)
+												: undefined,
 										});
 									} else if (finalIndex === 0) {
-										const nextId = qpathId(pathOf(finalIds[1]));
-										const beforePath = qpath(nextId, targetParentPath);
-										moveQuestion_(ctx.moduleIndex, ctx.formIndex, dragPath, {
-											beforePath,
-											targetParentPath,
+										moveQuestion_(asUuid(dragUuid), {
+											toParentUuid: targetParentUuid
+												? asUuid(targetParentUuid)
+												: undefined,
+											beforeUuid: asUuid(finalIds[1]),
 										});
 									} else {
-										const prevId = qpathId(pathOf(finalIds[finalIndex - 1]));
-										const afterPath = qpath(prevId, targetParentPath);
-										moveQuestion_(ctx.moduleIndex, ctx.formIndex, dragPath, {
-											afterPath,
-											targetParentPath,
+										moveQuestion_(asUuid(dragUuid), {
+											toParentUuid: targetParentUuid
+												? asUuid(targetParentUuid)
+												: undefined,
+											afterUuid: asUuid(finalIds[finalIndex - 1]),
 										});
 									}
-
-									newPath = qpath(qpathId(dragPath), targetParentPath);
 								}
 
-								builderEngine.select({
-									type: "question",
-									moduleIndex: ctx.moduleIndex,
-									formIndex: ctx.formIndex,
-									questionPath: newPath,
-									questionUuid: dragUuid,
-								});
+								/* Select the moved question at its new position. */
+								select(asUuid(dragUuid));
 							});
 						}}
 					>
@@ -852,7 +805,7 @@ export const FormRenderer = memo(function FormRenderer({
 					payload && (
 						<QuestionTypePickerPopup
 							atIndex={payload.atIndex}
-							parentPath={payload.parentPath}
+							parentUuid={payload.parentUuid}
 						/>
 					)
 				}

@@ -18,15 +18,15 @@
 
 import type { Menu } from "@base-ui/react/menu";
 import { createContext, useContext } from "react";
-import type { QuestionPath } from "@/lib/services/questionPath";
+import type { Uuid } from "@/lib/doc/types";
 
 /** Payload sent from each InsertionPoint's `Menu.Trigger` to the shared popup.
  *  Identifies the insertion location in the form's question tree. */
 export interface QuestionPickerPayload {
 	/** Insertion index within the parent's children array. */
 	atIndex: number;
-	/** Parent path for nested questions (inside groups/repeats). */
-	parentPath?: QuestionPath;
+	/** UUID of the parent container (form for root-level, group/repeat uuid for nested). */
+	parentUuid: Uuid;
 }
 
 /** The Base UI handle type, parameterized with our payload. */
