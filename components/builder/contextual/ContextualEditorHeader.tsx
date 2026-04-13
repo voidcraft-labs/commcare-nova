@@ -21,6 +21,7 @@ import {
 } from "@/hooks/useBuilder";
 import { useCommitField } from "@/hooks/useCommitField";
 import { useSaveQuestion } from "@/hooks/useSaveQuestion";
+import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
 import { shortcutLabel } from "@/lib/platform";
 import { getConvertibleTypes } from "@/lib/questionTypeConversions";
 import { questionTypeIcons, questionTypeLabels } from "@/lib/questionTypeIcons";
@@ -75,10 +76,12 @@ function useShiftKey(): boolean {
 export function ContextualEditorHeader({ question }: QuestionEditorProps) {
 	const engine = useBuilderEngine();
 	const selected = useBuilderStore((s) => s.selected);
-	const moveQuestion = useBuilderStore((s) => s.moveQuestion);
-	const duplicateQuestion = useBuilderStore((s) => s.duplicateQuestion);
-	const removeQuestion = useBuilderStore((s) => s.removeQuestion);
-	const renameQuestionAction = useBuilderStore((s) => s.renameQuestion);
+	const {
+		moveQuestion,
+		duplicateQuestion,
+		removeQuestion,
+		renameQuestion: renameQuestionAction,
+	} = useBlueprintMutations();
 	const assembledForm = useAssembledForm(
 		selected?.moduleIndex ?? 0,
 		selected?.formIndex ?? 0,
@@ -248,16 +251,18 @@ export function ContextualEditorHeader({ question }: QuestionEditorProps) {
 			)
 				return;
 			const { direction: _, ...opts } = target;
-			const moveResult = moveQuestion(
+			// phase-1b-task-10: cross-level move auto-rename notification is synthesized
+			// by Task 10's path-to-path rewriter. Hook returns void for now.
+			moveQuestion(
 				selected.moduleIndex,
 				selected.formIndex,
 				selected.questionPath,
 				opts,
 			);
-			const newPath = moveResult.renamed
-				? moveResult.renamed.newPath
-				: qpath(qpathId(selected.questionPath), target.targetParentPath);
-			if (moveResult.renamed) engine.setRenameNotice(moveResult.renamed);
+			const newPath = qpath(
+				qpathId(selected.questionPath),
+				target.targetParentPath,
+			);
 			engine.navigateTo({ ...selected, questionPath: newPath });
 		},
 		[selected, moveQuestion, engine],
@@ -266,17 +271,18 @@ export function ContextualEditorHeader({ question }: QuestionEditorProps) {
 	const handleDuplicate = useCallback(() => {
 		if (!selected || selected.formIndex === undefined || !selected.questionPath)
 			return;
-		const { newPath, newUuid } = duplicateQuestion(
+		const result = duplicateQuestion(
 			selected.moduleIndex,
 			selected.formIndex,
 			selected.questionPath,
 		);
+		if (!result) return;
 		engine.navigateTo({
 			type: "question",
 			moduleIndex: selected.moduleIndex,
 			formIndex: selected.formIndex,
-			questionPath: newPath,
-			questionUuid: newUuid,
+			questionPath: result.newPath,
+			questionUuid: result.newUuid,
 		});
 	}, [selected, duplicateQuestion, engine]);
 
