@@ -3,6 +3,7 @@ import { Menu } from "@base-ui/react/menu";
 import { Icon } from "@iconify/react/offline";
 import tablerChevronRight from "@iconify-icons/tabler/chevron-right";
 import { useCallback, useContext } from "react";
+import { useScrollIntoView } from "@/components/builder/contexts/ScrollRegistryContext";
 import { useBuilderEngine } from "@/hooks/useBuilder";
 import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
 import { BlueprintDocContext } from "@/lib/doc/provider";
@@ -48,6 +49,7 @@ export function QuestionTypePickerPopup({
 	parentUuid,
 }: QuestionTypePickerPopupProps) {
 	const engine = useBuilderEngine();
+	const { setPending } = useScrollIntoView();
 	const select = useSelect();
 	const { addQuestion: addQuestionAction } = useBlueprintMutations();
 	const docStore = useContext(BlueprintDocContext);
@@ -93,10 +95,18 @@ export function QuestionTypePickerPopup({
 			/* Mark as new question so the UI can apply entry animations, then
 			 * select and scroll to the newly-inserted question. */
 			engine.markNewQuestion(newUuid);
-			engine.setPendingScroll(newUuid, "smooth", false);
+			setPending(newUuid, "smooth", false);
 			select(newUuid);
 		},
-		[parentUuid, atIndex, addQuestionAction, engine, select, docStore],
+		[
+			parentUuid,
+			atIndex,
+			addQuestionAction,
+			engine,
+			setPending,
+			select,
+			docStore,
+		],
 	);
 
 	return (

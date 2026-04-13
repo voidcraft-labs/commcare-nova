@@ -13,6 +13,7 @@
 
 import { useContext, useMemo } from "react";
 import { flushSync } from "react-dom";
+import { useScrollIntoView } from "@/components/builder/contexts/ScrollRegistryContext";
 import { useBuilderEngine, useBuilderStore } from "@/hooks/useBuilder";
 import { useAssembledForm } from "@/lib/doc/hooks/useAssembledForm";
 import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
@@ -45,6 +46,7 @@ import { flattenQuestionRefs } from "@/lib/services/questionPath";
 export function useUndoRedo(): { undo: () => void; redo: () => void } {
 	const docStore = useContext(BlueprintDocContext);
 	const engine = useBuilderEngine();
+	const { scrollTo } = useScrollIntoView();
 	const loc = useLocation();
 	const activeFieldId = useBuilderStore((s) => s.activeFieldId);
 
@@ -85,7 +87,7 @@ export function useUndoRedo(): { undo: () => void; redo: () => void } {
 				) as HTMLElement | null);
 			if (!flashEl) return;
 
-			engine.scrollToQuestion(selectedUuid, targetEl ?? undefined, "instant");
+			scrollTo(selectedUuid, targetEl ?? undefined, "instant");
 			engine.flashUndoHighlight(flashEl);
 		}
 
@@ -93,7 +95,7 @@ export function useUndoRedo(): { undo: () => void; redo: () => void } {
 			undo: () => run("undo"),
 			redo: () => run("redo"),
 		};
-	}, [docStore, engine, loc, activeFieldId]);
+	}, [docStore, engine, scrollTo, loc, activeFieldId]);
 }
 
 /**

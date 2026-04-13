@@ -10,6 +10,7 @@ import tablerChevronRight from "@iconify-icons/tabler/chevron-right";
 import tablerDotsVertical from "@iconify-icons/tabler/dots-vertical";
 import tablerTrash from "@iconify-icons/tabler/trash";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useScrollIntoView } from "@/components/builder/contexts/ScrollRegistryContext";
 import { SavedCheck } from "@/components/builder/EditableTitle";
 import { QuestionTypeList } from "@/components/builder/QuestionTypeList";
 import { tablerCopyPlus } from "@/components/icons/tablerExtras";
@@ -70,6 +71,7 @@ function useShiftKey(): boolean {
 
 export function ContextualEditorHeader({ question }: QuestionEditorProps) {
 	const engine = useBuilderEngine();
+	const { setPending } = useScrollIntoView();
 	const loc = useLocation();
 	const select = useSelect();
 
@@ -298,9 +300,9 @@ export function ContextualEditorHeader({ question }: QuestionEditorProps) {
 				afterUuid,
 			});
 			/* Scroll to the question at its new position. */
-			engine.setPendingScroll(selectedUuid, "smooth", false);
+			setPending(selectedUuid, "smooth", false);
 		},
-		[selectedUuid, formUuid, moveQuestion, findUuidByPath, engine],
+		[selectedUuid, formUuid, moveQuestion, findUuidByPath, setPending],
 	);
 
 	const handleDuplicate = useCallback(() => {
@@ -308,9 +310,9 @@ export function ContextualEditorHeader({ question }: QuestionEditorProps) {
 		const result = duplicateQuestion(asUuid(selectedUuid));
 		if (!result) return;
 		/* Select the new clone and scroll to it. */
-		engine.setPendingScroll(result.newUuid, "smooth", false);
+		setPending(result.newUuid, "smooth", false);
 		select(asUuid(result.newUuid));
-	}, [selectedUuid, duplicateQuestion, engine, select]);
+	}, [selectedUuid, duplicateQuestion, setPending, select]);
 
 	/** Delete uses the `useDeleteSelectedQuestion` hook which handles
 	 *  neighbor selection and URL update. */

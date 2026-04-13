@@ -27,6 +27,10 @@ import { act, renderHook } from "@testing-library/react";
 import { ReadonlyURLSearchParams } from "next/navigation";
 import type { ReactNode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import {
+	ScrollRegistryProvider,
+	useRegisterScrollCallback,
+} from "@/components/builder/contexts/ScrollRegistryContext";
 import { BlueprintDocContext } from "@/lib/doc/provider";
 import { createBlueprintDocStore } from "@/lib/doc/store";
 import { asUuid } from "@/lib/doc/types";
@@ -139,12 +143,23 @@ function makeStore() {
 	return store;
 }
 
+/** Registers the `scrollToQuestion` spy as the scroll registry callback
+ *  so `useUndoRedo`'s `scrollTo(...)` dispatches through the spy. */
+function ScrollCallbackInstaller({ children }: { children: ReactNode }) {
+	useRegisterScrollCallback(scrollToQuestion);
+	return <>{children}</>;
+}
+
 function wrap(store: ReturnType<typeof makeStore>) {
 	return function Wrapper({ children }: { children: ReactNode }) {
 		return (
-			<BlueprintDocContext.Provider value={store}>
-				{children}
-			</BlueprintDocContext.Provider>
+			<ScrollRegistryProvider>
+				<ScrollCallbackInstaller>
+					<BlueprintDocContext.Provider value={store}>
+						{children}
+					</BlueprintDocContext.Provider>
+				</ScrollCallbackInstaller>
+			</ScrollRegistryProvider>
 		);
 	};
 }
@@ -314,6 +329,7 @@ describe("useUndoRedo", () => {
 			"q-a-0000-0000-0000-000000000000",
 			fakeEl,
 			"instant",
+			undefined,
 		);
 		expect(flashUndoHighlight).toHaveBeenCalledWith(fakeEl);
 		expect(setFocusHint).not.toHaveBeenCalled();

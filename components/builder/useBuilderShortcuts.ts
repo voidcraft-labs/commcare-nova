@@ -1,4 +1,5 @@
 import { useMemo } from "react";
+import { useScrollIntoView } from "@/components/builder/contexts/ScrollRegistryContext";
 import { useBuilderEngine, useBuilderIsReady } from "@/hooks/useBuilder";
 import { useAssembledForm } from "@/lib/doc/hooks/useAssembledForm";
 import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
@@ -39,6 +40,7 @@ export function useBuilderShortcuts(
 	const loc = useLocation();
 	const select = useSelect();
 	const engine = useBuilderEngine();
+	const { setPending } = useScrollIntoView();
 	const deleteSelected = useDeleteSelectedQuestion();
 	const { undo, redo } = useUndoRedo();
 	const { duplicateQuestion, moveQuestion } = useBlueprintMutations();
@@ -76,7 +78,7 @@ export function useBuilderShortcuts(
 		/** Navigate to a question by uuid — update selection via URL and
 		 *  request a scroll to bring the question into view. */
 		const navigateToQuestion = (uuid: string): void => {
-			engine.setPendingScroll(uuid, "smooth", false);
+			setPending(uuid, "smooth", false);
 			select(asUuid(uuid));
 		};
 
@@ -279,6 +281,7 @@ export function useBuilderShortcuts(
 		form,
 		formUuid,
 		engine,
+		setPending,
 		select,
 		handleCursorModeChange,
 		deleteSelected,
