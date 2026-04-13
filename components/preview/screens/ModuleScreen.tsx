@@ -10,8 +10,8 @@ import {
 	useBuilderStore,
 	useModule,
 	useOrderedForms,
-	useScreenData,
 } from "@/hooks/useBuilder";
+import type { PreviewScreen } from "@/lib/preview/engine/types";
 import { selectEditMode, selectIsReady } from "@/lib/services/builderSelectors";
 
 const formTypeIcons = {
@@ -20,9 +20,14 @@ const formTypeIcons = {
 	survey: tablerFile,
 } as const;
 
-export function ModuleScreen() {
-	const screen = useScreenData("module");
-	const moduleIndex = screen?.moduleIndex ?? 0;
+interface ModuleScreenProps {
+	/** This screen's identity — which module is being displayed. Passed from
+	 *  PreviewShell so the component remains valid while Activity hides it. */
+	screen: Extract<PreviewScreen, { type: "module" }>;
+}
+
+export function ModuleScreen({ screen }: ModuleScreenProps) {
+	const moduleIndex = screen.moduleIndex;
 	const navPush = useBuilderStore((s) => s.navPush);
 	const updateModule = useBuilderStore((s) => s.updateModule);
 	const isReady = useBuilderStore(selectIsReady);
@@ -43,7 +48,7 @@ export function ModuleScreen() {
 		setTimeout(() => setSaved(false), 1500);
 	}, []);
 
-	if (!screen || !mod) return null;
+	if (!mod) return null;
 
 	const hasCase = !!mod.caseType;
 	const canEdit = mode === "edit" && isReady;

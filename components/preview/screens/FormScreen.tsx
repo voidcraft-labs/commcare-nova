@@ -5,20 +5,23 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { FormTypeButton } from "@/components/builder/detail/FormDetail";
 import { FormSettingsButton } from "@/components/builder/detail/FormSettingsPanel";
 import { EditableTitle, SavedCheck } from "@/components/builder/EditableTitle";
-import {
-	useBuilderStore,
-	useForm,
-	useModule,
-	useScreenData,
-} from "@/hooks/useBuilder";
+import { useBuilderStore, useForm, useModule } from "@/hooks/useBuilder";
 import { EditContextProvider } from "@/hooks/useEditContext";
 import { EngineControllerContext, useFormEngine } from "@/hooks/useFormEngine";
 import { getCaseData, getDummyCases } from "@/lib/preview/engine/dummyData";
+import type { PreviewScreen } from "@/lib/preview/engine/types";
 import { defaultPostSubmit } from "@/lib/schemas/blueprint";
 import { selectEditMode, selectIsReady } from "@/lib/services/builderSelectors";
 import { FormRenderer } from "../form/FormRenderer";
 
 interface FormScreenProps {
+	/** This screen's identity — which form is being displayed. Passed from
+	 *  PreviewShell rather than read from the global store: Activity can
+	 *  hide this component, at which point the global "current screen" has
+	 *  moved on, but this component's own identity hasn't. Keeping identity
+	 *  as a prop means the subtree stays valid while hidden (no null render,
+	 *  no destroyed tree) and Activity can do its job of preserving state. */
+	screen: Extract<PreviewScreen, { type: "form" }>;
 	/** Back handler override — used by BuilderLayout to sync selection on back navigation.
 	 *  Also used as the fallback post-submit destination for `previous` forms. */
 	onBack: () => void;
@@ -32,15 +35,14 @@ interface FormScreenProps {
  * The EngineController manages its own runtime store via selective
  * blueprint store subscriptions that fire outside the React render cycle.
  *
- * No memo needed — PreviewShell re-renders only when screen or mode change,
- * which are cases where FormScreen should re-render too. All internal state
- * comes from targeted Zustand selectors.
+ * Screen identity (moduleIndex, formIndex, caseId) arrives as a prop from
+ * PreviewShell so the component remains valid while Activity hides it.
+ * All other data still comes from targeted Zustand selectors.
  */
-export function FormScreen({ onBack }: FormScreenProps) {
-	const screen = useScreenData("form");
-	const moduleIndex = screen?.moduleIndex ?? 0;
-	const formIndex = screen?.formIndex ?? 0;
-	const caseId = screen?.caseId;
+export function FormScreen({ screen, onBack }: FormScreenProps) {
+	const moduleIndex = screen.moduleIndex;
+	const formIndex = screen.formIndex;
+	const caseId = screen.caseId;
 	const caseTypes = useBuilderStore((s) => s.caseTypes);
 	const selected = useBuilderStore((s) => s.selected);
 	const updateForm = useBuilderStore((s) => s.updateForm);
@@ -115,7 +117,7 @@ export function FormScreen({ onBack }: FormScreenProps) {
 		[mode, selected?.questionUuid],
 	);
 
-	if (!screen || !form || !formId) return null;
+	if (!form || !formId) return null;
 
 	if (mode === "test" && form.type === "followup" && !caseData) {
 		return (

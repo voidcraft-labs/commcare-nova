@@ -612,6 +612,16 @@ body {
 	cursor: pointer;
 }
 
+/* ── Question rendering performance ────────────────────────────────────
+ * Skip layout/paint for off-screen questions. The browser restores full
+ * layout as elements scroll into view. `auto` in contain-intrinsic-size
+ * uses the last-known rendered height once available, falling back to
+ * 80px for the initial estimate (keeps scrollbar calculations stable). */
+[data-question-uuid] {
+	content-visibility: auto;
+	contain-intrinsic-size: auto 80px;
+}
+
 /* Subtle noise texture overlay */
 .nova-noise::before {
 	content: "";

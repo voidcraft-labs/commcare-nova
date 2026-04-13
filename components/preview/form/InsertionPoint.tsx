@@ -1,12 +1,38 @@
+/**
+ * InsertionPoint — hover-reveal gap between questions for inserting new fields.
+ *
+ * Two-phase rendering for performance:
+ *
+ * 1. **Lazy shell** (initial mount): A minimal 24px div with a single `useState`
+ *    hook. Inflates to the full UI on first mouse entry. For a 25-question form,
+ *    this reduces 26 InsertionPoints from ~338 hooks to ~26 hooks at mount time.
+ *
+ * 2. **Full InsertionPoint** (after first hover): Hover detection logic with
+ *    EMA-smoothed cursor speed gating, a detached `Menu.Trigger` connected to
+ *    the shared `QuestionTypePickerPopup` via `Menu.createHandle()`, and a
+ *    `Tooltip` wrapper. No `Menu.Root` or popup content — the single shared
+ *    instance in `FormRenderer` serves all InsertionPoints.
+ *
+ * The shared menu pattern uses Base UI's official detached trigger API:
+ * each InsertionPoint sends its context (`atIndex`, `parentPath`) as payload
+ * to the shared `Menu.Root` via the handle. The popup reads the payload to
+ * determine where to insert the new question.
+ */
 "use client";
 import { Menu } from "@base-ui/react/menu";
 import { Icon } from "@iconify/react/offline";
 import tablerPlus from "@iconify-icons/tabler/plus";
-import { type RefObject, useCallback, useRef, useState } from "react";
+import {
+	type RefObject,
+	useCallback,
+	useEffect,
+	useRef,
+	useState,
+} from "react";
 import { Tooltip } from "@/components/ui/Tooltip";
 import { useEditContext } from "@/hooks/useEditContext";
 import type { QuestionPath } from "@/lib/services/questionPath";
-import { QuestionTypePickerPopup } from "./QuestionTypePicker";
+import { useQuestionPicker } from "./QuestionPickerContext";
 
 /** Speed threshold in px/ms. Above this = cursor is traversing, don't open. */
 const SPEED_THRESHOLD = 0.01;
@@ -26,36 +52,60 @@ interface InsertionPointProps {
 }
 
 /**
- * Hover-reveal insertion gap between questions.
- *
- * Occupies a fixed resting height (the gap between questions) and reveals a
- * visible divider line with a centred "+" button on hover. The hover detector
- * covers only the insertion point's own area — no negative margins extending
- * into adjacent question space — so the user won't accidentally trigger it
- * while interacting with a nearby field.
- *
- * The button is a `Menu.Trigger` inside a `Menu.Root`, so Base UI fully manages
- * the menu lifecycle — floating tree, dismiss, focus return, and submenu
- * safe-polygon all work natively. Clicks anywhere in the gap open the menu
- * via controlled state (`setMenuOpen(true)`) with a one-interaction guard
- * against Base UI's outside-click immediately closing it.
+ * Lazy shell: a minimal 24px div that inflates the full InsertionPoint
+ * on first mouse entry. Avoids mounting hover-detection hooks, Menu.Trigger,
+ * and Tooltip for all 26+ insertion points until the user actually approaches.
  */
-export function InsertionPoint({
+export function InsertionPoint(props: InsertionPointProps) {
+	const ctx = useEditContext();
+	const [activated, setActivated] = useState(false);
+
+	if (!ctx || ctx.mode === "test") return null;
+	if (props.disabled) return null;
+
+	if (!activated) {
+		return (
+			// biome-ignore lint/a11y/noStaticElementInteractions: lazy shell — mouseenter inflates the full interactive InsertionPoint, no keyboard interaction needed
+			<div
+				style={{ height: 24 }}
+				onMouseEnter={() => setActivated(true)}
+				data-insertion-point
+			/>
+		);
+	}
+
+	return <FullInsertionPoint {...props} />;
+}
+
+// ── Full InsertionPoint (inflated on first hover) ────────────────────
+
+/**
+ * The fully-interactive InsertionPoint with hover detection, speed gating,
+ * detached menu trigger, and tooltip. Mounts only after the lazy shell
+ * receives its first mouseenter event.
+ */
+function FullInsertionPoint({
 	atIndex,
 	parentPath,
 	disabled,
 	cursorSpeedRef,
 	lastCursorRef,
 }: InsertionPointProps) {
-	const ctx = useEditContext();
-	const [hovered, setHovered] = useState(false);
-	const [menuOpen, setMenuOpen] = useState(false);
+	const pickerCtx = useQuestionPicker();
+	const [hovered, setHovered] = useState(true); // start hovered since we inflated on mouseenter
 	const triggerRef = useRef<HTMLButtonElement>(null);
 	const pendingRef = useRef(false);
 	const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
-	/** Guards against Base UI's outside-click detection immediately closing
-	 *  the menu when it was just opened programmatically from the detector. */
-	const justOpenedRef = useRef(false);
+
+	/* Subscribe to menu close events from the shared Menu.Root so we can
+	 * collapse the hover line when the user finishes selecting a question type
+	 * or clicks outside the popup. */
+	useEffect(() => {
+		if (!pickerCtx) return;
+		return pickerCtx.subscribeClose(() => {
+			setHovered(false);
+		});
+	}, [pickerCtx]);
 
 	const clearPoll = useCallback(() => {
 		if (pollRef.current) {
@@ -64,6 +114,14 @@ export function InsertionPoint({
 		}
 	}, []);
 
+	/* Clean up the speed-gating poll interval on unmount. Without this,
+	 * starting a drag while the EMA polling loop is active (fast cursor
+	 * sweep + drag start) leaks the setInterval against an unmounted
+	 * component — FullInsertionPoint unmounts when `disabled` becomes true. */
+	useEffect(() => {
+		return () => clearPoll();
+	}, [clearPoll]);
+
 	const show = useCallback(() => {
 		clearPoll();
 		pendingRef.current = false;
@@ -71,8 +129,6 @@ export function InsertionPoint({
 	}, [clearPoll]);
 
 	const handleMouseEnter = useCallback(() => {
-		/* Don't re-trigger hover animation while the menu is showing. */
-		if (menuOpen) return;
 		const fast = (cursorSpeedRef?.current ?? 0) > SPEED_THRESHOLD;
 		if (!fast) {
 			show();
@@ -91,7 +147,7 @@ export function InsertionPoint({
 				}
 			}, POLL_INTERVAL);
 		}
-	}, [menuOpen, cursorSpeedRef, lastCursorRef, show, clearPoll]);
+	}, [cursorSpeedRef, lastCursorRef, show, clearPoll]);
 
 	const handleMouseMove = useCallback(() => {
 		if (!pendingRef.current) return;
@@ -102,32 +158,23 @@ export function InsertionPoint({
 	const handleMouseLeave = useCallback(() => {
 		clearPoll();
 		pendingRef.current = false;
-		/* Keep the insertion line visible while the menu is open — the user
-		 * may have moved their pointer into a portal-rendered submenu. */
-		if (!menuOpen) setHovered(false);
-	}, [menuOpen, clearPoll]);
+		/* Keep the insertion line visible while the shared menu is open — the
+		 * user may have moved their pointer into a portal-rendered submenu. The
+		 * subscribeClose listener handles cleanup when the menu eventually closes. */
+		if (!pickerCtx?.handle.isOpen) setHovered(false);
+	}, [pickerCtx, clearPoll]);
 
-	/** Open the menu programmatically when clicking anywhere in the gap.
-	 *  Uses controlled state rather than dispatching synthetic events to the
-	 *  trigger — a synthetic mousedown would open the menu, but the native
-	 *  click that follows is treated as "outside" by Base UI's floating
-	 *  dismiss (the detector isn't part of the menu tree), closing it
-	 *  immediately. The `justOpenedRef` guard lets `handleOpenChange` ignore
-	 *  that spurious close within the same pointer interaction. Cleared on
-	 *  the next pointerdown so normal dismiss works for subsequent clicks. */
+	/** Click anywhere in the gap → forward to the actual Menu.Trigger button.
+	 *  Since the trigger is a detached Menu.Trigger with the shared handle,
+	 *  Base UI handles open state, positioning, and FloatingTreeStore registration
+	 *  correctly. No `justOpenedRef` guard needed — the click originates from
+	 *  the trigger element itself, so Base UI recognizes it as an inside-tree
+	 *  interaction and won't immediately dismiss. */
 	const handleDetectorMouseDown = useCallback((e: React.MouseEvent) => {
 		if (e.button !== 0) return;
 		e.stopPropagation();
 		e.preventDefault();
-		justOpenedRef.current = true;
-		setMenuOpen(true);
-		document.addEventListener(
-			"pointerdown",
-			() => {
-				justOpenedRef.current = false;
-			},
-			{ once: true },
-		);
+		triggerRef.current?.click();
 	}, []);
 
 	/** Prevent click from bubbling to parent question wrappers. */
@@ -135,21 +182,9 @@ export function InsertionPoint({
 		e.stopPropagation();
 	}, []);
 
-	/** Sync local visual state when the Base UI menu opens or closes.
-	 *  Base UI's FloatingTreeStore handles dismissing competing floating
-	 *  elements automatically (outside-click). Ignores the spurious close
-	 *  that fires in the same frame as a programmatic open from the detector.
-	 *  Resets hover state on close so the insertion line collapses. */
-	const handleOpenChange = useCallback((nextOpen: boolean) => {
-		if (!nextOpen && justOpenedRef.current) return;
-		setMenuOpen(nextOpen);
-		if (!nextOpen) setHovered(false);
-	}, []);
-
-	if (!ctx || ctx.mode === "test") return null;
 	if (disabled) return null;
 
-	const isActive = hovered || menuOpen;
+	const isActive = hovered;
 
 	return (
 		<div
@@ -167,7 +202,7 @@ export function InsertionPoint({
 			 * won't accidentally trigger it from an adjacent question field.
 			 * Semantic <button> with tabIndex={-1} so keyboard users skip it (they
 			 * use the visible "+" button below). aria-hidden keeps it out of the
-			 * a11y tree. Clicks open the menu via controlled state. */}
+			 * a11y tree. Clicks forward to the Menu.Trigger via ref. */}
 			<button
 				type="button"
 				tabIndex={-1}
@@ -188,23 +223,21 @@ export function InsertionPoint({
 			>
 				<div className="flex-1 h-px bg-nova-violet/40" />
 
-				{/* Menu.Root owns the full menu lifecycle. The controlled `open` prop
-				 * lets the invisible hover detector open the menu programmatically,
-				 * while useImplicitActiveTrigger ensures the trigger element is
-				 * claimed even when opened via the controlled prop. */}
-				<Menu.Root open={menuOpen} onOpenChange={handleOpenChange}>
-					<Tooltip content="Insert question">
-						<Menu.Trigger
-							ref={triggerRef}
-							className="mx-1 w-5 h-5 flex items-center justify-center rounded-full bg-nova-surface border border-nova-violet/40 text-nova-violet hover:bg-nova-violet/10 transition-colors cursor-pointer shrink-0 outline-none"
-							aria-label="Insert question"
-							onClick={stopClick}
-						>
-							<Icon icon={tablerPlus} width="12" height="12" />
-						</Menu.Trigger>
-					</Tooltip>
-					<QuestionTypePickerPopup atIndex={atIndex} parentPath={parentPath} />
-				</Menu.Root>
+				{/* Detached trigger connected to the shared Menu.Root in FormRenderer.
+				 *  The payload carries this InsertionPoint's location so the shared
+				 *  QuestionTypePickerPopup knows where to insert the new question. */}
+				<Tooltip content="Insert question">
+					<Menu.Trigger
+						ref={triggerRef}
+						handle={pickerCtx?.handle}
+						payload={{ atIndex, parentPath }}
+						className="mx-1 w-5 h-5 flex items-center justify-center rounded-full bg-nova-surface border border-nova-violet/40 text-nova-violet hover:bg-nova-violet/10 transition-colors cursor-pointer shrink-0 outline-none"
+						aria-label="Insert question"
+						onClick={stopClick}
+					>
+						<Icon icon={tablerPlus} width="12" height="12" />
+					</Menu.Trigger>
+				</Tooltip>
 
 				<div className="flex-1 h-px bg-nova-violet/40" />
 			</div>

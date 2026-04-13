@@ -12,7 +12,7 @@
 "use client";
 import tablerBrowser from "@iconify-icons/tabler/browser";
 import tablerDeviceMobile from "@iconify-icons/tabler/device-mobile";
-import { useCallback, useMemo, useState } from "react";
+import { memo, useCallback, useMemo, useState } from "react";
 import { UploadToHqDialog } from "@/components/builder/UploadToHqDialog";
 import type { ExportOption } from "@/components/ui/ExportDropdown";
 import { ExportDropdown } from "@/components/ui/ExportDropdown";
@@ -30,7 +30,13 @@ interface ExportPanelProps {
 	commcareDomain: { name: string; displayName: string } | null;
 }
 
-export function ExportPanel({
+/**
+ * Memoized to prevent parent-cascade re-renders from BuilderSubheader.
+ * BuilderSubheader re-renders on breadcrumb/navigation changes (correct),
+ * but ExportPanel's props (commcareConfigured, commcareDomain) are stable
+ * across navigations — the cascade is pure waste (profiler: 16ms wasted).
+ */
+export const ExportPanel = memo(function ExportPanel({
 	commcareConfigured,
 	commcareDomain,
 }: ExportPanelProps) {
@@ -143,4 +149,4 @@ export function ExportPanel({
 			/>
 		</>
 	);
-}
+});
