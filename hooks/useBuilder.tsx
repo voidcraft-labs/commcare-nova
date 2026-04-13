@@ -30,7 +30,6 @@ import { useStoreWithEqualityFn } from "zustand/traditional";
 import { LocationRecoveryEffect } from "@/components/builder/LocationRecoveryEffect";
 import { startSyncOldFromDoc } from "@/lib/doc/adapters/syncOldFromDoc";
 import { useAssembledForm as useAssembledFormDoc } from "@/lib/doc/hooks/useAssembledForm";
-import { useBlueprintDoc } from "@/lib/doc/hooks/useBlueprintDoc";
 import { useQuestion as useQuestionDoc } from "@/lib/doc/hooks/useEntity";
 import {
 	useOrderedForms as useOrderedFormsDoc,
@@ -38,17 +37,12 @@ import {
 } from "@/lib/doc/hooks/useModuleIds";
 import { BlueprintDocContext, BlueprintDocProvider } from "@/lib/doc/provider";
 import type { Uuid } from "@/lib/doc/types";
-import type { PreviewScreen } from "@/lib/preview/engine/types";
 import type { AppBlueprint, BlueprintForm } from "@/lib/schemas/blueprint";
 import type { TreeData } from "@/lib/services/builder";
-import { BuilderPhase, type SelectedElement } from "@/lib/services/builder";
+import { BuilderPhase } from "@/lib/services/builder";
 import { BuilderEngine } from "@/lib/services/builderEngine";
 import {
-	type BreadcrumbItem,
-	deriveBreadcrumbs,
 	deriveTreeData,
-	selectCanGoBack,
-	selectCanGoUp,
 	selectHasData,
 	selectInReplayMode,
 	selectIsReady,
@@ -126,11 +120,6 @@ export function useBuilderPhase(): BuilderPhase {
 	return useBuilderStore((s) => s.phase);
 }
 
-/** Currently selected module/form/question. */
-export function useBuilderSelected(): SelectedElement | undefined {
-	return useBuilderStore((s) => s.selected);
-}
-
 /** True when the builder has entity data and is interactive (Ready or Completed). */
 export function useBuilderIsReady(): boolean {
 	return useBuilderStore(selectIsReady);
@@ -184,11 +173,6 @@ export function useBuilderAgentActive(): boolean {
 	return useBuilderStore((s) => s.agentActive);
 }
 
-/** Current preview screen (home, module, caseList, form). */
-export function useBuilderScreen(): PreviewScreen {
-	return useBuilderStore((s) => s.screen);
-}
-
 /** Current cursor mode (inspect, text, pointer). */
 export function useBuilderCursorMode(): CursorMode {
 	return useBuilderStore((s) => s.cursorMode);
@@ -197,16 +181,6 @@ export function useBuilderCursorMode(): CursorMode {
 /** True when the builder is in replay mode (stages loaded in store). */
 export function useBuilderInReplayMode(): boolean {
 	return useBuilderStore(selectInReplayMode);
-}
-
-/** Whether the user can navigate back in preview history. */
-export function useBuilderCanGoBack(): boolean {
-	return useBuilderStore(selectCanGoBack);
-}
-
-/** Whether the current screen has a parent (i.e. not home). */
-export function useBuilderCanGoUp(): boolean {
-	return useBuilderStore(selectCanGoUp);
 }
 
 // ── Entity hooks — select specific entities by index ───────────────────
@@ -264,82 +238,6 @@ export function useAssembledForm(
 	const forms = useOrderedFormsDoc((modUuid ?? "") as Uuid);
 	const formUuid = forms[fIdx]?.uuid ?? ("" as unknown as Uuid);
 	return useAssembledFormDoc(formUuid);
-}
-
-/**
- * Breadcrumb items derived from the current screen + entity names.
- *
- * Selects primitive strings (appName, moduleName, formName) — not entity maps.
- * Renaming an unrelated module doesn't change the string selected, so the
- * component doesn't re-render. No custom equality function needed.
- */
-export function useBreadcrumbs(): BreadcrumbItem[] {
-	const screen = useBuilderStore((s) => s.screen);
-	const appName = useBlueprintDoc((s) => s.appName);
-
-	// moduleName/formName/moduleCaseType resolve `screen` indices (session
-	// state on the legacy store) against the entity maps. Phase 1b leaves
-	// these on the legacy store; they move when `screen` migrates to URL
-	// state in Phase 2.
-	const moduleName = useBuilderStore((s) => {
-		if (!("moduleIndex" in screen)) return undefined;
-		const mId = s.moduleOrder[screen.moduleIndex];
-		return mId ? s.modules[mId]?.name : undefined;
-	});
-
-	const formName = useBuilderStore((s) => {
-		if (!("formIndex" in screen)) return undefined;
-		const mId = s.moduleOrder[(screen as { moduleIndex: number }).moduleIndex];
-		const fId = mId
-			? s.formOrder[mId]?.[(screen as { formIndex: number }).formIndex]
-			: undefined;
-		return fId ? s.forms[fId]?.name : undefined;
-	});
-
-	/* Resolve case-related data for form screens with case context */
-	const moduleCaseType = useBuilderStore((s) => {
-		if (!("moduleIndex" in screen)) return undefined;
-		const mId = s.moduleOrder[screen.moduleIndex];
-		return mId ? s.modules[mId]?.caseType : undefined;
-	});
-
-	const caseId =
-		screen.type === "form" ? (screen as { caseId?: string }).caseId : undefined;
-
-	return useMemo(
-		() =>
-			deriveBreadcrumbs(
-				screen,
-				appName,
-				moduleName,
-				formName,
-				caseId,
-				moduleCaseType,
-			),
-		[screen, appName, moduleName, formName, caseId, moduleCaseType],
-	);
-}
-
-/**
- * Returns true if the specified question is currently selected.
- *
- * Each EditableQuestionWrapper calls this with its own identity. The selector
- * returns a boolean, so when selection changes from question A to B, only
- * A's wrapper (true→false) and B's wrapper (false→true) re-render. All other
- * wrappers return the same `false` and skip rendering entirely.
- */
-export function useIsQuestionSelected(
-	moduleIndex: number,
-	formIndex: number,
-	questionUuid: string,
-): boolean {
-	return useBuilderStore(
-		(s) =>
-			s.selected?.type === "question" &&
-			s.selected.moduleIndex === moduleIndex &&
-			s.selected.formIndex === formIndex &&
-			s.selected.questionUuid === questionUuid,
-	);
 }
 
 // ── Provider ────────────────────────────────────────────────────────────

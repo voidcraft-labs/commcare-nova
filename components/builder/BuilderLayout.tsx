@@ -301,17 +301,7 @@ export function BuilderLayout({
 
 	// ── Keyboard shortcuts ──────────────────────────────────────────────
 
-	const handleUndo = useCallback(() => builder.undo(), [builder]);
-	const handleRedo = useCallback(() => builder.redo(), [builder]);
-	const handleDelete = useCallback(() => builder.deleteSelected(), [builder]);
-
-	const shortcuts = useBuilderShortcuts(
-		builder,
-		handleCursorModeChange,
-		handleDelete,
-		handleUndo,
-		handleRedo,
-	);
+	const shortcuts = useBuilderShortcuts(handleCursorModeChange);
 
 	useKeyboardShortcuts("builder-layout", shortcuts);
 
