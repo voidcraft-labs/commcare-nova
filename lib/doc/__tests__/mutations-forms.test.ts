@@ -226,3 +226,74 @@ describe("updateForm", () => {
 		expect(next.forms[F("1")]?.type).toBe("registration");
 	});
 });
+
+describe("replaceForm", () => {
+	it("swaps entity, questions, and questionOrder atomically", () => {
+		const start: BlueprintDoc = {
+			...docWithModule(M("A")),
+			forms: { [F("1")]: form_(F("1"), "Old") },
+			questions: {
+				[Q("old1")]: { uuid: Q("old1"), id: "old", type: "text" } as never,
+			},
+			formOrder: { [M("A")]: [F("1")] },
+			questionOrder: { [F("1")]: [Q("old1")] },
+		};
+		const next = produce(start, (d) => {
+			applyMutation(d, {
+				kind: "replaceForm",
+				uuid: F("1"),
+				form: { uuid: F("1"), name: "New", type: "registration" } as FormEntity,
+				questions: [
+					{ uuid: Q("new1"), id: "new1", type: "text" } as never,
+					{ uuid: Q("new2"), id: "new2", type: "int" } as never,
+				],
+				questionOrder: { [F("1")]: [Q("new1"), Q("new2")] },
+			});
+		});
+		expect(next.forms[F("1")]?.name).toBe("New");
+		expect(next.forms[F("1")]?.type).toBe("registration");
+		expect(next.questions[Q("old1")]).toBeUndefined();
+		expect(next.questions[Q("new1")]?.id).toBe("new1");
+		expect(next.questionOrder[F("1")]).toEqual([Q("new1"), Q("new2")]);
+	});
+
+	it("populates nested questionOrder for groups in the replacement", () => {
+		const start: BlueprintDoc = {
+			...docWithModule(M("A")),
+			forms: { [F("1")]: form_(F("1")) },
+			questions: {},
+			formOrder: { [M("A")]: [F("1")] },
+			questionOrder: { [F("1")]: [] },
+		};
+		const next = produce(start, (d) => {
+			applyMutation(d, {
+				kind: "replaceForm",
+				uuid: F("1"),
+				form: form_(F("1")),
+				questions: [
+					{ uuid: Q("grp"), id: "grp", type: "group" } as never,
+					{ uuid: Q("child"), id: "child", type: "text" } as never,
+				],
+				questionOrder: {
+					[F("1")]: [Q("grp")],
+					[Q("grp")]: [Q("child")],
+				},
+			});
+		});
+		expect(next.questionOrder[F("1")]).toEqual([Q("grp")]);
+		expect(next.questionOrder[Q("grp")]).toEqual([Q("child")]);
+	});
+
+	it("is a no-op when the target form doesn't exist", () => {
+		const next = produce(docWithModule(M("A")), (d) => {
+			applyMutation(d, {
+				kind: "replaceForm",
+				uuid: F("missing"),
+				form: form_(F("missing")),
+				questions: [],
+				questionOrder: { [F("missing")]: [] },
+			});
+		});
+		expect(next.forms[F("missing")]).toBeUndefined();
+	});
+});

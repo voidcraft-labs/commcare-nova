@@ -1,6 +1,6 @@
 import type { Draft } from "immer";
 import type { BlueprintDoc, Mutation } from "@/lib/doc/types";
-import { cascadeDeleteForm } from "./helpers";
+import { cascadeDeleteForm, cascadeDeleteQuestion } from "./helpers";
 
 /**
  * Form mutations. `replaceForm` is handled in a dedicated branch because it
@@ -84,8 +84,27 @@ export function applyFormMutation(
 			return;
 		}
 		case "replaceForm": {
-			// Filled in by Task 7.
-			throw new Error("replaceForm not implemented");
+			const existing = draft.forms[mut.uuid];
+			if (!existing) return;
+			// Drop the old question subtree (but don't touch formOrder — the
+			// form stays in its module at the same position).
+			const oldTop = draft.questionOrder[mut.uuid] ?? [];
+			for (const qUuid of [...oldTop]) {
+				cascadeDeleteQuestion(draft, qUuid);
+			}
+			// Swap the entity.
+			draft.forms[mut.uuid] = mut.form;
+			// Install the new questions.
+			for (const q of mut.questions) {
+				draft.questions[q.uuid] = q;
+			}
+			// Install the new ordering maps. Each entry replaces whatever
+			// was there before (covers the top-level form slot and any nested
+			// group/repeat containers).
+			for (const [parent, order] of Object.entries(mut.questionOrder)) {
+				draft.questionOrder[parent as keyof typeof draft.questionOrder] = order;
+			}
+			return;
 		}
 	}
 }
