@@ -4,7 +4,7 @@ import { act, renderHook } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { describe, expect, it } from "vitest";
 import { useAssembledForm } from "@/lib/doc/hooks/useAssembledForm";
-import { useForm, useModule, useQuestion } from "@/lib/doc/hooks/useEntity";
+import { useModule, useQuestion } from "@/lib/doc/hooks/useEntity";
 import {
 	useModuleIds,
 	useOrderedForms,
@@ -91,7 +91,7 @@ describe("useModule / useForm / useQuestion", () => {
 
 describe("useModuleIds / useOrderedModules", () => {
 	it("useModuleIds returns the moduleOrder array", () => {
-		const { store, wrapper, moduleUuid } = setup();
+		const { wrapper, moduleUuid } = setup();
 		const { result } = renderHook(() => useModuleIds(), { wrapper });
 		expect(result.current).toEqual([moduleUuid]);
 	});

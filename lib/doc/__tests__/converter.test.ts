@@ -1,11 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { toBlueprint, toDoc } from "@/lib/doc/converter";
-import {
-	asUuid,
-	type BlueprintDoc,
-	type ModuleEntity,
-	type Uuid,
-} from "@/lib/doc/types";
+import { asUuid, type BlueprintDoc, type ModuleEntity } from "@/lib/doc/types";
 import type { AppBlueprint } from "@/lib/schemas/blueprint";
 
 const APP_ID = "test-app-id";
