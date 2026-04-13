@@ -16,7 +16,7 @@ import { flushSync } from "react-dom";
 import { useBuilderEngine, useBuilderStore } from "@/hooks/useBuilder";
 import { useAssembledForm } from "@/lib/doc/hooks/useAssembledForm";
 import { BlueprintDocContext } from "@/lib/doc/provider";
-import { asUuid, type Uuid } from "@/lib/doc/types";
+import { asUuid } from "@/lib/doc/types";
 import { useLocation, useSelect } from "@/lib/routing/hooks";
 import { flattenQuestionRefs } from "@/lib/services/questionPath";
 
@@ -28,6 +28,18 @@ import { flattenQuestionRefs } from "@/lib/services/questionPath";
  *   - If the current URL has a `sel=` uuid, scroll to that question's
  *     field (or the question card itself when no activeFieldId is set).
  *   - Otherwise no scroll — the user wasn't focused on a specific row.
+ *
+ * Cross-form undo limitation (see spec Section 4 "undo flash" table):
+ *   The URL's `sel=` carries "where the user is looking right now," not
+ *   "where the undone mutation happened." When the undone mutation was
+ *   in a different form, the restored selected uuid has no DOM element
+ *   in the current viewport — we bail on scroll/flash rather than trying
+ *   to navigate across forms mid-undo. The state is still restored
+ *   correctly; only the animated affordance is suppressed.
+ *
+ *   This is an accepted trade-off until the doc's temporal middleware
+ *   carries location metadata alongside each patch (planned for Phase 3
+ *   or Phase 4, depending on temporal-store scope).
  */
 export function useUndoRedo(): { undo: () => void; redo: () => void } {
 	const docStore = useContext(BlueprintDocContext);
@@ -59,14 +71,21 @@ export function useUndoRedo(): { undo: () => void; redo: () => void } {
 				engine.setFocusHint(activeFieldId);
 			}
 
+			/* Resolve the flash/scroll target from the live DOM. If neither
+			 * the field element nor the question card exists, the undone
+			 * mutation targeted a different form and the current viewport
+			 * has nothing to animate — bail gracefully. See the block
+			 * comment above for the cross-form undo limitation. */
 			const targetEl = engine.findFieldElement(selectedUuid, activeFieldId);
-			engine.scrollToQuestion(selectedUuid, targetEl ?? undefined, "instant");
 			const flashEl =
 				targetEl ??
 				(document.querySelector(
 					`[data-question-uuid="${selectedUuid}"]`,
 				) as HTMLElement | null);
-			if (flashEl) engine.flashUndoHighlight(flashEl);
+			if (!flashEl) return;
+
+			engine.scrollToQuestion(selectedUuid, targetEl ?? undefined, "instant");
+			engine.flashUndoHighlight(flashEl);
 		}
 
 		return {
@@ -88,8 +107,12 @@ export function useUndoRedo(): { undo: () => void; redo: () => void } {
 export function useDeleteSelectedQuestion(): () => void {
 	const docStore = useContext(BlueprintDocContext);
 	const loc = useLocation();
+	/* `useAssembledForm` accepts `undefined` and short-circuits cheaply —
+	 * no need to coerce through `as Uuid`. When the user is off-form, the
+	 * hook never subscribes to any entity map, so doc mutations don't
+	 * re-render this hook's consumer. */
 	const formUuid = loc.kind === "form" ? loc.formUuid : undefined;
-	const form = useAssembledForm(formUuid as Uuid);
+	const form = useAssembledForm(formUuid);
 	const select = useSelect();
 
 	return useMemo(
