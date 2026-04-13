@@ -5,11 +5,8 @@ import tablerFilePencil from "@iconify-icons/tabler/file-pencil";
 import tablerFilePlus from "@iconify-icons/tabler/file-plus";
 import { useCallback } from "react";
 import { EditableText } from "@/components/builder/EditableText";
-import {
-	useBuilderStore,
-	useModule,
-	useOrderedForms,
-} from "@/hooks/useBuilder";
+import { useModule, useOrderedForms } from "@/hooks/useBuilder";
+import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
 
 const formTypeIcons = {
 	registration: tablerFilePlus,
@@ -30,7 +27,7 @@ interface ModuleDetailProps {
 export function ModuleDetail({ moduleIndex }: ModuleDetailProps) {
 	const mod = useModule(moduleIndex);
 	const forms = useOrderedForms(moduleIndex);
-	const updateModule = useBuilderStore((s) => s.updateModule);
+	const { updateModule } = useBlueprintMutations();
 
 	const saveModule = useCallback(
 		(updates: { name?: string }) => {
