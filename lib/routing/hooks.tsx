@@ -315,8 +315,16 @@ export function useNavigate(): NavigateActions {
 	}, [router, pathname]);
 }
 
-/** Pure parent-derivation for the `up` navigation. */
-function parentLocation(loc: Location): Location | undefined {
+/**
+ * Pure parent-derivation for the `up` navigation.
+ *
+ * Exported for unit testing — the function has no hook semantics
+ * (no React imports, no store access) and can be called standalone.
+ * Consumers should prefer `useNavigate().up()` for actual navigation;
+ * this export exists to cover every branch of the parent walk without
+ * a full `renderHook` harness.
+ */
+export function parentLocation(loc: Location): Location | undefined {
 	switch (loc.kind) {
 		case "home":
 			return undefined;
