@@ -166,9 +166,15 @@ export function createBlueprintDocStore() {
 								draft.appName = next.appName;
 								draft.connectType = next.connectType;
 								draft.caseTypes = next.caseTypes;
-								// Cast needed: Record<Uuid, ...> is assignable to
-								// Record<string, ...> at the value level but TypeScript's
-								// exact-key types prevent implicit widening on assignment.
+								// `draft` is `WritableDraft<BlueprintDocState>`, where
+								// `BlueprintDocState = BlueprintDoc & { actions }`. Primitive
+								// fields assign fine, but Immer's draft wrapping on the
+								// Record-valued entity maps rejects direct assignment from
+								// plain objects (`next.modules` etc.) because the draft type
+								// is marked readonly in the intersection. The narrow cast
+								// to `BlueprintDoc` strips the action-type overlay so we can
+								// wholesale-swap the maps. Immer still produces the correct
+								// next state via its own structural sharing.
 								(draft as BlueprintDoc).modules = next.modules;
 								(draft as BlueprintDoc).forms = next.forms;
 								(draft as BlueprintDoc).questions = next.questions;

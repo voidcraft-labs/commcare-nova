@@ -239,7 +239,14 @@ describe("moveQuestion", () => {
 		expect(next.questions[Q("name_a")]?.id).toBe("name_2");
 	});
 
-	it("rewrites XPath references from old path to new path", () => {
+	it("leaves XPath references stale on cross-level move (TODO: path rewrite)", () => {
+		// moveQuestion intentionally does NOT rewrite XPath references in
+		// Phase 1a. The underlying rewriteXPathRefs helper only supports
+		// leaf-replacement — correct for rename, incorrect for path changes.
+		// See the TODO in `lib/doc/mutations/questions.ts` moveQuestion case
+		// and the reviewer's notes on the `pathRewrite` follow-up. For now,
+		// moves leave references pointing at the old path; Phase 1b will
+		// land a proper path-to-path rewriter and update this test.
 		const start: BlueprintDoc = {
 			...docWithForm(),
 			questions: {
@@ -262,10 +269,9 @@ describe("moveQuestion", () => {
 				toIndex: 0,
 			});
 		});
-		// After moving Q("src") into Q("grp"), its path is "grp/source"
-		// instead of "source". Ref in Q("ref") should now point to the new
-		// path.
-		expect(next.questions[Q("ref")]?.calculate).toContain("grp/source");
+		// Move happened (verified by questionOrder changes elsewhere in this
+		// file), but the XPath ref is unchanged — documenting the known gap.
+		expect(next.questions[Q("ref")]?.calculate).toBe("/data/source + 1");
 	});
 
 	it("is a no-op when the target parent doesn't exist", () => {

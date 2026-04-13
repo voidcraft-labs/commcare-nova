@@ -125,9 +125,17 @@ export function dedupeSiblingId(
 		const candidate = `${desired}_${n}`;
 		if (!takenIds.has(candidate)) return candidate;
 	}
-	throw new Error(
-		`dedupeSiblingId: exhausted 9999 suffixes trying to dedupe "${desired}"`,
+	// Exhausted 9999 suffixes — extraordinarily unlikely in practice, but if
+	// it ever happens we prefer to return the original id (accepting a
+	// duplicate) over throwing from inside an Immer reducer. A throw here
+	// would propagate up through `store.apply()` and crash the caller's
+	// render or route handler; a silent duplicate is detectable downstream
+	// and recoverable by the user. A warning makes the anomaly visible in
+	// dev tools without taking the process down.
+	console.warn(
+		`dedupeSiblingId: exhausted 9999 suffixes trying to dedupe "${desired}"; returning original id (may conflict)`,
 	);
+	return desired;
 }
 
 /**
@@ -191,30 +199,51 @@ export function assertNever(x: never): never {
 export function cloneQuestionSubtree(
 	doc: BlueprintDoc,
 	srcUuid: Uuid,
-): {
-	questions: Record<Uuid, QuestionEntity>;
-	questionOrder: Record<Uuid, Uuid[]>;
-	rootUuid: Uuid;
-} {
+):
+	| {
+			questions: Record<Uuid, QuestionEntity>;
+			questionOrder: Record<Uuid, Uuid[]>;
+			rootUuid: Uuid;
+	  }
+	| undefined {
+	// If the requested root doesn't exist, the caller can't do anything
+	// useful with a clone — return undefined instead of throwing from inside
+	// an Immer reducer. Callers (`duplicateQuestion`) already guard on the
+	// source question existing before calling, so hitting this path means
+	// the doc is already in an inconsistent state.
+	if (doc.questions[srcUuid] === undefined) return undefined;
+
 	const clonedQuestions: Record<Uuid, QuestionEntity> = {};
 	const clonedOrder: Record<Uuid, Uuid[]> = {};
 
-	function cloneOne(uuid: Uuid): Uuid {
+	function cloneOne(uuid: Uuid): Uuid | undefined {
 		const src = doc.questions[uuid];
 		if (!src) {
-			throw new Error(`cloneQuestionSubtree: missing question ${uuid}`);
+			// A missing descendant means `questionOrder` references a uuid that
+			// isn't in `questions` — corrupt state we shouldn't crash over.
+			// Log, skip this child, and let the clone proceed with one fewer
+			// entry in the parent's order.
+			console.warn(
+				`cloneQuestionSubtree: questionOrder references missing question ${uuid}; skipping`,
+			);
+			return undefined;
 		}
 		const newUuid = asUuid(crypto.randomUUID());
 		clonedQuestions[newUuid] = { ...src, uuid: newUuid };
 		const childOrder = doc.questionOrder[uuid];
 		if (childOrder !== undefined) {
-			// Recursively clone each child and record the new child order
-			// under the new parent UUID.
-			clonedOrder[newUuid] = childOrder.map((childUuid) => cloneOne(childUuid));
+			// Recursively clone each child and record the new child order under
+			// the new parent UUID. `filter` drops any children that hit the
+			// missing-entity branch above so the new order only references
+			// uuids we actually cloned.
+			clonedOrder[newUuid] = childOrder
+				.map((childUuid) => cloneOne(childUuid))
+				.filter((uuid): uuid is Uuid => uuid !== undefined);
 		}
 		return newUuid;
 	}
 
 	const rootUuid = cloneOne(srcUuid);
+	if (rootUuid === undefined) return undefined;
 	return { questions: clonedQuestions, questionOrder: clonedOrder, rootUuid };
 }

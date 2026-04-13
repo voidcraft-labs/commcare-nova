@@ -60,6 +60,16 @@ export function BlueprintDocProvider({
 		const store = createBlueprintDocStore();
 		if (initialBlueprint) {
 			store.getState().load(initialBlueprint, appId);
+		} else {
+			// Empty-doc branch still needs to know its app identity so consumers
+			// that read `doc.appId` (routing, persistence, telemetry) don't see
+			// an empty string before any blueprint arrives. This is the path
+			// Phase 1b takes during the `Idle` phase — the provider mounts
+			// before the SA has produced a scaffold, and we need `appId` from
+			// the URL immediately.
+			store.setState((s) => {
+				s.appId = appId;
+			});
 		}
 		// Start tracking unless explicitly disabled. Agent write streams pass
 		// `false` here and call `endAgentWrite()` when the stream completes,
