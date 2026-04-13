@@ -3,7 +3,7 @@ import { signalGrid } from "../store";
 
 describe("signalGrid store", () => {
 	afterEach(() => {
-		signalGrid._reset();
+		signalGrid.reset();
 	});
 
 	it("accumulates and drains stream energy", () => {
@@ -22,11 +22,19 @@ describe("signalGrid store", () => {
 		expect(signalGrid.drainThinkEnergy()).toBe(20);
 	});
 
-	it("_reset() clears both counters", () => {
+	it("reset() clears both counters", () => {
 		signalGrid.injectEnergy(100);
 		signalGrid.injectThinkEnergy(200);
-		signalGrid._reset();
+		signalGrid.reset();
 
+		expect(signalGrid.drainEnergy()).toBe(0);
+		expect(signalGrid.drainThinkEnergy()).toBe(0);
+	});
+
+	it("reset() clears energy injected across multiple calls", () => {
+		signalGrid.injectEnergy(100);
+		signalGrid.injectThinkEnergy(50);
+		signalGrid.reset();
 		expect(signalGrid.drainEnergy()).toBe(0);
 		expect(signalGrid.drainThinkEnergy()).toBe(0);
 	});
