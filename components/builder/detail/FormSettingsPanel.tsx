@@ -24,6 +24,7 @@ import {
 } from "@/hooks/useBuilder";
 import { useCommitField } from "@/hooks/useCommitField";
 import type { XPathLintContext } from "@/lib/codemirror/xpath-lint";
+import { useBlueprintDoc } from "@/lib/doc/hooks/useBlueprintDoc";
 import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
 import {
 	type ConnectConfig,
@@ -61,7 +62,7 @@ export function FormSettingsButton({
 	formIndex,
 }: FormSettingsPanelProps) {
 	const form = useForm(moduleIndex, formIndex);
-	const connectType = useBuilderStore((s) => s.connectType);
+	const connectType = useBlueprintDoc((s) => s.connectType);
 	const hasConnect = !!form?.connect && !!connectType;
 	const [open, setOpen] = useState(false);
 
@@ -717,7 +718,7 @@ function ConnectSection({ moduleIndex, formIndex }: FormSettingsPanelProps) {
 	const form = useForm(moduleIndex, formIndex);
 	const mod = useModule(moduleIndex);
 	const { updateForm: updateFormAction } = useBlueprintMutations();
-	const connectType = useBuilderStore((s) => s.connectType) as
+	const connectType = useBlueprintDoc((s) => s.connectType) as
 		| ConnectType
 		| undefined;
 	const connect = form?.connect;
