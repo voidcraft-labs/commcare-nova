@@ -51,8 +51,6 @@ export class BuilderEngine {
 	private _thinkEnergy = 0;
 	/** Current agent edit zone — read by computeEditFocus(). */
 	private _editScope: EditScope | null = null;
-	/** Callback that can block select() when an inline editor has unsaved content. */
-	private _editGuard: (() => boolean) | null = null;
 	/** Scroll implementation owned by BuilderLayout. Fulfilled by the panel
 	 *  mount effect when a pending scroll request exists. */
 	private _scrollCallback:
@@ -197,25 +195,6 @@ export class BuilderEngine {
 
 	clearNewQuestion(): void {
 		this._newQuestionUuid = undefined;
-	}
-
-	// ── Edit guard ──────────────────────────────────────────────────────
-
-	/** Run the edit guard callback. Returns true if selection can proceed
-	 *  (no guard installed, or guard says OK). Used by routing hooks to
-	 *  gate URL-driven selection changes when an inline editor has unsaved
-	 *  content (e.g. XPath editor with uncommitted edits). */
-	checkEditGuard(): boolean {
-		if (!this._editGuard) return true;
-		return this._editGuard();
-	}
-
-	setEditGuard(guard: () => boolean): void {
-		this._editGuard = guard;
-	}
-
-	clearEditGuard(): void {
-		this._editGuard = null;
 	}
 
 	// ── Doc store reference ────────────────────────────────────────────
@@ -588,7 +567,6 @@ export class BuilderEngine {
 		this._streamEnergy = 0;
 		this._thinkEnergy = 0;
 		this._editScope = null;
-		this._editGuard = null;
 		this._newQuestionUuid = undefined;
 		this._editMadeMutations = false;
 		this._connectStash.learn.clear();

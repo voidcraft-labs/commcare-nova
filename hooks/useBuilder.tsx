@@ -29,6 +29,7 @@ import {
 import { useStore } from "zustand";
 import { shallow } from "zustand/shallow";
 import { useStoreWithEqualityFn } from "zustand/traditional";
+import { EditGuardProvider } from "@/components/builder/contexts/EditGuardContext";
 import { LocationRecoveryEffect } from "@/components/builder/LocationRecoveryEffect";
 import { startSyncOldFromDoc } from "@/lib/doc/adapters/syncOldFromDoc";
 import { useAssembledForm as useAssembledFormDoc } from "@/lib/doc/hooks/useAssembledForm";
@@ -309,7 +310,7 @@ export function BuilderProvider({
 					 * store, keeping un-migrated consumers live during Phase 1b. */}
 					<SyncBridge oldStore={engine.store} />
 					<LocationRecoveryEffect />
-					{children}
+					<EditGuardProvider>{children}</EditGuardProvider>
 				</BlueprintDocProvider>
 			</StoreContext>
 		</EngineContext>
