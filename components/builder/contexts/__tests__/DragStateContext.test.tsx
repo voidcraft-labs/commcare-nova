@@ -1,8 +1,8 @@
 // @vitest-environment happy-dom
 
-import { act, renderHook } from "@testing-library/react";
+import { act, render, renderHook } from "@testing-library/react";
 import type { ReactNode } from "react";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
 	DragStateProvider,
 	useIsDragActive,
@@ -41,5 +41,28 @@ describe("DragStateContext", () => {
 		expect(() => {
 			renderHook(() => useSetDragActive());
 		}).toThrow("useSetDragActive must be used within a DragStateProvider");
+	});
+
+	it("reflects controlled props when isActive and setActive are passed", () => {
+		const setActive = vi.fn();
+
+		/** Probe component that renders the drag-active state as text. */
+		function ControlledProbe() {
+			return <>{useIsDragActive() ? "active" : "inactive"}</>;
+		}
+
+		const { container, rerender } = render(
+			<DragStateProvider isActive={true} setActive={setActive}>
+				<ControlledProbe />
+			</DragStateProvider>,
+		);
+		expect(container.textContent).toBe("active");
+
+		rerender(
+			<DragStateProvider isActive={false} setActive={setActive}>
+				<ControlledProbe />
+			</DragStateProvider>,
+		);
+		expect(container.textContent).toBe("inactive");
 	});
 });
