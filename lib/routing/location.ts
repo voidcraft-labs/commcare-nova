@@ -54,3 +54,63 @@ export function serializeLocation(loc: Location): URLSearchParams {
 			return params;
 	}
 }
+
+/**
+ * Parse `URLSearchParams` into a `Location`. Always returns a valid Location
+ * — malformed or missing required params collapse to `{ kind: "home" }`.
+ *
+ * This "degrade to home" behavior is intentional: a user landing on a
+ * malformed URL (deleted entity, stale bookmark) sees the app's home screen
+ * rather than a broken state. Phase 2 adds a separate `isValidLocation`
+ * pass against the live doc to additionally strip references to UUIDs that
+ * used to exist but no longer do.
+ *
+ * Accepts either a standard `URLSearchParams` or Next.js's
+ * `ReadonlyURLSearchParams` (structurally compatible — same read-only API).
+ */
+export function parseLocation(
+	searchParams: Pick<URLSearchParams, "get">,
+): Location {
+	const screen = searchParams.get(LOCATION_PARAM.screen);
+	const moduleUuidRaw = searchParams.get(LOCATION_PARAM.module);
+
+	switch (screen) {
+		case SCREEN_KIND.module: {
+			if (!moduleUuidRaw) return { kind: "home" };
+			return {
+				kind: "module",
+				moduleUuid: moduleUuidRaw as Uuid,
+			};
+		}
+		case SCREEN_KIND.cases: {
+			if (!moduleUuidRaw) return { kind: "home" };
+			const caseId = searchParams.get(LOCATION_PARAM.caseId);
+			return caseId === null
+				? { kind: "cases", moduleUuid: moduleUuidRaw as Uuid }
+				: {
+						kind: "cases",
+						moduleUuid: moduleUuidRaw as Uuid,
+						caseId,
+					};
+		}
+		case SCREEN_KIND.form: {
+			const formUuidRaw = searchParams.get(LOCATION_PARAM.form);
+			if (!moduleUuidRaw || !formUuidRaw) return { kind: "home" };
+			const selectedRaw = searchParams.get(LOCATION_PARAM.selected);
+			return selectedRaw === null
+				? {
+						kind: "form",
+						moduleUuid: moduleUuidRaw as Uuid,
+						formUuid: formUuidRaw as Uuid,
+					}
+				: {
+						kind: "form",
+						moduleUuid: moduleUuidRaw as Uuid,
+						formUuid: formUuidRaw as Uuid,
+						selectedUuid: selectedRaw as Uuid,
+					};
+		}
+		default:
+			return { kind: "home" };
+	}
+}
