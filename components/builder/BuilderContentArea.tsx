@@ -33,6 +33,7 @@ import {
 	useBuilderPhase,
 	useBuilderStore,
 } from "@/hooks/useBuilder";
+import { useNavigate } from "@/lib/routing/hooks";
 import { BuilderPhase } from "@/lib/services/builder";
 import {
 	selectChatOpen,
@@ -61,9 +62,6 @@ interface BuilderContentAreaProps {
 	 *  the scroll container's ResizeObserver correction during width animation.
 	 *  This is the one piece of coordination that crosses the boundary. */
 	onCursorModeChange: (mode: CursorMode) => void;
-	/** Back handler for PreviewShell — wraps engine.navBackWithSync with
-	 *  selection sync. Passed through from BuilderLayout. */
-	onPreviewBack: () => void;
 	/** Whether the app was loaded from Firestore (not a new build). */
 	isExistingApp: boolean;
 	/** Server-rendered thread history for ChatContainer. */
@@ -73,7 +71,6 @@ interface BuilderContentAreaProps {
 export function BuilderContentArea({
 	isCentered,
 	onCursorModeChange,
-	onPreviewBack,
 	isExistingApp,
 	children,
 }: BuilderContentAreaProps) {
@@ -82,6 +79,10 @@ export function BuilderContentArea({
 	const isReady = useBuilderIsReady();
 	const hasData = useBuilderHasData();
 	const inReplayMode = useBuilderStore(selectInReplayMode);
+
+	/* Back navigation for PreviewShell — reads directly from URL hooks
+	 * instead of being threaded as a prop from BuilderLayout. */
+	const navigate = useNavigate();
 
 	/* Layout visibility — these only change on deliberate user interactions
 	 * (sidebar toggle, cursor mode switch), not on every keystroke or message. */
@@ -155,7 +156,7 @@ export function BuilderContentArea({
 								<PreviewShell
 									hideHeader
 									topInset={showToolbar ? TOOLBAR_INSET : 0}
-									onBack={onPreviewBack}
+									onBack={() => navigate.back()}
 								/>
 							) : null}
 						</ErrorBoundary>
