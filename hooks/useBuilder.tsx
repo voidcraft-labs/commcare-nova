@@ -433,9 +433,14 @@ function SyncBridge({ oldStore }: { oldStore: BuilderStoreApi }) {
 		/* Install the doc store on the engine so entity mutations and
 		 * undo/redo route through the doc instead of the legacy store. */
 		if (engine) engine.setDocStore(docStore);
+		/* Install it on the legacy store too — generation-stream setters
+		 * (setScaffold, setSchema, setModuleContent, setFormContent) dispatch
+		 * entity changes as doc mutations through this reference. */
+		oldStore.getState().setDocStore(docStore);
 		const stop = startSyncOldFromDoc(docStore, oldStore);
 		return () => {
 			if (engine) engine.setDocStore(null);
+			oldStore.getState().setDocStore(null);
 			stop();
 		};
 	}, [docStore, oldStore, engine]);
