@@ -28,31 +28,60 @@ export function asUuid(s: string): Uuid {
 }
 
 import type {
-	BlueprintForm,
-	BlueprintModule,
 	CaseType,
+	ConnectConfig,
 	ConnectType,
+	FormLink,
+	FormType,
+	PostSubmitDestination,
 	Question,
 } from "@/lib/schemas/blueprint";
+import type { CaseColumn } from "@/lib/services/normalizedState";
 
 /**
  * A module as stored in the normalized doc.
  *
- * Derived from `BlueprintModule` by dropping the `forms` array (forms are
- * looked up via `BlueprintDoc.formOrder[moduleUuid]` → `BlueprintDoc.forms`)
- * and adding a required stable `uuid`. The on-disk `BlueprintModule` schema
- * does not carry a UUID — Phase 1's blueprint→doc converter assigns one at
- * load time and persists it in Firestore going forward.
+ * Uses camelCase field names to match the legacy `NModule` type in
+ * `normalizedState.ts`. The wire-format blueprint schema uses snake_case
+ * (`case_type`, `case_list_columns`, etc.); `toDoc` / `toBlueprint` in
+ * `converter.ts` handle the conversion at the boundary.
+ *
+ * The on-disk `BlueprintModule` schema does not carry a UUID — Phase 1's
+ * blueprint→doc converter assigns one at load time and persists it in
+ * Firestore going forward.
  */
-export type ModuleEntity = Omit<BlueprintModule, "forms"> & { uuid: Uuid };
+export type ModuleEntity = {
+	uuid: Uuid;
+	name: string;
+	caseType: string | undefined;
+	caseListOnly: boolean | undefined;
+	purpose: string | undefined;
+	caseListColumns: CaseColumn[] | undefined;
+	caseDetailColumns: CaseColumn[] | null | undefined;
+};
 
 /**
  * A form as stored in the normalized doc.
  *
- * Same pattern as `ModuleEntity`: drops the nested `questions` array, adds a
- * `uuid`. Questions are looked up via `questionOrder[formUuid]`.
+ * Uses camelCase field names to match the legacy `NForm` type in
+ * `normalizedState.ts`. The wire-format blueprint schema uses snake_case
+ * (`close_condition`, `post_submit`, `form_links`); `toDoc` / `toBlueprint`
+ * in `converter.ts` handle the conversion at the boundary.
+ *
+ * Questions are looked up via `questionOrder[formUuid]`.
  */
-export type FormEntity = Omit<BlueprintForm, "questions"> & { uuid: Uuid };
+export type FormEntity = {
+	uuid: Uuid;
+	name: string;
+	type: FormType;
+	purpose: string | undefined;
+	closeCondition:
+		| { question: string; answer: string; operator?: "=" | "selected" }
+		| undefined;
+	connect: ConnectConfig | null | undefined;
+	postSubmit: PostSubmitDestination | undefined;
+	formLinks: FormLink[] | undefined;
+};
 
 /**
  * A question as stored in the normalized doc.

@@ -198,10 +198,10 @@ describe("updateModule", () => {
 			applyMutation(d, {
 				kind: "updateModule",
 				uuid: M("A"),
-				patch: { case_type: "patient" },
+				patch: { caseType: "patient" },
 			});
 		});
-		expect(next.modules[M("A")]?.case_type).toBe("patient");
+		expect(next.modules[M("A")]?.caseType).toBe("patient");
 		expect(next.modules[M("A")]?.name).toBe("A"); // Other fields preserved
 	});
 
@@ -210,7 +210,7 @@ describe("updateModule", () => {
 			applyMutation(d, {
 				kind: "updateModule",
 				uuid: M("missing"),
-				patch: { case_type: "patient" },
+				patch: { caseType: "patient" },
 			});
 		});
 		expect(next.modules[M("missing")]).toBeUndefined();
