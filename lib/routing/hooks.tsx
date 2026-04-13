@@ -115,6 +115,36 @@ export interface NavigateActions {
 export type SelectAction = (uuid: Uuid | undefined) => void;
 
 /**
+ * `true` when a module (or any descendant screen) references this module uuid.
+ * Used by `ModuleCard` in the tree sidebar for highlight state.
+ *
+ * Tradeoff: this hook re-renders on any URL change (not just module
+ * changes), because `useLocation` subscribes to the full search params.
+ * The boolean return prevents child reconciliation for non-matching cards.
+ * Phase 5's virtualization bounds the number of consumers to visible rows.
+ */
+export function useIsModuleSelected(uuid: Uuid | string): boolean {
+	const loc = useLocation();
+	return (
+		(loc.kind === "module" || loc.kind === "cases" || loc.kind === "form") &&
+		loc.moduleUuid === uuid
+	);
+}
+
+/**
+ * `true` when the current URL points to this exact form.
+ * Used by `FormCard` in the tree sidebar for highlight state.
+ *
+ * Tradeoff: same as `useIsModuleSelected` — any URL change triggers a
+ * re-render, but the boolean return prevents child reconciliation.
+ * Phase 5's virtualization bounds the consumer count.
+ */
+export function useIsFormSelected(uuid: Uuid | string): boolean {
+	const loc = useLocation();
+	return loc.kind === "form" && loc.formUuid === uuid;
+}
+
+/**
  * `true` when a specific question uuid is the current selection.
  * Each `EditableQuestionWrapper` calls this with its own identity —
  * only the previously-selected and newly-selected wrappers re-render
