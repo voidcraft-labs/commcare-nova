@@ -24,6 +24,7 @@ import {
 } from "@/hooks/useBuilder";
 import { useCommitField } from "@/hooks/useCommitField";
 import type { XPathLintContext } from "@/lib/codemirror/xpath-lint";
+import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
 import {
 	type ConnectConfig,
 	type ConnectType,
@@ -188,7 +189,7 @@ function CloseConditionSection({
 }: FormSettingsPanelProps) {
 	const form = useForm(moduleIndex, formIndex);
 	const assembledForm = useAssembledForm(moduleIndex, formIndex);
-	const updateFormAction = useBuilderStore((s) => s.updateForm);
+	const { updateForm: updateFormAction } = useBlueprintMutations();
 	const triggerId = useId();
 	const triggerRef = useRef<HTMLButtonElement>(null);
 	const operatorTriggerRef = useRef<HTMLButtonElement>(null);
@@ -554,7 +555,7 @@ function AfterSubmitSection({
 	formIndex,
 }: FormSettingsPanelProps) {
 	const form = useForm(moduleIndex, formIndex);
-	const updateForm = useBuilderStore((s) => s.updateForm);
+	const { updateForm } = useBlueprintMutations();
 	const formType = form?.type ?? "survey";
 	const current = resolveUserFacing(
 		form?.postSubmit ?? defaultPostSubmit(formType),
@@ -715,7 +716,7 @@ function ConnectSection({ moduleIndex, formIndex }: FormSettingsPanelProps) {
 	const engine = useBuilderEngine();
 	const form = useForm(moduleIndex, formIndex);
 	const mod = useModule(moduleIndex);
-	const updateFormAction = useBuilderStore((s) => s.updateForm);
+	const { updateForm: updateFormAction } = useBlueprintMutations();
 	const connectType = useBuilderStore((s) => s.connectType) as
 		| ConnectType
 		| undefined;
