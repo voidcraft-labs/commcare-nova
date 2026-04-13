@@ -5,6 +5,7 @@
  */
 
 import type { Question } from "@/lib/schemas/blueprint";
+import { supportsValidation } from "@/lib/schemas/blueprint";
 import { detectUnquotedStringLiteral } from "../../../hqJsonExpander";
 import { XML_ELEMENT_NAME_REGEX } from "../../constants";
 import { type ValidationError, validationError } from "../errors";
@@ -115,6 +116,41 @@ export function unquotedStringLiteral(
 	return errors;
 }
 
+/**
+ * Validation (`constraint` + `constraintMsg`) only makes sense on input
+ * questions — the user must actually be able to enter a value and see an
+ * error. Structural containers, display labels, and computed `hidden`
+ * fields can't surface a validation error, so setting `validation` /
+ * `validation_msg` on them is a category mistake. We flag either field
+ * being set (even without its partner) so typos in the builder or the SA
+ * produce a clear message instead of silently being dropped by the XForm
+ * emitter.
+ */
+export function validationOnNonInputType(
+	q: Question,
+	ctx: QuestionContext,
+): ValidationError[] {
+	if (supportsValidation(q.type)) return [];
+	if (!q.validation && !q.validation_msg) return [];
+	const field = q.validation ? "validation" : "validation_msg";
+	return [
+		validationError(
+			"VALIDATION_ON_NON_INPUT_TYPE",
+			"question",
+			`Question "${q.id}" (type "${q.type}") in "${ctx.formName}" has a ${field} set, but ${q.type} questions can't have validation. Only input questions (text, int, date, select, etc.) support constraint messages — structural containers, labels, and hidden/computed fields can't show an error to the user. Remove the ${field} field, or change the question type.`,
+			{
+				moduleIndex: ctx.moduleIndex,
+				moduleName: ctx.moduleName,
+				formIndex: ctx.formIndex,
+				formName: ctx.formName,
+				questionId: q.id,
+				field,
+			},
+			{ field },
+		),
+	];
+}
+
 export function invalidQuestionId(
 	q: Question,
 	ctx: QuestionContext,
@@ -144,6 +180,7 @@ const QUESTION_RULES = [
 	hiddenNoValue,
 	unquotedStringLiteral,
 	invalidQuestionId,
+	validationOnNonInputType,
 ];
 
 export function runQuestionRules(

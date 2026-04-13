@@ -114,6 +114,25 @@ export const QUESTION_TYPES = [
 	"repeat",
 ] as const;
 
+/**
+ * Question types that accept user input and therefore support validation
+ * (constraint + constraintMsg). Derived by excluding structural containers
+ * (group, repeat), display-only elements (label), and computed values
+ * (hidden). A hidden field has no user-facing error state — the user can't
+ * correct a calculated value — so `validation` / `validation_msg` are a
+ * category error there, not just a no-op.
+ */
+export const INPUT_QUESTION_TYPES: ReadonlySet<string> = new Set(
+	QUESTION_TYPES.filter(
+		(t) => !STRUCTURAL_QUESTION_TYPES.has(t) && t !== "hidden",
+	),
+);
+
+/** True if the question type supports a validation constraint + message. */
+export function supportsValidation(type: string): boolean {
+	return INPUT_QUESTION_TYPES.has(type);
+}
+
 export const selectOptionSchema = z.object({
 	value: z.string().describe("Option value (stored in data)"),
 	label: z.string().describe("Option label (shown to user)"),

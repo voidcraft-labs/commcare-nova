@@ -318,6 +318,78 @@ describe("question rules", () => {
 		);
 		expect(errors.some((e) => e.code === "INVALID_QUESTION_ID")).toBe(false);
 	});
+
+	// Validation (constraint + message) is a user-facing concept: the user
+	// enters a value, the constraint fails, the message explains why.
+	// Hidden/computed/structural questions have no such interaction — so
+	// setting `validation` or `validation_msg` on them is a category error,
+	// not a no-op. The rule catches it before the XForm emitter silently
+	// drops it (see `supportsValidation` in blueprint.ts).
+	it("flags validation_msg on hidden questions", () => {
+		const errors = runValidation(
+			surveyBlueprint([
+				q({
+					id: "risk",
+					type: "hidden",
+					calculate: "if(/data/age > 65, 'high', 'low')",
+					validation_msg: "Risk must resolve",
+				}),
+			]),
+		);
+		expect(errors.some((e) => e.code === "VALIDATION_ON_NON_INPUT_TYPE")).toBe(
+			true,
+		);
+	});
+
+	it("flags validation on label questions", () => {
+		const errors = runValidation(
+			surveyBlueprint([
+				q({
+					id: "section",
+					type: "label",
+					label: "Section header",
+					validation: ". != ''",
+				}),
+			]),
+		);
+		expect(errors.some((e) => e.code === "VALIDATION_ON_NON_INPUT_TYPE")).toBe(
+			true,
+		);
+	});
+
+	it("flags validation on group questions", () => {
+		const errors = runValidation(
+			surveyBlueprint([
+				q({
+					id: "demographics",
+					type: "group",
+					label: "Demographics",
+					validation_msg: "should never appear",
+					children: [q({ id: "name", type: "text", label: "Name" })],
+				}),
+			]),
+		);
+		expect(errors.some((e) => e.code === "VALIDATION_ON_NON_INPUT_TYPE")).toBe(
+			true,
+		);
+	});
+
+	it("allows validation on input question types", () => {
+		const errors = runValidation(
+			surveyBlueprint([
+				q({
+					id: "age",
+					type: "int",
+					label: "Age",
+					validation: ". > 0 and . < 150",
+					validation_msg: "Age must be between 1 and 149",
+				}),
+			]),
+		);
+		expect(errors.some((e) => e.code === "VALIDATION_ON_NON_INPUT_TYPE")).toBe(
+			false,
+		);
+	});
 });
 
 // ── Fix registry ───────────────────────────────────────────────────
