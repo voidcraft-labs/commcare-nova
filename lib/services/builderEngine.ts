@@ -75,8 +75,6 @@ export class BuilderEngine {
 		| undefined;
 	/** Transient field key to focus after undo/redo. Consumed once by InlineSettingsPanel. */
 	private _focusHint: string | undefined;
-	/** Blocks undo/redo during dnd-kit drag operations. */
-	private _isDragging = false;
 	/** Transient rename notice — set after a cross-level move auto-renames
 	 *  to avoid a sibling ID collision. Consumed once by ContextualEditorHeader
 	 *  to show an inline notice on the ID field. */
@@ -271,16 +269,6 @@ export class BuilderEngine {
 		hasToolbar?: boolean,
 	): void {
 		this._scrollCallback?.(questionUuid, overrideTarget, behavior, hasToolbar);
-	}
-
-	// ── Drag state ──────────────────────────────────────────────────────
-
-	setDragging(active: boolean): void {
-		this._isDragging = active;
-	}
-
-	get isDragging(): boolean {
-		return this._isDragging;
 	}
 
 	// ── Energy (non-reactive — consumed by SignalGrid rAF loop) ─────────
