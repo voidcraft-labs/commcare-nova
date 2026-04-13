@@ -20,13 +20,15 @@ import {
 	createContext,
 	type ReactNode,
 	useContext,
+	useEffect,
 	useMemo,
 	useState,
 } from "react";
 import { useStore } from "zustand";
 import { shallow } from "zustand/shallow";
 import { useStoreWithEqualityFn } from "zustand/traditional";
-import { BlueprintDocProvider } from "@/lib/doc/provider";
+import { startSyncOldFromDoc } from "@/lib/doc/adapters/syncOldFromDoc";
+import { BlueprintDocContext, BlueprintDocProvider } from "@/lib/doc/provider";
 import type { PreviewScreen } from "@/lib/preview/engine/types";
 import type { AppBlueprint, BlueprintForm } from "@/lib/schemas/blueprint";
 import type { TreeData } from "@/lib/services/builder";
@@ -415,11 +417,36 @@ export function BuilderProvider({
 					initialBlueprint={initialBlueprint}
 					startTracking={Boolean(initialBlueprint || replay)}
 				>
+					{/* SyncBridge must render inside the BlueprintDocProvider tree so
+					 * it can read the doc store via context. It starts a one-way
+					 * subscription that mirrors doc entity maps into the legacy
+					 * store, keeping un-migrated consumers live during Phase 1b. */}
+					<SyncBridge oldStore={engine.store} />
 					{children}
 				</BlueprintDocProvider>
 			</StoreContext>
 		</EngineContext>
 	);
+}
+
+/**
+ * Internal component that wires the doc→legacy projection. Rendered as a
+ * sibling of `{children}` inside `BlueprintDocProvider` so it can pull the
+ * doc store out of context. Returns `null` — it exists purely for its
+ * subscription side effect.
+ *
+ * `engine.store` is stable across the provider's lifetime (the engine is
+ * recreated only when `buildId` changes, which unmounts this component
+ * and remounts a fresh one), so the effect's dependency list is
+ * effectively constant.
+ */
+function SyncBridge({ oldStore }: { oldStore: BuilderStoreApi }) {
+	const docStore = useContext(BlueprintDocContext);
+	useEffect(() => {
+		if (!docStore) return;
+		return startSyncOldFromDoc(docStore, oldStore);
+	}, [docStore, oldStore]);
+	return null;
 }
 
 // ── Engine factory ──────────────────────────────────────────────────────
