@@ -52,10 +52,10 @@ import {
 import type {
 	BuilderState,
 	BuilderStoreApi,
-	CursorMode,
 } from "@/lib/services/builderStore";
 import type { ReplayStage } from "@/lib/services/logReplay";
 import type { NForm, NModule, NQuestion } from "@/lib/services/normalizedState";
+import { BuilderSessionProvider } from "@/lib/session/provider";
 
 // ── Contexts ────────────────────────────────────────────────────────────
 
@@ -173,11 +173,6 @@ export function useBuilderTreeData(): TreeData | undefined {
 /** Whether the SA agent is currently active. */
 export function useBuilderAgentActive(): boolean {
 	return useBuilderStore((s) => s.agentActive);
-}
-
-/** Current cursor mode (inspect, text, pointer). */
-export function useBuilderCursorMode(): CursorMode {
-	return useBuilderStore((s) => s.cursorMode);
 }
 
 /** True when the builder is in replay mode (stages loaded in store). */
@@ -303,13 +298,15 @@ export function BuilderProvider({
 					initialBlueprint={initialBlueprint}
 					startTracking={Boolean(initialBlueprint || replay)}
 				>
-					{/* SyncBridge must render inside the BlueprintDocProvider tree so
-					 * it can read the doc store via context. It starts a one-way
-					 * subscription that mirrors doc entity maps into the legacy
-					 * store, keeping un-migrated consumers live during Phase 1b. */}
-					<SyncBridge oldStore={engine.store} />
-					<LocationRecoveryEffect />
-					{children}
+					<BuilderSessionProvider>
+						{/* SyncBridge must render inside the BlueprintDocProvider tree so
+						 * it can read the doc store via context. It starts a one-way
+						 * subscription that mirrors doc entity maps into the legacy
+						 * store, keeping un-migrated consumers live during Phase 1b. */}
+						<SyncBridge oldStore={engine.store} />
+						<LocationRecoveryEffect />
+						{children}
+					</BuilderSessionProvider>
 				</BlueprintDocProvider>
 			</StoreContext>
 		</EngineContext>

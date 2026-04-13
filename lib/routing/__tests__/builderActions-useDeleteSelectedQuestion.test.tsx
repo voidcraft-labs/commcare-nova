@@ -50,13 +50,16 @@ vi.mock("next/navigation", async () => {
 });
 
 /* `useSelect` calls `useBuilderEngine().checkEditGuard()`, so the stub
- * must surface that method. The rest of the useBuilder surface is
- * irrelevant to this hook. */
+ * must surface that method. */
 vi.mock("@/hooks/useBuilder", () => ({
 	useBuilderEngine: () => ({ checkEditGuard: () => true }),
-	useBuilderStore: <T,>(
-		selector: (s: { activeFieldId: string | undefined }) => T,
-	) => selector({ activeFieldId: undefined }),
+}));
+
+/* `useUndoRedo` (same module) calls `useActiveFieldId()`, so the session
+ * hooks must be stubbed even though this test only exercises
+ * `useDeleteSelectedQuestion`. */
+vi.mock("@/lib/session/hooks", () => ({
+	useActiveFieldId: () => undefined,
 }));
 
 import { useDeleteSelectedQuestion } from "@/lib/routing/builderActions";

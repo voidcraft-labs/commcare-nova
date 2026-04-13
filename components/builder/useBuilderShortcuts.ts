@@ -17,6 +17,8 @@ import {
 	flattenQuestionRefs,
 	type QuestionRef,
 } from "@/lib/services/questionPath";
+import { useCursorMode } from "@/lib/session/hooks";
+import type { CursorMode } from "@/lib/session/types";
 
 /**
  * Builds a memoized keyboard shortcuts array for the builder layout.
@@ -33,7 +35,7 @@ import {
  * fires mutations via uuid-first `useBlueprintMutations()`.
  */
 export function useBuilderShortcuts(
-	handleCursorModeChange: (mode: "pointer" | "edit") => void,
+	handleCursorModeChange: (mode: CursorMode) => void,
 ): Shortcut[] {
 	const isReady = useBuilderIsReady();
 	const loc = useLocation();
@@ -42,6 +44,7 @@ export function useBuilderShortcuts(
 	const deleteSelected = useDeleteSelectedQuestion();
 	const { undo, redo } = useUndoRedo();
 	const { duplicateQuestion, moveQuestion } = useBlueprintMutations();
+	const cursorMode = useCursorMode();
 
 	/* Assemble the current form so navigation/reorder helpers have the
 	 * nested question tree. Returns `undefined` when not on a form screen.
@@ -85,7 +88,7 @@ export function useBuilderShortcuts(
 			{
 				key: "Escape",
 				handler: () => {
-					if (engine.store.getState().cursorMode === "pointer") {
+					if (cursorMode === "pointer") {
 						handleCursorModeChange("edit");
 						return;
 					}
@@ -103,7 +106,7 @@ export function useBuilderShortcuts(
 			{
 				key: "Tab",
 				handler: () => {
-					if (engine.store.getState().cursorMode !== "edit") return;
+					if (cursorMode !== "edit") return;
 					if (loc.kind !== "form" || !loc.selectedUuid) return;
 					const refs = getFormRefs();
 					if (!refs?.length) return;
@@ -116,7 +119,7 @@ export function useBuilderShortcuts(
 				key: "Tab",
 				shift: true,
 				handler: () => {
-					if (engine.store.getState().cursorMode !== "edit") return;
+					if (cursorMode !== "edit") return;
 					if (loc.kind !== "form" || !loc.selectedUuid) return;
 					const refs = getFormRefs();
 					if (!refs?.length) return;
@@ -286,5 +289,6 @@ export function useBuilderShortcuts(
 		redo,
 		duplicateQuestion,
 		moveQuestion,
+		cursorMode,
 	]);
 }
