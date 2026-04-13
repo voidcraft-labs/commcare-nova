@@ -5,9 +5,9 @@
  * and the provider guard on the internal useScrollRegistry hook.
  *
  * Tests that need multiple hooks sharing the same provider render them
- * in a single `renderHook` body. `useFulfillPendingScroll` is always
- * called (Rules of Hooks) with a sentinel uuid that switches to the
- * real target on rerender to trigger the effect.
+ * in a single `renderHook` body. `useFulfillPendingScroll` takes a
+ * uuid and an isSelected flag — the effect only fires when isSelected
+ * is true, and re-fires on false -> true transitions.
  */
 import { act, renderHook } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
@@ -62,13 +62,22 @@ describe("ScrollRegistryContext", () => {
 		const cb = vi.fn();
 
 		const { result, rerender } = renderHook(
-			({ fulfillUuid }: { fulfillUuid: string }) => {
+			({
+				fulfillUuid,
+				isSelected,
+			}: {
+				fulfillUuid: string;
+				isSelected: boolean;
+			}) => {
 				useRegisterScrollCallback(cb);
 				const scrollApi = useScrollIntoView();
-				useFulfillPendingScroll(fulfillUuid);
+				useFulfillPendingScroll(fulfillUuid, isSelected);
 				return scrollApi;
 			},
-			{ wrapper, initialProps: { fulfillUuid: SENTINEL } },
+			{
+				wrapper,
+				initialProps: { fulfillUuid: SENTINEL, isSelected: false },
+			},
 		);
 
 		/* Set a pending scroll request. */
@@ -76,9 +85,9 @@ describe("ScrollRegistryContext", () => {
 			result.current.setPending("q-1", "smooth", false);
 		});
 
-		/* Trigger fulfillment by re-rendering with the matching uuid.
-		 * The useFulfillPendingScroll effect fires because `uuid` changed. */
-		rerender({ fulfillUuid: "q-1" });
+		/* Trigger fulfillment by re-rendering with the matching uuid and
+		 * isSelected=true. The effect fires because both deps changed. */
+		rerender({ fulfillUuid: "q-1", isSelected: true });
 
 		expect(cb).toHaveBeenCalledOnce();
 		expect(cb).toHaveBeenCalledWith("q-1", undefined, "smooth", false);
@@ -88,13 +97,22 @@ describe("ScrollRegistryContext", () => {
 		const cb = vi.fn();
 
 		const { result, rerender } = renderHook(
-			({ fulfillUuid }: { fulfillUuid: string }) => {
+			({
+				fulfillUuid,
+				isSelected,
+			}: {
+				fulfillUuid: string;
+				isSelected: boolean;
+			}) => {
 				useRegisterScrollCallback(cb);
 				const scrollApi = useScrollIntoView();
-				useFulfillPendingScroll(fulfillUuid);
+				useFulfillPendingScroll(fulfillUuid, isSelected);
 				return scrollApi;
 			},
-			{ wrapper, initialProps: { fulfillUuid: SENTINEL } },
+			{
+				wrapper,
+				initialProps: { fulfillUuid: SENTINEL, isSelected: true },
+			},
 		);
 
 		/* Set pending for "q-1" but try to fulfill for "q-2". */
@@ -102,13 +120,40 @@ describe("ScrollRegistryContext", () => {
 			result.current.setPending("q-1", "instant", true);
 		});
 
-		rerender({ fulfillUuid: "q-2" });
+		rerender({ fulfillUuid: "q-2", isSelected: true });
 		expect(cb).not.toHaveBeenCalled();
 
 		/* Pending state should be preserved — fulfill with the correct uuid. */
-		rerender({ fulfillUuid: "q-1" });
+		rerender({ fulfillUuid: "q-1", isSelected: true });
 		expect(cb).toHaveBeenCalledOnce();
 		expect(cb).toHaveBeenCalledWith("q-1", undefined, "instant", true);
+	});
+
+	it("fulfills pending when isSelected flips true after setPending", () => {
+		const cb = vi.fn();
+
+		const { result, rerender } = renderHook(
+			({ isSelected }: { isSelected: boolean }) => {
+				useRegisterScrollCallback(cb);
+				const scrollApi = useScrollIntoView();
+				useFulfillPendingScroll("q-target", isSelected);
+				return scrollApi;
+			},
+			{ wrapper, initialProps: { isSelected: false } },
+		);
+
+		/* Set a pending scroll while the question is not selected. */
+		act(() => {
+			result.current.setPending("q-target", "smooth", false);
+		});
+		expect(cb).not.toHaveBeenCalled();
+
+		/* Flip isSelected true — the effect re-fires and fulfills the
+		 * pending request. This is the critical within-form navigation path
+		 * where the target question is already mounted. */
+		rerender({ isSelected: true });
+		expect(cb).toHaveBeenCalledOnce();
+		expect(cb).toHaveBeenCalledWith("q-target", undefined, "smooth", false);
 	});
 
 	it("scrollTo fires the callback immediately regardless of pending state", () => {
@@ -147,7 +192,7 @@ describe("ScrollRegistryContext", () => {
 		);
 
 		expect(() => {
-			renderHook(() => useFulfillPendingScroll("q-1"));
+			renderHook(() => useFulfillPendingScroll("q-1", true));
 		}).toThrow(
 			"ScrollRegistry hooks must be used within ScrollRegistryProvider",
 		);

@@ -220,9 +220,10 @@ function SortableQuestion({
 		...(isContainer && { collisionPriority: CollisionPriority.Lowest }),
 	});
 
-	/* Fulfill pending scroll after the panel mounts and the browser paints.
-	 * No-op when this question's uuid doesn't match the pending request. */
-	useFulfillPendingScroll(uuid);
+	/* Fulfill pending scroll when this question becomes selected. Re-fires on
+	 * isSelected transitions so within-form navigation (tab, arrow, move,
+	 * duplicate) scrolls correctly even when the target is already mounted. */
+	useFulfillPendingScroll(uuid, isSelected);
 
 	if (!q) return null;
 	if (q.type === "hidden" && !isEditMode) return null;
