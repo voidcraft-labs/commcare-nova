@@ -28,11 +28,13 @@
  *
  * Type-compatibility note:
  *   - `ModuleEntity` / `FormEntity` / `QuestionEntity` (doc) and
- *     `NModule` / `NForm` / `NQuestion` (legacy) are structurally
- *     identical — both omit the nested children arrays and carry a
- *     `uuid`. The Phase 1a converter tests verified this. We cast
- *     through `unknown` to bypass the branded-`Uuid` mismatch (doc
- *     keys are branded, legacy keys are plain `string`).
+ *     `NModule` / `NForm` / `NQuestion` (legacy) use the same camelCase
+ *     field names — both omit the nested children arrays and carry a
+ *     `uuid`. The doc layer's `toDoc` converter handles snake→camel
+ *     conversion at the wire boundary, so by the time entities reach
+ *     this adapter they already match the legacy store's expected shape.
+ *     We cast through `unknown` only to bypass the branded-`Uuid`
+ *     mismatch (doc keys are branded, legacy keys are plain `string`).
  *
  * Phase 3 deletes this file: every consumer migrates to `lib/doc/hooks/**`
  * and the old builder store stops holding blueprint state entirely.
