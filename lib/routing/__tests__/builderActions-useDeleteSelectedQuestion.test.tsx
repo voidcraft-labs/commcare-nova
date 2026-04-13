@@ -49,11 +49,14 @@ vi.mock("next/navigation", async () => {
 	};
 });
 
-/* `useSelect` calls `useBuilderEngine().checkEditGuard()`, so the stub
- * must surface that method. The rest of the useBuilder surface is
- * irrelevant to this hook. */
+/* `useSelect` calls `useConsultEditGuard()` from EditGuardContext, so we
+ * stub that to always allow selection. The useBuilder mock is only needed
+ * for `useBuilderStore` (reads activeFieldId). */
+vi.mock("@/components/builder/contexts/EditGuardContext", () => ({
+	useConsultEditGuard: () => () => true,
+}));
+
 vi.mock("@/hooks/useBuilder", () => ({
-	useBuilderEngine: () => ({ checkEditGuard: () => true }),
 	useBuilderStore: <T,>(
 		selector: (s: { activeFieldId: string | undefined }) => T,
 	) => selector({ activeFieldId: undefined }),
