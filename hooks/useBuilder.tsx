@@ -28,7 +28,14 @@ import { useStore } from "zustand";
 import { shallow } from "zustand/shallow";
 import { useStoreWithEqualityFn } from "zustand/traditional";
 import { startSyncOldFromDoc } from "@/lib/doc/adapters/syncOldFromDoc";
+import { useAssembledForm as useAssembledFormDoc } from "@/lib/doc/hooks/useAssembledForm";
+import { useQuestion as useQuestionDoc } from "@/lib/doc/hooks/useEntity";
+import {
+	useOrderedForms as useOrderedFormsDoc,
+	useOrderedModules as useOrderedModulesDoc,
+} from "@/lib/doc/hooks/useModuleIds";
 import { BlueprintDocContext, BlueprintDocProvider } from "@/lib/doc/provider";
+import type { Uuid } from "@/lib/doc/types";
 import type { PreviewScreen } from "@/lib/preview/engine/types";
 import type { AppBlueprint, BlueprintForm } from "@/lib/schemas/blueprint";
 import type { TreeData } from "@/lib/services/builder";
@@ -51,7 +58,6 @@ import type {
 } from "@/lib/services/builderStore";
 import type { ReplayStage } from "@/lib/services/logReplay";
 import type { NForm, NModule, NQuestion } from "@/lib/services/normalizedState";
-import { assembleForm } from "@/lib/services/normalizedState";
 
 // ── Contexts ────────────────────────────────────────────────────────────
 
@@ -203,83 +209,59 @@ export function useBuilderCanGoUp(): boolean {
 
 // ── Entity hooks — select specific entities by index ───────────────────
 
-/** Select a module entity by its position in moduleOrder. */
+/** Select a module entity by its position in moduleOrder. Delegates to doc store. */
 export function useModule(mIdx: number): NModule | undefined {
-	return useBuilderStore((s) => {
-		const moduleId = s.moduleOrder[mIdx];
-		return moduleId ? s.modules[moduleId] : undefined;
-	});
+	const modules = useOrderedModulesDoc();
+	return modules[mIdx] as unknown as NModule | undefined;
 }
 
-/** Select a form entity by module and form indices. */
+/** Select a form entity by module and form indices. Delegates to doc store. */
 export function useForm(mIdx: number, fIdx: number): NForm | undefined {
-	return useBuilderStore((s) => {
-		const moduleId = s.moduleOrder[mIdx];
-		if (!moduleId) return undefined;
-		const formId = s.formOrder[moduleId]?.[fIdx];
-		return formId ? s.forms[formId] : undefined;
-	});
+	const modules = useOrderedModulesDoc();
+	const modUuid = modules[mIdx]?.uuid;
+	const forms = useOrderedFormsDoc((modUuid ?? "") as Uuid);
+	return forms[fIdx] as unknown as NForm | undefined;
 }
 
-/** Select a question entity by UUID. */
+/** Select a question entity by UUID. Delegates to doc store. */
 export function useQuestion(uuid: string): NQuestion | undefined {
-	return useBuilderStore((s) => s.questions[uuid]);
+	return useQuestionDoc(uuid as Uuid) as unknown as NQuestion | undefined;
 }
 
 /**
- * Returns an ordered array of NModule entities.
- * Derives from moduleOrder + modules map via useMemo.
+ * Returns an ordered array of NModule entities. Delegates to doc store.
+ * Reference-stable via the doc hook's internal memoization.
  */
 export function useOrderedModules(): NModule[] {
-	const moduleOrder = useBuilderStore((s) => s.moduleOrder);
-	const modules = useBuilderStore((s) => s.modules);
-	return useMemo(
-		() => moduleOrder.map((id) => modules[id]).filter((m): m is NModule => !!m),
-		[moduleOrder, modules],
-	);
+	return useOrderedModulesDoc() as unknown as NModule[];
 }
 
 /**
- * Returns an ordered array of NForm entities for a module.
- * Derives from formOrder + forms map via useMemo.
+ * Returns an ordered array of NForm entities for a module. Delegates to doc store.
+ * Reference-stable via the doc hook's internal memoization.
  */
 export function useOrderedForms(mIdx: number): NForm[] {
-	const moduleOrder = useBuilderStore((s) => s.moduleOrder);
-	const formOrder = useBuilderStore((s) => s.formOrder);
-	const forms = useBuilderStore((s) => s.forms);
-	return useMemo(() => {
-		const moduleId = moduleOrder[mIdx];
-		if (!moduleId) return [];
-		const formIds = formOrder[moduleId] ?? [];
-		return formIds.map((id) => forms[id]).filter((f): f is NForm => !!f);
-	}, [moduleOrder, formOrder, forms, mIdx]);
+	const modules = useOrderedModulesDoc();
+	const modUuid = modules[mIdx]?.uuid;
+	const forms = useOrderedFormsDoc((modUuid ?? "") as Uuid);
+	return forms as unknown as NForm[];
 }
 
 /**
  * Assemble a BlueprintForm from normalized entities for FormEngine.
- * Returns a new reference when any entity map or ordering changes.
- * The `prevFormRef` comparison in useFormEngine handles recreation.
+ * Delegates to the doc store's useAssembledFormDoc hook, which internally
+ * memoizes the reconstruction. The `prevFormRef` comparison in useFormEngine
+ * handles recreation.
  */
 export function useAssembledForm(
 	mIdx: number,
 	fIdx: number,
 ): BlueprintForm | undefined {
-	const moduleOrder = useBuilderStore((s) => s.moduleOrder);
-	const formOrder = useBuilderStore((s) => s.formOrder);
-	const forms = useBuilderStore((s) => s.forms);
-	const questions = useBuilderStore((s) => s.questions);
-	const questionOrder = useBuilderStore((s) => s.questionOrder);
-
-	return useMemo(() => {
-		const moduleId = moduleOrder[mIdx];
-		if (!moduleId) return undefined;
-		const formIds = formOrder[moduleId];
-		const formId = formIds?.[fIdx];
-		if (!formId) return undefined;
-		const form = forms[formId];
-		if (!form) return undefined;
-		return assembleForm(form, formId, questions, questionOrder);
-	}, [moduleOrder, formOrder, forms, questions, questionOrder, mIdx, fIdx]);
+	const modules = useOrderedModulesDoc();
+	const modUuid = modules[mIdx]?.uuid;
+	const forms = useOrderedFormsDoc((modUuid ?? "") as Uuid);
+	const formUuid = forms[fIdx]?.uuid ?? ("" as unknown as Uuid);
+	return useAssembledFormDoc(formUuid);
 }
 
 /**
