@@ -99,3 +99,68 @@ export type BlueprintDoc = {
 	formOrder: Record<Uuid /* moduleUuid */, Uuid[]>;
 	questionOrder: Record<Uuid /* formUuid | groupUuid */, Uuid[]>;
 };
+
+/**
+ * Every way the document can change, as a discriminated union.
+ *
+ * Design notes:
+ *   - `kind` names follow the mutation-action method names on the store
+ *     (e.g. `addQuestion` → `{ kind: "addQuestion", ... }`). Phase 1 defines
+ *     the reducer that switches on `kind`.
+ *   - Every payload uses `Uuid` for identity — no paths, no indices. Phase 1
+ *     will expose thin `qpath → uuid` adapters for callers that haven't been
+ *     migrated yet.
+ *   - `replaceForm` carries its own questions + questionOrder because
+ *     wholesale form replacement (an LLM tool today) needs to atomically
+ *     swap the form's entire subtree.
+ *   - `duplicateQuestion` takes no payload other than the source uuid; the
+ *     reducer generates a new uuid, deep-clones children, and deduplicates
+ *     ids as needed.
+ *   - App-level mutations (`setAppName`, etc.) are separate entries rather
+ *     than a single "update app" patch because each has distinct undo
+ *     semantics.
+ */
+export type Mutation =
+	// Module mutations
+	| { kind: "addModule"; module: ModuleEntity; index?: number }
+	| { kind: "removeModule"; uuid: Uuid }
+	| { kind: "moveModule"; uuid: Uuid; toIndex: number }
+	| { kind: "renameModule"; uuid: Uuid; newId: string }
+	| {
+			kind: "updateModule";
+			uuid: Uuid;
+			patch: Partial<Omit<ModuleEntity, "uuid">>;
+	  }
+	// Form mutations
+	| { kind: "addForm"; moduleUuid: Uuid; form: FormEntity; index?: number }
+	| { kind: "removeForm"; uuid: Uuid }
+	| { kind: "moveForm"; uuid: Uuid; toModuleUuid: Uuid; toIndex: number }
+	| { kind: "renameForm"; uuid: Uuid; newId: string }
+	| { kind: "updateForm"; uuid: Uuid; patch: Partial<Omit<FormEntity, "uuid">> }
+	| {
+			kind: "replaceForm";
+			uuid: Uuid;
+			form: FormEntity;
+			questions: QuestionEntity[];
+			questionOrder: Uuid[];
+	  }
+	// Question mutations
+	| {
+			kind: "addQuestion";
+			parentUuid: Uuid;
+			question: QuestionEntity;
+			index?: number;
+	  }
+	| { kind: "removeQuestion"; uuid: Uuid }
+	| { kind: "moveQuestion"; uuid: Uuid; toParentUuid: Uuid; toIndex: number }
+	| { kind: "renameQuestion"; uuid: Uuid; newId: string }
+	| { kind: "duplicateQuestion"; uuid: Uuid }
+	| {
+			kind: "updateQuestion";
+			uuid: Uuid;
+			patch: Partial<Omit<QuestionEntity, "uuid">>;
+	  }
+	// App-level mutations
+	| { kind: "setAppName"; name: string }
+	| { kind: "setConnectType"; connectType: ConnectType | null }
+	| { kind: "setCaseTypes"; caseTypes: CaseType[] | null };
