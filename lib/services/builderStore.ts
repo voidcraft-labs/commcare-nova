@@ -10,9 +10,9 @@
  * - **Immer** — mutable-syntax immutable updates with structural sharing.
  *   `draft.questions[uuid].label = 'x'` produces a new state where only
  *   `questions` and the changed question get new references.
- * - **zundo (temporal)** — undo/redo via history snapshots of entity data
- *   + navigation context. Transient interaction state (selected, cursorMode,
- *   activeFieldId) is NOT tracked — undo restores data and navigation only.
+ * - **zundo (temporal)** — undo/redo via history snapshots of entity data.
+ *   Navigation lives in the URL (browser history handles back/forward).
+ *   Transient interaction state (cursorMode, activeFieldId) is NOT tracked.
  * - **devtools** — Redux DevTools inspection in development.
  *
  * Created per buildId via `createBuilderStore()`. Scoped to the /build/{id}
@@ -34,11 +34,6 @@ import {
 	type QuestionEntity,
 	type Uuid,
 } from "@/lib/doc/types";
-import {
-	getParentScreen,
-	type PreviewScreen,
-	screensEqual,
-} from "@/lib/preview/engine/types";
 import type {
 	BlueprintForm,
 	BlueprintModule,
@@ -60,7 +55,6 @@ import {
 	BuilderPhase,
 	type GenerationError,
 	GenerationStage,
-	type SelectedElement,
 	STAGE_LABELS,
 } from "./builder";
 import type { ReplayStage } from "./logReplay";
@@ -93,29 +87,6 @@ export interface MoveQuestionResult {
 		newPath: QuestionPath;
 		xpathFieldsRewritten: number;
 	};
-}
-
-// ── Navigation history ────────────────────────────────────────────────
-
-/** Maximum navigation history entries before oldest are pruned. */
-const MAX_NAV_HISTORY = 50;
-
-/** Append a screen to navigation history, truncating forward entries and
- *  capping at MAX_NAV_HISTORY. Returns new entries array and cursor position. */
-function appendNavEntry(
-	entries: PreviewScreen[],
-	cursor: number,
-	screen: PreviewScreen,
-): { entries: PreviewScreen[]; cursor: number } {
-	const truncated = entries.slice(0, cursor + 1);
-	truncated.push(screen);
-	if (truncated.length > MAX_NAV_HISTORY) {
-		return {
-			entries: truncated.slice(truncated.length - MAX_NAV_HISTORY),
-			cursor: MAX_NAV_HISTORY - 1,
-		};
-	}
-	return { entries: truncated, cursor: cursor + 1 };
 }
 
 // ── Generation-time partial state ──────────────────────────────────────
@@ -159,12 +130,7 @@ export interface BuilderState {
 	// ── Lifecycle ──
 	phase: BuilderPhase;
 
-	// ── Selection ──
-	selected: SelectedElement | undefined;
-
 	// ── View context ──
-	/** Current navigation screen within the builder preview. */
-	screen: PreviewScreen;
 	/** Current cursor mode (inspect/text/pointer). */
 	cursorMode: CursorMode;
 	/** Which [data-field-id] element currently has focus. NOT tracked by zundo
@@ -183,12 +149,6 @@ export interface BuilderState {
 	 *  the edit-mode transition) but stored here so switchCursorMode can
 	 *  atomically stash/restore in a single set() call. */
 	sidebarStash: { chatOpen: boolean; structureOpen: boolean } | undefined;
-
-	// ── Navigation history ──
-	/** Back/forward navigation stack. `screen` is always `navEntries[navCursor]`. */
-	navEntries: PreviewScreen[];
-	/** Current position in the navigation history stack. */
-	navCursor: number;
 
 	// ── Entity data (normalized — flat maps + ordering arrays) ──
 	appName: string;
@@ -321,9 +281,6 @@ export interface BuilderState {
 	) => void;
 	searchBlueprint: (query: string) => SearchResult[];
 
-	// -- Selection actions --
-	select: (el?: SelectedElement) => void;
-
 	// -- View context actions --
 	setCursorMode: (mode: CursorMode) => void;
 	setActiveFieldId: (fieldId: string | undefined) => void;
@@ -337,21 +294,6 @@ export interface BuilderState {
 	 *  handleCursorModeChange + refs + multiple setState calls in BuilderLayout
 	 *  into one atomic store update. */
 	switchCursorMode: (mode: CursorMode) => void;
-
-	// -- Navigation actions --
-	navPush: (screen: PreviewScreen) => void;
-	navPushIfDifferent: (screen: PreviewScreen) => void;
-	navBack: () => PreviewScreen | undefined;
-	navUp: () => void;
-	navigateToHome: () => void;
-	navigateToModule: (moduleIndex: number) => void;
-	navigateToForm: (
-		moduleIndex: number,
-		formIndex: number,
-		caseId?: string,
-	) => void;
-	navigateToCaseList: (moduleIndex: number, formIndex: number) => void;
-	navResetTo: (screen: PreviewScreen) => void;
 
 	// -- Generation lifecycle actions --
 	startGeneration: () => void;
@@ -408,9 +350,9 @@ export interface BuilderState {
 
 // ── Undo/redo partialized state ────────────────────────────────────────
 
-/** The slice of state that zundo tracks for undo/redo. Includes entity data
- *  and navigation context. Transient interaction state (selected, cursorMode,
- *  activeFieldId) is excluded — those stay at their live values through undo. */
+/** The slice of state that zundo tracks for undo/redo. Only entity data —
+ *  navigation lives in the URL (browser history), and transient interaction
+ *  state (cursorMode, activeFieldId) stays at its live value through undo. */
 type UndoSlice = Pick<
 	BuilderState,
 	| "appName"
@@ -422,9 +364,6 @@ type UndoSlice = Pick<
 	| "moduleOrder"
 	| "formOrder"
 	| "questionOrder"
-	| "screen"
-	| "navEntries"
-	| "navCursor"
 >;
 
 // ── Generation-stream doc helpers ─────────────────────────────────────
@@ -506,8 +445,6 @@ export function createBuilderStore(initialPhase: BuilderPhase) {
 						// ── Initial state ──────────────────────────────────────
 
 						phase: initialPhase,
-						selected: undefined,
-						screen: { type: "home" } as PreviewScreen,
 						cursorMode: "edit" as CursorMode,
 						activeFieldId: undefined,
 						chatOpen: true,
@@ -515,8 +452,6 @@ export function createBuilderStore(initialPhase: BuilderPhase) {
 						sidebarStash: undefined as
 							| { chatOpen: boolean; structureOpen: boolean }
 							| undefined,
-						navEntries: [{ type: "home" }] as PreviewScreen[],
-						navCursor: 0,
 
 						// Entity data (empty until blueprint is loaded/generated)
 						appName: "",
@@ -662,17 +597,6 @@ export function createBuilderStore(initialPhase: BuilderPhase) {
 							return bpSearch(bp, query);
 						},
 
-						// ── Selection actions ──────────────────────────────────
-
-						select(el?) {
-							set((draft) => {
-								draft.selected = el;
-								if (!el || el.type !== "question") {
-									draft.activeFieldId = undefined;
-								}
-							});
-						},
-
 						// ── View context actions ──────────────────────────────
 
 						setCursorMode(mode) {
@@ -724,86 +648,6 @@ export function createBuilderStore(initialPhase: BuilderPhase) {
 							} else {
 								set({ cursorMode: mode });
 							}
-						},
-
-						// ── Navigation actions ────────────────────────────────
-
-						navPush(screen) {
-							set((draft) => {
-								const result = appendNavEntry(
-									draft.navEntries,
-									draft.navCursor,
-									screen,
-								);
-								draft.navEntries = result.entries;
-								draft.navCursor = result.cursor;
-								draft.screen = screen;
-							});
-						},
-
-						navPushIfDifferent(screen) {
-							const s = get();
-							if (screensEqual(s.screen, screen)) return;
-							set((draft) => {
-								const result = appendNavEntry(
-									draft.navEntries,
-									draft.navCursor,
-									screen,
-								);
-								draft.navEntries = result.entries;
-								draft.navCursor = result.cursor;
-								draft.screen = screen;
-							});
-						},
-
-						navBack() {
-							const s = get();
-							if (s.navCursor <= 0) return undefined;
-							const newScreen = s.navEntries[s.navCursor - 1];
-							set((draft) => {
-								draft.navCursor--;
-								draft.screen = newScreen;
-							});
-							return newScreen;
-						},
-
-						navUp() {
-							const parent = getParentScreen(get().screen);
-							if (!parent) return;
-							get().navPush(parent);
-						},
-
-						navigateToHome() {
-							get().navPushIfDifferent({ type: "home" });
-						},
-
-						navigateToModule(moduleIndex) {
-							get().navPushIfDifferent({ type: "module", moduleIndex });
-						},
-
-						navigateToForm(moduleIndex, formIndex, caseId?) {
-							get().navPushIfDifferent({
-								type: "form",
-								moduleIndex,
-								formIndex,
-								caseId,
-							});
-						},
-
-						navigateToCaseList(moduleIndex, formIndex) {
-							get().navPushIfDifferent({
-								type: "caseList",
-								moduleIndex,
-								formIndex,
-							});
-						},
-
-						navResetTo(screen) {
-							set((draft) => {
-								draft.navEntries = [screen];
-								draft.navCursor = 0;
-								draft.screen = screen;
-							});
 						},
 
 						// ── Generation lifecycle actions ────────────────────────
@@ -1130,12 +974,8 @@ export function createBuilderStore(initialPhase: BuilderPhase) {
 						reset() {
 							set((draft) => {
 								draft.phase = BuilderPhase.Idle;
-								draft.selected = undefined;
-								draft.screen = { type: "home" };
 								draft.cursorMode = "edit";
 								draft.activeFieldId = undefined;
-								draft.navEntries = [{ type: "home" }];
-								draft.navCursor = 0;
 
 								draft.appName = "";
 								draft.connectType = undefined;
@@ -1162,9 +1002,10 @@ export function createBuilderStore(initialPhase: BuilderPhase) {
 					})),
 				),
 				{
-					/* zundo config: undo/redo tracks entity data + navigation context.
-					 * Transient interaction state (selected, cursorMode, activeFieldId)
-					 * is excluded — those stay at their live values through undo/redo. */
+					/* zundo config: undo/redo tracks entity data only. Navigation
+					 * lives in the URL (browser history handles back/forward).
+					 * Transient interaction state (cursorMode, activeFieldId) is
+					 * excluded — those stay at their live values through undo/redo. */
 					partialize: (s): UndoSlice => ({
 						appName: s.appName,
 						connectType: s.connectType,
@@ -1175,15 +1016,8 @@ export function createBuilderStore(initialPhase: BuilderPhase) {
 						moduleOrder: s.moduleOrder,
 						formOrder: s.formOrder,
 						questionOrder: s.questionOrder,
-						screen: s.screen,
-						navEntries: s.navEntries,
-						navCursor: s.navCursor,
 					}),
-					/* Only create undo entries when entity data actually changes.
-					 * Navigation-only, selection, or cursor changes don't create
-					 * undo entries but navigation IS captured in the snapshot when
-					 * an entity change happens — so undo restores where the user
-					 * was when they made the edit. */
+					/* Only create undo entries when entity data actually changes. */
 					equality: (past, curr) =>
 						past.modules === curr.modules &&
 						past.forms === curr.forms &&

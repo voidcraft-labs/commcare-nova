@@ -39,9 +39,9 @@ The glassmorphic toolbar must be absolutely positioned in `BuilderContentArea`'s
 
 **Sticky selection** — clicking empty space in the form does not deselect. Selection changes only when the user clicks a different question or navigates away. This is intentional: deselecting on click-outside would constantly dismiss the contextual editor panel.
 
-**`navigateTo()` vs `select()`** — use `builder.navigateTo(el)` for intentional user navigation (click, keyboard, insert, duplicate, delete-to-next); it scrolls the design canvas in addition to updating selection. Accepts an optional `behavior` parameter (`"smooth"` default for same-form, `"instant"` for cross-screen). `navigateToSelection()` (tree sidebar clicks) always passes `"instant"`. Use `builder.select(el)` for non-navigating selection changes (rename path update, undo/redo restore). Never call `navigateTo` from undo/redo — scroll is handled internally by `engine.undo()`/`engine.redo()`.
+**Selection + scroll flow** — `useSelect()` from `@/lib/routing/hooks` is the single selection action: it updates the URL's `sel=` param via `router.replace` (no history entry, scroll: false). Scroll is requested imperatively via `engine.setPendingScroll(uuid, behavior, hasToolbar)` BEFORE calling `select()`; the target question's `SortableQuestion` mount effect consumes the pending request via `engine.fulfillPendingScroll(uuid)` once it sees itself selected. This decouples "change the URL" from "scroll the canvas" so both same-form and cross-screen navigation flow through the same two calls. Tree sidebar clicks request `"instant"` behavior (screen change); in-canvas clicks default to `"smooth"`. Undo/redo manages its own scroll inside `useUndoRedo()` — do NOT call `setPendingScroll` from undo paths.
 
-**Edit guard** — `XPathField` can block `builder.select()` while it has unsaved invalid content via `builder.setEditGuard()`. Two-strike pattern: first navigation attempt warns (shake + tooltip), second attempt allows through. Keystroke resets the warning counter.
+**Edit guard** — `XPathField` can block selection while it has unsaved invalid content via `builder.setEditGuard()`. The guard is consumed by `useSelect()` in `@/lib/routing/hooks` (the URL-state selection action used throughout the builder). Two-strike pattern: first navigation attempt warns (shake + tooltip), second attempt allows through. Keystroke resets the warning counter.
 
 **`SelectedElement.questionUuid`** is the stable question identity — survives renames. Components compare by UUID to determine panel visibility and scroll targets. `questionPath` is still carried for blueprint mutation calls.
 
@@ -63,7 +63,9 @@ Edit mode merges the former "inspect" and "text" cursor modes into a single unif
 
 ## Undo/Redo
 
-`engine.undo()`/`engine.redo()` encapsulate the full undo/redo flow: temporal store action + `flushSync` (forces React to commit the store update before DOM queries) + scroll to the affected field + violet flash highlight. zundo atomically restores entity data + navigation state in the store. Without `flushSync`, `[data-field-id]` elements toggled into existence by the undo wouldn't be in the DOM yet. Do not replace with `requestAnimationFrame`.
+`useUndoRedo()` in `lib/routing/builderActions.ts` owns the full undo/redo flow: temporal store action + `flushSync` (forces React to commit the store update before DOM queries) + URL navigation to the affected question + scroll to the target field + violet flash highlight. zundo atomically restores entity data in the doc store. Without `flushSync`, `[data-field-id]` elements toggled into existence by the undo wouldn't be in the DOM yet. Do not replace with `requestAnimationFrame`.
+
+The engine still exposes imperative utilities that the hook composes: `findFieldElement()` locates the target DOM node, `flashUndoHighlight()` runs the violet flash animation, and `setFocusHint()` queues a focus restoration consumed by `InlineSettingsPanel`. Keeping these on the engine lets the hook stay thin (URL + store + DOM orchestration) while the DOM-level primitives remain reusable.
 
 **Temporal store subscriptions** — use `useStoreWithEqualityFn` from `zustand/traditional` (zundo's recommended API), not plain `useStore`. Plain `useStore` re-renders on every temporal state change regardless of selector result. `useStoreWithEqualityFn` with `Object.is` correctly compares boolean selector results and skips re-renders when canUndo stays `true→true`.
 

@@ -5,6 +5,15 @@
  * the XForms compiler, the form preview renderer. Memoized so the
  * reconstruction runs only when the form's entity or question subtree
  * changes.
+ *
+ * Off-form short-circuit: callers that live inside the builder layout
+ * (shortcut handlers, delete action) keep this hook mounted at all times,
+ * but only actually need an assembled form when the location is a form
+ * screen. Passing `undefined` makes the hook cheap — the selector returns
+ * a stable `undefined` without touching any entity map, so zustand's
+ * `Object.is` equality never triggers a re-render while off-form. This
+ * eliminates the full-tree rebuild that earlier call sites incurred by
+ * coercing an absent uuid to an empty string.
  */
 
 import { useMemo } from "react";
@@ -13,25 +22,58 @@ import type { BlueprintForm, Question } from "@/lib/schemas/blueprint";
 import { assembleFormFields } from "@/lib/services/normalizedState";
 import { useBlueprintDocShallow } from "./useBlueprintDoc";
 
-export function useAssembledForm(formUuid: Uuid): BlueprintForm | undefined {
-	const { form, questions, questionOrder } = useBlueprintDocShallow((s) => ({
-		form: s.forms[formUuid],
-		questions: s.questions,
-		questionOrder: s.questionOrder,
-	}));
+/* Stable sentinel returned by the selector when the hook is in its
+ * "off-form" short-circuit. Using a single module-level reference means
+ * every no-op invocation shares the same object identity — with shallow
+ * equality, zustand short-circuits without subscribing to any entity map. */
+const OFF_FORM_STATE = { form: undefined } as const;
+
+type AssembledSlice =
+	| typeof OFF_FORM_STATE
+	| {
+			form: BlueprintDoc["forms"][Uuid];
+			questions: BlueprintDoc["questions"];
+			questionOrder: BlueprintDoc["questionOrder"];
+	  };
+
+export function useAssembledForm(
+	formUuid: Uuid | undefined,
+): BlueprintForm | undefined {
+	/* Selector runs on every store update, but when `formUuid` is falsy
+	 * it returns the shared sentinel — shallow equality then sees no
+	 * change and skips the re-render. When `formUuid` is set, the
+	 * selected slice is a plain object of Immer-stable references, so
+	 * shallow equality still avoids re-renders when unrelated state
+	 * changes (e.g. UI fields on the legacy store mirror). */
+	const state: AssembledSlice = useBlueprintDocShallow((s) => {
+		if (!formUuid) return OFF_FORM_STATE;
+		const form = s.forms[formUuid];
+		if (!form) return OFF_FORM_STATE;
+		return {
+			form,
+			questions: s.questions,
+			questionOrder: s.questionOrder,
+		};
+	});
 
 	return useMemo(() => {
-		if (!form) return undefined;
+		if (!formUuid || state === OFF_FORM_STATE || !state.form) {
+			return undefined;
+		}
 		// Use the shared camel→snake assembler so the returned BlueprintForm
 		// has wire-format field names (close_condition, post_submit, etc.).
 		// Cast through `unknown` to bridge the branded Uuid vs plain string gap.
 		return {
 			...assembleFormFields(
-				form as unknown as Parameters<typeof assembleFormFields>[0],
+				state.form as unknown as Parameters<typeof assembleFormFields>[0],
 			),
-			questions: assembleQuestionTree(formUuid, questions, questionOrder),
+			questions: assembleQuestionTree(
+				formUuid,
+				state.questions,
+				state.questionOrder,
+			),
 		};
-	}, [form, formUuid, questions, questionOrder]);
+	}, [formUuid, state]);
 }
 
 /**

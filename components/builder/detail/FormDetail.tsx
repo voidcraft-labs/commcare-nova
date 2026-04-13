@@ -3,8 +3,9 @@ import { Menu } from "@base-ui/react/menu";
 import { Icon } from "@iconify/react/offline";
 import { useCallback } from "react";
 import { Tooltip } from "@/components/ui/Tooltip";
-import { useForm, useModule } from "@/hooks/useBuilder";
 import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
+import { useForm, useModule } from "@/lib/doc/hooks/useEntity";
+import { asUuid, type Uuid } from "@/lib/doc/types";
 import { formTypeIcons } from "@/lib/questionTypeIcons";
 import { CASE_FORM_TYPES, type FormType } from "@/lib/schemas/blueprint";
 import {
@@ -23,18 +24,18 @@ const formTypeOptions: { value: FormType; label: string }[] = [
 ];
 
 interface FormDetailProps {
-	/** Module index to look up the form entity. */
-	moduleIndex: number;
-	/** Form index to look up the form entity. */
-	formIndex: number;
+	/** Module uuid to look up module-level context (case type). */
+	moduleUuid: Uuid;
+	/** Form uuid to look up the form entity. */
+	formUuid: Uuid;
 }
 
 /**
  * Read-only close condition info within FormSettingsPanel.
  * Renders only when the form is a close form — shows conditional vs unconditional.
  */
-export function FormDetail({ moduleIndex, formIndex }: FormDetailProps) {
-	const form = useForm(moduleIndex, formIndex);
+export function FormDetail({ formUuid }: FormDetailProps) {
+	const form = useForm(formUuid);
 	if (form?.type !== "close") return null;
 
 	return (
@@ -54,8 +55,8 @@ export function FormDetail({ moduleIndex, formIndex }: FormDetailProps) {
 // ── Form Type Button (for FormScreen header) ──────────────────────────
 
 interface FormTypeButtonProps {
-	moduleIndex: number;
-	formIndex: number;
+	moduleUuid: Uuid;
+	formUuid: Uuid;
 	/** When false, renders as a static icon (no dropdown). */
 	editable?: boolean;
 }
@@ -66,22 +67,22 @@ interface FormTypeButtonProps {
  * keyboard navigation and ARIA roles.
  */
 export function FormTypeButton({
-	moduleIndex,
-	formIndex,
+	moduleUuid,
+	formUuid,
 	editable = false,
 }: FormTypeButtonProps) {
-	const form = useForm(moduleIndex, formIndex);
-	const mod = useModule(moduleIndex);
+	const form = useForm(formUuid);
+	const mod = useModule(moduleUuid);
 	const { updateForm } = useBlueprintMutations();
 
 	const handleSelect = useCallback(
 		(type: string) => {
 			if (!editable) return;
-			updateForm(moduleIndex, formIndex, {
+			updateForm(asUuid(formUuid), {
 				type: type as FormType,
 			});
 		},
-		[editable, updateForm, moduleIndex, formIndex],
+		[editable, updateForm, formUuid],
 	);
 
 	const icon = formTypeIcons[form?.type ?? "survey"] ?? formTypeIcons.survey;

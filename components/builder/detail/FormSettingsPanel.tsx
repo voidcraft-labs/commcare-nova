@@ -8,23 +8,29 @@ import tablerSettings from "@iconify-icons/tabler/settings";
 import tablerTable from "@iconify-icons/tabler/table";
 import tablerX from "@iconify-icons/tabler/x";
 import { AnimatePresence, motion } from "motion/react";
-import { useCallback, useId, useMemo, useRef, useState } from "react";
+import {
+	useCallback,
+	useContext,
+	useId,
+	useMemo,
+	useRef,
+	useState,
+} from "react";
 import { SavedCheck } from "@/components/builder/EditableTitle";
 import { SaveShortcutHint } from "@/components/builder/SaveShortcutHint";
 import { XPathField } from "@/components/builder/XPathField";
 import { ConnectLogomark } from "@/components/icons/ConnectLogomark";
 import { FieldPicker } from "@/components/ui/FieldPicker";
 import { Toggle } from "@/components/ui/Toggle";
-import {
-	useAssembledForm,
-	useBuilderEngine,
-	useForm,
-	useModule,
-} from "@/hooks/useBuilder";
+import { useBuilderEngine } from "@/hooks/useBuilder";
 import { useCommitField } from "@/hooks/useCommitField";
 import type { XPathLintContext } from "@/lib/codemirror/xpath-lint";
+import { useAssembledForm } from "@/lib/doc/hooks/useAssembledForm";
 import { useBlueprintDoc } from "@/lib/doc/hooks/useBlueprintDoc";
 import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
+import { useForm, useModule } from "@/lib/doc/hooks/useEntity";
+import { BlueprintDocContext } from "@/lib/doc/provider";
+import { asUuid, type Uuid } from "@/lib/doc/types";
 import {
 	type ConnectConfig,
 	type ConnectType,
@@ -33,6 +39,7 @@ import {
 	type Question,
 } from "@/lib/schemas/blueprint";
 import { toSnakeId } from "@/lib/services/commcare/validate";
+import type { NormalizedData } from "@/lib/services/normalizedState";
 import {
 	assembleBlueprint,
 	assembleForm,
@@ -50,17 +57,17 @@ import {
 // ── Types ─────────────────────────────────────────────────────────────
 
 interface FormSettingsPanelProps {
-	moduleIndex: number;
-	formIndex: number;
+	moduleUuid: Uuid;
+	formUuid: Uuid;
 }
 
 // ── Toggle Button (for FormScreen header) ─────────────────────────────
 
 export function FormSettingsButton({
-	moduleIndex,
-	formIndex,
+	moduleUuid,
+	formUuid,
 }: FormSettingsPanelProps) {
-	const form = useForm(moduleIndex, formIndex);
+	const form = useForm(formUuid);
 	const connectType = useBlueprintDoc((s) => s.connectType);
 	const hasConnect = !!form?.connect && !!connectType;
 	const [open, setOpen] = useState(false);
@@ -103,8 +110,8 @@ export function FormSettingsButton({
 				>
 					<Popover.Popup className={POPOVER_POPUP_CLS}>
 						<FormSettingsPanel
-							moduleIndex={moduleIndex}
-							formIndex={formIndex}
+							moduleUuid={moduleUuid}
+							formUuid={formUuid}
 							onClose={() => setOpen(false)}
 						/>
 					</Popover.Popup>
@@ -117,8 +124,8 @@ export function FormSettingsButton({
 // ── Panel ──────────────────────────────────────────────────────────────
 
 function FormSettingsPanel({
-	moduleIndex,
-	formIndex,
+	moduleUuid,
+	formUuid,
 	onClose,
 }: FormSettingsPanelProps & { onClose: () => void }) {
 	return (
@@ -139,14 +146,11 @@ function FormSettingsPanel({
 
 			{/* Content */}
 			<div className="px-3.5 py-3 space-y-3 overflow-y-auto max-h-[480px]">
-				<CloseConditionSection
-					moduleIndex={moduleIndex}
-					formIndex={formIndex}
-				/>
+				<CloseConditionSection moduleUuid={moduleUuid} formUuid={formUuid} />
 
-				<AfterSubmitSection moduleIndex={moduleIndex} formIndex={formIndex} />
+				<AfterSubmitSection moduleUuid={moduleUuid} formUuid={formUuid} />
 
-				<ConnectSection moduleIndex={moduleIndex} formIndex={formIndex} />
+				<ConnectSection moduleUuid={moduleUuid} formUuid={formUuid} />
 			</div>
 		</div>
 	);
@@ -183,12 +187,9 @@ const CLOSE_MODE_OPTIONS: Array<{ value: CloseMode; label: string }> = [
  * "When condition is met" (reveals field picker + operator + value).
  * Mirrors the AfterSubmitSection dropdown pattern.
  */
-function CloseConditionSection({
-	moduleIndex,
-	formIndex,
-}: FormSettingsPanelProps) {
-	const form = useForm(moduleIndex, formIndex);
-	const assembledForm = useAssembledForm(moduleIndex, formIndex);
+function CloseConditionSection({ formUuid }: FormSettingsPanelProps) {
+	const form = useForm(formUuid);
+	const assembledForm = useAssembledForm(formUuid);
 	const { updateForm: updateFormAction } = useBlueprintMutations();
 	const triggerId = useId();
 	const triggerRef = useRef<HTMLButtonElement>(null);
@@ -216,9 +217,9 @@ function CloseConditionSection({
 
 	const handleSelect = (mode: CloseMode) => {
 		if (mode === "always") {
-			updateFormAction(moduleIndex, formIndex, { closeCondition: undefined });
+			updateFormAction(asUuid(formUuid), { closeCondition: undefined });
 		} else {
-			updateFormAction(moduleIndex, formIndex, {
+			updateFormAction(asUuid(formUuid), {
 				closeCondition: { question: "", answer: "" },
 			});
 		}
@@ -232,7 +233,7 @@ function CloseConditionSection({
 		}>,
 	) => {
 		const current = form.closeCondition ?? { question: "", answer: "" };
-		updateFormAction(moduleIndex, formIndex, {
+		updateFormAction(asUuid(formUuid), {
 			closeCondition: { ...current, ...patch },
 		});
 	};
@@ -550,11 +551,8 @@ function resolveUserFacing(dest: PostSubmitDestination): PostSubmitDestination {
 	return dest;
 }
 
-function AfterSubmitSection({
-	moduleIndex,
-	formIndex,
-}: FormSettingsPanelProps) {
-	const form = useForm(moduleIndex, formIndex);
+function AfterSubmitSection({ formUuid }: FormSettingsPanelProps) {
+	const form = useForm(formUuid);
 	const { updateForm } = useBlueprintMutations();
 	const formType = form?.type ?? "survey";
 	const current = resolveUserFacing(
@@ -568,11 +566,11 @@ function AfterSubmitSection({
 
 	const handleSelect = useCallback(
 		(dest: PostSubmitDestination) => {
-			updateForm(moduleIndex, formIndex, {
+			updateForm(asUuid(formUuid), {
 				postSubmit: dest === defaultPostSubmit(formType) ? undefined : dest,
 			});
 		},
-		[updateForm, moduleIndex, formIndex, formType],
+		[updateForm, formUuid, formType],
 	);
 
 	const last = AFTER_SUBMIT_OPTIONS.length - 1;
@@ -712,10 +710,10 @@ function LabeledXPathField({
 	);
 }
 
-function ConnectSection({ moduleIndex, formIndex }: FormSettingsPanelProps) {
+function ConnectSection({ moduleUuid, formUuid }: FormSettingsPanelProps) {
 	const engine = useBuilderEngine();
-	const form = useForm(moduleIndex, formIndex);
-	const mod = useModule(moduleIndex);
+	const form = useForm(formUuid);
+	const mod = useModule(moduleUuid);
 	const { updateForm: updateFormAction } = useBlueprintMutations();
 	const connectType = useBlueprintDoc((s) => s.connectType) as
 		| ConnectType
@@ -725,25 +723,49 @@ function ConnectSection({ moduleIndex, formIndex }: FormSettingsPanelProps) {
 
 	const save = useCallback(
 		(config: ConnectConfig | null) => {
-			updateFormAction(moduleIndex, formIndex, {
-				connect: config,
+			updateFormAction(asUuid(formUuid), {
+				connect: config ?? undefined,
 			});
 		},
-		[updateFormAction, moduleIndex, formIndex],
+		[updateFormAction, formUuid],
 	);
+
+	/* The connect stash still uses module/form indices because the engine
+	 * hasn't been migrated yet (Task 12). Look up the indices from the doc
+	 * store for the stash calls. */
+	const docStore = useContext(BlueprintDocContext);
+	const resolveIndices = useCallback(():
+		| { mIdx: number; fIdx: number }
+		| undefined => {
+		if (!docStore) return undefined;
+		const s = docStore.getState();
+		const mIdx = s.moduleOrder.indexOf(moduleUuid);
+		if (mIdx < 0) return undefined;
+		const formUuids = s.formOrder[moduleUuid] ?? [];
+		const fIdx = formUuids.indexOf(formUuid);
+		if (fIdx < 0) return undefined;
+		return { mIdx, fIdx };
+	}, [docStore, moduleUuid, formUuid]);
 
 	const toggle = useCallback(() => {
 		if (enabled) {
 			if (connect && connectType) {
-				engine.stashFormConnect(connectType, moduleIndex, formIndex, connect);
+				const indices = resolveIndices();
+				if (indices) {
+					engine.stashFormConnect(
+						connectType,
+						indices.mIdx,
+						indices.fIdx,
+						connect,
+					);
+				}
 			}
 			save(null);
 		} else if (connectType) {
-			const stashed = engine.getFormConnectStash(
-				connectType,
-				moduleIndex,
-				formIndex,
-			);
+			const indices = resolveIndices();
+			const stashed = indices
+				? engine.getFormConnectStash(connectType, indices.mIdx, indices.fIdx)
+				: undefined;
 			if (stashed) {
 				save(stashed);
 			} else {
@@ -779,17 +801,7 @@ function ConnectSection({ moduleIndex, formIndex }: FormSettingsPanelProps) {
 				}
 			}
 		}
-	}, [
-		enabled,
-		connect,
-		connectType,
-		engine,
-		mod,
-		form,
-		moduleIndex,
-		formIndex,
-		save,
-	]);
+	}, [enabled, connect, connectType, engine, mod, form, resolveIndices, save]);
 
 	if (!connectType) return null;
 
@@ -823,8 +835,8 @@ function ConnectSection({ moduleIndex, formIndex }: FormSettingsPanelProps) {
 								<LearnConfig
 									connect={connect}
 									save={save}
-									moduleIndex={moduleIndex}
-									formIndex={formIndex}
+									moduleUuid={moduleUuid}
+									formUuid={formUuid}
 								/>
 							)}
 
@@ -833,8 +845,8 @@ function ConnectSection({ moduleIndex, formIndex }: FormSettingsPanelProps) {
 								<DeliverConfig
 									connect={connect}
 									save={save}
-									moduleIndex={moduleIndex}
-									formIndex={formIndex}
+									moduleUuid={moduleUuid}
+									formUuid={formUuid}
 								/>
 							)}
 						</div>
@@ -850,28 +862,40 @@ function ConnectSection({ moduleIndex, formIndex }: FormSettingsPanelProps) {
 interface ConnectSubConfigProps {
 	connect: ConnectConfig;
 	save: (c: ConnectConfig) => void;
-	moduleIndex: number;
-	formIndex: number;
+	moduleUuid: Uuid;
+	formUuid: Uuid;
 }
 
 /** Shared lint context getter for XPath fields in connect sub-configs.
- *  Reads from the Zustand store imperatively — always reflects latest state. */
-function useConnectLintContext(moduleIndex: number, formIndex: number) {
-	const builder = useBuilderEngine();
+ *  Reads from the doc store imperatively — always reflects latest state. */
+function useConnectLintContext(formUuid: Uuid) {
+	const docStore = useContext(BlueprintDocContext);
 	return useCallback((): XPathLintContext | undefined => {
-		const s = builder.store.getState();
-		const moduleId = s.moduleOrder[moduleIndex];
-		if (!moduleId) return undefined;
-		const mod = s.modules[moduleId];
-		const formIds = s.formOrder[moduleId];
-		const formId = formIds?.[formIndex];
-		if (!formId) return undefined;
-		const formEntity = s.forms[formId];
+		if (!docStore) return undefined;
+		const s = docStore.getState();
+		/* Cast to NormalizedData — Uuid-branded keys are subtypes of string,
+		 * and the extra BlueprintDocState fields (apply, applyMany) are harmless. */
+		const nd = s as unknown as NormalizedData;
+		const formEntity = s.forms[formUuid];
 		if (!formEntity) return undefined;
-		const form = assembleForm(formEntity, formId, s.questions, s.questionOrder);
-		const blueprint = assembleBlueprint(getEntityData(s));
+		/* Find the module that owns this form. */
+		let moduleUuid: Uuid | undefined;
+		for (const [mUuid, formUuids] of Object.entries(s.formOrder)) {
+			if (formUuids.includes(formUuid)) {
+				moduleUuid = mUuid as Uuid;
+				break;
+			}
+		}
+		const mod = moduleUuid ? s.modules[moduleUuid] : undefined;
+		const form = assembleForm(
+			formEntity,
+			formUuid,
+			nd.questions,
+			nd.questionOrder,
+		);
+		const blueprint = assembleBlueprint(getEntityData(nd));
 		return { blueprint, form, moduleCaseType: mod?.caseType ?? undefined };
-	}, [builder, moduleIndex, formIndex]);
+	}, [docStore, formUuid]);
 }
 
 // ── Learn Config Fields ────────────────────────────────────────────────
@@ -879,11 +903,11 @@ function useConnectLintContext(moduleIndex: number, formIndex: number) {
 function LearnConfig({
 	connect,
 	save,
-	moduleIndex,
-	formIndex,
+	moduleUuid,
+	formUuid,
 }: ConnectSubConfigProps) {
-	const mod = useModule(moduleIndex);
-	const form = useForm(moduleIndex, formIndex);
+	const mod = useModule(moduleUuid);
+	const form = useForm(formUuid);
 	const lm = connect.learn_module;
 	const assessment = connect.assessment;
 	const learnEnabled = !!lm;
@@ -892,7 +916,7 @@ function LearnConfig({
 	const lastAssessmentRef = useRef(assessment);
 	if (lm) lastLearnRef.current = lm;
 	if (assessment) lastAssessmentRef.current = assessment;
-	const getLintContext = useConnectLintContext(moduleIndex, formIndex);
+	const getLintContext = useConnectLintContext(formUuid);
 
 	const defaultIds = useCallback(() => {
 		const modSlug = toSnakeId(mod?.name ?? "");
@@ -1076,11 +1100,11 @@ function LearnConfig({
 function DeliverConfig({
 	connect,
 	save,
-	moduleIndex,
-	formIndex,
+	moduleUuid,
+	formUuid,
 }: ConnectSubConfigProps) {
-	const mod = useModule(moduleIndex);
-	const form = useForm(moduleIndex, formIndex);
+	const mod = useModule(moduleUuid);
+	const form = useForm(formUuid);
 	const du = connect.deliver_unit;
 	const task = connect.task;
 	const deliverEnabled = !!du;
@@ -1089,7 +1113,7 @@ function DeliverConfig({
 	const lastTaskRef = useRef(task);
 	if (du) lastDeliverRef.current = du;
 	if (task) lastTaskRef.current = task;
-	const getLintContext = useConnectLintContext(moduleIndex, formIndex);
+	const getLintContext = useConnectLintContext(formUuid);
 
 	const defaultIds = useCallback(() => {
 		const modSlug = toSnakeId(mod?.name ?? "");

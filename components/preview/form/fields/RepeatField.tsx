@@ -76,7 +76,7 @@ export function RepeatField({
 	const state = useEngineState(question.uuid);
 	const ctx = useEditContext();
 	const isEditMode = ctx?.mode === "edit";
-	const saveField = useTextEditSave(questionPath);
+	const saveField = useTextEditSave(question.uuid);
 
 	/** Subscribe to children count from the store — drives hasChildren styling
 	 *  for the repeat container. Only fires on count change (0→1, 1→0). */

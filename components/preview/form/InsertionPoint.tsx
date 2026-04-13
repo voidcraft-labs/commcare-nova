@@ -31,7 +31,7 @@ import {
 } from "react";
 import { Tooltip } from "@/components/ui/Tooltip";
 import { useEditContext } from "@/hooks/useEditContext";
-import type { QuestionPath } from "@/lib/services/questionPath";
+import type { Uuid } from "@/lib/doc/types";
 import { useQuestionPicker } from "./QuestionPickerContext";
 
 /** Speed threshold in px/ms. Above this = cursor is traversing, don't open. */
@@ -45,7 +45,8 @@ const STALE_THRESHOLD = 32;
 
 interface InsertionPointProps {
 	atIndex: number;
-	parentPath?: QuestionPath;
+	/** UUID of the parent container (form for root-level, group/repeat uuid for nested). */
+	parentUuid: Uuid;
 	disabled?: boolean;
 	cursorSpeedRef?: RefObject<number>;
 	lastCursorRef?: RefObject<{ x: number; y: number; t: number } | undefined>;
@@ -86,7 +87,7 @@ export function InsertionPoint(props: InsertionPointProps) {
  */
 function FullInsertionPoint({
 	atIndex,
-	parentPath,
+	parentUuid,
 	disabled,
 	cursorSpeedRef,
 	lastCursorRef,
@@ -230,7 +231,7 @@ function FullInsertionPoint({
 					<Menu.Trigger
 						ref={triggerRef}
 						handle={pickerCtx?.handle}
-						payload={{ atIndex, parentPath }}
+						payload={{ atIndex, parentUuid }}
 						className="mx-1 w-5 h-5 flex items-center justify-center rounded-full bg-nova-surface border border-nova-violet/40 text-nova-violet hover:bg-nova-violet/10 transition-colors cursor-pointer shrink-0 outline-none"
 						aria-label="Insert question"
 						onClick={stopClick}

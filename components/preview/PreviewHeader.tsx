@@ -1,14 +1,10 @@
 /**
  * PreviewHeader — breadcrumb bar with back/up navigation for the preview pane.
- * All navigation state is read from the Zustand store via hooks — no props
- * needed except an optional `actions` slot for toolbar buttons.
+ * Navigation state is read from URL-driven hooks (Phase 2) — no legacy store
+ * reads for nav/selection.
  */
 "use client";
-import { useBreadcrumbs, useBuilderStore } from "@/hooks/useBuilder";
-import {
-	selectCanGoBack,
-	selectCanGoUp,
-} from "@/lib/services/builderSelectors";
+import { useBreadcrumbs, useLocation, useNavigate } from "@/lib/routing/hooks";
 import { ScreenNavButtons } from "./ScreenNavButtons";
 
 interface PreviewHeaderProps {
@@ -16,20 +12,21 @@ interface PreviewHeaderProps {
 }
 
 export function PreviewHeader({ actions }: PreviewHeaderProps) {
+	const loc = useLocation();
+	const navigate = useNavigate();
 	const breadcrumb = useBreadcrumbs();
-	const canGoBack = useBuilderStore(selectCanGoBack);
-	const canGoUp = useBuilderStore(selectCanGoUp);
-	const navBack = useBuilderStore((s) => s.navBack);
-	const navUp = useBuilderStore((s) => s.navUp);
-	const navPush = useBuilderStore((s) => s.navPush);
+
+	const canGoBack = loc.kind !== "home";
+	const canGoUp = loc.kind !== "home";
+
 	return (
 		<div className="flex items-center justify-between px-6 h-12 border-b border-nova-border">
 			<div className="flex items-center gap-2 min-w-0">
 				<ScreenNavButtons
 					canGoBack={canGoBack}
 					canGoUp={canGoUp}
-					onBack={navBack}
-					onUp={navUp}
+					onBack={() => navigate.back()}
+					onUp={() => navigate.up()}
 					compact
 				/>
 				<nav
@@ -55,10 +52,7 @@ export function PreviewHeader({ actions }: PreviewHeaderProps) {
 								) : (
 									<button
 										type="button"
-										onClick={() => {
-											if (i < breadcrumb.length - 1)
-												navPush(breadcrumb[i].screen);
-										}}
+										onClick={() => navigate.push(breadcrumb[i].location)}
 										className="text-nova-text-muted hover:text-nova-text transition-colors cursor-pointer"
 									>
 										{item.label}

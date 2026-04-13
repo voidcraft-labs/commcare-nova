@@ -74,6 +74,15 @@ export function parseLocation(
 	const screen = searchParams.get(LOCATION_PARAM.screen);
 	const moduleUuidRaw = searchParams.get(LOCATION_PARAM.module);
 
+	/* URL params are untrusted input — the only place in the app where a
+	 * string arrives already branded as `Uuid` is not actually branded at
+	 * the type level. The `as Uuid` casts below are DOCUMENTATION, not
+	 * validation: they mark "this string is meant to be a question/form/
+	 * module uuid" without checking whether it matches any entity in the
+	 * doc. Runtime validation happens downstream in `recoverLocation`
+	 * (rejects references that no longer exist) and `LocationRecoveryEffect`
+	 * (rewrites the URL on mismatch). If those two safeguards are removed,
+	 * these casts become unsafe. */
 	switch (screen) {
 		case SCREEN_KIND.module: {
 			if (!moduleUuidRaw) return { kind: "home" };
@@ -116,6 +125,14 @@ export function parseLocation(
 }
 
 /**
+ * Subset of `BlueprintDoc` needed by location validation and recovery.
+ * Declared as a `Pick` so callers that subscribe to individual entity
+ * maps (e.g. `LocationRecoveryEffect`) can pass an ad-hoc object without
+ * building a full doc snapshot.
+ */
+export type LocationDoc = Pick<BlueprintDoc, "modules" | "forms" | "questions">;
+
+/**
  * Check that every UUID referenced by the location exists in the current
  * doc. Returns `true` for `home` regardless of doc state.
  *
@@ -124,7 +141,7 @@ export function parseLocation(
  * references (usually falling back to home). This keeps selection-after-
  * deletion and stale-bookmark scenarios from ever rendering a broken UI.
  */
-export function isValidLocation(loc: Location, doc: BlueprintDoc): boolean {
+export function isValidLocation(loc: Location, doc: LocationDoc): boolean {
 	switch (loc.kind) {
 		case "home":
 			return true;
@@ -146,4 +163,55 @@ export function isValidLocation(loc: Location, doc: BlueprintDoc): boolean {
 			return true;
 		}
 	}
+}
+
+/**
+ * Reduce an invalid `Location` to the closest valid ancestor given the
+ * current doc. Pure function — no hooks, no React — so it can run on
+ * both the server (RSC page handler) and the client (recovery effect).
+ *
+ * Recovery policy (inside-out, most-specific → least-specific):
+ * - Home: always valid, returned as-is.
+ * - Module / cases with missing module → home.
+ * - Form with missing form → parent module screen.
+ * - Form with missing `selectedUuid` → same form, selection dropped.
+ * - If every reference resolves, the original location is returned by
+ *   identity (referential equality preserved so callers can `===` check
+ *   to skip the no-op case cheaply).
+ *
+ * Using `LocationDoc` (a `Pick` of `BlueprintDoc`) means callers don't
+ * need to construct a full doc — passing `{ modules, forms, questions }`
+ * is sufficient, which is what `LocationRecoveryEffect` does after its
+ * per-slice store subscriptions.
+ */
+export function recoverLocation(loc: Location, doc: LocationDoc): Location {
+	if (loc.kind === "home") return loc;
+
+	/* Module uuid is shared by module, cases, and form screens. If the
+	 * module has been deleted, nothing below it can be recovered — the
+	 * user's only safe destination is the app home. */
+	if (doc.modules[loc.moduleUuid] === undefined) {
+		return { kind: "home" };
+	}
+
+	if (loc.kind === "module") return loc;
+	if (loc.kind === "cases") return loc;
+
+	/* loc.kind === "form" — walk inward: form, then selected question. */
+	if (doc.forms[loc.formUuid] === undefined) {
+		return { kind: "module", moduleUuid: loc.moduleUuid };
+	}
+
+	if (
+		loc.selectedUuid !== undefined &&
+		doc.questions[loc.selectedUuid] === undefined
+	) {
+		return {
+			kind: "form",
+			moduleUuid: loc.moduleUuid,
+			formUuid: loc.formUuid,
+		};
+	}
+
+	return loc;
 }
