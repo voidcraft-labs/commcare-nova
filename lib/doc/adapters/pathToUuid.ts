@@ -35,7 +35,7 @@ export function resolveFormUuid(
 	fIdx: number,
 ): Uuid | undefined {
 	const modUuid = resolveModuleUuid(doc, mIdx);
-	if (!modUuid) return undefined;
+	if (modUuid === undefined) return undefined;
 	const formUuids = doc.formOrder[modUuid];
 	if (!formUuids || fIdx < 0 || fIdx >= formUuids.length) return undefined;
 	return formUuids[fIdx];
@@ -55,8 +55,12 @@ export function resolveQuestionUuid(
 	fIdx: number,
 	path: string,
 ): Uuid | undefined {
+	// An empty `path` (or one that trims to zero segments) is not a valid
+	// question selector — this helper always targets a descendant question.
+	// Callers that want the enclosing form's uuid (e.g. "the form root") must
+	// call `resolveFormUuid` directly rather than passing an empty path here.
 	const formUuid = resolveFormUuid(doc, mIdx, fIdx);
-	if (!formUuid) return undefined;
+	if (formUuid === undefined) return undefined;
 
 	const segments = path.split("/").filter((s) => s.length > 0);
 	if (segments.length === 0) return undefined;
