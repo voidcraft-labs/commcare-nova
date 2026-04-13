@@ -45,10 +45,6 @@ export class BuilderEngine {
 
 	// ── Non-reactive state (never triggers React re-renders) ────────────
 
-	/** Accumulated burst energy from data parts. Drained by SignalGrid rAF loop. */
-	private _streamEnergy = 0;
-	/** Accumulated token/reasoning energy. Drained by SignalGrid rAF loop. */
-	private _thinkEnergy = 0;
 	/** Current agent edit zone — read by computeEditFocus(). */
 	private _editScope: EditScope | null = null;
 	/** Callback that can block select() when an inline editor has unsaved content. */
@@ -281,28 +277,6 @@ export class BuilderEngine {
 
 	get isDragging(): boolean {
 		return this._isDragging;
-	}
-
-	// ── Energy (non-reactive — consumed by SignalGrid rAF loop) ─────────
-
-	injectEnergy(amount: number): void {
-		this._streamEnergy += amount;
-	}
-
-	injectThinkEnergy(amount: number): void {
-		this._thinkEnergy += amount;
-	}
-
-	drainEnergy(): number {
-		const e = this._streamEnergy;
-		this._streamEnergy = 0;
-		return e;
-	}
-
-	drainThinkEnergy(): number {
-		const e = this._thinkEnergy;
-		this._thinkEnergy = 0;
-		return e;
 	}
 
 	// ── Edit focus (non-reactive — signal grid zone) ────────────────────
@@ -585,8 +559,6 @@ export class BuilderEngine {
 	// ── Reset ───────────────────────────────────────────────────────────
 
 	reset(): void {
-		this._streamEnergy = 0;
-		this._thinkEnergy = 0;
 		this._editScope = null;
 		this._editGuard = null;
 		this._newQuestionUuid = undefined;
