@@ -24,7 +24,7 @@
 "use client";
 
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { useMemo } from "react";
+import { useMemo, useRef } from "react";
 import { useBlueprintDoc } from "@/lib/doc/hooks/useBlueprintDoc";
 import type {
 	FormEntity,
@@ -91,10 +91,39 @@ export function useSelectedFormContext(): {
 }
 
 /**
+ * Stable action bag returned by `useNavigate`.
+ *
+ * Every method is a standalone closure — safe to destructure
+ * (`const { openForm } = useNavigate()`) without losing `this` context.
+ */
+export interface NavigateActions {
+	push: (next: Location, opts?: { replace?: boolean }) => void;
+	replace: (next: Location) => void;
+	goHome: () => void;
+	openModule: (moduleUuid: Uuid) => void;
+	openCaseList: (moduleUuid: Uuid) => void;
+	openCaseDetail: (moduleUuid: Uuid, caseId: string) => void;
+	openForm: (moduleUuid: Uuid, formUuid: Uuid, selectedUuid?: Uuid) => void;
+	back: () => void;
+	up: () => void;
+}
+
+/**
+ * Selection callback returned by `useSelect`.
+ * Passing `undefined` clears the current selection.
+ */
+export type SelectAction = (uuid: Uuid | undefined) => void;
+
+/**
  * `true` when a specific question uuid is the current selection.
  * Each `EditableQuestionWrapper` calls this with its own identity —
  * only the previously-selected and newly-selected wrappers re-render
  * on a selection change (every other wrapper's boolean stays `false`).
+ *
+ * Tradeoff: this hook re-renders on any URL change (not just selection
+ * changes), because `useLocation` subscribes to the full search params.
+ * Phase 5's virtualization makes this moot — the boolean return still
+ * prevents child reconciliation for unselected wrappers.
  */
 export function useIsQuestionSelected(uuid: Uuid | string): boolean {
 	const loc = useLocation();
@@ -204,67 +233,55 @@ export function useBreadcrumbs(): BreadcrumbItem[] {
  * (no history entry); screen changes use `router.push` with
  * `{ scroll: false }`.
  *
- * The returned object is frozen to make mis-uses obvious; every value
- * is stable across renders (the closures only close over the stable
- * `router` and `pathname` references).
+ * The returned object is stable across URL changes — a ref captures the
+ * current location for `up()` without adding it to the `useMemo` deps.
+ * Every method is a standalone arrow, safe to destructure without losing
+ * `this` context.
  */
-export function useNavigate() {
+export function useNavigate(): NavigateActions {
 	const router = useRouter();
 	const pathname = usePathname();
 	const loc = useLocation();
 
-	return useMemo(
-		() => ({
-			/** Push a new location (history entry). Use for screen changes. */
-			push(next: Location, opts?: { replace?: boolean }): void {
-				const params = serializeLocation(next).toString();
-				const url = params ? `${pathname}?${params}` : pathname;
-				if (opts?.replace) router.replace(url, { scroll: false });
-				else router.push(url, { scroll: false });
+	// Capture current location in a ref so `up()` can read it without
+	// including `loc` in useMemo deps (which would recreate every action
+	// on every URL change, churning downstream memoization).
+	const locRef = useRef(loc);
+	locRef.current = loc;
+
+	return useMemo(() => {
+		/** Push a new location (history entry). Use for screen changes. */
+		const push = (next: Location, opts?: { replace?: boolean }): void => {
+			const params = serializeLocation(next).toString();
+			const url = params ? `${pathname}?${params}` : pathname;
+			if (opts?.replace) router.replace(url, { scroll: false });
+			else router.push(url, { scroll: false });
+		};
+
+		/** Replace the current location (no history entry). */
+		const replace = (next: Location): void => {
+			const params = serializeLocation(next).toString();
+			const url = params ? `${pathname}?${params}` : pathname;
+			router.replace(url, { scroll: false });
+		};
+
+		return {
+			push,
+			replace,
+			goHome: () => router.push(pathname, { scroll: false }),
+			openModule: (moduleUuid: Uuid) => push({ kind: "module", moduleUuid }),
+			openCaseList: (moduleUuid: Uuid) => push({ kind: "cases", moduleUuid }),
+			openCaseDetail: (moduleUuid: Uuid, caseId: string) =>
+				push({ kind: "cases", moduleUuid, caseId }),
+			openForm: (moduleUuid: Uuid, formUuid: Uuid, selectedUuid?: Uuid) =>
+				push({ kind: "form", moduleUuid, formUuid, selectedUuid }),
+			back: () => router.back(),
+			up: () => {
+				const parent = parentLocation(locRef.current);
+				if (parent) push(parent);
 			},
-			/** Replace the current location (no history entry). */
-			replace(next: Location): void {
-				const params = serializeLocation(next).toString();
-				const url = params ? `${pathname}?${params}` : pathname;
-				router.replace(url, { scroll: false });
-			},
-			/** Go to the app home. */
-			goHome(): void {
-				router.push(pathname, { scroll: false });
-			},
-			/** Go to a module screen. */
-			openModule(moduleUuid: Uuid): void {
-				this.push({ kind: "module", moduleUuid });
-			},
-			/** Go to a module's case list. */
-			openCaseList(moduleUuid: Uuid): void {
-				this.push({ kind: "cases", moduleUuid });
-			},
-			/** Open a specific case detail (form-screen precursor). */
-			openCaseDetail(moduleUuid: Uuid, caseId: string): void {
-				this.push({ kind: "cases", moduleUuid, caseId });
-			},
-			/** Open a form. Clears any existing selection. */
-			openForm(moduleUuid: Uuid, formUuid: Uuid, selectedUuid?: Uuid): void {
-				this.push({
-					kind: "form",
-					moduleUuid,
-					formUuid,
-					selectedUuid,
-				});
-			},
-			/** Browser-back. Walks the actual history stack. */
-			back(): void {
-				router.back();
-			},
-			/** Go to the immediate parent of the current location. */
-			up(): void {
-				const parent = parentLocation(loc);
-				if (parent) this.push(parent);
-			},
-		}),
-		[router, pathname, loc],
-	);
+		};
+	}, [router, pathname]);
 }
 
 /** Pure parent-derivation for the `up` navigation. */
@@ -296,7 +313,7 @@ function parentLocation(loc: Location): Location | undefined {
  *
  * `uuid === undefined` clears the current selection.
  */
-export function useSelect() {
+export function useSelect(): SelectAction {
 	const router = useRouter();
 	const pathname = usePathname();
 	const loc = useLocation();

@@ -68,4 +68,12 @@ describe("useNavigate", () => {
 			{ scroll: false },
 		);
 	});
+
+	it("useSelect is a no-op when not on a form location", () => {
+		mockParams.current = new URLSearchParams("s=m&m=mod-1");
+		routerReplace.mockClear();
+		const { result } = renderHook(() => useSelect());
+		act(() => result.current(asUuid("q-99")));
+		expect(routerReplace).not.toHaveBeenCalled();
+	});
 });
