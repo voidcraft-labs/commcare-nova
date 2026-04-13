@@ -26,6 +26,7 @@ import {
 import { useStore } from "zustand";
 import { shallow } from "zustand/shallow";
 import { useStoreWithEqualityFn } from "zustand/traditional";
+import { BlueprintDocProvider } from "@/lib/doc/provider";
 import type { PreviewScreen } from "@/lib/preview/engine/types";
 import type { AppBlueprint, BlueprintForm } from "@/lib/schemas/blueprint";
 import type { TreeData } from "@/lib/services/builder";
@@ -408,7 +409,15 @@ export function BuilderProvider({
 
 	return (
 		<EngineContext value={engine}>
-			<StoreContext value={engine.store}>{children}</StoreContext>
+			<StoreContext value={engine.store}>
+				<BlueprintDocProvider
+					appId={buildId === "new" ? "" : buildId}
+					initialBlueprint={initialBlueprint}
+					startTracking={Boolean(initialBlueprint || replay)}
+				>
+					{children}
+				</BlueprintDocProvider>
+			</StoreContext>
 		</EngineContext>
 	);
 }
