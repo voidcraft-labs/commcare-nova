@@ -216,10 +216,10 @@ function CloseConditionSection({
 
 	const handleSelect = (mode: CloseMode) => {
 		if (mode === "always") {
-			updateFormAction(moduleIndex, formIndex, { close_condition: null });
+			updateFormAction(moduleIndex, formIndex, { closeCondition: undefined });
 		} else {
 			updateFormAction(moduleIndex, formIndex, {
-				close_condition: { question: "", answer: "" },
+				closeCondition: { question: "", answer: "" },
 			});
 		}
 	};
@@ -233,7 +233,7 @@ function CloseConditionSection({
 	) => {
 		const current = form.closeCondition ?? { question: "", answer: "" };
 		updateFormAction(moduleIndex, formIndex, {
-			close_condition: { ...current, ...patch },
+			closeCondition: { ...current, ...patch },
 		});
 	};
 
@@ -569,7 +569,7 @@ function AfterSubmitSection({
 	const handleSelect = useCallback(
 		(dest: PostSubmitDestination) => {
 			updateForm(moduleIndex, formIndex, {
-				post_submit: dest === defaultPostSubmit(formType) ? null : dest,
+				postSubmit: dest === defaultPostSubmit(formType) ? undefined : dest,
 			});
 		},
 		[updateForm, moduleIndex, formIndex, formType],

@@ -53,6 +53,21 @@ import type {
 	ConnectType,
 	Question,
 } from "@/lib/schemas/blueprint";
+import type { QuestionPath } from "@/lib/services/questionPath";
+
+/**
+ * Partial with `null` allowed for each value.
+ *
+ * Legacy callers (ContextualEditorData, useSaveQuestion) pass `null` to clear
+ * optional fields like `case_property_on`. The normalized `QuestionEntity` and
+ * `FormEntity` types use `undefined` for absent fields. This utility type
+ * accepts either so migration call sites compile without rewriting every
+ * patch literal. The dispatch coerces `null` → `undefined` before passing
+ * through to the reducer.
+ */
+type NullablePartial<T> = {
+	[K in keyof T]?: T[K] | null;
+};
 
 /**
  * Result of a `moveQuestion` dispatch.
@@ -87,7 +102,7 @@ export interface MoveQuestionResult {
  * which are out of scope for this fix).
  */
 export interface QuestionRenameResult {
-	newPath: string;
+	newPath: QuestionPath;
 	xpathFieldsRewritten: number;
 	conflict?: boolean;
 }
@@ -101,7 +116,7 @@ export interface QuestionRenameResult {
  * return the new uuid). `undefined` if the dispatch was a no-op.
  */
 export interface DuplicateQuestionResult {
-	newPath: string;
+	newPath: QuestionPath;
 	newUuid: string;
 }
 
@@ -119,11 +134,15 @@ export interface BlueprintMutations {
 	 * Insert a new question. Returns the new question's uuid (not its
 	 * semantic id) so callers can drive selection/navigation. Returns the
 	 * empty string on a no-op (e.g. unresolvable `mIdx`/`fIdx`).
+	 *
+	 * Accepts either a full `Question` (with uuid) or a partial shape
+	 * without uuid — legacy callers (SA tools, QuestionTypePicker) omit
+	 * the uuid and let the hook mint one via `crypto.randomUUID()`.
 	 */
 	addQuestion: (
 		mIdx: number,
 		fIdx: number,
-		question: Question,
+		question: Omit<Question, "uuid"> & { uuid?: string },
 		opts?: {
 			afterPath?: string;
 			beforePath?: string;
@@ -131,11 +150,16 @@ export interface BlueprintMutations {
 			parentPath?: string;
 		},
 	) => string;
+	/**
+	 * Update fields on an existing question. Accepts `null` for any field
+	 * value to clear it — the dispatch coerces `null` to `undefined` so
+	 * the normalized entity stays clean.
+	 */
 	updateQuestion: (
 		mIdx: number,
 		fIdx: number,
 		path: string,
-		patch: Partial<Omit<QuestionEntity, "uuid">>,
+		patch: NullablePartial<Omit<QuestionEntity, "uuid">>,
 	) => void;
 	removeQuestion: (mIdx: number, fIdx: number, path: string) => void;
 	renameQuestion: (
@@ -162,10 +186,16 @@ export interface BlueprintMutations {
 
 	// ── Form mutations ────────────────────────────────────────────────────
 	addForm: (mIdx: number, form: BlueprintForm) => void;
+	/**
+	 * Update fields on an existing form. Accepts `null` for any field
+	 * value to clear it — the dispatch coerces `null` to `undefined` so
+	 * the normalized entity stays clean. Patches use camelCase field names
+	 * matching `FormEntity` (e.g. `closeCondition`, `postSubmit`).
+	 */
 	updateForm: (
 		mIdx: number,
 		fIdx: number,
-		patch: Partial<Omit<FormEntity, "uuid">>,
+		patch: NullablePartial<Omit<FormEntity, "uuid">>,
 	) => void;
 	removeForm: (mIdx: number, fIdx: number) => void;
 	replaceForm: (mIdx: number, fIdx: number, form: BlueprintForm) => void;
@@ -209,6 +239,26 @@ export interface BlueprintMutations {
  * hide behind the fail-open contract. Stripped by the production build
  * via the `NODE_ENV` check.
  */
+/**
+ * Replace `null` values with `undefined` in a shallow patch object.
+ *
+ * Legacy callers pass `null` to mean "remove this field" (e.g.
+ * `{ case_property_on: null }`), but the normalized entity types use
+ * `undefined` for absent optional fields. This conversion bridges
+ * the gap without rewriting every call site.
+ */
+function coerceNulls<T extends Record<string, unknown>>(
+	patch: T,
+): { [K in keyof T]: Exclude<T[K], null> | undefined } {
+	const result = { ...patch };
+	for (const key of Object.keys(result)) {
+		if (result[key] === null) {
+			(result as Record<string, unknown>)[key] = undefined;
+		}
+	}
+	return result as { [K in keyof T]: Exclude<T[K], null> | undefined };
+}
+
 function warnUnresolved(
 	method: string,
 	context: Record<string, unknown>,
@@ -402,7 +452,14 @@ export function useBlueprintMutations(): BlueprintMutations {
 					warnUnresolved("updateQuestion", { mIdx, fIdx, path });
 					return;
 				}
-				dispatch({ kind: "updateQuestion", uuid, patch });
+				// Coerce null → undefined so the normalized entity stays clean.
+				// Legacy callers pass null to clear optional fields.
+				const cleanPatch = coerceNulls(patch);
+				dispatch({
+					kind: "updateQuestion",
+					uuid,
+					patch: cleanPatch as Partial<Omit<QuestionEntity, "uuid">>,
+				});
 			},
 
 			removeQuestion(mIdx, fIdx, path) {
@@ -420,7 +477,10 @@ export function useBlueprintMutations(): BlueprintMutations {
 				const uuid = resolveQuestionUuid(doc, mIdx, fIdx, path);
 				if (!uuid) {
 					warnUnresolved("renameQuestion", { mIdx, fIdx, path });
-					return { newPath: path, xpathFieldsRewritten: 0 };
+					return {
+						newPath: path as QuestionPath,
+						xpathFieldsRewritten: 0,
+					};
 				}
 
 				// Look up the parent uuid + sibling list up front so we can:
@@ -441,7 +501,7 @@ export function useBlueprintMutations(): BlueprintMutations {
 						if (sibUuid === uuid) continue;
 						if (doc.questions[sibUuid]?.id === newId) {
 							return {
-								newPath: path,
+								newPath: path as QuestionPath,
 								xpathFieldsRewritten: 0,
 								conflict: true,
 							};
@@ -456,7 +516,10 @@ export function useBlueprintMutations(): BlueprintMutations {
 				segments[segments.length - 1] = newId;
 				// xpathFieldsRewritten count not exposed by the doc reducer yet;
 				// surface zero until a later phase adds instrumentation.
-				return { newPath: segments.join("/"), xpathFieldsRewritten: 0 };
+				return {
+					newPath: segments.join("/") as QuestionPath,
+					xpathFieldsRewritten: 0,
+				};
 			},
 
 			moveQuestion(mIdx, fIdx, path, opts) {
@@ -558,9 +621,9 @@ export function useBlueprintMutations(): BlueprintMutations {
 				const parentPath = afterDoc.forms[parentUuid]
 					? "" // parent is the form root
 					: (computePathForUuid(afterDoc, parentUuid) ?? "");
-				const newPath = parentPath
-					? `${parentPath}/${cloneEntity.id}`
-					: cloneEntity.id;
+				const newPath = (
+					parentPath ? `${parentPath}/${cloneEntity.id}` : cloneEntity.id
+				) as QuestionPath;
 
 				return { newPath, newUuid: newUuid as string };
 			},
@@ -593,7 +656,13 @@ export function useBlueprintMutations(): BlueprintMutations {
 					warnUnresolved("updateForm", { mIdx, fIdx });
 					return;
 				}
-				dispatch({ kind: "updateForm", uuid, patch });
+				// Coerce null → undefined so the normalized entity stays clean.
+				const cleanPatch = coerceNulls(patch);
+				dispatch({
+					kind: "updateForm",
+					uuid,
+					patch: cleanPatch as Partial<Omit<FormEntity, "uuid">>,
+				});
 			},
 
 			removeForm(mIdx, fIdx) {
