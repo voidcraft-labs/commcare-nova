@@ -4,10 +4,9 @@ import {
 	SECTION_CARD_CLASS,
 	SectionLabel,
 } from "@/components/builder/InlineSettingsPanel";
-import { useBuilderStore } from "@/hooks/useBuilder";
 import { useSaveQuestion } from "@/hooks/useSaveQuestion";
+import { useSelectedQuestion } from "@/lib/routing/hooks";
 import type { Question } from "@/lib/schemas/blueprint";
-import type { QuestionPath } from "@/lib/services/questionPath";
 import { AddPropertyButton } from "./AddPropertyButton";
 import {
 	addableTextFields,
@@ -28,10 +27,10 @@ const UI_FIELDS = new Set<FocusableFieldKey>(["hint"]);
  * group, repeat). Mirrors `ContextualEditorData`'s visibility pattern.
  */
 export function ContextualEditorUI({ question }: QuestionEditorProps) {
-	const selected = useBuilderStore((s) => s.selected);
-	const saveQuestion = useSaveQuestion();
+	const selected = useSelectedQuestion();
+	const saveQuestion = useSaveQuestion(selected?.uuid);
 	const { activeField, activate, clear } = useAddableField(
-		selected?.questionPath ?? ("" as QuestionPath),
+		selected?.uuid ?? "",
 	);
 
 	const focusHint = useFocusHint(UI_FIELDS);

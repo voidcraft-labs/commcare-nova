@@ -14,27 +14,22 @@ import { SavedCheck } from "@/components/builder/EditableTitle";
 import { QuestionTypeList } from "@/components/builder/QuestionTypeList";
 import { tablerCopyPlus } from "@/components/icons/tablerExtras";
 import { Tooltip } from "@/components/ui/Tooltip";
-import {
-	useAssembledForm,
-	useBuilderEngine,
-	useBuilderStore,
-} from "@/hooks/useBuilder";
+import { useBuilderEngine } from "@/hooks/useBuilder";
 import { useCommitField } from "@/hooks/useCommitField";
 import { useSaveQuestion } from "@/hooks/useSaveQuestion";
+import { useAssembledForm } from "@/lib/doc/hooks/useAssembledForm";
 import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
+import { asUuid, type Uuid } from "@/lib/doc/types";
 import { shortcutLabel } from "@/lib/platform";
 import { getConvertibleTypes } from "@/lib/questionTypeConversions";
 import { questionTypeIcons, questionTypeLabels } from "@/lib/questionTypeIcons";
+import { useDeleteSelectedQuestion } from "@/lib/routing/builderActions";
+import { useLocation, useSelect } from "@/lib/routing/hooks";
+import type { CrossLevelMoveTarget } from "@/lib/services/questionNavigation";
 import {
-	type CrossLevelMoveTarget,
 	getCrossLevelMoveTargets,
 	getQuestionMoveTargets,
 } from "@/lib/services/questionNavigation";
-import {
-	flattenQuestionRefs,
-	qpath,
-	qpathId,
-} from "@/lib/services/questionPath";
 import {
 	MENU_ITEM_CLS,
 	MENU_ITEM_DISABLED_CLS,
@@ -75,21 +70,24 @@ function useShiftKey(): boolean {
 
 export function ContextualEditorHeader({ question }: QuestionEditorProps) {
 	const engine = useBuilderEngine();
-	const selected = useBuilderStore((s) => s.selected);
+	const loc = useLocation();
+	const select = useSelect();
+
+	const selectedUuid = loc.kind === "form" ? loc.selectedUuid : undefined;
+	const formUuid = loc.kind === "form" ? loc.formUuid : undefined;
+
 	const {
 		moveQuestion,
 		duplicateQuestion,
-		removeQuestion,
 		renameQuestion: renameQuestionAction,
 	} = useBlueprintMutations();
-	const assembledForm = useAssembledForm(
-		selected?.moduleIndex ?? 0,
-		selected?.formIndex ?? 0,
-	);
 
-	const saveQuestion = useSaveQuestion();
+	const assembledForm = useAssembledForm((formUuid ?? "") as Uuid);
+
+	const saveQuestion = useSaveQuestion(selectedUuid);
 	const focusHint = useFocusHint(HEADER_FIELDS);
 	const shiftHeld = useShiftKey();
+	const deleteSelected = useDeleteSelectedQuestion();
 
 	/* ── ID field notices (errors + rename info) ── */
 
@@ -132,23 +130,13 @@ export function ContextualEditorHeader({ question }: QuestionEditorProps) {
 	});
 
 	/** Attempts the rename and returns false if blocked by a sibling conflict.
-	 * On success the mutation has already been applied by the store. */
+	 * On success the mutation has already been applied by the store.
+	 * Rename doesn't change uuid, so no selection update is needed. */
 	const validateRename = useCallback(
 		(newId: string): boolean => {
-			if (
-				!selected ||
-				selected.formIndex === undefined ||
-				!selected.questionPath ||
-				!newId
-			)
-				return false;
+			if (!selectedUuid || !newId) return false;
 
-			const result = renameQuestionAction(
-				selected.moduleIndex,
-				selected.formIndex,
-				selected.questionPath,
-				newId,
-			);
+			const result = renameQuestionAction(asUuid(selectedUuid), newId);
 
 			/* Store blocked the rename — sibling conflict. Show shake +
 			 * error popover matching the XPathField validation pattern. */
@@ -162,14 +150,13 @@ export function ContextualEditorHeader({ question }: QuestionEditorProps) {
 				return false;
 			}
 
-			/* Rename succeeded — update selection to the new path and clear
-			 * the new-question highlight so subsequent edits are normal. */
+			/* Rename succeeded — uuid stays the same, selection is stable.
+			 * Clear the new-question highlight so subsequent edits are normal. */
 			setIdNotice(null);
-			engine.select({ ...selected, questionPath: result.newPath });
 			engine.clearNewQuestion();
 			return true;
 		},
-		[selected, renameQuestionAction, engine],
+		[selectedUuid, renameQuestionAction, engine],
 	);
 
 	const idField = useCommitField({
@@ -187,148 +174,171 @@ export function ContextualEditorHeader({ question }: QuestionEditorProps) {
 			syncIdWidth();
 			const shouldAutoFocus =
 				focusHint === "id" ||
-				(!!selected?.questionUuid &&
-					engine.isNewQuestion(selected.questionUuid));
+				(!!selectedUuid && engine.isNewQuestion(selectedUuid));
 			if (el && shouldAutoFocus) {
 				el.focus({ preventScroll: true });
 				el.select();
 			}
 		},
-		[idField.ref, focusHint, selected?.questionUuid, engine, syncIdWidth],
+		[idField.ref, focusHint, selectedUuid, engine, syncIdWidth],
 	);
 
 	/* ── Action handlers ── */
 
+	/** Compute the question path from the assembled form for move operations.
+	 *  This bridges the path-based move target utilities with uuid-first mutations. */
+	const getQuestionPath = useCallback(() => {
+		if (!assembledForm || !selectedUuid) return undefined;
+		const { questions } = assembledForm;
+		/* Walk the assembled form to find the question with matching uuid. */
+		const findPath = (
+			qs: typeof questions,
+			parent?: string,
+		): string | undefined => {
+			for (const q of qs) {
+				const path = parent ? `${parent}/${q.id}` : q.id;
+				if (q.uuid === selectedUuid) return path;
+				if (q.children) {
+					const found = findPath(q.children, path);
+					if (found) return found;
+				}
+			}
+			return undefined;
+		};
+		return findPath(questions);
+	}, [assembledForm, selectedUuid]);
+
+	/** Find a question's uuid by its path in the assembled form tree. */
+	const findUuidByPath = useCallback(
+		(targetPath: string): Uuid | undefined => {
+			if (!assembledForm) return undefined;
+			const findInTree = (
+				qs: typeof assembledForm.questions,
+				parent?: string,
+			): Uuid | undefined => {
+				for (const q of qs) {
+					const path = parent ? `${parent}/${q.id}` : q.id;
+					if (path === targetPath) return asUuid(q.uuid);
+					if (q.children) {
+						const found = findInTree(q.children, path);
+						if (found) return found;
+					}
+				}
+				return undefined;
+			};
+			return findInTree(assembledForm.questions);
+		},
+		[assembledForm],
+	);
+
 	const handleMoveUp = useCallback(() => {
-		if (
-			!selected ||
-			selected.formIndex === undefined ||
-			!selected.questionPath ||
-			!assembledForm
-		)
-			return;
+		if (!selectedUuid || !assembledForm) return;
+		const questionPath = getQuestionPath();
+		if (!questionPath) return;
 		const { beforePath } = getQuestionMoveTargets(
 			assembledForm.questions,
-			selected.questionPath,
+			questionPath as import("@/lib/services/questionPath").QuestionPath,
 		);
 		if (!beforePath) return;
-		moveQuestion(
-			selected.moduleIndex,
-			selected.formIndex,
-			selected.questionPath,
-			{ beforePath },
-		);
-	}, [selected, assembledForm, moveQuestion]);
+		const beforeUuid = findUuidByPath(beforePath as string);
+		if (beforeUuid) {
+			moveQuestion(asUuid(selectedUuid), { beforeUuid });
+		}
+	}, [
+		selectedUuid,
+		assembledForm,
+		moveQuestion,
+		getQuestionPath,
+		findUuidByPath,
+	]);
 
 	const handleMoveDown = useCallback(() => {
-		if (
-			!selected ||
-			selected.formIndex === undefined ||
-			!selected.questionPath ||
-			!assembledForm
-		)
-			return;
+		if (!selectedUuid || !assembledForm) return;
+		const questionPath = getQuestionPath();
+		if (!questionPath) return;
 		const { afterPath } = getQuestionMoveTargets(
 			assembledForm.questions,
-			selected.questionPath,
+			questionPath as import("@/lib/services/questionPath").QuestionPath,
 		);
 		if (!afterPath) return;
-		moveQuestion(
-			selected.moduleIndex,
-			selected.formIndex,
-			selected.questionPath,
-			{ afterPath },
-		);
-	}, [selected, assembledForm, moveQuestion]);
+		const afterUuid = findUuidByPath(afterPath as string);
+		if (afterUuid) {
+			moveQuestion(asUuid(selectedUuid), { afterUuid });
+		}
+	}, [
+		selectedUuid,
+		assembledForm,
+		moveQuestion,
+		getQuestionPath,
+		findUuidByPath,
+	]);
 
-	/** Execute a cross-level move and update selection to the new path. */
+	/** Execute a cross-level move and scroll to the question at its new location. */
 	const executeCrossLevel = useCallback(
 		(target: CrossLevelMoveTarget) => {
-			if (
-				!selected ||
-				selected.formIndex === undefined ||
-				!selected.questionPath
-			)
-				return;
-			const { direction: _, ...opts } = target;
-			// phase-1b-task-10: cross-level move auto-rename notification is synthesized
-			// by Task 10's path-to-path rewriter. Hook returns void for now.
-			moveQuestion(
-				selected.moduleIndex,
-				selected.formIndex,
-				selected.questionPath,
-				opts,
-			);
-			const newPath = qpath(
-				qpathId(selected.questionPath),
-				target.targetParentPath,
-			);
-			engine.navigateTo({ ...selected, questionPath: newPath });
+			if (!selectedUuid) return;
+			/* Resolve target parent and sibling uuids from paths. */
+			const toParentUuid = target.targetParentPath
+				? findUuidByPath(target.targetParentPath as string)
+				: formUuid
+					? asUuid(formUuid)
+					: undefined;
+			const beforeUuid = target.beforePath
+				? findUuidByPath(target.beforePath as string)
+				: undefined;
+			const afterUuid = target.afterPath
+				? findUuidByPath(target.afterPath as string)
+				: undefined;
+
+			if (!toParentUuid) return;
+
+			moveQuestion(asUuid(selectedUuid), {
+				toParentUuid,
+				beforeUuid,
+				afterUuid,
+			});
+			/* Scroll to the question at its new position. */
+			engine.setPendingScroll(selectedUuid, "smooth", false);
 		},
-		[selected, moveQuestion, engine],
+		[selectedUuid, formUuid, moveQuestion, findUuidByPath, engine],
 	);
 
 	const handleDuplicate = useCallback(() => {
-		if (!selected || selected.formIndex === undefined || !selected.questionPath)
-			return;
-		const result = duplicateQuestion(
-			selected.moduleIndex,
-			selected.formIndex,
-			selected.questionPath,
-		);
+		if (!selectedUuid) return;
+		const result = duplicateQuestion(asUuid(selectedUuid));
 		if (!result) return;
-		engine.navigateTo({
-			type: "question",
-			moduleIndex: selected.moduleIndex,
-			formIndex: selected.formIndex,
-			questionPath: result.newPath,
-			questionUuid: result.newUuid,
-		});
-	}, [selected, duplicateQuestion, engine]);
+		/* Select the new clone and scroll to it. */
+		engine.setPendingScroll(result.newUuid, "smooth", false);
+		select(asUuid(result.newUuid));
+	}, [selectedUuid, duplicateQuestion, engine, select]);
 
+	/** Delete uses the `useDeleteSelectedQuestion` hook which handles
+	 *  neighbor selection and URL update. */
 	const handleDelete = useCallback(() => {
-		if (
-			!selected ||
-			selected.formIndex === undefined ||
-			!selected.questionPath ||
-			!assembledForm
-		)
-			return;
-		const refs = flattenQuestionRefs(assembledForm.questions);
-		const curIdx = refs.findIndex((r) => r.uuid === selected.questionUuid);
-		const next = refs[curIdx + 1] ?? refs[curIdx - 1];
-		removeQuestion(
-			selected.moduleIndex,
-			selected.formIndex,
-			selected.questionPath,
-		);
-		if (next) {
-			engine.navigateTo({
-				type: "question",
-				moduleIndex: selected.moduleIndex,
-				formIndex: selected.formIndex,
-				questionPath: next.path,
-				questionUuid: next.uuid,
-			});
-		} else {
-			engine.select();
-		}
-	}, [selected, assembledForm, removeQuestion, engine]);
+		deleteSelected();
+	}, [deleteSelected]);
 
-	if (!selected || !assembledForm) return null;
+	if (!selectedUuid || !assembledForm) return null;
 
 	/* Compute adjacency inline so isFirst/isLast always reflect the current
 	 * state. Re-derives when the assembled form reference changes (i.e.,
 	 * after a mutation updates normalized entities). */
-	const { beforePath, afterPath } = selected.questionPath
-		? getQuestionMoveTargets(assembledForm.questions, selected.questionPath)
+	const questionPath = getQuestionPath();
+	const { beforePath, afterPath } = questionPath
+		? getQuestionMoveTargets(
+				assembledForm.questions,
+				questionPath as import("@/lib/services/questionPath").QuestionPath,
+			)
 		: { beforePath: undefined, afterPath: undefined };
 	const isFirst = beforePath === undefined;
 	const isLast = afterPath === undefined;
 
 	/* Cross-level (indent/outdent) targets — shown when Shift is held. */
-	const { up: crossUp, down: crossDown } = selected.questionPath
-		? getCrossLevelMoveTargets(assembledForm.questions, selected.questionPath)
+	const { up: crossUp, down: crossDown } = questionPath
+		? getCrossLevelMoveTargets(
+				assembledForm.questions,
+				questionPath as import("@/lib/services/questionPath").QuestionPath,
+			)
 		: { up: undefined, down: undefined };
 
 	const conversionTargets = getConvertibleTypes(question.type);

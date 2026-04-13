@@ -2,19 +2,19 @@
 import { Menu } from "@base-ui/react/menu";
 import { Icon } from "@iconify/react/offline";
 import tablerChevronRight from "@iconify-icons/tabler/chevron-right";
-import { useCallback } from "react";
+import { useCallback, useContext } from "react";
 import { useBuilderEngine } from "@/hooks/useBuilder";
-import { useEditContext } from "@/hooks/useEditContext";
 import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
+import { BlueprintDocContext } from "@/lib/doc/provider";
+import type { Uuid } from "@/lib/doc/types";
 import {
 	INSERTION_CATEGORIES,
 	INSERTION_TOP_LEVEL,
 	questionTypeIcons,
 	questionTypeLabels,
 } from "@/lib/questionTypeIcons";
+import { useSelect } from "@/lib/routing/hooks";
 import type { Question } from "@/lib/schemas/blueprint";
-import { assembleForm } from "@/lib/services/normalizedState";
-import { type QuestionPath, qpath } from "@/lib/services/questionPath";
 import {
 	MENU_ITEM_CLS,
 	MENU_POPUP_CLS,
@@ -25,8 +25,8 @@ import {
 interface QuestionTypePickerPopupProps {
 	/** Insertion index within the parent's children array. */
 	atIndex: number;
-	/** Parent path for nested questions (inside groups/repeats). */
-	parentPath?: QuestionPath;
+	/** UUID of the parent container (form for root-level, group/repeat uuid for nested). */
+	parentUuid: Uuid;
 }
 
 /**
@@ -34,7 +34,7 @@ interface QuestionTypePickerPopupProps {
  *
  * Renders the portal, positioner, popup shell, and categorised menu items.
  * Rendered as a child of the shared `Menu.Root` in `FormRenderer` — each
- * `InsertionPoint` sends its context (`atIndex`, `parentPath`) as payload
+ * `InsertionPoint` sends its context (`atIndex`, `parentUuid`) as payload
  * via detached `Menu.Trigger`s connected through `Menu.createHandle()`.
  * Base UI's `FloatingTreeStore` is initialised by the root `Menu.Root`,
  * allowing submenus to register as tree children and preventing spurious
@@ -45,43 +45,29 @@ interface QuestionTypePickerPopupProps {
  */
 export function QuestionTypePickerPopup({
 	atIndex,
-	parentPath,
+	parentUuid,
 }: QuestionTypePickerPopupProps) {
-	const ctx = useEditContext();
-	if (!ctx) throw new Error("QuestionTypePickerPopup requires EditContext");
-	const { moduleIndex, formIndex } = ctx;
 	const engine = useBuilderEngine();
+	const select = useSelect();
 	const { addQuestion: addQuestionAction } = useBlueprintMutations();
+	const docStore = useContext(BlueprintDocContext);
 
-	/** Generate a unique ID, create the question, and navigate to it.
-	 *  Reads the assembled form imperatively at insert time — avoids 28
+	/** Generate a unique ID, create the question, and select it.
+	 *  Reads the doc store imperatively at insert time — avoids N
 	 *  reactive subscriptions to entity maps that would fire on every
-	 *  unrelated question edit (~56ms wasted per commit). */
+	 *  unrelated question edit. */
 	const handleSelect = useCallback(
 		(type: Question["type"]) => {
-			/* Assemble the current form from store state at call time. */
-			const s = engine.store.getState();
-			const moduleId = s.moduleOrder[moduleIndex];
-			if (!moduleId) return;
-			const formId = s.formOrder[moduleId]?.[formIndex];
-			if (!formId) return;
-			const form = s.forms[formId];
-			if (!form) return;
-			const assembled = assembleForm(
-				form,
-				formId,
-				s.questions,
-				s.questionOrder,
-			);
+			if (!docStore) return;
 
+			/* Collect all existing question IDs to generate a unique name.
+			 * CommCare requires unique IDs across the entire form, not just
+			 * siblings, so we scan the full question entity map. */
+			const doc = docStore.getState();
 			const existingIds = new Set<string>();
-			const collectIds = (qs: Question[]) => {
-				for (const q of qs) {
-					existingIds.add(q.id);
-					if (q.children) collectIds(q.children);
-				}
-			};
-			if (assembled.questions) collectIds(assembled.questions);
+			for (const q of Object.values(doc.questions)) {
+				if (q) existingIds.add(q.id);
+			}
 
 			let newId = `new_${type}`;
 			if (existingIds.has(newId)) {
@@ -97,23 +83,20 @@ export function QuestionTypePickerPopup({
 						{ value: "option_2", label: "Option 2" },
 					]
 				: undefined;
+
 			const newUuid = addQuestionAction(
-				moduleIndex,
-				formIndex,
+				parentUuid,
 				{ id: newId, type, label: "New Question", options: defaultOptions },
-				{ atIndex, parentPath },
+				{ atIndex },
 			);
-			const newPath = qpath(newId, parentPath);
+
+			/* Mark as new question so the UI can apply entry animations, then
+			 * select and scroll to the newly-inserted question. */
 			engine.markNewQuestion(newUuid);
-			engine.navigateTo({
-				type: "question",
-				moduleIndex,
-				formIndex,
-				questionPath: newPath,
-				questionUuid: newUuid,
-			});
+			engine.setPendingScroll(newUuid, "smooth", false);
+			select(newUuid);
 		},
-		[moduleIndex, formIndex, atIndex, parentPath, addQuestionAction, engine],
+		[parentUuid, atIndex, addQuestionAction, engine, select, docStore],
 	);
 
 	return (

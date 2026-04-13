@@ -4,17 +4,15 @@
  * Two kinds of exports:
  * - **Selectors** return primitives or stable references (booleans, strings,
  *   Immer-managed objects). Safe to pass directly to `useBuilderStore(selector)`.
- * - **Derivation functions** construct new object trees (TreeData, breadcrumbs).
+ * - **Derivation functions** construct new object trees (TreeData).
  *   These MUST be wrapped in `useMemo` by their consuming hooks — never passed
  *   directly to `useBuilderStore`, because `Object.is` comparison on a new
  *   object every call triggers infinite re-render loops.
  *
- * Breadcrumb derivation lives in the `useBreadcrumbs` hook in useBuilder.tsx —
- * it selects primitive strings (appName, moduleName, formName) not entity maps.
+ * Breadcrumb derivation lives in the `useBreadcrumbs` hook in
+ * `lib/routing/hooks.tsx` — URL-driven, no store dependency.
  */
 
-import { getCaseData } from "@/lib/preview/engine/dummyData";
-import { type PreviewScreen, screenKey } from "@/lib/preview/engine/types";
 import type { ConnectType, Scaffold } from "@/lib/schemas/blueprint";
 import {
 	BuilderPhase,
@@ -139,18 +137,6 @@ export function selectInReplayMode(s: BuilderState): boolean {
 	return s.replayStages !== undefined;
 }
 
-// ── Navigation selectors ───────────────────────────────────────────────
-
-/** True when the user can navigate back in preview history. */
-export function selectCanGoBack(s: BuilderState): boolean {
-	return s.navCursor > 0;
-}
-
-/** True when the current screen has a parent (i.e. not home). */
-export function selectCanGoUp(s: BuilderState): boolean {
-	return s.screen.type !== "home";
-}
-
 // ── Field selectors (single-field reads for component subscriptions) ──
 
 /** Current cursor mode. */
@@ -186,98 +172,6 @@ export function selectGenError(s: BuilderState): GenerationError {
 /** Current generation status message. */
 export function selectStatusMsg(s: BuilderState): string {
 	return s.statusMessage;
-}
-
-// ── Breadcrumb types (used by useBreadcrumbs hook) ────────────────────
-
-/** Breadcrumb item with a stable identity key derived from the navigation screen. */
-export interface BreadcrumbItem {
-	/** Stable React key from `screenKey()` — encodes screen type + hierarchy indices. */
-	key: string;
-	/** Display label for this breadcrumb level. */
-	label: string;
-	/** The PreviewScreen this breadcrumb represents — used for navigation on click. */
-	screen: PreviewScreen;
-}
-
-/**
- * Derive breadcrumb items from screen + resolved entity names.
- * Pure function — called by the useBreadcrumbs hook with primitive string inputs.
- */
-export function deriveBreadcrumbs(
-	screen: PreviewScreen,
-	appName: string,
-	moduleName: string | undefined,
-	formName: string | undefined,
-	caseId?: string,
-	moduleCaseType?: string,
-): BreadcrumbItem[] {
-	if (!appName) return [];
-
-	const items: BreadcrumbItem[] = [
-		{
-			key: screenKey({ type: "home" }),
-			label: appName,
-			screen: { type: "home" },
-		},
-	];
-
-	if (screen.type === "home") return items;
-
-	const moduleScreen: PreviewScreen = {
-		type: "module",
-		moduleIndex: screen.moduleIndex,
-	};
-	items.push({
-		key: screenKey(moduleScreen),
-		label: moduleName ?? "Module",
-		screen: moduleScreen,
-	});
-
-	if (screen.type === "module") return items;
-
-	if (screen.type === "caseList") {
-		items.push({
-			key: screenKey(screen),
-			label: formName ?? "Form",
-			screen,
-		});
-		return items;
-	}
-
-	if (screen.type === "form") {
-		/* If this form is a follow-up with a case, show the case list + case name breadcrumbs */
-		const caseName =
-			caseId && moduleCaseType
-				? getCaseData(moduleCaseType, caseId)?.get("case_name")
-				: undefined;
-
-		if (caseName) {
-			const caseListScreen: PreviewScreen = {
-				type: "caseList",
-				moduleIndex: screen.moduleIndex,
-				formIndex: screen.formIndex,
-			};
-			items.push({
-				key: screenKey(caseListScreen),
-				label: formName ?? "Form",
-				screen: caseListScreen,
-			});
-			items.push({
-				key: screenKey(screen),
-				label: caseName,
-				screen,
-			});
-		} else {
-			items.push({
-				key: screenKey(screen),
-				label: formName ?? "Form",
-				screen,
-			});
-		}
-	}
-
-	return items;
 }
 
 // ── Internal helpers ────────────────────────────────────────────────────

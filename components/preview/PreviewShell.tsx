@@ -1,6 +1,6 @@
 /**
  * PreviewShell — renders the correct screen (home, module, case list, form)
- * based on the store's current navigation screen.
+ * based on the URL-driven location.
  *
  * ## Architecture
  *
@@ -9,33 +9,40 @@
  * up, state preserved). Return visits are instant — Activity reveals the
  * preserved DOM and re-creates effects without remounting 800+ components.
  *
- * `useDeferredValue` wraps the Zustand screen subscription so first-visit
- * mounts are concurrent. When the store changes, React schedules a deferred
+ * `useDeferredValue` wraps the derived PreviewScreen so first-visit
+ * mounts are concurrent. When the URL changes, React schedules a deferred
  * re-render at lower priority for the Activity mode flip — the old screen
  * stays visible while the new screen prepares in the background. Return
  * visits (Activity reveal of an already-mounted tree) are near-instant.
+ *
+ * ## Location→PreviewScreen adapter
+ *
+ * The interact-mode preview pipeline (case data flow, form engine) still
+ * uses `PreviewScreen` with integer indices. Rather than push uuid-or-index
+ * knowledge into the preview engine, we translate `Location` → `PreviewScreen`
+ * at this boundary. The adapter reads `moduleOrder` / `formOrder` from the
+ * doc store and resolves uuid → index.
  *
  * ## Screen identity ownership
  *
  * PreviewShell owns the "last screen of each type" state via refs. Each
  * screen component receives its coordinates (moduleIndex / formIndex /
- * caseId) as props rather than reading the global `screen` from the store.
+ * caseId) as props rather than reading the global screen.
  *
  * This matches Activity's semantics: when Activity hides FormScreen, the
- * store's current screen has moved on (e.g., to "module"), but FormScreen's
- * own identity hasn't changed — it's still form X in module Y. Passing that
- * identity as a prop (which doesn't change when the user navigates away)
- * keeps FormScreen's component tree rendering correctly while hidden.
- *
- * The alternative — having screen components subscribe to the global
- * current screen — conflates "what is the current screen?" with "what is
- * my screen?" and forces them to render `null` when they aren't active,
- * destroying the tree that Activity is designed to preserve.
+ * current screen has moved on (e.g., to "module"), but FormScreen's own
+ * identity hasn't changed — it's still form X in module Y. Passing that
+ * identity as a prop keeps FormScreen's component tree rendering correctly
+ * while hidden.
  */
 "use client";
-import { Activity, useDeferredValue, useEffect, useRef } from "react";
+import { Activity, useDeferredValue, useEffect, useMemo, useRef } from "react";
 import { useBuilderStore } from "@/hooks/useBuilder";
+import { useBlueprintDoc } from "@/lib/doc/hooks/useBlueprintDoc";
+import type { Uuid } from "@/lib/doc/types";
 import { type PreviewScreen, screenKey } from "@/lib/preview/engine/types";
+import { useLocation, useNavigate } from "@/lib/routing/hooks";
+import type { Location } from "@/lib/routing/types";
 import { selectEditMode } from "@/lib/services/builderSelectors";
 import { PreviewHeader } from "./PreviewHeader";
 import { CaseListScreen } from "./screens/CaseListScreen";
@@ -55,25 +62,66 @@ interface PreviewShellProps {
 	onBack?: () => void;
 }
 
+/**
+ * Translate a URL-derived `Location` into the legacy `PreviewScreen` shape
+ * (integer indices) that the interact-mode preview pipeline expects. Falls
+ * back to `{ type: "home" }` when a uuid can't be resolved — the stale
+ * param will be scrubbed by LocationRecoveryEffect on the next tick.
+ */
+function locationToScreen(
+	loc: Location,
+	moduleOrder: Uuid[],
+	formOrder: Record<Uuid, Uuid[]>,
+): PreviewScreen {
+	if (loc.kind === "home") return { type: "home" };
+
+	const moduleIndex = moduleOrder.indexOf(loc.moduleUuid);
+	if (moduleIndex < 0) return { type: "home" };
+
+	if (loc.kind === "module") return { type: "module", moduleIndex };
+
+	if (loc.kind === "cases") {
+		return { type: "caseList", moduleIndex, formIndex: 0 };
+	}
+
+	/* Form screen — resolve formUuid to index within the module's form list. */
+	const formIds = formOrder[loc.moduleUuid] ?? [];
+	const formIndex = formIds.indexOf(loc.formUuid);
+	if (formIndex < 0) return { type: "module", moduleIndex };
+	return { type: "form", moduleIndex, formIndex };
+}
+
 export function PreviewShell({
 	actions,
 	hideHeader,
 	topInset = 0,
 	onBack,
 }: PreviewShellProps) {
+	/* ── Location → PreviewScreen adapter ─────────────────────────────
+	 * Read the URL location and translate to the legacy index-based screen
+	 * shape so the Activity boundaries and interact-mode pipeline keep working. */
+	const loc = useLocation();
+	const navigate = useNavigate();
+	const moduleOrder = useBlueprintDoc((s) => s.moduleOrder);
+	const formOrder = useBlueprintDoc((s) => s.formOrder);
+
+	/* Default back handler — callers can override (e.g. for selection sync),
+	 * otherwise fall back to URL-driven `navigate.back()`. */
+	const handleBack = onBack ?? (() => navigate.back());
+
+	const zustandScreen: PreviewScreen = useMemo(
+		() => locationToScreen(loc, moduleOrder, formOrder),
+		[loc, moduleOrder, formOrder],
+	);
+
 	/* ── Concurrent screen transition ──────────────────────────────────
-	 * `zustandScreen` updates immediately on navigation (synchronous store).
-	 * `screen` is the deferred value — React schedules the Activity mode
-	 * flip as a lower-priority render, keeping the old screen visible while
-	 * the new screen mounts in the background. For return visits (Activity
-	 * reveal of an already-mounted tree), the deferred render is near-instant. */
-	const zustandScreen = useBuilderStore((s) => s.screen);
+	 * `zustandScreen` updates immediately on URL change. `screen` is the
+	 * deferred value — React schedules the Activity mode flip at lower
+	 * priority, keeping the old screen visible while the new screen mounts
+	 * in the background. Return visits are near-instant. */
 	const screen = useDeferredValue(zustandScreen);
 
-	const navBack = useBuilderStore((s) => s.navBack);
 	const mode = useBuilderStore(selectEditMode);
-
-	const handleBack = onBack ?? navBack;
 
 	/* ── Per-type screen identity ──────────────────────────────────────
 	 * Track the last screen data for each type so Activity boundaries can

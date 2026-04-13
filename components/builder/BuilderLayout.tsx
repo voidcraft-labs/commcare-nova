@@ -6,7 +6,10 @@
  * - Keyboard shortcuts (delegated to engine methods)
  * - Flipbook scroll sync (DOM measurement coordination during mode switches)
  * - The scroll-to-question callback registration
- * - ReferenceProviderWrapper (the root context provider)
+ * - BuilderReferenceProvider wrapping (the URL-aware reference context) —
+ *   extracted into its own child so the `useLocation()` subscription for
+ *   reference resolution doesn't cascade into layout re-renders on every
+ *   `router.replace` for selection changes.
  *
  * All content, data subscriptions, and interactive behavior live in
  * self-sufficient child components:
@@ -33,6 +36,7 @@ import {
 	useState,
 } from "react";
 import { BuilderContentArea } from "@/components/builder/BuilderContentArea";
+import { BuilderReferenceProvider } from "@/components/builder/BuilderReferenceProvider";
 import { BuilderSubheader } from "@/components/builder/BuilderSubheader";
 import { ReplayController } from "@/components/builder/ReplayController";
 import { useBuilderShortcuts } from "@/components/builder/useBuilderShortcuts";
@@ -44,14 +48,12 @@ import {
 } from "@/hooks/useBuilder";
 import { useKeyboardShortcuts } from "@/hooks/useKeyboardShortcuts";
 import type { CommCareSettingsPublic } from "@/lib/db/settings";
-import { ReferenceProviderWrapper } from "@/lib/references/ReferenceContext";
+import { useBlueprintDoc } from "@/lib/doc/hooks/useBlueprintDoc";
+import type { Uuid } from "@/lib/doc/types";
+import { useNavigate } from "@/lib/routing/hooks";
 import { BuilderPhase } from "@/lib/services/builder";
 import { selectInReplayMode } from "@/lib/services/builderSelectors";
 import type { CursorMode } from "@/lib/services/builderStore";
-import {
-	assembleBlueprint,
-	getEntityData,
-} from "@/lib/services/normalizedState";
 
 /** Extra space above the scroll target so the question isn't flush with the
  *  cursor mode overlay. Two values: a compact margin for plain selection,
@@ -298,94 +300,35 @@ export function BuilderLayout({
 
 	// ── Keyboard shortcuts ──────────────────────────────────────────────
 
-	const handleUndo = useCallback(() => builder.undo(), [builder]);
-	const handleRedo = useCallback(() => builder.redo(), [builder]);
-	const handleDelete = useCallback(() => builder.deleteSelected(), [builder]);
-
-	const shortcuts = useBuilderShortcuts(
-		builder,
-		handleCursorModeChange,
-		handleDelete,
-		handleUndo,
-		handleRedo,
-	);
+	const shortcuts = useBuilderShortcuts(handleCursorModeChange);
 
 	useKeyboardShortcuts("builder-layout", shortcuts);
 
 	// ── Navigation ──────────────────────────────────────────────────────
 
-	const handlePreviewBack = useCallback(
-		() => builder.navBackWithSync(),
-		[builder],
-	);
+	const navigate = useNavigate();
 
 	// ── Navigate to first form when generation completes ──
+	// Look up the first module and form UUIDs from the doc store so we can
+	// call `navigate.openForm` with UUIDs instead of legacy indices.
+
+	const docModuleOrder = useBlueprintDoc((s) => s.moduleOrder);
+	const docFormOrder = useBlueprintDoc((s) => s.formOrder);
 
 	const prevPhaseRef = useRef(phase);
 	useEffect(() => {
 		const wasGenerating = prevPhaseRef.current === BuilderPhase.Generating;
 		if (wasGenerating && phase === BuilderPhase.Completed) {
-			const s = builder.store.getState();
-			if (
-				s.moduleOrder.length > 0 &&
-				(s.formOrder[s.moduleOrder[0]]?.length ?? 0) > 0
-			) {
-				s.navigateToForm(0, 0);
+			const firstModuleUuid = docModuleOrder[0] as Uuid | undefined;
+			const firstFormUuid = firstModuleUuid
+				? (docFormOrder[firstModuleUuid]?.[0] as Uuid | undefined)
+				: undefined;
+			if (firstModuleUuid && firstFormUuid) {
+				navigate.openForm(firstModuleUuid, firstFormUuid);
 			}
 		}
 		prevPhaseRef.current = phase;
-	}, [phase, builder]);
-
-	// ── Reference provider ──────────────────────────────────────────────
-
-	const getRefContext = useCallback(() => {
-		const s = builder.store.getState();
-		if (s.moduleOrder.length === 0) return undefined;
-
-		const bp = assembleBlueprint(getEntityData(s));
-		const sel = s.selected;
-		if (sel?.type === "question" && sel.formIndex !== undefined) {
-			const form = bp.modules[sel.moduleIndex]?.forms[sel.formIndex];
-			const mod = bp.modules[sel.moduleIndex];
-			if (form)
-				return {
-					blueprint: bp,
-					form,
-					moduleCaseType: mod?.case_type ?? undefined,
-				};
-		}
-
-		const screen = s.screen;
-		if (screen.type === "form") {
-			const form = bp.modules[screen.moduleIndex]?.forms[screen.formIndex];
-			const mod = bp.modules[screen.moduleIndex];
-			if (form)
-				return {
-					blueprint: bp,
-					form,
-					moduleCaseType: mod?.case_type ?? undefined,
-				};
-		}
-
-		return undefined;
-	}, [builder]);
-
-	/** Subscribe to entity changes that invalidate the ReferenceProvider cache.
-	 *  Covers questions (question references, case_property_on), modules
-	 *  (case_type renames), and forms (form type changes affecting case config).
-	 *  Uses a tuple selector with reference equality — only fires when at least
-	 *  one entity map gets a new Immer reference. */
-	const subscribeMutation = useCallback(
-		(listener: () => void) =>
-			builder.store.subscribe(
-				(s) => [s.questions, s.modules, s.forms] as const,
-				() => listener(),
-				{
-					equalityFn: (a, b) => a[0] === b[0] && a[1] === b[1] && a[2] === b[2],
-				},
-			),
-		[builder],
-	);
+	}, [phase, docModuleOrder, docFormOrder, navigate]);
 
 	// ── Render ──────────────────────────────────────────────────────────
 
@@ -402,10 +345,7 @@ export function BuilderLayout({
 	}
 
 	return (
-		<ReferenceProviderWrapper
-			getContext={getRefContext}
-			subscribeMutation={subscribeMutation}
-		>
+		<BuilderReferenceProvider>
 			<div className="h-full flex flex-col overflow-hidden">
 				{/* Replay controller — self-sufficient, reads/writes replay state from store */}
 				{inReplayMode && <ReplayController />}
@@ -436,12 +376,11 @@ export function BuilderLayout({
 				<BuilderContentArea
 					isCentered={isCentered}
 					onCursorModeChange={handleCursorModeChange}
-					onPreviewBack={handlePreviewBack}
 					isExistingApp={!!isExistingApp}
 				>
 					{children}
 				</BuilderContentArea>
 			</div>
-		</ReferenceProviderWrapper>
+		</BuilderReferenceProvider>
 	);
 }

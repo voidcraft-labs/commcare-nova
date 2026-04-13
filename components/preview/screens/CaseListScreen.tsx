@@ -1,27 +1,48 @@
 "use client";
 import { motion } from "motion/react";
 import { useMemo } from "react";
-import { useBuilderStore, useForm, useModule } from "@/hooks/useBuilder";
+import { useModule } from "@/hooks/useBuilder";
+import { useBlueprintDoc } from "@/lib/doc/hooks/useBlueprintDoc";
 import { useCaseTypes } from "@/lib/doc/hooks/useCaseTypes";
 import { getDummyCases } from "@/lib/preview/engine/dummyData";
 import type { PreviewScreen } from "@/lib/preview/engine/types";
+import { useLocation, useNavigate } from "@/lib/routing/hooks";
 
 interface CaseListScreenProps {
-	/** This screen's identity — which module/form the case list belongs to.
+	/** This screen's identity — which module the case list belongs to.
 	 *  Passed from PreviewShell so the component remains valid while Activity
-	 *  hides it. */
+	 *  hides it. Index-based for downstream consumers that haven't been
+	 *  migrated to uuid-first yet. */
 	screen: Extract<PreviewScreen, { type: "caseList" }>;
 }
 
 export function CaseListScreen({ screen }: CaseListScreenProps) {
 	const moduleIndex = screen.moduleIndex;
-	const formIndex = screen.formIndex;
 
+	const loc = useLocation();
+	const navigate = useNavigate();
 	const caseTypes = useCaseTypes();
-	const navPush = useBuilderStore((s) => s.navPush);
+
+	/** Module and form uuids from the URL — used for uuid-first navigation.
+	 *  The case list screen is reached via `?m=<moduleUuid>&view=cases`. The
+	 *  form that the user will enter after selecting a case is determined at
+	 *  click time by looking up the first case-loading form in the module. */
+	const moduleUuid = loc.kind === "cases" ? loc.moduleUuid : undefined;
+
+	/** Read the first form uuid in this module for case-row navigation. The
+	 *  case list always opens into the first case-loading form. */
+	const firstFormUuid = useBlueprintDoc((s) => {
+		if (!moduleUuid) return undefined;
+		const formIds = s.formOrder[moduleUuid];
+		return formIds?.[0];
+	});
+
+	/** Read the first form's name for the header display. */
+	const firstFormName = useBlueprintDoc((s) =>
+		firstFormUuid ? s.forms[firstFormUuid]?.name : undefined,
+	);
 
 	const mod = useModule(moduleIndex);
-	const form = useForm(moduleIndex, formIndex);
 	const caseType = caseTypes.find((ct) => ct.name === mod?.caseType);
 	const columns = mod?.caseListColumns ?? [];
 
@@ -38,21 +59,18 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 		);
 	}
 
-	const handleRowClick = (rowIndex: number) => {
-		const row = rows[rowIndex];
-		navPush({
-			type: "form",
-			moduleIndex,
-			formIndex,
-			caseId: row.case_id,
-		});
+	/** Navigate to the form with the selected case. The case list opens
+	 *  into the first form in the module (always the case-loading form). */
+	const handleRowClick = (_rowIndex: number) => {
+		if (!moduleUuid || !firstFormUuid) return;
+		navigate.openForm(moduleUuid, firstFormUuid);
 	};
 
 	return (
 		<div className="p-6 max-w-3xl mx-auto">
 			<div className="flex items-center gap-2 mb-1">
 				<h2 className="text-lg font-display font-semibold text-nova-text">
-					{form?.name}
+					{firstFormName ?? "Cases"}
 				</h2>
 			</div>
 			<p className="text-sm text-nova-text-muted mb-4">

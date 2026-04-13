@@ -1,38 +1,29 @@
 /**
  * Shared hook for saving a single question field. Used by all contextual
  * editor sections (UI, Logic, Data, Footer) to avoid duplicating the same
- * mutation boilerplate. Converts empty strings to null (removal).
+ * mutation boilerplate. Converts empty strings to undefined (removal).
  *
- * Reads selection from the store — no props needed. Throws if called
- * without an active question selection (callers gate on selection first).
+ * Takes a uuid directly — callers pass `question.uuid` from
+ * `useSelectedQuestion()`. Returns a no-op when the uuid is falsy
+ * (callers gate on selection first).
  */
 
 import { useCallback } from "react";
 import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
-import { useBuilderStore } from "./useBuilder";
+import { asUuid, type Uuid } from "@/lib/doc/types";
 
-export function useSaveQuestion(): (
-	field: string,
-	value: string | null,
-) => void {
-	const selected = useBuilderStore((s) => s.selected);
+export function useSaveQuestion(
+	uuid: Uuid | string | undefined,
+): (field: string, value: string | null) => void {
 	const { updateQuestion } = useBlueprintMutations();
 
 	return useCallback(
 		(field: string, value: string | null) => {
-			if (
-				!selected ||
-				selected.formIndex === undefined ||
-				!selected.questionPath
-			)
-				return;
-			updateQuestion(
-				selected.moduleIndex,
-				selected.formIndex,
-				selected.questionPath,
-				{ [field]: value === "" ? null : value },
-			);
+			if (!uuid) return;
+			updateQuestion(asUuid(uuid), {
+				[field]: value === "" || value === null ? undefined : value,
+			});
 		},
-		[selected, updateQuestion],
+		[uuid, updateQuestion],
 	);
 }

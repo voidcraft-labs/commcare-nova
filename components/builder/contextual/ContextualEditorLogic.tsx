@@ -1,19 +1,21 @@
 "use client";
 import { AnimatePresence, motion } from "motion/react";
-import { useCallback, useState } from "react";
+import { useCallback, useContext, useState } from "react";
 import { EditableText } from "@/components/builder/EditableText";
 import { SaveShortcutHint } from "@/components/builder/SaveShortcutHint";
 import { XPathField } from "@/components/builder/XPathField";
-import { useBuilderEngine, useBuilderStore } from "@/hooks/useBuilder";
 import { useSaveQuestion } from "@/hooks/useSaveQuestion";
 import type { XPathLintContext } from "@/lib/codemirror/xpath-lint";
+import { BlueprintDocContext } from "@/lib/doc/provider";
+import type { Uuid } from "@/lib/doc/types";
+import { useSelectedQuestion } from "@/lib/routing/hooks";
 import type { Question } from "@/lib/schemas/blueprint";
+import type { NormalizedData } from "@/lib/services/normalizedState";
 import {
 	assembleBlueprint,
 	assembleForm,
 	getEntityData,
 } from "@/lib/services/normalizedState";
-import type { QuestionPath } from "@/lib/services/questionPath";
 import { AddPropertyButton } from "./AddPropertyButton";
 import { RequiredSection } from "./RequiredSection";
 import {
@@ -86,40 +88,76 @@ const LOGIC_FIELDS = new Set<FocusableFieldKey>([
 ]);
 
 export function ContextualEditorLogic({ question }: QuestionEditorProps) {
-	const selected = useBuilderStore((s) => s.selected);
-	const builder = useBuilderEngine();
-	const saveQuestion = useSaveQuestion();
+	const selected = useSelectedQuestion();
+	const saveQuestion = useSaveQuestion(selected?.uuid);
 
-	const questionPath = selected?.questionPath ?? ("" as QuestionPath);
 	/** Tracks text fields (validation_msg) added via "Add Property". */
-	const textField = useAddableField(questionPath);
+	const textField = useAddableField(selected?.uuid ?? "");
 	/** Tracks XPath fields added via "Add Property" — separate from text
 	 *  fields so both can be pending simultaneously. */
-	const xpathField = useAddableField(questionPath);
+	const xpathField = useAddableField(selected?.uuid ?? "");
 
 	const focusHint = useFocusHint(LOGIC_FIELDS);
 
+	/** The doc store context for imperative state reads (lint context). */
+	const docStore = useContext(BlueprintDocContext);
+
 	/** Context getter for XPath linting and autocomplete. Reads from the
-	 *  store imperatively so the closure always reflects the latest state
+	 *  doc store imperatively so the closure always reflects the latest state
 	 *  without triggering re-renders on every entity change. */
 	const getLintContext = useCallback((): XPathLintContext | undefined => {
-		if (!selected || selected.formIndex === undefined) return undefined;
-		const s = builder.store.getState();
-		const moduleId = s.moduleOrder[selected.moduleIndex];
-		if (!moduleId) return undefined;
-		const mod = s.modules[moduleId];
-		const formIds = s.formOrder[moduleId];
-		const formId = formIds?.[selected.formIndex];
-		if (!formId) return undefined;
-		const formEntity = s.forms[formId];
+		if (!docStore || !selected) return undefined;
+		const s = docStore.getState();
+		/* Cast to NormalizedData — Uuid-branded keys are subtypes of string,
+		 * and the extra BlueprintDocState fields (apply, applyMany) are harmless. */
+		const nd = s as unknown as NormalizedData;
+		/* Find the form that owns this question by walking questionOrder
+		 * upward from the question uuid to a form uuid. */
+		let parentUuid: Uuid | undefined;
+		for (const [pUuid, order] of Object.entries(s.questionOrder)) {
+			if (order.includes(selected.uuid as Uuid)) {
+				parentUuid = pUuid as Uuid;
+				break;
+			}
+		}
+		/* Walk up until we reach a form entity (not a group/repeat). */
+		const visited = new Set<string>();
+		while (parentUuid && !s.forms[parentUuid]) {
+			if (visited.has(parentUuid)) break;
+			visited.add(parentUuid);
+			let next: Uuid | undefined;
+			for (const [pUuid, order] of Object.entries(s.questionOrder)) {
+				if (order.includes(parentUuid)) {
+					next = pUuid as Uuid;
+					break;
+				}
+			}
+			parentUuid = next;
+		}
+		if (!parentUuid) return undefined;
+		const formEntity = s.forms[parentUuid];
 		if (!formEntity) return undefined;
-		const form = assembleForm(formEntity, formId, s.questions, s.questionOrder);
-		const blueprint = assembleBlueprint(getEntityData(s));
+		/* Find the module that owns this form. */
+		let moduleUuid: Uuid | undefined;
+		for (const [mUuid, formUuids] of Object.entries(s.formOrder)) {
+			if (formUuids.includes(parentUuid)) {
+				moduleUuid = mUuid as Uuid;
+				break;
+			}
+		}
+		const mod = moduleUuid ? s.modules[moduleUuid] : undefined;
+		const form = assembleForm(
+			formEntity,
+			parentUuid,
+			nd.questions,
+			nd.questionOrder,
+		);
+		const blueprint = assembleBlueprint(getEntityData(nd));
 		return { blueprint, form, moduleCaseType: mod?.caseType ?? undefined };
-	}, [selected, builder]);
+	}, [docStore, selected]);
 
 	/** Save handler for standard XPath fields (validation, relevant, etc.).
-	 *  Empty values become null (field removal). Clears pending add-property state. */
+	 *  Empty values become undefined (field removal). Clears pending add-property state. */
 	const saveXPath = useCallback(
 		(field: string, value: string) => {
 			saveQuestion(field, value || null);
@@ -206,6 +244,7 @@ export function ContextualEditorLogic({ question }: QuestionEditorProps) {
 					>
 						<RequiredSection
 							required={question.required}
+							questionUuid={selected.uuid}
 							getLintContext={getLintContext}
 							focusHint={focusHint}
 							dataFieldId="required"

@@ -32,8 +32,12 @@ export interface BlueprintDocProviderProps {
 	 * phase before the SA has produced a scaffold).
 	 */
 	initialBlueprint?: AppBlueprint;
-	/** The app's Firestore document ID. Attached to the doc's `appId`. */
-	appId: string;
+	/**
+	 * The app's Firestore document ID. `undefined` for brand-new apps
+	 * before generation produces an ID; the doc's `appId` starts as ""
+	 * and is populated when the app is persisted.
+	 */
+	appId?: string;
 	/**
 	 * Whether to begin with undo tracking active. Defaults to `true` —
 	 * meaning the first user edit after load is undoable. Agent streams
@@ -56,10 +60,14 @@ export function BlueprintDocProvider({
 	// it on mount, causing a flash of empty state.
 	const storeRef = useRef<BlueprintDocStore>(null);
 
+	// Brand-new apps pass `undefined` — fall back to "" so the doc always has
+	// a string `appId`. The real ID is populated when the app is persisted.
+	const effectiveAppId = appId ?? "";
+
 	if (!storeRef.current) {
 		const store = createBlueprintDocStore();
 		if (initialBlueprint) {
-			store.getState().load(initialBlueprint, appId);
+			store.getState().load(initialBlueprint, effectiveAppId);
 		} else {
 			// Empty-doc branch still needs to know its app identity so consumers
 			// that read `doc.appId` (routing, persistence, telemetry) don't see
@@ -68,7 +76,7 @@ export function BlueprintDocProvider({
 			// before the SA has produced a scaffold, and we need `appId` from
 			// the URL immediately.
 			store.setState((s) => {
-				s.appId = appId;
+				s.appId = effectiveAppId;
 			});
 		}
 		// Start tracking unless explicitly disabled. Agent write streams pass
