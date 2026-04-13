@@ -230,16 +230,6 @@ export interface BlueprintMutations {
 }
 
 /**
- * Dev-only warning hook for silent no-ops.
- *
- * Every mutation method bails out silently when the legacy (mIdx, fIdx,
- * path) tuple can't be resolved — matching legacy behavior, which the UI
- * relies on so stale selections don't crash the tree. In development we
- * still want visibility into which resolves are failing so bugs don't
- * hide behind the fail-open contract. Stripped by the production build
- * via the `NODE_ENV` check.
- */
-/**
  * Replace `null` values with `undefined` in a shallow patch object.
  *
  * Legacy callers pass `null` to mean "remove this field" (e.g.
@@ -259,6 +249,16 @@ function coerceNulls<T extends Record<string, unknown>>(
 	return result as { [K in keyof T]: Exclude<T[K], null> | undefined };
 }
 
+/**
+ * Dev-only warning for silent no-ops.
+ *
+ * Every mutation method bails out silently when the legacy (mIdx, fIdx,
+ * path) tuple can't be resolved — matching legacy behavior, which the UI
+ * relies on so stale selections don't crash the tree. In development we
+ * still want visibility into which resolves are failing so bugs don't
+ * hide behind the fail-open contract. Stripped by the production build
+ * via the `NODE_ENV` check.
+ */
 function warnUnresolved(
 	method: string,
 	context: Record<string, unknown>,
