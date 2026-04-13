@@ -29,6 +29,7 @@ import {
 import { useStore } from "zustand";
 import { shallow } from "zustand/shallow";
 import { useStoreWithEqualityFn } from "zustand/traditional";
+import { ScrollRegistryProvider } from "@/components/builder/contexts/ScrollRegistryContext";
 import { LocationRecoveryEffect } from "@/components/builder/LocationRecoveryEffect";
 import { startSyncOldFromDoc } from "@/lib/doc/adapters/syncOldFromDoc";
 import { useAssembledForm as useAssembledFormDoc } from "@/lib/doc/hooks/useAssembledForm";
@@ -298,19 +299,21 @@ export function BuilderProvider({
 	return (
 		<EngineContext value={engine}>
 			<StoreContext value={engine.store}>
-				<BlueprintDocProvider
-					appId={buildId === "new" ? undefined : buildId}
-					initialBlueprint={initialBlueprint}
-					startTracking={Boolean(initialBlueprint || replay)}
-				>
-					{/* SyncBridge must render inside the BlueprintDocProvider tree so
-					 * it can read the doc store via context. It starts a one-way
-					 * subscription that mirrors doc entity maps into the legacy
-					 * store, keeping un-migrated consumers live during Phase 1b. */}
-					<SyncBridge oldStore={engine.store} />
-					<LocationRecoveryEffect />
-					{children}
-				</BlueprintDocProvider>
+				<ScrollRegistryProvider>
+					<BlueprintDocProvider
+						appId={buildId === "new" ? undefined : buildId}
+						initialBlueprint={initialBlueprint}
+						startTracking={Boolean(initialBlueprint || replay)}
+					>
+						{/* SyncBridge must render inside the BlueprintDocProvider tree so
+						 * it can read the doc store via context. It starts a one-way
+						 * subscription that mirrors doc entity maps into the legacy
+						 * store, keeping un-migrated consumers live during Phase 1b. */}
+						<SyncBridge oldStore={engine.store} />
+						<LocationRecoveryEffect />
+						{children}
+					</BlueprintDocProvider>
+				</ScrollRegistryProvider>
 			</StoreContext>
 		</EngineContext>
 	);

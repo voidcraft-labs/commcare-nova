@@ -35,6 +35,7 @@ import {
 	useRef,
 	useState,
 } from "react";
+import { useFulfillPendingScroll } from "@/components/builder/contexts/ScrollRegistryContext";
 import { InlineSettingsPanel } from "@/components/builder/InlineSettingsPanel";
 import { useBuilderEngine, useBuilderStore } from "@/hooks/useBuilder";
 import { useEditContext } from "@/hooks/useEditContext";
@@ -219,13 +220,9 @@ function SortableQuestion({
 		...(isContainer && { collisionPriority: CollisionPriority.Lowest }),
 	});
 
-	/* Fulfill pending scroll after the panel mounts and the browser paints. */
-	const builderEngine = useBuilderEngine();
-	useEffect(() => {
-		if (isSelected) {
-			builderEngine.fulfillPendingScroll(uuid);
-		}
-	}, [isSelected, uuid, builderEngine]);
+	/* Fulfill pending scroll after the panel mounts and the browser paints.
+	 * No-op when this question's uuid doesn't match the pending request. */
+	useFulfillPendingScroll(uuid);
 
 	if (!q) return null;
 	if (q.type === "hidden" && !isEditMode) return null;

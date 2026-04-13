@@ -38,6 +38,7 @@ import {
 import { BuilderContentArea } from "@/components/builder/BuilderContentArea";
 import { BuilderReferenceProvider } from "@/components/builder/BuilderReferenceProvider";
 import { BuilderSubheader } from "@/components/builder/BuilderSubheader";
+import { useRegisterScrollCallback } from "@/components/builder/contexts/ScrollRegistryContext";
 import { ReplayController } from "@/components/builder/ReplayController";
 import { useBuilderShortcuts } from "@/components/builder/useBuilderShortcuts";
 import { Logo } from "@/components/ui/Logo";
@@ -293,10 +294,7 @@ export function BuilderLayout({
 		[],
 	);
 
-	useEffect(() => {
-		builder.registerScrollCallback(scrollToQuestion);
-		return () => builder.clearScrollCallback();
-	}, [builder, scrollToQuestion]);
+	useRegisterScrollCallback(scrollToQuestion);
 
 	// ── Keyboard shortcuts ──────────────────────────────────────────────
 

@@ -6,7 +6,6 @@
  * belong in the store:
  *
  * - **Energy counters** — consumed by SignalGrid's rAF loop, never triggers renders
- * - **Scroll callback** — DOM scroll implementation registered by BuilderLayout
  * - **Edit guard** — blocks selection changes when an editor has unsaved content
  * - **Drag state** — blocks undo during dnd-kit drag operations
  * - **Focus/panel hints** — one-shot transient state consumed by specific components
@@ -53,26 +52,6 @@ export class BuilderEngine {
 	private _editScope: EditScope | null = null;
 	/** Callback that can block select() when an inline editor has unsaved content. */
 	private _editGuard: (() => boolean) | null = null;
-	/** Scroll implementation owned by BuilderLayout. Fulfilled by the panel
-	 *  mount effect when a pending scroll request exists. */
-	private _scrollCallback:
-		| ((
-				questionUuid: string,
-				overrideTarget?: HTMLElement,
-				behavior?: ScrollBehavior,
-				hasToolbar?: boolean,
-		  ) => void)
-		| null = null;
-	/** Pending scroll request — set by `useUndoRedo` (via `setPendingScroll`)
-	 *  and `useBuilderShortcuts`/form editor navigation; consumed by the target
-	 *  question panel's effect on mount. This decouples intent ("scroll to
-	 *  this question") from timing ("the panel is in the DOM and ready").
-	 *  Carries the target UUID and desired scroll behavior so cross-screen
-	 *  navigations can request instant scroll (smooth is meaningless when
-	 *  the entire form content swaps out). */
-	private _pendingScroll:
-		| { uuid: string; behavior: ScrollBehavior; hasToolbar: boolean }
-		| undefined;
 	/** Transient field key to focus after undo/redo. Consumed once by InlineSettingsPanel. */
 	private _focusHint: string | undefined;
 	/** Blocks undo/redo during dnd-kit drag operations. */
@@ -232,47 +211,6 @@ export class BuilderEngine {
 		return this._docStore;
 	}
 
-	// ── Scroll ─────────────────────────────────────────────────────────
-
-	/** Register the DOM scroll implementation owned by BuilderLayout. */
-	registerScrollCallback(
-		cb: (
-			questionUuid: string,
-			overrideTarget?: HTMLElement,
-			behavior?: ScrollBehavior,
-			hasToolbar?: boolean,
-		) => void,
-	): void {
-		this._scrollCallback = cb;
-	}
-
-	clearScrollCallback(): void {
-		this._scrollCallback = null;
-	}
-
-	/** Consume the pending scroll request if it matches the given UUID.
-	 *  Called by the selected question's mount effect — the panel is in the
-	 *  DOM and ready to be measured. Returns true if a scroll was executed. */
-	fulfillPendingScroll(questionUuid: string): boolean {
-		if (this._pendingScroll?.uuid !== questionUuid) return false;
-		const { behavior, hasToolbar } = this._pendingScroll;
-		this._pendingScroll = undefined;
-		this._scrollCallback?.(questionUuid, undefined, behavior, hasToolbar);
-		return true;
-	}
-
-	/** Directly scroll to a question without pending — used by undo/redo
-	 *  where `flushSync` guarantees the DOM is already committed, and by
-	 *  text-editable activation on an already-selected question. */
-	scrollToQuestion(
-		questionUuid: string,
-		overrideTarget?: HTMLElement,
-		behavior?: ScrollBehavior,
-		hasToolbar?: boolean,
-	): void {
-		this._scrollCallback?.(questionUuid, overrideTarget, behavior, hasToolbar);
-	}
-
 	// ── Drag state ──────────────────────────────────────────────────────
 
 	setDragging(active: boolean): void {
@@ -374,22 +312,6 @@ export class BuilderEngine {
 			form.start / total,
 			(form.start + form.count) / total,
 		);
-	}
-
-	// ── Pending scroll ─────────────────────────────────────────────────
-
-	/**
-	 * Set a pending scroll request — consumed by the selected question's
-	 * mount effect when the panel is in the DOM. Exposed publicly so
-	 * composite hooks (e.g. `useUndoRedo`) can request scroll without
-	 * coupling to the engine's internal navigation.
-	 */
-	setPendingScroll(
-		uuid: string,
-		behavior: ScrollBehavior,
-		hasToolbar: boolean,
-	): void {
-		this._pendingScroll = { uuid, behavior, hasToolbar };
 	}
 
 	/**

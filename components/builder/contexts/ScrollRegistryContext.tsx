@@ -1,0 +1,140 @@
+/**
+ * ScrollRegistryContext — imperative scroll plumbing for the builder.
+ *
+ * Replaces the `_scrollCallback`, `_pendingScroll`, `scrollToQuestion`, and
+ * `setPendingScroll` members previously on `BuilderEngine`. All state lives
+ * in refs (never triggers React re-renders) because scroll is a DOM-level
+ * concern that belongs outside the render path.
+ *
+ * Three public hooks expose the API to consumers:
+ *  - `useRegisterScrollCallback` — BuilderLayout registers the DOM scroll impl
+ *  - `useScrollIntoView` — setPending + scrollTo for navigation/edit call sites
+ *  - `useFulfillPendingScroll` — consumed by the selected question's mount effect
+ */
+"use client";
+
+import {
+	createContext,
+	type ReactNode,
+	useContext,
+	useEffect,
+	useMemo,
+	useRef,
+} from "react";
+
+// ── Types ──────────────────────────────────────────────────────────────
+
+type ScrollTarget = HTMLElement | undefined;
+
+type ScrollCallback = (
+	questionUuid: string,
+	overrideTarget?: ScrollTarget,
+	behavior?: ScrollBehavior,
+	hasToolbar?: boolean,
+) => void;
+
+interface ScrollRegistryApi {
+	/** Consumed by BuilderLayout to register the DOM scroll implementation.
+	 *  Returns a cleanup function for ref-callback use. */
+	registerCallback: (cb: ScrollCallback) => () => void;
+	/** Request a pending scroll — fulfilled when a matching question's
+	 *  panel mount effect calls `fulfill(uuid)`. */
+	setPending: (
+		uuid: string,
+		behavior: ScrollBehavior,
+		hasToolbar: boolean,
+	) => void;
+	/** Try to consume a pending request. Returns true if fired. */
+	fulfillPending: (uuid: string) => boolean;
+	/** Scroll immediately (no pending gate) — used by undo/redo where
+	 *  flushSync guarantees the DOM is already committed. */
+	scrollTo: ScrollCallback;
+}
+
+// ── Context ────────────────────────────────────────────────────────────
+
+const ScrollRegistryContext = createContext<ScrollRegistryApi | null>(null);
+
+// ── Provider ───────────────────────────────────────────────────────────
+
+export function ScrollRegistryProvider({ children }: { children: ReactNode }) {
+	/* Non-reactive state stored in refs — never triggers re-renders.
+	 * This is the whole point of the scroll subsystem: DOM-level imperative
+	 * plumbing that belongs outside React's render path. */
+	const callbackRef = useRef<ScrollCallback | null>(null);
+	const pendingRef = useRef<
+		{ uuid: string; behavior: ScrollBehavior; hasToolbar: boolean } | undefined
+	>(undefined);
+
+	const api = useMemo<ScrollRegistryApi>(
+		() => ({
+			registerCallback(cb) {
+				callbackRef.current = cb;
+				return () => {
+					if (callbackRef.current === cb) callbackRef.current = null;
+				};
+			},
+			setPending(uuid, behavior, hasToolbar) {
+				pendingRef.current = { uuid, behavior, hasToolbar };
+			},
+			fulfillPending(uuid) {
+				const pending = pendingRef.current;
+				if (pending?.uuid !== uuid) return false;
+				pendingRef.current = undefined;
+				callbackRef.current?.(
+					uuid,
+					undefined,
+					pending.behavior,
+					pending.hasToolbar,
+				);
+				return true;
+			},
+			scrollTo(uuid, overrideTarget, behavior, hasToolbar) {
+				callbackRef.current?.(uuid, overrideTarget, behavior, hasToolbar);
+			},
+		}),
+		[],
+	);
+
+	return <ScrollRegistryContext value={api}>{children}</ScrollRegistryContext>;
+}
+
+// ── Internal accessor ──────────────────────────────────────────────────
+
+function useScrollRegistry(): ScrollRegistryApi {
+	const ctx = useContext(ScrollRegistryContext);
+	if (!ctx)
+		throw new Error(
+			"ScrollRegistry hooks must be used within ScrollRegistryProvider",
+		);
+	return ctx;
+}
+
+// ── Public hooks ───────────────────────────────────────────────────────
+
+/** Ref callback for the scroll implementation owner (BuilderLayout).
+ *  Registers the callback via useEffect — the cleanup unregisters it,
+ *  aligned with the CLAUDE.md ref-callback cleanup convention. */
+export function useRegisterScrollCallback(callback: ScrollCallback): void {
+	const { registerCallback } = useScrollRegistry();
+	useEffect(() => registerCallback(callback), [registerCallback, callback]);
+}
+
+/** Request a scroll that will fire once the target question's panel mounts,
+ *  or scroll immediately when the DOM is already committed. */
+export function useScrollIntoView(): {
+	setPending: ScrollRegistryApi["setPending"];
+	scrollTo: ScrollRegistryApi["scrollTo"];
+} {
+	const { setPending, scrollTo } = useScrollRegistry();
+	return useMemo(() => ({ setPending, scrollTo }), [setPending, scrollTo]);
+}
+
+/** Fire-once hook: the target question's panel calls this on mount,
+ *  and any pending-scroll request that matches is consumed. */
+export function useFulfillPendingScroll(uuid: string): void {
+	const { fulfillPending } = useScrollRegistry();
+	useEffect(() => {
+		fulfillPending(uuid);
+	}, [uuid, fulfillPending]);
+}
