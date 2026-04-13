@@ -18,8 +18,8 @@ import { loadApp } from "@/lib/db/apps";
 import { getCommCareSettings } from "@/lib/db/settings";
 import { toDoc } from "@/lib/doc/converter";
 import {
-	isValidLocation,
 	parseLocation,
+	recoverLocation,
 	serializeLocation,
 } from "@/lib/routing/location";
 import { ThreadHistory } from "./thread-history";
@@ -55,9 +55,15 @@ export default async function BuilderPage({
 
 	/* Validate the incoming URL against the live blueprint. Stale uuids
 	 * (from a bookmark into a deleted question, module, or form) collapse
-	 * to the closest valid ancestor; malformed URLs fall all the way to
-	 * home. Only issue a redirect if the URL actually changed — otherwise
-	 * every request would trigger a 307 loop. */
+	 * to the closest valid ancestor via `recoverLocation` — a user who
+	 * bookmarked `?s=f&m=<valid>&f=<valid>&sel=<deleted>` lands on the
+	 * form with selection cleared, not bounced all the way to home.
+	 *
+	 * The pathless compare (`target !== "/build/${id}?${sp.toString()}"`)
+	 * avoids a redirect loop when the incoming URL already parses to the
+	 * recovered location — e.g. duplicate query params that normalize to
+	 * the same `Location` as the recovered result. Without this guard the
+	 * handler would redirect to the same URL forever. */
 	const spRaw = await searchParams;
 	const sp = new URLSearchParams();
 	for (const [k, v] of Object.entries(spRaw)) {
@@ -65,8 +71,9 @@ export default async function BuilderPage({
 	}
 	const loc = parseLocation(sp);
 	const doc = toDoc(app.blueprint, id);
-	if (!isValidLocation(loc, doc)) {
-		const cleaned = serializeLocation({ kind: "home" }).toString();
+	const recovered = recoverLocation(loc, doc);
+	if (recovered !== loc) {
+		const cleaned = serializeLocation(recovered).toString();
 		const target = cleaned ? `/build/${id}?${cleaned}` : `/build/${id}`;
 		if (target !== `/build/${id}?${sp.toString()}`) {
 			redirect(target);

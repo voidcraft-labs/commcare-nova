@@ -16,52 +16,8 @@
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect } from "react";
 import { useBlueprintDoc } from "@/lib/doc/hooks/useBlueprintDoc";
-import type { BlueprintDoc } from "@/lib/doc/types";
 import { useLocation } from "@/lib/routing/hooks";
-import { serializeLocation } from "@/lib/routing/location";
-import type { Location } from "@/lib/routing/types";
-
-/**
- * Reduce an invalid Location to the closest valid ancestor given the
- * current doc. Pure function — no hooks, easy to unit test if needed.
- *
- * Recovery policy (most specific → least specific):
- * - Home: always valid, returned as-is.
- * - Module/cases with missing module → home.
- * - Form with missing form → parent module screen.
- * - Form with missing selectedUuid → same form, no selection.
- * - If everything resolves, return the original location unchanged
- *   (referential identity preserved for the === check in the effect).
- */
-function recover(loc: Location, doc: BlueprintDoc): Location {
-	if (loc.kind === "home") return loc;
-
-	/* Module UUID is shared by module, cases, and form screens. */
-	if (doc.modules[loc.moduleUuid] === undefined) {
-		return { kind: "home" };
-	}
-
-	if (loc.kind === "module") return loc;
-	if (loc.kind === "cases") return loc;
-
-	/* loc.kind === "form" — check form, then selected question. */
-	if (doc.forms[loc.formUuid] === undefined) {
-		return { kind: "module", moduleUuid: loc.moduleUuid };
-	}
-
-	if (
-		loc.selectedUuid !== undefined &&
-		doc.questions[loc.selectedUuid] === undefined
-	) {
-		return {
-			kind: "form",
-			moduleUuid: loc.moduleUuid,
-			formUuid: loc.formUuid,
-		};
-	}
-
-	return loc;
-}
+import { recoverLocation, serializeLocation } from "@/lib/routing/location";
 
 export function LocationRecoveryEffect() {
 	const loc = useLocation();
@@ -69,7 +25,9 @@ export function LocationRecoveryEffect() {
 	const pathname = usePathname();
 
 	/* Subscribe to entity maps directly so the effect re-fires whenever a
-	 * referenced uuid might have disappeared. */
+	 * referenced uuid might have disappeared. Each slice is an Immer-stable
+	 * reference, so `useBlueprintDoc` with the default `Object.is` equality
+	 * only triggers when the specific map's identity changes. */
 	const modules = useBlueprintDoc((s) => s.modules);
 	const forms = useBlueprintDoc((s) => s.forms);
 	const questions = useBlueprintDoc((s) => s.questions);
@@ -85,8 +43,12 @@ export function LocationRecoveryEffect() {
 			return;
 		}
 
-		const doc = { modules, forms, questions } as BlueprintDoc;
-		const recovered = recover(loc, doc);
+		/* `recoverLocation` accepts a `LocationDoc` (Pick of BlueprintDoc),
+		 * so this ad-hoc slice object is a first-class argument — no cast,
+		 * no full doc reconstruction. Identity-equality on the return value
+		 * means the happy path (everything resolves) short-circuits with a
+		 * single pointer comparison. */
+		const recovered = recoverLocation(loc, { modules, forms, questions });
 		if (recovered === loc) return;
 
 		const params = serializeLocation(recovered).toString();

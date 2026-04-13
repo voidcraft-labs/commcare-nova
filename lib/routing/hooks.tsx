@@ -25,6 +25,7 @@
 
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useMemo, useRef } from "react";
+import { useBuilderEngine } from "@/hooks/useBuilder";
 import { useBlueprintDoc } from "@/lib/doc/hooks/useBlueprintDoc";
 import type {
 	FormEntity,
@@ -342,14 +343,38 @@ function parentLocation(loc: Location): Location | undefined {
  * not on a form location (selection only exists inside a form).
  *
  * `uuid === undefined` clears the current selection.
+ *
+ * **Edit guard integration.** Inline editors with unsaved invalid
+ * content (e.g. the XPath editor in `XPathField`) install a guard via
+ * `engine.setEditGuard()`. Before changing the URL, `useSelect`
+ * consults `engine.checkEditGuard()` — if the guard returns `false`,
+ * the selection change is blocked. The documented two-strike UX
+ * ("warn then allow") lives inside the guard predicate itself: its
+ * first invocation returns `false` and surfaces a warning; its second
+ * invocation returns `true`, letting the selection through.
+ *
+ * `useNavigate` intentionally does NOT consult the guard — the spec
+ * only requires guarding selection changes, and screen-level
+ * navigation (back/forward, breadcrumb clicks, sidebar form switches)
+ * should never be silently swallowed by an unrelated field's unsaved
+ * state. Revisit if users report lost XPath edits on screen change.
  */
 export function useSelect(): SelectAction {
 	const router = useRouter();
 	const pathname = usePathname();
+	// `useBuilderEngine` returns the engine created once per
+	// `BuilderProvider` mount, so its identity is stable across renders
+	// and doesn't churn this memo's dependency set.
+	const engine = useBuilderEngine();
 	const loc = useLocation();
 
-	return useMemo(() => {
+	return useMemo<SelectAction>(() => {
 		return (uuid: Uuid | undefined): void => {
+			/* Honor any guard registered by an inline editor with unsaved
+			 * invalid content. The two-strike pattern (warn, then allow on
+			 * repeat) is owned by the guard predicate — this call site is
+			 * just a gate. */
+			if (!engine.checkEditGuard()) return;
 			if (loc.kind !== "form") return;
 			const next: Location = {
 				kind: "form",
@@ -361,5 +386,5 @@ export function useSelect(): SelectAction {
 			const url = params ? `${pathname}?${params}` : pathname;
 			router.replace(url, { scroll: false });
 		};
-	}, [router, pathname, loc]);
+	}, [router, pathname, engine, loc]);
 }
