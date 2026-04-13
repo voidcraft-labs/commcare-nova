@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { toDoc } from "@/lib/doc/converter";
+import { toBlueprint, toDoc } from "@/lib/doc/converter";
+import {
+	asUuid,
+	type BlueprintDoc,
+	type ModuleEntity,
+	type Uuid,
+} from "@/lib/doc/types";
 import type { AppBlueprint } from "@/lib/schemas/blueprint";
 
 const APP_ID = "test-app-id";
@@ -102,7 +108,7 @@ describe("toDoc", () => {
 		const doc = toDoc(bp, APP_ID);
 		const formUuid = doc.formOrder[doc.moduleOrder[0]][0];
 		expect(doc.questionOrder[formUuid]).toEqual([qUuid]);
-		expect(doc.questions[qUuid]?.id).toBe("name");
+		expect(doc.questions[asUuid(qUuid)]?.id).toBe("name");
 	});
 
 	it("flattens nested group children into separate questionOrder entries", () => {
@@ -145,12 +151,12 @@ describe("toDoc", () => {
 		// Top-level order contains the group uuid
 		expect(doc.questionOrder[formUuid]).toEqual([groupUuid]);
 		// Group has its own entry in questionOrder, keyed by its own uuid
-		expect(doc.questionOrder[groupUuid]).toEqual([childUuid]);
+		expect(doc.questionOrder[asUuid(groupUuid)]).toEqual([childUuid]);
 		// The child is a peer entry in the flat questions map
-		expect(doc.questions[childUuid]?.id).toBe("inner");
+		expect(doc.questions[asUuid(childUuid)]?.id).toBe("inner");
 		// QuestionEntity has no `children` field
 		expect(
-			(doc.questions[groupUuid] as { children?: unknown }).children,
+			(doc.questions[asUuid(groupUuid)] as { children?: unknown }).children,
 		).toBeUndefined();
 	});
 
@@ -175,5 +181,128 @@ describe("toDoc", () => {
 			case_types: null,
 		};
 		expect(() => toDoc(bp, APP_ID)).toThrow(/uuid/i);
+	});
+});
+
+describe("toBlueprint", () => {
+	it("reconstructs an empty doc", () => {
+		const doc = toDoc(
+			{
+				app_name: "Empty",
+				connect_type: undefined,
+				modules: [],
+				case_types: null,
+			},
+			APP_ID,
+		);
+		expect(toBlueprint(doc)).toEqual({
+			app_name: "Empty",
+			connect_type: undefined,
+			modules: [],
+			case_types: null,
+		});
+	});
+
+	it("round-trips modules + forms + nested questions", () => {
+		const bp: AppBlueprint = {
+			app_name: "Round Trip",
+			connect_type: "deliver",
+			modules: [
+				{
+					name: "Reg Mod",
+					case_type: "patient",
+					forms: [
+						{
+							name: "Register",
+							type: "registration",
+							questions: [
+								{
+									uuid: "q1-uuid-0000-0000-000000000000",
+									id: "name",
+									type: "text",
+									label: "Name",
+								},
+								{
+									uuid: "g1-uuid-0000-0000-000000000000",
+									id: "contact",
+									type: "group",
+									label: "Contact",
+									children: [
+										{
+											uuid: "c1-uuid-0000-0000-000000000000",
+											id: "phone",
+											type: "text",
+											label: "Phone",
+										},
+									],
+								},
+							],
+						},
+					],
+				},
+			],
+			case_types: [
+				{ name: "patient", properties: [{ name: "name", label: "Name" }] },
+			],
+		};
+		const roundTripped = toBlueprint(toDoc(bp, APP_ID));
+		expect(roundTripped).toEqual(bp);
+	});
+
+	it("emits undefined (not null) for missing connect_type", () => {
+		const doc = toDoc(
+			{
+				app_name: "NoConnect",
+				connect_type: undefined,
+				modules: [],
+				case_types: null,
+			},
+			APP_ID,
+		);
+		expect(toBlueprint(doc).connect_type).toBeUndefined();
+	});
+
+	it("preserves case_types through round-trip", () => {
+		const bp: AppBlueprint = {
+			app_name: "With Cases",
+			connect_type: undefined,
+			modules: [],
+			case_types: [
+				{
+					name: "patient",
+					properties: [
+						{ name: "name", label: "Name" },
+						{ name: "age", label: "Age" },
+					],
+				},
+				{ name: "visit", properties: [{ name: "date", label: "Date" }] },
+			],
+		};
+		expect(toBlueprint(toDoc(bp, APP_ID)).case_types).toEqual(bp.case_types);
+	});
+
+	it("uses moduleOrder/formOrder/questionOrder to determine output order", () => {
+		const modA = "modA-0000-0000-0000-000000000000";
+		const modB = "modB-0000-0000-0000-000000000000";
+		const modAUuid = asUuid(modA);
+		const modBUuid = asUuid(modB);
+		const doc: BlueprintDoc = {
+			appId: APP_ID,
+			appName: "Out Of Order",
+			connectType: null,
+			caseTypes: null,
+			modules: {
+				[modAUuid]: { uuid: modAUuid, name: "A" } as ModuleEntity,
+				[modBUuid]: { uuid: modBUuid, name: "B" } as ModuleEntity,
+			},
+			forms: {},
+			questions: {},
+			// Intentionally reverse order
+			moduleOrder: [modBUuid, modAUuid],
+			formOrder: {},
+			questionOrder: {},
+		};
+		const bp = toBlueprint(doc);
+		expect(bp.modules.map((m) => m.name)).toEqual(["B", "A"]);
 	});
 });
