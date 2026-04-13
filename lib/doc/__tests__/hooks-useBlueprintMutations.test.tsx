@@ -501,6 +501,180 @@ describe("useBlueprintMutations", () => {
 		expect(s.modules[returned].name).toBe("M1");
 	});
 
+	// ── updateForm ────────────────────────────────────────────────────────
+
+	it("updateForm patches camelCase fields on an existing form", () => {
+		const { result } = renderHook(() => useMutationsAndFirstFormChildren(), {
+			wrapper,
+		});
+
+		act(() => {
+			const formUuid = getFormUuid(result.current.store);
+			result.current.mutations.updateForm(formUuid, {
+				name: "Renamed Form",
+			});
+		});
+
+		const s = result.current.store?.getState();
+		const formUuid = getFormUuid(result.current.store);
+		expect(s?.forms[formUuid].name).toBe("Renamed Form");
+	});
+
+	// ── removeForm ────────────────────────────────────────────────────────
+
+	it("removeForm drops the form entity and its formOrder entry", () => {
+		const { result } = renderHook(() => useMutationsAndFirstFormChildren(), {
+			wrapper,
+		});
+
+		let formUuid: Uuid = "" as Uuid;
+		act(() => {
+			formUuid = getFormUuid(result.current.store);
+			result.current.mutations.removeForm(formUuid);
+		});
+
+		const s = result.current.store?.getState();
+		expect(s?.forms[formUuid]).toBeUndefined();
+		// The module's formOrder should no longer reference the removed form.
+		const moduleUuid = s?.moduleOrder[0] ?? ("" as Uuid);
+		expect(s?.formOrder[moduleUuid]).not.toContain(formUuid);
+	});
+
+	// ── updateModule ──────────────────────────────────────────────────────
+
+	it("updateModule patches fields on an existing module", () => {
+		const { result } = renderHook(() => useMutationsAndFirstFormChildren(), {
+			wrapper,
+		});
+
+		act(() => {
+			const s = result.current.store?.getState();
+			const moduleUuid = s?.moduleOrder[0];
+			if (!moduleUuid) return;
+			result.current.mutations.updateModule(moduleUuid, {
+				name: "Renamed Module",
+			});
+		});
+
+		const s = result.current.store?.getState();
+		const moduleUuid = s?.moduleOrder[0] ?? ("" as Uuid);
+		expect(s?.modules[moduleUuid].name).toBe("Renamed Module");
+	});
+
+	// ── removeModule ──────────────────────────────────────────────────────
+
+	it("removeModule drops the module entity and its moduleOrder entry", () => {
+		const { result } = renderHook(() => useMutationsAndFirstFormChildren(), {
+			wrapper,
+		});
+
+		let moduleUuid: Uuid = "" as Uuid;
+		act(() => {
+			const firstUuid = result.current.store?.getState().moduleOrder[0];
+			if (!firstUuid) return;
+			moduleUuid = firstUuid;
+			result.current.mutations.removeModule(moduleUuid);
+		});
+
+		const s = result.current.store?.getState();
+		expect(s?.modules[moduleUuid]).toBeUndefined();
+		expect(s?.moduleOrder).not.toContain(moduleUuid);
+	});
+
+	// ── setCaseTypes ──────────────────────────────────────────────────────
+
+	it("setCaseTypes replaces the app-level case types array", () => {
+		const { result } = renderHook(() => useMutationsAndFirstFormChildren(), {
+			wrapper,
+		});
+
+		const nextTypes = [
+			{ name: "patient", properties: [] },
+			{ name: "visit", properties: [] },
+		];
+
+		act(() => {
+			result.current.mutations.setCaseTypes(nextTypes);
+		});
+
+		const s = result.current.store?.getState();
+		expect(s?.caseTypes).toEqual(nextTypes);
+	});
+
+	it("setCaseTypes with null clears the app-level case types", () => {
+		const { result } = renderHook(() => useMutationsAndFirstFormChildren(), {
+			wrapper,
+		});
+
+		act(() => {
+			result.current.mutations.setCaseTypes(null);
+		});
+
+		expect(result.current.store?.getState().caseTypes).toBeNull();
+	});
+
+	// ── applyMany ─────────────────────────────────────────────────────────
+
+	it("applyMany collapses two mutations into a single undo entry", () => {
+		const { result } = renderHook(() => useMutationsWithStore(), { wrapper });
+
+		// Make sure temporal is resumed (BlueprintDocProvider already does
+		// this, but it's harmless to call again).
+		act(() => {
+			result.current.store?.temporal.getState().resume();
+		});
+		const before =
+			result.current.store?.temporal.getState().pastStates.length ?? 0;
+
+		act(() => {
+			result.current.mutations.applyMany([
+				{ kind: "setAppName", name: "Batched" },
+				{ kind: "setConnectType", connectType: "deliver" },
+			]);
+		});
+
+		const after =
+			result.current.store?.temporal.getState().pastStates.length ?? 0;
+		// Exactly ONE new undo entry should have been added, despite two
+		// mutations dispatching.
+		expect(after - before).toBe(1);
+
+		const s = result.current.store?.getState();
+		expect(s?.appName).toBe("Batched");
+		expect(s?.connectType).toBe("deliver");
+	});
+
+	// ── moveQuestion — extra options ──────────────────────────────────────
+
+	it("moveQuestion with beforeUuid reorders within the same parent", () => {
+		const { result } = renderHook(() => useMutationsAndFirstFormChildren(), {
+			wrapper,
+		});
+
+		// Move `b` to before `a`. Same-parent: result should be [b, a, grp].
+		act(() => {
+			result.current.mutations.moveQuestion(Q_B, { beforeUuid: Q_A });
+		});
+
+		expect(result.current.children.map((q) => q.id)).toEqual(["b", "a", "grp"]);
+	});
+
+	it("moveQuestion with toIndex reorders to the specified slot", () => {
+		const { result } = renderHook(() => useMutationsAndFirstFormChildren(), {
+			wrapper,
+		});
+
+		/* Same-parent move: base is [a, b, grp], virtual after removing `a`
+		 * is [b, grp], so toIndex=1 should place `a` at virtual[1] →
+		 * [b, a, grp]. This mirrors the virtual-post-splice semantics the
+		 * hook documents. */
+		act(() => {
+			result.current.mutations.moveQuestion(Q_A, { toIndex: 1 });
+		});
+
+		expect(result.current.children.map((q) => q.id)).toEqual(["b", "a", "grp"]);
+	});
+
 	// ── Unresolved uuid no-op ─────────────────────────────────────────────
 
 	it("unresolved uuid silently no-ops (no throw)", () => {

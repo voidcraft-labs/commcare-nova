@@ -17,11 +17,8 @@ import { getSession } from "@/lib/auth-utils";
 import { loadApp } from "@/lib/db/apps";
 import { getCommCareSettings } from "@/lib/db/settings";
 import { toDoc } from "@/lib/doc/converter";
-import {
-	parseLocation,
-	recoverLocation,
-	serializeLocation,
-} from "@/lib/routing/location";
+import { serializeLocation } from "@/lib/routing/location";
+import { validateAndRecover } from "@/lib/routing/validateSearchParams";
 import { ThreadHistory } from "./thread-history";
 
 export default async function BuilderPage({
@@ -55,25 +52,24 @@ export default async function BuilderPage({
 
 	/* Validate the incoming URL against the live blueprint. Stale uuids
 	 * (from a bookmark into a deleted question, module, or form) collapse
-	 * to the closest valid ancestor via `recoverLocation` — a user who
+	 * to the closest valid ancestor via `validateAndRecover` — a user who
 	 * bookmarked `?s=f&m=<valid>&f=<valid>&sel=<deleted>` lands on the
 	 * form with selection cleared, not bounced all the way to home.
 	 *
-	 * The pathless compare (`target !== "/build/${id}?${sp.toString()}"`)
-	 * avoids a redirect loop when the incoming URL already parses to the
-	 * recovered location — e.g. duplicate query params that normalize to
-	 * the same `Location` as the recovered result. Without this guard the
-	 * handler would redirect to the same URL forever. */
+	 * The pathless compare below (`target !== incomingTarget`) avoids a
+	 * redirect loop when the incoming URL already parses to the recovered
+	 * location — e.g. duplicate query params that normalize to the same
+	 * `Location` as the recovered result. Without this guard the handler
+	 * would redirect to the same URL forever. */
 	const spRaw = await searchParams;
 	const sp = new URLSearchParams();
 	for (const [k, v] of Object.entries(spRaw)) {
 		if (typeof v === "string") sp.set(k, v);
 	}
-	const loc = parseLocation(sp);
 	const doc = toDoc(app.blueprint, id);
-	const recovered = recoverLocation(loc, doc);
-	if (recovered !== loc) {
-		const cleaned = serializeLocation(recovered).toString();
+	const validation = validateAndRecover(sp, doc);
+	if (validation.kind === "redirect") {
+		const cleaned = serializeLocation(validation.location).toString();
 		const target = cleaned ? `/build/${id}?${cleaned}` : `/build/${id}`;
 		if (target !== `/build/${id}?${sp.toString()}`) {
 			redirect(target);
