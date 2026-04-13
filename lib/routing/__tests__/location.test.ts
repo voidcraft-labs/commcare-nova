@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
+import type { BlueprintDoc } from "@/lib/doc/types";
 import { asUuid } from "@/lib/doc/types";
-import { parseLocation, serializeLocation } from "@/lib/routing/location";
+import {
+	isValidLocation,
+	parseLocation,
+	serializeLocation,
+} from "@/lib/routing/location";
 import type { Location } from "@/lib/routing/types";
 
 const modUuid = asUuid("11111111-1111-1111-1111-111111111111");
@@ -154,5 +159,131 @@ describe("parseLocation", () => {
 		for (const loc of cases) {
 			expect(parseLocation(serializeLocation(loc))).toEqual(loc);
 		}
+	});
+});
+
+const emptyDoc: BlueprintDoc = {
+	appId: "test-app",
+	appName: "Test",
+	connectType: null,
+	caseTypes: null,
+	modules: {},
+	forms: {},
+	questions: {},
+	moduleOrder: [],
+	formOrder: {},
+	questionOrder: {},
+};
+
+function docWith(overrides: Partial<BlueprintDoc>): BlueprintDoc {
+	return { ...emptyDoc, ...overrides };
+}
+
+describe("isValidLocation", () => {
+	it("accepts home against any doc", () => {
+		expect(isValidLocation({ kind: "home" }, emptyDoc)).toBe(true);
+	});
+
+	it("rejects module location when module uuid is unknown", () => {
+		expect(
+			isValidLocation({ kind: "module", moduleUuid: modUuid }, emptyDoc),
+		).toBe(false);
+	});
+
+	it("accepts module location when module uuid exists", () => {
+		const doc = docWith({
+			modules: {
+				[modUuid]: {
+					uuid: modUuid,
+					name: "Test Module",
+				} as never,
+			},
+		});
+		expect(isValidLocation({ kind: "module", moduleUuid: modUuid }, doc)).toBe(
+			true,
+		);
+	});
+
+	it("accepts cases when module exists; ignores caseId content", () => {
+		const doc = docWith({
+			modules: {
+				[modUuid]: { uuid: modUuid, name: "m" } as never,
+			},
+		});
+		expect(
+			isValidLocation(
+				{ kind: "cases", moduleUuid: modUuid, caseId: "anything" },
+				doc,
+			),
+		).toBe(true);
+	});
+
+	it("rejects form when module is missing even if form exists", () => {
+		const doc = docWith({
+			forms: {
+				[formUuid]: { uuid: formUuid } as never,
+			},
+		});
+		expect(
+			isValidLocation({ kind: "form", moduleUuid: modUuid, formUuid }, doc),
+		).toBe(false);
+	});
+
+	it("rejects form when form is missing even if module exists", () => {
+		const doc = docWith({
+			modules: {
+				[modUuid]: { uuid: modUuid } as never,
+			},
+		});
+		expect(
+			isValidLocation({ kind: "form", moduleUuid: modUuid, formUuid }, doc),
+		).toBe(false);
+	});
+
+	it("accepts form when both exist", () => {
+		const doc = docWith({
+			modules: { [modUuid]: { uuid: modUuid } as never },
+			forms: { [formUuid]: { uuid: formUuid } as never },
+		});
+		expect(
+			isValidLocation({ kind: "form", moduleUuid: modUuid, formUuid }, doc),
+		).toBe(true);
+	});
+
+	it("rejects form when selectedUuid points to a missing question", () => {
+		const doc = docWith({
+			modules: { [modUuid]: { uuid: modUuid } as never },
+			forms: { [formUuid]: { uuid: formUuid } as never },
+		});
+		expect(
+			isValidLocation(
+				{
+					kind: "form",
+					moduleUuid: modUuid,
+					formUuid,
+					selectedUuid: qUuid,
+				},
+				doc,
+			),
+		).toBe(false);
+	});
+
+	it("accepts form when selectedUuid points to an existing question", () => {
+		const doc = docWith({
+			modules: { [modUuid]: { uuid: modUuid } as never },
+			forms: { [formUuid]: { uuid: formUuid } as never },
+			questions: { [qUuid]: { uuid: qUuid } as never },
+		});
+		expect(
+			isValidLocation(
+				{
+					kind: "form",
+					moduleUuid: modUuid,
+					formUuid,
+					selectedUuid: qUuid,
+				},
+				doc,
+			),
+		).toBe(true);
 	});
 });

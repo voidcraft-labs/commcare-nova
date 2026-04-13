@@ -11,7 +11,7 @@
  * `router.push`/`router.replace`.
  */
 
-import type { Uuid } from "@/lib/doc/types";
+import type { BlueprintDoc, Uuid } from "@/lib/doc/types";
 import {
 	LOCATION_PARAM,
 	type Location,
@@ -112,5 +112,38 @@ export function parseLocation(
 		}
 		default:
 			return { kind: "home" };
+	}
+}
+
+/**
+ * Check that every UUID referenced by the location exists in the current
+ * doc. Returns `true` for `home` regardless of doc state.
+ *
+ * Phase 2 uses this on every URL change: if the result is `false`, a root
+ * effect calls `router.replace()` with the location stripped of dangling
+ * references (usually falling back to home). This keeps selection-after-
+ * deletion and stale-bookmark scenarios from ever rendering a broken UI.
+ */
+export function isValidLocation(loc: Location, doc: BlueprintDoc): boolean {
+	switch (loc.kind) {
+		case "home":
+			return true;
+		case "module":
+			return doc.modules[loc.moduleUuid] !== undefined;
+		case "cases":
+			// `caseId` is free-form from the user — we can't validate it
+			// against the doc. Only the module reference matters here.
+			return doc.modules[loc.moduleUuid] !== undefined;
+		case "form": {
+			if (doc.modules[loc.moduleUuid] === undefined) return false;
+			if (doc.forms[loc.formUuid] === undefined) return false;
+			if (
+				loc.selectedUuid !== undefined &&
+				doc.questions[loc.selectedUuid] === undefined
+			) {
+				return false;
+			}
+			return true;
+		}
 	}
 }
