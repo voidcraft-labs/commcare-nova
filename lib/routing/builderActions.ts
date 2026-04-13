@@ -96,9 +96,14 @@ export function useDeleteSelectedQuestion(): () => void {
 		() => () => {
 			if (!docStore || loc.kind !== "form" || !loc.selectedUuid || !form)
 				return;
+			/* `flattenQuestionRefs` skips hidden questions. If the selected
+			 * uuid is hidden, or stale (race with LocationRecoveryEffect),
+			 * `findIndex` returns -1 — guard against that so `refs[-1 + 1]`
+			 * doesn't silently promote `refs[0]` to "neighbor" and jump the
+			 * selection to the top of the form. Drop selection instead. */
 			const refs = flattenQuestionRefs(form.questions);
 			const idx = refs.findIndex((r) => r.uuid === loc.selectedUuid);
-			const neighbor = refs[idx + 1] ?? refs[idx - 1];
+			const neighbor = idx < 0 ? undefined : (refs[idx + 1] ?? refs[idx - 1]);
 			docStore
 				.getState()
 				.apply({ kind: "removeQuestion", uuid: asUuid(loc.selectedUuid) });
