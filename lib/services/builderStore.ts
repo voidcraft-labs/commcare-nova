@@ -49,8 +49,6 @@ import type {
 	PostSubmitDestination,
 	Scaffold,
 } from "@/lib/schemas/blueprint";
-import { transformBareHashtags } from "../preview/engine/labelRefs";
-import { rewriteHashtagRefs, rewriteXPathRefs } from "../preview/xpath/rewrite";
 import type {
 	NewQuestion,
 	QuestionRenameResult,
@@ -65,23 +63,16 @@ import {
 	type SelectedElement,
 	STAGE_LABELS,
 } from "./builder";
-import { normalizeConnectConfig } from "./connectConfig";
 import type { ReplayStage } from "./logReplay";
 import {
 	assembleBlueprint,
-	collectAllQuestionIds,
-	collectSiblingIds,
 	decomposeBlueprint,
-	decomposeForm,
 	getEntityData,
 	type NForm,
 	type NModule,
 	type NQuestion,
-	removeQuestionDeep,
-	resolveQuestionContext,
-	resolveQuestionUuid,
 } from "./normalizedState";
-import { type QuestionPath, qpath, qpathId, qpathParent } from "./questionPath";
+import type { QuestionPath } from "./questionPath";
 
 /* Enable Immer's Map/Set support for any Map/Set values that might appear
  * in blueprint data (future-proofing — current schema uses plain objects). */
@@ -563,691 +554,91 @@ export function createBuilderStore(initialPhase: BuilderPhase) {
 
 						// ── Blueprint mutation actions ──────────────────────────
 
-						updateQuestion(mIdx, fIdx, path, updates) {
-							set((draft) => {
-								const formId = resolveFormId(draft, mIdx, fIdx);
-								if (!formId) return;
-								const uuid = resolveQuestionUuid(
-									draft.questions,
-									draft.questionOrder,
-									formId,
-									path,
-								);
-								if (!uuid) return;
-								const q = draft.questions[uuid];
-								if (!q) return;
-								for (const [key, value] of Object.entries(updates)) {
-									if (value === undefined) continue;
-									if (value === null) {
-										delete (q as Record<string, unknown>)[key];
-									} else {
-										(q as Record<string, unknown>)[key] = value;
-									}
-								}
-							});
+						updateQuestion(_mIdx, _fIdx, _path, _updates) {
+							// Phase 1b: entity mutations flow through useBlueprintMutations →
+							// doc.apply(). This action is kept for signature-compat while other
+							// legacy-store consumers still reference the interface shape.
+							// Phase 3 removes the action entirely when the legacy store is deleted.
 						},
 
-						addQuestion(mIdx, fIdx, question, opts?) {
-							let uuid = "";
-							set((draft) => {
-								const formId = resolveFormId(draft, mIdx, fIdx);
-								if (!formId) return;
-
-								const newQ = newQuestionToEntity(question);
-								uuid = newQ.uuid;
-
-								/* Resolve the parent ordering array */
-								let parentId: string;
-								if (opts?.parentPath) {
-									const parentUuid = resolveQuestionUuid(
-										draft.questions,
-										draft.questionOrder,
-										formId,
-										opts.parentPath,
-									);
-									if (!parentUuid) return;
-									parentId = parentUuid;
-								} else {
-									parentId = formId;
-								}
-
-								/* Ensure ordering array exists for this parent */
-								if (!draft.questionOrder[parentId]) {
-									draft.questionOrder[parentId] = [];
-								}
-								const siblings = draft.questionOrder[parentId];
-
-								/* Add the question entity */
-								draft.questions[newQ.uuid] = newQ;
-								/* Initialize children ordering for groups/repeats */
-								if (question.type === "group" || question.type === "repeat") {
-									draft.questionOrder[newQ.uuid] = [];
-									/* Add child questions if provided */
-									if (question.children) {
-										addChildQuestions(
-											draft.questions,
-											draft.questionOrder,
-											newQ.uuid,
-											question.children,
-										);
-									}
-								}
-
-								/* Insert into the ordering array */
-								if (opts?.atIndex !== undefined) {
-									siblings.splice(opts.atIndex, 0, newQ.uuid);
-								} else {
-									const afterId = opts?.afterPath
-										? qpathId(opts.afterPath)
-										: undefined;
-									const beforeId = opts?.beforePath
-										? qpathId(opts.beforePath)
-										: undefined;
-									insertIntoOrder(
-										siblings,
-										draft.questions,
-										newQ.uuid,
-										afterId,
-										beforeId,
-									);
-								}
-							});
-							return uuid;
+						addQuestion(_mIdx, _fIdx, _question, _opts?) {
+							// Phase 1b: entity mutations flow through useBlueprintMutations →
+							// doc.apply(). Stub returns empty string for interface compat.
+							return "";
 						},
 
-						removeQuestion(mIdx, fIdx, path) {
-							set((draft) => {
-								const formId = resolveFormId(draft, mIdx, fIdx);
-								if (!formId) return;
-								const ctx = resolveQuestionContext(
-									draft.questions,
-									draft.questionOrder,
-									formId,
-									path,
-								);
-								if (!ctx) return;
-
-								/* Remove from parent's ordering */
-								const siblings = draft.questionOrder[ctx.parentId];
-								if (siblings) {
-									const idx = siblings.indexOf(ctx.uuid);
-									if (idx !== -1) siblings.splice(idx, 1);
-								}
-
-								/* Check if this question is referenced by close_condition */
-								const form = draft.forms[formId];
-								const bareId = qpathId(path);
-								if (form?.closeCondition?.question === bareId) {
-									form.closeCondition = undefined;
-								}
-
-								/* Remove entity and all descendants */
-								removeQuestionDeep(
-									draft.questions,
-									draft.questionOrder,
-									ctx.uuid,
-								);
-							});
+						removeQuestion(_mIdx, _fIdx, _path) {
+							// Phase 1b: entity mutations flow through useBlueprintMutations →
+							// doc.apply(). This action is kept for signature-compat.
 						},
 
-						moveQuestion(mIdx, fIdx, path, opts) {
-							let result: MoveQuestionResult = {};
-							set((draft) => {
-								const formId = resolveFormId(draft, mIdx, fIdx);
-								if (!formId) return;
-
-								/* No-op if moving relative to itself */
-								if (opts.afterPath === path || opts.beforePath === path) return;
-
-								const ctx = resolveQuestionContext(
-									draft.questions,
-									draft.questionOrder,
-									formId,
-									path,
-								);
-								if (!ctx) return;
-
-								const isCrossLevel = "targetParentPath" in opts;
-
-								/* Prevent circular nesting */
-								if (isCrossLevel && opts.targetParentPath !== undefined) {
-									const targetUuid = resolveQuestionUuid(
-										draft.questions,
-										draft.questionOrder,
-										formId,
-										opts.targetParentPath,
-									);
-									if (
-										targetUuid === ctx.uuid ||
-										(targetUuid !== undefined &&
-											isDescendant(draft.questionOrder, ctx.uuid, targetUuid))
-									)
-										return;
-								}
-
-								/* Remove from current position */
-								const srcSiblings = draft.questionOrder[ctx.parentId];
-								if (srcSiblings) {
-									const idx = srcSiblings.indexOf(ctx.uuid);
-									if (idx !== -1) srcSiblings.splice(idx, 1);
-								}
-
-								/* Determine target parent */
-								let targetParentId: string;
-								if (isCrossLevel) {
-									if (opts.targetParentPath) {
-										const tpUuid = resolveQuestionUuid(
-											draft.questions,
-											draft.questionOrder,
-											formId,
-											opts.targetParentPath,
-										);
-										if (!tpUuid) return;
-										targetParentId = tpUuid;
-									} else {
-										targetParentId = formId;
-									}
-								} else {
-									targetParentId = ctx.parentId;
-								}
-
-								if (!draft.questionOrder[targetParentId]) {
-									draft.questionOrder[targetParentId] = [];
-								}
-								const targetSiblings = draft.questionOrder[targetParentId];
-
-								const afterId = opts.afterPath
-									? qpathId(opts.afterPath)
-									: undefined;
-								const beforeId = opts.beforePath
-									? qpathId(opts.beforePath)
-									: undefined;
-								insertIntoOrder(
-									targetSiblings,
-									draft.questions,
-									ctx.uuid,
-									afterId,
-									beforeId,
-								);
-
-								/* ── Same-level ID dedup on cross-level move ──
-								 * CommCare requires unique question IDs per parent level.
-								 * If the moved question's ID collides with a sibling at the
-								 * target level, auto-rename with a _2/_3/... suffix and
-								 * rewrite all XPath references in the form. */
-								if (isCrossLevel) {
-									const siblingIds = collectSiblingIds(
-										draft.questions,
-										draft.questionOrder,
-										targetParentId,
-										ctx.uuid,
-									);
-									const oldId = draft.questions[ctx.uuid].id;
-									const uniqueId = deduplicateId(oldId, siblingIds);
-
-									if (uniqueId !== oldId) {
-										/* Use the post-move path for XPath rewriting, not the
-										 * original pre-move path. The question has already been
-										 * relocated in the tree — references at the old level
-										 * are broken by the move itself (a pre-existing gap
-										 * unrelated to dedup). Rewriting from the new path
-										 * ensures we only touch references that correctly target
-										 * the question at its current location. */
-										const postMovePath = qpath(
-											oldId,
-											opts.targetParentPath,
-										) as string;
-										draft.questions[ctx.uuid].id = uniqueId;
-
-										/* Rewrite XPath references across all form questions */
-										let xpathFieldsRewritten = 0;
-										const allUuids = getAllQuestionUuids(
-											draft.questionOrder,
-											formId,
-										);
-										for (const qUuid of allUuids) {
-											const q = draft.questions[qUuid];
-											if (!q) continue;
-											xpathFieldsRewritten += rewriteXPathInQuestion(
-												q,
-												postMovePath,
-												uniqueId,
-											);
-										}
-
-										/* Update close_condition reference if it matched the old ID */
-										const form = draft.forms[formId];
-										if (form?.closeCondition?.question === oldId) {
-											form.closeCondition.question = uniqueId;
-										}
-
-										const newPath = qpath(uniqueId, opts.targetParentPath);
-										result = {
-											renamed: {
-												oldId,
-												newId: uniqueId,
-												newPath,
-												xpathFieldsRewritten,
-											},
-										};
-									}
-								}
-							});
-							return result;
+						moveQuestion(_mIdx, _fIdx, _path, _opts) {
+							// Phase 1b: entity mutations flow through useBlueprintMutations →
+							// doc.apply(). Stub returns empty result for interface compat.
+							return {} as MoveQuestionResult;
 						},
 
-						duplicateQuestion(mIdx, fIdx, path) {
-							let result = {
-								newPath: "" as QuestionPath,
-								newUuid: "",
-							};
-							set((draft) => {
-								const formId = resolveFormId(draft, mIdx, fIdx);
-								if (!formId) return;
-								const ctx = resolveQuestionContext(
-									draft.questions,
-									draft.questionOrder,
-									formId,
-									path,
-								);
-								if (!ctx) return;
-
-								const allIds = collectAllQuestionIds(
-									draft.questions,
-									draft.questionOrder,
-									formId,
-								);
-								const origId = draft.questions[ctx.uuid].id;
-
-								/* Generate unique ID */
-								let newId = `${origId}_copy`;
-								if (allIds.has(newId)) {
-									let counter = 2;
-									while (allIds.has(`${origId}_${counter}`)) counter++;
-									newId = `${origId}_${counter}`;
-								}
-
-								/* Deep clone the question and all descendants */
-								const cloneResult = deepCloneQuestion(
-									draft.questions,
-									draft.questionOrder,
-									ctx.uuid,
-								);
-
-								/* Set new ID and clear case mapping on the root clone */
-								cloneResult.rootEntity.id = newId;
-								delete cloneResult.rootEntity.case_property_on;
-
-								/* Merge cloned entities into the store */
-								for (const [uuid, q] of Object.entries(cloneResult.questions)) {
-									draft.questions[uuid] = q;
-								}
-								for (const [pid, childIds] of Object.entries(
-									cloneResult.questionOrder,
-								)) {
-									draft.questionOrder[pid] = childIds;
-								}
-
-								/* Insert after the original */
-								const siblings = draft.questionOrder[ctx.parentId];
-								const origIdx = siblings.indexOf(ctx.uuid);
-								if (origIdx !== -1) {
-									siblings.splice(origIdx + 1, 0, cloneResult.rootEntity.uuid);
-								} else {
-									siblings.push(cloneResult.rootEntity.uuid);
-								}
-
-								result = {
-									newPath: qpath(newId, qpathParent(path)),
-									newUuid: cloneResult.rootEntity.uuid,
-								};
-							});
-							return result;
+						duplicateQuestion(_mIdx, _fIdx, _path) {
+							// Phase 1b: entity mutations flow through useBlueprintMutations →
+							// doc.apply(). Stub returns empty sentinel for interface compat.
+							return { newPath: "" as QuestionPath, newUuid: "" };
 						},
 
-						renameQuestion(mIdx, fIdx, path, newId) {
-							let result: QuestionRenameResult = {
+						renameQuestion(_mIdx, _fIdx, _path, _newId) {
+							// Phase 1b: entity mutations flow through useBlueprintMutations →
+							// doc.apply(). Stub returns empty sentinel for interface compat.
+							return {
 								newPath: "" as QuestionPath,
 								xpathFieldsRewritten: 0,
 							};
-							set((draft) => {
-								const formId = resolveFormId(draft, mIdx, fIdx);
-								if (!formId) return;
-								const ctx = resolveQuestionContext(
-									draft.questions,
-									draft.questionOrder,
-									formId,
-									path,
-								);
-								if (!ctx) return;
-
-								/* Block rename if a sibling already has the requested ID.
-								 * CommCare requires unique question IDs per parent level. */
-								const siblingIds = collectSiblingIds(
-									draft.questions,
-									draft.questionOrder,
-									ctx.parentId,
-									ctx.uuid,
-								);
-								if (siblingIds.has(newId)) {
-									result = {
-										newPath: path,
-										xpathFieldsRewritten: 0,
-										conflict: true,
-									};
-									return;
-								}
-
-								const oldId = draft.questions[ctx.uuid].id;
-								const oldXPathPath = path as string;
-								draft.questions[ctx.uuid].id = newId;
-
-								/* Rewrite XPath references in all questions in this form */
-								let xpathFieldsRewritten = 0;
-								const allFormQuestionIds = getAllQuestionUuids(
-									draft.questionOrder,
-									formId,
-								);
-								for (const qUuid of allFormQuestionIds) {
-									const q = draft.questions[qUuid];
-									if (!q) continue;
-									xpathFieldsRewritten += rewriteXPathInQuestion(
-										q,
-										oldXPathPath,
-										newId,
-									);
-								}
-
-								/* Update close_condition reference */
-								const form = draft.forms[formId];
-								if (form?.closeCondition?.question === oldId) {
-									form.closeCondition.question = newId;
-								}
-
-								result = {
-									newPath: qpath(newId, qpathParent(path)),
-									xpathFieldsRewritten,
-								};
-							});
-							return result;
 						},
 
-						updateModule(mIdx, updates) {
-							set((draft) => {
-								const moduleId = draft.moduleOrder[mIdx];
-								if (!moduleId) return;
-								const mod = draft.modules[moduleId];
-								if (!mod) return;
-
-								if (updates.name !== undefined) mod.name = updates.name;
-								if (updates.case_list_columns !== undefined) {
-									mod.caseListColumns = updates.case_list_columns;
-								}
-								if (updates.case_detail_columns !== undefined) {
-									mod.caseDetailColumns =
-										updates.case_detail_columns === null
-											? undefined
-											: updates.case_detail_columns;
-								}
-							});
+						updateModule(_mIdx, _updates) {
+							// Phase 1b: entity mutations flow through useBlueprintMutations →
+							// doc.apply(). This action is kept for signature-compat.
 						},
 
-						updateForm(mIdx, fIdx, updates) {
-							set((draft) => {
-								const formId = resolveFormId(draft, mIdx, fIdx);
-								if (!formId) return;
-								const form = draft.forms[formId];
-								if (!form) return;
-
-								if (updates.name !== undefined) form.name = updates.name;
-								if (updates.type !== undefined) form.type = updates.type;
-								if (updates.close_condition !== undefined) {
-									form.closeCondition =
-										updates.close_condition === null
-											? undefined
-											: updates.close_condition;
-								}
-								if (updates.connect !== undefined) {
-									if (updates.connect === null) {
-										form.connect = undefined;
-									} else {
-										const normalized = normalizeConnectConfig(updates.connect);
-										form.connect = normalized ?? undefined;
-									}
-								}
-								if (updates.post_submit !== undefined) {
-									form.postSubmit =
-										updates.post_submit === null
-											? undefined
-											: updates.post_submit;
-								}
-							});
+						updateForm(_mIdx, _fIdx, _updates) {
+							// Phase 1b: entity mutations flow through useBlueprintMutations →
+							// doc.apply(). This action is kept for signature-compat.
 						},
 
-						replaceForm(mIdx, fIdx, form) {
-							set((draft) => {
-								const formId = resolveFormId(draft, mIdx, fIdx);
-								if (!formId) return;
-
-								/* Decompose the incoming BlueprintForm into entities */
-								const decomposed = decomposeForm(form, formId);
-
-								/* Replace form entity */
-								draft.forms[formId] = decomposed.nForm;
-
-								/* Remove old questions for this form */
-								const oldChildIds = draft.questionOrder[formId];
-								if (oldChildIds) {
-									for (const uuid of [...oldChildIds]) {
-										removeQuestionDeep(
-											draft.questions,
-											draft.questionOrder,
-											uuid,
-										);
-									}
-								}
-
-								/* Merge new questions */
-								for (const [uuid, q] of Object.entries(decomposed.questions)) {
-									draft.questions[uuid] = q;
-								}
-								for (const [pid, childIds] of Object.entries(
-									decomposed.questionOrder,
-								)) {
-									draft.questionOrder[pid] = childIds;
-								}
-							});
+						replaceForm(_mIdx, _fIdx, _form) {
+							// Phase 1b: entity mutations flow through useBlueprintMutations →
+							// doc.apply(). This action is kept for signature-compat.
 						},
 
-						addForm(mIdx, form) {
-							set((draft) => {
-								const moduleId = draft.moduleOrder[mIdx];
-								if (!moduleId) return;
-
-								const formId = crypto.randomUUID();
-								const decomposed = decomposeForm(form, formId);
-
-								draft.forms[formId] = decomposed.nForm;
-								if (!draft.formOrder[moduleId]) {
-									draft.formOrder[moduleId] = [];
-								}
-								draft.formOrder[moduleId].push(formId);
-
-								for (const [uuid, q] of Object.entries(decomposed.questions)) {
-									draft.questions[uuid] = q;
-								}
-								for (const [pid, childIds] of Object.entries(
-									decomposed.questionOrder,
-								)) {
-									draft.questionOrder[pid] = childIds;
-								}
-							});
+						addForm(_mIdx, _form) {
+							// Phase 1b: entity mutations flow through useBlueprintMutations →
+							// doc.apply(). This action is kept for signature-compat.
 						},
 
-						removeForm(mIdx, fIdx) {
-							set((draft) => {
-								const moduleId = draft.moduleOrder[mIdx];
-								if (!moduleId) return;
-								const formIds = draft.formOrder[moduleId];
-								if (!formIds || fIdx < 0 || fIdx >= formIds.length) return;
-
-								const formId = formIds[fIdx];
-
-								/* Remove all questions */
-								const childIds = draft.questionOrder[formId];
-								if (childIds) {
-									for (const uuid of [...childIds]) {
-										removeQuestionDeep(
-											draft.questions,
-											draft.questionOrder,
-											uuid,
-										);
-									}
-									delete draft.questionOrder[formId];
-								}
-
-								/* Remove form entity and ordering */
-								delete draft.forms[formId];
-								formIds.splice(fIdx, 1);
-							});
+						removeForm(_mIdx, _fIdx) {
+							// Phase 1b: entity mutations flow through useBlueprintMutations →
+							// doc.apply(). This action is kept for signature-compat.
 						},
 
-						addModule(module) {
-							set((draft) => {
-								const moduleId = crypto.randomUUID();
-
-								draft.modules[moduleId] = {
-									uuid: moduleId,
-									name: module.name,
-									caseType: module.case_type ?? undefined,
-									caseListOnly: module.case_list_only ?? undefined,
-									purpose: undefined,
-									caseListColumns: module.case_list_columns ?? undefined,
-									caseDetailColumns: module.case_detail_columns ?? undefined,
-								};
-								draft.moduleOrder.push(moduleId);
-								draft.formOrder[moduleId] = [];
-
-								/* Decompose forms */
-								for (const form of module.forms) {
-									const formId = crypto.randomUUID();
-									const decomposed = decomposeForm(form, formId);
-
-									draft.forms[formId] = decomposed.nForm;
-									draft.formOrder[moduleId].push(formId);
-
-									for (const [uuid, q] of Object.entries(
-										decomposed.questions,
-									)) {
-										draft.questions[uuid] = q;
-									}
-									for (const [pid, childIds] of Object.entries(
-										decomposed.questionOrder,
-									)) {
-										draft.questionOrder[pid] = childIds;
-									}
-								}
-							});
+						addModule(_module) {
+							// Phase 1b: entity mutations flow through useBlueprintMutations →
+							// doc.apply(). This action is kept for signature-compat.
 						},
 
-						removeModule(mIdx) {
-							set((draft) => {
-								const moduleId = draft.moduleOrder[mIdx];
-								if (!moduleId) return;
-
-								/* Remove all forms and their questions */
-								const formIds = draft.formOrder[moduleId] ?? [];
-								for (const formId of formIds) {
-									const childIds = draft.questionOrder[formId];
-									if (childIds) {
-										for (const uuid of [...childIds]) {
-											removeQuestionDeep(
-												draft.questions,
-												draft.questionOrder,
-												uuid,
-											);
-										}
-										delete draft.questionOrder[formId];
-									}
-									delete draft.forms[formId];
-								}
-
-								delete draft.formOrder[moduleId];
-								delete draft.modules[moduleId];
-								draft.moduleOrder.splice(mIdx, 1);
-							});
+						removeModule(_mIdx) {
+							// Phase 1b: entity mutations flow through useBlueprintMutations →
+							// doc.apply(). This action is kept for signature-compat.
 						},
 
-						updateApp(updates) {
-							set((draft) => {
-								if (updates.app_name !== undefined) {
-									draft.appName = updates.app_name;
-								}
-								if (updates.connect_type !== undefined) {
-									draft.connectType =
-										(updates.connect_type as ConnectType) || undefined;
-								}
-							});
+						updateApp(_updates) {
+							// Phase 1b: entity mutations flow through useBlueprintMutations →
+							// doc.apply(). This action is kept for signature-compat.
 						},
 
-						renameCaseProperty(caseType, oldName, newName) {
-							let result: RenameResult = {
-								formsChanged: [],
-								columnsChanged: [],
-							};
-							set((draft) => {
-								const formsChanged: string[] = [];
-								const columnsChanged: string[] = [];
-
-								for (let mIdx = 0; mIdx < draft.moduleOrder.length; mIdx++) {
-									const moduleId = draft.moduleOrder[mIdx];
-									const mod = draft.modules[moduleId];
-									if (mod.caseType !== caseType) continue;
-
-									/* Rename in columns */
-									for (const columns of [
-										mod.caseListColumns,
-										mod.caseDetailColumns,
-									]) {
-										if (!columns) continue;
-										for (const col of columns) {
-											if (col.field === oldName) {
-												col.field = newName;
-												if (!columnsChanged.includes(`m${mIdx}`))
-													columnsChanged.push(`m${mIdx}`);
-											}
-										}
-									}
-
-									/* Rename in questions */
-									const formIds = draft.formOrder[moduleId] ?? [];
-									for (let fIdx = 0; fIdx < formIds.length; fIdx++) {
-										const formId = formIds[fIdx];
-										const allUuids = getAllQuestionUuids(
-											draft.questionOrder,
-											formId,
-										);
-										let formChanged = false;
-										for (const qUuid of allUuids) {
-											const q = draft.questions[qUuid];
-											if (!q) continue;
-											if (q.id === oldName && q.case_property_on) {
-												q.id = newName;
-												formChanged = true;
-											}
-											formChanged =
-												rewriteCasePropertyInQuestion(q, oldName, newName) ||
-												formChanged;
-										}
-										if (formChanged) {
-											formsChanged.push(`m${mIdx}-f${fIdx}`);
-										}
-									}
-								}
-
-								result = { formsChanged, columnsChanged };
-							});
-							return result;
+						renameCaseProperty(_caseType, _oldName, _newName) {
+							// Phase 1b: no UI caller invokes this action today. If a
+							// case-property-rename feature is added, implement it as a
+							// doc-level applyMany batch. Phase 3 deletes this stub
+							// entirely when the legacy store is removed.
+							return { formsChanged: [], columnsChanged: [] };
 						},
 
 						updateCaseProperty(caseTypeName, propertyName, updates) {
@@ -1815,255 +1206,6 @@ export function createBuilderStore(initialPhase: BuilderPhase) {
 }
 
 // ── Internal helpers ───────────────────────────────────────────────────
-
-/** Resolve a form UUID from module and form indices. */
-function resolveFormId(
-	state: { moduleOrder: string[]; formOrder: Record<string, string[]> },
-	mIdx: number,
-	fIdx: number,
-): string | undefined {
-	const moduleId = state.moduleOrder[mIdx];
-	if (!moduleId) return undefined;
-	return state.formOrder[moduleId]?.[fIdx];
-}
-
-/** Convert a NewQuestion to an NQuestion entity with UUID. */
-function newQuestionToEntity(nq: NewQuestion): NQuestion {
-	return {
-		uuid: crypto.randomUUID(),
-		id: nq.id,
-		type: nq.type,
-		...(nq.label != null && { label: nq.label }),
-		...(nq.hint != null && { hint: nq.hint }),
-		...(nq.required != null && { required: nq.required }),
-		...(nq.validation != null && { validation: nq.validation }),
-		...(nq.validation_msg != null && { validation_msg: nq.validation_msg }),
-		...(nq.relevant != null && { relevant: nq.relevant }),
-		...(nq.calculate != null && { calculate: nq.calculate }),
-		...(nq.default_value != null && { default_value: nq.default_value }),
-		...(nq.options != null && { options: nq.options }),
-		...(nq.case_property_on != null && {
-			case_property_on: nq.case_property_on,
-		}),
-	};
-}
-
-/** Recursively add child questions (for group/repeat NewQuestion). */
-function addChildQuestions(
-	questions: Record<string, NQuestion>,
-	questionOrder: Record<string, string[]>,
-	parentUuid: string,
-	children: NewQuestion[],
-): void {
-	const childIds: string[] = [];
-	questionOrder[parentUuid] = childIds;
-
-	for (const child of children) {
-		const entity = newQuestionToEntity(child);
-		questions[entity.uuid] = entity;
-		childIds.push(entity.uuid);
-
-		if ((child.type === "group" || child.type === "repeat") && child.children) {
-			addChildQuestions(questions, questionOrder, entity.uuid, child.children);
-		} else if (child.type === "group" || child.type === "repeat") {
-			questionOrder[entity.uuid] = [];
-		}
-	}
-}
-
-/** Insert a UUID into an ordering array after/before a given question id. */
-function insertIntoOrder(
-	siblings: string[],
-	questions: Record<string, NQuestion>,
-	uuid: string,
-	afterId?: string,
-	beforeId?: string,
-): void {
-	if (beforeId) {
-		const idx = siblings.findIndex((u) => questions[u]?.id === beforeId);
-		if (idx === -1) {
-			siblings.push(uuid);
-		} else {
-			siblings.splice(idx, 0, uuid);
-		}
-		return;
-	}
-	if (!afterId) {
-		siblings.push(uuid);
-		return;
-	}
-	const idx = siblings.findIndex((u) => questions[u]?.id === afterId);
-	if (idx === -1) {
-		siblings.push(uuid);
-	} else {
-		siblings.splice(idx + 1, 0, uuid);
-	}
-}
-
-/** Check if `descendantUuid` is a descendant of `ancestorUuid` in the question tree. */
-function isDescendant(
-	questionOrder: Record<string, string[]>,
-	ancestorUuid: string,
-	descendantUuid: string,
-): boolean {
-	const children = questionOrder[ancestorUuid];
-	if (!children) return false;
-	for (const child of children) {
-		if (child === descendantUuid) return true;
-		if (isDescendant(questionOrder, child, descendantUuid)) return true;
-	}
-	return false;
-}
-
-/** Get all question UUIDs reachable from a parent (depth-first). */
-function getAllQuestionUuids(
-	questionOrder: Record<string, string[]>,
-	parentId: string,
-): string[] {
-	const result: string[] = [];
-	function walk(pid: string) {
-		const childIds = questionOrder[pid];
-		if (!childIds) return;
-		for (const uuid of childIds) {
-			result.push(uuid);
-			walk(uuid);
-		}
-	}
-	walk(parentId);
-	return result;
-}
-
-/** Deep clone a question and all its descendants, assigning fresh UUIDs. */
-function deepCloneQuestion(
-	questions: Record<string, NQuestion>,
-	questionOrder: Record<string, string[]>,
-	uuid: string,
-): {
-	rootEntity: NQuestion;
-	questions: Record<string, NQuestion>;
-	questionOrder: Record<string, string[]>;
-} {
-	const clonedQuestions: Record<string, NQuestion> = {};
-	const clonedOrder: Record<string, string[]> = {};
-
-	function cloneRecursive(origUuid: string): string {
-		const orig = questions[origUuid];
-		const newUuid = crypto.randomUUID();
-		clonedQuestions[newUuid] = { ...orig, uuid: newUuid };
-
-		const children = questionOrder[origUuid];
-		if (children && children.length > 0) {
-			clonedOrder[newUuid] = children.map((childUuid) =>
-				cloneRecursive(childUuid),
-			);
-		}
-
-		return newUuid;
-	}
-
-	const rootUuid = cloneRecursive(uuid);
-	return {
-		rootEntity: clonedQuestions[rootUuid],
-		questions: clonedQuestions,
-		questionOrder: clonedOrder,
-	};
-}
-
-/** Rewrite XPath references in a single question's fields. Returns count of fields changed. */
-function rewriteXPathInQuestion(
-	q: NQuestion,
-	oldPath: string,
-	newId: string,
-): number {
-	const xpathFields = [
-		"relevant",
-		"calculate",
-		"default_value",
-		"validation",
-	] as const;
-	const displayFields = ["label", "hint"] as const;
-	const rewriter = (expr: string) => rewriteXPathRefs(expr, oldPath, newId);
-	let count = 0;
-
-	for (const field of xpathFields) {
-		const val = q[field];
-		if (!val) continue;
-		const rewritten = rewriter(val);
-		if (rewritten !== val) {
-			(q as Record<string, unknown>)[field] = rewritten;
-			count++;
-		}
-	}
-
-	for (const field of displayFields) {
-		const text = q[field];
-		if (!text) continue;
-		const rewritten = transformBareHashtags(text, rewriter);
-		if (rewritten !== text) {
-			(q as Record<string, unknown>)[field] = rewritten;
-			count++;
-		}
-	}
-
-	return count;
-}
-
-/** Rewrite case property references in a single question's XPath and display fields. */
-function rewriteCasePropertyInQuestion(
-	q: NQuestion,
-	oldName: string,
-	newName: string,
-): boolean {
-	const xpathFields = [
-		"relevant",
-		"calculate",
-		"default_value",
-		"validation",
-	] as const;
-	const displayFields = ["label", "hint"] as const;
-	const hashtagRewriter = (expr: string) =>
-		rewriteHashtagRefs(expr, "#case/", oldName, newName);
-	const pathRewriter = (expr: string) =>
-		rewriteXPathRefs(expr, oldName, newName);
-	let changed = false;
-
-	for (const field of xpathFields) {
-		const val = q[field];
-		if (!val) continue;
-		let rewritten = hashtagRewriter(val);
-		rewritten = pathRewriter(rewritten);
-		if (rewritten !== val) {
-			(q as Record<string, unknown>)[field] = rewritten;
-			changed = true;
-		}
-	}
-
-	for (const field of displayFields) {
-		const text = q[field];
-		if (!text) continue;
-		const rewritten = transformBareHashtags(text, (hashtag) =>
-			pathRewriter(hashtagRewriter(hashtag)),
-		);
-		if (rewritten !== text) {
-			(q as Record<string, unknown>)[field] = rewritten;
-			changed = true;
-		}
-	}
-
-	return changed;
-}
-
-/**
- * Generate a unique ID by appending _2, _3, ... suffix if the base ID
- * conflicts with existing sibling IDs. Returns the original ID unchanged
- * when no conflict exists.
- */
-function deduplicateId(baseId: string, siblingIds: Set<string>): string {
-	if (!siblingIds.has(baseId)) return baseId;
-	let counter = 2;
-	while (siblingIds.has(`${baseId}_${counter}`)) counter++;
-	return `${baseId}_${counter}`;
-}
 
 /** Compute generation progress from partialModules data. */
 function computeProgress(gen: GenerationData): {

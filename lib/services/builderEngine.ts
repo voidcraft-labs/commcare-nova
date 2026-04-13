@@ -618,18 +618,13 @@ export class BuilderEngine {
 		const curIdx = refs.findIndex((r) => r.uuid === sel.questionUuid);
 		const next = refs[curIdx + 1] ?? refs[curIdx - 1];
 
-		/* Dispatch to the doc store. If not installed, fall back to the legacy
-		 * store — this branch is a safety net; SyncBridge always installs
-		 * docStore before any user interaction is possible. */
-		if (this._docStore && sel.questionUuid) {
-			this._docStore.getState().apply({
-				kind: "removeQuestion",
-				uuid: asUuid(sel.questionUuid),
-			});
-		} else if (!this._docStore) {
-			// Safety net for the case where SyncBridge hasn't installed the doc store yet.
-			s.removeQuestion(sel.moduleIndex, sel.formIndex, sel.questionPath);
-		}
+		/* Dispatch to the doc store — SyncBridge always installs docStore
+		 * before any user interaction is possible. */
+		if (!this._docStore || !sel.questionUuid) return;
+		this._docStore.getState().apply({
+			kind: "removeQuestion",
+			uuid: asUuid(sel.questionUuid),
+		});
 
 		if (next) {
 			this.navigateTo({
