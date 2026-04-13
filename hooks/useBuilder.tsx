@@ -29,6 +29,7 @@ import { shallow } from "zustand/shallow";
 import { useStoreWithEqualityFn } from "zustand/traditional";
 import { startSyncOldFromDoc } from "@/lib/doc/adapters/syncOldFromDoc";
 import { useAssembledForm as useAssembledFormDoc } from "@/lib/doc/hooks/useAssembledForm";
+import { useBlueprintDoc } from "@/lib/doc/hooks/useBlueprintDoc";
 import { useQuestion as useQuestionDoc } from "@/lib/doc/hooks/useEntity";
 import {
 	useOrderedForms as useOrderedFormsDoc,
@@ -273,7 +274,7 @@ export function useAssembledForm(
  */
 export function useBreadcrumbs(): BreadcrumbItem[] {
 	const screen = useBuilderStore((s) => s.screen);
-	const appName = useBuilderStore((s) => s.appName);
+	const appName = useBlueprintDoc((s) => s.appName);
 
 	/* Extract the specific entity names from the screen's indices.
 	 * Each selector returns a primitive string, compared by value. */
