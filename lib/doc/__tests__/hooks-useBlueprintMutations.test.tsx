@@ -3,10 +3,10 @@
 /**
  * Tests for the user-facing mutation hook `useBlueprintMutations`.
  *
- * The hook translates legacy (mIdx, fIdx, path) coordinates into uuid-keyed
- * `Mutation` dispatches so Phase 1b call sites can migrate with a near
- * drop-in rename. Each test exercises one representative mutation and
- * verifies the doc state was updated by reading through a reactive hook.
+ * The hook takes uuid-first parameters — every test resolves uuids from
+ * the doc store state before dispatching mutations. This mirrors the
+ * real call pattern where callers read uuids from `useLocation()` or
+ * direct doc store subscriptions.
  *
  * Provider-per-mount gotcha
  * -------------------------
@@ -35,8 +35,12 @@ import {
 	useOrderedModules,
 } from "@/lib/doc/hooks/useModuleIds";
 import { useOrderedChildren } from "@/lib/doc/hooks/useOrderedChildren";
-import { BlueprintDocContext, BlueprintDocProvider } from "@/lib/doc/provider";
-import type { Uuid } from "@/lib/doc/types";
+import {
+	BlueprintDocContext,
+	BlueprintDocProvider,
+	type BlueprintDocStore,
+} from "@/lib/doc/provider";
+import { asUuid, type Uuid } from "@/lib/doc/types";
 import type { AppBlueprint, Question } from "@/lib/schemas/blueprint";
 
 // Minimal fixture: one module, one form, two top-level questions plus a
@@ -44,7 +48,7 @@ import type { AppBlueprint, Question } from "@/lib/schemas/blueprint";
 // nested (group-child) paths so the resolver behavior is exercised end
 // to end. Group/repeat nesting semantics themselves are tested in the
 // mutation reducer suite; this file only needs to prove the hook's
-// uuid-resolution + dispatch path works for both depths.
+// uuid-validation + dispatch path works for both depths.
 const bp: AppBlueprint = {
 	app_name: "Test",
 	connect_type: undefined,
@@ -104,6 +108,11 @@ const bp: AppBlueprint = {
 	],
 };
 
+/** Well-known question uuids from the fixture, branded for type safety. */
+const Q_A = asUuid("q-a-0000-0000-0000-000000000000");
+const Q_B = asUuid("q-b-0000-0000-0000-000000000000");
+const Q_GRP = asUuid("q-g-0000-0000-0000-000000000000");
+
 function wrapper({ children }: { children: ReactNode }) {
 	return (
 		<BlueprintDocProvider appId="t" initialBlueprint={bp}>
@@ -117,6 +126,9 @@ function wrapper({ children }: { children: ReactNode }) {
  * first form in a single hook so one `renderHook` subscribes both sides
  * to the same store instance. `result.current.children` stays live —
  * post-`act()` re-renders refresh it in place.
+ *
+ * Also exposes the raw store handle so tests can read `moduleOrder`,
+ * `formOrder`, etc. for uuid resolution.
  */
 function useMutationsAndFirstFormChildren() {
 	const mutations = useBlueprintMutations();
@@ -124,7 +136,8 @@ function useMutationsAndFirstFormChildren() {
 	const forms = useOrderedForms((modules[0]?.uuid ?? "") as Uuid);
 	const children = useOrderedChildren((forms[0]?.uuid ?? "") as Uuid);
 	const firstForm = forms[0];
-	return { mutations, children, firstForm };
+	const store = useContext(BlueprintDocContext);
+	return { mutations, children, firstForm, store };
 }
 
 /**
@@ -138,7 +151,8 @@ function useMutationsFormsAndGroupChildren() {
 	const topLevel = useOrderedChildren((forms[0]?.uuid ?? "") as Uuid);
 	const group = topLevel.find((q) => q.id === "grp");
 	const groupChildren = useOrderedChildren((group?.uuid ?? "") as Uuid);
-	return { mutations, topLevel, groupChildren };
+	const store = useContext(BlueprintDocContext);
+	return { mutations, topLevel, groupChildren, store };
 }
 
 /** Composer for the app-level assertion — mutations + app name + connect. */
@@ -165,16 +179,26 @@ function useMutationsWithStore() {
 	return { mutations, children, store };
 }
 
+/**
+ * Helper: resolve the first form's uuid from the store snapshot. Used
+ * by most tests as the `parentUuid` for question mutations.
+ */
+function getFormUuid(store: BlueprintDocStore | null): Uuid {
+	const s = store!.getState();
+	const moduleUuid = s.moduleOrder[0];
+	return s.formOrder[moduleUuid][0];
+}
+
 describe("useBlueprintMutations", () => {
 	// ── Pre-existing coverage ──────────────────────────────────────────────
 
-	it("updateQuestion edits fields via (mIdx, fIdx, path)", () => {
+	it("updateQuestion edits fields via uuid", () => {
 		const { result } = renderHook(() => useMutationsAndFirstFormChildren(), {
 			wrapper,
 		});
 
 		act(() => {
-			result.current.mutations.updateQuestion(0, 0, "a", { label: "Renamed" });
+			result.current.mutations.updateQuestion(Q_A, { label: "Renamed" });
 		});
 
 		expect(result.current.children.find((q) => q.id === "a")?.label).toBe(
@@ -188,7 +212,7 @@ describe("useBlueprintMutations", () => {
 		});
 
 		act(() => {
-			result.current.mutations.renameQuestion(0, 0, "a", "alpha");
+			result.current.mutations.renameQuestion(Q_A, "alpha");
 		});
 
 		const ids = result.current.children.map((q) => q.id);
@@ -202,7 +226,7 @@ describe("useBlueprintMutations", () => {
 		});
 
 		act(() => {
-			result.current.mutations.removeQuestion(0, 0, "b");
+			result.current.mutations.removeQuestion(Q_B);
 		});
 
 		expect(result.current.children.map((q) => q.id)).toEqual(["a", "grp"]);
@@ -227,11 +251,10 @@ describe("useBlueprintMutations", () => {
 			wrapper,
 		});
 
-		let returned = "";
+		let returned: Uuid = "" as Uuid;
 		act(() => {
-			returned = result.current.mutations.addQuestion(0, 0, {
-				// Legacy callers pass a `NewQuestion`-ish shape without `uuid`;
-				// the hook mints one and returns it.
+			const formUuid = getFormUuid(result.current.store);
+			returned = result.current.mutations.addQuestion(formUuid, {
 				id: "d",
 				type: "text",
 				label: "D",
@@ -245,39 +268,34 @@ describe("useBlueprintMutations", () => {
 		expect(inserted?.uuid).toBe(returned);
 	});
 
-	it("addQuestion with parentPath inserts into a group", () => {
+	it("addQuestion with parentUuid inserts into a group", () => {
 		const { result } = renderHook(() => useMutationsFormsAndGroupChildren(), {
 			wrapper,
 		});
 
 		act(() => {
-			result.current.mutations.addQuestion(
-				0,
-				0,
-				{
-					id: "c2",
-					type: "text",
-					label: "C2",
-				} as unknown as Question,
-				{ parentPath: "grp" },
-			);
+			result.current.mutations.addQuestion(Q_GRP, {
+				id: "c2",
+				type: "text",
+				label: "C2",
+			} as unknown as Question);
 		});
 
 		expect(result.current.groupChildren.map((q) => q.id)).toEqual(["c", "c2"]);
 	});
 
-	it("addQuestion with afterPath/beforePath positions correctly", () => {
+	it("addQuestion with afterUuid/beforeUuid positions correctly", () => {
 		const { result } = renderHook(() => useMutationsAndFirstFormChildren(), {
 			wrapper,
 		});
 
-		// Insert between `a` and `b` via `afterPath`.
+		// Insert between `a` and `b` via `afterUuid`.
 		act(() => {
+			const formUuid = getFormUuid(result.current.store);
 			result.current.mutations.addQuestion(
-				0,
-				0,
+				formUuid,
 				{ id: "a2", type: "text", label: "A2" } as unknown as Question,
-				{ afterPath: "a" },
+				{ afterUuid: Q_A },
 			);
 		});
 		expect(result.current.children.map((q) => q.id)).toEqual([
@@ -289,11 +307,11 @@ describe("useBlueprintMutations", () => {
 
 		// Insert before `b` — should land between `a2` and `b`.
 		act(() => {
+			const formUuid = getFormUuid(result.current.store);
 			result.current.mutations.addQuestion(
-				0,
-				0,
+				formUuid,
 				{ id: "a3", type: "text", label: "A3" } as unknown as Question,
-				{ beforePath: "b" },
+				{ beforeUuid: Q_B },
 			);
 		});
 		expect(result.current.children.map((q) => q.id)).toEqual([
@@ -307,28 +325,28 @@ describe("useBlueprintMutations", () => {
 
 	// ── moveQuestion ──────────────────────────────────────────────────────
 
-	it("moveQuestion with afterPath reorders within the same parent", () => {
+	it("moveQuestion with afterUuid reorders within the same parent", () => {
 		const { result } = renderHook(() => useMutationsAndFirstFormChildren(), {
 			wrapper,
 		});
 
 		// Move `a` to after `b`. Result should be [b, a, grp].
 		act(() => {
-			result.current.mutations.moveQuestion(0, 0, "a", { afterPath: "b" });
+			result.current.mutations.moveQuestion(Q_A, { afterUuid: Q_B });
 		});
 
 		expect(result.current.children.map((q) => q.id)).toEqual(["b", "a", "grp"]);
 	});
 
-	it("moveQuestion with targetParentPath crosses parents", () => {
+	it("moveQuestion with toParentUuid crosses parents", () => {
 		const { result } = renderHook(() => useMutationsFormsAndGroupChildren(), {
 			wrapper,
 		});
 
 		// Move `a` from the form root into the group.
 		act(() => {
-			result.current.mutations.moveQuestion(0, 0, "a", {
-				targetParentPath: "grp",
+			result.current.mutations.moveQuestion(Q_A, {
+				toParentUuid: Q_GRP,
 			});
 		});
 
@@ -346,7 +364,7 @@ describe("useBlueprintMutations", () => {
 
 		let dup: { newPath: string; newUuid: string } | undefined;
 		act(() => {
-			dup = result.current.mutations.duplicateQuestion(0, 0, "a");
+			dup = result.current.mutations.duplicateQuestion(Q_A);
 		});
 
 		expect(dup).toBeDefined();
@@ -366,14 +384,12 @@ describe("useBlueprintMutations", () => {
 			wrapper,
 		});
 
-		// Attempt to rename `a` → `b`, which already exists. The result is
-		// wrapped in a container so we can inspect it after `act()` without
-		// tripping the "definitely assigned" check on a narrowed `let`.
+		// Attempt to rename `a` → `b`, which already exists.
 		const captured: {
 			value?: ReturnType<typeof result.current.mutations.renameQuestion>;
 		} = {};
 		act(() => {
-			captured.value = result.current.mutations.renameQuestion(0, 0, "a", "b");
+			captured.value = result.current.mutations.renameQuestion(Q_A, "b");
 		});
 
 		expect(captured.value?.conflict).toBe(true);
@@ -405,9 +421,7 @@ describe("useBlueprintMutations", () => {
 		const after =
 			result.current.store?.temporal.getState().pastStates.length ?? 0;
 
-		// Exactly ONE new undo entry should have been added — the prior
-		// implementation produced two because it dispatched `setAppName` and
-		// `setConnectType` as separate `apply()` calls.
+		// Exactly ONE new undo entry should have been added.
 		expect(after - before).toBe(1);
 	});
 
@@ -419,7 +433,8 @@ describe("useBlueprintMutations", () => {
 		});
 
 		act(() => {
-			result.current.mutations.replaceForm(0, 0, {
+			const formUuid = getFormUuid(result.current.store);
+			result.current.mutations.replaceForm(formUuid, {
 				name: "F0",
 				type: "survey",
 				questions: [
@@ -442,23 +457,93 @@ describe("useBlueprintMutations", () => {
 		expect(result.current.children.map((q) => q.id)).toEqual(["z", "y"]);
 	});
 
-	// ── Unresolved path no-op ─────────────────────────────────────────────
+	// ── addForm returns uuid ──────────────────────────────────────────────
 
-	it("unresolved path silently no-ops (no throw)", () => {
+	it("addForm returns the new form's uuid", () => {
+		const { result } = renderHook(() => useMutationsAndFirstFormChildren(), {
+			wrapper,
+		});
+
+		let returned: Uuid = "" as Uuid;
+		act(() => {
+			const s = result.current.store!.getState();
+			const moduleUuid = s.moduleOrder[0];
+			returned = result.current.mutations.addForm(moduleUuid, {
+				name: "F2",
+				type: "survey",
+				questions: [],
+			});
+		});
+
+		expect(returned).toMatch(/[0-9a-f-]/);
+		// Verify the form was actually added to the store.
+		const s = result.current.store!.getState();
+		expect(s.forms[returned]).toBeDefined();
+		expect(s.forms[returned].name).toBe("F2");
+	});
+
+	// ── addModule returns uuid ────────────────────────────────────────────
+
+	it("addModule returns the new module's uuid", () => {
+		const { result } = renderHook(() => useMutationsAndFirstFormChildren(), {
+			wrapper,
+		});
+
+		let returned: Uuid = "" as Uuid;
+		act(() => {
+			returned = result.current.mutations.addModule({ name: "M1", forms: [] });
+		});
+
+		expect(returned).toMatch(/[0-9a-f-]/);
+		// Verify the module was actually added to the store.
+		const s = result.current.store!.getState();
+		expect(s.modules[returned]).toBeDefined();
+		expect(s.modules[returned].name).toBe("M1");
+	});
+
+	// ── Unresolved uuid no-op ─────────────────────────────────────────────
+
+	it("unresolved uuid silently no-ops (no throw)", () => {
 		const { result } = renderHook(() => useMutationsAndFirstFormChildren(), {
 			wrapper,
 		});
 
 		expect(() => {
 			act(() => {
-				// Out-of-range indices and bogus paths should all silently no-op.
-				result.current.mutations.updateQuestion(99, 99, "missing", {
+				// Bogus uuids should all silently no-op.
+				result.current.mutations.updateQuestion(asUuid("bogus-uuid"), {
 					label: "x",
 				});
-				result.current.mutations.removeQuestion(0, 0, "does/not/exist");
-				result.current.mutations.renameQuestion(0, 0, "nope", "also_nope");
-				result.current.mutations.moveQuestion(0, 0, "nope", {});
-				result.current.mutations.duplicateQuestion(0, 0, "nope");
+				result.current.mutations.removeQuestion(asUuid("bogus-uuid"));
+				result.current.mutations.renameQuestion(
+					asUuid("bogus-uuid"),
+					"also_nope",
+				);
+				result.current.mutations.moveQuestion(asUuid("bogus-uuid"), {});
+				result.current.mutations.duplicateQuestion(asUuid("bogus-uuid"));
+				result.current.mutations.addQuestion(asUuid("bogus-parent"), {
+					id: "should_not_exist",
+					type: "text",
+					label: "Nope",
+				} as unknown as Question);
+				result.current.mutations.updateForm(asUuid("bogus-uuid"), {
+					name: "nope",
+				});
+				result.current.mutations.removeForm(asUuid("bogus-uuid"));
+				result.current.mutations.replaceForm(asUuid("bogus-uuid"), {
+					name: "nope",
+					type: "survey",
+					questions: [],
+				});
+				result.current.mutations.updateModule(asUuid("bogus-uuid"), {
+					name: "nope",
+				});
+				result.current.mutations.removeModule(asUuid("bogus-uuid"));
+				result.current.mutations.addForm(asUuid("bogus-module"), {
+					name: "nope",
+					type: "survey",
+					questions: [],
+				});
 			});
 		}).not.toThrow();
 
