@@ -21,6 +21,7 @@ import type { BlueprintDocStore } from "@/lib/doc/provider";
 import type { Mutation } from "@/lib/doc/types";
 import { EngineController } from "@/lib/preview/engine/engineController";
 import type { ConnectConfig, ConnectType } from "@/lib/schemas/blueprint";
+import { signalGrid } from "@/lib/signalGrid/store";
 import type { EditFocus } from "@/lib/signalGridController";
 import { BuilderPhase, type EditScope, GenerationStage } from "./builder";
 import { type BuilderStoreApi, createBuilderStore } from "./builderStore";
@@ -567,6 +568,9 @@ export class BuilderEngine {
 		this._connectStash.deliver.clear();
 		this._lastConnectType = undefined;
 		this.store.getState().reset();
+		/* Clear signal grid energy so stale accumulation from the previous
+		 * lifecycle doesn't cause a spurious burst after replay navigation. */
+		signalGrid.reset();
 		/* Clear undo history and pause tracking — the engine is back to its
 		 * initial state, so the next loadApp/generation hydration should be
 		 * invisible to undo just like the first one. */

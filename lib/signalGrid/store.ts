@@ -41,8 +41,9 @@ class SignalGridStore {
 		return e;
 	}
 
-	/** Test-only -- reset both counters to zero. */
-	_reset(): void {
+	/** Clear both energy counters. Called on builder lifecycle reset (replay
+	 *  stage change, replay exit) and from tests. */
+	reset(): void {
 		this.streamEnergy = 0;
 		this.thinkEnergy = 0;
 	}
