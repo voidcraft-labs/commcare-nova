@@ -1,19 +1,18 @@
 /**
  * BuilderSubheader — navigation, breadcrumbs, undo/redo, save, and export
- * controls. Fully self-sufficient — subscribes to store state and calls
- * engine methods directly. No callback props from BuilderLayout needed
+ * controls. Fully self-sufficient — subscribes to URL-driven location hooks
+ * and doc-backed undo/redo. No callback props from BuilderLayout needed
  * for any interactive behavior.
  *
- * Owns all subheader-related Zustand subscriptions: canGoBack, canGoUp,
- * canUndo, canRedo, breadcrumbs, hasData, isReady. These subscriptions
- * trigger re-renders ONLY in this component, not in BuilderLayout.
+ * Navigation state comes from `useLocation` / `useNavigate` / `useBreadcrumbs`
+ * (Phase 2 URL hooks). Undo/redo from `useUndoRedo` (doc temporal).
+ * Engine is retained only for `AppConnectSettings`.
  */
 "use client";
 import { Icon } from "@iconify/react/offline";
 import tablerArrowBackUp from "@iconify-icons/tabler/arrow-back-up";
 import tablerArrowForwardUp from "@iconify-icons/tabler/arrow-forward-up";
 import { useMemo } from "react";
-import { useStoreWithEqualityFn } from "zustand/traditional";
 import { AppConnectSettings } from "@/components/builder/detail/AppConnectSettings";
 import { ExportPanel } from "@/components/builder/ExportPanel";
 import { SaveIndicator } from "@/components/builder/SaveIndicator";
@@ -22,27 +21,17 @@ import { CollapsibleBreadcrumb } from "@/components/builder/SubheaderToolbar";
 import { ScreenNavButtons } from "@/components/preview/ScreenNavButtons";
 import { Tooltip } from "@/components/ui/Tooltip";
 import {
-	useBreadcrumbs,
 	useBuilderEngine,
 	useBuilderHasData,
 	useBuilderIsReady,
-	useBuilderStore,
 } from "@/hooks/useBuilder";
-import { shortcutLabel } from "@/lib/platform";
 import {
-	selectAppName,
-	selectCanGoBack,
-	selectCanGoUp,
-} from "@/lib/services/builderSelectors";
-
-/* Module-scope selectors for the temporal store. Hoisted so useStore doesn't
- * re-subscribe on every render (inline functions create new references). */
-function selectCanUndo(s: { pastStates: unknown[] }): boolean {
-	return s.pastStates.length > 0;
-}
-function selectCanRedo(s: { futureStates: unknown[] }): boolean {
-	return s.futureStates.length > 0;
-}
+	useBlueprintDoc,
+	useBlueprintDocTemporal,
+} from "@/lib/doc/hooks/useBlueprintDoc";
+import { shortcutLabel } from "@/lib/platform";
+import { useUndoRedo } from "@/lib/routing/builderActions";
+import { useBreadcrumbs, useLocation, useNavigate } from "@/lib/routing/hooks";
 
 /** Stable no-op handler for breadcrumb items that don't navigate. */
 const noop = () => {};
@@ -58,44 +47,43 @@ export function BuilderSubheader({
 	commcareConfigured,
 	commcareDomain,
 }: BuilderSubheaderProps) {
+	/* Engine retained for AppConnectSettings (imperative connect stash). */
 	const builder = useBuilderEngine();
 	const hasData = useBuilderHasData();
 	const isReady = useBuilderIsReady();
 
-	/* Navigation state — own subscriptions. These trigger re-renders only
-	 * in this component, never cascading to BuilderLayout or its children. */
-	const canGoBack = useBuilderStore(selectCanGoBack);
-	const canGoUp = useBuilderStore(selectCanGoUp);
+	/* Navigation state from URL — replaces legacy store selectors. */
+	const loc = useLocation();
+	const navigate = useNavigate();
+	const canGoBack = loc.kind !== "home";
+	const canGoUp = loc.kind !== "home";
 
-	/* Undo/redo availability — subscriptions to the temporal store.
-	 * Uses `useStoreWithEqualityFn` (zundo's recommended API) instead of
-	 * plain `useStore`. Plain `useStore` re-renders on every temporal state
-	 * change regardless of selector result. `useStoreWithEqualityFn` with
-	 * `Object.is` correctly compares the boolean output and skips re-renders
-	 * when canUndo stays true→true (which is every mutation after the first). */
-	const canUndo = useStoreWithEqualityFn(
-		builder.store.temporal,
-		selectCanUndo,
+	/* Undo/redo from doc temporal — replaces engine.undo/redo. */
+	const { undo, redo } = useUndoRedo();
+
+	/* Undo/redo availability — subscribe to the doc store's temporal state.
+	 * `useBlueprintDocTemporal` uses `useStoreWithEqualityFn` internally to
+	 * compare the boolean output and skip re-renders when canUndo stays
+	 * true→true (which is every mutation after the first). */
+	const canUndo = useBlueprintDocTemporal(
+		(t) => t.pastStates.length > 0,
 		Object.is,
 	);
-	const canRedo = useStoreWithEqualityFn(
-		builder.store.temporal,
-		selectCanRedo,
+	const canRedo = useBlueprintDocTemporal(
+		(t) => t.futureStates.length > 0,
 		Object.is,
 	);
 
-	/* Breadcrumbs derived from screen + entity names. Uses structural
-	 * equality internally so unrelated mutations don't trigger re-renders. */
+	/* Breadcrumbs derived from URL + doc entity names. */
 	const breadcrumbs = useBreadcrumbs();
-	const appName = useBuilderStore(selectAppName);
+	const appName = useBlueprintDoc((s) => s.appName);
 
-	/* Breadcrumb click handlers — memoized on navigation structure so they're
-	 * stable across unrelated renders. This lets CollapsibleBreadcrumb's
-	 * memo() skip re-renders when nothing changed. */
+	/* Breadcrumb click handlers — navigate to each breadcrumb's location.
+	 * Memoized on navigation structure so CollapsibleBreadcrumb's memo()
+	 * skip re-renders when nothing changed. */
 	const breadcrumbHandlers = useMemo(
-		() =>
-			breadcrumbs.map((item) => () => builder.navigateToScreen(item.screen)),
-		[breadcrumbs, builder],
+		() => breadcrumbs.map((item) => () => navigate.push(item.location)),
+		[breadcrumbs, navigate],
 	);
 
 	/* Assemble breadcrumb parts — memoized so CollapsibleBreadcrumb's memo
@@ -121,8 +109,8 @@ export function BuilderSubheader({
 					<ScreenNavButtons
 						canGoBack={canGoBack}
 						canGoUp={canGoUp}
-						onBack={() => builder.navBackWithSync()}
-						onUp={() => builder.navUpWithSync()}
+						onBack={() => navigate.back()}
+						onUp={() => navigate.up()}
 					/>
 				)}
 				<CollapsibleBreadcrumb parts={breadcrumbParts} />
@@ -134,7 +122,7 @@ export function BuilderSubheader({
 					<Tooltip content={`Undo (${shortcutLabel("mod", "Z")})`}>
 						<button
 							type="button"
-							onClick={() => builder.undo()}
+							onClick={undo}
 							disabled={!canUndo}
 							className="flex items-center justify-center min-w-[44px] min-h-[44px] rounded-lg text-nova-text-muted transition-colors cursor-pointer enabled:hover:text-nova-text enabled:hover:bg-white/5 disabled:opacity-[0.38] disabled:cursor-default"
 							aria-label="Undo"
@@ -145,7 +133,7 @@ export function BuilderSubheader({
 					<Tooltip content={`Redo (${shortcutLabel("mod", "shift", "Z")})`}>
 						<button
 							type="button"
-							onClick={() => builder.redo()}
+							onClick={redo}
 							disabled={!canRedo}
 							className="flex items-center justify-center min-w-[44px] min-h-[44px] rounded-lg text-nova-text-muted transition-colors cursor-pointer enabled:hover:text-nova-text enabled:hover:bg-white/5 disabled:opacity-[0.38] disabled:cursor-default"
 							aria-label="Redo"

@@ -44,7 +44,10 @@ import {
 } from "@/hooks/useBuilder";
 import { useKeyboardShortcuts } from "@/hooks/useKeyboardShortcuts";
 import type { CommCareSettingsPublic } from "@/lib/db/settings";
+import { useBlueprintDoc } from "@/lib/doc/hooks/useBlueprintDoc";
+import type { Uuid } from "@/lib/doc/types";
 import { ReferenceProviderWrapper } from "@/lib/references/ReferenceContext";
+import { useNavigate } from "@/lib/routing/hooks";
 import { BuilderPhase } from "@/lib/services/builder";
 import { selectInReplayMode } from "@/lib/services/builderSelectors";
 import type { CursorMode } from "@/lib/services/builderStore";
@@ -314,27 +317,29 @@ export function BuilderLayout({
 
 	// ── Navigation ──────────────────────────────────────────────────────
 
-	const handlePreviewBack = useCallback(
-		() => builder.navBackWithSync(),
-		[builder],
-	);
+	const navigate = useNavigate();
 
 	// ── Navigate to first form when generation completes ──
+	// Look up the first module and form UUIDs from the doc store so we can
+	// call `navigate.openForm` with UUIDs instead of legacy indices.
+
+	const docModuleOrder = useBlueprintDoc((s) => s.moduleOrder);
+	const docFormOrder = useBlueprintDoc((s) => s.formOrder);
 
 	const prevPhaseRef = useRef(phase);
 	useEffect(() => {
 		const wasGenerating = prevPhaseRef.current === BuilderPhase.Generating;
 		if (wasGenerating && phase === BuilderPhase.Completed) {
-			const s = builder.store.getState();
-			if (
-				s.moduleOrder.length > 0 &&
-				(s.formOrder[s.moduleOrder[0]]?.length ?? 0) > 0
-			) {
-				s.navigateToForm(0, 0);
+			const firstModuleUuid = docModuleOrder[0] as Uuid | undefined;
+			const firstFormUuid = firstModuleUuid
+				? (docFormOrder[firstModuleUuid]?.[0] as Uuid | undefined)
+				: undefined;
+			if (firstModuleUuid && firstFormUuid) {
+				navigate.openForm(firstModuleUuid, firstFormUuid);
 			}
 		}
 		prevPhaseRef.current = phase;
-	}, [phase, builder]);
+	}, [phase, docModuleOrder, docFormOrder, navigate]);
 
 	// ── Reference provider ──────────────────────────────────────────────
 
@@ -436,7 +441,6 @@ export function BuilderLayout({
 				<BuilderContentArea
 					isCentered={isCentered}
 					onCursorModeChange={handleCursorModeChange}
-					onPreviewBack={handlePreviewBack}
 					isExistingApp={!!isExistingApp}
 				>
 					{children}
