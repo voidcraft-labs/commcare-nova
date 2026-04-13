@@ -35,13 +35,24 @@ interface DragStateApi {
 
 const DragStateContext = createContext<DragStateApi | null>(null);
 
-interface DragStateProviderProps {
+/**
+ * Props for `DragStateProvider`. Discriminated union ensures controlled mode
+ * requires both `isActive` and `setActive` — passing one without the other
+ * is a compile-time error.
+ */
+type DragStateProviderProps = {
 	children: ReactNode;
-	/** Controlled mode: external active flag. Omit for uncontrolled. */
-	isActive?: boolean;
-	/** Controlled mode: external setter. Required when `isActive` is provided. */
-	setActive?: (active: boolean) => void;
-}
+} & (
+	| {
+			/** External state — pass both or neither. */
+			isActive: boolean;
+			setActive: (active: boolean) => void;
+	  }
+	| {
+			isActive?: never;
+			setActive?: never;
+	  }
+);
 
 /**
  * Provider that manages the boolean drag-active flag.
@@ -50,22 +61,26 @@ interface DragStateProviderProps {
  * the parent component defines the drag callbacks and needs direct access to
  * the setter. In uncontrolled mode, the provider manages its own `useState`.
  */
-export function DragStateProvider({
-	children,
-	isActive: controlledActive,
-	setActive: controlledSetActive,
-}: DragStateProviderProps) {
-	const [ownActive, ownSetActive] = useState(false);
+export function DragStateProvider(props: DragStateProviderProps) {
+	const [internalIsActive, internalSetActive] = useState(false);
 
-	/* Use controlled values when provided, fall back to internal state. */
-	const isActive = controlledActive ?? ownActive;
-	const setActive = controlledSetActive ?? ownSetActive;
+	// Controlled vs uncontrolled: if props.isActive is provided, the parent
+	// owns state. The type's discriminated union ensures setActive is also
+	// provided in that case.
+	const isActive =
+		"isActive" in props && props.isActive !== undefined
+			? props.isActive
+			: internalIsActive;
+	const setActive =
+		"setActive" in props && props.setActive !== undefined
+			? props.setActive
+			: internalSetActive;
 
 	const api = useMemo<DragStateApi>(
 		() => ({ isActive, setActive }),
 		[isActive, setActive],
 	);
-	return <DragStateContext value={api}>{children}</DragStateContext>;
+	return <DragStateContext value={api}>{props.children}</DragStateContext>;
 }
 
 /**
