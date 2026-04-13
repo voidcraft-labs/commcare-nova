@@ -19,9 +19,8 @@ import tablerPencil from "@iconify-icons/tabler/pencil";
 import tablerPointer from "@iconify-icons/tabler/pointer";
 import { motion } from "motion/react";
 import { Tooltip } from "@/components/ui/Tooltip";
-import { useBuilderStore } from "@/hooks/useBuilder";
-import type { CursorMode } from "@/lib/services/builder";
-import { selectCursorMode } from "@/lib/services/builderSelectors";
+import { useCursorMode } from "@/lib/session/hooks";
+import type { CursorMode } from "@/lib/session/types";
 
 interface CursorModeSelectorProps {
 	/** Callback invoked when the user clicks a mode button. BuilderLayout
@@ -74,7 +73,7 @@ export function CursorModeSelector({
 	variant = "horizontal",
 	glass = false,
 }: CursorModeSelectorProps) {
-	const mode = useBuilderStore(selectCursorMode);
+	const mode = useCursorMode();
 	const vertical = variant === "vertical";
 
 	return (

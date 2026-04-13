@@ -7,9 +7,9 @@
  */
 
 import { useCallback } from "react";
-import { useBuilderStore } from "@/hooks/useBuilder";
 import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
 import { asUuid, type Uuid } from "@/lib/doc/types";
+import { useCursorMode } from "@/lib/session/hooks";
 import { useEditContext } from "./useEditContext";
 
 /**
@@ -20,7 +20,7 @@ export function useTextEditSave(
 	uuid: Uuid | string | undefined,
 ): ((field: string, value: string) => void) | null {
 	const ctx = useEditContext();
-	const cursorMode = useBuilderStore((s) => s.cursorMode);
+	const cursorMode = useCursorMode();
 	const { updateQuestion } = useBlueprintMutations();
 
 	const save = useCallback(

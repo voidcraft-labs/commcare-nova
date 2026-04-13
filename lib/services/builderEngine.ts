@@ -28,7 +28,7 @@ import { countQuestionsDeep } from "./normalizedState";
 
 // ── Re-export types consumers need ──────────────────────────────────────
 
-export type { CursorMode } from "./builderStore";
+export type { CursorMode } from "@/lib/session/types";
 
 // ── BuilderEngine ───────────────────────────────────────────────────────
 

@@ -17,7 +17,7 @@ import type {
 import type { BuilderEngine } from "./builderEngine";
 import type { QuestionPath } from "./questionPath";
 
-export type { CursorMode } from "./builderStore";
+export type { CursorMode } from "@/lib/session/types";
 
 /** Apply a data part to a builder engine — shared between real-time streaming (onData) and replay. */
 export function applyDataPart(

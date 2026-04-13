@@ -53,7 +53,8 @@ import type { Uuid } from "@/lib/doc/types";
 import { useNavigate } from "@/lib/routing/hooks";
 import { BuilderPhase } from "@/lib/services/builder";
 import { selectInReplayMode } from "@/lib/services/builderSelectors";
-import type { CursorMode } from "@/lib/services/builderStore";
+import { useSwitchCursorMode } from "@/lib/session/hooks";
+import type { CursorMode } from "@/lib/session/types";
 
 /** Extra space above the scroll target so the question isn't flush with the
  *  cursor mode overlay. Two values: a compact margin for plain selection,
@@ -106,12 +107,17 @@ export function BuilderLayout({
 		allUuids: string[];
 	} | null>(null);
 
+	const switchCursorMode = useSwitchCursorMode();
+
 	/** Capture scroll anchor before cursor mode switch, then delegate
-	 *  the actual mode change to the store's atomic switchCursorMode. */
+	 *  the actual mode change to the session store's atomic switchCursorMode. */
 	const handleCursorModeChange = useCallback(
 		(mode: CursorMode) => {
-			if (mode === builder.store.getState().cursorMode) return;
-
+			/* switchCursorMode itself guards against same-mode no-ops, but we
+			 * want to skip the DOM measurement too — no point anchoring scroll
+			 * if the mode isn't actually changing. Read cursorMode eagerly from
+			 * the session store action (which internally no-ops). We still do
+			 * the DOM work then call the action, which will no-op if needed. */
 			const scrollContainer = document.querySelector(
 				"[data-preview-scroll-container]",
 			) as HTMLElement | null;
@@ -136,9 +142,9 @@ export function BuilderLayout({
 				}
 			}
 
-			builder.store.getState().switchCursorMode(mode);
+			switchCursorMode(mode);
 		},
-		[builder],
+		[switchCursorMode],
 	);
 
 	/* Restore scroll position after mode switch. */
