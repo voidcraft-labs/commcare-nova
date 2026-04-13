@@ -30,6 +30,8 @@ export function asUuid(s: string): Uuid {
 import type {
 	BlueprintForm,
 	BlueprintModule,
+	CaseType,
+	ConnectType,
 	Question,
 } from "@/lib/schemas/blueprint";
 
@@ -62,4 +64,38 @@ export type FormEntity = Omit<BlueprintForm, "questions"> & { uuid: Uuid };
  */
 export type QuestionEntity = Omit<Question, "uuid" | "children"> & {
 	uuid: Uuid;
+};
+
+/**
+ * The normalized builder document. Single source of truth for the domain.
+ *
+ * Shape rationale:
+ *   - Entity tables (`modules`, `forms`, `questions`) are keyed by `Uuid` so
+ *     hooks can subscribe to a single entity's slot without rendering when
+ *     siblings change. Immer's structural sharing keeps unchanged entity
+ *     references stable across mutations.
+ *   - Ordering maps (`*Order`) are the only place hierarchy is expressed.
+ *     Reordering a module doesn't touch the module entity itself — only the
+ *     `moduleOrder` array — so entity-level subscribers don't re-render.
+ *   - `questionOrder` is keyed by either a form uuid (top-level questions)
+ *     or a group/repeat question uuid (nested children). Same map, two
+ *     logical uses.
+ *
+ * Phase 1 builds the Zustand store, loader, and mutation reducer around this
+ * shape. `connectType` and `caseTypes` are nullable to mirror the current
+ * blueprint schema where surveys/empty apps can omit them.
+ */
+export type BlueprintDoc = {
+	appId: string;
+	appName: string;
+	connectType: ConnectType | null;
+	caseTypes: CaseType[] | null;
+
+	modules: Record<Uuid, ModuleEntity>;
+	forms: Record<Uuid, FormEntity>;
+	questions: Record<Uuid, QuestionEntity>;
+
+	moduleOrder: Uuid[];
+	formOrder: Record<Uuid /* moduleUuid */, Uuid[]>;
+	questionOrder: Record<Uuid /* formUuid | groupUuid */, Uuid[]>;
 };
