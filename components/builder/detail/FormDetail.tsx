@@ -3,7 +3,8 @@ import { Menu } from "@base-ui/react/menu";
 import { Icon } from "@iconify/react/offline";
 import { useCallback } from "react";
 import { Tooltip } from "@/components/ui/Tooltip";
-import { useBuilderStore, useForm, useModule } from "@/hooks/useBuilder";
+import { useForm, useModule } from "@/hooks/useBuilder";
+import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
 import { formTypeIcons } from "@/lib/questionTypeIcons";
 import { CASE_FORM_TYPES, type FormType } from "@/lib/schemas/blueprint";
 import {
@@ -71,7 +72,7 @@ export function FormTypeButton({
 }: FormTypeButtonProps) {
 	const form = useForm(moduleIndex, formIndex);
 	const mod = useModule(moduleIndex);
-	const updateForm = useBuilderStore((s) => s.updateForm);
+	const { updateForm } = useBlueprintMutations();
 
 	const handleSelect = useCallback(
 		(type: string) => {
