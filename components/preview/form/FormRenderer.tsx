@@ -44,8 +44,8 @@ import {
 import { useEditContext } from "@/hooks/useEditContext";
 import { useEngineController, useEngineState } from "@/hooks/useFormEngine";
 import { useTextEditSave } from "@/hooks/useTextEditSave";
+import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
 import { LabelContent } from "@/lib/references/LabelContent";
-import type { MoveQuestionResult } from "@/lib/services/builderStore";
 import type { NQuestion } from "@/lib/services/normalizedState";
 import {
 	type QuestionPath,
@@ -433,7 +433,7 @@ export const FormRenderer = memo(function FormRenderer({
 	const ctx = useEditContext();
 	const builderEngine = useBuilderEngine();
 
-	const moveQuestion_ = useBuilderStore((s) => s.moveQuestion);
+	const { moveQuestion: moveQuestion_ } = useBlueprintMutations();
 	const isEditMode = ctx?.mode === "edit";
 	const isRoot = !parentPath;
 	const [dragState, setDragState] = useState<DragReorderState | null>(null);
@@ -789,49 +789,29 @@ export const FormRenderer = memo(function FormRenderer({
 								} else {
 									// Cross-group transfer — resolve neighbor paths relative
 									// to the target parent for correct tree placement.
-									let moveResult: MoveQuestionResult;
+									// phase-1b-task-10: cross-level move auto-rename notification is synthesized
+									// by Task 10's path-to-path rewriter. Hook returns void for now.
 									if (finalIds.length <= 1) {
-										moveResult = moveQuestion_(
-											ctx.moduleIndex,
-											ctx.formIndex,
-											dragPath,
-											{
-												targetParentPath,
-											},
-										);
+										moveQuestion_(ctx.moduleIndex, ctx.formIndex, dragPath, {
+											targetParentPath,
+										});
 									} else if (finalIndex === 0) {
 										const nextId = qpathId(pathOf(finalIds[1]));
 										const beforePath = qpath(nextId, targetParentPath);
-										moveResult = moveQuestion_(
-											ctx.moduleIndex,
-											ctx.formIndex,
-											dragPath,
-											{
-												beforePath,
-												targetParentPath,
-											},
-										);
+										moveQuestion_(ctx.moduleIndex, ctx.formIndex, dragPath, {
+											beforePath,
+											targetParentPath,
+										});
 									} else {
 										const prevId = qpathId(pathOf(finalIds[finalIndex - 1]));
 										const afterPath = qpath(prevId, targetParentPath);
-										moveResult = moveQuestion_(
-											ctx.moduleIndex,
-											ctx.formIndex,
-											dragPath,
-											{
-												afterPath,
-												targetParentPath,
-											},
-										);
+										moveQuestion_(ctx.moduleIndex, ctx.formIndex, dragPath, {
+											afterPath,
+											targetParentPath,
+										});
 									}
 
-									/* If the move triggered an auto-rename to avoid a sibling
-									 * ID collision, use the renamed path and notify the user. */
-									newPath = moveResult.renamed
-										? moveResult.renamed.newPath
-										: qpath(qpathId(dragPath), targetParentPath);
-									if (moveResult.renamed)
-										builderEngine.setRenameNotice(moveResult.renamed);
+									newPath = qpath(qpathId(dragPath), targetParentPath);
 								}
 
 								builderEngine.select({
