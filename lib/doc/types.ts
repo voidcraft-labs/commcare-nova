@@ -142,7 +142,15 @@ export type Mutation =
 			uuid: Uuid;
 			form: FormEntity;
 			questions: QuestionEntity[];
-			questionOrder: Uuid[];
+			/**
+			 * The complete ordering map for the replacement subtree. Keys are
+			 * parent UUIDs: the form's own `uuid` for top-level questions, and
+			 * each group/repeat question's `uuid` for its nested children.
+			 * Shape matches `BlueprintDoc.questionOrder`, so Phase 1's reducer
+			 * can splice these entries directly into the doc without having
+			 * to infer nested ordering from the flat `questions` array.
+			 */
+			questionOrder: Record<Uuid, Uuid[]>;
 	  }
 	// Question mutations
 	| {
