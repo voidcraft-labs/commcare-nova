@@ -25,6 +25,15 @@ import { temporal } from "zundo";
 import { devtools, subscribeWithSelector } from "zustand/middleware";
 import { immer } from "zustand/middleware/immer";
 import { createStore } from "zustand/vanilla";
+import { toDoc } from "@/lib/doc/converter";
+import type { BlueprintDocStore } from "@/lib/doc/provider";
+import {
+	asUuid,
+	type FormEntity,
+	type Mutation,
+	type QuestionEntity,
+	type Uuid,
+} from "@/lib/doc/types";
 import {
 	getParentScreen,
 	type PreviewScreen,
@@ -230,6 +239,14 @@ export interface BuilderState {
 	 *  components communicate through the store, not through a shared parent. */
 	replayMessages: UIMessage[];
 
+	// ── Phase 1b: doc store bridge ──
+	/** Reference to the BlueprintDoc store, installed by SyncBridge after
+	 *  provider mount. Generation setters use this to dispatch entity changes
+	 *  as doc mutations instead of writing directly to the legacy store.
+	 *  Not tracked by zundo (excluded by the `partialize` allow-list). */
+	_docStore: BlueprintDocStore | null;
+	setDocStore: (store: BlueprintDocStore | null) => void;
+
 	// ── Actions ────────────────────────────────────────────────────────
 
 	// -- Blueprint mutation actions --
@@ -419,6 +436,69 @@ type UndoSlice = Pick<
 	| "navCursor"
 >;
 
+// ── Generation-stream doc helpers ─────────────────────────────────────
+
+/**
+ * Convert a Scaffold (server-emitted structure) into a doc Mutation batch
+ * that creates modules and their empty forms in order. Module and form
+ * UUIDs are minted here — the same pattern as `toDoc` for new entities.
+ *
+ * Used by `setScaffold` to dispatch to the BlueprintDoc. Progress state
+ * on the legacy store's `generationData` is separately updated inside
+ * `setScaffold`'s `set()` callback.
+ */
+function scaffoldToMutations(scaffold: Scaffold): Mutation[] {
+	const mutations: Mutation[] = [];
+
+	// App-level fields
+	mutations.push({ kind: "setAppName", name: scaffold.app_name });
+	if (
+		scaffold.connect_type === "learn" ||
+		scaffold.connect_type === "deliver"
+	) {
+		mutations.push({
+			kind: "setConnectType",
+			connectType: scaffold.connect_type,
+		});
+	}
+
+	for (const sm of scaffold.modules) {
+		const moduleUuid = asUuid(crypto.randomUUID());
+		mutations.push({
+			kind: "addModule",
+			module: {
+				uuid: moduleUuid,
+				name: sm.name,
+				caseType: sm.case_type ?? undefined,
+				caseListOnly: sm.case_list_only ?? undefined,
+				purpose: sm.purpose ?? undefined,
+				caseListColumns: undefined,
+				caseDetailColumns: undefined,
+			},
+		});
+
+		for (const sf of sm.forms) {
+			const formUuid = asUuid(crypto.randomUUID());
+			mutations.push({
+				kind: "addForm",
+				moduleUuid,
+				form: {
+					uuid: formUuid,
+					name: sf.name,
+					type: sf.type as FormType,
+					purpose: sf.purpose ?? undefined,
+					closeCondition: undefined,
+					connect: undefined,
+					postSubmit: sf.post_submit ?? undefined,
+					formLinks: undefined,
+				},
+			});
+		}
+	}
+
+	return mutations;
+}
+
 // ── Store factory ──────────────────────────────────────────────────────
 
 /** The Zustand store API type — used for context typing. */
@@ -472,6 +552,14 @@ export function createBuilderStore(initialPhase: BuilderPhase) {
 						replayDoneIndex: 0,
 						replayExitPath: undefined,
 						replayMessages: [] as UIMessage[],
+
+						// Phase 1b: doc store bridge (non-serializable, excluded
+						// from undo by the partialize allow-list)
+						_docStore: null as BlueprintDocStore | null,
+
+						setDocStore(store) {
+							set({ _docStore: store });
+						},
 
 						// ── Blueprint mutation actions ──────────────────────────
 
@@ -1351,7 +1439,11 @@ export function createBuilderStore(initialPhase: BuilderPhase) {
 						},
 
 						setSchema(caseTypes) {
-							set({ caseTypes });
+							// Entity write dispatched to the doc; the sync adapter
+							// mirrors the result back to the legacy store's caseTypes.
+							const docStore = get()._docStore;
+							if (!docStore) return;
+							docStore.getState().apply({ kind: "setCaseTypes", caseTypes });
 						},
 
 						setPartialScaffold(partial) {
@@ -1393,84 +1485,26 @@ export function createBuilderStore(initialPhase: BuilderPhase) {
 						},
 
 						setScaffold(scaffold) {
+							// Progress tracking on the legacy store (session state).
 							set((draft) => {
 								if (!draft.generationData)
-									draft.generationData = {
-										partialModules: {},
-									};
+									draft.generationData = { partialModules: {} };
 								draft.generationData.scaffold = scaffold;
 								draft.generationData.partialScaffold = undefined;
-
-								/* Create module and form entities from the scaffold
-								 * so setModuleContent/setFormContent can address them by index. */
-								draft.appName = scaffold.app_name;
-								if (
-									scaffold.connect_type === "learn" ||
-									scaffold.connect_type === "deliver"
-								) {
-									draft.connectType = scaffold.connect_type;
-								}
-
-								draft.modules = {};
-								draft.forms = {};
-								draft.moduleOrder = [];
-								draft.formOrder = {};
-
-								for (const sm of scaffold.modules) {
-									const moduleId = crypto.randomUUID();
-									draft.moduleOrder.push(moduleId);
-
-									draft.modules[moduleId] = {
-										uuid: moduleId,
-										name: sm.name,
-										caseType: sm.case_type != null ? sm.case_type : undefined,
-										caseListOnly: sm.case_list_only ?? undefined,
-										purpose: sm.purpose ?? undefined,
-										caseListColumns: undefined,
-										caseDetailColumns: undefined,
-									};
-
-									const formIds: string[] = [];
-									draft.formOrder[moduleId] = formIds;
-
-									for (const sf of sm.forms) {
-										const formId = crypto.randomUUID();
-										formIds.push(formId);
-
-										draft.forms[formId] = {
-											uuid: formId,
-											name: sf.name,
-											type: sf.type as FormType,
-											purpose: sf.purpose ?? undefined,
-											closeCondition: undefined,
-											connect: undefined,
-											postSubmit: (sf as Record<string, unknown>).post_submit as
-												| PostSubmitDestination
-												| undefined,
-											formLinks: undefined,
-										};
-
-										/* Initialize empty question ordering */
-										draft.questionOrder[formId] = [];
-									}
-								}
 							});
+
+							// Entity writes dispatched to the doc as a single atomic
+							// batch — collapses to one undoable unit after endAgentWrite.
+							const docStore = get()._docStore;
+							if (!docStore) return;
+							docStore.getState().applyMany(scaffoldToMutations(scaffold));
 						},
 
 						setModuleContent(moduleIndex, caseListColumns) {
+							// Progress tracking (session state).
 							set((draft) => {
-								const moduleId = draft.moduleOrder[moduleIndex];
-								if (!moduleId) return;
-								const mod = draft.modules[moduleId];
-								if (!mod) return;
-
-								mod.caseListColumns = caseListColumns ?? undefined;
-
-								/* Also track in generationData for progress */
 								if (!draft.generationData)
-									draft.generationData = {
-										partialModules: {},
-									};
+									draft.generationData = { partialModules: {} };
 								const partial = draft.generationData.partialModules[
 									moduleIndex
 								] ?? { forms: {} };
@@ -1481,58 +1515,27 @@ export function createBuilderStore(initialPhase: BuilderPhase) {
 								draft.progressCompleted = progress.completed;
 								draft.progressTotal = progress.total;
 							});
+
+							// Entity write dispatched to the doc.
+							const docStore = get()._docStore;
+							if (!docStore) return;
+							const doc = docStore.getState();
+							const moduleUuid = doc.moduleOrder[moduleIndex];
+							if (!moduleUuid) return;
+							doc.apply({
+								kind: "updateModule",
+								uuid: moduleUuid,
+								patch: {
+									caseListColumns: caseListColumns ?? undefined,
+								},
+							});
 						},
 
 						setFormContent(moduleIndex, formIndex, form) {
+							// Progress tracking (session state).
 							set((draft) => {
-								const moduleId = draft.moduleOrder[moduleIndex];
-								if (!moduleId) return;
-								const formIds = draft.formOrder[moduleId] ?? [];
-								const formId = formIds[formIndex];
-
-								if (formId) {
-									/* Form entity exists (scaffold created it or it's an edit).
-									 * Decompose the incoming form and replace questions. */
-									const decomposed = decomposeForm(form, formId);
-
-									/* Update form entity fields */
-									draft.forms[formId] = decomposed.nForm;
-									/* Preserve purpose from scaffold */
-									const existingPurpose = draft.forms[formId]?.purpose;
-									if (existingPurpose) {
-										draft.forms[formId].purpose = existingPurpose;
-									}
-
-									/* Remove old questions */
-									const oldChildIds = draft.questionOrder[formId];
-									if (oldChildIds) {
-										for (const uuid of [...oldChildIds]) {
-											removeQuestionDeep(
-												draft.questions,
-												draft.questionOrder,
-												uuid,
-											);
-										}
-									}
-
-									/* Merge new questions */
-									for (const [uuid, q] of Object.entries(
-										decomposed.questions,
-									)) {
-										draft.questions[uuid] = q;
-									}
-									for (const [pid, childIds] of Object.entries(
-										decomposed.questionOrder,
-									)) {
-										draft.questionOrder[pid] = childIds;
-									}
-								}
-
-								/* Track in generationData for progress */
 								if (!draft.generationData)
-									draft.generationData = {
-										partialModules: {},
-									};
+									draft.generationData = { partialModules: {} };
 								const partial = draft.generationData.partialModules[
 									moduleIndex
 								] ?? { forms: {} };
@@ -1542,6 +1545,62 @@ export function createBuilderStore(initialPhase: BuilderPhase) {
 								const progress = computeProgress(draft.generationData);
 								draft.progressCompleted = progress.completed;
 								draft.progressTotal = progress.total;
+							});
+
+							// Entity write dispatched to the doc via replaceForm.
+							const docStore = get()._docStore;
+							if (!docStore) return;
+							const doc = docStore.getState();
+							const moduleUuid = doc.moduleOrder[moduleIndex];
+							if (!moduleUuid) return;
+							const formUuid = doc.formOrder[moduleUuid]?.[formIndex];
+							if (!formUuid) return;
+
+							// Build a scratch doc from the incoming form, then re-key
+							// to the real formUuid so replaceForm swaps in-place.
+							const scratch = toDoc(
+								{
+									app_name: "",
+									connect_type: undefined,
+									case_types: null,
+									modules: [{ name: "__scratch__", forms: [form] }],
+								},
+								"",
+							);
+							const scratchModuleUuid = scratch.moduleOrder[0];
+							const scratchFormUuid = scratch.formOrder[scratchModuleUuid][0];
+							const scratchForm = scratch.forms[scratchFormUuid];
+
+							// Preserve the scaffold-set purpose — BlueprintForm doesn't
+							// carry purpose, so toDoc produces `purpose: undefined`.
+							const existingForm = doc.forms[formUuid];
+							const replacement: FormEntity = {
+								...scratchForm,
+								uuid: formUuid,
+								purpose: existingForm?.purpose ?? scratchForm.purpose,
+							};
+
+							// Re-key question ordering: replace the scratch form UUID
+							// with the real form UUID; nested group/repeat keys pass
+							// through unchanged (they're question UUIDs, not form UUIDs).
+							const questions = Object.values(
+								scratch.questions,
+							) as QuestionEntity[];
+							const questionOrder: Record<Uuid, Uuid[]> = {};
+							for (const [key, order] of Object.entries(
+								scratch.questionOrder,
+							)) {
+								questionOrder[
+									key === scratchFormUuid ? formUuid : (key as Uuid)
+								] = order;
+							}
+
+							doc.apply({
+								kind: "replaceForm",
+								uuid: formUuid,
+								form: replacement,
+								questions,
+								questionOrder,
 							});
 						},
 
