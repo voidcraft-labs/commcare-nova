@@ -57,4 +57,16 @@ describe("rewriteXPathOnMove", () => {
 			),
 		).toBe("#form/source");
 	});
+
+	it("rewrites when depth increases (top-level → nested)", () => {
+		expect(
+			rewriteXPathOnMove("/data/source", ["source"], ["grp", "source"]),
+		).toBe("/data/grp/source");
+	});
+
+	it("rewrites when depth decreases (nested → top-level)", () => {
+		expect(
+			rewriteXPathOnMove("/data/grp/source", ["grp", "source"], ["source"]),
+		).toBe("/data/source");
+	});
 });
