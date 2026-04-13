@@ -18,9 +18,10 @@
  *      translates into draft edits on the Immer-backed store.
  *
  * Missing references (unknown module, form, or path) are silently
- * swallowed — resolve-returns-undefined short-circuits the dispatch. The
- * legacy engine behaved the same way: no-op rather than throw, so the UI
- * never crashes on a stale selection held over a reload or undo.
+ * swallowed — resolve-returns-undefined short-circuits the dispatch with
+ * a dev-mode `console.warn`. The legacy engine behaved the same way:
+ * no-op rather than throw, so the UI never crashes on a stale selection
+ * held over a reload or undo.
  *
  * Phase 2 will add uuid-first overloads and Phase 3 will delete the
  * legacy (mIdx, fIdx, path) argument shape entirely as callers move to
@@ -35,12 +36,14 @@ import {
 } from "@/lib/doc/adapters/pathToUuid";
 import { toDoc } from "@/lib/doc/converter";
 import { BlueprintDocContext } from "@/lib/doc/provider";
-import type {
-	FormEntity,
-	ModuleEntity,
-	Mutation,
-	QuestionEntity,
-	Uuid,
+import {
+	asUuid,
+	type BlueprintDoc,
+	type FormEntity,
+	type ModuleEntity,
+	type Mutation,
+	type QuestionEntity,
+	type Uuid,
 } from "@/lib/doc/types";
 import type {
 	AppBlueprint,
@@ -52,20 +55,82 @@ import type {
 } from "@/lib/schemas/blueprint";
 
 /**
+ * Result of a `moveQuestion` dispatch.
+ *
+ * Mirrors the legacy `MoveQuestionResult` in `lib/services/builderStore.ts`.
+ * `renamed` is populated when a cross-parent move triggered sibling-id
+ * deduplication (CommCare requires unique IDs per level). Phase 1b's
+ * reducer already performs the dedup — surfacing the resulting new id
+ * back to the caller is a later phase (the dedup happens silently today
+ * because the Mutation union's payload doesn't carry the before/after
+ * ids). For now the hook returns an empty object whenever the move
+ * dispatches successfully.
+ */
+export interface MoveQuestionResult {
+	renamed?: {
+		oldId: string;
+		newId: string;
+		newPath: string;
+		xpathFieldsRewritten: number;
+	};
+}
+
+/**
+ * Result of a `renameQuestion` dispatch.
+ *
+ * Mirrors the legacy `QuestionRenameResult`. `conflict: true` short-circuits
+ * the dispatch — the hook checks sibling ids BEFORE calling the reducer so
+ * the UI can surface a "name already taken" message without unwinding a
+ * half-applied mutation. `xpathFieldsRewritten` is currently always 0: the
+ * doc reducer rewrites references in-place but doesn't return a count
+ * (adding one would require changes to `lib/doc/mutations/questions.ts`
+ * which are out of scope for this fix).
+ */
+export interface QuestionRenameResult {
+	newPath: string;
+	xpathFieldsRewritten: number;
+	conflict?: boolean;
+}
+
+/**
+ * Result of a `duplicateQuestion` dispatch.
+ *
+ * Returns the clone's new path and UUID so callers can focus the new
+ * question in the UI immediately. Computed by diffing parent order
+ * arrays before and after the dispatch (the reducer itself doesn't
+ * return the new uuid). `undefined` if the dispatch was a no-op.
+ */
+export interface DuplicateQuestionResult {
+	newPath: string;
+	newUuid: string;
+}
+
+/**
  * The full mutation surface returned by `useBlueprintMutations()`.
  *
- * Methods are grouped by entity (question / form / module / app-level)
- * and always accept legacy coordinates. Return type is `void` — dispatch
- * is fire-and-forget; read the new state via a subscription hook.
+ * Signatures MUST stay drop-in compatible with the corresponding actions
+ * on `lib/services/builderStore.ts` so Phase 1b's Task 6 can mechanically
+ * rename call sites without rewriting argument shapes. New parameters go
+ * through `applyMany` or dedicated methods, not ad-hoc variants of these.
  */
 export interface BlueprintMutations {
 	// ── Question mutations ────────────────────────────────────────────────
+	/**
+	 * Insert a new question. Returns the new question's uuid (not its
+	 * semantic id) so callers can drive selection/navigation. Returns the
+	 * empty string on a no-op (e.g. unresolvable `mIdx`/`fIdx`).
+	 */
 	addQuestion: (
 		mIdx: number,
 		fIdx: number,
 		question: Question,
-		opts?: { parentPath?: string; index?: number },
-	) => void;
+		opts?: {
+			afterPath?: string;
+			beforePath?: string;
+			atIndex?: number;
+			parentPath?: string;
+		},
+	) => string;
 	updateQuestion: (
 		mIdx: number,
 		fIdx: number,
@@ -78,20 +143,25 @@ export interface BlueprintMutations {
 		fIdx: number,
 		path: string,
 		newId: string,
-	) => void;
+	) => QuestionRenameResult;
 	moveQuestion: (
 		mIdx: number,
 		fIdx: number,
 		path: string,
 		opts: {
+			afterPath?: string;
+			beforePath?: string;
 			targetParentPath?: string;
-			toIndex: number;
 		},
-	) => void;
-	duplicateQuestion: (mIdx: number, fIdx: number, path: string) => void;
+	) => MoveQuestionResult;
+	duplicateQuestion: (
+		mIdx: number,
+		fIdx: number,
+		path: string,
+	) => DuplicateQuestionResult | undefined;
 
 	// ── Form mutations ────────────────────────────────────────────────────
-	addForm: (mIdx: number, form: BlueprintForm, index?: number) => void;
+	addForm: (mIdx: number, form: BlueprintForm) => void;
 	updateForm: (
 		mIdx: number,
 		fIdx: number,
@@ -101,7 +171,7 @@ export interface BlueprintMutations {
 	replaceForm: (mIdx: number, fIdx: number, form: BlueprintForm) => void;
 
 	// ── Module mutations ──────────────────────────────────────────────────
-	addModule: (module: BlueprintModule, index?: number) => void;
+	addModule: (module: BlueprintModule) => void;
 	updateModule: (
 		mIdx: number,
 		patch: Partial<Omit<ModuleEntity, "uuid">>,
@@ -110,15 +180,13 @@ export interface BlueprintMutations {
 
 	// ── App-level ─────────────────────────────────────────────────────────
 	/**
-	 * Combined app-level patch. Legacy `updateApp` accepted a partial
-	 * object with two independent fields; we decompose it into individual
-	 * `setAppName` / `setConnectType` mutations so undo history retains
-	 * distinct entries per field.
+	 * Combined app-level patch. Legacy shape used `connect_type?: string`;
+	 * we route both fields through a single `applyMany` so the entire patch
+	 * collapses to ONE undo entry (no two-undo bug). Unlike the previous
+	 * version that dispatched each field separately, this matches the
+	 * legacy atomic-update contract callers expect.
 	 */
-	updateApp: (patch: {
-		app_name?: string;
-		connect_type?: ConnectType | null;
-	}) => void;
+	updateApp: (patch: { app_name?: string; connect_type?: string }) => void;
 	setCaseTypes: (caseTypes: CaseType[] | null) => void;
 
 	// ── Batch ─────────────────────────────────────────────────────────────
@@ -129,6 +197,131 @@ export interface BlueprintMutations {
 	 * history.
 	 */
 	applyMany: (mutations: Mutation[]) => void;
+}
+
+/**
+ * Dev-only warning hook for silent no-ops.
+ *
+ * Every mutation method bails out silently when the legacy (mIdx, fIdx,
+ * path) tuple can't be resolved — matching legacy behavior, which the UI
+ * relies on so stale selections don't crash the tree. In development we
+ * still want visibility into which resolves are failing so bugs don't
+ * hide behind the fail-open contract. Stripped by the production build
+ * via the `NODE_ENV` check.
+ */
+function warnUnresolved(
+	method: string,
+	context: Record<string, unknown>,
+): void {
+	if (process.env.NODE_ENV !== "production") {
+		console.warn(`[useBlueprintMutations.${method}] unresolved path`, context);
+	}
+}
+
+/**
+ * Resolve a legacy `afterPath`/`beforePath`/`atIndex`/`parentPath` insert
+ * point to a concrete `(parentUuid, index)` pair inside the current doc.
+ *
+ * Extracted so `addQuestion` and `moveQuestion` share a single resolver
+ * instead of duplicating the walk. Callers pass the form uuid as the
+ * default parent so unresolvable `parentPath` values degrade to the form
+ * root rather than no-op — matching the legacy engine's forgiving
+ * behavior on stale drop targets.
+ *
+ * The `excludeUuid` argument is `moveQuestion`'s escape hatch: when the
+ * source and destination parent are the same, removing the source from
+ * the order array shifts every index after it left by one. Passing the
+ * source uuid here computes the insert index against a virtual post-
+ * splice order so the reducer's internal splice doesn't shift under us.
+ */
+function resolveInsertionPoint(
+	doc: BlueprintDoc,
+	mIdx: number,
+	fIdx: number,
+	formUuid: Uuid,
+	opts:
+		| {
+				parentPath?: string;
+				afterPath?: string;
+				beforePath?: string;
+				atIndex?: number;
+		  }
+		| undefined,
+	excludeUuid?: Uuid,
+): { parentUuid: Uuid; index: number | undefined } {
+	const parentUuid: Uuid = opts?.parentPath
+		? (resolveQuestionUuid(doc, mIdx, fIdx, opts.parentPath) ?? formUuid)
+		: formUuid;
+
+	// Baseline order inside the destination parent. When `excludeUuid` is
+	// passed and appears in this parent (same-parent move), emulate the
+	// post-splice state so the returned index aligns with where the
+	// reducer will actually insert after it removes the source uuid.
+	const baseOrder = doc.questionOrder[parentUuid] ?? [];
+	const virtualOrder =
+		excludeUuid !== undefined && baseOrder.includes(excludeUuid)
+			? baseOrder.filter((u) => u !== excludeUuid)
+			: baseOrder;
+
+	// Explicit numeric index takes precedence over path-relative hints,
+	// matching legacy semantics (`atIndex` is documented as authoritative).
+	if (opts?.atIndex !== undefined) {
+		return { parentUuid, index: opts.atIndex };
+	}
+
+	if (opts?.beforePath) {
+		const beforeUuid = resolveQuestionUuid(doc, mIdx, fIdx, opts.beforePath);
+		if (beforeUuid) {
+			const idx = virtualOrder.indexOf(beforeUuid);
+			if (idx >= 0) return { parentUuid, index: idx };
+		}
+	}
+
+	if (opts?.afterPath) {
+		const afterUuid = resolveQuestionUuid(doc, mIdx, fIdx, opts.afterPath);
+		if (afterUuid) {
+			const idx = virtualOrder.indexOf(afterUuid);
+			if (idx >= 0) return { parentUuid, index: idx + 1 };
+		}
+	}
+
+	// No positional hint — append (reducer clamps to end of order).
+	return { parentUuid, index: undefined };
+}
+
+/**
+ * Build the slash-delimited path to a question whose uuid is known.
+ *
+ * Walks up the `questionOrder` map from the question to its enclosing
+ * form, collecting semantic ids. Used by `duplicateQuestion` to synthesize
+ * the cloned question's `newPath` return value without re-running the
+ * legacy path walker — we already know the parent path and the clone's
+ * new id, so the result is `parentPath ? `${parentPath}/${newId}` : newId`.
+ */
+function computePathForUuid(doc: BlueprintDoc, uuid: Uuid): string | undefined {
+	const segments: string[] = [];
+	let cursor: Uuid | undefined = uuid;
+	const visited = new Set<Uuid>();
+	while (cursor !== undefined) {
+		if (visited.has(cursor)) return undefined;
+		visited.add(cursor);
+		if (doc.forms[cursor] !== undefined) {
+			return segments.reverse().join("/");
+		}
+		const q = doc.questions[cursor];
+		if (!q) return undefined;
+		segments.push(q.id);
+		// Find this cursor's parent by scanning questionOrder.
+		let nextParent: Uuid | undefined;
+		for (const [parentUuid, order] of Object.entries(doc.questionOrder)) {
+			if (order.includes(cursor)) {
+				nextParent = parentUuid as Uuid;
+				break;
+			}
+		}
+		cursor = nextParent;
+	}
+	return undefined;
 }
 
 export function useBlueprintMutations(): BlueprintMutations {
@@ -154,13 +347,21 @@ export function useBlueprintMutations(): BlueprintMutations {
 			addQuestion(mIdx, fIdx, question, opts) {
 				const doc = get();
 				const formUuid = resolveFormUuid(doc, mIdx, fIdx);
-				if (!formUuid) return;
-				// Default parent is the form root; an explicit `parentPath` lets
-				// callers insert into a group/repeat. Unresolvable paths fall back
-				// to the form root rather than no-op, matching legacy behavior.
-				const parentUuid: Uuid = opts?.parentPath
-					? (resolveQuestionUuid(doc, mIdx, fIdx, opts.parentPath) ?? formUuid)
-					: formUuid;
+				if (!formUuid) {
+					warnUnresolved("addQuestion", { mIdx, fIdx });
+					return "";
+				}
+				// Resolve the insertion target. `afterPath`/`beforePath` become
+				// concrete numeric indices here so the reducer doesn't need to
+				// re-resolve paths during dispatch.
+				const { parentUuid, index } = resolveInsertionPoint(
+					doc,
+					mIdx,
+					fIdx,
+					formUuid,
+					opts,
+				);
+
 				// The blueprint `Question` shape carries a nested `children` array
 				// for group/repeat subtrees; the normalized doc expresses nesting
 				// via `questionOrder`, so we strip `children` before dispatching
@@ -169,93 +370,239 @@ export function useBlueprintMutations(): BlueprintMutations {
 				const { children: _children, ...rest } = question as Question & {
 					children?: Question[];
 				};
+
+				// Mint a uuid if the caller didn't supply one. Legacy callers
+				// pass a `NewQuestion` shape (no uuid) and rely on the store to
+				// generate identity; preserving that contract keeps Task 6's
+				// rename purely mechanical.
+				const maybeUuid = (rest as { uuid?: string }).uuid;
+				const uuid = asUuid(
+					typeof maybeUuid === "string" && maybeUuid.length > 0
+						? maybeUuid
+						: crypto.randomUUID(),
+				);
+				const entity: QuestionEntity = {
+					...(rest as Omit<QuestionEntity, "uuid">),
+					uuid,
+				};
+
 				dispatch({
 					kind: "addQuestion",
 					parentUuid,
-					question: rest as QuestionEntity,
-					index: opts?.index,
+					question: entity,
+					index,
 				});
+				return uuid;
 			},
 
 			updateQuestion(mIdx, fIdx, path, patch) {
 				const doc = get();
 				const uuid = resolveQuestionUuid(doc, mIdx, fIdx, path);
-				if (!uuid) return;
+				if (!uuid) {
+					warnUnresolved("updateQuestion", { mIdx, fIdx, path });
+					return;
+				}
 				dispatch({ kind: "updateQuestion", uuid, patch });
 			},
 
 			removeQuestion(mIdx, fIdx, path) {
 				const doc = get();
 				const uuid = resolveQuestionUuid(doc, mIdx, fIdx, path);
-				if (!uuid) return;
+				if (!uuid) {
+					warnUnresolved("removeQuestion", { mIdx, fIdx, path });
+					return;
+				}
 				dispatch({ kind: "removeQuestion", uuid });
 			},
 
 			renameQuestion(mIdx, fIdx, path, newId) {
 				const doc = get();
 				const uuid = resolveQuestionUuid(doc, mIdx, fIdx, path);
-				if (!uuid) return;
+				if (!uuid) {
+					warnUnresolved("renameQuestion", { mIdx, fIdx, path });
+					return { newPath: path, xpathFieldsRewritten: 0 };
+				}
+
+				// Look up the parent uuid + sibling list up front so we can:
+				//   (1) detect id conflicts before dispatching (fail fast so the
+				//       UI can surface a "name already taken" message instead of
+				//       the silent dedup the reducer would apply).
+				//   (2) reconstruct `newPath` by swapping the final segment.
+				let parentUuid: Uuid | undefined;
+				for (const [pUuid, order] of Object.entries(doc.questionOrder)) {
+					if (order.includes(uuid)) {
+						parentUuid = pUuid as Uuid;
+						break;
+					}
+				}
+				if (parentUuid !== undefined) {
+					const siblings = doc.questionOrder[parentUuid] ?? [];
+					for (const sibUuid of siblings) {
+						if (sibUuid === uuid) continue;
+						if (doc.questions[sibUuid]?.id === newId) {
+							return {
+								newPath: path,
+								xpathFieldsRewritten: 0,
+								conflict: true,
+							};
+						}
+					}
+				}
+
 				dispatch({ kind: "renameQuestion", uuid, newId });
+
+				// Rebuild the path by swapping the last segment.
+				const segments = path.split("/").filter((s) => s.length > 0);
+				segments[segments.length - 1] = newId;
+				// xpathFieldsRewritten count not exposed by the doc reducer yet;
+				// surface zero until a later phase adds instrumentation.
+				return { newPath: segments.join("/"), xpathFieldsRewritten: 0 };
 			},
 
 			moveQuestion(mIdx, fIdx, path, opts) {
 				const doc = get();
 				const uuid = resolveQuestionUuid(doc, mIdx, fIdx, path);
-				if (!uuid) return;
+				if (!uuid) {
+					warnUnresolved("moveQuestion", { mIdx, fIdx, path });
+					return {};
+				}
 				const formUuid = resolveFormUuid(doc, mIdx, fIdx);
-				if (!formUuid) return;
-				// Same fallback rule as `addQuestion`: unresolved target parent
-				// paths degrade to the form root so a stale drop target can't
-				// orphan the moved question.
-				const toParentUuid: Uuid = opts.targetParentPath
-					? (resolveQuestionUuid(doc, mIdx, fIdx, opts.targetParentPath) ??
-						formUuid)
-					: formUuid;
+				if (!formUuid) {
+					warnUnresolved("moveQuestion", { mIdx, fIdx, path });
+					return {};
+				}
+				// Reuse the addQuestion resolver but map `targetParentPath` into
+				// the same `parentPath` slot it expects. `excludeUuid` is the
+				// source uuid so same-parent moves compute an index against a
+				// virtual post-splice order.
+				const { parentUuid: toParentUuid, index } = resolveInsertionPoint(
+					doc,
+					mIdx,
+					fIdx,
+					formUuid,
+					{
+						parentPath: opts.targetParentPath,
+						afterPath: opts.afterPath,
+						beforePath: opts.beforePath,
+					},
+					uuid,
+				);
+
+				// Default to appending at the end of the destination parent when
+				// no positional hint resolved. The reducer clamps to order length.
+				const toIndex =
+					index !== undefined
+						? index
+						: (doc.questionOrder[toParentUuid] ?? []).length;
+
 				dispatch({
 					kind: "moveQuestion",
 					uuid,
 					toParentUuid,
-					toIndex: opts.toIndex,
+					toIndex,
 				});
+
+				// `renamed` tracking requires comparing pre/post-dispatch ids to
+				// detect sibling-dedup renames triggered by cross-parent moves.
+				// The doc reducer already runs the dedup; surfacing the result
+				// back out is deferred — callers currently only check truthiness
+				// of `result.renamed` which stays undefined for now.
+				return {};
 			},
 
 			duplicateQuestion(mIdx, fIdx, path) {
 				const doc = get();
 				const uuid = resolveQuestionUuid(doc, mIdx, fIdx, path);
-				if (!uuid) return;
+				if (!uuid) {
+					warnUnresolved("duplicateQuestion", { mIdx, fIdx, path });
+					return undefined;
+				}
+
+				// Snapshot the parent's order BEFORE dispatch so we can diff and
+				// recover the new clone's uuid. The reducer splices the clone
+				// right after the source; the post-dispatch order will contain
+				// exactly one uuid that wasn't present before.
+				let parentUuid: Uuid | undefined;
+				for (const [pUuid, order] of Object.entries(doc.questionOrder)) {
+					if (order.includes(uuid)) {
+						parentUuid = pUuid as Uuid;
+						break;
+					}
+				}
+				if (parentUuid === undefined) {
+					warnUnresolved("duplicateQuestion", {
+						mIdx,
+						fIdx,
+						path,
+						reason: "no parent",
+					});
+					return undefined;
+				}
+				const beforeOrder = [...(doc.questionOrder[parentUuid] ?? [])];
+				const beforeSet = new Set(beforeOrder);
+
 				dispatch({ kind: "duplicateQuestion", uuid });
+
+				// Diff the post-dispatch order against the snapshot to find the
+				// new clone. Only one uuid should be new; if we somehow see more
+				// (concurrent dispatch? impossible under the single-threaded
+				// model) we take the first.
+				const afterDoc = get();
+				const afterOrder = afterDoc.questionOrder[parentUuid] ?? [];
+				const newUuid = afterOrder.find((u) => !beforeSet.has(u));
+				if (!newUuid) return undefined;
+
+				// Rebuild the new path: parent path (if any) + new question id.
+				const cloneEntity = afterDoc.questions[newUuid];
+				if (!cloneEntity) return undefined;
+				const parentPath = afterDoc.forms[parentUuid]
+					? "" // parent is the form root
+					: (computePathForUuid(afterDoc, parentUuid) ?? "");
+				const newPath = parentPath
+					? `${parentPath}/${cloneEntity.id}`
+					: cloneEntity.id;
+
+				return { newPath, newUuid: newUuid as string };
 			},
 
-			addForm(mIdx, form, index) {
+			addForm(mIdx, form) {
 				const doc = get();
 				const moduleUuid = resolveModuleUuid(doc, mIdx);
-				if (!moduleUuid) return;
+				if (!moduleUuid) {
+					warnUnresolved("addForm", { mIdx });
+					return;
+				}
 				// Strip nested `questions` — the entity map only carries form-level
 				// scalars. Callers wanting to insert a form plus its questions in
 				// one shot should dispatch an `applyMany` batch.
 				const { questions: _qs, ...formRest } = form as BlueprintForm & {
 					questions?: Question[];
 				};
-				const formUuid = crypto.randomUUID() as Uuid;
+				const formUuid = asUuid(crypto.randomUUID());
 				dispatch({
 					kind: "addForm",
 					moduleUuid,
 					form: { ...formRest, uuid: formUuid } as FormEntity,
-					index,
 				});
 			},
 
 			updateForm(mIdx, fIdx, patch) {
 				const doc = get();
 				const uuid = resolveFormUuid(doc, mIdx, fIdx);
-				if (!uuid) return;
+				if (!uuid) {
+					warnUnresolved("updateForm", { mIdx, fIdx });
+					return;
+				}
 				dispatch({ kind: "updateForm", uuid, patch });
 			},
 
 			removeForm(mIdx, fIdx) {
 				const doc = get();
 				const uuid = resolveFormUuid(doc, mIdx, fIdx);
-				if (!uuid) return;
+				if (!uuid) {
+					warnUnresolved("removeForm", { mIdx, fIdx });
+					return;
+				}
 				dispatch({ kind: "removeForm", uuid });
 			},
 
@@ -275,7 +622,10 @@ export function useBlueprintMutations(): BlueprintMutations {
 				// so stable references in `formOrder` don't move).
 				const doc = get();
 				const uuid = resolveFormUuid(doc, mIdx, fIdx);
-				if (!uuid) return;
+				if (!uuid) {
+					warnUnresolved("replaceForm", { mIdx, fIdx });
+					return;
+				}
 
 				const bp: AppBlueprint = {
 					app_name: "",
@@ -311,46 +661,65 @@ export function useBlueprintMutations(): BlueprintMutations {
 				});
 			},
 
-			addModule(module, index) {
+			addModule(module) {
 				// Same strip-children trick as `addForm`: the entity map carries
 				// only module-level scalars; forms join via `addForm` batches.
 				const { forms: _forms, ...moduleRest } = module as BlueprintModule & {
 					forms?: BlueprintForm[];
 				};
-				const moduleUuid = crypto.randomUUID() as Uuid;
+				const moduleUuid = asUuid(crypto.randomUUID());
 				dispatch({
 					kind: "addModule",
 					module: { ...moduleRest, uuid: moduleUuid } as ModuleEntity,
-					index,
 				});
 			},
 
 			updateModule(mIdx, patch) {
 				const doc = get();
 				const uuid = resolveModuleUuid(doc, mIdx);
-				if (!uuid) return;
+				if (!uuid) {
+					warnUnresolved("updateModule", { mIdx });
+					return;
+				}
 				dispatch({ kind: "updateModule", uuid, patch });
 			},
 
 			removeModule(mIdx) {
 				const doc = get();
 				const uuid = resolveModuleUuid(doc, mIdx);
-				if (!uuid) return;
+				if (!uuid) {
+					warnUnresolved("removeModule", { mIdx });
+					return;
+				}
 				dispatch({ kind: "removeModule", uuid });
 			},
 
 			updateApp(patch) {
-				// Decompose the combined patch into the store's granular
-				// setters — each field has its own undo entry, matching the
-				// reducer's per-mutation history design.
+				// Collapse the combined patch into a single `applyMany` so zundo
+				// records exactly one undo entry. The previous implementation
+				// dispatched `setAppName` and `setConnectType` individually,
+				// which produced TWO undo entries per call — the user had to
+				// hit ctrl-z twice to roll back a single "Rename + toggle" edit.
+				const mutations: Mutation[] = [];
 				if (patch.app_name !== undefined) {
-					dispatch({ kind: "setAppName", name: patch.app_name });
+					mutations.push({ kind: "setAppName", name: patch.app_name });
 				}
 				if (patch.connect_type !== undefined) {
-					dispatch({
+					// Legacy accepted `string`; coerce to the narrower enum. Empty
+					// string is normalized to `null` (= connect disabled) to match
+					// the blueprint schema where absent connect_type means "not
+					// a connect app".
+					const narrowed: ConnectType | null =
+						patch.connect_type === ""
+							? null
+							: (patch.connect_type as ConnectType);
+					mutations.push({
 						kind: "setConnectType",
-						connectType: patch.connect_type,
+						connectType: narrowed,
 					});
+				}
+				if (mutations.length > 0) {
+					store.getState().applyMany(mutations);
 				}
 			},
 
