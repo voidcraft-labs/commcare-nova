@@ -5,6 +5,7 @@ import type {
 	QuestionEntity,
 	Uuid,
 } from "@/lib/doc/types";
+import { transformBareHashtags } from "@/lib/preview/engine/labelRefs";
 import { rewriteXPathRefs } from "@/lib/preview/xpath/rewrite";
 import {
 	cascadeDeleteQuestion,
@@ -15,20 +16,33 @@ import {
 } from "./helpers";
 
 /**
- * Fields on a `QuestionEntity` that may contain XPath expressions referencing
- * other questions by path. When a question is renamed or moved, these fields
- * across ALL questions in the doc must be rewritten to point to the new path.
+ * Fields on a `QuestionEntity` that carry XPath expressions directly —
+ * these get rewritten via the Lezer-based `rewriteXPathRefs` parser when
+ * a referenced question is renamed.
  *
- * Mirrors the set in the existing `lib/services/builderStore.ts` rename
- * handler; update both if CommCare adds new XPath-bearing fields.
+ * Mirrors `xpathFields` in `lib/services/builderStore.ts` exactly so the
+ * two rewrite paths behave identically until Phase 1b deletes the legacy
+ * store. Notably excluded:
+ *   - `validation_msg`: user-facing error text, not an XPath expression.
+ *   - `label`, `hint`: prose fields that may embed bare hashtag refs
+ *     (`#form/foo`), handled separately via DISPLAY_FIELDS below.
+ *   - `required`: legacy store omits it; keeping parity to avoid scope creep.
  */
 const XPATH_FIELDS = [
-	"calculate",
 	"relevant",
-	"required",
-	"validation",
-	"validation_msg",
+	"calculate",
 	"default_value",
+	"validation",
+] as const satisfies readonly (keyof QuestionEntity)[];
+
+/**
+ * Fields that contain prose text which may embed bare hashtag references
+ * (`#form/question_id`, `#case/property`) inside otherwise-plain content.
+ * These fields are rewritten via `transformBareHashtags` → `rewriteXPathRefs`
+ * so only the hashtag substrings are parsed, not the entire field as XPath.
+ */
+const DISPLAY_FIELDS = [
+	"label",
 	"hint",
 ] as const satisfies readonly (keyof QuestionEntity)[];
 
@@ -148,20 +162,25 @@ export function applyQuestionMutation(
 			destOrder.splice(clamped, 0, mut.uuid);
 			draft.questionOrder[mut.toParentUuid] = destOrder;
 
-			// Rewrite XPath refs (old path → new path).
-			// rewriteXPathRefs matches the full oldPath as a path segment sequence
-			// and replaces the LAST segment with newLeafId. To produce the correct
-			// new absolute path, we pass the full newPath as the "leaf" value —
-			// this causes /data/<oldPath> to become /data/<newPath>, regardless
-			// of whether the id changed, the parent changed, or both.
-			const newPath = computeQuestionPath(draft, mut.uuid);
-			if (
-				oldPath !== undefined &&
-				newPath !== undefined &&
-				oldPath !== newPath
-			) {
-				rewriteRefsAllQuestions(draft, oldPath, newPath);
-			}
+			// Path change on move is NOT automatically rewritten in Phase 1a.
+			//
+			// `rewriteXPathRefs` is a leaf-replacement rewriter: it finds the
+			// matching absolute path and replaces only the final NameTest
+			// segment. That works when a question is RENAMED in place (the
+			// last segment changes, surrounding segments stay the same) but
+			// NOT when a question is MOVED to a different depth or branch
+			// (the entire path prefix changes). Attempting to reuse this
+			// helper for moves silently corrupts references: a `g1/source`→
+			// `g2/source` move rewrites `/data/g1/source` to `/data/g1/g2/source`
+			// (doubled path), a `grp/source`→`source` move is a no-op, and
+			// hashtag refs only match for top-level ids.
+			//
+			// TODO(phase-1b): add a proper path-to-path rewriter (either extend
+			// `lib/preview/xpath/rewrite.ts` with a prefix-swap mode or write a
+			// new `lib/doc/mutations/pathRewrite.ts`). Until then, cross-level
+			// moves leave referencing XPath fields stale — which is strictly
+			// safer than rewriting them incorrectly.
+			void oldPath;
 			return;
 		}
 		case "renameQuestion": {
@@ -180,14 +199,17 @@ export function applyQuestionMutation(
 			const parent = findQuestionParent(draft, mut.uuid);
 			if (!parent) return;
 
-			// Clone the subtree off the current draft's state. Immer drafts read
-			// through the original values, so this traversal sees consistent data
-			// without leaking Immer proxy objects into the cloned entities.
-			const {
-				questions: clonedQ,
-				questionOrder: clonedO,
-				rootUuid,
-			} = cloneQuestionSubtree(draft as unknown as BlueprintDoc, mut.uuid);
+			// Clone the subtree off the current draft state. `cloneQuestionSubtree`
+			// returns undefined if the source or a descendant is missing — we
+			// already guarded on the source above, so undefined here means
+			// something is structurally wrong with the doc. Skip the duplicate
+			// rather than propagating a throw out of the reducer.
+			const cloned = cloneQuestionSubtree(
+				draft as unknown as BlueprintDoc,
+				mut.uuid,
+			);
+			if (!cloned) return;
+			const { questions: clonedQ, questionOrder: clonedO, rootUuid } = cloned;
 
 			// Install all cloned entities into the draft.
 			for (const [uuid, q] of Object.entries(clonedQ)) {
@@ -223,24 +245,46 @@ export function applyQuestionMutation(
 }
 
 /**
- * Walk every question in the doc and rewrite XPath references that point
- * to `oldPath`. The `newLeafId` replaces the last segment of matching
- * references; `rewriteXPathRefs` already knows how to produce the new
- * canonical form from this pair.
+ * Walk every question in the doc and rewrite references to a question
+ * whose path ended in `oldLeafId` and now ends in `newLeafId`. This is a
+ * leaf-rename operation: the question stays at the same tree position,
+ * only its final `id` segment changes.
  *
- * Called by both `moveQuestion` (path changed due to re-parenting) and
- * `renameQuestion` (path changed due to id update).
+ * Two passes:
+ *   1. `XPATH_FIELDS` (calculate/relevant/validation/default_value) run
+ *      through the Lezer-based `rewriteXPathRefs`, which surgically edits
+ *      matching absolute paths (`/data/.../old_id` → `/data/.../new_id`).
+ *   2. `DISPLAY_FIELDS` (label/hint) run through `transformBareHashtags`
+ *      so only the embedded `#form/...` references are rewritten, not the
+ *      surrounding prose.
+ *
+ * Called by `renameQuestion` only — `moveQuestion` cannot use this path
+ * because it has to rewrite path PREFIXES, not leaf segments.
  */
 function rewriteRefsAllQuestions(
 	draft: Draft<BlueprintDoc>,
 	oldPath: string,
 	newLeafId: string,
 ): void {
+	const xpathRewriter = (expr: string) =>
+		rewriteXPathRefs(expr, oldPath, newLeafId);
 	for (const q of Object.values(draft.questions)) {
 		for (const field of XPATH_FIELDS) {
 			const expr = q[field];
 			if (typeof expr === "string" && expr.length > 0) {
-				q[field] = rewriteXPathRefs(expr, oldPath, newLeafId) as never;
+				const rewritten = xpathRewriter(expr);
+				if (rewritten !== expr) {
+					q[field] = rewritten as never;
+				}
+			}
+		}
+		for (const field of DISPLAY_FIELDS) {
+			const text = q[field];
+			if (typeof text === "string" && text.length > 0) {
+				const rewritten = transformBareHashtags(text, xpathRewriter);
+				if (rewritten !== text) {
+					q[field] = rewritten as never;
+				}
 			}
 		}
 	}
