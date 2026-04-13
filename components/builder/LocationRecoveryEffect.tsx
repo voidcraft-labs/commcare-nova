@@ -33,21 +33,21 @@ export function LocationRecoveryEffect() {
 	const questions = useBlueprintDoc((s) => s.questions);
 
 	useEffect(() => {
-		/* Skip during hydration: if entity maps are still empty (Idle / new
-		 * app before generation), there's nothing to validate against. */
-		if (
-			Object.keys(modules).length === 0 &&
-			Object.keys(forms).length === 0 &&
-			Object.keys(questions).length === 0
-		) {
-			return;
-		}
-
 		/* `recoverLocation` accepts a `LocationDoc` (Pick of BlueprintDoc),
 		 * so this ad-hoc slice object is a first-class argument — no cast,
 		 * no full doc reconstruction. Identity-equality on the return value
 		 * means the happy path (everything resolves) short-circuits with a
-		 * single pointer comparison. */
+		 * single pointer comparison.
+		 *
+		 * No empty-doc short-circuit: a previous version skipped this effect
+		 * when all three entity maps were empty to avoid firing during
+		 * hydration (Idle / new build before generation). That guard also
+		 * swallowed the "user deleted every module mid-session" case —
+		 * when the URL still points at dead uuids but the doc is empty,
+		 * we want recovery to fire. The Idle case is handled trivially by
+		 * `recoverLocation` itself: if `loc.kind === "home"` it returns
+		 * the same reference and the identity check below skips the
+		 * `router.replace`. */
 		const recovered = recoverLocation(loc, { modules, forms, questions });
 		if (recovered === loc) return;
 

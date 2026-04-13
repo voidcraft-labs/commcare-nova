@@ -2,7 +2,7 @@ import { useMemo } from "react";
 import { useBuilderEngine, useBuilderIsReady } from "@/hooks/useBuilder";
 import { useAssembledForm } from "@/lib/doc/hooks/useAssembledForm";
 import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
-import { asUuid, type Uuid } from "@/lib/doc/types";
+import { asUuid } from "@/lib/doc/types";
 import {
 	useDeleteSelectedQuestion,
 	useUndoRedo,
@@ -44,9 +44,11 @@ export function useBuilderShortcuts(
 	const { duplicateQuestion, moveQuestion } = useBlueprintMutations();
 
 	/* Assemble the current form so navigation/reorder helpers have the
-	 * nested question tree. Returns `undefined` when not on a form screen. */
+	 * nested question tree. Returns `undefined` when not on a form screen.
+	 * `useAssembledForm` short-circuits on a falsy uuid without subscribing
+	 * to any entity map, so keystrokes off-form never trigger a rebuild. */
 	const formUuid = loc.kind === "form" ? loc.formUuid : undefined;
-	const form = useAssembledForm((formUuid ?? "") as Uuid);
+	const form = useAssembledForm(formUuid);
 
 	return useMemo(() => {
 		if (!isReady) return [];
