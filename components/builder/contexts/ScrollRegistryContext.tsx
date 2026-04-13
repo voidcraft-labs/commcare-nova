@@ -130,11 +130,17 @@ export function useScrollIntoView(): {
 	return useMemo(() => ({ setPending, scrollTo }), [setPending, scrollTo]);
 }
 
-/** Fire-once hook: the target question's panel calls this on mount,
- *  and any pending-scroll request that matches is consumed. */
-export function useFulfillPendingScroll(uuid: string): void {
+/** Consume a pending scroll request when the target question is selected.
+ *  Re-fires when `isSelected` transitions false -> true, which is critical
+ *  for within-form navigation where the target question is already mounted:
+ *  setPending(uuid) -> select(uuid) -> isSelected flips -> effect re-runs
+ *  -> fulfillPending matches -> scroll fires. */
+export function useFulfillPendingScroll(
+	uuid: string,
+	isSelected: boolean,
+): void {
 	const { fulfillPending } = useScrollRegistry();
 	useEffect(() => {
-		fulfillPending(uuid);
-	}, [uuid, fulfillPending]);
+		if (isSelected) fulfillPending(uuid);
+	}, [isSelected, uuid, fulfillPending]);
 }
