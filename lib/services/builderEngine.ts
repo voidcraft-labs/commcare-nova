@@ -13,26 +13,18 @@
  * - **Edit scope** — signal grid zone focus
  * - **Connect stash** — session state for mode switching (not undoable)
  *
- * The engine also provides composing methods that combine store actions with
- * DOM side effects (e.g., `navigateTo` = store select + scroll callback).
+ * The engine also provides DOM helpers (scroll, undo highlight flash) and
+ * connect-mode stash management used by routing hooks and form editors.
  */
 
-import { flushSync } from "react-dom";
 import type { BlueprintDocStore } from "@/lib/doc/provider";
-import { asUuid, type Mutation } from "@/lib/doc/types";
+import type { Mutation } from "@/lib/doc/types";
 import { EngineController } from "@/lib/preview/engine/engineController";
-import type { PreviewScreen } from "@/lib/preview/engine/types";
 import type { ConnectConfig, ConnectType } from "@/lib/schemas/blueprint";
 import type { EditFocus } from "@/lib/signalGridController";
-import {
-	BuilderPhase,
-	type EditScope,
-	GenerationStage,
-	type SelectedElement,
-} from "./builder";
+import { BuilderPhase, type EditScope, GenerationStage } from "./builder";
 import { type BuilderStoreApi, createBuilderStore } from "./builderStore";
-import { assembleForm, countQuestionsDeep } from "./normalizedState";
-import { flattenQuestionRefs } from "./questionPath";
+import { countQuestionsDeep } from "./normalizedState";
 
 // ── Re-export types consumers need ──────────────────────────────────────
 
@@ -208,6 +200,15 @@ export class BuilderEngine {
 
 	// ── Edit guard ──────────────────────────────────────────────────────
 
+	/** Run the edit guard callback. Returns true if selection can proceed
+	 *  (no guard installed, or guard says OK). Used by routing hooks to
+	 *  gate URL-driven selection changes when an inline editor has unsaved
+	 *  content (e.g. XPath editor with uncommitted edits). */
+	checkEditGuard(): boolean {
+		if (!this._editGuard) return true;
+		return this._editGuard();
+	}
+
 	setEditGuard(guard: () => boolean): void {
 		this._editGuard = guard;
 	}
@@ -374,186 +375,13 @@ export class BuilderEngine {
 		);
 	}
 
-	// ── Selection with guard + scroll ───────────────────────────────────
-
-	/** Pure state update — sets the selected element without any UI side effects.
-	 *  Use for state maintenance (rename path update, deselect). */
-	select(el?: SelectedElement): void {
-		if (this._editGuard && !this._editGuard()) return;
-		this.store.getState().select(el);
-	}
-
-	/** Navigate to a question — sets selection and requests a scroll.
-	 *  The scroll executes when the selected question's panel mounts and
-	 *  calls `fulfillPendingScroll()` from its effect. This guarantees the
-	 *  panel is in the DOM before any position measurement — no flushSync,
-	 *  no rAF, no collapsing-panel compensation.
-	 *
-	 *  `behavior` defaults to `"smooth"` for same-screen navigation (panel
-	 *  swap within the same form). Cross-screen callers pass `"instant"`
-	 *  because the entire form content swaps out — smooth scrolling from a
-	 *  stale scroll position produces a disorienting animation. */
-	navigateTo(
-		el: SelectedElement,
-		behavior: ScrollBehavior = "smooth",
-		hasToolbar = false,
-	): void {
-		if (el.questionUuid) {
-			this._pendingScroll = { uuid: el.questionUuid, behavior, hasToolbar };
-		}
-		this.select(el);
-	}
-
-	// ── Navigation + selection sync ─────────────────────────────────────
-	//
-	// These methods combine store navigation actions with tree selection
-	// sync. Previously scattered as callbacks in BuilderLayout, but the
-	// logic is a pure engine concern: store writes + optional scroll.
-
-	/**
-	 * Map a navigation screen to the corresponding tree selection element.
-	 * Home → deselect, module → module selection, form/caseList → form selection.
-	 */
-	private syncSelectionToScreen(screen: PreviewScreen): void {
-		if (screen.type === "home") {
-			this.select();
-		} else if (screen.type === "module") {
-			this.select({ type: "module", moduleIndex: screen.moduleIndex });
-		} else {
-			/* form | caseList — both carry moduleIndex + formIndex */
-			this.select({
-				type: "form",
-				moduleIndex: screen.moduleIndex,
-				formIndex: screen.formIndex,
-			});
-		}
-	}
-
-	/** Navigate back in history and sync tree selection to the resulting screen. */
-	navBackWithSync(): void {
-		const newScreen = this.store.getState().navBack();
-		if (newScreen) this.syncSelectionToScreen(newScreen);
-	}
-
-	/** Navigate up to parent screen and sync tree selection. */
-	navUpWithSync(): void {
-		this.store.getState().navUp();
-		this.syncSelectionToScreen(this.store.getState().screen);
-	}
-
-	/** Push a screen and sync tree selection to match. Used by breadcrumb
-	 *  clicks and any navigation that should update the tree highlight. */
-	navigateToScreen(screen: PreviewScreen): void {
-		this.store.getState().navPush(screen);
-		this.syncSelectionToScreen(screen);
-	}
-
-	/**
-	 * Handle tree selection: navigate engine (select + scroll) and push the
-	 * correct preview screen. Combines `navigateTo()` (scroll side effect)
-	 * with screen-level navigation based on the selection type.
-	 *
-	 * Uses instant scroll because tree clicks typically trigger a screen
-	 * change (different form/module) — the entire content swaps out, so
-	 * smooth scrolling from the old scroll position is disorienting. For
-	 * same-form clicks the screen key is unchanged and AnimatePresence
-	 * doesn't re-mount, so instant still feels natural. */
-	navigateToSelection(sel: SelectedElement): void {
-		this.navigateTo(sel, "instant");
-		const s = this.store.getState();
-		if (!sel) {
-			s.navigateToHome();
-			return;
-		}
-		if (s.moduleOrder.length === 0) return;
-		if (sel.formIndex !== undefined) {
-			/* Preserve the current caseId when navigating between forms in the
-			 * same module — the user might be reviewing a specific case. */
-			const currentCaseId =
-				s.screen.type === "form" ? s.screen.caseId : undefined;
-			s.navigateToForm(sel.moduleIndex, sel.formIndex, currentCaseId);
-		} else {
-			s.navigateToModule(sel.moduleIndex);
-		}
-	}
-
-	// ── Undo/Redo ──────────────────────────────────────────────────────
-	//
-	// These methods encapsulate the full undo/redo flow: temporal store
-	// action + flushSync (for immediate DOM commit) + scroll + flash.
-	// Previously scattered as callbacks in BuilderLayout, but the logic
-	// is purely imperative coordination — no React hooks needed.
-
-	/**
-	 * Undo the last doc mutation and scroll to the affected field with a
-	 * violet flash highlight.
-	 *
-	 * Undoes the doc store's temporal history; the sync adapter propagates
-	 * the reversed state into the legacy store. `flushSync` forces React
-	 * to commit the store update before DOM queries — fields toggled into
-	 * existence by the undo are immediately queryable.
-	 */
-	undo(): void {
-		this.applyUndoRedo("undo");
-	}
-
-	/** Redo the last undone mutation. Same flow as undo. */
-	redo(): void {
-		this.applyUndoRedo("redo");
-	}
-
-	/** Shared implementation for undo/redo — operates on the doc store's
-	 *  temporal history. The sync adapter propagates reversed entity state
-	 *  into the legacy store so un-migrated consumers see the undo too. */
-	private applyUndoRedo(action: "undo" | "redo"): void {
-		const docTemporal = this._docStore?.temporal.getState();
-		if (!docTemporal) return;
-
-		const canDo =
-			action === "undo"
-				? docTemporal.pastStates.length > 0
-				: docTemporal.futureStates.length > 0;
-		if (!canDo) return;
-
-		/* Execute the undo/redo on the doc store's temporal. flushSync ensures
-		 * React commits the external store update to the DOM synchronously so
-		 * element queries below find the right targets. */
-		flushSync(() => {
-			if (action === "undo") docTemporal.undo();
-			else docTemporal.redo();
-		});
-
-		/* Read selection/activeFieldId from the LEGACY store — these are
-		 * session state, still managed by the legacy store. Not reversed by
-		 * doc undo; the user stays on whatever they had selected. */
-		const s = this.store.getState();
-		const questionUuid = s.selected?.questionUuid;
-		if (!questionUuid) return;
-		const fieldId = s.activeFieldId;
-
-		/* Set focus hint so InlineSettingsPanel can consume it. */
-		if (fieldId) {
-			this.setFocusHint(fieldId);
-		}
-
-		/* Instant scroll + flash — undo/redo is a state-change affordance
-		 * ("this changed"), not navigation. Target the specific field wrapper
-		 * if activeFieldId names one, otherwise the question card itself. */
-		const targetEl = this.findFieldElement(questionUuid, fieldId);
-		this.scrollToQuestion(questionUuid, targetEl ?? undefined, "instant");
-		const flashEl =
-			targetEl ??
-			(document.querySelector(
-				`[data-question-uuid="${questionUuid}"]`,
-			) as HTMLElement | null);
-		if (flashEl) this.flashUndoHighlight(flashEl);
-	}
+	// ── Pending scroll ─────────────────────────────────────────────────
 
 	/**
 	 * Set a pending scroll request — consumed by the selected question's
 	 * mount effect when the panel is in the DOM. Exposed publicly so
 	 * composite hooks (e.g. `useUndoRedo`) can request scroll without
-	 * going through the legacy `navigateTo()` method.
+	 * coupling to the engine's internal navigation.
 	 */
 	setPendingScroll(
 		uuid: string,
@@ -599,55 +427,6 @@ export class BuilderEngine {
 			],
 			{ duration: 600, easing: "cubic-bezier(0.4, 0, 0.2, 1)" },
 		);
-	}
-
-	// ── Delete ──────────────────────────────────────────────────────────
-
-	/** Delete the currently selected question and navigate to the adjacent one. */
-	deleteSelected(): void {
-		const s = this.store.getState();
-		const sel = s.selected;
-		if (
-			!sel ||
-			sel.type !== "question" ||
-			sel.formIndex === undefined ||
-			!sel.questionPath
-		)
-			return;
-
-		/* Assemble the form from normalized entities to get the question tree
-		 * for adjacency lookup (flattenQuestionRefs). */
-		const moduleId = s.moduleOrder[sel.moduleIndex];
-		const formId = moduleId
-			? s.formOrder[moduleId]?.[sel.formIndex]
-			: undefined;
-		const formEntity = formId ? s.forms[formId] : undefined;
-		if (!formId || !formEntity) return;
-		const form = assembleForm(formEntity, formId, s.questions, s.questionOrder);
-
-		const refs = flattenQuestionRefs(form.questions);
-		const curIdx = refs.findIndex((r) => r.uuid === sel.questionUuid);
-		const next = refs[curIdx + 1] ?? refs[curIdx - 1];
-
-		/* Dispatch to the doc store — SyncBridge always installs docStore
-		 * before any user interaction is possible. */
-		if (!this._docStore || !sel.questionUuid) return;
-		this._docStore.getState().apply({
-			kind: "removeQuestion",
-			uuid: asUuid(sel.questionUuid),
-		});
-
-		if (next) {
-			this.navigateTo({
-				type: "question",
-				moduleIndex: sel.moduleIndex,
-				formIndex: sel.formIndex,
-				questionPath: next.path,
-				questionUuid: next.uuid,
-			});
-		} else {
-			this.select();
-		}
 	}
 
 	// ── Connect stash ───────────────────────────────────────────────────
@@ -748,17 +527,18 @@ export class BuilderEngine {
 		return this._connectStash[mode].get(mIdx)?.get(fIdx);
 	}
 
-	/** Stash all forms' connect configs from the current store state. */
+	/** Stash all forms' connect configs from the doc store. */
 	private stashAllFormConnect(mode: ConnectType): void {
-		const s = this.store.getState();
+		const docState = this._docStore?.getState();
+		if (!docState) return;
 		const stash = this._connectStash[mode];
 		stash.clear();
 
-		for (let mIdx = 0; mIdx < s.moduleOrder.length; mIdx++) {
-			const moduleId = s.moduleOrder[mIdx];
-			const formIds = s.formOrder[moduleId] ?? [];
-			for (let fIdx = 0; fIdx < formIds.length; fIdx++) {
-				const form = s.forms[formIds[fIdx]];
+		for (let mIdx = 0; mIdx < docState.moduleOrder.length; mIdx++) {
+			const moduleUuid = docState.moduleOrder[mIdx];
+			const formUuids = docState.formOrder[moduleUuid] ?? [];
+			for (let fIdx = 0; fIdx < formUuids.length; fIdx++) {
+				const form = docState.forms[formUuids[fIdx]];
 				if (form?.connect) {
 					let moduleMap = stash.get(mIdx);
 					if (!moduleMap) {

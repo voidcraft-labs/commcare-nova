@@ -102,8 +102,8 @@ export function useBuilderStoreShallow<T>(
  * Access the BuilderEngine for non-reactive state and composing methods.
  * Does NOT subscribe to any state — calling this hook never triggers re-renders.
  *
- * Use for: engine.navigateTo(), energy methods, guards, scroll callbacks,
- * focus hints, drag state, connect stash.
+ * Use for: energy methods, guards, scroll callbacks, focus hints, drag state,
+ * connect stash, pending scroll, undo highlight.
  */
 export function useBuilderEngine(): BuilderEngine {
 	const engine = useContext(EngineContext);
