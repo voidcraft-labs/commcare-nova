@@ -8,7 +8,8 @@
  */
 
 import type { Draft } from "immer";
-import type { BlueprintDoc, Uuid } from "@/lib/doc/types";
+import type { BlueprintDoc, QuestionEntity, Uuid } from "@/lib/doc/types";
+import { asUuid } from "@/lib/doc/types";
 
 /**
  * Remove a question and all of its descendants from the doc. Called by
@@ -168,4 +169,52 @@ export function assertNever(x: never): never {
 	throw new Error(
 		`unreachable: unexpected mutation kind: ${JSON.stringify(x)}`,
 	);
+}
+
+/**
+ * Deep-clone a question subtree with fresh UUIDs for every entity. The
+ * returned object contains the new entities to insert into `questions`
+ * and the `questionOrder` entries for the cloned subtree (keyed by the
+ * new UUIDs).
+ *
+ * Field values (`id`, `label`, `calculate`, …) are preserved verbatim —
+ * duplicated questions are intentionally identical to their source except
+ * for identity. Sibling id deduplication is the caller's responsibility;
+ * only the top-level duplicate typically needs deduping since nested
+ * clones don't collide with sibling ids (they live under the newly-cloned
+ * parent, which is a different context from the originals).
+ *
+ * Reads from `doc` (a plain BlueprintDoc or an Immer draft cast back to
+ * read-only). Immer drafts read through the original, so this traversal
+ * is safe even when called inside a `produce` callback.
+ */
+export function cloneQuestionSubtree(
+	doc: BlueprintDoc,
+	srcUuid: Uuid,
+): {
+	questions: Record<Uuid, QuestionEntity>;
+	questionOrder: Record<Uuid, Uuid[]>;
+	rootUuid: Uuid;
+} {
+	const clonedQuestions: Record<Uuid, QuestionEntity> = {};
+	const clonedOrder: Record<Uuid, Uuid[]> = {};
+
+	function cloneOne(uuid: Uuid): Uuid {
+		const src = doc.questions[uuid];
+		if (!src) {
+			throw new Error(`cloneQuestionSubtree: missing question ${uuid}`);
+		}
+		const newUuid = asUuid(crypto.randomUUID());
+		clonedQuestions[newUuid] = { ...src, uuid: newUuid };
+		const childOrder = doc.questionOrder[uuid];
+		if (childOrder !== undefined) {
+			// Recursively clone each child and record the new child order
+			// under the new parent UUID.
+			clonedOrder[newUuid] = childOrder.map((childUuid) => cloneOne(childUuid));
+		}
+		return newUuid;
+	}
+
+	const rootUuid = cloneOne(srcUuid);
+	return { questions: clonedQuestions, questionOrder: clonedOrder, rootUuid };
 }
