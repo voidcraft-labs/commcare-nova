@@ -27,6 +27,7 @@ import {
 import { useStore } from "zustand";
 import { shallow } from "zustand/shallow";
 import { useStoreWithEqualityFn } from "zustand/traditional";
+import { LocationRecoveryEffect } from "@/components/builder/LocationRecoveryEffect";
 import { startSyncOldFromDoc } from "@/lib/doc/adapters/syncOldFromDoc";
 import { useAssembledForm as useAssembledFormDoc } from "@/lib/doc/hooks/useAssembledForm";
 import { useBlueprintDoc } from "@/lib/doc/hooks/useBlueprintDoc";
@@ -407,6 +408,7 @@ export function BuilderProvider({
 					 * subscription that mirrors doc entity maps into the legacy
 					 * store, keeping un-migrated consumers live during Phase 1b. */}
 					<SyncBridge oldStore={engine.store} />
+					<LocationRecoveryEffect />
 					{children}
 				</BlueprintDocProvider>
 			</StoreContext>
