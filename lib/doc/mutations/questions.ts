@@ -1,8 +1,14 @@
 import type { Draft } from "immer";
-import type { BlueprintDoc, Mutation, QuestionEntity } from "@/lib/doc/types";
+import type {
+	BlueprintDoc,
+	Mutation,
+	QuestionEntity,
+	Uuid,
+} from "@/lib/doc/types";
 import { rewriteXPathRefs } from "@/lib/preview/xpath/rewrite";
 import {
 	cascadeDeleteQuestion,
+	cloneQuestionSubtree,
 	computeQuestionPath,
 	dedupeSiblingId,
 	findQuestionParent,
@@ -168,9 +174,51 @@ export function applyQuestionMutation(
 			}
 			return;
 		}
-		case "duplicateQuestion":
-			// Implemented in a later task.
-			throw new Error(`applyQuestionMutation: ${mut.kind} not implemented`);
+		case "duplicateQuestion": {
+			const src = draft.questions[mut.uuid];
+			if (!src) return;
+			const parent = findQuestionParent(draft, mut.uuid);
+			if (!parent) return;
+
+			// Clone the subtree off the current draft's state. Immer drafts read
+			// through the original values, so this traversal sees consistent data
+			// without leaking Immer proxy objects into the cloned entities.
+			const {
+				questions: clonedQ,
+				questionOrder: clonedO,
+				rootUuid,
+			} = cloneQuestionSubtree(draft as unknown as BlueprintDoc, mut.uuid);
+
+			// Install all cloned entities into the draft.
+			for (const [uuid, q] of Object.entries(clonedQ)) {
+				draft.questions[uuid as Uuid] = q;
+			}
+			for (const [parentUuid, order] of Object.entries(clonedO)) {
+				draft.questionOrder[parentUuid as Uuid] = order;
+			}
+
+			// Dedupe the top-level clone's id against existing siblings at this
+			// parent level. Nested clones live under the new (cloned) parent and
+			// therefore can't conflict with the originals — no dedup needed there.
+			const clone = draft.questions[rootUuid];
+			if (clone) {
+				const deduped = dedupeSiblingId(
+					draft,
+					parent.parentUuid,
+					clone.id,
+					rootUuid,
+				);
+				clone.id = deduped;
+			}
+
+			// Splice the clone right after the source in the parent's order.
+			const parentOrder = draft.questionOrder[parent.parentUuid];
+			if (parentOrder) {
+				parentOrder.splice(parent.index + 1, 0, rootUuid);
+				draft.questionOrder[parent.parentUuid] = parentOrder;
+			}
+			return;
+		}
 	}
 }
 

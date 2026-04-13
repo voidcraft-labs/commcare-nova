@@ -336,3 +336,79 @@ describe("renameQuestion", () => {
 		expect(Object.keys(next.questions)).toHaveLength(0);
 	});
 });
+
+describe("duplicateQuestion", () => {
+	it("duplicates a leaf question with a new uuid", () => {
+		const start: BlueprintDoc = {
+			...docWithForm(),
+			questions: { [Q("a")]: question_(Q("a"), "name") },
+			questionOrder: { [F("1")]: [Q("a")] },
+		};
+		const next = produce(start, (d) => {
+			applyMutation(d, { kind: "duplicateQuestion", uuid: Q("a") });
+		});
+		// Original still exists
+		expect(next.questions[Q("a")]).toBeDefined();
+		// Order has two entries
+		expect(next.questionOrder[F("1")]).toHaveLength(2);
+		// Second entry is a new uuid ≠ Q("a")
+		const [, dupUuid] = next.questionOrder[F("1")];
+		expect(dupUuid).not.toBe(Q("a"));
+		// Duplicated question has deduped id
+		expect(next.questions[dupUuid]?.id).toBe("name_2");
+	});
+
+	it("inserts the duplicate right after the source", () => {
+		const start: BlueprintDoc = {
+			...docWithForm(),
+			questions: {
+				[Q("a")]: question_(Q("a"), "a"),
+				[Q("b")]: question_(Q("b"), "b"),
+			},
+			questionOrder: { [F("1")]: [Q("a"), Q("b")] },
+		};
+		const next = produce(start, (d) => {
+			applyMutation(d, { kind: "duplicateQuestion", uuid: Q("a") });
+		});
+		expect(next.questionOrder[F("1")]).toHaveLength(3);
+		const [first, second, third] = next.questionOrder[F("1")];
+		expect(first).toBe(Q("a"));
+		expect(third).toBe(Q("b"));
+		// The duplicate is at index 1
+		expect(next.questions[second]?.id).toBe("a_2");
+	});
+
+	it("deep-clones a group with new uuids for all descendants", () => {
+		const start: BlueprintDoc = {
+			...docWithForm(),
+			questions: {
+				[Q("grp")]: question_(Q("grp"), "grp", { type: "group" }),
+				[Q("c")]: question_(Q("c"), "child"),
+			},
+			questionOrder: {
+				[F("1")]: [Q("grp")],
+				[Q("grp")]: [Q("c")],
+			},
+		};
+		const next = produce(start, (d) => {
+			applyMutation(d, { kind: "duplicateQuestion", uuid: Q("grp") });
+		});
+		// Two top-level groups
+		expect(next.questionOrder[F("1")]).toHaveLength(2);
+		const [, dupGrp] = next.questionOrder[F("1")];
+		// Dup group has its own child order
+		expect(next.questionOrder[dupGrp]).toHaveLength(1);
+		const [dupChild] = next.questionOrder[dupGrp];
+		// Dup child is a new uuid
+		expect(dupChild).not.toBe(Q("c"));
+		// But retains the same id (within the new group, no siblings conflict)
+		expect(next.questions[dupChild]?.id).toBe("child");
+	});
+
+	it("is a no-op when the source doesn't exist", () => {
+		const next = produce(docWithForm(), (d) => {
+			applyMutation(d, { kind: "duplicateQuestion", uuid: Q("missing") });
+		});
+		expect(Object.keys(next.questions)).toHaveLength(0);
+	});
+});
