@@ -10,13 +10,16 @@ import {
 	useBuilderStore,
 	useOrderedModules,
 } from "@/hooks/useBuilder";
+import { useBlueprintDoc } from "@/lib/doc/hooks/useBlueprintDoc";
+import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
+import type { Uuid } from "@/lib/doc/types";
 import { selectEditMode, selectIsReady } from "@/lib/services/builderSelectors";
 
 export function HomeScreen() {
-	const appName = useBuilderStore((s) => s.appName);
-	const formOrder = useBuilderStore((s) => s.formOrder);
+	const appName = useBlueprintDoc((s) => s.appName);
+	const formOrder = useBlueprintDoc((s) => s.formOrder);
 	const navPush = useBuilderStore((s) => s.navPush);
-	const updateApp = useBuilderStore((s) => s.updateApp);
+	const { updateApp } = useBlueprintMutations();
 	const isReady = useBuilderStore(selectIsReady);
 	const mode = useBuilderStore(selectEditMode);
 	const hasData = useBuilderHasData();
@@ -54,7 +57,7 @@ export function HomeScreen() {
 			</div>
 			<div className="grid gap-3">
 				{modules.map((mod, mIdx) => {
-					const formCount = formOrder[mod.uuid]?.length ?? 0;
+					const formCount = formOrder[mod.uuid as Uuid]?.length ?? 0;
 					return (
 						<motion.button
 							key={mod.uuid}

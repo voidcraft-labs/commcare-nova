@@ -29,12 +29,13 @@ import {
 	type QuestionEntity,
 	type Uuid,
 } from "@/lib/doc/types";
-import type {
-	AppBlueprint,
-	BlueprintForm,
-	BlueprintModule,
-	Question,
-} from "@/lib/schemas/blueprint";
+import type { AppBlueprint, Question } from "@/lib/schemas/blueprint";
+import {
+	assembleFormFields,
+	assembleModuleFields,
+	decomposeFormEntity,
+	decomposeModuleEntity,
+} from "@/lib/services/normalizedState";
 
 /**
  * Convert an `AppBlueprint` into a normalized `BlueprintDoc`.
@@ -53,20 +54,28 @@ export function toDoc(bp: AppBlueprint, appId: string): BlueprintDoc {
 	for (const mod of bp.modules) {
 		const modUuid = asUuid(crypto.randomUUID());
 		moduleOrder.push(modUuid);
-		const { forms: modForms, ...moduleRest } = mod as BlueprintModule & {
-			forms: BlueprintForm[];
-		};
-		modules[modUuid] = { ...moduleRest, uuid: modUuid };
+
+		// Reuse the shared snake→camel module decomposer. The result is an
+		// NModule (plain `string` uuid); cast to ModuleEntity (branded `Uuid`).
+		modules[modUuid] = decomposeModuleEntity(
+			mod,
+			modUuid,
+		) as unknown as ModuleEntity;
 
 		const formUuids: Uuid[] = [];
-		for (const form of modForms ?? []) {
+		for (const form of mod.forms) {
 			const formUuid = asUuid(crypto.randomUUID());
 			formUuids.push(formUuid);
-			const { questions: formQuestions, ...formRest } =
-				form as BlueprintForm & { questions: Question[] };
-			forms[formUuid] = { ...formRest, uuid: formUuid };
+
+			// Reuse the shared snake→camel form decomposer (handles
+			// close_condition / close_case migration, post_submit, etc.).
+			forms[formUuid] = decomposeFormEntity(
+				form,
+				formUuid,
+			) as unknown as FormEntity;
+
 			questionOrder[formUuid] = flattenQuestions(
-				formQuestions ?? [],
+				form.questions ?? [],
 				questions,
 				questionOrder,
 			);
@@ -143,14 +152,22 @@ export function toBlueprint(doc: BlueprintDoc): AppBlueprint {
 		connect_type: doc.connectType ?? undefined,
 		case_types: doc.caseTypes ?? null,
 		modules: doc.moduleOrder.map((modUuid) => {
-			const { uuid: _m, ...moduleRest } = doc.modules[modUuid];
+			const mod = doc.modules[modUuid];
 			const formUuids = doc.formOrder[modUuid] ?? [];
+
+			// Reuse the shared camel→snake module assembler. Cast through
+			// `unknown` because doc entities use branded `Uuid` while the
+			// assembler accepts plain-string NModule/NForm.
 			return {
-				...moduleRest,
+				...assembleModuleFields(
+					mod as unknown as Parameters<typeof assembleModuleFields>[0],
+				),
 				forms: formUuids.map((formUuid) => {
-					const { uuid: _f, ...formRest } = doc.forms[formUuid];
+					const form = doc.forms[formUuid];
 					return {
-						...formRest,
+						...assembleFormFields(
+							form as unknown as Parameters<typeof assembleFormFields>[0],
+						),
 						questions: assembleQuestions(formUuid, doc),
 					};
 				}),

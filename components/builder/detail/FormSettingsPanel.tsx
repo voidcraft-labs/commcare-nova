@@ -18,12 +18,13 @@ import { Toggle } from "@/components/ui/Toggle";
 import {
 	useAssembledForm,
 	useBuilderEngine,
-	useBuilderStore,
 	useForm,
 	useModule,
 } from "@/hooks/useBuilder";
 import { useCommitField } from "@/hooks/useCommitField";
 import type { XPathLintContext } from "@/lib/codemirror/xpath-lint";
+import { useBlueprintDoc } from "@/lib/doc/hooks/useBlueprintDoc";
+import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
 import {
 	type ConnectConfig,
 	type ConnectType,
@@ -60,7 +61,7 @@ export function FormSettingsButton({
 	formIndex,
 }: FormSettingsPanelProps) {
 	const form = useForm(moduleIndex, formIndex);
-	const connectType = useBuilderStore((s) => s.connectType);
+	const connectType = useBlueprintDoc((s) => s.connectType);
 	const hasConnect = !!form?.connect && !!connectType;
 	const [open, setOpen] = useState(false);
 
@@ -188,7 +189,7 @@ function CloseConditionSection({
 }: FormSettingsPanelProps) {
 	const form = useForm(moduleIndex, formIndex);
 	const assembledForm = useAssembledForm(moduleIndex, formIndex);
-	const updateFormAction = useBuilderStore((s) => s.updateForm);
+	const { updateForm: updateFormAction } = useBlueprintMutations();
 	const triggerId = useId();
 	const triggerRef = useRef<HTMLButtonElement>(null);
 	const operatorTriggerRef = useRef<HTMLButtonElement>(null);
@@ -215,10 +216,10 @@ function CloseConditionSection({
 
 	const handleSelect = (mode: CloseMode) => {
 		if (mode === "always") {
-			updateFormAction(moduleIndex, formIndex, { close_condition: null });
+			updateFormAction(moduleIndex, formIndex, { closeCondition: undefined });
 		} else {
 			updateFormAction(moduleIndex, formIndex, {
-				close_condition: { question: "", answer: "" },
+				closeCondition: { question: "", answer: "" },
 			});
 		}
 	};
@@ -232,7 +233,7 @@ function CloseConditionSection({
 	) => {
 		const current = form.closeCondition ?? { question: "", answer: "" };
 		updateFormAction(moduleIndex, formIndex, {
-			close_condition: { ...current, ...patch },
+			closeCondition: { ...current, ...patch },
 		});
 	};
 
@@ -554,7 +555,7 @@ function AfterSubmitSection({
 	formIndex,
 }: FormSettingsPanelProps) {
 	const form = useForm(moduleIndex, formIndex);
-	const updateForm = useBuilderStore((s) => s.updateForm);
+	const { updateForm } = useBlueprintMutations();
 	const formType = form?.type ?? "survey";
 	const current = resolveUserFacing(
 		form?.postSubmit ?? defaultPostSubmit(formType),
@@ -568,7 +569,7 @@ function AfterSubmitSection({
 	const handleSelect = useCallback(
 		(dest: PostSubmitDestination) => {
 			updateForm(moduleIndex, formIndex, {
-				post_submit: dest === defaultPostSubmit(formType) ? null : dest,
+				postSubmit: dest === defaultPostSubmit(formType) ? undefined : dest,
 			});
 		},
 		[updateForm, moduleIndex, formIndex, formType],
@@ -715,8 +716,8 @@ function ConnectSection({ moduleIndex, formIndex }: FormSettingsPanelProps) {
 	const engine = useBuilderEngine();
 	const form = useForm(moduleIndex, formIndex);
 	const mod = useModule(moduleIndex);
-	const updateFormAction = useBuilderStore((s) => s.updateForm);
-	const connectType = useBuilderStore((s) => s.connectType) as
+	const { updateForm: updateFormAction } = useBlueprintMutations();
+	const connectType = useBlueprintDoc((s) => s.connectType) as
 		| ConnectType
 		| undefined;
 	const connect = form?.connect;

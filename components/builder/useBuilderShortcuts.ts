@@ -1,4 +1,5 @@
 import { useMemo } from "react";
+import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
 import type { BuilderEngine } from "@/lib/services/builderEngine";
 import type { Shortcut } from "@/lib/services/keyboardManager";
 import { assembleForm } from "@/lib/services/normalizedState";
@@ -33,6 +34,7 @@ export function useBuilderShortcuts(
 	onRedo: () => void,
 ): Shortcut[] {
 	const isReady = builder.isReady;
+	const { duplicateQuestion, moveQuestion } = useBlueprintMutations();
 
 	return useMemo(() => {
 		if (!isReady) return [];
@@ -141,7 +143,7 @@ export function useBuilderShortcuts(
 						handleDelete();
 				},
 			},
-			// Cmd+D — duplicate question via store action
+			// Cmd+D — duplicate question via doc mutation
 			{
 				key: "d",
 				meta: true,
@@ -156,21 +158,22 @@ export function useBuilderShortcuts(
 					)
 						return;
 					if (s.moduleOrder.length === 0) return;
-					const { newPath, newUuid } = s.duplicateQuestion(
+					const result = duplicateQuestion(
 						sel.moduleIndex,
 						sel.formIndex,
 						sel.questionPath,
 					);
+					if (!result) return;
 					builder.navigateTo({
 						type: "question",
 						moduleIndex: sel.moduleIndex,
 						formIndex: sel.formIndex,
-						questionPath: newPath,
-						questionUuid: newUuid,
+						questionPath: result.newPath,
+						questionUuid: result.newUuid,
 					});
 				},
 			},
-			// ArrowUp/ArrowDown — reorder within sibling level via store action
+			// ArrowUp/ArrowDown — reorder within sibling level via doc mutation
 			{
 				key: "ArrowUp",
 				handler: () => {
@@ -191,7 +194,7 @@ export function useBuilderShortcuts(
 						sel.questionPath,
 					);
 					if (!beforePath) return;
-					s.moveQuestion(sel.moduleIndex, sel.formIndex, sel.questionPath, {
+					moveQuestion(sel.moduleIndex, sel.formIndex, sel.questionPath, {
 						beforePath,
 					});
 				},
@@ -216,7 +219,7 @@ export function useBuilderShortcuts(
 						sel.questionPath,
 					);
 					if (!afterPath) return;
-					s.moveQuestion(sel.moduleIndex, sel.formIndex, sel.questionPath, {
+					moveQuestion(sel.moduleIndex, sel.formIndex, sel.questionPath, {
 						afterPath,
 					});
 				},
@@ -244,19 +247,10 @@ export function useBuilderShortcuts(
 					);
 					if (!up) return;
 					const { direction: _, ...opts } = up;
-					const moveResult = s.moveQuestion(
-						sel.moduleIndex,
-						sel.formIndex,
-						sel.questionPath,
-						opts,
-					);
-					/* Navigate to new path — scrolls into view after cross-level move.
-					 * If the move triggered an auto-rename (sibling ID collision), use
-					 * the renamed path so selection tracks the question correctly. */
-					const newPath = moveResult.renamed
-						? moveResult.renamed.newPath
-						: qpath(qpathId(sel.questionPath), up.targetParentPath);
-					if (moveResult.renamed) builder.setRenameNotice(moveResult.renamed);
+					// phase-1b-task-10: cross-level move auto-rename notification is synthesized
+					// by Task 10's path-to-path rewriter. Hook returns void for now.
+					moveQuestion(sel.moduleIndex, sel.formIndex, sel.questionPath, opts);
+					const newPath = qpath(qpathId(sel.questionPath), up.targetParentPath);
 					builder.navigateTo({
 						...sel,
 						questionPath: newPath,
@@ -285,16 +279,13 @@ export function useBuilderShortcuts(
 					);
 					if (!down) return;
 					const { direction: _, ...opts } = down;
-					const moveResult = s.moveQuestion(
-						sel.moduleIndex,
-						sel.formIndex,
-						sel.questionPath,
-						opts,
+					// phase-1b-task-10: cross-level move auto-rename notification is synthesized
+					// by Task 10's path-to-path rewriter. Hook returns void for now.
+					moveQuestion(sel.moduleIndex, sel.formIndex, sel.questionPath, opts);
+					const newPath = qpath(
+						qpathId(sel.questionPath),
+						down.targetParentPath,
 					);
-					const newPath = moveResult.renamed
-						? moveResult.renamed.newPath
-						: qpath(qpathId(sel.questionPath), down.targetParentPath);
-					if (moveResult.renamed) builder.setRenameNotice(moveResult.renamed);
 					builder.navigateTo({
 						...sel,
 						questionPath: newPath,
@@ -315,5 +306,14 @@ export function useBuilderShortcuts(
 				handler: onRedo,
 			},
 		];
-	}, [isReady, builder, handleCursorModeChange, handleDelete, onUndo, onRedo]);
+	}, [
+		isReady,
+		builder,
+		handleCursorModeChange,
+		handleDelete,
+		onUndo,
+		onRedo,
+		duplicateQuestion,
+		moveQuestion,
+	]);
 }

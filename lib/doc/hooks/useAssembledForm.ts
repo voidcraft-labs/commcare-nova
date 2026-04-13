@@ -10,6 +10,7 @@
 import { useMemo } from "react";
 import type { BlueprintDoc, QuestionEntity, Uuid } from "@/lib/doc/types";
 import type { BlueprintForm, Question } from "@/lib/schemas/blueprint";
+import { assembleFormFields } from "@/lib/services/normalizedState";
 import { useBlueprintDocShallow } from "./useBlueprintDoc";
 
 export function useAssembledForm(formUuid: Uuid): BlueprintForm | undefined {
@@ -21,9 +22,13 @@ export function useAssembledForm(formUuid: Uuid): BlueprintForm | undefined {
 
 	return useMemo(() => {
 		if (!form) return undefined;
-		const { uuid: _ignored, ...formRest } = form;
+		// Use the shared camel→snake assembler so the returned BlueprintForm
+		// has wire-format field names (close_condition, post_submit, etc.).
+		// Cast through `unknown` to bridge the branded Uuid vs plain string gap.
 		return {
-			...formRest,
+			...assembleFormFields(
+				form as unknown as Parameters<typeof assembleFormFields>[0],
+			),
 			questions: assembleQuestionTree(formUuid, questions, questionOrder),
 		};
 	}, [form, formUuid, questions, questionOrder]);

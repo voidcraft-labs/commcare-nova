@@ -18,6 +18,8 @@
  */
 
 import { flushSync } from "react-dom";
+import type { BlueprintDocStore } from "@/lib/doc/provider";
+import { asUuid, type Mutation } from "@/lib/doc/types";
 import { EngineController } from "@/lib/preview/engine/engineController";
 import type { PreviewScreen } from "@/lib/preview/engine/types";
 import type { ConnectConfig, ConnectType } from "@/lib/schemas/blueprint";
@@ -92,6 +94,11 @@ export class BuilderEngine {
 	private _newQuestionUuid?: string;
 	/** Tracks whether post-build edits have mutated the blueprint (gates Completed phase). */
 	private _editMadeMutations = false;
+
+	/** Reference to the doc store — installed by SyncBridge when the provider
+	 *  mounts, cleared on unmount. All entity mutations route through this
+	 *  store when available; the legacy store is populated by the sync adapter. */
+	private _docStore: BlueprintDocStore | null = null;
 
 	// ── Connect stash (session state, not undoable) ─────────────────────
 
@@ -207,6 +214,20 @@ export class BuilderEngine {
 
 	clearEditGuard(): void {
 		this._editGuard = null;
+	}
+
+	// ── Doc store reference ────────────────────────────────────────────
+
+	/** Install or clear the doc store reference. Called by SyncBridge when
+	 *  the BlueprintDocProvider mounts/unmounts. Entity mutations and
+	 *  undo/redo route through this store when installed. */
+	setDocStore(store: BlueprintDocStore | null): void {
+		this._docStore = store;
+	}
+
+	/** Current doc store, or null before SyncBridge has mounted. */
+	get docStore(): BlueprintDocStore | null {
+		return this._docStore;
 	}
 
 	// ── Scroll ─────────────────────────────────────────────────────────
@@ -464,12 +485,13 @@ export class BuilderEngine {
 	// is purely imperative coordination — no React hooks needed.
 
 	/**
-	 * Undo the last mutation and scroll to the affected field with a
+	 * Undo the last doc mutation and scroll to the affected field with a
 	 * violet flash highlight.
 	 *
-	 * zundo atomically restores entity data + navigation state. `flushSync`
-	 * forces React to commit the store update before DOM queries — fields
-	 * toggled into existence by the undo are immediately queryable.
+	 * Undoes the doc store's temporal history; the sync adapter propagates
+	 * the reversed state into the legacy store. `flushSync` forces React
+	 * to commit the store update before DOM queries — fields toggled into
+	 * existence by the undo are immediately queryable.
 	 */
 	undo(): void {
 		this.applyUndoRedo("undo");
@@ -480,25 +502,30 @@ export class BuilderEngine {
 		this.applyUndoRedo("redo");
 	}
 
-	/** Shared implementation for undo/redo. */
+	/** Shared implementation for undo/redo — operates on the doc store's
+	 *  temporal history. The sync adapter propagates reversed entity state
+	 *  into the legacy store so un-migrated consumers see the undo too. */
 	private applyUndoRedo(action: "undo" | "redo"): void {
-		const temporal = this.store.temporal.getState();
+		const docTemporal = this._docStore?.temporal.getState();
+		if (!docTemporal) return;
+
 		const canDo =
 			action === "undo"
-				? temporal.pastStates.length > 0
-				: temporal.futureStates.length > 0;
+				? docTemporal.pastStates.length > 0
+				: docTemporal.futureStates.length > 0;
 		if (!canDo) return;
 
-		/* Execute the undo/redo — zundo atomically restores entity data +
-		 * screen + navEntries + navCursor + cursorMode + activeFieldId.
-		 * flushSync ensures React commits the external store update to the
-		 * DOM synchronously so element queries below find the right targets. */
+		/* Execute the undo/redo on the doc store's temporal. flushSync ensures
+		 * React commits the external store update to the DOM synchronously so
+		 * element queries below find the right targets. */
 		flushSync(() => {
-			temporal[action]();
+			if (action === "undo") docTemporal.undo();
+			else docTemporal.redo();
 		});
 
-		/* Read selected + activeFieldId from the LIVE store (excluded from
-		 * partialize — they're derived from the restored entity state). */
+		/* Read selection/activeFieldId from the LEGACY store — these are
+		 * session state, still managed by the legacy store. Not reversed by
+		 * doc undo; the user stays on whatever they had selected. */
 		const s = this.store.getState();
 		const questionUuid = s.selected?.questionUuid;
 		if (!questionUuid) return;
@@ -591,7 +618,13 @@ export class BuilderEngine {
 		const curIdx = refs.findIndex((r) => r.uuid === sel.questionUuid);
 		const next = refs[curIdx + 1] ?? refs[curIdx - 1];
 
-		s.removeQuestion(sel.moduleIndex, sel.formIndex, sel.questionPath);
+		/* Dispatch to the doc store — SyncBridge always installs docStore
+		 * before any user interaction is possible. */
+		if (!this._docStore || !sel.questionUuid) return;
+		this._docStore.getState().apply({
+			kind: "removeQuestion",
+			uuid: asUuid(sel.questionUuid),
+		});
 
 		if (next) {
 			this.navigateTo({
@@ -616,32 +649,67 @@ export class BuilderEngine {
 	 *
 	 * Passing `null` disables Connect entirely. Passing `undefined` re-enables
 	 * with the user's last active mode (falling back to `'learn'` for first-time enable).
+	 *
+	 * Dispatches all changes as a single `applyMany` batch so the entire
+	 * mode switch collapses to one undo entry.
 	 */
 	switchConnectMode(type: ConnectType | null | undefined): void {
-		const s = this.store.getState();
-		if (s.moduleOrder.length === 0) return;
+		if (!this._docStore) return;
+		const docState = this._docStore.getState();
+		if (docState.moduleOrder.length === 0) return;
 
-		const currentType = s.connectType as ConnectType | undefined;
+		const currentType = docState.connectType ?? undefined;
 		const resolved =
 			type === undefined ? (this._lastConnectType ?? "learn") : type;
 
 		if (resolved === currentType) return;
 
-		/* Stash outgoing mode's form configs */
+		/* Stash outgoing mode's form configs (reads legacy store via sync mirror). */
 		if (currentType) {
 			this._lastConnectType = currentType;
 			this.stashAllFormConnect(currentType);
 		}
 
-		/* Apply the new mode via store's setState with Immer */
-		this.store.setState((draft) => {
-			if (resolved) {
-				draft.connectType = resolved;
-				this.restoreAllFormConnect(draft, resolved);
-			} else {
-				draft.connectType = undefined;
+		/* Build a batch of mutations: setConnectType + one updateForm per form
+		 * whose connect config needs to change. */
+		const mutations: Mutation[] = [
+			{ kind: "setConnectType", connectType: resolved ?? null },
+		];
+
+		if (resolved) {
+			/* Restore stashed configs onto forms by uuid. */
+			for (const [mIdx, moduleMap] of this._connectStash[resolved]) {
+				const moduleUuid = docState.moduleOrder[mIdx];
+				if (!moduleUuid) continue;
+				const formUuids = docState.formOrder[moduleUuid] ?? [];
+				for (const [fIdx, config] of moduleMap) {
+					const formUuid = formUuids[fIdx];
+					if (!formUuid) continue;
+					mutations.push({
+						kind: "updateForm",
+						uuid: formUuid,
+						patch: { connect: structuredClone(config) },
+					});
+				}
 			}
-		});
+		} else {
+			/* Disabling connect entirely: clear `connect` on every form. */
+			for (const modUuid of docState.moduleOrder) {
+				const formUuids = docState.formOrder[modUuid] ?? [];
+				for (const formUuid of formUuids) {
+					const form = docState.forms[formUuid];
+					if (form?.connect !== undefined) {
+						mutations.push({
+							kind: "updateForm",
+							uuid: formUuid,
+							patch: { connect: undefined },
+						});
+					}
+				}
+			}
+		}
+
+		this._docStore.getState().applyMany(mutations);
 	}
 
 	/** Stash a single form's connect config. Used by form-level toggles. */
@@ -687,28 +755,6 @@ export class BuilderEngine {
 						stash.set(mIdx, moduleMap);
 					}
 					moduleMap.set(fIdx, structuredClone(form.connect));
-				}
-			}
-		}
-	}
-
-	/** Restore stashed connect configs onto forms in the draft. */
-	private restoreAllFormConnect(
-		draft: {
-			forms: Record<string, { connect: ConnectConfig | null | undefined }>;
-			moduleOrder: string[];
-			formOrder: Record<string, string[]>;
-		},
-		mode: ConnectType,
-	): void {
-		for (const [mIdx, moduleMap] of this._connectStash[mode]) {
-			const moduleId = draft.moduleOrder[mIdx];
-			if (!moduleId) continue;
-			const formIds = draft.formOrder[moduleId] ?? [];
-			for (const [fIdx, config] of moduleMap) {
-				const formId = formIds[fIdx];
-				if (formId && draft.forms[formId]) {
-					draft.forms[formId].connect = structuredClone(config);
 				}
 			}
 		}
