@@ -44,7 +44,10 @@ import {
 import { useEditContext } from "@/hooks/useEditContext";
 import { useEngineController, useEngineState } from "@/hooks/useFormEngine";
 import { useTextEditSave } from "@/hooks/useTextEditSave";
+import { useBlueprintDoc } from "@/lib/doc/hooks/useBlueprintDoc";
 import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
+import { useQuestion as useQuestionDoc } from "@/lib/doc/hooks/useEntity";
+import type { Uuid } from "@/lib/doc/types";
 import { LabelContent } from "@/lib/references/LabelContent";
 import type { NQuestion } from "@/lib/services/normalizedState";
 import {
@@ -182,10 +185,11 @@ function SortableQuestion({
 	/** True if this item is the one currently being dragged. */
 	isActiveDrag: boolean;
 }) {
-	/* Subscribe to this question's entity — only re-renders when THIS entity
-	 * changes. Other questions in the same form don't trigger a re-render
-	 * because Immer structural sharing keeps unchanged entity references stable. */
-	const q = useBuilderStore((s) => s.questions[uuid]);
+	/* Subscribe to this question's entity from the doc store — only re-renders
+	 * when THIS entity changes. Other questions in the same form don't trigger
+	 * a re-render because Immer structural sharing keeps unchanged entity
+	 * references stable. */
+	const q = useQuestionDoc(uuid as Uuid) as NQuestion | undefined;
 
 	/* Derive paths from the entity's ID. These are stable as long as the
 	 * question hasn't been renamed. */
@@ -440,8 +444,8 @@ export const FormRenderer = memo(function FormRenderer({
 
 	/** Subscribe to the question UUID order for this level. Stable reference
 	 *  when order hasn't changed — Immer structural sharing on the array. */
-	const questionUuids = useBuilderStore(
-		(s) => s.questionOrder[parentEntityId] ?? EMPTY_UUIDS,
+	const questionUuids = useBlueprintDoc(
+		(s) => s.questionOrder[parentEntityId as Uuid] ?? EMPTY_UUIDS,
 	);
 
 	/** Group identifier for sortable items at this level.
@@ -541,9 +545,9 @@ export const FormRenderer = memo(function FormRenderer({
 	/* Read the active question's label for the drag overlay. Subscribes to
 	 * just the single active entity — not the entire questions map. */
 	const activeUuid = dragState?.activeUuid;
-	const activeLabel = useBuilderStore((s) => {
+	const activeLabel = useBlueprintDoc((s) => {
 		if (!activeUuid) return undefined;
-		const q = s.questions[activeUuid];
+		const q = s.questions[activeUuid as Uuid];
 		return q ? q.label || q.id : undefined;
 	});
 
