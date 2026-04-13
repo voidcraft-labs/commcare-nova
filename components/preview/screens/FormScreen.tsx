@@ -8,6 +8,7 @@ import { EditableTitle, SavedCheck } from "@/components/builder/EditableTitle";
 import { useBuilderStore, useForm, useModule } from "@/hooks/useBuilder";
 import { EditContextProvider } from "@/hooks/useEditContext";
 import { EngineControllerContext, useFormEngine } from "@/hooks/useFormEngine";
+import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
 import { getCaseData, getDummyCases } from "@/lib/preview/engine/dummyData";
 import type { PreviewScreen } from "@/lib/preview/engine/types";
 import { defaultPostSubmit } from "@/lib/schemas/blueprint";
@@ -45,7 +46,7 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 	const caseId = screen.caseId;
 	const caseTypes = useBuilderStore((s) => s.caseTypes);
 	const selected = useBuilderStore((s) => s.selected);
-	const updateForm = useBuilderStore((s) => s.updateForm);
+	const { updateForm } = useBlueprintMutations();
 	const navPush = useBuilderStore((s) => s.navPush);
 	const isReady = useBuilderStore(selectIsReady);
 	const mode = useBuilderStore(selectEditMode);

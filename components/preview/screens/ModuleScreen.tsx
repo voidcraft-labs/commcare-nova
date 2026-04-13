@@ -11,6 +11,7 @@ import {
 	useModule,
 	useOrderedForms,
 } from "@/hooks/useBuilder";
+import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
 import type { PreviewScreen } from "@/lib/preview/engine/types";
 import { selectEditMode, selectIsReady } from "@/lib/services/builderSelectors";
 
@@ -29,7 +30,7 @@ interface ModuleScreenProps {
 export function ModuleScreen({ screen }: ModuleScreenProps) {
 	const moduleIndex = screen.moduleIndex;
 	const navPush = useBuilderStore((s) => s.navPush);
-	const updateModule = useBuilderStore((s) => s.updateModule);
+	const { updateModule } = useBlueprintMutations();
 	const isReady = useBuilderStore(selectIsReady);
 	const mode = useBuilderStore(selectEditMode);
 
