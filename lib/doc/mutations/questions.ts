@@ -1,5 +1,6 @@
 import type { Draft } from "immer";
 import type { BlueprintDoc, Mutation } from "@/lib/doc/types";
+import { cascadeDeleteQuestion, findQuestionParent } from "./helpers";
 
 /**
  * Question mutations. Six kinds:
@@ -56,7 +57,25 @@ export function applyQuestionMutation(
 			Object.assign(q, mut.patch);
 			return;
 		}
-		case "removeQuestion":
+		case "removeQuestion": {
+			// Guard: nothing to remove if the entity doesn't exist.
+			if (draft.questions[mut.uuid] === undefined) return;
+			// Splice the uuid out of its parent's order, if it's registered
+			// in any order map. A question that exists but isn't in any order
+			// map is an unusual state, but we still fall through to cascade.
+			const parent = findQuestionParent(draft, mut.uuid);
+			if (parent) {
+				const order = draft.questionOrder[parent.parentUuid];
+				if (order) {
+					order.splice(parent.index, 1);
+					draft.questionOrder[parent.parentUuid] = order;
+				}
+			}
+			// Recursively delete the question entity and any descendants
+			// (children of a group/repeat, their children, etc.).
+			cascadeDeleteQuestion(draft, mut.uuid);
+			return;
+		}
 		case "moveQuestion":
 		case "renameQuestion":
 		case "duplicateQuestion":
