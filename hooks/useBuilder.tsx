@@ -432,8 +432,8 @@ function SyncBridge({ oldStore }: { oldStore: BuilderStoreApi }) {
 		if (engine) engine.setDocStore(docStore);
 		const stop = startSyncOldFromDoc(docStore, oldStore);
 		return () => {
-			stop();
 			if (engine) engine.setDocStore(null);
+			stop();
 		};
 	}, [docStore, oldStore, engine]);
 	return null;

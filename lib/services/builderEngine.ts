@@ -18,9 +18,8 @@
  */
 
 import { flushSync } from "react-dom";
-import { resolveQuestionUuid } from "@/lib/doc/adapters/pathToUuid";
 import type { BlueprintDocStore } from "@/lib/doc/provider";
-import type { Mutation } from "@/lib/doc/types";
+import { asUuid, type Mutation } from "@/lib/doc/types";
 import { EngineController } from "@/lib/preview/engine/engineController";
 import type { PreviewScreen } from "@/lib/preview/engine/types";
 import type { ConnectConfig, ConnectType } from "@/lib/schemas/blueprint";
@@ -622,18 +621,13 @@ export class BuilderEngine {
 		/* Dispatch to the doc store. If not installed, fall back to the legacy
 		 * store — this branch is a safety net; SyncBridge always installs
 		 * docStore before any user interaction is possible. */
-		if (this._docStore) {
-			const doc = this._docStore.getState();
-			const uuid = resolveQuestionUuid(
-				doc,
-				sel.moduleIndex,
-				sel.formIndex,
-				sel.questionPath,
-			);
-			if (uuid) {
-				this._docStore.getState().apply({ kind: "removeQuestion", uuid });
-			}
-		} else {
+		if (this._docStore && sel.questionUuid) {
+			this._docStore.getState().apply({
+				kind: "removeQuestion",
+				uuid: asUuid(sel.questionUuid),
+			});
+		} else if (!this._docStore) {
+			// Safety net for the case where SyncBridge hasn't installed the doc store yet.
 			s.removeQuestion(sel.moduleIndex, sel.formIndex, sel.questionPath);
 		}
 
@@ -669,8 +663,7 @@ export class BuilderEngine {
 		const docState = this._docStore.getState();
 		if (docState.moduleOrder.length === 0) return;
 
-		const currentType =
-			(docState.connectType as ConnectType | undefined) ?? undefined;
+		const currentType = docState.connectType ?? undefined;
 		const resolved =
 			type === undefined ? (this._lastConnectType ?? "learn") : type;
 
