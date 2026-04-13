@@ -490,7 +490,7 @@ describe("toBlueprint", () => {
 				},
 			],
 			case_types: [
-				{ name: "patient", properties: [{ name: "name" }] },
+				{ name: "patient", properties: [{ name: "name", label: "Name" }] },
 			],
 		};
 		const roundTripped = toBlueprint(toDoc(bp, APP_ID));
@@ -516,8 +516,17 @@ describe("toBlueprint", () => {
 			connect_type: undefined,
 			modules: [],
 			case_types: [
-				{ name: "patient", properties: [{ name: "name" }, { name: "age" }] },
-				{ name: "visit", properties: [{ name: "date" }] },
+				{
+					name: "patient",
+					properties: [
+						{ name: "name", label: "Name" },
+						{ name: "age", label: "Age" },
+					],
+				},
+				{
+					name: "visit",
+					properties: [{ name: "date", label: "Date" }],
+				},
 			],
 		};
 		expect(toBlueprint(toDoc(bp, APP_ID)).case_types).toEqual(bp.case_types);
@@ -1074,11 +1083,19 @@ describe("applyMutation: setCaseTypes", () => {
 		const next = produce(emptyDoc(), (d) => {
 			applyMutation(d, {
 				kind: "setCaseTypes",
-				caseTypes: [{ name: "patient", properties: [{ name: "name" }] }],
+				caseTypes: [
+					{
+						name: "patient",
+						properties: [{ name: "name", label: "Name" }],
+					},
+				],
 			});
 		});
 		expect(next.caseTypes).toEqual([
-			{ name: "patient", properties: [{ name: "name" }] },
+			{
+				name: "patient",
+				properties: [{ name: "name", label: "Name" }],
+			},
 		]);
 	});
 
