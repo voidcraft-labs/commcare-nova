@@ -550,13 +550,24 @@ export class BuilderEngine {
 	}
 
 	/**
+	 * Set a pending scroll request — consumed by the selected question's
+	 * mount effect when the panel is in the DOM. Exposed publicly so
+	 * composite hooks (e.g. `useUndoRedo`) can request scroll without
+	 * going through the legacy `navigateTo()` method.
+	 */
+	setPendingScroll(
+		uuid: string,
+		behavior: ScrollBehavior,
+		hasToolbar: boolean,
+	): void {
+		this._pendingScroll = { uuid, behavior, hasToolbar };
+	}
+
+	/**
 	 * Find a specific field element within a question's InlineSettingsPanel.
 	 * Queries by stable UUID so the element is found even after renames.
 	 */
-	private findFieldElement(
-		questionUuid: string,
-		fieldId?: string,
-	): HTMLElement | null {
+	findFieldElement(questionUuid: string, fieldId?: string): HTMLElement | null {
 		if (!fieldId) return null;
 		const questionEl = document.querySelector(
 			`[data-question-uuid="${questionUuid}"]`,
@@ -569,7 +580,7 @@ export class BuilderEngine {
 	/** Flash a subtle violet highlight on an element to signal an undo/redo
 	 *  state change. Web Animations API — fire-and-forget, no cleanup needed.
 	 *  Toggles get a scale press instead of a backgroundColor overlay. */
-	private flashUndoHighlight(el: HTMLElement): void {
+	flashUndoHighlight(el: HTMLElement): void {
 		if (el.getAttribute("role") === "switch") {
 			el.animate(
 				[
