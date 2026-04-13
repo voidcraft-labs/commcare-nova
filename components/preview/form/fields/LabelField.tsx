@@ -4,24 +4,19 @@ import { useTextEditSave } from "@/hooks/useTextEditSave";
 import type { QuestionState } from "@/lib/preview/engine/types";
 import { LabelContent } from "@/lib/references/LabelContent";
 import type { Question } from "@/lib/schemas/blueprint";
-import type { QuestionPath } from "@/lib/services/questionPath";
 import { FIELD_STYLES } from "../fieldStyles";
 import { TextEditable } from "../TextEditable";
 
 export function LabelField({
 	question,
-	questionPath,
 	state,
 }: {
 	question: Question;
-	questionPath?: QuestionPath;
 	state: QuestionState;
 }) {
 	const ctx = useEditContext();
 	const isEditMode = ctx?.mode === "edit";
-	/* questionPath is undefined when rendered from QuestionField (dead path —
-	 * FormRenderer handles labels separately — but TypeScript checks it). */
-	const saveField = useTextEditSave(questionPath);
+	const saveField = useTextEditSave(question.uuid);
 
 	return (
 		<div className="py-1">

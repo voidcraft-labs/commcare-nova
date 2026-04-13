@@ -5,8 +5,10 @@ import tablerFilePencil from "@iconify-icons/tabler/file-pencil";
 import tablerFilePlus from "@iconify-icons/tabler/file-plus";
 import { useCallback } from "react";
 import { EditableText } from "@/components/builder/EditableText";
-import { useModule, useOrderedForms } from "@/hooks/useBuilder";
 import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
+import { useModule } from "@/lib/doc/hooks/useEntity";
+import { useOrderedForms } from "@/lib/doc/hooks/useModuleIds";
+import { asUuid, type Uuid } from "@/lib/doc/types";
 
 const formTypeIcons = {
 	registration: tablerFilePlus,
@@ -15,8 +17,8 @@ const formTypeIcons = {
 } as const;
 
 interface ModuleDetailProps {
-	/** Module index in the blueprint. */
-	moduleIndex: number;
+	/** Module uuid in the blueprint. */
+	moduleUuid: Uuid;
 }
 
 /**
@@ -24,16 +26,16 @@ interface ModuleDetailProps {
  * Displays and allows editing of: module name, case type (read-only),
  * case list columns, and a summary of forms in the module.
  */
-export function ModuleDetail({ moduleIndex }: ModuleDetailProps) {
-	const mod = useModule(moduleIndex);
-	const forms = useOrderedForms(moduleIndex);
+export function ModuleDetail({ moduleUuid }: ModuleDetailProps) {
+	const mod = useModule(moduleUuid);
+	const forms = useOrderedForms(moduleUuid);
 	const { updateModule } = useBlueprintMutations();
 
 	const saveModule = useCallback(
 		(updates: { name?: string }) => {
-			updateModule(moduleIndex, updates);
+			updateModule(asUuid(moduleUuid), updates);
 		},
-		[updateModule, moduleIndex],
+		[updateModule, moduleUuid],
 	);
 
 	if (!mod) return null;

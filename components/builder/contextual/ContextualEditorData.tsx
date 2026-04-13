@@ -4,9 +4,10 @@ import {
 	SECTION_CARD_CLASS,
 	SectionLabel,
 } from "@/components/builder/InlineSettingsPanel";
-import { useBuilderStore, useModule } from "@/hooks/useBuilder";
 import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
 import { useCaseTypes } from "@/lib/doc/hooks/useCaseTypes";
+import { asUuid } from "@/lib/doc/types";
+import { useSelectedFormContext } from "@/lib/routing/hooks";
 import { CasePropertyDropdown } from "./CasePropertyDropdown";
 import { OptionsEditor } from "./OptionsEditor";
 import {
@@ -21,36 +22,25 @@ import {
 const DATA_FIELDS = new Set<FocusableFieldKey>(["case_property_on", "options"]);
 
 export function ContextualEditorData({ question }: QuestionEditorProps) {
-	const selected = useBuilderStore((s) => s.selected);
+	const ctx = useSelectedFormContext();
 	const caseTypes = useCaseTypes();
-	const mod = useModule(selected?.moduleIndex ?? 0);
 	const { updateQuestion } = useBlueprintMutations();
 
 	const focusHint = useFocusHint(DATA_FIELDS);
 
 	const setCasePropertyOn = useCallback(
 		(caseType: string | null) => {
-			if (
-				!selected ||
-				selected.formIndex === undefined ||
-				!selected.questionPath
-			)
-				return;
-			updateQuestion(
-				selected.moduleIndex,
-				selected.formIndex,
-				selected.questionPath,
-				{
-					case_property_on: caseType,
-				},
-			);
+			if (!question.uuid) return;
+			updateQuestion(asUuid(question.uuid), {
+				case_property_on: caseType ?? undefined,
+			});
 		},
-		[selected, updateQuestion],
+		[question.uuid, updateQuestion],
 	);
 
-	if (!selected) return null;
+	if (!ctx) return null;
 
-	const writableCaseTypes = getModuleCaseTypes(mod?.caseType, caseTypes);
+	const writableCaseTypes = getModuleCaseTypes(ctx.module.caseType, caseTypes);
 	const isCaseName = question.id === "case_name";
 	const hasOptions =
 		question.type === "single_select" || question.type === "multi_select";
@@ -82,18 +72,10 @@ export function ContextualEditorData({ question }: QuestionEditorProps) {
 							options={question.options ?? []}
 							autoFocus={focusHint === "options"}
 							onSave={(options) => {
-								if (
-									!selected ||
-									selected.formIndex === undefined ||
-									!selected.questionPath
-								)
-									return;
-								updateQuestion(
-									selected.moduleIndex,
-									selected.formIndex,
-									selected.questionPath,
-									{ options: options.length > 0 ? options : null },
-								);
+								if (!question.uuid) return;
+								updateQuestion(asUuid(question.uuid), {
+									options: options.length > 0 ? options : undefined,
+								});
 							}}
 						/>
 					</div>
