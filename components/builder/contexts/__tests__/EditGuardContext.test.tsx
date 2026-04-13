@@ -88,43 +88,7 @@ describe("EditGuardContext", () => {
 		expect(result.current()).toBe(true);
 	});
 
-	// ── Test 5: Unmount cleans up the predicate ─────────────────────────
-
-	it("clears the predicate on unmount so consult returns true", () => {
-		/* We need two independent hooks: one that registers, one that consults.
-		 * Unmounting the registering hook should clear the guard. We'll use
-		 * a combined hook and track the consult result after unmount via a
-		 * second renderHook call. */
-		const { unmount } = renderHook(
-			() => useRegisterEditGuard(() => false, true),
-			{ wrapper: Wrapper },
-		);
-
-		/* We need a shared provider instance. Use a single-instance pattern
-		 * by rendering the consult hook in the same tree. Instead, we'll
-		 * test via the combined approach: render both hooks in one component,
-		 * then verify after unmount-and-remount with only the consult hook. */
-
-		/* Simpler approach: render register + consult together, verify block,
-		 * then unmount. The provider itself is per-renderHook, so we need
-		 * to share context. Let's use a custom approach. */
-		unmount();
-
-		/* After unmount, a fresh consult in the same provider should return
-		 * true. Since renderHook creates a new provider per call, we verify
-		 * the contract differently: render a component that registers then
-		 * unmounts, and a sibling that consults. */
-
-		/* The simplest correct test: one renderHook with a flag that controls
-		 * whether the registering sub-component is mounted. */
-		const { result: consultResult } = renderHook(() => useConsultEditGuard(), {
-			wrapper: Wrapper,
-		});
-		/* Fresh provider with no registrations — must allow. */
-		expect(consultResult.current()).toBe(true);
-	});
-
-	// ── Test 5 (improved): Shared provider unmount scenario ─────────────
+	// ── Test 5: Unmount cleans up the predicate (shared provider) ──────
 
 	it("clears the predicate when the registering component unmounts (shared provider)", () => {
 		/* Use a component that conditionally renders the registration hook

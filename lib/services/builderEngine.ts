@@ -7,7 +7,6 @@
  *
  * - **Energy counters** — consumed by SignalGrid's rAF loop, never triggers renders
  * - **Scroll callback** — DOM scroll implementation registered by BuilderLayout
- * - **Edit guard** — blocks selection changes when an editor has unsaved content
  * - **Drag state** — blocks undo during dnd-kit drag operations
  * - **Focus/panel hints** — one-shot transient state consumed by specific components
  * - **Edit scope** — signal grid zone focus
