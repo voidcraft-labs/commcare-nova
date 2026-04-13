@@ -10,13 +10,14 @@ import {
 	useBuilderStore,
 	useOrderedModules,
 } from "@/hooks/useBuilder";
+import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
 import { selectEditMode, selectIsReady } from "@/lib/services/builderSelectors";
 
 export function HomeScreen() {
 	const appName = useBuilderStore((s) => s.appName);
 	const formOrder = useBuilderStore((s) => s.formOrder);
 	const navPush = useBuilderStore((s) => s.navPush);
-	const updateApp = useBuilderStore((s) => s.updateApp);
+	const { updateApp } = useBlueprintMutations();
 	const isReady = useBuilderStore(selectIsReady);
 	const mode = useBuilderStore(selectEditMode);
 	const hasData = useBuilderHasData();
