@@ -1,24 +1,23 @@
 /**
  * Hook that creates a save callback for TextEditable inline editors.
  *
- * Combines the edit context (moduleIndex, formIndex) with a question path
- * to produce a `(field, value) => void` function that mutates the blueprint
- * via the store's updateQuestion action. Returns null outside of edit mode
- * or when no context is available.
+ * Takes a question uuid directly and produces a `(field, value) => void`
+ * function that mutates the blueprint via the doc store's updateQuestion
+ * action. Returns null outside of edit mode or when no uuid is provided.
  */
 
 import { useCallback } from "react";
 import { useBuilderStore } from "@/hooks/useBuilder";
 import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
-import type { QuestionPath } from "@/lib/services/questionPath";
+import { asUuid, type Uuid } from "@/lib/doc/types";
 import { useEditContext } from "./useEditContext";
 
 /**
  * Returns a `(field, value) => void` callback for saving question fields,
- * or null if inline text editing is not available (wrong mode, no context).
+ * or null if inline text editing is not available (wrong mode, no uuid).
  */
 export function useTextEditSave(
-	questionPath: QuestionPath | undefined,
+	uuid: Uuid | string | undefined,
 ): ((field: string, value: string) => void) | null {
 	const ctx = useEditContext();
 	const cursorMode = useBuilderStore((s) => s.cursorMode);
@@ -26,14 +25,14 @@ export function useTextEditSave(
 
 	const save = useCallback(
 		(field: string, value: string) => {
-			if (!ctx || !questionPath) return;
-			updateQuestion(ctx.moduleIndex, ctx.formIndex, questionPath, {
-				[field]: value === "" ? null : value,
+			if (!uuid) return;
+			updateQuestion(asUuid(uuid), {
+				[field]: value === "" ? undefined : value,
 			});
 		},
-		[ctx, questionPath, updateQuestion],
+		[uuid, updateQuestion],
 	);
 
-	if (!ctx || cursorMode !== "edit" || !questionPath) return null;
+	if (!ctx || cursorMode !== "edit" || !uuid) return null;
 	return save;
 }

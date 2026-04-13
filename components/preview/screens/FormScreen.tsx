@@ -174,8 +174,8 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 			<div className="px-6 pt-5 pb-4 border-b border-pv-input-border">
 				<div className="flex items-center gap-2">
 					<FormTypeButton
-						moduleIndex={moduleIndex}
-						formIndex={formIndex}
+						moduleUuid={(moduleUuid ?? "") as Uuid}
+						formUuid={(formUuid ?? "") as Uuid}
 						editable={canEdit}
 					/>
 					{canEdit ? (
@@ -192,8 +192,8 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 					<SavedCheck visible={titleSaved} />
 					{canEdit && (
 						<FormSettingsButton
-							moduleIndex={moduleIndex}
-							formIndex={formIndex}
+							moduleUuid={(moduleUuid ?? "") as Uuid}
+							formUuid={(formUuid ?? "") as Uuid}
 						/>
 					)}
 				</div>

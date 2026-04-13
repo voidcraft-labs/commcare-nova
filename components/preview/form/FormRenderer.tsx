@@ -191,7 +191,7 @@ function SortableQuestion({
 	const ctx = useEditContext();
 	const cursorMode = useBuilderStore((s) => s.cursorMode);
 	const isEditMode = ctx?.mode === "edit";
-	const saveField = useTextEditSave(questionPath);
+	const saveField = useTextEditSave(uuid);
 
 	/* URL-driven boolean selector — returns true only for the one selected
 	 * question. When selection changes, only the old and new selected
@@ -276,11 +276,7 @@ function SortableQuestion({
 				questionUuid={uuid}
 				isDragging={showAsPlaceholder}
 			>
-				<LabelField
-					question={q}
-					questionPath={questionPath}
-					state={displayState}
-				/>
+				<LabelField question={q} state={displayState} />
 			</EditableQuestionWrapper>
 		);
 	} else if (q.type === "hidden") {

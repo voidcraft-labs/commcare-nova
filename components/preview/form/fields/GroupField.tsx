@@ -22,7 +22,7 @@ export function GroupField({ question, path, questionPath }: GroupFieldProps) {
 	const state = useEngineState(question.uuid);
 	const ctx = useEditContext();
 	const isEditMode = ctx?.mode === "edit";
-	const saveField = useTextEditSave(questionPath);
+	const saveField = useTextEditSave(question.uuid);
 
 	/** Subscribe to the children count for this group. Drives the container
 	 *  styling — groups with children get horizontal-only padding (InsertionPoints

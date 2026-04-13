@@ -1,7 +1,6 @@
 import { useEffect, useState } from "react";
 import { useBuilderEngine } from "@/hooks/useBuilder";
 import type { CaseType, Question } from "@/lib/schemas/blueprint";
-import type { QuestionPath } from "@/lib/services/questionPath";
 
 /** Shared prop shape for all contextual editor sections (UI, Logic, Data, Footer).
  *  Only the question data — store access is via hooks, not props. */
@@ -144,22 +143,22 @@ export const addableTextFields: readonly {
 
 /**
  * Tracks a field that was just added via an "Add Property" button. The active
- * field is scoped to the current question path — switching questions clears it
- * automatically. Used by both UI (hint) and Logic (validation_msg, XPath fields)
- * sections to auto-focus newly added fields and handle empty-cancel semantics.
+ * field is scoped to a question identity key (uuid) — switching questions
+ * clears it automatically. Used by both UI (hint) and Logic (validation_msg,
+ * XPath fields) sections to auto-focus newly added fields and handle
+ * empty-cancel semantics.
  */
-export function useAddableField(questionPath: QuestionPath) {
+export function useAddableField(questionKey: string) {
 	const [pending, setPending] = useState<{
 		field: string;
-		questionPath: QuestionPath;
+		key: string;
 	}>();
 
 	/** The field key if it belongs to the current question, undefined otherwise. */
-	const activeField =
-		pending?.questionPath === questionPath ? pending.field : undefined;
+	const activeField = pending?.key === questionKey ? pending.field : undefined;
 
 	/** Mark a field as newly added — triggers auto-focus and edit activation. */
-	const activate = (field: string) => setPending({ field, questionPath });
+	const activate = (field: string) => setPending({ field, key: questionKey });
 
 	/** Clear the pending state — called after save or cancel. */
 	const clear = () => setPending(undefined);
