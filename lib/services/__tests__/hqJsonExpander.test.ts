@@ -1029,6 +1029,150 @@ describe("#form/ hashtag expansion", () => {
 		expect(xform).toContain('vellum:constraint=". &gt;= #form/start_date"');
 	});
 
+	// Regression: validation_msg must round-trip through CommCare HQ.
+	//
+	// HQ's XForm parser (`corehq/apps/app_manager/xform.py:1167`) only reads
+	// `jr:constraintMsg` when it points at an itext id via `jr:itext(...)` —
+	// inline text values are silently dropped at import time. The expander
+	// must therefore (a) emit the bind attribute as an itext reference and
+	// (b) register a matching `<text>` entry in the form's translation block.
+	// Previously we emitted the literal string as the attribute value, which
+	// is why the message vanished after upload.
+	it("emits validation_msg as an itext-referenced constraintMsg", () => {
+		const bp: AppBlueprint = {
+			app_name: "ValMsg",
+			modules: [
+				{
+					name: "M",
+					forms: [
+						{
+							name: "F",
+							type: "survey",
+							questions: [
+								q({
+									id: "age",
+									type: "int",
+									label: "Age",
+									validation: ". > 0 and . < 150",
+									validation_msg: "Age must be between 1 and 149",
+								}),
+							],
+						},
+					],
+				},
+			],
+			case_types: null,
+		};
+		const xform: string = Object.values(
+			expandBlueprint(bp)._attachments,
+		)[0] as string;
+
+		// Bind references the itext id, not the raw message string.
+		expect(xform).toContain(`jr:constraintMsg="jr:itext('age-constraintMsg')"`);
+		// Raw message must NOT appear inside the bind attribute (it would be
+		// ignored by HQ and Vellum would lose it on save).
+		expect(xform).not.toContain(
+			'jr:constraintMsg="Age must be between 1 and 149"',
+		);
+
+		// Matching itext entry is present, with both plain and markdown forms
+		// (every other textual itext entry also emits both — constraint
+		// messages shouldn't be a silent exception).
+		const entry = xform.match(/<text id="age-constraintMsg">.*?<\/text>/s)?.[0];
+		expect(entry).toBeDefined();
+		expect(entry).toContain("<value>Age must be between 1 and 149</value>");
+		expect(entry).toContain(
+			'<value form="markdown">Age must be between 1 and 149</value>',
+		);
+	});
+
+	// Regression: validation is only legal on input question types.
+	//
+	// Hidden fields are computed from `calculate`/`default_value`, so the
+	// user can never see or correct a failing constraint — a
+	// `validation_msg` on them is dead metadata. Structural containers
+	// (group/repeat) and display-only labels similarly can't surface an
+	// error. The XForm emitter drops both the bind attributes and the
+	// itext entry for these types so a stale `validation_msg` can't leak
+	// into HQ.
+	it("drops validation and validation_msg on hidden questions", () => {
+		const bp: AppBlueprint = {
+			app_name: "HiddenVal",
+			modules: [
+				{
+					name: "M",
+					forms: [
+						{
+							name: "F",
+							type: "survey",
+							questions: [
+								q({
+									id: "risk",
+									type: "hidden",
+									calculate: "if(/data/age > 65, 'high', 'low')",
+									// These are meaningless on a hidden field and
+									// must not surface in the XForm output.
+									validation: ". != 'unknown'",
+									validation_msg: "Risk must resolve",
+								}),
+							],
+						},
+					],
+				},
+			],
+			case_types: null,
+		};
+		const xform: string = Object.values(
+			expandBlueprint(bp)._attachments,
+		)[0] as string;
+
+		expect(xform).not.toContain("jr:constraintMsg");
+		expect(xform).not.toContain("constraint=");
+		expect(xform).not.toContain(`<text id="risk-constraintMsg">`);
+		expect(xform).not.toContain("Risk must resolve");
+	});
+
+	it("drops validation_msg on label and group questions", () => {
+		const bp: AppBlueprint = {
+			app_name: "StructuralVal",
+			modules: [
+				{
+					name: "M",
+					forms: [
+						{
+							name: "F",
+							type: "survey",
+							questions: [
+								q({
+									id: "section_header",
+									type: "label",
+									label: "Demographics",
+									validation_msg: "should never appear",
+								}),
+								q({
+									id: "demographics",
+									type: "group",
+									label: "Demographics",
+									validation_msg: "should never appear either",
+									children: [q({ id: "name", type: "text", label: "Name" })],
+								}),
+							],
+						},
+					],
+				},
+			],
+			case_types: null,
+		};
+		const xform: string = Object.values(
+			expandBlueprint(bp)._attachments,
+		)[0] as string;
+
+		expect(xform).not.toContain("jr:constraintMsg");
+		expect(xform).not.toContain(`<text id="section_header-constraintMsg">`);
+		expect(xform).not.toContain(`<text id="demographics-constraintMsg">`);
+		expect(xform).not.toContain("should never appear");
+	});
+
 	it("expands #form/ in required condition", () => {
 		const bp: AppBlueprint = {
 			app_name: "FormRef",

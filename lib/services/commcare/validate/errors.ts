@@ -55,6 +55,7 @@ export type ValidationErrorCode =
 	| "HIDDEN_NO_VALUE"
 	| "UNQUOTED_STRING_LITERAL"
 	| "INVALID_QUESTION_ID"
+	| "VALIDATION_ON_NON_INPUT_TYPE"
 	// Case list column
 	| "INVALID_COLUMN_FIELD"
 	// XForm output (post-expansion)

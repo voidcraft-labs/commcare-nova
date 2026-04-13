@@ -15,6 +15,7 @@ import type {
 	ConnectConfig,
 	Question,
 } from "../schemas/blueprint";
+import { supportsValidation } from "../schemas/blueprint";
 import {
 	escapeXml,
 	expandHashtags,
@@ -376,13 +377,23 @@ function buildQuestionParts(
 			bindParts.push(`vellum:required="${escapeXml(q.required)}"`);
 		bindParts.push(`required="${escapeXml(expandedReq)}"`);
 	}
-	if (q.validation) {
+	// Validation (constraint + constraintMsg) is only meaningful on input
+	// question types. Structural types (group/repeat/label) have no value to
+	// check, and hidden fields are computed so the user can never correct a
+	// "failing" value. We silently skip both attributes for non-input types
+	// so an upstream misconfiguration can't leak a garbage bind into the
+	// XForm — validation rules (see rules/question.ts) surface it to the SA.
+	const canValidate = supportsValidation(q.type);
+	if (canValidate && q.validation) {
 		if (hasHashtags(q.validation))
 			bindParts.push(`vellum:constraint="${escapeXml(q.validation)}"`);
 		bindParts.push(`constraint="${escapeXml(expandHashtags(q.validation))}"`);
 	}
-	if (q.validation_msg) {
-		bindParts.push(`jr:constraintMsg="${escapeXml(q.validation_msg)}"`);
+	// Validation message must be an itext reference — HQ's XForm parser only
+	// extracts constraintMsg when it's `jr:itext(...)`; inline text is ignored,
+	// so the message would vanish on upload to HQ.
+	if (canValidate && q.validation_msg) {
+		bindParts.push(`jr:constraintMsg="jr:itext('${q.id}-constraintMsg')"`);
 	}
 	if (q.relevant) {
 		if (hasHashtags(q.relevant))
@@ -406,10 +417,12 @@ function buildQuestionParts(
 			`<setvalue event="${event}" vellum:ref="${vellumPath}" ref="${nodePath}"${vellumAttrs} value="${escapeXml(expandedValue)}"/>`,
 		);
 	}
-	// Add Vellum hashtag metadata for #case/ and #user/ references
+	// Add Vellum hashtag metadata for #case/ and #user/ references — only
+	// scan expressions that actually made it onto the bind (validation is
+	// dropped for non-input types above).
 	const xpathExprs = [
 		q.relevant,
-		q.validation,
+		canValidate ? q.validation : undefined,
 		q.calculate,
 		q.default_value,
 		q.required,
@@ -430,6 +443,14 @@ function buildQuestionParts(
 	if (q.type !== "hidden" && q.label) {
 		addItext(`${q.id}-label`, q.label);
 		addItext(`${q.id}-hint`, q.hint);
+	}
+
+	// Validation message itext — only emitted for types that support
+	// validation (see supportsValidation). Paired with the
+	// `jr:constraintMsg="jr:itext(...)"` reference on the bind above; never
+	// emit the itext entry without the reference, or vice versa.
+	if (canValidate) {
+		addItext(`${q.id}-constraintMsg`, q.validation_msg);
 	}
 
 	// itext for select options
