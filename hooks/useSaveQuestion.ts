@@ -8,6 +8,7 @@
  */
 
 import { useCallback } from "react";
+import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
 import { useBuilderStore } from "./useBuilder";
 
 export function useSaveQuestion(): (
@@ -15,7 +16,7 @@ export function useSaveQuestion(): (
 	value: string | null,
 ) => void {
 	const selected = useBuilderStore((s) => s.selected);
-	const updateQuestion = useBuilderStore((s) => s.updateQuestion);
+	const { updateQuestion } = useBlueprintMutations();
 
 	return useCallback(
 		(field: string, value: string | null) => {

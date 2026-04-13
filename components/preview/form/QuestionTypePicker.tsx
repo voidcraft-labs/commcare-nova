@@ -3,8 +3,9 @@ import { Menu } from "@base-ui/react/menu";
 import { Icon } from "@iconify/react/offline";
 import tablerChevronRight from "@iconify-icons/tabler/chevron-right";
 import { useCallback } from "react";
-import { useBuilderEngine, useBuilderStore } from "@/hooks/useBuilder";
+import { useBuilderEngine } from "@/hooks/useBuilder";
 import { useEditContext } from "@/hooks/useEditContext";
+import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
 import {
 	INSERTION_CATEGORIES,
 	INSERTION_TOP_LEVEL,
@@ -50,7 +51,7 @@ export function QuestionTypePickerPopup({
 	if (!ctx) throw new Error("QuestionTypePickerPopup requires EditContext");
 	const { moduleIndex, formIndex } = ctx;
 	const engine = useBuilderEngine();
-	const addQuestionAction = useBuilderStore((s) => s.addQuestion);
+	const { addQuestion: addQuestionAction } = useBlueprintMutations();
 
 	/** Generate a unique ID, create the question, and navigate to it.
 	 *  Reads the assembled form imperatively at insert time — avoids 28

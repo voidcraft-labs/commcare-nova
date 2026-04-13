@@ -9,6 +9,7 @@
 
 import { useCallback } from "react";
 import { useBuilderStore } from "@/hooks/useBuilder";
+import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
 import type { QuestionPath } from "@/lib/services/questionPath";
 import { useEditContext } from "./useEditContext";
 
@@ -21,7 +22,7 @@ export function useTextEditSave(
 ): ((field: string, value: string) => void) | null {
 	const ctx = useEditContext();
 	const cursorMode = useBuilderStore((s) => s.cursorMode);
-	const updateQuestion = useBuilderStore((s) => s.updateQuestion);
+	const { updateQuestion } = useBlueprintMutations();
 
 	const save = useCallback(
 		(field: string, value: string) => {

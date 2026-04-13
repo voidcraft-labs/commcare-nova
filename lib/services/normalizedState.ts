@@ -16,6 +16,7 @@
 import type {
 	AppBlueprint,
 	BlueprintForm,
+	BlueprintModule,
 	CaseType,
 	ConnectConfig,
 	ConnectType,
@@ -102,15 +103,7 @@ export function decomposeBlueprint(bp: AppBlueprint): NormalizedData {
 		const moduleId = crypto.randomUUID();
 		moduleOrder.push(moduleId);
 
-		modules[moduleId] = {
-			uuid: moduleId,
-			name: mod.name,
-			caseType: mod.case_type ?? undefined,
-			caseListOnly: mod.case_list_only ?? undefined,
-			purpose: undefined,
-			caseListColumns: mod.case_list_columns ?? undefined,
-			caseDetailColumns: mod.case_detail_columns ?? undefined,
-		};
+		modules[moduleId] = decomposeModuleEntity(mod, moduleId);
 
 		const formIds: string[] = [];
 		formOrder[moduleId] = formIds;
@@ -162,6 +155,50 @@ export function decomposeForm(
 // ── Assemble (flat maps → tree) ──────────────────────────────────────
 
 /**
+ * Convert an NModule entity's camelCase fields back to the wire-format
+ * snake_case `BlueprintModule` shape (without the nested `forms` array).
+ *
+ * Exported so `lib/doc/converter.ts` can reuse the same camel→snake mapping
+ * in `toBlueprint`. Omits undefined/null/empty optional fields to produce
+ * a clean wire-format object — matching the blueprint schema's `.optional()`
+ * semantics where absent keys are preferred over explicit `undefined`.
+ */
+export function assembleModuleFields(
+	mod: NModule,
+): Omit<BlueprintModule, "forms"> {
+	return {
+		name: mod.name,
+		...(mod.caseType != null && { case_type: mod.caseType }),
+		...(mod.caseListOnly && { case_list_only: mod.caseListOnly }),
+		...(mod.caseListColumns && { case_list_columns: mod.caseListColumns }),
+		...(mod.caseDetailColumns !== undefined &&
+			mod.caseDetailColumns !== null && {
+				case_detail_columns: mod.caseDetailColumns,
+			}),
+	};
+}
+
+/**
+ * Convert an NForm entity's camelCase fields back to the wire-format
+ * snake_case `BlueprintForm` shape (without the nested `questions` array).
+ *
+ * Exported so `lib/doc/converter.ts` can reuse the same camel→snake mapping
+ * in `toBlueprint`.
+ */
+export function assembleFormFields(
+	form: NForm,
+): Omit<BlueprintForm, "questions"> {
+	return {
+		name: form.name,
+		type: form.type,
+		...(form.closeCondition && { close_condition: form.closeCondition }),
+		...(form.postSubmit && { post_submit: form.postSubmit }),
+		...(form.formLinks && { form_links: form.formLinks }),
+		...(form.connect && { connect: form.connect }),
+	};
+}
+
+/**
  * Reconstruct a nested AppBlueprint from normalized entity maps.
  * Called at save/export time — not on every mutation.
  */
@@ -175,20 +212,11 @@ export function assembleBlueprint(data: NormalizedData): AppBlueprint {
 			const fIds = data.formOrder[moduleId] ?? [];
 
 			return {
-				name: mod.name,
-				...(mod.caseType != null && { case_type: mod.caseType }),
-				...(mod.caseListOnly && { case_list_only: mod.caseListOnly }),
+				...assembleModuleFields(mod),
 				forms: fIds.map((formId) => {
 					const form = data.forms[formId];
 					return assembleForm(form, formId, data.questions, data.questionOrder);
 				}),
-				...(mod.caseListColumns && {
-					case_list_columns: mod.caseListColumns,
-				}),
-				...(mod.caseDetailColumns !== undefined &&
-					mod.caseDetailColumns !== null && {
-						case_detail_columns: mod.caseDetailColumns,
-					}),
 			};
 		}),
 	};
@@ -203,12 +231,7 @@ export function assembleForm(
 	questionOrder: Record<string, string[]>,
 ): BlueprintForm {
 	return {
-		name: form.name,
-		type: form.type,
-		...(form.closeCondition && { close_condition: form.closeCondition }),
-		...(form.postSubmit && { post_submit: form.postSubmit }),
-		...(form.formLinks && { form_links: form.formLinks }),
-		...(form.connect && { connect: form.connect }),
+		...assembleFormFields(form),
 		questions: assembleQuestions(questions, questionOrder, formId),
 	};
 }
@@ -386,17 +409,49 @@ export function removeQuestionDeep(
 	delete questions[uuid];
 }
 
-// ── Internal helpers ─────────────────────────────────────────────────
+// ── Shared decompose/assemble helpers ────────────────────────────────
+//
+// Exported so `lib/doc/converter.ts` can reuse the same snake↔camel field
+// mapping that `decomposeBlueprint` and `assembleBlueprint` use. One
+// source of truth for module/form entity conversion.
+
+/**
+ * Convert a BlueprintModule to an NModule entity (no nested forms).
+ *
+ * Maps wire-format snake_case fields (`case_type`, `case_list_columns`, etc.)
+ * to camelCase entity fields. Mirrors the inline mapping in
+ * `decomposeBlueprint` — extracted so `lib/doc/converter.ts` can share it.
+ */
+export function decomposeModuleEntity(
+	mod: BlueprintModule,
+	moduleId: string,
+): NModule {
+	return {
+		uuid: moduleId,
+		name: mod.name,
+		caseType: mod.case_type ?? undefined,
+		caseListOnly: mod.case_list_only ?? undefined,
+		purpose: undefined,
+		caseListColumns: mod.case_list_columns ?? undefined,
+		caseDetailColumns: mod.case_detail_columns ?? undefined,
+	};
+}
 
 /**
  * Convert a BlueprintForm to an NForm entity (no questions).
+ *
+ * Exported so `lib/doc/converter.ts` can reuse the same snake→camel mapping
+ * for its `FormEntity` type (structurally identical to `NForm`).
  *
  * Migration: old blueprints have `close_case` on followup forms. When present,
  * the form is promoted to type "close" and `close_case` is converted to
  * `closeCondition`. Unconditional close (empty close_case `{}`) maps to
  * closeCondition = undefined (the default for close forms).
  */
-function decomposeFormEntity(form: BlueprintForm, formId: string): NForm {
+export function decomposeFormEntity(
+	form: BlueprintForm,
+	formId: string,
+): NForm {
 	let type: FormType = form.type;
 	let closeCondition:
 		| { question: string; answer: string; operator?: "=" | "selected" }

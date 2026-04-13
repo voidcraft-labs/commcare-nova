@@ -12,8 +12,11 @@ import {
 	cloneQuestionSubtree,
 	computeQuestionPath,
 	dedupeSiblingId,
+	findContainingForm,
 	findQuestionParent,
+	walkFormQuestionUuids,
 } from "./helpers";
+import { rewriteXPathOnMove } from "./pathRewrite";
 
 /**
  * Fields on a `QuestionEntity` that carry XPath expressions directly —
@@ -131,7 +134,7 @@ export function applyQuestionMutation(
 			if (!destIsForm && !destIsContainer) return;
 
 			const sourceParent = findQuestionParent(draft, mut.uuid);
-			const oldPath = computeQuestionPath(draft, mut.uuid);
+			const oldPathStr = computeQuestionPath(draft, mut.uuid) ?? "";
 			const crossParent =
 				sourceParent !== undefined &&
 				sourceParent.parentUuid !== mut.toParentUuid;
@@ -162,25 +165,46 @@ export function applyQuestionMutation(
 			destOrder.splice(clamped, 0, mut.uuid);
 			draft.questionOrder[mut.toParentUuid] = destOrder;
 
-			// Path change on move is NOT automatically rewritten in Phase 1a.
-			//
-			// `rewriteXPathRefs` is a leaf-replacement rewriter: it finds the
-			// matching absolute path and replaces only the final NameTest
-			// segment. That works when a question is RENAMED in place (the
-			// last segment changes, surrounding segments stay the same) but
-			// NOT when a question is MOVED to a different depth or branch
-			// (the entire path prefix changes). Attempting to reuse this
-			// helper for moves silently corrupts references: a `g1/source`→
-			// `g2/source` move rewrites `/data/g1/source` to `/data/g1/g2/source`
-			// (doubled path), a `grp/source`→`source` move is a no-op, and
-			// hashtag refs only match for top-level ids.
-			//
-			// TODO(phase-1b): add a proper path-to-path rewriter (either extend
-			// `lib/preview/xpath/rewrite.ts` with a prefix-swap mode or write a
-			// new `lib/doc/mutations/pathRewrite.ts`). Until then, cross-level
-			// moves leave referencing XPath fields stale — which is strictly
-			// safer than rewriting them incorrectly.
-			void oldPath;
+			// Rewrite absolute-path / hashtag references that now point at a
+			// stale path. Covers cross-level moves (where the prefix changes)
+			// and reorder+rename (where the leaf segment changes from dedup).
+			// Same-form only — xpath references never cross form boundaries.
+			const newPathStr = computeQuestionPath(draft, mut.uuid) ?? "";
+			if (oldPathStr && newPathStr && oldPathStr !== newPathStr) {
+				const oldSegments = oldPathStr.split("/");
+				const newSegments = newPathStr.split("/");
+				const formUuid = findContainingForm(draft, mut.uuid);
+				if (formUuid) {
+					for (const qUuid of walkFormQuestionUuids(draft, formUuid)) {
+						const target = draft.questions[qUuid];
+						if (!target) continue;
+						for (const field of XPATH_FIELDS) {
+							const expr = target[field];
+							if (typeof expr === "string" && expr.length > 0) {
+								const rewritten = rewriteXPathOnMove(
+									expr,
+									oldSegments,
+									newSegments,
+								);
+								if (rewritten !== expr) {
+									target[field] = rewritten as never;
+								}
+							}
+						}
+						for (const field of DISPLAY_FIELDS) {
+							const text = target[field];
+							if (typeof text === "string" && text.length > 0) {
+								const rewritten = transformBareHashtags(text, (expr) =>
+									rewriteXPathOnMove(expr, oldSegments, newSegments),
+								);
+								if (rewritten !== text) {
+									target[field] = rewritten as never;
+								}
+							}
+						}
+					}
+				}
+			}
 			return;
 		}
 		case "renameQuestion": {

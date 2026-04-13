@@ -101,6 +101,29 @@ export function findContainingForm(
 }
 
 /**
+ * Collect all question uuids under a form (BFS across groups and repeats).
+ * Returns a flat array — no depth info. Used when the caller needs to
+ * iterate every question in a form to rewrite references, etc.
+ */
+export function walkFormQuestionUuids(
+	doc: BlueprintDoc,
+	formUuid: Uuid,
+): Uuid[] {
+	const result: Uuid[] = [];
+	const stack: Uuid[] = [formUuid];
+	while (stack.length > 0) {
+		const parent = stack.pop() as Uuid;
+		const order = doc.questionOrder[parent] ?? [];
+		for (const childUuid of order) {
+			result.push(childUuid);
+			// Push onto the stack so children of groups/repeats are visited too.
+			stack.push(childUuid);
+		}
+	}
+	return result;
+}
+
+/**
  * Deduplicate a question id against its siblings. If `desired` conflicts
  * with any existing sibling id, append `_2`, `_3`, ... until unique.
  *
