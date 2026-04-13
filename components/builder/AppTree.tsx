@@ -617,8 +617,11 @@ const FormCard = memo(function FormCard({
 	/** Subscribe to this form's question UUIDs from the doc store. */
 	const questionUuids = useBlueprintDoc((s) => s.questionOrder[formId as Uuid]);
 
-	/** Full questionOrder for recursive question counting. */
-	const questionOrder = useBlueprintDoc((s) => s.questionOrder);
+	// Count via selector so the result is a primitive — reference equality
+	// then prevents re-renders when unrelated forms' questions change.
+	const count = useBlueprintDoc((s) =>
+		countQuestionsFromOrder(formId as Uuid, s.questionOrder),
+	);
 
 	/** Boolean selection. */
 	const isSelected = useBuilderStore(
@@ -692,7 +695,7 @@ const FormCard = memo(function FormCard({
 				</div>
 				{hasQuestions && (
 					<span className="text-xs text-nova-text-muted shrink-0">
-						{countQuestionsFromOrder(formId, questionOrder)} q
+						{count} q
 					</span>
 				)}
 			</TreeItemRow>
@@ -757,9 +760,9 @@ function useQuestionIconMap(formId: string): Map<string, IconifyIcon> {
 }
 
 /** Count questions recursively from questionOrder. Pure function —
- *  takes the questionOrder map directly (read from store by the caller). */
+ *  safe to call inside a Zustand selector for primitive-result memoization. */
 function countQuestionsFromOrder(
-	parentId: string,
+	parentId: Uuid,
 	questionOrder: Record<Uuid, Uuid[]>,
 ): number {
 	let count = 0;
@@ -770,7 +773,7 @@ function countQuestionsFromOrder(
 			walk(uuid);
 		}
 	}
-	walk(parentId as Uuid);
+	walk(parentId);
 	return count;
 }
 
