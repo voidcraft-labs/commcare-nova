@@ -5,6 +5,7 @@ import {
 	SectionLabel,
 } from "@/components/builder/InlineSettingsPanel";
 import { useBuilderStore, useModule } from "@/hooks/useBuilder";
+import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
 import { CasePropertyDropdown } from "./CasePropertyDropdown";
 import { OptionsEditor } from "./OptionsEditor";
 import {
@@ -22,7 +23,7 @@ export function ContextualEditorData({ question }: QuestionEditorProps) {
 	const selected = useBuilderStore((s) => s.selected);
 	const caseTypes = useBuilderStore((s) => s.caseTypes);
 	const mod = useModule(selected?.moduleIndex ?? 0);
-	const updateQuestion = useBuilderStore((s) => s.updateQuestion);
+	const { updateQuestion } = useBlueprintMutations();
 
 	const focusHint = useFocusHint(DATA_FIELDS);
 
