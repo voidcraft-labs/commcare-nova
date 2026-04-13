@@ -6,13 +6,13 @@ import tablerFilePlus from "@iconify-icons/tabler/file-plus";
 import { motion } from "motion/react";
 import { useCallback, useState } from "react";
 import { EditableTitle, SavedCheck } from "@/components/builder/EditableTitle";
-import {
-	useBuilderStore,
-	useModule,
-	useOrderedForms,
-} from "@/hooks/useBuilder";
+import { useBuilderStore, useModule } from "@/hooks/useBuilder";
 import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
+import { useOrderedForms } from "@/lib/doc/hooks/useModuleIds";
+import type { Uuid } from "@/lib/doc/types";
 import type { PreviewScreen } from "@/lib/preview/engine/types";
+import { useLocation, useNavigate } from "@/lib/routing/hooks";
+import { CASE_LOADING_FORM_TYPES } from "@/lib/schemas/blueprint";
 import { selectEditMode, selectIsReady } from "@/lib/services/builderSelectors";
 
 const formTypeIcons = {
@@ -23,26 +23,33 @@ const formTypeIcons = {
 
 interface ModuleScreenProps {
 	/** This screen's identity — which module is being displayed. Passed from
-	 *  PreviewShell so the component remains valid while Activity hides it. */
+	 *  PreviewShell so the component remains valid while Activity hides it.
+	 *  Index-based for downstream consumers (EditContext, useFormEngine) that
+	 *  haven't been migrated to uuid-first yet. Navigation and mutations use
+	 *  uuid from `useLocation()`. */
 	screen: Extract<PreviewScreen, { type: "module" }>;
 }
 
 export function ModuleScreen({ screen }: ModuleScreenProps) {
 	const moduleIndex = screen.moduleIndex;
-	const navPush = useBuilderStore((s) => s.navPush);
+	const loc = useLocation();
+	const navigate = useNavigate();
 	const { updateModule } = useBlueprintMutations();
 	const isReady = useBuilderStore(selectIsReady);
 	const mode = useBuilderStore(selectEditMode);
 
+	/** Module uuid from the URL — used for uuid-first mutations and navigation. */
+	const moduleUuid = loc.kind === "module" ? loc.moduleUuid : undefined;
+
 	const mod = useModule(moduleIndex);
-	const forms = useOrderedForms(moduleIndex);
+	const forms = useOrderedForms((moduleUuid ?? "") as Uuid);
 
 	const [saved, setSaved] = useState(false);
 	const saveModuleName = useCallback(
 		(name: string) => {
-			updateModule(moduleIndex, { name });
+			if (moduleUuid) updateModule(moduleUuid, { name });
 		},
-		[updateModule, moduleIndex],
+		[updateModule, moduleUuid],
 	);
 	const handleSaved = useCallback(() => {
 		setSaved(true);
@@ -76,11 +83,12 @@ export function ModuleScreen({ screen }: ModuleScreenProps) {
 						tablerFile;
 
 					const handleClick = () => {
-						if (form.type === "followup" && hasCase) {
-							/* Followup forms show the case list first — selecting a row opens the form */
-							navPush({ type: "caseList", moduleIndex, formIndex: fIdx });
+						if (!moduleUuid) return;
+						if (CASE_LOADING_FORM_TYPES.has(form.type) && hasCase) {
+							/* Case-loading forms show the case list first — selecting a row opens the form */
+							navigate.openCaseList(moduleUuid);
 						} else {
-							navPush({ type: "form", moduleIndex, formIndex: fIdx });
+							navigate.openForm(moduleUuid, form.uuid);
 						}
 					};
 

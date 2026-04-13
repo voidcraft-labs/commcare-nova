@@ -5,20 +5,18 @@ import { motion } from "motion/react";
 import { useCallback, useState } from "react";
 import { EditableTitle, SavedCheck } from "@/components/builder/EditableTitle";
 import { Badge } from "@/components/ui/Badge";
-import {
-	useBuilderHasData,
-	useBuilderStore,
-	useOrderedModules,
-} from "@/hooks/useBuilder";
+import { useBuilderHasData, useBuilderStore } from "@/hooks/useBuilder";
 import { useBlueprintDoc } from "@/lib/doc/hooks/useBlueprintDoc";
 import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
+import { useOrderedModules } from "@/lib/doc/hooks/useModuleIds";
 import type { Uuid } from "@/lib/doc/types";
+import { useNavigate } from "@/lib/routing/hooks";
 import { selectEditMode, selectIsReady } from "@/lib/services/builderSelectors";
 
 export function HomeScreen() {
 	const appName = useBlueprintDoc((s) => s.appName);
 	const formOrder = useBlueprintDoc((s) => s.formOrder);
-	const navPush = useBuilderStore((s) => s.navPush);
+	const navigate = useNavigate();
 	const { updateApp } = useBlueprintMutations();
 	const isReady = useBuilderStore(selectIsReady);
 	const mode = useBuilderStore(selectEditMode);
@@ -68,7 +66,7 @@ export function HomeScreen() {
 								duration: 0.3,
 								ease: [0.16, 1, 0.3, 1],
 							}}
-							onClick={() => navPush({ type: "module", moduleIndex: mIdx })}
+							onClick={() => navigate.openModule(mod.uuid)}
 							className="w-full flex items-center gap-4 p-4 rounded-xl bg-pv-surface border border-pv-input-border hover:border-pv-input-focus hover:translate-y-[-1px] transition-all duration-200 cursor-pointer text-left group"
 						>
 							<div className="w-10 h-10 rounded-lg bg-pv-accent/10 flex items-center justify-center shrink-0">

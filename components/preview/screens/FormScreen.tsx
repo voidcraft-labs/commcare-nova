@@ -8,10 +8,13 @@ import { EditableTitle, SavedCheck } from "@/components/builder/EditableTitle";
 import { useBuilderStore, useForm, useModule } from "@/hooks/useBuilder";
 import { EditContextProvider } from "@/hooks/useEditContext";
 import { EngineControllerContext, useFormEngine } from "@/hooks/useFormEngine";
+import { useBlueprintDoc } from "@/lib/doc/hooks/useBlueprintDoc";
 import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
 import { useCaseTypes } from "@/lib/doc/hooks/useCaseTypes";
+import type { Uuid } from "@/lib/doc/types";
 import { getCaseData, getDummyCases } from "@/lib/preview/engine/dummyData";
 import type { PreviewScreen } from "@/lib/preview/engine/types";
+import { useLocation, useNavigate } from "@/lib/routing/hooks";
 import { defaultPostSubmit } from "@/lib/schemas/blueprint";
 import { selectEditMode, selectIsReady } from "@/lib/services/builderSelectors";
 import { FormRenderer } from "../form/FormRenderer";
@@ -46,11 +49,16 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 	const formIndex = screen.formIndex;
 	const caseId = screen.caseId;
 	const caseTypes = useCaseTypes();
-	const selected = useBuilderStore((s) => s.selected);
+	const loc = useLocation();
+	const navigate = useNavigate();
 	const { updateForm } = useBlueprintMutations();
-	const navPush = useBuilderStore((s) => s.navPush);
 	const isReady = useBuilderStore(selectIsReady);
 	const mode = useBuilderStore(selectEditMode);
+
+	/** Uuids derived from the URL — used for uuid-first mutations and navigation. */
+	const formUuid = loc.kind === "form" ? loc.formUuid : undefined;
+	const moduleUuid = loc.kind === "form" ? loc.moduleUuid : undefined;
+	const selectedUuid = loc.kind === "form" ? loc.selectedUuid : undefined;
 
 	const [titleSaved, setTitleSaved] = useState(false);
 	const handleTitleSaved = useCallback(() => {
@@ -61,17 +69,14 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 	const mod = useModule(moduleIndex);
 	const form = useForm(moduleIndex, formIndex);
 
-	/** Resolve formId for UUID-based rendering. FormRenderer subscribes
-	 *  to `questionOrder[formId]` for the ordered UUID list. */
-	const formId = useBuilderStore((s) => {
-		const moduleId = s.moduleOrder[moduleIndex];
-		if (!moduleId) return undefined;
-		return s.formOrder[moduleId]?.[formIndex];
-	});
+	/** The form's uuid doubles as the entity key for FormRenderer, which
+	 *  subscribes to `questionOrder[formUuid]` for the ordered child list.
+	 *  Read from the URL-derived location so this doesn't touch the legacy store. */
+	const formId = formUuid;
 
 	/** Whether the form has any questions — drives the empty state. */
-	const hasQuestions = useBuilderStore((s) =>
-		formId ? (s.questionOrder[formId]?.length ?? 0) > 0 : false,
+	const hasQuestions = useBlueprintDoc((s) =>
+		formId ? (s.questionOrder[formId as Uuid]?.length ?? 0) > 0 : false,
 	);
 
 	const caseData = useMemo(() => {
@@ -105,10 +110,9 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 		(el: HTMLDivElement | null) => {
 			formBodyElRef.current = el;
 			if (!el || mode !== "test") return;
-			const uuid = selected?.questionUuid;
-			if (!uuid) return;
+			if (!selectedUuid) return;
 			const raf = requestAnimationFrame(() => {
-				const qEl = el.querySelector(`[data-question-uuid="${uuid}"]`);
+				const qEl = el.querySelector(`[data-question-uuid="${selectedUuid}"]`);
 				const input = qEl?.querySelector(
 					"input, select, textarea",
 				) as HTMLElement | null;
@@ -116,7 +120,7 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 			});
 			return () => cancelAnimationFrame(raf);
 		},
-		[mode, selected?.questionUuid],
+		[mode, selectedUuid],
 	);
 
 	if (!form || !formId) return null;
@@ -144,11 +148,11 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 			switch (dest) {
 				case "module":
 				case "parent_module":
-					navPush({ type: "module", moduleIndex });
+					if (moduleUuid) navigate.openModule(moduleUuid);
 					break;
 				case "root":
 				case "app_home":
-					navPush({ type: "home" });
+					navigate.goHome();
 					break;
 				default:
 					onBack();
@@ -178,7 +182,7 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 						<EditableTitle
 							value={form.name}
 							onSave={(name) => {
-								updateForm(moduleIndex, formIndex, { name });
+								if (formUuid) updateForm(formUuid, { name });
 							}}
 							onSaved={handleTitleSaved}
 						/>
