@@ -285,3 +285,54 @@ describe("moveQuestion", () => {
 		expect(next.questionOrder[F("1")]).toEqual([Q("a")]);
 	});
 });
+
+describe("renameQuestion", () => {
+	it("updates the question's id", () => {
+		const start: BlueprintDoc = {
+			...docWithForm(),
+			questions: { [Q("a")]: question_(Q("a"), "old_name") },
+			questionOrder: { [F("1")]: [Q("a")] },
+		};
+		const next = produce(start, (d) => {
+			applyMutation(d, {
+				kind: "renameQuestion",
+				uuid: Q("a"),
+				newId: "new_name",
+			});
+		});
+		expect(next.questions[Q("a")]?.id).toBe("new_name");
+	});
+
+	it("rewrites XPath references that point to the old id", () => {
+		const start: BlueprintDoc = {
+			...docWithForm(),
+			questions: {
+				[Q("src")]: question_(Q("src"), "source"),
+				[Q("ref")]: question_(Q("ref"), "ref", {
+					calculate: "/data/source * 2",
+				}),
+			},
+			questionOrder: { [F("1")]: [Q("src"), Q("ref")] },
+		};
+		const next = produce(start, (d) => {
+			applyMutation(d, {
+				kind: "renameQuestion",
+				uuid: Q("src"),
+				newId: "primary",
+			});
+		});
+		expect(next.questions[Q("ref")]?.calculate).toContain("primary");
+		expect(next.questions[Q("ref")]?.calculate).not.toContain("source");
+	});
+
+	it("is a no-op when the question doesn't exist", () => {
+		const next = produce(docWithForm(), (d) => {
+			applyMutation(d, {
+				kind: "renameQuestion",
+				uuid: Q("missing"),
+				newId: "x",
+			});
+		});
+		expect(Object.keys(next.questions)).toHaveLength(0);
+	});
+});
