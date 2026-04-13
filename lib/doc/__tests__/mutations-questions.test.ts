@@ -119,3 +119,51 @@ describe("updateQuestion", () => {
 		expect(next.questions[Q("a")]?.id).toBe("name"); // Preserved
 	});
 });
+
+describe("removeQuestion", () => {
+	it("removes a leaf question and splices its parent's order", () => {
+		const start: BlueprintDoc = {
+			...docWithForm(),
+			questions: {
+				[Q("a")]: question_(Q("a"), "a"),
+				[Q("b")]: question_(Q("b"), "b"),
+			},
+			questionOrder: { [F("1")]: [Q("a"), Q("b")] },
+		};
+		const next = produce(start, (d) => {
+			applyMutation(d, { kind: "removeQuestion", uuid: Q("a") });
+		});
+		expect(next.questions[Q("a")]).toBeUndefined();
+		expect(next.questions[Q("b")]).toBeDefined();
+		expect(next.questionOrder[F("1")]).toEqual([Q("b")]);
+	});
+
+	it("cascades to group children", () => {
+		const start: BlueprintDoc = {
+			...docWithForm(),
+			questions: {
+				[Q("grp")]: question_(Q("grp"), "grp", { type: "group" }),
+				[Q("c1")]: question_(Q("c1"), "c1"),
+				[Q("c2")]: question_(Q("c2"), "c2"),
+			},
+			questionOrder: {
+				[F("1")]: [Q("grp")],
+				[Q("grp")]: [Q("c1"), Q("c2")],
+			},
+		};
+		const next = produce(start, (d) => {
+			applyMutation(d, { kind: "removeQuestion", uuid: Q("grp") });
+		});
+		expect(next.questions[Q("grp")]).toBeUndefined();
+		expect(next.questions[Q("c1")]).toBeUndefined();
+		expect(next.questions[Q("c2")]).toBeUndefined();
+		expect(next.questionOrder[Q("grp")]).toBeUndefined();
+	});
+
+	it("is a no-op when the question doesn't exist", () => {
+		const next = produce(docWithForm(), (d) => {
+			applyMutation(d, { kind: "removeQuestion", uuid: Q("missing") });
+		});
+		expect(Object.keys(next.questions)).toHaveLength(0);
+	});
+});
