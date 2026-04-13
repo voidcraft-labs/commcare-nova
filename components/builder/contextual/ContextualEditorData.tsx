@@ -5,8 +5,8 @@ import {
 	SectionLabel,
 } from "@/components/builder/InlineSettingsPanel";
 import { useBuilderStore, useModule } from "@/hooks/useBuilder";
-import { useBlueprintDoc } from "@/lib/doc/hooks/useBlueprintDoc";
 import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
+import { useCaseTypes } from "@/lib/doc/hooks/useCaseTypes";
 import { CasePropertyDropdown } from "./CasePropertyDropdown";
 import { OptionsEditor } from "./OptionsEditor";
 import {
@@ -22,7 +22,7 @@ const DATA_FIELDS = new Set<FocusableFieldKey>(["case_property_on", "options"]);
 
 export function ContextualEditorData({ question }: QuestionEditorProps) {
 	const selected = useBuilderStore((s) => s.selected);
-	const caseTypes = useBlueprintDoc((s) => s.caseTypes ?? []);
+	const caseTypes = useCaseTypes();
 	const mod = useModule(selected?.moduleIndex ?? 0);
 	const { updateQuestion } = useBlueprintMutations();
 

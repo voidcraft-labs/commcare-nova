@@ -276,8 +276,10 @@ export function useBreadcrumbs(): BreadcrumbItem[] {
 	const screen = useBuilderStore((s) => s.screen);
 	const appName = useBlueprintDoc((s) => s.appName);
 
-	/* Extract the specific entity names from the screen's indices.
-	 * Each selector returns a primitive string, compared by value. */
+	// moduleName/formName/moduleCaseType resolve `screen` indices (session
+	// state on the legacy store) against the entity maps. Phase 1b leaves
+	// these on the legacy store; they move when `screen` migrates to URL
+	// state in Phase 2.
 	const moduleName = useBuilderStore((s) => {
 		if (!("moduleIndex" in screen)) return undefined;
 		const mId = s.moduleOrder[screen.moduleIndex];

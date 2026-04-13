@@ -8,8 +8,8 @@ import { EditableTitle, SavedCheck } from "@/components/builder/EditableTitle";
 import { useBuilderStore, useForm, useModule } from "@/hooks/useBuilder";
 import { EditContextProvider } from "@/hooks/useEditContext";
 import { EngineControllerContext, useFormEngine } from "@/hooks/useFormEngine";
-import { useBlueprintDoc } from "@/lib/doc/hooks/useBlueprintDoc";
 import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
+import { useCaseTypes } from "@/lib/doc/hooks/useCaseTypes";
 import { getCaseData, getDummyCases } from "@/lib/preview/engine/dummyData";
 import type { PreviewScreen } from "@/lib/preview/engine/types";
 import { defaultPostSubmit } from "@/lib/schemas/blueprint";
@@ -45,7 +45,7 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 	const moduleIndex = screen.moduleIndex;
 	const formIndex = screen.formIndex;
 	const caseId = screen.caseId;
-	const caseTypes = useBlueprintDoc((s) => s.caseTypes);
+	const caseTypes = useCaseTypes();
 	const selected = useBuilderStore((s) => s.selected);
 	const { updateForm } = useBlueprintMutations();
 	const navPush = useBuilderStore((s) => s.navPush);
@@ -78,7 +78,7 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 		if (!mod?.caseType) return undefined;
 		if (caseId) return getCaseData(mod.caseType, caseId);
 		if (form?.type === "followup") {
-			const ct = caseTypes?.find((c) => c.name === mod.caseType);
+			const ct = caseTypes.find((c) => c.name === mod.caseType);
 			if (ct) return getDummyCases(ct)[0]?.properties;
 		}
 		return undefined;
