@@ -29,11 +29,7 @@ import {
 	useState,
 } from "react";
 import { ConnectLogomark } from "@/components/icons/ConnectLogomark";
-import {
-	useBuilderEngine,
-	useBuilderPhase,
-	useBuilderStore,
-} from "@/hooks/useBuilder";
+import { useBuilderPhase } from "@/hooks/useBuilder";
 import {
 	useBlueprintDoc,
 	useBlueprintDocShallow,
@@ -49,7 +45,13 @@ import type {
 import { highlightSegments, type MatchIndices } from "@/lib/filterTree";
 import { formTypeIcons, questionTypeIcons } from "@/lib/questionTypeIcons";
 import { textWithChips } from "@/lib/references/LabelContent";
-import { BuilderPhase, type SelectedElement } from "@/lib/services/builder";
+import {
+	useIsFormSelected,
+	useIsModuleSelected,
+	useIsQuestionSelected,
+	useNavigate,
+} from "@/lib/routing/hooks";
+import { BuilderPhase } from "@/lib/services/builder";
 import type { NForm, NModule, NQuestion } from "@/lib/services/normalizedState";
 import { type QuestionPath, qpath } from "@/lib/services/questionPath";
 
@@ -60,8 +62,17 @@ import { type QuestionPath, qpath } from "@/lib/services/questionPath";
  */
 const FormIconContext = createContext<Map<string, IconifyIcon>>(new Map());
 
-/** Handler for tree item selection — passed down through the recursive tree. */
-type TreeSelectHandler = (selected: SelectedElement) => void;
+/**
+ * Handler for tree item selection — passed down through the recursive tree.
+ * Uses uuid-keyed targets so selection navigates via URL, not store indices.
+ */
+type TreeSelectTarget =
+	| { kind: "clear" }
+	| { kind: "module"; moduleUuid: Uuid }
+	| { kind: "form"; moduleUuid: Uuid; formUuid: Uuid }
+	| { kind: "question"; moduleUuid: Uuid; formUuid: Uuid; questionUuid: Uuid };
+
+type TreeSelectHandler = (target: TreeSelectTarget) => void;
 
 interface AppTreeProps {
 	actions?: React.ReactNode;
@@ -72,14 +83,30 @@ export function AppTree({ actions, hideHeader }: AppTreeProps) {
 	const moduleOrder = useModuleIds();
 	const appName = useBlueprintDoc((s) => s.appName);
 	const phase = useBuilderPhase();
-	const engine = useBuilderEngine();
+	const navigate = useNavigate();
 
 	const locked =
 		phase !== BuilderPhase.Ready && phase !== BuilderPhase.Completed;
 
+	/** Navigate to the URL location matching the clicked tree element. */
 	const handleSelect: TreeSelectHandler = useCallback(
-		(sel: SelectedElement) => engine.navigateToSelection(sel),
-		[engine],
+		(target) => {
+			switch (target.kind) {
+				case "clear":
+					return navigate.goHome();
+				case "module":
+					return navigate.openModule(target.moduleUuid);
+				case "form":
+					return navigate.openForm(target.moduleUuid, target.formUuid);
+				case "question":
+					return navigate.openForm(
+						target.moduleUuid,
+						target.formUuid,
+						target.questionUuid,
+					);
+			}
+		},
+		[navigate],
 	);
 	const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
 	const [searchQuery, setSearchQuery] = useState("");
@@ -177,6 +204,7 @@ export function AppTree({ actions, hideHeader }: AppTreeProps) {
 								return (
 									<ModuleCard
 										key={_moduleId}
+										moduleUuid={_moduleId}
 										moduleIndex={mIdx}
 										onSelect={handleSelect}
 										collapsed={collapsed}
@@ -439,6 +467,7 @@ function HighlightedText({
 // ── ModuleCard ───────────────────────────────────────────────────────
 
 const ModuleCard = memo(function ModuleCard({
+	moduleUuid,
 	moduleIndex,
 	onSelect,
 	collapsed,
@@ -446,6 +475,7 @@ const ModuleCard = memo(function ModuleCard({
 	searchResult,
 	locked,
 }: {
+	moduleUuid: Uuid;
 	moduleIndex: number;
 	onSelect: TreeSelectHandler;
 	collapsed: Set<string>;
@@ -455,24 +485,18 @@ const ModuleCard = memo(function ModuleCard({
 }) {
 	/** Subscribe to this module's entity from the doc store. Only re-renders
 	 *  when THIS module changes (Immer structural sharing on the entity ref). */
-	const mod = useBlueprintDoc((s) => {
-		const moduleId = s.moduleOrder[moduleIndex];
-		return moduleId ? s.modules[moduleId] : undefined;
-	}) as NModule | undefined;
+	const mod = useBlueprintDoc((s) => s.modules[moduleUuid]) as
+		| NModule
+		| undefined;
 
 	/** Subscribe to this module's form IDs from the doc store. */
-	const formIds = useBlueprintDoc((s) => {
-		const moduleId = s.moduleOrder[moduleIndex];
-		return moduleId ? s.formOrder[moduleId] : undefined;
-	});
+	const formIds = useBlueprintDoc((s) => s.formOrder[moduleUuid]);
 
 	const connectType = useBlueprintDoc((s) => s.connectType);
 
-	/** Boolean selection — only this module + the previously selected re-render. */
-	const isSelected = useBuilderStore(
-		(s) =>
-			s.selected?.type === "module" && s.selected.moduleIndex === moduleIndex,
-	);
+	/** Boolean selection — URL-driven via useIsModuleSelected.
+	 *  Only this module + the previously selected re-render on change. */
+	const isSelected = useIsModuleSelected(moduleUuid);
 
 	const collapseKey = `m${moduleIndex}`;
 	const isCollapsed = searchResult?.forceExpand?.has(collapseKey)
@@ -491,7 +515,7 @@ const ModuleCard = memo(function ModuleCard({
 		>
 			<TreeItemRow
 				className={`pl-3 pr-3 py-2.5 flex items-center justify-between ${locked ? "pointer-events-none" : "cursor-pointer"}`}
-				onClick={() => onSelect({ type: "module", moduleIndex })}
+				onClick={() => onSelect({ kind: "module", moduleUuid })}
 			>
 				<div className="flex items-center gap-2">
 					<CollapseChevron
@@ -566,6 +590,7 @@ const ModuleCard = memo(function ModuleCard({
 									<FormCard
 										key={formId}
 										formId={formId}
+										moduleUuid={moduleUuid}
 										moduleIndex={moduleIndex}
 										formIndex={fIdx}
 										onSelect={onSelect}
@@ -590,6 +615,7 @@ const ModuleCard = memo(function ModuleCard({
 
 const FormCard = memo(function FormCard({
 	formId,
+	moduleUuid,
 	moduleIndex,
 	formIndex,
 	onSelect,
@@ -601,6 +627,7 @@ const FormCard = memo(function FormCard({
 	locked,
 }: {
 	formId: string;
+	moduleUuid: Uuid;
 	moduleIndex: number;
 	formIndex: number;
 	onSelect: TreeSelectHandler;
@@ -623,13 +650,9 @@ const FormCard = memo(function FormCard({
 		countQuestionsFromOrder(formId as Uuid, s.questionOrder),
 	);
 
-	/** Boolean selection. */
-	const isSelected = useBuilderStore(
-		(s) =>
-			s.selected?.type === "form" &&
-			s.selected.moduleIndex === moduleIndex &&
-			s.selected.formIndex === formIndex,
-	);
+	/** Boolean selection — URL-driven via useIsFormSelected.
+	 *  Only this form + the previously selected re-render on change. */
+	const isSelected = useIsFormSelected(formId);
 
 	const collapseKey = `f${moduleIndex}_${formIndex}`;
 	const isCollapsed = searchResult?.forceExpand?.has(collapseKey)
@@ -656,7 +679,13 @@ const FormCard = memo(function FormCard({
 		>
 			<TreeItemRow
 				className={`pl-5 pr-3 py-2.5 transition-colors flex items-center gap-2 ${locked ? "pointer-events-none" : "cursor-pointer hover:bg-nova-violet/[0.06]"}`}
-				onClick={() => onSelect({ type: "form", moduleIndex, formIndex })}
+				onClick={() =>
+					onSelect({
+						kind: "form",
+						moduleUuid,
+						formUuid: formId as Uuid,
+					})
+				}
 			>
 				{hasQuestions ? (
 					<CollapseChevron
@@ -714,8 +743,8 @@ const FormCard = memo(function FormCard({
 									<QuestionRow
 										key={uuid}
 										uuid={uuid}
-										moduleIndex={moduleIndex}
-										formIndex={formIndex}
+										moduleUuid={moduleUuid}
+										formUuid={formId as Uuid}
 										onSelect={onSelect}
 										depth={0}
 										delay={delay + qIdx * 0.02}
@@ -781,8 +810,8 @@ function countQuestionsFromOrder(
 
 const QuestionRow = memo(function QuestionRow({
 	uuid,
-	moduleIndex,
-	formIndex,
+	moduleUuid,
+	formUuid,
 	onSelect,
 	depth,
 	delay,
@@ -793,8 +822,8 @@ const QuestionRow = memo(function QuestionRow({
 	parentPath,
 }: {
 	uuid: string;
-	moduleIndex: number;
-	formIndex: number;
+	moduleUuid: Uuid;
+	formUuid: Uuid;
 	onSelect: TreeSelectHandler;
 	depth: number;
 	delay: number;
@@ -812,10 +841,9 @@ const QuestionRow = memo(function QuestionRow({
 	/** Subscribe to children UUIDs (for groups/repeats) from the doc store. */
 	const childUuids = useBlueprintDoc((s) => s.questionOrder[uuid as Uuid]);
 
-	/** Boolean selection — only this question + the old selection re-render. */
-	const isSelected = useBuilderStore(
-		(s) => s.selected?.type === "question" && s.selected.questionUuid === uuid,
-	);
+	/** Boolean selection — URL-driven via useIsQuestionSelected.
+	 *  Only this question + the old selection re-render on change. */
+	const isSelected = useIsQuestionSelected(uuid);
 
 	const iconOverrides = use(FormIconContext);
 
@@ -857,11 +885,10 @@ const QuestionRow = memo(function QuestionRow({
 				onClick={(e) => {
 					e.stopPropagation();
 					onSelect({
-						type: "question",
-						moduleIndex,
-						formIndex,
-						questionPath,
-						questionUuid: uuid,
+						kind: "question",
+						moduleUuid,
+						formUuid,
+						questionUuid: uuid as Uuid,
 					});
 				}}
 			>
@@ -919,8 +946,8 @@ const QuestionRow = memo(function QuestionRow({
 						<QuestionRow
 							key={childUuid}
 							uuid={childUuid}
-							moduleIndex={moduleIndex}
-							formIndex={formIndex}
+							moduleUuid={moduleUuid}
+							formUuid={formUuid}
 							onSelect={onSelect}
 							depth={depth + 1}
 							delay={delay + (cIdx + 1) * 0.02}
