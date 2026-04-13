@@ -47,7 +47,7 @@ import type { CommCareSettingsPublic } from "@/lib/db/settings";
 import { useBlueprintDoc } from "@/lib/doc/hooks/useBlueprintDoc";
 import type { Uuid } from "@/lib/doc/types";
 import { ReferenceProviderWrapper } from "@/lib/references/ReferenceContext";
-import { useNavigate } from "@/lib/routing/hooks";
+import { useLocation, useNavigate } from "@/lib/routing/hooks";
 import { BuilderPhase } from "@/lib/services/builder";
 import { selectInReplayMode } from "@/lib/services/builderSelectors";
 import type { CursorMode } from "@/lib/services/builderStore";
@@ -333,37 +333,38 @@ export function BuilderLayout({
 
 	// ── Reference provider ──────────────────────────────────────────────
 
+	const loc = useLocation();
+
 	const getRefContext = useCallback(() => {
 		const s = builder.store.getState();
 		if (s.moduleOrder.length === 0) return undefined;
 
 		const bp = assembleBlueprint(getEntityData(s));
-		const sel = s.selected;
-		if (sel?.type === "question" && sel.formIndex !== undefined) {
-			const form = bp.modules[sel.moduleIndex]?.forms[sel.formIndex];
-			const mod = bp.modules[sel.moduleIndex];
-			if (form)
-				return {
-					blueprint: bp,
-					form,
-					moduleCaseType: mod?.case_type ?? undefined,
-				};
-		}
 
-		const screen = s.screen;
-		if (screen.type === "form") {
-			const form = bp.modules[screen.moduleIndex]?.forms[screen.formIndex];
-			const mod = bp.modules[screen.moduleIndex];
-			if (form)
-				return {
-					blueprint: bp,
-					form,
-					moduleCaseType: mod?.case_type ?? undefined,
-				};
+		/* Resolve the form in scope from the URL. The callback fires at edit
+		 * time, so the current location accurately reflects which form the
+		 * user is editing. */
+		if (loc.kind === "form") {
+			/* Resolve module/form indices from UUIDs via the legacy mirror,
+			 * since assembleBlueprint returns a wire-format BlueprintApp with
+			 * index-based modules/forms. */
+			const moduleIndex = s.moduleOrder.indexOf(loc.moduleUuid);
+			if (moduleIndex < 0) return undefined;
+			const mod = bp.modules[moduleIndex];
+			const formIds = s.formOrder[loc.moduleUuid] ?? [];
+			const formIndex = formIds.indexOf(loc.formUuid);
+			if (formIndex < 0) return undefined;
+			const form = mod?.forms[formIndex];
+			if (!form) return undefined;
+			return {
+				blueprint: bp,
+				form,
+				moduleCaseType: mod?.case_type ?? undefined,
+			};
 		}
 
 		return undefined;
-	}, [builder]);
+	}, [builder, loc]);
 
 	/** Subscribe to entity changes that invalidate the ReferenceProvider cache.
 	 *  Covers questions (question references, case_property_on), modules
