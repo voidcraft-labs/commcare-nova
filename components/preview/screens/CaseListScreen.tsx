@@ -2,6 +2,7 @@
 import { motion } from "motion/react";
 import { useMemo } from "react";
 import { useBuilderStore, useForm, useModule } from "@/hooks/useBuilder";
+import { useBlueprintDoc } from "@/lib/doc/hooks/useBlueprintDoc";
 import { getDummyCases } from "@/lib/preview/engine/dummyData";
 import type { PreviewScreen } from "@/lib/preview/engine/types";
 
@@ -16,7 +17,7 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 	const moduleIndex = screen.moduleIndex;
 	const formIndex = screen.formIndex;
 
-	const caseTypes = useBuilderStore((s) => s.caseTypes);
+	const caseTypes = useBlueprintDoc((s) => s.caseTypes);
 	const navPush = useBuilderStore((s) => s.navPush);
 
 	const mod = useModule(moduleIndex);
