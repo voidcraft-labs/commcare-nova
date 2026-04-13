@@ -1,19 +1,20 @@
 "use client";
 import { motion } from "motion/react";
 import { useMemo } from "react";
-import {
-	useBuilderStore,
-	useForm,
-	useModule,
-	useScreenData,
-} from "@/hooks/useBuilder";
+import { useBuilderStore, useForm, useModule } from "@/hooks/useBuilder";
 import { getDummyCases } from "@/lib/preview/engine/dummyData";
+import type { PreviewScreen } from "@/lib/preview/engine/types";
 
-export function CaseListScreen() {
-	/* Read screen indices from the store — no props needed. */
-	const screen = useScreenData("caseList");
-	const moduleIndex = screen?.moduleIndex ?? 0;
-	const formIndex = screen?.formIndex ?? 0;
+interface CaseListScreenProps {
+	/** This screen's identity — which module/form the case list belongs to.
+	 *  Passed from PreviewShell so the component remains valid while Activity
+	 *  hides it. */
+	screen: Extract<PreviewScreen, { type: "caseList" }>;
+}
+
+export function CaseListScreen({ screen }: CaseListScreenProps) {
+	const moduleIndex = screen.moduleIndex;
+	const formIndex = screen.formIndex;
 
 	const caseTypes = useBuilderStore((s) => s.caseTypes);
 	const navPush = useBuilderStore((s) => s.navPush);
@@ -28,7 +29,7 @@ export function CaseListScreen() {
 		return getDummyCases(caseType);
 	}, [caseType]);
 
-	if (!screen || !mod || !caseType || columns.length === 0) {
+	if (!mod || !caseType || columns.length === 0) {
 		return (
 			<div className="p-6 text-center text-nova-text-muted">
 				No case list configured for this module.

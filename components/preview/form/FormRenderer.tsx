@@ -17,6 +17,7 @@
  * no reactive subscription to entity maps during drag.
  */
 "use client";
+import { Menu } from "@base-ui/react/menu";
 import { CollisionPriority } from "@dnd-kit/abstract";
 import { PointerActivationConstraints } from "@dnd-kit/dom";
 import { RestrictToElement } from "@dnd-kit/dom/modifiers";
@@ -27,6 +28,7 @@ import {
 	createContext,
 	Fragment,
 	memo,
+	useCallback,
 	useContext,
 	useEffect,
 	useMemo,
@@ -59,6 +61,11 @@ import { LabelField } from "./fields/LabelField";
 import { RepeatField } from "./fields/RepeatField";
 import { InsertionPoint } from "./InsertionPoint";
 import { QuestionField } from "./QuestionField";
+import {
+	QuestionPickerContext,
+	type QuestionPickerPayload,
+} from "./QuestionPickerContext";
+import { QuestionTypePickerPopup } from "./QuestionTypePicker";
 import { TextEditable } from "./TextEditable";
 
 /** EMA smoothing factor for cursor velocity. Lower = smoother, slower response. */
@@ -587,6 +594,40 @@ export const FormRenderer = memo(function FormRenderer({
 		[cursorSpeedRef, lastCursorRef],
 	);
 
+	// ── Shared question picker (root only) ──────────────────────────
+	// A single Menu.Root serves all InsertionPoints via detached triggers.
+	// Close-notification pub/sub lets InsertionPoints reset hover state
+	// when the shared menu closes (they no longer own the Menu.Root).
+	const questionPickerHandle = useMemo(
+		() =>
+			isRoot && isEditMode
+				? Menu.createHandle<QuestionPickerPayload>()
+				: undefined,
+		[isRoot, isEditMode],
+	);
+
+	const closeListenersRef = useRef(new Set<() => void>());
+	const subscribeClose = useCallback((listener: () => void) => {
+		closeListenersRef.current.add(listener);
+		return () => {
+			closeListenersRef.current.delete(listener);
+		};
+	}, []);
+
+	const handlePickerOpenChange = useCallback((nextOpen: boolean) => {
+		if (!nextOpen) {
+			for (const listener of closeListenersRef.current) listener();
+		}
+	}, []);
+
+	const questionPickerCtx = useMemo(
+		() =>
+			questionPickerHandle
+				? { handle: questionPickerHandle, subscribeClose }
+				: null,
+		[questionPickerHandle, subscribeClose],
+	);
+
 	// Non-edit mode or nested FormRenderers: just render items (no DragDropProvider).
 	// Only the root FormRenderer creates the DragDropProvider so items can drag across all levels.
 	if (!isEditMode || !isRoot) {
@@ -594,222 +635,244 @@ export const FormRenderer = memo(function FormRenderer({
 	}
 
 	return (
-		<CursorSpeedContext.Provider value={cursorSpeedCtx}>
-			<DragReorderContext.Provider value={dragState}>
-				<DragDropProvider
-					sensors={SENSORS}
-					modifiers={modifiers}
-					onDragStart={(event) => {
-						const sourceUuid = event.operation.source?.id as string | undefined;
-						if (sourceUuid) {
-							/* Read entity maps imperatively from the store — no reactive
-							 * subscription. Drag state is a snapshot, not a live view. */
-							const s = builderEngine.store.getState();
-							setDragState(
-								buildDragStateFromStore(
-									s.questions,
-									s.questionOrder,
-									parentEntityId,
-									sourceUuid,
-								),
-							);
-						}
-						document.body.style.cursor = "grabbing";
-						if (ctx) {
-							builderEngine.setDragging(true);
-							builderEngine.select();
-						}
-					}}
-					onDragOver={(event) => {
-						setDragState((prev) => {
-							if (!prev) return prev;
-							const newMap = move(prev.itemsMap, event);
-							if (newMap === prev.itemsMap) return prev;
-							return { ...prev, itemsMap: newMap };
-						});
-					}}
-					onDragEnd={(event) => {
-						// Capture state before clearing — dnd-kit fires this during
-						// useInsertionEffect where React 19 forbids setState, so defer cleanup.
-						const ds = dragState;
-						const canceled = event.canceled;
-
-						queueMicrotask(() => {
-							setDragState(null);
-							document.body.style.cursor = "";
-							if (ctx) builderEngine.setDragging(false);
-
-							if (canceled || !ctx || !ds) return;
-
-							const {
-								activeUuid: dragUuid,
-								activePath: dragPath,
-								itemsMap,
-								uuidToPath,
-							} = ds;
-
-							/* Helper: resolve a UUID from the items map to a QuestionPath
-							 * for mutation calls. Falls back to the pre-drag path map. */
-							const pathOf = (u: string): QuestionPath =>
-								uuidToPath.get(u) ?? ("" as QuestionPath);
-
-							// Find where the item ended up in the controlled items map
-							let finalGroup: string | undefined;
-							let finalIndex = -1;
-							for (const [g, ids] of Object.entries(itemsMap)) {
-								const i = ids.indexOf(dragUuid);
-								if (i !== -1) {
-									finalGroup = g;
-									finalIndex = i;
-									break;
-								}
-							}
-
-							if (finalGroup === undefined || finalIndex === -1) return;
-
-							/* Determine the initial group from the dragged question's
-							 * parent. The parent UUID is encoded in the container key
-							 * for nested questions, or ROOT_GROUP for top-level ones. */
-							const draggedParentPath = qpathParent(dragPath);
-							const draggedParentUuid = draggedParentPath
-								? (() => {
-										/* Look up the parent question's UUID from the store
-										 * by finding the question whose id matches the
-										 * last segment of the parent path. */
-										const parentId = qpathId(draggedParentPath);
-										for (const [u, p] of uuidToPath.entries()) {
-											if (qpathId(p) === parentId) return u;
-										}
-										return undefined;
-									})()
-								: undefined;
-							const initialGroup = draggedParentUuid
-								? `${draggedParentUuid}${CONTAINER_SUFFIX}`
-								: ROOT_GROUP;
-
-							const sameGroup = initialGroup === finalGroup;
-
-							// Check if position actually changed
-							if (sameGroup) {
-								const initialState = buildDragStateFromStore(
-									builderEngine.store.getState().questions,
-									builderEngine.store.getState().questionOrder,
-									parentEntityId,
-									dragUuid,
+		<QuestionPickerContext.Provider value={questionPickerCtx}>
+			<CursorSpeedContext.Provider value={cursorSpeedCtx}>
+				<DragReorderContext.Provider value={dragState}>
+					<DragDropProvider
+						sensors={SENSORS}
+						modifiers={modifiers}
+						onDragStart={(event) => {
+							const sourceUuid = event.operation.source?.id as
+								| string
+								| undefined;
+							if (sourceUuid) {
+								/* Read entity maps imperatively from the store — no reactive
+								 * subscription. Drag state is a snapshot, not a live view. */
+								const s = builderEngine.store.getState();
+								setDragState(
+									buildDragStateFromStore(
+										s.questions,
+										s.questionOrder,
+										parentEntityId,
+										sourceUuid,
+									),
 								);
-								const initialIds = initialState.itemsMap[initialGroup] ?? [];
-								const finalIds = itemsMap[finalGroup] ?? [];
-								const initialIdx = initialIds.indexOf(dragUuid);
-								if (
-									initialIdx === finalIndex &&
-									initialIds.length === finalIds.length
-								) {
-									// No movement — just select
-									builderEngine.select({
-										type: "question",
-										moduleIndex: ctx.moduleIndex,
-										formIndex: ctx.formIndex,
-										questionPath: dragPath,
-										questionUuid: dragUuid,
-									});
-									return;
-								}
 							}
+							document.body.style.cursor = "grabbing";
+							if (ctx) {
+								builderEngine.setDragging(true);
+								builderEngine.select();
+							}
+						}}
+						onDragOver={(event) => {
+							setDragState((prev) => {
+								if (!prev) return prev;
+								const newMap = move(prev.itemsMap, event);
+								if (newMap === prev.itemsMap) return prev;
+								return { ...prev, itemsMap: newMap };
+							});
+						}}
+						onDragEnd={(event) => {
+							// Capture state before clearing — dnd-kit fires this during
+							// useInsertionEffect where React 19 forbids setState, so defer cleanup.
+							const ds = dragState;
+							const canceled = event.canceled;
 
-							/* Resolve the target parent path from the final group key. */
-							const finalIds = itemsMap[finalGroup] ?? [];
-							const targetParentUuid =
-								finalGroup === ROOT_GROUP
-									? undefined
-									: stripContainerSuffix(finalGroup);
-							const targetParentPath = targetParentUuid
-								? pathOf(targetParentUuid)
-								: undefined;
+							queueMicrotask(() => {
+								setDragState(null);
+								document.body.style.cursor = "";
+								if (ctx) builderEngine.setDragging(false);
 
-							let newPath: QuestionPath;
+								if (canceled || !ctx || !ds) return;
 
-							if (sameGroup) {
-								// Same-level reorder — no ID conflict possible
-								if (finalIndex === 0) {
-									if (finalIds.length > 1) {
+								const {
+									activeUuid: dragUuid,
+									activePath: dragPath,
+									itemsMap,
+									uuidToPath,
+								} = ds;
+
+								/* Helper: resolve a UUID from the items map to a QuestionPath
+								 * for mutation calls. Falls back to the pre-drag path map. */
+								const pathOf = (u: string): QuestionPath =>
+									uuidToPath.get(u) ?? ("" as QuestionPath);
+
+								// Find where the item ended up in the controlled items map
+								let finalGroup: string | undefined;
+								let finalIndex = -1;
+								for (const [g, ids] of Object.entries(itemsMap)) {
+									const i = ids.indexOf(dragUuid);
+									if (i !== -1) {
+										finalGroup = g;
+										finalIndex = i;
+										break;
+									}
+								}
+
+								if (finalGroup === undefined || finalIndex === -1) return;
+
+								/* Determine the initial group from the dragged question's
+								 * parent. The parent UUID is encoded in the container key
+								 * for nested questions, or ROOT_GROUP for top-level ones. */
+								const draggedParentPath = qpathParent(dragPath);
+								const draggedParentUuid = draggedParentPath
+									? (() => {
+											/* Look up the parent question's UUID from the store
+											 * by finding the question whose id matches the
+											 * last segment of the parent path. */
+											const parentId = qpathId(draggedParentPath);
+											for (const [u, p] of uuidToPath.entries()) {
+												if (qpathId(p) === parentId) return u;
+											}
+											return undefined;
+										})()
+									: undefined;
+								const initialGroup = draggedParentUuid
+									? `${draggedParentUuid}${CONTAINER_SUFFIX}`
+									: ROOT_GROUP;
+
+								const sameGroup = initialGroup === finalGroup;
+
+								// Check if position actually changed
+								if (sameGroup) {
+									const initialState = buildDragStateFromStore(
+										builderEngine.store.getState().questions,
+										builderEngine.store.getState().questionOrder,
+										parentEntityId,
+										dragUuid,
+									);
+									const initialIds = initialState.itemsMap[initialGroup] ?? [];
+									const finalIds = itemsMap[finalGroup] ?? [];
+									const initialIdx = initialIds.indexOf(dragUuid);
+									if (
+										initialIdx === finalIndex &&
+										initialIds.length === finalIds.length
+									) {
+										// No movement — just select
+										builderEngine.select({
+											type: "question",
+											moduleIndex: ctx.moduleIndex,
+											formIndex: ctx.formIndex,
+											questionPath: dragPath,
+											questionUuid: dragUuid,
+										});
+										return;
+									}
+								}
+
+								/* Resolve the target parent path from the final group key. */
+								const finalIds = itemsMap[finalGroup] ?? [];
+								const targetParentUuid =
+									finalGroup === ROOT_GROUP
+										? undefined
+										: stripContainerSuffix(finalGroup);
+								const targetParentPath = targetParentUuid
+									? pathOf(targetParentUuid)
+									: undefined;
+
+								let newPath: QuestionPath;
+
+								if (sameGroup) {
+									// Same-level reorder — no ID conflict possible
+									if (finalIndex === 0) {
+										if (finalIds.length > 1) {
+											moveQuestion_(ctx.moduleIndex, ctx.formIndex, dragPath, {
+												beforePath: pathOf(finalIds[1]),
+											});
+										}
+									} else {
 										moveQuestion_(ctx.moduleIndex, ctx.formIndex, dragPath, {
-											beforePath: pathOf(finalIds[1]),
+											afterPath: pathOf(finalIds[finalIndex - 1]),
 										});
 									}
+									newPath = dragPath;
 								} else {
-									moveQuestion_(ctx.moduleIndex, ctx.formIndex, dragPath, {
-										afterPath: pathOf(finalIds[finalIndex - 1]),
-									});
-								}
-								newPath = dragPath;
-							} else {
-								// Cross-group transfer — resolve neighbor paths relative
-								// to the target parent for correct tree placement.
-								let moveResult: MoveQuestionResult;
-								if (finalIds.length <= 1) {
-									moveResult = moveQuestion_(
-										ctx.moduleIndex,
-										ctx.formIndex,
-										dragPath,
-										{
-											targetParentPath,
-										},
-									);
-								} else if (finalIndex === 0) {
-									const nextId = qpathId(pathOf(finalIds[1]));
-									const beforePath = qpath(nextId, targetParentPath);
-									moveResult = moveQuestion_(
-										ctx.moduleIndex,
-										ctx.formIndex,
-										dragPath,
-										{
-											beforePath,
-											targetParentPath,
-										},
-									);
-								} else {
-									const prevId = qpathId(pathOf(finalIds[finalIndex - 1]));
-									const afterPath = qpath(prevId, targetParentPath);
-									moveResult = moveQuestion_(
-										ctx.moduleIndex,
-										ctx.formIndex,
-										dragPath,
-										{
-											afterPath,
-											targetParentPath,
-										},
-									);
+									// Cross-group transfer — resolve neighbor paths relative
+									// to the target parent for correct tree placement.
+									let moveResult: MoveQuestionResult;
+									if (finalIds.length <= 1) {
+										moveResult = moveQuestion_(
+											ctx.moduleIndex,
+											ctx.formIndex,
+											dragPath,
+											{
+												targetParentPath,
+											},
+										);
+									} else if (finalIndex === 0) {
+										const nextId = qpathId(pathOf(finalIds[1]));
+										const beforePath = qpath(nextId, targetParentPath);
+										moveResult = moveQuestion_(
+											ctx.moduleIndex,
+											ctx.formIndex,
+											dragPath,
+											{
+												beforePath,
+												targetParentPath,
+											},
+										);
+									} else {
+										const prevId = qpathId(pathOf(finalIds[finalIndex - 1]));
+										const afterPath = qpath(prevId, targetParentPath);
+										moveResult = moveQuestion_(
+											ctx.moduleIndex,
+											ctx.formIndex,
+											dragPath,
+											{
+												afterPath,
+												targetParentPath,
+											},
+										);
+									}
+
+									/* If the move triggered an auto-rename to avoid a sibling
+									 * ID collision, use the renamed path and notify the user. */
+									newPath = moveResult.renamed
+										? moveResult.renamed.newPath
+										: qpath(qpathId(dragPath), targetParentPath);
+									if (moveResult.renamed)
+										builderEngine.setRenameNotice(moveResult.renamed);
 								}
 
-								/* If the move triggered an auto-rename to avoid a sibling
-								 * ID collision, use the renamed path and notify the user. */
-								newPath = moveResult.renamed
-									? moveResult.renamed.newPath
-									: qpath(qpathId(dragPath), targetParentPath);
-								if (moveResult.renamed)
-									builderEngine.setRenameNotice(moveResult.renamed);
-							}
-
-							builderEngine.select({
-								type: "question",
-								moduleIndex: ctx.moduleIndex,
-								formIndex: ctx.formIndex,
-								questionPath: newPath,
-								questionUuid: dragUuid,
+								builderEngine.select({
+									type: "question",
+									moduleIndex: ctx.moduleIndex,
+									formIndex: ctx.formIndex,
+									questionPath: newPath,
+									questionUuid: dragUuid,
+								});
 							});
-						});
-					}}
-				>
-					{list}
-					<DragOverlay>
-						{activeLabel && (
-							<div className="rounded-lg bg-nova-surface/80 border border-nova-violet/40 px-3 py-2 shadow-lg text-sm text-nova-text">
-								{activeLabel}
-							</div>
-						)}
-					</DragOverlay>
-				</DragDropProvider>
-			</DragReorderContext.Provider>
-		</CursorSpeedContext.Provider>
+						}}
+					>
+						{list}
+						<DragOverlay>
+							{activeLabel && (
+								<div className="rounded-lg bg-nova-surface/80 border border-nova-violet/40 px-3 py-2 shadow-lg text-sm text-nova-text">
+									{activeLabel}
+								</div>
+							)}
+						</DragOverlay>
+					</DragDropProvider>
+				</DragReorderContext.Provider>
+			</CursorSpeedContext.Provider>
+			{/* Single shared menu for all InsertionPoints in this form. Renders
+			 *  via portal so it doesn't participate in the DragDropProvider tree.
+			 *  The render-function children receive the payload from whichever
+			 *  InsertionPoint's trigger opened the menu. */}
+			<Menu.Root
+				handle={questionPickerHandle}
+				modal={false}
+				onOpenChange={handlePickerOpenChange}
+			>
+				{({ payload }: { payload: QuestionPickerPayload | undefined }) =>
+					payload && (
+						<QuestionTypePickerPopup
+							atIndex={payload.atIndex}
+							parentPath={payload.parentPath}
+						/>
+					)
+				}
+			</Menu.Root>
+		</QuestionPickerContext.Provider>
 	);
 });

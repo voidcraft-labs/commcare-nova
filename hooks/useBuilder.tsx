@@ -115,25 +115,6 @@ export function useBuilderPhase(): BuilderPhase {
 	return useBuilderStore((s) => s.phase);
 }
 
-/**
- * Type-safe screen selector — returns the typed screen if it matches the
- * expected type, `undefined` otherwise.
- *
- * Returns `undefined` (not throws) because AnimatePresence `mode="wait"`
- * keeps the exiting screen component mounted briefly while the store's
- * screen has already changed to the next screen type. The component
- * early-returns `null` during this overlap window.
- */
-export function useScreenData<T extends PreviewScreen["type"]>(
-	type: T,
-): Extract<PreviewScreen, { type: T }> | undefined {
-	return useBuilderStore((s) =>
-		s.screen.type === type
-			? (s.screen as Extract<PreviewScreen, { type: T }>)
-			: undefined,
-	);
-}
-
 /** Currently selected module/form/question. */
 export function useBuilderSelected(): SelectedElement | undefined {
 	return useBuilderStore((s) => s.selected);

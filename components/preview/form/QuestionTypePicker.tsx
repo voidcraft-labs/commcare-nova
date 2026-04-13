@@ -32,10 +32,12 @@ interface QuestionTypePickerPopupProps {
  * Popup content for the question insertion menu.
  *
  * Renders the portal, positioner, popup shell, and categorised menu items.
- * Must be rendered as a child of a `Menu.Root` — the parent (`InsertionPoint`)
- * owns the root and trigger so that Base UI's `FloatingTreeStore` is initialised
- * correctly, allowing submenus to register as tree children and preventing
- * spurious dismiss events during submenu hover transitions.
+ * Rendered as a child of the shared `Menu.Root` in `FormRenderer` — each
+ * `InsertionPoint` sends its context (`atIndex`, `parentPath`) as payload
+ * via detached `Menu.Trigger`s connected through `Menu.createHandle()`.
+ * Base UI's `FloatingTreeStore` is initialised by the root `Menu.Root`,
+ * allowing submenus to register as tree children and preventing spurious
+ * dismiss events during submenu hover transitions.
  *
  * Menu close is handled automatically by `Menu.Item`'s `closeOnClick` default —
  * no explicit close callback is needed.
