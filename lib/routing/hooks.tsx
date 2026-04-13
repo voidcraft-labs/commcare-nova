@@ -33,11 +33,7 @@ import type {
 	QuestionEntity,
 	Uuid,
 } from "@/lib/doc/types";
-import {
-	isValidLocation,
-	parseLocation,
-	serializeLocation,
-} from "@/lib/routing/location";
+import { parseLocation, serializeLocation } from "@/lib/routing/location";
 import type { Location } from "@/lib/routing/types";
 
 /**
@@ -124,7 +120,7 @@ export type SelectAction = (uuid: Uuid | undefined) => void;
  * The boolean return prevents child reconciliation for non-matching cards.
  * Phase 5's virtualization bounds the number of consumers to visible rows.
  */
-export function useIsModuleSelected(uuid: Uuid | string): boolean {
+export function useIsModuleSelected(uuid: Uuid): boolean {
 	const loc = useLocation();
 	return (
 		(loc.kind === "module" || loc.kind === "cases" || loc.kind === "form") &&
@@ -140,7 +136,7 @@ export function useIsModuleSelected(uuid: Uuid | string): boolean {
  * re-render, but the boolean return prevents child reconciliation.
  * Phase 5's virtualization bounds the consumer count.
  */
-export function useIsFormSelected(uuid: Uuid | string): boolean {
+export function useIsFormSelected(uuid: Uuid): boolean {
 	const loc = useLocation();
 	return loc.kind === "form" && loc.formUuid === uuid;
 }
@@ -156,21 +152,9 @@ export function useIsFormSelected(uuid: Uuid | string): boolean {
  * Phase 5's virtualization makes this moot — the boolean return still
  * prevents child reconciliation for unselected wrappers.
  */
-export function useIsQuestionSelected(uuid: Uuid | string): boolean {
+export function useIsQuestionSelected(uuid: Uuid): boolean {
 	const loc = useLocation();
 	return loc.kind === "form" && loc.selectedUuid === uuid;
-}
-
-/**
- * True when the URL's location references exist in the doc. Consumed
- * by the root `LocationRecoveryEffect` to decide when to scrub stale
- * params. Callers should not use this to gate rendering — the effect
- * replaces the URL in the same tick as a mismatch is detected, and
- * gating rendering would cause a flash.
- */
-export function useLocationValid(): boolean {
-	const loc = useLocation();
-	return useBlueprintDoc((s) => isValidLocation(loc, s));
 }
 
 /**
@@ -299,7 +283,11 @@ export function useNavigate(): NavigateActions {
 		return {
 			push,
 			replace,
-			goHome: () => router.push(pathname, { scroll: false }),
+			/* Route through the internal `push` helper (not `router.push`
+			 * directly) so any future non-empty serialization of the home
+			 * location — e.g. preserved query params — flows through the
+			 * same code path as every other navigation. */
+			goHome: () => push({ kind: "home" }),
 			openModule: (moduleUuid: Uuid) => push({ kind: "module", moduleUuid }),
 			openCaseList: (moduleUuid: Uuid) => push({ kind: "cases", moduleUuid }),
 			openCaseDetail: (moduleUuid: Uuid, caseId: string) =>

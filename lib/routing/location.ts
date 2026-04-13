@@ -74,6 +74,15 @@ export function parseLocation(
 	const screen = searchParams.get(LOCATION_PARAM.screen);
 	const moduleUuidRaw = searchParams.get(LOCATION_PARAM.module);
 
+	/* URL params are untrusted input — the only place in the app where a
+	 * string arrives already branded as `Uuid` is not actually branded at
+	 * the type level. The `as Uuid` casts below are DOCUMENTATION, not
+	 * validation: they mark "this string is meant to be a question/form/
+	 * module uuid" without checking whether it matches any entity in the
+	 * doc. Runtime validation happens downstream in `recoverLocation`
+	 * (rejects references that no longer exist) and `LocationRecoveryEffect`
+	 * (rewrites the URL on mismatch). If those two safeguards are removed,
+	 * these casts become unsafe. */
 	switch (screen) {
 		case SCREEN_KIND.module: {
 			if (!moduleUuidRaw) return { kind: "home" };

@@ -63,8 +63,9 @@ export class BuilderEngine {
 				hasToolbar?: boolean,
 		  ) => void)
 		| null = null;
-	/** Pending scroll request — set by `navigateTo()`, consumed by the
-	 *  selected question's mount effect. This decouples intent ("scroll to
+	/** Pending scroll request — set by `useUndoRedo` (via `setPendingScroll`)
+	 *  and `useBuilderShortcuts`/form editor navigation; consumed by the target
+	 *  question panel's effect on mount. This decouples intent ("scroll to
 	 *  this question") from timing ("the panel is in the DOM and ready").
 	 *  Carries the target UUID and desired scroll behavior so cross-screen
 	 *  navigations can request instant scroll (smooth is meaningless when
@@ -454,7 +455,7 @@ export class BuilderEngine {
 
 		if (resolved === currentType) return;
 
-		/* Stash outgoing mode's form configs (reads legacy store via sync mirror). */
+		/* Stash outgoing mode's form configs (reads directly from the doc store). */
 		if (currentType) {
 			this._lastConnectType = currentType;
 			this.stashAllFormConnect(currentType);

@@ -9,7 +9,9 @@
  * - `useBuilderStore(selector)` — reactive subscription to a precise slice
  *   of store state. Only re-renders when the selected value changes.
  * - `useBuilderEngine()` — imperative access to the engine for non-reactive
- *   state and composing methods (navigateTo, energy, guards, scroll).
+ *   state and composing methods (energy, guards, pending scroll, focus
+ *   hints, drag state). Selection and navigation now live in the URL-backed
+ *   routing hooks (`useSelect`, `useNavigate` in `lib/routing/hooks`).
  *
  * Convenience hooks (useBuilderPhase, useModule, useForm, etc.) wrap
  * `useBuilderStore` with common selectors for ergonomic call sites.

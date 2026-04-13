@@ -45,24 +45,6 @@ import type {
 import type { QuestionPath } from "@/lib/services/questionPath";
 
 /**
- * Result of a `moveQuestion` dispatch.
- *
- * `renamed` is populated when a cross-parent move triggered sibling-id
- * deduplication (CommCare requires unique IDs per level). Phase 1b's
- * reducer already performs the dedup — surfacing the resulting new id
- * back to the caller is a Phase 3 concern. For now the hook returns
- * an empty object whenever the move dispatches successfully.
- */
-export interface MoveQuestionResult {
-	renamed?: {
-		oldId: string;
-		newId: string;
-		newPath: string;
-		xpathFieldsRewritten: number;
-	};
-}
-
-/**
  * Result of a `renameQuestion` dispatch.
  *
  * `conflict: true` short-circuits the dispatch — the hook checks sibling
@@ -139,7 +121,7 @@ export interface BlueprintMutations {
 			beforeUuid?: Uuid;
 			toIndex?: number;
 		},
-	) => MoveQuestionResult;
+	) => void;
 	duplicateQuestion: (uuid: Uuid) => DuplicateQuestionResult | undefined;
 
 	// ── Form mutations ────────────────────────────────────────────────────
@@ -211,7 +193,40 @@ function warnUnresolved(
  * to return the updated path) and `duplicateQuestion` (to synthesize the
  * clone's `newPath` return value).
  */
-function computePathForUuid(doc: BlueprintDoc, uuid: Uuid): string | undefined {
+/**
+ * Build a reverse `childUuid → parentUuid` index in a single pass over
+ * `doc.questionOrder`. O(N) over total questions. Callers that need to
+ * walk up the parent chain multiple times (rename, duplicate, or
+ * bulk-path operations) should build this once and pass it to
+ * `computePathForUuid` / `findParentUuid` instead of re-scanning for
+ * every walk — the naive version was O(N × D) per walk and O(N² × D)
+ * when called multiple times in the same dispatch.
+ */
+function buildParentIndex(doc: BlueprintDoc): Map<Uuid, Uuid> {
+	const parentOfUuid = new Map<Uuid, Uuid>();
+	for (const [parentUuid, order] of Object.entries(doc.questionOrder)) {
+		for (const childUuid of order) {
+			parentOfUuid.set(childUuid, parentUuid as Uuid);
+		}
+	}
+	return parentOfUuid;
+}
+
+/**
+ * Walk from a uuid up to its owning form, joining semantic ids into a
+ * slash-delimited path. Consumes a pre-built parent index so each walk
+ * is O(D) rather than O(N × D).
+ *
+ * Returns `undefined` when the uuid is unreachable (cycle, missing
+ * question entity, or the walk never hits a form). The cycle guard is
+ * defensive — `buildParentIndex` cannot produce a cycle from a
+ * well-formed `questionOrder`, but corruption shouldn't hang the UI.
+ */
+function computePathForUuid(
+	doc: BlueprintDoc,
+	uuid: Uuid,
+	parentOfUuid: Map<Uuid, Uuid>,
+): string | undefined {
 	const segments: string[] = [];
 	let cursor: Uuid | undefined = uuid;
 	const visited = new Set<Uuid>();
@@ -224,15 +239,7 @@ function computePathForUuid(doc: BlueprintDoc, uuid: Uuid): string | undefined {
 		const q = doc.questions[cursor];
 		if (!q) return undefined;
 		segments.push(q.id);
-		// Find this cursor's parent by scanning questionOrder.
-		let nextParent: Uuid | undefined;
-		for (const [parentUuid, order] of Object.entries(doc.questionOrder)) {
-			if (order.includes(cursor)) {
-				nextParent = parentUuid as Uuid;
-				break;
-			}
-		}
-		cursor = nextParent;
+		cursor = parentOfUuid.get(cursor);
 	}
 	return undefined;
 }
@@ -352,13 +359,8 @@ export function useBlueprintMutations(): BlueprintMutations {
 				// Find parent + siblings for conflict check. Reject the rename
 				// before dispatching so the UI can surface a "name already taken"
 				// message without unwinding a half-applied mutation.
-				let parentUuid: Uuid | undefined;
-				for (const [pUuid, order] of Object.entries(doc.questionOrder)) {
-					if (order.includes(uuid)) {
-						parentUuid = pUuid as Uuid;
-						break;
-					}
-				}
+				const parentIndex = buildParentIndex(doc);
+				const parentUuid = parentIndex.get(uuid);
 				if (parentUuid !== undefined) {
 					const siblings = doc.questionOrder[parentUuid] ?? [];
 					for (const sibUuid of siblings) {
@@ -375,9 +377,15 @@ export function useBlueprintMutations(): BlueprintMutations {
 
 				dispatch({ kind: "renameQuestion", uuid, newId });
 
-				// Compute the new path AFTER dispatch — the semantic id has changed.
+				/* Compute the new path AFTER dispatch — the semantic id has
+				 * changed. Rebuild the parent index from the post-dispatch
+				 * snapshot: `renameQuestion` doesn't reparent, but the walk
+				 * needs to read `doc.questions[...].id` from the fresh
+				 * snapshot anyway, so reuse that same snapshot's index. */
 				const after = get();
-				const newPath = (computePathForUuid(after, uuid) ?? "") as QuestionPath;
+				const afterParentIndex = buildParentIndex(after);
+				const newPath = (computePathForUuid(after, uuid, afterParentIndex) ??
+					"") as QuestionPath;
 				// xpathFieldsRewritten count not exposed by the doc reducer yet;
 				// surface zero until Phase 3 adds instrumentation.
 				return { newPath, xpathFieldsRewritten: 0 };
@@ -394,13 +402,11 @@ export function useBlueprintMutations(): BlueprintMutations {
 				// Default destination: the question's current parent (same-parent
 				// reorder). Fall back to the question's own uuid as a guard — this
 				// is unreachable in practice because every question has a parent
-				// entry in `questionOrder`.
+				// entry in `questionOrder`. `buildParentIndex` gives O(1) lookup
+				// instead of an `Object.entries(...).find(order.includes(...))`
+				// linear+linear scan.
 				const toParentUuid =
-					opts.toParentUuid ??
-					(Object.entries(doc.questionOrder).find(([, order]) =>
-						order.includes(uuid),
-					)?.[0] as Uuid | undefined) ??
-					uuid;
+					opts.toParentUuid ?? buildParentIndex(doc).get(uuid) ?? uuid;
 
 				// Virtual post-splice order when same-parent move. When the source
 				// uuid appears in the destination parent, emulate the post-splice
@@ -430,11 +436,10 @@ export function useBlueprintMutations(): BlueprintMutations {
 					toIndex,
 				});
 
-				// `renamed` tracking requires comparing pre/post-dispatch ids to
-				// detect sibling-dedup renames triggered by cross-parent moves.
-				// The doc reducer already runs the dedup; surfacing the result
-				// back out is deferred to Phase 3.
-				return {};
+				/* Sibling-id dedup (for cross-parent moves that would cause
+				 * a collision) is performed inside the reducer. Surfacing the
+				 * resulting new id back to the caller — so the UI can show a
+				 * rename notice — is deferred to Phase 3. */
 			},
 
 			duplicateQuestion(uuid) {
@@ -448,13 +453,8 @@ export function useBlueprintMutations(): BlueprintMutations {
 				// recover the new clone's uuid. The reducer splices the clone
 				// right after the source; the post-dispatch order will contain
 				// exactly one uuid that wasn't present before.
-				let parentUuid: Uuid | undefined;
-				for (const [pUuid, order] of Object.entries(doc.questionOrder)) {
-					if (order.includes(uuid)) {
-						parentUuid = pUuid as Uuid;
-						break;
-					}
-				}
+				const parentIndex = buildParentIndex(doc);
+				const parentUuid = parentIndex.get(uuid);
 				if (parentUuid === undefined) {
 					warnUnresolved("duplicateQuestion", {
 						uuid,
@@ -475,11 +475,15 @@ export function useBlueprintMutations(): BlueprintMutations {
 				if (!newUuid) return undefined;
 
 				// Rebuild the new path: parent path (if any) + new question id.
+				// The post-dispatch parent index differs from the pre-dispatch
+				// one (the clone is now a child of `parentUuid`) — rebuild from
+				// the fresh snapshot so the walk sees the new entry.
 				const cloneEntity = afterDoc.questions[newUuid];
 				if (!cloneEntity) return undefined;
+				const afterParentIndex = buildParentIndex(afterDoc);
 				const parentPath = afterDoc.forms[parentUuid]
 					? "" // parent is the form root
-					: (computePathForUuid(afterDoc, parentUuid) ?? "");
+					: (computePathForUuid(afterDoc, parentUuid, afterParentIndex) ?? "");
 				const newPath = (
 					parentPath ? `${parentPath}/${cloneEntity.id}` : cloneEntity.id
 				) as QuestionPath;
