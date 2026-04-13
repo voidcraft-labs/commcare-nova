@@ -2,7 +2,7 @@
 import { motion } from "motion/react";
 import { useMemo } from "react";
 import { useBuilderStore, useForm, useModule } from "@/hooks/useBuilder";
-import { useBlueprintDoc } from "@/lib/doc/hooks/useBlueprintDoc";
+import { useCaseTypes } from "@/lib/doc/hooks/useCaseTypes";
 import { getDummyCases } from "@/lib/preview/engine/dummyData";
 import type { PreviewScreen } from "@/lib/preview/engine/types";
 
@@ -17,12 +17,12 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 	const moduleIndex = screen.moduleIndex;
 	const formIndex = screen.formIndex;
 
-	const caseTypes = useBlueprintDoc((s) => s.caseTypes);
+	const caseTypes = useCaseTypes();
 	const navPush = useBuilderStore((s) => s.navPush);
 
 	const mod = useModule(moduleIndex);
 	const form = useForm(moduleIndex, formIndex);
-	const caseType = caseTypes?.find((ct) => ct.name === mod?.caseType);
+	const caseType = caseTypes.find((ct) => ct.name === mod?.caseType);
 	const columns = mod?.caseListColumns ?? [];
 
 	const rows = useMemo(() => {
