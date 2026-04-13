@@ -33,8 +33,19 @@ import {
 	useBuilderEngine,
 	useBuilderPhase,
 	useBuilderStore,
-	useBuilderStoreShallow,
 } from "@/hooks/useBuilder";
+import {
+	useBlueprintDoc,
+	useBlueprintDocShallow,
+} from "@/lib/doc/hooks/useBlueprintDoc";
+import { useForm as useFormDoc } from "@/lib/doc/hooks/useEntity";
+import { useModuleIds } from "@/lib/doc/hooks/useModuleIds";
+import type {
+	FormEntity,
+	ModuleEntity,
+	QuestionEntity,
+	Uuid,
+} from "@/lib/doc/types";
 import { highlightSegments, type MatchIndices } from "@/lib/filterTree";
 import { formTypeIcons, questionTypeIcons } from "@/lib/questionTypeIcons";
 import { textWithChips } from "@/lib/references/LabelContent";
@@ -58,8 +69,8 @@ interface AppTreeProps {
 }
 
 export function AppTree({ actions, hideHeader }: AppTreeProps) {
-	const moduleOrder = useBuilderStore((s) => s.moduleOrder);
-	const appName = useBuilderStore((s) => s.appName);
+	const moduleOrder = useModuleIds();
+	const appName = useBlueprintDoc((s) => s.appName);
 	const phase = useBuilderPhase();
 	const engine = useBuilderEngine();
 
@@ -193,17 +204,28 @@ interface SearchResult {
 	visibleQuestionUuids: Set<string>;
 }
 
+/** Shape returned by the search entity selector. Extracted to a named type
+ *  so the SEARCH_IDLE sentinel and the selector share the same contract. */
+interface SearchEntityData {
+	moduleOrder: Uuid[];
+	formOrder: Record<Uuid, Uuid[]>;
+	questionOrder: Record<Uuid, Uuid[]>;
+	modules: Record<Uuid, ModuleEntity>;
+	forms: Record<Uuid, FormEntity>;
+	questions: Record<Uuid, QuestionEntity>;
+}
+
 /** Stable empty data for when search is inactive — same reference every time.
- *  Prevents `useBuilderStoreShallow` from firing on entity map changes when
+ *  Prevents `useBlueprintDocShallow` from firing on entity map changes when
  *  the user isn't searching. Without this, every entity edit triggers the
  *  search subscription (6 entity maps changed) → AppTree re-renders. */
-const SEARCH_IDLE = {
-	moduleOrder: [] as string[],
-	formOrder: {} as Record<string, string[]>,
-	questionOrder: {} as Record<string, string[]>,
-	modules: {} as Record<string, NModule>,
-	forms: {} as Record<string, NForm>,
-	questions: {} as Record<string, NQuestion>,
+const SEARCH_IDLE: SearchEntityData = {
+	moduleOrder: [],
+	formOrder: {} as Record<Uuid, Uuid[]>,
+	questionOrder: {} as Record<Uuid, Uuid[]>,
+	modules: {} as Record<Uuid, ModuleEntity>,
+	forms: {} as Record<Uuid, FormEntity>,
+	questions: {} as Record<Uuid, QuestionEntity>,
 };
 
 /**
@@ -218,7 +240,7 @@ function useSearchFilter(query: string): SearchResult | null {
 	const isSearching = query.trim().length > 0;
 
 	const { moduleOrder, formOrder, questionOrder, modules, forms, questions } =
-		useBuilderStoreShallow((s) =>
+		useBlueprintDocShallow((s) =>
 			isSearching
 				? {
 						moduleOrder: s.moduleOrder,
@@ -265,10 +287,7 @@ function useSearchFilter(query: string): SearchResult | null {
 
 				/* Check questions recursively */
 				let formHasMatch = !!formIndices;
-				const checkQuestions = (
-					parentId: string,
-					parentPath?: QuestionPath,
-				) => {
+				const checkQuestions = (parentId: Uuid, parentPath?: QuestionPath) => {
 					const uuids = questionOrder[parentId] ?? [];
 					for (const uuid of uuids) {
 						const question = questions[uuid];
@@ -434,19 +453,20 @@ const ModuleCard = memo(function ModuleCard({
 	searchResult: SearchResult | null;
 	locked?: boolean;
 }) {
-	/** Subscribe to this module's entity. Only re-renders when THIS module changes. */
-	const mod = useBuilderStore((s) => {
+	/** Subscribe to this module's entity from the doc store. Only re-renders
+	 *  when THIS module changes (Immer structural sharing on the entity ref). */
+	const mod = useBlueprintDoc((s) => {
 		const moduleId = s.moduleOrder[moduleIndex];
 		return moduleId ? s.modules[moduleId] : undefined;
-	});
+	}) as NModule | undefined;
 
-	/** Subscribe to this module's form IDs. */
-	const formIds = useBuilderStore((s) => {
+	/** Subscribe to this module's form IDs from the doc store. */
+	const formIds = useBlueprintDoc((s) => {
 		const moduleId = s.moduleOrder[moduleIndex];
 		return moduleId ? s.formOrder[moduleId] : undefined;
 	});
 
-	const connectType = useBuilderStore((s) => s.connectType);
+	const connectType = useBlueprintDoc((s) => s.connectType);
 
 	/** Boolean selection — only this module + the previously selected re-render. */
 	const isSelected = useBuilderStore(
@@ -553,7 +573,7 @@ const ModuleCard = memo(function ModuleCard({
 										collapsed={collapsed}
 										toggle={toggle}
 										searchResult={searchResult}
-										connectType={connectType}
+										connectType={connectType ?? undefined}
 										locked={locked}
 									/>
 								);
@@ -591,14 +611,14 @@ const FormCard = memo(function FormCard({
 	connectType?: string;
 	locked?: boolean;
 }) {
-	/** Subscribe to this form's entity. */
-	const form = useBuilderStore((s) => s.forms[formId]) as NForm | undefined;
+	/** Subscribe to this form's entity from the doc store. */
+	const form = useFormDoc(formId as Uuid) as NForm | undefined;
 
-	/** Subscribe to this form's question UUIDs. */
-	const questionUuids = useBuilderStore((s) => s.questionOrder[formId]);
+	/** Subscribe to this form's question UUIDs from the doc store. */
+	const questionUuids = useBlueprintDoc((s) => s.questionOrder[formId as Uuid]);
 
 	/** Full questionOrder for recursive question counting. */
-	const questionOrder = useBuilderStore((s) => s.questionOrder);
+	const questionOrder = useBlueprintDoc((s) => s.questionOrder);
 
 	/** Boolean selection. */
 	const isSelected = useBuilderStore(
@@ -713,12 +733,14 @@ const FormCard = memo(function FormCard({
 
 /** Build a question ID → type icon map for a form's questions (recursive). */
 function useQuestionIconMap(formId: string): Map<string, IconifyIcon> {
-	const questions = useBuilderStore((s) => s.questions);
-	const questionOrder = useBuilderStore((s) => s.questionOrder);
+	const { questions, questionOrder } = useBlueprintDocShallow((s) => ({
+		questions: s.questions,
+		questionOrder: s.questionOrder,
+	}));
 
 	return useMemo(() => {
 		const map = new Map<string, IconifyIcon>();
-		function walk(parentId: string, parentPath?: QuestionPath) {
+		function walk(parentId: Uuid, parentPath?: QuestionPath) {
 			const uuids = questionOrder[parentId] ?? [];
 			for (const uuid of uuids) {
 				const q = questions[uuid];
@@ -729,7 +751,7 @@ function useQuestionIconMap(formId: string): Map<string, IconifyIcon> {
 				walk(uuid, p);
 			}
 		}
-		walk(formId);
+		walk(formId as Uuid);
 		return map;
 	}, [formId, questions, questionOrder]);
 }
@@ -738,17 +760,17 @@ function useQuestionIconMap(formId: string): Map<string, IconifyIcon> {
  *  takes the questionOrder map directly (read from store by the caller). */
 function countQuestionsFromOrder(
 	parentId: string,
-	questionOrder: Record<string, string[]>,
+	questionOrder: Record<Uuid, Uuid[]>,
 ): number {
 	let count = 0;
-	function walk(pid: string) {
+	function walk(pid: Uuid) {
 		const uuids = questionOrder[pid] ?? [];
 		count += uuids.length;
 		for (const uuid of uuids) {
 			walk(uuid);
 		}
 	}
-	walk(parentId);
+	walk(parentId as Uuid);
 	return count;
 }
 
@@ -779,11 +801,13 @@ const QuestionRow = memo(function QuestionRow({
 	locked?: boolean;
 	parentPath?: QuestionPath;
 }) {
-	/** Subscribe to this question's entity by UUID. */
-	const q = useBuilderStore((s) => s.questions[uuid]) as NQuestion | undefined;
+	/** Subscribe to this question's entity by UUID from the doc store. */
+	const q = useBlueprintDoc((s) => s.questions[uuid as Uuid]) as
+		| NQuestion
+		| undefined;
 
-	/** Subscribe to children UUIDs (for groups/repeats). */
-	const childUuids = useBuilderStore((s) => s.questionOrder[uuid]);
+	/** Subscribe to children UUIDs (for groups/repeats) from the doc store. */
+	const childUuids = useBlueprintDoc((s) => s.questionOrder[uuid as Uuid]);
 
 	/** Boolean selection — only this question + the old selection re-render. */
 	const isSelected = useBuilderStore(
