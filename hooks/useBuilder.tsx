@@ -297,7 +297,7 @@ export function BuilderProvider({
 		<EngineContext value={engine}>
 			<StoreContext value={engine.store}>
 				<BlueprintDocProvider
-					appId={buildId === "new" ? "" : buildId}
+					appId={buildId === "new" ? undefined : buildId}
 					initialBlueprint={initialBlueprint}
 					startTracking={Boolean(initialBlueprint || replay)}
 				>
