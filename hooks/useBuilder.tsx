@@ -412,10 +412,10 @@ export function BuilderProvider({
 }
 
 /**
- * Internal component that wires the doc→legacy projection. Rendered as a
- * sibling of `{children}` inside `BlueprintDocProvider` so it can pull the
- * doc store out of context. Returns `null` — it exists purely for its
- * subscription side effect.
+ * Internal component that wires the doc→legacy projection and installs the
+ * doc store reference on the engine. Rendered as a sibling of `{children}`
+ * inside `BlueprintDocProvider` so it can read the doc store via context.
+ * Returns `null` — it exists purely for its subscription side effect.
  *
  * `engine.store` is stable across the provider's lifetime (the engine is
  * recreated only when `buildId` changes, which unmounts this component
@@ -424,10 +424,18 @@ export function BuilderProvider({
  */
 function SyncBridge({ oldStore }: { oldStore: BuilderStoreApi }) {
 	const docStore = useContext(BlueprintDocContext);
+	const engine = useContext(EngineContext);
 	useEffect(() => {
 		if (!docStore) return;
-		return startSyncOldFromDoc(docStore, oldStore);
-	}, [docStore, oldStore]);
+		/* Install the doc store on the engine so entity mutations and
+		 * undo/redo route through the doc instead of the legacy store. */
+		if (engine) engine.setDocStore(docStore);
+		const stop = startSyncOldFromDoc(docStore, oldStore);
+		return () => {
+			stop();
+			if (engine) engine.setDocStore(null);
+		};
+	}, [docStore, oldStore, engine]);
 	return null;
 }
 
