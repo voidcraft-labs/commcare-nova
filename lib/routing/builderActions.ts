@@ -15,6 +15,7 @@ import { useContext, useMemo } from "react";
 import { flushSync } from "react-dom";
 import { useBuilderEngine, useBuilderStore } from "@/hooks/useBuilder";
 import { useAssembledForm } from "@/lib/doc/hooks/useAssembledForm";
+import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
 import { BlueprintDocContext } from "@/lib/doc/provider";
 import { asUuid } from "@/lib/doc/types";
 import { useLocation, useSelect } from "@/lib/routing/hooks";
@@ -101,11 +102,12 @@ export function useUndoRedo(): { undo: () => void; redo: () => void } {
  *
  * No-op if no question is selected. The call sequence:
  *   1. Resolve the neighbor via `flattenQuestionRefs` on the assembled form.
- *   2. Dispatch `removeQuestion` directly through the doc store.
+ *   2. Dispatch `removeQuestion` through `useBlueprintMutations` — keeps
+ *      the delete path consistent with every other doc mutation in the
+ *      codebase (uuid resolution, dev-mode warn-on-miss).
  *   3. Replace the URL's `sel=` with the neighbor's uuid (or drop it).
  */
 export function useDeleteSelectedQuestion(): () => void {
-	const docStore = useContext(BlueprintDocContext);
 	const loc = useLocation();
 	/* `useAssembledForm` accepts `undefined` and short-circuits cheaply —
 	 * no need to coerce through `as Uuid`. When the user is off-form, the
@@ -114,11 +116,11 @@ export function useDeleteSelectedQuestion(): () => void {
 	const formUuid = loc.kind === "form" ? loc.formUuid : undefined;
 	const form = useAssembledForm(formUuid);
 	const select = useSelect();
+	const { removeQuestion } = useBlueprintMutations();
 
 	return useMemo(
 		() => () => {
-			if (!docStore || loc.kind !== "form" || !loc.selectedUuid || !form)
-				return;
+			if (loc.kind !== "form" || !loc.selectedUuid || !form) return;
 			/* `flattenQuestionRefs` skips hidden questions. If the selected
 			 * uuid is hidden, or stale (race with LocationRecoveryEffect),
 			 * `findIndex` returns -1 — guard against that so `refs[-1 + 1]`
@@ -127,11 +129,9 @@ export function useDeleteSelectedQuestion(): () => void {
 			const refs = flattenQuestionRefs(form.questions);
 			const idx = refs.findIndex((r) => r.uuid === loc.selectedUuid);
 			const neighbor = idx < 0 ? undefined : (refs[idx + 1] ?? refs[idx - 1]);
-			docStore
-				.getState()
-				.apply({ kind: "removeQuestion", uuid: asUuid(loc.selectedUuid) });
+			removeQuestion(asUuid(loc.selectedUuid));
 			select(neighbor ? asUuid(neighbor.uuid) : undefined);
 		},
-		[docStore, loc, form, select],
+		[loc, form, select, removeQuestion],
 	);
 }

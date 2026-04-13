@@ -2,12 +2,12 @@
 import { type ReactNode, useCallback, useRef, useState } from "react";
 import { useBuilderEngine } from "@/hooks/useBuilder";
 import { useEditContext } from "@/hooks/useEditContext";
-import { asUuid } from "@/lib/doc/types";
+import type { Uuid } from "@/lib/doc/types";
 import { useIsQuestionSelected, useSelect } from "@/lib/routing/hooks";
 
 interface EditableQuestionWrapperProps {
 	/** Stable crypto UUID — the sole identity prop (survives renames). */
-	questionUuid: string;
+	questionUuid: Uuid;
 	children: ReactNode;
 	style?: React.CSSProperties;
 	isDragging?: boolean;
@@ -86,7 +86,7 @@ export function EditableQuestionWrapper({
 	const selectQuestion = useCallback(
 		(hasToolbar = false) => {
 			engine.setPendingScroll(questionUuid, "smooth", hasToolbar);
-			select(asUuid(questionUuid));
+			select(questionUuid);
 		},
 		[engine, questionUuid, select],
 	);

@@ -626,7 +626,7 @@ const FormCard = memo(function FormCard({
 	connectType,
 	locked,
 }: {
-	formId: string;
+	formId: Uuid;
 	moduleUuid: Uuid;
 	moduleIndex: number;
 	formIndex: number;
@@ -639,15 +639,15 @@ const FormCard = memo(function FormCard({
 	locked?: boolean;
 }) {
 	/** Subscribe to this form's entity from the doc store. */
-	const form = useFormDoc(formId as Uuid) as NForm | undefined;
+	const form = useFormDoc(formId) as NForm | undefined;
 
 	/** Subscribe to this form's question UUIDs from the doc store. */
-	const questionUuids = useBlueprintDoc((s) => s.questionOrder[formId as Uuid]);
+	const questionUuids = useBlueprintDoc((s) => s.questionOrder[formId]);
 
 	// Count via selector so the result is a primitive — reference equality
 	// then prevents re-renders when unrelated forms' questions change.
 	const count = useBlueprintDoc((s) =>
-		countQuestionsFromOrder(formId as Uuid, s.questionOrder),
+		countQuestionsFromOrder(formId, s.questionOrder),
 	);
 
 	/** Boolean selection — URL-driven via useIsFormSelected.
@@ -683,7 +683,7 @@ const FormCard = memo(function FormCard({
 					onSelect({
 						kind: "form",
 						moduleUuid,
-						formUuid: formId as Uuid,
+						formUuid: formId,
 					})
 				}
 			>
@@ -744,7 +744,7 @@ const FormCard = memo(function FormCard({
 										key={uuid}
 										uuid={uuid}
 										moduleUuid={moduleUuid}
-										formUuid={formId as Uuid}
+										formUuid={formId}
 										onSelect={onSelect}
 										depth={0}
 										delay={delay + qIdx * 0.02}
@@ -764,7 +764,7 @@ const FormCard = memo(function FormCard({
 });
 
 /** Build a question ID → type icon map for a form's questions (recursive). */
-function useQuestionIconMap(formId: string): Map<string, IconifyIcon> {
+function useQuestionIconMap(formId: Uuid): Map<string, IconifyIcon> {
 	const { questions, questionOrder } = useBlueprintDocShallow((s) => ({
 		questions: s.questions,
 		questionOrder: s.questionOrder,
@@ -783,7 +783,7 @@ function useQuestionIconMap(formId: string): Map<string, IconifyIcon> {
 				walk(uuid, p);
 			}
 		}
-		walk(formId as Uuid);
+		walk(formId);
 		return map;
 	}, [formId, questions, questionOrder]);
 }
@@ -821,7 +821,7 @@ const QuestionRow = memo(function QuestionRow({
 	locked,
 	parentPath,
 }: {
-	uuid: string;
+	uuid: Uuid;
 	moduleUuid: Uuid;
 	formUuid: Uuid;
 	onSelect: TreeSelectHandler;
@@ -834,12 +834,10 @@ const QuestionRow = memo(function QuestionRow({
 	parentPath?: QuestionPath;
 }) {
 	/** Subscribe to this question's entity by UUID from the doc store. */
-	const q = useBlueprintDoc((s) => s.questions[uuid as Uuid]) as
-		| NQuestion
-		| undefined;
+	const q = useBlueprintDoc((s) => s.questions[uuid]) as NQuestion | undefined;
 
 	/** Subscribe to children UUIDs (for groups/repeats) from the doc store. */
-	const childUuids = useBlueprintDoc((s) => s.questionOrder[uuid as Uuid]);
+	const childUuids = useBlueprintDoc((s) => s.questionOrder[uuid]);
 
 	/** Boolean selection — URL-driven via useIsQuestionSelected.
 	 *  Only this question + the old selection re-render on change. */
@@ -888,7 +886,7 @@ const QuestionRow = memo(function QuestionRow({
 						kind: "question",
 						moduleUuid,
 						formUuid,
-						questionUuid: uuid as Uuid,
+						questionUuid: uuid,
 					});
 				}}
 			>

@@ -160,7 +160,7 @@ function SortableQuestion({
 	group,
 	isActiveDrag,
 }: {
-	uuid: string;
+	uuid: Uuid;
 	sortIndex: number;
 	/** XForm data path prefix (e.g. "/data" or "/data/group_id"). */
 	prefix: string;
@@ -538,29 +538,37 @@ export const FormRenderer = memo(function FormRenderer({
 					lastCursorRef={lastCursorRef}
 				/>
 			)}
-			{orderedUuids.map((uuid, idx) => (
-				<Fragment key={uuid}>
-					<SortableQuestion
-						uuid={uuid}
-						sortIndex={idx}
-						prefix={prefix}
-						parentPath={parentPath}
-						group={group}
-						isActiveDrag={
-							!!activeDragReorder && uuid === activeDragReorder.activeUuid
-						}
-					/>
-					{isEditMode && (
-						<InsertionPoint
-							atIndex={idx + 1}
-							parentUuid={parentEntityId as Uuid}
-							disabled={isDragging}
-							cursorSpeedRef={cursorSpeedRef}
-							lastCursorRef={lastCursorRef}
+			{orderedUuids.map((rawUuid, idx) => {
+				/* dnd-kit stores sortable ids as raw strings (itemsMap is
+				 * Record<string, string[]>). The store side of `orderedUuids`
+				 * carries real `Uuid`s. Either way the value is a question
+				 * uuid — brand it at this boundary so every downstream prop
+				 * sees the nominal type. */
+				const uuid = asUuid(rawUuid);
+				return (
+					<Fragment key={uuid}>
+						<SortableQuestion
+							uuid={uuid}
+							sortIndex={idx}
+							prefix={prefix}
+							parentPath={parentPath}
+							group={group}
+							isActiveDrag={
+								!!activeDragReorder && uuid === activeDragReorder.activeUuid
+							}
 						/>
-					)}
-				</Fragment>
-			))}
+						{isEditMode && (
+							<InsertionPoint
+								atIndex={idx + 1}
+								parentUuid={parentEntityId as Uuid}
+								disabled={isDragging}
+								cursorSpeedRef={cursorSpeedRef}
+								lastCursorRef={lastCursorRef}
+							/>
+						)}
+					</Fragment>
+				);
+			})}
 		</div>
 	);
 
