@@ -388,8 +388,10 @@ export function createBuilderSessionStore() {
 
 				beginAgentWrite(stage?: GenerationStage) {
 					/* Pause doc undo tracking so the entire agent write collapses
-					 * to a single undo entry when tracking resumes. */
-					docStoreRef?.temporal.getState().pause();
+					 * to a single undo entry when tracking resumes. Uses the doc
+					 * store's public API so any future behavior (e.g. snapshot
+					 * markers) is automatically inherited. */
+					docStoreRef?.getState().beginAgentWrite();
 
 					set({
 						agentActive: true,
@@ -403,8 +405,8 @@ export function createBuilderSessionStore() {
 
 				endAgentWrite() {
 					/* Resume doc undo tracking — the next user mutation starts
-					 * a fresh undo entry. */
-					docStoreRef?.temporal.getState().resume();
+					 * a fresh undo entry. Uses the doc store's public API. */
+					docStoreRef?.getState().endAgentWrite();
 
 					set({
 						agentActive: false,
