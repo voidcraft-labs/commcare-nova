@@ -29,7 +29,6 @@ import {
 	useState,
 } from "react";
 import { ConnectLogomark } from "@/components/icons/ConnectLogomark";
-import { useBuilderPhase } from "@/hooks/useBuilder";
 import {
 	useBlueprintDoc,
 	useBlueprintDocShallow,
@@ -54,6 +53,7 @@ import {
 import { BuilderPhase } from "@/lib/services/builder";
 import type { NForm, NModule, NQuestion } from "@/lib/services/normalizedState";
 import { type QuestionPath, qpath } from "@/lib/services/questionPath";
+import { useBuilderPhase } from "@/lib/session/hooks";
 
 /**
  * Per-form context carrying a question ID → type icon map. Lets QuestionRow

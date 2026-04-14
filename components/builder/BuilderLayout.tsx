@@ -43,11 +43,6 @@ import { useRegisterScrollCallback } from "@/components/builder/contexts/ScrollR
 import { ReplayController } from "@/components/builder/ReplayController";
 import { useBuilderShortcuts } from "@/components/builder/useBuilderShortcuts";
 import { Logo } from "@/components/ui/Logo";
-import {
-	useBuilderPhase,
-	useBuilderStore,
-	useBuilderStoreApi,
-} from "@/hooks/useBuilder";
 import { useKeyboardShortcuts } from "@/hooks/useKeyboardShortcuts";
 import type { CommCareSettingsPublic } from "@/lib/db/settings";
 import { useBlueprintDoc } from "@/lib/doc/hooks/useBlueprintDoc";
@@ -55,8 +50,12 @@ import { BlueprintDocContext } from "@/lib/doc/provider";
 import type { Uuid } from "@/lib/doc/types";
 import { useNavigate } from "@/lib/routing/hooks";
 import { BuilderPhase } from "@/lib/services/builder";
-import { selectInReplayMode } from "@/lib/services/builderSelectors";
-import { useCursorMode, useSwitchCursorMode } from "@/lib/session/hooks";
+import {
+	useBuilderPhase,
+	useCursorMode,
+	useInReplayMode,
+	useSwitchCursorMode,
+} from "@/lib/session/hooks";
 import type { CursorMode } from "@/lib/session/types";
 
 /** Extra space above the scroll target so the question isn't flush with the
@@ -82,12 +81,11 @@ export function BuilderLayout({
 	isExistingApp,
 	commcareSettings,
 }: BuilderLayoutProps) {
-	const storeApi = useBuilderStoreApi();
 	const docStore = useContext(BlueprintDocContext);
 	const phase = useBuilderPhase();
 
 	/* inReplayMode controls ReplayController mount in the header area. */
-	const inReplayMode = useBuilderStore(selectInReplayMode);
+	const inReplayMode = useInReplayMode();
 
 	/* CommCare settings — server-resolved, passed through to BuilderSubheader. */
 	const commcareConfigured = commcareSettings?.configured ?? false;
@@ -217,13 +215,13 @@ export function BuilderLayout({
 
 	/* ResizeObserver correction during sidebar width animation. `phase` is
 	 * included as a dep to re-attach when the scroll container mounts (it
-	 * doesn't exist during Idle/Generating phases). isReady/hasData are
-	 * read imperatively since they're derived from phase. */
+	 * doesn't exist during Idle/Generating phases). isReady is derived
+	 * directly from phase; hasModules is read imperatively since the effect
+	 * re-runs on phase change anyway. */
 	// biome-ignore lint/correctness/useExhaustiveDependencies: phase triggers re-attachment when scroll container mounts
 	useEffect(() => {
-		const s = storeApi.getState();
 		const isReady =
-			s.phase === BuilderPhase.Ready || s.phase === BuilderPhase.Completed;
+			phase === BuilderPhase.Ready || phase === BuilderPhase.Completed;
 		/* `hasModules` comes from the doc store — it owns blueprint entity data.
 		 * Reading imperatively (no subscription) since we only branch on the
 		 * condition at effect time; the effect re-runs on phase change. */
@@ -251,7 +249,7 @@ export function BuilderLayout({
 
 		observer.observe(scrollContainer);
 		return () => observer.disconnect();
-	}, [storeApi, docStore, phase]);
+	}, [docStore, phase]);
 
 	// ── Scroll-to-question callback ─────────────────────────────────────
 
