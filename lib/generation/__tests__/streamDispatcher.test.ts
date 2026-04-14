@@ -306,6 +306,10 @@ describe("applyStreamEvent", () => {
 			const session = sessionStore.getState();
 			expect(session.justCompleted).toBe(true);
 			expect(session.agentActive).toBe(false);
+
+			/* Doc undo tracking should be resumed — endAgentWrite on the session
+			 * store cascades to docStore.endAgentWrite() which resumes temporal. */
+			expect(docStore.temporal.getState().isTracking).toBe(true);
 		});
 	});
 
