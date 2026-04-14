@@ -317,7 +317,12 @@ function SyncBridge({ oldStore }: { oldStore: BuilderStoreApi }) {
 		if (!docStore) return;
 		/* Install the doc store on the engine so entity mutations and
 		 * undo/redo route through the doc instead of the legacy store. */
-		if (engine) engine.setDocStore(docStore);
+		if (engine) {
+			engine.setDocStore(docStore);
+			/* Install on the engine controller so per-question subscriptions
+			 * and form activation read directly from the doc store. */
+			engine.engineController.setDocStore(docStore);
+		}
 		/* Install it on the legacy store too — generation-stream setters
 		 * (setScaffold, setSchema, setModuleContent, setFormContent) dispatch
 		 * entity changes as doc mutations through this reference. */
@@ -328,7 +333,10 @@ function SyncBridge({ oldStore }: { oldStore: BuilderStoreApi }) {
 		if (sessionStore) sessionStore.getState()._setDocStore(docStore);
 		const stop = startSyncOldFromDoc(docStore, oldStore);
 		return () => {
-			if (engine) engine.setDocStore(null);
+			if (engine) {
+				engine.setDocStore(null);
+				engine.engineController.setDocStore(null);
+			}
 			oldStore.getState().setDocStore(null);
 			if (sessionStore) sessionStore.getState()._setDocStore(null);
 			stop();

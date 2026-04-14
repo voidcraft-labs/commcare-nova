@@ -37,8 +37,10 @@
  */
 import { shallow } from "zustand/shallow";
 import { createStore, type StoreApi } from "zustand/vanilla";
+import type { BlueprintDocStore } from "@/lib/doc/provider";
+import type { BlueprintDocState } from "@/lib/doc/store";
+import type { Uuid } from "@/lib/doc/types";
 import type { BlueprintForm, Question } from "@/lib/schemas/blueprint";
-import type { BuilderStoreApi } from "@/lib/services/builderStore";
 import type { NForm, NQuestion } from "@/lib/services/normalizedState";
 import { assembleForm } from "@/lib/services/normalizedState";
 import { FormEngine } from "./formEngine";
@@ -68,25 +70,33 @@ export const DEFAULT_RUNTIME_STATE: RuntimeState = Object.freeze({
 
 const EMPTY_FORM: BlueprintForm = { name: "", type: "survey", questions: [] };
 
-/** Assemble a BlueprintForm from the current blueprint store state. */
-function assembleFormFromStore(
-	state: {
-		moduleOrder: string[];
-		formOrder: Record<string, string[]>;
-		forms: Record<string, NForm>;
-		questions: Record<string, NQuestion>;
-		questionOrder: Record<string, string[]>;
-	},
+/**
+ * Assemble a BlueprintForm from the current doc store state.
+ *
+ * Accepts the doc store's branded-key entity maps and casts them to the
+ * plain-string signatures that `assembleForm` expects. At runtime the
+ * values are identical — the branded `Uuid` type is compile-time-only.
+ */
+function assembleFormFromDoc(
+	state: Pick<
+		BlueprintDocState,
+		"moduleOrder" | "formOrder" | "forms" | "questions" | "questionOrder"
+	>,
 	moduleIndex: number,
 	formIndex: number,
 ): BlueprintForm | undefined {
-	const moduleId = state.moduleOrder[moduleIndex];
-	if (!moduleId) return undefined;
-	const formId = state.formOrder[moduleId]?.[formIndex];
-	if (!formId) return undefined;
-	const form = state.forms[formId];
+	const moduleUuid = state.moduleOrder[moduleIndex];
+	if (!moduleUuid) return undefined;
+	const formUuid = state.formOrder[moduleUuid]?.[formIndex];
+	if (!formUuid) return undefined;
+	const form = state.forms[formUuid];
 	if (!form) return undefined;
-	return assembleForm(form, formId, state.questions, state.questionOrder);
+	return assembleForm(
+		form as unknown as NForm,
+		formUuid as string,
+		state.questions as unknown as Record<string, NQuestion>,
+		state.questionOrder as unknown as Record<string, string[]>,
+	);
 }
 
 /** Build bidirectional UUID ↔ XForm path maps by walking the question tree. */
@@ -201,16 +211,17 @@ export class EngineController {
 	/** Cleanup functions for all subscriptions. */
 	private unsubscribers: (() => void)[] = [];
 
-	/** Reference to the blueprint store. */
-	private blueprintStore: BuilderStoreApi | undefined;
+	/** Reference to the doc store — installed by SyncBridge when the
+	 *  BlueprintDocProvider mounts, cleared on unmount. */
+	private docStore: BlueprintDocStore | undefined;
 
 	constructor() {
 		this.store = createStore<RuntimeStoreState>(() => ({}));
 	}
 
-	/** Connect to the blueprint store. Called once during BuilderEngine construction. */
-	setBlueprintStore(blueprintStore: BuilderStoreApi): void {
-		this.blueprintStore = blueprintStore;
+	/** Connect to the doc store. Called by SyncBridge when the provider mounts. */
+	setDocStore(docStore: BlueprintDocStore | null): void {
+		this.docStore = docStore ?? undefined;
 	}
 
 	// ── Lifecycle ────────────────────────────────────────────────────
@@ -225,21 +236,21 @@ export class EngineController {
 		caseData?: Map<string, string>,
 	): void {
 		this.deactivate();
-		if (!this.blueprintStore) return;
+		if (!this.docStore) return;
 
-		const s = this.blueprintStore.getState();
-		const moduleId = s.moduleOrder[moduleIndex];
-		if (!moduleId) return;
-		const formId = s.formOrder[moduleId]?.[formIndex];
-		if (!formId) return;
+		const s = this.docStore.getState();
+		const moduleUuid = s.moduleOrder[moduleIndex];
+		if (!moduleUuid) return;
+		const formUuid = s.formOrder[moduleUuid]?.[formIndex];
+		if (!formUuid) return;
 
 		this.activeModuleIndex = moduleIndex;
 		this.activeFormIndex = formIndex;
 		this.activeCaseData = caseData;
 
 		/* Build the computation engine (constructor does full init) */
-		const form = assembleFormFromStore(s, moduleIndex, formIndex) ?? EMPTY_FORM;
-		const mod = moduleId ? s.modules[moduleId] : undefined;
+		const form = assembleFormFromDoc(s, moduleIndex, formIndex) ?? EMPTY_FORM;
+		const mod = s.modules[moduleUuid];
 		this.engine = new FormEngine(form, s.caseTypes, mod?.caseType, caseData);
 
 		/* Build UUID ↔ path mapping */
@@ -251,9 +262,12 @@ export class EngineController {
 		this.syncAllToStore();
 
 		/* Set up subscriptions */
-		const uuids = collectFormUuids(formId, s.questionOrder);
+		const uuids = collectFormUuids(
+			formUuid as string,
+			s.questionOrder as unknown as Record<string, string[]>,
+		);
 		this.setupPerQuestionSubscriptions(uuids);
-		this.setupStructuralSubscription(formId);
+		this.setupStructuralSubscription(formUuid);
 		this.setupMetadataSubscription();
 	}
 
@@ -359,17 +373,20 @@ export class EngineController {
 	 * - "default_value" → re-evaluate default + cascade
 	 */
 	private setupPerQuestionSubscriptions(uuids: string[]): void {
-		if (!this.blueprintStore) return;
-		const store = this.blueprintStore;
+		if (!this.docStore) return;
+		const store = this.docStore;
 
 		for (const uuid of uuids) {
 			this.trackedUuids.add(uuid);
 
 			const unsub = store.subscribe(
-				(s) => s.questions[uuid],
+				(s) => s.questions[uuid as Uuid],
 				(current, previous) => {
 					if (!current || !previous || !this.engine) return;
-					const changeType = classifyChange(current, previous);
+					const changeType = classifyChange(
+						current as unknown as NQuestion,
+						previous as unknown as NQuestion,
+					);
 
 					switch (changeType) {
 						case "none":
@@ -384,7 +401,7 @@ export class EngineController {
 							this.onIdRenamed(uuid, previous.id, current.id);
 							return;
 						case "default_value":
-							this.onDefaultValueChanged(uuid, current);
+							this.onDefaultValueChanged(uuid, current as unknown as NQuestion);
 							return;
 					}
 				},
@@ -398,12 +415,16 @@ export class EngineController {
 	 * Structural subscription — detects add/remove by watching the full set
 	 * of question UUIDs in this form (recursively from questionOrder).
 	 */
-	private setupStructuralSubscription(formId: string): void {
-		if (!this.blueprintStore) return;
-		const store = this.blueprintStore;
+	private setupStructuralSubscription(formUuid: Uuid): void {
+		if (!this.docStore) return;
+		const store = this.docStore;
 
 		const unsub = store.subscribe(
-			(s) => collectFormUuids(formId, s.questionOrder),
+			(s) =>
+				collectFormUuids(
+					formUuid as string,
+					s.questionOrder as unknown as Record<string, string[]>,
+				),
 			(currentUuids, previousUuids) => {
 				const currentSet = new Set(currentUuids);
 				const previousSet = new Set(previousUuids);
@@ -421,16 +442,17 @@ export class EngineController {
 
 	/** Metadata subscription — form type or module case type changes. */
 	private setupMetadataSubscription(): void {
-		if (!this.blueprintStore) return;
-		const store = this.blueprintStore;
+		if (!this.docStore) return;
+		const store = this.docStore;
 
 		const unsub = store.subscribe(
 			(s) => {
-				const moduleId = s.moduleOrder[this.activeModuleIndex];
-				const form = moduleId
-					? s.forms[s.formOrder[moduleId]?.[this.activeFormIndex] ?? ""]
+				const moduleUuid = s.moduleOrder[this.activeModuleIndex];
+				const formUuid = moduleUuid
+					? s.formOrder[moduleUuid]?.[this.activeFormIndex]
 					: undefined;
-				const mod = moduleId ? s.modules[moduleId] : undefined;
+				const form = formUuid ? s.forms[formUuid] : undefined;
+				const mod = moduleUuid ? s.modules[moduleUuid] : undefined;
 				return `${form?.type}|${mod?.caseType}`;
 			},
 			() => this.onMetadataChanged(),
@@ -444,10 +466,10 @@ export class EngineController {
 	/** A question's expression field changed. Rebuild DAG (sub-ms), then
 	 *  re-evaluate only that question + its downstream dependents. */
 	private onExpressionChanged(uuid: string): void {
-		if (!this.engine || !this.blueprintStore) return;
+		if (!this.engine || !this.docStore) return;
 
-		const s = this.blueprintStore.getState();
-		const form = assembleFormFromStore(
+		const s = this.docStore.getState();
+		const form = assembleFormFromDoc(
 			s,
 			this.activeModuleIndex,
 			this.activeFormIndex,
@@ -476,10 +498,10 @@ export class EngineController {
 	/** A question's ID was renamed. Update path mappings, move DataInstance
 	 *  values, rebuild DAG, and re-evaluate dependents. */
 	private onIdRenamed(uuid: string, _oldId: string, _newId: string): void {
-		if (!this.engine || !this.blueprintStore) return;
+		if (!this.engine || !this.docStore) return;
 
-		const s = this.blueprintStore.getState();
-		const form = assembleFormFromStore(
+		const s = this.docStore.getState();
+		const form = assembleFormFromDoc(
 			s,
 			this.activeModuleIndex,
 			this.activeFormIndex,
@@ -512,11 +534,11 @@ export class EngineController {
 	/** A question's default_value expression changed. Re-evaluate the
 	 *  default and cascade through dependents. */
 	private onDefaultValueChanged(uuid: string, question: NQuestion): void {
-		if (!this.engine || !this.blueprintStore) return;
+		if (!this.engine || !this.docStore) return;
 
 		/* Rebuild DAG in case the default expression references new paths */
-		const s = this.blueprintStore.getState();
-		const form = assembleFormFromStore(
+		const s = this.docStore.getState();
+		const form = assembleFormFromDoc(
 			s,
 			this.activeModuleIndex,
 			this.activeFormIndex,
@@ -536,10 +558,10 @@ export class EngineController {
 	/** Questions were added to the form. Initialize their states
 	 *  incrementally without rebuilding existing questions. */
 	private onQuestionsAdded(uuids: string[]): void {
-		if (!this.engine || !this.blueprintStore) return;
+		if (!this.engine || !this.docStore) return;
 
-		const s = this.blueprintStore.getState();
-		const form = assembleFormFromStore(
+		const s = this.docStore.getState();
+		const form = assembleFormFromDoc(
 			s,
 			this.activeModuleIndex,
 			this.activeFormIndex,
@@ -574,7 +596,7 @@ export class EngineController {
 	/** Questions were removed from the form. Clean up their states
 	 *  without rebuilding existing questions. */
 	private onQuestionsRemoved(uuids: string[]): void {
-		if (!this.engine || !this.blueprintStore) return;
+		if (!this.engine || !this.docStore) return;
 
 		/* Remove states from the engine and runtime store */
 		const runtimeUpdates: RuntimeStoreState = {};
@@ -589,8 +611,8 @@ export class EngineController {
 		this.store.setState(runtimeUpdates);
 
 		/* Rebuild path maps and DAG without the removed questions */
-		const s = this.blueprintStore.getState();
-		const form = assembleFormFromStore(
+		const s = this.docStore.getState();
+		const form = assembleFormFromDoc(
 			s,
 			this.activeModuleIndex,
 			this.activeFormIndex,
@@ -615,18 +637,18 @@ export class EngineController {
 	/** Form type or module case type changed. Update case data context
 	 *  and re-evaluate only the affected case-property questions. */
 	private onMetadataChanged(): void {
-		if (!this.engine || !this.blueprintStore) return;
+		if (!this.engine || !this.docStore) return;
 
-		const s = this.blueprintStore.getState();
-		const form = assembleFormFromStore(
+		const s = this.docStore.getState();
+		const form = assembleFormFromDoc(
 			s,
 			this.activeModuleIndex,
 			this.activeFormIndex,
 		);
 		if (!form) return;
 
-		const moduleId = s.moduleOrder[this.activeModuleIndex];
-		const mod = moduleId ? s.modules[moduleId] : undefined;
+		const moduleUuid = s.moduleOrder[this.activeModuleIndex];
+		const mod = moduleUuid ? s.modules[moduleUuid] : undefined;
 
 		this.engine.refreshCaseContext(
 			form,

@@ -54,11 +54,10 @@ export class BuilderEngine {
 		 * tracking after loadApp() or completeGeneration(). */
 		this.store.temporal.getState().pause();
 
-		/* Initialize the form engine controller and connect it to the blueprint
-		 * store. The controller creates its own UUID-keyed runtime store —
-		 * components subscribe to it for test-mode values and computed state. */
+		/* Initialize the form engine controller. Its own UUID-keyed runtime
+		 * store handles test-mode values and computed state. The doc store
+		 * reference is installed later by SyncBridge when the provider mounts. */
 		this.engineController = new EngineController();
-		this.engineController.setBlueprintStore(this.store);
 	}
 
 	// ── Convenience readers (non-reactive, for imperative code) ─────────
