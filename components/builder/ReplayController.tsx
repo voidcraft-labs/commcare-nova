@@ -1,8 +1,9 @@
 /**
  * ReplayController — floating transport bar for stepping through generation
- * replay stages. Fully self-sufficient — reads stages from the legacy store,
- * dispatches emissions to the provider stack via `applyToBuilder({ store,
- * docStore })`, and writes replay messages back for ChatContainer.
+ * replay stages. Fully self-sufficient — reads replay data from the session
+ * store, dispatches emissions via `applyStreamEvent` (the same dispatcher
+ * used by real-time streaming), and writes replay messages back for
+ * ChatContainer.
  *
  * No props needed from BuilderLayout. Mount/unmount is controlled by
  * BuilderLayout based on `inReplayMode`, but the component owns all
@@ -16,27 +17,30 @@ import tablerX from "@iconify-icons/tabler/x";
 import { AnimatePresence, motion } from "motion/react";
 import { useRouter } from "next/navigation";
 import { useCallback, useContext, useState } from "react";
-import { useBuilderStore, useBuilderStoreApi } from "@/hooks/useBuilder";
 import { BlueprintDocContext } from "@/lib/doc/provider";
+import { applyStreamEvent } from "@/lib/generation/streamDispatcher";
 import { useBuilderFormEngine } from "@/lib/preview/engine/provider";
 import { resetBuilder } from "@/lib/services/resetBuilder";
-import { BuilderSessionContext } from "@/lib/session/provider";
+import {
+	BuilderSessionContext,
+	useBuilderSession,
+} from "@/lib/session/provider";
 
 export function ReplayController() {
 	const router = useRouter();
-	const storeApi = useBuilderStoreApi();
 	const docStore = useContext(BlueprintDocContext);
 	const sessionStore = useContext(BuilderSessionContext);
 	const engineController = useBuilderFormEngine();
 
 	/* Self-subscribe to replay state — no props from parent. */
-	const stages = useBuilderStore((s) => s.replayStages) ?? [];
-	const doneIndex = useBuilderStore((s) => s.replayDoneIndex);
+	const replay = useBuilderSession((s) => s.replay);
+	const stages = replay?.stages ?? [];
+	const doneIndex = replay?.doneIndex ?? 0;
 	const [currentIndex, setCurrentIndex] = useState(doneIndex);
 	const [error, setError] = useState<string>();
 
 	const doReset = useCallback(() => {
-		/* The provider stack guarantees all four stores/controllers are
+		/* The provider stack guarantees all stores/controllers are
 		 * installed by the time this component mounts — assert loudly if
 		 * the invariant is violated instead of silently dropping the reset. */
 		if (!docStore || !sessionStore) {
@@ -45,25 +49,29 @@ export function ReplayController() {
 			);
 		}
 		resetBuilder({
-			store: storeApi,
 			sessionStore,
 			docStore,
 			engineController,
 		});
-	}, [storeApi, docStore, sessionStore, engineController]);
+	}, [docStore, sessionStore, engineController]);
 
 	const goToStage = useCallback(
 		(targetIndex: number) => {
 			try {
 				doReset();
+				/* Replay all emissions from stage 0 through the target stage
+				 * via the stream dispatcher — the same code path as real-time
+				 * streaming, ensuring replay and live builds produce identical
+				 * doc state. */
 				for (let i = 0; i <= targetIndex; i++) {
-					stages[i].applyToBuilder({
-						store: storeApi,
-						docStore: docStore ?? null,
-					});
+					for (const em of stages[i].emissions) {
+						applyStreamEvent(em.type, em.data, docStore!, sessionStore!);
+					}
 				}
-				/* Write replay messages to the store — ChatContainer reads them. */
-				storeApi.getState().setReplayMessages(stages[targetIndex].messages);
+				/* Write replay messages to the session store — ChatContainer reads them. */
+				sessionStore!
+					.getState()
+					.setReplayMessages(stages[targetIndex].messages);
 				setCurrentIndex(targetIndex);
 				setError(undefined);
 			} catch (err) {
@@ -72,15 +80,15 @@ export function ReplayController() {
 				);
 			}
 		},
-		[doReset, storeApi, docStore, stages],
+		[doReset, docStore, sessionStore, stages],
 	);
 
 	/** Exit replay mode — reset the builder and navigate to the exit path. */
 	const handleExit = useCallback(() => {
-		const exitPath = storeApi.getState().replayExitPath ?? "/";
+		const exitPath = sessionStore?.getState().replay?.exitPath ?? "/";
 		doReset();
 		router.push(exitPath);
-	}, [storeApi, doReset, router]);
+	}, [sessionStore, doReset, router]);
 
 	const canGoBack = currentIndex > 0;
 	const canGoForward = currentIndex < stages.length - 1;
