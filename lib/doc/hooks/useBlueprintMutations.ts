@@ -39,6 +39,7 @@ import type {
 	AppBlueprint,
 	BlueprintForm,
 	BlueprintModule,
+	CaseProperty,
 	CaseType,
 	ConnectType,
 	Question,
@@ -154,6 +155,20 @@ export interface BlueprintMutations {
 		connect_type?: ConnectType | null;
 	}) => void;
 	setCaseTypes: (caseTypes: CaseType[] | null) => void;
+	/**
+	 * Update a single property on a case type's property list.
+	 *
+	 * Reads the current `caseTypes` from the doc, finds the matching case
+	 * type by name and property by name, merges the updates, and dispatches
+	 * a `setCaseTypes` mutation with the new array. Silently no-ops if the
+	 * case type or property doesn't exist (fail-open, consistent with other
+	 * mutation methods).
+	 */
+	updateCaseProperty: (
+		caseTypeName: string,
+		propertyName: string,
+		updates: Partial<Omit<CaseProperty, "name">>,
+	) => void;
 
 	// ── Batch ─────────────────────────────────────────────────────────────
 	/**
@@ -647,6 +662,49 @@ export function useBlueprintMutations(): BlueprintMutations {
 
 			setCaseTypes(caseTypes) {
 				dispatch({ kind: "setCaseTypes", caseTypes });
+			},
+
+			updateCaseProperty(caseTypeName, propertyName, updates) {
+				const doc = get();
+				const currentCaseTypes = doc.caseTypes;
+				if (!currentCaseTypes) {
+					warnUnresolved("updateCaseProperty", { caseTypeName, propertyName });
+					return;
+				}
+				const ctIndex = currentCaseTypes.findIndex(
+					(ct) => ct.name === caseTypeName,
+				);
+				if (ctIndex === -1) {
+					warnUnresolved("updateCaseProperty", {
+						caseTypeName,
+						reason: "case type not found",
+					});
+					return;
+				}
+				const ct = currentCaseTypes[ctIndex];
+				const propIndex = ct.properties.findIndex(
+					(p) => p.name === propertyName,
+				);
+				if (propIndex === -1) {
+					warnUnresolved("updateCaseProperty", {
+						caseTypeName,
+						propertyName,
+						reason: "property not found",
+					});
+					return;
+				}
+				// Build a new caseTypes array with the updated property. Immutable
+				// construction avoids mutating the Immer-frozen snapshot.
+				const nextCaseTypes = currentCaseTypes.map((caseType, i) => {
+					if (i !== ctIndex) return caseType;
+					return {
+						...caseType,
+						properties: caseType.properties.map((p, j) =>
+							j === propIndex ? { ...p, ...updates } : p,
+						),
+					};
+				});
+				dispatch({ kind: "setCaseTypes", caseTypes: nextCaseTypes });
 			},
 
 			applyMany(mutations) {

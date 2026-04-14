@@ -613,6 +613,107 @@ describe("useBlueprintMutations", () => {
 		expect(result.current.store?.getState().caseTypes).toBeNull();
 	});
 
+	// ── updateCaseProperty ───────────────────────────────────────────────
+
+	it("updateCaseProperty updates a property on a case type", () => {
+		const { result } = renderHook(() => useMutationsAndFirstFormChildren(), {
+			wrapper,
+		});
+
+		// Seed case types with a property to update.
+		act(() => {
+			result.current.mutations.setCaseTypes([
+				{
+					name: "person",
+					properties: [
+						{ name: "dob", label: "Date of Birth", data_type: "text" },
+						{ name: "age", label: "Age", data_type: "int" },
+					],
+				},
+			]);
+		});
+
+		act(() => {
+			result.current.mutations.updateCaseProperty("person", "dob", {
+				data_type: "date",
+			});
+		});
+
+		const s = result.current.store?.getState();
+		const personType = s?.caseTypes?.find((ct) => ct.name === "person");
+		const dob = personType?.properties.find((p) => p.name === "dob");
+		expect(dob?.data_type).toBe("date");
+		// Ensure the other property is untouched.
+		const age = personType?.properties.find((p) => p.name === "age");
+		expect(age?.data_type).toBe("int");
+	});
+
+	it("updateCaseProperty on a non-existent case type is a silent no-op", () => {
+		const { result } = renderHook(() => useMutationsAndFirstFormChildren(), {
+			wrapper,
+		});
+
+		act(() => {
+			result.current.mutations.setCaseTypes([
+				{
+					name: "person",
+					properties: [{ name: "dob", label: "DOB", data_type: "text" }],
+				},
+			]);
+		});
+
+		// Should not throw even though "animal" doesn't exist.
+		expect(() => {
+			act(() => {
+				result.current.mutations.updateCaseProperty("animal", "dob", {
+					data_type: "date",
+				});
+			});
+		}).not.toThrow();
+
+		// Case types should be unchanged.
+		const s = result.current.store?.getState();
+		expect(s?.caseTypes).toEqual([
+			{
+				name: "person",
+				properties: [{ name: "dob", label: "DOB", data_type: "text" }],
+			},
+		]);
+	});
+
+	it("updateCaseProperty on a non-existent property is a silent no-op", () => {
+		const { result } = renderHook(() => useMutationsAndFirstFormChildren(), {
+			wrapper,
+		});
+
+		act(() => {
+			result.current.mutations.setCaseTypes([
+				{
+					name: "person",
+					properties: [{ name: "dob", label: "DOB", data_type: "text" }],
+				},
+			]);
+		});
+
+		// Should not throw even though "nonexistent" doesn't exist.
+		expect(() => {
+			act(() => {
+				result.current.mutations.updateCaseProperty("person", "nonexistent", {
+					label: "Nope",
+				});
+			});
+		}).not.toThrow();
+
+		// Case types should be unchanged.
+		const s = result.current.store?.getState();
+		expect(s?.caseTypes).toEqual([
+			{
+				name: "person",
+				properties: [{ name: "dob", label: "DOB", data_type: "text" }],
+			},
+		]);
+	});
+
 	// ── applyMany ─────────────────────────────────────────────────────────
 
 	it("applyMany collapses two mutations into a single undo entry", () => {
