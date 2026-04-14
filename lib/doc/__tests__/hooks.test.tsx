@@ -22,9 +22,11 @@ function setup() {
 		connect_type: undefined,
 		modules: [
 			{
+				uuid: "module-1-uuid",
 				name: "Registration",
 				forms: [
 					{
+						uuid: "form-1-uuid",
 						name: "Reg Form",
 						type: "registration",
 						questions: [

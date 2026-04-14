@@ -11,14 +11,13 @@
  * builder route). `toBlueprint` reconstructs the nested form for save, export,
  * and the chat body.
  *
- * Design choices:
- *   - Module and form UUIDs are freshly minted on every load because the
- *     on-disk schema doesn't persist them. Stable identity across sessions
- *     is NOT a promise of this converter — it's a session-scoped normalization.
- *   - Question UUIDs are preserved verbatim from the blueprint; questions
- *     already carry stable UUIDs (assigned at creation by the SA).
- *   - Missing question UUIDs throw — callers must have run `applyDefaults` or
- *     the SA's question-tree builder before handing the blueprint to `toDoc`.
+ * Module, form, and question UUIDs all round-trip through the blueprint schema
+ * and are preserved verbatim by this converter. The wire-format mint sites are
+ * `bpAddModule`/`bpAddForm`/`bpSetScaffold` in `lib/services/blueprintHelpers.ts`
+ * (mirroring `newQuestionToBlueprint` for questions). Legacy blueprints written
+ * before module/form uuids became schema fields are migrated by
+ * `scripts/migrate-module-form-uuids.ts`. Any blueprint reaching `toDoc` without
+ * uuids on every module + form throws — there is no fallback minting here.
  */
 
 import {
@@ -52,27 +51,31 @@ export function toDoc(bp: AppBlueprint, appId: string): BlueprintDoc {
 	const questionOrder: Record<Uuid, Uuid[]> = {};
 
 	for (const mod of bp.modules) {
-		const modUuid = asUuid(crypto.randomUUID());
+		if (!mod.uuid) {
+			throw new Error(
+				`toDoc: module "${mod.name}" missing uuid — run scripts/migrate-module-form-uuids.ts or re-create the app`,
+			);
+		}
+		const modUuid = asUuid(mod.uuid);
 		moduleOrder.push(modUuid);
 
 		// Reuse the shared snake→camel module decomposer. The result is an
 		// NModule (plain `string` uuid); cast to ModuleEntity (branded `Uuid`).
-		modules[modUuid] = decomposeModuleEntity(
-			mod,
-			modUuid,
-		) as unknown as ModuleEntity;
+		modules[modUuid] = decomposeModuleEntity(mod) as unknown as ModuleEntity;
 
 		const formUuids: Uuid[] = [];
 		for (const form of mod.forms) {
-			const formUuid = asUuid(crypto.randomUUID());
+			if (!form.uuid) {
+				throw new Error(
+					`toDoc: form "${form.name}" in module "${mod.name}" missing uuid — run scripts/migrate-module-form-uuids.ts or re-create the app`,
+				);
+			}
+			const formUuid = asUuid(form.uuid);
 			formUuids.push(formUuid);
 
 			// Reuse the shared snake→camel form decomposer (handles
 			// close_condition / close_case migration, post_submit, etc.).
-			forms[formUuid] = decomposeFormEntity(
-				form,
-				formUuid,
-			) as unknown as FormEntity;
+			forms[formUuid] = decomposeFormEntity(form) as unknown as FormEntity;
 
 			questionOrder[formUuid] = flattenQuestions(
 				form.questions ?? [],
@@ -103,8 +106,13 @@ export function toDoc(bp: AppBlueprint, appId: string): BlueprintDoc {
  * Returns the ordered UUID array for the parent (form uuid or group uuid).
  * Populates `questions` and `questionOrder` by side effect — this avoids
  * allocating fresh arrays at each recursion depth.
+ *
+ * Exported so callers that hold a single nested form (e.g. `replaceForm` in
+ * `useBlueprintMutations` and `setFormContent` in the legacy builder store)
+ * can reuse the same flatten walk without constructing a synthetic single-
+ * module wrapper just to call `toDoc`.
  */
-function flattenQuestions(
+export function flattenQuestions(
 	src: Question[],
 	questions: Record<Uuid, QuestionEntity>,
 	questionOrder: Record<Uuid, Uuid[]>,
@@ -139,12 +147,10 @@ function flattenQuestions(
  * Output ordering is governed entirely by the doc's `*Order` arrays; the
  * entity tables are consulted for field values but never for ordering.
  *
- * UUID lifecycle:
- *   - Question UUIDs are preserved on output — they appear in the blueprint's
- *     `uuid` fields.
- *   - Module and form UUIDs are NOT serialized to the blueprint; they exist
- *     only for in-session reference. If you `toBlueprint(toDoc(bp))` the
- *     input and output will be identical regardless of the session UUIDs.
+ * Module, form, and question UUIDs all round-trip — `toBlueprint(toDoc(bp))`
+ * is value-equal to `bp` for any well-formed blueprint. The `assembleModule
+ * Fields`/`assembleFormFields` helpers are responsible for emitting the
+ * `uuid` field; this function just stitches the entities back into a tree.
  */
 export function toBlueprint(doc: BlueprintDoc): AppBlueprint {
 	return {

@@ -26,8 +26,11 @@ function makeBlueprint(
 		case_types: null,
 		modules: [
 			{
+				uuid: "module-1-uuid",
 				name: "Module 1",
-				forms: [{ name: "Form 1", type: "survey", questions }],
+				forms: [
+					{ uuid: "form-1-uuid", name: "Form 1", type: "survey", questions },
+				],
 			},
 		],
 	};

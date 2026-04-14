@@ -68,7 +68,16 @@ export const DEFAULT_RUNTIME_STATE: RuntimeState = Object.freeze({
 
 // ── Helpers ─────────────────────────────────────────────────────────────
 
-const EMPTY_FORM: BlueprintForm = { name: "", type: "survey", questions: [] };
+/* Sentinel "empty form" used as a stable fallback when the doc store has no
+ * form at the requested coordinates. Carries a fixed sentinel uuid so the
+ * required-uuid contract is satisfied without spending a real `crypto.random
+ * UUID()` per render — this object is frozen and shared. */
+const EMPTY_FORM: BlueprintForm = {
+	uuid: "empty-form-sentinel",
+	name: "",
+	type: "survey",
+	questions: [],
+};
 
 /**
  * Assemble a BlueprintForm from the current doc store state.

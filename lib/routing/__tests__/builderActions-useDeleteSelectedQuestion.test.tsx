@@ -75,10 +75,12 @@ const BP = {
 	case_types: null,
 	modules: [
 		{
+			uuid: "module-1-uuid",
 			name: "M",
 			case_type: undefined,
 			forms: [
 				{
+					uuid: "form-1-uuid",
 					name: "F",
 					type: "survey" as const,
 					questions: [

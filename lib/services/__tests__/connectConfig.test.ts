@@ -18,6 +18,7 @@ function makeLearnForm(
 	questions: BlueprintForm["questions"] = [],
 ): BlueprintForm {
 	return {
+		uuid: "form-1-uuid",
 		name: "ILC Training",
 		type: "survey",
 		connect,
@@ -58,6 +59,7 @@ function makeLearnForm(
 
 function makeDeliverForm(connect?: ConnectConfig): BlueprintForm {
 	return {
+		uuid: "form-2-uuid",
 		name: "Weekly Report",
 		type: "survey",
 		connect,
@@ -85,7 +87,7 @@ function makeConnectBlueprint(
 	return {
 		app_name: "Connect Test App",
 		connect_type: connectType,
-		modules: [{ name: "Main", forms: [form] }],
+		modules: [{ uuid: "module-1-uuid", name: "Main", forms: [form] }],
 		case_types: null,
 	};
 }
@@ -179,6 +181,7 @@ describe("deriveConnectDefaults", () => {
 
 	it("fills assessment default score of 100 when no score question exists", () => {
 		const form: BlueprintForm = {
+			uuid: "form-3-uuid",
 			name: "Simple Learn",
 			type: "survey",
 			connect: { assessment: { user_score: "" } },

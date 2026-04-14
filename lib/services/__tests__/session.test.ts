@@ -301,9 +301,11 @@ describe("detectFormLinkCycles", () => {
 	it("detects simple A→B→A cycle", () => {
 		const bp = mkBlueprint([
 			{
+				uuid: "module-1-uuid",
 				name: "M0",
 				forms: [
 					{
+						uuid: "form-1-uuid",
 						name: "F0",
 						type: "survey",
 						questions: [q({ id: "q", type: "text" })],
@@ -312,6 +314,7 @@ describe("detectFormLinkCycles", () => {
 						],
 					},
 					{
+						uuid: "form-2-uuid",
 						name: "F1",
 						type: "survey",
 						questions: [q({ id: "q", type: "text" })],
@@ -329,9 +332,11 @@ describe("detectFormLinkCycles", () => {
 	it("returns empty for acyclic links", () => {
 		const bp = mkBlueprint([
 			{
+				uuid: "module-2-uuid",
 				name: "M0",
 				forms: [
 					{
+						uuid: "form-3-uuid",
 						name: "F0",
 						type: "survey",
 						questions: [q({ id: "q", type: "text" })],
@@ -340,6 +345,7 @@ describe("detectFormLinkCycles", () => {
 						],
 					},
 					{
+						uuid: "form-4-uuid",
 						name: "F1",
 						type: "survey",
 						questions: [q({ id: "q", type: "text" })],
@@ -353,9 +359,11 @@ describe("detectFormLinkCycles", () => {
 	it("ignores module targets (no cycle possible)", () => {
 		const bp = mkBlueprint([
 			{
+				uuid: "module-3-uuid",
 				name: "M0",
 				forms: [
 					{
+						uuid: "form-5-uuid",
 						name: "F0",
 						type: "survey",
 						questions: [q({ id: "q", type: "text" })],

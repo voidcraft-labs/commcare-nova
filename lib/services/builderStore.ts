@@ -33,7 +33,7 @@ import { enableMapSet } from "immer";
 import { devtools, subscribeWithSelector } from "zustand/middleware";
 import { immer } from "zustand/middleware/immer";
 import { createStore } from "zustand/vanilla";
-import { toDoc } from "@/lib/doc/converter";
+import { flattenQuestions } from "@/lib/doc/converter";
 import type { BlueprintDocStore } from "@/lib/doc/provider";
 import {
 	asUuid,
@@ -48,6 +48,7 @@ import type {
 	FormType,
 	Scaffold,
 } from "@/lib/schemas/blueprint";
+import { decomposeFormEntity } from "@/lib/services/normalizedState";
 import {
 	BuilderPhase,
 	type GenerationError,
@@ -424,42 +425,35 @@ export function createBuilderStore(initialPhase: BuilderPhase) {
 						const formUuid = doc.formOrder[moduleUuid]?.[formIndex];
 						if (!formUuid) return;
 
-						// Build a scratch doc from the incoming form, then re-key
-						// to the real formUuid so replaceForm swaps in-place.
-						const scratch = toDoc(
-							{
-								app_name: "",
-								connect_type: undefined,
-								case_types: null,
-								modules: [{ name: "__scratch__", forms: [form] }],
-							},
-							"",
-						);
-						const scratchModuleUuid = scratch.moduleOrder[0];
-						const scratchFormUuid = scratch.formOrder[scratchModuleUuid][0];
-						const scratchForm = scratch.forms[scratchFormUuid];
+						/* Convert the incoming nested form to flat doc shape directly.
+						 * No scratch-blueprint dance: we already know the destination
+						 * formUuid, so we stamp it onto a copy of the incoming form
+						 * before calling decomposeFormEntity (which now requires uuid)
+						 * and walk the nested questions via flattenQuestions. */
+						const formWithUuid: BlueprintForm = { ...form, uuid: formUuid };
+						const nForm = decomposeFormEntity(formWithUuid);
 
-						// Preserve the scaffold-set purpose — BlueprintForm doesn't
-						// carry purpose, so toDoc produces `purpose: undefined`.
+						/* Preserve the scaffold-set purpose — BlueprintForm doesn't
+						 * carry purpose, so the freshly decomposed entity has
+						 * `purpose: undefined`. */
 						const existingForm = doc.forms[formUuid];
 						const replacement: FormEntity = {
-							...scratchForm,
-							uuid: formUuid,
-							purpose: existingForm?.purpose ?? scratchForm.purpose,
+							...(nForm as unknown as FormEntity),
+							purpose: existingForm?.purpose ?? nForm.purpose,
 						};
 
-						// Re-key question ordering: replace the scratch form UUID
-						// with the real form UUID; nested group/repeat keys pass
-						// through unchanged (they're question UUIDs, not form UUIDs).
-						const questions = Object.values(
-							scratch.questions,
-						) as QuestionEntity[];
+						/* Flatten the nested question tree into the doc's flat shape.
+						 * questionOrder is keyed by parent uuid: top-level questions
+						 * land under `formUuid`; nested group/repeat children land
+						 * under their parent question uuid (handled recursively). */
+						const questionsMap: Record<Uuid, QuestionEntity> = {};
 						const questionOrder: Record<Uuid, Uuid[]> = {};
-						for (const [key, order] of Object.entries(scratch.questionOrder)) {
-							questionOrder[
-								key === scratchFormUuid ? formUuid : (key as Uuid)
-							] = order;
-						}
+						questionOrder[formUuid] = flattenQuestions(
+							form.questions ?? [],
+							questionsMap,
+							questionOrder,
+						);
+						const questions = Object.values(questionsMap);
 
 						doc.apply({
 							kind: "replaceForm",

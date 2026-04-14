@@ -482,6 +482,13 @@ const formLinkSchema = z.object({
 
 export const blueprintFormSchema = z
 	.object({
+		/* uuid is internal — stable form identity across sessions. Required
+		 * (matches Question.uuid). The legacy migration path lives in
+		 * scripts/migrate-module-form-uuids.ts, which stamps uuids on any
+		 * pre-uuid blueprint in Firestore. SA tools that create forms call
+		 * bpAddForm/bpReplaceForm in blueprintHelpers.ts, which mint uuids
+		 * at the wire-format boundary. */
+		uuid: z.string(),
 		name: z.string().describe("Display name for the form"),
 		type: z
 			.enum(FORM_TYPES)
@@ -555,6 +562,12 @@ const caseListColumnSchema = z.object({
 
 const blueprintModuleSchema = z
 	.object({
+		/* uuid is internal — stable module identity across sessions. Required
+		 * (matches Question.uuid + BlueprintForm.uuid). SA tools that create
+		 * modules call bpAddModule/bpSetScaffold, which mint uuids at the
+		 * wire-format boundary. Legacy blueprints with no uuid run through
+		 * scripts/migrate-module-form-uuids.ts. */
+		uuid: z.string(),
 		name: z.string().describe("Display name for the module/menu"),
 		case_type: z
 			.string()

@@ -7,7 +7,7 @@ function makeForm(
 	questions: BlueprintForm["questions"],
 	type: BlueprintForm["type"] = "registration",
 ): BlueprintForm {
-	return { name: "Test Form", type, questions };
+	return { uuid: "test-form-uuid", name: "Test Form", type, questions };
 }
 
 const sampleCaseTypes: CaseType[] = [
