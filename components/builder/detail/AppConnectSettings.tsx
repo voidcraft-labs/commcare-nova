@@ -9,9 +9,7 @@ import { useSwitchConnectMode } from "@/lib/session/hooks";
 import { POPOVER_POPUP_CLS, POPOVER_POSITIONER_GLASS_CLS } from "@/lib/styles";
 
 export function AppConnectSettings() {
-	const connectType = useBlueprintDoc((s) => s.connectType) as
-		| ConnectType
-		| undefined;
+	const connectType = useBlueprintDoc((s) => s.connectType ?? undefined);
 	const moduleCount = useBlueprintDoc((s) => s.moduleOrder.length);
 	const switchMode = useSwitchConnectMode();
 	const [open, setOpen] = useState(false);

@@ -32,7 +32,6 @@ import { BlueprintDocContext } from "@/lib/doc/provider";
 import { asUuid, type Uuid } from "@/lib/doc/types";
 import {
 	type ConnectConfig,
-	type ConnectType,
 	defaultPostSubmit,
 	type PostSubmitDestination,
 	type Question,
@@ -714,9 +713,7 @@ function ConnectSection({ moduleUuid, formUuid }: FormSettingsPanelProps) {
 	const form = useForm(formUuid);
 	const mod = useModule(moduleUuid);
 	const { updateForm: updateFormAction } = useBlueprintMutations();
-	const connectType = useBlueprintDoc((s) => s.connectType) as
-		| ConnectType
-		| undefined;
+	const connectType = useBlueprintDoc((s) => s.connectType ?? undefined);
 	const connect = form?.connect;
 	const enabled = !!connect;
 
