@@ -24,12 +24,14 @@
 "use client";
 import { useContext, useEffect, useRef, useState } from "react";
 import { shallow } from "zustand/shallow";
-import { useBuilderStoreApi } from "@/hooks/useBuilder";
 import { reportClientError } from "@/lib/clientErrorReporter";
 import { toBlueprint } from "@/lib/doc/converter";
 import { BlueprintDocContext } from "@/lib/doc/provider";
 import type { BlueprintDoc } from "@/lib/doc/types";
-import { selectIsReady } from "@/lib/services/builderSelectors";
+import { BuilderPhase } from "@/lib/services/builder";
+import { derivePhase } from "@/lib/session/hooks";
+import { BuilderSessionContext } from "@/lib/session/provider";
+import type { BuilderSessionStoreApi } from "@/lib/session/store";
 
 /** Post-save cooldown before the trailing edge can fire (ms). */
 const COOLDOWN_MS = 1000;
@@ -75,18 +77,17 @@ function projectSaveSlice(s: BlueprintDoc) {
  * Auth is guaranteed by the server layout (`requireAuth` in
  * `app/build/layout.tsx`) — no client-side auth check needed.
  *
- * Reads the legacy store handle via `useBuilderStoreApi()` — the hook
- * gates saving on `appId` + `phase` (Ready/Completed), both of which
- * live on the legacy store. The doc store is read from context for
- * subscription + blueprint assembly.
+ * Reads the session store handle via `BuilderSessionContext` — the hook
+ * gates saving on `appId` + derived phase (Ready/Completed). The doc
+ * store is read from context for subscription + blueprint assembly.
  */
 export function useAutoSave(): SaveState {
 	const [state, setState] = useState<SaveState>(IDLE_STATE);
 
-	/* The doc store owns blueprint entity data — the legacy store's `appId`
-	 * still gates whether saving is enabled, so we read both. */
+	/* The doc store owns blueprint entity data — the session store's `appId`
+	 * and lifecycle flags gate whether saving is enabled. */
 	const docStore = useContext(BlueprintDocContext);
-	const storeApi = useBuilderStoreApi();
+	const sessionApi = useContext(BuilderSessionContext);
 
 	/* Throttle state — all mutable, read/written inside the subscription
 	 * callback and cleanup. Never triggers re-renders. */
@@ -100,7 +101,7 @@ export function useAutoSave(): SaveState {
 	/* Reset state when the app changes — new app means a fresh save state
 	 * and no pending/in-flight state from the old app. Uses React's "derive
 	 * state from props" pattern. */
-	const currentAppId = storeApi.getState().appId;
+	const currentAppId = sessionApi?.getState().appId;
 	const prevAppIdRef = useRef(currentAppId);
 	if (prevAppIdRef.current !== currentAppId) {
 		prevAppIdRef.current = currentAppId;
@@ -117,7 +118,7 @@ export function useAutoSave(): SaveState {
 	 * Entity reference checks via shallow equality are the watermark — if no
 	 * entity map changed reference, the subscriber doesn't fire. */
 	useEffect(() => {
-		if (!docStore) return;
+		if (!docStore || !sessionApi) return;
 		unmountedRef.current = false;
 
 		/**
@@ -133,7 +134,7 @@ export function useAutoSave(): SaveState {
 		 */
 		async function executeSave() {
 			if (!docStore) return;
-			const appIdAtStart = storeApi.getState().appId;
+			const appIdAtStart = sessionApi!.getState().appId;
 			const doc = docStore.getState();
 			if (!appIdAtStart || doc.moduleOrder.length === 0) return;
 
@@ -149,7 +150,7 @@ export function useAutoSave(): SaveState {
 			 *  started saving. If false, the user navigated to a different
 			 *  app while the request was in flight — discard the result. */
 			const stillCurrent = () =>
-				storeApi.getState().appId === appIdAtStart && !unmountedRef.current;
+				sessionApi!.getState().appId === appIdAtStart && !unmountedRef.current;
 
 			try {
 				const res = await fetch(`/api/apps/${appIdAtStart}`, {
@@ -218,10 +219,17 @@ export function useAutoSave(): SaveState {
 		const unsub = docStore.subscribe(
 			projectSaveSlice,
 			() => {
-				/* Gate on lifecycle phase and app existence. */
-				if (!selectIsReady(storeApi.getState())) return;
-				const pid = storeApi.getState().appId;
+				/* Gate on lifecycle phase and app existence. Derive the builder
+				 * phase from session state + doc presence — only save when the
+				 * builder is in Ready or Completed (i.e. the user has a usable
+				 * blueprint and no initial generation is in progress). */
+				const sessionState = sessionApi!.getState();
 				const docSnap = docStore.getState();
+				const docHasData = docSnap.moduleOrder.length > 0;
+				const phase = derivePhase(sessionState, docHasData);
+				if (phase !== BuilderPhase.Ready && phase !== BuilderPhase.Completed)
+					return;
+				const pid = sessionState.appId;
 				if (!pid || docSnap.moduleOrder.length === 0) return;
 
 				/* Save is in-flight — queue for trailing edge after completion. */
@@ -251,7 +259,7 @@ export function useAutoSave(): SaveState {
 			}
 			pendingTrailingRef.current = false;
 		};
-	}, [storeApi, docStore]);
+	}, [sessionApi, docStore]);
 
 	return state;
 }

@@ -1,13 +1,13 @@
 "use client";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { SignalPanel } from "@/components/chat/SignalPanel";
+import { BuilderPhase } from "@/lib/services/builder";
+import { showToast } from "@/lib/services/toastStore";
 import {
-	BuilderPhase,
 	type GenerationError,
 	GenerationStage,
 	STAGE_LABELS,
-} from "@/lib/services/builder";
-import { showToast } from "@/lib/services/toastStore";
+} from "@/lib/session/types";
 import {
 	defaultLabel,
 	SignalGridController,
