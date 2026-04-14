@@ -118,6 +118,10 @@ export function useAutoSave(): SaveState {
 	 * entity map changed reference, the subscriber doesn't fire. */
 	useEffect(() => {
 		if (!docStore || !sessionApi) return;
+		/* Capture the narrowed non-null reference so nested closures
+		 * can read it without non-null assertions (TypeScript loses
+		 * the guard narrowing inside closures). */
+		const session = sessionApi;
 		unmountedRef.current = false;
 
 		/**
@@ -133,7 +137,7 @@ export function useAutoSave(): SaveState {
 		 */
 		async function executeSave() {
 			if (!docStore) return;
-			const appIdAtStart = sessionApi!.getState().appId;
+			const appIdAtStart = session.getState().appId;
 			const doc = docStore.getState();
 			if (!appIdAtStart || doc.moduleOrder.length === 0) return;
 
@@ -149,7 +153,7 @@ export function useAutoSave(): SaveState {
 			 *  started saving. If false, the user navigated to a different
 			 *  app while the request was in flight — discard the result. */
 			const stillCurrent = () =>
-				sessionApi!.getState().appId === appIdAtStart && !unmountedRef.current;
+				session.getState().appId === appIdAtStart && !unmountedRef.current;
 
 			try {
 				const res = await fetch(`/api/apps/${appIdAtStart}`, {
@@ -222,7 +226,7 @@ export function useAutoSave(): SaveState {
 				 * phase from session state + doc presence — only save when the
 				 * builder is in Ready or Completed (i.e. the user has a usable
 				 * blueprint and no initial generation is in progress). */
-				const sessionState = sessionApi!.getState();
+				const sessionState = session.getState();
 				const docSnap = docStore.getState();
 				const docHasData = docSnap.moduleOrder.length > 0;
 				const phase = derivePhase(sessionState, docHasData);

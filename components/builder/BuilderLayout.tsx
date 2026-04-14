@@ -218,7 +218,6 @@ export function BuilderLayout({
 	 * doesn't exist during Idle/Generating phases). isReady is derived
 	 * directly from phase; hasModules is read imperatively since the effect
 	 * re-runs on phase change anyway. */
-	// biome-ignore lint/correctness/useExhaustiveDependencies: phase triggers re-attachment when scroll container mounts
 	useEffect(() => {
 		const isReady =
 			phase === BuilderPhase.Ready || phase === BuilderPhase.Completed;

@@ -77,7 +77,9 @@ function createChatInstance(
 			api: "/api/chat",
 			body: () => {
 				const doc = docStoreRef.current?.getState();
-				const sessionState = sessionStoreRef.current!.getState();
+				const session = sessionStoreRef.current;
+				if (!session) return {};
+				const sessionState = session.getState();
 				const docHasData = (doc?.moduleOrder.length ?? 0) > 0;
 				return {
 					blueprint: doc && docHasData ? toBlueprint(doc) : undefined,
@@ -106,26 +108,20 @@ function createChatInstance(
 				return;
 			}
 
+			const docApi = docStoreRef.current;
+			const sessionApi = sessionStoreRef.current;
+			if (!docApi || !sessionApi) return;
+
 			/* After first save, update the URL from /build/new → /build/{id} without
 			 * triggering a navigation or remount. The stream dispatcher stores the
 			 * ID on the session store. */
 			if (type === "data-app-saved") {
-				applyStreamEvent(
-					type,
-					data,
-					docStoreRef.current!,
-					sessionStoreRef.current!,
-				);
+				applyStreamEvent(type, data, docApi, sessionApi);
 				window.history.replaceState({}, "", `/build/${data.appId as string}`);
 				return;
 			}
 
-			applyStreamEvent(
-				type,
-				data,
-				docStoreRef.current!,
-				sessionStoreRef.current!,
-			);
+			applyStreamEvent(type, data, docApi, sessionApi);
 			if (type === "data-error") {
 				showToast(
 					data.fatal ? "error" : "warning",
@@ -223,8 +219,9 @@ export function ChatContainer({
 	 * when the SA finishes so the next request can decide whether the
 	 * Anthropic prompt cache is still warm. */
 	useEffect(() => {
+		if (!sessionApi) return;
 		const active = status === "submitted" || status === "streaming";
-		const session = sessionApi!.getState();
+		const session = sessionApi.getState();
 		const wasActive = session.agentActive;
 		session.setAgentActive(active);
 		if (status === "ready" && wasActive) {
@@ -237,9 +234,9 @@ export function ChatContainer({
 	 * edits) — idle errors get a toast only. Reads session state imperatively — they're
 	 * not deps, just point-in-time checks when chatError fires. */
 	useEffect(() => {
-		if (!chatError) return;
+		if (!chatError || !sessionApi) return;
 		const message = parseApiErrorMessage(chatError.message);
-		const session = sessionApi!.getState();
+		const session = sessionApi.getState();
 		const isGenerating = session.agentActive && !session.postBuildEdit;
 		if (isGenerating && !session.agentError) {
 			session.failAgentWrite(message, "failed");
@@ -252,8 +249,8 @@ export function ChatContainer({
 	const threadStartRef = useRef<string | undefined>(undefined);
 	// biome-ignore lint/correctness/useExhaustiveDependencies: sessionApi is stable; snapshot read at fire time for appId
 	useEffect(() => {
-		if (status !== "ready" || messages.length === 0) return;
-		const appId = sessionApi!.getState().appId;
+		if (status !== "ready" || messages.length === 0 || !sessionApi) return;
+		const appId = sessionApi.getState().appId;
 		const runId = runIdRef.current;
 		if (!appId || !runId) return;
 
