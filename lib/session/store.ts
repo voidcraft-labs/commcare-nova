@@ -151,6 +151,16 @@ export interface BuilderSessionState {
 	/** Clear the new-question marker. Called after the first rename or
 	 *  when the component unmounts, so subsequent selections behave normally. */
 	clearNewQuestion: () => void;
+
+	/** Reset all transient session state to the initial values.
+	 *
+	 *  Called from `resetBuilder` (the composite reset helper used by
+	 *  `ReplayController` when navigating between replay stages). Restores
+	 *  cursor mode to "edit", both sidebars to open with no stash, clears
+	 *  the connect stash + last-active mode, and wipes all one-shot UI
+	 *  hints. The private doc-store reference installed by SyncBridge is
+	 *  NOT cleared — the provider's effect owns its lifetime. */
+	reset: () => void;
 }
 
 // ── Store API type ────────────────────────────────────────────────────────
@@ -382,6 +392,24 @@ export function createBuilderSessionStore() {
 				clearNewQuestion() {
 					if (get().newQuestionUuid === undefined) return;
 					set({ newQuestionUuid: undefined });
+				},
+
+				reset() {
+					set({
+						cursorMode: "edit" as CursorMode,
+						activeFieldId: undefined,
+						sidebars: {
+							chat: { open: true, stashed: undefined },
+							structure: { open: true, stashed: undefined },
+						},
+						connectStash: { learn: {}, deliver: {} } as Record<
+							ConnectType,
+							Record<string, ConnectConfig>
+						>,
+						lastConnectType: undefined as ConnectType | undefined,
+						focusHint: undefined as string | undefined,
+						newQuestionUuid: undefined as string | undefined,
+					});
 				},
 			})),
 			{

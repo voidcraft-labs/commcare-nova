@@ -30,6 +30,7 @@
 import { AnimatePresence, motion } from "motion/react";
 import {
 	useCallback,
+	useContext,
 	useEffect,
 	useLayoutEffect,
 	useRef,
@@ -43,13 +44,14 @@ import { ReplayController } from "@/components/builder/ReplayController";
 import { useBuilderShortcuts } from "@/components/builder/useBuilderShortcuts";
 import { Logo } from "@/components/ui/Logo";
 import {
-	useBuilderEngine,
 	useBuilderPhase,
 	useBuilderStore,
+	useBuilderStoreApi,
 } from "@/hooks/useBuilder";
 import { useKeyboardShortcuts } from "@/hooks/useKeyboardShortcuts";
 import type { CommCareSettingsPublic } from "@/lib/db/settings";
 import { useBlueprintDoc } from "@/lib/doc/hooks/useBlueprintDoc";
+import { BlueprintDocContext } from "@/lib/doc/provider";
 import type { Uuid } from "@/lib/doc/types";
 import { useNavigate } from "@/lib/routing/hooks";
 import { BuilderPhase } from "@/lib/services/builder";
@@ -80,7 +82,8 @@ export function BuilderLayout({
 	isExistingApp,
 	commcareSettings,
 }: BuilderLayoutProps) {
-	const builder = useBuilderEngine();
+	const storeApi = useBuilderStoreApi();
+	const docStore = useContext(BlueprintDocContext);
 	const phase = useBuilderPhase();
 
 	/* inReplayMode controls ReplayController mount in the header area. */
@@ -218,14 +221,13 @@ export function BuilderLayout({
 	 * read imperatively since they're derived from phase. */
 	// biome-ignore lint/correctness/useExhaustiveDependencies: phase triggers re-attachment when scroll container mounts
 	useEffect(() => {
-		const s = builder.store.getState();
+		const s = storeApi.getState();
 		const isReady =
 			s.phase === BuilderPhase.Ready || s.phase === BuilderPhase.Completed;
 		/* `hasModules` comes from the doc store — it owns blueprint entity data.
 		 * Reading imperatively (no subscription) since we only branch on the
 		 * condition at effect time; the effect re-runs on phase change. */
-		const hasModules =
-			(builder.docStore?.getState().moduleOrder.length ?? 0) > 0;
+		const hasModules = (docStore?.getState().moduleOrder.length ?? 0) > 0;
 		if (!isReady || !hasModules) return;
 
 		const scrollContainer = document.querySelector(
@@ -249,7 +251,7 @@ export function BuilderLayout({
 
 		observer.observe(scrollContainer);
 		return () => observer.disconnect();
-	}, [builder, phase]);
+	}, [storeApi, docStore, phase]);
 
 	// ── Scroll-to-question callback ─────────────────────────────────────
 

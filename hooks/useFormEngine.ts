@@ -1,50 +1,42 @@
 /**
  * useFormEngine — thin React wrapper around the EngineController.
  *
- * The EngineController (plain class on BuilderEngine) owns the computation
- * engine, blueprint store subscriptions, and the UUID-keyed runtime store.
- * This hook just activates/deactivates the controller when the form screen
- * mounts/unmounts, and provides the runtime store to descendant components
- * via context.
+ * The EngineController owns the form preview's computation engine, doc
+ * store subscriptions, and the UUID-keyed runtime store. Its instance
+ * comes from `BuilderFormEngineProvider` (see `lib/preview/engine/provider`)
+ * — a single controller per builder session, not per form.
  *
- * Components read runtime state via `useEngineState(uuid)` — a Zustand
- * selector on the controller's store. Only questions whose computed state
- * actually changed re-render.
+ * `useFormEngine` just activates / deactivates the controller when a
+ * form screen mounts or unmounts, and provides the runtime store to
+ * descendant components via Zustand's `useStore` helper.
+ *
+ * Components read per-question runtime state via `useEngineState(uuid)` —
+ * a Zustand selector on the controller's store. Only questions whose
+ * computed state actually changed re-render.
  */
 "use client";
-import { createContext, useContext, useEffect } from "react";
+import { useEffect } from "react";
 import { useStore } from "zustand";
-import { useBuilderEngine } from "@/hooks/useBuilder";
 import { useBlueprintDoc } from "@/lib/doc/hooks/useBlueprintDoc";
 import type { RuntimeStoreState } from "@/lib/preview/engine/engineController";
 import {
 	DEFAULT_RUNTIME_STATE,
 	type EngineController,
 } from "@/lib/preview/engine/engineController";
+import { useBuilderFormEngine } from "@/lib/preview/engine/provider";
 import type { QuestionState } from "@/lib/preview/engine/types";
 
-// ── Context ─────────────────────────────────────────────────────────────
+// ── Controller access ───────────────────────────────────────────────────
 
 /**
- * Provides the EngineController to descendant components. The controller
- * reference is stable (lives on BuilderEngine), so context consumers don't
- * re-render from context value changes.
- */
-export const EngineControllerContext = createContext<EngineController | null>(
-	null,
-);
-
-/**
- * Read the EngineController from context. Throws if outside a provider.
- * Use `useEngineState(uuid)` for reactive runtime state subscriptions.
+ * Read the current EngineController from `BuilderFormEngineProvider`.
+ *
+ * Re-exported here so form-level call sites don't need to know the
+ * provider lives under `lib/preview/engine/provider` — they import from
+ * `hooks/useFormEngine` like before Phase 3.
  */
 export function useEngineController(): EngineController {
-	const controller = useContext(EngineControllerContext);
-	if (!controller)
-		throw new Error(
-			"useEngineController must be used within EngineControllerContext",
-		);
-	return controller;
+	return useBuilderFormEngine();
 }
 
 /**
@@ -71,7 +63,7 @@ export function useEngineState(uuid: string): QuestionState {
  * Activate the engine controller for the given form. Returns the controller
  * for imperative access (setValue, touch, validateAll, etc.).
  *
- * The controller's blueprint store subscriptions (expression fingerprint,
+ * The controller's doc store subscriptions (expression fingerprint,
  * question order, form metadata) are set up during `activateForm` and
  * cleaned up by `deactivate` on unmount or form navigation.
  */
@@ -80,8 +72,7 @@ export function useFormEngine(
 	formIndex: number,
 	caseData?: Map<string, string>,
 ): EngineController {
-	const builderEngine = useBuilderEngine();
-	const controller = builderEngine.engineController;
+	const controller = useBuilderFormEngine();
 
 	/** Reactive formId subscription — when the form identity at these indices
 	 *  changes (e.g., form deleted and another takes its index), the effect

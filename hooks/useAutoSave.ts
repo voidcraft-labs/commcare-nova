@@ -24,11 +24,12 @@
 "use client";
 import { useContext, useEffect, useRef, useState } from "react";
 import { shallow } from "zustand/shallow";
+import { useBuilderStoreApi } from "@/hooks/useBuilder";
 import { reportClientError } from "@/lib/clientErrorReporter";
 import { toBlueprint } from "@/lib/doc/converter";
 import { BlueprintDocContext } from "@/lib/doc/provider";
 import type { BlueprintDoc } from "@/lib/doc/types";
-import type { BuilderEngine } from "@/lib/services/builderEngine";
+import { selectIsReady } from "@/lib/services/builderSelectors";
 
 /** Post-save cooldown before the trailing edge can fire (ms). */
 const COOLDOWN_MS = 1000;
@@ -73,13 +74,19 @@ function projectSaveSlice(s: BlueprintDoc) {
  *
  * Auth is guaranteed by the server layout (`requireAuth` in
  * `app/build/layout.tsx`) — no client-side auth check needed.
+ *
+ * Reads the legacy store handle via `useBuilderStoreApi()` — the hook
+ * gates saving on `appId` + `phase` (Ready/Completed), both of which
+ * live on the legacy store. The doc store is read from context for
+ * subscription + blueprint assembly.
  */
-export function useAutoSave(builder: BuilderEngine): SaveState {
+export function useAutoSave(): SaveState {
 	const [state, setState] = useState<SaveState>(IDLE_STATE);
 
-	/* The doc store owns blueprint entity data — the session store's `appId`
+	/* The doc store owns blueprint entity data — the legacy store's `appId`
 	 * still gates whether saving is enabled, so we read both. */
 	const docStore = useContext(BlueprintDocContext);
+	const storeApi = useBuilderStoreApi();
 
 	/* Throttle state — all mutable, read/written inside the subscription
 	 * callback and cleanup. Never triggers re-renders. */
@@ -93,7 +100,7 @@ export function useAutoSave(builder: BuilderEngine): SaveState {
 	/* Reset state when the app changes — new app means a fresh save state
 	 * and no pending/in-flight state from the old app. Uses React's "derive
 	 * state from props" pattern. */
-	const currentAppId = builder.store.getState().appId;
+	const currentAppId = storeApi.getState().appId;
 	const prevAppIdRef = useRef(currentAppId);
 	if (prevAppIdRef.current !== currentAppId) {
 		prevAppIdRef.current = currentAppId;
@@ -120,7 +127,7 @@ export function useAutoSave(builder: BuilderEngine): SaveState {
 		 */
 		async function executeSave() {
 			if (!docStore) return;
-			const pid = builder.store.getState().appId;
+			const pid = storeApi.getState().appId;
 			const doc = docStore.getState();
 			if (!pid || doc.moduleOrder.length === 0) return;
 
@@ -195,8 +202,8 @@ export function useAutoSave(builder: BuilderEngine): SaveState {
 			projectSaveSlice,
 			() => {
 				/* Gate on lifecycle phase and app existence. */
-				if (!builder.isReady) return;
-				const pid = builder.store.getState().appId;
+				if (!selectIsReady(storeApi.getState())) return;
+				const pid = storeApi.getState().appId;
 				const docSnap = docStore.getState();
 				if (!pid || docSnap.moduleOrder.length === 0) return;
 
@@ -227,7 +234,7 @@ export function useAutoSave(builder: BuilderEngine): SaveState {
 			}
 			pendingTrailingRef.current = false;
 		};
-	}, [builder, docStore]);
+	}, [storeApi, docStore]);
 
 	return state;
 }

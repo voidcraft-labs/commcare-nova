@@ -6,6 +6,7 @@ import { motion } from "motion/react";
 import {
 	type ReactNode,
 	useCallback,
+	useContext,
 	useEffect,
 	useRef,
 	useState,
@@ -15,12 +16,17 @@ import { ChatMessage } from "@/components/chat/ChatMessage";
 import { SignalGrid } from "@/components/chat/SignalGrid";
 import { SignalPanel } from "@/components/chat/SignalPanel";
 import {
-	useBuilderEngine,
 	useBuilderPhase,
+	useBuilderStoreApi,
 	useBuilderStoreShallow,
 } from "@/hooks/useBuilder";
+import {
+	BlueprintDocContext,
+	type BlueprintDocStore,
+} from "@/lib/doc/provider";
 import { BuilderPhase, GenerationStage } from "@/lib/services/builder";
-import type { BuilderEngine } from "@/lib/services/builderEngine";
+import type { BuilderStoreApi } from "@/lib/services/builderStore";
+import { computeScaffoldProgress } from "@/lib/services/scaffoldProgress";
 import { useSetSidebarOpen } from "@/lib/session/hooks";
 import { signalGrid } from "@/lib/signalGrid/store";
 import {
@@ -34,15 +40,22 @@ import {
 export const CHAT_SIDEBAR_WIDTH = 320;
 
 /** Create a SignalGridController whose energy callbacks drain the module-level
- *  signalGrid nanostore. Scaffold progress still reads from the legacy engine
- *  ref (Phase 4 migrates it alongside generationData). */
-function createGridController(builderRef: {
-	current: BuilderEngine;
-}): SignalGridController {
+ *  signalGrid nanostore. Scaffold progress is computed on each poll from the
+ *  live legacy + doc store states — callers pass refs so the controller always
+ *  reads the current instances even if the builder is remounted. Phase 4
+ *  replaces this heuristic with a pure doc-store derivation. */
+function createGridController(
+	storeRef: { current: BuilderStoreApi },
+	docStoreRef: { current: BlueprintDocStore | null },
+): SignalGridController {
 	return new SignalGridController({
 		consumeEnergy: () => signalGrid.drainEnergy(),
 		consumeThinkEnergy: () => signalGrid.drainThinkEnergy(),
-		consumeScaffoldProgress: () => builderRef.current.scaffoldProgress,
+		consumeScaffoldProgress: () =>
+			computeScaffoldProgress(
+				storeRef.current.getState(),
+				docStoreRef.current?.getState(),
+			),
 	});
 }
 
@@ -77,7 +90,8 @@ export function ChatSidebar({
 	isExistingApp,
 	children,
 }: ChatSidebarProps) {
-	const engine = useBuilderEngine();
+	const storeApi = useBuilderStoreApi();
+	const docStore = useContext(BlueprintDocContext);
 	const phase = useBuilderPhase();
 	const setSidebarOpen = useSetSidebarOpen();
 	const {
@@ -98,18 +112,21 @@ export function ChatSidebar({
 
 	// ── Signal Grid — controller scoped to the builder instance ──────────
 	// ChatSidebar is always-mounted (width animated to 0 when "closed"), so
-	// refs persist across sidebar open/close. When the builder changes (new
-	// app via BuilderProvider), we destroy the old controller's animation
-	// loop and create a fresh one. Callbacks close over builderRef so they
-	// always read the latest instance — safe across the teardown gap.
-	const engineRef = useRef(engine);
-	engineRef.current = engine;
-	const engineIdentityRef = useRef(engine);
+	// refs persist across sidebar open/close. When the legacy store identity
+	// changes (new app via BuilderProvider), we destroy the old controller's
+	// animation loop and create a fresh one. Callbacks close over refs so
+	// they always read the latest store instances — safe across the
+	// teardown gap.
+	const storeRef = useRef(storeApi);
+	storeRef.current = storeApi;
+	const docStoreRef = useRef(docStore);
+	docStoreRef.current = docStore;
+	const storeIdentityRef = useRef(storeApi);
 	const gridControllerRef = useRef<SignalGridController | null>(null);
-	if (engine !== engineIdentityRef.current || !gridControllerRef.current) {
+	if (storeApi !== storeIdentityRef.current || !gridControllerRef.current) {
 		gridControllerRef.current?.destroy();
-		engineIdentityRef.current = engine;
-		gridControllerRef.current = createGridController(engineRef);
+		storeIdentityRef.current = storeApi;
+		gridControllerRef.current = createGridController(storeRef, docStoreRef);
 	}
 	const gridController = gridControllerRef.current;
 
@@ -195,11 +212,11 @@ export function ChatSidebar({
 	useEffect(() => {
 		if (phase !== BuilderPhase.Completed) return;
 		const id = setTimeout(
-			() => engine.store.getState().acknowledgeCompletion(),
+			() => storeApi.getState().acknowledgeCompletion(),
 			3500,
 		);
 		return () => clearTimeout(id);
-	}, [phase, engine]);
+	}, [phase, storeApi]);
 
 	// Elapsed timer — resets when the controller's active label or mode changes.
 	// Label changes (e.g. "Building forms" → "Validating") reset the timer during

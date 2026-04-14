@@ -12,8 +12,8 @@
 import { describe, expect, it } from "vitest";
 import { createBlueprintDocStore } from "@/lib/doc/store";
 import type { AppBlueprint } from "@/lib/schemas/blueprint";
-import { applyDataPart } from "@/lib/services/builder";
-import { BuilderEngine } from "@/lib/services/builderEngine";
+import { applyDataPart, BuilderPhase } from "@/lib/services/builder";
+import { createBuilderStore } from "@/lib/services/builderStore";
 
 /** Tiny fixture: one module, one form, one question. Enough to verify that
  *  `data-blueprint-updated` fully replaces the doc's entity state with the
@@ -83,25 +83,25 @@ const EDITED_BP: AppBlueprint = {
 	],
 };
 
-/** Build a minimally wired engine + doc store pair that mimics the runtime
- *  provider setup: the doc store is installed on the engine via
- *  `setDocStore`, the legacy store is loaded, and the doc is hydrated from
- *  the initial blueprint. Returns both halves for direct assertions. */
-function setupEngine() {
-	const engine = new BuilderEngine();
+/** Build a minimally wired legacy + doc store pair that mimics the runtime
+ *  provider setup: the doc is hydrated from the initial blueprint, and the
+ *  legacy store is set to the `Ready` lifecycle stamped with the test app
+ *  id. `applyDataPart` takes both references as an explicit adapter object,
+ *  so there's no engine wrapper anywhere in the test. */
+function setupStores() {
+	const store = createBuilderStore(BuilderPhase.Idle);
 	const docStore = createBlueprintDocStore();
 	docStore.getState().load(INITIAL_BP, "app-under-test");
 	/* Resume temporal so subsequent mutations enter the history — matches
 	 * the real provider (`startTracking={true}` for loaded apps). */
 	docStore.temporal.getState().resume();
-	engine.setDocStore(docStore);
-	engine.store.getState().loadApp("app-under-test");
-	return { engine, docStore };
+	store.getState().loadApp("app-under-test");
+	return { store, docStore };
 }
 
 describe("applyDataPart — data-blueprint-updated", () => {
 	it("dispatches the updated blueprint to the doc store", () => {
-		const { engine, docStore } = setupEngine();
+		const { store, docStore } = setupStores();
 
 		// Precondition: the doc carries the INITIAL_BP state.
 		expect(docStore.getState().appName).toBe("Initial");
@@ -110,7 +110,7 @@ describe("applyDataPart — data-blueprint-updated", () => {
 
 		// Simulate the SA post-build edit stream: a single
 		// `data-blueprint-updated` emission with the rewritten blueprint.
-		applyDataPart(engine, "data-blueprint-updated", {
+		applyDataPart({ store, docStore }, "data-blueprint-updated", {
 			blueprint: EDITED_BP as unknown as Record<string, unknown>,
 		});
 

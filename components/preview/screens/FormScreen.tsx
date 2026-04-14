@@ -7,7 +7,7 @@ import { FormSettingsButton } from "@/components/builder/detail/FormSettingsPane
 import { EditableTitle, SavedCheck } from "@/components/builder/EditableTitle";
 import { useBuilderIsReady, useForm, useModule } from "@/hooks/useBuilder";
 import { EditContextProvider } from "@/hooks/useEditContext";
-import { EngineControllerContext, useFormEngine } from "@/hooks/useFormEngine";
+import { useFormEngine } from "@/hooks/useFormEngine";
 import { useBlueprintDoc } from "@/lib/doc/hooks/useBlueprintDoc";
 import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
 import { useCaseTypes } from "@/lib/doc/hooks/useCaseTypes";
@@ -237,22 +237,20 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 	);
 
 	return (
-		<EngineControllerContext.Provider value={controller}>
-			<div className="h-full">
-				<div className="flex flex-col h-full max-w-3xl mx-auto w-full">
-					{editable ? (
-						<EditContextProvider
-							moduleIndex={moduleIndex}
-							formIndex={formIndex}
-							mode={mode}
-						>
-							{formBody}
-						</EditContextProvider>
-					) : (
-						formBody
-					)}
-				</div>
+		<div className="h-full">
+			<div className="flex flex-col h-full max-w-3xl mx-auto w-full">
+				{editable ? (
+					<EditContextProvider
+						moduleIndex={moduleIndex}
+						formIndex={formIndex}
+						mode={mode}
+					>
+						{formBody}
+					</EditContextProvider>
+				) : (
+					formBody
+				)}
 			</div>
-		</EngineControllerContext.Provider>
+		</div>
 	);
 }

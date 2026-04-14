@@ -38,7 +38,6 @@ import {
 import { DragStateProvider } from "@/components/builder/contexts/DragStateContext";
 import { useFulfillPendingScroll } from "@/components/builder/contexts/ScrollRegistryContext";
 import { InlineSettingsPanel } from "@/components/builder/InlineSettingsPanel";
-import { useBuilderEngine } from "@/hooks/useBuilder";
 import { useEditContext } from "@/hooks/useEditContext";
 import { useEngineController, useEngineState } from "@/hooks/useFormEngine";
 import { useTextEditSave } from "@/hooks/useTextEditSave";
@@ -47,6 +46,7 @@ import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
 import { useQuestion as useQuestionDoc } from "@/lib/doc/hooks/useEntity";
 import { notifyMoveRename } from "@/lib/doc/mutations/notify";
 import type { MoveQuestionResult } from "@/lib/doc/mutations/questions";
+import { BlueprintDocContext } from "@/lib/doc/provider";
 import { asUuid, type Uuid } from "@/lib/doc/types";
 import { LabelContent } from "@/lib/references/LabelContent";
 import { useIsQuestionSelected, useSelect } from "@/lib/routing/hooks";
@@ -408,7 +408,11 @@ export const FormRenderer = memo(function FormRenderer({
 	parentPath,
 }: FormRendererProps) {
 	const ctx = useEditContext();
-	const builderEngine = useBuilderEngine();
+	/* Read the doc store imperatively for drag snapshots. The provider
+	 * context hands out a stable reference per BuilderProvider mount —
+	 * drag callbacks capture this via closure without subscribing to any
+	 * entity map (drag state is a snapshot, not a live view). */
+	const docStore = useContext(BlueprintDocContext);
 	const select = useSelect();
 
 	const { moveQuestion: moveQuestion_ } = useBlueprintMutations();
@@ -640,7 +644,7 @@ export const FormRenderer = memo(function FormRenderer({
 									 * reactive subscription. Drag state is a snapshot, not a
 									 * live view. The doc is the single source of truth for
 									 * blueprint data. */
-									const doc = builderEngine.docStore?.getState();
+									const doc = docStore?.getState();
 									if (doc) {
 										setDragState(
 											buildDragStateFromStore(
@@ -701,7 +705,7 @@ export const FormRenderer = memo(function FormRenderer({
 									/* Determine the initial group from the doc store's
 									 * questionOrder. Scan for the parent that contains the
 									 * dragged UUID, then map to the items-map key format. */
-									const currentDoc = builderEngine.docStore?.getState();
+									const currentDoc = docStore?.getState();
 									if (!currentDoc) return;
 									let draggedParentUuid: string | undefined;
 									for (const [pUuid, order] of Object.entries(

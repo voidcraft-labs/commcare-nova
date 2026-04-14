@@ -7,9 +7,11 @@
  * State management is split across two stores: the legacy `builderStore.ts`
  * carries session/lifecycle state (phase, progress, error, replay metadata),
  * and the BlueprintDoc store (`lib/doc/store.ts`) owns all entity data plus
- * undo/redo via its zundo middleware. The BuilderEngine (`builderEngine.ts`)
- * is a thin non-reactive adapter that both stores hang off of.
+ * undo/redo via its zundo middleware. `applyDataPart` dispatches generation
+ * stream events to both stores through an explicit `{ store, docStore }`
+ * adapter — the BuilderEngine class that used to wrap them is gone.
  */
+import type { BlueprintDocStore } from "@/lib/doc/provider";
 import type {
 	AppBlueprint,
 	BlueprintForm,
@@ -18,16 +20,38 @@ import type {
 	Scaffold,
 } from "@/lib/schemas/blueprint";
 import { signalGrid } from "@/lib/signalGrid/store";
-import type { BuilderEngine } from "./builderEngine";
+import type { BuilderStoreApi } from "./builderStore";
 import type { QuestionPath } from "./questionPath";
 
-/** Apply a data part to a builder engine — shared between real-time streaming (onData) and replay. */
+/** Inputs required by `applyDataPart` — an explicit adapter object that
+ *  exposes just the two store references the dispatcher needs. This
+ *  replaces the old `BuilderEngine` parameter so generation and replay
+ *  can share the same code path without a class wrapper. */
+export interface ApplyDataPartInputs {
+	/** The legacy builder store — owns lifecycle flags, appId, and the
+	 *  generation-stream setters (setScaffold, setSchema, setModuleContent,
+	 *  setFormContent). Those setters dispatch entity changes into the
+	 *  doc store via the `_docStore` reference installed by `SyncBridge`. */
+	store: BuilderStoreApi;
+	/** The BlueprintDoc store — the single source of truth for blueprint
+	 *  entity data. `applyDataPart` calls `load()` / `beginAgentWrite()` /
+	 *  `endAgentWrite()` directly for the edit and done transitions that
+	 *  can't route through the legacy store. Nullable for tests that
+	 *  exercise the legacy-store path in isolation. */
+	docStore: BlueprintDocStore | null;
+}
+
+/** Apply a data part to the builder stores — shared between real-time
+ *  streaming (onData in `ChatContainer`) and replay (`ReplayStage.applyToBuilder`).
+ *  Callers pass the two store references explicitly; there is no longer a
+ *  wrapper object holding them together. */
 export function applyDataPart(
-	engine: BuilderEngine,
+	inputs: ApplyDataPartInputs,
 	type: string,
 	data: Record<string, unknown>,
 ): void {
-	const store = engine.store.getState();
+	const { store: storeApi, docStore } = inputs;
+	const store = storeApi.getState();
 
 	/* Inject energy for signal grid based on data part significance */
 	switch (type) {
@@ -63,7 +87,7 @@ export function applyDataPart(
 			 * `BlueprintDocProvider` starts with `startTracking={false}` for new
 			 * apps. Re-generations (second build in the same session) run with
 			 * tracking LIVE, so this call is what keeps their history clean. */
-			engine.docStore?.getState().beginAgentWrite();
+			docStore?.getState().beginAgentWrite();
 			break;
 		case "data-schema":
 			store.setSchema(data.caseTypes as CaseType[]);
@@ -113,8 +137,7 @@ export function applyDataPart(
 			 * `postBuildEdit` so the signal grid stays in edit mode instead of
 			 * falling back to "reasoning" after the first mutation. */
 			const bp = data.blueprint as AppBlueprint;
-			const { postBuildEdit, appId } = engine.store.getState();
-			const docStore = engine.docStore;
+			const { postBuildEdit, appId } = storeApi.getState();
 			if (docStore) {
 				docStore.getState().load(bp, appId ?? "");
 				/* Resume tracking so subsequent user edits enter the undo stack
@@ -122,7 +145,7 @@ export function applyDataPart(
 				docStore.getState().endAgentWrite();
 			}
 			store.completeGeneration();
-			engine.store.setState({ phase: BuilderPhase.Ready, postBuildEdit });
+			storeApi.setState({ phase: BuilderPhase.Ready, postBuildEdit });
 			break;
 		}
 		case "data-fix-attempt":
@@ -141,9 +164,8 @@ export function applyDataPart(
 			 * which also pairs with the `beginAgentWrite` call on
 			 * `data-start-build` for re-generations running with live tracking. */
 			const result = data as { blueprint: AppBlueprint };
-			const docStore = engine.docStore;
 			if (docStore && result.blueprint) {
-				const appId = engine.store.getState().appId ?? "";
+				const appId = storeApi.getState().appId ?? "";
 				docStore.getState().load(result.blueprint, appId);
 			}
 			store.completeGeneration();
