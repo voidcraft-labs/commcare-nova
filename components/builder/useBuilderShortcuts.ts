@@ -1,8 +1,9 @@
 import { useMemo } from "react";
 import { useScrollIntoView } from "@/components/builder/contexts/ScrollRegistryContext";
-import { useBuilderEngine, useBuilderIsReady } from "@/hooks/useBuilder";
+import { useBuilderIsReady } from "@/hooks/useBuilder";
 import { useAssembledForm } from "@/lib/doc/hooks/useAssembledForm";
 import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
+import type { MoveQuestionResult } from "@/lib/doc/mutations/questions";
 import { asUuid } from "@/lib/doc/types";
 import {
 	useDeleteSelectedQuestion,
@@ -18,8 +19,23 @@ import {
 	flattenQuestionRefs,
 	type QuestionRef,
 } from "@/lib/services/questionPath";
+import { showToast } from "@/lib/services/toastStore";
 import { useCursorMode } from "@/lib/session/hooks";
 import type { CursorMode } from "@/lib/session/types";
+
+/**
+ * Show an info toast when a cross-level move auto-renamed a question to
+ * avoid a sibling ID collision. No-op when the move didn't trigger dedup.
+ */
+function notifyMoveRename(result: MoveQuestionResult): void {
+	if (!result.renamed) return;
+	const { oldId, newId, xpathFieldsRewritten } = result.renamed;
+	showToast(
+		"info",
+		"Question renamed to avoid conflict",
+		`"${oldId}" → "${newId}" (${xpathFieldsRewritten} reference${xpathFieldsRewritten === 1 ? "" : "s"} updated)`,
+	);
+}
 
 /**
  * Builds a memoized keyboard shortcuts array for the builder layout.
@@ -41,7 +57,6 @@ export function useBuilderShortcuts(
 	const isReady = useBuilderIsReady();
 	const loc = useLocation();
 	const select = useSelect();
-	const engine = useBuilderEngine();
 	const { setPending } = useScrollIntoView();
 	const deleteSelected = useDeleteSelectedQuestion();
 	const { undo, redo } = useUndoRedo();
@@ -223,13 +238,11 @@ export function useBuilderShortcuts(
 					const beforeUuid = up.beforePath
 						? pathToUuid.get(up.beforePath)
 						: undefined;
-					// phase-1b-task-10: cross-level move auto-rename notification is
-					// synthesized by Task 10's path-to-path rewriter. Hook returns
-					// void for now.
-					moveQuestion(asUuid(loc.selectedUuid), {
+					const result = moveQuestion(asUuid(loc.selectedUuid), {
 						toParentUuid: asUuid(toParentUuid),
 						...(beforeUuid ? { beforeUuid: asUuid(beforeUuid) } : {}),
 					});
+					notifyMoveRename(result);
 				},
 			},
 			{
@@ -255,13 +268,11 @@ export function useBuilderShortcuts(
 					const beforeUuid = down.beforePath
 						? pathToUuid.get(down.beforePath)
 						: undefined;
-					// phase-1b-task-10: cross-level move auto-rename notification is
-					// synthesized by Task 10's path-to-path rewriter. Hook returns
-					// void for now.
-					moveQuestion(asUuid(loc.selectedUuid), {
+					const result = moveQuestion(asUuid(loc.selectedUuid), {
 						toParentUuid: asUuid(toParentUuid),
 						...(beforeUuid ? { beforeUuid: asUuid(beforeUuid) } : {}),
 					});
+					notifyMoveRename(result);
 				},
 			},
 			// Cmd+Z / Cmd+Shift+Z — undo/redo (not global: TipTap and CodeMirror

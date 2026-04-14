@@ -45,11 +45,13 @@ import { useTextEditSave } from "@/hooks/useTextEditSave";
 import { useBlueprintDoc } from "@/lib/doc/hooks/useBlueprintDoc";
 import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
 import { useQuestion as useQuestionDoc } from "@/lib/doc/hooks/useEntity";
+import type { MoveQuestionResult } from "@/lib/doc/mutations/questions";
 import { asUuid, type Uuid } from "@/lib/doc/types";
 import { LabelContent } from "@/lib/references/LabelContent";
 import { useIsQuestionSelected, useSelect } from "@/lib/routing/hooks";
 import type { NQuestion } from "@/lib/services/normalizedState";
 import { type QuestionPath, qpath } from "@/lib/services/questionPath";
+import { showToast } from "@/lib/services/toastStore";
 import { useCursorMode } from "@/lib/session/hooks";
 import { EditableQuestionWrapper } from "./EditableQuestionWrapper";
 import { FIELD_STYLES } from "./fieldStyles";
@@ -82,6 +84,20 @@ const CONTAINER_SUFFIX = ":container";
 /** Stable empty array for UUID selectors that return no children. Prevents
  *  new array allocations on every render for leaf-level FormRenderers. */
 const EMPTY_UUIDS: string[] = [];
+
+/**
+ * Show an info toast when a cross-level move auto-renamed a question to
+ * avoid a sibling ID collision. No-op when the move didn't trigger dedup.
+ */
+function notifyMoveRename(result: MoveQuestionResult): void {
+	if (!result.renamed) return;
+	const { oldId, newId, xpathFieldsRewritten } = result.renamed;
+	showToast(
+		"info",
+		"Question renamed to avoid conflict",
+		`"${oldId}" → "${newId}" (${xpathFieldsRewritten} reference${xpathFieldsRewritten === 1 ? "" : "s"} updated)`,
+	);
+}
 
 // ── Drag state ───────────────────────────────────────────────────────────
 
@@ -761,29 +777,30 @@ export const FormRenderer = memo(function FormRenderer({
 									} else {
 										/* Cross-group transfer — pass the target parent uuid so
 										 * the reducer moves the question into the new container.
-										 * phase-1b-task-10: cross-level move auto-rename notification
-										 * is deferred to Phase 3. */
+										 * Auto-rename toast fires if sibling-id dedup occurred. */
+										let result: MoveQuestionResult;
 										if (finalIds.length <= 1) {
-											moveQuestion_(asUuid(dragUuid), {
+											result = moveQuestion_(asUuid(dragUuid), {
 												toParentUuid: targetParentUuid
 													? asUuid(targetParentUuid)
 													: undefined,
 											});
 										} else if (finalIndex === 0) {
-											moveQuestion_(asUuid(dragUuid), {
+											result = moveQuestion_(asUuid(dragUuid), {
 												toParentUuid: targetParentUuid
 													? asUuid(targetParentUuid)
 													: undefined,
 												beforeUuid: asUuid(finalIds[1]),
 											});
 										} else {
-											moveQuestion_(asUuid(dragUuid), {
+											result = moveQuestion_(asUuid(dragUuid), {
 												toParentUuid: targetParentUuid
 													? asUuid(targetParentUuid)
 													: undefined,
 												afterUuid: asUuid(finalIds[finalIndex - 1]),
 											});
 										}
+										notifyMoveRename(result);
 									}
 
 									/* Select the moved question at its new position. */
