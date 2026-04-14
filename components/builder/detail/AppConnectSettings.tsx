@@ -1,30 +1,20 @@
 "use client";
 import { Popover } from "@base-ui/react/popover";
-import { useCallback, useState } from "react";
+import { useState } from "react";
 import { ConnectLogomark } from "@/components/icons/ConnectLogomark";
 import { Toggle } from "@/components/ui/Toggle";
+import { useBlueprintDoc } from "@/lib/doc/hooks/useBlueprintDoc";
 import type { ConnectType } from "@/lib/schemas/blueprint";
-import type { BuilderEngine } from "@/lib/services/builderEngine";
+import { useSwitchConnectMode } from "@/lib/session/hooks";
 import { POPOVER_POPUP_CLS, POPOVER_POSITIONER_GLASS_CLS } from "@/lib/styles";
 
-interface AppConnectSettingsProps {
-	builder: BuilderEngine;
-}
-
-export function AppConnectSettings({ builder }: AppConnectSettingsProps) {
-	const connectType = builder.store.getState().connectType;
+export function AppConnectSettings() {
+	const connectType = useBlueprintDoc((s) => s.connectType ?? undefined);
+	const moduleCount = useBlueprintDoc((s) => s.moduleOrder.length);
+	const switchMode = useSwitchConnectMode();
 	const [open, setOpen] = useState(false);
 
-	/** Delegate to the engine's switchConnectMode which handles the connect
-	 *  stash lifecycle + store mutation in a single composing method. */
-	const setConnectType = useCallback(
-		(type: ConnectType | null | undefined) => {
-			builder.switchConnectMode(type);
-		},
-		[builder],
-	);
-
-	if (builder.store.getState().moduleOrder.length === 0) return null;
+	if (moduleCount === 0) return null;
 
 	return (
 		<Popover.Root open={open} onOpenChange={setOpen}>
@@ -52,7 +42,7 @@ export function AppConnectSettings({ builder }: AppConnectSettingsProps) {
 					<Popover.Popup className={POPOVER_POPUP_CLS}>
 						<AppConnectPanel
 							connectType={connectType}
-							setConnectType={setConnectType}
+							setConnectType={switchMode}
 						/>
 					</Popover.Popup>
 				</Popover.Positioner>

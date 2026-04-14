@@ -10,11 +10,13 @@ const minBlueprint = (overrides: Partial<AppBlueprint> = {}): AppBlueprint => ({
 	app_name: "Test",
 	modules: [
 		{
+			uuid: "module-1-uuid",
 			name: "Mod",
 			case_type: "patient",
 			case_list_columns: [{ field: "case_name", header: "Name" }],
 			forms: [
 				{
+					uuid: "form-1-uuid",
 					name: "Form",
 					type: "registration",
 					questions: [
@@ -39,7 +41,13 @@ const surveyBlueprint = (
 	questions: AppBlueprint["modules"][0]["forms"][0]["questions"],
 ): AppBlueprint => ({
 	app_name: "Test",
-	modules: [{ name: "M", forms: [{ name: "F", type: "survey", questions }] }],
+	modules: [
+		{
+			uuid: "module-2-uuid",
+			name: "M",
+			forms: [{ uuid: "form-1-uuid", name: "F", type: "survey", questions }],
+		},
+	],
 	case_types: null,
 });
 
@@ -55,9 +63,11 @@ describe("app rules", () => {
 		const bp = minBlueprint({
 			modules: [
 				{
+					uuid: "module-3-uuid",
 					name: "Same",
 					forms: [
 						{
+							uuid: "form-2-uuid",
 							name: "F1",
 							type: "survey",
 							questions: [q({ id: "q", type: "text", label: "Q" })],
@@ -65,9 +75,11 @@ describe("app rules", () => {
 					],
 				},
 				{
+					uuid: "module-4-uuid",
 					name: "Same",
 					forms: [
 						{
+							uuid: "form-3-uuid",
 							name: "F2",
 							type: "survey",
 							questions: [q({ id: "q", type: "text", label: "Q" })],
@@ -149,7 +161,15 @@ describe("module rules", () => {
 	it("does not require columns on case_list_only modules", () => {
 		const bp: AppBlueprint = {
 			app_name: "Test",
-			modules: [{ name: "M", case_type: "c", case_list_only: true, forms: [] }],
+			modules: [
+				{
+					uuid: "module-2-uuid",
+					name: "M",
+					case_type: "c",
+					case_list_only: true,
+					forms: [],
+				},
+			],
 			case_types: [{ name: "c", properties: [] }],
 		};
 		expect(
@@ -413,9 +433,11 @@ describe("fix registry", () => {
 			app_name: "Test",
 			modules: [
 				{
+					uuid: "module-5-uuid",
 					name: "Patient Records",
 					forms: [
 						{
+							uuid: "form-4-uuid",
 							name: "F",
 							type: "registration",
 							questions: [q({ id: "case_name", type: "text", label: "N" })],
@@ -496,11 +518,13 @@ describe("post_submit validation", () => {
 			app_name: "Test",
 			modules: [
 				{
+					uuid: "module-6-uuid",
 					name: "View Only",
 					case_type: "patient",
 					case_list_only: true,
 					forms: [
 						{
+							uuid: "form-5-uuid",
 							name: "F",
 							type: "survey",
 							post_submit: "module",
@@ -562,9 +586,11 @@ describe("form_links validation", () => {
 			app_name: "Test",
 			modules: [
 				{
+					uuid: "module-7-uuid",
 					name: "M0",
 					forms: [
 						{
+							uuid: "form-6-uuid",
 							name: "F0",
 							type: "survey",
 							questions: [q({ id: "q", type: "text", label: "Q" })],
@@ -599,9 +625,11 @@ describe("form_links validation", () => {
 			app_name: "Test",
 			modules: [
 				{
+					uuid: "module-8-uuid",
 					name: "M0",
 					forms: [
 						{
+							uuid: "form-7-uuid",
 							name: "F0",
 							type: "survey",
 							questions: [q({ id: "q", type: "text", label: "Q" })],
@@ -613,6 +641,7 @@ describe("form_links validation", () => {
 							],
 						},
 						{
+							uuid: "form-8-uuid",
 							name: "F1",
 							type: "survey",
 							questions: [q({ id: "q", type: "text", label: "Q" })],
@@ -633,9 +662,11 @@ describe("form_links validation", () => {
 			app_name: "Test",
 			modules: [
 				{
+					uuid: "module-9-uuid",
 					name: "M0",
 					forms: [
 						{
+							uuid: "form-9-uuid",
 							name: "F0",
 							type: "survey",
 							questions: [q({ id: "q", type: "text", label: "Q" })],
@@ -648,6 +679,7 @@ describe("form_links validation", () => {
 							],
 						},
 						{
+							uuid: "form-10-uuid",
 							name: "F1",
 							type: "survey",
 							questions: [q({ id: "q", type: "text", label: "Q" })],
@@ -668,9 +700,11 @@ describe("form_links validation", () => {
 			app_name: "Test",
 			modules: [
 				{
+					uuid: "module-10-uuid",
 					name: "M0",
 					forms: [
 						{
+							uuid: "form-11-uuid",
 							name: "F0",
 							type: "survey",
 							questions: [q({ id: "q", type: "text", label: "Q" })],
@@ -679,6 +713,7 @@ describe("form_links validation", () => {
 							],
 						},
 						{
+							uuid: "form-12-uuid",
 							name: "F1",
 							type: "survey",
 							questions: [q({ id: "q", type: "text", label: "Q" })],
@@ -700,9 +735,11 @@ describe("form_links validation", () => {
 			app_name: "Test",
 			modules: [
 				{
+					uuid: "module-11-uuid",
 					name: "M0",
 					forms: [
 						{
+							uuid: "form-13-uuid",
 							name: "F0",
 							type: "survey",
 							questions: [q({ id: "q", type: "text", label: "Q" })],
@@ -711,6 +748,7 @@ describe("form_links validation", () => {
 							],
 						},
 						{
+							uuid: "form-14-uuid",
 							name: "F1",
 							type: "survey",
 							questions: [q({ id: "q", type: "text", label: "Q" })],
@@ -730,9 +768,11 @@ describe("form_links validation", () => {
 			app_name: "Test",
 			modules: [
 				{
+					uuid: "module-12-uuid",
 					name: "M0",
 					forms: [
 						{
+							uuid: "form-15-uuid",
 							name: "F0",
 							type: "survey",
 							questions: [q({ id: "q", type: "text", label: "Q" })],
@@ -741,9 +781,11 @@ describe("form_links validation", () => {
 					],
 				},
 				{
+					uuid: "module-13-uuid",
 					name: "M1",
 					forms: [
 						{
+							uuid: "form-16-uuid",
 							name: "F0",
 							type: "survey",
 							questions: [q({ id: "q", type: "text", label: "Q" })],

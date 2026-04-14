@@ -23,7 +23,8 @@
  */
 
 import { useContext, useMemo } from "react";
-import { toDoc } from "@/lib/doc/converter";
+import { flattenQuestions } from "@/lib/doc/converter";
+import type { MoveQuestionResult } from "@/lib/doc/mutations/questions";
 import { BlueprintDocContext } from "@/lib/doc/provider";
 import {
 	asUuid,
@@ -35,13 +36,14 @@ import {
 	type Uuid,
 } from "@/lib/doc/types";
 import type {
-	AppBlueprint,
 	BlueprintForm,
 	BlueprintModule,
+	CaseProperty,
 	CaseType,
 	ConnectType,
 	Question,
 } from "@/lib/schemas/blueprint";
+import { decomposeFormEntity } from "@/lib/services/normalizedState";
 import type { QuestionPath } from "@/lib/services/questionPath";
 
 /**
@@ -50,10 +52,8 @@ import type { QuestionPath } from "@/lib/services/questionPath";
  * `conflict: true` short-circuits the dispatch — the hook checks sibling
  * ids BEFORE calling the reducer so the UI can surface a "name already
  * taken" message without unwinding a half-applied mutation.
- * `xpathFieldsRewritten` is currently always 0: the doc reducer rewrites
- * references in-place but doesn't return a count (adding one would
- * require changes to `lib/doc/mutations/questions.ts` which are out of
- * scope until Phase 3).
+ * `xpathFieldsRewritten` reflects the number of XPath expression fields
+ * that were rewritten by the reducer to reference the new question ID.
  */
 export interface QuestionRenameResult {
 	newPath: QuestionPath;
@@ -121,23 +121,36 @@ export interface BlueprintMutations {
 			beforeUuid?: Uuid;
 			toIndex?: number;
 		},
-	) => void;
+	) => MoveQuestionResult;
 	duplicateQuestion: (uuid: Uuid) => DuplicateQuestionResult | undefined;
 
 	// ── Form mutations ────────────────────────────────────────────────────
-	/** Insert a new form into a module. Returns the new form's uuid. */
-	addForm: (moduleUuid: Uuid, form: BlueprintForm) => Uuid;
+	/** Insert a new form into a module. Returns the new form's uuid.
+	 *  Accepts a form without a uuid — the hook mints one for the new entity. */
+	addForm: (
+		moduleUuid: Uuid,
+		form: Omit<BlueprintForm, "uuid"> & { uuid?: string },
+	) => Uuid;
 	/**
 	 * Update fields on an existing form. Patches use camelCase field names
 	 * matching `FormEntity` (e.g. `closeCondition`, `postSubmit`).
 	 */
 	updateForm: (uuid: Uuid, patch: Partial<Omit<FormEntity, "uuid">>) => void;
 	removeForm: (uuid: Uuid) => void;
-	replaceForm: (uuid: Uuid, form: BlueprintForm) => void;
+	/** Replace a form's metadata + question subtree. The `form` argument's
+	 *  `uuid` field (if present) is ignored — the destination uuid is the
+	 *  first argument; nested questions keep their own uuids. */
+	replaceForm: (
+		uuid: Uuid,
+		form: Omit<BlueprintForm, "uuid"> & { uuid?: string },
+	) => void;
 
 	// ── Module mutations ──────────────────────────────────────────────────
-	/** Insert a new module. Returns the new module's uuid. */
-	addModule: (module: BlueprintModule) => Uuid;
+	/** Insert a new module. Returns the new module's uuid.
+	 *  Accepts a module without a uuid — the hook mints one for the new entity. */
+	addModule: (
+		module: Omit<BlueprintModule, "uuid"> & { uuid?: string },
+	) => Uuid;
 	updateModule: (
 		uuid: Uuid,
 		patch: Partial<Omit<ModuleEntity, "uuid">>,
@@ -155,6 +168,20 @@ export interface BlueprintMutations {
 		connect_type?: ConnectType | null;
 	}) => void;
 	setCaseTypes: (caseTypes: CaseType[] | null) => void;
+	/**
+	 * Update a single property on a case type's property list.
+	 *
+	 * Reads the current `caseTypes` from the doc, finds the matching case
+	 * type by name and property by name, merges the updates, and dispatches
+	 * a `setCaseTypes` mutation with the new array. Silently no-ops if the
+	 * case type or property doesn't exist (fail-open, consistent with other
+	 * mutation methods).
+	 */
+	updateCaseProperty: (
+		caseTypeName: string,
+		propertyName: string,
+		updates: Partial<Omit<CaseProperty, "name">>,
+	) => void;
 
 	// ── Batch ─────────────────────────────────────────────────────────────
 	/**
@@ -375,7 +402,15 @@ export function useBlueprintMutations(): BlueprintMutations {
 					}
 				}
 
-				dispatch({ kind: "renameQuestion", uuid, newId });
+				// Dispatch via `applyWithResult` to capture the xpath rewrite count.
+				// The reducer returns `undefined` if the target entity vanishes
+				// between our pre-check and the Immer draft — defensive fallback
+				// to zero rewrites so callers always see a valid number.
+				const meta = store.getState().applyWithResult({
+					kind: "renameQuestion",
+					uuid,
+					newId,
+				});
 
 				/* Compute the new path AFTER dispatch — the semantic id has
 				 * changed. Rebuild the parent index from the post-dispatch
@@ -386,9 +421,10 @@ export function useBlueprintMutations(): BlueprintMutations {
 				const afterParentIndex = buildParentIndex(after);
 				const newPath = (computePathForUuid(after, uuid, afterParentIndex) ??
 					"") as QuestionPath;
-				// xpathFieldsRewritten count not exposed by the doc reducer yet;
-				// surface zero until Phase 3 adds instrumentation.
-				return { newPath, xpathFieldsRewritten: 0 };
+				return {
+					newPath,
+					xpathFieldsRewritten: meta?.xpathFieldsRewritten ?? 0,
+				};
 			},
 
 			moveQuestion(uuid, opts) {
@@ -429,17 +465,19 @@ export function useBlueprintMutations(): BlueprintMutations {
 					if (i >= 0) toIndex = i + 1;
 				}
 
-				dispatch({
-					kind: "moveQuestion",
-					uuid,
-					toParentUuid,
-					toIndex,
-				});
-
-				/* Sibling-id dedup (for cross-parent moves that would cause
-				 * a collision) is performed inside the reducer. Surfacing the
-				 * resulting new id back to the caller — so the UI can show a
-				 * rename notice — is deferred to Phase 3. */
+				// Dispatch via `applyWithResult` to capture the rename metadata
+				// the reducer populates when cross-level dedup changes the id.
+				// Returns `undefined` if the target entity vanishes between our
+				// pre-check and the Immer draft — fallback to empty result so
+				// callers always see a valid `MoveQuestionResult`.
+				return (
+					store.getState().applyWithResult({
+						kind: "moveQuestion",
+						uuid,
+						toParentUuid,
+						toIndex,
+					}) ?? {}
+				);
 			},
 
 			duplicateQuestion(uuid) {
@@ -535,41 +573,37 @@ export function useBlueprintMutations(): BlueprintMutations {
 			},
 
 			replaceForm(uuid, form) {
-				// Wholesale form swap. The reducer's `replaceForm` variant
-				// expects a form entity + pre-flattened question entities + a
-				// `questionOrder` map for the replacement subtree. Rather than
-				// reimplement the nested-to-flat walk here, we reuse `toDoc` on
-				// a minimal scratch blueprint wrapping the incoming form — the
-				// converter handles children, nested groups, and uuid minting.
+				/* Wholesale form swap. The reducer's `replaceForm` variant
+				 * expects a form entity + pre-flattened question entities + a
+				 * `questionOrder` map for the replacement subtree. We walk the
+				 * incoming nested form directly via `flattenQuestions` (the same
+				 * helper `toDoc` uses) and decompose the form's metadata fields
+				 * via `decomposeFormEntity`. The destination uuid is stamped
+				 * onto a copy of the incoming form so `decomposeFormEntity`'s
+				 * required-uuid contract is satisfied without mutating the
+				 * caller's reference. */
 				const doc = get();
 				if (!doc.forms[uuid]) {
 					warnUnresolved("replaceForm", { uuid });
 					return;
 				}
 
-				const bp: AppBlueprint = {
-					app_name: "",
-					connect_type: undefined,
-					case_types: null,
-					modules: [{ name: "__replace__", forms: [form] }],
-				};
-				const scratch = toDoc(bp, "");
-				const scratchModuleUuid = scratch.moduleOrder[0];
-				const scratchFormUuid = scratch.formOrder[scratchModuleUuid][0];
-				const scratchForm = scratch.forms[scratchFormUuid];
+				const formWithUuid: BlueprintForm = { ...form, uuid };
+				const nForm = decomposeFormEntity(formWithUuid);
+				const replacement = nForm as unknown as FormEntity;
 
-				// Carry the scratch form's fields but stamp the destination uuid.
-				const replacement: FormEntity = { ...scratchForm, uuid };
-				const questions = Object.values(scratch.questions) as QuestionEntity[];
-
-				// `questionOrder` is keyed by parent uuid. The scratch root slot
-				// is keyed by `scratchFormUuid`; we remap that single key to the
-				// destination `uuid`. Nested (group/repeat) slots are keyed by
-				// question uuids, which are preserved verbatim — no remap needed.
+				/* Flatten the nested question tree into doc shape. Top-level
+				 * questions are keyed under the destination form uuid; nested
+				 * group/repeat children are keyed under their parent question
+				 * uuid (handled recursively by flattenQuestions). */
+				const questionsMap: Record<Uuid, QuestionEntity> = {};
 				const questionOrder: Record<Uuid, Uuid[]> = {};
-				for (const [key, order] of Object.entries(scratch.questionOrder)) {
-					questionOrder[(key === scratchFormUuid ? uuid : key) as Uuid] = order;
-				}
+				questionOrder[uuid] = flattenQuestions(
+					form.questions ?? [],
+					questionsMap,
+					questionOrder,
+				);
+				const questions = Object.values(questionsMap);
 
 				dispatch({
 					kind: "replaceForm",
@@ -637,6 +671,49 @@ export function useBlueprintMutations(): BlueprintMutations {
 
 			setCaseTypes(caseTypes) {
 				dispatch({ kind: "setCaseTypes", caseTypes });
+			},
+
+			updateCaseProperty(caseTypeName, propertyName, updates) {
+				const doc = get();
+				const currentCaseTypes = doc.caseTypes;
+				if (!currentCaseTypes) {
+					warnUnresolved("updateCaseProperty", { caseTypeName, propertyName });
+					return;
+				}
+				const ctIndex = currentCaseTypes.findIndex(
+					(ct) => ct.name === caseTypeName,
+				);
+				if (ctIndex === -1) {
+					warnUnresolved("updateCaseProperty", {
+						caseTypeName,
+						reason: "case type not found",
+					});
+					return;
+				}
+				const ct = currentCaseTypes[ctIndex];
+				const propIndex = ct.properties.findIndex(
+					(p) => p.name === propertyName,
+				);
+				if (propIndex === -1) {
+					warnUnresolved("updateCaseProperty", {
+						caseTypeName,
+						propertyName,
+						reason: "property not found",
+					});
+					return;
+				}
+				// Build a new caseTypes array with the updated property. Immutable
+				// construction avoids mutating the Immer-frozen snapshot.
+				const nextCaseTypes = currentCaseTypes.map((caseType, i) => {
+					if (i !== ctIndex) return caseType;
+					return {
+						...caseType,
+						properties: caseType.properties.map((p, j) =>
+							j === propIndex ? { ...p, ...updates } : p,
+						),
+					};
+				});
+				dispatch({ kind: "setCaseTypes", caseTypes: nextCaseTypes });
 			},
 
 			applyMany(mutations) {

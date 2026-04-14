@@ -27,7 +27,7 @@
 import { act, renderHook } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { useContext } from "react";
-import { describe, expect, it } from "vitest";
+import { assert, describe, expect, it } from "vitest";
 import { useBlueprintDoc } from "@/lib/doc/hooks/useBlueprintDoc";
 import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
 import {
@@ -55,9 +55,11 @@ const bp: AppBlueprint = {
 	case_types: null,
 	modules: [
 		{
+			uuid: "module-1-uuid",
 			name: "M0",
 			forms: [
 				{
+					uuid: "form-1-uuid",
 					name: "F0",
 					type: "survey",
 					questions: [
@@ -90,6 +92,7 @@ const bp: AppBlueprint = {
 					],
 				},
 				{
+					uuid: "form-2-uuid",
 					// Second form so moveQuestion / replaceForm can distinguish
 					// same-form from cross-form dispatches.
 					name: "F1",
@@ -184,7 +187,8 @@ function useMutationsWithStore() {
  * by most tests as the `parentUuid` for question mutations.
  */
 function getFormUuid(store: BlueprintDocStore | null): Uuid {
-	const s = store!.getState();
+	if (!store) throw new Error("getFormUuid: store is null");
+	const s = store.getState();
 	const moduleUuid = s.moduleOrder[0];
 	return s.formOrder[moduleUuid][0];
 }
@@ -435,6 +439,7 @@ describe("useBlueprintMutations", () => {
 		act(() => {
 			const formUuid = getFormUuid(result.current.store);
 			result.current.mutations.replaceForm(formUuid, {
+				uuid: "form-2-uuid",
 				name: "F0",
 				type: "survey",
 				questions: [
@@ -466,9 +471,11 @@ describe("useBlueprintMutations", () => {
 
 		let returned: Uuid = "" as Uuid;
 		act(() => {
-			const s = result.current.store!.getState();
+			const s = result.current.store?.getState();
+			assert(s);
 			const moduleUuid = s.moduleOrder[0];
 			returned = result.current.mutations.addForm(moduleUuid, {
+				uuid: "form-3-uuid",
 				name: "F2",
 				type: "survey",
 				questions: [],
@@ -476,8 +483,8 @@ describe("useBlueprintMutations", () => {
 		});
 
 		expect(returned).toMatch(/[0-9a-f-]/);
-		// Verify the form was actually added to the store.
-		const s = result.current.store!.getState();
+		const s = result.current.store?.getState();
+		assert(s);
 		expect(s.forms[returned]).toBeDefined();
 		expect(s.forms[returned].name).toBe("F2");
 	});
@@ -491,12 +498,16 @@ describe("useBlueprintMutations", () => {
 
 		let returned: Uuid = "" as Uuid;
 		act(() => {
-			returned = result.current.mutations.addModule({ name: "M1", forms: [] });
+			returned = result.current.mutations.addModule({
+				uuid: "module-1-uuid",
+				name: "M1",
+				forms: [],
+			});
 		});
 
 		expect(returned).toMatch(/[0-9a-f-]/);
-		// Verify the module was actually added to the store.
-		const s = result.current.store!.getState();
+		const s = result.current.store?.getState();
+		assert(s);
 		expect(s.modules[returned]).toBeDefined();
 		expect(s.modules[returned].name).toBe("M1");
 	});
@@ -613,6 +624,107 @@ describe("useBlueprintMutations", () => {
 		expect(result.current.store?.getState().caseTypes).toBeNull();
 	});
 
+	// ── updateCaseProperty ───────────────────────────────────────────────
+
+	it("updateCaseProperty updates a property on a case type", () => {
+		const { result } = renderHook(() => useMutationsAndFirstFormChildren(), {
+			wrapper,
+		});
+
+		// Seed case types with a property to update.
+		act(() => {
+			result.current.mutations.setCaseTypes([
+				{
+					name: "person",
+					properties: [
+						{ name: "dob", label: "Date of Birth", data_type: "text" },
+						{ name: "age", label: "Age", data_type: "int" },
+					],
+				},
+			]);
+		});
+
+		act(() => {
+			result.current.mutations.updateCaseProperty("person", "dob", {
+				data_type: "date",
+			});
+		});
+
+		const s = result.current.store?.getState();
+		const personType = s?.caseTypes?.find((ct) => ct.name === "person");
+		const dob = personType?.properties.find((p) => p.name === "dob");
+		expect(dob?.data_type).toBe("date");
+		// Ensure the other property is untouched.
+		const age = personType?.properties.find((p) => p.name === "age");
+		expect(age?.data_type).toBe("int");
+	});
+
+	it("updateCaseProperty on a non-existent case type is a silent no-op", () => {
+		const { result } = renderHook(() => useMutationsAndFirstFormChildren(), {
+			wrapper,
+		});
+
+		act(() => {
+			result.current.mutations.setCaseTypes([
+				{
+					name: "person",
+					properties: [{ name: "dob", label: "DOB", data_type: "text" }],
+				},
+			]);
+		});
+
+		// Should not throw even though "animal" doesn't exist.
+		expect(() => {
+			act(() => {
+				result.current.mutations.updateCaseProperty("animal", "dob", {
+					data_type: "date",
+				});
+			});
+		}).not.toThrow();
+
+		// Case types should be unchanged.
+		const s = result.current.store?.getState();
+		expect(s?.caseTypes).toEqual([
+			{
+				name: "person",
+				properties: [{ name: "dob", label: "DOB", data_type: "text" }],
+			},
+		]);
+	});
+
+	it("updateCaseProperty on a non-existent property is a silent no-op", () => {
+		const { result } = renderHook(() => useMutationsAndFirstFormChildren(), {
+			wrapper,
+		});
+
+		act(() => {
+			result.current.mutations.setCaseTypes([
+				{
+					name: "person",
+					properties: [{ name: "dob", label: "DOB", data_type: "text" }],
+				},
+			]);
+		});
+
+		// Should not throw even though "nonexistent" doesn't exist.
+		expect(() => {
+			act(() => {
+				result.current.mutations.updateCaseProperty("person", "nonexistent", {
+					label: "Nope",
+				});
+			});
+		}).not.toThrow();
+
+		// Case types should be unchanged.
+		const s = result.current.store?.getState();
+		expect(s?.caseTypes).toEqual([
+			{
+				name: "person",
+				properties: [{ name: "dob", label: "DOB", data_type: "text" }],
+			},
+		]);
+	});
+
 	// ── applyMany ─────────────────────────────────────────────────────────
 
 	it("applyMany collapses two mutations into a single undo entry", () => {
@@ -642,6 +754,102 @@ describe("useBlueprintMutations", () => {
 		const s = result.current.store?.getState();
 		expect(s?.appName).toBe("Batched");
 		expect(s?.connectType).toBe("deliver");
+	});
+
+	// ── moveQuestion result metadata ─────────────────────────────────────
+
+	it("moveQuestion returns MoveQuestionResult with renamed on cross-parent dedup", () => {
+		// Use the fixture that has form F0 with [a, b, grp > [c]].
+		// Add a question with id "a" inside the group, then move Q_A into the
+		// group — it should dedup to "a_2".
+		const { result } = renderHook(() => useMutationsFormsAndGroupChildren(), {
+			wrapper,
+		});
+
+		// Seed a question inside the group with id "a" to force dedup.
+		act(() => {
+			result.current.mutations.addQuestion(Q_GRP, {
+				id: "a",
+				type: "text",
+				label: "duplicate-a",
+			} as unknown as Question);
+		});
+
+		const captured: {
+			value?: ReturnType<typeof result.current.mutations.moveQuestion>;
+		} = {};
+		act(() => {
+			captured.value = result.current.mutations.moveQuestion(Q_A, {
+				toParentUuid: Q_GRP,
+			});
+		});
+
+		expect(captured.value).toBeDefined();
+		expect(captured.value?.renamed).toBeDefined();
+		expect(captured.value?.renamed?.oldId).toBe("a");
+		expect(captured.value?.renamed?.newId).toBe("a_2");
+		expect(typeof captured.value?.renamed?.xpathFieldsRewritten).toBe("number");
+	});
+
+	// ── renameQuestion xpathFieldsRewritten ──────────────────────────────
+
+	it("renameQuestion returns xpathFieldsRewritten from the reducer", () => {
+		// Use a custom blueprint with xpath refs to get a nonzero count.
+		const bpWithRefs: AppBlueprint = {
+			app_name: "Refs",
+			connect_type: undefined,
+			case_types: null,
+			modules: [
+				{
+					uuid: "module-4-uuid",
+					name: "M",
+					forms: [
+						{
+							uuid: "form-3-uuid",
+							name: "F",
+							type: "survey",
+							questions: [
+								{
+									uuid: "q-src-0000-0000-0000-000000000000",
+									id: "source",
+									type: "text",
+									label: "Source",
+								},
+								{
+									uuid: "q-dep-0000-0000-0000-000000000000",
+									id: "dep",
+									type: "text",
+									label: "Dep",
+									calculate: "/data/source + 1",
+								},
+							],
+						},
+					],
+				},
+			],
+		};
+		const refWrapper = ({ children }: { children: ReactNode }) => (
+			<BlueprintDocProvider appId="t" initialBlueprint={bpWithRefs}>
+				{children}
+			</BlueprintDocProvider>
+		);
+
+		const { result } = renderHook(() => useBlueprintMutations(), {
+			wrapper: refWrapper,
+		});
+
+		const captured: {
+			value?: ReturnType<typeof result.current.renameQuestion>;
+		} = {};
+		act(() => {
+			captured.value = result.current.renameQuestion(
+				asUuid("q-src-0000-0000-0000-000000000000"),
+				"primary",
+			);
+		});
+
+		expect(captured.value).toBeDefined();
+		expect(captured.value?.xpathFieldsRewritten).toBeGreaterThan(0);
 	});
 
 	// ── moveQuestion — extra options ──────────────────────────────────────
@@ -705,6 +913,7 @@ describe("useBlueprintMutations", () => {
 				});
 				result.current.mutations.removeForm(asUuid("bogus-uuid"));
 				result.current.mutations.replaceForm(asUuid("bogus-uuid"), {
+					uuid: "form-5-uuid",
 					name: "nope",
 					type: "survey",
 					questions: [],
@@ -714,6 +923,7 @@ describe("useBlueprintMutations", () => {
 				});
 				result.current.mutations.removeModule(asUuid("bogus-uuid"));
 				result.current.mutations.addForm(asUuid("bogus-module"), {
+					uuid: "form-6-uuid",
 					name: "nope",
 					type: "survey",
 					questions: [],

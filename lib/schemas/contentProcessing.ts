@@ -205,6 +205,12 @@ export function processSingleFormOutput(
 	const nestedQuestions = buildQuestionTree(withDefaults);
 
 	return {
+		/* Mint at the producer site — this function is the wire-format
+		 * boundary for SA-streamed form content, mirroring the uuid stamping
+		 * `bpAddForm`/`bpAddModule`/`bpSetScaffold` do for module/form
+		 * additions. The uuid lands in Firestore via `data-form-updated`
+		 * and round-trips through `toDoc`/`toBlueprint`. */
+		uuid: crypto.randomUUID(),
 		name: formName,
 		type: formType,
 		questions: nestedQuestions,

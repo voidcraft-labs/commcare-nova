@@ -8,12 +8,14 @@
  * their emissions via step_index). Message events build progressive chat
  * history. The `applyToBuilder` closure replays emissions through the shared
  * `applyDataPart` function — the same code path as real-time streaming.
+ *
+ * Stages receive an `ApplyDataPartInputs` adapter object ({ store, docStore })
+ * rather than a wrapped engine. Phase 4 will rewrite replay as a proper
+ * mutation stream; for Phase 3 the shim keeps the existing control flow.
  */
 import type { UIMessage } from "ai";
 import type { JsonValue, StoredEvent } from "@/lib/db/types";
-import type { AppBlueprint } from "@/lib/schemas/blueprint";
-import { applyDataPart } from "./builder";
-import type { BuilderEngine } from "./builderEngine";
+import { type ApplyDataPartInputs, applyDataPart } from "./builder";
 
 // ── Types ───────────────────────────────────────────────────────────────
 
@@ -21,7 +23,10 @@ export interface ReplayStage {
 	header: string;
 	subtitle?: string;
 	messages: UIMessage[];
-	applyToBuilder: (engine: BuilderEngine) => void;
+	/** Re-dispatch this stage's emissions into the builder stores. The
+	 *  `inputs` shape is the same `{ store, docStore }` adapter that live
+	 *  streaming uses — generation and replay share the same sink. */
+	applyToBuilder: (inputs: ApplyDataPartInputs) => void;
 }
 
 interface ExtractionSuccess {
@@ -172,9 +177,13 @@ export function extractReplayStages(events: StoredEvent[]): ExtractionResult {
 				stages.push({
 					header: "Update",
 					messages: buildProgressiveMessages(),
-					applyToBuilder: (b) => {
+					applyToBuilder: (inputs) => {
 						for (const em of stepEmissions)
-							applyDataPart(b, em.type, em.data as Record<string, unknown>);
+							applyDataPart(
+								inputs,
+								em.type,
+								em.data as Record<string, unknown>,
+							);
 					},
 				});
 			}
@@ -183,9 +192,9 @@ export function extractReplayStages(events: StoredEvent[]): ExtractionResult {
 				header: toolToHeader(interestingCalls[0].name) ?? "Update",
 				subtitle: deriveSubtitle(interestingCalls[0], stepEmissions, scaffold),
 				messages: buildProgressiveMessages(),
-				applyToBuilder: (b) => {
+				applyToBuilder: (inputs) => {
 					for (const em of stepEmissions)
-						applyDataPart(b, em.type, em.data as Record<string, unknown>);
+						applyDataPart(inputs, em.type, em.data as Record<string, unknown>);
 				},
 			});
 		} else {
@@ -197,9 +206,13 @@ export function extractReplayStages(events: StoredEvent[]): ExtractionResult {
 					header: toolToHeader(tc.name) ?? "Update",
 					subtitle: deriveSubtitle(tc, distributed, scaffold),
 					messages: buildProgressiveMessages(),
-					applyToBuilder: (b) => {
+					applyToBuilder: (inputs) => {
 						for (const em of distributed)
-							applyDataPart(b, em.type, em.data as Record<string, unknown>);
+							applyDataPart(
+								inputs,
+								em.type,
+								em.data as Record<string, unknown>,
+							);
 					},
 				});
 			}
@@ -211,17 +224,13 @@ export function extractReplayStages(events: StoredEvent[]): ExtractionResult {
 	stages.push({
 		header: "Done",
 		messages: buildProgressiveMessages(),
-		applyToBuilder: (b) => {
-			const s = b.store.getState();
-			/* Derive a blueprint from the generation data for the final replay stage. */
-			const gen = s.generationData;
-			const scaffold = gen?.scaffold;
-			if (scaffold) {
-				s.completeGeneration({
-					...scaffold,
-					case_types: s.caseTypes ?? null,
-				} as unknown as AppBlueprint);
-			}
+		applyToBuilder: (inputs) => {
+			/* Transition lifecycle flags for the final replay stage. Entity data
+			 * was already dispatched into the doc store by the intermediate stages
+			 * (scaffold setters, form-content setters), so there's no blueprint
+			 * hand-off to perform here — just flip the session-store flags to
+			 * Completed so the replay UI shows the done state. */
+			inputs.store.getState().completeGeneration();
 		},
 	});
 

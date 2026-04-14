@@ -14,23 +14,24 @@
 "use client";
 import { Chat, useChat } from "@ai-sdk/react";
 import { DefaultChatTransport, type UIMessage } from "ai";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useContext, useEffect, useRef, useState } from "react";
 import { ChatSidebar } from "@/components/chat/ChatSidebar";
 import { Logo } from "@/components/ui/Logo";
-import { useBuilderEngine, useBuilderStore } from "@/hooks/useBuilder";
+import { useBuilderStore, useBuilderStoreApi } from "@/hooks/useBuilder";
 import { parseApiErrorMessage } from "@/lib/apiError";
 import { extractThread } from "@/lib/chat/threadUtils";
 import { saveThread } from "@/lib/db/threads";
+import { toBlueprint } from "@/lib/doc/converter";
+import {
+	BlueprintDocContext,
+	type BlueprintDocStore,
+} from "@/lib/doc/provider";
 import { applyDataPart, BuilderPhase } from "@/lib/services/builder";
-import type { BuilderEngine } from "@/lib/services/builderEngine";
 import {
 	selectInReplayMode,
 	selectIsReady,
 } from "@/lib/services/builderSelectors";
-import {
-	assembleBlueprint,
-	getEntityData,
-} from "@/lib/services/normalizedState";
+import type { BuilderStoreApi } from "@/lib/services/builderStore";
 import { showToast } from "@/lib/services/toastStore";
 
 // ── Helpers ──────────────────────────────────────────────────────────────
@@ -60,9 +61,10 @@ function shouldAutoResend({ messages }: { messages: UIMessage[] }): boolean {
 
 /** Create a Chat instance with transport, data handling, and auto-resend config.
  *  Closures capture refs (not direct values) so they always read the latest
- *  builder and runId — safe across re-renders within the same app session. */
+ *  store references — safe across re-renders within the same app session. */
 function createChatInstance(
-	builderRef: { current: BuilderEngine },
+	storeRef: { current: BuilderStoreApi },
+	docStoreRef: { current: BlueprintDocStore | null },
 	runIdRef: { current: string | undefined },
 	lastResponseAtRef: { current: string | undefined },
 ): Chat<UIMessage> {
@@ -70,12 +72,11 @@ function createChatInstance(
 		transport: new DefaultChatTransport({
 			api: "/api/chat",
 			body: () => {
-				const s = builderRef.current.store.getState();
+				const s = storeRef.current.getState();
+				const doc = docStoreRef.current?.getState();
+				const hasBlueprint = (doc?.moduleOrder.length ?? 0) > 0;
 				return {
-					blueprint:
-						s.moduleOrder.length > 0
-							? assembleBlueprint(getEntityData(s))
-							: undefined,
+					blueprint: doc && hasBlueprint ? toBlueprint(doc) : undefined,
 					runId: runIdRef.current,
 					appId: s.appId,
 					lastResponseAt: lastResponseAtRef.current,
@@ -94,16 +95,21 @@ function createChatInstance(
 				return;
 			}
 
+			const inputs = {
+				store: storeRef.current,
+				docStore: docStoreRef.current,
+			};
+
 			/* After first save, update the URL from /build/new → /build/{id} without
-			 * triggering a navigation or remount. applyDataPart stores the ID on the builder. */
+			 * triggering a navigation or remount. applyDataPart stores the ID on the legacy store. */
 			if (type === "data-app-saved") {
 				const appId = data.appId as string;
-				applyDataPart(builderRef.current, type, data);
+				applyDataPart(inputs, type, data);
 				window.history.replaceState({}, "", `/build/${appId}`);
 				return;
 			}
 
-			applyDataPart(builderRef.current, type, data);
+			applyDataPart(inputs, type, data);
 			if (type === "data-error") {
 				showToast(
 					data.fatal ? "error" : "warning",
@@ -133,33 +139,41 @@ export function ChatContainer({
 	isExistingApp,
 	children,
 }: ChatContainerProps) {
-	const builder = useBuilderEngine();
+	const storeApi = useBuilderStoreApi();
+	const docStore = useContext(BlueprintDocContext);
 	const inReplayMode = useBuilderStore(selectInReplayMode);
 	/** Replay messages — written by ReplayController, read here. Both
 	 *  communicate through the store, not through a shared parent. */
 	const replayMessages = useBuilderStore((s) => s.replayMessages);
 
-	// ── Stable ref for builder so Chat callbacks always read the latest ────
-	const builderRef = useRef(builder);
-	builderRef.current = builder;
+	// ── Stable refs so Chat callbacks always read the latest stores ──────
+	const storeRef = useRef(storeApi);
+	storeRef.current = storeApi;
+	const docStoreRef = useRef(docStore);
+	docStoreRef.current = docStore;
 	const runIdRef = useRef<string | undefined>(undefined);
 	/** ISO timestamp of the SA's last response — used to determine if the
 	 *  Anthropic prompt cache is still warm on subsequent requests. */
 	const lastResponseAtRef = useRef<string | undefined>(undefined);
 
-	// ── Chat instance — recreated when builder changes (new app) ─────────
-	const prevBuilderRef = useRef(builder);
+	// ── Chat instance — recreated when the store identity changes (new app) ─
+	const prevStoreRef = useRef(storeApi);
 	const [chat, setChat] = useState(() =>
-		createChatInstance(builderRef, runIdRef, lastResponseAtRef),
+		createChatInstance(storeRef, docStoreRef, runIdRef, lastResponseAtRef),
 	);
 
-	/* Detect builder identity change (new app via BuilderProvider). Clear
-	 * stale local state from the previous app: run ID and the Chat instance. */
-	if (builder !== prevBuilderRef.current) {
-		prevBuilderRef.current = builder;
+	/* Detect legacy store identity change (new app via BuilderProvider).
+	 * The store is recreated inside `BuilderProvider`'s `setState` branch
+	 * on every buildId change, so its reference is the canonical per-app
+	 * identity. Clear stale local state from the previous app: run ID and
+	 * the Chat instance. */
+	if (storeApi !== prevStoreRef.current) {
+		prevStoreRef.current = storeApi;
 		runIdRef.current = undefined;
 		lastResponseAtRef.current = undefined;
-		setChat(createChatInstance(builderRef, runIdRef, lastResponseAtRef));
+		setChat(
+			createChatInstance(storeRef, docStoreRef, runIdRef, lastResponseAtRef),
+		);
 	}
 
 	// ── Chat hook — the core reason this component exists ─────────────────
@@ -176,17 +190,19 @@ export function ChatContainer({
 
 	// ── Chat effects ─────────────────────────────────────────────────────
 
-	/* Sync chat transport status → builder agent state (drives builder.isThinking).
-	 * Also stamps lastResponseAtRef when the SA finishes so the route can
-	 * determine if the Anthropic prompt cache is still warm on the next request. */
+	/* Sync chat transport status → agent state on the legacy store (drives
+	 * the signal grid's "thinking" badge). Also stamps `lastResponseAtRef`
+	 * when the SA finishes so the next request can decide whether the
+	 * Anthropic prompt cache is still warm. */
 	useEffect(() => {
 		const active = status === "submitted" || status === "streaming";
-		const wasActive = builder.store.getState().agentActive;
-		builder.setAgentActive(active);
+		const s = storeApi.getState();
+		const wasActive = s.agentActive;
+		s.setAgentActive(active);
 		if (status === "ready" && wasActive) {
 			lastResponseAtRef.current = new Date().toISOString();
 		}
-	}, [status, builder]);
+	}, [status, storeApi]);
 
 	/* Surface stream-level errors from useChat (network, API key, server crash, spend cap).
 	 * Only set generation error during Generating phase — Idle errors get a toast only.
@@ -195,20 +211,20 @@ export function ChatContainer({
 	useEffect(() => {
 		if (!chatError) return;
 		const message = parseApiErrorMessage(chatError.message);
-		const s = builder.store.getState();
+		const s = storeApi.getState();
 		if (s.phase === BuilderPhase.Generating && !s.generationError) {
 			s.setGenerationError(message, "failed");
 		}
 		showToast("error", "Generation failed", message);
-	}, [chatError, builder]);
+	}, [chatError, storeApi]);
 
 	/* Persist the active conversation thread on each status=ready transition.
 	 * Fire-and-forget via server action — a Firestore outage never blocks the UI. */
 	const threadStartRef = useRef<string | undefined>(undefined);
-	// biome-ignore lint/correctness/useExhaustiveDependencies: builder read at fire time for appId
+	// biome-ignore lint/correctness/useExhaustiveDependencies: storeApi is stable; snapshot read at fire time for appId
 	useEffect(() => {
 		if (status !== "ready" || messages.length === 0) return;
-		const appId = builder.store.getState().appId;
+		const appId = storeApi.getState().appId;
 		const runId = runIdRef.current;
 		if (!appId || !runId) return;
 

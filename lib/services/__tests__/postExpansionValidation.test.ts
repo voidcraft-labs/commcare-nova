@@ -173,6 +173,7 @@ describe("case list column validation", () => {
 			app_name: "Test",
 			modules: [
 				{
+					uuid: "module-1-uuid",
 					name: "Mod",
 					case_type: "patient",
 					case_list_columns: [
@@ -181,6 +182,7 @@ describe("case list column validation", () => {
 					],
 					forms: [
 						{
+							uuid: "form-1-uuid",
 							name: "Reg",
 							type: "registration",
 							questions: [
@@ -214,6 +216,7 @@ describe("case list column validation", () => {
 			app_name: "Test",
 			modules: [
 				{
+					uuid: "module-2-uuid",
 					name: "Mod",
 					case_type: "patient",
 					case_list_columns: [
@@ -222,6 +225,7 @@ describe("case list column validation", () => {
 					],
 					forms: [
 						{
+							uuid: "form-2-uuid",
 							name: "Reg",
 							type: "registration",
 							questions: [
@@ -249,6 +253,7 @@ describe("case list column validation", () => {
 			app_name: "Test",
 			modules: [
 				{
+					uuid: "module-3-uuid",
 					name: "Mod",
 					case_type: "patient",
 					case_list_columns: [
@@ -257,6 +262,7 @@ describe("case list column validation", () => {
 					],
 					forms: [
 						{
+							uuid: "form-3-uuid",
 							name: "Reg",
 							type: "registration",
 							questions: [
@@ -300,11 +306,13 @@ describe("expanded XForm validation", () => {
 			app_name: "Test",
 			modules: [
 				{
+					uuid: "module-4-uuid",
 					name: "Patients",
 					case_type: "patient",
 					case_list_columns: [{ field: "case_name", header: "Name" }],
 					forms: [
 						{
+							uuid: "form-4-uuid",
 							name: "Register",
 							type: "registration",
 							questions: [
@@ -350,9 +358,11 @@ describe("expanded XForm validation", () => {
 			app_name: "Test",
 			modules: [
 				{
+					uuid: "module-5-uuid",
 					name: "Surveys",
 					forms: [
 						{
+							uuid: "form-5-uuid",
 							name: "Survey",
 							type: "survey",
 							questions: [
@@ -395,9 +405,11 @@ describe("expanded XForm validation", () => {
 			app_name: "Test",
 			modules: [
 				{
+					uuid: "module-6-uuid",
 					name: "M",
 					forms: [
 						{
+							uuid: "form-6-uuid",
 							name: "F",
 							type: "survey",
 							questions: [

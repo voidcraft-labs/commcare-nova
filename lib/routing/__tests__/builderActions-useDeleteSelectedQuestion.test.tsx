@@ -49,14 +49,17 @@ vi.mock("next/navigation", async () => {
 	};
 });
 
-/* `useSelect` calls `useBuilderEngine().checkEditGuard()`, so the stub
- * must surface that method. The rest of the useBuilder surface is
- * irrelevant to this hook. */
-vi.mock("@/hooks/useBuilder", () => ({
-	useBuilderEngine: () => ({ checkEditGuard: () => true }),
-	useBuilderStore: <T,>(
-		selector: (s: { activeFieldId: string | undefined }) => T,
-	) => selector({ activeFieldId: undefined }),
+/* `useSelect` calls `useConsultEditGuard()` from EditGuardContext, so we
+ * stub that to always allow selection. */
+vi.mock("@/components/builder/contexts/EditGuardContext", () => ({
+	useConsultEditGuard: () => () => true,
+}));
+
+/* `useUndoRedo` (same module) imports `useActiveFieldId()`, so the session
+ * hooks must be stubbed even though this test only exercises
+ * `useDeleteSelectedQuestion`. */
+vi.mock("@/lib/session/hooks", () => ({
+	useActiveFieldId: () => undefined,
 }));
 
 import { useDeleteSelectedQuestion } from "@/lib/routing/builderActions";
@@ -72,10 +75,12 @@ const BP = {
 	case_types: null,
 	modules: [
 		{
+			uuid: "module-1-uuid",
 			name: "M",
 			case_type: undefined,
 			forms: [
 				{
+					uuid: "form-1-uuid",
 					name: "F",
 					type: "survey" as const,
 					questions: [

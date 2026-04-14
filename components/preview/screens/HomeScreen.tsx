@@ -5,21 +5,21 @@ import { motion } from "motion/react";
 import { useCallback, useState } from "react";
 import { EditableTitle, SavedCheck } from "@/components/builder/EditableTitle";
 import { Badge } from "@/components/ui/Badge";
-import { useBuilderHasData, useBuilderStore } from "@/hooks/useBuilder";
+import { useBuilderHasData, useBuilderIsReady } from "@/hooks/useBuilder";
 import { useBlueprintDoc } from "@/lib/doc/hooks/useBlueprintDoc";
 import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
 import { useOrderedModules } from "@/lib/doc/hooks/useModuleIds";
 import type { Uuid } from "@/lib/doc/types";
 import { useNavigate } from "@/lib/routing/hooks";
-import { selectEditMode, selectIsReady } from "@/lib/services/builderSelectors";
+import { useEditMode } from "@/lib/session/hooks";
 
 export function HomeScreen() {
 	const appName = useBlueprintDoc((s) => s.appName);
 	const formOrder = useBlueprintDoc((s) => s.formOrder);
 	const navigate = useNavigate();
 	const { updateApp } = useBlueprintMutations();
-	const isReady = useBuilderStore(selectIsReady);
-	const mode = useBuilderStore(selectEditMode);
+	const isReady = useBuilderIsReady();
+	const mode = useEditMode();
 	const hasData = useBuilderHasData();
 	const modules = useOrderedModules();
 

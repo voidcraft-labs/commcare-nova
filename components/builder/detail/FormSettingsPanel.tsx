@@ -22,7 +22,6 @@ import { XPathField } from "@/components/builder/XPathField";
 import { ConnectLogomark } from "@/components/icons/ConnectLogomark";
 import { FieldPicker } from "@/components/ui/FieldPicker";
 import { Toggle } from "@/components/ui/Toggle";
-import { useBuilderEngine } from "@/hooks/useBuilder";
 import { useCommitField } from "@/hooks/useCommitField";
 import type { XPathLintContext } from "@/lib/codemirror/xpath-lint";
 import { useAssembledForm } from "@/lib/doc/hooks/useAssembledForm";
@@ -33,7 +32,6 @@ import { BlueprintDocContext } from "@/lib/doc/provider";
 import { asUuid, type Uuid } from "@/lib/doc/types";
 import {
 	type ConnectConfig,
-	type ConnectType,
 	defaultPostSubmit,
 	type PostSubmitDestination,
 	type Question,
@@ -45,6 +43,7 @@ import {
 	assembleForm,
 	getEntityData,
 } from "@/lib/services/normalizedState";
+import { useFormConnectStash, useStashFormConnect } from "@/lib/session/hooks";
 import {
 	MENU_ITEM_BASE,
 	MENU_ITEM_CLS,
@@ -711,15 +710,17 @@ function LabeledXPathField({
 }
 
 function ConnectSection({ moduleUuid, formUuid }: FormSettingsPanelProps) {
-	const engine = useBuilderEngine();
 	const form = useForm(formUuid);
 	const mod = useModule(moduleUuid);
 	const { updateForm: updateFormAction } = useBlueprintMutations();
-	const connectType = useBlueprintDoc((s) => s.connectType) as
-		| ConnectType
-		| undefined;
+	const connectType = useBlueprintDoc((s) => s.connectType ?? undefined);
 	const connect = form?.connect;
 	const enabled = !!connect;
+
+	/* Session hooks for connect stash — keyed by form uuid (stable across
+	 * reorder + rename), replacing the legacy engine's index-based stash. */
+	const stashFormConnect = useStashFormConnect();
+	const stashedConfig = useFormConnectStash(connectType ?? "learn", formUuid);
 
 	const save = useCallback(
 		(config: ConnectConfig | null) => {
@@ -730,44 +731,17 @@ function ConnectSection({ moduleUuid, formUuid }: FormSettingsPanelProps) {
 		[updateFormAction, formUuid],
 	);
 
-	/* The connect stash still uses module/form indices because the engine
-	 * hasn't been migrated yet (Task 12). Look up the indices from the doc
-	 * store for the stash calls. */
-	const docStore = useContext(BlueprintDocContext);
-	const resolveIndices = useCallback(():
-		| { mIdx: number; fIdx: number }
-		| undefined => {
-		if (!docStore) return undefined;
-		const s = docStore.getState();
-		const mIdx = s.moduleOrder.indexOf(moduleUuid);
-		if (mIdx < 0) return undefined;
-		const formUuids = s.formOrder[moduleUuid] ?? [];
-		const fIdx = formUuids.indexOf(formUuid);
-		if (fIdx < 0) return undefined;
-		return { mIdx, fIdx };
-	}, [docStore, moduleUuid, formUuid]);
-
 	const toggle = useCallback(() => {
 		if (enabled) {
+			/* Stash the current config before clearing, so re-enabling
+			 * restores it instead of generating a new default. */
 			if (connect && connectType) {
-				const indices = resolveIndices();
-				if (indices) {
-					engine.stashFormConnect(
-						connectType,
-						indices.mIdx,
-						indices.fIdx,
-						connect,
-					);
-				}
+				stashFormConnect(connectType, formUuid, connect);
 			}
 			save(null);
 		} else if (connectType) {
-			const indices = resolveIndices();
-			const stashed = indices
-				? engine.getFormConnectStash(connectType, indices.mIdx, indices.fIdx)
-				: undefined;
-			if (stashed) {
-				save(stashed);
+			if (stashedConfig) {
+				save(stashedConfig);
 			} else {
 				const modSlug = toSnakeId(mod?.name ?? "");
 				const formSlug = toSnakeId(form?.name ?? "");
@@ -801,7 +775,17 @@ function ConnectSection({ moduleUuid, formUuid }: FormSettingsPanelProps) {
 				}
 			}
 		}
-	}, [enabled, connect, connectType, engine, mod, form, resolveIndices, save]);
+	}, [
+		enabled,
+		connect,
+		connectType,
+		stashFormConnect,
+		stashedConfig,
+		mod,
+		form,
+		formUuid,
+		save,
+	]);
 
 	if (!connectType) return null;
 

@@ -1,10 +1,11 @@
 "use client";
 import { CollisionPriority } from "@dnd-kit/abstract";
 import { useDroppable } from "@dnd-kit/react";
-import { useBuilderStore } from "@/hooks/useBuilder";
 import { useEditContext } from "@/hooks/useEditContext";
 import { useEngineState } from "@/hooks/useFormEngine";
 import { useTextEditSave } from "@/hooks/useTextEditSave";
+import { useBlueprintDoc } from "@/lib/doc/hooks/useBlueprintDoc";
+import type { Uuid } from "@/lib/doc/types";
 import { LabelContent } from "@/lib/references/LabelContent";
 import type { Question } from "@/lib/schemas/blueprint";
 import type { QuestionPath } from "@/lib/services/questionPath";
@@ -24,12 +25,13 @@ export function GroupField({ question, path, questionPath }: GroupFieldProps) {
 	const isEditMode = ctx?.mode === "edit";
 	const saveField = useTextEditSave(question.uuid);
 
-	/** Subscribe to the children count for this group. Drives the container
-	 *  styling — groups with children get horizontal-only padding (InsertionPoints
+	/** Subscribe to the children count for this group — from the doc store,
+	 *  the single source of truth for question ordering. Drives the container
+	 *  styling: groups with children get horizontal-only padding (InsertionPoints
 	 *  own vertical spacing), empty groups get full padding + min-height for
-	 *  the droppable target. Only re-renders on children count change (0→1, 1→0). */
-	const hasChildren = useBuilderStore(
-		(s) => (s.questionOrder[question.uuid]?.length ?? 0) > 0,
+	 *  the droppable target. Only re-renders on count change (0→1, 1→0). */
+	const hasChildren = useBlueprintDoc(
+		(s) => (s.questionOrder[question.uuid as Uuid]?.length ?? 0) > 0,
 	);
 
 	const { ref: droppableRef } = useDroppable({

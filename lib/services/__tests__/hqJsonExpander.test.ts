@@ -8,10 +8,12 @@ const followupBlueprint: AppBlueprint = {
 	app_name: "Test App",
 	modules: [
 		{
+			uuid: "module-1-uuid",
 			name: "Visits",
 			case_type: "patient",
 			forms: [
 				{
+					uuid: "form-1-uuid",
 					name: "Follow-up Visit",
 					type: "followup",
 					questions: [
@@ -56,6 +58,7 @@ const registrationBlueprint: AppBlueprint = {
 	app_name: "Reg App",
 	modules: [
 		{
+			uuid: "module-2-uuid",
 			name: "Registration",
 			case_type: "patient",
 			case_list_columns: [
@@ -64,6 +67,7 @@ const registrationBlueprint: AppBlueprint = {
 			],
 			forms: [
 				{
+					uuid: "form-2-uuid",
 					name: "Register Patient",
 					type: "registration",
 					questions: [
@@ -125,10 +129,12 @@ describe("expandBlueprint", () => {
 			app_name: "Nested",
 			modules: [
 				{
+					uuid: "module-3-uuid",
 					name: "M",
 					case_type: "case",
 					forms: [
 						{
+							uuid: "form-3-uuid",
 							name: "F",
 							type: "followup",
 							questions: [
@@ -211,9 +217,11 @@ describe("expandBlueprint", () => {
 			app_name: "DV",
 			modules: [
 				{
+					uuid: "module-4-uuid",
 					name: "M",
 					forms: [
 						{
+							uuid: "form-4-uuid",
 							name: "F",
 							type: "survey",
 							questions: [
@@ -238,10 +246,12 @@ describe("expandBlueprint", () => {
 			app_name: "DV",
 			modules: [
 				{
+					uuid: "module-5-uuid",
 					name: "M",
 					case_type: "c",
 					forms: [
 						{
+							uuid: "form-5-uuid",
 							name: "F",
 							type: "followup",
 							questions: [
@@ -284,10 +294,12 @@ describe("expandBlueprint", () => {
 			app_name: "Close",
 			modules: [
 				{
+					uuid: "module-6-uuid",
 					name: "M",
 					case_type: "case",
 					forms: [
 						{
+							uuid: "form-6-uuid",
 							name: "Conditional Close",
 							type: "close",
 							close_condition: { question: "confirm", answer: "yes" },
@@ -304,6 +316,7 @@ describe("expandBlueprint", () => {
 							],
 						},
 						{
+							uuid: "form-7-uuid",
 							name: "Always Close",
 							type: "close",
 							questions: [q({ id: "note", type: "text", label: "Note" })],
@@ -336,10 +349,12 @@ describe("case_name in case list columns", () => {
 		app_name: "CL",
 		modules: [
 			{
+				uuid: "module-7-uuid",
 				name: "M",
 				case_type: "patient",
 				forms: [
 					{
+						uuid: "form-8-uuid",
 						name: "F",
 						type: "registration",
 						questions: [
@@ -386,9 +401,11 @@ describe("runValidation", () => {
 			app_name: "Bad",
 			modules: [
 				{
+					uuid: "module-8-uuid",
 					name: "M",
 					forms: [
 						{
+							uuid: "form-9-uuid",
 							name: "F",
 							type: "registration",
 							questions: [
@@ -414,10 +431,12 @@ describe("runValidation", () => {
 			app_name: "Bad",
 			modules: [
 				{
+					uuid: "module-9-uuid",
 					name: "M",
 					case_type: "c",
 					forms: [
 						{
+							uuid: "form-10-uuid",
 							name: "F",
 							type: "registration",
 							questions: [
@@ -443,10 +462,12 @@ describe("runValidation", () => {
 			app_name: "Bad",
 			modules: [
 				{
+					uuid: "module-10-uuid",
 					name: "M",
 					case_type: "c",
 					forms: [
 						{
+							uuid: "form-11-uuid",
 							name: "F",
 							type: "registration",
 							questions: [q({ id: "q", type: "text", label: "Q" })],
@@ -469,9 +490,11 @@ describe("output references in labels", () => {
 			app_name: "Output",
 			modules: [
 				{
+					uuid: "module-11-uuid",
 					name: "M",
 					forms: [
 						{
+							uuid: "form-12-uuid",
 							name: "F",
 							type: "survey",
 							questions: [
@@ -500,10 +523,12 @@ describe("output references in labels", () => {
 			app_name: "Output",
 			modules: [
 				{
+					uuid: "module-12-uuid",
 					name: "M",
 					case_type: "c",
 					forms: [
 						{
+							uuid: "form-13-uuid",
 							name: "F",
 							type: "followup",
 							questions: [
@@ -539,10 +564,12 @@ describe("output references in labels", () => {
 			app_name: "BareRef",
 			modules: [
 				{
+					uuid: "module-13-uuid",
 					name: "M",
 					case_type: "c",
 					forms: [
 						{
+							uuid: "form-14-uuid",
 							name: "F",
 							type: "followup",
 							questions: [
@@ -607,9 +634,11 @@ describe("output references in labels", () => {
 			app_name: "BareForm",
 			modules: [
 				{
+					uuid: "module-14-uuid",
 					name: "M",
 					forms: [
 						{
+							uuid: "form-15-uuid",
 							name: "F",
 							type: "survey",
 							questions: [
@@ -639,10 +668,12 @@ describe("output references in labels", () => {
 			app_name: "Mixed",
 			modules: [
 				{
+					uuid: "module-15-uuid",
 					name: "M",
 					case_type: "c",
 					forms: [
 						{
+							uuid: "form-16-uuid",
 							name: "F",
 							type: "followup",
 							questions: [
@@ -706,9 +737,11 @@ describe("markdown itext for all question types", () => {
 			app_name: "MD",
 			modules: [
 				{
+					uuid: "module-16-uuid",
 					name: "M",
 					forms: [
 						{
+							uuid: "form-17-uuid",
 							name: "F",
 							type: "survey",
 							questions: [
@@ -739,9 +772,11 @@ describe("markdown itext for all question types", () => {
 			app_name: "MD",
 			modules: [
 				{
+					uuid: "module-17-uuid",
 					name: "M",
 					forms: [
 						{
+							uuid: "form-18-uuid",
 							name: "F",
 							type: "survey",
 							questions: [
@@ -786,9 +821,11 @@ describe("markdown itext for all question types", () => {
 			app_name: "MD",
 			modules: [
 				{
+					uuid: "module-18-uuid",
 					name: "M",
 					forms: [
 						{
+							uuid: "form-19-uuid",
 							name: "F",
 							type: "survey",
 							questions: [
@@ -819,9 +856,11 @@ describe("markdown itext for all question types", () => {
 			app_name: "MD",
 			modules: [
 				{
+					uuid: "module-19-uuid",
 					name: "M",
 					forms: [
 						{
+							uuid: "form-20-uuid",
 							name: "F",
 							type: "survey",
 							questions: [
@@ -851,9 +890,11 @@ describe("markdown itext for all question types", () => {
 			app_name: "MD",
 			modules: [
 				{
+					uuid: "module-20-uuid",
 					name: "M",
 					forms: [
 						{
+							uuid: "form-21-uuid",
 							name: "F",
 							type: "survey",
 							questions: [
@@ -886,9 +927,11 @@ describe("markdown itext for all question types", () => {
 			app_name: "MD",
 			modules: [
 				{
+					uuid: "module-21-uuid",
 					name: "M",
 					forms: [
 						{
+							uuid: "form-22-uuid",
 							name: "F",
 							type: "survey",
 							questions: [
@@ -929,9 +972,11 @@ describe("#form/ hashtag expansion", () => {
 			app_name: "FormRef",
 			modules: [
 				{
+					uuid: "module-22-uuid",
 					name: "M",
 					forms: [
 						{
+							uuid: "form-23-uuid",
 							name: "F",
 							type: "survey",
 							questions: [
@@ -964,9 +1009,11 @@ describe("#form/ hashtag expansion", () => {
 			app_name: "FormRef",
 			modules: [
 				{
+					uuid: "module-23-uuid",
 					name: "M",
 					forms: [
 						{
+							uuid: "form-24-uuid",
 							name: "F",
 							type: "survey",
 							questions: [
@@ -1003,9 +1050,11 @@ describe("#form/ hashtag expansion", () => {
 			app_name: "FormRef",
 			modules: [
 				{
+					uuid: "module-24-uuid",
 					name: "M",
 					forms: [
 						{
+							uuid: "form-25-uuid",
 							name: "F",
 							type: "survey",
 							questions: [
@@ -1043,9 +1092,11 @@ describe("#form/ hashtag expansion", () => {
 			app_name: "ValMsg",
 			modules: [
 				{
+					uuid: "module-25-uuid",
 					name: "M",
 					forms: [
 						{
+							uuid: "form-26-uuid",
 							name: "F",
 							type: "survey",
 							questions: [
@@ -1100,9 +1151,11 @@ describe("#form/ hashtag expansion", () => {
 			app_name: "HiddenVal",
 			modules: [
 				{
+					uuid: "module-26-uuid",
 					name: "M",
 					forms: [
 						{
+							uuid: "form-27-uuid",
 							name: "F",
 							type: "survey",
 							questions: [
@@ -1137,9 +1190,11 @@ describe("#form/ hashtag expansion", () => {
 			app_name: "StructuralVal",
 			modules: [
 				{
+					uuid: "module-27-uuid",
 					name: "M",
 					forms: [
 						{
+							uuid: "form-28-uuid",
 							name: "F",
 							type: "survey",
 							questions: [
@@ -1178,9 +1233,11 @@ describe("#form/ hashtag expansion", () => {
 			app_name: "FormRef",
 			modules: [
 				{
+					uuid: "module-28-uuid",
 					name: "M",
 					forms: [
 						{
+							uuid: "form-29-uuid",
 							name: "F",
 							type: "survey",
 							questions: [
@@ -1217,9 +1274,11 @@ describe("#form/ hashtag expansion", () => {
 			app_name: "FormRef",
 			modules: [
 				{
+					uuid: "module-29-uuid",
 					name: "M",
 					forms: [
 						{
+							uuid: "form-30-uuid",
 							name: "F",
 							type: "survey",
 							questions: [
@@ -1252,9 +1311,11 @@ describe("#form/ hashtag expansion", () => {
 			app_name: "FormRef",
 			modules: [
 				{
+					uuid: "module-30-uuid",
 					name: "M",
 					forms: [
 						{
+							uuid: "form-31-uuid",
 							name: "F",
 							type: "survey",
 							questions: [
@@ -1283,9 +1344,11 @@ describe("#form/ hashtag expansion", () => {
 			app_name: "VN",
 			modules: [
 				{
+					uuid: "module-31-uuid",
 					name: "M",
 					forms: [
 						{
+							uuid: "form-32-uuid",
 							name: "F",
 							type: "survey",
 							questions: [
@@ -1309,9 +1372,11 @@ describe("#form/ hashtag expansion", () => {
 			app_name: "VN",
 			modules: [
 				{
+					uuid: "module-32-uuid",
 					name: "M",
 					forms: [
 						{
+							uuid: "form-33-uuid",
 							name: "F",
 							type: "survey",
 							questions: [
@@ -1340,9 +1405,11 @@ describe("#form/ hashtag expansion", () => {
 			app_name: "VR",
 			modules: [
 				{
+					uuid: "module-33-uuid",
 					name: "M",
 					forms: [
 						{
+							uuid: "form-34-uuid",
 							name: "F",
 							type: "survey",
 							questions: [
@@ -1364,9 +1431,11 @@ describe("#form/ hashtag expansion", () => {
 			app_name: "GR",
 			modules: [
 				{
+					uuid: "module-34-uuid",
 					name: "M",
 					forms: [
 						{
+							uuid: "form-35-uuid",
 							name: "F",
 							type: "survey",
 							questions: [
@@ -1405,9 +1474,11 @@ describe("#form/ hashtag expansion", () => {
 			app_name: "FormRef",
 			modules: [
 				{
+					uuid: "module-35-uuid",
 					name: "M",
 					forms: [
 						{
+							uuid: "form-36-uuid",
 							name: "F",
 							type: "survey",
 							questions: [
@@ -1435,9 +1506,11 @@ describe("#form/ hashtag expansion", () => {
 			app_name: "FormRef",
 			modules: [
 				{
+					uuid: "module-36-uuid",
 					name: "M",
 					forms: [
 						{
+							uuid: "form-37-uuid",
 							name: "F",
 							type: "survey",
 							questions: [
@@ -1465,9 +1538,11 @@ describe("conditional required", () => {
 			app_name: "R",
 			modules: [
 				{
+					uuid: "module-37-uuid",
 					name: "M",
 					forms: [
 						{
+							uuid: "form-38-uuid",
 							name: "F",
 							type: "survey",
 							questions: [
@@ -1489,9 +1564,11 @@ describe("conditional required", () => {
 			app_name: "R",
 			modules: [
 				{
+					uuid: "module-38-uuid",
 					name: "M",
 					forms: [
 						{
+							uuid: "form-39-uuid",
 							name: "F",
 							type: "survey",
 							questions: [
@@ -1528,10 +1605,12 @@ describe("conditional required", () => {
 			app_name: "R",
 			modules: [
 				{
+					uuid: "module-39-uuid",
 					name: "M",
 					case_type: "c",
 					forms: [
 						{
+							uuid: "form-40-uuid",
 							name: "F",
 							type: "followup",
 							questions: [
@@ -1571,10 +1650,12 @@ describe("case detail (long) view", () => {
 			app_name: "D",
 			modules: [
 				{
+					uuid: "module-40-uuid",
 					name: "M",
 					case_type: "c",
 					forms: [
 						{
+							uuid: "form-41-uuid",
 							name: "F",
 							type: "registration",
 							questions: [
@@ -1608,10 +1689,12 @@ describe("case detail (long) view", () => {
 			app_name: "D",
 			modules: [
 				{
+					uuid: "module-41-uuid",
 					name: "M",
 					case_type: "c",
 					forms: [
 						{
+							uuid: "form-42-uuid",
 							name: "F",
 							type: "registration",
 							questions: [
@@ -1652,9 +1735,11 @@ describe("single language itext", () => {
 			app_name: "App",
 			modules: [
 				{
+					uuid: "module-42-uuid",
 					name: "M",
 					forms: [
 						{
+							uuid: "form-43-uuid",
 							name: "F",
 							type: "survey",
 							questions: [
@@ -1682,9 +1767,11 @@ describe("jr-insert for repeat defaults", () => {
 			app_name: "Rep",
 			modules: [
 				{
+					uuid: "module-43-uuid",
 					name: "M",
 					forms: [
 						{
+							uuid: "form-44-uuid",
 							name: "F",
 							type: "survey",
 							questions: [
@@ -1718,9 +1805,11 @@ describe("jr-insert for repeat defaults", () => {
 			app_name: "NR",
 			modules: [
 				{
+					uuid: "module-44-uuid",
 					name: "M",
 					forms: [
 						{
+							uuid: "form-45-uuid",
 							name: "F",
 							type: "survey",
 							questions: [
@@ -1743,9 +1832,11 @@ describe("jr-insert for repeat defaults", () => {
 			app_name: "Rep",
 			modules: [
 				{
+					uuid: "module-45-uuid",
 					name: "M",
 					forms: [
 						{
+							uuid: "form-46-uuid",
 							name: "F",
 							type: "survey",
 							questions: [
@@ -1781,10 +1872,12 @@ describe("expansion with complete questions", () => {
 			],
 			modules: [
 				{
+					uuid: "module-46-uuid",
 					name: "M",
 					case_type: "patient",
 					forms: [
 						{
+							uuid: "form-47-uuid",
 							name: "Register",
 							type: "registration",
 							questions: [
@@ -1823,10 +1916,12 @@ describe("expansion with complete questions", () => {
 			],
 			modules: [
 				{
+					uuid: "module-47-uuid",
 					name: "M",
 					case_type: "patient",
 					forms: [
 						{
+							uuid: "form-48-uuid",
 							name: "F",
 							type: "registration",
 							questions: [
@@ -1857,9 +1952,11 @@ describe("unquoted string literal detection", () => {
 		app_name: "Test",
 		modules: [
 			{
+				uuid: "module-48-uuid",
 				name: "M",
 				forms: [
 					{
+						uuid: "form-49-uuid",
 						name: "F",
 						type: "survey",
 						questions: [
@@ -1971,9 +2068,11 @@ describe("unquoted string literal detection", () => {
 			app_name: "Test",
 			modules: [
 				{
+					uuid: "module-49-uuid",
 					name: "M",
 					forms: [
 						{
+							uuid: "form-50-uuid",
 							name: "F",
 							type: "survey",
 							questions: [
@@ -2015,10 +2114,12 @@ describe("child case type module requirement", () => {
 			app_name: "Test",
 			modules: [
 				{
+					uuid: "module-50-uuid",
 					name: "Plans",
 					case_type: "plan",
 					forms: [
 						{
+							uuid: "form-51-uuid",
 							name: "Create Plan",
 							type: "registration",
 							questions: [
@@ -2056,10 +2157,12 @@ describe("child case type module requirement", () => {
 			app_name: "Test",
 			modules: [
 				{
+					uuid: "module-51-uuid",
 					name: "Plans",
 					case_type: "plan",
 					forms: [
 						{
+							uuid: "form-52-uuid",
 							name: "Create Plan",
 							type: "registration",
 							questions: [
@@ -2074,6 +2177,7 @@ describe("child case type module requirement", () => {
 					],
 				},
 				{
+					uuid: "module-52-uuid",
 					name: "Services",
 					case_type: "service",
 					case_list_only: true,
@@ -2115,11 +2219,13 @@ describe("case_list_only validation", () => {
 			app_name: "Test",
 			modules: [
 				{
+					uuid: "module-53-uuid",
 					name: "Bad",
 					case_type: "thing",
 					case_list_only: true,
 					forms: [
 						{
+							uuid: "form-53-uuid",
 							name: "F",
 							type: "followup",
 							questions: [q({ id: "q", type: "text", label: "Q" })],
@@ -2140,6 +2246,7 @@ describe("case_list_only validation", () => {
 			app_name: "Test",
 			modules: [
 				{
+					uuid: "module-54-uuid",
 					name: "Bad",
 					case_list_only: true,
 					forms: [],
@@ -2158,6 +2265,7 @@ describe("case_list_only validation", () => {
 			app_name: "Test",
 			modules: [
 				{
+					uuid: "module-55-uuid",
 					name: "Ambiguous",
 					case_type: "thing",
 					forms: [],
@@ -2178,10 +2286,12 @@ describe("case_list_only expansion", () => {
 			app_name: "Test",
 			modules: [
 				{
+					uuid: "module-56-uuid",
 					name: "Plans",
 					case_type: "plan",
 					forms: [
 						{
+							uuid: "form-54-uuid",
 							name: "Create Plan",
 							type: "registration",
 							questions: [
@@ -2196,6 +2306,7 @@ describe("case_list_only expansion", () => {
 					],
 				},
 				{
+					uuid: "module-57-uuid",
 					name: "Services",
 					case_type: "service",
 					case_list_only: true,
@@ -2226,6 +2337,7 @@ describe("case_list_only expansion", () => {
 			app_name: "Test",
 			modules: [
 				{
+					uuid: "module-58-uuid",
 					name: "Services",
 					case_type: "service",
 					case_list_only: true,
@@ -2246,10 +2358,12 @@ describe("case_list_only expansion", () => {
 			app_name: "Test",
 			modules: [
 				{
+					uuid: "module-59-uuid",
 					name: "Plans",
 					case_type: "plan",
 					forms: [
 						{
+							uuid: "form-55-uuid",
 							name: "Create Plan",
 							type: "registration",
 							questions: [
@@ -2264,6 +2378,7 @@ describe("case_list_only expansion", () => {
 					],
 				},
 				{
+					uuid: "module-60-uuid",
 					name: "Services",
 					case_type: "service",
 					case_list_only: true,

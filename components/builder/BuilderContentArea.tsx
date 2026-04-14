@@ -27,7 +27,6 @@ import { PreviewShell } from "@/components/preview/PreviewShell";
 import { ErrorBoundary } from "@/components/ui/ErrorBoundary";
 import { Tooltip } from "@/components/ui/Tooltip";
 import {
-	useBuilderEngine,
 	useBuilderHasData,
 	useBuilderIsReady,
 	useBuilderPhase,
@@ -35,13 +34,13 @@ import {
 } from "@/hooks/useBuilder";
 import { useNavigate } from "@/lib/routing/hooks";
 import { BuilderPhase } from "@/lib/services/builder";
+import { selectInReplayMode } from "@/lib/services/builderSelectors";
 import {
-	selectChatOpen,
-	selectCursorMode,
-	selectInReplayMode,
-	selectStructureOpen,
-} from "@/lib/services/builderSelectors";
-import type { CursorMode } from "@/lib/services/builderStore";
+	useCursorMode,
+	useSetSidebarOpen,
+	useSidebarState,
+} from "@/lib/session/hooks";
+import type { CursorMode } from "@/lib/session/types";
 
 /** Shared sidebar open/close animation config. */
 const SIDEBAR_TRANSITION = { duration: 0.2, ease: [0.4, 0, 0.2, 1] } as const;
@@ -74,7 +73,6 @@ export function BuilderContentArea({
 	isExistingApp,
 	children,
 }: BuilderContentAreaProps) {
-	const builder = useBuilderEngine();
 	const phase = useBuilderPhase();
 	const isReady = useBuilderIsReady();
 	const hasData = useBuilderHasData();
@@ -86,9 +84,10 @@ export function BuilderContentArea({
 
 	/* Layout visibility — these only change on deliberate user interactions
 	 * (sidebar toggle, cursor mode switch), not on every keystroke or message. */
-	const chatOpen = useBuilderStore(selectChatOpen);
-	const structureOpen = useBuilderStore(selectStructureOpen);
-	const cursorMode = useBuilderStore(selectCursorMode);
+	const { open: chatOpen } = useSidebarState("chat");
+	const { open: structureOpen } = useSidebarState("structure");
+	const cursorMode = useCursorMode();
+	const setSidebarOpen = useSetSidebarOpen();
 
 	const showProgress = phase === BuilderPhase.Generating && !inReplayMode;
 	const showToolbar = isReady && hasData;
@@ -128,9 +127,7 @@ export function BuilderContentArea({
 							<Tooltip content="Open structure" placement="right">
 								<button
 									type="button"
-									onClick={() =>
-										builder.store.getState().setStructureOpen(true)
-									}
+									onClick={() => setSidebarOpen("structure", true)}
 									className="absolute top-3 left-3 z-ground p-2 bg-nova-surface border border-nova-border rounded-lg hover:border-nova-border-bright transition-colors cursor-pointer"
 									aria-label="Open structure sidebar"
 								>
@@ -142,7 +139,7 @@ export function BuilderContentArea({
 							<Tooltip content="Open chat" placement="left">
 								<button
 									type="button"
-									onClick={() => builder.store.getState().setChatOpen(true)}
+									onClick={() => setSidebarOpen("chat", true)}
 									className="absolute top-3 right-3 z-ground p-2 bg-nova-surface border border-nova-border rounded-lg hover:border-nova-border-bright transition-colors cursor-pointer"
 									aria-label="Open chat sidebar"
 								>

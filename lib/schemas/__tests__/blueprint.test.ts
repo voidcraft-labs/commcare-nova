@@ -12,8 +12,16 @@ function wrapQuestions(questions: Question[]): AppBlueprint {
 		app_name: "Test",
 		modules: [
 			{
+				uuid: "module-1-uuid",
 				name: "M1",
-				forms: [{ name: "F1", type: "survey" as const, questions }],
+				forms: [
+					{
+						uuid: "form-1-uuid",
+						name: "F1",
+						type: "survey" as const,
+						questions,
+					},
+				],
 			},
 		],
 		case_types: null,

@@ -12,15 +12,12 @@
 "use client";
 import tablerBrowser from "@iconify-icons/tabler/browser";
 import tablerDeviceMobile from "@iconify-icons/tabler/device-mobile";
-import { memo, useCallback, useMemo, useState } from "react";
+import { memo, useCallback, useContext, useMemo, useState } from "react";
 import { UploadToHqDialog } from "@/components/builder/UploadToHqDialog";
 import type { ExportOption } from "@/components/ui/ExportDropdown";
 import { ExportDropdown } from "@/components/ui/ExportDropdown";
-import { useBuilderEngine } from "@/hooks/useBuilder";
-import {
-	assembleBlueprint,
-	getEntityData,
-} from "@/lib/services/normalizedState";
+import { toBlueprint } from "@/lib/doc/converter";
+import { BlueprintDocContext } from "@/lib/doc/provider";
 import { showToast } from "@/lib/services/toastStore";
 
 interface ExportPanelProps {
@@ -40,19 +37,32 @@ export const ExportPanel = memo(function ExportPanel({
 	commcareConfigured,
 	commcareDomain,
 }: ExportPanelProps) {
-	const builder = useBuilderEngine();
+	const docStore = useContext(BlueprintDocContext);
 	const [uploadDialogOpen, setUploadDialogOpen] = useState(false);
 
-	/** Assemble the current blueprint for the upload dialog. */
+	/** Assemble the current blueprint for the upload dialog.
+	 *
+	 * ExportPanel is only rendered when a real app is loaded — the export
+	 * dropdown is hidden until `hasData` on the layout becomes true, and
+	 * the upload dialog is gated behind a button click that requires the
+	 * dropdown to be visible. If this callback somehow runs with an
+	 * unmounted doc store, it's a programming error: throw loudly rather
+	 * than fabricate an empty blueprint that would push a zero-module app
+	 * to CommCare HQ. */
 	const getBlueprint = useCallback(() => {
-		const s = builder.store.getState();
-		return assembleBlueprint(getEntityData(s));
-	}, [builder]);
+		const s = docStore?.getState();
+		if (!s) {
+			throw new Error(
+				"ExportPanel.getBlueprint called before BlueprintDocProvider mounted",
+			);
+		}
+		return toBlueprint(s);
+	}, [docStore]);
 
 	const handleExportCcz = useCallback(async () => {
-		const s = builder.store.getState();
-		if (s.moduleOrder.length === 0) return;
-		const bp = assembleBlueprint(getEntityData(s));
+		const s = docStore?.getState();
+		if (!s || s.moduleOrder.length === 0) return;
+		const bp = toBlueprint(s);
 		try {
 			const res = await fetch("/api/compile", {
 				method: "POST",
@@ -73,12 +83,12 @@ export const ExportPanel = memo(function ExportPanel({
 		} catch {
 			showToast("error", "Export failed", "Could not generate the .ccz file.");
 		}
-	}, [builder]);
+	}, [docStore]);
 
 	const handleExportJson = useCallback(async () => {
-		const s = builder.store.getState();
-		if (s.moduleOrder.length === 0) return;
-		const bp = assembleBlueprint(getEntityData(s));
+		const s = docStore?.getState();
+		if (!s || s.moduleOrder.length === 0) return;
+		const bp = toBlueprint(s);
 		try {
 			const res = await fetch("/api/compile/json", {
 				method: "POST",
@@ -103,7 +113,7 @@ export const ExportPanel = memo(function ExportPanel({
 		} catch {
 			showToast("error", "Export failed", "Could not generate the JSON file.");
 		}
-	}, [builder]);
+	}, [docStore]);
 
 	const exportOptions: ExportOption[] = useMemo(
 		() => [

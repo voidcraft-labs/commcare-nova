@@ -5,10 +5,11 @@ import { Icon } from "@iconify/react/offline";
 import tablerPlus from "@iconify-icons/tabler/plus";
 import tablerRepeat from "@iconify-icons/tabler/repeat";
 import tablerTrash from "@iconify-icons/tabler/trash";
-import { useBuilderStore } from "@/hooks/useBuilder";
 import { useEditContext } from "@/hooks/useEditContext";
 import { useEngineController, useEngineState } from "@/hooks/useFormEngine";
 import { useTextEditSave } from "@/hooks/useTextEditSave";
+import { useBlueprintDoc } from "@/lib/doc/hooks/useBlueprintDoc";
+import type { Uuid } from "@/lib/doc/types";
 import { LabelContent } from "@/lib/references/LabelContent";
 import type { Question } from "@/lib/schemas/blueprint";
 import type { QuestionPath } from "@/lib/services/questionPath";
@@ -78,10 +79,12 @@ export function RepeatField({
 	const isEditMode = ctx?.mode === "edit";
 	const saveField = useTextEditSave(question.uuid);
 
-	/** Subscribe to children count from the store — drives hasChildren styling
-	 *  for the repeat container. Only fires on count change (0→1, 1→0). */
-	const hasChildren = useBuilderStore(
-		(s) => (s.questionOrder[question.uuid]?.length ?? 0) > 0,
+	/** Subscribe to children count from the doc store — drives hasChildren
+	 *  styling for the repeat container. Only fires on count change
+	 *  (0→1, 1→0). The doc store keys entities by branded `Uuid`, so we
+	 *  narrow the plain-string `question.uuid` at the lookup site. */
+	const hasChildren = useBlueprintDoc(
+		(s) => (s.questionOrder[question.uuid as Uuid]?.length ?? 0) > 0,
 	);
 
 	/* Droppable target for the repeat's children area — enables dropping items

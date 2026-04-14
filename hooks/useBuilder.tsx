@@ -1,20 +1,31 @@
 /**
- * useBuilder — Zustand-backed context for the BuilderEngine and store.
+ * useBuilder — context + hooks for the legacy builder store.
  *
- * BuilderProvider scopes one BuilderEngine (and its Zustand store) to each
- * /build/{id} page. When buildId changes, a fresh engine is created. When
- * the page unmounts, the engine is garbage collected.
+ * Phase 3 rewrote `BuilderProvider` as a stack of small capability
+ * providers, one per concern (scroll, edit guard, session, form engine).
+ * The old `BuilderEngine` class is gone — its fields moved into scoped
+ * contexts, its DOM helpers moved to `lib/routing/domQueries.ts`, and
+ * its reset routine moved to `lib/services/resetBuilder.ts`.
  *
- * Components access state in two ways:
- * - `useBuilderStore(selector)` — reactive subscription to a precise slice
- *   of store state. Only re-renders when the selected value changes.
- * - `useBuilderEngine()` — imperative access to the engine for non-reactive
- *   state and composing methods (energy, guards, pending scroll, focus
- *   hints, drag state). Selection and navigation now live in the URL-backed
- *   routing hooks (`useSelect`, `useNavigate` in `lib/routing/hooks`).
+ * What remains in this module:
  *
- * Convenience hooks (useBuilderPhase, useModule, useForm, etc.) wrap
- * `useBuilderStore` with common selectors for ergonomic call sites.
+ * 1. `StoreContext` — the legacy Zustand store (phase, generationData,
+ *    replay, agent status, appId). Accessed via `useBuilderStore` /
+ *    `useBuilderStoreShallow`. Phase 4 deletes the store entirely.
+ * 2. `BuilderProvider` — mounts the provider stack and hydrates the
+ *    legacy store from replay stages or an initial blueprint.
+ * 3. Convenience selector hooks used across the builder (`useBuilderPhase`,
+ *    `useBuilderIsReady`, `useBuilderTreeData`, entity hooks, etc).
+ *
+ * There is no longer a `useBuilderEngine` hook. Consumers that previously
+ * reached for the engine now use scoped hooks directly:
+ * - scroll → `useScrollIntoView` (ScrollRegistryContext)
+ * - edit guard → `useRegisterEditGuard` / `useConsultEditGuard` (EditGuardContext)
+ * - drag state → `useIsDragActive` (DragStateContext)
+ * - cursor mode / sidebars / focus hint / connect stash → session hooks
+ * - signal grid → module-level `signalGrid` + selectors
+ * - form preview → `useBuilderFormEngine` (BuilderFormEngineProvider)
+ * - undo flash helpers → `lib/routing/domQueries.ts`
  */
 "use client";
 
@@ -23,15 +34,17 @@ import {
 	type ReactNode,
 	useContext,
 	useEffect,
-	useMemo,
+	useRef,
 	useState,
 } from "react";
 import { useStore } from "zustand";
 import { shallow } from "zustand/shallow";
 import { useStoreWithEqualityFn } from "zustand/traditional";
+import { EditGuardProvider } from "@/components/builder/contexts/EditGuardContext";
+import { ScrollRegistryProvider } from "@/components/builder/contexts/ScrollRegistryContext";
 import { LocationRecoveryEffect } from "@/components/builder/LocationRecoveryEffect";
-import { startSyncOldFromDoc } from "@/lib/doc/adapters/syncOldFromDoc";
 import { useAssembledForm as useAssembledFormDoc } from "@/lib/doc/hooks/useAssembledForm";
+import { useDocTreeData } from "@/lib/doc/hooks/useDocTreeData";
 import { useQuestion as useQuestionDoc } from "@/lib/doc/hooks/useEntity";
 import {
 	useOrderedForms as useOrderedFormsDoc,
@@ -39,31 +52,30 @@ import {
 } from "@/lib/doc/hooks/useModuleIds";
 import { BlueprintDocContext, BlueprintDocProvider } from "@/lib/doc/provider";
 import type { Uuid } from "@/lib/doc/types";
+import { BuilderFormEngineProvider } from "@/lib/preview/engine/provider";
 import type { AppBlueprint, BlueprintForm } from "@/lib/schemas/blueprint";
 import type { TreeData } from "@/lib/services/builder";
 import { BuilderPhase } from "@/lib/services/builder";
-import { BuilderEngine } from "@/lib/services/builderEngine";
 import {
-	deriveTreeData,
-	selectHasData,
 	selectInReplayMode,
 	selectIsReady,
 } from "@/lib/services/builderSelectors";
-import type {
-	BuilderState,
-	BuilderStoreApi,
-	CursorMode,
+import {
+	type BuilderState,
+	type BuilderStoreApi,
+	createBuilderStore,
 } from "@/lib/services/builderStore";
 import type { ReplayStage } from "@/lib/services/logReplay";
 import type { NForm, NModule, NQuestion } from "@/lib/services/normalizedState";
+import {
+	BuilderSessionContext,
+	BuilderSessionProvider,
+} from "@/lib/session/provider";
 
 // ── Contexts ────────────────────────────────────────────────────────────
 
 /** Zustand store context — provides reactive subscriptions via selectors. */
 const StoreContext = createContext<BuilderStoreApi | null>(null);
-
-/** Engine context — provides imperative access to non-reactive state and DOM glue. */
-const EngineContext = createContext<BuilderEngine | null>(null);
 
 // ── Core hooks ──────────────────────────────────────────────────────────
 
@@ -71,7 +83,7 @@ const EngineContext = createContext<BuilderEngine | null>(null);
  * Subscribe to a slice of builder store state. Components re-render ONLY
  * when the selected value changes (Object.is comparison by default).
  *
- * Use for any reactive state: phase, selected, entity maps, etc.
+ * Use for any reactive state: phase, appId, agentActive, etc.
  * For selecting multiple primitives as an object, use `useBuilderStoreShallow`.
  */
 export function useBuilderStore<T>(selector: (state: BuilderState) => T): T {
@@ -100,19 +112,16 @@ export function useBuilderStoreShallow<T>(
 	return useStoreWithEqualityFn(store, selector, shallow);
 }
 
-/**
- * Access the BuilderEngine for non-reactive state and composing methods.
- * Does NOT subscribe to any state — calling this hook never triggers re-renders.
- *
- * Use for: energy methods, guards, scroll callbacks, focus hints, drag state,
- * connect stash, pending scroll, undo highlight.
- */
-export function useBuilderEngine(): BuilderEngine {
-	const engine = useContext(EngineContext);
-	if (!engine) {
-		throw new Error("useBuilderEngine must be used within a BuilderProvider");
+/** Imperative handle on the legacy store — used by non-reactive helpers
+ *  that need to call actions without subscribing to any state slice.
+ *  Callers should prefer `useBuilderStore(selector)` when they also need
+ *  a reactive read. */
+export function useBuilderStoreApi(): BuilderStoreApi {
+	const store = useContext(StoreContext);
+	if (!store) {
+		throw new Error("useBuilderStoreApi must be used within a BuilderProvider");
 	}
-	return engine;
+	return store;
 }
 
 // ── Convenience selector hooks ──────────────────────────────────────────
@@ -127,57 +136,32 @@ export function useBuilderIsReady(): boolean {
 	return useBuilderStore(selectIsReady);
 }
 
-/** True when entity data is populated (replaces `!!s.blueprint`). */
-export function useBuilderHasData(): boolean {
-	return useBuilderStore(selectHasData);
-}
+/** True when entity data is populated (replaces `!!s.blueprint`).
+ *  Delegates directly to the doc store — no legacy store dependency. */
+export { useDocHasData as useBuilderHasData } from "@/lib/doc/hooks/useDocHasData";
 
 /**
- * Merged tree data for AppTree rendering — derived from store state.
+ * Merged tree data for AppTree rendering — derived from doc store entities.
  *
- * Subscribes to entity maps and generation state via `useBuilderStoreShallow`,
- * then memoizes the derivation. Immer structural sharing ensures unchanged
- * maps keep the same reference, so the shallow-equality selector returns a
- * stable object when nothing changed — and `useMemo` skips recomputation.
+ * Thin wrapper around `useDocTreeData`: reads `phase` + `generationData`
+ * from the legacy builder store (these are lifecycle / generation-only
+ * fields that haven't migrated yet), then delegates to the doc hook
+ * which subscribes to entity maps directly on the BlueprintDoc store.
  *
- * During Ready/Completed phases, derives TreeData from normalized entities.
+ * During Ready/Completed phases, derives TreeData from doc entities.
  * During generation, constructs a merged view from scaffold + partials.
- *
- * This CANNOT use `useBuilderStore(deriveTreeData)` directly — `deriveTreeData`
- * builds new objects via `.map()` on every call, which fails `Object.is`
- * comparison and triggers an infinite re-render loop in useSyncExternalStore.
  */
 export function useBuilderTreeData(): TreeData | undefined {
-	/* Subscribe to the exact fields deriveTreeData reads. Shallow equality
-	 * compares each field by reference — only produces a new `data` object
-	 * when at least one entity map, ordering array, or scalar changes. */
-	const data = useBuilderStoreShallow((s) => ({
+	const inputs = useBuilderStoreShallow((s) => ({
 		phase: s.phase,
-		appName: s.appName,
-		connectType: s.connectType,
-		modules: s.modules,
-		forms: s.forms,
-		questions: s.questions,
-		moduleOrder: s.moduleOrder,
-		formOrder: s.formOrder,
-		questionOrder: s.questionOrder,
 		generationData: s.generationData,
 	}));
-
-	/* `data` is referentially stable when nothing changed (shallow equality
-	 * returned the previous result), so useMemo skips recomputation. When
-	 * any field changes, `data` gets a new reference → memo recomputes. */
-	return useMemo(() => deriveTreeData(data), [data]);
+	return useDocTreeData(inputs);
 }
 
 /** Whether the SA agent is currently active. */
 export function useBuilderAgentActive(): boolean {
 	return useBuilderStore((s) => s.agentActive);
-}
-
-/** Current cursor mode (inspect, text, pointer). */
-export function useBuilderCursorMode(): CursorMode {
-	return useBuilderStore((s) => s.cursorMode);
 }
 
 /** True when the builder is in replay mode (stages loaded in store). */
@@ -252,18 +236,26 @@ export interface ReplayInit {
 }
 
 /**
- * BuilderProvider — owns the BuilderEngine lifecycle for a specific buildId.
- *
- * Creates a fresh engine (with its own Zustand store) when buildId changes
- * using the "adjusting state during rendering" pattern. Provides both
- * the Zustand store and the engine via separate contexts.
+ * BuilderProvider — mounts the entire builder provider stack for a
+ * specific buildId and hydrates the legacy session store.
  *
  * Lifecycle:
- * - `/` → `/build/{id}`: provider mounts, fresh engine, loads app
- * - `/build/A` → `/build/B`: buildId changes, fresh engine, loads B
- * - `/build/*` → `/`: provider unmounts, engine is garbage collected
+ * - `/` → `/build/{id}`: provider mounts, fresh stores, loads app
+ * - `/build/A` → `/build/B`: buildId changes, fresh stores, loads B
+ * - `/build/*` → `/`: provider unmounts, stores are garbage collected
  * - `/build/new` generation: buildId stays 'new' (replaceState), no reset
  * - `/build/replay/{id}`: replay prop provided, hydrates store with stages
+ *
+ * The provider tree (outer → inner) is:
+ *   StoreContext            — legacy Zustand store (phase, lifecycle)
+ *   BlueprintDocProvider    — doc store (entities, undo/redo)
+ *   BuilderSessionProvider  — ephemeral UI state (cursor, sidebars, stash)
+ *   ScrollRegistryProvider  — imperative scroll plumbing
+ *   EditGuardProvider       — select-guard predicate stack
+ *   BuilderFormEngineProvider — form preview runtime controller
+ *     SyncBridge            — wires the doc store into the legacy store
+ *     LocationRecoveryEffect — repairs stale URL selection mid-session
+ *     {children}
  */
 export function BuilderProvider({
 	buildId,
@@ -274,116 +266,160 @@ export function BuilderProvider({
 	buildId: string;
 	children: ReactNode;
 	replay?: ReplayInit;
-	/** Server-fetched blueprint — hydrates the store synchronously in the
-	 *  factory so the first render sees Ready state. Provided by the RSC
-	 *  page for existing apps. */
+	/** Server-fetched blueprint — hydrates the doc store synchronously in
+	 *  the provider so the first render sees populated entities. */
 	initialBlueprint?: AppBlueprint;
 }) {
-	const [state, setState] = useState(() => ({
-		engine: createEngine(buildId, replay, initialBlueprint),
-		buildId,
-	}));
-
-	/* Adjusting state during rendering — React discards the current render
-	 * and re-renders immediately with the new engine. */
-	if (buildId !== state.buildId) {
-		setState({
-			engine: createEngine(buildId, replay, initialBlueprint),
-			buildId,
-		});
-	}
-
-	const { engine } = state;
-
+	/* `key={buildId}` on the outer context forces a full unmount/remount
+	 * of the entire provider tree when the build identity changes
+	 * (`/build/A` → `/build/B`). Every nested provider (doc, session,
+	 * scroll, edit guard, form engine) gets a fresh instance, so stale
+	 * cross-store references can't leak across build sessions. With this
+	 * remount in place, the legacy store can be created exactly once via
+	 * `useState`'s initializer — no in-render `setState` rebuild needed. */
 	return (
-		<EngineContext value={engine}>
-			<StoreContext value={engine.store}>
-				<BlueprintDocProvider
-					appId={buildId === "new" ? undefined : buildId}
-					initialBlueprint={initialBlueprint}
-					startTracking={Boolean(initialBlueprint || replay)}
-				>
-					{/* SyncBridge must render inside the BlueprintDocProvider tree so
-					 * it can read the doc store via context. It starts a one-way
-					 * subscription that mirrors doc entity maps into the legacy
-					 * store, keeping un-migrated consumers live during Phase 1b. */}
-					<SyncBridge oldStore={engine.store} />
-					<LocationRecoveryEffect />
-					{children}
-				</BlueprintDocProvider>
-			</StoreContext>
-		</EngineContext>
+		<BuilderProviderInner
+			key={buildId}
+			buildId={buildId}
+			replay={replay}
+			initialBlueprint={initialBlueprint}
+		>
+			{children}
+		</BuilderProviderInner>
 	);
 }
 
 /**
- * Internal component that wires the doc→legacy projection and installs the
- * doc store reference on the engine. Rendered as a sibling of `{children}`
- * inside `BlueprintDocProvider` so it can read the doc store via context.
- * Returns `null` — it exists purely for its subscription side effect.
- *
- * `engine.store` is stable across the provider's lifetime (the engine is
- * recreated only when `buildId` changes, which unmounts this component
- * and remounts a fresh one), so the effect's dependency list is
- * effectively constant.
+ * Inner provider — owns the legacy store and the provider stack. Wrapped
+ * by `BuilderProvider` so the `key={buildId}` swap happens at the boundary;
+ * everything below this component is guaranteed to be a fresh tree per
+ * build session.
  */
-function SyncBridge({ oldStore }: { oldStore: BuilderStoreApi }) {
-	const docStore = useContext(BlueprintDocContext);
-	const engine = useContext(EngineContext);
+function BuilderProviderInner({
+	buildId,
+	children,
+	replay,
+	initialBlueprint,
+}: {
+	buildId: string;
+	children: ReactNode;
+	replay?: ReplayInit;
+	initialBlueprint?: AppBlueprint;
+}) {
+	/* Single creation per mount. Because `BuilderProvider` keys this
+	 * component on `buildId`, build-id changes remount and re-run this
+	 * initializer — no need for an in-render `setState` rebuild. */
+	const [store] = useState(() =>
+		createBuilderStore(
+			replay || initialBlueprint ? BuilderPhase.Loading : BuilderPhase.Idle,
+		),
+	);
+
+	/* Drive the legacy lifecycle to Ready for plain blueprint loads. The
+	 * doc store was already hydrated synchronously by `BlueprintDocProvider`
+	 * from the same `initialBlueprint` prop, so callers that read entity
+	 * data from the doc see a populated state on the first render. Replay
+	 * hydration lives in `ReplayHydrator` (below) so it can read the doc
+	 * store from context — `BuilderProviderInner` itself sits OUTSIDE
+	 * `BlueprintDocProvider` and can't read it here. */
 	useEffect(() => {
-		if (!docStore) return;
-		/* Install the doc store on the engine so entity mutations and
-		 * undo/redo route through the doc instead of the legacy store. */
-		if (engine) engine.setDocStore(docStore);
-		/* Install it on the legacy store too — generation-stream setters
-		 * (setScaffold, setSchema, setModuleContent, setFormContent) dispatch
-		 * entity changes as doc mutations through this reference. */
-		oldStore.getState().setDocStore(docStore);
-		const stop = startSyncOldFromDoc(docStore, oldStore);
-		return () => {
-			if (engine) engine.setDocStore(null);
-			oldStore.getState().setDocStore(null);
-			stop();
-		};
-	}, [docStore, oldStore, engine]);
-	return null;
+		if (replay) return;
+		if (initialBlueprint) store.getState().loadApp(buildId);
+	}, [store, buildId, replay, initialBlueprint]);
+
+	return (
+		<StoreContext value={store}>
+			<BlueprintDocProvider
+				appId={buildId === "new" ? undefined : buildId}
+				initialBlueprint={initialBlueprint}
+				startTracking={Boolean(initialBlueprint || replay)}
+			>
+				<BuilderSessionProvider>
+					<ScrollRegistryProvider>
+						<EditGuardProvider>
+							<BuilderFormEngineProvider>
+								<SyncBridge />
+								<LocationRecoveryEffect />
+								{replay ? <ReplayHydrator replay={replay} /> : null}
+								{children}
+							</BuilderFormEngineProvider>
+						</EditGuardProvider>
+					</ScrollRegistryProvider>
+				</BuilderSessionProvider>
+			</BlueprintDocProvider>
+		</StoreContext>
+	);
 }
 
-// ── Engine factory ──────────────────────────────────────────────────────
-
 /**
- * Create a BuilderEngine, optionally hydrating it with server-fetched data
- * or replay stages. Both paths use synchronous hydration in the factory —
- * the store transitions from empty to populated atomically, invisible to
- * undo history (tracking is paused in the constructor, resumed here).
+ * ReplayHydrator — re-dispatches replay stages into both the legacy
+ * store (lifecycle + chat history) and the doc store (entity data).
  *
- * Existing apps and replays start in Loading (safe fallback if a frame
- * paints before loadApp/loadReplay transitions to Ready). New builds
- * start in Idle for chat-driven generation.
+ * Why a child component rather than inline in `BuilderProviderInner`?
+ * Replay stages call `applyDataPart`, which routes
+ * `data-blueprint-updated` events through `docStore.getState().load(...)`.
+ * If the hydration loop ran in `BuilderProviderInner`, it would sit
+ * OUTSIDE `BlueprintDocProvider` and have no way to read the doc store
+ * from context — so the loop would have to pass `docStore: null`,
+ * silently dropping every blueprint-update event in the replayed
+ * session. By moving the loop here, inside both `BlueprintDocContext`
+ * and `StoreContext`, we can read both stores and pass them to each
+ * stage's `applyToBuilder`. Replayed edit sessions now apply correctly.
+ *
+ * The hydration runs once per mount (gated by `hydratedRef`) — replay
+ * is immutable for the lifetime of a build session, so any later
+ * re-runs would be redundant at best and corrupting at worst.
  */
-function createEngine(
-	buildId: string,
-	replay?: ReplayInit,
-	initialBlueprint?: AppBlueprint,
-): BuilderEngine {
-	const initialPhase =
-		replay || initialBlueprint ? BuilderPhase.Loading : BuilderPhase.Idle;
-	const engine = new BuilderEngine(initialPhase);
+function ReplayHydrator({ replay }: { replay: ReplayInit }) {
+	const store = useContext(StoreContext);
+	const docStore = useContext(BlueprintDocContext);
+	const hydratedRef = useRef(false);
 
-	if (replay) {
-		engine.store
+	useEffect(() => {
+		if (hydratedRef.current) return;
+		if (!store || !docStore) return;
+		hydratedRef.current = true;
+
+		store
 			.getState()
 			.loadReplay(replay.stages, replay.doneIndex, replay.exitPath);
 		for (let i = 0; i <= replay.doneIndex; i++) {
-			replay.stages[i]?.applyToBuilder(engine);
+			replay.stages[i]?.applyToBuilder({ store, docStore });
 		}
-	} else if (initialBlueprint) {
-		/* Hydrate the store with the server-fetched blueprint. `loadApp`
-		 * transitions to Ready and populates all entity maps. Resume undo
-		 * tracking so the hydrated state is the undo baseline. */
-		engine.store.getState().loadApp(buildId, initialBlueprint);
-		engine.store.temporal.getState().resume();
-	}
+	}, [replay, store, docStore]);
 
-	return engine;
+	return null;
+}
+
+/**
+ * SyncBridge — installs the doc store reference on the legacy and session
+ * stores after the provider tree mounts. Non-React callers reach the doc
+ * through these references instead of importing it directly.
+ *
+ * Two installation sites:
+ * 1. Legacy store — so generation-stream setters (setScaffold, setSchema,
+ *    setModuleContent, setFormContent) can dispatch entity mutations as
+ *    doc mutations through `_docStore`.
+ * 2. Session store — so `switchConnectMode` can dispatch doc mutations
+ *    atomically alongside session stash updates.
+ *
+ * The `BuilderFormEngineProvider` installs its own doc-store reference
+ * via a sibling effect; SyncBridge doesn't touch the form controller.
+ */
+function SyncBridge() {
+	const docStore = useContext(BlueprintDocContext);
+	const store = useContext(StoreContext);
+	const sessionStore = useContext(BuilderSessionContext);
+
+	useEffect(() => {
+		if (!docStore || !store) return;
+		store.getState().setDocStore(docStore);
+		if (sessionStore) sessionStore.getState()._setDocStore(docStore);
+		return () => {
+			store.getState().setDocStore(null);
+			if (sessionStore) sessionStore.getState()._setDocStore(null);
+		};
+	}, [docStore, store, sessionStore]);
+
+	return null;
 }

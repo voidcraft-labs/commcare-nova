@@ -15,9 +15,11 @@ function fixture(): AppBlueprint {
 		case_types: null,
 		modules: [
 			{
+				uuid: "module-1-uuid",
 				name: "M",
 				forms: [
 					{
+						uuid: "form-1-uuid",
 						name: "F",
 						type: "survey",
 						questions: [

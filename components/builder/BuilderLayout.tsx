@@ -30,6 +30,7 @@
 import { AnimatePresence, motion } from "motion/react";
 import {
 	useCallback,
+	useContext,
 	useEffect,
 	useLayoutEffect,
 	useRef,
@@ -38,22 +39,25 @@ import {
 import { BuilderContentArea } from "@/components/builder/BuilderContentArea";
 import { BuilderReferenceProvider } from "@/components/builder/BuilderReferenceProvider";
 import { BuilderSubheader } from "@/components/builder/BuilderSubheader";
+import { useRegisterScrollCallback } from "@/components/builder/contexts/ScrollRegistryContext";
 import { ReplayController } from "@/components/builder/ReplayController";
 import { useBuilderShortcuts } from "@/components/builder/useBuilderShortcuts";
 import { Logo } from "@/components/ui/Logo";
 import {
-	useBuilderEngine,
 	useBuilderPhase,
 	useBuilderStore,
+	useBuilderStoreApi,
 } from "@/hooks/useBuilder";
 import { useKeyboardShortcuts } from "@/hooks/useKeyboardShortcuts";
 import type { CommCareSettingsPublic } from "@/lib/db/settings";
 import { useBlueprintDoc } from "@/lib/doc/hooks/useBlueprintDoc";
+import { BlueprintDocContext } from "@/lib/doc/provider";
 import type { Uuid } from "@/lib/doc/types";
 import { useNavigate } from "@/lib/routing/hooks";
 import { BuilderPhase } from "@/lib/services/builder";
 import { selectInReplayMode } from "@/lib/services/builderSelectors";
-import type { CursorMode } from "@/lib/services/builderStore";
+import { useCursorMode, useSwitchCursorMode } from "@/lib/session/hooks";
+import type { CursorMode } from "@/lib/session/types";
 
 /** Extra space above the scroll target so the question isn't flush with the
  *  cursor mode overlay. Two values: a compact margin for plain selection,
@@ -78,7 +82,8 @@ export function BuilderLayout({
 	isExistingApp,
 	commcareSettings,
 }: BuilderLayoutProps) {
-	const builder = useBuilderEngine();
+	const storeApi = useBuilderStoreApi();
+	const docStore = useContext(BlueprintDocContext);
 	const phase = useBuilderPhase();
 
 	/* inReplayMode controls ReplayController mount in the header area. */
@@ -106,11 +111,25 @@ export function BuilderLayout({
 		allUuids: string[];
 	} | null>(null);
 
+	const switchCursorMode = useSwitchCursorMode();
+
+	/* Track current cursor mode in a ref so the stable handleCursorModeChange
+	 * callback can read it without adding cursorMode as a dependency. */
+	const cursorMode = useCursorMode();
+	const cursorModeRef = useRef(cursorMode);
+	cursorModeRef.current = cursorMode;
+
 	/** Capture scroll anchor before cursor mode switch, then delegate
-	 *  the actual mode change to the store's atomic switchCursorMode. */
+	 *  the actual mode change to the session store's atomic switchCursorMode. */
 	const handleCursorModeChange = useCallback(
 		(mode: CursorMode) => {
-			if (mode === builder.store.getState().cursorMode) return;
+			/* Early exit on same-mode: avoids DOM measurement + scroll anchor
+			 * thrash that otherwise fires on every click of the already-active
+			 * CursorModeSelector button. The session store also guards against
+			 * same-mode no-ops internally, but by that point we've already run
+			 * querySelectorAll + getBoundingClientRect + setScrollAnchor, which
+			 * triggers a re-render and a useLayoutEffect that mutates scrollTop. */
+			if (mode === cursorModeRef.current) return;
 
 			const scrollContainer = document.querySelector(
 				"[data-preview-scroll-container]",
@@ -136,9 +155,9 @@ export function BuilderLayout({
 				}
 			}
 
-			builder.store.getState().switchCursorMode(mode);
+			switchCursorMode(mode);
 		},
-		[builder],
+		[switchCursorMode],
 	);
 
 	/* Restore scroll position after mode switch. */
@@ -202,10 +221,14 @@ export function BuilderLayout({
 	 * read imperatively since they're derived from phase. */
 	// biome-ignore lint/correctness/useExhaustiveDependencies: phase triggers re-attachment when scroll container mounts
 	useEffect(() => {
-		const s = builder.store.getState();
+		const s = storeApi.getState();
 		const isReady =
 			s.phase === BuilderPhase.Ready || s.phase === BuilderPhase.Completed;
-		if (!isReady || s.moduleOrder.length === 0) return;
+		/* `hasModules` comes from the doc store — it owns blueprint entity data.
+		 * Reading imperatively (no subscription) since we only branch on the
+		 * condition at effect time; the effect re-runs on phase change. */
+		const hasModules = (docStore?.getState().moduleOrder.length ?? 0) > 0;
+		if (!isReady || !hasModules) return;
 
 		const scrollContainer = document.querySelector(
 			"[data-preview-scroll-container]",
@@ -228,7 +251,7 @@ export function BuilderLayout({
 
 		observer.observe(scrollContainer);
 		return () => observer.disconnect();
-	}, [builder, phase]);
+	}, [storeApi, docStore, phase]);
 
 	// ── Scroll-to-question callback ─────────────────────────────────────
 
@@ -293,10 +316,7 @@ export function BuilderLayout({
 		[],
 	);
 
-	useEffect(() => {
-		builder.registerScrollCallback(scrollToQuestion);
-		return () => builder.clearScrollCallback();
-	}, [builder, scrollToQuestion]);
+	useRegisterScrollCallback(scrollToQuestion);
 
 	// ── Keyboard shortcuts ──────────────────────────────────────────────
 

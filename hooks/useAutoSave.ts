@@ -1,15 +1,16 @@
 /**
  * useAutoSave — leading+trailing throttle for Firestore persistence.
  *
- * Subscribes to entity map changes via Zustand's subscribeWithSelector.
- * On the first mutation after a quiet period, saves immediately (leading edge).
- * Mutations that arrive while a save is in-flight or during the post-save
- * cooldown are batched — a single trailing save fires once the cooldown
- * expires. This means "Saving..." only appears when a fetch is actually
- * in-flight (~300ms), not during an artificial debounce window.
+ * Subscribes to the BlueprintDoc store's entity map references. On the first
+ * mutation after a quiet period, saves immediately (leading edge). Mutations
+ * that arrive while a save is in-flight or during the post-save cooldown are
+ * batched — a single trailing save fires once the cooldown expires. This means
+ * "Saving..." only appears when a fetch is actually in-flight (~300ms), not
+ * during an artificial debounce window.
  *
- * Only active when: (a) an appId exists, (b) the builder has entity
- * data, and (c) phase is Ready. Auth is guaranteed by the server layout.
+ * Only active when: (a) an appId exists (from the legacy session store),
+ * (b) the doc has entities, and (c) phase is Ready. Auth is guaranteed by
+ * the server layout.
  *
  * Returns a SaveState with the current status and the timestamp of the last
  * successful save. The SaveIndicator uses `savedAt` to display a persistent
@@ -21,14 +22,14 @@
  * No mutationCount needed.
  */
 "use client";
-import { useEffect, useRef, useState } from "react";
+import { useContext, useEffect, useRef, useState } from "react";
 import { shallow } from "zustand/shallow";
+import { useBuilderStoreApi } from "@/hooks/useBuilder";
 import { reportClientError } from "@/lib/clientErrorReporter";
-import type { BuilderEngine } from "@/lib/services/builderEngine";
-import {
-	assembleBlueprint,
-	getEntityData,
-} from "@/lib/services/normalizedState";
+import { toBlueprint } from "@/lib/doc/converter";
+import { BlueprintDocContext } from "@/lib/doc/provider";
+import type { BlueprintDoc } from "@/lib/doc/types";
+import { selectIsReady } from "@/lib/services/builderSelectors";
 
 /** Post-save cooldown before the trailing edge can fire (ms). */
 const COOLDOWN_MS = 1000;
@@ -50,14 +51,42 @@ export interface SaveState {
 
 const IDLE_STATE: SaveState = { status: "idle", savedAt: null };
 
+/** Project the doc slice that matters for save equality checks. A new
+ *  reference on any of these fields implies at least one user-visible
+ *  mutation has landed; anything else (undo metadata, transient state)
+ *  is ignored. */
+function projectSaveSlice(s: BlueprintDoc) {
+	return {
+		modules: s.modules,
+		forms: s.forms,
+		questions: s.questions,
+		moduleOrder: s.moduleOrder,
+		formOrder: s.formOrder,
+		questionOrder: s.questionOrder,
+		appName: s.appName,
+		connectType: s.connectType,
+		caseTypes: s.caseTypes,
+	};
+}
+
 /**
  * Auto-save hook — persists blueprint edits to Firestore via API route.
  *
  * Auth is guaranteed by the server layout (`requireAuth` in
  * `app/build/layout.tsx`) — no client-side auth check needed.
+ *
+ * Reads the legacy store handle via `useBuilderStoreApi()` — the hook
+ * gates saving on `appId` + `phase` (Ready/Completed), both of which
+ * live on the legacy store. The doc store is read from context for
+ * subscription + blueprint assembly.
  */
-export function useAutoSave(builder: BuilderEngine): SaveState {
+export function useAutoSave(): SaveState {
 	const [state, setState] = useState<SaveState>(IDLE_STATE);
+
+	/* The doc store owns blueprint entity data — the legacy store's `appId`
+	 * still gates whether saving is enabled, so we read both. */
+	const docStore = useContext(BlueprintDocContext);
+	const storeApi = useBuilderStoreApi();
 
 	/* Throttle state — all mutable, read/written inside the subscription
 	 * callback and cleanup. Never triggers re-renders. */
@@ -71,7 +100,7 @@ export function useAutoSave(builder: BuilderEngine): SaveState {
 	/* Reset state when the app changes — new app means a fresh save state
 	 * and no pending/in-flight state from the old app. Uses React's "derive
 	 * state from props" pattern. */
-	const currentAppId = builder.store.getState().appId;
+	const currentAppId = storeApi.getState().appId;
 	const prevAppIdRef = useRef(currentAppId);
 	if (prevAppIdRef.current !== currentAppId) {
 		prevAppIdRef.current = currentAppId;
@@ -84,37 +113,51 @@ export function useAutoSave(builder: BuilderEngine): SaveState {
 		setState(IDLE_STATE);
 	}
 
-	/* Single long-lived subscription — subscribes to entity map changes.
+	/* Single long-lived subscription — subscribes to doc entity map changes.
 	 * Entity reference checks via shallow equality are the watermark — if no
 	 * entity map changed reference, the subscriber doesn't fire. */
 	useEffect(() => {
+		if (!docStore) return;
 		unmountedRef.current = false;
 
 		/**
 		 * Fire the actual Firestore PUT and transition status honestly:
 		 * saving → saved/error. Starts a cooldown timer after completion
 		 * so the trailing edge can fire if mutations arrived mid-flight.
+		 *
+		 * The `appId` is captured at save-start; every state transition
+		 * re-checks the current `appId` and bails if it has changed. This
+		 * prevents an in-flight save for app A from resolving after the
+		 * user switches to app B and marking the new app as "Saved" — or
+		 * marking it as "error" — for a save that didn't belong to it.
 		 */
 		async function executeSave() {
-			const s = builder.store.getState();
-			const pid = s.appId;
-			if (!pid || s.moduleOrder.length === 0) return;
+			if (!docStore) return;
+			const appIdAtStart = storeApi.getState().appId;
+			const doc = docStore.getState();
+			if (!appIdAtStart || doc.moduleOrder.length === 0) return;
 
-			/* Assemble the wire-format blueprint for persistence */
-			const bp = assembleBlueprint(getEntityData(s));
+			/* Assemble the wire-format blueprint for persistence. */
+			const bp = toBlueprint(doc);
 
 			inFlightRef.current = true;
 			if (!unmountedRef.current) {
 				setState((prev) => ({ ...prev, status: "saving" }));
 			}
 
+			/** True iff the current store still belongs to the app we
+			 *  started saving. If false, the user navigated to a different
+			 *  app while the request was in flight — discard the result. */
+			const stillCurrent = () =>
+				storeApi.getState().appId === appIdAtStart && !unmountedRef.current;
+
 			try {
-				const res = await fetch(`/api/apps/${pid}`, {
+				const res = await fetch(`/api/apps/${appIdAtStart}`, {
 					method: "PUT",
 					headers: { "Content-Type": "application/json" },
 					body: JSON.stringify({ blueprint: bp }),
 				});
-				if (unmountedRef.current) return;
+				if (!stillCurrent()) return;
 				if (res.ok) {
 					setState({ status: "saved", savedAt: Date.now() });
 				} else {
@@ -131,10 +174,12 @@ export function useAutoSave(builder: BuilderEngine): SaveState {
 						source: "manual",
 						url: window.location.href,
 					});
-					setState((prev) => ({ ...prev, status: "error" }));
+					if (stillCurrent()) {
+						setState((prev) => ({ ...prev, status: "error" }));
+					}
 				}
 			} catch (err) {
-				if (!unmountedRef.current) {
+				if (stillCurrent()) {
 					reportClientError({
 						message: `Auto-save network error: ${err instanceof Error ? err.message : String(err)}`,
 						stack: err instanceof Error ? err.stack : undefined,
@@ -145,6 +190,9 @@ export function useAutoSave(builder: BuilderEngine): SaveState {
 				}
 			} finally {
 				inFlightRef.current = false;
+				/* Cooldown is local to this hook instance; safe to start
+				 * even on a stale save because the next leading-edge call
+				 * still queues correctly via pendingTrailingRef. */
 				if (!unmountedRef.current) startCooldown();
 			}
 		}
@@ -164,25 +212,17 @@ export function useAutoSave(builder: BuilderEngine): SaveState {
 			}, COOLDOWN_MS);
 		}
 
-		/* Subscribe to entity data changes — fires only when an entity map
-		 * or ordering array changes reference (Immer structural sharing). */
-		const unsub = builder.store.subscribe(
-			(s) => ({
-				modules: s.modules,
-				forms: s.forms,
-				questions: s.questions,
-				moduleOrder: s.moduleOrder,
-				formOrder: s.formOrder,
-				questionOrder: s.questionOrder,
-				appName: s.appName,
-				connectType: s.connectType,
-				caseTypes: s.caseTypes,
-			}),
+		/* Subscribe to doc entity map changes — fires only when a map gets a
+		 * new Immer reference. Shallow equality on the projected slice short-
+		 * circuits unrelated doc updates (e.g. appId bookkeeping). */
+		const unsub = docStore.subscribe(
+			projectSaveSlice,
 			() => {
-				/* Gate on phase and app existence — read live from the store. */
-				if (!builder.isReady) return;
-				const snap = builder.store.getState();
-				if (!snap.appId || snap.moduleOrder.length === 0) return;
+				/* Gate on lifecycle phase and app existence. */
+				if (!selectIsReady(storeApi.getState())) return;
+				const pid = storeApi.getState().appId;
+				const docSnap = docStore.getState();
+				if (!pid || docSnap.moduleOrder.length === 0) return;
 
 				/* Save is in-flight — queue for trailing edge after completion. */
 				if (inFlightRef.current) {
@@ -211,7 +251,7 @@ export function useAutoSave(builder: BuilderEngine): SaveState {
 			}
 			pendingTrailingRef.current = false;
 		};
-	}, [builder]);
+	}, [storeApi, docStore]);
 
 	return state;
 }

@@ -31,6 +31,10 @@ import { devtools, subscribeWithSelector } from "zustand/middleware";
 import { immer } from "zustand/middleware/immer";
 import { toDoc } from "@/lib/doc/converter";
 import { applyMutation, applyMutations } from "@/lib/doc/mutations";
+import type {
+	MoveQuestionResult,
+	QuestionRenameMeta,
+} from "@/lib/doc/mutations/questions";
 import type { BlueprintDoc, Mutation } from "@/lib/doc/types";
 import type { AppBlueprint } from "@/lib/schemas/blueprint";
 
@@ -45,6 +49,27 @@ import type { AppBlueprint } from "@/lib/schemas/blueprint";
 export type BlueprintDocState = BlueprintDoc & {
 	/** Apply a single mutation; captured as one undo entry while tracking. */
 	apply: (mut: Mutation) => void;
+	/**
+	 * Apply a single mutation and return metadata from the reducer.
+	 *
+	 * Typed overloads ensure callers get the correct result per mutation kind:
+	 *   - `moveQuestion`    → `MoveQuestionResult`
+	 *   - `renameQuestion`  → `QuestionRenameMeta`
+	 *   - all other kinds   → `void`
+	 *
+	 * `apply()` stays the fire-and-forget path for 90% of call sites;
+	 * `applyWithResult()` is the typed-return path for the 2 mutations
+	 * that produce actionable metadata (rename toast, xpath count).
+	 */
+	applyWithResult: {
+		(
+			mut: Extract<Mutation, { kind: "moveQuestion" }>,
+		): MoveQuestionResult | undefined;
+		(
+			mut: Extract<Mutation, { kind: "renameQuestion" }>,
+		): QuestionRenameMeta | undefined;
+		(mut: Mutation): void;
+	};
 	/** Apply a batch of mutations as one atomic undo entry. */
 	applyMany: (muts: Mutation[]) => void;
 	/**
@@ -134,6 +159,27 @@ export function createBlueprintDocStore() {
 								);
 							});
 						},
+
+						/**
+						 * Apply a single mutation and capture the reducer's return value.
+						 *
+						 * Identical to `apply()` except it threads back the metadata that
+						 * `applyMutation` returns for `moveQuestion` (rename info) and
+						 * `renameQuestion` (xpath rewrite count). A `let result` variable
+						 * captures the return inside the Immer draft callback — the variable
+						 * is assigned synchronously before `set()` returns, so the caller
+						 * can use it immediately.
+						 */
+						applyWithResult: ((mut: Mutation): unknown => {
+							let result: unknown;
+							set((draft) => {
+								result = applyMutation(
+									draft as unknown as Parameters<typeof applyMutation>[0],
+									mut,
+								);
+							});
+							return result;
+						}) as BlueprintDocState["applyWithResult"],
 
 						/**
 						 * Apply multiple mutations in a single `set()` call.
