@@ -175,6 +175,7 @@ function classifyChange(
  *  which operate on all questions but most states don't actually change. */
 function statesEqual(a: QuestionState, b: QuestionState): boolean {
 	return (
+		a.path === b.path &&
 		a.value === b.value &&
 		a.visible === b.visible &&
 		a.required === b.required &&
