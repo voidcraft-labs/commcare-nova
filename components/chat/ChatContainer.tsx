@@ -8,7 +8,7 @@
  * useChat here instead of in BuilderLayout, those per-token re-renders
  * are scoped to ChatSidebar — the only component that needs messages.
  *
- * Replay messages are read from the store (written by ReplayController).
+ * Replay messages are read from the session store (written by ReplayController).
  * Server-rendered thread history is passed through as children.
  */
 "use client";
@@ -17,7 +17,7 @@ import { DefaultChatTransport, type UIMessage } from "ai";
 import { useCallback, useContext, useEffect, useRef, useState } from "react";
 import { ChatSidebar } from "@/components/chat/ChatSidebar";
 import { Logo } from "@/components/ui/Logo";
-import { useBuilderStore, useBuilderStoreApi } from "@/hooks/useBuilder";
+import { useBuilderStoreApi } from "@/hooks/useBuilder";
 import { parseApiErrorMessage } from "@/lib/apiError";
 import { extractThread } from "@/lib/chat/threadUtils";
 import { saveThread } from "@/lib/db/threads";
@@ -26,13 +26,19 @@ import {
 	BlueprintDocContext,
 	type BlueprintDocStore,
 } from "@/lib/doc/provider";
-import { applyDataPart, BuilderPhase } from "@/lib/services/builder";
-import {
-	selectInReplayMode,
-	selectIsReady,
-} from "@/lib/services/builderSelectors";
+import { applyStreamEvent } from "@/lib/generation/streamDispatcher";
 import type { BuilderStoreApi } from "@/lib/services/builderStore";
 import { showToast } from "@/lib/services/toastStore";
+import {
+	BuilderSessionContext,
+	useBuilderSession,
+} from "@/lib/session/provider";
+import type { BuilderSessionStoreApi } from "@/lib/session/store";
+
+/** Reference-stable empty array for replay messages when not in replay mode.
+ *  Avoids creating a new `[]` on every render, which would cause unnecessary
+ *  re-renders in shallow-equality consumers. */
+const EMPTY_MESSAGES: UIMessage[] = [];
 
 // ── Helpers ──────────────────────────────────────────────────────────────
 
@@ -65,6 +71,7 @@ function shouldAutoResend({ messages }: { messages: UIMessage[] }): boolean {
 function createChatInstance(
 	storeRef: { current: BuilderStoreApi },
 	docStoreRef: { current: BlueprintDocStore | null },
+	sessionStoreRef: { current: BuilderSessionStoreApi | null },
 	runIdRef: { current: string | undefined },
 	lastResponseAtRef: { current: string | undefined },
 ): Chat<UIMessage> {
@@ -72,15 +79,15 @@ function createChatInstance(
 		transport: new DefaultChatTransport({
 			api: "/api/chat",
 			body: () => {
-				const s = storeRef.current.getState();
 				const doc = docStoreRef.current?.getState();
-				const hasBlueprint = (doc?.moduleOrder.length ?? 0) > 0;
+				const sessionState = sessionStoreRef.current!.getState();
+				const docHasData = (doc?.moduleOrder.length ?? 0) > 0;
 				return {
-					blueprint: doc && hasBlueprint ? toBlueprint(doc) : undefined,
+					blueprint: doc && docHasData ? toBlueprint(doc) : undefined,
 					runId: runIdRef.current,
-					appId: s.appId,
+					appId: sessionState.appId,
 					lastResponseAt: lastResponseAtRef.current,
-					appReady: selectIsReady(s),
+					appReady: docHasData && !sessionState.loading,
 				};
 			},
 		}),
@@ -95,21 +102,26 @@ function createChatInstance(
 				return;
 			}
 
-			const inputs = {
-				store: storeRef.current,
-				docStore: docStoreRef.current,
-			};
-
 			/* After first save, update the URL from /build/new → /build/{id} without
-			 * triggering a navigation or remount. applyDataPart stores the ID on the legacy store. */
+			 * triggering a navigation or remount. The stream dispatcher stores the
+			 * ID on the session store. */
 			if (type === "data-app-saved") {
-				const appId = data.appId as string;
-				applyDataPart(inputs, type, data);
-				window.history.replaceState({}, "", `/build/${appId}`);
+				applyStreamEvent(
+					type,
+					data,
+					docStoreRef.current!,
+					sessionStoreRef.current!,
+				);
+				window.history.replaceState({}, "", `/build/${data.appId as string}`);
 				return;
 			}
 
-			applyDataPart(inputs, type, data);
+			applyStreamEvent(
+				type,
+				data,
+				docStoreRef.current!,
+				sessionStoreRef.current!,
+			);
 			if (type === "data-error") {
 				showToast(
 					data.fatal ? "error" : "warning",
@@ -141,16 +153,21 @@ export function ChatContainer({
 }: ChatContainerProps) {
 	const storeApi = useBuilderStoreApi();
 	const docStore = useContext(BlueprintDocContext);
-	const inReplayMode = useBuilderStore(selectInReplayMode);
+	const sessionApi = useContext(BuilderSessionContext);
+	const inReplayMode = useBuilderSession((s) => s.replay !== undefined);
 	/** Replay messages — written by ReplayController, read here. Both
-	 *  communicate through the store, not through a shared parent. */
-	const replayMessages = useBuilderStore((s) => s.replayMessages);
+	 *  communicate through the session store, not through a shared parent. */
+	const replayMessages = useBuilderSession(
+		(s) => s.replay?.messages ?? EMPTY_MESSAGES,
+	);
 
 	// ── Stable refs so Chat callbacks always read the latest stores ──────
 	const storeRef = useRef(storeApi);
 	storeRef.current = storeApi;
 	const docStoreRef = useRef(docStore);
 	docStoreRef.current = docStore;
+	const sessionStoreRef = useRef(sessionApi);
+	sessionStoreRef.current = sessionApi;
 	const runIdRef = useRef<string | undefined>(undefined);
 	/** ISO timestamp of the SA's last response — used to determine if the
 	 *  Anthropic prompt cache is still warm on subsequent requests. */
@@ -159,7 +176,13 @@ export function ChatContainer({
 	// ── Chat instance — recreated when the store identity changes (new app) ─
 	const prevStoreRef = useRef(storeApi);
 	const [chat, setChat] = useState(() =>
-		createChatInstance(storeRef, docStoreRef, runIdRef, lastResponseAtRef),
+		createChatInstance(
+			storeRef,
+			docStoreRef,
+			sessionStoreRef,
+			runIdRef,
+			lastResponseAtRef,
+		),
 	);
 
 	/* Detect legacy store identity change (new app via BuilderProvider).
@@ -172,7 +195,13 @@ export function ChatContainer({
 		runIdRef.current = undefined;
 		lastResponseAtRef.current = undefined;
 		setChat(
-			createChatInstance(storeRef, docStoreRef, runIdRef, lastResponseAtRef),
+			createChatInstance(
+				storeRef,
+				docStoreRef,
+				sessionStoreRef,
+				runIdRef,
+				lastResponseAtRef,
+			),
 		);
 	}
 
@@ -190,41 +219,42 @@ export function ChatContainer({
 
 	// ── Chat effects ─────────────────────────────────────────────────────
 
-	/* Sync chat transport status → agent state on the legacy store (drives
+	/* Sync chat transport status → agent state on the session store (drives
 	 * the signal grid's "thinking" badge). Also stamps `lastResponseAtRef`
 	 * when the SA finishes so the next request can decide whether the
 	 * Anthropic prompt cache is still warm. */
 	useEffect(() => {
 		const active = status === "submitted" || status === "streaming";
-		const s = storeApi.getState();
-		const wasActive = s.agentActive;
-		s.setAgentActive(active);
+		const session = sessionApi!.getState();
+		const wasActive = session.agentActive;
+		session.setAgentActive(active);
 		if (status === "ready" && wasActive) {
 			lastResponseAtRef.current = new Date().toISOString();
 		}
-	}, [status, storeApi]);
+	}, [status, sessionApi]);
 
 	/* Surface stream-level errors from useChat (network, API key, server crash, spend cap).
-	 * Only set generation error during Generating phase — Idle errors get a toast only.
-	 * Reads phase and generationError from the store imperatively — they're not deps,
-	 * just point-in-time checks when chatError fires. */
+	 * Only record the error when the agent is actively generating (not during post-build
+	 * edits) — idle errors get a toast only. Reads session state imperatively — they're
+	 * not deps, just point-in-time checks when chatError fires. */
 	useEffect(() => {
 		if (!chatError) return;
 		const message = parseApiErrorMessage(chatError.message);
-		const s = storeApi.getState();
-		if (s.phase === BuilderPhase.Generating && !s.generationError) {
-			s.setGenerationError(message, "failed");
+		const session = sessionApi!.getState();
+		const isGenerating = session.agentActive && !session.postBuildEdit;
+		if (isGenerating && !session.agentError) {
+			session.failAgentWrite(message, "failed");
 		}
 		showToast("error", "Generation failed", message);
-	}, [chatError, storeApi]);
+	}, [chatError, sessionApi]);
 
 	/* Persist the active conversation thread on each status=ready transition.
 	 * Fire-and-forget via server action — a Firestore outage never blocks the UI. */
 	const threadStartRef = useRef<string | undefined>(undefined);
-	// biome-ignore lint/correctness/useExhaustiveDependencies: storeApi is stable; snapshot read at fire time for appId
+	// biome-ignore lint/correctness/useExhaustiveDependencies: sessionApi is stable; snapshot read at fire time for appId
 	useEffect(() => {
 		if (status !== "ready" || messages.length === 0) return;
-		const appId = storeApi.getState().appId;
+		const appId = sessionApi!.getState().appId;
 		const runId = runIdRef.current;
 		if (!appId || !runId) return;
 
