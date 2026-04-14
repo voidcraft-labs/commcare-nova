@@ -3,7 +3,10 @@ import type { UIMessage } from "ai";
 import { useCallback, useEffect, useRef } from "react";
 import { useBuilderEngine } from "@/hooks/useBuilder";
 import type { EditScope } from "@/lib/services/builder";
-import { assembleQuestions as assembleQuestionsForGrid } from "@/lib/services/normalizedState";
+import {
+	assembleQuestions as assembleQuestionsForGrid,
+	type NQuestion,
+} from "@/lib/services/normalizedState";
 import { type QuestionPath, qpathId } from "@/lib/services/questionPath";
 import { flatIndexById } from "@/lib/services/questionTree";
 import { computeEditFocus } from "@/lib/signalGrid/editFocus";
@@ -72,15 +75,18 @@ export function SignalGrid({ controller, messages }: SignalGridProps) {
 						const rawRef = input.questionPath ?? input.questionId ?? input.path;
 						const qRef = typeof rawRef === "string" ? rawRef : undefined;
 						if (typeof qRef === "string" && qRef) {
-							const s = builderRef.current.store.getState();
-							const moduleId = s.moduleOrder[input.moduleIndex as number];
+							/* Resolve the question's flat index within its form by
+							 * assembling the form's question tree from the doc store
+							 * (the single source of truth for blueprint entities). */
+							const doc = builderRef.current.docStore?.getState();
+							const moduleId = doc?.moduleOrder[input.moduleIndex as number];
 							const formId = moduleId
-								? s.formOrder[moduleId]?.[input.formIndex as number]
+								? doc?.formOrder[moduleId]?.[input.formIndex as number]
 								: undefined;
-							if (formId) {
+							if (doc && formId) {
 								const questions = assembleQuestionsForGrid(
-									s.questions,
-									s.questionOrder,
+									doc.questions as unknown as Record<string, NQuestion>,
+									doc.questionOrder as unknown as Record<string, string[]>,
 									formId,
 								);
 								if (questions.length > 0) {
@@ -108,7 +114,26 @@ export function SignalGrid({ controller, messages }: SignalGridProps) {
 
 		const s = builder.store.getState();
 		if (s.postBuildEdit && s.agentActive) {
-			controller.setEditFocus(computeEditFocus(s, latestToolScope));
+			/* computeEditFocus needs the blueprint's ordering maps to convert
+			 * scope indices into a 0–1 focus range; those maps live on the doc
+			 * store now, so we pass its state snapshot rather than the legacy
+			 * session store. */
+			const doc = builder.docStore?.getState();
+			if (doc) {
+				controller.setEditFocus(
+					computeEditFocus(
+						{
+							moduleOrder: doc.moduleOrder,
+							formOrder: doc.formOrder as unknown as Record<string, string[]>,
+							questionOrder: doc.questionOrder as unknown as Record<
+								string,
+								string[]
+							>,
+						},
+						latestToolScope,
+					),
+				);
+			}
 		}
 	}, [messages, builder, controller]);
 

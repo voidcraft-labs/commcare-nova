@@ -98,10 +98,13 @@ export function applyDataPart(
 			break;
 		case "data-done":
 			store.completeGeneration((data as { blueprint: AppBlueprint }).blueprint);
-			/* Resume undo tracking — generation is complete, user edits are now
-			 * undoable. Tracking was paused in the engine constructor so intermediate
-			 * generation steps (scaffold, addModule, addQuestions) stay out of history. */
-			engine.store.temporal.getState().resume();
+			/* Resume undo tracking on the doc store — generation is complete,
+			 * user edits are now undoable. Generation-stream setters dispatched
+			 * mutations through `beginAgentWrite` so intermediate stages are
+			 * collapsed into one undoable entry (or absent, depending on phase
+			 * 4's final wiring). The doc store is the single source of undo
+			 * history; the legacy engine store no longer carries temporal state. */
+			engine.docStore?.getState().endAgentWrite();
 			break;
 		case "data-app-saved":
 			store.setAppId(data.appId as string);

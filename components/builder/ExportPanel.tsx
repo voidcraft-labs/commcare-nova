@@ -12,14 +12,15 @@
 "use client";
 import tablerBrowser from "@iconify-icons/tabler/browser";
 import tablerDeviceMobile from "@iconify-icons/tabler/device-mobile";
-import { memo, useCallback, useMemo, useState } from "react";
+import { memo, useCallback, useContext, useMemo, useState } from "react";
 import { UploadToHqDialog } from "@/components/builder/UploadToHqDialog";
 import type { ExportOption } from "@/components/ui/ExportDropdown";
 import { ExportDropdown } from "@/components/ui/ExportDropdown";
-import { useBuilderEngine } from "@/hooks/useBuilder";
+import { BlueprintDocContext } from "@/lib/doc/provider";
+import type { BlueprintDoc } from "@/lib/doc/types";
 import {
 	assembleBlueprint,
-	getEntityData,
+	type NormalizedData,
 } from "@/lib/services/normalizedState";
 import { showToast } from "@/lib/services/toastStore";
 
@@ -28,6 +29,23 @@ interface ExportPanelProps {
 	commcareConfigured: boolean;
 	/** The user's authorized project space domain, or null if not configured. */
 	commcareDomain: { name: string; displayName: string } | null;
+}
+
+/** Adapt a BlueprintDoc snapshot to the legacy `NormalizedData` shape that
+ *  `assembleBlueprint` expects. The underlying entity shapes are identical;
+ *  the cast crosses only the branded-`Uuid` vs plain-`string` key boundary. */
+function docToNormalized(s: BlueprintDoc): NormalizedData {
+	return {
+		appName: s.appName,
+		connectType: s.connectType ?? undefined,
+		caseTypes: s.caseTypes ?? [],
+		modules: s.modules as unknown as NormalizedData["modules"],
+		forms: s.forms as unknown as NormalizedData["forms"],
+		questions: s.questions as unknown as NormalizedData["questions"],
+		moduleOrder: s.moduleOrder as unknown as string[],
+		formOrder: s.formOrder as unknown as Record<string, string[]>,
+		questionOrder: s.questionOrder as unknown as Record<string, string[]>,
+	};
 }
 
 /**
@@ -40,19 +58,31 @@ export const ExportPanel = memo(function ExportPanel({
 	commcareConfigured,
 	commcareDomain,
 }: ExportPanelProps) {
-	const builder = useBuilderEngine();
+	const docStore = useContext(BlueprintDocContext);
 	const [uploadDialogOpen, setUploadDialogOpen] = useState(false);
 
 	/** Assemble the current blueprint for the upload dialog. */
 	const getBlueprint = useCallback(() => {
-		const s = builder.store.getState();
-		return assembleBlueprint(getEntityData(s));
-	}, [builder]);
+		const s = docStore?.getState();
+		return s
+			? assembleBlueprint(docToNormalized(s))
+			: assembleBlueprint({
+					appName: "",
+					connectType: undefined,
+					caseTypes: [],
+					modules: {},
+					forms: {},
+					questions: {},
+					moduleOrder: [],
+					formOrder: {},
+					questionOrder: {},
+				});
+	}, [docStore]);
 
 	const handleExportCcz = useCallback(async () => {
-		const s = builder.store.getState();
-		if (s.moduleOrder.length === 0) return;
-		const bp = assembleBlueprint(getEntityData(s));
+		const s = docStore?.getState();
+		if (!s || s.moduleOrder.length === 0) return;
+		const bp = assembleBlueprint(docToNormalized(s));
 		try {
 			const res = await fetch("/api/compile", {
 				method: "POST",
@@ -73,12 +103,12 @@ export const ExportPanel = memo(function ExportPanel({
 		} catch {
 			showToast("error", "Export failed", "Could not generate the .ccz file.");
 		}
-	}, [builder]);
+	}, [docStore]);
 
 	const handleExportJson = useCallback(async () => {
-		const s = builder.store.getState();
-		if (s.moduleOrder.length === 0) return;
-		const bp = assembleBlueprint(getEntityData(s));
+		const s = docStore?.getState();
+		if (!s || s.moduleOrder.length === 0) return;
+		const bp = assembleBlueprint(docToNormalized(s));
 		try {
 			const res = await fetch("/api/compile/json", {
 				method: "POST",
@@ -103,7 +133,7 @@ export const ExportPanel = memo(function ExportPanel({
 		} catch {
 			showToast("error", "Export failed", "Could not generate the JSON file.");
 		}
-	}, [builder]);
+	}, [docStore]);
 
 	const exportOptions: ExportOption[] = useMemo(
 		() => [

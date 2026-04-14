@@ -213,13 +213,16 @@ export function extractReplayStages(events: StoredEvent[]): ExtractionResult {
 		messages: buildProgressiveMessages(),
 		applyToBuilder: (b) => {
 			const s = b.store.getState();
-			/* Derive a blueprint from the generation data for the final replay stage. */
+			/* Derive a blueprint from the generation data for the final replay stage.
+			 * Case types live on the BlueprintDoc store (the legacy store no longer
+			 * mirrors them), so we read them through the engine's doc reference. */
 			const gen = s.generationData;
 			const scaffold = gen?.scaffold;
 			if (scaffold) {
+				const caseTypes = b.docStore?.getState().caseTypes ?? null;
 				s.completeGeneration({
 					...scaffold,
-					case_types: s.caseTypes ?? null,
+					case_types: caseTypes,
 				} as unknown as AppBlueprint);
 			}
 		},

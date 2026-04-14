@@ -46,11 +46,9 @@ export class BuilderEngine {
 
 	constructor(initialPhase: BuilderPhase = BuilderPhase.Idle) {
 		this.store = createBuilderStore(initialPhase);
-		/* Pause undo tracking until the app is loaded (existing) or generated
-		 * (new). Without this, the empty→populated hydration transition creates
-		 * an undoable entry whose undo restores a blank state. Call sites resume
-		 * tracking after loadApp() or completeGeneration(). */
-		this.store.temporal.getState().pause();
+		/* Undo tracking lives exclusively on the BlueprintDoc store now —
+		 * this legacy store no longer carries entity data, so there is
+		 * nothing here worth pausing or resuming. */
 
 		/* Initialize the form engine controller. Its own UUID-keyed runtime
 		 * store handles test-mode values and computed state. The doc store
@@ -78,8 +76,13 @@ export class BuilderEngine {
 	get scaffoldProgress(): number {
 		const s = this.store.getState();
 		if (s.phase !== BuilderPhase.Generating) return this.isReady ? 1.0 : 0;
-		if (s.generationStage === GenerationStage.DataModel)
-			return s.caseTypes.length > 0 ? 0.3 : 0.05;
+		if (s.generationStage === GenerationStage.DataModel) {
+			/* Case types live on the doc store; fall back to 0.05 (no case
+			 * types received yet) when the bridge hasn't connected a doc. */
+			const doc = this._docStore?.getState();
+			const hasCaseTypes = (doc?.caseTypes?.length ?? 0) > 0;
+			return hasCaseTypes ? 0.3 : 0.05;
+		}
 		if (s.generationStage === GenerationStage.Structure) {
 			const gen = s.generationData;
 			if (gen?.scaffold) return 0.85;
@@ -179,11 +182,8 @@ export class BuilderEngine {
 		/* Clear signal grid energy so stale accumulation from the previous
 		 * lifecycle doesn't cause a spurious burst after replay navigation. */
 		signalGrid.reset();
-		/* Clear undo history and pause tracking — the engine is back to its
-		 * initial state, so the next loadApp/generation hydration should be
-		 * invisible to undo just like the first one. */
-		const temporal = this.store.temporal.getState();
-		temporal.clear();
-		temporal.pause();
+		/* The BlueprintDoc store owns undo history — callers that need to
+		 * wipe and re-hydrate the doc during a lifecycle reset should do so
+		 * through its own `load()` API, not through the legacy engine. */
 	}
 }

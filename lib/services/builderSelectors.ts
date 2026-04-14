@@ -35,11 +35,6 @@ export function selectInReplayMode(s: BuilderState): boolean {
 
 // ── Field selectors (single-field reads for component subscriptions) ──
 
-/** App display name. */
-export function selectAppName(s: BuilderState): string {
-	return s.appName;
-}
-
 /** Current generation stage (null when not generating). */
 export function selectGenStage(s: BuilderState): GenerationStage | null {
 	return s.generationStage;
