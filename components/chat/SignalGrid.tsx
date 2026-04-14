@@ -6,6 +6,7 @@ import type { EditScope } from "@/lib/services/builder";
 import { assembleQuestions as assembleQuestionsForGrid } from "@/lib/services/normalizedState";
 import { type QuestionPath, qpathId } from "@/lib/services/questionPath";
 import { flatIndexById } from "@/lib/services/questionTree";
+import { signalGrid } from "@/lib/signalGrid/store";
 import type { SignalGridController } from "@/lib/signalGridController";
 
 interface SignalGridProps {
@@ -94,12 +95,12 @@ export function SignalGrid({ controller, messages }: SignalGridProps) {
 		}
 
 		// On first run (mount/remount), record baseline without injecting energy.
-		// Content generated while unmounted doesn't need a brightness burst — the
+		// Content generated while unmounted doesn't need a brightness burst -- the
 		// headless tick was already advancing state from burst energy data parts.
 		if (prevContentLenRef.current !== null) {
 			const delta = contentLen - prevContentLenRef.current;
 			if (delta > 0) {
-				builder.injectThinkEnergy(delta * 2);
+				signalGrid.injectThinkEnergy(delta * 2);
 			}
 		}
 		prevContentLenRef.current = contentLen;

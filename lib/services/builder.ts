@@ -14,6 +14,7 @@ import type {
 	Question,
 	Scaffold,
 } from "@/lib/schemas/blueprint";
+import { signalGrid } from "@/lib/signalGrid/store";
 import type { BuilderEngine } from "./builderEngine";
 import type { QuestionPath } from "./questionPath";
 
@@ -32,18 +33,18 @@ export function applyDataPart(
 		case "data-module-done":
 		case "data-form-done":
 		case "data-form-fixed":
-			engine.injectEnergy(200);
+			signalGrid.injectEnergy(200);
 			break;
 		case "data-form-updated":
 		case "data-blueprint-updated":
-			engine.injectEnergy(100);
+			signalGrid.injectEnergy(100);
 			break;
 		case "data-phase":
 		case "data-schema":
 		case "data-scaffold":
 		case "data-partial-scaffold":
 		case "data-fix-attempt":
-			engine.injectEnergy(50);
+			signalGrid.injectEnergy(50);
 			break;
 	}
 

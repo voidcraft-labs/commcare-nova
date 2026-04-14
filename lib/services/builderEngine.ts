@@ -19,6 +19,7 @@ import type { BlueprintDocStore } from "@/lib/doc/provider";
 import type { Mutation } from "@/lib/doc/types";
 import { EngineController } from "@/lib/preview/engine/engineController";
 import type { ConnectConfig, ConnectType } from "@/lib/schemas/blueprint";
+import { signalGrid } from "@/lib/signalGrid/store";
 import type { EditFocus } from "@/lib/signalGridController";
 import { BuilderPhase, type EditScope, GenerationStage } from "./builder";
 import { type BuilderStoreApi, createBuilderStore } from "./builderStore";
@@ -43,10 +44,6 @@ export class BuilderEngine {
 
 	// ── Non-reactive state (never triggers React re-renders) ────────────
 
-	/** Accumulated burst energy from data parts. Drained by SignalGrid rAF loop. */
-	private _streamEnergy = 0;
-	/** Accumulated token/reasoning energy. Drained by SignalGrid rAF loop. */
-	private _thinkEnergy = 0;
 	/** Current agent edit zone — read by computeEditFocus(). */
 	private _editScope: EditScope | null = null;
 	/** Transient field key to focus after undo/redo. Consumed once by InlineSettingsPanel. */
@@ -197,28 +194,6 @@ export class BuilderEngine {
 
 	get isDragging(): boolean {
 		return this._isDragging;
-	}
-
-	// ── Energy (non-reactive — consumed by SignalGrid rAF loop) ─────────
-
-	injectEnergy(amount: number): void {
-		this._streamEnergy += amount;
-	}
-
-	injectThinkEnergy(amount: number): void {
-		this._thinkEnergy += amount;
-	}
-
-	drainEnergy(): number {
-		const e = this._streamEnergy;
-		this._streamEnergy = 0;
-		return e;
-	}
-
-	drainThinkEnergy(): number {
-		const e = this._thinkEnergy;
-		this._thinkEnergy = 0;
-		return e;
 	}
 
 	// ── Edit focus (non-reactive — signal grid zone) ────────────────────
@@ -485,8 +460,6 @@ export class BuilderEngine {
 	// ── Reset ───────────────────────────────────────────────────────────
 
 	reset(): void {
-		this._streamEnergy = 0;
-		this._thinkEnergy = 0;
 		this._editScope = null;
 		this._newQuestionUuid = undefined;
 		this._editMadeMutations = false;
@@ -494,6 +467,9 @@ export class BuilderEngine {
 		this._connectStash.deliver.clear();
 		this._lastConnectType = undefined;
 		this.store.getState().reset();
+		/* Clear signal grid energy so stale accumulation from the previous
+		 * lifecycle doesn't cause a spurious burst after replay navigation. */
+		signalGrid.reset();
 		/* Clear undo history and pause tracking — the engine is back to its
 		 * initial state, so the next loadApp/generation hydration should be
 		 * invisible to undo just like the first one. */
