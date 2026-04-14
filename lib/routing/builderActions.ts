@@ -21,7 +21,7 @@ import { BlueprintDocContext } from "@/lib/doc/provider";
 import { asUuid } from "@/lib/doc/types";
 import { useLocation, useSelect } from "@/lib/routing/hooks";
 import { flattenQuestionRefs } from "@/lib/services/questionPath";
-import { useActiveFieldId } from "@/lib/session/hooks";
+import { useActiveFieldId, useSetFocusHint } from "@/lib/session/hooks";
 
 /**
  * Undo / redo with scroll + flash affordance. Both actions are no-ops
@@ -50,6 +50,7 @@ export function useUndoRedo(): { undo: () => void; redo: () => void } {
 	const { scrollTo } = useScrollIntoView();
 	const loc = useLocation();
 	const activeFieldId = useActiveFieldId();
+	const setFocusHint = useSetFocusHint();
 
 	return useMemo(() => {
 		function run(action: "undo" | "redo"): void {
@@ -72,7 +73,7 @@ export function useUndoRedo(): { undo: () => void; redo: () => void } {
 			if (!selectedUuid) return;
 
 			if (activeFieldId) {
-				engine.setFocusHint(activeFieldId);
+				setFocusHint(activeFieldId);
 			}
 
 			/* Resolve the flash/scroll target from the live DOM. If neither
@@ -96,7 +97,7 @@ export function useUndoRedo(): { undo: () => void; redo: () => void } {
 			undo: () => run("undo"),
 			redo: () => run("redo"),
 		};
-	}, [docStore, engine, scrollTo, loc, activeFieldId]);
+	}, [docStore, engine, scrollTo, loc, activeFieldId, setFocusHint]);
 }
 
 /**

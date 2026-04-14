@@ -67,6 +67,18 @@ export interface BuilderSessionState {
 	 *  caller passes `undefined` to `switchConnectMode`. */
 	lastConnectType: ConnectType | undefined;
 
+	// ── Transient UI hints (one-shot, consumed by a single component) ────
+
+	/** Transient field key to focus after undo/redo. Set by `useUndoRedo`,
+	 *  consumed once by InlineSettingsPanel's `useFocusHintForSection` hook.
+	 *  Cleared after the matching section reads it. */
+	focusHint: string | undefined;
+
+	/** UUID of a just-added question — activates auto-focus and select-all
+	 *  on the ID input in ContextualEditorHeader. One-shot: set by
+	 *  QuestionTypePicker on add, consumed once by the header on mount. */
+	newQuestionUuid: string | undefined;
+
 	// ── Actions ───────────────────────────────────────────────────────────
 
 	/** Install or clear the doc store reference. Called by SyncBridge when
@@ -119,6 +131,26 @@ export interface BuilderSessionState {
 	/** Set one sidebar's visibility. Preserves the other sidebar + all stash
 	 *  values. No-ops when the value is unchanged. */
 	setSidebarOpen: (kind: SidebarKind, open: boolean) => void;
+
+	/** Set the transient focus hint — used by undo/redo to tell
+	 *  InlineSettingsPanel which field to focus after restoration. */
+	setFocusHint: (fieldId: string | undefined) => void;
+
+	/** Clear the focus hint. Called by the consuming section after it reads
+	 *  the hint, so other sections don't see a stale value. */
+	clearFocusHint: () => void;
+
+	/** Mark a question uuid as newly added — triggers auto-focus and
+	 *  select-all on the ID input in ContextualEditorHeader. */
+	markNewQuestion: (uuid: string) => void;
+
+	/** Check whether a uuid matches the current new-question marker.
+	 *  Imperative reader — usable outside of selectors. */
+	isNewQuestion: (uuid: string) => boolean;
+
+	/** Clear the new-question marker. Called after the first rename or
+	 *  when the component unmounts, so subsequent selections behave normally. */
+	clearNewQuestion: () => void;
 }
 
 // ── Store API type ────────────────────────────────────────────────────────
@@ -153,6 +185,8 @@ export function createBuilderSessionStore() {
 					Record<string, ConnectConfig>
 				>,
 				lastConnectType: undefined as ConnectType | undefined,
+				focusHint: undefined as string | undefined,
+				newQuestionUuid: undefined as string | undefined,
 
 				// ── Reducer-shaped actions ───────────────────────────────
 
@@ -325,6 +359,29 @@ export function createBuilderSessionStore() {
 							[kind]: { ...s.sidebars[kind], open },
 						},
 					});
+				},
+
+				setFocusHint(fieldId: string | undefined) {
+					if (fieldId === get().focusHint) return;
+					set({ focusHint: fieldId });
+				},
+
+				clearFocusHint() {
+					if (get().focusHint === undefined) return;
+					set({ focusHint: undefined });
+				},
+
+				markNewQuestion(uuid: string) {
+					set({ newQuestionUuid: uuid });
+				},
+
+				isNewQuestion(uuid: string): boolean {
+					return get().newQuestionUuid === uuid;
+				},
+
+				clearNewQuestion() {
+					if (get().newQuestionUuid === undefined) return;
+					set({ newQuestionUuid: undefined });
 				},
 			})),
 			{
