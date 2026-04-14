@@ -24,6 +24,7 @@ import {
 	type BuilderSessionState,
 	type BuilderSessionStoreApi,
 	createBuilderSessionStore,
+	type SessionStoreInit,
 } from "./store";
 
 // ── Context ───────────────────────────────────────────────────────────────
@@ -35,11 +36,20 @@ export const BuilderSessionContext =
 
 // ── Provider ──────────────────────────────────────────────────────────────
 
-export function BuilderSessionProvider({ children }: { children: ReactNode }) {
+export function BuilderSessionProvider({
+	children,
+	init,
+}: {
+	children: ReactNode;
+	/** Optional initial overrides for lifecycle fields that must be correct
+	 *  on the first render — forwarded to `createBuilderSessionStore`. */
+	init?: SessionStoreInit;
+}) {
 	/* Store created once per mount — no hot-swap needed. The parent
 	 * `BuilderProvider` unmounts + remounts on buildId change, giving
-	 * each session a fresh store automatically. */
-	const [store] = useState(() => createBuilderSessionStore());
+	 * each session a fresh store automatically. `init` is captured by the
+	 * lazy initializer and never re-read on subsequent renders. */
+	const [store] = useState(() => createBuilderSessionStore(init));
 	return (
 		<BuilderSessionContext value={store}>{children}</BuilderSessionContext>
 	);

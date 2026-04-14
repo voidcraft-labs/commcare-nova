@@ -9,8 +9,7 @@ import tablerChevronLeft from "@iconify-icons/tabler/chevron-left";
 import { AnimatePresence, motion } from "motion/react";
 import { AppTree } from "@/components/builder/AppTree";
 import { ErrorBoundary } from "@/components/ui/ErrorBoundary";
-import { useBuilderIsReady } from "@/hooks/useBuilder";
-import { useSetSidebarOpen } from "@/lib/session/hooks";
+import { useBuilderIsReady, useSetSidebarOpen } from "@/lib/session/hooks";
 
 export function StructureSidebar() {
 	const isReady = useBuilderIsReady();
