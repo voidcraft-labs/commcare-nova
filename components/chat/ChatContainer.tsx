@@ -87,7 +87,14 @@ function createChatInstance(
 					runId: runIdRef.current,
 					appId: sessionState.appId,
 					lastResponseAt: lastResponseAtRef.current,
-					appReady: docHasData && !sessionState.loading,
+					/* appReady must be false during initial generation even after
+					 * scaffold creates modules — generation tools must not be
+					 * stripped mid-build. The Generating check mirrors the old
+					 * selectIsReady which excluded phase === Generating. */
+					appReady:
+						docHasData &&
+						!sessionState.loading &&
+						!(sessionState.agentActive && !sessionState.postBuildEdit),
 				};
 			},
 		}),
