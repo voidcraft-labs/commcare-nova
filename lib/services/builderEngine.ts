@@ -5,20 +5,15 @@
  * actions. The engine holds only non-reactive imperative state that doesn't
  * belong in the store:
  *
- * - **Energy counters** — consumed by SignalGrid's rAF loop, never triggers renders
- * - **Drag state** — blocks undo during dnd-kit drag operations
  * - **Focus/panel hints** — one-shot transient state consumed by specific components
  * - **Edit scope** — signal grid zone focus
- * - **Connect stash** — session state for mode switching (not undoable)
  *
- * The engine also provides DOM helpers (scroll, undo highlight flash) and
- * connect-mode stash management used by routing hooks and form editors.
+ * The engine also provides DOM helpers (undo highlight flash) used by
+ * routing hooks and form editors.
  */
 
 import type { BlueprintDocStore } from "@/lib/doc/provider";
-import type { Mutation } from "@/lib/doc/types";
 import { EngineController } from "@/lib/preview/engine/engineController";
-import type { ConnectConfig, ConnectType } from "@/lib/schemas/blueprint";
 import { signalGrid } from "@/lib/signalGrid/store";
 import type { EditFocus } from "@/lib/signalGridController";
 import { BuilderPhase, type EditScope, GenerationStage } from "./builder";
@@ -59,16 +54,6 @@ export class BuilderEngine {
 	 *  mounts, cleared on unmount. All entity mutations route through this
 	 *  store when available; the legacy store is populated by the sync adapter. */
 	private _docStore: BlueprintDocStore | null = null;
-
-	// ── Connect stash (session state, not undoable) ─────────────────────
-
-	/** Preserved form connect configs across mode switches. */
-	private _connectStash = {
-		learn: new Map<number, Map<number, ConnectConfig>>(),
-		deliver: new Map<number, Map<number, ConnectConfig>>(),
-	};
-	/** Last active connect type — restored on toggle off/on. */
-	private _lastConnectType: ConnectType | undefined;
 
 	constructor(initialPhase: BuilderPhase = BuilderPhase.Idle) {
 		this.store = createBuilderStore(initialPhase);
@@ -289,128 +274,6 @@ export class BuilderEngine {
 		);
 	}
 
-	// ── Connect stash ───────────────────────────────────────────────────
-
-	/**
-	 * Switch the app-level connect mode, or toggle it off/on.
-	 *
-	 * Passing a mode (`'learn'` or `'deliver'`) enables that mode — stashing
-	 * the outgoing mode's form configs and restoring the incoming mode's stashed configs.
-	 *
-	 * Passing `null` disables Connect entirely. Passing `undefined` re-enables
-	 * with the user's last active mode (falling back to `'learn'` for first-time enable).
-	 *
-	 * Dispatches all changes as a single `applyMany` batch so the entire
-	 * mode switch collapses to one undo entry.
-	 */
-	switchConnectMode(type: ConnectType | null | undefined): void {
-		if (!this._docStore) return;
-		const docState = this._docStore.getState();
-		if (docState.moduleOrder.length === 0) return;
-
-		const currentType = docState.connectType ?? undefined;
-		const resolved =
-			type === undefined ? (this._lastConnectType ?? "learn") : type;
-
-		if (resolved === currentType) return;
-
-		/* Stash outgoing mode's form configs (reads directly from the doc store). */
-		if (currentType) {
-			this._lastConnectType = currentType;
-			this.stashAllFormConnect(currentType);
-		}
-
-		/* Build a batch of mutations: setConnectType + one updateForm per form
-		 * whose connect config needs to change. */
-		const mutations: Mutation[] = [
-			{ kind: "setConnectType", connectType: resolved ?? null },
-		];
-
-		if (resolved) {
-			/* Restore stashed configs onto forms by uuid. */
-			for (const [mIdx, moduleMap] of this._connectStash[resolved]) {
-				const moduleUuid = docState.moduleOrder[mIdx];
-				if (!moduleUuid) continue;
-				const formUuids = docState.formOrder[moduleUuid] ?? [];
-				for (const [fIdx, config] of moduleMap) {
-					const formUuid = formUuids[fIdx];
-					if (!formUuid) continue;
-					mutations.push({
-						kind: "updateForm",
-						uuid: formUuid,
-						patch: { connect: structuredClone(config) },
-					});
-				}
-			}
-		} else {
-			/* Disabling connect entirely: clear `connect` on every form. */
-			for (const modUuid of docState.moduleOrder) {
-				const formUuids = docState.formOrder[modUuid] ?? [];
-				for (const formUuid of formUuids) {
-					const form = docState.forms[formUuid];
-					if (form?.connect !== undefined) {
-						mutations.push({
-							kind: "updateForm",
-							uuid: formUuid,
-							patch: { connect: undefined },
-						});
-					}
-				}
-			}
-		}
-
-		this._docStore.getState().applyMany(mutations);
-	}
-
-	/** Stash a single form's connect config. Used by form-level toggles. */
-	stashFormConnect(
-		mode: ConnectType,
-		mIdx: number,
-		fIdx: number,
-		config: ConnectConfig,
-	): void {
-		const stash = this._connectStash[mode];
-		let moduleMap = stash.get(mIdx);
-		if (!moduleMap) {
-			moduleMap = new Map();
-			stash.set(mIdx, moduleMap);
-		}
-		moduleMap.set(fIdx, structuredClone(config));
-	}
-
-	/** Get a single form's stashed connect config (does not remove it). */
-	getFormConnectStash(
-		mode: ConnectType,
-		mIdx: number,
-		fIdx: number,
-	): ConnectConfig | undefined {
-		return this._connectStash[mode].get(mIdx)?.get(fIdx);
-	}
-
-	/** Stash all forms' connect configs from the doc store. */
-	private stashAllFormConnect(mode: ConnectType): void {
-		const docState = this._docStore?.getState();
-		if (!docState) return;
-		const stash = this._connectStash[mode];
-		stash.clear();
-
-		for (let mIdx = 0; mIdx < docState.moduleOrder.length; mIdx++) {
-			const moduleUuid = docState.moduleOrder[mIdx];
-			const formUuids = docState.formOrder[moduleUuid] ?? [];
-			for (let fIdx = 0; fIdx < formUuids.length; fIdx++) {
-				const form = docState.forms[formUuids[fIdx]];
-				if (form?.connect) {
-					let moduleMap = stash.get(mIdx);
-					if (!moduleMap) {
-						moduleMap = new Map();
-						stash.set(mIdx, moduleMap);
-					}
-					moduleMap.set(fIdx, structuredClone(form.connect));
-				}
-			}
-		}
-	}
-
 	// ── Agent status ────────────────────────────────────────────────────
 
 	setAgentActive(active: boolean): void {
@@ -447,9 +310,6 @@ export class BuilderEngine {
 		this._editScope = null;
 		this._newQuestionUuid = undefined;
 		this._editMadeMutations = false;
-		this._connectStash.learn.clear();
-		this._connectStash.deliver.clear();
-		this._lastConnectType = undefined;
 		this.store.getState().reset();
 		/* Clear signal grid energy so stale accumulation from the previous
 		 * lifecycle doesn't cause a spurious burst after replay navigation. */

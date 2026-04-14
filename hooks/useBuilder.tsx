@@ -57,7 +57,10 @@ import type {
 } from "@/lib/services/builderStore";
 import type { ReplayStage } from "@/lib/services/logReplay";
 import type { NForm, NModule, NQuestion } from "@/lib/services/normalizedState";
-import { BuilderSessionProvider } from "@/lib/session/provider";
+import {
+	BuilderSessionContext,
+	BuilderSessionProvider,
+} from "@/lib/session/provider";
 
 // ── Contexts ────────────────────────────────────────────────────────────
 
@@ -331,6 +334,7 @@ export function BuilderProvider({
 function SyncBridge({ oldStore }: { oldStore: BuilderStoreApi }) {
 	const docStore = useContext(BlueprintDocContext);
 	const engine = useContext(EngineContext);
+	const sessionStore = useContext(BuilderSessionContext);
 	useEffect(() => {
 		if (!docStore) return;
 		/* Install the doc store on the engine so entity mutations and
@@ -340,13 +344,18 @@ function SyncBridge({ oldStore }: { oldStore: BuilderStoreApi }) {
 		 * (setScaffold, setSchema, setModuleContent, setFormContent) dispatch
 		 * entity changes as doc mutations through this reference. */
 		oldStore.getState().setDocStore(docStore);
+		/* Install it on the session store so `switchConnectMode` can dispatch
+		 * doc mutations (setConnectType + updateForm) atomically alongside
+		 * session stash updates. */
+		if (sessionStore) sessionStore.getState()._setDocStore(docStore);
 		const stop = startSyncOldFromDoc(docStore, oldStore);
 		return () => {
 			if (engine) engine.setDocStore(null);
 			oldStore.getState().setDocStore(null);
+			if (sessionStore) sessionStore.getState()._setDocStore(null);
 			stop();
 		};
-	}, [docStore, oldStore, engine]);
+	}, [docStore, oldStore, engine, sessionStore]);
 	return null;
 }
 

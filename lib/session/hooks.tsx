@@ -9,6 +9,7 @@
  */
 "use client";
 
+import type { ConnectConfig, ConnectType } from "@/lib/schemas/blueprint";
 import { useBuilderSession, useBuilderSessionShallow } from "./provider";
 import type { SidebarKind } from "./store";
 import type { CursorMode } from "./types";
@@ -62,6 +63,37 @@ export function useSetSidebarOpen(): (
 	open: boolean,
 ) => void {
 	return useBuilderSession((s) => s.setSidebarOpen);
+}
+
+// ── Connect stash ────────────────────────────────────────────────────────
+
+/** Composite action: switch the app-level connect mode, handling stash
+ *  lifecycle and doc mutations atomically. See `BuilderSessionState.switchConnectMode`. */
+export function useSwitchConnectMode(): (
+	type: ConnectType | null | undefined,
+) => void {
+	return useBuilderSession((s) => s.switchConnectMode);
+}
+
+/** Stash a single form's connect config by uuid. Used by form-level
+ *  toggles that disable connect on an individual form. */
+export function useStashFormConnect(): (
+	mode: ConnectType,
+	formUuid: string,
+	config: ConnectConfig,
+) => void {
+	return useBuilderSession((s) => s.stashFormConnect);
+}
+
+/** Read a single form's stashed connect config. Returns `undefined` when
+ *  no config is stashed for that form+mode combination. Subscribes with
+ *  a narrow selector so the component only re-renders when this specific
+ *  stash entry changes. */
+export function useFormConnectStash(
+	mode: ConnectType,
+	formUuid: string,
+): ConnectConfig | undefined {
+	return useBuilderSession((s) => s.connectStash[mode]?.[formUuid]);
 }
 
 // ── Derived ───────────────────────────────────────────────────────────────
