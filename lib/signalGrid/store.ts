@@ -17,7 +17,7 @@ class SignalGridStore {
 	/** Accumulated token/reasoning energy from chat message deltas. */
 	private thinkEnergy = 0;
 
-	/** Add burst energy -- called by `applyDataPart` when significant events arrive. */
+	/** Add burst energy — called by `applyStreamEvent` when significant events arrive. */
 	injectEnergy(amount: number): void {
 		this.streamEnergy += amount;
 	}
