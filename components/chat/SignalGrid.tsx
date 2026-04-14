@@ -1,8 +1,13 @@
 "use client";
 import type { UIMessage } from "ai";
-import { useCallback, useEffect, useRef } from "react";
-import { useBuilderEngine } from "@/hooks/useBuilder";
+import { useCallback, useContext, useEffect, useRef } from "react";
+import { useBuilderStoreApi } from "@/hooks/useBuilder";
+import {
+	BlueprintDocContext,
+	type BlueprintDocStore,
+} from "@/lib/doc/provider";
 import type { EditScope } from "@/lib/services/builder";
+import type { BuilderStoreApi } from "@/lib/services/builderStore";
 import {
 	assembleQuestions as assembleQuestionsForGrid,
 	type NQuestion,
@@ -20,9 +25,15 @@ interface SignalGridProps {
 }
 
 export function SignalGrid({ controller, messages }: SignalGridProps) {
-	const builder = useBuilderEngine();
-	const builderRef = useRef(builder);
-	builderRef.current = builder;
+	const storeApi = useBuilderStoreApi();
+	const docStore = useContext(BlueprintDocContext);
+	/* Keep refs to both stores so the effect's closure always reads the
+	 * latest identity. `storeApi` is stable per buildId; `docStore` is
+	 * stable per BuilderProvider mount. */
+	const storeRef = useRef<BuilderStoreApi>(storeApi);
+	storeRef.current = storeApi;
+	const docStoreRef = useRef<BlueprintDocStore | null>(docStore);
+	docStoreRef.current = docStore;
 	/** Null on mount — the first effect records the baseline content length
 	 *  without injecting energy, preventing a massive brightness spike from
 	 *  all existing message content being treated as a delta on remount. */
@@ -78,7 +89,7 @@ export function SignalGrid({ controller, messages }: SignalGridProps) {
 							/* Resolve the question's flat index within its form by
 							 * assembling the form's question tree from the doc store
 							 * (the single source of truth for blueprint entities). */
-							const doc = builderRef.current.docStore?.getState();
+							const doc = docStoreRef.current?.getState();
 							const moduleId = doc?.moduleOrder[input.moduleIndex as number];
 							const formId = moduleId
 								? doc?.formOrder[moduleId]?.[input.formIndex as number]
@@ -112,13 +123,13 @@ export function SignalGrid({ controller, messages }: SignalGridProps) {
 		}
 		prevContentLenRef.current = contentLen;
 
-		const s = builder.store.getState();
+		const s = storeRef.current.getState();
 		if (s.postBuildEdit && s.agentActive) {
 			/* computeEditFocus needs the blueprint's ordering maps to convert
 			 * scope indices into a 0–1 focus range; those maps live on the doc
 			 * store now, so we pass its state snapshot rather than the legacy
 			 * session store. */
-			const doc = builder.docStore?.getState();
+			const doc = docStoreRef.current?.getState();
 			if (doc) {
 				controller.setEditFocus(
 					computeEditFocus(
@@ -135,7 +146,7 @@ export function SignalGrid({ controller, messages }: SignalGridProps) {
 				);
 			}
 		}
-	}, [messages, builder, controller]);
+	}, [messages, controller]);
 
 	return <div ref={gridCallbackRef} className="signal-grid" />;
 }

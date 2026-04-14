@@ -8,14 +8,12 @@
  *
  * Provider strategy
  * -----------------
- * We stub `@/hooks/useBuilder` for the engine and `@/lib/session/hooks`
- * for `useActiveFieldId` + `useSetFocusHint`. `useUndoRedo` calls
- * `useBuilderEngine()` (for DOM side-effect helpers), `useActiveFieldId()`
- * (for undo scroll targeting), and `useSetFocusHint()` (to set the
- * transient focus hint on the session store). None have React-state
- * semantics that we need here — the
- * interesting behavior lives in the doc store's temporal middleware and
- * in the scroll/flash branching logic, which we exercise directly.
+ * DOM side-effect helpers (`findFieldElement`, `flashUndoHighlight`) were
+ * methods on the deleted BuilderEngine; they now live in
+ * `lib/routing/domQueries.ts` as pure functions. We stub that module
+ * here so the tests can spy on the calls. `useActiveFieldId` +
+ * `useSetFocusHint` are stubbed via `@/lib/session/hooks` so we don't
+ * need a full BuilderSessionProvider.
  *
  * The real doc store is constructed once per test via
  * `createBlueprintDocStore()` and wrapped in a `BlueprintDocContext.Provider`.
@@ -59,7 +57,7 @@ vi.mock("next/navigation", async () => {
 });
 
 /*
- * Shared spies on every engine method `useUndoRedo` may call. They're
+ * Shared spies on every DOM helper `useUndoRedo` may call. They're
  * module-scoped so individual tests can reset and assert on them.
  */
 const findFieldElement = vi.fn<
@@ -82,17 +80,16 @@ vi.mock("@/components/builder/contexts/EditGuardContext", () => ({
 }));
 
 /*
- * Full stub of `@/hooks/useBuilder`. Every consumer goes through this
- * module, so mocking it here avoids dragging in the whole
- * BuilderEngine / BuilderStore stack just to get engine imperative
- * methods.
+ * Stub `@/lib/routing/domQueries` so the two DOM helpers `useUndoRedo`
+ * calls (`findFieldElement`, `flashUndoHighlight`) route through our
+ * module-scoped spies instead of touching the real DOM. These helpers
+ * are Phase 3's replacement for the old `BuilderEngine.findFieldElement`
+ * / `flashUndoHighlight` methods.
  */
-vi.mock("@/hooks/useBuilder", () => ({
-	useBuilderEngine: () => ({
-		findFieldElement,
-		scrollToQuestion,
-		flashUndoHighlight,
-	}),
+vi.mock("@/lib/routing/domQueries", () => ({
+	findFieldElement: (uuid: string, fieldId?: string) =>
+		findFieldElement(uuid, fieldId),
+	flashUndoHighlight: (el: HTMLElement) => flashUndoHighlight(el),
 }));
 
 /*
