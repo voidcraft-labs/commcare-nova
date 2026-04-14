@@ -1,14 +1,18 @@
 /**
  * BuilderSession store — reducer-shaped action invariant tests.
  *
- * These tests exercise the store directly (no React, no provider) to verify
- * the atomic `switchCursorMode` action preserves sidebar stash/restore
- * semantics. The double-entry guard (test 5) is the critical invariant —
- * without it, entering pointer mode twice overwrites the stash with the
- * already-closed sidebar values.
+ * Tests exercise the store directly (no React, no provider) to verify:
+ * - `switchCursorMode` preserves sidebar stash/restore semantics
+ * - `switchConnectMode` composite action manages the connect stash + doc
+ *   mutations atomically
+ *
+ * Connect stash tests use a real `createBlueprintDocStore()` with a fixture
+ * blueprint to verify the cross-store dispatch contract.
  */
 
 import { describe, expect, it } from "vitest";
+import { createBlueprintDocStore } from "@/lib/doc/store";
+import type { AppBlueprint } from "@/lib/schemas/blueprint";
 import { createBuilderSessionStore } from "../store";
 
 describe("BuilderSession store", () => {
@@ -141,5 +145,185 @@ describe("BuilderSession store", () => {
 		/* Chat is already open — setting to true is a no-op. */
 		store.getState().setSidebarOpen("chat", true);
 		expect(store.getState()).toBe(prev);
+	});
+});
+
+// ── Connect stash ────────────────────────────────────────────────────────
+
+/**
+ * Fixture blueprint for connect stash tests. One module with two forms —
+ * enough to verify per-form stash keyed by uuid.
+ */
+const CONNECT_FIXTURE: AppBlueprint = {
+	app_name: "ConnectTest",
+	connect_type: undefined,
+	case_types: null,
+	modules: [
+		{
+			name: "Mod",
+			forms: [
+				{ name: "Form A", type: "registration", questions: [] },
+				{ name: "Form B", type: "followup", questions: [] },
+			],
+		},
+	],
+};
+
+/**
+ * Helper: create a session store wired to a real doc store loaded with
+ * the fixture blueprint. Returns both stores and the form uuids.
+ */
+function createConnectTestStores() {
+	const docStore = createBlueprintDocStore();
+	docStore.getState().load(CONNECT_FIXTURE, "test-app");
+	docStore.temporal.getState().resume();
+
+	const sessionStore = createBuilderSessionStore();
+	sessionStore.getState()._setDocStore(docStore);
+
+	const docState = docStore.getState();
+	const moduleUuid = docState.moduleOrder[0];
+	const formUuids = docState.formOrder[moduleUuid] ?? [];
+
+	return {
+		session: sessionStore,
+		doc: docStore,
+		formA: formUuids[0],
+		formB: formUuids[1],
+	};
+}
+
+describe("BuilderSession connect stash", () => {
+	it("1. switchConnectMode('learn') from undefined sets doc connectType to 'learn', stash empty", () => {
+		const { session, doc } = createConnectTestStores();
+
+		/* Precondition: connect_type starts undefined (fixture has no connect_type). */
+		expect(doc.getState().connectType).toBeNull();
+
+		session.getState().switchConnectMode("learn");
+
+		expect(doc.getState().connectType).toBe("learn");
+		/* No outgoing mode to stash — both stash records remain empty. */
+		expect(session.getState().connectStash.learn).toEqual({});
+		expect(session.getState().connectStash.deliver).toEqual({});
+	});
+
+	it("2. switching learn->deliver stashes learn form configs, updates doc to 'deliver'", () => {
+		const { session, doc, formA } = createConnectTestStores();
+
+		/* Start in learn mode with a form-level connect config on Form A. */
+		session.getState().switchConnectMode("learn");
+		const learnConfig = {
+			learn_module: {
+				id: "mod",
+				name: "Form A",
+				description: "desc",
+				time_estimate: 5,
+			},
+		};
+		doc.getState().apply({
+			kind: "updateForm",
+			uuid: formA,
+			patch: { connect: learnConfig },
+		});
+
+		/* Switch to deliver mode. */
+		session.getState().switchConnectMode("deliver");
+
+		/* Doc should now be in deliver mode. */
+		expect(doc.getState().connectType).toBe("deliver");
+
+		/* The learn stash should have Form A's config keyed by uuid. */
+		const stash = session.getState().connectStash.learn;
+		expect(stash[formA]).toBeDefined();
+		expect(stash[formA].learn_module?.id).toBe("mod");
+
+		/* lastConnectType should be 'learn' (the outgoing mode). */
+		expect(session.getState().lastConnectType).toBe("learn");
+	});
+
+	it("3. switching deliver->learn restores stashed learn config onto the form", () => {
+		const { session, doc, formA } = createConnectTestStores();
+
+		/* Start in learn mode with Form A having a learn config. */
+		session.getState().switchConnectMode("learn");
+		const learnConfig = {
+			learn_module: {
+				id: "mod",
+				name: "Form A",
+				description: "desc",
+				time_estimate: 5,
+			},
+		};
+		doc.getState().apply({
+			kind: "updateForm",
+			uuid: formA,
+			patch: { connect: learnConfig },
+		});
+
+		/* Switch to deliver, then back to learn. */
+		session.getState().switchConnectMode("deliver");
+		session.getState().switchConnectMode("learn");
+
+		/* Doc should be back in learn mode with Form A's config restored. */
+		expect(doc.getState().connectType).toBe("learn");
+		const restoredForm = doc.getState().forms[formA];
+		expect(restoredForm?.connect?.learn_module?.id).toBe("mod");
+	});
+
+	it("4. switchConnectMode(null) clears doc connectType and all form connect configs", () => {
+		const { session, doc, formA, formB } = createConnectTestStores();
+
+		/* Start in learn mode with configs on both forms. */
+		session.getState().switchConnectMode("learn");
+		doc.getState().applyMany([
+			{
+				kind: "updateForm",
+				uuid: formA,
+				patch: {
+					connect: {
+						learn_module: {
+							id: "a",
+							name: "A",
+							description: "A",
+							time_estimate: 5,
+						},
+					},
+				},
+			},
+			{
+				kind: "updateForm",
+				uuid: formB,
+				patch: {
+					connect: {
+						assessment: { id: "b", user_score: "100" },
+					},
+				},
+			},
+		]);
+
+		/* Disable connect entirely. */
+		session.getState().switchConnectMode(null);
+
+		expect(doc.getState().connectType).toBeNull();
+		/* Both forms' connect should be cleared. */
+		expect(doc.getState().forms[formA]?.connect).toBeUndefined();
+		expect(doc.getState().forms[formB]?.connect).toBeUndefined();
+	});
+
+	it("5. switchConnectMode(undefined) with lastConnectType='deliver' resolves to 'deliver'", () => {
+		const { session, doc } = createConnectTestStores();
+
+		/* Build up lastConnectType by switching learn -> deliver -> null. */
+		session.getState().switchConnectMode("learn");
+		session.getState().switchConnectMode("deliver");
+		session.getState().switchConnectMode(null);
+
+		/* lastConnectType should be 'deliver' (set when switching away from deliver). */
+		expect(session.getState().lastConnectType).toBe("deliver");
+
+		/* Passing undefined should re-enable with the last active mode. */
+		session.getState().switchConnectMode(undefined);
+		expect(doc.getState().connectType).toBe("deliver");
 	});
 });

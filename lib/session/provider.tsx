@@ -28,9 +28,10 @@ import {
 
 // ── Context ───────────────────────────────────────────────────────────────
 
-const BuilderSessionContext = createContext<BuilderSessionStoreApi | null>(
-	null,
-);
+/** Exported for cross-store wiring in SyncBridge — components should use
+ *  the `useBuilderSession*` hooks, not this context directly. */
+export const BuilderSessionContext =
+	createContext<BuilderSessionStoreApi | null>(null);
 
 // ── Provider ──────────────────────────────────────────────────────────────
 
