@@ -25,13 +25,10 @@
 import { useContext, useEffect, useRef, useState } from "react";
 import { shallow } from "zustand/shallow";
 import { reportClientError } from "@/lib/clientErrorReporter";
+import { toBlueprint } from "@/lib/doc/converter";
 import { BlueprintDocContext } from "@/lib/doc/provider";
 import type { BlueprintDoc } from "@/lib/doc/types";
 import type { BuilderEngine } from "@/lib/services/builderEngine";
-import {
-	assembleBlueprint,
-	type NormalizedData,
-} from "@/lib/services/normalizedState";
 
 /** Post-save cooldown before the trailing edge can fire (ms). */
 const COOLDOWN_MS = 1000;
@@ -68,26 +65,6 @@ function projectSaveSlice(s: BlueprintDoc) {
 		appName: s.appName,
 		connectType: s.connectType,
 		caseTypes: s.caseTypes,
-	};
-}
-
-/**
- * Snapshot the doc's entity state as a `NormalizedData` slice suitable for
- * `assembleBlueprint`. The doc's Uuid-branded maps are structurally
- * identical to the legacy `NForm`/`NModule`/`NQuestion` shapes; the cast
- * through `unknown` bridges the branded-vs-plain-string key type mismatch.
- */
-function snapshotEntityData(s: BlueprintDoc): NormalizedData {
-	return {
-		appName: s.appName,
-		connectType: s.connectType ?? undefined,
-		caseTypes: s.caseTypes ?? [],
-		modules: s.modules as unknown as NormalizedData["modules"],
-		forms: s.forms as unknown as NormalizedData["forms"],
-		questions: s.questions as unknown as NormalizedData["questions"],
-		moduleOrder: s.moduleOrder as unknown as string[],
-		formOrder: s.formOrder as unknown as Record<string, string[]>,
-		questionOrder: s.questionOrder as unknown as Record<string, string[]>,
 	};
 }
 
@@ -148,7 +125,7 @@ export function useAutoSave(builder: BuilderEngine): SaveState {
 			if (!pid || doc.moduleOrder.length === 0) return;
 
 			/* Assemble the wire-format blueprint for persistence. */
-			const bp = assembleBlueprint(snapshotEntityData(doc));
+			const bp = toBlueprint(doc);
 
 			inFlightRef.current = true;
 			if (!unmountedRef.current) {

@@ -44,7 +44,6 @@ import {
 } from "@/lib/doc/types";
 import type {
 	BlueprintForm,
-	BlueprintModule,
 	CaseType,
 	FormType,
 	Scaffold,
@@ -156,23 +155,22 @@ export interface BuilderState {
 	) => void;
 	advanceStage: (stage: string) => void;
 	setFixAttempt: (attempt: number, errorCount: number) => void;
-	completeGeneration: (blueprint: {
-		app_name: string;
-		modules: BlueprintModule[];
-		case_types?: CaseType[] | null;
-		connect_type?: string;
-	}) => void;
+	/**
+	 * Reset generation-stream lifecycle flags back to a post-build Completed
+	 * state. Does NOT touch entity data — the doc store owns that. Callers
+	 * that also need to replace the doc (edit-tool flows, final reconcile
+	 * at `data-done`) must call `docStore.load(bp, appId)` themselves.
+	 */
+	completeGeneration: () => void;
 	acknowledgeCompletion: () => void;
 	setAppId: (id: string) => void;
-	loadApp: (
-		id: string,
-		blueprint: {
-			app_name: string;
-			modules: BlueprintModule[];
-			case_types?: CaseType[] | null;
-			connect_type?: string;
-		},
-	) => void;
+	/**
+	 * Transition lifecycle flags for an existing app that was hydrated by
+	 * the BlueprintDocProvider at mount time. Entity data already lives in
+	 * the doc store; this action only stamps the appId on the session store
+	 * and flips the phase to Ready.
+	 */
+	loadApp: (id: string) => void;
 	setAgentActive: (active: boolean) => void;
 	setGenerationError: (
 		message: string,
@@ -502,13 +500,14 @@ export function createBuilderStore(initialPhase: BuilderPhase) {
 						});
 					},
 
-					completeGeneration(_blueprint) {
+					completeGeneration() {
 						/* Entity data already lives on the doc store — during initial
 						 * generation the stream setters (setScaffold, setFormContent)
-						 * wrote directly to the doc. We only transition the builder's
-						 * lifecycle flags here. The `blueprint` argument is preserved in
-						 * the signature for future Phase 4 rewrite (when the full blueprint
-						 * arrival signal may want to `doc.load()` for edit-mode replacement). */
+						 * wrote directly to the doc. This action only transitions the
+						 * builder's lifecycle flags. The caller in `applyDataPart` is
+						 * responsible for dispatching the final blueprint to the doc
+						 * store via `docStore.load()` (for `data-done` reconcile and
+						 * `data-blueprint-updated` edit-tool flows). */
 						set((draft) => {
 							draft.phase = BuilderPhase.Completed;
 							draft.generationStage = null;
@@ -530,14 +529,12 @@ export function createBuilderStore(initialPhase: BuilderPhase) {
 						set({ appId: id });
 					},
 
-					loadApp(id, _blueprint) {
+					loadApp(id) {
 						/* The BlueprintDocProvider already hydrated the doc store from
 						 * the initialBlueprint prop at mount time; this action only
-						 * transitions the legacy store's lifecycle flags. The blueprint
-						 * argument is kept in the signature so callers (engine factory,
-						 * tests) can pass it without knowing whether the action writes
-						 * it — Phase 4 will drop the argument entirely when this action
-						 * is deleted. */
+						 * transitions the legacy store's lifecycle flags and stamps
+						 * the appId. Blueprint data never flowed through this action
+						 * after Task 11 — the argument was removed accordingly. */
 						set((draft) => {
 							draft.appId = id;
 							draft.phase = BuilderPhase.Ready;
