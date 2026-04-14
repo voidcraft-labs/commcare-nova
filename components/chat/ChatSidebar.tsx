@@ -21,6 +21,7 @@ import {
 } from "@/hooks/useBuilder";
 import { BuilderPhase, GenerationStage } from "@/lib/services/builder";
 import type { BuilderEngine } from "@/lib/services/builderEngine";
+import { signalGrid } from "@/lib/signalGrid/store";
 import {
 	defaultLabel,
 	SignalGridController,
@@ -31,15 +32,15 @@ import {
  *  positioning in BuilderLayout) can derive offsets without magic numbers. */
 export const CHAT_SIDEBAR_WIDTH = 320;
 
-/** Create a SignalGridController whose energy callbacks close over a ref (not
- *  a direct value) so they always read the latest builder instance. Safe across
- *  the gap between old controller teardown and new controller creation. */
+/** Create a SignalGridController whose energy callbacks drain the module-level
+ *  signalGrid nanostore. Scaffold progress still reads from the legacy engine
+ *  ref (Phase 4 migrates it alongside generationData). */
 function createGridController(builderRef: {
 	current: BuilderEngine;
 }): SignalGridController {
 	return new SignalGridController({
-		consumeEnergy: () => builderRef.current.drainEnergy(),
-		consumeThinkEnergy: () => builderRef.current.drainThinkEnergy(),
+		consumeEnergy: () => signalGrid.drainEnergy(),
+		consumeThinkEnergy: () => signalGrid.drainThinkEnergy(),
 		consumeScaffoldProgress: () => builderRef.current.scaffoldProgress,
 	});
 }
@@ -466,7 +467,7 @@ export function ChatSidebar({
 					{messages.length === 0 && !isLoading && (
 						<div className={centered ? "text-center" : "text-center py-8"}>
 							{centered ? (
-								<WelcomeIntro engine={engine} setIntroMode={setIntroMode} />
+								<WelcomeIntro setIntroMode={setIntroMode} />
 							) : (
 								<p className="text-sm text-nova-text-muted">
 									{isExistingApp
@@ -519,10 +520,8 @@ export function ChatSidebar({
 
 /** Staggered welcome text with a coordinated burst on the signal grid. */
 function WelcomeIntro({
-	engine,
 	setIntroMode,
 }: {
-	engine: BuilderEngine;
 	setIntroMode: (mode: "reasoning" | null) => void;
 }) {
 	const [stage, setStage] = useState(0); // 0: nothing, 1: heading, 2: subtitle
@@ -533,20 +532,20 @@ function WelcomeIntro({
 		const t0 = performance.now();
 		const pulse = setInterval(() => {
 			const elapsed = performance.now() - t0;
-			// After subtitle (2000ms), linearly taper from full → 0 over the remaining 1500ms
+			// After subtitle (2000ms), linearly taper from full -> 0 over the remaining 1500ms
 			const scale =
 				elapsed < 2000 ? 1 : Math.max(0, 1 - (elapsed - 2000) / 1500);
-			engine.injectEnergy((10 + Math.random() * 20) * scale);
+			signalGrid.injectEnergy((10 + Math.random() * 20) * scale);
 		}, 150);
 
 		const t1 = setTimeout(() => {
 			setStage(1);
-			engine.injectEnergy(120);
+			signalGrid.injectEnergy(120);
 		}, 1500);
 
 		const t2 = setTimeout(() => {
 			setStage(2);
-			engine.injectEnergy(120);
+			signalGrid.injectEnergy(120);
 		}, 2000);
 
 		// Let the grid settle, then back to idle
@@ -561,7 +560,7 @@ function WelcomeIntro({
 			clearTimeout(t2);
 			clearTimeout(t3);
 		};
-	}, [engine, setIntroMode]);
+	}, [setIntroMode]);
 
 	return (
 		<>
