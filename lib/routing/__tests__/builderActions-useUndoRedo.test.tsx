@@ -9,9 +9,11 @@
  * Provider strategy
  * -----------------
  * We stub `@/hooks/useBuilder` for the engine and `@/lib/session/hooks`
- * for `useActiveFieldId`. `useUndoRedo` calls `useBuilderEngine()` (for
- * DOM side-effect helpers) and `useActiveFieldId()` (for undo scroll
- * targeting). Neither has React-state semantics that we need here — the
+ * for `useActiveFieldId` + `useSetFocusHint`. `useUndoRedo` calls
+ * `useBuilderEngine()` (for DOM side-effect helpers), `useActiveFieldId()`
+ * (for undo scroll targeting), and `useSetFocusHint()` (to set the
+ * transient focus hint on the session store). None have React-state
+ * semantics that we need here — the
  * interesting behavior lives in the doc store's temporal middleware and
  * in the scroll/flash branching logic, which we exercise directly.
  *
@@ -90,16 +92,17 @@ vi.mock("@/hooks/useBuilder", () => ({
 		findFieldElement,
 		scrollToQuestion,
 		flashUndoHighlight,
-		setFocusHint,
 	}),
 }));
 
 /*
  * Stub `@/lib/session/hooks` so `useActiveFieldId()` reads from our
- * module-scoped ref instead of requiring a full BuilderSessionProvider.
+ * module-scoped ref and `useSetFocusHint()` returns our spy, instead
+ * of requiring a full BuilderSessionProvider.
  */
 vi.mock("@/lib/session/hooks", () => ({
 	useActiveFieldId: () => activeFieldIdRef.current,
+	useSetFocusHint: () => setFocusHint,
 }));
 
 import { useUndoRedo } from "@/lib/routing/builderActions";

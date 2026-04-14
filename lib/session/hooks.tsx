@@ -96,6 +96,43 @@ export function useFormConnectStash(
 	return useBuilderSession((s) => s.connectStash[mode]?.[formUuid]);
 }
 
+// ── Focus hint ───────────────────────────────────────────────────────────
+
+/** Transient field key to focus after undo/redo. Consumed once by the
+ *  section that owns the matching field key. */
+export function useSessionFocusHint(): string | undefined {
+	return useBuilderSession((s) => s.focusHint);
+}
+
+/** Set the transient focus hint — called by undo/redo before the flash. */
+export function useSetFocusHint(): (fieldId: string | undefined) => void {
+	return useBuilderSession((s) => s.setFocusHint);
+}
+
+/** Clear the focus hint — called by the consuming section after read. */
+export function useClearFocusHint(): () => void {
+	return useBuilderSession((s) => s.clearFocusHint);
+}
+
+// ── New question marker ──────────────────────────────────────────────────
+
+/** Whether the given uuid is the just-added question. Drives auto-focus
+ *  and select-all on the ID input in ContextualEditorHeader. */
+export function useIsNewQuestion(uuid: string): boolean {
+	return useBuilderSession((s) => s.newQuestionUuid === uuid);
+}
+
+/** Mark a uuid as newly added. Called by QuestionTypePicker after insert. */
+export function useMarkNewQuestion(): (uuid: string) => void {
+	return useBuilderSession((s) => s.markNewQuestion);
+}
+
+/** Clear the new-question marker. Called after the first rename succeeds
+ *  or when the header unmounts. */
+export function useClearNewQuestion(): () => void {
+	return useBuilderSession((s) => s.clearNewQuestion);
+}
+
 // ── Derived ───────────────────────────────────────────────────────────────
 
 /** Derive edit mode from cursor mode. "pointer" maps to "test" (live form

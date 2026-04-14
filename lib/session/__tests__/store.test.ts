@@ -148,6 +148,42 @@ describe("BuilderSession store", () => {
 	});
 });
 
+// ── Focus hint ───────────────────────────────────────────────────────────
+
+describe("BuilderSession focus hint", () => {
+	it("setFocusHint stores the value, clearFocusHint resets to undefined", () => {
+		const store = createBuilderSessionStore();
+		expect(store.getState().focusHint).toBeUndefined();
+
+		store.getState().setFocusHint("case_name");
+		expect(store.getState().focusHint).toBe("case_name");
+
+		store.getState().clearFocusHint();
+		expect(store.getState().focusHint).toBeUndefined();
+	});
+});
+
+// ── New question marker ──────────────────────────────────────────────────
+
+describe("BuilderSession new-question marker", () => {
+	it("markNewQuestion + isNewQuestion: matches uuid, rejects others", () => {
+		const store = createBuilderSessionStore();
+		store.getState().markNewQuestion("q-uuid");
+
+		expect(store.getState().isNewQuestion("q-uuid")).toBe(true);
+		expect(store.getState().isNewQuestion("other")).toBe(false);
+	});
+
+	it("clearNewQuestion resets so isNewQuestion returns false for all", () => {
+		const store = createBuilderSessionStore();
+		store.getState().markNewQuestion("q-uuid");
+		store.getState().clearNewQuestion();
+
+		expect(store.getState().isNewQuestion("q-uuid")).toBe(false);
+		expect(store.getState().isNewQuestion("anything")).toBe(false);
+	});
+});
+
 // ── Connect stash ────────────────────────────────────────────────────────
 
 /**

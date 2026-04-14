@@ -5,11 +5,12 @@
  * actions. The engine holds only non-reactive imperative state that doesn't
  * belong in the store:
  *
- * - **Focus/panel hints** — one-shot transient state consumed by specific components
  * - **Edit scope** — signal grid zone focus
+ * - **Edit mutation tracking** — gates Completed phase after post-build edits
  *
- * The engine also provides DOM helpers (undo highlight flash) used by
- * routing hooks and form editors.
+ * The engine also provides DOM helpers (undo highlight flash, field element
+ * lookup) used by routing hooks and form editors. Transient UI hints
+ * (focus hint, new-question marker) live on BuilderSession instead.
  */
 
 import type { BlueprintDocStore } from "@/lib/doc/provider";
@@ -37,16 +38,6 @@ export class BuilderEngine {
 
 	/** Current agent edit zone — read by computeEditFocus(). */
 	private _editScope: EditScope | null = null;
-	/** Transient field key to focus after undo/redo. Consumed once by InlineSettingsPanel. */
-	private _focusHint: string | undefined;
-	/** Transient rename notice — set after a cross-level move auto-renames
-	 *  to avoid a sibling ID collision. Consumed once by ContextualEditorHeader
-	 *  to show an inline notice on the ID field. */
-	private _renameNotice:
-		| { oldId: string; newId: string; xpathFieldsRewritten: number }
-		| undefined;
-	/** UUID of a just-added question — activates auto-focus and select-all behaviors. */
-	private _newQuestionUuid?: string;
 	/** Tracks whether post-build edits have mutated the blueprint (gates Completed phase). */
 	private _editMadeMutations = false;
 
@@ -99,56 +90,6 @@ export class BuilderEngine {
 			return 0.35;
 		}
 		return 1.0;
-	}
-
-	// ── Focus hint (transient — consumed once by InlineSettingsPanel) ────
-
-	get focusHint(): string | undefined {
-		return this._focusHint;
-	}
-
-	/** Set the transient focus hint — used by undo/redo to tell
-	 *  InlineSettingsPanel which field to focus after restoration. */
-	setFocusHint(fieldId: string | undefined): void {
-		this._focusHint = fieldId;
-	}
-
-	clearFocusHint(): void {
-		this._focusHint = undefined;
-	}
-
-	// ── Rename notice (transient — consumed once by ContextualEditorHeader) ──
-
-	get renameNotice() {
-		return this._renameNotice;
-	}
-
-	setRenameNotice(notice: {
-		oldId: string;
-		newId: string;
-		xpathFieldsRewritten: number;
-	}): void {
-		this._renameNotice = notice;
-	}
-
-	consumeRenameNotice() {
-		const notice = this._renameNotice;
-		this._renameNotice = undefined;
-		return notice;
-	}
-
-	// ── New question state ──────────────────────────────────────────────
-
-	markNewQuestion(uuid: string): void {
-		this._newQuestionUuid = uuid;
-	}
-
-	isNewQuestion(uuid: string): boolean {
-		return this._newQuestionUuid === uuid;
-	}
-
-	clearNewQuestion(): void {
-		this._newQuestionUuid = undefined;
 	}
 
 	// ── Doc store reference ────────────────────────────────────────────
@@ -308,7 +249,6 @@ export class BuilderEngine {
 
 	reset(): void {
 		this._editScope = null;
-		this._newQuestionUuid = undefined;
 		this._editMadeMutations = false;
 		this.store.getState().reset();
 		/* Clear signal grid energy so stale accumulation from the previous

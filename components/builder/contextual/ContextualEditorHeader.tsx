@@ -15,7 +15,6 @@ import { SavedCheck } from "@/components/builder/EditableTitle";
 import { QuestionTypeList } from "@/components/builder/QuestionTypeList";
 import { tablerCopyPlus } from "@/components/icons/tablerExtras";
 import { Tooltip } from "@/components/ui/Tooltip";
-import { useBuilderEngine } from "@/hooks/useBuilder";
 import { useCommitField } from "@/hooks/useCommitField";
 import { useSaveQuestion } from "@/hooks/useSaveQuestion";
 import { useAssembledForm } from "@/lib/doc/hooks/useAssembledForm";
@@ -31,6 +30,7 @@ import {
 	getCrossLevelMoveTargets,
 	getQuestionMoveTargets,
 } from "@/lib/services/questionNavigation";
+import { useClearNewQuestion, useIsNewQuestion } from "@/lib/session/hooks";
 import {
 	MENU_ITEM_CLS,
 	MENU_ITEM_DISABLED_CLS,
@@ -70,13 +70,15 @@ function useShiftKey(): boolean {
 }
 
 export function ContextualEditorHeader({ question }: QuestionEditorProps) {
-	const engine = useBuilderEngine();
 	const { setPending } = useScrollIntoView();
 	const loc = useLocation();
 	const select = useSelect();
 
 	const selectedUuid = loc.kind === "form" ? loc.selectedUuid : undefined;
 	const formUuid = loc.kind === "form" ? loc.formUuid : undefined;
+
+	const isNewQuestion = useIsNewQuestion(selectedUuid ?? "");
+	const clearNewQuestion = useClearNewQuestion();
 
 	const {
 		moveQuestion,
@@ -115,22 +117,6 @@ export function ContextualEditorHeader({ question }: QuestionEditorProps) {
 		return () => clearTimeout(timer);
 	}, [idNotice]);
 
-	/* Consume rename notice from the engine — set after a cross-level move
-	 * auto-renames to avoid a sibling ID collision. Shown inline on the ID
-	 * field so the user sees what changed right where it happened. */
-	useEffect(() => {
-		const notice = engine.consumeRenameNotice();
-		if (!notice) return;
-		const refsMsg =
-			notice.xpathFieldsRewritten > 0
-				? ` — ${notice.xpathFieldsRewritten} reference${notice.xpathFieldsRewritten === 1 ? "" : "s"} updated`
-				: "";
-		setIdNotice({
-			severity: "info",
-			message: `Renamed from ${notice.oldId}${refsMsg}`,
-		});
-	});
-
 	/** Attempts the rename and returns false if blocked by a sibling conflict.
 	 * On success the mutation has already been applied by the store.
 	 * Rename doesn't change uuid, so no selection update is needed. */
@@ -155,10 +141,10 @@ export function ContextualEditorHeader({ question }: QuestionEditorProps) {
 			/* Rename succeeded — uuid stays the same, selection is stable.
 			 * Clear the new-question highlight so subsequent edits are normal. */
 			setIdNotice(null);
-			engine.clearNewQuestion();
+			clearNewQuestion();
 			return true;
 		},
-		[selectedUuid, renameQuestionAction, engine],
+		[selectedUuid, renameQuestionAction, clearNewQuestion],
 	);
 
 	const idField = useCommitField({
@@ -174,15 +160,13 @@ export function ContextualEditorHeader({ question }: QuestionEditorProps) {
 			idInputRef.current = el;
 			idField.ref(el);
 			syncIdWidth();
-			const shouldAutoFocus =
-				focusHint === "id" ||
-				(!!selectedUuid && engine.isNewQuestion(selectedUuid));
+			const shouldAutoFocus = focusHint === "id" || isNewQuestion;
 			if (el && shouldAutoFocus) {
 				el.focus({ preventScroll: true });
 				el.select();
 			}
 		},
-		[idField.ref, focusHint, selectedUuid, engine, syncIdWidth],
+		[idField.ref, focusHint, isNewQuestion, syncIdWidth],
 	);
 
 	/* ── Action handlers ── */

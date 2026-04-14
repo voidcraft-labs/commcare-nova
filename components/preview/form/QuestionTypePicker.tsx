@@ -4,7 +4,6 @@ import { Icon } from "@iconify/react/offline";
 import tablerChevronRight from "@iconify-icons/tabler/chevron-right";
 import { useCallback, useContext } from "react";
 import { useScrollIntoView } from "@/components/builder/contexts/ScrollRegistryContext";
-import { useBuilderEngine } from "@/hooks/useBuilder";
 import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
 import { BlueprintDocContext } from "@/lib/doc/provider";
 import type { Uuid } from "@/lib/doc/types";
@@ -16,6 +15,7 @@ import {
 } from "@/lib/questionTypeIcons";
 import { useSelect } from "@/lib/routing/hooks";
 import type { Question } from "@/lib/schemas/blueprint";
+import { useMarkNewQuestion } from "@/lib/session/hooks";
 import {
 	MENU_ITEM_CLS,
 	MENU_POPUP_CLS,
@@ -48,10 +48,10 @@ export function QuestionTypePickerPopup({
 	atIndex,
 	parentUuid,
 }: QuestionTypePickerPopupProps) {
-	const engine = useBuilderEngine();
 	const { setPending } = useScrollIntoView();
 	const select = useSelect();
 	const { addQuestion: addQuestionAction } = useBlueprintMutations();
+	const markNewQuestion = useMarkNewQuestion();
 	const docStore = useContext(BlueprintDocContext);
 
 	/** Generate a unique ID, create the question, and select it.
@@ -94,7 +94,7 @@ export function QuestionTypePickerPopup({
 
 			/* Mark as new question so the UI can apply entry animations, then
 			 * select and scroll to the newly-inserted question. */
-			engine.markNewQuestion(newUuid);
+			markNewQuestion(newUuid);
 			setPending(newUuid, "smooth", false);
 			select(newUuid);
 		},
@@ -102,7 +102,7 @@ export function QuestionTypePickerPopup({
 			parentUuid,
 			atIndex,
 			addQuestionAction,
-			engine,
+			markNewQuestion,
 			setPending,
 			select,
 			docStore,
