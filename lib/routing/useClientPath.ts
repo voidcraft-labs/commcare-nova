@@ -12,7 +12,7 @@
  */
 "use client";
 
-import { useSyncExternalStore } from "react";
+import { useMemo, useSyncExternalStore } from "react";
 
 /** Module-level listener set for notifying subscribers of programmatic
  *  `pushState`/`replaceState` calls (which don't fire `popstate`). */
@@ -64,7 +64,12 @@ export function useBuilderPathSegments(): string[] {
 		getSnapshot,
 		getServerSnapshot,
 	);
-	return extractSegments(pathname);
+	/* Memoize so the returned array reference is stable when the pathname
+	 * hasn't changed. Without this, every re-render (parent, doc store,
+	 * etc.) allocates a fresh array via extractSegments, which cascades
+	 * through useLocation → useSelect → useIsQuestionSelected and defeats
+	 * the per-wrapper re-render isolation. */
+	return useMemo(() => extractSegments(pathname), [pathname]);
 }
 
 /** Stable empty array returned when there are no sub-path segments. */

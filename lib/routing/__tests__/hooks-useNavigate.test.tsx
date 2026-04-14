@@ -99,9 +99,13 @@ function wrap(store: ReturnType<typeof makeStore>) {
 
 describe("useNavigate", () => {
 	beforeEach(() => {
+		mockSegments.current = [];
+		/* Set window.location so useNavigate/useSelect basePathRef reads
+		 * /build/app-1. Must happen BEFORE clearing spies so the setup
+		 * call isn't counted. */
+		window.history.replaceState(null, "", "/build/app-1");
 		pushStateSpy.mockClear();
 		replaceStateSpy.mockClear();
-		mockSegments.current = [];
 	});
 
 	it("openForm issues pushState with the form UUID path", () => {

@@ -133,8 +133,11 @@ function setFormUrl(
 
 describe("useDeleteSelectedQuestion", () => {
 	beforeEach(() => {
-		replaceStateSpy.mockClear();
 		mockSegments.current = [];
+		/* Set window.location so useSelect's basePathRef reads the test app's
+		 * path. Must happen BEFORE clearing the spy so the setup call isn't counted. */
+		window.history.replaceState(null, "", pathname);
+		replaceStateSpy.mockClear();
 	});
 
 	it("no-ops when not on a form location", () => {
