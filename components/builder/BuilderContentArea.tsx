@@ -26,17 +26,14 @@ import { CHAT_SIDEBAR_WIDTH } from "@/components/chat/ChatSidebar";
 import { PreviewShell } from "@/components/preview/PreviewShell";
 import { ErrorBoundary } from "@/components/ui/ErrorBoundary";
 import { Tooltip } from "@/components/ui/Tooltip";
-import {
-	useBuilderHasData,
-	useBuilderIsReady,
-	useBuilderPhase,
-	useBuilderStore,
-} from "@/hooks/useBuilder";
+import { useBuilderHasData } from "@/hooks/useBuilder";
 import { useNavigate } from "@/lib/routing/hooks";
 import { BuilderPhase } from "@/lib/services/builder";
-import { selectInReplayMode } from "@/lib/services/builderSelectors";
 import {
+	useBuilderIsReady,
+	useBuilderPhase,
 	useCursorMode,
+	useInReplayMode,
 	useSetSidebarOpen,
 	useSidebarState,
 } from "@/lib/session/hooks";
@@ -76,7 +73,7 @@ export function BuilderContentArea({
 	const phase = useBuilderPhase();
 	const isReady = useBuilderIsReady();
 	const hasData = useBuilderHasData();
-	const inReplayMode = useBuilderStore(selectInReplayMode);
+	const inReplayMode = useInReplayMode();
 
 	/* Back navigation for PreviewShell — reads directly from URL hooks
 	 * instead of being threaded as a prop from BuilderLayout. */
