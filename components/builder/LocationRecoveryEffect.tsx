@@ -1,28 +1,42 @@
 /**
- * Client-side effect that scrubs stale URL params whenever a referenced
+ * Client-side effect that scrubs stale URL paths whenever a referenced
  * entity disappears from the doc. Mounted inside BuilderProvider so it
- * has access to both the doc store (via BlueprintDocContext) and the
- * Next.js App Router (via useRouter).
+ * has access to the doc store (via BlueprintDocContext).
  *
- * The effect walks the current location inside-out (most specific to
- * least specific), dropping any reference that doesn't resolve. The
- * scrubbed location is issued as a `router.replace` so the bad URL
- * doesn't end up in history.
+ * Two recovery strategies work in tandem:
+ *
+ * 1. **Stale-reference recovery**: `recoverLocation` walks the current
+ *    parsed location and strips any UUID that no longer exists in the doc.
+ *
+ * 2. **URL-mismatch recovery**: With path-based URLs, the parser itself
+ *    degrades unresolvable UUIDs to simpler locations at parse time
+ *    (e.g. a deleted form UUID → home). This means the parsed location
+ *    is already "recovered," but the browser URL still shows the old
+ *    path. The effect detects this mismatch by comparing the canonical
+ *    URL for the parsed location against the current path segments.
  *
  * Returns `null` — exists purely for its side effect.
  */
 "use client";
 
-import { usePathname, useRouter } from "next/navigation";
+import { usePathname } from "next/navigation";
 import { useEffect } from "react";
 import { useBlueprintDoc } from "@/lib/doc/hooks/useBlueprintDoc";
 import { useLocation } from "@/lib/routing/hooks";
-import { recoverLocation, serializeLocation } from "@/lib/routing/location";
+import {
+	buildUrl,
+	recoverLocation,
+	serializePath,
+} from "@/lib/routing/location";
+import {
+	notifyPathChange,
+	useBuilderPathSegments,
+} from "@/lib/routing/useClientPath";
 
 export function LocationRecoveryEffect() {
 	const loc = useLocation();
-	const router = useRouter();
 	const pathname = usePathname();
+	const segments = useBuilderPathSegments();
 
 	/* Subscribe to entity maps directly so the effect re-fires whenever a
 	 * referenced uuid might have disappeared. Each slice is an Immer-stable
@@ -33,28 +47,28 @@ export function LocationRecoveryEffect() {
 	const questions = useBlueprintDoc((s) => s.questions);
 
 	useEffect(() => {
-		/* `recoverLocation` accepts a `LocationDoc` (Pick of BlueprintDoc),
-		 * so this ad-hoc slice object is a first-class argument — no cast,
-		 * no full doc reconstruction. Identity-equality on the return value
-		 * means the happy path (everything resolves) short-circuits with a
-		 * single pointer comparison.
-		 *
-		 * No empty-doc short-circuit: a previous version skipped this effect
-		 * when all three entity maps were empty to avoid firing during
-		 * hydration (Idle / new build before generation). That guard also
-		 * swallowed the "user deleted every module mid-session" case —
-		 * when the URL still points at dead uuids but the doc is empty,
-		 * we want recovery to fire. The Idle case is handled trivially by
-		 * `recoverLocation` itself: if `loc.kind === "home"` it returns
-		 * the same reference and the identity check below skips the
-		 * `router.replace`. */
+		/* Strategy 1: check if the parsed location has stale references that
+		 * recoverLocation can strip. */
 		const recovered = recoverLocation(loc, { modules, forms, questions });
-		if (recovered === loc) return;
+		const target = recovered === loc ? loc : recovered;
 
-		const params = serializeLocation(recovered).toString();
-		const url = params ? `${pathname}?${params}` : pathname;
-		router.replace(url, { scroll: false });
-	}, [loc, modules, forms, questions, router, pathname]);
+		/* Strategy 2: check if the URL path matches the canonical path for
+		 * the (possibly recovered) location. With path-based parsing, the
+		 * parser degrades unresolvable UUIDs at parse time, so the parsed
+		 * location may be "home" while the URL still shows old segments. */
+		const canonicalSegments = serializePath(target);
+		const urlMatchesLocation =
+			segments.length === canonicalSegments.length &&
+			segments.every((s, i) => s === canonicalSegments[i]);
+
+		if (recovered === loc && urlMatchesLocation) return;
+
+		const parts = pathname.split("/").filter(Boolean);
+		const basePath = `/${parts.slice(0, 2).join("/")}`;
+		const url = buildUrl(basePath, target);
+		window.history.replaceState(null, "", url);
+		notifyPathChange();
+	}, [loc, modules, forms, questions, pathname, segments]);
 
 	return null;
 }

@@ -321,14 +321,9 @@ export function BuilderLayout({
 
 	useKeyboardShortcuts("builder-layout", shortcuts);
 
-	// ── Navigation ──────────────────────────────────────────────────────
+	// ── Navigate to first form when generation completes ──────────────
 
 	const navigate = useNavigate();
-
-	// ── Navigate to first form when generation completes ──
-	// Look up the first module and form UUIDs from the doc store so we can
-	// call `navigate.openForm` with UUIDs instead of legacy indices.
-
 	const docModuleOrder = useBlueprintDoc((s) => s.moduleOrder);
 	const docFormOrder = useBlueprintDoc((s) => s.formOrder);
 

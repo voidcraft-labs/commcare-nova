@@ -2,15 +2,22 @@
  * Build page — Server Component that fetches app data and composes the
  * client-side builder tree.
  *
- * This page does NOT read `searchParams`. Search params drive intra-builder
- * navigation (screen, selection) and are consumed entirely on the client by
- * `useLocation()` and `LocationRecoveryEffect`. By not depending on search
- * params, Next.js only re-renders this page when the `[id]` segment changes
- * — search param navigations are pure client-side state transitions with
- * zero server round-trips.
+ * This page uses an optional catch-all route (`[[...path]]`) so Next.js
+ * serves the same RSC page for all intra-builder paths:
+ *   /build/{id}              → home
+ *   /build/{id}/{uuid}       → module or form
+ *   /build/{id}/{uuid}/{uuid} → form + selected question
+ *   /build/{id}/{uuid}/cases  → case list
+ *
+ * The `path` param is NOT read here — all path resolution happens
+ * client-side in `useLocation()` (via `useBuilderPathSegments` +
+ * `parsePathToLocation`). Navigation uses the browser History API
+ * (pushState/replaceState) so intra-builder screen changes are purely
+ * client-side with zero server round-trips.
  *
  * Stale deep links (bookmarks with deleted UUIDs) are handled client-side
- * by `LocationRecoveryEffect`, which strips invalid params on mount.
+ * by `LocationRecoveryEffect`, which detects URL/location mismatches
+ * and issues `replaceState` to fix the path.
  */
 import { notFound, redirect } from "next/navigation";
 import { Suspense } from "react";

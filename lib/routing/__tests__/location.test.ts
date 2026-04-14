@@ -1,10 +1,11 @@
 import { describe, expect, it } from "vitest";
 import type { BlueprintDoc } from "@/lib/doc/types";
 import { asUuid } from "@/lib/doc/types";
+import type { LocationParseDoc } from "@/lib/routing/location";
 import {
 	isValidLocation,
-	parseLocation,
-	serializeLocation,
+	parsePathToLocation,
+	serializePath,
 } from "@/lib/routing/location";
 import type { Location } from "@/lib/routing/types";
 
@@ -12,123 +13,149 @@ const modUuid = asUuid("11111111-1111-1111-1111-111111111111");
 const formUuid = asUuid("22222222-2222-2222-2222-222222222222");
 const qUuid = asUuid("33333333-3333-3333-3333-333333333333");
 
-describe("serializeLocation", () => {
-	it("emits empty params for home", () => {
+describe("serializePath", () => {
+	it("returns empty array for home", () => {
 		const loc: Location = { kind: "home" };
-		const params = serializeLocation(loc);
-		expect(params.toString()).toBe("");
+		expect(serializePath(loc)).toEqual([]);
 	});
 
-	it("emits s=m&m=<uuid> for module screen", () => {
+	it("returns [moduleUuid] for module screen", () => {
 		const loc: Location = { kind: "module", moduleUuid: modUuid };
-		const params = serializeLocation(loc);
-		expect(params.get("s")).toBe("m");
-		expect(params.get("m")).toBe(modUuid);
-		expect(Array.from(params.keys())).toEqual(["s", "m"]);
+		expect(serializePath(loc)).toEqual([modUuid]);
 	});
 
-	it("emits s=cases&m=<uuid> for case list", () => {
+	it("returns [moduleUuid, 'cases'] for case list", () => {
 		const loc: Location = { kind: "cases", moduleUuid: modUuid };
-		const params = serializeLocation(loc);
-		expect(params.get("s")).toBe("cases");
-		expect(params.get("m")).toBe(modUuid);
-		expect(params.get("case")).toBeNull();
+		expect(serializePath(loc)).toEqual([modUuid, "cases"]);
 	});
 
-	it("emits case= when caseId is present", () => {
+	it("returns [moduleUuid, 'cases', caseId] when caseId is present", () => {
 		const loc: Location = {
 			kind: "cases",
 			moduleUuid: modUuid,
 			caseId: "abc123",
 		};
-		const params = serializeLocation(loc);
-		expect(params.get("case")).toBe("abc123");
+		expect(serializePath(loc)).toEqual([modUuid, "cases", "abc123"]);
 	});
 
-	it("emits s=f&m=&f= for form without selection", () => {
+	it("returns [formUuid] for form without selection", () => {
 		const loc: Location = {
 			kind: "form",
 			moduleUuid: modUuid,
 			formUuid,
 		};
-		const params = serializeLocation(loc);
-		expect(params.get("s")).toBe("f");
-		expect(params.get("m")).toBe(modUuid);
-		expect(params.get("f")).toBe(formUuid);
-		expect(params.get("sel")).toBeNull();
+		expect(serializePath(loc)).toEqual([formUuid]);
 	});
 
-	it("emits sel= when a question is selected", () => {
+	it("returns [formUuid, selectedUuid] when a question is selected", () => {
 		const loc: Location = {
 			kind: "form",
 			moduleUuid: modUuid,
 			formUuid,
 			selectedUuid: qUuid,
 		};
-		const params = serializeLocation(loc);
-		expect(params.get("sel")).toBe(qUuid);
+		expect(serializePath(loc)).toEqual([formUuid, qUuid]);
 	});
 });
 
-const params = (s: string): URLSearchParams => new URLSearchParams(s);
+/**
+ * Minimal doc fixture for parsing tests. Provides enough structure for
+ * `parsePathToLocation` to disambiguate UUIDs.
+ */
+function makeParseDoc(overrides?: Partial<LocationParseDoc>): LocationParseDoc {
+	return {
+		modules: {},
+		forms: {},
+		questions: {},
+		formOrder: {},
+		questionOrder: {},
+		...overrides,
+	};
+}
 
-describe("parseLocation", () => {
-	it("returns home for empty params", () => {
-		expect(parseLocation(params(""))).toEqual({ kind: "home" });
+describe("parsePathToLocation", () => {
+	it("returns home for empty segments", () => {
+		expect(parsePathToLocation([], makeParseDoc())).toEqual({ kind: "home" });
 	});
 
-	it("returns home when s is missing but other params are present", () => {
-		// Defensive: if someone strips the screen param by mistake, we fall
-		// back to home rather than rendering a broken screen.
-		expect(parseLocation(params(`m=${modUuid}`))).toEqual({ kind: "home" });
+	it("returns home for unrecognized single segment", () => {
+		expect(parsePathToLocation(["bogus"], makeParseDoc())).toEqual({
+			kind: "home",
+		});
 	});
 
-	it("returns home for an unrecognized s value", () => {
-		expect(parseLocation(params("s=bogus"))).toEqual({ kind: "home" });
-	});
-
-	it("parses module screen", () => {
-		expect(parseLocation(params(`s=m&m=${modUuid}`))).toEqual({
+	it("parses module screen from single segment", () => {
+		const doc = makeParseDoc({
+			modules: { [modUuid]: { uuid: modUuid, name: "M" } as never },
+		});
+		expect(parsePathToLocation([modUuid], doc)).toEqual({
 			kind: "module",
 			moduleUuid: modUuid,
 		});
 	});
 
-	it("falls back to home when module screen is missing m=", () => {
-		expect(parseLocation(params("s=m"))).toEqual({ kind: "home" });
+	it("parses form screen from single segment (form UUID)", () => {
+		const doc = makeParseDoc({
+			forms: { [formUuid]: { uuid: formUuid, name: "F" } as never },
+			formOrder: { [modUuid]: [formUuid] },
+		});
+		expect(parsePathToLocation([formUuid], doc)).toEqual({
+			kind: "form",
+			moduleUuid: modUuid,
+			formUuid,
+		});
+	});
+
+	it("parses form+selection from single segment (question UUID)", () => {
+		const doc = makeParseDoc({
+			forms: { [formUuid]: { uuid: formUuid } as never },
+			questions: { [qUuid]: { uuid: qUuid } as never },
+			formOrder: { [modUuid]: [formUuid] },
+			questionOrder: { [formUuid]: [qUuid] },
+		});
+		expect(parsePathToLocation([qUuid], doc)).toEqual({
+			kind: "form",
+			moduleUuid: modUuid,
+			formUuid,
+			selectedUuid: qUuid,
+		});
 	});
 
 	it("parses case list", () => {
-		expect(parseLocation(params(`s=cases&m=${modUuid}`))).toEqual({
+		const doc = makeParseDoc({
+			modules: { [modUuid]: { uuid: modUuid } as never },
+		});
+		expect(parsePathToLocation([modUuid, "cases"], doc)).toEqual({
 			kind: "cases",
 			moduleUuid: modUuid,
 		});
 	});
 
 	it("parses case detail", () => {
-		expect(parseLocation(params(`s=cases&m=${modUuid}&case=abc`))).toEqual({
+		const doc = makeParseDoc({
+			modules: { [modUuid]: { uuid: modUuid } as never },
+		});
+		expect(parsePathToLocation([modUuid, "cases", "abc"], doc)).toEqual({
 			kind: "cases",
 			moduleUuid: modUuid,
 			caseId: "abc",
 		});
 	});
 
-	it("falls back to home when case screen is missing m=", () => {
-		expect(parseLocation(params("s=cases"))).toEqual({ kind: "home" });
-	});
-
-	it("parses form without selection", () => {
-		expect(parseLocation(params(`s=f&m=${modUuid}&f=${formUuid}`))).toEqual({
-			kind: "form",
-			moduleUuid: modUuid,
-			formUuid,
+	it("falls back to home when case screen module is missing", () => {
+		expect(parsePathToLocation([modUuid, "cases"], makeParseDoc())).toEqual({
+			kind: "home",
 		});
 	});
 
-	it("parses form with selection", () => {
-		expect(
-			parseLocation(params(`s=f&m=${modUuid}&f=${formUuid}&sel=${qUuid}`)),
-		).toEqual({
+	it("parses form with selection from two segments", () => {
+		const doc = makeParseDoc({
+			forms: { [formUuid]: { uuid: formUuid } as never },
+			questions: { [qUuid]: { uuid: qUuid } as never },
+			formOrder: { [modUuid]: [formUuid] },
+			questionOrder: { [formUuid]: [qUuid] },
+		});
+		expect(parsePathToLocation([formUuid, qUuid], doc)).toEqual({
 			kind: "form",
 			moduleUuid: modUuid,
 			formUuid,
@@ -136,29 +163,39 @@ describe("parseLocation", () => {
 		});
 	});
 
-	it("falls back to home when form screen is missing f=", () => {
-		expect(parseLocation(params(`s=f&m=${modUuid}`))).toEqual({
-			kind: "home",
+	it("falls back to form without selection when second segment is not a question", () => {
+		const doc = makeParseDoc({
+			forms: { [formUuid]: { uuid: formUuid } as never },
+			formOrder: { [modUuid]: [formUuid] },
+		});
+		expect(parsePathToLocation([formUuid, "bogus"], doc)).toEqual({
+			kind: "form",
+			moduleUuid: modUuid,
+			formUuid,
 		});
 	});
 
-	it("round-trips every Location shape through serialize→parse", () => {
-		const cases: Location[] = [
-			{ kind: "home" },
-			{ kind: "module", moduleUuid: modUuid },
-			{ kind: "cases", moduleUuid: modUuid },
-			{ kind: "cases", moduleUuid: modUuid, caseId: "abc" },
-			{ kind: "form", moduleUuid: modUuid, formUuid },
-			{
-				kind: "form",
-				moduleUuid: modUuid,
-				formUuid,
-				selectedUuid: qUuid,
+	it("resolves nested question (inside a group) to its parent form", () => {
+		const groupUuid = asUuid("44444444-4444-4444-4444-444444444444");
+		const nestedQUuid = asUuid("55555555-5555-5555-5555-555555555555");
+		const doc = makeParseDoc({
+			forms: { [formUuid]: { uuid: formUuid } as never },
+			questions: {
+				[groupUuid]: { uuid: groupUuid, type: "group" } as never,
+				[nestedQUuid]: { uuid: nestedQUuid } as never,
 			},
-		];
-		for (const loc of cases) {
-			expect(parseLocation(serializeLocation(loc))).toEqual(loc);
-		}
+			formOrder: { [modUuid]: [formUuid] },
+			questionOrder: {
+				[formUuid]: [groupUuid],
+				[groupUuid]: [nestedQUuid],
+			},
+		});
+		expect(parsePathToLocation([nestedQUuid], doc)).toEqual({
+			kind: "form",
+			moduleUuid: modUuid,
+			formUuid,
+			selectedUuid: nestedQUuid,
+		});
 	});
 });
 
