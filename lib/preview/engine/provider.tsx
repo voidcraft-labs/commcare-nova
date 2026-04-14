@@ -12,10 +12,19 @@
  * on `BuilderEngine`. Consumers now read it via `useBuilderFormEngine()`
  * instead of `useBuilderEngine().engineController`.
  *
- * The doc store is installed on the controller via a useEffect once both
- * are mounted; teardown deactivates the controller so any in-flight form
- * subscriptions are cleaned up. The controller instance itself is created
- * lazily in `useState` so it's stable for the lifetime of the provider.
+ * Install timing matters: the doc store reference is bound on the
+ * controller SYNCHRONOUSLY inside `useState`'s initializer, not in a
+ * mount effect. React runs effects child-before-parent, so if the parent
+ * (this provider) installed the doc store in `useEffect`, descendant
+ * effects that call `controller.activateForm(...)` on first mount would
+ * see `docStore === null`, silently no-op, and leave the form preview
+ * with no runtime state. Binding inside `useState` avoids that race —
+ * by the time any descendant renders, the controller is already wired.
+ *
+ * A follow-up `useEffect` keeps the binding fresh if the doc store
+ * reference changes after mount (rare today since `buildId` changes
+ * remount the entire provider tree, but defensive against future
+ * refactors) and runs `deactivate()` cleanup on unmount.
  */
 "use client";
 
@@ -39,24 +48,40 @@ const BuilderFormEngineContext = createContext<EngineController | null>(null);
  * Wraps the builder subtree with a single long-lived `EngineController`.
  *
  * Expected placement: inside `BlueprintDocProvider` so the doc store is
- * reachable via context. The controller itself is stable across renders —
- * `useState(() => new EngineController())` ensures a single instance per
- * mount — and the effect installs or clears the doc store reference
- * whenever the provider context changes.
+ * reachable via context. The controller is created AND wired to the doc
+ * store inside `useState`'s initializer so it's ready for descendant
+ * effects on first render — see the module header for the race this
+ * avoids. The follow-up effect re-syncs on doc-store identity change
+ * and tears down the active form subscription on unmount.
  */
 export function BuilderFormEngineProvider({
 	children,
 }: {
 	children: ReactNode;
 }) {
-	const [controller] = useState(() => new EngineController());
 	const docStore = useContext(BlueprintDocContext);
 
+	/* Create the controller AND bind the doc store synchronously on first
+	 * render. Child effects (e.g. `useFormEngine.activateForm`) flush
+	 * before parent effects, so any install we did in this component's
+	 * own `useEffect` would land too late — descendants would already
+	 * have called `activateForm` against an unwired controller. The
+	 * `useState` initializer runs during render, before any descendant
+	 * mounts, so the binding is in place before anyone needs it. */
+	const [controller] = useState(() => {
+		const c = new EngineController();
+		if (docStore) c.setDocStore(docStore);
+		return c;
+	});
+
+	/* Keep the doc store reference in sync if it changes after mount
+	 * (rare — `buildId` changes today fully remount the provider tree,
+	 * but explicit handling makes the contract resilient). On unmount we
+	 * also deactivate any active form subscription and clear the
+	 * reference so stray events can't fire against a destroyed store. */
 	useEffect(() => {
 		if (!docStore) return;
 		controller.setDocStore(docStore);
-		/* Cleanup: deactivate any active form subscription and clear the doc
-		 * store reference. Matches the old SyncBridge teardown path. */
 		return () => {
 			controller.deactivate();
 			controller.setDocStore(null);

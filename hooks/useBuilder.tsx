@@ -34,6 +34,7 @@ import {
 	type ReactNode,
 	useContext,
 	useEffect,
+	useRef,
 	useState,
 } from "react";
 import { useStore } from "zustand";
@@ -269,50 +270,61 @@ export function BuilderProvider({
 	 *  the provider so the first render sees populated entities. */
 	initialBlueprint?: AppBlueprint;
 }) {
-	const [state, setState] = useState(() => ({
-		store: createBuilderStore(
+	/* `key={buildId}` on the outer context forces a full unmount/remount
+	 * of the entire provider tree when the build identity changes
+	 * (`/build/A` → `/build/B`). Every nested provider (doc, session,
+	 * scroll, edit guard, form engine) gets a fresh instance, so stale
+	 * cross-store references can't leak across build sessions. With this
+	 * remount in place, the legacy store can be created exactly once via
+	 * `useState`'s initializer — no in-render `setState` rebuild needed. */
+	return (
+		<BuilderProviderInner
+			key={buildId}
+			buildId={buildId}
+			replay={replay}
+			initialBlueprint={initialBlueprint}
+		>
+			{children}
+		</BuilderProviderInner>
+	);
+}
+
+/**
+ * Inner provider — owns the legacy store and the provider stack. Wrapped
+ * by `BuilderProvider` so the `key={buildId}` swap happens at the boundary;
+ * everything below this component is guaranteed to be a fresh tree per
+ * build session.
+ */
+function BuilderProviderInner({
+	buildId,
+	children,
+	replay,
+	initialBlueprint,
+}: {
+	buildId: string;
+	children: ReactNode;
+	replay?: ReplayInit;
+	initialBlueprint?: AppBlueprint;
+}) {
+	/* Single creation per mount. Because `BuilderProvider` keys this
+	 * component on `buildId`, build-id changes remount and re-run this
+	 * initializer — no need for an in-render `setState` rebuild. */
+	const [store] = useState(() =>
+		createBuilderStore(
 			replay || initialBlueprint ? BuilderPhase.Loading : BuilderPhase.Idle,
 		),
-		buildId,
-	}));
+	);
 
-	/* Adjusting state during rendering — React discards the current render
-	 * and re-renders immediately with fresh stores when buildId changes. */
-	if (buildId !== state.buildId) {
-		setState({
-			store: createBuilderStore(
-				replay || initialBlueprint ? BuilderPhase.Loading : BuilderPhase.Idle,
-			),
-			buildId,
-		});
-	}
-
-	const { store } = state;
-
-	/* Hydrate the legacy store from replay stages or an initial blueprint.
-	 * Runs once on mount (and again when `buildId` changes) to drive the
-	 * legacy-store lifecycle fields to Ready. Entity data is hydrated by
-	 * `BlueprintDocProvider` from the same `initialBlueprint`, so this
-	 * effect only touches session/lifecycle flags.
-	 *
-	 * Phase 4 will delete this path entirely — generation + replay become
-	 * a pure mutation stream on the doc store and there will be no legacy
-	 * lifecycle to hydrate. */
+	/* Drive the legacy lifecycle to Ready for plain blueprint loads. The
+	 * doc store was already hydrated synchronously by `BlueprintDocProvider`
+	 * from the same `initialBlueprint` prop, so callers that read entity
+	 * data from the doc see a populated state on the first render. Replay
+	 * hydration lives in `ReplayHydrator` (below) so it can read the doc
+	 * store from context — `BuilderProviderInner` itself sits OUTSIDE
+	 * `BlueprintDocProvider` and can't read it here. */
 	useEffect(() => {
-		if (replay) {
-			store
-				.getState()
-				.loadReplay(replay.stages, replay.doneIndex, replay.exitPath);
-			for (let i = 0; i <= replay.doneIndex; i++) {
-				replay.stages[i]?.applyToBuilder({ store, docStore: null });
-			}
-		} else if (initialBlueprint) {
-			/* Transition the legacy lifecycle to Ready. The doc store was already
-			 * hydrated synchronously by `BlueprintDocProvider` from the same
-			 * `initialBlueprint` prop, so callers that read entity data from the
-			 * doc see a populated state on the first render. */
-			store.getState().loadApp(buildId);
-		}
+		if (replay) return;
+		if (initialBlueprint) store.getState().loadApp(buildId);
 	}, [store, buildId, replay, initialBlueprint]);
 
 	return (
@@ -328,6 +340,7 @@ export function BuilderProvider({
 							<BuilderFormEngineProvider>
 								<SyncBridge />
 								<LocationRecoveryEffect />
+								{replay ? <ReplayHydrator replay={replay} /> : null}
 								{children}
 							</BuilderFormEngineProvider>
 						</EditGuardProvider>
@@ -336,6 +349,46 @@ export function BuilderProvider({
 			</BlueprintDocProvider>
 		</StoreContext>
 	);
+}
+
+/**
+ * ReplayHydrator — re-dispatches replay stages into both the legacy
+ * store (lifecycle + chat history) and the doc store (entity data).
+ *
+ * Why a child component rather than inline in `BuilderProviderInner`?
+ * Replay stages call `applyDataPart`, which routes
+ * `data-blueprint-updated` events through `docStore.getState().load(...)`.
+ * If the hydration loop ran in `BuilderProviderInner`, it would sit
+ * OUTSIDE `BlueprintDocProvider` and have no way to read the doc store
+ * from context — so the loop would have to pass `docStore: null`,
+ * silently dropping every blueprint-update event in the replayed
+ * session. By moving the loop here, inside both `BlueprintDocContext`
+ * and `StoreContext`, we can read both stores and pass them to each
+ * stage's `applyToBuilder`. Replayed edit sessions now apply correctly.
+ *
+ * The hydration runs once per mount (gated by `hydratedRef`) — replay
+ * is immutable for the lifetime of a build session, so any later
+ * re-runs would be redundant at best and corrupting at worst.
+ */
+function ReplayHydrator({ replay }: { replay: ReplayInit }) {
+	const store = useContext(StoreContext);
+	const docStore = useContext(BlueprintDocContext);
+	const hydratedRef = useRef(false);
+
+	useEffect(() => {
+		if (hydratedRef.current) return;
+		if (!store || !docStore) return;
+		hydratedRef.current = true;
+
+		store
+			.getState()
+			.loadReplay(replay.stages, replay.doneIndex, replay.exitPath);
+		for (let i = 0; i <= replay.doneIndex; i++) {
+			replay.stages[i]?.applyToBuilder({ store, docStore });
+		}
+	}, [replay, store, docStore]);
+
+	return null;
 }
 
 /**

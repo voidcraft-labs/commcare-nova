@@ -10,8 +10,8 @@
  * the real provider stack in `hooks/useBuilder.tsx`.
  */
 
-import { renderHook } from "@testing-library/react";
-import type { ReactNode } from "react";
+import { render, renderHook } from "@testing-library/react";
+import { type ReactNode, useEffect } from "react";
 import { describe, expect, it } from "vitest";
 import { BlueprintDocContext } from "@/lib/doc/provider";
 import { createBlueprintDocStore } from "@/lib/doc/store";
@@ -93,5 +93,51 @@ describe("BuilderFormEngineProvider", () => {
 		expect(() => renderHook(() => useBuilderFormEngine())).toThrow(
 			/useBuilderFormEngine must be used within a BuilderFormEngineProvider/,
 		);
+	});
+
+	/* Regression for the BL-1 race fixed in lib/preview/engine/provider.tsx:
+	 *
+	 * React effect ordering is child-before-parent on mount. Prior to the
+	 * fix, the provider installed the doc store inside its own useEffect.
+	 * A descendant calling `controller.activateForm(...)` from its own
+	 * mount effect would therefore fire FIRST — see `docStore === null`
+	 * — and silently no-op, leaving the form preview without per-question
+	 * runtime state. Direct deep-link loads of `/build/[id]?s=f&...` are
+	 * the canonical user trigger.
+	 *
+	 * The harness here mirrors how `useFormEngine` calls `activateForm`
+	 * inside an effect on mount. After the first effect pass the
+	 * controller's runtime store MUST be populated — that proves
+	 * `activateForm` ran with a non-null doc store, i.e. the synchronous
+	 * binding in `useState` worked. */
+	it("doc store is bound before child effects run on first mount", () => {
+		const docStore = createBlueprintDocStore();
+		docStore.getState().load(BP, "test-app");
+		docStore.temporal.getState().resume();
+
+		let captured: EngineController | null = null;
+
+		function TestHarness() {
+			const controller = useBuilderFormEngine();
+			useEffect(() => {
+				/* Capture the controller once we know its activate ran with the
+				 * doc store available; assertions then read from this ref. */
+				controller.activateForm(0, 0);
+				captured = controller;
+			}, [controller]);
+			return null;
+		}
+
+		render(
+			<BlueprintDocContext value={docStore}>
+				<BuilderFormEngineProvider>
+					<TestHarness />
+				</BuilderFormEngineProvider>
+			</BlueprintDocContext>,
+		);
+
+		expect(captured).not.toBeNull();
+		const runtime = (captured as unknown as EngineController).store.getState();
+		expect(Object.keys(runtime).length).toBeGreaterThan(0);
 	});
 });
