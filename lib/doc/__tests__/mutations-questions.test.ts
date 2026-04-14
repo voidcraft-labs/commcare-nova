@@ -2,6 +2,10 @@ import { produce } from "immer";
 import { describe, expect, it } from "vitest";
 import { applyMutation } from "@/lib/doc/mutations";
 import type {
+	MoveQuestionResult,
+	QuestionRenameMeta,
+} from "@/lib/doc/mutations/questions";
+import type {
 	BlueprintDoc,
 	FormEntity,
 	ModuleEntity,
@@ -409,5 +413,153 @@ describe("duplicateQuestion", () => {
 			applyMutation(d, { kind: "duplicateQuestion", uuid: Q("missing") });
 		});
 		expect(Object.keys(next.questions)).toHaveLength(0);
+	});
+});
+
+describe("moveQuestion result metadata", () => {
+	it("returns renamed metadata when cross-level dedup changes the id", () => {
+		// Form has a group containing `name`; moving `name` from root into the
+		// group triggers sibling dedup → `name_2`.
+		const start: BlueprintDoc = {
+			...docWithForm(),
+			questions: {
+				[Q("grp")]: question_(Q("grp"), "grp", { type: "group" }),
+				[Q("name_root")]: question_(Q("name_root"), "name"),
+				[Q("name_grp")]: question_(Q("name_grp"), "name"),
+			},
+			questionOrder: {
+				[F("1")]: [Q("grp"), Q("name_root")],
+				[Q("grp")]: [Q("name_grp")],
+			},
+		};
+
+		let result: MoveQuestionResult | undefined;
+		produce(start, (d) => {
+			result = applyMutation(d, {
+				kind: "moveQuestion",
+				uuid: Q("name_root"),
+				toParentUuid: Q("grp"),
+				toIndex: 1,
+			}) as MoveQuestionResult;
+		});
+
+		expect(result).toBeDefined();
+		expect(result?.renamed).toBeDefined();
+		expect(result?.renamed?.oldId).toBe("name");
+		expect(result?.renamed?.newId).toBe("name_2");
+		expect(typeof result?.renamed?.xpathFieldsRewritten).toBe("number");
+	});
+
+	it("returns renamed.xpathFieldsRewritten > 0 when refs are rewritten", () => {
+		// `ref` has a calculate that references `/data/source`. Moving `source`
+		// into the group changes its path from `/data/source` to
+		// `/data/grp/source`. Additionally, the group already has a `source`
+		// question, so the moved one dedup'd to `source_2` — the rewriter
+		// updates the reference to `/data/grp/source_2`.
+		const start: BlueprintDoc = {
+			...docWithForm(),
+			questions: {
+				[Q("grp")]: question_(Q("grp"), "grp", { type: "group" }),
+				[Q("src_a")]: question_(Q("src_a"), "source"),
+				[Q("src_b")]: question_(Q("src_b"), "source"),
+				[Q("ref")]: question_(Q("ref"), "ref", {
+					calculate: "/data/source + 1",
+				}),
+			},
+			questionOrder: {
+				[F("1")]: [Q("grp"), Q("src_a"), Q("ref")],
+				[Q("grp")]: [Q("src_b")],
+			},
+		};
+
+		let result: MoveQuestionResult | undefined;
+		produce(start, (d) => {
+			result = applyMutation(d, {
+				kind: "moveQuestion",
+				uuid: Q("src_a"),
+				toParentUuid: Q("grp"),
+				toIndex: 1,
+			}) as MoveQuestionResult;
+		});
+
+		expect(result?.renamed).toBeDefined();
+		expect(result?.renamed?.xpathFieldsRewritten).toBeGreaterThan(0);
+	});
+
+	it("returns renamed === undefined when no dedup is needed", () => {
+		const start: BlueprintDoc = {
+			...docWithForm(),
+			questions: {
+				[Q("grp")]: question_(Q("grp"), "grp", { type: "group" }),
+				[Q("x")]: question_(Q("x"), "x"),
+			},
+			questionOrder: {
+				[F("1")]: [Q("grp"), Q("x")],
+				[Q("grp")]: [],
+			},
+		};
+
+		let result: MoveQuestionResult | undefined;
+		produce(start, (d) => {
+			result = applyMutation(d, {
+				kind: "moveQuestion",
+				uuid: Q("x"),
+				toParentUuid: Q("grp"),
+				toIndex: 0,
+			}) as MoveQuestionResult;
+		});
+
+		expect(result).toBeDefined();
+		expect(result?.renamed).toBeUndefined();
+	});
+});
+
+describe("renameQuestion result metadata", () => {
+	it("returns xpathFieldsRewritten > 0 when sibling references exist", () => {
+		const start: BlueprintDoc = {
+			...docWithForm(),
+			questions: {
+				[Q("src")]: question_(Q("src"), "source"),
+				[Q("ref")]: question_(Q("ref"), "ref", {
+					calculate: "/data/source * 2",
+				}),
+			},
+			questionOrder: { [F("1")]: [Q("src"), Q("ref")] },
+		};
+
+		let result: QuestionRenameMeta | undefined;
+		produce(start, (d) => {
+			result = applyMutation(d, {
+				kind: "renameQuestion",
+				uuid: Q("src"),
+				newId: "primary",
+			}) as QuestionRenameMeta;
+		});
+
+		expect(result).toBeDefined();
+		expect(result?.xpathFieldsRewritten).toBeGreaterThan(0);
+	});
+
+	it("returns xpathFieldsRewritten === 0 when no references exist", () => {
+		const start: BlueprintDoc = {
+			...docWithForm(),
+			questions: {
+				[Q("a")]: question_(Q("a"), "alpha"),
+				[Q("b")]: question_(Q("b"), "beta"),
+			},
+			questionOrder: { [F("1")]: [Q("a"), Q("b")] },
+		};
+
+		let result: QuestionRenameMeta | undefined;
+		produce(start, (d) => {
+			result = applyMutation(d, {
+				kind: "renameQuestion",
+				uuid: Q("a"),
+				newId: "gamma",
+			}) as QuestionRenameMeta;
+		});
+
+		expect(result).toBeDefined();
+		expect(result?.xpathFieldsRewritten).toBe(0);
 	});
 });

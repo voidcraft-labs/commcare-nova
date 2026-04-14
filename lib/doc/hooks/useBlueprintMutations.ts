@@ -24,6 +24,7 @@
 
 import { useContext, useMemo } from "react";
 import { toDoc } from "@/lib/doc/converter";
+import type { MoveQuestionResult } from "@/lib/doc/mutations/questions";
 import { BlueprintDocContext } from "@/lib/doc/provider";
 import {
 	asUuid,
@@ -50,10 +51,8 @@ import type { QuestionPath } from "@/lib/services/questionPath";
  * `conflict: true` short-circuits the dispatch — the hook checks sibling
  * ids BEFORE calling the reducer so the UI can surface a "name already
  * taken" message without unwinding a half-applied mutation.
- * `xpathFieldsRewritten` is currently always 0: the doc reducer rewrites
- * references in-place but doesn't return a count (adding one would
- * require changes to `lib/doc/mutations/questions.ts` which are out of
- * scope until Phase 3).
+ * `xpathFieldsRewritten` reflects the number of XPath expression fields
+ * that were rewritten by the reducer to reference the new question ID.
  */
 export interface QuestionRenameResult {
 	newPath: QuestionPath;
@@ -121,7 +120,7 @@ export interface BlueprintMutations {
 			beforeUuid?: Uuid;
 			toIndex?: number;
 		},
-	) => void;
+	) => MoveQuestionResult;
 	duplicateQuestion: (uuid: Uuid) => DuplicateQuestionResult | undefined;
 
 	// ── Form mutations ────────────────────────────────────────────────────
@@ -375,7 +374,12 @@ export function useBlueprintMutations(): BlueprintMutations {
 					}
 				}
 
-				dispatch({ kind: "renameQuestion", uuid, newId });
+				// Dispatch via `applyWithResult` to capture the xpath rewrite count.
+				const meta = store.getState().applyWithResult({
+					kind: "renameQuestion",
+					uuid,
+					newId,
+				});
 
 				/* Compute the new path AFTER dispatch — the semantic id has
 				 * changed. Rebuild the parent index from the post-dispatch
@@ -386,9 +390,10 @@ export function useBlueprintMutations(): BlueprintMutations {
 				const afterParentIndex = buildParentIndex(after);
 				const newPath = (computePathForUuid(after, uuid, afterParentIndex) ??
 					"") as QuestionPath;
-				// xpathFieldsRewritten count not exposed by the doc reducer yet;
-				// surface zero until Phase 3 adds instrumentation.
-				return { newPath, xpathFieldsRewritten: 0 };
+				return {
+					newPath,
+					xpathFieldsRewritten: meta.xpathFieldsRewritten,
+				};
 			},
 
 			moveQuestion(uuid, opts) {
@@ -429,17 +434,14 @@ export function useBlueprintMutations(): BlueprintMutations {
 					if (i >= 0) toIndex = i + 1;
 				}
 
-				dispatch({
+				// Dispatch via `applyWithResult` to capture the rename metadata
+				// the reducer populates when cross-level dedup changes the id.
+				return store.getState().applyWithResult({
 					kind: "moveQuestion",
 					uuid,
 					toParentUuid,
 					toIndex,
 				});
-
-				/* Sibling-id dedup (for cross-parent moves that would cause
-				 * a collision) is performed inside the reducer. Surfacing the
-				 * resulting new id back to the caller — so the UI can show a
-				 * rename notice — is deferred to Phase 3. */
 			},
 
 			duplicateQuestion(uuid) {

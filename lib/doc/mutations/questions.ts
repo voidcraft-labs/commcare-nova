@@ -7,6 +7,7 @@ import type {
 } from "@/lib/doc/types";
 import { transformBareHashtags } from "@/lib/preview/engine/labelRefs";
 import { rewriteXPathRefs } from "@/lib/preview/xpath/rewrite";
+import type { QuestionPath } from "@/lib/services/questionPath";
 import {
 	cascadeDeleteQuestion,
 	cloneQuestionSubtree,
@@ -17,6 +18,28 @@ import {
 	walkFormQuestionUuids,
 } from "./helpers";
 import { rewriteXPathOnMove } from "./pathRewrite";
+
+/**
+ * Metadata returned by `moveQuestion` when a cross-level move triggers
+ * sibling-id deduplication (CommCare requires unique IDs per parent level).
+ * When no dedup is needed, `renamed` is `undefined`.
+ */
+export interface MoveQuestionResult {
+	renamed?: {
+		oldId: string;
+		newId: string;
+		newPath: QuestionPath;
+		xpathFieldsRewritten: number;
+	};
+}
+
+/**
+ * Metadata returned by `renameQuestion` with the count of XPath expression
+ * fields that were rewritten to reflect the new question ID.
+ */
+export interface QuestionRenameMeta {
+	xpathFieldsRewritten: number;
+}
 
 /**
  * Fields on a `QuestionEntity` that carry XPath expressions directly —
@@ -74,7 +97,7 @@ export function applyQuestionMutation(
 				| "updateQuestion";
 		}
 	>,
-): void {
+): MoveQuestionResult | QuestionRenameMeta | undefined {
 	switch (mut.kind) {
 		case "addQuestion": {
 			// Parent must be a form or a group/repeat that already has an
@@ -149,6 +172,8 @@ export function applyQuestionMutation(
 			}
 
 			// Dedupe id against new siblings if we crossed a parent boundary.
+			// Capture the old id so we can detect and report auto-rename.
+			const oldId = q.id;
 			if (crossParent) {
 				const deduped = dedupeSiblingId(
 					draft,
@@ -169,6 +194,7 @@ export function applyQuestionMutation(
 			// stale path. Covers cross-level moves (where the prefix changes)
 			// and reorder+rename (where the leaf segment changes from dedup).
 			// Same-form only — xpath references never cross form boundaries.
+			let xpathFieldsRewritten = 0;
 			const newPathStr = computeQuestionPath(draft, mut.uuid) ?? "";
 			if (oldPathStr && newPathStr && oldPathStr !== newPathStr) {
 				const oldSegments = oldPathStr.split("/");
@@ -188,6 +214,7 @@ export function applyQuestionMutation(
 								);
 								if (rewritten !== expr) {
 									target[field] = rewritten as never;
+									xpathFieldsRewritten++;
 								}
 							}
 						}
@@ -199,23 +226,40 @@ export function applyQuestionMutation(
 								);
 								if (rewritten !== text) {
 									target[field] = rewritten as never;
+									xpathFieldsRewritten++;
 								}
 							}
 						}
 					}
 				}
 			}
-			return;
+
+			// Build rename metadata when cross-level dedup changed the id.
+			const renamed =
+				oldId !== q.id
+					? {
+							oldId,
+							newId: q.id,
+							newPath: (newPathStr || "") as QuestionPath,
+							xpathFieldsRewritten,
+						}
+					: undefined;
+			return { renamed } satisfies MoveQuestionResult;
 		}
 		case "renameQuestion": {
 			const q = draft.questions[mut.uuid];
 			if (!q) return;
 			const oldPath = computeQuestionPath(draft, mut.uuid);
 			q.id = mut.newId;
+			let xpathFieldsRewritten = 0;
 			if (oldPath !== undefined) {
-				rewriteRefsAllQuestions(draft, oldPath, mut.newId);
+				xpathFieldsRewritten = rewriteRefsAllQuestions(
+					draft,
+					oldPath,
+					mut.newId,
+				);
 			}
-			return;
+			return { xpathFieldsRewritten } satisfies QuestionRenameMeta;
 		}
 		case "duplicateQuestion": {
 			const src = draft.questions[mut.uuid];
@@ -289,7 +333,8 @@ function rewriteRefsAllQuestions(
 	draft: Draft<BlueprintDoc>,
 	oldPath: string,
 	newLeafId: string,
-): void {
+): number {
+	let count = 0;
 	const xpathRewriter = (expr: string) =>
 		rewriteXPathRefs(expr, oldPath, newLeafId);
 	for (const q of Object.values(draft.questions)) {
@@ -299,6 +344,7 @@ function rewriteRefsAllQuestions(
 				const rewritten = xpathRewriter(expr);
 				if (rewritten !== expr) {
 					q[field] = rewritten as never;
+					count++;
 				}
 			}
 		}
@@ -308,8 +354,10 @@ function rewriteRefsAllQuestions(
 				const rewritten = transformBareHashtags(text, xpathRewriter);
 				if (rewritten !== text) {
 					q[field] = rewritten as never;
+					count++;
 				}
 			}
 		}
 	}
+	return count;
 }

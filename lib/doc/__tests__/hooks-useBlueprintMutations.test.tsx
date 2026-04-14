@@ -644,6 +644,100 @@ describe("useBlueprintMutations", () => {
 		expect(s?.connectType).toBe("deliver");
 	});
 
+	// ── moveQuestion result metadata ─────────────────────────────────────
+
+	it("moveQuestion returns MoveQuestionResult with renamed on cross-parent dedup", () => {
+		// Use the fixture that has form F0 with [a, b, grp > [c]].
+		// Add a question with id "a" inside the group, then move Q_A into the
+		// group — it should dedup to "a_2".
+		const { result } = renderHook(() => useMutationsFormsAndGroupChildren(), {
+			wrapper,
+		});
+
+		// Seed a question inside the group with id "a" to force dedup.
+		act(() => {
+			result.current.mutations.addQuestion(Q_GRP, {
+				id: "a",
+				type: "text",
+				label: "duplicate-a",
+			} as unknown as Question);
+		});
+
+		const captured: {
+			value?: ReturnType<typeof result.current.mutations.moveQuestion>;
+		} = {};
+		act(() => {
+			captured.value = result.current.mutations.moveQuestion(Q_A, {
+				toParentUuid: Q_GRP,
+			});
+		});
+
+		expect(captured.value).toBeDefined();
+		expect(captured.value?.renamed).toBeDefined();
+		expect(captured.value?.renamed?.oldId).toBe("a");
+		expect(captured.value?.renamed?.newId).toBe("a_2");
+		expect(typeof captured.value?.renamed?.xpathFieldsRewritten).toBe("number");
+	});
+
+	// ── renameQuestion xpathFieldsRewritten ──────────────────────────────
+
+	it("renameQuestion returns xpathFieldsRewritten from the reducer", () => {
+		// Use a custom blueprint with xpath refs to get a nonzero count.
+		const bpWithRefs: AppBlueprint = {
+			app_name: "Refs",
+			connect_type: undefined,
+			case_types: null,
+			modules: [
+				{
+					name: "M",
+					forms: [
+						{
+							name: "F",
+							type: "survey",
+							questions: [
+								{
+									uuid: "q-src-0000-0000-0000-000000000000",
+									id: "source",
+									type: "text",
+									label: "Source",
+								},
+								{
+									uuid: "q-dep-0000-0000-0000-000000000000",
+									id: "dep",
+									type: "text",
+									label: "Dep",
+									calculate: "/data/source + 1",
+								},
+							],
+						},
+					],
+				},
+			],
+		};
+		const refWrapper = ({ children }: { children: ReactNode }) => (
+			<BlueprintDocProvider appId="t" initialBlueprint={bpWithRefs}>
+				{children}
+			</BlueprintDocProvider>
+		);
+
+		const { result } = renderHook(() => useBlueprintMutations(), {
+			wrapper: refWrapper,
+		});
+
+		const captured: {
+			value?: ReturnType<typeof result.current.renameQuestion>;
+		} = {};
+		act(() => {
+			captured.value = result.current.renameQuestion(
+				asUuid("q-src-0000-0000-0000-000000000000"),
+				"primary",
+			);
+		});
+
+		expect(captured.value).toBeDefined();
+		expect(captured.value?.xpathFieldsRewritten).toBeGreaterThan(0);
+	});
+
 	// ── moveQuestion — extra options ──────────────────────────────────────
 
 	it("moveQuestion with beforeUuid reorders within the same parent", () => {
