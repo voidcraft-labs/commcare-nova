@@ -48,8 +48,6 @@ export class BuilderEngine {
 	private _editScope: EditScope | null = null;
 	/** Transient field key to focus after undo/redo. Consumed once by InlineSettingsPanel. */
 	private _focusHint: string | undefined;
-	/** Blocks undo/redo during dnd-kit drag operations. */
-	private _isDragging = false;
 	/** Transient rename notice — set after a cross-level move auto-renames
 	 *  to avoid a sibling ID collision. Consumed once by ContextualEditorHeader
 	 *  to show an inline notice on the ID field. */
@@ -184,16 +182,6 @@ export class BuilderEngine {
 	/** Current doc store, or null before SyncBridge has mounted. */
 	get docStore(): BlueprintDocStore | null {
 		return this._docStore;
-	}
-
-	// ── Drag state ──────────────────────────────────────────────────────
-
-	setDragging(active: boolean): void {
-		this._isDragging = active;
-	}
-
-	get isDragging(): boolean {
-		return this._isDragging;
 	}
 
 	// ── Edit focus (non-reactive — signal grid zone) ────────────────────
