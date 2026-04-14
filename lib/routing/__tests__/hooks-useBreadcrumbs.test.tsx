@@ -11,19 +11,24 @@
  * blueprint to both would yield different identities.
  */
 import { renderHook } from "@testing-library/react";
-import { ReadonlyURLSearchParams } from "next/navigation";
 import type { ReactNode } from "react";
 import { describe, expect, it, vi } from "vitest";
 import { BlueprintDocContext } from "@/lib/doc/provider";
 import { createBlueprintDocStore } from "@/lib/doc/store";
 
-const mockParams = { current: new URLSearchParams() };
+/* Mock the client path hook — segments control the current location. */
+const mockSegments = { current: [] as string[] };
+vi.mock("@/lib/routing/useClientPath", () => ({
+	useBuilderPathSegments: () => mockSegments.current,
+	notifyPathChange: vi.fn(),
+}));
+
 vi.mock("next/navigation", async () => {
 	const actual =
 		await vi.importActual<typeof import("next/navigation")>("next/navigation");
 	return {
 		...actual,
-		useSearchParams: () => new ReadonlyURLSearchParams(mockParams.current),
+		usePathname: () => "/build/a",
 		useRouter: () => ({
 			push: vi.fn(),
 			replace: vi.fn(),
@@ -32,9 +37,13 @@ vi.mock("next/navigation", async () => {
 			refresh: vi.fn(),
 			prefetch: vi.fn(),
 		}),
-		usePathname: () => "/build/a",
 	};
 });
+
+/* Stub EditGuardContext — needed by useSelect in the same module. */
+vi.mock("@/components/builder/contexts/EditGuardContext", () => ({
+	useConsultEditGuard: () => () => true,
+}));
 
 import { useBreadcrumbs } from "@/lib/routing/hooks";
 
@@ -67,7 +76,7 @@ describe("useBreadcrumbs", () => {
 	const moduleUuid = state.moduleOrder[0];
 	const formUuid = state.formOrder[moduleUuid][0];
 
-	function wrapper({ children }: { children: ReactNode }) {
+	function wrapperFn({ children }: { children: ReactNode }) {
 		return (
 			<BlueprintDocContext.Provider value={store}>
 				{children}
@@ -76,16 +85,20 @@ describe("useBreadcrumbs", () => {
 	}
 
 	it("at home, only the app name is shown", () => {
-		mockParams.current = new URLSearchParams();
-		const { result } = renderHook(() => useBreadcrumbs(), { wrapper });
+		mockSegments.current = [];
+		const { result } = renderHook(() => useBreadcrumbs(), {
+			wrapper: wrapperFn,
+		});
 		expect(result.current).toEqual([
 			{ key: "home", label: "My App", location: { kind: "home" } },
 		]);
 	});
 
 	it("at a module, shows [Home, Module]", () => {
-		mockParams.current = new URLSearchParams(`s=m&m=${moduleUuid}`);
-		const { result } = renderHook(() => useBreadcrumbs(), { wrapper });
+		mockSegments.current = [moduleUuid];
+		const { result } = renderHook(() => useBreadcrumbs(), {
+			wrapper: wrapperFn,
+		});
 		expect(result.current).toEqual([
 			{ key: "home", label: "My App", location: { kind: "home" } },
 			{
@@ -97,10 +110,10 @@ describe("useBreadcrumbs", () => {
 	});
 
 	it("at a form, shows [Home, Module, Form]", () => {
-		mockParams.current = new URLSearchParams(
-			`s=f&m=${moduleUuid}&f=${formUuid}`,
-		);
-		const { result } = renderHook(() => useBreadcrumbs(), { wrapper });
+		mockSegments.current = [formUuid];
+		const { result } = renderHook(() => useBreadcrumbs(), {
+			wrapper: wrapperFn,
+		});
 		expect(result.current).toEqual([
 			{ key: "home", label: "My App", location: { kind: "home" } },
 			{

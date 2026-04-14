@@ -5,26 +5,9 @@
  * invokes the doc store's temporal undo/redo and that the scroll/flash
  * affordance is triggered or skipped based on the current location and
  * DOM state.
- *
- * Provider strategy
- * -----------------
- * DOM side-effect helpers (`findFieldElement`, `flashUndoHighlight`) were
- * methods on the deleted BuilderEngine; they now live in
- * `lib/routing/domQueries.ts` as pure functions. We stub that module
- * here so the tests can spy on the calls. `useActiveFieldId` +
- * `useSetFocusHint` are stubbed via `@/lib/session/hooks` so we don't
- * need a full BuilderSessionProvider.
- *
- * The real doc store is constructed once per test via
- * `createBlueprintDocStore()` and wrapped in a `BlueprintDocContext.Provider`.
- * This matches the shared-store pattern already used in
- * `hooks-useBreadcrumbs.test.tsx`: one store instance visible both to
- * the test setup (which dispatches mutations and inspects temporal
- * state) and to the hook under test.
  */
 
 import { act, renderHook } from "@testing-library/react";
-import { ReadonlyURLSearchParams } from "next/navigation";
 import type { ReactNode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
@@ -35,68 +18,48 @@ import { BlueprintDocContext } from "@/lib/doc/provider";
 import { createBlueprintDocStore } from "@/lib/doc/store";
 import { asUuid } from "@/lib/doc/types";
 
-const routerReplace = vi.fn();
-const mockParams = { current: new URLSearchParams() };
+/* Mock the client path hook — segments control the current location. */
+const mockSegments = { current: [] as string[] };
+vi.mock("@/lib/routing/useClientPath", () => ({
+	useBuilderPathSegments: () => mockSegments.current,
+	notifyPathChange: vi.fn(),
+}));
 
 vi.mock("next/navigation", async () => {
 	const actual =
 		await vi.importActual<typeof import("next/navigation")>("next/navigation");
 	return {
 		...actual,
-		useSearchParams: () => new ReadonlyURLSearchParams(mockParams.current),
+		usePathname: () => "/build/a",
 		useRouter: () => ({
 			push: vi.fn(),
-			replace: routerReplace,
+			replace: vi.fn(),
 			back: vi.fn(),
 			forward: vi.fn(),
 			refresh: vi.fn(),
 			prefetch: vi.fn(),
 		}),
-		usePathname: () => "/build/a",
 	};
 });
 
-/*
- * Shared spies on every DOM helper `useUndoRedo` may call. They're
- * module-scoped so individual tests can reset and assert on them.
- */
 const findFieldElement = vi.fn<
 	(uuid: string, fieldId?: string) => HTMLElement | null
 >(() => null);
 const scrollToQuestion = vi.fn();
 const flashUndoHighlight = vi.fn();
 const setFocusHint = vi.fn();
-/*
- * `activeFieldId` is read via `useActiveFieldId()` from the session store.
- * A module-scoped ref lets individual tests flip the value without
- * rebuilding the mock.
- */
 const activeFieldIdRef = { current: undefined as string | undefined };
 
-/* `useSelect` calls `useConsultEditGuard()` from EditGuardContext. Stub
- * it to always allow selection so undo/redo tests focus on their own logic. */
 vi.mock("@/components/builder/contexts/EditGuardContext", () => ({
 	useConsultEditGuard: () => () => true,
 }));
 
-/*
- * Stub `@/lib/routing/domQueries` so the two DOM helpers `useUndoRedo`
- * calls (`findFieldElement`, `flashUndoHighlight`) route through our
- * module-scoped spies instead of touching the real DOM. These helpers
- * are Phase 3's replacement for the old `BuilderEngine.findFieldElement`
- * / `flashUndoHighlight` methods.
- */
 vi.mock("@/lib/routing/domQueries", () => ({
 	findFieldElement: (uuid: string, fieldId?: string) =>
 		findFieldElement(uuid, fieldId),
 	flashUndoHighlight: (el: HTMLElement) => flashUndoHighlight(el),
 }));
 
-/*
- * Stub `@/lib/session/hooks` so `useActiveFieldId()` reads from our
- * module-scoped ref and `useSetFocusHint()` returns our spy, instead
- * of requiring a full BuilderSessionProvider.
- */
 vi.mock("@/lib/session/hooks", () => ({
 	useActiveFieldId: () => activeFieldIdRef.current,
 	useSetFocusHint: () => setFocusHint,
@@ -104,11 +67,6 @@ vi.mock("@/lib/session/hooks", () => ({
 
 import { useUndoRedo } from "@/lib/routing/builderActions";
 
-/*
- * Tiny fixture: one module, one form, two top-level questions. Enough
- * to verify "mutation → undo reverses it → redo reapplies it" without
- * pulling in a full blueprint.
- */
 const BP = {
 	app_name: "T",
 	connect_type: undefined,
@@ -146,15 +104,10 @@ const BP = {
 function makeStore() {
 	const store = createBlueprintDocStore();
 	store.getState().load(BP, "test-app");
-	// Temporal is paused after `load()` — resume so mutations issued by
-	// the test are tracked. Matches real-app wiring in
-	// `BlueprintDocProvider` (`startTracking=true` default).
 	store.temporal.getState().resume();
 	return store;
 }
 
-/** Registers the `scrollToQuestion` spy as the scroll registry callback
- *  so `useUndoRedo`'s `scrollTo(...)` dispatches through the spy. */
 function ScrollCallbackInstaller({ children }: { children: ReactNode }) {
 	useRegisterScrollCallback(scrollToQuestion);
 	return <>{children}</>;
@@ -182,15 +135,11 @@ describe("useUndoRedo", () => {
 		flashUndoHighlight.mockReset();
 		setFocusHint.mockReset();
 		activeFieldIdRef.current = undefined;
-		mockParams.current = new URLSearchParams();
-		routerReplace.mockReset();
+		mockSegments.current = [];
 	});
 
 	it("undo no-ops when pastStates is empty (fresh load)", () => {
 		const store = makeStore();
-		/* Clear history so the only state is the post-load snapshot. The
-		 * store's `load()` already pauses+clears, but temporal is resumed
-		 * in `makeStore()`; clear() leaves the resumed state untouched. */
 		store.temporal.getState().clear();
 
 		const countBefore = Object.keys(store.getState().questions).length;
@@ -220,7 +169,6 @@ describe("useUndoRedo", () => {
 	it("undo reverses the last mutation; redo reapplies it", () => {
 		const store = makeStore();
 
-		// Dispatch a remove. Temporal should capture the pre-remove state.
 		const qaUuid = asUuid("q-a-0000-0000-0000-000000000000");
 		act(() => {
 			store.getState().apply({ kind: "removeQuestion", uuid: qaUuid });
@@ -233,17 +181,13 @@ describe("useUndoRedo", () => {
 		});
 
 		act(() => result.current.undo());
-		// Question restored.
 		expect(store.getState().questions[qaUuid]).toBeDefined();
 
 		act(() => result.current.redo());
-		// Question removed again.
 		expect(store.getState().questions[qaUuid]).toBeUndefined();
 	});
 
 	it("skips scroll/flash when not on a form location", () => {
-		/* URL is empty → `loc.kind === "home"` → hook reads no selectedUuid.
-		 * Even with undo work to do, no engine DOM calls should fire. */
 		const store = makeStore();
 		act(() => {
 			store.getState().apply({
@@ -252,6 +196,7 @@ describe("useUndoRedo", () => {
 			});
 		});
 
+		/* URL segments empty → home location. */
 		const { result } = renderHook(() => useUndoRedo(), {
 			wrapper: wrap(store),
 		});
@@ -263,11 +208,6 @@ describe("useUndoRedo", () => {
 	});
 
 	it("skips scroll/flash gracefully when the DOM has no matching element", () => {
-		/* Simulates the documented cross-form undo limitation: the URL's
-		 * `sel=` points at a question that exists in the doc but not in
-		 * the current viewport (different form). `findFieldElement` and
-		 * `document.querySelector` both return null → the hook should
-		 * bail without throwing. */
 		const store = makeStore();
 		act(() => {
 			store.getState().apply({
@@ -277,13 +217,10 @@ describe("useUndoRedo", () => {
 			});
 		});
 
-		/* Point the URL at the form + selection for `q-a`. */
 		const state = store.getState();
 		const moduleUuid = state.moduleOrder[0];
 		const formUuid = state.formOrder[moduleUuid][0];
-		mockParams.current = new URLSearchParams(
-			`s=f&m=${moduleUuid}&f=${formUuid}&sel=q-a-0000-0000-0000-000000000000`,
-		);
+		mockSegments.current = [formUuid, "q-a-0000-0000-0000-000000000000"];
 
 		const qsSpy = vi.spyOn(document, "querySelector").mockReturnValue(null);
 		const { result } = renderHook(() => useUndoRedo(), {
@@ -294,7 +231,6 @@ describe("useUndoRedo", () => {
 			act(() => result.current.undo());
 		}).not.toThrow();
 
-		// No DOM-side effects should have fired — no element to target.
 		expect(scrollToQuestion).not.toHaveBeenCalled();
 		expect(flashUndoHighlight).not.toHaveBeenCalled();
 
@@ -302,9 +238,6 @@ describe("useUndoRedo", () => {
 	});
 
 	it("scrolls and flashes when the selection has a live DOM target", () => {
-		/* Happy path — the URL selects a question, `findFieldElement`
-		 * returns a fake element, and the hook should call both
-		 * scroll + flash + (since no activeFieldId) skip setFocusHint. */
 		const store = makeStore();
 		act(() => {
 			store.getState().apply({
@@ -317,9 +250,7 @@ describe("useUndoRedo", () => {
 		const state = store.getState();
 		const moduleUuid = state.moduleOrder[0];
 		const formUuid = state.formOrder[moduleUuid][0];
-		mockParams.current = new URLSearchParams(
-			`s=f&m=${moduleUuid}&f=${formUuid}&sel=q-a-0000-0000-0000-000000000000`,
-		);
+		mockSegments.current = [formUuid, "q-a-0000-0000-0000-000000000000"];
 
 		const fakeEl = document.createElement("div") as HTMLElement;
 		findFieldElement.mockReturnValue(fakeEl);
@@ -356,9 +287,7 @@ describe("useUndoRedo", () => {
 		const state = store.getState();
 		const moduleUuid = state.moduleOrder[0];
 		const formUuid = state.formOrder[moduleUuid][0];
-		mockParams.current = new URLSearchParams(
-			`s=f&m=${moduleUuid}&f=${formUuid}&sel=q-a-0000-0000-0000-000000000000`,
-		);
+		mockSegments.current = [formUuid, "q-a-0000-0000-0000-000000000000"];
 
 		activeFieldIdRef.current = "label";
 		const fakeEl = document.createElement("div") as HTMLElement;

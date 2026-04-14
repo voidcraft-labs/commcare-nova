@@ -1,145 +1,229 @@
 /**
- * Builder state re-architecture — URL location parser/serializer/validator.
+ * Builder URL location — path serializer, parser, validator, and recovery.
  *
- * Pure functions only. No React, no browser APIs beyond the standard
- * `URLSearchParams` class (which is available in Node and browsers). Every
- * function is deterministic and free of side effects so it can be unit
- * tested without a DOM or router.
+ * Pure functions only. No React, no browser APIs. Every function is
+ * deterministic and free of side effects so it can be unit tested without
+ * a DOM or router.
  *
- * Phase 2 wires these into `useLocation`, `useNavigate`, and `useSelect`
- * hooks that subscribe to Next.js's `useSearchParams` and call
- * `router.push`/`router.replace`.
+ * URL layout (path segments after /build/{appId}/):
+ *
+ *   []                              → home
+ *   [moduleUuid]                    → module
+ *   [moduleUuid, "cases"]           → case list
+ *   [moduleUuid, "cases", caseId]   → case detail
+ *   [formUuid]                      → form
+ *   [formUuid, questionUuid]        → form + selected question
+ *
+ * Entity disambiguation: all UUIDs are globally unique. A single-segment
+ * path checks `doc.modules[uuid]` first, then `doc.forms[uuid]`, then
+ * `doc.questions[uuid]` (deriving the parent form from ordering maps).
  */
 
 import type { BlueprintDoc, Uuid } from "@/lib/doc/types";
-import {
-	LOCATION_PARAM,
-	type Location,
-	SCREEN_KIND,
-} from "@/lib/routing/types";
+import type { Location } from "@/lib/routing/types";
 
 /**
- * Convert a `Location` into `URLSearchParams`. The returned params are in
- * insertion order; callers that care about a stable serialization should
- * pass the result through `toString()` of a `new URLSearchParams([...pairs])`
- * if they need a specific order.
- *
- * For `home`, we return empty params — the builder route itself (no query
- * string) encodes home.
- */
-export function serializeLocation(loc: Location): URLSearchParams {
-	const params = new URLSearchParams();
-	switch (loc.kind) {
-		case "home":
-			// No query params. Defaults to home on the client.
-			return params;
-		case "module":
-			params.set(LOCATION_PARAM.screen, SCREEN_KIND.module);
-			params.set(LOCATION_PARAM.module, loc.moduleUuid);
-			return params;
-		case "cases":
-			params.set(LOCATION_PARAM.screen, SCREEN_KIND.cases);
-			params.set(LOCATION_PARAM.module, loc.moduleUuid);
-			if (loc.caseId !== undefined) {
-				params.set(LOCATION_PARAM.caseId, loc.caseId);
-			}
-			return params;
-		case "form":
-			params.set(LOCATION_PARAM.screen, SCREEN_KIND.form);
-			params.set(LOCATION_PARAM.module, loc.moduleUuid);
-			params.set(LOCATION_PARAM.form, loc.formUuid);
-			if (loc.selectedUuid !== undefined) {
-				params.set(LOCATION_PARAM.selected, loc.selectedUuid);
-			}
-			return params;
-	}
-}
-
-/**
- * Parse `URLSearchParams` into a `Location`. Always returns a valid Location
- * — malformed or missing required params collapse to `{ kind: "home" }`.
- *
- * This "degrade to home" behavior is intentional: a user landing on a
- * malformed URL (deleted entity, stale bookmark) sees the app's home screen
- * rather than a broken state. Phase 2 adds a separate `isValidLocation`
- * pass against the live doc to additionally strip references to UUIDs that
- * used to exist but no longer do.
- *
- * Accepts either a standard `URLSearchParams` or Next.js's
- * `ReadonlyURLSearchParams` (structurally compatible — same read-only API).
- */
-export function parseLocation(
-	searchParams: Pick<URLSearchParams, "get">,
-): Location {
-	const screen = searchParams.get(LOCATION_PARAM.screen);
-	const moduleUuidRaw = searchParams.get(LOCATION_PARAM.module);
-
-	/* URL params are untrusted input — the only place in the app where a
-	 * string arrives already branded as `Uuid` is not actually branded at
-	 * the type level. The `as Uuid` casts below are DOCUMENTATION, not
-	 * validation: they mark "this string is meant to be a question/form/
-	 * module uuid" without checking whether it matches any entity in the
-	 * doc. Runtime validation happens downstream in `recoverLocation`
-	 * (rejects references that no longer exist) and `LocationRecoveryEffect`
-	 * (rewrites the URL on mismatch). If those two safeguards are removed,
-	 * these casts become unsafe. */
-	switch (screen) {
-		case SCREEN_KIND.module: {
-			if (!moduleUuidRaw) return { kind: "home" };
-			return {
-				kind: "module",
-				moduleUuid: moduleUuidRaw as Uuid,
-			};
-		}
-		case SCREEN_KIND.cases: {
-			if (!moduleUuidRaw) return { kind: "home" };
-			const caseId = searchParams.get(LOCATION_PARAM.caseId);
-			return caseId === null
-				? { kind: "cases", moduleUuid: moduleUuidRaw as Uuid }
-				: {
-						kind: "cases",
-						moduleUuid: moduleUuidRaw as Uuid,
-						caseId,
-					};
-		}
-		case SCREEN_KIND.form: {
-			const formUuidRaw = searchParams.get(LOCATION_PARAM.form);
-			if (!moduleUuidRaw || !formUuidRaw) return { kind: "home" };
-			const selectedRaw = searchParams.get(LOCATION_PARAM.selected);
-			return selectedRaw === null
-				? {
-						kind: "form",
-						moduleUuid: moduleUuidRaw as Uuid,
-						formUuid: formUuidRaw as Uuid,
-					}
-				: {
-						kind: "form",
-						moduleUuid: moduleUuidRaw as Uuid,
-						formUuid: formUuidRaw as Uuid,
-						selectedUuid: selectedRaw as Uuid,
-					};
-		}
-		default:
-			return { kind: "home" };
-	}
-}
-
-/**
- * Subset of `BlueprintDoc` needed by location validation and recovery.
- * Declared as a `Pick` so callers that subscribe to individual entity
- * maps (e.g. `LocationRecoveryEffect`) can pass an ad-hoc object without
- * building a full doc snapshot.
+ * Minimal doc subset for validation and recovery — only needs entity
+ * existence checks (no ordering). Used by `isValidLocation` and
+ * `recoverLocation`.
  */
 export type LocationDoc = Pick<BlueprintDoc, "modules" | "forms" | "questions">;
 
 /**
+ * Extended doc subset for path parsing — includes ordering maps needed
+ * to disambiguate UUIDs and derive parent relationships.
+ *
+ * `formOrder` maps module UUIDs to their form UUID arrays.
+ * `questionOrder` maps form/group UUIDs to their child question UUID arrays.
+ */
+export type LocationParseDoc = LocationDoc &
+	Pick<BlueprintDoc, "formOrder" | "questionOrder">;
+
+/**
+ * Convert a `Location` into path segments after `/build/{appId}/`.
+ *
+ * For `home`, we return an empty array — the builder route itself
+ * (no extra path segments) encodes home.
+ */
+export function serializePath(loc: Location): string[] {
+	switch (loc.kind) {
+		case "home":
+			return [];
+		case "module":
+			return [loc.moduleUuid];
+		case "cases":
+			return loc.caseId !== undefined
+				? [loc.moduleUuid, "cases", loc.caseId]
+				: [loc.moduleUuid, "cases"];
+		case "form":
+			return loc.selectedUuid !== undefined
+				? [loc.formUuid, loc.selectedUuid]
+				: [loc.formUuid];
+	}
+}
+
+/**
+ * Build a full URL path from a base path and a Location.
+ *
+ * Centralizes the `basePath + segments.join("/")` pattern used by every
+ * navigation call site. `basePath` is `/build/{appId}` (no trailing slash).
+ */
+export function buildUrl(basePath: string, loc: Location): string {
+	const segments = serializePath(loc);
+	return segments.length > 0 ? `${basePath}/${segments.join("/")}` : basePath;
+}
+
+/**
+ * Find the parent form and module UUIDs for a question UUID by walking
+ * the doc's ordering maps.
+ *
+ * `questionOrder` keys are either form UUIDs (top-level questions) or
+ * group/repeat question UUIDs (nested children). A question might be
+ * nested arbitrarily deep inside groups, so we walk upward: find which
+ * parent contains the UUID, then check whether that parent is itself a
+ * question (group/repeat) and recurse, or whether it's a form.
+ */
+function findFormForQuestion(
+	uuid: Uuid,
+	doc: LocationParseDoc,
+): { formUuid: Uuid; moduleUuid: Uuid } | undefined {
+	/* Walk upward from the question to find the owning form. The parent
+	 * could be a form UUID or a group question UUID. */
+	let currentUuid = uuid;
+	const maxDepth = 20; // guard against malformed data
+
+	for (let depth = 0; depth < maxDepth; depth++) {
+		/* Find which parent's children list contains currentUuid. */
+		let parentUuid: Uuid | undefined;
+		for (const [key, children] of Object.entries(doc.questionOrder)) {
+			if (children.includes(currentUuid)) {
+				parentUuid = key as Uuid;
+				break;
+			}
+		}
+
+		if (parentUuid === undefined) return undefined;
+
+		/* If the parent is a form, we've found it. */
+		if (doc.forms[parentUuid] !== undefined) {
+			/* Now find which module owns this form. */
+			for (const [moduleUuid, formUuids] of Object.entries(doc.formOrder)) {
+				if (formUuids.includes(parentUuid)) {
+					return { formUuid: parentUuid, moduleUuid: moduleUuid as Uuid };
+				}
+			}
+			return undefined;
+		}
+
+		/* The parent is a group/repeat question — continue walking up. */
+		if (doc.questions[parentUuid] !== undefined) {
+			currentUuid = parentUuid;
+			continue;
+		}
+
+		/* Parent is neither a form nor a question — malformed data. */
+		return undefined;
+	}
+
+	return undefined;
+}
+
+/**
+ * Parse path segments (after `/build/{appId}/`) into a `Location` using
+ * the current doc state for entity disambiguation.
+ *
+ * Always returns a valid Location — unrecognized or unresolvable segments
+ * collapse to `{ kind: "home" }`.
+ */
+export function parsePathToLocation(
+	segments: string[],
+	doc: LocationParseDoc,
+): Location {
+	if (segments.length === 0) return { kind: "home" };
+
+	const first = segments[0] as Uuid;
+
+	if (segments.length === 1) {
+		/* Single segment — could be a module, form, or question UUID. */
+		if (doc.modules[first] !== undefined) {
+			return { kind: "module", moduleUuid: first };
+		}
+		if (doc.forms[first] !== undefined) {
+			/* Derive the module UUID from the doc's formOrder. */
+			for (const [moduleUuid, formUuids] of Object.entries(doc.formOrder)) {
+				if (formUuids.includes(first)) {
+					return {
+						kind: "form",
+						moduleUuid: moduleUuid as Uuid,
+						formUuid: first,
+					};
+				}
+			}
+			/* Form exists but isn't in any module's formOrder — shouldn't
+			 * happen, but degrade gracefully. */
+			return { kind: "home" };
+		}
+		if (doc.questions[first] !== undefined) {
+			/* Question UUID as the first (and only) segment — derive the
+			 * parent form and return form + selection. */
+			const parent = findFormForQuestion(first, doc);
+			if (parent) {
+				return {
+					kind: "form",
+					moduleUuid: parent.moduleUuid,
+					formUuid: parent.formUuid,
+					selectedUuid: first,
+				};
+			}
+		}
+		return { kind: "home" };
+	}
+
+	const second = segments[1];
+
+	if (second === "cases") {
+		/* /build/{id}/{moduleUuid}/cases or /build/{id}/{moduleUuid}/cases/{caseId} */
+		if (doc.modules[first] === undefined) return { kind: "home" };
+		if (segments.length === 2) {
+			return { kind: "cases", moduleUuid: first };
+		}
+		/* segments.length >= 3 — the third segment is the caseId. */
+		return { kind: "cases", moduleUuid: first, caseId: segments[2] };
+	}
+
+	/* Two-segment path: /build/{id}/{formUuid}/{questionUuid} */
+	const secondUuid = second as Uuid;
+
+	if (doc.forms[first] !== undefined) {
+		/* Derive module UUID for the form. */
+		let moduleUuid: Uuid | undefined;
+		for (const [mUuid, formUuids] of Object.entries(doc.formOrder)) {
+			if (formUuids.includes(first)) {
+				moduleUuid = mUuid as Uuid;
+				break;
+			}
+		}
+		if (moduleUuid === undefined) return { kind: "home" };
+
+		if (doc.questions[secondUuid] !== undefined) {
+			return {
+				kind: "form",
+				moduleUuid,
+				formUuid: first,
+				selectedUuid: secondUuid,
+			};
+		}
+		/* Second segment doesn't resolve to a question — show the form
+		 * without selection rather than degrading to home. */
+		return { kind: "form", moduleUuid, formUuid: first };
+	}
+
+	return { kind: "home" };
+}
+
+/**
  * Check that every UUID referenced by the location exists in the current
  * doc. Returns `true` for `home` regardless of doc state.
- *
- * Phase 2 uses this on every URL change: if the result is `false`, a root
- * effect calls `router.replace()` with the location stripped of dangling
- * references (usually falling back to home). This keeps selection-after-
- * deletion and stale-bookmark scenarios from ever rendering a broken UI.
  */
 export function isValidLocation(loc: Location, doc: LocationDoc): boolean {
 	switch (loc.kind) {
@@ -178,11 +262,6 @@ export function isValidLocation(loc: Location, doc: LocationDoc): boolean {
  * - If every reference resolves, the original location is returned by
  *   identity (referential equality preserved so callers can `===` check
  *   to skip the no-op case cheaply).
- *
- * Using `LocationDoc` (a `Pick` of `BlueprintDoc`) means callers don't
- * need to construct a full doc — passing `{ modules, forms, questions }`
- * is sufficient, which is what `LocationRecoveryEffect` does after its
- * per-slice store subscriptions.
  */
 export function recoverLocation(loc: Location, doc: LocationDoc): Location {
 	if (loc.kind === "home") return loc;

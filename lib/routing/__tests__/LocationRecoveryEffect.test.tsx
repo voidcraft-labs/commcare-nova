@@ -2,21 +2,18 @@
 
 /**
  * Tests for the `LocationRecoveryEffect` component — verifies the
- * client-side URL scrubber replaces the router URL whenever the current
+ * client-side URL scrubber replaces the URL whenever the current
  * location references a doc entity that no longer exists.
  *
- * Empty-doc regression
- * --------------------
- * An earlier version of the effect short-circuited when all three entity
- * maps were empty, to avoid firing during hydration. That guard also
- * swallowed the "user deleted every module mid-session" case — the URL
- * still pointed at dead uuids, but the effect declined to fix it.
- * This file locks in the fix: an empty doc must still trigger recovery
- * for a non-home URL, and must still no-op for a home URL.
+ * With path-based URLs, stale UUID cleanup happens at two layers:
+ * 1. `parsePathToLocation` degrades unresolvable UUIDs at parse time
+ *    (e.g. deleted form UUID → home).
+ * 2. `LocationRecoveryEffect` detects the mismatch between the parsed
+ *    location's canonical path and the actual URL segments, then issues
+ *    `replaceState` to fix the URL.
  */
 
 import { render, waitFor } from "@testing-library/react";
-import { ReadonlyURLSearchParams } from "next/navigation";
 import { act } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { LocationRecoveryEffect } from "@/components/builder/LocationRecoveryEffect";
@@ -24,32 +21,40 @@ import { BlueprintDocContext } from "@/lib/doc/provider";
 import { createBlueprintDocStore } from "@/lib/doc/store";
 import { asUuid } from "@/lib/doc/types";
 
-const routerReplace = vi.fn();
-const mockParams = { current: new URLSearchParams() };
+const replaceStateSpy = vi.spyOn(window.history, "replaceState");
 const pathname = "/build/app-1";
+
+/* Mock the client path hook — segments control the current location. */
+const mockSegments = { current: [] as string[] };
+vi.mock("@/lib/routing/useClientPath", () => ({
+	useBuilderPathSegments: () => mockSegments.current,
+	notifyPathChange: vi.fn(),
+}));
 
 vi.mock("next/navigation", async () => {
 	const actual =
 		await vi.importActual<typeof import("next/navigation")>("next/navigation");
 	return {
 		...actual,
-		useSearchParams: () => new ReadonlyURLSearchParams(mockParams.current),
+		usePathname: () => pathname,
 		useRouter: () => ({
 			push: vi.fn(),
-			replace: routerReplace,
+			replace: vi.fn(),
 			back: vi.fn(),
 			forward: vi.fn(),
 			refresh: vi.fn(),
 			prefetch: vi.fn(),
 		}),
-		usePathname: () => pathname,
 	};
 });
 
+/* Stub EditGuardContext — needed by useSelect in the hooks module. */
+vi.mock("@/components/builder/contexts/EditGuardContext", () => ({
+	useConsultEditGuard: () => () => true,
+}));
+
 /*
- * Fixture: one module, one form, two questions. Enough to exercise
- * all recovery branches: stale selectedUuid, stale form, stale module,
- * and the delete-everything scenario.
+ * Fixture: one module, one form, two questions.
  */
 const BP = {
 	app_name: "T",
@@ -102,8 +107,8 @@ function renderEffect(store: ReturnType<typeof makeStore>) {
 
 describe("LocationRecoveryEffect", () => {
 	beforeEach(() => {
-		routerReplace.mockReset();
-		mockParams.current = new URLSearchParams();
+		replaceStateSpy.mockClear();
+		mockSegments.current = [];
 	});
 
 	it("no-op when URL is already valid (form + valid selection)", () => {
@@ -111,111 +116,102 @@ describe("LocationRecoveryEffect", () => {
 		const state = store.getState();
 		const moduleUuid = state.moduleOrder[0];
 		const formUuid = state.formOrder[moduleUuid][0];
-		mockParams.current = new URLSearchParams(
-			`s=f&m=${moduleUuid}&f=${formUuid}&sel=q-a-0000-0000-0000-000000000000`,
-		);
+		/* Simulate being on form with a valid selection. */
+		mockSegments.current = [formUuid, "q-a-0000-0000-0000-000000000000"];
 
 		renderEffect(store);
 
-		expect(routerReplace).not.toHaveBeenCalled();
+		expect(replaceStateSpy).not.toHaveBeenCalled();
 	});
 
 	it("no-op on home URL with empty doc", () => {
-		/* The empty-doc + home URL combination must not call
-		 * router.replace — the location is already as-shallow-as-
-		 * possible, and the effect's identity short-circuit should
-		 * bail without touching the router. */
 		const store = createBlueprintDocStore();
-		mockParams.current = new URLSearchParams();
+		mockSegments.current = [];
 
 		renderEffect(store);
 
-		expect(routerReplace).not.toHaveBeenCalled();
+		expect(replaceStateSpy).not.toHaveBeenCalled();
 	});
 
 	it("strips stale selectedUuid and keeps the form", async () => {
 		const store = makeStore();
 		const state = store.getState();
-		const moduleUuid = state.moduleOrder[0];
-		const formUuid = state.formOrder[moduleUuid][0];
-		mockParams.current = new URLSearchParams(
-			`s=f&m=${moduleUuid}&f=${formUuid}&sel=does-not-exist`,
-		);
+		const formUuid = state.formOrder[state.moduleOrder[0]][0];
+		/* The second segment is a stale question UUID. The parser degrades
+		 * to form-without-selection; the effect detects the URL mismatch
+		 * and replaces the path with the canonical form URL. */
+		mockSegments.current = [formUuid, "does-not-exist"];
 
 		renderEffect(store);
 
 		await waitFor(() => {
-			expect(routerReplace).toHaveBeenCalledWith(
-				`${pathname}?s=f&m=${moduleUuid}&f=${formUuid}`,
-				{ scroll: false },
+			expect(replaceStateSpy).toHaveBeenCalledWith(
+				null,
+				"",
+				`${pathname}/${formUuid}`,
 			);
 		});
 	});
 
-	it("strips stale form and lands on the module", async () => {
+	it("strips stale form UUID and lands on home", async () => {
 		const store = makeStore();
-		const state = store.getState();
-		const moduleUuid = state.moduleOrder[0];
-		mockParams.current = new URLSearchParams(
-			`s=f&m=${moduleUuid}&f=missing-form-uuid`,
-		);
+		/* A form UUID that doesn't exist in the doc. The parser can't
+		 * resolve it, so it returns home. The effect detects the URL
+		 * mismatch (segments = ["missing-form-uuid"], canonical = [])
+		 * and replaces with the home URL. */
+		mockSegments.current = ["missing-form-uuid"];
 
 		renderEffect(store);
 
 		await waitFor(() => {
-			expect(routerReplace).toHaveBeenCalledWith(
-				`${pathname}?s=m&m=${moduleUuid}`,
-				{ scroll: false },
-			);
+			expect(replaceStateSpy).toHaveBeenCalledWith(null, "", pathname);
 		});
 	});
 
-	it("strips stale module and lands on home", async () => {
+	it("strips stale module UUID and lands on home", async () => {
 		const store = makeStore();
-		mockParams.current = new URLSearchParams("s=m&m=missing-module-uuid");
+		/* A module UUID that doesn't exist in the doc. Same as above:
+		 * parser returns home, effect fixes the URL. */
+		mockSegments.current = ["missing-module-uuid"];
 
 		renderEffect(store);
 
 		await waitFor(() => {
-			// Home URL = no query params → pathname alone.
-			expect(routerReplace).toHaveBeenCalledWith(pathname, { scroll: false });
+			expect(replaceStateSpy).toHaveBeenCalledWith(null, "", pathname);
 		});
 	});
 
 	it("redirects to home after every module is deleted mid-session", async () => {
-		/* The Phase 2 Fix #5 regression: an earlier version of the effect
-		 * skipped recovery when all entity maps were empty, so the user
-		 * was left on a dead URL when they wiped the whole app. Fix
-		 * dropped that guard — this test locks it in. */
 		const store = makeStore();
 		const initial = store.getState();
 		const moduleUuid = initial.moduleOrder[0];
 		const formUuid = initial.formOrder[moduleUuid][0];
-		mockParams.current = new URLSearchParams(
-			`s=f&m=${moduleUuid}&f=${formUuid}`,
-		);
+		mockSegments.current = [formUuid];
 
 		const { rerender } = renderEffect(store);
 		// Initial URL is valid → no redirect yet.
-		expect(routerReplace).not.toHaveBeenCalled();
+		expect(replaceStateSpy).not.toHaveBeenCalled();
 
 		// Delete the entire module. The reducer cascade drops all forms
-		// and questions with it, so every entity map becomes empty.
+		// and questions with it.
 		act(() => {
 			store
 				.getState()
 				.apply({ kind: "removeModule", uuid: asUuid(moduleUuid) });
 		});
-		// Rerender so the effect's `useBlueprintDoc` subscriptions refire.
+
+		/* Force rerender with the updated store. */
 		rerender(
 			<BlueprintDocContext.Provider value={store}>
 				<LocationRecoveryEffect />
 			</BlueprintDocContext.Provider>,
 		);
 
+		/* The form UUID no longer exists → parser returns home. But the
+		 * URL segments still show [formUuid], so the effect detects the
+		 * mismatch and replaces with the home URL. */
 		await waitFor(() => {
-			// With the module gone, the form URL collapses straight to home.
-			expect(routerReplace).toHaveBeenCalledWith(pathname, { scroll: false });
+			expect(replaceStateSpy).toHaveBeenCalledWith(null, "", pathname);
 		});
 	});
 });

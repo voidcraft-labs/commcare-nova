@@ -3,22 +3,31 @@
 /**
  * Tests for URL-driven location hooks.
  *
- * We simulate Next.js's App Router context using a test wrapper that
- * provides a mock `useSearchParams` result. Full router dispatch is
- * covered in `hooks-useNavigate.test.tsx`.
+ * We mock `useBuilderPathSegments` to simulate different URL paths,
+ * and provide a doc store with known entities for UUID disambiguation.
  */
 import { renderHook } from "@testing-library/react";
-import { ReadonlyURLSearchParams } from "next/navigation";
+import type { ReactNode } from "react";
 import { describe, expect, it, vi } from "vitest";
+import { BlueprintDocContext } from "@/lib/doc/provider";
+import { createBlueprintDocStore } from "@/lib/doc/store";
 
-// Mock next/navigation BEFORE importing the hook under test.
-const mockParams = { current: new URLSearchParams() };
+/* Mock the client path hook to return controlled segments. */
+const mockSegments = { current: [] as string[] };
+vi.mock("@/lib/routing/useClientPath", () => ({
+	useBuilderPathSegments: () => mockSegments.current,
+	notifyPathChange: vi.fn(),
+}));
+
+/* Mock next/navigation — only usePathname is needed by useLocation's
+ * downstream dependencies (useNavigate/useSelect). useLocation itself
+ * doesn't use it, but the module imports next/navigation. */
 vi.mock("next/navigation", async () => {
 	const actual =
 		await vi.importActual<typeof import("next/navigation")>("next/navigation");
 	return {
 		...actual,
-		useSearchParams: () => new ReadonlyURLSearchParams(mockParams.current),
+		usePathname: () => "/build/app-1",
 		useRouter: () => ({
 			push: vi.fn(),
 			replace: vi.fn(),
@@ -27,41 +36,108 @@ vi.mock("next/navigation", async () => {
 			refresh: vi.fn(),
 			prefetch: vi.fn(),
 		}),
-		usePathname: () => "/build/app-1",
 	};
 });
 
+/* Stub EditGuardContext — needed by useSelect which shares the module. */
+vi.mock("@/components/builder/contexts/EditGuardContext", () => ({
+	useConsultEditGuard: () => () => true,
+}));
+
 import { useLocation } from "@/lib/routing/hooks";
 
+/**
+ * Build a doc store with a known module, form, and question so the
+ * path parser can disambiguate UUIDs.
+ */
+const BP = {
+	app_name: "T",
+	connect_type: undefined,
+	case_types: null,
+	modules: [
+		{
+			uuid: "mod-uuid",
+			name: "M",
+			case_type: undefined,
+			forms: [
+				{
+					uuid: "form-uuid",
+					name: "F",
+					type: "survey" as const,
+					questions: [
+						{
+							uuid: "q-uuid",
+							id: "q",
+							type: "text" as const,
+							label: "Q",
+						},
+					],
+				},
+			],
+		},
+	],
+};
+
+function makeStore() {
+	const store = createBlueprintDocStore();
+	store.getState().load(BP, "app-1");
+	return store;
+}
+
+function wrapper(store: ReturnType<typeof makeStore>) {
+	return function Wrapper({ children }: { children: ReactNode }) {
+		return (
+			<BlueprintDocContext.Provider value={store}>
+				{children}
+			</BlueprintDocContext.Provider>
+		);
+	};
+}
+
 describe("useLocation", () => {
-	it("returns home when no screen param is present", () => {
-		mockParams.current = new URLSearchParams();
-		const { result } = renderHook(() => useLocation());
+	it("returns home when path segments are empty", () => {
+		const store = makeStore();
+		mockSegments.current = [];
+		const { result } = renderHook(() => useLocation(), {
+			wrapper: wrapper(store),
+		});
 		expect(result.current).toEqual({ kind: "home" });
 	});
 
-	it("returns module location for ?s=m&m=<uuid>", () => {
-		mockParams.current = new URLSearchParams("s=m&m=mod-uuid");
-		const { result } = renderHook(() => useLocation());
-		expect(result.current).toEqual({ kind: "module", moduleUuid: "mod-uuid" });
+	it("returns module location for a module UUID segment", () => {
+		const store = makeStore();
+		const moduleUuid = store.getState().moduleOrder[0];
+		mockSegments.current = [moduleUuid];
+		const { result } = renderHook(() => useLocation(), {
+			wrapper: wrapper(store),
+		});
+		expect(result.current).toEqual({ kind: "module", moduleUuid });
 	});
 
-	it("returns form+selected location for ?s=f&m=&f=&sel=", () => {
-		mockParams.current = new URLSearchParams(
-			"s=f&m=mod-uuid&f=form-uuid&sel=q-uuid",
-		);
-		const { result } = renderHook(() => useLocation());
+	it("returns form+selected location for [formUuid, questionUuid]", () => {
+		const store = makeStore();
+		const state = store.getState();
+		const moduleUuid = state.moduleOrder[0];
+		const formUuid = state.formOrder[moduleUuid][0];
+		const questionUuid = state.questionOrder[formUuid][0];
+		mockSegments.current = [formUuid, questionUuid];
+		const { result } = renderHook(() => useLocation(), {
+			wrapper: wrapper(store),
+		});
 		expect(result.current).toEqual({
 			kind: "form",
-			moduleUuid: "mod-uuid",
-			formUuid: "form-uuid",
-			selectedUuid: "q-uuid",
+			moduleUuid,
+			formUuid,
+			selectedUuid: questionUuid,
 		});
 	});
 
-	it("degrades to home on malformed (missing required) params", () => {
-		mockParams.current = new URLSearchParams("s=f&m=mod-uuid"); // missing f
-		const { result } = renderHook(() => useLocation());
+	it("degrades to home on unrecognized segment", () => {
+		const store = makeStore();
+		mockSegments.current = ["bogus-uuid"];
+		const { result } = renderHook(() => useLocation(), {
+			wrapper: wrapper(store),
+		});
 		expect(result.current).toEqual({ kind: "home" });
 	});
 });
