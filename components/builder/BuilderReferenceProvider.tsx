@@ -23,46 +23,69 @@
 
 "use client";
 
-import { useCallback } from "react";
-import { useBuilderEngine } from "@/hooks/useBuilder";
+import { useCallback, useContext } from "react";
+import { BlueprintDocContext } from "@/lib/doc/provider";
+import type { BlueprintDoc } from "@/lib/doc/types";
 import { ReferenceProviderWrapper } from "@/lib/references/ReferenceContext";
 import { useLocation } from "@/lib/routing/hooks";
 import {
 	assembleBlueprint,
-	getEntityData,
+	type NormalizedData,
 } from "@/lib/services/normalizedState";
 
 interface BuilderReferenceProviderProps {
 	children: React.ReactNode;
 }
 
+/** Adapt a BlueprintDoc snapshot to the legacy `NormalizedData` shape that
+ *  `assembleBlueprint` expects. The underlying entity shapes are identical;
+ *  the cast crosses only the branded-`Uuid` vs plain-`string` key boundary. */
+function docToNormalized(s: BlueprintDoc): NormalizedData {
+	return {
+		appName: s.appName,
+		connectType: s.connectType ?? undefined,
+		caseTypes: s.caseTypes ?? [],
+		modules: s.modules as unknown as NormalizedData["modules"],
+		forms: s.forms as unknown as NormalizedData["forms"],
+		questions: s.questions as unknown as NormalizedData["questions"],
+		moduleOrder: s.moduleOrder as unknown as string[],
+		formOrder: s.formOrder as unknown as Record<string, string[]>,
+		questionOrder: s.questionOrder as unknown as Record<string, string[]>,
+	};
+}
+
 export function BuilderReferenceProvider({
 	children,
 }: BuilderReferenceProviderProps) {
-	const builder = useBuilderEngine();
+	const docStore = useContext(BlueprintDocContext);
 	const loc = useLocation();
 
 	/** Build the `XPathLintContext` for whatever form the URL says the user
 	 *  is editing. Called by `ReferenceProvider` at edit time — reads the
-	 *  engine's store imperatively so we don't subscribe to blueprint state
+	 *  doc store imperatively so we don't subscribe to blueprint state
 	 *  here (cache invalidation is driven by `subscribeMutation` below). */
 	const getRefContext = useCallback(() => {
-		const s = builder.store.getState();
+		if (!docStore) return undefined;
+		const s = docStore.getState();
 		if (s.moduleOrder.length === 0) return undefined;
 
-		const bp = assembleBlueprint(getEntityData(s));
+		const bp = assembleBlueprint(docToNormalized(s));
 
 		/* Resolve the form in scope from the URL. The callback fires at edit
 		 * time, so the current location accurately reflects which form the
 		 * user is editing. */
 		if (loc.kind === "form") {
-			/* Resolve module/form indices from UUIDs via the legacy mirror,
-			 * since assembleBlueprint returns a wire-format BlueprintApp with
-			 * index-based modules/forms. */
-			const moduleIndex = s.moduleOrder.indexOf(loc.moduleUuid);
+			/* Resolve module/form indices from UUIDs via the doc's ordering
+			 * maps, since assembleBlueprint returns a wire-format BlueprintApp
+			 * with index-based modules/forms. The cast narrows branded UUIDs. */
+			const moduleIndex = (s.moduleOrder as unknown as string[]).indexOf(
+				loc.moduleUuid,
+			);
 			if (moduleIndex < 0) return undefined;
 			const mod = bp.modules[moduleIndex];
-			const formIds = s.formOrder[loc.moduleUuid] ?? [];
+			const formIds =
+				(s.formOrder as unknown as Record<string, string[]>)[loc.moduleUuid] ??
+				[];
 			const formIndex = formIds.indexOf(loc.formUuid);
 			if (formIndex < 0) return undefined;
 			const form = mod?.forms[formIndex];
@@ -75,7 +98,7 @@ export function BuilderReferenceProvider({
 		}
 
 		return undefined;
-	}, [builder, loc]);
+	}, [docStore, loc]);
 
 	/** Subscribe to entity changes that invalidate the ReferenceProvider cache.
 	 *  Covers questions (question references, case_property_on), modules
@@ -83,15 +106,17 @@ export function BuilderReferenceProvider({
 	 *  Uses a tuple selector with reference equality — only fires when at least
 	 *  one entity map gets a new Immer reference. */
 	const subscribeMutation = useCallback(
-		(listener: () => void) =>
-			builder.store.subscribe(
+		(listener: () => void) => {
+			if (!docStore) return () => {};
+			return docStore.subscribe(
 				(s) => [s.questions, s.modules, s.forms] as const,
 				() => listener(),
 				{
 					equalityFn: (a, b) => a[0] === b[0] && a[1] === b[1] && a[2] === b[2],
 				},
-			),
-		[builder],
+			);
+		},
+		[docStore],
 	);
 
 	return (

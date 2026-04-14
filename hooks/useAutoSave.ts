@@ -1,15 +1,16 @@
 /**
  * useAutoSave — leading+trailing throttle for Firestore persistence.
  *
- * Subscribes to entity map changes via Zustand's subscribeWithSelector.
- * On the first mutation after a quiet period, saves immediately (leading edge).
- * Mutations that arrive while a save is in-flight or during the post-save
- * cooldown are batched — a single trailing save fires once the cooldown
- * expires. This means "Saving..." only appears when a fetch is actually
- * in-flight (~300ms), not during an artificial debounce window.
+ * Subscribes to the BlueprintDoc store's entity map references. On the first
+ * mutation after a quiet period, saves immediately (leading edge). Mutations
+ * that arrive while a save is in-flight or during the post-save cooldown are
+ * batched — a single trailing save fires once the cooldown expires. This means
+ * "Saving..." only appears when a fetch is actually in-flight (~300ms), not
+ * during an artificial debounce window.
  *
- * Only active when: (a) an appId exists, (b) the builder has entity
- * data, and (c) phase is Ready. Auth is guaranteed by the server layout.
+ * Only active when: (a) an appId exists (from the legacy session store),
+ * (b) the doc has entities, and (c) phase is Ready. Auth is guaranteed by
+ * the server layout.
  *
  * Returns a SaveState with the current status and the timestamp of the last
  * successful save. The SaveIndicator uses `savedAt` to display a persistent
@@ -21,13 +22,15 @@
  * No mutationCount needed.
  */
 "use client";
-import { useEffect, useRef, useState } from "react";
+import { useContext, useEffect, useRef, useState } from "react";
 import { shallow } from "zustand/shallow";
 import { reportClientError } from "@/lib/clientErrorReporter";
+import { BlueprintDocContext } from "@/lib/doc/provider";
+import type { BlueprintDoc } from "@/lib/doc/types";
 import type { BuilderEngine } from "@/lib/services/builderEngine";
 import {
 	assembleBlueprint,
-	getEntityData,
+	type NormalizedData,
 } from "@/lib/services/normalizedState";
 
 /** Post-save cooldown before the trailing edge can fire (ms). */
@@ -50,6 +53,44 @@ export interface SaveState {
 
 const IDLE_STATE: SaveState = { status: "idle", savedAt: null };
 
+/** Project the doc slice that matters for save equality checks. A new
+ *  reference on any of these fields implies at least one user-visible
+ *  mutation has landed; anything else (undo metadata, transient state)
+ *  is ignored. */
+function projectSaveSlice(s: BlueprintDoc) {
+	return {
+		modules: s.modules,
+		forms: s.forms,
+		questions: s.questions,
+		moduleOrder: s.moduleOrder,
+		formOrder: s.formOrder,
+		questionOrder: s.questionOrder,
+		appName: s.appName,
+		connectType: s.connectType,
+		caseTypes: s.caseTypes,
+	};
+}
+
+/**
+ * Snapshot the doc's entity state as a `NormalizedData` slice suitable for
+ * `assembleBlueprint`. The doc's Uuid-branded maps are structurally
+ * identical to the legacy `NForm`/`NModule`/`NQuestion` shapes; the cast
+ * through `unknown` bridges the branded-vs-plain-string key type mismatch.
+ */
+function snapshotEntityData(s: BlueprintDoc): NormalizedData {
+	return {
+		appName: s.appName,
+		connectType: s.connectType ?? undefined,
+		caseTypes: s.caseTypes ?? [],
+		modules: s.modules as unknown as NormalizedData["modules"],
+		forms: s.forms as unknown as NormalizedData["forms"],
+		questions: s.questions as unknown as NormalizedData["questions"],
+		moduleOrder: s.moduleOrder as unknown as string[],
+		formOrder: s.formOrder as unknown as Record<string, string[]>,
+		questionOrder: s.questionOrder as unknown as Record<string, string[]>,
+	};
+}
+
 /**
  * Auto-save hook — persists blueprint edits to Firestore via API route.
  *
@@ -58,6 +99,10 @@ const IDLE_STATE: SaveState = { status: "idle", savedAt: null };
  */
 export function useAutoSave(builder: BuilderEngine): SaveState {
 	const [state, setState] = useState<SaveState>(IDLE_STATE);
+
+	/* The doc store owns blueprint entity data — the session store's `appId`
+	 * still gates whether saving is enabled, so we read both. */
+	const docStore = useContext(BlueprintDocContext);
 
 	/* Throttle state — all mutable, read/written inside the subscription
 	 * callback and cleanup. Never triggers re-renders. */
@@ -84,10 +129,11 @@ export function useAutoSave(builder: BuilderEngine): SaveState {
 		setState(IDLE_STATE);
 	}
 
-	/* Single long-lived subscription — subscribes to entity map changes.
+	/* Single long-lived subscription — subscribes to doc entity map changes.
 	 * Entity reference checks via shallow equality are the watermark — if no
 	 * entity map changed reference, the subscriber doesn't fire. */
 	useEffect(() => {
+		if (!docStore) return;
 		unmountedRef.current = false;
 
 		/**
@@ -96,12 +142,13 @@ export function useAutoSave(builder: BuilderEngine): SaveState {
 		 * so the trailing edge can fire if mutations arrived mid-flight.
 		 */
 		async function executeSave() {
-			const s = builder.store.getState();
-			const pid = s.appId;
-			if (!pid || s.moduleOrder.length === 0) return;
+			if (!docStore) return;
+			const pid = builder.store.getState().appId;
+			const doc = docStore.getState();
+			if (!pid || doc.moduleOrder.length === 0) return;
 
-			/* Assemble the wire-format blueprint for persistence */
-			const bp = assembleBlueprint(getEntityData(s));
+			/* Assemble the wire-format blueprint for persistence. */
+			const bp = assembleBlueprint(snapshotEntityData(doc));
 
 			inFlightRef.current = true;
 			if (!unmountedRef.current) {
@@ -164,25 +211,17 @@ export function useAutoSave(builder: BuilderEngine): SaveState {
 			}, COOLDOWN_MS);
 		}
 
-		/* Subscribe to entity data changes — fires only when an entity map
-		 * or ordering array changes reference (Immer structural sharing). */
-		const unsub = builder.store.subscribe(
-			(s) => ({
-				modules: s.modules,
-				forms: s.forms,
-				questions: s.questions,
-				moduleOrder: s.moduleOrder,
-				formOrder: s.formOrder,
-				questionOrder: s.questionOrder,
-				appName: s.appName,
-				connectType: s.connectType,
-				caseTypes: s.caseTypes,
-			}),
+		/* Subscribe to doc entity map changes — fires only when a map gets a
+		 * new Immer reference. Shallow equality on the projected slice short-
+		 * circuits unrelated doc updates (e.g. appId bookkeeping). */
+		const unsub = docStore.subscribe(
+			projectSaveSlice,
 			() => {
-				/* Gate on phase and app existence — read live from the store. */
+				/* Gate on lifecycle phase and app existence. */
 				if (!builder.isReady) return;
-				const snap = builder.store.getState();
-				if (!snap.appId || snap.moduleOrder.length === 0) return;
+				const pid = builder.store.getState().appId;
+				const docSnap = docStore.getState();
+				if (!pid || docSnap.moduleOrder.length === 0) return;
 
 				/* Save is in-flight — queue for trailing edge after completion. */
 				if (inFlightRef.current) {
@@ -211,7 +250,7 @@ export function useAutoSave(builder: BuilderEngine): SaveState {
 			}
 			pendingTrailingRef.current = false;
 		};
-	}, [builder]);
+	}, [builder, docStore]);
 
 	return state;
 }

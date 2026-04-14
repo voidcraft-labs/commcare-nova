@@ -14,7 +14,8 @@
 "use client";
 import { createContext, useContext, useEffect } from "react";
 import { useStore } from "zustand";
-import { useBuilderEngine, useBuilderStore } from "@/hooks/useBuilder";
+import { useBuilderEngine } from "@/hooks/useBuilder";
+import { useBlueprintDoc } from "@/lib/doc/hooks/useBlueprintDoc";
 import type { RuntimeStoreState } from "@/lib/preview/engine/engineController";
 import {
 	DEFAULT_RUNTIME_STATE,
@@ -84,8 +85,9 @@ export function useFormEngine(
 
 	/** Reactive formId subscription — when the form identity at these indices
 	 *  changes (e.g., form deleted and another takes its index), the effect
-	 *  re-runs and reactivates the controller with the new form. */
-	const formId = useBuilderStore((s) => {
+	 *  re-runs and reactivates the controller with the new form. Reads from
+	 *  the BlueprintDoc store, the single source of truth for entity data. */
+	const formId = useBlueprintDoc((s) => {
 		const moduleId = s.moduleOrder[moduleIndex];
 		return moduleId ? s.formOrder[moduleId]?.[formIndex] : undefined;
 	});

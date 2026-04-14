@@ -221,7 +221,12 @@ export function BuilderLayout({
 		const s = builder.store.getState();
 		const isReady =
 			s.phase === BuilderPhase.Ready || s.phase === BuilderPhase.Completed;
-		if (!isReady || s.moduleOrder.length === 0) return;
+		/* `hasModules` comes from the doc store — it owns blueprint entity data.
+		 * Reading imperatively (no subscription) since we only branch on the
+		 * condition at effect time; the effect re-runs on phase change. */
+		const hasModules =
+			(builder.docStore?.getState().moduleOrder.length ?? 0) > 0;
+		if (!isReady || !hasModules) return;
 
 		const scrollContainer = document.querySelector(
 			"[data-preview-scroll-container]",

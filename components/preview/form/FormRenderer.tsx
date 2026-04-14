@@ -636,17 +636,24 @@ export const FormRenderer = memo(function FormRenderer({
 									| string
 									| undefined;
 								if (sourceUuid) {
-									/* Read entity maps imperatively from the store — no reactive
-									 * subscription. Drag state is a snapshot, not a live view. */
-									const s = builderEngine.store.getState();
-									setDragState(
-										buildDragStateFromStore(
-											s.questions,
-											s.questionOrder,
-											parentEntityId,
-											sourceUuid,
-										),
-									);
+									/* Read entity maps imperatively from the doc store — no
+									 * reactive subscription. Drag state is a snapshot, not a
+									 * live view. The doc is the single source of truth for
+									 * blueprint data. */
+									const doc = builderEngine.docStore?.getState();
+									if (doc) {
+										setDragState(
+											buildDragStateFromStore(
+												doc.questions as unknown as Record<string, NQuestion>,
+												doc.questionOrder as unknown as Record<
+													string,
+													string[]
+												>,
+												parentEntityId,
+												sourceUuid,
+											),
+										);
+									}
 								}
 								document.body.style.cursor = "grabbing";
 								if (ctx) {
@@ -694,10 +701,14 @@ export const FormRenderer = memo(function FormRenderer({
 									/* Determine the initial group from the doc store's
 									 * questionOrder. Scan for the parent that contains the
 									 * dragged UUID, then map to the items-map key format. */
-									const currentDoc = builderEngine.store.getState();
+									const currentDoc = builderEngine.docStore?.getState();
+									if (!currentDoc) return;
 									let draggedParentUuid: string | undefined;
 									for (const [pUuid, order] of Object.entries(
-										currentDoc.questionOrder,
+										currentDoc.questionOrder as unknown as Record<
+											string,
+											string[]
+										>,
 									)) {
 										if (order.includes(dragUuid)) {
 											/* Parent is either a form (root level) or a group/repeat
@@ -718,8 +729,14 @@ export const FormRenderer = memo(function FormRenderer({
 									// Check if position actually changed
 									if (sameGroup) {
 										const initialState = buildDragStateFromStore(
-											builderEngine.store.getState().questions,
-											builderEngine.store.getState().questionOrder,
+											currentDoc.questions as unknown as Record<
+												string,
+												NQuestion
+											>,
+											currentDoc.questionOrder as unknown as Record<
+												string,
+												string[]
+											>,
 											parentEntityId,
 											dragUuid,
 										);

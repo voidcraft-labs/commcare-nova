@@ -21,6 +21,7 @@ import { useBuilderEngine, useBuilderStore } from "@/hooks/useBuilder";
 import { parseApiErrorMessage } from "@/lib/apiError";
 import { extractThread } from "@/lib/chat/threadUtils";
 import { saveThread } from "@/lib/db/threads";
+import type { BlueprintDoc } from "@/lib/doc/types";
 import { applyDataPart, BuilderPhase } from "@/lib/services/builder";
 import type { BuilderEngine } from "@/lib/services/builderEngine";
 import {
@@ -29,7 +30,7 @@ import {
 } from "@/lib/services/builderSelectors";
 import {
 	assembleBlueprint,
-	getEntityData,
+	type NormalizedData,
 } from "@/lib/services/normalizedState";
 import { showToast } from "@/lib/services/toastStore";
 
@@ -58,6 +59,23 @@ function shouldAutoResend({ messages }: { messages: UIMessage[] }): boolean {
 	);
 }
 
+/** Adapt a BlueprintDoc snapshot to the legacy `NormalizedData` shape that
+ *  `assembleBlueprint` expects. The underlying entity shapes are identical;
+ *  the cast crosses only the branded-`Uuid` vs plain-`string` key boundary. */
+function docToNormalized(s: BlueprintDoc): NormalizedData {
+	return {
+		appName: s.appName,
+		connectType: s.connectType ?? undefined,
+		caseTypes: s.caseTypes ?? [],
+		modules: s.modules as unknown as NormalizedData["modules"],
+		forms: s.forms as unknown as NormalizedData["forms"],
+		questions: s.questions as unknown as NormalizedData["questions"],
+		moduleOrder: s.moduleOrder as unknown as string[],
+		formOrder: s.formOrder as unknown as Record<string, string[]>,
+		questionOrder: s.questionOrder as unknown as Record<string, string[]>,
+	};
+}
+
 /** Create a Chat instance with transport, data handling, and auto-resend config.
  *  Closures capture refs (not direct values) so they always read the latest
  *  builder and runId — safe across re-renders within the same app session. */
@@ -71,10 +89,12 @@ function createChatInstance(
 			api: "/api/chat",
 			body: () => {
 				const s = builderRef.current.store.getState();
+				const doc = builderRef.current.docStore?.getState();
+				const hasBlueprint = (doc?.moduleOrder.length ?? 0) > 0;
 				return {
 					blueprint:
-						s.moduleOrder.length > 0
-							? assembleBlueprint(getEntityData(s))
+						doc && hasBlueprint
+							? assembleBlueprint(docToNormalized(doc))
 							: undefined,
 					runId: runIdRef.current,
 					appId: s.appId,

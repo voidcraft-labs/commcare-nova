@@ -31,7 +31,6 @@ import { useStoreWithEqualityFn } from "zustand/traditional";
 import { EditGuardProvider } from "@/components/builder/contexts/EditGuardContext";
 import { ScrollRegistryProvider } from "@/components/builder/contexts/ScrollRegistryContext";
 import { LocationRecoveryEffect } from "@/components/builder/LocationRecoveryEffect";
-import { startSyncOldFromDoc } from "@/lib/doc/adapters/syncOldFromDoc";
 import { useAssembledForm as useAssembledFormDoc } from "@/lib/doc/hooks/useAssembledForm";
 import { useDocTreeData } from "@/lib/doc/hooks/useDocTreeData";
 import { useQuestion as useQuestionDoc } from "@/lib/doc/hooks/useEntity";
@@ -299,10 +298,17 @@ export function BuilderProvider({
 }
 
 /**
- * Internal component that wires the doc→legacy projection and installs the
- * doc store reference on the engine. Rendered as a sibling of `{children}`
- * inside `BlueprintDocProvider` so it can read the doc store via context.
- * Returns `null` — it exists purely for its subscription side effect.
+ * Internal component that installs the doc store reference on the engine,
+ * the legacy store, and the session store. Rendered as a sibling of
+ * `{children}` inside `BlueprintDocProvider` so it can read the doc store
+ * via context. Returns `null` — it exists purely for its effect side.
+ *
+ * There is no longer a projection adapter: the doc store is the single
+ * source of truth for blueprint data, and consumers subscribe to it
+ * directly via `useBlueprintDoc` hooks. This component only wires the
+ * cross-store references that non-React callers (generation-stream setters,
+ * engine-controller form activation, session connect-mode switching) need
+ * to reach the doc without importing it directly.
  *
  * `engine.store` is stable across the provider's lifetime (the engine is
  * recreated only when `buildId` changes, which unmounts this component
@@ -315,15 +321,15 @@ function SyncBridge({ oldStore }: { oldStore: BuilderStoreApi }) {
 	const sessionStore = useContext(BuilderSessionContext);
 	useEffect(() => {
 		if (!docStore) return;
-		/* Install the doc store on the engine so entity mutations and
-		 * undo/redo route through the doc instead of the legacy store. */
+		/* Install the doc store on the engine so non-reactive readers can
+		 * reach it (e.g. the engine controller's form activation path). */
 		if (engine) {
 			engine.setDocStore(docStore);
 			/* Install on the engine controller so per-question subscriptions
 			 * and form activation read directly from the doc store. */
 			engine.engineController.setDocStore(docStore);
 		}
-		/* Install it on the legacy store too — generation-stream setters
+		/* Install it on the legacy store — generation-stream setters
 		 * (setScaffold, setSchema, setModuleContent, setFormContent) dispatch
 		 * entity changes as doc mutations through this reference. */
 		oldStore.getState().setDocStore(docStore);
@@ -331,7 +337,6 @@ function SyncBridge({ oldStore }: { oldStore: BuilderStoreApi }) {
 		 * doc mutations (setConnectType + updateForm) atomically alongside
 		 * session stash updates. */
 		if (sessionStore) sessionStore.getState()._setDocStore(docStore);
-		const stop = startSyncOldFromDoc(docStore, oldStore);
 		return () => {
 			if (engine) {
 				engine.setDocStore(null);
@@ -339,7 +344,6 @@ function SyncBridge({ oldStore }: { oldStore: BuilderStoreApi }) {
 			}
 			oldStore.getState().setDocStore(null);
 			if (sessionStore) sessionStore.getState()._setDocStore(null);
-			stop();
 		};
 	}, [docStore, oldStore, engine, sessionStore]);
 	return null;
@@ -349,9 +353,12 @@ function SyncBridge({ oldStore }: { oldStore: BuilderStoreApi }) {
 
 /**
  * Create a BuilderEngine, optionally hydrating it with server-fetched data
- * or replay stages. Both paths use synchronous hydration in the factory —
- * the store transitions from empty to populated atomically, invisible to
- * undo history (tracking is paused in the constructor, resumed here).
+ * or replay stages. The engine's legacy store holds only session/lifecycle
+ * state — the blueprint itself lives on the BlueprintDoc store, which is
+ * hydrated by `BlueprintDocProvider` from the same `initialBlueprint` prop.
+ * Undo tracking is owned entirely by the doc store (`startTracking` on the
+ * provider decides when to resume it), so this factory has no temporal
+ * responsibilities.
  *
  * Existing apps and replays start in Loading (safe fallback if a frame
  * paints before loadApp/loadReplay transitions to Ready). New builds
@@ -374,11 +381,11 @@ function createEngine(
 			replay.stages[i]?.applyToBuilder(engine);
 		}
 	} else if (initialBlueprint) {
-		/* Hydrate the store with the server-fetched blueprint. `loadApp`
-		 * transitions to Ready and populates all entity maps. Resume undo
-		 * tracking so the hydrated state is the undo baseline. */
+		/* Transition the legacy lifecycle to Ready. The doc store was already
+		 * hydrated synchronously by `BlueprintDocProvider` from the same
+		 * `initialBlueprint` prop, so callers that read entity data from the
+		 * doc see a populated state on the first render. */
 		engine.store.getState().loadApp(buildId, initialBlueprint);
-		engine.store.temporal.getState().resume();
 	}
 
 	return engine;

@@ -1,31 +1,35 @@
 /**
- * builderStore — Zustand store for the Builder's complete reactive state.
+ * builderStore — legacy Zustand store for Builder session state.
  *
- * State is normalized into flat entity maps (modules, forms, questions)
- * keyed by UUID, with separate ordering arrays for tree structure. No
- * monolithic blueprint object — assembleBlueprint() reconstructs the
- * wire format at save/export time only.
+ * Phase 3 status: this store has been reduced to a session-state store.
+ * All blueprint entity data (modules, forms, questions, app metadata) now
+ * lives exclusively on the BlueprintDoc store (`lib/doc/store.ts`), which
+ * owns mutations, undo/redo, and the generation-stream data path.
  *
- * Phase 3 migration: `cursorMode`, `activeFieldId`, `chatOpen`,
- * `structureOpen`, and `sidebarStash` have moved to the BuilderSession
- * store (`lib/session/store.ts`). This legacy store retains lifecycle,
- * entity, and generation state — scheduled for Phase 4/6 cleanup.
+ * What remains here:
+ * - **Lifecycle**: builder `phase`, agent-active flag, post-build edit flag
+ * - **Generation metadata**: current stage, progress counters, error state,
+ *   status message, and the in-flight `generationData` scaffold accumulator
+ * - **App identity**: `appId` (Firestore document ID)
+ * - **Replay**: stages, done index, exit path, and the current stage's messages
+ * - **Doc bridge**: `_docStore` reference, installed by SyncBridge on mount so
+ *   generation-stream setters (setScaffold, setFormContent, etc.) can dispatch
+ *   entity mutations into the doc without a direct import
  *
- * Middleware stack:
- * - **Immer** — mutable-syntax immutable updates with structural sharing.
- *   `draft.questions[uuid].label = 'x'` produces a new state where only
- *   `questions` and the changed question get new references.
- * - **zundo (temporal)** — undo/redo via history snapshots of entity data.
- *   Navigation lives in the URL (browser history handles back/forward).
- * - **devtools** — Redux DevTools inspection in development.
+ * Middleware stack (outer → inner):
+ * - **devtools** — Redux DevTools inspection in development
+ * - **subscribeWithSelector** — fine-grained subscriptions for session fields
+ * - **immer** — mutable-syntax immutable updates with structural sharing
  *
- * Created per buildId via `createBuilderStore()`. Scoped to the /build/{id}
- * page via React Context in BuilderProvider.
+ * Undo/redo is NOT on this store. The doc store's zundo middleware tracks
+ * blueprint history — this store has nothing worth undoing (session state).
+ *
+ * Phase 4 will delete this store entirely: remaining lifecycle/generation
+ * fields migrate to a dedicated session store or to React-local state.
  */
 
 import type { UIMessage } from "ai";
 import { enableMapSet } from "immer";
-import { temporal } from "zundo";
 import { devtools, subscribeWithSelector } from "zustand/middleware";
 import { immer } from "zustand/middleware/immer";
 import { createStore } from "zustand/vanilla";
@@ -42,17 +46,9 @@ import type {
 	BlueprintForm,
 	BlueprintModule,
 	CaseType,
-	ConnectConfig,
-	ConnectType,
 	FormType,
-	PostSubmitDestination,
 	Scaffold,
 } from "@/lib/schemas/blueprint";
-import type {
-	NewQuestion,
-	QuestionRenameResult,
-	QuestionUpdate,
-} from "./blueprintHelpers";
 import {
 	BuilderPhase,
 	type GenerationError,
@@ -60,30 +56,10 @@ import {
 	STAGE_LABELS,
 } from "./builder";
 import type { ReplayStage } from "./logReplay";
-import {
-	decomposeBlueprint,
-	type NForm,
-	type NModule,
-	type NQuestion,
-} from "./normalizedState";
-import type { QuestionPath } from "./questionPath";
 
 /* Enable Immer's Map/Set support for any Map/Set values that might appear
- * in blueprint data (future-proofing — current schema uses plain objects). */
+ * in session data (future-proofing — current fields are plain objects). */
 enableMapSet();
-
-// ── Move result ─────────────────────────────────────────────────────
-
-/** Returned by moveQuestion when a cross-level move triggers auto-rename
- *  to avoid a sibling ID collision (CommCare requires unique IDs per level). */
-export interface MoveQuestionResult {
-	renamed?: {
-		oldId: string;
-		newId: string;
-		newPath: QuestionPath;
-		xpathFieldsRewritten: number;
-	};
-}
 
 // ── Generation-time partial state ──────────────────────────────────────
 
@@ -126,17 +102,6 @@ export interface BuilderState {
 	// ── Lifecycle ──
 	phase: BuilderPhase;
 
-	// ── Entity data (normalized — flat maps + ordering arrays) ──
-	appName: string;
-	connectType: ConnectType | undefined;
-	caseTypes: CaseType[];
-	modules: Record<string, NModule>;
-	forms: Record<string, NForm>;
-	questions: Record<string, NQuestion>;
-	moduleOrder: string[];
-	formOrder: Record<string, string[]>;
-	questionOrder: Record<string, string[]>;
-
 	// ── Generation metadata ──
 	generationStage: GenerationStage | null;
 	generationError: GenerationError;
@@ -169,84 +134,13 @@ export interface BuilderState {
 	// ── Phase 1b: doc store bridge ──
 	/** Reference to the BlueprintDoc store, installed by SyncBridge after
 	 *  provider mount. Generation setters use this to dispatch entity changes
-	 *  as doc mutations instead of writing directly to the legacy store.
-	 *  Not tracked by zundo (excluded by the `partialize` allow-list). */
+	 *  as doc mutations — the doc store is the single source of truth for
+	 *  blueprint data, so the legacy store never stores entities itself. */
 	_docStore: BlueprintDocStore | null;
 	setDocStore: (store: BlueprintDocStore | null) => void;
 
-	// ── Actions ────────────────────────────────────────────────────────
+	// ── Generation lifecycle actions ──────────────────────────────────
 
-	// -- Blueprint mutation actions --
-	updateQuestion: (
-		mIdx: number,
-		fIdx: number,
-		path: QuestionPath,
-		updates: Partial<QuestionUpdate>,
-	) => void;
-	addQuestion: (
-		mIdx: number,
-		fIdx: number,
-		question: NewQuestion,
-		opts?: {
-			afterPath?: QuestionPath;
-			beforePath?: QuestionPath;
-			atIndex?: number;
-			parentPath?: QuestionPath;
-		},
-	) => string;
-	removeQuestion: (mIdx: number, fIdx: number, path: QuestionPath) => void;
-	moveQuestion: (
-		mIdx: number,
-		fIdx: number,
-		path: QuestionPath,
-		opts: {
-			afterPath?: QuestionPath;
-			beforePath?: QuestionPath;
-			targetParentPath?: QuestionPath;
-		},
-	) => MoveQuestionResult;
-	duplicateQuestion: (
-		mIdx: number,
-		fIdx: number,
-		path: QuestionPath,
-	) => { newPath: QuestionPath; newUuid: string };
-	renameQuestion: (
-		mIdx: number,
-		fIdx: number,
-		path: QuestionPath,
-		newId: string,
-	) => QuestionRenameResult;
-	updateModule: (
-		mIdx: number,
-		updates: {
-			name?: string;
-			case_list_columns?: Array<{ field: string; header: string }>;
-			case_detail_columns?: Array<{ field: string; header: string }> | null;
-		},
-	) => void;
-	updateForm: (
-		mIdx: number,
-		fIdx: number,
-		updates: {
-			name?: string;
-			type?: FormType;
-			close_condition?: {
-				question: string;
-				answer: string;
-				operator?: "=" | "selected";
-			} | null;
-			connect?: ConnectConfig | null;
-			post_submit?: PostSubmitDestination | null;
-		},
-	) => void;
-	replaceForm: (mIdx: number, fIdx: number, form: BlueprintForm) => void;
-	addForm: (mIdx: number, form: BlueprintForm) => void;
-	removeForm: (mIdx: number, fIdx: number) => void;
-	addModule: (module: BlueprintModule) => void;
-	removeModule: (mIdx: number) => void;
-	updateApp: (updates: { app_name?: string; connect_type?: string }) => void;
-
-	// -- Generation lifecycle actions --
 	startGeneration: () => void;
 	setSchema: (caseTypes: CaseType[]) => void;
 	setPartialScaffold: (partial: Record<string, unknown>) => void;
@@ -285,7 +179,8 @@ export interface BuilderState {
 		severity?: "failed" | "recovering",
 	) => void;
 
-	// -- Replay lifecycle actions --
+	// ── Replay lifecycle actions ──────────────────────────────────────
+
 	/** Hydrate replay metadata into the store. Stage application (applyToBuilder)
 	 *  is handled separately by the engine factory. */
 	loadReplay: (
@@ -298,24 +193,6 @@ export interface BuilderState {
 	setReplayMessages: (messages: UIMessage[]) => void;
 	reset: () => void;
 }
-
-// ── Undo/redo partialized state ────────────────────────────────────────
-
-/** The slice of state that zundo tracks for undo/redo. Only entity data —
- *  navigation lives in the URL (browser history), and transient interaction
- *  state (cursorMode, activeFieldId) stays at its live value through undo. */
-type UndoSlice = Pick<
-	BuilderState,
-	| "appName"
-	| "connectType"
-	| "caseTypes"
-	| "modules"
-	| "forms"
-	| "questions"
-	| "moduleOrder"
-	| "formOrder"
-	| "questionOrder"
->;
 
 // ── Generation-stream doc helpers ─────────────────────────────────────
 
@@ -390,506 +267,346 @@ export type BuilderStoreApi = ReturnType<typeof createBuilderStore>;
 export function createBuilderStore(initialPhase: BuilderPhase) {
 	return createStore<BuilderState>()(
 		devtools(
-			temporal(
-				subscribeWithSelector(
-					immer((set, get) => ({
-						// ── Initial state ──────────────────────────────────────
+			subscribeWithSelector(
+				immer((set, get) => ({
+					// ── Initial state ──────────────────────────────────────
 
-						phase: initialPhase,
+					phase: initialPhase,
 
-						// Entity data (empty until blueprint is loaded/generated)
-						appName: "",
-						connectType: undefined,
-						caseTypes: [] as CaseType[],
-						modules: {} as Record<string, NModule>,
-						forms: {} as Record<string, NForm>,
-						questions: {} as Record<string, NQuestion>,
-						moduleOrder: [] as string[],
-						formOrder: {} as Record<string, string[]>,
-						questionOrder: {} as Record<string, string[]>,
+					generationStage: null,
+					generationError: null,
+					statusMessage: "",
+					agentActive: false,
+					postBuildEdit: false,
+					generationData: undefined,
+					progressCompleted: 0,
+					progressTotal: 0,
+					appId: undefined,
 
-						generationStage: null,
-						generationError: null,
-						statusMessage: "",
-						agentActive: false,
-						postBuildEdit: false,
-						generationData: undefined,
-						progressCompleted: 0,
-						progressTotal: 0,
-						appId: undefined,
+					replayStages: undefined,
+					replayDoneIndex: 0,
+					replayExitPath: undefined,
+					replayMessages: [] as UIMessage[],
 
-						replayStages: undefined,
-						replayDoneIndex: 0,
-						replayExitPath: undefined,
-						replayMessages: [] as UIMessage[],
+					// Doc store bridge (non-serializable — generation setters
+					// dispatch entity changes through this reference).
+					_docStore: null as BlueprintDocStore | null,
 
-						// Phase 1b: doc store bridge (non-serializable, excluded
-						// from undo by the partialize allow-list)
-						_docStore: null as BlueprintDocStore | null,
+					setDocStore(store) {
+						set({ _docStore: store });
+					},
 
-						setDocStore(store) {
-							set({ _docStore: store });
-						},
+					// ── Generation lifecycle actions ────────────────────────
 
-						// ── Blueprint mutation actions ──────────────────────────
+					startGeneration() {
+						set((draft) => {
+							draft.phase = BuilderPhase.Generating;
+							draft.generationStage = GenerationStage.DataModel;
+							draft.generationError = null;
+							draft.statusMessage = STAGE_LABELS[GenerationStage.DataModel];
+							draft.generationData = { partialModules: {} };
+						});
+					},
 
-						updateQuestion(_mIdx, _fIdx, _path, _updates) {
-							// Phase 1b: entity mutations flow through useBlueprintMutations →
-							// doc.apply(). This action is kept for signature-compat while other
-							// legacy-store consumers still reference the interface shape.
-							// Phase 3 removes the action entirely when the legacy store is deleted.
-						},
+					setSchema(caseTypes) {
+						// Entity write dispatched to the doc — case types are doc state,
+						// the legacy store no longer tracks them.
+						const docStore = get()._docStore;
+						if (!docStore) return;
+						docStore.getState().apply({ kind: "setCaseTypes", caseTypes });
+					},
 
-						addQuestion(_mIdx, _fIdx, _question, _opts?) {
-							// Phase 1b: entity mutations flow through useBlueprintMutations →
-							// doc.apply(). Stub returns empty string for interface compat.
-							return "";
-						},
+					setPartialScaffold(partial) {
+						const modules = partial?.modules as
+							| Array<Record<string, unknown>>
+							| undefined;
+						if (!modules?.length) return;
 
-						removeQuestion(_mIdx, _fIdx, _path) {
-							// Phase 1b: entity mutations flow through useBlueprintMutations →
-							// doc.apply(). This action is kept for signature-compat.
-						},
+						const parsed: PartialScaffoldData = {
+							appName: partial.app_name as string | undefined,
+							modules: modules
+								.filter((m) => m?.name)
+								.map((m) => ({
+									name: m.name as string,
+									case_type: m.case_type as string | undefined,
+									purpose: m.purpose as string | undefined,
+									forms: (
+										(m.forms as Array<Record<string, unknown>> | undefined) ??
+										[]
+									)
+										.filter((f) => f?.name)
+										.map((f) => ({
+											name: f.name as string,
+											type: f.type as string,
+											purpose: f.purpose as string | undefined,
+										})),
+								})),
+						};
 
-						moveQuestion(_mIdx, _fIdx, _path, _opts) {
-							// Phase 1b: entity mutations flow through useBlueprintMutations →
-							// doc.apply(). Stub returns empty result for interface compat.
-							return {} as MoveQuestionResult;
-						},
+						set((draft) => {
+							draft.generationStage = GenerationStage.Structure;
+							draft.statusMessage = STAGE_LABELS[GenerationStage.Structure];
+							if (!draft.generationData)
+								draft.generationData = {
+									partialModules: {},
+								};
+							draft.generationData.partialScaffold = parsed;
+						});
+					},
 
-						duplicateQuestion(_mIdx, _fIdx, _path) {
-							// Phase 1b: entity mutations flow through useBlueprintMutations →
-							// doc.apply(). Stub returns empty sentinel for interface compat.
-							return { newPath: "" as QuestionPath, newUuid: "" };
-						},
-
-						renameQuestion(_mIdx, _fIdx, _path, _newId) {
-							// Phase 1b: entity mutations flow through useBlueprintMutations →
-							// doc.apply(). Stub returns empty sentinel for interface compat.
-							return {
-								newPath: "" as QuestionPath,
-								xpathFieldsRewritten: 0,
-							};
-						},
-
-						updateModule(_mIdx, _updates) {
-							// Phase 1b: entity mutations flow through useBlueprintMutations →
-							// doc.apply(). This action is kept for signature-compat.
-						},
-
-						updateForm(_mIdx, _fIdx, _updates) {
-							// Phase 1b: entity mutations flow through useBlueprintMutations →
-							// doc.apply(). This action is kept for signature-compat.
-						},
-
-						replaceForm(_mIdx, _fIdx, _form) {
-							// Phase 1b: entity mutations flow through useBlueprintMutations →
-							// doc.apply(). This action is kept for signature-compat.
-						},
-
-						addForm(_mIdx, _form) {
-							// Phase 1b: entity mutations flow through useBlueprintMutations →
-							// doc.apply(). This action is kept for signature-compat.
-						},
-
-						removeForm(_mIdx, _fIdx) {
-							// Phase 1b: entity mutations flow through useBlueprintMutations →
-							// doc.apply(). This action is kept for signature-compat.
-						},
-
-						addModule(_module) {
-							// Phase 1b: entity mutations flow through useBlueprintMutations →
-							// doc.apply(). This action is kept for signature-compat.
-						},
-
-						removeModule(_mIdx) {
-							// Phase 1b: entity mutations flow through useBlueprintMutations →
-							// doc.apply(). This action is kept for signature-compat.
-						},
-
-						updateApp(_updates) {
-							// Phase 1b: entity mutations flow through useBlueprintMutations →
-							// doc.apply(). This action is kept for signature-compat.
-						},
-
-						// ── Generation lifecycle actions ────────────────────────
-
-						startGeneration() {
-							set((draft) => {
-								draft.phase = BuilderPhase.Generating;
-								draft.generationStage = GenerationStage.DataModel;
-								draft.generationError = null;
-								draft.statusMessage = STAGE_LABELS[GenerationStage.DataModel];
-								/* Clear entity data so treeData falls through to
-								 * generationData during the build. */
-								draft.appName = "";
-								draft.connectType = undefined;
-								draft.caseTypes = [];
-								draft.modules = {};
-								draft.forms = {};
-								draft.questions = {};
-								draft.moduleOrder = [];
-								draft.formOrder = {};
-								draft.questionOrder = {};
+					setScaffold(scaffold) {
+						// Progress tracking on the legacy store (session state).
+						set((draft) => {
+							if (!draft.generationData)
 								draft.generationData = { partialModules: {} };
-							});
-						},
+							draft.generationData.scaffold = scaffold;
+							draft.generationData.partialScaffold = undefined;
+						});
 
-						setSchema(caseTypes) {
-							// Entity write dispatched to the doc; the sync adapter
-							// mirrors the result back to the legacy store's caseTypes.
-							const docStore = get()._docStore;
-							if (!docStore) return;
-							docStore.getState().apply({ kind: "setCaseTypes", caseTypes });
-						},
+						// Entity writes dispatched to the doc as a single atomic
+						// batch — collapses to one undoable unit after endAgentWrite.
+						const docStore = get()._docStore;
+						if (!docStore) return;
+						docStore.getState().applyMany(scaffoldToMutations(scaffold));
+					},
 
-						setPartialScaffold(partial) {
-							const modules = partial?.modules as
-								| Array<Record<string, unknown>>
-								| undefined;
-							if (!modules?.length) return;
+					setModuleContent(moduleIndex, caseListColumns) {
+						// Progress tracking (session state).
+						set((draft) => {
+							if (!draft.generationData)
+								draft.generationData = { partialModules: {} };
+							const partial = draft.generationData.partialModules[
+								moduleIndex
+							] ?? { forms: {} };
+							partial.caseListColumns = caseListColumns;
+							draft.generationData.partialModules[moduleIndex] = partial;
 
-							const parsed: PartialScaffoldData = {
-								appName: partial.app_name as string | undefined,
-								modules: modules
-									.filter((m) => m?.name)
-									.map((m) => ({
-										name: m.name as string,
-										case_type: m.case_type as string | undefined,
-										purpose: m.purpose as string | undefined,
-										forms: (
-											(m.forms as Array<Record<string, unknown>> | undefined) ??
-											[]
-										)
-											.filter((f) => f?.name)
-											.map((f) => ({
-												name: f.name as string,
-												type: f.type as string,
-												purpose: f.purpose as string | undefined,
-											})),
-									})),
-							};
+							const progress = computeProgress(draft.generationData);
+							draft.progressCompleted = progress.completed;
+							draft.progressTotal = progress.total;
+						});
 
-							set((draft) => {
-								draft.generationStage = GenerationStage.Structure;
-								draft.statusMessage = STAGE_LABELS[GenerationStage.Structure];
-								if (!draft.generationData)
-									draft.generationData = {
-										partialModules: {},
-									};
-								draft.generationData.partialScaffold = parsed;
-							});
-						},
+						// Entity write dispatched to the doc.
+						const docStore = get()._docStore;
+						if (!docStore) return;
+						const doc = docStore.getState();
+						const moduleUuid = doc.moduleOrder[moduleIndex];
+						if (!moduleUuid) return;
+						doc.apply({
+							kind: "updateModule",
+							uuid: moduleUuid,
+							patch: {
+								caseListColumns: caseListColumns ?? undefined,
+							},
+						});
+					},
 
-						setScaffold(scaffold) {
-							// Progress tracking on the legacy store (session state).
-							set((draft) => {
-								if (!draft.generationData)
-									draft.generationData = { partialModules: {} };
-								draft.generationData.scaffold = scaffold;
-								draft.generationData.partialScaffold = undefined;
-							});
+					setFormContent(moduleIndex, formIndex, form) {
+						// Progress tracking (session state).
+						set((draft) => {
+							if (!draft.generationData)
+								draft.generationData = { partialModules: {} };
+							const partial = draft.generationData.partialModules[
+								moduleIndex
+							] ?? { forms: {} };
+							partial.forms[formIndex] = form;
+							draft.generationData.partialModules[moduleIndex] = partial;
 
-							// Entity writes dispatched to the doc as a single atomic
-							// batch — collapses to one undoable unit after endAgentWrite.
-							const docStore = get()._docStore;
-							if (!docStore) return;
-							docStore.getState().applyMany(scaffoldToMutations(scaffold));
-						},
+							const progress = computeProgress(draft.generationData);
+							draft.progressCompleted = progress.completed;
+							draft.progressTotal = progress.total;
+						});
 
-						setModuleContent(moduleIndex, caseListColumns) {
-							// Progress tracking (session state).
-							set((draft) => {
-								if (!draft.generationData)
-									draft.generationData = { partialModules: {} };
-								const partial = draft.generationData.partialModules[
-									moduleIndex
-								] ?? { forms: {} };
-								partial.caseListColumns = caseListColumns;
-								draft.generationData.partialModules[moduleIndex] = partial;
+						// Entity write dispatched to the doc via replaceForm.
+						const docStore = get()._docStore;
+						if (!docStore) return;
+						const doc = docStore.getState();
+						const moduleUuid = doc.moduleOrder[moduleIndex];
+						if (!moduleUuid) return;
+						const formUuid = doc.formOrder[moduleUuid]?.[formIndex];
+						if (!formUuid) return;
 
-								const progress = computeProgress(draft.generationData);
-								draft.progressCompleted = progress.completed;
-								draft.progressTotal = progress.total;
-							});
+						// Build a scratch doc from the incoming form, then re-key
+						// to the real formUuid so replaceForm swaps in-place.
+						const scratch = toDoc(
+							{
+								app_name: "",
+								connect_type: undefined,
+								case_types: null,
+								modules: [{ name: "__scratch__", forms: [form] }],
+							},
+							"",
+						);
+						const scratchModuleUuid = scratch.moduleOrder[0];
+						const scratchFormUuid = scratch.formOrder[scratchModuleUuid][0];
+						const scratchForm = scratch.forms[scratchFormUuid];
 
-							// Entity write dispatched to the doc.
-							const docStore = get()._docStore;
-							if (!docStore) return;
-							const doc = docStore.getState();
-							const moduleUuid = doc.moduleOrder[moduleIndex];
-							if (!moduleUuid) return;
-							doc.apply({
-								kind: "updateModule",
-								uuid: moduleUuid,
-								patch: {
-									caseListColumns: caseListColumns ?? undefined,
-								},
-							});
-						},
+						// Preserve the scaffold-set purpose — BlueprintForm doesn't
+						// carry purpose, so toDoc produces `purpose: undefined`.
+						const existingForm = doc.forms[formUuid];
+						const replacement: FormEntity = {
+							...scratchForm,
+							uuid: formUuid,
+							purpose: existingForm?.purpose ?? scratchForm.purpose,
+						};
 
-						setFormContent(moduleIndex, formIndex, form) {
-							// Progress tracking (session state).
-							set((draft) => {
-								if (!draft.generationData)
-									draft.generationData = { partialModules: {} };
-								const partial = draft.generationData.partialModules[
-									moduleIndex
-								] ?? { forms: {} };
-								partial.forms[formIndex] = form;
-								draft.generationData.partialModules[moduleIndex] = partial;
+						// Re-key question ordering: replace the scratch form UUID
+						// with the real form UUID; nested group/repeat keys pass
+						// through unchanged (they're question UUIDs, not form UUIDs).
+						const questions = Object.values(
+							scratch.questions,
+						) as QuestionEntity[];
+						const questionOrder: Record<Uuid, Uuid[]> = {};
+						for (const [key, order] of Object.entries(scratch.questionOrder)) {
+							questionOrder[
+								key === scratchFormUuid ? formUuid : (key as Uuid)
+							] = order;
+						}
 
-								const progress = computeProgress(draft.generationData);
-								draft.progressCompleted = progress.completed;
-								draft.progressTotal = progress.total;
-							});
+						doc.apply({
+							kind: "replaceForm",
+							uuid: formUuid,
+							form: replacement,
+							questions,
+							questionOrder,
+						});
+					},
 
-							// Entity write dispatched to the doc via replaceForm.
-							const docStore = get()._docStore;
-							if (!docStore) return;
-							const doc = docStore.getState();
-							const moduleUuid = doc.moduleOrder[moduleIndex];
-							if (!moduleUuid) return;
-							const formUuid = doc.formOrder[moduleUuid]?.[formIndex];
-							if (!formUuid) return;
+					advanceStage(stage) {
+						const stageMap: Record<string, GenerationStage> = {
+							structure: GenerationStage.Structure,
+							modules: GenerationStage.Modules,
+							forms: GenerationStage.Forms,
+							validate: GenerationStage.Validate,
+							fix: GenerationStage.Fix,
+						};
+						const newStage = stageMap[stage];
+						if (!newStage) return;
 
-							// Build a scratch doc from the incoming form, then re-key
-							// to the real formUuid so replaceForm swaps in-place.
-							const scratch = toDoc(
-								{
-									app_name: "",
-									connect_type: undefined,
-									case_types: null,
-									modules: [{ name: "__scratch__", forms: [form] }],
-								},
-								"",
-							);
-							const scratchModuleUuid = scratch.moduleOrder[0];
-							const scratchFormUuid = scratch.formOrder[scratchModuleUuid][0];
-							const scratchForm = scratch.forms[scratchFormUuid];
+						set((draft) => {
+							draft.generationStage = newStage;
+							draft.generationError = null;
+							draft.statusMessage = STAGE_LABELS[newStage];
 
-							// Preserve the scaffold-set purpose — BlueprintForm doesn't
-							// carry purpose, so toDoc produces `purpose: undefined`.
-							const existingForm = doc.forms[formUuid];
-							const replacement: FormEntity = {
-								...scratchForm,
-								uuid: formUuid,
-								purpose: existingForm?.purpose ?? scratchForm.purpose,
-							};
+							const progress = draft.generationData
+								? computeProgress(draft.generationData)
+								: { completed: 0, total: 0 };
+							draft.progressCompleted = progress.completed;
+							draft.progressTotal = progress.total;
+						});
+					},
 
-							// Re-key question ordering: replace the scratch form UUID
-							// with the real form UUID; nested group/repeat keys pass
-							// through unchanged (they're question UUIDs, not form UUIDs).
-							const questions = Object.values(
-								scratch.questions,
-							) as QuestionEntity[];
-							const questionOrder: Record<Uuid, Uuid[]> = {};
-							for (const [key, order] of Object.entries(
-								scratch.questionOrder,
-							)) {
-								questionOrder[
-									key === scratchFormUuid ? formUuid : (key as Uuid)
-								] = order;
-							}
+					setFixAttempt(attempt, errorCount) {
+						set({
+							statusMessage: `${STAGE_LABELS[GenerationStage.Fix]} — ${errorCount} error${errorCount !== 1 ? "s" : ""} (attempt ${attempt})`,
+						});
+					},
 
-							doc.apply({
-								kind: "replaceForm",
-								uuid: formUuid,
-								form: replacement,
-								questions,
-								questionOrder,
-							});
-						},
+					completeGeneration(_blueprint) {
+						/* Entity data already lives on the doc store — during initial
+						 * generation the stream setters (setScaffold, setFormContent)
+						 * wrote directly to the doc. We only transition the builder's
+						 * lifecycle flags here. The `blueprint` argument is preserved in
+						 * the signature for future Phase 4 rewrite (when the full blueprint
+						 * arrival signal may want to `doc.load()` for edit-mode replacement). */
+						set((draft) => {
+							draft.phase = BuilderPhase.Completed;
+							draft.generationStage = null;
+							draft.generationError = null;
+							draft.postBuildEdit = false;
+							draft.statusMessage = "";
+							draft.generationData = undefined;
+							draft.progressCompleted = 0;
+							draft.progressTotal = 0;
+						});
+					},
 
-						advanceStage(stage) {
-							const stageMap: Record<string, GenerationStage> = {
-								structure: GenerationStage.Structure,
-								modules: GenerationStage.Modules,
-								forms: GenerationStage.Forms,
-								validate: GenerationStage.Validate,
-								fix: GenerationStage.Fix,
-							};
-							const newStage = stageMap[stage];
-							if (!newStage) return;
+					acknowledgeCompletion() {
+						if (get().phase !== BuilderPhase.Completed) return;
+						set({ phase: BuilderPhase.Ready });
+					},
 
-							set((draft) => {
-								draft.generationStage = newStage;
-								draft.generationError = null;
-								draft.statusMessage = STAGE_LABELS[newStage];
+					setAppId(id) {
+						set({ appId: id });
+					},
 
-								const progress = draft.generationData
-									? computeProgress(draft.generationData)
-									: { completed: 0, total: 0 };
-								draft.progressCompleted = progress.completed;
-								draft.progressTotal = progress.total;
-							});
-						},
+					loadApp(id, _blueprint) {
+						/* The BlueprintDocProvider already hydrated the doc store from
+						 * the initialBlueprint prop at mount time; this action only
+						 * transitions the legacy store's lifecycle flags. The blueprint
+						 * argument is kept in the signature so callers (engine factory,
+						 * tests) can pass it without knowing whether the action writes
+						 * it — Phase 4 will drop the argument entirely when this action
+						 * is deleted. */
+						set((draft) => {
+							draft.appId = id;
+							draft.phase = BuilderPhase.Ready;
+							draft.generationStage = null;
+							draft.generationError = null;
+							draft.postBuildEdit = false;
+							draft.statusMessage = "";
+							draft.generationData = undefined;
+						});
+					},
 
-						setFixAttempt(attempt, errorCount) {
-							set({
-								statusMessage: `${STAGE_LABELS[GenerationStage.Fix]} — ${errorCount} error${errorCount !== 1 ? "s" : ""} (attempt ${attempt})`,
-							});
-						},
-
-						completeGeneration(blueprint) {
-							set((draft) => {
-								/* Decompose the final validated blueprint into normalized entities */
-								const data = decomposeBlueprint(
-									blueprint as import("@/lib/schemas/blueprint").AppBlueprint,
-								);
-								draft.appName = data.appName;
-								draft.connectType = data.connectType;
-								draft.caseTypes = data.caseTypes;
-								draft.modules = data.modules;
-								draft.forms = data.forms;
-								draft.questions = data.questions;
-								draft.moduleOrder = data.moduleOrder;
-								draft.formOrder = data.formOrder;
-								draft.questionOrder = data.questionOrder;
-
-								draft.phase = BuilderPhase.Completed;
-								draft.generationStage = null;
-								draft.generationError = null;
-								draft.postBuildEdit = false;
-								draft.statusMessage = "";
-								draft.generationData = undefined;
-								draft.progressCompleted = 0;
-								draft.progressTotal = 0;
-							});
-						},
-
-						acknowledgeCompletion() {
-							if (get().phase !== BuilderPhase.Completed) return;
-							set({ phase: BuilderPhase.Ready });
-						},
-
-						setAppId(id) {
-							set({ appId: id });
-						},
-
-						loadApp(id, blueprint) {
-							set((draft) => {
-								const data = decomposeBlueprint(
-									blueprint as import("@/lib/schemas/blueprint").AppBlueprint,
-								);
-								draft.appId = id;
-								draft.appName = data.appName;
-								draft.connectType = data.connectType;
-								draft.caseTypes = data.caseTypes;
-								draft.modules = data.modules;
-								draft.forms = data.forms;
-								draft.questions = data.questions;
-								draft.moduleOrder = data.moduleOrder;
-								draft.formOrder = data.formOrder;
-								draft.questionOrder = data.questionOrder;
-
+					setAgentActive(active) {
+						const s = get();
+						if (s.agentActive === active) return;
+						set((draft) => {
+							draft.agentActive = active;
+							if (
+								active &&
+								(s.phase === BuilderPhase.Ready ||
+									s.phase === BuilderPhase.Completed)
+							) {
 								draft.phase = BuilderPhase.Ready;
-								draft.generationStage = null;
-								draft.generationError = null;
-								draft.postBuildEdit = false;
-								draft.statusMessage = "";
-								draft.generationData = undefined;
-							});
-						},
+								draft.postBuildEdit = true;
+							}
+						});
+					},
 
-						setAgentActive(active) {
-							const s = get();
-							if (s.agentActive === active) return;
-							set((draft) => {
-								draft.agentActive = active;
-								if (
-									active &&
-									(s.phase === BuilderPhase.Ready ||
-										s.phase === BuilderPhase.Completed)
-								) {
-									draft.phase = BuilderPhase.Ready;
-									draft.postBuildEdit = true;
-								}
-							});
-						},
+					setGenerationError(message, severity = "failed") {
+						set((draft) => {
+							draft.generationError = { message, severity };
+							draft.statusMessage = message;
+							if (severity === "failed" && draft.generationData) {
+								draft.generationData.partialModules = {};
+							}
+						});
+					},
 
-						setGenerationError(message, severity = "failed") {
-							set((draft) => {
-								draft.generationError = { message, severity };
-								draft.statusMessage = message;
-								if (severity === "failed" && draft.generationData) {
-									draft.generationData.partialModules = {};
-								}
-							});
-						},
+					loadReplay(stages, doneIndex, exitPath) {
+						set((draft) => {
+							draft.replayStages = stages;
+							draft.replayDoneIndex = doneIndex;
+							draft.replayExitPath = exitPath;
+							/* Initialize replay messages to the done stage's messages
+							 * so ChatContainer has content immediately on mount. */
+							draft.replayMessages = stages[doneIndex]?.messages ?? [];
+						});
+					},
 
-						loadReplay(stages, doneIndex, exitPath) {
-							set((draft) => {
-								draft.replayStages = stages;
-								draft.replayDoneIndex = doneIndex;
-								draft.replayExitPath = exitPath;
-								/* Initialize replay messages to the done stage's messages
-								 * so ChatContainer has content immediately on mount. */
-								draft.replayMessages = stages[doneIndex]?.messages ?? [];
-							});
-						},
+					setReplayMessages(messages) {
+						set({ replayMessages: messages });
+					},
 
-						setReplayMessages(messages) {
-							set({ replayMessages: messages });
-						},
+					reset() {
+						set((draft) => {
+							draft.phase = BuilderPhase.Idle;
 
-						reset() {
-							set((draft) => {
-								draft.phase = BuilderPhase.Idle;
-
-								draft.appName = "";
-								draft.connectType = undefined;
-								draft.caseTypes = [];
-								draft.modules = {};
-								draft.forms = {};
-								draft.questions = {};
-								draft.moduleOrder = [];
-								draft.formOrder = {};
-								draft.questionOrder = {};
-
-								draft.generationStage = null;
-								draft.generationError = null;
-								draft.statusMessage = "";
-								draft.agentActive = false;
-								draft.postBuildEdit = false;
-								draft.generationData = undefined;
-								draft.progressCompleted = 0;
-								draft.progressTotal = 0;
-								draft.appId = undefined;
-								draft.replayMessages = [];
-							});
-						},
-					})),
-				),
-				{
-					/* zundo config: undo/redo tracks entity data only. Navigation
-					 * lives in the URL (browser history handles back/forward).
-					 * Transient interaction state (cursorMode, activeFieldId) has
-					 * moved to the BuilderSession store (Phase 3). */
-					partialize: (s): UndoSlice => ({
-						appName: s.appName,
-						connectType: s.connectType,
-						caseTypes: s.caseTypes,
-						modules: s.modules,
-						forms: s.forms,
-						questions: s.questions,
-						moduleOrder: s.moduleOrder,
-						formOrder: s.formOrder,
-						questionOrder: s.questionOrder,
-					}),
-					/* Only create undo entries when entity data actually changes. */
-					equality: (past, curr) =>
-						past.modules === curr.modules &&
-						past.forms === curr.forms &&
-						past.questions === curr.questions &&
-						past.moduleOrder === curr.moduleOrder &&
-						past.formOrder === curr.formOrder &&
-						past.questionOrder === curr.questionOrder &&
-						past.appName === curr.appName &&
-						past.connectType === curr.connectType &&
-						past.caseTypes === curr.caseTypes,
-					limit: 50,
-				},
+							draft.generationStage = null;
+							draft.generationError = null;
+							draft.statusMessage = "";
+							draft.agentActive = false;
+							draft.postBuildEdit = false;
+							draft.generationData = undefined;
+							draft.progressCompleted = 0;
+							draft.progressTotal = 0;
+							draft.appId = undefined;
+							draft.replayMessages = [];
+						});
+					},
+				})),
 			),
 			{
 				name: "BuilderStore",
