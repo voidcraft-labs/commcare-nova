@@ -53,7 +53,7 @@ import type { Uuid } from "@/lib/doc/types";
 import { useNavigate } from "@/lib/routing/hooks";
 import { BuilderPhase } from "@/lib/services/builder";
 import { selectInReplayMode } from "@/lib/services/builderSelectors";
-import { useSwitchCursorMode } from "@/lib/session/hooks";
+import { useCursorMode, useSwitchCursorMode } from "@/lib/session/hooks";
 import type { CursorMode } from "@/lib/session/types";
 
 /** Extra space above the scroll target so the question isn't flush with the
@@ -109,15 +109,24 @@ export function BuilderLayout({
 
 	const switchCursorMode = useSwitchCursorMode();
 
+	/* Track current cursor mode in a ref so the stable handleCursorModeChange
+	 * callback can read it without adding cursorMode as a dependency. */
+	const cursorMode = useCursorMode();
+	const cursorModeRef = useRef(cursorMode);
+	cursorModeRef.current = cursorMode;
+
 	/** Capture scroll anchor before cursor mode switch, then delegate
 	 *  the actual mode change to the session store's atomic switchCursorMode. */
 	const handleCursorModeChange = useCallback(
 		(mode: CursorMode) => {
-			/* switchCursorMode itself guards against same-mode no-ops, but we
-			 * want to skip the DOM measurement too — no point anchoring scroll
-			 * if the mode isn't actually changing. Read cursorMode eagerly from
-			 * the session store action (which internally no-ops). We still do
-			 * the DOM work then call the action, which will no-op if needed. */
+			/* Early exit on same-mode: avoids DOM measurement + scroll anchor
+			 * thrash that otherwise fires on every click of the already-active
+			 * CursorModeSelector button. The session store also guards against
+			 * same-mode no-ops internally, but by that point we've already run
+			 * querySelectorAll + getBoundingClientRect + setScrollAnchor, which
+			 * triggers a re-render and a useLayoutEffect that mutates scrollTop. */
+			if (mode === cursorModeRef.current) return;
+
 			const scrollContainer = document.querySelector(
 				"[data-preview-scroll-container]",
 			) as HTMLElement | null;
