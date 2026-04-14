@@ -5,21 +5,21 @@
  * actions. The engine holds only non-reactive imperative state that doesn't
  * belong in the store:
  *
- * - **Edit scope** — signal grid zone focus
  * - **Edit mutation tracking** — gates Completed phase after post-build edits
  *
  * The engine also provides DOM helpers (undo highlight flash, field element
  * lookup) used by routing hooks and form editors. Transient UI hints
  * (focus hint, new-question marker) live on BuilderSession instead.
+ *
+ * Signal grid edit focus computation lives in `lib/signalGrid/editFocus.ts`
+ * as a pure function — no engine state needed.
  */
 
 import type { BlueprintDocStore } from "@/lib/doc/provider";
 import { EngineController } from "@/lib/preview/engine/engineController";
 import { signalGrid } from "@/lib/signalGrid/store";
-import type { EditFocus } from "@/lib/signalGridController";
-import { BuilderPhase, type EditScope, GenerationStage } from "./builder";
+import { BuilderPhase, GenerationStage } from "./builder";
 import { type BuilderStoreApi, createBuilderStore } from "./builderStore";
-import { countQuestionsDeep } from "./normalizedState";
 
 // ── BuilderEngine ───────────────────────────────────────────────────────
 
@@ -36,8 +36,6 @@ export class BuilderEngine {
 
 	// ── Non-reactive state (never triggers React re-renders) ────────────
 
-	/** Current agent edit zone — read by computeEditFocus(). */
-	private _editScope: EditScope | null = null;
 	/** Tracks whether post-build edits have mutated the blueprint (gates Completed phase). */
 	private _editMadeMutations = false;
 
@@ -103,77 +101,6 @@ export class BuilderEngine {
 	/** Current doc store, or null before SyncBridge has mounted. */
 	get docStore(): BlueprintDocStore | null {
 		return this._docStore;
-	}
-
-	// ── Edit focus (non-reactive — signal grid zone) ────────────────────
-
-	setEditScope(scope: EditScope | null): void {
-		this._editScope = scope;
-	}
-
-	computeEditFocus(): EditFocus | null {
-		const s = this.store.getState();
-		if (s.moduleOrder.length === 0 || !this._editScope) return null;
-
-		/* Count total questions and build positional map for each form */
-		let total = 0;
-		const formPositions: Array<{
-			moduleIndex: number;
-			formIndex: number;
-			start: number;
-			count: number;
-		}> = [];
-
-		for (let mi = 0; mi < s.moduleOrder.length; mi++) {
-			const moduleId = s.moduleOrder[mi];
-			const formIds = s.formOrder[moduleId] ?? [];
-			for (let fi = 0; fi < formIds.length; fi++) {
-				const formId = formIds[fi];
-				const count = countQuestionsDeep(s.questionOrder, formId);
-				formPositions.push({
-					moduleIndex: mi,
-					formIndex: fi,
-					start: total,
-					count,
-				});
-				total += count;
-			}
-		}
-
-		if (total === 0) return null;
-
-		const scope = this._editScope;
-
-		if (scope.formIndex == null) {
-			const modForms = formPositions.filter(
-				(f) => f.moduleIndex === scope.moduleIndex,
-			);
-			if (modForms.length === 0) return null;
-			const start = modForms[0].start / total;
-			const end =
-				(modForms[modForms.length - 1].start +
-					modForms[modForms.length - 1].count) /
-				total;
-			return clampEditFocus(start, end);
-		}
-
-		const form = formPositions.find(
-			(f) =>
-				f.moduleIndex === scope.moduleIndex && f.formIndex === scope.formIndex,
-		);
-		if (!form || form.count === 0) return null;
-
-		if (scope.questionIndex != null) {
-			const qPos =
-				(form.start + Math.min(scope.questionIndex, form.count - 1)) / total;
-			const halfZone = Math.max(MIN_EDIT_ZONE / 2, (form.count / total) * 0.3);
-			return clampEditFocus(qPos - halfZone, qPos + halfZone);
-		}
-
-		return clampEditFocus(
-			form.start / total,
-			(form.start + form.count) / total,
-		);
 	}
 
 	/**
@@ -247,7 +174,6 @@ export class BuilderEngine {
 	// ── Reset ───────────────────────────────────────────────────────────
 
 	reset(): void {
-		this._editScope = null;
 		this._editMadeMutations = false;
 		this.store.getState().reset();
 		/* Clear signal grid energy so stale accumulation from the previous
@@ -260,27 +186,4 @@ export class BuilderEngine {
 		temporal.clear();
 		temporal.pause();
 	}
-}
-
-// ── Helpers ─────────────────────────────────────────────────────────────
-
-const MIN_EDIT_ZONE = 0.15;
-
-function clampEditFocus(start: number, end: number): EditFocus {
-	let width = end - start;
-	if (width < MIN_EDIT_ZONE) {
-		const center = (start + end) / 2;
-		start = center - MIN_EDIT_ZONE / 2;
-		end = center + MIN_EDIT_ZONE / 2;
-		width = MIN_EDIT_ZONE;
-	}
-	if (start < 0) {
-		end -= start;
-		start = 0;
-	}
-	if (end > 1) {
-		start -= end - 1;
-		end = 1;
-	}
-	return { start: Math.max(0, start), end: Math.min(1, end) };
 }

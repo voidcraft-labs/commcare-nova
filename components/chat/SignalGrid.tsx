@@ -6,6 +6,7 @@ import type { EditScope } from "@/lib/services/builder";
 import { assembleQuestions as assembleQuestionsForGrid } from "@/lib/services/normalizedState";
 import { type QuestionPath, qpathId } from "@/lib/services/questionPath";
 import { flatIndexById } from "@/lib/services/questionTree";
+import { computeEditFocus } from "@/lib/signalGrid/editFocus";
 import { signalGrid } from "@/lib/signalGrid/store";
 import type { SignalGridController } from "@/lib/signalGridController";
 
@@ -105,10 +106,9 @@ export function SignalGrid({ controller, messages }: SignalGridProps) {
 		}
 		prevContentLenRef.current = contentLen;
 
-		const { postBuildEdit, agentActive } = builder.store.getState();
-		if (postBuildEdit && agentActive) {
-			builder.setEditScope(latestToolScope);
-			controller.setEditFocus(builder.computeEditFocus());
+		const s = builder.store.getState();
+		if (s.postBuildEdit && s.agentActive) {
+			controller.setEditFocus(computeEditFocus(s, latestToolScope));
 		}
 	}, [messages, builder, controller]);
 
