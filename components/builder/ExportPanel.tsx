@@ -16,12 +16,8 @@ import { memo, useCallback, useContext, useMemo, useState } from "react";
 import { UploadToHqDialog } from "@/components/builder/UploadToHqDialog";
 import type { ExportOption } from "@/components/ui/ExportDropdown";
 import { ExportDropdown } from "@/components/ui/ExportDropdown";
+import { toBlueprint } from "@/lib/doc/converter";
 import { BlueprintDocContext } from "@/lib/doc/provider";
-import type { BlueprintDoc } from "@/lib/doc/types";
-import {
-	assembleBlueprint,
-	type NormalizedData,
-} from "@/lib/services/normalizedState";
 import { showToast } from "@/lib/services/toastStore";
 
 interface ExportPanelProps {
@@ -29,23 +25,6 @@ interface ExportPanelProps {
 	commcareConfigured: boolean;
 	/** The user's authorized project space domain, or null if not configured. */
 	commcareDomain: { name: string; displayName: string } | null;
-}
-
-/** Adapt a BlueprintDoc snapshot to the legacy `NormalizedData` shape that
- *  `assembleBlueprint` expects. The underlying entity shapes are identical;
- *  the cast crosses only the branded-`Uuid` vs plain-`string` key boundary. */
-function docToNormalized(s: BlueprintDoc): NormalizedData {
-	return {
-		appName: s.appName,
-		connectType: s.connectType ?? undefined,
-		caseTypes: s.caseTypes ?? [],
-		modules: s.modules as unknown as NormalizedData["modules"],
-		forms: s.forms as unknown as NormalizedData["forms"],
-		questions: s.questions as unknown as NormalizedData["questions"],
-		moduleOrder: s.moduleOrder as unknown as string[],
-		formOrder: s.formOrder as unknown as Record<string, string[]>,
-		questionOrder: s.questionOrder as unknown as Record<string, string[]>,
-	};
 }
 
 /**
@@ -61,28 +40,29 @@ export const ExportPanel = memo(function ExportPanel({
 	const docStore = useContext(BlueprintDocContext);
 	const [uploadDialogOpen, setUploadDialogOpen] = useState(false);
 
-	/** Assemble the current blueprint for the upload dialog. */
+	/** Assemble the current blueprint for the upload dialog.
+	 *
+	 * ExportPanel is only rendered when a real app is loaded — the export
+	 * dropdown is hidden until `hasData` on the layout becomes true, and
+	 * the upload dialog is gated behind a button click that requires the
+	 * dropdown to be visible. If this callback somehow runs with an
+	 * unmounted doc store, it's a programming error: throw loudly rather
+	 * than fabricate an empty blueprint that would push a zero-module app
+	 * to CommCare HQ. */
 	const getBlueprint = useCallback(() => {
 		const s = docStore?.getState();
-		return s
-			? assembleBlueprint(docToNormalized(s))
-			: assembleBlueprint({
-					appName: "",
-					connectType: undefined,
-					caseTypes: [],
-					modules: {},
-					forms: {},
-					questions: {},
-					moduleOrder: [],
-					formOrder: {},
-					questionOrder: {},
-				});
+		if (!s) {
+			throw new Error(
+				"ExportPanel.getBlueprint called before BlueprintDocProvider mounted",
+			);
+		}
+		return toBlueprint(s);
 	}, [docStore]);
 
 	const handleExportCcz = useCallback(async () => {
 		const s = docStore?.getState();
 		if (!s || s.moduleOrder.length === 0) return;
-		const bp = assembleBlueprint(docToNormalized(s));
+		const bp = toBlueprint(s);
 		try {
 			const res = await fetch("/api/compile", {
 				method: "POST",
@@ -108,7 +88,7 @@ export const ExportPanel = memo(function ExportPanel({
 	const handleExportJson = useCallback(async () => {
 		const s = docStore?.getState();
 		if (!s || s.moduleOrder.length === 0) return;
-		const bp = assembleBlueprint(docToNormalized(s));
+		const bp = toBlueprint(s);
 		try {
 			const res = await fetch("/api/compile/json", {
 				method: "POST",

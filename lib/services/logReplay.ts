@@ -11,7 +11,6 @@
  */
 import type { UIMessage } from "ai";
 import type { JsonValue, StoredEvent } from "@/lib/db/types";
-import type { AppBlueprint } from "@/lib/schemas/blueprint";
 import { applyDataPart } from "./builder";
 import type { BuilderEngine } from "./builderEngine";
 
@@ -212,19 +211,12 @@ export function extractReplayStages(events: StoredEvent[]): ExtractionResult {
 		header: "Done",
 		messages: buildProgressiveMessages(),
 		applyToBuilder: (b) => {
-			const s = b.store.getState();
-			/* Derive a blueprint from the generation data for the final replay stage.
-			 * Case types live on the BlueprintDoc store (the legacy store no longer
-			 * mirrors them), so we read them through the engine's doc reference. */
-			const gen = s.generationData;
-			const scaffold = gen?.scaffold;
-			if (scaffold) {
-				const caseTypes = b.docStore?.getState().caseTypes ?? null;
-				s.completeGeneration({
-					...scaffold,
-					case_types: caseTypes,
-				} as unknown as AppBlueprint);
-			}
+			/* Transition lifecycle flags for the final replay stage. Entity data
+			 * was already dispatched into the doc store by the intermediate stages
+			 * (scaffold setters, form-content setters), so there's no blueprint
+			 * hand-off to perform here — just flip the session-store flags to
+			 * Completed so the replay UI shows the done state. */
+			b.store.getState().completeGeneration();
 		},
 	});
 

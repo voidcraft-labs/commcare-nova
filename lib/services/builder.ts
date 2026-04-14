@@ -4,8 +4,11 @@
  * This file is the canonical source for all builder-related types:
  * BuilderPhase, GenerationStage, SelectedElement, TreeData, etc.
  *
- * State management lives in builderStore.ts (Zustand + Immer + zundo).
- * The BuilderEngine (builderEngine.ts) is a thin adapter for non-reactive state.
+ * State management is split across two stores: the legacy `builderStore.ts`
+ * carries session/lifecycle state (phase, progress, error, replay metadata),
+ * and the BlueprintDoc store (`lib/doc/store.ts`) owns all entity data plus
+ * undo/redo via its zundo middleware. The BuilderEngine (`builderEngine.ts`)
+ * is a thin non-reactive adapter that both stores hang off of.
  */
 import type {
 	AppBlueprint,
@@ -49,6 +52,18 @@ export function applyDataPart(
 	switch (type) {
 		case "data-start-build":
 			store.startGeneration();
+			/* Pause doc-store undo tracking for the duration of the agent write
+			 * stream. Every intermediate stage setter (setScaffold, setFormContent,
+			 * setModuleContent) dispatches mutations into the doc — without this
+			 * pause, each stage would enter the undo history as a separate entry.
+			 * `endAgentWrite` on `data-done` resumes tracking; the entire build
+			 * then collapses into a single undoable snapshot from the user's POV.
+			 *
+			 * Fresh builds in this session don't strictly need this because the
+			 * `BlueprintDocProvider` starts with `startTracking={false}` for new
+			 * apps. Re-generations (second build in the same session) run with
+			 * tracking LIVE, so this call is what keeps their history clean. */
+			engine.docStore?.getState().beginAgentWrite();
 			break;
 		case "data-schema":
 			store.setSchema(data.caseTypes as CaseType[]);
@@ -81,31 +96,64 @@ export function applyDataPart(
 			);
 			break;
 		case "data-blueprint-updated": {
-			/* Full blueprint replacement during edit — set directly in the store.
-			 * completeGeneration() decomposes the blueprint into normalized entities
-			 * but also resets generation flags (phase, postBuildEdit). Preserve
-			 * postBuildEdit so fresh-edit sessions keep "editing" mode on the signal
-			 * grid — without this, the first mutation clears postBuildEdit and the
-			 * grid falls back to "reasoning" ("Thinking") for the rest of the session. */
+			/* Full blueprint replacement during a post-build edit. The SA's
+			 * coarse edit tools (updateModule, createModule, removeModule,
+			 * createForm, removeForm, renameCaseProperty, cross-form rename)
+			 * emit this with the entire new blueprint.
+			 *
+			 * The doc store is the single source of truth for entity data, so
+			 * we must dispatch the blueprint there — `docStore.load()` replaces
+			 * the entire normalized state atomically. Before T11 this path was
+			 * covered indirectly by the legacy store's `decomposeBlueprint` +
+			 * the syncOldFromDoc adapter; both are gone, so without a direct
+			 * `docStore.load()` the SA's edit vanishes silently.
+			 *
+			 * `load()` pauses and clears undo history, so we immediately resume
+			 * tracking on the doc store — the edit should be undoable. Preserve
+			 * `postBuildEdit` so the signal grid stays in edit mode instead of
+			 * falling back to "reasoning" after the first mutation. */
 			const bp = data.blueprint as AppBlueprint;
-			const { postBuildEdit } = engine.store.getState();
-			store.completeGeneration(bp);
+			const { postBuildEdit, appId } = engine.store.getState();
+			const docStore = engine.docStore;
+			if (docStore) {
+				docStore.getState().load(bp, appId ?? "");
+				/* Resume tracking so subsequent user edits enter the undo stack
+				 * (load() leaves temporal paused and cleared). */
+				docStore.getState().endAgentWrite();
+			}
+			store.completeGeneration();
 			engine.store.setState({ phase: BuilderPhase.Ready, postBuildEdit });
 			break;
 		}
 		case "data-fix-attempt":
 			store.setFixAttempt(data.attempt as number, data.errorCount as number);
 			break;
-		case "data-done":
-			store.completeGeneration((data as { blueprint: AppBlueprint }).blueprint);
-			/* Resume undo tracking on the doc store — generation is complete,
-			 * user edits are now undoable. Generation-stream setters dispatched
-			 * mutations through `beginAgentWrite` so intermediate stages are
-			 * collapsed into one undoable entry (or absent, depending on phase
-			 * 4's final wiring). The doc store is the single source of undo
-			 * history; the legacy engine store no longer carries temporal state. */
-			engine.docStore?.getState().endAgentWrite();
+		case "data-done": {
+			/* Generation is complete. Reconcile the doc store against the final
+			 * authoritative blueprint the route handler just returned — during
+			 * streaming, the form-fix loop (`validateAndFix`) can mutate forms
+			 * silently without emitting per-fix `data-form-fixed` events in some
+			 * code paths, which would leave the doc diverged from the server's
+			 * canonical result. A single `load()` brings the doc into perfect
+			 * sync at the end of the run. `load()` pauses temporal and clears
+			 * history (everything up to this point is agent-authored, not
+			 * user-undoable), so we resume afterward via `endAgentWrite` —
+			 * which also pairs with the `beginAgentWrite` call on
+			 * `data-start-build` for re-generations running with live tracking. */
+			const result = data as { blueprint: AppBlueprint };
+			const docStore = engine.docStore;
+			if (docStore && result.blueprint) {
+				const appId = engine.store.getState().appId ?? "";
+				docStore.getState().load(result.blueprint, appId);
+			}
+			store.completeGeneration();
+			/* Resume undo tracking on the doc store. From this point on, user
+			 * edits enter the undo stack as individual entries. The generation
+			 * stream as a whole is NOT undoable — the user cannot "undo" back
+			 * to an empty app. */
+			docStore?.getState().endAgentWrite();
 			break;
+		}
 		case "data-app-saved":
 			store.setAppId(data.appId as string);
 			break;

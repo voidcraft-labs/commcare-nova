@@ -286,6 +286,11 @@ export function BuilderProvider({
 							 * it can read the doc store via context. It starts a one-way
 							 * subscription that mirrors doc entity maps into the legacy
 							 * store, keeping un-migrated consumers live during Phase 1b. */}
+							{/* SyncBridge installs `_docStore` references on the engine,
+							 * legacy store, session store, and engine controller. It no
+							 * longer mirrors entity state — the doc store is the single
+							 * source of truth for blueprint data, and consumers subscribe
+							 * to it directly via the `useBlueprintDoc` hook family. */}
 							<SyncBridge oldStore={engine.store} />
 							<LocationRecoveryEffect />
 							<EditGuardProvider>{children}</EditGuardProvider>
@@ -299,9 +304,10 @@ export function BuilderProvider({
 
 /**
  * Internal component that installs the doc store reference on the engine,
- * the legacy store, and the session store. Rendered as a sibling of
- * `{children}` inside `BlueprintDocProvider` so it can read the doc store
- * via context. Returns `null` — it exists purely for its effect side.
+ * the legacy store, the session store, and the engine controller. Rendered
+ * as a sibling of `{children}` inside `BlueprintDocProvider` so it can read
+ * the doc store via context. Returns `null` — it exists purely for its
+ * effect side.
  *
  * There is no longer a projection adapter: the doc store is the single
  * source of truth for blueprint data, and consumers subscribe to it
@@ -385,7 +391,7 @@ function createEngine(
 		 * hydrated synchronously by `BlueprintDocProvider` from the same
 		 * `initialBlueprint` prop, so callers that read entity data from the
 		 * doc see a populated state on the first render. */
-		engine.store.getState().loadApp(buildId, initialBlueprint);
+		engine.store.getState().loadApp(buildId);
 	}
 
 	return engine;

@@ -24,34 +24,13 @@
 "use client";
 
 import { useCallback, useContext } from "react";
+import { toBlueprint } from "@/lib/doc/converter";
 import { BlueprintDocContext } from "@/lib/doc/provider";
-import type { BlueprintDoc } from "@/lib/doc/types";
 import { ReferenceProviderWrapper } from "@/lib/references/ReferenceContext";
 import { useLocation } from "@/lib/routing/hooks";
-import {
-	assembleBlueprint,
-	type NormalizedData,
-} from "@/lib/services/normalizedState";
 
 interface BuilderReferenceProviderProps {
 	children: React.ReactNode;
-}
-
-/** Adapt a BlueprintDoc snapshot to the legacy `NormalizedData` shape that
- *  `assembleBlueprint` expects. The underlying entity shapes are identical;
- *  the cast crosses only the branded-`Uuid` vs plain-`string` key boundary. */
-function docToNormalized(s: BlueprintDoc): NormalizedData {
-	return {
-		appName: s.appName,
-		connectType: s.connectType ?? undefined,
-		caseTypes: s.caseTypes ?? [],
-		modules: s.modules as unknown as NormalizedData["modules"],
-		forms: s.forms as unknown as NormalizedData["forms"],
-		questions: s.questions as unknown as NormalizedData["questions"],
-		moduleOrder: s.moduleOrder as unknown as string[],
-		formOrder: s.formOrder as unknown as Record<string, string[]>,
-		questionOrder: s.questionOrder as unknown as Record<string, string[]>,
-	};
 }
 
 export function BuilderReferenceProvider({
@@ -69,15 +48,15 @@ export function BuilderReferenceProvider({
 		const s = docStore.getState();
 		if (s.moduleOrder.length === 0) return undefined;
 
-		const bp = assembleBlueprint(docToNormalized(s));
+		const bp = toBlueprint(s);
 
 		/* Resolve the form in scope from the URL. The callback fires at edit
 		 * time, so the current location accurately reflects which form the
 		 * user is editing. */
 		if (loc.kind === "form") {
 			/* Resolve module/form indices from UUIDs via the doc's ordering
-			 * maps, since assembleBlueprint returns a wire-format BlueprintApp
-			 * with index-based modules/forms. The cast narrows branded UUIDs. */
+			 * maps, since toBlueprint returns a wire-format BlueprintApp with
+			 * index-based modules/forms. The cast narrows branded UUIDs. */
 			const moduleIndex = (s.moduleOrder as unknown as string[]).indexOf(
 				loc.moduleUuid,
 			);
