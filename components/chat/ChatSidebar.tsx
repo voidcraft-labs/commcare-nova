@@ -21,6 +21,7 @@ import {
 } from "@/hooks/useBuilder";
 import { BuilderPhase, GenerationStage } from "@/lib/services/builder";
 import type { BuilderEngine } from "@/lib/services/builderEngine";
+import { useSetSidebarOpen } from "@/lib/session/hooks";
 import { signalGrid } from "@/lib/signalGrid/store";
 import {
 	defaultLabel,
@@ -78,6 +79,7 @@ export function ChatSidebar({
 }: ChatSidebarProps) {
 	const engine = useBuilderEngine();
 	const phase = useBuilderPhase();
+	const setSidebarOpen = useSetSidebarOpen();
 	const {
 		generationError,
 		generationStage,
@@ -446,7 +448,7 @@ export function ChatSidebar({
 						</span>
 						<button
 							type="button"
-							onClick={() => engine.store.getState().setChatOpen(false)}
+							onClick={() => setSidebarOpen("chat", false)}
 							className="px-1 h-11 text-nova-text-muted hover:text-nova-text transition-colors cursor-pointer"
 						>
 							<Icon icon={tablerChevronRight} width="14" height="14" />

@@ -6,14 +6,14 @@ import tablerFilePlus from "@iconify-icons/tabler/file-plus";
 import { motion } from "motion/react";
 import { useCallback, useState } from "react";
 import { EditableTitle, SavedCheck } from "@/components/builder/EditableTitle";
-import { useBuilderStore, useModule } from "@/hooks/useBuilder";
+import { useBuilderIsReady, useModule } from "@/hooks/useBuilder";
 import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
 import { useOrderedForms } from "@/lib/doc/hooks/useModuleIds";
 import type { Uuid } from "@/lib/doc/types";
 import type { PreviewScreen } from "@/lib/preview/engine/types";
 import { useLocation, useNavigate } from "@/lib/routing/hooks";
 import { CASE_LOADING_FORM_TYPES } from "@/lib/schemas/blueprint";
-import { selectEditMode, selectIsReady } from "@/lib/services/builderSelectors";
+import { useEditMode } from "@/lib/session/hooks";
 
 const formTypeIcons = {
 	registration: tablerFilePlus,
@@ -35,8 +35,8 @@ export function ModuleScreen({ screen }: ModuleScreenProps) {
 	const loc = useLocation();
 	const navigate = useNavigate();
 	const { updateModule } = useBlueprintMutations();
-	const isReady = useBuilderStore(selectIsReady);
-	const mode = useBuilderStore(selectEditMode);
+	const isReady = useBuilderIsReady();
+	const mode = useEditMode();
 
 	/** Module uuid from the URL — used for uuid-first mutations and navigation. */
 	const moduleUuid = loc.kind === "module" ? loc.moduleUuid : undefined;

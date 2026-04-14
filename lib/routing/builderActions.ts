@@ -14,13 +14,14 @@
 import { useContext, useMemo } from "react";
 import { flushSync } from "react-dom";
 import { useScrollIntoView } from "@/components/builder/contexts/ScrollRegistryContext";
-import { useBuilderEngine, useBuilderStore } from "@/hooks/useBuilder";
+import { useBuilderEngine } from "@/hooks/useBuilder";
 import { useAssembledForm } from "@/lib/doc/hooks/useAssembledForm";
 import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
 import { BlueprintDocContext } from "@/lib/doc/provider";
 import { asUuid } from "@/lib/doc/types";
 import { useLocation, useSelect } from "@/lib/routing/hooks";
 import { flattenQuestionRefs } from "@/lib/services/questionPath";
+import { useActiveFieldId } from "@/lib/session/hooks";
 
 /**
  * Undo / redo with scroll + flash affordance. Both actions are no-ops
@@ -48,7 +49,7 @@ export function useUndoRedo(): { undo: () => void; redo: () => void } {
 	const engine = useBuilderEngine();
 	const { scrollTo } = useScrollIntoView();
 	const loc = useLocation();
-	const activeFieldId = useBuilderStore((s) => s.activeFieldId);
+	const activeFieldId = useActiveFieldId();
 
 	return useMemo(() => {
 		function run(action: "undo" | "redo"): void {

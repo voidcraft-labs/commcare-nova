@@ -22,7 +22,6 @@ import {
 } from "./builder";
 import type {
 	BuilderState,
-	CursorMode,
 	GenerationData,
 	PartialModule,
 } from "./builderStore";
@@ -125,11 +124,6 @@ export function selectHasData(s: BuilderState): boolean {
 	return s.moduleOrder.length > 0;
 }
 
-/** Derive edit mode from cursor mode. Pointer = test (live form), all others = edit (design). */
-export function selectEditMode(s: BuilderState): "edit" | "test" {
-	return s.cursorMode === "pointer" ? "test" : "edit";
-}
-
 // ── Replay selectors ──────────────────────────────────────────────────
 
 /** True when the builder is in replay mode (replay stages loaded in store). */
@@ -139,24 +133,9 @@ export function selectInReplayMode(s: BuilderState): boolean {
 
 // ── Field selectors (single-field reads for component subscriptions) ──
 
-/** Current cursor mode. */
-export function selectCursorMode(s: BuilderState): CursorMode {
-	return s.cursorMode;
-}
-
 /** App display name. */
 export function selectAppName(s: BuilderState): string {
 	return s.appName;
-}
-
-/** Whether the chat sidebar is open. */
-export function selectChatOpen(s: BuilderState): boolean {
-	return s.chatOpen;
-}
-
-/** Whether the structure sidebar is open. */
-export function selectStructureOpen(s: BuilderState): boolean {
-	return s.structureOpen;
 }
 
 /** Current generation stage (null when not generating). */

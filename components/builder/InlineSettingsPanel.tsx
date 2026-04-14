@@ -14,8 +14,8 @@
 
 "use client";
 import { useCallback } from "react";
-import { useBuilderStore } from "@/hooks/useBuilder";
 import type { Question } from "@/lib/schemas/blueprint";
+import { useSetActiveFieldId } from "@/lib/session/hooks";
 import { ContextualEditorData } from "./contextual/ContextualEditorData";
 import { ContextualEditorHeader } from "./contextual/ContextualEditorHeader";
 import { ContextualEditorLogic } from "./contextual/ContextualEditorLogic";
@@ -42,7 +42,7 @@ export const SECTION_CARD_CLASS =
 	"rounded-md bg-nova-surface/40 border border-white/[0.04] px-3 py-2.5";
 
 export function InlineSettingsPanel({ question }: InlineSettingsPanelProps) {
-	const setActiveFieldId = useBuilderStore((s) => s.setActiveFieldId);
+	const setActiveFieldId = useSetActiveFieldId();
 
 	/** Delegated focusin handler — tracks which [data-field-id] element has
 	 *  focus so zundo snapshots capture the correct field even for
