@@ -6,7 +6,6 @@
  * belong in the store:
  *
  * - **Energy counters** — consumed by SignalGrid's rAF loop, never triggers renders
- * - **Edit guard** — blocks selection changes when an editor has unsaved content
  * - **Drag state** — blocks undo during dnd-kit drag operations
  * - **Focus/panel hints** — one-shot transient state consumed by specific components
  * - **Edit scope** — signal grid zone focus
@@ -50,8 +49,6 @@ export class BuilderEngine {
 	private _thinkEnergy = 0;
 	/** Current agent edit zone — read by computeEditFocus(). */
 	private _editScope: EditScope | null = null;
-	/** Callback that can block select() when an inline editor has unsaved content. */
-	private _editGuard: (() => boolean) | null = null;
 	/** Transient field key to focus after undo/redo. Consumed once by InlineSettingsPanel. */
 	private _focusHint: string | undefined;
 	/** Blocks undo/redo during dnd-kit drag operations. */
@@ -176,25 +173,6 @@ export class BuilderEngine {
 
 	clearNewQuestion(): void {
 		this._newQuestionUuid = undefined;
-	}
-
-	// ── Edit guard ──────────────────────────────────────────────────────
-
-	/** Run the edit guard callback. Returns true if selection can proceed
-	 *  (no guard installed, or guard says OK). Used by routing hooks to
-	 *  gate URL-driven selection changes when an inline editor has unsaved
-	 *  content (e.g. XPath editor with uncommitted edits). */
-	checkEditGuard(): boolean {
-		if (!this._editGuard) return true;
-		return this._editGuard();
-	}
-
-	setEditGuard(guard: () => boolean): void {
-		this._editGuard = guard;
-	}
-
-	clearEditGuard(): void {
-		this._editGuard = null;
 	}
 
 	// ── Doc store reference ────────────────────────────────────────────
@@ -510,7 +488,6 @@ export class BuilderEngine {
 		this._streamEnergy = 0;
 		this._thinkEnergy = 0;
 		this._editScope = null;
-		this._editGuard = null;
 		this._newQuestionUuid = undefined;
 		this._editMadeMutations = false;
 		this._connectStash.learn.clear();

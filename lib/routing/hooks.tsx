@@ -25,7 +25,7 @@
 
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useMemo, useRef } from "react";
-import { useBuilderEngine } from "@/hooks/useBuilder";
+import { useConsultEditGuard } from "@/components/builder/contexts/EditGuardContext";
 import { useBlueprintDoc } from "@/lib/doc/hooks/useBlueprintDoc";
 import type {
 	FormEntity,
@@ -342,12 +342,13 @@ export function parentLocation(loc: Location): Location | undefined {
  *
  * **Edit guard integration.** Inline editors with unsaved invalid
  * content (e.g. the XPath editor in `XPathField`) install a guard via
- * `engine.setEditGuard()`. Before changing the URL, `useSelect`
- * consults `engine.checkEditGuard()` — if the guard returns `false`,
- * the selection change is blocked. The documented two-strike UX
- * ("warn then allow") lives inside the guard predicate itself: its
- * first invocation returns `false` and surfaces a warning; its second
- * invocation returns `true`, letting the selection through.
+ * `useRegisterEditGuard()` from `EditGuardContext`. Before changing
+ * the URL, `useSelect` consults the guard via `useConsultEditGuard()`
+ * — if the guard returns `false`, the selection change is blocked.
+ * The documented two-strike UX ("warn then allow") lives inside the
+ * guard predicate itself: its first invocation returns `false` and
+ * surfaces a warning; its second invocation returns `true`, letting
+ * the selection through.
  *
  * `useNavigate` intentionally does NOT consult the guard — the spec
  * only requires guarding selection changes, and screen-level
@@ -358,10 +359,11 @@ export function parentLocation(loc: Location): Location | undefined {
 export function useSelect(): SelectAction {
 	const router = useRouter();
 	const pathname = usePathname();
-	// `useBuilderEngine` returns the engine created once per
-	// `BuilderProvider` mount, so its identity is stable across renders
-	// and doesn't churn this memo's dependency set.
-	const engine = useBuilderEngine();
+	/* Spec Section 4: "useSelect hook consults EditGuardContext.canLeave()
+	 * before calling router.replace." Called at hook-body top level (not
+	 * conditionally) — the returned consult function is invoked inside
+	 * the select callback before any router.replace call. */
+	const consultGuard = useConsultEditGuard();
 	const loc = useLocation();
 
 	return useMemo<SelectAction>(() => {
@@ -370,7 +372,7 @@ export function useSelect(): SelectAction {
 			 * invalid content. The two-strike pattern (warn, then allow on
 			 * repeat) is owned by the guard predicate — this call site is
 			 * just a gate. */
-			if (!engine.checkEditGuard()) return;
+			if (!consultGuard()) return;
 			if (loc.kind !== "form") return;
 			const next: Location = {
 				kind: "form",
@@ -382,5 +384,5 @@ export function useSelect(): SelectAction {
 			const url = params ? `${pathname}?${params}` : pathname;
 			router.replace(url, { scroll: false });
 		};
-	}, [router, pathname, engine, loc]);
+	}, [router, pathname, consultGuard, loc]);
 }

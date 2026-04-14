@@ -6,10 +6,10 @@
  * Verifies that navigation actions dispatch the correct `router.push`
  * or `router.replace` calls with the expected URL and `{ scroll: false }`.
  *
- * `useBuilderEngine` is mocked because these tests focus on router-level
+ * `useConsultEditGuard` is mocked because these tests focus on router-level
  * behavior — the edit-guard integration in `useSelect` has its own
- * dedicated coverage; here we just need `checkEditGuard()` to return
- * `true` so the gate lets the selection through.
+ * dedicated coverage in `EditGuardContext.test.tsx`; here we just need
+ * the consult function to return `true` so the gate lets the selection through.
  */
 import { renderHook } from "@testing-library/react";
 import { ReadonlyURLSearchParams } from "next/navigation";
@@ -20,7 +20,7 @@ const routerPush = vi.fn();
 const routerReplace = vi.fn();
 const routerBack = vi.fn();
 const mockParams = { current: new URLSearchParams() };
-const checkEditGuard = vi.fn(() => true);
+const consultGuard = vi.fn(() => true);
 
 vi.mock("next/navigation", async () => {
 	const actual =
@@ -40,12 +40,12 @@ vi.mock("next/navigation", async () => {
 	};
 });
 
-/* Stub the entire builder context surface — `useSelect` only needs
- * `useBuilderEngine().checkEditGuard()` to answer `true`. Importing the
- * real `useBuilder` module would drag in the full engine/store stack
- * and require a live `BuilderProvider` wrapper around each test. */
-vi.mock("@/hooks/useBuilder", () => ({
-	useBuilderEngine: () => ({ checkEditGuard }),
+/* Stub EditGuardContext — `useSelect` calls `useConsultEditGuard()` at
+ * hook-body top level and uses the returned function inside the select
+ * callback. Mocking returns our controllable `consultGuard` function
+ * so tests can simulate both "allow" and "block" scenarios. */
+vi.mock("@/components/builder/contexts/EditGuardContext", () => ({
+	useConsultEditGuard: () => consultGuard,
 }));
 
 import { asUuid } from "@/lib/doc/types";
@@ -86,7 +86,7 @@ describe("useNavigate", () => {
 	it("useSelect is a no-op when not on a form location", () => {
 		mockParams.current = new URLSearchParams("s=m&m=mod-1");
 		routerReplace.mockClear();
-		checkEditGuard.mockReturnValue(true);
+		consultGuard.mockReturnValue(true);
 		const { result } = renderHook(() => useSelect());
 		act(() => result.current(asUuid("q-99")));
 		expect(routerReplace).not.toHaveBeenCalled();
@@ -97,16 +97,21 @@ describe("useNavigate", () => {
 		 * content: its first guard invocation returns false. The selection
 		 * must not reach the router — otherwise the user silently loses the
 		 * edit. The two-strike "warn then allow" UX lives inside the guard
-		 * predicate itself; `useSelect` just trusts the boolean. */
+		 * predicate itself; `useSelect` just trusts the boolean.
+		 *
+		 * This is the regression test for the Phase 2 retrospective: the
+		 * edit guard integration was silently dropped when useSelect moved
+		 * from engine.checkEditGuard() to EditGuardContext. Phase 3 must
+		 * have a test that catches any future reversion. */
 		mockParams.current = new URLSearchParams("s=f&m=m-1&f=f-1");
 		routerReplace.mockClear();
-		checkEditGuard.mockClear();
-		checkEditGuard.mockReturnValue(false);
+		consultGuard.mockClear();
+		consultGuard.mockReturnValue(false);
 		const { result } = renderHook(() => useSelect());
 		act(() => result.current(asUuid("q-42")));
-		expect(checkEditGuard).toHaveBeenCalled();
+		expect(consultGuard).toHaveBeenCalled();
 		expect(routerReplace).not.toHaveBeenCalled();
 		/* Reset for any later tests in this file. */
-		checkEditGuard.mockReturnValue(true);
+		consultGuard.mockReturnValue(true);
 	});
 });
