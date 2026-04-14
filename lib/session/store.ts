@@ -54,11 +54,6 @@ export interface BuilderSessionState {
 
 	// ── Connect stash (ephemeral, not undoable) ──────────────────────────
 
-	/** Reference to the BlueprintDoc store — installed by SyncBridge after
-	 *  both providers mount. Used by `switchConnectMode` to dispatch doc
-	 *  mutations atomically alongside session-state updates. */
-	_docStore: BlueprintDocStore | null;
-
 	/** Preserved form connect configs across mode switches. Keyed by
 	 *  connect type -> form uuid -> config. Uses uuid instead of
 	 *  moduleIndex/formIndex so renames and reorders don't invalidate
@@ -138,6 +133,11 @@ export type BuilderSessionStoreApi = ReturnType<
 /** Create a scoped Zustand session store. Called once per BuilderProvider
  *  mount — the parent provider's `buildId` controls the store lifetime. */
 export function createBuilderSessionStore() {
+	/* Non-reactive ref — lives outside Zustand state so it doesn't serialize
+	 * to devtools and doesn't fire subscribers on install/clear. Only read
+	 * imperatively by `switchConnectMode`. */
+	let docStoreRef: BlueprintDocStore | null = null;
+
 	return createStore<BuilderSessionState>()(
 		devtools(
 			subscribeWithSelector((set, get) => ({
@@ -148,7 +148,6 @@ export function createBuilderSessionStore() {
 					chat: { open: true, stashed: undefined },
 					structure: { open: true, stashed: undefined },
 				},
-				_docStore: null,
 				connectStash: { learn: {}, deliver: {} } as Record<
 					ConnectType,
 					Record<string, ConnectConfig>
@@ -158,14 +157,13 @@ export function createBuilderSessionStore() {
 				// ── Reducer-shaped actions ───────────────────────────────
 
 				_setDocStore(store: BlueprintDocStore | null) {
-					set({ _docStore: store });
+					docStoreRef = store;
 				},
 
 				switchConnectMode(type: ConnectType | null | undefined) {
+					if (!docStoreRef) return;
 					const s = get();
-					const docStore = s._docStore;
-					if (!docStore) return;
-					const docState = docStore.getState();
+					const docState = docStoreRef.getState();
 					if (docState.moduleOrder.length === 0) return;
 
 					const currentType = (docState.connectType ?? undefined) as
@@ -226,14 +224,15 @@ export function createBuilderSessionStore() {
 						}
 					}
 
-					/* Atomic commit: update session state AND doc state.
-					 * Doc's applyMany collapses into one undo entry; the session
-					 * state change is not undoable (intended — stash is transient). */
+					/* Commit doc first — applyMany is the operation that could fail.
+					 * If it throws (malformed mutation), session state stays consistent
+					 * with the pre-call doc state. The session stash update is a pure
+					 * state write that cannot fail. */
+					docStoreRef.getState().applyMany(mutations);
 					set({
 						connectStash: nextStash,
 						lastConnectType: currentType ?? s.lastConnectType,
 					});
-					docStore.getState().applyMany(mutations);
 				},
 
 				stashFormConnect(
