@@ -265,23 +265,19 @@ export function useNavigate(): NavigateActions {
 	const locRef = useRef(loc);
 	locRef.current = loc;
 
-	/* basePath is `/build/{appId}` — stable for the builder's entire
-	 * lifetime. Captured once on first render via ref so the action bag
-	 * never invalidates on URL changes. Without this, `usePathname()`
-	 * would update on every pushState/replaceState call (Next.js patches
-	 * the History API), churning the memo and every downstream consumer. */
-	const basePathRef = useRef("");
-	if (basePathRef.current === "") {
-		const parts = window.location.pathname.split("/").filter(Boolean);
-		basePathRef.current = `/${parts.slice(0, 2).join("/")}`;
-	}
-
 	return useMemo(() => {
-		const basePath = basePathRef.current;
+		/** Read the `/build/{appId}` prefix from the current URL at call
+		 * time. NOT captured in a ref — the prefix changes when
+		 * `data-app-saved` replaces `/build/new` with `/build/{appId}`.
+		 * A stale ref would keep building URLs with `/build/new/...`. */
+		const getBasePath = (): string => {
+			const parts = window.location.pathname.split("/").filter(Boolean);
+			return `/${parts.slice(0, 2).join("/")}`;
+		};
 
 		/** Push a new location (history entry). Use for screen changes. */
 		const push = (next: Location, opts?: { replace?: boolean }): void => {
-			const url = buildUrl(basePath, next);
+			const url = buildUrl(getBasePath(), next);
 			if (opts?.replace) window.history.replaceState(null, "", url);
 			else window.history.pushState(null, "", url);
 			notifyPathChange();
@@ -289,7 +285,7 @@ export function useNavigate(): NavigateActions {
 
 		/** Replace the current location (no history entry). */
 		const replace = (next: Location): void => {
-			const url = buildUrl(basePath, next);
+			const url = buildUrl(getBasePath(), next);
 			window.history.replaceState(null, "", url);
 			notifyPathChange();
 		};
@@ -368,19 +364,17 @@ export function useSelect(): SelectAction {
 	const locRef = useRef(loc);
 	locRef.current = loc;
 
-	/* basePath captured once — same pattern as useNavigate. */
-	const basePathRef = useRef("");
-	if (basePathRef.current === "") {
-		const parts = window.location.pathname.split("/").filter(Boolean);
-		basePathRef.current = `/${parts.slice(0, 2).join("/")}`;
-	}
-
 	return useMemo<SelectAction>(() => {
-		const basePath = basePathRef.current;
+		const getBasePath = (): string => {
+			const parts = window.location.pathname.split("/").filter(Boolean);
+			return `/${parts.slice(0, 2).join("/")}`;
+		};
 
 		return (uuid: Uuid | undefined): void => {
 			/* Honor any guard registered by an inline editor with unsaved
-			 * invalid content. */
+			 * invalid content. The two-strike pattern (warn, then allow on
+			 * repeat) is owned by the guard predicate — this call site is
+			 * just a gate. */
 			if (!consultGuard()) return;
 			const current = locRef.current;
 			if (current.kind !== "form") return;
@@ -390,7 +384,7 @@ export function useSelect(): SelectAction {
 				formUuid: current.formUuid,
 				selectedUuid: uuid,
 			};
-			const url = buildUrl(basePath, next);
+			const url = buildUrl(getBasePath(), next);
 			window.history.replaceState(null, "", url);
 			notifyPathChange();
 		};

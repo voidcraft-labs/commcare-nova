@@ -177,10 +177,11 @@ describe("useDeleteSelectedQuestion", () => {
 		act(() => result.current());
 
 		expect(store.getState().questions[asUuid(Q_B)]).toBeUndefined();
+		/* Flat URL: selected question is a single segment (parser derives form). */
 		expect(replaceStateSpy).toHaveBeenCalledWith(
 			null,
 			"",
-			`${pathname}/${formUuid}/${Q_C}`,
+			`${pathname}/${Q_C}`,
 		);
 	});
 
@@ -197,7 +198,7 @@ describe("useDeleteSelectedQuestion", () => {
 		expect(replaceStateSpy).toHaveBeenCalledWith(
 			null,
 			"",
-			`${pathname}/${formUuid}/${Q_B}`,
+			`${pathname}/${Q_B}`,
 		);
 	});
 

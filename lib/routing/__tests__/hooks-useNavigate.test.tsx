@@ -159,11 +159,9 @@ describe("useNavigate", () => {
 			wrapper: wrap(store),
 		});
 		act(() => result.current(asUuid("q-42")));
-		expect(replaceStateSpy).toHaveBeenCalledWith(
-			null,
-			"",
-			`/build/app-1/${formUuid}/q-42`,
-		);
+		/* Selection serializes as a single question UUID — the parser
+		 * derives the parent form via findFormForQuestion. */
+		expect(replaceStateSpy).toHaveBeenCalledWith(null, "", "/build/app-1/q-42");
 		expect(pushStateSpy).not.toHaveBeenCalled();
 	});
 
