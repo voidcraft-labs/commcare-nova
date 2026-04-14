@@ -7,7 +7,7 @@
  * exercises one event category: doc mutations, doc lifecycle, or session-only.
  */
 
-import { assert, beforeEach, describe, expect, it, vi } from "vitest";
+import { assert, beforeEach, describe, expect, it } from "vitest";
 import {
 	type BlueprintDocStoreApi,
 	createBlueprintDocStore,
