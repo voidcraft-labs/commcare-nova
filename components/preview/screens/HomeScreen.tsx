@@ -5,13 +5,13 @@ import { motion } from "motion/react";
 import { useCallback, useState } from "react";
 import { EditableTitle, SavedCheck } from "@/components/builder/EditableTitle";
 import { Badge } from "@/components/ui/Badge";
-import { useBuilderHasData, useBuilderIsReady } from "@/hooks/useBuilder";
+import { useBuilderHasData } from "@/hooks/useBuilder";
 import { useBlueprintDoc } from "@/lib/doc/hooks/useBlueprintDoc";
 import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
 import { useOrderedModules } from "@/lib/doc/hooks/useModuleIds";
 import type { Uuid } from "@/lib/doc/types";
 import { useNavigate } from "@/lib/routing/hooks";
-import { useEditMode } from "@/lib/session/hooks";
+import { useBuilderIsReady, useEditMode } from "@/lib/session/hooks";
 
 export function HomeScreen() {
 	const appName = useBlueprintDoc((s) => s.appName);

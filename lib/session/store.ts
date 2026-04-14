@@ -325,9 +325,25 @@ function parseStage(value: string): GenerationStage | undefined {
 
 // ── Factory ───────────────────────────────────────────────────────────────
 
+/** Optional initialization parameters for the session store. Allows the
+ *  provider stack to pre-seed lifecycle state that must be correct on the
+ *  FIRST render (e.g. `loading=true` for existing apps so `derivePhase`
+ *  returns `Loading` before any effect runs). */
+export interface SessionStoreInit {
+	/** Start in loading state — used when hydrating an existing app or
+	 *  replaying a build so the builder shows the loading skeleton
+	 *  immediately rather than flashing the idle/chat state. */
+	loading?: boolean;
+	/** Pre-set the Firestore app document ID. */
+	appId?: string;
+}
+
 /** Create a scoped Zustand session store. Called once per BuilderProvider
- *  mount — the parent provider's `buildId` controls the store lifetime. */
-export function createBuilderSessionStore() {
+ *  mount — the parent provider's `buildId` controls the store lifetime.
+ *
+ *  @param init — optional initial overrides for lifecycle fields that must
+ *  be correct before the first render (see `SessionStoreInit`). */
+export function createBuilderSessionStore(init?: SessionStoreInit) {
 	/* Non-reactive ref — lives outside Zustand state so it doesn't serialize
 	 * to devtools and doesn't fire subscribers on install/clear. Read
 	 * imperatively by `switchConnectMode`, `beginAgentWrite`, `endAgentWrite`,
@@ -346,10 +362,10 @@ export function createBuilderSessionStore() {
 				statusMessage: "",
 				postBuildEdit: false,
 				justCompleted: false,
-				loading: false,
+				loading: init?.loading ?? false,
 
 				/* App identity */
-				appId: undefined as string | undefined,
+				appId: init?.appId as string | undefined,
 
 				/* Generation UI state */
 				partialScaffold: undefined as PartialScaffoldData | undefined,

@@ -5,7 +5,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { FormTypeButton } from "@/components/builder/detail/FormDetail";
 import { FormSettingsButton } from "@/components/builder/detail/FormSettingsPanel";
 import { EditableTitle, SavedCheck } from "@/components/builder/EditableTitle";
-import { useBuilderIsReady, useForm, useModule } from "@/hooks/useBuilder";
+import { useForm, useModule } from "@/hooks/useBuilder";
 import { EditContextProvider } from "@/hooks/useEditContext";
 import { useFormEngine } from "@/hooks/useFormEngine";
 import { useBlueprintDoc } from "@/lib/doc/hooks/useBlueprintDoc";
@@ -16,7 +16,7 @@ import { getCaseData, getDummyCases } from "@/lib/preview/engine/dummyData";
 import type { PreviewScreen } from "@/lib/preview/engine/types";
 import { useLocation, useNavigate } from "@/lib/routing/hooks";
 import { defaultPostSubmit } from "@/lib/schemas/blueprint";
-import { useEditMode } from "@/lib/session/hooks";
+import { useBuilderIsReady, useEditMode } from "@/lib/session/hooks";
 import { FormRenderer } from "../form/FormRenderer";
 
 interface FormScreenProps {

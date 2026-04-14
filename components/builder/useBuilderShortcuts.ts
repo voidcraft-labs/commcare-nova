@@ -1,6 +1,5 @@
 import { useMemo } from "react";
 import { useScrollIntoView } from "@/components/builder/contexts/ScrollRegistryContext";
-import { useBuilderIsReady } from "@/hooks/useBuilder";
 import { useAssembledForm } from "@/lib/doc/hooks/useAssembledForm";
 import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
 import { notifyMoveRename } from "@/lib/doc/mutations/notify";
@@ -19,7 +18,7 @@ import {
 	flattenQuestionRefs,
 	type QuestionRef,
 } from "@/lib/services/questionPath";
-import { useCursorMode } from "@/lib/session/hooks";
+import { useBuilderIsReady, useCursorMode } from "@/lib/session/hooks";
 import type { CursorMode } from "@/lib/session/types";
 
 /**

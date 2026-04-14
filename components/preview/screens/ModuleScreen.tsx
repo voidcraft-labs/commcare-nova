@@ -6,14 +6,14 @@ import tablerFilePlus from "@iconify-icons/tabler/file-plus";
 import { motion } from "motion/react";
 import { useCallback, useState } from "react";
 import { EditableTitle, SavedCheck } from "@/components/builder/EditableTitle";
-import { useBuilderIsReady, useModule } from "@/hooks/useBuilder";
+import { useModule } from "@/hooks/useBuilder";
 import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
 import { useOrderedForms } from "@/lib/doc/hooks/useModuleIds";
 import type { Uuid } from "@/lib/doc/types";
 import type { PreviewScreen } from "@/lib/preview/engine/types";
 import { useLocation, useNavigate } from "@/lib/routing/hooks";
 import { CASE_LOADING_FORM_TYPES } from "@/lib/schemas/blueprint";
-import { useEditMode } from "@/lib/session/hooks";
+import { useBuilderIsReady, useEditMode } from "@/lib/session/hooks";
 
 const formTypeIcons = {
 	registration: tablerFilePlus,

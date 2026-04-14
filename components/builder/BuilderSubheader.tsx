@@ -19,7 +19,7 @@ import type { BreadcrumbPart } from "@/components/builder/SubheaderToolbar";
 import { CollapsibleBreadcrumb } from "@/components/builder/SubheaderToolbar";
 import { ScreenNavButtons } from "@/components/preview/ScreenNavButtons";
 import { Tooltip } from "@/components/ui/Tooltip";
-import { useBuilderHasData, useBuilderIsReady } from "@/hooks/useBuilder";
+import { useBuilderHasData } from "@/hooks/useBuilder";
 import {
 	useBlueprintDoc,
 	useBlueprintDocTemporal,
@@ -27,6 +27,7 @@ import {
 import { shortcutLabel } from "@/lib/platform";
 import { useUndoRedo } from "@/lib/routing/builderActions";
 import { useBreadcrumbs, useLocation, useNavigate } from "@/lib/routing/hooks";
+import { useBuilderIsReady } from "@/lib/session/hooks";
 
 /** Stable no-op handler for breadcrumb items that don't navigate. */
 const noop = () => {};
