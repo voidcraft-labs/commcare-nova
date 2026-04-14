@@ -56,8 +56,12 @@ export function serializePath(loc: Location): string[] {
 				? [loc.moduleUuid, "cases", loc.caseId]
 				: [loc.moduleUuid, "cases"];
 		case "form":
+			/* A selected question is serialized as a single UUID — the parser
+			 * resolves it to its parent form via findFormForQuestion. This
+			 * keeps URLs flat: /build/{appId}/{questionUuid} instead of
+			 * /build/{appId}/{formUuid}/{questionUuid}. */
 			return loc.selectedUuid !== undefined
-				? [loc.formUuid, loc.selectedUuid]
+				? [loc.selectedUuid]
 				: [loc.formUuid];
 	}
 }

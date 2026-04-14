@@ -113,11 +113,8 @@ describe("LocationRecoveryEffect", () => {
 
 	it("no-op when URL is already valid (form + valid selection)", () => {
 		const store = makeStore();
-		const state = store.getState();
-		const moduleUuid = state.moduleOrder[0];
-		const formUuid = state.formOrder[moduleUuid][0];
-		/* Simulate being on form with a valid selection. */
-		mockSegments.current = [formUuid, "q-a-0000-0000-0000-000000000000"];
+		/* Flat URL: single question UUID — parser derives the parent form. */
+		mockSegments.current = ["q-a-0000-0000-0000-000000000000"];
 
 		renderEffect(store);
 

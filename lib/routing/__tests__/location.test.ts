@@ -47,14 +47,14 @@ describe("serializePath", () => {
 		expect(serializePath(loc)).toEqual([formUuid]);
 	});
 
-	it("returns [formUuid, selectedUuid] when a question is selected", () => {
+	it("returns [selectedUuid] when a question is selected (flat — parser derives form)", () => {
 		const loc: Location = {
 			kind: "form",
 			moduleUuid: modUuid,
 			formUuid,
 			selectedUuid: qUuid,
 		};
-		expect(serializePath(loc)).toEqual([formUuid, qUuid]);
+		expect(serializePath(loc)).toEqual([qUuid]);
 	});
 });
 
