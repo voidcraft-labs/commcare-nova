@@ -5,15 +5,25 @@
  * - `switchCursorMode` preserves sidebar stash/restore semantics
  * - `switchConnectMode` composite action manages the connect stash + doc
  *   mutations atomically
+ * - Generation lifecycle actions bracket agent writes correctly
+ * - Replay state loading and message updates
+ * - `reset()` clears all fields
  *
- * Connect stash tests use a real `createBlueprintDocStore()` with a fixture
- * blueprint to verify the cross-store dispatch contract.
+ * Connect stash and generation tests use a real `createBlueprintDocStore()`
+ * with a fixture blueprint to verify the cross-store dispatch contract.
  */
 
+import type { UIMessage } from "ai";
 import { describe, expect, it } from "vitest";
 import { createBlueprintDocStore } from "@/lib/doc/store";
 import type { AppBlueprint } from "@/lib/schemas/blueprint";
 import { createBuilderSessionStore } from "../store";
+import {
+	GenerationStage,
+	type PartialScaffoldData,
+	type ReplayStage,
+	STAGE_LABELS,
+} from "../types";
 
 describe("BuilderSession store", () => {
 	it("1. initial state: edit mode, both sidebars open, no stash", () => {
@@ -372,5 +382,404 @@ describe("BuilderSession connect stash", () => {
 		/* Passing undefined should re-enable with the last active mode. */
 		session.getState().switchConnectMode(undefined);
 		expect(doc.getState().connectType).toBe("deliver");
+	});
+});
+
+// ── Generation lifecycle ────────────────────────────────────────────────
+
+/**
+ * Helper: create a session store wired to a real doc store with undo
+ * tracking resumed. Optionally loads a blueprint with a module so the
+ * doc has data (for postBuildEdit detection).
+ */
+function createTestDocStore() {
+	const ds = createBlueprintDocStore();
+	ds.temporal.getState().resume();
+	return ds;
+}
+
+function createGenerationTestStores(withData = false) {
+	const docStore = createTestDocStore();
+	if (withData) {
+		docStore.getState().load(
+			{
+				app_name: "Test",
+				connect_type: undefined,
+				case_types: null,
+				modules: [
+					{
+						uuid: "mod-uuid",
+						name: "Mod",
+						forms: [],
+					},
+				],
+			} satisfies AppBlueprint,
+			"test-app",
+		);
+		docStore.temporal.getState().resume();
+	}
+
+	const sessionStore = createBuilderSessionStore();
+	sessionStore.getState()._setDocStore(docStore);
+
+	return { session: sessionStore, doc: docStore };
+}
+
+describe("generation lifecycle", () => {
+	it("beginAgentWrite(stage) pauses doc undo, sets agentActive + stage + statusMessage, clears error", () => {
+		const { session, doc } = createGenerationTestStores();
+
+		session.getState().beginAgentWrite(GenerationStage.Structure);
+		const s = session.getState();
+
+		expect(s.agentActive).toBe(true);
+		expect(s.agentStage).toBe(GenerationStage.Structure);
+		expect(s.statusMessage).toBe(STAGE_LABELS[GenerationStage.Structure]);
+		expect(s.agentError).toBeNull();
+		/* Doc undo should be paused — changes should not enter history.
+		 * zundo's `isTracking` is false when paused. */
+		expect(doc.temporal.getState().isTracking).toBe(false);
+	});
+
+	it("beginAgentWrite() without stage starts with null stage and empty status", () => {
+		const { session } = createGenerationTestStores();
+
+		session.getState().beginAgentWrite();
+		const s = session.getState();
+
+		expect(s.agentActive).toBe(true);
+		expect(s.agentStage).toBeNull();
+		expect(s.statusMessage).toBe("");
+	});
+
+	it("endAgentWrite() resumes doc undo, sets justCompleted, clears transient state", () => {
+		const { session, doc } = createGenerationTestStores();
+
+		/* Begin a write, then end it. */
+		session.getState().beginAgentWrite(GenerationStage.Forms);
+		session.getState().endAgentWrite();
+		const s = session.getState();
+
+		expect(s.agentActive).toBe(false);
+		expect(s.justCompleted).toBe(true);
+		expect(s.agentStage).toBeNull();
+		expect(s.agentError).toBeNull();
+		expect(s.statusMessage).toBe("");
+		expect(s.partialScaffold).toBeUndefined();
+		/* Doc undo should be resumed — zundo's `isTracking` is true when active. */
+		expect(doc.temporal.getState().isTracking).toBe(true);
+	});
+
+	it("failAgentWrite(msg, severity) sets error + statusMessage, keeps agentActive", () => {
+		const { session } = createGenerationTestStores();
+
+		session.getState().beginAgentWrite(GenerationStage.Validate);
+		session.getState().failAgentWrite("timeout", "recovering");
+		const s = session.getState();
+
+		expect(s.agentActive).toBe(true);
+		expect(s.agentError).toEqual({
+			message: "timeout",
+			severity: "recovering",
+		});
+		expect(s.statusMessage).toBe("timeout");
+	});
+
+	it("failAgentWrite defaults severity to 'failed'", () => {
+		const { session } = createGenerationTestStores();
+
+		session.getState().beginAgentWrite();
+		session.getState().failAgentWrite("fatal error");
+		const s = session.getState();
+
+		expect(s.agentError).toEqual({
+			message: "fatal error",
+			severity: "failed",
+		});
+	});
+
+	it("acknowledgeCompletion() clears justCompleted, no-ops when already false", () => {
+		const { session } = createGenerationTestStores();
+
+		/* End an agent write to get justCompleted=true. */
+		session.getState().beginAgentWrite();
+		session.getState().endAgentWrite();
+		expect(session.getState().justCompleted).toBe(true);
+
+		session.getState().acknowledgeCompletion();
+		expect(session.getState().justCompleted).toBe(false);
+
+		/* Second call is a no-op — verify state object identity. */
+		const prev = session.getState();
+		session.getState().acknowledgeCompletion();
+		expect(session.getState()).toBe(prev);
+	});
+
+	it("setAgentActive(true) with doc data sets postBuildEdit=true", () => {
+		const { session } = createGenerationTestStores(true);
+
+		session.getState().setAgentActive(true);
+		const s = session.getState();
+
+		expect(s.agentActive).toBe(true);
+		expect(s.postBuildEdit).toBe(true);
+	});
+
+	it("setAgentActive(true) with empty doc sets postBuildEdit=false", () => {
+		const { session } = createGenerationTestStores(false);
+
+		session.getState().setAgentActive(true);
+		const s = session.getState();
+
+		expect(s.agentActive).toBe(true);
+		expect(s.postBuildEdit).toBe(false);
+	});
+
+	it("setAgentActive(false) clears agentActive, leaves postBuildEdit unchanged", () => {
+		const { session } = createGenerationTestStores(true);
+
+		/* Activate first to set postBuildEdit=true. */
+		session.getState().setAgentActive(true);
+		expect(session.getState().postBuildEdit).toBe(true);
+
+		session.getState().setAgentActive(false);
+		const s = session.getState();
+
+		expect(s.agentActive).toBe(false);
+		/* postBuildEdit should NOT be cleared by deactivation. */
+		expect(s.postBuildEdit).toBe(true);
+	});
+
+	it("setAgentActive no-ops when value is unchanged", () => {
+		const { session } = createGenerationTestStores();
+
+		const prev = session.getState();
+		session.getState().setAgentActive(false); /* already false */
+		expect(session.getState()).toBe(prev);
+	});
+
+	it("advanceStage('structure') updates agentStage + statusMessage, clears error", () => {
+		const { session } = createGenerationTestStores();
+
+		session.getState().beginAgentWrite(GenerationStage.DataModel);
+		session.getState().failAgentWrite("oops", "recovering");
+		session.getState().advanceStage("structure");
+		const s = session.getState();
+
+		expect(s.agentStage).toBe(GenerationStage.Structure);
+		expect(s.statusMessage).toBe(STAGE_LABELS[GenerationStage.Structure]);
+		expect(s.agentError).toBeNull();
+	});
+
+	it("advanceStage with unknown string is a no-op", () => {
+		const { session } = createGenerationTestStores();
+
+		session.getState().beginAgentWrite(GenerationStage.DataModel);
+		const prev = session.getState();
+		session.getState().advanceStage("unknown-stage");
+		expect(session.getState()).toBe(prev);
+	});
+
+	it("setFixAttempt updates statusMessage with error count and attempt", () => {
+		const { session } = createGenerationTestStores();
+
+		session.getState().setFixAttempt(2, 3);
+		expect(session.getState().statusMessage).toBe("Fixing 3 errors, attempt 2");
+	});
+
+	it("setFixAttempt uses singular 'error' for count of 1", () => {
+		const { session } = createGenerationTestStores();
+
+		session.getState().setFixAttempt(1, 1);
+		expect(session.getState().statusMessage).toBe("Fixing 1 error, attempt 1");
+	});
+
+	it("setAppId sets appId", () => {
+		const store = createBuilderSessionStore();
+		store.getState().setAppId("abc");
+		expect(store.getState().appId).toBe("abc");
+	});
+
+	it("setAppId no-ops on same value", () => {
+		const store = createBuilderSessionStore();
+		store.getState().setAppId("abc");
+		const prev = store.getState();
+		store.getState().setAppId("abc");
+		expect(store.getState()).toBe(prev);
+	});
+
+	it("setLoading toggles the loading flag", () => {
+		const store = createBuilderSessionStore();
+		expect(store.getState().loading).toBe(false);
+
+		store.getState().setLoading(true);
+		expect(store.getState().loading).toBe(true);
+
+		store.getState().setLoading(false);
+		expect(store.getState().loading).toBe(false);
+	});
+
+	it("setLoading no-ops on same value", () => {
+		const store = createBuilderSessionStore();
+		const prev = store.getState();
+		store.getState().setLoading(false);
+		expect(store.getState()).toBe(prev);
+	});
+
+	it("setPartialScaffold stores and clears scaffold data", () => {
+		const store = createBuilderSessionStore();
+		const scaffold: PartialScaffoldData = {
+			appName: "Test",
+			modules: [
+				{ name: "Mod", forms: [{ name: "Form", type: "registration" }] },
+			],
+		};
+
+		store.getState().setPartialScaffold(scaffold);
+		expect(store.getState().partialScaffold).toEqual(scaffold);
+
+		store.getState().setPartialScaffold(undefined);
+		expect(store.getState().partialScaffold).toBeUndefined();
+	});
+});
+
+// ── Replay ──────────────────────────────────────────────────────────────
+
+describe("replay state", () => {
+	const mockMessages: UIMessage[] = [
+		{
+			id: "msg-1",
+			role: "assistant",
+			parts: [{ type: "text", text: "Building..." }],
+		},
+	];
+
+	const mockStages: ReplayStage[] = [
+		{
+			header: "Stage 1",
+			subtitle: "Data model",
+			messages: [],
+			emissions: [],
+		},
+		{
+			header: "Stage 2",
+			messages: mockMessages,
+			emissions: [{ type: "scaffold", data: { app_name: "Test" } }],
+		},
+		{
+			header: "Stage 3",
+			messages: [],
+			emissions: [],
+		},
+	];
+
+	it("loadReplay sets replay data with messages from doneIndex stage", () => {
+		const store = createBuilderSessionStore();
+
+		store.getState().loadReplay(mockStages, 1, "/build/abc");
+		const replay = store.getState().replay;
+
+		expect(replay).toBeDefined();
+		expect(replay?.stages).toEqual(mockStages);
+		expect(replay?.doneIndex).toBe(1);
+		expect(replay?.exitPath).toBe("/build/abc");
+		/* Messages should come from stage at doneIndex (stage 2). */
+		expect(replay?.messages).toEqual(mockMessages);
+	});
+
+	it("loadReplay with doneIndex=0 uses first stage messages", () => {
+		const store = createBuilderSessionStore();
+
+		store.getState().loadReplay(mockStages, 0, "/exit");
+		const replay = store.getState().replay;
+
+		expect(replay?.messages).toEqual([]);
+	});
+
+	it("setReplayMessages updates replay.messages", () => {
+		const store = createBuilderSessionStore();
+		store.getState().loadReplay(mockStages, 0, "/exit");
+
+		const newMessages: UIMessage[] = [
+			{
+				id: "msg-2",
+				role: "user",
+				parts: [{ type: "text", text: "Hello" }],
+			},
+		];
+		store.getState().setReplayMessages(newMessages);
+
+		expect(store.getState().replay?.messages).toEqual(newMessages);
+	});
+
+	it("setReplayMessages is a no-op when no replay is loaded", () => {
+		const store = createBuilderSessionStore();
+		const prev = store.getState();
+
+		store.getState().setReplayMessages([]);
+		expect(store.getState()).toBe(prev);
+	});
+});
+
+// ── Reset ───────────────────────────────────────────────────────────────
+
+describe("reset", () => {
+	it("clears all generation, replay, appId, and transient fields", () => {
+		const { session } = createGenerationTestStores(true);
+
+		/* Populate every new field so we can verify reset clears them all. */
+		session.getState().beginAgentWrite(GenerationStage.Forms);
+		session.getState().failAgentWrite("err", "recovering");
+		session.getState().setAppId("app-123");
+		session.getState().setPartialScaffold({
+			appName: "X",
+			modules: [],
+		});
+		session
+			.getState()
+			.loadReplay([{ header: "S1", messages: [], emissions: [] }], 0, "/exit");
+		session.getState().setLoading(true);
+		session.getState().markNewQuestion("q-1");
+		session.getState().setFocusHint("label");
+		session.getState().setSidebarOpen("chat", false);
+		session.getState().setCursorMode("pointer");
+
+		/* Reset everything. */
+		session.getState().reset();
+		const s = session.getState();
+
+		/* Generation lifecycle */
+		expect(s.agentActive).toBe(false);
+		expect(s.agentStage).toBeNull();
+		expect(s.agentError).toBeNull();
+		expect(s.statusMessage).toBe("");
+		expect(s.postBuildEdit).toBe(false);
+		expect(s.justCompleted).toBe(false);
+		expect(s.loading).toBe(false);
+
+		/* App identity */
+		expect(s.appId).toBeUndefined();
+
+		/* Generation UI */
+		expect(s.partialScaffold).toBeUndefined();
+
+		/* Replay */
+		expect(s.replay).toBeUndefined();
+
+		/* Interaction */
+		expect(s.cursorMode).toBe("edit");
+		expect(s.activeFieldId).toBeUndefined();
+
+		/* Chrome */
+		expect(s.sidebars.chat).toEqual({ open: true, stashed: undefined });
+		expect(s.sidebars.structure).toEqual({ open: true, stashed: undefined });
+
+		/* Connect stash */
+		expect(s.connectStash).toEqual({ learn: {}, deliver: {} });
+		expect(s.lastConnectType).toBeUndefined();
+
+		/* UI hints */
+		expect(s.focusHint).toBeUndefined();
+		expect(s.newQuestionUuid).toBeUndefined();
 	});
 });

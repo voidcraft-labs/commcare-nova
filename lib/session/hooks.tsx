@@ -9,10 +9,16 @@
  */
 "use client";
 
+import type { UIMessage } from "ai";
 import type { ConnectConfig, ConnectType } from "@/lib/schemas/blueprint";
 import { useBuilderSession, useBuilderSessionShallow } from "./provider";
 import type { SidebarKind } from "./store";
-import type { CursorMode } from "./types";
+import type {
+	CursorMode,
+	GenerationError,
+	GenerationStage,
+	PartialScaffoldData,
+} from "./types";
 
 // ── Cursor mode ───────────────────────────────────────────────────────────
 
@@ -132,6 +138,68 @@ export function useMarkNewQuestion(): (uuid: string) => void {
 export function useClearNewQuestion(): () => void {
 	return useBuilderSession((s) => s.clearNewQuestion);
 }
+
+// ── Generation lifecycle ──────────────────────────────────────────────────
+
+/** Whether the agent is currently streaming a build or edit. */
+export function useAgentActive(): boolean {
+	return useBuilderSession((s) => s.agentActive);
+}
+
+/** Current generation stage — `null` when idle or between stages. */
+export function useAgentStage(): GenerationStage | null {
+	return useBuilderSession((s) => s.agentStage);
+}
+
+/** Error metadata during generation — `null` when no error. */
+export function useAgentError(): GenerationError {
+	return useBuilderSession((s) => s.agentError);
+}
+
+/** Human-readable status text for the current generation stage or error. */
+export function useStatusMessage(): string {
+	return useBuilderSession((s) => s.statusMessage);
+}
+
+/** Whether the current agent activation is editing an existing app
+ *  (not initial generation). */
+export function usePostBuildEdit(): boolean {
+	return useBuilderSession((s) => s.postBuildEdit);
+}
+
+/** Firestore app document ID for the current builder session.
+ *  `undefined` for new builds before the app document is created. */
+export function useAppId(): string | undefined {
+	return useBuilderSession((s) => s.appId);
+}
+
+/** Intermediate scaffold data streamed before the full Scaffold arrives.
+ *  `undefined` when no partial scaffold is available. */
+export function usePartialScaffold(): PartialScaffoldData | undefined {
+	return useBuilderSession((s) => s.partialScaffold);
+}
+
+/** Generic loading flag for async operations outside of agent writes. */
+export function useIsLoading(): boolean {
+	return useBuilderSession((s) => s.loading);
+}
+
+// ── Replay ───────────────────────────────────────────────────────────────
+
+/** Whether the builder is currently in replay mode. */
+export function useInReplayMode(): boolean {
+	return useBuilderSession((s) => s.replay !== undefined);
+}
+
+/** Chat messages for the currently-visible replay stage. Returns an
+ *  empty array when not in replay mode. */
+export function useReplayMessages(): UIMessage[] {
+	return useBuilderSession((s) => s.replay?.messages ?? EMPTY_MESSAGES);
+}
+
+/** Stable empty array ref — prevents `useBuilderSession` from creating
+ *  a new array on every selector call when not in replay mode. */
+const EMPTY_MESSAGES: UIMessage[] = [];
 
 // ── Derived ───────────────────────────────────────────────────────────────
 

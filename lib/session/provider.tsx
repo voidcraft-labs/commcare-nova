@@ -76,3 +76,17 @@ export function useBuilderSessionShallow<T>(
 	}
 	return useStoreWithEqualityFn(store, selector, shallow);
 }
+
+/** Imperative access to the raw session store API — read/write via
+ *  `storeApi.getState()` without subscribing to re-renders. Use in
+ *  effect-time snapshots, callback closures, and non-React callers
+ *  (e.g. generation stream handlers). */
+export function useBuilderSessionApi(): BuilderSessionStoreApi {
+	const store = useContext(BuilderSessionContext);
+	if (!store) {
+		throw new Error(
+			"useBuilderSessionApi must be used within BuilderSessionProvider",
+		);
+	}
+	return store;
+}
