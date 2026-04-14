@@ -1,10 +1,11 @@
 /**
  * BuilderSession store — ephemeral UI state for the builder.
  *
- * Owns cursor mode, sidebar visibility + stash, and active field tracking.
- * Everything here lives only while the builder route is mounted and is NEVER
- * undoable. Separated from BlueprintDoc so UI state can't bleed into undo
- * history and there's no need for a partialize allow-list.
+ * Owns cursor mode, sidebar visibility + stash, active field tracking,
+ * generation lifecycle, replay state, and app identity. Everything here
+ * lives only while the builder route is mounted and is NEVER undoable.
+ * Separated from BlueprintDoc so UI state can't bleed into undo history
+ * and there's no need for a partialize allow-list.
  *
  * Middleware: `subscribeWithSelector` (targeted subscriptions) + `devtools`
  * (Redux DevTools in development). No Immer (shape is flat enough), no zundo
@@ -13,14 +14,28 @@
  * Actions are reducer-shaped where atomicity matters. `switchCursorMode` is
  * the canonical example — it stashes/restores sidebar visibility in a single
  * `set()` call so intermediate states never leak to subscribers.
+ *
+ * Generation lifecycle actions (`beginAgentWrite`, `endAgentWrite`,
+ * `failAgentWrite`, `advanceStage`, `setFixAttempt`) bracket agent stream
+ * writes and coordinate with the doc store's temporal middleware to
+ * pause/resume undo tracking.
  */
 
+import type { UIMessage } from "ai";
 import { devtools, subscribeWithSelector } from "zustand/middleware";
 import { createStore } from "zustand/vanilla";
 import type { BlueprintDocStore } from "@/lib/doc/provider";
 import type { Mutation, Uuid } from "@/lib/doc/types";
 import type { ConnectConfig, ConnectType } from "@/lib/schemas/blueprint";
-import type { CursorMode } from "./types";
+import {
+	type CursorMode,
+	type GenerationError,
+	GenerationStage,
+	type PartialScaffoldData,
+	type ReplayData,
+	type ReplayStage,
+	STAGE_LABELS,
+} from "./types";
 
 // ── Public types ──────────────────────────────────────────────────────────
 
@@ -31,10 +46,72 @@ export type SidebarKind = "chat" | "structure";
  * Full state + actions for the BuilderSession store.
  *
  * Fields grouped by concern:
+ *   - Generation lifecycle (`agentActive`, `agentStage`, `agentError`,
+ *     `statusMessage`, `postBuildEdit`, `justCompleted`, `loading`) —
+ *     what mode we're in during a build or edit.
+ *   - App identity (`appId`) — current app being built/edited.
+ *   - Generation UI (`partialScaffold`) — transient scaffold preview.
+ *   - Replay (`replay`) — build replay playback data.
  *   - Interaction (`cursorMode`, `activeFieldId`) — how the user is editing.
  *   - Chrome (`sidebars`) — layout visibility + stash for mode transitions.
+ *   - Connect stash — learn↔deliver toggle preservation.
  */
 export interface BuilderSessionState {
+	// ── Generation lifecycle ─────────────────────────────────────────────
+
+	/** Whether the agent is currently streaming a build or edit. While
+	 *  true, doc undo tracking is paused and the UI shows build progress. */
+	agentActive: boolean;
+
+	/** Current stage within a generation run — drives the status message
+	 *  and signal grid animation. `null` when idle or between stages. */
+	agentStage: GenerationStage | null;
+
+	/** Error metadata during generation. The session stays agent-active;
+	 *  this describes what went wrong (recovering = retrying, failed = done). */
+	agentError: GenerationError;
+
+	/** Human-readable status text derived from the current stage or error.
+	 *  Displayed in the signal grid panel and progress UI. */
+	statusMessage: string;
+
+	/** True when the agent activated on an app that already had blueprint
+	 *  data — distinguishes initial generation from post-build edits. */
+	postBuildEdit: boolean;
+
+	/** Transient flag set when agent completes. Drives the celebration
+	 *  animation; cleared by `acknowledgeCompletion()` (auto-decay to
+	 *  ready state). */
+	justCompleted: boolean;
+
+	/** Generic loading flag for async operations outside of agent writes
+	 *  (e.g. initial app load, import). */
+	loading: boolean;
+
+	// ── App identity ─────────────────────────────────────────────────────
+
+	/** Firestore app document ID for the current builder session. Set
+	 *  once when the builder mounts; undefined for new builds before
+	 *  the app document is created. */
+	appId: string | undefined;
+
+	// ── Generation UI state (transient) ─────────────────────────────────
+
+	/** Intermediate scaffold data streamed before the full Scaffold arrives.
+	 *  Drives the "building..." preview showing module/form names as they
+	 *  arrive from the SA's `setScaffold` tool call. Cleared on agent
+	 *  write completion. */
+	partialScaffold: PartialScaffoldData | undefined;
+
+	// ── Replay ───────────────────────────────────────────────────────────
+
+	/** Replay session data — present only during replay mode. Contains the
+	 *  replay script (stages), current progress (doneIndex), exit URL, and
+	 *  accumulated chat messages for the current stage. */
+	replay: ReplayData | undefined;
+
+	// ── Interaction ──────────────────────────────────────────────────────
+
 	/** Current cursor mode — "pointer" (interact/live preview) or "edit"
 	 *  (click-to-select + inline text editing). */
 	cursorMode: CursorMode;
@@ -43,6 +120,8 @@ export interface BuilderSessionState {
 	 *  not undoable. Used by composite undo/redo to restore focus after the
 	 *  temporal state rolls back. */
 	activeFieldId: string | undefined;
+
+	// ── Chrome ───────────────────────────────────────────────────────────
 
 	/** Sidebar visibility with stash support for cursor mode transitions.
 	 *  `stashed` records the pre-pointer-mode `open` value; `undefined` means
@@ -85,6 +164,66 @@ export interface BuilderSessionState {
 	 *  the BlueprintDocProvider mounts/unmounts. */
 	_setDocStore: (store: BlueprintDocStore | null) => void;
 
+	// ── Generation lifecycle actions ─────────────────────────────────────
+
+	/** Begin an agent write stream. Pauses doc undo tracking, sets
+	 *  agentActive=true, and initializes the generation stage. If `stage`
+	 *  is provided, sets the initial stage and status message from
+	 *  STAGE_LABELS; otherwise starts with no stage. */
+	beginAgentWrite: (stage?: GenerationStage) => void;
+
+	/** Complete an agent write stream. Resumes doc undo tracking, clears
+	 *  all generation-transient state, and sets justCompleted=true. */
+	endAgentWrite: () => void;
+
+	/** Record an error during generation without ending the agent write.
+	 *  Sets agentError and statusMessage; agentActive remains true.
+	 *  Defaults to "failed" severity when omitted. */
+	failAgentWrite: (message: string, severity?: "recovering" | "failed") => void;
+
+	/** Advance to a new generation stage. Maps the stage string to the
+	 *  GenerationStage enum, updates the status message, and clears any
+	 *  prior error. */
+	advanceStage: (stage: string) => void;
+
+	/** Update the status message with fix attempt progress details.
+	 *  Called by the validation/fix loop to show "Fixing N error(s),
+	 *  attempt M". */
+	setFixAttempt: (attempt: number, errorCount: number) => void;
+
+	/** Clear the justCompleted flag after the celebration animation
+	 *  has played. No-ops when already false. */
+	acknowledgeCompletion: () => void;
+
+	/** Toggle agent active state with post-build-edit detection. When
+	 *  activating, checks the doc store for existing blueprint data
+	 *  to set postBuildEdit. No-ops when value unchanged. */
+	setAgentActive: (active: boolean) => void;
+
+	/** Set the app ID for this builder session. No-ops when unchanged. */
+	setAppId: (id: string) => void;
+
+	/** Set the generic loading flag. No-ops when unchanged. */
+	setLoading: (loading: boolean) => void;
+
+	/** Set or clear the partial scaffold preview data. */
+	setPartialScaffold: (data: PartialScaffoldData | undefined) => void;
+
+	// ── Replay actions ──────────────────────────────────────────────────
+
+	/** Load a replay session from parsed stages. Initializes replay state
+	 *  with messages from the stage at doneIndex. */
+	loadReplay: (
+		stages: ReplayStage[],
+		doneIndex: number,
+		exitPath: string,
+	) => void;
+
+	/** Update the chat messages displayed during replay. */
+	setReplayMessages: (messages: UIMessage[]) => void;
+
+	// ── Connect stash actions ────────────────────────────────────────────
+
 	/** Switch the app-level connect mode, or toggle it off/on.
 	 *
 	 *  Passing a mode (`'learn'` or `'deliver'`) enables that mode — stashing
@@ -111,6 +250,8 @@ export interface BuilderSessionState {
 		formUuid: string,
 	) => ConnectConfig | undefined;
 
+	// ── Cursor + sidebar actions ─────────────────────────────────────────
+
 	/** Atomically switch cursor mode with sidebar stash/restore.
 	 *
 	 *  - To pointer: stash current `open` values, then close both sidebars.
@@ -131,6 +272,8 @@ export interface BuilderSessionState {
 	/** Set one sidebar's visibility. Preserves the other sidebar + all stash
 	 *  values. No-ops when the value is unchanged. */
 	setSidebarOpen: (kind: SidebarKind, open: boolean) => void;
+
+	// ── UI hint actions ──────────────────────────────────────────────────
 
 	/** Set the transient focus hint — used by undo/redo to tell
 	 *  InlineSettingsPanel which field to focus after restoration. */
@@ -156,10 +299,10 @@ export interface BuilderSessionState {
 	 *
 	 *  Called from `resetBuilder` (the composite reset helper used by
 	 *  `ReplayController` when navigating between replay stages). Restores
-	 *  cursor mode to "edit", both sidebars to open with no stash, clears
-	 *  the connect stash + last-active mode, and wipes all one-shot UI
-	 *  hints. The private doc-store reference installed by SyncBridge is
-	 *  NOT cleared — the provider's effect owns its lifetime. */
+	 *  all generation lifecycle, replay, cursor mode, sidebars, connect
+	 *  stash, and one-shot UI hints to defaults. The private doc-store
+	 *  reference installed by SyncBridge is NOT cleared — the provider's
+	 *  effect owns its lifetime. */
 	reset: () => void;
 }
 
@@ -170,31 +313,68 @@ export type BuilderSessionStoreApi = ReturnType<
 	typeof createBuilderSessionStore
 >;
 
+// ── Helpers ──────────────────────────────────────────────────────────────
+
+/** Map a generation stage string value to the GenerationStage enum member.
+ *  Returns undefined if the string doesn't match any known stage. */
+function parseStage(value: string): GenerationStage | undefined {
+	return Object.values(GenerationStage).includes(value as GenerationStage)
+		? (value as GenerationStage)
+		: undefined;
+}
+
 // ── Factory ───────────────────────────────────────────────────────────────
 
 /** Create a scoped Zustand session store. Called once per BuilderProvider
  *  mount — the parent provider's `buildId` controls the store lifetime. */
 export function createBuilderSessionStore() {
 	/* Non-reactive ref — lives outside Zustand state so it doesn't serialize
-	 * to devtools and doesn't fire subscribers on install/clear. Only read
-	 * imperatively by `switchConnectMode`. */
+	 * to devtools and doesn't fire subscribers on install/clear. Read
+	 * imperatively by `switchConnectMode`, `beginAgentWrite`, `endAgentWrite`,
+	 * and `setAgentActive`. */
 	let docStoreRef: BlueprintDocStore | null = null;
 
 	return createStore<BuilderSessionState>()(
 		devtools(
 			subscribeWithSelector((set, get) => ({
 				// ── Initial state ────────────────────────────────────────
+
+				/* Generation lifecycle */
+				agentActive: false,
+				agentStage: null as GenerationStage | null,
+				agentError: null as GenerationError,
+				statusMessage: "",
+				postBuildEdit: false,
+				justCompleted: false,
+				loading: false,
+
+				/* App identity */
+				appId: undefined as string | undefined,
+
+				/* Generation UI state */
+				partialScaffold: undefined as PartialScaffoldData | undefined,
+
+				/* Replay */
+				replay: undefined as ReplayData | undefined,
+
+				/* Interaction */
 				cursorMode: "edit" as CursorMode,
 				activeFieldId: undefined,
+
+				/* Chrome */
 				sidebars: {
 					chat: { open: true, stashed: undefined },
 					structure: { open: true, stashed: undefined },
 				},
+
+				/* Connect stash */
 				connectStash: { learn: {}, deliver: {} } as Record<
 					ConnectType,
 					Record<string, ConnectConfig>
 				>,
 				lastConnectType: undefined as ConnectType | undefined,
+
+				/* UI hints */
 				focusHint: undefined as string | undefined,
 				newQuestionUuid: undefined as string | undefined,
 
@@ -203,6 +383,119 @@ export function createBuilderSessionStore() {
 				_setDocStore(store: BlueprintDocStore | null) {
 					docStoreRef = store;
 				},
+
+				// ── Generation lifecycle actions ─────────────────────────
+
+				beginAgentWrite(stage?: GenerationStage) {
+					/* Pause doc undo tracking so the entire agent write collapses
+					 * to a single undo entry when tracking resumes. */
+					docStoreRef?.temporal.getState().pause();
+
+					set({
+						agentActive: true,
+						postBuildEdit: false,
+						agentStage: stage ?? null,
+						statusMessage: stage ? STAGE_LABELS[stage] : "",
+						agentError: null,
+						justCompleted: false,
+					});
+				},
+
+				endAgentWrite() {
+					/* Resume doc undo tracking — the next user mutation starts
+					 * a fresh undo entry. */
+					docStoreRef?.temporal.getState().resume();
+
+					set({
+						agentActive: false,
+						justCompleted: true,
+						agentStage: null,
+						agentError: null,
+						statusMessage: "",
+						partialScaffold: undefined,
+					});
+				},
+
+				failAgentWrite(
+					message: string,
+					severity: "recovering" | "failed" = "failed",
+				) {
+					set({
+						agentError: { message, severity },
+						statusMessage: message,
+					});
+				},
+
+				advanceStage(stageStr: string) {
+					const stage = parseStage(stageStr);
+					if (!stage) return;
+					set({
+						agentStage: stage,
+						statusMessage: STAGE_LABELS[stage],
+						agentError: null,
+					});
+				},
+
+				setFixAttempt(attempt: number, errorCount: number) {
+					const plural = errorCount === 1 ? "error" : "errors";
+					set({
+						statusMessage: `Fixing ${errorCount} ${plural}, attempt ${attempt}`,
+					});
+				},
+
+				acknowledgeCompletion() {
+					if (!get().justCompleted) return;
+					set({ justCompleted: false });
+				},
+
+				setAgentActive(active: boolean) {
+					if (active === get().agentActive) return;
+					if (active) {
+						/* Check whether the doc already has blueprint data — if so,
+						 * this activation is a post-build edit, not initial generation. */
+						const hasData =
+							(docStoreRef?.getState().moduleOrder.length ?? 0) > 0;
+						set({ agentActive: true, postBuildEdit: hasData });
+					} else {
+						set({ agentActive: false });
+					}
+				},
+
+				setAppId(id: string) {
+					if (id === get().appId) return;
+					set({ appId: id });
+				},
+
+				setLoading(loading: boolean) {
+					if (loading === get().loading) return;
+					set({ loading });
+				},
+
+				setPartialScaffold(data: PartialScaffoldData | undefined) {
+					set({ partialScaffold: data });
+				},
+
+				// ── Replay actions ──────────────────────────────────────
+
+				loadReplay(stages: ReplayStage[], doneIndex: number, exitPath: string) {
+					const doneStage = stages[doneIndex];
+					set({
+						replay: {
+							stages,
+							doneIndex,
+							exitPath,
+							messages: doneStage?.messages ?? [],
+						},
+					});
+				},
+
+				setReplayMessages(messages: UIMessage[]) {
+					const replay = get().replay;
+					if (!replay) return;
+					set({ replay: { ...replay, messages } });
+				},
+
+				// ── Connect stash actions ───────────────────────────────
 
 				switchConnectMode(type: ConnectType | null | undefined) {
 					if (!docStoreRef) return;
@@ -396,17 +689,42 @@ export function createBuilderSessionStore() {
 
 				reset() {
 					set({
+						/* Generation lifecycle */
+						agentActive: false,
+						agentStage: null,
+						agentError: null,
+						statusMessage: "",
+						postBuildEdit: false,
+						justCompleted: false,
+						loading: false,
+
+						/* App identity */
+						appId: undefined,
+
+						/* Generation UI */
+						partialScaffold: undefined,
+
+						/* Replay */
+						replay: undefined,
+
+						/* Interaction */
 						cursorMode: "edit" as CursorMode,
 						activeFieldId: undefined,
+
+						/* Chrome */
 						sidebars: {
 							chat: { open: true, stashed: undefined },
 							structure: { open: true, stashed: undefined },
 						},
+
+						/* Connect stash */
 						connectStash: { learn: {}, deliver: {} } as Record<
 							ConnectType,
 							Record<string, ConnectConfig>
 						>,
 						lastConnectType: undefined as ConnectType | undefined,
+
+						/* UI hints */
 						focusHint: undefined as string | undefined,
 						newQuestionUuid: undefined as string | undefined,
 					});
