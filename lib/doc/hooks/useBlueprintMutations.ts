@@ -375,6 +375,9 @@ export function useBlueprintMutations(): BlueprintMutations {
 				}
 
 				// Dispatch via `applyWithResult` to capture the xpath rewrite count.
+				// The reducer returns `undefined` if the target entity vanishes
+				// between our pre-check and the Immer draft — defensive fallback
+				// to zero rewrites so callers always see a valid number.
 				const meta = store.getState().applyWithResult({
 					kind: "renameQuestion",
 					uuid,
@@ -392,7 +395,7 @@ export function useBlueprintMutations(): BlueprintMutations {
 					"") as QuestionPath;
 				return {
 					newPath,
-					xpathFieldsRewritten: meta.xpathFieldsRewritten,
+					xpathFieldsRewritten: meta?.xpathFieldsRewritten ?? 0,
 				};
 			},
 
@@ -436,12 +439,17 @@ export function useBlueprintMutations(): BlueprintMutations {
 
 				// Dispatch via `applyWithResult` to capture the rename metadata
 				// the reducer populates when cross-level dedup changes the id.
-				return store.getState().applyWithResult({
-					kind: "moveQuestion",
-					uuid,
-					toParentUuid,
-					toIndex,
-				});
+				// Returns `undefined` if the target entity vanishes between our
+				// pre-check and the Immer draft — fallback to empty result so
+				// callers always see a valid `MoveQuestionResult`.
+				return (
+					store.getState().applyWithResult({
+						kind: "moveQuestion",
+						uuid,
+						toParentUuid,
+						toIndex,
+					}) ?? {}
+				);
 			},
 
 			duplicateQuestion(uuid) {

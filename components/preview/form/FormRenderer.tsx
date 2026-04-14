@@ -45,13 +45,13 @@ import { useTextEditSave } from "@/hooks/useTextEditSave";
 import { useBlueprintDoc } from "@/lib/doc/hooks/useBlueprintDoc";
 import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
 import { useQuestion as useQuestionDoc } from "@/lib/doc/hooks/useEntity";
+import { notifyMoveRename } from "@/lib/doc/mutations/notify";
 import type { MoveQuestionResult } from "@/lib/doc/mutations/questions";
 import { asUuid, type Uuid } from "@/lib/doc/types";
 import { LabelContent } from "@/lib/references/LabelContent";
 import { useIsQuestionSelected, useSelect } from "@/lib/routing/hooks";
 import type { NQuestion } from "@/lib/services/normalizedState";
 import { type QuestionPath, qpath } from "@/lib/services/questionPath";
-import { showToast } from "@/lib/services/toastStore";
 import { useCursorMode } from "@/lib/session/hooks";
 import { EditableQuestionWrapper } from "./EditableQuestionWrapper";
 import { FIELD_STYLES } from "./fieldStyles";
@@ -84,20 +84,6 @@ const CONTAINER_SUFFIX = ":container";
 /** Stable empty array for UUID selectors that return no children. Prevents
  *  new array allocations on every render for leaf-level FormRenderers. */
 const EMPTY_UUIDS: string[] = [];
-
-/**
- * Show an info toast when a cross-level move auto-renamed a question to
- * avoid a sibling ID collision. No-op when the move didn't trigger dedup.
- */
-function notifyMoveRename(result: MoveQuestionResult): void {
-	if (!result.renamed) return;
-	const { oldId, newId, xpathFieldsRewritten } = result.renamed;
-	showToast(
-		"info",
-		"Question renamed to avoid conflict",
-		`"${oldId}" → "${newId}" (${xpathFieldsRewritten} reference${xpathFieldsRewritten === 1 ? "" : "s"} updated)`,
-	);
-}
 
 // ── Drag state ───────────────────────────────────────────────────────────
 
