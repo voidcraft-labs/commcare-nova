@@ -52,8 +52,6 @@ import type {
 	NewQuestion,
 	QuestionRenameResult,
 	QuestionUpdate,
-	RenameResult,
-	SearchResult,
 } from "./blueprintHelpers";
 import {
 	BuilderPhase,
@@ -63,9 +61,7 @@ import {
 } from "./builder";
 import type { ReplayStage } from "./logReplay";
 import {
-	assembleBlueprint,
 	decomposeBlueprint,
-	getEntityData,
 	type NForm,
 	type NModule,
 	type NQuestion,
@@ -249,17 +245,6 @@ export interface BuilderState {
 	addModule: (module: BlueprintModule) => void;
 	removeModule: (mIdx: number) => void;
 	updateApp: (updates: { app_name?: string; connect_type?: string }) => void;
-	renameCaseProperty: (
-		caseType: string,
-		oldName: string,
-		newName: string,
-	) => RenameResult;
-	updateCaseProperty: (
-		caseTypeName: string,
-		propertyName: string,
-		updates: Record<string, unknown>,
-	) => void;
-	searchBlueprint: (query: string) => SearchResult[];
 
 	// -- Generation lifecycle actions --
 	startGeneration: () => void;
@@ -525,35 +510,6 @@ export function createBuilderStore(initialPhase: BuilderPhase) {
 						updateApp(_updates) {
 							// Phase 1b: entity mutations flow through useBlueprintMutations →
 							// doc.apply(). This action is kept for signature-compat.
-						},
-
-						renameCaseProperty(_caseType, _oldName, _newName) {
-							// Phase 1b: no UI caller invokes this action today. If a
-							// case-property-rename feature is added, implement it as a
-							// doc-level applyMany batch. Phase 3 deletes this stub
-							// entirely when the legacy store is removed.
-							return { formsChanged: [], columnsChanged: [] };
-						},
-
-						updateCaseProperty(caseTypeName, propertyName, updates) {
-							set((draft) => {
-								const ct = draft.caseTypes.find((c) => c.name === caseTypeName);
-								if (!ct) return;
-								const prop = ct.properties.find((p) => p.name === propertyName);
-								if (!prop) return;
-								Object.assign(prop, updates);
-							});
-						},
-
-						searchBlueprint(query) {
-							/* Assemble on-the-fly — searchBlueprint is read-only and
-							 * called infrequently (SA agent search tool). */
-							const s = get();
-							if (s.moduleOrder.length === 0) return [];
-							const bp = assembleBlueprint(getEntityData(s));
-							const { searchBlueprint: bpSearch } =
-								require("./blueprintHelpers") as typeof import("./blueprintHelpers");
-							return bpSearch(bp, query);
 						},
 
 						// ── Generation lifecycle actions ────────────────────────
