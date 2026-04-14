@@ -57,6 +57,7 @@ export function ReplayController() {
 
 	const goToStage = useCallback(
 		(targetIndex: number) => {
+			if (!docStore || !sessionStore) return;
 			try {
 				doReset();
 				/* Replay all emissions from stage 0 through the target stage
@@ -65,13 +66,11 @@ export function ReplayController() {
 				 * doc state. */
 				for (let i = 0; i <= targetIndex; i++) {
 					for (const em of stages[i].emissions) {
-						applyStreamEvent(em.type, em.data, docStore!, sessionStore!);
+						applyStreamEvent(em.type, em.data, docStore, sessionStore);
 					}
 				}
 				/* Write replay messages to the session store — ChatContainer reads them. */
-				sessionStore!
-					.getState()
-					.setReplayMessages(stages[targetIndex].messages);
+				sessionStore.getState().setReplayMessages(stages[targetIndex].messages);
 				setCurrentIndex(targetIndex);
 				setError(undefined);
 			} catch (err) {
