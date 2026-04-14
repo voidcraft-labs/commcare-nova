@@ -22,9 +22,8 @@ import tablerX from "@iconify-icons/tabler/x";
 import { motion } from "motion/react";
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
-import { useBuilderStore } from "@/hooks/useBuilder";
+import { useBlueprintDoc } from "@/lib/doc/hooks/useBlueprintDoc";
 import type { AppBlueprint } from "@/lib/schemas/blueprint";
-import { selectAppName } from "@/lib/services/builderSelectors";
 
 // ── Types ──────────────────────────────────────────────────────────
 
@@ -63,9 +62,9 @@ export function UploadToHqDialog({
 	getBlueprint,
 	domain,
 }: UploadToHqDialogProps) {
-	/* Self-subscribe to app name from the store — no prop drilling from
-	 * BuilderLayout needed. Only re-renders when appName actually changes. */
-	const storeAppName = useBuilderStore(selectAppName);
+	/* Self-subscribe to the app name from the doc store — no prop drilling
+	 * from BuilderLayout needed. Only re-renders when appName actually changes. */
+	const storeAppName = useBlueprintDoc((s) => s.appName);
 	const [uploadStatus, setUploadStatus] = useState<UploadStatus>({
 		type: "idle",
 	});

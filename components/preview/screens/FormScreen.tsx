@@ -5,9 +5,9 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { FormTypeButton } from "@/components/builder/detail/FormDetail";
 import { FormSettingsButton } from "@/components/builder/detail/FormSettingsPanel";
 import { EditableTitle, SavedCheck } from "@/components/builder/EditableTitle";
-import { useBuilderStore, useForm, useModule } from "@/hooks/useBuilder";
+import { useBuilderIsReady, useForm, useModule } from "@/hooks/useBuilder";
 import { EditContextProvider } from "@/hooks/useEditContext";
-import { EngineControllerContext, useFormEngine } from "@/hooks/useFormEngine";
+import { useFormEngine } from "@/hooks/useFormEngine";
 import { useBlueprintDoc } from "@/lib/doc/hooks/useBlueprintDoc";
 import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
 import { useCaseTypes } from "@/lib/doc/hooks/useCaseTypes";
@@ -16,7 +16,7 @@ import { getCaseData, getDummyCases } from "@/lib/preview/engine/dummyData";
 import type { PreviewScreen } from "@/lib/preview/engine/types";
 import { useLocation, useNavigate } from "@/lib/routing/hooks";
 import { defaultPostSubmit } from "@/lib/schemas/blueprint";
-import { selectEditMode, selectIsReady } from "@/lib/services/builderSelectors";
+import { useEditMode } from "@/lib/session/hooks";
 import { FormRenderer } from "../form/FormRenderer";
 
 interface FormScreenProps {
@@ -52,8 +52,8 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 	const loc = useLocation();
 	const navigate = useNavigate();
 	const { updateForm } = useBlueprintMutations();
-	const isReady = useBuilderStore(selectIsReady);
-	const mode = useBuilderStore(selectEditMode);
+	const isReady = useBuilderIsReady();
+	const mode = useEditMode();
 
 	/** Uuids derived from the URL — used for uuid-first mutations and navigation. */
 	const formUuid = loc.kind === "form" ? loc.formUuid : undefined;
@@ -237,22 +237,20 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 	);
 
 	return (
-		<EngineControllerContext.Provider value={controller}>
-			<div className="h-full">
-				<div className="flex flex-col h-full max-w-3xl mx-auto w-full">
-					{editable ? (
-						<EditContextProvider
-							moduleIndex={moduleIndex}
-							formIndex={formIndex}
-							mode={mode}
-						>
-							{formBody}
-						</EditContextProvider>
-					) : (
-						formBody
-					)}
-				</div>
+		<div className="h-full">
+			<div className="flex flex-col h-full max-w-3xl mx-auto w-full">
+				{editable ? (
+					<EditContextProvider
+						moduleIndex={moduleIndex}
+						formIndex={formIndex}
+						mode={mode}
+					>
+						{formBody}
+					</EditContextProvider>
+				) : (
+					formBody
+				)}
 			</div>
-		</EngineControllerContext.Provider>
+		</div>
 	);
 }

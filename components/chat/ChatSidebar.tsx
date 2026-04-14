@@ -6,6 +6,7 @@ import { motion } from "motion/react";
 import {
 	type ReactNode,
 	useCallback,
+	useContext,
 	useEffect,
 	useRef,
 	useState,
@@ -15,12 +16,19 @@ import { ChatMessage } from "@/components/chat/ChatMessage";
 import { SignalGrid } from "@/components/chat/SignalGrid";
 import { SignalPanel } from "@/components/chat/SignalPanel";
 import {
-	useBuilderEngine,
 	useBuilderPhase,
+	useBuilderStoreApi,
 	useBuilderStoreShallow,
 } from "@/hooks/useBuilder";
+import {
+	BlueprintDocContext,
+	type BlueprintDocStore,
+} from "@/lib/doc/provider";
 import { BuilderPhase, GenerationStage } from "@/lib/services/builder";
-import type { BuilderEngine } from "@/lib/services/builderEngine";
+import type { BuilderStoreApi } from "@/lib/services/builderStore";
+import { computeScaffoldProgress } from "@/lib/services/scaffoldProgress";
+import { useSetSidebarOpen } from "@/lib/session/hooks";
+import { signalGrid } from "@/lib/signalGrid/store";
 import {
 	defaultLabel,
 	SignalGridController,
@@ -31,16 +39,23 @@ import {
  *  positioning in BuilderLayout) can derive offsets without magic numbers. */
 export const CHAT_SIDEBAR_WIDTH = 320;
 
-/** Create a SignalGridController whose energy callbacks close over a ref (not
- *  a direct value) so they always read the latest builder instance. Safe across
- *  the gap between old controller teardown and new controller creation. */
-function createGridController(builderRef: {
-	current: BuilderEngine;
-}): SignalGridController {
+/** Create a SignalGridController whose energy callbacks drain the module-level
+ *  signalGrid nanostore. Scaffold progress is computed on each poll from the
+ *  live legacy + doc store states — callers pass refs so the controller always
+ *  reads the current instances even if the builder is remounted. Phase 4
+ *  replaces this heuristic with a pure doc-store derivation. */
+function createGridController(
+	storeRef: { current: BuilderStoreApi },
+	docStoreRef: { current: BlueprintDocStore | null },
+): SignalGridController {
 	return new SignalGridController({
-		consumeEnergy: () => builderRef.current.drainEnergy(),
-		consumeThinkEnergy: () => builderRef.current.drainThinkEnergy(),
-		consumeScaffoldProgress: () => builderRef.current.scaffoldProgress,
+		consumeEnergy: () => signalGrid.drainEnergy(),
+		consumeThinkEnergy: () => signalGrid.drainThinkEnergy(),
+		consumeScaffoldProgress: () =>
+			computeScaffoldProgress(
+				storeRef.current.getState(),
+				docStoreRef.current?.getState(),
+			),
 	});
 }
 
@@ -75,8 +90,10 @@ export function ChatSidebar({
 	isExistingApp,
 	children,
 }: ChatSidebarProps) {
-	const engine = useBuilderEngine();
+	const storeApi = useBuilderStoreApi();
+	const docStore = useContext(BlueprintDocContext);
 	const phase = useBuilderPhase();
+	const setSidebarOpen = useSetSidebarOpen();
 	const {
 		generationError,
 		generationStage,
@@ -95,18 +112,21 @@ export function ChatSidebar({
 
 	// ── Signal Grid — controller scoped to the builder instance ──────────
 	// ChatSidebar is always-mounted (width animated to 0 when "closed"), so
-	// refs persist across sidebar open/close. When the builder changes (new
-	// app via BuilderProvider), we destroy the old controller's animation
-	// loop and create a fresh one. Callbacks close over builderRef so they
-	// always read the latest instance — safe across the teardown gap.
-	const engineRef = useRef(engine);
-	engineRef.current = engine;
-	const engineIdentityRef = useRef(engine);
+	// refs persist across sidebar open/close. When the legacy store identity
+	// changes (new app via BuilderProvider), we destroy the old controller's
+	// animation loop and create a fresh one. Callbacks close over refs so
+	// they always read the latest store instances — safe across the
+	// teardown gap.
+	const storeRef = useRef(storeApi);
+	storeRef.current = storeApi;
+	const docStoreRef = useRef(docStore);
+	docStoreRef.current = docStore;
+	const storeIdentityRef = useRef(storeApi);
 	const gridControllerRef = useRef<SignalGridController | null>(null);
-	if (engine !== engineIdentityRef.current || !gridControllerRef.current) {
+	if (storeApi !== storeIdentityRef.current || !gridControllerRef.current) {
 		gridControllerRef.current?.destroy();
-		engineIdentityRef.current = engine;
-		gridControllerRef.current = createGridController(engineRef);
+		storeIdentityRef.current = storeApi;
+		gridControllerRef.current = createGridController(storeRef, docStoreRef);
 	}
 	const gridController = gridControllerRef.current;
 
@@ -192,11 +212,11 @@ export function ChatSidebar({
 	useEffect(() => {
 		if (phase !== BuilderPhase.Completed) return;
 		const id = setTimeout(
-			() => engine.store.getState().acknowledgeCompletion(),
+			() => storeApi.getState().acknowledgeCompletion(),
 			3500,
 		);
 		return () => clearTimeout(id);
-	}, [phase, engine]);
+	}, [phase, storeApi]);
 
 	// Elapsed timer — resets when the controller's active label or mode changes.
 	// Label changes (e.g. "Building forms" → "Validating") reset the timer during
@@ -445,7 +465,7 @@ export function ChatSidebar({
 						</span>
 						<button
 							type="button"
-							onClick={() => engine.store.getState().setChatOpen(false)}
+							onClick={() => setSidebarOpen("chat", false)}
 							className="px-1 h-11 text-nova-text-muted hover:text-nova-text transition-colors cursor-pointer"
 						>
 							<Icon icon={tablerChevronRight} width="14" height="14" />
@@ -466,7 +486,7 @@ export function ChatSidebar({
 					{messages.length === 0 && !isLoading && (
 						<div className={centered ? "text-center" : "text-center py-8"}>
 							{centered ? (
-								<WelcomeIntro engine={engine} setIntroMode={setIntroMode} />
+								<WelcomeIntro setIntroMode={setIntroMode} />
 							) : (
 								<p className="text-sm text-nova-text-muted">
 									{isExistingApp
@@ -519,10 +539,8 @@ export function ChatSidebar({
 
 /** Staggered welcome text with a coordinated burst on the signal grid. */
 function WelcomeIntro({
-	engine,
 	setIntroMode,
 }: {
-	engine: BuilderEngine;
 	setIntroMode: (mode: "reasoning" | null) => void;
 }) {
 	const [stage, setStage] = useState(0); // 0: nothing, 1: heading, 2: subtitle
@@ -533,20 +551,20 @@ function WelcomeIntro({
 		const t0 = performance.now();
 		const pulse = setInterval(() => {
 			const elapsed = performance.now() - t0;
-			// After subtitle (2000ms), linearly taper from full → 0 over the remaining 1500ms
+			// After subtitle (2000ms), linearly taper from full -> 0 over the remaining 1500ms
 			const scale =
 				elapsed < 2000 ? 1 : Math.max(0, 1 - (elapsed - 2000) / 1500);
-			engine.injectEnergy((10 + Math.random() * 20) * scale);
+			signalGrid.injectEnergy((10 + Math.random() * 20) * scale);
 		}, 150);
 
 		const t1 = setTimeout(() => {
 			setStage(1);
-			engine.injectEnergy(120);
+			signalGrid.injectEnergy(120);
 		}, 1500);
 
 		const t2 = setTimeout(() => {
 			setStage(2);
-			engine.injectEnergy(120);
+			signalGrid.injectEnergy(120);
 		}, 2000);
 
 		// Let the grid settle, then back to idle
@@ -561,7 +579,7 @@ function WelcomeIntro({
 			clearTimeout(t2);
 			clearTimeout(t3);
 		};
-	}, [engine, setIntroMode]);
+	}, [setIntroMode]);
 
 	return (
 		<>

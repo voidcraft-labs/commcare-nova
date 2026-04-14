@@ -340,9 +340,17 @@ describe("validateBlueprintDeep", () => {
 		app_name: "Test",
 		modules: [
 			{
+				uuid: "module-1-uuid",
 				name: "Mod",
 				case_type: caseTypes ? "patient" : undefined,
-				forms: [{ name: "Form", type: "registration" as const, questions }],
+				forms: [
+					{
+						uuid: "form-1-uuid",
+						name: "Form",
+						type: "registration" as const,
+						questions,
+					},
+				],
 			},
 		],
 		case_types: caseTypes,
@@ -423,10 +431,12 @@ describe("runValidation with deep validation", () => {
 			app_name: "Test",
 			modules: [
 				{
+					uuid: "module-2-uuid",
 					name: "Mod",
 					case_type: "patient",
 					forms: [
 						{
+							uuid: "form-1-uuid",
 							name: "Reg",
 							type: "registration",
 							questions: [

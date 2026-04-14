@@ -24,15 +24,13 @@ import tablerCloudUpload from "@iconify-icons/tabler/cloud-upload";
 import { AnimatePresence, motion } from "motion/react";
 import { useEffect, useState } from "react";
 import { useAutoSave } from "@/hooks/useAutoSave";
-import { useBuilderEngine } from "@/hooks/useBuilder";
 import { formatRelativeDate } from "@/lib/utils/format";
 
 /** How often to re-render for the relative timestamp (ms). */
 const TICK_MS = 15_000;
 
 export function SaveIndicator() {
-	const builder = useBuilderEngine();
-	const { status, savedAt } = useAutoSave(builder);
+	const { status, savedAt } = useAutoSave();
 
 	/* Tick on a fixed interval to keep the relative timestamp current.
 	 * Only active when displaying a "Saved" timestamp — paused during

@@ -8,12 +8,12 @@
  *
  * Provider strategy
  * -----------------
- * We stub `@/hooks/useBuilder` entirely. `useUndoRedo` only calls two
- * things on the builder side: `useBuilderEngine()` (for DOM side-effect
- * helpers) and `useBuilderStore((s) => s.activeFieldId)`. Neither has
- * React-state semantics that we need here — the interesting behavior
- * lives in the doc store's temporal middleware and in the scroll/flash
- * branching logic, which we exercise directly.
+ * DOM side-effect helpers (`findFieldElement`, `flashUndoHighlight`) were
+ * methods on the deleted BuilderEngine; they now live in
+ * `lib/routing/domQueries.ts` as pure functions. We stub that module
+ * here so the tests can spy on the calls. `useActiveFieldId` +
+ * `useSetFocusHint` are stubbed via `@/lib/session/hooks` so we don't
+ * need a full BuilderSessionProvider.
  *
  * The real doc store is constructed once per test via
  * `createBlueprintDocStore()` and wrapped in a `BlueprintDocContext.Provider`.
@@ -27,6 +27,10 @@ import { act, renderHook } from "@testing-library/react";
 import { ReadonlyURLSearchParams } from "next/navigation";
 import type { ReactNode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import {
+	ScrollRegistryProvider,
+	useRegisterScrollCallback,
+} from "@/components/builder/contexts/ScrollRegistryContext";
 import { BlueprintDocContext } from "@/lib/doc/provider";
 import { createBlueprintDocStore } from "@/lib/doc/store";
 import { asUuid } from "@/lib/doc/types";
@@ -53,7 +57,7 @@ vi.mock("next/navigation", async () => {
 });
 
 /*
- * Shared spies on every engine method `useUndoRedo` may call. They're
+ * Shared spies on every DOM helper `useUndoRedo` may call. They're
  * module-scoped so individual tests can reset and assert on them.
  */
 const findFieldElement = vi.fn<
@@ -62,32 +66,40 @@ const findFieldElement = vi.fn<
 const scrollToQuestion = vi.fn();
 const flashUndoHighlight = vi.fn();
 const setFocusHint = vi.fn();
-const checkEditGuard = vi.fn(() => true);
-
 /*
- * `activeFieldId` is exposed via `useBuilderStore((s) => s.activeFieldId)`.
+ * `activeFieldId` is read via `useActiveFieldId()` from the session store.
  * A module-scoped ref lets individual tests flip the value without
  * rebuilding the mock.
  */
 const activeFieldIdRef = { current: undefined as string | undefined };
 
+/* `useSelect` calls `useConsultEditGuard()` from EditGuardContext. Stub
+ * it to always allow selection so undo/redo tests focus on their own logic. */
+vi.mock("@/components/builder/contexts/EditGuardContext", () => ({
+	useConsultEditGuard: () => () => true,
+}));
+
 /*
- * Full stub of `@/hooks/useBuilder`. Every consumer goes through this
- * module, so mocking it here avoids dragging in the whole
- * BuilderEngine / BuilderStore stack just to get `checkEditGuard` and
- * `activeFieldId` answers.
+ * Stub `@/lib/routing/domQueries` so the two DOM helpers `useUndoRedo`
+ * calls (`findFieldElement`, `flashUndoHighlight`) route through our
+ * module-scoped spies instead of touching the real DOM. These helpers
+ * are Phase 3's replacement for the old `BuilderEngine.findFieldElement`
+ * / `flashUndoHighlight` methods.
  */
-vi.mock("@/hooks/useBuilder", () => ({
-	useBuilderEngine: () => ({
-		findFieldElement,
-		scrollToQuestion,
-		flashUndoHighlight,
-		setFocusHint,
-		checkEditGuard,
-	}),
-	useBuilderStore: <T,>(
-		selector: (s: { activeFieldId: string | undefined }) => T,
-	) => selector({ activeFieldId: activeFieldIdRef.current }),
+vi.mock("@/lib/routing/domQueries", () => ({
+	findFieldElement: (uuid: string, fieldId?: string) =>
+		findFieldElement(uuid, fieldId),
+	flashUndoHighlight: (el: HTMLElement) => flashUndoHighlight(el),
+}));
+
+/*
+ * Stub `@/lib/session/hooks` so `useActiveFieldId()` reads from our
+ * module-scoped ref and `useSetFocusHint()` returns our spy, instead
+ * of requiring a full BuilderSessionProvider.
+ */
+vi.mock("@/lib/session/hooks", () => ({
+	useActiveFieldId: () => activeFieldIdRef.current,
+	useSetFocusHint: () => setFocusHint,
 }));
 
 import { useUndoRedo } from "@/lib/routing/builderActions";
@@ -103,10 +115,12 @@ const BP = {
 	case_types: null,
 	modules: [
 		{
+			uuid: "module-1-uuid",
 			name: "M",
 			case_type: undefined,
 			forms: [
 				{
+					uuid: "form-1-uuid",
 					name: "F",
 					type: "survey" as const,
 					questions: [
@@ -139,12 +153,23 @@ function makeStore() {
 	return store;
 }
 
+/** Registers the `scrollToQuestion` spy as the scroll registry callback
+ *  so `useUndoRedo`'s `scrollTo(...)` dispatches through the spy. */
+function ScrollCallbackInstaller({ children }: { children: ReactNode }) {
+	useRegisterScrollCallback(scrollToQuestion);
+	return <>{children}</>;
+}
+
 function wrap(store: ReturnType<typeof makeStore>) {
 	return function Wrapper({ children }: { children: ReactNode }) {
 		return (
-			<BlueprintDocContext.Provider value={store}>
-				{children}
-			</BlueprintDocContext.Provider>
+			<ScrollRegistryProvider>
+				<ScrollCallbackInstaller>
+					<BlueprintDocContext.Provider value={store}>
+						{children}
+					</BlueprintDocContext.Provider>
+				</ScrollCallbackInstaller>
+			</ScrollRegistryProvider>
 		);
 	};
 }
@@ -156,8 +181,6 @@ describe("useUndoRedo", () => {
 		scrollToQuestion.mockReset();
 		flashUndoHighlight.mockReset();
 		setFocusHint.mockReset();
-		checkEditGuard.mockReset();
-		checkEditGuard.mockReturnValue(true);
 		activeFieldIdRef.current = undefined;
 		mockParams.current = new URLSearchParams();
 		routerReplace.mockReset();
@@ -314,6 +337,7 @@ describe("useUndoRedo", () => {
 			"q-a-0000-0000-0000-000000000000",
 			fakeEl,
 			"instant",
+			undefined,
 		);
 		expect(flashUndoHighlight).toHaveBeenCalledWith(fakeEl);
 		expect(setFocusHint).not.toHaveBeenCalled();

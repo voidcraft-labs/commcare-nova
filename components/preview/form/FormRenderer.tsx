@@ -35,19 +35,24 @@ import {
 	useRef,
 	useState,
 } from "react";
+import { DragStateProvider } from "@/components/builder/contexts/DragStateContext";
+import { useFulfillPendingScroll } from "@/components/builder/contexts/ScrollRegistryContext";
 import { InlineSettingsPanel } from "@/components/builder/InlineSettingsPanel";
-import { useBuilderEngine, useBuilderStore } from "@/hooks/useBuilder";
 import { useEditContext } from "@/hooks/useEditContext";
 import { useEngineController, useEngineState } from "@/hooks/useFormEngine";
 import { useTextEditSave } from "@/hooks/useTextEditSave";
 import { useBlueprintDoc } from "@/lib/doc/hooks/useBlueprintDoc";
 import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
 import { useQuestion as useQuestionDoc } from "@/lib/doc/hooks/useEntity";
+import { notifyMoveRename } from "@/lib/doc/mutations/notify";
+import type { MoveQuestionResult } from "@/lib/doc/mutations/questions";
+import { BlueprintDocContext } from "@/lib/doc/provider";
 import { asUuid, type Uuid } from "@/lib/doc/types";
 import { LabelContent } from "@/lib/references/LabelContent";
 import { useIsQuestionSelected, useSelect } from "@/lib/routing/hooks";
 import type { NQuestion } from "@/lib/services/normalizedState";
 import { type QuestionPath, qpath } from "@/lib/services/questionPath";
+import { useCursorMode } from "@/lib/session/hooks";
 import { EditableQuestionWrapper } from "./EditableQuestionWrapper";
 import { FIELD_STYLES } from "./fieldStyles";
 import { GroupField } from "./fields/GroupField";
@@ -189,7 +194,7 @@ function SortableQuestion({
 	const controller = useEngineController();
 
 	const ctx = useEditContext();
-	const cursorMode = useBuilderStore((s) => s.cursorMode);
+	const cursorMode = useCursorMode();
 	const isEditMode = ctx?.mode === "edit";
 	const saveField = useTextEditSave(uuid);
 
@@ -219,13 +224,10 @@ function SortableQuestion({
 		...(isContainer && { collisionPriority: CollisionPriority.Lowest }),
 	});
 
-	/* Fulfill pending scroll after the panel mounts and the browser paints. */
-	const builderEngine = useBuilderEngine();
-	useEffect(() => {
-		if (isSelected) {
-			builderEngine.fulfillPendingScroll(uuid);
-		}
-	}, [isSelected, uuid, builderEngine]);
+	/* Fulfill pending scroll when this question becomes selected. Re-fires on
+	 * isSelected transitions so within-form navigation (tab, arrow, move,
+	 * duplicate) scrolls correctly even when the target is already mounted. */
+	useFulfillPendingScroll(uuid, isSelected);
 
 	if (!q) return null;
 	if (q.type === "hidden" && !isEditMode) return null;
@@ -406,13 +408,21 @@ export const FormRenderer = memo(function FormRenderer({
 	parentPath,
 }: FormRendererProps) {
 	const ctx = useEditContext();
-	const builderEngine = useBuilderEngine();
+	/* Read the doc store imperatively for drag snapshots. The provider
+	 * context hands out a stable reference per BuilderProvider mount —
+	 * drag callbacks capture this via closure without subscribing to any
+	 * entity map (drag state is a snapshot, not a live view). */
+	const docStore = useContext(BlueprintDocContext);
 	const select = useSelect();
 
 	const { moveQuestion: moveQuestion_ } = useBlueprintMutations();
 	const isEditMode = ctx?.mode === "edit";
 	const isRoot = !parentPath;
 	const [dragState, setDragState] = useState<DragReorderState | null>(null);
+	/** Whether a drag operation is in progress. Exposed to the subtree via
+	 *  `DragStateProvider` in controlled mode so children can read it via
+	 *  `useIsDragActive()`. Replaces the old `engine._isDragging` flag. */
+	const [dragActive, setDragActive] = useState(false);
 
 	/** Subscribe to the question UUID order for this level. Stable reference
 	 *  when order hasn't changed — Immer structural sharing on the array. */
@@ -621,179 +631,200 @@ export const FormRenderer = memo(function FormRenderer({
 		<QuestionPickerContext.Provider value={questionPickerCtx}>
 			<CursorSpeedContext.Provider value={cursorSpeedCtx}>
 				<DragReorderContext.Provider value={dragState}>
-					<DragDropProvider
-						sensors={SENSORS}
-						modifiers={modifiers}
-						onDragStart={(event) => {
-							const sourceUuid = event.operation.source?.id as
-								| string
-								| undefined;
-							if (sourceUuid) {
-								/* Read entity maps imperatively from the store — no reactive
-								 * subscription. Drag state is a snapshot, not a live view. */
-								const s = builderEngine.store.getState();
-								setDragState(
-									buildDragStateFromStore(
-										s.questions,
-										s.questionOrder,
-										parentEntityId,
-										sourceUuid,
-									),
-								);
-							}
-							document.body.style.cursor = "grabbing";
-							if (ctx) {
-								builderEngine.setDragging(true);
-								select(undefined);
-							}
-						}}
-						onDragOver={(event) => {
-							setDragState((prev) => {
-								if (!prev) return prev;
-								const newMap = move(prev.itemsMap, event);
-								if (newMap === prev.itemsMap) return prev;
-								return { ...prev, itemsMap: newMap };
-							});
-						}}
-						onDragEnd={(event) => {
-							// Capture state before clearing — dnd-kit fires this during
-							// useInsertionEffect where React 19 forbids setState, so defer cleanup.
-							const ds = dragState;
-							const canceled = event.canceled;
-
-							queueMicrotask(() => {
-								setDragState(null);
-								document.body.style.cursor = "";
-								if (ctx) builderEngine.setDragging(false);
-
-								if (canceled || !ctx || !ds) return;
-
-								const { activeUuid: dragUuid, itemsMap } = ds;
-
-								// Find where the item ended up in the controlled items map
-								let finalGroup: string | undefined;
-								let finalIndex = -1;
-								for (const [g, ids] of Object.entries(itemsMap)) {
-									const i = ids.indexOf(dragUuid);
-									if (i !== -1) {
-										finalGroup = g;
-										finalIndex = i;
-										break;
+					<DragStateProvider isActive={dragActive} setActive={setDragActive}>
+						<DragDropProvider
+							sensors={SENSORS}
+							modifiers={modifiers}
+							onDragStart={(event) => {
+								const sourceUuid = event.operation.source?.id as
+									| string
+									| undefined;
+								if (sourceUuid) {
+									/* Read entity maps imperatively from the doc store — no
+									 * reactive subscription. Drag state is a snapshot, not a
+									 * live view. The doc is the single source of truth for
+									 * blueprint data. */
+									const doc = docStore?.getState();
+									if (doc) {
+										setDragState(
+											buildDragStateFromStore(
+												doc.questions as unknown as Record<string, NQuestion>,
+												doc.questionOrder as unknown as Record<
+													string,
+													string[]
+												>,
+												parentEntityId,
+												sourceUuid,
+											),
+										);
 									}
 								}
-
-								if (finalGroup === undefined || finalIndex === -1) return;
-
-								/* Determine the initial group from the doc store's
-								 * questionOrder. Scan for the parent that contains the
-								 * dragged UUID, then map to the items-map key format. */
-								const currentDoc = builderEngine.store.getState();
-								let draggedParentUuid: string | undefined;
-								for (const [pUuid, order] of Object.entries(
-									currentDoc.questionOrder,
-								)) {
-									if (order.includes(dragUuid)) {
-										/* Parent is either a form (root level) or a group/repeat
-										 * question. Forms are root-level → ROOT_GROUP; questions
-										 * use the `:container` suffix convention. */
-										draggedParentUuid = currentDoc.questions[pUuid as Uuid]
-											? pUuid
-											: undefined;
-										break;
-									}
+								document.body.style.cursor = "grabbing";
+								if (ctx) {
+									setDragActive(true);
+									select(undefined);
 								}
-								const initialGroup = draggedParentUuid
-									? `${draggedParentUuid}${CONTAINER_SUFFIX}`
-									: ROOT_GROUP;
+							}}
+							onDragOver={(event) => {
+								setDragState((prev) => {
+									if (!prev) return prev;
+									const newMap = move(prev.itemsMap, event);
+									if (newMap === prev.itemsMap) return prev;
+									return { ...prev, itemsMap: newMap };
+								});
+							}}
+							onDragEnd={(event) => {
+								// Capture state before clearing — dnd-kit fires this during
+								// useInsertionEffect where React 19 forbids setState, so defer cleanup.
+								const ds = dragState;
+								const canceled = event.canceled;
 
-								const sameGroup = initialGroup === finalGroup;
+								queueMicrotask(() => {
+									setDragState(null);
+									document.body.style.cursor = "";
+									if (ctx) setDragActive(false);
 
-								// Check if position actually changed
-								if (sameGroup) {
-									const initialState = buildDragStateFromStore(
-										builderEngine.store.getState().questions,
-										builderEngine.store.getState().questionOrder,
-										parentEntityId,
-										dragUuid,
-									);
-									const initialIds = initialState.itemsMap[initialGroup] ?? [];
+									if (canceled || !ctx || !ds) return;
+
+									const { activeUuid: dragUuid, itemsMap } = ds;
+
+									// Find where the item ended up in the controlled items map
+									let finalGroup: string | undefined;
+									let finalIndex = -1;
+									for (const [g, ids] of Object.entries(itemsMap)) {
+										const i = ids.indexOf(dragUuid);
+										if (i !== -1) {
+											finalGroup = g;
+											finalIndex = i;
+											break;
+										}
+									}
+
+									if (finalGroup === undefined || finalIndex === -1) return;
+
+									/* Determine the initial group from the doc store's
+									 * questionOrder. Scan for the parent that contains the
+									 * dragged UUID, then map to the items-map key format. */
+									const currentDoc = docStore?.getState();
+									if (!currentDoc) return;
+									let draggedParentUuid: string | undefined;
+									for (const [pUuid, order] of Object.entries(
+										currentDoc.questionOrder as unknown as Record<
+											string,
+											string[]
+										>,
+									)) {
+										if (order.includes(dragUuid)) {
+											/* Parent is either a form (root level) or a group/repeat
+											 * question. Forms are root-level → ROOT_GROUP; questions
+											 * use the `:container` suffix convention. */
+											draggedParentUuid = currentDoc.questions[pUuid as Uuid]
+												? pUuid
+												: undefined;
+											break;
+										}
+									}
+									const initialGroup = draggedParentUuid
+										? `${draggedParentUuid}${CONTAINER_SUFFIX}`
+										: ROOT_GROUP;
+
+									const sameGroup = initialGroup === finalGroup;
+
+									// Check if position actually changed
+									if (sameGroup) {
+										const initialState = buildDragStateFromStore(
+											currentDoc.questions as unknown as Record<
+												string,
+												NQuestion
+											>,
+											currentDoc.questionOrder as unknown as Record<
+												string,
+												string[]
+											>,
+											parentEntityId,
+											dragUuid,
+										);
+										const initialIds =
+											initialState.itemsMap[initialGroup] ?? [];
+										const finalIds = itemsMap[finalGroup] ?? [];
+										const initialIdx = initialIds.indexOf(dragUuid);
+										if (
+											initialIdx === finalIndex &&
+											initialIds.length === finalIds.length
+										) {
+											// No movement — just select
+											select(asUuid(dragUuid));
+											return;
+										}
+									}
+
+									/* Resolve the target parent uuid from the final group key.
+									 * Root-level items have no explicit parent (the form is
+									 * implicit); nested items use the group/repeat uuid. */
 									const finalIds = itemsMap[finalGroup] ?? [];
-									const initialIdx = initialIds.indexOf(dragUuid);
-									if (
-										initialIdx === finalIndex &&
-										initialIds.length === finalIds.length
-									) {
-										// No movement — just select
-										select(asUuid(dragUuid));
-										return;
-									}
-								}
+									const targetParentUuid =
+										finalGroup === ROOT_GROUP
+											? undefined
+											: stripContainerSuffix(finalGroup);
 
-								/* Resolve the target parent uuid from the final group key.
-								 * Root-level items have no explicit parent (the form is
-								 * implicit); nested items use the group/repeat uuid. */
-								const finalIds = itemsMap[finalGroup] ?? [];
-								const targetParentUuid =
-									finalGroup === ROOT_GROUP
-										? undefined
-										: stripContainerSuffix(finalGroup);
-
-								if (sameGroup) {
-									/* Same-level reorder — no ID conflict possible.
-									 * Use uuid-first moveQuestion with neighbor uuids. */
-									if (finalIndex === 0) {
-										if (finalIds.length > 1) {
+									if (sameGroup) {
+										/* Same-level reorder — no ID conflict possible.
+										 * Use uuid-first moveQuestion with neighbor uuids. */
+										if (finalIndex === 0) {
+											if (finalIds.length > 1) {
+												moveQuestion_(asUuid(dragUuid), {
+													beforeUuid: asUuid(finalIds[1]),
+												});
+											}
+										} else {
 											moveQuestion_(asUuid(dragUuid), {
-												beforeUuid: asUuid(finalIds[1]),
+												afterUuid: asUuid(finalIds[finalIndex - 1]),
 											});
 										}
 									} else {
-										moveQuestion_(asUuid(dragUuid), {
-											afterUuid: asUuid(finalIds[finalIndex - 1]),
-										});
+										/* Cross-group transfer — pass the target parent uuid so
+										 * the reducer moves the question into the new container.
+										 * Auto-rename toast fires if sibling-id dedup occurred. */
+										let result: MoveQuestionResult;
+										if (finalIds.length <= 1) {
+											result = moveQuestion_(asUuid(dragUuid), {
+												toParentUuid: targetParentUuid
+													? asUuid(targetParentUuid)
+													: undefined,
+											});
+										} else if (finalIndex === 0) {
+											result = moveQuestion_(asUuid(dragUuid), {
+												toParentUuid: targetParentUuid
+													? asUuid(targetParentUuid)
+													: undefined,
+												beforeUuid: asUuid(finalIds[1]),
+											});
+										} else {
+											result = moveQuestion_(asUuid(dragUuid), {
+												toParentUuid: targetParentUuid
+													? asUuid(targetParentUuid)
+													: undefined,
+												afterUuid: asUuid(finalIds[finalIndex - 1]),
+											});
+										}
+										notifyMoveRename(result);
 									}
-								} else {
-									/* Cross-group transfer — pass the target parent uuid so
-									 * the reducer moves the question into the new container.
-									 * phase-1b-task-10: cross-level move auto-rename notification
-									 * is deferred to Phase 3. */
-									if (finalIds.length <= 1) {
-										moveQuestion_(asUuid(dragUuid), {
-											toParentUuid: targetParentUuid
-												? asUuid(targetParentUuid)
-												: undefined,
-										});
-									} else if (finalIndex === 0) {
-										moveQuestion_(asUuid(dragUuid), {
-											toParentUuid: targetParentUuid
-												? asUuid(targetParentUuid)
-												: undefined,
-											beforeUuid: asUuid(finalIds[1]),
-										});
-									} else {
-										moveQuestion_(asUuid(dragUuid), {
-											toParentUuid: targetParentUuid
-												? asUuid(targetParentUuid)
-												: undefined,
-											afterUuid: asUuid(finalIds[finalIndex - 1]),
-										});
-									}
-								}
 
-								/* Select the moved question at its new position. */
-								select(asUuid(dragUuid));
-							});
-						}}
-					>
-						{list}
-						<DragOverlay>
-							{activeLabel && (
-								<div className="rounded-lg bg-nova-surface/80 border border-nova-violet/40 px-3 py-2 shadow-lg text-sm text-nova-text">
-									{activeLabel}
-								</div>
-							)}
-						</DragOverlay>
-					</DragDropProvider>
+									/* Select the moved question at its new position. */
+									select(asUuid(dragUuid));
+								});
+							}}
+						>
+							{list}
+							<DragOverlay>
+								{activeLabel && (
+									<div className="rounded-lg bg-nova-surface/80 border border-nova-violet/40 px-3 py-2 shadow-lg text-sm text-nova-text">
+										{activeLabel}
+									</div>
+								)}
+							</DragOverlay>
+						</DragDropProvider>
+					</DragStateProvider>
 				</DragReorderContext.Provider>
 			</CursorSpeedContext.Provider>
 			{/* Single shared menu for all InsertionPoints in this form. Renders

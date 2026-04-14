@@ -1,6 +1,6 @@
 "use client";
 import { type ReactNode, useCallback, useRef, useState } from "react";
-import { useBuilderEngine } from "@/hooks/useBuilder";
+import { useScrollIntoView } from "@/components/builder/contexts/ScrollRegistryContext";
 import { useEditContext } from "@/hooks/useEditContext";
 import type { Uuid } from "@/lib/doc/types";
 import { useIsQuestionSelected, useSelect } from "@/lib/routing/hooks";
@@ -21,9 +21,9 @@ interface EditableQuestionWrapperProps {
  * On click, `useSelect()` replaces the `sel=` param via `router.replace` —
  * no Zustand write, no re-render cascade.
  *
- * Scroll behavior is delegated to `BuilderEngine.setPendingScroll` so the
+ * Scroll behavior is delegated to `ScrollRegistryContext.setPending` so the
  * selected question's panel (mounted by SortableQuestion) can honor it
- * via `fulfillPendingScroll` once the panel paints.
+ * via `useFulfillPendingScroll` once the panel paints.
  */
 export function EditableQuestionWrapper({
 	questionUuid,
@@ -32,7 +32,7 @@ export function EditableQuestionWrapper({
 	isDragging,
 }: EditableQuestionWrapperProps) {
 	const ctx = useEditContext();
-	const engine = useBuilderEngine();
+	const { setPending, scrollTo } = useScrollIntoView();
 	const select = useSelect();
 	const [hovered, setHovered] = useState(false);
 	const [holdReady, setHoldReady] = useState(false);
@@ -85,10 +85,10 @@ export function EditableQuestionWrapper({
 	 *  target needs extra clearance for the floating TipTap label toolbar. */
 	const selectQuestion = useCallback(
 		(hasToolbar = false) => {
-			engine.setPendingScroll(questionUuid, "smooth", hasToolbar);
+			setPending(questionUuid, "smooth", hasToolbar);
 			select(questionUuid);
 		},
-		[engine, questionUuid, select],
+		[setPending, questionUuid, select],
 	);
 
 	const handleClick = useCallback(
@@ -120,7 +120,7 @@ export function EditableQuestionWrapper({
 			 * on the current question. */
 			if (target.closest("[data-text-editable]")) {
 				if (isSelected) {
-					engine.scrollToQuestion(questionUuid, undefined, "smooth", true);
+					scrollTo(questionUuid, undefined, "smooth", true);
 				} else {
 					selectQuestion(true);
 				}
@@ -130,7 +130,7 @@ export function EditableQuestionWrapper({
 			e.stopPropagation();
 			selectQuestion();
 		},
-		[selectQuestion, isSelected, questionUuid, engine],
+		[selectQuestion, isSelected, questionUuid, scrollTo],
 	);
 
 	/** Keyboard activation — Enter or Space selects this question, matching

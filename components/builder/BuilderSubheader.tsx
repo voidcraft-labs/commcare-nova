@@ -6,7 +6,6 @@
  *
  * Navigation state comes from `useLocation` / `useNavigate` / `useBreadcrumbs`
  * (Phase 2 URL hooks). Undo/redo from `useUndoRedo` (doc temporal).
- * Engine is retained only for `AppConnectSettings`.
  */
 "use client";
 import { Icon } from "@iconify/react/offline";
@@ -20,11 +19,7 @@ import type { BreadcrumbPart } from "@/components/builder/SubheaderToolbar";
 import { CollapsibleBreadcrumb } from "@/components/builder/SubheaderToolbar";
 import { ScreenNavButtons } from "@/components/preview/ScreenNavButtons";
 import { Tooltip } from "@/components/ui/Tooltip";
-import {
-	useBuilderEngine,
-	useBuilderHasData,
-	useBuilderIsReady,
-} from "@/hooks/useBuilder";
+import { useBuilderHasData, useBuilderIsReady } from "@/hooks/useBuilder";
 import {
 	useBlueprintDoc,
 	useBlueprintDocTemporal,
@@ -47,8 +42,6 @@ export function BuilderSubheader({
 	commcareConfigured,
 	commcareDomain,
 }: BuilderSubheaderProps) {
-	/* Engine retained for AppConnectSettings (imperative connect stash). */
-	const builder = useBuilderEngine();
 	const hasData = useBuilderHasData();
 	const isReady = useBuilderIsReady();
 
@@ -118,7 +111,7 @@ export function BuilderSubheader({
 			{showToolbar && (
 				<div className="flex items-center gap-1 shrink-0">
 					<SaveIndicator />
-					<AppConnectSettings builder={builder} />
+					<AppConnectSettings />
 					<Tooltip content={`Undo (${shortcutLabel("mod", "Z")})`}>
 						<button
 							type="button"

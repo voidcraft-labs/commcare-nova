@@ -25,9 +25,12 @@ function makeShell(type: FormType = "registration"): AppBlueprint {
 		app_name: "Test App",
 		modules: [
 			{
+				uuid: "module-1-uuid",
 				name: "Test Module",
 				case_type: type !== "survey" ? "patient" : undefined,
-				forms: [{ name: "Test Form", type, questions: [] }],
+				forms: [
+					{ uuid: "form-1-uuid", name: "Test Form", type, questions: [] },
+				],
 			},
 		],
 		case_types:
@@ -270,10 +273,12 @@ describe("Form Builder Agent Integration", () => {
 				app_name: "Migration Test",
 				modules: [
 					{
+						uuid: "module-2-uuid",
 						name: "M",
 						case_type: "patient",
 						forms: [
 							{
+								uuid: "form-1-uuid",
 								name: "Close Form",
 								type: "followup",
 								close_case: closeCase,
@@ -329,10 +334,12 @@ describe("Form Builder Agent Integration", () => {
 				app_name: "New Format",
 				modules: [
 					{
+						uuid: "module-3-uuid",
 						name: "M",
 						case_type: "patient",
 						forms: [
 							{
+								uuid: "form-2-uuid",
 								name: "Close Form",
 								type: "close",
 								close_condition: { question: "confirm", answer: "yes" },

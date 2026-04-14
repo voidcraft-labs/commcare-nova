@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
-import { useBuilderEngine } from "@/hooks/useBuilder";
 import type { CaseType, Question } from "@/lib/schemas/blueprint";
+import { useClearFocusHint, useSessionFocusHint } from "@/lib/session/hooks";
 
 /** Shared prop shape for all contextual editor sections (UI, Logic, Data, Footer).
  *  Only the question data — store access is via hooks, not props. */
@@ -179,15 +179,15 @@ export function useAddableField(questionKey: string) {
 export function useFocusHint(
 	ownedFields: ReadonlySet<FocusableFieldKey>,
 ): FocusableFieldKey | undefined {
-	const engine = useBuilderEngine();
-	const raw = engine.focusHint;
+	const raw = useSessionFocusHint();
+	const clearFocusHint = useClearFocusHint();
 	const hint =
 		raw && ownedFields.has(raw as FocusableFieldKey)
 			? (raw as FocusableFieldKey)
 			: undefined;
 	useEffect(() => {
-		if (hint) engine.clearFocusHint();
-	}, [hint, engine]);
+		if (hint) clearFocusHint();
+	}, [hint, clearFocusHint]);
 	return hint;
 }
 

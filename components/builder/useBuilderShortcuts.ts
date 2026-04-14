@@ -1,7 +1,9 @@
 import { useMemo } from "react";
-import { useBuilderEngine, useBuilderIsReady } from "@/hooks/useBuilder";
+import { useScrollIntoView } from "@/components/builder/contexts/ScrollRegistryContext";
+import { useBuilderIsReady } from "@/hooks/useBuilder";
 import { useAssembledForm } from "@/lib/doc/hooks/useAssembledForm";
 import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
+import { notifyMoveRename } from "@/lib/doc/mutations/notify";
 import { asUuid } from "@/lib/doc/types";
 import {
 	useDeleteSelectedQuestion,
@@ -17,6 +19,8 @@ import {
 	flattenQuestionRefs,
 	type QuestionRef,
 } from "@/lib/services/questionPath";
+import { useCursorMode } from "@/lib/session/hooks";
+import type { CursorMode } from "@/lib/session/types";
 
 /**
  * Builds a memoized keyboard shortcuts array for the builder layout.
@@ -33,15 +37,16 @@ import {
  * fires mutations via uuid-first `useBlueprintMutations()`.
  */
 export function useBuilderShortcuts(
-	handleCursorModeChange: (mode: "pointer" | "edit") => void,
+	handleCursorModeChange: (mode: CursorMode) => void,
 ): Shortcut[] {
 	const isReady = useBuilderIsReady();
 	const loc = useLocation();
 	const select = useSelect();
-	const engine = useBuilderEngine();
+	const { setPending } = useScrollIntoView();
 	const deleteSelected = useDeleteSelectedQuestion();
 	const { undo, redo } = useUndoRedo();
 	const { duplicateQuestion, moveQuestion } = useBlueprintMutations();
+	const cursorMode = useCursorMode();
 
 	/* Assemble the current form so navigation/reorder helpers have the
 	 * nested question tree. Returns `undefined` when not on a form screen.
@@ -76,7 +81,7 @@ export function useBuilderShortcuts(
 		/** Navigate to a question by uuid — update selection via URL and
 		 *  request a scroll to bring the question into view. */
 		const navigateToQuestion = (uuid: string): void => {
-			engine.setPendingScroll(uuid, "smooth", false);
+			setPending(uuid, "smooth", false);
 			select(asUuid(uuid));
 		};
 
@@ -85,7 +90,7 @@ export function useBuilderShortcuts(
 			{
 				key: "Escape",
 				handler: () => {
-					if (engine.store.getState().cursorMode === "pointer") {
+					if (cursorMode === "pointer") {
 						handleCursorModeChange("edit");
 						return;
 					}
@@ -103,7 +108,7 @@ export function useBuilderShortcuts(
 			{
 				key: "Tab",
 				handler: () => {
-					if (engine.store.getState().cursorMode !== "edit") return;
+					if (cursorMode !== "edit") return;
 					if (loc.kind !== "form" || !loc.selectedUuid) return;
 					const refs = getFormRefs();
 					if (!refs?.length) return;
@@ -116,7 +121,7 @@ export function useBuilderShortcuts(
 				key: "Tab",
 				shift: true,
 				handler: () => {
-					if (engine.store.getState().cursorMode !== "edit") return;
+					if (cursorMode !== "edit") return;
 					if (loc.kind !== "form" || !loc.selectedUuid) return;
 					const refs = getFormRefs();
 					if (!refs?.length) return;
@@ -218,13 +223,11 @@ export function useBuilderShortcuts(
 					const beforeUuid = up.beforePath
 						? pathToUuid.get(up.beforePath)
 						: undefined;
-					// phase-1b-task-10: cross-level move auto-rename notification is
-					// synthesized by Task 10's path-to-path rewriter. Hook returns
-					// void for now.
-					moveQuestion(asUuid(loc.selectedUuid), {
+					const result = moveQuestion(asUuid(loc.selectedUuid), {
 						toParentUuid: asUuid(toParentUuid),
 						...(beforeUuid ? { beforeUuid: asUuid(beforeUuid) } : {}),
 					});
+					notifyMoveRename(result);
 				},
 			},
 			{
@@ -250,13 +253,11 @@ export function useBuilderShortcuts(
 					const beforeUuid = down.beforePath
 						? pathToUuid.get(down.beforePath)
 						: undefined;
-					// phase-1b-task-10: cross-level move auto-rename notification is
-					// synthesized by Task 10's path-to-path rewriter. Hook returns
-					// void for now.
-					moveQuestion(asUuid(loc.selectedUuid), {
+					const result = moveQuestion(asUuid(loc.selectedUuid), {
 						toParentUuid: asUuid(toParentUuid),
 						...(beforeUuid ? { beforeUuid: asUuid(beforeUuid) } : {}),
 					});
+					notifyMoveRename(result);
 				},
 			},
 			// Cmd+Z / Cmd+Shift+Z — undo/redo (not global: TipTap and CodeMirror
@@ -278,7 +279,7 @@ export function useBuilderShortcuts(
 		loc,
 		form,
 		formUuid,
-		engine,
+		setPending,
 		select,
 		handleCursorModeChange,
 		deleteSelected,
@@ -286,5 +287,6 @@ export function useBuilderShortcuts(
 		redo,
 		duplicateQuestion,
 		moveQuestion,
+		cursorMode,
 	]);
 }

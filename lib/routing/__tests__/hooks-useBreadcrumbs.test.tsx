@@ -45,10 +45,16 @@ describe("useBreadcrumbs", () => {
 		case_types: null,
 		modules: [
 			{
+				uuid: "module-1-uuid",
 				name: "Patients",
 				case_type: "patient",
 				forms: [
-					{ name: "Register", type: "registration" as const, questions: [] },
+					{
+						uuid: "form-1-uuid",
+						name: "Register",
+						type: "registration" as const,
+						questions: [],
+					},
 				],
 			},
 		],

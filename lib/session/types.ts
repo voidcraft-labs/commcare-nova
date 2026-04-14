@@ -11,7 +11,7 @@
  */
 
 import type { Uuid } from "@/lib/doc/types";
-import type { ConnectType } from "@/lib/schemas/blueprint";
+import type { ConnectConfig, ConnectType } from "@/lib/schemas/blueprint";
 
 /** Lifecycle phases of the builder. */
 export type BuilderPhase = "idle" | "loading" | "ready" | "completed";
@@ -33,7 +33,7 @@ export type AgentError = { code: string; message: string };
  * visibility; `stashed` records whether we should reopen when leaving edit
  * mode. See `switchCursorMode` in Phase 3.
  */
-export type SidebarState = { open: boolean; stashed: boolean };
+export type SidebarState = { open: boolean; stashed: boolean | undefined };
 
 /**
  * The ephemeral builder session.
@@ -65,14 +65,11 @@ export type BuilderSession = {
 	};
 
 	/**
-	 * Saved form-connect configs from the non-active connect mode, keyed by
-	 * mode. Ephemeral: lost on reload. Same lifecycle as today's
-	 * `BuilderEngine._connectStash` Map. `FormConnect` is currently typed in
-	 * `lib/schemas/blueprint.ts` but Phase 3 will import it directly;
-	 * `unknown` is a deliberate placeholder here to keep Phase 0 free of
-	 * wire-through-session dependencies that none of the Phase 0 code
-	 * actually exercises.
+	 * Stashed form connect configs, keyed by uuid so they survive form
+	 * reorder and rename. Lives on the BuilderSession; populated by
+	 * `switchConnectMode` when leaving a connect mode, consumed when
+	 * re-entering. Ephemeral: lost on reload.
 	 */
-	connectStash: Partial<Record<ConnectType, Record<Uuid, unknown>>>;
+	connectStash: Record<ConnectType, Record<Uuid, ConnectConfig>>;
 	lastConnectType?: ConnectType;
 };

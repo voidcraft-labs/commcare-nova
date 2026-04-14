@@ -10,7 +10,7 @@ import { EditorState, Prec } from "@codemirror/state";
 import { EditorView, keymap, tooltips } from "@codemirror/view";
 import CodeMirror, { type ReactCodeMirrorRef } from "@uiw/react-codemirror";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useBuilderEngine } from "@/hooks/useBuilder";
+import { useRegisterEditGuard } from "@/components/builder/contexts/EditGuardContext";
 import { xpathAutocomplete } from "@/lib/codemirror/xpath-autocomplete";
 import { xpathChips } from "@/lib/codemirror/xpath-chips";
 import { formatXPath, prettyPrintXPath } from "@/lib/codemirror/xpath-format";
@@ -254,7 +254,6 @@ function InlineXPathEditor({
 	provider: _provider,
 	clickPosition,
 }: InlineXPathEditorProps) {
-	const builder = useBuilderEngine();
 	const editorRef = useRef<ReactCodeMirrorRef>(null);
 	const wrapperRef = useRef<HTMLDivElement>(null);
 	/** Guards against double-fire: once save or cancel runs, block the other. */
@@ -331,18 +330,16 @@ function InlineXPathEditor({
 			return;
 		}
 		doneRef.current = true;
-		builder.clearEditGuard();
 		const draft = editorRef.current?.view?.state.doc.toString() ?? "";
 		onSave(draft);
-	}, [onSave, getErrors, shake, builder]);
+	}, [onSave, getErrors, shake]);
 
 	/** Cancel editing — revert to the original value without saving. */
 	const cancel = useCallback(() => {
 		if (doneRef.current) return;
 		doneRef.current = true;
-		builder.clearEditGuard();
 		onCancel();
-	}, [onCancel, builder]);
+	}, [onCancel]);
 
 	const saveRef = useRef(save);
 	saveRef.current = save;
@@ -358,8 +355,16 @@ function InlineXPathEditor({
 	/** Tracks whether the user has been warned about errors blocking navigation. */
 	const warnedRef = useRef(false);
 
-	useEffect(() => {
-		builder.setEditGuard(() => {
+	/* Edit guard — blocks selection changes while the editor has unsaved
+	 * invalid content. The two-strike pattern ("warn then allow") lives
+	 * inside the predicate: first invocation returns false and surfaces a
+	 * warning; second invocation returns true, letting the selection through.
+	 *
+	 * `enabled` is always true while this component is mounted (it only
+	 * renders during editing). Unmounting automatically deregisters via
+	 * the hook's effect cleanup. */
+	useRegisterEditGuard(
+		useCallback(() => {
 			const errors = getErrorsRef.current();
 			if (errors.length === 0) return true;
 			/* First strike: warn, block navigation. */
@@ -370,11 +375,10 @@ function InlineXPathEditor({
 				return false;
 			}
 			/* Second strike: allow navigation through. */
-			builder.clearEditGuard();
 			return true;
-		});
-		return () => builder.clearEditGuard();
-	}, [builder]);
+		}, []),
+		true,
+	);
 
 	/* Cmd/Ctrl+Enter saves (with validation gate). Highest precedence so
 	 * basicSetup keymaps can't intercept it. */

@@ -7,8 +7,12 @@
  *
  * `applyMutation` operates on an Immer draft — call sites wrap it in
  * `produce()` or let the Zustand store's Immer middleware handle the
- * drafting. `applyMutations` is a batched convenience for the agent
- * stream (Phase 4) and for restoring a doc from a mutation log.
+ * drafting. Returns metadata for `moveQuestion` and `renameQuestion`
+ * mutations (used by `applyWithResult` on the store); returns `undefined`
+ * for all other mutation kinds.
+ *
+ * `applyMutations` is a batched convenience for the agent stream
+ * (Phase 4) and for restoring a doc from a mutation log.
  */
 
 import type { Draft } from "immer";
@@ -17,9 +21,21 @@ import { applyAppMutation } from "./app";
 import { applyFormMutation } from "./forms";
 import { assertNever } from "./helpers";
 import { applyModuleMutation } from "./modules";
-import { applyQuestionMutation } from "./questions";
+import {
+	applyQuestionMutation,
+	type MoveQuestionResult,
+	type QuestionRenameMeta,
+} from "./questions";
 
-export function applyMutation(draft: Draft<BlueprintDoc>, mut: Mutation): void {
+/**
+ * Apply a single mutation to an Immer draft and return any metadata the
+ * reducer produces. `moveQuestion` returns `MoveQuestionResult`;
+ * `renameQuestion` returns `QuestionRenameMeta`; all others return `undefined`.
+ */
+export function applyMutation(
+	draft: Draft<BlueprintDoc>,
+	mut: Mutation,
+): MoveQuestionResult | QuestionRenameMeta | undefined {
 	switch (mut.kind) {
 		case "setAppName":
 		case "setConnectType":
@@ -47,8 +63,7 @@ export function applyMutation(draft: Draft<BlueprintDoc>, mut: Mutation): void {
 		case "renameQuestion":
 		case "duplicateQuestion":
 		case "updateQuestion":
-			applyQuestionMutation(draft, mut);
-			break;
+			return applyQuestionMutation(draft, mut);
 		default:
 			assertNever(mut);
 	}
