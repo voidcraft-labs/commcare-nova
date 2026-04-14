@@ -3,7 +3,7 @@ import { useScrollIntoView } from "@/components/builder/contexts/ScrollRegistryC
 import { useBuilderIsReady } from "@/hooks/useBuilder";
 import { useAssembledForm } from "@/lib/doc/hooks/useAssembledForm";
 import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
-import type { MoveQuestionResult } from "@/lib/doc/mutations/questions";
+import { notifyMoveRename } from "@/lib/doc/mutations/notify";
 import { asUuid } from "@/lib/doc/types";
 import {
 	useDeleteSelectedQuestion,
@@ -19,23 +19,8 @@ import {
 	flattenQuestionRefs,
 	type QuestionRef,
 } from "@/lib/services/questionPath";
-import { showToast } from "@/lib/services/toastStore";
 import { useCursorMode } from "@/lib/session/hooks";
 import type { CursorMode } from "@/lib/session/types";
-
-/**
- * Show an info toast when a cross-level move auto-renamed a question to
- * avoid a sibling ID collision. No-op when the move didn't trigger dedup.
- */
-function notifyMoveRename(result: MoveQuestionResult): void {
-	if (!result.renamed) return;
-	const { oldId, newId, xpathFieldsRewritten } = result.renamed;
-	showToast(
-		"info",
-		"Question renamed to avoid conflict",
-		`"${oldId}" → "${newId}" (${xpathFieldsRewritten} reference${xpathFieldsRewritten === 1 ? "" : "s"} updated)`,
-	);
-}
 
 /**
  * Builds a memoized keyboard shortcuts array for the builder layout.

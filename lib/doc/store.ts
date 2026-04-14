@@ -62,8 +62,12 @@ export type BlueprintDocState = BlueprintDoc & {
 	 * that produce actionable metadata (rename toast, xpath count).
 	 */
 	applyWithResult: {
-		(mut: Extract<Mutation, { kind: "moveQuestion" }>): MoveQuestionResult;
-		(mut: Extract<Mutation, { kind: "renameQuestion" }>): QuestionRenameMeta;
+		(
+			mut: Extract<Mutation, { kind: "moveQuestion" }>,
+		): MoveQuestionResult | undefined;
+		(
+			mut: Extract<Mutation, { kind: "renameQuestion" }>,
+		): QuestionRenameMeta | undefined;
 		(mut: Mutation): void;
 	};
 	/** Apply a batch of mutations as one atomic undo entry. */
