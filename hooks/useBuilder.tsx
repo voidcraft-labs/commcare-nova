@@ -23,7 +23,6 @@ import {
 	type ReactNode,
 	useContext,
 	useEffect,
-	useMemo,
 	useState,
 } from "react";
 import { useStore } from "zustand";
@@ -34,6 +33,7 @@ import { ScrollRegistryProvider } from "@/components/builder/contexts/ScrollRegi
 import { LocationRecoveryEffect } from "@/components/builder/LocationRecoveryEffect";
 import { startSyncOldFromDoc } from "@/lib/doc/adapters/syncOldFromDoc";
 import { useAssembledForm as useAssembledFormDoc } from "@/lib/doc/hooks/useAssembledForm";
+import { useDocTreeData } from "@/lib/doc/hooks/useDocTreeData";
 import { useQuestion as useQuestionDoc } from "@/lib/doc/hooks/useEntity";
 import {
 	useOrderedForms as useOrderedFormsDoc,
@@ -46,8 +46,6 @@ import type { TreeData } from "@/lib/services/builder";
 import { BuilderPhase } from "@/lib/services/builder";
 import { BuilderEngine } from "@/lib/services/builderEngine";
 import {
-	deriveTreeData,
-	selectHasData,
 	selectInReplayMode,
 	selectIsReady,
 } from "@/lib/services/builderSelectors";
@@ -132,47 +130,27 @@ export function useBuilderIsReady(): boolean {
 	return useBuilderStore(selectIsReady);
 }
 
-/** True when entity data is populated (replaces `!!s.blueprint`). */
-export function useBuilderHasData(): boolean {
-	return useBuilderStore(selectHasData);
-}
+/** True when entity data is populated (replaces `!!s.blueprint`).
+ *  Delegates directly to the doc store — no legacy store dependency. */
+export { useDocHasData as useBuilderHasData } from "@/lib/doc/hooks/useDocHasData";
 
 /**
- * Merged tree data for AppTree rendering — derived from store state.
+ * Merged tree data for AppTree rendering — derived from doc store entities.
  *
- * Subscribes to entity maps and generation state via `useBuilderStoreShallow`,
- * then memoizes the derivation. Immer structural sharing ensures unchanged
- * maps keep the same reference, so the shallow-equality selector returns a
- * stable object when nothing changed — and `useMemo` skips recomputation.
+ * Thin wrapper around `useDocTreeData`: reads `phase` + `generationData`
+ * from the legacy builder store (these are lifecycle / generation-only
+ * fields that haven't migrated yet), then delegates to the doc hook
+ * which subscribes to entity maps directly on the BlueprintDoc store.
  *
- * During Ready/Completed phases, derives TreeData from normalized entities.
+ * During Ready/Completed phases, derives TreeData from doc entities.
  * During generation, constructs a merged view from scaffold + partials.
- *
- * This CANNOT use `useBuilderStore(deriveTreeData)` directly — `deriveTreeData`
- * builds new objects via `.map()` on every call, which fails `Object.is`
- * comparison and triggers an infinite re-render loop in useSyncExternalStore.
  */
 export function useBuilderTreeData(): TreeData | undefined {
-	/* Subscribe to the exact fields deriveTreeData reads. Shallow equality
-	 * compares each field by reference — only produces a new `data` object
-	 * when at least one entity map, ordering array, or scalar changes. */
-	const data = useBuilderStoreShallow((s) => ({
+	const inputs = useBuilderStoreShallow((s) => ({
 		phase: s.phase,
-		appName: s.appName,
-		connectType: s.connectType,
-		modules: s.modules,
-		forms: s.forms,
-		questions: s.questions,
-		moduleOrder: s.moduleOrder,
-		formOrder: s.formOrder,
-		questionOrder: s.questionOrder,
 		generationData: s.generationData,
 	}));
-
-	/* `data` is referentially stable when nothing changed (shallow equality
-	 * returned the previous result), so useMemo skips recomputation. When
-	 * any field changes, `data` gets a new reference → memo recomputes. */
-	return useMemo(() => deriveTreeData(data), [data]);
+	return useDocTreeData(inputs);
 }
 
 /** Whether the SA agent is currently active. */
