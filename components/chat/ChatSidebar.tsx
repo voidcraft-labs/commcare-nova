@@ -144,7 +144,6 @@ export function ChatSidebar({
 		[],
 	);
 
-	const [introMode, setIntroMode] = useState<"reasoning" | null>(null);
 	// Initialize from the controller's live state so remounts don't flash
 	// from 'SYS:IDLE' to the real label. On first mount the controller is
 	// in 'idle' mode, which matches the default anyway.
@@ -172,7 +171,6 @@ export function ChatSidebar({
 	// Gate reasoning/editing on `status === 'streaming'` so the send wave keeps looping
 	// during the 'submitted' wait period (server hasn't started responding yet).
 	const desiredMode = ((): SignalMode => {
-		if (introMode) return introMode;
 		// Generation errors — phase stays Generating, error is metadata
 		if (agentError) {
 			return agentError.severity === "recovering"
@@ -492,7 +490,7 @@ export function ChatSidebar({
 					{messages.length === 0 && !isLoading && (
 						<div className={centered ? "text-center" : "text-center py-8"}>
 							{centered ? (
-								<WelcomeIntro setIntroMode={setIntroMode} />
+								<WelcomeIntro gridController={gridController} />
 							) : (
 								<p className="text-sm text-nova-text-muted">
 									{isExistingApp
@@ -543,21 +541,33 @@ export function ChatSidebar({
 	);
 }
 
-/** Staggered welcome text with a coordinated burst on the signal grid. */
+/** Staggered welcome text with a coordinated burst on the signal grid.
+ *
+ * Drives the grid directly via `gridController.setMode` — no parent
+ * state override. The intro sets "reasoning" mode with tapering energy
+ * pulses, then transitions to "idle" after 3.5s. If the component
+ * unmounts early (user sends a message → generation starts → centered
+ * becomes false), cleanup stops the pulses and the grid's mode is
+ * immediately overridden by the generation-driven desiredMode in the
+ * parent. No stale state to clean up. */
 function WelcomeIntro({
-	setIntroMode,
+	gridController,
 }: {
-	setIntroMode: (mode: "reasoning" | null) => void;
+	gridController: SignalGridController;
 }) {
 	const [stage, setStage] = useState(0); // 0: nothing, 1: heading, 2: subtitle
 
 	useEffect(() => {
-		// Activate reasoning mode with a steady energy drip that tapers after subtitle
-		setIntroMode("reasoning");
+		/* Set reasoning mode on the controller directly. The parent's
+		 * desiredMode effect also calls setMode — whichever runs last
+		 * wins. During Idle phase, desiredMode is "idle", so this
+		 * "reasoning" call takes effect. Once generation starts, the
+		 * parent's desiredMode switches to "scaffolding"/"building"
+		 * and naturally overrides. */
+		gridController.setMode("reasoning");
 		const t0 = performance.now();
 		const pulse = setInterval(() => {
 			const elapsed = performance.now() - t0;
-			// After subtitle (2000ms), linearly taper from full -> 0 over the remaining 1500ms
 			const scale =
 				elapsed < 2000 ? 1 : Math.max(0, 1 - (elapsed - 2000) / 1500);
 			signalGrid.injectEnergy((10 + Math.random() * 20) * scale);
@@ -573,10 +583,9 @@ function WelcomeIntro({
 			signalGrid.injectEnergy(120);
 		}, 2000);
 
-		// Let the grid settle, then back to idle
 		const t3 = setTimeout(() => {
 			clearInterval(pulse);
-			setIntroMode(null);
+			gridController.setMode("idle");
 		}, 3500);
 
 		return () => {
@@ -585,7 +594,7 @@ function WelcomeIntro({
 			clearTimeout(t2);
 			clearTimeout(t3);
 		};
-	}, [setIntroMode]);
+	}, [gridController]);
 
 	return (
 		<>

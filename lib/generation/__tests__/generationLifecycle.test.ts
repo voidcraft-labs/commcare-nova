@@ -295,9 +295,10 @@ describe("generation lifecycle (end-to-end)", () => {
 			sessionStore,
 		);
 
-		assert(s().agentError);
-		expect(s().agentError.message).toBe("Rate limit exceeded");
-		expect(s().agentError.severity).toBe("failed");
+		const err = s().agentError;
+		assert(err);
+		expect(err.message).toBe("Rate limit exceeded");
+		expect(err.severity).toBe("failed");
 		// Still generating (agent is active, error is metadata)
 		expect(s().agentActive).toBe(true);
 		expect(phase(docStore, sessionStore)).toBe(BuilderPhase.Generating);
@@ -319,8 +320,9 @@ describe("generation lifecycle (end-to-end)", () => {
 			docStore,
 			sessionStore,
 		);
-		assert(s().agentError);
-		expect(s().agentError.severity).toBe("recovering");
+		const recErr = s().agentError;
+		assert(recErr);
+		expect(recErr.severity).toBe("recovering");
 
 		// Stage advance clears the error
 		emit("data-phase", { phase: "structure" }, docStore, sessionStore);
