@@ -1,19 +1,19 @@
 "use client";
 import type { UIMessage } from "ai";
 import { useCallback, useContext, useEffect, useRef } from "react";
-import { useBuilderStoreApi } from "@/hooks/useBuilder";
 import {
 	BlueprintDocContext,
 	type BlueprintDocStore,
 } from "@/lib/doc/provider";
 import type { EditScope } from "@/lib/services/builder";
-import type { BuilderStoreApi } from "@/lib/services/builderStore";
 import {
 	assembleQuestions as assembleQuestionsForGrid,
 	type NQuestion,
 } from "@/lib/services/normalizedState";
 import { type QuestionPath, qpathId } from "@/lib/services/questionPath";
 import { flatIndexById } from "@/lib/services/questionTree";
+import { useBuilderSessionApi } from "@/lib/session/provider";
+import type { BuilderSessionStoreApi } from "@/lib/session/store";
 import { computeEditFocus } from "@/lib/signalGrid/editFocus";
 import { signalGrid } from "@/lib/signalGrid/store";
 import type { SignalGridController } from "@/lib/signalGridController";
@@ -25,13 +25,13 @@ interface SignalGridProps {
 }
 
 export function SignalGrid({ controller, messages }: SignalGridProps) {
-	const storeApi = useBuilderStoreApi();
+	const sessionApi = useBuilderSessionApi();
 	const docStore = useContext(BlueprintDocContext);
 	/* Keep refs to both stores so the effect's closure always reads the
-	 * latest identity. `storeApi` is stable per buildId; `docStore` is
-	 * stable per BuilderProvider mount. */
-	const storeRef = useRef<BuilderStoreApi>(storeApi);
-	storeRef.current = storeApi;
+	 * latest identity. `sessionApi` is stable per BuilderProvider mount;
+	 * `docStore` is stable per BlueprintDocProvider mount. */
+	const sessionApiRef = useRef<BuilderSessionStoreApi>(sessionApi);
+	sessionApiRef.current = sessionApi;
 	const docStoreRef = useRef<BlueprintDocStore | null>(docStore);
 	docStoreRef.current = docStore;
 	/** Null on mount — the first effect records the baseline content length
@@ -123,7 +123,7 @@ export function SignalGrid({ controller, messages }: SignalGridProps) {
 		}
 		prevContentLenRef.current = contentLen;
 
-		const s = storeRef.current.getState();
+		const s = sessionApiRef.current.getState();
 		if (s.postBuildEdit && s.agentActive) {
 			/* computeEditFocus needs the blueprint's ordering maps to convert
 			 * scope indices into a 0–1 focus range; those maps live on the doc

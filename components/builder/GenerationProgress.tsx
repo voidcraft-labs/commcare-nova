@@ -1,8 +1,8 @@
 /**
  * GenerationProgress — self-subscribing progress card for app generation.
  *
- * Subscribes directly to generationStage, generationError, and statusMessage
- * from the Zustand store. No props needed — BuilderLayout just controls
+ * Subscribes directly to agentStage, agentError, and statusMessage from the
+ * session store via named hooks. No props needed — BuilderLayout just controls
  * mount/unmount visibility, this component owns its own data.
  */
 "use client";
@@ -10,13 +10,12 @@ import { Icon } from "@iconify/react/offline";
 import tablerCheck from "@iconify-icons/tabler/check";
 import { motion } from "motion/react";
 import { useCallback, useRef, useState } from "react";
-import { useBuilderStore } from "@/hooks/useBuilder";
-import { GenerationStage } from "@/lib/services/builder";
 import {
-	selectGenError,
-	selectGenStage,
-	selectStatusMsg,
-} from "@/lib/services/builderSelectors";
+	useAgentError,
+	useAgentStage,
+	useStatusMessage,
+} from "@/lib/session/hooks";
+import { GenerationStage } from "@/lib/session/types";
 
 /** Display stages — Modules+Forms are combined into "Build" */
 const baseStages: { key: string; stages: GenerationStage[]; label: string }[] =
@@ -88,9 +87,9 @@ function getStageIndex(
 }
 
 export function GenerationProgress() {
-	const stage = useBuilderStore(selectGenStage);
-	const generationError = useBuilderStore(selectGenError);
-	const statusMessage = useBuilderStore(selectStatusMsg);
+	const stage = useAgentStage();
+	const generationError = useAgentError();
+	const statusMessage = useStatusMessage();
 	const isError = generationError !== null;
 
 	// Track the last active stage so we can show which step failed on error

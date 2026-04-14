@@ -16,18 +16,18 @@ import { ChatMessage } from "@/components/chat/ChatMessage";
 import { SignalGrid } from "@/components/chat/SignalGrid";
 import { SignalPanel } from "@/components/chat/SignalPanel";
 import {
-	useBuilderPhase,
-	useBuilderStoreApi,
-	useBuilderStoreShallow,
-} from "@/hooks/useBuilder";
-import {
 	BlueprintDocContext,
 	type BlueprintDocStore,
 } from "@/lib/doc/provider";
-import { BuilderPhase, GenerationStage } from "@/lib/services/builder";
-import type { BuilderStoreApi } from "@/lib/services/builderStore";
+import { BuilderPhase } from "@/lib/services/builder";
 import { computeScaffoldProgress } from "@/lib/services/scaffoldProgress";
-import { useSetSidebarOpen } from "@/lib/session/hooks";
+import { useBuilderPhase, useSetSidebarOpen } from "@/lib/session/hooks";
+import {
+	useBuilderSessionApi,
+	useBuilderSessionShallow,
+} from "@/lib/session/provider";
+import type { BuilderSessionStoreApi } from "@/lib/session/store";
+import { GenerationStage } from "@/lib/session/types";
 import { signalGrid } from "@/lib/signalGrid/store";
 import {
 	defaultLabel,
@@ -41,21 +41,29 @@ export const CHAT_SIDEBAR_WIDTH = 320;
 
 /** Create a SignalGridController whose energy callbacks drain the module-level
  *  signalGrid nanostore. Scaffold progress is computed on each poll from the
- *  live legacy + doc store states — callers pass refs so the controller always
- *  reads the current instances even if the builder is remounted. Phase 4
- *  replaces this heuristic with a pure doc-store derivation. */
+ *  live session + doc store states — callers pass refs so the controller always
+ *  reads the current instances even if the builder is remounted. */
 function createGridController(
-	storeRef: { current: BuilderStoreApi },
+	sessionRef: { current: BuilderSessionStoreApi },
 	docStoreRef: { current: BlueprintDocStore | null },
 ): SignalGridController {
 	return new SignalGridController({
 		consumeEnergy: () => signalGrid.drainEnergy(),
 		consumeThinkEnergy: () => signalGrid.drainThinkEnergy(),
-		consumeScaffoldProgress: () =>
-			computeScaffoldProgress(
-				storeRef.current.getState(),
+		consumeScaffoldProgress: () => {
+			const s = sessionRef.current.getState();
+			return computeScaffoldProgress(
+				{
+					agentStage: s.agentStage,
+					partialScaffold: s.partialScaffold,
+					agentActive: s.agentActive,
+					postBuildEdit: s.postBuildEdit,
+					justCompleted: s.justCompleted,
+					loading: s.loading,
+				},
 				docStoreRef.current?.getState(),
-			),
+			);
+		},
 	});
 }
 
@@ -90,23 +98,18 @@ export function ChatSidebar({
 	isExistingApp,
 	children,
 }: ChatSidebarProps) {
-	const storeApi = useBuilderStoreApi();
+	const sessionApi = useBuilderSessionApi();
 	const docStore = useContext(BlueprintDocContext);
 	const phase = useBuilderPhase();
 	const setSidebarOpen = useSetSidebarOpen();
-	const {
-		generationError,
-		generationStage,
-		agentActive,
-		postBuildEdit,
-		statusMessage,
-	} = useBuilderStoreShallow((s) => ({
-		generationError: s.generationError,
-		generationStage: s.generationStage,
-		agentActive: s.agentActive,
-		postBuildEdit: s.postBuildEdit,
-		statusMessage: s.statusMessage,
-	}));
+	const { agentError, agentStage, agentActive, postBuildEdit, statusMessage } =
+		useBuilderSessionShallow((s) => ({
+			agentError: s.agentError,
+			agentStage: s.agentStage,
+			agentActive: s.agentActive,
+			postBuildEdit: s.postBuildEdit,
+			statusMessage: s.statusMessage,
+		}));
 	const isGenerating = phase === BuilderPhase.Generating;
 	const isLoading = status === "submitted" || status === "streaming";
 
@@ -117,16 +120,19 @@ export function ChatSidebar({
 	// animation loop and create a fresh one. Callbacks close over refs so
 	// they always read the latest store instances — safe across the
 	// teardown gap.
-	const storeRef = useRef(storeApi);
-	storeRef.current = storeApi;
+	const sessionApiRef = useRef(sessionApi);
+	sessionApiRef.current = sessionApi;
 	const docStoreRef = useRef(docStore);
 	docStoreRef.current = docStore;
-	const storeIdentityRef = useRef(storeApi);
+	const sessionIdentityRef = useRef(sessionApi);
 	const gridControllerRef = useRef<SignalGridController | null>(null);
-	if (storeApi !== storeIdentityRef.current || !gridControllerRef.current) {
+	if (sessionApi !== sessionIdentityRef.current || !gridControllerRef.current) {
 		gridControllerRef.current?.destroy();
-		storeIdentityRef.current = storeApi;
-		gridControllerRef.current = createGridController(storeRef, docStoreRef);
+		sessionIdentityRef.current = sessionApi;
+		gridControllerRef.current = createGridController(
+			sessionApiRef,
+			docStoreRef,
+		);
 	}
 	const gridController = gridControllerRef.current;
 
@@ -168,15 +174,15 @@ export function ChatSidebar({
 	const desiredMode = ((): SignalMode => {
 		if (introMode) return introMode;
 		// Generation errors — phase stays Generating, error is metadata
-		if (generationError) {
-			return generationError.severity === "recovering"
+		if (agentError) {
+			return agentError.severity === "recovering"
 				? "error-recovering"
 				: "error-fatal";
 		}
 		// Early generation stages get the scaffolding visual (tetris board)
 		if (
-			generationStage === GenerationStage.DataModel ||
-			generationStage === GenerationStage.Structure
+			agentStage === GenerationStage.DataModel ||
+			agentStage === GenerationStage.Structure
 		) {
 			return "scaffolding";
 		}
@@ -212,11 +218,11 @@ export function ChatSidebar({
 	useEffect(() => {
 		if (phase !== BuilderPhase.Completed) return;
 		const id = setTimeout(
-			() => storeApi.getState().acknowledgeCompletion(),
+			() => sessionApi.getState().acknowledgeCompletion(),
 			3500,
 		);
 		return () => clearTimeout(id);
-	}, [phase, storeApi]);
+	}, [phase, sessionApi]);
 
 	// Elapsed timer — resets when the controller's active label or mode changes.
 	// Label changes (e.g. "Building forms" → "Validating") reset the timer during
