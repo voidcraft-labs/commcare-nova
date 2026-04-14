@@ -655,6 +655,31 @@ describe("toDocMutations", () => {
 		});
 	});
 
+	describe("data-form-done (multi-module)", () => {
+		it("targets the correct module+form in a multi-module doc", () => {
+			const doc = buildDocWithTwoModules();
+			const moduleUuid = doc.moduleOrder[1];
+			const formUuid = doc.formOrder[moduleUuid][0];
+			const form: BlueprintForm = {
+				uuid: "ignored",
+				name: "Updated B",
+				type: "followup",
+				questions: [
+					{ uuid: "qb", id: "visit_date", type: "date", label: "Date" },
+				],
+			};
+			const mutations = toDocMutations(
+				"data-form-done",
+				{ moduleIndex: 1, formIndex: 0, form },
+				doc,
+			);
+			expect(mutations).toHaveLength(1);
+			const m = mutations[0];
+			assert(m.kind === "replaceForm");
+			expect(m.uuid).toBe(formUuid);
+		});
+	});
+
 	describe("data-form-fixed", () => {
 		it("produces identical results to data-form-done", () => {
 			const doc = buildDocWithOneModuleOneForm();

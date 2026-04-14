@@ -80,7 +80,8 @@ export function toDocMutations(
  * Expected payload: `{ caseTypes: CaseType[] }`
  */
 function mapSchema(data: Record<string, unknown>): Mutation[] {
-	const caseTypes = data.caseTypes as CaseType[];
+	const caseTypes = data.caseTypes as CaseType[] | undefined;
+	if (!caseTypes) return [];
 	return [{ kind: "setCaseTypes", caseTypes }];
 }
 
