@@ -124,12 +124,18 @@ export function useAutoSave(): SaveState {
 		 * Fire the actual Firestore PUT and transition status honestly:
 		 * saving → saved/error. Starts a cooldown timer after completion
 		 * so the trailing edge can fire if mutations arrived mid-flight.
+		 *
+		 * The `appId` is captured at save-start; every state transition
+		 * re-checks the current `appId` and bails if it has changed. This
+		 * prevents an in-flight save for app A from resolving after the
+		 * user switches to app B and marking the new app as "Saved" — or
+		 * marking it as "error" — for a save that didn't belong to it.
 		 */
 		async function executeSave() {
 			if (!docStore) return;
-			const pid = storeApi.getState().appId;
+			const appIdAtStart = storeApi.getState().appId;
 			const doc = docStore.getState();
-			if (!pid || doc.moduleOrder.length === 0) return;
+			if (!appIdAtStart || doc.moduleOrder.length === 0) return;
 
 			/* Assemble the wire-format blueprint for persistence. */
 			const bp = toBlueprint(doc);
@@ -139,13 +145,19 @@ export function useAutoSave(): SaveState {
 				setState((prev) => ({ ...prev, status: "saving" }));
 			}
 
+			/** True iff the current store still belongs to the app we
+			 *  started saving. If false, the user navigated to a different
+			 *  app while the request was in flight — discard the result. */
+			const stillCurrent = () =>
+				storeApi.getState().appId === appIdAtStart && !unmountedRef.current;
+
 			try {
-				const res = await fetch(`/api/apps/${pid}`, {
+				const res = await fetch(`/api/apps/${appIdAtStart}`, {
 					method: "PUT",
 					headers: { "Content-Type": "application/json" },
 					body: JSON.stringify({ blueprint: bp }),
 				});
-				if (unmountedRef.current) return;
+				if (!stillCurrent()) return;
 				if (res.ok) {
 					setState({ status: "saved", savedAt: Date.now() });
 				} else {
@@ -162,10 +174,12 @@ export function useAutoSave(): SaveState {
 						source: "manual",
 						url: window.location.href,
 					});
-					setState((prev) => ({ ...prev, status: "error" }));
+					if (stillCurrent()) {
+						setState((prev) => ({ ...prev, status: "error" }));
+					}
 				}
 			} catch (err) {
-				if (!unmountedRef.current) {
+				if (stillCurrent()) {
 					reportClientError({
 						message: `Auto-save network error: ${err instanceof Error ? err.message : String(err)}`,
 						stack: err instanceof Error ? err.stack : undefined,
@@ -176,6 +190,9 @@ export function useAutoSave(): SaveState {
 				}
 			} finally {
 				inFlightRef.current = false;
+				/* Cooldown is local to this hook instance; safe to start
+				 * even on a stale save because the next leading-edge call
+				 * still queues correctly via pendingTrailingRef. */
 				if (!unmountedRef.current) startCooldown();
 			}
 		}
