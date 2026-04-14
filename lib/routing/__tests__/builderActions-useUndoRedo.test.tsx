@@ -66,8 +66,6 @@ const findFieldElement = vi.fn<
 const scrollToQuestion = vi.fn();
 const flashUndoHighlight = vi.fn();
 const setFocusHint = vi.fn();
-const checkEditGuard = vi.fn(() => true);
-
 /*
  * `activeFieldId` is exposed via `useBuilderStore((s) => s.activeFieldId)`.
  * A module-scoped ref lets individual tests flip the value without
@@ -75,11 +73,17 @@ const checkEditGuard = vi.fn(() => true);
  */
 const activeFieldIdRef = { current: undefined as string | undefined };
 
+/* `useSelect` calls `useConsultEditGuard()` from EditGuardContext. Stub
+ * it to always allow selection so undo/redo tests focus on their own logic. */
+vi.mock("@/components/builder/contexts/EditGuardContext", () => ({
+	useConsultEditGuard: () => () => true,
+}));
+
 /*
  * Full stub of `@/hooks/useBuilder`. Every consumer goes through this
  * module, so mocking it here avoids dragging in the whole
- * BuilderEngine / BuilderStore stack just to get `checkEditGuard` and
- * `activeFieldId` answers.
+ * BuilderEngine / BuilderStore stack just to get engine imperative
+ * methods and `activeFieldId` answers.
  */
 vi.mock("@/hooks/useBuilder", () => ({
 	useBuilderEngine: () => ({
@@ -87,7 +91,6 @@ vi.mock("@/hooks/useBuilder", () => ({
 		scrollToQuestion,
 		flashUndoHighlight,
 		setFocusHint,
-		checkEditGuard,
 	}),
 	useBuilderStore: <T,>(
 		selector: (s: { activeFieldId: string | undefined }) => T,
@@ -171,8 +174,6 @@ describe("useUndoRedo", () => {
 		scrollToQuestion.mockReset();
 		flashUndoHighlight.mockReset();
 		setFocusHint.mockReset();
-		checkEditGuard.mockReset();
-		checkEditGuard.mockReturnValue(true);
 		activeFieldIdRef.current = undefined;
 		mockParams.current = new URLSearchParams();
 		routerReplace.mockReset();
