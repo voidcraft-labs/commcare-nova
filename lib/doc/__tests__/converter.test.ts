@@ -38,7 +38,7 @@ describe("toDoc", () => {
 		expect(toDoc(bp, APP_ID).connectType).toBe("learn");
 	});
 
-	it("generates UUIDs for modules and preserves moduleOrder", () => {
+	it("preserves module UUIDs and moduleOrder", () => {
 		const bp: AppBlueprint = {
 			app_name: "Two Modules",
 			connect_type: undefined,
@@ -168,6 +168,32 @@ describe("toDoc", () => {
 		expect(
 			(doc.questions[asUuid(groupUuid)] as { children?: unknown }).children,
 		).toBeUndefined();
+	});
+
+	it("throws when a module is missing its uuid", () => {
+		const bp = {
+			app_name: "App",
+			connect_type: undefined,
+			modules: [{ name: "Mod", forms: [] } as never],
+			case_types: null,
+		} as AppBlueprint;
+		expect(() => toDoc(bp, APP_ID)).toThrow(/uuid/i);
+	});
+
+	it("throws when a form is missing its uuid", () => {
+		const bp = {
+			app_name: "App",
+			connect_type: undefined,
+			modules: [
+				{
+					uuid: "module-5-uuid",
+					name: "Mod",
+					forms: [{ name: "F", type: "survey", questions: [] } as never],
+				},
+			],
+			case_types: null,
+		} as AppBlueprint;
+		expect(() => toDoc(bp, APP_ID)).toThrow(/uuid/i);
 	});
 
 	it("throws when a question is missing its uuid", () => {

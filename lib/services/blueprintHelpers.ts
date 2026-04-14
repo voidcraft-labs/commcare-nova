@@ -264,6 +264,7 @@ export function setScaffold(
 		modules: Array<{
 			name: string;
 			case_type?: string | null;
+			case_list_only?: boolean;
 			purpose?: string;
 			forms: Array<{
 				name: string;
@@ -286,6 +287,7 @@ export function setScaffold(
 		uuid: crypto.randomUUID(),
 		name: sm.name,
 		...(sm.case_type != null && { case_type: sm.case_type }),
+		...(sm.case_list_only && { case_list_only: sm.case_list_only }),
 		forms: sm.forms.map((sf) => ({
 			uuid: crypto.randomUUID(),
 			name: sf.name,
