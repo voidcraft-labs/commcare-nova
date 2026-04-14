@@ -24,7 +24,9 @@
 
 "use client";
 
-import { usePathname } from "next/navigation";
+/* No Next.js router imports — all navigation uses the browser History API
+ * directly via pushState/replaceState + notifyPathChange(). This avoids
+ * triggering Next.js server-side re-renders on intra-builder navigation. */
 import { useMemo, useRef } from "react";
 import { useConsultEditGuard } from "@/components/builder/contexts/EditGuardContext";
 import {
@@ -256,21 +258,26 @@ export function useBreadcrumbs(): BreadcrumbItem[] {
  * `this` context.
  */
 export function useNavigate(): NavigateActions {
-	const pathname = usePathname();
 	const loc = useLocation();
 
 	/* Capture current location in a ref so `up()` can read it without
-	 * including `loc` in useMemo deps (which would recreate every action
-	 * on every URL change, churning downstream memoization). */
+	 * including `loc` in useMemo deps. */
 	const locRef = useRef(loc);
 	locRef.current = loc;
 
+	/* basePath is `/build/{appId}` — stable for the builder's entire
+	 * lifetime. Captured once on first render via ref so the action bag
+	 * never invalidates on URL changes. Without this, `usePathname()`
+	 * would update on every pushState/replaceState call (Next.js patches
+	 * the History API), churning the memo and every downstream consumer. */
+	const basePathRef = useRef("");
+	if (basePathRef.current === "") {
+		const parts = window.location.pathname.split("/").filter(Boolean);
+		basePathRef.current = `/${parts.slice(0, 2).join("/")}`;
+	}
+
 	return useMemo(() => {
-		/* Extract the /build/{appId} base path from the pathname. The
-		 * pathname from Next.js includes the full path including catch-all
-		 * segments, so we take just the first two meaningful parts. */
-		const parts = pathname.split("/").filter(Boolean);
-		const basePath = `/${parts.slice(0, 2).join("/")}`;
+		const basePath = basePathRef.current;
 
 		/** Push a new location (history entry). Use for screen changes. */
 		const push = (next: Location, opts?: { replace?: boolean }): void => {
@@ -303,7 +310,8 @@ export function useNavigate(): NavigateActions {
 				if (parent) push(parent);
 			},
 		};
-	}, [pathname]);
+		// eslint-disable-next-line react-hooks/exhaustive-deps -- basePath is captured once via ref
+	}, []);
 }
 
 /**
@@ -350,28 +358,41 @@ export function parentLocation(loc: Location): Location | undefined {
  * — if the guard returns `false`, the selection change is blocked.
  */
 export function useSelect(): SelectAction {
-	const pathname = usePathname();
 	const consultGuard = useConsultEditGuard();
 	const loc = useLocation();
 
+	/* Ref for `loc` so the returned callback doesn't churn on every
+	 * selection change. The callback only needs the screen identity
+	 * (moduleUuid, formUuid) — not the selected question — and those
+	 * only change on screen navigation, not selection clicks. */
+	const locRef = useRef(loc);
+	locRef.current = loc;
+
+	/* basePath captured once — same pattern as useNavigate. */
+	const basePathRef = useRef("");
+	if (basePathRef.current === "") {
+		const parts = window.location.pathname.split("/").filter(Boolean);
+		basePathRef.current = `/${parts.slice(0, 2).join("/")}`;
+	}
+
 	return useMemo<SelectAction>(() => {
-		const parts = pathname.split("/").filter(Boolean);
-		const basePath = `/${parts.slice(0, 2).join("/")}`;
+		const basePath = basePathRef.current;
 
 		return (uuid: Uuid | undefined): void => {
 			/* Honor any guard registered by an inline editor with unsaved
 			 * invalid content. */
 			if (!consultGuard()) return;
-			if (loc.kind !== "form") return;
+			const current = locRef.current;
+			if (current.kind !== "form") return;
 			const next: Location = {
 				kind: "form",
-				moduleUuid: loc.moduleUuid,
-				formUuid: loc.formUuid,
+				moduleUuid: current.moduleUuid,
+				formUuid: current.formUuid,
 				selectedUuid: uuid,
 			};
 			const url = buildUrl(basePath, next);
 			window.history.replaceState(null, "", url);
 			notifyPathChange();
 		};
-	}, [pathname, consultGuard, loc]);
+	}, [consultGuard]);
 }
