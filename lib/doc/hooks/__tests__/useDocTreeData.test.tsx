@@ -204,6 +204,59 @@ describe("useDocTreeData", () => {
 		expect(tree!.modules[1].name).toBe("Mod 2");
 	});
 
+	it("uses generation branch even when doc has entities during Generating phase", () => {
+		/* The doc store has real modules mid-generation (after setScaffold dispatches
+		 * scaffoldToMutations). The phase guard `phase !== Generating` must direct
+		 * the hook to the generationData branch, NOT the doc entities. */
+		const { wrapper } = setupPopulated();
+		const generationData: GenerationData = {
+			scaffold: TEST_SCAFFOLD,
+			partialModules: {
+				0: {
+					caseListColumns: [{ field: "name", header: "Name" }],
+					forms: {},
+				},
+			},
+		};
+		const { result } = renderHook(
+			() =>
+				useDocTreeData({
+					phase: BuilderPhase.Generating,
+					generationData,
+				}),
+			{ wrapper },
+		);
+
+		const tree = result.current;
+		expect(tree).toBeDefined();
+		/* Should derive from scaffold+partials, not from the doc's populated entities */
+		expect(tree!.app_name).toBe("Scaffold App");
+		expect(tree!.modules).toHaveLength(2);
+	});
+
+	it("returns scaffold directly when no partials are populated", () => {
+		const { wrapper } = setupEmpty();
+		const generationData: GenerationData = {
+			scaffold: TEST_SCAFFOLD,
+			partialModules: {},
+		};
+		const { result } = renderHook(
+			() =>
+				useDocTreeData({
+					phase: BuilderPhase.Generating,
+					generationData,
+				}),
+			{ wrapper },
+		);
+
+		const tree = result.current;
+		expect(tree).toBeDefined();
+		expect(tree!.app_name).toBe("Scaffold App");
+		expect(tree!.modules).toHaveLength(2);
+		/* No merging — just the raw scaffold */
+		expect(tree!.modules[0].forms[0].questions).toBeUndefined();
+	});
+
 	it("returns merged scaffold+partials during generation", () => {
 		const { wrapper } = setupEmpty();
 		const generationData: GenerationData = {
