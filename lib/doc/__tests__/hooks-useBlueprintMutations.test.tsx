@@ -27,7 +27,7 @@
 import { act, renderHook } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { useContext } from "react";
-import { describe, expect, it } from "vitest";
+import { assert, describe, expect, it } from "vitest";
 import { useBlueprintDoc } from "@/lib/doc/hooks/useBlueprintDoc";
 import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
 import {
@@ -187,7 +187,8 @@ function useMutationsWithStore() {
  * by most tests as the `parentUuid` for question mutations.
  */
 function getFormUuid(store: BlueprintDocStore | null): Uuid {
-	const s = store!.getState();
+	if (!store) throw new Error("getFormUuid: store is null");
+	const s = store.getState();
 	const moduleUuid = s.moduleOrder[0];
 	return s.formOrder[moduleUuid][0];
 }
@@ -470,7 +471,8 @@ describe("useBlueprintMutations", () => {
 
 		let returned: Uuid = "" as Uuid;
 		act(() => {
-			const s = result.current.store!.getState();
+			const s = result.current.store?.getState();
+			assert(s);
 			const moduleUuid = s.moduleOrder[0];
 			returned = result.current.mutations.addForm(moduleUuid, {
 				uuid: "form-3-uuid",
@@ -481,8 +483,8 @@ describe("useBlueprintMutations", () => {
 		});
 
 		expect(returned).toMatch(/[0-9a-f-]/);
-		// Verify the form was actually added to the store.
-		const s = result.current.store!.getState();
+		const s = result.current.store?.getState();
+		assert(s);
 		expect(s.forms[returned]).toBeDefined();
 		expect(s.forms[returned].name).toBe("F2");
 	});
@@ -504,8 +506,8 @@ describe("useBlueprintMutations", () => {
 		});
 
 		expect(returned).toMatch(/[0-9a-f-]/);
-		// Verify the module was actually added to the store.
-		const s = result.current.store!.getState();
+		const s = result.current.store?.getState();
+		assert(s);
 		expect(s.modules[returned]).toBeDefined();
 		expect(s.modules[returned].name).toBe("M1");
 	});

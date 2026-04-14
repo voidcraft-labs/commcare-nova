@@ -15,7 +15,7 @@
 
 import { renderHook } from "@testing-library/react";
 import type { ReactNode } from "react";
-import { describe, expect, it } from "vitest";
+import { assert, describe, expect, it } from "vitest";
 import { useDocHasData } from "@/lib/doc/hooks/useDocHasData";
 import { useDocTreeData } from "@/lib/doc/hooks/useDocTreeData";
 import { BlueprintDocContext } from "@/lib/doc/provider";
@@ -153,11 +153,11 @@ describe("useDocTreeData", () => {
 		);
 
 		const tree = result.current;
-		expect(tree).toBeDefined();
-		expect(tree!.app_name).toBe("Tree Test App");
-		expect(tree!.modules).toHaveLength(1);
+		assert(tree);
+		expect(tree.app_name).toBe("Tree Test App");
+		expect(tree.modules).toHaveLength(1);
 
-		const mod = tree!.modules[0];
+		const mod = tree.modules[0];
 		expect(mod.name).toBe("Registration");
 		expect(mod.case_type).toBe("patient");
 		expect(mod.forms).toHaveLength(1);
@@ -165,9 +165,10 @@ describe("useDocTreeData", () => {
 		const form = mod.forms[0];
 		expect(form.name).toBe("Intake");
 		expect(form.type).toBe("registration");
+		assert(form.questions);
 		expect(form.questions).toHaveLength(2);
-		expect(form.questions![0].id).toBe("patient_name");
-		expect(form.questions![1].id).toBe("dob");
+		expect(form.questions[0].id).toBe("patient_name");
+		expect(form.questions[1].id).toBe("dob");
 	});
 
 	it("returns partialScaffold TreeData during generation with empty doc", () => {
@@ -199,11 +200,11 @@ describe("useDocTreeData", () => {
 		);
 
 		const tree = result.current;
-		expect(tree).toBeDefined();
-		expect(tree!.app_name).toBe("Streaming App");
-		expect(tree!.modules).toHaveLength(2);
-		expect(tree!.modules[0].name).toBe("Mod 1");
-		expect(tree!.modules[1].name).toBe("Mod 2");
+		assert(tree);
+		expect(tree.app_name).toBe("Streaming App");
+		expect(tree.modules).toHaveLength(2);
+		expect(tree.modules[0].name).toBe("Mod 1");
+		expect(tree.modules[1].name).toBe("Mod 2");
 	});
 
 	it("uses generation branch even when doc has entities during Generating phase", () => {
@@ -230,10 +231,9 @@ describe("useDocTreeData", () => {
 		);
 
 		const tree = result.current;
-		expect(tree).toBeDefined();
-		/* Should derive from scaffold+partials, not from the doc's populated entities */
-		expect(tree!.app_name).toBe("Scaffold App");
-		expect(tree!.modules).toHaveLength(2);
+		assert(tree);
+		expect(tree.app_name).toBe("Scaffold App");
+		expect(tree.modules).toHaveLength(2);
 	});
 
 	it("returns scaffold directly when no partials are populated", () => {
@@ -252,11 +252,10 @@ describe("useDocTreeData", () => {
 		);
 
 		const tree = result.current;
-		expect(tree).toBeDefined();
-		expect(tree!.app_name).toBe("Scaffold App");
-		expect(tree!.modules).toHaveLength(2);
-		/* No merging — just the raw scaffold */
-		expect(tree!.modules[0].forms[0].questions).toBeUndefined();
+		assert(tree);
+		expect(tree.app_name).toBe("Scaffold App");
+		expect(tree.modules).toHaveLength(2);
+		expect(tree.modules[0].forms[0].questions).toBeUndefined();
 	});
 
 	it("returns merged scaffold+partials during generation", () => {
@@ -294,24 +293,21 @@ describe("useDocTreeData", () => {
 		);
 
 		const tree = result.current;
-		expect(tree).toBeDefined();
-		expect(tree!.app_name).toBe("Scaffold App");
-		expect(tree!.modules).toHaveLength(2);
+		assert(tree);
+		expect(tree.app_name).toBe("Scaffold App");
+		expect(tree.modules).toHaveLength(2);
 
-		/* Module 0 has partial data merged in */
-		const mod0 = tree!.modules[0];
+		const mod0 = tree.modules[0];
 		expect(mod0.name).toBe("Module A");
 		expect(mod0.case_list_columns).toEqual([{ field: "name", header: "Name" }]);
-		/* Form A1 has assembled question content from the partial */
+		assert(mod0.forms[0].questions);
 		expect(mod0.forms[0].questions).toHaveLength(1);
-		expect(mod0.forms[0].questions![0].id).toBe("field_a");
-		/* Form A2 is still scaffold-only (no partial) — purpose preserved */
+		expect(mod0.forms[0].questions[0].id).toBe("field_a");
 		expect(mod0.forms[1].name).toBe("Form A2");
 		expect(mod0.forms[1].purpose).toBe("Follow up");
 		expect(mod0.forms[1].questions).toBeUndefined();
 
-		/* Module 1 has no partial — scaffold only */
-		const mod1 = tree!.modules[1];
+		const mod1 = tree.modules[1];
 		expect(mod1.name).toBe("Module B");
 		expect(mod1.forms[0].name).toBe("Form B1");
 	});
