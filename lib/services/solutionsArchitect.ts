@@ -159,6 +159,7 @@ export function createSolutionsArchitect(
 			strict: true,
 			onInputStart: () => {
 				ctx.emit("data-start-build", {});
+				ctx.emit("data-phase", { phase: "data-model" });
 			},
 			execute: async ({ appName, caseTypes }) => {
 				bpSetCaseTypes(bp, caseTypes);
