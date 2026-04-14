@@ -31,7 +31,6 @@ import type { BlueprintDoc } from "@/lib/doc/types";
 import { BuilderPhase } from "@/lib/services/builder";
 import { derivePhase } from "@/lib/session/hooks";
 import { BuilderSessionContext } from "@/lib/session/provider";
-import type { BuilderSessionStoreApi } from "@/lib/session/store";
 
 /** Post-save cooldown before the trailing edge can fire (ms). */
 const COOLDOWN_MS = 1000;
