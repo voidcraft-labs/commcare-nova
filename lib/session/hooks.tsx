@@ -222,6 +222,7 @@ interface DerivePhaseSession {
 	justCompleted?: boolean;
 	agentActive?: boolean;
 	postBuildEdit?: boolean;
+	agentStage?: GenerationStage | null;
 }
 
 /**
@@ -233,8 +234,11 @@ interface DerivePhaseSession {
  * - **Loading** — async setup in progress (initial app load, import).
  * - **Completed** — transient celebration after a successful build/edit;
  *   auto-decays to Ready when the signal grid animation settles.
- * - **Generating** — agent is streaming an initial build (NOT a post-build
- *   edit, which stays in Ready so the user can interact with the preview).
+ * - **Generating** — agent is streaming an initial build. Requires an
+ *   explicit generation stage (`agentStage !== null`) so that the brief
+ *   window between the chat status effect setting `agentActive` and the
+ *   first `data-start-build` event stays in Idle (the SA might be doing
+ *   askQuestions, not building). Post-build edits stay in Ready.
  * - **Ready** — a usable blueprint exists in the doc store.
  * - **Idle** — fresh builder with no data and no agent activity.
  *
@@ -246,7 +250,15 @@ export function derivePhase(
 ): BuilderPhase {
 	if (session.loading) return BuilderPhase.Loading;
 	if (session.justCompleted) return BuilderPhase.Completed;
-	if (session.agentActive && !session.postBuildEdit)
+	/* Generating requires all three: agent active, not a post-build edit,
+	 * AND an explicit generation stage. The stage is set by beginAgentWrite
+	 * or advanceStage — without it, the agent is still thinking/questioning
+	 * and the builder should stay in Idle (centered chat). */
+	if (
+		session.agentActive &&
+		!session.postBuildEdit &&
+		session.agentStage != null
+	)
 		return BuilderPhase.Generating;
 	if (docHasData) return BuilderPhase.Ready;
 	return BuilderPhase.Idle;
@@ -264,6 +276,7 @@ export function useBuilderPhase(): BuilderPhase {
 		justCompleted: s.justCompleted,
 		agentActive: s.agentActive,
 		postBuildEdit: s.postBuildEdit,
+		agentStage: s.agentStage,
 	}));
 	const docHasData = useBlueprintDoc((s) => s.moduleOrder.length > 0);
 	return derivePhase(session, docHasData);

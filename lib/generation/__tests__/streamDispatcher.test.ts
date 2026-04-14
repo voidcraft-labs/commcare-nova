@@ -302,10 +302,12 @@ describe("applyStreamEvent", () => {
 			expect(doc.appName).toBe("Test App");
 			expect(doc.moduleOrder).toHaveLength(1);
 
-			/* Session should be in post-generation state. */
+			/* Session should be in post-generation state. agentActive stays true —
+			 * the chat status effect clears it when status transitions to "ready",
+			 * which also stamps lastResponseAtRef for Anthropic cache warmth. */
 			const session = sessionStore.getState();
 			expect(session.justCompleted).toBe(true);
-			expect(session.agentActive).toBe(false);
+			expect(session.agentActive).toBe(true);
 
 			/* Doc undo tracking should be resumed — endAgentWrite on the session
 			 * store cascades to docStore.endAgentWrite() which resumes temporal. */
