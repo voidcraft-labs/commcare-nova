@@ -31,10 +31,12 @@ const TEST_BLUEPRINT: AppBlueprint = {
 	connect_type: undefined,
 	modules: [
 		{
+			uuid: "module-1-uuid",
 			name: "Registration",
 			case_type: "patient",
 			forms: [
 				{
+					uuid: "form-1-uuid",
 					name: "Intake",
 					type: "registration",
 					questions: [
@@ -266,6 +268,7 @@ describe("useDocTreeData", () => {
 					caseListColumns: [{ field: "name", header: "Name" }],
 					forms: {
 						0: {
+							uuid: "form-6-uuid",
 							name: "Form A1",
 							type: "registration",
 							questions: [

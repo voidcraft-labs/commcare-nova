@@ -279,10 +279,15 @@ export function setScaffold(
 	if (connectType === "learn" || connectType === "deliver") {
 		bp.connect_type = connectType;
 	}
+	/* Stamp uuids at the wire-format boundary so every module + form leaving
+	 * setScaffold has stable identity. Matches how `newQuestionToBlueprint`
+	 * mints question uuids on creation — see Task 4 of the Phase 3 plan. */
 	bp.modules = scaffold.modules.map((sm) => ({
+		uuid: crypto.randomUUID(),
 		name: sm.name,
 		...(sm.case_type != null && { case_type: sm.case_type }),
 		forms: sm.forms.map((sf) => ({
+			uuid: crypto.randomUUID(),
 			name: sf.name,
 			type: sf.type as FormType,
 			questions: [],
@@ -371,7 +376,10 @@ export function updateForm(
 	}
 }
 
-/** Replace a form entirely at the given index. */
+/** Replace a form entirely at the given index. The incoming form must
+ *  carry the same uuid as the form being replaced — replaceForm by its
+ *  nature means the caller already knows which form to swap, so a missing
+ *  uuid is a bug, not a legitimate mint site. */
 export function replaceForm(
 	bp: AppBlueprint,
 	mIdx: number,
@@ -382,18 +390,27 @@ export function replaceForm(
 	if (!mod) throw new Error(`Module ${mIdx} not found`);
 	if (fIdx < 0 || fIdx >= mod.forms.length)
 		throw new Error(`Form index ${fIdx} out of range`);
+	if (!form.uuid) {
+		throw new Error(
+			`replaceForm: incoming form "${form.name}" missing uuid — replaceForm cannot mint identity, callers must preserve the existing uuid`,
+		);
+	}
 	mod.forms[fIdx] = form;
 }
 
-/** Append a form to a module. */
+/** Append a form to a module. Stamps a uuid if the caller didn't provide
+ *  one — matches `newQuestionToBlueprint`'s producer-side mint pattern.
+ *  The plan calls this an assignment site, not a fallback: every form
+ *  leaving this helper has stable identity. Accepts a uuid-less form
+ *  shape for SA tools that build form literals on the fly. */
 export function addForm(
 	bp: AppBlueprint,
 	mIdx: number,
-	form: BlueprintForm,
+	form: Omit<BlueprintForm, "uuid"> & { uuid?: string },
 ): void {
 	const mod = bp.modules[mIdx];
 	if (!mod) throw new Error(`Module ${mIdx} not found`);
-	mod.forms.push(form);
+	mod.forms.push({ ...form, uuid: form.uuid ?? crypto.randomUUID() });
 }
 
 /** Remove a form from a module. */
@@ -405,9 +422,15 @@ export function removeForm(bp: AppBlueprint, mIdx: number, fIdx: number): void {
 	mod.forms.splice(fIdx, 1);
 }
 
-/** Append a module to the blueprint. */
-export function addModule(bp: AppBlueprint, module: BlueprintModule): void {
-	bp.modules.push(module);
+/** Append a module to the blueprint. Stamps a uuid if the caller didn't
+ *  provide one — same pattern as `addForm` and `newQuestionToBlueprint`.
+ *  Producer-side assignment, not a fallback. Accepts a uuid-less module
+ *  shape for SA tools that build module literals on the fly. */
+export function addModule(
+	bp: AppBlueprint,
+	module: Omit<BlueprintModule, "uuid"> & { uuid?: string },
+): void {
+	bp.modules.push({ ...module, uuid: module.uuid ?? crypto.randomUUID() });
 }
 
 /** Remove a module from the blueprint. */

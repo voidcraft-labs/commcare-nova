@@ -14,7 +14,6 @@ import { SA_MODEL, SA_REASONING } from "../models";
 import { buildSolutionsArchitectPrompt } from "../prompts/solutionsArchitectPrompt";
 import {
 	type AppBlueprint,
-	type BlueprintForm,
 	type ConnectConfig,
 	caseTypesOutputSchema,
 	FORM_TYPES,
@@ -814,7 +813,10 @@ export function createSolutionsArchitect(
 			}),
 			execute: async ({ moduleIndex, name, type, post_submit }) => {
 				try {
-					const form: BlueprintForm = {
+					/* `bpAddForm` mints the uuid at the wire-format boundary
+					 * (Phase 3 producer-side stamping). We pass the without-uuid
+					 * literal here. */
+					const form = {
 						name,
 						type,
 						questions: [],

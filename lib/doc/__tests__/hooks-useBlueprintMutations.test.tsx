@@ -55,9 +55,11 @@ const bp: AppBlueprint = {
 	case_types: null,
 	modules: [
 		{
+			uuid: "module-1-uuid",
 			name: "M0",
 			forms: [
 				{
+					uuid: "form-1-uuid",
 					name: "F0",
 					type: "survey",
 					questions: [
@@ -90,6 +92,7 @@ const bp: AppBlueprint = {
 					],
 				},
 				{
+					uuid: "form-2-uuid",
 					// Second form so moveQuestion / replaceForm can distinguish
 					// same-form from cross-form dispatches.
 					name: "F1",
@@ -435,6 +438,7 @@ describe("useBlueprintMutations", () => {
 		act(() => {
 			const formUuid = getFormUuid(result.current.store);
 			result.current.mutations.replaceForm(formUuid, {
+				uuid: "form-2-uuid",
 				name: "F0",
 				type: "survey",
 				questions: [
@@ -469,6 +473,7 @@ describe("useBlueprintMutations", () => {
 			const s = result.current.store!.getState();
 			const moduleUuid = s.moduleOrder[0];
 			returned = result.current.mutations.addForm(moduleUuid, {
+				uuid: "form-3-uuid",
 				name: "F2",
 				type: "survey",
 				questions: [],
@@ -491,7 +496,11 @@ describe("useBlueprintMutations", () => {
 
 		let returned: Uuid = "" as Uuid;
 		act(() => {
-			returned = result.current.mutations.addModule({ name: "M1", forms: [] });
+			returned = result.current.mutations.addModule({
+				uuid: "module-1-uuid",
+				name: "M1",
+				forms: [],
+			});
 		});
 
 		expect(returned).toMatch(/[0-9a-f-]/);
@@ -790,9 +799,11 @@ describe("useBlueprintMutations", () => {
 			case_types: null,
 			modules: [
 				{
+					uuid: "module-4-uuid",
 					name: "M",
 					forms: [
 						{
+							uuid: "form-3-uuid",
 							name: "F",
 							type: "survey",
 							questions: [
@@ -900,6 +911,7 @@ describe("useBlueprintMutations", () => {
 				});
 				result.current.mutations.removeForm(asUuid("bogus-uuid"));
 				result.current.mutations.replaceForm(asUuid("bogus-uuid"), {
+					uuid: "form-5-uuid",
 					name: "nope",
 					type: "survey",
 					questions: [],
@@ -909,6 +921,7 @@ describe("useBlueprintMutations", () => {
 				});
 				result.current.mutations.removeModule(asUuid("bogus-uuid"));
 				result.current.mutations.addForm(asUuid("bogus-module"), {
+					uuid: "form-6-uuid",
 					name: "nope",
 					type: "survey",
 					questions: [],

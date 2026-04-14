@@ -43,8 +43,8 @@ describe("toDoc", () => {
 			app_name: "Two Modules",
 			connect_type: undefined,
 			modules: [
-				{ name: "First", forms: [] },
-				{ name: "Second", forms: [] },
+				{ uuid: "module-1-uuid", name: "First", forms: [] },
+				{ uuid: "module-2-uuid", name: "Second", forms: [] },
 			],
 			case_types: null,
 		};
@@ -63,10 +63,21 @@ describe("toDoc", () => {
 			connect_type: undefined,
 			modules: [
 				{
+					uuid: "module-1-uuid",
 					name: "Mod",
 					forms: [
-						{ name: "Reg", type: "registration", questions: [] },
-						{ name: "Follow", type: "followup", questions: [] },
+						{
+							uuid: "form-3-uuid",
+							name: "Reg",
+							type: "registration",
+							questions: [],
+						},
+						{
+							uuid: "form-4-uuid",
+							name: "Follow",
+							type: "followup",
+							questions: [],
+						},
 					],
 				},
 			],
@@ -86,9 +97,11 @@ describe("toDoc", () => {
 			connect_type: undefined,
 			modules: [
 				{
+					uuid: "module-2-uuid",
 					name: "Mod",
 					forms: [
 						{
+							uuid: "form-1-uuid",
 							name: "F",
 							type: "survey",
 							questions: [
@@ -114,9 +127,11 @@ describe("toDoc", () => {
 			connect_type: undefined,
 			modules: [
 				{
+					uuid: "module-3-uuid",
 					name: "Mod",
 					forms: [
 						{
+							uuid: "form-2-uuid",
 							name: "F",
 							type: "survey",
 							questions: [
@@ -161,9 +176,11 @@ describe("toDoc", () => {
 			connect_type: undefined,
 			modules: [
 				{
+					uuid: "module-4-uuid",
 					name: "Mod",
 					forms: [
 						{
+							uuid: "form-3-uuid",
 							name: "F",
 							type: "survey",
 							// Cast to bypass the type-level uuid requirement — we want to
@@ -204,10 +221,12 @@ describe("toBlueprint", () => {
 			connect_type: "deliver",
 			modules: [
 				{
+					uuid: "module-5-uuid",
 					name: "Reg Mod",
 					case_type: "patient",
 					forms: [
 						{
+							uuid: "form-4-uuid",
 							name: "Register",
 							type: "registration",
 							questions: [

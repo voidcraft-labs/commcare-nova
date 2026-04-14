@@ -88,8 +88,13 @@ export interface NormalizedData {
 
 /**
  * Flatten an AppBlueprint into normalized entity maps + ordering arrays.
- * Generates UUIDs for modules and forms (questions already have UUIDs).
- * Called by `loadApp` and `completeGeneration`.
+ * Reads module and form UUIDs verbatim from the blueprint — every module +
+ * form must carry a uuid (mint sites are `bpAddModule`/`bpAddForm`/`bp
+ * SetScaffold` in `blueprintHelpers.ts`). Throws on missing uuids, matching
+ * the contract enforced by `toDoc` in `lib/doc/converter.ts`.
+ *
+ * Now used only by tests covering close_case → close_condition migration
+ * (`formBuilderAgent.test.ts`). Runtime ingestion goes through `toDoc`.
  */
 export function decomposeBlueprint(bp: AppBlueprint): NormalizedData {
 	const modules: Record<string, NModule> = {};
@@ -100,19 +105,29 @@ export function decomposeBlueprint(bp: AppBlueprint): NormalizedData {
 	const questionOrder: Record<string, string[]> = {};
 
 	for (const mod of bp.modules) {
-		const moduleId = crypto.randomUUID();
+		if (!mod.uuid) {
+			throw new Error(
+				`decomposeBlueprint: module "${mod.name}" missing uuid — run scripts/migrate-module-form-uuids.ts or re-create the app`,
+			);
+		}
+		const moduleId = mod.uuid;
 		moduleOrder.push(moduleId);
 
-		modules[moduleId] = decomposeModuleEntity(mod, moduleId);
+		modules[moduleId] = decomposeModuleEntity(mod);
 
 		const formIds: string[] = [];
 		formOrder[moduleId] = formIds;
 
 		for (const form of mod.forms) {
-			const formId = crypto.randomUUID();
+			if (!form.uuid) {
+				throw new Error(
+					`decomposeBlueprint: form "${form.name}" in module "${mod.name}" missing uuid — run scripts/migrate-module-form-uuids.ts or re-create the app`,
+				);
+			}
+			const formId = form.uuid;
 			formIds.push(formId);
 
-			forms[formId] = decomposeFormEntity(form, formId);
+			forms[formId] = decomposeFormEntity(form);
 			decomposeQuestions(form.questions, formId, questions, questionOrder);
 		}
 	}
@@ -130,28 +145,6 @@ export function decomposeBlueprint(bp: AppBlueprint): NormalizedData {
 	};
 }
 
-/**
- * Decompose a single BlueprintForm into an NForm entity + its questions.
- * Used during generation when individual forms arrive via `setFormContent`.
- * Returns the form entity and question entities/ordering for merging into the store.
- */
-export function decomposeForm(
-	form: BlueprintForm,
-	existingFormId: string,
-): {
-	nForm: NForm;
-	questions: Record<string, NQuestion>;
-	questionOrder: Record<string, string[]>;
-} {
-	const questions: Record<string, NQuestion> = {};
-	const questionOrder: Record<string, string[]> = {};
-
-	const nForm = decomposeFormEntity(form, existingFormId);
-	decomposeQuestions(form.questions, existingFormId, questions, questionOrder);
-
-	return { nForm, questions, questionOrder };
-}
-
 // ── Assemble (flat maps → tree) ──────────────────────────────────────
 
 /**
@@ -167,6 +160,7 @@ export function assembleModuleFields(
 	mod: NModule,
 ): Omit<BlueprintModule, "forms"> {
 	return {
+		uuid: mod.uuid,
 		name: mod.name,
 		...(mod.caseType != null && { case_type: mod.caseType }),
 		...(mod.caseListOnly && { case_list_only: mod.caseListOnly }),
@@ -189,6 +183,7 @@ export function assembleFormFields(
 	form: NForm,
 ): Omit<BlueprintForm, "questions"> {
 	return {
+		uuid: form.uuid,
 		name: form.name,
 		type: form.type,
 		...(form.closeCondition && { close_condition: form.closeCondition }),
@@ -421,13 +416,19 @@ export function removeQuestionDeep(
  * Maps wire-format snake_case fields (`case_type`, `case_list_columns`, etc.)
  * to camelCase entity fields. Mirrors the inline mapping in
  * `decomposeBlueprint` — extracted so `lib/doc/converter.ts` can share it.
+ *
+ * Reads `mod.uuid` verbatim. Throws if missing — mint sites are
+ * `bpAddModule`/`bpSetScaffold` in `blueprintHelpers.ts`, and legacy
+ * blueprints get migrated by `scripts/migrate-module-form-uuids.ts`.
  */
-export function decomposeModuleEntity(
-	mod: BlueprintModule,
-	moduleId: string,
-): NModule {
+export function decomposeModuleEntity(mod: BlueprintModule): NModule {
+	if (!mod.uuid) {
+		throw new Error(
+			`decomposeModuleEntity: module "${mod.name}" missing uuid — run scripts/migrate-module-form-uuids.ts or re-create the app`,
+		);
+	}
 	return {
-		uuid: moduleId,
+		uuid: mod.uuid,
 		name: mod.name,
 		caseType: mod.case_type ?? undefined,
 		caseListOnly: mod.case_list_only ?? undefined,
@@ -443,15 +444,22 @@ export function decomposeModuleEntity(
  * Exported so `lib/doc/converter.ts` can reuse the same snake→camel mapping
  * for its `FormEntity` type (structurally identical to `NForm`).
  *
+ * Reads `form.uuid` verbatim. Throws if missing — mint sites are
+ * `bpAddForm`/`bpReplaceForm`/`bpSetScaffold` in `blueprintHelpers.ts`,
+ * and legacy blueprints get migrated by `scripts/migrate-module-form-uuids.ts`.
+ *
  * Migration: old blueprints have `close_case` on followup forms. When present,
  * the form is promoted to type "close" and `close_case` is converted to
  * `closeCondition`. Unconditional close (empty close_case `{}`) maps to
  * closeCondition = undefined (the default for close forms).
  */
-export function decomposeFormEntity(
-	form: BlueprintForm,
-	formId: string,
-): NForm {
+export function decomposeFormEntity(form: BlueprintForm): NForm {
+	if (!form.uuid) {
+		throw new Error(
+			`decomposeFormEntity: form "${form.name}" missing uuid — run scripts/migrate-module-form-uuids.ts or re-create the app`,
+		);
+	}
+
 	let type: FormType = form.type;
 	let closeCondition:
 		| { question: string; answer: string; operator?: "=" | "selected" }
@@ -473,7 +481,7 @@ export function decomposeFormEntity(
 	}
 
 	return {
-		uuid: formId,
+		uuid: form.uuid,
 		name: form.name,
 		type,
 		purpose: undefined,

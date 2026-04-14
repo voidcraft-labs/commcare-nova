@@ -23,7 +23,7 @@
  */
 
 import { useContext, useMemo } from "react";
-import { toDoc } from "@/lib/doc/converter";
+import { flattenQuestions } from "@/lib/doc/converter";
 import type { MoveQuestionResult } from "@/lib/doc/mutations/questions";
 import { BlueprintDocContext } from "@/lib/doc/provider";
 import {
@@ -36,7 +36,6 @@ import {
 	type Uuid,
 } from "@/lib/doc/types";
 import type {
-	AppBlueprint,
 	BlueprintForm,
 	BlueprintModule,
 	CaseProperty,
@@ -44,6 +43,7 @@ import type {
 	ConnectType,
 	Question,
 } from "@/lib/schemas/blueprint";
+import { decomposeFormEntity } from "@/lib/services/normalizedState";
 import type { QuestionPath } from "@/lib/services/questionPath";
 
 /**
@@ -125,19 +125,32 @@ export interface BlueprintMutations {
 	duplicateQuestion: (uuid: Uuid) => DuplicateQuestionResult | undefined;
 
 	// ── Form mutations ────────────────────────────────────────────────────
-	/** Insert a new form into a module. Returns the new form's uuid. */
-	addForm: (moduleUuid: Uuid, form: BlueprintForm) => Uuid;
+	/** Insert a new form into a module. Returns the new form's uuid.
+	 *  Accepts a form without a uuid — the hook mints one for the new entity. */
+	addForm: (
+		moduleUuid: Uuid,
+		form: Omit<BlueprintForm, "uuid"> & { uuid?: string },
+	) => Uuid;
 	/**
 	 * Update fields on an existing form. Patches use camelCase field names
 	 * matching `FormEntity` (e.g. `closeCondition`, `postSubmit`).
 	 */
 	updateForm: (uuid: Uuid, patch: Partial<Omit<FormEntity, "uuid">>) => void;
 	removeForm: (uuid: Uuid) => void;
-	replaceForm: (uuid: Uuid, form: BlueprintForm) => void;
+	/** Replace a form's metadata + question subtree. The `form` argument's
+	 *  `uuid` field (if present) is ignored — the destination uuid is the
+	 *  first argument; nested questions keep their own uuids. */
+	replaceForm: (
+		uuid: Uuid,
+		form: Omit<BlueprintForm, "uuid"> & { uuid?: string },
+	) => void;
 
 	// ── Module mutations ──────────────────────────────────────────────────
-	/** Insert a new module. Returns the new module's uuid. */
-	addModule: (module: BlueprintModule) => Uuid;
+	/** Insert a new module. Returns the new module's uuid.
+	 *  Accepts a module without a uuid — the hook mints one for the new entity. */
+	addModule: (
+		module: Omit<BlueprintModule, "uuid"> & { uuid?: string },
+	) => Uuid;
 	updateModule: (
 		uuid: Uuid,
 		patch: Partial<Omit<ModuleEntity, "uuid">>,
@@ -560,41 +573,37 @@ export function useBlueprintMutations(): BlueprintMutations {
 			},
 
 			replaceForm(uuid, form) {
-				// Wholesale form swap. The reducer's `replaceForm` variant
-				// expects a form entity + pre-flattened question entities + a
-				// `questionOrder` map for the replacement subtree. Rather than
-				// reimplement the nested-to-flat walk here, we reuse `toDoc` on
-				// a minimal scratch blueprint wrapping the incoming form — the
-				// converter handles children, nested groups, and uuid minting.
+				/* Wholesale form swap. The reducer's `replaceForm` variant
+				 * expects a form entity + pre-flattened question entities + a
+				 * `questionOrder` map for the replacement subtree. We walk the
+				 * incoming nested form directly via `flattenQuestions` (the same
+				 * helper `toDoc` uses) and decompose the form's metadata fields
+				 * via `decomposeFormEntity`. The destination uuid is stamped
+				 * onto a copy of the incoming form so `decomposeFormEntity`'s
+				 * required-uuid contract is satisfied without mutating the
+				 * caller's reference. */
 				const doc = get();
 				if (!doc.forms[uuid]) {
 					warnUnresolved("replaceForm", { uuid });
 					return;
 				}
 
-				const bp: AppBlueprint = {
-					app_name: "",
-					connect_type: undefined,
-					case_types: null,
-					modules: [{ name: "__replace__", forms: [form] }],
-				};
-				const scratch = toDoc(bp, "");
-				const scratchModuleUuid = scratch.moduleOrder[0];
-				const scratchFormUuid = scratch.formOrder[scratchModuleUuid][0];
-				const scratchForm = scratch.forms[scratchFormUuid];
+				const formWithUuid: BlueprintForm = { ...form, uuid };
+				const nForm = decomposeFormEntity(formWithUuid);
+				const replacement = nForm as unknown as FormEntity;
 
-				// Carry the scratch form's fields but stamp the destination uuid.
-				const replacement: FormEntity = { ...scratchForm, uuid };
-				const questions = Object.values(scratch.questions) as QuestionEntity[];
-
-				// `questionOrder` is keyed by parent uuid. The scratch root slot
-				// is keyed by `scratchFormUuid`; we remap that single key to the
-				// destination `uuid`. Nested (group/repeat) slots are keyed by
-				// question uuids, which are preserved verbatim — no remap needed.
+				/* Flatten the nested question tree into doc shape. Top-level
+				 * questions are keyed under the destination form uuid; nested
+				 * group/repeat children are keyed under their parent question
+				 * uuid (handled recursively by flattenQuestions). */
+				const questionsMap: Record<Uuid, QuestionEntity> = {};
 				const questionOrder: Record<Uuid, Uuid[]> = {};
-				for (const [key, order] of Object.entries(scratch.questionOrder)) {
-					questionOrder[(key === scratchFormUuid ? uuid : key) as Uuid] = order;
-				}
+				questionOrder[uuid] = flattenQuestions(
+					form.questions ?? [],
+					questionsMap,
+					questionOrder,
+				);
+				const questions = Object.values(questionsMap);
 
 				dispatch({
 					kind: "replaceForm",

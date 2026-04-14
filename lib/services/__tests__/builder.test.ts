@@ -24,10 +24,12 @@ const INITIAL_BP: AppBlueprint = {
 	case_types: null,
 	modules: [
 		{
+			uuid: "module-1-uuid",
 			name: "Module A",
 			case_type: undefined,
 			forms: [
 				{
+					uuid: "form-1-uuid",
 					name: "Form A",
 					type: "survey",
 					questions: [
@@ -52,10 +54,12 @@ const EDITED_BP: AppBlueprint = {
 	case_types: null,
 	modules: [
 		{
+			uuid: "module-2-uuid",
 			name: "Module A Renamed",
 			case_type: undefined,
 			forms: [
 				{
+					uuid: "form-2-uuid",
 					name: "Form A",
 					type: "survey",
 					questions: [
@@ -76,6 +80,7 @@ const EDITED_BP: AppBlueprint = {
 			],
 		},
 		{
+			uuid: "module-3-uuid",
 			name: "Module B",
 			case_type: undefined,
 			forms: [],

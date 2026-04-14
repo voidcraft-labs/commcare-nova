@@ -32,9 +32,11 @@ describe("useSearchBlueprint", () => {
 			case_types: null,
 			modules: [
 				{
+					uuid: "module-1-uuid",
 					name: "Registration",
 					forms: [
 						{
+							uuid: "form-1-uuid",
 							name: "Intake",
 							type: "registration",
 							questions: [

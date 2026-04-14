@@ -9,10 +9,12 @@ const blueprint: AppBlueprint = {
 	app_name: "CHW App",
 	modules: [
 		{
+			uuid: "module-1-uuid",
 			name: "Patients",
 			case_type: "patient",
 			forms: [
 				{
+					uuid: "form-1-uuid",
 					name: "Register",
 					type: "registration",
 					questions: [
@@ -31,6 +33,7 @@ const blueprint: AppBlueprint = {
 					],
 				},
 				{
+					uuid: "form-2-uuid",
 					name: "Visit",
 					type: "followup",
 					questions: [

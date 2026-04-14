@@ -196,10 +196,21 @@ const CONNECT_FIXTURE: AppBlueprint = {
 	case_types: null,
 	modules: [
 		{
+			uuid: "module-1-uuid",
 			name: "Mod",
 			forms: [
-				{ name: "Form A", type: "registration", questions: [] },
-				{ name: "Form B", type: "followup", questions: [] },
+				{
+					uuid: "form-1-uuid",
+					name: "Form A",
+					type: "registration",
+					questions: [],
+				},
+				{
+					uuid: "form-2-uuid",
+					name: "Form B",
+					type: "followup",
+					questions: [],
+				},
 			],
 		},
 	],

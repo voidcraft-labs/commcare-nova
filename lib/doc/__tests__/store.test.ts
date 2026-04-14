@@ -15,7 +15,7 @@ describe("createBlueprintDocStore", () => {
 		const bp: AppBlueprint = {
 			app_name: "Loaded",
 			connect_type: undefined,
-			modules: [{ name: "Mod", forms: [] }],
+			modules: [{ uuid: "module-1-uuid", name: "Mod", forms: [] }],
 			case_types: null,
 		};
 		store.getState().load(bp, "app-1");
