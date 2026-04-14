@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { assert, describe, expect, it } from "vitest";
 import type { EditFocusData } from "@/lib/signalGrid/editFocus";
 import { computeEditFocus } from "@/lib/signalGrid/editFocus";
 
@@ -72,23 +72,23 @@ describe("computeEditFocus", () => {
 		/* 2 modules: m0 has 3+5=8 questions, m1 has 2 questions. Total=10. */
 		const data = fixture([[3, 5], [2]]);
 		const focus = computeEditFocus(data, { moduleIndex: 0 });
-		expect(focus).not.toBeNull();
+		assert(focus);
 
 		/* m0 spans questions 0-7 out of 10 → start=0, end=0.8.
 		 * 0.8 > MIN_EDIT_ZONE, so clamping doesn't widen. */
-		expect(focus!.start).toBeCloseTo(0, 5);
-		expect(focus!.end).toBeCloseTo(0.8, 5);
+		expect(focus.start).toBeCloseTo(0, 5);
+		expect(focus.end).toBeCloseTo(0.8, 5);
 	});
 
 	it("module-level scope for the second module", () => {
 		const data = fixture([[3, 5], [2]]);
 		const focus = computeEditFocus(data, { moduleIndex: 1 });
-		expect(focus).not.toBeNull();
+		assert(focus);
 
 		/* m1 spans questions 8-9 out of 10 → start=0.8, end=1.0.
 		 * width=0.2 > MIN_EDIT_ZONE(0.15), so no clamping. */
-		expect(focus!.start).toBeCloseTo(0.8, 5);
-		expect(focus!.end).toBeCloseTo(1.0, 5);
+		expect(focus.start).toBeCloseTo(0.8, 5);
+		expect(focus.end).toBeCloseTo(1.0, 5);
 	});
 
 	// ── Form-level scope ────────────────────────────────────────────────
@@ -97,12 +97,12 @@ describe("computeEditFocus", () => {
 		/* Module 0: form 0 has 3q, form 1 has 5q. Total=8. */
 		const data = fixture([[3, 5]]);
 		const focus = computeEditFocus(data, { moduleIndex: 0, formIndex: 1 });
-		expect(focus).not.toBeNull();
+		assert(focus);
 
 		/* Form 1 starts at q3, ends at q7 → start=3/8=0.375, end=8/8=1.0.
 		 * width=0.625 > MIN_EDIT_ZONE. */
-		expect(focus!.start).toBeCloseTo(0.375, 5);
-		expect(focus!.end).toBeCloseTo(1.0, 5);
+		expect(focus.start).toBeCloseTo(0.375, 5);
+		expect(focus.end).toBeCloseTo(1.0, 5);
 	});
 
 	// ── Question-level scope ────────────────────────────────────────────
@@ -115,13 +115,13 @@ describe("computeEditFocus", () => {
 			formIndex: 0,
 			questionIndex: 2,
 		});
-		expect(focus).not.toBeNull();
+		assert(focus);
 
 		/* qPos = (0 + 2) / 5 = 0.4.
 		 * halfZone = max(0.075, (5/5) * 0.3) = max(0.075, 0.3) = 0.3.
 		 * raw: [0.1, 0.7] → width=0.6 > MIN. */
-		expect(focus!.start).toBeCloseTo(0.1, 5);
-		expect(focus!.end).toBeCloseTo(0.7, 5);
+		expect(focus.start).toBeCloseTo(0.1, 5);
+		expect(focus.end).toBeCloseTo(0.7, 5);
 	});
 
 	it("question-level scope clamps to [0,1] when zone overflows left", () => {
@@ -132,12 +132,12 @@ describe("computeEditFocus", () => {
 			formIndex: 0,
 			questionIndex: 0,
 		});
-		expect(focus).not.toBeNull();
+		assert(focus);
 
 		/* qPos = 0 / 5 = 0. halfZone = 0.3. raw: [-0.3, 0.3].
 		 * After clamping start<0: start=0, end=0.6. */
-		expect(focus!.start).toBeCloseTo(0, 5);
-		expect(focus!.end).toBeCloseTo(0.6, 5);
+		expect(focus.start).toBeCloseTo(0, 5);
+		expect(focus.end).toBeCloseTo(0.6, 5);
 	});
 
 	it("question-level scope clamps to [0,1] when zone overflows right", () => {
@@ -148,12 +148,12 @@ describe("computeEditFocus", () => {
 			formIndex: 0,
 			questionIndex: 4,
 		});
-		expect(focus).not.toBeNull();
+		assert(focus);
 
 		/* qPos = 4 / 5 = 0.8. halfZone = 0.3. raw: [0.5, 1.1].
 		 * After clamping end>1: start=0.4, end=1. */
-		expect(focus!.start).toBeCloseTo(0.4, 5);
-		expect(focus!.end).toBeCloseTo(1.0, 5);
+		expect(focus.start).toBeCloseTo(0.4, 5);
+		expect(focus.end).toBeCloseTo(1.0, 5);
 	});
 
 	it("question index is clamped to the form's question count", () => {
@@ -180,10 +180,10 @@ describe("computeEditFocus", () => {
 		 * Should be widened to 0.15 centered at 0.005 → [0, 0.15] after left clamp. */
 		const data = fixture([[1], [99]]);
 		const focus = computeEditFocus(data, { moduleIndex: 0 });
-		expect(focus).not.toBeNull();
-		expect(focus!.end - focus!.start).toBeGreaterThanOrEqual(0.15 - 1e-10);
-		expect(focus!.start).toBeGreaterThanOrEqual(0);
-		expect(focus!.end).toBeLessThanOrEqual(1);
+		assert(focus);
+		expect(focus.end - focus.start).toBeGreaterThanOrEqual(0.15 - 1e-10);
+		expect(focus.start).toBeGreaterThanOrEqual(0);
+		expect(focus.end).toBeLessThanOrEqual(1);
 	});
 
 	// ── Nested questions (groups/repeats) ───────────────────────────────
@@ -200,11 +200,11 @@ describe("computeEditFocus", () => {
 			},
 		};
 		const focus = computeEditFocus(data, { moduleIndex: 0, formIndex: 0 });
-		expect(focus).not.toBeNull();
+		assert(focus);
 
 		/* Total = 2 (top-level) + 3 (group children) = 5.
 		 * Form spans [0, 5/5] = [0, 1]. Already full width. */
-		expect(focus!.start).toBeCloseTo(0, 5);
-		expect(focus!.end).toBeCloseTo(1.0, 5);
+		expect(focus.start).toBeCloseTo(0, 5);
+		expect(focus.end).toBeCloseTo(1.0, 5);
 	});
 });
