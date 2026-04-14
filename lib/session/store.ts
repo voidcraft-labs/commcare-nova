@@ -425,8 +425,16 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 					 * a fresh undo entry. Uses the doc store's public API. */
 					docStoreRef?.getState().endAgentWrite();
 
+					/* Do NOT clear `agentActive` here. The chat transport status
+					 * effect owns that lifecycle — it reads `wasActive` before
+					 * calling `setAgentActive(false)`, and uses the transition to
+					 * stamp `lastResponseAtRef` (Anthropic cache warmth signal).
+					 * Clearing agentActive here would race with the effect and
+					 * prevent the cache timestamp from being set.
+					 *
+					 * `justCompleted` takes priority in `derivePhase`, so setting
+					 * it to true moves phase to Completed regardless of agentActive. */
 					set({
-						agentActive: false,
 						justCompleted: true,
 						agentStage: null,
 						agentError: null,

@@ -452,7 +452,7 @@ describe("generation lifecycle", () => {
 		expect(s.statusMessage).toBe("");
 	});
 
-	it("endAgentWrite() resumes doc undo, sets justCompleted, clears transient state", () => {
+	it("endAgentWrite() resumes doc undo, sets justCompleted, keeps agentActive", () => {
 		const { session, doc } = createGenerationTestStores();
 
 		/* Begin a write, then end it. */
@@ -460,7 +460,9 @@ describe("generation lifecycle", () => {
 		session.getState().endAgentWrite();
 		const s = session.getState();
 
-		expect(s.agentActive).toBe(false);
+		/* agentActive is NOT cleared — the chat status effect owns that
+		 * lifecycle so it can read wasActive=true and stamp lastResponseAt. */
+		expect(s.agentActive).toBe(true);
 		expect(s.justCompleted).toBe(true);
 		expect(s.agentStage).toBeNull();
 		expect(s.agentError).toBeNull();

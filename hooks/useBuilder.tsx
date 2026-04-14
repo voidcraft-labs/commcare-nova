@@ -246,25 +246,13 @@ export function BuilderProvider({
 	 *  the provider so the first render sees populated entities. */
 	initialBlueprint?: AppBlueprint;
 }) {
-	/* `key` forces a full unmount/remount of the entire provider tree when
-	 * the build identity genuinely changes (`/build/A` → `/build/B`). Every
+	/* `key={buildId}` forces a full unmount/remount of the entire provider
+	 * tree when the build identity changes (`/build/A` → `/build/B`). Every
 	 * nested provider gets a fresh instance, so stale cross-store references
-	 * can't leak.
-	 *
-	 * The key is STABILIZED for the `new` → `{id}` transition: when a new
-	 * build finishes, `data-app-saved` does `replaceState` from `/build/new`
-	 * to `/build/{id}`. Next.js 16 picks this up as a soft navigation,
-	 * re-rendering the page with the new `params.id`. Without stabilization,
-	 * `key` changes from "new" to "{id}", remounting the entire tree —
-	 * destroying the Chat instance, losing messages, and flashing the UI.
-	 * By locking the key at mount time, the `new → id` URL update is
-	 * absorbed without a remount. Genuine app switches (`/build/A → /build/B`)
-	 * still remount because they go through the Next.js router which
-	 * unmounts the layout. */
-	const stableKeyRef = useRef(buildId);
+	 * can't leak across build sessions. */
 	return (
 		<BuilderProviderInner
-			key={stableKeyRef.current}
+			key={buildId}
 			buildId={buildId}
 			replay={replay}
 			initialBlueprint={initialBlueprint}
