@@ -17,7 +17,6 @@ import { DefaultChatTransport, type UIMessage } from "ai";
 import { useCallback, useContext, useEffect, useRef, useState } from "react";
 import { ChatSidebar } from "@/components/chat/ChatSidebar";
 import { Logo } from "@/components/ui/Logo";
-import { useBuilderStoreApi } from "@/hooks/useBuilder";
 import { parseApiErrorMessage } from "@/lib/apiError";
 import { extractThread } from "@/lib/chat/threadUtils";
 import { saveThread } from "@/lib/db/threads";
@@ -27,7 +26,6 @@ import {
 	type BlueprintDocStore,
 } from "@/lib/doc/provider";
 import { applyStreamEvent } from "@/lib/generation/streamDispatcher";
-import type { BuilderStoreApi } from "@/lib/services/builderStore";
 import { showToast } from "@/lib/services/toastStore";
 import {
 	BuilderSessionContext,
@@ -69,7 +67,6 @@ function shouldAutoResend({ messages }: { messages: UIMessage[] }): boolean {
  *  Closures capture refs (not direct values) so they always read the latest
  *  store references — safe across re-renders within the same app session. */
 function createChatInstance(
-	storeRef: { current: BuilderStoreApi },
 	docStoreRef: { current: BlueprintDocStore | null },
 	sessionStoreRef: { current: BuilderSessionStoreApi | null },
 	runIdRef: { current: string | undefined },
@@ -158,7 +155,6 @@ export function ChatContainer({
 	isExistingApp,
 	children,
 }: ChatContainerProps) {
-	const storeApi = useBuilderStoreApi();
 	const docStore = useContext(BlueprintDocContext);
 	const sessionApi = useContext(BuilderSessionContext);
 	const inReplayMode = useBuilderSession((s) => s.replay !== undefined);
@@ -169,8 +165,6 @@ export function ChatContainer({
 	);
 
 	// ── Stable refs so Chat callbacks always read the latest stores ──────
-	const storeRef = useRef(storeApi);
-	storeRef.current = storeApi;
 	const docStoreRef = useRef(docStore);
 	docStoreRef.current = docStore;
 	const sessionStoreRef = useRef(sessionApi);
@@ -180,11 +174,15 @@ export function ChatContainer({
 	 *  Anthropic prompt cache is still warm on subsequent requests. */
 	const lastResponseAtRef = useRef<string | undefined>(undefined);
 
-	// ── Chat instance — recreated when the store identity changes (new app) ─
-	const prevStoreRef = useRef(storeApi);
+	// ── Chat instance — recreated when the session store identity changes ──
+	/* The session store is recreated inside `BuilderSessionProvider` on every
+	 * buildId change (the parent `BuilderProvider` keys on buildId, unmounting
+	 * and remounting all children). Its reference is the canonical per-app
+	 * identity. Clear stale local state from the previous app: run ID and
+	 * the Chat instance. */
+	const prevSessionRef = useRef(sessionApi);
 	const [chat, setChat] = useState(() =>
 		createChatInstance(
-			storeRef,
 			docStoreRef,
 			sessionStoreRef,
 			runIdRef,
@@ -192,18 +190,12 @@ export function ChatContainer({
 		),
 	);
 
-	/* Detect legacy store identity change (new app via BuilderProvider).
-	 * The store is recreated inside `BuilderProvider`'s `setState` branch
-	 * on every buildId change, so its reference is the canonical per-app
-	 * identity. Clear stale local state from the previous app: run ID and
-	 * the Chat instance. */
-	if (storeApi !== prevStoreRef.current) {
-		prevStoreRef.current = storeApi;
+	if (sessionApi !== prevSessionRef.current) {
+		prevSessionRef.current = sessionApi;
 		runIdRef.current = undefined;
 		lastResponseAtRef.current = undefined;
 		setChat(
 			createChatInstance(
-				storeRef,
 				docStoreRef,
 				sessionStoreRef,
 				runIdRef,

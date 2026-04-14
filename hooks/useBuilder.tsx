@@ -58,7 +58,6 @@ import { applyStreamEvent } from "@/lib/generation/streamDispatcher";
 import { BuilderFormEngineProvider } from "@/lib/preview/engine/provider";
 import type { AppBlueprint, BlueprintForm } from "@/lib/schemas/blueprint";
 import type { TreeData } from "@/lib/services/builder";
-import { BuilderPhase } from "@/lib/services/builder";
 import {
 	type BuilderState,
 	type BuilderStoreApi,
@@ -286,10 +285,9 @@ function BuilderProviderInner({
 	/* Single creation per mount. Because `BuilderProvider` keys this
 	 * component on `buildId`, build-id changes remount and re-run this
 	 * initializer — no need for an in-render `setState` rebuild. */
-	/* The legacy store's phase field is vestigial — `derivePhase` in the
-	 * session store is now the source of truth. Always start at Idle; the
-	 * legacy store will be deleted in Phase 6. */
-	const [store] = useState(() => createBuilderStore(BuilderPhase.Idle));
+	/* The legacy store is a near-empty shell — its only purpose is providing
+	 * a stable per-build identity reference. Phase 6 deletes it entirely. */
+	const [store] = useState(() => createBuilderStore());
 
 	/* Pre-compute session store init so `derivePhase` returns the correct
 	 * phase on the very first render — `Loading` for existing apps and
