@@ -10,7 +10,9 @@
 "use client";
 
 import type { UIMessage } from "ai";
+import { useBlueprintDoc } from "@/lib/doc/hooks/useBlueprintDoc";
 import type { ConnectConfig, ConnectType } from "@/lib/schemas/blueprint";
+import { BuilderPhase } from "@/lib/services/builder";
 import { useBuilderSession, useBuilderSessionShallow } from "./provider";
 import type { SidebarKind } from "./store";
 import type {
@@ -209,4 +211,70 @@ const EMPTY_MESSAGES: UIMessage[] = [];
 export function useEditMode(): "edit" | "test" {
 	const mode = useCursorMode();
 	return mode === "pointer" ? "test" : "edit";
+}
+
+// ── Phase derivation ─────────────────────────────────────────────────────
+
+/** Session fields consumed by `derivePhase`. Kept minimal so callers
+ *  (including unit tests) don't need a full `BuilderSessionState`. */
+interface DerivePhaseSession {
+	loading?: boolean;
+	justCompleted?: boolean;
+	agentActive?: boolean;
+	postBuildEdit?: boolean;
+}
+
+/**
+ * Derive the builder lifecycle phase from session + doc state.
+ *
+ * Priority chain (highest wins):
+ *   Loading > Completed > Generating > Ready > Idle.
+ *
+ * - **Loading** — async setup in progress (initial app load, import).
+ * - **Completed** — transient celebration after a successful build/edit;
+ *   auto-decays to Ready when the signal grid animation settles.
+ * - **Generating** — agent is streaming an initial build (NOT a post-build
+ *   edit, which stays in Ready so the user can interact with the preview).
+ * - **Ready** — a usable blueprint exists in the doc store.
+ * - **Idle** — fresh builder with no data and no agent activity.
+ *
+ * Exported for unit testing — components use `useBuilderPhase()`.
+ */
+export function derivePhase(
+	session: DerivePhaseSession,
+	docHasData: boolean,
+): BuilderPhase {
+	if (session.loading) return BuilderPhase.Loading;
+	if (session.justCompleted) return BuilderPhase.Completed;
+	if (session.agentActive && !session.postBuildEdit)
+		return BuilderPhase.Generating;
+	if (docHasData) return BuilderPhase.Ready;
+	return BuilderPhase.Idle;
+}
+
+/**
+ * Reactive builder phase — derived from session lifecycle flags and
+ * whether the doc store has any modules. Replaces the legacy store's
+ * explicit `phase` field; will fully supersede `useBuilderPhase()` in
+ * `hooks/useBuilder.tsx` once T8/T10 completes the migration.
+ */
+export function useBuilderPhase(): BuilderPhase {
+	const session = useBuilderSessionShallow((s) => ({
+		loading: s.loading,
+		justCompleted: s.justCompleted,
+		agentActive: s.agentActive,
+		postBuildEdit: s.postBuildEdit,
+	}));
+	const docHasData = useBlueprintDoc((s) => s.moduleOrder.length > 0);
+	return derivePhase(session, docHasData);
+}
+
+/**
+ * Whether the builder has a usable blueprint — covers both `Ready` and
+ * the transient `Completed` celebration phase. Gate on this (not
+ * `phase === Ready`) when checking "has a usable blueprint".
+ */
+export function useBuilderIsReady(): boolean {
+	const phase = useBuilderPhase();
+	return phase === BuilderPhase.Ready || phase === BuilderPhase.Completed;
 }
