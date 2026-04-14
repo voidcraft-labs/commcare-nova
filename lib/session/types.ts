@@ -33,7 +33,7 @@ export type AgentError = { code: string; message: string };
  * visibility; `stashed` records whether we should reopen when leaving edit
  * mode. See `switchCursorMode` in Phase 3.
  */
-export type SidebarState = { open: boolean; stashed: boolean };
+export type SidebarState = { open: boolean; stashed: boolean | undefined };
 
 /**
  * The ephemeral builder session.
