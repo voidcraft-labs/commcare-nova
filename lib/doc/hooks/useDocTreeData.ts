@@ -6,51 +6,37 @@
  * translation into the `TreeData` shape that AppTree and other consumers
  * render.
  *
- * The hook accepts `phase` and `generationData` as parameters (not store
- * subscriptions) so it stays decoupled from the legacy builder store.
- * The caller (`useBuilderTreeData` in `hooks/useBuilder.tsx`) threads
- * those in from the legacy store.
- *
- * During the Ready/Completed phases, TreeData is derived entirely from
- * the doc store's normalized entities. During generation, the hook falls
- * through to `generationData` on the legacy store — scaffold, partial
- * scaffold, and partial modules are generation-only transient state that
- * never enters the doc.
+ * In the new model (Phase 4), scaffold modules are created as real doc
+ * mutations by the mutation mapper — so the doc IS the progressive
+ * generation state. Doc-based derivation works during BOTH generation
+ * and Ready phases. The only fallback is `partialScaffold` for the
+ * brief pre-scaffold window when the SA is streaming module/form names
+ * but the full Scaffold hasn't arrived yet.
  */
 
 import { useMemo } from "react";
 import type { Uuid } from "@/lib/doc/types";
-import type { Scaffold } from "@/lib/schemas/blueprint";
 import type { TreeData } from "@/lib/services/builder";
-import { BuilderPhase } from "@/lib/services/builder";
-import type {
-	GenerationData,
-	PartialModule,
-} from "@/lib/services/builderStore";
 import type { NQuestion } from "@/lib/services/normalizedState";
 import { assembleQuestions } from "@/lib/services/normalizedState";
+import type { PartialScaffoldData } from "@/lib/session/types";
 import { useBlueprintDocShallow } from "./useBlueprintDoc";
-
-/** Parameters threaded in by the caller — not subscribed to by this hook. */
-export interface DocTreeInputs {
-	phase: BuilderPhase;
-	generationData: GenerationData | undefined;
-}
 
 /**
  * Derive `TreeData` from the doc store's entity maps.
  *
- * Precedence (matches the old `deriveTreeData` exactly):
- * 1. Normalized entities (Ready/Completed) — camelCase doc → snake_case TreeData
- * 2. Scaffold + partials (during generation) — merged overlay
- * 3. Scaffold alone (Structure stage) — just names
- * 4. Partial scaffold (early Structure) — streaming
- * 5. Undefined — no data yet
+ * Precedence:
+ * 1. Doc entities (works during generation AND Ready/Completed) — camelCase → snake_case
+ * 2. Partial scaffold (early generation, before scaffold creates doc entities) — streaming names
+ * 3. Undefined — no data yet
+ *
+ * @param partialScaffold - Intermediate scaffold data streamed before the
+ *   full Scaffold arrives. Only used as a fallback when the doc has no
+ *   modules yet (the brief window before `setScaffold` creates doc entities).
  */
-export function useDocTreeData({
-	phase,
-	generationData,
-}: DocTreeInputs): TreeData | undefined {
+export function useDocTreeData(
+	partialScaffold?: PartialScaffoldData,
+): TreeData | undefined {
 	/* Subscribe to exactly the doc fields the derivation reads. Shallow
 	 * equality compares each field by reference — only produces a new `doc`
 	 * object when at least one entity map, ordering array, or scalar changes. */
@@ -66,10 +52,11 @@ export function useDocTreeData({
 	}));
 
 	return useMemo(() => {
-		/* Ready/Completed: derive from normalized doc entities.
-		 * The doc uses branded Uuid keys and camelCase fields; TreeData uses
-		 * snake_case. The translation mirrors the old deriveTreeData exactly. */
-		if (doc.moduleOrder.length > 0 && phase !== BuilderPhase.Generating) {
+		/* Doc has modules → derive from normalized entities. This works during
+		 * BOTH generation (scaffold modules are doc entities via mutation mapper)
+		 * and Ready/Completed phases. The doc uses branded Uuid keys and camelCase
+		 * fields; TreeData uses snake_case. */
+		if (doc.moduleOrder.length > 0) {
 			return {
 				app_name: doc.appName,
 				connect_type: doc.connectType ?? undefined,
@@ -105,72 +92,16 @@ export function useDocTreeData({
 			};
 		}
 
-		/* Generation phase: use generationData (legacy store) — identical to
-		 * the old deriveTreeData. Generation-time transient state (scaffold,
-		 * partial scaffold, partial modules) never enters the doc store. */
-		if (!generationData) return undefined;
-
-		if (
-			generationData.scaffold &&
-			Object.keys(generationData.partialModules).length > 0
-		) {
-			return mergeScaffoldWithPartials(
-				generationData.scaffold,
-				generationData.partialModules,
-			);
-		}
-
-		if (generationData.scaffold) return generationData.scaffold;
-
-		if (
-			generationData.partialScaffold &&
-			generationData.partialScaffold.modules.length > 0
-		) {
+		/* Fallback: partial scaffold during early generation — the SA is
+		 * streaming module/form names but the full Scaffold hasn't arrived
+		 * yet, so no doc entities exist. */
+		if (partialScaffold?.modules.length) {
 			return {
-				app_name: generationData.partialScaffold.appName ?? "",
-				modules: generationData.partialScaffold.modules,
+				app_name: partialScaffold.appName ?? "",
+				modules: partialScaffold.modules,
 			};
 		}
 
 		return undefined;
-	}, [doc, phase, generationData]);
-}
-
-// ── Internal helpers ────────────────────────────────────────────────────
-
-/**
- * Merge a complete scaffold with partial module data during generation.
- * Creates a TreeData view that overlays received form content onto the
- * scaffold skeleton. Moved from builderSelectors.ts — only used here.
- */
-function mergeScaffoldWithPartials(
-	scaffold: Scaffold,
-	partialModules: Record<number, PartialModule>,
-): TreeData {
-	return {
-		app_name: scaffold.app_name,
-		modules: scaffold.modules.map((sm, mIdx) => {
-			const partial = partialModules[mIdx];
-			return {
-				name: sm.name,
-				case_type: sm.case_type,
-				purpose: sm.purpose,
-				case_list_columns:
-					partial?.caseListColumns !== undefined
-						? partial.caseListColumns
-						: undefined,
-				forms: sm.forms.map((sf, fIdx) => {
-					const assembledForm = partial?.forms[fIdx];
-					if (assembledForm) {
-						return { ...assembledForm, purpose: sf.purpose };
-					}
-					return {
-						name: sf.name,
-						type: sf.type,
-						purpose: sf.purpose,
-					};
-				}),
-			};
-		}),
-	};
+	}, [doc, partialScaffold]);
 }
