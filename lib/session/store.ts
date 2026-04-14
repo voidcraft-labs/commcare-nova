@@ -400,6 +400,7 @@ export function createBuilderSessionStore() {
 						statusMessage: stage ? STAGE_LABELS[stage] : "",
 						agentError: null,
 						justCompleted: false,
+						partialScaffold: undefined,
 					});
 				},
 
