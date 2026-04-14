@@ -13,8 +13,6 @@
  */
 
 import type { UIMessage } from "ai";
-import type { Uuid } from "@/lib/doc/types";
-import type { ConnectConfig, ConnectType } from "@/lib/schemas/blueprint";
 
 // ── Interaction primitives ───────────────────────────────────────────────
 
@@ -100,50 +98,6 @@ export interface ReplayData {
 	messages: UIMessage[];
 }
 
-// ── Composite session shape ──────────────────────────────────────────────
-
-/**
- * The ephemeral builder session.
- *
- * Field layout mirrors the spec exactly: flat agent fields (not nested
- * under an `agent:` object) so that selector hooks can subscribe to
- * `agentActive` without pulling the full agent payload on every render.
- *
- * Keys grouped by concern:
- *   - Generation lifecycle (`agent*`, `postBuildEdit`, `justCompleted`,
- *     `loading`, `appId`, `partialScaffold`) for build state.
- *   - Interaction (`cursorMode`, `activeFieldId`) for how the user is editing.
- *   - Chrome (`sidebars`) for layout.
- *   - Connect stash (`connectStash`, `lastConnectType`) for learn↔deliver
- *     toggle preservation within a session.
- *   - Replay (`replay`) for build replay playback.
- */
-export type BuilderSession = {
-	/* Generation lifecycle */
-	agentActive: boolean;
-	agentStage: GenerationStage | null;
-	agentError: GenerationError;
-	statusMessage: string;
-	postBuildEdit: boolean;
-	justCompleted: boolean;
-	loading: boolean;
-	appId: string | undefined;
-	partialScaffold: PartialScaffoldData | undefined;
-
-	/* Interaction */
-	cursorMode: CursorMode;
-	activeFieldId?: Uuid;
-
-	/* Chrome */
-	sidebars: {
-		chat: SidebarState;
-		structure: SidebarState;
-	};
-
-	/* Connect stash */
-	connectStash: Record<ConnectType, Record<Uuid, ConnectConfig>>;
-	lastConnectType?: ConnectType;
-
-	/* Replay */
-	replay: ReplayData | undefined;
-};
+/* The canonical session state type is `BuilderSessionState` in `store.ts`.
+ * It includes both fields and actions. The types above are shared between
+ * the store, hooks, and consumers. */
