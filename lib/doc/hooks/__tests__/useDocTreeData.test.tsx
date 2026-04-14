@@ -3,14 +3,15 @@
 /**
  * Tests for useDocTreeData and useDocHasData.
  *
- * Exercises four scenarios matching the old deriveTreeData precedence:
- * 1. Empty doc, Idle phase → undefined
- * 2. Populated doc, Ready phase → full TreeData with modules/forms/questions
- * 3. Empty doc, Generating phase, partialScaffold → TreeData with module stubs
- * 4. Populated doc, Generating phase, scaffold + partialModules → merged view
+ * Exercises four scenarios matching the simplified precedence:
+ * 1. Empty doc, no partialScaffold → undefined
+ * 2. Populated doc → full TreeData with modules/forms/questions
+ * 3. Empty doc with partialScaffold → TreeData with module stubs
+ * 4. Populated doc (during generation) → derives from doc (no phase check)
  *
- * The doc store is set up via `createBlueprintDocStore().load()` — same
- * pattern as the existing `lib/doc/__tests__/hooks.test.tsx`.
+ * In the Phase 4 model, scaffold modules are doc entities created by the
+ * mutation mapper — so the doc derivation works at ALL phases. The only
+ * fallback is `partialScaffold` for the brief pre-scaffold window.
  */
 
 import { renderHook } from "@testing-library/react";
@@ -20,9 +21,8 @@ import { useDocHasData } from "@/lib/doc/hooks/useDocHasData";
 import { useDocTreeData } from "@/lib/doc/hooks/useDocTreeData";
 import { BlueprintDocContext } from "@/lib/doc/provider";
 import { createBlueprintDocStore } from "@/lib/doc/store";
-import type { AppBlueprint, Scaffold } from "@/lib/schemas/blueprint";
-import { BuilderPhase } from "@/lib/services/builder";
-import type { GenerationData } from "@/lib/services/builderStore";
+import type { AppBlueprint } from "@/lib/schemas/blueprint";
+import type { PartialScaffoldData } from "@/lib/session/types";
 
 // ── Fixtures ────────────────────────────────────────────────────────────
 
@@ -60,44 +60,17 @@ const TEST_BLUEPRINT: AppBlueprint = {
 	case_types: null,
 };
 
-const TEST_SCAFFOLD: Scaffold = {
-	app_name: "Scaffold App",
-	description: "Test scaffold",
-	connect_type: "",
+const TEST_PARTIAL_SCAFFOLD: PartialScaffoldData = {
+	appName: "Streaming App",
 	modules: [
 		{
-			name: "Module A",
-			case_type: "case_a",
-			case_list_only: false,
-			purpose: "Module A purpose",
-			forms: [
-				{
-					name: "Form A1",
-					type: "registration",
-					purpose: "Register",
-					formDesign: "basic intake",
-				},
-				{
-					name: "Form A2",
-					type: "followup",
-					purpose: "Follow up",
-					formDesign: "followup design",
-				},
-			],
+			name: "Mod 1",
+			case_type: "type_1",
+			forms: [{ name: "F1", type: "registration" }],
 		},
 		{
-			name: "Module B",
-			case_type: "case_b",
-			case_list_only: false,
-			purpose: "Module B purpose",
-			forms: [
-				{
-					name: "Form B1",
-					type: "registration",
-					purpose: "Register B",
-					formDesign: "register B",
-				},
-			],
+			name: "Mod 2",
+			forms: [{ name: "F2", type: "followup" }],
 		},
 	],
 };
@@ -128,29 +101,15 @@ function setupPopulated() {
 // ── useDocTreeData ──────────────────────────────────────────────────────
 
 describe("useDocTreeData", () => {
-	it("returns undefined when doc is empty and phase is Idle", () => {
+	it("returns undefined when doc is empty and no partialScaffold", () => {
 		const { wrapper } = setupEmpty();
-		const { result } = renderHook(
-			() =>
-				useDocTreeData({
-					phase: BuilderPhase.Idle,
-					generationData: undefined,
-				}),
-			{ wrapper },
-		);
+		const { result } = renderHook(() => useDocTreeData(), { wrapper });
 		expect(result.current).toBeUndefined();
 	});
 
-	it("derives full TreeData from populated doc in Ready phase", () => {
+	it("derives full TreeData from populated doc", () => {
 		const { wrapper } = setupPopulated();
-		const { result } = renderHook(
-			() =>
-				useDocTreeData({
-					phase: BuilderPhase.Ready,
-					generationData: undefined,
-				}),
-			{ wrapper },
-		);
+		const { result } = renderHook(() => useDocTreeData(), { wrapper });
 
 		const tree = result.current;
 		assert(tree);
@@ -171,145 +130,45 @@ describe("useDocTreeData", () => {
 		expect(form.questions[1].id).toBe("dob");
 	});
 
-	it("returns partialScaffold TreeData during generation with empty doc", () => {
+	it("returns partialScaffold TreeData when doc is empty", () => {
 		const { wrapper } = setupEmpty();
-		const generationData: GenerationData = {
-			partialScaffold: {
-				appName: "Streaming App",
-				modules: [
-					{
-						name: "Mod 1",
-						case_type: "type_1",
-						forms: [{ name: "F1", type: "registration" }],
-					},
-					{
-						name: "Mod 2",
-						forms: [{ name: "F2", type: "followup" }],
-					},
-				],
-			},
-			partialModules: {},
-		};
-		const { result } = renderHook(
-			() =>
-				useDocTreeData({
-					phase: BuilderPhase.Generating,
-					generationData,
-				}),
-			{ wrapper },
-		);
+		const { result } = renderHook(() => useDocTreeData(TEST_PARTIAL_SCAFFOLD), {
+			wrapper,
+		});
 
 		const tree = result.current;
 		assert(tree);
 		expect(tree.app_name).toBe("Streaming App");
 		expect(tree.modules).toHaveLength(2);
 		expect(tree.modules[0].name).toBe("Mod 1");
+		expect(tree.modules[0].case_type).toBe("type_1");
 		expect(tree.modules[1].name).toBe("Mod 2");
 	});
 
-	it("uses generation branch even when doc has entities during Generating phase", () => {
-		/* The doc store has real modules mid-generation (after setScaffold dispatches
-		 * scaffoldToMutations). The phase guard `phase !== Generating` must direct
-		 * the hook to the generationData branch, NOT the doc entities. */
+	it("derives from doc even when partialScaffold is provided (doc wins)", () => {
+		/* When the doc has modules, the doc derivation takes precedence over
+		 * partialScaffold. This happens during generation after setScaffold
+		 * creates doc entities — the partial is stale at that point. */
 		const { wrapper } = setupPopulated();
-		const generationData: GenerationData = {
-			scaffold: TEST_SCAFFOLD,
-			partialModules: {
-				0: {
-					caseListColumns: [{ field: "name", header: "Name" }],
-					forms: {},
-				},
-			},
-		};
-		const { result } = renderHook(
-			() =>
-				useDocTreeData({
-					phase: BuilderPhase.Generating,
-					generationData,
-				}),
-			{ wrapper },
-		);
+		const { result } = renderHook(() => useDocTreeData(TEST_PARTIAL_SCAFFOLD), {
+			wrapper,
+		});
 
 		const tree = result.current;
 		assert(tree);
-		expect(tree.app_name).toBe("Scaffold App");
-		expect(tree.modules).toHaveLength(2);
+		/* Doc data wins, not partial scaffold data. */
+		expect(tree.app_name).toBe("Tree Test App");
+		expect(tree.modules).toHaveLength(1);
+		expect(tree.modules[0].name).toBe("Registration");
 	});
 
-	it("returns scaffold directly when no partials are populated", () => {
+	it("returns undefined when partialScaffold has empty modules array", () => {
 		const { wrapper } = setupEmpty();
-		const generationData: GenerationData = {
-			scaffold: TEST_SCAFFOLD,
-			partialModules: {},
-		};
-		const { result } = renderHook(
-			() =>
-				useDocTreeData({
-					phase: BuilderPhase.Generating,
-					generationData,
-				}),
-			{ wrapper },
-		);
-
-		const tree = result.current;
-		assert(tree);
-		expect(tree.app_name).toBe("Scaffold App");
-		expect(tree.modules).toHaveLength(2);
-		expect(tree.modules[0].forms[0].questions).toBeUndefined();
-	});
-
-	it("returns merged scaffold+partials during generation", () => {
-		const { wrapper } = setupEmpty();
-		const generationData: GenerationData = {
-			scaffold: TEST_SCAFFOLD,
-			partialModules: {
-				0: {
-					caseListColumns: [{ field: "name", header: "Name" }],
-					forms: {
-						0: {
-							uuid: "form-6-uuid",
-							name: "Form A1",
-							type: "registration",
-							questions: [
-								{
-									uuid: "q-merge-0001",
-									id: "field_a",
-									type: "text",
-									label: "Field A",
-								},
-							],
-						},
-					},
-				},
-			},
-		};
-		const { result } = renderHook(
-			() =>
-				useDocTreeData({
-					phase: BuilderPhase.Generating,
-					generationData,
-				}),
-			{ wrapper },
-		);
-
-		const tree = result.current;
-		assert(tree);
-		expect(tree.app_name).toBe("Scaffold App");
-		expect(tree.modules).toHaveLength(2);
-
-		const mod0 = tree.modules[0];
-		expect(mod0.name).toBe("Module A");
-		expect(mod0.case_list_columns).toEqual([{ field: "name", header: "Name" }]);
-		assert(mod0.forms[0].questions);
-		expect(mod0.forms[0].questions).toHaveLength(1);
-		expect(mod0.forms[0].questions[0].id).toBe("field_a");
-		expect(mod0.forms[1].name).toBe("Form A2");
-		expect(mod0.forms[1].purpose).toBe("Follow up");
-		expect(mod0.forms[1].questions).toBeUndefined();
-
-		const mod1 = tree.modules[1];
-		expect(mod1.name).toBe("Module B");
-		expect(mod1.forms[0].name).toBe("Form B1");
+		const emptyPartial: PartialScaffoldData = { modules: [] };
+		const { result } = renderHook(() => useDocTreeData(emptyPartial), {
+			wrapper,
+		});
+		expect(result.current).toBeUndefined();
 	});
 });
 

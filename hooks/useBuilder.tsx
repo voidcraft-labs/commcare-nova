@@ -67,6 +67,7 @@ import {
 } from "@/lib/services/builderStore";
 import type { ReplayStage } from "@/lib/services/logReplay";
 import type { NForm, NModule, NQuestion } from "@/lib/services/normalizedState";
+import { usePartialScaffold } from "@/lib/session/hooks";
 import {
 	BuilderSessionContext,
 	BuilderSessionProvider,
@@ -143,20 +144,15 @@ export { useDocHasData as useBuilderHasData } from "@/lib/doc/hooks/useDocHasDat
 /**
  * Merged tree data for AppTree rendering — derived from doc store entities.
  *
- * Thin wrapper around `useDocTreeData`: reads `phase` + `generationData`
- * from the legacy builder store (these are lifecycle / generation-only
- * fields that haven't migrated yet), then delegates to the doc hook
- * which subscribes to entity maps directly on the BlueprintDoc store.
- *
- * During Ready/Completed phases, derives TreeData from doc entities.
- * During generation, constructs a merged view from scaffold + partials.
+ * Thin wrapper around `useDocTreeData`: passes `partialScaffold` from
+ * the session store as the only fallback for the brief pre-scaffold
+ * window. During generation AND Ready/Completed phases, the doc hook
+ * derives TreeData directly from doc entities (scaffold modules are
+ * created as doc mutations by the mutation mapper).
  */
 export function useBuilderTreeData(): TreeData | undefined {
-	const inputs = useBuilderStoreShallow((s) => ({
-		phase: s.phase,
-		generationData: s.generationData,
-	}));
-	return useDocTreeData(inputs);
+	const partialScaffold = usePartialScaffold();
+	return useDocTreeData(partialScaffold);
 }
 
 /** Whether the SA agent is currently active. */
