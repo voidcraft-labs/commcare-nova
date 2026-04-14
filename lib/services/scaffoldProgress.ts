@@ -51,8 +51,12 @@ export function computeScaffoldProgress(
 		return isReady || session.justCompleted ? 1.0 : 0;
 	}
 
-	/* DataModel stage: case types arriving on the doc bump from 0.05 → 0.3. */
-	if (session.agentStage === Stage.DataModel) {
+	/* Early generation: agentStage is null in the brief window between
+	 * setAgentActive(true) (chat status effect) and beginAgentWrite()
+	 * (data-start-build event). Treat identically to DataModel — without
+	 * this guard, the null stage falls through to the 1.0 return at the
+	 * bottom and the progress bar briefly shows "done". */
+	if (session.agentStage === null || session.agentStage === Stage.DataModel) {
 		const hasCaseTypes = (doc?.caseTypes?.length ?? 0) > 0;
 		return hasCaseTypes ? 0.3 : 0.05;
 	}
