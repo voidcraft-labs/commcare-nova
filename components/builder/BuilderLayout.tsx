@@ -54,7 +54,8 @@ import type { Uuid } from "@/lib/doc/types";
 import { useNavigate } from "@/lib/routing/hooks";
 import { BuilderPhase } from "@/lib/services/builder";
 import { selectInReplayMode } from "@/lib/services/builderSelectors";
-import type { CursorMode } from "@/lib/services/builderStore";
+import { useCursorMode, useSwitchCursorMode } from "@/lib/session/hooks";
+import type { CursorMode } from "@/lib/session/types";
 
 /** Extra space above the scroll target so the question isn't flush with the
  *  cursor mode overlay. Two values: a compact margin for plain selection,
@@ -107,11 +108,25 @@ export function BuilderLayout({
 		allUuids: string[];
 	} | null>(null);
 
+	const switchCursorMode = useSwitchCursorMode();
+
+	/* Track current cursor mode in a ref so the stable handleCursorModeChange
+	 * callback can read it without adding cursorMode as a dependency. */
+	const cursorMode = useCursorMode();
+	const cursorModeRef = useRef(cursorMode);
+	cursorModeRef.current = cursorMode;
+
 	/** Capture scroll anchor before cursor mode switch, then delegate
-	 *  the actual mode change to the store's atomic switchCursorMode. */
+	 *  the actual mode change to the session store's atomic switchCursorMode. */
 	const handleCursorModeChange = useCallback(
 		(mode: CursorMode) => {
-			if (mode === builder.store.getState().cursorMode) return;
+			/* Early exit on same-mode: avoids DOM measurement + scroll anchor
+			 * thrash that otherwise fires on every click of the already-active
+			 * CursorModeSelector button. The session store also guards against
+			 * same-mode no-ops internally, but by that point we've already run
+			 * querySelectorAll + getBoundingClientRect + setScrollAnchor, which
+			 * triggers a re-render and a useLayoutEffect that mutates scrollTop. */
+			if (mode === cursorModeRef.current) return;
 
 			const scrollContainer = document.querySelector(
 				"[data-preview-scroll-container]",
@@ -137,9 +152,9 @@ export function BuilderLayout({
 				}
 			}
 
-			builder.store.getState().switchCursorMode(mode);
+			switchCursorMode(mode);
 		},
-		[builder],
+		[switchCursorMode],
 	);
 
 	/* Restore scroll position after mode switch. */

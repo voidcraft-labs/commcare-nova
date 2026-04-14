@@ -25,10 +25,6 @@ import { BuilderPhase, type EditScope, GenerationStage } from "./builder";
 import { type BuilderStoreApi, createBuilderStore } from "./builderStore";
 import { countQuestionsDeep } from "./normalizedState";
 
-// ── Re-export types consumers need ──────────────────────────────────────
-
-export type { CursorMode } from "./builderStore";
-
 // ── BuilderEngine ───────────────────────────────────────────────────────
 
 export class BuilderEngine {

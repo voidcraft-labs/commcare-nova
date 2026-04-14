@@ -18,8 +18,6 @@ import { signalGrid } from "@/lib/signalGrid/store";
 import type { BuilderEngine } from "./builderEngine";
 import type { QuestionPath } from "./questionPath";
 
-export type { CursorMode } from "./builderStore";
-
 /** Apply a data part to a builder engine — shared between real-time streaming (onData) and replay. */
 export function applyDataPart(
 	engine: BuilderEngine,

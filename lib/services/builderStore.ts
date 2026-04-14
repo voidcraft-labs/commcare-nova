@@ -6,13 +6,17 @@
  * monolithic blueprint object — assembleBlueprint() reconstructs the
  * wire format at save/export time only.
  *
+ * Phase 3 migration: `cursorMode`, `activeFieldId`, `chatOpen`,
+ * `structureOpen`, and `sidebarStash` have moved to the BuilderSession
+ * store (`lib/session/store.ts`). This legacy store retains lifecycle,
+ * entity, and generation state — scheduled for Phase 4/6 cleanup.
+ *
  * Middleware stack:
  * - **Immer** — mutable-syntax immutable updates with structural sharing.
  *   `draft.questions[uuid].label = 'x'` produces a new state where only
  *   `questions` and the changed question get new references.
  * - **zundo (temporal)** — undo/redo via history snapshots of entity data.
  *   Navigation lives in the URL (browser history handles back/forward).
- *   Transient interaction state (cursorMode, activeFieldId) is NOT tracked.
  * - **devtools** — Redux DevTools inspection in development.
  *
  * Created per buildId via `createBuilderStore()`. Scoped to the /build/{id}
@@ -72,10 +76,6 @@ import type { QuestionPath } from "./questionPath";
  * in blueprint data (future-proofing — current schema uses plain objects). */
 enableMapSet();
 
-// ── Cursor mode ──────────────────────────────────────────────────────
-
-export type CursorMode = "pointer" | "edit";
-
 // ── Move result ─────────────────────────────────────────────────────
 
 /** Returned by moveQuestion when a cross-level move triggers auto-rename
@@ -129,26 +129,6 @@ export interface GenerationData {
 export interface BuilderState {
 	// ── Lifecycle ──
 	phase: BuilderPhase;
-
-	// ── View context ──
-	/** Current cursor mode (inspect/text/pointer). */
-	cursorMode: CursorMode;
-	/** Which [data-field-id] element currently has focus. NOT tracked by zundo
-	 *  — transient interaction state that stays at its live value through undo/redo. */
-	activeFieldId: string | undefined;
-
-	// ── Layout state (sidebar visibility) ──
-	/** Whether the chat sidebar is open. Lives in the store (not component
-	 *  state) so consumers subscribe directly — no prop drilling or cascade.
-	 *  NOT tracked by zundo (transient UI state). */
-	chatOpen: boolean;
-	/** Whether the structure sidebar is open. Same rationale as chatOpen. */
-	structureOpen: boolean;
-	/** Stashed sidebar state from before entering pointer mode. Restored
-	 *  when switching back to edit. Ref-like (only read at one moment —
-	 *  the edit-mode transition) but stored here so switchCursorMode can
-	 *  atomically stash/restore in a single set() call. */
-	sidebarStash: { chatOpen: boolean; structureOpen: boolean } | undefined;
 
 	// ── Entity data (normalized — flat maps + ordering arrays) ──
 	appName: string;
@@ -280,20 +260,6 @@ export interface BuilderState {
 		updates: Record<string, unknown>,
 	) => void;
 	searchBlueprint: (query: string) => SearchResult[];
-
-	// -- View context actions --
-	setCursorMode: (mode: CursorMode) => void;
-	setActiveFieldId: (fieldId: string | undefined) => void;
-	/** Set chat sidebar visibility. */
-	setChatOpen: (open: boolean) => void;
-	/** Set structure sidebar visibility. */
-	setStructureOpen: (open: boolean) => void;
-	/** Atomically switch cursor mode with sidebar stash/restore.
-	 *  Pointer mode stashes current sidebar state and closes both.
-	 *  Edit mode restores the stashed state. Combines what was previously
-	 *  handleCursorModeChange + refs + multiple setState calls in BuilderLayout
-	 *  into one atomic store update. */
-	switchCursorMode: (mode: CursorMode) => void;
 
 	// -- Generation lifecycle actions --
 	startGeneration: () => void;
@@ -445,13 +411,6 @@ export function createBuilderStore(initialPhase: BuilderPhase) {
 						// ── Initial state ──────────────────────────────────────
 
 						phase: initialPhase,
-						cursorMode: "edit" as CursorMode,
-						activeFieldId: undefined,
-						chatOpen: true,
-						structureOpen: true,
-						sidebarStash: undefined as
-							| { chatOpen: boolean; structureOpen: boolean }
-							| undefined,
 
 						// Entity data (empty until blueprint is loaded/generated)
 						appName: "",
@@ -595,59 +554,6 @@ export function createBuilderStore(initialPhase: BuilderPhase) {
 							const { searchBlueprint: bpSearch } =
 								require("./blueprintHelpers") as typeof import("./blueprintHelpers");
 							return bpSearch(bp, query);
-						},
-
-						// ── View context actions ──────────────────────────────
-
-						setCursorMode(mode) {
-							set({ cursorMode: mode });
-						},
-
-						setActiveFieldId(fieldId) {
-							if (fieldId === get().activeFieldId) return;
-							set({ activeFieldId: fieldId });
-						},
-
-						setChatOpen(open) {
-							if (open === get().chatOpen) return;
-							set({ chatOpen: open });
-						},
-
-						setStructureOpen(open) {
-							if (open === get().structureOpen) return;
-							set({ structureOpen: open });
-						},
-
-						switchCursorMode(mode) {
-							const s = get();
-							/* Guard against no-op switches. Without this, entering
-							 * pointer mode twice overwrites the sidebar stash with
-							 * { chatOpen: false, structureOpen: false }. */
-							if (mode === s.cursorMode) return;
-
-							if (mode === "pointer") {
-								/* Stash current sidebar state, then close both for
-								 * the immersive pointer mode experience. */
-								set({
-									cursorMode: mode,
-									sidebarStash: {
-										chatOpen: s.chatOpen,
-										structureOpen: s.structureOpen,
-									},
-									chatOpen: false,
-									structureOpen: false,
-								});
-							} else if (mode === "edit" && s.sidebarStash) {
-								/* Restore pre-pointer sidebar state. */
-								set({
-									cursorMode: mode,
-									chatOpen: s.sidebarStash.chatOpen,
-									structureOpen: s.sidebarStash.structureOpen,
-									sidebarStash: undefined,
-								});
-							} else {
-								set({ cursorMode: mode });
-							}
 						},
 
 						// ── Generation lifecycle actions ────────────────────────
@@ -974,8 +880,6 @@ export function createBuilderStore(initialPhase: BuilderPhase) {
 						reset() {
 							set((draft) => {
 								draft.phase = BuilderPhase.Idle;
-								draft.cursorMode = "edit";
-								draft.activeFieldId = undefined;
 
 								draft.appName = "";
 								draft.connectType = undefined;
@@ -1004,8 +908,8 @@ export function createBuilderStore(initialPhase: BuilderPhase) {
 				{
 					/* zundo config: undo/redo tracks entity data only. Navigation
 					 * lives in the URL (browser history handles back/forward).
-					 * Transient interaction state (cursorMode, activeFieldId) is
-					 * excluded — those stay at their live values through undo/redo. */
+					 * Transient interaction state (cursorMode, activeFieldId) has
+					 * moved to the BuilderSession store (Phase 3). */
 					partialize: (s): UndoSlice => ({
 						appName: s.appName,
 						connectType: s.connectType,

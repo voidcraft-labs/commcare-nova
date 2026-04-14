@@ -9,11 +9,12 @@ import tablerChevronLeft from "@iconify-icons/tabler/chevron-left";
 import { AnimatePresence, motion } from "motion/react";
 import { AppTree } from "@/components/builder/AppTree";
 import { ErrorBoundary } from "@/components/ui/ErrorBoundary";
-import { useBuilderEngine, useBuilderIsReady } from "@/hooks/useBuilder";
+import { useBuilderIsReady } from "@/hooks/useBuilder";
+import { useSetSidebarOpen } from "@/lib/session/hooks";
 
 export function StructureSidebar() {
 	const isReady = useBuilderIsReady();
-	const engine = useBuilderEngine();
+	const setSidebarOpen = useSetSidebarOpen();
 
 	return (
 		<div className="w-80 border-r border-nova-border-bright bg-nova-deep flex flex-col shrink-0 h-full">
@@ -21,7 +22,7 @@ export function StructureSidebar() {
 			<div className="flex items-center justify-between px-4 h-11 border-b border-nova-border shrink-0">
 				<button
 					type="button"
-					onClick={() => engine.store.getState().setStructureOpen(false)}
+					onClick={() => setSidebarOpen("structure", false)}
 					className="px-1 h-11 text-nova-text-muted hover:text-nova-text transition-colors cursor-pointer"
 				>
 					<Icon icon={tablerChevronLeft} width="14" height="14" />

@@ -38,7 +38,7 @@ import {
 import { DragStateProvider } from "@/components/builder/contexts/DragStateContext";
 import { useFulfillPendingScroll } from "@/components/builder/contexts/ScrollRegistryContext";
 import { InlineSettingsPanel } from "@/components/builder/InlineSettingsPanel";
-import { useBuilderEngine, useBuilderStore } from "@/hooks/useBuilder";
+import { useBuilderEngine } from "@/hooks/useBuilder";
 import { useEditContext } from "@/hooks/useEditContext";
 import { useEngineController, useEngineState } from "@/hooks/useFormEngine";
 import { useTextEditSave } from "@/hooks/useTextEditSave";
@@ -50,6 +50,7 @@ import { LabelContent } from "@/lib/references/LabelContent";
 import { useIsQuestionSelected, useSelect } from "@/lib/routing/hooks";
 import type { NQuestion } from "@/lib/services/normalizedState";
 import { type QuestionPath, qpath } from "@/lib/services/questionPath";
+import { useCursorMode } from "@/lib/session/hooks";
 import { EditableQuestionWrapper } from "./EditableQuestionWrapper";
 import { FIELD_STYLES } from "./fieldStyles";
 import { GroupField } from "./fields/GroupField";
@@ -191,7 +192,7 @@ function SortableQuestion({
 	const controller = useEngineController();
 
 	const ctx = useEditContext();
-	const cursorMode = useBuilderStore((s) => s.cursorMode);
+	const cursorMode = useCursorMode();
 	const isEditMode = ctx?.mode === "edit";
 	const saveField = useTextEditSave(uuid);
 

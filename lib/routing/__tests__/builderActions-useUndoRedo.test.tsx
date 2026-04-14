@@ -8,12 +8,12 @@
  *
  * Provider strategy
  * -----------------
- * We stub `@/hooks/useBuilder` entirely. `useUndoRedo` only calls two
- * things on the builder side: `useBuilderEngine()` (for DOM side-effect
- * helpers) and `useBuilderStore((s) => s.activeFieldId)`. Neither has
- * React-state semantics that we need here — the interesting behavior
- * lives in the doc store's temporal middleware and in the scroll/flash
- * branching logic, which we exercise directly.
+ * We stub `@/hooks/useBuilder` for the engine and `@/lib/session/hooks`
+ * for `useActiveFieldId`. `useUndoRedo` calls `useBuilderEngine()` (for
+ * DOM side-effect helpers) and `useActiveFieldId()` (for undo scroll
+ * targeting). Neither has React-state semantics that we need here — the
+ * interesting behavior lives in the doc store's temporal middleware and
+ * in the scroll/flash branching logic, which we exercise directly.
  *
  * The real doc store is constructed once per test via
  * `createBlueprintDocStore()` and wrapped in a `BlueprintDocContext.Provider`.
@@ -67,7 +67,7 @@ const scrollToQuestion = vi.fn();
 const flashUndoHighlight = vi.fn();
 const setFocusHint = vi.fn();
 /*
- * `activeFieldId` is exposed via `useBuilderStore((s) => s.activeFieldId)`.
+ * `activeFieldId` is read via `useActiveFieldId()` from the session store.
  * A module-scoped ref lets individual tests flip the value without
  * rebuilding the mock.
  */
@@ -83,7 +83,7 @@ vi.mock("@/components/builder/contexts/EditGuardContext", () => ({
  * Full stub of `@/hooks/useBuilder`. Every consumer goes through this
  * module, so mocking it here avoids dragging in the whole
  * BuilderEngine / BuilderStore stack just to get engine imperative
- * methods and `activeFieldId` answers.
+ * methods.
  */
 vi.mock("@/hooks/useBuilder", () => ({
 	useBuilderEngine: () => ({
@@ -92,9 +92,14 @@ vi.mock("@/hooks/useBuilder", () => ({
 		flashUndoHighlight,
 		setFocusHint,
 	}),
-	useBuilderStore: <T,>(
-		selector: (s: { activeFieldId: string | undefined }) => T,
-	) => selector({ activeFieldId: activeFieldIdRef.current }),
+}));
+
+/*
+ * Stub `@/lib/session/hooks` so `useActiveFieldId()` reads from our
+ * module-scoped ref instead of requiring a full BuilderSessionProvider.
+ */
+vi.mock("@/lib/session/hooks", () => ({
+	useActiveFieldId: () => activeFieldIdRef.current,
 }));
 
 import { useUndoRedo } from "@/lib/routing/builderActions";

@@ -16,7 +16,7 @@
 
 "use client";
 import { type ReactNode, useCallback, useRef, useState } from "react";
-import { useBuilderStore } from "@/hooks/useBuilder";
+import { useCursorMode } from "@/lib/session/hooks";
 
 import type { FieldType } from "./fieldStyles";
 import { InlineTextEditor } from "./InlineTextEditor";
@@ -38,7 +38,7 @@ export function TextEditable({
 	fieldType,
 	children,
 }: TextEditableProps) {
-	const cursorMode = useBuilderStore((s) => s.cursorMode);
+	const cursorMode = useCursorMode();
 	const [editing, setEditing] = useState(false);
 	/** Viewport coordinates of the activation click — passed to the editor
 	 *  so it can place the cursor at the correct text position via posAtCoords. */

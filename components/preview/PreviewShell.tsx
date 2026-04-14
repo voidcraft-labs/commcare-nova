@@ -37,13 +37,12 @@
  */
 "use client";
 import { Activity, useDeferredValue, useEffect, useMemo, useRef } from "react";
-import { useBuilderStore } from "@/hooks/useBuilder";
 import { useBlueprintDoc } from "@/lib/doc/hooks/useBlueprintDoc";
 import type { Uuid } from "@/lib/doc/types";
 import { type PreviewScreen, screenKey } from "@/lib/preview/engine/types";
 import { useLocation, useNavigate } from "@/lib/routing/hooks";
 import type { Location } from "@/lib/routing/types";
-import { selectEditMode } from "@/lib/services/builderSelectors";
+import { useEditMode } from "@/lib/session/hooks";
 import { PreviewHeader } from "./PreviewHeader";
 import { CaseListScreen } from "./screens/CaseListScreen";
 import { FormScreen } from "./screens/FormScreen";
@@ -121,7 +120,7 @@ export function PreviewShell({
 	 * in the background. Return visits are near-instant. */
 	const screen = useDeferredValue(zustandScreen);
 
-	const mode = useBuilderStore(selectEditMode);
+	const mode = useEditMode();
 
 	/* ── Per-type screen identity ──────────────────────────────────────
 	 * Track the last screen data for each type so Activity boundaries can
