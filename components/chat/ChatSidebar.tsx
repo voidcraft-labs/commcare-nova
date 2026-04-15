@@ -113,6 +113,21 @@ export function ChatSidebar({
 	const isGenerating = phase === BuilderPhase.Generating;
 	const isLoading = status === "submitted" || status === "streaming";
 
+	// ── Welcome intro timer ──────────────────────────────────────────────
+	// The welcome screen plays a 3.5s "reasoning" animation on mount, then
+	// settles to the quiet idle twinkle while the user reads. This is the
+	// duration of the intro — after it elapses, desiredMode below falls
+	// through to "idle". Lives in ChatSidebar (not WelcomeIntro) so the
+	// mode flows through the normal desiredMode pipeline instead of
+	// WelcomeIntro bypassing it with direct controller calls (which the
+	// parent's desiredMode effect would clobber — child effects fire
+	// before parent effects).
+	const [introFinished, setIntroFinished] = useState(false);
+	useEffect(() => {
+		const id = setTimeout(() => setIntroFinished(true), 3500);
+		return () => clearTimeout(id);
+	}, []);
+
 	// ── Signal Grid — controller scoped to the builder instance ──────────
 	// ChatSidebar is always-mounted (width animated to 0 when "closed"), so
 	// refs persist across sidebar open/close. When the legacy store identity
@@ -197,6 +212,14 @@ export function ChatSidebar({
 			// look dead — the whole point of the signal grid is to show activity.
 			if (status === "submitted") return "sending";
 			return postBuildEdit ? "editing" : "reasoning";
+		}
+		// Welcome screen intro — the first 3.5s on a fresh build shows the
+		// reasoning animation while the heading/subtitle stagger in. After the
+		// timer elapses (introFinished), falls through to idle like any other
+		// resting state. The centered+empty+!isLoading conditions match the
+		// exact window WelcomeIntro is mounted for.
+		if (centered && messages.length === 0 && !isLoading && !introFinished) {
+			return "reasoning";
 		}
 		if (phase === BuilderPhase.Ready) return "idle";
 		return "idle";
@@ -490,7 +513,7 @@ export function ChatSidebar({
 					{messages.length === 0 && !isLoading && (
 						<div className={centered ? "text-center" : "text-center py-8"}>
 							{centered ? (
-								<WelcomeIntro gridController={gridController} />
+								<WelcomeIntro />
 							) : (
 								<p className="text-sm text-nova-text-muted">
 									{isExistingApp
@@ -543,28 +566,19 @@ export function ChatSidebar({
 
 /** Staggered welcome text with a coordinated burst on the signal grid.
  *
- * Drives the grid directly via `gridController.setMode` — no parent
- * state override. The intro sets "reasoning" mode with tapering energy
- * pulses, then transitions to "idle" after 3.5s. If the component
- * unmounts early (user sends a message → generation starts → centered
- * becomes false), cleanup stops the pulses and the grid's mode is
- * immediately overridden by the generation-driven desiredMode in the
- * parent. No stale state to clean up. */
-function WelcomeIntro({
-	gridController,
-}: {
-	gridController: SignalGridController;
-}) {
+ * Pure visual component — the grid's mode is driven by the parent's
+ * `desiredMode` derivation, not by this component. WelcomeIntro's only
+ * grid-related job is injecting energy into the signal store: tapering
+ * 150ms pulses for the first 3.5s plus two larger bursts coinciding
+ * with the heading (1.5s) and subtitle (2s) reveals. The parent's
+ * `desiredMode` returns "reasoning" while WelcomeIntro is mounted and
+ * the 3.5s timer hasn't elapsed, so the energy bursts land on the
+ * right visual. If the user sends a message early (component unmounts)
+ * or the timer elapses, the parent naturally transitions the grid. */
+function WelcomeIntro() {
 	const [stage, setStage] = useState(0); // 0: nothing, 1: heading, 2: subtitle
 
 	useEffect(() => {
-		/* Set reasoning mode on the controller directly. The parent's
-		 * desiredMode effect also calls setMode — whichever runs last
-		 * wins. During Idle phase, desiredMode is "idle", so this
-		 * "reasoning" call takes effect. Once generation starts, the
-		 * parent's desiredMode switches to "scaffolding"/"building"
-		 * and naturally overrides. */
-		gridController.setMode("reasoning");
 		const t0 = performance.now();
 		const pulse = setInterval(() => {
 			const elapsed = performance.now() - t0;
@@ -585,7 +599,6 @@ function WelcomeIntro({
 
 		const t3 = setTimeout(() => {
 			clearInterval(pulse);
-			gridController.setMode("idle");
 		}, 3500);
 
 		return () => {
@@ -594,7 +607,7 @@ function WelcomeIntro({
 			clearTimeout(t2);
 			clearTimeout(t3);
 		};
-	}, [gridController]);
+	}, []);
 
 	return (
 		<>
