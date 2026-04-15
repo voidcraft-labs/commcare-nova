@@ -1,84 +1,83 @@
 # Builder Components
 
-## Design vs Preview Mode
+## Edit vs preview mode
 
-**Design (edit):** frozen, stateless view. Inputs appear empty, no validation errors, submit bar hidden. Engine state is preserved internally but suppressed at the display layer. **All questions are shown regardless of relevant conditions** — the visibility check is skipped so the full form structure is always visible for editing. Hidden questions render as compact `HiddenField` cards. Violet accent for edit chrome (outlines, insertion points, drag overlays).
+**Edit** is a frozen, stateless view: inputs appear empty, validation is suppressed, the submit bar is hidden. **All questions render regardless of relevant conditions** — hidden questions appear as compact cards so the full structure is always visible for editing. Engine state is preserved internally; only the display layer is suppressed.
 
-**Preview (test):** persistent testing sandbox. Values survive round-trips through design. Validation state resets on exit via `engine.resetValidation()` so fields start clean on re-entry. On switch back, all rules re-evaluate with the current schema against persisted values. Blueprint mutations recreate the engine, but only user-touched values are restored — untouched fields pick up new defaults.
+**Preview** is a persistent testing sandbox. Values survive round-trips through edit. Validation state resets on exit so fields start clean on re-entry; on switch back, rules re-evaluate against the persisted values. Blueprint mutations recreate the engine, but only user-touched values are restored — untouched fields pick up new defaults, so editing a default expression is immediately reflected.
 
-## Immersive Pointer Mode
+## Pointer mode is immersive
 
-Pointer mode hides both sidebars for an immersive form-testing experience. `store.switchCursorMode("pointer")` atomically stashes the current `{ chatOpen, structureOpen }` state and closes both in a single `set()` call. Switching back to edit restores the stashed state. The floating reopen buttons are also hidden (gated on `cursorMode !== "pointer"` in `BuilderContentArea`). An early-return guard in `switchCursorMode` prevents no-op mode switches — without it, entering pointer mode twice overwrites the stash with `{ false, false }`.
+Pointer mode atomically hides both sidebars AND the floating reopen buttons. The mode switcher stashes current sidebar open-state in a single set call so entering and leaving restores the user's layout exactly. An early return on no-op mode switches is required — without it, entering pointer mode twice overwrites the stash with `{ false, false }`.
 
-## Flipbook Scroll Sync
+## Flipbook scroll sync
 
-Switching cursor modes preserves scroll position so the same question stays at the same pixel offset. `handleCursorModeChange` captures the topmost visible question and its offset into `scrollAnchor` state before the mode switch. A `useLayoutEffect` fires after React updates the DOM but before paint, adjusting `scrollTop` to re-align the anchor. `scrollAnchor` must be state (not a ref) because the layout effect depends on it.
+Switching cursor modes preserves scroll: capture the topmost visible question + its offset **before** the mode change, correct `scrollTop` in a layout effect **after** the DOM updates. The anchor must be React state (not a ref) so the layout effect depends on it.
 
-**Bidirectional fallback** — if the anchor is hidden in the new mode (e.g. a hidden field switching edit→pointer), the fallback searches outward from the anchor index: backward first at each distance, then forward. This handles the edge case where the anchor is the first question in the form (backward-only search would find nothing).
+- **Fallback when the anchor is hidden in the new mode** (e.g. a hidden field switching edit → pointer): search outward from the anchor index, backward first then forward. Backward-only misses the case where the anchor was the first question.
+- **ResizeObserver correction** — sidebar width animations run async (~200ms) after the initial correction. A ResizeObserver re-corrects during that window, then clears the pending anchor after 250ms so later unrelated resizes don't reapply it.
 
-**ResizeObserver correction** — sidebar width animations run async (~200ms) after the initial `useLayoutEffect` correction. On narrow viewports (<1440px), the form container width changes as sidebars collapse, reflowing text and shifting content. A `ResizeObserver` on the scroll container re-corrects scroll position during the animation. The pending anchor is cleared after 250ms to prevent false corrections on later unrelated resizes.
+## ProseMirror trailingBreak — CSS fix, not DOM
 
-## Flipbook Height Parity — ProseMirror trailingBreak
+ProseMirror injects `<br class="ProseMirror-trailingBreak">` at the end of every block for cursor positioning, and this is hardcoded in prosemirror-view. Two selectors hide it only where it adds phantom height:
 
-ProseMirror injects a `<br class="ProseMirror-trailingBreak">` at the end of every block node for cursor positioning. This break is **hardcoded in prosemirror-view's DOM rendering** — hiding it via CSS is the only option. Two rules handle it:
+1. `.tiptap .ProseMirror-trailingBreak:not(:only-child)` — hide in non-empty paragraphs. In empty paragraphs (Enter keypress), the break is the sole child and must stay visible for cursor positioning.
+2. `.tiptap:has(> :not(p)) > p:last-child > .ProseMirror-trailingBreak:only-child` — collapse the structural trailing paragraph ProseMirror auto-appends after block-level elements (lists, blockquotes, tables). `:has(> :not(p))` only matches when non-paragraph children exist, so empty lines in a plain-paragraph document stay visible.
 
-1. `.tiptap .ProseMirror-trailingBreak:not(:only-child)` — hides the break in non-empty paragraphs where it adds height the static view doesn't have. In empty paragraphs (from pressing Enter), the break is the sole child and stays visible for cursor positioning.
-2. `.tiptap:has(> :not(p)) > p:last-child > .ProseMirror-trailingBreak:only-child` — collapses the structural trailing paragraph ProseMirror auto-appends after block-level elements (lists, blockquotes, tables). `:has(> :not(p))` detects any non-paragraph block child. When the editor contains only `<p>` elements, the selector doesn't match and empty lines from pressing Enter stay visible.
+Preview markdown sets `white-space: break-spaces` and `position: relative` globally to match ProseMirror's injected defaults, so no reflow occurs on mode switch. TipTap 3 uses class `tiptap`, not `ProseMirror`.
 
-`.preview-markdown` sets `white-space: break-spaces` and `position: relative` unconditionally to match ProseMirror's injected defaults — applied globally so no reflow occurs on mode switch. Note: TipTap 3 uses class `tiptap`, not `ProseMirror`.
+## Cursor mode toolbar — absolute, not sticky
 
-## Cursor Mode Toolbar — Absolute, Not Sticky
+The glassmorphic toolbar is absolutely positioned in the outer content wrapper, NOT as `sticky` inside the scroll container. Sticky-inside samples the opaque page background instead of scrolling content (kills the glass effect) and creates double scrollbars.
 
-The glassmorphic toolbar must be absolutely positioned in `BuilderContentArea`'s `overflow-hidden relative` wrapper — **not** inside PreviewShell's scroll container (`data-preview-scroll-container`). If placed inside as `sticky`, `backdrop-filter` samples the opaque `bg-pv-bg` background instead of the scrolling content, killing the glass effect. It also creates double scrollbars. `topInset` on PreviewShell offsets content below the overlay so the first screen element isn't hidden on initial load.
+## Scroll-to-selection — rAF loop, not native smooth
 
-**Scroll-to-selection uses a rAF-driven animation** instead of native `scrollTo({ behavior: "smooth" })` — panel mount/unmount causes layout shifts that make the browser abandon native smooth scrolling mid-flight. The rAF loop recalculates the element's absolute offset within the scroll container each frame, so it tracks the target correctly even when the old InlineSettingsPanel unmounts and shifts content upward. Cross-screen navigation (`navigateToSelection`) uses `"instant"` behavior — when the visible screen changes, smooth scrolling from the outgoing screen's position to a target on the incoming screen is disorienting. Do not switch back to native `scrollTo` smooth scrolling.
+Panel mount/unmount causes layout shifts that make the browser abandon native `scrollTo({ behavior: "smooth" })` mid-flight. A rAF loop recalculates the element's offset each frame and tracks the target correctly. Cross-screen navigation uses `"instant"` — smooth-scrolling between screens is disorienting. Do not switch back to native smooth.
 
-**Scroll margin is adaptive** — `SCROLL_MARGIN` (compact) vs `SCROLL_MARGIN_WITH_TOOLBAR` (expanded) based on whether the click activated a text-editable zone. The `hasToolbar` flag threads through `navigateTo` → `setPending` → the registered scroll callback. When clicking a text-editable on an already-selected question, `scrollTo` is called directly (no selection change → no `useFulfillPendingScroll` re-fire). Do not collapse these into a single margin — the floating TipTap label toolbar needs clearance, but non-text clicks should not have a gap.
+Scroll margin is adaptive: compact for non-text clicks, expanded when the click activated a text-editable zone (floating label toolbar needs clearance). The "has toolbar" flag threads from the click site through to the scroll request.
 
-## Selection Behavior
+## Sticky selection
 
-**Sticky selection** — clicking empty space in the form does not deselect. Selection changes only when the user clicks a different question or navigates away. This is intentional: deselecting on click-outside would constantly dismiss the contextual editor panel.
+Clicking empty space does not deselect. Deselecting would constantly dismiss the contextual editor panel. Selection only changes when the user clicks a different question or navigates away.
 
-**Selection + scroll flow** — `useSelect()` from `@/lib/routing/hooks` is the single selection action: it updates the URL's `sel=` param via `router.replace` (no history entry, scroll: false). Scroll is requested imperatively via `useScrollIntoView().setPending(uuid, behavior, hasToolbar)` BEFORE calling `select()`; the target question's `SortableQuestion` consumes the pending request via `useFulfillPendingScroll(uuid, isSelected)` when it sees itself selected. The `isSelected` dependency ensures the effect re-fires on false -> true transitions, covering within-form navigation where the target is already mounted. This decouples "change the URL" from "scroll the canvas" so both same-form and cross-screen navigation flow through the same two calls. Tree sidebar clicks request `"instant"` behavior (screen change); in-canvas clicks default to `"smooth"`. Undo/redo manages its own scroll via `useScrollIntoView().scrollTo()` inside `useUndoRedo()` — do NOT call `setPending` from undo paths.
+## Selection + scroll flow
 
-**Edit guard** — `XPathField` can block selection while it has unsaved invalid content via `builder.setEditGuard()`. The guard is consumed by `useSelect()` in `@/lib/routing/hooks` (the URL-state selection action used throughout the builder). Two-strike pattern: first navigation attempt warns (shake + tooltip), second attempt allows through. Keystroke resets the warning counter.
+Selection is a URL-state change (replace, no history entry); scroll is requested imperatively via a pending-target mechanism that the target question's wrapper consumes when it sees itself selected. This decouples "change the URL" from "scroll the canvas" so same-form and cross-screen navigation both flow through the same two calls. Tree sidebar clicks pass `"instant"` scroll behavior; in-canvas clicks default to `"smooth"`. Undo/redo scrolls directly — do NOT call into the pending mechanism from undo paths.
 
-**`SelectedElement.questionUuid`** is the stable question identity — survives renames. Components compare by UUID to determine panel visibility and scroll targets. `questionPath` is still carried for blueprint mutation calls.
+**Edit guard.** An XPath editor with unsaved invalid content can block navigation via the edit-guard context. Two-strike pattern: first attempt warns (shake + tooltip), second lets through. Any keystroke resets the counter.
 
-## dnd-kit Gotchas
+**Question uuid is the stable UI identity** — it survives renames. Components compare by uuid to determine panel visibility and scroll targets. The question path is still carried for blueprint mutation calls.
 
-**`queueMicrotask` in `onDragEnd`** — dnd-kit fires `onDragEnd` during `useInsertionEffect` where React 19 forbids `setState`. The state cleanup must be deferred via `queueMicrotask`.
+## dnd-kit gotchas
 
-**`collisionPriority` layering** — group/repeat `SortableQuestion` uses `CollisionPriority.Lowest` so the inner `useDroppable` container (set to `Low`) wins collision detection when items are dragged over the content area. Without this, the outer sortable intercepts the drop.
+- **`queueMicrotask` around onDragEnd state cleanup.** dnd-kit fires `onDragEnd` during `useInsertionEffect` where React 19 forbids `setState`.
+- **Collision priority layering.** Group/repeat sortables use `Lowest` so the inner droppable container (`Low`) wins collision detection when items are dragged over the content area. Without this, the outer sortable intercepts the drop.
+- **Empty group drop targets need `useDroppable` with a `:container` suffix id.** The `OptimisticSortingPlugin` only processes `SortableDroppable` instances; plain `useDroppable` targets are invisible to it. Container ids use the question uuid so they survive renames.
 
-**Empty group drop targets** — `useDroppable` with `:container` suffix ID is necessary because dnd-kit's `OptimisticSortingPlugin` only processes `SortableDroppable` instances — plain `useDroppable` targets are invisible to it. Container IDs use `${question.uuid}:container`, not `${questionPath}:container` — rename-safe and consistent with sortable item IDs.
+## Question wrapper is `div[role=button]`, not `<button>`
 
-## EditableQuestionWrapper — `div[role=button]`, NOT `<button>`
+Children contain nested interactive elements (insertion-point buttons, text-editable buttons, form inputs, fieldsets). HTML forbids interactive content inside `<button>`, and SSR parsers will mangle the tree. Do not "fix" this to a real button.
 
-Uses `<div role="button">` instead of `<button>` because children contain nested interactive elements (InsertionPoint buttons, TextEditable buttons, form inputs/fieldsets). HTML forbids interactive content inside `<button>` and SSR parsers will mangle the tree. Do not "fix" this to a `<button>`.
+## Edit mode is combined inspect + text editing
 
-## Edit Mode — Combined Inspect + Text Editing
+The wrapper renders `div[role=button]` with `cursor-pointer` and wraps children in `pointer-events-none`. Text-editable zones punch through via CSS (`pointer-events: auto; cursor: text; z-index: 1`). The wrapper's `onClickCapture` handler checks for text-editable targets: if found, select the question but DON'T stop propagation, so inline editing also activates. Non-text clicks select and stop propagation as before.
 
-Edit mode merges the former "inspect" and "text" cursor modes into a single unified mode. `EditableQuestionWrapper` renders `div[role=button]` with `cursor-pointer` (click-to-select) and wraps children in `pointer-events-none`. `[data-text-editable]` zones punch through via CSS (`pointer-events: auto; cursor: text; z-index: 1`). The wrapper's `onClickCapture` handler checks for text-editable targets: if found, it selects the question but doesn't stop propagation, allowing `TextEditable` to also activate inline editing. Non-text clicks select the question and stop propagation as before. Properties panel has `cursor-auto` (unchanged).
+## Undo / redo
 
-## Undo/Redo
+The undo/redo action runs: temporal store restore → `flushSync` (forces a React commit before DOM queries) → URL navigation to the affected question → scroll → violet flash highlight. Without `flushSync`, DOM elements toggled into existence by the undo aren't in the DOM yet when we try to focus them. Do NOT replace with `requestAnimationFrame`.
 
-`useUndoRedo()` in `lib/routing/builderActions.ts` owns the full undo/redo flow: temporal store action + `flushSync` (forces React to commit the store update before DOM queries) + URL navigation to the affected question + scroll to the target field + violet flash highlight. zundo atomically restores entity data in the doc store. Without `flushSync`, `[data-field-id]` elements toggled into existence by the undo wouldn't be in the DOM yet. Do not replace with `requestAnimationFrame`.
+**Temporal store subscriptions** use `useStoreWithEqualityFn` from `zustand/traditional` with `Object.is`, not plain `useStore`. Plain `useStore` re-renders on every temporal state change regardless of selector; `Object.is` correctly skips re-renders when a boolean result is stable.
 
-The engine still exposes imperative utilities that the hook composes: `findFieldElement()` locates the target DOM node, `flashUndoHighlight()` runs the violet flash animation, and `setFocusHint()` queues a focus restoration consumed by `InlineSettingsPanel`. Keeping these on the engine lets the hook stay thin (URL + store + DOM orchestration) while the DOM-level primitives remain reusable.
+**Focus restoration** uses a focus-hint string storing the active field's data-id. A delegated onFocus handler writes the active field to session state, so blur-triggered saves capture the correct field. The hint is consumed once by the matching editor section and cleared. Do not query `document.activeElement` — blur moves focus before the snapshot fires.
 
-**Temporal store subscriptions** — use `useStoreWithEqualityFn` from `zustand/traditional` (zundo's recommended API), not plain `useStore`. Plain `useStore` re-renders on every temporal state change regardless of selector result. `useStoreWithEqualityFn` with `Object.is` correctly compares boolean selector results and skips re-renders when canUndo stays `true→true`.
+## Properties panel — per-type field support
 
-**Focus restoration after undo/redo** uses a `focusHint` string stored on `builder` — the `[data-field-id]` key of whichever field the user was editing when the snapshot was taken. `InlineSettingsPanel` tracks the active field via a delegated `onFocus` handler calling `builder.setActiveField()`. This persists through blur → commit → snapshot so blur-triggered saves capture the correct field. The hint is consumed once by `useFocusHint` in the matching editor section, then cleared. Do not query `document.activeElement` for this — blur moves focus before the snapshot fires.
+Not every question property applies to every question type. A central field-type-support map drives visibility. CommCare/Formplayer constraints force the sets: `calculate` overwrites user input so only hidden fields should have it; `required` is ignored on groups by Formplayer; media types have no XPath-expressible value.
 
-## Properties Panel — Per-Type Field Support
+When adding a new property, add it to the map. Fields absent from the map are allowed on all types (safe default). Type-conversion families are designed so every member shares identical field support, so conversions can't produce stale properties.
 
-Not every question property applies to every question type. `FIELD_TYPE_SUPPORT` in `contextual/shared.ts` maps each logic field to the set of types that support it. CommCare/Formplayer constraints drive these sets — e.g., `calculate` overwrites user input so only `hidden` fields should have it; `required` is ignored on groups by Formplayer; media types have no XPath-expressible value to validate.
+Editor sub-panels own their own visibility and return `null` when the type has no applicable fields.
 
-When adding a new question property, add it to `FIELD_TYPE_SUPPORT` — fields absent from the map are allowed on all types (safe default). Type conversion families (`questionTypeConversions.ts`) are designed so every member shares identical field support — conversions can't produce stale properties.
+## Contextual header — compute move targets inline
 
-`ContextualEditorData` and `ContextualEditorUI` own their section visibility — they wrap their own card and return `null` when the question type has no applicable fields. `ContextualEditorLogic` always renders (every type has at least `relevant`).
-
-## `ContextualEditorHeader` — Don't Memoize Move Targets
-
-Move targets and adjacency flags (`isFirst`/`isLast`) are computed **inline in the render body**, not in `useMemo`. After `moveQuestion`, Immer produces new entity map references that trigger a re-render — the inline computation picks up the fresh state automatically. Memoizing on `[selected]` alone would miss the entity change because selection doesn't change on a reorder.
+Move targets and `isFirst` / `isLast` flags are computed in the render body, NOT in `useMemo`. After a reorder, Immer produces new entity-map references that trigger a re-render, and inline computation picks up the fresh state. Memoizing on `[selected]` alone would miss the reorder because selection doesn't change on reorder.
