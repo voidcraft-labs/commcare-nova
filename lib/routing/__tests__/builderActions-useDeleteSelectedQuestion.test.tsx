@@ -169,7 +169,7 @@ describe("useDeleteSelectedQuestion", () => {
 
 	it("deleting a middle question selects the next sibling", () => {
 		const store = makeStore();
-		const { formUuid } = setFormUrl(store, Q_B);
+		setFormUrl(store, Q_B);
 
 		const { result } = renderHook(() => useDeleteSelectedQuestion(), {
 			wrapper: wrap(store),
@@ -187,7 +187,7 @@ describe("useDeleteSelectedQuestion", () => {
 
 	it("deleting the last question selects the previous sibling", () => {
 		const store = makeStore();
-		const { formUuid } = setFormUrl(store, Q_C);
+		setFormUrl(store, Q_C);
 
 		const { result } = renderHook(() => useDeleteSelectedQuestion(), {
 			wrapper: wrap(store),
