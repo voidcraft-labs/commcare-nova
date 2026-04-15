@@ -367,6 +367,15 @@ function ReplayHydrator({ replay }: { replay: ReplayInit }) {
 				applyStreamEvent(em.type, em.data, docStore, sessionStore);
 			}
 		}
+
+		/* Finalize the session lifecycle — the session store was seeded with
+		 * `loading: true` so `derivePhase` returned `Loading` on the first
+		 * render. Replay hydration is now complete (doc store populated,
+		 * replay script loaded), so clear the flag to transition the phase
+		 * to `Ready`. Mirrors `LoadAppHydrator` for existing-app loads —
+		 * without this, `BuilderLayout` stays stuck on its Loading skeleton
+		 * forever. */
+		sessionStore.getState().setLoading(false);
 	}, [replay, docStore, sessionStore]);
 
 	return null;
