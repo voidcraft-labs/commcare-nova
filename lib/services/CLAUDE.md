@@ -1,113 +1,89 @@
 # Services Layer
 
-## SA Agent
+## SA agent
 
-### Build Sequence
+### Build sequence
 
 `askQuestions → generateSchema → generateScaffold → addModule × N → addQuestions × N → validateApp`
 
-The SA makes all architecture and form design decisions. All tools are called directly — no sub-agents, no code execution.
+The SA makes all architecture and form-design decisions. All tools are called directly — no sub-agents, no code execution.
 
-### Tool Groups
+### Two tool groups: generation + shared
 
-Tools are split into `generationTools` and `sharedTools` in `solutionsArchitect.ts`:
+Tools split into a generation set (build mode only) and a shared set (all modes). When the app already exists, generation tools are excluded from the agent's kit — so edit mode can never accidentally re-create modules or scaffolds. Mutation tools return human-readable success strings, not JSON metadata, so the SA trusts its own edits without re-reading the blueprint.
 
-- **Generation** (3, build mode only): `generateSchema`, `generateScaffold`, `addModule` — SA calls with structured data, `strict: true`. Excluded in edit mode.
-- **Shared** (all modes):
-  - *Conversation* (1): `askQuestions` (client-side, rendered as QuestionCard)
-  - *Form Building* (1): `addQuestions` — batch-append with `stripEmpty → applyDefaults → buildQuestionTree`
-  - *Read* (4): `searchBlueprint`, `getModule`, `getForm`, `getQuestion`
-  - *Mutation* (10): `editQuestion`, `addQuestion`, `removeQuestion`, `updateModule`, `updateForm`, `createForm`, `removeForm`, `createModule`, `removeModule`
-  - *Validation* (1): `validateApp` — runs `validateAndFix()` loop
+### Prompt caching
 
-Mutation tools return human-readable success strings (not JSON metadata) so the SA trusts its own edits without re-reading.
+Request-level `cacheControl: { type: 'ephemeral' }` in the provider options. Anthropic automatically places the breakpoint on the last cacheable block and advances it as the conversation grows — the system prompt stays cached across requests within a session.
 
-### Prompt Caching
+Cache TTL is 5 minutes. The route uses a client-reported timestamp to choose the message strategy: within the window, full history is sent; after expiry, only the last user message goes (one-shot edit). Edit-vs-build mode is a separate decision — see root CLAUDE.md.
 
-`prepareStep` sets request-level `cacheControl: { type: 'ephemeral' }` in Anthropic provider options. The API automatically places the cache breakpoint on the last cacheable block and advances it as the conversation grows — the system prompt stays cached across all requests within a session. Cache TTL is 5 minutes — the route uses `lastResponseAt` from the client to control the message strategy: within the cache window, full conversation history is sent; after expiry, only the last user message is sent (one-shot). Edit vs. build mode is determined by `appReady` alone (see root CLAUDE.md).
+## Expander decisions
 
-## Expander Decisions
+### Vellum dual-attribute pattern
 
-### WAF Bypass (`client.ts` multipart padding)
+CommCare's Vellum editor requires both expanded XPath AND the original shorthand on every bind. Real attributes (`calculate`, `relevant`, `constraint`) get the expanded instance XPath; `vellum:` attributes preserve the original `#case/` and `#user/` shorthand. Every bind also gets `vellum:nodeset="#form/..."`. Without the Vellum attributes, reopening a form in Vellum shows raw instance paths instead of readable hashtag references.
 
-HQ's `import_app` API endpoint is missing the `waf_allow('XSS_BODY')` WAF exemption that all other XForms-handling endpoints have. AWS WAF scans the multipart request body for XSS patterns and returns a bare nginx 403 (`<center><h1>403 Forbidden</h1></center>`) when it finds XForms elements (`<input>`, `<select1>`, `<label>`) that look like HTML tags.
+### Bare hashtags in prose
 
-**Fix:** `importApp()` in `lib/commcare/client.ts` inserts a 16KB `waf_padding` form field before `app_file` in the multipart body. This pushes the JSON payload (which contains XForms XML in `_attachments`) past the WAF inspection window. Django ignores unknown POST fields. Do not remove the padding field or reorder it after `app_file`.
-
-**Gotcha:** CouchDB rejects keys prefixed with `_` as reserved special members. An earlier approach injecting `_waf_padding` into the JSON body itself hit this — the multipart form field approach avoids touching the JSON entirely.
-
-`applicationShell()` in `hqShells.ts` also places ~50 standard HQ Application properties before `_attachments` as secondary defense, but this alone is insufficient for small apps (1 module, 1 form can put `_attachments` as early as 5.5KB).
-
-### Vellum Dual-Attribute Pattern
-
-CommCare's Vellum editor requires both expanded XPath and the original shorthand on every bind. Real attributes (`calculate`, `relevant`, `constraint`) get the expanded instance XPath. Vellum attributes (`vellum:calculate`, `vellum:relevant`) preserve the original `#case/` and `#user/` shorthand. Every bind also gets `vellum:nodeset="#form/..."`. Without the Vellum attributes, reopening the form in Vellum would show raw instance paths instead of readable hashtag references.
-
-### Bare Hashtags in Prose
-
-`wrapBareHashtags()` uses regex, not the Lezer XPath parser, to find `#case/foo` in label/hint text. Labels are prose, not XPath — surrounding characters like `**` (markdown bold) get parsed as XPath multiplication operators by Lezer, swallowing the `#` and producing a garbled tree.
+Hashtag wrapping in label/hint text uses regex, NOT the Lezer XPath parser. Labels are prose, not XPath — surrounding characters like `**` (markdown bold) parse as XPath multiplication operators by Lezer, which swallows the `#` and produces a garbled tree.
 
 ### Markdown itext
 
-All itext entries (labels, hints, option labels) emit both `<value>` and `<value form="markdown">`. CommCare only renders markdown when the markdown form is present — without it, `**bold**` renders as literal text with asterisks. Safe for plain text: identical rendering when no markdown syntax is present.
+All itext entries (labels, hints, option labels) emit both `<value>` and `<value form="markdown">`. CommCare only renders markdown when the markdown form is present — without it, `**bold**` renders as literal asterisks. Safe for plain text: identical rendering when no markdown syntax is present.
 
-### Secondary Instances
+### Secondary instances
 
-`InstanceTracker` accumulates required instances (`casedb`, `commcaresession`) at the point of use during the build — `buildQuestionParts` scans XPath fields and labels, `buildConnectBlocks` scans Connect expressions. `casedb` implies `commcaresession` (case XPath uses session for case_id). No post-hoc string scanning — requirements are registered where binds are generated.
+Required instances (`casedb`, `commcaresession`) are accumulated at the point of use during the build: XPath field + label scans during question-part generation, Connect expression scans during connect-block generation. `casedb` implies `commcaresession` (case XPath uses session for case_id). No post-hoc string scanning — requirements are registered where binds are generated.
 
-## Error Flow
+## Error flow
 
-Three catch points cover the full surface: (1) route outer catch — errors from agent creation, (2) route inner catch — errors during stream consumption via the manual reader loop, (3) `generationContext.ts` wraps — errors from any LLM call, emits + re-throws. Both route-level catches delegate to `handleRouteError()` which classifies, emits `data-error`, and calls `failApp()` fire-and-forget (Firestore failure doesn't block the error response).
+Three catch points cover the full surface:
 
-## Validation Gap Inventory
+1. Route outer catch — errors from agent creation
+2. Route inner catch — errors during stream consumption via the manual reader loop
+3. Generation-context wrap — errors from any LLM call (emits + re-throws)
 
-### HQ Build Checks NOT Covered
+Both route-level catches delegate to a shared error handler that classifies, emits an error data part, and calls the fail-app function fire-and-forget (Firestore failure must not block the error response).
 
-Add validation for these when we build the corresponding features:
+## Session & navigation quirks
 
-- **Shadow modules** — HQ validates source module exists, shadow parent tags present. Source: `validators.py:927-936`
-- **Parent select / child module cycles** — HQ checks circular parent_select and root_module references between modules. Source: `validators.py:225-250`. We only check within-form cycles currently
-- **Case search config** — HQ validates search nodeset instances, grouped vs ungrouped properties, search_on_clear + auto_select conflicts. Source: `validators.py:511-557`
-- **Case tile configuration** — HQ validates tile templates, row conflicts, address formats, clickable icons. Source: `validators.py:656-715`
-- **Smart links** — HQ validates endpoint presence, conflicts with parent select / multi-select / inline search. Source: `validators.py:435-466`
-- **Case list field actions** — HQ validates endpoint_action_id references resolve. Source: `validators.py:559-572`
-- **Sort field format** — HQ validates case list sort fields match a specific regex. Source: `validators.py:630-642`
-- **Multimedia references** — HQ validates multimedia attachments exist. Not relevant until we support image/audio in case details
-- **Multi-language** — HQ validates no empty language codes, itext for all languages. We only generate English currently
-- **Itemset validation** — FormPlayer validates itemset nodeset/label/copy/value relationships. Source: `XFormParser.java:2554-2619`. Relevant for dynamic select lists from lookup tables
-- **Repeat homogeneity** — FormPlayer validates all repeated nodes are structurally identical. Source: `XFormParser.java:2383`. Our generator produces uniform repeats, but should validate if we ever allow manual XForm editing
+### `post_submit` defaults
 
-## Session & Navigation
+Controls where the user lands after form submit. Three user-facing values: `app_home`, `module` (this module), `previous`. Two internal values exist for CommCare export fidelity: `root` (for `put_in_root`) and `parent_module` (nested modules). Form-type defaults when absent: followup/close → `previous`, registration/survey → `app_home`. The SA only sets `post_submit` when overriding the default.
 
-### Post-Submit Overview
+### Form links
 
-`post_submit` on forms controls where the user goes after submission. Three user-facing choices: `app_home` (App Home), `module` (This Module), `previous` (Previous Screen). Two internal-only values exist for future CommCare export fidelity: `root` (for `put_in_root`) and `parent_module` (for nested modules). Form-type-aware defaults when absent: followup/close → `previous`, registration/survey → `app_home` (`defaultPostSubmit()` in `blueprint.ts`). The SA only needs to set `post_submit` when overriding the default.
+`form_links` on a form enables conditional navigation: `condition?` (XPath) + `target` (form or module by index) + optional `datums` overrides. Evaluation order: first matching condition wins; `post_submit` is the fallback. Fully validated (target existence, self-reference, cycles, missing fallback, empty array). Setting `form_links` directly on the blueprint generates correct suite.xml — the SA tool surface and HQ export (unique-id mapping) are not yet wired.
 
-### `put_in_root` Impact (Not Yet Modeled)
+## Not-yet-implemented (watch when adding features)
 
-CommCare's `put_in_root` boolean flattens navigation — module forms appear at the parent menu level. When this is added:
+HQ build checks we DON'T cover — add when the corresponding feature lands:
 
-1. `'module'` becomes invalid (there IS no module menu). HQ errors: "form link to display only forms."
-2. `'root'` and `'app_home'` diverge: `'root'` shows the root menu (includes flattened forms), `'app_home'` clears the session entirely.
-3. `'parent_module'` with a `put_in_root` parent is also invalid.
-4. Validation should auto-resolve `'module'` → `'root'` for `put_in_root` modules.
-5. Surface `'root'` as a separate UI option ("Main Menu" vs "App Home") only when `put_in_root` modules exist.
+- Shadow modules (source module existence, shadow parent tags)
+- Parent-select / child-module cycles between modules (we only check within-form cycles)
+- Case-search config (search nodeset instances, grouped/ungrouped properties, search_on_clear + auto_select conflicts)
+- Case tile configuration (tile templates, row conflicts, address formats)
+- Smart links (endpoint presence, conflicts with parent select / multi-select / inline search)
+- Case list field actions (endpoint_action_id resolution)
+- Sort field format regex
+- Multimedia attachments (once image/audio is supported)
+- Multi-language (once non-English is generated)
+- Itemset nodeset/label/copy/value relationships (dynamic select lists from lookup tables)
+- Repeat homogeneity (structurally identical repeated nodes — relevant if we ever allow manual XForm editing)
 
-### Validated But Not Yet Modeled
+Validation stubs that activate when features land:
 
-Validation stubs exist that will activate when features are added:
-
-- `parent_module` + `root_module` — always errors today (parent modules not modeled). When `root_module` is added, check parent exists AND parent is not `put_in_root`
+- `parent_module` + `root_module` — errors today because parent modules aren't modeled; when `root_module` is added, check parent exists AND parent is not `put_in_root`
 - `previous` + `multi_select` — HQ errors on mismatched multi-select between module and root module
 - `previous` + `inline_search` — HQ errors when a followup form's module uses inline search (search results can't be restored)
 
-### Not Yet Implemented
+### `put_in_root` impact (not yet modeled)
 
-- **Auto datum matching** for form links — manual `datums` required. HQ's `_find_best_match()` matches by ID + case_type; must handle same-ID/same-type, different-ID/same-type, and surface warnings rather than silent fallback
-- **Shadow module resolution** for form link targets (`form_module_id` in HQ)
-- **`<push>` / `<clear>` stack operations** — typed but never generated
-- **Form link export to HQ JSON** — `form_links` generates correct suite.xml and passes validation, but `hqShells.ts` still exports empty `form_links: []`. Must map index-based targets to HQ's unique_id-based identifiers
-- **SA tool + UI surface for form links** — `updateForm`/`createForm` don't accept `form_links`, `FormSettingsPanel` doesn't display them, preview engine doesn't navigate to linked forms
+`put_in_root` flattens navigation (module forms appear at parent menu level). When it's added:
 
-### Form Links
-
-`form_links` on BlueprintForm enables conditional navigation. Each link has `condition?` (XPath), `target` (form or module by index), and optional `datums` overrides. Evaluation order: first matching condition wins; `post_submit` is the fallback. **Fully validated** (target existence, self-reference, cycles, missing fallback, empty array). Setting `form_links` directly on the blueprint generates correct suite.xml — just not wired to SA tools or UI.
+1. `'module'` becomes invalid (no module menu). HQ errors: "form link to display only forms."
+2. `'root'` and `'app_home'` diverge: `'root'` shows the root menu (incl. flattened forms); `'app_home'` clears session.
+3. `'parent_module'` with a `put_in_root` parent is invalid.
+4. Validation should auto-resolve `'module'` → `'root'` for `put_in_root` modules.
+5. Surface `'root'` as a separate UI option ("Main Menu" vs "App Home") only when `put_in_root` modules exist.
