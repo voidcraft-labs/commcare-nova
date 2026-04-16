@@ -20,7 +20,7 @@
 import { renderHook } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { describe, expect, it } from "vitest";
-import { BuilderProvider } from "@/hooks/useBuilder";
+import { BuilderProvider } from "@/components/builder/BuilderProvider";
 import type { AppBlueprint } from "@/lib/schemas/blueprint";
 import { useInReplayMode, useIsLoading } from "@/lib/session/hooks";
 import type { ReplayStage } from "@/lib/session/types";

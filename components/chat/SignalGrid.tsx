@@ -12,8 +12,8 @@ import {
 } from "@/lib/services/normalizedState";
 import { type QuestionPath, qpathId } from "@/lib/services/questionPath";
 import { flatIndexById } from "@/lib/services/questionTree";
+import type { BuilderSessionStoreApi } from "@/lib/session/provider";
 import { useBuilderSessionApi } from "@/lib/session/provider";
-import type { BuilderSessionStoreApi } from "@/lib/session/store";
 import { computeEditFocus } from "@/lib/signalGrid/editFocus";
 import { signalGrid } from "@/lib/signalGrid/store";
 import type { SignalGridController } from "@/lib/signalGridController";

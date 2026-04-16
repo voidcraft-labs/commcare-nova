@@ -6,8 +6,8 @@ import tablerFilePlus from "@iconify-icons/tabler/file-plus";
 import { motion } from "motion/react";
 import { useCallback, useState } from "react";
 import { EditableTitle, SavedCheck } from "@/components/builder/EditableTitle";
-import { useModule } from "@/hooks/useBuilder";
 import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
+import { useModule as useModuleEntity } from "@/lib/doc/hooks/useEntity";
 import { useOrderedForms } from "@/lib/doc/hooks/useModuleIds";
 import type { Uuid } from "@/lib/doc/types";
 import type { PreviewScreen } from "@/lib/preview/engine/types";
@@ -41,7 +41,7 @@ export function ModuleScreen({ screen }: ModuleScreenProps) {
 	/** Module uuid from the URL — used for uuid-first mutations and navigation. */
 	const moduleUuid = loc.kind === "module" ? loc.moduleUuid : undefined;
 
-	const mod = useModule(moduleIndex);
+	const mod = useModuleEntity(moduleUuid as Uuid);
 	const forms = useOrderedForms((moduleUuid ?? "") as Uuid);
 
 	const [saved, setSaved] = useState(false);

@@ -22,11 +22,11 @@ import {
 import { BuilderPhase } from "@/lib/services/builder";
 import { computeScaffoldProgress } from "@/lib/services/scaffoldProgress";
 import { useBuilderPhase, useSetSidebarOpen } from "@/lib/session/hooks";
+import type { BuilderSessionStoreApi } from "@/lib/session/provider";
 import {
 	useBuilderSessionApi,
 	useBuilderSessionShallow,
 } from "@/lib/session/provider";
-import type { BuilderSessionStoreApi } from "@/lib/session/store";
 import { GenerationStage } from "@/lib/session/types";
 import { signalGrid } from "@/lib/signalGrid/store";
 import {

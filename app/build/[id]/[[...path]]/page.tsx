@@ -22,7 +22,7 @@
 import { notFound, redirect } from "next/navigation";
 import { Suspense } from "react";
 import { BuilderLayout } from "@/components/builder/BuilderLayout";
-import { BuilderProvider } from "@/hooks/useBuilder";
+import { BuilderProvider } from "@/components/builder/BuilderProvider";
 import { getSession } from "@/lib/auth-utils";
 import { loadApp } from "@/lib/db/apps";
 import { getCommCareSettings } from "@/lib/db/settings";

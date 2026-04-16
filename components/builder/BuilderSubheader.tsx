@@ -19,11 +19,11 @@ import type { BreadcrumbPart } from "@/components/builder/SubheaderToolbar";
 import { CollapsibleBreadcrumb } from "@/components/builder/SubheaderToolbar";
 import { ScreenNavButtons } from "@/components/preview/ScreenNavButtons";
 import { Tooltip } from "@/components/ui/Tooltip";
-import { useBuilderHasData } from "@/hooks/useBuilder";
 import {
 	useBlueprintDoc,
 	useBlueprintDocTemporal,
 } from "@/lib/doc/hooks/useBlueprintDoc";
+import { useDocHasData } from "@/lib/doc/hooks/useDocHasData";
 import { shortcutLabel } from "@/lib/platform";
 import { useUndoRedo } from "@/lib/routing/builderActions";
 import { useBreadcrumbs, useLocation, useNavigate } from "@/lib/routing/hooks";
@@ -43,7 +43,7 @@ export function BuilderSubheader({
 	commcareConfigured,
 	commcareDomain,
 }: BuilderSubheaderProps) {
-	const hasData = useBuilderHasData();
+	const hasData = useDocHasData();
 	const isReady = useBuilderIsReady();
 
 	/* Navigation state from URL — replaces legacy store selectors. */

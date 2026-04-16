@@ -7,9 +7,10 @@
 "use client";
 import { useState } from "react";
 import { BuilderLayout } from "@/components/builder/BuilderLayout";
-import { BuilderProvider, type ReplayInit } from "@/hooks/useBuilder";
+import { BuilderProvider } from "@/components/builder/BuilderProvider";
 import type { StoredEvent } from "@/lib/db/types";
 import { extractReplayStages } from "@/lib/services/logReplay";
+import type { ReplayInit } from "@/lib/session/types";
 
 interface ReplayBuilderProps {
 	/** Raw event log from Firestore, pre-ordered by sequence. */
