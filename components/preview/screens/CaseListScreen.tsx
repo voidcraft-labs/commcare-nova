@@ -4,7 +4,6 @@ import { useMemo } from "react";
 import { useBlueprintDoc } from "@/lib/doc/hooks/useBlueprintDoc";
 import { useCaseTypes } from "@/lib/doc/hooks/useCaseTypes";
 import { useModule as useModuleEntity } from "@/lib/doc/hooks/useEntity";
-import type { Uuid } from "@/lib/doc/types";
 import { getDummyCases } from "@/lib/preview/engine/dummyData";
 import type { PreviewScreen } from "@/lib/preview/engine/types";
 import { useLocation, useNavigate } from "@/lib/routing/hooks";
@@ -12,14 +11,11 @@ import { useLocation, useNavigate } from "@/lib/routing/hooks";
 interface CaseListScreenProps {
 	/** This screen's identity — which module the case list belongs to.
 	 *  Passed from PreviewShell so the component remains valid while Activity
-	 *  hides it. Index-based for downstream consumers that haven't been
-	 *  migrated to uuid-first yet. */
+	 *  hides it. */
 	screen: Extract<PreviewScreen, { type: "caseList" }>;
 }
 
-export function CaseListScreen({ screen }: CaseListScreenProps) {
-	const moduleIndex = screen.moduleIndex;
-
+export function CaseListScreen({ screen: _screen }: CaseListScreenProps) {
 	const loc = useLocation();
 	const navigate = useNavigate();
 	const caseTypes = useCaseTypes();
@@ -43,7 +39,7 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 		firstFormUuid ? s.forms[firstFormUuid]?.name : undefined,
 	);
 
-	const mod = useModuleEntity(moduleUuid as Uuid);
+	const mod = useModuleEntity(moduleUuid);
 	const caseType = caseTypes.find((ct) => ct.name === mod?.caseType);
 	const columns = mod?.caseListColumns ?? [];
 

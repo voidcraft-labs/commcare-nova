@@ -9,7 +9,6 @@ import { useBlueprintDoc } from "@/lib/doc/hooks/useBlueprintDoc";
 import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
 import { useDocHasData } from "@/lib/doc/hooks/useDocHasData";
 import { useOrderedModules } from "@/lib/doc/hooks/useModuleIds";
-import type { Uuid } from "@/lib/doc/types";
 import { useNavigate } from "@/lib/routing/hooks";
 import { useBuilderIsReady, useEditMode } from "@/lib/session/hooks";
 
@@ -55,7 +54,7 @@ export function HomeScreen() {
 			</div>
 			<div className="grid gap-3">
 				{modules.map((mod, mIdx) => {
-					const formCount = formOrder[mod.uuid as Uuid]?.length ?? 0;
+					const formCount = formOrder[mod.uuid]?.length ?? 0;
 					return (
 						<motion.button
 							key={mod.uuid}

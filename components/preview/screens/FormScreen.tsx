@@ -69,8 +69,8 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 		setTimeout(() => setTitleSaved(false), 1500);
 	}, []);
 
-	const mod = useModuleEntity(moduleUuid as Uuid);
-	const form = useFormEntity(formUuid as Uuid);
+	const mod = useModuleEntity(moduleUuid);
+	const form = useFormEntity(formUuid);
 
 	/** The form's uuid doubles as the entity key for FormRenderer, which
 	 *  subscribes to `questionOrder[formUuid]` for the ordered child list.
