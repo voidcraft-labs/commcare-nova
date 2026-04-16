@@ -25,8 +25,23 @@ export function ErrorReporter() {
 		/**
 		 * Global error handler — fires on uncaught synchronous JS errors.
 		 * The ErrorEvent includes the error object with its stack trace.
+		 *
+		 * Filters out browser-synthesized warnings that surface as ErrorEvents
+		 * but aren't real exceptions — most notably "ResizeObserver loop
+		 * completed with undelivered notifications." Chromium dispatches those
+		 * with no underlying Error object and no filename, unlike real thrown
+		 * errors which always carry an Error instance. Same heuristic Sentry
+		 * and similar reporters use.
+		 *
+		 * Caveat: cross-origin scripts loaded without `crossorigin="anonymous"`
+		 * also have their error info stripped to this shape by CORS, so those
+		 * would be dropped too. We don't currently load any, and if we do the
+		 * correct fix is the script tag, not the reporter.
 		 */
 		function handleError(event: ErrorEvent) {
+			const isSynthesizedWarning = !event.error && !event.filename;
+			if (isSynthesizedWarning) return;
+
 			reportClientError({
 				message: event.message || "Unknown error",
 				stack: event.error?.stack,
