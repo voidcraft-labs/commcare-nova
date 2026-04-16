@@ -86,6 +86,6 @@ describe("useSearchBlueprint", () => {
 		// Search for "age" should match the question id "age" and its label.
 		const ageHits = search("age");
 		expect(ageHits.length).toBeGreaterThan(0);
-		expect(ageHits.some((r) => r.type === "question")).toBe(true);
+		expect(ageHits.some((r) => r.type === "field")).toBe(true);
 	});
 });
