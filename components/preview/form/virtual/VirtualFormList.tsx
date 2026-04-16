@@ -1,33 +1,37 @@
 /**
  * VirtualFormList — virtualized flat-row renderer for edit-mode forms.
  *
- * Replaces the recursive `FormRenderer` → `GroupField`/`RepeatField` →
- * `FormRenderer` (nested) tree with a single flat virtualizer fed by the
- * row model. Only rows in the visible range (plus overscan + the pinned
- * selected row) are mounted, which turns the form-open mount storm from
- * `O(questions)` components into `O(viewport)` components.
+ * Performance model: only rows in the visible range (plus overscan +
+ * the pinned selected row) are mounted, which turns the form-open mount
+ * storm from `O(questions)` components into `O(viewport)` components.
  *
- * Ownership:
- *   - Scroll container (single `overflow: auto` div).
- *   - `useVirtualizer` instance, row-size estimates, measurement cache.
- *   - `rangeExtractor` that pins the selected question's row.
- *   - `DragDropProvider` wrapping the rendered rows so every sortable
- *     registered by a `QuestionRow` / `GroupOpenRow` in view shares one
- *     drag session.
- *   - Drag lifecycle: items-map build on start, `move()`-based updates
- *     on over, mutation + unfreeze on end. Rows are frozen while a drag
- *     is active so the virtualizer doesn't reshuffle the mounted set
- *     underneath dnd-kit.
- *   - Cursor-velocity tracking for insertion points' hover gating.
- *   - Shared question-picker menu handle (the Base UI `Menu.Root`).
+ * Drag-and-drop uses pragmatic-drag-and-drop (browser-native drag).
+ * The row list stays completely stable during a drag — no array
+ * reordering, no preview order, no virtualizer recalculation. Each
+ * drop-target row renders a `position: absolute` indicator on its
+ * closest edge (top or bottom) showing where the item will land. The
+ * indicator lives inside the 24px insertion-point gap, so it's visible
+ * without pushing any content around. The real mutation fires once on
+ * drop; the virtualizer recalculates once at that point.
+ *
+ * This component owns:
+ *   - The scroll container ref + `useVirtualizer` instance.
+ *   - A single `monitorForElements` that handles drag lifecycle:
+ *     `onDragStart` → clear selection + set dragActive,
+ *     `onDrop`      → apply mutation + select dropped field + clear drag.
+ *   - `autoScrollForElements` on the scroll container.
+ *   - Cursor-velocity tracking for insertion-point hover gating.
+ *   - The shared question-picker Base UI `Menu.Root`.
  */
 
 "use client";
+import {
+	dropTargetForElements,
+	monitorForElements,
+} from "@atlaskit/pragmatic-drag-and-drop/element/adapter";
+import { autoScrollForElements } from "@atlaskit/pragmatic-drag-and-drop-auto-scroll/element";
+import { extractClosestEdge } from "@atlaskit/pragmatic-drag-and-drop-hitbox/closest-edge";
 import { Menu } from "@base-ui/react/menu";
-import { PointerActivationConstraints } from "@dnd-kit/dom";
-import { RestrictToElement } from "@dnd-kit/dom/modifiers";
-import { move } from "@dnd-kit/helpers";
-import { DragDropProvider, DragOverlay, PointerSensor } from "@dnd-kit/react";
 import {
 	defaultRangeExtractor,
 	type Range,
@@ -45,22 +49,23 @@ import {
 import { DragStateProvider } from "@/components/builder/contexts/DragStateContext";
 import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
 import { notifyMoveRename } from "@/lib/doc/mutations/notify";
-import type { MoveQuestionResult } from "@/lib/doc/mutations/questions";
 import { BlueprintDocContext } from "@/lib/doc/provider";
 import { asUuid, type Uuid } from "@/lib/doc/types";
 import { useSelect, useSelectedQuestion } from "@/lib/routing/hooks";
-import type { NQuestion } from "@/lib/services/normalizedState";
 import {
 	QuestionPickerContext,
 	type QuestionPickerPayload,
 } from "../QuestionPickerContext";
 import { QuestionTypePickerPopup } from "../QuestionTypePicker";
 import {
-	DragReorderContext,
-	type DragReorderState,
-} from "./DragReorderContext";
+	isDraggableQuestionData,
+	isUuidInSubtree,
+	readDropTargetData,
+	targetContainerUuidFor,
+} from "./dragData";
 import type { FormRow } from "./rowModel";
 import {
+	depthPadding,
 	EMPTY_CONTAINER_HEIGHT_PX,
 	GROUP_BRACKET_HEIGHT_PX,
 	INSERTION_REST_HEIGHT_PX,
@@ -70,47 +75,18 @@ import { GroupCloseRow, GroupOpenRow } from "./rows/GroupBracket";
 import { InsertionPointRow } from "./rows/InsertionPointRow";
 import { QuestionRow } from "./rows/QuestionRow";
 import { useFormRows } from "./useFormRows";
-import {
-	CONTAINER_SUFFIX,
-	ROOT_GROUP,
-	VirtualFormProvider,
-} from "./VirtualFormContext";
+import { VirtualFormProvider } from "./VirtualFormContext";
 
 // ── Constants ─────────────────────────────────────────────────────────
 
-/** Default (unmeasured) height for question rows. Real heights replace
- *  this via `measureElement` + ResizeObserver. */
 const QUESTION_DEFAULT_HEIGHT_PX = 80;
-
-/** Rows above/below the visible range to keep mounted. Cheap insurance
- *  for fast drag-to-edge scrolling and for dnd-kit drop-zone collision
- *  at the edges of the viewport. */
 const OVERSCAN = 10;
-
-/** EMA smoothing factor for cursor velocity (matches the legacy
- *  FormRenderer — lower = smoother tracking). */
 const CURSOR_EMA_ALPHA = 0.01;
-/** After this idle time (ms), EMA resets to the raw speed instead of
- *  smoothing — prevents stale EMA after a long pause. */
 const CURSOR_GAP_RESET_MS = 5000;
-
-// ── Sensor config ─────────────────────────────────────────────────────
-
-/** 5px pointer distance before drag activates — same threshold the
- *  legacy FormRenderer used to distinguish click from drag. */
-const SENSORS = [
-	PointerSensor.configure({
-		activationConstraints: [
-			new PointerActivationConstraints.Distance({ value: 5 }),
-		],
-	}),
-];
 
 // ── Props ─────────────────────────────────────────────────────────────
 
 interface VirtualFormListProps {
-	/** The form's uuid — root parent of the flat row walk and the key used
-	 *  to disambiguate root-level sortables from nested ones. */
 	readonly formUuid: Uuid;
 }
 
@@ -119,17 +95,13 @@ interface VirtualFormListProps {
 export const VirtualFormList = memo(function VirtualFormList({
 	formUuid,
 }: VirtualFormListProps) {
-	// The BlueprintDoc store — needed for imperative reads during drag
-	// lifecycle (items-map build, parent lookup on drop). We don't
-	// subscribe to the entity maps here; drags are a snapshot.
 	const docStore = useContext(BlueprintDocContext);
 	const { moveQuestion } = useBlueprintMutations();
 	const select = useSelect();
 	const selectedQuestion = useSelectedQuestion();
 
-	// Collapse state is local to this list — no reason to pay for global
-	// Zustand storage; expanding/collapsing doesn't need to survive
-	// remounts. If users complain we can promote to BuilderSession later.
+	// ── Collapse ──────────────────────────────────────────────────────
+
 	const [collapsed, setCollapsed] = useState<Set<Uuid>>(() => new Set<Uuid>());
 	const toggleCollapse = useCallback((uuid: Uuid) => {
 		setCollapsed((prev) => {
@@ -144,33 +116,62 @@ export const VirtualFormList = memo(function VirtualFormList({
 		[collapsed],
 	);
 
-	// Drag state — owned here so the entire drag lifecycle coordinates
-	// with row freezing + virtualizer pinning in one place.
-	const [dragState, setDragState] = useState<DragReorderState | null>(null);
+	// ── Drag state ───────────────────────────────────────────────────
+
 	const [dragActive, setDragActive] = useState(false);
-	const isDragging = dragState !== null;
 
-	// Mirror `dragState` into a ref so `handleDragEnd` can read the
-	// latest value without being recreated on every `onDragOver` tick.
-	// Without this, updating dragState on each over event would create a
-	// fresh handler identity and force the DragDropProvider to rebind
-	// listeners repeatedly during a drag.
-	const dragStateRef = useRef<DragReorderState | null>(null);
-	dragStateRef.current = dragState;
+	// Index in the `rows` array where a synthetic placeholder row is
+	// spliced during drag. `null` outside of a drag or when the cursor
+	// isn't over a valid drop target. Only changes when the drop target
+	// changes (not every pixel), so the virtualizer recalculates at
+	// most a few times per second during a drag.
+	const [placeholderIndex, setPlaceholderIndex] = useState<number | null>(null);
+	// Dedup ref — the row-index we last set, so `onDrag` (60fps) only
+	// calls `setPlaceholderIndex` when the target actually changes.
+	const lastPlaceholderRef = useRef<number | null>(null);
+	// Depth of the placeholder — drives indentation.
+	const placeholderDepthRef = useRef(0);
+	// The dragged item's uuid — used for no-op detection on drop.
+	const dragSourceUuidRef = useRef<string | null>(null);
+	// The resolved drop intent — stored by `onDrag` so `onDrop` can
+	// use the SAME position the user saw, even if the cursor is over
+	// dead space (the placeholder gap) at drop time.
+	const pendingDropRef = useRef<{
+		drop: ReturnType<typeof readDropTargetData>;
+		edge: ReturnType<typeof extractClosestEdge>;
+	} | null>(null);
 
-	// Flat rows — frozen while a drag is in flight so the virtualizer
-	// doesn't remount rows underneath dnd-kit.
-	const rows = useFormRows({
+	// ── Rows ─────────────────────────────────────────────────────────
+
+	const baseRows = useFormRows({
 		formUuid,
 		includeInsertionPoints: true,
 		collapsed,
-		frozen: isDragging,
 	});
+	// Mirror into a ref so the monitor's onDrag can read the latest
+	// rows without being in the effect's dependency array (which would
+	// re-register the monitor on every row change).
+	const baseRowsRef = useRef(baseRows);
+	baseRowsRef.current = baseRows;
 
-	// The selected-row index, used by the rangeExtractor to pin it into
-	// the mounted range so the inline settings panel stays alive when
-	// the user scrolls far enough to push the selected row out of view.
-	// Computed via findIndex once per rows-reference change.
+	// REPLACE the insertion row at the drop position with a taller
+	// placeholder. The row count stays the same, every other row keeps
+	// its index + key, and the virtualizer only needs to remeasure the
+	// one swapped slot. The height difference (60px vs 24px) pushes
+	// rows below apart, opening a visible gap.
+	const rows: FormRow[] = useMemo(() => {
+		if (placeholderIndex === null) return baseRows;
+		const cloned = [...baseRows];
+		cloned[placeholderIndex] = {
+			kind: "drop-placeholder",
+			id: "__drop-placeholder__",
+			depth: placeholderDepthRef.current,
+		};
+		return cloned;
+	}, [baseRows, placeholderIndex]);
+
+	// ── Selected-row pinning ─────────────────────────────────────────
+
 	const selectedIndex = useMemo(() => {
 		const uuid = selectedQuestion?.uuid;
 		if (!uuid) return -1;
@@ -181,9 +182,12 @@ export const VirtualFormList = memo(function VirtualFormList({
 		return -1;
 	}, [rows, selectedQuestion?.uuid]);
 
-	// ── Virtualizer wiring ────────────────────────────────────────────
+	// ── Virtualizer wiring ───────────────────────────────────────────
 
 	const scrollerRef = useRef<HTMLDivElement | null>(null);
+
+	/** Height for the placeholder row — matches a typical question. */
+	const DROP_PLACEHOLDER_HEIGHT_PX = 60;
 
 	const estimateSize = useCallback(
 		(index: number): number => {
@@ -197,6 +201,8 @@ export const VirtualFormList = memo(function VirtualFormList({
 					return GROUP_BRACKET_HEIGHT_PX;
 				case "empty-container":
 					return EMPTY_CONTAINER_HEIGHT_PX;
+				case "drop-placeholder":
+					return DROP_PLACEHOLDER_HEIGHT_PX;
 				case "question":
 					return QUESTION_DEFAULT_HEIGHT_PX;
 			}
@@ -210,9 +216,6 @@ export const VirtualFormList = memo(function VirtualFormList({
 			if (selectedIndex < 0) return base;
 			if (selectedIndex >= range.startIndex && selectedIndex <= range.endIndex)
 				return base;
-			// Pin the selected row by merging its index with the default set
-			// and re-sorting. The returned array must be sorted ascending or
-			// the virtualizer's translateY accounting breaks.
 			const set = new Set(base);
 			set.add(selectedIndex);
 			return Array.from(set).sort((a, b) => a - b);
@@ -220,8 +223,6 @@ export const VirtualFormList = memo(function VirtualFormList({
 		[selectedIndex],
 	);
 
-	// Row identity — stable key per row (uuid-derived or positional-
-	// derived via the walker) so measured heights survive reorder.
 	const getItemKey = useCallback(
 		(index: number): string => rows[index]?.id ?? String(index),
 		[rows],
@@ -236,18 +237,301 @@ export const VirtualFormList = memo(function VirtualFormList({
 		getItemKey,
 	});
 
-	// ── Drag-overlay modifier ────────────────────────────────────────
+	// ── Auto-scroll ──────────────────────────────────────────────────
 
-	const modifiers = useMemo(
-		() => [
-			RestrictToElement.configure({
-				element: () => scrollerRef.current,
-			}),
-		],
-		[],
-	);
+	useEffect(() => {
+		const el = scrollerRef.current;
+		if (!el) return;
+		return autoScrollForElements({
+			element: el,
+			canScroll: ({ source }) => isDraggableQuestionData(source.data),
+			getAllowedAxis: () => "vertical",
+		});
+	}, []);
 
-	// ── Cursor-speed tracking ────────────────────────────────────────
+	// ── Global monitor — drag lifecycle ──────────────────────────────
+	// `onDragStart` clears selection + enables drag mode.
+	// `onDrag` computes the placeholder row index from the hovered
+	//   drop target — only fires setState when the index changes.
+	// `onDrop` applies the mutation + selects the dropped field.
+
+	useEffect(() => {
+		const docs = docStore;
+		if (!docs) return;
+		return monitorForElements({
+			canMonitor: ({ source }) => isDraggableQuestionData(source.data),
+
+			onDragStart: ({ source }) => {
+				setDragActive(true);
+				lastPlaceholderRef.current = null;
+				pendingDropRef.current = null;
+				document.body.style.cursor = "grabbing";
+				// Stash the source uuid so onDrop can detect no-op drops
+				// (dropped at the same position).
+				if (isDraggableQuestionData(source.data)) {
+					dragSourceUuidRef.current = source.data.uuid;
+				}
+				select(undefined);
+			},
+
+			onDrag: ({ source, location }) => {
+				if (!isDraggableQuestionData(source.data)) return;
+				const dragUuid = source.data.uuid;
+
+				const innermost = location.current.dropTargets[0];
+				// When the cursor is over dead space (the insertion gap
+				// between rows, which has no drop target), keep the last
+				// valid placeholder position. Clearing it would cause the
+				// gap to collapse → rows shift → cursor re-enters a row →
+				// gap re-opens → infinite flicker loop.
+				if (!innermost) return;
+				const drop = readDropTargetData(innermost.data);
+				if (!drop) return;
+
+				// Cycle guard — no placeholder for illegal drops.
+				const targetContainer = targetContainerUuidFor(drop);
+				if (
+					isUuidInSubtree(
+						docs.getState().questionOrder as Record<string, readonly string[]>,
+						dragUuid,
+						targetContainer,
+					)
+				) {
+					if (lastPlaceholderRef.current !== null) {
+						lastPlaceholderRef.current = null;
+						setPlaceholderIndex(null);
+					}
+					return;
+				}
+
+				// Find the INSERTION ROW that corresponds to the drop
+				// position. The row model interleaves insertion rows
+				// between every pair of question/group rows:
+				//   ins(0), Q(A), ins(1), Q(B), ins(2)
+				// "top of B" and "bottom of A" both resolve to ins(1).
+				// By targeting the insertion row, we:
+				//   1. Place the placeholder in the natural gap (not
+				//      kissing the question border).
+				//   2. Eliminate edge thrashing — both edges of the
+				//      boundary resolve to the same insertion row index.
+				const edge = extractClosestEdge(innermost.data);
+				const br = baseRowsRef.current;
+				let insertionRowIndex = -1;
+				let insertionDepth = 0;
+
+				switch (drop.kind) {
+					case "drop-question": {
+						// Find the question row, then look for the adjacent
+						// insertion row on the correct side. Group-open rows
+						// never carry `drop-question` data (they use
+						// `drop-group-header`), so only match `question` here.
+						for (let i = 0; i < br.length; i++) {
+							const r = br[i];
+							const isTarget = r.kind === "question" && r.uuid === drop.uuid;
+							if (!isTarget) continue;
+
+							if (edge === "top") {
+								// Look backward for the insertion row before this question.
+								for (let j = i - 1; j >= 0; j--) {
+									if (br[j].kind === "insertion") {
+										insertionRowIndex = j;
+										insertionDepth = br[j].depth;
+										break;
+									}
+								}
+							} else {
+								// "bottom" or null — look forward for the insertion
+								// row after this question (skipping group-close, etc.).
+								for (let j = i + 1; j < br.length; j++) {
+									if (br[j].kind === "insertion") {
+										insertionRowIndex = j;
+										insertionDepth = br[j].depth;
+										break;
+									}
+								}
+							}
+							break;
+						}
+						break;
+					}
+					case "drop-group-header": {
+						// The first insertion row inside the group — the one
+						// immediately after the group-open row.
+						for (let i = 0; i < br.length; i++) {
+							const r = br[i];
+							if (r.kind === "group-open" && r.uuid === drop.uuid) {
+								// The next row should be an insertion at depth+1.
+								if (i + 1 < br.length && br[i + 1].kind === "insertion") {
+									insertionRowIndex = i + 1;
+									insertionDepth = br[i + 1].depth;
+								}
+								break;
+							}
+						}
+						break;
+					}
+					case "drop-empty-container": {
+						// Target the empty-container row itself.
+						for (let i = 0; i < br.length; i++) {
+							const r = br[i];
+							if (
+								r.kind === "empty-container" &&
+								r.parentUuid === drop.parentUuid
+							) {
+								insertionRowIndex = i;
+								insertionDepth = r.depth;
+								break;
+							}
+						}
+						break;
+					}
+				}
+
+				if (insertionRowIndex < 0) return;
+
+				// Suppress placeholder when it would appear adjacent to
+				// the source (same position = no-op drop). Check if the
+				// source row is immediately before or after this insertion.
+				{
+					// Suppress placeholder when it would appear adjacent
+					// to the source (same position = no-op drop). Check
+					// the rows immediately before/after the insertion row
+					// for any row that belongs to the dragged item.
+					const br = baseRowsRef.current;
+					const before =
+						insertionRowIndex > 0 ? br[insertionRowIndex - 1] : null;
+					const after =
+						insertionRowIndex < br.length - 1
+							? br[insertionRowIndex + 1]
+							: null;
+					const isSource = (r: FormRow | null): boolean => {
+						if (!r) return false;
+						if (r.kind === "question" && r.uuid === dragUuid) return true;
+						if (r.kind === "group-open" && r.uuid === dragUuid) return true;
+						// group-close trailing a dragged group — the row
+						// before the insertion is the group's close bracket.
+						if (r.kind === "group-close" && r.uuid === dragUuid) return true;
+						return false;
+					};
+					if (isSource(before) || isSource(after)) {
+						if (lastPlaceholderRef.current !== null) {
+							lastPlaceholderRef.current = null;
+							pendingDropRef.current = null;
+							setPlaceholderIndex(null);
+						}
+						return;
+					}
+				}
+
+				// Dedup — only setState when the index changes.
+				if (lastPlaceholderRef.current === insertionRowIndex) return;
+				lastPlaceholderRef.current = insertionRowIndex;
+				placeholderDepthRef.current = insertionDepth;
+				// Stash the resolved drop intent so `onDrop` can use the
+				// same position the user saw — at drop time the cursor may
+				// be over the placeholder gap (no drop target), so
+				// re-reading from `location` would fail.
+				pendingDropRef.current = { drop, edge };
+				setPlaceholderIndex(insertionRowIndex);
+			},
+
+			onDrop: ({ source }) => {
+				setDragActive(false);
+				setPlaceholderIndex(null);
+				lastPlaceholderRef.current = null;
+				dragSourceUuidRef.current = null;
+				document.body.style.cursor = "";
+
+				// Use the stashed intent from onDrag — at drop time the
+				// cursor is likely over the placeholder gap (no drop target),
+				// so re-reading from `location` would find nothing.
+				const pending = pendingDropRef.current;
+				pendingDropRef.current = null;
+				if (!pending?.drop) return;
+
+				if (!isDraggableQuestionData(source.data)) return;
+				const dragUuid = source.data.uuid;
+				const { drop, edge } = pending;
+
+				// Cycle guard.
+				const targetContainer = targetContainerUuidFor(drop);
+				if (
+					isUuidInSubtree(
+						docs.getState().questionOrder as Record<string, readonly string[]>,
+						dragUuid,
+						targetContainer,
+					)
+				) {
+					return;
+				}
+
+				// No-op detection: if the source would land in the same
+				// position it started (adjacent to itself), skip the
+				// mutation entirely — it's a cancel, not a move.
+				if (drop.kind === "drop-question") {
+					const parentOrder =
+						docs.getState().questionOrder[drop.parentUuid as Uuid] ?? [];
+					const sourceIdx = parentOrder.indexOf(asUuid(dragUuid));
+					const targetIdx = parentOrder.indexOf(drop.uuid);
+					// Same parent, and the source is immediately before
+					// (edge=top) or after (edge=bottom) the target — no-op.
+					if (sourceIdx >= 0 && targetIdx >= 0) {
+						if (edge === "top" && sourceIdx === targetIdx - 1) return;
+						if (edge === "bottom" && sourceIdx === targetIdx + 1) return;
+						// Dropping on immediate neighbor on the "touching" side.
+						if (edge !== "top" && sourceIdx === targetIdx + 1) return;
+					}
+				}
+
+				let result: ReturnType<typeof moveQuestion> | undefined;
+
+				switch (drop.kind) {
+					case "drop-question": {
+						if (drop.uuid === dragUuid) return;
+						if (edge === "top") {
+							result = moveQuestion(asUuid(dragUuid), {
+								beforeUuid: drop.uuid,
+								toParentUuid: drop.parentUuid,
+							});
+						} else {
+							result = moveQuestion(asUuid(dragUuid), {
+								afterUuid: drop.uuid,
+								toParentUuid: drop.parentUuid,
+							});
+						}
+						break;
+					}
+
+					case "drop-group-header": {
+						if (drop.uuid === dragUuid) return;
+						const firstChild =
+							docs.getState().questionOrder[drop.uuid as Uuid]?.[0];
+						result = firstChild
+							? moveQuestion(asUuid(dragUuid), {
+									toParentUuid: drop.uuid,
+									beforeUuid: firstChild,
+								})
+							: moveQuestion(asUuid(dragUuid), {
+									toParentUuid: drop.uuid,
+								});
+						break;
+					}
+
+					case "drop-empty-container": {
+						result = moveQuestion(asUuid(dragUuid), {
+							toParentUuid: drop.parentUuid,
+						});
+						break;
+					}
+				}
+
+				if (result) notifyMoveRename(result);
+				select(asUuid(dragUuid));
+			},
+		});
+	}, [docStore, moveQuestion, select]);
+
+	// ── Cursor-speed tracking (for InsertionPoint hover gating) ──────
 
 	const cursorSpeedRef = useRef(0);
 	const lastCursorRef = useRef<{ x: number; y: number; t: number } | undefined>(
@@ -299,7 +583,7 @@ export const VirtualFormList = memo(function VirtualFormList({
 		};
 	}, []);
 
-	// ── Shared question-picker menu (detached triggers) ─────────────
+	// ── Shared question-picker menu ──────────────────────────────────
 
 	const questionPickerHandle = useMemo(
 		() => Menu.createHandle<QuestionPickerPayload>(),
@@ -322,184 +606,7 @@ export const VirtualFormList = memo(function VirtualFormList({
 		[questionPickerHandle, subscribeClose],
 	);
 
-	// ── Drag lifecycle ───────────────────────────────────────────────
-
-	const handleDragStart = useCallback(
-		(
-			event: Parameters<
-				NonNullable<
-					React.ComponentProps<typeof DragDropProvider>["onDragStart"]
-				>
-			>[0],
-		) => {
-			const sourceUuid = event.operation.source?.id as string | undefined;
-			if (!sourceUuid || !docStore) return;
-			const doc = docStore.getState();
-			const itemsMap = buildItemsMapFromDoc(
-				doc.questions as Record<string, NQuestion>,
-				doc.questionOrder as Record<string, string[]>,
-				formUuid,
-			);
-			setDragState({ itemsMap, activeUuid: sourceUuid });
-			setDragActive(true);
-			document.body.style.cursor = "grabbing";
-			// Clear selection at drag start so the inline panel doesn't
-			// visually collide with the overlay. (Matches the legacy
-			// FormRenderer behavior.)
-			select(undefined);
-		},
-		[docStore, formUuid, select],
-	);
-
-	const handleDragOver = useCallback(
-		(
-			event: Parameters<
-				NonNullable<React.ComponentProps<typeof DragDropProvider>["onDragOver"]>
-			>[0],
-		) => {
-			setDragState((prev) => {
-				if (!prev) return prev;
-				const newMap = move(prev.itemsMap, event);
-				if (newMap === prev.itemsMap) return prev;
-				return { ...prev, itemsMap: newMap };
-			});
-		},
-		[],
-	);
-
-	const handleDragEnd = useCallback(
-		(
-			event: Parameters<
-				NonNullable<React.ComponentProps<typeof DragDropProvider>["onDragEnd"]>
-			>[0],
-		) => {
-			// Read the latest drag state from the ref (mirror set in render)
-			// so this handler stays stable across the many `onDragOver` ticks
-			// that fire during a single drag.
-			const ds = dragStateRef.current;
-			const canceled = event.canceled;
-
-			// Defer state cleanup to a microtask — dnd-kit fires onDragEnd
-			// inside React 19's useInsertionEffect where setState is
-			// forbidden.
-			queueMicrotask(() => {
-				setDragState(null);
-				setDragActive(false);
-				document.body.style.cursor = "";
-
-				if (canceled || !ds || !docStore) return;
-
-				const { activeUuid: dragUuid, itemsMap } = ds;
-
-				// Locate the dragged UUID in the reordered items map —
-				// scans buckets to find where it landed.
-				let finalGroup: string | undefined;
-				let finalIndex = -1;
-				for (const [g, ids] of Object.entries(itemsMap)) {
-					const i = ids.indexOf(dragUuid);
-					if (i !== -1) {
-						finalGroup = g;
-						finalIndex = i;
-						break;
-					}
-				}
-				if (!finalGroup || finalIndex === -1) return;
-
-				const currentDoc = docStore.getState();
-				// Initial group = scan questionOrder for the parent that
-				// contains the dragged UUID, then map to bucket-key format.
-				let initialParentUuid: string | undefined;
-				for (const [pUuid, order] of Object.entries(
-					currentDoc.questionOrder as Record<string, string[]>,
-				)) {
-					if (order.includes(dragUuid)) {
-						initialParentUuid = pUuid;
-						break;
-					}
-				}
-				const initialGroup = initialParentUuid
-					? initialParentUuid === formUuid
-						? ROOT_GROUP
-						: `${initialParentUuid}${CONTAINER_SUFFIX}`
-					: ROOT_GROUP;
-
-				const sameGroup = initialGroup === finalGroup;
-				const finalIds = itemsMap[finalGroup] ?? [];
-
-				// No-op same-group drop (same index, same bucket).
-				if (sameGroup) {
-					const initialOrder =
-						currentDoc.questionOrder[(initialParentUuid ?? formUuid) as Uuid] ??
-						[];
-					const initialIndex = initialOrder.indexOf(asUuid(dragUuid));
-					if (initialIndex === finalIndex) {
-						select(asUuid(dragUuid));
-						return;
-					}
-				}
-
-				const targetParentUuid =
-					finalGroup === ROOT_GROUP
-						? formUuid
-						: asUuid(stripContainerSuffix(finalGroup));
-
-				// Build moveQuestion args: prefer beforeUuid/afterUuid when
-				// neighbors exist; fall through to bare toParentUuid when
-				// the target is empty.
-				let result: MoveQuestionResult | undefined;
-				if (sameGroup) {
-					if (finalIndex === 0) {
-						if (finalIds.length > 1) {
-							result = moveQuestion(asUuid(dragUuid), {
-								beforeUuid: asUuid(finalIds[1]),
-							});
-						} else {
-							// Only one item and it's already at index 0 — no-op.
-							select(asUuid(dragUuid));
-							return;
-						}
-					} else {
-						result = moveQuestion(asUuid(dragUuid), {
-							afterUuid: asUuid(finalIds[finalIndex - 1]),
-						});
-					}
-				} else if (finalIds.length <= 1) {
-					result = moveQuestion(asUuid(dragUuid), {
-						toParentUuid: targetParentUuid,
-					});
-				} else if (finalIndex === 0) {
-					result = moveQuestion(asUuid(dragUuid), {
-						toParentUuid: targetParentUuid,
-						beforeUuid: asUuid(finalIds[1]),
-					});
-				} else {
-					result = moveQuestion(asUuid(dragUuid), {
-						toParentUuid: targetParentUuid,
-						afterUuid: asUuid(finalIds[finalIndex - 1]),
-					});
-				}
-
-				// `notifyMoveRename` is a no-op when nothing was renamed, but
-				// calling it unconditionally matches the legacy contract and
-				// keeps correctness independent of `moveQuestion`'s internal
-				// rules for when dedup fires.
-				if (result) notifyMoveRename(result);
-				select(asUuid(dragUuid));
-			});
-		},
-		[docStore, formUuid, moveQuestion, select],
-	);
-
-	// ── Active-drag overlay label ───────────────────────────────────
-
-	const activeUuid = dragState?.activeUuid;
-	const activeLabel = useMemo(() => {
-		if (!activeUuid || !docStore) return undefined;
-		const q = docStore.getState().questions[activeUuid as Uuid];
-		return q ? q.label || q.id : undefined;
-	}, [activeUuid, docStore]);
-
-	// ── Render ──────────────────────────────────────────────────────
+	// ── Render ───────────────────────────────────────────────────────
 
 	const virtualItems = virtualizer.getVirtualItems();
 	const totalSize = virtualizer.getTotalSize();
@@ -511,83 +618,49 @@ export const VirtualFormList = memo(function VirtualFormList({
 				toggleCollapse={toggleCollapse}
 				isCollapsed={isCollapsed}
 			>
-				<DragReorderContext.Provider value={dragState}>
-					<DragStateProvider isActive={dragActive} setActive={setDragActive}>
-						<DragDropProvider
-							sensors={SENSORS}
-							modifiers={modifiers}
-							onDragStart={handleDragStart}
-							onDragOver={handleDragOver}
-							onDragEnd={handleDragEnd}
+				<DragStateProvider isActive={dragActive} setActive={setDragActive}>
+					<div
+						ref={scrollerRef}
+						data-preview-scroll-container
+						className="relative h-full overflow-auto"
+						style={{ contain: "strict" }}
+					>
+						<div
+							style={{
+								height: totalSize,
+								width: "100%",
+								position: "relative",
+							}}
 						>
-							{/* Scroll container. `data-preview-scroll-container`
-							 *  makes `RestrictToElement` find us.
-							 *
-							 *  `contain: strict` is a virtualizer performance
-							 *  win — it isolates layout/paint from the rest of
-							 *  the page — but it also creates a new containing
-							 *  block for `position: fixed` descendants. dnd-kit's
-							 *  `DragOverlay` uses viewport-relative fixed
-							 *  positioning, so the overlay must live OUTSIDE
-							 *  this container (but still inside
-							 *  `DragDropProvider`) or the overlay appears
-							 *  offset by the scroll container's viewport
-							 *  distance. */}
-							<div
-								ref={scrollerRef}
-								data-preview-scroll-container
-								className="relative h-full overflow-auto"
-								style={{ contain: "strict" }}
-							>
-								<div
-									style={{
-										height: totalSize,
-										width: "100%",
-										position: "relative",
-									}}
-								>
-									{virtualItems.map((vi) => {
-										const row = rows[vi.index];
-										if (!row) return null;
-										return (
-											<div
-												key={vi.key}
-												ref={virtualizer.measureElement}
-												data-index={vi.index}
-												style={{
-													position: "absolute",
-													top: 0,
-													left: 0,
-													width: "100%",
-													transform: `translateY(${vi.start}px)`,
-												}}
-											>
-												<RenderRow
-													row={row}
-													cursorSpeedRef={cursorSpeedRef}
-													lastCursorRef={lastCursorRef}
-													disableInsertion={isDragging}
-												/>
-											</div>
-										);
-									})}
-								</div>
-							</div>
-
-							<DragOverlay>
-								{activeLabel && (
-									<div className="rounded-lg bg-nova-surface/80 border border-nova-violet/40 px-3 py-2 shadow-lg text-sm text-nova-text">
-										{activeLabel}
+							{virtualItems.map((vi) => {
+								const row = rows[vi.index];
+								if (!row) return null;
+								return (
+									<div
+										key={vi.key}
+										ref={virtualizer.measureElement}
+										data-index={vi.index}
+										style={{
+											position: "absolute",
+											top: 0,
+											left: 0,
+											width: "100%",
+											transform: `translateY(${vi.start}px)`,
+										}}
+									>
+										<RenderRow
+											row={row}
+											cursorSpeedRef={cursorSpeedRef}
+											lastCursorRef={lastCursorRef}
+											disableInsertion={dragActive}
+										/>
 									</div>
-								)}
-							</DragOverlay>
-						</DragDropProvider>
-					</DragStateProvider>
-				</DragReorderContext.Provider>
+								);
+							})}
+						</div>
+					</div>
+				</DragStateProvider>
 
-				{/* Shared menu root for all insertion-point triggers. Renders
-				 *  via portal — lives outside the DragDropProvider tree so
-				 *  dnd-kit's collision doesn't register the popup. */}
 				<Menu.Root
 					handle={questionPickerHandle}
 					modal={false}
@@ -618,12 +691,6 @@ interface RenderRowProps {
 	disableInsertion: boolean;
 }
 
-/**
- * Single-component switch over `FormRow.kind`. Kept as its own component
- * so each row kind is wrapped in a memo boundary at the virtualizer level
- * — changing the row object reference is the only way to trigger a
- * re-render from here.
- */
 const RenderRow = memo(function RenderRow({
 	row,
 	cursorSpeedRef,
@@ -667,42 +734,44 @@ const RenderRow = memo(function RenderRow({
 			return (
 				<EmptyContainerRow parentUuid={row.parentUuid} depth={row.depth} />
 			);
+		case "drop-placeholder":
+			return <DropPlaceholderRow depth={row.depth} />;
 	}
 });
 
-// ── Helpers ───────────────────────────────────────────────────────────
+// ── Drop placeholder row ────────────────────────────────────────────
 
-/** Walk `questionOrder` to build the items-map `move()` expects. Buckets
- *  are keyed by `ROOT_GROUP` or `<uuid>:container` to match the
- *  `useDroppable` id emitted by `EmptyContainerRow` / `GroupBracket`. */
-function buildItemsMapFromDoc(
-	questions: Record<string, NQuestion>,
-	questionOrder: Record<string, string[]>,
-	formUuid: Uuid,
-): Record<string, string[]> {
-	const itemsMap: Record<string, string[]> = {};
-	function recurse(parentUuid: string, groupKey: string) {
-		// questionOrder keys are branded Uuids at the type level but
-		// plain strings at runtime — parent ids come in unbranded from
-		// the recursive walk.
-		const childUuids =
-			(questionOrder as Record<string, string[]>)[parentUuid] ?? [];
-		itemsMap[groupKey] = [...childUuids];
-		for (const uuid of childUuids) {
-			const q = questions[uuid];
-			if (!q) continue;
-			if (q.type === "group" || q.type === "repeat") {
-				recurse(uuid, `${uuid}${CONTAINER_SUFFIX}`);
-			}
-		}
-	}
-	recurse(formUuid, ROOT_GROUP);
-	return itemsMap;
-}
+/**
+ * The visible gap that opens at the drop position during drag. Registered
+ * as a `dropTargetForElements` so the browser accepts the native drop
+ * (calls `preventDefault` on `dragover`) — without this, the browser
+ * rejects the drop, plays its snap-back animation, and THEN our monitor
+ * fires the mutation, producing a jarring delay.
+ */
+function DropPlaceholderRow({ depth }: { depth: number }) {
+	const ref = useRef<HTMLDivElement | null>(null);
 
-/** Strip the `:container` suffix to recover the bare parent uuid. */
-function stripContainerSuffix(group: string): string {
-	return group.endsWith(CONTAINER_SUFFIX)
-		? group.slice(0, -CONTAINER_SUFFIX.length)
-		: group;
+	useEffect(() => {
+		const el = ref.current;
+		if (!el) return;
+		return dropTargetForElements({
+			element: el,
+			// Accept anything — the monitor handles the actual mutation.
+			getData: () => ({ kind: "drop-placeholder" }),
+		});
+	}, []);
+
+	return (
+		<div
+			ref={ref}
+			style={{
+				paddingLeft: depthPadding(depth),
+				paddingRight: depthPadding(0),
+				paddingTop: INSERTION_REST_HEIGHT_PX / 2,
+				paddingBottom: INSERTION_REST_HEIGHT_PX / 2,
+			}}
+		>
+			<div className="h-[56px] rounded-lg border-2 border-dashed border-nova-violet bg-nova-violet/20" />
+		</div>
+	);
 }
