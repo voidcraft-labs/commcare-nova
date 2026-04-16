@@ -219,41 +219,44 @@ const EDIT_PREAMBLE = `## Editing Mode
 
 You are editing an existing app — not building one from scratch. The current app state is summarized below. Use your read and mutation tools to make targeted changes, then call validateApp when done.
 
-**You already have full visibility into this app.** The blueprint summary below shows every module, form, question, and case type. Never ask the user about what exists in the app — you can see it. Use searchBlueprint or the summary to answer any question about current state. Only ask clarifying questions about the user's *intent* — what they want to change, add, or remove — never about what is or isn't already there.
+**You already have full visibility into this app.** The blueprint summary below shows every module, form, field, and case type. Never ask the user about what exists in the app — you can see it. Use searchBlueprint or the summary to answer any question about current state. Only ask clarifying questions about the user's *intent* — what they want to change, add, or remove — never about what is or isn't already there.
 
 Trust your tool outputs. When a mutation tool returns a success message, the change is applied. Do not re-read to verify.`;
 
 // ── Blueprint summarizer ──────────────────────────────────────────────
 
-/** Count questions recursively (groups/repeats contain children). */
-function countQuestions(questions: Question[]): number {
+/** Count fields recursively (groups/repeats contain children). */
+function countFields(questions: Question[]): number {
 	let count = 0;
 	for (const q of questions) {
 		count++;
-		if (q.children) count += countQuestions(q.children);
+		if (q.children) count += countFields(q.children);
 	}
 	return count;
 }
 
-/** Summarize a form's questions as a compact list of IDs with types. */
-function summarizeQuestions(questions: Question[], indent = "    "): string {
+/** Summarize a form's fields as a compact list of IDs with types. Reads
+ *  from the wire-format `Question` shape (still `case_property_on`
+ *  on the wire — the summary is consumed by the SA, which speaks wire
+ *  format). */
+function summarizeFields(questions: Question[], indent = "    "): string {
 	return questions
 		.map((q) => {
 			const parts = [`${indent}- ${q.id} (${q.type})`];
 			if (q.label) parts[0] += `: "${q.label}"`;
 			if (q.case_property_on) parts[0] += ` → ${q.case_property_on}`;
 			if (q.children?.length) {
-				parts.push(summarizeQuestions(q.children, `${indent}  `));
+				parts.push(summarizeFields(q.children, `${indent}  `));
 			}
 			return parts.join("\n");
 		})
 		.join("\n");
 }
 
-/** Summarize a form: name, type, question count, and question list. */
+/** Summarize a form: name, type, field count, and field list. */
 function summarizeForm(form: BlueprintForm, formIndex: number): string {
-	const qCount = countQuestions(form.questions);
-	const header = `  - Form ${formIndex}: "${form.name}" (${form.type}, ${qCount} question${qCount === 1 ? "" : "s"})`;
+	const qCount = countFields(form.questions);
+	const header = `  - Form ${formIndex}: "${form.name}" (${form.type}, ${qCount} field${qCount === 1 ? "" : "s"})`;
 	const extras: string[] = [];
 	if (form.post_submit) {
 		extras.push(`    post_submit: ${form.post_submit}`);
@@ -266,11 +269,11 @@ function summarizeForm(form: BlueprintForm, formIndex: number): string {
 			`    close_condition: ${form.close_condition.question} ${op} "${form.close_condition.answer}"`,
 		);
 	}
-	const questions =
+	const fieldSummary =
 		form.questions.length > 0
-			? summarizeQuestions(form.questions)
-			: "    (no questions)";
-	return [header, ...extras, questions].join("\n");
+			? summarizeFields(form.questions)
+			: "    (no fields)";
+	return [header, ...extras, fieldSummary].join("\n");
 }
 
 /** Summarize a module: name, case type, forms. */
@@ -284,7 +287,7 @@ function summarizeModule(mod: BlueprintModule, index: number): string {
 
 /**
  * Build a compact text summary of an app blueprint for the SA's editing context.
- * Includes the full structure and question inventory so the SA can make edits
+ * Includes the full structure and field inventory so the SA can make edits
  * without needing to read every form first.
  */
 function summarizeBlueprint(bp: AppBlueprint): string {
@@ -304,7 +307,7 @@ function summarizeBlueprint(bp: AppBlueprint): string {
 		}
 	}
 
-	/* Module/form/question structure */
+	/* Module / form / field structure */
 	lines.push("");
 	lines.push("**Structure:**");
 	for (let i = 0; i < bp.modules.length; i++) {

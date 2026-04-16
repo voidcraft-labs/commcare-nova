@@ -1,24 +1,27 @@
 /**
- * SA tool input schemas — derived from the canonical question fields in blueprint.ts.
+ * SA tool input schemas — derived from the canonical field properties in blueprint.ts.
  *
- * Three question shapes for three tool contexts:
+ * Internally the domain calls these "fields"; on the wire to the SA they stay
+ * shaped as "questions" (matching the legacy `Question` schema that the SA's
+ * prompt + fixture logs reference). Three question shapes for three tool
+ * contexts:
  * - addQuestionsQuestionSchema: batch generation (flat with parentId, sentinel fields)
  * - editQuestionUpdatesSchema: partial updates (all optional, some nullable for clearing)
  * - addQuestionQuestionSchema: single insertion (all optional except id/type)
  *
  * The Anthropic schema compiler times out with >8 .optional() fields per
- * array item. addQuestions works around this by making label, required, and
- * case_property_on required (sentinel: empty string = not set). Post-processing
+ * array item. addQuestions works around this by making label and required
+ * required (sentinel: empty string = not set). Post-processing
  * via stripEmpty() converts sentinels back. See contentProcessing.ts.
  */
 import { z } from "zod";
 import { QUESTION_DOCS, questionFields, selectOptionSchema } from "./blueprint";
 
-// ── addQuestions: batch generation (flat with parentId, 3 sentinels) ──
+// ── addQuestions: batch generation (flat with parentId, 2 sentinels) ──
 
 /**
- * Flat question schema for batch generation. Adds parentId for tree building,
- * and makes 2 fields required sentinels to stay under the 8-optional limit.
+ * Flat field schema for batch generation. Adds parentId for tree building,
+ * and makes 2 keys required sentinels to stay under the 8-optional limit.
  */
 export const addQuestionsQuestionSchema = z.object({
 	id: questionFields.id,
@@ -57,8 +60,8 @@ export const addQuestionsSchema = {
 // ── editQuestion: partial updates (all optional, some nullable) ──────
 
 /**
- * Update schema for editQuestion. All fields optional (only include what changed).
- * XPath fields that can be cleared accept null.
+ * Update schema for editQuestion. All properties optional (only include what
+ * changed). XPath properties that can be cleared accept null.
  */
 export const editQuestionUpdatesSchema = z
 	.object({
@@ -92,11 +95,13 @@ export const editQuestionUpdatesSchema = z
 			.optional()
 			.describe(QUESTION_DOCS.case_property_on),
 	})
-	.describe("Fields to update. Only include fields you want to change.");
+	.describe(
+		"Properties to update. Only include properties you want to change.",
+	);
 
 // ── addQuestion: single insertion (all optional except id/type) ──────
 
-/** Question schema for single insertion. Same shape as blueprint questionFields (no children). */
+/** Field schema for single insertion. Same shape as blueprint questionFields (no children). */
 export const addQuestionQuestionSchema = z.object({
 	id: questionFields.id,
 	type: questionFields.type,
