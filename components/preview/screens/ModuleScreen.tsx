@@ -23,15 +23,11 @@ const formTypeIcons = {
 
 interface ModuleScreenProps {
 	/** This screen's identity — which module is being displayed. Passed from
-	 *  PreviewShell so the component remains valid while Activity hides it.
-	 *  Index-based for downstream consumers (EditContext, useFormEngine) that
-	 *  haven't been migrated to uuid-first yet. Navigation and mutations use
-	 *  uuid from `useLocation()`. */
+	 *  PreviewShell so the component remains valid while Activity hides it. */
 	screen: Extract<PreviewScreen, { type: "module" }>;
 }
 
-export function ModuleScreen({ screen }: ModuleScreenProps) {
-	const moduleIndex = screen.moduleIndex;
+export function ModuleScreen({ screen: _screen }: ModuleScreenProps) {
 	const loc = useLocation();
 	const navigate = useNavigate();
 	const { updateModule } = useBlueprintMutations();
@@ -41,7 +37,7 @@ export function ModuleScreen({ screen }: ModuleScreenProps) {
 	/** Module uuid from the URL — used for uuid-first mutations and navigation. */
 	const moduleUuid = loc.kind === "module" ? loc.moduleUuid : undefined;
 
-	const mod = useModuleEntity(moduleUuid as Uuid);
+	const mod = useModuleEntity(moduleUuid);
 	const forms = useOrderedForms((moduleUuid ?? "") as Uuid);
 
 	const [saved, setSaved] = useState(false);

@@ -3,8 +3,8 @@
  * preview components so they can select the right slice of store state.
  *
  * Only carries positional identity (moduleIndex, formIndex) and rendering
- * mode. Components access blueprint data and mutation actions via
- * `useBuilderStore` directly — no prop drilling of engine/store references.
+ * mode. Components access blueprint data and mutation actions via doc store
+ * hooks directly — no prop drilling of engine/store references.
  */
 "use client";
 import { createContext, type ReactNode, useContext, useMemo } from "react";
