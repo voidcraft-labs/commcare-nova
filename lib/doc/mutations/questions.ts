@@ -46,13 +46,11 @@ export interface QuestionRenameMeta {
  * these get rewritten via the Lezer-based `rewriteXPathRefs` parser when
  * a referenced question is renamed.
  *
- * Mirrors `xpathFields` in `lib/services/builderStore.ts` exactly so the
- * two rewrite paths behave identically until Phase 1b deletes the legacy
- * store. Notably excluded:
+ * Notably excluded:
  *   - `validation_msg`: user-facing error text, not an XPath expression.
  *   - `label`, `hint`: prose fields that may embed bare hashtag refs
  *     (`#form/foo`), handled separately via DISPLAY_FIELDS below.
- *   - `required`: legacy store omits it; keeping parity to avoid scope creep.
+ *   - `required`: not an XPath field in the current schema.
  */
 const XPATH_FIELDS = [
 	"relevant",
