@@ -6,7 +6,8 @@
  * generation tools are excluded — the SA only gets shared tools and an editing prompt
  * with a blueprint summary. In build mode (new app), all tools are available.
  */
-import { type JSONValue, stepCountIs, ToolLoopAgent, tool } from "ai";
+import type { AnthropicProviderOptions } from "@ai-sdk/anthropic";
+import { isStepCount, ToolLoopAgent, tool } from "ai";
 import { z } from "zod";
 import { log } from "@/lib/log";
 import { completeApp } from "../db/apps";
@@ -978,17 +979,17 @@ export function createSolutionsArchitect(
 	const agent = new ToolLoopAgent({
 		model: ctx.model(SA_MODEL),
 		instructions: buildSolutionsArchitectPrompt(editing ? bp : undefined),
-		stopWhen: stepCountIs(80),
+		stopWhen: isStepCount(80),
 		prepareStep: ({ steps: _steps }) => {
-			const anthropic: Record<string, JSONValue | undefined> = {
+			// Adaptive thinking with `display: 'summarized'` is required on Opus 4.7
+			// for human-readable thinking summaries to stream back. `effort` is a
+			// top-level provider option (sibling of `thinking`), not nested inside
+			// it — Zod silently strips nested unknown fields.
+			const anthropic: AnthropicProviderOptions = {
 				cacheControl: { type: "ephemeral" },
-			};
-
-			anthropic.thinking = {
-				type: "adaptive" as const,
+				thinking: { type: "adaptive", display: "summarized" },
 				effort: SA_REASONING.effort,
 			};
-
 			return { providerOptions: { anthropic } };
 		},
 		onStepFinish: ({
