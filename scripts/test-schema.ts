@@ -18,7 +18,7 @@ if (!apiKey) {
 
 const anthropic = createAnthropic({ apiKey });
 const model =
-	process.argv[2] === "opus" ? "claude-opus-4-6" : "claude-haiku-4-5-20251001";
+	process.argv[2] === "opus" ? "claude-opus-4-7" : "claude-haiku-4-5-20251001";
 
 const size = JSON.stringify(addQuestionsSchema.jsonSchema).length;
 console.log(`addQuestionsSchema: ${size} chars`);

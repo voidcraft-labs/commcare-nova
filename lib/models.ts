@@ -5,17 +5,23 @@
  * Vercel AI SDK calls use short aliases (e.g. "claude-sonnet-4-6") resolved by the provider.
  */
 
-/** Reasoning effort levels for Anthropic adaptive thinking. */
-export type ReasoningEffort = "low" | "medium" | "high" | "max";
+/**
+ * Reasoning effort levels for Anthropic adaptive thinking.
+ *
+ * `xhigh` sits between `high` and `max` — introduced with Opus 4.7. In practice
+ * it delivers better quality than 4.6's `max` at a lower token budget, because
+ * 4.7 `max` can emit ~1.4× the thinking tokens of prior models.
+ */
+export type ReasoningEffort = "low" | "medium" | "high" | "xhigh" | "max";
 
 /** Fallback model for GenerationContext methods when no model is specified. */
 export const MODEL_DEFAULT = "claude-sonnet-4-6";
 
 /** Model ID for the Solutions Architect agent. */
-export const SA_MODEL = "claude-opus-4-6";
+export const SA_MODEL = "claude-opus-4-7";
 
 /** Reasoning configuration for the Solutions Architect agent. */
-export const SA_REASONING: { effort: ReasoningEffort } = { effort: "max" };
+export const SA_REASONING: { effort: ReasoningEffort } = { effort: "xhigh" };
 
 /** Pricing per million tokens, keyed by model ID (either full or alias). */
 export const MODEL_PRICING: Record<
@@ -28,6 +34,7 @@ export const MODEL_PRICING: Record<
 		cacheWrite: 3.75,
 		cacheRead: 0.3,
 	},
+	"claude-opus-4-7": { input: 5, output: 25, cacheWrite: 6.25, cacheRead: 0.5 },
 	"claude-opus-4-6": { input: 5, output: 25, cacheWrite: 6.25, cacheRead: 0.5 },
 	"claude-haiku-4-5-20251001": {
 		input: 1,
