@@ -102,11 +102,7 @@ export interface ReplayData {
  * It includes both fields and actions. The types above are shared between
  * the store, hooks, and consumers. */
 
-/**
- * Replay data extracted from server-fetched events, passed to BuilderProvider.
- * Moved here from the legacy `hooks/useBuilder.tsx` during Phase 6 cleanup —
- * this is its logical home alongside the other replay types.
- */
+/** Replay data extracted from server-fetched events, passed to BuilderProvider. */
 export interface ReplayInit {
 	stages: ReplayStage[];
 	doneIndex: number;
