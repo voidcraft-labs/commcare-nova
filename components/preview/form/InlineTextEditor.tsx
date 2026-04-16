@@ -103,8 +103,8 @@ function LabelToolbar({
 		 *
 		 * Three regimes as the editor scrolls up:
 		 * 1. **Free** — toolbar floats above the anchor with a 6px gap (default).
-		 * 2. **Clamped** — toolbar would escape above the CursorModeSelector
-		 *    popover, so it pins just below the selector's bottom edge.
+		 * 2. **Clamped** — toolbar would escape above the form header, so it
+		 *    pins just below the header's bottom edge.
 		 * 3. **Hidden** — anchor has scrolled out of the scroll container's
 		 *    visible region entirely. */
 		const GAP = 6;

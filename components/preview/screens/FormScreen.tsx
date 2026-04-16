@@ -173,7 +173,9 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 
 	const formBody = (
 		<>
-			{/* Form header */}
+			{/* Form header. The `data-form-header` marker is queried by
+			 *  `InlineTextEditor` as the clamp floor for the floating label
+			 *  toolbar — preserve the attribute if this block is refactored. */}
 			<div
 				data-form-header
 				className="px-6 pt-5 pb-4 border-b border-pv-input-border"
