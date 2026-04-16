@@ -39,6 +39,7 @@ import {
 } from "@tanstack/react-virtual";
 import {
 	memo,
+	type ReactNode,
 	useCallback,
 	useContext,
 	useEffect,
@@ -697,47 +698,108 @@ const RenderRow = memo(function RenderRow({
 	lastCursorRef,
 	disableInsertion,
 }: RenderRowProps) {
+	/* Group nesting rails — left/right borders at each ancestor group's
+	 * depth connecting the group-open and group-close brackets into a
+	 * continuous visual box. Inside the memo so scroll-driven re-renders
+	 * of the virtualizer don't rebuild the rail elements. */
+	const rails = row.depth > 0 ? <GroupNestingRails depth={row.depth} /> : null;
+
 	switch (row.kind) {
 		case "insertion":
 			return (
-				<InsertionPointRow
-					parentUuid={row.parentUuid}
-					beforeIndex={row.beforeIndex}
-					depth={row.depth}
-					cursorSpeedRef={cursorSpeedRef}
-					lastCursorRef={lastCursorRef}
-					disabled={disableInsertion}
-				/>
+				<>
+					{rails}
+					<InsertionPointRow
+						parentUuid={row.parentUuid}
+						beforeIndex={row.beforeIndex}
+						depth={row.depth}
+						cursorSpeedRef={cursorSpeedRef}
+						lastCursorRef={lastCursorRef}
+						disabled={disableInsertion}
+					/>
+				</>
 			);
 		case "question":
 			return (
-				<QuestionRow
-					uuid={row.uuid}
-					parentUuid={row.parentUuid}
-					siblingIndex={row.siblingIndex}
-					depth={row.depth}
-				/>
+				<>
+					{rails}
+					<QuestionRow
+						uuid={row.uuid}
+						parentUuid={row.parentUuid}
+						siblingIndex={row.siblingIndex}
+						depth={row.depth}
+					/>
+				</>
 			);
 		case "group-open":
 			return (
-				<GroupOpenRow
-					uuid={row.uuid}
-					parentUuid={row.parentUuid}
-					siblingIndex={row.siblingIndex}
-					depth={row.depth}
-					collapsed={row.collapsed}
-				/>
+				<>
+					{rails}
+					<GroupOpenRow
+						uuid={row.uuid}
+						parentUuid={row.parentUuid}
+						siblingIndex={row.siblingIndex}
+						depth={row.depth}
+						collapsed={row.collapsed}
+					/>
+				</>
 			);
 		case "group-close":
-			return <GroupCloseRow uuid={row.uuid} depth={row.depth} />;
+			return (
+				<>
+					{rails}
+					<GroupCloseRow uuid={row.uuid} depth={row.depth} />
+				</>
+			);
 		case "empty-container":
 			return (
-				<EmptyContainerRow parentUuid={row.parentUuid} depth={row.depth} />
+				<>
+					{rails}
+					<EmptyContainerRow parentUuid={row.parentUuid} depth={row.depth} />
+				</>
 			);
 		case "drop-placeholder":
-			return <DropPlaceholderRow depth={row.depth} />;
+			return (
+				<>
+					{rails}
+					<DropPlaceholderRow depth={row.depth} />
+				</>
+			);
 	}
 });
+
+// ── Group nesting rails ─────────────────────────────────────────────
+
+/**
+ * Decorative left/right borders drawn behind row content to connect the
+ * `group-open` and `group-close` brackets into a continuous visual box.
+ *
+ * For a row at nesting depth `d`, one rail is drawn for each ancestor
+ * group (depths 0 through d−1). Each rail aligns its left edge with the
+ * ancestor bracket's left border and its right edge with the shared
+ * right padding, creating an unbroken vertical border from the opening
+ * bracket down to the closing bracket.
+ *
+ * Rails render BEFORE the row content in the DOM, so they paint behind
+ * it — question cards, insertion lines, and bracket decorations all sit
+ * above the rails in the stacking order.
+ */
+function GroupNestingRails({ depth }: { depth: number }) {
+	const rails: ReactNode[] = [];
+	for (let i = 0; i < depth; i++) {
+		rails.push(
+			<div
+				key={`rail-${i}`}
+				className="absolute top-0 bottom-0 border-l border-r border-pv-input-border pointer-events-none"
+				style={{
+					left: depthPadding(i),
+					right: depthPadding(0),
+				}}
+			/>,
+		);
+	}
+	return <>{rails}</>;
+}
 
 // ── Drop placeholder row ────────────────────────────────────────────
 
