@@ -165,10 +165,7 @@ export function useIsQuestionSelected(uuid: Uuid): boolean {
 	return loc.kind === "form" && loc.selectedUuid === uuid;
 }
 
-/**
- * A `BreadcrumbItem` matches the legacy `lib/services/builderSelectors`
- * shape so migrated consumers keep their render code unchanged.
- */
+/** A single entry in the breadcrumb trail rendered by BuilderSubheader. */
 export interface BreadcrumbItem {
 	key: string;
 	label: string;

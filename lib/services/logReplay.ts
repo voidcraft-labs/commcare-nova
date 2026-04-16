@@ -14,10 +14,6 @@ import type { UIMessage } from "ai";
 import type { JsonValue, StoredEvent } from "@/lib/db/types";
 import type { ReplayStage } from "@/lib/session/types";
 
-/* Re-export so existing importers (useBuilder.tsx, builderStore.ts) can
- * continue to reference it from this module until Phase 6 cleanup. */
-export type { ReplayStage } from "@/lib/session/types";
-
 interface ExtractionSuccess {
 	success: true;
 	stages: ReplayStage[];

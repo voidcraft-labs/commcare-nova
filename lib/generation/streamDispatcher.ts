@@ -88,8 +88,6 @@ const DOC_MUTATION_EVENTS = new Set([
  * scaffold data may have incomplete objects where the LLM hasn't
  * finished producing the name field yet. Returns `undefined` when no
  * valid modules survive the filter.
- *
- * Ported from the legacy builder store's `setPartialScaffold` action.
  */
 function parsePartialScaffold(
 	data: Record<string, unknown>,
