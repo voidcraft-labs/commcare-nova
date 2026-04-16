@@ -78,7 +78,7 @@ A [Lefthook](https://github.com/evilmartians/lefthook) pre-commit hook runs `bio
 - **Better Auth** — Google OAuth with Firestore-backed sessions
 - **Google Cloud Firestore** — app persistence, chat threads, event logging, usage
 - **Google Cloud KMS** — credential encryption at rest
-- **Zustand** (builder state) · **Motion** (animations) · **dnd-kit** (drag) · **TipTap 3** (rich text) · **Base UI** (floating elements)
+- **Zustand** (builder state) · **Motion** (animations) · **Pragmatic Drag and Drop** · **TipTap 3** (rich text) · **Base UI** (floating elements)
 - **Vitest**
 
 ## Developer tools
