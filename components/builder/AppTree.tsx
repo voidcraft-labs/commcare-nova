@@ -890,7 +890,7 @@ const QuestionRow = memo(function QuestionRow({
 					});
 				}}
 			>
-				{hasChildren && (
+				{hasChildren ? (
 					<CollapseChevron
 						isCollapsed={!!isCollapsed}
 						onClick={(e) => {
@@ -899,6 +899,11 @@ const QuestionRow = memo(function QuestionRow({
 						}}
 						hidden={locked}
 					/>
+				) : (
+					/* Spacer preserves chevron column width so leaf rows align
+					 * with sibling group headers — without it, children of a
+					 * group appear less indented than the group itself. */
+					<span className="w-4 shrink-0" aria-hidden />
 				)}
 				<span className="w-4 text-center text-nova-text-muted shrink-0 flex items-center justify-center">
 					{iconData ? <Icon icon={iconData} width="12" height="12" /> : "?"}
