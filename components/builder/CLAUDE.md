@@ -90,3 +90,9 @@ Editor sub-panels own their own visibility and return `null` when the type has n
 ## Contextual header — compute move targets inline
 
 Move targets and `isFirst` / `isLast` flags are computed in the render body, NOT in `useMemo`. After a reorder, Immer produces new entity-map references that trigger a re-render, and inline computation picks up the fresh state. Memoizing on `[selected]` alone would miss the reorder because selection doesn't change on reorder.
+
+## BuilderProvider
+
+`BuilderProvider.tsx` mounts the complete provider stack for a builder session. `key={buildId}` forces a full unmount/remount when the build identity changes — no stale cross-store references can leak.
+
+Provider tree (outer → inner): BlueprintDocProvider → BuilderSessionProvider → ScrollRegistryProvider → EditGuardProvider → BuilderFormEngineProvider. Three lifecycle children: SyncBridge (wires doc store into session), ReplayHydrator (dispatches saved emissions for replay mode), LoadAppHydrator (clears loading flag for existing-app loads).
