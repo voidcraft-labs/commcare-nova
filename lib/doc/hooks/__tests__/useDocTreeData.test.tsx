@@ -21,43 +21,63 @@ import { useDocHasData } from "@/lib/doc/hooks/useDocHasData";
 import { useDocTreeData } from "@/lib/doc/hooks/useDocTreeData";
 import { BlueprintDocContext } from "@/lib/doc/provider";
 import { createBlueprintDocStore } from "@/lib/doc/store";
-import type { AppBlueprint } from "@/lib/schemas/blueprint";
+import type { BlueprintDoc } from "@/lib/doc/types";
+import { asUuid } from "@/lib/doc/types";
 import type { PartialScaffoldData } from "@/lib/session/types";
 
 // ── Fixtures ────────────────────────────────────────────────────────────
 
-const TEST_BLUEPRINT: AppBlueprint = {
-	app_name: "Tree Test App",
-	connect_type: undefined,
-	modules: [
-		{
-			uuid: "module-1-uuid",
+const MOD_UUID = asUuid("module-1-uuid");
+const FORM_UUID = asUuid("form-1-uuid");
+const Q_AAA = asUuid("q-aaa-0000-0000-0000-000000000000");
+const Q_BBB = asUuid("q-bbb-0000-0000-0000-000000000000");
+
+/**
+ * Normalized `BlueprintDoc` fixture for tree-derivation tests.
+ *
+ * Contains one module with one form and two text fields. The `useDocTreeData`
+ * hook reads from the normalized entity maps and derives `TreeData` from them
+ * directly (no `toBlueprint` conversion needed).
+ */
+const TEST_DOC: BlueprintDoc = {
+	appId: "app-tree-test",
+	appName: "Tree Test App",
+	connectType: null,
+	caseTypes: null,
+	modules: {
+		[MOD_UUID]: {
+			uuid: MOD_UUID,
+			id: "registration",
 			name: "Registration",
-			case_type: "patient",
-			forms: [
-				{
-					uuid: "form-1-uuid",
-					name: "Intake",
-					type: "registration",
-					questions: [
-						{
-							uuid: "q-aaa-0000-0000-0000-000000000000",
-							id: "patient_name",
-							type: "text",
-							label: "Patient Name",
-						},
-						{
-							uuid: "q-bbb-0000-0000-0000-000000000000",
-							id: "dob",
-							type: "date",
-							label: "Date of Birth",
-						},
-					],
-				},
-			],
+			caseType: "patient",
 		},
-	],
-	case_types: null,
+	},
+	forms: {
+		[FORM_UUID]: {
+			uuid: FORM_UUID,
+			id: "intake",
+			name: "Intake",
+			type: "registration",
+		},
+	},
+	fields: {
+		[Q_AAA]: {
+			uuid: Q_AAA,
+			id: "patient_name",
+			kind: "text",
+			label: "Patient Name",
+		} as BlueprintDoc["fields"][typeof Q_AAA],
+		[Q_BBB]: {
+			uuid: Q_BBB,
+			id: "dob",
+			kind: "date",
+			label: "Date of Birth",
+		} as BlueprintDoc["fields"][typeof Q_BBB],
+	},
+	moduleOrder: [MOD_UUID],
+	formOrder: { [MOD_UUID]: [FORM_UUID] },
+	fieldOrder: { [FORM_UUID]: [Q_AAA, Q_BBB] },
+	fieldParent: {},
 };
 
 const TEST_PARTIAL_SCAFFOLD: PartialScaffoldData = {
@@ -89,7 +109,7 @@ function setupEmpty() {
 
 function setupPopulated() {
 	const store = createBlueprintDocStore();
-	store.getState().load(TEST_BLUEPRINT, "app-tree-test");
+	store.getState().load(TEST_DOC);
 	const wrapper = ({ children }: { children: ReactNode }) => (
 		<BlueprintDocContext.Provider value={store}>
 			{children}

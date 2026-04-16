@@ -13,37 +13,55 @@ import {
 import { useOrderedChildren } from "@/lib/doc/hooks/useOrderedChildren";
 import { BlueprintDocContext } from "@/lib/doc/provider";
 import { createBlueprintDocStore } from "@/lib/doc/store";
-import type { AppBlueprint } from "@/lib/schemas/blueprint";
+import type { BlueprintDoc } from "@/lib/doc/types";
+import { asUuid } from "@/lib/doc/types";
 
+// ── Fixed UUIDs ────────────────────────────────────────────────────────
+
+const MOD_UUID = asUuid("module-1-uuid");
+const FORM_UUID = asUuid("form-1-uuid");
+const Q_UUID = asUuid("q-111-0000-0000-0000-000000000000");
+
+/**
+ * Seed the store with a normalized `BlueprintDoc` containing one module,
+ * one form, and one text question. Returns the store + stable UUIDs so
+ * tests can assert on entity access without re-deriving them.
+ *
+ * `load()` now accepts the normalized shape directly — no `toDoc` or
+ * `AppBlueprint` conversion is needed.
+ */
 function setup() {
 	const store = createBlueprintDocStore();
-	const bp: AppBlueprint = {
-		app_name: "Hooks Test",
-		connect_type: undefined,
-		modules: [
-			{
-				uuid: "module-1-uuid",
-				name: "Registration",
-				forms: [
-					{
-						uuid: "form-1-uuid",
-						name: "Reg Form",
-						type: "registration",
-						questions: [
-							{
-								uuid: "q-111-0000-0000-0000-000000000000",
-								id: "name",
-								type: "text",
-								label: "Name",
-							},
-						],
-					},
-				],
+	const doc: BlueprintDoc = {
+		appId: "app-1",
+		appName: "Hooks Test",
+		connectType: null,
+		caseTypes: null,
+		modules: {
+			[MOD_UUID]: { uuid: MOD_UUID, id: "registration", name: "Registration" },
+		},
+		forms: {
+			[FORM_UUID]: {
+				uuid: FORM_UUID,
+				id: "reg_form",
+				name: "Reg Form",
+				type: "registration",
 			},
-		],
-		case_types: null,
+		},
+		fields: {
+			[Q_UUID]: {
+				uuid: Q_UUID,
+				id: "name",
+				kind: "text",
+				label: "Name",
+			} as BlueprintDoc["fields"][typeof Q_UUID],
+		},
+		moduleOrder: [MOD_UUID],
+		formOrder: { [MOD_UUID]: [FORM_UUID] },
+		fieldOrder: { [FORM_UUID]: [Q_UUID] },
+		fieldParent: {},
 	};
-	store.getState().load(bp, "app-1");
+	store.getState().load(doc);
 	const moduleUuid = store.getState().moduleOrder[0];
 	const formUuid = store.getState().formOrder[moduleUuid][0];
 	const questionUuid = store.getState().fieldOrder[formUuid][0];

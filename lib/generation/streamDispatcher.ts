@@ -30,6 +30,7 @@
  * completes.
  */
 
+import { toDoc } from "@/lib/doc/converter";
 import type { BlueprintDocStoreApi } from "@/lib/doc/store";
 import type { AppBlueprint } from "@/lib/schemas/blueprint";
 import type { BuilderSessionStoreApi } from "@/lib/session/store";
@@ -164,11 +165,17 @@ export function applyStreamEvent(
 			 * `sessionStore.endAgentWrite()` cascades to `docStore.endAgentWrite()`
 			 * internally (resumes undo tracking) AND sets `justCompleted=true`
 			 * for the celebration animation.
+			 *
+			 * TODO Task 17-18: the SA still emits a nested `AppBlueprint` here.
+			 * Once the SA is migrated to emit a normalized `BlueprintDoc`,
+			 * replace `toDoc(bp, appId)` with the direct `BlueprintDoc` payload
+			 * and delete the `toDoc` import. At that point converter.ts can be
+			 * fully removed (Task 14).
 			 */
 			const bp = data.blueprint as AppBlueprint;
 			if (bp) {
 				const appId = sessionStore.getState().appId ?? "";
-				docStore.getState().load(bp, appId);
+				docStore.getState().load(toDoc(bp, appId));
 			}
 			sessionStore.getState().endAgentWrite();
 			return;
@@ -183,11 +190,14 @@ export function applyStreamEvent(
 			 * NOT call `sessionStore.endAgentWrite()` because that would set
 			 * `justCompleted=true` and trigger a celebration animation. The
 			 * `agentActive` flag is cleared separately by the chat status effect.
+			 *
+			 * TODO Task 17-18: same as data-done — replace toDoc() with the
+			 * direct BlueprintDoc payload once the SA emits normalized docs.
 			 */
 			const bp = data.blueprint as AppBlueprint;
 			if (bp) {
 				const appId = sessionStore.getState().appId ?? "";
-				docStore.getState().load(bp, appId);
+				docStore.getState().load(toDoc(bp, appId));
 				docStore.getState().endAgentWrite();
 			}
 			return;

@@ -21,18 +21,30 @@ import { renderHook } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { describe, expect, it } from "vitest";
 import { BuilderProvider } from "@/components/builder/BuilderProvider";
-import type { AppBlueprint } from "@/lib/schemas/blueprint";
+import type { BlueprintDoc } from "@/lib/doc/types";
 import { useInReplayMode, useIsLoading } from "@/lib/session/hooks";
 import type { ReplayStage } from "@/lib/session/types";
 
-/** Minimal valid blueprint for LoadAppHydrator tests — zero modules is a
- *  legal shape, so the doc store hydrates without any entity mutations. */
-const EMPTY_BLUEPRINT: AppBlueprint = {
-	app_name: "Test App",
-	modules: [],
-	/* `case_types: null` is the canonical survey-only shape; the doc store
-	 *  handles it identically to an empty array for hydration purposes. */
-	case_types: null,
+/**
+ * Minimal valid normalized doc for LoadAppHydrator tests.
+ *
+ * Zero modules is a legal shape — the doc store hydrates without entity
+ * mutations, making this fixture useful for lifecycle (loading-flag)
+ * regression tests that don't need real blueprint content.
+ */
+const EMPTY_DOC: BlueprintDoc = {
+	appId: "test-app-id",
+	appName: "Test App",
+	connectType: null,
+	/* `caseTypes: null` is the canonical survey-only shape. */
+	caseTypes: null,
+	modules: {},
+	forms: {},
+	fields: {},
+	moduleOrder: [],
+	formOrder: {},
+	fieldOrder: {},
+	fieldParent: {},
 };
 
 /** Empty replay script — `doneIndex: -1` means the dispatch loop in
@@ -86,10 +98,7 @@ describe("BuilderProvider — existing-app hydration", () => {
 		 * other should catch reviewers' eyes in the same file. */
 		function wrapper({ children }: { children: ReactNode }) {
 			return (
-				<BuilderProvider
-					buildId="test-app-id"
-					initialBlueprint={EMPTY_BLUEPRINT}
-				>
+				<BuilderProvider buildId="test-app-id" initialDoc={EMPTY_DOC}>
 					{children}
 				</BuilderProvider>
 			);

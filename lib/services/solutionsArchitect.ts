@@ -951,11 +951,15 @@ export function createSolutionsArchitect(
 					});
 
 					/* Update the app with the final validated blueprint (fire-and-forget).
-					 * The app document was created at the start of the request by the route handler. */
+					 * The app document was created at the start of the request by the route handler.
+					 * TODO Task 17-18: result.blueprint is still AppBlueprint; cast until SA
+					 * is migrated to emit normalized BlueprintDoc. */
 					if (ctx.appId) {
-						completeApp(ctx.appId, result.blueprint, ctx.logger.runId).catch(
-							(err) => log.error("[validateApp] app update failed", err),
-						);
+						completeApp(
+							ctx.appId,
+							result.blueprint as unknown as import("@/lib/domain/blueprint").PersistableDoc,
+							ctx.logger.runId,
+						).catch((err) => log.error("[validateApp] app update failed", err));
 					}
 
 					return { success: true as const };

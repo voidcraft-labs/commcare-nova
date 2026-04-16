@@ -29,7 +29,6 @@ import { temporal } from "zundo";
 import { create } from "zustand";
 import { devtools, subscribeWithSelector } from "zustand/middleware";
 import { immer } from "zustand/middleware/immer";
-import { toDoc } from "@/lib/doc/converter";
 import { rebuildFieldParent } from "@/lib/doc/fieldParent";
 import { applyMutation, applyMutations } from "@/lib/doc/mutations";
 import type {
@@ -37,7 +36,7 @@ import type {
 	MoveFieldResult,
 } from "@/lib/doc/mutations/fields";
 import type { BlueprintDoc, Mutation } from "@/lib/doc/types";
-import type { AppBlueprint } from "@/lib/schemas/blueprint";
+import type { PersistableDoc } from "@/lib/domain/blueprint";
 
 export { rebuildFieldParent };
 
@@ -76,14 +75,19 @@ export type BlueprintDocState = BlueprintDoc & {
 	/** Apply a batch of mutations as one atomic undo entry. */
 	applyMany: (muts: Mutation[]) => void;
 	/**
-	 * Replace the entire doc from an AppBlueprint.
+	 * Replace the entire doc from a `PersistableDoc` (the Firestore-persisted
+	 * shape that omits `fieldParent`).
+	 *
+	 * Accepts the normalized doc shape directly — no conversion from the
+	 * legacy nested `AppBlueprint` format. `fieldParent` is always rebuilt
+	 * from `fieldOrder`, so callers never need to supply it.
 	 *
 	 * Does NOT create an undo entry — loads are session hydration, not
 	 * user edits. Clears any prior history and keeps temporal paused.
 	 * Callers must call `store.temporal.getState().resume()` afterward
 	 * if they want undo tracking to begin.
 	 */
-	load: (bp: AppBlueprint, appId: string) => void;
+	load: (doc: PersistableDoc) => void;
 	/**
 	 * Pause undo tracking before an agent write stream begins.
 	 *
@@ -206,18 +210,24 @@ export function createBlueprintDocStore() {
 						},
 
 						/**
-						 * Hydrate the store from an AppBlueprint.
+						 * Hydrate the store from a normalized `BlueprintDoc`.
 						 *
-						 * Converts the nested blueprint to a normalized doc via `toDoc`,
-						 * writes every field atomically, then clears and re-pauses the
-						 * undo history. Rebuilds the fieldParent reverse index after
-						 * loading the new doc shape.
+						 * Accepts the doc shape that Firestore stores directly — no
+						 * `toDoc` conversion from the legacy nested `AppBlueprint` format.
+						 * The incoming doc may omit `fieldParent` (Firestore does not
+						 * persist it); this method always rebuilds it from `fieldOrder`
+						 * so every downstream consumer can rely on it being present.
 						 *
-						 * The transition from empty→loaded is not an undoable user action —
-						 * it's session setup.
+						 * Writes every field atomically, then clears and re-pauses the
+						 * undo history so the hydration transition never enters history.
+						 * Callers that want undo tracking must call
+						 * `store.temporal.getState().resume()` afterward.
 						 */
-						load: (bp: AppBlueprint, appId: string) => {
-							const next = toDoc(bp, appId);
+						load: (doc: PersistableDoc) => {
+							// Spread the on-disk doc (which has no fieldParent) into a full
+							// in-memory BlueprintDoc by initializing fieldParent to {} first.
+							// rebuildFieldParent below fills it in from fieldOrder atomically.
+							const next: BlueprintDoc = { ...doc, fieldParent: {} };
 							set((draft) => {
 								draft.appId = next.appId;
 								draft.appName = next.appName;

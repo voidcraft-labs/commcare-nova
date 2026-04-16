@@ -78,7 +78,19 @@ export const blueprintDocSchema = z.object({
 	// fieldParent is NOT persisted — derived from fieldOrder on load.
 });
 
-export type BlueprintDoc = z.infer<typeof blueprintDocSchema> & {
+/**
+ * The on-disk (Firestore-persisted) shape of the blueprint doc.
+ *
+ * This is the direct Zod-inferred type from `blueprintDocSchema`. It does NOT
+ * include `fieldParent` — that field is derived from `fieldOrder` on load and
+ * is never stored.
+ *
+ * Use `BlueprintDoc` for in-memory / store state (includes `fieldParent`);
+ * use `PersistableDoc` at Firestore read/write boundaries.
+ */
+export type PersistableDoc = z.infer<typeof blueprintDocSchema>;
+
+export type BlueprintDoc = PersistableDoc & {
 	/** Reverse index: field uuid → parent uuid (form or container). Maintained
 	 *  atomically by every mutation that touches fieldOrder. Rebuilt by
 	 *  rebuildFieldParent() on load. Not persisted. */

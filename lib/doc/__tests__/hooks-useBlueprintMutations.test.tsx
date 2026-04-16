@@ -40,85 +40,92 @@ import {
 	BlueprintDocProvider,
 	type BlueprintDocStore,
 } from "@/lib/doc/provider";
+import type { BlueprintDoc } from "@/lib/doc/types";
 import { asUuid, type Uuid } from "@/lib/doc/types";
-import type { AppBlueprint, Question } from "@/lib/schemas/blueprint";
 
-// Minimal fixture: one module, one form, two top-level questions plus a
-// group with a single child. The tests cover top-level mutations AND
-// nested (group-child) paths so the resolver behavior is exercised end
-// to end. Group/repeat nesting semantics themselves are tested in the
-// mutation reducer suite; this file only needs to prove the hook's
-// uuid-validation + dispatch path works for both depths.
-const bp: AppBlueprint = {
-	app_name: "Test",
-	connect_type: undefined,
-	case_types: null,
-	modules: [
-		{
-			uuid: "module-1-uuid",
-			name: "M0",
-			forms: [
-				{
-					uuid: "form-1-uuid",
-					name: "F0",
-					type: "survey",
-					questions: [
-						{
-							uuid: "q-a-0000-0000-0000-000000000000",
-							id: "a",
-							type: "text",
-							label: "A",
-						},
-						{
-							uuid: "q-b-0000-0000-0000-000000000000",
-							id: "b",
-							type: "text",
-							label: "B",
-						},
-						{
-							uuid: "q-g-0000-0000-0000-000000000000",
-							id: "grp",
-							type: "group",
-							label: "Group",
-							children: [
-								{
-									uuid: "q-c-0000-0000-0000-000000000000",
-									id: "c",
-									type: "text",
-									label: "C",
-								},
-							],
-						},
-					],
-				},
-				{
-					uuid: "form-2-uuid",
-					// Second form so moveQuestion / replaceForm can distinguish
-					// same-form from cross-form dispatches.
-					name: "F1",
-					type: "survey",
-					questions: [
-						{
-							uuid: "q-x-0000-0000-0000-000000000000",
-							id: "x",
-							type: "text",
-							label: "X",
-						},
-					],
-				},
-			],
-		},
-	],
-};
+// ── Fixed UUIDs ────────────────────────────────────────────────────────
+// Declared here (not inside the fixture) so tests can reference them
+// without extracting from store state.
 
-/** Well-known question uuids from the fixture, branded for type safety. */
+const MOD1 = asUuid("module-1-uuid");
+const FORM1 = asUuid("form-1-uuid");
+const FORM2 = asUuid("form-2-uuid");
 const Q_A = asUuid("q-a-0000-0000-0000-000000000000");
 const Q_B = asUuid("q-b-0000-0000-0000-000000000000");
-const Q_GRP = asUuid("q-g-0000-0000-0000-000000000000");
+const Q_G = asUuid("q-g-0000-0000-0000-000000000000");
+const Q_C = asUuid("q-c-0000-0000-0000-000000000000");
+const Q_X = asUuid("q-x-0000-0000-0000-000000000000");
+
+/**
+ * Normalized `BlueprintDoc` fixture. One module, two forms:
+ *  - F0: [a, b, grp { c }]
+ *  - F1: [x]
+ *
+ * Tests cover top-level mutations AND nested (group-child) paths.
+ * Group/repeat nesting semantics are tested in the mutation reducer
+ * suite; this file only proves the hook's uuid-validation + dispatch
+ * path works for both depths.
+ */
+const bp: BlueprintDoc = {
+	appId: "t",
+	appName: "Test",
+	connectType: null,
+	caseTypes: null,
+	modules: {
+		[MOD1]: { uuid: MOD1, id: "m0", name: "M0" },
+	},
+	forms: {
+		[FORM1]: { uuid: FORM1, id: "f0", name: "F0", type: "survey" },
+		[FORM2]: { uuid: FORM2, id: "f1", name: "F1", type: "survey" },
+	},
+	fields: {
+		[Q_A]: {
+			uuid: Q_A,
+			id: "a",
+			kind: "text",
+			label: "A",
+		} as BlueprintDoc["fields"][typeof Q_A],
+		[Q_B]: {
+			uuid: Q_B,
+			id: "b",
+			kind: "text",
+			label: "B",
+		} as BlueprintDoc["fields"][typeof Q_B],
+		[Q_G]: {
+			uuid: Q_G,
+			id: "grp",
+			kind: "group",
+			label: "Group",
+		} as BlueprintDoc["fields"][typeof Q_G],
+		[Q_C]: {
+			uuid: Q_C,
+			id: "c",
+			kind: "text",
+			label: "C",
+		} as BlueprintDoc["fields"][typeof Q_C],
+		[Q_X]: {
+			uuid: Q_X,
+			id: "x",
+			kind: "text",
+			label: "X",
+		} as BlueprintDoc["fields"][typeof Q_X],
+	},
+	moduleOrder: [MOD1],
+	formOrder: { [MOD1]: [FORM1, FORM2] },
+	fieldOrder: {
+		[FORM1]: [Q_A, Q_B, Q_G],
+		[FORM2]: [Q_X],
+		[Q_G]: [Q_C],
+	},
+	fieldParent: {},
+};
+
+// Q_GRP is an alias for Q_G for backward compat in test assertions.
+const Q_GRP = Q_G;
 
 function wrapper({ children }: { children: ReactNode }) {
 	return (
-		<BlueprintDocProvider appId="t" initialBlueprint={bp}>
+		<BlueprintDocProvider appId="t" initialDoc={bp}>
 			{children}
 		</BlueprintDocProvider>
 	);
@@ -794,42 +801,40 @@ describe("useBlueprintMutations", () => {
 	// ── renameQuestion xpathFieldsRewritten ──────────────────────────────
 
 	it("renameQuestion returns xpathFieldsRewritten from the reducer", () => {
-		// Use a custom blueprint with xpath refs to get a nonzero count.
-		const bpWithRefs: AppBlueprint = {
-			app_name: "Refs",
-			connect_type: undefined,
-			case_types: null,
-			modules: [
-				{
-					uuid: "module-4-uuid",
-					name: "M",
-					forms: [
-						{
-							uuid: "form-3-uuid",
-							name: "F",
-							type: "survey",
-							questions: [
-								{
-									uuid: "q-src-0000-0000-0000-000000000000",
-									id: "source",
-									type: "text",
-									label: "Source",
-								},
-								{
-									uuid: "q-dep-0000-0000-0000-000000000000",
-									id: "dep",
-									type: "text",
-									label: "Dep",
-									calculate: "/data/source + 1",
-								},
-							],
-						},
-					],
-				},
-			],
+		// Use a normalized doc with xpath refs to get a nonzero rewrite count.
+		const MOD4 = asUuid("module-4-uuid");
+		const FORM3 = asUuid("form-3-uuid");
+		const Q_SRC = asUuid("q-src-0000-0000-0000-000000000000");
+		const Q_DEP = asUuid("q-dep-0000-0000-0000-000000000000");
+		const bpWithRefs: BlueprintDoc = {
+			appId: "t",
+			appName: "Refs",
+			connectType: null,
+			caseTypes: null,
+			modules: { [MOD4]: { uuid: MOD4, id: "m", name: "M" } },
+			forms: { [FORM3]: { uuid: FORM3, id: "f", name: "F", type: "survey" } },
+			fields: {
+				[Q_SRC]: {
+					uuid: Q_SRC,
+					id: "source",
+					kind: "text",
+					label: "Source",
+				} as BlueprintDoc["fields"][typeof Q_SRC],
+				[Q_DEP]: {
+					uuid: Q_DEP,
+					id: "dep",
+					kind: "text",
+					label: "Dep",
+					calculate: "/data/source + 1",
+				} as BlueprintDoc["fields"][typeof Q_DEP],
+			},
+			moduleOrder: [MOD4],
+			formOrder: { [MOD4]: [FORM3] },
+			fieldOrder: { [FORM3]: [Q_SRC, Q_DEP] },
+			fieldParent: {},
 		};
 		const refWrapper = ({ children }: { children: ReactNode }) => (
-			<BlueprintDocProvider appId="t" initialBlueprint={bpWithRefs}>
+			<BlueprintDocProvider appId="t" initialDoc={bpWithRefs}>
 				{children}
 			</BlueprintDocProvider>
 		);

@@ -18,7 +18,7 @@ import { generateText, Output, streamText } from "ai";
 import type { z } from "zod";
 import { log } from "@/lib/log";
 import type { Session } from "../auth";
-import { updateApp } from "../db/apps";
+import { updateAppLegacy } from "../db/apps";
 import { MODEL_DEFAULT, type ReasoningEffort } from "../models";
 import type { AppBlueprint } from "../schemas/blueprint";
 import { type ClassifiedError, classifyError } from "./errorClassifier";
@@ -105,18 +105,23 @@ export class GenerationContext {
 	}
 
 	/**
-	 * Fire-and-forget save of the current blueprint snapshot to Firestore.
+	 * Fire-and-forget save of the current legacy blueprint snapshot to Firestore.
 	 *
 	 * Called after each blueprint-mutating emission so the app document's
 	 * `updated_at` advances during generation. This lets the staleness check
 	 * in `listApps()` distinguish "still actively generating" from "process
 	 * died" — without this, `updated_at === created_at` for the entire run.
+	 *
+	 * TODO Task 17-18: once the SA emits normalized `BlueprintDoc` objects,
+	 * replace `updateAppLegacy` with `updateApp` and change the `blueprint`
+	 * field type to `BlueprintDoc`.
 	 */
 	private saveBlueprint() {
 		if (!this.appId || !this.blueprint) return;
-		updateApp(this.appId, this.blueprint).catch((err) =>
-			log.error("[intermediate-save] failed", err),
-		);
+		updateAppLegacy(
+			this.appId,
+			this.blueprint as unknown as Record<string, unknown>,
+		).catch((err) => log.error("[intermediate-save] failed", err));
 	}
 
 	/** Emit a transient data part to the client stream. Also buffers for run logging. */

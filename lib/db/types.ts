@@ -16,7 +16,7 @@
 
 import { Timestamp } from "@google-cloud/firestore";
 import { z } from "zod";
-import { appBlueprintSchema } from "../schemas/blueprint";
+import { blueprintDocSchema } from "../domain/blueprint";
 
 // ── Shared ──────────────────────────────────────────────────────────
 
@@ -305,10 +305,17 @@ export type UserSettingsDoc = z.infer<typeof userSettingsDocSchema>;
 export const appDocSchema = z.object({
 	/** Owner userId (UUID) — the user who created this app. Used for list queries and authorization. */
 	owner: z.string(),
-	/** App name — denormalized from blueprint for list display. */
+	/** App name — denormalized from the doc for list display. */
 	app_name: z.string(),
-	/** The full blueprint, stored as a nested Firestore map. */
-	blueprint: appBlueprintSchema,
+	/**
+	 * The normalized blueprint doc. Firestore persists the `BlueprintDoc`
+	 * shape directly — no nested-tree conversion is needed on load.
+	 *
+	 * Note: `fieldParent` is NOT persisted (derived from `fieldOrder` on
+	 * load), so Zod validation against `blueprintDocSchema` will succeed
+	 * even when that field is absent in the stored document.
+	 */
+	blueprint: blueprintDocSchema,
 	/** Connect app type — denormalized for list filtering. Null for standard apps. */
 	connect_type: z.enum(["learn", "deliver"]).nullable().default(null),
 	/** Number of modules — denormalized for list display. */
