@@ -30,7 +30,7 @@
  * completes.
  */
 
-import { toDoc } from "@/lib/doc/converter";
+import { legacyAppBlueprintToDoc } from "@/lib/doc/legacyBridge";
 import type { BlueprintDocStoreApi } from "@/lib/doc/store";
 import type { AppBlueprint } from "@/lib/schemas/blueprint";
 import type { BuilderSessionStoreApi } from "@/lib/session/store";
@@ -162,20 +162,20 @@ export function applyStreamEvent(
 			 * loop mutations). `load()` replaces the entire doc and clears +
 			 * pauses undo history.
 			 *
+			 * The SA still speaks the legacy nested `AppBlueprint` wire format
+			 * on its chat stream; we run it through `legacyAppBlueprintToDoc`
+			 * (the shared wire→doc bridge that also powers the Firestore
+			 * migration script) to produce the normalized shape the store
+			 * expects.
+			 *
 			 * `sessionStore.endAgentWrite()` cascades to `docStore.endAgentWrite()`
 			 * internally (resumes undo tracking) AND sets `justCompleted=true`
 			 * for the celebration animation.
-			 *
-			 * TODO Task 17-18: the SA still emits a nested `AppBlueprint` here.
-			 * Once the SA is migrated to emit a normalized `BlueprintDoc`,
-			 * replace `toDoc(bp, appId)` with the direct `BlueprintDoc` payload
-			 * and delete the `toDoc` import. At that point converter.ts can be
-			 * fully removed (Task 14).
 			 */
 			const bp = data.blueprint as AppBlueprint;
 			if (bp) {
 				const appId = sessionStore.getState().appId ?? "";
-				docStore.getState().load(toDoc(bp, appId));
+				docStore.getState().load(legacyAppBlueprintToDoc(appId, bp));
 			}
 			sessionStore.getState().endAgentWrite();
 			return;
@@ -191,13 +191,12 @@ export function applyStreamEvent(
 			 * `justCompleted=true` and trigger a celebration animation. The
 			 * `agentActive` flag is cleared separately by the chat status effect.
 			 *
-			 * TODO Task 17-18: same as data-done — replace toDoc() with the
-			 * direct BlueprintDoc payload once the SA emits normalized docs.
+			 * Same wire-format bridge as `data-done`.
 			 */
 			const bp = data.blueprint as AppBlueprint;
 			if (bp) {
 				const appId = sessionStore.getState().appId ?? "";
-				docStore.getState().load(toDoc(bp, appId));
+				docStore.getState().load(legacyAppBlueprintToDoc(appId, bp));
 				docStore.getState().endAgentWrite();
 			}
 			return;
