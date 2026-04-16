@@ -170,15 +170,22 @@ export function EditableQuestionWrapper({
 			tabIndex={0}
 			data-question-wrapper
 			aria-label="Select question"
-			/* Selected: flatten the bottom corners so the inline settings panel
-			 * attaches flush, and collapse outline-offset so the violet outline
-			 * sits at the element edge rather than floating 3px above the panel. */
-			className={`group/qw relative w-full text-left rounded-lg transition-all duration-150 cursor-pointer ${
+			/* Selection ring uses an ::after pseudo-element instead of CSS
+			 * outline or box-shadow because:
+			 *  - CSS outline gets clipped at the top edge by the GPU
+			 *    compositing layer that `transform: translateY()` creates
+			 *    on each virtualizer item wrapper.
+			 *  - Inset box-shadow renders below children, so opaque child
+			 *    backgrounds (like the group header's bg-pv-surface) cover it.
+			 *  - A positioned ::after paints above non-positioned children
+			 *    (CSS painting order step 6 > step 3) AND stays within the
+			 *    element bounds, immune to compositing-layer clipping. */
+			className={`group/qw relative w-full text-left rounded-lg transition-all duration-150 cursor-pointer outline-none after:content-[''] after:absolute after:inset-0 after:rounded-[inherit] after:pointer-events-none after:transition-[border-color,border-width] after:duration-150 ${
 				isSelected
-					? "rounded-b-none outline-2 outline-nova-violet outline-offset-0 bg-nova-violet/[0.03]"
+					? "rounded-b-none bg-nova-violet/[0.03] after:border-2 after:border-nova-violet"
 					: hovered
-						? "outline-1 outline-nova-violet/30 outline-offset-3"
-						: "outline-1 outline-nova-violet/10 outline-offset-3"
+						? "after:border after:border-nova-violet/30"
+						: "after:border after:border-nova-violet/10"
 			}`}
 			style={mergedStyle}
 			onMouseEnter={() => setHovered(true)}

@@ -122,7 +122,7 @@ export const GroupOpenRow = memo(function GroupOpenRow({
 									onToggleCollapse();
 								}}
 								data-no-drag
-								className="text-nova-text-muted hover:text-nova-text transition-colors cursor-pointer p-0.5 -m-0.5 rounded"
+								className="pointer-events-auto text-nova-text-muted hover:text-nova-text transition-colors cursor-pointer p-0.5 -m-0.5 rounded"
 								aria-label={collapsed ? "Expand group" : "Collapse group"}
 							>
 								<Icon
@@ -194,7 +194,12 @@ export const GroupOpenRow = memo(function GroupOpenRow({
 						paddingRight: depthPadding(0),
 					}}
 				>
-					<InlineSettingsPanel question={q} />
+					{/* Inner wrapper preserves the group bracket's side borders
+					 * through the settings panel so the visual container stays
+					 * unbroken between header and children. */}
+					<div className="border-l border-r border-pv-input-border">
+						<InlineSettingsPanel question={q} />
+					</div>
 				</div>
 			)}
 			{preview}
