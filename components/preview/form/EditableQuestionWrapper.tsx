@@ -11,6 +11,13 @@ interface EditableQuestionWrapperProps {
 	children: ReactNode;
 	style?: React.CSSProperties;
 	isDragging?: boolean;
+	/** When true, the selection ring flattens at the bottom when the row
+	 *  is selected. Set by callers whose selected-row visual has a flat
+	 *  bottom edge (an expanded group header's `rounded-t-lg border-b-0`
+	 *  chrome). Non-group rows stay fully `rounded-lg` so they pair
+	 *  cleanly with the floating `InlineSettingsPanel` drawer that hangs
+	 *  below them. */
+	flatBottomOnSelect?: boolean;
 }
 
 /**
@@ -30,6 +37,7 @@ export function EditableQuestionWrapper({
 	children,
 	style,
 	isDragging,
+	flatBottomOnSelect = false,
 }: EditableQuestionWrapperProps) {
 	const ctx = useEditContext();
 	const { setPending, scrollTo } = useScrollIntoView();
@@ -182,7 +190,7 @@ export function EditableQuestionWrapper({
 			 *    element bounds, immune to compositing-layer clipping. */
 			className={`group/qw relative w-full text-left rounded-lg transition-all duration-150 cursor-pointer outline-none after:content-[''] after:absolute after:inset-0 after:rounded-[inherit] after:pointer-events-none after:transition-[border-color,border-width] after:duration-150 ${
 				isSelected
-					? "rounded-b-none bg-nova-violet/[0.03] after:border-2 after:border-nova-violet"
+					? `${flatBottomOnSelect ? "rounded-b-none" : ""} bg-nova-violet/[0.03] after:border-2 after:border-nova-violet`
 					: hovered
 						? "after:border after:border-nova-violet/30"
 						: "after:border after:border-nova-violet/10"
