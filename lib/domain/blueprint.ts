@@ -7,9 +7,9 @@
 // `fieldOrder` on load.
 
 import { z } from "zod";
-import { type Field, fieldSchema } from "./fields";
-import { type Form, formSchema } from "./forms";
-import { type Module, moduleSchema } from "./modules";
+import { fieldSchema } from "./fields";
+import { formSchema } from "./forms";
+import { moduleSchema } from "./modules";
 import { type Uuid, uuidSchema } from "./uuid";
 
 // Case type schemas — moved verbatim from lib/schemas/blueprint.ts.

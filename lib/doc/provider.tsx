@@ -15,7 +15,6 @@
 
 import { createContext, type ReactNode, useRef } from "react";
 import { createBlueprintDocStore } from "@/lib/doc/store";
-import type { BlueprintDoc } from "@/lib/doc/types";
 import type { PersistableDoc } from "@/lib/domain/blueprint";
 
 // Re-export the store type so hooks can import it from a stable module path
