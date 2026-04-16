@@ -46,7 +46,7 @@ function setup() {
 	store.getState().load(bp, "app-1");
 	const moduleUuid = store.getState().moduleOrder[0];
 	const formUuid = store.getState().formOrder[moduleUuid][0];
-	const questionUuid = store.getState().questionOrder[formUuid][0];
+	const questionUuid = store.getState().fieldOrder[formUuid][0];
 	const wrapper = ({ children }: { children: ReactNode }) => (
 		<BlueprintDocContext.Provider value={store}>
 			{children}

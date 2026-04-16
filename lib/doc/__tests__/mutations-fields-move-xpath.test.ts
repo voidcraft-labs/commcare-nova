@@ -59,19 +59,19 @@ function fixture(): AppBlueprint {
 	};
 }
 
-describe("moveQuestion + path rewrite", () => {
-	it("rewrites absolute-path references when a question moves across groups", () => {
+describe("moveField + path rewrite", () => {
+	it("rewrites absolute-path references when a field moves across groups", () => {
 		const store = createBlueprintDocStore();
 		store.getState().load(fixture(), "app");
 
 		store.getState().apply({
-			kind: "moveQuestion",
+			kind: "moveField",
 			uuid: SRC,
 			toParentUuid: GRP2,
 			toIndex: 0,
 		});
 
-		const ref = store.getState().questions[REF];
+		const ref = store.getState().fields[REF];
 		expect(ref?.calculate).toBe("/data/grp2/source + 1");
 	});
 });

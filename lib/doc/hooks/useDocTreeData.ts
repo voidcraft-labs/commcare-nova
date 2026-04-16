@@ -45,10 +45,10 @@ export function useDocTreeData(
 		connectType: s.connectType,
 		modules: s.modules,
 		forms: s.forms,
-		questions: s.questions,
+		fields: s.fields,
 		moduleOrder: s.moduleOrder,
 		formOrder: s.formOrder,
-		questionOrder: s.questionOrder,
+		fieldOrder: s.fieldOrder,
 	}));
 
 	return useMemo(() => {
@@ -76,12 +76,12 @@ export function useDocTreeData(
 								type: form.type,
 								purpose: form.purpose,
 								questions: assembleQuestions(
-									/* The doc store's QuestionEntity records are keyed by branded
+									/* The doc store's field records are keyed by branded
 									 * Uuid and structurally identical to NQuestion at runtime
 									 * (both camelCase, flat). Cast through `unknown` to bridge
 									 * the branded type boundary — same pattern as syncOldFromDoc. */
-									doc.questions as unknown as Record<string, NQuestion>,
-									doc.questionOrder as unknown as Record<string, string[]>,
+									doc.fields as unknown as Record<string, NQuestion>,
+									doc.fieldOrder as unknown as Record<string, string[]>,
 									formUuid as string,
 								),
 								connect: form.connect ?? undefined,

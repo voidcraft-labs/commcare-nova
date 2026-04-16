@@ -20,8 +20,8 @@ function module_(uuid: Uuid, name: string): ModuleEntity {
 function form_(uuid: Uuid, name: string): FormEntity {
 	return { uuid, name, type: "survey" } as FormEntity;
 }
-function question_(uuid: Uuid, id: string): QuestionEntity {
-	return { uuid, id, type: "text" } as QuestionEntity;
+function field_(uuid: Uuid, id: string): QuestionEntity {
+	return { uuid, id, kind: "text" } as never as QuestionEntity;
 }
 
 function emptyDoc(): BlueprintDoc {
@@ -32,10 +32,11 @@ function emptyDoc(): BlueprintDoc {
 		caseTypes: null,
 		modules: {},
 		forms: {},
-		questions: {},
+		fields: {},
 		moduleOrder: [],
 		formOrder: {},
-		questionOrder: {},
+		fieldOrder: {},
+		fieldParent: {},
 	};
 }
 
@@ -93,22 +94,22 @@ describe("removeModule", () => {
 		expect(next.formOrder[M("A")]).toBeUndefined();
 	});
 
-	it("cascades to forms and questions", () => {
+	it("cascades to forms and fields", () => {
 		const start: BlueprintDoc = {
 			...emptyDoc(),
 			modules: { [M("A")]: module_(M("A"), "A") },
 			forms: { [F("1")]: form_(F("1"), "F") },
-			questions: { [Q("x")]: question_(Q("x"), "x") },
+			fields: { [Q("x")]: field_(Q("x"), "x") },
 			moduleOrder: [M("A")],
 			formOrder: { [M("A")]: [F("1")] },
-			questionOrder: { [F("1")]: [Q("x")] },
+			fieldOrder: { [F("1")]: [Q("x")] },
 		};
 		const next = produce(start, (d) => {
 			applyMutation(d, { kind: "removeModule", uuid: M("A") });
 		});
 		expect(next.forms[F("1")]).toBeUndefined();
-		expect(next.questions[Q("x")]).toBeUndefined();
-		expect(next.questionOrder[F("1")]).toBeUndefined();
+		expect(next.fields[Q("x")]).toBeUndefined();
+		expect(next.fieldOrder[F("1")]).toBeUndefined();
 	});
 });
 

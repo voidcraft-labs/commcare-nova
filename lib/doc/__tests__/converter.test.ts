@@ -21,10 +21,10 @@ describe("toDoc", () => {
 			caseTypes: null,
 			modules: {},
 			forms: {},
-			questions: {},
+			fields: {},
 			moduleOrder: [],
 			formOrder: {},
-			questionOrder: {},
+			fieldOrder: {},
 		});
 	});
 
@@ -90,7 +90,7 @@ describe("toDoc", () => {
 		expect(doc.forms[doc.formOrder[modUuid][1]]?.name).toBe("Follow");
 	});
 
-	it("preserves question UUIDs from the blueprint (not regenerated)", () => {
+	it("preserves field UUIDs from the blueprint (not regenerated)", () => {
 		const qUuid = "q-uuid-preserved-0000-0000-000000000000";
 		const bp: AppBlueprint = {
 			app_name: "App",
@@ -115,11 +115,11 @@ describe("toDoc", () => {
 		};
 		const doc = toDoc(bp, APP_ID);
 		const formUuid = doc.formOrder[doc.moduleOrder[0]][0];
-		expect(doc.questionOrder[formUuid]).toEqual([qUuid]);
-		expect(doc.questions[asUuid(qUuid)]?.id).toBe("name");
+		expect(doc.fieldOrder[formUuid]).toEqual([qUuid]);
+		expect(doc.fields[asUuid(qUuid)]?.id).toBe("name");
 	});
 
-	it("flattens nested group children into separate questionOrder entries", () => {
+	it("flattens nested group children into separate fieldOrder entries", () => {
 		const groupUuid = "g-0000-0000-0000-000000000000";
 		const childUuid = "c-0000-0000-0000-000000000000";
 		const bp: AppBlueprint = {
@@ -159,14 +159,14 @@ describe("toDoc", () => {
 		const doc = toDoc(bp, APP_ID);
 		const formUuid = doc.formOrder[doc.moduleOrder[0]][0];
 		// Top-level order contains the group uuid
-		expect(doc.questionOrder[formUuid]).toEqual([groupUuid]);
-		// Group has its own entry in questionOrder, keyed by its own uuid
-		expect(doc.questionOrder[asUuid(groupUuid)]).toEqual([childUuid]);
-		// The child is a peer entry in the flat questions map
-		expect(doc.questions[asUuid(childUuid)]?.id).toBe("inner");
-		// QuestionEntity has no `children` field
+		expect(doc.fieldOrder[formUuid]).toEqual([groupUuid]);
+		// Group has its own entry in fieldOrder, keyed by its own uuid
+		expect(doc.fieldOrder[asUuid(groupUuid)]).toEqual([childUuid]);
+		// The child is a peer entry in the flat fields map
+		expect(doc.fields[asUuid(childUuid)]?.id).toBe("inner");
+		// Field entities have no `children` field
 		expect(
-			(doc.questions[asUuid(groupUuid)] as { children?: unknown }).children,
+			(doc.fields[asUuid(groupUuid)] as { children?: unknown }).children,
 		).toBeUndefined();
 	});
 
@@ -196,7 +196,7 @@ describe("toDoc", () => {
 		expect(() => toDoc(bp, APP_ID)).toThrow(/uuid/i);
 	});
 
-	it("throws when a question is missing its uuid", () => {
+	it("throws when a field is missing its uuid", () => {
 		const bp: AppBlueprint = {
 			app_name: "App",
 			connect_type: undefined,
@@ -241,7 +241,7 @@ describe("toBlueprint", () => {
 		});
 	});
 
-	it("round-trips modules + forms + nested questions", () => {
+	it("round-trips modules + forms + nested fields", () => {
 		const bp: AppBlueprint = {
 			app_name: "Round Trip",
 			connect_type: "deliver",
@@ -321,7 +321,7 @@ describe("toBlueprint", () => {
 		expect(toBlueprint(toDoc(bp, APP_ID)).case_types).toEqual(bp.case_types);
 	});
 
-	it("uses moduleOrder/formOrder/questionOrder to determine output order", () => {
+	it("uses moduleOrder/formOrder/fieldOrder to determine output order", () => {
 		const modA = "modA-0000-0000-0000-000000000000";
 		const modB = "modB-0000-0000-0000-000000000000";
 		const modAUuid = asUuid(modA);
@@ -336,11 +336,12 @@ describe("toBlueprint", () => {
 				[modBUuid]: { uuid: modBUuid, name: "B" } as ModuleEntity,
 			},
 			forms: {},
-			questions: {},
+			fields: {},
 			// Intentionally reverse order
 			moduleOrder: [modBUuid, modAUuid],
 			formOrder: {},
-			questionOrder: {},
+			fieldOrder: {},
+			fieldParent: {},
 		};
 		const bp = toBlueprint(doc);
 		expect(bp.modules.map((m) => m.name)).toEqual(["B", "A"]);

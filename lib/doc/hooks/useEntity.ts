@@ -27,5 +27,5 @@ export function useForm(uuid: Uuid | undefined): FormEntity | undefined {
 export function useQuestion(
 	uuid: Uuid | undefined,
 ): QuestionEntity | undefined {
-	return useBlueprintDoc((s) => (uuid ? s.questions[uuid] : undefined));
+	return useBlueprintDoc((s) => (uuid ? s.fields[uuid] : undefined));
 }

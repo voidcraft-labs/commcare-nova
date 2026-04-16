@@ -27,10 +27,11 @@ function docWithModule(modUuid: Uuid): BlueprintDoc {
 			[modUuid]: { uuid: modUuid, name: "M" } as ModuleEntity,
 		},
 		forms: {},
-		questions: {},
+		fields: {},
 		moduleOrder: [modUuid],
 		formOrder: { [modUuid]: [] },
-		questionOrder: {},
+		fieldOrder: {},
+		fieldParent: {},
 	};
 }
 
@@ -47,7 +48,7 @@ describe("addForm", () => {
 		expect(next.forms[F("1")]?.name).toBe("Reg");
 	});
 
-	it("initializes an empty questionOrder slot for the new form", () => {
+	it("initializes an empty fieldOrder slot for the new form", () => {
 		const next = produce(docWithModule(M("A")), (d) => {
 			applyMutation(d, {
 				kind: "addForm",
@@ -55,7 +56,7 @@ describe("addForm", () => {
 				form: form_(F("1")),
 			});
 		});
-		expect(next.questionOrder[F("1")]).toEqual([]);
+		expect(next.fieldOrder[F("1")]).toEqual([]);
 	});
 
 	it("respects index when provided", () => {
@@ -95,33 +96,33 @@ describe("addForm", () => {
 });
 
 describe("removeForm", () => {
-	it("removes the form, its questionOrder slot, and entry from module's formOrder", () => {
+	it("removes the form, its fieldOrder slot, and entry from module's formOrder", () => {
 		const start: BlueprintDoc = {
 			...docWithModule(M("A")),
 			forms: { [F("1")]: form_(F("1")) },
 			formOrder: { [M("A")]: [F("1")] },
-			questionOrder: { [F("1")]: [] },
+			fieldOrder: { [F("1")]: [] },
 		};
 		const next = produce(start, (d) => {
 			applyMutation(d, { kind: "removeForm", uuid: F("1") });
 		});
 		expect(next.forms[F("1")]).toBeUndefined();
-		expect(next.questionOrder[F("1")]).toBeUndefined();
+		expect(next.fieldOrder[F("1")]).toBeUndefined();
 		expect(next.formOrder[M("A")]).toEqual([]);
 	});
 
-	it("cascades to questions", () => {
+	it("cascades to fields", () => {
 		const start: BlueprintDoc = {
 			...docWithModule(M("A")),
 			forms: { [F("1")]: form_(F("1")) },
-			questions: { [Q("a")]: { uuid: Q("a"), id: "a", type: "text" } as never },
+			fields: { [Q("a")]: { uuid: Q("a"), id: "a", kind: "text" } as never },
 			formOrder: { [M("A")]: [F("1")] },
-			questionOrder: { [F("1")]: [Q("a")] },
+			fieldOrder: { [F("1")]: [Q("a")] },
 		};
 		const next = produce(start, (d) => {
 			applyMutation(d, { kind: "removeForm", uuid: F("1") });
 		});
-		expect(next.questions[Q("a")]).toBeUndefined();
+		expect(next.fields[Q("a")]).toBeUndefined();
 	});
 });
 
@@ -134,7 +135,7 @@ describe("moveForm", () => {
 				[F("2")]: form_(F("2"), "Beta"),
 			},
 			formOrder: { [M("A")]: [F("1"), F("2")] },
-			questionOrder: { [F("1")]: [], [F("2")]: [] },
+			fieldOrder: { [F("1")]: [], [F("2")]: [] },
 		};
 		const next = produce(start, (d) => {
 			applyMutation(d, {
@@ -158,10 +159,11 @@ describe("moveForm", () => {
 				[M("Y")]: { uuid: M("Y"), name: "Y" } as ModuleEntity,
 			},
 			forms: { [F("1")]: form_(F("1")) },
-			questions: {},
+			fields: {},
 			moduleOrder: [M("X"), M("Y")],
 			formOrder: { [M("X")]: [F("1")], [M("Y")]: [] },
-			questionOrder: { [F("1")]: [] },
+			fieldOrder: { [F("1")]: [] },
+			fieldParent: {},
 		};
 		const next = produce(start, (d) => {
 			applyMutation(d, {
@@ -180,7 +182,7 @@ describe("moveForm", () => {
 			...docWithModule(M("A")),
 			forms: { [F("1")]: form_(F("1")) },
 			formOrder: { [M("A")]: [F("1")] },
-			questionOrder: { [F("1")]: [] },
+			fieldOrder: { [F("1")]: [] },
 		};
 		const next = produce(start, (d) => {
 			applyMutation(d, {
@@ -228,60 +230,60 @@ describe("updateForm", () => {
 });
 
 describe("replaceForm", () => {
-	it("swaps entity, questions, and questionOrder atomically", () => {
+	it("swaps entity, fields, and fieldOrder atomically", () => {
 		const start: BlueprintDoc = {
 			...docWithModule(M("A")),
 			forms: { [F("1")]: form_(F("1"), "Old") },
-			questions: {
-				[Q("old1")]: { uuid: Q("old1"), id: "old", type: "text" } as never,
+			fields: {
+				[Q("old1")]: { uuid: Q("old1"), id: "old", kind: "text" } as never,
 			},
 			formOrder: { [M("A")]: [F("1")] },
-			questionOrder: { [F("1")]: [Q("old1")] },
+			fieldOrder: { [F("1")]: [Q("old1")] },
 		};
 		const next = produce(start, (d) => {
 			applyMutation(d, {
 				kind: "replaceForm",
 				uuid: F("1"),
 				form: { uuid: F("1"), name: "New", type: "registration" } as FormEntity,
-				questions: [
-					{ uuid: Q("new1"), id: "new1", type: "text" } as never,
-					{ uuid: Q("new2"), id: "new2", type: "int" } as never,
+				fields: [
+					{ uuid: Q("new1"), id: "new1", kind: "text" } as never,
+					{ uuid: Q("new2"), id: "new2", kind: "integer" } as never,
 				],
-				questionOrder: { [F("1")]: [Q("new1"), Q("new2")] },
+				fieldOrder: { [F("1")]: [Q("new1"), Q("new2")] },
 			});
 		});
 		expect(next.forms[F("1")]?.name).toBe("New");
 		expect(next.forms[F("1")]?.type).toBe("registration");
-		expect(next.questions[Q("old1")]).toBeUndefined();
-		expect(next.questions[Q("new1")]?.id).toBe("new1");
-		expect(next.questionOrder[F("1")]).toEqual([Q("new1"), Q("new2")]);
+		expect(next.fields[Q("old1")]).toBeUndefined();
+		expect(next.fields[Q("new1")]?.id).toBe("new1");
+		expect(next.fieldOrder[F("1")]).toEqual([Q("new1"), Q("new2")]);
 	});
 
-	it("populates nested questionOrder for groups in the replacement", () => {
+	it("populates nested fieldOrder for groups in the replacement", () => {
 		const start: BlueprintDoc = {
 			...docWithModule(M("A")),
 			forms: { [F("1")]: form_(F("1")) },
-			questions: {},
+			fields: {},
 			formOrder: { [M("A")]: [F("1")] },
-			questionOrder: { [F("1")]: [] },
+			fieldOrder: { [F("1")]: [] },
 		};
 		const next = produce(start, (d) => {
 			applyMutation(d, {
 				kind: "replaceForm",
 				uuid: F("1"),
 				form: form_(F("1")),
-				questions: [
-					{ uuid: Q("grp"), id: "grp", type: "group" } as never,
-					{ uuid: Q("child"), id: "child", type: "text" } as never,
+				fields: [
+					{ uuid: Q("grp"), id: "grp", kind: "group" } as never,
+					{ uuid: Q("child"), id: "child", kind: "text" } as never,
 				],
-				questionOrder: {
+				fieldOrder: {
 					[F("1")]: [Q("grp")],
 					[Q("grp")]: [Q("child")],
 				},
 			});
 		});
-		expect(next.questionOrder[F("1")]).toEqual([Q("grp")]);
-		expect(next.questionOrder[Q("grp")]).toEqual([Q("child")]);
+		expect(next.fieldOrder[F("1")]).toEqual([Q("grp")]);
+		expect(next.fieldOrder[Q("grp")]).toEqual([Q("child")]);
 	});
 
 	it("is a no-op when the target form doesn't exist", () => {
@@ -290,8 +292,8 @@ describe("replaceForm", () => {
 				kind: "replaceForm",
 				uuid: F("missing"),
 				form: form_(F("missing")),
-				questions: [],
-				questionOrder: { [F("missing")]: [] },
+				fields: [],
+				fieldOrder: { [F("missing")]: [] },
 			});
 		});
 		expect(next.forms[F("missing")]).toBeUndefined();

@@ -3,7 +3,7 @@
  *
  * Used by consumers that predate the normalized doc model — the expander,
  * the XForms compiler, the form preview renderer. Memoized so the
- * reconstruction runs only when the form's entity or question subtree
+ * reconstruction runs only when the form's entity or field subtree
  * changes.
  *
  * Off-form short-circuit: callers that live inside the builder layout
@@ -32,8 +32,8 @@ type AssembledSlice =
 	| typeof OFF_FORM_STATE
 	| {
 			form: BlueprintDoc["forms"][Uuid];
-			questions: BlueprintDoc["questions"];
-			questionOrder: BlueprintDoc["questionOrder"];
+			fields: BlueprintDoc["fields"];
+			fieldOrder: BlueprintDoc["fieldOrder"];
 	  };
 
 export function useAssembledForm(
@@ -51,8 +51,8 @@ export function useAssembledForm(
 		if (!form) return OFF_FORM_STATE;
 		return {
 			form,
-			questions: s.questions,
-			questionOrder: s.questionOrder,
+			fields: s.fields,
+			fieldOrder: s.fieldOrder,
 		};
 	});
 
@@ -67,11 +67,7 @@ export function useAssembledForm(
 			...assembleFormFields(
 				state.form as unknown as Parameters<typeof assembleFormFields>[0],
 			),
-			questions: assembleQuestionTree(
-				formUuid,
-				state.questions,
-				state.questionOrder,
-			),
+			questions: assembleFieldTree(formUuid, state.fields, state.fieldOrder),
 		};
 	}, [formUuid, state]);
 }
@@ -81,25 +77,25 @@ export function useAssembledForm(
  *
  * Mirrors the `assembleQuestions` function in `converter.ts` but operates
  * on the flat entity maps rather than the full `BlueprintDoc`. Groups and
- * repeats include a `children` array; leaf questions omit it entirely.
+ * repeats include a `children` array; leaf fields omit it entirely.
  */
-function assembleQuestionTree(
+function assembleFieldTree(
 	parentUuid: Uuid,
-	questions: BlueprintDoc["questions"],
-	questionOrder: BlueprintDoc["questionOrder"],
+	fields: BlueprintDoc["fields"],
+	fieldOrder: BlueprintDoc["fieldOrder"],
 ): Question[] {
-	const order = questionOrder[parentUuid] ?? [];
+	const order = fieldOrder[parentUuid] ?? [];
 	return order
 		.map((uuid) => {
-			const q = questions[uuid];
-			if (!q) return undefined;
-			const nested = questionOrder[uuid];
+			const field = fields[uuid];
+			if (!field) return undefined;
+			const nested = fieldOrder[uuid];
 			return nested !== undefined
 				? {
-						...(q as QuestionEntity),
-						children: assembleQuestionTree(uuid, questions, questionOrder),
+						...(field as QuestionEntity),
+						children: assembleFieldTree(uuid, fields, fieldOrder),
 					}
-				: (q as Question);
+				: (field as unknown as Question);
 		})
 		.filter((q): q is Question => q !== undefined);
 }
