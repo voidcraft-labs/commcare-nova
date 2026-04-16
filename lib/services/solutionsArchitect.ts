@@ -167,9 +167,6 @@ interface SaQuestion {
  *
  *   - `case_property_on` → `case_property`
  *   - `validation` / `validation_msg` → `validate` / `validate_msg`
- *
- * The caller is responsible for recursing into `children` separately
- * via `flattenSaQuestionTree` below.
  */
 function saQuestionToField(q: SaQuestion, uuid: Uuid): Field {
 	const base: Record<string, unknown> = {
@@ -188,34 +185,6 @@ function saQuestionToField(q: SaQuestion, uuid: Uuid): Field {
 		...(q.case_property_on != null && { case_property: q.case_property_on }),
 	};
 	return base as Field;
-}
-
-/**
- * Walk an SA wire-format question tree, minting uuids and emitting a
- * flat `addField` mutation per node. Nested `children` under group /
- * repeat nodes become children of that group in the doc.
- *
- * The SA still emits nested trees on the wire (unchanged for prompt
- * stability); internally we store flat `fields` + `fieldOrder`. This is
- * the only place that translation happens.
- *
- * Returns the mutation batch for the caller to apply in one atomic
- * `applyMany` call.
- */
-function flattenSaQuestionTree(
-	nested: SaQuestion[],
-	parentUuid: Uuid,
-): Mutation[] {
-	const muts: Mutation[] = [];
-	for (const q of nested) {
-		const uuid = asUuid(crypto.randomUUID());
-		const field = saQuestionToField(q, uuid);
-		muts.push({ kind: "addField", parentUuid, field });
-		if (q.children?.length && (q.type === "group" || q.type === "repeat")) {
-			muts.push(...flattenSaQuestionTree(q.children, uuid));
-		}
-	}
-	return muts;
 }
 
 // ── Partial patch for editQuestion ─────────────────────────────────────
@@ -293,17 +262,6 @@ function buildConnectConfig(
 			: input.deliver_unit,
 		task: input.task ? { ...existing?.task, ...input.task } : input.task,
 	};
-}
-
-// ── Helper: count questions recursively ───────────────────────────────
-
-function countQuestionsRecursive(questions: Question[]): number {
-	let count = 0;
-	for (const q of questions) {
-		count++;
-		if (q.children) count += countQuestionsRecursive(q.children);
-	}
-	return count;
 }
 
 /** Count fields recursively under a form in the doc — used for the SA's
