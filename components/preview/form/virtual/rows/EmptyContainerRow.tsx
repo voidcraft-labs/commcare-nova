@@ -42,7 +42,7 @@ export const EmptyContainerRow = memo(function EmptyContainerRow({
 		<div
 			style={{
 				paddingLeft: depthPadding(depth),
-				paddingRight: depthPadding(0),
+				paddingRight: depthPadding(depth),
 			}}
 		>
 			<div

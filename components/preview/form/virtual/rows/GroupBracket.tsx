@@ -100,7 +100,7 @@ export const GroupOpenRow = memo(function GroupOpenRow({
 				className="relative"
 				style={{
 					paddingLeft: depthPadding(depth),
-					paddingRight: depthPadding(0),
+					paddingRight: depthPadding(depth),
 					opacity: isDraggingSelf ? 0.4 : 1,
 				}}
 				data-question-uuid={uuid}
@@ -108,6 +108,7 @@ export const GroupOpenRow = memo(function GroupOpenRow({
 				<EditableQuestionWrapper
 					questionUuid={uuid}
 					isDragging={isDraggingSelf}
+					flatBottomOnSelect={!collapsed}
 				>
 					<div
 						className={`rounded-t-lg border border-b-0 border-pv-input-border bg-pv-surface px-3 py-2 transition-shadow ${
@@ -191,15 +192,42 @@ export const GroupOpenRow = memo(function GroupOpenRow({
 					data-settings-panel
 					style={{
 						paddingLeft: depthPadding(depth),
-						paddingRight: depthPadding(0),
+						paddingRight: depthPadding(depth),
 					}}
 				>
-					{/* Inner wrapper preserves the group bracket's side borders
-					 * through the settings panel so the visual container stays
-					 * unbroken between header and children. */}
-					<div className="border-l border-r border-pv-input-border">
-						<InlineSettingsPanel question={q} />
-					</div>
+					{collapsed ? (
+						/* Collapsed: no rails, no children. Drawer floats 8px
+						 *  below the fully-rounded header. */
+						<div className="pt-2">
+							<InlineSettingsPanel question={q} variant="floating" />
+						</div>
+					) : (
+						/* Expanded: drawer is a sub-element of the group.
+						 *
+						 *  - The gray rails continue uninterrupted
+						 *    (`border-l / border-r`) so the group's column
+						 *    stays visually intact — the eye sees one
+						 *    container from header to close cap.
+						 *  - `px-4` insets the drawer 16px from each rail.
+						 *    The rail gutters on either side of the drawer
+						 *    are the visual hook that says "this is a
+						 *    sub-element inside the group," not "this is
+						 *    the group's body content." Children below
+						 *    still own the full rail column width, so they
+						 *    read as the actual fields.
+						 *  - No top padding (pt is 0): the drawer's flat
+						 *    top butts against the selected ring's flat
+						 *    bottom, with both strokes in violet, so the
+						 *    drawer still reads as attached to the header.
+						 *  - `pb-3` gives a breath between the drawer's
+						 *    rounded bottom and the next `insertion(0)` row
+						 *    that begins the children's area. */
+						<div className="border-l border-r border-pv-input-border">
+							<div className="px-4 pb-3">
+								<InlineSettingsPanel question={q} variant="attached" />
+							</div>
+						</div>
+					)}
 				</div>
 			)}
 			{preview}
@@ -224,7 +252,7 @@ export const GroupCloseRow = memo(function GroupCloseRow({
 		<div
 			style={{
 				paddingLeft: depthPadding(depth),
-				paddingRight: depthPadding(0),
+				paddingRight: depthPadding(depth),
 			}}
 			data-group-close-uuid={uuid}
 		>

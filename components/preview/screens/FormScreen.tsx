@@ -20,6 +20,7 @@ import type { PreviewScreen } from "@/lib/preview/engine/types";
 import { useLocation, useNavigate } from "@/lib/routing/hooks";
 import { defaultPostSubmit } from "@/lib/schemas/blueprint";
 import { useBuilderIsReady, useEditMode } from "@/lib/session/hooks";
+import { FormLayoutProvider } from "../form/FormLayoutContext";
 import { FormRenderer } from "../form/FormRenderer";
 
 interface FormScreenProps {
@@ -209,21 +210,21 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 
 			{/* Form body.
 			 *
-			 *  **Vertical padding.** Top padding reserves room for the inline text
-			 *  editor's floating toolbar above the first field. Edit mode already
-			 *  has a 24px InsertionPoint above every question, so it needs less
-			 *  built-in padding than test mode to land on the same first-field Y
-			 *  offset — keeps the flipbook scroll anchor aligned across mode
-			 *  switches.
+			 *  **Unified padding for flipbook parity.** Both edit and live
+			 *  modes use the same `pt-4` top padding here, and every row
+			 *  (edit or live) applies its own horizontal `depthPadding(depth)`
+			 *  gutter inline. The 24px top gap before the first field is
+			 *  supplied by each branch's own "row zero":
+			 *    - edit mode → `insertion(0)` row (24px, built into the row
+			 *      walker)
+			 *    - live mode → `pt-6` on `InteractiveFormRenderer`
+			 *  Both land the first field at Y = 16 + 24 = 40px so a cursor /
+			 *  mode toggle never shifts the user's reading position.
 			 *
-			 *  **Horizontal padding.** Edit mode's virtual rows apply their own
-			 *  24px `depthPadding(0)` gutter, so adding `px-6` here would double
-			 *  up and misalign the flipbook versus live mode. Live mode has no
-			 *  per-row gutter and relies on `px-6` at this level. */}
-			<div
-				ref={formBodyRef}
-				className={`flex-1 ${mode === "edit" ? "pt-4" : "px-6 pt-10 pb-6"}`}
-			>
+			 *  The bottom 24px is supplied the same way: `insertion(N+1)` in
+			 *  edit mode, the last question's `mb-6` in live mode. No body
+			 *  `pb-*` on either side so the two modes stay symmetric. */}
+			<div ref={formBodyRef} className="flex-1 pt-4">
 				{hasQuestions ? (
 					<FormRenderer parentEntityId={formId} />
 				) : (
@@ -259,17 +260,23 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 	return (
 		<div className="h-full">
 			<div className="flex flex-col h-full max-w-3xl mx-auto w-full">
-				{editable ? (
-					<EditContextProvider
-						moduleIndex={moduleIndex}
-						formIndex={formIndex}
-						mode={mode}
-					>
-						{formBody}
-					</EditContextProvider>
-				) : (
-					formBody
-				)}
+				{/* FormLayoutProvider owns per-form layout state (currently
+				 *  group/repeat collapse). Wraps BOTH branches so the
+				 *  collapse set is shared: a group folded in live mode
+				 *  stays folded when the user flips to edit, and vice-versa. */}
+				<FormLayoutProvider>
+					{editable ? (
+						<EditContextProvider
+							moduleIndex={moduleIndex}
+							formIndex={formIndex}
+							mode={mode}
+						>
+							{formBody}
+						</EditContextProvider>
+					) : (
+						formBody
+					)}
+				</FormLayoutProvider>
 			</div>
 		</div>
 	);

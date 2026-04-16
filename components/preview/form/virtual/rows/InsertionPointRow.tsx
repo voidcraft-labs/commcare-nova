@@ -54,7 +54,7 @@ export const InsertionPointRow = memo(function InsertionPointRow({
 		<div
 			style={{
 				paddingLeft: depthPadding(depth),
-				paddingRight: depthPadding(0),
+				paddingRight: depthPadding(depth),
 				// Preserve the gap even while `InsertionPoint` is disabled
 				// (returns null). See the module docstring for why this
 				// matters to the virtualizer.

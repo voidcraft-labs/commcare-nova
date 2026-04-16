@@ -17,6 +17,14 @@ Switching cursor modes preserves scroll: capture the topmost visible question + 
 - **Fallback when the anchor is hidden in the new mode** (e.g. a hidden field switching edit → pointer): search outward from the anchor index, backward first then forward. Backward-only misses the case where the anchor was the first question.
 - **ResizeObserver correction** — sidebar width animations run async (~200ms) after the initial correction. A ResizeObserver re-corrects during that window, then clears the pending anchor after 250ms so later unrelated resizes don't reapply it.
 
+## Flipbook layout parity
+
+Edit (`VirtualFormList`) and live (`InteractiveFormRenderer`) must land every row at the same X/Y so the user's reading position never shifts on mode switch. Scroll sync (above) can't rescue a layout that genuinely differs between modes.
+
+- **Group/repeat collapse lives in `FormLayoutContext`** (`components/preview/form/FormLayoutContext.tsx`), mounted once per form in `FormScreen`. Both branches read from it. Do not move collapse state back into `VirtualFormList` — cursor mode switches unmount that tree and would reset every fold.
+- **Every row uses `paddingRight: depthPadding(depth)`, not `depthPadding(0)`.** The right gutter scales with depth symmetrically so nested rows are inset from both sides of their container. `depthPadding(0)` on the right made children kiss the group's right border.
+- **Live-mode labels wrap `LabelContent` in `<div className="px-[5px] py-[5px]">`** to match `TextEditable`'s idle wrapper in edit mode. Without it every labelled row is 10px shorter in live mode and the flipbook drifts one row height per group/leaf.
+
 ## ProseMirror trailingBreak — CSS fix, not DOM
 
 ProseMirror injects `<br class="ProseMirror-trailingBreak">` at the end of every block for cursor positioning, and this is hardcoded in prosemirror-view. Two selectors hide it only where it adds phantom height:

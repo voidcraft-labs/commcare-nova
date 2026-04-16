@@ -150,7 +150,7 @@ export const QuestionRow = memo(function QuestionRow({
 				className="relative"
 				style={{
 					paddingLeft: depthPadding(depth),
-					paddingRight: depthPadding(0),
+					paddingRight: depthPadding(depth),
 					opacity: isDraggingSelf ? 0.4 : 1,
 				}}
 				data-question-uuid={uuid}
@@ -158,6 +158,7 @@ export const QuestionRow = memo(function QuestionRow({
 				<EditableQuestionWrapper
 					questionUuid={uuid}
 					isDragging={isDraggingSelf}
+					flatBottomOnSelect
 				>
 					{content}
 				</EditableQuestionWrapper>
@@ -167,10 +168,14 @@ export const QuestionRow = memo(function QuestionRow({
 					data-settings-panel
 					style={{
 						paddingLeft: depthPadding(depth),
-						paddingRight: depthPadding(0),
+						paddingRight: depthPadding(depth),
 					}}
 				>
-					<InlineSettingsPanel question={q} />
+					{/* Drawer attaches flush to the question's flat-bottomed
+					 *  selection ring — violet strokes continue ring →
+					 *  drawer without a seam, so the question and its
+					 *  inspector read as one two-pane card. */}
+					<InlineSettingsPanel question={q} variant="attached" />
 				</div>
 			)}
 			{preview}

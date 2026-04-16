@@ -1,15 +1,25 @@
 /**
- * Inline settings panel for inspect cursor mode.
+ * Inline settings panel — the inspector drawer that hangs beneath the
+ * selected row.
  *
- * Renders below the selected question inside the form DOM. Uses the same
- * sub-editors (UI, Logic, Data, Footer) laid out as visually distinct
- * section cards at full form width. Sections are always expanded — the
- * user dismisses the entire panel by clicking off the question.
+ * Shares violet chrome with the selection ring so the row and its
+ * drawer read as one two-pane card. For groups, the caller inset-mounts
+ * the drawer inside the group's nesting rails (see `GroupOpenRow`); the
+ * rail gutters on either side keep the drawer narrower than the column
+ * so the children below — which own the full rail width — still read
+ * as the group's body, while the drawer reads as a sub-element of the
+ * header above.
  *
- * The panel is a sibling of EditableQuestionWrapper (not inside it), so
- * it pushes subsequent questions down naturally and scrolls with the
- * question. Drag-drop still works — the panel is inside SortableQuestion
- * and moves with the question during drag.
+ * Two visual variants:
+ *
+ *   - **`attached`** — flat top, rounded bottom, violet border on every
+ *     edge. The drawer's top border sits directly below the selected
+ *     row's flat-bottomed ring so the violet strokes stack and read as
+ *     one continuous outline across the row/drawer boundary.
+ *   - **`floating`** — rounded on every side. For parent rows that are
+ *     themselves fully rounded (collapsed group headers), where a
+ *     flat-top drawer would leave a geometric mismatch. The caller
+ *     pairs this with a small `pt-2` gap above the drawer.
  */
 
 "use client";
@@ -23,6 +33,10 @@ import { ContextualEditorUI } from "./contextual/ContextualEditorUI";
 
 interface InlineSettingsPanelProps {
 	question: Question;
+	/** Drawer geometry — chosen by the caller to match the parent row's
+	 *  bottom edge. Defaults to the common case: flush-attached under a
+	 *  flat-bottomed selected row. */
+	variant?: "attached" | "floating";
 }
 
 /** Static section label with a left accent bar for visual grouping. */
@@ -41,7 +55,10 @@ export function SectionLabel({ label }: { label: string }) {
 export const SECTION_CARD_CLASS =
 	"rounded-md bg-nova-surface/40 border border-white/[0.04] px-3 py-2.5";
 
-export function InlineSettingsPanel({ question }: InlineSettingsPanelProps) {
+export function InlineSettingsPanel({
+	question,
+	variant = "attached",
+}: InlineSettingsPanelProps) {
 	const setActiveFieldId = useSetActiveFieldId();
 
 	/** Delegated focusin handler — tracks which [data-field-id] element has
@@ -55,13 +72,24 @@ export function InlineSettingsPanel({ question }: InlineSettingsPanelProps) {
 		[setActiveFieldId],
 	);
 
-	/* Flat top corners attach flush to the question's flat-bottomed outline.
-	 * cursor-auto resets the inherited cursor-pointer from the question's
-	 * div[role=button] so inputs/labels get their natural cursors. */
+	/* Shape classes per variant. `attached` keeps a 1px violet border on
+	 * every edge but flattens the top corners so the drawer's top edge
+	 * butts against the selected row above; the violet stroke of the
+	 * ring and the drawer's top border sit one on top of the other and
+	 * read as one continuous outline. `floating` rounds every corner
+	 * for parent rows that are themselves fully rounded. The drop
+	 * shadow pushes the drawer slightly forward of the following
+	 * children, reinforcing "this belongs to the row above, not the
+	 * group interior below." */
+	const shape =
+		variant === "attached"
+			? "rounded-t-none rounded-b-lg border"
+			: "rounded-lg border";
+
 	return (
 		// biome-ignore lint/a11y/noStaticElementInteractions: delegated focusin for undo/redo field tracking
 		<div
-			className="rounded-t-none rounded-b-lg border border-nova-violet/60 bg-nova-deep/90 overflow-hidden cursor-auto"
+			className={`${shape} border-nova-violet/60 bg-nova-deep/90 overflow-hidden cursor-auto shadow-[0_10px_22px_-10px_rgba(8,4,20,0.75)]`}
 			data-no-drag
 			onFocus={handleFocus}
 		>
