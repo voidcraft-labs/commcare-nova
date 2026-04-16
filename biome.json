@@ -7,5 +7,27 @@
 	"files": {
 		"includes": ["**", "!!.*", "!!**/dist"],
 		"ignoreUnknown": true
-	}
+	},
+	"overrides": [
+		{
+			"includes": ["components/**", "app/**"],
+			"linter": {
+				"rules": {
+					"style": {
+						"noRestrictedImports": {
+							"level": "error",
+							"options": {
+								"paths": {
+									"@/lib/doc/store": "Import from @/lib/doc/hooks/ — the store is a private module.",
+									"@/lib/session/store": "Import from @/lib/session/provider or @/lib/session/hooks — the store is a private module.",
+									"@/hooks/useBuilder": "Deleted in Phase 6. Use @/components/builder/BuilderProvider for the provider, @/lib/doc/hooks/* for doc state, @/lib/session/hooks for session state.",
+									"@/lib/services/builderStore": "Deleted in Phase 6. The legacy builder store no longer exists."
+								}
+							}
+						}
+					}
+				}
+			}
+		}
+	]
 }
