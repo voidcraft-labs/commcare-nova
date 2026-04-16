@@ -13,6 +13,7 @@
 import { renderHook } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { describe, expect, it, vi } from "vitest";
+import { toDoc } from "@/lib/doc/converter";
 import { BlueprintDocContext } from "@/lib/doc/provider";
 import { createBlueprintDocStore } from "@/lib/doc/store";
 
@@ -71,7 +72,7 @@ describe("useBreadcrumbs", () => {
 
 	// Build the store once so all tests share the same UUID assignments.
 	const store = createBlueprintDocStore();
-	store.getState().load(blueprint, "a");
+	store.getState().load(toDoc(blueprint, "a"));
 	const state = store.getState();
 	const moduleUuid = state.moduleOrder[0];
 	const formUuid = state.formOrder[moduleUuid][0];

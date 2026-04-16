@@ -60,9 +60,9 @@ export function useLocation(): Location {
 	const doc = useBlueprintDocShallow((s) => ({
 		modules: s.modules,
 		forms: s.forms,
-		questions: s.questions,
+		fields: s.fields,
 		formOrder: s.formOrder,
-		questionOrder: s.questionOrder,
+		fieldOrder: s.fieldOrder,
 	}));
 	return useMemo(() => parsePathToLocation(segments, doc), [segments, doc]);
 }
@@ -78,7 +78,7 @@ export function useSelectedQuestion(): QuestionEntity | null {
 	const loc = useLocation();
 	const selectedUuid = loc.kind === "form" ? loc.selectedUuid : undefined;
 	const question = useBlueprintDoc((s) =>
-		selectedUuid ? s.questions[selectedUuid] : undefined,
+		selectedUuid ? s.fields[selectedUuid] : undefined,
 	);
 	return question ?? null;
 }

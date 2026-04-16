@@ -7,7 +7,7 @@
  *   1. Resolves the selected uuid from `useLocation()`.
  *   2. Computes the neighbor via `flattenQuestionRefs` on the assembled
  *      form (skipping hidden/conditional questions).
- *   3. Dispatches `removeQuestion` through the doc store.
+ *   3. Dispatches `removeField` through the doc store.
  *   4. Replaces the URL selection segment with the neighbor uuid (or clears it).
  */
 
@@ -53,6 +53,7 @@ vi.mock("@/lib/session/hooks", () => ({
 	useActiveFieldId: () => undefined,
 }));
 
+import { toDoc } from "@/lib/doc/converter";
 import { useDeleteSelectedQuestion } from "@/lib/routing/builderActions";
 
 const BP = {
@@ -97,7 +98,7 @@ const BP = {
 
 function makeStore() {
 	const store = createBlueprintDocStore();
-	store.getState().load(BP, "test-app");
+	store.getState().load(toDoc(BP, "test-app"));
 	store.temporal.getState().resume();
 	return store;
 }
@@ -150,7 +151,7 @@ describe("useDeleteSelectedQuestion", () => {
 		});
 		act(() => result.current());
 
-		expect(Object.keys(store.getState().questions).length).toBe(3);
+		expect(Object.keys(store.getState().fields).length).toBe(3);
 		expect(replaceStateSpy).not.toHaveBeenCalled();
 	});
 
@@ -163,7 +164,7 @@ describe("useDeleteSelectedQuestion", () => {
 		});
 		act(() => result.current());
 
-		expect(Object.keys(store.getState().questions).length).toBe(3);
+		expect(Object.keys(store.getState().fields).length).toBe(3);
 		expect(replaceStateSpy).not.toHaveBeenCalled();
 	});
 
@@ -176,7 +177,7 @@ describe("useDeleteSelectedQuestion", () => {
 		});
 		act(() => result.current());
 
-		expect(store.getState().questions[asUuid(Q_B)]).toBeUndefined();
+		expect(store.getState().fields[asUuid(Q_B)]).toBeUndefined();
 		/* Flat URL: selected question is a single segment (parser derives form). */
 		expect(replaceStateSpy).toHaveBeenCalledWith(
 			null,
@@ -194,7 +195,7 @@ describe("useDeleteSelectedQuestion", () => {
 		});
 		act(() => result.current());
 
-		expect(store.getState().questions[asUuid(Q_C)]).toBeUndefined();
+		expect(store.getState().fields[asUuid(Q_C)]).toBeUndefined();
 		expect(replaceStateSpy).toHaveBeenCalledWith(
 			null,
 			"",
@@ -204,8 +205,8 @@ describe("useDeleteSelectedQuestion", () => {
 
 	it("deleting the only remaining question clears the selection", () => {
 		const store = makeStore();
-		store.getState().apply({ kind: "removeQuestion", uuid: asUuid(Q_B) });
-		store.getState().apply({ kind: "removeQuestion", uuid: asUuid(Q_C) });
+		store.getState().apply({ kind: "removeField", uuid: asUuid(Q_B) });
+		store.getState().apply({ kind: "removeField", uuid: asUuid(Q_C) });
 
 		const { formUuid } = setFormUrl(store, Q_A);
 		const { result } = renderHook(() => useDeleteSelectedQuestion(), {
@@ -213,7 +214,7 @@ describe("useDeleteSelectedQuestion", () => {
 		});
 		act(() => result.current());
 
-		expect(store.getState().questions[asUuid(Q_A)]).toBeUndefined();
+		expect(store.getState().fields[asUuid(Q_A)]).toBeUndefined();
 		expect(replaceStateSpy).toHaveBeenCalledWith(
 			null,
 			"",
@@ -236,7 +237,7 @@ describe("useDeleteSelectedQuestion", () => {
 		act(() => result.current());
 
 		/* No questions removed — hook no-ops when selectedUuid is undefined. */
-		expect(Object.keys(store.getState().questions).length).toBe(3);
+		expect(Object.keys(store.getState().fields).length).toBe(3);
 		/* No URL change — the parser already degraded the stale UUID. */
 		expect(replaceStateSpy).not.toHaveBeenCalled();
 	});
@@ -245,14 +246,12 @@ describe("useDeleteSelectedQuestion", () => {
 		const store = makeStore();
 		setFormUrl(store, Q_A);
 
-		const countBefore = Object.keys(store.getState().questions).length;
+		const countBefore = Object.keys(store.getState().fields).length;
 		const { result } = renderHook(() => useDeleteSelectedQuestion(), {
 			wrapper: wrap(store),
 		});
 		act(() => result.current());
 
-		expect(Object.keys(store.getState().questions).length).toBe(
-			countBefore - 1,
-		);
+		expect(Object.keys(store.getState().fields).length).toBe(countBefore - 1);
 	});
 });

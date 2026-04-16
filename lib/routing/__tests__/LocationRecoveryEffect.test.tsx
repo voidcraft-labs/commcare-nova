@@ -17,6 +17,7 @@ import { render, waitFor } from "@testing-library/react";
 import { act } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { LocationRecoveryEffect } from "@/components/builder/LocationRecoveryEffect";
+import { toDoc } from "@/lib/doc/converter";
 import { BlueprintDocContext } from "@/lib/doc/provider";
 import { createBlueprintDocStore } from "@/lib/doc/store";
 import { asUuid } from "@/lib/doc/types";
@@ -92,7 +93,10 @@ const BP = {
 
 function makeStore() {
 	const store = createBlueprintDocStore();
-	store.getState().load(BP, "app-1");
+	/* Convert the legacy nested AppBlueprint fixture to a normalized
+	 * PersistableDoc before loading — load() no longer accepts the
+	 * nested format directly. */
+	store.getState().load(toDoc(BP, "app-1"));
 	store.temporal.getState().resume();
 	return store;
 }

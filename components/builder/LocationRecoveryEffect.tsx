@@ -44,12 +44,12 @@ export function LocationRecoveryEffect() {
 	 * only triggers when the specific map's identity changes. */
 	const modules = useBlueprintDoc((s) => s.modules);
 	const forms = useBlueprintDoc((s) => s.forms);
-	const questions = useBlueprintDoc((s) => s.questions);
+	const fields = useBlueprintDoc((s) => s.fields);
 
 	useEffect(() => {
 		/* Strategy 1: check if the parsed location has stale references that
 		 * recoverLocation can strip. */
-		const recovered = recoverLocation(loc, { modules, forms, questions });
+		const recovered = recoverLocation(loc, { modules, forms, fields });
 		const target = recovered === loc ? loc : recovered;
 
 		/* Strategy 2: check if the URL path matches the canonical path for
@@ -68,7 +68,7 @@ export function LocationRecoveryEffect() {
 		const url = buildUrl(basePath, target);
 		window.history.replaceState(null, "", url);
 		notifyPathChange();
-	}, [loc, modules, forms, questions, pathname, segments]);
+	}, [loc, modules, forms, fields, pathname, segments]);
 
 	return null;
 }

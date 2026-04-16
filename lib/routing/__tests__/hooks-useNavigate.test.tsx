@@ -48,6 +48,7 @@ vi.mock("@/components/builder/contexts/EditGuardContext", () => ({
 	useConsultEditGuard: () => consultGuard,
 }));
 
+import { toDoc } from "@/lib/doc/converter";
 import { asUuid } from "@/lib/doc/types";
 import { useNavigate, useSelect } from "@/lib/routing/hooks";
 
@@ -83,7 +84,7 @@ const BP = {
 
 function makeStore() {
 	const store = createBlueprintDocStore();
-	store.getState().load(BP, "app-1");
+	store.getState().load(toDoc(BP, "app-1"));
 	return store;
 }
 
@@ -130,7 +131,7 @@ describe("useNavigate", () => {
 		const state = store.getState();
 		const moduleUuid = state.moduleOrder[0];
 		const formUuid = state.formOrder[moduleUuid][0];
-		const questionUuid = state.questionOrder[formUuid][0];
+		const questionUuid = state.fieldOrder[formUuid][0];
 
 		/* Set segments to simulate being on form+selection. */
 		mockSegments.current = [formUuid, questionUuid];

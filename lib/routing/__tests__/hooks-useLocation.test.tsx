@@ -9,6 +9,7 @@
 import { renderHook } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { describe, expect, it, vi } from "vitest";
+import { toDoc } from "@/lib/doc/converter";
 import { BlueprintDocContext } from "@/lib/doc/provider";
 import { createBlueprintDocStore } from "@/lib/doc/store";
 
@@ -80,7 +81,7 @@ const BP = {
 
 function makeStore() {
 	const store = createBlueprintDocStore();
-	store.getState().load(BP, "app-1");
+	store.getState().load(toDoc(BP, "app-1"));
 	return store;
 }
 
@@ -119,7 +120,7 @@ describe("useLocation", () => {
 		const state = store.getState();
 		const moduleUuid = state.moduleOrder[0];
 		const formUuid = state.formOrder[moduleUuid][0];
-		const questionUuid = state.questionOrder[formUuid][0];
+		const questionUuid = state.fieldOrder[formUuid][0];
 		mockSegments.current = [formUuid, questionUuid];
 		const { result } = renderHook(() => useLocation(), {
 			wrapper: wrapper(store),

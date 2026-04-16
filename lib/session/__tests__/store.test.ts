@@ -15,6 +15,7 @@
 
 import type { UIMessage } from "ai";
 import { describe, expect, it } from "vitest";
+import { toDoc } from "@/lib/doc/converter";
 import { createBlueprintDocStore } from "@/lib/doc/store";
 import type { AppBlueprint } from "@/lib/schemas/blueprint";
 import { createBuilderSessionStore } from "../store";
@@ -232,7 +233,9 @@ const CONNECT_FIXTURE: AppBlueprint = {
  */
 function createConnectTestStores() {
 	const docStore = createBlueprintDocStore();
-	docStore.getState().load(CONNECT_FIXTURE, "test-app");
+	/* Convert the legacy nested AppBlueprint fixture to a normalized
+	 * PersistableDoc — load() no longer accepts the nested format. */
+	docStore.getState().load(toDoc(CONNECT_FIXTURE, "test-app"));
 	docStore.temporal.getState().resume();
 
 	const sessionStore = createBuilderSessionStore();
@@ -401,21 +404,22 @@ function createTestDocStore() {
 function createGenerationTestStores(withData = false) {
 	const docStore = createTestDocStore();
 	if (withData) {
-		docStore.getState().load(
-			{
-				app_name: "Test",
-				connect_type: undefined,
-				case_types: null,
-				modules: [
-					{
-						uuid: "mod-uuid",
-						name: "Mod",
-						forms: [],
-					},
-				],
-			} satisfies AppBlueprint,
-			"test-app",
-		);
+		/* Convert the legacy nested AppBlueprint fixture to a normalized
+		 * PersistableDoc before loading — load() no longer accepts the nested
+		 * format or a second appId argument. */
+		const bp: AppBlueprint = {
+			app_name: "Test",
+			connect_type: undefined,
+			case_types: null,
+			modules: [
+				{
+					uuid: "mod-uuid",
+					name: "Mod",
+					forms: [],
+				},
+			],
+		};
+		docStore.getState().load(toDoc(bp, "test-app"));
 		docStore.temporal.getState().resume();
 	}
 

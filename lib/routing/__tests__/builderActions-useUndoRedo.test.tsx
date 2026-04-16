@@ -65,6 +65,7 @@ vi.mock("@/lib/session/hooks", () => ({
 	useSetFocusHint: () => setFocusHint,
 }));
 
+import { toDoc } from "@/lib/doc/converter";
 import { useUndoRedo } from "@/lib/routing/builderActions";
 
 const BP = {
@@ -103,7 +104,7 @@ const BP = {
 
 function makeStore() {
 	const store = createBlueprintDocStore();
-	store.getState().load(BP, "test-app");
+	store.getState().load(toDoc(BP, "test-app"));
 	store.temporal.getState().resume();
 	return store;
 }
@@ -142,28 +143,28 @@ describe("useUndoRedo", () => {
 		const store = makeStore();
 		store.temporal.getState().clear();
 
-		const countBefore = Object.keys(store.getState().questions).length;
+		const countBefore = Object.keys(store.getState().fields).length;
 		const { result } = renderHook(() => useUndoRedo(), {
 			wrapper: wrap(store),
 		});
 
 		act(() => result.current.undo());
 
-		expect(Object.keys(store.getState().questions).length).toBe(countBefore);
+		expect(Object.keys(store.getState().fields).length).toBe(countBefore);
 	});
 
 	it("redo no-ops when futureStates is empty", () => {
 		const store = makeStore();
 		store.temporal.getState().clear();
 
-		const countBefore = Object.keys(store.getState().questions).length;
+		const countBefore = Object.keys(store.getState().fields).length;
 		const { result } = renderHook(() => useUndoRedo(), {
 			wrapper: wrap(store),
 		});
 
 		act(() => result.current.redo());
 
-		expect(Object.keys(store.getState().questions).length).toBe(countBefore);
+		expect(Object.keys(store.getState().fields).length).toBe(countBefore);
 	});
 
 	it("undo reverses the last mutation; redo reapplies it", () => {
@@ -171,9 +172,9 @@ describe("useUndoRedo", () => {
 
 		const qaUuid = asUuid("q-a-0000-0000-0000-000000000000");
 		act(() => {
-			store.getState().apply({ kind: "removeQuestion", uuid: qaUuid });
+			store.getState().apply({ kind: "removeField", uuid: qaUuid });
 		});
-		expect(store.getState().questions[qaUuid]).toBeUndefined();
+		expect(store.getState().fields[qaUuid]).toBeUndefined();
 		expect(store.temporal.getState().pastStates.length).toBeGreaterThan(0);
 
 		const { result } = renderHook(() => useUndoRedo(), {
@@ -181,17 +182,17 @@ describe("useUndoRedo", () => {
 		});
 
 		act(() => result.current.undo());
-		expect(store.getState().questions[qaUuid]).toBeDefined();
+		expect(store.getState().fields[qaUuid]).toBeDefined();
 
 		act(() => result.current.redo());
-		expect(store.getState().questions[qaUuid]).toBeUndefined();
+		expect(store.getState().fields[qaUuid]).toBeUndefined();
 	});
 
 	it("skips scroll/flash when not on a form location", () => {
 		const store = makeStore();
 		act(() => {
 			store.getState().apply({
-				kind: "removeQuestion",
+				kind: "removeField",
 				uuid: asUuid("q-a-0000-0000-0000-000000000000"),
 			});
 		});
@@ -211,9 +212,12 @@ describe("useUndoRedo", () => {
 		const store = makeStore();
 		act(() => {
 			store.getState().apply({
-				kind: "updateQuestion",
+				kind: "updateField",
 				uuid: asUuid("q-a-0000-0000-0000-000000000000"),
-				patch: { label: "Renamed" },
+				/* Cast needed: patch type is Partial<Omit<Field, "uuid">>
+				 * which is a discriminated union variant — label is shared
+				 * across all members via FieldBase but TS can't prove it. */
+				patch: { label: "Renamed" } as never,
 			});
 		});
 
@@ -241,9 +245,12 @@ describe("useUndoRedo", () => {
 		const store = makeStore();
 		act(() => {
 			store.getState().apply({
-				kind: "updateQuestion",
+				kind: "updateField",
 				uuid: asUuid("q-a-0000-0000-0000-000000000000"),
-				patch: { label: "Renamed" },
+				/* Cast needed: patch type is Partial<Omit<Field, "uuid">>
+				 * which is a discriminated union variant — label is shared
+				 * across all members via FieldBase but TS can't prove it. */
+				patch: { label: "Renamed" } as never,
 			});
 		});
 
@@ -278,9 +285,12 @@ describe("useUndoRedo", () => {
 		const store = makeStore();
 		act(() => {
 			store.getState().apply({
-				kind: "updateQuestion",
+				kind: "updateField",
 				uuid: asUuid("q-a-0000-0000-0000-000000000000"),
-				patch: { label: "Renamed" },
+				/* Cast needed: patch type is Partial<Omit<Field, "uuid">>
+				 * which is a discriminated union variant — label is shared
+				 * across all members via FieldBase but TS can't prove it. */
+				patch: { label: "Renamed" } as never,
 			});
 		});
 
