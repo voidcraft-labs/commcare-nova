@@ -44,8 +44,8 @@ export function FormDetail({ formUuid }: FormDetailProps) {
 				Close Behavior
 			</span>
 			<p className="text-sm text-nova-rose">
-				{form.closeCondition?.question
-					? `Conditional: when ${form.closeCondition.question} ${form.closeCondition.operator === "selected" ? "has selected" : "is"} "${form.closeCondition.answer}"`
+				{form.closeCondition?.field
+					? `Conditional: when ${form.closeCondition.field} ${form.closeCondition.operator === "selected" ? "has selected" : "is"} "${form.closeCondition.answer}"`
 					: "Always closes case on submit"}
 			</p>
 		</div>

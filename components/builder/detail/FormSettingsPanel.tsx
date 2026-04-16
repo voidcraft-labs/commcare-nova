@@ -196,16 +196,16 @@ function CloseConditionSection({ formUuid }: FormSettingsPanelProps) {
 	const valueTriggerRef = useRef<HTMLButtonElement>(null);
 
 	const questions = assembledForm?.questions ?? [];
-	const closeQuestion = form?.closeCondition?.question;
+	const closeFieldId = form?.closeCondition?.field;
 
 	/* Resolve the referenced field to check if it has selectable options */
 	const selectedFieldOptions = useMemo(() => {
-		if (!closeQuestion) return undefined;
-		const found = findQuestionById(questions, closeQuestion);
+		if (!closeFieldId) return undefined;
+		const found = findQuestionById(questions, closeFieldId);
 		return found?.options && found.options.length > 0
 			? found.options
 			: undefined;
-	}, [closeQuestion, questions]);
+	}, [closeFieldId, questions]);
 
 	if (form?.type !== "close") return null;
 
@@ -219,19 +219,19 @@ function CloseConditionSection({ formUuid }: FormSettingsPanelProps) {
 			updateFormAction(asUuid(formUuid), { closeCondition: undefined });
 		} else {
 			updateFormAction(asUuid(formUuid), {
-				closeCondition: { question: "", answer: "" },
+				closeCondition: { field: "", answer: "" },
 			});
 		}
 	};
 
 	const updateCondition = (
 		patch: Partial<{
-			question: string;
+			field: string;
 			answer: string;
 			operator: "=" | "selected";
 		}>,
 	) => {
-		const current = form.closeCondition ?? { question: "", answer: "" };
+		const current = form.closeCondition ?? { field: "", answer: "" };
 		updateFormAction(asUuid(formUuid), {
 			closeCondition: { ...current, ...patch },
 		});
@@ -325,8 +325,8 @@ function CloseConditionSection({ formUuid }: FormSettingsPanelProps) {
 							{/* Field picker — autocomplete of form fields */}
 							<FieldPicker
 								questions={questions}
-								value={form.closeCondition.question}
-								onChange={(v) => updateCondition({ question: v })}
+								value={form.closeCondition.field}
+								onChange={(v) => updateCondition({ field: v })}
 								label="Field"
 								placeholder="Search fields..."
 								required
