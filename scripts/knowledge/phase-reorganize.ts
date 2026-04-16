@@ -13,9 +13,9 @@ const DISTILL_DIR = ".data/confluence-cache/distilled";
 const KNOWLEDGE_DIR = "lib/services/commcare/knowledge";
 const CACHE_DIR = ".data/confluence-cache";
 const PLAN_PATH = path.join(CACHE_DIR, "reorg-plan.json");
-const OPUS_MODEL = "claude-opus-4-6";
-const OPUS_INPUT_COST = 15; // $/M tokens
-const OPUS_OUTPUT_COST = 75; // $/M tokens
+const OPUS_MODEL = "claude-opus-4-7";
+const OPUS_INPUT_COST = 5; // $/M tokens
+const OPUS_OUTPUT_COST = 25; // $/M tokens
 
 function estimateTokens(chars: number): number {
 	return Math.ceil(chars / 4);

@@ -9,12 +9,12 @@ const anthropic = createAnthropic({ apiKey });
 
 async function main() {
 	const result = streamText({
-		model: anthropic("claude-opus-4-6"),
+		model: anthropic("claude-opus-4-7"),
 		output: Output.object({ schema: z.object({ answer: z.string() }) }),
 		prompt: "What is 15 * 37? Show your work.",
 		maxOutputTokens: 256,
 		providerOptions: {
-			anthropic: { thinking: { type: "adaptive", effort: "high" } },
+			anthropic: { thinking: { type: "adaptive", effort: "xhigh" } },
 		},
 	});
 
