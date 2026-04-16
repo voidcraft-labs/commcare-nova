@@ -1,0 +1,229 @@
+/**
+ * GroupBracket — opening + closing bracket rows for group / repeat
+ * containers in the virtualized edit view.
+ *
+ * Drag semantics:
+ *   - `GroupOpenRow` is BOTH draggable (the whole group moves when you
+ *     drag its header) AND a drop target (dropping onto the header
+ *     inserts the source at position 0 inside the group's children).
+ *     Drop feedback is a violet highlight ring on the header.
+ *   - `GroupCloseRow` is inert — a visual cap, not a drag surface.
+ */
+
+"use client";
+import { Icon } from "@iconify/react/offline";
+import tablerChevronDown from "@iconify-icons/tabler/chevron-down";
+import tablerChevronRight from "@iconify-icons/tabler/chevron-right";
+import tablerRepeat from "@iconify-icons/tabler/repeat";
+import { memo, useCallback } from "react";
+import { useFulfillPendingScroll } from "@/components/builder/contexts/ScrollRegistryContext";
+import { InlineSettingsPanel } from "@/components/builder/InlineSettingsPanel";
+import { EditableQuestionWrapper } from "@/components/preview/form/EditableQuestionWrapper";
+import { FIELD_STYLES } from "@/components/preview/form/fieldStyles";
+import { TextEditable } from "@/components/preview/form/TextEditable";
+import { useEngineController, useEngineState } from "@/hooks/useFormEngine";
+import { useTextEditSave } from "@/hooks/useTextEditSave";
+import { useQuestion as useQuestionDoc } from "@/lib/doc/hooks/useEntity";
+import type { Uuid } from "@/lib/doc/types";
+import { LabelContent } from "@/lib/references/LabelContent";
+import { useIsQuestionSelected } from "@/lib/routing/hooks";
+import type { NQuestion } from "@/lib/services/normalizedState";
+import { DragPreviewPill } from "../DragPreviewPill";
+import { makeDropGroupHeaderData } from "../dragData";
+import { depthPadding } from "../rowStyles";
+import { useRowDnd } from "../useRowDnd";
+import { useVirtualFormContext } from "../VirtualFormContext";
+
+// ── Open variant ──────────────────────────────────────────────────────
+
+interface GroupOpenProps {
+	readonly uuid: Uuid;
+	readonly parentUuid: Uuid;
+	readonly siblingIndex: number;
+	readonly depth: number;
+	readonly collapsed: boolean;
+}
+
+export const GroupOpenRow = memo(function GroupOpenRow({
+	uuid,
+	parentUuid,
+	siblingIndex,
+	depth,
+	collapsed,
+}: GroupOpenProps) {
+	const { toggleCollapse } = useVirtualFormContext();
+	const q = useQuestionDoc(uuid) as NQuestion | undefined;
+	const state = useEngineState(uuid);
+	const controller = useEngineController();
+	const saveField = useTextEditSave(uuid);
+
+	const isQuestionSelected = useIsQuestionSelected(uuid);
+	useFulfillPendingScroll(uuid, isQuestionSelected);
+
+	const buildDropData = useCallback<
+		Parameters<typeof useRowDnd>[0]["buildDropData"]
+	>(
+		() => makeDropGroupHeaderData(uuid, parentUuid, siblingIndex),
+		[uuid, parentUuid, siblingIndex],
+	);
+
+	const isRepeatType = q?.type === "repeat";
+	const previewLabel =
+		q?.label?.trim() ||
+		q?.id ||
+		(isRepeatType ? "Untitled repeat" : "Untitled group");
+	const renderPreview = useCallback(
+		() => <DragPreviewPill label={previewLabel} />,
+		[previewLabel],
+	);
+
+	const { ref, isDraggingSelf, isDragOver, preview } = useRowDnd({
+		draggableUuid: uuid,
+		cycleTargetContainerUuid: uuid,
+		buildDropData,
+		renderPreview,
+	});
+
+	const onToggleCollapse = useCallback(() => {
+		toggleCollapse(uuid);
+	}, [toggleCollapse, uuid]);
+
+	if (!q) return null;
+
+	const isRepeat = isRepeatType;
+	const repeatCount = isRepeat ? controller.getRepeatCount(uuid) : 0;
+
+	return (
+		<>
+			<div
+				ref={ref}
+				className="relative"
+				style={{
+					paddingLeft: depthPadding(depth),
+					paddingRight: depthPadding(0),
+					opacity: isDraggingSelf ? 0.4 : 1,
+				}}
+				data-question-uuid={uuid}
+			>
+				<EditableQuestionWrapper
+					questionUuid={uuid}
+					isDragging={isDraggingSelf}
+				>
+					<div
+						className={`rounded-t-lg border border-b-0 border-pv-input-border bg-pv-surface px-3 py-2 transition-shadow ${
+							collapsed ? "rounded-b-lg border-b" : ""
+						} ${isDragOver ? "ring-2 ring-nova-violet" : ""}`}
+					>
+						<div className="flex items-center gap-2">
+							<button
+								type="button"
+								onClick={(e) => {
+									e.stopPropagation();
+									onToggleCollapse();
+								}}
+								data-no-drag
+								className="text-nova-text-muted hover:text-nova-text transition-colors cursor-pointer p-0.5 -m-0.5 rounded"
+								aria-label={collapsed ? "Expand group" : "Collapse group"}
+							>
+								<Icon
+									icon={collapsed ? tablerChevronRight : tablerChevronDown}
+									width="14"
+									height="14"
+								/>
+							</button>
+
+							{isRepeat && (
+								<span className="flex items-center gap-1 text-[10px] font-medium uppercase tracking-wider text-nova-text-muted">
+									<Icon icon={tablerRepeat} width="11" height="11" />
+									Repeat
+									{repeatCount > 1 && (
+										<span className="font-normal normal-case tracking-normal">
+											· {repeatCount} instances
+										</span>
+									)}
+								</span>
+							)}
+
+							<div className="min-w-0 flex-1">
+								{q.label ? (
+									<TextEditable
+										value={q.label}
+										onSave={
+											saveField ? (v) => saveField("label", v) : undefined
+										}
+										fieldType="label"
+									>
+										<LabelContent
+											label={q.label}
+											resolvedLabel={state.resolvedLabel}
+											isEditMode
+											className={FIELD_STYLES.label}
+										/>
+									</TextEditable>
+								) : (
+									<span className="text-xs italic text-nova-text-muted">
+										Untitled {isRepeat ? "repeat" : "group"}
+									</span>
+								)}
+							</div>
+						</div>
+						{q.hint && (
+							<div className="mt-0.5">
+								<TextEditable
+									value={q.hint}
+									onSave={saveField ? (v) => saveField("hint", v) : undefined}
+									fieldType="hint"
+								>
+									<LabelContent
+										label={q.hint}
+										resolvedLabel={state.resolvedHint}
+										isEditMode
+										className={FIELD_STYLES.hint}
+									/>
+								</TextEditable>
+							</div>
+						)}
+					</div>
+				</EditableQuestionWrapper>
+			</div>
+			{isQuestionSelected && (
+				<div
+					data-settings-panel
+					style={{
+						paddingLeft: depthPadding(depth),
+						paddingRight: depthPadding(0),
+					}}
+				>
+					<InlineSettingsPanel question={q} />
+				</div>
+			)}
+			{preview}
+		</>
+	);
+});
+
+// ── Close variant ─────────────────────────────────────────────────────
+
+interface GroupCloseProps {
+	readonly uuid: Uuid;
+	readonly depth: number;
+}
+
+export const GroupCloseRow = memo(function GroupCloseRow({
+	uuid,
+	depth,
+}: GroupCloseProps) {
+	const { isCollapsed } = useVirtualFormContext();
+	if (isCollapsed(uuid)) return null;
+	return (
+		<div
+			style={{
+				paddingLeft: depthPadding(depth),
+				paddingRight: depthPadding(0),
+			}}
+			data-group-close-uuid={uuid}
+		>
+			<div className="h-2 rounded-b-lg border border-t-0 border-pv-input-border bg-pv-surface/40" />
+		</div>
+	);
+});
