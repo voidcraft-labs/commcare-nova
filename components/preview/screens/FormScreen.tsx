@@ -174,7 +174,10 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 	const formBody = (
 		<>
 			{/* Form header */}
-			<div className="px-6 pt-5 pb-4 border-b border-pv-input-border">
+			<div
+				data-form-header
+				className="px-6 pt-5 pb-4 border-b border-pv-input-border"
+			>
 				<div className="flex items-center gap-2">
 					<FormTypeButton
 						moduleUuid={(moduleUuid ?? "") as Uuid}
@@ -202,10 +205,22 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 				</div>
 			</div>
 
-			{/* Form body */}
+			{/* Form body.
+			 *
+			 *  **Vertical padding.** Top padding reserves room for the inline text
+			 *  editor's floating toolbar above the first field. Edit mode already
+			 *  has a 24px InsertionPoint above every question, so it needs less
+			 *  built-in padding than test mode to land on the same first-field Y
+			 *  offset — keeps the flipbook scroll anchor aligned across mode
+			 *  switches.
+			 *
+			 *  **Horizontal padding.** Edit mode's virtual rows apply their own
+			 *  24px `depthPadding(0)` gutter, so adding `px-6` here would double
+			 *  up and misalign the flipbook versus live mode. Live mode has no
+			 *  per-row gutter and relies on `px-6` at this level. */}
 			<div
 				ref={formBodyRef}
-				className={`flex-1 px-6 ${mode === "edit" ? "" : "py-6"}`}
+				className={`flex-1 ${mode === "edit" ? "pt-4" : "px-6 pt-10 pb-6"}`}
 			>
 				{hasQuestions ? (
 					<FormRenderer parentEntityId={formId} />

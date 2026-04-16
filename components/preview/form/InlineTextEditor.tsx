@@ -103,11 +103,15 @@ function LabelToolbar({
 		 *
 		 * Three regimes as the editor scrolls up:
 		 * 1. **Free** — toolbar floats above the anchor with a 6px gap (default).
-		 * 2. **Clamped** — toolbar would escape above the cursor-mode overlay,
-		 *    so it pins to the overlay's bottom edge and the gap compresses.
-		 * 3. **Hidden** — anchor itself has scrolled under the pinned toolbar
-		 *    (gap compressed to zero), so the toolbar disappears. */
+		 * 2. **Clamped** — toolbar would escape above the CursorModeSelector
+		 *    popover, so it pins just below the selector's bottom edge.
+		 * 3. **Hidden** — anchor has scrolled out of the scroll container's
+		 *    visible region entirely. */
 		const GAP = 6;
+		/* Padding between the bottom of the form header and the clamped
+		 * toolbar. Tight on purpose — paired with the form body's top padding
+		 * so the toolbar fits flush in the margin above the first field. */
+		const CLAMP_PAD = 2;
 
 		const update = () => {
 			const rect = anchor.getBoundingClientRect();
@@ -115,37 +119,31 @@ function LabelToolbar({
 				"[data-preview-scroll-container]",
 			) as HTMLElement | null;
 			const containerRect = container?.getBoundingClientRect();
-
-			/* The scroll container may have top padding (topInset) to push content
-			 * below the glassmorphic cursor-mode toolbar overlay. The visible
-			 * content region starts at containerTop + paddingTop, not containerTop. */
-			const paddingTop = container
-				? Number.parseFloat(getComputedStyle(container).paddingTop) || 0
-				: 0;
-			const visibleTop = containerRect ? containerRect.top + paddingTop : 0;
-			const visibleBottom = containerRect
+			const containerTop = containerRect ? containerRect.top : 0;
+			const containerBottom = containerRect
 				? containerRect.bottom
 				: window.innerHeight;
 
 			const toolbarHeight = portal.offsetHeight;
 
-			/* Ideal top edge: above anchor with a 6px gap. */
+			/* Clamp floor is the bottom of the form header. When the header is
+			 * sticky it stays put on scroll, so this boundary remains correct as
+			 * the user scrolls through the form. If no header is mounted (e.g.
+			 * outside the form screen), fall back to viewport top so the toolbar
+			 * at least stays on-screen. */
+			const header = document.querySelector<HTMLElement>("[data-form-header]");
+			const clampFloor = header
+				? header.getBoundingClientRect().bottom + CLAMP_PAD
+				: 0;
+
+			/* Ideal top edge: above anchor with a GAP. Clamped when the ideal
+			 * position would overlap the form header. */
 			const idealTop = rect.top - toolbarHeight - GAP;
-			/* Clamped: toolbar pins just below the subheader instead of escaping
-			 * above it. The floor is 10px below the subheader so the push-down
-			 * engages slightly before the toolbar would hit the actual edge,
-			 * making the transition feel smooth rather than abrupt. */
-			const clampFloor = visibleTop + 20;
 			const clampedTop = Math.max(clampFloor, idealTop);
 
-			/* Hide when the anchor has fully scrolled above the visible region,
-			 * when the toolbar's bottom would overlap the anchor's bottom edge
-			 * (editor scrolled down past the toolbar), or below the container. */
-			const toolbarBottom = clampedTop + toolbarHeight;
-			const hidden =
-				rect.bottom < visibleTop ||
-				toolbarBottom >= rect.bottom ||
-				rect.top > visibleBottom;
+			/* Hide when the anchor has scrolled out of the scroll container's
+			 * visible region (either fully above or fully below). */
+			const hidden = rect.bottom < containerTop || rect.top > containerBottom;
 
 			portal.style.position = "fixed";
 			portal.style.left = `${rect.left}px`;
