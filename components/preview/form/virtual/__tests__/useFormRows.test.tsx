@@ -1,8 +1,8 @@
 // @vitest-environment happy-dom
 
 /**
- * useFormRows integration tests — verify subscription shape, memoization,
- * and freeze-on-drag behavior against a real BlueprintDoc store.
+ * useFormRows integration tests — subscription shape, memoization, and
+ * collapse reactivity against a real BlueprintDoc store.
  */
 
 import { act, renderHook } from "@testing-library/react";
@@ -12,7 +12,6 @@ import { BlueprintDocContext } from "@/lib/doc/provider";
 import { createBlueprintDocStore } from "@/lib/doc/store";
 import { asUuid, type Uuid } from "@/lib/doc/types";
 import type { AppBlueprint } from "@/lib/schemas/blueprint";
-import type { FormRow } from "../rowModel";
 import { EMPTY_COLLAPSE, useFormRows } from "../useFormRows";
 
 // ── Setup ──────────────────────────────────────────────────────────────
@@ -73,7 +72,6 @@ describe("useFormRows", () => {
 					formUuid,
 					includeInsertionPoints: true,
 					collapsed: EMPTY_COLLAPSE,
-					frozen: false,
 				}),
 			{ wrapper },
 		);
@@ -96,7 +94,6 @@ describe("useFormRows", () => {
 					formUuid,
 					includeInsertionPoints: false,
 					collapsed: EMPTY_COLLAPSE,
-					frozen: false,
 				}),
 			{ wrapper },
 		);
@@ -114,78 +111,6 @@ describe("useFormRows", () => {
 			});
 		});
 		expect(result.current.filter((r) => r.kind === "question")).toHaveLength(3);
-	});
-
-	it("freezes the row array identity while frozen=true, releases on false", () => {
-		const { store, wrapper, formUuid } = setup();
-		const { result, rerender } = renderHook(
-			(props: { frozen: boolean }) =>
-				useFormRows({
-					formUuid,
-					includeInsertionPoints: false,
-					collapsed: EMPTY_COLLAPSE,
-					frozen: props.frozen,
-				}),
-			{ wrapper, initialProps: { frozen: false } },
-		);
-		const liveBefore = result.current;
-
-		// Freeze — subsequent reads should return the captured array even
-		// if the doc changes in the meantime.
-		rerender({ frozen: true });
-		const frozenRef: FormRow[] = result.current;
-		expect(frozenRef).toBe(liveBefore);
-
-		act(() => {
-			store.getState().apply({
-				kind: "addQuestion",
-				parentUuid: formUuid,
-				question: {
-					uuid: asUuid("qst-d-0000-0000-0000-000000000004"),
-					id: "d",
-					type: "text",
-				},
-			});
-		});
-		// Still frozen — identity preserved, length unchanged.
-		expect(result.current).toBe(frozenRef);
-		expect(result.current.filter((r) => r.kind === "question")).toHaveLength(2);
-
-		// Release — live rows now reflect the new question.
-		rerender({ frozen: false });
-		expect(result.current).not.toBe(frozenRef);
-		expect(result.current.filter((r) => r.kind === "question")).toHaveLength(3);
-	});
-
-	it("captures rows on first render when initially frozen=true", () => {
-		// Pins the edge case where a component mounts during an in-flight
-		// drag. The initial liveRows are captured on the first render and
-		// must be preserved while frozen, ignoring any store mutations.
-		const { store, wrapper, formUuid } = setup();
-		const { result } = renderHook(
-			() =>
-				useFormRows({
-					formUuid,
-					includeInsertionPoints: false,
-					collapsed: EMPTY_COLLAPSE,
-					frozen: true,
-				}),
-			{ wrapper },
-		);
-		const initial = result.current;
-		act(() => {
-			store.getState().apply({
-				kind: "addQuestion",
-				parentUuid: formUuid,
-				question: {
-					uuid: asUuid("qst-e-0000-0000-0000-000000000005"),
-					id: "e",
-					type: "text",
-				},
-			});
-		});
-		expect(result.current).toBe(initial);
-		expect(result.current.filter((r) => r.kind === "question")).toHaveLength(2);
 	});
 
 	it("recomputes when the collapsed set reference changes", () => {
@@ -216,7 +141,6 @@ describe("useFormRows", () => {
 					formUuid,
 					includeInsertionPoints: false,
 					collapsed: props.collapsed,
-					frozen: false,
 				}),
 			{ wrapper, initialProps: { collapsed: new Set<Uuid>() } },
 		);

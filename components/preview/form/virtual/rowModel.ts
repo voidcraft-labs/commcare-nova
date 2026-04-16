@@ -18,8 +18,9 @@
  * - `group-open`     — the opening bracket of a group or repeat container.
  * - `group-close`    — the closing bracket of that same container.
  * - `empty-container`— placeholder row inside a group/repeat that has no
- *                      children; carries the dnd-kit drop target so the user
- *                      can drop a question into an empty group.
+ *                      children; carries the pragmatic-drag-and-drop drop
+ *                      target so the user can drop a question into an
+ *                      empty group.
  * - `insertion`      — the gap between two children of the SAME parent; the
  *                      row IS the gap (24px). Owning the gap as a sibling row
  *                      (rather than margins on question rows) makes it
@@ -40,17 +41,27 @@ import type { NQuestion } from "@/lib/services/normalizedState";
  * A single row in the flattened form editor. Discriminated by `kind` —
  * consumers `switch` on it to pick a row component.
  *
- * `id` is the React key AND the dnd-kit identifier. Each kind produces a
- * stable, unique id; that stability survives reorder (questions keep their
- * uuid-derived id regardless of position) so measured heights and scroll
- * offsets are preserved across edits.
+ * `id` is the React key + virtualizer measurement cache key. Each kind
+ * produces a stable, unique id; that stability survives reorder
+ * (questions keep their uuid-derived id regardless of position) so
+ * measured heights and scroll offsets are preserved across edits.
  */
 export type FormRow =
 	| InsertionRow
 	| QuestionRow
 	| GroupOpenRow
 	| GroupCloseRow
-	| EmptyContainerRow;
+	| EmptyContainerRow
+	| DropPlaceholderRow;
+
+/** Synthetic row injected during drag to open a visible gap at the
+ *  drop position. The virtualizer gives it its own slot so it doesn't
+ *  need to escape any overflow boundary. */
+export interface DropPlaceholderRow {
+	readonly kind: "drop-placeholder";
+	readonly id: string;
+	readonly depth: number;
+}
 
 /** Gap between two children of the same parent, at `beforeIndex`. */
 export interface InsertionRow {
@@ -66,8 +77,8 @@ export interface InsertionRow {
 /**
  * A leaf question — any question type other than `group` or `repeat`.
  * `parentUuid` + `siblingIndex` locate this row inside its parent's child
- * array so dnd-kit's sortable bookkeeping can address it without the row
- * component having to walk the doc itself.
+ * array so the drop-target `getData` and cycle checks can address it
+ * without the row component having to walk the doc itself.
  */
 export interface QuestionRow {
 	readonly kind: "question";
@@ -158,7 +169,8 @@ export interface BuildFormRowsOptions {
  *
  * An empty group/repeat (depth > 0, no children) emits a single
  * `empty-container` row between its `group-open` and `group-close` — this row
- * owns the drop target so dnd-kit can route drops into empty containers.
+ * owns the drop target so the drop-handling monitor can route drops
+ * into empty containers.
  */
 export function buildFormRows(
 	src: RowSource,
