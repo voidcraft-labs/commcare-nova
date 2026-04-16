@@ -73,13 +73,13 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 	const form = useFormEntity(formUuid);
 
 	/** The form's uuid doubles as the entity key for FormRenderer, which
-	 *  subscribes to `questionOrder[formUuid]` for the ordered child list.
+	 *  subscribes to `fieldOrder[formUuid]` for the ordered child list.
 	 *  Read from the URL-derived location so this doesn't touch the legacy store. */
 	const formId = formUuid;
 
-	/** Whether the form has any questions — drives the empty state. */
+	/** Whether the form has any fields — drives the empty state. */
 	const hasQuestions = useBlueprintDoc((s) =>
-		formId ? (s.questionOrder[formId as Uuid]?.length ?? 0) > 0 : false,
+		formId ? (s.fieldOrder[formId as Uuid]?.length ?? 0) > 0 : false,
 	);
 
 	const caseData = useMemo(() => {

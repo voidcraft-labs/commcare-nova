@@ -62,13 +62,13 @@ export function QuestionTypePickerPopup({
 		(type: Question["type"]) => {
 			if (!docStore) return;
 
-			/* Collect all existing question IDs to generate a unique name.
+			/* Collect all existing field IDs to generate a unique name.
 			 * CommCare requires unique IDs across the entire form, not just
-			 * siblings, so we scan the full question entity map. */
+			 * siblings, so we scan the full field entity map. */
 			const doc = docStore.getState();
 			const existingIds = new Set<string>();
-			for (const q of Object.values(doc.questions)) {
-				if (q) existingIds.add(q.id);
+			for (const f of Object.values(doc.fields)) {
+				if (f) existingIds.add(f.id);
 			}
 
 			let newId = `new_${type}`;

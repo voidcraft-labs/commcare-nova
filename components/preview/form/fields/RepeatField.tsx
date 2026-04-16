@@ -80,7 +80,7 @@ export function RepeatField({
 	const state = useEngineState(question.uuid);
 
 	const hasChildren = useBlueprintDoc(
-		(s) => (s.questionOrder[question.uuid as Uuid]?.length ?? 0) > 0,
+		(s) => (s.fieldOrder[question.uuid as Uuid]?.length ?? 0) > 0,
 	);
 
 	const count = controller.getRepeatCount(question.uuid);

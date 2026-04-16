@@ -40,7 +40,7 @@ export function GroupField({ question, path, questionPath }: GroupFieldProps) {
 	// horizontal-only padding (non-empty) or full padding + min height
 	// (empty). Only re-renders on 0↔1 transitions.
 	const hasChildren = useBlueprintDoc(
-		(s) => (s.questionOrder[question.uuid as Uuid]?.length ?? 0) > 0,
+		(s) => (s.fieldOrder[question.uuid as Uuid]?.length ?? 0) > 0,
 	);
 
 	return (

@@ -293,7 +293,7 @@ export const VirtualFormList = memo(function VirtualFormList({
 				const targetContainer = targetContainerUuidFor(drop);
 				if (
 					isUuidInSubtree(
-						docs.getState().questionOrder as Record<string, readonly string[]>,
+						docs.getState().fieldOrder as Record<string, readonly string[]>,
 						dragUuid,
 						targetContainer,
 					)
@@ -458,7 +458,7 @@ export const VirtualFormList = memo(function VirtualFormList({
 				const targetContainer = targetContainerUuidFor(drop);
 				if (
 					isUuidInSubtree(
-						docs.getState().questionOrder as Record<string, readonly string[]>,
+						docs.getState().fieldOrder as Record<string, readonly string[]>,
 						dragUuid,
 						targetContainer,
 					)
@@ -471,7 +471,7 @@ export const VirtualFormList = memo(function VirtualFormList({
 				// mutation entirely — it's a cancel, not a move.
 				if (drop.kind === "drop-question") {
 					const parentOrder =
-						docs.getState().questionOrder[drop.parentUuid as Uuid] ?? [];
+						docs.getState().fieldOrder[drop.parentUuid as Uuid] ?? [];
 					const sourceIdx = parentOrder.indexOf(asUuid(dragUuid));
 					const targetIdx = parentOrder.indexOf(drop.uuid);
 					// Same parent, and the source is immediately before
@@ -506,7 +506,7 @@ export const VirtualFormList = memo(function VirtualFormList({
 					case "drop-group-header": {
 						if (drop.uuid === dragUuid) return;
 						const firstChild =
-							docs.getState().questionOrder[drop.uuid as Uuid]?.[0];
+							docs.getState().fieldOrder[drop.uuid as Uuid]?.[0];
 						result = firstChild
 							? moveQuestion(asUuid(dragUuid), {
 									toParentUuid: drop.uuid,

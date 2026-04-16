@@ -86,8 +86,8 @@ export function SignalGrid({ controller, messages }: SignalGridProps) {
 						const rawRef = input.questionPath ?? input.questionId ?? input.path;
 						const qRef = typeof rawRef === "string" ? rawRef : undefined;
 						if (typeof qRef === "string" && qRef) {
-							/* Resolve the question's flat index within its form by
-							 * assembling the form's question tree from the doc store
+							/* Resolve the field's flat index within its form by
+							 * assembling the form's field tree from the doc store
 							 * (the single source of truth for blueprint entities). */
 							const doc = docStoreRef.current?.getState();
 							const moduleId = doc?.moduleOrder[input.moduleIndex as number];
@@ -96,8 +96,8 @@ export function SignalGrid({ controller, messages }: SignalGridProps) {
 								: undefined;
 							if (doc && formId) {
 								const questions = assembleQuestionsForGrid(
-									doc.questions as unknown as Record<string, NQuestion>,
-									doc.questionOrder as unknown as Record<string, string[]>,
+									doc.fields as unknown as Record<string, NQuestion>,
+									doc.fieldOrder as unknown as Record<string, string[]>,
 									formId,
 								);
 								if (questions.length > 0) {
@@ -136,10 +136,7 @@ export function SignalGrid({ controller, messages }: SignalGridProps) {
 						{
 							moduleOrder: doc.moduleOrder,
 							formOrder: doc.formOrder as unknown as Record<string, string[]>,
-							questionOrder: doc.questionOrder as unknown as Record<
-								string,
-								string[]
-							>,
+							fieldOrder: doc.fieldOrder as unknown as Record<string, string[]>,
 						},
 						latestToolScope,
 					),

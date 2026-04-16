@@ -229,7 +229,7 @@ export function useRowDnd(options: UseRowDndOptions): UseRowDndReturn {
 					const doc = docStore?.getState();
 					if (!doc) return true;
 					return !isUuidInSubtree(
-						doc.questionOrder as Record<string, readonly string[]>,
+						doc.fieldOrder as Record<string, readonly string[]>,
 						source.data.uuid,
 						cycleTargetContainerUuid,
 					);

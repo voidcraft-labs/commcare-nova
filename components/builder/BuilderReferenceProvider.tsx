@@ -88,7 +88,7 @@ export function BuilderReferenceProvider({
 		(listener: () => void) => {
 			if (!docStore) return () => {};
 			return docStore.subscribe(
-				(s) => [s.questions, s.modules, s.forms] as const,
+				(s) => [s.fields, s.modules, s.forms] as const,
 				() => listener(),
 				{
 					equalityFn: (a, b) => a[0] === b[0] && a[1] === b[1] && a[2] === b[2],

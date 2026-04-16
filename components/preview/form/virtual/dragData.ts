@@ -129,30 +129,30 @@ export function readDropTargetData(
 
 /**
  * Return `true` when `candidate` is `ancestor` or is in the subtree rooted
- * at `ancestor` (as defined by `questionOrder`). Used by drop-target
+ * at `ancestor` (as defined by `fieldOrder`). Used by drop-target
  * `canDrop` filters to block the user from dragging a group onto one of
  * its own descendants — such a drop would reparent the group under itself
- * and produce a cycle in `questionOrder`.
+ * and produce a cycle in `fieldOrder`.
  *
- * Pure traversal with a visited set — safe against cyclic `questionOrder`
+ * Pure traversal with a visited set — safe against cyclic `fieldOrder`
  * (which shouldn't happen but can during a mutation-replay race). Works
  * on the plain-object snapshot the doc store hands out via `getState()`.
  */
 export function isUuidInSubtree(
-	questionOrder: Record<string, readonly string[]>,
+	fieldOrder: Record<string, readonly string[]>,
 	ancestor: string,
 	candidate: string,
 ): boolean {
 	if (ancestor === candidate) return true;
 	const visited = new Set<string>([ancestor]);
-	const stack: string[] = [...(questionOrder[ancestor] ?? [])];
+	const stack: string[] = [...(fieldOrder[ancestor] ?? [])];
 	while (stack.length > 0) {
 		const uuid = stack.pop();
 		if (uuid === undefined) break;
 		if (uuid === candidate) return true;
 		if (visited.has(uuid)) continue;
 		visited.add(uuid);
-		const children = questionOrder[uuid];
+		const children = fieldOrder[uuid];
 		if (children) stack.push(...children);
 	}
 	return false;

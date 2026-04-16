@@ -32,8 +32,7 @@
  * and the nested-bracket border stack.
  */
 
-import type { Uuid } from "@/lib/doc/types";
-import type { NQuestion } from "@/lib/services/normalizedState";
+import type { Field, Uuid } from "@/lib/domain";
 
 // ── Types ──────────────────────────────────────────────────────────────
 
@@ -131,13 +130,13 @@ export type CollapseState = ReadonlySet<Uuid>;
  * makes the subscription shape in `useFormRows` obvious.
  *
  * Keys are typed as the branded `Uuid` so the walker preserves brand
- * safety end-to-end — the store's `questionOrder` values are
+ * safety end-to-end — the store's `fieldOrder` values are
  * `Uuid[]`, not bare strings, and we want that invariant to reach the
  * row output.
  */
 export interface RowSource {
-	readonly questions: Readonly<Record<Uuid, NQuestion>>;
-	readonly questionOrder: Readonly<Record<Uuid, readonly Uuid[]>>;
+	readonly fields: Readonly<Record<Uuid, Field>>;
+	readonly fieldOrder: Readonly<Record<Uuid, readonly Uuid[]>>;
 }
 
 export interface BuildFormRowsOptions {
@@ -189,7 +188,7 @@ function walk(
 	rows: FormRow[],
 	options: BuildFormRowsOptions,
 ): void {
-	const childUuids = src.questionOrder[parentUuid] ?? [];
+	const childUuids = src.fieldOrder[parentUuid] ?? [];
 
 	// Leading insertion point (edit mode only).
 	if (options.includeInsertionPoints) {
@@ -220,17 +219,17 @@ function walk(
 
 	for (let i = 0; i < childUuids.length; i++) {
 		const uuid = childUuids[i];
-		const q = src.questions[uuid];
+		const q = src.fields[uuid];
 		// Defensive: skip dangling order entries AND their trailing
-		// insertion point. The store guarantees `questionOrder` values
-		// reference existing questions, but a race during mutation replay
+		// insertion point. The store guarantees `fieldOrder` values
+		// reference existing fields, but a race during mutation replay
 		// could briefly violate that — better to elide a row than crash
 		// the virtualizer. `beforeIndex` values remain array positions
 		// (may have gaps when dangling entries are skipped); consumers
 		// must not assume contiguous sequence.
 		if (!q) continue;
 
-		if (q.type === "group" || q.type === "repeat") {
+		if (q.kind === "group" || q.kind === "repeat") {
 			const collapsed = options.collapsed.has(uuid);
 			rows.push({
 				kind: "group-open",

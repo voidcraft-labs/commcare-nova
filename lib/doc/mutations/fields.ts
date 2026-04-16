@@ -60,12 +60,16 @@ export type QuestionRenameMeta = FieldRenameMeta;
  *     (`#form/foo`), handled separately via DISPLAY_FIELDS below.
  *   - `required`: not an XPath field in the current schema.
  */
+// biome-ignore lint/suspicious/noExplicitAny: XPATH_FIELDS keys only apply to
+// some members of the Field union (text, int, etc.). The runtime code checks
+// for presence via `in` / `typeof === "string"` before reading, so narrowing
+// to a single member's keys would be overly strict.
 const XPATH_FIELDS = [
 	"relevant",
 	"calculate",
 	"default_value",
-	"validation",
-] as const satisfies readonly (keyof Field)[];
+	"validate",
+] as const;
 
 /**
  * Fields that contain prose text which may embed bare hashtag references
@@ -73,10 +77,10 @@ const XPATH_FIELDS = [
  * These fields are rewritten via `transformBareHashtags` → `rewriteXPathRefs`
  * so only the hashtag substrings are parsed, not the entire field as XPath.
  */
-const DISPLAY_FIELDS = [
-	"label",
-	"hint",
-] as const satisfies readonly (keyof Field)[];
+// Same caveat as XPATH_FIELDS above — `hint` and `label` don't exist on every
+// Field variant (e.g. hidden has no label; secret has no hint), so we avoid
+// pinning this to a single member's keyof.
+const DISPLAY_FIELDS = ["label", "hint"] as const;
 
 /**
  * Field mutations. Six kinds:

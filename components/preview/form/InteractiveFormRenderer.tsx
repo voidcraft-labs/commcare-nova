@@ -44,9 +44,9 @@ import { LabelField } from "./fields/LabelField";
 import { RepeatField } from "./fields/RepeatField";
 import { QuestionField } from "./QuestionField";
 
-/** Stable empty array for the questionOrder selector. Prevents new array
+/** Stable empty array for the fieldOrder selector. Prevents new array
  *  allocation on every render of an empty container. */
-const EMPTY_UUIDS: readonly string[] = [];
+const EMPTY_UUIDS: readonly Uuid[] = [];
 
 // ── Props ─────────────────────────────────────────────────────────────
 
@@ -76,7 +76,7 @@ export const InteractiveFormRenderer = memo(function InteractiveFormRenderer({
 	parentPath,
 }: InteractiveFormRendererProps) {
 	const questionUuids = useBlueprintDoc(
-		(s) => s.questionOrder[parentEntityId as Uuid] ?? EMPTY_UUIDS,
+		(s) => s.fieldOrder[parentEntityId as Uuid] ?? EMPTY_UUIDS,
 	);
 	const isRoot = !parentPath;
 
