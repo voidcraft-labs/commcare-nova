@@ -28,6 +28,7 @@ import {
 	useMemo,
 	useState,
 } from "react";
+import { useScrollIntoView } from "@/components/builder/contexts/ScrollRegistryContext";
 import { ConnectLogomark } from "@/components/icons/ConnectLogomark";
 import {
 	useBlueprintDoc,
@@ -84,11 +85,15 @@ export function AppTree({ actions, hideHeader }: AppTreeProps) {
 	const appName = useBlueprintDoc((s) => s.appName);
 	const phase = useBuilderPhase();
 	const navigate = useNavigate();
+	const { setPending } = useScrollIntoView();
 
 	const locked =
 		phase !== BuilderPhase.Ready && phase !== BuilderPhase.Completed;
 
-	/** Navigate to the URL location matching the clicked tree element. */
+	/** Navigate to the URL location matching the clicked tree element.
+	 *  Question clicks prime a pending scroll BEFORE the URL change so the
+	 *  target row's `useFulfillPendingScroll` has a request waiting when
+	 *  `isSelected` flips true. Reversing the order drops the scroll. */
 	const handleSelect: TreeSelectHandler = useCallback(
 		(target) => {
 			switch (target.kind) {
@@ -99,6 +104,7 @@ export function AppTree({ actions, hideHeader }: AppTreeProps) {
 				case "form":
 					return navigate.openForm(target.moduleUuid, target.formUuid);
 				case "question":
+					setPending(target.questionUuid, "instant", false);
 					return navigate.openForm(
 						target.moduleUuid,
 						target.formUuid,
@@ -106,7 +112,7 @@ export function AppTree({ actions, hideHeader }: AppTreeProps) {
 					);
 			}
 		},
-		[navigate],
+		[navigate, setPending],
 	);
 	const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
 	const [searchQuery, setSearchQuery] = useState("");
