@@ -6,8 +6,8 @@
  * domain hook from `lib/doc/hooks/**` and lets it handle the subscription
  * shape and memoization.
  *
- * Phase 6 enforces this rule via a Biome `noRestrictedImports` lint rule:
- * imports of this file from outside `lib/doc/hooks/**` will fail the build.
+ * A Biome `noRestrictedImports` lint rule enforces this boundary: imports
+ * of `@/lib/doc/store` from `components/` or `app/` code fail the build.
  *
  * The store instance comes from `BlueprintDocContext` (Phase 1b). Calling
  * any of these hooks outside a `<BlueprintDocProvider>` throws.
@@ -55,6 +55,16 @@ export function useBlueprintDocShallow<T>(
 ): T {
 	const store = useStoreInstance();
 	return useStore(store, useShallow(selector));
+}
+
+/**
+ * Imperative access to the raw doc store API — read/write via
+ * `storeApi.getState()` without subscribing to re-renders. Use in
+ * effect-time snapshots, callback closures, test harness setup, and
+ * non-React callers that need the store reference.
+ */
+export function useBlueprintDocApi(): BlueprintDocStore {
+	return useStoreInstance();
 }
 
 /**

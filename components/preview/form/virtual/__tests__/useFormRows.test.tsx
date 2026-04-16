@@ -3,73 +3,74 @@
 /**
  * useFormRows integration tests — subscription shape, memoization, and
  * collapse reactivity against a real BlueprintDoc store.
+ *
+ * Uses `BlueprintDocProvider` (the public provider surface) rather than
+ * creating the store directly, so the test respects the store-boundary
+ * rule enforced by Biome's `noRestrictedImports`.
  */
 
 import { act, renderHook } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { describe, expect, it } from "vitest";
-import { BlueprintDocContext } from "@/lib/doc/provider";
-import { createBlueprintDocStore } from "@/lib/doc/store";
+import { useBlueprintDocApi } from "@/lib/doc/hooks/useBlueprintDoc";
+import { BlueprintDocProvider } from "@/lib/doc/provider";
 import { asUuid, type Uuid } from "@/lib/doc/types";
 import type { AppBlueprint } from "@/lib/schemas/blueprint";
 import { EMPTY_COLLAPSE, useFormRows } from "../useFormRows";
 
 // ── Setup ──────────────────────────────────────────────────────────────
 
-function setup() {
-	const store = createBlueprintDocStore();
-	const bp: AppBlueprint = {
-		app_name: "Rows Test",
-		connect_type: undefined,
-		modules: [
-			{
-				uuid: "module-1-0000-0000-0000-000000000000",
-				name: "M",
-				forms: [
-					{
-						uuid: "form-1-0000-0000-0000-000000000001",
-						name: "F",
-						type: "registration",
-						questions: [
-							{
-								uuid: "qst-a-0000-0000-0000-000000000001",
-								id: "a",
-								type: "text",
-								label: "A",
-							},
-							{
-								uuid: "qst-b-0000-0000-0000-000000000002",
-								id: "b",
-								type: "text",
-								label: "B",
-							},
-						],
-					},
-				],
-			},
-		],
-		case_types: null,
-	};
-	store.getState().load(bp, "app-rows");
-	const moduleUuid = store.getState().moduleOrder[0];
-	const formUuid = store.getState().formOrder[moduleUuid][0];
-	const wrapper = ({ children }: { children: ReactNode }) => (
-		<BlueprintDocContext.Provider value={store}>
+const TEST_BLUEPRINT: AppBlueprint = {
+	app_name: "Rows Test",
+	connect_type: undefined,
+	modules: [
+		{
+			uuid: "module-1-0000-0000-0000-000000000000",
+			name: "M",
+			forms: [
+				{
+					uuid: "form-1-0000-0000-0000-000000000001",
+					name: "F",
+					type: "registration",
+					questions: [
+						{
+							uuid: "qst-a-0000-0000-0000-000000000001",
+							id: "a",
+							type: "text",
+							label: "A",
+						},
+						{
+							uuid: "qst-b-0000-0000-0000-000000000002",
+							id: "b",
+							type: "text",
+							label: "B",
+						},
+					],
+				},
+			],
+		},
+	],
+	case_types: null,
+};
+
+const FORM_UUID = asUuid("form-1-0000-0000-0000-000000000001");
+
+function wrapper({ children }: { children: ReactNode }) {
+	return (
+		<BlueprintDocProvider initialBlueprint={TEST_BLUEPRINT} appId="app-rows">
 			{children}
-		</BlueprintDocContext.Provider>
+		</BlueprintDocProvider>
 	);
-	return { store, wrapper, formUuid };
 }
 
 // ── Tests ──────────────────────────────────────────────────────────────
 
 describe("useFormRows", () => {
 	it("returns live rows that reflect the doc state", () => {
-		const { wrapper, formUuid } = setup();
 		const { result } = renderHook(
 			() =>
 				useFormRows({
-					formUuid,
+					formUuid: FORM_UUID,
 					includeInsertionPoints: true,
 					collapsed: EMPTY_COLLAPSE,
 				}),
@@ -87,22 +88,27 @@ describe("useFormRows", () => {
 	});
 
 	it("updates when questions are added to the form", () => {
-		const { store, wrapper, formUuid } = setup();
 		const { result } = renderHook(
-			() =>
-				useFormRows({
-					formUuid,
+			() => ({
+				rows: useFormRows({
+					formUuid: FORM_UUID,
 					includeInsertionPoints: false,
 					collapsed: EMPTY_COLLAPSE,
 				}),
+				/** Imperative store access for test mutations — goes through
+				 *  the public hook API, not a raw store import. */
+				storeApi: useBlueprintDocApi(),
+			}),
 			{ wrapper },
 		);
-		expect(result.current.filter((r) => r.kind === "question")).toHaveLength(2);
+		expect(
+			result.current.rows.filter((r) => r.kind === "question"),
+		).toHaveLength(2);
 
 		act(() => {
-			store.getState().apply({
+			result.current.storeApi.getState().apply({
 				kind: "addQuestion",
-				parentUuid: formUuid,
+				parentUuid: FORM_UUID,
 				question: {
 					uuid: asUuid("qst-c-0000-0000-0000-000000000003"),
 					id: "c",
@@ -110,21 +116,33 @@ describe("useFormRows", () => {
 				},
 			});
 		});
-		expect(result.current.filter((r) => r.kind === "question")).toHaveLength(3);
+		expect(
+			result.current.rows.filter((r) => r.kind === "question"),
+		).toHaveLength(3);
 	});
 
 	it("recomputes when the collapsed set reference changes", () => {
-		const { store, wrapper } = setup();
-		// Add a group + child so collapse has something to act on.
-		const formUuid =
-			store.getState().formOrder[store.getState().moduleOrder[0]][0];
 		const groupUuid = asUuid("grp-x-0000-0000-0000-000000000009");
 		const childUuid = asUuid("qst-z-0000-0000-0000-00000000000a");
+
+		const { result, rerender } = renderHook(
+			(props: { collapsed: Set<Uuid> }) => ({
+				rows: useFormRows({
+					formUuid: FORM_UUID,
+					includeInsertionPoints: false,
+					collapsed: props.collapsed,
+				}),
+				storeApi: useBlueprintDocApi(),
+			}),
+			{ wrapper, initialProps: { collapsed: new Set<Uuid>() } },
+		);
+
+		/* Add a group + child so collapse has something to act on. */
 		act(() => {
-			store.getState().applyMany([
+			result.current.storeApi.getState().applyMany([
 				{
 					kind: "addQuestion",
-					parentUuid: formUuid,
+					parentUuid: FORM_UUID,
 					question: { uuid: groupUuid, id: "sec", type: "group" },
 				},
 				{
@@ -135,24 +153,19 @@ describe("useFormRows", () => {
 			]);
 		});
 
-		const { result, rerender } = renderHook(
-			(props: { collapsed: Set<Uuid> }) =>
-				useFormRows({
-					formUuid,
-					includeInsertionPoints: false,
-					collapsed: props.collapsed,
-				}),
-			{ wrapper, initialProps: { collapsed: new Set<Uuid>() } },
-		);
-		// Group is expanded — all 3 question rows present (form's A + B,
-		// plus group's child z).
-		expect(result.current.filter((r) => r.kind === "question")).toHaveLength(3);
+		/* Group is expanded — all 3 question rows present (form's A + B,
+		 * plus group's child z). */
+		expect(
+			result.current.rows.filter((r) => r.kind === "question"),
+		).toHaveLength(3);
 
 		rerender({ collapsed: new Set([groupUuid]) });
-		// Group is collapsed — child is gone, only bracket rows remain.
-		expect(result.current.filter((r) => r.kind === "question")).toHaveLength(2);
+		/* Group is collapsed — child is gone, only bracket rows remain. */
 		expect(
-			result.current.filter(
+			result.current.rows.filter((r) => r.kind === "question"),
+		).toHaveLength(2);
+		expect(
+			result.current.rows.filter(
 				(r) => r.kind === "group-open" || r.kind === "group-close",
 			),
 		).toHaveLength(2);
