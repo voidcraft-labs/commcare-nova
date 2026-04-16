@@ -101,3 +101,14 @@ export interface ReplayData {
 /* The canonical session state type is `BuilderSessionState` in `store.ts`.
  * It includes both fields and actions. The types above are shared between
  * the store, hooks, and consumers. */
+
+/**
+ * Replay data extracted from server-fetched events, passed to BuilderProvider.
+ * Moved here from the legacy `hooks/useBuilder.tsx` during Phase 6 cleanup —
+ * this is its logical home alongside the other replay types.
+ */
+export interface ReplayInit {
+	stages: ReplayStage[];
+	doneIndex: number;
+	exitPath: string;
+}
