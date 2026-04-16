@@ -17,6 +17,7 @@ import type {
 	CaseType,
 	ConnectType,
 	Field,
+	FieldPatch,
 	Form,
 	Module,
 	Uuid,
@@ -54,7 +55,7 @@ export type Mutation =
 	| { kind: "moveField"; uuid: Uuid; toParentUuid: Uuid; toIndex: number }
 	| { kind: "renameField"; uuid: Uuid; newId: string }
 	| { kind: "duplicateField"; uuid: Uuid }
-	| { kind: "updateField"; uuid: Uuid; patch: Partial<Omit<Field, "uuid">> }
+	| { kind: "updateField"; uuid: Uuid; patch: FieldPatch }
 	// App-level
 	| { kind: "setAppName"; name: string }
 	| { kind: "setConnectType"; connectType: ConnectType | null }

@@ -227,6 +227,27 @@ export function isContainer(f: Field): f is ContainerField {
 	return fieldRegistry[f.kind].isContainer;
 }
 
+/**
+ * Union-wide patch type for field entities.
+ *
+ * `Partial<Omit<Field, "uuid">>` is intuitive but useless here: because
+ * `Field` is a discriminated union where different variants carry different
+ * properties (e.g. `HiddenField` has no `label`), a plain object literal
+ * like `{ label: "..." }` fails to satisfy `Partial<HiddenField>`, and TS
+ * rejects the patch even though `Object.assign` handles it fine at runtime.
+ *
+ * `FieldPatch` resolves this by taking the union of every variant's partial
+ * shape. A literal that matches ANY variant's partial will satisfy the
+ * union, which is exactly the contract the reducer enforces (it never
+ * changes `kind`, only merges known scalar properties).
+ *
+ * The `uuid` and `kind` fields are excluded — identity and discriminant are
+ * immutable for the lifetime of a field entity.
+ */
+export type FieldPatch = {
+	[K in FieldKind]: Partial<Omit<Extract<Field, { kind: K }>, "uuid" | "kind">>;
+}[FieldKind];
+
 // Re-export individual kind types for downstream switch blocks.
 export type {
 	AudioField,

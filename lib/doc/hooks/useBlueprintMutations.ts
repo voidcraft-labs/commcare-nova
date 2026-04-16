@@ -39,6 +39,7 @@ import {
 	type QuestionEntity,
 	type Uuid,
 } from "@/lib/doc/types";
+import type { FieldPatch } from "@/lib/domain";
 import type {
 	BlueprintForm,
 	BlueprintModule,
@@ -116,11 +117,16 @@ export interface BlueprintMutations {
 	/**
 	 * Update fields on an existing field entity. Callers pass `undefined` for
 	 * any field value to clear it — no `null` coercion needed.
+	 *
+	 * The patch type is `FieldPatch` — a union-wide partial that permits
+	 * any known property across Field variants. Because `Field` is a
+	 * discriminated union, `Partial<Omit<Field, "uuid">>` would reject
+	 * literals like `{ label: "..." }` (some variants have no `label`).
+	 * `FieldPatch` is the union of every variant's partial, which captures
+	 * what the reducer actually allows: merge any recognized scalar property
+	 * without changing the kind.
 	 */
-	updateQuestion: (
-		uuid: Uuid,
-		patch: Partial<Omit<QuestionEntity, "uuid">>,
-	) => void;
+	updateQuestion: (uuid: Uuid, patch: FieldPatch) => void;
 	removeQuestion: (uuid: Uuid) => void;
 	renameQuestion: (uuid: Uuid, newId: string) => QuestionRenameResult;
 	moveQuestion: (
