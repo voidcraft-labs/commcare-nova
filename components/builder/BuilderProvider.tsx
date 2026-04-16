@@ -40,8 +40,6 @@ import {
 } from "@/lib/session/provider";
 import type { ReplayInit } from "@/lib/session/types";
 
-export type { ReplayInit } from "@/lib/session/types";
-
 // ── Provider ────────────────────────────────────────────────────────────
 
 /**
@@ -118,9 +116,7 @@ function BuilderProviderInner({
 							<SyncBridge />
 							<LocationRecoveryEffect />
 							{replay ? <ReplayHydrator replay={replay} /> : null}
-							{!replay && initialBlueprint ? (
-								<LoadAppHydrator buildId={buildId} />
-							) : null}
+							{!replay && initialBlueprint ? <LoadAppHydrator /> : null}
 							{children}
 						</BuilderFormEngineProvider>
 					</EditGuardProvider>
@@ -225,7 +221,7 @@ function SyncBridge() {
  * Runs once per mount (gated by `hydratedRef`). Replay hydration uses
  * `ReplayHydrator` instead — the two paths are mutually exclusive.
  */
-function LoadAppHydrator({ buildId }: { buildId: string }) {
+function LoadAppHydrator() {
 	const sessionStore = useContext(BuilderSessionContext);
 	const hydratedRef = useRef(false);
 
@@ -233,11 +229,10 @@ function LoadAppHydrator({ buildId }: { buildId: string }) {
 		if (hydratedRef.current || !sessionStore) return;
 		hydratedRef.current = true;
 
-		/* appId and loading were pre-seeded via `SessionStoreInit`, so we
-		 * only need to clear loading. The appId is already correct. */
-		sessionStore.getState().setAppId(buildId);
+		/* appId was pre-seeded via `SessionStoreInit`; only the loading
+		 * flag needs clearing to transition from Loading → Ready. */
 		sessionStore.getState().setLoading(false);
-	}, [buildId, sessionStore]);
+	}, [sessionStore]);
 
 	return null;
 }

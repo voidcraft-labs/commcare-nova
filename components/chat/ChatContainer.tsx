@@ -27,11 +27,11 @@ import {
 } from "@/lib/doc/provider";
 import { applyStreamEvent } from "@/lib/generation/streamDispatcher";
 import { showToast } from "@/lib/services/toastStore";
+import type { BuilderSessionStoreApi } from "@/lib/session/provider";
 import {
 	BuilderSessionContext,
 	useBuilderSession,
 } from "@/lib/session/provider";
-import type { BuilderSessionStoreApi } from "@/lib/session/store";
 
 /** Reference-stable empty array for replay messages when not in replay mode.
  *  Avoids creating a new `[]` on every render, which would cause unnecessary

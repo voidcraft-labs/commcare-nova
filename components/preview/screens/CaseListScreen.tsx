@@ -1,9 +1,10 @@
 "use client";
 import { motion } from "motion/react";
 import { useMemo } from "react";
-import { useModule } from "@/hooks/useBuilder";
 import { useBlueprintDoc } from "@/lib/doc/hooks/useBlueprintDoc";
 import { useCaseTypes } from "@/lib/doc/hooks/useCaseTypes";
+import { useModule as useModuleEntity } from "@/lib/doc/hooks/useEntity";
+import type { Uuid } from "@/lib/doc/types";
 import { getDummyCases } from "@/lib/preview/engine/dummyData";
 import type { PreviewScreen } from "@/lib/preview/engine/types";
 import { useLocation, useNavigate } from "@/lib/routing/hooks";
@@ -42,7 +43,7 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 		firstFormUuid ? s.forms[firstFormUuid]?.name : undefined,
 	);
 
-	const mod = useModule(moduleIndex);
+	const mod = useModuleEntity(moduleUuid as Uuid);
 	const caseType = caseTypes.find((ct) => ct.name === mod?.caseType);
 	const columns = mod?.caseListColumns ?? [];
 

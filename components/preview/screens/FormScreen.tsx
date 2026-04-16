@@ -5,12 +5,15 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { FormTypeButton } from "@/components/builder/detail/FormDetail";
 import { FormSettingsButton } from "@/components/builder/detail/FormSettingsPanel";
 import { EditableTitle, SavedCheck } from "@/components/builder/EditableTitle";
-import { useForm, useModule } from "@/hooks/useBuilder";
 import { EditContextProvider } from "@/hooks/useEditContext";
 import { useFormEngine } from "@/hooks/useFormEngine";
 import { useBlueprintDoc } from "@/lib/doc/hooks/useBlueprintDoc";
 import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
 import { useCaseTypes } from "@/lib/doc/hooks/useCaseTypes";
+import {
+	useForm as useFormEntity,
+	useModule as useModuleEntity,
+} from "@/lib/doc/hooks/useEntity";
 import type { Uuid } from "@/lib/doc/types";
 import { getCaseData, getDummyCases } from "@/lib/preview/engine/dummyData";
 import type { PreviewScreen } from "@/lib/preview/engine/types";
@@ -66,8 +69,8 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 		setTimeout(() => setTitleSaved(false), 1500);
 	}, []);
 
-	const mod = useModule(moduleIndex);
-	const form = useForm(moduleIndex, formIndex);
+	const mod = useModuleEntity(moduleUuid as Uuid);
+	const form = useFormEntity(formUuid as Uuid);
 
 	/** The form's uuid doubles as the entity key for FormRenderer, which
 	 *  subscribes to `questionOrder[formUuid]` for the ordered child list.
