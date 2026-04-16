@@ -1,10 +1,11 @@
 import type { Draft } from "immer";
+import { rebuildFieldParent } from "@/lib/doc/fieldParent";
 import type { BlueprintDoc, Mutation } from "@/lib/doc/types";
-import { cascadeDeleteForm, cascadeDeleteQuestion } from "./helpers";
+import { cascadeDeleteField, cascadeDeleteForm } from "./helpers";
 
 /**
  * Form mutations. `replaceForm` is handled in a dedicated branch because it
- * has to atomically swap a form's entire subtree — questions and all nested
+ * has to atomically swap a form's entire subtree — fields and all nested
  * ordering — without disturbing siblings.
  *
  * `renameForm` maps to the form's `name` field (the only user-editable
@@ -31,7 +32,7 @@ export function applyFormMutation(
 			if (draft.modules[mut.moduleUuid] === undefined) return;
 			const { uuid } = mut.form;
 			draft.forms[uuid] = mut.form;
-			draft.questionOrder[uuid] = [];
+			draft.fieldOrder[uuid] = [];
 			const order = draft.formOrder[mut.moduleUuid] ?? [];
 			const index = mut.index ?? order.length;
 			const clamped = Math.max(0, Math.min(index, order.length));
@@ -50,7 +51,8 @@ export function applyFormMutation(
 					break;
 				}
 			}
-			cascadeDeleteForm(draft, mut.uuid);
+			cascadeDeleteForm(draft as unknown as BlueprintDoc, mut.uuid);
+			rebuildFieldParent(draft as unknown as BlueprintDoc);
 			return;
 		}
 		case "moveForm": {
@@ -86,24 +88,26 @@ export function applyFormMutation(
 		case "replaceForm": {
 			const existing = draft.forms[mut.uuid];
 			if (!existing) return;
-			// Drop the old question subtree (but don't touch formOrder — the
+			// Drop the old field subtree (but don't touch formOrder — the
 			// form stays in its module at the same position).
-			const oldTop = draft.questionOrder[mut.uuid] ?? [];
-			for (const qUuid of [...oldTop]) {
-				cascadeDeleteQuestion(draft, qUuid);
+			const oldTop = draft.fieldOrder[mut.uuid] ?? [];
+			for (const fUuid of [...oldTop]) {
+				cascadeDeleteField(draft as unknown as BlueprintDoc, fUuid);
 			}
 			// Swap the entity.
 			draft.forms[mut.uuid] = mut.form;
-			// Install the new questions.
-			for (const q of mut.questions) {
-				draft.questions[q.uuid] = q;
+			// Install the new fields.
+			for (const f of mut.fields) {
+				draft.fields[f.uuid] = f;
 			}
 			// Install the new ordering maps. Each entry replaces whatever
 			// was there before (covers the top-level form slot and any nested
 			// group/repeat containers).
-			for (const [parent, order] of Object.entries(mut.questionOrder)) {
-				draft.questionOrder[parent as keyof typeof draft.questionOrder] = order;
+			for (const [parent, order] of Object.entries(mut.fieldOrder)) {
+				draft.fieldOrder[parent as keyof typeof draft.fieldOrder] = order;
 			}
+			// Rebuild the parent reverse index after the full subtree has landed.
+			rebuildFieldParent(draft as unknown as BlueprintDoc);
 			return;
 		}
 	}

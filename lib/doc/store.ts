@@ -30,13 +30,16 @@ import { create } from "zustand";
 import { devtools, subscribeWithSelector } from "zustand/middleware";
 import { immer } from "zustand/middleware/immer";
 import { toDoc } from "@/lib/doc/converter";
+import { rebuildFieldParent } from "@/lib/doc/fieldParent";
 import { applyMutation, applyMutations } from "@/lib/doc/mutations";
 import type {
-	MoveQuestionResult,
-	QuestionRenameMeta,
-} from "@/lib/doc/mutations/questions";
+	FieldRenameMeta,
+	MoveFieldResult,
+} from "@/lib/doc/mutations/fields";
 import type { BlueprintDoc, Mutation } from "@/lib/doc/types";
 import type { AppBlueprint } from "@/lib/schemas/blueprint";
+
+export { rebuildFieldParent };
 
 /**
  * The complete public state surface of the BlueprintDoc store.
@@ -53,8 +56,8 @@ export type BlueprintDocState = BlueprintDoc & {
 	 * Apply a single mutation and return metadata from the reducer.
 	 *
 	 * Typed overloads ensure callers get the correct result per mutation kind:
-	 *   - `moveQuestion`    → `MoveQuestionResult`
-	 *   - `renameQuestion`  → `QuestionRenameMeta`
+	 *   - `moveField`    → `MoveFieldResult`
+	 *   - `renameField`  → `FieldRenameMeta`
 	 *   - all other kinds   → `void`
 	 *
 	 * `apply()` stays the fire-and-forget path for 90% of call sites;
@@ -63,11 +66,11 @@ export type BlueprintDocState = BlueprintDoc & {
 	 */
 	applyWithResult: {
 		(
-			mut: Extract<Mutation, { kind: "moveQuestion" }>,
-		): MoveQuestionResult | undefined;
+			mut: Extract<Mutation, { kind: "moveField" }>,
+		): MoveFieldResult | undefined;
 		(
-			mut: Extract<Mutation, { kind: "renameQuestion" }>,
-		): QuestionRenameMeta | undefined;
+			mut: Extract<Mutation, { kind: "renameField" }>,
+		): FieldRenameMeta | undefined;
 		(mut: Mutation): void;
 	};
 	/** Apply a batch of mutations as one atomic undo entry. */
@@ -101,6 +104,10 @@ export type BlueprintDocState = BlueprintDoc & {
  * target. All entity maps and order arrays start empty; nullable fields
  * (`connectType`, `caseTypes`) start as `null` to match the blueprint
  * schema (surveys and empty apps may omit them entirely).
+ *
+ * `fieldParent` starts as an empty object — `rebuildFieldParent` is a
+ * no-op on an empty doc but ensures the field is always defined on the
+ * store shape.
  */
 const EMPTY_DOC: BlueprintDoc = {
 	appId: "",
@@ -109,10 +116,11 @@ const EMPTY_DOC: BlueprintDoc = {
 	caseTypes: null,
 	modules: {},
 	forms: {},
-	questions: {},
+	fields: {},
 	moduleOrder: [],
 	formOrder: {},
-	questionOrder: {},
+	fieldOrder: {},
+	fieldParent: {},
 };
 
 /**
@@ -164,8 +172,8 @@ export function createBlueprintDocStore() {
 						 * Apply a single mutation and capture the reducer's return value.
 						 *
 						 * Identical to `apply()` except it threads back the metadata that
-						 * `applyMutation` returns for `moveQuestion` (rename info) and
-						 * `renameQuestion` (xpath rewrite count). A `let result` variable
+						 * `applyMutation` returns for `moveField` (rename info) and
+						 * `renameField` (xpath rewrite count). A `let result` variable
 						 * captures the return inside the Immer draft callback — the variable
 						 * is assigned synchronously before `set()` returns, so the caller
 						 * can use it immediately.
@@ -202,8 +210,11 @@ export function createBlueprintDocStore() {
 						 *
 						 * Converts the nested blueprint to a normalized doc via `toDoc`,
 						 * writes every field atomically, then clears and re-pauses the
-						 * undo history. The transition from empty→loaded is not an
-						 * undoable user action — it's session setup.
+						 * undo history. Rebuilds the fieldParent reverse index after
+						 * loading the new doc shape.
+						 *
+						 * The transition from empty→loaded is not an undoable user action —
+						 * it's session setup.
 						 */
 						load: (bp: AppBlueprint, appId: string) => {
 							const next = toDoc(bp, appId);
@@ -223,10 +234,13 @@ export function createBlueprintDocStore() {
 								// next state via its own structural sharing.
 								(draft as BlueprintDoc).modules = next.modules;
 								(draft as BlueprintDoc).forms = next.forms;
-								(draft as BlueprintDoc).questions = next.questions;
+								(draft as BlueprintDoc).fields = next.fields;
 								draft.moduleOrder = next.moduleOrder;
 								(draft as BlueprintDoc).formOrder = next.formOrder;
-								(draft as BlueprintDoc).questionOrder = next.questionOrder;
+								(draft as BlueprintDoc).fieldOrder = next.fieldOrder;
+								// Rebuild the reverse-parent index so hooks can read
+								// fieldParent immediately after load.
+								rebuildFieldParent(draft as unknown as BlueprintDoc);
 							});
 							// Clear any undo history accumulated since last load (e.g.
 							// stale entries from a prior session in the same store instance).

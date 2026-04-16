@@ -18,8 +18,14 @@
  * before module/form uuids became schema fields are migrated by
  * `scripts/migrate-module-form-uuids.ts`. Any blueprint reaching `toDoc` without
  * uuids on every module + form throws — there is no fallback minting here.
+ *
+ * NOTE: Task 14 deletes this file once the Firestore shape is normalized
+ * directly. Until then `toDoc` bridges the legacy nested shape into the
+ * new normalized doc; `toBlueprint` does the reverse for save/export paths
+ * that still need the nested wire format.
  */
 
+import { rebuildFieldParent } from "@/lib/doc/fieldParent";
 import {
 	asUuid,
 	type BlueprintDoc,
@@ -45,10 +51,10 @@ import {
 export function toDoc(bp: AppBlueprint, appId: string): BlueprintDoc {
 	const modules: Record<Uuid, ModuleEntity> = {};
 	const forms: Record<Uuid, FormEntity> = {};
-	const questions: Record<Uuid, QuestionEntity> = {};
+	const fields: Record<Uuid, QuestionEntity> = {};
 	const moduleOrder: Uuid[] = [];
 	const formOrder: Record<Uuid, Uuid[]> = {};
-	const questionOrder: Record<Uuid, Uuid[]> = {};
+	const fieldOrder: Record<Uuid, Uuid[]> = {};
 
 	for (const mod of bp.modules) {
 		if (!mod.uuid) {
@@ -77,45 +83,54 @@ export function toDoc(bp: AppBlueprint, appId: string): BlueprintDoc {
 			// close_condition / close_case migration, post_submit, etc.).
 			forms[formUuid] = decomposeFormEntity(form) as unknown as FormEntity;
 
-			questionOrder[formUuid] = flattenQuestions(
+			fieldOrder[formUuid] = flattenQuestions(
 				form.questions ?? [],
-				questions,
-				questionOrder,
+				fields,
+				fieldOrder,
 			);
 		}
 		formOrder[modUuid] = formUuids;
 	}
 
-	return {
+	const doc: BlueprintDoc = {
 		appId,
 		appName: bp.app_name,
 		connectType: bp.connect_type ?? null,
 		caseTypes: bp.case_types ?? null,
 		modules,
 		forms,
-		questions,
+		fields,
 		moduleOrder,
 		formOrder,
-		questionOrder,
+		fieldOrder,
+		fieldParent: {},
 	};
+	// Populate the reverse-parent index immediately so any consumer of
+	// the returned doc doesn't need to call rebuildFieldParent separately.
+	rebuildFieldParent(doc);
+	return doc;
 }
 
 /**
  * Recursively flatten a question tree into the doc's entity and order maps.
  *
  * Returns the ordered UUID array for the parent (form uuid or group uuid).
- * Populates `questions` and `questionOrder` by side effect — this avoids
+ * Populates `fields` and `fieldOrder` by side effect — this avoids
  * allocating fresh arrays at each recursion depth.
  *
  * Exported so callers that hold a single nested form (e.g. `replaceForm` in
  * `useBlueprintMutations` and `setFormContent` in the legacy builder store)
  * can reuse the same flatten walk without constructing a synthetic single-
  * module wrapper just to call `toDoc`.
+ *
+ * @deprecated The `questions`/`questionOrder` param names are kept for
+ * backward compat with callers; internally they map to fields/fieldOrder.
+ * Rename in Task 15 when blueprintHelpers is rewritten.
  */
 export function flattenQuestions(
 	src: Question[],
-	questions: Record<Uuid, QuestionEntity>,
-	questionOrder: Record<Uuid, Uuid[]>,
+	fields: Record<Uuid, QuestionEntity>,
+	fieldOrder: Record<Uuid, Uuid[]>,
 ): Uuid[] {
 	const order: Uuid[] = [];
 	for (const q of src) {
@@ -126,14 +141,17 @@ export function flattenQuestions(
 		}
 		const uuid = asUuid(q.uuid);
 		order.push(uuid);
-		const { children, uuid: _ignored, ...questionRest } = q;
-		questions[uuid] = { ...questionRest, uuid } as QuestionEntity;
+		const { children, uuid: _ignored, type, ...questionRest } = q;
+		// Translate blueprint `type` discriminant → domain `kind` discriminant.
+		// Field entities in the doc store use `kind`; the blueprint wire format
+		// uses `type`. `assembleQuestions` reverses this: `kind` → `type`.
+		fields[uuid] = {
+			...questionRest,
+			uuid,
+			kind: type,
+		} as unknown as QuestionEntity;
 		if (children && children.length > 0) {
-			questionOrder[uuid] = flattenQuestions(
-				children,
-				questions,
-				questionOrder,
-			);
+			fieldOrder[uuid] = flattenQuestions(children, fields, fieldOrder);
 		}
 	}
 	return order;
@@ -188,13 +206,23 @@ export function toBlueprint(doc: BlueprintDoc): AppBlueprint {
  * group/repeat's own uuid.
  */
 function assembleQuestions(parentUuid: Uuid, doc: BlueprintDoc): Question[] {
-	const order = doc.questionOrder[parentUuid] ?? [];
-	return order.map((qUuid) => {
-		const q = doc.questions[qUuid];
-		const nested = doc.questionOrder[qUuid];
+	const order = doc.fieldOrder[parentUuid] ?? [];
+	return order.map((fUuid) => {
+		const field = doc.fields[fUuid];
+		const { kind, ...rest } = field as unknown as {
+			kind: string;
+			[k: string]: unknown;
+		};
+		// Translate domain `kind` discriminant back to blueprint `type` discriminant.
+		const asQuestion = {
+			...rest,
+			type: kind,
+			uuid: fUuid,
+		} as unknown as Question;
+		const nested = doc.fieldOrder[fUuid];
 		// Group/repeat → emit children. Leaf → omit children entirely (not []).
 		return nested !== undefined
-			? { ...q, children: assembleQuestions(qUuid, doc) }
-			: q;
+			? { ...asQuestion, children: assembleQuestions(fUuid, doc) }
+			: asQuestion;
 	});
 }

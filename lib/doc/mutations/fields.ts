@@ -1,30 +1,31 @@
 import type { Draft } from "immer";
+import { rebuildFieldParent } from "@/lib/doc/fieldParent";
 import type {
 	BlueprintDoc,
+	QuestionEntity as Field,
 	Mutation,
-	QuestionEntity,
 	Uuid,
 } from "@/lib/doc/types";
 import { transformBareHashtags } from "@/lib/preview/engine/labelRefs";
 import { rewriteXPathRefs } from "@/lib/preview/xpath/rewrite";
 import type { QuestionPath } from "@/lib/services/questionPath";
 import {
-	cascadeDeleteQuestion,
-	cloneQuestionSubtree,
-	computeQuestionPath,
+	cascadeDeleteField,
+	cloneFieldSubtree,
+	computeFieldPath,
 	dedupeSiblingId,
 	findContainingForm,
-	findQuestionParent,
-	walkFormQuestionUuids,
+	findFieldParent,
+	walkFormFieldUuids,
 } from "./helpers";
 import { rewriteXPathOnMove } from "./pathRewrite";
 
 /**
- * Metadata returned by `moveQuestion` when a cross-level move triggers
+ * Metadata returned by `moveField` when a cross-level move triggers
  * sibling-id deduplication (CommCare requires unique IDs per parent level).
  * When no dedup is needed, `renamed` is `undefined`.
  */
-export interface MoveQuestionResult {
+export interface MoveFieldResult {
 	renamed?: {
 		oldId: string;
 		newId: string;
@@ -34,17 +35,24 @@ export interface MoveQuestionResult {
 }
 
 /**
- * Metadata returned by `renameQuestion` with the count of XPath expression
- * fields that were rewritten to reflect the new question ID.
+ * Metadata returned by `renameField` with the count of XPath expression
+ * fields that were rewritten to reflect the new field ID.
  */
-export interface QuestionRenameMeta {
+export interface FieldRenameMeta {
 	xpathFieldsRewritten: number;
 }
 
+// ── Legacy aliases for callers that have not yet migrated ─────────────────
+// Phase 21 removes these once all consumers use Field-named types directly.
+/** @deprecated Use MoveFieldResult */
+export type MoveQuestionResult = MoveFieldResult;
+/** @deprecated Use FieldRenameMeta */
+export type QuestionRenameMeta = FieldRenameMeta;
+
 /**
- * Fields on a `QuestionEntity` that carry XPath expressions directly —
+ * Fields on a `Field` entity that carry XPath expressions directly —
  * these get rewritten via the Lezer-based `rewriteXPathRefs` parser when
- * a referenced question is renamed.
+ * a referenced field is renamed.
  *
  * Notably excluded:
  *   - `validation_msg`: user-facing error text, not an XPath expression.
@@ -57,153 +65,167 @@ const XPATH_FIELDS = [
 	"calculate",
 	"default_value",
 	"validation",
-] as const satisfies readonly (keyof QuestionEntity)[];
+] as const satisfies readonly (keyof Field)[];
 
 /**
  * Fields that contain prose text which may embed bare hashtag references
- * (`#form/question_id`, `#case/property`) inside otherwise-plain content.
+ * (`#form/field_id`, `#case/property`) inside otherwise-plain content.
  * These fields are rewritten via `transformBareHashtags` → `rewriteXPathRefs`
  * so only the hashtag substrings are parsed, not the entire field as XPath.
  */
 const DISPLAY_FIELDS = [
 	"label",
 	"hint",
-] as const satisfies readonly (keyof QuestionEntity)[];
+] as const satisfies readonly (keyof Field)[];
 
 /**
- * Question mutations. Six kinds:
- *   - addQuestion, updateQuestion: simple entity-level edits
- *   - removeQuestion: cascade delete subtree
- *   - moveQuestion: cross-parent reorder + xpath rewrite + sibling dedup
- *   - renameQuestion: id change + xpath rewrite of any referencing fields
- *   - duplicateQuestion: deep clone with new UUIDs, dedupe sibling id
- *
- * This task implements only addQuestion and updateQuestion. The cascade,
- * move, rename, and duplicate handlers land in Tasks 9–12.
+ * Field mutations. Six kinds:
+ *   - addField, updateField: simple entity-level edits
+ *   - removeField: cascade delete subtree
+ *   - moveField: cross-parent reorder + xpath rewrite + sibling dedup
+ *   - renameField: id change + xpath rewrite of any referencing fields
+ *   - duplicateField: deep clone with new UUIDs, dedupe sibling id
  */
-export function applyQuestionMutation(
+export function applyFieldMutation(
 	draft: Draft<BlueprintDoc>,
 	mut: Extract<
 		Mutation,
 		{
 			kind:
-				| "addQuestion"
-				| "removeQuestion"
-				| "moveQuestion"
-				| "renameQuestion"
-				| "duplicateQuestion"
-				| "updateQuestion";
+				| "addField"
+				| "removeField"
+				| "moveField"
+				| "renameField"
+				| "duplicateField"
+				| "updateField";
 		}
 	>,
-): MoveQuestionResult | QuestionRenameMeta | undefined {
+): MoveFieldResult | FieldRenameMeta | undefined {
 	switch (mut.kind) {
-		case "addQuestion": {
+		case "addField": {
 			// Parent must be a form or a group/repeat that already has an
-			// order entry (groups/repeats are added via addQuestion + an
+			// order entry (groups/repeats are added via addField + an
 			// empty order slot, so we also allow parents that are registered
-			// questions).
+			// fields).
 			const parentExists =
 				draft.forms[mut.parentUuid] !== undefined ||
-				draft.questions[mut.parentUuid] !== undefined;
+				draft.fields[mut.parentUuid] !== undefined;
 			if (!parentExists) return;
-			const order = draft.questionOrder[mut.parentUuid] ?? [];
+			const order = draft.fieldOrder[mut.parentUuid] ?? [];
 			const index = mut.index ?? order.length;
 			const clamped = Math.max(0, Math.min(index, order.length));
-			order.splice(clamped, 0, mut.question.uuid);
-			draft.questionOrder[mut.parentUuid] = order;
-			draft.questions[mut.question.uuid] = mut.question;
-			// If the new question is a group/repeat, pre-seed its order slot
+			order.splice(clamped, 0, mut.field.uuid);
+			draft.fieldOrder[mut.parentUuid] = order;
+			draft.fields[mut.field.uuid] = mut.field;
+			// If the new field is a group/repeat, pre-seed its order slot
 			// so child insertions have a valid parent to target immediately.
-			if (mut.question.type === "group" || mut.question.type === "repeat") {
-				draft.questionOrder[mut.question.uuid] ??= [];
+			if (mut.field.kind === "group" || mut.field.kind === "repeat") {
+				draft.fieldOrder[mut.field.uuid] ??= [];
 			}
+			rebuildFieldParent(draft as unknown as BlueprintDoc);
 			return;
 		}
-		case "updateQuestion": {
-			const q = draft.questions[mut.uuid];
-			if (!q) return;
-			Object.assign(q, mut.patch);
+		case "updateField": {
+			const field = draft.fields[mut.uuid];
+			if (!field) return;
+			Object.assign(field, mut.patch);
 			return;
 		}
-		case "removeQuestion": {
+		case "removeField": {
 			// Guard: nothing to remove if the entity doesn't exist.
-			if (draft.questions[mut.uuid] === undefined) return;
+			if (draft.fields[mut.uuid] === undefined) return;
 			// Splice the uuid out of its parent's order, if it's registered
-			// in any order map. A question that exists but isn't in any order
+			// in any order map. A field that exists but isn't in any order
 			// map is an unusual state, but we still fall through to cascade.
-			const parent = findQuestionParent(draft, mut.uuid);
+			const parent = findFieldParent(
+				draft as unknown as BlueprintDoc,
+				mut.uuid,
+			);
 			if (parent) {
-				const order = draft.questionOrder[parent.parentUuid];
+				const order = draft.fieldOrder[parent.parentUuid];
 				if (order) {
 					order.splice(parent.index, 1);
-					draft.questionOrder[parent.parentUuid] = order;
+					draft.fieldOrder[parent.parentUuid] = order;
 				}
 			}
-			// Recursively delete the question entity and any descendants
+			// Recursively delete the field entity and any descendants
 			// (children of a group/repeat, their children, etc.).
-			cascadeDeleteQuestion(draft, mut.uuid);
+			cascadeDeleteField(draft as unknown as BlueprintDoc, mut.uuid);
+			rebuildFieldParent(draft as unknown as BlueprintDoc);
 			return;
 		}
-		case "moveQuestion": {
-			const q = draft.questions[mut.uuid];
-			if (!q) return;
+		case "moveField": {
+			const field = draft.fields[mut.uuid];
+			if (!field) return;
 			// Destination parent must exist as either a form or a group/repeat.
 			const destIsForm = draft.forms[mut.toParentUuid] !== undefined;
-			const destQ = draft.questions[mut.toParentUuid];
+			const destField = draft.fields[mut.toParentUuid];
 			const destIsContainer =
-				destQ && (destQ.type === "group" || destQ.type === "repeat");
+				destField &&
+				(destField.kind === "group" || destField.kind === "repeat");
 			if (!destIsForm && !destIsContainer) return;
 
-			const sourceParent = findQuestionParent(draft, mut.uuid);
-			const oldPathStr = computeQuestionPath(draft, mut.uuid) ?? "";
+			const sourceParent = findFieldParent(
+				draft as unknown as BlueprintDoc,
+				mut.uuid,
+			);
+			const oldPathStr =
+				computeFieldPath(draft as unknown as BlueprintDoc, mut.uuid) ?? "";
 			const crossParent =
 				sourceParent !== undefined &&
 				sourceParent.parentUuid !== mut.toParentUuid;
 
 			// Remove from source order.
 			if (sourceParent) {
-				const srcOrder = draft.questionOrder[sourceParent.parentUuid];
+				const srcOrder = draft.fieldOrder[sourceParent.parentUuid];
 				if (srcOrder) {
 					srcOrder.splice(sourceParent.index, 1);
-					draft.questionOrder[sourceParent.parentUuid] = srcOrder;
+					draft.fieldOrder[sourceParent.parentUuid] = srcOrder;
 				}
 			}
 
 			// Dedupe id against new siblings if we crossed a parent boundary.
 			// Capture the old id so we can detect and report auto-rename.
-			const oldId = q.id;
+			const oldId = field.id;
 			if (crossParent) {
 				const deduped = dedupeSiblingId(
-					draft,
+					draft as unknown as BlueprintDoc,
 					mut.toParentUuid,
-					q.id,
+					field.id,
 					mut.uuid,
 				);
-				q.id = deduped;
+				field.id = deduped;
 			}
 
 			// Insert at destination.
-			const destOrder = draft.questionOrder[mut.toParentUuid] ?? [];
+			const destOrder = draft.fieldOrder[mut.toParentUuid] ?? [];
 			const clamped = Math.max(0, Math.min(mut.toIndex, destOrder.length));
 			destOrder.splice(clamped, 0, mut.uuid);
-			draft.questionOrder[mut.toParentUuid] = destOrder;
+			draft.fieldOrder[mut.toParentUuid] = destOrder;
 
 			// Rewrite absolute-path / hashtag references that now point at a
 			// stale path. Covers cross-level moves (where the prefix changes)
 			// and reorder+rename (where the leaf segment changes from dedup).
 			// Same-form only — xpath references never cross form boundaries.
 			let xpathFieldsRewritten = 0;
-			const newPathStr = computeQuestionPath(draft, mut.uuid) ?? "";
+			const newPathStr =
+				computeFieldPath(draft as unknown as BlueprintDoc, mut.uuid) ?? "";
 			if (oldPathStr && newPathStr && oldPathStr !== newPathStr) {
 				const oldSegments = oldPathStr.split("/");
 				const newSegments = newPathStr.split("/");
-				const formUuid = findContainingForm(draft, mut.uuid);
+				const formUuid = findContainingForm(
+					draft as unknown as BlueprintDoc,
+					mut.uuid,
+				);
 				if (formUuid) {
-					for (const qUuid of walkFormQuestionUuids(draft, formUuid)) {
-						const target = draft.questions[qUuid];
+					for (const fUuid of walkFormFieldUuids(
+						draft as unknown as BlueprintDoc,
+						formUuid,
+					)) {
+						const target = draft.fields[fUuid];
 						if (!target) continue;
-						for (const field of XPATH_FIELDS) {
-							const expr = target[field];
+						for (const f of XPATH_FIELDS) {
+							const expr = (target as Record<string, unknown>)[f];
 							if (typeof expr === "string" && expr.length > 0) {
 								const rewritten = rewriteXPathOnMove(
 									expr,
@@ -211,19 +233,19 @@ export function applyQuestionMutation(
 									newSegments,
 								);
 								if (rewritten !== expr) {
-									target[field] = rewritten as never;
+									(target as Record<string, unknown>)[f] = rewritten;
 									xpathFieldsRewritten++;
 								}
 							}
 						}
-						for (const field of DISPLAY_FIELDS) {
-							const text = target[field];
+						for (const f of DISPLAY_FIELDS) {
+							const text = (target as Record<string, unknown>)[f];
 							if (typeof text === "string" && text.length > 0) {
 								const rewritten = transformBareHashtags(text, (expr) =>
 									rewriteXPathOnMove(expr, oldSegments, newSegments),
 								);
 								if (rewritten !== text) {
-									target[field] = rewritten as never;
+									(target as Record<string, unknown>)[f] = rewritten;
 									xpathFieldsRewritten++;
 								}
 							}
@@ -232,66 +254,74 @@ export function applyQuestionMutation(
 				}
 			}
 
+			rebuildFieldParent(draft as unknown as BlueprintDoc);
+
 			// Build rename metadata when cross-level dedup changed the id.
 			const renamed =
-				oldId !== q.id
+				oldId !== field.id
 					? {
 							oldId,
-							newId: q.id,
+							newId: field.id,
 							newPath: (newPathStr || "") as QuestionPath,
 							xpathFieldsRewritten,
 						}
 					: undefined;
-			return { renamed } satisfies MoveQuestionResult;
+			return { renamed } satisfies MoveFieldResult;
 		}
-		case "renameQuestion": {
-			const q = draft.questions[mut.uuid];
-			if (!q) return;
-			const oldPath = computeQuestionPath(draft, mut.uuid);
-			q.id = mut.newId;
+		case "renameField": {
+			const field = draft.fields[mut.uuid];
+			if (!field) return;
+			const oldPath = computeFieldPath(
+				draft as unknown as BlueprintDoc,
+				mut.uuid,
+			);
+			field.id = mut.newId;
 			let xpathFieldsRewritten = 0;
 			if (oldPath !== undefined) {
-				xpathFieldsRewritten = rewriteRefsAllQuestions(
-					draft,
+				xpathFieldsRewritten = rewriteRefsAllFields(
+					draft as unknown as BlueprintDoc,
 					oldPath,
 					mut.newId,
 				);
 			}
-			return { xpathFieldsRewritten } satisfies QuestionRenameMeta;
+			return { xpathFieldsRewritten } satisfies FieldRenameMeta;
 		}
-		case "duplicateQuestion": {
-			const src = draft.questions[mut.uuid];
+		case "duplicateField": {
+			const src = draft.fields[mut.uuid];
 			if (!src) return;
-			const parent = findQuestionParent(draft, mut.uuid);
+			const parent = findFieldParent(
+				draft as unknown as BlueprintDoc,
+				mut.uuid,
+			);
 			if (!parent) return;
 
-			// Clone the subtree off the current draft state. `cloneQuestionSubtree`
+			// Clone the subtree off the current draft state. `cloneFieldSubtree`
 			// returns undefined if the source or a descendant is missing — we
 			// already guarded on the source above, so undefined here means
 			// something is structurally wrong with the doc. Skip the duplicate
 			// rather than propagating a throw out of the reducer.
-			const cloned = cloneQuestionSubtree(
+			const cloned = cloneFieldSubtree(
 				draft as unknown as BlueprintDoc,
 				mut.uuid,
 			);
 			if (!cloned) return;
-			const { questions: clonedQ, questionOrder: clonedO, rootUuid } = cloned;
+			const { fields: clonedF, fieldOrder: clonedO, rootUuid } = cloned;
 
 			// Install all cloned entities into the draft.
-			for (const [uuid, q] of Object.entries(clonedQ)) {
-				draft.questions[uuid as Uuid] = q;
+			for (const [uuid, f] of Object.entries(clonedF)) {
+				draft.fields[uuid as Uuid] = f;
 			}
 			for (const [parentUuid, order] of Object.entries(clonedO)) {
-				draft.questionOrder[parentUuid as Uuid] = order;
+				draft.fieldOrder[parentUuid as Uuid] = order;
 			}
 
 			// Dedupe the top-level clone's id against existing siblings at this
 			// parent level. Nested clones live under the new (cloned) parent and
 			// therefore can't conflict with the originals — no dedup needed there.
-			const clone = draft.questions[rootUuid];
+			const clone = draft.fields[rootUuid];
 			if (clone) {
 				const deduped = dedupeSiblingId(
-					draft,
+					draft as unknown as BlueprintDoc,
 					parent.parentUuid,
 					clone.id,
 					rootUuid,
@@ -300,20 +330,22 @@ export function applyQuestionMutation(
 			}
 
 			// Splice the clone right after the source in the parent's order.
-			const parentOrder = draft.questionOrder[parent.parentUuid];
+			const parentOrder = draft.fieldOrder[parent.parentUuid];
 			if (parentOrder) {
 				parentOrder.splice(parent.index + 1, 0, rootUuid);
-				draft.questionOrder[parent.parentUuid] = parentOrder;
+				draft.fieldOrder[parent.parentUuid] = parentOrder;
 			}
+
+			rebuildFieldParent(draft as unknown as BlueprintDoc);
 			return;
 		}
 	}
 }
 
 /**
- * Walk every question in the doc and rewrite references to a question
+ * Walk every field in the doc and rewrite references to a field
  * whose path ended in `oldLeafId` and now ends in `newLeafId`. This is a
- * leaf-rename operation: the question stays at the same tree position,
+ * leaf-rename operation: the field stays at the same tree position,
  * only its final `id` segment changes.
  *
  * Two passes:
@@ -324,34 +356,34 @@ export function applyQuestionMutation(
  *      so only the embedded `#form/...` references are rewritten, not the
  *      surrounding prose.
  *
- * Called by `renameQuestion` only — `moveQuestion` cannot use this path
+ * Called by `renameField` only — `moveField` cannot use this path
  * because it has to rewrite path PREFIXES, not leaf segments.
  */
-function rewriteRefsAllQuestions(
-	draft: Draft<BlueprintDoc>,
+function rewriteRefsAllFields(
+	doc: BlueprintDoc,
 	oldPath: string,
 	newLeafId: string,
 ): number {
 	let count = 0;
 	const xpathRewriter = (expr: string) =>
 		rewriteXPathRefs(expr, oldPath, newLeafId);
-	for (const q of Object.values(draft.questions)) {
-		for (const field of XPATH_FIELDS) {
-			const expr = q[field];
+	for (const field of Object.values(doc.fields)) {
+		for (const f of XPATH_FIELDS) {
+			const expr = (field as Record<string, unknown>)[f];
 			if (typeof expr === "string" && expr.length > 0) {
 				const rewritten = xpathRewriter(expr);
 				if (rewritten !== expr) {
-					q[field] = rewritten as never;
+					(field as Record<string, unknown>)[f] = rewritten;
 					count++;
 				}
 			}
 		}
-		for (const field of DISPLAY_FIELDS) {
-			const text = q[field];
+		for (const f of DISPLAY_FIELDS) {
+			const text = (field as Record<string, unknown>)[f];
 			if (typeof text === "string" && text.length > 0) {
 				const rewritten = transformBareHashtags(text, xpathRewriter);
 				if (rewritten !== text) {
-					q[field] = rewritten as never;
+					(field as Record<string, unknown>)[f] = rewritten;
 					count++;
 				}
 			}
