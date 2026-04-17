@@ -17,18 +17,20 @@
 
 import type { Draft } from "immer";
 import { rebuildFieldParent } from "@/lib/doc/fieldParent";
-import type { BlueprintDoc, Mutation } from "@/lib/doc/types";
+import type { BlueprintDoc, Mutation, MutationResult } from "@/lib/doc/types";
 import { applyAppMutation } from "./app";
-import {
-	applyFieldMutation,
-	type FieldRenameMeta,
-	type MoveFieldResult,
-} from "./fields";
+import { applyFieldMutation } from "./fields";
 import { applyFormMutation } from "./forms";
 import { assertNever } from "./helpers";
 import { applyModuleMutation } from "./modules";
 
-export type { FieldRenameMeta, MoveFieldResult };
+// Re-export via the types barrel so downstream consumers have a single
+// import path for all doc-layer result types.
+export type {
+	FieldRenameMeta,
+	MoveFieldResult,
+	MutationResult,
+} from "@/lib/doc/types";
 
 /**
  * Internal: dispatch a single mutation to the appropriate sub-reducer
@@ -43,7 +45,7 @@ export type { FieldRenameMeta, MoveFieldResult };
 function dispatchMutation(
 	draft: Draft<BlueprintDoc>,
 	mut: Mutation,
-): MoveFieldResult | FieldRenameMeta | undefined {
+): MutationResult {
 	switch (mut.kind) {
 		case "setAppName":
 		case "setConnectType":
@@ -88,7 +90,7 @@ function dispatchMutation(
 export function applyMutation(
 	draft: Draft<BlueprintDoc>,
 	mut: Mutation,
-): MoveFieldResult | FieldRenameMeta | undefined {
+): MutationResult {
 	const result = dispatchMutation(draft, mut);
 	rebuildFieldParent(draft as unknown as BlueprintDoc);
 	return result;
@@ -107,7 +109,11 @@ export function applyMutation(
 export function applyMutations(
 	draft: Draft<BlueprintDoc>,
 	muts: Mutation[],
-): void {
-	for (const mut of muts) dispatchMutation(draft, mut);
+): MutationResult[] {
+	const results: MutationResult[] = [];
+	for (const mut of muts) {
+		results.push(dispatchMutation(draft, mut));
+	}
 	rebuildFieldParent(draft as unknown as BlueprintDoc);
+	return results;
 }
