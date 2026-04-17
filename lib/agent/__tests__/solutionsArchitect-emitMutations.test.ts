@@ -596,10 +596,10 @@ describe("validationLoop — fix pass emission", () => {
 	it("emits a single data-mutations batch per fix attempt with stage fix:attempt-N", async () => {
 		const runnerMod = await import("@/lib/services/commcare/validate/runner");
 		const fixesMod = await import("@/lib/services/commcare/validate/fixes");
-		// Load the real validationLoop (the `../validationLoop` mock at
-		// the top of this file only shadows the SA's import, not this
-		// one via a direct `await import`).
-		vi.doUnmock("../validationLoop");
+		// Load the real validationLoop. `importActual` bypasses the
+		// file-level mock regardless of cache state — the top-of-file
+		// `vi.mock("../validationLoop", ...)` only affects imports
+		// resolved through the normal path (which this test doesn't use).
 		const { validateAndFix } =
 			await vi.importActual<typeof import("../validationLoop")>(
 				"../validationLoop",
@@ -632,6 +632,12 @@ describe("validationLoop — fix pass emission", () => {
 
 		const { ctx, writer } = buildCtx();
 		await validateAndFix(ctx, makeFixtureDoc());
+
+		// Lock in that the loop actually iterated — first pass saw errors,
+		// second pass saw none and returned success. Without this assertion,
+		// a mock-setup regression that returns `[]` on the first call would
+		// silently trivialize both the length + legacy-event checks below.
+		expect(runValidationFn).toHaveBeenCalledTimes(2);
 
 		const muts = mutationEvents(writer);
 		expect(muts).toHaveLength(1);
