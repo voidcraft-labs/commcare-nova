@@ -11,7 +11,7 @@
  * array literal on every call, defeating `Object.is` memoization.
  */
 
-import type { CaseType } from "@/lib/schemas/blueprint";
+import type { CaseType } from "@/lib/domain";
 import { useBlueprintDoc } from "./useBlueprintDoc";
 
 const EMPTY: readonly CaseType[] = [];

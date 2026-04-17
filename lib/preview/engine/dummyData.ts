@@ -1,4 +1,4 @@
-import type { CaseType } from "@/lib/schemas/blueprint";
+import type { CaseType } from "@/lib/domain";
 import type { DummyCaseRow } from "./types";
 
 const FIRST_NAMES = [
