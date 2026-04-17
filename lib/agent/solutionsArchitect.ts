@@ -23,9 +23,11 @@
  *     translates any fix-registry mutations back into a doc. Callers
  *     stay on the domain side.
  *
- * Stream-event payloads (`data-done`, `data-blueprint-updated`) carry the
- * normalized doc — no wire-format blueprint crosses the agent → client
- * boundary any more.
+ * Stream-event payloads carry fine-grained `data-mutations` events emitted
+ * via `ctx.emitMutations` for every tool-level change; the final
+ * `data-done` from `validateApp` carries a normalized doc snapshot as the
+ * one remaining full-doc emission. No wire-format blueprint crosses the
+ * agent → client boundary any more.
  *
  * The SA's tool-argument "question" nomenclature is deliberately NOT
  * renamed to "field"; that's the SA's wire format to the LLM and shared
@@ -324,21 +326,6 @@ export function createSolutionsArchitect(
 	const dispatch = (muts: Mutation[]): void => {
 		if (muts.length === 0) return;
 		doc = applyToDoc(doc, muts);
-	};
-
-	/**
-	 * Emit a `data-blueprint-updated` event carrying the current doc as a
-	 * `PersistableDoc` (no `fieldParent`). Used by coarse edit tools —
-	 * updateModule, createForm, removeForm, cascading rename, etc. — that
-	 * touch enough of the tree that emitting a per-form diff would be more
-	 * complex than a full replace. The client rebuilds `fieldParent` from
-	 * `fieldOrder` inside `docStore.load()`, so we strip it at the wire
-	 * boundary to keep SSE payloads lean and to match the `PersistableDoc`
-	 * contract the dispatcher consumes.
-	 */
-	const emitBlueprintUpdated = (): void => {
-		const { fieldParent: _fp, ...persistable } = doc;
-		ctx.emit("data-blueprint-updated", { doc: persistable });
 	};
 
 	// ── Generation tools (build mode only) ────────────────────────────
@@ -919,8 +906,13 @@ export function createSolutionsArchitect(
 						patch.caseDetailColumns =
 							case_detail_columns === null ? null : case_detail_columns;
 					}
-					dispatch(updateModuleMutations(doc, moduleUuid, patch));
-					emitBlueprintUpdated();
+					// Compute the helper mutations once so we can both stream them
+					// over the wire and advance the SA's internal doc in lockstep.
+					// Emit before dispatch so the client's applied order matches
+					// the SA's — dispatch() is what the next tool call reads from.
+					const muts = updateModuleMutations(doc, moduleUuid, patch);
+					ctx.emitMutations(muts, `module:${moduleIndex}`);
+					dispatch(muts);
 					const mod = doc.modules[moduleUuid];
 					if (!mod)
 						return { error: `Module ${moduleIndex} not found after update` };
@@ -1049,18 +1041,14 @@ export function createSolutionsArchitect(
 							existing.connect ?? undefined,
 						);
 					}
-					dispatch(updateFormMutations(doc, formUuid, patch));
+					// Stream the form-metadata mutations the helper produced, then
+					// advance the SA's doc. Replaces the prior `data-form-updated`
+					// wire-snapshot emission — clients now apply the same granular
+					// mutations the SA applies internally.
+					const muts = updateFormMutations(doc, formUuid, patch);
+					ctx.emitMutations(muts, `form:${moduleIndex}-${formIndex}`);
+					dispatch(muts);
 
-					const moduleUuid = doc.moduleOrder[moduleIndex];
-					if (moduleUuid) {
-						const wireForm = wireFormSnapshot(doc, moduleUuid, formUuid);
-						if (wireForm)
-							ctx.emit("data-form-updated", {
-								moduleIndex,
-								formIndex,
-								form: wireForm,
-							});
-					}
 					const formAfter = doc.forms[formUuid];
 					if (!formAfter)
 						return {
@@ -1112,16 +1100,17 @@ export function createSolutionsArchitect(
 				try {
 					const moduleUuid = doc.moduleOrder[moduleIndex];
 					if (!moduleUuid) return { error: `Module ${moduleIndex} not found` };
-					dispatch(
-						addFormMutations(doc, moduleUuid, {
-							name,
-							type: type as FormType,
-							...(post_submit && {
-								postSubmit: post_submit as PostSubmitDestination,
-							}),
+					// Tag under the parent module so the event log groups this
+					// creation event with the rest of that module's activity.
+					const muts = addFormMutations(doc, moduleUuid, {
+						name,
+						type: type as FormType,
+						...(post_submit && {
+							postSubmit: post_submit as PostSubmitDestination,
 						}),
-					);
-					emitBlueprintUpdated();
+					});
+					ctx.emitMutations(muts, `module:${moduleIndex}`);
+					dispatch(muts);
 					const mod = doc.modules[moduleUuid];
 					const forms = doc.formOrder[moduleUuid] ?? [];
 					const newFormIndex = forms.length - 1;
@@ -1144,10 +1133,14 @@ export function createSolutionsArchitect(
 					const removedName = formUuid
 						? (doc.forms[formUuid]?.name ?? `form ${formIndex}`)
 						: `form ${formIndex}`;
+					// Only emit + apply when the form actually exists; a missing
+					// form resolves to `undefined` and we fall through with an
+					// informational success message instead of crashing.
 					if (formUuid) {
-						dispatch(removeFormMutations(doc, formUuid));
+						const muts = removeFormMutations(doc, formUuid);
+						ctx.emitMutations(muts, `form:${moduleIndex}-${formIndex}`);
+						dispatch(muts);
 					}
-					emitBlueprintUpdated();
 					const moduleUuid = doc.moduleOrder[moduleIndex];
 					const mod = moduleUuid ? doc.modules[moduleUuid] : undefined;
 					const remainingForms =
@@ -1192,17 +1185,18 @@ export function createSolutionsArchitect(
 				case_list_columns,
 			}) => {
 				try {
-					dispatch(
-						addModuleMutations(doc, {
-							name,
-							...(case_type && { caseType: case_type }),
-							...(case_list_only && { caseListOnly: case_list_only }),
-							...(case_list_columns && {
-								caseListColumns: case_list_columns,
-							}),
+					// `module:create` stage tag — no index yet because the new
+					// module's index only exists after the mutations apply.
+					const muts = addModuleMutations(doc, {
+						name,
+						...(case_type && { caseType: case_type }),
+						...(case_list_only && { caseListOnly: case_list_only }),
+						...(case_list_columns && {
+							caseListColumns: case_list_columns,
 						}),
-					);
-					emitBlueprintUpdated();
+					});
+					ctx.emitMutations(muts, "module:create");
+					dispatch(muts);
 					const newModIndex = doc.moduleOrder.length - 1;
 					return `Successfully created module "${name}" at index ${newModIndex}${case_type ? ` (case type: ${case_type})` : ""}. App now has ${doc.moduleOrder.length} module${doc.moduleOrder.length === 1 ? "" : "s"}.`;
 				} catch (err) {
@@ -1222,8 +1216,13 @@ export function createSolutionsArchitect(
 					const name = moduleUuid
 						? (doc.modules[moduleUuid]?.name ?? null)
 						: null;
-					if (moduleUuid) dispatch(removeModuleMutations(doc, moduleUuid));
-					emitBlueprintUpdated();
+					// Only emit + apply when the module actually exists; mirror
+					// the removeForm guard for consistency.
+					if (moduleUuid) {
+						const muts = removeModuleMutations(doc, moduleUuid);
+						ctx.emitMutations(muts, `module:remove:${moduleIndex}`);
+						dispatch(muts);
+					}
 					return `Successfully removed module "${name ?? `module ${moduleIndex}`}". App now has ${doc.moduleOrder.length} module${doc.moduleOrder.length === 1 ? "" : "s"}.`;
 				} catch (err) {
 					return { error: err instanceof Error ? err.message : String(err) };
