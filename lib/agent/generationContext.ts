@@ -21,6 +21,7 @@ import { generateText, Output, streamText } from "ai";
 import type { z } from "zod";
 import type { Session } from "@/lib/auth";
 import { updateApp } from "@/lib/db/apps";
+import type { Mutation } from "@/lib/doc/types";
 import type { BlueprintDoc } from "@/lib/domain";
 import { log } from "@/lib/log";
 import { MODEL_DEFAULT, type ReasoningEffort } from "@/lib/models";
@@ -68,8 +69,9 @@ const SAVE_TRIGGER_TYPES: ReadonlySet<string> = new Set([
 	"data-scaffold",
 	"data-module-done",
 	"data-form-updated",
-	"data-blueprint-updated",
 	"data-form-fixed",
+	"data-blueprint-updated",
+	"data-mutations",
 ]);
 
 /**
@@ -179,6 +181,34 @@ export class GenerationContext {
 				errorMessage: error.message,
 			});
 		}
+	}
+
+	/**
+	 * Emit a fine-grained mutation batch to the client stream.
+	 *
+	 * This is the ONLY sanctioned way for the SA (or its validation loop)
+	 * to tell the client that the doc has changed. The mutations payload
+	 * is the same `Mutation[]` the SA applied to its own internal doc via
+	 * `applyMutations` on an Immer draft — the client applies the
+	 * identical array via `docStore.applyMany(mutations)`.
+	 *
+	 * The optional `stage` string is a semantic tag for the log
+	 * (`"scaffold"`, `"module:0"`, `"form:0-1"`, `"fix"`). Not consumed
+	 * by the live UI today; Phase 4's event log groups by stage so the
+	 * replay UI can show "generate module X" vs "fix form Y" as
+	 * separate chapters.
+	 *
+	 * Fire-and-forget Firestore intermediate save happens automatically
+	 * via the `data-mutations` entry in `SAVE_TRIGGER_TYPES` — no-op for
+	 * empty batches (consumer passes `mutations.length > 0` when the
+	 * emission itself is conditional).
+	 */
+	emitMutations(mutations: Mutation[], stage?: string): void {
+		if (mutations.length === 0) return;
+		this.emit("data-mutations", {
+			mutations,
+			...(stage !== undefined && { stage }),
+		});
 	}
 
 	/**
