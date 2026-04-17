@@ -17,6 +17,9 @@
 //
 // Individual move tasks add these exports one at a time.
 
+// Task 7: autoFixer moved in from lib/services/. Exported through the barrel
+// because `app/api/compile/route.ts` is an external consumer.
+export { AutoFixer } from "./autoFixer";
 export type { ClassifiedError, ErrorType } from "./errorClassifier";
 // Task 3: errorClassifier moved in from lib/services/.
 export { classifyError, MESSAGES } from "./errorClassifier";

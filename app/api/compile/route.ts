@@ -1,10 +1,10 @@
 import { type NextRequest, NextResponse } from "next/server";
 import { v4 as uuidv4 } from "uuid";
+import { AutoFixer } from "@/lib/agent";
 import { requireSession } from "@/lib/auth-utils";
 import { toBlueprint } from "@/lib/doc/legacyBridge";
 import { blueprintDocSchema } from "@/lib/domain";
 import { log } from "@/lib/log";
-import { AutoFixer } from "@/lib/services/autoFixer";
 import { CczCompiler } from "@/lib/services/cczCompiler";
 import { expandBlueprint } from "@/lib/services/hqJsonExpander";
 import { saveCcz } from "@/lib/store";
