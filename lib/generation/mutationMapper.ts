@@ -177,13 +177,15 @@ function mapModuleDone(
 	const moduleUuid = doc.moduleOrder[moduleIndex];
 	if (!moduleUuid) return [];
 
-	/* Build a partial patch that omits empty/null keys rather than writing
-	 * explicit `undefined` — matches the reducer's expectation that a patch
-	 * only contains fields the caller wants to change. */
-	const patch: Partial<Omit<(typeof doc.modules)[Uuid], "uuid">> = {};
-	if (caseListColumns) patch.caseListColumns = caseListColumns;
+	/* Build a patch that always emits a `caseListColumns` key — either the
+	 * caller-supplied value or `undefined` when the SA sent `null` (meaning
+	 * "clear"). The reducer then merges via `Object.assign`, which treats
+	 * `undefined` as removal, so the column list is cleared when appropriate
+	 * and replaced otherwise. */
+	const patch: Partial<Omit<(typeof doc.modules)[Uuid], "uuid">> = {
+		caseListColumns: caseListColumns ?? undefined,
+	};
 
-	if (Object.keys(patch).length === 0) return [];
 	return [{ kind: "updateModule", uuid: moduleUuid, patch }];
 }
 

@@ -25,13 +25,26 @@
 import { cert, initializeApp } from "firebase-admin/app";
 import { getFirestore } from "firebase-admin/firestore";
 import { readFileSync } from "fs";
-import { legacyAppBlueprintToDoc } from "@/lib/doc/legacyBridge";
+import { legacyAppBlueprintToDoc as legacyAppBlueprintToDocWithParent } from "@/lib/doc/legacyBridge";
+import type { BlueprintDoc, Uuid } from "@/lib/domain";
 
-// The core translation (`legacyAppBlueprintToDoc`) lives in
-// `lib/doc/legacyBridge.ts` so that the stream dispatcher and SA also
-// share a single implementation. This script wraps it with the
-// Firestore-runner I/O. Re-exported for tests that import by name.
-export { legacyAppBlueprintToDoc };
+/**
+ * Migration-facing wrapper around the shared `legacyAppBlueprintToDoc`
+ * helper. The shared helper populates the transient `fieldParent`
+ * reverse-index so runtime consumers (stream dispatcher, SA) can read it
+ * immediately. The migration output, however, is the on-disk
+ * representation — `fieldParent` is derived on load and MUST NOT be
+ * persisted. Strip it here so a single call produces a ready-to-write
+ * doc and the resulting fixture in tests matches the persistence
+ * contract.
+ */
+export function legacyAppBlueprintToDoc(
+	appId: string,
+	legacy: unknown,
+): BlueprintDoc {
+	const doc = legacyAppBlueprintToDocWithParent(appId, legacy);
+	return { ...doc, fieldParent: {} as Record<Uuid, Uuid | null> };
+}
 
 // ---------------------------------------------------------------------------
 // CLI argument parsing
