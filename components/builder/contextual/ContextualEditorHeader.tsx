@@ -81,9 +81,9 @@ export function ContextualEditorHeader({ question }: QuestionEditorProps) {
 	const clearNewQuestion = useClearNewQuestion();
 
 	const {
-		moveQuestion,
-		duplicateQuestion,
-		renameQuestion: renameQuestionAction,
+		moveField,
+		duplicateField,
+		renameField: renameFieldAction,
 	} = useBlueprintMutations();
 
 	const assembledForm = useAssembledForm((formUuid ?? "") as Uuid);
@@ -124,7 +124,7 @@ export function ContextualEditorHeader({ question }: QuestionEditorProps) {
 		(newId: string): boolean => {
 			if (!selectedUuid || !newId) return false;
 
-			const result = renameQuestionAction(asUuid(selectedUuid), newId);
+			const result = renameFieldAction(asUuid(selectedUuid), newId);
 
 			/* Store blocked the rename — sibling conflict. Show shake +
 			 * error popover matching the XPathField validation pattern. */
@@ -144,7 +144,7 @@ export function ContextualEditorHeader({ question }: QuestionEditorProps) {
 			clearNewQuestion();
 			return true;
 		},
-		[selectedUuid, renameQuestionAction, clearNewQuestion],
+		[selectedUuid, renameFieldAction, clearNewQuestion],
 	);
 
 	const idField = useCommitField({
@@ -228,15 +228,9 @@ export function ContextualEditorHeader({ question }: QuestionEditorProps) {
 		if (!beforePath) return;
 		const beforeUuid = findUuidByPath(beforePath as string);
 		if (beforeUuid) {
-			moveQuestion(asUuid(selectedUuid), { beforeUuid });
+			moveField(asUuid(selectedUuid), { beforeUuid });
 		}
-	}, [
-		selectedUuid,
-		assembledForm,
-		moveQuestion,
-		getQuestionPath,
-		findUuidByPath,
-	]);
+	}, [selectedUuid, assembledForm, moveField, getQuestionPath, findUuidByPath]);
 
 	const handleMoveDown = useCallback(() => {
 		if (!selectedUuid || !assembledForm) return;
@@ -249,15 +243,9 @@ export function ContextualEditorHeader({ question }: QuestionEditorProps) {
 		if (!afterPath) return;
 		const afterUuid = findUuidByPath(afterPath as string);
 		if (afterUuid) {
-			moveQuestion(asUuid(selectedUuid), { afterUuid });
+			moveField(asUuid(selectedUuid), { afterUuid });
 		}
-	}, [
-		selectedUuid,
-		assembledForm,
-		moveQuestion,
-		getQuestionPath,
-		findUuidByPath,
-	]);
+	}, [selectedUuid, assembledForm, moveField, getQuestionPath, findUuidByPath]);
 
 	/** Execute a cross-level move and scroll to the question at its new location. */
 	const executeCrossLevel = useCallback(
@@ -278,7 +266,7 @@ export function ContextualEditorHeader({ question }: QuestionEditorProps) {
 
 			if (!toParentUuid) return;
 
-			moveQuestion(asUuid(selectedUuid), {
+			moveField(asUuid(selectedUuid), {
 				toParentUuid,
 				beforeUuid,
 				afterUuid,
@@ -286,17 +274,17 @@ export function ContextualEditorHeader({ question }: QuestionEditorProps) {
 			/* Scroll to the question at its new position. */
 			setPending(selectedUuid, "smooth", false);
 		},
-		[selectedUuid, formUuid, moveQuestion, findUuidByPath, setPending],
+		[selectedUuid, formUuid, moveField, findUuidByPath, setPending],
 	);
 
 	const handleDuplicate = useCallback(() => {
 		if (!selectedUuid) return;
-		const result = duplicateQuestion(asUuid(selectedUuid));
+		const result = duplicateField(asUuid(selectedUuid));
 		if (!result) return;
 		/* Select the new clone and scroll to it. */
 		setPending(result.newUuid, "smooth", false);
 		select(asUuid(result.newUuid));
-	}, [selectedUuid, duplicateQuestion, setPending, select]);
+	}, [selectedUuid, duplicateField, setPending, select]);
 
 	/** Delete uses the `useDeleteSelectedQuestion` hook which handles
 	 *  neighbor selection and URL update. */

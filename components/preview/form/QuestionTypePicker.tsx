@@ -7,6 +7,7 @@ import { useScrollIntoView } from "@/components/builder/contexts/ScrollRegistryC
 import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
 import { BlueprintDocContext } from "@/lib/doc/provider";
 import type { Uuid } from "@/lib/doc/types";
+import type { Field, FieldKind } from "@/lib/domain";
 import {
 	INSERTION_CATEGORIES,
 	INSERTION_TOP_LEVEL,
@@ -14,7 +15,6 @@ import {
 	questionTypeLabels,
 } from "@/lib/questionTypeIcons";
 import { useSelect } from "@/lib/routing/hooks";
-import type { Question } from "@/lib/schemas/blueprint";
 import { useMarkNewQuestion } from "@/lib/session/hooks";
 import {
 	MENU_ITEM_CLS,
@@ -50,16 +50,16 @@ export function QuestionTypePickerPopup({
 }: QuestionTypePickerPopupProps) {
 	const { setPending } = useScrollIntoView();
 	const select = useSelect();
-	const { addQuestion: addQuestionAction } = useBlueprintMutations();
+	const { addField } = useBlueprintMutations();
 	const markNewQuestion = useMarkNewQuestion();
 	const docStore = useContext(BlueprintDocContext);
 
-	/** Generate a unique ID, create the question, and select it.
+	/** Generate a unique ID, create the field, and select it.
 	 *  Reads the doc store imperatively at insert time — avoids N
 	 *  reactive subscriptions to entity maps that would fire on every
-	 *  unrelated question edit. */
+	 *  unrelated field edit. */
 	const handleSelect = useCallback(
-		(type: Question["type"]) => {
+		(kind: FieldKind) => {
 			if (!docStore) return;
 
 			/* Collect all existing field IDs to generate a unique name.
@@ -71,14 +71,14 @@ export function QuestionTypePickerPopup({
 				if (f) existingIds.add(f.id);
 			}
 
-			let newId = `new_${type}`;
+			let newId = `new_${kind}`;
 			if (existingIds.has(newId)) {
 				let counter = 2;
-				while (existingIds.has(`new_${type}_${counter}`)) counter++;
-				newId = `new_${type}_${counter}`;
+				while (existingIds.has(`new_${kind}_${counter}`)) counter++;
+				newId = `new_${kind}_${counter}`;
 			}
 
-			const isSelect = type === "single_select" || type === "multi_select";
+			const isSelect = kind === "single_select" || kind === "multi_select";
 			const defaultOptions = isSelect
 				? [
 						{ value: "option_1", label: "Option 1" },
@@ -86,11 +86,17 @@ export function QuestionTypePickerPopup({
 					]
 				: undefined;
 
-			const newUuid = addQuestionAction(
-				parentUuid,
-				{ id: newId, type, label: "New Question", options: defaultOptions },
-				{ atIndex },
-			);
+			// Build a partial Field in the domain shape. We cast through the
+			// no-uuid partial the hook accepts — the union narrows on `kind`,
+			// so each variant's allowed properties are enforced at dispatch.
+			const newField = {
+				id: newId,
+				kind,
+				label: "New Question",
+				...(defaultOptions ? { options: defaultOptions } : {}),
+			} as unknown as Omit<Field, "uuid">;
+
+			const newUuid = addField(parentUuid, newField, { atIndex });
 
 			/* Mark as new question so the UI can apply entry animations, then
 			 * select and scroll to the newly-inserted question. */
@@ -101,7 +107,7 @@ export function QuestionTypePickerPopup({
 		[
 			parentUuid,
 			atIndex,
-			addQuestionAction,
+			addField,
 			markNewQuestion,
 			setPending,
 			select,
@@ -172,8 +178,8 @@ function TypeMenuItem({
 	type,
 	onSelect,
 }: {
-	type: Question["type"];
-	onSelect: (type: Question["type"]) => void;
+	type: FieldKind;
+	onSelect: (type: FieldKind) => void;
 }) {
 	const icon = questionTypeIcons[type];
 	const label = questionTypeLabels[type] ?? type;

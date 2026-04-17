@@ -105,7 +105,7 @@ export function useUndoRedo(): { undo: () => void; redo: () => void } {
  *
  * No-op if no question is selected. The call sequence:
  *   1. Resolve the neighbor via `flattenQuestionRefs` on the assembled form.
- *   2. Dispatch `removeQuestion` through `useBlueprintMutations` — keeps
+ *   2. Dispatch `removeField` through `useBlueprintMutations` — keeps
  *      the delete path consistent with every other doc mutation in the
  *      codebase (uuid resolution, dev-mode warn-on-miss).
  *   3. Replace the URL's `sel=` with the neighbor's uuid (or drop it).
@@ -119,7 +119,7 @@ export function useDeleteSelectedQuestion(): () => void {
 	const formUuid = loc.kind === "form" ? loc.formUuid : undefined;
 	const form = useAssembledForm(formUuid);
 	const select = useSelect();
-	const { removeQuestion } = useBlueprintMutations();
+	const { removeField } = useBlueprintMutations();
 
 	return useMemo(
 		() => () => {
@@ -132,9 +132,9 @@ export function useDeleteSelectedQuestion(): () => void {
 			const refs = flattenQuestionRefs(form.questions);
 			const idx = refs.findIndex((r) => r.uuid === loc.selectedUuid);
 			const neighbor = idx < 0 ? undefined : (refs[idx + 1] ?? refs[idx - 1]);
-			removeQuestion(asUuid(loc.selectedUuid));
+			removeField(asUuid(loc.selectedUuid));
 			select(neighbor ? asUuid(neighbor.uuid) : undefined);
 		},
-		[loc, form, select, removeQuestion],
+		[loc, form, select, removeField],
 	);
 }

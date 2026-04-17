@@ -44,7 +44,7 @@ export function useBuilderShortcuts(
 	const { setPending } = useScrollIntoView();
 	const deleteSelected = useDeleteSelectedQuestion();
 	const { undo, redo } = useUndoRedo();
-	const { duplicateQuestion, moveQuestion } = useBlueprintMutations();
+	const { duplicateField, moveField } = useBlueprintMutations();
 	const cursorMode = useCursorMode();
 
 	/* Assemble the current form so navigation/reorder helpers have the
@@ -148,7 +148,7 @@ export function useBuilderShortcuts(
 				meta: true,
 				handler: () => {
 					if (loc.kind !== "form" || !loc.selectedUuid) return;
-					const result = duplicateQuestion(asUuid(loc.selectedUuid));
+					const result = duplicateField(asUuid(loc.selectedUuid));
 					if (!result) return;
 					navigateToQuestion(result.newUuid);
 				},
@@ -170,7 +170,7 @@ export function useBuilderShortcuts(
 					if (!beforePath) return;
 					const beforeUuid = pathToUuid.get(beforePath);
 					if (!beforeUuid) return;
-					moveQuestion(asUuid(loc.selectedUuid), {
+					moveField(asUuid(loc.selectedUuid), {
 						beforeUuid: asUuid(beforeUuid),
 					});
 				},
@@ -191,7 +191,7 @@ export function useBuilderShortcuts(
 					if (!afterPath) return;
 					const afterUuid = pathToUuid.get(afterPath);
 					if (!afterUuid) return;
-					moveQuestion(asUuid(loc.selectedUuid), {
+					moveField(asUuid(loc.selectedUuid), {
 						afterUuid: asUuid(afterUuid),
 					});
 				},
@@ -222,7 +222,7 @@ export function useBuilderShortcuts(
 					const beforeUuid = up.beforePath
 						? pathToUuid.get(up.beforePath)
 						: undefined;
-					const result = moveQuestion(asUuid(loc.selectedUuid), {
+					const result = moveField(asUuid(loc.selectedUuid), {
 						toParentUuid: asUuid(toParentUuid),
 						...(beforeUuid ? { beforeUuid: asUuid(beforeUuid) } : {}),
 					});
@@ -252,7 +252,7 @@ export function useBuilderShortcuts(
 					const beforeUuid = down.beforePath
 						? pathToUuid.get(down.beforePath)
 						: undefined;
-					const result = moveQuestion(asUuid(loc.selectedUuid), {
+					const result = moveField(asUuid(loc.selectedUuid), {
 						toParentUuid: asUuid(toParentUuid),
 						...(beforeUuid ? { beforeUuid: asUuid(beforeUuid) } : {}),
 					});
@@ -284,8 +284,8 @@ export function useBuilderShortcuts(
 		deleteSelected,
 		undo,
 		redo,
-		duplicateQuestion,
-		moveQuestion,
+		duplicateField,
+		moveField,
 		cursorMode,
 	]);
 }

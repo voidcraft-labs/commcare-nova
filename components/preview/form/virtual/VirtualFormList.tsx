@@ -97,7 +97,7 @@ export const VirtualFormList = memo(function VirtualFormList({
 	formUuid,
 }: VirtualFormListProps) {
 	const docStore = useContext(BlueprintDocContext);
-	const { moveQuestion } = useBlueprintMutations();
+	const { moveField } = useBlueprintMutations();
 	const select = useSelect();
 	const selectedQuestion = useSelectedQuestion();
 
@@ -484,18 +484,18 @@ export const VirtualFormList = memo(function VirtualFormList({
 					}
 				}
 
-				let result: ReturnType<typeof moveQuestion> | undefined;
+				let result: ReturnType<typeof moveField> | undefined;
 
 				switch (drop.kind) {
 					case "drop-question": {
 						if (drop.uuid === dragUuid) return;
 						if (edge === "top") {
-							result = moveQuestion(asUuid(dragUuid), {
+							result = moveField(asUuid(dragUuid), {
 								beforeUuid: drop.uuid,
 								toParentUuid: drop.parentUuid,
 							});
 						} else {
-							result = moveQuestion(asUuid(dragUuid), {
+							result = moveField(asUuid(dragUuid), {
 								afterUuid: drop.uuid,
 								toParentUuid: drop.parentUuid,
 							});
@@ -508,18 +508,18 @@ export const VirtualFormList = memo(function VirtualFormList({
 						const firstChild =
 							docs.getState().fieldOrder[drop.uuid as Uuid]?.[0];
 						result = firstChild
-							? moveQuestion(asUuid(dragUuid), {
+							? moveField(asUuid(dragUuid), {
 									toParentUuid: drop.uuid,
 									beforeUuid: firstChild,
 								})
-							: moveQuestion(asUuid(dragUuid), {
+							: moveField(asUuid(dragUuid), {
 									toParentUuid: drop.uuid,
 								});
 						break;
 					}
 
 					case "drop-empty-container": {
-						result = moveQuestion(asUuid(dragUuid), {
+						result = moveField(asUuid(dragUuid), {
 							toParentUuid: drop.parentUuid,
 						});
 						break;
@@ -530,7 +530,7 @@ export const VirtualFormList = memo(function VirtualFormList({
 				select(asUuid(dragUuid));
 			},
 		});
-	}, [docStore, moveQuestion, select]);
+	}, [docStore, moveField, select]);
 
 	// ── Cursor-speed tracking (for InsertionPoint hover gating) ──────
 

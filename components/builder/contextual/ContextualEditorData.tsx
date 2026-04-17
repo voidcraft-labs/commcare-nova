@@ -24,18 +24,21 @@ const DATA_FIELDS = new Set<FocusableFieldKey>(["case_property_on", "options"]);
 export function ContextualEditorData({ question }: QuestionEditorProps) {
 	const ctx = useSelectedFormContext();
 	const caseTypes = useCaseTypes();
-	const { updateQuestion } = useBlueprintMutations();
+	const { updateField } = useBlueprintMutations();
 
 	const focusHint = useFocusHint(DATA_FIELDS);
 
 	const setCasePropertyOn = useCallback(
 		(caseType: string | null) => {
 			if (!question.uuid) return;
-			updateQuestion(asUuid(question.uuid), {
-				case_property_on: caseType ?? undefined,
+			// Domain rename: `case_property_on` on the wire-format Question →
+			// `case_property` on the domain Field. The patch goes through
+			// `updateField` which accepts a `FieldPatch` union-wide partial.
+			updateField(asUuid(question.uuid), {
+				case_property: caseType ?? undefined,
 			});
 		},
-		[question.uuid, updateQuestion],
+		[question.uuid, updateField],
 	);
 
 	if (!ctx) return null;
@@ -73,7 +76,7 @@ export function ContextualEditorData({ question }: QuestionEditorProps) {
 							autoFocus={focusHint === "options"}
 							onSave={(options) => {
 								if (!question.uuid) return;
-								updateQuestion(asUuid(question.uuid), {
+								updateField(asUuid(question.uuid), {
 									options: options.length > 0 ? options : undefined,
 								});
 							}}

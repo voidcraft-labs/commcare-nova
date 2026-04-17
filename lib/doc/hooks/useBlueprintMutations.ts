@@ -1,10 +1,12 @@
 /**
- * User-facing mutation API for the BlueprintDoc store.
+ * User-facing mutation API for the BlueprintDoc store — domain-native.
  *
  * Every consumer that edits a module, form, or field calls this hook
  * and dispatches via the returned action object. All signatures take
- * uuid-first parameters — callers read uuids from `useLocation()` or
- * direct doc store subscriptions. No legacy (mIdx, fIdx, path) resolution.
+ * uuid-first parameters and domain types (`Field`, `Form`, `Module`,
+ * `FieldPatch`). No legacy `Question` / `BlueprintForm` / `AppBlueprint`
+ * shape crosses this boundary — tool handlers that speak to the LLM
+ * translate at their own wire boundary before calling here.
  *
  * Internally, each method:
  *   1. Reads the CURRENT doc snapshot via `store.getState()` (not the
@@ -13,46 +15,33 @@
  *   2. Validates the uuid exists in the current doc (form, field, or
  *      module entity map).
  *   3. Dispatches a `Mutation` through `store.getState().apply(...)`,
- *      which the Phase 1a reducer in `lib/doc/mutations/index.ts`
- *      translates into draft edits on the Immer-backed store.
+ *      which the reducer in `lib/doc/mutations/index.ts` translates into
+ *      draft edits on the Immer-backed store.
  *
  * Missing references (unknown uuid) are silently swallowed with a
- * dev-mode `console.warn`. The legacy engine behaved the same way:
- * no-op rather than throw, so the UI never crashes on a stale selection
- * held over a reload or undo.
- *
- * NOTE: Public method names (addQuestion, moveQuestion, etc.) are kept
- * for Phase 1 compat — components/ still calls these names. Task 21
- * renames both the methods and their call sites together.
+ * dev-mode `console.warn`. The engine behaved the same way: no-op rather
+ * than throw, so the UI never crashes on a stale selection held over a
+ * reload or undo.
  */
 
 import { useContext, useMemo } from "react";
-import { flattenQuestions } from "@/lib/doc/converter";
 import type { MoveFieldResult } from "@/lib/doc/mutations/fields";
 import { BlueprintDocContext } from "@/lib/doc/provider";
+import type { BlueprintDoc, Mutation, Uuid } from "@/lib/doc/types";
 import {
 	asUuid,
-	type BlueprintDoc,
-	type FormEntity,
-	type ModuleEntity,
-	type Mutation,
-	type QuestionEntity,
-	type Uuid,
-} from "@/lib/doc/types";
-import type { FieldPatch } from "@/lib/domain";
-import type {
-	BlueprintForm,
-	BlueprintModule,
-	CaseProperty,
-	CaseType,
-	ConnectType,
-	Question,
-} from "@/lib/schemas/blueprint";
-import { decomposeFormEntity } from "@/lib/services/normalizedState";
+	type CaseProperty,
+	type CaseType,
+	type ConnectType,
+	type Field,
+	type FieldPatch,
+	type Form,
+	type Module,
+} from "@/lib/domain";
 import type { QuestionPath } from "@/lib/services/questionPath";
 
 /**
- * Result of a `renameQuestion` dispatch.
+ * Result of a `renameField` dispatch.
  *
  * `conflict: true` short-circuits the dispatch — the hook checks sibling
  * ids BEFORE calling the reducer so the UI can surface a "name already
@@ -60,27 +49,24 @@ import type { QuestionPath } from "@/lib/services/questionPath";
  * `xpathFieldsRewritten` reflects the number of XPath expression fields
  * that were rewritten by the reducer to reference the new field ID.
  */
-export interface QuestionRenameResult {
+export interface FieldRenameResult {
 	newPath: QuestionPath;
 	xpathFieldsRewritten: number;
 	conflict?: boolean;
 }
 
 /**
- * Result of a `duplicateQuestion` dispatch.
+ * Result of a `duplicateField` dispatch.
  *
  * Returns the clone's new path and UUID so callers can focus the new
  * field in the UI immediately. Computed by diffing parent order
  * arrays before and after the dispatch (the reducer itself doesn't
  * return the new uuid). `undefined` if the dispatch was a no-op.
  */
-export interface DuplicateQuestionResult {
+export interface DuplicateFieldResult {
 	newPath: QuestionPath;
 	newUuid: string;
 }
-
-/** @deprecated Use MoveFieldResult — kept for Task 21 consumers */
-export type MoveQuestionResult = MoveFieldResult;
 
 /**
  * The full mutation surface returned by `useBlueprintMutations()`.
@@ -88,12 +74,9 @@ export type MoveQuestionResult = MoveFieldResult;
  * All signatures take uuids directly — no legacy (mIdx, fIdx, path)
  * resolution. Callers read uuids from `useLocation()` or direct doc
  * store subscriptions, then pass them here.
- *
- * NOTE: Method names are the legacy question-named surface. Task 21
- * renames them to field-named equivalents.
  */
 export interface BlueprintMutations {
-	// ── Field mutations (exposed as question-named for Phase 1 compat) ───
+	// ── Field mutations ───────────────────────────────────────────────────
 	/**
 	 * Insert a new field into a parent container (form or group/repeat).
 	 *
@@ -101,13 +84,14 @@ export interface BlueprintMutations {
 	 * navigation. Returns the empty string (branded as `Uuid`) on a no-op
 	 * (e.g. unrecognized `parentUuid`).
 	 *
-	 * Accepts either a full `Question` (with uuid) or a partial shape
-	 * without uuid — legacy callers (SA tools, QuestionTypePicker) omit
-	 * the uuid and let the hook mint one via `crypto.randomUUID()`.
+	 * Accepts a Field without uuid — the hook mints one via
+	 * `crypto.randomUUID()`. Callers that already own a uuid (e.g. the
+	 * replay stream) can pass it through the optional `uuid` field on the
+	 * input object and it will be used verbatim.
 	 */
-	addQuestion: (
+	addField: (
 		parentUuid: Uuid,
-		question: Omit<Question, "uuid"> & { uuid?: string },
+		field: Omit<Field, "uuid"> & { uuid?: string },
 		opts?: {
 			afterUuid?: Uuid;
 			beforeUuid?: Uuid;
@@ -126,10 +110,10 @@ export interface BlueprintMutations {
 	 * what the reducer actually allows: merge any recognized scalar property
 	 * without changing the kind.
 	 */
-	updateQuestion: (uuid: Uuid, patch: FieldPatch) => void;
-	removeQuestion: (uuid: Uuid) => void;
-	renameQuestion: (uuid: Uuid, newId: string) => QuestionRenameResult;
-	moveQuestion: (
+	updateField: (uuid: Uuid, patch: FieldPatch) => void;
+	removeField: (uuid: Uuid) => void;
+	renameField: (uuid: Uuid, newId: string) => FieldRenameResult;
+	moveField: (
 		uuid: Uuid,
 		opts: {
 			toParentUuid?: Uuid;
@@ -138,39 +122,46 @@ export interface BlueprintMutations {
 			toIndex?: number;
 		},
 	) => MoveFieldResult;
-	duplicateQuestion: (uuid: Uuid) => DuplicateQuestionResult | undefined;
+	duplicateField: (uuid: Uuid) => DuplicateFieldResult | undefined;
 
 	// ── Form mutations ────────────────────────────────────────────────────
 	/** Insert a new form into a module. Returns the new form's uuid.
 	 *  Accepts a form without a uuid — the hook mints one for the new entity. */
 	addForm: (
 		moduleUuid: Uuid,
-		form: Omit<BlueprintForm, "uuid"> & { uuid?: string },
+		form: Omit<Form, "uuid"> & { uuid?: string },
 	) => Uuid;
 	/**
-	 * Update fields on an existing form. Patches use camelCase field names
-	 * matching `FormEntity` (e.g. `closeCondition`, `postSubmit`).
+	 * Update fields on an existing form. Patches use camelCase domain property
+	 * names (e.g. `closeCondition`, `postSubmit`).
 	 */
-	updateForm: (uuid: Uuid, patch: Partial<Omit<FormEntity, "uuid">>) => void;
+	updateForm: (uuid: Uuid, patch: Partial<Omit<Form, "uuid">>) => void;
 	removeForm: (uuid: Uuid) => void;
-	/** Replace a form's metadata + field subtree. The `form` argument's
-	 *  `uuid` field (if present) is ignored — the destination uuid is the
-	 *  first argument; nested fields keep their own uuids. */
+	/**
+	 * Replace a form's metadata + field subtree atomically.
+	 *
+	 * The replacement is expressed in the domain model: a form entity plus a
+	 * pre-flattened `fields` array and a `fieldOrder` adjacency map keyed by
+	 * the destination form uuid (for root-level fields) and by container
+	 * uuids (for group/repeat children). Callers that start from a nested
+	 * wire-format tree translate at their own boundary — the hook no longer
+	 * accepts the legacy `BlueprintForm` shape.
+	 *
+	 * The `form.uuid` field (if present) is ignored — the destination uuid
+	 * is the first argument.
+	 */
 	replaceForm: (
 		uuid: Uuid,
-		form: Omit<BlueprintForm, "uuid"> & { uuid?: string },
+		form: Omit<Form, "uuid"> & { uuid?: string },
+		fields: Field[],
+		fieldOrder: Record<Uuid, Uuid[]>,
 	) => void;
 
 	// ── Module mutations ──────────────────────────────────────────────────
 	/** Insert a new module. Returns the new module's uuid.
 	 *  Accepts a module without a uuid — the hook mints one for the new entity. */
-	addModule: (
-		module: Omit<BlueprintModule, "uuid"> & { uuid?: string },
-	) => Uuid;
-	updateModule: (
-		uuid: Uuid,
-		patch: Partial<Omit<ModuleEntity, "uuid">>,
-	) => void;
+	addModule: (module: Omit<Module, "uuid"> & { uuid?: string }) => Uuid;
+	updateModule: (uuid: Uuid, patch: Partial<Omit<Module, "uuid">>) => void;
 	removeModule: (uuid: Uuid) => void;
 
 	// ── App-level ─────────────────────────────────────────────────────────
@@ -213,11 +204,11 @@ export interface BlueprintMutations {
  * Dev-only warning for silent no-ops.
  *
  * Every mutation method bails out silently when a uuid can't be found
- * in the current doc — matching legacy behavior, which the UI relies
- * on so stale selections don't crash the tree. In development we still
- * want visibility into which lookups are failing so bugs don't hide
- * behind the fail-open contract. Stripped by the production build via
- * the `NODE_ENV` check.
+ * in the current doc — matching the legacy engine's behavior, which the
+ * UI relies on so stale selections don't crash the tree. In development
+ * we still want visibility into which lookups are failing so bugs don't
+ * hide behind the fail-open contract. Stripped by the production build
+ * via the `NODE_ENV` check.
  */
 function warnUnresolved(
 	method: string,
@@ -299,7 +290,7 @@ export function useBlueprintMutations(): BlueprintMutations {
 		const dispatch = (mut: Mutation) => store.getState().apply(mut);
 
 		return {
-			addQuestion(parentUuid, question, opts) {
+			addField(parentUuid, field, opts) {
 				const doc = get();
 				// Verify parent exists — must be either a form or a group/repeat
 				// field that can contain children.
@@ -307,7 +298,7 @@ export function useBlueprintMutations(): BlueprintMutations {
 					doc.forms[parentUuid] === undefined &&
 					doc.fields[parentUuid] === undefined
 				) {
-					warnUnresolved("addQuestion", { parentUuid });
+					warnUnresolved("addField", { parentUuid });
 					return "" as Uuid;
 				}
 
@@ -326,28 +317,18 @@ export function useBlueprintMutations(): BlueprintMutations {
 					if (i >= 0) index = i + 1;
 				}
 
-				// The blueprint `Question` shape carries a nested `children` array
-				// for group/repeat subtrees; the normalized doc expresses nesting
-				// via `fieldOrder`, so we strip `children` before dispatching.
-				// Callers inserting a whole subtree should use `applyMany` with one
-				// `addField` per descendant instead.
-				const { children: _children, ...rest } = question as Question & {
-					children?: Question[];
-				};
-
-				// Mint a uuid if the caller didn't supply one. SA tools and
-				// QuestionTypePicker pass shapes without uuids and rely on the
-				// store to generate identity.
-				const maybeUuid = (rest as { uuid?: string }).uuid;
+				// Mint a uuid if the caller didn't supply one. QuestionTypePicker
+				// and the SA tool handlers pass shapes without uuids and rely on
+				// the store to generate identity.
+				const maybeUuid = field.uuid;
 				const uuid = asUuid(
 					typeof maybeUuid === "string" && maybeUuid.length > 0
 						? maybeUuid
 						: crypto.randomUUID(),
 				);
-				const entity: QuestionEntity = {
-					...(rest as Omit<QuestionEntity, "uuid">),
-					uuid,
-				};
+				// Field is a discriminated union; spreading a `Omit<Field,"uuid">`
+				// keeps the `kind` narrowing intact, then we stamp the uuid.
+				const entity = { ...field, uuid } as Field;
 
 				dispatch({
 					kind: "addField",
@@ -358,10 +339,10 @@ export function useBlueprintMutations(): BlueprintMutations {
 				return uuid;
 			},
 
-			updateQuestion(uuid, patch) {
+			updateField(uuid, patch) {
 				const doc = get();
 				if (!doc.fields[uuid]) {
-					warnUnresolved("updateQuestion", { uuid });
+					warnUnresolved("updateField", { uuid });
 					return;
 				}
 				dispatch({
@@ -371,20 +352,20 @@ export function useBlueprintMutations(): BlueprintMutations {
 				});
 			},
 
-			removeQuestion(uuid) {
+			removeField(uuid) {
 				const doc = get();
 				if (!doc.fields[uuid]) {
-					warnUnresolved("removeQuestion", { uuid });
+					warnUnresolved("removeField", { uuid });
 					return;
 				}
 				dispatch({ kind: "removeField", uuid });
 			},
 
-			renameQuestion(uuid, newId) {
+			renameField(uuid, newId) {
 				const doc = get();
 				const field = doc.fields[uuid];
 				if (!field) {
-					warnUnresolved("renameQuestion", { uuid });
+					warnUnresolved("renameField", { uuid });
 					return {
 						newPath: "" as QuestionPath,
 						xpathFieldsRewritten: 0,
@@ -435,11 +416,11 @@ export function useBlueprintMutations(): BlueprintMutations {
 				};
 			},
 
-			moveQuestion(uuid, opts) {
+			moveField(uuid, opts) {
 				const doc = get();
 				const field = doc.fields[uuid];
 				if (!field) {
-					warnUnresolved("moveQuestion", { uuid });
+					warnUnresolved("moveField", { uuid });
 					return {};
 				}
 
@@ -488,10 +469,10 @@ export function useBlueprintMutations(): BlueprintMutations {
 				);
 			},
 
-			duplicateQuestion(uuid) {
+			duplicateField(uuid) {
 				const doc = get();
 				if (!doc.fields[uuid]) {
-					warnUnresolved("duplicateQuestion", { uuid });
+					warnUnresolved("duplicateField", { uuid });
 					return undefined;
 				}
 
@@ -502,7 +483,7 @@ export function useBlueprintMutations(): BlueprintMutations {
 				const parentIndex = buildParentIndex(doc);
 				const parentUuid = parentIndex.get(uuid);
 				if (parentUuid === undefined) {
-					warnUnresolved("duplicateQuestion", {
+					warnUnresolved("duplicateField", {
 						uuid,
 						reason: "no parent",
 					});
@@ -543,17 +524,16 @@ export function useBlueprintMutations(): BlueprintMutations {
 					warnUnresolved("addForm", { moduleUuid });
 					return "" as Uuid;
 				}
-				// Strip nested `questions` — the entity map only carries form-level
-				// scalars. Callers wanting to insert a form plus its fields in
-				// one shot should dispatch an `applyMany` batch.
-				const { questions: _qs, ...formRest } = form as BlueprintForm & {
-					questions?: Question[];
-				};
-				const formUuid = asUuid(crypto.randomUUID());
+				const maybeUuid = form.uuid;
+				const formUuid = asUuid(
+					typeof maybeUuid === "string" && maybeUuid.length > 0
+						? maybeUuid
+						: crypto.randomUUID(),
+				);
 				dispatch({
 					kind: "addForm",
 					moduleUuid,
-					form: { ...formRest, uuid: formUuid } as FormEntity,
+					form: { ...form, uuid: formUuid } as Form,
 				});
 				return formUuid;
 			},
@@ -580,58 +560,43 @@ export function useBlueprintMutations(): BlueprintMutations {
 				dispatch({ kind: "removeForm", uuid });
 			},
 
-			replaceForm(uuid, form) {
-				/* Wholesale form swap. The reducer's `replaceForm` variant
-				 * expects a form entity + pre-flattened field entities + a
-				 * `fieldOrder` map for the replacement subtree. We walk the
-				 * incoming nested form directly via `flattenQuestions` (the same
-				 * helper `toDoc` uses) and decompose the form's metadata fields
-				 * via `decomposeFormEntity`. The destination uuid is stamped
-				 * onto a copy of the incoming form so `decomposeFormEntity`'s
-				 * required-uuid contract is satisfied without mutating the
-				 * caller's reference. */
+			replaceForm(uuid, form, fields, fieldOrder) {
+				/* Wholesale form swap. The reducer expects a complete set of
+				 * replacement entities — the form entity, a flat `fields` array,
+				 * and a `fieldOrder` adjacency map keyed by the destination
+				 * form uuid (root) and by container uuids (for group/repeat
+				 * children). Callers that start from a tree translate at their
+				 * own boundary — there is no legacy-tree path through this hook. */
 				const doc = get();
 				if (!doc.forms[uuid]) {
 					warnUnresolved("replaceForm", { uuid });
 					return;
 				}
 
-				const formWithUuid: BlueprintForm = { ...form, uuid };
-				const nForm = decomposeFormEntity(formWithUuid);
-				const replacement = nForm as unknown as FormEntity;
-
-				/* Flatten the nested field tree into doc shape. Top-level
-				 * fields are keyed under the destination form uuid; nested
-				 * group/repeat children are keyed under their parent field
-				 * uuid (handled recursively by flattenQuestions). */
-				const fieldsMap: Record<Uuid, QuestionEntity> = {};
-				const fieldOrder: Record<Uuid, Uuid[]> = {};
-				fieldOrder[uuid] = flattenQuestions(
-					form.questions ?? [],
-					fieldsMap,
-					fieldOrder,
-				);
-				const fields = Object.values(fieldsMap);
+				// Stamp the destination uuid on the form entity so the reducer's
+				// required-uuid invariant is satisfied without mutating the
+				// caller's reference.
+				const stampedForm = { ...form, uuid } as Form;
 
 				dispatch({
 					kind: "replaceForm",
 					uuid,
-					form: replacement,
+					form: stampedForm,
 					fields,
 					fieldOrder,
 				});
 			},
 
 			addModule(module) {
-				// Strip nested `forms` — the entity map carries only module-level
-				// scalars; forms join via `addForm` batches.
-				const { forms: _forms, ...moduleRest } = module as BlueprintModule & {
-					forms?: BlueprintForm[];
-				};
-				const moduleUuid = asUuid(crypto.randomUUID());
+				const maybeUuid = module.uuid;
+				const moduleUuid = asUuid(
+					typeof maybeUuid === "string" && maybeUuid.length > 0
+						? maybeUuid
+						: crypto.randomUUID(),
+				);
 				dispatch({
 					kind: "addModule",
-					module: { ...moduleRest, uuid: moduleUuid } as ModuleEntity,
+					module: { ...module, uuid: moduleUuid } as Module,
 				});
 				return moduleUuid;
 			},
