@@ -59,11 +59,6 @@ import {
 	type Question,
 	scaffoldModulesSchema,
 } from "@/lib/schemas/blueprint";
-import {
-	addQuestionQuestionSchema,
-	addQuestionsQuestionSchema,
-	editQuestionUpdatesSchema,
-} from "@/lib/schemas/toolSchemas";
 import { errorToString } from "@/lib/services/commcare/validate/errors";
 import {
 	addFieldMutations,
@@ -88,6 +83,11 @@ import {
 } from "./contentProcessing";
 import { type GenerationContext, logWarnings } from "./generationContext";
 import { buildSolutionsArchitectPrompt } from "./prompts";
+import {
+	addQuestionQuestionSchema,
+	addQuestionsQuestionSchema,
+	editQuestionUpdatesSchema,
+} from "./toolSchemas";
 import { validateAndFix } from "./validationLoop";
 
 export { validateAndFix } from "./validationLoop";

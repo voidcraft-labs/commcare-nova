@@ -71,15 +71,17 @@ export type ToolSchemaMode = "flat-sentinels" | "per-type";
  * Bundle of generated SA tool schemas.
  *
  * Each field is a Zod schema ready to hand to `tool({ inputSchema: ... })`
- * inside the Solutions Architect. Consumers treat these as opaque Zod
- * objects; the only legitimate shape assertion is the byte-identity
- * snapshot test at `lib/agent/__tests__/toolSchemaGenerator.test.ts`.
+ * inside the Solutions Architect. The type is inferred from the generator
+ * functions so consumers' `z.infer<typeof ...>` calls see the concrete
+ * per-field shape (not `ZodRawShape`, which would erase the field types).
  */
-export interface GeneratedToolSchemas {
-	addQuestionsQuestionSchema: z.ZodObject<z.ZodRawShape>;
-	addQuestionQuestionSchema: z.ZodObject<z.ZodRawShape>;
-	editQuestionUpdatesSchema: z.ZodObject<z.ZodRawShape>;
-}
+export type GeneratedToolSchemas = {
+	addQuestionsQuestionSchema: ReturnType<typeof generateAddQuestionsSchema>;
+	addQuestionQuestionSchema: ReturnType<typeof generateAddQuestionSchema>;
+	editQuestionUpdatesSchema: ReturnType<
+		typeof generateEditQuestionUpdatesSchema
+	>;
+};
 
 /**
  * The enum of every kind the SA may reference as a question `type`.
