@@ -14,13 +14,13 @@
 import { useContext, useMemo } from "react";
 import { flushSync } from "react-dom";
 import { useScrollIntoView } from "@/components/builder/contexts/ScrollRegistryContext";
-import { useAssembledForm } from "@/lib/doc/hooks/useAssembledForm";
+import { useBlueprintDocApi } from "@/lib/doc/hooks/useBlueprintDoc";
 import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
+import { flattenFieldRefs } from "@/lib/doc/navigation";
 import { BlueprintDocContext } from "@/lib/doc/provider";
 import { asUuid } from "@/lib/doc/types";
 import { findFieldElement, flashUndoHighlight } from "@/lib/routing/domQueries";
 import { useLocation, useSelect } from "@/lib/routing/hooks";
-import { flattenQuestionRefs } from "@/lib/services/questionPath";
 import { useActiveFieldId, useSetFocusHint } from "@/lib/session/hooks";
 
 /**
@@ -104,37 +104,37 @@ export function useUndoRedo(): { undo: () => void; redo: () => void } {
  * one (next if present, else previous, else clear the selection).
  *
  * No-op if no question is selected. The call sequence:
- *   1. Resolve the neighbor via `flattenQuestionRefs` on the assembled form.
+ *   1. Resolve the neighbor via `flattenFieldRefs` on the live doc.
  *   2. Dispatch `removeField` through `useBlueprintMutations` — keeps
  *      the delete path consistent with every other doc mutation in the
  *      codebase (uuid resolution, dev-mode warn-on-miss).
  *   3. Replace the URL's `sel=` with the neighbor's uuid (or drop it).
+ *
+ * Neighbor resolution reads the doc imperatively at call time via
+ * `useBlueprintDocApi()` — the handler only fires on user action, and
+ * a subscription slice would force a re-render on every unrelated doc
+ * mutation for a value we only need in the delete callback.
  */
 export function useDeleteSelectedQuestion(): () => void {
 	const loc = useLocation();
-	/* `useAssembledForm` accepts `undefined` and short-circuits cheaply —
-	 * no need to coerce through `as Uuid`. When the user is off-form, the
-	 * hook never subscribes to any entity map, so doc mutations don't
-	 * re-render this hook's consumer. */
-	const formUuid = loc.kind === "form" ? loc.formUuid : undefined;
-	const form = useAssembledForm(formUuid);
+	const docApi = useBlueprintDocApi();
 	const select = useSelect();
 	const { removeField } = useBlueprintMutations();
 
 	return useMemo(
 		() => () => {
-			if (loc.kind !== "form" || !loc.selectedUuid || !form) return;
-			/* `flattenQuestionRefs` skips hidden questions. If the selected
-			 * uuid is hidden, or stale (race with LocationRecoveryEffect),
-			 * `findIndex` returns -1 — guard against that so `refs[-1 + 1]`
-			 * doesn't silently promote `refs[0]` to "neighbor" and jump the
-			 * selection to the top of the form. Drop selection instead. */
-			const refs = flattenQuestionRefs(form.questions);
+			if (loc.kind !== "form" || !loc.selectedUuid) return;
+			/* `flattenFieldRefs` skips hidden fields. If the selected uuid is
+			 * hidden, or stale (race with LocationRecoveryEffect), `findIndex`
+			 * returns -1 — guard against that so `refs[-1 + 1]` doesn't
+			 * silently promote `refs[0]` to "neighbor" and jump the selection
+			 * to the top of the form. Drop selection instead. */
+			const refs = flattenFieldRefs(docApi.getState(), loc.formUuid);
 			const idx = refs.findIndex((r) => r.uuid === loc.selectedUuid);
 			const neighbor = idx < 0 ? undefined : (refs[idx + 1] ?? refs[idx - 1]);
 			removeField(asUuid(loc.selectedUuid));
-			select(neighbor ? asUuid(neighbor.uuid) : undefined);
+			select(neighbor ? neighbor.uuid : undefined);
 		},
-		[loc, form, select, removeField],
+		[loc, docApi, select, removeField],
 	);
 }

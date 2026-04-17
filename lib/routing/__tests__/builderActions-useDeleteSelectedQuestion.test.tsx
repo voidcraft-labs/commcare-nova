@@ -5,8 +5,8 @@
  *
  * The hook:
  *   1. Resolves the selected uuid from `useLocation()`.
- *   2. Computes the neighbor via `flattenQuestionRefs` on the assembled
- *      form (skipping hidden/conditional questions).
+ *   2. Computes the neighbor via `flattenFieldRefs` on the live doc
+ *      (skipping hidden fields).
  *   3. Dispatches `removeField` through the doc store.
  *   4. Replaces the URL selection segment with the neighbor uuid (or clears it).
  */
