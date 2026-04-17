@@ -21,16 +21,16 @@ import { toBlueprint } from "@/lib/doc/legacyBridge";
 import { applyMutations } from "@/lib/doc/mutations";
 import type { Mutation } from "@/lib/doc/types";
 import type { BlueprintDoc } from "@/lib/domain";
-import type { HqApplication } from "./commcare";
+import type { HqApplication } from "@/lib/services/commcare";
 import {
 	errorToString,
 	type ValidationError,
-} from "./commcare/validate/errors";
-import { FIX_REGISTRY } from "./commcare/validate/fixes";
-import { runValidation } from "./commcare/validate/runner";
-import { validateXFormXml } from "./commcare/validate/xformValidator";
-import { deriveConnectDefaults } from "./connectConfig";
-import { expandBlueprint } from "./hqJsonExpander";
+} from "@/lib/services/commcare/validate/errors";
+import { FIX_REGISTRY } from "@/lib/services/commcare/validate/fixes";
+import { runValidation } from "@/lib/services/commcare/validate/runner";
+import { validateXFormXml } from "@/lib/services/commcare/validate/xformValidator";
+import { deriveConnectDefaults } from "@/lib/services/connectConfig";
+import { expandBlueprint } from "@/lib/services/hqJsonExpander";
 
 // ── Post-expansion validation ────────────────────────────────────────
 

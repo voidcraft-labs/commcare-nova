@@ -61,6 +61,7 @@ import {
 	type GenerationContext,
 	logWarnings,
 } from "@/lib/agent/generationContext";
+import { validateAndFix } from "@/lib/agent/validationLoop";
 import { toBlueprint } from "@/lib/doc/legacyBridge";
 import { applyMutations } from "@/lib/doc/mutations";
 import type { Mutation } from "@/lib/doc/types";
@@ -91,9 +92,8 @@ import {
 	editQuestionUpdatesSchema,
 } from "../schemas/toolSchemas";
 import { errorToString } from "./commcare/validate/errors";
-import { validateAndFix } from "./validationLoop";
 
-export { validateAndFix } from "./validationLoop";
+export { validateAndFix } from "@/lib/agent/validationLoop";
 
 // ── Doc helpers ───────────────────────────────────────────────────────
 
