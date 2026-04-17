@@ -15,7 +15,6 @@ import { ChatInput } from "@/components/chat/ChatInput";
 import { ChatMessage } from "@/components/chat/ChatMessage";
 import { SignalGrid } from "@/components/chat/SignalGrid";
 import { SignalPanel } from "@/components/chat/SignalPanel";
-import { computeScaffoldProgress } from "@/lib/agent";
 import {
 	BlueprintDocContext,
 	type BlueprintDocStore,
@@ -34,6 +33,7 @@ import {
 	SignalGridController,
 	type SignalMode,
 } from "@/lib/signalGridController";
+import { computeScaffoldProgress } from "./scaffoldProgress";
 
 /** Sidebar panel width in pixels. Exported so siblings (e.g. cursor mode bar
  *  positioning in BuilderLayout) can derive offsets without magic numbers. */

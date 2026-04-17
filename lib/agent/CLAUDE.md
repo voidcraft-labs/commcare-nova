@@ -15,7 +15,6 @@ External consumers (`app/api/chat/route.ts`, `app/api/compile/route.ts`, `compon
 - `validationLoop.ts`, `autoFixer.ts`, `errorClassifier.ts` — post-generation CommCare validation + fix loop. Emits fix mutations through `emitMutations`.
 - `blueprintHelpers.ts` — pure `Mutation[]` builders the SA calls from its tool handlers (`addFieldMutations`, `setScaffoldMutations`, `renameFieldMutations`, etc.).
 - `contentProcessing.ts` — flat SA-format question stripping, case-property defaulting, and tree-building. Agent-specific; moved out of `lib/schemas/`.
-- `scaffoldProgress.ts` — derives a 0–1 progress ratio for the chat sidebar from the session's partial scaffold + generation phase.
 - `mutationMapper.ts` — HISTORICAL REPLAY path. Live emissions no longer pass through this file; it survives Phase 3 to keep stored Firestore emission logs replaying correctly. Phase 4 removes it.
 
 ## The write surface (server side)

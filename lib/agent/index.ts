@@ -1,8 +1,7 @@
 // lib/agent/index.ts
 //
-// Public barrel for the lib/agent layer. External consumers
-// (`app/api/chat/route.ts`, `app/api/compile/route.ts`, chat UI) import
-// from here, not from the individual files.
+// Public barrel for the lib/agent layer. Server-only: every symbol here
+// transitively imports Anthropic and firebase-admin.
 
 // autoFixer — used by `app/api/compile/route.ts` for the standalone fix pass.
 export { AutoFixer } from "./autoFixer";
@@ -17,10 +16,6 @@ export {
 	logWarnings,
 	thinkingProviderOptions,
 } from "./generationContext";
-// scaffoldProgress — consumed by `components/chat/ChatSidebar.tsx`.
-// `contentProcessing` stays out of the barrel: its only consumer is
-// `solutionsArchitect`, which is a sibling under lib/agent/.
-export { computeScaffoldProgress } from "./scaffoldProgress";
 // solutionsArchitect — the one ToolLoopAgent factory. `validateAndFix` is
 // re-exported because `app/api/compile/route.ts` runs validation outside the
 // SA run for the standalone fix endpoint.
