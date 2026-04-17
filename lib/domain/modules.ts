@@ -1,6 +1,6 @@
 // lib/domain/modules.ts
 import { z } from "zod";
-import { type Uuid, uuidSchema } from "./uuid";
+import { uuidSchema } from "./uuid";
 
 // CaseType currently lives in lib/schemas/blueprint.ts; re-export its shape
 // here so consumers can stop importing from schemas/. The schemas/blueprint.ts
