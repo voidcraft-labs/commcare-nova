@@ -1,10 +1,13 @@
 /**
  * Reducer tests for the `convertField` mutation.
  *
- * Covers the six conversion families defined in `lib/fieldTypeConversions.ts`
- * plus invariants: uuid preserved, id/label preserved, incompatible keys
- * dropped, options transferred where both kinds accept them, no-op when the
- * kind is already the target, and skip when uuid is unknown.
+ * Covers the six conversion families declared in each kind's
+ * `FieldKindMetadata.convertTargets` (the single source of truth, reachable
+ * via `getConvertibleTypes`) plus invariants: uuid preserved, id/label
+ * preserved, incompatible keys dropped, options transferred where both
+ * kinds accept them, no-op when the kind is already the target, skip when
+ * uuid is unknown, and rejection of cross-paradigm swaps not listed in
+ * `convertTargets` (the reducer's authoritative convertibility gate).
  *
  * Test fixtures use `buildDoc` + `f` from `lib/__tests__/docHelpers.ts` to
  * produce normalized `BlueprintDoc` values without touching wire formats.
@@ -444,9 +447,12 @@ describe("convertField — invariants", () => {
 		expect(next.fields).toEqual(doc.fields);
 	});
 
-	it("uuid is preserved on the converted field (defensive re-stamp)", () => {
-		// Even if a future refactor of reconcileFieldForKind forgets to carry
-		// the uuid, the reducer re-stamps it. This test asserts the end-state.
+	it("uuid is preserved end-to-end on the converted field", () => {
+		// reconcileFieldForKind spreads the source (including uuid) into the
+		// candidate, Zod's uuidSchema preserves it, and the Field return type
+		// guarantees it — so the uuid survives the kind swap. This test pins
+		// the end-state contract so any future refactor that breaks the
+		// carry-through gets caught here.
 		const doc = docWithField({
 			uuid: "q-stable",
 			kind: "int",
@@ -461,5 +467,80 @@ describe("convertField — invariants", () => {
 			});
 		});
 		expect(next.fields[asUuid("q-stable")]?.uuid).toBe("q-stable");
+	});
+
+	it("no-ops when the target kind is not in the source's convertTargets", () => {
+		// text's convertTargets is ["secret"] — group is a cross-paradigm
+		// destination (leaf → container) that Zod's strip behavior would
+		// happily accept structurally, but the resulting doc would have no
+		// `fieldOrder` entry for the new "group" and break the "every
+		// container has an order slot" invariant. The reducer's
+		// convertibility gate rejects the swap before reconciliation runs.
+		const doc = docWithField({
+			uuid: "q-1",
+			kind: "text",
+			id: "name",
+			label: "Name",
+		});
+		const next = produce(doc, (d) => {
+			applyMutation(d, {
+				kind: "convertField",
+				uuid: asUuid("q-1"),
+				toKind: "group",
+			});
+		});
+		// Immer returns the original object unchanged when no mutation occurs.
+		expect(next.fields[asUuid("q-1")]).toBe(doc.fields[asUuid("q-1")]);
+	});
+
+	it("no-ops on container → leaf (gate rejects; children stay intact)", () => {
+		// Exercises the destructive-swap corruption path the gate exists to
+		// prevent: a group with children becoming a text entity would strand
+		// `fieldOrder[groupUuid]` with orphan descendants that walkers +
+		// navigation still see. group's convertTargets is ["repeat"] only.
+		const doc = buildDoc({
+			appId: "app-1",
+			modules: [
+				{
+					uuid: "m-1",
+					name: "M",
+					forms: [
+						{
+							uuid: "form-1",
+							name: "F",
+							type: "registration",
+							fields: [
+								f({
+									uuid: "g-1",
+									kind: "group",
+									id: "demographics",
+									label: "Demographics",
+									children: [
+										f({
+											uuid: "c-1",
+											kind: "text",
+											id: "name",
+											label: "Name",
+										}),
+									],
+								}),
+							],
+						},
+					],
+				},
+			],
+		});
+		const next = produce(doc, (d) => {
+			applyMutation(d, {
+				kind: "convertField",
+				uuid: asUuid("g-1"),
+				toKind: "text",
+			});
+		});
+		// Group must remain a group — the entity, its fieldOrder entry, and
+		// its child must all be unchanged.
+		expect(next.fields[asUuid("g-1")]?.kind).toBe("group");
+		expect(next.fieldOrder[asUuid("g-1")]).toEqual([asUuid("c-1")]);
+		expect(next.fields[asUuid("c-1")]).toBeDefined();
 	});
 });

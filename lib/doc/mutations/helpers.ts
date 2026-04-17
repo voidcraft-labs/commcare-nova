@@ -10,7 +10,7 @@
 import type { Draft } from "immer";
 import type { BlueprintDoc, Uuid } from "@/lib/doc/types";
 import { asUuid } from "@/lib/doc/types";
-import { type Field, type FieldKind, fieldSchema } from "@/lib/domain";
+import type { Field } from "@/lib/domain";
 
 /**
  * Remove a field and all of its descendants from the doc. Called by
@@ -198,58 +198,6 @@ export function assertNever(x: never): never {
 	throw new Error(
 		`unreachable: unexpected mutation kind: ${JSON.stringify(x)}`,
 	);
-}
-
-/**
- * Produce a normalized `Field` of `toKind` seeded from `source`.
- *
- * Reconciliation rules — applied in this order:
- *   1. Start with the source field's shared identity (`uuid`, `id`, `label`).
- *   2. Carry over any property whose key exists on BOTH kinds (validation,
- *      relevancy, required, case_property, calculate, default_value, hint
- *      — depending on what the destination kind accepts).
- *   3. Stamp the new `kind` discriminator.
- *   4. Run the result through `fieldSchema.safeParse` to strip keys the
- *      destination kind doesn't recognize and validate values.
- *   5. If parsing fails (e.g. destination kind requires a key the source
- *      doesn't have), return `undefined`. Callers treat that as "abort
- *      the conversion" (reducer logs a warning and no-ops).
- *
- * Why `fieldSchema.safeParse` instead of a hand-rolled per-kind table:
- * the Zod schemas are already the single source of truth for which keys
- * each kind accepts. A parallel table here would drift. The schema's
- * default behavior (strip unknowns, reject invalid types) is exactly the
- * reconciliation policy we want.
- *
- * Special cases:
- *   - `single_select` ↔ `multi_select`: `options` transfers verbatim.
- *   - `text` ↔ `secret`: no options, no calculate on secret — validate/
- *     relevant/required/hint/case_property carry over.
- *   - Media subkinds (image/audio/video/signature): only identity + label
- *     carries over; binary capture has no XPath fields in the schema today.
- *   - `group` ↔ `repeat`: container; only identity + label + relevant
- *     carry over. Children are untouched — they stay in `fieldOrder`
- *     under the same parent uuid, which is still a valid container after
- *     the kind swap.
- *
- * This function is pure — no side effects, no logging. Callers decide
- * how to handle an `undefined` return (reducer logs and no-ops).
- */
-export function reconcileFieldForKind(
-	source: Field,
-	toKind: FieldKind,
-): Field | undefined {
-	// Build a candidate object from the source with the new discriminant.
-	// Spread source first so its keys populate; override `kind` last.
-	// Zod's default strip behavior will drop any keys the target kind
-	// doesn't recognize, and reject the whole parse if required keys are
-	// absent — which is the reconciliation policy we want.
-	const candidate = { ...source, kind: toKind };
-	const result = fieldSchema.safeParse(candidate);
-	if (!result.success) {
-		return undefined;
-	}
-	return result.data;
 }
 
 /**

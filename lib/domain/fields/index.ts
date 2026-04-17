@@ -228,6 +228,84 @@ export function isContainer(f: Field): f is ContainerField {
 }
 
 /**
+ * The field kinds a given kind can be converted into.
+ *
+ * Reads directly from `fieldRegistry[kind].convertTargets`, which is the
+ * single source of truth for which logical type swaps are supported.
+ * Empty array means the kind has no valid conversion targets (the UI
+ * disables the convert affordance for those kinds).
+ *
+ * The UI gates the convert-type menu on this list, and the reducer
+ * enforces the same list as a second, authoritative layer — any caller
+ * (agent tools, log replay, tests) that tries to dispatch a
+ * `convertField` with a destination kind outside this list is rejected
+ * rather than silently corrupting state.
+ */
+export function getConvertibleTypes(kind: FieldKind): readonly FieldKind[] {
+	return fieldRegistry[kind].convertTargets;
+}
+
+/**
+ * Produce a normalized `Field` of `toKind` seeded from `source`.
+ *
+ * Reconciliation rules — applied in this order:
+ *   1. Start with the source field's shared identity (`uuid`, `id`, `label`).
+ *   2. Carry over any property whose key exists on BOTH kinds (validation,
+ *      relevancy, required, case_property, calculate, default_value, hint
+ *      — depending on what the destination kind accepts).
+ *   3. Stamp the new `kind` discriminator.
+ *   4. Run the result through `fieldSchema.safeParse` to strip keys the
+ *      destination kind doesn't recognize and validate values.
+ *   5. If parsing fails (e.g. destination kind requires a key the source
+ *      doesn't have), return `undefined`. Callers treat that as "abort
+ *      the conversion" (reducer logs a warning and no-ops).
+ *
+ * This function is pure — no side effects, no logging. Callers decide
+ * how to handle an `undefined` return (reducer logs and no-ops).
+ *
+ * Why `fieldSchema.safeParse` instead of a hand-rolled per-kind table:
+ * the Zod schemas are already the single source of truth for which keys
+ * each kind accepts. A parallel table here would drift. The schema's
+ * default behavior (strip unknowns, reject invalid types) is exactly the
+ * reconciliation policy we want.
+ *
+ * The reducer that calls this gates its input on
+ * `fieldRegistry[source.kind].convertTargets` first, which rejects
+ * structurally destructive cross-paradigm swaps (container ↔ leaf, media
+ * ↔ numeric, etc.) that Zod would accept but leave `fieldOrder` or other
+ * doc-level invariants corrupted. By the time execution reaches this
+ * function the kind pair has already been approved for reconciliation.
+ *
+ * Special cases:
+ *   - `single_select` ↔ `multi_select`: `options` transfers verbatim.
+ *   - `text` ↔ `secret`: no options, no calculate on secret — validate/
+ *     relevant/required/hint/case_property carry over.
+ *   - Media subkinds (image/audio/video/signature): identity + label +
+ *     hint + required + relevant carry over; no calculate, no
+ *     case_property, no validate (not in media schemas today).
+ *   - `group` ↔ `repeat`: container; only identity + label + relevant
+ *     carry over. Children are untouched — they stay in `fieldOrder`
+ *     under the same parent uuid, which is still a valid container after
+ *     the kind swap.
+ */
+export function reconcileFieldForKind(
+	source: Field,
+	toKind: FieldKind,
+): Field | undefined {
+	// Build a candidate object from the source with the new discriminant.
+	// Spread source first so its keys populate; override `kind` last.
+	// Zod's default strip behavior will drop any keys the target kind
+	// doesn't recognize, and reject the whole parse if required keys are
+	// absent — which is the reconciliation policy we want.
+	const candidate = { ...source, kind: toKind };
+	const result = fieldSchema.safeParse(candidate);
+	if (!result.success) {
+		return undefined;
+	}
+	return result.data;
+}
+
+/**
  * Union-wide patch type for field entities.
  *
  * `Partial<Omit<Field, "uuid">>` is intuitive but useless here: because

@@ -1,6 +1,10 @@
 import type { Draft } from "immer";
 import type { BlueprintDoc, Mutation, Uuid } from "@/lib/doc/types";
-import { fieldSchema } from "@/lib/domain";
+import {
+	fieldRegistry,
+	fieldSchema,
+	reconcileFieldForKind,
+} from "@/lib/domain";
 import { transformBareHashtags } from "@/lib/preview/engine/labelRefs";
 import { rewriteXPathRefs } from "@/lib/preview/xpath/rewrite";
 import type { QuestionPath } from "@/lib/services/questionPath";
@@ -11,7 +15,6 @@ import {
 	dedupeSiblingId,
 	findContainingForm,
 	findFieldParent,
-	reconcileFieldForKind,
 	walkFormFieldUuids,
 } from "./helpers";
 import { rewriteXPathOnMove } from "./pathRewrite";
@@ -380,22 +383,44 @@ export function applyFieldMutation(
 			if (!field) return;
 			// No-op if the kind is already the target (treat as idempotent).
 			if (field.kind === mut.toKind) return;
+			// Convertibility gate — the UI gates on this list too, but the
+			// reducer is the authoritative second layer. Without it, the
+			// `fieldSchema.safeParse` inside `reconcileFieldForKind` will
+			// happily accept structurally destructive swaps that Zod cannot
+			// detect:
+			//   - container → leaf: a group with children becomes a text
+			//     entity, leaving `fieldOrder[uuid]` populated with orphan
+			//     descendants that walkers + navigation still see.
+			//   - leaf → container: a text entity becomes a group with no
+			//     `fieldOrder` entry, breaking the "every container has an
+			//     order slot" invariant enforced everywhere else.
+			// The convertTargets list in each kind's FieldKindMetadata is the
+			// single source of truth for which swaps are semantically valid.
+			const allowed = fieldRegistry[field.kind].convertTargets;
+			if (!allowed.includes(mut.toKind)) {
+				console.warn(
+					`convertField: ${field.kind} cannot convert to ${mut.toKind}`,
+					{ uuid: mut.uuid, validTargets: allowed },
+				);
+				return;
+			}
 			const reconciled = reconcileFieldForKind(field, mut.toKind);
 			if (!reconciled) {
-				// Reconciliation failed — the target kind requires a key the
-				// source doesn't have (e.g. converting a group to single_select,
-				// which needs `options`). Log and skip; UI should have gated
-				// this via `getConvertibleTypes` already.
+				// Unreachable under current schemas: every kind pair in any
+				// `convertTargets` list has schemas compatible enough that
+				// `fieldSchema.safeParse` on `{ ...source, kind: toKind }`
+				// succeeds. This branch stays as defense-in-depth — if a
+				// future schema introduces a required key that isn't present
+				// on every would-be source kind, throwing inside an Immer
+				// reducer propagates up through `store.apply()` and crashes
+				// the surrounding render. Logging + no-op keeps the app alive
+				// while making the anomaly visible in dev tools.
 				console.warn(
 					`convertField: cannot reconcile ${field.kind} → ${mut.toKind}`,
 					{ uuid: mut.uuid, field },
 				);
 				return;
 			}
-			// Preserve the stable uuid — `reconcileFieldForKind` already
-			// carries it through, but re-stamp defensively so a future
-			// helper refactor can't silently drop it.
-			reconciled.uuid = mut.uuid;
 			draft.fields[mut.uuid] = reconciled;
 			return;
 		}

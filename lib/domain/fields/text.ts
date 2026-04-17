@@ -26,17 +26,7 @@ export const textFieldMetadata: FieldKindMetadata<"text"> = {
 	isContainer: false,
 	saDocs:
 		"Free-text field for single-line string input. Supports XPath validation and calculate.",
-	convertTargets: [
-		"int",
-		"decimal",
-		"date",
-		"time",
-		"datetime",
-		"single_select",
-		"multi_select",
-		"hidden",
-		"secret",
-	],
+	convertTargets: ["secret"],
 };
 
 // Editor schema is a placeholder for Phase 1 — components referenced here

@@ -25,7 +25,7 @@ export const datetimeFieldMetadata: FieldKindMetadata<"datetime"> = {
 	isStructural: false,
 	isContainer: false,
 	saDocs: "Combined date + time picker.",
-	convertTargets: ["text", "date", "time", "hidden"],
+	convertTargets: ["date", "time"],
 };
 
 // Editor schema is a placeholder for Phase 1 — components referenced here

@@ -25,7 +25,7 @@ import {
 	getFieldMoveTargets,
 } from "@/lib/doc/navigation";
 import { asUuid } from "@/lib/doc/types";
-import { getConvertibleTypes } from "@/lib/fieldTypeConversions";
+import { getConvertibleTypes } from "@/lib/domain";
 import { fieldKindIcons, fieldKindLabels } from "@/lib/fieldTypeIcons";
 import { shortcutLabel } from "@/lib/platform";
 import { useDeleteSelectedField } from "@/lib/routing/builderActions";
