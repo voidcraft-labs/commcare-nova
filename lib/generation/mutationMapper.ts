@@ -6,11 +6,28 @@
  * `store.applyMany()`. No side effects, no store references, no signal
  * grid — the caller is responsible for dispatching the returned mutations.
  *
- * The SA still emits wire-format `AppBlueprint` fragments on every doc-
- * mutating event; this file is the ingest boundary that translates those
- * fragments back into the normalized doc shape. `data-form-updated` and
- * its siblings map onto the atomic `replaceForm` mutation, which drops
- * the old field subtree and installs the new one in one pass.
+ * This file is the ONE legitimate wire-format ingress for SA stream
+ * events: CommCare's `BlueprintForm` vocabulary (`type`, `case_property_on`,
+ * `validation`, nested `children` tree, snake_case keys) is only tolerated
+ * here. Everything downstream receives the normalized domain shape —
+ * `Field` with `kind`, `case_property`, `validate`, and a flat entity map
+ * joined by uuid-keyed `fieldOrder` maps.
+ *
+ * Form-content events (`data-form-done`, `data-form-fixed`,
+ * `data-form-updated`) emit a DECOMPOSED mutation sequence rather than a
+ * single wholesale swap. The sequence is always:
+ *
+ *   1. `updateForm` — form-entity metadata patch (name/type/closeCondition/…).
+ *   2. `removeField × N` — one per existing top-level child of the form;
+ *      the reducer cascades each into its descendants.
+ *   3. `addField × M` — one per incoming wire question, emitted in
+ *      top-down tree order so container parents land before their kids.
+ *
+ * The decomposition matches the fine-grained mutation surface used by the
+ * interactive builder, so the SA and the user both drive the doc store
+ * through the same API. Phase 4's event log captures semantic history
+ * instead of opaque replacement blobs, and undo collapses cleanly per
+ * user-meaningful action.
  */
 
 import type { Mutation } from "@/lib/doc/types";
@@ -33,6 +50,56 @@ const FORM_CONTENT_EVENTS = new Set([
 	"data-form-fixed",
 	"data-form-updated",
 ]);
+
+// ── Wire-format types (local to this boundary) ─────────────────────────
+
+/**
+ * Wire-format question shape as received from the SA stream.
+ *
+ * Mirrors the subset of `BlueprintForm.questions[]` keys that a doc
+ * `Field` cares about. CommCare's vocabulary (`type`, `case_property_on`,
+ * `validation`, `validation_msg`) survives ONLY here — every downstream
+ * mutation carries the domain names (`kind`, `case_property`, `validate`,
+ * `validate_msg`). Kept local (not exported) because there is no other
+ * legitimate consumer of the wire shape; the rest of the app should only
+ * ever see translated `Field` entities.
+ */
+interface WireQuestion {
+	uuid: string;
+	id: string;
+	type: string;
+	label?: string;
+	hint?: string;
+	required?: string;
+	relevant?: string;
+	validation?: string;
+	validation_msg?: string;
+	calculate?: string;
+	default_value?: string;
+	options?: Array<{ value: string; label: string }>;
+	case_property_on?: string;
+	children?: WireQuestion[];
+}
+
+/**
+ * Flat-list tuple describing one pending `addField` mutation.
+ *
+ * Produced by `flattenWireQuestionsToFields` in top-down tree order so
+ * that emitting `addField` mutations in array order guarantees every
+ * container parent is installed in the draft before any of its children
+ * tries to reference it.
+ *
+ * `parentUuid` is either the form's uuid (for top-level fields) or a
+ * container field's uuid (for nested fields). `index` is the sibling
+ * index within the parent (0-based) — emitted explicitly so sequential
+ * `addField` dispatches land in a stable, deterministic order regardless
+ * of the reducer's append-vs-insert default.
+ */
+interface PendingFieldAdd {
+	parentUuid: Uuid;
+	field: Field;
+	index: number;
+}
 
 // ── Public API ─────────────────────────────────────────────────────────
 
@@ -191,12 +258,22 @@ function mapModuleDone(
 
 /**
  * `data-form-done` / `data-form-fixed` / `data-form-updated` — replaces
- * an entire form's content with the SA's generated/fixed/updated output.
+ * an entire form's content with the SA's generated/fixed/updated output
+ * as a decomposed mutation sequence.
  *
- * The incoming wire-format `BlueprintForm` is translated to the normalized
- * domain shape: flat `Field[]` + `fieldOrder` map keyed by parent uuid.
- * The form's existing `purpose` (set during scaffold) is preserved
- * because the wire-format `BlueprintForm` doesn't carry purpose.
+ * Emitted mutations, in order:
+ *   1. `updateForm` — patches the form-entity metadata in place. Omits
+ *      `purpose` so the scaffold-stamped value survives (the wire form
+ *      doesn't carry purpose; including the key as `undefined` would
+ *      clear it via `Object.assign` in the reducer).
+ *   2. `removeField × N` — one per existing top-level child of the form.
+ *      The reducer's `cascadeDeleteField` walks into each container and
+ *      deletes the entire descendant subtree, so only top-level children
+ *      need explicit mutations.
+ *   3. `addField × M` — one per incoming wire question, in top-down tree
+ *      order. Container parents always precede their children in the
+ *      array; the `addField` reducer pre-seeds `fieldOrder` for group /
+ *      repeat kinds so nested adds find a valid parent slot.
  *
  * Expected payload: `{ moduleIndex: number, formIndex: number, form: BlueprintForm }`
  */
@@ -208,108 +285,136 @@ function mapFormContent(
 	const formIndex = data.formIndex as number;
 	const form = data.form as BlueprintForm;
 
-	/* Resolve the form's UUID from the doc's index-based ordering. */
+	/* Resolve the form's UUID from the doc's index-based ordering. If
+	 * either index falls outside the doc's current shape, emit nothing —
+	 * the stream dispatcher will no-op and the mismatch surfaces as a
+	 * silent drop rather than a throw. */
 	const moduleUuid = doc.moduleOrder[moduleIndex];
 	if (!moduleUuid) return [];
-
 	const formUuid = doc.formOrder[moduleUuid]?.[formIndex];
 	if (!formUuid) return [];
 
-	/* Preserve the scaffold-set purpose. BlueprintForm doesn't carry
-	 * purpose, so we re-stamp it from the doc's existing form entity. */
 	const existingForm = doc.forms[formUuid];
-	const replacementForm: Form = {
-		uuid: formUuid,
-		// Forms carry a semantic id slug. Preserve the scaffold slug when
-		// we have one; fall back to a fresh slug from the display name.
+
+	/*
+	 * Build the form-level patch.
+	 *
+	 * Every mutable form-level property is emitted explicitly: present
+	 * values install the new state, absent values become `undefined` so
+	 * the reducer's `Object.assign(form, patch)` clears them. This keeps
+	 * the wholesale-replace semantics the old `replaceForm` mutation
+	 * provided at the form-entity level — a wire form that no longer has
+	 * a `close_condition` correctly drops the stored `closeCondition`
+	 * rather than leaving stale data in place.
+	 *
+	 * `purpose` is deliberately absent from the patch type + object.
+	 * Scaffold stamps `purpose` onto the form entity; the SA's wire form
+	 * payload doesn't round-trip it. Omitting the key entirely (not even
+	 * as `undefined`) means `Object.assign` never sees it and the
+	 * existing value survives — symmetric with the dance the old
+	 * `replaceForm` code did when it re-stamped `existingForm.purpose`
+	 * onto the replacement entity.
+	 */
+	const formPatch: Partial<Omit<Form, "uuid" | "purpose">> = {
+		// Forms carry a semantic id slug; preserve the scaffold-derived
+		// slug when present, otherwise derive one from the display name
+		// (fallback catches forms created outside the normal scaffold path).
 		id: existingForm?.id ?? (slugify(form.name) || "form"),
 		name: form.name,
 		type: form.type as FormType,
-		...(existingForm?.purpose !== undefined && {
-			purpose: existingForm.purpose,
-		}),
-		...(form.close_condition && {
-			closeCondition: {
-				field: form.close_condition.question,
-				answer: form.close_condition.answer,
-				...(form.close_condition.operator && {
-					operator: form.close_condition.operator,
-				}),
-			},
-		}),
-		...(form.connect && { connect: form.connect }),
-		...(form.post_submit !== undefined && { postSubmit: form.post_submit }),
+		// closeCondition maps the wire `question` key to the domain `field`
+		// key. Left `undefined` when the wire form has no close condition
+		// so the reducer clears any previously-stored value.
+		closeCondition: form.close_condition
+			? {
+					field: form.close_condition.question,
+					answer: form.close_condition.answer,
+					...(form.close_condition.operator && {
+						operator: form.close_condition.operator,
+					}),
+				}
+			: undefined,
+		// connect is the Connect sub-config (learn module / assessment /
+		// deliver unit / task). Wire-absence clears the stored value via
+		// the explicit `undefined`.
+		connect: form.connect ?? undefined,
+		// postSubmit preserves wholesale-replace semantics: when the wire
+		// form has no `post_submit`, the patch clears any stored value.
+		postSubmit: form.post_submit,
 	};
 
-	/*
-	 * Walk the nested wire-format question tree and flatten it into the
-	 * doc's normalized shape. `fieldOrder` is keyed by parent UUID: top-
-	 * level questions land under `formUuid`; nested group/repeat children
-	 * land under their parent's UUID. The `case_property_on` → `case_
-	 * property` rename happens here, at the wire boundary.
-	 */
-	const fields: Field[] = [];
-	const fieldOrder: Record<Uuid, Uuid[]> = {};
-	fieldOrder[formUuid] = [];
-	flattenFormQuestions(
-		(form.questions ?? []) as unknown as Parameters<
-			typeof flattenFormQuestions
-		>[0],
-		formUuid,
-		fields,
-		fieldOrder,
-	);
-
-	return [
-		{
-			kind: "replaceForm",
-			uuid: formUuid,
-			form: replacementForm,
-			fields,
-			fieldOrder,
-		},
+	const mutations: Mutation[] = [
+		{ kind: "updateForm", uuid: formUuid, patch: formPatch },
 	];
+
+	/*
+	 * Wipe the existing field subtree. Only top-level children need an
+	 * explicit `removeField` mutation — the reducer cascades each into
+	 * its descendants via `cascadeDeleteField`. Reading `doc.fieldOrder`
+	 * (the snapshot passed in) gives us the authoritative top-level list
+	 * before any mutations are applied.
+	 */
+	const existingTopLevel = doc.fieldOrder[formUuid] ?? [];
+	for (const childUuid of existingTopLevel) {
+		mutations.push({ kind: "removeField", uuid: childUuid });
+	}
+
+	/*
+	 * Add every incoming field. Order matters: a container parent
+	 * (group/repeat) must be added BEFORE any of its children so the
+	 * child's `addField` reducer finds the parent entity in the draft.
+	 * The `addField` reducer pre-seeds an empty `fieldOrder` slot when a
+	 * new container lands, so the subsequent child add has a valid
+	 * sibling list to splice into.
+	 *
+	 * `flattenWireQuestionsToFields` produces the tree in top-down order,
+	 * so emitting mutations in array order is sufficient.
+	 */
+	const pending: PendingFieldAdd[] = [];
+	flattenWireQuestionsToFields(
+		(form.questions ?? []) as WireQuestion[],
+		formUuid,
+		pending,
+	);
+	for (const { parentUuid, field, index } of pending) {
+		mutations.push({ kind: "addField", parentUuid, field, index });
+	}
+
+	return mutations;
 }
 
 /**
- * Recursive wire→domain walker for question subtrees. Populates `fields`
- * and `fieldOrder` by side effect so nested recursion doesn't allocate
- * intermediate arrays at each level.
+ * Recursive wire→domain walker for question subtrees.
  *
- * Rename rules applied here:
+ * Pushes a `PendingFieldAdd` tuple for every wire question onto `acc` in
+ * top-down tree order. Ordering invariant: a container parent's tuple is
+ * always pushed before any of its descendants' tuples, so a caller that
+ * emits `addField` mutations in array order is guaranteed that every
+ * parent is installed in the draft before any of its children try to
+ * reference it.
+ *
+ * Rename rules applied here (the wire→domain translation happens only
+ * at this boundary — every downstream `Field` uses the domain names):
  *   - wire `type` → domain `kind` (the discriminant rename)
  *   - wire `case_property_on` → domain `case_property`
- *   - wire `validation` / `validation_msg` → domain `validate` / `validate_msg`
+ *   - wire `validation` / `validation_msg` → domain `validate` /
+ *     `validate_msg`
  *
  * Uuids are preserved verbatim from the wire input — the SA assigns
- * them at question creation time, and downstream `renameField` logic
- * depends on their stability.
+ * them at question creation time, and downstream logic (XPath rewrite,
+ * React key identity, dnd-kit) depends on their stability.
+ *
+ * Only `group` and `repeat` kinds recurse into `children`; every other
+ * kind is a leaf at the doc-normalized level, regardless of what the
+ * wire payload might have attached.
  */
-function flattenFormQuestions(
-	questions: Array<{
-		uuid: string;
-		id: string;
-		type: string;
-		label?: string;
-		hint?: string;
-		required?: string;
-		relevant?: string;
-		validation?: string;
-		validation_msg?: string;
-		calculate?: string;
-		default_value?: string;
-		options?: Array<{ value: string; label: string }>;
-		case_property_on?: string;
-		children?: Array<Record<string, unknown>>;
-	}>,
+function flattenWireQuestionsToFields(
+	questions: ReadonlyArray<WireQuestion>,
 	parentUuid: Uuid,
-	fields: Field[],
-	fieldOrder: Record<Uuid, Uuid[]>,
+	acc: PendingFieldAdd[],
 ): void {
-	for (const q of questions) {
+	questions.forEach((q, index) => {
 		const uuid = asUuid(q.uuid);
-		fieldOrder[parentUuid].push(uuid);
-
 		const fieldObj: Record<string, unknown> = {
 			kind: q.type,
 			uuid,
@@ -325,16 +430,9 @@ function flattenFormQuestions(
 			...(q.default_value != null && { default_value: q.default_value }),
 			...(q.options != null && { options: q.options }),
 		};
-		fields.push(fieldObj as Field);
-
+		acc.push({ parentUuid, field: fieldObj as Field, index });
 		if (q.children?.length && (q.type === "group" || q.type === "repeat")) {
-			fieldOrder[uuid] = [];
-			flattenFormQuestions(
-				q.children as Parameters<typeof flattenFormQuestions>[0],
-				uuid,
-				fields,
-				fieldOrder,
-			);
+			flattenWireQuestionsToFields(q.children, uuid, acc);
 		}
-	}
+	});
 }
