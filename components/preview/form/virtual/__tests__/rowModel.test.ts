@@ -19,7 +19,7 @@
 
 import { describe, expect, it } from "vitest";
 import { asUuid, type Uuid } from "@/lib/doc/types";
-import type { NQuestion } from "@/lib/services/normalizedState";
+import type { Field } from "@/lib/domain";
 import { buildFormRows, type CollapseState, type RowSource } from "../rowModel";
 
 // ── Fixture helpers ────────────────────────────────────────────────────
@@ -29,25 +29,28 @@ const G = (n: number) => asUuid(`grp${n}-0000-0000-0000-000000000000`);
 const Q = (n: number) => asUuid(`qst${n}-0000-0000-0000-000000000000`);
 const R = (n: number) => asUuid(`rep${n}-0000-0000-0000-000000000000`);
 
-function text(uuid: Uuid, id: string): NQuestion {
-	return { uuid, id, type: "text" } as NQuestion;
+function text(uuid: Uuid, id: string): Field {
+	return { uuid, id, kind: "text", label: id } as unknown as Field;
 }
 
-function group(uuid: Uuid, id: string): NQuestion {
-	return { uuid, id, type: "group" } as NQuestion;
+function group(uuid: Uuid, id: string): Field {
+	return { uuid, id, kind: "group", label: id } as unknown as Field;
 }
 
-function repeat(uuid: Uuid, id: string): NQuestion {
-	return { uuid, id, type: "repeat" } as NQuestion;
+function repeat(uuid: Uuid, id: string): Field {
+	return { uuid, id, kind: "repeat", label: id } as unknown as Field;
 }
 
 const EMPTY: CollapseState = new Set<Uuid>();
 
+/** Build a RowSource for tests. The row walker consumes domain entities
+ *  keyed by uuid — the same shape the blueprint store exposes via its
+ *  `fields` / `fieldOrder` maps. */
 function src(
-	questions: Record<Uuid, NQuestion>,
+	fields: Record<Uuid, Field>,
 	order: Record<Uuid, Uuid[]>,
 ): RowSource {
-	return { questions, questionOrder: order };
+	return { fields, fieldOrder: order };
 }
 
 // ── Flat form ──────────────────────────────────────────────────────────
