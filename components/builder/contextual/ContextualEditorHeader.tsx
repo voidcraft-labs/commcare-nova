@@ -16,7 +16,6 @@ import { FieldTypeList } from "@/components/builder/FieldTypeList";
 import { tablerCopyPlus } from "@/components/icons/tablerExtras";
 import { Tooltip } from "@/components/ui/Tooltip";
 import { useCommitField } from "@/hooks/useCommitField";
-import { useSaveField } from "@/hooks/useSaveField";
 import { useBlueprintDocApi } from "@/lib/doc/hooks/useBlueprintDoc";
 import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
 import {
@@ -83,6 +82,7 @@ export function ContextualEditorHeader({ field }: FieldEditorProps) {
 	const {
 		moveField,
 		duplicateField,
+		convertField,
 		renameField: renameFieldAction,
 	} = useBlueprintMutations();
 
@@ -96,7 +96,6 @@ export function ContextualEditorHeader({ field }: FieldEditorProps) {
 	 * unrelated field edits (label, hint, calculate). */
 	const docApi = useBlueprintDocApi();
 
-	const saveField = useSaveField(selectedUuid);
 	const focusHint = useFocusHint(HEADER_FIELDS);
 	const shiftHeld = useShiftKey();
 	const deleteSelected = useDeleteSelectedField();
@@ -433,12 +432,17 @@ export function ContextualEditorHeader({ field }: FieldEditorProps) {
 												sideOffset={4}
 											>
 												<Menu.Popup className={MENU_POPUP_CLS}>
-													{/* `saveField` routes the patch through `updateField`,
-													 *  which expects the domain `kind` discriminant. */}
+													{/* `convertField` dispatches a single atomic mutation — the reducer
+													 *  swaps the kind and reconciles per-kind properties via `fieldSchema`.
+													 *  Previously this used `saveField("kind", ...)` which relied on Zod
+													 *  strip to drop incompatible keys; the dedicated mutation is cleaner
+													 *  for undo history and event logging. */}
 													<FieldTypeList
 														types={conversionTargets}
 														activeType={field.kind}
-														onSelect={(next) => saveField("kind", next)}
+														onSelect={(next) =>
+															convertField(asUuid(selectedUuid), next)
+														}
 													/>
 												</Menu.Popup>
 											</Menu.Positioner>

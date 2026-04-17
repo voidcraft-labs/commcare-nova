@@ -130,6 +130,19 @@ export interface BlueprintMutations {
 		},
 	) => MoveFieldResult;
 	duplicateField: (uuid: Uuid) => DuplicateFieldResult | undefined;
+	/**
+	 * Convert a field to a different kind atomically.
+	 *
+	 * Unlike the ad-hoc `saveField("kind", ...)` path it replaces, this
+	 * dispatches a `convertField` mutation that runs the kind swap inside
+	 * the reducer — one atomic undo entry, one clean event log entry, and
+	 * the schema-driven key reconciliation handles options / validation /
+	 * hint preservation per kind's Zod schema.
+	 *
+	 * Silently no-ops when the uuid is unknown or when the source kind
+	 * equals the target kind.
+	 */
+	convertField: (uuid: Uuid, toKind: FieldKind) => void;
 
 	// ── Form mutations ────────────────────────────────────────────────────
 	/** Insert a new form into a module. Returns the new form's uuid.
@@ -500,6 +513,15 @@ export function useBlueprintMutations(): BlueprintMutations {
 				) as QuestionPath;
 
 				return { newPath, newUuid: newUuid as string };
+			},
+
+			convertField(uuid, toKind) {
+				const doc = get();
+				if (!doc.fields[uuid]) {
+					warnUnresolved("convertField", { uuid });
+					return;
+				}
+				dispatch({ kind: "convertField", uuid, toKind });
 			},
 
 			addForm(moduleUuid, form) {

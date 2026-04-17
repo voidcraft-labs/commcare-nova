@@ -45,6 +45,7 @@ import {
 } from "@/lib/doc/provider";
 import type { BlueprintDoc } from "@/lib/doc/types";
 import { asUuid, type Uuid } from "@/lib/doc/types";
+import type { FieldKind } from "@/lib/domain";
 
 // ── Fixed UUIDs ────────────────────────────────────────────────────────
 // Declared here (not inside the fixture) so tests can reference them
@@ -908,6 +909,78 @@ describe("useBlueprintMutations", () => {
 		});
 
 		expect(result.current.children.map((q) => q.id)).toEqual(["b", "a", "grp"]);
+	});
+
+	// ── convertField ─────────────────────────────────────────────────────
+
+	describe("convertField", () => {
+		it("swaps the kind and reflects the new kind in doc state", () => {
+			// Q_A starts as `text`; `text` can convert to `secret` per the registry.
+			// After the dispatch the store should contain Q_A with kind === "secret".
+			const { result } = renderHook(() => useMutationsAndFirstFormChildren(), {
+				wrapper,
+			});
+
+			act(() => {
+				result.current.mutations.convertField(Q_A, "secret" as FieldKind);
+			});
+
+			const s = result.current.store?.getState();
+			const converted = s?.fields[Q_A];
+			expect(converted).toBeDefined();
+			expect(converted?.kind).toBe("secret");
+			// The field's semantic id should be preserved across the kind swap.
+			expect(converted?.id).toBe("a");
+		});
+
+		it("is visible in useMaterialize after dispatch", () => {
+			// Confirm that the live `children` array (read via the hook composer)
+			// reflects the post-dispatch kind — proves the reactive subscription
+			// picks up the state change.
+			const { result } = renderHook(() => useMutationsAndFirstFormChildren(), {
+				wrapper,
+			});
+
+			act(() => {
+				result.current.mutations.convertField(Q_A, "secret" as FieldKind);
+			});
+
+			// The children array is derived from the live form order — the converted
+			// field should still appear at the same position.
+			const convertedChild = result.current.children.find((q) => q.id === "a");
+			expect(convertedChild).toBeDefined();
+			expect(convertedChild?.uuid).toBe(Q_A);
+		});
+
+		it("no-ops silently when uuid is unknown", () => {
+			// An unrecognized uuid must not throw and must leave the store
+			// unchanged — matches the fail-open contract the other mutation methods
+			// follow.
+			const { result } = renderHook(() => useMutationsAndFirstFormChildren(), {
+				wrapper,
+			});
+
+			const before = result.current.store?.getState().fields[Q_A]?.kind;
+
+			expect(() => {
+				act(() => {
+					result.current.mutations.convertField(
+						asUuid("bogus-uuid-convert"),
+						"secret" as FieldKind,
+					);
+				});
+			}).not.toThrow();
+
+			// Existing field is untouched.
+			const after = result.current.store?.getState().fields[Q_A]?.kind;
+			expect(after).toBe(before);
+			// Order is also unchanged.
+			expect(result.current.children.map((q) => q.id)).toEqual([
+				"a",
+				"b",
+				"grp",
+			]);
+		});
 	});
 
 	// ── Unresolved uuid no-op ─────────────────────────────────────────────
