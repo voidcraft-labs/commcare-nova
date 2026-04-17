@@ -1,6 +1,22 @@
 import type { Question } from "@/lib/schemas/blueprint";
 
-/** Slash-delimited path identifying a question's position in the tree. e.g. "group1/child_q" or "top_level_q" */
+/**
+ * Slash-delimited id path. Still used by:
+ *   - `lib/references/**` — reference parser / renderer stores `#form/...`
+ *     label anchors as question paths.
+ *   - `components/preview/form/**` — the preview renderer threads paths
+ *     through `GroupField` / `RepeatField` / `FormRenderer` as render-tree
+ *     identity for label/value wiring.
+ *   - `components/builder/AppTree.tsx` — tree-sidebar walk builds a
+ *     local path→uuid index.
+ *   - `lib/doc/mutations/fields.ts` — mutation result types carry a
+ *     `newPath: QuestionPath` for toast telemetry.
+ *
+ * Pure navigation (keyboard shortcuts, move targets, delete-neighbor
+ * resolution) moved to uuid-keyed domain primitives in
+ * `lib/doc/navigation.ts`. Paths should NOT be used as identity for new
+ * code — uuids are the stable identity across renames.
+ */
 export type QuestionPath = string & { readonly __brand: "QuestionPath" };
 
 /** Build a path by appending a child ID to a parent path. */
@@ -32,34 +48,4 @@ export function reassignUuids(questions: Question[]): void {
 		q.uuid = crypto.randomUUID();
 		if (q.children) reassignUuids(q.children);
 	}
-}
-
-// ── Flattening helpers ───────────────────────────────────────────────
-
-/** A question's stable identity (UUID) paired with its current tree path. */
-export interface QuestionRef {
-	path: QuestionPath;
-	uuid: string;
-}
-
-/**
- * Walk a question tree depth-first, returning {path, uuid} pairs in visual
- * render order (skipping hidden questions). Use this instead of
- * `flattenQuestionPaths` when callers need both path (for mutations) and
- * UUID (for selection / DOM targeting).
- */
-export function flattenQuestionRefs(
-	questions: Question[],
-	parent?: QuestionPath,
-): QuestionRef[] {
-	const refs: QuestionRef[] = [];
-	for (const q of questions) {
-		if (q.type === "hidden") continue;
-		const path = qpath(q.id, parent);
-		refs.push({ path, uuid: q.uuid });
-		if (q.children) {
-			refs.push(...flattenQuestionRefs(q.children, path));
-		}
-	}
-	return refs;
 }
