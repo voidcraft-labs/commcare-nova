@@ -11,14 +11,29 @@
  */
 
 import { assert, describe, expect, it } from "vitest";
-import { toBlueprint } from "@/lib/doc/converter";
 import { createBlueprintDocStore } from "@/lib/doc/store";
-import type { AppBlueprint, BlueprintForm } from "@/lib/schemas/blueprint";
+import type { PersistableDoc } from "@/lib/domain";
+import type { BlueprintForm } from "@/lib/schemas/blueprint";
 import { BuilderPhase } from "@/lib/services/builder";
 import { derivePhase } from "@/lib/session/hooks";
 import { createBuilderSessionStore } from "@/lib/session/store";
 import { GenerationStage } from "@/lib/session/types";
 import { applyStreamEvent } from "../streamDispatcher";
+
+// ── Test helpers ───────────────────────────────────────────────────────
+
+/**
+ * Derive a `PersistableDoc` snapshot from the current doc-store state —
+ * strips the in-memory `fieldParent` reverse-index (rebuilt on load) so
+ * the snapshot matches the wire shape the SA emits in `data-done` and
+ * `data-blueprint-updated` events.
+ */
+function snapshotDoc(
+	docStore: ReturnType<typeof createBlueprintDocStore>,
+): PersistableDoc {
+	const { fieldParent: _fp, ...persistable } = docStore.getState();
+	return persistable;
+}
 
 // ── Helpers ────────────────────────────────────────────────────────────
 
@@ -177,9 +192,8 @@ describe("generation lifecycle (end-to-end)", () => {
 		emit("data-app-saved", { appId: "app-123" }, docStore, sessionStore);
 		expect(s().appId).toBe("app-123");
 
-		// ── data-done (with final blueprint) ──
-		const finalBlueprint = toBlueprint(doc());
-		emit("data-done", { blueprint: finalBlueprint }, docStore, sessionStore);
+		// ── data-done (with final doc snapshot) ──
+		emit("data-done", { doc: snapshotDoc(docStore) }, docStore, sessionStore);
 
 		// Phase should be Completed (justCompleted=true takes priority)
 		expect(s().justCompleted).toBe(true);
@@ -264,8 +278,7 @@ describe("generation lifecycle (end-to-end)", () => {
 		expect(s().agentStage).toBe(GenerationStage.Validate);
 
 		// ── Done ──
-		const finalBlueprint = toBlueprint(docStore.getState());
-		emit("data-done", { blueprint: finalBlueprint }, docStore, sessionStore);
+		emit("data-done", { doc: snapshotDoc(docStore) }, docStore, sessionStore);
 		expect(phase(docStore, sessionStore)).toBe(BuilderPhase.Completed);
 	});
 
@@ -346,8 +359,7 @@ describe("generation lifecycle (end-to-end)", () => {
 			sessionStore,
 		);
 		emit("data-phase", { phase: "validate" }, docStore, sessionStore);
-		const bp = toBlueprint(docStore.getState());
-		emit("data-done", { blueprint: bp }, docStore, sessionStore);
+		emit("data-done", { doc: snapshotDoc(docStore) }, docStore, sessionStore);
 		s().setAgentActive(false);
 		s().acknowledgeCompletion();
 		expect(phase(docStore, sessionStore)).toBe(BuilderPhase.Ready);
@@ -359,14 +371,14 @@ describe("generation lifecycle (end-to-end)", () => {
 		// Phase stays Ready for post-build edits
 		expect(phase(docStore, sessionStore)).toBe(BuilderPhase.Ready);
 
-		// SA sends a blueprint-updated event (coarse edit tool)
-		const editedBp: AppBlueprint = { ...bp, app_name: "Edited App" };
-		emit(
-			"data-blueprint-updated",
-			{ blueprint: editedBp },
-			docStore,
-			sessionStore,
-		);
+		// SA sends a blueprint-updated event (coarse edit tool) carrying a
+		// renamed doc. Build the edited payload from the current snapshot so
+		// all uuids + relationships remain coherent.
+		const editedDoc: PersistableDoc = {
+			...snapshotDoc(docStore),
+			appName: "Edited App",
+		};
+		emit("data-blueprint-updated", { doc: editedDoc }, docStore, sessionStore);
 		expect(docStore.getState().appName).toBe("Edited App");
 		// Still Ready (no justCompleted for edit-tool responses)
 		expect(s().justCompleted).toBe(false);
@@ -402,8 +414,7 @@ describe("generation lifecycle (end-to-end)", () => {
 			sessionStore,
 		);
 		emit("data-phase", { phase: "validate" }, docStore, sessionStore);
-		const bp = toBlueprint(docStore.getState());
-		emit("data-done", { blueprint: bp }, docStore, sessionStore);
+		emit("data-done", { doc: snapshotDoc(docStore) }, docStore, sessionStore);
 
 		// Doc has data
 		expect(docStore.getState().moduleOrder).toHaveLength(1);
