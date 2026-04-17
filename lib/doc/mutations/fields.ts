@@ -5,6 +5,7 @@ import type {
 	Mutation,
 	Uuid,
 } from "@/lib/doc/types";
+import { fieldSchema } from "@/lib/domain";
 import { transformBareHashtags } from "@/lib/preview/engine/labelRefs";
 import { rewriteXPathRefs } from "@/lib/preview/xpath/rewrite";
 import type { QuestionPath } from "@/lib/services/questionPath";
@@ -130,7 +131,33 @@ export function applyFieldMutation(
 		case "updateField": {
 			const field = draft.fields[mut.uuid];
 			if (!field) return;
-			Object.assign(field, mut.patch);
+			// Validate the merged result against the full `fieldSchema` discriminated
+			// union. `FieldPatch` is a union-wide partial — at the type level it
+			// allows any variant's keys, so e.g. a `{ label: "x" }` patch against a
+			// HiddenField (which has no `label`) would compile fine and `Object.assign`
+			// would silently install the stray key. Parsing here rejects patches
+			// that introduce keys the target variant does not define, and also
+			// rejects invalid values for keys that DO exist (e.g. wrong type).
+			// Zod strips unknown keys by default, so the reducer installs a clean
+			// entity rather than accumulating drift over time.
+			const merged = { ...field, ...mut.patch };
+			const result = fieldSchema.safeParse(merged);
+			if (!result.success) {
+				// A patch that fails the schema is a programmer error — log with
+				// the exact issues so the offending call site is easy to locate,
+				// then skip the update rather than throwing from inside an Immer
+				// reducer (a throw would propagate up through `store.apply()` and
+				// crash the surrounding render or route handler).
+				console.warn(
+					`updateField: patch rejected for ${mut.uuid} (kind=${field.kind})`,
+					{ patch: mut.patch, issues: result.error.issues },
+				);
+				return;
+			}
+			// Install the parsed (and key-stripped) entity — replaces the existing
+			// entry rather than mutating it in place, which is the canonical
+			// Immer-friendly way to write a known-good replacement.
+			draft.fields[mut.uuid] = result.data;
 			return;
 		}
 		case "removeField": {
