@@ -1,20 +1,16 @@
 import { produce } from "immer";
 import { describe, expect, it } from "vitest";
 import { applyMutation } from "@/lib/doc/mutations";
-import type {
-	BlueprintDoc,
-	FormEntity,
-	ModuleEntity,
-	Uuid,
-} from "@/lib/doc/types";
+import type { BlueprintDoc, Uuid } from "@/lib/doc/types";
 import { asUuid } from "@/lib/doc/types";
+import type { Form, Module } from "@/lib/domain";
 
 const M = (s: string) => asUuid(`mod${s}-0000-0000-0000-000000000000`);
 const F = (s: string) => asUuid(`frm${s}-0000-0000-0000-000000000000`);
 const Q = (s: string) => asUuid(`qst${s}-0000-0000-0000-000000000000`);
 
-function form_(uuid: Uuid, name = "Form"): FormEntity {
-	return { uuid, name, type: "survey" } as FormEntity;
+function form_(uuid: Uuid, name = "Form"): Form {
+	return { uuid, name, type: "survey" } as Form;
 }
 
 function docWithModule(modUuid: Uuid): BlueprintDoc {
@@ -24,7 +20,7 @@ function docWithModule(modUuid: Uuid): BlueprintDoc {
 		connectType: null,
 		caseTypes: null,
 		modules: {
-			[modUuid]: { uuid: modUuid, name: "M" } as ModuleEntity,
+			[modUuid]: { uuid: modUuid, name: "M" } as Module,
 		},
 		forms: {},
 		fields: {},
@@ -155,8 +151,8 @@ describe("moveForm", () => {
 			connectType: null,
 			caseTypes: null,
 			modules: {
-				[M("X")]: { uuid: M("X"), name: "X" } as ModuleEntity,
-				[M("Y")]: { uuid: M("Y"), name: "Y" } as ModuleEntity,
+				[M("X")]: { uuid: M("X"), name: "X" } as Module,
+				[M("Y")]: { uuid: M("Y"), name: "Y" } as Module,
 			},
 			forms: { [F("1")]: form_(F("1")) },
 			fields: {},
@@ -244,7 +240,7 @@ describe("replaceForm", () => {
 			applyMutation(d, {
 				kind: "replaceForm",
 				uuid: F("1"),
-				form: { uuid: F("1"), name: "New", type: "registration" } as FormEntity,
+				form: { uuid: F("1"), name: "New", type: "registration" } as Form,
 				fields: [
 					{ uuid: Q("new1"), id: "new1", kind: "text" } as never,
 					{ uuid: Q("new2"), id: "new2", kind: "integer" } as never,

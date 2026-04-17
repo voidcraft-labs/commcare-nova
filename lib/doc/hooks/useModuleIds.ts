@@ -8,7 +8,8 @@
  */
 
 import { useMemo } from "react";
-import type { FormEntity, ModuleEntity, Uuid } from "@/lib/doc/types";
+import type { Uuid } from "@/lib/doc/types";
+import type { Form, Module } from "@/lib/domain";
 import { useBlueprintDoc, useBlueprintDocShallow } from "./useBlueprintDoc";
 
 /** The raw moduleOrder array — reference-stable via Immer. */
@@ -17,7 +18,7 @@ export function useModuleIds(): Uuid[] {
 }
 
 /** Modules in moduleOrder sequence. Memoized. */
-export function useOrderedModules(): ModuleEntity[] {
+export function useOrderedModules(): Module[] {
 	const { moduleOrder, modules } = useBlueprintDocShallow((s) => ({
 		moduleOrder: s.moduleOrder,
 		modules: s.modules,
@@ -26,7 +27,7 @@ export function useOrderedModules(): ModuleEntity[] {
 		() =>
 			moduleOrder
 				.map((uuid) => modules[uuid])
-				.filter((m): m is ModuleEntity => m !== undefined),
+				.filter((m): m is Module => m !== undefined),
 		[moduleOrder, modules],
 	);
 }
@@ -37,7 +38,7 @@ export function useFormIds(moduleUuid: Uuid): Uuid[] | undefined {
 }
 
 /** Forms for a given module in order. Memoized; empty array for unknown modules. */
-export function useOrderedForms(moduleUuid: Uuid): FormEntity[] {
+export function useOrderedForms(moduleUuid: Uuid): Form[] {
 	const { order, forms } = useBlueprintDocShallow((s) => ({
 		order: s.formOrder[moduleUuid],
 		forms: s.forms,
@@ -46,7 +47,7 @@ export function useOrderedForms(moduleUuid: Uuid): FormEntity[] {
 		() =>
 			(order ?? [])
 				.map((uuid) => forms[uuid])
-				.filter((f): f is FormEntity => f !== undefined),
+				.filter((f): f is Form => f !== undefined),
 		[order, forms],
 	);
 }
