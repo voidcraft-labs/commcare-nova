@@ -30,13 +30,8 @@ import { create } from "zustand";
 import { devtools, subscribeWithSelector } from "zustand/middleware";
 import { immer } from "zustand/middleware/immer";
 import { rebuildFieldParent } from "@/lib/doc/fieldParent";
-import { applyMutation, applyMutations } from "@/lib/doc/mutations";
-import type {
-	BlueprintDoc,
-	FieldRenameMeta,
-	MoveFieldResult,
-	Mutation,
-} from "@/lib/doc/types";
+import { applyMutations } from "@/lib/doc/mutations";
+import type { BlueprintDoc, Mutation, MutationResult } from "@/lib/doc/types";
 import type { PersistableDoc } from "@/lib/domain/blueprint";
 
 export { rebuildFieldParent };
@@ -44,37 +39,28 @@ export { rebuildFieldParent };
 /**
  * The complete public state surface of the BlueprintDoc store.
  *
- * Extends `BlueprintDoc` (pure data) with five action methods that
+ * Extends `BlueprintDoc` (pure data) with the action methods that
  * components and engine code call. Separating data from actions here
  * keeps the type as the single source of truth — no need for a separate
  * interface listing only the actions.
  */
 export type BlueprintDocState = BlueprintDoc & {
-	/** Apply a single mutation; captured as one undo entry while tracking. */
-	apply: (mut: Mutation) => void;
 	/**
-	 * Apply a single mutation and return metadata from the reducer.
+	 * The ONLY write path into the store.
 	 *
-	 * Typed overloads ensure callers get the correct result per mutation kind:
-	 *   - `moveField`    → `MoveFieldResult`
-	 *   - `renameField`  → `FieldRenameMeta`
-	 *   - all other kinds   → `void`
+	 * Applies every mutation in the array to a single Immer draft inside one
+	 * `set()` call. zundo records exactly one undo entry for the whole batch,
+	 * regardless of array length — a single user edit and a multi-step agent
+	 * write both collapse to one undoable snapshot.
 	 *
-	 * `apply()` stays the fire-and-forget path for 90% of call sites;
-	 * `applyWithResult()` is the typed-return path for the 2 mutations
-	 * that produce actionable metadata (rename toast, xpath count).
+	 * Returns an array of reducer results, one per input mutation, same
+	 * order. Most kinds produce `undefined`. `renameField` returns
+	 * `FieldRenameMeta` with the XPath rewrite count. `moveField` returns
+	 * `MoveFieldResult` with cross-level auto-rename info. Callers that
+	 * need metadata destructure the known position; callers that don't
+	 * care ignore the return value.
 	 */
-	applyWithResult: {
-		(
-			mut: Extract<Mutation, { kind: "moveField" }>,
-		): MoveFieldResult | undefined;
-		(
-			mut: Extract<Mutation, { kind: "renameField" }>,
-		): FieldRenameMeta | undefined;
-		(mut: Mutation): void;
-	};
-	/** Apply a batch of mutations as one atomic undo entry. */
-	applyMany: (muts: Mutation[]) => void;
+	applyMany: (muts: Mutation[]) => MutationResult[];
 	/**
 	 * Replace the entire doc from a `PersistableDoc` (the Firestore-persisted
 	 * shape that omits `fieldParent`).
@@ -92,10 +78,10 @@ export type BlueprintDocState = BlueprintDoc & {
 	/**
 	 * Pause undo tracking before an agent write stream begins.
 	 *
-	 * All `apply()` / `applyMany()` calls while paused take effect but
-	 * are invisible to the undo stack. Call `endAgentWrite()` when the
-	 * stream is done — tracking resumes and the next user mutation will
-	 * create a single undo entry spanning the entire agent write.
+	 * All `applyMany()` calls while paused take effect but are invisible
+	 * to the undo stack. Call `endAgentWrite()` when the stream is done —
+	 * tracking resumes and the next user mutation will create a single
+	 * undo entry spanning the entire agent write.
 	 */
 	beginAgentWrite: () => void;
 	/** Resume undo tracking after an agent write stream completes. */
@@ -154,60 +140,36 @@ export function createBlueprintDocStore() {
 						// ── Mutation actions ───────────────────────────────────────
 
 						/**
-						 * Apply a single mutation to the doc.
-						 *
-						 * Each call is a discrete state transition — when temporal is
-						 * active, it creates one undo entry. Immer handles structural
-						 * sharing so unchanged entity references remain stable.
-						 */
-						apply: (mut: Mutation) => {
-							set((draft) => {
-								// `draft` includes action methods alongside data fields,
-								// but `applyMutation` is typed for `Draft<BlueprintDoc>`.
-								// The extra action fields are structurally harmless — Immer
-								// will not attempt to track the function references.
-								applyMutation(
-									draft as unknown as Parameters<typeof applyMutation>[0],
-									mut,
-								);
-							});
-						},
-
-						/**
-						 * Apply a single mutation and capture the reducer's return value.
-						 *
-						 * Identical to `apply()` except it threads back the metadata that
-						 * `applyMutation` returns for `moveField` (rename info) and
-						 * `renameField` (xpath rewrite count). A `let result` variable
-						 * captures the return inside the Immer draft callback — the variable
-						 * is assigned synchronously before `set()` returns, so the caller
-						 * can use it immediately.
-						 */
-						applyWithResult: ((mut: Mutation): unknown => {
-							let result: unknown;
-							set((draft) => {
-								result = applyMutation(
-									draft as unknown as Parameters<typeof applyMutation>[0],
-									mut,
-								);
-							});
-							return result;
-						}) as BlueprintDocState["applyWithResult"],
-
-						/**
-						 * Apply multiple mutations in a single `set()` call.
+						 * Apply multiple mutations in a single `set()` call — the
+						 * ONLY write path into the store.
 						 *
 						 * Because all mutations touch the same Immer draft, zundo sees
 						 * only one state transition and records exactly one undo entry —
-						 * the batch collapses to an atomic history snapshot.
+						 * the batch collapses to an atomic history snapshot regardless of
+						 * array length. A one-element array is the normal per-action case;
+						 * multi-element arrays collapse compound edits and agent writes
+						 * into a single undo snapshot.
+						 *
+						 * Returns an array of reducer results, one entry per input in
+						 * the same order. Most mutation kinds produce `undefined`; the
+						 * two kinds that produce metadata (`renameField`, `moveField`)
+						 * return `FieldRenameMeta` / `MoveFieldResult`. The `let`
+						 * variable pattern captures the inner return synchronously — by
+						 * the time `set()` returns, `results` has been assigned.
 						 */
-						applyMany: (muts: Mutation[]) => {
+						applyMany: (muts: Mutation[]): MutationResult[] => {
+							let results: MutationResult[] = [];
 							set((draft) => {
-								applyMutations(
+								// `draft` includes action methods alongside data fields,
+								// but `applyMutations` is typed for `Draft<BlueprintDoc>`.
+								// The extra action fields are structurally harmless — Immer
+								// will not attempt to track the function references.
+								results = applyMutations(
 									draft as unknown as Parameters<typeof applyMutations>[0],
 									muts,
 								);
 							});
+							return results;
 						},
 
 						/**
@@ -263,10 +225,10 @@ export function createBlueprintDocStore() {
 						/**
 						 * Pause undo tracking for an agent write stream.
 						 *
-						 * All `apply`/`applyMany` calls while paused modify state
-						 * normally but are invisible to the undo stack. Pairing with
-						 * `endAgentWrite()` collapses the entire agent output into one
-						 * undoable snapshot from the user's perspective.
+						 * All `applyMany` calls while paused modify state normally but
+						 * are invisible to the undo stack. Pairing with `endAgentWrite()`
+						 * collapses the entire agent output into one undoable snapshot
+						 * from the user's perspective.
 						 */
 						beginAgentWrite: () => {
 							store.temporal.getState().pause();
@@ -275,8 +237,8 @@ export function createBlueprintDocStore() {
 						/**
 						 * Resume undo tracking after an agent write stream completes.
 						 *
-						 * From this point, any further `apply`/`applyMany` calls will
-						 * create undo entries as normal.
+						 * From this point, any further `applyMany` calls will create
+						 * undo entries as normal.
 						 */
 						endAgentWrite: () => {
 							store.temporal.getState().resume();

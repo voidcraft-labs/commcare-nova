@@ -14,9 +14,12 @@
  *      the freshest state, even after intervening mutations.
  *   2. Validates the uuid exists in the current doc (form, field, or
  *      module entity map).
- *   3. Dispatches a `Mutation` through `store.getState().apply(...)`,
- *      which the reducer in `lib/doc/mutations/index.ts` translates into
- *      draft edits on the Immer-backed store.
+ *   3. Dispatches a `Mutation` through `store.getState().applyMany([...])`
+ *      — the ONE public write path — which the reducer in
+ *      `lib/doc/mutations/index.ts` translates into draft edits on the
+ *      Immer-backed store. The two mutations that produce metadata
+ *      (`renameField`, `moveField`) destructure position `[0]` of the
+ *      returned `MutationResult[]`.
  *
  * Missing references (unknown uuid) are silently swallowed with a
  * dev-mode `console.warn`. The engine behaved the same way: no-op rather
@@ -28,8 +31,10 @@ import { useContext, useMemo } from "react";
 import { BlueprintDocContext } from "@/lib/doc/provider";
 import type {
 	BlueprintDoc,
+	FieldRenameMeta,
 	MoveFieldResult,
 	Mutation,
+	MutationResult,
 	Uuid,
 } from "@/lib/doc/types";
 import {
@@ -197,8 +202,13 @@ export interface BlueprintMutations {
 	 * by compound edits (rename-case-property, switch-connect-mode, etc.)
 	 * that need to coordinate several doc changes without fragmenting
 	 * history.
+	 *
+	 * Returns the reducer's per-mutation results in input order. Callers
+	 * that need metadata from specific positions (`renameField`, `moveField`)
+	 * destructure by index and narrow via `as FieldRenameMeta | undefined` /
+	 * `as MoveFieldResult | undefined`.
 	 */
-	applyMany: (mutations: Mutation[]) => void;
+	applyMany: (mutations: Mutation[]) => MutationResult[];
 }
 
 /**
@@ -271,7 +281,6 @@ export function useBlueprintMutations(): BlueprintMutations {
 		// never at hook construction. This is critical: without it, a mutation
 		// made immediately after another would validate against stale state.
 		const get = () => store.getState();
-		const dispatch = (mut: Mutation) => store.getState().apply(mut);
 
 		return {
 			addField(parentUuid, field, opts) {
@@ -317,12 +326,14 @@ export function useBlueprintMutations(): BlueprintMutations {
 				// discriminated unions).
 				const entity = { ...field, uuid } as unknown as Field;
 
-				dispatch({
-					kind: "addField",
-					parentUuid,
-					field: entity,
-					index,
-				});
+				store.getState().applyMany([
+					{
+						kind: "addField",
+						parentUuid,
+						field: entity,
+						index,
+					},
+				]);
 				return uuid;
 			},
 
@@ -332,11 +343,13 @@ export function useBlueprintMutations(): BlueprintMutations {
 					warnUnresolved("updateField", { uuid });
 					return;
 				}
-				dispatch({
-					kind: "updateField",
-					uuid,
-					patch,
-				});
+				store.getState().applyMany([
+					{
+						kind: "updateField",
+						uuid,
+						patch,
+					},
+				]);
 			},
 
 			removeField(uuid) {
@@ -345,7 +358,7 @@ export function useBlueprintMutations(): BlueprintMutations {
 					warnUnresolved("removeField", { uuid });
 					return;
 				}
-				dispatch({ kind: "removeField", uuid });
+				store.getState().applyMany([{ kind: "removeField", uuid }]);
 			},
 
 			renameField(uuid, newId) {
@@ -377,15 +390,17 @@ export function useBlueprintMutations(): BlueprintMutations {
 					}
 				}
 
-				// Dispatch via `applyWithResult` to capture the xpath rewrite count.
-				// The reducer returns `undefined` if the target entity vanishes
-				// between our pre-check and the Immer draft — defensive fallback
-				// to zero rewrites so callers always see a valid number.
-				const meta = store.getState().applyWithResult({
-					kind: "renameField",
-					uuid,
-					newId,
-				});
+				// Dispatch via the single write path. Position `[0]` of the
+				// returned array carries the reducer's per-mutation result —
+				// narrow it to `FieldRenameMeta` so we can read the xpath
+				// rewrite count. The reducer returns `undefined` if the target
+				// entity vanishes between our pre-check and the Immer draft —
+				// defensive fallback to zero rewrites so callers always see a
+				// valid number.
+				const [result] = store
+					.getState()
+					.applyMany([{ kind: "renameField", uuid, newId }]);
+				const meta = result as FieldRenameMeta | undefined;
 
 				/* Compute the new path AFTER dispatch — the semantic id has
 				 * changed. `renameField` doesn't reparent, so `fieldParent`
@@ -435,18 +450,19 @@ export function useBlueprintMutations(): BlueprintMutations {
 					if (i >= 0) toIndex = i + 1;
 				}
 
-				// Dispatch via `applyWithResult` to capture the rename metadata
-				// the reducer populates when cross-level dedup changes the id.
-				// Returns `undefined` if the target entity vanishes between our
-				// pre-check and the Immer draft — fallback to zeroed result so
-				// callers always see a valid `MoveFieldResult`.
+				// Dispatch via the single write path. Position `[0]` of the
+				// returned array carries the reducer's rename metadata (populated
+				// when cross-level dedup changes the id). The reducer returns
+				// `undefined` if the target entity vanishes between our pre-check
+				// and the Immer draft — fallback to a zeroed result so callers
+				// always see a valid `MoveFieldResult`.
+				const [result] = store
+					.getState()
+					.applyMany([{ kind: "moveField", uuid, toParentUuid, toIndex }]);
 				return (
-					store.getState().applyWithResult({
-						kind: "moveField",
-						uuid,
-						toParentUuid,
-						toIndex,
-					}) ?? { droppedCrossDepthRefs: 0 }
+					(result as MoveFieldResult | undefined) ?? {
+						droppedCrossDepthRefs: 0,
+					}
 				);
 			},
 
@@ -472,7 +488,7 @@ export function useBlueprintMutations(): BlueprintMutations {
 				const beforeOrder = [...(doc.fieldOrder[parentUuid] ?? [])];
 				const beforeSet = new Set(beforeOrder);
 
-				dispatch({ kind: "duplicateField", uuid });
+				store.getState().applyMany([{ kind: "duplicateField", uuid }]);
 
 				// Diff the post-dispatch order against the snapshot to find the
 				// new clone. Only one uuid should be new.
@@ -506,7 +522,7 @@ export function useBlueprintMutations(): BlueprintMutations {
 					warnUnresolved("convertField", { uuid, toKind });
 					return;
 				}
-				dispatch({ kind: "convertField", uuid, toKind });
+				store.getState().applyMany([{ kind: "convertField", uuid, toKind }]);
 			},
 
 			addForm(moduleUuid, form) {
@@ -521,11 +537,13 @@ export function useBlueprintMutations(): BlueprintMutations {
 						? maybeUuid
 						: crypto.randomUUID(),
 				);
-				dispatch({
-					kind: "addForm",
-					moduleUuid,
-					form: { ...form, uuid: formUuid } as Form,
-				});
+				store.getState().applyMany([
+					{
+						kind: "addForm",
+						moduleUuid,
+						form: { ...form, uuid: formUuid } as Form,
+					},
+				]);
 				return formUuid;
 			},
 
@@ -535,11 +553,13 @@ export function useBlueprintMutations(): BlueprintMutations {
 					warnUnresolved("updateForm", { uuid });
 					return;
 				}
-				dispatch({
-					kind: "updateForm",
-					uuid,
-					patch,
-				});
+				store.getState().applyMany([
+					{
+						kind: "updateForm",
+						uuid,
+						patch,
+					},
+				]);
 			},
 
 			removeForm(uuid) {
@@ -548,7 +568,7 @@ export function useBlueprintMutations(): BlueprintMutations {
 					warnUnresolved("removeForm", { uuid });
 					return;
 				}
-				dispatch({ kind: "removeForm", uuid });
+				store.getState().applyMany([{ kind: "removeForm", uuid }]);
 			},
 
 			addModule(module) {
@@ -558,10 +578,12 @@ export function useBlueprintMutations(): BlueprintMutations {
 						? maybeUuid
 						: crypto.randomUUID(),
 				);
-				dispatch({
-					kind: "addModule",
-					module: { ...module, uuid: moduleUuid } as Module,
-				});
+				store.getState().applyMany([
+					{
+						kind: "addModule",
+						module: { ...module, uuid: moduleUuid } as Module,
+					},
+				]);
 				return moduleUuid;
 			},
 
@@ -571,7 +593,7 @@ export function useBlueprintMutations(): BlueprintMutations {
 					warnUnresolved("updateModule", { uuid });
 					return;
 				}
-				dispatch({ kind: "updateModule", uuid, patch });
+				store.getState().applyMany([{ kind: "updateModule", uuid, patch }]);
 			},
 
 			removeModule(uuid) {
@@ -580,7 +602,7 @@ export function useBlueprintMutations(): BlueprintMutations {
 					warnUnresolved("removeModule", { uuid });
 					return;
 				}
-				dispatch({ kind: "removeModule", uuid });
+				store.getState().applyMany([{ kind: "removeModule", uuid }]);
 			},
 
 			updateApp(patch) {
@@ -607,7 +629,7 @@ export function useBlueprintMutations(): BlueprintMutations {
 			},
 
 			setCaseTypes(caseTypes) {
-				dispatch({ kind: "setCaseTypes", caseTypes });
+				store.getState().applyMany([{ kind: "setCaseTypes", caseTypes }]);
 			},
 
 			updateCaseProperty(caseTypeName, propertyName, updates) {
@@ -650,13 +672,17 @@ export function useBlueprintMutations(): BlueprintMutations {
 						),
 					};
 				});
-				dispatch({ kind: "setCaseTypes", caseTypes: nextCaseTypes });
+				store
+					.getState()
+					.applyMany([{ kind: "setCaseTypes", caseTypes: nextCaseTypes }]);
 			},
 
 			applyMany(mutations) {
 				// Batch dispatch — the store's `applyMany` wraps the whole set
 				// in one `set()` call so zundo records exactly one undo entry.
-				store.getState().applyMany(mutations);
+				// Returns the reducer's per-mutation results in input order;
+				// surfaced here so callers can narrow specific positions.
+				return store.getState().applyMany(mutations);
 			},
 		};
 	}, [store]);
