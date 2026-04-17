@@ -14,7 +14,3 @@ export function notifyMoveRename(result: MoveFieldResult): void {
 		`"${oldId}" → "${newId}" (${xpathFieldsRewritten} reference${xpathFieldsRewritten === 1 ? "" : "s"} updated)`,
 	);
 }
-
-// ── Legacy alias ───────────────────────────────────────────────────────────
-/** @deprecated Use notifyMoveRename */
-export const notifyMoveQuestionRename = notifyMoveRename;

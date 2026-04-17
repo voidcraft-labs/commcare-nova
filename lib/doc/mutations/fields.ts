@@ -37,13 +37,6 @@ export interface FieldRenameMeta {
 	xpathFieldsRewritten: number;
 }
 
-// ── Legacy aliases for callers that have not yet migrated ─────────────────
-// Phase 21 removes these once all consumers use Field-named types directly.
-/** @deprecated Use MoveFieldResult */
-export type MoveQuestionResult = MoveFieldResult;
-/** @deprecated Use FieldRenameMeta */
-export type QuestionRenameMeta = FieldRenameMeta;
-
 /**
  * Fields on a `Field` entity that carry XPath expressions directly —
  * these get rewritten via the Lezer-based `rewriteXPathRefs` parser when

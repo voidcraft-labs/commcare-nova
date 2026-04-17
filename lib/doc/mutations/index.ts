@@ -23,21 +23,12 @@ import {
 	applyFieldMutation,
 	type FieldRenameMeta,
 	type MoveFieldResult,
-	// Legacy aliases kept until Phase 21 consumers are renamed.
-	type MoveQuestionResult,
-	type QuestionRenameMeta,
 } from "./fields";
 import { applyFormMutation } from "./forms";
 import { assertNever } from "./helpers";
 import { applyModuleMutation } from "./modules";
 
-// Legacy re-exports for consumers that haven't been renamed yet.
-export type {
-	FieldRenameMeta,
-	MoveFieldResult,
-	MoveQuestionResult,
-	QuestionRenameMeta,
-};
+export type { FieldRenameMeta, MoveFieldResult };
 
 /**
  * Internal: dispatch a single mutation to the appropriate sub-reducer

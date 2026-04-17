@@ -36,11 +36,6 @@ export function cascadeDeleteField(
 	delete draft.fields[uuid];
 }
 
-// ── Legacy alias ───────────────────────────────────────────────────────────
-// Phase 21 removes this once all callers inside lib/doc/ have migrated.
-/** @deprecated Use cascadeDeleteField */
-export const cascadeDeleteQuestion = cascadeDeleteField;
-
 /**
  * Remove a form from the doc, cascading to its field subtree. Does NOT
  * remove the form from its module's `formOrder[]` — that's the caller's
@@ -80,10 +75,6 @@ export function findFieldParent(
 	}
 	return undefined;
 }
-
-// ── Legacy alias ───────────────────────────────────────────────────────────
-/** @deprecated Use findFieldParent */
-export const findQuestionParent = findFieldParent;
 
 /**
  * Find the form uuid that contains a given field (direct child or any
@@ -132,10 +123,6 @@ export function walkFormFieldUuids(doc: BlueprintDoc, formUuid: Uuid): Uuid[] {
 	}
 	return result;
 }
-
-// ── Legacy alias ───────────────────────────────────────────────────────────
-/** @deprecated Use walkFormFieldUuids */
-export const walkFormQuestionUuids = walkFormFieldUuids;
 
 /**
  * Deduplicate a field id against its siblings. If `desired` conflicts
@@ -205,10 +192,6 @@ export function computeFieldPath(
 	}
 	return undefined;
 }
-
-// ── Legacy alias ───────────────────────────────────────────────────────────
-/** @deprecated Use computeFieldPath */
-export const computeQuestionPath = computeFieldPath;
 
 /**
  * `never` assertion for exhaustive switch defaults. TypeScript flags
@@ -288,7 +271,3 @@ export function cloneFieldSubtree(
 	if (rootUuid === undefined) return undefined;
 	return { fields: clonedFields, fieldOrder: clonedOrder, rootUuid };
 }
-
-// ── Legacy alias ───────────────────────────────────────────────────────────
-/** @deprecated Use cloneFieldSubtree */
-export const cloneQuestionSubtree = cloneFieldSubtree;

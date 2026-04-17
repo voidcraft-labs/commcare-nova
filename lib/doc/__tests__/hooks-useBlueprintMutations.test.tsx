@@ -788,9 +788,9 @@ describe("useBlueprintMutations", () => {
 		expect(s?.connectType).toBe("deliver");
 	});
 
-	// ── moveQuestion result metadata ─────────────────────────────────────
+	// ── moveField result metadata ────────────────────────────────────────
 
-	it("moveQuestion returns MoveQuestionResult with renamed on cross-parent dedup", () => {
+	it("moveField returns MoveFieldResult with renamed on cross-parent dedup", () => {
 		// Use the fixture that has form F0 with [a, b, grp > [c]].
 		// Add a question with id "a" inside the group, then move Q_A into the
 		// group — it should dedup to "a_2".
