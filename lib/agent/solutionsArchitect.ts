@@ -35,6 +35,35 @@ import type { AnthropicProviderOptions } from "@ai-sdk/anthropic";
 import { stepCountIs, ToolLoopAgent, tool } from "ai";
 import { produce } from "immer";
 import { z } from "zod";
+import { completeApp } from "@/lib/db/apps";
+import { toBlueprint } from "@/lib/doc/legacyBridge";
+import { applyMutations } from "@/lib/doc/mutations";
+import type { Mutation } from "@/lib/doc/types";
+import type {
+	BlueprintDoc,
+	Field,
+	FormType,
+	PostSubmitDestination,
+	Uuid,
+} from "@/lib/domain";
+import { asUuid, isContainer } from "@/lib/domain";
+import { log } from "@/lib/log";
+import { SA_MODEL, SA_REASONING } from "@/lib/models";
+import {
+	type BlueprintForm,
+	type ConnectConfig,
+	caseTypesOutputSchema,
+	FORM_TYPES,
+	moduleContentSchema,
+	type Question,
+	scaffoldModulesSchema,
+} from "@/lib/schemas/blueprint";
+import {
+	addQuestionQuestionSchema,
+	addQuestionsQuestionSchema,
+	editQuestionUpdatesSchema,
+} from "@/lib/schemas/toolSchemas";
+import { errorToString } from "@/lib/services/commcare/validate/errors";
 import {
 	addFieldMutations,
 	addFormMutations,
@@ -51,49 +80,17 @@ import {
 	updateFieldMutations,
 	updateFormMutations,
 	updateModuleMutations,
-} from "@/lib/agent/blueprintHelpers";
+} from "./blueprintHelpers";
 import {
 	applyDefaults,
 	type FlatQuestion,
 	stripEmpty,
-} from "@/lib/agent/contentProcessing";
-import {
-	type GenerationContext,
-	logWarnings,
-} from "@/lib/agent/generationContext";
-import { buildSolutionsArchitectPrompt } from "@/lib/agent/prompts";
-import { validateAndFix } from "@/lib/agent/validationLoop";
-import { toBlueprint } from "@/lib/doc/legacyBridge";
-import { applyMutations } from "@/lib/doc/mutations";
-import type { Mutation } from "@/lib/doc/types";
-import type {
-	BlueprintDoc,
-	Field,
-	FormType,
-	PostSubmitDestination,
-	Uuid,
-} from "@/lib/domain";
-import { asUuid, isContainer } from "@/lib/domain";
-import { log } from "@/lib/log";
-import { completeApp } from "../db/apps";
-import { SA_MODEL, SA_REASONING } from "../models";
-import {
-	type BlueprintForm,
-	type ConnectConfig,
-	caseTypesOutputSchema,
-	FORM_TYPES,
-	moduleContentSchema,
-	type Question,
-	scaffoldModulesSchema,
-} from "../schemas/blueprint";
-import {
-	addQuestionQuestionSchema,
-	addQuestionsQuestionSchema,
-	editQuestionUpdatesSchema,
-} from "../schemas/toolSchemas";
-import { errorToString } from "./commcare/validate/errors";
+} from "./contentProcessing";
+import { type GenerationContext, logWarnings } from "./generationContext";
+import { buildSolutionsArchitectPrompt } from "./prompts";
+import { validateAndFix } from "./validationLoop";
 
-export { validateAndFix } from "@/lib/agent/validationLoop";
+export { validateAndFix } from "./validationLoop";
 
 // ── Doc helpers ───────────────────────────────────────────────────────
 

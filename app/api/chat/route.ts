@@ -4,7 +4,12 @@ import {
 	createUIMessageStreamResponse,
 	type UIMessage,
 } from "ai";
-import { classifyError, GenerationContext, MESSAGES } from "@/lib/agent";
+import {
+	classifyError,
+	createSolutionsArchitect,
+	GenerationContext,
+	MESSAGES,
+} from "@/lib/agent";
 import { resolveApiKey } from "@/lib/auth-utils";
 import {
 	createApp,
@@ -18,7 +23,6 @@ import type { BlueprintDoc } from "@/lib/domain";
 import { log } from "@/lib/log";
 import { CACHE_TTL_MS, chatRequestSchema } from "@/lib/schemas/apiSchemas";
 import { EventLogger } from "@/lib/services/eventLogger";
-import { createSolutionsArchitect } from "@/lib/services/solutionsArchitect";
 
 export const maxDuration = 300;
 
