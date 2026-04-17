@@ -47,7 +47,7 @@ import type { Field, Uuid } from "@/lib/domain";
  */
 export type FormRow =
 	| InsertionRow
-	| QuestionRow
+	| FieldRow
 	| GroupOpenRow
 	| GroupCloseRow
 	| EmptyContainerRow
@@ -79,7 +79,7 @@ export interface InsertionRow {
  * array so the drop-target `getData` and cycle checks can address it
  * without the row component having to walk the doc itself.
  */
-export interface QuestionRow {
+export interface FieldRow {
 	readonly kind: "question";
 	readonly id: string;
 	readonly uuid: Uuid;

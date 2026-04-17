@@ -18,7 +18,7 @@ import tablerRepeat from "@iconify-icons/tabler/repeat";
 import { memo, useCallback } from "react";
 import { useFulfillPendingScroll } from "@/components/builder/contexts/ScrollRegistryContext";
 import { InlineSettingsPanel } from "@/components/builder/InlineSettingsPanel";
-import { EditableQuestionWrapper } from "@/components/preview/form/EditableQuestionWrapper";
+import { EditableFieldWrapper } from "@/components/preview/form/EditableFieldWrapper";
 import { FIELD_STYLES } from "@/components/preview/form/fieldStyles";
 import { TextEditable } from "@/components/preview/form/TextEditable";
 import { useEngineController, useEngineState } from "@/hooks/useFormEngine";
@@ -108,10 +108,7 @@ export const GroupOpenRow = memo(function GroupOpenRow({
 				}}
 				data-question-uuid={uuid}
 			>
-				<EditableQuestionWrapper
-					questionUuid={uuid}
-					isDragging={isDraggingSelf}
-				>
+				<EditableFieldWrapper questionUuid={uuid} isDragging={isDraggingSelf}>
 					<div
 						className={`rounded-t-lg border border-b-0 border-pv-input-border bg-pv-surface px-3 py-2 transition-shadow ${
 							collapsed ? "rounded-b-lg border-b" : ""
@@ -177,9 +174,9 @@ export const GroupOpenRow = memo(function GroupOpenRow({
 						</div>
 						{/* Containers (group/repeat) carry no `hint` in the domain
 						 *  schema — only `relevant`. The hint editor only appears
-						 *  on non-container kinds via QuestionRow. */}
+						 *  on non-container kinds via FieldRow. */}
 					</div>
-				</EditableQuestionWrapper>
+				</EditableFieldWrapper>
 			</div>
 			{isFieldSelected && (
 				<div

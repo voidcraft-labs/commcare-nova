@@ -130,7 +130,7 @@ export function useIsNewField(uuid: string): boolean {
 	return useBuilderSession((s) => s.newQuestionUuid === uuid);
 }
 
-/** Mark a uuid as newly added. Called by QuestionTypePicker after insert. */
+/** Mark a uuid as newly added. Called by FieldTypePicker after insert. */
 export function useMarkNewField(): (uuid: string) => void {
 	return useBuilderSession((s) => s.markNewField);
 }

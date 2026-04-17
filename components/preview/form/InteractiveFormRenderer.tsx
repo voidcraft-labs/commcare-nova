@@ -25,7 +25,7 @@
  *
  * Non-semantic differences from the legacy recursive `FormRenderer`:
  *   - No `useSortable` / `DragDropProvider` — nothing is reorderable here.
- *   - No `EditableQuestionWrapper` — selection is an edit-time affordance.
+ *   - No `EditableFieldWrapper` — selection is an edit-time affordance.
  *   - No `InsertionPoint` — insertion is an edit-time affordance.
  */
 
@@ -37,11 +37,11 @@ import { useField } from "@/lib/doc/hooks/useEntity";
 import { asUuid, type Uuid } from "@/lib/domain";
 import { LabelContent } from "@/lib/references/LabelContent";
 import { type QuestionPath, qpath } from "@/lib/services/questionPath";
+import { FieldRenderer } from "./FieldRenderer";
 import { FIELD_STYLES } from "./fieldStyles";
 import { GroupField } from "./fields/GroupField";
 import { LabelField } from "./fields/LabelField";
 import { RepeatField } from "./fields/RepeatField";
-import { QuestionField } from "./QuestionField";
 
 /** Stable empty array for the fieldOrder selector. Prevents new array
  *  allocation on every render of an empty container. */
@@ -179,7 +179,7 @@ const InteractiveQuestion = memo(function InteractiveQuestion({
 						className={FIELD_STYLES.hint}
 					/>
 				)}
-				<QuestionField
+				<FieldRenderer
 					question={field}
 					state={state}
 					onChange={(value) => controller.onValueChange(uuid, value)}

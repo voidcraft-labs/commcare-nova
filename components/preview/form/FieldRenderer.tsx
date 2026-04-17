@@ -9,7 +9,7 @@ import { SelectMultiField } from "./fields/SelectMultiField";
 import { SelectOneField } from "./fields/SelectOneField";
 import { TextField } from "./fields/TextField";
 
-interface QuestionFieldProps {
+interface FieldRendererProps {
 	/** Domain field entity — discriminated union narrowed by `kind` below. */
 	question: Field;
 	state: FieldState;
@@ -38,12 +38,12 @@ const MEDIA_KINDS = new Set<Field["kind"]>([
  * don't reach this component — the caller renders them directly or
  * skips them.
  */
-export function QuestionField({
+export function FieldRenderer({
 	question,
 	state,
 	onChange,
 	onBlur,
-}: QuestionFieldProps) {
+}: FieldRendererProps) {
 	if (MEDIA_KINDS.has(question.kind)) {
 		return <MediaField question={question} />;
 	}

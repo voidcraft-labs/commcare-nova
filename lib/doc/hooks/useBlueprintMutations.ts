@@ -303,7 +303,7 @@ export function useBlueprintMutations(): BlueprintMutations {
 					if (i >= 0) index = i + 1;
 				}
 
-				// Mint a uuid if the caller didn't supply one. QuestionTypePicker
+				// Mint a uuid if the caller didn't supply one. FieldTypePicker
 				// and the SA tool handlers pass shapes without uuids and rely on
 				// the store to generate identity.
 				const maybeUuid = field.uuid;

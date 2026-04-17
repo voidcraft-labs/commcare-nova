@@ -1,9 +1,9 @@
 /**
  * AppTree — structure sidebar with per-entity subscriptions.
  *
- * Each tree component (ModuleCard, FormCard, QuestionRow) subscribes to its
+ * Each tree component (ModuleCard, FormCard, FieldRow) subscribes to its
  * own entity in the builder store by ID/UUID. Immer structural sharing means
- * editing question A's label only re-renders QuestionRow(A) in the sidebar —
+ * editing question A's label only re-renders FieldRow(A) in the sidebar —
  * not the other 166 QuestionRows, not the FormCards, not the ModuleCards.
  *
  * Selection uses boolean selectors — only the old and new selected components
@@ -51,7 +51,7 @@ import { type QuestionPath, qpath } from "@/lib/services/questionPath";
 import { useBuilderPhase } from "@/lib/session/hooks";
 
 /**
- * Per-form context carrying a question ID → type icon map. Lets QuestionRow
+ * Per-form context carrying a question ID → type icon map. Lets FieldRow
  * render chips with correct question-type icons without prop drilling through
  * the recursive tree or depending on the ReferenceProvider.
  */
@@ -742,7 +742,7 @@ const FormCard = memo(function FormCard({
 								)
 									return null;
 								return (
-									<QuestionRow
+									<FieldRow
 										key={uuid}
 										uuid={uuid}
 										moduleUuid={moduleUuid}
@@ -810,9 +810,9 @@ function countQuestionsFromOrder(
 	return count;
 }
 
-// ── QuestionRow ──────────────────────────────────────────────────────
+// ── FieldRow ──────────────────────────────────────────────────────
 
-const QuestionRow = memo(function QuestionRow({
+const FieldRow = memo(function FieldRow({
 	uuid,
 	moduleUuid,
 	formUuid,
@@ -954,7 +954,7 @@ const QuestionRow = memo(function QuestionRow({
 			{hasChildren && !isCollapsed && (
 				<div>
 					{childUuids?.map((childUuid, cIdx) => (
-						<QuestionRow
+						<FieldRow
 							key={childUuid}
 							uuid={childUuid}
 							moduleUuid={moduleUuid}

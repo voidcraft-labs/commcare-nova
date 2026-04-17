@@ -5,7 +5,7 @@ import { useEditContext } from "@/hooks/useEditContext";
 import type { Uuid } from "@/lib/doc/types";
 import { useIsFieldSelected, useSelect } from "@/lib/routing/hooks";
 
-interface EditableQuestionWrapperProps {
+interface EditableFieldWrapperProps {
 	/** Stable crypto UUID — the sole identity prop (survives renames). */
 	questionUuid: Uuid;
 	children: ReactNode;
@@ -25,12 +25,12 @@ interface EditableQuestionWrapperProps {
  * selected question's panel (mounted by SortableQuestion) can honor it
  * via `useFulfillPendingScroll` once the panel paints.
  */
-export function EditableQuestionWrapper({
+export function EditableFieldWrapper({
 	questionUuid,
 	children,
 	style,
 	isDragging,
-}: EditableQuestionWrapperProps) {
+}: EditableFieldWrapperProps) {
 	const ctx = useEditContext();
 	const { setPending, scrollTo } = useScrollIntoView();
 	const select = useSelect();

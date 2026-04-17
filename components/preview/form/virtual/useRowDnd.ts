@@ -4,7 +4,7 @@
  * Every row in the edit-mode form participates in drag-and-drop in one of
  * two flavors:
  *
- *   - **Draggable + drop target** (`QuestionRow`, `GroupOpenRow`) — the
+ *   - **Draggable + drop target** (`FieldRow`, `GroupOpenRow`) — the
  *     row's own DOM element is the drag source AND a drop target for
  *     other rows. Questions + groups can be picked up, and other items
  *     can be dropped onto them.

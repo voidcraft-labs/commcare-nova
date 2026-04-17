@@ -12,7 +12,7 @@ import tablerTrash from "@iconify-icons/tabler/trash";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useScrollIntoView } from "@/components/builder/contexts/ScrollRegistryContext";
 import { SavedCheck } from "@/components/builder/EditableTitle";
-import { QuestionTypeList } from "@/components/builder/QuestionTypeList";
+import { FieldTypeList } from "@/components/builder/FieldTypeList";
 import { tablerCopyPlus } from "@/components/icons/tablerExtras";
 import { Tooltip } from "@/components/ui/Tooltip";
 import { useCommitField } from "@/hooks/useCommitField";
@@ -86,7 +86,7 @@ export function ContextualEditorHeader({ field }: FieldEditorProps) {
 		renameField: renameFieldAction,
 	} = useBlueprintMutations();
 
-	/* Imperative doc handle. The grandparent row (`QuestionRow`) subscribes
+	/* Imperative doc handle. The grandparent row (`FieldRow`) subscribes
 	 * to the selected field entity AND receives `parentUuid` + `siblingIndex`
 	 * props — so every reorder of the selected field changes at least one
 	 * prop and propagates a re-render down to this header via the memo
@@ -435,7 +435,7 @@ export function ContextualEditorHeader({ field }: FieldEditorProps) {
 												<Menu.Popup className={MENU_POPUP_CLS}>
 													{/* `saveField` routes the patch through `updateField`,
 													 *  which expects the domain `kind` discriminant. */}
-													<QuestionTypeList
+													<FieldTypeList
 														types={conversionTargets}
 														activeType={field.kind}
 														onSelect={(next) => saveField("kind", next)}

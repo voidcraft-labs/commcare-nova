@@ -156,7 +156,7 @@ export function useIsFormSelected(uuid: Uuid): boolean {
 
 /**
  * `true` when a specific question uuid is the current selection.
- * Each `EditableQuestionWrapper` calls this with its own identity —
+ * Each `EditableFieldWrapper` calls this with its own identity —
  * only the previously-selected and newly-selected wrappers re-render
  * on a selection change.
  */

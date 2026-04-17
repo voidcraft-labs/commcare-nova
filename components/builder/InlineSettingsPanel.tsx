@@ -6,7 +6,7 @@
  * section cards at full form width. Sections are always expanded — the
  * user dismisses the entire panel by clicking off the question.
  *
- * The panel is a sibling of EditableQuestionWrapper (not inside it), so
+ * The panel is a sibling of EditableFieldWrapper (not inside it), so
  * it pushes subsequent questions down naturally and scrolls with the
  * question. Drag-drop still works — the panel is inside SortableQuestion
  * and moves with the question during drag.

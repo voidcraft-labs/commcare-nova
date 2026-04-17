@@ -1,5 +1,5 @@
 /**
- * QuestionRow — a single leaf question in the virtualized edit view.
+ * FieldRow — a single leaf question in the virtualized edit view.
  *
  * Drag wiring comes from the shared `useRowDnd` hook, which registers
  * the draggable + drop-target adapters and owns the cycle-safety +
@@ -11,7 +11,7 @@
  * and never changes row height, so the virtualizer stays stable.
  *
  * Does NOT handle group or repeat questions — those are bracket rows in
- * the flat row model. QuestionRow is a leaf-only renderer.
+ * the flat row model. FieldRow is a leaf-only renderer.
  */
 
 "use client";
@@ -19,11 +19,11 @@ import { attachClosestEdge } from "@atlaskit/pragmatic-drag-and-drop-hitbox/clos
 import { memo, useCallback } from "react";
 import { useFulfillPendingScroll } from "@/components/builder/contexts/ScrollRegistryContext";
 import { InlineSettingsPanel } from "@/components/builder/InlineSettingsPanel";
-import { EditableQuestionWrapper } from "@/components/preview/form/EditableQuestionWrapper";
+import { EditableFieldWrapper } from "@/components/preview/form/EditableFieldWrapper";
+import { FieldRenderer } from "@/components/preview/form/FieldRenderer";
 import { FIELD_STYLES } from "@/components/preview/form/fieldStyles";
 import { HiddenField } from "@/components/preview/form/fields/HiddenField";
 import { LabelField } from "@/components/preview/form/fields/LabelField";
-import { QuestionField } from "@/components/preview/form/QuestionField";
 import { TextEditable } from "@/components/preview/form/TextEditable";
 import { useEngineController, useEngineState } from "@/hooks/useFormEngine";
 import { useTextEditSave } from "@/hooks/useTextEditSave";
@@ -32,23 +32,23 @@ import type { Uuid } from "@/lib/domain";
 import { LabelContent } from "@/lib/references/LabelContent";
 import { useIsFieldSelected } from "@/lib/routing/hooks";
 import { DragPreviewPill } from "../DragPreviewPill";
-import { makeDropQuestionData } from "../dragData";
+import { makeDropFieldData } from "../dragData";
 import { depthPadding } from "../rowStyles";
 import { useRowDnd } from "../useRowDnd";
 
-interface QuestionRowProps {
+interface FieldRowProps {
 	readonly uuid: Uuid;
 	readonly parentUuid: Uuid;
 	readonly siblingIndex: number;
 	readonly depth: number;
 }
 
-export const QuestionRow = memo(function QuestionRow({
+export const FieldRow = memo(function FieldRow({
 	uuid,
 	parentUuid,
 	siblingIndex,
 	depth,
-}: QuestionRowProps) {
+}: FieldRowProps) {
 	const q = useField(uuid);
 	const state = useEngineState(uuid);
 	const controller = useEngineController();
@@ -60,7 +60,7 @@ export const QuestionRow = memo(function QuestionRow({
 		Parameters<typeof useRowDnd>[0]["buildDropData"]
 	>(
 		({ input, element }) =>
-			attachClosestEdge(makeDropQuestionData(uuid, parentUuid, siblingIndex), {
+			attachClosestEdge(makeDropFieldData(uuid, parentUuid, siblingIndex), {
 				element,
 				input,
 				allowedEdges: ["top", "bottom"],
@@ -141,7 +141,7 @@ export const QuestionRow = memo(function QuestionRow({
 						/>
 					</TextEditable>
 				)}
-				<QuestionField
+				<FieldRenderer
 					question={q}
 					state={displayState}
 					onChange={(value) => controller.onValueChange(uuid, value)}
@@ -162,12 +162,9 @@ export const QuestionRow = memo(function QuestionRow({
 				}}
 				data-question-uuid={uuid}
 			>
-				<EditableQuestionWrapper
-					questionUuid={uuid}
-					isDragging={isDraggingSelf}
-				>
+				<EditableFieldWrapper questionUuid={uuid} isDragging={isDraggingSelf}>
 					{content}
-				</EditableQuestionWrapper>
+				</EditableFieldWrapper>
 			</div>
 			{isFieldSelected && (
 				<div

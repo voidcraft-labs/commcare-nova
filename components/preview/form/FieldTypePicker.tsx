@@ -23,7 +23,7 @@ import {
 	MENU_SUBMENU_POSITIONER_CLS,
 } from "@/lib/styles";
 
-interface QuestionTypePickerPopupProps {
+interface FieldTypePickerPopupProps {
 	/** Insertion index within the parent's children array. */
 	atIndex: number;
 	/** UUID of the parent container (form for root-level, group/repeat uuid for nested). */
@@ -44,10 +44,10 @@ interface QuestionTypePickerPopupProps {
  * Menu close is handled automatically by `Menu.Item`'s `closeOnClick` default —
  * no explicit close callback is needed.
  */
-export function QuestionTypePickerPopup({
+export function FieldTypePickerPopup({
 	atIndex,
 	parentUuid,
-}: QuestionTypePickerPopupProps) {
+}: FieldTypePickerPopupProps) {
 	const { setPending } = useScrollIntoView();
 	const select = useSelect();
 	const { addField } = useBlueprintMutations();

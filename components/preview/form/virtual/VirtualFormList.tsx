@@ -54,10 +54,10 @@ import { BlueprintDocContext } from "@/lib/doc/provider";
 import { asUuid, type Uuid } from "@/lib/doc/types";
 import { useSelect, useSelectedField } from "@/lib/routing/hooks";
 import {
-	QuestionPickerContext,
-	type QuestionPickerPayload,
-} from "../QuestionPickerContext";
-import { QuestionTypePickerPopup } from "../QuestionTypePicker";
+	FieldPickerContext,
+	type FieldPickerPayload,
+} from "../FieldPickerContext";
+import { FieldTypePickerPopup } from "../FieldTypePicker";
 import {
 	isDraggableQuestionData,
 	isUuidInSubtree,
@@ -72,9 +72,9 @@ import {
 	INSERTION_REST_HEIGHT_PX,
 } from "./rowStyles";
 import { EmptyContainerRow } from "./rows/EmptyContainerRow";
+import { FieldRow } from "./rows/FieldRow";
 import { GroupCloseRow, GroupOpenRow } from "./rows/GroupBracket";
 import { InsertionPointRow } from "./rows/InsertionPointRow";
-import { QuestionRow } from "./rows/QuestionRow";
 import { useFormRows } from "./useFormRows";
 import { VirtualFormProvider } from "./VirtualFormContext";
 
@@ -587,7 +587,7 @@ export const VirtualFormList = memo(function VirtualFormList({
 	// ── Shared question-picker menu ──────────────────────────────────
 
 	const questionPickerHandle = useMemo(
-		() => Menu.createHandle<QuestionPickerPayload>(),
+		() => Menu.createHandle<FieldPickerPayload>(),
 		[],
 	);
 	const closeListenersRef = useRef(new Set<() => void>());
@@ -613,7 +613,7 @@ export const VirtualFormList = memo(function VirtualFormList({
 	const totalSize = virtualizer.getTotalSize();
 
 	return (
-		<QuestionPickerContext.Provider value={questionPickerCtx}>
+		<FieldPickerContext.Provider value={questionPickerCtx}>
 			<VirtualFormProvider
 				formUuid={formUuid}
 				toggleCollapse={toggleCollapse}
@@ -667,9 +667,9 @@ export const VirtualFormList = memo(function VirtualFormList({
 					modal={false}
 					onOpenChange={onPickerOpenChange}
 				>
-					{({ payload }: { payload: QuestionPickerPayload | undefined }) =>
+					{({ payload }: { payload: FieldPickerPayload | undefined }) =>
 						payload && (
-							<QuestionTypePickerPopup
+							<FieldTypePickerPopup
 								atIndex={payload.atIndex}
 								parentUuid={payload.parentUuid}
 							/>
@@ -677,7 +677,7 @@ export const VirtualFormList = memo(function VirtualFormList({
 					}
 				</Menu.Root>
 			</VirtualFormProvider>
-		</QuestionPickerContext.Provider>
+		</FieldPickerContext.Provider>
 	);
 });
 
@@ -723,7 +723,7 @@ const RenderRow = memo(function RenderRow({
 			return (
 				<>
 					{rails}
-					<QuestionRow
+					<FieldRow
 						uuid={row.uuid}
 						parentUuid={row.parentUuid}
 						siblingIndex={row.siblingIndex}

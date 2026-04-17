@@ -3,7 +3,7 @@ import { Icon } from "@iconify/react/offline";
 import type { FieldKind } from "@/lib/domain";
 import { questionTypeIcons, questionTypeLabels } from "@/lib/questionTypeIcons";
 
-interface QuestionTypeListProps {
+interface FieldTypeListProps {
 	/** The conversion targets to display. */
 	types: ReadonlyArray<FieldKind>;
 	/** The current kind — highlighted so the user knows what they're converting from. */
@@ -16,11 +16,11 @@ interface QuestionTypeListProps {
  *  Menu.Positioner — this component only renders the item rows.
  *  Conversion targets are always a short list (1–3 items), so a
  *  compact vertical layout fits better than a categorised menu. */
-export function QuestionTypeList({
+export function FieldTypeList({
 	types,
 	activeType,
 	onSelect,
-}: QuestionTypeListProps) {
+}: FieldTypeListProps) {
 	return (
 		<div className="overflow-hidden">
 			{types.map((type) => {

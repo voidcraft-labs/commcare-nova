@@ -155,7 +155,7 @@ export interface BuilderSessionState {
 
 	/** UUID of a just-added question — activates auto-focus and select-all
 	 *  on the ID input in ContextualEditorHeader. One-shot: set by
-	 *  QuestionTypePicker on add, consumed once by the header on mount. */
+	 *  FieldTypePicker on add, consumed once by the header on mount. */
 	newQuestionUuid: string | undefined;
 
 	// ── Actions ───────────────────────────────────────────────────────────

@@ -83,7 +83,7 @@ export type DropTargetData =
 	| DropEmptyContainerData;
 
 // Factory helpers — keep the `kind` discriminator in one place.
-export function makeDropQuestionData(
+export function makeDropFieldData(
 	uuid: Uuid,
 	parentUuid: Uuid,
 	siblingIndex: number,
