@@ -534,12 +534,12 @@ describe("toDocMutations", () => {
 			expect(m.form.type).toBe("registration");
 
 			// Questions should be flattened
-			expect(m.questions).toHaveLength(2);
-			expect(m.questions[0].id).toBe("patient_name");
-			expect(m.questions[1].id).toBe("patient_age");
+			expect(m.fields).toHaveLength(2);
+			expect(m.fields[0].id).toBe("patient_name");
+			expect(m.fields[1].id).toBe("patient_age");
 
 			// questionOrder should map formUuid to the two question UUIDs
-			expect(m.questionOrder[formUuid]).toHaveLength(2);
+			expect(m.fieldOrder[formUuid]).toHaveLength(2);
 		});
 
 		it("with out-of-bounds module index returns empty array", () => {
@@ -644,14 +644,14 @@ describe("toDocMutations", () => {
 			assert(m.kind === "replaceForm");
 
 			// 3 total questions: 1 group + 2 children
-			expect(m.questions).toHaveLength(3);
+			expect(m.fields).toHaveLength(3);
 
 			// Form-level ordering has the group
-			expect(m.questionOrder[formUuid]).toHaveLength(1);
-			expect(m.questionOrder[formUuid][0]).toBe(asUuid("group-uuid"));
+			expect(m.fieldOrder[formUuid]).toHaveLength(1);
+			expect(m.fieldOrder[formUuid][0]).toBe(asUuid("group-uuid"));
 
 			// Group-level ordering has the children
-			expect(m.questionOrder[asUuid("group-uuid")]).toHaveLength(2);
+			expect(m.fieldOrder[asUuid("group-uuid")]).toHaveLength(2);
 		});
 	});
 

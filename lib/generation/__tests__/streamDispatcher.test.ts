@@ -8,6 +8,7 @@
  */
 
 import { assert, beforeEach, describe, expect, it } from "vitest";
+import { legacyAppBlueprintToDoc } from "@/lib/doc/legacyBridge";
 import {
 	type BlueprintDocStoreApi,
 	createBlueprintDocStore,
@@ -132,9 +133,14 @@ function createWiredStores(): {
 	return { docStore, sessionStore };
 }
 
-/** Load an initial blueprint into the doc store and resume undo tracking. */
+/** Load an initial blueprint into the doc store and resume undo tracking.
+ *
+ *  Takes the wire-format AppBlueprint for backward compatibility with the
+ *  existing test fixtures; we translate to the normalized doc shape via
+ *  `legacyAppBlueprintToDoc` here, which is the same path the one-time
+ *  Firestore migration uses. */
 function hydrateDoc(docStore: BlueprintDocStoreApi, bp: AppBlueprint): void {
-	docStore.getState().load(bp, "test-app-id");
+	docStore.getState().load(legacyAppBlueprintToDoc("test-app-id", bp));
 	docStore.temporal.getState().resume();
 }
 
@@ -273,13 +279,13 @@ describe("applyStreamEvent", () => {
 				sessionStore,
 			);
 
-			/* The form should now have 2 questions. */
+			/* The form should now have 2 fields. */
 			const doc = docStore.getState();
-			const questionUuids = doc.questionOrder[formUuid];
-			assert(questionUuids);
-			expect(questionUuids).toHaveLength(2);
-			expect(doc.questions[questionUuids[0]].id).toBe("patient_name");
-			expect(doc.questions[questionUuids[1]].id).toBe("patient_age");
+			const fieldUuids = doc.fieldOrder[formUuid];
+			assert(fieldUuids);
+			expect(fieldUuids).toHaveLength(2);
+			expect(doc.fields[fieldUuids[0]].id).toBe("patient_name");
+			expect(doc.fields[fieldUuids[1]].id).toBe("patient_age");
 		});
 	});
 

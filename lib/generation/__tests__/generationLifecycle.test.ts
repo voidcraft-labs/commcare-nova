@@ -165,7 +165,7 @@ describe("generation lifecycle (end-to-end)", () => {
 			sessionStore,
 		);
 		// Form should have questions now
-		const topQuestions = doc().questionOrder[formUuid] ?? [];
+		const topQuestions = doc().fieldOrder[formUuid] ?? [];
 		expect(topQuestions.length).toBeGreaterThan(0);
 
 		// ── data-phase: validate ──
