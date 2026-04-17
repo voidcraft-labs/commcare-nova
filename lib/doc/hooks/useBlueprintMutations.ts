@@ -157,25 +157,6 @@ export interface BlueprintMutations {
 	 */
 	updateForm: (uuid: Uuid, patch: Partial<Omit<Form, "uuid">>) => void;
 	removeForm: (uuid: Uuid) => void;
-	/**
-	 * Replace a form's metadata + field subtree atomically.
-	 *
-	 * The replacement is expressed in the domain model: a form entity plus a
-	 * pre-flattened `fields` array and a `fieldOrder` adjacency map keyed by
-	 * the destination form uuid (for root-level fields) and by container
-	 * uuids (for group/repeat children). Callers that start from a nested
-	 * wire-format tree translate at their own boundary — the hook no longer
-	 * accepts the legacy `BlueprintForm` shape.
-	 *
-	 * The `form.uuid` field (if present) is ignored — the destination uuid
-	 * is the first argument.
-	 */
-	replaceForm: (
-		uuid: Uuid,
-		form: Omit<Form, "uuid"> & { uuid?: string },
-		fields: Field[],
-		fieldOrder: Record<Uuid, Uuid[]>,
-	) => void;
 
 	// ── Module mutations ──────────────────────────────────────────────────
 	/** Insert a new module. Returns the new module's uuid.
@@ -568,33 +549,6 @@ export function useBlueprintMutations(): BlueprintMutations {
 					return;
 				}
 				dispatch({ kind: "removeForm", uuid });
-			},
-
-			replaceForm(uuid, form, fields, fieldOrder) {
-				/* Wholesale form swap. The reducer expects a complete set of
-				 * replacement entities — the form entity, a flat `fields` array,
-				 * and a `fieldOrder` adjacency map keyed by the destination
-				 * form uuid (root) and by container uuids (for group/repeat
-				 * children). Callers that start from a tree translate at their
-				 * own boundary — there is no legacy-tree path through this hook. */
-				const doc = get();
-				if (!doc.forms[uuid]) {
-					warnUnresolved("replaceForm", { uuid });
-					return;
-				}
-
-				// Stamp the destination uuid on the form entity so the reducer's
-				// required-uuid invariant is satisfied without mutating the
-				// caller's reference.
-				const stampedForm = { ...form, uuid } as Form;
-
-				dispatch({
-					kind: "replaceForm",
-					uuid,
-					form: stampedForm,
-					fields,
-					fieldOrder,
-				});
 			},
 
 			addModule(module) {

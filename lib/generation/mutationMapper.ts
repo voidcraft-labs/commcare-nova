@@ -269,8 +269,8 @@ function mapModuleDone(
  *      clear it via `Object.assign` in the reducer). Every other
  *      optional form-level key is present in the patch, set to
  *      `undefined` when absent from the wire form, so stale values
- *      clear cleanly under `Object.assign` — this preserves the old
- *      `replaceForm` wholesale-swap semantics at the form-entity level.
+ *      clear cleanly under `Object.assign` — the form-entity layer of
+ *      the wholesale-swap semantics the mapper implements.
  *   2. `removeField × N` — one per existing top-level child of the form.
  *      The reducer's `cascadeDeleteField` walks into each container and
  *      deletes the entire descendant subtree, so only top-level children
@@ -316,19 +316,17 @@ function mapFormContent(
 	 *
 	 * Every mutable form-level property is emitted explicitly: present
 	 * values install the new state, absent values become `undefined` so
-	 * the reducer's `Object.assign(form, patch)` clears them. This keeps
-	 * the wholesale-replace semantics the old `replaceForm` mutation
-	 * provided at the form-entity level — a wire form that no longer has
-	 * a `close_condition` correctly drops the stored `closeCondition`
-	 * rather than leaving stale data in place.
+	 * the reducer's `Object.assign(form, patch)` clears them. This gives
+	 * the form-entity layer wholesale-swap semantics — a wire form that
+	 * no longer has a `close_condition` correctly drops the stored
+	 * `closeCondition` rather than leaving stale data in place.
 	 *
 	 * `purpose` is deliberately absent from the patch type + object.
 	 * Scaffold stamps `purpose` onto the form entity; the SA's wire form
 	 * payload doesn't round-trip it. Omitting the key entirely (not even
 	 * as `undefined`) means `Object.assign` never sees it and the
-	 * existing value survives — symmetric with the dance the old
-	 * `replaceForm` code did when it re-stamped `existingForm.purpose`
-	 * onto the replacement entity.
+	 * existing value survives — the purpose field is carried across the
+	 * swap implicitly rather than being explicitly re-stamped.
 	 */
 	const formPatch: Partial<Omit<Form, "uuid" | "purpose">> = {
 		// Forms carry a semantic id slug; preserve the scaffold-derived
@@ -363,8 +361,7 @@ function mapFormContent(
 		// `form_links` clears any previously-stored links — symmetric with
 		// `connect`, `closeCondition`, and `postSubmit`. Without this key,
 		// `Object.assign` would leave stale links in place, diverging from
-		// the wholesale-replace semantics the old `replaceForm` mutation
-		// provided.
+		// the wholesale-swap semantics this patch provides.
 		//
 		// Wire → domain translation: wire `form_links` target types carry
 		// `moduleIndex` / `formIndex`; the domain shape uses

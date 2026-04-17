@@ -467,31 +467,6 @@ describe("useBlueprintMutations", () => {
 		expect(after - before).toBe(1);
 	});
 
-	// ── replaceForm ───────────────────────────────────────────────────────
-
-	it("replaceForm wholesale-swaps a form's questions", () => {
-		const { result } = renderHook(() => useMutationsAndFirstFormChildren(), {
-			wrapper,
-		});
-
-		act(() => {
-			const formUuid = getFormUuid(result.current.store);
-			const Q_Z = asUuid("q-z-0000-0000-0000-000000000000");
-			const Q_Y = asUuid("q-y-0000-0000-0000-000000000000");
-			result.current.mutations.replaceForm(
-				formUuid,
-				{ id: "f0", name: "F0", type: "survey" },
-				[
-					{ uuid: Q_Z, id: "z", kind: "text", label: "Z" },
-					{ uuid: Q_Y, id: "y", kind: "text", label: "Y" },
-				],
-				{ [formUuid]: [Q_Z, Q_Y] },
-			);
-		});
-
-		expect(result.current.children.map((q) => q.id)).toEqual(["z", "y"]);
-	});
-
 	// ── addForm returns uuid ──────────────────────────────────────────────
 
 	it("addForm returns the new form's uuid", () => {
@@ -1039,12 +1014,6 @@ describe("useBlueprintMutations", () => {
 					name: "nope",
 				});
 				result.current.mutations.removeForm(asUuid("bogus-uuid"));
-				result.current.mutations.replaceForm(
-					asUuid("bogus-uuid"),
-					{ id: "nope", name: "nope", type: "survey" },
-					[],
-					{},
-				);
 				result.current.mutations.updateModule(asUuid("bogus-uuid"), {
 					name: "nope",
 				});

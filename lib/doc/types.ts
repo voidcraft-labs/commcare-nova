@@ -40,13 +40,6 @@ export type Mutation =
 	| { kind: "moveForm"; uuid: Uuid; toModuleUuid: Uuid; toIndex: number }
 	| { kind: "renameForm"; uuid: Uuid; newId: string }
 	| { kind: "updateForm"; uuid: Uuid; patch: Partial<Omit<Form, "uuid">> }
-	| {
-			kind: "replaceForm";
-			uuid: Uuid;
-			form: Form;
-			fields: Field[];
-			fieldOrder: Record<Uuid, Uuid[]>;
-	  }
 	// Field
 	| { kind: "addField"; parentUuid: Uuid; field: Field; index?: number }
 	| { kind: "removeField"; uuid: Uuid }

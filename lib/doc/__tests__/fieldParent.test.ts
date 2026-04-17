@@ -103,10 +103,7 @@ function applyBatch(
 
 // ── Shared UUID factories ────────────────────────────────────────────────────
 // Fixed, readable test UUIDs so failure messages are greppable.
-const MOD = asUuid("mod1-0000-0000-0000-000000000000");
-const MOD2 = asUuid("mod2-0000-0000-0000-000000000000");
 const FRM = asUuid("frm1-0000-0000-0000-000000000000");
-const FRM2 = asUuid("frm2-0000-0000-0000-000000000000");
 const FLD_A = asUuid("flda-0000-0000-0000-000000000000");
 const FLD_B = asUuid("fldb-0000-0000-0000-000000000000");
 const FLD_C = asUuid("fldc-0000-0000-0000-000000000000");
@@ -774,106 +771,6 @@ describe("after form-level mutations", () => {
 		expect(FLD_B in result.fields).toBe(false);
 		expect(FLD_A in result.fieldParent).toBe(false);
 		expect(FLD_B in result.fieldParent).toBe(false);
-	});
-});
-
-// ── replaceForm ───────────────────────────────────────────────────────────────
-
-describe("after replaceForm", () => {
-	it("replaces a form with a richer subtree: old fields gone, new fields appear with correct parents", () => {
-		const doc = buildDoc({
-			modules: [
-				{
-					name: "M",
-					forms: [
-						{
-							name: "F",
-							type: "survey",
-							fields: [
-								f({ kind: "text", id: "old_q", uuid: FLD_A.toString() }),
-							],
-						},
-					],
-				},
-			],
-		});
-		const store = storeFrom(doc);
-		const formUuid = Object.keys(doc.forms)[0] as Uuid;
-
-		// New subtree: form with a group containing two leaf fields.
-		const result = applyBatch(store, [
-			{
-				kind: "replaceForm",
-				uuid: formUuid,
-				form: { uuid: formUuid, id: "f", name: "F Updated", type: "survey" },
-				fields: [
-					{
-						uuid: GRP,
-						id: "new_grp",
-						kind: "group",
-						label: "New Group",
-					} as BlueprintDoc["fields"][Uuid],
-					{
-						uuid: FLD_B,
-						id: "new_q1",
-						kind: "text",
-						label: "New Q1",
-					} as BlueprintDoc["fields"][Uuid],
-					{
-						uuid: FLD_C,
-						id: "new_q2",
-						kind: "text",
-						label: "New Q2",
-					} as BlueprintDoc["fields"][Uuid],
-				],
-				fieldOrder: {
-					[formUuid]: [GRP] as Uuid[],
-					[GRP]: [FLD_B, FLD_C] as Uuid[],
-				},
-			},
-		]);
-		assertFieldParentInvariants(result);
-		// Old field must be gone.
-		expect(FLD_A in result.fields).toBe(false);
-		expect(FLD_A in result.fieldParent).toBe(false);
-		// New fields must have correct parents.
-		expect(result.fieldParent[GRP]).toBe(formUuid);
-		expect(result.fieldParent[FLD_B]).toBe(GRP);
-		expect(result.fieldParent[FLD_C]).toBe(GRP);
-	});
-
-	it("replaces a form with an empty subtree: all old fields vanish", () => {
-		const doc = buildDoc({
-			modules: [
-				{
-					name: "M",
-					forms: [
-						{
-							name: "F",
-							type: "survey",
-							fields: [
-								f({ kind: "text", id: "q1", uuid: FLD_A.toString() }),
-								f({ kind: "text", id: "q2", uuid: FLD_B.toString() }),
-							],
-						},
-					],
-				},
-			],
-		});
-		const store = storeFrom(doc);
-		const formUuid = Object.keys(doc.forms)[0] as Uuid;
-		const result = applyBatch(store, [
-			{
-				kind: "replaceForm",
-				uuid: formUuid,
-				form: { uuid: formUuid, id: "f", name: "F Empty", type: "survey" },
-				fields: [],
-				fieldOrder: { [formUuid]: [] as Uuid[] },
-			},
-		]);
-		assertFieldParentInvariants(result);
-		expect(Object.keys(result.fields)).toHaveLength(0);
-		expect(Object.keys(result.fieldParent)).toHaveLength(0);
 	});
 });
 

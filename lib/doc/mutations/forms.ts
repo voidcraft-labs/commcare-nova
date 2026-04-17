@@ -1,28 +1,26 @@
 import type { Draft } from "immer";
 import type { BlueprintDoc, Mutation } from "@/lib/doc/types";
-import { cascadeDeleteField, cascadeDeleteForm } from "./helpers";
+import { cascadeDeleteForm } from "./helpers";
 
 /**
- * Form mutations. `replaceForm` is handled in a dedicated branch because it
- * has to atomically swap a form's entire subtree — fields and all nested
- * ordering — without disturbing siblings.
+ * Form mutations — fine-grained only.
  *
  * `renameForm` maps to the form's `name` field (the only user-editable
  * free-form identifier on a form). The `id`-style slug doesn't exist on
  * forms; CommCare derives the form's XForm id from its position.
+ *
+ * Wholesale-swap semantics (e.g. replacing a form's entire field subtree)
+ * are expressed by composing `updateForm + removeField × N + addField × M`
+ * at the agent-stream mutation mapper — this reducer has no dedicated
+ * wholesale kind and stays focused on a single fine-grained operation
+ * per case.
  */
 export function applyFormMutation(
 	draft: Draft<BlueprintDoc>,
 	mut: Extract<
 		Mutation,
 		{
-			kind:
-				| "addForm"
-				| "removeForm"
-				| "moveForm"
-				| "renameForm"
-				| "updateForm"
-				| "replaceForm";
+			kind: "addForm" | "removeForm" | "moveForm" | "renameForm" | "updateForm";
 		}
 	>,
 ): void {
@@ -81,42 +79,6 @@ export function applyFormMutation(
 			const form = draft.forms[mut.uuid];
 			if (!form) return;
 			Object.assign(form, mut.patch);
-			return;
-		}
-		case "replaceForm": {
-			// Invariant: the mutation's `uuid` (which form to replace) must match
-			// the uuid on the incoming form entity. Allowing them to diverge
-			// would install a form entity whose `.uuid` disagrees with its
-			// position in the draft's `forms` map — every downstream lookup
-			// would then get an entity whose self-reported identity is wrong.
-			// This is a programmer error, not a user error: throw so the
-			// offending call site surfaces in development, before the bad state
-			// propagates through undo/redo history.
-			if (mut.form.uuid !== mut.uuid) {
-				throw new Error(
-					`replaceForm: form.uuid (${mut.form.uuid}) must match mut.uuid (${mut.uuid})`,
-				);
-			}
-			const existing = draft.forms[mut.uuid];
-			if (!existing) return;
-			// Drop the old field subtree (but don't touch formOrder — the
-			// form stays in its module at the same position).
-			const oldTop = draft.fieldOrder[mut.uuid] ?? [];
-			for (const fUuid of [...oldTop]) {
-				cascadeDeleteField(draft as unknown as BlueprintDoc, fUuid);
-			}
-			// Swap the entity.
-			draft.forms[mut.uuid] = mut.form;
-			// Install the new fields.
-			for (const f of mut.fields) {
-				draft.fields[f.uuid] = f;
-			}
-			// Install the new ordering maps. Each entry replaces whatever
-			// was there before (covers the top-level form slot and any nested
-			// group/repeat containers).
-			for (const [parent, order] of Object.entries(mut.fieldOrder)) {
-				draft.fieldOrder[parent as keyof typeof draft.fieldOrder] = order;
-			}
 			return;
 		}
 	}

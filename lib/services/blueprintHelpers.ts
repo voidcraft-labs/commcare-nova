@@ -712,33 +712,6 @@ export function updateFormMutations(
 	return [{ kind: "updateForm", uuid: formUuid, patch: reducerPatch }];
 }
 
-/**
- * Replace a form's metadata + field subtree atomically. The incoming
- * `fields` array and `fieldOrder` map describe the NEW subtree; the
- * reducer drops the old subtree and installs the new one in one pass.
- *
- * The form uuid is preserved by convention — callers that want to
- * replace a form without disturbing its slot in the module order pass
- * the existing uuid. The reducer refuses to act if the form doesn't
- * already exist (`replaceForm` is a swap, not an insert).
- */
-export function replaceFormMutations(
-	doc: BlueprintDoc,
-	formUuid: Uuid,
-	form: Form,
-	fields: Field[],
-	fieldOrder: Record<Uuid, Uuid[]>,
-): Mutation[] {
-	if (doc.forms[formUuid] === undefined) return [];
-	// Stamp the destination uuid onto the form entity so callers that
-	// constructed it standalone (without knowing the destination) still
-	// produce a well-formed replacement.
-	const stamped: Form = { ...form, uuid: formUuid };
-	return [
-		{ kind: "replaceForm", uuid: formUuid, form: stamped, fields, fieldOrder },
-	];
-}
-
 // ── Mutation builders — fields ──────────────────────────────────────────
 
 /** Build an `addField` mutation. The caller supplies a full `Field`

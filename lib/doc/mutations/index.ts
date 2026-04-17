@@ -56,7 +56,6 @@ function dispatchMutation(
 		case "moveForm":
 		case "renameForm":
 		case "updateForm":
-		case "replaceForm":
 			applyFormMutation(draft, mut);
 			return;
 		case "addField":

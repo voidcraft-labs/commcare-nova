@@ -718,8 +718,8 @@ describe("toDocMutations", () => {
 			//      connect, postSubmit, formLinks — must be PRESENT (set
 			//      to `undefined` when the wire form omits them) so
 			//      Object.assign clears any previously-stored value. This
-			//      is the wholesale-replace invariant the old `replaceForm`
-			//      mutation held at the entity level.
+			//      is the wholesale-swap invariant the patch holds at the
+			//      form-entity level.
 			//
 			// Using the `in` operator catches silent drift either way —
 			// `{ key: undefined }` counts as "present" for `in`, which is
