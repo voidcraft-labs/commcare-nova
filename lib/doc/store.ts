@@ -32,10 +32,11 @@ import { immer } from "zustand/middleware/immer";
 import { rebuildFieldParent } from "@/lib/doc/fieldParent";
 import { applyMutation, applyMutations } from "@/lib/doc/mutations";
 import type {
+	BlueprintDoc,
 	FieldRenameMeta,
 	MoveFieldResult,
-} from "@/lib/doc/mutations/fields";
-import type { BlueprintDoc, Mutation } from "@/lib/doc/types";
+	Mutation,
+} from "@/lib/doc/types";
 import type { PersistableDoc } from "@/lib/domain/blueprint";
 
 export { rebuildFieldParent };

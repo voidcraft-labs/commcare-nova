@@ -12,7 +12,7 @@
  * for all other mutation kinds.
  *
  * `applyMutations` is a batched convenience for the agent stream
- * (Phase 4) and for restoring a doc from a mutation log.
+ * and for restoring a doc from a mutation log.
  */
 
 import type { Draft } from "immer";
@@ -23,14 +23,6 @@ import { applyFieldMutation } from "./fields";
 import { applyFormMutation } from "./forms";
 import { assertNever } from "./helpers";
 import { applyModuleMutation } from "./modules";
-
-// Re-export via the types barrel so downstream consumers have a single
-// import path for all doc-layer result types.
-export type {
-	FieldRenameMeta,
-	MoveFieldResult,
-	MutationResult,
-} from "@/lib/doc/types";
 
 /**
  * Internal: dispatch a single mutation to the appropriate sub-reducer

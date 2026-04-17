@@ -25,9 +25,13 @@
  */
 
 import { useContext, useMemo } from "react";
-import type { MoveFieldResult } from "@/lib/doc/mutations/fields";
 import { BlueprintDocContext } from "@/lib/doc/provider";
-import type { BlueprintDoc, Mutation, Uuid } from "@/lib/doc/types";
+import type {
+	BlueprintDoc,
+	MoveFieldResult,
+	Mutation,
+	Uuid,
+} from "@/lib/doc/types";
 import {
 	asUuid,
 	type CaseProperty,
