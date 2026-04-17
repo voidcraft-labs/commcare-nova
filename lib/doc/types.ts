@@ -1,18 +1,14 @@
 // lib/doc/types.ts
 //
-// Thin re-export shim that forwards the normalized blueprint types from
-// `@/lib/domain` and defines the doc-layer `Mutation` union. New code
-// should import the entity types (`Field`, `Form`, `Module`, `BlueprintDoc`)
-// directly from `@/lib/domain`; the `*Entity` aliases exported here exist
-// only for legacy call sites inside this package that are not yet renamed.
+// Defines the doc-layer `Mutation` union and re-exports the handful of
+// doc-adjacent types that the mutation reducers + hooks need. Components
+// and application code import entity types (`Field`, `Form`, `Module`,
+// `BlueprintDoc`) directly from `@/lib/domain`; this file exists only
+// because `Mutation` cites domain types in the mutation payload shapes,
+// and it's conventional for reducers to live in the same directory as
+// the types they consume.
 
-export type {
-	BlueprintDoc,
-	Field as QuestionEntity,
-	Form as FormEntity,
-	Module as ModuleEntity,
-	Uuid,
-} from "@/lib/domain";
+export type { BlueprintDoc, Uuid } from "@/lib/domain";
 export { asUuid } from "@/lib/domain";
 
 import type {
