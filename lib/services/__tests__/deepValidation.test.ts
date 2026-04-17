@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { q } from "../../__tests__/testHelpers";
-import { questionTreeToFieldTree } from "../../preview/engine/fieldTree";
+import type { CaseType } from "@/lib/domain";
+import { buildDoc, type FieldSpec, f } from "../../__tests__/docHelpers";
+import { buildFieldTree } from "../../preview/engine/fieldTree";
 import { TriggerDag } from "../../preview/engine/triggerDag";
-import type { AppBlueprint, CaseType, Question } from "../../schemas/blueprint";
 import {
 	FUNCTION_REGISTRY,
 	findCaseInsensitiveMatch,
@@ -36,9 +36,7 @@ describe("validateXPath", () => {
 		it("returns no errors for variadic functions", () => {
 			expect(validateXPath("concat()")).toEqual([]);
 			expect(validateXPath("concat('a', 'b', 'c', 'd')")).toEqual([]);
-			expect(validateXPath("coalesce(#form/a, #form/b, 'default')")).toEqual(
-				[],
-			);
+			expect(validateXPath("coalesce(#form/a, #form/b, 'default')")).toEqual([]);
 			expect(validateXPath("min(1, 2, 3)")).toEqual([]);
 		});
 	});
@@ -292,41 +290,59 @@ describe("functionRegistry", () => {
 
 // ── TriggerDag Cycle Reporting ──────────────────────────────────────
 
+/**
+ * Small adapter: TriggerDag takes a `FieldTreeNode[]`. Tests construct a
+ * throwaway doc so we can exercise the DAG without depending on the
+ * runner. `buildFieldTree` is the same rose-tree builder the real
+ * validator uses.
+ */
+function treeFromFields(fields: FieldSpec[]) {
+	const doc = buildDoc({
+		appName: "Test",
+		modules: [{ name: "M", forms: [{ name: "F", type: "survey", fields }] }],
+	});
+	const formUuid = doc.formOrder[doc.moduleOrder[0]][0];
+	return buildFieldTree(formUuid, doc.fields, doc.fieldOrder);
+}
+
 describe("TriggerDag.reportCycles", () => {
 	it("returns empty for acyclic graph", () => {
 		const dag = new TriggerDag();
-		const questions = [
-			q({ id: "a", type: "int", label: "A" }),
-			q({ id: "b", type: "int", label: "B", calculate: "/data/a + 1" }),
-		];
-		const cycles = dag.reportCycles(questionTreeToFieldTree(questions));
+		const cycles = dag.reportCycles(
+			treeFromFields([
+				f({ kind: "int", id: "a", label: "A" }),
+				f({ kind: "int", id: "b", label: "B", calculate: "/data/a + 1" }),
+			]),
+		);
 		expect(cycles).toEqual([]);
 	});
 
 	it("detects A→B→A cycle", () => {
 		const dag = new TriggerDag();
-		const questions = [
-			q({ id: "a", type: "int", label: "A", calculate: "/data/b + 1" }),
-			q({ id: "b", type: "int", label: "B", calculate: "/data/a + 1" }),
-		];
-		const cycles = dag.reportCycles(questionTreeToFieldTree(questions));
+		const cycles = dag.reportCycles(
+			treeFromFields([
+				f({ kind: "int", id: "a", label: "A", calculate: "/data/b + 1" }),
+				f({ kind: "int", id: "b", label: "B", calculate: "/data/a + 1" }),
+			]),
+		);
 		expect(cycles.length).toBeGreaterThan(0);
 	});
 
 	it("handles diamond dependency (no cycle)", () => {
 		const dag = new TriggerDag();
-		const questions = [
-			q({ id: "a", type: "int", label: "A" }),
-			q({ id: "b", type: "int", label: "B", calculate: "/data/a + 1" }),
-			q({ id: "c", type: "int", label: "C", calculate: "/data/a + 2" }),
-			q({
-				id: "d",
-				type: "int",
-				label: "D",
-				calculate: "/data/b + /data/c",
-			}),
-		];
-		const cycles = dag.reportCycles(questionTreeToFieldTree(questions));
+		const cycles = dag.reportCycles(
+			treeFromFields([
+				f({ kind: "int", id: "a", label: "A" }),
+				f({ kind: "int", id: "b", label: "B", calculate: "/data/a + 1" }),
+				f({ kind: "int", id: "c", label: "C", calculate: "/data/a + 2" }),
+				f({
+					kind: "int",
+					id: "d",
+					label: "D",
+					calculate: "/data/b + /data/c",
+				}),
+			]),
+		);
 		expect(cycles).toEqual([]);
 	});
 });
@@ -334,93 +350,91 @@ describe("TriggerDag.reportCycles", () => {
 // ── Orchestrator Integration ────────────────────────────────────────
 
 describe("validateBlueprintDeep", () => {
-	const makeBlueprint = (
-		questions: Question[],
+	const makeDoc = (
+		fields: FieldSpec[],
 		caseTypes: CaseType[] | null = null,
-	): AppBlueprint => ({
-		app_name: "Test",
-		modules: [
-			{
-				uuid: "module-1-uuid",
-				name: "Mod",
-				case_type: caseTypes ? "patient" : undefined,
-				forms: [
-					{
-						uuid: "form-1-uuid",
-						name: "Form",
-						type: "registration" as const,
-						questions,
-					},
-				],
-			},
-		],
-		case_types: caseTypes,
-	});
+	) =>
+		buildDoc({
+			appName: "Test",
+			modules: [
+				{
+					name: "Mod",
+					caseType: caseTypes ? "patient" : undefined,
+					forms: [{ name: "Form", type: "registration", fields }],
+				},
+			],
+			caseTypes,
+		});
 
 	it("returns no errors for valid blueprint", () => {
-		const bp = makeBlueprint(
+		const doc = makeDoc(
 			[
-				q({
+				f({
+					kind: "text",
 					id: "case_name",
-					type: "text",
 					label: "Name",
-					case_property_on: "patient",
+					case_property: "patient",
 				}),
-				q({
+				f({
+					kind: "int",
 					id: "age",
-					type: "int",
 					label: "Age",
 					relevant: "/data/case_name != ''",
 				}),
 			],
 			[{ name: "patient", properties: [{ name: "case_name", label: "Name" }] }],
 		);
-		const errors = validateBlueprintDeep(bp);
-		expect(errors).toEqual([]);
+		expect(validateBlueprintDeep(doc)).toEqual([]);
 	});
 
 	it("catches unknown function in XPath", () => {
-		const bp = makeBlueprint([
-			q({ id: "name", type: "text", label: "Name" }),
-			q({ id: "val", type: "hidden", calculate: "foobar(1)" }),
+		const doc = makeDoc([
+			f({ kind: "text", id: "name", label: "Name" }),
+			f({ kind: "hidden", id: "val", calculate: "foobar(1)" }),
 		]);
-		const errors = validateBlueprintDeep(bp);
-		expect(errors.some((e) => e.includes("Unknown function"))).toBe(true);
+		expect(
+			validateBlueprintDeep(doc).some((e) => e.includes("Unknown function")),
+		).toBe(true);
 	});
 
 	it("catches wrong arity", () => {
-		const bp = makeBlueprint([
-			q({ id: "name", type: "text", label: "Name" }),
-			q({ id: "val", type: "hidden", calculate: "round(3.14, 2)" }),
+		const doc = makeDoc([
+			f({ kind: "text", id: "name", label: "Name" }),
+			f({ kind: "hidden", id: "val", calculate: "round(3.14, 2)" }),
 		]);
-		const errors = validateBlueprintDeep(bp);
-		expect(errors.some((e) => e.includes("round()"))).toBe(true);
+		expect(
+			validateBlueprintDeep(doc).some((e) => e.includes("round()")),
+		).toBe(true);
 	});
 
 	it("catches circular dependencies", () => {
-		const bp = makeBlueprint([
-			q({ id: "a", type: "hidden", calculate: "/data/b + 1" }),
-			q({ id: "b", type: "hidden", calculate: "/data/a + 1" }),
+		const doc = makeDoc([
+			f({ kind: "hidden", id: "a", calculate: "/data/b + 1" }),
+			f({ kind: "hidden", id: "b", calculate: "/data/a + 1" }),
 		]);
-		const errors = validateBlueprintDeep(bp);
-		expect(errors.some((e) => e.includes("circular dependency"))).toBe(true);
+		expect(
+			validateBlueprintDeep(doc).some((e) => e.includes("circular dependency")),
+		).toBe(true);
 	});
 
 	it("catches unknown case property in #case/ ref", () => {
-		const bp = makeBlueprint(
+		const doc = makeDoc(
 			[
-				q({
+				f({
+					kind: "text",
 					id: "case_name",
-					type: "text",
 					label: "Name",
-					case_property_on: "patient",
+					case_property: "patient",
 				}),
-				q({ id: "val", type: "hidden", calculate: "#case/nonexistent + 1" }),
+				f({ kind: "hidden", id: "val", calculate: "#case/nonexistent + 1" }),
 			],
 			[{ name: "patient", properties: [{ name: "case_name", label: "Name" }] }],
 		);
-		const errors = validateBlueprintDeep(bp);
-		expect(errors.some((e) => e.includes("Unknown case property"))).toBe(true);
+		expect(
+			validateBlueprintDeep(doc).some((e) =>
+				e.includes("Unknown case property"),
+			),
+		).toBe(true);
 	});
 });
 
@@ -428,37 +442,35 @@ describe("validateBlueprintDeep", () => {
 
 describe("runValidation with deep validation", () => {
 	it("catches both rule-based and deep XPath errors", () => {
-		const bp: AppBlueprint = {
-			app_name: "Test",
+		const doc = buildDoc({
+			appName: "Test",
 			modules: [
 				{
-					uuid: "module-2-uuid",
 					name: "Mod",
-					case_type: "patient",
+					caseType: "patient",
+					caseListColumns: [{ field: "case_name", header: "Name" }],
 					forms: [
 						{
-							uuid: "form-1-uuid",
 							name: "Reg",
 							type: "registration",
-							questions: [
-								q({
+							fields: [
+								f({
+									kind: "text",
 									id: "case_name",
-									type: "text",
 									label: "Name",
-									case_property_on: "patient",
+									case_property: "patient",
 								}),
-								q({ id: "calc", type: "hidden", calculate: "foobar(1)" }),
+								f({ kind: "hidden", id: "calc", calculate: "foobar(1)" }),
 							],
 						},
 					],
 				},
 			],
-			case_types: [
+			caseTypes: [
 				{ name: "patient", properties: [{ name: "case_name", label: "Name" }] },
 			],
-		};
-
-		const errors = runValidation(bp);
+		});
+		const errors = runValidation(doc);
 		expect(errors.some((e) => e.code === "UNKNOWN_FUNCTION")).toBe(true);
 	});
 });
