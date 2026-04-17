@@ -707,10 +707,23 @@ describe("toDocMutations", () => {
 			).toEqual([]);
 		});
 
-		it("omits `purpose` from the updateForm patch so the existing value survives", () => {
-			// When the reducer applies `Object.assign(form, patch)`, a `purpose`
-			// key set to `undefined` would CLEAR the stored purpose. The patch
-			// must not carry the key at all — verified by in-operator here.
+		it("omits `purpose` but INCLUDES every other optional form key in the updateForm patch", () => {
+			// Two symmetric invariants at the patch level:
+			//
+			//   1. `purpose` must be ABSENT (not even `undefined`) so the
+			//      reducer's `Object.assign` leaves the scaffold-stamped
+			//      value in place. `{ purpose: undefined }` would clear it.
+			//
+			//   2. Every other optional form-level key — closeCondition,
+			//      connect, postSubmit, formLinks — must be PRESENT (set
+			//      to `undefined` when the wire form omits them) so
+			//      Object.assign clears any previously-stored value. This
+			//      is the wholesale-replace invariant the old `replaceForm`
+			//      mutation held at the entity level.
+			//
+			// Using the `in` operator catches silent drift either way —
+			// `{ key: undefined }` counts as "present" for `in`, which is
+			// exactly the semantic Object.assign keys on.
 			const doc = buildDocWithPurpose();
 
 			const incomingForm: BlueprintForm = {
@@ -728,9 +741,17 @@ describe("toDocMutations", () => {
 
 			const updateForm = mutations[0];
 			assert(updateForm.kind === "updateForm");
-			// Key must be absent, not just undefined: using `in` catches a
-			// `{ purpose: undefined }` spread that a type cast would hide.
 			expect("purpose" in updateForm.patch).toBe(false);
+			// Wholesale-replace keys — present so stale values clear.
+			expect("closeCondition" in updateForm.patch).toBe(true);
+			expect("connect" in updateForm.patch).toBe(true);
+			expect("postSubmit" in updateForm.patch).toBe(true);
+			expect("formLinks" in updateForm.patch).toBe(true);
+			// And each is `undefined` on an empty wire form.
+			expect(updateForm.patch.closeCondition).toBeUndefined();
+			expect(updateForm.patch.connect).toBeUndefined();
+			expect(updateForm.patch.postSubmit).toBeUndefined();
+			expect(updateForm.patch.formLinks).toBeUndefined();
 		});
 
 		it("nested group → parent addField precedes child adds with correct parentUuid", () => {
@@ -882,6 +903,160 @@ describe("toDocMutations", () => {
 			// its value must be undefined.
 			expect("closeCondition" in updateForm.patch).toBe(true);
 			expect(updateForm.patch.closeCondition).toBeUndefined();
+		});
+
+		it("nested repeat→group→text: emission order parent-before-child at every level", () => {
+			// Exercises the recursive-flatten contract at depth 3: every
+			// container's addField must land in the mutation array before
+			// any of its descendants' adds, transitively.
+			const doc = buildDocWithOneModuleOneFormEmpty();
+			const formUuid = doc.formOrder[doc.moduleOrder[0]][0];
+
+			const mutations = toDocMutations(
+				"data-form-done",
+				{
+					moduleIndex: 0,
+					formIndex: 0,
+					form: {
+						uuid: "ignored",
+						name: "Nested",
+						type: "registration",
+						questions: [
+							{
+								uuid: "r-1",
+								type: "repeat",
+								id: "visits",
+								label: "Visits",
+								children: [
+									{
+										uuid: "g-1",
+										type: "group",
+										id: "measurements",
+										label: "Measurements",
+										children: [
+											{
+												uuid: "t-1",
+												type: "int",
+												id: "weight",
+												label: "Weight",
+											},
+										],
+									},
+								],
+							},
+						],
+					} satisfies BlueprintForm,
+				},
+				doc,
+			);
+
+			// 1 updateForm + 3 addFields = 4
+			expect(mutations).toHaveLength(4);
+			assert(mutations[1].kind === "addField");
+			expect(mutations[1].field.uuid).toBe(asUuid("r-1"));
+			expect(mutations[1].parentUuid).toBe(formUuid);
+			assert(mutations[2].kind === "addField");
+			expect(mutations[2].field.uuid).toBe(asUuid("g-1"));
+			expect(mutations[2].parentUuid).toBe(asUuid("r-1"));
+			assert(mutations[3].kind === "addField");
+			expect(mutations[3].field.uuid).toBe(asUuid("t-1"));
+			expect(mutations[3].parentUuid).toBe(asUuid("g-1"));
+		});
+
+		it("sibling groups at the same level: each group's child indices start at 0", () => {
+			// Exercises the per-parent index reset in the flattener's forEach:
+			// siblings share a parent-index sequence (0, 1, …) but children
+			// of different sibling containers each get their own 0-based
+			// sequence under their container's uuid.
+			const doc = buildDocWithOneModuleOneFormEmpty();
+			const formUuid = doc.formOrder[doc.moduleOrder[0]][0];
+
+			const mutations = toDocMutations(
+				"data-form-done",
+				{
+					moduleIndex: 0,
+					formIndex: 0,
+					form: {
+						uuid: "ignored",
+						name: "Siblings",
+						type: "registration",
+						questions: [
+							{
+								uuid: "g-1",
+								type: "group",
+								id: "demo",
+								label: "Demographics",
+								children: [
+									{
+										uuid: "t-1",
+										type: "text",
+										id: "name",
+										label: "Name",
+									},
+									{
+										uuid: "t-2",
+										type: "int",
+										id: "age",
+										label: "Age",
+									},
+								],
+							},
+							{
+								uuid: "g-2",
+								type: "group",
+								id: "hist",
+								label: "History",
+								children: [
+									{
+										uuid: "t-3",
+										type: "text",
+										id: "cond",
+										label: "Condition",
+									},
+								],
+							},
+						],
+					} satisfies BlueprintForm,
+				},
+				doc,
+			);
+
+			// 1 updateForm + 5 addFields
+			expect(mutations).toHaveLength(6);
+
+			// Top-level indices for the two sibling groups.
+			const g1 = mutations.find(
+				(m) => m.kind === "addField" && m.field.uuid === asUuid("g-1"),
+			);
+			const g2 = mutations.find(
+				(m) => m.kind === "addField" && m.field.uuid === asUuid("g-2"),
+			);
+			assert(g1?.kind === "addField" && g2?.kind === "addField");
+			expect(g1.index).toBe(0);
+			expect(g2.index).toBe(1);
+			expect(g1.parentUuid).toBe(formUuid);
+			expect(g2.parentUuid).toBe(formUuid);
+
+			// Children of g-1 land at indices 0, 1 under g-1.
+			const t1 = mutations.find(
+				(m) => m.kind === "addField" && m.field.uuid === asUuid("t-1"),
+			);
+			const t2 = mutations.find(
+				(m) => m.kind === "addField" && m.field.uuid === asUuid("t-2"),
+			);
+			assert(t1?.kind === "addField" && t2?.kind === "addField");
+			expect(t1.parentUuid).toBe(asUuid("g-1"));
+			expect(t1.index).toBe(0);
+			expect(t2.parentUuid).toBe(asUuid("g-1"));
+			expect(t2.index).toBe(1);
+
+			// Child of g-2 gets its own 0-index under g-2.
+			const t3 = mutations.find(
+				(m) => m.kind === "addField" && m.field.uuid === asUuid("t-3"),
+			);
+			assert(t3?.kind === "addField");
+			expect(t3.parentUuid).toBe(asUuid("g-2"));
+			expect(t3.index).toBe(0);
 		});
 	});
 

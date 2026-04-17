@@ -36,10 +36,11 @@ import type {
 	CaseType,
 	Field,
 	Form,
+	FormLink,
 	FormType,
 	Uuid,
 } from "@/lib/domain";
-import { asUuid } from "@/lib/domain";
+import { asUuid, fieldSchema } from "@/lib/domain";
 import type { BlueprintForm, Scaffold } from "@/lib/schemas/blueprint";
 
 // ── Event type constants ───────────────────────────────────────────────
@@ -265,15 +266,29 @@ function mapModuleDone(
  *   1. `updateForm` — patches the form-entity metadata in place. Omits
  *      `purpose` so the scaffold-stamped value survives (the wire form
  *      doesn't carry purpose; including the key as `undefined` would
- *      clear it via `Object.assign` in the reducer).
+ *      clear it via `Object.assign` in the reducer). Every other
+ *      optional form-level key is present in the patch, set to
+ *      `undefined` when absent from the wire form, so stale values
+ *      clear cleanly under `Object.assign` — this preserves the old
+ *      `replaceForm` wholesale-swap semantics at the form-entity level.
  *   2. `removeField × N` — one per existing top-level child of the form.
  *      The reducer's `cascadeDeleteField` walks into each container and
  *      deletes the entire descendant subtree, so only top-level children
  *      need explicit mutations.
- *   3. `addField × M` — one per incoming wire question, in top-down tree
- *      order. Container parents always precede their children in the
- *      array; the `addField` reducer pre-seeds `fieldOrder` for group /
- *      repeat kinds so nested adds find a valid parent slot.
+ *   3. `addField × M` — one per schema-valid incoming wire question, in
+ *      top-down tree order. Container parents always precede their
+ *      children in the array; the `addField` reducer pre-seeds
+ *      `fieldOrder` for group / repeat kinds so nested adds find a
+ *      valid parent slot.
+ *
+ * The mapper is the wire-format safety gate: each wire question is run
+ * through `fieldSchema.safeParse` before being turned into an
+ * `addField`. Schema-invalid questions are dropped with a `console.warn`
+ * so bad SA output doesn't corrupt the doc store (the `addField`
+ * reducer itself does NOT validate, so this is the only line of
+ * defense for fields entering via this path). If a container fails
+ * validation, its entire subtree is skipped — the children would have
+ * no parent entity to land under.
  *
  * Expected payload: `{ moduleIndex: number, formIndex: number, form: BlueprintForm }`
  */
@@ -340,7 +355,24 @@ function mapFormContent(
 		connect: form.connect ?? undefined,
 		// postSubmit preserves wholesale-replace semantics: when the wire
 		// form has no `post_submit`, the patch clears any stored value.
-		postSubmit: form.post_submit,
+		// `?? undefined` is semantically equivalent to bare `form.post_submit`
+		// (the wire type is already `| undefined`) but uses the same idiom
+		// as the adjacent keys so every optional patch slot reads the same.
+		postSubmit: form.post_submit ?? undefined,
+		// formLinks must be in the patch so an SA update that omits
+		// `form_links` clears any previously-stored links — symmetric with
+		// `connect`, `closeCondition`, and `postSubmit`. Without this key,
+		// `Object.assign` would leave stale links in place, diverging from
+		// the wholesale-replace semantics the old `replaceForm` mutation
+		// provided.
+		//
+		// Wire → domain translation: wire `form_links` target types carry
+		// `moduleIndex` / `formIndex`; the domain shape uses
+		// `moduleUuid` / `formUuid`. We resolve indices via the snapshot
+		// `doc` parameter at this boundary so every downstream consumer
+		// sees uuid-based targets (symmetric with how `legacyBridge.ts`
+		// migrates legacy app docs on load).
+		formLinks: translateWireFormLinks(form.form_links, doc),
 	};
 
 	const mutations: Mutation[] = [
@@ -386,12 +418,12 @@ function mapFormContent(
 /**
  * Recursive wire→domain walker for question subtrees.
  *
- * Pushes a `PendingFieldAdd` tuple for every wire question onto `acc` in
- * top-down tree order. Ordering invariant: a container parent's tuple is
- * always pushed before any of its descendants' tuples, so a caller that
- * emits `addField` mutations in array order is guaranteed that every
- * parent is installed in the draft before any of its children try to
- * reference it.
+ * Pushes a `PendingFieldAdd` tuple for every SCHEMA-VALID wire question
+ * onto `acc` in top-down tree order. Ordering invariant: a container
+ * parent's tuple is always pushed before any of its descendants' tuples,
+ * so a caller that emits `addField` mutations in array order is
+ * guaranteed that every parent is installed in the draft before any of
+ * its children try to reference it.
  *
  * Rename rules applied here (the wire→domain translation happens only
  * at this boundary — every downstream `Field` uses the domain names):
@@ -407,6 +439,17 @@ function mapFormContent(
  * Only `group` and `repeat` kinds recurse into `children`; every other
  * kind is a leaf at the doc-normalized level, regardless of what the
  * wire payload might have attached.
+ *
+ * Validation: each assembled `fieldObj` runs through `fieldSchema.safeParse`
+ * before being pushed. The `addField` reducer does NOT validate, so this
+ * mapper is the only wire-boundary gate for fields entering via the SA
+ * stream. Failures log a warn with the uuid + parse issues and drop the
+ * ENTIRE subtree rooted at the bad node — recursing into children of an
+ * unvalidated container would produce orphan `addField` mutations whose
+ * parent never lands in the draft. Parsing also strips keys the matched
+ * variant doesn't define (Zod's default), so an SA that stamps e.g.
+ * `validate` onto a label gets a clean entity rather than accumulating
+ * drift.
  */
 function flattenWireQuestionsToFields(
 	questions: ReadonlyArray<WireQuestion>,
@@ -415,11 +458,19 @@ function flattenWireQuestionsToFields(
 ): void {
 	questions.forEach((q, index) => {
 		const uuid = asUuid(q.uuid);
+		// Assemble the domain-shaped candidate. Every wire key is emitted
+		// conditionally — Zod's parse pass then validates the merged shape
+		// and strips anything that doesn't belong on the matched kind.
+		// `label` uses the same conditional-spread pattern as every other
+		// optional key: kinds that require a label (everything except
+		// `hidden`) fail parse if it's missing, which surfaces the wire
+		// bug via the warn branch below rather than silently installing
+		// an empty string on a kind (`hidden`) that has no label field.
 		const fieldObj: Record<string, unknown> = {
 			kind: q.type,
 			uuid,
 			id: q.id,
-			label: q.label ?? "",
+			...(q.label != null && { label: q.label }),
 			...(q.case_property_on != null && { case_property: q.case_property_on }),
 			...(q.hint != null && { hint: q.hint }),
 			...(q.required != null && { required: q.required }),
@@ -430,9 +481,72 @@ function flattenWireQuestionsToFields(
 			...(q.default_value != null && { default_value: q.default_value }),
 			...(q.options != null && { options: q.options }),
 		};
-		acc.push({ parentUuid, field: fieldObj as Field, index });
+
+		const result = fieldSchema.safeParse(fieldObj);
+		if (!result.success) {
+			// Log enough context to locate the offending SA output and drop
+			// the entire subtree. We deliberately skip the `children`
+			// recursion below: without a valid parent entity, subsequent
+			// `addField` dispatches for the children would be rejected by
+			// the reducer's parent-existence guard anyway, and early-return
+			// here keeps the event log clean of doomed mutations.
+			console.warn(
+				`mutationMapper: dropping schema-invalid field ${q.id} (type=${q.type})`,
+				{ uuid: q.uuid, issues: result.error.issues },
+			);
+			return;
+		}
+
+		// `result.data` is the parsed + key-stripped entity — guaranteed
+		// to satisfy `fieldSchema`, which is what the `addField` reducer
+		// installs into `draft.fields` verbatim.
+		acc.push({ parentUuid, field: result.data, index });
 		if (q.children?.length && (q.type === "group" || q.type === "repeat")) {
 			flattenWireQuestionsToFields(q.children, uuid, acc);
 		}
+	});
+}
+
+/**
+ * Translate a wire-format `form_links` array into the domain's
+ * uuid-keyed `FormLink[]` shape. Returns `undefined` when the wire form
+ * has no links so the patch can clear any previously-stored value via
+ * `Object.assign`.
+ *
+ * Wire targets carry `moduleIndex` / `formIndex`; domain targets carry
+ * `moduleUuid` / `formUuid`. Resolution uses the doc snapshot's
+ * `moduleOrder` + `formOrder`, symmetric with how `legacyBridge.ts`
+ * migrates legacy app docs on load. Unknown target types (neither
+ * `module` nor `form`) cast through unchanged — the `updateForm`
+ * reducer doesn't re-validate formLinks, but downstream validators do.
+ */
+function translateWireFormLinks(
+	wireLinks: BlueprintForm["form_links"],
+	doc: BlueprintDoc,
+): FormLink[] | undefined {
+	if (wireLinks === undefined) return undefined;
+	return wireLinks.map((link) => {
+		const target = link.target;
+		let domainTarget: FormLink["target"];
+		if (target.type === "module") {
+			domainTarget = {
+				type: "module",
+				moduleUuid: doc.moduleOrder[target.moduleIndex],
+			};
+		} else if (target.type === "form") {
+			const moduleUuid = doc.moduleOrder[target.moduleIndex];
+			const formUuid = doc.formOrder[moduleUuid]?.[target.formIndex];
+			domainTarget = { type: "form", moduleUuid, formUuid };
+		} else {
+			// Unreachable given the wire schema's discriminated union, but
+			// guard defensively — widening the type silently here would
+			// install a malformed link into the doc.
+			domainTarget = target as unknown as FormLink["target"];
+		}
+		return {
+			...(link.condition != null && { condition: link.condition }),
+			target: domainTarget,
+			...(link.datums != null && { datums: link.datums }),
+		};
 	});
 }
