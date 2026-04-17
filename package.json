@@ -6,7 +6,7 @@
 		"dev": "next dev",
 		"build": "next build",
 		"start": "next start",
-		"lint": "biome check",
+		"lint": "biome check --error-on-warnings",
 		"format": "biome check --write",
 		"test": "vitest run",
 		"test:watch": "vitest",
