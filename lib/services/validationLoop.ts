@@ -52,7 +52,9 @@ function validateExpansion(
 
 		for (let fIdx = 0; fIdx < hqMod.forms.length; fIdx++) {
 			const hqForm = hqMod.forms[fIdx];
-			const formUuid = moduleUuid ? doc.formOrder[moduleUuid]?.[fIdx] : undefined;
+			const formUuid = moduleUuid
+				? doc.formOrder[moduleUuid]?.[fIdx]
+				: undefined;
 			const docForm = formUuid ? doc.forms[formUuid] : undefined;
 			const formName = docForm?.name ?? `Form ${fIdx}`;
 			const moduleName = docMod?.name ?? `Module ${mIdx}`;
@@ -178,7 +180,8 @@ export async function validateAndFix(
 			const muts = fix(error, workingDoc);
 			if (muts.length > 0) {
 				allMutations.push(...muts);
-				if (error.location.formUuid) fixedFormUuids.add(error.location.formUuid);
+				if (error.location.formUuid)
+					fixedFormUuids.add(error.location.formUuid);
 			}
 		}
 

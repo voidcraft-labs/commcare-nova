@@ -10,7 +10,10 @@
  */
 
 import type { BlueprintDoc, Field, Uuid } from "@/lib/domain";
-import { buildFieldTree, type FieldTreeNode } from "@/lib/preview/engine/fieldTree";
+import {
+	buildFieldTree,
+	type FieldTreeNode,
+} from "@/lib/preview/engine/fieldTree";
 import { TriggerDag } from "@/lib/preview/engine/triggerDag";
 import { validateXPath } from "./xpathValidator";
 
@@ -156,7 +159,14 @@ export function validateBlueprintDeep(doc: BlueprintDoc): string[] {
 			}
 
 			// Per-field XPath validation — recursive walk over the tree.
-			validateTreeXPath(tree, validPaths, caseProps, form.name, mod.name, errors);
+			validateTreeXPath(
+				tree,
+				validPaths,
+				caseProps,
+				form.name,
+				mod.name,
+				errors,
+			);
 
 			// Connect-block XPath expressions (only when app-level connect_type is set).
 			if (doc.connectType && form.connect) {

@@ -12,8 +12,8 @@
  * persistence stay consistent with manual edits.
  */
 
-import type { BlueprintDoc, Field, FieldPatch, Uuid } from "@/lib/domain";
 import type { Mutation } from "@/lib/doc/types";
+import type { BlueprintDoc, Field, FieldPatch, Uuid } from "@/lib/domain";
 import { XML_ELEMENT_NAME_REGEX } from "../constants";
 import type { ValidationError, ValidationErrorCode } from "./errors";
 
@@ -50,30 +50,6 @@ function findModuleUuidForForm(
 ): Uuid | undefined {
 	for (const moduleUuid of doc.moduleOrder) {
 		if ((doc.formOrder[moduleUuid] ?? []).includes(formUuid)) return moduleUuid;
-	}
-	return undefined;
-}
-
-/**
- * Walk a form's field subtree and return the first field whose id matches
- * `id`, along with its uuid. Duplicate ids at different depths resolve to
- * whichever the DFS hits first — the validator independently flags the
- * duplicate so this non-determinism doesn't swallow a real error.
- */
-function findFieldById(
-	doc: BlueprintDoc,
-	parentUuid: Uuid,
-	id: string,
-): Field | undefined {
-	const stack: Uuid[] = [...(doc.fieldOrder[parentUuid] ?? [])];
-	while (stack.length > 0) {
-		const uuid = stack.pop();
-		if (!uuid) break;
-		const field = doc.fields[uuid];
-		if (!field) continue;
-		if (field.id === id) return field;
-		const children = doc.fieldOrder[uuid];
-		if (children) stack.push(...children);
 	}
 	return undefined;
 }
@@ -342,7 +318,9 @@ const fixUnknownFunction: FixFn = (error, doc) => {
 	const field = doc.fields[fieldUuid];
 	if (!field) return [];
 	return rewriteXPathFields(field, (value) =>
-		value.includes(`${wrong}(`) ? value.replaceAll(`${wrong}(`, `${correct}(`) : value,
+		value.includes(`${wrong}(`)
+			? value.replaceAll(`${wrong}(`, `${correct}(`)
+			: value,
 	);
 };
 

@@ -101,7 +101,8 @@ export function selectNoOptions(
 	field: Field,
 	ctx: FieldContext,
 ): ValidationError[] {
-	if (field.kind !== "single_select" && field.kind !== "multi_select") return [];
+	if (field.kind !== "single_select" && field.kind !== "multi_select")
+		return [];
 	if (field.options && field.options.length > 0) return [];
 	const typeName =
 		field.kind === "single_select" ? "single-select" : "multi-select";

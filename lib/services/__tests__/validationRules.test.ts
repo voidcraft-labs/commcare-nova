@@ -45,9 +45,7 @@ function minDoc(): BlueprintDoc {
 }
 
 /** A survey doc is the simplest possible fixture — one module, one survey form, arbitrary fields. */
-function surveyDoc(
-	fields: Parameters<typeof f>[0][],
-): BlueprintDoc {
+function surveyDoc(fields: Parameters<typeof f>[0][]): BlueprintDoc {
 	return buildDoc({
 		appName: "Test",
 		modules: [
@@ -166,9 +164,9 @@ describe("module rules", () => {
 		const doc = update(minDoc(), (d) => {
 			d.modules[d.moduleOrder[0]].caseType = "a".repeat(256);
 		});
-		expect(runValidation(doc).some((e) => e.code === "CASE_TYPE_TOO_LONG")).toBe(
-			true,
-		);
+		expect(
+			runValidation(doc).some((e) => e.code === "CASE_TYPE_TOO_LONG"),
+		).toBe(true);
 	});
 
 	it("catches missing case list columns", () => {
@@ -297,7 +295,9 @@ describe("form rules", () => {
 		});
 		const errors = runValidation(doc);
 		// Fires both INVALID_QUESTION_ID and CASE_PROPERTY_BAD_FORMAT
-		expect(errors.some((e) => e.code === "CASE_PROPERTY_BAD_FORMAT")).toBe(true);
+		expect(errors.some((e) => e.code === "CASE_PROPERTY_BAD_FORMAT")).toBe(
+			true,
+		);
 		expect(errors.some((e) => e.code === "INVALID_QUESTION_ID")).toBe(true);
 	});
 
@@ -512,7 +512,8 @@ describe("fix registry", () => {
 		expect(muts.length).toBeGreaterThan(0);
 		const next = produce(doc, (draft) => applyMutations(draft, muts));
 		// The field should now carry the sanitized id.
-		const fieldUuid = next.fieldOrder[next.formOrder[next.moduleOrder[0]][0]][0];
+		const fieldUuid =
+			next.fieldOrder[next.formOrder[next.moduleOrder[0]][0]][0];
 		expect(next.fields[fieldUuid].id).toBe("q_123_bad");
 	});
 
@@ -551,9 +552,11 @@ describe("fix registry", () => {
 		if (!fix) throw new Error("expected SELECT_NO_OPTIONS fix");
 		const muts = fix(err, doc);
 		const next = produce(doc, (draft) => applyMutations(draft, muts));
-		const fieldUuid = next.fieldOrder[next.formOrder[next.moduleOrder[0]][0]][0];
+		const fieldUuid =
+			next.fieldOrder[next.formOrder[next.moduleOrder[0]][0]][0];
 		const field = next.fields[fieldUuid];
-		if (field.kind !== "single_select") throw new Error("expected single_select");
+		if (field.kind !== "single_select")
+			throw new Error("expected single_select");
 		expect(field.options).toHaveLength(2);
 	});
 });
@@ -570,7 +573,8 @@ describe("post_submit validation", () => {
 			expect(
 				errors.filter(
 					(e) =>
-						e.code.startsWith("POST_SUBMIT") || e.code === "INVALID_POST_SUBMIT",
+						e.code.startsWith("POST_SUBMIT") ||
+						e.code === "INVALID_POST_SUBMIT",
 				),
 			).toEqual([]);
 		}
@@ -654,25 +658,31 @@ describe("post_submit validation", () => {
 
 describe("form_links validation", () => {
 	it("catches empty form_links array", () => {
-		const doc = update(surveyDoc([f({ kind: "text", id: "q", label: "Q" })]), (d) => {
-			d.forms[d.formOrder[d.moduleOrder[0]][0]].formLinks = [];
-		});
+		const doc = update(
+			surveyDoc([f({ kind: "text", id: "q", label: "Q" })]),
+			(d) => {
+				d.forms[d.formOrder[d.moduleOrder[0]][0]].formLinks = [];
+			},
+		);
 		const errors = runValidation(doc);
 		expect(errors.find((e) => e.code === "FORM_LINK_EMPTY")).toBeDefined();
 	});
 
 	it("catches non-existent target module", () => {
-		const doc = update(surveyDoc([f({ kind: "text", id: "q", label: "Q" })]), (d) => {
-			d.forms[d.formOrder[d.moduleOrder[0]][0]].formLinks = [
-				{
-					target: {
-						type: "form",
-						moduleUuid: asUuid("ghost-module"),
-						formUuid: asUuid("ghost-form"),
+		const doc = update(
+			surveyDoc([f({ kind: "text", id: "q", label: "Q" })]),
+			(d) => {
+				d.forms[d.formOrder[d.moduleOrder[0]][0]].formLinks = [
+					{
+						target: {
+							type: "form",
+							moduleUuid: asUuid("ghost-module"),
+							formUuid: asUuid("ghost-form"),
+						},
 					},
-				},
-			];
-		});
+				];
+			},
+		);
 		const errors = runValidation(doc);
 		const err = errors.find((e) => e.code === "FORM_LINK_TARGET_NOT_FOUND");
 		expect(err).toBeDefined();
@@ -746,7 +756,9 @@ describe("form_links validation", () => {
 			];
 		});
 		const errors = runValidation(doc2);
-		expect(errors.find((e) => e.code === "FORM_LINK_NO_FALLBACK")).toBeDefined();
+		expect(
+			errors.find((e) => e.code === "FORM_LINK_NO_FALLBACK"),
+		).toBeDefined();
 	});
 
 	it("accepts conditional links when post_submit fallback is set", () => {

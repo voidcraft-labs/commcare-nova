@@ -18,7 +18,10 @@ import type {
 	CaseConfigQuestion,
 	DerivedCaseConfig,
 } from "@/lib/schemas/blueprint";
-import { deriveCaseConfig, POST_SUBMIT_DESTINATIONS } from "@/lib/schemas/blueprint";
+import {
+	deriveCaseConfig,
+	POST_SUBMIT_DESTINATIONS,
+} from "@/lib/schemas/blueprint";
 import { detectUnquotedStringLiteral } from "../../../hqJsonExpander";
 import {
 	CASE_PROPERTY_REGEX,

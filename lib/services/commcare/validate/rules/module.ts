@@ -149,7 +149,11 @@ export function invalidColumnField(
 	moduleUuid: Uuid,
 	doc: BlueprintDoc,
 ): ValidationError[] {
-	if (!mod.caseType || !mod.caseListColumns || mod.caseListColumns.length === 0) {
+	if (
+		!mod.caseType ||
+		!mod.caseListColumns ||
+		mod.caseListColumns.length === 0
+	) {
 		return [];
 	}
 	const errors: ValidationError[] = [];

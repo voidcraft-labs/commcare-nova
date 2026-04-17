@@ -36,7 +36,9 @@ describe("validateXPath", () => {
 		it("returns no errors for variadic functions", () => {
 			expect(validateXPath("concat()")).toEqual([]);
 			expect(validateXPath("concat('a', 'b', 'c', 'd')")).toEqual([]);
-			expect(validateXPath("coalesce(#form/a, #form/b, 'default')")).toEqual([]);
+			expect(validateXPath("coalesce(#form/a, #form/b, 'default')")).toEqual(
+				[],
+			);
 			expect(validateXPath("min(1, 2, 3)")).toEqual([]);
 		});
 	});
@@ -350,10 +352,7 @@ describe("TriggerDag.reportCycles", () => {
 // ── Orchestrator Integration ────────────────────────────────────────
 
 describe("validateBlueprintDeep", () => {
-	const makeDoc = (
-		fields: FieldSpec[],
-		caseTypes: CaseType[] | null = null,
-	) =>
+	const makeDoc = (fields: FieldSpec[], caseTypes: CaseType[] | null = null) =>
 		buildDoc({
 			appName: "Test",
 			modules: [
@@ -402,9 +401,9 @@ describe("validateBlueprintDeep", () => {
 			f({ kind: "text", id: "name", label: "Name" }),
 			f({ kind: "hidden", id: "val", calculate: "round(3.14, 2)" }),
 		]);
-		expect(
-			validateBlueprintDeep(doc).some((e) => e.includes("round()")),
-		).toBe(true);
+		expect(validateBlueprintDeep(doc).some((e) => e.includes("round()"))).toBe(
+			true,
+		);
 	});
 
 	it("catches circular dependencies", () => {

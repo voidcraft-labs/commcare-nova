@@ -155,7 +155,9 @@ export function buildDoc(spec: DocSpec = {}): BlueprintDoc {
 				...(formSpec.postSubmit !== undefined && {
 					postSubmit: formSpec.postSubmit,
 				}),
-				...(formSpec.formLinks !== undefined && { formLinks: formSpec.formLinks }),
+				...(formSpec.formLinks !== undefined && {
+					formLinks: formSpec.formLinks,
+				}),
 			};
 
 			installFields(formSpec.fields ?? [], formUuid, fields, fieldOrder);

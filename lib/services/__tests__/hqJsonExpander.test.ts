@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { q } from "@/lib/__tests__/testHelpers";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
-import type { AppBlueprint, Question } from "../../schemas/blueprint";
+import { q } from "@/lib/__tests__/testHelpers";
+import type { AppBlueprint } from "../../schemas/blueprint";
 import { runValidation } from "../commcare/validate/runner";
 import { expandBlueprint } from "../hqJsonExpander";
 
@@ -2051,9 +2051,12 @@ describe("unquoted string literal detection", () => {
 							name: "F",
 							type: "survey",
 							fields: [
-								{ kind: "text", id: "q", label: "Q", ...overrides } as unknown as Parameters<
-									typeof f
-								>[0],
+								{
+									kind: "text",
+									id: "q",
+									label: "Q",
+									...overrides,
+								} as unknown as Parameters<typeof f>[0],
 							],
 						},
 					],
@@ -2102,43 +2105,57 @@ describe("unquoted string literal detection", () => {
 		const errors = runValidation(
 			makeDoc({ kind: "hidden", default_value: "'no'" }),
 		);
-		expect(errors.some((e) => e.code === "UNQUOTED_STRING_LITERAL")).toBe(false);
+		expect(errors.some((e) => e.code === "UNQUOTED_STRING_LITERAL")).toBe(
+			false,
+		);
 	});
 
 	it("allows function calls", () => {
 		const errors = runValidation(makeDoc({ required: "true()" }));
-		expect(errors.some((e) => e.code === "UNQUOTED_STRING_LITERAL")).toBe(false);
+		expect(errors.some((e) => e.code === "UNQUOTED_STRING_LITERAL")).toBe(
+			false,
+		);
 	});
 
 	it("allows XPath expressions", () => {
 		const errors = runValidation(makeDoc({ relevant: "/data/age > 18" }));
-		expect(errors.some((e) => e.code === "UNQUOTED_STRING_LITERAL")).toBe(false);
+		expect(errors.some((e) => e.code === "UNQUOTED_STRING_LITERAL")).toBe(
+			false,
+		);
 	});
 
 	it("allows hashtag references", () => {
 		const errors = runValidation(
 			makeDoc({ kind: "hidden", calculate: "#case/status" }),
 		);
-		expect(errors.some((e) => e.code === "UNQUOTED_STRING_LITERAL")).toBe(false);
+		expect(errors.some((e) => e.code === "UNQUOTED_STRING_LITERAL")).toBe(
+			false,
+		);
 	});
 
 	it("allows number literals", () => {
 		const errors = runValidation(
 			makeDoc({ kind: "hidden", default_value: "0" }),
 		);
-		expect(errors.some((e) => e.code === "UNQUOTED_STRING_LITERAL")).toBe(false);
+		expect(errors.some((e) => e.code === "UNQUOTED_STRING_LITERAL")).toBe(
+			false,
+		);
 	});
 
 	it("allows today() function", () => {
 		const errors = runValidation(
 			makeDoc({ kind: "hidden", default_value: "today()" }),
 		);
-		expect(errors.some((e) => e.code === "UNQUOTED_STRING_LITERAL")).toBe(false);
+		expect(errors.some((e) => e.code === "UNQUOTED_STRING_LITERAL")).toBe(
+			false,
+		);
 	});
 
 	it("allows dot expressions", () => {
 		const errors = runValidation(makeDoc({ validate: ". > 0" }));
-		expect(errors.some((e) => e.code === "UNQUOTED_STRING_LITERAL")).toBe(false);
+		expect(errors.some((e) => e.code === "UNQUOTED_STRING_LITERAL")).toBe(
+			false,
+		);
 	});
 
 	it("catches bare string inside group children", () => {
