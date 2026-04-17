@@ -22,9 +22,7 @@
 //   --dry-run    Print what would be migrated without writing to Firestore
 //   --app-id=<id> Migrate a single app doc by ID only
 
-import { cert, initializeApp } from "firebase-admin/app";
-import { getFirestore } from "firebase-admin/firestore";
-import { readFileSync } from "fs";
+import { getDb } from "@/lib/db/firestore";
 import { legacyAppBlueprintToDoc as legacyAppBlueprintToDocWithParent } from "@/lib/doc/legacyBridge";
 import type { BlueprintDoc, Uuid } from "@/lib/domain";
 
@@ -60,19 +58,12 @@ const appIdFilter = process.argv
 // ---------------------------------------------------------------------------
 
 async function main() {
-	// Load the service-account credentials from the environment — the same
-	// pattern used by every other script in this directory.
-	const credPath = process.env.GOOGLE_APPLICATION_CREDENTIALS;
-	if (!credPath) {
-		throw new Error(
-			"GOOGLE_APPLICATION_CREDENTIALS env var is required. Point it at a service-account JSON file.",
-		);
-	}
-
-	initializeApp({
-		credential: cert(JSON.parse(readFileSync(credPath, "utf-8"))),
-	});
-	const db = getFirestore();
+	// Share the same Firestore client the app uses. Authentication relies on
+	// Application Default Credentials — Cloud Run picks them up from the
+	// metadata server automatically; local runs use
+	// `gcloud auth application-default login` (one-time setup). No
+	// service-account JSON file is required.
+	const db = getDb();
 
 	// Either fetch a single doc (--app-id=<id>) or the whole collection.
 	const snapshot = appIdFilter
