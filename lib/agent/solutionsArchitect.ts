@@ -38,6 +38,7 @@ import { z } from "zod";
 import { completeApp } from "@/lib/db/apps";
 import { toBlueprint } from "@/lib/doc/legacyBridge";
 import { applyMutations } from "@/lib/doc/mutations";
+import { searchBlueprint } from "@/lib/doc/searchBlueprint";
 import type { Mutation } from "@/lib/doc/types";
 import type {
 	BlueprintDoc,
@@ -74,7 +75,6 @@ import {
 	removeModuleMutations,
 	renameFieldMutations,
 	resolveFieldByIndex,
-	searchBlueprint,
 	setCaseTypesMutations,
 	setScaffoldMutations,
 	updateFieldMutations,

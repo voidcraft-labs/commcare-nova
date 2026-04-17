@@ -2,21 +2,21 @@
  * Hook for full-text search across the current blueprint.
  *
  * Returns a stable callback that reads the doc store on demand and
- * delegates to the pure `searchBlueprint` function from
- * `blueprintHelpers.ts`. The callback is safe to call from effects,
- * event handlers, or async flows — it always reads the freshest snapshot.
+ * delegates to the pure `searchBlueprint` function. The callback is safe
+ * to call from effects, event handlers, or async flows — it always reads
+ * the freshest snapshot.
  *
  * The SA agent also calls `searchBlueprint` directly on its doc reference
- * (no hook needed server-side). This hook is only needed by client-side
+ * (no hook needed server-side); this hook is only needed by client-side
  * callers that read from the doc store.
  */
 
 import { useCallback, useContext } from "react";
+import { BlueprintDocContext } from "@/lib/doc/provider";
 import {
 	type SearchResult,
 	searchBlueprint as searchDoc,
-} from "@/lib/agent/blueprintHelpers";
-import { BlueprintDocContext } from "@/lib/doc/provider";
+} from "@/lib/doc/searchBlueprint";
 
 export type { SearchResult };
 
