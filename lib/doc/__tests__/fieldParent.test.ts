@@ -1031,9 +1031,7 @@ describe("after load()", () => {
 		// The `load()` action must rebuild it from fieldOrder.
 		const { fieldParent: _stripped, ...persistable } = doc;
 		const store = createBlueprintDocStore();
-		store
-			.getState()
-			.load(persistable as Parameters<typeof store.getState.arguments>[0]);
+		store.getState().load(persistable);
 
 		const state = store.getState() as unknown as BlueprintDoc;
 		assertFieldParentInvariants(state);
@@ -1086,9 +1084,7 @@ describe("after load()", () => {
 		});
 		const { fieldParent: _stripped, ...persistable } = doc;
 		const store = createBlueprintDocStore();
-		store
-			.getState()
-			.load(persistable as Parameters<typeof store.getState.arguments>[0]);
+		store.getState().load(persistable);
 
 		const state = store.getState() as unknown as BlueprintDoc;
 		assertFieldParentInvariants(state);
