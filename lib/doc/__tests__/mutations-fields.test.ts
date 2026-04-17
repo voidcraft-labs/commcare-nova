@@ -5,14 +5,9 @@ import type {
 	FieldRenameMeta,
 	MoveFieldResult,
 } from "@/lib/doc/mutations/fields";
-import type {
-	BlueprintDoc,
-	QuestionEntity as Field,
-	FormEntity,
-	ModuleEntity,
-	Uuid,
-} from "@/lib/doc/types";
+import type { BlueprintDoc, Uuid } from "@/lib/doc/types";
 import { asUuid } from "@/lib/doc/types";
+import type { Field, Form, Module } from "@/lib/domain";
 
 const M = (s: string) => asUuid(`mod${s}-0000-0000-0000-000000000000`);
 const F = (s: string) => asUuid(`frm${s}-0000-0000-0000-000000000000`);
@@ -66,9 +61,9 @@ function docWithForm(): BlueprintDoc {
 		appName: "A",
 		connectType: null,
 		caseTypes: null,
-		modules: { [M("X")]: { uuid: M("X"), name: "M" } as ModuleEntity },
+		modules: { [M("X")]: { uuid: M("X"), name: "M" } as Module },
 		forms: {
-			[F("1")]: { uuid: F("1"), name: "F", type: "survey" } as FormEntity,
+			[F("1")]: { uuid: F("1"), name: "F", type: "survey" } as Form,
 		},
 		fields: {},
 		moduleOrder: [M("X")],

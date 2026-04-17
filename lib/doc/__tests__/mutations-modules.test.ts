@@ -1,27 +1,22 @@
 import { produce } from "immer";
 import { describe, expect, it } from "vitest";
 import { applyMutation } from "@/lib/doc/mutations";
-import type {
-	BlueprintDoc,
-	FormEntity,
-	ModuleEntity,
-	QuestionEntity,
-	Uuid,
-} from "@/lib/doc/types";
+import type { BlueprintDoc, Uuid } from "@/lib/doc/types";
 import { asUuid } from "@/lib/doc/types";
+import type { Field, Form, Module } from "@/lib/domain";
 
 const M = (s: string) => asUuid(`mod${s}-0000-0000-0000-000000000000`);
 const F = (s: string) => asUuid(`frm${s}-0000-0000-0000-000000000000`);
 const Q = (s: string) => asUuid(`qst${s}-0000-0000-0000-000000000000`);
 
-function module_(uuid: Uuid, name: string): ModuleEntity {
-	return { uuid, name } as ModuleEntity;
+function module_(uuid: Uuid, name: string): Module {
+	return { uuid, name } as Module;
 }
-function form_(uuid: Uuid, name: string): FormEntity {
-	return { uuid, name, type: "survey" } as FormEntity;
+function form_(uuid: Uuid, name: string): Form {
+	return { uuid, name, type: "survey" } as Form;
 }
-function field_(uuid: Uuid, id: string): QuestionEntity {
-	return { uuid, id, kind: "text" } as never as QuestionEntity;
+function field_(uuid: Uuid, id: string): Field {
+	return { uuid, id, kind: "text" } as never as Field;
 }
 
 function emptyDoc(): BlueprintDoc {
@@ -160,7 +155,7 @@ describe("renameModule", () => {
 		const start: BlueprintDoc = {
 			...emptyDoc(),
 			modules: {
-				[M("A")]: { uuid: M("A"), name: "Original" } as ModuleEntity,
+				[M("A")]: { uuid: M("A"), name: "Original" } as Module,
 			},
 			moduleOrder: [M("A")],
 			formOrder: { [M("A")]: [] },

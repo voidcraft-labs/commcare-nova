@@ -8,12 +8,9 @@
  */
 
 import type { Draft } from "immer";
-import type {
-	BlueprintDoc,
-	QuestionEntity as Field,
-	Uuid,
-} from "@/lib/doc/types";
+import type { BlueprintDoc, Uuid } from "@/lib/doc/types";
 import { asUuid } from "@/lib/doc/types";
+import type { Field } from "@/lib/domain";
 
 /**
  * Remove a field and all of its descendants from the doc. Called by
