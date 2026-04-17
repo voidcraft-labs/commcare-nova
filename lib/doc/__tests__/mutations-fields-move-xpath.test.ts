@@ -83,7 +83,9 @@ describe("moveField + path rewrite", () => {
 			toIndex: 0,
 		});
 
-		const ref = store.getState().fields[REF];
+		const ref = store.getState().fields[REF] as
+			| { calculate?: string }
+			| undefined;
 		expect(ref?.calculate).toBe("/data/grp2/source + 1");
 	});
 });

@@ -18,9 +18,47 @@ const M = (s: string) => asUuid(`mod${s}-0000-0000-0000-000000000000`);
 const F = (s: string) => asUuid(`frm${s}-0000-0000-0000-000000000000`);
 const Q = (s: string) => asUuid(`qst${s}-0000-0000-0000-000000000000`);
 
-function field_(uuid: Uuid, id: string, patch: Partial<Field> = {}): Field {
-	return { uuid, id, type: "text", ...patch } as Field;
+/**
+ * Build a Field fixture for tests.
+ *
+ * The domain `Field` type is a discriminated union keyed on `kind`. Callers
+ * may override `kind` via the patch (e.g. `kind: "group"`); the default is
+ * "text" for leaf fields. Label defaults to the id so the text-variant
+ * required-label invariant is satisfied. We cast through `unknown` because
+ * the wide test-time patch shape doesn't narrow to any single variant.
+ */
+function field_(
+	uuid: Uuid,
+	id: string,
+	patch: Partial<Field> & { kind?: Field["kind"] } = {},
+): Field {
+	const { kind = "text", ...rest } = patch;
+	return { uuid, id, kind, label: id, ...rest } as unknown as Field;
 }
+
+/**
+ * Cast a union `Field | undefined` to a loosely-typed shape for assertion.
+ *
+ * Tests assert on properties like `label` and `calculate` that live only
+ * on some variants. Since the discriminant `kind` isn't being narrowed at
+ * the call site, we expose a shared `asField` helper that widens the type
+ * to an any-variant-has-these-keys shape purely for the assertion.
+ */
+type AnyField =
+	| {
+			uuid: Uuid;
+			id: string;
+			kind: string;
+			label?: string;
+			required?: string;
+			calculate?: string;
+			relevant?: string;
+			validate?: string;
+			default_value?: string;
+	  }
+	| undefined;
+
+const asField = (f: Field | undefined): AnyField => f as AnyField;
 
 function docWithForm(): BlueprintDoc {
 	return {
@@ -115,8 +153,8 @@ describe("updateField", () => {
 				patch: { label: "Patient Name", required: "true" },
 			});
 		});
-		expect(next.fields[Q("a")]?.label).toBe("Patient Name");
-		expect(next.fields[Q("a")]?.required).toBe("true");
+		expect(asField(next.fields[Q("a")])?.label).toBe("Patient Name");
+		expect(asField(next.fields[Q("a")])?.required).toBe("true");
 		expect(next.fields[Q("a")]?.id).toBe("name"); // Preserved
 	});
 });
@@ -265,7 +303,9 @@ describe("moveField", () => {
 		});
 		// Path changed from `/data/source` to `/data/grp/source` — the
 		// path-to-path rewriter updates matching absolute-path references.
-		expect(next.fields[Q("ref")]?.calculate).toBe("/data/grp/source + 1");
+		expect(asField(next.fields[Q("ref")])?.calculate).toBe(
+			"/data/grp/source + 1",
+		);
 	});
 
 	it("is a no-op when the target parent doesn't exist", () => {
@@ -321,8 +361,8 @@ describe("renameField", () => {
 				newId: "primary",
 			});
 		});
-		expect(next.fields[Q("ref")]?.calculate).toContain("primary");
-		expect(next.fields[Q("ref")]?.calculate).not.toContain("source");
+		expect(asField(next.fields[Q("ref")])?.calculate).toContain("primary");
+		expect(asField(next.fields[Q("ref")])?.calculate).not.toContain("source");
 	});
 
 	it("is a no-op when the field doesn't exist", () => {
