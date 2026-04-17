@@ -281,8 +281,14 @@ export const VirtualFormList = memo(function VirtualFormList({
 				const drop = readDropTargetData(innermost.data);
 				if (!drop) return;
 
+				// Read the edge early — the group-header branch needs it
+				// both to decide placeholder position AND (via the cycle
+				// guard's `targetContainerUuidFor`) to pick the correct
+				// landing container (parent vs group-self).
+				const edge = extractClosestEdge(innermost.data);
+
 				// Cycle guard — no placeholder for illegal drops.
-				const targetContainer = targetContainerUuidFor(drop);
+				const targetContainer = targetContainerUuidFor(drop, edge);
 				if (
 					isUuidInSubtree(
 						docs.getState().fieldOrder as Record<string, readonly string[]>,
@@ -307,7 +313,6 @@ export const VirtualFormList = memo(function VirtualFormList({
 				//      kissing the question border).
 				//   2. Eliminate edge thrashing — both edges of the
 				//      boundary resolve to the same insertion row index.
-				const edge = extractClosestEdge(innermost.data);
 				const br = baseRowsRef.current;
 				let insertionRowIndex = -1;
 				let insertionDepth = 0;
@@ -348,13 +353,34 @@ export const VirtualFormList = memo(function VirtualFormList({
 						break;
 					}
 					case "drop-group-header": {
-						// The first insertion row inside the group — the one
-						// immediately after the group-open row.
+						// Group headers carry two positional intents keyed by
+						// the closest edge (see GroupBracket.tsx):
+						//   - edge === "top" → insert BEFORE the group at the
+						//     parent level. Walk backward from the group-open
+						//     row to the nearest parent-level insertion (the
+						//     gap above the header). This is the ONLY path to
+						//     "above the first child" when that child is a
+						//     container, since the insertion-point rows are
+						//     not drop targets themselves.
+						//   - otherwise (edge === "bottom" | null) → insert as
+						//     first child of the group. Walk forward to the
+						//     first insertion row, which lives immediately
+						//     after the group-open row at depth + 1.
 						for (let i = 0; i < br.length; i++) {
 							const r = br[i];
 							if (r.kind === "group-open" && r.uuid === drop.uuid) {
-								// The next row should be an insertion at depth+1.
-								if (i + 1 < br.length && br[i + 1].kind === "insertion") {
+								if (edge === "top") {
+									for (let j = i - 1; j >= 0; j--) {
+										if (br[j].kind === "insertion") {
+											insertionRowIndex = j;
+											insertionDepth = br[j].depth;
+											break;
+										}
+									}
+								} else if (
+									i + 1 < br.length &&
+									br[i + 1].kind === "insertion"
+								) {
 									insertionRowIndex = i + 1;
 									insertionDepth = br[i + 1].depth;
 								}
@@ -446,8 +472,10 @@ export const VirtualFormList = memo(function VirtualFormList({
 				const dragUuid = source.data.uuid;
 				const { drop, edge } = pending;
 
-				// Cycle guard.
-				const targetContainer = targetContainerUuidFor(drop);
+				// Cycle guard — same edge-aware target-container resolution
+				// as onDrag, so "drop before a group" doesn't get rejected
+				// for a cycle against the group itself.
+				const targetContainer = targetContainerUuidFor(drop, edge);
 				if (
 					isUuidInSubtree(
 						docs.getState().fieldOrder as Record<string, readonly string[]>,
@@ -497,6 +525,17 @@ export const VirtualFormList = memo(function VirtualFormList({
 
 					case "drop-group-header": {
 						if (drop.uuid === dragUuid) return;
+						// edge === "top" means the user aimed at the gap ABOVE
+						// the group header — insert the source at the parent
+						// level immediately before the group, not as a child.
+						// Mirrors the drop-question/top branch above.
+						if (edge === "top") {
+							result = moveField(asUuid(dragUuid), {
+								beforeUuid: drop.uuid,
+								toParentUuid: drop.parentUuid,
+							});
+							break;
+						}
 						const firstChild =
 							docs.getState().fieldOrder[drop.uuid as Uuid]?.[0];
 						result = firstChild
