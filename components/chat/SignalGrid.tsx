@@ -5,18 +5,50 @@ import {
 	BlueprintDocContext,
 	type BlueprintDocStore,
 } from "@/lib/doc/provider";
+import type { BlueprintDoc, Uuid } from "@/lib/domain";
 import type { EditScope } from "@/lib/services/builder";
-import {
-	assembleQuestions as assembleQuestionsForGrid,
-	type NQuestion,
-} from "@/lib/services/normalizedState";
 import { type QuestionPath, qpathId } from "@/lib/services/questionPath";
-import { flatIndexById } from "@/lib/services/questionTree";
 import type { BuilderSessionStoreApi } from "@/lib/session/provider";
 import { useBuilderSessionApi } from "@/lib/session/provider";
 import { computeEditFocus } from "@/lib/signalGrid/editFocus";
 import { signalGrid } from "@/lib/signalGrid/store";
 import type { SignalGridController } from "@/lib/signalGridController";
+
+/**
+ * Walk the form's normalized subtree depth-first and return the flat
+ * 0-based index of the first field whose bare `id` matches. Returns -1
+ * when the form is empty or the id is not present.
+ *
+ * The SA's tool events reference fields by their semantic id; the signal
+ * grid consumes flat indices so its activity gauge can compute a focus
+ * range over the form's linear field sequence. This helper replaces the
+ * old wire-format `flatIndexById` walk — the normalized doc's
+ * `fieldOrder` is the single source of ordering truth.
+ */
+function flatIndexInForm(
+	doc: BlueprintDoc,
+	formUuid: Uuid,
+	bareId: string,
+): number {
+	let index = 0;
+	let found = -1;
+	const walk = (parent: Uuid): boolean => {
+		const children = doc.fieldOrder[parent] ?? [];
+		for (const childUuid of children) {
+			const field = doc.fields[childUuid];
+			if (!field) continue;
+			if (field.id === bareId) {
+				found = index;
+				return true;
+			}
+			index++;
+			if (walk(childUuid)) return true;
+		}
+		return false;
+	};
+	walk(formUuid);
+	return found;
+}
 
 interface SignalGridProps {
 	/** Controller instance — created and owned by the parent (ChatSidebar). */
@@ -87,24 +119,17 @@ export function SignalGrid({ controller, messages }: SignalGridProps) {
 						const qRef = typeof rawRef === "string" ? rawRef : undefined;
 						if (typeof qRef === "string" && qRef) {
 							/* Resolve the field's flat index within its form by
-							 * assembling the form's field tree from the doc store
-							 * (the single source of truth for blueprint entities). */
+							 * walking the doc's normalized entity maps directly —
+							 * no wire-shape assembly needed. */
 							const doc = docStoreRef.current?.getState();
 							const moduleId = doc?.moduleOrder[input.moduleIndex as number];
 							const formId = moduleId
 								? doc?.formOrder[moduleId]?.[input.formIndex as number]
 								: undefined;
 							if (doc && formId) {
-								const questions = assembleQuestionsForGrid(
-									doc.fields as unknown as Record<string, NQuestion>,
-									doc.fieldOrder as unknown as Record<string, string[]>,
-									formId,
-								);
-								if (questions.length > 0) {
-									const bareId = qpathId(qRef as QuestionPath);
-									const flatIdx = flatIndexById(questions, bareId);
-									if (flatIdx >= 0) latestToolScope.questionIndex = flatIdx;
-								}
+								const bareId = qpathId(qRef as QuestionPath);
+								const flatIdx = flatIndexInForm(doc, formId, bareId);
+								if (flatIdx >= 0) latestToolScope.questionIndex = flatIdx;
 							}
 						}
 					}
@@ -135,8 +160,8 @@ export function SignalGrid({ controller, messages }: SignalGridProps) {
 					computeEditFocus(
 						{
 							moduleOrder: doc.moduleOrder,
-							formOrder: doc.formOrder as unknown as Record<string, string[]>,
-							fieldOrder: doc.fieldOrder as unknown as Record<string, string[]>,
+							formOrder: doc.formOrder,
+							fieldOrder: doc.fieldOrder,
 						},
 						latestToolScope,
 					),
