@@ -1,8 +1,10 @@
 // lib/doc/types.ts
 //
-// DEPRECATED: this file is a re-export shim from the domain layer for
-// Phase 1's in-flight migration. Consumers should import from
-// `@/lib/domain` directly. Phase 7 deletes this file.
+// Thin re-export shim that forwards the normalized blueprint types from
+// `@/lib/domain` and defines the doc-layer `Mutation` union. New code
+// should import the entity types (`Field`, `Form`, `Module`, `BlueprintDoc`)
+// directly from `@/lib/domain`; the `*Entity` aliases exported here exist
+// only for legacy call sites inside this package that are not yet renamed.
 
 export type {
 	BlueprintDoc,
@@ -25,9 +27,8 @@ import type {
 
 // ─── Mutation union ────────────────────────────────────────────────────
 //
-// Identical to the current Mutation union but with question→field renamed
-// throughout. `replaceForm` retains its `questionOrder` key for Phase 1
-// backward-compat; Phase 2 kills replaceForm entirely.
+// Every way the doc store can change. Each reducer in `./mutations/*` is
+// an exhaustive switch over a subset of these kinds.
 
 export type Mutation =
 	// Module
@@ -46,8 +47,8 @@ export type Mutation =
 			kind: "replaceForm";
 			uuid: Uuid;
 			form: Form;
-			fields: Field[]; // renamed from `questions`
-			fieldOrder: Record<Uuid, Uuid[]>; // renamed from `questionOrder`
+			fields: Field[];
+			fieldOrder: Record<Uuid, Uuid[]>;
 	  }
 	// Field
 	| { kind: "addField"; parentUuid: Uuid; field: Field; index?: number }

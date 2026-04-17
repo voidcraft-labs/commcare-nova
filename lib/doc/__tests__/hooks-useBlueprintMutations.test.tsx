@@ -123,9 +123,6 @@ const bp: BlueprintDoc = {
 	fieldParent: {},
 };
 
-// Q_GRP is an alias for Q_G for backward compat in test assertions.
-const Q_GRP = Q_G;
-
 function wrapper({ children }: { children: ReactNode }) {
 	return (
 		<BlueprintDocProvider appId="t" initialDoc={bp}>
@@ -318,7 +315,7 @@ describe("useBlueprintMutations", () => {
 		});
 
 		act(() => {
-			result.current.mutations.addField(Q_GRP, {
+			result.current.mutations.addField(Q_G, {
 				id: "c2",
 				kind: "text",
 				label: "C2",
@@ -390,7 +387,7 @@ describe("useBlueprintMutations", () => {
 		// Move `a` from the form root into the group.
 		act(() => {
 			result.current.mutations.moveField(Q_A, {
-				toParentUuid: Q_GRP,
+				toParentUuid: Q_G,
 			});
 		});
 
@@ -800,7 +797,7 @@ describe("useBlueprintMutations", () => {
 
 		// Seed a question inside the group with id "a" to force dedup.
 		act(() => {
-			result.current.mutations.addField(Q_GRP, {
+			result.current.mutations.addField(Q_G, {
 				id: "a",
 				kind: "text",
 				label: "duplicate-a",
@@ -812,7 +809,7 @@ describe("useBlueprintMutations", () => {
 		} = {};
 		act(() => {
 			captured.value = result.current.mutations.moveField(Q_A, {
-				toParentUuid: Q_GRP,
+				toParentUuid: Q_G,
 			});
 		});
 
