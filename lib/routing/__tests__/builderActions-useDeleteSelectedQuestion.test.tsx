@@ -14,6 +14,7 @@
 import { act, renderHook } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { buildDoc, f } from "@/lib/__tests__/docHelpers";
 import { BlueprintDocContext } from "@/lib/doc/provider";
 import { createBlueprintDocStore } from "@/lib/doc/store";
 import { asUuid } from "@/lib/doc/types";
@@ -53,52 +54,49 @@ vi.mock("@/lib/session/hooks", () => ({
 	useActiveFieldId: () => undefined,
 }));
 
-import { toDoc } from "@/lib/doc/converter";
 import { useDeleteSelectedQuestion } from "@/lib/routing/builderActions";
 
-const BP = {
-	app_name: "T",
-	connect_type: undefined,
-	case_types: null,
-	modules: [
-		{
-			uuid: "module-1-uuid",
-			name: "M",
-			case_type: undefined,
-			forms: [
+function makeStore() {
+	const store = createBlueprintDocStore();
+	store.getState().load(
+		buildDoc({
+			appId: "test-app",
+			appName: "T",
+			modules: [
 				{
-					uuid: "form-1-uuid",
-					name: "F",
-					type: "survey" as const,
-					questions: [
+					uuid: "module-1-uuid",
+					name: "M",
+					forms: [
 						{
-							uuid: "q-a-0000-0000-0000-000000000000",
-							id: "a",
-							type: "text" as const,
-							label: "A",
-						},
-						{
-							uuid: "q-b-0000-0000-0000-000000000000",
-							id: "b",
-							type: "text" as const,
-							label: "B",
-						},
-						{
-							uuid: "q-c-0000-0000-0000-000000000000",
-							id: "c",
-							type: "text" as const,
-							label: "C",
+							uuid: "form-1-uuid",
+							name: "F",
+							type: "survey",
+							fields: [
+								f({
+									uuid: "q-a-0000-0000-0000-000000000000",
+									kind: "text",
+									id: "a",
+									label: "A",
+								}),
+								f({
+									uuid: "q-b-0000-0000-0000-000000000000",
+									kind: "text",
+									id: "b",
+									label: "B",
+								}),
+								f({
+									uuid: "q-c-0000-0000-0000-000000000000",
+									kind: "text",
+									id: "c",
+									label: "C",
+								}),
+							],
 						},
 					],
 				},
 			],
-		},
-	],
-};
-
-function makeStore() {
-	const store = createBlueprintDocStore();
-	store.getState().load(toDoc(BP, "test-app"));
+		}),
+	);
 	store.temporal.getState().resume();
 	return store;
 }
