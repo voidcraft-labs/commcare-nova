@@ -16,7 +16,6 @@
  */
 
 import { produce } from "immer";
-import type { GenerationContext } from "@/lib/agent/generationContext";
 import { toBlueprint } from "@/lib/doc/legacyBridge";
 import { applyMutations } from "@/lib/doc/mutations";
 import type { Mutation } from "@/lib/doc/types";
@@ -31,6 +30,7 @@ import { runValidation } from "@/lib/services/commcare/validate/runner";
 import { validateXFormXml } from "@/lib/services/commcare/validate/xformValidator";
 import { deriveConnectDefaults } from "@/lib/services/connectConfig";
 import { expandBlueprint } from "@/lib/services/hqJsonExpander";
+import type { GenerationContext } from "./generationContext";
 
 // ── Post-expansion validation ────────────────────────────────────────
 
