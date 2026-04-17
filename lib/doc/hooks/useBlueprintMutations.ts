@@ -223,39 +223,19 @@ function warnUnresolved(
 }
 
 /**
- * Build a reverse `childUuid → parentUuid` index in a single pass over
- * `doc.fieldOrder`. O(N) over total fields. Callers that need to
- * walk up the parent chain multiple times (rename, duplicate, or
- * bulk-path operations) should build this once and pass it to
- * `computePathForUuid` / `findParentUuid` instead of re-scanning for
- * every walk — the naive version was O(N × D) per walk and O(N² × D)
- * when called multiple times in the same dispatch.
- */
-function buildParentIndex(doc: BlueprintDoc): Map<Uuid, Uuid> {
-	const parentOfUuid = new Map<Uuid, Uuid>();
-	for (const [parentUuid, order] of Object.entries(doc.fieldOrder)) {
-		for (const childUuid of order) {
-			parentOfUuid.set(childUuid, parentUuid as Uuid);
-		}
-	}
-	return parentOfUuid;
-}
-
-/**
  * Walk from a uuid up to its owning form, joining semantic ids into a
- * slash-delimited path. Consumes a pre-built parent index so each walk
- * is O(D) rather than O(N × D).
+ * slash-delimited path.
+ *
+ * Reads the store's already-maintained `doc.fieldParent` reverse index
+ * directly — rebuilding a parallel Map here would be wasted work (the
+ * index is rebuilt atomically by every mutation that touches ordering).
  *
  * Returns `undefined` when the uuid is unreachable (cycle, missing
  * field entity, or the walk never hits a form). The cycle guard is
- * defensive — `buildParentIndex` cannot produce a cycle from a
- * well-formed `fieldOrder`, but corruption shouldn't hang the UI.
+ * defensive — a well-formed `fieldParent` cannot produce a cycle, but
+ * corruption shouldn't hang the UI.
  */
-function computePathForUuid(
-	doc: BlueprintDoc,
-	uuid: Uuid,
-	parentOfUuid: Map<Uuid, Uuid>,
-): string | undefined {
+function computePathForUuid(doc: BlueprintDoc, uuid: Uuid): string | undefined {
 	const segments: string[] = [];
 	let cursor: Uuid | undefined = uuid;
 	const visited = new Set<Uuid>();
@@ -268,7 +248,10 @@ function computePathForUuid(
 		const field = doc.fields[cursor];
 		if (!field) return undefined;
 		segments.push(field.id);
-		cursor = parentOfUuid.get(cursor);
+		// `fieldParent` returns `null` at the form boundary and `undefined` for
+		// orphans — both terminate the walk without revisiting.
+		const parent: Uuid | null | undefined = doc.fieldParent[cursor];
+		cursor = parent ?? undefined;
 	}
 	return undefined;
 }
@@ -381,8 +364,7 @@ export function useBlueprintMutations(): BlueprintMutations {
 				// Find parent + siblings for conflict check. Reject the rename
 				// before dispatching so the UI can surface a "name already taken"
 				// message without unwinding a half-applied mutation.
-				const parentIndex = buildParentIndex(doc);
-				const parentUuid = parentIndex.get(uuid);
+				const parentUuid = doc.fieldParent[uuid] ?? undefined;
 				if (parentUuid !== undefined) {
 					const siblings = doc.fieldOrder[parentUuid] ?? [];
 					for (const sibUuid of siblings) {
@@ -408,14 +390,11 @@ export function useBlueprintMutations(): BlueprintMutations {
 				});
 
 				/* Compute the new path AFTER dispatch — the semantic id has
-				 * changed. Rebuild the parent index from the post-dispatch
-				 * snapshot: `renameField` doesn't reparent, but the walk
-				 * needs to read `doc.fields[...].id` from the fresh
-				 * snapshot anyway, so reuse that same snapshot's index. */
+				 * changed. `renameField` doesn't reparent, so `fieldParent`
+				 * is unchanged, but the walk needs the post-dispatch snapshot
+				 * of `fields` to read the new id. */
 				const after = get();
-				const afterParentIndex = buildParentIndex(after);
-				const newPath = (computePathForUuid(after, uuid, afterParentIndex) ??
-					"") as QuestionPath;
+				const newPath = (computePathForUuid(after, uuid) ?? "") as QuestionPath;
 				return {
 					newPath,
 					xpathFieldsRewritten: meta?.xpathFieldsRewritten ?? 0,
@@ -433,11 +412,9 @@ export function useBlueprintMutations(): BlueprintMutations {
 				// Default destination: the field's current parent (same-parent
 				// reorder). Fall back to the field's own uuid as a guard — this
 				// is unreachable in practice because every field has a parent
-				// entry in `fieldOrder`. `buildParentIndex` gives O(1) lookup
-				// instead of an `Object.entries(...).find(order.includes(...))`
-				// linear+linear scan.
-				const toParentUuid =
-					opts.toParentUuid ?? buildParentIndex(doc).get(uuid) ?? uuid;
+				// entry in `fieldOrder`. Read the parent directly from the
+				// store-maintained `fieldParent` reverse index (O(1)).
+				const toParentUuid = opts.toParentUuid ?? doc.fieldParent[uuid] ?? uuid;
 
 				// Virtual post-splice order when same-parent move. When the source
 				// uuid appears in the destination parent, emulate the post-splice
@@ -486,8 +463,7 @@ export function useBlueprintMutations(): BlueprintMutations {
 				// recover the new clone's uuid. The reducer splices the clone
 				// right after the source; the post-dispatch order will contain
 				// exactly one uuid that wasn't present before.
-				const parentIndex = buildParentIndex(doc);
-				const parentUuid = parentIndex.get(uuid);
+				const parentUuid = doc.fieldParent[uuid] ?? undefined;
 				if (parentUuid === undefined) {
 					warnUnresolved("duplicateField", {
 						uuid,
@@ -508,15 +484,13 @@ export function useBlueprintMutations(): BlueprintMutations {
 				if (!newUuid) return undefined;
 
 				// Rebuild the new path: parent path (if any) + new field id.
-				// The post-dispatch parent index differs from the pre-dispatch
-				// one (the clone is now a child of `parentUuid`) — rebuild from
-				// the fresh snapshot so the walk sees the new entry.
+				// `fieldParent` is already up to date on `afterDoc` — the
+				// dispatcher rebuilds it after the reducer runs.
 				const cloneEntity = afterDoc.fields[newUuid];
 				if (!cloneEntity) return undefined;
-				const afterParentIndex = buildParentIndex(afterDoc);
 				const parentPath = afterDoc.forms[parentUuid]
 					? "" // parent is the form root
-					: (computePathForUuid(afterDoc, parentUuid, afterParentIndex) ?? "");
+					: (computePathForUuid(afterDoc, parentUuid) ?? "");
 				const newPath = (
 					parentPath ? `${parentPath}/${cloneEntity.id}` : cloneEntity.id
 				) as QuestionPath;
