@@ -1,5 +1,5 @@
 import { produce } from "immer";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { applyMutation } from "@/lib/doc/mutations";
 import type {
 	FieldRenameMeta,
@@ -156,6 +156,63 @@ describe("updateField", () => {
 		expect(asField(next.fields[Q("a")])?.label).toBe("Patient Name");
 		expect(asField(next.fields[Q("a")])?.required).toBe("true");
 		expect(next.fields[Q("a")]?.id).toBe("name"); // Preserved
+	});
+
+	it("strips keys not valid for the target kind (hidden + label)", () => {
+		// HiddenField has no `label` in its schema. A `FieldPatch` is a
+		// union-wide partial, so this patch compiles; at runtime the reducer
+		// must reject / strip the stray key rather than silently installing
+		// it on the entity.
+		const start: BlueprintDoc = {
+			...docWithForm(),
+			fields: {
+				[Q("h")]: field_(Q("h"), "computed", {
+					kind: "hidden",
+					calculate: "1",
+				}),
+			},
+			fieldOrder: { [F("1")]: [Q("h")] },
+		};
+		const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+		const next = produce(start, (d) => {
+			applyMutation(d, {
+				kind: "updateField",
+				uuid: Q("h"),
+				// `label` is not part of HiddenField. `calculate` IS — that part
+				// of the patch is legitimate and should apply.
+				patch: { label: "oops", calculate: "2" } as Record<string, string>,
+			});
+		});
+		warn.mockRestore();
+		// `label` was stripped; `calculate` was applied.
+		expect(asField(next.fields[Q("h")])?.label).toBeUndefined();
+		expect(asField(next.fields[Q("h")])?.calculate).toBe("2");
+		// Kind preserved.
+		expect(next.fields[Q("h")]?.kind).toBe("hidden");
+	});
+
+	it("is a no-op and warns when the merged result fails schema validation", () => {
+		// A text field requires `label`. Supplying `{ label: undefined }` via
+		// a pathological patch would produce an invalid merged entity; the
+		// reducer must reject the patch (no-op) and log the validation issue.
+		const start: BlueprintDoc = {
+			...docWithForm(),
+			fields: { [Q("a")]: field_(Q("a"), "name") },
+			fieldOrder: { [F("1")]: [Q("a")] },
+		};
+		const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+		const next = produce(start, (d) => {
+			applyMutation(d, {
+				kind: "updateField",
+				uuid: Q("a"),
+				// Force an invalid value for a required field (not a string).
+				patch: { label: 42 } as unknown as Record<string, string>,
+			});
+		});
+		expect(warn).toHaveBeenCalled();
+		warn.mockRestore();
+		// No-op: original label preserved (field_ defaults label to id).
+		expect(asField(next.fields[Q("a")])?.label).toBe("name");
 	});
 });
 
