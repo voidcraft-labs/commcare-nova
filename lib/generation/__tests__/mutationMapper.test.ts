@@ -5,7 +5,7 @@
  * doc mutations — without any store, signal grid, or side effects involved.
  */
 
-import { assert, describe, expect, it } from "vitest";
+import { assert, describe, expect, it, vi } from "vitest";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
 import { asUuid, type BlueprintDoc, type Mutation } from "@/lib/doc/types";
 import type { BlueprintForm, CaseType } from "@/lib/schemas/blueprint";
@@ -1057,6 +1057,217 @@ describe("toDocMutations", () => {
 			assert(t3?.kind === "addField");
 			expect(t3.parentUuid).toBe(asUuid("g-2"));
 			expect(t3.index).toBe(0);
+		});
+
+		// ── formLinks wire→domain translation ─────────────────────────
+		//
+		// Wire `form_links` carry index-based targets (`moduleIndex` /
+		// `formIndex`); the domain `FormLink` uses UUIDs. The translator
+		// resolves indices via the doc snapshot — out-of-bounds indices
+		// DROP the link with a warn so malformed data can't leak into
+		// the doc store (the `updateForm` reducer does not re-validate).
+
+		it("translates wire form_links with module target to uuid-based shape", () => {
+			const doc = buildDocWithTwoModules();
+			const sourceFormUuid = doc.formOrder[doc.moduleOrder[0]][0];
+			const targetModuleUuid = doc.moduleOrder[1];
+
+			const mutations = toDocMutations(
+				"data-form-updated",
+				{
+					moduleIndex: 0,
+					formIndex: 0,
+					form: {
+						uuid: "ignored",
+						name: "Form A",
+						type: "registration",
+						questions: [],
+						form_links: [{ target: { type: "module", moduleIndex: 1 } }],
+					} satisfies BlueprintForm,
+				},
+				doc,
+			);
+
+			const updateForm = mutations[0];
+			assert(updateForm.kind === "updateForm");
+			expect(updateForm.uuid).toBe(sourceFormUuid);
+			expect(updateForm.patch.formLinks).toEqual([
+				{ target: { type: "module", moduleUuid: targetModuleUuid } },
+			]);
+		});
+
+		it("translates wire form_links with form target to uuid-based shape", () => {
+			const doc = buildDocWithTwoModules();
+			const sourceFormUuid = doc.formOrder[doc.moduleOrder[0]][0];
+			const targetModuleUuid = doc.moduleOrder[1];
+			const targetFormUuid = doc.formOrder[targetModuleUuid][0];
+
+			const mutations = toDocMutations(
+				"data-form-updated",
+				{
+					moduleIndex: 0,
+					formIndex: 0,
+					form: {
+						uuid: "ignored",
+						name: "Form A",
+						type: "registration",
+						questions: [],
+						form_links: [
+							{
+								condition: "/data/done = 'yes'",
+								target: { type: "form", moduleIndex: 1, formIndex: 0 },
+							},
+						],
+					} satisfies BlueprintForm,
+				},
+				doc,
+			);
+
+			const updateForm = mutations[0];
+			assert(updateForm.kind === "updateForm");
+			expect(updateForm.uuid).toBe(sourceFormUuid);
+			expect(updateForm.patch.formLinks).toEqual([
+				{
+					condition: "/data/done = 'yes'",
+					target: {
+						type: "form",
+						moduleUuid: targetModuleUuid,
+						formUuid: targetFormUuid,
+					},
+				},
+			]);
+		});
+
+		it("drops form_links with out-of-bounds moduleIndex", () => {
+			// Malformed links must be caught at the wire boundary — the
+			// `updateForm` reducer uses bare `Object.assign` and would
+			// otherwise install `{ moduleUuid: undefined }` into the doc
+			// store. An all-dropped outcome still returns `[]` so
+			// Object.assign clears any previously-stored links (semantically
+			// identical to "wire said no links").
+			const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+			const doc = buildDocWithOneModuleOneForm();
+
+			const mutations = toDocMutations(
+				"data-form-updated",
+				{
+					moduleIndex: 0,
+					formIndex: 0,
+					form: {
+						uuid: "ignored",
+						name: "Register Patient",
+						type: "registration",
+						questions: [],
+						form_links: [{ target: { type: "module", moduleIndex: 99 } }],
+					} satisfies BlueprintForm,
+				},
+				doc,
+			);
+
+			const updateForm = mutations[0];
+			assert(updateForm.kind === "updateForm");
+			expect(updateForm.patch.formLinks).toEqual([]);
+			expect(warnSpy).toHaveBeenCalledWith(
+				expect.stringContaining("out-of-bounds moduleIndex 99"),
+			);
+			warnSpy.mockRestore();
+		});
+
+		// ── Schema-validation gate for wire questions ──────────────────
+		//
+		// `fieldSchema.safeParse` inside the flattener is the only
+		// wire-boundary gate for SA-added fields — the `addField`
+		// reducer does not re-validate. These two tests pin the
+		// drop-on-failure behavior for both the sibling case (invalid
+		// leaf doesn't take out valid siblings) and the container case
+		// (invalid container skips its entire subtree).
+
+		it("drops schema-invalid wire questions and processes valid siblings", () => {
+			// `textFieldSchema` requires a `label`; a wire text question
+			// without one parses successfully against `BlueprintForm`
+			// (wire label is optional) but fails Zod at the mapper. The
+			// valid sibling must still land in the mutation array.
+			const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+			const doc = buildDocWithOneModuleOneFormEmpty();
+
+			const mutations = toDocMutations(
+				"data-form-done",
+				{
+					moduleIndex: 0,
+					formIndex: 0,
+					form: {
+						uuid: "ignored",
+						name: "Mixed",
+						type: "registration",
+						questions: [
+							// Malformed — text requires a label; wire sends none.
+							{ uuid: "bad-1", type: "text", id: "broken" },
+							// Well-formed sibling
+							{ uuid: "good-1", type: "text", id: "ok", label: "OK" },
+						],
+					} satisfies BlueprintForm,
+				},
+				doc,
+			);
+
+			const adds = mutations.filter((m) => m.kind === "addField");
+			expect(adds).toHaveLength(1);
+			assert(adds[0].kind === "addField");
+			expect(adds[0].field.uuid).toBe(asUuid("good-1"));
+			expect(warnSpy).toHaveBeenCalledWith(
+				expect.stringContaining("dropping schema-invalid field broken"),
+				expect.objectContaining({ uuid: "bad-1" }),
+			);
+			warnSpy.mockRestore();
+		});
+
+		it("skips entire subtree when a container fails schema validation", () => {
+			// `groupFieldSchema` requires a label (via `fieldBaseSchema`).
+			// A wire group without one fails Zod; its children must NOT
+			// be emitted — they would have no parent entity to land
+			// under, so the early-return in the flattener prevents
+			// orphan `addField` mutations.
+			const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+			const doc = buildDocWithOneModuleOneFormEmpty();
+
+			const mutations = toDocMutations(
+				"data-form-done",
+				{
+					moduleIndex: 0,
+					formIndex: 0,
+					form: {
+						uuid: "ignored",
+						name: "Bad Container",
+						type: "registration",
+						questions: [
+							{
+								uuid: "bad-group",
+								type: "group",
+								id: "g",
+								// No `label` — group schema rejects this.
+								children: [
+									{
+										uuid: "would-be-child",
+										type: "text",
+										id: "c",
+										label: "C",
+									},
+								],
+							},
+						],
+					} satisfies BlueprintForm,
+				},
+				doc,
+			);
+
+			// Neither the bad container nor its would-be child lands.
+			const adds = mutations.filter((m) => m.kind === "addField");
+			expect(adds).toHaveLength(0);
+			expect(warnSpy).toHaveBeenCalledWith(
+				expect.stringContaining("dropping schema-invalid field g"),
+				expect.objectContaining({ uuid: "bad-group" }),
+			);
+			warnSpy.mockRestore();
 		});
 	});
 

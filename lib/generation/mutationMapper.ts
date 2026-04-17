@@ -509,44 +509,86 @@ function flattenWireQuestionsToFields(
 
 /**
  * Translate a wire-format `form_links` array into the domain's
- * uuid-keyed `FormLink[]` shape. Returns `undefined` when the wire form
- * has no links so the patch can clear any previously-stored value via
- * `Object.assign`.
+ * uuid-keyed `FormLink[]` shape.
  *
- * Wire targets carry `moduleIndex` / `formIndex`; domain targets carry
- * `moduleUuid` / `formUuid`. Resolution uses the doc snapshot's
- * `moduleOrder` + `formOrder`, symmetric with how `legacyBridge.ts`
- * migrates legacy app docs on load. Unknown target types (neither
- * `module` nor `form`) cast through unchanged — the `updateForm`
- * reducer doesn't re-validate formLinks, but downstream validators do.
+ * Return-value semantics chosen so `Object.assign(form, patch)` in the
+ * `updateForm` reducer produces the right end state in every branch:
+ *
+ *   - wire `form_links` is `undefined` → return `undefined`. The patch
+ *     still carries a `formLinks: undefined` slot, which clears any
+ *     previously-stored links (symmetric with how `connect` /
+ *     `closeCondition` / `postSubmit` behave).
+ *   - wire `form_links` is `[]`, OR every entry got dropped during
+ *     validation → return `[]`. Assigning an empty array is
+ *     semantically identical to clearing, but keeps the "explicit
+ *     wire → explicit empty" audit trail intact.
+ *   - at least one well-formed link → return the surviving links.
+ *
+ * Per-link validation: wire targets carry `moduleIndex` / `formIndex`;
+ * domain targets carry `moduleUuid` / `formUuid`. An out-of-bounds
+ * index resolves to `undefined` at runtime, which TypeScript's
+ * `Uuid` branded type refuses to admit. Rather than installing
+ * `{ moduleUuid: undefined }` into the doc store (the `updateForm`
+ * reducer does NOT re-validate its patch, so a bad shape would leak
+ * through all the way to Firestore), each link is validated here and
+ * dropped with a `console.warn` on failure — the same safety pattern
+ * used by the field flattener above, and symmetric with how
+ * `legacyBridge.ts::migrateFormLinkTarget` resolves indices on load.
  */
 function translateWireFormLinks(
 	wireLinks: BlueprintForm["form_links"],
 	doc: BlueprintDoc,
 ): FormLink[] | undefined {
 	if (wireLinks === undefined) return undefined;
-	return wireLinks.map((link) => {
+	const out: FormLink[] = [];
+	for (const link of wireLinks) {
 		const target = link.target;
 		let domainTarget: FormLink["target"];
 		if (target.type === "module") {
-			domainTarget = {
-				type: "module",
-				moduleUuid: doc.moduleOrder[target.moduleIndex],
-			};
-		} else if (target.type === "form") {
 			const moduleUuid = doc.moduleOrder[target.moduleIndex];
-			const formUuid = doc.formOrder[moduleUuid]?.[target.formIndex];
+			if (!moduleUuid) {
+				console.warn(
+					`mutationMapper: dropping form_link with out-of-bounds moduleIndex ${target.moduleIndex}`,
+				);
+				continue;
+			}
+			domainTarget = { type: "module", moduleUuid };
+		} else if (target.type === "form") {
+			// Two resolution hops — guard each independently so either
+			// failure mode (unknown module, unknown form within the
+			// resolved module) produces a warn+drop rather than a
+			// partially-valid target.
+			const moduleUuid = doc.moduleOrder[target.moduleIndex];
+			const formUuid = moduleUuid
+				? doc.formOrder[moduleUuid]?.[target.formIndex]
+				: undefined;
+			if (!moduleUuid || !formUuid) {
+				console.warn(
+					`mutationMapper: dropping form_link with unresolved target`,
+					{
+						moduleIndex: target.moduleIndex,
+						formIndex: target.formIndex,
+					},
+				);
+				continue;
+			}
 			domainTarget = { type: "form", moduleUuid, formUuid };
 		} else {
-			// Unreachable given the wire schema's discriminated union, but
-			// guard defensively — widening the type silently here would
-			// install a malformed link into the doc.
-			domainTarget = target as unknown as FormLink["target"];
+			// Exhaustiveness check — the wire schema's `target` is a
+			// discriminated union over `"module" | "form"`, so this branch
+			// is unreachable today. Assigning to `never` makes the compiler
+			// complain the moment a future schema change adds a third
+			// variant, catching untranslated target types at build time
+			// instead of silently installing them into the doc store.
+			const _exhaustive: never = target;
+			void _exhaustive;
+			continue;
 		}
-		return {
+		out.push({
 			...(link.condition != null && { condition: link.condition }),
 			target: domainTarget,
 			...(link.datums != null && { datums: link.datums }),
-		};
-	});
+		});
+	}
+	return out;
 }
