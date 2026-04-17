@@ -26,7 +26,7 @@ export const audioFieldMetadata: FieldKindMetadata<"audio"> = {
 	isStructural: false,
 	isContainer: false,
 	saDocs: "Audio recording. Cannot be saved to a case property.",
-	convertTargets: [],
+	convertTargets: ["image", "video", "signature"],
 };
 
 // Editor schema is a placeholder for Phase 1 — stub components render disabled

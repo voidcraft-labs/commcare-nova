@@ -7,28 +7,25 @@
  *
  * `applyMutation` operates on an Immer draft — call sites wrap it in
  * `produce()` or let the Zustand store's Immer middleware handle the
- * drafting. Returns metadata for `moveField` and `renameField`
- * mutations (used by `applyWithResult` on the store); returns `undefined`
- * for all other mutation kinds.
+ * drafting. Returns a `MutationResult`: `MoveFieldResult` for `moveField`,
+ * `FieldRenameMeta` for `renameField`, and `undefined` for every other
+ * kind.
  *
- * `applyMutations` is a batched convenience for the agent stream
- * (Phase 4) and for restoring a doc from a mutation log.
+ * `applyMutations` is the batched variant — it runs the same dispatch
+ * loop and returns a parallel `MutationResult[]` (one entry per input
+ * mutation). This is what backs the store's sole public write entry point,
+ * `applyMany`, used by the agent stream and for restoring a doc from a
+ * mutation log.
  */
 
 import type { Draft } from "immer";
 import { rebuildFieldParent } from "@/lib/doc/fieldParent";
-import type { BlueprintDoc, Mutation } from "@/lib/doc/types";
+import type { BlueprintDoc, Mutation, MutationResult } from "@/lib/doc/types";
 import { applyAppMutation } from "./app";
-import {
-	applyFieldMutation,
-	type FieldRenameMeta,
-	type MoveFieldResult,
-} from "./fields";
+import { applyFieldMutation } from "./fields";
 import { applyFormMutation } from "./forms";
 import { assertNever } from "./helpers";
 import { applyModuleMutation } from "./modules";
-
-export type { FieldRenameMeta, MoveFieldResult };
 
 /**
  * Internal: dispatch a single mutation to the appropriate sub-reducer
@@ -43,7 +40,7 @@ export type { FieldRenameMeta, MoveFieldResult };
 function dispatchMutation(
 	draft: Draft<BlueprintDoc>,
 	mut: Mutation,
-): MoveFieldResult | FieldRenameMeta | undefined {
+): MutationResult {
 	switch (mut.kind) {
 		case "setAppName":
 		case "setConnectType":
@@ -62,7 +59,6 @@ function dispatchMutation(
 		case "moveForm":
 		case "renameForm":
 		case "updateForm":
-		case "replaceForm":
 			applyFormMutation(draft, mut);
 			return;
 		case "addField":
@@ -71,6 +67,7 @@ function dispatchMutation(
 		case "renameField":
 		case "duplicateField":
 		case "updateField":
+		case "convertField":
 			return applyFieldMutation(draft, mut);
 		default:
 			assertNever(mut);
@@ -88,7 +85,7 @@ function dispatchMutation(
 export function applyMutation(
 	draft: Draft<BlueprintDoc>,
 	mut: Mutation,
-): MoveFieldResult | FieldRenameMeta | undefined {
+): MutationResult {
 	const result = dispatchMutation(draft, mut);
 	rebuildFieldParent(draft as unknown as BlueprintDoc);
 	return result;
@@ -107,7 +104,11 @@ export function applyMutation(
 export function applyMutations(
 	draft: Draft<BlueprintDoc>,
 	muts: Mutation[],
-): void {
-	for (const mut of muts) dispatchMutation(draft, mut);
+): MutationResult[] {
+	const results: MutationResult[] = [];
+	for (const mut of muts) {
+		results.push(dispatchMutation(draft, mut));
+	}
 	rebuildFieldParent(draft as unknown as BlueprintDoc);
+	return results;
 }

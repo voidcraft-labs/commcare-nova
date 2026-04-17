@@ -27,7 +27,7 @@ export const imageFieldMetadata: FieldKindMetadata<"image"> = {
 	isContainer: false,
 	saDocs:
 		"Image capture from camera or gallery. Cannot be saved to a case property.",
-	convertTargets: [],
+	convertTargets: ["audio", "video", "signature"],
 };
 
 // Editor schema is a placeholder for Phase 1 — stub components render disabled

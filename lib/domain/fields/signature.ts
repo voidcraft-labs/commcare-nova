@@ -27,7 +27,7 @@ export const signatureFieldMetadata: FieldKindMetadata<"signature"> = {
 	isStructural: false,
 	isContainer: false,
 	saDocs: "Signature capture.",
-	convertTargets: [],
+	convertTargets: ["image", "audio", "video"],
 };
 
 // Editor schema — Phase 1 stubs. Phase 5 replaces StubField with real

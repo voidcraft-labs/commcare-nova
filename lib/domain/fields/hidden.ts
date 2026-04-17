@@ -39,7 +39,7 @@ export const hiddenFieldMetadata: FieldKindMetadata<"hidden"> = {
 	isContainer: false,
 	saDocs:
 		"Computed value that the user never sees. Must have a calculate expression.",
-	convertTargets: ["text", "int", "decimal"],
+	convertTargets: [],
 };
 
 // Editor schema — Phase 1 stubs. calculate is surfaced in logic (required,

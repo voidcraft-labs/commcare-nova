@@ -15,6 +15,7 @@ import type {
 	CaseType,
 	ConnectType,
 	Field,
+	FieldKind,
 	FieldPatch,
 	Form,
 	Module,
@@ -39,13 +40,6 @@ export type Mutation =
 	| { kind: "moveForm"; uuid: Uuid; toModuleUuid: Uuid; toIndex: number }
 	| { kind: "renameForm"; uuid: Uuid; newId: string }
 	| { kind: "updateForm"; uuid: Uuid; patch: Partial<Omit<Form, "uuid">> }
-	| {
-			kind: "replaceForm";
-			uuid: Uuid;
-			form: Form;
-			fields: Field[];
-			fieldOrder: Record<Uuid, Uuid[]>;
-	  }
 	// Field
 	| { kind: "addField"; parentUuid: Uuid; field: Field; index?: number }
 	| { kind: "removeField"; uuid: Uuid }
@@ -53,7 +47,35 @@ export type Mutation =
 	| { kind: "renameField"; uuid: Uuid; newId: string }
 	| { kind: "duplicateField"; uuid: Uuid }
 	| { kind: "updateField"; uuid: Uuid; patch: FieldPatch }
+	| { kind: "convertField"; uuid: Uuid; toKind: FieldKind }
 	// App-level
 	| { kind: "setAppName"; name: string }
 	| { kind: "setConnectType"; connectType: ConnectType | null }
 	| { kind: "setCaseTypes"; caseTypes: CaseType[] | null };
+
+// ─── MutationResult ────────────────────────────────────────────────────
+//
+// Per-mutation result returned by the reducer.
+//
+// `applyMany(mutations)` returns `MutationResult[]` — one entry per input
+// mutation, same order. Most mutation kinds produce `undefined`; the two
+// that surface actionable metadata are:
+//   - `renameField`: `FieldRenameMeta` with the XPath-rewrite count
+//   - `moveField`: `MoveFieldResult` with cross-level auto-rename info
+//
+// A flat union (rather than a positionally-typed tuple or a
+// generic-per-mutation result) keeps the public API uniform and easy to
+// type at call sites. Callers that need metadata destructure by known
+// position and narrow via `typeof` / kind check. This shape is final —
+// it will not expand to a mapped type when new mutation kinds are added,
+// because those kinds return `undefined` and `undefined` already belongs
+// to this union.
+
+import type {
+	FieldRenameMeta,
+	MoveFieldResult,
+} from "@/lib/doc/mutations/fields";
+
+export type MutationResult = FieldRenameMeta | MoveFieldResult | undefined;
+
+export type { FieldRenameMeta, MoveFieldResult };

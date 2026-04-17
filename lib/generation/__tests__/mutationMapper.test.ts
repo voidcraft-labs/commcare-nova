@@ -5,7 +5,7 @@
  * doc mutations — without any store, signal grid, or side effects involved.
  */
 
-import { assert, describe, expect, it } from "vitest";
+import { assert, describe, expect, it, vi } from "vitest";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
 import { asUuid, type BlueprintDoc, type Mutation } from "@/lib/doc/types";
 import type { BlueprintForm, CaseType } from "@/lib/schemas/blueprint";
@@ -499,10 +499,43 @@ describe("toDocMutations", () => {
 	});
 
 	// ── data-form-done / data-form-fixed / data-form-updated ──────────
+	//
+	// Form-content events decompose into a fine-grained mutation sequence:
+	//   1. `updateForm` — form-entity metadata patch (never carries `purpose`
+	//      so the scaffold-stamped value survives `Object.assign`).
+	//   2. `removeField × N` — one per existing top-level child; the reducer
+	//      cascades each into its descendants.
+	//   3. `addField × M` — one per incoming wire question, in top-down tree
+	//      order so container parents land before their children.
+
+	/**
+	 * Build a doc with one module and one form that has no fields.
+	 * Used by scenarios that need to assert "pure add, zero removes".
+	 */
+	function buildDocWithOneModuleOneFormEmpty(): BlueprintDoc {
+		return buildDoc({
+			appId: APP_ID,
+			appName: "Empty Form",
+			modules: [
+				{
+					uuid: "mod-uuid-1",
+					name: "Registration Module",
+					caseType: "patient",
+					forms: [
+						{
+							uuid: "form-uuid-1",
+							name: "Register Patient",
+							type: "registration",
+						},
+					],
+				},
+			],
+		});
+	}
 
 	describe("data-form-done", () => {
-		it("returns replaceForm mutation with decomposed form + flattened questions", () => {
-			const doc = buildDocWithOneModuleOneForm();
+		it("empty existing form → decomposes into updateForm + addField × N (no removes)", () => {
+			const doc = buildDocWithOneModuleOneFormEmpty();
 			const formUuid = doc.formOrder[doc.moduleOrder[0]][0];
 
 			const incomingForm: BlueprintForm = {
@@ -531,23 +564,111 @@ describe("toDocMutations", () => {
 				doc,
 			);
 
-			expect(mutations).toHaveLength(1);
-			const m = mutations[0];
-			assert(m.kind === "replaceForm");
+			// 1 updateForm + 0 removeField + 2 addField = 3
+			expect(mutations).toHaveLength(3);
 
-			// The form UUID should be the doc's existing UUID, not the incoming one
-			expect(m.uuid).toBe(formUuid);
-			expect(m.form.uuid).toBe(formUuid);
-			expect(m.form.name).toBe("Register Patient");
-			expect(m.form.type).toBe("registration");
+			// (1) First mutation is `updateForm` targeting the doc's form uuid
+			//     with name + type transferred from the wire payload.
+			const updateForm = mutations[0];
+			assert(updateForm.kind === "updateForm");
+			expect(updateForm.uuid).toBe(formUuid);
+			expect(updateForm.patch.name).toBe("Register Patient");
+			expect(updateForm.patch.type).toBe("registration");
 
-			// Questions should be flattened
-			expect(m.fields).toHaveLength(2);
-			expect(m.fields[0].id).toBe("patient_name");
-			expect(m.fields[1].id).toBe("patient_age");
+			// (2) Remaining mutations are adds in array order. Empty doc means
+			//     zero removeFields between updateForm and the adds.
+			const addField1 = mutations[1];
+			assert(addField1.kind === "addField");
+			expect(addField1.parentUuid).toBe(formUuid);
+			expect(addField1.index).toBe(0);
+			expect(addField1.field.uuid).toBe(asUuid("new-q-1"));
+			expect(addField1.field.id).toBe("patient_name");
 
-			// questionOrder should map formUuid to the two question UUIDs
-			expect(m.fieldOrder[formUuid]).toHaveLength(2);
+			const addField2 = mutations[2];
+			assert(addField2.kind === "addField");
+			expect(addField2.parentUuid).toBe(formUuid);
+			expect(addField2.index).toBe(1);
+			expect(addField2.field.uuid).toBe(asUuid("new-q-2"));
+			expect(addField2.field.id).toBe("patient_age");
+		});
+
+		it("populated existing form → wipes existing fields then installs incoming", () => {
+			// Fixture has two existing top-level fields; incoming has one new
+			// field with a different uuid, so we should see:
+			//   updateForm + removeField × 2 + addField × 1 = 4
+			const doc = buildDoc({
+				appId: APP_ID,
+				appName: "Populated Form",
+				modules: [
+					{
+						uuid: "mod-uuid-1",
+						name: "Registration",
+						caseType: "patient",
+						forms: [
+							{
+								uuid: "form-uuid-1",
+								name: "Register Patient",
+								type: "registration",
+								fields: [
+									f({
+										uuid: "existing-q-1",
+										kind: "text",
+										id: "first_name",
+										label: "First Name",
+									}),
+									f({
+										uuid: "existing-q-2",
+										kind: "text",
+										id: "last_name",
+										label: "Last Name",
+									}),
+								],
+							},
+						],
+					},
+				],
+			});
+			const formUuid = doc.formOrder[doc.moduleOrder[0]][0];
+
+			const incomingForm: BlueprintForm = {
+				uuid: "ignored",
+				name: "Register Patient",
+				type: "registration",
+				questions: [
+					{
+						uuid: "new-q-1",
+						id: "full_name",
+						type: "text",
+						label: "Full Name",
+					},
+				],
+			};
+
+			const mutations = toDocMutations(
+				"data-form-done",
+				{ moduleIndex: 0, formIndex: 0, form: incomingForm },
+				doc,
+			);
+
+			expect(mutations).toHaveLength(4);
+
+			// (1) updateForm
+			assert(mutations[0].kind === "updateForm");
+			expect(mutations[0].uuid).toBe(formUuid);
+
+			// (2) removeField × 2, targeting the existing uuids in fieldOrder
+			//     order (top-down).
+			assert(mutations[1].kind === "removeField");
+			expect(mutations[1].uuid).toBe(asUuid("existing-q-1"));
+			assert(mutations[2].kind === "removeField");
+			expect(mutations[2].uuid).toBe(asUuid("existing-q-2"));
+
+			// (3) addField for the new field, referencing the incoming uuid.
+			assert(mutations[3].kind === "addField");
+			expect(mutations[3].parentUuid).toBe(formUuid);
+			expect(mutations[3].index).toBe(0);
+			expect(mutations[3].field.uuid).toBe(asUuid("new-q-1"));
+			expect(mutations[3].field.id).toBe("full_name");
 		});
 
 		it("with out-of-bounds module index returns empty array", () => {
@@ -586,10 +707,25 @@ describe("toDocMutations", () => {
 			).toEqual([]);
 		});
 
-		it("preserves existing form's purpose", () => {
+		it("omits `purpose` but INCLUDES every other optional form key in the updateForm patch", () => {
+			// Two symmetric invariants at the patch level:
+			//
+			//   1. `purpose` must be ABSENT (not even `undefined`) so the
+			//      reducer's `Object.assign` leaves the scaffold-stamped
+			//      value in place. `{ purpose: undefined }` would clear it.
+			//
+			//   2. Every other optional form-level key — closeCondition,
+			//      connect, postSubmit, formLinks — must be PRESENT (set
+			//      to `undefined` when the wire form omits them) so
+			//      Object.assign clears any previously-stored value. This
+			//      is the wholesale-swap invariant the patch holds at the
+			//      form-entity level.
+			//
+			// Using the `in` operator catches silent drift either way —
+			// `{ key: undefined }` counts as "present" for `in`, which is
+			// exactly the semantic Object.assign keys on.
 			const doc = buildDocWithPurpose();
 
-			// Incoming form has no purpose (BlueprintForm doesn't carry it)
 			const incomingForm: BlueprintForm = {
 				uuid: "ignored",
 				name: "Updated Register",
@@ -603,14 +739,23 @@ describe("toDocMutations", () => {
 				doc,
 			);
 
-			expect(mutations).toHaveLength(1);
-			const m = mutations[0];
-			assert(m.kind === "replaceForm");
-			expect(m.form.purpose).toBe("Collect patient demographics");
+			const updateForm = mutations[0];
+			assert(updateForm.kind === "updateForm");
+			expect("purpose" in updateForm.patch).toBe(false);
+			// Wholesale-replace keys — present so stale values clear.
+			expect("closeCondition" in updateForm.patch).toBe(true);
+			expect("connect" in updateForm.patch).toBe(true);
+			expect("postSubmit" in updateForm.patch).toBe(true);
+			expect("formLinks" in updateForm.patch).toBe(true);
+			// And each is `undefined` on an empty wire form.
+			expect(updateForm.patch.closeCondition).toBeUndefined();
+			expect(updateForm.patch.connect).toBeUndefined();
+			expect(updateForm.patch.postSubmit).toBeUndefined();
+			expect(updateForm.patch.formLinks).toBeUndefined();
 		});
 
-		it("handles nested group/repeat questions", () => {
-			const doc = buildDocWithOneModuleOneForm();
+		it("nested group → parent addField precedes child adds with correct parentUuid", () => {
+			const doc = buildDocWithOneModuleOneFormEmpty();
 			const formUuid = doc.formOrder[doc.moduleOrder[0]][0];
 
 			const incomingForm: BlueprintForm = {
@@ -630,12 +775,6 @@ describe("toDocMutations", () => {
 								type: "text",
 								label: "First Name",
 							},
-							{
-								uuid: "child-q-2",
-								id: "last_name",
-								type: "text",
-								label: "Last Name",
-							},
 						],
 					},
 				],
@@ -647,19 +786,527 @@ describe("toDocMutations", () => {
 				doc,
 			);
 
-			expect(mutations).toHaveLength(1);
-			const m = mutations[0];
-			assert(m.kind === "replaceForm");
+			// updateForm + addField(group) + addField(child) = 3.
+			expect(mutations).toHaveLength(3);
 
-			// 3 total questions: 1 group + 2 children
-			expect(m.fields).toHaveLength(3);
+			assert(mutations[0].kind === "updateForm");
 
-			// Form-level ordering has the group
-			expect(m.fieldOrder[formUuid]).toHaveLength(1);
-			expect(m.fieldOrder[formUuid][0]).toBe(asUuid("group-uuid"));
+			// Group is added under the form before the child is added under
+			// the group — this is the ordering invariant the addField reducer
+			// relies on to pre-seed the group's fieldOrder slot.
+			const groupAdd = mutations[1];
+			assert(groupAdd.kind === "addField");
+			expect(groupAdd.parentUuid).toBe(formUuid);
+			expect(groupAdd.field.uuid).toBe(asUuid("group-uuid"));
+			expect(groupAdd.field.kind).toBe("group");
 
-			// Group-level ordering has the children
-			expect(m.fieldOrder[asUuid("group-uuid")]).toHaveLength(2);
+			const childAdd = mutations[2];
+			assert(childAdd.kind === "addField");
+			expect(childAdd.parentUuid).toBe(asUuid("group-uuid"));
+			expect(childAdd.field.uuid).toBe(asUuid("child-q-1"));
+			expect(childAdd.index).toBe(0);
+		});
+
+		it("wire→domain field renames transfer correctly in addField payloads", () => {
+			const doc = buildDocWithOneModuleOneFormEmpty();
+
+			const incomingForm: BlueprintForm = {
+				uuid: "ignored",
+				name: "Renames",
+				type: "registration",
+				questions: [
+					{
+						uuid: "q-1",
+						id: "patient_age",
+						type: "text",
+						label: "Age",
+						case_property_on: "foo",
+						validation: "1+1",
+						validation_msg: "bad",
+					},
+				],
+			};
+
+			const mutations = toDocMutations(
+				"data-form-done",
+				{ moduleIndex: 0, formIndex: 0, form: incomingForm },
+				doc,
+			);
+
+			// mutations[0] is updateForm, mutations[1] is the addField.
+			expect(mutations).toHaveLength(2);
+			const add = mutations[1];
+			assert(add.kind === "addField");
+			const field = add.field as Record<string, unknown>;
+			expect(field.kind).toBe("text");
+			expect(field.case_property).toBe("foo");
+			expect(field.validate).toBe("1+1");
+			expect(field.validate_msg).toBe("bad");
+			// The wire keys must NOT leak into the domain Field.
+			expect("type" in field).toBe(false);
+			expect("case_property_on" in field).toBe(false);
+			expect("validation" in field).toBe(false);
+			expect("validation_msg" in field).toBe(false);
+		});
+
+		it("form.close_condition maps to closeCondition in the updateForm patch", () => {
+			const doc = buildDocWithOneModuleOneFormEmpty();
+
+			const incomingForm: BlueprintForm = {
+				uuid: "ignored",
+				name: "Closer",
+				type: "close",
+				questions: [],
+				close_condition: {
+					question: "status",
+					answer: "done",
+					operator: "=",
+				},
+			};
+
+			const mutations = toDocMutations(
+				"data-form-done",
+				{ moduleIndex: 0, formIndex: 0, form: incomingForm },
+				doc,
+			);
+
+			const updateForm = mutations[0];
+			assert(updateForm.kind === "updateForm");
+			expect(updateForm.patch.closeCondition).toEqual({
+				field: "status",
+				answer: "done",
+				operator: "=",
+			});
+		});
+
+		it("missing close_condition produces `closeCondition: undefined` in the patch", () => {
+			// Explicit `undefined` (not absent) so the reducer's Object.assign
+			// clears any previously-stored closeCondition.
+			const doc = buildDocWithOneModuleOneFormEmpty();
+
+			const incomingForm: BlueprintForm = {
+				uuid: "ignored",
+				name: "Plain",
+				type: "registration",
+				questions: [],
+			};
+
+			const mutations = toDocMutations(
+				"data-form-done",
+				{ moduleIndex: 0, formIndex: 0, form: incomingForm },
+				doc,
+			);
+
+			const updateForm = mutations[0];
+			assert(updateForm.kind === "updateForm");
+			// The key must be present (so assign clears stored value) AND
+			// its value must be undefined.
+			expect("closeCondition" in updateForm.patch).toBe(true);
+			expect(updateForm.patch.closeCondition).toBeUndefined();
+		});
+
+		it("nested repeat→group→text: emission order parent-before-child at every level", () => {
+			// Exercises the recursive-flatten contract at depth 3: every
+			// container's addField must land in the mutation array before
+			// any of its descendants' adds, transitively.
+			const doc = buildDocWithOneModuleOneFormEmpty();
+			const formUuid = doc.formOrder[doc.moduleOrder[0]][0];
+
+			const mutations = toDocMutations(
+				"data-form-done",
+				{
+					moduleIndex: 0,
+					formIndex: 0,
+					form: {
+						uuid: "ignored",
+						name: "Nested",
+						type: "registration",
+						questions: [
+							{
+								uuid: "r-1",
+								type: "repeat",
+								id: "visits",
+								label: "Visits",
+								children: [
+									{
+										uuid: "g-1",
+										type: "group",
+										id: "measurements",
+										label: "Measurements",
+										children: [
+											{
+												uuid: "t-1",
+												type: "int",
+												id: "weight",
+												label: "Weight",
+											},
+										],
+									},
+								],
+							},
+						],
+					} satisfies BlueprintForm,
+				},
+				doc,
+			);
+
+			// 1 updateForm + 3 addFields = 4
+			expect(mutations).toHaveLength(4);
+			assert(mutations[1].kind === "addField");
+			expect(mutations[1].field.uuid).toBe(asUuid("r-1"));
+			expect(mutations[1].parentUuid).toBe(formUuid);
+			assert(mutations[2].kind === "addField");
+			expect(mutations[2].field.uuid).toBe(asUuid("g-1"));
+			expect(mutations[2].parentUuid).toBe(asUuid("r-1"));
+			assert(mutations[3].kind === "addField");
+			expect(mutations[3].field.uuid).toBe(asUuid("t-1"));
+			expect(mutations[3].parentUuid).toBe(asUuid("g-1"));
+		});
+
+		it("sibling groups at the same level: each group's child indices start at 0", () => {
+			// Exercises the per-parent index reset in the flattener's forEach:
+			// siblings share a parent-index sequence (0, 1, …) but children
+			// of different sibling containers each get their own 0-based
+			// sequence under their container's uuid.
+			const doc = buildDocWithOneModuleOneFormEmpty();
+			const formUuid = doc.formOrder[doc.moduleOrder[0]][0];
+
+			const mutations = toDocMutations(
+				"data-form-done",
+				{
+					moduleIndex: 0,
+					formIndex: 0,
+					form: {
+						uuid: "ignored",
+						name: "Siblings",
+						type: "registration",
+						questions: [
+							{
+								uuid: "g-1",
+								type: "group",
+								id: "demo",
+								label: "Demographics",
+								children: [
+									{
+										uuid: "t-1",
+										type: "text",
+										id: "name",
+										label: "Name",
+									},
+									{
+										uuid: "t-2",
+										type: "int",
+										id: "age",
+										label: "Age",
+									},
+								],
+							},
+							{
+								uuid: "g-2",
+								type: "group",
+								id: "hist",
+								label: "History",
+								children: [
+									{
+										uuid: "t-3",
+										type: "text",
+										id: "cond",
+										label: "Condition",
+									},
+								],
+							},
+						],
+					} satisfies BlueprintForm,
+				},
+				doc,
+			);
+
+			// 1 updateForm + 5 addFields
+			expect(mutations).toHaveLength(6);
+
+			// Top-level indices for the two sibling groups.
+			const g1 = mutations.find(
+				(m) => m.kind === "addField" && m.field.uuid === asUuid("g-1"),
+			);
+			const g2 = mutations.find(
+				(m) => m.kind === "addField" && m.field.uuid === asUuid("g-2"),
+			);
+			assert(g1?.kind === "addField" && g2?.kind === "addField");
+			expect(g1.index).toBe(0);
+			expect(g2.index).toBe(1);
+			expect(g1.parentUuid).toBe(formUuid);
+			expect(g2.parentUuid).toBe(formUuid);
+
+			// Children of g-1 land at indices 0, 1 under g-1.
+			const t1 = mutations.find(
+				(m) => m.kind === "addField" && m.field.uuid === asUuid("t-1"),
+			);
+			const t2 = mutations.find(
+				(m) => m.kind === "addField" && m.field.uuid === asUuid("t-2"),
+			);
+			assert(t1?.kind === "addField" && t2?.kind === "addField");
+			expect(t1.parentUuid).toBe(asUuid("g-1"));
+			expect(t1.index).toBe(0);
+			expect(t2.parentUuid).toBe(asUuid("g-1"));
+			expect(t2.index).toBe(1);
+
+			// Child of g-2 gets its own 0-index under g-2.
+			const t3 = mutations.find(
+				(m) => m.kind === "addField" && m.field.uuid === asUuid("t-3"),
+			);
+			assert(t3?.kind === "addField");
+			expect(t3.parentUuid).toBe(asUuid("g-2"));
+			expect(t3.index).toBe(0);
+		});
+
+		// ── formLinks wire→domain translation ─────────────────────────
+		//
+		// Wire `form_links` carry index-based targets (`moduleIndex` /
+		// `formIndex`); the domain `FormLink` uses UUIDs. The translator
+		// resolves indices via the doc snapshot — out-of-bounds indices
+		// DROP the link with a warn so malformed data can't leak into
+		// the doc store (the `updateForm` reducer does not re-validate).
+
+		it("translates wire form_links with module target to uuid-based shape", () => {
+			const doc = buildDocWithTwoModules();
+			const sourceFormUuid = doc.formOrder[doc.moduleOrder[0]][0];
+			const targetModuleUuid = doc.moduleOrder[1];
+
+			const mutations = toDocMutations(
+				"data-form-updated",
+				{
+					moduleIndex: 0,
+					formIndex: 0,
+					form: {
+						uuid: "ignored",
+						name: "Form A",
+						type: "registration",
+						questions: [],
+						form_links: [{ target: { type: "module", moduleIndex: 1 } }],
+					} satisfies BlueprintForm,
+				},
+				doc,
+			);
+
+			const updateForm = mutations[0];
+			assert(updateForm.kind === "updateForm");
+			expect(updateForm.uuid).toBe(sourceFormUuid);
+			expect(updateForm.patch.formLinks).toEqual([
+				{ target: { type: "module", moduleUuid: targetModuleUuid } },
+			]);
+		});
+
+		it("translates wire form_links with form target to uuid-based shape", () => {
+			const doc = buildDocWithTwoModules();
+			const sourceFormUuid = doc.formOrder[doc.moduleOrder[0]][0];
+			const targetModuleUuid = doc.moduleOrder[1];
+			const targetFormUuid = doc.formOrder[targetModuleUuid][0];
+
+			const mutations = toDocMutations(
+				"data-form-updated",
+				{
+					moduleIndex: 0,
+					formIndex: 0,
+					form: {
+						uuid: "ignored",
+						name: "Form A",
+						type: "registration",
+						questions: [],
+						form_links: [
+							{
+								condition: "/data/done = 'yes'",
+								target: { type: "form", moduleIndex: 1, formIndex: 0 },
+							},
+						],
+					} satisfies BlueprintForm,
+				},
+				doc,
+			);
+
+			const updateForm = mutations[0];
+			assert(updateForm.kind === "updateForm");
+			expect(updateForm.uuid).toBe(sourceFormUuid);
+			expect(updateForm.patch.formLinks).toEqual([
+				{
+					condition: "/data/done = 'yes'",
+					target: {
+						type: "form",
+						moduleUuid: targetModuleUuid,
+						formUuid: targetFormUuid,
+					},
+				},
+			]);
+		});
+
+		it("drops form_links with out-of-bounds moduleIndex (all-dropped collapses to undefined)", () => {
+			// Malformed links must be caught at the wire boundary — the
+			// `updateForm` reducer uses bare `Object.assign` and would
+			// otherwise install `{ moduleUuid: undefined }` into the doc
+			// store.
+			//
+			// When EVERY wire link gets dropped, the translator returns
+			// `undefined` (not `[]`) so the downstream `FORM_LINK_EMPTY`
+			// form-level validator doesn't fire against a state the user
+			// never authored. The SA asked for a link; we silently dropped
+			// it. Surfacing a "you set an empty array" error would be
+			// misleading — the `[]` signal is reserved for the wire-empty
+			// case below (user-authored "clear links").
+			const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+			const doc = buildDocWithOneModuleOneForm();
+
+			const mutations = toDocMutations(
+				"data-form-updated",
+				{
+					moduleIndex: 0,
+					formIndex: 0,
+					form: {
+						uuid: "ignored",
+						name: "Register Patient",
+						type: "registration",
+						questions: [],
+						form_links: [{ target: { type: "module", moduleIndex: 99 } }],
+					} satisfies BlueprintForm,
+				},
+				doc,
+			);
+
+			const updateForm = mutations[0];
+			assert(updateForm.kind === "updateForm");
+			expect(updateForm.patch.formLinks).toBeUndefined();
+			// Key must still be present so Object.assign clears any
+			// previously-stored links — same invariant the other
+			// optional patch keys hold.
+			expect("formLinks" in updateForm.patch).toBe(true);
+			expect(warnSpy).toHaveBeenCalledWith(
+				expect.stringContaining("out-of-bounds moduleIndex 99"),
+			);
+			warnSpy.mockRestore();
+		});
+
+		it("wire-empty form_links returns [] so FORM_LINK_EMPTY validator can fire", () => {
+			// A user/SA-authored empty array is distinct from an all-
+			// dropped array. Returning `[]` here lets the downstream
+			// `FORM_LINK_EMPTY` validator flag the no-op state, which is
+			// exactly what that validator is for. Only the translator-
+			// internal all-dropped case collapses onto `undefined`.
+			const doc = buildDocWithOneModuleOneForm();
+
+			const mutations = toDocMutations(
+				"data-form-updated",
+				{
+					moduleIndex: 0,
+					formIndex: 0,
+					form: {
+						uuid: "ignored",
+						name: "Register Patient",
+						type: "registration",
+						questions: [],
+						form_links: [],
+					} satisfies BlueprintForm,
+				},
+				doc,
+			);
+
+			const updateForm = mutations[0];
+			assert(updateForm.kind === "updateForm");
+			expect(updateForm.patch.formLinks).toEqual([]);
+		});
+
+		// ── Schema-validation gate for wire questions ──────────────────
+		//
+		// `fieldSchema.safeParse` inside the flattener is the only
+		// wire-boundary gate for SA-added fields — the `addField`
+		// reducer does not re-validate. These two tests pin the
+		// drop-on-failure behavior for both the sibling case (invalid
+		// leaf doesn't take out valid siblings) and the container case
+		// (invalid container skips its entire subtree).
+
+		it("drops schema-invalid wire questions and processes valid siblings", () => {
+			// `textFieldSchema` requires a `label`; a wire text question
+			// without one parses successfully against `BlueprintForm`
+			// (wire label is optional) but fails Zod at the mapper. The
+			// valid sibling must still land in the mutation array.
+			const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+			const doc = buildDocWithOneModuleOneFormEmpty();
+
+			const mutations = toDocMutations(
+				"data-form-done",
+				{
+					moduleIndex: 0,
+					formIndex: 0,
+					form: {
+						uuid: "ignored",
+						name: "Mixed",
+						type: "registration",
+						questions: [
+							// Malformed — text requires a label; wire sends none.
+							{ uuid: "bad-1", type: "text", id: "broken" },
+							// Well-formed sibling
+							{ uuid: "good-1", type: "text", id: "ok", label: "OK" },
+						],
+					} satisfies BlueprintForm,
+				},
+				doc,
+			);
+
+			const adds = mutations.filter((m) => m.kind === "addField");
+			expect(adds).toHaveLength(1);
+			assert(adds[0].kind === "addField");
+			expect(adds[0].field.uuid).toBe(asUuid("good-1"));
+			expect(warnSpy).toHaveBeenCalledWith(
+				expect.stringContaining("dropping schema-invalid field broken"),
+				expect.objectContaining({ uuid: "bad-1" }),
+			);
+			warnSpy.mockRestore();
+		});
+
+		it("skips entire subtree when a container fails schema validation", () => {
+			// `groupFieldSchema` requires a label (via `fieldBaseSchema`).
+			// A wire group without one fails Zod; its children must NOT
+			// be emitted — they would have no parent entity to land
+			// under, so the early-return in the flattener prevents
+			// orphan `addField` mutations.
+			const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+			const doc = buildDocWithOneModuleOneFormEmpty();
+
+			const mutations = toDocMutations(
+				"data-form-done",
+				{
+					moduleIndex: 0,
+					formIndex: 0,
+					form: {
+						uuid: "ignored",
+						name: "Bad Container",
+						type: "registration",
+						questions: [
+							{
+								uuid: "bad-group",
+								type: "group",
+								id: "g",
+								// No `label` — group schema rejects this.
+								children: [
+									{
+										uuid: "would-be-child",
+										type: "text",
+										id: "c",
+										label: "C",
+									},
+								],
+							},
+						],
+					} satisfies BlueprintForm,
+				},
+				doc,
+			);
+
+			// Neither the bad container nor its would-be child lands.
+			const adds = mutations.filter((m) => m.kind === "addField");
+			expect(adds).toHaveLength(0);
+			expect(warnSpy).toHaveBeenCalledWith(
+				expect.stringContaining("dropping schema-invalid field g"),
+				expect.objectContaining({ uuid: "bad-group" }),
+			);
+			warnSpy.mockRestore();
 		});
 	});
 
@@ -681,10 +1328,11 @@ describe("toDocMutations", () => {
 				{ moduleIndex: 1, formIndex: 0, form },
 				doc,
 			);
-			expect(mutations).toHaveLength(1);
-			const m = mutations[0];
-			assert(m.kind === "replaceForm");
-			expect(m.uuid).toBe(formUuid);
+			// updateForm + addField = 2 (no fields to remove on the fixture)
+			expect(mutations).toHaveLength(2);
+			const updateForm = mutations[0];
+			assert(updateForm.kind === "updateForm");
+			expect(updateForm.uuid).toBe(formUuid);
 		});
 	});
 
