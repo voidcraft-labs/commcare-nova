@@ -1,93 +1,101 @@
 /**
- * Validation runner — single entry point for all blueprint validation.
+ * Validation runner — single entry point for structured blueprint validation.
  *
- * Walks the blueprint tree once, running scope-appropriate rules at each level,
- * then runs deep XPath validation. Returns structured ValidationError[].
+ * Walks the normalized `BlueprintDoc` once, running scope-appropriate rules
+ * at the app, module, form, and field levels, then runs deep XPath
+ * validation. Returns structured `ValidationError[]` keyed by uuid.
  */
 
-import type { AppBlueprint } from "@/lib/schemas/blueprint";
+import type { BlueprintDoc } from "@/lib/domain";
 import type { ValidationError } from "./errors";
 import { validationError } from "./errors";
 import { validateBlueprintDeep } from "./index";
 import { APP_RULES } from "./rules/app";
+import { runFieldRules } from "./rules/field";
 import { runFormRules } from "./rules/form";
 import { MODULE_RULES } from "./rules/module";
-import { runQuestionRules } from "./rules/question";
 
 /**
- * Run all validation rules on a blueprint.
- * Returns structured errors — use errorToString() for human-readable format.
+ * Run all validation rules on a `BlueprintDoc`.
+ * Returns structured errors — `errorToString()` renders a human-readable form.
  */
-export function runValidation(blueprint: AppBlueprint): ValidationError[] {
+export function runValidation(doc: BlueprintDoc): ValidationError[] {
 	const errors: ValidationError[] = [];
 
 	for (const rule of APP_RULES) {
-		errors.push(...rule(blueprint));
+		errors.push(...rule(doc));
 	}
 
-	for (let mIdx = 0; mIdx < blueprint.modules.length; mIdx++) {
-		const mod = blueprint.modules[mIdx];
+	for (const moduleUuid of doc.moduleOrder) {
+		const mod = doc.modules[moduleUuid];
 
 		for (const rule of MODULE_RULES) {
-			errors.push(...rule(mod, mIdx, blueprint));
+			errors.push(...rule(mod, moduleUuid, doc));
 		}
 
-		for (let fIdx = 0; fIdx < mod.forms.length; fIdx++) {
-			const form = mod.forms[fIdx];
-			errors.push(...runFormRules(form, fIdx, mod, mIdx, blueprint));
-			if (form.questions && form.questions.length > 0) {
+		for (const formUuid of doc.formOrder[moduleUuid] ?? []) {
+			errors.push(...runFormRules(doc, formUuid, moduleUuid));
+			const order = doc.fieldOrder[formUuid] ?? [];
+			if (order.length > 0) {
 				errors.push(
-					...runQuestionRules(form.questions, {
-						formName: form.name,
+					...runFieldRules(doc, formUuid, {
+						formName: doc.forms[formUuid].name,
 						moduleName: mod.name,
-						formIndex: fIdx,
-						moduleIndex: mIdx,
+						moduleUuid,
+						formUuid,
 					}),
 				);
 			}
 		}
 	}
 
-	errors.push(...runDeepValidation(blueprint));
+	errors.push(...runDeepValidation(doc));
 
 	return errors;
 }
 
 /**
- * Wrap validateBlueprintDeep() output into structured ValidationErrors
- * with human-friendly messages.
+ * Wrap `validateBlueprintDeep` string output into structured
+ * `ValidationError`s with human-friendly messages.
+ *
+ * The regex-driven parser below decodes the three formats emitted by
+ * `validateBlueprintDeep`:
+ *   - `Question "id" in "formName": field expression error — message`
+ *   - `"formName" in "moduleName" label: message`
+ *   - `"formName" in "moduleName" has a circular dependency: cycle`
+ *
+ * Any line that doesn't match falls through to a generic `XPATH_SYNTAX`
+ * error carrying the raw message.
  */
-function runDeepValidation(blueprint: AppBlueprint): ValidationError[] {
-	const deepErrors = validateBlueprintDeep(blueprint);
+function runDeepValidation(doc: BlueprintDoc): ValidationError[] {
+	const deepErrors = validateBlueprintDeep(doc);
 	const errors: ValidationError[] = [];
 
 	for (const errStr of deepErrors) {
-		// Format: Question "id" in "formName": field expression error — message
 		const questionMatch = errStr.match(
 			/^Question "([^"]+)" in "([^"]+)": (\w+) expression error — (.+)$/,
 		);
 		if (questionMatch) {
-			const [, questionId, formName, field, rawMessage] = questionMatch;
+			const [, fieldId, formName, field, rawMessage] = questionMatch;
 			const code = inferXPathErrorCode(rawMessage);
 			const message = humanizeXPathError(
 				code,
 				rawMessage,
-				questionId,
+				fieldId,
 				formName,
 				field,
 			);
 			errors.push(
 				validationError(code, "question", message, {
 					formName,
-					questionId,
+					fieldId,
 					field,
-					...findFormLocation(blueprint, formName),
+					...findFormLocation(doc, formName),
 				}),
 			);
 			continue;
 		}
 
-		// Format: "formName" in "moduleName" label: message
 		const formLabelMatch = errStr.match(/^"([^"]+)" in "([^"]+)" (.+): (.+)$/);
 		if (formLabelMatch) {
 			const [, formName, moduleName, label, rawMessage] = formLabelMatch;
@@ -104,13 +112,12 @@ function runDeepValidation(blueprint: AppBlueprint): ValidationError[] {
 				validationError(code, "form", message, {
 					formName,
 					moduleName,
-					...findFormLocation(blueprint, formName),
+					...findFormLocation(doc, formName),
 				}),
 			);
 			continue;
 		}
 
-		// Format: "formName" in "moduleName" has a circular dependency: cycle
 		const cycleMatch = errStr.match(
 			/^"([^"]+)" in "([^"]+)" has a circular dependency: (.+)$/,
 		);
@@ -121,7 +128,7 @@ function runDeepValidation(blueprint: AppBlueprint): ValidationError[] {
 					"CYCLE",
 					"form",
 					`"${formName}" in "${moduleName}" has a circular dependency: ${cycle}. These calculated fields reference each other in a loop, so none of them can ever finish computing. Break the cycle by removing one of the references.`,
-					{ formName, moduleName, ...findFormLocation(blueprint, formName) },
+					{ formName, moduleName, ...findFormLocation(doc, formName) },
 				),
 			);
 			continue;
@@ -145,14 +152,14 @@ const FIELD_NAMES: Record<string, string> = {
 function humanizeXPathError(
 	code: ValidationError["code"],
 	rawMessage: string,
-	questionId?: string,
+	fieldId?: string,
 	formName?: string,
 	field?: string,
 	label?: string,
 ): string {
 	const loc =
-		questionId && formName
-			? `Question "${questionId}" in "${formName}"${field ? ` (${FIELD_NAMES[field] || field})` : ""}`
+		fieldId && formName
+			? `Question "${fieldId}" in "${formName}"${field ? ` (${FIELD_NAMES[field] || field})` : ""}`
 			: formName
 				? `"${formName}"${label ? ` ${label}` : ""}`
 				: "Expression";
@@ -207,17 +214,29 @@ function inferXPathErrorCode(message: string): ValidationError["code"] {
 	return "XPATH_SYNTAX";
 }
 
+/**
+ * Resolve a form-name match back to the doc's uuid-indexed location. Used
+ * by `runDeepValidation` to enrich string-parsed errors with stable uuids.
+ * First-match wins when names collide — collisions produce a separate
+ * DUPLICATE validation error that points at both sites.
+ */
 function findFormLocation(
-	blueprint: AppBlueprint,
+	doc: BlueprintDoc,
 	formName: string,
-): { moduleIndex?: number; moduleName?: string; formIndex?: number } {
-	for (let mIdx = 0; mIdx < blueprint.modules.length; mIdx++) {
-		for (let fIdx = 0; fIdx < blueprint.modules[mIdx].forms.length; fIdx++) {
-			if (blueprint.modules[mIdx].forms[fIdx].name === formName) {
+): {
+	moduleUuid?: ValidationError["location"]["moduleUuid"];
+	moduleName?: string;
+	formUuid?: ValidationError["location"]["formUuid"];
+} {
+	for (const moduleUuid of doc.moduleOrder) {
+		const mod = doc.modules[moduleUuid];
+		for (const formUuid of doc.formOrder[moduleUuid] ?? []) {
+			const form = doc.forms[formUuid];
+			if (form.name === formName) {
 				return {
-					moduleIndex: mIdx,
-					moduleName: blueprint.modules[mIdx].name,
-					formIndex: fIdx,
+					moduleUuid,
+					moduleName: mod.name,
+					formUuid,
 				};
 			}
 		}

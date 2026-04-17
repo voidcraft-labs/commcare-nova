@@ -1,148 +1,184 @@
 /**
  * Deep XPath validation — Lezer-based syntax, semantics, and reference checking.
  *
- * Operates directly on AppBlueprint objects. Validates every XPath expression
- * in every question via a Lezer tree walk (syntax + semantics), detects
- * dependency cycles, and checks case property references.
+ * Operates directly on the normalized `BlueprintDoc`. Validates every XPath
+ * expression on every field via a Lezer tree walk (syntax + semantics),
+ * detects dependency cycles, and checks case-property references.
  *
- * Called by runner.ts which wraps the string output into structured ValidationError objects.
+ * Called by `runner.ts`, which wraps the string output into structured
+ * `ValidationError` objects.
  */
 
-import { questionTreeToFieldTree } from "@/lib/preview/engine/fieldTree";
+import type { BlueprintDoc, Field, Uuid } from "@/lib/domain";
+import { buildFieldTree, type FieldTreeNode } from "@/lib/preview/engine/fieldTree";
 import { TriggerDag } from "@/lib/preview/engine/triggerDag";
-import type { AppBlueprint, Question } from "@/lib/schemas/blueprint";
 import { validateXPath } from "./xpathValidator";
 
+/**
+ * Keys on a `Field` that hold XPath expressions. Narrowed to known string
+ * properties; we read via an index access below which safely returns
+ * `undefined` for kinds that don't carry a given key.
+ */
 const XPATH_FIELDS = [
 	"relevant",
-	"validation",
+	"validate",
 	"calculate",
 	"default_value",
 	"required",
 ] as const;
 
-/** Collect all valid /data/... paths from a question tree. */
+type XPathFieldKey = (typeof XPATH_FIELDS)[number];
+
+/**
+ * Safely read an XPath-bearing property off a Field union member without
+ * having to narrow the discriminant first. Returns the string if the
+ * variant carries the key AND the value is a non-empty string, else
+ * `undefined`.
+ */
+function readXPath(field: Field, key: XPathFieldKey): string | undefined {
+	const value = (field as unknown as Record<string, unknown>)[key];
+	return typeof value === "string" && value.length > 0 ? value : undefined;
+}
+
+/**
+ * Walk a field subtree (rooted at `parentUuid`) and collect every valid
+ * `/data/...` path that XPath expressions may reference. The prefix is
+ * extended by each container's `id` as the walk recurses.
+ */
 export function collectValidPaths(
-	questions: Question[],
+	doc: BlueprintDoc,
+	parentUuid: Uuid,
 	prefix = "/data",
 ): Set<string> {
 	const paths = new Set<string>();
-	for (const q of questions) {
-		const path = `${prefix}/${q.id}`;
+	const order = doc.fieldOrder[parentUuid] ?? [];
+	for (const uuid of order) {
+		const field = doc.fields[uuid];
+		if (!field) continue;
+		const path = `${prefix}/${field.id}`;
 		paths.add(path);
-		if ((q.type === "group" || q.type === "repeat") && q.children) {
-			for (const p of collectValidPaths(q.children, path)) {
-				paths.add(p);
-			}
+		// Container kinds (group, repeat) carry a fieldOrder entry — recurse
+		// under their semantic `id` segment.
+		if (doc.fieldOrder[uuid] !== undefined) {
+			for (const p of collectValidPaths(doc, uuid, path)) paths.add(p);
 		}
 	}
 	return paths;
 }
 
 /**
- * Collect case property names saved to a given case type across the app.
+ * Collect case-property names saved to a given case type across the whole
+ * app. Walks modules with the target case type AND any parent module whose
+ * case type is the parent of the target (child-case creation lives on the
+ * parent module's questions via a non-matching `case_property`).
  *
- * Walks modules with the target case type AND parent modules that create
- * children of this type — child case creation means a form in a parent
- * module (e.g. "measles_case") can save properties to a child case type
- * (e.g. "contact") via `case_property_on`. The per-question filter
- * (`q.case_property_on === caseType`) ensures only properties targeting
- * the requested type are collected, even when walking a parent module
- * whose own questions save to its primary type.
+ * The per-field filter (`field.case_property === caseType`) ensures only
+ * properties targeting the requested type are collected, even when walking
+ * a parent module whose own questions save to its primary type.
  */
 export function collectCaseProperties(
-	blueprint: AppBlueprint,
+	doc: BlueprintDoc,
 	moduleCaseType: string | undefined,
 ): Set<string> | undefined {
 	if (!moduleCaseType) return undefined;
 	const props = new Set<string>();
 
-	/* Which module case_types to walk: the target + its parent (if any). */
+	// Which module caseTypes to walk: the target + its parent (if any).
 	const moduleTypes = new Set([moduleCaseType]);
-	const ct = blueprint.case_types?.find((c) => c.name === moduleCaseType);
+	const ct = doc.caseTypes?.find((c) => c.name === moduleCaseType);
 	if (ct?.parent_type) moduleTypes.add(ct.parent_type);
 
-	for (const mod of blueprint.modules) {
-		if (!mod.case_type || !moduleTypes.has(mod.case_type)) continue;
-		for (const form of mod.forms) {
-			collectFromQuestions(form.questions || [], moduleCaseType, props);
+	for (const moduleUuid of doc.moduleOrder) {
+		const mod = doc.modules[moduleUuid];
+		if (!mod.caseType || !moduleTypes.has(mod.caseType)) continue;
+		for (const formUuid of doc.formOrder[moduleUuid] ?? []) {
+			collectFromTree(doc, formUuid, moduleCaseType, props);
 		}
 	}
 	return props.size > 0 ? props : undefined;
 }
 
-function collectFromQuestions(
-	questions: Question[],
+function collectFromTree(
+	doc: BlueprintDoc,
+	parentUuid: Uuid,
 	moduleCaseType: string,
 	props: Set<string>,
 ): void {
-	for (const q of questions) {
-		if (q.case_property_on === moduleCaseType) props.add(q.id);
-		if (q.children) collectFromQuestions(q.children, moduleCaseType, props);
+	const order = doc.fieldOrder[parentUuid] ?? [];
+	for (const uuid of order) {
+		const field = doc.fields[uuid];
+		if (!field) continue;
+		const casePropertyOf = (field as { case_property?: string }).case_property;
+		if (casePropertyOf === moduleCaseType) props.add(field.id);
+		if (doc.fieldOrder[uuid] !== undefined) {
+			collectFromTree(doc, uuid, moduleCaseType, props);
+		}
 	}
 }
 
-/** Deep validation of a blueprint's XPath expressions, cycles, and references. */
-export function validateBlueprintDeep(blueprint: AppBlueprint): string[] {
+/**
+ * Deep validation: walks every form, builds the valid path set + case
+ * property set per form, validates every XPath expression, and runs cycle
+ * detection via `TriggerDag`. Returns a flat array of human-readable error
+ * strings — `runner.ts` parses these back into structured `ValidationError`s.
+ */
+export function validateBlueprintDeep(doc: BlueprintDoc): string[] {
 	const errors: string[] = [];
 
-	for (const mod of blueprint.modules) {
-		const caseProps = collectCaseProperties(
-			blueprint,
-			mod.case_type ?? undefined,
-		);
+	for (const moduleUuid of doc.moduleOrder) {
+		const mod = doc.modules[moduleUuid];
+		const caseProps = collectCaseProperties(doc, mod.caseType);
 
-		for (const form of mod.forms) {
-			const questions = form.questions || [];
-			if (questions.length === 0) continue;
+		for (const formUuid of doc.formOrder[moduleUuid] ?? []) {
+			const form = doc.forms[formUuid];
+			const tree = buildFieldTree(formUuid, doc.fields, doc.fieldOrder);
+			if (tree.length === 0) continue;
 
-			const validPaths = collectValidPaths(questions);
+			const validPaths = collectValidPaths(doc, formUuid);
 
-			// Add Connect data paths so question XPaths can reference them (only when app-level connect_type is set)
-			if (blueprint.connect_type && form.connect) {
-				if (form.connect.learn_module)
+			// Expose Connect data paths so XPath expressions can reference them
+			// (only when app-level connect_type is set and the form has connect wiring).
+			if (doc.connectType && form.connect) {
+				const c = form.connect;
+				if (c.learn_module) {
+					validPaths.add(`/data/${c.learn_module.id || "connect_learn"}`);
+				}
+				if (c.assessment) {
 					validPaths.add(
-						`/data/${form.connect.learn_module.id || "connect_learn"}`,
+						`/data/${c.assessment.id || "connect_assessment"}/assessment/user_score`,
 					);
-				if (form.connect.assessment)
-					validPaths.add(
-						`/data/${form.connect.assessment.id || "connect_assessment"}/assessment/user_score`,
-					);
-				if (form.connect.deliver_unit) {
-					const duId = form.connect.deliver_unit.id || "connect_deliver";
+				}
+				if (c.deliver_unit) {
+					const duId = c.deliver_unit.id || "connect_deliver";
 					validPaths.add(`/data/${duId}/deliver/entity_id`);
 					validPaths.add(`/data/${duId}/deliver/entity_name`);
 				}
 			}
 
-			// Validate XPath in every question
-			validateQuestionsXPath(
-				questions,
-				validPaths,
-				caseProps,
-				form.name,
-				mod.name,
-				errors,
-			);
+			// Per-field XPath validation — recursive walk over the tree.
+			validateTreeXPath(tree, validPaths, caseProps, form.name, mod.name, errors);
 
-			// Validate Connect XPath expressions (only when app-level connect_type is set)
-			if (blueprint.connect_type && form.connect) {
+			// Connect-block XPath expressions (only when app-level connect_type is set).
+			if (doc.connectType && form.connect) {
 				const connectXPaths: Array<[string, string]> = [];
-				if (form.connect.assessment?.user_score)
+				if (form.connect.assessment?.user_score) {
 					connectXPaths.push([
 						"Connect assessment user_score",
 						form.connect.assessment.user_score,
 					]);
-				if (form.connect.deliver_unit?.entity_id)
+				}
+				if (form.connect.deliver_unit?.entity_id) {
 					connectXPaths.push([
 						"Connect deliver entity_id",
 						form.connect.deliver_unit.entity_id,
 					]);
-				if (form.connect.deliver_unit?.entity_name)
+				}
+				if (form.connect.deliver_unit?.entity_name) {
 					connectXPaths.push([
 						"Connect deliver entity_name",
 						form.connect.deliver_unit.entity_name,
 					]);
+				}
 				for (const [label, expr] of connectXPaths) {
 					const xpathErrors = validateXPath(expr, validPaths, caseProps);
 					for (const err of xpathErrors) {
@@ -153,10 +189,10 @@ export function validateBlueprintDeep(blueprint: AppBlueprint): string[] {
 				}
 			}
 
-			// Cycle detection via TriggerDag — convert the wire-format Question
-			// tree into the engine's FieldTreeNode shape at the boundary.
+			// Cycle detection runs on the engine's `FieldTreeNode` shape — the
+			// same rose tree we already built.
 			const dag = new TriggerDag();
-			const cycles = dag.reportCycles(questionTreeToFieldTree(questions));
+			const cycles = dag.reportCycles(tree);
 			for (const cycle of cycles) {
 				const cyclePath = cycle.join(" → ");
 				errors.push(
@@ -169,31 +205,37 @@ export function validateBlueprintDeep(blueprint: AppBlueprint): string[] {
 	return errors;
 }
 
-/** Recursively validate XPath expressions in all questions. */
-function validateQuestionsXPath(
-	questions: Question[],
+/**
+ * Recursively validate every XPath expression on every field in the
+ * provided rose tree. Errors are formatted as the human-readable strings
+ * the runner's regex-driven decoder expects — any format change here must
+ * be mirrored in `runner.ts`'s parser.
+ */
+function validateTreeXPath(
+	nodes: FieldTreeNode[],
 	validPaths: Set<string>,
 	caseProperties: Set<string> | undefined,
 	formName: string,
 	moduleName: string,
 	errors: string[],
 ): void {
-	for (const q of questions) {
-		for (const field of XPATH_FIELDS) {
-			const expr = q[field];
-			if (typeof expr !== "string" || !expr) continue;
-
+	for (const node of nodes) {
+		for (const key of XPATH_FIELDS) {
+			const expr = readXPath(node.field, key);
+			if (!expr) continue;
 			const xpathErrors = validateXPath(expr, validPaths, caseProperties);
 			for (const err of xpathErrors) {
+				// The decoder in runner.ts looks for the word "validation" for
+				// the validate field — preserve that mapping at the boundary.
+				const reportedKey = key === "validate" ? "validation" : key;
 				errors.push(
-					`Question "${q.id}" in "${formName}": ${field} expression error — ${err.message}`,
+					`Question "${node.field.id}" in "${formName}": ${reportedKey} expression error — ${err.message}`,
 				);
 			}
 		}
-
-		if ((q.type === "group" || q.type === "repeat") && q.children) {
-			validateQuestionsXPath(
-				q.children,
+		if (node.children) {
+			validateTreeXPath(
+				node.children,
 				validPaths,
 				caseProperties,
 				formName,

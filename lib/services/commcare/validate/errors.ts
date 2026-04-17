@@ -77,12 +77,24 @@ export type ValidationErrorCode =
 
 // ── Error location ─────────────────────────────────────────────────
 
+import type { Uuid } from "@/lib/domain";
+
+/**
+ * Where a validation error occurred in the normalized domain doc.
+ *
+ * UUIDs are the canonical references: `moduleUuid`, `formUuid`, `fieldUuid`.
+ * Names (`moduleName`, `formName`) and the semantic `fieldId` are duplicated
+ * at the boundary for human-readable error messages and for the validation
+ * loop's stuck-detection signature. The `field` key is the property being
+ * validated (e.g. `relevant`, `calculate`) — NOT a uuid.
+ */
 export interface ValidationLocation {
-	moduleIndex?: number;
+	moduleUuid?: Uuid;
 	moduleName?: string;
-	formIndex?: number;
+	formUuid?: Uuid;
 	formName?: string;
-	questionId?: string;
+	fieldUuid?: Uuid;
+	fieldId?: string;
 	field?: string;
 }
 
