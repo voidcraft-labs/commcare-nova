@@ -3,7 +3,6 @@
 import { act, renderHook } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { describe, expect, it } from "vitest";
-import { useAssembledForm } from "@/lib/doc/hooks/useAssembledForm";
 import { useModule, useQuestion } from "@/lib/doc/hooks/useEntity";
 import {
 	useModuleIds,
@@ -170,25 +169,5 @@ describe("useOrderedChildren", () => {
 			wrapper,
 		});
 		expect(result.current).toEqual([]);
-	});
-});
-
-describe("useAssembledForm", () => {
-	it("reconstructs a form with nested questions", () => {
-		const { wrapper, formUuid } = setup();
-		const { result } = renderHook(() => useAssembledForm(formUuid), {
-			wrapper,
-		});
-		expect(result.current?.name).toBe("Reg Form");
-		expect(result.current?.questions).toHaveLength(1);
-		expect(result.current?.questions[0].id).toBe("name");
-	});
-
-	it("returns undefined for unknown form uuids", () => {
-		const { wrapper } = setup();
-		const { result } = renderHook(() => useAssembledForm("missing" as never), {
-			wrapper,
-		});
-		expect(result.current).toBeUndefined();
 	});
 });
