@@ -115,7 +115,7 @@ export function useUndoRedo(): { undo: () => void; redo: () => void } {
  * a subscription slice would force a re-render on every unrelated doc
  * mutation for a value we only need in the delete callback.
  */
-export function useDeleteSelectedQuestion(): () => void {
+export function useDeleteSelectedField(): () => void {
 	const loc = useLocation();
 	const docApi = useBlueprintDocApi();
 	const select = useSelect();

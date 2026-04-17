@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 
 /**
- * Positive-path coverage for `useDeleteSelectedQuestion`.
+ * Positive-path coverage for `useDeleteSelectedField`.
  *
  * The hook:
  *   1. Resolves the selected uuid from `useLocation()`.
@@ -54,7 +54,7 @@ vi.mock("@/lib/session/hooks", () => ({
 	useActiveFieldId: () => undefined,
 }));
 
-import { useDeleteSelectedQuestion } from "@/lib/routing/builderActions";
+import { useDeleteSelectedField } from "@/lib/routing/builderActions";
 
 function makeStore() {
 	const store = createBlueprintDocStore();
@@ -130,7 +130,7 @@ function setFormUrl(
 	return { moduleUuid, formUuid };
 }
 
-describe("useDeleteSelectedQuestion", () => {
+describe("useDeleteSelectedField", () => {
 	beforeEach(() => {
 		mockSegments.current = [];
 		/* Set window.location so useSelect's basePathRef reads the test app's
@@ -144,7 +144,7 @@ describe("useDeleteSelectedQuestion", () => {
 		const moduleUuid = store.getState().moduleOrder[0];
 		mockSegments.current = [moduleUuid]; // module screen
 
-		const { result } = renderHook(() => useDeleteSelectedQuestion(), {
+		const { result } = renderHook(() => useDeleteSelectedField(), {
 			wrapper: wrap(store),
 		});
 		act(() => result.current());
@@ -157,7 +157,7 @@ describe("useDeleteSelectedQuestion", () => {
 		const store = makeStore();
 		setFormUrl(store); // form URL with no selection
 
-		const { result } = renderHook(() => useDeleteSelectedQuestion(), {
+		const { result } = renderHook(() => useDeleteSelectedField(), {
 			wrapper: wrap(store),
 		});
 		act(() => result.current());
@@ -170,7 +170,7 @@ describe("useDeleteSelectedQuestion", () => {
 		const store = makeStore();
 		setFormUrl(store, Q_B);
 
-		const { result } = renderHook(() => useDeleteSelectedQuestion(), {
+		const { result } = renderHook(() => useDeleteSelectedField(), {
 			wrapper: wrap(store),
 		});
 		act(() => result.current());
@@ -188,7 +188,7 @@ describe("useDeleteSelectedQuestion", () => {
 		const store = makeStore();
 		setFormUrl(store, Q_C);
 
-		const { result } = renderHook(() => useDeleteSelectedQuestion(), {
+		const { result } = renderHook(() => useDeleteSelectedField(), {
 			wrapper: wrap(store),
 		});
 		act(() => result.current());
@@ -207,7 +207,7 @@ describe("useDeleteSelectedQuestion", () => {
 		store.getState().apply({ kind: "removeField", uuid: asUuid(Q_C) });
 
 		const { formUuid } = setFormUrl(store, Q_A);
-		const { result } = renderHook(() => useDeleteSelectedQuestion(), {
+		const { result } = renderHook(() => useDeleteSelectedField(), {
 			wrapper: wrap(store),
 		});
 		act(() => result.current());
@@ -229,7 +229,7 @@ describe("useDeleteSelectedQuestion", () => {
 		const store = makeStore();
 		setFormUrl(store, "bogus-not-in-form-uuid");
 
-		const { result } = renderHook(() => useDeleteSelectedQuestion(), {
+		const { result } = renderHook(() => useDeleteSelectedField(), {
 			wrapper: wrap(store),
 		});
 		act(() => result.current());
@@ -245,7 +245,7 @@ describe("useDeleteSelectedQuestion", () => {
 		setFormUrl(store, Q_A);
 
 		const countBefore = Object.keys(store.getState().fields).length;
-		const { result } = renderHook(() => useDeleteSelectedQuestion(), {
+		const { result } = renderHook(() => useDeleteSelectedField(), {
 			wrapper: wrap(store),
 		});
 		act(() => result.current());

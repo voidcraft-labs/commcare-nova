@@ -5,7 +5,7 @@ import {
 	SectionLabel,
 } from "@/components/builder/InlineSettingsPanel";
 import { useSaveField } from "@/hooks/useSaveField";
-import { useSelectedQuestion } from "@/lib/routing/hooks";
+import { useSelectedField } from "@/lib/routing/hooks";
 import { AddPropertyButton } from "./AddPropertyButton";
 import {
 	addableTextFields,
@@ -26,7 +26,7 @@ const UI_FIELDS = new Set<FocusableFieldKey>(["hint"]);
  * repeat). Mirrors `ContextualEditorData`'s visibility pattern.
  */
 export function ContextualEditorUI({ question }: QuestionEditorProps) {
-	const selected = useSelectedQuestion();
+	const selected = useSelectedField();
 	const saveQuestion = useSaveField(selected?.uuid);
 	const { activeField, activate, clear } = useAddableField(
 		selected?.uuid ?? "",

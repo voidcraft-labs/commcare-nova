@@ -9,7 +9,7 @@ import { buildLintContext } from "@/lib/codemirror/buildLintContext";
 import type { XPathLintContext } from "@/lib/codemirror/xpath-lint";
 import { BlueprintDocContext } from "@/lib/doc/provider";
 import type { Uuid } from "@/lib/doc/types";
-import { useSelectedQuestion } from "@/lib/routing/hooks";
+import { useSelectedField } from "@/lib/routing/hooks";
 import { AddPropertyButton } from "./AddPropertyButton";
 import { RequiredSection } from "./RequiredSection";
 import {
@@ -82,7 +82,7 @@ const LOGIC_FIELDS = new Set<FocusableFieldKey>([
 ]);
 
 export function ContextualEditorLogic({ question }: QuestionEditorProps) {
-	const selected = useSelectedQuestion();
+	const selected = useSelectedField();
 	const saveQuestion = useSaveField(selected?.uuid);
 
 	/** Tracks text fields (validate_msg) added via "Add Property". */

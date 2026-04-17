@@ -30,7 +30,7 @@ import { useTextEditSave } from "@/hooks/useTextEditSave";
 import { useField } from "@/lib/doc/hooks/useEntity";
 import type { Uuid } from "@/lib/domain";
 import { LabelContent } from "@/lib/references/LabelContent";
-import { useIsQuestionSelected } from "@/lib/routing/hooks";
+import { useIsFieldSelected } from "@/lib/routing/hooks";
 import { DragPreviewPill } from "../DragPreviewPill";
 import { makeDropQuestionData } from "../dragData";
 import { depthPadding } from "../rowStyles";
@@ -52,8 +52,8 @@ export const QuestionRow = memo(function QuestionRow({
 	const q = useField(uuid);
 	const state = useEngineState(uuid);
 	const controller = useEngineController();
-	const isQuestionSelected = useIsQuestionSelected(uuid);
-	useFulfillPendingScroll(uuid, isQuestionSelected);
+	const isFieldSelected = useIsFieldSelected(uuid);
+	useFulfillPendingScroll(uuid, isFieldSelected);
 	const saveField = useTextEditSave(uuid);
 
 	const buildDropData = useCallback<
@@ -169,7 +169,7 @@ export const QuestionRow = memo(function QuestionRow({
 					{content}
 				</EditableQuestionWrapper>
 			</div>
-			{isQuestionSelected && (
+			{isFieldSelected && (
 				<div
 					data-settings-panel
 					style={{

@@ -176,21 +176,21 @@ describe("BuilderSession focus hint", () => {
 // ── New question marker ──────────────────────────────────────────────────
 
 describe("BuilderSession new-question marker", () => {
-	it("markNewQuestion + isNewQuestion: matches uuid, rejects others", () => {
+	it("markNewField + isNewField: matches uuid, rejects others", () => {
 		const store = createBuilderSessionStore();
-		store.getState().markNewQuestion("q-uuid");
+		store.getState().markNewField("q-uuid");
 
-		expect(store.getState().isNewQuestion("q-uuid")).toBe(true);
-		expect(store.getState().isNewQuestion("other")).toBe(false);
+		expect(store.getState().isNewField("q-uuid")).toBe(true);
+		expect(store.getState().isNewField("other")).toBe(false);
 	});
 
-	it("clearNewQuestion resets so isNewQuestion returns false for all", () => {
+	it("clearNewField resets so isNewField returns false for all", () => {
 		const store = createBuilderSessionStore();
-		store.getState().markNewQuestion("q-uuid");
-		store.getState().clearNewQuestion();
+		store.getState().markNewField("q-uuid");
+		store.getState().clearNewField();
 
-		expect(store.getState().isNewQuestion("q-uuid")).toBe(false);
-		expect(store.getState().isNewQuestion("anything")).toBe(false);
+		expect(store.getState().isNewField("q-uuid")).toBe(false);
+		expect(store.getState().isNewField("anything")).toBe(false);
 	});
 });
 
@@ -722,7 +722,7 @@ describe("reset", () => {
 			.getState()
 			.loadReplay([{ header: "S1", messages: [], emissions: [] }], 0, "/exit");
 		session.getState().setLoading(true);
-		session.getState().markNewQuestion("q-1");
+		session.getState().markNewField("q-1");
 		session.getState().setFocusHint("label");
 		session.getState().setSidebarOpen("chat", false);
 		session.getState().setCursorMode("pointer");

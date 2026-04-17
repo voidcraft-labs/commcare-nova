@@ -10,7 +10,7 @@ import {
 } from "@/lib/doc/navigation";
 import { asUuid, type Uuid } from "@/lib/doc/types";
 import {
-	useDeleteSelectedQuestion,
+	useDeleteSelectedField,
 	useUndoRedo,
 } from "@/lib/routing/builderActions";
 import { useLocation, useSelect } from "@/lib/routing/hooks";
@@ -42,7 +42,7 @@ export function useBuilderShortcuts(
 	const loc = useLocation();
 	const select = useSelect();
 	const { setPending } = useScrollIntoView();
-	const deleteSelected = useDeleteSelectedQuestion();
+	const deleteSelected = useDeleteSelectedField();
 	const { undo, redo } = useUndoRedo();
 	const { duplicateField, moveField } = useBlueprintMutations();
 	const cursorMode = useCursorMode();

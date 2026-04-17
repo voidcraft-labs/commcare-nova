@@ -41,9 +41,9 @@ import { highlightSegments, type MatchIndices } from "@/lib/filterTree";
 import { formTypeIcons, questionTypeIcons } from "@/lib/questionTypeIcons";
 import { textWithChips } from "@/lib/references/LabelContent";
 import {
+	useIsFieldSelected,
 	useIsFormSelected,
 	useIsModuleSelected,
-	useIsQuestionSelected,
 	useNavigate,
 } from "@/lib/routing/hooks";
 import { BuilderPhase } from "@/lib/services/builder";
@@ -843,9 +843,9 @@ const QuestionRow = memo(function QuestionRow({
 	/** Subscribe to children UUIDs (for groups/repeats) from the doc store. */
 	const childUuids = useBlueprintDoc((s) => s.fieldOrder[uuid]);
 
-	/** Boolean selection — URL-driven via useIsQuestionSelected.
+	/** Boolean selection — URL-driven via useIsFieldSelected.
 	 *  Only this question + the old selection re-render on change. */
-	const isSelected = useIsQuestionSelected(uuid);
+	const isSelected = useIsFieldSelected(uuid);
 
 	const iconOverrides = use(FormIconContext);
 

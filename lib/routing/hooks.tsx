@@ -74,7 +74,7 @@ export function useLocation(): Location {
  * (the deletion-recovery effect in `LocationRecoveryEffect` will fix
  * the URL on the next tick).
  */
-export function useSelectedQuestion(): QuestionEntity | null {
+export function useSelectedField(): QuestionEntity | null {
 	const loc = useLocation();
 	const selectedUuid = loc.kind === "form" ? loc.selectedUuid : undefined;
 	const question = useBlueprintDoc((s) =>
@@ -160,7 +160,7 @@ export function useIsFormSelected(uuid: Uuid): boolean {
  * only the previously-selected and newly-selected wrappers re-render
  * on a selection change.
  */
-export function useIsQuestionSelected(uuid: Uuid): boolean {
+export function useIsFieldSelected(uuid: Uuid): boolean {
 	const loc = useLocation();
 	return loc.kind === "form" && loc.selectedUuid === uuid;
 }

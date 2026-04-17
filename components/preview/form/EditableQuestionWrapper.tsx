@@ -3,7 +3,7 @@ import { type ReactNode, useCallback, useRef, useState } from "react";
 import { useScrollIntoView } from "@/components/builder/contexts/ScrollRegistryContext";
 import { useEditContext } from "@/hooks/useEditContext";
 import type { Uuid } from "@/lib/doc/types";
-import { useIsQuestionSelected, useSelect } from "@/lib/routing/hooks";
+import { useIsFieldSelected, useSelect } from "@/lib/routing/hooks";
 
 interface EditableQuestionWrapperProps {
 	/** Stable crypto UUID — the sole identity prop (survives renames). */
@@ -16,7 +16,7 @@ interface EditableQuestionWrapperProps {
 /**
  * Wrapper that makes a question selectable by click in edit mode.
  *
- * Selection is driven by the URL (`sel=` query param). `useIsQuestionSelected`
+ * Selection is driven by the URL (`sel=` query param). `useIsFieldSelected`
  * reads the URL's `sel` and returns `true` for exactly one wrapper at a time.
  * On click, `useSelect()` replaces the `sel=` param via `router.replace` —
  * no Zustand write, no re-render cascade.
@@ -42,7 +42,7 @@ export function EditableQuestionWrapper({
 	/* Selection via URL-driven boolean selector — only this wrapper and the
 	 * previously-selected wrapper re-render on selection change. All other
 	 * wrappers return the same `false` and skip rendering entirely. */
-	const isSelected = useIsQuestionSelected(questionUuid);
+	const isSelected = useIsFieldSelected(questionUuid);
 
 	const clearHoldTimer = useCallback(() => {
 		if (holdTimerRef.current) {

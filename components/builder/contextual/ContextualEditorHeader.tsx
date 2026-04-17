@@ -28,9 +28,9 @@ import { asUuid } from "@/lib/doc/types";
 import { shortcutLabel } from "@/lib/platform";
 import { getConvertibleTypes } from "@/lib/questionTypeConversions";
 import { questionTypeIcons, questionTypeLabels } from "@/lib/questionTypeIcons";
-import { useDeleteSelectedQuestion } from "@/lib/routing/builderActions";
+import { useDeleteSelectedField } from "@/lib/routing/builderActions";
 import { useLocation, useSelect } from "@/lib/routing/hooks";
-import { useClearNewQuestion, useIsNewQuestion } from "@/lib/session/hooks";
+import { useClearNewField, useIsNewField } from "@/lib/session/hooks";
 import {
 	MENU_ITEM_CLS,
 	MENU_ITEM_DISABLED_CLS,
@@ -77,8 +77,8 @@ export function ContextualEditorHeader({ question }: QuestionEditorProps) {
 	const selectedUuid = loc.kind === "form" ? loc.selectedUuid : undefined;
 	const formUuid = loc.kind === "form" ? loc.formUuid : undefined;
 
-	const isNewQuestion = useIsNewQuestion(selectedUuid ?? "");
-	const clearNewQuestion = useClearNewQuestion();
+	const isNewField = useIsNewField(selectedUuid ?? "");
+	const clearNewField = useClearNewField();
 
 	const {
 		moveField,
@@ -99,7 +99,7 @@ export function ContextualEditorHeader({ question }: QuestionEditorProps) {
 	const saveQuestion = useSaveField(selectedUuid);
 	const focusHint = useFocusHint(HEADER_FIELDS);
 	const shiftHeld = useShiftKey();
-	const deleteSelected = useDeleteSelectedQuestion();
+	const deleteSelected = useDeleteSelectedField();
 
 	/* ── ID field notices (errors + rename info) ── */
 
@@ -149,10 +149,10 @@ export function ContextualEditorHeader({ question }: QuestionEditorProps) {
 			/* Rename succeeded — uuid stays the same, selection is stable.
 			 * Clear the new-question highlight so subsequent edits are normal. */
 			setIdNotice(null);
-			clearNewQuestion();
+			clearNewField();
 			return true;
 		},
-		[selectedUuid, renameFieldAction, clearNewQuestion],
+		[selectedUuid, renameFieldAction, clearNewField],
 	);
 
 	const idField = useCommitField({
@@ -168,13 +168,13 @@ export function ContextualEditorHeader({ question }: QuestionEditorProps) {
 			idInputRef.current = el;
 			idField.ref(el);
 			syncIdWidth();
-			const shouldAutoFocus = focusHint === "id" || isNewQuestion;
+			const shouldAutoFocus = focusHint === "id" || isNewField;
 			if (el && shouldAutoFocus) {
 				el.focus({ preventScroll: true });
 				el.select();
 			}
 		},
-		[idField.ref, focusHint, isNewQuestion, syncIdWidth],
+		[idField.ref, focusHint, isNewField, syncIdWidth],
 	);
 
 	/* ── Action handlers ── */
@@ -221,7 +221,7 @@ export function ContextualEditorHeader({ question }: QuestionEditorProps) {
 		select(asUuid(result.newUuid));
 	}, [selectedUuid, duplicateField, setPending, select]);
 
-	/** Delete uses the `useDeleteSelectedQuestion` hook which handles
+	/** Delete uses the `useDeleteSelectedField` hook which handles
 	 *  neighbor selection and URL update. */
 	const handleDelete = useCallback(() => {
 		deleteSelected();

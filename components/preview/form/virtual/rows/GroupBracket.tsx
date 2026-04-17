@@ -26,7 +26,7 @@ import { useTextEditSave } from "@/hooks/useTextEditSave";
 import { useField } from "@/lib/doc/hooks/useEntity";
 import type { Uuid } from "@/lib/domain";
 import { LabelContent } from "@/lib/references/LabelContent";
-import { useIsQuestionSelected } from "@/lib/routing/hooks";
+import { useIsFieldSelected } from "@/lib/routing/hooks";
 import { DragPreviewPill } from "../DragPreviewPill";
 import { makeDropGroupHeaderData } from "../dragData";
 import { depthPadding } from "../rowStyles";
@@ -56,8 +56,8 @@ export const GroupOpenRow = memo(function GroupOpenRow({
 	const controller = useEngineController();
 	const saveField = useTextEditSave(uuid);
 
-	const isQuestionSelected = useIsQuestionSelected(uuid);
-	useFulfillPendingScroll(uuid, isQuestionSelected);
+	const isFieldSelected = useIsFieldSelected(uuid);
+	useFulfillPendingScroll(uuid, isFieldSelected);
 
 	const buildDropData = useCallback<
 		Parameters<typeof useRowDnd>[0]["buildDropData"]
@@ -181,7 +181,7 @@ export const GroupOpenRow = memo(function GroupOpenRow({
 					</div>
 				</EditableQuestionWrapper>
 			</div>
-			{isQuestionSelected && (
+			{isFieldSelected && (
 				<div
 					data-settings-panel
 					style={{

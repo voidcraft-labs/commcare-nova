@@ -15,7 +15,7 @@ import {
 	questionTypeLabels,
 } from "@/lib/questionTypeIcons";
 import { useSelect } from "@/lib/routing/hooks";
-import { useMarkNewQuestion } from "@/lib/session/hooks";
+import { useMarkNewField } from "@/lib/session/hooks";
 import {
 	MENU_ITEM_CLS,
 	MENU_POPUP_CLS,
@@ -51,7 +51,7 @@ export function QuestionTypePickerPopup({
 	const { setPending } = useScrollIntoView();
 	const select = useSelect();
 	const { addField } = useBlueprintMutations();
-	const markNewQuestion = useMarkNewQuestion();
+	const markNewField = useMarkNewField();
 	const docStore = useContext(BlueprintDocContext);
 
 	/** Generate a unique ID, create the field, and select it.
@@ -100,19 +100,11 @@ export function QuestionTypePickerPopup({
 
 			/* Mark as new question so the UI can apply entry animations, then
 			 * select and scroll to the newly-inserted question. */
-			markNewQuestion(newUuid);
+			markNewField(newUuid);
 			setPending(newUuid, "smooth", false);
 			select(newUuid);
 		},
-		[
-			parentUuid,
-			atIndex,
-			addField,
-			markNewQuestion,
-			setPending,
-			select,
-			docStore,
-		],
+		[parentUuid, atIndex, addField, markNewField, setPending, select, docStore],
 	);
 
 	return (

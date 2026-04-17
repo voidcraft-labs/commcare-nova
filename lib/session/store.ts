@@ -285,15 +285,15 @@ export interface BuilderSessionState {
 
 	/** Mark a question uuid as newly added — triggers auto-focus and
 	 *  select-all on the ID input in ContextualEditorHeader. */
-	markNewQuestion: (uuid: string) => void;
+	markNewField: (uuid: string) => void;
 
 	/** Check whether a uuid matches the current new-question marker.
 	 *  Imperative reader — usable outside of selectors. */
-	isNewQuestion: (uuid: string) => boolean;
+	isNewField: (uuid: string) => boolean;
 
 	/** Clear the new-question marker. Called after the first rename or
 	 *  when the component unmounts, so subsequent selections behave normally. */
-	clearNewQuestion: () => void;
+	clearNewField: () => void;
 
 	/** Reset all transient session state to the initial values.
 	 *
@@ -701,15 +701,15 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 					set({ focusHint: undefined });
 				},
 
-				markNewQuestion(uuid: string) {
+				markNewField(uuid: string) {
 					set({ newQuestionUuid: uuid });
 				},
 
-				isNewQuestion(uuid: string): boolean {
+				isNewField(uuid: string): boolean {
 					return get().newQuestionUuid === uuid;
 				},
 
-				clearNewQuestion() {
+				clearNewField() {
 					if (get().newQuestionUuid === undefined) return;
 					set({ newQuestionUuid: undefined });
 				},

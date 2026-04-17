@@ -52,7 +52,7 @@ import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
 import { notifyMoveRename } from "@/lib/doc/mutations/notify";
 import { BlueprintDocContext } from "@/lib/doc/provider";
 import { asUuid, type Uuid } from "@/lib/doc/types";
-import { useSelect, useSelectedQuestion } from "@/lib/routing/hooks";
+import { useSelect, useSelectedField } from "@/lib/routing/hooks";
 import {
 	QuestionPickerContext,
 	type QuestionPickerPayload,
@@ -99,7 +99,7 @@ export const VirtualFormList = memo(function VirtualFormList({
 	const docStore = useContext(BlueprintDocContext);
 	const { moveField } = useBlueprintMutations();
 	const select = useSelect();
-	const selectedQuestion = useSelectedQuestion();
+	const selectedField = useSelectedField();
 
 	// ── Collapse ──────────────────────────────────────────────────────
 
@@ -174,14 +174,14 @@ export const VirtualFormList = memo(function VirtualFormList({
 	// ── Selected-row pinning ─────────────────────────────────────────
 
 	const selectedIndex = useMemo(() => {
-		const uuid = selectedQuestion?.uuid;
+		const uuid = selectedField?.uuid;
 		if (!uuid) return -1;
 		for (let i = 0; i < rows.length; i++) {
 			const row = rows[i];
 			if (row.kind === "question" && row.uuid === uuid) return i;
 		}
 		return -1;
-	}, [rows, selectedQuestion?.uuid]);
+	}, [rows, selectedField?.uuid]);
 
 	// ── Virtualizer wiring ───────────────────────────────────────────
 
