@@ -48,7 +48,6 @@ import {
 } from "@/components/tiptap-ui-primitive/toolbar";
 import { useReferenceProvider } from "@/lib/references/ReferenceContext";
 import { POPOVER_GLASS } from "@/lib/styles";
-import { hydrateHashtagRefs } from "@/lib/tiptap/hydrateRefs";
 import {
 	createInlineEditorExtensions,
 	getMarkdownContent,
@@ -306,13 +305,14 @@ export function InlineTextEditor({
 
 	const editor = useEditor({
 		extensions,
-		/* Content is set via setContent() below — not here — because TipTap 3's
-		 * `immediatelyRender: false` creates the editor in an effect, and the
-		 * Markdown extension's `onBeforeCreate` hook (which intercepts `content`
-		 * and parses markdown → HTML) can miss the initial content depending on
-		 * extension initialization order. Using the overridden `setContent` command
-		 * guarantees the Markdown extension parses the string. */
-		content: "",
+		/* Initial content goes straight through tiptap-markdown's parse pipeline.
+		 * The CommcareRef extension registers a markdown-it inline rule that
+		 * tokenizes bare `#type/path` hashtags into `<span data-commcare-ref>`
+		 * HTML, so the resulting ProseMirror doc already contains commcareRef
+		 * nodes before the editor view is ever mounted. No post-mount hydration
+		 * dispatch is required — chips are present on first paint, and TipTap's
+		 * `ReactRenderer.flushSync` path is never hit from inside a React effect. */
+		content: value,
 		immediatelyRender: false,
 		editorProps: {
 			attributes: {
@@ -338,31 +338,29 @@ export function InlineTextEditor({
 		},
 	});
 
-	/* Load markdown content and hydrate hashtag references into chip nodes.
-	 * Labels use bare `#type/path` hashtags internally. tiptap-markdown parses
-	 * the markdown (hashtags pass through as plain text), then hydrateHashtagRefs
-	 * walks the resulting ProseMirror document to promote hashtag text into
-	 * commcareRef atom nodes. When activated by a user click, posAtCoords maps
-	 * the original viewport coordinates to a document position so the cursor
-	 * lands where the user clicked rather than jumping to the end. */
+	/* One-shot cursor placement on mount. Pure selection mutation — does not
+	 * instantiate new React NodeViews, so it's safe to dispatch from a React
+	 * effect (unlike a content-replacing transaction, which creates NodeViews
+	 * whose `ReactRenderer` constructor calls `flushSync` and errors inside the
+	 * CommitContext that wraps passive-effect flushes in React 19).
+	 *
+	 * When a click position is provided, `posAtCoords` maps viewport coords to a
+	 * document position so the cursor lands where the user clicked rather than
+	 * jumping to the end of the field. */
 	useEffect(() => {
-		if (!editor) return;
-		editor.commands.setContent(value);
-		hydrateHashtagRefs(editor);
-		if (autoFocus) {
-			if (clickPosition) {
-				const pos = editor.view.posAtCoords({
-					left: clickPosition.x,
-					top: clickPosition.y,
-				});
-				if (pos) {
-					editor.commands.focus(pos.pos);
-					return;
-				}
+		if (!editor || !autoFocus) return;
+		if (clickPosition) {
+			const pos = editor.view.posAtCoords({
+				left: clickPosition.x,
+				top: clickPosition.y,
+			});
+			if (pos) {
+				editor.commands.focus(pos.pos);
+				return;
 			}
-			editor.commands.focus("end");
 		}
-	}, [editor, value, autoFocus, clickPosition]);
+		editor.commands.focus("end");
+	}, [editor, autoFocus, clickPosition]);
 
 	if (!editor) return null;
 
