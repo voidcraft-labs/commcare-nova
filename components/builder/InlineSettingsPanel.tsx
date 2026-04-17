@@ -23,7 +23,7 @@ import { ContextualEditorUI } from "./contextual/ContextualEditorUI";
 
 interface InlineSettingsPanelProps {
 	/** Domain field entity — all sub-editors consume the same shape. */
-	question: Field;
+	field: Field;
 }
 
 /** Static section label with a left accent bar for visual grouping. */
@@ -42,7 +42,7 @@ export function SectionLabel({ label }: { label: string }) {
 export const SECTION_CARD_CLASS =
 	"rounded-md bg-nova-surface/40 border border-white/[0.04] px-3 py-2.5";
 
-export function InlineSettingsPanel({ question }: InlineSettingsPanelProps) {
+export function InlineSettingsPanel({ field }: InlineSettingsPanelProps) {
 	const setActiveFieldId = useSetActiveFieldId();
 
 	/** Delegated focusin handler — tracks which [data-field-id] element has
@@ -56,8 +56,8 @@ export function InlineSettingsPanel({ question }: InlineSettingsPanelProps) {
 		[setActiveFieldId],
 	);
 
-	/* Flat top corners attach flush to the question's flat-bottomed outline.
-	 * cursor-auto resets the inherited cursor-pointer from the question's
+	/* Flat top corners attach flush to the field's flat-bottomed outline.
+	 * cursor-auto resets the inherited cursor-pointer from the field's
 	 * div[role=button] so inputs/labels get their natural cursors. */
 	return (
 		// biome-ignore lint/a11y/noStaticElementInteractions: delegated focusin for undo/redo field tracking
@@ -66,19 +66,19 @@ export function InlineSettingsPanel({ question }: InlineSettingsPanelProps) {
 			data-no-drag
 			onFocus={handleFocus}
 		>
-			<ContextualEditorHeader question={question} />
+			<ContextualEditorHeader field={field} />
 
 			<div className="p-2 space-y-2">
 				{/* Data and Appearance own their own visibility — return null
-				    when the question type has no applicable fields. */}
-				<ContextualEditorData question={question} />
+				    when the field kind has no applicable fields. */}
+				<ContextualEditorData field={field} />
 
 				<div className={SECTION_CARD_CLASS}>
 					<SectionLabel label="Logic" />
-					<ContextualEditorLogic question={question} />
+					<ContextualEditorLogic field={field} />
 				</div>
 
-				<ContextualEditorUI question={question} />
+				<ContextualEditorUI field={field} />
 			</div>
 		</div>
 	);

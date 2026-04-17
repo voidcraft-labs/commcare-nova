@@ -193,7 +193,7 @@ export const GroupOpenRow = memo(function GroupOpenRow({
 					 * through the settings panel so the visual container stays
 					 * unbroken between header and children. */}
 					<div className="border-l border-r border-pv-input-border">
-						<InlineSettingsPanel question={q} />
+						<InlineSettingsPanel field={q} />
 					</div>
 				</div>
 			)}

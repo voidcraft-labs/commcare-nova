@@ -177,7 +177,7 @@ export const QuestionRow = memo(function QuestionRow({
 						paddingRight: depthPadding(0),
 					}}
 				>
-					<InlineSettingsPanel question={q} />
+					<InlineSettingsPanel field={q} />
 				</div>
 			)}
 			{preview}

@@ -4,8 +4,8 @@ import { useClearFocusHint, useSessionFocusHint } from "@/lib/session/hooks";
 
 /** Shared prop shape for all contextual editor sections (UI, Logic, Data, Footer).
  *  Only the field data — store access is via hooks, not props. */
-export interface QuestionEditorProps {
-	question: Field;
+export interface FieldEditorProps {
+	field: Field;
 }
 
 /** XPath field keys that can be added via "Add Property" buttons.

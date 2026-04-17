@@ -32,8 +32,8 @@ const ALWAYS_REQUIRED = "true()";
 interface RequiredSectionProps {
 	/** Current value of the `required` field — truthy means the toggle is on. */
 	required: string | undefined;
-	/** Question uuid for mutations via `useSaveField`. */
-	questionUuid: Uuid | string | undefined;
+	/** Field uuid for mutations via `useSaveField`. */
+	fieldUuid: Uuid | string | undefined;
 	getLintContext: () => XPathLintContext | undefined;
 	/** Transient focus hint from undo/redo — when "required", focuses the toggle. */
 	focusHint?: string;
@@ -54,12 +54,12 @@ interface RequiredSectionProps {
  */
 export function RequiredSection({
 	required,
-	questionUuid,
+	fieldUuid,
 	getLintContext,
 	focusHint,
 	dataFieldId,
 }: RequiredSectionProps) {
-	const saveQuestion = useSaveField(questionUuid);
+	const saveField = useSaveField(fieldUuid);
 
 	/** True while the user is adding a brand-new condition (editor open, no
 	 *  persisted condition yet). Distinct from editing an existing condition,
@@ -79,15 +79,15 @@ export function RequiredSection({
 	 *  Resets editing because the XPathField unmounts in the same React batch,
 	 *  so its onEditingChange(false) effect never fires. */
 	const handleToggleOff = useCallback(() => {
-		saveQuestion("required", null);
+		saveField("required", null);
 		setAddingCondition(false);
 		setEditing(false);
-	}, [saveQuestion]);
+	}, [saveField]);
 
 	/** Toggle required on → sets to "always required" sentinel. */
 	const handleToggleOn = useCallback(() => {
-		saveQuestion("required", ALWAYS_REQUIRED);
-	}, [saveQuestion]);
+		saveField("required", ALWAYS_REQUIRED);
+	}, [saveField]);
 
 	/** Save an XPath condition. Empty input reverts to "always required"
 	 *  rather than removing the field — the toggle stays on.
@@ -96,20 +96,20 @@ export function RequiredSection({
 	 *  effect never fires — reset explicitly here. */
 	const handleConditionSave = useCallback(
 		(value: string) => {
-			saveQuestion("required", value || ALWAYS_REQUIRED);
+			saveField("required", value || ALWAYS_REQUIRED);
 			setAddingCondition(false);
 			if (!value) setEditing(false);
 		},
-		[saveQuestion],
+		[saveField],
 	);
 
 	/** Remove the condition but keep the toggle on.
 	 *  Same batching issue as handleConditionSave — reset editing explicitly. */
 	const handleConditionRemove = useCallback(() => {
-		saveQuestion("required", ALWAYS_REQUIRED);
+		saveField("required", ALWAYS_REQUIRED);
 		setAddingCondition(false);
 		setEditing(false);
-	}, [saveQuestion]);
+	}, [saveField]);
 
 	// ── Always render toggle so it stays in the DOM across undo/redo ────
 	// CSS transitions animate the flip naturally when `enabled` changes.

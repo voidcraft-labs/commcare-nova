@@ -9,9 +9,9 @@ import { useSelectedField } from "@/lib/routing/hooks";
 import { AddPropertyButton } from "./AddPropertyButton";
 import {
 	addableTextFields,
+	type FieldEditorProps,
 	type FocusableFieldKey,
 	fieldSupportedForType,
-	type QuestionEditorProps,
 	useAddableField,
 	useFocusHint,
 } from "./shared";
@@ -25,9 +25,9 @@ const UI_FIELDS = new Set<FocusableFieldKey>(["hint"]);
  * field kind has no applicable appearance fields (hidden, label, group,
  * repeat). Mirrors `ContextualEditorData`'s visibility pattern.
  */
-export function ContextualEditorUI({ question }: QuestionEditorProps) {
+export function ContextualEditorUI({ field }: FieldEditorProps) {
 	const selected = useSelectedField();
-	const saveQuestion = useSaveField(selected?.uuid);
+	const saveField = useSaveField(selected?.uuid);
 	const { activeField, activate, clear } = useAddableField(
 		selected?.uuid ?? "",
 	);
@@ -38,15 +38,13 @@ export function ContextualEditorUI({ question }: QuestionEditorProps) {
 
 	/* Hint only applies to user-input kinds — labels are display-only,
 	 * groups/repeats are containers, hidden fields aren't visible. */
-	if (!fieldSupportedForType("hint", question.kind)) return null;
+	if (!fieldSupportedForType("hint", field.kind)) return null;
 
 	// `hint` is absent from structural kinds (group/repeat/label/hidden).
 	// Narrow with `in` so the read is sound; structural kinds already bail
 	// above via `fieldSupportedForType`, so this guard is belt-and-braces.
 	const currentHint =
-		"hint" in question && typeof question.hint === "string"
-			? question.hint
-			: undefined;
+		"hint" in field && typeof field.hint === "string" ? field.hint : undefined;
 
 	/** Text fields not yet set on this field, available to add. */
 	const missingTextFields = addableTextFields.filter(
@@ -67,7 +65,7 @@ export function ContextualEditorUI({ question }: QuestionEditorProps) {
 						dataFieldId="hint"
 						value={currentHint ?? ""}
 						onSave={(v) => {
-							saveQuestion("hint", v || null);
+							saveField("hint", v || null);
 							clear();
 						}}
 						autoFocus={activeField === "hint" || focusHint === "hint"}

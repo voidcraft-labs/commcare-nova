@@ -39,7 +39,7 @@ import {
 	MENU_SUBMENU_POSITIONER_CLS,
 	POPOVER_POPUP_CLS,
 } from "@/lib/styles";
-import type { FocusableFieldKey, QuestionEditorProps } from "./shared";
+import type { FieldEditorProps, FocusableFieldKey } from "./shared";
 import { useFocusHint } from "./shared";
 
 /** Field keys owned by the Header — only "id" for undo/redo focus hints. */
@@ -69,7 +69,7 @@ function useShiftKey(): boolean {
 	return shift;
 }
 
-export function ContextualEditorHeader({ question }: QuestionEditorProps) {
+export function ContextualEditorHeader({ field }: FieldEditorProps) {
 	const { setPending } = useScrollIntoView();
 	const loc = useLocation();
 	const select = useSelect();
@@ -96,7 +96,7 @@ export function ContextualEditorHeader({ question }: QuestionEditorProps) {
 	 * unrelated field edits (label, hint, calculate). */
 	const docApi = useBlueprintDocApi();
 
-	const saveQuestion = useSaveField(selectedUuid);
+	const saveField = useSaveField(selectedUuid);
 	const focusHint = useFocusHint(HEADER_FIELDS);
 	const shiftHeld = useShiftKey();
 	const deleteSelected = useDeleteSelectedField();
@@ -156,7 +156,7 @@ export function ContextualEditorHeader({ question }: QuestionEditorProps) {
 	);
 
 	const idField = useCommitField({
-		value: question.id,
+		value: field.id,
 		validate: validateRename,
 		onSave: () => {},
 	});
@@ -250,10 +250,10 @@ export function ContextualEditorHeader({ question }: QuestionEditorProps) {
 	// `kind` replaces the legacy wire `type` discriminant everywhere
 	// outside the SA wire boundary. Conversion targets, icons, and human
 	// labels all key off the same string value.
-	const conversionTargets = getConvertibleTypes(question.kind);
+	const conversionTargets = getConvertibleTypes(field.kind);
 	const canConvert = conversionTargets.length > 0;
-	const typeIcon = questionTypeIcons[question.kind];
-	const typeLabel = questionTypeLabels[question.kind] ?? question.kind;
+	const typeIcon = questionTypeIcons[field.kind];
+	const typeLabel = questionTypeLabels[field.kind] ?? field.kind;
 
 	return (
 		<div className="flex items-center justify-between px-3 py-3 border-b border-white/[0.06]">
@@ -433,12 +433,12 @@ export function ContextualEditorHeader({ question }: QuestionEditorProps) {
 												sideOffset={4}
 											>
 												<Menu.Popup className={MENU_POPUP_CLS}>
-													{/* `saveQuestion` routes the patch through `updateField`,
+													{/* `saveField` routes the patch through `updateField`,
 													 *  which expects the domain `kind` discriminant. */}
 													<QuestionTypeList
 														types={conversionTargets}
-														activeType={question.kind}
-														onSelect={(next) => saveQuestion("kind", next)}
+														activeType={field.kind}
+														onSelect={(next) => saveField("kind", next)}
 													/>
 												</Menu.Popup>
 											</Menu.Positioner>
