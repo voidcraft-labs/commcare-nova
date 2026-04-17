@@ -20,3 +20,11 @@
 export type { ClassifiedError, ErrorType } from "./errorClassifier";
 // Task 3: errorClassifier moved in from lib/services/.
 export { classifyError, MESSAGES } from "./errorClassifier";
+// Task 4: generationContext moved in from lib/services/. `DocProvider` is an
+// internal wiring type (accepted by `registerDocProvider`) — not re-exported
+// because no external consumer constructs one.
+export {
+	GenerationContext,
+	logWarnings,
+	thinkingProviderOptions,
+} from "./generationContext";

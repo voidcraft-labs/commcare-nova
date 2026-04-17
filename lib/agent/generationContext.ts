@@ -19,16 +19,13 @@ import type {
 } from "ai";
 import { generateText, Output, streamText } from "ai";
 import type { z } from "zod";
-import {
-	type ClassifiedError,
-	classifyError,
-} from "@/lib/agent/errorClassifier";
+import type { Session } from "@/lib/auth";
+import { updateApp } from "@/lib/db/apps";
 import type { BlueprintDoc } from "@/lib/domain";
 import { log } from "@/lib/log";
-import type { Session } from "../auth";
-import { updateApp } from "../db/apps";
-import { MODEL_DEFAULT, type ReasoningEffort } from "../models";
-import type { EventLogger } from "./eventLogger";
+import { MODEL_DEFAULT, type ReasoningEffort } from "@/lib/models";
+import type { EventLogger } from "@/lib/services/eventLogger";
+import { type ClassifiedError, classifyError } from "./errorClassifier";
 
 /** Log AI SDK warnings to the console if present. */
 export function logWarnings(

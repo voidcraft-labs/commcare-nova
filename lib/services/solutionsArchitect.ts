@@ -35,6 +35,10 @@ import type { AnthropicProviderOptions } from "@ai-sdk/anthropic";
 import { stepCountIs, ToolLoopAgent, tool } from "ai";
 import { produce } from "immer";
 import { z } from "zod";
+import {
+	type GenerationContext,
+	logWarnings,
+} from "@/lib/agent/generationContext";
 import { toBlueprint } from "@/lib/doc/legacyBridge";
 import { applyMutations } from "@/lib/doc/mutations";
 import type { Mutation } from "@/lib/doc/types";
@@ -87,7 +91,6 @@ import {
 	updateModuleMutations,
 } from "./blueprintHelpers";
 import { errorToString } from "./commcare/validate/errors";
-import { type GenerationContext, logWarnings } from "./generationContext";
 import { validateAndFix } from "./validationLoop";
 
 export { validateAndFix } from "./validationLoop";
