@@ -30,6 +30,31 @@ export const POST_SUBMIT_DESTINATIONS = [
 ] as const;
 export type PostSubmitDestination = (typeof POST_SUBMIT_DESTINATIONS)[number];
 
+/**
+ * User-facing destinations (UI + SA tools). Three clear choices:
+ *   "app_home" → App Home (main menu)
+ *   "module"   → This Module (case list / form list)
+ *   "previous" → Previous Screen (back to where the user was)
+ *
+ * Internal-only values (not exposed to users):
+ *   "root"           → resolved automatically when put_in_root is modeled
+ *   "parent_module"  → resolved automatically when nested modules are modeled
+ */
+export const USER_FACING_DESTINATIONS = [
+	"app_home",
+	"module",
+	"previous",
+] as const;
+
+/**
+ * Form-type-aware default for post_submit when the field is absent.
+ * Case-loading forms (followup, close) return to the previous screen
+ * (the case list they came from); registration and survey go home.
+ */
+export function defaultPostSubmit(formType: FormType): PostSubmitDestination {
+	return CASE_LOADING_FORM_TYPES.has(formType) ? "previous" : "app_home";
+}
+
 const closeConditionSchema = z.object({
 	field: z.string(), // was `question` — renamed
 	answer: z.string(),

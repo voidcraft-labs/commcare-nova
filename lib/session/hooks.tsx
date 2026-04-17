@@ -11,7 +11,7 @@
 
 import type { UIMessage } from "ai";
 import { useBlueprintDoc } from "@/lib/doc/hooks/useBlueprintDoc";
-import type { ConnectConfig, ConnectType } from "@/lib/schemas/blueprint";
+import type { ConnectConfig, ConnectType } from "@/lib/domain";
 import { BuilderPhase } from "@/lib/services/builder";
 import { useBuilderSession, useBuilderSessionShallow } from "./provider";
 import type { SidebarKind } from "./store";

@@ -26,7 +26,7 @@ import { devtools, subscribeWithSelector } from "zustand/middleware";
 import { createStore } from "zustand/vanilla";
 import type { BlueprintDocStore } from "@/lib/doc/provider";
 import type { Mutation, Uuid } from "@/lib/doc/types";
-import type { ConnectConfig, ConnectType } from "@/lib/schemas/blueprint";
+import type { ConnectConfig, ConnectType } from "@/lib/domain";
 import {
 	type CursorMode,
 	type GenerationError,
