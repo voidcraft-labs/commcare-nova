@@ -1,32 +1,39 @@
 import { type NextRequest, NextResponse } from "next/server";
 import { v4 as uuidv4 } from "uuid";
 import { requireSession } from "@/lib/auth-utils";
+import { toBlueprint } from "@/lib/doc/legacyBridge";
+import { blueprintDocSchema } from "@/lib/domain";
 import { log } from "@/lib/log";
-import { appBlueprintSchema } from "@/lib/schemas/blueprint";
 import { AutoFixer } from "@/lib/services/autoFixer";
 import { CczCompiler } from "@/lib/services/cczCompiler";
 import { expandBlueprint } from "@/lib/services/hqJsonExpander";
 import { saveCcz } from "@/lib/store";
 
+/**
+ * CCZ compile endpoint.
+ *
+ * Accepts the normalized `BlueprintDoc` (the domain shape) in the body,
+ * converts to CommCare's wire `AppBlueprint` server-side via
+ * `legacyBridge.toBlueprint`, then runs the HQ JSON expander → auto-fixer
+ * → CCZ packager. This is an external boundary: input is domain, output
+ * is CommCare's expected binary format. The translation is legitimate.
+ */
 export async function POST(req: NextRequest) {
 	try {
 		await requireSession(req);
 		const body = await req.json();
-		const { blueprint } = body;
+		const { doc } = body;
 
-		if (!blueprint) {
-			return NextResponse.json(
-				{ error: "blueprint is required" },
-				{ status: 400 },
-			);
+		if (!doc) {
+			return NextResponse.json({ error: "doc is required" }, { status: 400 });
 		}
 
-		const parsed = appBlueprintSchema.safeParse(blueprint);
-		if (!parsed.success) {
+		const parsedDoc = blueprintDocSchema.safeParse(doc);
+		if (!parsedDoc.success) {
 			return NextResponse.json(
 				{
-					error: "Invalid blueprint",
-					details: parsed.error.issues.map(
+					error: "Invalid doc",
+					details: parsedDoc.error.issues.map(
 						(e: { path: PropertyKey[]; message: string }) =>
 							`${e.path.join(".")}: ${e.message}`,
 					),
@@ -35,8 +42,13 @@ export async function POST(req: NextRequest) {
 			);
 		}
 
+		// Domain → wire at the CommCare boundary. `fieldParent` is transient
+		// (not persisted, not needed by the expander) — seed an empty index
+		// to satisfy the type contract without rebuilding the reverse map.
+		const blueprint = toBlueprint({ ...parsedDoc.data, fieldParent: {} });
+
 		// Expand blueprint to HQ JSON
-		const hqJson = expandBlueprint(parsed.data);
+		const hqJson = expandBlueprint(blueprint);
 
 		// Auto-fix
 		const autoFixer = new AutoFixer();
@@ -54,8 +66,8 @@ export async function POST(req: NextRequest) {
 		const compiler = new CczCompiler();
 		const buffer = await compiler.compile(
 			hqJson,
-			parsed.data.app_name,
-			parsed.data,
+			blueprint.app_name,
+			blueprint,
 		);
 
 		// Store buffer for download
@@ -66,7 +78,7 @@ export async function POST(req: NextRequest) {
 			success: true,
 			compileId,
 			downloadUrl: `/api/compile/${compileId}/download`,
-			appName: parsed.data.app_name,
+			appName: blueprint.app_name,
 		});
 	} catch (err) {
 		// Log the real error server-side but return a generic message to avoid

@@ -23,15 +23,17 @@ import { motion } from "motion/react";
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import { useBlueprintDoc } from "@/lib/doc/hooks/useBlueprintDoc";
-import type { AppBlueprint } from "@/lib/schemas/blueprint";
+import type { PersistableDoc } from "@/lib/domain";
 
 // ── Types ──────────────────────────────────────────────────────────
 
 interface UploadToHqDialogProps {
 	open: boolean;
 	onClose: () => void;
-	/** Retrieves the current blueprint for upload. Called when the user clicks Upload. */
-	getBlueprint: () => AppBlueprint;
+	/** Retrieves the persistable (on-disk) doc snapshot for upload.
+	 *  Called when the user clicks Upload. The server converts the doc
+	 *  to CommCare's wire format at the upload boundary. */
+	getDoc: () => PersistableDoc;
 	/** The user's authorized project space, resolved from settings on mount. */
 	domain: { name: string; displayName: string } | null;
 }
@@ -59,7 +61,7 @@ const POPUP_CLS =
 export function UploadToHqDialog({
 	open,
 	onClose,
-	getBlueprint,
+	getDoc,
 	domain,
 }: UploadToHqDialogProps) {
 	/* Self-subscribe to the app name from the doc store — no prop drilling
@@ -84,14 +86,14 @@ export function UploadToHqDialog({
 		setUploadStatus({ type: "uploading" });
 
 		try {
-			const blueprint = getBlueprint();
+			const doc = getDoc();
 			const res = await fetch("/api/commcare/upload", {
 				method: "POST",
 				headers: { "Content-Type": "application/json" },
 				body: JSON.stringify({
 					domain: domain.name,
 					appName: appName.trim(),
-					blueprint,
+					doc,
 				}),
 			});
 
@@ -123,7 +125,7 @@ export function UploadToHqDialog({
 				status: 0,
 			});
 		}
-	}, [domain, appName, getBlueprint]);
+	}, [domain, appName, getDoc]);
 
 	const isUploading = uploadStatus.type === "uploading";
 	const canUpload = !!domain && !isUploading && appName.trim().length > 0;

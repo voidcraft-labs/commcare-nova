@@ -6,8 +6,10 @@
  * and the dialog live in the same component — no state coordination
  * through BuilderLayout needed.
  *
- * Reads `commcareSettings` from props (server-resolved by the RSC page)
- * and the blueprint from the store imperatively (not a subscription).
+ * The client-side surface speaks only the domain shape (`BlueprintDoc`).
+ * Any domain → CommCare wire conversion happens server-side at the
+ * export / upload routes, which are the only legitimate external
+ * emission boundaries.
  */
 "use client";
 import tablerBrowser from "@iconify-icons/tabler/browser";
@@ -16,8 +18,8 @@ import { memo, useCallback, useContext, useMemo, useState } from "react";
 import { UploadToHqDialog } from "@/components/builder/UploadToHqDialog";
 import type { ExportOption } from "@/components/ui/ExportDropdown";
 import { ExportDropdown } from "@/components/ui/ExportDropdown";
-import { toBlueprint } from "@/lib/doc/converter";
 import { BlueprintDocContext } from "@/lib/doc/provider";
+import type { BlueprintDoc, PersistableDoc } from "@/lib/domain";
 import { showToast } from "@/lib/services/toastStore";
 
 interface ExportPanelProps {
@@ -25,6 +27,18 @@ interface ExportPanelProps {
 	commcareConfigured: boolean;
 	/** The user's authorized project space domain, or null if not configured. */
 	commcareDomain: { name: string; displayName: string } | null;
+}
+
+/**
+ * Strip the transient `fieldParent` reverse-index before serializing the
+ * doc over the network. `fieldParent` is derived on load (not persisted),
+ * and shipping it redundantly would waste bandwidth and muddle the wire
+ * contract — the server's `blueprintDocSchema` parse rejects unknown
+ * keys on the persistable shape.
+ */
+function toPersistable(doc: BlueprintDoc): PersistableDoc {
+	const { fieldParent: _fp, ...persistable } = doc;
+	return persistable;
 }
 
 /**
@@ -40,34 +54,36 @@ export const ExportPanel = memo(function ExportPanel({
 	const docStore = useContext(BlueprintDocContext);
 	const [uploadDialogOpen, setUploadDialogOpen] = useState(false);
 
-	/** Assemble the current blueprint for the upload dialog.
+	/**
+	 * Snapshot the current persistable doc for the upload dialog. Called
+	 * imperatively when the user clicks Upload — no subscription, no
+	 * re-renders during form entry.
 	 *
 	 * ExportPanel is only rendered when a real app is loaded — the export
 	 * dropdown is hidden until `hasData` on the layout becomes true, and
 	 * the upload dialog is gated behind a button click that requires the
 	 * dropdown to be visible. If this callback somehow runs with an
 	 * unmounted doc store, it's a programming error: throw loudly rather
-	 * than fabricate an empty blueprint that would push a zero-module app
-	 * to CommCare HQ. */
-	const getBlueprint = useCallback(() => {
+	 * than fabricate an empty doc that would push a zero-module app.
+	 */
+	const getDoc = useCallback((): PersistableDoc => {
 		const s = docStore?.getState();
 		if (!s) {
 			throw new Error(
-				"ExportPanel.getBlueprint called before BlueprintDocProvider mounted",
+				"ExportPanel.getDoc called before BlueprintDocProvider mounted",
 			);
 		}
-		return toBlueprint(s);
+		return toPersistable(s);
 	}, [docStore]);
 
 	const handleExportCcz = useCallback(async () => {
 		const s = docStore?.getState();
 		if (!s || s.moduleOrder.length === 0) return;
-		const bp = toBlueprint(s);
 		try {
 			const res = await fetch("/api/compile", {
 				method: "POST",
 				headers: { "Content-Type": "application/json" },
-				body: JSON.stringify({ blueprint: bp }),
+				body: JSON.stringify({ doc: toPersistable(s) }),
 			});
 			const data = await res.json();
 			if (data.downloadUrl) {
@@ -88,12 +104,11 @@ export const ExportPanel = memo(function ExportPanel({
 	const handleExportJson = useCallback(async () => {
 		const s = docStore?.getState();
 		if (!s || s.moduleOrder.length === 0) return;
-		const bp = toBlueprint(s);
 		try {
 			const res = await fetch("/api/compile/json", {
 				method: "POST",
 				headers: { "Content-Type": "application/json" },
-				body: JSON.stringify({ blueprint: bp }),
+				body: JSON.stringify({ doc: toPersistable(s) }),
 			});
 			if (!res.ok) {
 				showToast(
@@ -154,7 +169,7 @@ export const ExportPanel = memo(function ExportPanel({
 			<UploadToHqDialog
 				open={uploadDialogOpen}
 				onClose={handleCloseUpload}
-				getBlueprint={getBlueprint}
+				getDoc={getDoc}
 				domain={commcareDomain}
 			/>
 		</>

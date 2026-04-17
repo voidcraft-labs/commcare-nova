@@ -12,6 +12,7 @@ import {
 	loadAppOwner,
 } from "@/lib/db/apps";
 import { getMonthlyUsage, MONTHLY_SPEND_CAP_USD } from "@/lib/db/usage";
+import { toBlueprint } from "@/lib/doc/legacyBridge";
 import { log } from "@/lib/log";
 import { CACHE_TTL_MS, chatRequestSchema } from "@/lib/schemas/apiSchemas";
 import type { AppBlueprint } from "@/lib/schemas/blueprint";
@@ -75,7 +76,7 @@ export async function POST(req: Request) {
 		);
 	}
 
-	const { blueprint, runId, lastResponseAt, appReady } = parsed.data;
+	const { doc, runId, lastResponseAt, appReady } = parsed.data;
 
 	const logger = new EventLogger(runId);
 
@@ -177,11 +178,23 @@ export async function POST(req: Request) {
 				});
 			}
 
-			/* Create a mutable blueprint copy for the SA to modify in place.
-			 * structuredClone isolates the working copy from the input so
-			 * in-flight mutations don't corrupt the caller's reference. */
+			/* Convert the client-supplied normalized doc into the SA's wire
+			 * format (AppBlueprint) at the route boundary — this is the
+			 * only legitimate domain→wire translation in the request path,
+			 * because the SA's tool surface and prompt still speak wire
+			 * vocabulary (question, case_property_on, validation). The
+			 * conversion lives in `lib/doc/legacyBridge.ts`.
+			 *
+			 * `toBlueprint` does not consult `fieldParent`; we seed an
+			 * empty index to satisfy the `BlueprintDoc` type without
+			 * rebuilding the reverse map (it's derived on load in the
+			 * client, not needed server-side). `structuredClone` then
+			 * isolates the SA's working copy from the snapshot so
+			 * in-flight mutations never leak back to the request. */
 			const mutableBp: AppBlueprint = structuredClone(
-				blueprint ?? { app_name: "", modules: [], case_types: null },
+				doc
+					? toBlueprint({ ...doc, fieldParent: {} })
+					: { app_name: "", modules: [], case_types: null },
 			);
 
 			const ctx = new GenerationContext({
