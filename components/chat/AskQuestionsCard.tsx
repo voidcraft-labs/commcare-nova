@@ -4,7 +4,7 @@ import tablerCheck from "@iconify-icons/tabler/check";
 import { AnimatePresence, motion } from "motion/react";
 import { useRef, useState } from "react";
 
-interface QuestionInput {
+interface AskQuestionsInput {
 	header: string;
 	questions: {
 		question: string;
@@ -12,9 +12,9 @@ interface QuestionInput {
 	}[];
 }
 
-interface QuestionCardProps {
+interface AskQuestionsCardProps {
 	toolCallId: string;
-	input: QuestionInput;
+	input: AskQuestionsInput;
 	state: string;
 	output?: Record<string, string>;
 	addToolOutput: (params: {
@@ -25,14 +25,14 @@ interface QuestionCardProps {
 	pendingAnswerRef?: React.MutableRefObject<((text: string) => void) | null>;
 }
 
-export function QuestionCard({
+export function AskQuestionsCard({
 	toolCallId,
 	input,
 	state,
 	output,
 	addToolOutput,
 	pendingAnswerRef,
-}: QuestionCardProps) {
+}: AskQuestionsCardProps) {
 	const [currentIndex, setCurrentIndex] = useState(0);
 	const [answers, setAnswers] = useState<Record<string, string>>({});
 
