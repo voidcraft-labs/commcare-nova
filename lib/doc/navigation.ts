@@ -25,7 +25,7 @@
  *     targets (Shift+ArrowUp / Shift+ArrowDown).
  */
 
-import type { BlueprintDoc, Uuid } from "@/lib/domain";
+import { type BlueprintDoc, isContainer, type Uuid } from "@/lib/domain";
 
 /** A field's uuid paired with its owning container's uuid. The parent is
  *  the form uuid for root-level fields, or a group/repeat field uuid for
@@ -47,13 +47,6 @@ export interface CrossLevelFieldMoveTarget {
 	beforeUuid?: Uuid;
 	afterUuid?: Uuid;
 	direction: "into" | "out";
-}
-
-/** Whether a field kind is a container that can hold children. Only
- *  `group` and `repeat` carry a `fieldOrder` entry and participate as
- *  indent targets. */
-function isContainerKind(kind: string | undefined): boolean {
-	return kind === "group" || kind === "repeat";
 }
 
 /**
@@ -181,7 +174,7 @@ export function getCrossLevelFieldMoveTargets(
 	} else if (idx > 0) {
 		const prevUuid = siblings[idx - 1] as Uuid;
 		const prev = doc.fields[prevUuid];
-		if (prev && isContainerKind(prev.kind)) {
+		if (prev && isContainer(prev)) {
 			up = { toParentUuid: prevUuid, direction: "into" };
 		}
 	}
@@ -197,7 +190,7 @@ export function getCrossLevelFieldMoveTargets(
 	} else if (idx < siblings.length - 1) {
 		const nextUuid = siblings[idx + 1] as Uuid;
 		const next = doc.fields[nextUuid];
-		if (next && isContainerKind(next.kind)) {
+		if (next && isContainer(next)) {
 			const firstChild = doc.fieldOrder[nextUuid]?.[0] as Uuid | undefined;
 			down = {
 				toParentUuid: nextUuid,
