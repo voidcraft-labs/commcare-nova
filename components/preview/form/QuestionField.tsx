@@ -1,6 +1,6 @@
 "use client";
 import type { Field } from "@/lib/domain";
-import type { QuestionState } from "@/lib/preview/engine/types";
+import type { FieldState } from "@/lib/preview/engine/types";
 import { DateField } from "./fields/DateField";
 import { LabelField } from "./fields/LabelField";
 import { MediaField } from "./fields/MediaField";
@@ -12,7 +12,7 @@ import { TextField } from "./fields/TextField";
 interface QuestionFieldProps {
 	/** Domain field entity — discriminated union narrowed by `kind` below. */
 	question: Field;
-	state: QuestionState;
+	state: FieldState;
 	onChange: (value: string) => void;
 	onBlur: () => void;
 }

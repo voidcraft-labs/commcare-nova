@@ -49,13 +49,13 @@ import type { Field, Form, Uuid } from "@/lib/domain";
 import type { FieldTreeNode } from "./fieldTree";
 import { buildFieldTree } from "./fieldTree";
 import { FormEngine, type FormEngineInput } from "./formEngine";
-import type { QuestionState } from "./types";
+import type { FieldState } from "./types";
 
 // ── Runtime store types ─────────────────────────────────────────────────
 
 /** Per-field computed runtime state. Keyed by UUID, aligned with the
  *  blueprint store. Components subscribe via `useStore(store, s => s[uuid])`. */
-export type RuntimeState = QuestionState;
+export type RuntimeState = FieldState;
 
 /** The Zustand store shape — flat map of UUID → RuntimeState. */
 export type RuntimeStoreState = Record<string, RuntimeState>;
@@ -204,9 +204,9 @@ function classifyChange(
 	return "none";
 }
 
-/** Field-level equality for QuestionState. Only used for validateAll/resetValidation
+/** Field-level equality for FieldState. Only used for validateAll/resetValidation
  *  which operate on all fields but most states don't actually change. */
-function statesEqual(a: QuestionState, b: QuestionState): boolean {
+function statesEqual(a: FieldState, b: FieldState): boolean {
 	return (
 		a.path === b.path &&
 		a.value === b.value &&

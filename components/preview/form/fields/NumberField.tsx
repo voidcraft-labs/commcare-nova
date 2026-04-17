@@ -1,12 +1,12 @@
 "use client";
 import type { DecimalField, IntField } from "@/lib/domain";
-import type { QuestionState } from "@/lib/preview/engine/types";
+import type { FieldState } from "@/lib/preview/engine/types";
 import { ValidationError } from "./ValidationError";
 
 interface NumberFieldProps {
 	/** Either an int or decimal field. `step` derives from the kind. */
 	question: IntField | DecimalField;
-	state: QuestionState;
+	state: FieldState;
 	onChange: (value: string) => void;
 	onBlur: () => void;
 }

@@ -4,7 +4,7 @@
  * The engine manages two layers:
  * 1. **DataInstance + TriggerDag** — internal computation infrastructure for
  *    XPath evaluation and dependency tracking. Not reactive.
- * 2. **Zustand store** (`engine.store`) — flat map of path → QuestionState.
+ * 2. **Zustand store** (`engine.store`) — flat map of path → FieldState.
  *    Components subscribe via `useStore(engine.store, s => s[path])` and get
  *    the same per-path reactivity as the builder store's entity selectors.
  *
@@ -34,11 +34,11 @@ import { DataInstance } from "./dataInstance";
 import { buildFieldTree, type FieldTreeNode } from "./fieldTree";
 import { resolveLabel } from "./labelRefs";
 import { TriggerDag } from "./triggerDag";
-import type { QuestionState } from "./types";
+import type { FieldState } from "./types";
 
 /** Stable fallback for paths that don't exist in the engine. Frozen so
  *  Zustand selectors always return the same reference — no spurious re-renders. */
-export const DEFAULT_ENGINE_STATE: QuestionState = Object.freeze({
+export const DEFAULT_ENGINE_STATE: FieldState = Object.freeze({
 	path: "",
 	value: "",
 	visible: true,
@@ -47,13 +47,13 @@ export const DEFAULT_ENGINE_STATE: QuestionState = Object.freeze({
 	touched: false,
 });
 
-/** The Zustand store type — flat map of XForm path → immutable QuestionState. */
-export type EngineStoreState = Record<string, QuestionState>;
+/** The Zustand store type — flat map of XForm path → immutable FieldState. */
+export type EngineStoreState = Record<string, FieldState>;
 
-/** Field-level equality check for QuestionState. Used by updateSchema to
+/** Field-level equality check for FieldState. Used by updateSchema to
  *  diff old vs new states and only notify subscribers for paths that
  *  actually changed. */
-function statesEqual(a: QuestionState, b: QuestionState): boolean {
+function statesEqual(a: FieldState, b: FieldState): boolean {
 	return (
 		a.path === b.path &&
 		a.value === b.value &&
@@ -84,7 +84,7 @@ export interface FormEngineInput {
 }
 
 export class FormEngine {
-	/** Zustand store holding per-path QuestionState. Components subscribe
+	/** Zustand store holding per-path FieldState. Components subscribe
 	 *  via `useStore(engine.store, s => s[path])` for surgical reactivity. */
 	readonly store: StoreApi<EngineStoreState>;
 
@@ -278,7 +278,7 @@ export class FormEngine {
 
 	/** Read a path's state directly (non-reactive). For reactive access,
 	 *  use `useStore(engine.store, s => s[path])` in components. */
-	getState(path: string): QuestionState {
+	getState(path: string): FieldState {
 		return this.store.getState()[path] ?? DEFAULT_ENGINE_STATE;
 	}
 
@@ -337,7 +337,7 @@ export class FormEngine {
 	 * Add a single field's runtime state to the engine without rebuilding
 	 * existing state.
 	 *
-	 * Initializes the DataInstance path, creates the field's QuestionState,
+	 * Initializes the DataInstance path, creates the field's FieldState,
 	 * and evaluates its expressions. Existing fields are untouched — their
 	 * state objects keep the same reference in the store.
 	 *
@@ -356,7 +356,7 @@ export class FormEngine {
 			default_value?: string;
 		};
 		const isRequired = withReq.required === "true()";
-		const state: QuestionState = {
+		const state: FieldState = {
 			path,
 			value: this.instance.get(path) ?? "",
 			visible: true,
@@ -762,7 +762,7 @@ export class FormEngine {
 
 	private validateAndCollect(
 		path: string,
-		state: QuestionState,
+		state: FieldState,
 		updates: EngineStoreState,
 	): void {
 		if (state.required && !state.value) {
@@ -780,7 +780,7 @@ export class FormEngine {
 
 	private evaluateValidationAndCollect(
 		path: string,
-		state: QuestionState,
+		state: FieldState,
 		updates: EngineStoreState,
 	): void {
 		const expressions = this.dag.getExpressions(path);
@@ -828,7 +828,7 @@ export class FormEngine {
 		}
 	}
 
-	/** Build initial QuestionState objects into the provided record. */
+	/** Build initial FieldState objects into the provided record. */
 	private initStatesInto(
 		states: EngineStoreState,
 		tree: FieldTreeNode[],

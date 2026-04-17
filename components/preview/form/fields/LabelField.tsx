@@ -2,7 +2,7 @@
 import { useEditContext } from "@/hooks/useEditContext";
 import { useTextEditSave } from "@/hooks/useTextEditSave";
 import type { LabelField as LabelFieldEntity } from "@/lib/domain";
-import type { QuestionState } from "@/lib/preview/engine/types";
+import type { FieldState } from "@/lib/preview/engine/types";
 import { LabelContent } from "@/lib/references/LabelContent";
 import { FIELD_STYLES } from "../fieldStyles";
 import { TextEditable } from "../TextEditable";
@@ -11,7 +11,7 @@ import { TextEditable } from "../TextEditable";
  * Display-only label field renderer. Labels carry only `label` + optional
  * `relevant` in the domain schema — no hint, no data binding. The preview
  * engine still provides a resolved label (hashtag substitution) via
- * `QuestionState`.
+ * `FieldState`.
  */
 export function LabelField({
 	question,
@@ -21,7 +21,7 @@ export function LabelField({
 	 *  consistent with other preview field components — the prop name is
 	 *  cosmetic; the value is a domain `LabelField`. */
 	question: LabelFieldEntity;
-	state: QuestionState;
+	state: FieldState;
 }) {
 	const ctx = useEditContext();
 	const isEditMode = ctx?.mode === "edit";

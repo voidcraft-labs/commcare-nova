@@ -1,5 +1,5 @@
 /** Per-question reactive state tracked by the form engine. */
-export interface QuestionState {
+export interface FieldState {
 	path: string;
 	value: string;
 	visible: boolean;

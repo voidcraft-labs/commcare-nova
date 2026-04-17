@@ -1,12 +1,12 @@
 "use client";
 import type { SecretField, TextField as TextFieldEntity } from "@/lib/domain";
-import type { QuestionState } from "@/lib/preview/engine/types";
+import type { FieldState } from "@/lib/preview/engine/types";
 import { ValidationError } from "./ValidationError";
 
 interface TextFieldProps {
 	/** Plain text or secret field. The DOM input type differs by kind. */
 	question: TextFieldEntity | SecretField;
-	state: QuestionState;
+	state: FieldState;
 	onChange: (value: string) => void;
 	onBlur: () => void;
 }

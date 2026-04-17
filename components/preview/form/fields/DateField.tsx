@@ -4,13 +4,13 @@ import type {
 	DatetimeField,
 	TimeField,
 } from "@/lib/domain";
-import type { QuestionState } from "@/lib/preview/engine/types";
+import type { FieldState } from "@/lib/preview/engine/types";
 import { ValidationError } from "./ValidationError";
 
 interface DateFieldProps {
 	/** Any of the three datetime-family kinds; the input type maps 1-to-1. */
 	question: DateFieldEntity | TimeField | DatetimeField;
-	state: QuestionState;
+	state: FieldState;
 	onChange: (value: string) => void;
 	onBlur: () => void;
 }

@@ -1,13 +1,13 @@
 "use client";
 import type { SingleSelectField } from "@/lib/domain";
 import { PreviewMarkdown } from "@/lib/markdown";
-import type { QuestionState } from "@/lib/preview/engine/types";
+import type { FieldState } from "@/lib/preview/engine/types";
 import { ValidationError } from "./ValidationError";
 
 interface SelectOneFieldProps {
 	/** A single-select field; `options` is required on this kind. */
 	question: SingleSelectField;
-	state: QuestionState;
+	state: FieldState;
 	onChange: (value: string) => void;
 	onBlur: () => void;
 }
