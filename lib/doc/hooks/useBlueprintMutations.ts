@@ -518,7 +518,11 @@ export function useBlueprintMutations(): BlueprintMutations {
 			convertField(uuid, toKind) {
 				const doc = get();
 				if (!doc.fields[uuid]) {
-					warnUnresolved("convertField", { uuid });
+					// Include `toKind` so the dev-mode warn disambiguates the caller's
+					// intent — a stale UI closure and a drifted SA dispatch present
+					// identically without it. Matches the debug payload shape the
+					// other multi-arg mutations (updateCaseProperty, etc.) use.
+					warnUnresolved("convertField", { uuid, toKind });
 					return;
 				}
 				dispatch({ kind: "convertField", uuid, toKind });

@@ -27,7 +27,7 @@
 import { act, renderHook } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { useContext } from "react";
-import { assert, describe, expect, it } from "vitest";
+import { assert, describe, expect, it, vi } from "vitest";
 import {
 	useBlueprintDoc,
 	useBlueprintDocShallow,
@@ -916,20 +916,31 @@ describe("useBlueprintMutations", () => {
 	describe("convertField", () => {
 		it("swaps the kind and reflects the new kind in doc state", () => {
 			// Q_A starts as `text`; `text` can convert to `secret` per the registry.
-			// After the dispatch the store should contain Q_A with kind === "secret".
+			// Snapshot the pre-dispatch kind and pin the fixture invariant so
+			// a future fixture drift (e.g. Q_A seeded as `"secret"`) can't mask
+			// a no-op short-circuit inside the reducer — `convertField` returns
+			// early when source kind already equals target kind.
 			const { result } = renderHook(() => useMutationsAndFirstFormChildren(), {
 				wrapper,
 			});
+
+			const before = result.current.store?.getState().fields[Q_A]?.kind;
+			// Pin the fixture invariant — if this fails the test below doesn't
+			// prove anything meaningful about the dispatch.
+			expect(before).toBe("text");
 
 			act(() => {
 				result.current.mutations.convertField(Q_A, "secret" as FieldKind);
 			});
 
-			const s = result.current.store?.getState();
-			const converted = s?.fields[Q_A];
-			expect(converted).toBeDefined();
-			expect(converted?.kind).toBe("secret");
+			const after = result.current.store?.getState().fields[Q_A]?.kind;
+			expect(after).toBe("secret");
+			// Guard against the reducer no-op path masking a successful dispatch —
+			// the kind MUST have changed, not merely equal the target by accident.
+			expect(after).not.toBe(before);
+
 			// The field's semantic id should be preserved across the kind swap.
+			const converted = result.current.store?.getState().fields[Q_A];
 			expect(converted?.id).toBe("a");
 		});
 
@@ -955,7 +966,12 @@ describe("useBlueprintMutations", () => {
 		it("no-ops silently when uuid is unknown", () => {
 			// An unrecognized uuid must not throw and must leave the store
 			// unchanged — matches the fail-open contract the other mutation methods
-			// follow.
+			// follow. The hook's JSDoc also promises a dev-mode `console.warn`
+			// on every unresolved uuid; that warn is the ONLY observability the
+			// fail-open contract offers, so we spy on it here to lock the
+			// contract against a future refactor dropping the `warnUnresolved`
+			// call.
+			const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
 			const { result } = renderHook(() => useMutationsAndFirstFormChildren(), {
 				wrapper,
 			});
@@ -980,6 +996,20 @@ describe("useBlueprintMutations", () => {
 				"b",
 				"grp",
 			]);
+
+			// Lock the fail-open contract: the warn must fire and include both
+			// `uuid` and `toKind` so a dev debugging a silent no-op can tell
+			// which call site produced it.
+			expect(warnSpy).toHaveBeenCalledWith(
+				expect.stringContaining(
+					"[useBlueprintMutations.convertField] unresolved uuid",
+				),
+				expect.objectContaining({
+					uuid: "bogus-uuid-convert",
+					toKind: "secret",
+				}),
+			);
+			warnSpy.mockRestore();
 		});
 	});
 
