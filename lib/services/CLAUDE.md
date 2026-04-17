@@ -1,26 +1,8 @@
 # Services Layer
 
-## SA agent
+Utility surfaces that cut across the builder: CommCare compile/validate (`cczCompiler`, `hqJsonExpander`, `xformBuilder`, `commcare/*`), per-form derivation helpers (`deriveCaseConfig`, `connectConfig`, `questionPath`), UI plumbing (`toastStore`, `keyboardManager`, `formActions`, `resetBuilder`), and generation logging (`eventLogger`, `logReplay`).
 
-### Build sequence
-
-`askQuestions → generateSchema → generateScaffold → addModule × N → addQuestions × N → validateApp`
-
-The SA makes all architecture and form-design decisions. All tools are called directly — no sub-agents, no code execution.
-
-### Two tool groups: generation + shared
-
-Tools split into a generation set (build mode only) and a shared set (all modes). When the app already exists, generation tools are excluded from the agent's kit — so edit mode can never accidentally re-create modules or scaffolds. Mutation tools return human-readable success strings, not JSON metadata, so the SA trusts its own edits without re-reading the blueprint.
-
-### Prompt caching
-
-Request-level `cacheControl: { type: 'ephemeral' }` in the provider options. Anthropic automatically places the breakpoint on the last cacheable block and advances it as the conversation grows — the system prompt stays cached across requests within a session.
-
-Cache TTL is 5 minutes. The route uses a client-reported timestamp to choose the message strategy: within the window, full history is sent; after expiry, only the last user message goes (one-shot edit). Edit-vs-build mode is a separate decision — see root CLAUDE.md.
-
-### Provider options shape (Opus 4.7)
-
-SA shape: `{ cacheControl, thinking: { type: 'adaptive', display: 'summarized' }, effort }`. `effort` is a **top-level** provider option (sibling of `thinking`), not nested inside it — the AI SDK's Zod schema silently strips misplaced fields, so a misplaced field appears to work and silently doesn't reach the wire. `display: 'summarized'` is required for human-readable thinking summaries on Opus 4.7; without it, blocks stream as encrypted/redacted. Always type provider options as `AnthropicProviderOptions`, never `Record<string, JSONValue>`.
+The Solutions Architect and its generation loop moved to `lib/agent/` in Phase 3 — see `lib/agent/CLAUDE.md` for the SA tool-loop rules, prompt caching, mutation-emission surface, and provider-options shape.
 
 ## Expander decisions
 
