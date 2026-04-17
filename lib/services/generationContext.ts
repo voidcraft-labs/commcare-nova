@@ -16,11 +16,11 @@ import type {
 } from "ai";
 import { generateText, Output, streamText } from "ai";
 import type { z } from "zod";
+import type { BlueprintDoc } from "@/lib/domain";
 import { log } from "@/lib/log";
 import type { Session } from "../auth";
-import { updateAppLegacy } from "../db/apps";
+import { updateApp } from "../db/apps";
 import { MODEL_DEFAULT, type ReasoningEffort } from "../models";
-import type { AppBlueprint } from "../schemas/blueprint";
 import { type ClassifiedError, classifyError } from "./errorClassifier";
 import type { EventLogger } from "./eventLogger";
 
@@ -62,6 +62,16 @@ const SAVE_TRIGGER_TYPES: ReadonlySet<string> = new Set([
 	"data-form-fixed",
 ]);
 
+/**
+ * Accessor the route installs so `saveBlueprint` can read the SA's latest
+ * doc snapshot without the SA having to push it in. The SA owns the
+ * authoritative doc and mutates it in place; the route just registers a
+ * function that returns the current reference, which the context calls on
+ * each intermediate save. Undefined until the SA registers — no-op saves
+ * before that.
+ */
+export type DocProvider = () => BlueprintDoc | undefined;
+
 /** Options for constructing a GenerationContext. */
 interface GenerationContextOptions {
 	apiKey: string;
@@ -71,12 +81,6 @@ interface GenerationContextOptions {
 	session: Session;
 	/** Firestore app ID — present when the app has been saved at least once. */
 	appId?: string;
-	/**
-	 * Mutable blueprint reference shared with the SA agent. Passed by
-	 * reference so intermediate saves capture the latest mutations without
-	 * extra plumbing.
-	 */
-	blueprint?: AppBlueprint;
 }
 
 export class GenerationContext {
@@ -87,8 +91,13 @@ export class GenerationContext {
 	readonly session: Session;
 	/** Firestore app ID — set when the app has been saved at least once. */
 	readonly appId: string | undefined;
-	/** Mutable blueprint reference — same object the SA mutates in-place. */
-	private readonly blueprint: AppBlueprint | undefined;
+	/**
+	 * Pull-based doc provider — the SA installs this during agent creation
+	 * so intermediate saves always read the SA's current working state.
+	 * Kept private so the emit pipeline owns the save timing; external
+	 * readers should consult the doc store, not this context.
+	 */
+	private docProvider: DocProvider | undefined;
 
 	constructor(opts: GenerationContextOptions) {
 		this.anthropic = createAnthropic({ apiKey: opts.apiKey });
@@ -96,7 +105,6 @@ export class GenerationContext {
 		this.logger = opts.logger;
 		this.session = opts.session;
 		this.appId = opts.appId;
-		this.blueprint = opts.blueprint;
 	}
 
 	/** Get the Anthropic model provider for a given model ID. */
@@ -105,23 +113,36 @@ export class GenerationContext {
 	}
 
 	/**
-	 * Fire-and-forget save of the current legacy blueprint snapshot to Firestore.
+	 * Register the function the context uses to read the SA's current doc
+	 * for intermediate Firestore saves. The SA calls this once during
+	 * agent construction. Replacing an existing provider is fine — the
+	 * most recent registration wins.
+	 */
+	registerDocProvider(provider: DocProvider) {
+		this.docProvider = provider;
+	}
+
+	/**
+	 * Fire-and-forget save of the SA's current doc snapshot to Firestore.
 	 *
-	 * Called after each blueprint-mutating emission so the app document's
-	 * `updated_at` advances during generation. This lets the staleness check
-	 * in `listApps()` distinguish "still actively generating" from "process
-	 * died" — without this, `updated_at === created_at` for the entire run.
-	 *
-	 * TODO Task 17-18: once the SA emits normalized `BlueprintDoc` objects,
-	 * replace `updateAppLegacy` with `updateApp` and change the `blueprint`
-	 * field type to `BlueprintDoc`.
+	 * Called after each doc-mutating emission so the app document's
+	 * `updated_at` advances during generation. This lets the staleness
+	 * check in `listApps()` distinguish "still actively generating" from
+	 * "process died" — without this, `updated_at === created_at` for the
+	 * entire run. The doc is pulled from the registered provider at call
+	 * time so we always pick up the latest mutation.
 	 */
 	private saveBlueprint() {
-		if (!this.appId || !this.blueprint) return;
-		updateAppLegacy(
-			this.appId,
-			this.blueprint as unknown as Record<string, unknown>,
-		).catch((err) => log.error("[intermediate-save] failed", err));
+		if (!this.appId || !this.docProvider) return;
+		const doc = this.docProvider();
+		if (!doc) return;
+		// `fieldParent` is a derived reverse-index; strip it before writing
+		// so the Firestore doc stays in the persistable shape the schema
+		// validates on read.
+		const { fieldParent: _fp, ...persistable } = doc;
+		updateApp(this.appId, persistable).catch((err) =>
+			log.error("[intermediate-save] failed", err),
+		);
 	}
 
 	/** Emit a transient data part to the client stream. Also buffers for run logging. */

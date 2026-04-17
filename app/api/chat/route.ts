@@ -12,10 +12,10 @@ import {
 	loadAppOwner,
 } from "@/lib/db/apps";
 import { getMonthlyUsage, MONTHLY_SPEND_CAP_USD } from "@/lib/db/usage";
-import { toBlueprint } from "@/lib/doc/legacyBridge";
+import { rebuildFieldParent } from "@/lib/doc/fieldParent";
+import type { BlueprintDoc } from "@/lib/domain";
 import { log } from "@/lib/log";
 import { CACHE_TTL_MS, chatRequestSchema } from "@/lib/schemas/apiSchemas";
-import type { AppBlueprint } from "@/lib/schemas/blueprint";
 import { classifyError, MESSAGES } from "@/lib/services/errorClassifier";
 import { EventLogger } from "@/lib/services/eventLogger";
 import { GenerationContext } from "@/lib/services/generationContext";
@@ -178,24 +178,28 @@ export async function POST(req: Request) {
 				});
 			}
 
-			/* Convert the client-supplied normalized doc into the SA's wire
-			 * format (AppBlueprint) at the route boundary — this is the
-			 * only legitimate domain→wire translation in the request path,
-			 * because the SA's tool surface and prompt still speak wire
-			 * vocabulary (question, case_property_on, validation). The
-			 * conversion lives in `lib/doc/legacyBridge.ts`.
-			 *
-			 * `toBlueprint` does not consult `fieldParent`; we seed an
-			 * empty index to satisfy the `BlueprintDoc` type without
-			 * rebuilding the reverse map (it's derived on load in the
-			 * client, not needed server-side). `structuredClone` then
-			 * isolates the SA's working copy from the snapshot so
-			 * in-flight mutations never leak back to the request. */
-			const mutableBp: AppBlueprint = structuredClone(
-				doc
-					? toBlueprint({ ...doc, fieldParent: {} })
-					: { app_name: "", modules: [], case_types: null },
-			);
+			/* Build the SA's working doc. The client ships the persistable
+			 * slice (no `fieldParent`) on wire; we deep-clone so in-flight
+			 * mutations never leak back into the request body, then rebuild
+			 * the reverse-parent index the SA's mutation helpers rely on.
+			 * Brand-new builds get the empty doc stamped with the Firestore
+			 * `appId` that `createApp` just minted. */
+			const sessionDoc: BlueprintDoc = doc
+				? structuredClone({ ...doc, fieldParent: {} })
+				: {
+						appId: appId ?? "",
+						appName: "",
+						connectType: null,
+						caseTypes: null,
+						modules: {},
+						forms: {},
+						fields: {},
+						moduleOrder: [],
+						formOrder: {},
+						fieldOrder: {},
+						fieldParent: {},
+					};
+			rebuildFieldParent(sessionDoc);
 
 			const ctx = new GenerationContext({
 				apiKey: keyResult.apiKey,
@@ -203,7 +207,6 @@ export async function POST(req: Request) {
 				logger,
 				session: keyResult.session,
 				appId,
-				blueprint: mutableBp,
 			});
 
 			/** Classify, emit, and persist a generation error. */
@@ -242,10 +245,10 @@ export async function POST(req: Request) {
 					fresh_edit: editing && cacheExpired,
 					app_ready: editing,
 					cache_expired: cacheExpired,
-					module_count: mutableBp.modules.length,
+					module_count: sessionDoc.moduleOrder.length,
 				});
 
-				const sa = createSolutionsArchitect(ctx, mutableBp, editing);
+				const sa = createSolutionsArchitect(ctx, sessionDoc, editing);
 
 				/* When editing with an expired cache, only send the last user message.
 				 * The SA's system prompt includes a compact blueprint summary for

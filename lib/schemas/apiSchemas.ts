@@ -10,11 +10,11 @@ export const CACHE_TTL_MS = 5 * 60 * 1000;
  * Wire shape of the chat endpoint's request body.
  *
  * The client sends the normalized `BlueprintDoc` — the domain shape
- * held by the doc store. The route is responsible for converting to
- * the SA's wire format (legacy `AppBlueprint`) server-side; clients
- * never construct wire shapes. `doc` is optional because brand-new
- * builds send an empty request and the SA generates the blueprint
- * from scratch.
+ * held by the doc store. The SA now operates on `BlueprintDoc`
+ * directly; conversion to CommCare-flavored `AppBlueprint` happens
+ * only at genuine external boundaries (LLM prompt, XForm compiler,
+ * HQ upload). `doc` is optional because brand-new builds send an
+ * empty request and the SA generates the blueprint from scratch.
  */
 export const chatRequestSchema = z.object({
 	doc: blueprintDocSchema.optional(),

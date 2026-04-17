@@ -8,20 +8,24 @@
  *
  * ## Internal shape
  *
- * The SA receives an `AppBlueprint` from the chat route (the wire shape
- * persisted in Firestore pre-migration). Internally it maintains a
- * normalized `BlueprintDoc` — the same shape the client store holds —
- * because every mutation helper in `lib/services/blueprintHelpers.ts`
- * speaks the normalized dialect after Task 15. The SA translates at two
- * boundaries:
+ * The SA works on `BlueprintDoc` end to end — the same normalized shape
+ * the client store and Firestore both persist. Wire-format `AppBlueprint`
+ * appears only at true external boundaries:
  *
- *   - **ingress** (once, at agent-create time): the legacy nested
- *     `AppBlueprint` → `BlueprintDoc` via `legacyAppBlueprintToDoc`.
- *   - **egress** (on every mutating tool emission + validateApp): the
- *     current `BlueprintDoc` snapshot → legacy `AppBlueprint` via
- *     `toBlueprint`. The in-place `bp` reference passed by the route is
- *     re-populated from that snapshot so `GenerationContext.saveBlueprint`
- *     sees the latest state for intermediate Firestore saves.
+ *   - **LLM prompt** — `buildSolutionsArchitectPrompt` renders the SA's
+ *     editing preamble from a `toBlueprint(doc)` snapshot (the prompt is
+ *     itself an external surface: it ships to Anthropic).
+ *   - **LLM tool returns** — `getForm` / `getQuestion` hand back
+ *     wire-format `BlueprintForm` / `Question` objects because the SA's
+ *     tool surface uses CommCare vocabulary. Those are LLM-facing.
+ *   - **CommCare validator/expander** — `validateAndFix` internally
+ *     translates to `AppBlueprint`, runs the XForm compiler, and
+ *     translates any fix-registry mutations back into a doc. Callers
+ *     stay on the domain side.
+ *
+ * Stream-event payloads (`data-done`, `data-blueprint-updated`) carry the
+ * normalized doc — no wire-format blueprint crosses the agent → client
+ * boundary any more.
  *
  * The SA's tool-argument "question" nomenclature is deliberately NOT
  * renamed to "field"; that's the SA's wire format to the LLM and shared
@@ -30,8 +34,7 @@
 import { type JSONValue, stepCountIs, ToolLoopAgent, tool } from "ai";
 import { produce } from "immer";
 import { z } from "zod";
-import { rebuildFieldParent } from "@/lib/doc/fieldParent";
-import { legacyAppBlueprintToDoc, toBlueprint } from "@/lib/doc/legacyBridge";
+import { toBlueprint } from "@/lib/doc/legacyBridge";
 import { applyMutations } from "@/lib/doc/mutations";
 import type { Mutation } from "@/lib/doc/types";
 import type {
@@ -47,7 +50,6 @@ import { completeApp } from "../db/apps";
 import { SA_MODEL, SA_REASONING } from "../models";
 import { buildSolutionsArchitectPrompt } from "../prompts/solutionsArchitectPrompt";
 import {
-	type AppBlueprint,
 	type BlueprintForm,
 	type ConnectConfig,
 	caseTypesOutputSchema,
@@ -90,7 +92,7 @@ import { validateAndFix } from "./validationLoop";
 
 export { validateAndFix } from "./validationLoop";
 
-// ── Wire-format translation helpers ───────────────────────────────────
+// ── Doc helpers ───────────────────────────────────────────────────────
 
 /**
  * Apply a mutation batch to a `BlueprintDoc` via Immer `produce`.
@@ -103,20 +105,6 @@ function applyToDoc(doc: BlueprintDoc, muts: Mutation[]): BlueprintDoc {
 	return produce(doc, (draft) => {
 		applyMutations(draft as unknown as BlueprintDoc, muts);
 	});
-}
-
-/**
- * Re-emit the `bp` reference in the legacy `AppBlueprint` wire shape.
- * The route hands us a mutable `bp` object — `GenerationContext`
- * captures it by reference for intermediate saves. We mutate it in
- * place so that reference stays live as we edit.
- */
-function syncBpFromDoc(bp: AppBlueprint, doc: BlueprintDoc): void {
-	const fresh = toBlueprint(doc);
-	bp.app_name = fresh.app_name;
-	bp.connect_type = fresh.connect_type;
-	bp.case_types = fresh.case_types;
-	bp.modules = fresh.modules;
 }
 
 /**
@@ -304,6 +292,10 @@ const askQuestionsSchema = z.object({
 /**
  * Create the Solutions Architect agent.
  *
+ * @param initialDoc - The SA's starting `BlueprintDoc`. On initial builds
+ *   this is the empty doc created by `createApp`; during edits it's the
+ *   app's current state loaded from Firestore. The SA owns this doc for
+ *   the lifetime of the agent — every tool call mutates it in place.
  * @param editing - True when the app already exists (appReady). The SA gets
  *   the editing preamble + blueprint summary in its prompt and only has access
  *   to read + mutation + validation tools. False during initial builds, where
@@ -311,31 +303,27 @@ const askQuestionsSchema = z.object({
  */
 export function createSolutionsArchitect(
 	ctx: GenerationContext,
-	bp: AppBlueprint,
+	initialDoc: BlueprintDoc,
 	editing = false,
 ) {
-	/*
-	 * Internal doc state — the SA reads + mutates this on every tool
-	 * call. We ingest the legacy nested shape once here and re-emit it
-	 * via `syncBpFromDoc` after each mutation so the route's `bp`
-	 * reference stays in sync for intermediate saves + validateApp.
-	 *
-	 * We don't use the agent's appId for the doc shape field because the
-	 * doc only serves as the SA's working memory; Firestore writes go
-	 * through `completeApp` which stamps the appId separately.
-	 */
-	let doc: BlueprintDoc = legacyAppBlueprintToDoc(ctx.appId ?? "", bp);
-	rebuildFieldParent(doc);
+	// Internal doc state — the SA reads + mutates this on every tool call.
+	// It's the single source of truth; wire-format snapshots are generated
+	// on demand for LLM-facing outputs and for the CommCare validator.
+	let doc: BlueprintDoc = initialDoc;
+
+	// Register with the context so intermediate `updated_at` saves pull the
+	// latest snapshot. The context captures a getter so every `emit` call
+	// reads through to the most recent `doc` reassignment.
+	ctx.registerDocProvider(() => doc);
 
 	/**
-	 * Apply a mutation batch to the doc and mirror the result into the
-	 * wire-format `bp` reference. Every tool handler that touches the
-	 * doc goes through this so the two views never diverge.
+	 * Apply a mutation batch to the SA's doc. Every tool handler that
+	 * mutates state routes through this so the timing of doc
+	 * reassignment stays in one place.
 	 */
 	const dispatch = (muts: Mutation[]): void => {
 		if (muts.length === 0) return;
 		doc = applyToDoc(doc, muts);
-		syncBpFromDoc(bp, doc);
 	};
 
 	// ── Generation tools (build mode only) ────────────────────────────
@@ -731,7 +719,7 @@ export function createSolutionsArchitect(
 					// forms, emit the full blueprint; for intra-form edits, just
 					// the single form.
 					if (newId && newId !== questionId) {
-						ctx.emit("data-blueprint-updated", { blueprint: bp });
+						ctx.emit("data-blueprint-updated", { doc });
 					} else {
 						const moduleUuid = doc.moduleOrder[moduleIndex];
 						const formUuid = moduleUuid
@@ -960,7 +948,7 @@ export function createSolutionsArchitect(
 							case_detail_columns === null ? null : case_detail_columns;
 					}
 					dispatch(updateModuleMutations(doc, moduleUuid, patch));
-					ctx.emit("data-blueprint-updated", { blueprint: bp });
+					ctx.emit("data-blueprint-updated", { doc });
 					const mod = doc.modules[moduleUuid];
 					if (!mod)
 						return { error: `Module ${moduleIndex} not found after update` };
@@ -1161,7 +1149,7 @@ export function createSolutionsArchitect(
 							}),
 						}),
 					);
-					ctx.emit("data-blueprint-updated", { blueprint: bp });
+					ctx.emit("data-blueprint-updated", { doc });
 					const mod = doc.modules[moduleUuid];
 					const forms = doc.formOrder[moduleUuid] ?? [];
 					const newFormIndex = forms.length - 1;
@@ -1187,7 +1175,7 @@ export function createSolutionsArchitect(
 					if (formUuid) {
 						dispatch(removeFormMutations(doc, formUuid));
 					}
-					ctx.emit("data-blueprint-updated", { blueprint: bp });
+					ctx.emit("data-blueprint-updated", { doc });
 					const moduleUuid = doc.moduleOrder[moduleIndex];
 					const mod = moduleUuid ? doc.modules[moduleUuid] : undefined;
 					const remainingForms =
@@ -1242,7 +1230,7 @@ export function createSolutionsArchitect(
 							}),
 						}),
 					);
-					ctx.emit("data-blueprint-updated", { blueprint: bp });
+					ctx.emit("data-blueprint-updated", { doc });
 					const newModIndex = doc.moduleOrder.length - 1;
 					return `Successfully created module "${name}" at index ${newModIndex}${case_type ? ` (case type: ${case_type})` : ""}. App now has ${doc.moduleOrder.length} module${doc.moduleOrder.length === 1 ? "" : "s"}.`;
 				} catch (err) {
@@ -1263,7 +1251,7 @@ export function createSolutionsArchitect(
 						? (doc.modules[moduleUuid]?.name ?? null)
 						: null;
 					if (moduleUuid) dispatch(removeModuleMutations(doc, moduleUuid));
-					ctx.emit("data-blueprint-updated", { blueprint: bp });
+					ctx.emit("data-blueprint-updated", { doc });
 					return `Successfully removed module "${name ?? `module ${moduleIndex}`}". App now has ${doc.moduleOrder.length} module${doc.moduleOrder.length === 1 ? "" : "s"}.`;
 				} catch (err) {
 					return { error: err instanceof Error ? err.message : String(err) };
@@ -1281,18 +1269,17 @@ export function createSolutionsArchitect(
 				ctx.emit("data-phase", { phase: "validate" });
 			},
 			execute: async () => {
-				// Validation still runs on the wire-format blueprint. `bp` is
-				// kept in sync with `doc` on every mutation, so this is fresh.
-				const result = await validateAndFix(ctx, bp);
+				// `validateAndFix` owns the XForm-compiler boundary: it takes
+				// our doc, runs CommCare-flavored validation + auto-fixes on a
+				// blueprint snapshot, and hands back a doc with any fix-registry
+				// mutations folded in. We replace our working doc with that
+				// result so subsequent tool calls see the patched state.
+				const result = await validateAndFix(ctx, doc);
 				if (result.success) {
-					// If validate-and-fix tweaked the blueprint (fix loop), ingest
-					// those changes back into the doc so subsequent tool calls see
-					// the patched state.
-					doc = legacyAppBlueprintToDoc(ctx.appId ?? "", result.blueprint);
-					syncBpFromDoc(bp, doc);
+					doc = result.doc;
 
 					ctx.emit("data-done", {
-						blueprint: result.blueprint,
+						doc,
 						hqJson: result.hqJson ?? {},
 						success: true,
 					});
@@ -1310,6 +1297,10 @@ export function createSolutionsArchitect(
 
 					return { success: true as const };
 				}
+				// Keep the SA's doc aligned with the fix loop's output even on
+				// failure — later tool calls should see any partial fixes the
+				// registry managed to apply before giving up.
+				doc = result.doc;
 				// Surface remaining errors as strings so the SA can read and fix them.
 				return {
 					success: false as const,
@@ -1327,7 +1318,13 @@ export function createSolutionsArchitect(
 
 	const agent = new ToolLoopAgent({
 		model: ctx.model(SA_MODEL),
-		instructions: buildSolutionsArchitectPrompt(editing ? bp : undefined),
+		// The prompt summary is itself an external (LLM-facing) artifact —
+		// the SA speaks CommCare vocabulary with the model. Render from a
+		// fresh wire snapshot so the preamble reflects the doc we were just
+		// handed.
+		instructions: buildSolutionsArchitectPrompt(
+			editing ? toBlueprint(doc) : undefined,
+		),
 		stopWhen: stepCountIs(80),
 		prepareStep: ({ steps: _steps }) => {
 			const anthropic: Record<string, JSONValue | undefined> = {

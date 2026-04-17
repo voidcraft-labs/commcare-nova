@@ -6,7 +6,20 @@
  * 2. Post-expansion validation — parse generated XForm XML and verify internal references
  *
  * Auto-fixes from the fix registry are applied between validation attempts.
+ *
+ * ## Wire format is a boundary detail
+ *
+ * The SA and the rest of the app operate on `BlueprintDoc` (the normalized
+ * domain shape). The CommCare validator, expander, fix registry, and XForm
+ * compiler all still consume the nested `AppBlueprint` wire format — that's
+ * the legitimate external CommCare boundary. This function is the single
+ * place that round-trips through the wire shape: doc → blueprint for
+ * validation/expansion, then blueprint → doc at egress to fold any
+ * fix-registry mutations back into the SA's working state. Callers stay on
+ * the domain side of the wall.
  */
+import { legacyAppBlueprintToDoc, toBlueprint } from "@/lib/doc/legacyBridge";
+import type { BlueprintDoc } from "@/lib/domain";
 import type { AppBlueprint } from "../schemas/blueprint";
 import type { HqApplication } from "./commcare";
 import {
@@ -52,15 +65,48 @@ function validateExpansion(
 
 // ── Validate + fix loop ──────────────────────────────────────────────
 
-export async function validateAndFix(
-	ctx: GenerationContext,
-	blueprint: AppBlueprint,
-): Promise<{
+/**
+ * Result of a validate-and-fix pass.
+ *
+ * `doc` is the SA's working doc after any fix-registry mutations have been
+ * folded back in — always present regardless of success. `hqJson` is the
+ * expanded CommCare application (XForm XML included); present whenever
+ * expansion reached the point of producing output, even on post-expansion
+ * validation failure. `errors` carries the remaining issues the fix loop
+ * couldn't resolve.
+ */
+export interface ValidateAndFixResult {
 	success: boolean;
-	blueprint: AppBlueprint;
+	doc: BlueprintDoc;
 	hqJson?: HqApplication;
 	errors?: ValidationError[];
-}> {
+}
+
+/**
+ * Run CommCare validation + auto-fix loop against the SA's current doc.
+ *
+ * Accepts and returns `BlueprintDoc` so the SA (and any future caller)
+ * never touches the wire format. Internally translates to `AppBlueprint`
+ * once at ingress (the validator, expander, fix registry, and XForm
+ * compiler all still consume the nested wire shape), then translates the
+ * mutated blueprint back via `legacyAppBlueprintToDoc` at egress so the
+ * caller can replace its working doc without losing fix-loop edits.
+ */
+export async function validateAndFix(
+	ctx: GenerationContext,
+	doc: BlueprintDoc,
+): Promise<ValidateAndFixResult> {
+	// Cross the wire boundary once. Every downstream helper
+	// (`runValidation`, `expandBlueprint`, `FIX_REGISTRY`, `deriveConnectDefaults`)
+	// is CommCare-flavored and operates on the nested `AppBlueprint` shape.
+	const blueprint: AppBlueprint = toBlueprint(doc);
+	const appId = doc.appId;
+
+	// Fold the fix-registry's in-place blueprint mutations back into the
+	// domain shape so the caller's working doc stays up to date.
+	const toResultDoc = (): BlueprintDoc =>
+		legacyAppBlueprintToDoc(appId, blueprint);
+
 	// Auto-populate Connect config defaults before validation
 	if (blueprint.connect_type) {
 		for (const mod of blueprint.modules) {
@@ -85,9 +131,14 @@ export async function validateAndFix(
 			const hqJson = expandBlueprint(blueprint);
 			const postErrors = validateExpansion(hqJson, blueprint);
 			if (postErrors.length > 0) {
-				return { success: false, blueprint, hqJson, errors: postErrors };
+				return {
+					success: false,
+					doc: toResultDoc(),
+					hqJson,
+					errors: postErrors,
+				};
 			}
-			return { success: true, blueprint, hqJson };
+			return { success: true, doc: toResultDoc(), hqJson };
 		}
 
 		// Stuck detection
@@ -106,9 +157,9 @@ export async function validateAndFix(
 		) {
 			try {
 				const hqJson = expandBlueprint(blueprint);
-				return { success: false, blueprint, hqJson, errors };
+				return { success: false, doc: toResultDoc(), hqJson, errors };
 			} catch {
-				return { success: false, blueprint, errors };
+				return { success: false, doc: toResultDoc(), errors };
 			}
 		}
 
