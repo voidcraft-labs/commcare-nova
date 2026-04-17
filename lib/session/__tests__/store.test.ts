@@ -15,9 +15,8 @@
 
 import type { UIMessage } from "ai";
 import { describe, expect, it } from "vitest";
-import { toDoc } from "@/lib/doc/converter";
+import { buildDoc } from "@/lib/__tests__/docHelpers";
 import { createBlueprintDocStore } from "@/lib/doc/store";
-import type { AppBlueprint } from "@/lib/schemas/blueprint";
 import { createBuilderSessionStore } from "../store";
 import {
 	GenerationStage,
@@ -198,44 +197,29 @@ describe("BuilderSession new-question marker", () => {
 // ── Connect stash ────────────────────────────────────────────────────────
 
 /**
- * Fixture blueprint for connect stash tests. One module with two forms —
- * enough to verify per-form stash keyed by uuid.
- */
-const CONNECT_FIXTURE: AppBlueprint = {
-	app_name: "ConnectTest",
-	connect_type: undefined,
-	case_types: null,
-	modules: [
-		{
-			uuid: "module-1-uuid",
-			name: "Mod",
-			forms: [
-				{
-					uuid: "form-1-uuid",
-					name: "Form A",
-					type: "registration",
-					questions: [],
-				},
-				{
-					uuid: "form-2-uuid",
-					name: "Form B",
-					type: "followup",
-					questions: [],
-				},
-			],
-		},
-	],
-};
-
-/**
  * Helper: create a session store wired to a real doc store loaded with
- * the fixture blueprint. Returns both stores and the form uuids.
+ * a two-form fixture. Returns both stores and the form uuids.
+ *
+ * One module with two forms — enough to verify per-form stash keyed by uuid.
  */
 function createConnectTestStores() {
 	const docStore = createBlueprintDocStore();
-	/* Convert the legacy nested AppBlueprint fixture to a normalized
-	 * PersistableDoc — load() no longer accepts the nested format. */
-	docStore.getState().load(toDoc(CONNECT_FIXTURE, "test-app"));
+	docStore.getState().load(
+		buildDoc({
+			appId: "test-app",
+			appName: "ConnectTest",
+			modules: [
+				{
+					uuid: "module-1-uuid",
+					name: "Mod",
+					forms: [
+						{ uuid: "form-1-uuid", name: "Form A", type: "registration" },
+						{ uuid: "form-2-uuid", name: "Form B", type: "followup" },
+					],
+				},
+			],
+		}),
+	);
 	docStore.temporal.getState().resume();
 
 	const sessionStore = createBuilderSessionStore();
@@ -404,22 +388,15 @@ function createTestDocStore() {
 function createGenerationTestStores(withData = false) {
 	const docStore = createTestDocStore();
 	if (withData) {
-		/* Convert the legacy nested AppBlueprint fixture to a normalized
-		 * PersistableDoc before loading — load() no longer accepts the nested
-		 * format or a second appId argument. */
-		const bp: AppBlueprint = {
-			app_name: "Test",
-			connect_type: undefined,
-			case_types: null,
-			modules: [
-				{
-					uuid: "mod-uuid",
-					name: "Mod",
-					forms: [],
-				},
-			],
-		};
-		docStore.getState().load(toDoc(bp, "test-app"));
+		/* Load a minimal doc (one module, no forms) so the doc has data
+		 * for postBuildEdit detection. */
+		docStore.getState().load(
+			buildDoc({
+				appId: "test-app",
+				appName: "Test",
+				modules: [{ uuid: "mod-uuid", name: "Mod" }],
+			}),
+		);
 		docStore.temporal.getState().resume();
 	}
 
