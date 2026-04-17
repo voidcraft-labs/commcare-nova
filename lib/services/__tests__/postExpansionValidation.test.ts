@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { buildDoc, f } from "../../__tests__/docHelpers";
-import { q } from "../../__tests__/testHelpers";
+import { q } from "../../schemas/__tests__/wireFixtures";
 import type { AppBlueprint } from "../../schemas/blueprint";
 import { runValidation } from "../commcare/validate/runner";
 import { validateXFormXml } from "../commcare/validate/xformValidator";

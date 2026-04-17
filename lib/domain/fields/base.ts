@@ -1,22 +1,40 @@
 // lib/domain/fields/base.ts
 //
-// Shared base types for all field kinds. Input kinds extend
-// InputFieldBase; structural kinds (group/repeat/label/hidden) extend
-// FieldBase directly and opt in to whichever optional fields apply.
+// Shared base types for all field kinds. Three layers of shared identity:
+//
+//   StructuralFieldBase  { uuid, id }
+//   FieldBase            StructuralFieldBase + { label }
+//   InputFieldBase       FieldBase + { hint?, required?, relevant?, case_property? }
+//
+// - StructuralFieldBase is the minimum any field carries (identity +
+//   CommCare property id). `hidden` extends this — CommCare hidden fields
+//   have no label (nothing to display).
+// - FieldBase adds `label`, shared by every visible field kind.
+// - InputFieldBase adds the input-specific wiring used by text/int/select/etc.
 
 import { z } from "zod";
 import { type Uuid, uuidSchema } from "../uuid";
 
-/** Every field has identity, a CommCare property id, and a display label. */
-export type FieldBase = {
+/**
+ * Minimum shape every field carries: stable uuid + semantic id. Hidden
+ * fields extend this directly (they have no label and no input wiring).
+ */
+export type StructuralFieldBase = {
 	uuid: Uuid;
 	id: string;
+};
+
+export const structuralFieldBase = z.object({
+	uuid: uuidSchema,
+	id: z.string(),
+});
+
+/** Every visible field has identity, a CommCare property id, and a display label. */
+export type FieldBase = StructuralFieldBase & {
 	label: string;
 };
 
-export const fieldBaseSchema = z.object({
-	uuid: uuidSchema,
-	id: z.string(),
+export const fieldBaseSchema = structuralFieldBase.extend({
 	label: z.string(),
 });
 

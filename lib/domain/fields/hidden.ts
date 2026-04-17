@@ -6,19 +6,19 @@
 // always be empty and is meaningless. Maps to CommCare <input> with
 // xsd:string; the value is set entirely by the XPath calculate expression.
 //
-// Does NOT extend fieldBaseSchema — hidden fields have no `label` (nothing
-// to display) and no `hint` or `required` in the conventional sense (though
-// `required` is accepted for edge-case constraint enforcement).
+// Extends `structuralFieldBase` (uuid + id), NOT `fieldBaseSchema` —
+// hidden fields have no `label` (nothing to display) and no `hint`.
+// `required` is kept for edge-case constraint enforcement. Sharing a
+// common base with the other kinds means any code that assumes "every
+// field has uuid + id" stays correct for hidden fields.
 
 import { z } from "zod";
 import { StubField } from "@/components/builder/editor/StubField";
 import type { FieldEditorSchema, FieldKindMetadata } from "../kinds";
-import { uuidSchema } from "../uuid";
+import { structuralFieldBase } from "./base";
 
-export const hiddenFieldSchema = z.object({
+export const hiddenFieldSchema = structuralFieldBase.extend({
 	kind: z.literal("hidden"),
-	uuid: uuidSchema,
-	id: z.string(),
 	// calculate is required — a hidden field must have a compute expression;
 	// without one it would always be blank and serve no purpose.
 	calculate: z.string(),

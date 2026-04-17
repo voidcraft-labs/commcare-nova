@@ -81,6 +81,22 @@ describe("fieldSchema", () => {
 			}),
 		).toThrow();
 	});
+
+	it("strips label off a hidden field (hidden fields have no label)", () => {
+		// Hidden fields extend `structuralFieldBase`, NOT `fieldBaseSchema` —
+		// CommCare hidden fields display nothing and carry no label. Zod's
+		// default `strip` mode drops `label` if it sneaks in, so any wire-
+		// format input that carries one gets cleaned at the parse boundary.
+		const f = fieldSchema.parse({
+			kind: "hidden",
+			uuid: asUuid("abc"),
+			id: "h",
+			label: "should be stripped",
+			calculate: "today()",
+		});
+		expect(f.kind).toBe("hidden");
+		expect(f).not.toHaveProperty("label");
+	});
 });
 
 describe("fieldRegistry", () => {

@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { ConnectType as DomainConnectType } from "@/lib/domain";
 import { buildDoc, type FormSpec, f } from "../../__tests__/docHelpers";
-import { q } from "../../__tests__/testHelpers";
+import { q } from "../../schemas/__tests__/wireFixtures";
 import type {
 	AppBlueprint,
 	BlueprintForm,
