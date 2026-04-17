@@ -5,13 +5,9 @@
  * and case_references_data.load map from blueprint form definitions.
  * Extracted from hqJsonExpander.ts to isolate case/action logic.
  */
-import type {
-	BlueprintForm,
-	CaseType,
-	ConnectConfig,
-	Question,
-} from "../schemas/blueprint";
-import { deriveCaseConfig } from "../schemas/blueprint";
+
+import type { CaseType, ConnectConfig } from "@/lib/domain";
+import type { BlueprintForm, Question } from "../schemas/blueprint";
 import type { FormActions, OpenSubCaseAction } from "./commcare";
 import {
 	alwaysCondition,
@@ -22,6 +18,7 @@ import {
 	neverCondition,
 	RESERVED_CASE_PROPERTIES,
 } from "./commcare";
+import { deriveCaseConfig } from "./deriveCaseConfig";
 
 /**
  * Resolve a question ID to its full /data/... path (including parent groups/repeats).

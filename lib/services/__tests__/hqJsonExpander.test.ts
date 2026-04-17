@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { q } from "@/lib/__tests__/testHelpers";
-import type { AppBlueprint, Question } from "../../schemas/blueprint";
+import { buildDoc, f } from "@/lib/__tests__/docHelpers";
+import { q } from "@/lib/schemas/__tests__/wireFixtures";
+import type { AppBlueprint } from "../../schemas/blueprint";
 import { runValidation } from "../commcare/validate/runner";
 import { expandBlueprint } from "../hqJsonExpander";
 
@@ -105,6 +106,59 @@ const registrationBlueprint: AppBlueprint = {
 		},
 	],
 };
+
+// Domain-shaped twin of `registrationBlueprint` for runValidation tests.
+// The expander still consumes the wire fixture; validation tests use this
+// one so the validator never has to cross the wire boundary.
+const registrationDoc = buildDoc({
+	appName: "Reg App",
+	modules: [
+		{
+			name: "Registration",
+			caseType: "patient",
+			caseListColumns: [
+				{ field: "case_name", header: "Name" },
+				{ field: "age", header: "Age" },
+			],
+			forms: [
+				{
+					name: "Register Patient",
+					type: "registration",
+					fields: [
+						f({
+							kind: "text",
+							id: "case_name",
+							label: "Full Name",
+							required: "true()",
+							case_property: "patient",
+						}),
+						f({
+							kind: "int",
+							id: "age",
+							label: "Age",
+							validate: ". > 0 and . < 150",
+							case_property: "patient",
+						}),
+						f({
+							kind: "hidden",
+							id: "risk",
+							calculate: "if(/data/age > 65, 'high', 'low')",
+						}),
+					],
+				},
+			],
+		},
+	],
+	caseTypes: [
+		{
+			name: "patient",
+			properties: [
+				{ name: "case_name", label: "Full Name" },
+				{ name: "age", label: "Age" },
+			],
+		},
+	],
+});
 
 describe("expandBlueprint", () => {
 	it("populates case_references_data.load with #case/ hashtag references", () => {
@@ -345,6 +399,8 @@ describe("expandBlueprint", () => {
 });
 
 describe("case_name in case list columns", () => {
+	// Expander side: wire-format fixture (expandBlueprint is the legitimate
+	// XForm wire-boundary; it stays on AppBlueprint).
 	const bp: AppBlueprint = {
 		app_name: "CL",
 		modules: [
@@ -378,6 +434,38 @@ describe("case_name in case list columns", () => {
 		],
 	};
 
+	// Validator side: equivalent domain doc fixture.
+	const doc = buildDoc({
+		appName: "CL",
+		modules: [
+			{
+				name: "M",
+				caseType: "patient",
+				caseListColumns: [
+					{ field: "case_name", header: "Full Name" },
+					{ field: "age", header: "Age" },
+				],
+				forms: [
+					{
+						name: "F",
+						type: "registration",
+						fields: [
+							f({
+								kind: "text",
+								id: "case_name",
+								label: "Name",
+								case_property: "patient",
+							}),
+						],
+					},
+				],
+			},
+		],
+		caseTypes: [
+			{ name: "patient", properties: [{ name: "case_name", label: "Name" }] },
+		],
+	});
+
 	it("expander keeps case_name column in case details", () => {
 		const hq = expandBlueprint(bp);
 		const cols = hq.modules[0].case_details.short.columns;
@@ -386,98 +474,93 @@ describe("case_name in case list columns", () => {
 
 	it("validator allows case_name in case_list_columns", () => {
 		expect(
-			runValidation(bp).some((e) => e.code === "RESERVED_CASE_PROPERTY"),
+			runValidation(doc).some((e) => e.code === "RESERVED_CASE_PROPERTY"),
 		).toBe(false);
 	});
 });
 
 describe("runValidation", () => {
 	it("passes for a valid blueprint", () => {
-		expect(runValidation(registrationBlueprint)).toEqual([]);
+		expect(runValidation(registrationDoc)).toEqual([]);
 	});
 
 	it("catches missing case_type on case forms", () => {
-		const bp: AppBlueprint = {
-			app_name: "Bad",
+		const doc = buildDoc({
+			appName: "Bad",
 			modules: [
 				{
-					uuid: "module-8-uuid",
 					name: "M",
 					forms: [
 						{
-							uuid: "form-9-uuid",
 							name: "F",
 							type: "registration",
-							questions: [
-								q({
+							fields: [
+								f({
+									kind: "text",
 									id: "case_name",
-									type: "text",
 									label: "Q",
-									case_property_on: "patient",
+									case_property: "patient",
 								}),
 							],
 						},
 					],
 				},
 			],
-			case_types: null,
-		};
-		const errors = runValidation(bp);
+		});
+		const errors = runValidation(doc);
 		expect(errors.some((e) => e.code === "NO_CASE_TYPE")).toBe(true);
 	});
 
 	it("catches reserved case property names", () => {
-		const bp: AppBlueprint = {
-			app_name: "Bad",
+		const doc = buildDoc({
+			appName: "Bad",
 			modules: [
 				{
-					uuid: "module-9-uuid",
 					name: "M",
-					case_type: "c",
+					caseType: "c",
+					caseListColumns: [{ field: "case_name", header: "Name" }],
 					forms: [
 						{
-							uuid: "form-10-uuid",
 							name: "F",
 							type: "registration",
-							questions: [
-								q({
+							fields: [
+								f({
+									kind: "text",
 									id: "name",
-									type: "text",
 									label: "Q",
-									case_property_on: "c",
+									case_property: "c",
 								}),
 							],
 						},
 					],
 				},
 			],
-			case_types: [{ name: "c", properties: [{ name: "name", label: "Q" }] }],
-		};
-		const errors = runValidation(bp);
+			caseTypes: [{ name: "c", properties: [{ name: "name", label: "Q" }] }],
+		});
+		const errors = runValidation(doc);
 		expect(errors.some((e) => e.code === "RESERVED_CASE_PROPERTY")).toBe(true);
 	});
 
 	it("catches registration form without case_name question", () => {
-		const bp: AppBlueprint = {
-			app_name: "Bad",
+		const doc = buildDoc({
+			appName: "Bad",
 			modules: [
 				{
-					uuid: "module-10-uuid",
 					name: "M",
-					case_type: "c",
+					caseType: "c",
+					caseListColumns: [{ field: "case_name", header: "Name" }],
 					forms: [
 						{
-							uuid: "form-11-uuid",
 							name: "F",
 							type: "registration",
-							questions: [q({ id: "q", type: "text", label: "Q" })],
+							fields: [f({ kind: "text", id: "q", label: "Q" })],
 						},
 					],
 				},
 			],
-			case_types: [{ name: "c", properties: [{ name: "q", label: "Q" }] }],
-		};
-		const errors = runValidation(bp);
+			caseTypes: [{ name: "c", properties: [{ name: "q", label: "Q" }] }],
+		});
+		const errors = runValidation(doc);
 		expect(errors.some((e) => e.code === "NO_CASE_NAME_FIELD")).toBe(true);
 	});
 });
@@ -1948,30 +2031,42 @@ describe("expansion with complete questions", () => {
 // ── Unquoted String Literal Detection ────────────────────────────────────
 
 describe("unquoted string literal detection", () => {
-	const makeBp = (questionOverrides: Partial<Question>): AppBlueprint => ({
-		app_name: "Test",
-		modules: [
-			{
-				uuid: "module-48-uuid",
-				name: "M",
-				forms: [
-					{
-						uuid: "form-49-uuid",
-						name: "F",
-						type: "survey",
-						questions: [
-							q({ id: "q", type: "text", label: "Q", ...questionOverrides }),
-						],
-					},
-				],
-			},
-		],
-		case_types: null,
-	});
+	/**
+	 * Build a one-question survey doc with the caller's field overrides
+	 * merged onto a simple text field. Matches the shape the legacy
+	 * AppBlueprint helper produced — just domain-native.
+	 *
+	 * `error.details.field` in the validator carries the domain key name
+	 * (`validate` instead of wire-format `validation`), so callers using
+	 * the old key name should spell the new one.
+	 */
+	const makeDoc = (overrides: Record<string, unknown>) =>
+		buildDoc({
+			appName: "Test",
+			modules: [
+				{
+					name: "M",
+					forms: [
+						{
+							name: "F",
+							type: "survey",
+							fields: [
+								{
+									kind: "text",
+									id: "q",
+									label: "Q",
+									...overrides,
+								} as unknown as Parameters<typeof f>[0],
+							],
+						},
+					],
+				},
+			],
+		});
 
 	it("catches bare string in default_value", () => {
 		const errors = runValidation(
-			makeBp({ type: "hidden", default_value: "no" }),
+			makeDoc({ kind: "hidden", default_value: "no" }),
 		);
 		expect(
 			errors.some(
@@ -1984,7 +2079,7 @@ describe("unquoted string literal detection", () => {
 
 	it("catches bare string in calculate", () => {
 		const errors = runValidation(
-			makeBp({ type: "hidden", calculate: "pending" }),
+			makeDoc({ kind: "hidden", calculate: "pending" }),
 		);
 		expect(
 			errors.some(
@@ -1996,7 +2091,7 @@ describe("unquoted string literal detection", () => {
 	});
 
 	it("catches bare string in relevant", () => {
-		const errors = runValidation(makeBp({ relevant: "yes" }));
+		const errors = runValidation(makeDoc({ relevant: "yes" }));
 		expect(
 			errors.some(
 				(e) =>
@@ -2008,7 +2103,7 @@ describe("unquoted string literal detection", () => {
 
 	it("allows quoted string literal", () => {
 		const errors = runValidation(
-			makeBp({ type: "hidden", default_value: "'no'" }),
+			makeDoc({ kind: "hidden", default_value: "'no'" }),
 		);
 		expect(errors.some((e) => e.code === "UNQUOTED_STRING_LITERAL")).toBe(
 			false,
@@ -2016,14 +2111,14 @@ describe("unquoted string literal detection", () => {
 	});
 
 	it("allows function calls", () => {
-		const errors = runValidation(makeBp({ required: "true()" }));
+		const errors = runValidation(makeDoc({ required: "true()" }));
 		expect(errors.some((e) => e.code === "UNQUOTED_STRING_LITERAL")).toBe(
 			false,
 		);
 	});
 
 	it("allows XPath expressions", () => {
-		const errors = runValidation(makeBp({ relevant: "/data/age > 18" }));
+		const errors = runValidation(makeDoc({ relevant: "/data/age > 18" }));
 		expect(errors.some((e) => e.code === "UNQUOTED_STRING_LITERAL")).toBe(
 			false,
 		);
@@ -2031,7 +2126,7 @@ describe("unquoted string literal detection", () => {
 
 	it("allows hashtag references", () => {
 		const errors = runValidation(
-			makeBp({ type: "hidden", calculate: "#case/status" }),
+			makeDoc({ kind: "hidden", calculate: "#case/status" }),
 		);
 		expect(errors.some((e) => e.code === "UNQUOTED_STRING_LITERAL")).toBe(
 			false,
@@ -2040,7 +2135,7 @@ describe("unquoted string literal detection", () => {
 
 	it("allows number literals", () => {
 		const errors = runValidation(
-			makeBp({ type: "hidden", default_value: "0" }),
+			makeDoc({ kind: "hidden", default_value: "0" }),
 		);
 		expect(errors.some((e) => e.code === "UNQUOTED_STRING_LITERAL")).toBe(
 			false,
@@ -2049,7 +2144,7 @@ describe("unquoted string literal detection", () => {
 
 	it("allows today() function", () => {
 		const errors = runValidation(
-			makeBp({ type: "hidden", default_value: "today()" }),
+			makeDoc({ kind: "hidden", default_value: "today()" }),
 		);
 		expect(errors.some((e) => e.code === "UNQUOTED_STRING_LITERAL")).toBe(
 			false,
@@ -2057,33 +2152,31 @@ describe("unquoted string literal detection", () => {
 	});
 
 	it("allows dot expressions", () => {
-		const errors = runValidation(makeBp({ validation: ". > 0" }));
+		const errors = runValidation(makeDoc({ validate: ". > 0" }));
 		expect(errors.some((e) => e.code === "UNQUOTED_STRING_LITERAL")).toBe(
 			false,
 		);
 	});
 
 	it("catches bare string inside group children", () => {
-		const bp: AppBlueprint = {
-			app_name: "Test",
+		const doc = buildDoc({
+			appName: "Test",
 			modules: [
 				{
-					uuid: "module-49-uuid",
 					name: "M",
 					forms: [
 						{
-							uuid: "form-50-uuid",
 							name: "F",
 							type: "survey",
-							questions: [
-								q({
+							fields: [
+								f({
+									kind: "group",
 									id: "grp",
-									type: "group",
 									label: "Group",
 									children: [
-										q({
+										f({
+											kind: "hidden",
 											id: "status",
-											type: "hidden",
 											default_value: "active",
 										}),
 									],
@@ -2093,9 +2186,8 @@ describe("unquoted string literal detection", () => {
 					],
 				},
 			],
-			case_types: null,
-		};
-		const errors = runValidation(bp);
+		});
+		const errors = runValidation(doc);
 		expect(
 			errors.some(
 				(e) =>
@@ -2110,31 +2202,30 @@ describe("unquoted string literal detection", () => {
 
 describe("child case type module requirement", () => {
 	it("errors when child case type has no module", () => {
-		const bp: AppBlueprint = {
-			app_name: "Test",
+		const doc = buildDoc({
+			appName: "Test",
 			modules: [
 				{
-					uuid: "module-50-uuid",
 					name: "Plans",
-					case_type: "plan",
+					caseType: "plan",
+					caseListColumns: [{ field: "case_name", header: "Name" }],
 					forms: [
 						{
-							uuid: "form-51-uuid",
 							name: "Create Plan",
 							type: "registration",
-							questions: [
-								q({
+							fields: [
+								f({
+									kind: "text",
 									id: "case_name",
-									type: "text",
 									label: "Plan Name",
-									case_property_on: "plan",
+									case_property: "plan",
 								}),
 							],
 						},
 					],
 				},
 			],
-			case_types: [
+			caseTypes: [
 				{
 					name: "plan",
 					properties: [{ name: "case_name", label: "Plan Name" }],
@@ -2145,47 +2236,45 @@ describe("child case type module requirement", () => {
 					properties: [{ name: "case_name", label: "Service Name" }],
 				},
 			],
-		};
-		const errors = runValidation(bp);
+		});
+		const errors = runValidation(doc);
 		expect(errors.some((e) => e.code === "MISSING_CHILD_CASE_MODULE")).toBe(
 			true,
 		);
 	});
 
 	it("no error when child case type has a case_list_only module", () => {
-		const bp: AppBlueprint = {
-			app_name: "Test",
+		const doc = buildDoc({
+			appName: "Test",
 			modules: [
 				{
-					uuid: "module-51-uuid",
 					name: "Plans",
-					case_type: "plan",
+					caseType: "plan",
+					caseListColumns: [{ field: "case_name", header: "Name" }],
 					forms: [
 						{
-							uuid: "form-52-uuid",
 							name: "Create Plan",
 							type: "registration",
-							questions: [
-								q({
+							fields: [
+								f({
+									kind: "text",
 									id: "case_name",
-									type: "text",
 									label: "Plan Name",
-									case_property_on: "plan",
+									case_property: "plan",
 								}),
 							],
 						},
 					],
 				},
 				{
-					uuid: "module-52-uuid",
 					name: "Services",
-					case_type: "service",
-					case_list_only: true,
+					caseType: "service",
+					caseListOnly: true,
 					forms: [],
-					case_list_columns: [{ field: "case_name", header: "Name" }],
+					caseListColumns: [{ field: "case_name", header: "Name" }],
 				},
 			],
-			case_types: [
+			caseTypes: [
 				{
 					name: "plan",
 					properties: [{ name: "case_name", label: "Plan Name" }],
@@ -2196,8 +2285,8 @@ describe("child case type module requirement", () => {
 					properties: [{ name: "case_name", label: "Service Name" }],
 				},
 			],
-		};
-		const errors = runValidation(bp);
+		});
+		const errors = runValidation(doc);
 		expect(errors.some((e) => e.code === "MISSING_CHILD_CASE_MODULE")).toBe(
 			false,
 		);
@@ -2215,65 +2304,61 @@ describe("child case type module requirement", () => {
 
 describe("case_list_only validation", () => {
 	it("errors when case_list_only module has forms", () => {
-		const bp: AppBlueprint = {
-			app_name: "Test",
+		const doc = buildDoc({
+			appName: "Test",
 			modules: [
 				{
-					uuid: "module-53-uuid",
 					name: "Bad",
-					case_type: "thing",
-					case_list_only: true,
+					caseType: "thing",
+					caseListOnly: true,
+					caseListColumns: [{ field: "case_name", header: "Name" }],
 					forms: [
 						{
-							uuid: "form-53-uuid",
 							name: "F",
 							type: "followup",
-							questions: [q({ id: "q", type: "text", label: "Q" })],
+							fields: [f({ kind: "text", id: "q", label: "Q" })],
 						},
 					],
 				},
 			],
-			case_types: [{ name: "thing", properties: [] }],
-		};
-		const errors = runValidation(bp);
+			caseTypes: [{ name: "thing", properties: [] }],
+		});
+		const errors = runValidation(doc);
 		expect(errors.some((e) => e.code === "CASE_LIST_ONLY_HAS_FORMS")).toBe(
 			true,
 		);
 	});
 
 	it("errors when case_list_only module has no case_type", () => {
-		const bp: AppBlueprint = {
-			app_name: "Test",
+		const doc = buildDoc({
+			appName: "Test",
 			modules: [
 				{
-					uuid: "module-54-uuid",
 					name: "Bad",
-					case_list_only: true,
+					caseListOnly: true,
 					forms: [],
 				},
 			],
-			case_types: null,
-		};
-		const errors = runValidation(bp);
+		});
+		const errors = runValidation(doc);
 		expect(errors.some((e) => e.code === "CASE_LIST_ONLY_NO_CASE_TYPE")).toBe(
 			true,
 		);
 	});
 
 	it("errors when module has case_type and no forms but missing case_list_only flag", () => {
-		const bp: AppBlueprint = {
-			app_name: "Test",
+		const doc = buildDoc({
+			appName: "Test",
 			modules: [
 				{
-					uuid: "module-55-uuid",
 					name: "Ambiguous",
-					case_type: "thing",
+					caseType: "thing",
 					forms: [],
 				},
 			],
-			case_types: [{ name: "thing", properties: [] }],
-		};
-		const errors = runValidation(bp);
+			caseTypes: [{ name: "thing", properties: [] }],
+		});
+		const errors = runValidation(doc);
 		expect(errors.some((e) => e.code === "NO_FORMS_OR_CASE_LIST")).toBe(true);
 	});
 });

@@ -23,6 +23,11 @@
  *     state (not the blanked-out edit display) so the user can actually
  *     complete the form; `data-invalid` surfaces validation errors.
  *
+ * Non-semantic differences from the legacy recursive `FormRenderer`:
+ *   - No `useSortable` / `DragDropProvider` — nothing is reorderable here.
+ *   - No `EditableFieldWrapper` — selection is an edit-time affordance.
+ *   - No `InsertionPoint` — insertion is an edit-time affordance.
+ *
  * **Flipbook parity.** Every row renders at `paddingLeft: depthPadding(depth)`
  * with `paddingRight: depthPadding(depth)` — the same gutter formula the
  * virtualized edit view uses. `leadingGap` adds a 24px top pad at the
@@ -35,21 +40,20 @@
 import { memo } from "react";
 import { useEngineController, useEngineState } from "@/hooks/useFormEngine";
 import { useBlueprintDoc } from "@/lib/doc/hooks/useBlueprintDoc";
-import { useQuestion as useQuestionDoc } from "@/lib/doc/hooks/useEntity";
-import { asUuid, type Uuid } from "@/lib/doc/types";
+import { useField } from "@/lib/doc/hooks/useEntity";
+import { asUuid, type Uuid } from "@/lib/domain";
 import { LabelContent } from "@/lib/references/LabelContent";
-import type { NQuestion } from "@/lib/services/normalizedState";
 import { type QuestionPath, qpath } from "@/lib/services/questionPath";
+import { FieldRenderer } from "./FieldRenderer";
 import { FIELD_STYLES } from "./fieldStyles";
 import { GroupField } from "./fields/GroupField";
 import { LabelField } from "./fields/LabelField";
 import { RepeatField } from "./fields/RepeatField";
-import { QuestionField } from "./QuestionField";
 import { depthPadding } from "./virtual/rowStyles";
 
-/** Stable empty array for the questionOrder selector. Prevents new array
+/** Stable empty array for the fieldOrder selector. Prevents new array
  *  allocation on every render of an empty container. */
-const EMPTY_UUIDS: readonly string[] = [];
+const EMPTY_UUIDS: readonly Uuid[] = [];
 
 // ── Props ─────────────────────────────────────────────────────────────
 
@@ -88,7 +92,7 @@ export const InteractiveFormRenderer = memo(function InteractiveFormRenderer({
 	leadingGap = true,
 }: InteractiveFormRendererProps) {
 	const questionUuids = useBlueprintDoc(
-		(s) => s.questionOrder[parentEntityId as Uuid] ?? EMPTY_UUIDS,
+		(s) => s.fieldOrder[parentEntityId as Uuid] ?? EMPTY_UUIDS,
 	);
 
 	// `flow-root` creates a new block formatting context so the last child's
@@ -141,43 +145,49 @@ const InteractiveQuestion = memo(function InteractiveQuestion({
 	parentPath,
 	depth,
 }: InteractiveQuestionProps) {
-	const q = useQuestionDoc(uuid) as NQuestion | undefined;
+	const field = useField(uuid);
 	const state = useEngineState(uuid);
 	const controller = useEngineController();
 
 	// Visibility gating lives here so the subscription cost of reading
-	// the question + engine state is paid per-question. Siblings whose
+	// the field + engine state is paid per-field. Siblings whose
 	// visibility toggles independently don't affect this row.
-	if (!q) return null;
-	if (q.type === "hidden") return null;
+	if (!field) return null;
+	// `hidden` fields are authoring-time only — they never render in
+	// interactive mode. The edit view keeps a compact card so authors
+	// can still edit them.
+	if (field.kind === "hidden") return null;
 	if (!state.visible) return null;
 
-	const qId = q.id;
-	const path = `${prefix}/${qId}`;
-	const questionPath = qpath(qId, parentPath);
+	const fieldId = field.id;
+	const path = `${prefix}/${fieldId}`;
+	const fieldPath = qpath(fieldId, parentPath);
 
 	const showInvalid = state.touched && !state.valid;
 
+	// Discriminated union narrowing on `field.kind` so each branch sees
+	// the kind-specific entity shape. `label` is absent from the `hidden`
+	// field kind but we've already guarded against that above.
 	let content: React.ReactNode;
-	if (q.type === "group") {
+	if (field.kind === "group") {
 		content = (
 			<GroupField
-				question={q}
+				field={field}
 				path={path}
-				questionPath={questionPath}
+				fieldPath={fieldPath}
 				depth={depth}
 			/>
 		);
-	} else if (q.type === "repeat") {
+	} else if (field.kind === "repeat") {
 		content = (
 			<RepeatField
-				question={q}
+				field={field}
 				path={path}
-				questionPath={questionPath}
+				fieldPath={fieldPath}
 				depth={depth}
 			/>
 		);
-	} else if (q.type === "label") {
+	} else if (field.kind === "label") {
 		// Label fields are standalone presentation; wrap them in the same
 		// depth-padded block so they align with sibling questions.
 		content = (
@@ -187,7 +197,7 @@ const InteractiveQuestion = memo(function InteractiveQuestion({
 					paddingRight: depthPadding(depth),
 				}}
 			>
-				<LabelField question={q} state={state} />
+				<LabelField question={field} state={state} />
 			</div>
 		);
 	} else {
@@ -199,17 +209,17 @@ const InteractiveQuestion = memo(function InteractiveQuestion({
 					paddingRight: depthPadding(depth),
 				}}
 			>
-				{q.label && (
+				{field.label && (
 					<div className="flex items-center gap-1">
 						<div className="min-w-0 flex-1">
 							{/* `px-[5px] py-[5px]` matches TextEditable's idle
 							 *  wrapper in edit mode for flipbook parity. Without
-							 *  this, every leaf question is 10px shorter in live
+							 *  this, every leaf field is 10px shorter in live
 							 *  mode than in edit mode — see the matching note
 							 *  in `GroupField`. */}
 							<div className="px-[5px] py-[5px]">
 								<LabelContent
-									label={q.label}
+									label={field.label}
 									resolvedLabel={state.resolvedLabel}
 									isEditMode={false}
 									className={FIELD_STYLES.label}
@@ -221,18 +231,18 @@ const InteractiveQuestion = memo(function InteractiveQuestion({
 						)}
 					</div>
 				)}
-				{q.hint && (
+				{field.hint && (
 					<div className="px-[5px] py-[5px]">
 						<LabelContent
-							label={q.hint}
+							label={field.hint}
 							resolvedLabel={state.resolvedHint}
 							isEditMode={false}
 							className={FIELD_STYLES.hint}
 						/>
 					</div>
 				)}
-				<QuestionField
-					question={q}
+				<FieldRenderer
+					question={field}
 					state={state}
 					onChange={(value) => controller.onValueChange(uuid, value)}
 					onBlur={() => controller.onTouch(uuid)}

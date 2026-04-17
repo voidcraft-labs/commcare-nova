@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { q } from "../../__tests__/testHelpers";
+import { q } from "../../schemas/__tests__/wireFixtures";
 import type {
 	AppBlueprint,
 	FormLink,

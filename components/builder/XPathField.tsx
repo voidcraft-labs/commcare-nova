@@ -26,10 +26,6 @@ import {
 } from "@/lib/codemirror/xpath-theme";
 import { ReferenceProvider } from "@/lib/references/provider";
 import { useReferenceProvider } from "@/lib/references/ReferenceContext";
-import {
-	collectCaseProperties,
-	collectValidPaths,
-} from "@/lib/services/commcare/validate/index";
 import { validateXPath } from "@/lib/services/commcare/validate/xpathValidator";
 import { POPOVER_POPUP_CLS } from "@/lib/styles";
 
@@ -299,13 +295,13 @@ function InlineXPathEditor({
 		const draft = editorRef.current?.view?.state.doc.toString() ?? "";
 		if (!draft.trim()) return [];
 		const ctx = getLintContextRef.current?.();
-		const validPaths = ctx?.form.questions
-			? collectValidPaths(ctx.form.questions)
+		// Convert the pre-collected case-property map (name→label) into the
+		// name-only Set that `validateXPath` consumes. Context-less validation
+		// is allowed — we just skip reference checks in that case.
+		const caseProperties = ctx?.caseProperties
+			? new Set(ctx.caseProperties.keys())
 			: undefined;
-		const caseProperties = ctx
-			? collectCaseProperties(ctx.blueprint, ctx.moduleCaseType)
-			: undefined;
-		return validateXPath(draft, validPaths, caseProperties).map(
+		return validateXPath(draft, ctx?.validPaths, caseProperties).map(
 			(e) => e.message,
 		);
 	}, []);

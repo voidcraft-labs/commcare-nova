@@ -25,7 +25,6 @@
 import { useContext, useEffect, useRef, useState } from "react";
 import { shallow } from "zustand/shallow";
 import { reportClientError } from "@/lib/clientErrorReporter";
-import { toBlueprint } from "@/lib/doc/converter";
 import { BlueprintDocContext } from "@/lib/doc/provider";
 import type { BlueprintDoc } from "@/lib/doc/types";
 import { BuilderPhase } from "@/lib/services/builder";
@@ -52,18 +51,21 @@ export interface SaveState {
 
 const IDLE_STATE: SaveState = { status: "idle", savedAt: null };
 
-/** Project the doc slice that matters for save equality checks. A new
- *  reference on any of these fields implies at least one user-visible
- *  mutation has landed; anything else (undo metadata, transient state)
- *  is ignored. */
+/**
+ * Project the doc slice that matters for save equality checks.
+ *
+ * A new reference on any of these fields implies at least one user-visible
+ * mutation has landed. Fields excluded from the projection (e.g. `fieldParent`,
+ * which is derived and never mutated directly) don't trigger unnecessary saves.
+ */
 function projectSaveSlice(s: BlueprintDoc) {
 	return {
 		modules: s.modules,
 		forms: s.forms,
-		questions: s.questions,
+		fields: s.fields,
 		moduleOrder: s.moduleOrder,
 		formOrder: s.formOrder,
-		questionOrder: s.questionOrder,
+		fieldOrder: s.fieldOrder,
 		appName: s.appName,
 		connectType: s.connectType,
 		caseTypes: s.caseTypes,
@@ -141,8 +143,9 @@ export function useAutoSave(): SaveState {
 			const doc = docStore.getState();
 			if (!appIdAtStart || doc.moduleOrder.length === 0) return;
 
-			/* Assemble the wire-format blueprint for persistence. */
-			const bp = toBlueprint(doc);
+			/* Strip the derived fieldParent before sending — the server rebuilds it
+			 * from fieldOrder on load and should not store it. */
+			const { fieldParent: _fp, ...persistable } = doc;
 
 			inFlightRef.current = true;
 			if (!unmountedRef.current) {
@@ -159,7 +162,10 @@ export function useAutoSave(): SaveState {
 				const res = await fetch(`/api/apps/${appIdAtStart}`, {
 					method: "PUT",
 					headers: { "Content-Type": "application/json" },
-					body: JSON.stringify({ blueprint: bp }),
+					// Send under the `blueprint` key so the API route's body parsing
+					// stays consistent. The value is now a normalized BlueprintDoc
+					// (minus fieldParent) rather than the legacy nested AppBlueprint.
+					body: JSON.stringify({ blueprint: persistable }),
 				});
 				if (!stillCurrent()) return;
 				if (res.ok) {

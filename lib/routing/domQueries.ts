@@ -18,7 +18,7 @@
  * Find a specific field element within a question's InlineSettingsPanel.
  *
  * The panel renders as the next-sibling of the question wrapper (see
- * `EditableQuestionWrapper` + `SortableQuestion` in `FormRenderer.tsx`).
+ * `EditableFieldWrapper` + `SortableQuestion` in `FormRenderer.tsx`).
  * We locate the panel by its stable `data-question-uuid` attribute — not
  * by question `id`, so the lookup survives renames — then match the
  * requested field by `data-field-id`.

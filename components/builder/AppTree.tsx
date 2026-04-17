@@ -1,10 +1,10 @@
 /**
  * AppTree — structure sidebar with per-entity subscriptions.
  *
- * Each tree component (ModuleCard, FormCard, QuestionRow) subscribes to its
+ * Each tree component (ModuleCard, FormCard, FieldRow) subscribes to its
  * own entity in the builder store by ID/UUID. Immer structural sharing means
- * editing question A's label only re-renders QuestionRow(A) in the sidebar —
- * not the other 166 QuestionRows, not the FormCards, not the ModuleCards.
+ * editing field A's label only re-renders FieldRow(A) in the sidebar —
+ * not the other 166 FieldRows, not the FormCards, not the ModuleCards.
  *
  * Selection uses boolean selectors — only the old and new selected components
  * re-render on selection change (2 total), not every tree item.
@@ -36,28 +36,22 @@ import {
 } from "@/lib/doc/hooks/useBlueprintDoc";
 import { useForm as useFormDoc } from "@/lib/doc/hooks/useEntity";
 import { useModuleIds } from "@/lib/doc/hooks/useModuleIds";
-import type {
-	FormEntity,
-	ModuleEntity,
-	QuestionEntity,
-	Uuid,
-} from "@/lib/doc/types";
+import type { Field, Form, Module, Uuid } from "@/lib/domain";
+import { fieldKindIcons, formTypeIcons } from "@/lib/fieldTypeIcons";
 import { highlightSegments, type MatchIndices } from "@/lib/filterTree";
-import { formTypeIcons, questionTypeIcons } from "@/lib/questionTypeIcons";
 import { textWithChips } from "@/lib/references/LabelContent";
 import {
+	useIsFieldSelected,
 	useIsFormSelected,
 	useIsModuleSelected,
-	useIsQuestionSelected,
 	useNavigate,
 } from "@/lib/routing/hooks";
 import { BuilderPhase } from "@/lib/services/builder";
-import type { NForm, NModule, NQuestion } from "@/lib/services/normalizedState";
 import { type QuestionPath, qpath } from "@/lib/services/questionPath";
 import { useBuilderPhase } from "@/lib/session/hooks";
 
 /**
- * Per-form context carrying a question ID → type icon map. Lets QuestionRow
+ * Per-form context carrying a question ID → type icon map. Lets FieldRow
  * render chips with correct question-type icons without prop drilling through
  * the recursive tree or depending on the ReferenceProvider.
  */
@@ -243,10 +237,10 @@ interface SearchResult {
 interface SearchEntityData {
 	moduleOrder: Uuid[];
 	formOrder: Record<Uuid, Uuid[]>;
-	questionOrder: Record<Uuid, Uuid[]>;
-	modules: Record<Uuid, ModuleEntity>;
-	forms: Record<Uuid, FormEntity>;
-	questions: Record<Uuid, QuestionEntity>;
+	fieldOrder: Record<Uuid, Uuid[]>;
+	modules: Record<Uuid, Module>;
+	forms: Record<Uuid, Form>;
+	fields: Record<Uuid, Field>;
 }
 
 /** Stable empty data for when search is inactive — same reference every time.
@@ -256,10 +250,10 @@ interface SearchEntityData {
 const SEARCH_IDLE: SearchEntityData = {
 	moduleOrder: [],
 	formOrder: {} as Record<Uuid, Uuid[]>,
-	questionOrder: {} as Record<Uuid, Uuid[]>,
-	modules: {} as Record<Uuid, ModuleEntity>,
-	forms: {} as Record<Uuid, FormEntity>,
-	questions: {} as Record<Uuid, QuestionEntity>,
+	fieldOrder: {} as Record<Uuid, Uuid[]>,
+	modules: {} as Record<Uuid, Module>,
+	forms: {} as Record<Uuid, Form>,
+	fields: {} as Record<Uuid, Field>,
 };
 
 /**
@@ -273,16 +267,16 @@ const SEARCH_IDLE: SearchEntityData = {
 function useSearchFilter(query: string): SearchResult | null {
 	const isSearching = query.trim().length > 0;
 
-	const { moduleOrder, formOrder, questionOrder, modules, forms, questions } =
+	const { moduleOrder, formOrder, fieldOrder, modules, forms, fields } =
 		useBlueprintDocShallow((s) =>
 			isSearching
 				? {
 						moduleOrder: s.moduleOrder,
 						formOrder: s.formOrder,
-						questionOrder: s.questionOrder,
+						fieldOrder: s.fieldOrder,
 						modules: s.modules,
 						forms: s.forms,
-						questions: s.questions,
+						fields: s.fields,
 					}
 				: SEARCH_IDLE,
 		);
@@ -321,18 +315,20 @@ function useSearchFilter(query: string): SearchResult | null {
 
 				/* Check questions recursively */
 				let formHasMatch = !!formIndices;
-				const checkQuestions = (parentId: Uuid, parentPath?: QuestionPath) => {
-					const uuids = questionOrder[parentId] ?? [];
+				const checkFields = (parentId: Uuid, parentPath?: QuestionPath) => {
+					const uuids = fieldOrder[parentId] ?? [];
 					for (const uuid of uuids) {
-						const question = questions[uuid];
-						if (!question) continue;
-						const questionPath = qpath(question.id, parentPath);
+						const field = fields[uuid];
+						if (!field) continue;
+						const fieldPath = qpath(field.id, parentPath);
 
-						const labelIndices = findMatchIndices(question.label ?? "", q);
-						const idIndices = findMatchIndices(question.id, q);
+						// `label` is absent on the `hidden` kind — guard before reading.
+						const fieldLabel = "label" in field ? field.label : "";
+						const labelIndices = findMatchIndices(fieldLabel, q);
+						const idIndices = findMatchIndices(field.id, q);
 
-						if (labelIndices) matchMap.set(questionPath, labelIndices);
-						if (idIndices) matchMap.set(`${questionPath}__id`, idIndices);
+						if (labelIndices) matchMap.set(fieldPath, labelIndices);
+						if (idIndices) matchMap.set(`${fieldPath}__id`, idIndices);
 
 						if (labelIndices || idIndices) {
 							visibleQuestionUuids.add(uuid);
@@ -342,10 +338,10 @@ function useSearchFilter(query: string): SearchResult | null {
 						}
 
 						/* Recurse into children */
-						checkQuestions(uuid, questionPath);
+						checkFields(uuid, fieldPath);
 					}
 				};
-				checkQuestions(formId);
+				checkFields(formId);
 
 				if (formHasMatch) {
 					visibleFormIds.add(formId);
@@ -367,7 +363,7 @@ function useSearchFilter(query: string): SearchResult | null {
 			visibleFormIds,
 			visibleQuestionUuids,
 		};
-	}, [query, moduleOrder, formOrder, questionOrder, modules, forms, questions]);
+	}, [query, moduleOrder, formOrder, fieldOrder, modules, forms, fields]);
 }
 
 /** Find match indices for a fuzzy substring search. */
@@ -492,7 +488,7 @@ const ModuleCard = memo(function ModuleCard({
 	/** Subscribe to this module's entity from the doc store. Only re-renders
 	 *  when THIS module changes (Immer structural sharing on the entity ref). */
 	const mod = useBlueprintDoc((s) => s.modules[moduleUuid]) as
-		| NModule
+		| Module
 		| undefined;
 
 	/** Subscribe to this module's form IDs from the doc store. */
@@ -645,15 +641,15 @@ const FormCard = memo(function FormCard({
 	locked?: boolean;
 }) {
 	/** Subscribe to this form's entity from the doc store. */
-	const form = useFormDoc(formId) as NForm | undefined;
+	const form = useFormDoc(formId) as Form | undefined;
 
 	/** Subscribe to this form's question UUIDs from the doc store. */
-	const questionUuids = useBlueprintDoc((s) => s.questionOrder[formId]);
+	const questionUuids = useBlueprintDoc((s) => s.fieldOrder[formId]);
 
 	// Count via selector so the result is a primitive — reference equality
 	// then prevents re-renders when unrelated forms' questions change.
 	const count = useBlueprintDoc((s) =>
-		countQuestionsFromOrder(formId, s.questionOrder),
+		countQuestionsFromOrder(formId, s.fieldOrder),
 	);
 
 	/** Boolean selection — URL-driven via useIsFormSelected.
@@ -668,7 +664,7 @@ const FormCard = memo(function FormCard({
 	const nameIndices = searchResult?.matchMap?.get(collapseKey);
 
 	/** Build icon map for reference chips in question labels. */
-	const questionIcons = useQuestionIconMap(formId);
+	const fieldIcons = useFieldIconMap(formId);
 
 	if (!form) return null;
 
@@ -736,7 +732,7 @@ const FormCard = memo(function FormCard({
 			</TreeItemRow>
 
 			{hasQuestions && !isCollapsed && (
-				<FormIconContext value={questionIcons}>
+				<FormIconContext value={fieldIcons}>
 					<div className="pb-2">
 						<AnimatePresence mode="sync">
 							{questionUuids?.map((uuid, qIdx) => {
@@ -746,7 +742,7 @@ const FormCard = memo(function FormCard({
 								)
 									return null;
 								return (
-									<QuestionRow
+									<FieldRow
 										key={uuid}
 										uuid={uuid}
 										moduleUuid={moduleUuid}
@@ -769,40 +765,42 @@ const FormCard = memo(function FormCard({
 	);
 });
 
-/** Build a question ID → type icon map for a form's questions (recursive). */
-function useQuestionIconMap(formId: Uuid): Map<string, IconifyIcon> {
-	const { questions, questionOrder } = useBlueprintDocShallow((s) => ({
-		questions: s.questions,
-		questionOrder: s.questionOrder,
+/** Build a field ID → type icon map for a form's fields (recursive). */
+function useFieldIconMap(formId: Uuid): Map<string, IconifyIcon> {
+	const { fields, fieldOrder } = useBlueprintDocShallow((s) => ({
+		fields: s.fields,
+		fieldOrder: s.fieldOrder,
 	}));
 
 	return useMemo(() => {
 		const map = new Map<string, IconifyIcon>();
 		function walk(parentId: Uuid, parentPath?: QuestionPath) {
-			const uuids = questionOrder[parentId] ?? [];
+			const uuids = fieldOrder[parentId] ?? [];
 			for (const uuid of uuids) {
-				const q = questions[uuid];
-				if (!q) continue;
-				const p = qpath(q.id, parentPath);
-				const icon = questionTypeIcons[q.type];
+				const f = fields[uuid];
+				if (!f) continue;
+				const p = qpath(f.id, parentPath);
+				// `kind` replaced `type` during the Phase 1 domain rename; keep
+				// the icon lookup keyed on the narrower Field discriminator.
+				const icon = fieldKindIcons[f.kind];
 				if (icon) map.set(p, icon);
 				walk(uuid, p);
 			}
 		}
 		walk(formId);
 		return map;
-	}, [formId, questions, questionOrder]);
+	}, [formId, fields, fieldOrder]);
 }
 
-/** Count questions recursively from questionOrder. Pure function —
+/** Count questions recursively from fieldOrder. Pure function —
  *  safe to call inside a Zustand selector for primitive-result memoization. */
 function countQuestionsFromOrder(
 	parentId: Uuid,
-	questionOrder: Record<Uuid, Uuid[]>,
+	fieldOrder: Record<Uuid, Uuid[]>,
 ): number {
 	let count = 0;
 	function walk(pid: Uuid) {
-		const uuids = questionOrder[pid] ?? [];
+		const uuids = fieldOrder[pid] ?? [];
 		count += uuids.length;
 		for (const uuid of uuids) {
 			walk(uuid);
@@ -812,9 +810,9 @@ function countQuestionsFromOrder(
 	return count;
 }
 
-// ── QuestionRow ──────────────────────────────────────────────────────
+// ── FieldRow ──────────────────────────────────────────────────────
 
-const QuestionRow = memo(function QuestionRow({
+const FieldRow = memo(function FieldRow({
 	uuid,
 	moduleUuid,
 	formUuid,
@@ -840,21 +838,21 @@ const QuestionRow = memo(function QuestionRow({
 	parentPath?: QuestionPath;
 }) {
 	/** Subscribe to this question's entity by UUID from the doc store. */
-	const q = useBlueprintDoc((s) => s.questions[uuid]) as NQuestion | undefined;
+	const q = useBlueprintDoc((s) => s.fields[uuid]) as Field | undefined;
 
 	/** Subscribe to children UUIDs (for groups/repeats) from the doc store. */
-	const childUuids = useBlueprintDoc((s) => s.questionOrder[uuid]);
+	const childUuids = useBlueprintDoc((s) => s.fieldOrder[uuid]);
 
-	/** Boolean selection — URL-driven via useIsQuestionSelected.
+	/** Boolean selection — URL-driven via useIsFieldSelected.
 	 *  Only this question + the old selection re-render on change. */
-	const isSelected = useIsQuestionSelected(uuid);
+	const isSelected = useIsFieldSelected(uuid);
 
 	const iconOverrides = use(FormIconContext);
 
 	if (!q) return null;
 
 	const questionPath = qpath(q.id, parentPath);
-	const iconData = questionTypeIcons[q.type];
+	const iconData = fieldKindIcons[q.kind];
 	const hasChildren = childUuids && childUuids.length > 0;
 	const isCollapsed =
 		hasChildren &&
@@ -863,9 +861,13 @@ const QuestionRow = memo(function QuestionRow({
 			: collapsed.has(questionPath));
 	const labelIndices = searchResult?.matchMap?.get(questionPath);
 	const idIndices = searchResult?.matchMap?.get(`${questionPath}__id`);
-	const showIdMatch = !!(idIndices && q.label);
-	const textIndices = labelIndices ?? (!q.label ? idIndices : undefined);
-	const displayText = q.label || q.id;
+	// `label` is absent from the `hidden` field kind — guard every access with
+	// a `"label" in q` narrowing so the tree row still renders for hidden
+	// fields (id-only display).
+	const qLabel = "label" in q ? q.label : "";
+	const showIdMatch = !!(idIndices && qLabel);
+	const textIndices = labelIndices ?? (!qLabel ? idIndices : undefined);
+	const displayText = qLabel || q.id;
 	const chipContent = !textIndices
 		? textWithChips(displayText, null, iconOverrides)
 		: null;
@@ -952,7 +954,7 @@ const QuestionRow = memo(function QuestionRow({
 			{hasChildren && !isCollapsed && (
 				<div>
 					{childUuids?.map((childUuid, cIdx) => (
-						<QuestionRow
+						<FieldRow
 							key={childUuid}
 							uuid={childUuid}
 							moduleUuid={moduleUuid}

@@ -8,24 +8,17 @@
  * this specific entity (Immer structural sharing).
  */
 
-import type {
-	FormEntity,
-	ModuleEntity,
-	QuestionEntity,
-	Uuid,
-} from "@/lib/doc/types";
+import type { Field, Form, Module, Uuid } from "@/lib/domain";
 import { useBlueprintDoc } from "./useBlueprintDoc";
 
-export function useModule(uuid: Uuid | undefined): ModuleEntity | undefined {
+export function useModule(uuid: Uuid | undefined): Module | undefined {
 	return useBlueprintDoc((s) => (uuid ? s.modules[uuid] : undefined));
 }
 
-export function useForm(uuid: Uuid | undefined): FormEntity | undefined {
+export function useForm(uuid: Uuid | undefined): Form | undefined {
 	return useBlueprintDoc((s) => (uuid ? s.forms[uuid] : undefined));
 }
 
-export function useQuestion(
-	uuid: Uuid | undefined,
-): QuestionEntity | undefined {
-	return useBlueprintDoc((s) => (uuid ? s.questions[uuid] : undefined));
+export function useField(uuid: Uuid | undefined): Field | undefined {
+	return useBlueprintDoc((s) => (uuid ? s.fields[uuid] : undefined));
 }

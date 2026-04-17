@@ -29,14 +29,16 @@ import { temporal } from "zundo";
 import { create } from "zustand";
 import { devtools, subscribeWithSelector } from "zustand/middleware";
 import { immer } from "zustand/middleware/immer";
-import { toDoc } from "@/lib/doc/converter";
+import { rebuildFieldParent } from "@/lib/doc/fieldParent";
 import { applyMutation, applyMutations } from "@/lib/doc/mutations";
 import type {
-	MoveQuestionResult,
-	QuestionRenameMeta,
-} from "@/lib/doc/mutations/questions";
+	FieldRenameMeta,
+	MoveFieldResult,
+} from "@/lib/doc/mutations/fields";
 import type { BlueprintDoc, Mutation } from "@/lib/doc/types";
-import type { AppBlueprint } from "@/lib/schemas/blueprint";
+import type { PersistableDoc } from "@/lib/domain/blueprint";
+
+export { rebuildFieldParent };
 
 /**
  * The complete public state surface of the BlueprintDoc store.
@@ -53,8 +55,8 @@ export type BlueprintDocState = BlueprintDoc & {
 	 * Apply a single mutation and return metadata from the reducer.
 	 *
 	 * Typed overloads ensure callers get the correct result per mutation kind:
-	 *   - `moveQuestion`    → `MoveQuestionResult`
-	 *   - `renameQuestion`  → `QuestionRenameMeta`
+	 *   - `moveField`    → `MoveFieldResult`
+	 *   - `renameField`  → `FieldRenameMeta`
 	 *   - all other kinds   → `void`
 	 *
 	 * `apply()` stays the fire-and-forget path for 90% of call sites;
@@ -63,24 +65,29 @@ export type BlueprintDocState = BlueprintDoc & {
 	 */
 	applyWithResult: {
 		(
-			mut: Extract<Mutation, { kind: "moveQuestion" }>,
-		): MoveQuestionResult | undefined;
+			mut: Extract<Mutation, { kind: "moveField" }>,
+		): MoveFieldResult | undefined;
 		(
-			mut: Extract<Mutation, { kind: "renameQuestion" }>,
-		): QuestionRenameMeta | undefined;
+			mut: Extract<Mutation, { kind: "renameField" }>,
+		): FieldRenameMeta | undefined;
 		(mut: Mutation): void;
 	};
 	/** Apply a batch of mutations as one atomic undo entry. */
 	applyMany: (muts: Mutation[]) => void;
 	/**
-	 * Replace the entire doc from an AppBlueprint.
+	 * Replace the entire doc from a `PersistableDoc` (the Firestore-persisted
+	 * shape that omits `fieldParent`).
+	 *
+	 * Accepts the normalized doc shape directly — no conversion from the
+	 * legacy nested `AppBlueprint` format. `fieldParent` is always rebuilt
+	 * from `fieldOrder`, so callers never need to supply it.
 	 *
 	 * Does NOT create an undo entry — loads are session hydration, not
 	 * user edits. Clears any prior history and keeps temporal paused.
 	 * Callers must call `store.temporal.getState().resume()` afterward
 	 * if they want undo tracking to begin.
 	 */
-	load: (bp: AppBlueprint, appId: string) => void;
+	load: (doc: PersistableDoc) => void;
 	/**
 	 * Pause undo tracking before an agent write stream begins.
 	 *
@@ -101,6 +108,10 @@ export type BlueprintDocState = BlueprintDoc & {
  * target. All entity maps and order arrays start empty; nullable fields
  * (`connectType`, `caseTypes`) start as `null` to match the blueprint
  * schema (surveys and empty apps may omit them entirely).
+ *
+ * `fieldParent` starts as an empty object — `rebuildFieldParent` is a
+ * no-op on an empty doc but ensures the field is always defined on the
+ * store shape.
  */
 const EMPTY_DOC: BlueprintDoc = {
 	appId: "",
@@ -109,10 +120,11 @@ const EMPTY_DOC: BlueprintDoc = {
 	caseTypes: null,
 	modules: {},
 	forms: {},
-	questions: {},
+	fields: {},
 	moduleOrder: [],
 	formOrder: {},
-	questionOrder: {},
+	fieldOrder: {},
+	fieldParent: {},
 };
 
 /**
@@ -164,8 +176,8 @@ export function createBlueprintDocStore() {
 						 * Apply a single mutation and capture the reducer's return value.
 						 *
 						 * Identical to `apply()` except it threads back the metadata that
-						 * `applyMutation` returns for `moveQuestion` (rename info) and
-						 * `renameQuestion` (xpath rewrite count). A `let result` variable
+						 * `applyMutation` returns for `moveField` (rename info) and
+						 * `renameField` (xpath rewrite count). A `let result` variable
 						 * captures the return inside the Immer draft callback — the variable
 						 * is assigned synchronously before `set()` returns, so the caller
 						 * can use it immediately.
@@ -198,15 +210,24 @@ export function createBlueprintDocStore() {
 						},
 
 						/**
-						 * Hydrate the store from an AppBlueprint.
+						 * Hydrate the store from a normalized `BlueprintDoc`.
 						 *
-						 * Converts the nested blueprint to a normalized doc via `toDoc`,
-						 * writes every field atomically, then clears and re-pauses the
-						 * undo history. The transition from empty→loaded is not an
-						 * undoable user action — it's session setup.
+						 * Accepts the doc shape that Firestore stores directly — no
+						 * `toDoc` conversion from the legacy nested `AppBlueprint` format.
+						 * The incoming doc may omit `fieldParent` (Firestore does not
+						 * persist it); this method always rebuilds it from `fieldOrder`
+						 * so every downstream consumer can rely on it being present.
+						 *
+						 * Writes every field atomically, then clears and re-pauses the
+						 * undo history so the hydration transition never enters history.
+						 * Callers that want undo tracking must call
+						 * `store.temporal.getState().resume()` afterward.
 						 */
-						load: (bp: AppBlueprint, appId: string) => {
-							const next = toDoc(bp, appId);
+						load: (doc: PersistableDoc) => {
+							// Spread the on-disk doc (which has no fieldParent) into a full
+							// in-memory BlueprintDoc by initializing fieldParent to {} first.
+							// rebuildFieldParent below fills it in from fieldOrder atomically.
+							const next: BlueprintDoc = { ...doc, fieldParent: {} };
 							set((draft) => {
 								draft.appId = next.appId;
 								draft.appName = next.appName;
@@ -223,10 +244,13 @@ export function createBlueprintDocStore() {
 								// next state via its own structural sharing.
 								(draft as BlueprintDoc).modules = next.modules;
 								(draft as BlueprintDoc).forms = next.forms;
-								(draft as BlueprintDoc).questions = next.questions;
+								(draft as BlueprintDoc).fields = next.fields;
 								draft.moduleOrder = next.moduleOrder;
 								(draft as BlueprintDoc).formOrder = next.formOrder;
-								(draft as BlueprintDoc).questionOrder = next.questionOrder;
+								(draft as BlueprintDoc).fieldOrder = next.fieldOrder;
+								// Rebuild the reverse-parent index so hooks can read
+								// fieldParent immediately after load.
+								rebuildFieldParent(draft as unknown as BlueprintDoc);
 							});
 							// Clear any undo history accumulated since last load (e.g.
 							// stale entries from a prior session in the same store instance).

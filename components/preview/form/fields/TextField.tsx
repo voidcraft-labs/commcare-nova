@@ -1,11 +1,12 @@
 "use client";
-import type { QuestionState } from "@/lib/preview/engine/types";
-import type { Question } from "@/lib/schemas/blueprint";
+import type { SecretField, TextField as TextFieldEntity } from "@/lib/domain";
+import type { FieldState } from "@/lib/preview/engine/types";
 import { ValidationError } from "./ValidationError";
 
 interface TextFieldProps {
-	question: Question;
-	state: QuestionState;
+	/** Plain text or secret field. The DOM input type differs by kind. */
+	question: TextFieldEntity | SecretField;
+	state: FieldState;
 	onChange: (value: string) => void;
 	onBlur: () => void;
 }
@@ -16,7 +17,8 @@ export function TextField({
 	onChange,
 	onBlur,
 }: TextFieldProps) {
-	const inputType = question.type === "secret" ? "password" : "text";
+	// `secret` kind renders a password-masked input; `text` is plain.
+	const inputType = question.kind === "secret" ? "password" : "text";
 	const showError = state.touched && !state.valid;
 
 	return (

@@ -1,25 +1,26 @@
-import type { Question } from "@/lib/schemas/blueprint";
+import type { FieldTreeNode } from "./fieldTree";
 
 /**
  * Flat data store keyed by absolute path.
- * Paths: /data/question_id, /data/group_id/child_id, /data/repeat_id[0]/child_id
+ * Paths: /data/field_id, /data/group_id/child_id, /data/repeat_id[0]/child_id
  */
 export class DataInstance {
 	private data = new Map<string, string>();
 
-	/** Initialize from a question tree, creating an entry for each non-structural question. */
-	initFromQuestions(questions: Question[], prefix = "/data"): void {
-		for (const q of questions) {
-			const path = `${prefix}/${q.id}`;
+	/** Initialize from a field tree, creating an entry for each non-structural field. */
+	initFromFields(tree: FieldTreeNode[], prefix = "/data"): void {
+		for (const node of tree) {
+			const f = node.field;
+			const path = `${prefix}/${f.id}`;
 
-			if (q.type === "group") {
+			if (f.kind === "group") {
 				// Groups don't have values — recurse into children
-				if (q.children) this.initFromQuestions(q.children, path);
-			} else if (q.type === "repeat") {
+				if (node.children) this.initFromFields(node.children, path);
+			} else if (f.kind === "repeat") {
 				// Repeats start with one instance [0]
-				if (q.children) this.initFromQuestions(q.children, `${path}[0]`);
+				if (node.children) this.initFromFields(node.children, `${path}[0]`);
 			} else {
-				// Leaf question — empty string initial value
+				// Leaf field — empty string initial value
 				this.data.set(path, "");
 			}
 		}

@@ -3,7 +3,7 @@
  *
  * Used inside HistoricalThread to display dead conversation messages.
  * All interactive elements are stripped: askQuestions renders as a static
- * completed QuestionCard (same violet border card, check icons, Q&A pairs).
+ * completed AskQuestionsCard (same violet border card, check icons, Q&A pairs).
  * Visual treatment is muted — the parent wrapper applies opacity-60 so
  * everything reads as ghosted historical content.
  */
@@ -27,7 +27,7 @@ function HistoricalPart({ part }: { part: StoredMessagePart }) {
 		);
 	}
 
-	/* askQuestions — completed QuestionCard visual: same violet border card
+	/* askQuestions — completed AskQuestionsCard visual: same violet border card
 	 * with check icons and Q&A pairs, ghosted by the parent's opacity-60. */
 	return (
 		<div className="rounded-xl border border-nova-violet/20 bg-nova-violet/5 overflow-hidden">

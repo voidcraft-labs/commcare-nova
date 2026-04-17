@@ -1,8 +1,8 @@
 /**
  * useFormRows — hook that produces the flattened row list for a form.
  *
- * Subscribes to the two doc slices the walker reads (`questions`,
- * `questionOrder`) with shallow equality so unrelated mutations don't
+ * Subscribes to the two doc slices the walker reads (`fields`,
+ * `fieldOrder`) with shallow equality so unrelated mutations don't
  * churn the walker. The walker output is memoized on its inputs —
  * `useMemo` bails when the source slices and the collapsed set are
  * reference-equal.
@@ -41,8 +41,8 @@ export function useFormRows(options: UseFormRowsOptions): FormRow[] {
 	// Subscribe only to the slices the walker reads. Shallow-equality
 	// skips re-renders when unrelated parts of the doc change.
 	const source = useBlueprintDocShallow<RowSource>((s) => ({
-		questions: s.questions,
-		questionOrder: s.questionOrder,
+		fields: s.fields,
+		fieldOrder: s.fieldOrder,
 	}));
 
 	return useMemo(

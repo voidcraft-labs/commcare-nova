@@ -1,12 +1,13 @@
 "use client";
+import type { MultiSelectField } from "@/lib/domain";
 import { PreviewMarkdown } from "@/lib/markdown";
-import type { QuestionState } from "@/lib/preview/engine/types";
-import type { Question } from "@/lib/schemas/blueprint";
+import type { FieldState } from "@/lib/preview/engine/types";
 import { ValidationError } from "./ValidationError";
 
 interface SelectMultiFieldProps {
-	question: Question;
-	state: QuestionState;
+	/** Multi-select field — options are required on this kind. */
+	question: MultiSelectField;
+	state: FieldState;
 	onChange: (value: string) => void;
 	onBlur: () => void;
 }

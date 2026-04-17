@@ -15,8 +15,8 @@
 
 import type { UIMessage } from "ai";
 import { describe, expect, it } from "vitest";
+import { buildDoc } from "@/lib/__tests__/docHelpers";
 import { createBlueprintDocStore } from "@/lib/doc/store";
-import type { AppBlueprint } from "@/lib/schemas/blueprint";
 import { createBuilderSessionStore } from "../store";
 import {
 	GenerationStage,
@@ -176,63 +176,50 @@ describe("BuilderSession focus hint", () => {
 // ── New question marker ──────────────────────────────────────────────────
 
 describe("BuilderSession new-question marker", () => {
-	it("markNewQuestion + isNewQuestion: matches uuid, rejects others", () => {
+	it("markNewField + isNewField: matches uuid, rejects others", () => {
 		const store = createBuilderSessionStore();
-		store.getState().markNewQuestion("q-uuid");
+		store.getState().markNewField("q-uuid");
 
-		expect(store.getState().isNewQuestion("q-uuid")).toBe(true);
-		expect(store.getState().isNewQuestion("other")).toBe(false);
+		expect(store.getState().isNewField("q-uuid")).toBe(true);
+		expect(store.getState().isNewField("other")).toBe(false);
 	});
 
-	it("clearNewQuestion resets so isNewQuestion returns false for all", () => {
+	it("clearNewField resets so isNewField returns false for all", () => {
 		const store = createBuilderSessionStore();
-		store.getState().markNewQuestion("q-uuid");
-		store.getState().clearNewQuestion();
+		store.getState().markNewField("q-uuid");
+		store.getState().clearNewField();
 
-		expect(store.getState().isNewQuestion("q-uuid")).toBe(false);
-		expect(store.getState().isNewQuestion("anything")).toBe(false);
+		expect(store.getState().isNewField("q-uuid")).toBe(false);
+		expect(store.getState().isNewField("anything")).toBe(false);
 	});
 });
 
 // ── Connect stash ────────────────────────────────────────────────────────
 
 /**
- * Fixture blueprint for connect stash tests. One module with two forms —
- * enough to verify per-form stash keyed by uuid.
- */
-const CONNECT_FIXTURE: AppBlueprint = {
-	app_name: "ConnectTest",
-	connect_type: undefined,
-	case_types: null,
-	modules: [
-		{
-			uuid: "module-1-uuid",
-			name: "Mod",
-			forms: [
-				{
-					uuid: "form-1-uuid",
-					name: "Form A",
-					type: "registration",
-					questions: [],
-				},
-				{
-					uuid: "form-2-uuid",
-					name: "Form B",
-					type: "followup",
-					questions: [],
-				},
-			],
-		},
-	],
-};
-
-/**
  * Helper: create a session store wired to a real doc store loaded with
- * the fixture blueprint. Returns both stores and the form uuids.
+ * a two-form fixture. Returns both stores and the form uuids.
+ *
+ * One module with two forms — enough to verify per-form stash keyed by uuid.
  */
 function createConnectTestStores() {
 	const docStore = createBlueprintDocStore();
-	docStore.getState().load(CONNECT_FIXTURE, "test-app");
+	docStore.getState().load(
+		buildDoc({
+			appId: "test-app",
+			appName: "ConnectTest",
+			modules: [
+				{
+					uuid: "module-1-uuid",
+					name: "Mod",
+					forms: [
+						{ uuid: "form-1-uuid", name: "Form A", type: "registration" },
+						{ uuid: "form-2-uuid", name: "Form B", type: "followup" },
+					],
+				},
+			],
+		}),
+	);
 	docStore.temporal.getState().resume();
 
 	const sessionStore = createBuilderSessionStore();
@@ -401,20 +388,14 @@ function createTestDocStore() {
 function createGenerationTestStores(withData = false) {
 	const docStore = createTestDocStore();
 	if (withData) {
+		/* Load a minimal doc (one module, no forms) so the doc has data
+		 * for postBuildEdit detection. */
 		docStore.getState().load(
-			{
-				app_name: "Test",
-				connect_type: undefined,
-				case_types: null,
-				modules: [
-					{
-						uuid: "mod-uuid",
-						name: "Mod",
-						forms: [],
-					},
-				],
-			} satisfies AppBlueprint,
-			"test-app",
+			buildDoc({
+				appId: "test-app",
+				appName: "Test",
+				modules: [{ uuid: "mod-uuid", name: "Mod" }],
+			}),
 		);
 		docStore.temporal.getState().resume();
 	}
@@ -741,7 +722,7 @@ describe("reset", () => {
 			.getState()
 			.loadReplay([{ header: "S1", messages: [], emissions: [] }], 0, "/exit");
 		session.getState().setLoading(true);
-		session.getState().markNewQuestion("q-1");
+		session.getState().markNewField("q-1");
 		session.getState().setFocusHint("label");
 		session.getState().setSidebarOpen("chat", false);
 		session.getState().setCursorMode("pointer");

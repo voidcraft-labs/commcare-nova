@@ -1,24 +1,25 @@
 /**
  * FieldPicker — shared Base UI Autocomplete for selecting form fields.
  *
- * Provides a searchable dropdown of form questions with type icons and labels.
- * Reusable anywhere a user needs to reference a form field by ID — close
- * conditions, future XPath field pickers, etc.
+ * Provides a searchable dropdown of form fields with kind icons and
+ * labels. Reusable anywhere a user needs to reference a field by ID —
+ * close conditions, future XPath field pickers, etc.
  *
- * Backed by `collectQuestionEntries` (the same tree walk used by CodeMirror
- * XPath autocomplete and TipTap reference chips), so the field list is
- * consistent across all surfaces that reference form questions.
+ * Consumes the normalized doc directly (`fields` + `fieldOrder` maps).
+ * The flat list of selectable entries comes from `collectFieldEntries`,
+ * the same walker used by CodeMirror XPath autocomplete and TipTap
+ * reference chips — so field lookups stay consistent across surfaces.
  */
 "use client";
 import { Autocomplete } from "@base-ui/react/autocomplete";
 import { Icon } from "@iconify/react/offline";
 import { useCallback, useMemo } from "react";
-import { questionTypeIcons } from "@/lib/questionTypeIcons";
+import { fieldKindIcons } from "@/lib/fieldTypeIcons";
 import {
-	collectQuestionEntries,
+	collectFieldEntries,
+	type FieldEntrySource,
 	VALUE_PRODUCING_TYPES,
 } from "@/lib/references/provider";
-import type { Question } from "@/lib/schemas/blueprint";
 import {
 	MENU_ITEM_BASE,
 	MENU_POPUP_CLS,
@@ -29,55 +30,63 @@ import {
 
 /** A flattened field entry for the autocomplete list. */
 export interface FieldEntry {
-	/** Bare question ID (e.g. "confirm_close"). */
+	/** Bare field ID (e.g. "confirm_close"). */
 	id: string;
 	/** Full path for nested fields (e.g. "group1/confirm_close"). */
 	path: string;
 	/** Human-readable label. */
 	label: string;
-	/** Question type (text, single_select, etc.) — drives the icon. */
-	questionType: string;
+	/** Field kind (text, single_select, etc.) — drives the icon. */
+	kind: string;
 }
 
 // ── Utility ──────────────────────────────────────────────────────────
 
 /**
- * Build a flat list of selectable fields from a question tree.
+ * Build a flat list of selectable fields from the normalized doc
+ * rooted at `parentUuid` (typically the form uuid for top-level picker
+ * usage; a group/repeat uuid when scoping to a container).
  *
  * Centralizes the "which fields can be referenced" logic so both the
- * FieldPicker UI and future XPath autocomplete filtering use the same
- * source of truth. Pass `typeFilter` to restrict to specific types.
+ * FieldPicker UI and future XPath autocomplete filtering share the
+ * same source of truth. Pass `typeFilter` to restrict to specific
+ * kinds (e.g. only single/multi-select for close conditions).
  */
 export function buildFieldEntries(
-	questions: Question[],
+	src: FieldEntrySource,
+	parentUuid: string,
 	typeFilter?: ReadonlySet<string>,
 ): FieldEntry[] {
-	const raw = collectQuestionEntries(questions);
+	const raw = collectFieldEntries(src, parentUuid);
 	const filter = typeFilter ?? VALUE_PRODUCING_TYPES;
 	return raw
-		.filter((e) => filter.has(e.questionType))
+		.filter((e) => filter.has(e.kind))
 		.map((e) => ({
 			id: e.path.includes("/")
 				? e.path.slice(e.path.lastIndexOf("/") + 1)
 				: (e.path as string),
 			path: e.path as string,
 			label: e.label,
-			questionType: e.questionType,
+			kind: e.kind,
 		}));
 }
 
 // ── Component ────────────────────────────────────────────────────────
 
 interface FieldPickerProps {
-	/** The question tree to build the field list from. */
-	questions: Question[];
+	/** The normalized doc's field + order projection. Pass the doc store
+	 *  slice directly; the picker only reads and doesn't mutate. */
+	source: FieldEntrySource;
+	/** Uuid of the container whose fields are pickable (form uuid or
+	 *  group/repeat uuid). */
+	parentUuid: string;
 	/** Current field ID value. */
 	value: string;
 	/** Called with the bare field ID when a field is selected from the list. */
 	onChange: (id: string) => void;
 	/** Label text shown above the input. */
 	label: string;
-	/** Optional type filter — defaults to VALUE_PRODUCING_TYPES. */
+	/** Optional kind filter — defaults to `VALUE_PRODUCING_TYPES`. */
 	typeFilter?: ReadonlySet<string>;
 	/** Placeholder text for empty state. */
 	placeholder?: string;
@@ -87,10 +96,11 @@ interface FieldPickerProps {
 
 /**
  * Searchable field picker backed by Base UI Autocomplete.
- * Shows question IDs with type icons and labels as you type.
+ * Shows field IDs with kind icons and labels as you type.
  */
 export function FieldPicker({
-	questions,
+	source,
+	parentUuid,
 	value,
 	onChange,
 	label,
@@ -99,8 +109,8 @@ export function FieldPicker({
 	required,
 }: FieldPickerProps) {
 	const fields = useMemo(
-		() => buildFieldEntries(questions, typeFilter),
-		[questions, typeFilter],
+		() => buildFieldEntries(source, parentUuid, typeFilter),
+		[source, parentUuid, typeFilter],
 	);
 
 	/** Match against both ID and label so typing either narrows results. */
@@ -170,16 +180,12 @@ export function FieldPicker({
 											className={`${MENU_ITEM_BASE} text-nova-text cursor-pointer data-[highlighted]:bg-white/[0.06] first:rounded-t-xl last:rounded-b-xl`}
 										>
 											<Icon
-												icon={
-													questionTypeIcons[field.questionType] ??
-													questionTypeIcons.text
-												}
+												icon={fieldKindIcons[field.kind] ?? fieldKindIcons.text}
 												width="14"
 												height="14"
 												className="text-nova-text-muted shrink-0"
 											/>
-											{field.questionType === "hidden" ||
-											field.label === field.path ? (
+											{field.kind === "hidden" || field.label === field.path ? (
 												<span className="font-mono text-xs text-nova-text truncate">
 													{field.id}
 												</span>

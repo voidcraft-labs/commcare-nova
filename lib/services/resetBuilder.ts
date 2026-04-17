@@ -12,8 +12,8 @@
  */
 
 import type { BlueprintDocStore } from "@/lib/doc/provider";
+import type { BlueprintDoc } from "@/lib/domain/blueprint";
 import type { EngineController } from "@/lib/preview/engine/engineController";
-import type { AppBlueprint } from "@/lib/schemas/blueprint";
 import type { BuilderSessionStoreApi } from "@/lib/session/store";
 import { signalGrid } from "@/lib/signalGrid/store";
 
@@ -31,14 +31,25 @@ export interface ResetBuilderInputs {
 
 // ── Helper ──────────────────────────────────────────────────────────────
 
-/** Empty blueprint used to wipe the doc store between replay stages.
- *  Matches the shape that `createApp` writes for brand-new apps, so the
- *  doc's `load()` path can rebuild from empty without choking on missing
- *  fields. */
-const EMPTY_BLUEPRINT: AppBlueprint = {
-	app_name: "",
-	modules: [],
-	case_types: null,
+/**
+ * Empty normalized doc used to wipe the doc store between replay stages.
+ *
+ * `appId` is cleared (empty string) and all entity maps/order arrays start
+ * empty — matches the initial store state. `load()` rebuilds fieldParent from
+ * fieldOrder (both empty here), so the doc is fully valid after the call.
+ */
+const EMPTY_DOC: BlueprintDoc = {
+	appId: "",
+	appName: "",
+	connectType: null,
+	caseTypes: null,
+	modules: {},
+	forms: {},
+	fields: {},
+	moduleOrder: [],
+	formOrder: {},
+	fieldOrder: {},
+	fieldParent: {},
 };
 
 /**
@@ -49,8 +60,8 @@ const EMPTY_BLUEPRINT: AppBlueprint = {
  *      subscriptions are torn down before the doc store's entity maps get
  *      cleared — otherwise the controller would fire subscriptions against
  *      a half-emptied store and push corrupt runtime state.
- *   2. Wipe the doc store via `load(EMPTY_BLUEPRINT, "")`. This clears
- *      undo history and pauses temporal — session setup, not undoable.
+ *   2. Wipe the doc store via `load(EMPTY_DOC)`. This clears undo history
+ *      and pauses temporal — session setup, not undoable.
  *   3. Reset the session store (cursor mode, sidebars, generation lifecycle,
  *      replay state, connect stash, focus hints).
  *   4. Drain any queued signal grid energy so stale accumulation from the
@@ -64,7 +75,7 @@ export function resetBuilder(inputs: ResetBuilderInputs): void {
 
 	/* 2. Wipe the doc store. `load()` pauses + clears undo history, so the
 	 *    user can't rewind into the previous replay stage. */
-	docStore.getState().load(EMPTY_BLUEPRINT, "");
+	docStore.getState().load(EMPTY_DOC);
 
 	/* 3. Session state back to defaults. */
 	sessionStore.getState().reset();

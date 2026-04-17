@@ -7,6 +7,9 @@
  * Uses `BlueprintDocProvider` (the public provider surface) rather than
  * creating the store directly, so the test respects the store-boundary
  * rule enforced by Biome's `noRestrictedImports`.
+ *
+ * Fixtures are built in the normalized `BlueprintDoc` shape directly — no
+ * legacy `AppBlueprint` / `Question` types cross the test boundary.
  */
 
 import { act, renderHook } from "@testing-library/react";
@@ -14,50 +17,46 @@ import type { ReactNode } from "react";
 import { describe, expect, it } from "vitest";
 import { useBlueprintDocApi } from "@/lib/doc/hooks/useBlueprintDoc";
 import { BlueprintDocProvider } from "@/lib/doc/provider";
+import type { BlueprintDoc } from "@/lib/doc/types";
 import { asUuid, type Uuid } from "@/lib/doc/types";
-import type { AppBlueprint } from "@/lib/schemas/blueprint";
 import { EMPTY_COLLAPSE, useFormRows } from "../useFormRows";
 
 // ── Setup ──────────────────────────────────────────────────────────────
 
-const TEST_BLUEPRINT: AppBlueprint = {
-	app_name: "Rows Test",
-	connect_type: undefined,
-	modules: [
-		{
-			uuid: "module-1-0000-0000-0000-000000000000",
-			name: "M",
-			forms: [
-				{
-					uuid: "form-1-0000-0000-0000-000000000001",
-					name: "F",
-					type: "registration",
-					questions: [
-						{
-							uuid: "qst-a-0000-0000-0000-000000000001",
-							id: "a",
-							type: "text",
-							label: "A",
-						},
-						{
-							uuid: "qst-b-0000-0000-0000-000000000002",
-							id: "b",
-							type: "text",
-							label: "B",
-						},
-					],
-				},
-			],
-		},
-	],
-	case_types: null,
-};
-
+const MODULE_UUID = asUuid("module-1-0000-0000-0000-000000000000");
 const FORM_UUID = asUuid("form-1-0000-0000-0000-000000000001");
+const Q_A = asUuid("qst-a-0000-0000-0000-000000000001");
+const Q_B = asUuid("qst-b-0000-0000-0000-000000000002");
+
+const TEST_DOC: BlueprintDoc = {
+	appId: "app-rows",
+	appName: "Rows Test",
+	connectType: null,
+	caseTypes: null,
+	modules: {
+		[MODULE_UUID]: { uuid: MODULE_UUID, id: "m", name: "M" },
+	},
+	forms: {
+		[FORM_UUID]: {
+			uuid: FORM_UUID,
+			id: "f",
+			name: "F",
+			type: "registration",
+		},
+	},
+	fields: {
+		[Q_A]: { uuid: Q_A, id: "a", kind: "text", label: "A" },
+		[Q_B]: { uuid: Q_B, id: "b", kind: "text", label: "B" },
+	},
+	moduleOrder: [MODULE_UUID],
+	formOrder: { [MODULE_UUID]: [FORM_UUID] },
+	fieldOrder: { [FORM_UUID]: [Q_A, Q_B] },
+	fieldParent: {},
+};
 
 function wrapper({ children }: { children: ReactNode }) {
 	return (
-		<BlueprintDocProvider initialBlueprint={TEST_BLUEPRINT} appId="app-rows">
+		<BlueprintDocProvider initialDoc={TEST_DOC} appId="app-rows">
 			{children}
 		</BlueprintDocProvider>
 	);
@@ -87,7 +86,7 @@ describe("useFormRows", () => {
 		]);
 	});
 
-	it("updates when questions are added to the form", () => {
+	it("updates when fields are added to the form", () => {
 		const { result } = renderHook(
 			() => ({
 				rows: useFormRows({
@@ -107,12 +106,13 @@ describe("useFormRows", () => {
 
 		act(() => {
 			result.current.storeApi.getState().apply({
-				kind: "addQuestion",
+				kind: "addField",
 				parentUuid: FORM_UUID,
-				question: {
+				field: {
 					uuid: asUuid("qst-c-0000-0000-0000-000000000003"),
 					id: "c",
-					type: "text",
+					kind: "text",
+					label: "C",
 				},
 			});
 		});
@@ -141,14 +141,14 @@ describe("useFormRows", () => {
 		act(() => {
 			result.current.storeApi.getState().applyMany([
 				{
-					kind: "addQuestion",
+					kind: "addField",
 					parentUuid: FORM_UUID,
-					question: { uuid: groupUuid, id: "sec", type: "group" },
+					field: { uuid: groupUuid, id: "sec", kind: "group", label: "Sec" },
 				},
 				{
-					kind: "addQuestion",
+					kind: "addField",
 					parentUuid: groupUuid,
-					question: { uuid: childUuid, id: "z", type: "text" },
+					field: { uuid: childUuid, id: "z", kind: "text", label: "Z" },
 				},
 			]);
 		});

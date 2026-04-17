@@ -13,8 +13,8 @@
  *
  * The doc fixture is a hand-built `LocationDoc` literal (cast through
  * `as never` for slots we don't care about) — we're testing branching
- * logic, not entity content, so skipping `toDoc` keeps the test focused
- * and the assertions obvious.
+ * logic, not entity content, so hand-building the fixture keeps the
+ * test focused and the assertions obvious.
  */
 
 import { describe, expect, it } from "vitest";
@@ -51,7 +51,7 @@ const doc: LocationDoc = {
 		[FORM_A]: { uuid: FORM_A, name: "FA" } as never,
 		[FORM_B]: { uuid: FORM_B, name: "FB" } as never,
 	},
-	questions: {
+	fields: {
 		[Q_1]: { uuid: Q_1, id: "one" } as never,
 	},
 };
@@ -211,7 +211,7 @@ describe("recoverLocation — identity guarantee", () => {
 /*
  * A tiny sanity check that the fixture `as never` casts don't let
  * untyped properties sneak in — the doc only needs `modules`/`forms`/
- * `questions` record keys to exist. This exists as a reference for
+ * `fields` record keys to exist. This exists as a reference for
  * future contributors: if you need richer fixtures, build via `toDoc`.
  */
 describe("recoverLocation — fixture shape sanity", () => {
@@ -219,11 +219,11 @@ describe("recoverLocation — fixture shape sanity", () => {
 		const keyCount =
 			Object.keys(doc.modules).length +
 			Object.keys(doc.forms).length +
-			Object.keys(doc.questions).length;
+			Object.keys(doc.fields).length;
 		expect(keyCount).toBe(5);
 		// Ensure the canonical shape surface is exactly what the recover
 		// algorithm reads from.
 		const keys = Object.keys(doc) as (keyof LocationDoc)[];
-		expect(keys).toEqual(["modules", "forms", "questions"]);
+		expect(keys).toEqual(["modules", "forms", "fields"]);
 	});
 });

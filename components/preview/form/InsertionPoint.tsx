@@ -9,7 +9,7 @@
  *
  * 2. **Full InsertionPoint** (after first hover): Hover detection logic with
  *    EMA-smoothed cursor speed gating, a detached `Menu.Trigger` connected to
- *    the shared `QuestionTypePickerPopup` via `Menu.createHandle()`, and a
+ *    the shared `FieldTypePickerPopup` via `Menu.createHandle()`, and a
  *    `Tooltip` wrapper. No `Menu.Root` or popup content — the single shared
  *    instance in `FormRenderer` serves all InsertionPoints.
  *
@@ -32,7 +32,7 @@ import {
 import { Tooltip } from "@/components/ui/Tooltip";
 import { useEditContext } from "@/hooks/useEditContext";
 import type { Uuid } from "@/lib/doc/types";
-import { useQuestionPicker } from "./QuestionPickerContext";
+import { useFieldPicker } from "./FieldPickerContext";
 
 /** Speed threshold in px/ms. Above this = cursor is traversing, don't open. */
 const SPEED_THRESHOLD = 0.01;
@@ -92,7 +92,7 @@ function FullInsertionPoint({
 	cursorSpeedRef,
 	lastCursorRef,
 }: InsertionPointProps) {
-	const pickerCtx = useQuestionPicker();
+	const pickerCtx = useFieldPicker();
 	const [hovered, setHovered] = useState(false);
 	const containerRef = useRef<HTMLDivElement>(null);
 	const triggerRef = useRef<HTMLButtonElement>(null);
@@ -262,7 +262,7 @@ function FullInsertionPoint({
 
 				{/* Detached trigger connected to the shared Menu.Root in FormRenderer.
 				 *  The payload carries this InsertionPoint's location so the shared
-				 *  QuestionTypePickerPopup knows where to insert the new question. */}
+				 *  FieldTypePickerPopup knows where to insert the new question. */}
 				<Tooltip content="Insert question">
 					<Menu.Trigger
 						ref={triggerRef}

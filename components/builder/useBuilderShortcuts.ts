@@ -1,23 +1,20 @@
 import { useMemo } from "react";
 import { useScrollIntoView } from "@/components/builder/contexts/ScrollRegistryContext";
-import { useAssembledForm } from "@/lib/doc/hooks/useAssembledForm";
+import { useBlueprintDocApi } from "@/lib/doc/hooks/useBlueprintDoc";
 import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
 import { notifyMoveRename } from "@/lib/doc/mutations/notify";
-import { asUuid } from "@/lib/doc/types";
 import {
-	useDeleteSelectedQuestion,
+	flattenFieldRefs,
+	getCrossLevelFieldMoveTargets,
+	getFieldMoveTargets,
+} from "@/lib/doc/navigation";
+import { asUuid, type Uuid } from "@/lib/doc/types";
+import {
+	useDeleteSelectedField,
 	useUndoRedo,
 } from "@/lib/routing/builderActions";
 import { useLocation, useSelect } from "@/lib/routing/hooks";
 import type { Shortcut } from "@/lib/services/keyboardManager";
-import {
-	getCrossLevelMoveTargets,
-	getQuestionMoveTargets,
-} from "@/lib/services/questionNavigation";
-import {
-	flattenQuestionRefs,
-	type QuestionRef,
-} from "@/lib/services/questionPath";
 import { useBuilderIsReady, useCursorMode } from "@/lib/session/hooks";
 import type { CursorMode } from "@/lib/session/types";
 
@@ -33,7 +30,10 @@ import type { CursorMode } from "@/lib/session/types";
  *
  * All navigation and selection is URL-driven — the hook reads the current
  * location via `useLocation()`, dispatches selection via `useSelect()`, and
- * fires mutations via uuid-first `useBlueprintMutations()`.
+ * fires mutations via uuid-first `useBlueprintMutations()`. Handlers read
+ * the doc imperatively at fire time via `useBlueprintDocApi()` — no need
+ * to subscribe to entity-map slices; the handlers only run on keystrokes,
+ * and always-fresh state beats any reactive re-render here.
  */
 export function useBuilderShortcuts(
 	handleCursorModeChange: (mode: CursorMode) => void,
@@ -42,46 +42,23 @@ export function useBuilderShortcuts(
 	const loc = useLocation();
 	const select = useSelect();
 	const { setPending } = useScrollIntoView();
-	const deleteSelected = useDeleteSelectedQuestion();
+	const deleteSelected = useDeleteSelectedField();
 	const { undo, redo } = useUndoRedo();
-	const { duplicateQuestion, moveQuestion } = useBlueprintMutations();
+	const { duplicateField, moveField } = useBlueprintMutations();
 	const cursorMode = useCursorMode();
-
-	/* Assemble the current form so navigation/reorder helpers have the
-	 * nested question tree. Returns `undefined` when not on a form screen.
-	 * `useAssembledForm` short-circuits on a falsy uuid without subscribing
-	 * to any entity map, so keystrokes off-form never trigger a rebuild. */
-	const formUuid = loc.kind === "form" ? loc.formUuid : undefined;
-	const form = useAssembledForm(formUuid);
+	/* Imperative store handle — handlers read the freshest doc snapshot at
+	 * fire time. The hook never subscribes to a slice, so keystrokes never
+	 * trigger a component re-render on unrelated mutations. */
+	const docApi = useBlueprintDocApi();
 
 	return useMemo(() => {
 		if (!isReady) return [];
 
-		/** Build the flat ref list for the current form (depth-first walk,
-		 *  used by Tab/Shift+Tab which crosses group boundaries). */
-		const getFormRefs = (): QuestionRef[] | undefined =>
-			form ? flattenQuestionRefs(form.questions) : undefined;
-
-		/** Find the current question's index in the ref list by UUID. */
-		const findCurrent = (refs: QuestionRef[]): number => {
-			const selUuid = loc.kind === "form" ? loc.selectedUuid : undefined;
-			return refs.findIndex((r) => r.uuid === selUuid);
-		};
-
-		/** Build a path→uuid lookup from the flat refs list. */
-		const buildPathToUuid = (refs: QuestionRef[]): Map<string, string> => {
-			const map = new Map<string, string>();
-			for (const r of refs) {
-				map.set(r.path, r.uuid);
-			}
-			return map;
-		};
-
-		/** Navigate to a question by uuid — update selection via URL and
+		/** Navigate to a field by uuid — update selection via URL and
 		 *  request a scroll to bring the question into view. */
-		const navigateToQuestion = (uuid: string): void => {
+		const navigateToField = (uuid: Uuid): void => {
 			setPending(uuid, "smooth", false);
-			select(asUuid(uuid));
+			select(uuid);
 		};
 
 		return [
@@ -103,17 +80,17 @@ export function useBuilderShortcuts(
 			// suppressed when an input/editor is focused via keyboardManager)
 			{ key: "v", handler: () => handleCursorModeChange("pointer") },
 			{ key: "e", handler: () => handleCursorModeChange("edit") },
-			// Tab / Shift+Tab — navigate questions (edit mode only)
+			// Tab / Shift+Tab — navigate fields in depth-first order, edit mode only
 			{
 				key: "Tab",
 				handler: () => {
 					if (cursorMode !== "edit") return;
 					if (loc.kind !== "form" || !loc.selectedUuid) return;
-					const refs = getFormRefs();
-					if (!refs?.length) return;
-					const curIdx = findCurrent(refs);
+					const refs = flattenFieldRefs(docApi.getState(), loc.formUuid);
+					if (!refs.length) return;
+					const curIdx = refs.findIndex((r) => r.uuid === loc.selectedUuid);
 					const next = refs[(curIdx + 1) % refs.length];
-					navigateToQuestion(next.uuid);
+					navigateToField(next.uuid);
 				},
 			},
 			{
@@ -122,14 +99,14 @@ export function useBuilderShortcuts(
 				handler: () => {
 					if (cursorMode !== "edit") return;
 					if (loc.kind !== "form" || !loc.selectedUuid) return;
-					const refs = getFormRefs();
-					if (!refs?.length) return;
-					const curIdx = findCurrent(refs);
+					const refs = flattenFieldRefs(docApi.getState(), loc.formUuid);
+					if (!refs.length) return;
+					const curIdx = refs.findIndex((r) => r.uuid === loc.selectedUuid);
 					const prev = refs[curIdx <= 0 ? refs.length - 1 : curIdx - 1];
-					navigateToQuestion(prev.uuid);
+					navigateToField(prev.uuid);
 				},
 			},
-			// Delete / Backspace — delete selected question
+			// Delete / Backspace — delete selected field
 			{
 				key: "Delete",
 				handler: () => {
@@ -142,89 +119,59 @@ export function useBuilderShortcuts(
 					if (loc.kind === "form" && loc.selectedUuid) deleteSelected();
 				},
 			},
-			// Cmd+D — duplicate question via doc mutation
+			// Cmd+D — duplicate field via doc mutation
 			{
 				key: "d",
 				meta: true,
 				handler: () => {
 					if (loc.kind !== "form" || !loc.selectedUuid) return;
-					const result = duplicateQuestion(asUuid(loc.selectedUuid));
+					const result = duplicateField(asUuid(loc.selectedUuid));
 					if (!result) return;
-					navigateToQuestion(result.newUuid);
+					navigateToField(asUuid(result.newUuid));
 				},
 			},
 			// ArrowUp/ArrowDown — reorder within sibling level via doc mutation
 			{
 				key: "ArrowUp",
 				handler: () => {
-					if (loc.kind !== "form" || !loc.selectedUuid || !form) return;
-					const refs = getFormRefs();
-					if (!refs) return;
-					const pathToUuid = buildPathToUuid(refs);
-					const currentRef = refs.find((r) => r.uuid === loc.selectedUuid);
-					if (!currentRef) return;
-					const { beforePath } = getQuestionMoveTargets(
-						form.questions,
-						currentRef.path,
+					if (loc.kind !== "form" || !loc.selectedUuid) return;
+					const { beforeUuid } = getFieldMoveTargets(
+						docApi.getState(),
+						asUuid(loc.selectedUuid),
 					);
-					if (!beforePath) return;
-					const beforeUuid = pathToUuid.get(beforePath);
 					if (!beforeUuid) return;
-					moveQuestion(asUuid(loc.selectedUuid), {
-						beforeUuid: asUuid(beforeUuid),
-					});
+					moveField(asUuid(loc.selectedUuid), { beforeUuid });
 				},
 			},
 			{
 				key: "ArrowDown",
 				handler: () => {
-					if (loc.kind !== "form" || !loc.selectedUuid || !form) return;
-					const refs = getFormRefs();
-					if (!refs) return;
-					const pathToUuid = buildPathToUuid(refs);
-					const currentRef = refs.find((r) => r.uuid === loc.selectedUuid);
-					if (!currentRef) return;
-					const { afterPath } = getQuestionMoveTargets(
-						form.questions,
-						currentRef.path,
+					if (loc.kind !== "form" || !loc.selectedUuid) return;
+					const { afterUuid } = getFieldMoveTargets(
+						docApi.getState(),
+						asUuid(loc.selectedUuid),
 					);
-					if (!afterPath) return;
-					const afterUuid = pathToUuid.get(afterPath);
 					if (!afterUuid) return;
-					moveQuestion(asUuid(loc.selectedUuid), {
-						afterUuid: asUuid(afterUuid),
-					});
+					moveField(asUuid(loc.selectedUuid), { afterUuid });
 				},
 			},
-			// Shift+ArrowUp/Shift+ArrowDown — cross-level (indent/outdent) reorder
+			// Shift+ArrowUp/Shift+ArrowDown — cross-level (indent/outdent) reorder.
+			// `notifyMoveRename` pops the rename-dedup toast when a cross-parent
+			// move collided with a sibling id and the reducer auto-renamed.
 			{
 				key: "ArrowUp",
 				shift: true,
 				handler: () => {
-					if (loc.kind !== "form" || !loc.selectedUuid || !form) return;
-					const refs = getFormRefs();
-					if (!refs) return;
-					const pathToUuid = buildPathToUuid(refs);
-					const currentRef = refs.find((r) => r.uuid === loc.selectedUuid);
-					if (!currentRef) return;
-					const { up } = getCrossLevelMoveTargets(
-						form.questions,
-						currentRef.path,
+					if (loc.kind !== "form" || !loc.selectedUuid) return;
+					const { up } = getCrossLevelFieldMoveTargets(
+						docApi.getState(),
+						asUuid(loc.selectedUuid),
 					);
 					if (!up) return;
-					/* Translate path-based targets to uuid-based targets.
-					 * `targetParentPath === undefined` means root level → the form
-					 * uuid is the parent. */
-					const toParentUuid = up.targetParentPath
-						? pathToUuid.get(up.targetParentPath)
-						: formUuid;
-					if (!toParentUuid) return;
-					const beforeUuid = up.beforePath
-						? pathToUuid.get(up.beforePath)
-						: undefined;
-					const result = moveQuestion(asUuid(loc.selectedUuid), {
-						toParentUuid: asUuid(toParentUuid),
-						...(beforeUuid ? { beforeUuid: asUuid(beforeUuid) } : {}),
+					const result = moveField(asUuid(loc.selectedUuid), {
+						toParentUuid: up.toParentUuid,
+						...(up.beforeUuid ? { beforeUuid: up.beforeUuid } : {}),
+						...(up.afterUuid ? { afterUuid: up.afterUuid } : {}),
 					});
 					notifyMoveRename(result);
 				},
@@ -233,28 +180,16 @@ export function useBuilderShortcuts(
 				key: "ArrowDown",
 				shift: true,
 				handler: () => {
-					if (loc.kind !== "form" || !loc.selectedUuid || !form) return;
-					const refs = getFormRefs();
-					if (!refs) return;
-					const pathToUuid = buildPathToUuid(refs);
-					const currentRef = refs.find((r) => r.uuid === loc.selectedUuid);
-					if (!currentRef) return;
-					const { down } = getCrossLevelMoveTargets(
-						form.questions,
-						currentRef.path,
+					if (loc.kind !== "form" || !loc.selectedUuid) return;
+					const { down } = getCrossLevelFieldMoveTargets(
+						docApi.getState(),
+						asUuid(loc.selectedUuid),
 					);
 					if (!down) return;
-					/* Same path→uuid translation as Shift+ArrowUp. */
-					const toParentUuid = down.targetParentPath
-						? pathToUuid.get(down.targetParentPath)
-						: formUuid;
-					if (!toParentUuid) return;
-					const beforeUuid = down.beforePath
-						? pathToUuid.get(down.beforePath)
-						: undefined;
-					const result = moveQuestion(asUuid(loc.selectedUuid), {
-						toParentUuid: asUuid(toParentUuid),
-						...(beforeUuid ? { beforeUuid: asUuid(beforeUuid) } : {}),
+					const result = moveField(asUuid(loc.selectedUuid), {
+						toParentUuid: down.toParentUuid,
+						...(down.beforeUuid ? { beforeUuid: down.beforeUuid } : {}),
+						...(down.afterUuid ? { afterUuid: down.afterUuid } : {}),
 					});
 					notifyMoveRename(result);
 				},
@@ -276,16 +211,15 @@ export function useBuilderShortcuts(
 	}, [
 		isReady,
 		loc,
-		form,
-		formUuid,
+		docApi,
 		setPending,
 		select,
 		handleCursorModeChange,
 		deleteSelected,
 		undo,
 		redo,
-		duplicateQuestion,
-		moveQuestion,
+		duplicateField,
+		moveField,
 		cursorMode,
 	]);
 }

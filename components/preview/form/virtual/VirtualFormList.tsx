@@ -52,13 +52,13 @@ import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
 import { notifyMoveRename } from "@/lib/doc/mutations/notify";
 import { BlueprintDocContext } from "@/lib/doc/provider";
 import { asUuid, type Uuid } from "@/lib/doc/types";
-import { useSelect, useSelectedQuestion } from "@/lib/routing/hooks";
-import { useFormLayout } from "../FormLayoutContext";
+import { useSelect, useSelectedField } from "@/lib/routing/hooks";
 import {
-	QuestionPickerContext,
-	type QuestionPickerPayload,
-} from "../QuestionPickerContext";
-import { QuestionTypePickerPopup } from "../QuestionTypePicker";
+	FieldPickerContext,
+	type FieldPickerPayload,
+} from "../FieldPickerContext";
+import { FieldTypePickerPopup } from "../FieldTypePicker";
+import { useFormLayout } from "../FormLayoutContext";
 import {
 	isDraggableQuestionData,
 	isUuidInSubtree,
@@ -73,9 +73,9 @@ import {
 	INSERTION_REST_HEIGHT_PX,
 } from "./rowStyles";
 import { EmptyContainerRow } from "./rows/EmptyContainerRow";
+import { FieldRow } from "./rows/FieldRow";
 import { GroupCloseRow, GroupOpenRow } from "./rows/GroupBracket";
 import { InsertionPointRow } from "./rows/InsertionPointRow";
-import { QuestionRow } from "./rows/QuestionRow";
 import { useFormRows } from "./useFormRows";
 import { VirtualFormProvider } from "./VirtualFormContext";
 
@@ -98,9 +98,9 @@ export const VirtualFormList = memo(function VirtualFormList({
 	formUuid,
 }: VirtualFormListProps) {
 	const docStore = useContext(BlueprintDocContext);
-	const { moveQuestion } = useBlueprintMutations();
+	const { moveField } = useBlueprintMutations();
 	const select = useSelect();
-	const selectedQuestion = useSelectedQuestion();
+	const selectedField = useSelectedField();
 
 	// ── Collapse (shared across edit + live via FormLayoutContext) ───
 	// FormLayoutProvider in FormScreen owns the canonical Set so the same
@@ -166,14 +166,14 @@ export const VirtualFormList = memo(function VirtualFormList({
 	// ── Selected-row pinning ─────────────────────────────────────────
 
 	const selectedIndex = useMemo(() => {
-		const uuid = selectedQuestion?.uuid;
+		const uuid = selectedField?.uuid;
 		if (!uuid) return -1;
 		for (let i = 0; i < rows.length; i++) {
 			const row = rows[i];
 			if (row.kind === "question" && row.uuid === uuid) return i;
 		}
 		return -1;
-	}, [rows, selectedQuestion?.uuid]);
+	}, [rows, selectedField?.uuid]);
 
 	// ── Virtualizer wiring ───────────────────────────────────────────
 
@@ -285,7 +285,7 @@ export const VirtualFormList = memo(function VirtualFormList({
 				const targetContainer = targetContainerUuidFor(drop);
 				if (
 					isUuidInSubtree(
-						docs.getState().questionOrder as Record<string, readonly string[]>,
+						docs.getState().fieldOrder as Record<string, readonly string[]>,
 						dragUuid,
 						targetContainer,
 					)
@@ -450,7 +450,7 @@ export const VirtualFormList = memo(function VirtualFormList({
 				const targetContainer = targetContainerUuidFor(drop);
 				if (
 					isUuidInSubtree(
-						docs.getState().questionOrder as Record<string, readonly string[]>,
+						docs.getState().fieldOrder as Record<string, readonly string[]>,
 						dragUuid,
 						targetContainer,
 					)
@@ -463,7 +463,7 @@ export const VirtualFormList = memo(function VirtualFormList({
 				// mutation entirely — it's a cancel, not a move.
 				if (drop.kind === "drop-question") {
 					const parentOrder =
-						docs.getState().questionOrder[drop.parentUuid as Uuid] ?? [];
+						docs.getState().fieldOrder[drop.parentUuid as Uuid] ?? [];
 					const sourceIdx = parentOrder.indexOf(asUuid(dragUuid));
 					const targetIdx = parentOrder.indexOf(drop.uuid);
 					// Same parent, and the source is immediately before
@@ -476,18 +476,18 @@ export const VirtualFormList = memo(function VirtualFormList({
 					}
 				}
 
-				let result: ReturnType<typeof moveQuestion> | undefined;
+				let result: ReturnType<typeof moveField> | undefined;
 
 				switch (drop.kind) {
 					case "drop-question": {
 						if (drop.uuid === dragUuid) return;
 						if (edge === "top") {
-							result = moveQuestion(asUuid(dragUuid), {
+							result = moveField(asUuid(dragUuid), {
 								beforeUuid: drop.uuid,
 								toParentUuid: drop.parentUuid,
 							});
 						} else {
-							result = moveQuestion(asUuid(dragUuid), {
+							result = moveField(asUuid(dragUuid), {
 								afterUuid: drop.uuid,
 								toParentUuid: drop.parentUuid,
 							});
@@ -498,20 +498,20 @@ export const VirtualFormList = memo(function VirtualFormList({
 					case "drop-group-header": {
 						if (drop.uuid === dragUuid) return;
 						const firstChild =
-							docs.getState().questionOrder[drop.uuid as Uuid]?.[0];
+							docs.getState().fieldOrder[drop.uuid as Uuid]?.[0];
 						result = firstChild
-							? moveQuestion(asUuid(dragUuid), {
+							? moveField(asUuid(dragUuid), {
 									toParentUuid: drop.uuid,
 									beforeUuid: firstChild,
 								})
-							: moveQuestion(asUuid(dragUuid), {
+							: moveField(asUuid(dragUuid), {
 									toParentUuid: drop.uuid,
 								});
 						break;
 					}
 
 					case "drop-empty-container": {
-						result = moveQuestion(asUuid(dragUuid), {
+						result = moveField(asUuid(dragUuid), {
 							toParentUuid: drop.parentUuid,
 						});
 						break;
@@ -522,7 +522,7 @@ export const VirtualFormList = memo(function VirtualFormList({
 				select(asUuid(dragUuid));
 			},
 		});
-	}, [docStore, moveQuestion, select]);
+	}, [docStore, moveField, select]);
 
 	// ── Cursor-speed tracking (for InsertionPoint hover gating) ──────
 
@@ -579,7 +579,7 @@ export const VirtualFormList = memo(function VirtualFormList({
 	// ── Shared question-picker menu ──────────────────────────────────
 
 	const questionPickerHandle = useMemo(
-		() => Menu.createHandle<QuestionPickerPayload>(),
+		() => Menu.createHandle<FieldPickerPayload>(),
 		[],
 	);
 	const closeListenersRef = useRef(new Set<() => void>());
@@ -605,7 +605,7 @@ export const VirtualFormList = memo(function VirtualFormList({
 	const totalSize = virtualizer.getTotalSize();
 
 	return (
-		<QuestionPickerContext.Provider value={questionPickerCtx}>
+		<FieldPickerContext.Provider value={questionPickerCtx}>
 			<VirtualFormProvider
 				formUuid={formUuid}
 				toggleCollapse={toggleCollapse}
@@ -659,9 +659,9 @@ export const VirtualFormList = memo(function VirtualFormList({
 					modal={false}
 					onOpenChange={onPickerOpenChange}
 				>
-					{({ payload }: { payload: QuestionPickerPayload | undefined }) =>
+					{({ payload }: { payload: FieldPickerPayload | undefined }) =>
 						payload && (
-							<QuestionTypePickerPopup
+							<FieldTypePickerPopup
 								atIndex={payload.atIndex}
 								parentUuid={payload.parentUuid}
 							/>
@@ -669,7 +669,7 @@ export const VirtualFormList = memo(function VirtualFormList({
 					}
 				</Menu.Root>
 			</VirtualFormProvider>
-		</QuestionPickerContext.Provider>
+		</FieldPickerContext.Provider>
 	);
 });
 
@@ -715,7 +715,7 @@ const RenderRow = memo(function RenderRow({
 			return (
 				<>
 					{rails}
-					<QuestionRow
+					<FieldRow
 						uuid={row.uuid}
 						parentUuid={row.parentUuid}
 						siblingIndex={row.siblingIndex}

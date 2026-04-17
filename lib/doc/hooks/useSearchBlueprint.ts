@@ -1,23 +1,21 @@
 /**
  * Hook for full-text search across the current blueprint.
  *
- * Returns a stable callback that reads the doc store on demand, converts
- * the normalized state to a denormalized `AppBlueprint` via `toBlueprint`,
- * and delegates to the pure `searchBlueprint` function from
+ * Returns a stable callback that reads the doc store on demand and
+ * delegates to the pure `searchBlueprint` function from
  * `blueprintHelpers.ts`. The callback is safe to call from effects,
  * event handlers, or async flows — it always reads the freshest snapshot.
  *
- * The SA agent's `searchBlueprint` tool operates on the server-side mutable
- * `bp` object directly (via `blueprintHelpers.searchBlueprint`), so this
- * hook is only needed by client-side callers that read from the doc store.
+ * The SA agent also calls `searchBlueprint` directly on its doc reference
+ * (no hook needed server-side). This hook is only needed by client-side
+ * callers that read from the doc store.
  */
 
 import { useCallback, useContext } from "react";
-import { toBlueprint } from "@/lib/doc/converter";
 import { BlueprintDocContext } from "@/lib/doc/provider";
 import {
 	type SearchResult,
-	searchBlueprint as searchBp,
+	searchBlueprint as searchDoc,
 } from "@/lib/services/blueprintHelpers";
 
 export type { SearchResult };
@@ -41,8 +39,7 @@ export function useSearchBlueprint(): (query: string) => SearchResult[] {
 		(query: string): SearchResult[] => {
 			const doc = store.getState();
 			if (doc.moduleOrder.length === 0) return [];
-			const bp = toBlueprint(doc);
-			return searchBp(bp, query);
+			return searchDoc(doc, query);
 		},
 		[store],
 	);

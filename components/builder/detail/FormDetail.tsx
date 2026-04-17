@@ -6,8 +6,8 @@ import { Tooltip } from "@/components/ui/Tooltip";
 import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
 import { useForm, useModule } from "@/lib/doc/hooks/useEntity";
 import { asUuid, type Uuid } from "@/lib/doc/types";
-import { formTypeIcons } from "@/lib/questionTypeIcons";
-import { CASE_FORM_TYPES, type FormType } from "@/lib/schemas/blueprint";
+import { CASE_FORM_TYPES, type FormType } from "@/lib/domain";
+import { formTypeIcons } from "@/lib/fieldTypeIcons";
 import {
 	MENU_ITEM_BASE,
 	MENU_ITEM_CLS,
@@ -44,8 +44,8 @@ export function FormDetail({ formUuid }: FormDetailProps) {
 				Close Behavior
 			</span>
 			<p className="text-sm text-nova-rose">
-				{form.closeCondition?.question
-					? `Conditional: when ${form.closeCondition.question} ${form.closeCondition.operator === "selected" ? "has selected" : "is"} "${form.closeCondition.answer}"`
+				{form.closeCondition?.field
+					? `Conditional: when ${form.closeCondition.field} ${form.closeCondition.operator === "selected" ? "has selected" : "is"} "${form.closeCondition.answer}"`
 					: "Always closes case on submit"}
 			</p>
 		</div>

@@ -12,25 +12,25 @@ import tablerTrash from "@iconify-icons/tabler/trash";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useScrollIntoView } from "@/components/builder/contexts/ScrollRegistryContext";
 import { SavedCheck } from "@/components/builder/EditableTitle";
-import { QuestionTypeList } from "@/components/builder/QuestionTypeList";
+import { FieldTypeList } from "@/components/builder/FieldTypeList";
 import { tablerCopyPlus } from "@/components/icons/tablerExtras";
 import { Tooltip } from "@/components/ui/Tooltip";
 import { useCommitField } from "@/hooks/useCommitField";
-import { useSaveQuestion } from "@/hooks/useSaveQuestion";
-import { useAssembledForm } from "@/lib/doc/hooks/useAssembledForm";
+import { useSaveField } from "@/hooks/useSaveField";
+import { useBlueprintDocApi } from "@/lib/doc/hooks/useBlueprintDoc";
 import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
-import { asUuid, type Uuid } from "@/lib/doc/types";
-import { shortcutLabel } from "@/lib/platform";
-import { getConvertibleTypes } from "@/lib/questionTypeConversions";
-import { questionTypeIcons, questionTypeLabels } from "@/lib/questionTypeIcons";
-import { useDeleteSelectedQuestion } from "@/lib/routing/builderActions";
-import { useLocation, useSelect } from "@/lib/routing/hooks";
-import type { CrossLevelMoveTarget } from "@/lib/services/questionNavigation";
 import {
-	getCrossLevelMoveTargets,
-	getQuestionMoveTargets,
-} from "@/lib/services/questionNavigation";
-import { useClearNewQuestion, useIsNewQuestion } from "@/lib/session/hooks";
+	type CrossLevelFieldMoveTarget,
+	getCrossLevelFieldMoveTargets,
+	getFieldMoveTargets,
+} from "@/lib/doc/navigation";
+import { asUuid } from "@/lib/doc/types";
+import { getConvertibleTypes } from "@/lib/fieldTypeConversions";
+import { fieldKindIcons, fieldKindLabels } from "@/lib/fieldTypeIcons";
+import { shortcutLabel } from "@/lib/platform";
+import { useDeleteSelectedField } from "@/lib/routing/builderActions";
+import { useLocation, useSelect } from "@/lib/routing/hooks";
+import { useClearNewField, useIsNewField } from "@/lib/session/hooks";
 import {
 	MENU_ITEM_CLS,
 	MENU_ITEM_DISABLED_CLS,
@@ -39,7 +39,7 @@ import {
 	MENU_SUBMENU_POSITIONER_CLS,
 	POPOVER_POPUP_CLS,
 } from "@/lib/styles";
-import type { FocusableFieldKey, QuestionEditorProps } from "./shared";
+import type { FieldEditorProps, FocusableFieldKey } from "./shared";
 import { useFocusHint } from "./shared";
 
 /** Field keys owned by the Header — only "id" for undo/redo focus hints. */
@@ -69,7 +69,7 @@ function useShiftKey(): boolean {
 	return shift;
 }
 
-export function ContextualEditorHeader({ question }: QuestionEditorProps) {
+export function ContextualEditorHeader({ field }: FieldEditorProps) {
 	const { setPending } = useScrollIntoView();
 	const loc = useLocation();
 	const select = useSelect();
@@ -77,21 +77,29 @@ export function ContextualEditorHeader({ question }: QuestionEditorProps) {
 	const selectedUuid = loc.kind === "form" ? loc.selectedUuid : undefined;
 	const formUuid = loc.kind === "form" ? loc.formUuid : undefined;
 
-	const isNewQuestion = useIsNewQuestion(selectedUuid ?? "");
-	const clearNewQuestion = useClearNewQuestion();
+	const isNewField = useIsNewField(selectedUuid ?? "");
+	const clearNewField = useClearNewField();
 
 	const {
-		moveQuestion,
-		duplicateQuestion,
-		renameQuestion: renameQuestionAction,
+		moveField,
+		duplicateField,
+		renameField: renameFieldAction,
 	} = useBlueprintMutations();
 
-	const assembledForm = useAssembledForm((formUuid ?? "") as Uuid);
+	/* Imperative doc handle. The grandparent row (`FieldRow`) subscribes
+	 * to the selected field entity AND receives `parentUuid` + `siblingIndex`
+	 * props — so every reorder of the selected field changes at least one
+	 * prop and propagates a re-render down to this header via the memo
+	 * boundary. Reading the live doc with `docApi.getState()` in the
+	 * render body then picks up fresh adjacency on every relevant render
+	 * without forcing a reactive subscription that would also fire on
+	 * unrelated field edits (label, hint, calculate). */
+	const docApi = useBlueprintDocApi();
 
-	const saveQuestion = useSaveQuestion(selectedUuid);
+	const saveField = useSaveField(selectedUuid);
 	const focusHint = useFocusHint(HEADER_FIELDS);
 	const shiftHeld = useShiftKey();
-	const deleteSelected = useDeleteSelectedQuestion();
+	const deleteSelected = useDeleteSelectedField();
 
 	/* ── ID field notices (errors + rename info) ── */
 
@@ -124,7 +132,7 @@ export function ContextualEditorHeader({ question }: QuestionEditorProps) {
 		(newId: string): boolean => {
 			if (!selectedUuid || !newId) return false;
 
-			const result = renameQuestionAction(asUuid(selectedUuid), newId);
+			const result = renameFieldAction(asUuid(selectedUuid), newId);
 
 			/* Store blocked the rename — sibling conflict. Show shake +
 			 * error popover matching the XPathField validation pattern. */
@@ -141,14 +149,14 @@ export function ContextualEditorHeader({ question }: QuestionEditorProps) {
 			/* Rename succeeded — uuid stays the same, selection is stable.
 			 * Clear the new-question highlight so subsequent edits are normal. */
 			setIdNotice(null);
-			clearNewQuestion();
+			clearNewField();
 			return true;
 		},
-		[selectedUuid, renameQuestionAction, clearNewQuestion],
+		[selectedUuid, renameFieldAction, clearNewField],
 	);
 
 	const idField = useCommitField({
-		value: question.id,
+		value: field.id,
 		validate: validateRename,
 		onSave: () => {},
 	});
@@ -160,177 +168,92 @@ export function ContextualEditorHeader({ question }: QuestionEditorProps) {
 			idInputRef.current = el;
 			idField.ref(el);
 			syncIdWidth();
-			const shouldAutoFocus = focusHint === "id" || isNewQuestion;
+			const shouldAutoFocus = focusHint === "id" || isNewField;
 			if (el && shouldAutoFocus) {
 				el.focus({ preventScroll: true });
 				el.select();
 			}
 		},
-		[idField.ref, focusHint, isNewQuestion, syncIdWidth],
+		[idField.ref, focusHint, isNewField, syncIdWidth],
 	);
 
 	/* ── Action handlers ── */
 
-	/** Compute the question path from the assembled form for move operations.
-	 *  This bridges the path-based move target utilities with uuid-first mutations. */
-	const getQuestionPath = useCallback(() => {
-		if (!assembledForm || !selectedUuid) return undefined;
-		const { questions } = assembledForm;
-		/* Walk the assembled form to find the question with matching uuid. */
-		const findPath = (
-			qs: typeof questions,
-			parent?: string,
-		): string | undefined => {
-			for (const q of qs) {
-				const path = parent ? `${parent}/${q.id}` : q.id;
-				if (q.uuid === selectedUuid) return path;
-				if (q.children) {
-					const found = findPath(q.children, path);
-					if (found) return found;
-				}
-			}
-			return undefined;
-		};
-		return findPath(questions);
-	}, [assembledForm, selectedUuid]);
-
-	/** Find a question's uuid by its path in the assembled form tree. */
-	const findUuidByPath = useCallback(
-		(targetPath: string): Uuid | undefined => {
-			if (!assembledForm) return undefined;
-			const findInTree = (
-				qs: typeof assembledForm.questions,
-				parent?: string,
-			): Uuid | undefined => {
-				for (const q of qs) {
-					const path = parent ? `${parent}/${q.id}` : q.id;
-					if (path === targetPath) return asUuid(q.uuid);
-					if (q.children) {
-						const found = findInTree(q.children, path);
-						if (found) return found;
-					}
-				}
-				return undefined;
-			};
-			return findInTree(assembledForm.questions);
-		},
-		[assembledForm],
-	);
-
 	const handleMoveUp = useCallback(() => {
-		if (!selectedUuid || !assembledForm) return;
-		const questionPath = getQuestionPath();
-		if (!questionPath) return;
-		const { beforePath } = getQuestionMoveTargets(
-			assembledForm.questions,
-			questionPath as import("@/lib/services/questionPath").QuestionPath,
+		if (!selectedUuid) return;
+		const { beforeUuid } = getFieldMoveTargets(
+			docApi.getState(),
+			asUuid(selectedUuid),
 		);
-		if (!beforePath) return;
-		const beforeUuid = findUuidByPath(beforePath as string);
-		if (beforeUuid) {
-			moveQuestion(asUuid(selectedUuid), { beforeUuid });
-		}
-	}, [
-		selectedUuid,
-		assembledForm,
-		moveQuestion,
-		getQuestionPath,
-		findUuidByPath,
-	]);
+		if (beforeUuid) moveField(asUuid(selectedUuid), { beforeUuid });
+	}, [selectedUuid, docApi, moveField]);
 
 	const handleMoveDown = useCallback(() => {
-		if (!selectedUuid || !assembledForm) return;
-		const questionPath = getQuestionPath();
-		if (!questionPath) return;
-		const { afterPath } = getQuestionMoveTargets(
-			assembledForm.questions,
-			questionPath as import("@/lib/services/questionPath").QuestionPath,
+		if (!selectedUuid) return;
+		const { afterUuid } = getFieldMoveTargets(
+			docApi.getState(),
+			asUuid(selectedUuid),
 		);
-		if (!afterPath) return;
-		const afterUuid = findUuidByPath(afterPath as string);
-		if (afterUuid) {
-			moveQuestion(asUuid(selectedUuid), { afterUuid });
-		}
-	}, [
-		selectedUuid,
-		assembledForm,
-		moveQuestion,
-		getQuestionPath,
-		findUuidByPath,
-	]);
+		if (afterUuid) moveField(asUuid(selectedUuid), { afterUuid });
+	}, [selectedUuid, docApi, moveField]);
 
-	/** Execute a cross-level move and scroll to the question at its new location. */
+	/** Execute a cross-level move and scroll to the field at its new location. */
 	const executeCrossLevel = useCallback(
-		(target: CrossLevelMoveTarget) => {
+		(target: CrossLevelFieldMoveTarget) => {
 			if (!selectedUuid) return;
-			/* Resolve target parent and sibling uuids from paths. */
-			const toParentUuid = target.targetParentPath
-				? findUuidByPath(target.targetParentPath as string)
-				: formUuid
-					? asUuid(formUuid)
-					: undefined;
-			const beforeUuid = target.beforePath
-				? findUuidByPath(target.beforePath as string)
-				: undefined;
-			const afterUuid = target.afterPath
-				? findUuidByPath(target.afterPath as string)
-				: undefined;
-
-			if (!toParentUuid) return;
-
-			moveQuestion(asUuid(selectedUuid), {
-				toParentUuid,
-				beforeUuid,
-				afterUuid,
+			moveField(asUuid(selectedUuid), {
+				toParentUuid: target.toParentUuid,
+				beforeUuid: target.beforeUuid,
+				afterUuid: target.afterUuid,
 			});
-			/* Scroll to the question at its new position. */
+			/* Scroll to the field at its new position. */
 			setPending(selectedUuid, "smooth", false);
 		},
-		[selectedUuid, formUuid, moveQuestion, findUuidByPath, setPending],
+		[selectedUuid, moveField, setPending],
 	);
 
 	const handleDuplicate = useCallback(() => {
 		if (!selectedUuid) return;
-		const result = duplicateQuestion(asUuid(selectedUuid));
+		const result = duplicateField(asUuid(selectedUuid));
 		if (!result) return;
 		/* Select the new clone and scroll to it. */
 		setPending(result.newUuid, "smooth", false);
 		select(asUuid(result.newUuid));
-	}, [selectedUuid, duplicateQuestion, setPending, select]);
+	}, [selectedUuid, duplicateField, setPending, select]);
 
-	/** Delete uses the `useDeleteSelectedQuestion` hook which handles
+	/** Delete uses the `useDeleteSelectedField` hook which handles
 	 *  neighbor selection and URL update. */
 	const handleDelete = useCallback(() => {
 		deleteSelected();
 	}, [deleteSelected]);
 
-	if (!selectedUuid || !assembledForm) return null;
+	if (!selectedUuid || !formUuid) return null;
 
 	/* Compute adjacency inline so isFirst/isLast always reflect the current
-	 * state. Re-derives when the assembled form reference changes (i.e.,
-	 * after a mutation updates normalized entities). */
-	const questionPath = getQuestionPath();
-	const { beforePath, afterPath } = questionPath
-		? getQuestionMoveTargets(
-				assembledForm.questions,
-				questionPath as import("@/lib/services/questionPath").QuestionPath,
-			)
-		: { beforePath: undefined, afterPath: undefined };
-	const isFirst = beforePath === undefined;
-	const isLast = afterPath === undefined;
+	 * state. This runs on every render — see the comment on `docApi` above
+	 * for why parent re-renders always cover the cases we care about. */
+	const liveDoc = docApi.getState();
+	const selectedUuidBranded = asUuid(selectedUuid);
+	const { beforeUuid, afterUuid } = getFieldMoveTargets(
+		liveDoc,
+		selectedUuidBranded,
+	);
+	const isFirst = beforeUuid === undefined;
+	const isLast = afterUuid === undefined;
 
 	/* Cross-level (indent/outdent) targets — shown when Shift is held. */
-	const { up: crossUp, down: crossDown } = questionPath
-		? getCrossLevelMoveTargets(
-				assembledForm.questions,
-				questionPath as import("@/lib/services/questionPath").QuestionPath,
-			)
-		: { up: undefined, down: undefined };
+	const { up: crossUp, down: crossDown } = getCrossLevelFieldMoveTargets(
+		liveDoc,
+		selectedUuidBranded,
+	);
 
-	const conversionTargets = getConvertibleTypes(question.type);
+	// `kind` replaces the legacy wire `type` discriminant everywhere
+	// outside the SA wire boundary. Conversion targets, icons, and human
+	// labels all key off the same string value.
+	const conversionTargets = getConvertibleTypes(field.kind);
 	const canConvert = conversionTargets.length > 0;
-	const typeIcon = questionTypeIcons[question.type];
-	const typeLabel = questionTypeLabels[question.type] ?? question.type;
+	const typeIcon = fieldKindIcons[field.kind];
+	const typeLabel = fieldKindLabels[field.kind] ?? field.kind;
 
 	return (
 		<div className="flex items-center justify-between px-3 py-3 border-b border-white/[0.06]">
@@ -510,10 +433,12 @@ export function ContextualEditorHeader({ question }: QuestionEditorProps) {
 												sideOffset={4}
 											>
 												<Menu.Popup className={MENU_POPUP_CLS}>
-													<QuestionTypeList
+													{/* `saveField` routes the patch through `updateField`,
+													 *  which expects the domain `kind` discriminant. */}
+													<FieldTypeList
 														types={conversionTargets}
-														activeType={question.type}
-														onSelect={(type) => saveQuestion("type", type)}
+														activeType={field.kind}
+														onSelect={(next) => saveField("kind", next)}
 													/>
 												</Menu.Popup>
 											</Menu.Positioner>

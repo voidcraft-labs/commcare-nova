@@ -1,5 +1,5 @@
 import { ConnectLogomark } from "@/components/icons/ConnectLogomark";
-import type { ConnectType } from "@/lib/schemas/blueprint";
+import type { ConnectType } from "@/lib/domain";
 
 interface ConnectBadgeProps {
 	type: ConnectType;

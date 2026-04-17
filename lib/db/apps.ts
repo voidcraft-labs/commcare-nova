@@ -11,7 +11,7 @@
  */
 import { FieldValue, type Timestamp } from "@google-cloud/firestore";
 import { log } from "@/lib/log";
-import type { AppBlueprint } from "../schemas/blueprint";
+import type { BlueprintDoc, PersistableDoc } from "../domain/blueprint";
 import type { ErrorType } from "../services/errorClassifier";
 import { collections, docs, getDb } from "./firestore";
 import type { AppDoc } from "./types";
@@ -47,14 +47,27 @@ const MAX_GENERATION_MINUTES = 10;
 
 // ── Helpers ────────────────────────────────────────────────────────
 
-/** Extract denormalized fields from a blueprint for list display. */
-function denormalize(blueprint: AppBlueprint) {
-	const modules = blueprint.modules ?? [];
+/**
+ * Extract denormalized list-display fields from a normalized doc.
+ *
+ * Accepts both `PersistableDoc` (on-disk shape without `fieldParent`) and
+ * `BlueprintDoc` (in-memory shape with `fieldParent`) so callers can pass
+ * either without a conversion step.
+ *
+ * `moduleOrder.length` gives the module count; summing each module's
+ * `formOrder` entry gives the total form count. These are stored on the
+ * Firestore document so list queries never need to deserialize a full doc.
+ */
+function denormalize(doc: PersistableDoc) {
+	const formCount = doc.moduleOrder.reduce(
+		(sum, modUuid) => sum + (doc.formOrder[modUuid]?.length ?? 0),
+		0,
+	);
 	return {
-		app_name: blueprint.app_name || "Untitled",
-		connect_type: blueprint.connect_type ?? null,
-		module_count: modules.length,
-		form_count: modules.reduce((sum, m) => sum + (m.forms?.length ?? 0), 0),
+		app_name: doc.appName || "Untitled",
+		connect_type: doc.connectType ?? null,
+		module_count: doc.moduleOrder.length,
+		form_count: formCount,
 	};
 }
 
@@ -130,22 +143,39 @@ export async function userHasApps(owner: string): Promise<boolean> {
  * Create a new app document at the start of generation.
  *
  * Called by the route handler when a new build starts (no appId from client).
- * The document starts with `status: 'generating'` and an empty blueprint.
+ * The document starts with `status: 'generating'` and an empty normalized doc.
  * `updateApp` writes intermediate snapshots during generation (advancing
- * `updated_at`), and `completeApp` writes the final validated blueprint.
+ * `updated_at`), and `completeApp` writes the final validated doc.
  * Returns the generated appId for immediate use (logging, URL update).
+ *
+ * NOTE: Until Task 17-18 migrate the SA to emit normalized docs, the
+ * intermediate and final saves from generation will overwrite this with
+ * a legacy `AppBlueprint`-shaped value. Task 19's migration script converts
+ * all stored docs to the normalized shape.
  */
 export async function createApp(owner: string, runId: string): Promise<string> {
 	const ref = collections.apps().doc();
-	const emptyBlueprint: AppBlueprint = {
-		app_name: "",
-		modules: [],
-		case_types: null,
+	// The empty doc uses the new normalized shape. `appId` is the Firestore
+	// document ID — set here so the doc is self-identifying after load.
+	const emptyDoc: BlueprintDoc = {
+		appId: ref.id,
+		appName: "",
+		connectType: null,
+		caseTypes: null,
+		modules: {},
+		forms: {},
+		fields: {},
+		moduleOrder: [],
+		formOrder: {},
+		fieldOrder: {},
+		fieldParent: {},
 	};
+	// Strip fieldParent before writing — it is derived on load, not stored.
+	const { fieldParent: _fp, ...persistable } = emptyDoc;
 	await ref.set({
 		owner,
-		...denormalize(emptyBlueprint),
-		blueprint: emptyBlueprint,
+		...denormalize(emptyDoc),
+		blueprint: persistable,
 		status: "generating",
 		error_type: null,
 		run_id: runId,
@@ -156,21 +186,25 @@ export async function createApp(owner: string, runId: string): Promise<string> {
 }
 
 /**
- * Update an app with the final validated blueprint on generation success.
+ * Update an app with the final validated doc on generation success.
  *
  * Called by validateApp after the build pipeline completes. Updates the
  * blueprint, denormalized fields, status, and run_id — preserves created_at
  * and owner.
+ *
+ * TODO Task 17-18: generation SA currently still produces `AppBlueprint`;
+ * until then the caller casts to `PersistableDoc` via `as unknown`. Task
+ * 17-18 rewrites the SA to emit normalized docs and removes that cast.
  */
 export async function completeApp(
 	appId: string,
-	blueprint: AppBlueprint,
+	doc: PersistableDoc,
 	runId: string,
 ): Promise<void> {
 	await docs.app(appId).set(
 		{
-			...denormalize(blueprint),
-			blueprint,
+			...denormalize(doc),
+			blueprint: doc,
 			status: "complete",
 			run_id: runId,
 			updated_at: FieldValue.serverTimestamp(),
@@ -200,22 +234,55 @@ export function failApp(appId: string, errorType: ErrorType): void {
 }
 
 /**
- * Merge-update an existing app with a new blueprint snapshot.
+ * Merge-update an existing app with a new normalized doc snapshot.
  *
- * Two callers: (1) `GenerationContext.saveBlueprint()` fires this on each
- * blueprint-mutating emission so `updated_at` advances during generation,
- * (2) the client-side auto-save hook after user edits.
+ * Called by the client-side auto-save route (`PUT /api/apps/{id}`) after
+ * user edits. Accepts `PersistableDoc` (the Zod-validated on-disk shape
+ * without `fieldParent`) so the route can pass `blueprintDocSchema.safeParse()`
+ * results directly. `BlueprintDoc` (in-memory with `fieldParent`) is also
+ * assignable since it extends `PersistableDoc`.
  *
  * Only touches the blueprint, denormalized fields, and updated_at —
  * preserves created_at, owner, run_id, and status from the original save.
+ *
+ * NOTE: `GenerationContext.saveBlueprint()` (Tasks 17-18) will be updated
+ * to call this function once the SA emits normalized docs. Until then,
+ * generation intermediate saves use `updateAppLegacy` below.
  */
 export async function updateApp(
 	appId: string,
-	blueprint: AppBlueprint,
+	doc: PersistableDoc,
 ): Promise<void> {
 	await docs.app(appId).set(
 		{
-			...denormalize(blueprint),
+			...denormalize(doc),
+			blueprint: doc,
+			updated_at: FieldValue.serverTimestamp(),
+		},
+		{ merge: true },
+	);
+}
+
+/**
+ * Merge-update an existing app from the legacy `AppBlueprint` shape.
+ *
+ * Temporary shim for `GenerationContext.saveBlueprint()` and the
+ * initial generation path until Tasks 17-18 migrate the SA to emit
+ * normalized `BlueprintDoc` objects. At that point this function is
+ * deleted and `saveBlueprint()` calls `updateApp` directly.
+ *
+ * @deprecated Remove in Task 17-18 when the SA emits normalized docs.
+ */
+export async function updateAppLegacy(
+	appId: string,
+	blueprint: Record<string, unknown>,
+): Promise<void> {
+	await docs.app(appId).set(
+		{
+			// Denormalization is skipped for legacy writes — the list-display
+			// fields will be stale until the migration script runs or the app
+			// is re-saved via the normalized path. Acceptable in the half-
+			// migrated state; Task 19 corrects it.
 			blueprint,
 			updated_at: FieldValue.serverTimestamp(),
 		},

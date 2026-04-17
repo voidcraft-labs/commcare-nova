@@ -9,6 +9,7 @@
 import { renderHook } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { describe, expect, it, vi } from "vitest";
+import { buildDoc, f } from "@/lib/__tests__/docHelpers";
 import { BlueprintDocContext } from "@/lib/doc/provider";
 import { createBlueprintDocStore } from "@/lib/doc/store";
 
@@ -47,40 +48,33 @@ vi.mock("@/components/builder/contexts/EditGuardContext", () => ({
 import { useLocation } from "@/lib/routing/hooks";
 
 /**
- * Build a doc store with a known module, form, and question so the
+ * Build a doc store with a known module, form, and field so the
  * path parser can disambiguate UUIDs.
  */
-const BP = {
-	app_name: "T",
-	connect_type: undefined,
-	case_types: null,
-	modules: [
-		{
-			uuid: "mod-uuid",
-			name: "M",
-			case_type: undefined,
-			forms: [
+function makeStore() {
+	const store = createBlueprintDocStore();
+	store.getState().load(
+		buildDoc({
+			appId: "app-1",
+			appName: "T",
+			modules: [
 				{
-					uuid: "form-uuid",
-					name: "F",
-					type: "survey" as const,
-					questions: [
+					uuid: "mod-uuid",
+					name: "M",
+					forms: [
 						{
-							uuid: "q-uuid",
-							id: "q",
-							type: "text" as const,
-							label: "Q",
+							uuid: "form-uuid",
+							name: "F",
+							type: "survey",
+							fields: [
+								f({ uuid: "q-uuid", kind: "text", id: "q", label: "Q" }),
+							],
 						},
 					],
 				},
 			],
-		},
-	],
-};
-
-function makeStore() {
-	const store = createBlueprintDocStore();
-	store.getState().load(BP, "app-1");
+		}),
+	);
 	return store;
 }
 
@@ -119,7 +113,7 @@ describe("useLocation", () => {
 		const state = store.getState();
 		const moduleUuid = state.moduleOrder[0];
 		const formUuid = state.formOrder[moduleUuid][0];
-		const questionUuid = state.questionOrder[formUuid][0];
+		const questionUuid = state.fieldOrder[formUuid][0];
 		mockSegments.current = [formUuid, questionUuid];
 		const { result } = renderHook(() => useLocation(), {
 			wrapper: wrapper(store),

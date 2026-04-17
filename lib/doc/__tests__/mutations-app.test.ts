@@ -11,10 +11,11 @@ function emptyDoc(): BlueprintDoc {
 		caseTypes: null,
 		modules: {},
 		forms: {},
-		questions: {},
+		fields: {},
 		moduleOrder: [],
 		formOrder: {},
-		questionOrder: {},
+		fieldOrder: {},
+		fieldParent: {},
 	};
 }
 

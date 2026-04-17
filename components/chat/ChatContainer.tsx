@@ -20,7 +20,6 @@ import { Logo } from "@/components/ui/Logo";
 import { parseApiErrorMessage } from "@/lib/apiError";
 import { extractThread } from "@/lib/chat/threadUtils";
 import { saveThread } from "@/lib/db/threads";
-import { toBlueprint } from "@/lib/doc/converter";
 import {
 	BlueprintDocContext,
 	type BlueprintDocStore,
@@ -81,8 +80,19 @@ function createChatInstance(
 				if (!session) return {};
 				const sessionState = session.getState();
 				const docHasData = (doc?.moduleOrder.length ?? 0) > 0;
+				/* Send the normalized doc directly — the route converts to the
+				 * SA's wire format server-side. `fieldParent` is a derived,
+				 * non-persisted field, so we omit it from the wire payload
+				 * (matches Firestore's persistence contract). */
+				const wireDoc =
+					doc && docHasData
+						? (() => {
+								const { fieldParent: _fp, ...persistable } = doc;
+								return persistable;
+							})()
+						: undefined;
 				return {
-					blueprint: doc && docHasData ? toBlueprint(doc) : undefined,
+					doc: wireDoc,
 					runId: runIdRef.current,
 					appId: sessionState.appId,
 					lastResponseAt: lastResponseAtRef.current,

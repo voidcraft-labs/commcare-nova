@@ -58,6 +58,24 @@ export function useBlueprintDocShallow<T>(
 }
 
 /**
+ * Subscribe with a caller-supplied equality function. Use when the selector
+ * returns a value whose default `Object.is` comparison would over-trigger
+ * re-renders (e.g. an array that is structurally unchanged but allocated
+ * anew because an ancestor map was rewritten by Immer).
+ *
+ * zustand's `useStore` hard-codes `Object.is`; this wrapper delegates to
+ * `useStoreWithEqualityFn` (zustand/traditional) which threads a custom
+ * comparator through the subscription.
+ */
+export function useBlueprintDocEq<T>(
+	selector: (s: BlueprintDocState) => T,
+	equalityFn: (a: T, b: T) => boolean,
+): T {
+	const store = useStoreInstance();
+	return useStoreWithEqualityFn(store, selector, equalityFn);
+}
+
+/**
  * Imperative access to the raw doc store API — read/write via
  * `storeApi.getState()` without subscribing to re-renders. Use in
  * effect-time snapshots, callback closures, test harness setup, and

@@ -4,7 +4,7 @@
  * The engine manages two layers:
  * 1. **DataInstance + TriggerDag** — internal computation infrastructure for
  *    XPath evaluation and dependency tracking. Not reactive.
- * 2. **Zustand store** (`engine.store`) — flat map of path → QuestionState.
+ * 2. **Zustand store** (`engine.store`) — flat map of path → FieldState.
  *    Components subscribe via `useStore(engine.store, s => s[path])` and get
  *    the same per-path reactivity as the builder store's entity selectors.
  *
@@ -15,24 +15,30 @@
  *
  * No custom subscription system, no notification code, no change detection
  * abstractions. Zustand handles all of it.
+ *
+ * ## Domain types
+ *
+ * The engine consumes domain `Form` + `Field[]` entities (via the normalized
+ * doc's `fields`/`fieldOrder` maps). Internally it walks the fields as a
+ * `FieldTreeNode` rose tree built at construction / schema refresh — the
+ * walkers used to operate on the legacy nested `Question` shape and switched
+ * to the domain tree during the Phase 1 rename. No `Question` / `BlueprintForm`
+ * types live in this file or its helpers.
  */
 import { createStore, type StoreApi } from "zustand/vanilla";
-import type {
-	BlueprintForm,
-	CaseType,
-	Question,
-} from "@/lib/schemas/blueprint";
+import type { CaseType, Field, Form, Uuid } from "@/lib/domain";
 import { toBoolean, xpathToString } from "../xpath/coerce";
 import { evaluate } from "../xpath/evaluator";
 import type { EvalContext } from "../xpath/types";
 import { DataInstance } from "./dataInstance";
+import { buildFieldTree, type FieldTreeNode } from "./fieldTree";
 import { resolveLabel } from "./labelRefs";
 import { TriggerDag } from "./triggerDag";
-import type { QuestionState } from "./types";
+import type { FieldState } from "./types";
 
 /** Stable fallback for paths that don't exist in the engine. Frozen so
  *  Zustand selectors always return the same reference — no spurious re-renders. */
-export const DEFAULT_ENGINE_STATE: QuestionState = Object.freeze({
+export const DEFAULT_ENGINE_STATE: FieldState = Object.freeze({
 	path: "",
 	value: "",
 	visible: true,
@@ -41,13 +47,13 @@ export const DEFAULT_ENGINE_STATE: QuestionState = Object.freeze({
 	touched: false,
 });
 
-/** The Zustand store type — flat map of XForm path → immutable QuestionState. */
-export type EngineStoreState = Record<string, QuestionState>;
+/** The Zustand store type — flat map of XForm path → immutable FieldState. */
+export type EngineStoreState = Record<string, FieldState>;
 
-/** Field-level equality check for QuestionState. Used by updateSchema to
+/** Field-level equality check for FieldState. Used by updateSchema to
  *  diff old vs new states and only notify subscribers for paths that
  *  actually changed. */
-function statesEqual(a: QuestionState, b: QuestionState): boolean {
+function statesEqual(a: FieldState, b: FieldState): boolean {
 	return (
 		a.path === b.path &&
 		a.value === b.value &&
@@ -61,45 +67,63 @@ function statesEqual(a: QuestionState, b: QuestionState): boolean {
 	);
 }
 
+/**
+ * Convenience view passed to the engine. The engine builds the `FieldTreeNode`
+ * rose tree internally from these flat maps; consumers only have to supply the
+ * normalized doc slice, not pre-walked trees.
+ */
+export interface FormEngineInput {
+	/** The form entity (no nested fields). */
+	form: Form;
+	/** The form's uuid — used as the root key into `fieldOrder`. */
+	formUuid: Uuid;
+	/** Flat uuid→field map (the `doc.fields` slice). */
+	fields: Record<string, Field>;
+	/** Adjacency list from parent uuid → ordered child uuids (`doc.fieldOrder`). */
+	fieldOrder: Record<string, Uuid[]>;
+}
+
 export class FormEngine {
-	/** Zustand store holding per-path QuestionState. Components subscribe
+	/** Zustand store holding per-path FieldState. Components subscribe
 	 *  via `useStore(engine.store, s => s[path])` for surgical reactivity. */
 	readonly store: StoreApi<EngineStoreState>;
 
 	private instance: DataInstance;
 	private dag: TriggerDag;
-	private mergedQuestions: Question[];
+	/** Rose-tree of the active form's fields. Rebuilt on schema refresh so
+	 *  every walker inside the engine agrees on the same snapshot. */
+	private tree: FieldTreeNode[];
 	private caseData: Map<string, string>;
 	private moduleCaseType: string | undefined;
 	private formType: string;
 
 	constructor(
-		form: BlueprintForm,
+		input: FormEngineInput,
 		_caseTypes?: CaseType[] | null,
 		moduleCaseType?: string,
 		caseData?: Map<string, string>,
 	) {
 		this.store = createStore<EngineStoreState>(() => ({}));
 		this.moduleCaseType = moduleCaseType;
-		this.formType = form.type;
+		this.formType = input.form.type;
 		this.caseData = caseData ?? new Map();
-		this.mergedQuestions = form.questions;
+		this.tree = buildFieldTree(input.formUuid, input.fields, input.fieldOrder);
 
 		this.instance = new DataInstance();
-		this.instance.initFromQuestions(this.mergedQuestions);
+		this.instance.initFromFields(this.tree);
 
-		if (form.type === "followup" && this.caseData.size > 0) {
-			this.preloadCaseData(this.mergedQuestions);
+		if (input.form.type === "followup" && this.caseData.size > 0) {
+			this.preloadCaseData(this.tree);
 		}
 
 		this.dag = new TriggerDag();
-		this.dag.build(this.mergedQuestions);
+		this.dag.build(this.tree);
 
 		/* Build initial states, apply defaults, and evaluate all expressions.
 		 * The results are written to the Zustand store in one atomic setState. */
 		const states: EngineStoreState = {};
-		this.initStatesInto(states, this.mergedQuestions);
-		this.applyDefaultsInto(states, this.mergedQuestions);
+		this.initStatesInto(states, this.tree);
+		this.applyDefaultsInto(states, this.tree);
 		this.store.setState(states);
 		this.evaluateAllInto();
 	}
@@ -254,13 +278,14 @@ export class FormEngine {
 
 	/** Read a path's state directly (non-reactive). For reactive access,
 	 *  use `useStore(engine.store, s => s[path])` in components. */
-	getState(path: string): QuestionState {
+	getState(path: string): FieldState {
 		return this.store.getState()[path] ?? DEFAULT_ENGINE_STATE;
 	}
 
-	/** Get the merged question tree. */
-	getQuestions(): Question[] {
-		return this.mergedQuestions;
+	/** Get the engine's active field tree — used by the controller when it
+	 *  needs to look up a field by UUID after a subscription fires. */
+	getFieldTree(): FieldTreeNode[] {
+		return this.tree;
 	}
 
 	/** Get all paths affected by a change at the given path, in topological
@@ -271,17 +296,18 @@ export class FormEngine {
 	}
 
 	/**
-	 * Rebuild only the TriggerDag from a new form schema. Does NOT rebuild
-	 * the DataInstance or question states — only the dependency graph.
+	 * Rebuild only the TriggerDag from a refreshed form input. Does NOT rebuild
+	 * the DataInstance or question states — only the dependency graph + the
+	 * cached field tree.
 	 *
-	 * Used by the EngineController when a single question's expression
-	 * changes: the DAG topology may have changed (new references), but
-	 * existing values and states are still valid.
+	 * Used by the EngineController when a single field's expression changes:
+	 * the DAG topology may have changed (new references) but existing values
+	 * and states are still valid.
 	 */
-	rebuildDag(form: BlueprintForm): void {
-		this.mergedQuestions = form.questions;
+	rebuildDag(input: FormEngineInput): void {
+		this.tree = buildFieldTree(input.formUuid, input.fields, input.fieldOrder);
 		this.dag = new TriggerDag();
-		this.dag.build(this.mergedQuestions);
+		this.dag.build(this.tree);
 	}
 
 	/**
@@ -308,24 +334,29 @@ export class FormEngine {
 	// ── Incremental operations ───────────────────────────────────────
 
 	/**
-	 * Add a single question to the engine without rebuilding existing state.
+	 * Add a single field's runtime state to the engine without rebuilding
+	 * existing state.
 	 *
-	 * Initializes the DataInstance path, creates the question's runtime state,
-	 * and evaluates its expressions. Existing questions are untouched — their
+	 * Initializes the DataInstance path, creates the field's FieldState,
+	 * and evaluates its expressions. Existing fields are untouched — their
 	 * state objects keep the same reference in the store.
 	 *
 	 * The DAG must be rebuilt externally (via rebuildDag) BEFORE calling this
-	 * so the new question's dependency edges are present for evaluation.
+	 * so the new field's dependency edges are present for evaluation.
 	 */
-	addQuestionState(path: string, question: Question): void {
+	addFieldState(path: string, field: Field): void {
 		/* Add path to DataInstance with empty value */
 		if (!this.instance.has(path)) {
 			this.instance.set(path, "");
 		}
 
 		/* Initialize runtime state */
-		const isRequired = question.required === "true()";
-		const state: QuestionState = {
+		const withReq = field as Field & {
+			required?: string;
+			default_value?: string;
+		};
+		const isRequired = withReq.required === "true()";
+		const state: FieldState = {
 			path,
 			value: this.instance.get(path) ?? "",
 			visible: true,
@@ -336,9 +367,9 @@ export class FormEngine {
 		this.store.setState({ [path]: state });
 
 		/* Apply default value if present */
-		if (question.default_value) {
+		if (withReq.default_value) {
 			const ctx = this.createEvalContext(path);
-			const result = evaluate(question.default_value, ctx);
+			const result = evaluate(withReq.default_value, ctx);
 			const value = xpathToString(result);
 			if (value && value !== "false") {
 				this.instance.set(path, value);
@@ -351,19 +382,20 @@ export class FormEngine {
 	}
 
 	/**
-	 * Remove a single question from the engine without rebuilding existing state.
+	 * Remove a single field's runtime state from the engine without rebuilding
+	 * existing state.
 	 *
-	 * Clears the question's runtime state from the store. The DataInstance
+	 * Clears the field's runtime state from the store. The DataInstance
 	 * retains the path (harmless — unused paths don't affect evaluation).
 	 * The DAG should be rebuilt externally (via rebuildDag) AFTER removal
 	 * so dependents can re-evaluate against the missing reference.
 	 */
-	removeQuestionState(path: string): void {
+	removeFieldState(path: string): void {
 		this.store.setState({ [path]: DEFAULT_ENGINE_STATE });
 	}
 
 	/**
-	 * Move a question's DataInstance value from one path to another.
+	 * Move a field's DataInstance value from one path to another.
 	 * Used after ID renames where the XForm path changes.
 	 */
 	renamePath(oldPath: string, newPath: string): void {
@@ -381,13 +413,14 @@ export class FormEngine {
 	}
 
 	/**
-	 * Re-evaluate a question's default_value expression and cascade.
-	 * Used when a question's default_value field changes in the blueprint.
+	 * Re-evaluate a field's default_value expression and cascade.
+	 * Used when a field's default_value changes in the blueprint.
 	 */
-	reevaluateDefault(path: string, question: Question): void {
-		if (question.default_value) {
+	reevaluateDefault(path: string, field: Field): void {
+		const withDef = field as Field & { default_value?: string };
+		if (withDef.default_value) {
 			const ctx = this.createEvalContext(path);
-			const result = evaluate(question.default_value, ctx);
+			const result = evaluate(withDef.default_value, ctx);
 			const value = xpathToString(result);
 			if (value && value !== "false") {
 				this.instance.set(path, value);
@@ -407,24 +440,24 @@ export class FormEngine {
 	}
 
 	/**
-	 * Update case data context and re-evaluate affected questions.
+	 * Update case data context and re-evaluate affected fields.
 	 * Used when form type or module case type changes. Only re-evaluates
-	 * questions whose case data values changed — not the entire form.
+	 * fields whose case data values changed — not the entire form.
 	 */
 	refreshCaseContext(
-		form: BlueprintForm,
+		input: FormEngineInput,
 		caseData: Map<string, string>,
 		moduleCaseType?: string,
 	): void {
-		this.mergedQuestions = form.questions;
-		this.formType = form.type;
+		this.tree = buildFieldTree(input.formUuid, input.fields, input.fieldOrder);
+		this.formType = input.form.type;
 		this.caseData = caseData;
 		this.moduleCaseType = moduleCaseType;
 
 		/* Re-preload case data for followup forms. Track which paths changed. */
 		const changedPaths: string[] = [];
-		if (form.type === "followup" && caseData.size > 0) {
-			this.preloadCaseDataTracked(this.mergedQuestions, changedPaths);
+		if (input.form.type === "followup" && caseData.size > 0) {
+			this.preloadCaseDataTracked(this.tree, changedPaths);
 		}
 
 		/* Re-evaluate changed paths + their cascade */
@@ -441,27 +474,29 @@ export class FormEngine {
 
 	/** Same as preloadCaseData but tracks which paths actually changed value. */
 	private preloadCaseDataTracked(
-		questions: Question[],
+		tree: FieldTreeNode[],
 		changedPaths: string[],
 		prefix = "/data",
 	): void {
-		for (const q of questions) {
-			const path = `${prefix}/${q.id}`;
+		for (const node of tree) {
+			const f = node.field;
+			const path = `${prefix}/${f.id}`;
+			const withCP = f as Field & { case_property?: string };
 			if (
-				q.case_property_on &&
-				q.case_property_on === this.moduleCaseType &&
-				this.caseData.has(q.id)
+				withCP.case_property &&
+				withCP.case_property === this.moduleCaseType &&
+				this.caseData.has(f.id)
 			) {
-				const newValue = this.caseData.get(q.id) ?? "";
+				const newValue = this.caseData.get(f.id) ?? "";
 				const oldValue = this.instance.get(path) ?? "";
 				if (newValue !== oldValue) {
 					this.instance.set(path, newValue);
 					changedPaths.push(path);
 				}
 			}
-			if (q.children) {
-				const childPrefix = q.type === "repeat" ? `${path}[0]` : path;
-				this.preloadCaseDataTracked(q.children, changedPaths, childPrefix);
+			if (node.children) {
+				const childPrefix = f.kind === "repeat" ? `${path}[0]` : path;
+				this.preloadCaseDataTracked(node.children, changedPaths, childPrefix);
 			}
 		}
 	}
@@ -472,7 +507,7 @@ export class FormEngine {
 	 * subscription (outside React render).
 	 */
 	updateSchema(
-		form: BlueprintForm,
+		input: FormEngineInput,
 		_caseTypes?: CaseType[] | null,
 		moduleCaseType?: string,
 		caseData?: Map<string, string>,
@@ -480,19 +515,19 @@ export class FormEngine {
 		const snapshot = this.getValueSnapshot();
 
 		this.moduleCaseType = moduleCaseType;
-		this.formType = form.type;
+		this.formType = input.form.type;
 		this.caseData = caseData ?? new Map();
-		this.mergedQuestions = form.questions;
+		this.tree = buildFieldTree(input.formUuid, input.fields, input.fieldOrder);
 
 		this.instance = new DataInstance();
-		this.instance.initFromQuestions(this.mergedQuestions);
+		this.instance.initFromFields(this.tree);
 
-		if (form.type === "followup" && this.caseData.size > 0) {
-			this.preloadCaseData(this.mergedQuestions);
+		if (input.form.type === "followup" && this.caseData.size > 0) {
+			this.preloadCaseData(this.tree);
 		}
 
 		this.dag = new TriggerDag();
-		this.dag.build(this.mergedQuestions);
+		this.dag.build(this.tree);
 
 		/* Capture old store state BEFORE rebuilding. After rebuild + evaluate +
 		 * restore, we diff old vs new and only write paths that actually changed.
@@ -502,8 +537,8 @@ export class FormEngine {
 
 		/* Rebuild into a local record (doesn't touch the store yet) */
 		const newStates: EngineStoreState = {};
-		this.initStatesInto(newStates, this.mergedQuestions);
-		this.applyDefaultsInto(newStates, this.mergedQuestions);
+		this.initStatesInto(newStates, this.tree);
+		this.applyDefaultsInto(newStates, this.tree);
 
 		/* Temporarily write to store so evaluateAllInto can read current state
 		 * via getState(). Use replace mode — we'll fix references below. */
@@ -532,15 +567,15 @@ export class FormEngine {
 	/** Full reset — reinitialize all values, defaults, and expressions. */
 	reset(): void {
 		this.instance = new DataInstance();
-		this.instance.initFromQuestions(this.mergedQuestions);
+		this.instance.initFromFields(this.tree);
 
 		if (this.formType === "followup" && this.caseData.size > 0) {
-			this.preloadCaseData(this.mergedQuestions);
+			this.preloadCaseData(this.tree);
 		}
 
 		const states: EngineStoreState = {};
-		this.initStatesInto(states, this.mergedQuestions);
-		this.applyDefaultsInto(states, this.mergedQuestions);
+		this.initStatesInto(states, this.tree);
+		this.applyDefaultsInto(states, this.tree);
 		this.store.setState(states, true);
 		this.evaluateAllInto();
 	}
@@ -672,12 +707,13 @@ export class FormEngine {
 					break;
 				}
 				case "output": {
-					const q = this.findQuestion(path);
-					if (q) {
+					const f = this.findField(path);
+					if (f) {
 						const resolve = (exprStr: string): string =>
 							xpathToString(evaluate(exprStr, ctx));
-						const rl = resolveLabel(q.label, resolve);
-						const rh = resolveLabel(q.hint, resolve);
+						const withLabels = f as Field & { label?: string; hint?: string };
+						const rl = resolveLabel(withLabels.label, resolve);
+						const rh = resolveLabel(withLabels.hint, resolve);
 						if (rl !== resolvedLabel || rh !== resolvedHint) {
 							resolvedLabel = rl;
 							resolvedHint = rh;
@@ -726,7 +762,7 @@ export class FormEngine {
 
 	private validateAndCollect(
 		path: string,
-		state: QuestionState,
+		state: FieldState,
 		updates: EngineStoreState,
 	): void {
 		if (state.required && !state.value) {
@@ -744,7 +780,7 @@ export class FormEngine {
 
 	private evaluateValidationAndCollect(
 		path: string,
-		state: QuestionState,
+		state: FieldState,
 		updates: EngineStoreState,
 	): void {
 		const expressions = this.dag.getExpressions(path);
@@ -759,9 +795,12 @@ export class FormEngine {
 		const ctx = this.createEvalContext(path);
 		const result = evaluate(validationExpr.expr, ctx);
 		const valid = toBoolean(result);
+		const field = this.findField(path) as
+			| (Field & { validate_msg?: string })
+			| undefined;
 		const errorMessage = valid
 			? undefined
-			: (this.findQuestion(path)?.validation_msg ?? "Invalid value");
+			: (field?.validate_msg ?? "Invalid value");
 
 		if (valid !== state.valid || errorMessage !== state.errorMessage) {
 			updates[path] = { ...state, valid, errorMessage };
@@ -770,33 +809,36 @@ export class FormEngine {
 
 	// ── Private: state initialization ────────────────────────────────
 
-	private preloadCaseData(questions: Question[], prefix = "/data"): void {
-		for (const q of questions) {
-			const path = `${prefix}/${q.id}`;
+	private preloadCaseData(tree: FieldTreeNode[], prefix = "/data"): void {
+		for (const node of tree) {
+			const f = node.field;
+			const path = `${prefix}/${f.id}`;
+			const withCP = f as Field & { case_property?: string };
 			if (
-				q.case_property_on &&
-				q.case_property_on === this.moduleCaseType &&
-				this.caseData.has(q.id)
+				withCP.case_property &&
+				withCP.case_property === this.moduleCaseType &&
+				this.caseData.has(f.id)
 			) {
-				this.instance.set(path, this.caseData.get(q.id) ?? "");
+				this.instance.set(path, this.caseData.get(f.id) ?? "");
 			}
-			if (q.children) {
-				const childPrefix = q.type === "repeat" ? `${path}[0]` : path;
-				this.preloadCaseData(q.children, childPrefix);
+			if (node.children) {
+				const childPrefix = f.kind === "repeat" ? `${path}[0]` : path;
+				this.preloadCaseData(node.children, childPrefix);
 			}
 		}
 	}
 
-	/** Build initial QuestionState objects into the provided record. */
+	/** Build initial FieldState objects into the provided record. */
 	private initStatesInto(
 		states: EngineStoreState,
-		questions: Question[],
+		tree: FieldTreeNode[],
 		prefix = "/data",
 	): void {
-		for (const q of questions) {
-			const path = `${prefix}/${q.id}`;
+		for (const node of tree) {
+			const f = node.field;
+			const path = `${prefix}/${f.id}`;
 
-			if (q.type === "group" || q.type === "repeat") {
+			if (f.kind === "group" || f.kind === "repeat") {
 				states[path] = {
 					path,
 					value: "",
@@ -805,16 +847,17 @@ export class FormEngine {
 					valid: true,
 					touched: false,
 				};
-				if (q.children) {
-					const childPrefix = q.type === "repeat" ? `${path}[0]` : path;
-					this.initStatesInto(states, q.children, childPrefix);
+				if (node.children) {
+					const childPrefix = f.kind === "repeat" ? `${path}[0]` : path;
+					this.initStatesInto(states, node.children, childPrefix);
 				}
 			} else {
+				const withReq = f as Field & { required?: string };
 				states[path] = {
 					path,
 					value: this.instance.get(path) ?? "",
 					visible: true,
-					required: q.required === "true()",
+					required: withReq.required === "true()",
 					valid: true,
 					touched: false,
 				};
@@ -825,14 +868,16 @@ export class FormEngine {
 	/** Apply default_value expressions into the provided record. */
 	private applyDefaultsInto(
 		states: EngineStoreState,
-		questions: Question[],
+		tree: FieldTreeNode[],
 		prefix = "/data",
 	): void {
-		for (const q of questions) {
-			const path = `${prefix}/${q.id}`;
-			if (q.default_value) {
+		for (const node of tree) {
+			const f = node.field;
+			const path = `${prefix}/${f.id}`;
+			const withDef = f as Field & { default_value?: string };
+			if (withDef.default_value) {
 				const ctx = this.createEvalContext(path);
-				const result = evaluate(q.default_value, ctx);
+				const result = evaluate(withDef.default_value, ctx);
 				const value = xpathToString(result);
 				if (value && value !== "false") {
 					this.instance.set(path, value);
@@ -842,9 +887,9 @@ export class FormEngine {
 					}
 				}
 			}
-			if (q.children) {
-				const childPrefix = q.type === "repeat" ? `${path}[0]` : path;
-				this.applyDefaultsInto(states, q.children, childPrefix);
+			if (node.children) {
+				const childPrefix = f.kind === "repeat" ? `${path}[0]` : path;
+				this.applyDefaultsInto(states, node.children, childPrefix);
 			}
 		}
 	}
@@ -865,8 +910,8 @@ export class FormEngine {
 			getValue: (p: string) => this.instance.get(p),
 			resolveHashtag: (ref: string) => {
 				if (ref.startsWith("#form/")) {
-					const questionId = ref.slice(6);
-					return this.instance.get(`/data/${questionId}`) ?? "";
+					const fieldId = ref.slice(6);
+					return this.instance.get(`/data/${fieldId}`) ?? "";
 				}
 				if (ref.startsWith("#case/")) {
 					const prop = ref.slice(6);
@@ -890,19 +935,20 @@ export class FormEngine {
 		};
 	}
 
-	private findQuestion(
+	private findField(
 		path: string,
-		questions?: Question[],
+		tree?: FieldTreeNode[],
 		prefix = "/data",
-	): Question | undefined {
-		for (const q of questions ?? this.mergedQuestions) {
-			const qPath = `${prefix}/${q.id}`;
+	): Field | undefined {
+		for (const node of tree ?? this.tree) {
+			const f = node.field;
+			const fPath = `${prefix}/${f.id}`;
 			const normalizedPath = path.replace(/\[\d+\]/g, "[0]");
-			const normalizedQPath = qPath.replace(/\[\d+\]/g, "[0]");
-			if (normalizedPath === normalizedQPath) return q;
-			if (q.children) {
-				const childPrefix = q.type === "repeat" ? `${qPath}[0]` : qPath;
-				const found = this.findQuestion(path, q.children, childPrefix);
+			const normalizedFPath = fPath.replace(/\[\d+\]/g, "[0]");
+			if (normalizedPath === normalizedFPath) return f;
+			if (node.children) {
+				const childPrefix = f.kind === "repeat" ? `${fPath}[0]` : fPath;
+				const found = this.findField(path, node.children, childPrefix);
 				if (found) return found;
 			}
 		}

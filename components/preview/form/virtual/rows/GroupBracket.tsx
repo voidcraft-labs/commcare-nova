@@ -18,16 +18,15 @@ import tablerRepeat from "@iconify-icons/tabler/repeat";
 import { memo, useCallback } from "react";
 import { useFulfillPendingScroll } from "@/components/builder/contexts/ScrollRegistryContext";
 import { InlineSettingsPanel } from "@/components/builder/InlineSettingsPanel";
-import { EditableQuestionWrapper } from "@/components/preview/form/EditableQuestionWrapper";
+import { EditableFieldWrapper } from "@/components/preview/form/EditableFieldWrapper";
 import { FIELD_STYLES } from "@/components/preview/form/fieldStyles";
 import { TextEditable } from "@/components/preview/form/TextEditable";
 import { useEngineController, useEngineState } from "@/hooks/useFormEngine";
 import { useTextEditSave } from "@/hooks/useTextEditSave";
-import { useQuestion as useQuestionDoc } from "@/lib/doc/hooks/useEntity";
-import type { Uuid } from "@/lib/doc/types";
+import { useField } from "@/lib/doc/hooks/useEntity";
+import type { Uuid } from "@/lib/domain";
 import { LabelContent } from "@/lib/references/LabelContent";
-import { useIsQuestionSelected } from "@/lib/routing/hooks";
-import type { NQuestion } from "@/lib/services/normalizedState";
+import { useIsFieldSelected } from "@/lib/routing/hooks";
 import { DragPreviewPill } from "../DragPreviewPill";
 import { makeDropGroupHeaderData } from "../dragData";
 import { depthPadding } from "../rowStyles";
@@ -52,13 +51,13 @@ export const GroupOpenRow = memo(function GroupOpenRow({
 	collapsed,
 }: GroupOpenProps) {
 	const { toggleCollapse } = useVirtualFormContext();
-	const q = useQuestionDoc(uuid) as NQuestion | undefined;
+	const q = useField(uuid);
 	const state = useEngineState(uuid);
 	const controller = useEngineController();
 	const saveField = useTextEditSave(uuid);
 
-	const isQuestionSelected = useIsQuestionSelected(uuid);
-	useFulfillPendingScroll(uuid, isQuestionSelected);
+	const isFieldSelected = useIsFieldSelected(uuid);
+	useFulfillPendingScroll(uuid, isFieldSelected);
 
 	const buildDropData = useCallback<
 		Parameters<typeof useRowDnd>[0]["buildDropData"]
@@ -67,11 +66,15 @@ export const GroupOpenRow = memo(function GroupOpenRow({
 		[uuid, parentUuid, siblingIndex],
 	);
 
-	const isRepeatType = q?.type === "repeat";
+	// Domain `kind` replaces wire `type`. This row only ever renders
+	// group/repeat fields (the row builder filters others out), but the
+	// doc-store subscription returns a union-wide `Field`, so we narrow
+	// with `in` / the kind discriminant before reading `label`.
+	const isRepeatType = q?.kind === "repeat";
+	const labelText =
+		q && "label" in q && typeof q.label === "string" ? q.label.trim() : "";
 	const previewLabel =
-		q?.label?.trim() ||
-		q?.id ||
-		(isRepeatType ? "Untitled repeat" : "Untitled group");
+		labelText || q?.id || (isRepeatType ? "Untitled repeat" : "Untitled group");
 	const renderPreview = useCallback(
 		() => <DragPreviewPill label={previewLabel} />,
 		[previewLabel],
@@ -105,7 +108,7 @@ export const GroupOpenRow = memo(function GroupOpenRow({
 				}}
 				data-question-uuid={uuid}
 			>
-				<EditableQuestionWrapper
+				<EditableFieldWrapper
 					questionUuid={uuid}
 					isDragging={isDraggingSelf}
 					flatBottomOnSelect={!collapsed}
@@ -146,7 +149,12 @@ export const GroupOpenRow = memo(function GroupOpenRow({
 							)}
 
 							<div className="min-w-0 flex-1">
-								{q.label ? (
+								{/* GroupBracket always receives a container field (group
+								 *  or repeat). Both kinds carry `label` on the domain
+								 *  schema, but TypeScript's union narrows here via the
+								 *  container-kind check in the enclosing block. Guard
+								 *  with `in` so the narrowing is explicit. */}
+								{"label" in q && q.label ? (
 									<TextEditable
 										value={q.label}
 										onSave={
@@ -168,26 +176,13 @@ export const GroupOpenRow = memo(function GroupOpenRow({
 								)}
 							</div>
 						</div>
-						{q.hint && (
-							<div className="mt-0.5">
-								<TextEditable
-									value={q.hint}
-									onSave={saveField ? (v) => saveField("hint", v) : undefined}
-									fieldType="hint"
-								>
-									<LabelContent
-										label={q.hint}
-										resolvedLabel={state.resolvedHint}
-										isEditMode
-										className={FIELD_STYLES.hint}
-									/>
-								</TextEditable>
-							</div>
-						)}
+						{/* Containers (group/repeat) carry no `hint` in the domain
+						 *  schema — only `relevant`. The hint editor only appears
+						 *  on non-container kinds via FieldRow. */}
 					</div>
-				</EditableQuestionWrapper>
+				</EditableFieldWrapper>
 			</div>
-			{isQuestionSelected && (
+			{isFieldSelected && (
 				<div
 					data-settings-panel
 					style={{
@@ -199,7 +194,7 @@ export const GroupOpenRow = memo(function GroupOpenRow({
 						/* Collapsed: no rails, no children. Drawer floats 8px
 						 *  below the fully-rounded header. */
 						<div className="pt-2">
-							<InlineSettingsPanel question={q} variant="floating" />
+							<InlineSettingsPanel field={q} variant="floating" />
 						</div>
 					) : (
 						/* Expanded: drawer is a sub-element of the group.
@@ -224,7 +219,7 @@ export const GroupOpenRow = memo(function GroupOpenRow({
 						 *    that begins the children's area. */
 						<div className="border-l border-r border-pv-input-border">
 							<div className="px-4 pb-3">
-								<InlineSettingsPanel question={q} variant="attached" />
+								<InlineSettingsPanel field={q} variant="attached" />
 							</div>
 						</div>
 					)}
