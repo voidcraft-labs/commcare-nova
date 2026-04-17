@@ -9,7 +9,6 @@
  * What remains here: structural types consumed across the builder surface
  * that don't belong to any single store.
  */
-import type { Question } from "@/lib/schemas/blueprint";
 import type { QuestionPath } from "./questionPath";
 
 /** Builder lifecycle phases — what mode the builder is in right now.
@@ -43,24 +42,4 @@ export interface EditScope {
 	formIndex?: number;
 	/** Flat question index within the form (0-based, depth-first). */
 	questionIndex?: number;
-}
-
-/** Common shape for AppTree rendering — satisfied by both Scaffold and AppBlueprint */
-export interface TreeData {
-	app_name: string;
-	connect_type?: string;
-	modules: Array<{
-		name: string;
-		case_type?: string | null;
-		purpose?: string;
-		forms: Array<{
-			name: string;
-			type: string;
-			purpose?: string;
-			questions?: Question[];
-			connect?: Record<string, unknown>;
-		}>;
-		case_list_columns?: Array<{ field: string; header: string }> | null;
-		case_detail_columns?: Array<{ field: string; header: string }> | null;
-	}>;
 }
