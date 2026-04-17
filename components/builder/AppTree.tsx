@@ -3,8 +3,8 @@
  *
  * Each tree component (ModuleCard, FormCard, FieldRow) subscribes to its
  * own entity in the builder store by ID/UUID. Immer structural sharing means
- * editing question A's label only re-renders FieldRow(A) in the sidebar —
- * not the other 166 QuestionRows, not the FormCards, not the ModuleCards.
+ * editing field A's label only re-renders FieldRow(A) in the sidebar —
+ * not the other 166 FieldRows, not the FormCards, not the ModuleCards.
  *
  * Selection uses boolean selectors — only the old and new selected components
  * re-render on selection change (2 total), not every tree item.
@@ -664,7 +664,7 @@ const FormCard = memo(function FormCard({
 	const nameIndices = searchResult?.matchMap?.get(collapseKey);
 
 	/** Build icon map for reference chips in question labels. */
-	const questionIcons = useQuestionIconMap(formId);
+	const fieldIcons = useFieldIconMap(formId);
 
 	if (!form) return null;
 
@@ -732,7 +732,7 @@ const FormCard = memo(function FormCard({
 			</TreeItemRow>
 
 			{hasQuestions && !isCollapsed && (
-				<FormIconContext value={questionIcons}>
+				<FormIconContext value={fieldIcons}>
 					<div className="pb-2">
 						<AnimatePresence mode="sync">
 							{questionUuids?.map((uuid, qIdx) => {
@@ -766,7 +766,7 @@ const FormCard = memo(function FormCard({
 });
 
 /** Build a field ID → type icon map for a form's fields (recursive). */
-function useQuestionIconMap(formId: Uuid): Map<string, IconifyIcon> {
+function useFieldIconMap(formId: Uuid): Map<string, IconifyIcon> {
 	const { fields, fieldOrder } = useBlueprintDocShallow((s) => ({
 		fields: s.fields,
 		fieldOrder: s.fieldOrder,
