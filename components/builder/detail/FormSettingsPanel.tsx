@@ -33,12 +33,12 @@ import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
 import { useForm, useModule } from "@/lib/doc/hooks/useEntity";
 import { BlueprintDocContext } from "@/lib/doc/provider";
 import { asUuid, type Uuid } from "@/lib/doc/types";
-import type { Field } from "@/lib/domain";
 import {
 	type ConnectConfig,
 	defaultPostSubmit,
+	type Field,
 	type PostSubmitDestination,
-} from "@/lib/schemas/blueprint";
+} from "@/lib/domain";
 import { toSnakeId } from "@/lib/services/commcare/validate";
 import { useFormConnectStash, useStashFormConnect } from "@/lib/session/hooks";
 import {

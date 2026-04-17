@@ -15,10 +15,10 @@ import {
 	useModule as useModuleEntity,
 } from "@/lib/doc/hooks/useEntity";
 import type { Uuid } from "@/lib/doc/types";
+import { defaultPostSubmit } from "@/lib/domain";
 import { getCaseData, getDummyCases } from "@/lib/preview/engine/dummyData";
 import type { PreviewScreen } from "@/lib/preview/engine/types";
 import { useLocation, useNavigate } from "@/lib/routing/hooks";
-import { defaultPostSubmit } from "@/lib/schemas/blueprint";
 import { useBuilderIsReady, useEditMode } from "@/lib/session/hooks";
 import { FormRenderer } from "../form/FormRenderer";
 
