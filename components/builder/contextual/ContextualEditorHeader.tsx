@@ -25,9 +25,9 @@ import {
 	getFieldMoveTargets,
 } from "@/lib/doc/navigation";
 import { asUuid } from "@/lib/doc/types";
+import { questionTypeIcons, questionTypeLabels } from "@/lib/fieldTypeIcons";
 import { shortcutLabel } from "@/lib/platform";
 import { getConvertibleTypes } from "@/lib/questionTypeConversions";
-import { questionTypeIcons, questionTypeLabels } from "@/lib/questionTypeIcons";
 import { useDeleteSelectedField } from "@/lib/routing/builderActions";
 import { useLocation, useSelect } from "@/lib/routing/hooks";
 import { useClearNewField, useIsNewField } from "@/lib/session/hooks";

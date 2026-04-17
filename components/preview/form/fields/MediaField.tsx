@@ -3,7 +3,7 @@ import { Icon } from "@iconify/react/offline";
 import tablerPhoto from "@iconify-icons/tabler/photo";
 import { useEditContext } from "@/hooks/useEditContext";
 import type { Field } from "@/lib/domain";
-import { questionTypeIcons, questionTypeLabels } from "@/lib/questionTypeIcons";
+import { questionTypeIcons, questionTypeLabels } from "@/lib/fieldTypeIcons";
 
 /**
  * Placeholder card for media-capture kinds (image/audio/video/barcode/

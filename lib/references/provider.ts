@@ -13,7 +13,7 @@
 
 import type { XPathLintContext } from "@/lib/codemirror/xpath-lint";
 import { type FieldKind, fieldKinds, fieldRegistry } from "@/lib/domain";
-import { questionTypeIcons } from "@/lib/questionTypeIcons";
+import { questionTypeIcons } from "@/lib/fieldTypeIcons";
 import { type QuestionPath, qpath } from "@/lib/services/questionPath";
 import { REFERENCE_TYPES } from "./config";
 import type { Reference, ReferenceType } from "./types";

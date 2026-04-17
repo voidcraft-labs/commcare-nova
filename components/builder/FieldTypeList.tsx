@@ -1,7 +1,7 @@
 "use client";
 import { Icon } from "@iconify/react/offline";
 import type { FieldKind } from "@/lib/domain";
-import { questionTypeIcons, questionTypeLabels } from "@/lib/questionTypeIcons";
+import { questionTypeIcons, questionTypeLabels } from "@/lib/fieldTypeIcons";
 
 interface FieldTypeListProps {
 	/** The conversion targets to display. */

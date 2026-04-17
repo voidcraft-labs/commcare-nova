@@ -37,8 +37,8 @@ import {
 import { useForm as useFormDoc } from "@/lib/doc/hooks/useEntity";
 import { useModuleIds } from "@/lib/doc/hooks/useModuleIds";
 import type { Field, Form, Module, Uuid } from "@/lib/domain";
+import { formTypeIcons, questionTypeIcons } from "@/lib/fieldTypeIcons";
 import { highlightSegments, type MatchIndices } from "@/lib/filterTree";
-import { formTypeIcons, questionTypeIcons } from "@/lib/questionTypeIcons";
 import { textWithChips } from "@/lib/references/LabelContent";
 import {
 	useIsFieldSelected,

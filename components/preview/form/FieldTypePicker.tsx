@@ -13,7 +13,7 @@ import {
 	INSERTION_TOP_LEVEL,
 	questionTypeIcons,
 	questionTypeLabels,
-} from "@/lib/questionTypeIcons";
+} from "@/lib/fieldTypeIcons";
 import { useSelect } from "@/lib/routing/hooks";
 import { useMarkNewField } from "@/lib/session/hooks";
 import {

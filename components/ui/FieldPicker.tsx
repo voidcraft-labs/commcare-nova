@@ -14,7 +14,7 @@
 import { Autocomplete } from "@base-ui/react/autocomplete";
 import { Icon } from "@iconify/react/offline";
 import { useCallback, useMemo } from "react";
-import { questionTypeIcons } from "@/lib/questionTypeIcons";
+import { questionTypeIcons } from "@/lib/fieldTypeIcons";
 import {
 	collectFieldEntries,
 	type FieldEntrySource,

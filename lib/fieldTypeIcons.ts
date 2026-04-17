@@ -1,5 +1,5 @@
 /**
- * Shared icon data and categorisation for question types — used by AppTree,
+ * Shared icon data and categorisation for field kinds — used by AppTree,
  * FieldTypePickerPopup, and ContextualEditorHeader.
  * Raw icon data objects (not JSX) so consumers can render at any size.
  */

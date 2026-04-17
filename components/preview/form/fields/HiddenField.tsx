@@ -2,7 +2,7 @@
 import { Icon } from "@iconify/react/offline";
 import { Tooltip } from "@/components/ui/Tooltip";
 import type { HiddenField as HiddenFieldEntity } from "@/lib/domain";
-import { questionTypeIcons } from "@/lib/questionTypeIcons";
+import { questionTypeIcons } from "@/lib/fieldTypeIcons";
 import { ExpressionContent } from "@/lib/references/ExpressionContent";
 
 /**

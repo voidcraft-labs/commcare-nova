@@ -7,7 +7,7 @@ import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
 import { useForm, useModule } from "@/lib/doc/hooks/useEntity";
 import { asUuid, type Uuid } from "@/lib/doc/types";
 import { CASE_FORM_TYPES, type FormType } from "@/lib/domain";
-import { formTypeIcons } from "@/lib/questionTypeIcons";
+import { formTypeIcons } from "@/lib/fieldTypeIcons";
 import {
 	MENU_ITEM_BASE,
 	MENU_ITEM_CLS,
