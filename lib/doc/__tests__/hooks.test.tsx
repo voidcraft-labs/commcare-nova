@@ -154,13 +154,13 @@ describe("useOrderedForms", () => {
 });
 
 describe("useOrderedChildren", () => {
-	it("returns questions under a given parent (form or group)", () => {
-		const { wrapper, formUuid } = setup();
+	it("returns uuids of children under a given parent (form or group)", () => {
+		const { wrapper, formUuid, questionUuid } = setup();
 		const { result } = renderHook(() => useOrderedChildren(formUuid), {
 			wrapper,
 		});
 		expect(result.current).toHaveLength(1);
-		expect(result.current[0].id).toBe("name");
+		expect(result.current[0]).toBe(questionUuid);
 	});
 
 	it("returns empty array when parent has no children or doesn't exist", () => {
@@ -169,5 +169,49 @@ describe("useOrderedChildren", () => {
 			wrapper,
 		});
 		expect(result.current).toEqual([]);
+	});
+
+	it("does not re-render when an unrelated field changes", () => {
+		// Regression: the previous implementation selected the entire `fields`
+		// map, so every field mutation re-rendered every container.
+		const { store, wrapper, formUuid } = setup();
+		let renderCount = 0;
+		renderHook(
+			() => {
+				renderCount++;
+				return useOrderedChildren(formUuid);
+			},
+			{ wrapper },
+		);
+		const initial = renderCount;
+		store.temporal.getState().resume();
+		act(() => {
+			// Add a second field under the same form — fieldOrder changes, so
+			// re-render is expected. This asserts the hook DOES respond to real
+			// changes in its own parent's ordering.
+			store.getState().apply({
+				kind: "addField",
+				parentUuid: formUuid,
+				field: {
+					uuid: asUuid("q-222-0000-0000-0000-000000000000"),
+					id: "age",
+					kind: "int",
+					label: "Age",
+				} as BlueprintDoc["fields"][string],
+			});
+		});
+		expect(renderCount).toBeGreaterThan(initial);
+
+		// Now mutate a field entity without changing any `fieldOrder` entry —
+		// the hook must NOT re-render.
+		const afterAdd = renderCount;
+		act(() => {
+			store.getState().apply({
+				kind: "updateField",
+				uuid: asUuid("q-222-0000-0000-0000-000000000000"),
+				patch: { label: "Changed" },
+			});
+		});
+		expect(renderCount).toBe(afterAdd);
 	});
 });
