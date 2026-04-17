@@ -16,6 +16,7 @@
  */
 
 import type { Draft } from "immer";
+import { rebuildFieldParent } from "@/lib/doc/fieldParent";
 import type { BlueprintDoc, Mutation } from "@/lib/doc/types";
 import { applyAppMutation } from "./app";
 import {
@@ -39,11 +40,16 @@ export type {
 };
 
 /**
- * Apply a single mutation to an Immer draft and return any metadata the
- * reducer produces. `moveField` returns `MoveFieldResult`;
- * `renameField` returns `FieldRenameMeta`; all others return `undefined`.
+ * Internal: dispatch a single mutation to the appropriate sub-reducer
+ * WITHOUT rebuilding the `fieldParent` reverse index.
+ *
+ * Individual reducers never touch `fieldParent` themselves — the index is
+ * rebuilt by the public entry points (`applyMutation` / `applyMutations`)
+ * after the reducer(s) finish. That makes `applyMutations` O(N) in the
+ * parent-index rebuild regardless of batch size, instead of O(N × M)
+ * when every reducer triggered its own rebuild.
  */
-export function applyMutation(
+function dispatchMutation(
 	draft: Draft<BlueprintDoc>,
 	mut: Mutation,
 ): MoveFieldResult | FieldRenameMeta | undefined {
@@ -52,14 +58,14 @@ export function applyMutation(
 		case "setConnectType":
 		case "setCaseTypes":
 			applyAppMutation(draft, mut);
-			break;
+			return;
 		case "addModule":
 		case "removeModule":
 		case "moveModule":
 		case "renameModule":
 		case "updateModule":
 			applyModuleMutation(draft, mut);
-			break;
+			return;
 		case "addForm":
 		case "removeForm":
 		case "moveForm":
@@ -67,7 +73,7 @@ export function applyMutation(
 		case "updateForm":
 		case "replaceForm":
 			applyFormMutation(draft, mut);
-			break;
+			return;
 		case "addField":
 		case "removeField":
 		case "moveField":
@@ -80,10 +86,37 @@ export function applyMutation(
 	}
 }
 
-/** Apply a batch of mutations to a single Immer draft. */
+/**
+ * Apply a single mutation to an Immer draft and return any metadata the
+ * reducer produces. `moveField` returns `MoveFieldResult`;
+ * `renameField` returns `FieldRenameMeta`; all others return `undefined`.
+ *
+ * After the reducer runs, the `fieldParent` reverse index is rebuilt so
+ * consumers observing the post-mutation draft see a consistent index.
+ */
+export function applyMutation(
+	draft: Draft<BlueprintDoc>,
+	mut: Mutation,
+): MoveFieldResult | FieldRenameMeta | undefined {
+	const result = dispatchMutation(draft, mut);
+	rebuildFieldParent(draft as unknown as BlueprintDoc);
+	return result;
+}
+
+/**
+ * Apply a batch of mutations to a single Immer draft.
+ *
+ * The `fieldParent` reverse index is rebuilt EXACTLY ONCE at the end of
+ * the batch — not per mutation. This collapses an O(N × M) rebuild cost
+ * (N = fields, M = mutations) into a single O(N) pass, critical when
+ * agent streams land hundreds of mutations in one batch. Mid-batch reads
+ * of `fieldParent` would see stale data, but no reducer reads it —
+ * structural lookups use `fieldOrder` directly.
+ */
 export function applyMutations(
 	draft: Draft<BlueprintDoc>,
 	muts: Mutation[],
 ): void {
-	for (const mut of muts) applyMutation(draft, mut);
+	for (const mut of muts) dispatchMutation(draft, mut);
+	rebuildFieldParent(draft as unknown as BlueprintDoc);
 }

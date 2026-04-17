@@ -1,5 +1,4 @@
 import type { Draft } from "immer";
-import { rebuildFieldParent } from "@/lib/doc/fieldParent";
 import type { BlueprintDoc, Mutation } from "@/lib/doc/types";
 import { cascadeDeleteField, cascadeDeleteForm } from "./helpers";
 
@@ -52,7 +51,6 @@ export function applyFormMutation(
 				}
 			}
 			cascadeDeleteForm(draft as unknown as BlueprintDoc, mut.uuid);
-			rebuildFieldParent(draft as unknown as BlueprintDoc);
 			return;
 		}
 		case "moveForm": {
@@ -106,8 +104,6 @@ export function applyFormMutation(
 			for (const [parent, order] of Object.entries(mut.fieldOrder)) {
 				draft.fieldOrder[parent as keyof typeof draft.fieldOrder] = order;
 			}
-			// Rebuild the parent reverse index after the full subtree has landed.
-			rebuildFieldParent(draft as unknown as BlueprintDoc);
 			return;
 		}
 	}

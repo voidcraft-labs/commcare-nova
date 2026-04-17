@@ -1,5 +1,4 @@
 import type { Draft } from "immer";
-import { rebuildFieldParent } from "@/lib/doc/fieldParent";
 import type {
 	BlueprintDoc,
 	QuestionEntity as Field,
@@ -126,7 +125,6 @@ export function applyFieldMutation(
 			if (mut.field.kind === "group" || mut.field.kind === "repeat") {
 				draft.fieldOrder[mut.field.uuid] ??= [];
 			}
-			rebuildFieldParent(draft as unknown as BlueprintDoc);
 			return;
 		}
 		case "updateField": {
@@ -155,7 +153,6 @@ export function applyFieldMutation(
 			// Recursively delete the field entity and any descendants
 			// (children of a group/repeat, their children, etc.).
 			cascadeDeleteField(draft as unknown as BlueprintDoc, mut.uuid);
-			rebuildFieldParent(draft as unknown as BlueprintDoc);
 			return;
 		}
 		case "moveField": {
@@ -258,8 +255,6 @@ export function applyFieldMutation(
 				}
 			}
 
-			rebuildFieldParent(draft as unknown as BlueprintDoc);
-
 			// Build rename metadata when cross-level dedup changed the id.
 			const renamed =
 				oldId !== field.id
@@ -339,8 +334,6 @@ export function applyFieldMutation(
 				parentOrder.splice(parent.index + 1, 0, rootUuid);
 				draft.fieldOrder[parent.parentUuid] = parentOrder;
 			}
-
-			rebuildFieldParent(draft as unknown as BlueprintDoc);
 			return;
 		}
 	}
