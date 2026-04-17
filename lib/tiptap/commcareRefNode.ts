@@ -9,11 +9,18 @@
  *
  * Round-trips through HTML via <span data-commcare-ref data-ref-type data-path data-label>.
  *
- * Markdown serialization (tiptap-markdown):
+ * Markdown round-trip is bidirectional and happens inside the markdown pipeline
+ * — no post-mount hydration step is needed:
  *   - Serialize: writes bare `#type/path` hashtags (canonical internal format).
- *   - Parse: handled externally by `hydrateHashtagRefs()` — after tiptap-markdown
- *     parses the markdown string, hydrateRefs walks the resulting ProseMirror
- *     document and replaces bare `#type/path` text with commcareRef atom nodes.
+ *   - Parse:     a markdown-it inline rule tokenizes `#type/path` and renders
+ *                it as `<span data-commcare-ref …>`, which the `parseHTML` spec
+ *                below then upgrades to a commcareRef node during PM document
+ *                construction. Because the chip nodes exist in the doc before
+ *                any React NodeView is mounted, TipTap's `ReactRenderer`
+ *                creates their renderers via its `queueMicrotask` path
+ *                (`isEditorContentInitialized` is still false during
+ *                `createNodeViews`) — so we never trigger a `flushSync` from
+ *                inside a React effect, and the user sees chips on first paint.
  *
  * Backspace-to-revert: when the cursor is right after a commcareRef node,
  * backspace converts it back to raw text minus the last character, causing
@@ -22,7 +29,106 @@
 
 import { mergeAttributes, Node } from "@tiptap/core";
 import { ReactNodeViewRenderer } from "@tiptap/react";
+import type MarkdownIt from "markdown-it";
+import type StateInline from "markdown-it/lib/rules_inline/state_inline.mjs";
+import type Token from "markdown-it/lib/token.mjs";
+import { HASHTAG_REF_PATTERN } from "@/lib/references/config";
+import { ReferenceProvider } from "@/lib/references/provider";
 import { CommcareRefView } from "./CommcareRefView";
+
+/**
+ * Anchored copy of the shared hashtag pattern — scans from `state.pos` forward
+ * only. Keeps the canonical pattern (`HASHTAG_REF_PATTERN`) as the single source
+ * of truth; this file adds the `^` anchor so we can use `RegExp.exec` against
+ * `src.slice(pos)` without over-matching earlier content.
+ */
+const ANCHORED_HASHTAG_RE = new RegExp(`^${HASHTAG_REF_PATTERN.source}`);
+
+/**
+ * Per-instance flag marking a MarkdownIt object as already configured with our
+ * inline rule + renderer. tiptap-markdown's `MarkdownParser.parse()` calls every
+ * extension's `parse.setup(md)` on every parse invocation against the same `md`
+ * instance — without this guard, repeated `setContent` / blur-then-edit cycles
+ * would splice duplicate rules into the inline ruler forever. The marker lives
+ * on `md` itself so two editors (each with their own parser) configure their
+ * own `md` independently.
+ */
+const SETUP_MARKER = "__novaCommcareRefSetup__" as const;
+
+/**
+ * markdown-it inline rule: consume `#form/path`, `#case/path`, `#user/path` and
+ * emit a single `commcare_ref` token. Registered before the `text` rule so
+ * hashtags never get absorbed into a plain-text run. Returning `false` yields
+ * back to the ruler so other rules at the same position can try.
+ *
+ * `silent` mode is used by markdown-it during link-label scanning and similar
+ * lookahead — we still match (to report success), but don't emit tokens.
+ */
+function tokenizeCommcareRef(state: StateInline, silent: boolean): boolean {
+	/* Fast-fail: inline ruler iterates every position; a charCode check rejects
+	 * non-'#' positions in a single instruction before we hit the regex. */
+	if (state.src.charCodeAt(state.pos) !== 0x23 /* '#' */) return false;
+
+	const match = ANCHORED_HASHTAG_RE.exec(state.src.slice(state.pos));
+	if (!match) return false;
+
+	if (!silent) {
+		const token = state.push("commcare_ref", "", 0);
+		token.content = match[0];
+		token.markup = match[0];
+		token.meta = { raw: match[0] };
+	}
+
+	state.pos += match[0].length;
+	return true;
+}
+
+/**
+ * Renderer for the `commcare_ref` token type. Emits `<span data-commcare-ref>`
+ * with the data attributes that `CommcareRef.parseHTML` below reads back. The
+ * span is empty on purpose — the React NodeView (`CommcareRefView`) paints the
+ * chip visuals; the span only needs to survive parse-to-doc conversion with its
+ * attributes intact.
+ *
+ * Label defaults to `path` (the only thing derivable from markdown alone);
+ * `CommcareRefView` resolves a richer label via `ReferenceProvider` at render
+ * time so unrelated markdown loads don't have to know about the live blueprint.
+ */
+function renderCommcareRef(
+	tokens: Token[],
+	idx: number,
+	/* Remaining renderer-rule args (options, env, renderer self) are unused —
+	 * the token's `meta` carries everything we need. Typed as `unknown` to
+	 * avoid importing markdown-it's Options namespace just to discard it. */
+	_opts: unknown,
+	_env: unknown,
+	_self: unknown,
+): string {
+	const raw = (tokens[idx].meta as { raw: string } | null)?.raw ?? "";
+	const parsed = ReferenceProvider.parse(raw);
+	/* Defensive: our tokenizer only emits tokens that already passed the
+	 * HASHTAG_REF_PATTERN, so `parse` should never fail here. Fall back to
+	 * escaped text if it does, to avoid injecting malformed HTML. */
+	if (!parsed) return escapeHtml(raw);
+	const refType = escapeHtml(parsed.type);
+	const path = escapeHtml(parsed.path);
+	return `<span data-commcare-ref data-ref-type="${refType}" data-path="${path}" data-label="${path}"></span>`;
+}
+
+/**
+ * Minimal HTML attribute escaper — markdown-it's `utils.escapeHtml` exists but
+ * isn't on the static types in `@types/markdown-it`, and we'd rather not reach
+ * into `md.utils` from a pure rendering function. The character set below is
+ * the standard OWASP attribute-value escape list.
+ */
+function escapeHtml(s: string): string {
+	return s
+		.replace(/&/g, "&amp;")
+		.replace(/</g, "&lt;")
+		.replace(/>/g, "&gt;")
+		.replace(/"/g, "&quot;")
+		.replace(/'/g, "&#39;");
+}
 
 export const CommcareRef = Node.create({
 	name: "commcareRef",
@@ -31,9 +137,16 @@ export const CommcareRef = Node.create({
 	atom: true,
 
 	/**
-	 * Markdown serialization for tiptap-markdown. Writes commcareRef nodes as
-	 * bare `#type/path` hashtags — the canonical internal format. Parsing is
-	 * handled externally by `hydrateHashtagRefs()` after content is loaded.
+	 * Markdown round-trip spec consumed by tiptap-markdown via `getMarkdownSpec`.
+	 *
+	 * - `serialize`: PM doc → markdown string. Write the canonical `#type/path`
+	 *   form so content stays stable across save/load.
+	 * - `parse.setup`: called by `MarkdownParser.parse()` on every parse against
+	 *   the editor's shared `md` instance. We register a `commcare_ref` inline
+	 *   rule + HTML renderer so markdown-it produces `<span data-commcare-ref>`
+	 *   directly; the PM DOM parser then upgrades those spans to commcareRef
+	 *   nodes via `parseHTML` during `EditorState.create` — before any React
+	 *   NodeView exists, which sidesteps TipTap's `flushSync` renderer path.
 	 */
 	addStorage() {
 		return {
@@ -43,6 +156,18 @@ export const CommcareRef = Node.create({
 					node: { attrs: { refType: string; path: string } },
 				) {
 					state.write(`#${node.attrs.refType}/${node.attrs.path}`);
+				},
+				parse: {
+					setup(md: MarkdownIt) {
+						/* Idempotent: avoid splicing duplicate rules each time the
+						 * parser is invoked on this same `md` instance. */
+						const markedMd = md as MarkdownIt & Record<string, boolean>;
+						if (markedMd[SETUP_MARKER]) return;
+						markedMd[SETUP_MARKER] = true;
+
+						md.inline.ruler.before("text", "commcare_ref", tokenizeCommcareRef);
+						md.renderer.rules.commcare_ref = renderCommcareRef;
+					},
 				},
 			},
 		};

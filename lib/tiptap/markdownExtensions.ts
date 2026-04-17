@@ -7,8 +7,13 @@
  * links, images, lists, code (inline + block), horizontal rules, and
  * GFM tables. Blockquote and strikethrough are intentionally disabled —
  * CommCare Web Apps has no visible styling for blockquotes and doesn't
- * load the markdown-it strikethrough plugin. CommcareRef nodes serialize as
- * bare `#type/path` hashtags and parse back via `hydrateHashtagRefs()`.
+ * load the markdown-it strikethrough plugin. CommcareRef nodes round-trip
+ * through the markdown-it pipeline: serialize writes bare `#type/path`
+ * hashtags; the CommcareRef extension's own `markdown.parse.setup` hook
+ * installs an inline rule that tokenizes those hashtags back into
+ * `<span data-commcare-ref>` HTML during markdown-to-HTML rendering, so
+ * the PM document already contains commcareRef nodes before any React
+ * NodeView is mounted.
  *
  * Contrast with RefLabelInput which uses StarterKit with everything
  * disabled except paragraphs — that editor is text-only with chips.
