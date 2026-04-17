@@ -10,7 +10,6 @@ import type { XPathLintContext } from "@/lib/codemirror/xpath-lint";
 import { BlueprintDocContext } from "@/lib/doc/provider";
 import type { Uuid } from "@/lib/doc/types";
 import { useSelectedQuestion } from "@/lib/routing/hooks";
-import type { Question } from "@/lib/schemas/blueprint";
 import { AddPropertyButton } from "./AddPropertyButton";
 import { RequiredSection } from "./RequiredSection";
 import {
@@ -75,8 +74,8 @@ function XPathSection({
 const LOGIC_FIELDS = new Set<FocusableFieldKey>([
 	"required",
 	"required_condition",
-	"validation",
-	"validation_msg",
+	"validate",
+	"validate_msg",
 	"relevant",
 	"default_value",
 	"calculate",
@@ -86,7 +85,7 @@ export function ContextualEditorLogic({ question }: QuestionEditorProps) {
 	const selected = useSelectedQuestion();
 	const saveQuestion = useSaveQuestion(selected?.uuid);
 
-	/** Tracks text fields (validation_msg) added via "Add Property". */
+	/** Tracks text fields (validate_msg) added via "Add Property". */
 	const textField = useAddableField(selected?.uuid ?? "");
 	/** Tracks XPath fields added via "Add Property" — separate from text
 	 *  fields so both can be pending simultaneously. */
@@ -130,38 +129,52 @@ export function ContextualEditorLogic({ question }: QuestionEditorProps) {
 
 	if (!selected) return null;
 
-	const type = question.type;
+	const kind = question.kind;
 
-	/** XPath fields not yet set on this question, available to add.
-	 *  Filtered by type support — only offer fields that CommCare honors
-	 *  for this question type. Fields with existing values are still shown
-	 *  (graceful degradation for stale data after type conversion). */
+	/** XPath fields not yet set on this field, available to add.
+	 *  Filtered by kind support — only offer fields that CommCare honors
+	 *  for this kind. Fields with existing values are still shown
+	 *  (graceful degradation for stale data after kind conversion). The
+	 *  `in` operator is the safe narrowing operator for optional
+	 *  discriminated-union members. */
 	const missingXPathFields = xpathFields.filter(
 		(f) =>
-			!question[f.field as keyof Question] &&
+			!(f.field in question) &&
 			xpathField.activeField !== f.field &&
-			fieldSupportedForType(f.field, type),
+			fieldSupportedForType(f.field, kind),
 	);
+
+	// Domain kinds narrow on `in`; reading an absent optional key returns
+	// undefined, which is what the visibility predicates want anyway. The
+	// `in` check is required for soundness because several field kinds
+	// (label, group, repeat) omit these properties entirely.
+	const hasValidate = "validate" in question && !!question.validate;
+	const hasValidateMsg = "validate_msg" in question && !!question.validate_msg;
+	const hasRequired = "required" in question && !!question.required;
+	const hasRelevant = "relevant" in question && !!question.relevant;
+	const hasDefaultValue =
+		"default_value" in question && !!question.default_value;
+	const hasCalculate = "calculate" in question && !!question.calculate;
 
 	/** Show "Validation Message" add button only when validation is present
-	 *  or being added, AND the type actually supports validation (avoids
-	 *  offering it alongside stale validation fields from type conversion). */
+	 *  or being added, AND the kind actually supports validation (avoids
+	 *  offering it alongside stale validation fields from kind conversion). */
 	const missingValidationMsg = addableTextFields.filter(
 		(f) =>
-			f.field === "validation_msg" &&
-			!question.validation_msg &&
-			textField.activeField !== "validation_msg" &&
-			question.validation &&
-			fieldSupportedForType("validation", type),
+			f.field === "validate_msg" &&
+			!hasValidateMsg &&
+			textField.activeField !== "validate_msg" &&
+			hasValidate &&
+			fieldSupportedForType("validate", kind),
 	);
 
-	/** Whether the field is visible — type supports it AND it either has a
-	 *  value, is pending addition, or is being focus-restored. Type conversions
-	 *  only happen within families with identical field support, so stale
-	 *  fields from conversion are impossible. */
+	/** Whether the field is visible — kind supports it AND it either has
+	 *  a value, is pending addition, or is being focus-restored. Kind
+	 *  conversions only happen within families with identical field
+	 *  support, so stale fields from conversion are impossible. */
 	const isVisible = (field: XPathFieldKey) =>
-		fieldSupportedForType(field, type) &&
-		(!!question[field] ||
+		fieldSupportedForType(field, kind) &&
+		(!!(field in question && question[field as keyof typeof question]) ||
 			xpathField.activeField === field ||
 			focusHint === field);
 
@@ -170,21 +183,21 @@ export function ContextualEditorLogic({ question }: QuestionEditorProps) {
 	 *  "Add Property" saves required directly (toggled on), so no pending
 	 *  addable state is needed — the value check covers it. */
 	const showRequired =
-		fieldSupportedForType("required", type) &&
-		(!!question.required ||
+		fieldSupportedForType("required", kind) &&
+		(hasRequired ||
 			focusHint === "required" ||
 			focusHint === "required_condition");
 
 	/** Whether a Required "Add Property" button should be shown. */
 	const missingRequired =
-		fieldSupportedForType("required", type) && !question.required;
+		fieldSupportedForType("required", kind) && !hasRequired;
 
 	const hasContent =
-		question.required ||
-		question.validation ||
-		question.relevant ||
-		question.default_value ||
-		question.calculate ||
+		hasRequired ||
+		hasValidate ||
+		hasRelevant ||
+		hasDefaultValue ||
+		hasCalculate ||
 		xpathField.activeField;
 
 	return (
@@ -205,7 +218,7 @@ export function ContextualEditorLogic({ question }: QuestionEditorProps) {
 						className="overflow-hidden"
 					>
 						<RequiredSection
-							required={question.required}
+							required={hasRequired ? question.required : undefined}
 							questionUuid={selected.uuid}
 							getLintContext={getLintContext}
 							focusHint={focusHint}
@@ -213,9 +226,9 @@ export function ContextualEditorLogic({ question }: QuestionEditorProps) {
 						/>
 					</motion.div>
 				)}
-				{isVisible("validation") && (
+				{isVisible("validate") && (
 					<motion.div
-						key="validation"
+						key="validate"
 						initial={{ opacity: 0, height: 0 }}
 						animate={{ opacity: 1, height: "auto" }}
 						exit={{ opacity: 0, height: 0 }}
@@ -224,33 +237,33 @@ export function ContextualEditorLogic({ question }: QuestionEditorProps) {
 					>
 						<XPathSection
 							label="Validation"
-							dataFieldId="validation"
-							value={question.validation ?? ""}
-							onSave={(v) => saveXPath("validation", v)}
+							dataFieldId="validate"
+							value={hasValidate ? (question.validate ?? "") : ""}
+							onSave={(v) => saveXPath("validate", v)}
 							getLintContext={getLintContext}
 							autoEdit={
-								xpathField.activeField === "validation" ||
-								focusHint === "validation"
+								xpathField.activeField === "validate" ||
+								focusHint === "validate"
 							}
 						>
-							{(question.validation_msg ||
-								textField.activeField === "validation_msg" ||
-								focusHint === "validation_msg") && (
+							{(hasValidateMsg ||
+								textField.activeField === "validate_msg" ||
+								focusHint === "validate_msg") && (
 								<div className="mt-1">
 									<EditableText
 										label="Validation Message"
-										dataFieldId="validation_msg"
-										value={question.validation_msg ?? ""}
+										dataFieldId="validate_msg"
+										value={hasValidateMsg ? (question.validate_msg ?? "") : ""}
 										onSave={(v) => {
-											saveQuestion("validation_msg", v || null);
+											saveQuestion("validate_msg", v || null);
 											textField.clear();
 										}}
 										autoFocus={
-											textField.activeField === "validation_msg" ||
-											focusHint === "validation_msg"
+											textField.activeField === "validate_msg" ||
+											focusHint === "validate_msg"
 										}
 										onEmpty={
-											textField.activeField === "validation_msg"
+											textField.activeField === "validate_msg"
 												? textField.clear
 												: undefined
 										}
@@ -272,7 +285,7 @@ export function ContextualEditorLogic({ question }: QuestionEditorProps) {
 						<XPathSection
 							label="Show When"
 							dataFieldId="relevant"
-							value={question.relevant ?? ""}
+							value={hasRelevant ? (question.relevant ?? "") : ""}
 							onSave={(v) => saveXPath("relevant", v)}
 							getLintContext={getLintContext}
 							autoEdit={
@@ -294,7 +307,7 @@ export function ContextualEditorLogic({ question }: QuestionEditorProps) {
 						<XPathSection
 							label="Default Value"
 							dataFieldId="default_value"
-							value={question.default_value ?? ""}
+							value={hasDefaultValue ? (question.default_value ?? "") : ""}
 							onSave={(v) => saveXPath("default_value", v)}
 							getLintContext={getLintContext}
 							autoEdit={
@@ -316,7 +329,7 @@ export function ContextualEditorLogic({ question }: QuestionEditorProps) {
 						<XPathSection
 							label="Calculate"
 							dataFieldId="calculate"
-							value={question.calculate ?? ""}
+							value={hasCalculate ? (question.calculate ?? "") : ""}
 							onSave={(v) => saveXPath("calculate", v)}
 							getLintContext={getLintContext}
 							autoEdit={

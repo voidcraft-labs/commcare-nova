@@ -1,10 +1,11 @@
 "use client";
+import type { DecimalField, IntField } from "@/lib/domain";
 import type { QuestionState } from "@/lib/preview/engine/types";
-import type { Question } from "@/lib/schemas/blueprint";
 import { ValidationError } from "./ValidationError";
 
 interface NumberFieldProps {
-	question: Question;
+	/** Either an int or decimal field. `step` derives from the kind. */
+	question: IntField | DecimalField;
 	state: QuestionState;
 	onChange: (value: string) => void;
 	onBlur: () => void;
@@ -22,7 +23,10 @@ export function NumberField({
 		<div>
 			<input
 				type="number"
-				step={question.type === "int" ? "1" : "any"}
+				// Integer fields only accept whole numbers; decimal fields
+				// accept any precision. `kind` replaces the legacy wire-format
+				// `type` discriminant.
+				step={question.kind === "int" ? "1" : "any"}
 				value={state.value}
 				onChange={(e) => onChange(e.target.value)}
 				onBlur={onBlur}

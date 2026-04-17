@@ -24,10 +24,9 @@ import { TextEditable } from "@/components/preview/form/TextEditable";
 import { useEngineController, useEngineState } from "@/hooks/useFormEngine";
 import { useTextEditSave } from "@/hooks/useTextEditSave";
 import { useQuestion as useQuestionDoc } from "@/lib/doc/hooks/useEntity";
-import type { Uuid } from "@/lib/doc/types";
+import type { Field, Uuid } from "@/lib/domain";
 import { LabelContent } from "@/lib/references/LabelContent";
 import { useIsQuestionSelected } from "@/lib/routing/hooks";
-import type { NQuestion } from "@/lib/services/normalizedState";
 import { DragPreviewPill } from "../DragPreviewPill";
 import { makeDropGroupHeaderData } from "../dragData";
 import { depthPadding } from "../rowStyles";
@@ -52,7 +51,7 @@ export const GroupOpenRow = memo(function GroupOpenRow({
 	collapsed,
 }: GroupOpenProps) {
 	const { toggleCollapse } = useVirtualFormContext();
-	const q = useQuestionDoc(uuid) as NQuestion | undefined;
+	const q = useQuestionDoc(uuid) as Field | undefined;
 	const state = useEngineState(uuid);
 	const controller = useEngineController();
 	const saveField = useTextEditSave(uuid);
@@ -67,11 +66,15 @@ export const GroupOpenRow = memo(function GroupOpenRow({
 		[uuid, parentUuid, siblingIndex],
 	);
 
-	const isRepeatType = q?.type === "repeat";
+	// Domain `kind` replaces wire `type`. This row only ever renders
+	// group/repeat fields (the row builder filters others out), but the
+	// doc-store subscription returns a union-wide `Field`, so we narrow
+	// with `in` / the kind discriminant before reading `label`.
+	const isRepeatType = q?.kind === "repeat";
+	const labelText =
+		q && "label" in q && typeof q.label === "string" ? q.label.trim() : "";
 	const previewLabel =
-		q?.label?.trim() ||
-		q?.id ||
-		(isRepeatType ? "Untitled repeat" : "Untitled group");
+		labelText || q?.id || (isRepeatType ? "Untitled repeat" : "Untitled group");
 	const renderPreview = useCallback(
 		() => <DragPreviewPill label={previewLabel} />,
 		[previewLabel],
@@ -145,7 +148,12 @@ export const GroupOpenRow = memo(function GroupOpenRow({
 							)}
 
 							<div className="min-w-0 flex-1">
-								{q.label ? (
+								{/* GroupBracket always receives a container field (group
+								 *  or repeat). Both kinds carry `label` on the domain
+								 *  schema, but TypeScript's union narrows here via the
+								 *  container-kind check in the enclosing block. Guard
+								 *  with `in` so the narrowing is explicit. */}
+								{"label" in q && q.label ? (
 									<TextEditable
 										value={q.label}
 										onSave={
@@ -167,22 +175,9 @@ export const GroupOpenRow = memo(function GroupOpenRow({
 								)}
 							</div>
 						</div>
-						{q.hint && (
-							<div className="mt-0.5">
-								<TextEditable
-									value={q.hint}
-									onSave={saveField ? (v) => saveField("hint", v) : undefined}
-									fieldType="hint"
-								>
-									<LabelContent
-										label={q.hint}
-										resolvedLabel={state.resolvedHint}
-										isEditMode
-										className={FIELD_STYLES.hint}
-									/>
-								</TextEditable>
-							</div>
-						)}
+						{/* Containers (group/repeat) carry no `hint` in the domain
+						 *  schema — only `relevant`. The hint editor only appears
+						 *  on non-container kinds via QuestionRow. */}
 					</div>
 				</EditableQuestionWrapper>
 			</div>

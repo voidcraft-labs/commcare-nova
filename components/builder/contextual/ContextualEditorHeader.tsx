@@ -315,10 +315,13 @@ export function ContextualEditorHeader({ question }: QuestionEditorProps) {
 			)
 		: { up: undefined, down: undefined };
 
-	const conversionTargets = getConvertibleTypes(question.type);
+	// `kind` replaces the legacy wire `type` discriminant everywhere
+	// outside the SA wire boundary. Conversion targets, icons, and human
+	// labels all key off the same string value.
+	const conversionTargets = getConvertibleTypes(question.kind);
 	const canConvert = conversionTargets.length > 0;
-	const typeIcon = questionTypeIcons[question.type];
-	const typeLabel = questionTypeLabels[question.type] ?? question.type;
+	const typeIcon = questionTypeIcons[question.kind];
+	const typeLabel = questionTypeLabels[question.kind] ?? question.kind;
 
 	return (
 		<div className="flex items-center justify-between px-3 py-3 border-b border-white/[0.06]">
@@ -498,10 +501,12 @@ export function ContextualEditorHeader({ question }: QuestionEditorProps) {
 												sideOffset={4}
 											>
 												<Menu.Popup className={MENU_POPUP_CLS}>
+													{/* `saveQuestion` routes the patch through `updateField`,
+													 *  which expects the domain `kind` discriminant. */}
 													<QuestionTypeList
 														types={conversionTargets}
-														activeType={question.type}
-														onSelect={(type) => saveQuestion("type", type)}
+														activeType={question.kind}
+														onSelect={(next) => saveQuestion("kind", next)}
 													/>
 												</Menu.Popup>
 											</Menu.Positioner>

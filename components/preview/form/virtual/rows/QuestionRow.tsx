@@ -28,10 +28,9 @@ import { TextEditable } from "@/components/preview/form/TextEditable";
 import { useEngineController, useEngineState } from "@/hooks/useFormEngine";
 import { useTextEditSave } from "@/hooks/useTextEditSave";
 import { useQuestion as useQuestionDoc } from "@/lib/doc/hooks/useEntity";
-import type { Uuid } from "@/lib/doc/types";
+import type { Field, Uuid } from "@/lib/domain";
 import { LabelContent } from "@/lib/references/LabelContent";
 import { useIsQuestionSelected } from "@/lib/routing/hooks";
-import type { NQuestion } from "@/lib/services/normalizedState";
 import { DragPreviewPill } from "../DragPreviewPill";
 import { makeDropQuestionData } from "../dragData";
 import { depthPadding } from "../rowStyles";
@@ -50,7 +49,7 @@ export const QuestionRow = memo(function QuestionRow({
 	siblingIndex,
 	depth,
 }: QuestionRowProps) {
-	const q = useQuestionDoc(uuid) as NQuestion | undefined;
+	const q = useQuestionDoc(uuid) as Field | undefined;
 	const state = useEngineState(uuid);
 	const controller = useEngineController();
 	const isQuestionSelected = useIsQuestionSelected(uuid);
@@ -69,7 +68,11 @@ export const QuestionRow = memo(function QuestionRow({
 		[uuid, parentUuid, siblingIndex],
 	);
 
-	const previewLabel = q?.label?.trim() || q?.id || "Question";
+	// `label` is absent from the `hidden` kind; fall back to id or a
+	// generic placeholder so the drag preview never shows an empty pill.
+	const labelText =
+		q && "label" in q && typeof q.label === "string" ? q.label.trim() : "";
+	const previewLabel = labelText || q?.id || "Field";
 	const renderPreview = useCallback(
 		() => <DragPreviewPill label={previewLabel} />,
 		[previewLabel],
@@ -92,12 +95,16 @@ export const QuestionRow = memo(function QuestionRow({
 		errorMessage: undefined,
 	};
 
+	// Leaf rows never render group/repeat — those kinds are drawn by
+	// GroupOpenRow/GroupCloseRow. The fallback branch handles every
+	// input-producing kind that exposes `label` + optional `hint`.
+	// Narrow on `kind` instead of the legacy wire `type` discriminant.
 	const content =
-		q.type === "label" ? (
+		q.kind === "label" ? (
 			<LabelField question={q} state={displayState} />
-		) : q.type === "hidden" ? (
+		) : q.kind === "hidden" ? (
 			<HiddenField question={q} />
-		) : (
+		) : q.kind === "group" || q.kind === "repeat" ? null : (
 			<div className="block space-y-1.5">
 				{q.label && (
 					<div className="flex items-center gap-1">

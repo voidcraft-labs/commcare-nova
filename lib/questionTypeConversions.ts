@@ -1,22 +1,20 @@
 /**
- * Type conversion map — defines which question types can logically convert
- * to which other types. Conversions are restricted to types within the same
- * input paradigm where properties (validation, relevancy, options, etc.)
- * transfer meaningfully. Types with no valid conversions render a disabled
- * button in the footer.
+ * Field-kind conversion map — defines which field kinds can logically
+ * convert to which other kinds. Conversions are restricted to kinds
+ * within the same input paradigm where properties (validation,
+ * relevancy, options, etc.) transfer meaningfully. Kinds with no valid
+ * conversions render a disabled button in the footer.
  *
- * Rationale: changing a question type is rare — it takes the same number of
- * clicks to create a new question. The only reason to convert is when you
- * have properties set and want to keep them, which only makes sense between
- * nearly identical types.
+ * Rationale: changing a field's kind is rare — it takes the same number
+ * of clicks to create a new field. The only reason to convert is when
+ * you have properties set and want to keep them, which only makes sense
+ * between nearly identical kinds.
  */
 
-import type { Question } from "@/lib/schemas/blueprint";
+import type { FieldKind } from "@/lib/domain";
 
-type QuestionType = Question["type"];
-
-/** Strict conversion families — types map only to their logical siblings. */
-const CONVERSION_MAP: Record<QuestionType, readonly QuestionType[]> = {
+/** Strict conversion families — kinds map only to their logical siblings. */
+const CONVERSION_MAP: Record<FieldKind, readonly FieldKind[]> = {
 	/* Text input: both capture free-form text, secret just masks display */
 	text: ["secret"],
 	secret: ["text"],
@@ -52,11 +50,10 @@ const CONVERSION_MAP: Record<QuestionType, readonly QuestionType[]> = {
 };
 
 /**
- * Returns the types a given question type can logically convert to.
- * Empty array means the type has no valid conversions (button should be disabled).
+ * Returns the kinds a given field kind can logically convert to.
+ * Empty array means the kind has no valid conversions (button should
+ * be disabled).
  */
-export function getConvertibleTypes(
-	type: QuestionType,
-): readonly QuestionType[] {
-	return CONVERSION_MAP[type];
+export function getConvertibleTypes(kind: FieldKind): readonly FieldKind[] {
+	return CONVERSION_MAP[kind];
 }

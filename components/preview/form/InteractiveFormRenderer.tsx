@@ -34,9 +34,8 @@ import { memo } from "react";
 import { useEngineController, useEngineState } from "@/hooks/useFormEngine";
 import { useBlueprintDoc } from "@/lib/doc/hooks/useBlueprintDoc";
 import { useQuestion as useQuestionDoc } from "@/lib/doc/hooks/useEntity";
-import { asUuid, type Uuid } from "@/lib/doc/types";
+import { asUuid, type Field, type Uuid } from "@/lib/domain";
 import { LabelContent } from "@/lib/references/LabelContent";
-import type { NQuestion } from "@/lib/services/normalizedState";
 import { type QuestionPath, qpath } from "@/lib/services/questionPath";
 import { FIELD_STYLES } from "./fieldStyles";
 import { GroupField } from "./fields/GroupField";
@@ -120,42 +119,48 @@ const InteractiveQuestion = memo(function InteractiveQuestion({
 	prefix,
 	parentPath,
 }: InteractiveQuestionProps) {
-	const q = useQuestionDoc(uuid) as NQuestion | undefined;
+	const field = useQuestionDoc(uuid) as Field | undefined;
 	const state = useEngineState(uuid);
 	const controller = useEngineController();
 
 	// Visibility gating lives here so the subscription cost of reading
-	// the question + engine state is paid per-question. Siblings whose
+	// the field + engine state is paid per-field. Siblings whose
 	// visibility toggles independently don't affect this row.
-	if (!q) return null;
-	if (q.type === "hidden") return null;
+	if (!field) return null;
+	// `hidden` fields are authoring-time only — they never render in
+	// interactive mode. The edit view keeps a compact card so authors
+	// can still edit them.
+	if (field.kind === "hidden") return null;
 	if (!state.visible) return null;
 
-	const qId = q.id;
-	const path = `${prefix}/${qId}`;
-	const questionPath = qpath(qId, parentPath);
+	const fieldId = field.id;
+	const path = `${prefix}/${fieldId}`;
+	const questionPath = qpath(fieldId, parentPath);
 
 	const showInvalid = state.touched && !state.valid;
 
+	// Discriminated union narrowing on `field.kind` so each branch sees
+	// the kind-specific entity shape. `label` is absent from the `hidden`
+	// field kind but we've already guarded against that above.
 	let content: React.ReactNode;
-	if (q.type === "group") {
+	if (field.kind === "group") {
 		content = (
-			<GroupField question={q} path={path} questionPath={questionPath} />
+			<GroupField field={field} path={path} questionPath={questionPath} />
 		);
-	} else if (q.type === "repeat") {
+	} else if (field.kind === "repeat") {
 		content = (
-			<RepeatField question={q} path={path} questionPath={questionPath} />
+			<RepeatField field={field} path={path} questionPath={questionPath} />
 		);
-	} else if (q.type === "label") {
-		content = <LabelField question={q} state={state} />;
+	} else if (field.kind === "label") {
+		content = <LabelField question={field} state={state} />;
 	} else {
 		content = (
 			<div className="block space-y-1.5">
-				{q.label && (
+				{field.label && (
 					<div className="flex items-center gap-1">
 						<div className="min-w-0 flex-1">
 							<LabelContent
-								label={q.label}
+								label={field.label}
 								resolvedLabel={state.resolvedLabel}
 								isEditMode={false}
 								className={FIELD_STYLES.label}
@@ -166,16 +171,16 @@ const InteractiveQuestion = memo(function InteractiveQuestion({
 						)}
 					</div>
 				)}
-				{q.hint && (
+				{field.hint && (
 					<LabelContent
-						label={q.hint}
+						label={field.hint}
 						resolvedLabel={state.resolvedHint}
 						isEditMode={false}
 						className={FIELD_STYLES.hint}
 					/>
 				)}
 				<QuestionField
-					question={q}
+					question={field}
 					state={state}
 					onChange={(value) => controller.onValueChange(uuid, value)}
 					onBlur={() => controller.onTouch(uuid)}

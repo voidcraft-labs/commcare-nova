@@ -27,7 +27,7 @@ import tablerRepeat from "@iconify-icons/tabler/repeat";
 import tablerSignature from "@iconify-icons/tabler/signature";
 import tablerSquareCheck from "@iconify-icons/tabler/square-check";
 import tablerTag from "@iconify-icons/tabler/tag";
-import type { Question } from "@/lib/schemas/blueprint";
+import type { FieldKind } from "@/lib/domain";
 
 export const questionTypeIcons: Record<string, IconifyIcon> = {
 	text: tablerForms,
@@ -86,15 +86,13 @@ export const formTypeIcons: Record<string, IconifyIcon> = {
  * direct Menu.Items (e.g. Hidden — single-purpose types that don't belong
  * in a family). */
 
-type QuestionType = Question["type"];
-
 export interface InsertionCategory {
 	/** Human label shown on the submenu trigger. */
 	label: string;
 	/** Representative icon for the category trigger row. */
 	icon: IconifyIcon;
-	/** Types surfaced inside the submenu. */
-	types: readonly QuestionType[];
+	/** Field kinds surfaced inside the submenu. */
+	types: readonly FieldKind[];
 }
 
 /** Grouped families — each becomes a submenu in the insertion menu. */
@@ -122,8 +120,8 @@ export const INSERTION_CATEGORIES: readonly InsertionCategory[] = [
 	{ label: "Structure", icon: tablerFolder, types: ["group", "repeat"] },
 ];
 
-/** Standalone types rendered as level-1 items (no submenu needed). */
-export const INSERTION_TOP_LEVEL: readonly QuestionType[] = [
+/** Standalone kinds rendered as level-1 items (no submenu needed). */
+export const INSERTION_TOP_LEVEL: readonly FieldKind[] = [
 	"geopoint",
 	"label",
 	"hidden",

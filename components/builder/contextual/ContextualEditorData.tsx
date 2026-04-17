@@ -46,14 +46,20 @@ export function ContextualEditorData({ question }: QuestionEditorProps) {
 	const writableCaseTypes = getModuleCaseTypes(ctx.module.caseType, caseTypes);
 	const isCaseName = question.id === "case_name";
 	const hasOptions =
-		question.type === "single_select" || question.type === "multi_select";
+		question.kind === "single_select" || question.kind === "multi_select";
 	const hasCaseProperty = writableCaseTypes.length > 0 || isCaseName;
 
 	/* Nothing to show — ID lives in the header, and neither case property
-	 * dropdown nor options editor applies to this question. The entire
+	 * dropdown nor options editor applies to this field. The entire
 	 * section card is omitted so the parent doesn't need to know what
 	 * fields live here. */
 	if (!hasCaseProperty && !hasOptions) return null;
+
+	// `case_property` is absent on kinds that can't write to the case
+	// (label, group, repeat, and media kinds). Narrow with `in` before
+	// reading so the discriminated union stays sound.
+	const caseProperty =
+		"case_property" in question ? question.case_property : undefined;
 
 	return (
 		<div className={SECTION_CARD_CLASS}>
@@ -61,9 +67,9 @@ export function ContextualEditorData({ question }: QuestionEditorProps) {
 			<div className="space-y-3">
 				<div data-field-id="case_property_on">
 					<CasePropertyDropdown
-						value={question.case_property_on}
+						value={caseProperty}
 						isCaseName={isCaseName}
-						disabled={MEDIA_TYPES.has(question.type)}
+						disabled={MEDIA_TYPES.has(question.kind)}
 						caseTypes={writableCaseTypes}
 						onChange={setCasePropertyOn}
 						autoFocus={focusHint === "case_property_on"}

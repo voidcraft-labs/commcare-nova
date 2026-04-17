@@ -1,14 +1,14 @@
 "use client";
 import { Icon } from "@iconify/react/offline";
+import type { FieldKind } from "@/lib/domain";
 import { questionTypeIcons, questionTypeLabels } from "@/lib/questionTypeIcons";
-import type { Question } from "@/lib/schemas/blueprint";
 
 interface QuestionTypeListProps {
 	/** The conversion targets to display. */
-	types: ReadonlyArray<Question["type"]>;
-	/** The current type — highlighted so the user knows what they're converting from. */
-	activeType?: Question["type"];
-	onSelect: (type: Question["type"]) => void;
+	types: ReadonlyArray<FieldKind>;
+	/** The current kind — highlighted so the user knows what they're converting from. */
+	activeType?: FieldKind;
+	onSelect: (kind: FieldKind) => void;
 }
 
 /** Single-column list for converting a question to a sibling type.

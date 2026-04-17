@@ -1,18 +1,18 @@
 "use client";
 import { Icon } from "@iconify/react/offline";
 import { Tooltip } from "@/components/ui/Tooltip";
+import type { HiddenField as HiddenFieldEntity } from "@/lib/domain";
 import { questionTypeIcons } from "@/lib/questionTypeIcons";
 import { ExpressionContent } from "@/lib/references/ExpressionContent";
-import type { Question } from "@/lib/schemas/blueprint";
 
 /**
- * Edit-mode-only representation of a hidden question. These have no label or
+ * Edit-mode-only representation of a hidden field. These have no label or
  * visible input — they're system-level values driven by calculate expressions
- * or static defaults. The card shows the question ID as the primary identifier
+ * or static defaults. The card shows the field ID as the primary identifier
  * and surfaces any calculate/default expressions with dimmed inline chips for
  * hashtag references.
  */
-export function HiddenField({ question }: { question: Question }) {
+export function HiddenField({ question }: { question: HiddenFieldEntity }) {
 	const expr = question.calculate || question.default_value;
 
 	return (

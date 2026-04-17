@@ -2,14 +2,22 @@
 import { Icon } from "@iconify/react/offline";
 import tablerPhoto from "@iconify-icons/tabler/photo";
 import { useEditContext } from "@/hooks/useEditContext";
+import type { Field } from "@/lib/domain";
 import { questionTypeIcons, questionTypeLabels } from "@/lib/questionTypeIcons";
-import type { Question } from "@/lib/schemas/blueprint";
 
-export function MediaField({ question }: { question: Question }) {
+/**
+ * Placeholder card for media-capture kinds (image/audio/video/barcode/
+ * signature/geopoint). The preview engine has no native capture affordance,
+ * so we render the icon + kind label with an "(not available in preview)"
+ * note outside of edit mode.
+ */
+export function MediaField({ question }: { question: Field }) {
 	const ctx = useEditContext();
 	const isDesign = ctx?.mode === "edit";
-	const icon = questionTypeIcons[question.type] ?? tablerPhoto;
-	const label = questionTypeLabels[question.type] ?? question.type;
+	// `kind` replaces the legacy wire `type` discriminant — both icon and
+	// label registries are keyed by the same strings.
+	const icon = questionTypeIcons[question.kind] ?? tablerPhoto;
+	const label = questionTypeLabels[question.kind] ?? question.kind;
 
 	return (
 		<div className="flex items-center gap-3 px-4 py-3 rounded-lg bg-pv-surface border border-dashed border-pv-input-border">

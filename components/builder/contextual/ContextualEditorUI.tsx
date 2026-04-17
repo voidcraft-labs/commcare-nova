@@ -6,7 +6,6 @@ import {
 } from "@/components/builder/InlineSettingsPanel";
 import { useSaveQuestion } from "@/hooks/useSaveQuestion";
 import { useSelectedQuestion } from "@/lib/routing/hooks";
-import type { Question } from "@/lib/schemas/blueprint";
 import { AddPropertyButton } from "./AddPropertyButton";
 import {
 	addableTextFields,
@@ -23,8 +22,8 @@ const UI_FIELDS = new Set<FocusableFieldKey>(["hint"]);
 /**
  * Appearance section — hint field and add-hint button.
  * Self-contained: wraps its own section card and returns null when the
- * question type has no applicable appearance fields (hidden, label,
- * group, repeat). Mirrors `ContextualEditorData`'s visibility pattern.
+ * field kind has no applicable appearance fields (hidden, label, group,
+ * repeat). Mirrors `ContextualEditorData`'s visibility pattern.
  */
 export function ContextualEditorUI({ question }: QuestionEditorProps) {
 	const selected = useSelectedQuestion();
@@ -37,15 +36,23 @@ export function ContextualEditorUI({ question }: QuestionEditorProps) {
 
 	if (!selected) return null;
 
-	/* Hint only applies to user-input types — labels are display-only,
+	/* Hint only applies to user-input kinds — labels are display-only,
 	 * groups/repeats are containers, hidden fields aren't visible. */
-	if (!fieldSupportedForType("hint", question.type)) return null;
+	if (!fieldSupportedForType("hint", question.kind)) return null;
 
-	/** Text fields not yet set on this question, available to add. */
+	// `hint` is absent from structural kinds (group/repeat/label/hidden).
+	// Narrow with `in` so the read is sound; structural kinds already bail
+	// above via `fieldSupportedForType`, so this guard is belt-and-braces.
+	const currentHint =
+		"hint" in question && typeof question.hint === "string"
+			? question.hint
+			: undefined;
+
+	/** Text fields not yet set on this field, available to add. */
 	const missingTextFields = addableTextFields.filter(
 		(f) =>
 			f.field === "hint" &&
-			!question[f.field as keyof Question] &&
+			!currentHint &&
 			activeField !== f.field &&
 			focusHint !== "hint",
 	);
@@ -54,11 +61,11 @@ export function ContextualEditorUI({ question }: QuestionEditorProps) {
 		<div className={SECTION_CARD_CLASS}>
 			<SectionLabel label="Appearance" />
 			<div className="space-y-3">
-				{(question.hint || activeField === "hint" || focusHint === "hint") && (
+				{(currentHint || activeField === "hint" || focusHint === "hint") && (
 					<EditableText
 						label="Hint"
 						dataFieldId="hint"
-						value={question.hint ?? ""}
+						value={currentHint ?? ""}
 						onSave={(v) => {
 							saveQuestion("hint", v || null);
 							clear();

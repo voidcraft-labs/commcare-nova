@@ -14,7 +14,7 @@
 
 "use client";
 import { useCallback } from "react";
-import type { Question } from "@/lib/schemas/blueprint";
+import type { Field } from "@/lib/domain";
 import { useSetActiveFieldId } from "@/lib/session/hooks";
 import { ContextualEditorData } from "./contextual/ContextualEditorData";
 import { ContextualEditorHeader } from "./contextual/ContextualEditorHeader";
@@ -22,7 +22,8 @@ import { ContextualEditorLogic } from "./contextual/ContextualEditorLogic";
 import { ContextualEditorUI } from "./contextual/ContextualEditorUI";
 
 interface InlineSettingsPanelProps {
-	question: Question;
+	/** Domain field entity — all sub-editors consume the same shape. */
+	question: Field;
 }
 
 /** Static section label with a left accent bar for visual grouping. */

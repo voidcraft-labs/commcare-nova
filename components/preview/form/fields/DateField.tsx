@@ -1,10 +1,15 @@
 "use client";
+import type {
+	DateField as DateFieldEntity,
+	DatetimeField,
+	TimeField,
+} from "@/lib/domain";
 import type { QuestionState } from "@/lib/preview/engine/types";
-import type { Question } from "@/lib/schemas/blueprint";
 import { ValidationError } from "./ValidationError";
 
 interface DateFieldProps {
-	question: Question;
+	/** Any of the three datetime-family kinds; the input type maps 1-to-1. */
+	question: DateFieldEntity | TimeField | DatetimeField;
 	state: QuestionState;
 	onChange: (value: string) => void;
 	onBlur: () => void;
@@ -16,10 +21,13 @@ export function DateField({
 	onChange,
 	onBlur,
 }: DateFieldProps) {
+	// `kind` replaces wire `type`. The three kinds map to their native
+	// HTML input types; `datetime` uses `datetime-local` because the
+	// plain `datetime` type is obsolete.
 	const inputType =
-		question.type === "time"
+		question.kind === "time"
 			? "time"
-			: question.type === "datetime"
+			: question.kind === "datetime"
 				? "datetime-local"
 				: "date";
 	const showError = state.touched && !state.valid;

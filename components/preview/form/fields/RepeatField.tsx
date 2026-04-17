@@ -20,16 +20,18 @@ import tablerPlus from "@iconify-icons/tabler/plus";
 import tablerTrash from "@iconify-icons/tabler/trash";
 import { useEngineController, useEngineState } from "@/hooks/useFormEngine";
 import { useBlueprintDoc } from "@/lib/doc/hooks/useBlueprintDoc";
-import type { Uuid } from "@/lib/doc/types";
+import type { RepeatField as RepeatFieldEntity } from "@/lib/domain";
 import { LabelContent } from "@/lib/references/LabelContent";
-import type { Question } from "@/lib/schemas/blueprint";
 import type { QuestionPath } from "@/lib/services/questionPath";
 import { FIELD_STYLES } from "../fieldStyles";
 import { InteractiveFormRenderer } from "../InteractiveFormRenderer";
 
 interface RepeatFieldProps {
-	question: Question;
+	/** The repeat field entity from the normalized doc. `hint` is optional. */
+	field: RepeatFieldEntity;
+	/** XForm data path prefix — we append `[idx]` per instance. */
 	path: string;
+	/** Blueprint question path threaded through to descendants. */
 	questionPath: QuestionPath;
 }
 
@@ -68,28 +70,24 @@ function RepeatInstance({
 
 // ── RepeatField ──────────────────────────────────────────────────────
 
-export function RepeatField({
-	question,
-	path,
-	questionPath,
-}: RepeatFieldProps) {
+export function RepeatField({ field, path, questionPath }: RepeatFieldProps) {
 	// Visibility is gated one level up by `InteractiveQuestion`, so we
 	// only render when the repeat is visible. State is still needed for
 	// resolved label text + the "Add …" button.
 	const controller = useEngineController();
-	const state = useEngineState(question.uuid);
+	const state = useEngineState(field.uuid);
 
 	const hasChildren = useBlueprintDoc(
-		(s) => (s.fieldOrder[question.uuid as Uuid]?.length ?? 0) > 0,
+		(s) => (s.fieldOrder[field.uuid]?.length ?? 0) > 0,
 	);
 
-	const count = controller.getRepeatCount(question.uuid);
+	const count = controller.getRepeatCount(field.uuid);
 
 	return (
 		<div className="space-y-3">
-			{question.label && (
+			{field.label && (
 				<LabelContent
-					label={question.label}
+					label={field.label}
 					resolvedLabel={state.resolvedLabel}
 					isEditMode={false}
 					className={FIELD_STYLES.label}
@@ -109,7 +107,7 @@ export function RepeatField({
 						count > 1 ? (
 							<button
 								type="button"
-								onClick={() => controller.removeRepeat(question.uuid, idx)}
+								onClick={() => controller.removeRepeat(field.uuid, idx)}
 								className="p-1 text-nova-text-muted hover:text-nova-rose transition-colors cursor-pointer"
 							>
 								<Icon icon={tablerTrash} width="14" height="14" />
@@ -119,7 +117,7 @@ export function RepeatField({
 					hasChildren={hasChildren}
 				>
 					<InteractiveFormRenderer
-						parentEntityId={question.uuid}
+						parentEntityId={field.uuid}
 						prefix={`${path}[${idx}]`}
 						parentPath={questionPath}
 					/>
@@ -128,11 +126,11 @@ export function RepeatField({
 
 			<button
 				type="button"
-				onClick={() => controller.addRepeat(question.uuid)}
+				onClick={() => controller.addRepeat(field.uuid)}
 				className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-pv-accent hover:text-pv-accent-bright border border-pv-input-border hover:border-pv-input-focus rounded-lg transition-colors cursor-pointer"
 			>
 				<Icon icon={tablerPlus} width="14" height="14" />
-				Add {state.resolvedLabel ?? question.label ?? "entry"}
+				Add {state.resolvedLabel ?? field.label ?? "entry"}
 			</button>
 		</div>
 	);

@@ -1,17 +1,26 @@
 "use client";
 import { useEditContext } from "@/hooks/useEditContext";
 import { useTextEditSave } from "@/hooks/useTextEditSave";
+import type { LabelField as LabelFieldEntity } from "@/lib/domain";
 import type { QuestionState } from "@/lib/preview/engine/types";
 import { LabelContent } from "@/lib/references/LabelContent";
-import type { Question } from "@/lib/schemas/blueprint";
 import { FIELD_STYLES } from "../fieldStyles";
 import { TextEditable } from "../TextEditable";
 
+/**
+ * Display-only label field renderer. Labels carry only `label` + optional
+ * `relevant` in the domain schema — no hint, no data binding. The preview
+ * engine still provides a resolved label (hashtag substitution) via
+ * `QuestionState`.
+ */
 export function LabelField({
 	question,
 	state,
 }: {
-	question: Question;
+	/** The label field entity. Named `question` to keep this surface
+	 *  consistent with other preview field components — the prop name is
+	 *  cosmetic; the value is a domain `LabelField`. */
+	question: LabelFieldEntity;
 	state: QuestionState;
 }) {
 	const ctx = useEditContext();
@@ -32,22 +41,6 @@ export function LabelField({
 					className={FIELD_STYLES.label}
 				/>
 			</TextEditable>
-			{question.hint && (
-				<div className="mt-0.5">
-					<TextEditable
-						value={question.hint}
-						onSave={saveField ? (v) => saveField("hint", v) : undefined}
-						fieldType="hint"
-					>
-						<LabelContent
-							label={question.hint}
-							resolvedLabel={state.resolvedHint}
-							isEditMode={isEditMode}
-							className={FIELD_STYLES.hint}
-						/>
-					</TextEditable>
-				</div>
-			)}
 		</div>
 	);
 }
