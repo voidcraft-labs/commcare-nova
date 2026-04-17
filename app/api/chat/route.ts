@@ -4,6 +4,7 @@ import {
 	createUIMessageStreamResponse,
 	type UIMessage,
 } from "ai";
+import { classifyError, MESSAGES } from "@/lib/agent";
 import { resolveApiKey } from "@/lib/auth-utils";
 import {
 	createApp,
@@ -16,7 +17,6 @@ import { rebuildFieldParent } from "@/lib/doc/fieldParent";
 import type { BlueprintDoc } from "@/lib/domain";
 import { log } from "@/lib/log";
 import { CACHE_TTL_MS, chatRequestSchema } from "@/lib/schemas/apiSchemas";
-import { classifyError, MESSAGES } from "@/lib/services/errorClassifier";
 import { EventLogger } from "@/lib/services/eventLogger";
 import { GenerationContext } from "@/lib/services/generationContext";
 import { createSolutionsArchitect } from "@/lib/services/solutionsArchitect";
