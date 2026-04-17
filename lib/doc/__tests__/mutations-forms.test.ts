@@ -298,4 +298,30 @@ describe("replaceForm", () => {
 		});
 		expect(next.forms[F("missing")]).toBeUndefined();
 	});
+
+	it("throws when mut.form.uuid does not match mut.uuid", () => {
+		// Reducer contract: the mutation's `uuid` (which form slot to replace)
+		// must equal the new form entity's own `.uuid`. A mismatch would
+		// install an entity whose self-reported identity disagrees with its
+		// key in `draft.forms` — every downstream consumer would read a form
+		// with the wrong uuid and break.
+		const start: BlueprintDoc = {
+			...docWithModule(M("A")),
+			forms: { [F("1")]: form_(F("1")) },
+			formOrder: { [M("A")]: [F("1")] },
+			fieldOrder: { [F("1")]: [] },
+		};
+		expect(() => {
+			produce(start, (d) => {
+				applyMutation(d, {
+					kind: "replaceForm",
+					uuid: F("1"),
+					// Wrong uuid on the entity payload — reducer must reject.
+					form: form_(F("2")),
+					fields: [],
+					fieldOrder: { [F("1")]: [] },
+				});
+			});
+		}).toThrow(/replaceForm/);
+	});
 });

@@ -84,6 +84,19 @@ export function applyFormMutation(
 			return;
 		}
 		case "replaceForm": {
+			// Invariant: the mutation's `uuid` (which form to replace) must match
+			// the uuid on the incoming form entity. Allowing them to diverge
+			// would install a form entity whose `.uuid` disagrees with its
+			// position in the draft's `forms` map — every downstream lookup
+			// would then get an entity whose self-reported identity is wrong.
+			// This is a programmer error, not a user error: throw so the
+			// offending call site surfaces in development, before the bad state
+			// propagates through undo/redo history.
+			if (mut.form.uuid !== mut.uuid) {
+				throw new Error(
+					`replaceForm: form.uuid (${mut.form.uuid}) must match mut.uuid (${mut.uuid})`,
+				);
+			}
 			const existing = draft.forms[mut.uuid];
 			if (!existing) return;
 			// Drop the old field subtree (but don't touch formOrder — the
