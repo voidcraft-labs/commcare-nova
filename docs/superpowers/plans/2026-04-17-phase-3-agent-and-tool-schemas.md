@@ -25,6 +25,20 @@
 
 ---
 
+## Plan revisions (mid-execution corrections)
+
+The plan shipped with several judgment-call mistakes. These are the substantive corrections discovered during execution. Each is reflected in the relevant task sections below; this log is the index.
+
+- **`scaffoldProgress.ts` destination (Task 5).** Plan sent it to `lib/agent/scaffoldProgress.ts`. Wrong: it's a client-only concern — a pure derivation over client-held session + doc state, consumed only by the `"use client"` `ChatSidebar`. Putting a client-safe file under `lib/agent/` (server-only) wired Node built-ins (`fs`, `net`, `grpc-js`) into the client bundle trace once the barrel started re-exporting `GenerationContext` transitively. Correct destination: `components/chat/scaffoldProgress.ts`, colocated with its consumer. Fixed in commit `aa283b9`. Task 5 section below has been updated.
+- **`blueprintHelpers.ts` was mixed-concern, causing the same directional violation (new Task 11a).** The SA-only query/mutation helpers were cleanly server-internal, but `searchBlueprint` was imported by `lib/doc/hooks/useSearchBlueprint.ts` (client hook). The file hadn't yet grown transitive server deps so no bundle leak fired, but the arrow pointed from client → `lib/agent/`, which is backward. Fix: extract `searchBlueprint` + `SearchResult` to `lib/doc/searchBlueprint.ts`; leave SA-only helpers in `lib/agent/blueprintHelpers.ts`; delete four dead exports (`containingFormUuid`, `fieldPath` function, `findFieldByPath`, `collectAllFieldIdsInForm`). Committed as `1da5740`. See new Task 11a.
+- **`mutationMapper.ts` should NOT move to `lib/agent/` (Task 11 revised).** After Phase 3's server-side mutation emission, the mapper is client-consumed only (legacy wire-event replay in `streamDispatcher.ts`). Moving it into a server-only directory creates the same directional violation `scaffoldProgress` taught us to avoid. The file stays at `lib/generation/mutationMapper.ts`; only its header comment changes to declare REPLAY-ONLY status. Phase 4's log unification deletes the file entirely. Task 11 below has been rewritten.
+- **Task 17 decomposed into 17a–17d.** One task migrating 13 SA tool handlers at once is too coarse — concentrates risk, makes review + test-per-slice noisy. Split by tool group: generation (schema/scaffold/addModule), field mutations (addQuestions/addQuestion/editQuestion/removeQuestion), structural mutations (updateModule/updateForm/createForm/removeForm/createModule/removeModule), and validation-loop + safety-net test. Each commits independently.
+- **`npm run build` added to every remaining task's verification gate.** The bundle leak from `scaffoldProgress` accumulated silently through Tasks 4–9 because the baseline gate ran only `tsc` + `lint` + vitest. None of those exercise the client bundler. Vitest is Node-only; it can never catch a server-only import landing in a client module graph. Every task from Task 11 onward now requires a clean `npm run build` before commit.
+- **`lib/agent/` is server-only. This is architectural, not aspirational.** Files that a `"use client"` component imports must not live under `lib/agent/` — directly or through a re-export barrel. Shared pure helpers that sit between SA and client go into `lib/doc/` (`BlueprintDoc`-reading utilities) or colocated with their consumer. Bridge-smell guardrails below have been expanded with this rule.
+- **Minor plan inaccuracies.** Several tasks' "all imports aliased" or "only consumer is X" claims were wrong (tasks 3, 6, 7, 8, 10). Implementers + reviewers caught each during execution; commits record the actual scope. The plan text for those tasks is now out of sync with what actually shipped, but the code is correct. Future plan authors: grep + read the file before asserting its import graph.
+
+---
+
 ## Scope boundaries
 
 IN SCOPE (this plan):
@@ -75,7 +89,9 @@ Subagents trained on "what to do" invent bridges. Subagents trained on "why brid
 - **Moving a file to `lib/agent/` but leaving the original in `lib/services/` as a re-export.** The move is a move. Delete the source.
 - **Leaving `lib/services/solutionsArchitect.ts` / `lib/services/generationContext.ts` / etc. as re-export shims.** Consumers update to `@/lib/agent/*` imports. If a consumer is missed, `tsc` surfaces it immediately.
 - **`as any` / `@ts-expect-error` to paper over an import rewrite.** Fix the import, fix the type.
-- **Any new import of `lib/schemas/blueprint.ts` outside `lib/agent/`, `lib/doc/legacyBridge.ts`, `lib/services/commcare/**`, `lib/services/autoFixer.ts` (before move), `lib/services/validationLoop.ts` (before move), `lib/services/cczCompiler.ts`, `lib/services/hqJsonExpander.ts`, `lib/services/xformBuilder.ts`, `lib/services/deriveCaseConfig.ts`, `lib/services/formActions.ts`, `lib/services/scaffoldProgress.ts` (before move), `lib/session/types.ts`, `lib/generation/mutationMapper.ts` (before move), and the existing test files.** Phase 3 does NOT expand the `blueprint.ts` import surface — it contracts it by pulling SA-internal usage into `lib/agent/`. Phase 7 finishes the job.
+- **Any new import of `lib/schemas/blueprint.ts` outside `lib/agent/`, `lib/doc/legacyBridge.ts`, `lib/services/commcare/**`, `lib/services/autoFixer.ts` (before move), `lib/services/validationLoop.ts` (before move), `lib/services/cczCompiler.ts`, `lib/services/hqJsonExpander.ts`, `lib/services/xformBuilder.ts`, `lib/services/deriveCaseConfig.ts`, `lib/services/formActions.ts`, `lib/services/scaffoldProgress.ts` (before move), `lib/session/types.ts`, `lib/generation/mutationMapper.ts`, and the existing test files.** Phase 3 does NOT expand the `blueprint.ts` import surface — it contracts it by pulling SA-internal usage into `lib/agent/`. Phase 7 finishes the job.
+- **Placing client-consumed code under `lib/agent/`.** `lib/agent/` is server-only. Every file that's consumed by a `"use client"` component — directly OR through the `@/lib/agent` barrel's transitive import graph — must live somewhere else: colocated with its consumer (`components/*/foo.ts`) for single-consumer UI derivations, or under `lib/doc/` for shared `BlueprintDoc`-reading utilities both server + client use. The test: if `ChatSidebar.tsx` or any other client component imports the file, it does not belong in `lib/agent/`. `scaffoldProgress.ts` (client-only session-state derivation) lives at `components/chat/scaffoldProgress.ts`. `searchBlueprint` (shared between `useSearchBlueprint` hook and SA tool) lives at `lib/doc/searchBlueprint.ts`. Don't repeat the barrel leak that accumulated through Tasks 4-9.
+- **Trusting `npx tsc` + `npm test` as the green light.** Vitest runs in Node, not the browser, so a server-only import landing in a client bundle graph never trips a test. `npx tsc` only validates TypeScript module resolution, not bundle-time graph splits. `npm run build` is the only gate that actually exercises Next.js's client/server separation. Every task in this plan requires a clean `npm run build` before commit.
 
 If you hit a spot where one of these looks like the "easy fix," stop and trace the constraint: the move is incomplete, the generator's byte-identity is off, or the mutation decomposition is wrong.
 
@@ -889,48 +905,54 @@ git commit -m "refactor(agent): move solutionsArchitect to lib/agent/"
 
 ---
 
-## Task 11: Move `mutationMapper.ts` → `lib/agent/`
+## Task 11a: Split `blueprintHelpers.ts` — extract shared search helper, delete dead code
+
+**Already executed as commit `1da5740`. Section preserved for reference.**
+
+`lib/agent/blueprintHelpers.ts` as delivered in Task 6 exported both SA-only mutation builders AND `searchBlueprint` — the latter consumed by a client hook (`useSearchBlueprint`). Client code reaching into `lib/agent/` is the same directional violation that caused the `scaffoldProgress` bundle leak, just dormant (no transitive server deps yet). Four exports (`containingFormUuid`, `fieldPath` function, `findFieldByPath`, `collectAllFieldIdsInForm`) also had zero consumers anywhere in the repo — dead code.
 
 **Files:**
-- Move: `lib/generation/mutationMapper.ts` → `lib/agent/mutationMapper.ts`
-- Move: `lib/generation/__tests__/mutationMapper.test.ts` → `lib/agent/__tests__/mutationMapper.test.ts`
-- Modify: `lib/generation/streamDispatcher.ts`
-- Modify: `lib/agent/mutationMapper.ts` (top-of-file doc rewrite)
+- Create: `lib/doc/searchBlueprint.ts` (contains `SearchResult` + `searchBlueprint` + internal `searchFields`).
+- Modify: `lib/agent/blueprintHelpers.ts` (delete the moved symbols + the four dead exports; update the top-of-file comment to describe the shrunk surface).
+- Modify: `lib/doc/hooks/useSearchBlueprint.ts` (import from `@/lib/doc/searchBlueprint`).
+- Modify: `lib/agent/solutionsArchitect.ts` (import `searchBlueprint` from `@/lib/doc/searchBlueprint`; keep the other helpers from `./blueprintHelpers`).
 
-- [ ] **Step 1: Move the mapper**
+**Why `lib/doc/` and not `components/`.** `searchBlueprint` is a pure read over `BlueprintDoc` with two legitimate consumers (SA's `searchBlueprint` tool + `useSearchBlueprint` client hook). Single-consumer client derivations colocate with their consumer (`scaffoldProgress` → `components/chat/`). Shared pure helpers used by both the server-side SA and a client hook go into `lib/doc/`, which is the canonical home for `BlueprintDoc`-reading utilities that neither owns exclusively.
 
-```bash
-git mv lib/generation/mutationMapper.ts lib/agent/mutationMapper.ts
-git mv lib/generation/__tests__/mutationMapper.test.ts lib/agent/__tests__/mutationMapper.test.ts
-```
+**Why the four dead exports get deleted instead of relocated.** `containingFormUuid`, `fieldPath` (the function, NOT the `SearchResult.fieldPath` property), `findFieldByPath`, `collectAllFieldIdsInForm` have zero consumers across `lib/`, `components/`, `app/`, `hooks/`, `scripts/` (including tests). No evidence that anyone imports them. Global CLAUDE.md rule: "Clean codebase. Remove unused code, imports, and dead paths." Delete.
 
-- [ ] **Step 2: Update the moved test's internal import**
+**Symbols that stay in `lib/agent/blueprintHelpers.ts`:**
+- `findFieldByBareId`, `resolveFieldByIndex` — SA-only positional lookups; only consumer is `solutionsArchitect.ts`.
+- All mutation builders (`addFieldMutations`, `addFormMutations`, `addModuleMutations`, `removeXMutations`, `moveXMutations`, `renameXMutations`, `updateXMutations`, `duplicateFieldMutations`, `setCaseTypesMutations`, `setScaffoldMutations`, `updateAppMutations`, `updateCasePropertyMutations`).
+- Interface types: `NewModuleInput`, `NewFormInput`, `ScaffoldInput`.
+- Re-exports of `FieldKind`, `fieldKinds`.
 
-`lib/agent/__tests__/mutationMapper.test.ts`:
+Every consumer of these is SA code (`lib/agent/solutionsArchitect.ts` + SA-facing tests). No client consumer reaches them. `lib/agent/` is the correct home.
 
-```ts
-// BEFORE
-import { toDocMutations } from "../mutationMapper";
+---
 
-// AFTER (still valid — test file moved to a matching location)
-import { toDocMutations } from "../mutationMapper";
-```
+## Task 11: Finalize `mutationMapper.ts` — update header in place
 
-Path still resolves (`lib/agent/__tests__/` → `../mutationMapper` → `lib/agent/mutationMapper.ts`). No change needed. Verify with tsc.
+**Revised from the original plan.** The original Task 11 proposed moving `lib/generation/mutationMapper.ts` → `lib/agent/mutationMapper.ts`. That's wrong: after Phase 3's server-side mutation emission, the mapper is CLIENT-consumed only (legacy wire-event replay via `streamDispatcher.ts`). Moving a client-consumed file into `lib/agent/` (server-only) would create the same directional violation `scaffoldProgress` taught us to avoid. File stays put.
 
-- [ ] **Step 3: Rewrite the top-of-file comment to declare replay-only status**
+Phase 4's log unification migrates historical emissions to the new `data-mutations` shape and deletes both the mapper and the `LEGACY_REPLAY_DOC_MUTATION_EVENTS` handler in `streamDispatcher.ts`. Until then, the mapper lives where it is with a clear REPLAY-ONLY header.
 
-Replace the first comment block of `lib/agent/mutationMapper.ts` with:
+**Files:**
+- Modify: `lib/generation/mutationMapper.ts` (top-of-file doc rewrite).
+
+- [ ] **Step 1: Rewrite the top-of-file comment to declare replay-only status**
+
+Replace the first comment block of `lib/generation/mutationMapper.ts` with:
 
 ```ts
 /**
  * HISTORICAL REPLAY mutation mapper for stored generation emission logs.
  *
  * Live generation no longer passes through this module — the Solutions
- * Architect computes `Mutation[]` internally via `blueprintHelpers.ts` and
- * emits them directly on the SSE stream as `data-mutations` events (see
- * `GenerationContext.emitMutations`). Clients receive those mutations and
- * feed them straight into `docStore.applyMany` with no translation.
+ * Architect computes `Mutation[]` internally via `lib/agent/blueprintHelpers.ts`
+ * and emits them directly on the SSE stream as `data-mutations` events
+ * (see `GenerationContext.emitMutations`). Clients receive those mutations
+ * and feed them straight into `docStore.applyMany` with no translation.
  *
  * This file survives Phase 3 because Firestore-stored emissions written
  * before the server-side mutation mapper migration contain the legacy
@@ -940,10 +962,15 @@ Replace the first comment block of `lib/agent/mutationMapper.ts` with:
  * component — still needs a wire-event → `Mutation[]` translator, and
  * that's what this file provides.
  *
+ * The file stays under `lib/generation/` (not `lib/agent/`) because every
+ * consumer lives on the client side: `streamDispatcher.ts` is a client-
+ * bundled module, `ReplayController` is a client component, and
+ * `logReplay.ts` feeds the replay controller. `lib/agent/` is server-only;
+ * a client-consumed file belongs outside it.
+ *
  * Phase 4 unifies the event log (`lib/log/`), migrates historical
  * emissions to the new `data-mutations` shape, removes the legacy
- * consumers in `lib/generation/streamDispatcher.ts`, and deletes this
- * file.
+ * consumers in `streamDispatcher.ts`, and deletes this file.
  *
  * Until Phase 4: no live-path code should import from this module.
  * `streamDispatcher.ts` imports `toDocMutations` for its legacy
@@ -951,33 +978,22 @@ Replace the first comment block of `lib/agent/mutationMapper.ts` with:
  */
 ```
 
-- [ ] **Step 4: Update streamDispatcher's import**
-
-`lib/generation/streamDispatcher.ts`:
-
-```ts
-// BEFORE
-import { toDocMutations } from "./mutationMapper";
-
-// AFTER
-import { toDocMutations } from "@/lib/agent/mutationMapper";
-```
-
-- [ ] **Step 5: Verify green**
+- [ ] **Step 2: Verify green**
 
 ```bash
 npx tsc --noEmit && echo "✓ tsc clean"
 npm run lint && echo "✓ lint clean"
 npm test -- --run
+npm run build && echo "✓ build clean"
 ```
 
-Expected: clean. The moved test file runs from its new location; `streamDispatcher.test.ts` still imports `applyStreamEvent` from its sibling file — unchanged.
+Expected: clean. Only a comment change.
 
-- [ ] **Step 6: Commit**
+- [ ] **Step 3: Commit**
 
 ```bash
-git add lib/agent/mutationMapper.ts lib/generation/mutationMapper.ts lib/agent/__tests__/mutationMapper.test.ts lib/generation/__tests__/mutationMapper.test.ts lib/generation/streamDispatcher.ts
-git commit -m "refactor(agent): move mutationMapper to lib/agent/ (replay-only)"
+git add lib/generation/mutationMapper.ts
+git commit -m "docs(generation): mark mutationMapper REPLAY-ONLY"
 ```
 
 ---
@@ -1699,14 +1715,16 @@ npm test -- lib/agent/__tests__/generationContext-emitMutations.test.ts --run
 
 Expected: all five tests pass.
 
-- [ ] **Step 4: Full test suite**
+- [ ] **Step 4: Full verification (tsc + lint + tests + build)**
 
 ```bash
 npx tsc --noEmit && echo "✓ tsc clean"
+npm run lint && echo "✓ lint clean"
 npm test -- --run
+npm run build && echo "✓ build clean"
 ```
 
-Expected: clean. No SA handler migrates yet — the SA continues to emit `data-form-updated` / `data-schema` / etc. as before.
+Expected: clean. No SA handler migrates yet — the SA continues to emit `data-form-updated` / `data-schema` / etc. as before. `npm run build` is mandatory: this task modifies `GenerationContext`, which is barrel-exported from `@/lib/agent`; any regression that pulls server-only code into a client bundle path surfaces here and nowhere else.
 
 - [ ] **Step 5: Commit**
 
@@ -1986,15 +2004,16 @@ npm test -- lib/generation/__tests__/streamDispatcher-mutations.test.ts --run
 
 Expected: all five tests pass.
 
-- [ ] **Step 4: Full suite**
+- [ ] **Step 4: Full verification (tsc + lint + tests + build)**
 
 ```bash
 npx tsc --noEmit && echo "✓ tsc clean"
 npm run lint && echo "✓ lint clean"
 npm test -- --run
+npm run build && echo "✓ build clean"
 ```
 
-Expected: clean.
+Expected: clean. `streamDispatcher.ts` is client-bundled — a regression here shows up in build output only.
 
 - [ ] **Step 5: Commit**
 
@@ -2005,16 +2024,33 @@ git commit -m "feat(generation): add data-mutations consumer branch to stream di
 
 ---
 
-## Task 17: Migrate every SA emission to `emitMutations`
+## Task 17: Migrate SA emissions to `emitMutations` — decomposed into 17a–17d
 
-The main payload of the phase. Every SA tool handler that currently emits `data-schema` / `data-scaffold` / `data-module-done` / `data-form-updated` / `data-blueprint-updated` switches to `ctx.emitMutations(muts, stage)`. `validationLoop.ts`'s `data-form-fixed` emission migrates too. After this task the live stream carries zero wire-format doc events.
+The main payload of the phase. Every SA tool handler that currently emits `data-schema` / `data-scaffold` / `data-module-done` / `data-form-updated` / `data-blueprint-updated` switches to `ctx.emitMutations(muts, stage)`. `validationLoop.ts`'s `data-form-fixed` emission migrates too. After this task group the live stream carries zero wire-format doc events.
 
-**Files:**
-- Modify: `lib/agent/solutionsArchitect.ts` (every tool handler)
-- Modify: `lib/agent/validationLoop.ts`
-- Create: `lib/agent/__tests__/solutionsArchitect-emitMutations.test.ts`
+**Why decomposed.** 13 tool handlers + the validation loop + the safety-net test in one task concentrates risk, bloats the diff, and makes review per-slice noisy. Four sub-tasks group by concern:
 
-- [ ] **Step 1: Remove the `emitBlueprintUpdated` private helper**
+- **17a — Foundation + generation tools.** Delete `emitBlueprintUpdated`, migrate `generateSchema`, `generateScaffold`, `addModule`. These run only during initial build (generation tools), so the migration is self-contained and exercises the new emission path end-to-end on the simplest codepath before field-level tools touch the same helpers.
+- **17b — Field-mutation tools.** `addQuestions`, `addQuestion`, `editQuestion` (incl. rename-cascade double-emit), `removeQuestion`. The biggest slice; all four handle per-field operations through the same `addFieldMutations` / `updateFieldMutations` / `removeFieldMutations` / `renameFieldMutations` helpers.
+- **17c — Structural-mutation tools.** `updateModule`, `updateForm`, `createForm`, `removeForm`, `createModule`, `removeModule`. Each previously called `emitBlueprintUpdated()` (full doc replace); all flip to `emitMutations(helperMutations, stage)` now that the helpers already produce fine-grained `Mutation[]`.
+- **17d — Validation loop + safety-net test.** Migrate `validationLoop.ts`'s `data-form-fixed` emission to a single `emitMutations(fixMuts, "fix:attempt-N")` per iteration. Write the integration test (`solutionsArchitect-emitMutations.test.ts`) covering every migrated tool + the safety-net assertion that NO SA tool emits any forbidden legacy wire event. Sits last because the safety-net test is only meaningful after every tool has landed.
+
+`validateApp` keeps its `data-done` emission (final reconciliation for validation autofixes); this is documented under 17d.
+
+Each sub-task commits independently with its own verification gate. The step-level detail below (Steps 1-18) was written as a single-task flow; it still applies per-sub-task in the obvious slicing. Sub-task boundaries:
+
+| Sub-task | Steps from the original flow | Commit message |
+|---|---|---|
+| 17a | Step 1 (remove `emitBlueprintUpdated`), Step 2 (`generateSchema`), Step 3 (`generateScaffold`), Step 4 (`addModule`) | `refactor(agent): migrate generation tools to emitMutations` |
+| 17b | Step 5 (`addQuestions`), Step 6 (`editQuestion`), Step 7 (`addQuestion`), Step 8 (`removeQuestion`) | `refactor(agent): migrate field-mutation tools to emitMutations` |
+| 17c | Step 9 (`updateModule`), Step 10 (`updateForm`), Step 11 (`createForm`/`removeForm`/`createModule`/`removeModule`), Step 12 (`validateApp` — NO migration, documentary only) | `refactor(agent): migrate structural-mutation tools to emitMutations` |
+| 17d | Step 13 (validationLoop `data-form-fixed`), Step 14 (integration test), Step 15 (run test), Step 16 (`wireFormSnapshot` audit), Step 17 (full verification — tsc/lint/tests/build), Step 18 (commit + final) | `refactor(agent): migrate fix loop + safety-net SA emission tests` |
+
+The `wireFormSnapshot` + `fieldToWireQuestion` + `findQuestionByUuid` helpers in `solutionsArchitect.ts` stay in place — Task 17d's audit step verifies they're only consumed by the `getForm`/`getQuestion` read tools (LLM-facing wire format). Do NOT delete them.
+
+**Build verification is mandatory on each sub-task commit.** `npx tsc --noEmit`, `npm run lint`, `npm test -- --run`, and `npm run build` must all be clean before committing each sub-task. The bundle leak from Tasks 4-9 accumulated silently because vitest doesn't exercise the client bundler; build is the only gate that does.
+
+- [ ] **Step 1: Remove the `emitBlueprintUpdated` private helper** _(sub-task 17a)_
 
 In `lib/agent/solutionsArchitect.ts`:
 
@@ -2678,6 +2714,7 @@ if (LEGACY_REPLAY_DOC_MUTATION_EVENTS.has(type)) {
 npx tsc --noEmit && echo "✓ tsc clean"
 npm run lint && echo "✓ lint clean"
 npm test -- --run
+npm run build && echo "✓ build clean"
 ```
 
 Expected: clean.
@@ -2779,7 +2816,9 @@ Each remaining match should be either a tool name, a CommCare-literal XPath func
 
 ```bash
 npx tsc --noEmit && echo "✓ tsc clean"
+npm run lint && echo "✓ lint clean"
 npm test -- --run
+npm run build && echo "✓ build clean"
 ```
 
 Expected: clean. No tests assert on prompt string contents today, so the flip is a prose-only pass; the SA's behavior is unchanged (the LLM reads "field" instead of "question" in the system message — semantic meaning identical).
