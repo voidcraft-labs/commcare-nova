@@ -73,21 +73,38 @@ async function main() {
 	let migrated = 0;
 	let skipped = 0;
 
+	let empty = 0;
+
 	for (const docSnap of snapshot.docs) {
 		const data = docSnap.data();
 
-		// Detection: a normalized doc has both `fields` and `fieldOrder` at
-		// the top level. A legacy doc nests everything inside `blueprint`.
-		if ("fields" in data && "fieldOrder" in data) {
+		// The app doc wraps the blueprint under a `blueprint` key, alongside
+		// denormalized summary fields (appId, status, owner, timestamps, etc.).
+		// Only the `blueprint` payload changes shape during this migration —
+		// the surrounding fields are app-managed and stay put.
+		const blueprint = data.blueprint as Record<string, unknown> | undefined;
+
+		// Incomplete / failed generations can leave `blueprint` missing or
+		// empty. Skip them rather than producing a zero-field normalized doc
+		// that would still load as "empty" in the UI but clobber the original.
+		if (!blueprint || typeof blueprint !== "object") {
+			empty++;
+			console.log(`Skipped (no blueprint): ${docSnap.id}`);
+			continue;
+		}
+
+		// Detection: a normalized blueprint has both `fields` and `fieldOrder`
+		// at its top level. A legacy blueprint has `modules` + nested trees.
+		if ("fields" in blueprint && "fieldOrder" in blueprint) {
 			skipped++;
 			console.log(`Skipped (already normalized): ${docSnap.id}`);
 			continue;
 		}
 
-		// Convert the legacy doc. Throws on schema validation failure — we
-		// want the script to stop and surface the bad doc rather than silently
-		// skipping it, so the operator can fix the underlying data.
-		const doc = legacyAppBlueprintToDoc(docSnap.id, data);
+		// Convert the legacy blueprint. Throws on schema validation failure —
+		// we want the script to stop and surface the bad doc rather than
+		// silently skipping it, so the operator can fix the underlying data.
+		const doc = legacyAppBlueprintToDoc(docSnap.id, blueprint);
 		const { fieldParent: _fp, ...persistable } = doc;
 
 		if (dryRun) {
@@ -95,9 +112,11 @@ async function main() {
 				`[dry-run] would migrate ${docSnap.id}: ${Object.keys(doc.fields).length} fields across ${Object.keys(doc.forms).length} forms`,
 			);
 		} else {
-			// Full overwrite — the legacy shape and normalized shape are
-			// structurally incompatible, so merge: true would leave stale keys.
-			await docSnap.ref.set(persistable, { merge: false });
+			// Update only the `blueprint` field. Firestore `update()` leaves
+			// the denormalized summary fields (appId, status, timestamps, etc.)
+			// untouched — those are app-managed and outside the migration's
+			// concern.
+			await docSnap.ref.update({ blueprint: persistable });
 			console.log(
 				`Migrated ${docSnap.id}: ${Object.keys(doc.fields).length} fields across ${Object.keys(doc.forms).length} forms`,
 			);
@@ -106,7 +125,7 @@ async function main() {
 	}
 
 	console.log(
-		`\nDone. Migrated: ${migrated}, Skipped (already normalized): ${skipped}.`,
+		`\nDone. Migrated: ${migrated}, Skipped already-normalized: ${skipped}, Skipped no-blueprint: ${empty}.`,
 	);
 	if (dryRun) {
 		console.log("(dry run — no writes performed)");
