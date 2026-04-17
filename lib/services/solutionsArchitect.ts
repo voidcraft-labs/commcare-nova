@@ -36,6 +36,23 @@ import { stepCountIs, ToolLoopAgent, tool } from "ai";
 import { produce } from "immer";
 import { z } from "zod";
 import {
+	addFieldMutations,
+	addFormMutations,
+	addModuleMutations,
+	findFieldByBareId,
+	removeFieldMutations,
+	removeFormMutations,
+	removeModuleMutations,
+	renameFieldMutations,
+	resolveFieldByIndex,
+	searchBlueprint,
+	setCaseTypesMutations,
+	setScaffoldMutations,
+	updateFieldMutations,
+	updateFormMutations,
+	updateModuleMutations,
+} from "@/lib/agent/blueprintHelpers";
+import {
 	applyDefaults,
 	type FlatQuestion,
 	stripEmpty,
@@ -73,23 +90,6 @@ import {
 	addQuestionsQuestionSchema,
 	editQuestionUpdatesSchema,
 } from "../schemas/toolSchemas";
-import {
-	addFieldMutations,
-	addFormMutations,
-	addModuleMutations,
-	findFieldByBareId,
-	removeFieldMutations,
-	removeFormMutations,
-	removeModuleMutations,
-	renameFieldMutations,
-	resolveFieldByIndex,
-	searchBlueprint,
-	setCaseTypesMutations,
-	setScaffoldMutations,
-	updateFieldMutations,
-	updateFormMutations,
-	updateModuleMutations,
-} from "./blueprintHelpers";
 import { errorToString } from "./commcare/validate/errors";
 import { validateAndFix } from "./validationLoop";
 

@@ -12,11 +12,11 @@
  */
 
 import { useCallback, useContext } from "react";
-import { BlueprintDocContext } from "@/lib/doc/provider";
 import {
 	type SearchResult,
 	searchBlueprint as searchDoc,
-} from "@/lib/services/blueprintHelpers";
+} from "@/lib/agent/blueprintHelpers";
+import { BlueprintDocContext } from "@/lib/doc/provider";
 
 export type { SearchResult };
 

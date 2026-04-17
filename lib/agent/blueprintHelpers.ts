@@ -38,7 +38,7 @@ import type {
 	Uuid,
 } from "@/lib/domain";
 import { asUuid, fieldKinds, isContainer } from "@/lib/domain";
-import { normalizeConnectConfig } from "./connectConfig";
+import { normalizeConnectConfig } from "@/lib/services/connectConfig";
 
 // ── Result types ────────────────────────────────────────────────────────
 
