@@ -359,11 +359,16 @@ export function createSolutionsArchitect(
 				ctx.emit("data-phase", { phase: "data-model" });
 			},
 			execute: async ({ appName, caseTypes }) => {
-				dispatch([
+				// Emit before dispatch so the client applies mutations in the same
+				// order the SA's internal doc advances. `dispatch` still runs
+				// because later tool calls in the same turn (scaffold, addModule)
+				// read `doc` for index → uuid resolution.
+				const muts: Mutation[] = [
 					{ kind: "setAppName", name: appName },
 					...setCaseTypesMutations(doc, caseTypes),
-				]);
-				ctx.emit("data-schema", { caseTypes });
+				];
+				ctx.emitMutations(muts, "schema");
+				dispatch(muts);
 
 				return {
 					appName,
@@ -385,8 +390,9 @@ export function createSolutionsArchitect(
 				ctx.emit("data-phase", { phase: "structure" });
 			},
 			execute: async (scaffold) => {
-				dispatch(setScaffoldMutations(doc, scaffold));
-				ctx.emit("data-scaffold", scaffold);
+				const muts = setScaffoldMutations(doc, scaffold);
+				ctx.emitMutations(muts, "scaffold");
+				dispatch(muts);
 
 				return {
 					appName: scaffold.app_name,
@@ -426,27 +432,26 @@ export function createSolutionsArchitect(
 				const mod = doc.modules[moduleUuid];
 				if (!mod) return { error: `Module ${moduleIndex} not found` };
 
+				// Survey-only branch: the module already exists from scaffold
+				// and has no case type, so there are no column mutations to
+				// apply. The legacy `data-module-done` emission with null
+				// columns was a phase marker the client never consumed (it
+				// reads the module entity directly); dropping it removes
+				// dead wire traffic.
 				if (!mod.caseType || !case_list_columns) {
-					ctx.emit("data-module-done", {
-						moduleIndex,
-						caseListColumns: null,
-					});
 					return { moduleIndex, name: mod.name, columns: null };
 				}
 
-				dispatch(
-					updateModuleMutations(doc, moduleUuid, {
-						caseListColumns: case_list_columns,
-						...(case_detail_columns && {
-							caseDetailColumns: case_detail_columns,
-						}),
-					}),
-				);
-
-				ctx.emit("data-module-done", {
-					moduleIndex,
+				const muts = updateModuleMutations(doc, moduleUuid, {
 					caseListColumns: case_list_columns,
+					...(case_detail_columns && {
+						caseDetailColumns: case_detail_columns,
+					}),
 				});
+				// Stage tag encodes which module these mutations belong to —
+				// useful for replay attribution and server-side telemetry.
+				ctx.emitMutations(muts, `module:${moduleIndex}`);
+				dispatch(muts);
 
 				return {
 					moduleIndex,
