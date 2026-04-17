@@ -1,46 +1,68 @@
 /**
  * EngineController tests — verifies the controller correctly subscribes
- * to the BlueprintDoc store for per-question reactivity, structural
- * changes, and form activation.
+ * to the BlueprintDoc store for per-field reactivity, structural changes,
+ * and form activation.
+ *
+ * Fixtures are built directly in the normalized `PersistableDoc` shape —
+ * no legacy `AppBlueprint` tree. The doc store's `load()` accepts this
+ * shape and rebuilds `fieldParent` on load.
  */
 import { describe, expect, it } from "vitest";
 import { createBlueprintDocStore } from "@/lib/doc/store";
-import { asUuid } from "@/lib/doc/types";
-import type { AppBlueprint } from "@/lib/schemas/blueprint";
+import type { Field, Uuid } from "@/lib/domain";
+import { asUuid } from "@/lib/domain";
+import type { PersistableDoc } from "@/lib/domain/blueprint";
 import { DEFAULT_RUNTIME_STATE, EngineController } from "../engineController";
 
 // ── Fixtures ───────────────────────────────────────────────────────────
 
-const Q1_UUID = "aaaaaaaa-0001-0001-0001-000000000001";
-const Q2_UUID = "aaaaaaaa-0002-0002-0002-000000000002";
+const MODULE_UUID = asUuid("module-1-uuid");
+const FORM_UUID = asUuid("form-1-uuid");
+const Q1_UUID = asUuid("aaaaaaaa-0001-0001-0001-000000000001");
+const Q2_UUID = asUuid("aaaaaaaa-0002-0002-0002-000000000002");
 
-/** Minimal survey blueprint with two text questions in one form. */
-function makeBlueprint(
-	questions: AppBlueprint["modules"][0]["forms"][0]["questions"] = [
-		{ uuid: Q1_UUID, id: "name", type: "text", label: "Name" },
-		{ uuid: Q2_UUID, id: "age", type: "int", label: "Age" },
-	],
-): AppBlueprint {
+/** Build a minimal survey doc with the given fields attached to a single form. */
+function makeDoc(
+	fields: Record<string, Field> = {
+		[Q1_UUID]: { uuid: Q1_UUID, id: "name", kind: "text", label: "Name" },
+		[Q2_UUID]: { uuid: Q2_UUID, id: "age", kind: "int", label: "Age" },
+	},
+	fieldOrder: Record<string, Uuid[]> = {
+		[FORM_UUID]: [Q1_UUID, Q2_UUID],
+	},
+): PersistableDoc {
 	return {
-		app_name: "Test App",
-		case_types: null,
-		modules: [
-			{
-				uuid: "module-1-uuid",
+		appId: "test-app",
+		appName: "Test App",
+		connectType: null,
+		caseTypes: null,
+		modules: {
+			[MODULE_UUID]: {
+				uuid: MODULE_UUID,
+				id: "module-1",
 				name: "Module 1",
-				forms: [
-					{ uuid: "form-1-uuid", name: "Form 1", type: "survey", questions },
-				],
 			},
-		],
+		},
+		forms: {
+			[FORM_UUID]: {
+				uuid: FORM_UUID,
+				id: "form-1",
+				name: "Form 1",
+				type: "survey",
+			},
+		},
+		fields,
+		moduleOrder: [MODULE_UUID],
+		formOrder: { [MODULE_UUID]: [FORM_UUID] },
+		fieldOrder,
 	};
 }
 
-/** Create a doc store loaded with the given blueprint. Undo tracking
- *  is resumed so mutations create live state changes. */
-function createLoadedStore(bp: AppBlueprint = makeBlueprint()) {
+/** Create a doc store loaded with the given doc. Undo tracking is resumed
+ *  so mutations create live state changes. */
+function createLoadedStore(doc: PersistableDoc = makeDoc()) {
 	const store = createBlueprintDocStore();
-	store.getState().load(bp, "test-app");
+	store.getState().load(doc);
 	store.temporal.getState().resume();
 	return store;
 }
@@ -56,7 +78,7 @@ describe("EngineController", () => {
 
 			ctrl.activateForm(0, 0);
 
-			/* Runtime store should have entries for both questions */
+			/* Runtime store should have entries for both fields */
 			const runtime = ctrl.store.getState();
 			expect(runtime[Q1_UUID]).toBeDefined();
 			expect(runtime[Q2_UUID]).toBeDefined();
@@ -92,17 +114,17 @@ describe("EngineController", () => {
 		});
 	});
 
-	describe("per-question subscription", () => {
-		it("fires on question label update via doc mutation", async () => {
+	describe("per-field subscription", () => {
+		it("fires on field relevant update via doc mutation", async () => {
 			const store = createLoadedStore();
 			const ctrl = new EngineController();
 			ctrl.setDocStore(store);
 			ctrl.activateForm(0, 0);
 
-			/* Mutate the question's relevant expression to hide it */
+			/* Mutate the field's relevant expression to hide it */
 			store.getState().apply({
-				kind: "updateQuestion",
-				uuid: asUuid(Q1_UUID),
+				kind: "updateField",
+				uuid: Q1_UUID,
 				patch: { relevant: "false()" },
 			});
 
@@ -112,61 +134,56 @@ describe("EngineController", () => {
 
 			const state = ctrl.store.getState()[Q1_UUID];
 			expect(state).toBeDefined();
-			/* The question should now be hidden because relevant = "false()" */
+			/* The field should now be hidden because relevant = "false()" */
 			expect(state.visible).toBe(false);
 		});
 	});
 
 	describe("structural subscription", () => {
-		it("detects question addition via doc mutation", async () => {
+		it("detects field addition via doc mutation", async () => {
 			const store = createLoadedStore();
 			const ctrl = new EngineController();
 			ctrl.setDocStore(store);
 			ctrl.activateForm(0, 0);
 
-			/* Initial state should have 2 questions */
+			/* Initial state should have 2 fields */
 			expect(Object.keys(ctrl.store.getState())).toHaveLength(2);
 
-			/* Find the form uuid to use as parent for the new question */
-			const docState = store.getState();
-			const moduleUuid = docState.moduleOrder[0];
-			const formUuid = docState.formOrder[moduleUuid][0];
-
-			const newUuid = "bbbbbbbb-0003-0003-0003-000000000003";
+			const newUuid = asUuid("bbbbbbbb-0003-0003-0003-000000000003");
 			store.getState().apply({
-				kind: "addQuestion",
-				parentUuid: formUuid,
-				question: {
-					uuid: asUuid(newUuid),
+				kind: "addField",
+				parentUuid: FORM_UUID,
+				field: {
+					uuid: newUuid,
 					id: "new_q",
-					type: "text",
+					kind: "text",
 					label: "New Question",
 				},
 			});
 
 			await new Promise((r) => setTimeout(r, 10));
 
-			/* The new question should appear in the runtime store */
+			/* The new field should appear in the runtime store */
 			const runtime = ctrl.store.getState();
 			expect(runtime[newUuid]).toBeDefined();
 			expect(runtime[newUuid].visible).toBe(true);
 		});
 
-		it("detects question removal via doc mutation", async () => {
+		it("detects field removal via doc mutation", async () => {
 			const store = createLoadedStore();
 			const ctrl = new EngineController();
 			ctrl.setDocStore(store);
 			ctrl.activateForm(0, 0);
 
-			/* Remove the first question */
+			/* Remove the first field */
 			store.getState().apply({
-				kind: "removeQuestion",
-				uuid: asUuid(Q1_UUID),
+				kind: "removeField",
+				uuid: Q1_UUID,
 			});
 
 			await new Promise((r) => setTimeout(r, 10));
 
-			/* The removed question should revert to the frozen default state */
+			/* The removed field should revert to the frozen default state */
 			const runtime = ctrl.store.getState();
 			expect(runtime[Q1_UUID]).toBe(DEFAULT_RUNTIME_STATE);
 		});
@@ -190,7 +207,7 @@ describe("EngineController", () => {
 	});
 
 	describe("public actions", () => {
-		it("onValueChange updates runtime state for a question", () => {
+		it("onValueChange updates runtime state for a field", () => {
 			const store = createLoadedStore();
 			const ctrl = new EngineController();
 			ctrl.setDocStore(store);

@@ -8,6 +8,7 @@
  * Called by runner.ts which wraps the string output into structured ValidationError objects.
  */
 
+import { questionTreeToFieldTree } from "@/lib/preview/engine/fieldTree";
 import { TriggerDag } from "@/lib/preview/engine/triggerDag";
 import type { AppBlueprint, Question } from "@/lib/schemas/blueprint";
 import { validateXPath } from "./xpathValidator";
@@ -152,9 +153,10 @@ export function validateBlueprintDeep(blueprint: AppBlueprint): string[] {
 				}
 			}
 
-			// Cycle detection via TriggerDag
+			// Cycle detection via TriggerDag — convert the wire-format Question
+			// tree into the engine's FieldTreeNode shape at the boundary.
 			const dag = new TriggerDag();
-			const cycles = dag.reportCycles(questions);
+			const cycles = dag.reportCycles(questionTreeToFieldTree(questions));
 			for (const cycle of cycles) {
 				const cyclePath = cycle.join(" → ");
 				errors.push(

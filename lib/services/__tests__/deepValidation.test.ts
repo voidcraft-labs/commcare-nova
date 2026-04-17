@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { q } from "../../__tests__/testHelpers";
+import { questionTreeToFieldTree } from "../../preview/engine/fieldTree";
 import { TriggerDag } from "../../preview/engine/triggerDag";
 import type { AppBlueprint, CaseType, Question } from "../../schemas/blueprint";
 import {
@@ -298,7 +299,7 @@ describe("TriggerDag.reportCycles", () => {
 			q({ id: "a", type: "int", label: "A" }),
 			q({ id: "b", type: "int", label: "B", calculate: "/data/a + 1" }),
 		];
-		const cycles = dag.reportCycles(questions);
+		const cycles = dag.reportCycles(questionTreeToFieldTree(questions));
 		expect(cycles).toEqual([]);
 	});
 
@@ -308,7 +309,7 @@ describe("TriggerDag.reportCycles", () => {
 			q({ id: "a", type: "int", label: "A", calculate: "/data/b + 1" }),
 			q({ id: "b", type: "int", label: "B", calculate: "/data/a + 1" }),
 		];
-		const cycles = dag.reportCycles(questions);
+		const cycles = dag.reportCycles(questionTreeToFieldTree(questions));
 		expect(cycles.length).toBeGreaterThan(0);
 	});
 
@@ -325,7 +326,7 @@ describe("TriggerDag.reportCycles", () => {
 				calculate: "/data/b + /data/c",
 			}),
 		];
-		const cycles = dag.reportCycles(questions);
+		const cycles = dag.reportCycles(questionTreeToFieldTree(questions));
 		expect(cycles).toEqual([]);
 	});
 });
