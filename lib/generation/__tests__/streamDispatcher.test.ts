@@ -8,18 +8,13 @@
  */
 
 import { assert, beforeEach, describe, expect, it } from "vitest";
-import {
-	type BlueprintDocStoreApi,
-	createBlueprintDocStore,
-} from "@/lib/doc/store";
+import type { BlueprintDocStoreApi } from "@/lib/doc/store";
 import { asUuid, type PersistableDoc } from "@/lib/domain";
 import type { BlueprintForm } from "@/lib/schemas/blueprint";
-import {
-	type BuilderSessionStoreApi,
-	createBuilderSessionStore,
-} from "@/lib/session/store";
+import type { BuilderSessionStoreApi } from "@/lib/session/store";
 import { signalGrid } from "@/lib/signalGrid/store";
 import { applyStreamEvent } from "../streamDispatcher";
+import { createWiredStores, hydrateDoc } from "./testHelpers";
 
 // ── Fixture docs (normalized domain shape) ─────────────────────────────
 //
@@ -149,24 +144,7 @@ const SCAFFOLD_DATA = {
 	],
 };
 
-// ── Test helpers ────────────────────────────────────────────────────────
-
-/** Wire up a fresh pair of stores like SyncBridge does at runtime. */
-function createWiredStores(): {
-	docStore: BlueprintDocStoreApi;
-	sessionStore: BuilderSessionStoreApi;
-} {
-	const docStore = createBlueprintDocStore();
-	const sessionStore = createBuilderSessionStore();
-	sessionStore.getState()._setDocStore(docStore);
-	return { docStore, sessionStore };
-}
-
-/** Load an initial doc into the store and resume undo tracking. */
-function hydrateDoc(docStore: BlueprintDocStoreApi, doc: PersistableDoc): void {
-	docStore.getState().load(doc);
-	docStore.temporal.getState().resume();
-}
+// Test helpers live in ./testHelpers — shared with other generation tests.
 
 // ── Test suite ──────────────────────────────────────────────────────────
 

@@ -18,31 +18,12 @@
  */
 
 import { beforeEach, describe, expect, it } from "vitest";
-import {
-	type BlueprintDocStoreApi,
-	createBlueprintDocStore,
-} from "@/lib/doc/store";
+import type { BlueprintDocStoreApi } from "@/lib/doc/store";
 import type { Mutation } from "@/lib/doc/types";
 import { asUuid } from "@/lib/domain";
-import {
-	type BuilderSessionStoreApi,
-	createBuilderSessionStore,
-} from "@/lib/session/store";
+import type { BuilderSessionStoreApi } from "@/lib/session/store";
 import { applyStreamEvent } from "../streamDispatcher";
-
-// ── Test helpers ────────────────────────────────────────────────────────
-
-/** Wire up a fresh pair of stores like SyncBridge does at runtime.
- *  Shared helper — kept in sync with `streamDispatcher.test.ts`. */
-function createWiredStores(): {
-	docStore: BlueprintDocStoreApi;
-	sessionStore: BuilderSessionStoreApi;
-} {
-	const docStore = createBlueprintDocStore();
-	const sessionStore = createBuilderSessionStore();
-	sessionStore.getState()._setDocStore(docStore);
-	return { docStore, sessionStore };
-}
+import { createWiredStores } from "./testHelpers";
 
 // ── Test suite ──────────────────────────────────────────────────────────
 
