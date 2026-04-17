@@ -74,7 +74,7 @@ describe("createBlueprintDocStore", () => {
 		expect(store.temporal.getState().pastStates).toHaveLength(0);
 	});
 
-	it("apply() captures a state change in the undo stack", () => {
+	it("applyMany() captures a state change in the undo stack", () => {
 		const store = createBlueprintDocStore();
 		store.getState().load(makeEmptyDoc({ appName: "Before" }));
 		store.temporal.getState().resume();
