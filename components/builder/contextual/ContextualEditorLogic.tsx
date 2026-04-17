@@ -4,7 +4,7 @@ import { useCallback, useContext, useState } from "react";
 import { EditableText } from "@/components/builder/EditableText";
 import { SaveShortcutHint } from "@/components/builder/SaveShortcutHint";
 import { XPathField } from "@/components/builder/XPathField";
-import { useSaveQuestion } from "@/hooks/useSaveQuestion";
+import { useSaveField } from "@/hooks/useSaveField";
 import { buildLintContext } from "@/lib/codemirror/buildLintContext";
 import type { XPathLintContext } from "@/lib/codemirror/xpath-lint";
 import { BlueprintDocContext } from "@/lib/doc/provider";
@@ -83,7 +83,7 @@ const LOGIC_FIELDS = new Set<FocusableFieldKey>([
 
 export function ContextualEditorLogic({ question }: QuestionEditorProps) {
 	const selected = useSelectedQuestion();
-	const saveQuestion = useSaveQuestion(selected?.uuid);
+	const saveQuestion = useSaveField(selected?.uuid);
 
 	/** Tracks text fields (validate_msg) added via "Add Property". */
 	const textField = useAddableField(selected?.uuid ?? "");

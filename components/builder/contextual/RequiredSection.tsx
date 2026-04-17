@@ -9,7 +9,7 @@
  * This component encapsulates all three transitions so no other code needs
  * to know about the `"true()"` sentinel. It owns the toggle, the "Add
  * Condition" button, the XPathField, and the save semantics — calling
- * `useSaveQuestion` directly with the pre-computed value instead of routing
+ * `useSaveField` directly with the pre-computed value instead of routing
  * through `saveXPath`.
  */
 
@@ -21,7 +21,7 @@ import { useCallback, useState } from "react";
 import { SaveShortcutHint } from "@/components/builder/SaveShortcutHint";
 import { XPathField } from "@/components/builder/XPathField";
 import { Toggle } from "@/components/ui/Toggle";
-import { useSaveQuestion } from "@/hooks/useSaveQuestion";
+import { useSaveField } from "@/hooks/useSaveField";
 import type { XPathLintContext } from "@/lib/codemirror/xpath-lint";
 import type { Uuid } from "@/lib/doc/types";
 import { AddPropertyButton } from "./AddPropertyButton";
@@ -32,7 +32,7 @@ const ALWAYS_REQUIRED = "true()";
 interface RequiredSectionProps {
 	/** Current value of the `required` field — truthy means the toggle is on. */
 	required: string | undefined;
-	/** Question uuid for mutations via `useSaveQuestion`. */
+	/** Question uuid for mutations via `useSaveField`. */
 	questionUuid: Uuid | string | undefined;
 	getLintContext: () => XPathLintContext | undefined;
 	/** Transient focus hint from undo/redo — when "required", focuses the toggle. */
@@ -59,7 +59,7 @@ export function RequiredSection({
 	focusHint,
 	dataFieldId,
 }: RequiredSectionProps) {
-	const saveQuestion = useSaveQuestion(questionUuid);
+	const saveQuestion = useSaveField(questionUuid);
 
 	/** True while the user is adding a brand-new condition (editor open, no
 	 *  persisted condition yet). Distinct from editing an existing condition,

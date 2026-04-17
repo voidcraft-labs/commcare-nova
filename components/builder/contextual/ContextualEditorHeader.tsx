@@ -16,7 +16,7 @@ import { QuestionTypeList } from "@/components/builder/QuestionTypeList";
 import { tablerCopyPlus } from "@/components/icons/tablerExtras";
 import { Tooltip } from "@/components/ui/Tooltip";
 import { useCommitField } from "@/hooks/useCommitField";
-import { useSaveQuestion } from "@/hooks/useSaveQuestion";
+import { useSaveField } from "@/hooks/useSaveField";
 import { useBlueprintDocApi } from "@/lib/doc/hooks/useBlueprintDoc";
 import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
 import {
@@ -96,7 +96,7 @@ export function ContextualEditorHeader({ question }: QuestionEditorProps) {
 	 * unrelated field edits (label, hint, calculate). */
 	const docApi = useBlueprintDocApi();
 
-	const saveQuestion = useSaveQuestion(selectedUuid);
+	const saveQuestion = useSaveField(selectedUuid);
 	const focusHint = useFocusHint(HEADER_FIELDS);
 	const shiftHeld = useShiftKey();
 	const deleteSelected = useDeleteSelectedQuestion();

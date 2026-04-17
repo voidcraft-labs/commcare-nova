@@ -4,7 +4,7 @@ import {
 	SECTION_CARD_CLASS,
 	SectionLabel,
 } from "@/components/builder/InlineSettingsPanel";
-import { useSaveQuestion } from "@/hooks/useSaveQuestion";
+import { useSaveField } from "@/hooks/useSaveField";
 import { useSelectedQuestion } from "@/lib/routing/hooks";
 import { AddPropertyButton } from "./AddPropertyButton";
 import {
@@ -27,7 +27,7 @@ const UI_FIELDS = new Set<FocusableFieldKey>(["hint"]);
  */
 export function ContextualEditorUI({ question }: QuestionEditorProps) {
 	const selected = useSelectedQuestion();
-	const saveQuestion = useSaveQuestion(selected?.uuid);
+	const saveQuestion = useSaveField(selected?.uuid);
 	const { activeField, activate, clear } = useAddableField(
 		selected?.uuid ?? "",
 	);
