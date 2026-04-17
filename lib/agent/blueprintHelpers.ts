@@ -18,8 +18,9 @@
  * Phase history: this file used to contain `bp*`-prefixed helpers that
  * took a nested `AppBlueprint` and mutated it in place. Task 15 of the
  * Phase 1 plan rewrote every helper to consume the normalized doc shape
- * and emit mutation batches instead. The file stays under `lib/services/`
- * for now — Phase 3 relocates it to `lib/agent/`.
+ * and emit mutation batches instead; Phase 3 then relocated the file
+ * from `lib/services/` to `lib/agent/` as part of consolidating every
+ * LLM-facing module under one directory.
  */
 
 import type { Mutation } from "@/lib/doc/types";
