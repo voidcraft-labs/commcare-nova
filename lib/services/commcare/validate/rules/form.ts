@@ -13,15 +13,19 @@
  * and keep the derivation itself untouched.
  */
 
-import type { BlueprintDoc, Field, Form, Module, Uuid } from "@/lib/domain";
-import type {
-	CaseConfigQuestion,
-	DerivedCaseConfig,
-} from "@/lib/schemas/blueprint";
 import {
-	deriveCaseConfig,
+	type BlueprintDoc,
+	type Field,
+	type Form,
+	type Module,
 	POST_SUBMIT_DESTINATIONS,
-} from "@/lib/schemas/blueprint";
+	type Uuid,
+} from "@/lib/domain";
+import {
+	type CaseConfigQuestion,
+	type DerivedCaseConfig,
+	deriveCaseConfig,
+} from "@/lib/services/deriveCaseConfig";
 import { detectUnquotedStringLiteral } from "../../../hqJsonExpander";
 import {
 	CASE_PROPERTY_REGEX,
