@@ -4,13 +4,24 @@
  *
  * Drag semantics:
  *   - `GroupOpenRow` is BOTH draggable (the whole group moves when you
- *     drag its header) AND a drop target (dropping onto the header
- *     inserts the source at position 0 inside the group's children).
- *     Drop feedback is a violet highlight ring on the header.
+ *     drag its header) AND a drop target. The header encodes TWO
+ *     positional intents via pragmatic-dnd's closest-edge helper:
+ *       - cursor in the top half  → insert the source BEFORE the group
+ *         at the parent's level (sibling), not inside it. This is the
+ *         only way to place a field above a group when the group is the
+ *         parent's first child — the parent-level insertion gap above
+ *         the header is too thin to reliably hit, so we let the top half
+ *         of the header claim "before" semantics.
+ *       - cursor in the bottom half → insert the source as the first
+ *         child of the group (the original, and still default, intent).
+ *     The violet highlight ring only fires for the "into group" case so
+ *     the user never sees conflicting feedback while the placeholder row
+ *     above the header shows the parent-level landing slot.
  *   - `GroupCloseRow` is inert — a visual cap, not a drag surface.
  */
 
 "use client";
+import { attachClosestEdge } from "@atlaskit/pragmatic-drag-and-drop-hitbox/closest-edge";
 import { Icon } from "@iconify/react/offline";
 import tablerChevronDown from "@iconify-icons/tabler/chevron-down";
 import tablerChevronRight from "@iconify-icons/tabler/chevron-right";
@@ -59,10 +70,21 @@ export const GroupOpenRow = memo(function GroupOpenRow({
 	const isFieldSelected = useIsFieldSelected(uuid);
 	useFulfillPendingScroll(uuid, isFieldSelected);
 
+	// Wrap the header's drop data with pragmatic-dnd's closest-edge helper so
+	// the monitor can distinguish top-half hovers (insert BEFORE the group)
+	// from bottom-half hovers (insert INTO the group at position 0). With
+	// only `["top", "bottom"]` allowed, the helper snaps to whichever edge
+	// is closer to the cursor — half of a ~40px header is enough real estate
+	// for either intent, and the placeholder row renders at a distinct depth
+	// for each so the user sees the outcome before releasing.
 	const buildDropData = useCallback<
 		Parameters<typeof useRowDnd>[0]["buildDropData"]
 	>(
-		() => makeDropGroupHeaderData(uuid, parentUuid, siblingIndex),
+		({ input, element }) =>
+			attachClosestEdge(
+				makeDropGroupHeaderData(uuid, parentUuid, siblingIndex),
+				{ element, input, allowedEdges: ["top", "bottom"] },
+			),
 		[uuid, parentUuid, siblingIndex],
 	);
 
@@ -80,12 +102,23 @@ export const GroupOpenRow = memo(function GroupOpenRow({
 		[previewLabel],
 	);
 
-	const { ref, isDraggingSelf, isDragOver, preview } = useRowDnd({
+	const { ref, isDraggingSelf, isDragOver, dropEdge, preview } = useRowDnd({
 		draggableUuid: uuid,
 		cycleTargetContainerUuid: uuid,
 		buildDropData,
+		// Track the edge locally so we can suppress the "into group" ring
+		// when the cursor is in the top half — that hover means "before the
+		// group", which is already communicated by the depth-0 placeholder
+		// in the parent-level gap above the header.
+		trackEdge: true,
 		renderPreview,
 	});
+
+	// Ring feedback fires only for the "insert into group" intent. When the
+	// cursor is in the top half of the header (edge === "top"), the drop
+	// lands at the parent level — the header is just a neighboring row, not
+	// the landing container, so highlighting it would mislead.
+	const showIntoGroupRing = isDragOver && dropEdge !== "top";
 
 	const onToggleCollapse = useCallback(() => {
 		toggleCollapse(uuid);
@@ -116,7 +149,7 @@ export const GroupOpenRow = memo(function GroupOpenRow({
 					<div
 						className={`rounded-t-lg border border-b-0 border-pv-input-border bg-pv-surface px-3 py-2 transition-shadow ${
 							collapsed ? "rounded-b-lg border-b" : ""
-						} ${isDragOver ? "ring-2 ring-nova-violet" : ""}`}
+						} ${showIntoGroupRing ? "ring-2 ring-nova-violet" : ""}`}
 					>
 						<div className="flex items-center gap-2">
 							<button

@@ -70,11 +70,25 @@ describe("targetContainerUuidFor", () => {
 		expect(targetContainerUuidFor(drop)).toBe(F);
 	});
 
-	it("resolves a drop-group-header to the group's own uuid", () => {
+	it("resolves a drop-group-header to the group's own uuid by default", () => {
 		const data = makeDropGroupHeaderData(G(1), F, 0);
 		const drop = readDropTargetData(data);
 		if (!drop) throw new Error("unreachable");
 		expect(targetContainerUuidFor(drop)).toBe(G(1));
+		expect(targetContainerUuidFor(drop, "bottom")).toBe(G(1));
+		expect(targetContainerUuidFor(drop, null)).toBe(G(1));
+	});
+
+	// The top-edge case represents "insert before the group" — the
+	// landing container is the group's PARENT, not the group itself. Any
+	// caller feeding the return into a cycle check must get the parent
+	// uuid here, otherwise a legal "drop before a group" would get
+	// rejected as a self-cycle against the group.
+	it("resolves a drop-group-header + edge=top to the group's parent", () => {
+		const data = makeDropGroupHeaderData(G(1), F, 0);
+		const drop = readDropTargetData(data);
+		if (!drop) throw new Error("unreachable");
+		expect(targetContainerUuidFor(drop, "top")).toBe(F);
 	});
 
 	it("resolves a drop-empty-container to the container's uuid", () => {

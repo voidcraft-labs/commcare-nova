@@ -14,6 +14,7 @@
  * type we expose to our own call sites.
  */
 
+import type { Edge } from "@atlaskit/pragmatic-drag-and-drop-hitbox/closest-edge";
 import type { Uuid } from "@/lib/doc/types";
 
 /** Intersection helpers that satisfy pragmatic DnD's return-type
@@ -164,17 +165,31 @@ export function isUuidInSubtree(
  * cycle-creating drops without the drop-target rows needing to know the
  * full moveQuestion arg shape.
  *
- *   - `drop-question`        → target's parent (source becomes sibling)
- *   - `drop-group-header`    → the group uuid (source becomes child)
- *   - `drop-empty-container` → the empty container uuid (source becomes
- *                              sole child)
+ *   - `drop-question`                   → target's parent (source becomes sibling)
+ *   - `drop-group-header` + edge "top"  → target's parent (source becomes sibling
+ *                                          BEFORE the group, not a child of it)
+ *   - `drop-group-header` + otherwise   → the group uuid (source becomes child)
+ *   - `drop-empty-container`            → the empty container uuid (source becomes
+ *                                          sole child)
+ *
+ * The `edge` argument is only consulted for `drop-group-header`. Group
+ * headers are unique in that a single DOM element encodes two different
+ * positional intents: the top half of the header means "insert before
+ * the group" (sibling of the group at the parent level); the bottom half
+ * means "insert as first child of the group". Cycle detection must pick
+ * the correct target container, otherwise a valid "drop before this
+ * group" gets rejected on the grounds that the source is an ancestor of
+ * the group itself.
  */
-export function targetContainerUuidFor(drop: DropTargetData): Uuid {
+export function targetContainerUuidFor(
+	drop: DropTargetData,
+	edge?: Edge | null,
+): Uuid {
 	switch (drop.kind) {
 		case "drop-question":
 			return drop.parentUuid;
 		case "drop-group-header":
-			return drop.uuid;
+			return edge === "top" ? drop.parentUuid : drop.uuid;
 		case "drop-empty-container":
 			return drop.parentUuid;
 	}
