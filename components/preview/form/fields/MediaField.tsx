@@ -3,7 +3,7 @@ import { Icon } from "@iconify/react/offline";
 import tablerPhoto from "@iconify-icons/tabler/photo";
 import { useEditContext } from "@/hooks/useEditContext";
 import type { Field } from "@/lib/domain";
-import { questionTypeIcons, questionTypeLabels } from "@/lib/fieldTypeIcons";
+import { fieldKindIcons, fieldKindLabels } from "@/lib/fieldTypeIcons";
 
 /**
  * Placeholder card for media-capture kinds (image/audio/video/barcode/
@@ -16,8 +16,8 @@ export function MediaField({ question }: { question: Field }) {
 	const isDesign = ctx?.mode === "edit";
 	// `kind` replaces the legacy wire `type` discriminant — both icon and
 	// label registries are keyed by the same strings.
-	const icon = questionTypeIcons[question.kind] ?? tablerPhoto;
-	const label = questionTypeLabels[question.kind] ?? question.kind;
+	const icon = fieldKindIcons[question.kind] ?? tablerPhoto;
+	const label = fieldKindLabels[question.kind] ?? question.kind;
 
 	return (
 		<div className="flex items-center gap-3 px-4 py-3 rounded-lg bg-pv-surface border border-dashed border-pv-input-border">

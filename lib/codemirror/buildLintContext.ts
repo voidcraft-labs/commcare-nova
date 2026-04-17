@@ -45,7 +45,7 @@ export function buildLintContext(
 	const formEntries: Array<{
 		path: string;
 		label: string;
-		questionType: string;
+		kind: string;
 	}> = [];
 	function walk(parent: Uuid, prefix: string) {
 		const order = state.fieldOrder[parent] ?? [];
@@ -60,7 +60,7 @@ export function buildLintContext(
 			formEntries.push({
 				path: path.slice("/data/".length),
 				label: withLabel.label ?? field.id,
-				questionType: field.kind,
+				kind: field.kind,
 			});
 			if (field.kind === "group" || field.kind === "repeat") {
 				walk(childUuid, path);
@@ -95,7 +95,7 @@ export function buildLintContext(
 		validPaths,
 		caseProperties: moduleCaseType ? caseProperties : undefined,
 		formEntries: formEntries.filter((e) =>
-			VALUE_PRODUCING_TYPES.has(e.questionType as FieldKind),
+			VALUE_PRODUCING_TYPES.has(e.kind as FieldKind),
 		),
 	};
 }

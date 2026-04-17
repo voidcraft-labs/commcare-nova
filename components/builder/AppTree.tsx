@@ -37,7 +37,7 @@ import {
 import { useForm as useFormDoc } from "@/lib/doc/hooks/useEntity";
 import { useModuleIds } from "@/lib/doc/hooks/useModuleIds";
 import type { Field, Form, Module, Uuid } from "@/lib/domain";
-import { formTypeIcons, questionTypeIcons } from "@/lib/fieldTypeIcons";
+import { fieldKindIcons, formTypeIcons } from "@/lib/fieldTypeIcons";
 import { highlightSegments, type MatchIndices } from "@/lib/filterTree";
 import { textWithChips } from "@/lib/references/LabelContent";
 import {
@@ -782,7 +782,7 @@ function useFieldIconMap(formId: Uuid): Map<string, IconifyIcon> {
 				const p = qpath(f.id, parentPath);
 				// `kind` replaced `type` during the Phase 1 domain rename; keep
 				// the icon lookup keyed on the narrower Field discriminator.
-				const icon = questionTypeIcons[f.kind];
+				const icon = fieldKindIcons[f.kind];
 				if (icon) map.set(p, icon);
 				walk(uuid, p);
 			}
@@ -852,7 +852,7 @@ const FieldRow = memo(function FieldRow({
 	if (!q) return null;
 
 	const questionPath = qpath(q.id, parentPath);
-	const iconData = questionTypeIcons[q.kind];
+	const iconData = fieldKindIcons[q.kind];
 	const hasChildren = childUuids && childUuids.length > 0;
 	const isCollapsed =
 		hasChildren &&

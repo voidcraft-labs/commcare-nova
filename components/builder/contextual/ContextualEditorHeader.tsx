@@ -25,9 +25,9 @@ import {
 	getFieldMoveTargets,
 } from "@/lib/doc/navigation";
 import { asUuid } from "@/lib/doc/types";
-import { questionTypeIcons, questionTypeLabels } from "@/lib/fieldTypeIcons";
+import { getConvertibleTypes } from "@/lib/fieldTypeConversions";
+import { fieldKindIcons, fieldKindLabels } from "@/lib/fieldTypeIcons";
 import { shortcutLabel } from "@/lib/platform";
-import { getConvertibleTypes } from "@/lib/questionTypeConversions";
 import { useDeleteSelectedField } from "@/lib/routing/builderActions";
 import { useLocation, useSelect } from "@/lib/routing/hooks";
 import { useClearNewField, useIsNewField } from "@/lib/session/hooks";
@@ -252,8 +252,8 @@ export function ContextualEditorHeader({ field }: FieldEditorProps) {
 	// labels all key off the same string value.
 	const conversionTargets = getConvertibleTypes(field.kind);
 	const canConvert = conversionTargets.length > 0;
-	const typeIcon = questionTypeIcons[field.kind];
-	const typeLabel = questionTypeLabels[field.kind] ?? field.kind;
+	const typeIcon = fieldKindIcons[field.kind];
+	const typeLabel = fieldKindLabels[field.kind] ?? field.kind;
 
 	return (
 		<div className="flex items-center justify-between px-3 py-3 border-b border-white/[0.06]">

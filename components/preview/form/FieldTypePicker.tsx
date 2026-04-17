@@ -9,10 +9,10 @@ import { BlueprintDocContext } from "@/lib/doc/provider";
 import type { Uuid } from "@/lib/doc/types";
 import type { Field, FieldKind } from "@/lib/domain";
 import {
+	fieldKindIcons,
+	fieldKindLabels,
 	INSERTION_CATEGORIES,
 	INSERTION_TOP_LEVEL,
-	questionTypeIcons,
-	questionTypeLabels,
 } from "@/lib/fieldTypeIcons";
 import { useSelect } from "@/lib/routing/hooks";
 import { useMarkNewField } from "@/lib/session/hooks";
@@ -173,8 +173,8 @@ function TypeMenuItem({
 	type: FieldKind;
 	onSelect: (type: FieldKind) => void;
 }) {
-	const icon = questionTypeIcons[type];
-	const label = questionTypeLabels[type] ?? type;
+	const icon = fieldKindIcons[type];
+	const label = fieldKindLabels[type] ?? type;
 	return (
 		<Menu.Item className={MENU_ITEM_CLS} onClick={() => onSelect(type)}>
 			{icon && (

@@ -13,7 +13,7 @@
 
 import type { XPathLintContext } from "@/lib/codemirror/xpath-lint";
 import { type FieldKind, fieldKinds, fieldRegistry } from "@/lib/domain";
-import { questionTypeIcons } from "@/lib/fieldTypeIcons";
+import { fieldKindIcons } from "@/lib/fieldTypeIcons";
 import { type QuestionPath, qpath } from "@/lib/services/questionPath";
 import { REFERENCE_TYPES } from "./config";
 import type { Reference, ReferenceType } from "./types";
@@ -53,9 +53,9 @@ export class ReferenceProvider {
 		entries: ReadonlyArray<{
 			path: QuestionPath;
 			label: string;
-			questionType: string;
+			kind: string;
 		}>;
-		byPath: Map<string, { label: string; questionType: string }>;
+		byPath: Map<string, { label: string; kind: string }>;
 	} | null = null;
 
 	constructor(private getContext: () => XPathLintContext | undefined) {}
@@ -101,7 +101,7 @@ export class ReferenceProvider {
 					path: e.path,
 					label: e.label,
 					raw: `#form/${e.path}`,
-					icon: questionTypeIcons[e.questionType],
+					icon: fieldKindIcons[e.kind],
 				}));
 		}
 
@@ -154,7 +154,7 @@ export class ReferenceProvider {
 				path: questionPath,
 				raw,
 				label: found.label ?? path,
-				icon: questionTypeIcons[found.questionType],
+				icon: fieldKindIcons[found.kind],
 			};
 		}
 
@@ -197,11 +197,11 @@ export class ReferenceProvider {
 		const entries = ctx.formEntries.map((e) => ({
 			path: e.path as QuestionPath,
 			label: e.label,
-			questionType: e.questionType,
+			kind: e.kind,
 		}));
-		const byPath = new Map<string, { label: string; questionType: string }>();
+		const byPath = new Map<string, { label: string; kind: string }>();
 		for (const e of entries) {
-			byPath.set(e.path, { label: e.label, questionType: e.questionType });
+			byPath.set(e.path, { label: e.label, kind: e.kind });
 		}
 		this.formCache = { entries, byPath };
 		return this.formCache;
@@ -239,11 +239,11 @@ export function collectFieldEntries(
 	src: FieldEntrySource,
 	parentUuid: string,
 	parent?: QuestionPath,
-): Array<{ path: QuestionPath; label: string; questionType: string }> {
+): Array<{ path: QuestionPath; label: string; kind: string }> {
 	const entries: Array<{
 		path: QuestionPath;
 		label: string;
-		questionType: string;
+		kind: string;
 	}> = [];
 	const childUuids = src.fieldOrder[parentUuid] ?? [];
 	for (const uuid of childUuids) {
@@ -253,7 +253,7 @@ export function collectFieldEntries(
 		entries.push({
 			path,
 			label: field.label ?? path,
-			questionType: field.kind,
+			kind: field.kind,
 		});
 		if (field.kind === "group" || field.kind === "repeat") {
 			entries.push(...collectFieldEntries(src, uuid, path));

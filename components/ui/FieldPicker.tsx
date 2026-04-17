@@ -14,7 +14,7 @@
 import { Autocomplete } from "@base-ui/react/autocomplete";
 import { Icon } from "@iconify/react/offline";
 import { useCallback, useMemo } from "react";
-import { questionTypeIcons } from "@/lib/fieldTypeIcons";
+import { fieldKindIcons } from "@/lib/fieldTypeIcons";
 import {
 	collectFieldEntries,
 	type FieldEntrySource,
@@ -37,7 +37,7 @@ export interface FieldEntry {
 	/** Human-readable label. */
 	label: string;
 	/** Field kind (text, single_select, etc.) — drives the icon. */
-	questionType: string;
+	kind: string;
 }
 
 // ── Utility ──────────────────────────────────────────────────────────
@@ -60,14 +60,14 @@ export function buildFieldEntries(
 	const raw = collectFieldEntries(src, parentUuid);
 	const filter = typeFilter ?? VALUE_PRODUCING_TYPES;
 	return raw
-		.filter((e) => filter.has(e.questionType))
+		.filter((e) => filter.has(e.kind))
 		.map((e) => ({
 			id: e.path.includes("/")
 				? e.path.slice(e.path.lastIndexOf("/") + 1)
 				: (e.path as string),
 			path: e.path as string,
 			label: e.label,
-			questionType: e.questionType,
+			kind: e.kind,
 		}));
 }
 
@@ -180,16 +180,12 @@ export function FieldPicker({
 											className={`${MENU_ITEM_BASE} text-nova-text cursor-pointer data-[highlighted]:bg-white/[0.06] first:rounded-t-xl last:rounded-b-xl`}
 										>
 											<Icon
-												icon={
-													questionTypeIcons[field.questionType] ??
-													questionTypeIcons.text
-												}
+												icon={fieldKindIcons[field.kind] ?? fieldKindIcons.text}
 												width="14"
 												height="14"
 												className="text-nova-text-muted shrink-0"
 											/>
-											{field.questionType === "hidden" ||
-											field.label === field.path ? (
+											{field.kind === "hidden" || field.label === field.path ? (
 												<span className="font-mono text-xs text-nova-text truncate">
 													{field.id}
 												</span>

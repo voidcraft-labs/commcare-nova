@@ -34,7 +34,7 @@ export interface XPathLintContext {
 	formEntries: ReadonlyArray<{
 		path: string;
 		label: string;
-		questionType: string;
+		kind: string;
 	}>;
 }
 

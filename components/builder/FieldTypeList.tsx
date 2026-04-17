@@ -1,7 +1,7 @@
 "use client";
 import { Icon } from "@iconify/react/offline";
 import type { FieldKind } from "@/lib/domain";
-import { questionTypeIcons, questionTypeLabels } from "@/lib/fieldTypeIcons";
+import { fieldKindIcons, fieldKindLabels } from "@/lib/fieldTypeIcons";
 
 interface FieldTypeListProps {
 	/** The conversion targets to display. */
@@ -24,7 +24,7 @@ export function FieldTypeList({
 	return (
 		<div className="overflow-hidden">
 			{types.map((type) => {
-				const icon = questionTypeIcons[type];
+				const icon = fieldKindIcons[type];
 				const isActive = type === activeType;
 				return (
 					<button
@@ -47,7 +47,7 @@ export function FieldTypeList({
 								}
 							/>
 						)}
-						<span>{questionTypeLabels[type] ?? type}</span>
+						<span>{fieldKindLabels[type] ?? type}</span>
 					</button>
 				);
 			})}

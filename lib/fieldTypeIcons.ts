@@ -29,7 +29,7 @@ import tablerSquareCheck from "@iconify-icons/tabler/square-check";
 import tablerTag from "@iconify-icons/tabler/tag";
 import type { FieldKind } from "@/lib/domain";
 
-export const questionTypeIcons: Record<string, IconifyIcon> = {
+export const fieldKindIcons: Record<string, IconifyIcon> = {
 	text: tablerForms,
 	int: tabler123,
 	decimal: tablerDecimal,
@@ -51,7 +51,7 @@ export const questionTypeIcons: Record<string, IconifyIcon> = {
 	secret: tablerLock,
 };
 
-export const questionTypeLabels: Record<string, string> = {
+export const fieldKindLabels: Record<string, string> = {
 	text: "Text",
 	int: "Number",
 	decimal: "Decimal",

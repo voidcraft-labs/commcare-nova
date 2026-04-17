@@ -2,7 +2,7 @@
 import { Icon } from "@iconify/react/offline";
 import { Tooltip } from "@/components/ui/Tooltip";
 import type { HiddenField as HiddenFieldEntity } from "@/lib/domain";
-import { questionTypeIcons } from "@/lib/fieldTypeIcons";
+import { fieldKindIcons } from "@/lib/fieldTypeIcons";
 import { ExpressionContent } from "@/lib/references/ExpressionContent";
 
 /**
@@ -19,7 +19,7 @@ export function HiddenField({ question }: { question: HiddenFieldEntity }) {
 		<div className="flex items-center gap-3 px-3 py-2 rounded-lg border border-dashed border-nova-text-muted/25 bg-nova-text-muted/[0.03]">
 			<div className="flex items-center gap-1.5 shrink-0">
 				<Icon
-					icon={questionTypeIcons.hidden}
+					icon={fieldKindIcons.hidden}
 					width="14"
 					height="14"
 					className="text-nova-text-muted/60"
