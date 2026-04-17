@@ -15,6 +15,7 @@ import { renderHook } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { act } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { buildDoc, f } from "@/lib/__tests__/docHelpers";
 import { BlueprintDocContext } from "@/lib/doc/provider";
 import { createBlueprintDocStore } from "@/lib/doc/store";
 
@@ -48,7 +49,6 @@ vi.mock("@/components/builder/contexts/EditGuardContext", () => ({
 	useConsultEditGuard: () => consultGuard,
 }));
 
-import { toDoc } from "@/lib/doc/converter";
 import { asUuid } from "@/lib/doc/types";
 import { useNavigate, useSelect } from "@/lib/routing/hooks";
 
@@ -56,35 +56,31 @@ const pushStateSpy = vi.spyOn(window.history, "pushState");
 const replaceStateSpy = vi.spyOn(window.history, "replaceState");
 
 /**
- * Fixture: one module, one form, one question. Known UUIDs for
+ * Fixture: one module, one form, one field. Known UUIDs for
  * assertion matching.
  */
-const BP = {
-	app_name: "T",
-	connect_type: undefined,
-	case_types: null,
-	modules: [
-		{
-			uuid: "mod-1",
-			name: "M",
-			case_type: undefined,
-			forms: [
+function makeStore() {
+	const store = createBlueprintDocStore();
+	store.getState().load(
+		buildDoc({
+			appId: "app-1",
+			appName: "T",
+			modules: [
 				{
-					uuid: "f-1",
-					name: "F",
-					type: "survey" as const,
-					questions: [
-						{ uuid: "q-1", id: "q", type: "text" as const, label: "Q" },
+					uuid: "mod-1",
+					name: "M",
+					forms: [
+						{
+							uuid: "f-1",
+							name: "F",
+							type: "survey",
+							fields: [f({ uuid: "q-1", kind: "text", id: "q", label: "Q" })],
+						},
 					],
 				},
 			],
-		},
-	],
-};
-
-function makeStore() {
-	const store = createBlueprintDocStore();
-	store.getState().load(toDoc(BP, "app-1"));
+		}),
+	);
 	return store;
 }
 

@@ -9,7 +9,7 @@
 import { renderHook } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { describe, expect, it, vi } from "vitest";
-import { toDoc } from "@/lib/doc/converter";
+import { buildDoc, f } from "@/lib/__tests__/docHelpers";
 import { BlueprintDocContext } from "@/lib/doc/provider";
 import { createBlueprintDocStore } from "@/lib/doc/store";
 
@@ -48,40 +48,33 @@ vi.mock("@/components/builder/contexts/EditGuardContext", () => ({
 import { useLocation } from "@/lib/routing/hooks";
 
 /**
- * Build a doc store with a known module, form, and question so the
+ * Build a doc store with a known module, form, and field so the
  * path parser can disambiguate UUIDs.
  */
-const BP = {
-	app_name: "T",
-	connect_type: undefined,
-	case_types: null,
-	modules: [
-		{
-			uuid: "mod-uuid",
-			name: "M",
-			case_type: undefined,
-			forms: [
+function makeStore() {
+	const store = createBlueprintDocStore();
+	store.getState().load(
+		buildDoc({
+			appId: "app-1",
+			appName: "T",
+			modules: [
 				{
-					uuid: "form-uuid",
-					name: "F",
-					type: "survey" as const,
-					questions: [
+					uuid: "mod-uuid",
+					name: "M",
+					forms: [
 						{
-							uuid: "q-uuid",
-							id: "q",
-							type: "text" as const,
-							label: "Q",
+							uuid: "form-uuid",
+							name: "F",
+							type: "survey",
+							fields: [
+								f({ uuid: "q-uuid", kind: "text", id: "q", label: "Q" }),
+							],
 						},
 					],
 				},
 			],
-		},
-	],
-};
-
-function makeStore() {
-	const store = createBlueprintDocStore();
-	store.getState().load(toDoc(BP, "app-1"));
+		}),
+	);
 	return store;
 }
 
