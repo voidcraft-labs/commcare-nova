@@ -6,11 +6,11 @@
  * a helper, apply the returned mutations to the doc store, and assert on
  * the resulting doc state.
  *
- * The close-case-migration and case-derivation tests at the bottom of this
- * file exercise helpers in OTHER files (`decomposeBlueprint`,
- * `deriveCaseConfig`) that still operate on the legacy nested
- * `AppBlueprint`. They're preserved here since they're part of the form-
- * builder surface, but they don't call `blueprintHelpers`.
+ * The case-derivation tests at the bottom exercise `deriveCaseConfig`, a
+ * pure wire-shape helper on the blueprint schema. Those assertions build
+ * blueprint-shape `Question` arrays directly because `deriveCaseConfig`
+ * is called at the wire boundary (the validator adapts the domain field
+ * tree into that shape at its call site).
  */
 import { produce } from "immer";
 import { describe, expect, it } from "vitest";
@@ -18,18 +18,13 @@ import { applyMutations } from "@/lib/doc/mutations";
 import type { BlueprintDoc, Uuid } from "@/lib/doc/types";
 import { asUuid } from "@/lib/doc/types";
 import type { Field, Form } from "@/lib/domain";
-import type {
-	AppBlueprint,
-	BlueprintForm,
-	FormType,
-} from "../../schemas/blueprint";
+import type { AppBlueprint, FormType } from "../../schemas/blueprint";
 import { deriveCaseConfig } from "../../schemas/blueprint";
 import {
 	addFieldMutations,
 	findFieldByBareId,
 	updateFormMutations,
 } from "../blueprintHelpers";
-import { decomposeBlueprint } from "../normalizedState";
 
 // ── Fixture builders ──────────────────────────────────────────────────
 
@@ -318,123 +313,12 @@ describe("Form Builder Agent Integration — mutation-builder helpers", () => {
 	});
 });
 
-// ── Legacy-shape tests (exercise decomposeBlueprint + deriveCaseConfig) ─
+// ── deriveCaseConfig tests (wire-shape helper) ───────────────────────
 //
-// These tests predate the normalized doc — they test conversion from
-// on-disk `AppBlueprint` and pure blueprint-shape derivation. They don't
-// touch blueprintHelpers, but they live in this file because they cover
-// the same form-builder agent flow.
-
-describe("Firestore migration: close_case → close form type", () => {
-	/** Build a minimal old-format blueprint with close_case on a followup form. */
-	function oldFormatBp(closeCase: Record<string, string>): AppBlueprint {
-		return {
-			app_name: "Migration Test",
-			modules: [
-				{
-					uuid: "module-2-uuid",
-					name: "M",
-					case_type: "patient",
-					forms: [
-						{
-							uuid: "form-1-uuid",
-							name: "Close Form",
-							type: "followup",
-							close_case: closeCase,
-							questions: [
-								{
-									uuid: "q1",
-									id: "confirm",
-									type: "single_select",
-									options: [
-										{ value: "yes", label: "Yes" },
-										{ value: "no", label: "No" },
-									],
-								},
-							],
-						} as BlueprintForm,
-					],
-				},
-			],
-			case_types: [
-				{
-					name: "patient",
-					properties: [{ name: "case_name", label: "Name" }],
-				},
-			],
-		};
-	}
-
-	it("migrates conditional close_case to close form with closeCondition", () => {
-		const bp = oldFormatBp({ question: "confirm", answer: "yes" });
-		const data = decomposeBlueprint(bp);
-		const formId = data.formOrder[data.moduleOrder[0]][0];
-		const form = data.forms[formId];
-
-		expect(form.type).toBe("close");
-		expect(form.closeCondition).toEqual({
-			question: "confirm",
-			answer: "yes",
-		});
-	});
-
-	it("migrates unconditional close_case ({}) to close form without closeCondition", () => {
-		const bp = oldFormatBp({});
-		const data = decomposeBlueprint(bp);
-		const formId = data.formOrder[data.moduleOrder[0]][0];
-		const form = data.forms[formId];
-
-		expect(form.type).toBe("close");
-		expect(form.closeCondition).toBeUndefined();
-	});
-
-	it("passes through new-format close form with close_condition unchanged", () => {
-		const bp: AppBlueprint = {
-			app_name: "New Format",
-			modules: [
-				{
-					uuid: "module-3-uuid",
-					name: "M",
-					case_type: "patient",
-					forms: [
-						{
-							uuid: "form-2-uuid",
-							name: "Close Form",
-							type: "close",
-							close_condition: { question: "confirm", answer: "yes" },
-							questions: [
-								{
-									uuid: "q1",
-									id: "confirm",
-									type: "single_select",
-									options: [
-										{ value: "yes", label: "Yes" },
-										{ value: "no", label: "No" },
-									],
-								},
-							],
-						},
-					],
-				},
-			],
-			case_types: [
-				{
-					name: "patient",
-					properties: [{ name: "case_name", label: "Name" }],
-				},
-			],
-		};
-		const data = decomposeBlueprint(bp);
-		const formId = data.formOrder[data.moduleOrder[0]][0];
-		const form = data.forms[formId];
-
-		expect(form.type).toBe("close");
-		expect(form.closeCondition).toEqual({
-			question: "confirm",
-			answer: "yes",
-		});
-	});
-});
+// `deriveCaseConfig` is a pure derivation over duck-typed
+// `{id, type, case_property_on, children}` shapes. The validator adapts
+// the domain field tree into that shape at the call site and invokes the
+// derivation; these tests exercise it directly with wire-shape input.
 
 describe("child case derivation via case_property_on (blueprint-shape)", () => {
 	/** Helper that builds a nested AppBlueprint form directly — no helpers. */
