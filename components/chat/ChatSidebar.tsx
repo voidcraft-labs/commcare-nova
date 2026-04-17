@@ -15,12 +15,12 @@ import { ChatInput } from "@/components/chat/ChatInput";
 import { ChatMessage } from "@/components/chat/ChatMessage";
 import { SignalGrid } from "@/components/chat/SignalGrid";
 import { SignalPanel } from "@/components/chat/SignalPanel";
+import { computeScaffoldProgress } from "@/lib/agent";
 import {
 	BlueprintDocContext,
 	type BlueprintDocStore,
 } from "@/lib/doc/provider";
 import { BuilderPhase } from "@/lib/services/builder";
-import { computeScaffoldProgress } from "@/lib/services/scaffoldProgress";
 import { useBuilderPhase, useSetSidebarOpen } from "@/lib/session/hooks";
 import type { BuilderSessionStoreApi } from "@/lib/session/provider";
 import {

@@ -36,6 +36,11 @@ import { stepCountIs, ToolLoopAgent, tool } from "ai";
 import { produce } from "immer";
 import { z } from "zod";
 import {
+	applyDefaults,
+	type FlatQuestion,
+	stripEmpty,
+} from "@/lib/agent/contentProcessing";
+import {
 	type GenerationContext,
 	logWarnings,
 } from "@/lib/agent/generationContext";
@@ -63,11 +68,6 @@ import {
 	type Question,
 	scaffoldModulesSchema,
 } from "../schemas/blueprint";
-import {
-	applyDefaults,
-	type FlatQuestion,
-	stripEmpty,
-} from "../schemas/contentProcessing";
 import {
 	addQuestionQuestionSchema,
 	addQuestionsQuestionSchema,

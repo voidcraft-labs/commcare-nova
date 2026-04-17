@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { CaseType } from "../blueprint";
+import type { CaseType } from "@/lib/schemas/blueprint";
 import { applyDefaults } from "../contentProcessing";
 
 const testCaseType: CaseType = {

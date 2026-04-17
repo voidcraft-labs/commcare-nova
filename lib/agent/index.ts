@@ -28,3 +28,9 @@ export {
 	logWarnings,
 	thinkingProviderOptions,
 } from "./generationContext";
+// Task 5: scaffoldProgress moved in from lib/services/. Re-exported from the
+// barrel because `components/chat/ChatSidebar.tsx` (an external consumer)
+// reaches for it. `contentProcessing` stayed out of the barrel on purpose —
+// its only consumer is solutionsArchitect (also in lib/agent/ after Task 10),
+// so it stays an internal implementation detail.
+export { computeScaffoldProgress } from "./scaffoldProgress";
