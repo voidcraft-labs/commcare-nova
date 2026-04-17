@@ -406,7 +406,7 @@ export function useBlueprintMutations(): BlueprintMutations {
 				const field = doc.fields[uuid];
 				if (!field) {
 					warnUnresolved("moveField", { uuid });
-					return {};
+					return { droppedCrossDepthRefs: 0 };
 				}
 
 				// Default destination: the field's current parent (same-parent
@@ -440,7 +440,7 @@ export function useBlueprintMutations(): BlueprintMutations {
 				// Dispatch via `applyWithResult` to capture the rename metadata
 				// the reducer populates when cross-level dedup changes the id.
 				// Returns `undefined` if the target entity vanishes between our
-				// pre-check and the Immer draft — fallback to empty result so
+				// pre-check and the Immer draft — fallback to zeroed result so
 				// callers always see a valid `MoveFieldResult`.
 				return (
 					store.getState().applyWithResult({
@@ -448,7 +448,7 @@ export function useBlueprintMutations(): BlueprintMutations {
 						uuid,
 						toParentUuid,
 						toIndex,
-					}) ?? {}
+					}) ?? { droppedCrossDepthRefs: 0 }
 				);
 			},
 
