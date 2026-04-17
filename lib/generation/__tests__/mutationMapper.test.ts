@@ -6,7 +6,7 @@
  */
 
 import { assert, describe, expect, it } from "vitest";
-import { toDoc } from "@/lib/doc/converter";
+import { buildDoc, f } from "@/lib/__tests__/docHelpers";
 import { asUuid, type BlueprintDoc, type Mutation } from "@/lib/doc/types";
 import type { BlueprintForm, CaseType } from "@/lib/schemas/blueprint";
 import { toDocMutations } from "../mutationMapper";
@@ -15,120 +15,128 @@ const APP_ID = "test-app-id";
 
 // ── Fixture helpers ────────────────────────────────────────────────────
 
-/** Minimal empty doc — no modules, no forms, no questions. */
+/** Minimal empty doc — no modules, no forms, no fields. */
 function emptyDoc(): BlueprintDoc {
-	return toDoc({ app_name: "Test", modules: [], case_types: null }, APP_ID);
+	return buildDoc({ appId: APP_ID, appName: "Test" });
 }
 
 /**
  * Build a doc with one module containing zero forms.
- * The module uuid is deterministic (derived from the blueprint).
+ * The module uuid is deterministic.
  */
 function buildDocWithOneModule(): BlueprintDoc {
-	return toDoc(
-		{
-			app_name: "One Module",
-			modules: [
-				{
-					uuid: "mod-uuid-1",
-					name: "Registration Module",
-					case_type: "patient",
-					forms: [],
-				},
-			],
-			case_types: null,
-		},
-		APP_ID,
-	);
+	return buildDoc({
+		appId: APP_ID,
+		appName: "One Module",
+		modules: [
+			{
+				uuid: "mod-uuid-1",
+				name: "Registration Module",
+				caseType: "patient",
+			},
+		],
+	});
 }
 
 /**
  * Build a doc with one module and one form.
- * The form has a purpose set (simulates scaffold-created form).
  */
 function buildDocWithOneModuleOneForm(): BlueprintDoc {
-	return toDoc(
-		{
-			app_name: "One Form",
-			modules: [
-				{
-					uuid: "mod-uuid-1",
-					name: "Registration Module",
-					case_type: "patient",
-					forms: [
-						{
-							uuid: "form-uuid-1",
-							name: "Register Patient",
-							type: "registration",
-							questions: [
-								{
-									uuid: "q-uuid-1",
-									id: "case_name",
-									type: "text",
-									label: "Patient Name",
-								},
-							],
-						},
-					],
-				},
-			],
-			case_types: null,
-		},
-		APP_ID,
-	);
+	return buildDoc({
+		appId: APP_ID,
+		appName: "One Form",
+		modules: [
+			{
+				uuid: "mod-uuid-1",
+				name: "Registration Module",
+				caseType: "patient",
+				forms: [
+					{
+						uuid: "form-uuid-1",
+						name: "Register Patient",
+						type: "registration",
+						fields: [
+							f({
+								uuid: "q-uuid-1",
+								kind: "text",
+								id: "case_name",
+								label: "Patient Name",
+							}),
+						],
+					},
+				],
+			},
+		],
+	});
 }
 
 /**
- * Same as buildDocWithOneModuleOneForm but manually sets a purpose on
- * the form entity, simulating what the scaffold step does.
+ * Same as buildDocWithOneModuleOneForm but stamps a `purpose` on the form
+ * entity, simulating what the scaffold step does. Domain `Form` carries
+ * `purpose` directly, so it's set via the spec.
  */
 function buildDocWithPurpose(): BlueprintDoc {
-	const doc = buildDocWithOneModuleOneForm();
-	const formUuid = doc.formOrder[doc.moduleOrder[0]][0];
-	doc.forms[formUuid] = {
-		...doc.forms[formUuid],
-		purpose: "Collect patient demographics",
-	};
-	return doc;
+	return buildDoc({
+		appId: APP_ID,
+		appName: "One Form",
+		modules: [
+			{
+				uuid: "mod-uuid-1",
+				name: "Registration Module",
+				caseType: "patient",
+				forms: [
+					{
+						uuid: "form-uuid-1",
+						name: "Register Patient",
+						type: "registration",
+						purpose: "Collect patient demographics",
+						fields: [
+							f({
+								uuid: "q-uuid-1",
+								kind: "text",
+								id: "case_name",
+								label: "Patient Name",
+							}),
+						],
+					},
+				],
+			},
+		],
+	});
 }
 
 /** Build a doc with two modules, each with one form. */
 function buildDocWithTwoModules(): BlueprintDoc {
-	return toDoc(
-		{
-			app_name: "Two Modules",
-			modules: [
-				{
-					uuid: "mod-uuid-1",
-					name: "Module A",
-					case_type: "patient",
-					forms: [
-						{
-							uuid: "form-uuid-1",
-							name: "Form A",
-							type: "registration",
-							questions: [],
-						},
-					],
-				},
-				{
-					uuid: "mod-uuid-2",
-					name: "Module B",
-					case_type: "visit",
-					forms: [
-						{
-							uuid: "form-uuid-2",
-							name: "Form B",
-							type: "followup",
-							questions: [],
-						},
-					],
-				},
-			],
-			case_types: null,
-		},
-		APP_ID,
-	);
+	return buildDoc({
+		appId: APP_ID,
+		appName: "Two Modules",
+		modules: [
+			{
+				uuid: "mod-uuid-1",
+				name: "Module A",
+				caseType: "patient",
+				forms: [
+					{
+						uuid: "form-uuid-1",
+						name: "Form A",
+						type: "registration",
+					},
+				],
+			},
+			{
+				uuid: "mod-uuid-2",
+				name: "Module B",
+				caseType: "visit",
+				forms: [
+					{
+						uuid: "form-uuid-2",
+						name: "Form B",
+						type: "followup",
+					},
+				],
+			},
+		],
+	});
 }
 
 // ── data-schema ────────────────────────────────────────────────────────
