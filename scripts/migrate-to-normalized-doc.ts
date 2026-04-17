@@ -136,7 +136,7 @@ async function main() {
 // not when imported by vitest or other test runners. Using `import.meta.url`
 // vs the resolved path of `process.argv[1]` is the ESM equivalent of Node's
 // `if (require.main === module)` pattern.
-import { fileURLToPath } from "url";
+import { fileURLToPath } from "node:url";
 
 const isMain =
 	process.argv[1] &&

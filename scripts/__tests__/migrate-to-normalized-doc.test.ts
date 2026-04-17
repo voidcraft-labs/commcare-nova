@@ -164,7 +164,8 @@ describe("legacyAppBlueprintToDoc", () => {
 		const followupForm = doc.forms[followupFormUuid];
 
 		expect(followupForm.formLinks).toHaveLength(1);
-		const link = followupForm.formLinks![0];
+		const link = followupForm.formLinks?.[0];
+		if (!link) throw new Error("expected form link");
 
 		// Target type: form — must now reference UUIDs not indices.
 		expect(link.target.type).toBe("form");
@@ -238,7 +239,7 @@ describe("legacyAppBlueprintToDoc", () => {
 		expect(doc.appName).toBe("Patient Care App");
 		expect(doc.connectType).toBeNull();
 		expect(doc.caseTypes).toHaveLength(1);
-		expect(doc.caseTypes![0].name).toBe("patient");
+		expect(doc.caseTypes?.[0]?.name).toBe("patient");
 	});
 
 	it("module metadata is correctly mapped from camelCase", () => {
