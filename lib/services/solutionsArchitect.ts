@@ -326,6 +326,21 @@ export function createSolutionsArchitect(
 		doc = applyToDoc(doc, muts);
 	};
 
+	/**
+	 * Emit a `data-blueprint-updated` event carrying the current doc as a
+	 * `PersistableDoc` (no `fieldParent`). Used by coarse edit tools —
+	 * updateModule, createForm, removeForm, cascading rename, etc. — that
+	 * touch enough of the tree that emitting a per-form diff would be more
+	 * complex than a full replace. The client rebuilds `fieldParent` from
+	 * `fieldOrder` inside `docStore.load()`, so we strip it at the wire
+	 * boundary to keep SSE payloads lean and to match the `PersistableDoc`
+	 * contract the dispatcher consumes.
+	 */
+	const emitBlueprintUpdated = (): void => {
+		const { fieldParent: _fp, ...persistable } = doc;
+		ctx.emit("data-blueprint-updated", { doc: persistable });
+	};
+
 	// ── Generation tools (build mode only) ────────────────────────────
 	// These drive the initial build sequence: schema → scaffold → columns → questions.
 	// Excluded in edit mode — the SA uses mutation tools instead.
@@ -719,7 +734,7 @@ export function createSolutionsArchitect(
 					// forms, emit the full blueprint; for intra-form edits, just
 					// the single form.
 					if (newId && newId !== questionId) {
-						ctx.emit("data-blueprint-updated", { doc });
+						emitBlueprintUpdated();
 					} else {
 						const moduleUuid = doc.moduleOrder[moduleIndex];
 						const formUuid = moduleUuid
@@ -948,7 +963,7 @@ export function createSolutionsArchitect(
 							case_detail_columns === null ? null : case_detail_columns;
 					}
 					dispatch(updateModuleMutations(doc, moduleUuid, patch));
-					ctx.emit("data-blueprint-updated", { doc });
+					emitBlueprintUpdated();
 					const mod = doc.modules[moduleUuid];
 					if (!mod)
 						return { error: `Module ${moduleIndex} not found after update` };
@@ -1149,7 +1164,7 @@ export function createSolutionsArchitect(
 							}),
 						}),
 					);
-					ctx.emit("data-blueprint-updated", { doc });
+					emitBlueprintUpdated();
 					const mod = doc.modules[moduleUuid];
 					const forms = doc.formOrder[moduleUuid] ?? [];
 					const newFormIndex = forms.length - 1;
@@ -1175,7 +1190,7 @@ export function createSolutionsArchitect(
 					if (formUuid) {
 						dispatch(removeFormMutations(doc, formUuid));
 					}
-					ctx.emit("data-blueprint-updated", { doc });
+					emitBlueprintUpdated();
 					const moduleUuid = doc.moduleOrder[moduleIndex];
 					const mod = moduleUuid ? doc.modules[moduleUuid] : undefined;
 					const remainingForms =
@@ -1230,7 +1245,7 @@ export function createSolutionsArchitect(
 							}),
 						}),
 					);
-					ctx.emit("data-blueprint-updated", { doc });
+					emitBlueprintUpdated();
 					const newModIndex = doc.moduleOrder.length - 1;
 					return `Successfully created module "${name}" at index ${newModIndex}${case_type ? ` (case type: ${case_type})` : ""}. App now has ${doc.moduleOrder.length} module${doc.moduleOrder.length === 1 ? "" : "s"}.`;
 				} catch (err) {
@@ -1251,7 +1266,7 @@ export function createSolutionsArchitect(
 						? (doc.modules[moduleUuid]?.name ?? null)
 						: null;
 					if (moduleUuid) dispatch(removeModuleMutations(doc, moduleUuid));
-					ctx.emit("data-blueprint-updated", { doc });
+					emitBlueprintUpdated();
 					return `Successfully removed module "${name ?? `module ${moduleIndex}`}". App now has ${doc.moduleOrder.length} module${doc.moduleOrder.length === 1 ? "" : "s"}.`;
 				} catch (err) {
 					return { error: err instanceof Error ? err.message : String(err) };
@@ -1278,8 +1293,14 @@ export function createSolutionsArchitect(
 				if (result.success) {
 					doc = result.doc;
 
+					/* Strip the derived `fieldParent` reverse-index before emitting
+					 * or persisting — it's rebuilt on the client from `fieldOrder`
+					 * in `docStore.load()`, so sending it over SSE wastes bandwidth
+					 * and duplicates data that the store regenerates anyway. */
+					const { fieldParent: _fp, ...persistable } = doc;
+
 					ctx.emit("data-done", {
-						doc,
+						doc: persistable,
 						hqJson: result.hqJson ?? {},
 						success: true,
 					});
@@ -1289,7 +1310,6 @@ export function createSolutionsArchitect(
 					 * the route handler. We persist the normalized doc shape
 					 * directly — `completeApp` accepts `PersistableDoc`. */
 					if (ctx.appId) {
-						const { fieldParent: _fp, ...persistable } = doc;
 						completeApp(ctx.appId, persistable, ctx.logger.runId).catch((err) =>
 							log.error("[validateApp] app update failed", err),
 						);
