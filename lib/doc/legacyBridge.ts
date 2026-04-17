@@ -279,7 +279,9 @@ export function legacyAppBlueprintToDoc(
 		}
 	}
 
-	const doc: BlueprintDoc = {
+	// Build the persistable shape (no `fieldParent` — that field is derived
+	// and not part of the schema).
+	const persistableInput = {
 		appId,
 		appName: src.app_name as string,
 		connectType: (src.connect_type as BlueprintDoc["connectType"]) ?? null,
@@ -290,16 +292,21 @@ export function legacyAppBlueprintToDoc(
 		moduleOrder,
 		formOrder,
 		fieldOrder,
-		fieldParent: {} as Record<Uuid, Uuid | null>,
 	};
 
-	// Validate the persistable portion against the schema. Throws if the
-	// translation produced an invalid shape — no silent skip.
-	const { fieldParent: _fp, ...persistable } = doc;
-	blueprintDocSchema.parse(persistable);
+	// Parse — and USE the parsed output. The walker above sprays `label: ""`
+	// onto every field regardless of kind; Zod's default strip mode drops
+	// keys that don't belong on the matched variant (e.g. `label` on a
+	// `hidden` field). Discarding the parsed output would let those stray
+	// keys reach Firestore. Throws on invalid shape — no silent skip.
+	const persistable = blueprintDocSchema.parse(persistableInput);
 
-	// Populate the reverse-parent index so callers can read `fieldParent`
-	// immediately without a second pass.
+	// Assemble the in-memory doc with an empty fieldParent, then populate
+	// it in place so callers can read the reverse-parent index immediately.
+	const doc: BlueprintDoc = {
+		...persistable,
+		fieldParent: {} as Record<Uuid, Uuid | null>,
+	};
 	rebuildFieldParent(doc);
 	return doc;
 }

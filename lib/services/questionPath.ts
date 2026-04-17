@@ -1,7 +1,8 @@
-import type { Question } from "@/lib/schemas/blueprint";
-
 /**
- * Slash-delimited id path. Still used by:
+ * Slash-delimited id path — render-tree identity for the preview renderer
+ * and a display key in a handful of UI surfaces.
+ *
+ * Used by:
  *   - `lib/references/**` — reference parser / renderer stores `#form/...`
  *     label anchors as question paths.
  *   - `components/preview/form/**` — the preview renderer threads paths
@@ -16,6 +17,10 @@ import type { Question } from "@/lib/schemas/blueprint";
  * resolution) moved to uuid-keyed domain primitives in
  * `lib/doc/navigation.ts`. Paths should NOT be used as identity for new
  * code — uuids are the stable identity across renames.
+ *
+ * These helpers are string primitives only: they don't know about the
+ * wire `Question` shape or the domain `Field` shape. The path format is
+ * the same on both sides of the boundary.
  */
 export type QuestionPath = string & { readonly __brand: "QuestionPath" };
 
@@ -34,18 +39,4 @@ export function qpathId(path: QuestionPath): string {
 export function qpathParent(path: QuestionPath): QuestionPath | undefined {
 	const idx = path.lastIndexOf("/");
 	return idx === -1 ? undefined : (path.slice(0, idx) as QuestionPath);
-}
-
-// ── UUID helpers ─────────────────────────────────────────────────────
-
-/**
- * Force-assign fresh UUIDs to every question in the tree.
- * Used after `structuredClone` in duplication — the clone must not share
- * the original's UUIDs since identity must be unique.
- */
-export function reassignUuids(questions: Question[]): void {
-	for (const q of questions) {
-		q.uuid = crypto.randomUUID();
-		if (q.children) reassignUuids(q.children);
-	}
 }

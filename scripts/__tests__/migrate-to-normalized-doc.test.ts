@@ -262,6 +262,26 @@ describe("legacyAppBlueprintToDoc", () => {
 		expect(regForm.purpose).toBe("Register a new patient");
 	});
 
+	it("strips wire-shape keys that don't belong on the target field kind", () => {
+		// The walker sprays `label: q.label ?? ""` onto every field regardless
+		// of kind — including `hidden`, whose schema has no `label`. The Zod
+		// parse step must strip those stray keys so Firestore never receives
+		// shape-invalid field records.
+		const doc = legacyAppBlueprintToDoc("test-app", fixture);
+
+		// Collect every hidden field in the migrated doc.
+		const hiddenFields = Object.values(doc.fields).filter(
+			(f) => f.kind === "hidden",
+		);
+		expect(hiddenFields.length).toBeGreaterThan(0);
+
+		for (const hidden of hiddenFields) {
+			// `label` is not part of the hidden-field schema — it must NOT
+			// survive the migration.
+			expect(hidden).not.toHaveProperty("label");
+		}
+	});
+
 	it("is idempotent — calling twice produces the same structure (same UUIDs preserved)", () => {
 		// UUIDs that already existed in the fixture should be preserved on
 		// every call. Only freshly minted UUIDs will differ between calls.
