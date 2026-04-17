@@ -78,7 +78,7 @@ describe("createBlueprintDocStore", () => {
 		const store = createBlueprintDocStore();
 		store.getState().load(makeEmptyDoc({ appName: "Before" }));
 		store.temporal.getState().resume();
-		store.getState().apply({ kind: "setAppName", name: "After" });
+		store.getState().applyMany([{ kind: "setAppName", name: "After" }]);
 		expect(store.getState().appName).toBe("After");
 		expect(store.temporal.getState().pastStates.length).toBeGreaterThan(0);
 	});
@@ -102,10 +102,10 @@ describe("createBlueprintDocStore", () => {
 		store.getState().load(makeEmptyDoc({ appName: "A" }));
 		store.temporal.getState().resume();
 		store.getState().beginAgentWrite();
-		store.getState().apply({ kind: "setAppName", name: "During Agent" });
+		store.getState().applyMany([{ kind: "setAppName", name: "During Agent" }]);
 		expect(store.temporal.getState().pastStates).toHaveLength(0);
 		store.getState().endAgentWrite();
-		store.getState().apply({ kind: "setAppName", name: "After Agent" });
+		store.getState().applyMany([{ kind: "setAppName", name: "After Agent" }]);
 		expect(store.temporal.getState().pastStates).toHaveLength(1);
 	});
 });

@@ -150,8 +150,8 @@ export function applyFieldMutation(
 				// A patch that fails the schema is a programmer error — log with
 				// the exact issues so the offending call site is easy to locate,
 				// then skip the update rather than throwing from inside an Immer
-				// reducer (a throw would propagate up through `store.apply()` and
-				// crash the surrounding render or route handler).
+				// reducer (a throw would propagate up through `store.applyMany()`
+				// and crash the surrounding render or route handler).
 				console.warn(
 					`updateField: patch rejected for ${mut.uuid} (kind=${field.kind})`,
 					{ patch: mut.patch, issues: result.error.issues },
@@ -412,7 +412,7 @@ export function applyFieldMutation(
 				// succeeds. This branch stays as defense-in-depth — if a
 				// future schema introduces a required key that isn't present
 				// on every would-be source kind, throwing inside an Immer
-				// reducer propagates up through `store.apply()` and crashes
+				// reducer propagates up through `store.applyMany()` and crashes
 				// the surrounding render. Logging + no-op keeps the app alive
 				// while making the anomaly visible in dev tools.
 				console.warn(

@@ -193,7 +193,7 @@ describe("LocationRecoveryEffect", () => {
 		act(() => {
 			store
 				.getState()
-				.apply({ kind: "removeModule", uuid: asUuid(moduleUuid) });
+				.applyMany([{ kind: "removeModule", uuid: asUuid(moduleUuid) }]);
 		});
 
 		/* Force rerender with the updated store. */

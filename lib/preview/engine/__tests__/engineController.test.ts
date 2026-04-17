@@ -122,11 +122,13 @@ describe("EngineController", () => {
 			ctrl.activateForm(0, 0);
 
 			/* Mutate the field's relevant expression to hide it */
-			store.getState().apply({
-				kind: "updateField",
-				uuid: Q1_UUID,
-				patch: { relevant: "false()" },
-			});
+			store.getState().applyMany([
+				{
+					kind: "updateField",
+					uuid: Q1_UUID,
+					patch: { relevant: "false()" },
+				},
+			]);
 
 			/* Zustand's subscribeWithSelector fires synchronously on the
 			 * next microtask — flush with a short wait. */
@@ -150,16 +152,18 @@ describe("EngineController", () => {
 			expect(Object.keys(ctrl.store.getState())).toHaveLength(2);
 
 			const newUuid = asUuid("bbbbbbbb-0003-0003-0003-000000000003");
-			store.getState().apply({
-				kind: "addField",
-				parentUuid: FORM_UUID,
-				field: {
-					uuid: newUuid,
-					id: "new_q",
-					kind: "text",
-					label: "New Question",
+			store.getState().applyMany([
+				{
+					kind: "addField",
+					parentUuid: FORM_UUID,
+					field: {
+						uuid: newUuid,
+						id: "new_q",
+						kind: "text",
+						label: "New Question",
+					},
 				},
-			});
+			]);
 
 			await new Promise((r) => setTimeout(r, 10));
 
@@ -176,10 +180,12 @@ describe("EngineController", () => {
 			ctrl.activateForm(0, 0);
 
 			/* Remove the first field */
-			store.getState().apply({
-				kind: "removeField",
-				uuid: Q1_UUID,
-			});
+			store.getState().applyMany([
+				{
+					kind: "removeField",
+					uuid: Q1_UUID,
+				},
+			]);
 
 			await new Promise((r) => setTimeout(r, 10));
 

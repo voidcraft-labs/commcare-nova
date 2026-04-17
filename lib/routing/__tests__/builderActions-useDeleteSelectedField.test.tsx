@@ -203,8 +203,8 @@ describe("useDeleteSelectedField", () => {
 
 	it("deleting the only remaining question clears the selection", () => {
 		const store = makeStore();
-		store.getState().apply({ kind: "removeField", uuid: asUuid(Q_B) });
-		store.getState().apply({ kind: "removeField", uuid: asUuid(Q_C) });
+		store.getState().applyMany([{ kind: "removeField", uuid: asUuid(Q_B) }]);
+		store.getState().applyMany([{ kind: "removeField", uuid: asUuid(Q_C) }]);
 
 		const { formUuid } = setFormUrl(store, Q_A);
 		const { result } = renderHook(() => useDeleteSelectedField(), {

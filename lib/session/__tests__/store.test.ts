@@ -265,11 +265,13 @@ describe("BuilderSession connect stash", () => {
 				time_estimate: 5,
 			},
 		};
-		doc.getState().apply({
-			kind: "updateForm",
-			uuid: formA,
-			patch: { connect: learnConfig },
-		});
+		doc.getState().applyMany([
+			{
+				kind: "updateForm",
+				uuid: formA,
+				patch: { connect: learnConfig },
+			},
+		]);
 
 		/* Switch to deliver mode. */
 		session.getState().switchConnectMode("deliver");
@@ -299,11 +301,13 @@ describe("BuilderSession connect stash", () => {
 				time_estimate: 5,
 			},
 		};
-		doc.getState().apply({
-			kind: "updateForm",
-			uuid: formA,
-			patch: { connect: learnConfig },
-		});
+		doc.getState().applyMany([
+			{
+				kind: "updateForm",
+				uuid: formA,
+				patch: { connect: learnConfig },
+			},
+		]);
 
 		/* Switch to deliver, then back to learn. */
 		session.getState().switchConnectMode("deliver");

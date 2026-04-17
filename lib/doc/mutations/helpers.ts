@@ -149,7 +149,7 @@ export function dedupeSiblingId(
 	// Exhausted 9999 suffixes — extraordinarily unlikely in practice, but if
 	// it ever happens we prefer to return the original id (accepting a
 	// duplicate) over throwing from inside an Immer reducer. A throw here
-	// would propagate up through `store.apply()` and crash the caller's
+	// would propagate up through `store.applyMany()` and crash the caller's
 	// render or route handler; a silent duplicate is detectable downstream
 	// and recoverable by the user. A warning makes the anomaly visible in
 	// dev tools without taking the process down.

@@ -7,12 +7,15 @@
  *
  * `applyMutation` operates on an Immer draft — call sites wrap it in
  * `produce()` or let the Zustand store's Immer middleware handle the
- * drafting. Returns metadata for `moveField` and `renameField`
- * mutations (used by `applyWithResult` on the store); returns `undefined`
- * for all other mutation kinds.
+ * drafting. Returns a `MutationResult`: `MoveFieldResult` for `moveField`,
+ * `FieldRenameMeta` for `renameField`, and `undefined` for every other
+ * kind.
  *
- * `applyMutations` is a batched convenience for the agent stream
- * and for restoring a doc from a mutation log.
+ * `applyMutations` is the batched variant — it runs the same dispatch
+ * loop and returns a parallel `MutationResult[]` (one entry per input
+ * mutation). This is what backs the store's sole public write entry point,
+ * `applyMany`, used by the agent stream and for restoring a doc from a
+ * mutation log.
  */
 
 import type { Draft } from "immer";

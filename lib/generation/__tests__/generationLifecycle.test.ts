@@ -426,7 +426,7 @@ describe("generation lifecycle (end-to-end)", () => {
 		expect(docStore.temporal.getState().isTracking).toBe(true);
 
 		// Make a user edit (this enters undo history)
-		docStore.getState().apply({ kind: "setAppName", name: "Renamed" });
+		docStore.getState().applyMany([{ kind: "setAppName", name: "Renamed" }]);
 		expect(docStore.getState().appName).toBe("Renamed");
 
 		// Undo the user edit

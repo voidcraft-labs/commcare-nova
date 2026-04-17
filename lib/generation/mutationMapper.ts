@@ -2,9 +2,9 @@
  * Pure mutation mapper for generation stream events.
  *
  * Translates server-sent stream events into doc-layer `Mutation[]` arrays
- * that can be applied to a `BlueprintDoc` via `store.apply()` or
- * `store.applyMany()`. No side effects, no store references, no signal
- * grid — the caller is responsible for dispatching the returned mutations.
+ * that can be applied to a `BlueprintDoc` via `store.applyMany()`. No side
+ * effects, no store references, no signal grid — the caller is responsible
+ * for dispatching the returned mutations.
  *
  * This file is the ONE legitimate wire-format ingress for SA stream
  * events: CommCare's `BlueprintForm` vocabulary (`type`, `case_property_on`,

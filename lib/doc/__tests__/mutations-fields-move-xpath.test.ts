@@ -76,12 +76,14 @@ describe("moveField + path rewrite", () => {
 		const store = createBlueprintDocStore();
 		store.getState().load(fixture());
 
-		store.getState().apply({
-			kind: "moveField",
-			uuid: SRC,
-			toParentUuid: GRP2,
-			toIndex: 0,
-		});
+		store.getState().applyMany([
+			{
+				kind: "moveField",
+				uuid: SRC,
+				toParentUuid: GRP2,
+				toIndex: 0,
+			},
+		]);
 
 		const ref = store.getState().fields[REF] as
 			| { calculate?: string }
