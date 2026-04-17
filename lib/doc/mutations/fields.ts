@@ -11,6 +11,7 @@ import {
 	dedupeSiblingId,
 	findContainingForm,
 	findFieldParent,
+	reconcileFieldForKind,
 	walkFormFieldUuids,
 } from "./helpers";
 import { rewriteXPathOnMove } from "./pathRewrite";
@@ -100,7 +101,8 @@ export function applyFieldMutation(
 				| "moveField"
 				| "renameField"
 				| "duplicateField"
-				| "updateField";
+				| "updateField"
+				| "convertField";
 		}
 	>,
 ): MoveFieldResult | FieldRenameMeta | undefined {
@@ -371,6 +373,30 @@ export function applyFieldMutation(
 				parentOrder.splice(parent.index + 1, 0, rootUuid);
 				draft.fieldOrder[parent.parentUuid] = parentOrder;
 			}
+			return;
+		}
+		case "convertField": {
+			const field = draft.fields[mut.uuid];
+			if (!field) return;
+			// No-op if the kind is already the target (treat as idempotent).
+			if (field.kind === mut.toKind) return;
+			const reconciled = reconcileFieldForKind(field, mut.toKind);
+			if (!reconciled) {
+				// Reconciliation failed — the target kind requires a key the
+				// source doesn't have (e.g. converting a group to single_select,
+				// which needs `options`). Log and skip; UI should have gated
+				// this via `getConvertibleTypes` already.
+				console.warn(
+					`convertField: cannot reconcile ${field.kind} → ${mut.toKind}`,
+					{ uuid: mut.uuid, field },
+				);
+				return;
+			}
+			// Preserve the stable uuid — `reconcileFieldForKind` already
+			// carries it through, but re-stamp defensively so a future
+			// helper refactor can't silently drop it.
+			reconciled.uuid = mut.uuid;
+			draft.fields[mut.uuid] = reconciled;
 			return;
 		}
 	}

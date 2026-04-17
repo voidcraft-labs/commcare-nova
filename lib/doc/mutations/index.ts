@@ -65,6 +65,7 @@ function dispatchMutation(
 		case "renameField":
 		case "duplicateField":
 		case "updateField":
+		case "convertField":
 			return applyFieldMutation(draft, mut);
 		default:
 			assertNever(mut);
