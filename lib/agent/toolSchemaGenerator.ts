@@ -41,9 +41,14 @@
 // identical to today's, so the SA's behavior is unaffected by the
 // migration.
 
-import type { z } from "zod";
+import { z } from "zod";
 import type { FieldKind } from "@/lib/domain";
 import { fieldKinds } from "@/lib/domain";
+import {
+	QUESTION_DOCS,
+	questionFields,
+	selectOptionSchema,
+} from "@/lib/schemas/blueprint";
 
 /**
  * The mode controls how the generator shapes tool inputs.
@@ -77,6 +82,120 @@ export interface GeneratedToolSchemas {
 }
 
 /**
+ * The enum of every kind the SA may reference as a question `type`.
+ *
+ * Built from the caller-supplied `kinds` tuple (which defaults to the
+ * authoritative `fieldKinds` registry) so that the `type` field's enum
+ * list stays in lockstep with the domain — adding a kind to
+ * `fieldKinds` automatically propagates to the SA's tool schema.
+ */
+function makeKindEnum(kinds: readonly FieldKind[]) {
+	return z
+		.enum(kinds as readonly [FieldKind, ...FieldKind[]])
+		.describe(QUESTION_DOCS.type);
+}
+
+/**
+ * `addQuestions`-tool batch input shape. Two required sentinels
+ * (`label`, `required`) hold strings that the consumer normalizes away
+ * via `stripEmpty()`, keeping the optional-field count at exactly 8 —
+ * the ceiling the Anthropic structured-output compiler can handle for
+ * array items without timing out.
+ */
+function generateAddQuestionsSchema(kinds: readonly FieldKind[]) {
+	return z.object({
+		id: questionFields.id,
+		type: makeKindEnum(kinds),
+		parentId: z
+			.string()
+			.describe("Parent group/repeat ID. Empty string for top-level."),
+		// Required sentinels — empty string means "not set"
+		label: z.string().describe(QUESTION_DOCS.label),
+		required: z.string().describe(QUESTION_DOCS.required),
+		// Optionals — exactly 8 to stay under Anthropic's per-array-item limit
+		hint: questionFields.hint,
+		validation: questionFields.validation,
+		validation_msg: questionFields.validation_msg,
+		relevant: questionFields.relevant,
+		calculate: questionFields.calculate,
+		default_value: questionFields.default_value,
+		options: questionFields.options,
+		case_property_on: questionFields.case_property_on,
+	});
+}
+
+/**
+ * `addQuestion`-tool single-insert shape. All fields optional except
+ * `id` and `type` (the SA always knows both). No `parentId` — the
+ * caller already located the insertion point.
+ */
+function generateAddQuestionSchema(kinds: readonly FieldKind[]) {
+	return z.object({
+		id: questionFields.id,
+		type: makeKindEnum(kinds),
+		label: questionFields.label,
+		hint: questionFields.hint,
+		required: questionFields.required,
+		validation: questionFields.validation,
+		validation_msg: questionFields.validation_msg,
+		relevant: questionFields.relevant,
+		calculate: questionFields.calculate,
+		default_value: questionFields.default_value,
+		options: questionFields.options,
+		case_property_on: questionFields.case_property_on,
+	});
+}
+
+/**
+ * `editQuestion`-tool patch shape. Every field optional (the SA only
+ * includes properties it wants to change). `relevant` / `calculate` /
+ * `default_value` / `options` / `case_property_on` accept `null` so the
+ * SA can explicitly CLEAR a value — distinct from "leave unchanged"
+ * (field absent).
+ */
+function generateEditQuestionUpdatesSchema(kinds: readonly FieldKind[]) {
+	return z
+		.object({
+			id: questionFields.id.optional(),
+			label: questionFields.label,
+			type: makeKindEnum(kinds).optional(),
+			hint: questionFields.hint,
+			required: questionFields.required,
+			validation: questionFields.validation,
+			validation_msg: questionFields.validation_msg,
+			// Nullable optionals — accept null to clear the value
+			relevant: z
+				.string()
+				.nullable()
+				.optional()
+				.describe(QUESTION_DOCS.relevant),
+			calculate: z
+				.string()
+				.nullable()
+				.optional()
+				.describe(QUESTION_DOCS.calculate),
+			default_value: z
+				.string()
+				.nullable()
+				.optional()
+				.describe(QUESTION_DOCS.default_value),
+			options: z
+				.array(selectOptionSchema)
+				.nullable()
+				.optional()
+				.describe(QUESTION_DOCS.options),
+			case_property_on: z
+				.string()
+				.nullable()
+				.optional()
+				.describe(QUESTION_DOCS.case_property_on),
+		})
+		.describe(
+			"Properties to update. Only include properties you want to change.",
+		);
+}
+
+/**
  * Generate the three SA tool schemas from the field registry.
  *
  * The `kinds` parameter defaults to `fieldKinds` (the authoritative
@@ -88,7 +207,6 @@ export interface GeneratedToolSchemas {
  */
 export function generateToolSchemas(
 	mode: ToolSchemaMode,
-	// biome-ignore lint/correctness/noUnusedFunctionParameters: part of the scaffolded public API — Task 13 consumes this when implementing the body
 	kinds: readonly FieldKind[] = fieldKinds,
 ): GeneratedToolSchemas {
 	if (mode !== "flat-sentinels") {
@@ -98,6 +216,9 @@ export function generateToolSchemas(
 		);
 	}
 
-	// Implementation lands in Task 13.
-	throw new Error("toolSchemaGenerator: not yet implemented");
+	return {
+		addQuestionsQuestionSchema: generateAddQuestionsSchema(kinds),
+		addQuestionQuestionSchema: generateAddQuestionSchema(kinds),
+		editQuestionUpdatesSchema: generateEditQuestionUpdatesSchema(kinds),
+	};
 }
