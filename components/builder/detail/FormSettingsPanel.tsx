@@ -25,17 +25,19 @@ import { Toggle } from "@/components/ui/Toggle";
 import { useCommitField } from "@/hooks/useCommitField";
 import { buildLintContext } from "@/lib/codemirror/buildLintContext";
 import type { XPathLintContext } from "@/lib/codemirror/xpath-lint";
-import { useAssembledForm } from "@/lib/doc/hooks/useAssembledForm";
-import { useBlueprintDoc } from "@/lib/doc/hooks/useBlueprintDoc";
+import {
+	useBlueprintDoc,
+	useBlueprintDocShallow,
+} from "@/lib/doc/hooks/useBlueprintDoc";
 import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
 import { useForm, useModule } from "@/lib/doc/hooks/useEntity";
 import { BlueprintDocContext } from "@/lib/doc/provider";
 import { asUuid, type Uuid } from "@/lib/doc/types";
+import type { Field } from "@/lib/domain";
 import {
 	type ConnectConfig,
 	defaultPostSubmit,
 	type PostSubmitDestination,
-	type Question,
 } from "@/lib/schemas/blueprint";
 import { toSnakeId } from "@/lib/services/commcare/validate";
 import { useFormConnectStash, useStashFormConnect } from "@/lib/session/hooks";
@@ -152,15 +154,25 @@ function FormSettingsPanel({
 
 // ── Helpers ──────────────────────────────────────────────────────────
 
-/** Recursively find a question by ID in a nested question tree. */
-function findQuestionById(
-	questions: Question[],
+/**
+ * Walk the normalized doc depth-first from `parentUuid` looking for the
+ * first field whose semantic `id` matches. Used by the close-condition
+ * UI to reach the referenced field's option list without round-
+ * tripping through the legacy assembled-questions shape.
+ */
+function findFieldById(
+	fields: Readonly<Record<string, Field>>,
+	fieldOrder: Readonly<Record<string, readonly string[]>>,
+	parentUuid: string,
 	id: string,
-): Question | undefined {
-	for (const q of questions) {
-		if (q.id === id) return q;
-		if ((q.type === "group" || q.type === "repeat") && q.children) {
-			const found = findQuestionById(q.children, id);
+): Field | undefined {
+	const childUuids = fieldOrder[parentUuid] ?? [];
+	for (const uuid of childUuids) {
+		const field = fields[uuid];
+		if (!field) continue;
+		if (field.id === id) return field;
+		if (field.kind === "group" || field.kind === "repeat") {
+			const found = findFieldById(fields, fieldOrder, uuid, id);
 			if (found) return found;
 		}
 	}
@@ -183,24 +195,33 @@ const CLOSE_MODE_OPTIONS: Array<{ value: CloseMode; label: string }> = [
  */
 function CloseConditionSection({ formUuid }: FormSettingsPanelProps) {
 	const form = useForm(formUuid);
-	const assembledForm = useAssembledForm(formUuid);
 	const { updateForm: updateFormAction } = useBlueprintMutations();
 	const triggerId = useId();
 	const triggerRef = useRef<HTMLButtonElement>(null);
 	const operatorTriggerRef = useRef<HTMLButtonElement>(null);
 	const valueTriggerRef = useRef<HTMLButtonElement>(null);
 
-	const questions = assembledForm?.questions ?? [];
+	/* Subscribe to the doc's normalized field + order maps. Shallow
+	 * equality short-circuits re-renders when an entity map's identity
+	 * changes but the referenced slice stays reference-stable (Immer
+	 * structural sharing). FieldPicker + close-field resolution both
+	 * consume the same slice so the doc walks once per render. */
+	const { fields, fieldOrder } = useBlueprintDocShallow((s) => ({
+		fields: s.fields,
+		fieldOrder: s.fieldOrder,
+	}));
 	const closeFieldId = form?.closeCondition?.field;
 
-	/* Resolve the referenced field to check if it has selectable options */
+	/* Resolve the referenced field to check if it has selectable options. */
 	const selectedFieldOptions = useMemo(() => {
 		if (!closeFieldId) return undefined;
-		const found = findQuestionById(questions, closeFieldId);
-		return found?.options && found.options.length > 0
+		const found = findFieldById(fields, fieldOrder, formUuid, closeFieldId);
+		if (!found) return undefined;
+		// `options` only exists on select kinds; narrow via `in`.
+		return "options" in found && found.options && found.options.length > 0
 			? found.options
 			: undefined;
-	}, [closeFieldId, questions]);
+	}, [closeFieldId, fields, fieldOrder, formUuid]);
 
 	if (form?.type !== "close") return null;
 
@@ -317,9 +338,12 @@ function CloseConditionSection({ formUuid }: FormSettingsPanelProps) {
 						className="overflow-hidden"
 					>
 						<div className="space-y-2 mt-2 rounded-lg bg-white/[0.03] border border-white/[0.05] px-2.5 py-2">
-							{/* Field picker — autocomplete of form fields */}
+							{/* Field picker — autocomplete of form fields. Reads the
+							 *  doc's normalized fields + order maps directly; no
+							 *  intermediate assembled-questions shape. */}
 							<FieldPicker
-								questions={questions}
+								source={{ fields, fieldOrder }}
+								parentUuid={formUuid}
 								value={form.closeCondition.field}
 								onChange={(v) => updateCondition({ field: v })}
 								label="Field"

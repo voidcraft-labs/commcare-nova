@@ -13,7 +13,7 @@
  */
 
 import type { BlueprintDocState } from "@/lib/doc/store";
-import type { Field, Form, Uuid } from "@/lib/domain";
+import type { Field, FieldKind, Form, Uuid } from "@/lib/domain";
 import { VALUE_PRODUCING_TYPES } from "@/lib/references/provider";
 import type { XPathLintContext } from "./xpath-lint";
 
@@ -95,7 +95,7 @@ export function buildLintContext(
 		validPaths,
 		caseProperties: moduleCaseType ? caseProperties : undefined,
 		formEntries: formEntries.filter((e) =>
-			VALUE_PRODUCING_TYPES.has(e.questionType),
+			VALUE_PRODUCING_TYPES.has(e.questionType as FieldKind),
 		),
 	};
 }
