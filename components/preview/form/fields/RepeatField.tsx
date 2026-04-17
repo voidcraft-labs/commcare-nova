@@ -32,7 +32,7 @@ interface RepeatFieldProps {
 	/** XForm data path prefix — we append `[idx]` per instance. */
 	path: string;
 	/** Blueprint question path threaded through to descendants. */
-	questionPath: QuestionPath;
+	fieldPath: QuestionPath;
 }
 
 // ── RepeatInstance ────────────────────────────────────────────────────
@@ -70,7 +70,7 @@ function RepeatInstance({
 
 // ── RepeatField ──────────────────────────────────────────────────────
 
-export function RepeatField({ field, path, questionPath }: RepeatFieldProps) {
+export function RepeatField({ field, path, fieldPath }: RepeatFieldProps) {
 	// Visibility is gated one level up by `InteractiveQuestion`, so we
 	// only render when the repeat is visible. State is still needed for
 	// resolved label text + the "Add …" button.
@@ -119,7 +119,7 @@ export function RepeatField({ field, path, questionPath }: RepeatFieldProps) {
 					<InteractiveFormRenderer
 						parentEntityId={field.uuid}
 						prefix={`${path}[${idx}]`}
-						parentPath={questionPath}
+						parentPath={fieldPath}
 					/>
 				</RepeatInstance>
 			))}

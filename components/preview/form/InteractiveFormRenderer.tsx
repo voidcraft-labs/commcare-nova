@@ -135,7 +135,7 @@ const InteractiveQuestion = memo(function InteractiveQuestion({
 
 	const fieldId = field.id;
 	const path = `${prefix}/${fieldId}`;
-	const questionPath = qpath(fieldId, parentPath);
+	const fieldPath = qpath(fieldId, parentPath);
 
 	const showInvalid = state.touched && !state.valid;
 
@@ -144,13 +144,9 @@ const InteractiveQuestion = memo(function InteractiveQuestion({
 	// field kind but we've already guarded against that above.
 	let content: React.ReactNode;
 	if (field.kind === "group") {
-		content = (
-			<GroupField field={field} path={path} questionPath={questionPath} />
-		);
+		content = <GroupField field={field} path={path} fieldPath={fieldPath} />;
 	} else if (field.kind === "repeat") {
-		content = (
-			<RepeatField field={field} path={path} questionPath={questionPath} />
-		);
+		content = <RepeatField field={field} path={path} fieldPath={fieldPath} />;
 	} else if (field.kind === "label") {
 		content = <LabelField question={field} state={state} />;
 	} else {

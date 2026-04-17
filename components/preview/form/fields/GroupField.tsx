@@ -32,7 +32,7 @@ interface GroupFieldProps {
 	path: string;
 	/** Blueprint question path for descendants — threaded through so
 	 *  engine-state keys stay stable across nesting levels. */
-	questionPath: QuestionPath;
+	fieldPath: QuestionPath;
 }
 
 /**
@@ -44,7 +44,7 @@ interface GroupFieldProps {
  * longer needs to participate in dnd-kit, inline-text editing, or any
  * other edit-only affordances.
  */
-export function GroupField({ field, path, questionPath }: GroupFieldProps) {
+export function GroupField({ field, path, fieldPath }: GroupFieldProps) {
 	// Visibility is gated one level up by `InteractiveQuestion`, so we
 	// reach this component only when the group is visible. We still need
 	// the engine state for resolved label/hint rendering.
@@ -77,7 +77,7 @@ export function GroupField({ field, path, questionPath }: GroupFieldProps) {
 				<InteractiveFormRenderer
 					parentEntityId={field.uuid}
 					prefix={path}
-					parentPath={questionPath}
+					parentPath={fieldPath}
 				/>
 			</div>
 		</div>
