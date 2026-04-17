@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { q } from "../../__tests__/testHelpers";
+import { buildDoc, f } from "../../__tests__/docHelpers";
 import type { AppBlueprint } from "../../schemas/blueprint";
 import { runValidation } from "../commcare/validate/runner";
 import { validateXFormXml } from "../commcare/validate/xformValidator";
@@ -169,39 +170,37 @@ describe("validateXFormXml", () => {
 
 describe("case list column validation", () => {
 	it("catches column field not matching any case property", () => {
-		const bp: AppBlueprint = {
-			app_name: "Test",
+		const doc = buildDoc({
+			appName: "Test",
 			modules: [
 				{
-					uuid: "module-1-uuid",
 					name: "Mod",
-					case_type: "patient",
-					case_list_columns: [
+					caseType: "patient",
+					caseListColumns: [
 						{ field: "case_name", header: "Name" },
 						{ field: "nonexistent_prop", header: "Ghost" },
 					],
 					forms: [
 						{
-							uuid: "form-1-uuid",
 							name: "Reg",
 							type: "registration",
-							questions: [
-								q({
+							fields: [
+								f({
+									kind: "text",
 									id: "case_name",
-									type: "text",
 									label: "Name",
-									case_property_on: "patient",
+									case_property: "patient",
 								}),
 							],
 						},
 					],
 				},
 			],
-			case_types: [
+			caseTypes: [
 				{ name: "patient", properties: [{ name: "case_name", label: "Name" }] },
 			],
-		};
-		const errors = runValidation(bp);
+		});
+		const errors = runValidation(doc);
 		expect(
 			errors.some(
 				(e) =>
@@ -212,78 +211,74 @@ describe("case list column validation", () => {
 	});
 
 	it("allows standard properties like date_opened", () => {
-		const bp: AppBlueprint = {
-			app_name: "Test",
+		const doc = buildDoc({
+			appName: "Test",
 			modules: [
 				{
-					uuid: "module-2-uuid",
 					name: "Mod",
-					case_type: "patient",
-					case_list_columns: [
+					caseType: "patient",
+					caseListColumns: [
 						{ field: "case_name", header: "Name" },
 						{ field: "date_opened", header: "Opened" },
 					],
 					forms: [
 						{
-							uuid: "form-2-uuid",
 							name: "Reg",
 							type: "registration",
-							questions: [
-								q({
+							fields: [
+								f({
+									kind: "text",
 									id: "case_name",
-									type: "text",
 									label: "Name",
-									case_property_on: "patient",
+									case_property: "patient",
 								}),
 							],
 						},
 					],
 				},
 			],
-			case_types: [
+			caseTypes: [
 				{ name: "patient", properties: [{ name: "case_name", label: "Name" }] },
 			],
-		};
-		const errors = runValidation(bp);
+		});
+		const errors = runValidation(doc);
 		expect(errors.some((e) => e.code === "INVALID_COLUMN_FIELD")).toBe(false);
 	});
 
 	it("allows custom properties defined by forms", () => {
-		const bp: AppBlueprint = {
-			app_name: "Test",
+		const doc = buildDoc({
+			appName: "Test",
 			modules: [
 				{
-					uuid: "module-3-uuid",
 					name: "Mod",
-					case_type: "patient",
-					case_list_columns: [
+					caseType: "patient",
+					caseListColumns: [
 						{ field: "case_name", header: "Name" },
 						{ field: "age", header: "Age" },
 					],
 					forms: [
 						{
-							uuid: "form-3-uuid",
 							name: "Reg",
 							type: "registration",
-							questions: [
-								q({
+							fields: [
+								f({
+									kind: "text",
 									id: "case_name",
-									type: "text",
 									label: "Name",
-									case_property_on: "patient",
+									case_property: "patient",
 								}),
-								q({
+								f({
+									kind: "int",
 									id: "age",
-									type: "int",
 									label: "Age",
-									case_property_on: "patient",
+									case_property: "patient",
 								}),
 							],
 						},
 					],
 				},
 			],
-			case_types: [
+			caseTypes: [
 				{
 					name: "patient",
 					properties: [
@@ -292,8 +287,8 @@ describe("case list column validation", () => {
 					],
 				},
 			],
-		};
-		const errors = runValidation(bp);
+		});
+		const errors = runValidation(doc);
 		expect(errors.some((e) => e.code === "INVALID_COLUMN_FIELD")).toBe(false);
 	});
 });

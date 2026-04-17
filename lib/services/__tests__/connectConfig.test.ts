@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
+import type { ConnectType as DomainConnectType } from "@/lib/domain";
 import { q } from "../../__tests__/testHelpers";
+import { buildDoc, type FormSpec, f } from "../../__tests__/docHelpers";
 import type {
 	AppBlueprint,
 	BlueprintForm,
@@ -303,59 +305,97 @@ describe("Connect XForm export", () => {
 
 // ── Validation ──────────────────────────────────────────────────────
 
+/**
+ * Build a one-module, one-form BlueprintDoc carrying the supplied Connect
+ * config. Mirrors `makeConnectBlueprint` above but emits a normalized
+ * doc for validator consumption. Different fixture bodies match the
+ * shapes the learn / deliver assertions expect — we inline minimal
+ * field sets rather than reusing `makeLearnForm` since the validator
+ * only cares about the form's metadata and connect block, not the
+ * question content.
+ */
+function makeConnectDoc(
+	connectType: DomainConnectType,
+	connect: ConnectConfig | undefined,
+	formName = "Form",
+	extraFields: FormSpec["fields"] = [],
+) {
+	return buildDoc({
+		appName: "Connect Test App",
+		connectType,
+		modules: [
+			{
+				name: "Main",
+				forms: [
+					{
+						name: formName,
+						type: "survey",
+						connect,
+						fields: extraFields,
+					},
+				],
+			},
+		],
+	});
+}
+
 describe("Connect validation", () => {
 	it("validates learn form with neither learn_module nor assessment", () => {
-		const form = makeLearnForm({});
-		const bp = makeConnectBlueprint("learn", form);
-		const errors = runValidation(bp);
+		const doc = makeConnectDoc("learn", {});
+		const errors = runValidation(doc);
 		expect(errors.some((e) => e.code === "CONNECT_MISSING_LEARN")).toBe(true);
 	});
 
 	it("passes validation for learn form with only assessment", () => {
-		const form = makeLearnForm({ assessment: { user_score: "100" } });
-		const bp = makeConnectBlueprint("learn", form);
-		const errors = runValidation(bp);
+		const doc = makeConnectDoc("learn", { assessment: { user_score: "100" } });
+		const errors = runValidation(doc);
 		expect(errors.some((e) => e.code === "CONNECT_MISSING_LEARN")).toBe(false);
 	});
 
 	it("validates deliver form missing both deliver_unit and task", () => {
-		const form = makeDeliverForm({});
-		const bp = makeConnectBlueprint("deliver", form);
-		const errors = runValidation(bp);
+		const doc = makeConnectDoc("deliver", {});
+		const errors = runValidation(doc);
 		expect(errors.some((e) => e.code === "CONNECT_MISSING_DELIVER")).toBe(true);
 	});
 
 	it("passes validation for deliver form with only task", () => {
-		const form = makeDeliverForm({
+		const doc = makeConnectDoc("deliver", {
 			task: { name: "Delivery Task", description: "Complete the delivery" },
 		});
-		const bp = makeConnectBlueprint("deliver", form);
-		const errors = runValidation(bp);
+		const errors = runValidation(doc);
 		expect(errors.some((e) => e.code === "CONNECT_MISSING_DELIVER")).toBe(
 			false,
 		);
 	});
 
 	it("passes validation for well-formed learn config", () => {
-		const form = makeLearnForm({
-			learn_module: { name: "Module", description: "Desc", time_estimate: 5 },
-			assessment: { user_score: "100" },
-		});
-		const bp = makeConnectBlueprint("learn", form);
-		const errors = runValidation(bp);
+		const doc = makeConnectDoc(
+			"learn",
+			{
+				learn_module: { name: "Module", description: "Desc", time_estimate: 5 },
+				assessment: { user_score: "100" },
+			},
+			"Form",
+			[f({ kind: "text", id: "q", label: "Q" })],
+		);
+		const errors = runValidation(doc);
 		expect(errors).toHaveLength(0);
 	});
 
 	it("passes validation for well-formed deliver config", () => {
-		const form = makeDeliverForm({
-			deliver_unit: {
-				name: "Unit",
-				entity_id: "concat('user', '-', today())",
-				entity_name: "'test_user'",
+		const doc = makeConnectDoc(
+			"deliver",
+			{
+				deliver_unit: {
+					name: "Unit",
+					entity_id: "concat('user', '-', today())",
+					entity_name: "'test_user'",
+				},
 			},
-		});
-		const bp = makeConnectBlueprint("deliver", form);
-		const errors = runValidation(bp);
+			"Form",
+			[f({ kind: "text", id: "q", label: "Q" })],
+		);
+		const errors = runValidation(doc);
 		expect(errors).toHaveLength(0);
 	});
 });
