@@ -1138,13 +1138,19 @@ describe("toDocMutations", () => {
 			]);
 		});
 
-		it("drops form_links with out-of-bounds moduleIndex", () => {
+		it("drops form_links with out-of-bounds moduleIndex (all-dropped collapses to undefined)", () => {
 			// Malformed links must be caught at the wire boundary — the
 			// `updateForm` reducer uses bare `Object.assign` and would
 			// otherwise install `{ moduleUuid: undefined }` into the doc
-			// store. An all-dropped outcome still returns `[]` so
-			// Object.assign clears any previously-stored links (semantically
-			// identical to "wire said no links").
+			// store.
+			//
+			// When EVERY wire link gets dropped, the translator returns
+			// `undefined` (not `[]`) so the downstream `FORM_LINK_EMPTY`
+			// form-level validator doesn't fire against a state the user
+			// never authored. The SA asked for a link; we silently dropped
+			// it. Surfacing a "you set an empty array" error would be
+			// misleading — the `[]` signal is reserved for the wire-empty
+			// case below (user-authored "clear links").
 			const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
 			const doc = buildDocWithOneModuleOneForm();
 
@@ -1166,11 +1172,44 @@ describe("toDocMutations", () => {
 
 			const updateForm = mutations[0];
 			assert(updateForm.kind === "updateForm");
-			expect(updateForm.patch.formLinks).toEqual([]);
+			expect(updateForm.patch.formLinks).toBeUndefined();
+			// Key must still be present so Object.assign clears any
+			// previously-stored links — same invariant the other
+			// optional patch keys hold.
+			expect("formLinks" in updateForm.patch).toBe(true);
 			expect(warnSpy).toHaveBeenCalledWith(
 				expect.stringContaining("out-of-bounds moduleIndex 99"),
 			);
 			warnSpy.mockRestore();
+		});
+
+		it("wire-empty form_links returns [] so FORM_LINK_EMPTY validator can fire", () => {
+			// A user/SA-authored empty array is distinct from an all-
+			// dropped array. Returning `[]` here lets the downstream
+			// `FORM_LINK_EMPTY` validator flag the no-op state, which is
+			// exactly what that validator is for. Only the translator-
+			// internal all-dropped case collapses onto `undefined`.
+			const doc = buildDocWithOneModuleOneForm();
+
+			const mutations = toDocMutations(
+				"data-form-updated",
+				{
+					moduleIndex: 0,
+					formIndex: 0,
+					form: {
+						uuid: "ignored",
+						name: "Register Patient",
+						type: "registration",
+						questions: [],
+						form_links: [],
+					} satisfies BlueprintForm,
+				},
+				doc,
+			);
+
+			const updateForm = mutations[0];
+			assert(updateForm.kind === "updateForm");
+			expect(updateForm.patch.formLinks).toEqual([]);
 		});
 
 		// ── Schema-validation gate for wire questions ──────────────────

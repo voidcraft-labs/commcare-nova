@@ -511,28 +511,36 @@ function flattenWireQuestionsToFields(
  * Translate a wire-format `form_links` array into the domain's
  * uuid-keyed `FormLink[]` shape.
  *
- * Return-value semantics chosen so `Object.assign(form, patch)` in the
- * `updateForm` reducer produces the right end state in every branch:
+ * Return-value semantics. The `updateForm` reducer merges the patch via
+ * bare `Object.assign` with no re-validation, so the three cases below
+ * must each land on the right end state under that merge AND must not
+ * trip downstream validators against state the user never authored:
  *
- *   - wire `form_links` is `undefined` → return `undefined`. The patch
- *     still carries a `formLinks: undefined` slot, which clears any
- *     previously-stored links (symmetric with how `connect` /
+ *   - wire `form_links === undefined` → return `undefined`. The patch
+ *     slot is still present as `formLinks: undefined`, so stored links
+ *     clear via `Object.assign` (symmetric with how `connect` /
  *     `closeCondition` / `postSubmit` behave).
- *   - wire `form_links` is `[]`, OR every entry got dropped during
- *     validation → return `[]`. Assigning an empty array is
- *     semantically identical to clearing, but keeps the "explicit
- *     wire → explicit empty" audit trail intact.
- *   - at least one well-formed link → return the surviving links.
+ *   - wire `form_links === []` (user-authored empty) → return `[]`.
+ *     This is the "SA explicitly cleared links" signal and legitimately
+ *     trips the `FORM_LINK_EMPTY` form-level validator, which exists
+ *     specifically to flag empty arrays as a no-op the user should
+ *     either populate or delete.
+ *   - wire `form_links.length > 0` but every link failed per-link
+ *     validation → return `undefined`, NOT `[]`. Returning `[]` here
+ *     would fire `FORM_LINK_EMPTY` against a state the user never
+ *     authored (we silently dropped their links). Collapsing an
+ *     all-dropped result into the "absent" case clears stale links
+ *     without surfacing a misleading form-level error.
  *
- * Per-link validation: wire targets carry `moduleIndex` / `formIndex`;
- * domain targets carry `moduleUuid` / `formUuid`. An out-of-bounds
- * index resolves to `undefined` at runtime, which TypeScript's
- * `Uuid` branded type refuses to admit. Rather than installing
- * `{ moduleUuid: undefined }` into the doc store (the `updateForm`
- * reducer does NOT re-validate its patch, so a bad shape would leak
- * through all the way to Firestore), each link is validated here and
- * dropped with a `console.warn` on failure — the same safety pattern
- * used by the field flattener above, and symmetric with how
+ * Per-link validation rationale. Wire targets carry `moduleIndex` /
+ * `formIndex`; domain targets carry `moduleUuid` / `formUuid`. An
+ * out-of-bounds index resolves to `undefined` at runtime, which
+ * TypeScript's `Uuid` branded type refuses to admit. Rather than
+ * installing `{ moduleUuid: undefined }` into the doc store (the
+ * `updateForm` reducer does NOT re-validate its patch, so a bad shape
+ * would leak through all the way to Firestore), each link is validated
+ * here and dropped with a `console.warn` on failure — same safety
+ * pattern used by the field flattener above, symmetric with how
  * `legacyBridge.ts::migrateFormLinkTarget` resolves indices on load.
  */
 function translateWireFormLinks(
@@ -563,9 +571,13 @@ function translateWireFormLinks(
 				? doc.formOrder[moduleUuid]?.[target.formIndex]
 				: undefined;
 			if (!moduleUuid || !formUuid) {
+				// `targetType: "form"` in the payload keeps prod-log grep
+				// tidy — the module-target warn is distinguishable by
+				// message text, this one by payload discriminant.
 				console.warn(
 					`mutationMapper: dropping form_link with unresolved target`,
 					{
+						targetType: "form",
 						moduleIndex: target.moduleIndex,
 						formIndex: target.formIndex,
 					},
@@ -589,6 +601,13 @@ function translateWireFormLinks(
 			target: domainTarget,
 			...(link.datums != null && { datums: link.datums }),
 		});
+	}
+	// Collapse the all-dropped case onto the "absent" return path so
+	// `FORM_LINK_EMPTY` doesn't fire against a state the user never
+	// authored. A wire-empty `[]` still returns `[]` — that's the user
+	// saying "clear these, and yes I know the validator flags it."
+	if (out.length === 0 && wireLinks.length > 0) {
+		return undefined;
 	}
 	return out;
 }
