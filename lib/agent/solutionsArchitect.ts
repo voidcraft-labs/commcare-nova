@@ -537,19 +537,13 @@ export function createSolutionsArchitect(
 						muts.push({ kind: "addField", parentUuid, field });
 					}
 
-					dispatch(muts);
+					// Emit the mutation batch before dispatch so client application
+					// order matches the SA's internal doc advancement. The client
+					// applies the mutations via `applyMany` — no wire-form snapshot
+					// needed; the mutations ARE the update.
 					ctx.emit("data-phase", { phase: "forms" });
-
-					// Emit the updated form in wire format so the client store +
-					// streamDispatcher can refresh the UI.
-					const snapshotForm = wireFormSnapshot(doc, moduleUuid, formUuid);
-					if (snapshotForm) {
-						ctx.emit("data-form-updated", {
-							moduleIndex,
-							formIndex,
-							form: snapshotForm,
-						});
-					}
+					ctx.emitMutations(muts, `form:${moduleIndex}-${formIndex}`);
+					dispatch(muts);
 
 					const totalCount = countFieldsInForm(doc, formUuid);
 					const addedIds = questions.map((q) => q.id).join(", ");
@@ -683,15 +677,23 @@ export function createSolutionsArchitect(
 
 					const { id: newId, ...fieldUpdates } = updates;
 
-					// Handle id rename first. The `renameField` reducer handles
-					// the full cascade on its own — form-local path / hashtag
-					// rewrites, cross-form `#case/` hashtag rewrites scoped to
-					// modules with matching caseType, peer-field renames, and
-					// case list / detail column renames. Callers no longer fork
-					// on `case_property` presence; the reducer reads it off the
-					// field and does the right thing uniformly.
+					// Handle id rename first as its own emitted batch. The
+					// `renameField` reducer handles the full cascade on its own —
+					// form-local path / hashtag rewrites, cross-form `#case/`
+					// hashtag rewrites scoped to modules with matching caseType,
+					// peer-field renames, and case list / detail column renames.
+					// The client runs the SAME reducer against `applyMany`, so the
+					// cascade reproduces on the client without needing a full
+					// blueprint snapshot. Emit THEN dispatch so client order
+					// matches server order.
 					if (newId && newId !== questionId) {
-						dispatch(renameFieldMutations(doc, resolved.field.uuid, newId));
+						const renameMuts = renameFieldMutations(
+							doc,
+							resolved.field.uuid,
+							newId,
+						);
+						ctx.emitMutations(renameMuts, `rename:${moduleIndex}-${formIndex}`);
+						dispatch(renameMuts);
 					}
 
 					// Re-resolve the field uuid after rename (the uuid is stable,
@@ -706,36 +708,22 @@ export function createSolutionsArchitect(
 					if (!afterRename)
 						return { error: `Field "${finalId}" not found after rename` };
 
-					// Apply remaining property updates.
+					// Apply remaining property updates as a SECOND emitted batch.
+					// Two emissions (rename + edit) instead of one wire-form/
+					// blueprint snapshot — client applies each via `applyMany`,
+					// so the visible effect is identical.
 					if (Object.keys(fieldUpdates).length > 0) {
 						const patch = saEditPatchToFieldPatch(
 							fieldUpdates as z.infer<typeof editQuestionUpdatesSchema>,
 						);
 						if (Object.keys(patch).length > 0) {
-							dispatch(
-								updateFieldMutations(doc, afterRename.field.uuid, patch),
+							const updateMuts = updateFieldMutations(
+								doc,
+								afterRename.field.uuid,
+								patch,
 							);
-						}
-					}
-
-					// Emit the refreshed view. For renames that cascade across
-					// forms, emit the full blueprint; for intra-form edits, just
-					// the single form.
-					if (newId && newId !== questionId) {
-						emitBlueprintUpdated();
-					} else {
-						const moduleUuid = doc.moduleOrder[moduleIndex];
-						const formUuid = moduleUuid
-							? doc.formOrder[moduleUuid]?.[formIndex]
-							: undefined;
-						if (moduleUuid && formUuid) {
-							const wireForm = wireFormSnapshot(doc, moduleUuid, formUuid);
-							if (wireForm)
-								ctx.emit("data-form-updated", {
-									moduleIndex,
-									formIndex,
-									form: wireForm,
-								});
+							ctx.emitMutations(updateMuts, `edit:${moduleIndex}-${formIndex}`);
+							dispatch(updateMuts);
 						}
 					}
 
@@ -828,25 +816,14 @@ export function createSolutionsArchitect(
 
 					const uuid = asUuid(crypto.randomUUID());
 					const field = saQuestionToField(question as SaQuestion, uuid);
-					dispatch(
-						addFieldMutations(doc, {
-							parentUuid,
-							field,
-							index: insertIndex,
-						}),
-					);
+					const muts = addFieldMutations(doc, {
+						parentUuid,
+						field,
+						index: insertIndex,
+					});
+					ctx.emitMutations(muts, `form:${moduleIndex}-${formIndex}`);
+					dispatch(muts);
 
-					const wireForm = (() => {
-						const mUuid = doc.moduleOrder[moduleIndex];
-						return mUuid ? wireFormSnapshot(doc, mUuid, formUuid) : undefined;
-					})();
-					if (wireForm) {
-						ctx.emit("data-form-updated", {
-							moduleIndex,
-							formIndex,
-							form: wireForm,
-						});
-					}
 					const formName = doc.forms[formUuid]?.name ?? "";
 					const totalCount = countFieldsInForm(doc, formUuid);
 					const posDesc = beforeQuestionId
@@ -883,18 +860,10 @@ export function createSolutionsArchitect(
 						};
 					const formUuid = resolved.formUuid;
 					const beforeCount = countFieldsInForm(doc, formUuid);
-					dispatch(removeFieldMutations(doc, resolved.field.uuid));
+					const muts = removeFieldMutations(doc, resolved.field.uuid);
+					ctx.emitMutations(muts, `form:${moduleIndex}-${formIndex}`);
+					dispatch(muts);
 					const formName = doc.forms[formUuid]?.name ?? "";
-					const moduleUuid = doc.moduleOrder[moduleIndex];
-					if (moduleUuid) {
-						const wireForm = wireFormSnapshot(doc, moduleUuid, formUuid);
-						if (wireForm)
-							ctx.emit("data-form-updated", {
-								moduleIndex,
-								formIndex,
-								form: wireForm,
-							});
-					}
 					const afterCount = countFieldsInForm(doc, formUuid);
 					return `Successfully removed field "${questionId}" from "${formName}". Fields: ${beforeCount} → ${afterCount}.`;
 				} catch (err) {
