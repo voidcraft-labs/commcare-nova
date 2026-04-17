@@ -145,13 +145,13 @@ export class ReferenceProvider {
 		if (!ctx) return null;
 
 		if (type === "form") {
-			const questionPath = path as QuestionPath;
+			const fieldPath = path as QuestionPath;
 			const cache = this.ensureFormCache(ctx);
 			const found = cache.byPath.get(path);
 			if (!found) return null;
 			return {
 				type,
-				path: questionPath,
+				path: fieldPath,
 				raw,
 				label: found.label ?? path,
 				icon: fieldKindIcons[found.kind],
