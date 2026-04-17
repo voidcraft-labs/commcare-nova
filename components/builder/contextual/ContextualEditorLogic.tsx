@@ -5,17 +5,12 @@ import { EditableText } from "@/components/builder/EditableText";
 import { SaveShortcutHint } from "@/components/builder/SaveShortcutHint";
 import { XPathField } from "@/components/builder/XPathField";
 import { useSaveQuestion } from "@/hooks/useSaveQuestion";
+import { buildLintContext } from "@/lib/codemirror/buildLintContext";
 import type { XPathLintContext } from "@/lib/codemirror/xpath-lint";
 import { BlueprintDocContext } from "@/lib/doc/provider";
 import type { Uuid } from "@/lib/doc/types";
 import { useSelectedQuestion } from "@/lib/routing/hooks";
 import type { Question } from "@/lib/schemas/blueprint";
-import type { NormalizedData } from "@/lib/services/normalizedState";
-import {
-	assembleBlueprint,
-	assembleForm,
-	getEntityData,
-} from "@/lib/services/normalizedState";
 import { AddPropertyButton } from "./AddPropertyButton";
 import { RequiredSection } from "./RequiredSection";
 import {
@@ -57,7 +52,7 @@ function XPathSection({
 	return (
 		<div>
 			{/* Visual heading only — XPathField is a CodeMirror editor, not a native
-           input, so <label> can't associate with it and misleads screen readers. */}
+         input, so <label> can't associate with it and misleads screen readers. */}
 			<span className="text-xs text-nova-text-muted uppercase tracking-wider mb-1 flex items-center gap-1.5">
 				{label}
 				{editing && <SaveShortcutHint />}
@@ -102,58 +97,25 @@ export function ContextualEditorLogic({ question }: QuestionEditorProps) {
 	/** The doc store context for imperative state reads (lint context). */
 	const docStore = useContext(BlueprintDocContext);
 
-	/** Context getter for XPath linting and autocomplete. Reads from the
-	 *  doc store imperatively so the closure always reflects the latest state
-	 *  without triggering re-renders on every entity change. */
+	/**
+	 * Builds the thin XPath lint context for the form that owns the selected
+	 * field. Walks `fieldParent` up to the form root, then hands the form
+	 * uuid to the shared `buildLintContext` helper which does the field-tree
+	 * + case-property collection in one pass.
+	 */
 	const getLintContext = useCallback((): XPathLintContext | undefined => {
 		if (!docStore || !selected) return undefined;
 		const s = docStore.getState();
-		/* Cast to NormalizedData — Uuid-branded keys are subtypes of string,
-		 * and the extra BlueprintDocState fields (apply, applyMany) are harmless. */
-		const nd = s as unknown as NormalizedData;
-		/* Find the form that owns this question by walking questionOrder
-		 * upward from the question uuid to a form uuid. */
-		let parentUuid: Uuid | undefined;
-		for (const [pUuid, order] of Object.entries(s.questionOrder)) {
-			if (order.includes(selected.uuid as Uuid)) {
-				parentUuid = pUuid as Uuid;
-				break;
-			}
-		}
-		/* Walk up until we reach a form entity (not a group/repeat). */
-		const visited = new Set<string>();
+
+		/* Walk up from the selected field via `fieldParent` until we hit a
+		 * form entity. This form is the owning form for lint purposes
+		 * (case data comes from the module attached to that form). */
+		let parentUuid = s.fieldParent[selected.uuid as Uuid] ?? undefined;
 		while (parentUuid && !s.forms[parentUuid]) {
-			if (visited.has(parentUuid)) break;
-			visited.add(parentUuid);
-			let next: Uuid | undefined;
-			for (const [pUuid, order] of Object.entries(s.questionOrder)) {
-				if (order.includes(parentUuid)) {
-					next = pUuid as Uuid;
-					break;
-				}
-			}
-			parentUuid = next;
+			parentUuid = s.fieldParent[parentUuid] ?? undefined;
 		}
 		if (!parentUuid) return undefined;
-		const formEntity = s.forms[parentUuid];
-		if (!formEntity) return undefined;
-		/* Find the module that owns this form. */
-		let moduleUuid: Uuid | undefined;
-		for (const [mUuid, formUuids] of Object.entries(s.formOrder)) {
-			if (formUuids.includes(parentUuid)) {
-				moduleUuid = mUuid as Uuid;
-				break;
-			}
-		}
-		const mod = moduleUuid ? s.modules[moduleUuid] : undefined;
-		const form = assembleForm(
-			formEntity,
-			parentUuid,
-			nd.questions,
-			nd.questionOrder,
-		);
-		const blueprint = assembleBlueprint(getEntityData(nd));
-		return { blueprint, form, moduleCaseType: mod?.caseType ?? undefined };
+		return buildLintContext(s, parentUuid);
 	}, [docStore, selected]);
 
 	/** Save handler for standard XPath fields (validation, relevant, etc.).

@@ -4,18 +4,19 @@
  * Wraps the existing blueprint resolution functions into a single interface
  * consumed by both CodeMirror chip decorations and TipTap suggestion/autocomplete.
  *
- * Uses the same `getContext` getter pattern as the XPath linter and autocomplete
- * so it always reads from the live blueprint state without triggering re-renders.
+ * Consumes the thin `XPathLintContext` pre-collected by `buildLintContext` —
+ * no nested-tree walking here anymore. All the information the provider needs
+ * (form field entries, case property names + labels, valid paths) lives on
+ * that context already; the provider caches the derived search indexes so
+ * per-keystroke autocomplete lookups stay O(entries) even without re-walking.
  */
 
 import type { XPathLintContext } from "@/lib/codemirror/xpath-lint";
 import { questionTypeIcons } from "@/lib/questionTypeIcons";
 import {
 	QUESTION_TYPES,
-	type Question,
 	STRUCTURAL_QUESTION_TYPES,
 } from "@/lib/schemas/blueprint";
-import { collectCaseProperties } from "@/lib/services/commcare/validate/index";
 import { type QuestionPath, qpath } from "@/lib/services/questionPath";
 import { REFERENCE_TYPES } from "./config";
 import type { Reference, ReferenceType } from "./types";
@@ -40,47 +41,19 @@ export const USER_PROPERTIES: ReadonlyArray<{ name: string; label: string }> = [
 
 const VALID_TYPES = new Set<ReferenceType>(REFERENCE_TYPES);
 
-/**
- * Recursively collect question entries (path + label) from a question tree.
- * Exported so the CM6 autocomplete can reuse the same tree walk.
- */
-export function collectQuestionEntries(
-	questions: Question[],
-	parent?: QuestionPath,
-): Array<{ path: QuestionPath; label: string; questionType: string }> {
-	const entries: Array<{
-		path: QuestionPath;
-		label: string;
-		questionType: string;
-	}> = [];
-	for (const q of questions) {
-		const path = qpath(q.id, parent);
-		entries.push({ path, label: q.label ?? path, questionType: q.type });
-		if ((q.type === "group" || q.type === "repeat") && q.children) {
-			entries.push(...collectQuestionEntries(q.children, path));
-		}
-	}
-	return entries;
-}
+/** Re-export of `qpath` for callers that previously used this module as
+ *  the tree-walking helper. Kept alongside the provider so nothing breaks
+ *  the `lib/references/provider` import surface. */
+export { qpath };
 
 export class ReferenceProvider {
-	/**
-	 * Cached case property set + labels. Avoids repeated full blueprint traversals
-	 * when MatchDecorator calls resolve() per viewport match. Callers must call
-	 * invalidate() when the blueprint changes.
-	 */
-	private caseCache: {
-		props: Set<string> | undefined;
-		labels: Map<string, string>;
-	} | null = null;
-
-	/**
-	 * Cached form question entries + path lookup. Avoids repeated recursive tree
-	 * walks in both search() (per keystroke in autocomplete) and resolve() (per
-	 * MatchDecorator hit in the viewport).
-	 */
+	/** Cached form entries keyed by path. Rebuilt on `invalidate()`. */
 	private formCache: {
-		entries: Array<{ path: QuestionPath; label: string; questionType: string }>;
+		entries: ReadonlyArray<{
+			path: QuestionPath;
+			label: string;
+			questionType: string;
+		}>;
 		byPath: Map<string, { label: string; questionType: string }>;
 	} | null = null;
 
@@ -88,7 +61,6 @@ export class ReferenceProvider {
 
 	/** Clear cached data. Call when the blueprint or selection changes. */
 	invalidate(): void {
-		this.caseCache = null;
 		this.formCache = null;
 	}
 
@@ -120,9 +92,8 @@ export class ReferenceProvider {
 			return cache.entries
 				.filter(
 					(e) =>
-						VALUE_PRODUCING_TYPES.has(e.questionType) &&
-						(e.path.includes(lowerQuery) ||
-							e.label.toLowerCase().includes(lowerQuery)),
+						e.path.toLowerCase().includes(lowerQuery) ||
+						e.label.toLowerCase().includes(lowerQuery),
 				)
 				.map((e) => ({
 					type: "form" as const,
@@ -134,7 +105,19 @@ export class ReferenceProvider {
 		}
 
 		if (type === "case") {
-			return this.searchCaseProperties(ctx, lowerQuery);
+			if (!ctx.caseProperties) return [];
+			const results: Reference[] = [];
+			for (const [name, meta] of ctx.caseProperties) {
+				if (name.toLowerCase().includes(lowerQuery)) {
+					results.push({
+						type: "case",
+						path: name,
+						label: meta.label ?? name,
+						raw: `#case/${name}`,
+					});
+				}
+			}
+			return results;
 		}
 
 		return [];
@@ -161,7 +144,6 @@ export class ReferenceProvider {
 		if (!ctx) return null;
 
 		if (type === "form") {
-			/* Parsing boundary: path from "#form/group1/age" is a QuestionPath. */
 			const questionPath = path as QuestionPath;
 			const cache = this.ensureFormCache(ctx);
 			const found = cache.byPath.get(path);
@@ -176,10 +158,9 @@ export class ReferenceProvider {
 		}
 
 		if (type === "case") {
-			const cache = this.ensureCaseCache(ctx);
-			if (!cache.props?.has(path)) return null;
-			const label = cache.labels.get(path) ?? path;
-			return { type, path, label, raw };
+			const meta = ctx.caseProperties?.get(path);
+			if (!meta) return null;
+			return { type, path, label: meta.label ?? path, raw };
 		}
 
 		return null;
@@ -204,11 +185,19 @@ export class ReferenceProvider {
 
 	// ── Private helpers ──────────────────────────────────────────────────
 
-	/** Build the form question cache if not already populated. One tree walk
-	 *  serves both search() (needs entries array) and resolve() (needs path lookup). */
+	/**
+	 * Build the form-entries cache from the context's pre-collected
+	 * `formEntries` list. The context hands us tuples with a leading-slash-
+	 * free path (e.g. "group1/age"), which is exactly the `QuestionPath`
+	 * shape used by the chip/resolve surfaces.
+	 */
 	private ensureFormCache(ctx: XPathLintContext) {
 		if (this.formCache) return this.formCache;
-		const entries = collectQuestionEntries(ctx.form.questions ?? []);
+		const entries = ctx.formEntries.map((e) => ({
+			path: e.path as QuestionPath,
+			label: e.label,
+			questionType: e.questionType,
+		}));
 		const byPath = new Map<string, { label: string; questionType: string }>();
 		for (const e of entries) {
 			byPath.set(e.path, { label: e.label, questionType: e.questionType });
@@ -216,43 +205,43 @@ export class ReferenceProvider {
 		this.formCache = { entries, byPath };
 		return this.formCache;
 	}
+}
 
-	/** Build the case property cache if not already populated. */
-	private ensureCaseCache(ctx: XPathLintContext) {
-		if (this.caseCache) return this.caseCache;
-
-		const props = collectCaseProperties(ctx.blueprint, ctx.moduleCaseType);
-		const labels = new Map<string, string>();
-
-		if (ctx.moduleCaseType && props) {
-			const caseType = ctx.blueprint.case_types?.find(
-				(ct) => ct.name === ctx.moduleCaseType,
+/**
+ * Recursively collect question entries (path + label) from a legacy nested
+ * `Question[]` tree.
+ *
+ * Retained for callers that still consume the wire-format tree (the
+ * CommCare-side validators in lib/services/commcare). The CodeMirror
+ * autocomplete and the XPath linter do NOT use this — they read directly
+ * from the pre-collected `XPathLintContext.formEntries` produced by
+ * `lib/codemirror/buildLintContext.ts`.
+ */
+export function collectQuestionEntries(
+	questions: ReadonlyArray<{
+		id: string;
+		type: string;
+		label?: string;
+		children?: Array<unknown>;
+	}>,
+	parent?: QuestionPath,
+): Array<{ path: QuestionPath; label: string; questionType: string }> {
+	const entries: Array<{
+		path: QuestionPath;
+		label: string;
+		questionType: string;
+	}> = [];
+	for (const q of questions) {
+		const path = qpath(q.id, parent);
+		entries.push({ path, label: q.label ?? path, questionType: q.type });
+		if (q.children && (q.type === "group" || q.type === "repeat")) {
+			entries.push(
+				...collectQuestionEntries(
+					q.children as Parameters<typeof collectQuestionEntries>[0],
+					path,
+				),
 			);
-			if (caseType?.properties) {
-				for (const p of caseType.properties) {
-					if (props.has(p.name) && p.label) labels.set(p.name, p.label);
-				}
-			}
 		}
-
-		this.caseCache = { props, labels };
-		return this.caseCache;
 	}
-
-	private searchCaseProperties(
-		ctx: XPathLintContext,
-		query: string,
-	): Reference[] {
-		const cache = this.ensureCaseCache(ctx);
-		if (!cache.props) return [];
-
-		const results: Reference[] = [];
-		for (const name of cache.props) {
-			if (name.includes(query)) {
-				const label = cache.labels.get(name) ?? name;
-				results.push({ type: "case", path: name, label, raw: `#case/${name}` });
-			}
-		}
-		return results;
-	}
+	return entries;
 }

@@ -23,6 +23,7 @@ import { ConnectLogomark } from "@/components/icons/ConnectLogomark";
 import { FieldPicker } from "@/components/ui/FieldPicker";
 import { Toggle } from "@/components/ui/Toggle";
 import { useCommitField } from "@/hooks/useCommitField";
+import { buildLintContext } from "@/lib/codemirror/buildLintContext";
 import type { XPathLintContext } from "@/lib/codemirror/xpath-lint";
 import { useAssembledForm } from "@/lib/doc/hooks/useAssembledForm";
 import { useBlueprintDoc } from "@/lib/doc/hooks/useBlueprintDoc";
@@ -37,12 +38,6 @@ import {
 	type Question,
 } from "@/lib/schemas/blueprint";
 import { toSnakeId } from "@/lib/services/commcare/validate";
-import type { NormalizedData } from "@/lib/services/normalizedState";
-import {
-	assembleBlueprint,
-	assembleForm,
-	getEntityData,
-} from "@/lib/services/normalizedState";
 import { useFormConnectStash, useStashFormConnect } from "@/lib/session/hooks";
 import {
 	MENU_ITEM_BASE,
@@ -851,34 +846,15 @@ interface ConnectSubConfigProps {
 }
 
 /** Shared lint context getter for XPath fields in connect sub-configs.
- *  Reads from the doc store imperatively — always reflects latest state. */
+ *  Reads from the doc store imperatively — always reflects latest state.
+ *  Delegates to the shared `buildLintContext` helper that pre-collects
+ *  the thin slices the CodeMirror plugin needs (valid paths, case
+ *  properties, form entries). */
 function useConnectLintContext(formUuid: Uuid) {
 	const docStore = useContext(BlueprintDocContext);
 	return useCallback((): XPathLintContext | undefined => {
 		if (!docStore) return undefined;
-		const s = docStore.getState();
-		/* Cast to NormalizedData — Uuid-branded keys are subtypes of string,
-		 * and the extra BlueprintDocState fields (apply, applyMany) are harmless. */
-		const nd = s as unknown as NormalizedData;
-		const formEntity = s.forms[formUuid];
-		if (!formEntity) return undefined;
-		/* Find the module that owns this form. */
-		let moduleUuid: Uuid | undefined;
-		for (const [mUuid, formUuids] of Object.entries(s.formOrder)) {
-			if (formUuids.includes(formUuid)) {
-				moduleUuid = mUuid as Uuid;
-				break;
-			}
-		}
-		const mod = moduleUuid ? s.modules[moduleUuid] : undefined;
-		const form = assembleForm(
-			formEntity,
-			formUuid,
-			nd.questions,
-			nd.questionOrder,
-		);
-		const blueprint = assembleBlueprint(getEntityData(nd));
-		return { blueprint, form, moduleCaseType: mod?.caseType ?? undefined };
+		return buildLintContext(docStore.getState(), formUuid);
 	}, [docStore, formUuid]);
 }
 
