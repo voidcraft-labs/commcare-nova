@@ -34,6 +34,7 @@ import {
 	type CaseType,
 	type ConnectType,
 	type Field,
+	type FieldKind,
 	type FieldPatch,
 	type Form,
 	type Module,
@@ -89,9 +90,11 @@ export interface BlueprintMutations {
 	 * replay stream) can pass it through the optional `uuid` field on the
 	 * input object and it will be used verbatim.
 	 */
-	addField: (
+	addField: <K extends FieldKind>(
 		parentUuid: Uuid,
-		field: Omit<Field, "uuid"> & { uuid?: string },
+		field: { kind: K } & Omit<Extract<Field, { kind: K }>, "uuid" | "kind"> & {
+				uuid?: string;
+			},
 		opts?: {
 			afterUuid?: Uuid;
 			beforeUuid?: Uuid;
@@ -326,9 +329,12 @@ export function useBlueprintMutations(): BlueprintMutations {
 						? maybeUuid
 						: crypto.randomUUID(),
 				);
-				// Field is a discriminated union; spreading a `Omit<Field,"uuid">`
-				// keeps the `kind` narrowing intact, then we stamp the uuid.
-				const entity = { ...field, uuid } as Field;
+				// Field is a discriminated union; the narrowed generic input is a
+				// specific variant's Omit — we stamp the uuid and cast via
+				// `unknown` because the distributive Omit shape doesn't round-trip
+				// back to the full union narrowly (TS limitation around Omit +
+				// discriminated unions).
+				const entity = { ...field, uuid } as unknown as Field;
 
 				dispatch({
 					kind: "addField",

@@ -209,12 +209,16 @@ describe("useBlueprintMutations", () => {
 		});
 
 		act(() => {
-			result.current.mutations.updateQuestion(Q_A, { label: "Renamed" });
+			result.current.mutations.updateField(Q_A, { label: "Renamed" });
 		});
 
-		expect(result.current.children.find((q) => q.id === "a")?.label).toBe(
-			"Renamed",
-		);
+		// Cast to a loose variant-agnostic shape to read `label` — the domain
+		// `Field` union includes variants (hidden) that omit label at the
+		// type level, even though the reducer merges it unconditionally.
+		const renamed = result.current.children.find((q) => q.id === "a") as
+			| { label?: string }
+			| undefined;
+		expect(renamed?.label).toBe("Renamed");
 	});
 
 	it("renameQuestion rewrites the id in order", () => {
@@ -223,7 +227,7 @@ describe("useBlueprintMutations", () => {
 		});
 
 		act(() => {
-			result.current.mutations.renameQuestion(Q_A, "alpha");
+			result.current.mutations.renameField(Q_A, "alpha");
 		});
 
 		const ids = result.current.children.map((q) => q.id);
@@ -237,7 +241,7 @@ describe("useBlueprintMutations", () => {
 		});
 
 		act(() => {
-			result.current.mutations.removeQuestion(Q_B);
+			result.current.mutations.removeField(Q_B);
 		});
 
 		expect(result.current.children.map((q) => q.id)).toEqual(["a", "grp"]);
@@ -265,11 +269,11 @@ describe("useBlueprintMutations", () => {
 		let returned: Uuid = "" as Uuid;
 		act(() => {
 			const formUuid = getFormUuid(result.current.store);
-			returned = result.current.mutations.addQuestion(formUuid, {
+			returned = result.current.mutations.addField(formUuid, {
 				id: "d",
-				type: "text",
+				kind: "text",
 				label: "D",
-			} as unknown as Question);
+			});
 		});
 
 		// Returned value is a uuid (non-empty string) and matches the newly
@@ -285,11 +289,11 @@ describe("useBlueprintMutations", () => {
 		});
 
 		act(() => {
-			result.current.mutations.addQuestion(Q_GRP, {
+			result.current.mutations.addField(Q_GRP, {
 				id: "c2",
-				type: "text",
+				kind: "text",
 				label: "C2",
-			} as unknown as Question);
+			});
 		});
 
 		expect(result.current.groupChildren.map((q) => q.id)).toEqual(["c", "c2"]);
@@ -303,9 +307,9 @@ describe("useBlueprintMutations", () => {
 		// Insert between `a` and `b` via `afterUuid`.
 		act(() => {
 			const formUuid = getFormUuid(result.current.store);
-			result.current.mutations.addQuestion(
+			result.current.mutations.addField(
 				formUuid,
-				{ id: "a2", type: "text", label: "A2" } as unknown as Question,
+				{ id: "a2", kind: "text", label: "A2" },
 				{ afterUuid: Q_A },
 			);
 		});
@@ -319,9 +323,9 @@ describe("useBlueprintMutations", () => {
 		// Insert before `b` — should land between `a2` and `b`.
 		act(() => {
 			const formUuid = getFormUuid(result.current.store);
-			result.current.mutations.addQuestion(
+			result.current.mutations.addField(
 				formUuid,
-				{ id: "a3", type: "text", label: "A3" } as unknown as Question,
+				{ id: "a3", kind: "text", label: "A3" },
 				{ beforeUuid: Q_B },
 			);
 		});
@@ -343,7 +347,7 @@ describe("useBlueprintMutations", () => {
 
 		// Move `a` to after `b`. Result should be [b, a, grp].
 		act(() => {
-			result.current.mutations.moveQuestion(Q_A, { afterUuid: Q_B });
+			result.current.mutations.moveField(Q_A, { afterUuid: Q_B });
 		});
 
 		expect(result.current.children.map((q) => q.id)).toEqual(["b", "a", "grp"]);
@@ -356,7 +360,7 @@ describe("useBlueprintMutations", () => {
 
 		// Move `a` from the form root into the group.
 		act(() => {
-			result.current.mutations.moveQuestion(Q_A, {
+			result.current.mutations.moveField(Q_A, {
 				toParentUuid: Q_GRP,
 			});
 		});
@@ -375,7 +379,7 @@ describe("useBlueprintMutations", () => {
 
 		let dup: { newPath: string; newUuid: string } | undefined;
 		act(() => {
-			dup = result.current.mutations.duplicateQuestion(Q_A);
+			dup = result.current.mutations.duplicateField(Q_A);
 		});
 
 		expect(dup).toBeDefined();
@@ -397,10 +401,10 @@ describe("useBlueprintMutations", () => {
 
 		// Attempt to rename `a` → `b`, which already exists.
 		const captured: {
-			value?: ReturnType<typeof result.current.mutations.renameQuestion>;
+			value?: ReturnType<typeof result.current.mutations.renameField>;
 		} = {};
 		act(() => {
-			captured.value = result.current.mutations.renameQuestion(Q_A, "b");
+			captured.value = result.current.mutations.renameField(Q_A, "b");
 		});
 
 		expect(captured.value?.conflict).toBe(true);
@@ -445,25 +449,17 @@ describe("useBlueprintMutations", () => {
 
 		act(() => {
 			const formUuid = getFormUuid(result.current.store);
-			result.current.mutations.replaceForm(formUuid, {
-				uuid: "form-2-uuid",
-				name: "F0",
-				type: "survey",
-				questions: [
-					{
-						uuid: "q-z-0000-0000-0000-000000000000",
-						id: "z",
-						type: "text",
-						label: "Z",
-					},
-					{
-						uuid: "q-y-0000-0000-0000-000000000000",
-						id: "y",
-						type: "text",
-						label: "Y",
-					},
+			const Q_Z = asUuid("q-z-0000-0000-0000-000000000000");
+			const Q_Y = asUuid("q-y-0000-0000-0000-000000000000");
+			result.current.mutations.replaceForm(
+				formUuid,
+				{ id: "f0", name: "F0", type: "survey" },
+				[
+					{ uuid: Q_Z, id: "z", kind: "text", label: "Z" },
+					{ uuid: Q_Y, id: "y", kind: "text", label: "Y" },
 				],
-			});
+				{ [formUuid]: [Q_Z, Q_Y] },
+			);
 		});
 
 		expect(result.current.children.map((q) => q.id)).toEqual(["z", "y"]);
@@ -483,9 +479,9 @@ describe("useBlueprintMutations", () => {
 			const moduleUuid = s.moduleOrder[0];
 			returned = result.current.mutations.addForm(moduleUuid, {
 				uuid: "form-3-uuid",
+				id: "f2",
 				name: "F2",
 				type: "survey",
-				questions: [],
 			});
 		});
 
@@ -507,8 +503,8 @@ describe("useBlueprintMutations", () => {
 		act(() => {
 			returned = result.current.mutations.addModule({
 				uuid: "module-1-uuid",
+				id: "m1",
 				name: "M1",
-				forms: [],
 			});
 		});
 
@@ -775,18 +771,18 @@ describe("useBlueprintMutations", () => {
 
 		// Seed a question inside the group with id "a" to force dedup.
 		act(() => {
-			result.current.mutations.addQuestion(Q_GRP, {
+			result.current.mutations.addField(Q_GRP, {
 				id: "a",
-				type: "text",
+				kind: "text",
 				label: "duplicate-a",
-			} as unknown as Question);
+			});
 		});
 
 		const captured: {
-			value?: ReturnType<typeof result.current.mutations.moveQuestion>;
+			value?: ReturnType<typeof result.current.mutations.moveField>;
 		} = {};
 		act(() => {
-			captured.value = result.current.mutations.moveQuestion(Q_A, {
+			captured.value = result.current.mutations.moveField(Q_A, {
 				toParentUuid: Q_GRP,
 			});
 		});
@@ -844,10 +840,10 @@ describe("useBlueprintMutations", () => {
 		});
 
 		const captured: {
-			value?: ReturnType<typeof result.current.renameQuestion>;
+			value?: ReturnType<typeof result.current.renameField>;
 		} = {};
 		act(() => {
-			captured.value = result.current.renameQuestion(
+			captured.value = result.current.renameField(
 				asUuid("q-src-0000-0000-0000-000000000000"),
 				"primary",
 			);
@@ -866,7 +862,7 @@ describe("useBlueprintMutations", () => {
 
 		// Move `b` to before `a`. Same-parent: result should be [b, a, grp].
 		act(() => {
-			result.current.mutations.moveQuestion(Q_B, { beforeUuid: Q_A });
+			result.current.mutations.moveField(Q_B, { beforeUuid: Q_A });
 		});
 
 		expect(result.current.children.map((q) => q.id)).toEqual(["b", "a", "grp"]);
@@ -882,7 +878,7 @@ describe("useBlueprintMutations", () => {
 		 * [b, a, grp]. This mirrors the virtual-post-splice semantics the
 		 * hook documents. */
 		act(() => {
-			result.current.mutations.moveQuestion(Q_A, { toIndex: 1 });
+			result.current.mutations.moveField(Q_A, { toIndex: 1 });
 		});
 
 		expect(result.current.children.map((q) => q.id)).toEqual(["b", "a", "grp"]);
@@ -898,40 +894,37 @@ describe("useBlueprintMutations", () => {
 		expect(() => {
 			act(() => {
 				// Bogus uuids should all silently no-op.
-				result.current.mutations.updateQuestion(asUuid("bogus-uuid"), {
+				result.current.mutations.updateField(asUuid("bogus-uuid"), {
 					label: "x",
 				});
-				result.current.mutations.removeQuestion(asUuid("bogus-uuid"));
-				result.current.mutations.renameQuestion(
-					asUuid("bogus-uuid"),
-					"also_nope",
-				);
-				result.current.mutations.moveQuestion(asUuid("bogus-uuid"), {});
-				result.current.mutations.duplicateQuestion(asUuid("bogus-uuid"));
-				result.current.mutations.addQuestion(asUuid("bogus-parent"), {
+				result.current.mutations.removeField(asUuid("bogus-uuid"));
+				result.current.mutations.renameField(asUuid("bogus-uuid"), "also_nope");
+				result.current.mutations.moveField(asUuid("bogus-uuid"), {});
+				result.current.mutations.duplicateField(asUuid("bogus-uuid"));
+				result.current.mutations.addField(asUuid("bogus-parent"), {
 					id: "should_not_exist",
-					type: "text",
+					kind: "text",
 					label: "Nope",
-				} as unknown as Question);
+				});
 				result.current.mutations.updateForm(asUuid("bogus-uuid"), {
 					name: "nope",
 				});
 				result.current.mutations.removeForm(asUuid("bogus-uuid"));
-				result.current.mutations.replaceForm(asUuid("bogus-uuid"), {
-					uuid: "form-5-uuid",
-					name: "nope",
-					type: "survey",
-					questions: [],
-				});
+				result.current.mutations.replaceForm(
+					asUuid("bogus-uuid"),
+					{ id: "nope", name: "nope", type: "survey" },
+					[],
+					{},
+				);
 				result.current.mutations.updateModule(asUuid("bogus-uuid"), {
 					name: "nope",
 				});
 				result.current.mutations.removeModule(asUuid("bogus-uuid"));
 				result.current.mutations.addForm(asUuid("bogus-module"), {
 					uuid: "form-6-uuid",
+					id: "nope",
 					name: "nope",
 					type: "survey",
-					questions: [],
 				});
 			});
 		}).not.toThrow();
