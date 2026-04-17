@@ -50,16 +50,18 @@ export interface FieldRenameMeta {
  * these get rewritten via the Lezer-based `rewriteXPathRefs` parser when
  * a referenced field is renamed.
  *
+ * Typed as `readonly string[]` rather than a union-specific keyof because
+ * these keys only apply to some members of the `Field` union (text, int,
+ * etc.); the runtime code reads each field via `(target as Record<string,
+ * unknown>)[f]` with a `typeof === "string"` guard, so narrowing to a
+ * single variant's keys would be overly strict.
+ *
  * Notably excluded:
  *   - `validation_msg`: user-facing error text, not an XPath expression.
  *   - `label`, `hint`: prose fields that may embed bare hashtag refs
  *     (`#form/foo`), handled separately via DISPLAY_FIELDS below.
  *   - `required`: not an XPath field in the current schema.
  */
-// biome-ignore lint/suspicious/noExplicitAny: XPATH_FIELDS keys only apply to
-// some members of the Field union (text, int, etc.). The runtime code checks
-// for presence via `in` / `typeof === "string"` before reading, so narrowing
-// to a single member's keys would be overly strict.
 const XPATH_FIELDS = [
 	"relevant",
 	"calculate",
@@ -72,10 +74,11 @@ const XPATH_FIELDS = [
  * (`#form/field_id`, `#case/property`) inside otherwise-plain content.
  * These fields are rewritten via `transformBareHashtags` → `rewriteXPathRefs`
  * so only the hashtag substrings are parsed, not the entire field as XPath.
+ *
+ * Same typing caveat as `XPATH_FIELDS`: `hint` and `label` don't exist on
+ * every Field variant (hidden has no label; secret has no hint), so we
+ * avoid pinning this to a single member's keyof.
  */
-// Same caveat as XPATH_FIELDS above — `hint` and `label` don't exist on every
-// Field variant (e.g. hidden has no label; secret has no hint), so we avoid
-// pinning this to a single member's keyof.
 const DISPLAY_FIELDS = ["label", "hint"] as const;
 
 /**
