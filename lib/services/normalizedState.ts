@@ -218,7 +218,10 @@ export function assembleBlueprint(data: NormalizedData): AppBlueprint {
 }
 
 /** Reconstruct a single BlueprintForm from normalized entities.
- *  Used by useAssembledForm to provide forms to FormEngine. */
+ *  Used by lib/doc/converter.ts when emitting the wire-format app
+ *  blueprint for the SA / CommCare HQ boundary. Not used anywhere on
+ *  the client canvas — the preview engine walks the normalized doc
+ *  directly via `lib/preview/engine/fieldTree.ts`. */
 export function assembleForm(
 	form: NForm,
 	formId: string,
