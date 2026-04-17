@@ -605,6 +605,43 @@ describe("moveField result metadata", () => {
 
 		expect(result).toBeDefined();
 		expect(result?.renamed).toBeUndefined();
+		expect(result?.droppedCrossDepthRefs).toBe(0);
+	});
+
+	it("counts dropped cross-depth hashtag refs on top-level → nested move", () => {
+		// Move top-level `source` into a group. Absolute-path refs to
+		// `/data/source` get rewritten to `/data/grp/source` cleanly.
+		// But a hashtag ref `#form/source` embedded in a label cannot be
+		// rewritten (hashtag syntax has no depth > 1). The reducer must
+		// surface the count on `droppedCrossDepthRefs` so a future UI toast
+		// can warn the user N references silently broke.
+		const start: BlueprintDoc = {
+			...docWithForm(),
+			fields: {
+				[Q("src")]: field_(Q("src"), "source"),
+				[Q("grp")]: field_(Q("grp"), "grp", { kind: "group" }),
+				[Q("ref")]: field_(Q("ref"), "ref", {
+					// Prose label with a hashtag ref — transformBareHashtags path.
+					label: "See #form/source for details",
+				}),
+			},
+			fieldOrder: {
+				[F("1")]: [Q("src"), Q("grp"), Q("ref")],
+				[Q("grp")]: [],
+			},
+		};
+
+		let result: MoveFieldResult | undefined;
+		produce(start, (d) => {
+			result = applyMutation(d, {
+				kind: "moveField",
+				uuid: Q("src"),
+				toParentUuid: Q("grp"),
+				toIndex: 0,
+			}) as MoveFieldResult;
+		});
+
+		expect(result?.droppedCrossDepthRefs).toBe(1);
 	});
 });
 
