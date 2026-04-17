@@ -14,7 +14,7 @@ import type {
 	BlueprintForm,
 	BlueprintModule,
 	Question,
-} from "../schemas/blueprint";
+} from "@/lib/schemas/blueprint";
 
 // ── Core prompt (shared across build and edit modes) ──────────────────
 

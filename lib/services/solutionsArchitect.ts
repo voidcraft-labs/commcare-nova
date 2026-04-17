@@ -61,6 +61,7 @@ import {
 	type GenerationContext,
 	logWarnings,
 } from "@/lib/agent/generationContext";
+import { buildSolutionsArchitectPrompt } from "@/lib/agent/prompts";
 import { validateAndFix } from "@/lib/agent/validationLoop";
 import { toBlueprint } from "@/lib/doc/legacyBridge";
 import { applyMutations } from "@/lib/doc/mutations";
@@ -76,7 +77,6 @@ import { asUuid, isContainer } from "@/lib/domain";
 import { log } from "@/lib/log";
 import { completeApp } from "../db/apps";
 import { SA_MODEL, SA_REASONING } from "../models";
-import { buildSolutionsArchitectPrompt } from "../prompts/solutionsArchitectPrompt";
 import {
 	type BlueprintForm,
 	type ConnectConfig,
