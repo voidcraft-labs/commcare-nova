@@ -510,7 +510,13 @@ describe("fix registry", () => {
 		if (!fix) throw new Error("expected INVALID_QUESTION_ID fix");
 		const muts = fix(err, doc);
 		expect(muts.length).toBeGreaterThan(0);
-		const next = produce(doc, (draft) => applyMutations(draft, muts));
+		// Brace-wrap the recipe body so it returns void — `applyMutations`
+		// returns `MutationResult[]`, and Immer's `ValidRecipeReturnType`
+		// admits only `void | undefined | Draft<T>`. Immer mutates the
+		// draft in place; the caller gets the immutable next doc.
+		const next = produce(doc, (draft) => {
+			applyMutations(draft, muts);
+		});
 		// The field should now carry the sanitized id.
 		const fieldUuid =
 			next.fieldOrder[next.formOrder[next.moduleOrder[0]][0]][0];
@@ -539,7 +545,9 @@ describe("fix registry", () => {
 		const fix = FIX_REGISTRY.get("NO_CASE_TYPE");
 		if (!fix) throw new Error("expected NO_CASE_TYPE fix");
 		const muts = fix(err, doc);
-		const next = produce(doc, (draft) => applyMutations(draft, muts));
+		const next = produce(doc, (draft) => {
+			applyMutations(draft, muts);
+		});
 		expect(next.modules[next.moduleOrder[0]].caseType).toBe("patient_records");
 	});
 
@@ -551,7 +559,9 @@ describe("fix registry", () => {
 		const fix = FIX_REGISTRY.get("SELECT_NO_OPTIONS");
 		if (!fix) throw new Error("expected SELECT_NO_OPTIONS fix");
 		const muts = fix(err, doc);
-		const next = produce(doc, (draft) => applyMutations(draft, muts));
+		const next = produce(doc, (draft) => {
+			applyMutations(draft, muts);
+		});
 		const fieldUuid =
 			next.fieldOrder[next.formOrder[next.moduleOrder[0]][0]][0];
 		const field = next.fields[fieldUuid];

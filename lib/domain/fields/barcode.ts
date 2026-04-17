@@ -25,7 +25,7 @@ export const barcodeFieldMetadata: FieldKindMetadata<"barcode"> = {
 	isStructural: false,
 	isContainer: false,
 	saDocs: "Barcode/QR scan.",
-	convertTargets: ["text", "hidden"],
+	convertTargets: [],
 };
 
 // Editor schema is a placeholder for Phase 1 — components referenced here

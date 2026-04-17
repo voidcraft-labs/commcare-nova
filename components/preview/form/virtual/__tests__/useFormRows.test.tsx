@@ -105,16 +105,18 @@ describe("useFormRows", () => {
 		).toHaveLength(2);
 
 		act(() => {
-			result.current.storeApi.getState().apply({
-				kind: "addField",
-				parentUuid: FORM_UUID,
-				field: {
-					uuid: asUuid("qst-c-0000-0000-0000-000000000003"),
-					id: "c",
-					kind: "text",
-					label: "C",
+			result.current.storeApi.getState().applyMany([
+				{
+					kind: "addField",
+					parentUuid: FORM_UUID,
+					field: {
+						uuid: asUuid("qst-c-0000-0000-0000-000000000003"),
+						id: "c",
+						kind: "text",
+						label: "C",
+					},
 				},
-			});
+			]);
 		});
 		expect(
 			result.current.rows.filter((r) => r.kind === "question"),

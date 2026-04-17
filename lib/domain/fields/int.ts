@@ -26,14 +26,7 @@ export const intFieldMetadata: FieldKindMetadata<"int"> = {
 	isStructural: false,
 	isContainer: false,
 	saDocs: "Whole-number input (age, count, quantity).",
-	convertTargets: [
-		"text",
-		"decimal",
-		"single_select",
-		"multi_select",
-		"hidden",
-		"secret",
-	],
+	convertTargets: ["decimal"],
 };
 
 // Editor schema is a placeholder for Phase 1 — components referenced here

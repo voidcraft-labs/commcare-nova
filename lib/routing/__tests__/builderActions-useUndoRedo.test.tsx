@@ -170,7 +170,7 @@ describe("useUndoRedo", () => {
 
 		const qaUuid = asUuid("q-a-0000-0000-0000-000000000000");
 		act(() => {
-			store.getState().apply({ kind: "removeField", uuid: qaUuid });
+			store.getState().applyMany([{ kind: "removeField", uuid: qaUuid }]);
 		});
 		expect(store.getState().fields[qaUuid]).toBeUndefined();
 		expect(store.temporal.getState().pastStates.length).toBeGreaterThan(0);
@@ -189,10 +189,12 @@ describe("useUndoRedo", () => {
 	it("skips scroll/flash when not on a form location", () => {
 		const store = makeStore();
 		act(() => {
-			store.getState().apply({
-				kind: "removeField",
-				uuid: asUuid("q-a-0000-0000-0000-000000000000"),
-			});
+			store.getState().applyMany([
+				{
+					kind: "removeField",
+					uuid: asUuid("q-a-0000-0000-0000-000000000000"),
+				},
+			]);
 		});
 
 		/* URL segments empty → home location. */
@@ -209,14 +211,16 @@ describe("useUndoRedo", () => {
 	it("skips scroll/flash gracefully when the DOM has no matching element", () => {
 		const store = makeStore();
 		act(() => {
-			store.getState().apply({
-				kind: "updateField",
-				uuid: asUuid("q-a-0000-0000-0000-000000000000"),
-				/* Cast needed: patch type is Partial<Omit<Field, "uuid">>
-				 * which is a discriminated union variant — label is shared
-				 * across all members via FieldBase but TS can't prove it. */
-				patch: { label: "Renamed" } as never,
-			});
+			store.getState().applyMany([
+				{
+					kind: "updateField",
+					uuid: asUuid("q-a-0000-0000-0000-000000000000"),
+					/* Cast needed: patch type is Partial<Omit<Field, "uuid">>
+					 * which is a discriminated union variant — label is shared
+					 * across all members via FieldBase but TS can't prove it. */
+					patch: { label: "Renamed" } as never,
+				},
+			]);
 		});
 
 		const state = store.getState();
@@ -242,14 +246,16 @@ describe("useUndoRedo", () => {
 	it("scrolls and flashes when the selection has a live DOM target", () => {
 		const store = makeStore();
 		act(() => {
-			store.getState().apply({
-				kind: "updateField",
-				uuid: asUuid("q-a-0000-0000-0000-000000000000"),
-				/* Cast needed: patch type is Partial<Omit<Field, "uuid">>
-				 * which is a discriminated union variant — label is shared
-				 * across all members via FieldBase but TS can't prove it. */
-				patch: { label: "Renamed" } as never,
-			});
+			store.getState().applyMany([
+				{
+					kind: "updateField",
+					uuid: asUuid("q-a-0000-0000-0000-000000000000"),
+					/* Cast needed: patch type is Partial<Omit<Field, "uuid">>
+					 * which is a discriminated union variant — label is shared
+					 * across all members via FieldBase but TS can't prove it. */
+					patch: { label: "Renamed" } as never,
+				},
+			]);
 		});
 
 		const state = store.getState();
@@ -282,14 +288,16 @@ describe("useUndoRedo", () => {
 	it("sets focus hint when activeFieldId is present", () => {
 		const store = makeStore();
 		act(() => {
-			store.getState().apply({
-				kind: "updateField",
-				uuid: asUuid("q-a-0000-0000-0000-000000000000"),
-				/* Cast needed: patch type is Partial<Omit<Field, "uuid">>
-				 * which is a discriminated union variant — label is shared
-				 * across all members via FieldBase but TS can't prove it. */
-				patch: { label: "Renamed" } as never,
-			});
+			store.getState().applyMany([
+				{
+					kind: "updateField",
+					uuid: asUuid("q-a-0000-0000-0000-000000000000"),
+					/* Cast needed: patch type is Partial<Omit<Field, "uuid">>
+					 * which is a discriminated union variant — label is shared
+					 * across all members via FieldBase but TS can't prove it. */
+					patch: { label: "Renamed" } as never,
+				},
+			]);
 		});
 
 		const state = store.getState();

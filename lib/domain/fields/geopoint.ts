@@ -30,7 +30,7 @@ export const geopointFieldMetadata: FieldKindMetadata<"geopoint"> = {
 	isStructural: false,
 	isContainer: false,
 	saDocs: "GPS coordinate capture.",
-	convertTargets: ["hidden"],
+	convertTargets: [],
 };
 
 // Editor schema is a placeholder for Phase 1 — real XPath and coordinate

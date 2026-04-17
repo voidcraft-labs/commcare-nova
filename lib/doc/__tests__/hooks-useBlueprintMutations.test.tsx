@@ -27,7 +27,7 @@
 import { act, renderHook } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { useContext } from "react";
-import { assert, describe, expect, it } from "vitest";
+import { assert, describe, expect, it, vi } from "vitest";
 import {
 	useBlueprintDoc,
 	useBlueprintDocShallow,
@@ -45,6 +45,7 @@ import {
 } from "@/lib/doc/provider";
 import type { BlueprintDoc } from "@/lib/doc/types";
 import { asUuid, type Uuid } from "@/lib/doc/types";
+import type { FieldKind } from "@/lib/domain";
 
 // ── Fixed UUIDs ────────────────────────────────────────────────────────
 // Declared here (not inside the fixture) so tests can reference them
@@ -466,31 +467,6 @@ describe("useBlueprintMutations", () => {
 		expect(after - before).toBe(1);
 	});
 
-	// ── replaceForm ───────────────────────────────────────────────────────
-
-	it("replaceForm wholesale-swaps a form's questions", () => {
-		const { result } = renderHook(() => useMutationsAndFirstFormChildren(), {
-			wrapper,
-		});
-
-		act(() => {
-			const formUuid = getFormUuid(result.current.store);
-			const Q_Z = asUuid("q-z-0000-0000-0000-000000000000");
-			const Q_Y = asUuid("q-y-0000-0000-0000-000000000000");
-			result.current.mutations.replaceForm(
-				formUuid,
-				{ id: "f0", name: "F0", type: "survey" },
-				[
-					{ uuid: Q_Z, id: "z", kind: "text", label: "Z" },
-					{ uuid: Q_Y, id: "y", kind: "text", label: "Y" },
-				],
-				{ [formUuid]: [Q_Z, Q_Y] },
-			);
-		});
-
-		expect(result.current.children.map((q) => q.id)).toEqual(["z", "y"]);
-	});
-
 	// ── addForm returns uuid ──────────────────────────────────────────────
 
 	it("addForm returns the new form's uuid", () => {
@@ -910,6 +886,108 @@ describe("useBlueprintMutations", () => {
 		expect(result.current.children.map((q) => q.id)).toEqual(["b", "a", "grp"]);
 	});
 
+	// ── convertField ─────────────────────────────────────────────────────
+
+	describe("convertField", () => {
+		it("swaps the kind and reflects the new kind in doc state", () => {
+			// Q_A starts as `text`; `text` can convert to `secret` per the registry.
+			// Snapshot the pre-dispatch kind and pin the fixture invariant so
+			// a future fixture drift (e.g. Q_A seeded as `"secret"`) can't mask
+			// a no-op short-circuit inside the reducer — `convertField` returns
+			// early when source kind already equals target kind.
+			const { result } = renderHook(() => useMutationsAndFirstFormChildren(), {
+				wrapper,
+			});
+
+			const before = result.current.store?.getState().fields[Q_A]?.kind;
+			// Pin the fixture invariant — if this fails the test below doesn't
+			// prove anything meaningful about the dispatch.
+			expect(before).toBe("text");
+
+			act(() => {
+				result.current.mutations.convertField(Q_A, "secret" as FieldKind);
+			});
+
+			const after = result.current.store?.getState().fields[Q_A]?.kind;
+			expect(after).toBe("secret");
+			// Guard against the reducer no-op path masking a successful dispatch —
+			// the kind MUST have changed, not merely equal the target by accident.
+			expect(after).not.toBe(before);
+
+			// The field's semantic id should be preserved across the kind swap.
+			const converted = result.current.store?.getState().fields[Q_A];
+			expect(converted?.id).toBe("a");
+		});
+
+		it("is visible in useMaterialize after dispatch", () => {
+			// Confirm that the live `children` array (read via the hook composer)
+			// reflects the post-dispatch kind — proves the reactive subscription
+			// picks up the state change.
+			const { result } = renderHook(() => useMutationsAndFirstFormChildren(), {
+				wrapper,
+			});
+
+			act(() => {
+				result.current.mutations.convertField(Q_A, "secret" as FieldKind);
+			});
+
+			// The children array is derived from the live form order — the converted
+			// field should still appear at the same position.
+			const convertedChild = result.current.children.find((q) => q.id === "a");
+			expect(convertedChild).toBeDefined();
+			expect(convertedChild?.uuid).toBe(Q_A);
+		});
+
+		it("no-ops silently when uuid is unknown", () => {
+			// An unrecognized uuid must not throw and must leave the store
+			// unchanged — matches the fail-open contract the other mutation methods
+			// follow. The hook's JSDoc also promises a dev-mode `console.warn`
+			// on every unresolved uuid; that warn is the ONLY observability the
+			// fail-open contract offers, so we spy on it here to lock the
+			// contract against a future refactor dropping the `warnUnresolved`
+			// call.
+			const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+			const { result } = renderHook(() => useMutationsAndFirstFormChildren(), {
+				wrapper,
+			});
+
+			const before = result.current.store?.getState().fields[Q_A]?.kind;
+
+			expect(() => {
+				act(() => {
+					result.current.mutations.convertField(
+						asUuid("bogus-uuid-convert"),
+						"secret" as FieldKind,
+					);
+				});
+			}).not.toThrow();
+
+			// Existing field is untouched.
+			const after = result.current.store?.getState().fields[Q_A]?.kind;
+			expect(after).toBe(before);
+			// Order is also unchanged.
+			expect(result.current.children.map((q) => q.id)).toEqual([
+				"a",
+				"b",
+				"grp",
+			]);
+
+			// Lock the fail-open contract: the warn must fire and include both
+			// `uuid` and `toKind` so a dev debugging a silent no-op can tell
+			// which call site produced it.
+			expect(warnSpy).toHaveBeenCalledWith(
+				expect.stringContaining(
+					"[useBlueprintMutations.convertField] unresolved uuid",
+				),
+				expect.objectContaining({
+					uuid: "bogus-uuid-convert",
+					toKind: "secret",
+				}),
+			);
+			warnSpy.mockRestore();
+		});
+	});
+
 	// ── Unresolved uuid no-op ─────────────────────────────────────────────
 
 	it("unresolved uuid silently no-ops (no throw)", () => {
@@ -936,12 +1014,6 @@ describe("useBlueprintMutations", () => {
 					name: "nope",
 				});
 				result.current.mutations.removeForm(asUuid("bogus-uuid"));
-				result.current.mutations.replaceForm(
-					asUuid("bogus-uuid"),
-					{ id: "nope", name: "nope", type: "survey" },
-					[],
-					{},
-				);
 				result.current.mutations.updateModule(asUuid("bogus-uuid"), {
 					name: "nope",
 				});

@@ -32,7 +32,7 @@ export const multiSelectFieldMetadata: FieldKindMetadata<"multi_select"> = {
 	isStructural: false,
 	isContainer: false,
 	saDocs: "Multi-choice from a fixed option list.",
-	convertTargets: ["single_select", "hidden"],
+	convertTargets: ["single_select"],
 };
 
 // Editor schema is a placeholder for Phase 1 — real option editors and XPath

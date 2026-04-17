@@ -27,7 +27,7 @@ export const secretFieldMetadata: FieldKindMetadata<"secret"> = {
 	isStructural: false,
 	isContainer: false,
 	saDocs: "Sensitive input (password, PIN).",
-	convertTargets: ["text", "hidden"],
+	convertTargets: ["text"],
 };
 
 // Editor schema is a Phase 1 placeholder — StubField renders a disabled input

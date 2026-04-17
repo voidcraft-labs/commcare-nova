@@ -31,7 +31,7 @@ export const singleSelectFieldMetadata: FieldKindMetadata<"single_select"> = {
 	isStructural: false,
 	isContainer: false,
 	saDocs: "Single-choice from a fixed option list.",
-	convertTargets: ["text", "multi_select", "hidden"],
+	convertTargets: ["multi_select"],
 };
 
 // Editor schema is a placeholder for Phase 1 — real option editors and XPath

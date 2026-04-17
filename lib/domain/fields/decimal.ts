@@ -26,7 +26,7 @@ export const decimalFieldMetadata: FieldKindMetadata<"decimal"> = {
 	isStructural: false,
 	isContainer: false,
 	saDocs: "Decimal-number input for measurements (weight, height, price).",
-	convertTargets: ["text", "int", "hidden", "secret"],
+	convertTargets: ["int"],
 };
 
 // Editor schema is a placeholder for Phase 1 — components referenced here

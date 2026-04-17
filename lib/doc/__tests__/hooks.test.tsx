@@ -100,7 +100,7 @@ describe("useModule / useForm / useField", () => {
 		const initialRenders = renderCount;
 		store.temporal.getState().resume();
 		act(() => {
-			store.getState().apply({ kind: "setAppName", name: "Changed" });
+			store.getState().applyMany([{ kind: "setAppName", name: "Changed" }]);
 		});
 		// setAppName doesn't touch any question entity, so Immer preserves
 		// the reference — useField must NOT re-render.
@@ -128,7 +128,7 @@ describe("useModuleIds / useOrderedModules", () => {
 		const first = result.current;
 		store.temporal.getState().resume();
 		act(() => {
-			store.getState().apply({ kind: "setAppName", name: "Different" });
+			store.getState().applyMany([{ kind: "setAppName", name: "Different" }]);
 		});
 		expect(result.current).toBe(first);
 	});
@@ -189,16 +189,18 @@ describe("useOrderedFields", () => {
 			// Add a second field under the same form — fieldOrder changes, so
 			// re-render is expected. This asserts the hook DOES respond to real
 			// changes in its own parent's ordering.
-			store.getState().apply({
-				kind: "addField",
-				parentUuid: formUuid,
-				field: {
-					uuid: asUuid("q-222-0000-0000-0000-000000000000"),
-					id: "age",
-					kind: "int",
-					label: "Age",
-				} as BlueprintDoc["fields"][string],
-			});
+			store.getState().applyMany([
+				{
+					kind: "addField",
+					parentUuid: formUuid,
+					field: {
+						uuid: asUuid("q-222-0000-0000-0000-000000000000"),
+						id: "age",
+						kind: "int",
+						label: "Age",
+					} as BlueprintDoc["fields"][string],
+				},
+			]);
 		});
 		expect(renderCount).toBeGreaterThan(initial);
 
@@ -206,11 +208,13 @@ describe("useOrderedFields", () => {
 		// the hook must NOT re-render.
 		const afterAdd = renderCount;
 		act(() => {
-			store.getState().apply({
-				kind: "updateField",
-				uuid: asUuid("q-222-0000-0000-0000-000000000000"),
-				patch: { label: "Changed" },
-			});
+			store.getState().applyMany([
+				{
+					kind: "updateField",
+					uuid: asUuid("q-222-0000-0000-0000-000000000000"),
+					patch: { label: "Changed" },
+				},
+			]);
 		});
 		expect(renderCount).toBe(afterAdd);
 	});

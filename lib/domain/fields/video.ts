@@ -26,7 +26,7 @@ export const videoFieldMetadata: FieldKindMetadata<"video"> = {
 	isStructural: false,
 	isContainer: false,
 	saDocs: "Video recording. Cannot be saved to a case property.",
-	convertTargets: [],
+	convertTargets: ["image", "audio", "signature"],
 };
 
 // Editor schema is a placeholder for Phase 1 — stub components render disabled
