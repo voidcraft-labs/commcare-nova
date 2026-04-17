@@ -3,13 +3,13 @@
 import { act, renderHook } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { describe, expect, it } from "vitest";
-import { useModule, useQuestion } from "@/lib/doc/hooks/useEntity";
+import { useField, useModule } from "@/lib/doc/hooks/useEntity";
 import {
 	useModuleIds,
 	useOrderedForms,
 	useOrderedModules,
 } from "@/lib/doc/hooks/useModuleIds";
-import { useOrderedChildren } from "@/lib/doc/hooks/useOrderedChildren";
+import { useOrderedFields } from "@/lib/doc/hooks/useOrderedFields";
 import { BlueprintDocContext } from "@/lib/doc/provider";
 import { createBlueprintDocStore } from "@/lib/doc/store";
 import type { BlueprintDoc } from "@/lib/doc/types";
@@ -72,7 +72,7 @@ function setup() {
 	return { store, wrapper, moduleUuid, formUuid, questionUuid };
 }
 
-describe("useModule / useForm / useQuestion", () => {
+describe("useModule / useForm / useField", () => {
 	it("returns the entity when the uuid exists", () => {
 		const { wrapper, moduleUuid } = setup();
 		const { result } = renderHook(() => useModule(moduleUuid), { wrapper });
@@ -81,7 +81,7 @@ describe("useModule / useForm / useQuestion", () => {
 
 	it("returns undefined for unknown uuids", () => {
 		const { wrapper } = setup();
-		const { result } = renderHook(() => useQuestion("missing-uuid" as never), {
+		const { result } = renderHook(() => useField("missing-uuid" as never), {
 			wrapper,
 		});
 		expect(result.current).toBeUndefined();
@@ -93,7 +93,7 @@ describe("useModule / useForm / useQuestion", () => {
 		renderHook(
 			() => {
 				renderCount++;
-				return useQuestion(questionUuid);
+				return useField(questionUuid);
 			},
 			{ wrapper },
 		);
@@ -103,7 +103,7 @@ describe("useModule / useForm / useQuestion", () => {
 			store.getState().apply({ kind: "setAppName", name: "Changed" });
 		});
 		// setAppName doesn't touch any question entity, so Immer preserves
-		// the reference — useQuestion must NOT re-render.
+		// the reference — useField must NOT re-render.
 		expect(renderCount).toBe(initialRenders);
 	});
 });
@@ -153,10 +153,10 @@ describe("useOrderedForms", () => {
 	});
 });
 
-describe("useOrderedChildren", () => {
+describe("useOrderedFields", () => {
 	it("returns uuids of children under a given parent (form or group)", () => {
 		const { wrapper, formUuid, questionUuid } = setup();
-		const { result } = renderHook(() => useOrderedChildren(formUuid), {
+		const { result } = renderHook(() => useOrderedFields(formUuid), {
 			wrapper,
 		});
 		expect(result.current).toHaveLength(1);
@@ -165,7 +165,7 @@ describe("useOrderedChildren", () => {
 
 	it("returns empty array when parent has no children or doesn't exist", () => {
 		const { wrapper } = setup();
-		const { result } = renderHook(() => useOrderedChildren("nope" as never), {
+		const { result } = renderHook(() => useOrderedFields("nope" as never), {
 			wrapper,
 		});
 		expect(result.current).toEqual([]);
@@ -179,7 +179,7 @@ describe("useOrderedChildren", () => {
 		renderHook(
 			() => {
 				renderCount++;
-				return useOrderedChildren(formUuid);
+				return useOrderedFields(formUuid);
 			},
 			{ wrapper },
 		);

@@ -18,7 +18,7 @@
  * unchanged — stable enough for `React.memo` without spurious churn.
  */
 
-import type { Uuid } from "@/lib/doc/types";
+import type { Uuid } from "@/lib/domain";
 import { useBlueprintDocEq } from "./useBlueprintDoc";
 
 /**
@@ -49,7 +49,7 @@ function arraysEqualByIdentity<T>(a: readonly T[], b: readonly T[]): boolean {
  *
  * Materialize with `useField(uuid)` per child at the call site.
  */
-export function useOrderedChildren(parentUuid: Uuid): readonly Uuid[] {
+export function useOrderedFields(parentUuid: Uuid): readonly Uuid[] {
 	return useBlueprintDocEq(
 		(s) => s.fieldOrder[parentUuid] ?? EMPTY_ORDER,
 		arraysEqualByIdentity,

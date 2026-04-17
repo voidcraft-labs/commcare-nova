@@ -33,8 +33,8 @@
 import { memo } from "react";
 import { useEngineController, useEngineState } from "@/hooks/useFormEngine";
 import { useBlueprintDoc } from "@/lib/doc/hooks/useBlueprintDoc";
-import { useQuestion as useQuestionDoc } from "@/lib/doc/hooks/useEntity";
-import { asUuid, type Field, type Uuid } from "@/lib/domain";
+import { useField } from "@/lib/doc/hooks/useEntity";
+import { asUuid, type Uuid } from "@/lib/domain";
 import { LabelContent } from "@/lib/references/LabelContent";
 import { type QuestionPath, qpath } from "@/lib/services/questionPath";
 import { FIELD_STYLES } from "./fieldStyles";
@@ -119,7 +119,7 @@ const InteractiveQuestion = memo(function InteractiveQuestion({
 	prefix,
 	parentPath,
 }: InteractiveQuestionProps) {
-	const field = useQuestionDoc(uuid) as Field | undefined;
+	const field = useField(uuid);
 	const state = useEngineState(uuid);
 	const controller = useEngineController();
 

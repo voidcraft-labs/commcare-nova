@@ -23,8 +23,8 @@ import { FIELD_STYLES } from "@/components/preview/form/fieldStyles";
 import { TextEditable } from "@/components/preview/form/TextEditable";
 import { useEngineController, useEngineState } from "@/hooks/useFormEngine";
 import { useTextEditSave } from "@/hooks/useTextEditSave";
-import { useQuestion as useQuestionDoc } from "@/lib/doc/hooks/useEntity";
-import type { Field, Uuid } from "@/lib/domain";
+import { useField } from "@/lib/doc/hooks/useEntity";
+import type { Uuid } from "@/lib/domain";
 import { LabelContent } from "@/lib/references/LabelContent";
 import { useIsQuestionSelected } from "@/lib/routing/hooks";
 import { DragPreviewPill } from "../DragPreviewPill";
@@ -51,7 +51,7 @@ export const GroupOpenRow = memo(function GroupOpenRow({
 	collapsed,
 }: GroupOpenProps) {
 	const { toggleCollapse } = useVirtualFormContext();
-	const q = useQuestionDoc(uuid) as Field | undefined;
+	const q = useField(uuid);
 	const state = useEngineState(uuid);
 	const controller = useEngineController();
 	const saveField = useTextEditSave(uuid);

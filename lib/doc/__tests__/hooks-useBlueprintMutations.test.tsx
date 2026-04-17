@@ -21,7 +21,7 @@
  *
  * React's Rules of Hooks also forbid nested hook calls as arguments, so
  * the read-side composition is expressed via a locally defined hook that
- * chains `useOrderedModules → useOrderedForms → useOrderedChildren`.
+ * chains `useOrderedModules → useOrderedForms → useOrderedFields`.
  */
 
 import { act, renderHook } from "@testing-library/react";
@@ -37,7 +37,7 @@ import {
 	useOrderedForms,
 	useOrderedModules,
 } from "@/lib/doc/hooks/useModuleIds";
-import { useOrderedChildren } from "@/lib/doc/hooks/useOrderedChildren";
+import { useOrderedFields } from "@/lib/doc/hooks/useOrderedFields";
 import {
 	BlueprintDocContext,
 	BlueprintDocProvider,
@@ -135,7 +135,7 @@ function wrapper({ children }: { children: ReactNode }) {
 }
 
 /**
- * `useOrderedChildren` returns uuids only (perf — unrelated field edits
+ * `useOrderedFields` returns uuids only (perf — unrelated field edits
  * would force a re-render if the whole `fields` map were selected). Tests
  * want to assert on field entities (`.id`, `.label`, …), so the composers
  * below materialize uuids into entities via `useBlueprintDocShallow`. The
@@ -169,7 +169,7 @@ function useMutationsAndFirstFormChildren() {
 	const mutations = useBlueprintMutations();
 	const modules = useOrderedModules();
 	const forms = useOrderedForms((modules[0]?.uuid ?? "") as Uuid);
-	const childUuids = useOrderedChildren((forms[0]?.uuid ?? "") as Uuid);
+	const childUuids = useOrderedFields((forms[0]?.uuid ?? "") as Uuid);
 	const children = useMaterialize(childUuids);
 	const firstForm = forms[0];
 	const store = useContext(BlueprintDocContext);
@@ -184,10 +184,10 @@ function useMutationsFormsAndGroupChildren() {
 	const mutations = useBlueprintMutations();
 	const modules = useOrderedModules();
 	const forms = useOrderedForms((modules[0]?.uuid ?? "") as Uuid);
-	const topLevelUuids = useOrderedChildren((forms[0]?.uuid ?? "") as Uuid);
+	const topLevelUuids = useOrderedFields((forms[0]?.uuid ?? "") as Uuid);
 	const topLevel = useMaterialize(topLevelUuids);
 	const group = topLevel.find((q) => q.id === "grp");
-	const groupChildUuids = useOrderedChildren((group?.uuid ?? "") as Uuid);
+	const groupChildUuids = useOrderedFields((group?.uuid ?? "") as Uuid);
 	const groupChildren = useMaterialize(groupChildUuids);
 	const store = useContext(BlueprintDocContext);
 	return { mutations, topLevel, groupChildren, store };
@@ -209,7 +209,7 @@ function useMutationsWithStore() {
 	const mutations = useBlueprintMutations();
 	const modules = useOrderedModules();
 	const forms = useOrderedForms((modules[0]?.uuid ?? "") as Uuid);
-	const childUuids = useOrderedChildren((forms[0]?.uuid ?? "") as Uuid);
+	const childUuids = useOrderedFields((forms[0]?.uuid ?? "") as Uuid);
 	const children = useMaterialize(childUuids);
 	// We read the store directly (not via hook) because zundo's temporal
 	// state isn't part of the data slice — assertions go through
