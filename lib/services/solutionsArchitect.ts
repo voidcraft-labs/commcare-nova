@@ -77,7 +77,6 @@ import {
 	removeFieldMutations,
 	removeFormMutations,
 	removeModuleMutations,
-	renameCasePropertyMutations,
 	renameFieldMutations,
 	resolveFieldByIndex,
 	searchBlueprint,
@@ -679,32 +678,15 @@ export function createSolutionsArchitect(
 
 					const { id: newId, ...fieldUpdates } = updates;
 
-					// Handle id rename first — when the field carries a case
-					// property, rename across the entire module + columns +
-					// cross-form refs. Otherwise only the one field + its
-					// local XPath refs inside this form.
+					// Handle id rename first. The `renameField` reducer handles
+					// the full cascade on its own — form-local path / hashtag
+					// rewrites, cross-form `#case/` hashtag rewrites scoped to
+					// modules with matching caseType, peer-field renames, and
+					// case list / detail column renames. Callers no longer fork
+					// on `case_property` presence; the reducer reads it off the
+					// field and does the right thing uniformly.
 					if (newId && newId !== questionId) {
-						const field = resolved.field;
-						const casePropName = (
-							field as unknown as { case_property?: string }
-						).case_property;
-						if (casePropName !== undefined && casePropName !== null) {
-							const moduleUuid = doc.moduleOrder[moduleIndex];
-							const mod = moduleUuid ? doc.modules[moduleUuid] : undefined;
-							if (mod?.caseType) {
-								const cascade = renameCasePropertyMutations(
-									doc,
-									mod.caseType,
-									questionId,
-									newId,
-								);
-								dispatch(cascade.mutations);
-							} else {
-								dispatch(renameFieldMutations(doc, field.uuid, newId));
-							}
-						} else {
-							dispatch(renameFieldMutations(doc, field.uuid, newId));
-						}
+						dispatch(renameFieldMutations(doc, resolved.field.uuid, newId));
 					}
 
 					// Re-resolve the field uuid after rename (the uuid is stable,
