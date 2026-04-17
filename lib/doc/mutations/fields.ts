@@ -1,10 +1,5 @@
 import type { Draft } from "immer";
-import type {
-	BlueprintDoc,
-	QuestionEntity as Field,
-	Mutation,
-	Uuid,
-} from "@/lib/doc/types";
+import type { BlueprintDoc, Mutation, Uuid } from "@/lib/doc/types";
 import { fieldSchema } from "@/lib/domain";
 import { transformBareHashtags } from "@/lib/preview/engine/labelRefs";
 import { rewriteXPathRefs } from "@/lib/preview/xpath/rewrite";
