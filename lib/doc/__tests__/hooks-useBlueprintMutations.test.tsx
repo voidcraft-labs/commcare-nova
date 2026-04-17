@@ -439,6 +439,109 @@ describe("useBlueprintMutations", () => {
 		expect(result.current.children.map((q) => q.id)).toEqual(["a", "b", "grp"]);
 	});
 
+	it("renameQuestion returns conflict: true when a peer's sibling id clashes", () => {
+		// Regression guard: two forms declare the same case property via
+		// matching (id, case_property) pairs — these are peers, both
+		// renamed atomically when either is renamed. A peer's own form
+		// already contains a sibling with the target id. The cascade would
+		// silently create a duplicate sibling id unless the conflict check
+		// scans peer parents too.
+		const CP_M = asUuid("cp-mod-uuid");
+		const CP_F1 = asUuid("cp-form-1-uuid");
+		const CP_F2 = asUuid("cp-form-2-uuid");
+		const CP_PRIMARY = asUuid("cp-primary-uuid");
+		const CP_PEER = asUuid("cp-peer-uuid");
+		const CP_BLOCKER = asUuid("cp-blocker-uuid");
+
+		const peerDoc: BlueprintDoc = {
+			appId: "t",
+			appName: "Test",
+			connectType: null,
+			caseTypes: null,
+			modules: {
+				[CP_M]: {
+					uuid: CP_M,
+					id: "cp_m",
+					name: "CPM",
+					caseType: "patient",
+				},
+			},
+			forms: {
+				[CP_F1]: { uuid: CP_F1, id: "cp_f1", name: "F1", type: "followup" },
+				[CP_F2]: { uuid: CP_F2, id: "cp_f2", name: "F2", type: "followup" },
+			},
+			fields: {
+				// Primary and peer share (id="age", case_property="patient").
+				// Renaming either cascades to rename both.
+				[CP_PRIMARY]: {
+					uuid: CP_PRIMARY,
+					id: "age",
+					kind: "text",
+					label: "Age",
+					case_property: "patient",
+				} as BlueprintDoc["fields"][typeof CP_PRIMARY],
+				[CP_PEER]: {
+					uuid: CP_PEER,
+					id: "age",
+					kind: "text",
+					label: "Age",
+					case_property: "patient",
+				} as BlueprintDoc["fields"][typeof CP_PEER],
+				// Blocker: lives in F2 alongside the peer. If we try to rename
+				// the primary → "age_new", the peer in F2 would also become
+				// "age_new" — colliding with this existing sibling.
+				[CP_BLOCKER]: {
+					uuid: CP_BLOCKER,
+					id: "age_new",
+					kind: "text",
+					label: "Existing",
+				} as BlueprintDoc["fields"][typeof CP_BLOCKER],
+			},
+			moduleOrder: [CP_M],
+			formOrder: { [CP_M]: [CP_F1, CP_F2] },
+			fieldOrder: {
+				[CP_F1]: [CP_PRIMARY],
+				[CP_F2]: [CP_PEER, CP_BLOCKER],
+			},
+			fieldParent: {},
+		};
+
+		function peerWrapper({ children }: { children: ReactNode }) {
+			return (
+				<BlueprintDocProvider appId="t" initialDoc={peerDoc}>
+					{children}
+				</BlueprintDocProvider>
+			);
+		}
+
+		const { result } = renderHook(
+			() => ({
+				mutations: useBlueprintMutations(),
+				store: useContext(BlueprintDocContext),
+			}),
+			{ wrapper: peerWrapper },
+		);
+
+		const captured: {
+			value?: ReturnType<typeof result.current.mutations.renameField>;
+		} = {};
+		act(() => {
+			captured.value = result.current.mutations.renameField(
+				CP_PRIMARY,
+				"age_new",
+			);
+		});
+
+		expect(captured.value?.conflict).toBe(true);
+
+		// Store should be unchanged — no peer renamed, no dup sibling created.
+		const state = result.current.store?.getState();
+		assert(state);
+		expect(state.fields[CP_PRIMARY]?.id).toBe("age");
+		expect(state.fields[CP_PEER]?.id).toBe("age");
+		expect(state.fields[CP_BLOCKER]?.id).toBe("age_new");
+	});
+
 	// ── updateApp undo atomicity ──────────────────────────────────────────
 
 	it("updateApp with both fields produces a single undo entry", () => {

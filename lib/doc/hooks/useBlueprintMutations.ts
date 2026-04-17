@@ -55,14 +55,40 @@ import type { QuestionPath } from "@/lib/services/questionPath";
  *
  * `conflict: true` short-circuits the dispatch — the hook checks sibling
  * ids BEFORE calling the reducer so the UI can surface a "name already
- * taken" message without unwinding a half-applied mutation.
- * `xpathFieldsRewritten` reflects the number of XPath expression fields
- * that were rewritten by the reducer to reference the new field ID.
+ * taken" message without unwinding a half-applied mutation. When a
+ * conflict is reported, every count field is zero and `newPath` is empty
+ * (the rename never ran).
+ *
+ * The remaining fields carry the reducer's cascade metadata — see
+ * `FieldRenameMeta` in `lib/doc/mutations/fields.ts` for the full
+ * contract. Callers surface these as toast copy ("N references updated")
+ * and to decide whether a cross-form view needs refreshing.
  */
 export interface FieldRenameResult {
 	newPath: QuestionPath;
 	xpathFieldsRewritten: number;
+	peerFieldsRenamed: number;
+	columnsRewritten: number;
+	catalogEntryRenamed: boolean;
+	cascadedAcrossForms: boolean;
 	conflict?: boolean;
+}
+
+/**
+ * Shared zero-valued result used when `renameField` short-circuits
+ * (unknown uuid or sibling-id conflict). Keeps every exit shape valid
+ * against `FieldRenameResult` without scattering literal zeros through
+ * the hook body.
+ */
+function emptyFieldRenameResult(): FieldRenameResult {
+	return {
+		newPath: "" as QuestionPath,
+		xpathFieldsRewritten: 0,
+		peerFieldsRenamed: 0,
+		columnsRewritten: 0,
+		catalogEntryRenamed: false,
+		cascadedAcrossForms: false,
+	};
 }
 
 /**
@@ -366,37 +392,62 @@ export function useBlueprintMutations(): BlueprintMutations {
 				const field = doc.fields[uuid];
 				if (!field) {
 					warnUnresolved("renameField", { uuid });
-					return {
-						newPath: "" as QuestionPath,
-						xpathFieldsRewritten: 0,
-					};
+					return emptyFieldRenameResult();
 				}
 
-				// Find parent + siblings for conflict check. Reject the rename
-				// before dispatching so the UI can surface a "name already taken"
-				// message without unwinding a half-applied mutation.
-				const parentUuid = doc.fieldParent[uuid] ?? undefined;
-				if (parentUuid !== undefined) {
-					const siblings = doc.fieldOrder[parentUuid] ?? [];
+				// Conflict check: reject the rename before dispatching so the
+				// UI can surface a "name already taken" message without
+				// unwinding a half-applied mutation.
+				//
+				// Scope: the primary field's parent AND the parent of every
+				// peer that will cascade-rename to `newId`. Skipping peers'
+				// parents would let the reducer silently create duplicate
+				// sibling ids in a different form — same case_property means
+				// both (primary + peer) rename together, so the collision
+				// check must consider every destination parent. Peers are
+				// identified by matching (id, case_property) on the primary.
+				const caseProperty = (field as { case_property?: string })
+					.case_property;
+				const peerUuids: Uuid[] = [];
+				if (typeof caseProperty === "string" && caseProperty.length > 0) {
+					for (const [fuuid, f] of Object.entries(doc.fields)) {
+						if (!f || fuuid === uuid) continue;
+						if (f.id !== field.id) continue;
+						const cp = (f as { case_property?: string }).case_property;
+						if (cp !== caseProperty) continue;
+						peerUuids.push(fuuid as Uuid);
+					}
+				}
+
+				// Build the set of uuids that will be renamed — any sibling
+				// already in this set is NOT a conflict (it will become
+				// `newId` in lockstep). Everything else with `id === newId`
+				// in any destination parent IS a conflict.
+				const renamingUuids = new Set<Uuid>([uuid, ...peerUuids]);
+				const parentsToCheck = new Set<Uuid>();
+				const primaryParent = doc.fieldParent[uuid] ?? undefined;
+				if (primaryParent !== undefined) parentsToCheck.add(primaryParent);
+				for (const peer of peerUuids) {
+					const pp = doc.fieldParent[peer] ?? undefined;
+					if (pp !== undefined) parentsToCheck.add(pp);
+				}
+				for (const parent of parentsToCheck) {
+					const siblings = doc.fieldOrder[parent] ?? [];
 					for (const sibUuid of siblings) {
-						if (sibUuid === uuid) continue;
+						if (renamingUuids.has(sibUuid)) continue;
 						if (doc.fields[sibUuid]?.id === newId) {
-							return {
-								newPath: "" as QuestionPath,
-								xpathFieldsRewritten: 0,
-								conflict: true,
-							};
+							return { ...emptyFieldRenameResult(), conflict: true };
 						}
 					}
 				}
 
 				// Dispatch via the single write path. Position `[0]` of the
 				// returned array carries the reducer's per-mutation result —
-				// narrow it to `FieldRenameMeta` so we can read the xpath
-				// rewrite count. The reducer returns `undefined` if the target
-				// entity vanishes between our pre-check and the Immer draft —
-				// defensive fallback to zero rewrites so callers always see a
-				// valid number.
+				// narrow it to `FieldRenameMeta` so we can read the cascade
+				// counts. The reducer returns `undefined` if the target entity
+				// vanishes between our pre-check and the Immer draft —
+				// defensive fallback to zero counts so callers always see a
+				// valid result shape.
 				const [result] = store
 					.getState()
 					.applyMany([{ kind: "renameField", uuid, newId }]);
@@ -411,6 +462,10 @@ export function useBlueprintMutations(): BlueprintMutations {
 				return {
 					newPath,
 					xpathFieldsRewritten: meta?.xpathFieldsRewritten ?? 0,
+					peerFieldsRenamed: meta?.peerFieldsRenamed ?? 0,
+					columnsRewritten: meta?.columnsRewritten ?? 0,
+					catalogEntryRenamed: meta?.catalogEntryRenamed ?? false,
+					cascadedAcrossForms: meta?.cascadedAcrossForms ?? false,
 				};
 			},
 
