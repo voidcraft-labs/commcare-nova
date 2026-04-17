@@ -58,6 +58,7 @@ import {
 	type FieldPickerPayload,
 } from "../FieldPickerContext";
 import { FieldTypePickerPopup } from "../FieldTypePicker";
+import { useFormLayout } from "../FormLayoutContext";
 import {
 	isDraggableQuestionData,
 	isUuidInSubtree,
@@ -101,21 +102,12 @@ export const VirtualFormList = memo(function VirtualFormList({
 	const select = useSelect();
 	const selectedField = useSelectedField();
 
-	// ── Collapse ──────────────────────────────────────────────────────
+	// ── Collapse (shared across edit + live via FormLayoutContext) ───
+	// FormLayoutProvider in FormScreen owns the canonical Set so the same
+	// group stays folded whether the user is in the virtualized editor,
+	// the interactive pointer preview, or test mode.
 
-	const [collapsed, setCollapsed] = useState<Set<Uuid>>(() => new Set<Uuid>());
-	const toggleCollapse = useCallback((uuid: Uuid) => {
-		setCollapsed((prev) => {
-			const next = new Set(prev);
-			if (next.has(uuid)) next.delete(uuid);
-			else next.add(uuid);
-			return next;
-		});
-	}, []);
-	const isCollapsed = useCallback(
-		(uuid: Uuid) => collapsed.has(uuid),
-		[collapsed],
-	);
+	const { collapsed, toggleCollapse, isCollapsed } = useFormLayout();
 
 	// ── Drag state ───────────────────────────────────────────────────
 
@@ -775,10 +767,12 @@ const RenderRow = memo(function RenderRow({
  * `group-open` and `group-close` brackets into a continuous visual box.
  *
  * For a row at nesting depth `d`, one rail is drawn for each ancestor
- * group (depths 0 through d−1). Each rail aligns its left edge with the
- * ancestor bracket's left border and its right edge with the shared
- * right padding, creating an unbroken vertical border from the opening
- * bracket down to the closing bracket.
+ * group (depths 0 through d−1). Each rail aligns its left AND right
+ * edges with the ancestor bracket's own borders (both at
+ * `depthPadding(i)` from the respective form edge) so every nested
+ * group is symmetrically inset from its parent — children never kiss
+ * the parent's right border the way they did when the right pin was
+ * fixed at `depthPadding(0)`.
  *
  * Rails render BEFORE the row content in the DOM, so they paint behind
  * it — question cards, insertion lines, and bracket decorations all sit
@@ -793,7 +787,7 @@ function GroupNestingRails({ depth }: { depth: number }) {
 				className="absolute top-0 bottom-0 border-l border-r border-pv-input-border pointer-events-none"
 				style={{
 					left: depthPadding(i),
-					right: depthPadding(0),
+					right: depthPadding(i),
 				}}
 			/>,
 		);
@@ -828,7 +822,7 @@ function DropPlaceholderRow({ depth }: { depth: number }) {
 			ref={ref}
 			style={{
 				paddingLeft: depthPadding(depth),
-				paddingRight: depthPadding(0),
+				paddingRight: depthPadding(depth),
 				paddingTop: INSERTION_REST_HEIGHT_PX / 2,
 				paddingBottom: INSERTION_REST_HEIGHT_PX / 2,
 			}}

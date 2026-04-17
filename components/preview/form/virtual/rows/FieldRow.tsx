@@ -157,12 +157,16 @@ export const FieldRow = memo(function FieldRow({
 				className="relative"
 				style={{
 					paddingLeft: depthPadding(depth),
-					paddingRight: depthPadding(0),
+					paddingRight: depthPadding(depth),
 					opacity: isDraggingSelf ? 0.4 : 1,
 				}}
 				data-question-uuid={uuid}
 			>
-				<EditableFieldWrapper questionUuid={uuid} isDragging={isDraggingSelf}>
+				<EditableFieldWrapper
+					questionUuid={uuid}
+					isDragging={isDraggingSelf}
+					flatBottomOnSelect
+				>
 					{content}
 				</EditableFieldWrapper>
 			</div>
@@ -171,10 +175,14 @@ export const FieldRow = memo(function FieldRow({
 					data-settings-panel
 					style={{
 						paddingLeft: depthPadding(depth),
-						paddingRight: depthPadding(0),
+						paddingRight: depthPadding(depth),
 					}}
 				>
-					<InlineSettingsPanel field={q} />
+					{/* Drawer attaches flush to the field's flat-bottomed
+					 *  selection ring — violet strokes continue ring →
+					 *  drawer without a seam, so the field and its
+					 *  inspector read as one two-pane card. */}
+					<InlineSettingsPanel field={q} variant="attached" />
 				</div>
 			)}
 			{preview}

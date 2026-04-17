@@ -7,7 +7,10 @@
  * during generation for accurate staleness detection).
  */
 
-import { createAnthropic } from "@ai-sdk/anthropic";
+import {
+	type AnthropicProviderOptions,
+	createAnthropic,
+} from "@ai-sdk/anthropic";
 import type {
 	CallWarning,
 	ToolLoopAgent,
@@ -36,13 +39,20 @@ export function logWarnings(
 	}
 }
 
-/** Anthropic provider options for adaptive extended thinking. */
+/**
+ * Anthropic provider options for adaptive extended thinking on Opus 4.7+.
+ *
+ * `effort` is a top-level provider option (NOT nested inside `thinking` — Zod
+ * `$strip` silently drops it there). `display: 'summarized'` is required for
+ * human-readable summaries to stream back; without it, thinking blocks come
+ * through as encrypted/redacted on Opus 4.7.
+ */
 export function thinkingProviderOptions(effort: ReasoningEffort) {
-	return {
-		anthropic: {
-			thinking: { type: "adaptive" as const, effort },
-		},
+	const anthropic: AnthropicProviderOptions = {
+		thinking: { type: "adaptive", display: "summarized" },
+		effort,
 	};
+	return { anthropic };
 }
 
 /**

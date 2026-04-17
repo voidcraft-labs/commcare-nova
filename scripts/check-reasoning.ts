@@ -14,7 +14,10 @@ async function main() {
 		prompt: "What is 15 * 37? Show your work.",
 		maxOutputTokens: 256,
 		providerOptions: {
-			anthropic: { thinking: { type: "adaptive", effort: "xhigh" } },
+			anthropic: {
+				thinking: { type: "adaptive", display: "summarized" },
+				effort: "xhigh",
+			},
 		},
 	});
 

@@ -31,7 +31,8 @@
  * renamed to "field"; that's the SA's wire format to the LLM and shared
  * with the prompt. Internally everything is a `Field`.
  */
-import { type JSONValue, stepCountIs, ToolLoopAgent, tool } from "ai";
+import type { AnthropicProviderOptions } from "@ai-sdk/anthropic";
+import { stepCountIs, ToolLoopAgent, tool } from "ai";
 import { produce } from "immer";
 import { z } from "zod";
 import { toBlueprint } from "@/lib/doc/legacyBridge";
@@ -1347,15 +1348,15 @@ export function createSolutionsArchitect(
 		),
 		stopWhen: stepCountIs(80),
 		prepareStep: ({ steps: _steps }) => {
-			const anthropic: Record<string, JSONValue | undefined> = {
+			// Adaptive thinking with `display: 'summarized'` is required on Opus 4.7
+			// for human-readable thinking summaries to stream back. `effort` is a
+			// top-level provider option (sibling of `thinking`), not nested inside
+			// it — Zod silently strips nested unknown fields.
+			const anthropic: AnthropicProviderOptions = {
 				cacheControl: { type: "ephemeral" },
-			};
-
-			anthropic.thinking = {
-				type: "adaptive" as const,
+				thinking: { type: "adaptive", display: "summarized" },
 				effort: SA_REASONING.effort,
 			};
-
 			return { providerOptions: { anthropic } };
 		},
 		onStepFinish: ({

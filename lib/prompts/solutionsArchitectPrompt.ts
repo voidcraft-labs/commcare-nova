@@ -178,6 +178,20 @@ From there, understand how those things connect to each other, how they move thr
 
 It is always better to ask the user for clarification than to build something they didn't ask for. Once you have full clarity, give a brief acknowledgment and begin generation. Do not provide summaries or requirement recaps.`;
 
+// ── Initial build stages ─────────────────────────────────────────────
+// Describes the shape of a first-pass app build. Only included in
+// build mode — edit mode doesn't have the generation tools in its kit.
+
+const INITIAL_BUILD = `## Initial Build
+
+For a new app, you move through these stages:
+
+1. Set the data model — \`generateSchema\`.
+2. Lay out the modules and forms — \`generateScaffold\`.
+3. Configure each module's case list and detail columns — \`addModule\`.
+4. Populate every form with its questions — \`addQuestions\`. Batch each form's questions into a single call where practical; split across calls when the set is large or when later questions need to reference groups added in earlier calls as parents.
+5. Validate — \`validateApp\`.`;
+
 // ── Shared tail (architecture, Connect, error recovery) ──────────────
 // Appended to both build and edit prompts — these rules apply regardless.
 
@@ -334,7 +348,7 @@ export function buildSolutionsArchitectPrompt(
 	const isEditing = blueprint && blueprint.modules.length > 0;
 
 	if (!isEditing) {
-		return `${CORE_PROMPT}\n\n---\n\n${BUILD_INTERACTION}\n\n---\n\n${SHARED_TAIL}`;
+		return `${CORE_PROMPT}\n\n---\n\n${BUILD_INTERACTION}\n\n---\n\n${INITIAL_BUILD}\n\n---\n\n${SHARED_TAIL}`;
 	}
 
 	return `${CORE_PROMPT}\n\n---\n\n${EDIT_PREAMBLE}\n\n${summarizeBlueprint(blueprint)}\n\n---\n\n${SHARED_TAIL}`;
