@@ -4,7 +4,14 @@
  *
  * Uses real stores (BlueprintDocStore + BuilderSessionStore) wired together
  * via `_setDocStore`, mirroring the runtime SyncBridge setup. Each test
- * exercises one event category: doc mutations, doc lifecycle, or session-only.
+ * exercises one event category: legacy replay-shape doc mutations, doc
+ * lifecycle, or session-only.
+ *
+ * The `describe("doc mutation events"...)` block below covers the
+ * `LEGACY_REPLAY_DOC_MUTATION_EVENTS` bucket — historical Firestore
+ * emission logs with snapshot-shaped events that must be mapped to
+ * `Mutation[]` on replay. The live `data-mutations` path (the canonical
+ * Phase 3+ emission) is covered in `streamDispatcher-mutations.test.ts`.
  */
 
 import { assert, beforeEach, describe, expect, it } from "vitest";

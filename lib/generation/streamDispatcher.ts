@@ -78,10 +78,22 @@ function injectSignalEnergy(type: string): void {
 	}
 }
 
-// ── Doc mutation event types ────────────────────────────────────────────
+// ── Legacy doc mutation event types — REPLAY-ONLY after Phase 3 ─────────
 
-/** Events that produce doc mutations via `toDocMutations`. */
-const DOC_MUTATION_EVENTS = new Set([
+/**
+ * Legacy wire-format doc-mutation events — REPLAY-ONLY after Phase 3.
+ *
+ * Live generation no longer emits these; the SA writes `data-mutations`
+ * directly via `GenerationContext.emitMutations()`. Historical Firestore
+ * emission logs predating that migration still contain these event
+ * types, and `ReplayController` replays them as-is. Each is mapped to
+ * `Mutation[]` on-the-fly via `lib/generation/mutationMapper.ts::toDocMutations`.
+ *
+ * Phase 4's log unification migrates stored logs to the new
+ * `data-mutations` shape and deletes this set + its handler branch +
+ * `mutationMapper.ts` entirely.
+ */
+const LEGACY_REPLAY_DOC_MUTATION_EVENTS = new Set([
 	"data-schema",
 	"data-scaffold",
 	"data-module-done",
@@ -179,7 +191,7 @@ export function applyStreamEvent(
 	// the same fine-grained `Mutation[]` the live path would have
 	// emitted. Kept solely for replay compatibility — the live server
 	// no longer emits these event types.
-	if (DOC_MUTATION_EVENTS.has(type)) {
+	if (LEGACY_REPLAY_DOC_MUTATION_EVENTS.has(type)) {
 		const mutations = toDocMutations(type, data, docStore.getState());
 		if (mutations.length > 0) {
 			docStore.getState().applyMany(mutations);
