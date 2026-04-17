@@ -15,7 +15,7 @@
 
 import { createContext, type ReactNode, useRef } from "react";
 import { createBlueprintDocStore } from "@/lib/doc/store";
-import type { AppBlueprint } from "@/lib/schemas/blueprint";
+import type { PersistableDoc } from "@/lib/domain/blueprint";
 
 // Re-export the store type so hooks can import it from a stable module path
 // without creating a circular import through store.ts.
@@ -27,11 +27,15 @@ export const BlueprintDocContext = createContext<BlueprintDocStore | null>(
 
 export interface BlueprintDocProviderProps {
 	/**
-	 * The blueprint to load on mount. If `undefined`, the provider creates
-	 * an empty doc — useful for pre-generation states (Phase 1b's `Idle`
-	 * phase before the SA has produced a scaffold).
+	 * The on-disk doc to load on mount. Accepts the Firestore-persisted
+	 * `PersistableDoc` shape (no `fieldParent` — that field is computed and
+	 * never stored). If `undefined`, the provider creates an empty doc for
+	 * the `Idle` phase before the SA has produced a scaffold.
+	 *
+	 * `load()` rebuilds the `fieldParent` reverse index from `fieldOrder`
+	 * so callers don't need to supply it.
 	 */
-	initialBlueprint?: AppBlueprint;
+	initialDoc?: PersistableDoc;
 	/**
 	 * The app's Firestore document ID. `undefined` for brand-new apps
 	 * before generation produces an ID; the doc's `appId` starts as ""
@@ -49,7 +53,7 @@ export interface BlueprintDocProviderProps {
 }
 
 export function BlueprintDocProvider({
-	initialBlueprint,
+	initialDoc,
 	appId,
 	startTracking = true,
 	children,
@@ -66,15 +70,16 @@ export function BlueprintDocProvider({
 
 	if (!storeRef.current) {
 		const store = createBlueprintDocStore();
-		if (initialBlueprint) {
-			store.getState().load(initialBlueprint, effectiveAppId);
+		if (initialDoc) {
+			// `load()` rebuilds the fieldParent index from fieldOrder so it is
+			// always correct even if the Firestore document omitted it.
+			store.getState().load(initialDoc);
 		} else {
 			// Empty-doc branch still needs to know its app identity so consumers
 			// that read `doc.appId` (routing, persistence, telemetry) don't see
 			// an empty string before any blueprint arrives. This is the path
-			// Phase 1b takes during the `Idle` phase — the provider mounts
-			// before the SA has produced a scaffold, and we need `appId` from
-			// the URL immediately.
+			// taken during the `Idle` phase — the provider mounts before the SA
+			// has produced a scaffold, and we need `appId` from the URL immediately.
 			store.setState((s) => {
 				s.appId = effectiveAppId;
 			});

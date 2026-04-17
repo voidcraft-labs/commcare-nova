@@ -67,7 +67,7 @@ export function useBuilderPathSegments(): string[] {
 	/* Memoize so the returned array reference is stable when the pathname
 	 * hasn't changed. Without this, every re-render (parent, doc store,
 	 * etc.) allocates a fresh array via extractSegments, which cascades
-	 * through useLocation → useSelect → useIsQuestionSelected and defeats
+	 * through useLocation → useSelect → useIsFieldSelected and defeats
 	 * the per-wrapper re-render isolation. */
 	return useMemo(() => extractSegments(pathname), [pathname]);
 }

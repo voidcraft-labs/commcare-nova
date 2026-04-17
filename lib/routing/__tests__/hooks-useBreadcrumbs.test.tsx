@@ -5,14 +5,14 @@
  *
  * Verifies breadcrumb derivation from the current URL location and the
  * doc store. The doc is populated via a shared store instance constructed
- * from a fixture blueprint. A direct `BlueprintDocContext.Provider` wrapper
- * (rather than `BlueprintDocProvider`) ensures the store and the test share
- * the same UUIDs — `toDoc` generates random UUIDs, so passing the same
- * blueprint to both would yield different identities.
+ * from a domain fixture. A direct `BlueprintDocContext.Provider` wrapper
+ * (rather than `BlueprintDocProvider`) ensures the store and the test
+ * share the same UUIDs.
  */
 import { renderHook } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { describe, expect, it, vi } from "vitest";
+import { buildDoc } from "@/lib/__tests__/docHelpers";
 import { BlueprintDocContext } from "@/lib/doc/provider";
 import { createBlueprintDocStore } from "@/lib/doc/store";
 
@@ -48,30 +48,28 @@ vi.mock("@/components/builder/contexts/EditGuardContext", () => ({
 import { useBreadcrumbs } from "@/lib/routing/hooks";
 
 describe("useBreadcrumbs", () => {
-	const blueprint = {
-		app_name: "My App",
-		connect_type: undefined,
-		case_types: null,
-		modules: [
-			{
-				uuid: "module-1-uuid",
-				name: "Patients",
-				case_type: "patient",
-				forms: [
-					{
-						uuid: "form-1-uuid",
-						name: "Register",
-						type: "registration" as const,
-						questions: [],
-					},
-				],
-			},
-		],
-	};
-
 	// Build the store once so all tests share the same UUID assignments.
 	const store = createBlueprintDocStore();
-	store.getState().load(blueprint, "a");
+	store.getState().load(
+		buildDoc({
+			appId: "a",
+			appName: "My App",
+			modules: [
+				{
+					uuid: "module-1-uuid",
+					name: "Patients",
+					caseType: "patient",
+					forms: [
+						{
+							uuid: "form-1-uuid",
+							name: "Register",
+							type: "registration",
+						},
+					],
+				},
+			],
+		}),
+	);
 	const state = store.getState();
 	const moduleUuid = state.moduleOrder[0];
 	const formUuid = state.formOrder[moduleUuid][0];

@@ -10,9 +10,9 @@ import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
 import { useModule as useModuleEntity } from "@/lib/doc/hooks/useEntity";
 import { useOrderedForms } from "@/lib/doc/hooks/useModuleIds";
 import type { Uuid } from "@/lib/doc/types";
+import { CASE_LOADING_FORM_TYPES } from "@/lib/domain";
 import type { PreviewScreen } from "@/lib/preview/engine/types";
 import { useLocation, useNavigate } from "@/lib/routing/hooks";
-import { CASE_LOADING_FORM_TYPES } from "@/lib/schemas/blueprint";
 import { useBuilderIsReady, useEditMode } from "@/lib/session/hooks";
 
 const formTypeIcons = {

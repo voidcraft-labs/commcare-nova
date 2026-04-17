@@ -15,10 +15,10 @@ import {
 	useModule as useModuleEntity,
 } from "@/lib/doc/hooks/useEntity";
 import type { Uuid } from "@/lib/doc/types";
+import { defaultPostSubmit } from "@/lib/domain";
 import { getCaseData, getDummyCases } from "@/lib/preview/engine/dummyData";
 import type { PreviewScreen } from "@/lib/preview/engine/types";
 import { useLocation, useNavigate } from "@/lib/routing/hooks";
-import { defaultPostSubmit } from "@/lib/schemas/blueprint";
 import { useBuilderIsReady, useEditMode } from "@/lib/session/hooks";
 import { FormLayoutProvider } from "../form/FormLayoutContext";
 import { FormRenderer } from "../form/FormRenderer";
@@ -74,13 +74,13 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 	const form = useFormEntity(formUuid);
 
 	/** The form's uuid doubles as the entity key for FormRenderer, which
-	 *  subscribes to `questionOrder[formUuid]` for the ordered child list.
+	 *  subscribes to `fieldOrder[formUuid]` for the ordered child list.
 	 *  Read from the URL-derived location so this doesn't touch the legacy store. */
 	const formId = formUuid;
 
-	/** Whether the form has any questions — drives the empty state. */
+	/** Whether the form has any fields — drives the empty state. */
 	const hasQuestions = useBlueprintDoc((s) =>
-		formId ? (s.questionOrder[formId as Uuid]?.length ?? 0) > 0 : false,
+		formId ? (s.fieldOrder[formId as Uuid]?.length ?? 0) > 0 : false,
 	);
 
 	const caseData = useMemo(() => {

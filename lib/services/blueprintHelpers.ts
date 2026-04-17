@@ -1,48 +1,65 @@
 /**
- * blueprintHelpers — standalone mutation and query functions for AppBlueprint.
+ * blueprintHelpers — pure query + mutation-builder functions over BlueprintDoc.
  *
- * These functions operate directly on a mutable AppBlueprint object. On the
- * client they're called inside Immer drafts (via Zustand store actions). On
- * the server (SA agent) they're called on a plain mutable object.
+ * Every helper in this file reads a `BlueprintDoc` (the normalized store
+ * shape) and either:
  *
- * Every mutation function modifies its input in place and returns any output
- * the caller needs (e.g., new UUIDs, rename results). They never create or
- * return a new AppBlueprint — immutability is handled by Immer at the call site.
+ *   - returns a derived value (`searchBlueprint`, `fieldPath`,
+ *     `findFieldByPath`), or
+ *   - returns a `Mutation[]` that the caller applies via
+ *     `docStore.applyMany(mutations)`.
  *
- * Extracted from the former MutableBlueprint class. The class is gone — these
- * standalone functions are the canonical mutation/query API for blueprints.
+ * No helper in this file mutates state directly. The mutation-builder
+ * convention (`addModuleMutations`, `removeFieldMutations`, ...) keeps the
+ * agent-side call sites and the store-side reducer decoupled: helpers
+ * compute the intent, the reducer carries it out. This matches the
+ * mutation-first architecture established in Phase 1a.
+ *
+ * Phase history: this file used to contain `bp*`-prefixed helpers that
+ * took a nested `AppBlueprint` and mutated it in place. Task 15 of the
+ * Phase 1 plan rewrote every helper to consume the normalized doc shape
+ * and emit mutation batches instead. The file stays under `lib/services/`
+ * for now — Phase 3 relocates it to `lib/agent/`.
  */
 
-import { transformBareHashtags } from "../preview/engine/labelRefs";
-import { rewriteHashtagRefs, rewriteXPathRefs } from "../preview/xpath/rewrite";
+import type { Mutation } from "@/lib/doc/types";
 import type {
-	AppBlueprint,
-	BlueprintForm,
-	BlueprintModule,
+	BlueprintDoc,
 	CaseProperty,
 	CaseType,
 	ConnectConfig,
+	ConnectType,
+	Field,
+	FieldKind,
+	Form,
 	FormType,
+	Module,
 	PostSubmitDestination,
-	Question,
-} from "../schemas/blueprint";
+	Uuid,
+} from "@/lib/domain";
+import { asUuid, fieldKinds, isContainer } from "@/lib/domain";
+import { transformBareHashtags } from "../preview/engine/labelRefs";
+import { rewriteHashtagRefs, rewriteXPathRefs } from "../preview/xpath/rewrite";
 import { normalizeConnectConfig } from "./connectConfig";
-import {
-	type QuestionPath,
-	qpath,
-	qpathId,
-	qpathParent,
-	reassignUuids,
-} from "./questionPath";
 
 // ── Result types ────────────────────────────────────────────────────────
 
+/**
+ * A single match from `searchBlueprint`. The surface preserves the pre-
+ * migration index shape (`moduleIndex`, `formIndex`) so existing SA
+ * tool output continues to reference modules + forms positionally; the
+ * actual lookup is uuid-based internally.
+ */
 export interface SearchResult {
-	type: "module" | "form" | "question" | "case_list_column";
+	type: "module" | "form" | "field" | "case_list_column";
 	moduleIndex: number;
 	formIndex?: number;
-	questionPath?: QuestionPath;
-	/** Which field matched (e.g. 'label', 'case_property', 'id', 'name'). */
+	/** Slash-delimited path of field ids within the containing form.
+	 *  Absent for module-level and form-level matches. */
+	fieldPath?: string;
+	/** Stable uuid of the matched entity — lets callers target mutations. */
+	uuid?: Uuid;
+	/** Which property matched (e.g. 'label', 'case_property', 'id', 'name'). */
 	field: string;
 	/** The matched value. */
 	value: string;
@@ -50,138 +67,225 @@ export interface SearchResult {
 	context: string;
 }
 
-export interface RenameResult {
-	formsChanged: string[];
-	columnsChanged: string[];
+/** Summary of a rename cascade: which forms and modules had internal
+ *  references rewritten as a result of a case-property rename. */
+export interface RenameCasePropertyResult {
+	mutations: Mutation[];
+	formsChanged: Uuid[];
+	modulesWithColumnsChanged: Uuid[];
 }
 
-export interface QuestionRenameResult {
-	newPath: QuestionPath;
-	xpathFieldsRewritten: number;
-	/** True when the rename was blocked because a sibling already has the
-	 *  requested ID. When true, no mutation was applied. */
-	conflict?: boolean;
+// ── Query helpers ───────────────────────────────────────────────────────
+
+/** Walk up from a field uuid to its containing form. Undefined if the
+ *  field isn't reachable from any form (corrupt order maps). */
+export function containingFormUuid(
+	doc: BlueprintDoc,
+	fieldUuid: Uuid,
+): Uuid | undefined {
+	let cursor: Uuid | undefined = fieldUuid;
+	const visited = new Set<Uuid>();
+	while (cursor !== undefined) {
+		if (visited.has(cursor)) return undefined;
+		visited.add(cursor);
+		const parentUuid: Uuid | null | undefined = doc.fieldParent[cursor];
+		if (parentUuid === null || parentUuid === undefined) return undefined;
+		if (doc.forms[parentUuid] !== undefined) return parentUuid;
+		cursor = parentUuid;
+	}
+	return undefined;
 }
 
-// ── QuestionUpdate type ─────────────────────────────────────────────────
-
-export interface QuestionUpdate {
-	type: Question["type"];
-	label: string | null;
-	hint: string | null;
-	required: string | null;
-	validation: string | null;
-	validation_msg: string | null;
-	relevant: string | null;
-	calculate: string | null;
-	default_value: string | null;
-	options: Array<{ value: string; label: string }> | null;
-	case_property_on: string | null;
+/** Compute the slash-delimited id path from a form down to the given
+ *  field. Returns `undefined` if the field isn't reachable from any form. */
+export function fieldPath(
+	doc: BlueprintDoc,
+	fieldUuid: Uuid,
+): string | undefined {
+	const segments: string[] = [];
+	let cursor: Uuid | undefined = fieldUuid;
+	const visited = new Set<Uuid>();
+	while (cursor !== undefined) {
+		if (visited.has(cursor)) return undefined;
+		visited.add(cursor);
+		if (doc.forms[cursor] !== undefined) {
+			return segments.reverse().join("/");
+		}
+		const field = doc.fields[cursor];
+		if (!field) return undefined;
+		segments.push(field.id);
+		const parentUuid: Uuid | null = doc.fieldParent[cursor] ?? null;
+		if (parentUuid === null) return undefined;
+		cursor = parentUuid;
+	}
+	return undefined;
 }
 
-// ── NewQuestion type ────────────────────────────────────────────────────
-
-export interface NewQuestion {
-	id: string;
-	type: Question["type"];
-	label?: string;
-	hint?: string;
-	required?: string;
-	validation?: string;
-	validation_msg?: string;
-	relevant?: string;
-	calculate?: string;
-	default_value?: string;
-	options?: Array<{ value: string; label: string }>;
-	case_property_on?: string;
-	children?: NewQuestion[];
+/** Resolve a field by its slash-delimited id path within a form.
+ *  Returns the field entity and its parent uuid (for splice ops). */
+export function findFieldByPath(
+	doc: BlueprintDoc,
+	formUuid: Uuid,
+	path: string,
+): { field: Field; parentUuid: Uuid; index: number } | undefined {
+	const segments = path.split("/");
+	let parentUuid: Uuid = formUuid;
+	let field: Field | undefined;
+	let index = -1;
+	for (const seg of segments) {
+		const order = doc.fieldOrder[parentUuid] ?? [];
+		let found: Field | undefined;
+		let foundUuid: Uuid | undefined;
+		let foundIndex = -1;
+		for (let i = 0; i < order.length; i++) {
+			const candidateUuid = order[i];
+			const candidate = doc.fields[candidateUuid];
+			if (candidate?.id === seg) {
+				found = candidate;
+				foundUuid = candidateUuid;
+				foundIndex = i;
+				break;
+			}
+		}
+		if (!found || !foundUuid) return undefined;
+		field = found;
+		index = foundIndex;
+		parentUuid = foundUuid; // descend if there's another segment
+	}
+	if (!field) return undefined;
+	// `parentUuid` currently points at the matched field itself (we advance
+	// past it at the end of the loop). Back it off to the *actual* parent by
+	// walking one step up via the parent index.
+	const realParent = doc.fieldParent[field.uuid] ?? null;
+	if (realParent === null) return undefined;
+	return { field, parentUuid: realParent, index };
 }
 
-// ── Query helpers (pure, no mutation) ───────────────────────────────────
+/** Resolve a field by bare id within a form (first match, depth-first).
+ *  Used by SA tools that receive "patient_name" without a path. */
+export function findFieldByBareId(
+	doc: BlueprintDoc,
+	formUuid: Uuid,
+	bareId: string,
+): { field: Field; path: string } | undefined {
+	// Stack-based DFS across the form's field subtree. We record the current
+	// path prefix alongside each uuid so the returned `path` matches the
+	// order of traversal (visual order of the form).
+	const stack: Array<{ uuid: Uuid; prefix: string }> = [];
+	const topOrder = doc.fieldOrder[formUuid] ?? [];
+	// Push in reverse so iteration order matches visual form order.
+	for (let i = topOrder.length - 1; i >= 0; i--) {
+		stack.push({ uuid: topOrder[i], prefix: "" });
+	}
+	while (stack.length > 0) {
+		const next = stack.pop();
+		if (!next) break;
+		const { uuid, prefix } = next;
+		const field = doc.fields[uuid];
+		if (!field) continue;
+		const path = prefix ? `${prefix}/${field.id}` : field.id;
+		if (field.id === bareId) return { field, path };
+		// Only container kinds have children in the order map.
+		if (isContainer(field)) {
+			const children = doc.fieldOrder[uuid] ?? [];
+			for (let i = children.length - 1; i >= 0; i--) {
+				stack.push({ uuid: children[i], prefix: path });
+			}
+		}
+	}
+	return undefined;
+}
 
 /**
- * Walk the question tree matching path segments to find a question and its
- * parent array. The parent array reference is needed for splice operations
- * (remove, insert, move).
+ * Given a (module index, form index, bareId) triple — the SA's
+ * positional lookup shape — resolve the field's uuid + path in the
+ * normalized doc. Internal tool handlers can then dispatch mutations
+ * uuid-first without tracking indices themselves.
  */
-export function findByPath(
-	questions: Question[],
-	path: QuestionPath,
-): { question: Question; parent: Question[] } | undefined {
-	const segments = (path as string).split("/");
-	let current = questions;
-	for (let i = 0; i < segments.length - 1; i++) {
-		const parent = current.find((q) => q.id === segments[i]);
-		if (!parent?.children) return undefined;
-		current = parent.children;
-	}
-	const lastId = segments[segments.length - 1];
-	const question = current.find((q) => q.id === lastId);
-	if (!question) return undefined;
-	return { question, parent: current };
-}
-
-/** Recursive bare-ID search — returns the full QuestionPath for the first
- *  question whose `id` matches. Used by the SA agent to resolve user-facing
- *  IDs (flat names like "patient_name") to tree paths ("group1/patient_name"). */
-export function resolveQuestionId(
-	bp: AppBlueprint,
-	mIdx: number,
-	fIdx: number,
+export function resolveFieldByIndex(
+	doc: BlueprintDoc,
+	moduleIndex: number,
+	formIndex: number,
 	bareId: string,
-): QuestionPath | undefined {
-	const form = bp.modules[mIdx]?.forms[fIdx];
-	if (!form) return undefined;
-	return findQuestionPath(form.questions, bareId, undefined);
+): { field: Field; path: string; formUuid: Uuid } | undefined {
+	const moduleUuid = doc.moduleOrder[moduleIndex];
+	if (!moduleUuid) return undefined;
+	const formUuids = doc.formOrder[moduleUuid] ?? [];
+	const formUuid = formUuids[formIndex];
+	if (!formUuid) return undefined;
+	const resolved = findFieldByBareId(doc, formUuid, bareId);
+	if (!resolved) return undefined;
+	return { ...resolved, formUuid };
 }
 
-/** Look up a question's stable UUID given its tree path. */
-export function findUuidByPath(
-	bp: AppBlueprint,
-	mIdx: number,
-	fIdx: number,
-	path: QuestionPath,
-): string | undefined {
-	const form = bp.modules[mIdx]?.forms[fIdx];
-	if (!form) return undefined;
-	return findByPath(form.questions, path)?.question.uuid;
+/** Collect every field id in a form's subtree. Used to avoid sibling-id
+ *  collisions when callers (e.g. duplicate) need to mint a unique id. */
+export function collectAllFieldIdsInForm(
+	doc: BlueprintDoc,
+	formUuid: Uuid,
+): Set<string> {
+	const ids = new Set<string>();
+	const stack: Uuid[] = [...(doc.fieldOrder[formUuid] ?? [])];
+	while (stack.length > 0) {
+		const uuid = stack.pop() as Uuid;
+		const field = doc.fields[uuid];
+		if (!field) continue;
+		ids.add(field.id);
+		if (isContainer(field)) {
+			const children = doc.fieldOrder[uuid] ?? [];
+			for (const c of children) stack.push(c);
+		}
+	}
+	return ids;
 }
 
-/** Full-text search across the entire blueprint — modules, forms, questions,
- *  columns, and all XPath/display fields. */
+/**
+ * Full-text search across the entire blueprint.
+ *
+ * Walks modules → forms → fields (via the ordered indices) plus case-list
+ * and case-detail columns. Each hit records the positional context
+ * (moduleIndex / formIndex / fieldPath) so the SA tool output remains
+ * stable and human-readable, and also records the entity uuid so
+ * follow-up mutations can target it directly.
+ */
 export function searchBlueprint(
-	bp: AppBlueprint,
+	doc: BlueprintDoc,
 	query: string,
 ): SearchResult[] {
 	const results: SearchResult[] = [];
 	const q = query.toLowerCase();
 
-	for (let mIdx = 0; mIdx < bp.modules.length; mIdx++) {
-		const mod = bp.modules[mIdx];
+	for (let mIdx = 0; mIdx < doc.moduleOrder.length; mIdx++) {
+		const moduleUuid = doc.moduleOrder[mIdx];
+		const mod = doc.modules[moduleUuid];
+		if (!mod) continue;
 
 		if (mod.name.toLowerCase().includes(q)) {
 			results.push({
 				type: "module",
 				moduleIndex: mIdx,
+				uuid: moduleUuid,
 				field: "name",
 				value: mod.name,
 				context: `Module ${mIdx} "${mod.name}"`,
 			});
 		}
-		if (mod.case_type?.toLowerCase().includes(q)) {
+		if (mod.caseType?.toLowerCase().includes(q)) {
 			results.push({
 				type: "module",
 				moduleIndex: mIdx,
+				uuid: moduleUuid,
 				field: "case_type",
-				value: mod.case_type,
+				value: mod.caseType,
 				context: `Module ${mIdx} "${mod.name}" case_type`,
 			});
 		}
 
-		/* Case list + detail columns */
+		/* Case list + detail columns. These are module-level strings the SA
+		 * may want to search for when looking up a case property reference. */
 		const allColumns = [
-			...(mod.case_list_columns || []),
-			...(mod.case_detail_columns || []),
+			...(mod.caseListColumns ?? []),
+			...(mod.caseDetailColumns ?? []),
 		];
 		for (const col of allColumns) {
 			if (
@@ -191,6 +295,7 @@ export function searchBlueprint(
 				results.push({
 					type: "case_list_column",
 					moduleIndex: mIdx,
+					uuid: moduleUuid,
 					field: "column",
 					value: `${col.field} (${col.header})`,
 					context: `Module ${mIdx} "${mod.name}" column "${col.header}"`,
@@ -198,629 +303,88 @@ export function searchBlueprint(
 			}
 		}
 
-		for (let fIdx = 0; fIdx < mod.forms.length; fIdx++) {
-			const form = mod.forms[fIdx];
+		const formUuids = doc.formOrder[moduleUuid] ?? [];
+		for (let fIdx = 0; fIdx < formUuids.length; fIdx++) {
+			const formUuid = formUuids[fIdx];
+			const form = doc.forms[formUuid];
+			if (!form) continue;
 			if (form.name.toLowerCase().includes(q)) {
 				results.push({
 					type: "form",
 					moduleIndex: mIdx,
 					formIndex: fIdx,
+					uuid: formUuid,
 					field: "name",
 					value: form.name,
 					context: `m${mIdx}-f${fIdx} "${form.name}" (${form.type})`,
 				});
 			}
-			searchQuestions(form.questions, q, mIdx, fIdx, results, undefined);
+			searchFields(doc, formUuid, q, mIdx, fIdx, results, "");
 		}
 	}
 
 	return results;
 }
 
-/** Get the children array for a given parent path, or root questions if
- *  no parent. Initializes empty `children` arrays along the path as needed. */
-export function getParentArray(
-	questions: Question[],
-	parentPath?: QuestionPath,
-): Question[] {
-	if (!parentPath) return questions;
-	const segments = (parentPath as string).split("/");
-	let current = questions;
-	for (const seg of segments) {
-		const parent = current.find((q) => q.id === seg);
-		if (!parent) throw new Error(`Parent "${seg}" not found`);
-		if (!parent.children) parent.children = [];
-		current = parent.children;
-	}
-	return current;
-}
-
-/** Collect all question IDs in a tree (for duplicate-ID prevention). */
-export function collectAllIds(questions: Question[]): Set<string> {
-	const ids = new Set<string>();
-	for (const q of questions) {
-		ids.add(q.id);
-		if (q.children) {
-			for (const id of collectAllIds(q.children)) ids.add(id);
-		}
-	}
-	return ids;
-}
-
-// ── Mutation helpers (modify blueprint in place) ────────────────────────
-
-/** Set the data model case types. Used by generateSchema. */
-export function setCaseTypes(bp: AppBlueprint, caseTypes: CaseType[]): void {
-	bp.case_types = caseTypes;
-}
-
-/** Set app structure from scaffold output. Preserves case_types. */
-export function setScaffold(
-	bp: AppBlueprint,
-	scaffold: {
-		app_name: string;
-		description?: string;
-		connect_type?: "learn" | "deliver" | "";
-		modules: Array<{
-			name: string;
-			case_type?: string | null;
-			case_list_only?: boolean;
-			purpose?: string;
-			forms: Array<{
-				name: string;
-				type: string;
-				purpose?: string;
-				formDesign?: string;
-			}>;
-		}>;
-	},
-): void {
-	bp.app_name = scaffold.app_name;
-	const connectType = scaffold.connect_type;
-	if (connectType === "learn" || connectType === "deliver") {
-		bp.connect_type = connectType;
-	}
-	/* Stamp uuids at the wire-format boundary so every module + form leaving
-	 * setScaffold has stable identity. Matches how `newQuestionToBlueprint`
-	 * mints question uuids on creation — see Task 4 of the Phase 3 plan. */
-	bp.modules = scaffold.modules.map((sm) => ({
-		uuid: crypto.randomUUID(),
-		name: sm.name,
-		...(sm.case_type != null && { case_type: sm.case_type }),
-		...(sm.case_list_only && { case_list_only: sm.case_list_only }),
-		forms: sm.forms.map((sf) => ({
-			uuid: crypto.randomUUID(),
-			name: sf.name,
-			type: sf.type as FormType,
-			questions: [],
-		})),
-	}));
-}
-
-/** Update top-level app fields. */
-export function updateApp(
-	bp: AppBlueprint,
-	updates: { app_name?: string },
-): void {
-	if (updates.app_name !== undefined) bp.app_name = updates.app_name;
-}
-
-/** Update module fields. */
-export function updateModule(
-	bp: AppBlueprint,
-	mIdx: number,
-	updates: {
-		name?: string;
-		case_list_columns?: Array<{ field: string; header: string }>;
-		case_detail_columns?: Array<{ field: string; header: string }> | null;
-	},
-): void {
-	const mod = bp.modules[mIdx];
-	if (!mod) throw new Error(`Module ${mIdx} not found`);
-
-	if (updates.name !== undefined) mod.name = updates.name;
-	if (updates.case_list_columns !== undefined) {
-		mod.case_list_columns = updates.case_list_columns;
-	}
-	if (updates.case_detail_columns !== undefined) {
-		if (updates.case_detail_columns === null) {
-			delete mod.case_detail_columns;
-		} else {
-			mod.case_detail_columns = updates.case_detail_columns;
-		}
-	}
-}
-
-/** Update form fields. */
-export function updateForm(
-	bp: AppBlueprint,
-	mIdx: number,
-	fIdx: number,
-	updates: {
-		name?: string;
-		type?: FormType;
-		close_condition?: {
-			question: string;
-			answer: string;
-			operator?: "=" | "selected";
-		} | null;
-		connect?: ConnectConfig | null;
-		post_submit?: PostSubmitDestination | null;
-	},
-): void {
-	const form = bp.modules[mIdx]?.forms[fIdx];
-	if (!form) throw new Error(`Form m${mIdx}-f${fIdx} not found`);
-
-	if (updates.name !== undefined) form.name = updates.name;
-	if (updates.type !== undefined) form.type = updates.type;
-	if (updates.close_condition !== undefined) {
-		if (updates.close_condition === null) {
-			delete form.close_condition;
-		} else {
-			form.close_condition = updates.close_condition;
-		}
-	}
-	if (updates.connect !== undefined) {
-		if (updates.connect === null) {
-			delete form.connect;
-		} else {
-			const normalized = normalizeConnectConfig(updates.connect);
-			if (normalized) form.connect = normalized;
-			else delete form.connect;
-		}
-	}
-	if (updates.post_submit !== undefined) {
-		if (updates.post_submit === null) {
-			delete form.post_submit;
-		} else {
-			form.post_submit = updates.post_submit;
-		}
-	}
-}
-
-/** Replace a form entirely at the given index. The incoming form must
- *  carry the same uuid as the form being replaced — replaceForm by its
- *  nature means the caller already knows which form to swap, so a missing
- *  uuid is a bug, not a legitimate mint site. */
-export function replaceForm(
-	bp: AppBlueprint,
-	mIdx: number,
-	fIdx: number,
-	form: BlueprintForm,
-): void {
-	const mod = bp.modules[mIdx];
-	if (!mod) throw new Error(`Module ${mIdx} not found`);
-	if (fIdx < 0 || fIdx >= mod.forms.length)
-		throw new Error(`Form index ${fIdx} out of range`);
-	if (!form.uuid) {
-		throw new Error(
-			`replaceForm: incoming form "${form.name}" missing uuid — replaceForm cannot mint identity, callers must preserve the existing uuid`,
-		);
-	}
-	mod.forms[fIdx] = form;
-}
-
-/** Append a form to a module. Stamps a uuid if the caller didn't provide
- *  one — matches `newQuestionToBlueprint`'s producer-side mint pattern.
- *  The plan calls this an assignment site, not a fallback: every form
- *  leaving this helper has stable identity. Accepts a uuid-less form
- *  shape for SA tools that build form literals on the fly. */
-export function addForm(
-	bp: AppBlueprint,
-	mIdx: number,
-	form: Omit<BlueprintForm, "uuid"> & { uuid?: string },
-): void {
-	const mod = bp.modules[mIdx];
-	if (!mod) throw new Error(`Module ${mIdx} not found`);
-	mod.forms.push({ ...form, uuid: form.uuid ?? crypto.randomUUID() });
-}
-
-/** Remove a form from a module. */
-export function removeForm(bp: AppBlueprint, mIdx: number, fIdx: number): void {
-	const mod = bp.modules[mIdx];
-	if (!mod) throw new Error(`Module ${mIdx} not found`);
-	if (fIdx < 0 || fIdx >= mod.forms.length)
-		throw new Error(`Form index ${fIdx} out of range`);
-	mod.forms.splice(fIdx, 1);
-}
-
-/** Append a module to the blueprint. Stamps a uuid if the caller didn't
- *  provide one — same pattern as `addForm` and `newQuestionToBlueprint`.
- *  Producer-side assignment, not a fallback. Accepts a uuid-less module
- *  shape for SA tools that build module literals on the fly. */
-export function addModule(
-	bp: AppBlueprint,
-	module: Omit<BlueprintModule, "uuid"> & { uuid?: string },
-): void {
-	bp.modules.push({ ...module, uuid: module.uuid ?? crypto.randomUUID() });
-}
-
-/** Remove a module from the blueprint. */
-export function removeModule(bp: AppBlueprint, mIdx: number): void {
-	if (mIdx < 0 || mIdx >= bp.modules.length)
-		throw new Error(`Module ${mIdx} out of range`);
-	bp.modules.splice(mIdx, 1);
-}
-
-/** Update a single question's fields. Null removes the field, undefined skips it. */
-export function updateQuestion(
-	bp: AppBlueprint,
-	mIdx: number,
-	fIdx: number,
-	questionPath: QuestionPath,
-	updates: Partial<QuestionUpdate>,
-): Question {
-	const form = bp.modules[mIdx]?.forms[fIdx];
-	if (!form) throw new Error(`Form m${mIdx}-f${fIdx} not found`);
-
-	const found = findByPath(form.questions, questionPath);
-	if (!found)
-		throw new Error(
-			`Question "${questionPath}" not found in m${mIdx}-f${fIdx}`,
-		);
-
-	const question = found.question;
-	const record = question as unknown as Record<string, unknown>;
-	for (const [key, value] of Object.entries(updates)) {
-		if (value === undefined) continue;
-		if (value === null) {
-			delete record[key];
-		} else {
-			record[key] = value;
-		}
-	}
-
-	return question;
-}
-
-/** Add a question to a form. Returns the new question's stable UUID. */
-export function addQuestion(
-	bp: AppBlueprint,
-	mIdx: number,
-	fIdx: number,
-	question: NewQuestion,
-	opts?: {
-		afterPath?: QuestionPath;
-		beforePath?: QuestionPath;
-		atIndex?: number;
-		parentPath?: QuestionPath;
-	},
-): string {
-	const form = bp.modules[mIdx]?.forms[fIdx];
-	if (!form) throw new Error(`Form m${mIdx}-f${fIdx} not found`);
-
-	const newQ = newQuestionToBlueprint(question);
-
-	let arr: Question[];
-	if (opts?.parentPath) {
-		const parent = findByPath(form.questions, opts.parentPath);
-		if (!parent)
-			throw new Error(`Parent question "${opts.parentPath}" not found`);
-		if (!parent.question.children) parent.question.children = [];
-		arr = parent.question.children;
-	} else {
-		arr = form.questions;
-	}
-
-	if (opts?.atIndex !== undefined) {
-		arr.splice(opts.atIndex, 0, newQ);
-	} else {
-		const afterId = opts?.afterPath ? qpathId(opts.afterPath) : undefined;
-		const beforeId = opts?.beforePath ? qpathId(opts.beforePath) : undefined;
-		insertIntoArray(arr, newQ, afterId, beforeId);
-	}
-
-	return newQ.uuid;
-}
-
-/** Remove a question from a form. */
-export function removeQuestion(
-	bp: AppBlueprint,
-	mIdx: number,
-	fIdx: number,
-	questionPath: QuestionPath,
-): void {
-	const form = bp.modules[mIdx]?.forms[fIdx];
-	if (!form) throw new Error(`Form m${mIdx}-f${fIdx} not found`);
-
-	const found = findByPath(form.questions, questionPath);
-	if (!found)
-		throw new Error(
-			`Question "${questionPath}" not found in m${mIdx}-f${fIdx}`,
-		);
-
-	const idx = found.parent.indexOf(found.question);
-	if (idx !== -1) found.parent.splice(idx, 1);
-
-	const bareId = qpathId(questionPath);
-	if (form.close_condition?.question === bareId) {
-		delete form.close_condition;
-	}
-}
-
-/** Move a question within a form (same-level or cross-level). */
-export function moveQuestion(
-	bp: AppBlueprint,
-	mIdx: number,
-	fIdx: number,
-	questionPath: QuestionPath,
-	opts: {
-		afterPath?: QuestionPath;
-		beforePath?: QuestionPath;
-		targetParentPath?: QuestionPath;
-	},
-): void {
-	const form = bp.modules[mIdx]?.forms[fIdx];
-	if (!form) throw new Error(`Form m${mIdx}-f${fIdx} not found`);
-
-	/* No-op if moving relative to itself */
-	if (opts.afterPath === questionPath || opts.beforePath === questionPath)
-		return;
-
-	const isCrossLevel = "targetParentPath" in opts;
-
-	/* Prevent circular nesting — can't move a group into itself or its descendants */
-	if (isCrossLevel && opts.targetParentPath !== undefined) {
-		const targetStr = opts.targetParentPath as string;
-		const draggedStr = questionPath as string;
-		if (targetStr === draggedStr || targetStr.startsWith(`${draggedStr}/`))
-			return;
-	}
-
-	const found = findByPath(form.questions, questionPath);
-	if (!found)
-		throw new Error(
-			`Question "${questionPath}" not found in m${mIdx}-f${fIdx}`,
-		);
-
-	/* Remove from current position */
-	const idx = found.parent.indexOf(found.question);
-	if (idx !== -1) found.parent.splice(idx, 1);
-
-	/* Determine target array — cross-level uses targetParentPath, otherwise same parent */
-	const targetArray = isCrossLevel
-		? getParentArray(form.questions, opts.targetParentPath)
-		: found.parent;
-
-	const afterId = opts.afterPath ? qpathId(opts.afterPath) : undefined;
-	const beforeId = opts.beforePath ? qpathId(opts.beforePath) : undefined;
-	insertIntoArray(targetArray, found.question, afterId, beforeId);
-}
-
-/** Duplicate a question, returning its new path and stable UUID. */
-export function duplicateQuestion(
-	bp: AppBlueprint,
-	mIdx: number,
-	fIdx: number,
-	questionPath: QuestionPath,
-): { newPath: QuestionPath; newUuid: string } {
-	const form = bp.modules[mIdx]?.forms[fIdx];
-	if (!form) throw new Error(`Form m${mIdx}-f${fIdx} not found`);
-
-	const found = findByPath(form.questions, questionPath);
-	if (!found)
-		throw new Error(
-			`Question "${questionPath}" not found in m${mIdx}-f${fIdx}`,
-		);
-
-	/* Deep-clone and generate new ID */
-	const clone: Question = structuredClone(found.question);
-	let newId = `${clone.id}_copy`;
-	const allIds = collectAllIds(form.questions);
-	if (allIds.has(newId)) {
-		let counter = 2;
-		while (allIds.has(`${clone.id}_${counter}`)) counter++;
-		newId = `${clone.id}_${counter}`;
-	}
-	clone.id = newId;
-
-	/* Fresh UUIDs for the clone and all descendants — identity must be unique */
-	reassignUuids([clone]);
-
-	/* Clear case mapping on the clone to avoid duplicate mappings */
-	delete clone.case_property_on;
-
-	insertIntoArray(found.parent, clone, qpathId(questionPath));
-	return {
-		newPath: qpath(newId, qpathParent(questionPath)),
-		newUuid: clone.uuid,
-	};
-}
-
-/** Rename a question and rewrite XPath references in sibling questions. */
-export function renameQuestion(
-	bp: AppBlueprint,
-	mIdx: number,
-	fIdx: number,
-	questionPath: QuestionPath,
-	newId: string,
-): QuestionRenameResult {
-	const form = bp.modules[mIdx]?.forms[fIdx];
-	if (!form) throw new Error(`Form m${mIdx}-f${fIdx} not found`);
-
-	const found = findByPath(form.questions, questionPath);
-	if (!found)
-		throw new Error(
-			`Question "${questionPath}" not found in m${mIdx}-f${fIdx}`,
-		);
-
-	const oldId = found.question.id;
-	const oldXPathPath = questionPath as string;
-	found.question.id = newId;
-
-	let xpathFieldsRewritten = 0;
-	xpathFieldsRewritten += rewriteXPathInQuestions(
-		form.questions,
-		oldXPathPath,
-		newId,
-	);
-
-	if (form.close_condition?.question === oldId) {
-		form.close_condition.question = newId;
-	}
-
-	const newPath = qpath(newId, qpathParent(questionPath));
-	return { newPath, xpathFieldsRewritten };
-}
-
-/** Rename a case property across all modules, forms, questions, and columns. */
-export function renameCaseProperty(
-	bp: AppBlueprint,
-	caseType: string,
-	oldName: string,
-	newName: string,
-): RenameResult {
-	const formsChanged: string[] = [];
-	const columnsChanged: string[] = [];
-
-	for (let mIdx = 0; mIdx < bp.modules.length; mIdx++) {
-		const mod = bp.modules[mIdx];
-		if (mod.case_type !== caseType) continue;
-
-		for (const columns of [mod.case_list_columns, mod.case_detail_columns]) {
-			if (columns) {
-				for (const col of columns) {
-					if (col.field === oldName) {
-						col.field = newName;
-						if (!columnsChanged.includes(`m${mIdx}`))
-							columnsChanged.push(`m${mIdx}`);
-					}
-				}
-			}
-		}
-
-		for (let fIdx = 0; fIdx < mod.forms.length; fIdx++) {
-			const form = mod.forms[fIdx];
-			const formChanged = renamePropertyInQuestions(
-				form.questions,
-				oldName,
-				newName,
-			);
-			if (formChanged) {
-				formsChanged.push(`m${mIdx}-f${fIdx}`);
-			}
-		}
-	}
-
-	return { formsChanged, columnsChanged };
-}
-
-/** Update a case property on a case type. */
-export function updateCaseProperty(
-	bp: AppBlueprint,
-	caseTypeName: string,
-	propertyName: string,
-	updates: Partial<Omit<CaseProperty, "name">>,
-): void {
-	const ct = bp.case_types?.find((c) => c.name === caseTypeName);
-	if (!ct) throw new Error(`Case type "${caseTypeName}" not found`);
-	const prop = ct.properties.find((p) => p.name === propertyName);
-	if (!prop)
-		throw new Error(
-			`Property "${propertyName}" not found on case type "${caseTypeName}"`,
-		);
-	Object.assign(prop, updates);
-}
-
-// ── Internal helpers ────────────────────────────────────────────────────
-
-/** Insert an item into an array after/before a given ID, or at the end. */
-function insertIntoArray(
-	arr: Question[],
-	item: Question,
-	afterId?: string,
-	beforeId?: string,
-): void {
-	if (beforeId) {
-		const idx = arr.findIndex((q) => q.id === beforeId);
-		if (idx === -1) {
-			arr.push(item);
-		} else {
-			arr.splice(idx, 0, item);
-		}
-		return;
-	}
-	if (!afterId) {
-		arr.push(item);
-		return;
-	}
-	const idx = arr.findIndex((q) => q.id === afterId);
-	if (idx === -1) {
-		arr.push(item);
-	} else {
-		arr.splice(idx + 1, 0, item);
-	}
-}
-
-/** Convert a NewQuestion (SA/UI input shape) to a full Question with UUID. */
-function newQuestionToBlueprint(nq: NewQuestion): Question {
-	return {
-		uuid: crypto.randomUUID(),
-		id: nq.id,
-		type: nq.type,
-		...(nq.label != null && { label: nq.label }),
-		...(nq.hint != null && { hint: nq.hint }),
-		...(nq.required != null && { required: nq.required }),
-		...(nq.validation != null && { validation: nq.validation }),
-		...(nq.validation_msg != null && { validation_msg: nq.validation_msg }),
-		...(nq.relevant != null && { relevant: nq.relevant }),
-		...(nq.calculate != null && { calculate: nq.calculate }),
-		...(nq.default_value != null && { default_value: nq.default_value }),
-		...(nq.options != null && { options: nq.options }),
-		...(nq.case_property_on != null && {
-			case_property_on: nq.case_property_on,
-		}),
-		...((nq.type === "group" || nq.type === "repeat") && {
-			children: (nq.children ?? []).map((c) => newQuestionToBlueprint(c)),
-		}),
-	};
-}
-
-/** Recursive search within a form's questions. */
-function searchQuestions(
-	questions: Question[],
+/** Recursive field-tree search used by `searchBlueprint`. Walks in visual
+ *  (ordered) sequence so the result list matches form layout. */
+function searchFields(
+	doc: BlueprintDoc,
+	parentUuid: Uuid,
 	query: string,
 	mIdx: number,
 	fIdx: number,
 	results: SearchResult[],
-	parent: QuestionPath | undefined,
+	pathPrefix: string,
 ): void {
-	for (const q of questions) {
-		const questionPath = qpath(q.id, parent);
-		const formRef = `m${mIdx}-f${fIdx}`;
+	const order = doc.fieldOrder[parentUuid] ?? [];
+	for (const uuid of order) {
+		const field = doc.fields[uuid];
+		if (!field) continue;
+		const path = pathPrefix ? `${pathPrefix}/${field.id}` : field.id;
 		const matchFields: Array<{ field: string; value: string }> = [];
 
-		if (q.id.toLowerCase().includes(query))
-			matchFields.push({ field: "id", value: q.id });
-		if (q.label?.toLowerCase().includes(query))
-			matchFields.push({ field: "label", value: q.label });
-		if (q.case_property_on && q.id.toLowerCase().includes(query))
+		if (field.id.toLowerCase().includes(query)) {
+			matchFields.push({ field: "id", value: field.id });
+		}
+		if ("label" in field && field.label?.toLowerCase().includes(query)) {
+			matchFields.push({ field: "label", value: field.label });
+		}
+		const anyField = field as Record<string, unknown>;
+		if (
+			typeof anyField.case_property === "string" &&
+			field.id.toLowerCase().includes(query)
+		) {
 			matchFields.push({
 				field: "case_property",
-				value: `${q.id}→${q.case_property_on}`,
+				value: `${field.id}→${anyField.case_property}`,
 			});
-		if (q.validation?.toLowerCase().includes(query))
-			matchFields.push({ field: "validation", value: q.validation });
-		if (q.relevant?.toLowerCase().includes(query))
-			matchFields.push({ field: "relevant", value: q.relevant });
-		if (q.calculate?.toLowerCase().includes(query))
-			matchFields.push({ field: "calculate", value: q.calculate });
-		if (q.default_value?.toLowerCase().includes(query))
-			matchFields.push({ field: "default_value", value: q.default_value });
-		if (q.validation_msg?.toLowerCase().includes(query))
-			matchFields.push({ field: "validation_msg", value: q.validation_msg });
-		if (q.hint?.toLowerCase().includes(query))
-			matchFields.push({ field: "hint", value: q.hint });
-
-		if (q.options && q.options.length > 0) {
-			for (const opt of q.options) {
+		}
+		for (const key of [
+			"validate",
+			"relevant",
+			"calculate",
+			"default_value",
+			"validate_msg",
+			"hint",
+		] as const) {
+			const v = anyField[key];
+			if (typeof v === "string" && v.toLowerCase().includes(query)) {
+				matchFields.push({ field: key, value: v });
+			}
+		}
+		const opts = anyField.options;
+		if (Array.isArray(opts)) {
+			for (const opt of opts) {
+				const o = opt as { value?: unknown; label?: unknown };
 				if (
-					opt.value.toLowerCase().includes(query) ||
-					opt.label.toLowerCase().includes(query)
+					(typeof o.value === "string" &&
+						o.value.toLowerCase().includes(query)) ||
+					(typeof o.label === "string" && o.label.toLowerCase().includes(query))
 				) {
 					matchFields.push({
 						field: "option",
-						value: `${opt.value}: ${opt.label}`,
+						value: `${String(o.value)}: ${String(o.label)}`,
 					});
 					break;
 				}
@@ -828,129 +392,740 @@ function searchQuestions(
 		}
 
 		for (const match of matchFields) {
+			const caseTag =
+				typeof anyField.case_property === "string"
+					? `, case_property:${anyField.case_property}`
+					: "";
 			results.push({
-				type: "question",
+				type: "field",
 				moduleIndex: mIdx,
 				formIndex: fIdx,
-				questionPath,
+				fieldPath: path,
+				uuid,
 				field: match.field,
 				value: match.value,
-				context: `${formRef} question "${q.id}" (${q.type}${q.case_property_on ? `, case_property_on:${q.case_property_on}` : ""})`,
+				context: `m${mIdx}-f${fIdx} field "${field.id}" (${field.kind}${caseTag})`,
 			});
 		}
 
-		if (q.children) {
-			searchQuestions(q.children, query, mIdx, fIdx, results, questionPath);
+		if (isContainer(field)) {
+			searchFields(doc, uuid, query, mIdx, fIdx, results, path);
 		}
 	}
 }
 
-/** Recursive bare-ID search, returns full QuestionPath. */
-function findQuestionPath(
-	questions: Question[],
-	id: string,
-	parent: QuestionPath | undefined,
-): QuestionPath | undefined {
-	for (const q of questions) {
-		const path = qpath(q.id, parent);
-		if (q.id === id) return path;
-		if (q.children) {
-			const found = findQuestionPath(q.children, id, path);
-			if (found) return found;
-		}
+// ── Mutation builders — app level ───────────────────────────────────────
+
+/** Single-field app-level patch. `app_name` and `connect_type` map
+ *  directly to dedicated mutation kinds. */
+export function updateAppMutations(
+	_doc: BlueprintDoc,
+	patch: { appName?: string; connectType?: ConnectType | null },
+): Mutation[] {
+	const muts: Mutation[] = [];
+	if (patch.appName !== undefined) {
+		muts.push({ kind: "setAppName", name: patch.appName });
 	}
-	return undefined;
+	if (patch.connectType !== undefined) {
+		muts.push({ kind: "setConnectType", connectType: patch.connectType });
+	}
+	return muts;
 }
 
-/** Rewrite XPath path references in all questions (used by renameQuestion). */
-function rewriteXPathInQuestions(
-	questions: Question[],
-	oldPath: string,
+/** Replace the app's case-type catalog wholesale. */
+export function setCaseTypesMutations(
+	_doc: BlueprintDoc,
+	caseTypes: CaseType[] | null,
+): Mutation[] {
+	return [{ kind: "setCaseTypes", caseTypes }];
+}
+
+/**
+ * Merge a partial patch into a single case property. Reads the current
+ * catalog off the doc, builds the new array immutably, and emits a
+ * single `setCaseTypes` mutation.
+ *
+ * No-op (returns empty array) when either the case type or the property
+ * is missing — matches the legacy helper's fail-open behavior so the
+ * UI doesn't throw on stale selections.
+ */
+export function updateCasePropertyMutations(
+	doc: BlueprintDoc,
+	caseTypeName: string,
+	propertyName: string,
+	updates: Partial<Omit<CaseProperty, "name">>,
+): Mutation[] {
+	const current = doc.caseTypes;
+	if (!current) return [];
+	const ctIndex = current.findIndex((ct) => ct.name === caseTypeName);
+	if (ctIndex === -1) return [];
+	const ct = current[ctIndex];
+	const propIndex = ct.properties.findIndex((p) => p.name === propertyName);
+	if (propIndex === -1) return [];
+	const next = current.map((c, i) => {
+		if (i !== ctIndex) return c;
+		return {
+			...c,
+			properties: c.properties.map((p, j) =>
+				j === propIndex ? { ...p, ...updates } : p,
+			),
+		};
+	});
+	return [{ kind: "setCaseTypes", caseTypes: next }];
+}
+
+// ── Mutation builders — modules ─────────────────────────────────────────
+
+/** Input shape for a new module. `uuid` may be supplied to pin identity
+ *  (e.g. during scaffold), otherwise the helper mints one. */
+export interface NewModuleInput {
+	uuid?: string;
+	id?: string;
+	name: string;
+	caseType?: string;
+	caseListOnly?: boolean;
+	purpose?: string;
+	caseListColumns?: Module["caseListColumns"];
+	caseDetailColumns?: Module["caseDetailColumns"];
+}
+
+/** Build an `addModule` mutation. Mints a uuid when the caller doesn't
+ *  supply one — mirrors the producer-side stamp pattern established by
+ *  `addField` in the reducer. Accepts an optional `index` for ordered
+ *  insertion; omit to append at the end. */
+export function addModuleMutations(
+	_doc: BlueprintDoc,
+	input: NewModuleInput,
+	opts?: { index?: number },
+): Mutation[] {
+	const uuid = asUuid(
+		typeof input.uuid === "string" && input.uuid.length > 0
+			? input.uuid
+			: crypto.randomUUID(),
+	);
+	const module: Module = {
+		uuid,
+		// Modules carry a semantic `id` alongside their display `name`. SA
+		// callers typically only know the name; derive a slug when id is
+		// absent so round-tripping through the store stays consistent.
+		id: input.id ?? slugifyModuleId(input.name),
+		name: input.name,
+		...(input.caseType !== undefined && { caseType: input.caseType }),
+		...(input.caseListOnly !== undefined && {
+			caseListOnly: input.caseListOnly,
+		}),
+		...(input.purpose !== undefined && { purpose: input.purpose }),
+		...(input.caseListColumns !== undefined && {
+			caseListColumns: input.caseListColumns,
+		}),
+		...(input.caseDetailColumns !== undefined && {
+			caseDetailColumns: input.caseDetailColumns,
+		}),
+	};
+	return [
+		{
+			kind: "addModule",
+			module,
+			...(opts?.index !== undefined && { index: opts.index }),
+		},
+	];
+}
+
+/** Remove a module (cascades forms + fields via the reducer). No-op when
+ *  the uuid isn't present in the current doc. */
+export function removeModuleMutations(
+	doc: BlueprintDoc,
+	moduleUuid: Uuid,
+): Mutation[] {
+	if (doc.modules[moduleUuid] === undefined) return [];
+	return [{ kind: "removeModule", uuid: moduleUuid }];
+}
+
+/** Move a module to a new position within `moduleOrder`. */
+export function moveModuleMutations(
+	doc: BlueprintDoc,
+	moduleUuid: Uuid,
+	toIndex: number,
+): Mutation[] {
+	if (doc.modules[moduleUuid] === undefined) return [];
+	return [{ kind: "moveModule", uuid: moduleUuid, toIndex }];
+}
+
+/** Rename a module's display slug. The `renameModule` reducer writes this
+ *  into the `name` field — modules don't have a separate slug. */
+export function renameModuleMutations(
+	doc: BlueprintDoc,
+	moduleUuid: Uuid,
 	newId: string,
-): number {
-	const xpathFields = [
-		"relevant",
-		"calculate",
-		"default_value",
-		"validation",
-	] as const;
-	const displayFields = ["label", "hint"] as const;
-	const rewriter = (expr: string) => rewriteXPathRefs(expr, oldPath, newId);
-	let count = 0;
-	for (const q of questions) {
-		for (const field of xpathFields) {
-			const val = q[field];
-			if (!val) continue;
-			const rewritten = rewriter(val);
-			if (rewritten !== val) {
-				(q as unknown as Record<string, unknown>)[field] = rewritten;
-				count++;
-			}
-		}
-		for (const field of displayFields) {
-			const text = q[field];
-			if (!text) continue;
-			const rewritten = transformBareHashtags(text, rewriter);
-			if (rewritten !== text) {
-				(q as unknown as Record<string, unknown>)[field] = rewritten;
-				count++;
-			}
-		}
-		if (q.children) {
-			count += rewriteXPathInQuestions(q.children, oldPath, newId);
-		}
-	}
-	return count;
+): Mutation[] {
+	if (doc.modules[moduleUuid] === undefined) return [];
+	return [{ kind: "renameModule", uuid: moduleUuid, newId }];
 }
 
-/** Rename a case property in all questions (ID + XPath + hashtag refs). */
-function renamePropertyInQuestions(
-	questions: Question[],
+/** Patch module fields. Keys mirror the domain Module shape (camelCase). */
+export function updateModuleMutations(
+	doc: BlueprintDoc,
+	moduleUuid: Uuid,
+	patch: Partial<Omit<Module, "uuid">>,
+): Mutation[] {
+	if (doc.modules[moduleUuid] === undefined) return [];
+	return [{ kind: "updateModule", uuid: moduleUuid, patch }];
+}
+
+// ── Mutation builders — forms ───────────────────────────────────────────
+
+/** Input shape for a new form. `uuid` may be supplied (e.g. during
+ *  scaffold) to pin identity; otherwise the helper mints one. */
+export interface NewFormInput {
+	uuid?: string;
+	id?: string;
+	name: string;
+	type: FormType;
+	purpose?: string;
+	closeCondition?: Form["closeCondition"];
+	connect?: ConnectConfig | null;
+	postSubmit?: PostSubmitDestination;
+}
+
+/** Build an `addForm` mutation. Mints a uuid when the caller doesn't
+ *  supply one. Forms are keyed under their owning module via the
+ *  `moduleUuid` argument — the reducer refuses to install a form whose
+ *  module isn't registered. */
+export function addFormMutations(
+	doc: BlueprintDoc,
+	moduleUuid: Uuid,
+	input: NewFormInput,
+	opts?: { index?: number },
+): Mutation[] {
+	if (doc.modules[moduleUuid] === undefined) return [];
+	const uuid = asUuid(
+		typeof input.uuid === "string" && input.uuid.length > 0
+			? input.uuid
+			: crypto.randomUUID(),
+	);
+	const form: Form = {
+		uuid,
+		// Forms carry a semantic id alongside name, mirroring modules.
+		id: input.id ?? slugifyFormId(input.name),
+		name: input.name,
+		type: input.type,
+		...(input.purpose !== undefined && { purpose: input.purpose }),
+		...(input.closeCondition !== undefined && {
+			closeCondition: input.closeCondition,
+		}),
+		...(input.connect != null && {
+			// `normalizeConnectConfig` strips empty sub-configs. A returned
+			// `undefined` means "every sub-config was empty" — which for
+			// `addForm` means "don't stamp connect at all".
+			connect: normalizeConnectConfig(input.connect),
+		}),
+		...(input.postSubmit !== undefined && { postSubmit: input.postSubmit }),
+	};
+	return [
+		{
+			kind: "addForm",
+			moduleUuid,
+			form,
+			...(opts?.index !== undefined && { index: opts.index }),
+		},
+	];
+}
+
+/** Remove a form (cascades field subtree via the reducer). No-op when
+ *  the uuid isn't present in the current doc. */
+export function removeFormMutations(
+	doc: BlueprintDoc,
+	formUuid: Uuid,
+): Mutation[] {
+	if (doc.forms[formUuid] === undefined) return [];
+	return [{ kind: "removeForm", uuid: formUuid }];
+}
+
+/** Move a form to a different module + index. Both uuids are validated. */
+export function moveFormMutations(
+	doc: BlueprintDoc,
+	formUuid: Uuid,
+	toModuleUuid: Uuid,
+	toIndex: number,
+): Mutation[] {
+	if (doc.forms[formUuid] === undefined) return [];
+	if (doc.modules[toModuleUuid] === undefined) return [];
+	return [{ kind: "moveForm", uuid: formUuid, toModuleUuid, toIndex }];
+}
+
+/** Rename a form's display name. */
+export function renameFormMutations(
+	doc: BlueprintDoc,
+	formUuid: Uuid,
+	newId: string,
+): Mutation[] {
+	if (doc.forms[formUuid] === undefined) return [];
+	return [{ kind: "renameForm", uuid: formUuid, newId }];
+}
+
+/**
+ * Patch form-level fields. Nullable fields (`closeCondition`, `connect`,
+ * `postSubmit`) follow a convention: passing `null` clears the field
+ * (the reducer stores `undefined`), passing an object replaces it, and
+ * omitting the key leaves it untouched.
+ *
+ * `connect` additionally runs through `normalizeConnectConfig` so empty
+ * sub-configs don't get written — matches legacy behavior where an
+ * explicit `{ connect: {} }` patch was treated as "clear".
+ */
+export function updateFormMutations(
+	doc: BlueprintDoc,
+	formUuid: Uuid,
+	patch: Partial<{
+		name: string;
+		type: FormType;
+		closeCondition: Form["closeCondition"] | null;
+		connect: ConnectConfig | null;
+		postSubmit: PostSubmitDestination | null;
+		purpose: string | null;
+	}>,
+): Mutation[] {
+	if (doc.forms[formUuid] === undefined) return [];
+	const reducerPatch: Partial<Omit<Form, "uuid">> = {};
+	if (patch.name !== undefined) reducerPatch.name = patch.name;
+	if (patch.type !== undefined) reducerPatch.type = patch.type;
+	if (patch.closeCondition !== undefined) {
+		// `null` → clear (reducer treats `undefined` as "remove" via
+		// Object.assign — not perfect, but Immer's Object.assign with an
+		// explicit `undefined` clears the key in strict mode).
+		reducerPatch.closeCondition =
+			patch.closeCondition === null ? undefined : patch.closeCondition;
+	}
+	if (patch.connect !== undefined) {
+		reducerPatch.connect =
+			patch.connect === null
+				? undefined
+				: (normalizeConnectConfig(patch.connect) ?? undefined);
+	}
+	if (patch.postSubmit !== undefined) {
+		reducerPatch.postSubmit =
+			patch.postSubmit === null ? undefined : patch.postSubmit;
+	}
+	if (patch.purpose !== undefined) {
+		reducerPatch.purpose = patch.purpose === null ? undefined : patch.purpose;
+	}
+	return [{ kind: "updateForm", uuid: formUuid, patch: reducerPatch }];
+}
+
+/**
+ * Replace a form's metadata + field subtree atomically. The incoming
+ * `fields` array and `fieldOrder` map describe the NEW subtree; the
+ * reducer drops the old subtree and installs the new one in one pass.
+ *
+ * The form uuid is preserved by convention — callers that want to
+ * replace a form without disturbing its slot in the module order pass
+ * the existing uuid. The reducer refuses to act if the form doesn't
+ * already exist (`replaceForm` is a swap, not an insert).
+ */
+export function replaceFormMutations(
+	doc: BlueprintDoc,
+	formUuid: Uuid,
+	form: Form,
+	fields: Field[],
+	fieldOrder: Record<Uuid, Uuid[]>,
+): Mutation[] {
+	if (doc.forms[formUuid] === undefined) return [];
+	// Stamp the destination uuid onto the form entity so callers that
+	// constructed it standalone (without knowing the destination) still
+	// produce a well-formed replacement.
+	const stamped: Form = { ...form, uuid: formUuid };
+	return [
+		{ kind: "replaceForm", uuid: formUuid, form: stamped, fields, fieldOrder },
+	];
+}
+
+// ── Mutation builders — fields ──────────────────────────────────────────
+
+/** Build an `addField` mutation. The caller supplies a full `Field`
+ *  entity (with uuid); helpers that mint fields from SA wire format live
+ *  elsewhere — this helper stays type-tight against the domain shape. */
+export function addFieldMutations(
+	doc: BlueprintDoc,
+	input: {
+		parentUuid: Uuid;
+		field: Field;
+		index?: number;
+	},
+): Mutation[] {
+	// Parent must be a form or an existing container field.
+	const parentForm = doc.forms[input.parentUuid];
+	const parentField = doc.fields[input.parentUuid];
+	const parentExists =
+		parentForm !== undefined ||
+		(parentField !== undefined && isContainer(parentField));
+	if (!parentExists) return [];
+	return [
+		{
+			kind: "addField",
+			parentUuid: input.parentUuid,
+			field: input.field,
+			...(input.index !== undefined && { index: input.index }),
+		},
+	];
+}
+
+/** Remove a field (cascades children via the reducer). */
+export function removeFieldMutations(
+	doc: BlueprintDoc,
+	fieldUuid: Uuid,
+): Mutation[] {
+	if (doc.fields[fieldUuid] === undefined) return [];
+	return [{ kind: "removeField", uuid: fieldUuid }];
+}
+
+/** Move a field to a new parent + index. Destination parent must be
+ *  either a form or a container field — the reducer validates this too,
+ *  but we pre-filter to avoid emitting a mutation that will silently
+ *  be ignored. */
+export function moveFieldMutations(
+	doc: BlueprintDoc,
+	fieldUuid: Uuid,
+	toParentUuid: Uuid,
+	toIndex: number,
+): Mutation[] {
+	if (doc.fields[fieldUuid] === undefined) return [];
+	const destIsForm = doc.forms[toParentUuid] !== undefined;
+	const destField = doc.fields[toParentUuid];
+	const destIsContainer = destField !== undefined && isContainer(destField);
+	if (!destIsForm && !destIsContainer) return [];
+	return [
+		{
+			kind: "moveField",
+			uuid: fieldUuid,
+			toParentUuid,
+			toIndex,
+		},
+	];
+}
+
+/** Rename a field's semantic id. The reducer rewrites XPath references
+ *  to the old id across the entire doc atomically. */
+export function renameFieldMutations(
+	doc: BlueprintDoc,
+	fieldUuid: Uuid,
+	newId: string,
+): Mutation[] {
+	if (doc.fields[fieldUuid] === undefined) return [];
+	return [{ kind: "renameField", uuid: fieldUuid, newId }];
+}
+
+/** Duplicate a field (+ subtree) with fresh uuids and a deduped id. */
+export function duplicateFieldMutations(
+	doc: BlueprintDoc,
+	fieldUuid: Uuid,
+): Mutation[] {
+	if (doc.fields[fieldUuid] === undefined) return [];
+	return [{ kind: "duplicateField", uuid: fieldUuid }];
+}
+
+/** Patch arbitrary fields on a field entity. The `Field` union is
+ *  discriminated by `kind`; the patch must match the specific kind's
+ *  shape. Narrowing callers (SA editQuestion tool, inspect panel) are
+ *  responsible for constructing a valid patch. */
+export function updateFieldMutations(
+	doc: BlueprintDoc,
+	fieldUuid: Uuid,
+	patch: Partial<Omit<Field, "uuid">>,
+): Mutation[] {
+	if (doc.fields[fieldUuid] === undefined) return [];
+	return [{ kind: "updateField", uuid: fieldUuid, patch }];
+}
+
+// ── Mutation builders — scaffold ────────────────────────────────────────
+
+/** The scaffold wire shape emitted by the SA's `generateScaffold` tool.
+ *  Matches `scaffoldModulesSchema` in `lib/schemas/blueprint.ts` — kept
+ *  duplicated here so this file has no dependency on the legacy schema
+ *  module (which Task 22 deletes). */
+export interface ScaffoldInput {
+	app_name: string;
+	description?: string;
+	connect_type?: "learn" | "deliver" | "";
+	modules: Array<{
+		name: string;
+		case_type?: string | null;
+		case_list_only?: boolean;
+		purpose?: string;
+		forms: Array<{
+			name: string;
+			type: string;
+			purpose?: string;
+		}>;
+	}>;
+}
+
+/**
+ * Build the mutation batch for applying a scaffold to an (effectively
+ * empty) doc: set the app name + connect type, then create each module
+ * and its forms in order. Mints uuids for every entity so the resulting
+ * doc has stable identity immediately.
+ *
+ * Scaffolds are only applied to empty docs during the initial build —
+ * callers must drop any existing modules separately if they want a
+ * clean slate. This helper deliberately doesn't emit removeModule
+ * mutations for existing modules to keep the intent explicit.
+ */
+export function setScaffoldMutations(
+	doc: BlueprintDoc,
+	scaffold: ScaffoldInput,
+): Mutation[] {
+	const muts: Mutation[] = [];
+	muts.push({ kind: "setAppName", name: scaffold.app_name });
+	const connectType = scaffold.connect_type;
+	if (connectType === "learn" || connectType === "deliver") {
+		muts.push({ kind: "setConnectType", connectType });
+	} else {
+		muts.push({ kind: "setConnectType", connectType: null });
+	}
+
+	for (const sm of scaffold.modules) {
+		const moduleUuid = asUuid(crypto.randomUUID());
+		const moduleEntity: Module = {
+			uuid: moduleUuid,
+			id: slugifyModuleId(sm.name),
+			name: sm.name,
+			...(sm.case_type != null && { caseType: sm.case_type }),
+			...(sm.case_list_only && { caseListOnly: sm.case_list_only }),
+			...(sm.purpose !== undefined && { purpose: sm.purpose }),
+		};
+		muts.push({ kind: "addModule", module: moduleEntity });
+
+		for (const sf of sm.forms) {
+			const formUuid = asUuid(crypto.randomUUID());
+			const formEntity: Form = {
+				uuid: formUuid,
+				id: slugifyFormId(sf.name),
+				name: sf.name,
+				type: sf.type as FormType,
+				...(sf.purpose !== undefined && { purpose: sf.purpose }),
+			};
+			muts.push({ kind: "addForm", moduleUuid, form: formEntity });
+		}
+	}
+	// `doc` is read only for reference, not consulted — but keep the
+	// parameter for signature symmetry with other mutation builders
+	// (every helper takes the doc first).
+	void doc;
+	return muts;
+}
+
+// ── Case-property cascade rename ────────────────────────────────────────
+
+/**
+ * Rename a case property across every module and form that references
+ * it. This is a compound operation that touches three surfaces:
+ *
+ *   1. Case list / case detail columns (the module's column list is
+ *      a plain array of `{field, header}`, so we rewrite `field`).
+ *   2. Fields whose `case_property` matches the old name — their
+ *      `id` is always kept in lockstep with the case property (the
+ *      "question id = case property name" invariant), so we rename
+ *      the field via `renameField`, which the reducer uses to rewrite
+ *      XPath references.
+ *   3. Hashtag refs in display text and XPath expressions on OTHER
+ *      fields that reference `#case/oldName`. The reducer's
+ *      `renameField` handles path-style refs; this helper additionally
+ *      emits `updateField` mutations to rewrite hashtag-style refs
+ *      that the reducer's walker misses (hashtags reference
+ *      case-properties directly, not field paths).
+ *
+ * Only modules whose `caseType` matches `caseType` are touched — a
+ * case property rename is scoped to its owning case type.
+ */
+export function renameCasePropertyMutations(
+	doc: BlueprintDoc,
+	caseType: string,
 	oldName: string,
 	newName: string,
-): boolean {
-	const xpathFields = [
-		"relevant",
+): RenameCasePropertyResult {
+	const mutations: Mutation[] = [];
+	const formsChanged = new Set<Uuid>();
+	const modulesWithColumnsChanged = new Set<Uuid>();
+
+	for (const moduleUuid of doc.moduleOrder) {
+		const mod = doc.modules[moduleUuid];
+		if (!mod || mod.caseType !== caseType) continue;
+
+		// ── (1) Column rewrites. Build a patched module if any column
+		// references the old property; emit a single `updateModule`. ─────
+		const patched: Partial<Omit<Module, "uuid">> = {};
+		const rewriteColumns = (
+			cols: typeof mod.caseListColumns,
+		): typeof mod.caseListColumns => {
+			if (!cols) return cols;
+			let touched = false;
+			const next = cols.map((col) => {
+				if (col.field === oldName) {
+					touched = true;
+					return { ...col, field: newName };
+				}
+				return col;
+			});
+			return touched ? next : cols;
+		};
+		const listNext = rewriteColumns(mod.caseListColumns);
+		if (listNext !== mod.caseListColumns) {
+			patched.caseListColumns = listNext;
+		}
+		const detailNext = rewriteColumns(mod.caseDetailColumns ?? undefined);
+		if (detailNext !== (mod.caseDetailColumns ?? undefined)) {
+			patched.caseDetailColumns = detailNext ?? null;
+		}
+		if (Object.keys(patched).length > 0) {
+			mutations.push({
+				kind: "updateModule",
+				uuid: moduleUuid,
+				patch: patched,
+			});
+			modulesWithColumnsChanged.add(moduleUuid);
+		}
+
+		// ── (2) + (3) Field-level rewrites. Walk every form in the module
+		// and for each field: (a) if its case_property == oldName, rename
+		// it; (b) rewrite any hashtag refs in its XPath / display fields. ─
+		const formUuids = doc.formOrder[moduleUuid] ?? [];
+		for (const formUuid of formUuids) {
+			const formMuts = fieldLevelCasePropertyRename(
+				doc,
+				formUuid,
+				oldName,
+				newName,
+			);
+			if (formMuts.length > 0) {
+				mutations.push(...formMuts);
+				formsChanged.add(formUuid);
+			}
+		}
+	}
+
+	return {
+		mutations,
+		formsChanged: Array.from(formsChanged),
+		modulesWithColumnsChanged: Array.from(modulesWithColumnsChanged),
+	};
+}
+
+/**
+ * Walk every field in a form and emit the mutations needed to rename
+ * a case property. Two kinds of rewrites:
+ *
+ *   - `renameField` for any field whose `id` equals `oldName` AND which
+ *     has a `case_property` (the "id == property name" invariant
+ *     identifies which fields are authoritative holders of the property).
+ *   - `updateField` for any field whose XPath expressions or display
+ *     text reference `#case/oldName` — rewritten to `#case/newName`.
+ *     Runs on ALL fields (including those that aren't themselves the
+ *     holder) because references cross the field boundary.
+ */
+function fieldLevelCasePropertyRename(
+	doc: BlueprintDoc,
+	formUuid: Uuid,
+	oldName: string,
+	newName: string,
+): Mutation[] {
+	const muts: Mutation[] = [];
+	const XPATH_FIELDS = [
+		"validate",
 		"calculate",
 		"default_value",
-		"validation",
+		"relevant",
 	] as const;
-	const displayFields = ["label", "hint"] as const;
+	const DISPLAY_FIELDS = ["label", "hint"] as const;
 	const hashtagRewriter = (expr: string) =>
 		rewriteHashtagRefs(expr, "#case/", oldName, newName);
 	const pathRewriter = (expr: string) =>
 		rewriteXPathRefs(expr, oldName, newName);
-	let changed = false;
-	for (const q of questions) {
-		if (q.id === oldName && q.case_property_on) {
-			q.id = newName;
-			changed = true;
+
+	const stack: Uuid[] = [...(doc.fieldOrder[formUuid] ?? [])];
+	while (stack.length > 0) {
+		const uuid = stack.pop() as Uuid;
+		const field = doc.fields[uuid];
+		if (!field) continue;
+		const anyField = field as Record<string, unknown>;
+
+		// Rename the authoritative holder.
+		if (
+			field.id === oldName &&
+			typeof anyField.case_property === "string" &&
+			anyField.case_property === oldName
+		) {
+			muts.push({ kind: "renameField", uuid, newId: newName });
+			// Also rewrite case_property itself — `renameField` only changes
+			// `id` (+ XPath refs); the case_property value is a separate field.
+			muts.push({
+				kind: "updateField",
+				uuid,
+				patch: { case_property: newName } as unknown as Partial<
+					Omit<Field, "uuid">
+				>,
+			});
 		}
-		for (const field of xpathFields) {
-			const val = q[field];
-			if (!val) continue;
-			let rewritten = hashtagRewriter(val);
+
+		// Rewrite hashtag / path refs in this field's expressions.
+		const patch: Record<string, unknown> = {};
+		for (const key of XPATH_FIELDS) {
+			const v = anyField[key];
+			if (typeof v !== "string" || v.length === 0) continue;
+			let rewritten = hashtagRewriter(v);
 			rewritten = pathRewriter(rewritten);
-			if (rewritten !== val) {
-				(q as unknown as Record<string, unknown>)[field] = rewritten;
-				changed = true;
-			}
+			if (rewritten !== v) patch[key] = rewritten;
 		}
-		for (const field of displayFields) {
-			const text = q[field];
-			if (!text) continue;
-			const rewritten = transformBareHashtags(text, (hashtag) =>
-				pathRewriter(hashtagRewriter(hashtag)),
+		for (const key of DISPLAY_FIELDS) {
+			const v = anyField[key];
+			if (typeof v !== "string" || v.length === 0) continue;
+			const rewritten = transformBareHashtags(v, (expr) =>
+				pathRewriter(hashtagRewriter(expr)),
 			);
-			if (rewritten !== text) {
-				(q as unknown as Record<string, unknown>)[field] = rewritten;
-				changed = true;
-			}
+			if (rewritten !== v) patch[key] = rewritten;
 		}
-		if (q.children) {
-			changed =
-				renamePropertyInQuestions(q.children, oldName, newName) || changed;
+		if (Object.keys(patch).length > 0) {
+			muts.push({
+				kind: "updateField",
+				uuid,
+				patch: patch as Partial<Omit<Field, "uuid">>,
+			});
+		}
+
+		if (isContainer(field)) {
+			const children = doc.fieldOrder[uuid] ?? [];
+			for (const c of children) stack.push(c);
 		}
 	}
-	return changed;
+	return muts;
 }
+
+// ── Private helpers ─────────────────────────────────────────────────────
+
+/** Derive a module's semantic id slug from its display name. Lowercased,
+ *  non-alphanumerics collapsed to `_`. Keeps us from having to surface a
+ *  separate slug input at every creation site. */
+function slugifyModuleId(name: string): string {
+	const slug = name
+		.trim()
+		.toLowerCase()
+		.replace(/[^a-z0-9]+/g, "_")
+		.replace(/^_+|_+$/g, "");
+	return slug.length > 0 ? slug : "module";
+}
+
+/** Derive a form's semantic id slug from its display name. Same rules
+ *  as the module slug — we default to "form" if sanitizing strips
+ *  everything. */
+function slugifyFormId(name: string): string {
+	const slug = name
+		.trim()
+		.toLowerCase()
+		.replace(/[^a-z0-9]+/g, "_")
+		.replace(/^_+|_+$/g, "");
+	return slug.length > 0 ? slug : "form";
+}
+
+// ── Re-exports for consumers that need type-level narrowing ─────────────
+
+export type { FieldKind };
+export { fieldKinds };

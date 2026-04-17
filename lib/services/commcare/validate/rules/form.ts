@@ -1,20 +1,31 @@
 /**
  * Form-level validation rules.
- * Each rule receives a form, its indices, the parent module, and the full blueprint.
- * Case config is derived once per form and passed to rules that need it.
+ *
+ * Each rule receives the normalized `BlueprintDoc`, the form entity, and its
+ * `formUuid` (plus the owning module for rules that need sibling context).
+ * Case configuration is derived once per form and threaded through to rules
+ * that depend on it.
+ *
+ * Rules walk the doc's `fieldOrder` adjacency directly — no wire-format
+ * `Question[]` trees. The `deriveCaseConfig` helper still lives on the wire
+ * schema (it only reads duck-typed `{id, type, case_property_on, children}`
+ * shapes); we adapt the domain field tree into that shape at the call site
+ * and keep the derivation itself untouched.
  */
 
-import type {
-	AppBlueprint,
-	BlueprintForm,
-	BlueprintModule,
-	DerivedCaseConfig,
-	Question,
-} from "@/lib/schemas/blueprint";
 import {
-	deriveCaseConfig,
+	type BlueprintDoc,
+	type Field,
+	type Form,
+	type Module,
 	POST_SUBMIT_DESTINATIONS,
-} from "@/lib/schemas/blueprint";
+	type Uuid,
+} from "@/lib/domain";
+import {
+	type CaseConfigQuestion,
+	type DerivedCaseConfig,
+	deriveCaseConfig,
+} from "@/lib/services/deriveCaseConfig";
 import { detectUnquotedStringLiteral } from "../../../hqJsonExpander";
 import {
 	CASE_PROPERTY_REGEX,
@@ -26,64 +37,113 @@ import { type ValidationError, validationError } from "../errors";
 
 // ── Helpers ────────────────────────────────────────────────────────
 
-function collectQuestionIds(questions: Question[]): string[] {
+/**
+ * Domain field-tree walker: collect every field.id under `parentUuid`,
+ * including descendants in containers. Used by rules that need to check
+ * membership — "does a field with this id exist in this form?"
+ */
+function collectFieldIds(doc: BlueprintDoc, parentUuid: Uuid): string[] {
 	const ids: string[] = [];
-	for (const q of questions) {
-		ids.push(q.id);
-		if ((q.type === "group" || q.type === "repeat") && q.children) {
-			ids.push(...collectQuestionIds(q.children));
+	const walk = (uuid: Uuid) => {
+		for (const childUuid of doc.fieldOrder[uuid] ?? []) {
+			const field = doc.fields[childUuid];
+			if (!field) continue;
+			ids.push(field.id);
+			if (doc.fieldOrder[childUuid] !== undefined) walk(childUuid);
 		}
-	}
+	};
+	walk(parentUuid);
 	return ids;
 }
 
-function findQuestionById(
-	questions: Question[],
+/**
+ * Find a field anywhere under `parentUuid` (recurses through containers)
+ * whose `id` matches. Returns the first match or `undefined`.
+ */
+function findFieldById(
+	doc: BlueprintDoc,
+	parentUuid: Uuid,
 	id: string,
-): Question | undefined {
-	for (const q of questions) {
-		if (q.id === id) return q;
-		if ((q.type === "group" || q.type === "repeat") && q.children) {
-			const found = findQuestionById(q.children, id);
-			if (found) return found;
-		}
+): Field | undefined {
+	const stack: Uuid[] = [...(doc.fieldOrder[parentUuid] ?? [])];
+	while (stack.length > 0) {
+		const uuid = stack.pop();
+		if (!uuid) break;
+		const field = doc.fields[uuid];
+		if (!field) continue;
+		if (field.id === id) return field;
+		const children = doc.fieldOrder[uuid];
+		if (children) stack.push(...children);
 	}
 	return undefined;
 }
 
+/**
+ * Adapt a domain field subtree into the duck-typed `CaseConfigQuestion[]`
+ * shape `deriveCaseConfig` accepts. Only reads fields that config
+ * derivation cares about: id, kind (as type), case_property, children.
+ */
+function toCaseConfigQuestions(
+	doc: BlueprintDoc,
+	parentUuid: Uuid,
+): CaseConfigQuestion[] {
+	const result: CaseConfigQuestion[] = [];
+	for (const uuid of doc.fieldOrder[parentUuid] ?? []) {
+		const field = doc.fields[uuid];
+		if (!field) continue;
+		// CaseConfigQuestion uses the wire-format key name `case_property_on`
+		// (the schema predates the domain rename). We translate at this
+		// adapter boundary rather than renaming the shared helper.
+		const node: CaseConfigQuestion = {
+			id: field.id,
+			type: field.kind,
+			case_property_on: (field as { case_property?: string }).case_property,
+		};
+		if (doc.fieldOrder[uuid] !== undefined) {
+			node.children = toCaseConfigQuestions(doc, uuid);
+		}
+		result.push(node);
+	}
+	return result;
+}
+
 interface FormContext {
-	formIndex: number;
-	modIndex: number;
+	formUuid: Uuid;
+	moduleUuid: Uuid;
 	formName: string;
 	moduleName: string;
+}
+
+function baseLocation(ctx: FormContext) {
+	return {
+		moduleUuid: ctx.moduleUuid,
+		moduleName: ctx.moduleName,
+		formUuid: ctx.formUuid,
+		formName: ctx.formName,
+	};
 }
 
 // ── Rules ──────────────────────────────────────────────────────────
 
 export function emptyForm(
-	form: BlueprintForm,
+	doc: BlueprintDoc,
+	_form: Form,
 	ctx: FormContext,
 ): ValidationError[] {
-	if (!form.questions || form.questions.length === 0) {
-		return [
-			validationError(
-				"EMPTY_FORM",
-				"form",
-				`"${ctx.formName}" in "${ctx.moduleName}" has no questions. CommCare can't build an empty form — add at least one question.`,
-				{
-					moduleIndex: ctx.modIndex,
-					moduleName: ctx.moduleName,
-					formIndex: ctx.formIndex,
-					formName: ctx.formName,
-				},
-			),
-		];
-	}
-	return [];
+	const order = doc.fieldOrder[ctx.formUuid] ?? [];
+	if (order.length > 0) return [];
+	return [
+		validationError(
+			"EMPTY_FORM",
+			"form",
+			`"${ctx.formName}" in "${ctx.moduleName}" has no questions. CommCare can't build an empty form — add at least one question.`,
+			baseLocation(ctx),
+		),
+	];
 }
 
 export function noCaseNameField(
-	form: BlueprintForm,
+	form: Form,
 	ctx: FormContext,
 	caseConfig: DerivedCaseConfig,
 ): ValidationError[] {
@@ -93,12 +153,7 @@ export function noCaseNameField(
 				"NO_CASE_NAME_FIELD",
 				"form",
 				`"${ctx.formName}" is a registration form but none of its questions has id "case_name". Every new case needs a name — add a text question with id "case_name" and case_property_on set to the module's case type.`,
-				{
-					moduleIndex: ctx.modIndex,
-					moduleName: ctx.moduleName,
-					formIndex: ctx.formIndex,
-					formName: ctx.formName,
-				},
+				baseLocation(ctx),
 			),
 		];
 	}
@@ -106,28 +161,25 @@ export function noCaseNameField(
 }
 
 export function caseNameFieldMissing(
-	form: BlueprintForm,
+	doc: BlueprintDoc,
+	form: Form,
 	ctx: FormContext,
 	caseConfig: DerivedCaseConfig,
 ): ValidationError[] {
-	if (form.type === "registration" && caseConfig.case_name_field) {
-		const ids = collectQuestionIds(form.questions || []);
-		if (!ids.includes(caseConfig.case_name_field)) {
-			return [
-				validationError(
-					"CASE_NAME_FIELD_MISSING",
-					"form",
-					`"${ctx.formName}" expects a question with id "${caseConfig.case_name_field}" for the case name, but no such question exists. Either add this question or rename an existing one.`,
-					{ formIndex: ctx.formIndex, formName: ctx.formName },
-				),
-			];
-		}
-	}
-	return [];
+	if (form.type !== "registration" || !caseConfig.case_name_field) return [];
+	const ids = collectFieldIds(doc, ctx.formUuid);
+	if (ids.includes(caseConfig.case_name_field)) return [];
+	return [
+		validationError(
+			"CASE_NAME_FIELD_MISSING",
+			"form",
+			`"${ctx.formName}" expects a question with id "${caseConfig.case_name_field}" for the case name, but no such question exists. Either add this question or rename an existing one.`,
+			baseLocation(ctx),
+		),
+	];
 }
 
 export function reservedCaseProperty(
-	_form: BlueprintForm,
 	ctx: FormContext,
 	caseConfig: DerivedCaseConfig,
 ): ValidationError[] {
@@ -140,7 +192,7 @@ export function reservedCaseProperty(
 					"RESERVED_CASE_PROPERTY",
 					"form",
 					`"${ctx.formName}" saves to case property "${prop}", which is a reserved name in CommCare (used internally for case tracking). Rename the question to something like "${prop}_value" or "case_${prop}" instead.`,
-					{ formIndex: ctx.formIndex, formName: ctx.formName },
+					baseLocation(ctx),
 					{ reservedName: prop },
 				),
 			);
@@ -150,13 +202,13 @@ export function reservedCaseProperty(
 }
 
 export function casePropertyMissingQuestion(
-	form: BlueprintForm,
+	doc: BlueprintDoc,
 	ctx: FormContext,
 	caseConfig: DerivedCaseConfig,
 ): ValidationError[] {
 	if (!caseConfig.case_properties) return [];
 	const errors: ValidationError[] = [];
-	const ids = collectQuestionIds(form.questions || []);
+	const ids = collectFieldIds(doc, ctx.formUuid);
 	for (const {
 		case_property: prop,
 		question_id: qId,
@@ -167,7 +219,7 @@ export function casePropertyMissingQuestion(
 					"CASE_PROPERTY_MISSING_QUESTION",
 					"form",
 					`"${ctx.formName}" maps case property "${prop}" to question "${qId}", but that question doesn't exist in this form. Either add the question or remove the case property mapping.`,
-					{ formIndex: ctx.formIndex, formName: ctx.formName },
+					baseLocation(ctx),
 				),
 			);
 		}
@@ -176,7 +228,7 @@ export function casePropertyMissingQuestion(
 }
 
 export function mediaCaseProperty(
-	form: BlueprintForm,
+	doc: BlueprintDoc,
 	ctx: FormContext,
 	caseConfig: DerivedCaseConfig,
 ): ValidationError[] {
@@ -186,14 +238,14 @@ export function mediaCaseProperty(
 		case_property: prop,
 		question_id: qId,
 	} of caseConfig.case_properties) {
-		const q = findQuestionById(form.questions || [], qId);
-		if (q && MEDIA_QUESTION_TYPES.has(q.type)) {
+		const field = findFieldById(doc, ctx.formUuid, qId);
+		if (field && MEDIA_QUESTION_TYPES.has(field.kind)) {
 			errors.push(
 				validationError(
 					"MEDIA_CASE_PROPERTY",
 					"form",
-					`"${ctx.formName}" tries to save the ${q.type} question "${qId}" as case property "${prop}". Media files (images, audio, video, signatures) can't be stored as case properties — they're handled separately by CommCare's attachment system. Remove the case_property_on from this question.`,
-					{ formIndex: ctx.formIndex, formName: ctx.formName },
+					`"${ctx.formName}" tries to save the ${field.kind} question "${qId}" as case property "${prop}". Media files (images, audio, video, signatures) can't be stored as case properties — they're handled separately by CommCare's attachment system. Remove the case_property_on from this question.`,
+					baseLocation(ctx),
 					{ property: prop, questionId: qId },
 				),
 			);
@@ -203,13 +255,13 @@ export function mediaCaseProperty(
 }
 
 export function casePreloadMissingQuestion(
-	form: BlueprintForm,
+	doc: BlueprintDoc,
 	ctx: FormContext,
 	caseConfig: DerivedCaseConfig,
 ): ValidationError[] {
 	if (!caseConfig.case_preload) return [];
 	const errors: ValidationError[] = [];
-	const ids = collectQuestionIds(form.questions || []);
+	const ids = collectFieldIds(doc, ctx.formUuid);
 	for (const {
 		question_id: qId,
 		case_property: prop,
@@ -220,7 +272,7 @@ export function casePreloadMissingQuestion(
 					"CASE_PRELOAD_MISSING_QUESTION",
 					"form",
 					`"${ctx.formName}" tries to preload case property "${prop}" into question "${qId}", but that question doesn't exist. The preload needs a matching question to receive the data.`,
-					{ formIndex: ctx.formIndex, formName: ctx.formName },
+					baseLocation(ctx),
 				),
 			);
 		}
@@ -229,7 +281,6 @@ export function casePreloadMissingQuestion(
 }
 
 export function casePreloadReserved(
-	_form: BlueprintForm,
 	ctx: FormContext,
 	caseConfig: DerivedCaseConfig,
 ): ValidationError[] {
@@ -242,7 +293,7 @@ export function casePreloadReserved(
 					"CASE_PRELOAD_RESERVED",
 					"form",
 					`"${ctx.formName}" tries to preload reserved property "${prop}". CommCare reserves this name for internal use. Use a custom property name instead.`,
-					{ formIndex: ctx.formIndex, formName: ctx.formName },
+					baseLocation(ctx),
 				),
 			);
 		}
@@ -251,7 +302,6 @@ export function casePreloadReserved(
 }
 
 export function duplicateCasePropertyMapping(
-	_form: BlueprintForm,
 	ctx: FormContext,
 	caseConfig: DerivedCaseConfig,
 ): ValidationError[] {
@@ -269,7 +319,7 @@ export function duplicateCasePropertyMapping(
 					"DUPLICATE_CASE_PROPERTY",
 					"form",
 					`"${ctx.formName}" has two questions ("${prev}" and "${qId}") both saving to case property "${prop}". Each case property can only be updated by one question — rename one of the question IDs so they map to different properties.`,
-					{ formIndex: ctx.formIndex, formName: ctx.formName },
+					baseLocation(ctx),
 					{ property: prop, questionId1: prev, questionId2: qId },
 				),
 			);
@@ -281,24 +331,19 @@ export function duplicateCasePropertyMapping(
 }
 
 export function registrationNoCaseProperties(
-	form: BlueprintForm,
+	form: Form,
 	ctx: FormContext,
 	caseConfig: DerivedCaseConfig,
-	mod: BlueprintModule,
+	mod: Module,
 ): ValidationError[] {
-	if (form.type !== "registration" || !mod.case_type) return [];
+	if (form.type !== "registration" || !mod.caseType) return [];
 	if (!caseConfig.case_properties || caseConfig.case_properties.length === 0) {
 		return [
 			validationError(
 				"REGISTRATION_NO_CASE_PROPS",
 				"form",
-				`"${ctx.formName}" is a registration form but none of its questions save data to the "${mod.case_type}" case. A registration form should capture information about the new case. Add case_property_on: "${mod.case_type}" to questions whose answers should be saved to the case.`,
-				{
-					moduleIndex: ctx.modIndex,
-					moduleName: ctx.moduleName,
-					formIndex: ctx.formIndex,
-					formName: ctx.formName,
-				},
+				`"${ctx.formName}" is a registration form but none of its questions save data to the "${mod.caseType}" case. A registration form should capture information about the new case. Add case_property_on: "${mod.caseType}" to questions whose answers should be saved to the case.`,
+				baseLocation(ctx),
 			),
 		];
 	}
@@ -306,28 +351,22 @@ export function registrationNoCaseProperties(
 }
 
 /**
- * Validate close_condition on close forms.
+ * Validate `closeCondition` on close forms.
  *
- * close_condition is only valid on forms with type "close". When present,
- * both question and answer must be specified, and the referenced question
- * must exist in the form.
+ * `closeCondition` is only valid on forms with type "close". When present,
+ * both field and answer must be specified, and the referenced field must
+ * exist in the form.
  */
 export function closeConditionValidation(
-	form: BlueprintForm,
+	doc: BlueprintDoc,
+	form: Form,
 	ctx: FormContext,
-	_caseConfig: DerivedCaseConfig,
-	mod: BlueprintModule,
+	mod: Module,
 ): ValidationError[] {
 	const errors: ValidationError[] = [];
-	const loc = {
-		moduleIndex: ctx.modIndex,
-		moduleName: ctx.moduleName,
-		formIndex: ctx.formIndex,
-		formName: ctx.formName,
-	};
+	const loc = baseLocation(ctx);
 
-	/* close_condition on a non-close form is always an error */
-	if (form.close_condition && form.type !== "close") {
+	if (form.closeCondition && form.type !== "close") {
 		errors.push(
 			validationError(
 				"CLOSE_CONDITION_WRONG_TYPE",
@@ -339,8 +378,7 @@ export function closeConditionValidation(
 		return errors;
 	}
 
-	/* Close forms require a case type on the module */
-	if (form.type === "close" && !mod.case_type) {
+	if (form.type === "close" && !mod.caseType) {
 		errors.push(
 			validationError(
 				"CLOSE_FORM_NO_CASE_TYPE",
@@ -351,27 +389,26 @@ export function closeConditionValidation(
 		);
 	}
 
-	/* Validate the conditional close fields if present */
-	if (form.close_condition) {
-		const cc = form.close_condition;
-		if (!cc.question || !cc.answer) {
+	if (form.closeCondition) {
+		const cc = form.closeCondition;
+		if (!cc.field || !cc.answer) {
 			errors.push(
 				validationError(
 					"CLOSE_CONDITION_INCOMPLETE",
 					"form",
-					`"${ctx.formName}" has a close_condition but is missing the ${!cc.question ? "question" : "answer"} field. Both question and answer are required for conditional close. To close unconditionally, remove the close_condition entirely.`,
+					`"${ctx.formName}" has a close_condition but is missing the ${!cc.field ? "question" : "answer"} field. Both question and answer are required for conditional close. To close unconditionally, remove the close_condition entirely.`,
 					loc,
 				),
 			);
 		}
-		if (cc.question) {
-			const ids = collectQuestionIds(form.questions || []);
-			if (!ids.includes(cc.question)) {
+		if (cc.field) {
+			const ids = collectFieldIds(doc, ctx.formUuid);
+			if (!ids.includes(cc.field)) {
 				errors.push(
 					validationError(
 						"CLOSE_CONDITION_QUESTION_NOT_FOUND",
 						"form",
-						`"${ctx.formName}" has close_condition checking question "${cc.question}", but no question with that ID exists in the form. Either add the question or update close_condition to reference an existing one.`,
+						`"${ctx.formName}" has close_condition checking question "${cc.field}", but no question with that ID exists in the form. Either add the question or update close_condition to reference an existing one.`,
 						loc,
 					),
 				);
@@ -385,38 +422,20 @@ export function closeConditionValidation(
 /**
  * Comprehensive post-submit navigation validation.
  *
- * Validates every post_submit destination against the form's context.
- * Even destinations that "work" may produce warnings when the behavior
- * is surprising or will change when more features are added.
- *
- * CommCare HQ validates (validators.py:1054-1105):
- * - WORKFLOW_FORM with empty form_links → error
- * - WORKFLOW_MODULE when module.put_in_root → error
- * - WORKFLOW_PARENT_MODULE when no root_module → error
- * - WORKFLOW_PARENT_MODULE when parent.put_in_root → error
- * - WORKFLOW_PREVIOUS with multi_select + mismatched root → error
- * - WORKFLOW_PREVIOUS with inline_search → error
- *
- * We validate ALL of these. For features not yet modeled in Nova
- * (put_in_root, root_module, multi_select, inline_search), the
- * checks are stubs that will activate when those features are added.
+ * Validates every post_submit destination against the form's context. See
+ * `lib/services/CLAUDE.md` for the full HQ compatibility matrix; we mirror
+ * those checks here (with stubs for features Nova doesn't model yet).
  */
 export function postSubmitValidation(
-	form: BlueprintForm,
+	form: Form,
 	ctx: FormContext,
-	mod: BlueprintModule,
+	mod: Module,
 ): ValidationError[] {
-	if (!form.post_submit) return [];
+	if (!form.postSubmit) return [];
 	const errors: ValidationError[] = [];
-	const loc = {
-		moduleIndex: ctx.modIndex,
-		moduleName: ctx.moduleName,
-		formIndex: ctx.formIndex,
-		formName: ctx.formName,
-	};
-	const dest = form.post_submit;
+	const loc = baseLocation(ctx);
+	const dest = form.postSubmit;
 
-	// ── Value validity ──────────────────────────────────────────────
 	const valid = (POST_SUBMIT_DESTINATIONS as readonly string[]).includes(dest);
 	if (!valid) {
 		errors.push(
@@ -434,15 +453,12 @@ export function postSubmitValidation(
 				{ value: String(dest) },
 			),
 		);
-		return errors; // Don't run further checks on an invalid value
+		return errors;
 	}
 
-	// ── parent_module: requires a parent module relationship ────────
-	// CommCare HQ: invalid when module has no root_module_id.
-	// Nova doesn't model root_module yet, so this is ALWAYS an error.
-	// When root_module is added, this check should verify:
-	//   1. mod.root_module exists
-	//   2. The parent module is not put_in_root (display-only)
+	// parent_module: Nova doesn't model root_module yet, so this is always
+	// an error. When root_module is added, verify: (1) mod.rootModule exists,
+	// (2) the parent module isn't put_in_root.
 	if (dest === "parent_module") {
 		errors.push(
 			validationError(
@@ -461,11 +477,8 @@ export function postSubmitValidation(
 		);
 	}
 
-	// ── module: invalid when module is display-only (case_list_only) ──
-	// CommCare HQ: invalid when module.put_in_root (forms are at root level,
-	// so "module menu" doesn't exist as a navigable screen).
-	// Nova: case_list_only modules have no forms → no form list to return to.
-	if (dest === "module" && mod.case_list_only) {
+	// module: invalid when module is display-only (no form list to return to).
+	if (dest === "module" && mod.caseListOnly) {
 		errors.push(
 			validationError(
 				"POST_SUBMIT_MODULE_CASE_LIST_ONLY",
@@ -478,59 +491,24 @@ export function postSubmitValidation(
 		);
 	}
 
-	// ── Future checks (activate when features are modeled) ──────────
-	//
-	// WORKFLOW_MODULE + put_in_root:
-	//   When Nova adds put_in_root on modules, check:
-	//   if (dest === 'module' && mod.put_in_root) → error
-	//   "This module's forms are displayed at the root level, so there's
-	//    no module menu to navigate to."
-	//
-	// WORKFLOW_PREVIOUS + multi_select:
-	//   When Nova adds multi_select on modules, check:
-	//   if (dest === 'previous' && mod.is_multi_select !== mod.root_module?.is_multi_select)
-	//   "The previous screen used a different selection mode than this module."
-	//
-	// WORKFLOW_PREVIOUS + inline_search:
-	//   When Nova adds inline search, check:
-	//   if (dest === 'previous' && form.type === 'followup' && mod.uses_inline_search)
-	//   "Inline search results can't be restored after form submission."
-
 	return errors;
 }
 
 /**
- * Form link validation.
- *
- * Validates every aspect of form_links that CommCare HQ checks:
- * - Empty links array (present but no entries)
- * - Target form/module exists in the blueprint
- * - No self-referencing links (form links to itself)
- * - Conditional links have a fallback (post_submit must be set)
- *
- * Circular link detection (A→B→A) runs at the app level via
- * detectFormLinkCycles() in the runner.
- *
- * form_links is fully validated but NOT YET EXPOSED in the UI or SA tools.
- * Setting form_links directly on the blueprint will trigger these checks.
+ * Form-link validation (per-form). Checks empty-link-array, target
+ * existence, self-reference, and missing post_submit fallback. Cycle
+ * detection across forms runs at app scope in `circularFormLinks`.
  */
 export function formLinkValidation(
-	form: BlueprintForm,
+	doc: BlueprintDoc,
+	form: Form,
 	ctx: FormContext,
-	_mod: BlueprintModule,
-	blueprint: AppBlueprint,
 ): ValidationError[] {
-	if (!form.form_links) return [];
+	if (!form.formLinks) return [];
 	const errors: ValidationError[] = [];
-	const loc = {
-		moduleIndex: ctx.modIndex,
-		moduleName: ctx.moduleName,
-		formIndex: ctx.formIndex,
-		formName: ctx.formName,
-	};
+	const loc = baseLocation(ctx);
 
-	// ── Empty form_links array ──────────────────────────────────────
-	if (form.form_links.length === 0) {
+	if (form.formLinks.length === 0) {
 		errors.push(
 			validationError(
 				"FORM_LINK_EMPTY",
@@ -538,17 +516,15 @@ export function formLinkValidation(
 				`"${ctx.formName}" has form_links set to an empty array.\n\n` +
 					`form_links is meant to hold one or more navigation links to other forms or modules. ` +
 					`An empty array has no effect — either add links or remove the form_links field entirely.\n\n` +
-					`Without form_links, the form will use its post_submit destination ("${form.post_submit ?? "form-type default"}").`,
+					`Without form_links, the form will use its post_submit destination ("${form.postSubmit ?? "form-type default"}").`,
 				loc,
 			),
 		);
 		return errors;
 	}
 
-	const hasAnyCondition = form.form_links.some((l) => l.condition);
-
-	// ── No fallback when links have conditions ──────────────────────
-	if (hasAnyCondition && !form.post_submit) {
+	const hasAnyCondition = form.formLinks.some((l) => l.condition);
+	if (hasAnyCondition && !form.postSubmit) {
 		errors.push(
 			validationError(
 				"FORM_LINK_NO_FALLBACK",
@@ -562,24 +538,21 @@ export function formLinkValidation(
 		);
 	}
 
-	// ── Validate each link ──────────────────────────────────────────
-	for (let lIdx = 0; lIdx < form.form_links.length; lIdx++) {
-		const link = form.form_links[lIdx];
+	for (let lIdx = 0; lIdx < form.formLinks.length; lIdx++) {
+		const link = form.formLinks[lIdx];
 		const linkLabel = link.condition
 			? `form link ${lIdx + 1} (condition: "${link.condition.slice(0, 40)}${link.condition.length > 40 ? "..." : ""}")`
 			: `form link ${lIdx + 1}`;
 
-		// Target exists
 		if (link.target.type === "form") {
-			const targetMod = blueprint.modules[link.target.moduleIndex];
-			const targetForm = targetMod?.forms[link.target.formIndex];
+			const targetMod = doc.modules[link.target.moduleUuid];
+			const targetForm = doc.forms[link.target.formUuid];
 			if (!targetMod) {
 				errors.push(
 					validationError(
 						"FORM_LINK_TARGET_NOT_FOUND",
 						"form",
-						`"${ctx.formName}" ${linkLabel} targets module ${link.target.moduleIndex}, which doesn't exist.\n\n` +
-							`The app has ${blueprint.modules.length} module${blueprint.modules.length === 1 ? "" : "s"} (indices 0–${blueprint.modules.length - 1}). ` +
+						`"${ctx.formName}" ${linkLabel} targets module ${link.target.moduleUuid}, which doesn't exist.\n\n` +
 							`Update the target to reference an existing module.`,
 						loc,
 					),
@@ -589,18 +562,16 @@ export function formLinkValidation(
 					validationError(
 						"FORM_LINK_TARGET_NOT_FOUND",
 						"form",
-						`"${ctx.formName}" ${linkLabel} targets form ${link.target.formIndex} in "${targetMod.name}", which doesn't exist.\n\n` +
-							`"${targetMod.name}" has ${targetMod.forms.length} form${targetMod.forms.length === 1 ? "" : "s"} (indices 0–${targetMod.forms.length - 1}). ` +
+						`"${ctx.formName}" ${linkLabel} targets form ${link.target.formUuid} in "${targetMod.name}", which doesn't exist.\n\n` +
 							`Update the target to reference an existing form.`,
 						loc,
 					),
 				);
 			}
 
-			// Self-reference
 			if (
-				link.target.moduleIndex === ctx.modIndex &&
-				link.target.formIndex === ctx.formIndex
+				link.target.moduleUuid === ctx.moduleUuid &&
+				link.target.formUuid === ctx.formUuid
 			) {
 				errors.push(
 					validationError(
@@ -615,15 +586,13 @@ export function formLinkValidation(
 				);
 			}
 		} else {
-			// Module target
-			const targetMod = blueprint.modules[link.target.moduleIndex];
+			const targetMod = doc.modules[link.target.moduleUuid];
 			if (!targetMod) {
 				errors.push(
 					validationError(
 						"FORM_LINK_TARGET_NOT_FOUND",
 						"form",
-						`"${ctx.formName}" ${linkLabel} targets module ${link.target.moduleIndex}, which doesn't exist.\n\n` +
-							`The app has ${blueprint.modules.length} module${blueprint.modules.length === 1 ? "" : "s"} (indices 0–${blueprint.modules.length - 1}). ` +
+						`"${ctx.formName}" ${linkLabel} targets module ${link.target.moduleUuid}, which doesn't exist.\n\n` +
 							`Update the target to reference an existing module.`,
 						loc,
 					),
@@ -636,18 +605,16 @@ export function formLinkValidation(
 }
 
 export function connectValidation(
-	form: BlueprintForm,
+	doc: BlueprintDoc,
+	form: Form,
 	ctx: FormContext,
-	_caseConfig: DerivedCaseConfig,
-	_mod: BlueprintModule,
-	blueprint: AppBlueprint,
 ): ValidationError[] {
-	if (!blueprint.connect_type || !form.connect) return [];
+	if (!doc.connectType || !form.connect) return [];
 	const errors: ValidationError[] = [];
-	const loc = { formIndex: ctx.formIndex, formName: ctx.formName };
+	const loc = baseLocation(ctx);
 
 	if (
-		blueprint.connect_type === "learn" &&
+		doc.connectType === "learn" &&
 		!form.connect.learn_module &&
 		!form.connect.assessment
 	) {
@@ -661,7 +628,7 @@ export function connectValidation(
 		);
 	}
 	if (
-		blueprint.connect_type === "deliver" &&
+		doc.connectType === "deliver" &&
 		!form.connect.deliver_unit &&
 		!form.connect.task
 	) {
@@ -676,21 +643,24 @@ export function connectValidation(
 	}
 
 	const connectXPaths: Array<[string, string]> = [];
-	if (form.connect.assessment?.user_score)
+	if (form.connect.assessment?.user_score) {
 		connectXPaths.push([
 			"Connect assessment user_score",
 			form.connect.assessment.user_score,
 		]);
-	if (form.connect.deliver_unit?.entity_id)
+	}
+	if (form.connect.deliver_unit?.entity_id) {
 		connectXPaths.push([
 			"Connect deliver entity_id",
 			form.connect.deliver_unit.entity_id,
 		]);
-	if (form.connect.deliver_unit?.entity_name)
+	}
+	if (form.connect.deliver_unit?.entity_name) {
 		connectXPaths.push([
 			"Connect deliver entity_name",
 			form.connect.deliver_unit.entity_name,
 		]);
+	}
 	for (const [label, expr] of connectXPaths) {
 		const bare = detectUnquotedStringLiteral(expr);
 		if (bare) {
@@ -708,55 +678,48 @@ export function connectValidation(
 }
 
 /**
- * Question IDs must be unique among siblings (same parent scope).
- * /data/abc and /data/group/abc are fine — they have different XML paths.
- * /data/abc and /data/abc are not — they collide at the same level.
+ * Question IDs must be unique among siblings (same parent scope). Different
+ * scopes (e.g. /data/grp/name and /data/other/name) coexist — they have
+ * different XML paths.
  */
 export function duplicateQuestionIds(
-	form: BlueprintForm,
+	doc: BlueprintDoc,
 	ctx: FormContext,
 ): ValidationError[] {
 	const errors: ValidationError[] = [];
-	checkDuplicatesInScope(form.questions || [], "/data", ctx, errors);
+	const walk = (parentUuid: Uuid, parentPath: string): void => {
+		const counts = new Map<string, number>();
+		const order = doc.fieldOrder[parentUuid] ?? [];
+		for (const uuid of order) {
+			const field = doc.fields[uuid];
+			if (!field) continue;
+			counts.set(field.id, (counts.get(field.id) ?? 0) + 1);
+		}
+		for (const [id, count] of counts) {
+			if (count > 1) {
+				errors.push(
+					validationError(
+						"DUPLICATE_QUESTION_ID",
+						"form",
+						`"${ctx.formName}" in "${ctx.moduleName}" has ${count} questions with the ID "${id}" at the same level (${parentPath}). Questions at the same level share an XML path, so they need unique IDs. Rename the duplicates.`,
+						baseLocation(ctx),
+					),
+				);
+			}
+		}
+		for (const uuid of order) {
+			const field = doc.fields[uuid];
+			if (!field) continue;
+			if (doc.fieldOrder[uuid] !== undefined) {
+				walk(uuid, `${parentPath}/${field.id}`);
+			}
+		}
+	};
+	walk(ctx.formUuid, "/data");
 	return errors;
 }
 
-function checkDuplicatesInScope(
-	questions: Question[],
-	parentPath: string,
-	ctx: FormContext,
-	errors: ValidationError[],
-): void {
-	const counts = new Map<string, number>();
-	for (const q of questions) {
-		counts.set(q.id, (counts.get(q.id) ?? 0) + 1);
-	}
-	for (const [id, count] of counts) {
-		if (count > 1) {
-			errors.push(
-				validationError(
-					"DUPLICATE_QUESTION_ID",
-					"form",
-					`"${ctx.formName}" in "${ctx.moduleName}" has ${count} questions with the ID "${id}" at the same level (${parentPath}). Questions at the same level share an XML path, so they need unique IDs. Rename the duplicates.`,
-					{
-						moduleIndex: ctx.modIndex,
-						moduleName: ctx.moduleName,
-						formIndex: ctx.formIndex,
-						formName: ctx.formName,
-					},
-				),
-			);
-		}
-	}
-	for (const q of questions) {
-		if ((q.type === "group" || q.type === "repeat") && q.children) {
-			checkDuplicatesInScope(q.children, `${parentPath}/${q.id}`, ctx, errors);
-		}
-	}
-}
-
 export function casePropertyBadFormat(
-	_form: BlueprintForm,
 	ctx: FormContext,
 	caseConfig: DerivedCaseConfig,
 ): ValidationError[] {
@@ -770,7 +733,7 @@ export function casePropertyBadFormat(
 					"CASE_PROPERTY_BAD_FORMAT",
 					"form",
 					`"${ctx.formName}" has case property "${prop}" which isn't a valid identifier. Property names must start with a letter and can only contain letters, digits, underscores, or hyphens. Try renaming it to something like "${prop.replace(/[^a-zA-Z0-9_-]/g, "_").replace(/^[^a-zA-Z]/, "q_")}".`,
-					{ formIndex: ctx.formIndex, formName: ctx.formName },
+					baseLocation(ctx),
 					{ property: prop },
 				),
 			);
@@ -780,7 +743,6 @@ export function casePropertyBadFormat(
 }
 
 export function casePropertyTooLong(
-	_form: BlueprintForm,
 	ctx: FormContext,
 	caseConfig: DerivedCaseConfig,
 ): ValidationError[] {
@@ -793,7 +755,7 @@ export function casePropertyTooLong(
 					"CASE_PROPERTY_TOO_LONG",
 					"form",
 					`"${ctx.formName}" has case property "${prop.slice(0, 40)}..." which is ${prop.length} characters long. CommCare limits property names to ${MAX_CASE_PROPERTY_LENGTH} characters. Use a shorter, more concise name.`,
-					{ formIndex: ctx.formIndex, formName: ctx.formName },
+					baseLocation(ctx),
 					{ property: prop },
 				),
 			);
@@ -805,43 +767,44 @@ export function casePropertyTooLong(
 // ── Rule runner ────────────────────────────────────────────────────
 
 export function runFormRules(
-	form: BlueprintForm,
-	formIndex: number,
-	mod: BlueprintModule,
-	modIndex: number,
-	blueprint: AppBlueprint,
+	doc: BlueprintDoc,
+	formUuid: Uuid,
+	moduleUuid: Uuid,
 ): ValidationError[] {
+	const form = doc.forms[formUuid];
+	const mod = doc.modules[moduleUuid];
 	const ctx: FormContext = {
-		formIndex,
-		modIndex,
+		formUuid,
+		moduleUuid,
 		formName: form.name,
 		moduleName: mod.name,
 	};
-	const caseConfig = deriveCaseConfig(
-		form.questions || [],
-		form.type,
-		mod.case_type ?? undefined,
-		blueprint.case_types,
-	);
-	const errors: ValidationError[] = [];
 
-	errors.push(...emptyForm(form, ctx));
-	errors.push(...closeConditionValidation(form, ctx, caseConfig, mod));
-	errors.push(...duplicateQuestionIds(form, ctx));
+	const caseConfig = deriveCaseConfig(
+		toCaseConfigQuestions(doc, formUuid),
+		form.type,
+		mod.caseType,
+		doc.caseTypes,
+	);
+
+	const errors: ValidationError[] = [];
+	errors.push(...emptyForm(doc, form, ctx));
+	errors.push(...closeConditionValidation(doc, form, ctx, mod));
+	errors.push(...duplicateQuestionIds(doc, ctx));
 	errors.push(...noCaseNameField(form, ctx, caseConfig));
-	errors.push(...caseNameFieldMissing(form, ctx, caseConfig));
-	errors.push(...reservedCaseProperty(form, ctx, caseConfig));
-	errors.push(...casePropertyMissingQuestion(form, ctx, caseConfig));
-	errors.push(...mediaCaseProperty(form, ctx, caseConfig));
-	errors.push(...casePreloadMissingQuestion(form, ctx, caseConfig));
-	errors.push(...casePreloadReserved(form, ctx, caseConfig));
-	errors.push(...duplicateCasePropertyMapping(form, ctx, caseConfig));
+	errors.push(...caseNameFieldMissing(doc, form, ctx, caseConfig));
+	errors.push(...reservedCaseProperty(ctx, caseConfig));
+	errors.push(...casePropertyMissingQuestion(doc, ctx, caseConfig));
+	errors.push(...mediaCaseProperty(doc, ctx, caseConfig));
+	errors.push(...casePreloadMissingQuestion(doc, ctx, caseConfig));
+	errors.push(...casePreloadReserved(ctx, caseConfig));
+	errors.push(...duplicateCasePropertyMapping(ctx, caseConfig));
 	errors.push(...registrationNoCaseProperties(form, ctx, caseConfig, mod));
-	errors.push(...casePropertyBadFormat(form, ctx, caseConfig));
-	errors.push(...casePropertyTooLong(form, ctx, caseConfig));
+	errors.push(...casePropertyBadFormat(ctx, caseConfig));
+	errors.push(...casePropertyTooLong(ctx, caseConfig));
 	errors.push(...postSubmitValidation(form, ctx, mod));
-	errors.push(...formLinkValidation(form, ctx, mod, blueprint));
-	errors.push(...connectValidation(form, ctx, caseConfig, mod, blueprint));
+	errors.push(...formLinkValidation(doc, form, ctx));
+	errors.push(...connectValidation(doc, form, ctx));
 
 	return errors;
 }

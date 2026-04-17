@@ -10,6 +10,11 @@
  * as the group's body, while the drawer reads as a sub-element of the
  * header above.
  *
+ * The panel is a sibling of EditableFieldWrapper (not inside it), so
+ * it pushes subsequent fields down naturally and scrolls with the
+ * field. Drag-drop still works — the panel is inside the row wrapper
+ * and moves with the field during drag.
+ *
  * Two visual variants:
  *
  *   - **`attached`** — flat top, rounded bottom, violet border on every
@@ -24,7 +29,7 @@
 
 "use client";
 import { useCallback } from "react";
-import type { Question } from "@/lib/schemas/blueprint";
+import type { Field } from "@/lib/domain";
 import { useSetActiveFieldId } from "@/lib/session/hooks";
 import { ContextualEditorData } from "./contextual/ContextualEditorData";
 import { ContextualEditorHeader } from "./contextual/ContextualEditorHeader";
@@ -32,7 +37,8 @@ import { ContextualEditorLogic } from "./contextual/ContextualEditorLogic";
 import { ContextualEditorUI } from "./contextual/ContextualEditorUI";
 
 interface InlineSettingsPanelProps {
-	question: Question;
+	/** Domain field entity — all sub-editors consume the same shape. */
+	field: Field;
 	/** Drawer geometry — chosen by the caller to match the parent row's
 	 *  bottom edge. Defaults to the common case: flush-attached under a
 	 *  flat-bottomed selected row. */
@@ -56,7 +62,7 @@ export const SECTION_CARD_CLASS =
 	"rounded-md bg-nova-surface/40 border border-white/[0.04] px-3 py-2.5";
 
 export function InlineSettingsPanel({
-	question,
+	field,
 	variant = "attached",
 }: InlineSettingsPanelProps) {
 	const setActiveFieldId = useSetActiveFieldId();
@@ -80,7 +86,11 @@ export function InlineSettingsPanel({
 	 * for parent rows that are themselves fully rounded. The drop
 	 * shadow pushes the drawer slightly forward of the following
 	 * children, reinforcing "this belongs to the row above, not the
-	 * group interior below." */
+	 * group interior below."
+	 *
+	 * `cursor-auto` on the drawer resets the inherited `cursor-pointer`
+	 * from the field's `div[role=button]` so inputs/labels get their
+	 * natural cursors. */
 	const shape =
 		variant === "attached"
 			? "rounded-t-none rounded-b-lg border"
@@ -93,19 +103,19 @@ export function InlineSettingsPanel({
 			data-no-drag
 			onFocus={handleFocus}
 		>
-			<ContextualEditorHeader question={question} />
+			<ContextualEditorHeader field={field} />
 
 			<div className="p-2 space-y-2">
 				{/* Data and Appearance own their own visibility — return null
-				    when the question type has no applicable fields. */}
-				<ContextualEditorData question={question} />
+				    when the field kind has no applicable fields. */}
+				<ContextualEditorData field={field} />
 
 				<div className={SECTION_CARD_CLASS}>
 					<SectionLabel label="Logic" />
-					<ContextualEditorLogic question={question} />
+					<ContextualEditorLogic field={field} />
 				</div>
 
-				<ContextualEditorUI question={question} />
+				<ContextualEditorUI field={field} />
 			</div>
 		</div>
 	);

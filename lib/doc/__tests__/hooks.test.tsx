@@ -3,50 +3,67 @@
 import { act, renderHook } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { describe, expect, it } from "vitest";
-import { useAssembledForm } from "@/lib/doc/hooks/useAssembledForm";
-import { useModule, useQuestion } from "@/lib/doc/hooks/useEntity";
+import { useField, useModule } from "@/lib/doc/hooks/useEntity";
 import {
 	useModuleIds,
 	useOrderedForms,
 	useOrderedModules,
 } from "@/lib/doc/hooks/useModuleIds";
-import { useOrderedChildren } from "@/lib/doc/hooks/useOrderedChildren";
+import { useOrderedFields } from "@/lib/doc/hooks/useOrderedFields";
 import { BlueprintDocContext } from "@/lib/doc/provider";
 import { createBlueprintDocStore } from "@/lib/doc/store";
-import type { AppBlueprint } from "@/lib/schemas/blueprint";
+import type { BlueprintDoc } from "@/lib/doc/types";
+import { asUuid } from "@/lib/doc/types";
 
+// ── Fixed UUIDs ────────────────────────────────────────────────────────
+
+const MOD_UUID = asUuid("module-1-uuid");
+const FORM_UUID = asUuid("form-1-uuid");
+const Q_UUID = asUuid("q-111-0000-0000-0000-000000000000");
+
+/**
+ * Seed the store with a normalized `BlueprintDoc` containing one module,
+ * one form, and one text question. Returns the store + stable UUIDs so
+ * tests can assert on entity access without re-deriving them.
+ *
+ * `load()` now accepts the normalized shape directly — no `toDoc` or
+ * `AppBlueprint` conversion is needed.
+ */
 function setup() {
 	const store = createBlueprintDocStore();
-	const bp: AppBlueprint = {
-		app_name: "Hooks Test",
-		connect_type: undefined,
-		modules: [
-			{
-				uuid: "module-1-uuid",
-				name: "Registration",
-				forms: [
-					{
-						uuid: "form-1-uuid",
-						name: "Reg Form",
-						type: "registration",
-						questions: [
-							{
-								uuid: "q-111-0000-0000-0000-000000000000",
-								id: "name",
-								type: "text",
-								label: "Name",
-							},
-						],
-					},
-				],
+	const doc: BlueprintDoc = {
+		appId: "app-1",
+		appName: "Hooks Test",
+		connectType: null,
+		caseTypes: null,
+		modules: {
+			[MOD_UUID]: { uuid: MOD_UUID, id: "registration", name: "Registration" },
+		},
+		forms: {
+			[FORM_UUID]: {
+				uuid: FORM_UUID,
+				id: "reg_form",
+				name: "Reg Form",
+				type: "registration",
 			},
-		],
-		case_types: null,
+		},
+		fields: {
+			[Q_UUID]: {
+				uuid: Q_UUID,
+				id: "name",
+				kind: "text",
+				label: "Name",
+			} as BlueprintDoc["fields"][typeof Q_UUID],
+		},
+		moduleOrder: [MOD_UUID],
+		formOrder: { [MOD_UUID]: [FORM_UUID] },
+		fieldOrder: { [FORM_UUID]: [Q_UUID] },
+		fieldParent: {},
 	};
-	store.getState().load(bp, "app-1");
+	store.getState().load(doc);
 	const moduleUuid = store.getState().moduleOrder[0];
 	const formUuid = store.getState().formOrder[moduleUuid][0];
-	const questionUuid = store.getState().questionOrder[formUuid][0];
+	const questionUuid = store.getState().fieldOrder[formUuid][0];
 	const wrapper = ({ children }: { children: ReactNode }) => (
 		<BlueprintDocContext.Provider value={store}>
 			{children}
@@ -55,7 +72,7 @@ function setup() {
 	return { store, wrapper, moduleUuid, formUuid, questionUuid };
 }
 
-describe("useModule / useForm / useQuestion", () => {
+describe("useModule / useForm / useField", () => {
 	it("returns the entity when the uuid exists", () => {
 		const { wrapper, moduleUuid } = setup();
 		const { result } = renderHook(() => useModule(moduleUuid), { wrapper });
@@ -64,7 +81,7 @@ describe("useModule / useForm / useQuestion", () => {
 
 	it("returns undefined for unknown uuids", () => {
 		const { wrapper } = setup();
-		const { result } = renderHook(() => useQuestion("missing-uuid" as never), {
+		const { result } = renderHook(() => useField("missing-uuid" as never), {
 			wrapper,
 		});
 		expect(result.current).toBeUndefined();
@@ -76,7 +93,7 @@ describe("useModule / useForm / useQuestion", () => {
 		renderHook(
 			() => {
 				renderCount++;
-				return useQuestion(questionUuid);
+				return useField(questionUuid);
 			},
 			{ wrapper },
 		);
@@ -86,7 +103,7 @@ describe("useModule / useForm / useQuestion", () => {
 			store.getState().apply({ kind: "setAppName", name: "Changed" });
 		});
 		// setAppName doesn't touch any question entity, so Immer preserves
-		// the reference — useQuestion must NOT re-render.
+		// the reference — useField must NOT re-render.
 		expect(renderCount).toBe(initialRenders);
 	});
 });
@@ -136,41 +153,65 @@ describe("useOrderedForms", () => {
 	});
 });
 
-describe("useOrderedChildren", () => {
-	it("returns questions under a given parent (form or group)", () => {
-		const { wrapper, formUuid } = setup();
-		const { result } = renderHook(() => useOrderedChildren(formUuid), {
+describe("useOrderedFields", () => {
+	it("returns uuids of children under a given parent (form or group)", () => {
+		const { wrapper, formUuid, questionUuid } = setup();
+		const { result } = renderHook(() => useOrderedFields(formUuid), {
 			wrapper,
 		});
 		expect(result.current).toHaveLength(1);
-		expect(result.current[0].id).toBe("name");
+		expect(result.current[0]).toBe(questionUuid);
 	});
 
 	it("returns empty array when parent has no children or doesn't exist", () => {
 		const { wrapper } = setup();
-		const { result } = renderHook(() => useOrderedChildren("nope" as never), {
+		const { result } = renderHook(() => useOrderedFields("nope" as never), {
 			wrapper,
 		});
 		expect(result.current).toEqual([]);
 	});
-});
 
-describe("useAssembledForm", () => {
-	it("reconstructs a form with nested questions", () => {
-		const { wrapper, formUuid } = setup();
-		const { result } = renderHook(() => useAssembledForm(formUuid), {
-			wrapper,
+	it("does not re-render when an unrelated field changes", () => {
+		// Regression: the previous implementation selected the entire `fields`
+		// map, so every field mutation re-rendered every container.
+		const { store, wrapper, formUuid } = setup();
+		let renderCount = 0;
+		renderHook(
+			() => {
+				renderCount++;
+				return useOrderedFields(formUuid);
+			},
+			{ wrapper },
+		);
+		const initial = renderCount;
+		store.temporal.getState().resume();
+		act(() => {
+			// Add a second field under the same form — fieldOrder changes, so
+			// re-render is expected. This asserts the hook DOES respond to real
+			// changes in its own parent's ordering.
+			store.getState().apply({
+				kind: "addField",
+				parentUuid: formUuid,
+				field: {
+					uuid: asUuid("q-222-0000-0000-0000-000000000000"),
+					id: "age",
+					kind: "int",
+					label: "Age",
+				} as BlueprintDoc["fields"][string],
+			});
 		});
-		expect(result.current?.name).toBe("Reg Form");
-		expect(result.current?.questions).toHaveLength(1);
-		expect(result.current?.questions[0].id).toBe("name");
-	});
+		expect(renderCount).toBeGreaterThan(initial);
 
-	it("returns undefined for unknown form uuids", () => {
-		const { wrapper } = setup();
-		const { result } = renderHook(() => useAssembledForm("missing" as never), {
-			wrapper,
+		// Now mutate a field entity without changing any `fieldOrder` entry —
+		// the hook must NOT re-render.
+		const afterAdd = renderCount;
+		act(() => {
+			store.getState().apply({
+				kind: "updateField",
+				uuid: asUuid("q-222-0000-0000-0000-000000000000"),
+				patch: { label: "Changed" },
+			});
 		});
-		expect(result.current).toBeUndefined();
+		expect(renderCount).toBe(afterAdd);
 	});
 });

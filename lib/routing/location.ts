@@ -16,7 +16,7 @@
  *
  * Entity disambiguation: all UUIDs are globally unique. A single-segment
  * path checks `doc.modules[uuid]` first, then `doc.forms[uuid]`, then
- * `doc.questions[uuid]` (deriving the parent form from ordering maps).
+ * `doc.fields[uuid]` (deriving the parent form from ordering maps).
  */
 
 import type { BlueprintDoc, Uuid } from "@/lib/doc/types";
@@ -27,17 +27,17 @@ import type { Location } from "@/lib/routing/types";
  * existence checks (no ordering). Used by `isValidLocation` and
  * `recoverLocation`.
  */
-export type LocationDoc = Pick<BlueprintDoc, "modules" | "forms" | "questions">;
+export type LocationDoc = Pick<BlueprintDoc, "modules" | "forms" | "fields">;
 
 /**
  * Extended doc subset for path parsing — includes ordering maps needed
  * to disambiguate UUIDs and derive parent relationships.
  *
  * `formOrder` maps module UUIDs to their form UUID arrays.
- * `questionOrder` maps form/group UUIDs to their child question UUID arrays.
+ * `fieldOrder` maps form/group UUIDs to their child field UUID arrays.
  */
 export type LocationParseDoc = LocationDoc &
-	Pick<BlueprintDoc, "formOrder" | "questionOrder">;
+	Pick<BlueprintDoc, "formOrder" | "fieldOrder">;
 
 /**
  * Convert a `Location` into path segments after `/build/{appId}/`.
@@ -78,28 +78,28 @@ export function buildUrl(basePath: string, loc: Location): string {
 }
 
 /**
- * Find the parent form and module UUIDs for a question UUID by walking
+ * Find the parent form and module UUIDs for a field UUID by walking
  * the doc's ordering maps.
  *
- * `questionOrder` keys are either form UUIDs (top-level questions) or
- * group/repeat question UUIDs (nested children). A question might be
- * nested arbitrarily deep inside groups, so we walk upward: find which
- * parent contains the UUID, then check whether that parent is itself a
- * question (group/repeat) and recurse, or whether it's a form.
+ * `fieldOrder` keys are either form UUIDs (top-level fields) or
+ * group/repeat field UUIDs (nested children). A field might be nested
+ * arbitrarily deep inside groups, so we walk upward: find which parent
+ * contains the UUID, then check whether that parent is itself a field
+ * (group/repeat) and recurse, or whether it's a form.
  */
 function findFormForQuestion(
 	uuid: Uuid,
 	doc: LocationParseDoc,
 ): { formUuid: Uuid; moduleUuid: Uuid } | undefined {
-	/* Walk upward from the question to find the owning form. The parent
-	 * could be a form UUID or a group question UUID. */
+	/* Walk upward from the field to find the owning form. The parent
+	 * could be a form UUID or a group field UUID. */
 	let currentUuid = uuid;
 	const maxDepth = 20; // guard against malformed data
 
 	for (let depth = 0; depth < maxDepth; depth++) {
 		/* Find which parent's children list contains currentUuid. */
 		let parentUuid: Uuid | undefined;
-		for (const [key, children] of Object.entries(doc.questionOrder)) {
+		for (const [key, children] of Object.entries(doc.fieldOrder)) {
 			if (children.includes(currentUuid)) {
 				parentUuid = key as Uuid;
 				break;
@@ -119,13 +119,13 @@ function findFormForQuestion(
 			return undefined;
 		}
 
-		/* The parent is a group/repeat question — continue walking up. */
-		if (doc.questions[parentUuid] !== undefined) {
+		/* The parent is a group/repeat field — continue walking up. */
+		if (doc.fields[parentUuid] !== undefined) {
 			currentUuid = parentUuid;
 			continue;
 		}
 
-		/* Parent is neither a form nor a question — malformed data. */
+		/* Parent is neither a form nor a field — malformed data. */
 		return undefined;
 	}
 
@@ -167,8 +167,8 @@ export function parsePathToLocation(
 			 * happen, but degrade gracefully. */
 			return { kind: "home" };
 		}
-		if (doc.questions[first] !== undefined) {
-			/* Question UUID as the first (and only) segment — derive the
+		if (doc.fields[first] !== undefined) {
+			/* Field UUID as the first (and only) segment — derive the
 			 * parent form and return form + selection. */
 			const parent = findFormForQuestion(first, doc);
 			if (parent) {
@@ -209,7 +209,7 @@ export function parsePathToLocation(
 		}
 		if (moduleUuid === undefined) return { kind: "home" };
 
-		if (doc.questions[secondUuid] !== undefined) {
+		if (doc.fields[secondUuid] !== undefined) {
 			return {
 				kind: "form",
 				moduleUuid,
@@ -217,7 +217,7 @@ export function parsePathToLocation(
 				selectedUuid: secondUuid,
 			};
 		}
-		/* Second segment doesn't resolve to a question — show the form
+		/* Second segment doesn't resolve to a field — show the form
 		 * without selection rather than degrading to home. */
 		return { kind: "form", moduleUuid, formUuid: first };
 	}
@@ -244,7 +244,7 @@ export function isValidLocation(loc: Location, doc: LocationDoc): boolean {
 			if (doc.forms[loc.formUuid] === undefined) return false;
 			if (
 				loc.selectedUuid !== undefined &&
-				doc.questions[loc.selectedUuid] === undefined
+				doc.fields[loc.selectedUuid] === undefined
 			) {
 				return false;
 			}
@@ -287,7 +287,7 @@ export function recoverLocation(loc: Location, doc: LocationDoc): Location {
 
 	if (
 		loc.selectedUuid !== undefined &&
-		doc.questions[loc.selectedUuid] === undefined
+		doc.fields[loc.selectedUuid] === undefined
 	) {
 		return {
 			kind: "form",

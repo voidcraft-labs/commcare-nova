@@ -14,6 +14,7 @@ import {
 	ScrollRegistryProvider,
 	useRegisterScrollCallback,
 } from "@/components/builder/contexts/ScrollRegistryContext";
+import { buildDoc, f } from "@/lib/__tests__/docHelpers";
 import { BlueprintDocContext } from "@/lib/doc/provider";
 import { createBlueprintDocStore } from "@/lib/doc/store";
 import { asUuid } from "@/lib/doc/types";
@@ -67,43 +68,41 @@ vi.mock("@/lib/session/hooks", () => ({
 
 import { useUndoRedo } from "@/lib/routing/builderActions";
 
-const BP = {
-	app_name: "T",
-	connect_type: undefined,
-	case_types: null,
-	modules: [
-		{
-			uuid: "module-1-uuid",
-			name: "M",
-			case_type: undefined,
-			forms: [
+function makeStore() {
+	const store = createBlueprintDocStore();
+	store.getState().load(
+		buildDoc({
+			appId: "test-app",
+			appName: "T",
+			modules: [
 				{
-					uuid: "form-1-uuid",
-					name: "F",
-					type: "survey" as const,
-					questions: [
+					uuid: "module-1-uuid",
+					name: "M",
+					forms: [
 						{
-							uuid: "q-a-0000-0000-0000-000000000000",
-							id: "a",
-							type: "text" as const,
-							label: "A",
-						},
-						{
-							uuid: "q-b-0000-0000-0000-000000000000",
-							id: "b",
-							type: "text" as const,
-							label: "B",
+							uuid: "form-1-uuid",
+							name: "F",
+							type: "survey",
+							fields: [
+								f({
+									uuid: "q-a-0000-0000-0000-000000000000",
+									kind: "text",
+									id: "a",
+									label: "A",
+								}),
+								f({
+									uuid: "q-b-0000-0000-0000-000000000000",
+									kind: "text",
+									id: "b",
+									label: "B",
+								}),
+							],
 						},
 					],
 				},
 			],
-		},
-	],
-};
-
-function makeStore() {
-	const store = createBlueprintDocStore();
-	store.getState().load(BP, "test-app");
+		}),
+	);
 	store.temporal.getState().resume();
 	return store;
 }
@@ -142,28 +141,28 @@ describe("useUndoRedo", () => {
 		const store = makeStore();
 		store.temporal.getState().clear();
 
-		const countBefore = Object.keys(store.getState().questions).length;
+		const countBefore = Object.keys(store.getState().fields).length;
 		const { result } = renderHook(() => useUndoRedo(), {
 			wrapper: wrap(store),
 		});
 
 		act(() => result.current.undo());
 
-		expect(Object.keys(store.getState().questions).length).toBe(countBefore);
+		expect(Object.keys(store.getState().fields).length).toBe(countBefore);
 	});
 
 	it("redo no-ops when futureStates is empty", () => {
 		const store = makeStore();
 		store.temporal.getState().clear();
 
-		const countBefore = Object.keys(store.getState().questions).length;
+		const countBefore = Object.keys(store.getState().fields).length;
 		const { result } = renderHook(() => useUndoRedo(), {
 			wrapper: wrap(store),
 		});
 
 		act(() => result.current.redo());
 
-		expect(Object.keys(store.getState().questions).length).toBe(countBefore);
+		expect(Object.keys(store.getState().fields).length).toBe(countBefore);
 	});
 
 	it("undo reverses the last mutation; redo reapplies it", () => {
@@ -171,9 +170,9 @@ describe("useUndoRedo", () => {
 
 		const qaUuid = asUuid("q-a-0000-0000-0000-000000000000");
 		act(() => {
-			store.getState().apply({ kind: "removeQuestion", uuid: qaUuid });
+			store.getState().apply({ kind: "removeField", uuid: qaUuid });
 		});
-		expect(store.getState().questions[qaUuid]).toBeUndefined();
+		expect(store.getState().fields[qaUuid]).toBeUndefined();
 		expect(store.temporal.getState().pastStates.length).toBeGreaterThan(0);
 
 		const { result } = renderHook(() => useUndoRedo(), {
@@ -181,17 +180,17 @@ describe("useUndoRedo", () => {
 		});
 
 		act(() => result.current.undo());
-		expect(store.getState().questions[qaUuid]).toBeDefined();
+		expect(store.getState().fields[qaUuid]).toBeDefined();
 
 		act(() => result.current.redo());
-		expect(store.getState().questions[qaUuid]).toBeUndefined();
+		expect(store.getState().fields[qaUuid]).toBeUndefined();
 	});
 
 	it("skips scroll/flash when not on a form location", () => {
 		const store = makeStore();
 		act(() => {
 			store.getState().apply({
-				kind: "removeQuestion",
+				kind: "removeField",
 				uuid: asUuid("q-a-0000-0000-0000-000000000000"),
 			});
 		});
@@ -211,9 +210,12 @@ describe("useUndoRedo", () => {
 		const store = makeStore();
 		act(() => {
 			store.getState().apply({
-				kind: "updateQuestion",
+				kind: "updateField",
 				uuid: asUuid("q-a-0000-0000-0000-000000000000"),
-				patch: { label: "Renamed" },
+				/* Cast needed: patch type is Partial<Omit<Field, "uuid">>
+				 * which is a discriminated union variant — label is shared
+				 * across all members via FieldBase but TS can't prove it. */
+				patch: { label: "Renamed" } as never,
 			});
 		});
 
@@ -241,9 +243,12 @@ describe("useUndoRedo", () => {
 		const store = makeStore();
 		act(() => {
 			store.getState().apply({
-				kind: "updateQuestion",
+				kind: "updateField",
 				uuid: asUuid("q-a-0000-0000-0000-000000000000"),
-				patch: { label: "Renamed" },
+				/* Cast needed: patch type is Partial<Omit<Field, "uuid">>
+				 * which is a discriminated union variant — label is shared
+				 * across all members via FieldBase but TS can't prove it. */
+				patch: { label: "Renamed" } as never,
 			});
 		});
 
@@ -278,9 +283,12 @@ describe("useUndoRedo", () => {
 		const store = makeStore();
 		act(() => {
 			store.getState().apply({
-				kind: "updateQuestion",
+				kind: "updateField",
 				uuid: asUuid("q-a-0000-0000-0000-000000000000"),
-				patch: { label: "Renamed" },
+				/* Cast needed: patch type is Partial<Omit<Field, "uuid">>
+				 * which is a discriminated union variant — label is shared
+				 * across all members via FieldBase but TS can't prove it. */
+				patch: { label: "Renamed" } as never,
 			});
 		});
 

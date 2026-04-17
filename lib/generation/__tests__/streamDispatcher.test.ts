@@ -12,7 +12,8 @@ import {
 	type BlueprintDocStoreApi,
 	createBlueprintDocStore,
 } from "@/lib/doc/store";
-import type { AppBlueprint, BlueprintForm } from "@/lib/schemas/blueprint";
+import { asUuid, type PersistableDoc } from "@/lib/domain";
+import type { BlueprintForm } from "@/lib/schemas/blueprint";
 import {
 	type BuilderSessionStoreApi,
 	createBuilderSessionStore,
@@ -20,70 +21,61 @@ import {
 import { signalGrid } from "@/lib/signalGrid/store";
 import { applyStreamEvent } from "../streamDispatcher";
 
-// ── Fixture blueprints ──────────────────────────────────────────────────
+// ── Fixture docs (normalized domain shape) ─────────────────────────────
+//
+// These are the shape the dispatcher consumes — a `PersistableDoc` with
+// three UUID-keyed entity tables and three order arrays. We construct
+// them directly rather than round-tripping through the wire format so
+// the tests can't accidentally depend on any wire-side conversion.
 
-/** Minimal blueprint with one module, one form, one question. */
-const MINIMAL_BP: AppBlueprint = {
-	app_name: "Test App",
-	modules: [
+/** Minimal doc with one module, one form, one field. */
+const MINIMAL_DOC: PersistableDoc = {
+	appId: "test-app-id",
+	appName: "Test App",
+	connectType: null,
+	caseTypes: [
 		{
-			uuid: "mod-uuid-1",
-			name: "Registration",
-			case_type: "patient",
-			forms: [
-				{
-					uuid: "form-uuid-1",
-					name: "Register Patient",
-					type: "registration",
-					questions: [
-						{
-							uuid: "q-uuid-1",
-							id: "case_name",
-							type: "text",
-							label: "Patient Name",
-						},
-					],
-				},
-			],
+			name: "patient",
+			properties: [{ name: "case_name", label: "Name" }],
 		},
 	],
-	case_types: [
-		{ name: "patient", properties: [{ name: "case_name", label: "Name" }] },
-	],
+	modules: {
+		[asUuid("mod-uuid-1")]: {
+			uuid: asUuid("mod-uuid-1"),
+			id: "registration",
+			name: "Registration",
+			caseType: "patient",
+		},
+	},
+	forms: {
+		[asUuid("form-uuid-1")]: {
+			uuid: asUuid("form-uuid-1"),
+			id: "register_patient",
+			name: "Register Patient",
+			type: "registration",
+		},
+	},
+	fields: {
+		[asUuid("q-uuid-1")]: {
+			uuid: asUuid("q-uuid-1"),
+			id: "case_name",
+			kind: "text",
+			label: "Patient Name",
+		},
+	},
+	moduleOrder: [asUuid("mod-uuid-1")],
+	formOrder: { [asUuid("mod-uuid-1")]: [asUuid("form-uuid-1")] },
+	fieldOrder: { [asUuid("form-uuid-1")]: [asUuid("q-uuid-1")] },
 };
 
-/** Edited version of MINIMAL_BP — form name changed, new question added. */
-const EDITED_BP: AppBlueprint = {
-	app_name: "Test App v2",
-	modules: [
-		{
-			uuid: "mod-uuid-1",
-			name: "Registration",
-			case_type: "patient",
-			forms: [
-				{
-					uuid: "form-uuid-1",
-					name: "Register Patient (Edited)",
-					type: "registration",
-					questions: [
-						{
-							uuid: "q-uuid-1",
-							id: "case_name",
-							type: "text",
-							label: "Patient Name",
-						},
-						{
-							uuid: "q-uuid-2",
-							id: "age",
-							type: "int",
-							label: "Age",
-						},
-					],
-				},
-			],
-		},
-	],
-	case_types: [
+/** Edited version of MINIMAL_DOC — app renamed, form renamed, one field
+ *  added. Same uuids on the carry-over entities so the load path exercises
+ *  a real reconciliation, not a wholesale swap. */
+const EDITED_DOC: PersistableDoc = {
+	appId: "test-app-id",
+	appName: "Test App v2",
+	connectType: null,
+	caseTypes: [
 		{
 			name: "patient",
 			properties: [
@@ -92,11 +84,49 @@ const EDITED_BP: AppBlueprint = {
 			],
 		},
 	],
+	modules: {
+		[asUuid("mod-uuid-1")]: {
+			uuid: asUuid("mod-uuid-1"),
+			id: "registration",
+			name: "Registration",
+			caseType: "patient",
+		},
+	},
+	forms: {
+		[asUuid("form-uuid-1")]: {
+			uuid: asUuid("form-uuid-1"),
+			id: "register_patient",
+			name: "Register Patient (Edited)",
+			type: "registration",
+		},
+	},
+	fields: {
+		[asUuid("q-uuid-1")]: {
+			uuid: asUuid("q-uuid-1"),
+			id: "case_name",
+			kind: "text",
+			label: "Patient Name",
+		},
+		[asUuid("q-uuid-2")]: {
+			uuid: asUuid("q-uuid-2"),
+			id: "age",
+			kind: "int",
+			label: "Age",
+		},
+	},
+	moduleOrder: [asUuid("mod-uuid-1")],
+	formOrder: { [asUuid("mod-uuid-1")]: [asUuid("form-uuid-1")] },
+	fieldOrder: {
+		[asUuid("form-uuid-1")]: [asUuid("q-uuid-1"), asUuid("q-uuid-2")],
+	},
 };
 
 // ── Scaffold fixture ────────────────────────────────────────────────────
 
-/** Scaffold payload with top-level keys (matches the wire format). */
+/** Scaffold payload with top-level keys (matches the wire format the SA
+ *  emits for `data-scaffold`). This event still uses wire-style snake_case
+ *  fields because it carries the SA tool's raw input — the mutation mapper
+ *  translates at ingress. */
 const SCAFFOLD_DATA = {
 	app_name: "Health App",
 	description: "A health monitoring app",
@@ -132,9 +162,9 @@ function createWiredStores(): {
 	return { docStore, sessionStore };
 }
 
-/** Load an initial blueprint into the doc store and resume undo tracking. */
-function hydrateDoc(docStore: BlueprintDocStoreApi, bp: AppBlueprint): void {
-	docStore.getState().load(bp, "test-app-id");
+/** Load an initial doc into the store and resume undo tracking. */
+function hydrateDoc(docStore: BlueprintDocStoreApi, doc: PersistableDoc): void {
+	docStore.getState().load(doc);
 	docStore.temporal.getState().resume();
 }
 
@@ -273,31 +303,31 @@ describe("applyStreamEvent", () => {
 				sessionStore,
 			);
 
-			/* The form should now have 2 questions. */
+			/* The form should now have 2 fields. */
 			const doc = docStore.getState();
-			const questionUuids = doc.questionOrder[formUuid];
-			assert(questionUuids);
-			expect(questionUuids).toHaveLength(2);
-			expect(doc.questions[questionUuids[0]].id).toBe("patient_name");
-			expect(doc.questions[questionUuids[1]].id).toBe("patient_age");
+			const fieldUuids = doc.fieldOrder[formUuid];
+			assert(fieldUuids);
+			expect(fieldUuids).toHaveLength(2);
+			expect(doc.fields[fieldUuids[0]].id).toBe("patient_name");
+			expect(doc.fields[fieldUuids[1]].id).toBe("patient_age");
 		});
 	});
 
 	// ── Category 2: Doc lifecycle events ────────────────────────────────
 
 	describe("data-done", () => {
-		it("loads final blueprint, sets justCompleted=true, clears agentActive", () => {
+		it("loads final doc, sets justCompleted=true, clears agentActive", () => {
 			/* Simulate a generation session: start build, then done. */
 			applyStreamEvent("data-start-build", {}, docStore, sessionStore);
 
 			applyStreamEvent(
 				"data-done",
-				{ blueprint: MINIMAL_BP as unknown as Record<string, unknown> },
+				{ doc: MINIMAL_DOC as unknown as Record<string, unknown> },
 				docStore,
 				sessionStore,
 			);
 
-			/* Doc should have the blueprint's content. */
+			/* Doc should have the payload's content. */
 			const doc = docStore.getState();
 			expect(doc.appName).toBe("Test App");
 			expect(doc.moduleOrder).toHaveLength(1);
@@ -316,16 +346,14 @@ describe("applyStreamEvent", () => {
 	});
 
 	describe("data-blueprint-updated", () => {
-		it("loads updated blueprint, does NOT set justCompleted", () => {
-			/* Pre-load an initial blueprint (simulates an existing app). */
-			hydrateDoc(docStore, MINIMAL_BP);
+		it("loads updated doc, does NOT set justCompleted", () => {
+			/* Pre-load an initial doc (simulates an existing app). */
+			hydrateDoc(docStore, MINIMAL_DOC);
 			sessionStore.getState().setAppId("test-app-id");
 
 			applyStreamEvent(
 				"data-blueprint-updated",
-				{
-					blueprint: EDITED_BP as unknown as Record<string, unknown>,
-				},
+				{ doc: EDITED_DOC as unknown as Record<string, unknown> },
 				docStore,
 				sessionStore,
 			);
@@ -530,13 +558,11 @@ describe("applyStreamEvent", () => {
 		});
 
 		it("injects 100 energy for data-blueprint-updated", () => {
-			hydrateDoc(docStore, MINIMAL_BP);
+			hydrateDoc(docStore, MINIMAL_DOC);
 
 			applyStreamEvent(
 				"data-blueprint-updated",
-				{
-					blueprint: EDITED_BP as unknown as Record<string, unknown>,
-				},
+				{ doc: EDITED_DOC as unknown as Record<string, unknown> },
 				docStore,
 				sessionStore,
 			);

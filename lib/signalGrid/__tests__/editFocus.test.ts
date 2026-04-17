@@ -12,7 +12,7 @@ import { computeEditFocus } from "@/lib/signalGrid/editFocus";
 function fixture(modules: number[][]): EditFocusData {
 	const moduleOrder: string[] = [];
 	const formOrder: Record<string, string[]> = {};
-	const questionOrder: Record<string, string[]> = {};
+	const fieldOrder: Record<string, string[]> = {};
 	let qCounter = 0;
 
 	for (let mi = 0; mi < modules.length; mi++) {
@@ -23,16 +23,16 @@ function fixture(modules: number[][]): EditFocusData {
 		for (let fi = 0; fi < modules[mi].length; fi++) {
 			const formId = `f${mi}_${fi}`;
 			formOrder[moduleId].push(formId);
-			questionOrder[formId] = [];
+			fieldOrder[formId] = [];
 
 			for (let qi = 0; qi < modules[mi][fi]; qi++) {
 				const qId = `q_${qCounter++}`;
-				questionOrder[formId].push(qId);
+				fieldOrder[formId].push(qId);
 			}
 		}
 	}
 
-	return { moduleOrder, formOrder, questionOrder };
+	return { moduleOrder, formOrder, fieldOrder };
 }
 
 describe("computeEditFocus", () => {
@@ -40,7 +40,7 @@ describe("computeEditFocus", () => {
 		const data: EditFocusData = {
 			moduleOrder: [],
 			formOrder: {},
-			questionOrder: {},
+			fieldOrder: {},
 		};
 		expect(computeEditFocus(data, { moduleIndex: 0 })).toBeNull();
 	});
@@ -194,7 +194,7 @@ describe("computeEditFocus", () => {
 		const data: EditFocusData = {
 			moduleOrder: ["m0"],
 			formOrder: { m0: ["f0"] },
-			questionOrder: {
+			fieldOrder: {
 				f0: ["q_plain", "q_group"],
 				q_group: ["q_child1", "q_child2", "q_child3"],
 			},

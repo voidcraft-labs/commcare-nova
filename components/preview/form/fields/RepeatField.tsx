@@ -34,9 +34,8 @@ import tablerTrash from "@iconify-icons/tabler/trash";
 import { useCallback } from "react";
 import { useEngineController, useEngineState } from "@/hooks/useFormEngine";
 import { useBlueprintDoc } from "@/lib/doc/hooks/useBlueprintDoc";
-import type { Uuid } from "@/lib/doc/types";
+import type { RepeatField as RepeatFieldEntity } from "@/lib/domain";
 import { LabelContent } from "@/lib/references/LabelContent";
-import type { Question } from "@/lib/schemas/blueprint";
 import type { QuestionPath } from "@/lib/services/questionPath";
 import { useFormLayout } from "../FormLayoutContext";
 import { FIELD_STYLES } from "../fieldStyles";
@@ -44,9 +43,14 @@ import { InteractiveFormRenderer } from "../InteractiveFormRenderer";
 import { depthPadding } from "../virtual/rowStyles";
 
 interface RepeatFieldProps {
-	question: Question;
+	/** The repeat field entity from the normalized doc. */
+	field: RepeatFieldEntity;
+	/** XForm data path prefix — we append `[idx]` per instance. */
 	path: string;
-	questionPath: QuestionPath;
+	/** Blueprint question path threaded through to descendants. */
+	fieldPath: QuestionPath;
+	/** Nesting depth of this repeat — instance content renders at
+	 *  `depth + 1` for flipbook parity with edit mode. */
 	depth: number;
 }
 
@@ -94,30 +98,30 @@ function InstanceDivider({ idx, depth, onRemove }: InstanceDividerProps) {
 // ── RepeatField ──────────────────────────────────────────────────────
 
 export function RepeatField({
-	question,
+	field,
 	path,
-	questionPath,
+	fieldPath,
 	depth,
 }: RepeatFieldProps) {
 	// Visibility is gated one level up by `InteractiveQuestion`, so we
 	// only render when the repeat is visible. State is still needed for
 	// resolved label text + the "Add …" button.
 	const controller = useEngineController();
-	const state = useEngineState(question.uuid);
+	const state = useEngineState(field.uuid);
 	const { toggleCollapse, isCollapsed } = useFormLayout();
-	const collapsed = isCollapsed(question.uuid as Uuid);
+	const collapsed = isCollapsed(field.uuid);
 
 	const hasChildren = useBlueprintDoc(
-		(s) => (s.questionOrder[question.uuid as Uuid]?.length ?? 0) > 0,
+		(s) => (s.fieldOrder[field.uuid]?.length ?? 0) > 0,
 	);
 
-	const count = controller.getRepeatCount(question.uuid);
+	const count = controller.getRepeatCount(field.uuid);
 
 	const onToggle = useCallback(() => {
-		toggleCollapse(question.uuid as Uuid);
-	}, [toggleCollapse, question.uuid]);
+		toggleCollapse(field.uuid);
+	}, [toggleCollapse, field.uuid]);
 
-	const addLabel = state.resolvedLabel ?? question.label ?? "entry";
+	const addLabel = state.resolvedLabel ?? field.label ?? "entry";
 
 	return (
 		<>
@@ -158,13 +162,13 @@ export function RepeatField({
 						</span>
 
 						<div className="min-w-0 flex-1">
-							{question.label ? (
+							{field.label ? (
 								/* Matches TextEditable's idle wrapper padding in
 								 *  edit mode for flipbook parity; see the note
 								 *  in `GroupField`. */
 								<div className="px-[5px] py-[5px]">
 									<LabelContent
-										label={question.label}
+										label={field.label}
 										resolvedLabel={state.resolvedLabel}
 										isEditMode={false}
 										className={FIELD_STYLES.label}
@@ -177,16 +181,8 @@ export function RepeatField({
 							)}
 						</div>
 					</div>
-					{question.hint && (
-						<div className="mt-0.5 px-[5px] py-[5px]">
-							<LabelContent
-								label={question.hint}
-								resolvedLabel={state.resolvedHint}
-								isEditMode={false}
-								className={FIELD_STYLES.hint}
-							/>
-						</div>
-					)}
+					{/* Repeats don't carry `hint` in the domain schema — structural
+					 *  containers expose only `relevant`. Only the label renders. */}
 				</div>
 			</div>
 
@@ -218,14 +214,14 @@ export function RepeatField({
 										depth={depth + 1}
 										onRemove={
 											count > 1
-												? () => controller.removeRepeat(question.uuid, idx)
+												? () => controller.removeRepeat(field.uuid, idx)
 												: undefined
 										}
 									/>
 									<InteractiveFormRenderer
-										parentEntityId={question.uuid}
+										parentEntityId={field.uuid}
 										prefix={`${path}[${idx}]`}
-										parentPath={questionPath}
+										parentPath={fieldPath}
 										depth={depth + 1}
 										leadingGap={false}
 									/>
@@ -246,7 +242,7 @@ export function RepeatField({
 						>
 							<button
 								type="button"
-								onClick={() => controller.addRepeat(question.uuid)}
+								onClick={() => controller.addRepeat(field.uuid)}
 								className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-pv-accent hover:text-pv-accent-bright border border-pv-input-border hover:border-pv-input-focus rounded-lg transition-colors cursor-pointer"
 							>
 								<Icon icon={tablerPlus} width="14" height="14" />

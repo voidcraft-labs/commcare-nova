@@ -6,29 +6,24 @@
  * `store.applyMany()`. No side effects, no store references, no signal
  * grid — the caller is responsible for dispatching the returned mutations.
  *
- * This is the Phase 4 extraction of the entity-mutation logic that was
- * previously interleaved with session/progress state inside the legacy
- * builder store's generation setters (`setSchema`, `setScaffold`,
- * `setModuleContent`, `setFormContent`).
+ * The SA still emits wire-format `AppBlueprint` fragments on every doc-
+ * mutating event; this file is the ingest boundary that translates those
+ * fragments back into the normalized doc shape. `data-form-updated` and
+ * its siblings map onto the atomic `replaceForm` mutation, which drops
+ * the old field subtree and installs the new one in one pass.
  */
 
-import { flattenQuestions } from "@/lib/doc/converter";
+import type { Mutation } from "@/lib/doc/types";
 import type {
 	BlueprintDoc,
-	FormEntity,
-	Mutation,
-	QuestionEntity,
-	Uuid,
-} from "@/lib/doc/types";
-import { asUuid } from "@/lib/doc/types";
-import type {
-	BlueprintForm,
 	CaseType,
+	Field,
+	Form,
 	FormType,
-	Scaffold,
-} from "@/lib/schemas/blueprint";
-import type { CaseColumn } from "@/lib/services/normalizedState";
-import { decomposeFormEntity } from "@/lib/services/normalizedState";
+	Uuid,
+} from "@/lib/domain";
+import { asUuid } from "@/lib/domain";
+import type { BlueprintForm, Scaffold } from "@/lib/schemas/blueprint";
 
 // ── Event type constants ───────────────────────────────────────────────
 
@@ -86,14 +81,26 @@ function mapSchema(data: Record<string, unknown>): Mutation[] {
 }
 
 /**
+ * Produce a lowercase snake_case slug from a display name for entities
+ * (modules, forms) that carry a distinct semantic id. The SA wire format
+ * for scaffolds doesn't emit slugs, so we derive one at ingest.
+ */
+function slugify(name: string): string {
+	const slug = name
+		.trim()
+		.toLowerCase()
+		.replace(/[^a-z0-9]+/g, "_")
+		.replace(/^_+|_+$/g, "");
+	return slug;
+}
+
+/**
  * `data-scaffold` — creates the app skeleton: name, optional connect
  * type, module shells, and empty form shells.
  *
  * Each module and form gets a freshly minted crypto UUID. Form mutations
- * reference their parent module's UUID so the doc reducer can wire up
- * the `formOrder` relationship.
- *
- * Ported from `scaffoldToMutations` in `lib/services/builderStore.ts`.
+ * reference their parent module's UUID so the doc reducer wires up
+ * `formOrder` correctly.
  *
  * Expected payload: the Scaffold object directly (app_name, modules, etc.
  * are top-level keys on `data`, not wrapped in a `scaffold` property).
@@ -114,19 +121,20 @@ function mapScaffold(data: Record<string, unknown>): Mutation[] {
 		});
 	}
 
-	/* Module + form shells */
+	/* Module + form shells — only emit fields that are actually present
+	 *  so the reducer receives a domain-valid Module / Form shape (no
+	 *  explicit `undefined` keys, which Firestore + Zod both dislike). */
 	for (const sm of scaffold.modules) {
 		const moduleUuid = asUuid(crypto.randomUUID());
 		mutations.push({
 			kind: "addModule",
 			module: {
 				uuid: moduleUuid,
+				id: slugify(sm.name) || "module",
 				name: sm.name,
-				caseType: sm.case_type ?? undefined,
-				caseListOnly: sm.case_list_only ?? undefined,
-				purpose: sm.purpose ?? undefined,
-				caseListColumns: undefined,
-				caseDetailColumns: undefined,
+				...(sm.case_type != null && { caseType: sm.case_type }),
+				...(sm.case_list_only && { caseListOnly: sm.case_list_only }),
+				...(sm.purpose !== undefined && { purpose: sm.purpose }),
 			},
 		});
 
@@ -137,13 +145,11 @@ function mapScaffold(data: Record<string, unknown>): Mutation[] {
 				moduleUuid,
 				form: {
 					uuid: formUuid,
+					id: slugify(sf.name) || "form",
 					name: sf.name,
 					type: sf.type as FormType,
-					purpose: sf.purpose ?? undefined,
-					closeCondition: undefined,
-					connect: undefined,
-					postSubmit: sf.post_submit ?? undefined,
-					formLinks: undefined,
+					...(sf.purpose !== undefined && { purpose: sf.purpose }),
+					...(sf.post_submit != null && { postSubmit: sf.post_submit }),
 				},
 			});
 		}
@@ -163,30 +169,34 @@ function mapModuleDone(
 	doc: BlueprintDoc,
 ): Mutation[] {
 	const moduleIndex = data.moduleIndex as number;
-	const caseListColumns = data.caseListColumns as CaseColumn[] | null;
+	const caseListColumns = data.caseListColumns as Array<{
+		field: string;
+		header: string;
+	}> | null;
 
 	const moduleUuid = doc.moduleOrder[moduleIndex];
 	if (!moduleUuid) return [];
 
-	return [
-		{
-			kind: "updateModule",
-			uuid: moduleUuid,
-			patch: {
-				caseListColumns: caseListColumns ?? undefined,
-			},
-		},
-	];
+	/* Build a patch that always emits a `caseListColumns` key — either the
+	 * caller-supplied value or `undefined` when the SA sent `null` (meaning
+	 * "clear"). The reducer then merges via `Object.assign`, which treats
+	 * `undefined` as removal, so the column list is cleared when appropriate
+	 * and replaced otherwise. */
+	const patch: Partial<Omit<(typeof doc.modules)[Uuid], "uuid">> = {
+		caseListColumns: caseListColumns ?? undefined,
+	};
+
+	return [{ kind: "updateModule", uuid: moduleUuid, patch }];
 }
 
 /**
  * `data-form-done` / `data-form-fixed` / `data-form-updated` — replaces
  * an entire form's content with the SA's generated/fixed/updated output.
  *
- * The incoming `BlueprintForm` is decomposed into a flat `FormEntity` +
- * flattened questions, matching the doc's normalized shape. The form's
- * existing `purpose` (set during scaffold) is preserved because the
- * wire-format `BlueprintForm` doesn't carry purpose.
+ * The incoming wire-format `BlueprintForm` is translated to the normalized
+ * domain shape: flat `Field[]` + `fieldOrder` map keyed by parent uuid.
+ * The form's existing `purpose` (set during scaffold) is preserved
+ * because the wire-format `BlueprintForm` doesn't carry purpose.
  *
  * Expected payload: `{ moduleIndex: number, formIndex: number, form: BlueprintForm }`
  */
@@ -205,47 +215,126 @@ function mapFormContent(
 	const formUuid = doc.formOrder[moduleUuid]?.[formIndex];
 	if (!formUuid) return [];
 
-	/*
-	 * Stamp the doc's form UUID onto the incoming form before decomposing.
-	 * `decomposeFormEntity` reads `form.uuid` verbatim — we need it to
-	 * match the doc's existing UUID, not whatever the SA sent.
-	 */
-	const formWithUuid: BlueprintForm = { ...form, uuid: formUuid };
-	const nForm = decomposeFormEntity(formWithUuid);
-
-	/*
-	 * Preserve the scaffold-set purpose. BlueprintForm doesn't carry purpose,
-	 * so the freshly decomposed entity always has `purpose: undefined`. The
-	 * existing form in the doc may have a purpose from the scaffold step.
-	 */
+	/* Preserve the scaffold-set purpose. BlueprintForm doesn't carry
+	 * purpose, so we re-stamp it from the doc's existing form entity. */
 	const existingForm = doc.forms[formUuid];
-	const replacement: FormEntity = {
-		...(nForm as unknown as FormEntity),
-		purpose: existingForm?.purpose ?? nForm.purpose,
+	const replacementForm: Form = {
+		uuid: formUuid,
+		// Forms carry a semantic id slug. Preserve the scaffold slug when
+		// we have one; fall back to a fresh slug from the display name.
+		id: existingForm?.id ?? (slugify(form.name) || "form"),
+		name: form.name,
+		type: form.type as FormType,
+		...(existingForm?.purpose !== undefined && {
+			purpose: existingForm.purpose,
+		}),
+		...(form.close_condition && {
+			closeCondition: {
+				field: form.close_condition.question,
+				answer: form.close_condition.answer,
+				...(form.close_condition.operator && {
+					operator: form.close_condition.operator,
+				}),
+			},
+		}),
+		...(form.connect && { connect: form.connect }),
+		...(form.post_submit !== undefined && { postSubmit: form.post_submit }),
 	};
 
 	/*
-	 * Flatten the nested question tree into the doc's normalized shape.
-	 * `questionOrder` is keyed by parent UUID: top-level questions land
-	 * under `formUuid`; nested group/repeat children land under their
-	 * parent question UUID (handled recursively by flattenQuestions).
+	 * Walk the nested wire-format question tree and flatten it into the
+	 * doc's normalized shape. `fieldOrder` is keyed by parent UUID: top-
+	 * level questions land under `formUuid`; nested group/repeat children
+	 * land under their parent's UUID. The `case_property_on` → `case_
+	 * property` rename happens here, at the wire boundary.
 	 */
-	const questionsMap: Record<Uuid, QuestionEntity> = {};
-	const questionOrder: Record<Uuid, Uuid[]> = {};
-	questionOrder[formUuid] = flattenQuestions(
-		form.questions ?? [],
-		questionsMap,
-		questionOrder,
+	const fields: Field[] = [];
+	const fieldOrder: Record<Uuid, Uuid[]> = {};
+	fieldOrder[formUuid] = [];
+	flattenFormQuestions(
+		(form.questions ?? []) as unknown as Parameters<
+			typeof flattenFormQuestions
+		>[0],
+		formUuid,
+		fields,
+		fieldOrder,
 	);
-	const questions = Object.values(questionsMap);
 
 	return [
 		{
 			kind: "replaceForm",
 			uuid: formUuid,
-			form: replacement,
-			questions,
-			questionOrder,
+			form: replacementForm,
+			fields,
+			fieldOrder,
 		},
 	];
+}
+
+/**
+ * Recursive wire→domain walker for question subtrees. Populates `fields`
+ * and `fieldOrder` by side effect so nested recursion doesn't allocate
+ * intermediate arrays at each level.
+ *
+ * Rename rules applied here:
+ *   - wire `type` → domain `kind` (the discriminant rename)
+ *   - wire `case_property_on` → domain `case_property`
+ *   - wire `validation` / `validation_msg` → domain `validate` / `validate_msg`
+ *
+ * Uuids are preserved verbatim from the wire input — the SA assigns
+ * them at question creation time, and downstream `renameField` logic
+ * depends on their stability.
+ */
+function flattenFormQuestions(
+	questions: Array<{
+		uuid: string;
+		id: string;
+		type: string;
+		label?: string;
+		hint?: string;
+		required?: string;
+		relevant?: string;
+		validation?: string;
+		validation_msg?: string;
+		calculate?: string;
+		default_value?: string;
+		options?: Array<{ value: string; label: string }>;
+		case_property_on?: string;
+		children?: Array<Record<string, unknown>>;
+	}>,
+	parentUuid: Uuid,
+	fields: Field[],
+	fieldOrder: Record<Uuid, Uuid[]>,
+): void {
+	for (const q of questions) {
+		const uuid = asUuid(q.uuid);
+		fieldOrder[parentUuid].push(uuid);
+
+		const fieldObj: Record<string, unknown> = {
+			kind: q.type,
+			uuid,
+			id: q.id,
+			label: q.label ?? "",
+			...(q.case_property_on != null && { case_property: q.case_property_on }),
+			...(q.hint != null && { hint: q.hint }),
+			...(q.required != null && { required: q.required }),
+			...(q.relevant != null && { relevant: q.relevant }),
+			...(q.validation != null && { validate: q.validation }),
+			...(q.validation_msg != null && { validate_msg: q.validation_msg }),
+			...(q.calculate != null && { calculate: q.calculate }),
+			...(q.default_value != null && { default_value: q.default_value }),
+			...(q.options != null && { options: q.options }),
+		};
+		fields.push(fieldObj as Field);
+
+		if (q.children?.length && (q.type === "group" || q.type === "repeat")) {
+			fieldOrder[uuid] = [];
+			flattenFormQuestions(
+				q.children as Parameters<typeof flattenFormQuestions>[0],
+				uuid,
+				fields,
+				fieldOrder,
+			);
+		}
+	}
 }

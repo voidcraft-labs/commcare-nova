@@ -1,9 +1,9 @@
 /**
- * Path-to-path xpath rewriter for moveQuestion.
+ * Path-to-path xpath rewriter for moveField.
  *
- * `lib/preview/xpath/rewrite.ts` handles LEAF-RENAME (question kept in
+ * `lib/preview/xpath/rewrite.ts` handles LEAF-RENAME (field kept in
  * place, last path segment changes). This helper handles PREFIX-SWAP or
- * FULL-PATH-SWAP: the question moves to a different location and its
+ * FULL-PATH-SWAP: the field moves to a different location and its
  * absolute path segments change (possibly at any depth).
  *
  * Implementation reuses the same Lezer walk used by `rewriteXPathRefs` —
@@ -11,8 +11,10 @@
  * `[data, ...oldSegments]` and replace the entire segment sequence (not
  * just the final NameTest) with `[data, ...newSegments]`. For hashtag
  * refs, we only rewrite when BOTH `oldSegments` and `newSegments` have
- * length 1 (top-level → top-level rename); every other case is left
- * alone because a hashtag ref doesn't encode nested paths.
+ * length 1 (top-level → top-level rename); every other case is a DROP —
+ * a hashtag ref can't encode nested paths, so a cross-depth move makes
+ * the reference dangling. The caller gets a count of how many of these
+ * drops were detected so downstream UI can surface the loss.
  */
 
 import type { SyntaxNode } from "@lezer/common";
@@ -59,21 +61,37 @@ function applyEdits(source: string, edits: SourceEdit[]): string {
 }
 
 /**
+ * Result of rewriting one expression on a move.
+ *
+ * `droppedHashtagRefs` counts hashtag refs that pointed at the moved
+ * field's old id but could not be rewritten because either the old or
+ * new path has depth > 1 (hashtag syntax only encodes a single top-level
+ * name). Those refs are now dangling; the caller can surface the count
+ * so users know something broke silently.
+ */
+export interface RewriteOnMoveResult {
+	expr: string;
+	droppedHashtagRefs: number;
+}
+
+/**
  * Rewrite all absolute path references in `expr` whose segments match
  * `oldSegments` (below the `/data` root) to the equivalent path with
  * `newSegments`. Top-level hashtag refs are rewritten only when both
- * segment sequences are length 1.
+ * segment sequences are length 1; otherwise they are counted as dropped.
  *
  * @param expr           XPath expression to rewrite
- * @param oldSegments    Segments below `/data` in the question's old path
- * @param newSegments    Segments below `/data` in the question's new path
+ * @param oldSegments    Segments below `/data` in the field's old path
+ * @param newSegments    Segments below `/data` in the field's new path
+ * @returns              Rewritten expression plus count of dropped hashtag
+ *                       references (unreachable via hashtag syntax).
  */
 export function rewriteXPathOnMove(
 	expr: string,
 	oldSegments: string[],
 	newSegments: string[],
-): string {
-	if (!expr) return expr;
+): RewriteOnMoveResult {
+	if (!expr) return { expr, droppedHashtagRefs: 0 };
 
 	const tree = parser.parse(expr);
 	const edits: SourceEdit[] = [];
@@ -84,21 +102,37 @@ export function rewriteXPathOnMove(
 
 	walkForAbsolutePaths(tree.topNode, expr, targetAbsOld, newSegments, edits);
 
-	// Hashtag refs (`#form/question_id`) only encode a single top-level
-	// question name — they can't represent nested group paths. Only rewrite
-	// when BOTH old and new are top-level (length 1).
-	if (oldSegments.length === 1 && newSegments.length === 1) {
-		walkForHashtags(
-			tree.topNode,
-			expr,
-			"#form/",
-			oldSegments[0],
-			newSegments[0],
-			edits,
-		);
+	// Hashtag refs (`#form/field_id`) only encode a single top-level field
+	// name — they can't represent nested group paths.
+	//   - Both sides top-level (length 1): rewrite the name.
+	//   - Either side nested (length > 1): count matches as dropped.
+	// The old-id leaf is the last `oldSegments` element in both cases —
+	// that's what a hashtag would have pointed at before the move.
+	const oldLeaf = oldSegments[oldSegments.length - 1] ?? "";
+	const canRewriteHashtag =
+		oldSegments.length === 1 && newSegments.length === 1;
+	let droppedHashtagRefs = 0;
+	if (oldLeaf) {
+		if (canRewriteHashtag) {
+			walkForHashtags(
+				tree.topNode,
+				expr,
+				"#form/",
+				oldLeaf,
+				newSegments[0],
+				edits,
+			);
+		} else {
+			droppedHashtagRefs = countHashtagMatches(
+				tree.topNode,
+				expr,
+				"#form/",
+				oldLeaf,
+			);
+		}
 	}
 
-	return applyEdits(expr, edits);
+	return { expr: applyEdits(expr, edits), droppedHashtagRefs };
 }
 
 // ── Tree walkers ──────────────────────────────────────────────────────
@@ -178,6 +212,31 @@ function walkForHashtags(
 		walkForHashtags(child, source, prefix, oldName, newName, edits);
 		child = child.nextSibling;
 	}
+}
+
+/**
+ * Count hashtag refs matching `prefix + oldName` without rewriting them.
+ * Used when the caller detected that a rewrite isn't possible (e.g. a
+ * cross-depth move whose new path can't be expressed as a hashtag) and
+ * just wants to know how many references were dropped.
+ */
+function countHashtagMatches(
+	node: SyntaxNode,
+	source: string,
+	prefix: string,
+	oldName: string,
+): number {
+	if (node.type === T.HashtagRef) {
+		const text = source.slice(node.from, node.to);
+		return text === prefix + oldName ? 1 : 0;
+	}
+	let count = 0;
+	let child = node.firstChild;
+	while (child) {
+		count += countHashtagMatches(child, source, prefix, oldName);
+		child = child.nextSibling;
+	}
+	return count;
 }
 
 // ── Segment collection ────────────────────────────────────────────────

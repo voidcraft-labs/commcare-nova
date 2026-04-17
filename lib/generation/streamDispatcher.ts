@@ -31,7 +31,7 @@
  */
 
 import type { BlueprintDocStoreApi } from "@/lib/doc/store";
-import type { AppBlueprint } from "@/lib/schemas/blueprint";
+import type { PersistableDoc } from "@/lib/domain";
 import type { BuilderSessionStoreApi } from "@/lib/session/store";
 import type { PartialScaffoldData } from "@/lib/session/types";
 import { signalGrid } from "@/lib/signalGrid/store";
@@ -156,27 +156,30 @@ export function applyStreamEvent(
 		case "data-done": {
 			/*
 			 * Generation complete. Reconcile the doc against the final
-			 * authoritative blueprint — streaming may leave the doc slightly
-			 * diverged from the server's canonical result (e.g. silent fix
-			 * loop mutations). `load()` replaces the entire doc and clears +
-			 * pauses undo history.
+			 * authoritative snapshot from the SA — streaming may leave the
+			 * doc slightly diverged from the server's canonical result (e.g.
+			 * silent fix-loop mutations that never surfaced as incremental
+			 * events). `load()` replaces the entire doc and clears + pauses
+			 * undo history.
+			 *
+			 * The payload carries the normalized `PersistableDoc` directly;
+			 * no wire-format translation happens on the client any more.
 			 *
 			 * `sessionStore.endAgentWrite()` cascades to `docStore.endAgentWrite()`
 			 * internally (resumes undo tracking) AND sets `justCompleted=true`
 			 * for the celebration animation.
 			 */
-			const bp = data.blueprint as AppBlueprint;
-			if (bp) {
-				const appId = sessionStore.getState().appId ?? "";
-				docStore.getState().load(bp, appId);
+			const doc = data.doc as PersistableDoc | undefined;
+			if (doc) {
+				docStore.getState().load(doc);
 			}
 			sessionStore.getState().endAgentWrite();
 			return;
 		}
 		case "data-blueprint-updated": {
 			/*
-			 * Full blueprint replacement from a post-build edit tool. The SA's
-			 * coarse edit tools emit this with the entire new blueprint.
+			 * Full doc replacement from a post-build edit tool. The SA's
+			 * coarse edit tools emit this with the entire new doc.
 			 *
 			 * `load()` replaces the doc and pauses undo. We resume tracking
 			 * directly on the doc store — the edit should be undoable. We do
@@ -184,10 +187,9 @@ export function applyStreamEvent(
 			 * `justCompleted=true` and trigger a celebration animation. The
 			 * `agentActive` flag is cleared separately by the chat status effect.
 			 */
-			const bp = data.blueprint as AppBlueprint;
-			if (bp) {
-				const appId = sessionStore.getState().appId ?? "";
-				docStore.getState().load(bp, appId);
+			const doc = data.doc as PersistableDoc | undefined;
+			if (doc) {
+				docStore.getState().load(doc);
 				docStore.getState().endAgentWrite();
 			}
 			return;

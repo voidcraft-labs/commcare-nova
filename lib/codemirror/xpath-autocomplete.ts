@@ -25,16 +25,8 @@ import { syntaxTree } from "@codemirror/language";
 import type { Extension } from "@codemirror/state";
 import { keymap } from "@codemirror/view";
 import type { SyntaxNode } from "@lezer/common";
-import {
-	collectQuestionEntries,
-	USER_PROPERTIES,
-	VALUE_PRODUCING_TYPES,
-} from "@/lib/references/provider";
+import { USER_PROPERTIES } from "@/lib/references/provider";
 import { FUNCTION_REGISTRY } from "@/lib/services/commcare/validate/functionRegistry";
-import {
-	collectCaseProperties,
-	collectValidPaths,
-} from "@/lib/services/commcare/validate/index";
 import type { XPathLintContext } from "./xpath-lint";
 
 // ── Static data ────────────────────────────────────────────────────────
@@ -186,37 +178,25 @@ function hashtagSource(
 			return { from, options: NAMESPACE_OPTIONS };
 		}
 
-		// Phase 2: namespace known — show properties/questions
+		// Phase 2: namespace known — show properties/questions. The lint
+		// context is pre-collected at the call site: `caseProperties` is a
+		// name→{label?} map, and `formEntries` already carries only the
+		// value-producing fields (callers filter before handing it in).
 		const lintCtx = getContext();
 		let options: Completion[] = [];
 
-		if (namespace === "case" && lintCtx) {
-			const caseProps = collectCaseProperties(
-				lintCtx.blueprint,
-				lintCtx.moduleCaseType,
-			);
-			if (caseProps) {
-				const caseType = lintCtx.blueprint.case_types?.find(
-					(ct) => ct.name === lintCtx.moduleCaseType,
-				);
-				options = [...caseProps].map((name) => {
-					const prop = caseType?.properties?.find((p) => p.name === name);
-					return {
-						label: `#case/${name}`,
-						detail: prop?.label,
-						type: "property",
-					};
-				});
-			}
-		} else if (namespace === "form" && lintCtx?.form.questions) {
-			const entries = collectQuestionEntries(lintCtx.form.questions);
-			options = entries
-				.filter((e) => VALUE_PRODUCING_TYPES.has(e.questionType))
-				.map(({ path, label }) => ({
-					label: `#form/${path}`,
-					detail: label,
-					type: "variable",
-				}));
+		if (namespace === "case" && lintCtx?.caseProperties) {
+			options = [...lintCtx.caseProperties.entries()].map(([name, meta]) => ({
+				label: `#case/${name}`,
+				detail: meta.label,
+				type: "property",
+			}));
+		} else if (namespace === "form" && lintCtx) {
+			options = lintCtx.formEntries.map(({ path, label }) => ({
+				label: `#form/${path}`,
+				detail: label,
+				type: "variable",
+			}));
 		} else if (namespace === "user") {
 			options = USER_PROPERTIES.map((p) => ({
 				label: `#user/${p.name}`,
@@ -257,10 +237,9 @@ function dataPathSource(
 			return null;
 
 		const lintCtx = getContext();
-		if (!lintCtx?.form.questions) return null;
+		if (!lintCtx) return null;
 
-		const validPaths = collectValidPaths(lintCtx.form.questions);
-		const options: Completion[] = [...validPaths].map((path) => ({
+		const options: Completion[] = [...lintCtx.validPaths].map((path) => ({
 			label: path,
 			type: "variable",
 		}));

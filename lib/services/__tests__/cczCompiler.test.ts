@@ -1,6 +1,6 @@
 import AdmZip from "adm-zip";
 import { describe, expect, it } from "vitest";
-import { q } from "../../__tests__/testHelpers";
+import { q } from "../../schemas/__tests__/wireFixtures";
 import type { AppBlueprint } from "../../schemas/blueprint";
 import { CczCompiler } from "../cczCompiler";
 import { expandBlueprint } from "../hqJsonExpander";

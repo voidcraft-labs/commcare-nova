@@ -11,8 +11,8 @@
 import { ApiError, handleApiError } from "@/lib/apiError";
 import { requireSession } from "@/lib/auth-utils";
 import { loadApp, loadAppOwner, updateApp } from "@/lib/db/apps";
+import { blueprintDocSchema } from "@/lib/domain/blueprint";
 import { log } from "@/lib/log";
-import { appBlueprintSchema } from "@/lib/schemas/blueprint";
 
 export async function GET(
 	req: Request,
@@ -66,8 +66,11 @@ export async function PUT(
 			throw new ApiError("Invalid JSON body", 400);
 		}
 
-		/* Validate the blueprint before writing — prevents malformed data in Firestore. */
-		const parsed = appBlueprintSchema.safeParse(
+		/* Validate the normalized doc before writing — prevents malformed data in
+		 * Firestore. The client sends a `BlueprintDoc` (minus `fieldParent`, which
+		 * is derived on load). `blueprintDocSchema` omits `fieldParent` so the
+		 * parse succeeds even when the client correctly strips it. */
+		const parsed = blueprintDocSchema.safeParse(
 			(body as Record<string, unknown>)?.blueprint,
 		);
 		if (!parsed.success) {

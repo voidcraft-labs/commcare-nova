@@ -15,8 +15,8 @@ import {
 	isUuidInSubtree,
 	makeDraggableQuestionData,
 	makeDropEmptyContainerData,
+	makeDropFieldData,
 	makeDropGroupHeaderData,
-	makeDropQuestionData,
 	readDropTargetData,
 	targetContainerUuidFor,
 } from "../dragData";
@@ -39,7 +39,7 @@ describe("isDraggableQuestionData", () => {
 
 describe("readDropTargetData", () => {
 	it("narrows drop-question payloads", () => {
-		const data = makeDropQuestionData(Q(1), F, 0);
+		const data = makeDropFieldData(Q(1), F, 0);
 		const narrowed = readDropTargetData(data);
 		expect(narrowed?.kind).toBe("drop-question");
 	});
@@ -64,7 +64,7 @@ describe("readDropTargetData", () => {
 
 describe("targetContainerUuidFor", () => {
 	it("resolves a drop-question to the target's parent", () => {
-		const data = makeDropQuestionData(Q(1), F, 0);
+		const data = makeDropFieldData(Q(1), F, 0);
 		const drop = readDropTargetData(data);
 		if (!drop) throw new Error("unreachable");
 		expect(targetContainerUuidFor(drop)).toBe(F);

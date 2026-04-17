@@ -310,7 +310,7 @@ export function ChatSidebar({
 		gridController.setMode("sending");
 	}, [gridController]);
 
-	// Route typed messages as question answers when a QuestionCard is waiting
+	// Route typed messages as question answers when a AskQuestionsCard is waiting
 	const handleSend = useCallback(
 		(text: string) => {
 			if (pendingAnswerRef.current) {

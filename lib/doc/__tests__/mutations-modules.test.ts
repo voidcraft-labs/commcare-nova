@@ -1,27 +1,22 @@
 import { produce } from "immer";
 import { describe, expect, it } from "vitest";
 import { applyMutation } from "@/lib/doc/mutations";
-import type {
-	BlueprintDoc,
-	FormEntity,
-	ModuleEntity,
-	QuestionEntity,
-	Uuid,
-} from "@/lib/doc/types";
+import type { BlueprintDoc, Uuid } from "@/lib/doc/types";
 import { asUuid } from "@/lib/doc/types";
+import type { Field, Form, Module } from "@/lib/domain";
 
 const M = (s: string) => asUuid(`mod${s}-0000-0000-0000-000000000000`);
 const F = (s: string) => asUuid(`frm${s}-0000-0000-0000-000000000000`);
 const Q = (s: string) => asUuid(`qst${s}-0000-0000-0000-000000000000`);
 
-function module_(uuid: Uuid, name: string): ModuleEntity {
-	return { uuid, name } as ModuleEntity;
+function module_(uuid: Uuid, name: string): Module {
+	return { uuid, name } as Module;
 }
-function form_(uuid: Uuid, name: string): FormEntity {
-	return { uuid, name, type: "survey" } as FormEntity;
+function form_(uuid: Uuid, name: string): Form {
+	return { uuid, name, type: "survey" } as Form;
 }
-function question_(uuid: Uuid, id: string): QuestionEntity {
-	return { uuid, id, type: "text" } as QuestionEntity;
+function field_(uuid: Uuid, id: string): Field {
+	return { uuid, id, kind: "text" } as never as Field;
 }
 
 function emptyDoc(): BlueprintDoc {
@@ -32,10 +27,11 @@ function emptyDoc(): BlueprintDoc {
 		caseTypes: null,
 		modules: {},
 		forms: {},
-		questions: {},
+		fields: {},
 		moduleOrder: [],
 		formOrder: {},
-		questionOrder: {},
+		fieldOrder: {},
+		fieldParent: {},
 	};
 }
 
@@ -93,22 +89,22 @@ describe("removeModule", () => {
 		expect(next.formOrder[M("A")]).toBeUndefined();
 	});
 
-	it("cascades to forms and questions", () => {
+	it("cascades to forms and fields", () => {
 		const start: BlueprintDoc = {
 			...emptyDoc(),
 			modules: { [M("A")]: module_(M("A"), "A") },
 			forms: { [F("1")]: form_(F("1"), "F") },
-			questions: { [Q("x")]: question_(Q("x"), "x") },
+			fields: { [Q("x")]: field_(Q("x"), "x") },
 			moduleOrder: [M("A")],
 			formOrder: { [M("A")]: [F("1")] },
-			questionOrder: { [F("1")]: [Q("x")] },
+			fieldOrder: { [F("1")]: [Q("x")] },
 		};
 		const next = produce(start, (d) => {
 			applyMutation(d, { kind: "removeModule", uuid: M("A") });
 		});
 		expect(next.forms[F("1")]).toBeUndefined();
-		expect(next.questions[Q("x")]).toBeUndefined();
-		expect(next.questionOrder[F("1")]).toBeUndefined();
+		expect(next.fields[Q("x")]).toBeUndefined();
+		expect(next.fieldOrder[F("1")]).toBeUndefined();
 	});
 });
 
@@ -159,7 +155,7 @@ describe("renameModule", () => {
 		const start: BlueprintDoc = {
 			...emptyDoc(),
 			modules: {
-				[M("A")]: { uuid: M("A"), name: "Original" } as ModuleEntity,
+				[M("A")]: { uuid: M("A"), name: "Original" } as Module,
 			},
 			moduleOrder: [M("A")],
 			formOrder: { [M("A")]: [] },

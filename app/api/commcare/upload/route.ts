@@ -13,8 +13,9 @@ import { ApiError, handleApiError } from "@/lib/apiError";
 import { requireSession } from "@/lib/auth-utils";
 import { importApp, isValidDomainSlug } from "@/lib/commcare/client";
 import { getDecryptedCredentialsWithDomain } from "@/lib/db/settings";
+import { toBlueprint } from "@/lib/doc/legacyBridge";
+import { blueprintDocSchema } from "@/lib/domain";
 import { log } from "@/lib/log";
-import { appBlueprintSchema } from "@/lib/schemas/blueprint";
 import { expandBlueprint } from "@/lib/services/hqJsonExpander";
 
 export async function POST(req: NextRequest) {
@@ -23,7 +24,7 @@ export async function POST(req: NextRequest) {
 		const body = (await req.json()) as {
 			domain?: string;
 			appName?: string;
-			blueprint?: unknown;
+			doc?: unknown;
 		};
 
 		/* ── Validate inputs ────────────────────────────────────────── */
@@ -36,21 +37,25 @@ export async function POST(req: NextRequest) {
 		if (!body.appName?.trim()) {
 			throw new ApiError("App name is required", 400);
 		}
-		if (!body.blueprint) {
-			throw new ApiError("Blueprint is required", 400);
+		if (!body.doc) {
+			throw new ApiError("App data is required", 400);
 		}
 
-		const parsed = appBlueprintSchema.safeParse(body.blueprint);
-		if (!parsed.success) {
+		const parsedDoc = blueprintDocSchema.safeParse(body.doc);
+		if (!parsedDoc.success) {
 			throw new ApiError(
-				"Invalid blueprint",
+				"Invalid app data",
 				400,
-				parsed.error.issues.map(
+				parsedDoc.error.issues.map(
 					(e: { path: PropertyKey[]; message: string }) =>
 						`${e.path.join(".")}: ${e.message}`,
 				),
 			);
 		}
+
+		// Domain → wire at the CommCare emission boundary. `fieldParent`
+		// is derived on load; seed an empty index to satisfy the type.
+		const blueprint = toBlueprint({ ...parsedDoc.data, fieldParent: {} });
 
 		/* ── Resolve credentials + verify domain authorization ──────── */
 		const settings = await getDecryptedCredentialsWithDomain(session.user.id);
@@ -69,7 +74,7 @@ export async function POST(req: NextRequest) {
 		const { creds } = settings;
 
 		/* ── Expand blueprint to HQ JSON ────────────────────────────── */
-		const hqJson = expandBlueprint(parsed.data);
+		const hqJson = expandBlueprint(blueprint);
 
 		/* ── Upload to CommCare HQ ──────────────────────────────────── */
 		const result = await importApp(

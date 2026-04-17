@@ -66,9 +66,9 @@ function makeParseDoc(overrides?: Partial<LocationParseDoc>): LocationParseDoc {
 	return {
 		modules: {},
 		forms: {},
-		questions: {},
+		fields: {},
 		formOrder: {},
-		questionOrder: {},
+		fieldOrder: {},
 		...overrides,
 	};
 }
@@ -109,9 +109,9 @@ describe("parsePathToLocation", () => {
 	it("parses form+selection from single segment (question UUID)", () => {
 		const doc = makeParseDoc({
 			forms: { [formUuid]: { uuid: formUuid } as never },
-			questions: { [qUuid]: { uuid: qUuid } as never },
+			fields: { [qUuid]: { uuid: qUuid } as never },
 			formOrder: { [modUuid]: [formUuid] },
-			questionOrder: { [formUuid]: [qUuid] },
+			fieldOrder: { [formUuid]: [qUuid] },
 		});
 		expect(parsePathToLocation([qUuid], doc)).toEqual({
 			kind: "form",
@@ -151,9 +151,9 @@ describe("parsePathToLocation", () => {
 	it("parses form with selection from two segments", () => {
 		const doc = makeParseDoc({
 			forms: { [formUuid]: { uuid: formUuid } as never },
-			questions: { [qUuid]: { uuid: qUuid } as never },
+			fields: { [qUuid]: { uuid: qUuid } as never },
 			formOrder: { [modUuid]: [formUuid] },
-			questionOrder: { [formUuid]: [qUuid] },
+			fieldOrder: { [formUuid]: [qUuid] },
 		});
 		expect(parsePathToLocation([formUuid, qUuid], doc)).toEqual({
 			kind: "form",
@@ -180,12 +180,12 @@ describe("parsePathToLocation", () => {
 		const nestedQUuid = asUuid("55555555-5555-5555-5555-555555555555");
 		const doc = makeParseDoc({
 			forms: { [formUuid]: { uuid: formUuid } as never },
-			questions: {
+			fields: {
 				[groupUuid]: { uuid: groupUuid, type: "group" } as never,
 				[nestedQUuid]: { uuid: nestedQUuid } as never,
 			},
 			formOrder: { [modUuid]: [formUuid] },
-			questionOrder: {
+			fieldOrder: {
 				[formUuid]: [groupUuid],
 				[groupUuid]: [nestedQUuid],
 			},
@@ -206,10 +206,11 @@ const emptyDoc: BlueprintDoc = {
 	caseTypes: null,
 	modules: {},
 	forms: {},
-	questions: {},
+	fields: {},
 	moduleOrder: [],
 	formOrder: {},
-	questionOrder: {},
+	fieldOrder: {},
+	fieldParent: {},
 };
 
 function docWith(overrides: Partial<BlueprintDoc>): BlueprintDoc {
@@ -309,7 +310,7 @@ describe("isValidLocation", () => {
 		const doc = docWith({
 			modules: { [modUuid]: { uuid: modUuid } as never },
 			forms: { [formUuid]: { uuid: formUuid } as never },
-			questions: { [qUuid]: { uuid: qUuid } as never },
+			fields: { [qUuid]: { uuid: qUuid } as never },
 		});
 		expect(
 			isValidLocation(

@@ -4,25 +4,19 @@ import { useCallback, useContext, useState } from "react";
 import { EditableText } from "@/components/builder/EditableText";
 import { SaveShortcutHint } from "@/components/builder/SaveShortcutHint";
 import { XPathField } from "@/components/builder/XPathField";
-import { useSaveQuestion } from "@/hooks/useSaveQuestion";
+import { useSaveField } from "@/hooks/useSaveField";
+import { buildLintContext } from "@/lib/codemirror/buildLintContext";
 import type { XPathLintContext } from "@/lib/codemirror/xpath-lint";
 import { BlueprintDocContext } from "@/lib/doc/provider";
 import type { Uuid } from "@/lib/doc/types";
-import { useSelectedQuestion } from "@/lib/routing/hooks";
-import type { Question } from "@/lib/schemas/blueprint";
-import type { NormalizedData } from "@/lib/services/normalizedState";
-import {
-	assembleBlueprint,
-	assembleForm,
-	getEntityData,
-} from "@/lib/services/normalizedState";
+import { useSelectedField } from "@/lib/routing/hooks";
 import { AddPropertyButton } from "./AddPropertyButton";
 import { RequiredSection } from "./RequiredSection";
 import {
 	addableTextFields,
+	type FieldEditorProps,
 	type FocusableFieldKey,
 	fieldSupportedForType,
-	type QuestionEditorProps,
 	useAddableField,
 	useFocusHint,
 	type XPathFieldKey,
@@ -57,7 +51,7 @@ function XPathSection({
 	return (
 		<div>
 			{/* Visual heading only — XPathField is a CodeMirror editor, not a native
-           input, so <label> can't associate with it and misleads screen readers. */}
+         input, so <label> can't associate with it and misleads screen readers. */}
 			<span className="text-xs text-nova-text-muted uppercase tracking-wider mb-1 flex items-center gap-1.5">
 				{label}
 				{editing && <SaveShortcutHint />}
@@ -80,18 +74,18 @@ function XPathSection({
 const LOGIC_FIELDS = new Set<FocusableFieldKey>([
 	"required",
 	"required_condition",
-	"validation",
-	"validation_msg",
+	"validate",
+	"validate_msg",
 	"relevant",
 	"default_value",
 	"calculate",
 ]);
 
-export function ContextualEditorLogic({ question }: QuestionEditorProps) {
-	const selected = useSelectedQuestion();
-	const saveQuestion = useSaveQuestion(selected?.uuid);
+export function ContextualEditorLogic({ field }: FieldEditorProps) {
+	const selected = useSelectedField();
+	const saveField = useSaveField(selected?.uuid);
 
-	/** Tracks text fields (validation_msg) added via "Add Property". */
+	/** Tracks text fields (validate_msg) added via "Add Property". */
 	const textField = useAddableField(selected?.uuid ?? "");
 	/** Tracks XPath fields added via "Add Property" — separate from text
 	 *  fields so both can be pending simultaneously. */
@@ -102,127 +96,108 @@ export function ContextualEditorLogic({ question }: QuestionEditorProps) {
 	/** The doc store context for imperative state reads (lint context). */
 	const docStore = useContext(BlueprintDocContext);
 
-	/** Context getter for XPath linting and autocomplete. Reads from the
-	 *  doc store imperatively so the closure always reflects the latest state
-	 *  without triggering re-renders on every entity change. */
+	/**
+	 * Builds the thin XPath lint context for the form that owns the selected
+	 * field. Walks `fieldParent` up to the form root, then hands the form
+	 * uuid to the shared `buildLintContext` helper which does the field-tree
+	 * + case-property collection in one pass.
+	 */
 	const getLintContext = useCallback((): XPathLintContext | undefined => {
 		if (!docStore || !selected) return undefined;
 		const s = docStore.getState();
-		/* Cast to NormalizedData — Uuid-branded keys are subtypes of string,
-		 * and the extra BlueprintDocState fields (apply, applyMany) are harmless. */
-		const nd = s as unknown as NormalizedData;
-		/* Find the form that owns this question by walking questionOrder
-		 * upward from the question uuid to a form uuid. */
-		let parentUuid: Uuid | undefined;
-		for (const [pUuid, order] of Object.entries(s.questionOrder)) {
-			if (order.includes(selected.uuid as Uuid)) {
-				parentUuid = pUuid as Uuid;
-				break;
-			}
-		}
-		/* Walk up until we reach a form entity (not a group/repeat). */
-		const visited = new Set<string>();
+
+		/* Walk up from the selected field via `fieldParent` until we hit a
+		 * form entity. This form is the owning form for lint purposes
+		 * (case data comes from the module attached to that form). */
+		let parentUuid = s.fieldParent[selected.uuid as Uuid] ?? undefined;
 		while (parentUuid && !s.forms[parentUuid]) {
-			if (visited.has(parentUuid)) break;
-			visited.add(parentUuid);
-			let next: Uuid | undefined;
-			for (const [pUuid, order] of Object.entries(s.questionOrder)) {
-				if (order.includes(parentUuid)) {
-					next = pUuid as Uuid;
-					break;
-				}
-			}
-			parentUuid = next;
+			parentUuid = s.fieldParent[parentUuid] ?? undefined;
 		}
 		if (!parentUuid) return undefined;
-		const formEntity = s.forms[parentUuid];
-		if (!formEntity) return undefined;
-		/* Find the module that owns this form. */
-		let moduleUuid: Uuid | undefined;
-		for (const [mUuid, formUuids] of Object.entries(s.formOrder)) {
-			if (formUuids.includes(parentUuid)) {
-				moduleUuid = mUuid as Uuid;
-				break;
-			}
-		}
-		const mod = moduleUuid ? s.modules[moduleUuid] : undefined;
-		const form = assembleForm(
-			formEntity,
-			parentUuid,
-			nd.questions,
-			nd.questionOrder,
-		);
-		const blueprint = assembleBlueprint(getEntityData(nd));
-		return { blueprint, form, moduleCaseType: mod?.caseType ?? undefined };
+		return buildLintContext(s, parentUuid);
 	}, [docStore, selected]);
 
 	/** Save handler for standard XPath fields (validation, relevant, etc.).
 	 *  Empty values become undefined (field removal). Clears pending add-property state. */
 	const saveXPath = useCallback(
-		(field: string, value: string) => {
-			saveQuestion(field, value || null);
+		(key: string, value: string) => {
+			saveField(key, value || null);
 			xpathField.clear();
 		},
-		[saveQuestion, xpathField],
+		[saveField, xpathField],
 	);
 
 	if (!selected) return null;
 
-	const type = question.type;
+	const kind = field.kind;
 
-	/** XPath fields not yet set on this question, available to add.
-	 *  Filtered by type support — only offer fields that CommCare honors
-	 *  for this question type. Fields with existing values are still shown
-	 *  (graceful degradation for stale data after type conversion). */
+	/** XPath fields not yet set on this field, available to add.
+	 *  Filtered by kind support — only offer fields that CommCare honors
+	 *  for this kind. Fields with existing values are still shown
+	 *  (graceful degradation for stale data after kind conversion). The
+	 *  `in` operator is the safe narrowing operator for optional
+	 *  discriminated-union members. */
 	const missingXPathFields = xpathFields.filter(
 		(f) =>
-			!question[f.field as keyof Question] &&
+			!(f.field in field) &&
 			xpathField.activeField !== f.field &&
-			fieldSupportedForType(f.field, type),
+			fieldSupportedForType(f.field, kind),
 	);
+
+	// Domain kinds narrow on `in`; reading an absent optional key returns
+	// undefined, which is what the visibility predicates want anyway. The
+	// `in` check is required for soundness because several field kinds
+	// (label, group, repeat) omit these properties entirely.
+	const hasValidate = "validate" in field && !!field.validate;
+	const hasValidateMsg = "validate_msg" in field && !!field.validate_msg;
+	const hasRequired = "required" in field && !!field.required;
+	const hasRelevant = "relevant" in field && !!field.relevant;
+	const hasDefaultValue = "default_value" in field && !!field.default_value;
+	const hasCalculate = "calculate" in field && !!field.calculate;
 
 	/** Show "Validation Message" add button only when validation is present
-	 *  or being added, AND the type actually supports validation (avoids
-	 *  offering it alongside stale validation fields from type conversion). */
+	 *  or being added, AND the kind actually supports validation (avoids
+	 *  offering it alongside stale validation fields from kind conversion). */
 	const missingValidationMsg = addableTextFields.filter(
 		(f) =>
-			f.field === "validation_msg" &&
-			!question.validation_msg &&
-			textField.activeField !== "validation_msg" &&
-			question.validation &&
-			fieldSupportedForType("validation", type),
+			f.field === "validate_msg" &&
+			!hasValidateMsg &&
+			textField.activeField !== "validate_msg" &&
+			hasValidate &&
+			fieldSupportedForType("validate", kind),
 	);
 
-	/** Whether the field is visible — type supports it AND it either has a
-	 *  value, is pending addition, or is being focus-restored. Type conversions
-	 *  only happen within families with identical field support, so stale
-	 *  fields from conversion are impossible. */
-	const isVisible = (field: XPathFieldKey) =>
-		fieldSupportedForType(field, type) &&
-		(!!question[field] ||
-			xpathField.activeField === field ||
-			focusHint === field);
+	/** Whether a given XPath field key is visible — kind supports it AND
+	 *  it either has a value, is pending addition, or is being
+	 *  focus-restored. Kind conversions only happen within families with
+	 *  identical field support, so stale fields from conversion are
+	 *  impossible. */
+	const isVisible = (key: XPathFieldKey) =>
+		fieldSupportedForType(key, kind) &&
+		(!!(key in field && field[key as keyof typeof field]) ||
+			xpathField.activeField === key ||
+			focusHint === key);
 
 	/** Required follows the same visibility pattern as XPath fields: only
 	 *  shown when it has a value or is being focus-restored from undo/redo.
 	 *  "Add Property" saves required directly (toggled on), so no pending
 	 *  addable state is needed — the value check covers it. */
 	const showRequired =
-		fieldSupportedForType("required", type) &&
-		(!!question.required ||
+		fieldSupportedForType("required", kind) &&
+		(hasRequired ||
 			focusHint === "required" ||
 			focusHint === "required_condition");
 
 	/** Whether a Required "Add Property" button should be shown. */
 	const missingRequired =
-		fieldSupportedForType("required", type) && !question.required;
+		fieldSupportedForType("required", kind) && !hasRequired;
 
 	const hasContent =
-		question.required ||
-		question.validation ||
-		question.relevant ||
-		question.default_value ||
-		question.calculate ||
+		hasRequired ||
+		hasValidate ||
+		hasRelevant ||
+		hasDefaultValue ||
+		hasCalculate ||
 		xpathField.activeField;
 
 	return (
@@ -243,17 +218,17 @@ export function ContextualEditorLogic({ question }: QuestionEditorProps) {
 						className="overflow-hidden"
 					>
 						<RequiredSection
-							required={question.required}
-							questionUuid={selected.uuid}
+							required={hasRequired ? field.required : undefined}
+							fieldUuid={selected.uuid}
 							getLintContext={getLintContext}
 							focusHint={focusHint}
 							dataFieldId="required"
 						/>
 					</motion.div>
 				)}
-				{isVisible("validation") && (
+				{isVisible("validate") && (
 					<motion.div
-						key="validation"
+						key="validate"
 						initial={{ opacity: 0, height: 0 }}
 						animate={{ opacity: 1, height: "auto" }}
 						exit={{ opacity: 0, height: 0 }}
@@ -262,33 +237,33 @@ export function ContextualEditorLogic({ question }: QuestionEditorProps) {
 					>
 						<XPathSection
 							label="Validation"
-							dataFieldId="validation"
-							value={question.validation ?? ""}
-							onSave={(v) => saveXPath("validation", v)}
+							dataFieldId="validate"
+							value={hasValidate ? (field.validate ?? "") : ""}
+							onSave={(v) => saveXPath("validate", v)}
 							getLintContext={getLintContext}
 							autoEdit={
-								xpathField.activeField === "validation" ||
-								focusHint === "validation"
+								xpathField.activeField === "validate" ||
+								focusHint === "validate"
 							}
 						>
-							{(question.validation_msg ||
-								textField.activeField === "validation_msg" ||
-								focusHint === "validation_msg") && (
+							{(hasValidateMsg ||
+								textField.activeField === "validate_msg" ||
+								focusHint === "validate_msg") && (
 								<div className="mt-1">
 									<EditableText
 										label="Validation Message"
-										dataFieldId="validation_msg"
-										value={question.validation_msg ?? ""}
+										dataFieldId="validate_msg"
+										value={hasValidateMsg ? (field.validate_msg ?? "") : ""}
 										onSave={(v) => {
-											saveQuestion("validation_msg", v || null);
+											saveField("validate_msg", v || null);
 											textField.clear();
 										}}
 										autoFocus={
-											textField.activeField === "validation_msg" ||
-											focusHint === "validation_msg"
+											textField.activeField === "validate_msg" ||
+											focusHint === "validate_msg"
 										}
 										onEmpty={
-											textField.activeField === "validation_msg"
+											textField.activeField === "validate_msg"
 												? textField.clear
 												: undefined
 										}
@@ -310,7 +285,7 @@ export function ContextualEditorLogic({ question }: QuestionEditorProps) {
 						<XPathSection
 							label="Show When"
 							dataFieldId="relevant"
-							value={question.relevant ?? ""}
+							value={hasRelevant ? (field.relevant ?? "") : ""}
 							onSave={(v) => saveXPath("relevant", v)}
 							getLintContext={getLintContext}
 							autoEdit={
@@ -332,7 +307,7 @@ export function ContextualEditorLogic({ question }: QuestionEditorProps) {
 						<XPathSection
 							label="Default Value"
 							dataFieldId="default_value"
-							value={question.default_value ?? ""}
+							value={hasDefaultValue ? (field.default_value ?? "") : ""}
 							onSave={(v) => saveXPath("default_value", v)}
 							getLintContext={getLintContext}
 							autoEdit={
@@ -354,7 +329,7 @@ export function ContextualEditorLogic({ question }: QuestionEditorProps) {
 						<XPathSection
 							label="Calculate"
 							dataFieldId="calculate"
-							value={question.calculate ?? ""}
+							value={hasCalculate ? (field.calculate ?? "") : ""}
 							onSave={(v) => saveXPath("calculate", v)}
 							getLintContext={getLintContext}
 							autoEdit={
@@ -377,7 +352,7 @@ export function ContextualEditorLogic({ question }: QuestionEditorProps) {
 						{missingRequired && (
 							<AddPropertyButton
 								label="Required"
-								onClick={() => saveQuestion("required", "true()")}
+								onClick={() => saveField("required", "true()")}
 							/>
 						)}
 						{missingValidationMsg.map(({ field, label }) => (

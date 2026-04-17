@@ -24,7 +24,7 @@ import {
 	type EngineController,
 } from "@/lib/preview/engine/engineController";
 import { useBuilderFormEngine } from "@/lib/preview/engine/provider";
-import type { QuestionState } from "@/lib/preview/engine/types";
+import type { FieldState } from "@/lib/preview/engine/types";
 
 // ── Controller access ───────────────────────────────────────────────────
 
@@ -49,7 +49,7 @@ export function useEngineController(): EngineController {
  * Editing question A only re-renders SortableQuestion(A). SortableQuestion(B)
  * keeps the same state reference and skips.
  */
-export function useEngineState(uuid: string): QuestionState {
+export function useEngineState(uuid: string): FieldState {
 	const controller = useEngineController();
 	return useStore(
 		controller.store,

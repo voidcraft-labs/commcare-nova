@@ -31,9 +31,9 @@ import { EditGuardProvider } from "@/components/builder/contexts/EditGuardContex
 import { ScrollRegistryProvider } from "@/components/builder/contexts/ScrollRegistryContext";
 import { LocationRecoveryEffect } from "@/components/builder/LocationRecoveryEffect";
 import { BlueprintDocContext, BlueprintDocProvider } from "@/lib/doc/provider";
+import type { PersistableDoc } from "@/lib/domain/blueprint";
 import { applyStreamEvent } from "@/lib/generation/streamDispatcher";
 import { BuilderFormEngineProvider } from "@/lib/preview/engine/provider";
-import type { AppBlueprint } from "@/lib/schemas/blueprint";
 import {
 	BuilderSessionContext,
 	BuilderSessionProvider,
@@ -54,21 +54,22 @@ export function BuilderProvider({
 	buildId,
 	children,
 	replay,
-	initialBlueprint,
+	initialDoc,
 }: {
 	buildId: string;
 	children: ReactNode;
 	replay?: ReplayInit;
-	/** Server-fetched blueprint — hydrates the doc store synchronously in
-	 *  the provider so the first render sees populated entities. */
-	initialBlueprint?: AppBlueprint;
+	/** Server-fetched normalized doc — hydrates the doc store synchronously
+	 *  in the provider so the first render sees populated entities. Firestore
+	 *  now persists the normalized `BlueprintDoc` shape directly. */
+	initialDoc?: PersistableDoc;
 }) {
 	return (
 		<BuilderProviderInner
 			key={buildId}
 			buildId={buildId}
 			replay={replay}
-			initialBlueprint={initialBlueprint}
+			initialDoc={initialDoc}
 		>
 			{children}
 		</BuilderProviderInner>
@@ -86,18 +87,18 @@ function BuilderProviderInner({
 	buildId,
 	children,
 	replay,
-	initialBlueprint,
+	initialDoc,
 }: {
 	buildId: string;
 	children: ReactNode;
 	replay?: ReplayInit;
-	initialBlueprint?: AppBlueprint;
+	initialDoc?: PersistableDoc;
 }) {
 	/* Pre-compute session store init so `derivePhase` returns the correct
 	 * phase on the very first render — `Loading` for existing apps and
 	 * replays, `Idle` for new builds. The session store captures these
 	 * values in its lazy `useState` initializer and never re-reads them. */
-	const hasExistingData = Boolean(initialBlueprint || replay);
+	const hasExistingData = Boolean(initialDoc || replay);
 	const sessionInit = useState(() => ({
 		loading: hasExistingData,
 		appId: buildId === "new" ? undefined : buildId,
@@ -106,8 +107,8 @@ function BuilderProviderInner({
 	return (
 		<BlueprintDocProvider
 			appId={buildId === "new" ? undefined : buildId}
-			initialBlueprint={initialBlueprint}
-			startTracking={Boolean(initialBlueprint || replay)}
+			initialDoc={initialDoc}
+			startTracking={Boolean(initialDoc || replay)}
 		>
 			<BuilderSessionProvider init={sessionInit}>
 				<ScrollRegistryProvider>
@@ -116,7 +117,7 @@ function BuilderProviderInner({
 							<SyncBridge />
 							<LocationRecoveryEffect />
 							{replay ? <ReplayHydrator replay={replay} /> : null}
-							{!replay && initialBlueprint ? <LoadAppHydrator /> : null}
+							{!replay && initialDoc ? <LoadAppHydrator /> : null}
 							{children}
 						</BuilderFormEngineProvider>
 					</EditGuardProvider>

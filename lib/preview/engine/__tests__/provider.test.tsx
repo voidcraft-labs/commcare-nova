@@ -8,6 +8,9 @@
  * We wrap the provider in a `BlueprintDocContext.Provider` so the effect
  * inside `BuilderFormEngineProvider` can read the doc store — mirroring
  * the real provider stack in `hooks/useBuilder.tsx`.
+ *
+ * Fixtures are built in the normalized doc shape directly — no legacy
+ * `AppBlueprint` tree. The doc store's `load()` takes a `PersistableDoc`.
  */
 
 import { render, renderHook } from "@testing-library/react";
@@ -15,41 +18,53 @@ import { type ReactNode, useEffect } from "react";
 import { describe, expect, it } from "vitest";
 import { BlueprintDocContext } from "@/lib/doc/provider";
 import { createBlueprintDocStore } from "@/lib/doc/store";
-import type { AppBlueprint } from "@/lib/schemas/blueprint";
+import { asUuid } from "@/lib/domain";
+import type { PersistableDoc } from "@/lib/domain/blueprint";
 import { EngineController } from "../engineController";
 import { BuilderFormEngineProvider, useBuilderFormEngine } from "../provider";
 
-/** Minimal blueprint with a single form — enough for the controller's
- *  doc-store reference to be non-trivially installable. */
-const BP: AppBlueprint = {
-	app_name: "Test",
-	case_types: null,
-	modules: [
-		{
-			uuid: "module-1-uuid",
+/** Single-form doc with one text field — the minimum structure the engine
+ *  needs to produce a non-empty runtime state from `activateForm(0, 0)`. */
+const MODULE_UUID = asUuid("module-1-uuid");
+const FORM_UUID = asUuid("form-1-uuid");
+const FIELD_UUID = asUuid("11111111-1111-1111-1111-111111111111");
+
+const DOC: PersistableDoc = {
+	appId: "test-app",
+	appName: "Test",
+	connectType: null,
+	caseTypes: null,
+	modules: {
+		[MODULE_UUID]: {
+			uuid: MODULE_UUID,
+			id: "module-1",
 			name: "M",
-			forms: [
-				{
-					uuid: "form-1-uuid",
-					name: "F",
-					type: "survey",
-					questions: [
-						{
-							uuid: "11111111-1111-1111-1111-111111111111",
-							id: "q1",
-							type: "text",
-							label: "Q1",
-						},
-					],
-				},
-			],
 		},
-	],
+	},
+	forms: {
+		[FORM_UUID]: {
+			uuid: FORM_UUID,
+			id: "form-1",
+			name: "F",
+			type: "survey",
+		},
+	},
+	fields: {
+		[FIELD_UUID]: {
+			uuid: FIELD_UUID,
+			id: "q1",
+			kind: "text",
+			label: "Q1",
+		},
+	},
+	moduleOrder: [MODULE_UUID],
+	formOrder: { [MODULE_UUID]: [FORM_UUID] },
+	fieldOrder: { [FORM_UUID]: [FIELD_UUID] },
 };
 
 function makeWrapper() {
 	const docStore = createBlueprintDocStore();
-	docStore.getState().load(BP, "test-app");
+	docStore.getState().load(DOC);
 	docStore.temporal.getState().resume();
 
 	const Wrapper = ({ children }: { children: ReactNode }) => (
@@ -114,7 +129,7 @@ describe("BuilderFormEngineProvider", () => {
 	 * binding in `useState` worked. */
 	it("doc store is bound before child effects run on first mount", () => {
 		const docStore = createBlueprintDocStore();
-		docStore.getState().load(BP, "test-app");
+		docStore.getState().load(DOC);
 		docStore.temporal.getState().resume();
 
 		let captured: EngineController | null = null;

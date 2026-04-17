@@ -12,9 +12,10 @@ import {
 	loadAppOwner,
 } from "@/lib/db/apps";
 import { getMonthlyUsage, MONTHLY_SPEND_CAP_USD } from "@/lib/db/usage";
+import { rebuildFieldParent } from "@/lib/doc/fieldParent";
+import type { BlueprintDoc } from "@/lib/domain";
 import { log } from "@/lib/log";
 import { CACHE_TTL_MS, chatRequestSchema } from "@/lib/schemas/apiSchemas";
-import type { AppBlueprint } from "@/lib/schemas/blueprint";
 import { classifyError, MESSAGES } from "@/lib/services/errorClassifier";
 import { EventLogger } from "@/lib/services/eventLogger";
 import { GenerationContext } from "@/lib/services/generationContext";
@@ -75,7 +76,7 @@ export async function POST(req: Request) {
 		);
 	}
 
-	const { blueprint, runId, lastResponseAt, appReady } = parsed.data;
+	const { doc, runId, lastResponseAt, appReady } = parsed.data;
 
 	const logger = new EventLogger(runId);
 
@@ -177,12 +178,28 @@ export async function POST(req: Request) {
 				});
 			}
 
-			/* Create a mutable blueprint copy for the SA to modify in place.
-			 * structuredClone isolates the working copy from the input so
-			 * in-flight mutations don't corrupt the caller's reference. */
-			const mutableBp: AppBlueprint = structuredClone(
-				blueprint ?? { app_name: "", modules: [], case_types: null },
-			);
+			/* Build the SA's working doc. The client ships the persistable
+			 * slice (no `fieldParent`) on wire; we deep-clone so in-flight
+			 * mutations never leak back into the request body, then rebuild
+			 * the reverse-parent index the SA's mutation helpers rely on.
+			 * Brand-new builds get the empty doc stamped with the Firestore
+			 * `appId` that `createApp` just minted. */
+			const sessionDoc: BlueprintDoc = doc
+				? structuredClone({ ...doc, fieldParent: {} })
+				: {
+						appId: appId ?? "",
+						appName: "",
+						connectType: null,
+						caseTypes: null,
+						modules: {},
+						forms: {},
+						fields: {},
+						moduleOrder: [],
+						formOrder: {},
+						fieldOrder: {},
+						fieldParent: {},
+					};
+			rebuildFieldParent(sessionDoc);
 
 			const ctx = new GenerationContext({
 				apiKey: keyResult.apiKey,
@@ -190,7 +207,6 @@ export async function POST(req: Request) {
 				logger,
 				session: keyResult.session,
 				appId,
-				blueprint: mutableBp,
 			});
 
 			/** Classify, emit, and persist a generation error. */
@@ -229,10 +245,10 @@ export async function POST(req: Request) {
 					fresh_edit: editing && cacheExpired,
 					app_ready: editing,
 					cache_expired: cacheExpired,
-					module_count: mutableBp.modules.length,
+					module_count: sessionDoc.moduleOrder.length,
 				});
 
-				const sa = createSolutionsArchitect(ctx, mutableBp, editing);
+				const sa = createSolutionsArchitect(ctx, sessionDoc, editing);
 
 				/* When editing with an expired cache, only send the last user message.
 				 * The SA's system prompt includes a compact blueprint summary for

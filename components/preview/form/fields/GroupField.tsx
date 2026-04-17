@@ -30,9 +30,8 @@ import tablerChevronRight from "@iconify-icons/tabler/chevron-right";
 import { useCallback } from "react";
 import { useEngineState } from "@/hooks/useFormEngine";
 import { useBlueprintDoc } from "@/lib/doc/hooks/useBlueprintDoc";
-import type { Uuid } from "@/lib/doc/types";
+import type { GroupField as GroupFieldEntity } from "@/lib/domain";
 import { LabelContent } from "@/lib/references/LabelContent";
-import type { Question } from "@/lib/schemas/blueprint";
 import type { QuestionPath } from "@/lib/services/questionPath";
 import { useFormLayout } from "../FormLayoutContext";
 import { FIELD_STYLES } from "../fieldStyles";
@@ -40,34 +39,47 @@ import { InteractiveFormRenderer } from "../InteractiveFormRenderer";
 import { depthPadding } from "../virtual/rowStyles";
 
 interface GroupFieldProps {
-	question: Question;
+	/** The group field entity from the normalized doc. Its `hint` is
+	 *  optional — only present when the author set one. */
+	field: GroupFieldEntity;
+	/** XForm data path for this level (e.g. `/data/household_group`).
+	 *  Used as the prefix for descendants' paths. */
 	path: string;
-	questionPath: QuestionPath;
+	/** Blueprint question path for descendants — threaded through so
+	 *  engine-state keys stay stable across nesting levels. */
+	fieldPath: QuestionPath;
+	/** Nesting depth of this group — children render at `depth + 1` so
+	 *  they share the edit-mode `depthPadding` column exactly (flipbook
+	 *  parity). */
 	depth: number;
 }
 
-export function GroupField({
-	question,
-	path,
-	questionPath,
-	depth,
-}: GroupFieldProps) {
+/**
+ * Interactive rendering of a group container.
+ *
+ * Rendered only by `InteractiveFormRenderer` (pointer / test mode). The
+ * edit-mode group representation is handled by the flat row model
+ * (`GroupOpenRow` + nested rows + `GroupCloseRow`), so this file no
+ * longer needs to participate in dnd-kit, inline-text editing, or any
+ * other edit-only affordances.
+ */
+export function GroupField({ field, path, fieldPath, depth }: GroupFieldProps) {
 	// Visibility is gated one level up by `InteractiveQuestion`, so we
 	// reach this component only when the group is visible. We still need
 	// the engine state for resolved label/hint rendering.
-	const state = useEngineState(question.uuid);
+	const state = useEngineState(field.uuid);
 	const { toggleCollapse, isCollapsed } = useFormLayout();
-	const collapsed = isCollapsed(question.uuid as Uuid);
+	const collapsed = isCollapsed(field.uuid);
 
 	// Subscribe to children count — drives the empty-state placeholder
 	// block when the group has no template children yet.
 	const hasChildren = useBlueprintDoc(
-		(s) => (s.questionOrder[question.uuid as Uuid]?.length ?? 0) > 0,
+		(s) => (s.fieldOrder[field.uuid]?.length ?? 0) > 0,
 	);
 
 	const onToggle = useCallback(() => {
-		toggleCollapse(question.uuid as Uuid);
-	}, [toggleCollapse, question.uuid]);
+		toggleCollapse(field.uuid);
+	}, [toggleCollapse, field.uuid]);
 
 	return (
 		<>
@@ -97,7 +109,7 @@ export function GroupField({
 							/>
 						</button>
 						<div className="min-w-0 flex-1">
-							{question.label ? (
+							{field.label ? (
 								/* `px-[5px] py-[5px]` matches TextEditable's
 								 *  idle/read-only wrapper in edit mode — without
 								 *  this, a labelled group header is exactly 10px
@@ -105,7 +117,7 @@ export function GroupField({
 								 *  the flipbook shifts every child downward. */
 								<div className="px-[5px] py-[5px]">
 									<LabelContent
-										label={question.label}
+										label={field.label}
 										resolvedLabel={state.resolvedLabel}
 										isEditMode={false}
 										className={FIELD_STYLES.label}
@@ -118,16 +130,8 @@ export function GroupField({
 							)}
 						</div>
 					</div>
-					{question.hint && (
-						<div className="mt-0.5 px-[5px] py-[5px]">
-							<LabelContent
-								label={question.hint}
-								resolvedLabel={state.resolvedHint}
-								isEditMode={false}
-								className={FIELD_STYLES.hint}
-							/>
-						</div>
-					)}
+					{/* Groups don't carry `hint` in the domain schema — structural
+					 *  containers expose only `relevant`. Only the label renders. */}
 				</div>
 			</div>
 
@@ -149,9 +153,9 @@ export function GroupField({
 						/>
 						{hasChildren ? (
 							<InteractiveFormRenderer
-								parentEntityId={question.uuid}
+								parentEntityId={field.uuid}
 								prefix={path}
-								parentPath={questionPath}
+								parentPath={fieldPath}
 								depth={depth + 1}
 							/>
 						) : (

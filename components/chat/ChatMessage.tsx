@@ -1,7 +1,7 @@
 "use client";
 import type { UIMessage } from "ai";
 import { useRef } from "react";
-import { QuestionCard } from "@/components/chat/QuestionCard";
+import { AskQuestionsCard } from "@/components/chat/AskQuestionsCard";
 import { ChatMarkdown } from "@/lib/markdown";
 
 interface ChatMessageProps {
@@ -70,7 +70,7 @@ export function ChatMessage({
 
 				if (part.type === "tool-askQuestions") {
 					return (
-						<QuestionCard
+						<AskQuestionsCard
 							key={part.toolCallId}
 							toolCallId={part.toolCallId}
 							input={

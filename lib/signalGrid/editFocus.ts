@@ -29,7 +29,7 @@ const MIN_EDIT_ZONE = 0.15;
 export interface EditFocusData {
 	moduleOrder: readonly string[];
 	formOrder: Readonly<Record<string, readonly string[]>>;
-	questionOrder: Readonly<Record<string, readonly string[]>>;
+	fieldOrder: Readonly<Record<string, readonly string[]>>;
 }
 
 /**
@@ -64,7 +64,7 @@ export function computeEditFocus(
 		const formIds = data.formOrder[moduleId] ?? [];
 		for (let fi = 0; fi < formIds.length; fi++) {
 			const formId = formIds[fi];
-			const count = countQuestionsDeep(data.questionOrder, formId);
+			const count = countQuestionsDeep(data.fieldOrder, formId);
 			formPositions.push({
 				moduleIndex: mi,
 				formIndex: fi,
@@ -135,18 +135,18 @@ function clampEditFocus(start: number, end: number): EditFocus {
 }
 
 /**
- * Count all questions reachable from a parent in the questionOrder tree.
+ * Count all questions reachable from a parent in the fieldOrder tree.
  * Recursively counts children of groups and repeats.
  */
 function countQuestionsDeep(
-	questionOrder: Readonly<Record<string, readonly string[]>>,
+	fieldOrder: Readonly<Record<string, readonly string[]>>,
 	parentId: string,
 ): number {
-	const childIds = questionOrder[parentId];
+	const childIds = fieldOrder[parentId];
 	if (!childIds) return 0;
 	let count = childIds.length;
 	for (const uuid of childIds) {
-		count += countQuestionsDeep(questionOrder, uuid);
+		count += countQuestionsDeep(fieldOrder, uuid);
 	}
 	return count;
 }

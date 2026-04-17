@@ -24,7 +24,7 @@
 "use client";
 
 import { useCallback, useContext } from "react";
-import { toBlueprint } from "@/lib/doc/converter";
+import { buildLintContext } from "@/lib/codemirror/buildLintContext";
 import { BlueprintDocContext } from "@/lib/doc/provider";
 import { ReferenceProviderWrapper } from "@/lib/references/ReferenceContext";
 import { useLocation } from "@/lib/routing/hooks";
@@ -45,50 +45,20 @@ export function BuilderReferenceProvider({
 	 *  here (cache invalidation is driven by `subscribeMutation` below). */
 	const getRefContext = useCallback(() => {
 		if (!docStore) return undefined;
-		const s = docStore.getState();
-		if (s.moduleOrder.length === 0) return undefined;
-
-		const bp = toBlueprint(s);
-
-		/* Resolve the form in scope from the URL. The callback fires at edit
-		 * time, so the current location accurately reflects which form the
-		 * user is editing. */
-		if (loc.kind === "form") {
-			/* Resolve module/form indices from UUIDs via the doc's ordering
-			 * maps, since toBlueprint returns a wire-format BlueprintApp with
-			 * index-based modules/forms. The cast narrows branded UUIDs. */
-			const moduleIndex = (s.moduleOrder as unknown as string[]).indexOf(
-				loc.moduleUuid,
-			);
-			if (moduleIndex < 0) return undefined;
-			const mod = bp.modules[moduleIndex];
-			const formIds =
-				(s.formOrder as unknown as Record<string, string[]>)[loc.moduleUuid] ??
-				[];
-			const formIndex = formIds.indexOf(loc.formUuid);
-			if (formIndex < 0) return undefined;
-			const form = mod?.forms[formIndex];
-			if (!form) return undefined;
-			return {
-				blueprint: bp,
-				form,
-				moduleCaseType: mod?.case_type ?? undefined,
-			};
-		}
-
-		return undefined;
+		if (loc.kind !== "form") return undefined;
+		return buildLintContext(docStore.getState(), loc.formUuid);
 	}, [docStore, loc]);
 
 	/** Subscribe to entity changes that invalidate the ReferenceProvider cache.
-	 *  Covers questions (question references, case_property_on), modules
-	 *  (case_type renames), and forms (form type changes affecting case config).
-	 *  Uses a tuple selector with reference equality — only fires when at least
-	 *  one entity map gets a new Immer reference. */
+	 *  Covers fields (field references, case_property), modules (case_type renames),
+	 *  and forms (form type changes affecting case config). Uses a tuple selector
+	 *  with reference equality — only fires when at least one entity map gets a
+	 *  new Immer reference. */
 	const subscribeMutation = useCallback(
 		(listener: () => void) => {
 			if (!docStore) return () => {};
 			return docStore.subscribe(
-				(s) => [s.questions, s.modules, s.forms] as const,
+				(s) => [s.fields, s.modules, s.forms] as const,
 				() => listener(),
 				{
 					equalityFn: (a, b) => a[0] === b[0] && a[1] === b[1] && a[2] === b[2],

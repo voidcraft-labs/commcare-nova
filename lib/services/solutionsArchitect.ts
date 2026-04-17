@@ -5,16 +5,53 @@
  * **shared** (conversation, read, mutation, validation). In edit mode (existing app),
  * generation tools are excluded — the SA only gets shared tools and an editing prompt
  * with a blueprint summary. In build mode (new app), all tools are available.
+ *
+ * ## Internal shape
+ *
+ * The SA works on `BlueprintDoc` end to end — the same normalized shape
+ * the client store and Firestore both persist. Wire-format `AppBlueprint`
+ * appears only at true external boundaries:
+ *
+ *   - **LLM prompt** — `buildSolutionsArchitectPrompt` renders the SA's
+ *     editing preamble from a `toBlueprint(doc)` snapshot (the prompt is
+ *     itself an external surface: it ships to Anthropic).
+ *   - **LLM tool returns** — `getForm` / `getQuestion` hand back
+ *     wire-format `BlueprintForm` / `Question` objects because the SA's
+ *     tool surface uses CommCare vocabulary. Those are LLM-facing.
+ *   - **CommCare validator/expander** — `validateAndFix` internally
+ *     translates to `AppBlueprint`, runs the XForm compiler, and
+ *     translates any fix-registry mutations back into a doc. Callers
+ *     stay on the domain side.
+ *
+ * Stream-event payloads (`data-done`, `data-blueprint-updated`) carry the
+ * normalized doc — no wire-format blueprint crosses the agent → client
+ * boundary any more.
+ *
+ * The SA's tool-argument "question" nomenclature is deliberately NOT
+ * renamed to "field"; that's the SA's wire format to the LLM and shared
+ * with the prompt. Internally everything is a `Field`.
  */
 import type { AnthropicProviderOptions } from "@ai-sdk/anthropic";
-import { isStepCount, ToolLoopAgent, tool } from "ai";
+import { stepCountIs, ToolLoopAgent, tool } from "ai";
+import { produce } from "immer";
 import { z } from "zod";
+import { toBlueprint } from "@/lib/doc/legacyBridge";
+import { applyMutations } from "@/lib/doc/mutations";
+import type { Mutation } from "@/lib/doc/types";
+import type {
+	BlueprintDoc,
+	Field,
+	FormType,
+	PostSubmitDestination,
+	Uuid,
+} from "@/lib/domain";
+import { asUuid, isContainer } from "@/lib/domain";
 import { log } from "@/lib/log";
 import { completeApp } from "../db/apps";
 import { SA_MODEL, SA_REASONING } from "../models";
 import { buildSolutionsArchitectPrompt } from "../prompts/solutionsArchitectPrompt";
 import {
-	type AppBlueprint,
+	type BlueprintForm,
 	type ConnectConfig,
 	caseTypesOutputSchema,
 	FORM_TYPES,
@@ -24,9 +61,7 @@ import {
 } from "../schemas/blueprint";
 import {
 	applyDefaults,
-	buildQuestionTree,
 	type FlatQuestion,
-	flattenToFlat,
 	stripEmpty,
 } from "../schemas/contentProcessing";
 import {
@@ -35,30 +70,146 @@ import {
 	editQuestionUpdatesSchema,
 } from "../schemas/toolSchemas";
 import {
-	addForm as bpAddForm,
-	addModule as bpAddModule,
-	addQuestion as bpAddQuestion,
-	removeForm as bpRemoveForm,
-	removeModule as bpRemoveModule,
-	removeQuestion as bpRemoveQuestion,
-	renameCaseProperty as bpRenameCaseProperty,
-	renameQuestion as bpRenameQuestion,
-	replaceForm as bpReplaceForm,
-	setCaseTypes as bpSetCaseTypes,
-	setScaffold as bpSetScaffold,
-	updateForm as bpUpdateForm,
-	updateModule as bpUpdateModule,
-	updateQuestion as bpUpdateQuestion,
-	findByPath,
-	type NewQuestion,
-	resolveQuestionId,
+	addFieldMutations,
+	addFormMutations,
+	addModuleMutations,
+	findFieldByBareId,
+	removeFieldMutations,
+	removeFormMutations,
+	removeModuleMutations,
+	renameCasePropertyMutations,
+	renameFieldMutations,
+	resolveFieldByIndex,
 	searchBlueprint,
+	setCaseTypesMutations,
+	setScaffoldMutations,
+	updateFieldMutations,
+	updateFormMutations,
+	updateModuleMutations,
 } from "./blueprintHelpers";
 import { errorToString } from "./commcare/validate/errors";
 import { type GenerationContext, logWarnings } from "./generationContext";
 import { validateAndFix } from "./validationLoop";
 
 export { validateAndFix } from "./validationLoop";
+
+// ── Doc helpers ───────────────────────────────────────────────────────
+
+/**
+ * Apply a mutation batch to a `BlueprintDoc` via Immer `produce`.
+ * Mutations run on an Immer draft so the reducer's mutable-style
+ * updates are structurally shared; no Zustand store is involved on the
+ * SA side.
+ */
+function applyToDoc(doc: BlueprintDoc, muts: Mutation[]): BlueprintDoc {
+	if (muts.length === 0) return doc;
+	return produce(doc, (draft) => {
+		applyMutations(draft as unknown as BlueprintDoc, muts);
+	});
+}
+
+/**
+ * Map a (moduleIndex, formIndex) pair to the doc's form uuid. Returns
+ * `undefined` when either index is out of range — callers surface this
+ * as an error message to the SA.
+ */
+function resolveFormUuid(
+	doc: BlueprintDoc,
+	moduleIndex: number,
+	formIndex: number,
+): Uuid | undefined {
+	const moduleUuid = doc.moduleOrder[moduleIndex];
+	if (!moduleUuid) return undefined;
+	const formUuids = doc.formOrder[moduleUuid] ?? [];
+	return formUuids[formIndex];
+}
+
+// ── Helpers for wire-format field translation ─────────────────────────
+
+/**
+ * SA wire-format "question" as emitted by addQuestion / addQuestions.
+ * This is the LLM-facing shape — we deliberately keep the CommCare
+ * vocabulary (`type`, `case_property_on`) so the SA's tool schemas and
+ * prompt stay stable. The helper below translates to the internal
+ * `Field` shape at the boundary.
+ */
+interface SaQuestion {
+	id: string;
+	type: string;
+	label?: string;
+	hint?: string;
+	required?: string;
+	validation?: string;
+	validation_msg?: string;
+	relevant?: string;
+	calculate?: string;
+	default_value?: string;
+	options?: Array<{ value: string; label: string }>;
+	case_property_on?: string;
+	children?: SaQuestion[];
+}
+
+/**
+ * Translate a single SA wire-format question (without children) into a
+ * domain `Field` with a freshly minted uuid. Wire-format field names
+ * map onto the domain dialect here:
+ *
+ *   - `case_property_on` → `case_property`
+ *   - `validation` / `validation_msg` → `validate` / `validate_msg`
+ */
+function saQuestionToField(q: SaQuestion, uuid: Uuid): Field {
+	const base: Record<string, unknown> = {
+		kind: q.type,
+		uuid,
+		id: q.id,
+		label: q.label ?? "",
+		...(q.hint != null && { hint: q.hint }),
+		...(q.required != null && { required: q.required }),
+		...(q.relevant != null && { relevant: q.relevant }),
+		...(q.validation != null && { validate: q.validation }),
+		...(q.validation_msg != null && { validate_msg: q.validation_msg }),
+		...(q.calculate != null && { calculate: q.calculate }),
+		...(q.default_value != null && { default_value: q.default_value }),
+		...(q.options != null && { options: q.options }),
+		...(q.case_property_on != null && { case_property: q.case_property_on }),
+	};
+	return base as Field;
+}
+
+// ── Partial patch for editQuestion ─────────────────────────────────────
+
+/**
+ * Translate a wire-format SA editQuestion patch to a domain `Field`
+ * patch. Nullable fields on the SA side clear the value (we map `null`
+ * → `undefined` so Immer's `Object.assign` in the reducer drops the
+ * key). Unspecified keys leave the current value alone.
+ */
+function saEditPatchToFieldPatch(
+	updates: z.infer<typeof editQuestionUpdatesSchema>,
+): Partial<Omit<Field, "uuid">> {
+	const patch: Record<string, unknown> = {};
+	if (updates.type !== undefined) patch.kind = updates.type;
+	if (updates.label !== undefined) patch.label = updates.label;
+	if (updates.hint !== undefined) patch.hint = updates.hint;
+	if (updates.required !== undefined) patch.required = updates.required;
+	// Wire `validation` / `validation_msg` map to domain `validate` /
+	// `validate_msg`. The reducer accepts `undefined` as "clear" via
+	// Object.assign semantics.
+	if (updates.validation !== undefined) patch.validate = updates.validation;
+	if (updates.validation_msg !== undefined)
+		patch.validate_msg = updates.validation_msg;
+	if (updates.relevant !== undefined)
+		patch.relevant = updates.relevant ?? undefined;
+	if (updates.calculate !== undefined)
+		patch.calculate = updates.calculate ?? undefined;
+	if (updates.default_value !== undefined)
+		patch.default_value = updates.default_value ?? undefined;
+	if (updates.options !== undefined)
+		patch.options = updates.options ?? undefined;
+	if (updates.case_property_on !== undefined)
+		patch.case_property = updates.case_property_on ?? undefined;
+	return patch as Partial<Omit<Field, "uuid">>;
+}
 
 // ── Helper: build a full ConnectConfig from SA's partial input ────────
 
@@ -102,15 +253,22 @@ function buildConnectConfig(
 	};
 }
 
-// ── Helper: count questions recursively ───────────────────────────────
-
-function countQuestionsRecursive(questions: Question[]): number {
-	let count = 0;
-	for (const q of questions) {
-		count++;
-		if (q.children) count += countQuestionsRecursive(q.children);
+/** Count fields recursively under a form in the doc — used for the SA's
+ *  human-readable "Form now has N fields" success messages. */
+function countFieldsInForm(doc: BlueprintDoc, formUuid: Uuid): number {
+	let total = 0;
+	const stack: Uuid[] = [...(doc.fieldOrder[formUuid] ?? [])];
+	while (stack.length > 0) {
+		const uuid = stack.pop() as Uuid;
+		const field = doc.fields[uuid];
+		if (!field) continue;
+		total++;
+		if (isContainer(field)) {
+			const children = doc.fieldOrder[uuid] ?? [];
+			for (const c of children) stack.push(c);
+		}
 	}
-	return count;
+	return total;
 }
 
 // ── askQuestions schema ──────────────────────────────────────────────
@@ -135,6 +293,10 @@ const askQuestionsSchema = z.object({
 /**
  * Create the Solutions Architect agent.
  *
+ * @param initialDoc - The SA's starting `BlueprintDoc`. On initial builds
+ *   this is the empty doc created by `createApp`; during edits it's the
+ *   app's current state loaded from Firestore. The SA owns this doc for
+ *   the lifetime of the agent — every tool call mutates it in place.
  * @param editing - True when the app already exists (appReady). The SA gets
  *   the editing preamble + blueprint summary in its prompt and only has access
  *   to read + mutation + validation tools. False during initial builds, where
@@ -142,9 +304,44 @@ const askQuestionsSchema = z.object({
  */
 export function createSolutionsArchitect(
 	ctx: GenerationContext,
-	bp: AppBlueprint,
+	initialDoc: BlueprintDoc,
 	editing = false,
 ) {
+	// Internal doc state — the SA reads + mutates this on every tool call.
+	// It's the single source of truth; wire-format snapshots are generated
+	// on demand for LLM-facing outputs and for the CommCare validator.
+	let doc: BlueprintDoc = initialDoc;
+
+	// Register with the context so intermediate `updated_at` saves pull the
+	// latest snapshot. The context captures a getter so every `emit` call
+	// reads through to the most recent `doc` reassignment.
+	ctx.registerDocProvider(() => doc);
+
+	/**
+	 * Apply a mutation batch to the SA's doc. Every tool handler that
+	 * mutates state routes through this so the timing of doc
+	 * reassignment stays in one place.
+	 */
+	const dispatch = (muts: Mutation[]): void => {
+		if (muts.length === 0) return;
+		doc = applyToDoc(doc, muts);
+	};
+
+	/**
+	 * Emit a `data-blueprint-updated` event carrying the current doc as a
+	 * `PersistableDoc` (no `fieldParent`). Used by coarse edit tools —
+	 * updateModule, createForm, removeForm, cascading rename, etc. — that
+	 * touch enough of the tree that emitting a per-form diff would be more
+	 * complex than a full replace. The client rebuilds `fieldParent` from
+	 * `fieldOrder` inside `docStore.load()`, so we strip it at the wire
+	 * boundary to keep SSE payloads lean and to match the `PersistableDoc`
+	 * contract the dispatcher consumes.
+	 */
+	const emitBlueprintUpdated = (): void => {
+		const { fieldParent: _fp, ...persistable } = doc;
+		ctx.emit("data-blueprint-updated", { doc: persistable });
+	};
+
 	// ── Generation tools (build mode only) ────────────────────────────
 	// These drive the initial build sequence: schema → scaffold → columns → questions.
 	// Excluded in edit mode — the SA uses mutation tools instead.
@@ -163,8 +360,10 @@ export function createSolutionsArchitect(
 				ctx.emit("data-phase", { phase: "data-model" });
 			},
 			execute: async ({ appName, caseTypes }) => {
-				bpSetCaseTypes(bp, caseTypes);
-				bp.app_name = appName;
+				dispatch([
+					{ kind: "setAppName", name: appName },
+					...setCaseTypesMutations(doc, caseTypes),
+				]);
 				ctx.emit("data-schema", { caseTypes });
 
 				return {
@@ -180,14 +379,14 @@ export function createSolutionsArchitect(
 
 		generateScaffold: tool({
 			description:
-				"Set the module and form structure for the app. Call after generateSchema. Provide the complete scaffold directly.",
+				"Set the module and form structure for the app. Call after generateScaffold. Provide the complete scaffold directly.",
 			inputSchema: scaffoldModulesSchema,
 			strict: true,
 			onInputStart: () => {
 				ctx.emit("data-phase", { phase: "structure" });
 			},
 			execute: async (scaffold) => {
-				bpSetScaffold(bp, scaffold);
+				dispatch(setScaffoldMutations(doc, scaffold));
 				ctx.emit("data-scaffold", scaffold);
 
 				return {
@@ -223,10 +422,12 @@ export function createSolutionsArchitect(
 				case_list_columns,
 				case_detail_columns,
 			}) => {
-				const mod = bp.modules[moduleIndex];
+				const moduleUuid = doc.moduleOrder[moduleIndex];
+				if (!moduleUuid) return { error: `Module ${moduleIndex} not found` };
+				const mod = doc.modules[moduleUuid];
 				if (!mod) return { error: `Module ${moduleIndex} not found` };
 
-				if (!mod.case_type || !case_list_columns) {
+				if (!mod.caseType || !case_list_columns) {
 					ctx.emit("data-module-done", {
 						moduleIndex,
 						caseListColumns: null,
@@ -234,10 +435,14 @@ export function createSolutionsArchitect(
 					return { moduleIndex, name: mod.name, columns: null };
 				}
 
-				bpUpdateModule(bp, moduleIndex, {
-					case_list_columns,
-					...(case_detail_columns && { case_detail_columns }),
-				});
+				dispatch(
+					updateModuleMutations(doc, moduleUuid, {
+						caseListColumns: case_list_columns,
+						...(case_detail_columns && {
+							caseDetailColumns: case_detail_columns,
+						}),
+					}),
+				);
 
 				ctx.emit("data-module-done", {
 					moduleIndex,
@@ -267,7 +472,7 @@ export function createSolutionsArchitect(
 
 		addQuestions: tool({
 			description:
-				"Add a batch of questions to an existing form. Appends to existing questions (does not replace). Groups added in one batch can be referenced as parentId in later batches.",
+				"Add a batch of fields to an existing form. Appends to existing fields (does not replace). Groups added in one batch can be referenced as parentId in later batches.",
 			inputSchema: z.object({
 				moduleIndex: z.number().describe("0-based module index"),
 				formIndex: z.number().describe("0-based form index"),
@@ -275,46 +480,76 @@ export function createSolutionsArchitect(
 			}),
 			execute: async ({ moduleIndex, formIndex, questions }) => {
 				try {
-					const blueprint = bp;
-					const mod = blueprint.modules[moduleIndex];
+					const moduleUuid = doc.moduleOrder[moduleIndex];
+					if (!moduleUuid) return { error: `Module ${moduleIndex} not found` };
+					const mod = doc.modules[moduleUuid];
 					if (!mod) return { error: `Module ${moduleIndex} not found` };
-					const form = mod.forms[formIndex];
+					const formUuid = doc.formOrder[moduleUuid]?.[formIndex];
+					if (!formUuid)
+						return {
+							error: `Form ${formIndex} not found in module ${moduleIndex}`,
+						};
+					const form = doc.forms[formUuid];
 					if (!form)
 						return {
 							error: `Form ${formIndex} not found in module ${moduleIndex}`,
 						};
 
-					// Process new questions: strip sentinels → apply case property defaults → assign UUID
-					const processed = questions.map((q) => ({
-						...applyDefaults(
-							stripEmpty(q as unknown as FlatQuestion),
-							blueprint.case_types,
+					// Process incoming flat SA-format questions: strip sentinels,
+					// apply case-property defaults from the data model, then build
+					// a bare-level SaQuestion shape. The SA emits flat questions
+					// with parentId — we resolve each parentId to a uuid by id
+					// lookup within the form's existing + newly-added fields.
+					const mintedByBareId = new Map<string, Uuid>();
+					const muts: Mutation[] = [];
+
+					for (const raw of questions) {
+						const processed = applyDefaults(
+							stripEmpty(raw as unknown as FlatQuestion),
+							doc.caseTypes,
 							form.type,
-							mod.case_type,
-						),
-						uuid: crypto.randomUUID(),
-					}));
+							mod.caseType,
+						) as FlatQuestion & { parentId?: string | null };
 
-					// Merge with existing: flatten existing tree, append new, rebuild.
-					// Existing questions carry their UUIDs through flattenToFlat's spread.
-					const existingFlat = flattenToFlat(form.questions);
-					const allFlat = [...existingFlat, ...processed];
-					const newTree = buildQuestionTree(allFlat);
+						// Resolve parentUuid: empty/undefined → form; otherwise find
+						// the uuid of the newly-added parent or an existing field.
+						let parentUuid: Uuid = formUuid;
+						const parentId = processed.parentId;
+						if (parentId && typeof parentId === "string") {
+							const minted = mintedByBareId.get(parentId);
+							if (minted) {
+								parentUuid = minted;
+							} else {
+								const existing = findFieldByBareId(doc, formUuid, parentId);
+								if (existing) parentUuid = existing.field.uuid;
+								// If we can't resolve, fall through to form-level
+								// insert — better to land somewhere than to fail.
+							}
+						}
 
-					bpReplaceForm(bp, moduleIndex, formIndex, {
-						...form,
-						questions: newTree,
-					});
+						const fieldUuid = asUuid(crypto.randomUUID());
+						const field = saQuestionToField(processed as SaQuestion, fieldUuid);
+						mintedByBareId.set(field.id, fieldUuid);
+						muts.push({ kind: "addField", parentUuid, field });
+					}
+
+					dispatch(muts);
 					ctx.emit("data-phase", { phase: "forms" });
-					ctx.emit("data-form-updated", {
-						moduleIndex,
-						formIndex,
-						form: { ...form, questions: newTree },
-					});
 
-					const totalCount = countQuestionsRecursive(newTree);
-					const addedIds = processed.map((q) => q.id).join(", ");
-					return `Successfully added ${questions.length} question${questions.length === 1 ? "" : "s"} to "${form.name}": ${addedIds}. Form now has ${totalCount} total question${totalCount === 1 ? "" : "s"}.`;
+					// Emit the updated form in wire format so the client store +
+					// streamDispatcher can refresh the UI.
+					const snapshotForm = wireFormSnapshot(doc, moduleUuid, formUuid);
+					if (snapshotForm) {
+						ctx.emit("data-form-updated", {
+							moduleIndex,
+							formIndex,
+							form: snapshotForm,
+						});
+					}
+
+					const totalCount = countFieldsInForm(doc, formUuid);
+					const addedIds = questions.map((q) => q.id).join(", ");
+					return `Successfully added ${questions.length} field${questions.length === 1 ? "" : "s"} to "${form.name}": ${addedIds}. Form now has ${totalCount} total field${totalCount === 1 ? "" : "s"}.`;
 				} catch (err) {
 					return { error: err instanceof Error ? err.message : String(err) };
 				}
@@ -325,16 +560,16 @@ export function createSolutionsArchitect(
 
 		searchBlueprint: tool({
 			description:
-				"Search the blueprint for questions, forms, modules, or case properties matching a query.",
+				"Search the blueprint for fields, forms, modules, or case properties matching a query.",
 			inputSchema: z.object({
 				query: z
 					.string()
 					.describe(
-						"Search term: case property name, question id, label text, case type, XPath fragment, or module/form name",
+						"Search term: case property name, field id, label text, case type, XPath fragment, or module/form name",
 					),
 			}),
 			execute: async ({ query }) => {
-				const results = searchBlueprint(bp, query);
+				const results = searchBlueprint(doc, query);
 				return { query, results };
 			},
 		}),
@@ -346,166 +581,197 @@ export function createSolutionsArchitect(
 				moduleIndex: z.number().describe("0-based module index"),
 			}),
 			execute: async ({ moduleIndex }) => {
-				const mod = bp.modules[moduleIndex];
+				const moduleUuid = doc.moduleOrder[moduleIndex];
+				if (!moduleUuid) return { error: `Module ${moduleIndex} not found` };
+				const mod = doc.modules[moduleUuid];
 				if (!mod) return { error: `Module ${moduleIndex} not found` };
+				const formUuids = doc.formOrder[moduleUuid] ?? [];
 				return {
 					moduleIndex,
 					name: mod.name,
-					case_type: mod.case_type ?? null,
-					case_list_columns: mod.case_list_columns ?? null,
-					forms: mod.forms.map((f, i) => ({
-						formIndex: i,
-						name: f.name,
-						type: f.type,
-						questionCount: countQuestionsRecursive(f.questions),
-					})),
+					case_type: mod.caseType ?? null,
+					case_list_columns: mod.caseListColumns ?? null,
+					forms: formUuids.map((fUuid, i) => {
+						const f = doc.forms[fUuid];
+						return {
+							formIndex: i,
+							name: f?.name ?? "",
+							type: f?.type ?? "survey",
+							questionCount: countFieldsInForm(doc, fUuid),
+						};
+					}),
 				};
 			},
 		}),
 
 		getForm: tool({
 			description:
-				"Get a form by module and form index. Returns the full form including all questions.",
+				"Get a form by module and form index. Returns the full form including all fields.",
 			inputSchema: z.object({
 				moduleIndex: z.number().describe("0-based module index"),
 				formIndex: z.number().describe("0-based form index"),
 			}),
 			execute: async ({ moduleIndex, formIndex }) => {
-				const form = bp.modules[moduleIndex]?.forms[formIndex];
-				if (!form)
+				const moduleUuid = doc.moduleOrder[moduleIndex];
+				if (!moduleUuid)
 					return { error: `Form m${moduleIndex}-f${formIndex} not found` };
-				return { moduleIndex, formIndex, form };
+				const formUuid = doc.formOrder[moduleUuid]?.[formIndex];
+				if (!formUuid)
+					return { error: `Form m${moduleIndex}-f${formIndex} not found` };
+				const wireForm = wireFormSnapshot(doc, moduleUuid, formUuid);
+				if (!wireForm)
+					return { error: `Form m${moduleIndex}-f${formIndex} not found` };
+				return { moduleIndex, formIndex, form: wireForm };
 			},
 		}),
 
 		getQuestion: tool({
-			description: "Get a single question by ID within a form.",
+			description: "Get a single field by ID within a form.",
 			inputSchema: z.object({
 				moduleIndex: z.number().describe("0-based module index"),
 				formIndex: z.number().describe("0-based form index"),
-				questionId: z.string().describe("Question id"),
+				questionId: z.string().describe("Field id"),
 			}),
 			execute: async ({ moduleIndex, formIndex, questionId }) => {
-				const questionPath = resolveQuestionId(
-					bp,
+				const resolved = resolveFieldByIndex(
+					doc,
 					moduleIndex,
 					formIndex,
 					questionId,
 				);
-				if (!questionPath)
+				if (!resolved)
 					return {
-						error: `Question "${questionId}" not found in m${moduleIndex}-f${formIndex}`,
-					};
-				const form_ = bp.modules[moduleIndex]?.forms[formIndex];
-				const question = form_
-					? findByPath(form_.questions, questionPath)?.question
-					: undefined;
-				if (!question)
-					return {
-						error: `Question "${questionId}" not found in m${moduleIndex}-f${formIndex}`,
+						error: `Field "${questionId}" not found in m${moduleIndex}-f${formIndex}`,
 					};
 				return {
 					moduleIndex,
 					formIndex,
 					questionId,
-					path: questionPath as string,
-					question,
+					path: resolved.path,
+					question: fieldToWireQuestion(doc, resolved.field.uuid),
 				};
 			},
 		}),
 
-		// ── Question mutations ────────────────────────────────────────
+		// ── Field mutations ────────────────────────────────────────
 
 		editQuestion: tool({
 			description:
-				"Update fields on an existing question. Only include fields you want to change. Use null to clear a field. Renaming the id automatically propagates XPath and column references — for case properties, propagates across all forms in the module.",
+				"Update properties on an existing field. Only include properties you want to change. Use null to clear a property. Renaming the id automatically propagates XPath and column references — for case properties, propagates across all forms in the module.",
 			inputSchema: z.object({
 				moduleIndex: z.number().describe("0-based module index"),
 				formIndex: z.number().describe("0-based form index"),
-				questionId: z.string().describe("Question id to update"),
+				questionId: z.string().describe("Field id to update"),
 				updates: editQuestionUpdatesSchema,
 			}),
 			execute: async ({ moduleIndex, formIndex, questionId, updates }) => {
 				try {
-					let currentPath = resolveQuestionId(
-						bp,
+					const resolved = resolveFieldByIndex(
+						doc,
 						moduleIndex,
 						formIndex,
 						questionId,
 					);
-					if (!currentPath)
+					if (!resolved)
 						return {
-							error: `Question "${questionId}" not found in m${moduleIndex}-f${formIndex}`,
+							error: `Field "${questionId}" not found in m${moduleIndex}-f${formIndex}`,
 						};
 
-					// Handle ID rename with automatic propagation
 					const { id: newId, ...fieldUpdates } = updates;
+
+					// Handle id rename first — when the field carries a case
+					// property, rename across the entire module + columns +
+					// cross-form refs. Otherwise only the one field + its
+					// local XPath refs inside this form.
 					if (newId && newId !== questionId) {
-						const editForm = bp.modules[moduleIndex]?.forms[formIndex];
-						const question = editForm
-							? findByPath(editForm.questions, currentPath)?.question
-							: undefined;
-						if (question?.case_property_on) {
-							// Cross-form rename: all forms in module + columns + #case/ refs
-							const mod = bp.modules[moduleIndex];
-							if (mod?.case_type) {
-								bpRenameCaseProperty(bp, mod.case_type, questionId, newId);
+						const field = resolved.field;
+						const casePropName = (
+							field as unknown as { case_property?: string }
+						).case_property;
+						if (casePropName !== undefined && casePropName !== null) {
+							const moduleUuid = doc.moduleOrder[moduleIndex];
+							const mod = moduleUuid ? doc.modules[moduleUuid] : undefined;
+							if (mod?.caseType) {
+								const cascade = renameCasePropertyMutations(
+									doc,
+									mod.caseType,
+									questionId,
+									newId,
+								);
+								dispatch(cascade.mutations);
+							} else {
+								dispatch(renameFieldMutations(doc, field.uuid, newId));
 							}
 						} else {
-							// Single-form rename: XPath path refs within this form
-							bpRenameQuestion(bp, moduleIndex, formIndex, currentPath, newId);
+							dispatch(renameFieldMutations(doc, field.uuid, newId));
 						}
-						// Re-resolve path after rename
-						const resolved = resolveQuestionId(
-							bp,
-							moduleIndex,
-							formIndex,
-							newId,
-						);
-						if (!resolved)
-							return { error: `Question "${newId}" not found after rename` };
-						currentPath = resolved;
 					}
 
-					// Apply remaining field updates
-					if (Object.keys(fieldUpdates).length > 0) {
-						bpUpdateQuestion(
-							bp,
-							moduleIndex,
-							formIndex,
-							currentPath,
-							fieldUpdates,
-						);
-					}
-
-					// Emit update for all affected forms
-					if (newId && newId !== questionId) {
-						ctx.emit("data-blueprint-updated", {
-							blueprint: bp,
-						});
-					} else {
-						const form = bp.modules[moduleIndex]?.forms[formIndex];
-						if (form)
-							ctx.emit("data-form-updated", { moduleIndex, formIndex, form });
-					}
+					// Re-resolve the field uuid after rename (the uuid is stable,
+					// but we want the most recent `field` snapshot for egress).
 					const finalId = newId ?? questionId;
-					const form = bp.modules[moduleIndex]?.forms[formIndex];
-					const resolvedPath = resolveQuestionId(
-						bp,
+					const afterRename = resolveFieldByIndex(
+						doc,
 						moduleIndex,
 						formIndex,
 						finalId,
 					);
-					const updatedQ =
-						form && resolvedPath
-							? findByPath(form.questions, resolvedPath)?.question
+					if (!afterRename)
+						return { error: `Field "${finalId}" not found after rename` };
+
+					// Apply remaining property updates.
+					if (Object.keys(fieldUpdates).length > 0) {
+						const patch = saEditPatchToFieldPatch(
+							fieldUpdates as z.infer<typeof editQuestionUpdatesSchema>,
+						);
+						if (Object.keys(patch).length > 0) {
+							dispatch(
+								updateFieldMutations(doc, afterRename.field.uuid, patch),
+							);
+						}
+					}
+
+					// Emit the refreshed view. For renames that cascade across
+					// forms, emit the full blueprint; for intra-form edits, just
+					// the single form.
+					if (newId && newId !== questionId) {
+						emitBlueprintUpdated();
+					} else {
+						const moduleUuid = doc.moduleOrder[moduleIndex];
+						const formUuid = moduleUuid
+							? doc.formOrder[moduleUuid]?.[formIndex]
 							: undefined;
+						if (moduleUuid && formUuid) {
+							const wireForm = wireFormSnapshot(doc, moduleUuid, formUuid);
+							if (wireForm)
+								ctx.emit("data-form-updated", {
+									moduleIndex,
+									formIndex,
+									form: wireForm,
+								});
+						}
+					}
+
+					const postField = doc.fields[afterRename.field.uuid];
 					const changedFields = Object.keys(updates).join(", ");
 					const renameNote =
 						newId && newId !== questionId
 							? ` (renamed from "${questionId}")`
 							: "";
-					return `Successfully updated "${finalId}"${renameNote} in "${form?.name ?? `m${moduleIndex}-f${formIndex}`}". Changed: ${changedFields}.${updatedQ ? ` Current label: "${updatedQ.label}", type: ${updatedQ.type}.` : ""}`;
+					const formName =
+						(() => {
+							const moduleUuid = doc.moduleOrder[moduleIndex];
+							const formUuid = moduleUuid
+								? doc.formOrder[moduleUuid]?.[formIndex]
+								: undefined;
+							return formUuid ? doc.forms[formUuid]?.name : undefined;
+						})() ?? `m${moduleIndex}-f${formIndex}`;
+					const label =
+						postField && "label" in postField
+							? (postField as { label: string }).label
+							: "";
+					const kind = postField?.kind ?? "unknown";
+					return `Successfully updated "${finalId}"${renameNote} in "${formName}". Changed: ${changedFields}. Current label: "${label}", type: ${kind}.`;
 				} catch (err) {
 					return { error: err instanceof Error ? err.message : String(err) };
 				}
@@ -514,7 +780,7 @@ export function createSolutionsArchitect(
 
 		addQuestion: tool({
 			description:
-				"Add a new question to an existing form. Use beforeQuestionId or afterQuestionId to control position; omit both to append at end.",
+				"Add a new field to an existing form. Use beforeQuestionId or afterQuestionId to control position; omit both to append at end.",
 			inputSchema: z.object({
 				moduleIndex: z.number().describe("0-based module index"),
 				formIndex: z.number().describe("0-based form index"),
@@ -522,12 +788,12 @@ export function createSolutionsArchitect(
 				afterQuestionId: z
 					.string()
 					.optional()
-					.describe("Insert after this question ID. Omit to append at end."),
+					.describe("Insert after this field ID. Omit to append at end."),
 				beforeQuestionId: z
 					.string()
 					.optional()
 					.describe(
-						"Insert before this question ID. Takes precedence over afterQuestionId.",
+						"Insert before this field ID. Takes precedence over afterQuestionId.",
 					),
 				parentId: z
 					.string()
@@ -543,34 +809,66 @@ export function createSolutionsArchitect(
 				parentId,
 			}) => {
 				try {
-					const afterPath = afterQuestionId
-						? resolveQuestionId(bp, moduleIndex, formIndex, afterQuestionId)
-						: undefined;
-					const beforePath = beforeQuestionId
-						? resolveQuestionId(bp, moduleIndex, formIndex, beforeQuestionId)
-						: undefined;
-					const parentPath = parentId
-						? resolveQuestionId(bp, moduleIndex, formIndex, parentId)
-						: undefined;
-					bpAddQuestion(bp, moduleIndex, formIndex, question as NewQuestion, {
-						afterPath,
-						beforePath,
-						parentPath,
-					});
-					const form = bp.modules[moduleIndex]?.forms[formIndex];
-					if (!form)
-						return {
-							error: `Form m${moduleIndex}-f${formIndex} not found after add`,
-						};
-					ctx.emit("data-form-updated", { moduleIndex, formIndex, form });
-					const totalQ = countQuestionsRecursive(form.questions);
+					const formUuid = resolveFormUuid(doc, moduleIndex, formIndex);
+					if (!formUuid)
+						return { error: `Form m${moduleIndex}-f${formIndex} not found` };
+
+					// Resolve parent uuid (form or an existing container field).
+					let parentUuid: Uuid = formUuid;
+					if (parentId) {
+						const resolvedParent = findFieldByBareId(doc, formUuid, parentId);
+						if (resolvedParent?.field && isContainer(resolvedParent.field)) {
+							parentUuid = resolvedParent.field.uuid;
+						}
+					}
+
+					// Resolve sibling anchors for ordered insert. Helpers insert
+					// at a numeric index — compute it from the sibling's current
+					// position in the parent's order array.
+					const order = doc.fieldOrder[parentUuid] ?? [];
+					let insertIndex = order.length; // default: append
+					if (beforeQuestionId) {
+						const target = order.findIndex(
+							(u) => doc.fields[u]?.id === beforeQuestionId,
+						);
+						if (target !== -1) insertIndex = target;
+					} else if (afterQuestionId) {
+						const target = order.findIndex(
+							(u) => doc.fields[u]?.id === afterQuestionId,
+						);
+						if (target !== -1) insertIndex = target + 1;
+					}
+
+					const uuid = asUuid(crypto.randomUUID());
+					const field = saQuestionToField(question as SaQuestion, uuid);
+					dispatch(
+						addFieldMutations(doc, {
+							parentUuid,
+							field,
+							index: insertIndex,
+						}),
+					);
+
+					const wireForm = (() => {
+						const mUuid = doc.moduleOrder[moduleIndex];
+						return mUuid ? wireFormSnapshot(doc, mUuid, formUuid) : undefined;
+					})();
+					if (wireForm) {
+						ctx.emit("data-form-updated", {
+							moduleIndex,
+							formIndex,
+							form: wireForm,
+						});
+					}
+					const formName = doc.forms[formUuid]?.name ?? "";
+					const totalCount = countFieldsInForm(doc, formUuid);
 					const posDesc = beforeQuestionId
 						? `before "${beforeQuestionId}"`
 						: afterQuestionId
 							? `after "${afterQuestionId}"`
 							: "at end";
 					const parentDesc = parentId ? ` inside group "${parentId}"` : "";
-					return `Successfully added question "${question.id}" (${question.label}) to "${form.name}" ${posDesc}${parentDesc}. Form now has ${totalQ} question${totalQ === 1 ? "" : "s"}.`;
+					return `Successfully added field "${question.id}" (${question.label ?? ""}) to "${formName}" ${posDesc}${parentDesc}. Form now has ${totalCount} field${totalCount === 1 ? "" : "s"}.`;
 				} catch (err) {
 					return { error: err instanceof Error ? err.message : String(err) };
 				}
@@ -578,36 +876,40 @@ export function createSolutionsArchitect(
 		}),
 
 		removeQuestion: tool({
-			description: "Remove a question from a form.",
+			description: "Remove a field from a form.",
 			inputSchema: z.object({
 				moduleIndex: z.number().describe("0-based module index"),
 				formIndex: z.number().describe("0-based form index"),
-				questionId: z.string().describe("Question id to remove"),
+				questionId: z.string().describe("Field id to remove"),
 			}),
 			execute: async ({ moduleIndex, formIndex, questionId }) => {
 				try {
-					const questionPath = resolveQuestionId(
-						bp,
+					const resolved = resolveFieldByIndex(
+						doc,
 						moduleIndex,
 						formIndex,
 						questionId,
 					);
-					if (!questionPath)
+					if (!resolved)
 						return {
-							error: `Question "${questionId}" not found in m${moduleIndex}-f${formIndex}`,
+							error: `Field "${questionId}" not found in m${moduleIndex}-f${formIndex}`,
 						};
-					const beforeCount = countQuestionsRecursive(
-						bp.modules[moduleIndex]?.forms[formIndex]?.questions ?? [],
-					);
-					bpRemoveQuestion(bp, moduleIndex, formIndex, questionPath);
-					const form = bp.modules[moduleIndex]?.forms[formIndex];
-					if (!form)
-						return {
-							error: `Form m${moduleIndex}-f${formIndex} not found after remove`,
-						};
-					ctx.emit("data-form-updated", { moduleIndex, formIndex, form });
-					const afterCount = countQuestionsRecursive(form.questions);
-					return `Successfully removed question "${questionId}" from "${form.name}". Questions: ${beforeCount} → ${afterCount}.`;
+					const formUuid = resolved.formUuid;
+					const beforeCount = countFieldsInForm(doc, formUuid);
+					dispatch(removeFieldMutations(doc, resolved.field.uuid));
+					const formName = doc.forms[formUuid]?.name ?? "";
+					const moduleUuid = doc.moduleOrder[moduleIndex];
+					if (moduleUuid) {
+						const wireForm = wireFormSnapshot(doc, moduleUuid, formUuid);
+						if (wireForm)
+							ctx.emit("data-form-updated", {
+								moduleIndex,
+								formIndex,
+								form: wireForm,
+							});
+					}
+					const afterCount = countFieldsInForm(doc, formUuid);
+					return `Successfully removed field "${questionId}" from "${formName}". Fields: ${beforeCount} → ${afterCount}.`;
 				} catch (err) {
 					return { error: err instanceof Error ? err.message : String(err) };
 				}
@@ -651,28 +953,32 @@ export function createSolutionsArchitect(
 				case_detail_columns,
 			}) => {
 				try {
-					bpUpdateModule(bp, moduleIndex, {
-						...(name !== undefined && { name }),
-						...(case_list_columns !== undefined && { case_list_columns }),
-						...(case_detail_columns !== undefined && { case_detail_columns }),
-					});
-					ctx.emit("data-blueprint-updated", {
-						blueprint: bp,
-					});
-					const mod = bp.modules[moduleIndex];
+					const moduleUuid = doc.moduleOrder[moduleIndex];
+					if (!moduleUuid) return { error: `Module ${moduleIndex} not found` };
+					const patch: Parameters<typeof updateModuleMutations>[2] = {};
+					if (name !== undefined) patch.name = name;
+					if (case_list_columns !== undefined)
+						patch.caseListColumns = case_list_columns;
+					if (case_detail_columns !== undefined) {
+						patch.caseDetailColumns =
+							case_detail_columns === null ? null : case_detail_columns;
+					}
+					dispatch(updateModuleMutations(doc, moduleUuid, patch));
+					emitBlueprintUpdated();
+					const mod = doc.modules[moduleUuid];
 					if (!mod)
 						return { error: `Module ${moduleIndex} not found after update` };
 					const changes: string[] = [];
 					if (name !== undefined) changes.push(`name → "${mod.name}"`);
 					if (case_list_columns !== undefined)
 						changes.push(
-							`case list columns (${mod.case_list_columns?.length ?? 0})`,
+							`case list columns (${mod.caseListColumns?.length ?? 0})`,
 						);
 					if (case_detail_columns !== undefined)
 						changes.push(
 							case_detail_columns === null
 								? "case detail columns removed"
-								: `case detail columns (${mod.case_detail_columns?.length ?? 0})`,
+								: `case detail columns (${mod.caseDetailColumns?.length ?? 0})`,
 						);
 					return `Successfully updated module "${mod.name}" (index ${moduleIndex}). Changed: ${changes.join(", ")}.`;
 				} catch (err) {
@@ -690,19 +996,19 @@ export function createSolutionsArchitect(
 				name: z.string().optional().describe("New form name"),
 				close_condition: z
 					.object({
-						question: z.string().describe("Question id to check"),
+						question: z.string().describe("Field id to check"),
 						answer: z.string().describe("Value that triggers closure"),
 						operator: z
 							.enum(["=", "selected"])
 							.optional()
 							.describe(
-								'"=" for exact match (default). "selected" for multi-select questions.',
+								'"=" for exact match (default). "selected" for multi-select fields.',
 							),
 					})
 					.nullable()
 					.optional()
 					.describe(
-						'Close forms only. Set conditional close. Use operator "selected" for multi-select questions. null to make unconditional (default). Omit to leave unchanged.',
+						'Close forms only. Set conditional close. Use operator "selected" for multi-select fields. null to make unconditional (default). Omit to leave unchanged.',
 					),
 				post_submit: z
 					.enum(["app_home", "module", "previous"])
@@ -755,25 +1061,58 @@ export function createSolutionsArchitect(
 				connect,
 			}) => {
 				try {
-					bpUpdateForm(bp, moduleIndex, formIndex, {
-						...(name !== undefined && { name }),
-						...(close_condition !== undefined && { close_condition }),
-						...(post_submit !== undefined && { post_submit }),
-						...(connect !== undefined && {
-							connect: buildConnectConfig(
-								connect,
-								bp.modules[moduleIndex]?.forms[formIndex]?.connect,
-							),
-						}),
-					});
-					const form = bp.modules[moduleIndex]?.forms[formIndex];
-					if (!form)
+					const formUuid = resolveFormUuid(doc, moduleIndex, formIndex);
+					if (!formUuid)
+						return { error: `Form m${moduleIndex}-f${formIndex} not found` };
+					const existing = doc.forms[formUuid];
+					if (!existing)
+						return { error: `Form m${moduleIndex}-f${formIndex} not found` };
+
+					// Build the helper's patch shape. close_condition on the wire
+					// uses `question`; domain uses `field`. null clears.
+					const patch: Parameters<typeof updateFormMutations>[2] = {};
+					if (name !== undefined) patch.name = name;
+					if (close_condition !== undefined) {
+						patch.closeCondition =
+							close_condition === null
+								? null
+								: {
+										field: close_condition.question,
+										answer: close_condition.answer,
+										...(close_condition.operator && {
+											operator: close_condition.operator,
+										}),
+									};
+					}
+					if (post_submit !== undefined) {
+						patch.postSubmit = post_submit as PostSubmitDestination | null;
+					}
+					if (connect !== undefined) {
+						patch.connect = buildConnectConfig(
+							connect,
+							existing.connect ?? undefined,
+						);
+					}
+					dispatch(updateFormMutations(doc, formUuid, patch));
+
+					const moduleUuid = doc.moduleOrder[moduleIndex];
+					if (moduleUuid) {
+						const wireForm = wireFormSnapshot(doc, moduleUuid, formUuid);
+						if (wireForm)
+							ctx.emit("data-form-updated", {
+								moduleIndex,
+								formIndex,
+								form: wireForm,
+							});
+					}
+					const formAfter = doc.forms[formUuid];
+					if (!formAfter)
 						return {
 							error: `Form m${moduleIndex}-f${formIndex} not found after update`,
 						};
-					ctx.emit("data-form-updated", { moduleIndex, formIndex, form });
 					const formChanges: string[] = [];
-					if (name !== undefined) formChanges.push(`name → "${form.name}"`);
+					if (name !== undefined)
+						formChanges.push(`name → "${formAfter.name}"`);
 					if (close_condition !== undefined)
 						formChanges.push(
 							close_condition === null
@@ -782,13 +1121,13 @@ export function createSolutionsArchitect(
 						);
 					if (post_submit !== undefined)
 						formChanges.push(
-							`post_submit → "${form.post_submit ?? "form-type default"}"`,
+							`post_submit → "${formAfter.postSubmit ?? "form-type default"}"`,
 						);
 					if (connect !== undefined)
 						formChanges.push(
 							connect === null ? "connect removed" : "connect updated",
 						);
-					return `Successfully updated form "${form.name}" (${form.type}, m${moduleIndex}-f${formIndex}). Changed: ${formChanges.join(", ")}.`;
+					return `Successfully updated form "${formAfter.name}" (${formAfter.type}, m${moduleIndex}-f${formIndex}). Changed: ${formChanges.join(", ")}.`;
 				} catch (err) {
 					return { error: err instanceof Error ? err.message : String(err) };
 				}
@@ -815,24 +1154,22 @@ export function createSolutionsArchitect(
 			}),
 			execute: async ({ moduleIndex, name, type, post_submit }) => {
 				try {
-					/* `bpAddForm` mints the uuid at the wire-format boundary
-					 * (Phase 3 producer-side stamping). We pass the without-uuid
-					 * literal here. */
-					const form = {
-						name,
-						type,
-						questions: [],
-						...(post_submit && { post_submit }),
-					};
-					bpAddForm(bp, moduleIndex, form);
-					ctx.emit("data-blueprint-updated", {
-						blueprint: bp,
-					});
-					const mod = bp.modules[moduleIndex];
-					if (!mod)
-						return { error: `Module ${moduleIndex} not found after addForm` };
-					const newFormIndex = mod.forms.length - 1;
-					return `Successfully created form "${name}" (${type}) in module "${mod.name}" at index m${moduleIndex}-f${newFormIndex}. Module now has ${mod.forms.length} form${mod.forms.length === 1 ? "" : "s"}.`;
+					const moduleUuid = doc.moduleOrder[moduleIndex];
+					if (!moduleUuid) return { error: `Module ${moduleIndex} not found` };
+					dispatch(
+						addFormMutations(doc, moduleUuid, {
+							name,
+							type: type as FormType,
+							...(post_submit && {
+								postSubmit: post_submit as PostSubmitDestination,
+							}),
+						}),
+					);
+					emitBlueprintUpdated();
+					const mod = doc.modules[moduleUuid];
+					const forms = doc.formOrder[moduleUuid] ?? [];
+					const newFormIndex = forms.length - 1;
+					return `Successfully created form "${name}" (${type}) in module "${mod?.name ?? moduleIndex}" at index m${moduleIndex}-f${newFormIndex}. Module now has ${forms.length} form${forms.length === 1 ? "" : "s"}.`;
 				} catch (err) {
 					return { error: err instanceof Error ? err.message : String(err) };
 				}
@@ -847,14 +1184,19 @@ export function createSolutionsArchitect(
 			}),
 			execute: async ({ moduleIndex, formIndex }) => {
 				try {
-					const form = bp.modules[moduleIndex]?.forms[formIndex];
-					const removedName = form?.name ?? `form ${formIndex}`;
-					bpRemoveForm(bp, moduleIndex, formIndex);
-					ctx.emit("data-blueprint-updated", {
-						blueprint: bp,
-					});
-					const mod = bp.modules[moduleIndex];
-					return `Successfully removed form "${removedName}" from module "${mod?.name ?? `module ${moduleIndex}`}". Module now has ${mod?.forms.length ?? 0} form${mod?.forms.length === 1 ? "" : "s"}.`;
+					const formUuid = resolveFormUuid(doc, moduleIndex, formIndex);
+					const removedName = formUuid
+						? (doc.forms[formUuid]?.name ?? `form ${formIndex}`)
+						: `form ${formIndex}`;
+					if (formUuid) {
+						dispatch(removeFormMutations(doc, formUuid));
+					}
+					emitBlueprintUpdated();
+					const moduleUuid = doc.moduleOrder[moduleIndex];
+					const mod = moduleUuid ? doc.modules[moduleUuid] : undefined;
+					const remainingForms =
+						(moduleUuid && doc.formOrder[moduleUuid]) ?? [];
+					return `Successfully removed form "${removedName}" from module "${mod?.name ?? `module ${moduleIndex}`}". Module now has ${remainingForms.length} form${remainingForms.length === 1 ? "" : "s"}.`;
 				} catch (err) {
 					return { error: err instanceof Error ? err.message : String(err) };
 				}
@@ -894,18 +1236,19 @@ export function createSolutionsArchitect(
 				case_list_columns,
 			}) => {
 				try {
-					bpAddModule(bp, {
-						name,
-						...(case_type && { case_type }),
-						...(case_list_only && { case_list_only }),
-						forms: [],
-						...(case_list_columns && { case_list_columns }),
-					});
-					ctx.emit("data-blueprint-updated", {
-						blueprint: bp,
-					});
-					const newModIndex = bp.modules.length - 1;
-					return `Successfully created module "${name}" at index ${newModIndex}${case_type ? ` (case type: ${case_type})` : ""}. App now has ${bp.modules.length} module${bp.modules.length === 1 ? "" : "s"}.`;
+					dispatch(
+						addModuleMutations(doc, {
+							name,
+							...(case_type && { caseType: case_type }),
+							...(case_list_only && { caseListOnly: case_list_only }),
+							...(case_list_columns && {
+								caseListColumns: case_list_columns,
+							}),
+						}),
+					);
+					emitBlueprintUpdated();
+					const newModIndex = doc.moduleOrder.length - 1;
+					return `Successfully created module "${name}" at index ${newModIndex}${case_type ? ` (case type: ${case_type})` : ""}. App now has ${doc.moduleOrder.length} module${doc.moduleOrder.length === 1 ? "" : "s"}.`;
 				} catch (err) {
 					return { error: err instanceof Error ? err.message : String(err) };
 				}
@@ -919,13 +1262,13 @@ export function createSolutionsArchitect(
 			}),
 			execute: async ({ moduleIndex }) => {
 				try {
-					const mod = bp.modules[moduleIndex];
-					const name = mod?.name ?? null;
-					bpRemoveModule(bp, moduleIndex);
-					ctx.emit("data-blueprint-updated", {
-						blueprint: bp,
-					});
-					return `Successfully removed module "${name ?? `module ${moduleIndex}`}". App now has ${bp.modules.length} module${bp.modules.length === 1 ? "" : "s"}.`;
+					const moduleUuid = doc.moduleOrder[moduleIndex];
+					const name = moduleUuid
+						? (doc.modules[moduleUuid]?.name ?? null)
+						: null;
+					if (moduleUuid) dispatch(removeModuleMutations(doc, moduleUuid));
+					emitBlueprintUpdated();
+					return `Successfully removed module "${name ?? `module ${moduleIndex}`}". App now has ${doc.moduleOrder.length} module${doc.moduleOrder.length === 1 ? "" : "s"}.`;
 				} catch (err) {
 					return { error: err instanceof Error ? err.message : String(err) };
 				}
@@ -942,26 +1285,44 @@ export function createSolutionsArchitect(
 				ctx.emit("data-phase", { phase: "validate" });
 			},
 			execute: async () => {
-				const blueprint = bp;
-				const result = await validateAndFix(ctx, blueprint);
+				// `validateAndFix` owns the XForm-compiler boundary: it takes
+				// our doc, runs CommCare-flavored validation + auto-fixes on a
+				// blueprint snapshot, and hands back a doc with any fix-registry
+				// mutations folded in. We replace our working doc with that
+				// result so subsequent tool calls see the patched state.
+				const result = await validateAndFix(ctx, doc);
 				if (result.success) {
+					doc = result.doc;
+
+					/* Strip the derived `fieldParent` reverse-index before emitting
+					 * or persisting — it's rebuilt on the client from `fieldOrder`
+					 * in `docStore.load()`, so sending it over SSE wastes bandwidth
+					 * and duplicates data that the store regenerates anyway. */
+					const { fieldParent: _fp, ...persistable } = doc;
+
 					ctx.emit("data-done", {
-						blueprint: result.blueprint,
+						doc: persistable,
 						hqJson: result.hqJson ?? {},
 						success: true,
 					});
 
-					/* Update the app with the final validated blueprint (fire-and-forget).
-					 * The app document was created at the start of the request by the route handler. */
+					/* Update the app with the final validated doc (fire-and-forget).
+					 * The app document was created at the start of the request by
+					 * the route handler. We persist the normalized doc shape
+					 * directly — `completeApp` accepts `PersistableDoc`. */
 					if (ctx.appId) {
-						completeApp(ctx.appId, result.blueprint, ctx.logger.runId).catch(
-							(err) => log.error("[validateApp] app update failed", err),
+						completeApp(ctx.appId, persistable, ctx.logger.runId).catch((err) =>
+							log.error("[validateApp] app update failed", err),
 						);
 					}
 
 					return { success: true as const };
 				}
-				// Surface remaining errors as strings so the SA can read and fix them
+				// Keep the SA's doc aligned with the fix loop's output even on
+				// failure — later tool calls should see any partial fixes the
+				// registry managed to apply before giving up.
+				doc = result.doc;
+				// Surface remaining errors as strings so the SA can read and fix them.
 				return {
 					success: false as const,
 					errors: (result.errors ?? []).map(errorToString),
@@ -978,8 +1339,14 @@ export function createSolutionsArchitect(
 
 	const agent = new ToolLoopAgent({
 		model: ctx.model(SA_MODEL),
-		instructions: buildSolutionsArchitectPrompt(editing ? bp : undefined),
-		stopWhen: isStepCount(80),
+		// The prompt summary is itself an external (LLM-facing) artifact —
+		// the SA speaks CommCare vocabulary with the model. Render from a
+		// fresh wire snapshot so the preamble reflects the doc we were just
+		// handed.
+		instructions: buildSolutionsArchitectPrompt(
+			editing ? toBlueprint(doc) : undefined,
+		),
+		stopWhen: stepCountIs(80),
 		prepareStep: ({ steps: _steps }) => {
 			// Adaptive thinking with `display: 'summarized'` is required on Opus 4.7
 			// for human-readable thinking summaries to stream back. `effort` is a
@@ -1032,4 +1399,57 @@ export function createSolutionsArchitect(
 	});
 
 	return agent;
+}
+
+// ── Small helpers for emitting wire-format slices ─────────────────────
+
+/**
+ * Extract a single form from the doc as a wire-format `BlueprintForm`.
+ * Used by tool handlers emitting `data-form-updated` events.
+ */
+function wireFormSnapshot(
+	doc: BlueprintDoc,
+	moduleUuid: Uuid,
+	formUuid: Uuid,
+): BlueprintForm | undefined {
+	const bpSnapshot = toBlueprint(doc);
+	const mIdx = doc.moduleOrder.indexOf(moduleUuid);
+	if (mIdx === -1) return undefined;
+	const fIdx = (doc.formOrder[moduleUuid] ?? []).indexOf(formUuid);
+	if (fIdx === -1) return undefined;
+	return bpSnapshot.modules[mIdx]?.forms[fIdx];
+}
+
+/**
+ * Extract a single field from the doc as a wire-format `Question`.
+ * Only used by the `getQuestion` SA read tool, which returns one field
+ * to the LLM.
+ */
+function fieldToWireQuestion(
+	doc: BlueprintDoc,
+	fieldUuid: Uuid,
+): Question | undefined {
+	const bpSnapshot = toBlueprint(doc);
+	for (const mod of bpSnapshot.modules) {
+		for (const f of mod.forms) {
+			const found = findQuestionByUuid(f.questions, fieldUuid);
+			if (found) return found;
+		}
+	}
+	return undefined;
+}
+
+function findQuestionByUuid(
+	questions: Question[] | undefined,
+	uuid: string,
+): Question | undefined {
+	if (!questions) return undefined;
+	for (const q of questions) {
+		if (q.uuid === uuid) return q;
+		if (q.children) {
+			const found = findQuestionByUuid(q.children, uuid);
+			if (found) return found;
+		}
+	}
+	return undefined;
 }

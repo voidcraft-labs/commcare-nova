@@ -33,12 +33,8 @@ import {
 	useBlueprintDoc,
 	useBlueprintDocShallow,
 } from "@/lib/doc/hooks/useBlueprintDoc";
-import type {
-	FormEntity,
-	ModuleEntity,
-	QuestionEntity,
-	Uuid,
-} from "@/lib/doc/types";
+import type { Uuid } from "@/lib/doc/types";
+import type { Field, Form, Module } from "@/lib/domain";
 import { buildUrl, parsePathToLocation } from "@/lib/routing/location";
 import type { Location } from "@/lib/routing/types";
 import {
@@ -60,37 +56,37 @@ export function useLocation(): Location {
 	const doc = useBlueprintDocShallow((s) => ({
 		modules: s.modules,
 		forms: s.forms,
-		questions: s.questions,
+		fields: s.fields,
 		formOrder: s.formOrder,
-		questionOrder: s.questionOrder,
+		fieldOrder: s.fieldOrder,
 	}));
 	return useMemo(() => parsePathToLocation(segments, doc), [segments, doc]);
 }
 
 /**
- * Derive the selected question entity from the current URL and doc.
+ * Derive the selected field entity from the current URL and doc.
  * Returns `null` when there's no selection in the URL, when the current
  * screen isn't a form, or when the referenced uuid no longer exists
  * (the deletion-recovery effect in `LocationRecoveryEffect` will fix
  * the URL on the next tick).
  */
-export function useSelectedQuestion(): QuestionEntity | null {
+export function useSelectedField(): Field | null {
 	const loc = useLocation();
 	const selectedUuid = loc.kind === "form" ? loc.selectedUuid : undefined;
-	const question = useBlueprintDoc((s) =>
-		selectedUuid ? s.questions[selectedUuid] : undefined,
+	const field = useBlueprintDoc((s) =>
+		selectedUuid ? s.fields[selectedUuid] : undefined,
 	);
-	return question ?? null;
+	return field ?? null;
 }
 
 /**
- * Derive the `{ module, form }` context the selected-question panel
+ * Derive the `{ module, form }` context the selected-field panel
  * needs — one shallow read per entity, `null` if we're not on a form
  * screen or an entity is missing.
  */
 export function useSelectedFormContext(): {
-	module: ModuleEntity;
-	form: FormEntity;
+	module: Module;
+	form: Form;
 } | null {
 	const loc = useLocation();
 	const moduleUuid = loc.kind === "form" ? loc.moduleUuid : undefined;
@@ -156,11 +152,11 @@ export function useIsFormSelected(uuid: Uuid): boolean {
 
 /**
  * `true` when a specific question uuid is the current selection.
- * Each `EditableQuestionWrapper` calls this with its own identity —
+ * Each `EditableFieldWrapper` calls this with its own identity —
  * only the previously-selected and newly-selected wrappers re-render
  * on a selection change.
  */
-export function useIsQuestionSelected(uuid: Uuid): boolean {
+export function useIsFieldSelected(uuid: Uuid): boolean {
 	const loc = useLocation();
 	return loc.kind === "form" && loc.selectedUuid === uuid;
 }

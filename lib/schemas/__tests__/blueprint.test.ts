@@ -1,10 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { q } from "@/lib/__tests__/testHelpers";
 import {
 	type AppBlueprint,
 	appBlueprintSchema,
 	type Question,
 } from "../blueprint";
+import { q } from "./wireFixtures";
 
 /** Minimal blueprint wrapping the given questions into a single form. */
 function wrapQuestions(questions: Question[]): AppBlueprint {

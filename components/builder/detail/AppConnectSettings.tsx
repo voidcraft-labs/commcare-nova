@@ -4,7 +4,7 @@ import { useState } from "react";
 import { ConnectLogomark } from "@/components/icons/ConnectLogomark";
 import { Toggle } from "@/components/ui/Toggle";
 import { useBlueprintDoc } from "@/lib/doc/hooks/useBlueprintDoc";
-import type { ConnectType } from "@/lib/schemas/blueprint";
+import type { ConnectType } from "@/lib/domain";
 import { useSwitchConnectMode } from "@/lib/session/hooks";
 import { POPOVER_POPUP_CLS, POPOVER_POSITIONER_GLASS_CLS } from "@/lib/styles";
 
