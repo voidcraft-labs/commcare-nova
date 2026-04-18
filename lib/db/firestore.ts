@@ -17,7 +17,8 @@
  *
  *   collections.usage(userId)    → usage/{userId}/months/{yyyy-mm}
  *   collections.apps()           → apps/{appId}          (root-level)
- *   collections.logs(appId)      → apps/{appId}/logs/{logId}
+ *   collections.events(appId)    → apps/{appId}/events/{eventId}
+ *   collections.runs(appId)      → apps/{appId}/runs/{runId}
  *   collections.threads(appId)   → apps/{appId}/threads/{threadId}
  *   collections.settings()       → user_settings/{userId} (CommCare HQ credentials)
  */
@@ -31,11 +32,12 @@ import {
 	type WithFieldValue,
 } from "@google-cloud/firestore";
 import type { ZodType } from "zod";
+import { type Event, eventSchema } from "@/lib/log/types";
 import {
 	type AppDoc,
 	appDocSchema,
-	type StoredEvent,
-	storedEventSchema,
+	type RunSummaryDoc,
+	runSummaryDocSchema,
 	type ThreadDoc,
 	threadDocSchema,
 	type UsageDoc,
@@ -109,7 +111,8 @@ function zodConverter<T>(schema: ZodType<T>): FirestoreDataConverter<T> {
 
 const usageConverter = zodConverter(usageDocSchema);
 const appConverter = zodConverter(appDocSchema);
-const storedEventConverter = zodConverter(storedEventSchema);
+const eventConverter = zodConverter(eventSchema);
+const runSummaryConverter = zodConverter(runSummaryDocSchema);
 const threadConverter = zodConverter(threadDocSchema);
 const userSettingsConverter = zodConverter(userSettingsDocSchema);
 
@@ -123,7 +126,7 @@ const userSettingsConverter = zodConverter(userSettingsDocSchema);
  * sentinels like `serverTimestamp()` in place of their resolved types).
  *
  * Apps are a root-level collection — no parent ID needed.
- * Logs are subcollections of their app document.
+ * Events and runs are subcollections of their app document.
  * Usage is a root-level collection keyed by userId with a months subcollection.
  *
  * Usage:
@@ -143,13 +146,21 @@ export const collections = {
 	apps: (): CollectionReference<AppDoc> =>
 		getDb().collection("apps").withConverter(appConverter),
 
-	/** Per-app log events: `apps/{appId}/logs/{logId}` */
-	logs: (appId: string): CollectionReference<StoredEvent> =>
+	/** Per-app event stream: `apps/{appId}/events/{eventId}` */
+	events: (appId: string): CollectionReference<Event> =>
 		getDb()
 			.collection("apps")
 			.doc(appId)
-			.collection("logs")
-			.withConverter(storedEventConverter),
+			.collection("events")
+			.withConverter(eventConverter),
+
+	/** Per-app per-run summaries: `apps/{appId}/runs/{runId}` */
+	runs: (appId: string): CollectionReference<RunSummaryDoc> =>
+		getDb()
+			.collection("apps")
+			.doc(appId)
+			.collection("runs")
+			.withConverter(runSummaryConverter),
 
 	/** Per-app chat threads: `apps/{appId}/threads/{threadId}` */
 	threads: (appId: string): CollectionReference<ThreadDoc> =>
@@ -185,9 +196,9 @@ export const docs = {
 	app: (appId: string): DocumentReference<AppDoc> =>
 		collections.apps().doc(appId),
 
-	/** Direct reference: `apps/{appId}/logs/{logId}` */
-	logEntry: (appId: string, logId: string): DocumentReference<StoredEvent> =>
-		collections.logs(appId).doc(logId),
+	/** Direct reference: `apps/{appId}/runs/{runId}` */
+	run: (appId: string, runId: string): DocumentReference<RunSummaryDoc> =>
+		collections.runs(appId).doc(runId),
 
 	/** Direct reference: `apps/{appId}/threads/{threadId}` */
 	thread: (appId: string, threadId: string): DocumentReference<ThreadDoc> =>
