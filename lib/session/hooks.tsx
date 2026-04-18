@@ -10,9 +10,11 @@
 "use client";
 
 import type { UIMessage } from "ai";
+import { useMemo } from "react";
 import { useBlueprintDoc } from "@/lib/doc/hooks/useBlueprintDoc";
 import { docHasData } from "@/lib/doc/predicates";
 import type { ConnectConfig, ConnectType } from "@/lib/domain";
+import type { Event } from "@/lib/log/types";
 import { BuilderPhase } from "@/lib/services/builder";
 import { useBuilderSession, useBuilderSessionShallow } from "./provider";
 import type { SidebarKind } from "./store";
@@ -194,15 +196,177 @@ export function useInReplayMode(): boolean {
 	return useBuilderSession((s) => s.replay !== undefined);
 }
 
-/** Chat messages for the currently-visible replay stage. Returns an
- *  empty array when not in replay mode. */
+/**
+ * Derives progressive `UIMessage[]` from the replay event log up to the
+ * current cursor. Returns the reference-stable empty array sentinel when
+ * replay is not loaded.
+ *
+ * Replaces the pre-rendered `replay.messages` field: messages are now
+ * derived on read via `buildReplayMessages`. See that function's docs
+ * for the per-event-type mapping rules.
+ *
+ * Implementation notes — this hook cannot inline `buildReplayMessages`
+ * into the Zustand selector. The builder allocates fresh part objects
+ * every call, so every selector invocation would return a new reference.
+ * React's `useSyncExternalStore` calls `getSnapshot` repeatedly during
+ * render to verify snapshot stability; a non-stable snapshot triggers
+ * the "getSnapshot should be cached to avoid an infinite loop" warning
+ * and an actual infinite loop.
+ *
+ * The fix: select `{events, cursor}` with shallow equality (both are
+ * reference-stable across unrelated store changes — `events` is a
+ * frozen-at-load array, `cursor` is a primitive), then `useMemo` the
+ * derivation so the built array reference is stable across re-renders
+ * that don't touch `events` or `cursor`.
+ */
 export function useReplayMessages(): UIMessage[] {
-	return useBuilderSession((s) => s.replay?.messages ?? EMPTY_MESSAGES);
+	/* Shallow select: returns the same `{events, cursor}` reference when
+	 * neither field has changed — which is exactly the condition under
+	 * which we want to skip re-deriving. When replay is undefined, both
+	 * slots are `undefined` and the `useMemo` below returns the stable
+	 * empty-array sentinel. */
+	const slice = useBuilderSessionShallow((s) => ({
+		events: s.replay?.events,
+		cursor: s.replay?.cursor,
+	}));
+	return useMemo(() => {
+		if (!slice.events || slice.cursor === undefined) {
+			return EMPTY_REPLAY_MESSAGES;
+		}
+		return buildReplayMessages(slice.events, slice.cursor);
+	}, [slice.events, slice.cursor]);
 }
 
-/** Stable empty array ref — prevents `useBuilderSession` from creating
- *  a new array on every selector call when not in replay mode. */
-const EMPTY_MESSAGES: UIMessage[] = [];
+/** Reference-stable empty array — returned when no replay is loaded so
+ *  consumers don't re-render on every store tick. */
+const EMPTY_REPLAY_MESSAGES: UIMessage[] = [];
+
+/**
+ * Pure builder: projects a slice of the event log (up to and including
+ * `cursor`) into the `UIMessage[]` shape the chat UI consumes.
+ *
+ * Walks conversation events sequentially and groups them into messages:
+ *   - `user-message` starts a new user `UIMessage` and closes the current
+ *     pending assistant message (if any).
+ *   - `assistant-text` / `assistant-reasoning` append the corresponding
+ *     part to the current assistant message (created lazily the first
+ *     time an assistant-produced event appears after a user message).
+ *   - `tool-call` appends a `tool-{toolName}` part with
+ *     `state: "output-available"`. The state is set eagerly because the
+ *     log is written AFTER the agent step runs — there are no partial
+ *     states in the log.
+ *   - `tool-result` merges `output` into the existing tool-call part
+ *     matched by `toolCallId`. No-op when no matching call exists
+ *     (tolerates malformed logs).
+ *   - `error` appends an `error` part to the current assistant message.
+ *     If no assistant message is open, the error opens one (errors
+ *     attributed to the agent, not to the user's last turn).
+ *
+ * Mutation events are skipped entirely — they drive the doc store, not
+ * chat. Cursor is clamped implicitly by the loop (`i <= cursor && i <
+ * events.length`) so out-of-range values are safe: negative cursors
+ * return `[]`; cursors past the end yield all messages.
+ *
+ * Exported for unit tests — UI callers use `useReplayMessages`.
+ *
+ * The `UIMessage` parts union in the `ai` SDK is a strict discriminated
+ * union parameterized by tool types. Because we project a runtime log
+ * that carries arbitrary tool names, we cast the constructed parts
+ * through `unknown` at the push sites — the runtime shape matches the
+ * SDK's expectations for each variant.
+ */
+export function buildReplayMessages(
+	events: readonly Event[],
+	cursor: number,
+): UIMessage[] {
+	const messages: UIMessage[] = [];
+	/* `current` is the assistant message being accumulated. It's nulled
+	 * whenever a user-message closes the turn so subsequent assistant
+	 * events start a fresh message. */
+	let current: UIMessage | null = null;
+
+	const upper = Math.min(cursor, events.length - 1);
+	for (let i = 0; i <= upper; i++) {
+		const e = events[i];
+		/* Mutation events never surface in chat — skip without touching
+		 * the assistant accumulator (they don't close the turn). */
+		if (e.kind !== "conversation") continue;
+		const p = e.payload;
+
+		if (p.type === "user-message") {
+			/* Close any open assistant message before the user speaks. */
+			if (current) {
+				messages.push(current);
+				current = null;
+			}
+			messages.push({
+				id: `u-${i}`,
+				role: "user",
+				parts: [{ type: "text", text: p.text }],
+			} as unknown as UIMessage);
+			continue;
+		}
+
+		/* Lazily open a new assistant message for the first assistant-side
+		 * event after a user message (or at the start of the log). */
+		if (!current) {
+			current = {
+				id: `a-${i}`,
+				role: "assistant",
+				parts: [],
+			} as unknown as UIMessage;
+		}
+
+		switch (p.type) {
+			case "assistant-text":
+				current.parts.push({
+					type: "text",
+					text: p.text,
+				} as UIMessage["parts"][number]);
+				break;
+			case "assistant-reasoning":
+				current.parts.push({
+					type: "reasoning",
+					text: p.text,
+				} as UIMessage["parts"][number]);
+				break;
+			case "tool-call":
+				/* Eagerly stamp `output-available` — tool-result events
+				 * that arrive later just merge their output into this
+				 * same part. If no result ever arrives (malformed log
+				 * or mid-run crash), the UI still sees the invocation. */
+				current.parts.push({
+					type: `tool-${p.toolName}`,
+					toolCallId: p.toolCallId,
+					toolName: p.toolName,
+					input: p.input,
+					state: "output-available",
+				} as unknown as UIMessage["parts"][number]);
+				break;
+			case "tool-result": {
+				/* Match by toolCallId — the envelope invariant pairs
+				 * tool-call + tool-result 1:1 within a run. Defensive
+				 * find (no-op on mismatch) tolerates partial logs. */
+				const target = current.parts.find(
+					(x) => (x as { toolCallId?: string }).toolCallId === p.toolCallId,
+				) as { output?: unknown } | undefined;
+				if (target) target.output = p.output;
+				break;
+			}
+			case "error":
+				current.parts.push({
+					type: "error",
+					error: p.error.message,
+				} as unknown as UIMessage["parts"][number]);
+				break;
+		}
+	}
+
+	/* Flush any open assistant message — the last turn of the log is
+	 * usually assistant output that never got a trailing user message. */
+	if (current) messages.push(current);
+	return messages;
+}
 
 // ── Derived ───────────────────────────────────────────────────────────────
 

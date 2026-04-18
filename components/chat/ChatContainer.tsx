@@ -26,16 +26,12 @@ import {
 } from "@/lib/doc/provider";
 import { applyStreamEvent } from "@/lib/generation/streamDispatcher";
 import { showToast } from "@/lib/services/toastStore";
+import { useReplayMessages } from "@/lib/session/hooks";
 import type { BuilderSessionStoreApi } from "@/lib/session/provider";
 import {
 	BuilderSessionContext,
 	useBuilderSession,
 } from "@/lib/session/provider";
-
-/** Reference-stable empty array for replay messages when not in replay mode.
- *  Avoids creating a new `[]` on every render, which would cause unnecessary
- *  re-renders in shallow-equality consumers. */
-const EMPTY_MESSAGES: UIMessage[] = [];
 
 // ── Helpers ──────────────────────────────────────────────────────────────
 
@@ -164,11 +160,10 @@ export function ChatContainer({
 	const docStore = useContext(BlueprintDocContext);
 	const sessionApi = useContext(BuilderSessionContext);
 	const inReplayMode = useBuilderSession((s) => s.replay !== undefined);
-	/** Replay messages — written by ReplayController, read here. Both
-	 *  communicate through the session store, not through a shared parent. */
-	const replayMessages = useBuilderSession(
-		(s) => s.replay?.messages ?? EMPTY_MESSAGES,
-	);
+	/** Replay messages — derived on read from the session store's event
+	 *  log + cursor. ReplayController writes the cursor; this hook
+	 *  projects the events into `UIMessage[]`. */
+	const replayMessages = useReplayMessages();
 
 	// ── Stable refs so Chat callbacks always read the latest stores ──────
 	const docStoreRef = useRef(docStore);
