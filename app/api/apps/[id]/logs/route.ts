@@ -13,7 +13,7 @@
 
 import { ApiError, handleApiError } from "@/lib/apiError";
 import { requireAdmin } from "@/lib/auth-utils";
-import { loadLatestRunId, loadRunEvents } from "@/lib/db/logs";
+import { readEvents, readLatestRunId } from "@/lib/log/reader";
 
 export async function GET(
 	req: Request,
@@ -24,10 +24,10 @@ export async function GET(
 		const { id: appId } = await params;
 		const { searchParams } = new URL(req.url);
 
-		const runId = searchParams.get("runId") ?? (await loadLatestRunId(appId));
+		const runId = searchParams.get("runId") ?? (await readLatestRunId(appId));
 		if (!runId) return Response.json({ events: [], runId: null });
 
-		const events = await loadRunEvents(appId, runId);
+		const events = await readEvents(appId, runId);
 		return Response.json({ events, runId });
 	} catch (err) {
 		return handleApiError(
