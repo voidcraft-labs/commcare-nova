@@ -1,15 +1,18 @@
 /**
- * Tests for the pure toDocMutations mapper.
+ * Tests for the pure `toDocMutations` legacy wire-event translator.
  *
- * Verifies that every stream event type produces the correct sequence of
- * doc mutations — without any store, signal grid, or side effects involved.
+ * Verifies that every stored wire-event type produces the correct
+ * sequence of doc mutations — without any store, signal grid, or
+ * side effects involved. The translator backs the one-time
+ * `scripts/migrate-logs-to-events.ts` migration; these tests pin the
+ * wire→domain translation rules that migration depends on.
  */
 
 import { assert, describe, expect, it, vi } from "vitest";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
 import { asUuid, type BlueprintDoc, type Mutation } from "@/lib/doc/types";
 import type { BlueprintForm, CaseType } from "@/lib/schemas/blueprint";
-import { toDocMutations } from "../mutationMapper";
+import { toDocMutations } from "../legacy-event-translator";
 
 const APP_ID = "test-app-id";
 
