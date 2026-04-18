@@ -1264,9 +1264,11 @@ export function createSolutionsArchitect(
 					/* Update the app with the final validated doc (fire-and-forget).
 					 * The app document was created at the start of the request by
 					 * the route handler. We persist the normalized doc shape
-					 * directly — `completeApp` accepts `PersistableDoc`. */
+					 * directly — `completeApp` accepts `PersistableDoc`. The runId
+					 * is the same value the event log uses; `UsageAccumulator`
+					 * is the single source of truth. */
 					if (ctx.appId) {
-						completeApp(ctx.appId, persistable, ctx.logger.runId).catch((err) =>
+						completeApp(ctx.appId, persistable, ctx.usage.runId).catch((err) =>
 							log.error("[validateApp] app update failed", err),
 						);
 					}
@@ -1323,31 +1325,58 @@ export function createSolutionsArchitect(
 			warnings,
 		}) => {
 			logWarnings("Solutions Architect", warnings);
-			if (usage) {
-				ctx.logger.logStep({
-					text: text || undefined,
-					reasoning: reasoningText || undefined,
-					tool_calls: toolCalls?.map((tc) => ({
-						name: tc.toolName,
-						args: tc.input,
-						toolCallId: tc.toolCallId,
-					})),
-					tool_results: (
-						toolResults as Array<{ toolCallId: string; output: unknown }>
-					)?.map((tr) => ({
-						toolCallId: tr.toolCallId,
-						output: tr.output,
-					})),
-					usage: {
-						model: SA_MODEL,
-						input_tokens: usage.inputTokens ?? 0,
-						output_tokens: usage.outputTokens ?? 0,
-						cache_read_tokens:
-							usage.inputTokenDetails?.cacheReadTokens ?? undefined,
-						cache_write_tokens:
-							usage.inputTokenDetails?.cacheWriteTokens ?? undefined,
-					},
+			if (!usage) return;
+
+			/* Outer agent step — increments stepCount on the run summary. */
+			ctx.usage.track(
+				{
+					inputTokens: usage.inputTokens ?? 0,
+					outputTokens: usage.outputTokens ?? 0,
+					cacheReadTokens: usage.inputTokenDetails?.cacheReadTokens,
+					cacheWriteTokens: usage.inputTokenDetails?.cacheWriteTokens,
+				},
+				{ step: true },
+			);
+
+			/* Conversation events — one per artifact produced by this step.
+			 * Ordering mirrors the model's own production order: reasoning
+			 * summary (if emitted), then visible text, then tool-call pairs. */
+			if (reasoningText) {
+				ctx.emitConversation({
+					type: "assistant-reasoning",
+					text: reasoningText,
 				});
+			}
+			if (text) {
+				ctx.emitConversation({ type: "assistant-text", text });
+			}
+			/* Pair tool results to their originating calls by toolCallId. The
+			 * AI SDK emits tool results on the same step as the call in the
+			 * current shape, so a single-pass map lookup is enough. */
+			const resultByCallId = new Map<string, unknown>();
+			for (const tr of (toolResults ?? []) as Array<{
+				toolCallId: string;
+				output: unknown;
+			}>) {
+				resultByCallId.set(tr.toolCallId, tr.output);
+			}
+			for (const tc of toolCalls ?? []) {
+				ctx.usage.noteToolCall();
+				ctx.emitConversation({
+					type: "tool-call",
+					toolCallId: tc.toolCallId,
+					toolName: tc.toolName,
+					input: tc.input,
+				});
+				const out = resultByCallId.get(tc.toolCallId);
+				if (out !== undefined) {
+					ctx.emitConversation({
+						type: "tool-result",
+						toolCallId: tc.toolCallId,
+						toolName: tc.toolName,
+						output: out,
+					});
+				}
 			}
 		},
 		tools,

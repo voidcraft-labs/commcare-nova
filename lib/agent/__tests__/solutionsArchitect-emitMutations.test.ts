@@ -39,11 +39,12 @@
 import type { UIMessageStreamWriter } from "ai";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { Session } from "@/lib/auth";
+import { UsageAccumulator } from "@/lib/db/usage";
 import type { Mutation } from "@/lib/doc/types";
 import type { BlueprintDoc, Field, Form, Module } from "@/lib/domain";
 import { asUuid } from "@/lib/domain";
+import type { LogWriter } from "@/lib/log/writer";
 import type { ValidationError } from "@/lib/services/commcare/validate/errors";
-import type { EventLogger } from "@/lib/services/eventLogger";
 import { GenerationContext } from "../generationContext";
 import { createSolutionsArchitect } from "../solutionsArchitect";
 
@@ -131,32 +132,44 @@ function makeFixtureDoc(): BlueprintDoc {
 // ── GenerationContext builder ────────────────────────────────────────────
 
 /**
- * Build a `GenerationContext` wired to a vi.fn writer + logger so tests
- * can inspect every `writer.write` call the SA makes. The session stub is
- * unused on the emission path but `GenerationContext`'s constructor
- * requires it.
+ * Build a `GenerationContext` wired to a vi.fn SSE writer, a stubbed
+ * `LogWriter`, and a real `UsageAccumulator` seeded with test values. The
+ * session stub is unused on the emission path but `GenerationContext`'s
+ * constructor requires it.
  */
 function buildCtx() {
 	const writer = {
 		write: vi.fn(),
 	} as unknown as UIMessageStreamWriter;
-	const logger = {
-		logEmission: vi.fn(),
-		logStep: vi.fn(),
-		logSubResult: vi.fn(),
-		logError: vi.fn(),
+	const logWriter = {
+		logEvent: vi.fn(),
+		flush: vi.fn(),
+	} as unknown as LogWriter;
+	const usage = new UsageAccumulator({
+		appId: "test-app",
+		userId: "user-1",
 		runId: "run-1",
-	} as unknown as EventLogger;
+		model: "claude-opus-4-7",
+		promptMode: "build",
+		freshEdit: false,
+		appReady: false,
+		cacheExpired: false,
+		moduleCount: 0,
+	});
 	const session = { user: { id: "user-1" } } as unknown as Session;
 	const ctx = new GenerationContext({
 		apiKey: "sk-test",
 		writer,
-		logger,
+		logWriter,
+		usage,
 		session,
 	});
 	return {
 		ctx,
 		writer: writer as unknown as { write: ReturnType<typeof vi.fn> },
+		logWriter: logWriter as unknown as {
+			logEvent: ReturnType<typeof vi.fn>;
+		},
 	};
 }
 

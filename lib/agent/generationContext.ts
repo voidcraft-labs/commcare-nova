@@ -1,10 +1,26 @@
 /**
  * GenerationContext — shared abstraction for all LLM calls and generation state.
  *
- * Wraps an Anthropic client + UI stream writer + EventLogger. Provides structured
- * generation (one-shot and streaming) with automatic run logging, transient data
- * part emission, and intermediate Firestore saves (so `updated_at` advances
- * during generation for accurate staleness detection).
+ * Owns the fan-out from a single agent run to every write surface the server
+ * produces during generation. Phase 4 splits that fan-out cleanly:
+ *
+ *  - **SSE (`UIMessageStreamWriter`)** — live wire to the interactive builder.
+ *    `emit()` is the only way anything reaches it. Wire format is unchanged
+ *    from Phase 3 — the client still consumes `data-mutations`, `data-phase`,
+ *    `data-error`, `data-done`, etc.
+ *  - **Event log (`LogWriter`)** — Firestore-backed append-only event stream.
+ *    `emitMutations` writes one `MutationEvent` per mutation; `emitConversation`
+ *    writes one `ConversationEvent` per assistant/tool/user artifact. The log
+ *    powers admin inspection and future replay. It is strictly supplemental —
+ *    the blueprint snapshot on `AppDoc` is still authoritative.
+ *  - **Usage (`UsageAccumulator`)** — per-request token + cost aggregation
+ *    flushed once at request end. Outer agent steps carry `{ step: true }`;
+ *    sub-gens (internal `generate` / `generatePlainText` / `streamGenerate`
+ *    calls) accumulate tokens without stepping the counter.
+ *
+ * The context owns nothing stateful beyond a monotonic `seq` counter used to
+ * preserve chronological order inside a single millisecond (multiple events
+ * in one SSE burst share `ts`).
  */
 
 import {
@@ -21,11 +37,17 @@ import { generateText, Output, streamText } from "ai";
 import type { z } from "zod";
 import type { Session } from "@/lib/auth";
 import { updateApp } from "@/lib/db/apps";
+import type { UsageAccumulator } from "@/lib/db/usage";
 import type { Mutation } from "@/lib/doc/types";
 import type { BlueprintDoc } from "@/lib/domain";
+import type {
+	ClassifiedErrorPayload,
+	ConversationPayload,
+	MutationEvent,
+} from "@/lib/log/types";
+import type { LogWriter } from "@/lib/log/writer";
 import { log } from "@/lib/logger";
 import { MODEL_DEFAULT, type ReasoningEffort } from "@/lib/models";
-import type { EventLogger } from "@/lib/services/eventLogger";
 import { type ClassifiedError, classifyError } from "./errorClassifier";
 
 /** Log AI SDK warnings to the console if present. */
@@ -57,24 +79,6 @@ export function thinkingProviderOptions(effort: ReasoningEffort) {
 }
 
 /**
- * Emission types that indicate the in-memory blueprint was mutated.
- *
- * When `emit()` sees one of these, it fires a background Firestore save so
- * the app document's `updated_at` advances during generation — enabling
- * accurate staleness detection. `data-done` is excluded because
- * `completeApp()` already handles the final save with `status: "complete"`.
- */
-const SAVE_TRIGGER_TYPES: ReadonlySet<string> = new Set([
-	"data-schema",
-	"data-scaffold",
-	"data-module-done",
-	"data-form-updated",
-	"data-form-fixed",
-	"data-blueprint-updated",
-	"data-mutations",
-]);
-
-/**
  * Accessor the route installs so `saveBlueprint` can read the SA's latest
  * doc snapshot without the SA having to push it in. The SA owns the
  * authoritative doc and mutates it in place; the route just registers a
@@ -84,11 +88,20 @@ const SAVE_TRIGGER_TYPES: ReadonlySet<string> = new Set([
  */
 export type DocProvider = () => BlueprintDoc | undefined;
 
-/** Options for constructing a GenerationContext. */
-interface GenerationContextOptions {
+/**
+ * Constructor options. Phase 4 dropped the legacy `EventLogger` dependency —
+ * the two new collaborators are orthogonal: `LogWriter` owns durable event
+ * persistence (fire-and-forget), `UsageAccumulator` owns cost aggregation
+ * and exposes the `runId` used on every event envelope.
+ */
+export interface GenerationContextOptions {
 	apiKey: string;
+	/** SSE writer for the live builder. Unchanged wire format. */
 	writer: UIMessageStreamWriter;
-	logger: EventLogger;
+	/** Event log sink — batched Firestore writer, one doc per event. */
+	logWriter: LogWriter;
+	/** Cost + step/tool-call counter for per-run summary + monthly cap. */
+	usage: UsageAccumulator;
 	/** Authenticated user session — always present (all users are authenticated). */
 	session: Session;
 	/** Firestore app ID — present when the app has been saved at least once. */
@@ -98,7 +111,8 @@ interface GenerationContextOptions {
 export class GenerationContext {
 	private anthropic: ReturnType<typeof createAnthropic>;
 	readonly writer: UIMessageStreamWriter;
-	readonly logger: EventLogger;
+	readonly logWriter: LogWriter;
+	readonly usage: UsageAccumulator;
 	/** Authenticated user session. */
 	readonly session: Session;
 	/** Firestore app ID — set when the app has been saved at least once. */
@@ -110,11 +124,18 @@ export class GenerationContext {
 	 * readers should consult the doc store, not this context.
 	 */
 	private docProvider: DocProvider | undefined;
+	/**
+	 * Per-request monotonic counter. Each event envelope carries the next
+	 * value — independent from the ts field so multiple events in one SSE
+	 * burst stay chronologically ordered even when they share a millisecond.
+	 */
+	private seq = 0;
 
 	constructor(opts: GenerationContextOptions) {
 		this.anthropic = createAnthropic({ apiKey: opts.apiKey });
 		this.writer = opts.writer;
-		this.logger = opts.logger;
+		this.logWriter = opts.logWriter;
+		this.usage = opts.usage;
 		this.session = opts.session;
 		this.appId = opts.appId;
 	}
@@ -157,18 +178,70 @@ export class GenerationContext {
 		);
 	}
 
-	/** Emit a transient data part to the client stream. Also buffers for run logging. */
-	emit(type: `data-${string}`, data: unknown) {
-		this.writer.write({ type, data, transient: true });
-		this.logger.logEmission(type, data);
-		if (SAVE_TRIGGER_TYPES.has(type)) {
-			this.saveBlueprint();
-		}
+	/**
+	 * Build and queue one `MutationEvent` on the log writer.
+	 *
+	 * Called by `emitMutations` for every member of its batch — the live
+	 * SSE event carries the full batch for the client, but the event log
+	 * stores one document per mutation so admin inspection and future
+	 * replay can reason about each change independently.
+	 */
+	private queueMutation(mutation: Mutation, stage?: string): void {
+		const event: MutationEvent = {
+			kind: "mutation",
+			runId: this.usage.runId,
+			ts: Date.now(),
+			seq: this.seq++,
+			actor: "agent",
+			...(stage && { stage }),
+			mutation,
+		};
+		this.logWriter.logEvent(event);
 	}
 
-	/** Emit a classified error to the client and log it. */
-	emitError(error: ClassifiedError, context?: string) {
-		this.logger.logError(error, context);
+	/**
+	 * Write a `ConversationEvent` to the log. No SSE side-effect — the
+	 * live client consumes conversation data through the `UIMessage` stream
+	 * surfaced by `toUIMessageStream()`, which is a separate channel.
+	 */
+	emitConversation(payload: ConversationPayload): void {
+		this.logWriter.logEvent({
+			kind: "conversation",
+			runId: this.usage.runId,
+			ts: Date.now(),
+			seq: this.seq++,
+			payload,
+		});
+	}
+
+	/**
+	 * Emit a transient data part to the live SSE stream.
+	 *
+	 * SSE-only in Phase 4 — the event log is populated via `emitMutations`
+	 * and `emitConversation` instead. The one side-effect kept here is the
+	 * intermediate Firestore save on doc-mutating emissions: `data-mutations`
+	 * is the only event type that advances the doc, so we trigger
+	 * `saveBlueprint()` exactly on that.
+	 */
+	emit(type: `data-${string}`, data: unknown): void {
+		this.writer.write({ type, data, transient: true });
+		if (type === "data-mutations") this.saveBlueprint();
+	}
+
+	/**
+	 * Emit a classified error — one conversation error event on the log,
+	 * one `data-error` on SSE. The SSE path is wrapped in try/catch because
+	 * the writer can be broken by the same failure that triggered the
+	 * classification; the event log carries the error either way, so a
+	 * broken writer is not fatal for admin observability.
+	 */
+	emitError(error: ClassifiedError, context?: string): void {
+		const payload: ClassifiedErrorPayload = {
+			type: error.type,
+			message: error.message,
+			fatal: !error.recoverable,
+		};
+		this.emitConversation({ type: "error", error: payload });
 		try {
 			this.emit("data-error", {
 				message: error.message,
@@ -176,15 +249,17 @@ export class GenerationContext {
 				fatal: !error.recoverable,
 			});
 		} catch {
-			// Writer is broken — error is already in run log
-			log.error("[emitError] failed to emit — error is in run log", undefined, {
-				errorMessage: error.message,
-			});
+			log.error(
+				"[emitError] failed to emit — error is in event log",
+				undefined,
+				{ errorMessage: error.message, context: context ?? "" },
+			);
 		}
 	}
 
 	/**
-	 * Emit a fine-grained mutation batch to the client stream.
+	 * Emit a fine-grained mutation batch to the client stream and the
+	 * event log.
 	 *
 	 * This is the ONLY sanctioned way for the SA (or its validation loop)
 	 * to tell the client that the doc has changed. The mutations payload
@@ -193,32 +268,39 @@ export class GenerationContext {
 	 * identical array via `docStore.applyMany(mutations)`.
 	 *
 	 * The optional `stage` string is a semantic tag for the log
-	 * (`"scaffold"`, `"module:0"`, `"form:0-1"`, `"fix"`). Not consumed
-	 * by the live UI today; Phase 4's event log groups by stage so the
-	 * replay UI can show "generate module X" vs "fix form Y" as
-	 * separate chapters.
+	 * (`"scaffold"`, `"module:0"`, `"form:0-1"`, `"fix"`). The SSE payload
+	 * carries it for clients that care; the event log stores it per-event
+	 * so replay chaptering can group by stage.
 	 *
 	 * Fire-and-forget Firestore intermediate save happens automatically
-	 * via the `data-mutations` entry in `SAVE_TRIGGER_TYPES` — no-op for
-	 * empty batches (consumer passes `mutations.length > 0` when the
-	 * emission itself is conditional).
+	 * via the `data-mutations` branch in `emit()` — no-op for empty
+	 * batches (consumer is expected to short-circuit when appropriate).
 	 */
 	emitMutations(mutations: Mutation[], stage?: string): void {
 		if (mutations.length === 0) return;
+		/* SSE — unchanged wire format for the live client. */
 		this.emit("data-mutations", {
 			mutations,
 			...(stage !== undefined && { stage }),
 		});
+		/* Event log — one MutationEvent per mutation. */
+		for (const m of mutations) this.queueMutation(m, stage);
 	}
 
 	/**
-	 * Log a sub-generation result with full token + cache breakdown.
-	 * Shared by generatePlainText, generate, and streamGenerate so the
-	 * usage-to-logSubResult mapping lives in one place.
+	 * Record token usage for a sub-generation LLM call.
+	 *
+	 * Sub-gens are the inner `generate` / `generatePlainText` /
+	 * `streamGenerate` calls the SA's tools issue. They count toward the
+	 * run summary's token totals but NOT toward `stepCount` — only the
+	 * outer `runAgent` loop produces "steps" in the run-summary sense.
+	 *
+	 * Per spec §5 the event log does not carry per-tool usage; if sub-gen
+	 * prompt/output observability becomes a product requirement, it will
+	 * live on a separate admin-only collection, not here.
 	 */
-	private logUsage(
-		label: string,
-		model: string,
+	private trackSubGeneration(
+		_model: string,
 		usage: {
 			inputTokens?: number;
 			outputTokens?: number;
@@ -227,27 +309,16 @@ export class GenerationContext {
 				cacheWriteTokens?: number;
 			};
 		},
-		opts: {
-			system: string;
-			prompt: string;
-			output: unknown;
-			reasoningText?: string;
-		},
-	) {
-		this.logger.logSubResult(label, {
-			model,
-			input_tokens: usage.inputTokens ?? 0,
-			output_tokens: usage.outputTokens ?? 0,
-			cache_read_tokens: usage.inputTokenDetails?.cacheReadTokens ?? undefined,
-			cache_write_tokens:
-				usage.inputTokenDetails?.cacheWriteTokens ?? undefined,
-			input: { system: opts.system, message: opts.prompt },
-			output: opts.output,
-			...(opts.reasoningText && { reasoningText: opts.reasoningText }),
+	): void {
+		this.usage.track({
+			inputTokens: usage.inputTokens ?? 0,
+			outputTokens: usage.outputTokens ?? 0,
+			cacheReadTokens: usage.inputTokenDetails?.cacheReadTokens,
+			cacheWriteTokens: usage.inputTokenDetails?.cacheWriteTokens,
 		});
 	}
 
-	/** Text-only generation (no schema) with automatic run logging. */
+	/** Text-only generation (no schema) with automatic usage tracking. */
 	async generatePlainText(opts: {
 		system: string;
 		prompt: string;
@@ -264,14 +335,7 @@ export class GenerationContext {
 				maxOutputTokens: opts.maxOutputTokens,
 			});
 			logWarnings(`generatePlainText:${opts.label}`, result.warnings);
-			if (result.usage) {
-				this.logUsage(opts.label, model, result.usage, {
-					system: opts.system,
-					prompt: opts.prompt,
-					output: result.text,
-					reasoningText: result.reasoningText ?? undefined,
-				});
-			}
+			if (result.usage) this.trackSubGeneration(model, result.usage);
 			return result.text;
 		} catch (error) {
 			this.emitError(classifyError(error), `generatePlainText:${opts.label}`);
@@ -279,7 +343,7 @@ export class GenerationContext {
 		}
 	}
 
-	/** One-shot structured generation with automatic run logging. */
+	/** One-shot structured generation with automatic usage tracking. */
 	async generate<T>(
 		schema: z.ZodType<T>,
 		opts: {
@@ -304,14 +368,7 @@ export class GenerationContext {
 				}),
 			});
 			logWarnings(`generate:${opts.label}`, result.warnings);
-			if (result.usage) {
-				this.logUsage(opts.label, model, result.usage, {
-					system: opts.system,
-					prompt: opts.prompt,
-					output: result.output,
-					reasoningText: result.reasoningText ?? undefined,
-				});
-			}
+			if (result.usage) this.trackSubGeneration(model, result.usage);
 			return result.output ?? null;
 		} catch (error) {
 			this.emitError(classifyError(error), `generate:${opts.label}`);
@@ -319,7 +376,7 @@ export class GenerationContext {
 		}
 	}
 
-	/** Streaming structured generation with partial callbacks and automatic run logging. */
+	/** Streaming structured generation with partial callbacks and automatic usage tracking. */
 	async streamGenerate<T>(
 		schema: z.ZodType<T>,
 		opts: {
@@ -354,26 +411,29 @@ export class GenerationContext {
 		}
 
 		logWarnings(`streamGenerate:${opts.label}`, await result.warnings);
-		const [usage, reasoningText] = await Promise.all([
-			result.usage,
-			result.reasoningText,
-		]);
-		if (usage) {
-			this.logUsage(opts.label, model, usage, {
-				system: opts.system,
-				prompt: opts.prompt,
-				output: last,
-				reasoningText: reasoningText ?? undefined,
-			});
-		}
+		const usage = await result.usage;
+		if (usage) this.trackSubGeneration(model, usage);
 		return last;
 	}
 
 	/**
-	 * Run a ToolLoopAgent to completion with centralized step logging.
+	 * Run a `ToolLoopAgent` to completion, funneling every artifact of every
+	 * step onto the event log + usage accumulator.
 	 *
-	 * All agent execution should go through this method so logging and token
-	 * tracking happen in one place.
+	 * Per-step writes (all keyed off `onStepFinish`):
+	 * - `usage.track(..., { step: true })` — counts as one outer agent step
+	 *   and aggregates tokens (cache-aware) toward the run summary.
+	 * - `assistant-reasoning` conversation event — if the model emitted any
+	 *   summarized thinking for this step.
+	 * - `assistant-text` conversation event — the visible response chunk.
+	 * - For each `toolCall`: one `tool-call` conversation event, one
+	 *   `usage.noteToolCall()`, and (when a matching `toolResult` is on the
+	 *   same step) one paired `tool-result` event. Pairing by `toolCallId`
+	 *   handles interleaved tool responses within a step.
+	 *
+	 * Doc mutations themselves don't go through here — tool handlers call
+	 * `ctx.emitMutations(...)` directly. This loop is purely the outer
+	 * conversation + usage fan-in.
 	 */
 	async runAgent<CO, T extends ToolSet>(
 		agent: ToolLoopAgent<CO, T>,
@@ -384,35 +444,75 @@ export class GenerationContext {
 			model?: string;
 		},
 	): Promise<void> {
-		const model = opts.model ?? MODEL_DEFAULT;
-
 		const result = await agent.stream({
 			prompt: opts.prompt,
-			onStepFinish: ({ usage, text, reasoningText, toolCalls, warnings }) => {
+			onStepFinish: ({
+				usage,
+				text,
+				reasoningText,
+				toolCalls,
+				toolResults,
+				warnings,
+			}) => {
 				logWarnings(`runAgent:${opts.label}`, warnings);
-				if (usage) {
-					this.logger.logStep({
-						text: text || undefined,
-						reasoning: reasoningText || undefined,
-						tool_calls: toolCalls?.map((tc) => ({
-							name: tc.toolName,
-							args: tc.input,
-						})),
-						usage: {
-							model,
-							input_tokens: usage.inputTokens ?? 0,
-							output_tokens: usage.outputTokens ?? 0,
-							cache_read_tokens:
-								usage.inputTokenDetails?.cacheReadTokens ?? undefined,
-							cache_write_tokens:
-								usage.inputTokenDetails?.cacheWriteTokens ?? undefined,
-						},
+				if (!usage) return;
+
+				/* Usage — outer agent step; increments stepCount on the summary. */
+				this.usage.track(
+					{
+						inputTokens: usage.inputTokens ?? 0,
+						outputTokens: usage.outputTokens ?? 0,
+						cacheReadTokens: usage.inputTokenDetails?.cacheReadTokens,
+						cacheWriteTokens: usage.inputTokenDetails?.cacheWriteTokens,
+					},
+					{ step: true },
+				);
+
+				/* Conversation events — one per artifact produced by this step.
+				 * Reasoning first (what it thought), then text (what it said),
+				 * then tool-call + tool-result pairs keyed by toolCallId. */
+				if (reasoningText) {
+					this.emitConversation({
+						type: "assistant-reasoning",
+						text: reasoningText,
 					});
+				}
+				if (text) {
+					this.emitConversation({ type: "assistant-text", text });
+				}
+				/* Pair results to their originating call by toolCallId. Tool
+				 * results are emitted inline on the same step in the current
+				 * AI SDK shape, so a map lookup is enough — no cross-step
+				 * bookkeeping needed. */
+				const resultByCallId = new Map<string, unknown>();
+				for (const tr of (toolResults ?? []) as Array<{
+					toolCallId: string;
+					output: unknown;
+				}>) {
+					resultByCallId.set(tr.toolCallId, tr.output);
+				}
+				for (const tc of toolCalls ?? []) {
+					this.usage.noteToolCall();
+					this.emitConversation({
+						type: "tool-call",
+						toolCallId: tc.toolCallId,
+						toolName: tc.toolName,
+						input: tc.input,
+					});
+					const out = resultByCallId.get(tc.toolCallId);
+					if (out !== undefined) {
+						this.emitConversation({
+							type: "tool-result",
+							toolCallId: tc.toolCallId,
+							toolName: tc.toolName,
+							output: out,
+						});
+					}
 				}
 			},
 		});
 
-		// Drain the stream to drive execution to completion
+		// Drain the stream to drive execution to completion.
 		const reader = result.toUIMessageStream().getReader();
 		while (!(await reader.read()).done) {}
 	}
