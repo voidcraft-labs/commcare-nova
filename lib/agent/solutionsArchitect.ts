@@ -50,7 +50,7 @@ import type {
 	Uuid,
 } from "@/lib/domain";
 import { asUuid, isContainer } from "@/lib/domain";
-import { log } from "@/lib/log";
+import { log } from "@/lib/logger";
 import { SA_MODEL, SA_REASONING } from "@/lib/models";
 import {
 	type BlueprintForm,

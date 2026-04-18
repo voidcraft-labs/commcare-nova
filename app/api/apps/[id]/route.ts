@@ -12,7 +12,7 @@ import { ApiError, handleApiError } from "@/lib/apiError";
 import { requireSession } from "@/lib/auth-utils";
 import { loadApp, loadAppOwner, updateApp } from "@/lib/db/apps";
 import { blueprintDocSchema } from "@/lib/domain/blueprint";
-import { log } from "@/lib/log";
+import { log } from "@/lib/logger";
 
 export async function GET(
 	req: Request,

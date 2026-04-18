@@ -10,7 +10,7 @@
  * document. Only the appId is needed to read or write logs.
  */
 
-import { log } from "@/lib/log";
+import { log } from "@/lib/logger";
 import { collections } from "./firestore";
 import type { StoredEvent } from "./types";
 

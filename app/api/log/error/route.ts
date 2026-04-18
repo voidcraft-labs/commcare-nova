@@ -11,7 +11,7 @@
  * grouping, and filterable `source: client` labels alongside server errors.
  */
 import { z } from "zod/v4";
-import { log } from "@/lib/log";
+import { log } from "@/lib/logger";
 
 // ── Payload Schema ────────────────────────────────────────────────────
 

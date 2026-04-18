@@ -16,7 +16,7 @@ import { cache } from "react";
 import { ApiError } from "./apiError";
 import { getAuth, type Session } from "./auth";
 import { getDb } from "./db/firestore";
-import { log } from "./log";
+import { log } from "./logger";
 
 // ── API Route Auth ──────────────────────────────────────────────────
 

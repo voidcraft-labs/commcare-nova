@@ -23,7 +23,7 @@ import type { Session } from "@/lib/auth";
 import { updateApp } from "@/lib/db/apps";
 import type { Mutation } from "@/lib/doc/types";
 import type { BlueprintDoc } from "@/lib/domain";
-import { log } from "@/lib/log";
+import { log } from "@/lib/logger";
 import { MODEL_DEFAULT, type ReasoningEffort } from "@/lib/models";
 import type { EventLogger } from "@/lib/services/eventLogger";
 import { type ClassifiedError, classifyError } from "./errorClassifier";

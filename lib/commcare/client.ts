@@ -18,7 +18,7 @@
  *   Authorization: ApiKey {username}:{api_key}
  */
 
-import { log } from "@/lib/log";
+import { log } from "@/lib/logger";
 
 // ── Types ──────────────────────────────────────────────────────────
 

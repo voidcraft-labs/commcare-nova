@@ -20,7 +20,7 @@ import type {
 	TokenUsage,
 } from "../db/types";
 import { incrementUsage } from "../db/usage";
-import { log } from "../log";
+import { log } from "../logger";
 import { DEFAULT_PRICING, MODEL_PRICING } from "../models";
 
 // ── Constants ───────────────────────────────────────────────────────
