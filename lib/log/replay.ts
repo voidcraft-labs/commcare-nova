@@ -46,18 +46,23 @@ function sleep(ms: number, signal?: AbortSignal): Promise<void> {
 
 /**
  * Walk a log in chronological order, dispatching each event to the
- * appropriate callback. `delayPerEvent` controls visual pacing during
- * live replay; tests pass 0.
+ * appropriate callback with visual pacing between events. Intended for
+ * live-playback consumers that want the user to see mutations land one
+ * at a time (e.g. a future "watch build unfold" demo mode).
  *
- * `signal` (e.g. from an abort controller in the ReplayController) halts
- * the loop mid-iteration. Two guards together — the top-of-loop
- * `signal?.aborted` check and the signal-aware `sleep()` — ensure abort
- * halts within one microtask, never after an extra event.
+ * `signal` (e.g. from an abort controller) halts the loop mid-iteration.
+ * Two guards together — the top-of-loop `signal?.aborted` check and the
+ * signal-aware `sleep()` — ensure abort halts within one microtask,
+ * never after an extra event.
  *
  * Callbacks are invoked synchronously; returned promises are NOT awaited.
- * Keep `onMutation` / `onConversation` synchronous — the
- * ReplayController's `docStore.applyMany` is synchronous, and the replay
- * loop's pacing assumes in-order synchronous dispatch.
+ * Keep `onMutation` / `onConversation` synchronous — the loop's pacing
+ * assumes in-order synchronous dispatch.
+ *
+ * NOTE — scrub/hydrate paths should use `replayEventsSync` instead. The
+ * sync helper makes the "no await" contract explicit so a future
+ * refactor to this function (e.g. adding a microtask yield) can't
+ * silently break the cursor-commit ordering in the ReplayController.
  */
 export async function replayEvents(
 	events: readonly Event[],
@@ -71,6 +76,31 @@ export async function replayEvents(
 		if (e.kind === "mutation") onMutation(e.mutation);
 		else onConversation(e.payload);
 		if (delayPerEvent > 0) await sleep(delayPerEvent, signal);
+	}
+}
+
+/**
+ * Synchronous event dispatch — no promise, no sleep, no abort signal.
+ *
+ * Used by hydration + scrub paths where the caller needs the guarantee
+ * that every mutation has landed before the next line of code runs. The
+ * ReplayController commits `setReplayCursor(chapter.endIndex)`
+ * immediately after this returns; if the dispatch were async, the
+ * cursor would advance before the doc store caught up and
+ * `useReplayMessages` would render a frame with a mismatched chat view.
+ *
+ * Keep the body tight — it's the entire contract. Any need for pacing,
+ * batching, or abort belongs in `replayEvents` (the async variant), not
+ * here. Callbacks are invoked synchronously in order.
+ */
+export function replayEventsSync(
+	events: readonly Event[],
+	onMutation: (m: Mutation) => void,
+	onConversation: (p: ConversationPayload) => void,
+): void {
+	for (const e of events) {
+		if (e.kind === "mutation") onMutation(e.mutation);
+		else onConversation(e.payload);
 	}
 }
 

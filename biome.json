@@ -33,6 +33,16 @@
 					}
 				}
 			}
+		},
+		{
+			"includes": ["**/__tests__/**"],
+			"linter": {
+				"rules": {
+					"style": {
+						"noRestrictedImports": "off"
+					}
+				}
+			}
 		}
 	]
 }

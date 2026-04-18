@@ -23,9 +23,9 @@ import tablerChevronRight from "@iconify-icons/tabler/chevron-right";
 import tablerX from "@iconify-icons/tabler/x";
 import { AnimatePresence, motion } from "motion/react";
 import { useRouter } from "next/navigation";
-import { useCallback, useContext, useState } from "react";
+import { useCallback, useContext, useEffect, useState } from "react";
 import { BlueprintDocContext } from "@/lib/doc/provider";
-import { replayEvents } from "@/lib/log/replay";
+import { replayEventsSync } from "@/lib/log/replay";
 import type { Event } from "@/lib/log/types";
 import { useBuilderFormEngine } from "@/lib/preview/engine/provider";
 import { resetBuilder } from "@/lib/services/resetBuilder";
@@ -59,13 +59,40 @@ export function ReplayController() {
 
 	/* Which chapter does the current cursor fall inside? Chapters cover
 	 * inclusive `[startIndex, endIndex]` ranges and the cursor is always
-	 * clamped into the `events` range, so `findIndex` locates a unique
-	 * chapter for every valid cursor (-1 only when `chapters` is empty,
-	 * which the fallback path below handles). */
+	 * clamped into the `events` range by `setReplayCursor`. `findIndex`
+	 * therefore returns a valid index for every real cursor; the only
+	 * legitimate -1 case is `chapters.length === 0` during the sub-frame
+	 * between mount and hydration (pre-`loadReplay`). */
 	const currentChapterIndex = chapters.findIndex(
 		(c) => cursor >= c.startIndex && cursor <= c.endIndex,
 	);
+	/* Assert cursor/chapter consistency once chapters are populated. A
+	 * mismatch here means either `setReplayCursor`'s clamp is broken or
+	 * `deriveReplayChapters` skipped a range — either way the user can't
+	 * navigate, so failing loudly beats rendering a stuck "Loading…"
+	 * header. The empty-chapters case is the transient pre-hydration
+	 * state and is covered by the `currentChapter?.header ?? "Loading…"`
+	 * fallback in the JSX below. */
+	if (chapters.length > 0 && currentChapterIndex === -1) {
+		throw new Error(
+			`ReplayController: cursor ${cursor} outside chapter ranges (${chapters.length} chapters)`,
+		);
+	}
 	const currentChapter = chapters[currentChapterIndex];
+
+	/* Auto-dismiss the error toast 3s after it appears. Keyed on `error`
+	 * so a new error resets the timer; returns a cleanup that fires on
+	 * unmount or when `error` changes, so the dismiss never stacks and
+	 * can't clobber a newer toast.
+	 *
+	 * Previously the dismiss was armed inside `onAnimationComplete`,
+	 * which motion/react fires for BOTH enter and exit animations —
+	 * doubling the timer per error and leaking on unmount. */
+	useEffect(() => {
+		if (!error) return;
+		const timer = setTimeout(() => setError(undefined), 3000);
+		return () => clearTimeout(timer);
+	}, [error]);
 
 	const doReset = useCallback(() => {
 		/* The provider stack guarantees all stores/controllers are
@@ -95,18 +122,18 @@ export function ReplayController() {
 				 * doc store was just wiped by `doReset`, so no stale entities
 				 * bleed into the new frame.
 				 *
-				 * `delayPerEvent = 0` because we want the new frame to land
-				 * in one commit — user-visible pacing belongs to live
-				 * generation, not scrubbing. */
+				 * `replayEventsSync` guarantees every mutation lands before
+				 * the `setReplayCursor` call below — otherwise the chat
+				 * view (derived from the cursor) could race ahead of the
+				 * doc view and render a mismatched frame. */
 				const slice = events.slice(0, chapter.endIndex + 1);
-				void replayEvents(
+				replayEventsSync(
 					slice,
 					(m) => docStore.getState().applyMany([m]),
 					() => {
 						/* Conversation events are projected on read by
 						 * `useReplayMessages`; no side channel needed. */
 					},
-					0,
 				);
 				/* Record the new scrub position — `useReplayMessages`
 				 * subscribes to this and re-derives the chat view. */
@@ -121,14 +148,29 @@ export function ReplayController() {
 		[chapters, events, doReset, docStore, sessionStore],
 	);
 
-	/** Exit replay mode — reset the builder and navigate to the exit path. */
+	/** Exit replay mode — reset the builder and navigate to the exit path.
+	 *  `replay.exitPath` is required on `ReplayInit` (see `lib/session/types`)
+	 *  and this component only mounts inside an active replay session, so
+	 *  a missing value is an invariant violation — throw loudly rather
+	 *  than silently navigating somewhere unexpected. */
 	const handleExit = useCallback(() => {
-		const exitPath = sessionStore?.getState().replay?.exitPath ?? "/";
+		if (!sessionStore) {
+			throw new Error("ReplayController.handleExit: missing sessionStore");
+		}
+		const exitPath = sessionStore.getState().replay?.exitPath;
+		if (!exitPath) {
+			throw new Error(
+				"ReplayController.handleExit: no exitPath in replay state",
+			);
+		}
 		doReset();
 		router.push(exitPath);
 	}, [sessionStore, doReset, router]);
 
 	const canGoBack = currentChapterIndex > 0;
+	/* When chapters is empty `currentChapterIndex` is -1 — the
+	 * `!currentChapter` branch in `goToChapter` would reject any click
+	 * anyway, but short-circuit here so the arrow also renders disabled. */
 	const canGoForward =
 		currentChapterIndex >= 0 && currentChapterIndex < chapters.length - 1;
 
@@ -214,16 +256,14 @@ export function ReplayController() {
 				</button>
 			</motion.div>
 
-			{/* Error toast */}
+			{/* Error toast — auto-dismiss owned by the `[error]`-keyed effect
+			 *  above; no onAnimationComplete side-effects here. */}
 			<AnimatePresence>
 				{error && (
 					<motion.div
 						initial={{ opacity: 0, y: 8 }}
 						animate={{ opacity: 1, y: 0 }}
 						exit={{ opacity: 0, y: 8 }}
-						onAnimationComplete={() => {
-							setTimeout(() => setError(undefined), 3000);
-						}}
 						className="px-3 py-1.5 bg-nova-rose/15 border border-nova-rose/30 rounded-full text-xs text-nova-rose"
 					>
 						{error}

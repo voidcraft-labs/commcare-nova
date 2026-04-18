@@ -33,7 +33,7 @@ import { ScrollRegistryProvider } from "@/components/builder/contexts/ScrollRegi
 import { LocationRecoveryEffect } from "@/components/builder/LocationRecoveryEffect";
 import { BlueprintDocContext, BlueprintDocProvider } from "@/lib/doc/provider";
 import type { PersistableDoc } from "@/lib/domain/blueprint";
-import { replayEvents } from "@/lib/log/replay";
+import { replayEventsSync } from "@/lib/log/replay";
 import { BuilderFormEngineProvider } from "@/lib/preview/engine/provider";
 import {
 	BuilderSessionContext,
@@ -171,11 +171,12 @@ function ReplayHydrator({ replay }: { replay: ReplayInit }) {
 		 * sees the final state immediately. The transport bar then lets
 		 * them scrub backward through chapters.
 		 *
-		 * `delayPerEvent = 0` because this is hydration, not live pacing:
-		 * the replay builder page already filtered truncated logs, and
-		 * any pacing here would stall the builder's initial paint. */
+		 * `replayEventsSync` (not `replayEvents`) so the doc store is
+		 * guaranteed fully populated by the time we call `setLoading(false)`
+		 * below. A future async variant of the paced helper could drift
+		 * here; the sync contract is load-bearing. */
 		const eventsToReplay = replay.events.slice(0, replay.initialCursor + 1);
-		void replayEvents(
+		replayEventsSync(
 			eventsToReplay,
 			(m) => docStore.getState().applyMany([m]),
 			() => {
@@ -184,7 +185,6 @@ function ReplayHydrator({ replay }: { replay: ReplayInit }) {
 				 * `replay.events` + cursor directly, so there's nothing for
 				 * us to push into a side channel. */
 			},
-			0,
 		);
 
 		/* Finalize the session lifecycle — the session store was seeded with

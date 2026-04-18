@@ -1,5 +1,9 @@
 import { describe, expect, it, vi } from "vitest";
-import { deriveReplayChapters, replayEvents } from "../replay";
+import {
+	deriveReplayChapters,
+	replayEvents,
+	replayEventsSync,
+} from "../replay";
 import type { ConversationEvent, Event, MutationEvent } from "../types";
 
 function mut(seq: number, stage?: string): MutationEvent {
@@ -51,6 +55,54 @@ describe("replayEvents", () => {
 			controller.signal,
 		);
 		expect(onMutation).not.toHaveBeenCalled();
+	});
+});
+
+describe("replayEventsSync", () => {
+	/* Mirror of the async happy-path test — the sync helper is the
+	 * load-bearing contract for ReplayController + ReplayHydrator, so
+	 * the in-order, synchronous dispatch guarantee needs an explicit
+	 * test so a future refactor can't silently break it. */
+	it("dispatches mutation + conversation events in order synchronously", () => {
+		const calls: Array<["mut" | "conv", number]> = [];
+		const events: Event[] = [
+			conv(0, { type: "user-message", text: "hi" }),
+			mut(1, "scaffold"),
+			conv(2, { type: "assistant-text", text: "done" }),
+			mut(3, "module:0"),
+		];
+		replayEventsSync(
+			events,
+			(m) => {
+				/* Use the mutation's embedded `name` to prove order — `seq`
+				 * isn't visible on the Mutation payload. `v{seq}` was set
+				 * by the `mut()` factory above. */
+				const name = "name" in m ? m.name : "";
+				calls.push(["mut", Number(name.replace("v", ""))]);
+			},
+			(p) => {
+				/* Conversation payloads don't carry `seq` either, so key
+				 * off the text body the factory set (`hi` → 0, `done` → 2). */
+				if (p.type === "user-message") calls.push(["conv", 0]);
+				if (p.type === "assistant-text") calls.push(["conv", 2]);
+			},
+		);
+		expect(calls).toEqual([
+			["conv", 0],
+			["mut", 1],
+			["conv", 2],
+			["mut", 3],
+		]);
+	});
+
+	/* The sync helper is an empty no-op on an empty log — exercised by
+	 * hydration of replays whose cursor lands before the first event. */
+	it("no-ops on empty events array", () => {
+		const onMutation = vi.fn();
+		const onConversation = vi.fn();
+		replayEventsSync([], onMutation, onConversation);
+		expect(onMutation).not.toHaveBeenCalled();
+		expect(onConversation).not.toHaveBeenCalled();
 	});
 });
 
