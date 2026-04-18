@@ -738,6 +738,75 @@ describe("replay state", () => {
 		store.getState().setReplayCursor(0);
 		expect(store.getState()).toBe(prev);
 	});
+
+	it("setReplayCursor clamps negative input to 0", () => {
+		const store = createBuilderSessionStore();
+		store.getState().loadReplay({
+			events: mockEvents,
+			chapters: mockChapters,
+			initialCursor: 2,
+			exitPath: "/exit",
+		});
+
+		store.getState().setReplayCursor(-1);
+
+		/* Negative cursors never make sense for an array index — clamp to 0
+		 * so UI callers can pass deltas like `cursor - 1` without guarding. */
+		expect(store.getState().replay?.cursor).toBe(0);
+	});
+
+	it("setReplayCursor clamps overflow to events.length - 1", () => {
+		const store = createBuilderSessionStore();
+		store.getState().loadReplay({
+			events: mockEvents,
+			chapters: mockChapters,
+			initialCursor: 0,
+			exitPath: "/exit",
+		});
+
+		/* events.length === 4, so the last valid index is 3. Passing
+		 * events.length must clamp down, not index past the array. */
+		store.getState().setReplayCursor(mockEvents.length);
+
+		expect(store.getState().replay?.cursor).toBe(mockEvents.length - 1);
+	});
+
+	it("setReplayCursor is a state-identity no-op when cursor is unchanged", () => {
+		const store = createBuilderSessionStore();
+		store.getState().loadReplay({
+			events: mockEvents,
+			chapters: mockChapters,
+			initialCursor: 2,
+			exitPath: "/exit",
+		});
+
+		const prev = store.getState();
+		/* Setting the same cursor must not allocate a new state object —
+		 * matches the setLoading / setAppId / setSidebarOpen no-op idiom
+		 * so subscribers don't re-render on redundant writes. */
+		store.getState().setReplayCursor(2);
+		expect(store.getState()).toBe(prev);
+	});
+
+	it("loadReplay with empty events/chapters pins cursor at 0", () => {
+		const store = createBuilderSessionStore();
+
+		/* Edge case: an admin replay for a run that produced no events.
+		 * `replay` should still be defined (replay mode is active), but the
+		 * cursor degenerates to 0 since there's nothing to index into. */
+		store.getState().loadReplay({
+			events: [],
+			chapters: [],
+			initialCursor: 0,
+			exitPath: "/exit",
+		});
+
+		const replay = store.getState().replay;
+		expect(replay).toBeDefined();
+		expect(replay?.events).toEqual([]);
+		expect(replay?.chapters).toEqual([]);
+		expect(replay?.cursor).toBe(0);
+	});
 });
 
 // ── Reset ───────────────────────────────────────────────────────────────

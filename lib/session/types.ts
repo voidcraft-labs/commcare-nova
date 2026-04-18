@@ -78,16 +78,27 @@ export interface PartialScaffoldData {
 // ── Replay ───────────────────────────────────────────────────────────────
 
 /**
- * Chapter metadata for replay navigation. Start/end index into the
- * `events` array; chapters are cumulative — replaying to chapter N
- * means dispatching events[0..chapters[N].endIndex]. Derived at
- * extraction time from tool-call boundaries in the log, not stored on
- * events themselves.
+ * Chapter metadata for replay navigation. Derived at extraction time
+ * from tool-call boundaries in the log — not stored on events themselves.
+ *
+ * Indices refer to positions in the sibling `events` array and use a
+ * half-open-style naming but CLOSED semantics: `endIndex` is INCLUSIVE
+ * (the last event that belongs to the chapter).
+ *
+ * Chapters are cumulative scrub targets: replaying to chapter N means
+ * dispatching `events[0..chapters[N].endIndex]` inclusive from position 0.
+ * `startIndex` is consumed by chapter-range UI only (e.g. highlighting
+ * which chapter contains the current cursor); the replay dispatcher
+ * itself always starts from 0.
  */
 export interface ReplayChapter {
 	header: string;
 	subtitle?: string;
+	/** First event index in this chapter (inclusive). Used by UI to
+	 *  render chapter ranges; NOT consulted by the replay dispatcher. */
 	startIndex: number;
+	/** Last event index in this chapter (inclusive). Replaying to this
+	 *  chapter dispatches `events[0..endIndex]`. */
 	endIndex: number;
 }
 

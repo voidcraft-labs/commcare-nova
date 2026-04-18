@@ -26,14 +26,13 @@ import { createStore } from "zustand/vanilla";
 import type { BlueprintDocStore } from "@/lib/doc/provider";
 import type { Mutation, Uuid } from "@/lib/doc/types";
 import type { ConnectConfig, ConnectType } from "@/lib/domain";
-import type { Event } from "@/lib/log/types";
 import {
 	type CursorMode,
 	type GenerationError,
 	GenerationStage,
 	type PartialScaffoldData,
-	type ReplayChapter,
 	type ReplayData,
+	type ReplayInit,
 	STAGE_LABELS,
 } from "./types";
 
@@ -214,16 +213,17 @@ export interface BuilderSessionState {
 
 	/** Load a replay session from a raw event log + derived chapters.
 	 *  `initialCursor` is the scrub position to mount at (typically
-	 *  `events.length - 1` so the user lands on the final frame). */
-	loadReplay: (init: {
-		events: Event[];
-		chapters: ReplayChapter[];
-		initialCursor: number;
-		exitPath: string;
-	}) => void;
+	 *  `events.length - 1` so the user lands on the final frame).
+	 *
+	 *  Takes `ReplayInit` directly — the same shape the RSC page builds
+	 *  and the BuilderProvider forwards. One source of truth for the
+	 *  page → provider → store handoff. */
+	loadReplay: (init: ReplayInit) => void;
 
-	/** Update the replay scrub cursor. No-ops when replay is not loaded —
-	 *  cursor has no meaning outside an active replay session. */
+	/** Update the replay scrub cursor. Clamps to `[0, events.length - 1]`
+	 *  so callers don't have to repeat the bounds check, and no-ops when
+	 *  replay is not loaded or the clamped cursor equals the current one.
+	 *  The store is the source of truth for scrub position. */
 	setReplayCursor: (cursor: number) => void;
 
 	// ── Connect stash actions ────────────────────────────────────────────
@@ -524,7 +524,16 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 					/* No-op outside an active replay session — cursor has no
 					 * meaning without an event log to index into. */
 					if (!replay) return;
-					set({ replay: { ...replay, cursor } });
+					/* Clamp to valid event indices. Empty-events replay pins the
+					 * cursor at 0 (`max` collapses to 0). Clamping here lets UI
+					 * code pass deltas like `cursor - 1` without guarding. */
+					const max = Math.max(0, replay.events.length - 1);
+					const clamped = Math.min(Math.max(cursor, 0), max);
+					/* Skip redundant state writes — matches the setLoading /
+					 * setAppId idiom where same-value calls don't notify
+					 * subscribers. */
+					if (clamped === replay.cursor) return;
+					set({ replay: { ...replay, cursor: clamped } });
 				},
 
 				// ── Connect stash actions ───────────────────────────────
