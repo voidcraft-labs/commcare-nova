@@ -14,14 +14,16 @@
  */
 
 import { assert, describe, expect, it } from "vitest";
-import { createBlueprintDocStore } from "@/lib/doc/store";
+import { docHasData } from "@/lib/doc/predicates";
+import type { BlueprintDocStoreApi } from "@/lib/doc/store";
 import type { Mutation } from "@/lib/doc/types";
 import { asUuid, type PersistableDoc } from "@/lib/domain";
 import { BuilderPhase } from "@/lib/services/builder";
 import { derivePhase } from "@/lib/session/hooks";
-import { createBuilderSessionStore } from "@/lib/session/store";
+import type { BuilderSessionStoreApi } from "@/lib/session/store";
 import { GenerationStage } from "@/lib/session/types";
 import { applyStreamEvent } from "../streamDispatcher";
+import { createWiredStores } from "./testHelpers";
 
 // ── Test helpers ───────────────────────────────────────────────────────
 
@@ -31,39 +33,29 @@ import { applyStreamEvent } from "../streamDispatcher";
  * the snapshot matches the wire shape the SA emits in `data-done` and
  * `data-blueprint-updated` events.
  */
-function snapshotDoc(
-	docStore: ReturnType<typeof createBlueprintDocStore>,
-): PersistableDoc {
+function snapshotDoc(docStore: BlueprintDocStoreApi): PersistableDoc {
 	const { fieldParent: _fp, ...persistable } = docStore.getState();
 	return persistable;
 }
 
-// ── Helpers ────────────────────────────────────────────────────────────
-
-function createStores() {
-	const docStore = createBlueprintDocStore();
-	docStore.temporal.getState().resume();
-	const sessionStore = createBuilderSessionStore();
-	sessionStore.getState()._setDocStore(docStore);
-	return { docStore, sessionStore };
-}
-
-/** Derive phase from the current store state — same logic as useBuilderPhase. */
+/**
+ * Derive the current builder phase from the wired stores — identical
+ * logic to `useBuilderPhase`, sharing the same `docHasData` predicate so
+ * the test can't drift from the hook's definition of "has data".
+ */
 function phase(
-	docStore: ReturnType<typeof createBlueprintDocStore>,
-	sessionStore: ReturnType<typeof createBuilderSessionStore>,
+	docStore: BlueprintDocStoreApi,
+	sessionStore: BuilderSessionStoreApi,
 ): BuilderPhase {
-	const s = sessionStore.getState();
-	const docHasData = docStore.getState().moduleOrder.length > 0;
-	return derivePhase(s, docHasData);
+	return derivePhase(sessionStore.getState(), docHasData(docStore.getState()));
 }
 
 /** Fire an event through the dispatcher. */
 function emit(
 	type: string,
 	data: Record<string, unknown>,
-	docStore: ReturnType<typeof createBlueprintDocStore>,
-	sessionStore: ReturnType<typeof createBuilderSessionStore>,
+	docStore: BlueprintDocStoreApi,
+	sessionStore: BuilderSessionStoreApi,
 ) {
 	applyStreamEvent(type, data, docStore, sessionStore);
 }
@@ -71,8 +63,8 @@ function emit(
 /** Emit a `data-mutations` batch — shorthand wrapper. */
 function emitMutations(
 	mutations: Mutation[],
-	docStore: ReturnType<typeof createBlueprintDocStore>,
-	sessionStore: ReturnType<typeof createBuilderSessionStore>,
+	docStore: BlueprintDocStoreApi,
+	sessionStore: BuilderSessionStoreApi,
 ) {
 	emit("data-mutations", { mutations }, docStore, sessionStore);
 }
@@ -91,9 +83,8 @@ const CASE_TYPES = [
 ];
 
 /**
- * Mutation batch equivalent to the legacy `data-scaffold` event: creates
- * the app name, one module, and one form. The server emits these as a
- * single atomic `data-mutations` event during the scaffold stage.
+ * Scaffold mutation batch — the server emits these atomically during
+ * the structure stage: app name + one module + one form.
  */
 const SCAFFOLD_MUTATIONS: Mutation[] = [
 	{ kind: "setAppName", name: "Health App" },
@@ -119,8 +110,8 @@ const SCAFFOLD_MUTATIONS: Mutation[] = [
 ];
 
 /**
- * Mutation batch equivalent to the legacy `data-form-done` event: adds
- * two fields to the scaffolded form. Emitted during the forms stage.
+ * Form-content mutation batch — two `addField` mutations land the
+ * question content inside the scaffolded form during the forms stage.
  */
 const FORM_CONTENT_MUTATIONS: Mutation[] = [
 	{
@@ -148,6 +139,11 @@ const FORM_CONTENT_MUTATIONS: Mutation[] = [
 // ── Tests ──────────────────────────────────────────────────────────────
 
 describe("generation lifecycle (end-to-end)", () => {
+	/* Every test opts into active undo tracking — the suite verifies
+	 * pause-on-beginAgentWrite / resume-on-endAgentWrite transitions, which
+	 * require temporal to start in the tracking state. */
+	const createStores = () => createWiredStores({ resumeUndo: true });
+
 	it("full build: Idle → DataModel → Structure → Modules → Forms → Validate → Completed → Ready", () => {
 		const { docStore, sessionStore } = createStores();
 		const s = () => sessionStore.getState();
@@ -169,9 +165,9 @@ describe("generation lifecycle (end-to-end)", () => {
 		// Doc undo paused during generation
 		expect(docStore.temporal.getState().isTracking).toBe(false);
 
-		// ── data-mutations: data-model schema ──
-		// `data-schema` is the legacy coarse shape; the live server emits a
-		// `setCaseTypes` mutation inside a `data-mutations` batch.
+		// ── data-mutations: setCaseTypes ──
+		// The data-model stage emits the case-type schema as a single
+		// `setCaseTypes` mutation.
 		emitMutations(
 			[{ kind: "setCaseTypes", caseTypes: CASE_TYPES }],
 			docStore,
@@ -188,8 +184,8 @@ describe("generation lifecycle (end-to-end)", () => {
 		expect(s().statusMessage).toBe("Designing app structure");
 
 		// ── data-mutations: scaffold ──
-		// The server decomposes the scaffold tool's output into an atomic
-		// batch of `setAppName` + `addModule` + `addForm` mutations.
+		// Atomic batch of `setAppName` + `addModule` + `addForm` drops the
+		// module + form shell onto the doc.
 		emitMutations(SCAFFOLD_MUTATIONS, docStore, sessionStore);
 		// Doc now has modules and forms
 		expect(doc().moduleOrder).toEqual([MOD_UUID]);
@@ -202,7 +198,7 @@ describe("generation lifecycle (end-to-end)", () => {
 		expect(s().statusMessage).toBe("Building app content");
 
 		// ── data-mutations: module details (caseListColumns) ──
-		// Replaces legacy `data-module-done`.
+		// Module-stage output — `updateModule` patches the case-list UI.
 		const columns = [{ field: "name", header: "Name" }];
 		emitMutations(
 			[
@@ -222,8 +218,8 @@ describe("generation lifecycle (end-to-end)", () => {
 		expect(s().agentStage).toBe(GenerationStage.Forms);
 
 		// ── data-mutations: form content ──
-		// Replaces legacy `data-form-done`. Two `addField` mutations land
-		// the question content inside the scaffolded form.
+		// Two `addField` mutations land the question content inside the
+		// scaffolded form.
 		emitMutations(FORM_CONTENT_MUTATIONS, docStore, sessionStore);
 		// Form should have questions now
 		const topQuestions = doc().fieldOrder[FORM_UUID] ?? [];
@@ -299,10 +295,8 @@ describe("generation lifecycle (end-to-end)", () => {
 		expect(s().statusMessage).toContain("2 errors");
 		expect(s().statusMessage).toContain("attempt 1");
 
-		// ── Fix mutation — the fix loop emits a targeted field update.
-		// Replaces the legacy `data-form-fixed` coarse replace. The
-		// mutation re-labels the first question (mimicking a validator
-		// fix). The fine-grained path is what the live server now uses.
+		// ── Fix mutation — fix loop emits targeted `updateField` to
+		// re-label the first question (mimicking a validator fix). */
 		emitMutations(
 			[
 				{

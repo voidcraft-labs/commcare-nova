@@ -136,9 +136,9 @@ export function applyStreamEvent(
 	// is the live path for every doc-modifying SA emission after Phase 3.
 	//
 	// The optional `stage` tag on the payload is intentionally ignored
-	// here: the live path applies mutations regardless of stage. The
-	// Phase 4 generation-log UI consumes `stage` when replaying event
-	// streams for debugging.
+	// here: the live apply path runs regardless of stage. Replay
+	// consumers derive chapter boundaries from stage tags via
+	// `deriveReplayChapters` in `lib/log/replay.ts`.
 	if (type === "data-mutations") {
 		const mutations = data.mutations as Mutation[] | undefined;
 		if (mutations && mutations.length > 0) {

@@ -11,6 +11,7 @@
 
 import type { UIMessage } from "ai";
 import { useBlueprintDoc } from "@/lib/doc/hooks/useBlueprintDoc";
+import { docHasData } from "@/lib/doc/predicates";
 import type { ConnectConfig, ConnectType } from "@/lib/domain";
 import { BuilderPhase } from "@/lib/services/builder";
 import { useBuilderSession, useBuilderSessionShallow } from "./provider";
@@ -278,8 +279,11 @@ export function useBuilderPhase(): BuilderPhase {
 		postBuildEdit: s.postBuildEdit,
 		agentStage: s.agentStage,
 	}));
-	const docHasData = useBlueprintDoc((s) => s.moduleOrder.length > 0);
-	return derivePhase(session, docHasData);
+	/* Single-source predicate — see `lib/doc/predicates.ts::docHasData`.
+	 * Identical to `useDocHasData`, inlined here to avoid coupling the
+	 * phase derivation to a second reactive hook. */
+	const hasData = useBlueprintDoc(docHasData);
+	return derivePhase(session, hasData);
 }
 
 /**

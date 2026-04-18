@@ -25,6 +25,7 @@
 import { useContext, useEffect, useRef, useState } from "react";
 import { shallow } from "zustand/shallow";
 import { reportClientError } from "@/lib/clientErrorReporter";
+import { docHasData } from "@/lib/doc/predicates";
 import { BlueprintDocContext } from "@/lib/doc/provider";
 import type { BlueprintDoc } from "@/lib/doc/types";
 import { BuilderPhase } from "@/lib/services/builder";
@@ -234,12 +235,15 @@ export function useAutoSave(): SaveState {
 				 * blueprint and no initial generation is in progress). */
 				const sessionState = session.getState();
 				const docSnap = docStore.getState();
-				const docHasData = docSnap.moduleOrder.length > 0;
-				const phase = derivePhase(sessionState, docHasData);
+				const phase = derivePhase(sessionState, docHasData(docSnap));
 				if (phase !== BuilderPhase.Ready && phase !== BuilderPhase.Completed)
 					return;
 				const pid = sessionState.appId;
-				if (!pid || docSnap.moduleOrder.length === 0) return;
+				/* Redundant with the phase gate above (Ready/Completed both
+				 * require a populated doc), but defensive — the flags are
+				 * updated independently and we never want to PUT an empty
+				 * blueprint. Use the shared predicate for consistency. */
+				if (!pid || !docHasData(docSnap)) return;
 
 				/* Save is in-flight — queue for trailing edge after completion. */
 				if (inFlightRef.current) {
