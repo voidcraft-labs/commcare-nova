@@ -9,6 +9,7 @@
  * TypeScript types are derived via z.infer.
  */
 import { z } from "zod";
+import { fieldKinds } from "@/lib/domain";
 
 // ── Question types ──────────────────────────────────────────────────────
 
@@ -92,27 +93,15 @@ export const STRUCTURAL_QUESTION_TYPES: ReadonlySet<string> = new Set([
 	"label",
 ]);
 
-export const QUESTION_TYPES = [
-	"text",
-	"int",
-	"date",
-	"single_select",
-	"multi_select",
-	"geopoint",
-	"image",
-	"barcode",
-	"decimal",
-	"label",
-	"time",
-	"datetime",
-	"audio",
-	"video",
-	"signature",
-	"hidden",
-	"secret",
-	"group",
-	"repeat",
-] as const;
+/**
+ * Derived from the authoritative `fieldKinds` tuple in `lib/domain/fields/`.
+ * Kept as a named re-alias because the legacy `blueprintFormSchema` +
+ * `Question` interface below still reference `QUESTION_TYPES` by name;
+ * Phase 7 deletes this file wholesale. Until then, aliasing guarantees
+ * the legacy hand-written schema shape matches the registry-driven
+ * `toolSchemaGenerator` output byte-for-byte.
+ */
+export const QUESTION_TYPES = fieldKinds;
 
 /**
  * Question types that accept user input and therefore support validation

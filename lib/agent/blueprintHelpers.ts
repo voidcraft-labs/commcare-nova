@@ -1,25 +1,23 @@
 /**
- * blueprintHelpers — pure query + mutation-builder functions over BlueprintDoc.
+ * blueprintHelpers — SA-only pure helpers over `BlueprintDoc`.
  *
- * Every helper in this file reads a `BlueprintDoc` (the normalized store
- * shape) and either:
+ * Two surfaces:
  *
- *   - returns a derived value (`searchBlueprint`, `fieldPath`,
- *     `findFieldByPath`), or
- *   - returns a `Mutation[]` that the caller applies via
- *     `docStore.applyMany(mutations)`.
+ *   - Positional lookups the SA's tool handlers use to resolve a
+ *     `(moduleIndex, formIndex, bareId)` triple to a `{ field, path, formUuid }`
+ *     record: `findFieldByBareId`, `resolveFieldByIndex`.
+ *   - Mutation builders that return `Mutation[]` for the caller to apply
+ *     via `docStore.applyMany(mutations)`. Helpers cover every level of
+ *     the tree (app / module / form / field) plus the scaffolding +
+ *     case-type bulk operations used during initial generation.
  *
- * No helper in this file mutates state directly. The mutation-builder
- * convention (`addModuleMutations`, `removeFieldMutations`, ...) keeps the
- * agent-side call sites and the store-side reducer decoupled: helpers
- * compute the intent, the reducer carries it out. This matches the
- * mutation-first architecture established in Phase 1a.
+ * Nothing here mutates state directly; the mutation-first convention
+ * keeps agent-side call sites and the store-side reducer decoupled.
  *
- * Phase history: this file used to contain `bp*`-prefixed helpers that
- * took a nested `AppBlueprint` and mutated it in place. Task 15 of the
- * Phase 1 plan rewrote every helper to consume the normalized doc shape
- * and emit mutation batches instead. The file stays under `lib/services/`
- * for now — Phase 3 relocates it to `lib/agent/`.
+ * Kept in `lib/agent/` because every consumer lives here. The one shared
+ * query (`searchBlueprint`) that used to live alongside these helpers was
+ * moved to `lib/doc/searchBlueprint.ts` so the client `useSearchBlueprint`
+ * hook doesn't have to reach across the server/client boundary.
  */
 
 import type { Mutation } from "@/lib/doc/types";
@@ -38,118 +36,9 @@ import type {
 	Uuid,
 } from "@/lib/domain";
 import { asUuid, fieldKinds, isContainer } from "@/lib/domain";
-import { normalizeConnectConfig } from "./connectConfig";
+import { normalizeConnectConfig } from "@/lib/services/connectConfig";
 
-// ── Result types ────────────────────────────────────────────────────────
-
-/**
- * A single match from `searchBlueprint`. The surface preserves the pre-
- * migration index shape (`moduleIndex`, `formIndex`) so existing SA
- * tool output continues to reference modules + forms positionally; the
- * actual lookup is uuid-based internally.
- */
-export interface SearchResult {
-	type: "module" | "form" | "field" | "case_list_column";
-	moduleIndex: number;
-	formIndex?: number;
-	/** Slash-delimited path of field ids within the containing form.
-	 *  Absent for module-level and form-level matches. */
-	fieldPath?: string;
-	/** Stable uuid of the matched entity — lets callers target mutations. */
-	uuid?: Uuid;
-	/** Which property matched (e.g. 'label', 'case_property', 'id', 'name'). */
-	field: string;
-	/** The matched value. */
-	value: string;
-	/** Human-readable location string. */
-	context: string;
-}
-
-// ── Query helpers ───────────────────────────────────────────────────────
-
-/** Walk up from a field uuid to its containing form. Undefined if the
- *  field isn't reachable from any form (corrupt order maps). */
-export function containingFormUuid(
-	doc: BlueprintDoc,
-	fieldUuid: Uuid,
-): Uuid | undefined {
-	let cursor: Uuid | undefined = fieldUuid;
-	const visited = new Set<Uuid>();
-	while (cursor !== undefined) {
-		if (visited.has(cursor)) return undefined;
-		visited.add(cursor);
-		const parentUuid: Uuid | null | undefined = doc.fieldParent[cursor];
-		if (parentUuid === null || parentUuid === undefined) return undefined;
-		if (doc.forms[parentUuid] !== undefined) return parentUuid;
-		cursor = parentUuid;
-	}
-	return undefined;
-}
-
-/** Compute the slash-delimited id path from a form down to the given
- *  field. Returns `undefined` if the field isn't reachable from any form. */
-export function fieldPath(
-	doc: BlueprintDoc,
-	fieldUuid: Uuid,
-): string | undefined {
-	const segments: string[] = [];
-	let cursor: Uuid | undefined = fieldUuid;
-	const visited = new Set<Uuid>();
-	while (cursor !== undefined) {
-		if (visited.has(cursor)) return undefined;
-		visited.add(cursor);
-		if (doc.forms[cursor] !== undefined) {
-			return segments.reverse().join("/");
-		}
-		const field = doc.fields[cursor];
-		if (!field) return undefined;
-		segments.push(field.id);
-		const parentUuid: Uuid | null = doc.fieldParent[cursor] ?? null;
-		if (parentUuid === null) return undefined;
-		cursor = parentUuid;
-	}
-	return undefined;
-}
-
-/** Resolve a field by its slash-delimited id path within a form.
- *  Returns the field entity and its parent uuid (for splice ops). */
-export function findFieldByPath(
-	doc: BlueprintDoc,
-	formUuid: Uuid,
-	path: string,
-): { field: Field; parentUuid: Uuid; index: number } | undefined {
-	const segments = path.split("/");
-	let parentUuid: Uuid = formUuid;
-	let field: Field | undefined;
-	let index = -1;
-	for (const seg of segments) {
-		const order = doc.fieldOrder[parentUuid] ?? [];
-		let found: Field | undefined;
-		let foundUuid: Uuid | undefined;
-		let foundIndex = -1;
-		for (let i = 0; i < order.length; i++) {
-			const candidateUuid = order[i];
-			const candidate = doc.fields[candidateUuid];
-			if (candidate?.id === seg) {
-				found = candidate;
-				foundUuid = candidateUuid;
-				foundIndex = i;
-				break;
-			}
-		}
-		if (!found || !foundUuid) return undefined;
-		field = found;
-		index = foundIndex;
-		parentUuid = foundUuid; // descend if there's another segment
-	}
-	if (!field) return undefined;
-	// `parentUuid` currently points at the matched field itself (we advance
-	// past it at the end of the loop). Back it off to the *actual* parent by
-	// walking one step up via the parent index.
-	const realParent = doc.fieldParent[field.uuid] ?? null;
-	if (realParent === null) return undefined;
-	return { field, parentUuid: realParent, index };
-}
+// ── Positional lookup helpers ───────────────────────────────────────────
 
 /** Resolve a field by bare id within a form (first match, depth-first).
  *  Used by SA tools that receive "patient_name" without a path. */
@@ -206,202 +95,6 @@ export function resolveFieldByIndex(
 	const resolved = findFieldByBareId(doc, formUuid, bareId);
 	if (!resolved) return undefined;
 	return { ...resolved, formUuid };
-}
-
-/** Collect every field id in a form's subtree. Used to avoid sibling-id
- *  collisions when callers (e.g. duplicate) need to mint a unique id. */
-export function collectAllFieldIdsInForm(
-	doc: BlueprintDoc,
-	formUuid: Uuid,
-): Set<string> {
-	const ids = new Set<string>();
-	const stack: Uuid[] = [...(doc.fieldOrder[formUuid] ?? [])];
-	while (stack.length > 0) {
-		const uuid = stack.pop() as Uuid;
-		const field = doc.fields[uuid];
-		if (!field) continue;
-		ids.add(field.id);
-		if (isContainer(field)) {
-			const children = doc.fieldOrder[uuid] ?? [];
-			for (const c of children) stack.push(c);
-		}
-	}
-	return ids;
-}
-
-/**
- * Full-text search across the entire blueprint.
- *
- * Walks modules → forms → fields (via the ordered indices) plus case-list
- * and case-detail columns. Each hit records the positional context
- * (moduleIndex / formIndex / fieldPath) so the SA tool output remains
- * stable and human-readable, and also records the entity uuid so
- * follow-up mutations can target it directly.
- */
-export function searchBlueprint(
-	doc: BlueprintDoc,
-	query: string,
-): SearchResult[] {
-	const results: SearchResult[] = [];
-	const q = query.toLowerCase();
-
-	for (let mIdx = 0; mIdx < doc.moduleOrder.length; mIdx++) {
-		const moduleUuid = doc.moduleOrder[mIdx];
-		const mod = doc.modules[moduleUuid];
-		if (!mod) continue;
-
-		if (mod.name.toLowerCase().includes(q)) {
-			results.push({
-				type: "module",
-				moduleIndex: mIdx,
-				uuid: moduleUuid,
-				field: "name",
-				value: mod.name,
-				context: `Module ${mIdx} "${mod.name}"`,
-			});
-		}
-		if (mod.caseType?.toLowerCase().includes(q)) {
-			results.push({
-				type: "module",
-				moduleIndex: mIdx,
-				uuid: moduleUuid,
-				field: "case_type",
-				value: mod.caseType,
-				context: `Module ${mIdx} "${mod.name}" case_type`,
-			});
-		}
-
-		/* Case list + detail columns. These are module-level strings the SA
-		 * may want to search for when looking up a case property reference. */
-		const allColumns = [
-			...(mod.caseListColumns ?? []),
-			...(mod.caseDetailColumns ?? []),
-		];
-		for (const col of allColumns) {
-			if (
-				col.field.toLowerCase().includes(q) ||
-				col.header.toLowerCase().includes(q)
-			) {
-				results.push({
-					type: "case_list_column",
-					moduleIndex: mIdx,
-					uuid: moduleUuid,
-					field: "column",
-					value: `${col.field} (${col.header})`,
-					context: `Module ${mIdx} "${mod.name}" column "${col.header}"`,
-				});
-			}
-		}
-
-		const formUuids = doc.formOrder[moduleUuid] ?? [];
-		for (let fIdx = 0; fIdx < formUuids.length; fIdx++) {
-			const formUuid = formUuids[fIdx];
-			const form = doc.forms[formUuid];
-			if (!form) continue;
-			if (form.name.toLowerCase().includes(q)) {
-				results.push({
-					type: "form",
-					moduleIndex: mIdx,
-					formIndex: fIdx,
-					uuid: formUuid,
-					field: "name",
-					value: form.name,
-					context: `m${mIdx}-f${fIdx} "${form.name}" (${form.type})`,
-				});
-			}
-			searchFields(doc, formUuid, q, mIdx, fIdx, results, "");
-		}
-	}
-
-	return results;
-}
-
-/** Recursive field-tree search used by `searchBlueprint`. Walks in visual
- *  (ordered) sequence so the result list matches form layout. */
-function searchFields(
-	doc: BlueprintDoc,
-	parentUuid: Uuid,
-	query: string,
-	mIdx: number,
-	fIdx: number,
-	results: SearchResult[],
-	pathPrefix: string,
-): void {
-	const order = doc.fieldOrder[parentUuid] ?? [];
-	for (const uuid of order) {
-		const field = doc.fields[uuid];
-		if (!field) continue;
-		const path = pathPrefix ? `${pathPrefix}/${field.id}` : field.id;
-		const matchFields: Array<{ field: string; value: string }> = [];
-
-		if (field.id.toLowerCase().includes(query)) {
-			matchFields.push({ field: "id", value: field.id });
-		}
-		if ("label" in field && field.label?.toLowerCase().includes(query)) {
-			matchFields.push({ field: "label", value: field.label });
-		}
-		const anyField = field as Record<string, unknown>;
-		if (
-			typeof anyField.case_property === "string" &&
-			field.id.toLowerCase().includes(query)
-		) {
-			matchFields.push({
-				field: "case_property",
-				value: `${field.id}→${anyField.case_property}`,
-			});
-		}
-		for (const key of [
-			"validate",
-			"relevant",
-			"calculate",
-			"default_value",
-			"validate_msg",
-			"hint",
-		] as const) {
-			const v = anyField[key];
-			if (typeof v === "string" && v.toLowerCase().includes(query)) {
-				matchFields.push({ field: key, value: v });
-			}
-		}
-		const opts = anyField.options;
-		if (Array.isArray(opts)) {
-			for (const opt of opts) {
-				const o = opt as { value?: unknown; label?: unknown };
-				if (
-					(typeof o.value === "string" &&
-						o.value.toLowerCase().includes(query)) ||
-					(typeof o.label === "string" && o.label.toLowerCase().includes(query))
-				) {
-					matchFields.push({
-						field: "option",
-						value: `${String(o.value)}: ${String(o.label)}`,
-					});
-					break;
-				}
-			}
-		}
-
-		for (const match of matchFields) {
-			const caseTag =
-				typeof anyField.case_property === "string"
-					? `, case_property:${anyField.case_property}`
-					: "";
-			results.push({
-				type: "field",
-				moduleIndex: mIdx,
-				formIndex: fIdx,
-				fieldPath: path,
-				uuid,
-				field: match.field,
-				value: match.value,
-				context: `m${mIdx}-f${fIdx} field "${field.id}" (${field.kind}${caseTag})`,
-			});
-		}
-
-		if (isContainer(field)) {
-			searchFields(doc, uuid, query, mIdx, fIdx, results, path);
-		}
-	}
 }
 
 // ── Mutation builders — app level ───────────────────────────────────────
