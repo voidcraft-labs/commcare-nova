@@ -24,7 +24,11 @@ export function ReplayBuilder({ events, exitPath }: ReplayBuilderProps) {
 	 * boundary. The server page already filters out empty logs before
 	 * mounting us, so this guard is a last-resort invariant check. */
 	const [replay] = useState<ReplayInit>(() => {
-		if (events.length === 0) throw new Error("No events in log.");
+		if (events.length === 0) {
+			throw new Error(
+				"ReplayBuilder received empty events array; server page should have filtered this.",
+			);
+		}
 		const chapters = deriveReplayChapters(events);
 		return {
 			events,
