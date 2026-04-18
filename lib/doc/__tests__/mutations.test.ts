@@ -79,6 +79,17 @@ describe("mutationSchema round-trip", () => {
 				patch: { name: "Updated", caseType: "patient" },
 			});
 		});
+
+		// Empty patches must round-trip — the agent can emit updateModule
+		// with `{}` when coalescing no-op edits, and tightening the schema
+		// to require non-empty patches would silently drop those events.
+		it("updateModule with empty patch", () => {
+			expectRoundTrip({
+				kind: "updateModule",
+				uuid: moduleUuid,
+				patch: {},
+			});
+		});
 	});
 
 	describe("form", () => {
@@ -125,6 +136,15 @@ describe("mutationSchema round-trip", () => {
 				kind: "updateForm",
 				uuid: formUuid,
 				patch: { name: "New Name", type: "followup" },
+			});
+		});
+
+		// See updateModule — empty patches are a valid coalesced-no-op shape.
+		it("updateForm with empty patch", () => {
+			expectRoundTrip({
+				kind: "updateForm",
+				uuid: formUuid,
+				patch: {},
 			});
 		});
 	});
@@ -177,6 +197,15 @@ describe("mutationSchema round-trip", () => {
 				kind: "updateField",
 				uuid: fieldUuid,
 				patch: { label: "Updated Label", hint: "Enter name" },
+			});
+		});
+
+		// See updateModule — empty patches are a valid coalesced-no-op shape.
+		it("updateField with empty patch", () => {
+			expectRoundTrip({
+				kind: "updateField",
+				uuid: fieldUuid,
+				patch: {},
 			});
 		});
 

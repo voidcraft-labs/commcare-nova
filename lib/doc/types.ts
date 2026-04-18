@@ -30,12 +30,9 @@ import {
 // (single source of truth), which lets the event log validate persisted
 // mutations at read time without a parallel TS/Zod pair drifting.
 //
-// The update-*/patch variants use `.omit({ uuid: true }).partial()` on
-// the underlying entity schema to express "any subset of mutable
-// properties." For `updateField`, the patch validates against any ONE
-// of the per-kind field variants (a union of partials, not a discriminated
-// union — the patch does NOT carry a `kind` discriminator since the
-// reducer merges into an already-existing field whose kind is fixed).
+// The update-*/patch variants for modules and forms use
+// `.omit({ uuid: true }).partial()` on the underlying entity schema to
+// express "any subset of mutable properties."
 
 const moduleUpdatePatchSchema = moduleSchema.omit({ uuid: true }).partial();
 const formUpdatePatchSchema = formSchema.omit({ uuid: true }).partial();
@@ -67,7 +64,11 @@ export const mutationSchema = z.discriminatedUnion("kind", [
 	z.object({
 		kind: z.literal("renameModule"),
 		uuid: uuidSchema,
-		newId: z.string(),
+		// `.min(1)` guards against empty-string renames: the reducer would
+		// happily install an empty id (producing a nameless entity) and the
+		// event log would round-trip the corruption forever. Rejecting at the
+		// schema boundary is the only layer that catches this before write.
+		newId: z.string().min(1),
 	}),
 	z.object({
 		kind: z.literal("updateModule"),
@@ -91,7 +92,8 @@ export const mutationSchema = z.discriminatedUnion("kind", [
 	z.object({
 		kind: z.literal("renameForm"),
 		uuid: uuidSchema,
-		newId: z.string(),
+		// See renameModule — reject empty ids at the schema boundary.
+		newId: z.string().min(1),
 	}),
 	z.object({
 		kind: z.literal("updateForm"),
@@ -115,7 +117,8 @@ export const mutationSchema = z.discriminatedUnion("kind", [
 	z.object({
 		kind: z.literal("renameField"),
 		uuid: uuidSchema,
-		newId: z.string(),
+		// See renameModule — reject empty ids at the schema boundary.
+		newId: z.string().min(1),
 	}),
 	z.object({ kind: z.literal("duplicateField"), uuid: uuidSchema }),
 	z.object({

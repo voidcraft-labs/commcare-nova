@@ -99,11 +99,27 @@ describe("eventSchema", () => {
 					output: "Success",
 				},
 			},
+			// Exercises the documented "null when the tool returned void"
+			// contract from conversationPayloadSchema — without this fixture a
+			// future refactor could tighten `output` to a non-null schema
+			// without breaking any test.
 			{
 				kind: "conversation",
 				runId: "r",
 				ts: 5,
 				seq: 5,
+				payload: {
+					type: "tool-result",
+					toolCallId: "tc-2",
+					toolName: "setAppName",
+					output: null,
+				},
+			},
+			{
+				kind: "conversation",
+				runId: "r",
+				ts: 6,
+				seq: 6,
 				payload: {
 					type: "error",
 					error: {
