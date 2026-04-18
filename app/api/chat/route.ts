@@ -2,6 +2,7 @@ import {
 	createAgentUIStream,
 	createUIMessageStream,
 	createUIMessageStreamResponse,
+	isTextUIPart,
 	type UIMessage,
 } from "ai";
 import {
@@ -246,18 +247,43 @@ export async function POST(req: Request) {
 			 * (rather than directly via `logWriter.logEvent`) keeps seq
 			 * management inside a single counter — the context owns seq,
 			 * and every subsequent event (mutations, assistant text, tool
-			 * calls) naturally follows from seq=1. */
+			 * calls) naturally follows from seq=1.
+			 *
+			 * `isTextUIPart` is the AI SDK's own type guard over `UIMessage.parts`,
+			 * which narrows each part to `TextUIPart` (with `text: string`
+			 * required, not optional). Using the guard replaces inline
+			 * structural types with a single source of truth that tracks
+			 * SDK updates automatically. */
 			const lastMessage = messages.at(-1);
 			if (lastMessage?.role === "user") {
 				const text = lastMessage.parts
-					.filter((p: { type: string }) => p.type === "text")
-					.map((p: { type: string; text?: string }) => p.text ?? "")
+					.filter(isTextUIPart)
+					.map((p) => p.text)
 					.join("\n");
 				ctx.emitConversation({ type: "user-message", text });
+			} else if (lastMessage) {
+				/* Defensive — the useChat flow always ends with a user message, but
+				 * if a caller bypassed the client and sent a malformed history we
+				 * would silently drop the user-message event. Warn so the skip is
+				 * visible in logs; the request still proceeds without the event. */
+				log.warn(
+					"[chat] last message not user-role; skipping user-message event",
+					{
+						role: lastMessage.role,
+					},
+				);
 			}
 
-			/** Classify, emit, and persist a generation error. */
-			const handleRouteError = (error: unknown, source: string) => {
+			/**
+			 * Classify, emit, and persist a generation error.
+			 *
+			 * Fire-and-forget — `failApp` is itself fire-and-forget (it swallows
+			 * Firestore errors internally), and the emit helpers never throw.
+			 * Returning `void` makes that contract explicit so a future
+			 * maintainer doesn't wrap the call in `await` expecting the
+			 * Firestore write to complete before continuing.
+			 */
+			const handleRouteError = (error: unknown, source: string): void => {
 				const classified = classifyError(error);
 				ctx.emitError(classified, source);
 				failApp(appId, classified.type);
