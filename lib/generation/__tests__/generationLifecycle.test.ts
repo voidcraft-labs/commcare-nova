@@ -8,9 +8,9 @@
  * and any future regression in the generation→builder handshake.
  *
  * Uses real stores (doc + session) wired together, no mocks. Doc-state
- * deltas flow through `data-mutations` — the canonical Phase 3+ live
- * emission path — so this suite exercises the same code path the server
- * runs in production.
+ * deltas flow through `data-mutations` — the canonical live emission
+ * path — so this suite exercises the same code path the server runs in
+ * production.
  */
 
 import { assert, describe, expect, it } from "vitest";

@@ -6,8 +6,8 @@
  * via `_setDocStore`, mirroring the runtime SyncBridge setup. Each test
  * exercises one event category: doc lifecycle or session-only.
  *
- * The live `data-mutations` path (the canonical Phase 3+ doc-mutation
- * emission) is covered in `streamDispatcher-mutations.test.ts`.
+ * The live `data-mutations` path (the canonical doc-mutation emission)
+ * is covered in `streamDispatcher-mutations.test.ts`.
  */
 
 import { assert, beforeEach, describe, expect, it } from "vitest";

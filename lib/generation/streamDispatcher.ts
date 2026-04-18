@@ -3,13 +3,10 @@
  * appropriate handler: live doc mutation batches, doc lifecycle
  * transitions, or session store updates.
  *
- * This is the Phase 4 replacement for `applyDataPart` in
- * `lib/services/builder.ts`. The key difference is that this dispatcher
- * takes explicit store references (doc store + session store) instead of
- * the legacy `{ store, docStore }` adapter object, and routes doc-mutating
- * events through fine-grained `Mutation[]` batches emitted directly by
- * `GenerationContext.emitMutations()` — no server-to-client wire-format
- * translation of snapshot-shaped events remains.
+ * Takes explicit store references (doc store + session store) and routes
+ * doc-mutating events through fine-grained `Mutation[]` batches emitted
+ * directly by `GenerationContext.emitMutations()` — no server-to-client
+ * wire-format translation of snapshot-shaped events happens on this path.
  *
  * Three event categories (checked in this order):
  *
@@ -17,7 +14,7 @@
  *      fine-grained `Mutation[]` produced server-side by
  *      `GenerationContext.emitMutations()`. Applied atomically with no
  *      wire-format translation and no doc-snapshot lookup. This is the
- *      canonical path for every doc-modifying SA emission after Phase 3.
+ *      canonical path for every doc-modifying SA emission.
  *
  *   2. **Doc lifecycle events** — `data-done`, `data-blueprint-updated`.
  *      Replace the entire doc via `docStore.load()` and manage undo
@@ -133,7 +130,7 @@ export function applyStreamEvent(
 	// Server emits fine-grained `Mutation[]` directly via
 	// `GenerationContext.emitMutations()`. The client applies the batch
 	// atomically — no wire-format mapping, no doc-snapshot lookup. This
-	// is the live path for every doc-modifying SA emission after Phase 3.
+	// is the live path for every doc-modifying SA emission.
 	//
 	// The optional `stage` tag on the payload is intentionally ignored
 	// here: the live apply path runs regardless of stage. Replay
