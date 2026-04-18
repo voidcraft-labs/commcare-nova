@@ -9,10 +9,10 @@
  * Types are organized by concern:
  *   - Cursor/sidebar primitives (Phase 3)
  *   - Generation lifecycle (Phase 4) — stages, errors, partial scaffold
- *   - Replay (Phase 4) — stage-by-stage build replay data
+ *   - Replay (Phase 4) — raw event log + derived chapter metadata
  */
 
-import type { UIMessage } from "ai";
+import type { Event } from "@/lib/log/types";
 
 // ── Interaction primitives ───────────────────────────────────────────────
 
@@ -77,34 +77,47 @@ export interface PartialScaffoldData {
 
 // ── Replay ───────────────────────────────────────────────────────────────
 
-/** A single replay stage — data-only, no closures. Each stage captures
- *  the SA's reasoning (messages) and blueprint mutations (emissions) for
- *  one logical step of the build process. */
-export interface ReplayStage {
+/**
+ * Chapter metadata for replay navigation. Start/end index into the
+ * `events` array; chapters are cumulative — replaying to chapter N
+ * means dispatching events[0..chapters[N].endIndex]. Derived at
+ * extraction time from tool-call boundaries in the log, not stored on
+ * events themselves.
+ */
+export interface ReplayChapter {
 	header: string;
 	subtitle?: string;
-	messages: UIMessage[];
-	emissions: Array<{ type: string; data: Record<string, unknown> }>;
+	startIndex: number;
+	endIndex: number;
 }
 
-/** Replay session data stored on the session store. `stages` is the full
- *  replay script; `doneIndex` tracks how far the user has advanced;
- *  `exitPath` is the URL to navigate to when replay ends; `messages` is
- *  the chat content for the currently-visible stage. */
+/**
+ * Replay session data stored on the session store. Cursor is an index
+ * into `events`, not `chapters` — chapters are derived scrub targets
+ * over the same underlying stream. Messages are derived on read via
+ * the `useReplayMessages` hook, which projects the conversation events
+ * up to the cursor into `UIMessage[]`.
+ */
 export interface ReplayData {
-	stages: ReplayStage[];
-	doneIndex: number;
+	events: Event[];
+	chapters: ReplayChapter[];
+	cursor: number;
 	exitPath: string;
-	messages: UIMessage[];
 }
 
 /* The canonical session state type is `BuilderSessionState` in `store.ts`.
  * It includes both fields and actions. The types above are shared between
  * the store, hooks, and consumers. */
 
-/** Replay data extracted from server-fetched events, passed to BuilderProvider. */
+/**
+ * Replay init data passed from the RSC page to BuilderProvider.
+ * `initialCursor` is the scrub position at mount (usually `events.length - 1`
+ * — the final frame, so the user sees the completed build before scrubbing
+ * backward).
+ */
 export interface ReplayInit {
-	stages: ReplayStage[];
-	doneIndex: number;
+	events: Event[];
+	chapters: ReplayChapter[];
+	initialCursor: number;
 	exitPath: string;
 }

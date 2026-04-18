@@ -13,15 +13,15 @@
  * with a fixture blueprint to verify the cross-store dispatch contract.
  */
 
-import type { UIMessage } from "ai";
 import { describe, expect, it } from "vitest";
 import { buildDoc } from "@/lib/__tests__/docHelpers";
 import { createBlueprintDocStore } from "@/lib/doc/store";
+import type { Event } from "@/lib/log/types";
 import { createBuilderSessionStore } from "../store";
 import {
 	GenerationStage,
 	type PartialScaffoldData,
-	type ReplayStage,
+	type ReplayChapter,
 	STAGE_LABELS,
 } from "../types";
 
@@ -633,77 +633,109 @@ describe("generation lifecycle", () => {
 // ── Replay ──────────────────────────────────────────────────────────────
 
 describe("replay state", () => {
-	const mockMessages: UIMessage[] = [
+	/**
+	 * Fixture event log — a minimal but realistic mix of conversation and
+	 * mutation events representing the shape the extractor emits. All events
+	 * share a runId and use monotonic seq numbers so they'd sort chronologically
+	 * on disk exactly as they appear here.
+	 */
+	const mockEvents: Event[] = [
 		{
-			id: "msg-1",
-			role: "assistant",
-			parts: [{ type: "text", text: "Building..." }],
+			kind: "conversation",
+			runId: "run-1",
+			ts: 1000,
+			seq: 0,
+			payload: { type: "user-message", text: "Build me an app" },
+		},
+		{
+			kind: "conversation",
+			runId: "run-1",
+			ts: 1100,
+			seq: 1,
+			payload: { type: "assistant-text", text: "Sure, building..." },
+		},
+		{
+			kind: "mutation",
+			runId: "run-1",
+			ts: 1200,
+			seq: 2,
+			actor: "agent",
+			stage: "scaffold",
+			mutation: { kind: "setAppName", name: "Test App" },
+		},
+		{
+			kind: "conversation",
+			runId: "run-1",
+			ts: 1300,
+			seq: 3,
+			payload: { type: "assistant-text", text: "Done." },
 		},
 	];
 
-	const mockStages: ReplayStage[] = [
-		{
-			header: "Stage 1",
-			subtitle: "Data model",
-			messages: [],
-			emissions: [],
-		},
-		{
-			header: "Stage 2",
-			messages: mockMessages,
-			emissions: [{ type: "scaffold", data: { app_name: "Test" } }],
-		},
-		{
-			header: "Stage 3",
-			messages: [],
-			emissions: [],
-		},
+	/**
+	 * Two chapters covering the four events above. The second chapter starts
+	 * where the first ends — chapters are contiguous scrub targets over the
+	 * same underlying stream, not separate event buckets.
+	 */
+	const mockChapters: ReplayChapter[] = [
+		{ header: "Setup", subtitle: "App meta", startIndex: 0, endIndex: 2 },
+		{ header: "Wrap-up", startIndex: 3, endIndex: 3 },
 	];
 
-	it("loadReplay sets replay data with messages from doneIndex stage", () => {
+	it("loadReplay stores events, chapters, cursor, and exitPath", () => {
 		const store = createBuilderSessionStore();
 
-		store.getState().loadReplay(mockStages, 1, "/build/abc");
+		store.getState().loadReplay({
+			events: mockEvents,
+			chapters: mockChapters,
+			initialCursor: 2,
+			exitPath: "/build/abc",
+		});
 		const replay = store.getState().replay;
 
 		expect(replay).toBeDefined();
-		expect(replay?.stages).toEqual(mockStages);
-		expect(replay?.doneIndex).toBe(1);
+		expect(replay?.events).toEqual(mockEvents);
+		expect(replay?.chapters).toEqual(mockChapters);
+		expect(replay?.cursor).toBe(2);
 		expect(replay?.exitPath).toBe("/build/abc");
-		/* Messages should come from stage at doneIndex (stage 2). */
-		expect(replay?.messages).toEqual(mockMessages);
 	});
 
-	it("loadReplay with doneIndex=0 uses first stage messages", () => {
+	it("loadReplay with initialCursor=0 lands on the first event", () => {
 		const store = createBuilderSessionStore();
 
-		store.getState().loadReplay(mockStages, 0, "/exit");
+		store.getState().loadReplay({
+			events: mockEvents,
+			chapters: mockChapters,
+			initialCursor: 0,
+			exitPath: "/exit",
+		});
+
+		expect(store.getState().replay?.cursor).toBe(0);
+	});
+
+	it("setReplayCursor updates the cursor in place", () => {
+		const store = createBuilderSessionStore();
+		store.getState().loadReplay({
+			events: mockEvents,
+			chapters: mockChapters,
+			initialCursor: 0,
+			exitPath: "/exit",
+		});
+
+		store.getState().setReplayCursor(3);
+
 		const replay = store.getState().replay;
-
-		expect(replay?.messages).toEqual([]);
+		expect(replay?.cursor).toBe(3);
+		/* Events and chapters are untouched — only the cursor moves. */
+		expect(replay?.events).toEqual(mockEvents);
+		expect(replay?.chapters).toEqual(mockChapters);
 	});
 
-	it("setReplayMessages updates replay.messages", () => {
-		const store = createBuilderSessionStore();
-		store.getState().loadReplay(mockStages, 0, "/exit");
-
-		const newMessages: UIMessage[] = [
-			{
-				id: "msg-2",
-				role: "user",
-				parts: [{ type: "text", text: "Hello" }],
-			},
-		];
-		store.getState().setReplayMessages(newMessages);
-
-		expect(store.getState().replay?.messages).toEqual(newMessages);
-	});
-
-	it("setReplayMessages is a no-op when no replay is loaded", () => {
+	it("setReplayCursor is a no-op when no replay is loaded", () => {
 		const store = createBuilderSessionStore();
 		const prev = store.getState();
 
-		store.getState().setReplayMessages([]);
+		store.getState().setReplayCursor(0);
 		expect(store.getState()).toBe(prev);
 	});
 });
@@ -722,9 +754,12 @@ describe("reset", () => {
 			appName: "X",
 			modules: [],
 		});
-		session
-			.getState()
-			.loadReplay([{ header: "S1", messages: [], emissions: [] }], 0, "/exit");
+		session.getState().loadReplay({
+			events: [],
+			chapters: [{ header: "S1", startIndex: 0, endIndex: 0 }],
+			initialCursor: 0,
+			exitPath: "/exit",
+		});
 		session.getState().setLoading(true);
 		session.getState().markNewField("q-1");
 		session.getState().setFocusHint("label");

@@ -21,19 +21,19 @@
  * pause/resume undo tracking.
  */
 
-import type { UIMessage } from "ai";
 import { devtools, subscribeWithSelector } from "zustand/middleware";
 import { createStore } from "zustand/vanilla";
 import type { BlueprintDocStore } from "@/lib/doc/provider";
 import type { Mutation, Uuid } from "@/lib/doc/types";
 import type { ConnectConfig, ConnectType } from "@/lib/domain";
+import type { Event } from "@/lib/log/types";
 import {
 	type CursorMode,
 	type GenerationError,
 	GenerationStage,
 	type PartialScaffoldData,
+	type ReplayChapter,
 	type ReplayData,
-	type ReplayStage,
 	STAGE_LABELS,
 } from "./types";
 
@@ -105,9 +105,10 @@ export interface BuilderSessionState {
 
 	// ── Replay ───────────────────────────────────────────────────────────
 
-	/** Replay session data — present only during replay mode. Contains the
-	 *  replay script (stages), current progress (doneIndex), exit URL, and
-	 *  accumulated chat messages for the current stage. */
+	/** Replay session data — present only during replay mode. Holds the
+	 *  raw event log, derived chapter metadata, the current scrub cursor
+	 *  (index into `events`), and the URL to navigate to on exit. Chat
+	 *  messages are derived on read via `useReplayMessages`. */
 	replay: ReplayData | undefined;
 
 	// ── Interaction ──────────────────────────────────────────────────────
@@ -211,16 +212,19 @@ export interface BuilderSessionState {
 
 	// ── Replay actions ──────────────────────────────────────────────────
 
-	/** Load a replay session from parsed stages. Initializes replay state
-	 *  with messages from the stage at doneIndex. */
-	loadReplay: (
-		stages: ReplayStage[],
-		doneIndex: number,
-		exitPath: string,
-	) => void;
+	/** Load a replay session from a raw event log + derived chapters.
+	 *  `initialCursor` is the scrub position to mount at (typically
+	 *  `events.length - 1` so the user lands on the final frame). */
+	loadReplay: (init: {
+		events: Event[];
+		chapters: ReplayChapter[];
+		initialCursor: number;
+		exitPath: string;
+	}) => void;
 
-	/** Update the chat messages displayed during replay. */
-	setReplayMessages: (messages: UIMessage[]) => void;
+	/** Update the replay scrub cursor. No-ops when replay is not loaded —
+	 *  cursor has no meaning outside an active replay session. */
+	setReplayCursor: (cursor: number) => void;
 
 	// ── Connect stash actions ────────────────────────────────────────────
 
@@ -504,22 +508,23 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 
 				// ── Replay actions ──────────────────────────────────────
 
-				loadReplay(stages: ReplayStage[], doneIndex: number, exitPath: string) {
-					const doneStage = stages[doneIndex];
+				loadReplay({ events, chapters, initialCursor, exitPath }) {
 					set({
 						replay: {
-							stages,
-							doneIndex,
+							events,
+							chapters,
+							cursor: initialCursor,
 							exitPath,
-							messages: doneStage?.messages ?? [],
 						},
 					});
 				},
 
-				setReplayMessages(messages: UIMessage[]) {
+				setReplayCursor(cursor: number) {
 					const replay = get().replay;
+					/* No-op outside an active replay session — cursor has no
+					 * meaning without an event log to index into. */
 					if (!replay) return;
-					set({ replay: { ...replay, messages } });
+					set({ replay: { ...replay, cursor } });
 				},
 
 				// ── Connect stash actions ───────────────────────────────
