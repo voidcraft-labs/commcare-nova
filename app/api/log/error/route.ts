@@ -6,7 +6,7 @@
  * authentication (sign-in flow errors, token expiry, etc.). The endpoint
  * validates and sanitizes the payload to prevent abuse.
  *
- * Uses the structured logger (`lib/log.ts`) so these errors appear in
+ * Uses the structured logger (`lib/logger.ts`) so these errors appear in
  * Cloud Logging with proper severity, stack traces for Error Reporting
  * grouping, and filterable `source: client` labels alongside server errors.
  */
