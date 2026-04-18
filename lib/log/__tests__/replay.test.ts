@@ -99,4 +99,44 @@ describe("deriveReplayChapters", () => {
 		const chapters = deriveReplayChapters(events);
 		expect(chapters[chapters.length - 1].header).toBe("Done");
 	});
+
+	it("absorbs conversation events into the current mutation chapter", () => {
+		const events: Event[] = [
+			mut(0, "scaffold"),
+			conv(1, { type: "assistant-text", text: "done scaffolding" }),
+			mut(2, "scaffold"),
+			mut(3, "module:0"),
+		];
+		const chapters = deriveReplayChapters(events);
+		/* Scaffold chapter spans index 0..2 (absorbing the intervening conv event);
+		 * module:0 chapter is index 3..3. Plus the synthetic "Done". */
+		expect(chapters.map((c) => c.header)).toEqual([
+			"Scaffold",
+			"Module",
+			"Done",
+		]);
+		expect(chapters[0].endIndex).toBe(2);
+	});
+
+	it("handles events with no mutations — leading conversation only", () => {
+		const events: Event[] = [
+			conv(0, { type: "user-message", text: "hi" }),
+			conv(1, { type: "assistant-text", text: "hello" }),
+		];
+		const chapters = deriveReplayChapters(events);
+		/* One Conversation chapter covering [0, 1], then Done. */
+		expect(chapters.map((c) => c.header)).toEqual(["Conversation", "Done"]);
+		expect(chapters[0]).toMatchObject({ startIndex: 0, endIndex: 1 });
+	});
+
+	it("returns an empty chapter list for empty input", () => {
+		expect(deriveReplayChapters([])).toEqual([]);
+	});
+
+	it("attaches module:N / form:M-N as the chapter subtitle", () => {
+		const events: Event[] = [mut(0, "module:2"), mut(1, "form:1-3")];
+		const chapters = deriveReplayChapters(events);
+		expect(chapters[0].subtitle).toBe("module:2");
+		expect(chapters[1].subtitle).toBe("form:1-3");
+	});
 });

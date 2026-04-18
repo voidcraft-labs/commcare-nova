@@ -19,9 +19,29 @@
 import type { Mutation } from "@/lib/doc/types";
 import type { ConversationPayload, Event } from "./types";
 
-/** Sleep helper — fraction of a ms ok for fast tests. */
-function sleep(ms: number): Promise<void> {
-	return new Promise((resolve) => setTimeout(resolve, ms));
+/**
+ * Signal-aware sleep — resolves early when `signal` aborts so the replay
+ * loop halts within one microtask of abort instead of letting the current
+ * pacing delay run to completion (which would fire one extra event at the
+ * top of the next iteration before the abort check caught it).
+ *
+ * Resolves (not rejects) on abort — callers rely on the outer loop's
+ * `signal?.aborted` check to decide what to do next, keeping the two
+ * abort-handling paths in one place.
+ */
+function sleep(ms: number, signal?: AbortSignal): Promise<void> {
+	return new Promise((resolve) => {
+		if (signal?.aborted) return resolve();
+		const timer = setTimeout(resolve, ms);
+		signal?.addEventListener(
+			"abort",
+			() => {
+				clearTimeout(timer);
+				resolve();
+			},
+			{ once: true },
+		);
+	});
 }
 
 /**
@@ -30,7 +50,14 @@ function sleep(ms: number): Promise<void> {
  * live replay; tests pass 0.
  *
  * `signal` (e.g. from an abort controller in the ReplayController) halts
- * the loop mid-iteration.
+ * the loop mid-iteration. Two guards together — the top-of-loop
+ * `signal?.aborted` check and the signal-aware `sleep()` — ensure abort
+ * halts within one microtask, never after an extra event.
+ *
+ * Callbacks are invoked synchronously; returned promises are NOT awaited.
+ * Keep `onMutation` / `onConversation` synchronous — the
+ * ReplayController's `docStore.applyMany` is synchronous, and the replay
+ * loop's pacing assumes in-order synchronous dispatch.
  */
 export async function replayEvents(
 	events: readonly Event[],
@@ -43,7 +70,7 @@ export async function replayEvents(
 		if (signal?.aborted) return;
 		if (e.kind === "mutation") onMutation(e.mutation);
 		else onConversation(e.payload);
-		if (delayPerEvent > 0) await sleep(delayPerEvent);
+		if (delayPerEvent > 0) await sleep(delayPerEvent, signal);
 	}
 }
 
@@ -63,7 +90,17 @@ export interface ReplayChapter {
 	endIndex: number;
 }
 
-/** Map a `stage` tag on a MutationEvent to a chapter header. */
+/**
+ * Map a `stage` tag on a MutationEvent to a chapter header.
+ *
+ * The SA emits compound stage tags like "fix:attempt-1",
+ * "rename:0-2", "edit:0-3" — so this uses `startsWith` to collapse
+ * each family onto one header. Exact `"schema"` / `"scaffold"`
+ * comparisons cover the schema + scaffold phases which are not
+ * compound. If a future stage name accidentally collides (e.g.
+ * "fixture") the prefix match will over-group — audit stage tags
+ * when adding new phases.
+ */
 function headerForStage(stage: string | undefined): string {
 	if (!stage) return "Update";
 	if (stage === "schema") return "Data Model";
