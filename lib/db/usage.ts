@@ -107,6 +107,11 @@ export async function incrementUsage(
  * Unknown model IDs fall back to `DEFAULT_PRICING` (Sonnet rates) — pricing
  * gaps should still produce a believable number rather than zero.
  *
+ * `uncachedInput` is floored at zero: if a caller mis-reports cache tokens
+ * such that the sum exceeds `inputTokens`, a negative uncached count would
+ * flow into `FieldValue.increment` and corrupt the monthly spend counter
+ * (and misreport the run summary). Clamp here rather than trust the source.
+ *
  * Exported so admin inspect scripts (Task 18) can recompute costs from
  * stored run summaries without depending on the accumulator class.
  */
@@ -118,7 +123,10 @@ export function estimateCost(
 	cacheWriteTokens = 0,
 ): number {
 	const pricing = MODEL_PRICING[model] ?? DEFAULT_PRICING;
-	const uncachedInput = inputTokens - cacheReadTokens - cacheWriteTokens;
+	const uncachedInput = Math.max(
+		0,
+		inputTokens - cacheReadTokens - cacheWriteTokens,
+	);
 	return (
 		(uncachedInput * pricing.input +
 			cacheReadTokens * pricing.cacheRead +
@@ -189,11 +197,10 @@ export interface AccumulatorRunConfig {
  * not appear in the summary under a new `finishedAt`.
  */
 export class UsageAccumulator {
-	// Mutable in place (see configureRun) — intentional; the route constructs
-	// the accumulator before it knows the full editing context and fills the
-	// blanks once it's resolved. Keeping seed private prevents call sites
-	// from bypassing the finalized-after-flush guard.
-	private readonly seed: AccumulatorSeed;
+	// Non-readonly because configureRun mutates fields in place — keeping the
+	// declaration honest avoids the reader pausing on `readonly` + Object.assign.
+	// `private` still prevents call sites from bypassing the finalized guard.
+	private seed: AccumulatorSeed;
 	private readonly startedAt: string;
 	private inputTokens = 0;
 	private outputTokens = 0;
@@ -237,8 +244,12 @@ export class UsageAccumulator {
 	 * editing flags (those depend on an app-existence check that follows
 	 * the accumulator creation). No-op after `flush()` so a late caller
 	 * cannot silently rewrite a finalized summary.
+	 *
+	 * Accepts a `Partial` so callers can update individual fields without
+	 * rebuilding the whole config — and so the signature stays robust if
+	 * future fields are added to `AccumulatorRunConfig`.
 	 */
-	configureRun(fields: AccumulatorRunConfig): void {
+	configureRun(fields: Partial<AccumulatorRunConfig>): void {
 		if (this._finalized) return;
 		Object.assign(this.seed, fields);
 	}

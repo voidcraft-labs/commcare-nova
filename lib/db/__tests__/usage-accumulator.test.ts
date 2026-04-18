@@ -72,7 +72,15 @@ describe("UsageAccumulator", () => {
 		expect(snap.outputTokens).toBe(150);
 		expect(snap.cacheReadTokens).toBe(60);
 		expect(snap.cacheWriteTokens).toBe(10);
-		expect(snap.costEstimate).toBeGreaterThan(0);
+		// Pin the exact cost against Opus 4.7 pricing from @/lib/models
+		// (input 5, output 25, cacheRead 0.5, cacheWrite 6.25 per 1M tokens).
+		//   uncachedInput = 300 - 60 - 10 = 230
+		//   cost = (230*5 + 60*0.5 + 10*6.25 + 150*25) / 1_000_000
+		//        = (1150 + 30 + 62.5 + 3750) / 1_000_000
+		//        = 4992.5 / 1_000_000 = 0.0049925
+		// toBeGreaterThan(0) would silently accept a regression that zeroed
+		// any of the four rate terms; exact pinning catches formula drift.
+		expect(snap.costEstimate).toBeCloseTo(0.0049925, 10);
 	});
 
 	it("stepCount increments on track(...,{step:true}) calls only", () => {
