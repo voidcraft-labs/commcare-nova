@@ -22,8 +22,9 @@ import type { ReactNode } from "react";
 import { describe, expect, it } from "vitest";
 import { BuilderProvider } from "@/components/builder/BuilderProvider";
 import type { BlueprintDoc } from "@/lib/doc/types";
+import type { Event } from "@/lib/log/types";
 import { useInReplayMode, useIsLoading } from "@/lib/session/hooks";
-import type { ReplayStage } from "@/lib/session/types";
+import type { ReplayChapter } from "@/lib/session/types";
 
 /**
  * Minimal valid normalized doc for LoadAppHydrator tests.
@@ -47,10 +48,13 @@ const EMPTY_DOC: BlueprintDoc = {
 	fieldParent: {},
 };
 
-/** Empty replay script — `doneIndex: -1` means the dispatch loop in
- *  `ReplayHydrator` never iterates, isolating the test to the loading-flag
+/** Empty replay fixtures — no events and no chapters. `initialCursor: 0`
+ *  is the legal empty-replay position (the store clamps to `[0, events.length-1]`,
+ *  collapsing to 0 when `events` is empty). With zero events, the replay
+ *  dispatcher walks nothing, isolating the test to the loading-flag
  *  transition rather than doc-store mutation side effects. */
-const EMPTY_REPLAY_STAGES: ReplayStage[] = [];
+const EMPTY_REPLAY_EVENTS: Event[] = [];
+const EMPTY_REPLAY_CHAPTERS: ReplayChapter[] = [];
 
 describe("BuilderProvider — replay hydration", () => {
 	it("clears the loading flag after ReplayHydrator runs", () => {
@@ -63,8 +67,9 @@ describe("BuilderProvider — replay hydration", () => {
 				<BuilderProvider
 					buildId="replay"
 					replay={{
-						stages: EMPTY_REPLAY_STAGES,
-						doneIndex: -1,
+						events: EMPTY_REPLAY_EVENTS,
+						chapters: EMPTY_REPLAY_CHAPTERS,
+						initialCursor: 0,
 						exitPath: "/admin",
 					}}
 				>

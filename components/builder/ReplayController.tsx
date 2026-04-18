@@ -1,9 +1,16 @@
 /**
- * ReplayController — floating transport bar for stepping through generation
- * replay stages. Fully self-sufficient — reads replay data from the session
- * store, dispatches emissions via `applyStreamEvent` (the same dispatcher
- * used by real-time streaming), and writes replay messages back for
- * ChatContainer.
+ * ReplayController — floating transport bar for scrubbing through a
+ * generation replay. Fully self-sufficient: reads the event log +
+ * derived chapters from the session store, applies mutations via the
+ * doc store, and records the new scrub cursor on `setReplayCursor` so
+ * message derivation (`useReplayMessages`) re-projects the chat view.
+ *
+ * Navigation model — chapters are cumulative scrub targets over the
+ * raw `Event[]`, not independent segments. Clicking chapter N resets
+ * the doc and replays `events[0..chapters[N].endIndex]` inclusive. The
+ * arrows step between adjacent chapters; the current chapter is the
+ * one whose inclusive `[startIndex, endIndex]` range contains the
+ * session store's current cursor.
  *
  * No props needed from BuilderLayout. Mount/unmount is controlled by
  * BuilderLayout based on `inReplayMode`, but the component owns all
@@ -18,13 +25,22 @@ import { AnimatePresence, motion } from "motion/react";
 import { useRouter } from "next/navigation";
 import { useCallback, useContext, useState } from "react";
 import { BlueprintDocContext } from "@/lib/doc/provider";
-import { applyStreamEvent } from "@/lib/generation/streamDispatcher";
+import { replayEvents } from "@/lib/log/replay";
+import type { Event } from "@/lib/log/types";
 import { useBuilderFormEngine } from "@/lib/preview/engine/provider";
 import { resetBuilder } from "@/lib/services/resetBuilder";
 import {
 	BuilderSessionContext,
 	useBuilderSession,
 } from "@/lib/session/provider";
+import type { ReplayChapter } from "@/lib/session/types";
+
+/* Reference-stable empty-array sentinels keep the selectors below from
+ * returning a fresh `[]` on every render when replay is not loaded — a
+ * fresh reference would make `useBuilderSession`'s equality check fail
+ * on every tick and thrash React reconciliation in the transport bar. */
+const EMPTY_EVENTS: readonly Event[] = [];
+const EMPTY_CHAPTERS: readonly ReplayChapter[] = [];
 
 export function ReplayController() {
 	const router = useRouter();
@@ -32,12 +48,24 @@ export function ReplayController() {
 	const sessionStore = useContext(BuilderSessionContext);
 	const engineController = useBuilderFormEngine();
 
-	/* Self-subscribe to replay state — no props from parent. */
+	/* Self-subscribe to replay state — no props from parent. The cursor
+	 * lives in the session store so `useReplayMessages` and this
+	 * controller stay in lock-step across scrubs. */
 	const replay = useBuilderSession((s) => s.replay);
-	const stages = replay?.stages ?? [];
-	const doneIndex = replay?.doneIndex ?? 0;
-	const [currentIndex, setCurrentIndex] = useState(doneIndex);
+	const events = replay?.events ?? EMPTY_EVENTS;
+	const chapters = replay?.chapters ?? EMPTY_CHAPTERS;
+	const cursor = replay?.cursor ?? 0;
 	const [error, setError] = useState<string>();
+
+	/* Which chapter does the current cursor fall inside? Chapters cover
+	 * inclusive `[startIndex, endIndex]` ranges and the cursor is always
+	 * clamped into the `events` range, so `findIndex` locates a unique
+	 * chapter for every valid cursor (-1 only when `chapters` is empty,
+	 * which the fallback path below handles). */
+	const currentChapterIndex = chapters.findIndex(
+		(c) => cursor >= c.startIndex && cursor <= c.endIndex,
+	);
+	const currentChapter = chapters[currentChapterIndex];
 
 	const doReset = useCallback(() => {
 		/* The provider stack guarantees all stores/controllers are
@@ -55,31 +83,42 @@ export function ReplayController() {
 		});
 	}, [docStore, sessionStore, engineController]);
 
-	const goToStage = useCallback(
-		(targetIndex: number) => {
-			if (!docStore || !sessionStore) return;
+	const goToChapter = useCallback(
+		(chapterIndex: number) => {
+			const chapter = chapters[chapterIndex];
+			if (!chapter || !docStore || !sessionStore) return;
 			try {
 				doReset();
-				/* Replay all emissions from stage 0 through the target stage
-				 * via the stream dispatcher — the same code path as real-time
-				 * streaming, ensuring replay and live builds produce identical
-				 * doc state. */
-				for (let i = 0; i <= targetIndex; i++) {
-					for (const em of stages[i].emissions) {
-						applyStreamEvent(em.type, em.data, docStore, sessionStore);
-					}
-				}
-				/* Write replay messages to the session store — ChatContainer reads them. */
-				sessionStore.getState().setReplayMessages(stages[targetIndex].messages);
-				setCurrentIndex(targetIndex);
+				/* Cumulative replay — from event 0 through this chapter's
+				 * end. Chapters are scrub targets, not independent segments,
+				 * so every scrub reconstructs state from the beginning. The
+				 * doc store was just wiped by `doReset`, so no stale entities
+				 * bleed into the new frame.
+				 *
+				 * `delayPerEvent = 0` because we want the new frame to land
+				 * in one commit — user-visible pacing belongs to live
+				 * generation, not scrubbing. */
+				const slice = events.slice(0, chapter.endIndex + 1);
+				void replayEvents(
+					slice,
+					(m) => docStore.getState().applyMany([m]),
+					() => {
+						/* Conversation events are projected on read by
+						 * `useReplayMessages`; no side channel needed. */
+					},
+					0,
+				);
+				/* Record the new scrub position — `useReplayMessages`
+				 * subscribes to this and re-derives the chat view. */
+				sessionStore.getState().setReplayCursor(chapter.endIndex);
 				setError(undefined);
 			} catch (err) {
 				setError(
-					`Cannot load stage: ${err instanceof Error ? err.message : String(err)}`,
+					`Cannot load chapter: ${err instanceof Error ? err.message : String(err)}`,
 				);
 			}
 		},
-		[doReset, docStore, sessionStore, stages],
+		[chapters, events, doReset, docStore, sessionStore],
 	);
 
 	/** Exit replay mode — reset the builder and navigate to the exit path. */
@@ -89,9 +128,9 @@ export function ReplayController() {
 		router.push(exitPath);
 	}, [sessionStore, doReset, router]);
 
-	const canGoBack = currentIndex > 0;
-	const canGoForward = currentIndex < stages.length - 1;
-	const stage = stages[currentIndex];
+	const canGoBack = currentChapterIndex > 0;
+	const canGoForward =
+		currentChapterIndex >= 0 && currentChapterIndex < chapters.length - 1;
 
 	return (
 		<div className="fixed bottom-3 left-1/2 -translate-x-1/2 z-popover flex flex-col items-center gap-2">
@@ -104,7 +143,7 @@ export function ReplayController() {
 				{/* Left arrow */}
 				<button
 					type="button"
-					onClick={() => canGoBack && goToStage(currentIndex - 1)}
+					onClick={() => canGoBack && goToChapter(currentChapterIndex - 1)}
 					disabled={!canGoBack}
 					className={`p-0.5 rounded-md transition-colors ${
 						canGoBack
@@ -115,7 +154,7 @@ export function ReplayController() {
 					<Icon icon={tablerChevronLeft} width={20} height={20} />
 				</button>
 
-				{/* Stage info — fixed width to prevent layout shift */}
+				{/* Chapter info — fixed width to prevent layout shift */}
 				<div className="w-44 select-none flex flex-col justify-center h-9">
 					<div className="flex items-center gap-1.5">
 						<motion.span
@@ -123,14 +162,18 @@ export function ReplayController() {
 							className="text-sm font-medium text-nova-text truncate"
 							transition={{ duration: 0.2 }}
 						>
-							{stage.header}
+							{currentChapter?.header ?? "Loading…"}
 						</motion.span>
 						<span className="text-xs text-nova-text-muted shrink-0">
-							{currentIndex + 1}/{stages.length}
+							{/* 1-indexed chapter counter; `0/0` while chapters are
+							 *  empty (should only happen for a split-second during
+							 *  hydration — after which the session store always
+							 *  holds a non-empty chapter array). */}
+							{Math.max(currentChapterIndex + 1, 0)}/{chapters.length}
 						</span>
 					</div>
 					<AnimatePresence>
-						{stage.subtitle && (
+						{currentChapter?.subtitle && (
 							<motion.p
 								initial={{ height: 0, opacity: 0 }}
 								animate={{ height: "auto", opacity: 1 }}
@@ -138,7 +181,7 @@ export function ReplayController() {
 								transition={{ duration: 0.2 }}
 								className="text-xs text-nova-text-muted truncate overflow-hidden"
 							>
-								{stage.subtitle}
+								{currentChapter.subtitle}
 							</motion.p>
 						)}
 					</AnimatePresence>
@@ -147,7 +190,7 @@ export function ReplayController() {
 				{/* Right arrow */}
 				<button
 					type="button"
-					onClick={() => canGoForward && goToStage(currentIndex + 1)}
+					onClick={() => canGoForward && goToChapter(currentChapterIndex + 1)}
 					disabled={!canGoForward}
 					className={`p-0.5 rounded-md transition-colors ${
 						canGoForward
