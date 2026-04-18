@@ -242,48 +242,105 @@ export function useReplayMessages(): UIMessage[] {
 const EMPTY_REPLAY_MESSAGES: UIMessage[] = [];
 
 /**
+ * Local projection types — the chat-visible shape we produce from the
+ * event log. Kept independent of the `ai` SDK's `UIMessagePart` union
+ * (which is a strict discriminated union parameterized by tool types)
+ * because we emit `tool-${string}` names derived from runtime log data.
+ *
+ * At the push sites these types are type-checked (typos in literal
+ * discriminants, missing fields, wrong value types all fail the
+ * compiler). The `as unknown as UIMessage[]` projection happens exactly
+ * once at the return — any shape drift between our mapping and the
+ * SDK's expectations surfaces there, not sprinkled across every case.
+ */
+type ReplayTextPart = { type: "text"; text: string };
+type ReplayReasoningPart = { type: "reasoning"; text: string };
+type ReplayToolPart = {
+	type: `tool-${string}`;
+	toolCallId: string;
+	toolName: string;
+	input: unknown;
+	state: "output-available";
+	/** Set by the paired `tool-result` event via in-place merge. Left
+	 *  undefined when no result arrives (mid-run crash / truncated log)
+	 *  so the UI still renders the invocation. */
+	output?: unknown;
+};
+type ReplayErrorPart = { type: "error"; error: string };
+type ReplayPart =
+	| ReplayTextPart
+	| ReplayReasoningPart
+	| ReplayToolPart
+	| ReplayErrorPart;
+type ReplayMessage = {
+	id: string;
+	role: "user" | "assistant";
+	parts: ReplayPart[];
+};
+
+/**
  * Pure builder: projects a slice of the event log (up to and including
  * `cursor`) into the `UIMessage[]` shape the chat UI consumes.
  *
  * Walks conversation events sequentially and groups them into messages:
- *   - `user-message` starts a new user `UIMessage` and closes the current
+ *   - `user-message` starts a new user message and closes the current
  *     pending assistant message (if any).
- *   - `assistant-text` / `assistant-reasoning` append the corresponding
- *     part to the current assistant message (created lazily the first
- *     time an assistant-produced event appears after a user message).
- *   - `tool-call` appends a `tool-{toolName}` part with
- *     `state: "output-available"`. The state is set eagerly because the
- *     log is written AFTER the agent step runs — there are no partial
- *     states in the log.
+ *   - `assistant-text` / `assistant-reasoning` / `tool-call` / `error`
+ *     append a part to the current assistant message. The assistant
+ *     message is opened lazily — only the cases that actually append a
+ *     part create it. This ensures an assistant bubble is shown iff it
+ *     has something to display.
  *   - `tool-result` merges `output` into the existing tool-call part
  *     matched by `toolCallId`. No-op when no matching call exists
- *     (tolerates malformed logs).
- *   - `error` appends an `error` part to the current assistant message.
- *     If no assistant message is open, the error opens one (errors
- *     attributed to the agent, not to the user's last turn).
+ *     (tolerates malformed logs) and deliberately does NOT open an
+ *     empty assistant bubble — an orphan result should not render.
  *
  * Mutation events are skipped entirely — they drive the doc store, not
- * chat. Cursor is clamped implicitly by the loop (`i <= cursor && i <
- * events.length`) so out-of-range values are safe: negative cursors
- * return `[]`; cursors past the end yield all messages.
+ * chat. Cursor is clamped implicitly by `Math.min(cursor, length-1)`,
+ * so out-of-range values are safe: negative cursors return `[]`;
+ * cursors past the end yield all messages.
+ *
+ * Message IDs use a turn counter (`u-${n}` / `a-${n}`), not event
+ * indices. This keeps React keys stable across any future cursor path
+ * that skips events — the same semantic turn always gets the same key,
+ * so `MessageBubble` doesn't remount and lose local UI state
+ * (expanded reasoning panels, scroll anchors, etc.).
  *
  * Exported for unit tests — UI callers use `useReplayMessages`.
- *
- * The `UIMessage` parts union in the `ai` SDK is a strict discriminated
- * union parameterized by tool types. Because we project a runtime log
- * that carries arbitrary tool names, we cast the constructed parts
- * through `unknown` at the push sites — the runtime shape matches the
- * SDK's expectations for each variant.
  */
 export function buildReplayMessages(
 	events: readonly Event[],
 	cursor: number,
 ): UIMessage[] {
-	const messages: UIMessage[] = [];
-	/* `current` is the assistant message being accumulated. It's nulled
-	 * whenever a user-message closes the turn so subsequent assistant
-	 * events start a fresh message. */
-	let current: UIMessage | null = null;
+	const messages: ReplayMessage[] = [];
+	/* Turn index — incremented on each new message (user or assistant
+	 * open). Drives stable `id` values that survive cursor scrubs and
+	 * any future event-skipping logic. */
+	let turnIdx = 0;
+	/* `current` is the assistant message being accumulated, wrapped in
+	 * a one-field holder so closure reassignment doesn't break TS's
+	 * control-flow narrowing at tool-result read sites. A bare
+	 * `let current: ReplayMessage | null = null` would be narrowed to
+	 * `null` by TS after the user-message branch (closure writes are
+	 * ignored for flow analysis), forcing casts at every read. The
+	 * holder object is reassigned as `.msg`, not rebound, so reads see
+	 * the live value without any narrowing gymnastics. */
+	const accum: { msg: ReplayMessage | null } = { msg: null };
+
+	/** Lazy-open the current assistant message. Called ONLY from cases
+	 *  that will immediately push a part — never from `tool-result`,
+	 *  which must not manifest a phantom empty bubble. */
+	const openAssistant = (): ReplayMessage => {
+		if (accum.msg) return accum.msg;
+		const msg: ReplayMessage = {
+			id: `a-${turnIdx}`,
+			role: "assistant",
+			parts: [],
+		};
+		accum.msg = msg;
+		turnIdx++;
+		return msg;
+	};
 
 	const upper = Math.min(cursor, events.length - 1);
 	for (let i = 0; i <= upper; i++) {
@@ -295,77 +352,71 @@ export function buildReplayMessages(
 
 		if (p.type === "user-message") {
 			/* Close any open assistant message before the user speaks. */
-			if (current) {
-				messages.push(current);
-				current = null;
+			if (accum.msg) {
+				messages.push(accum.msg);
+				accum.msg = null;
 			}
 			messages.push({
-				id: `u-${i}`,
+				id: `u-${turnIdx}`,
 				role: "user",
 				parts: [{ type: "text", text: p.text }],
-			} as unknown as UIMessage);
+			});
+			turnIdx++;
 			continue;
-		}
-
-		/* Lazily open a new assistant message for the first assistant-side
-		 * event after a user message (or at the start of the log). */
-		if (!current) {
-			current = {
-				id: `a-${i}`,
-				role: "assistant",
-				parts: [],
-			} as unknown as UIMessage;
 		}
 
 		switch (p.type) {
 			case "assistant-text":
-				current.parts.push({
-					type: "text",
-					text: p.text,
-				} as UIMessage["parts"][number]);
+				openAssistant().parts.push({ type: "text", text: p.text });
 				break;
 			case "assistant-reasoning":
-				current.parts.push({
-					type: "reasoning",
-					text: p.text,
-				} as UIMessage["parts"][number]);
+				openAssistant().parts.push({ type: "reasoning", text: p.text });
 				break;
 			case "tool-call":
 				/* Eagerly stamp `output-available` — tool-result events
 				 * that arrive later just merge their output into this
 				 * same part. If no result ever arrives (malformed log
 				 * or mid-run crash), the UI still sees the invocation. */
-				current.parts.push({
+				openAssistant().parts.push({
 					type: `tool-${p.toolName}`,
 					toolCallId: p.toolCallId,
 					toolName: p.toolName,
 					input: p.input,
 					state: "output-available",
-				} as unknown as UIMessage["parts"][number]);
+				});
 				break;
 			case "tool-result": {
 				/* Match by toolCallId — the envelope invariant pairs
-				 * tool-call + tool-result 1:1 within a run. Defensive
-				 * find (no-op on mismatch) tolerates partial logs. */
-				const target = current.parts.find(
-					(x) => (x as { toolCallId?: string }).toolCallId === p.toolCallId,
-				) as { output?: unknown } | undefined;
+				 * tool-call + tool-result 1:1 within a run. When no
+				 * assistant turn is open or no matching call is found,
+				 * the orphan result is silently dropped: it must not
+				 * manifest an empty assistant bubble. */
+				const open = accum.msg;
+				if (!open) break;
+				const target = open.parts.find(
+					(x): x is ReplayToolPart =>
+						x.type.startsWith("tool-") &&
+						(x as ReplayToolPart).toolCallId === p.toolCallId,
+				);
 				if (target) target.output = p.output;
 				break;
 			}
 			case "error":
-				current.parts.push({
+				openAssistant().parts.push({
 					type: "error",
 					error: p.error.message,
-				} as unknown as UIMessage["parts"][number]);
+				});
 				break;
 		}
 	}
 
 	/* Flush any open assistant message — the last turn of the log is
 	 * usually assistant output that never got a trailing user message. */
-	if (current) messages.push(current);
-	return messages;
+	if (accum.msg) messages.push(accum.msg);
+	/* Single projection cast: `ReplayPart` is a structural subset of
+	 * the SDK's `UIMessagePart` union for the variants the chat UI
+	 * consumes. See the `Replay*` type comment above for rationale. */
+	return messages as unknown as UIMessage[];
 }
 
 // ── Derived ───────────────────────────────────────────────────────────────

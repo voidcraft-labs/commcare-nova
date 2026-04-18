@@ -46,6 +46,17 @@ function convEvent(seq: number, payload: ConversationPayload): Event {
 	};
 }
 
+/** Shorthand: user message at `seq`. Most tests only care about text +
+ *  ordering, not the envelope — the helper shrinks fixtures considerably. */
+function userMsg(seq: number, text: string): Event {
+	return convEvent(seq, { type: "user-message", text });
+}
+
+/** Shorthand: assistant plain text at `seq`. */
+function assistantText(seq: number, text: string): Event {
+	return convEvent(seq, { type: "assistant-text", text });
+}
+
 /** Build a doc mutation event — used to verify the builder skips
  *  non-chat-visible events entirely without closing the assistant turn. */
 function mutationEvent(seq: number): MutationEvent {
@@ -96,10 +107,7 @@ function renderUseReplayMessages(events: Event[], initialCursor: number) {
 
 describe("buildReplayMessages", () => {
 	it("returns [] when cursor is -1 (below any valid event index)", () => {
-		const events: Event[] = [
-			convEvent(0, { type: "user-message", text: "hi" }),
-		];
-		expect(buildReplayMessages(events, -1)).toEqual([]);
+		expect(buildReplayMessages([userMsg(0, "hi")], -1)).toEqual([]);
 	});
 
 	it("returns [] when events is empty regardless of cursor", () => {
@@ -108,10 +116,7 @@ describe("buildReplayMessages", () => {
 	});
 
 	it("projects a user-message → one user UIMessage with a text part", () => {
-		const events: Event[] = [
-			convEvent(0, { type: "user-message", text: "build me an app" }),
-		];
-		const msgs = buildReplayMessages(events, 0);
+		const msgs = buildReplayMessages([userMsg(0, "build me an app")], 0);
 		expect(msgs).toHaveLength(1);
 		expect(msgs[0].role).toBe("user");
 		expect(msgs[0].parts).toEqual([{ type: "text", text: "build me an app" }]);
@@ -119,9 +124,9 @@ describe("buildReplayMessages", () => {
 
 	it("groups assistant-reasoning + assistant-text into a single assistant message", () => {
 		const events: Event[] = [
-			convEvent(0, { type: "user-message", text: "hi" }),
+			userMsg(0, "hi"),
 			convEvent(1, { type: "assistant-reasoning", text: "thinking…" }),
-			convEvent(2, { type: "assistant-text", text: "ok" }),
+			assistantText(2, "ok"),
 		];
 		const msgs = buildReplayMessages(events, 2);
 		expect(msgs).toHaveLength(2);
@@ -137,7 +142,7 @@ describe("buildReplayMessages", () => {
 
 	it("merges tool-result output into the matching tool-call by toolCallId", () => {
 		const events: Event[] = [
-			convEvent(0, { type: "user-message", text: "build" }),
+			userMsg(0, "build"),
 			convEvent(1, {
 				type: "tool-call",
 				toolCallId: "t1",
@@ -167,9 +172,9 @@ describe("buildReplayMessages", () => {
 		expect(toolPart.output).toBe("ok");
 	});
 
-	it("tool-result with no matching call is a no-op (tolerates partial logs)", () => {
+	it("orphan tool-result does not manifest an empty assistant bubble", () => {
 		const events: Event[] = [
-			convEvent(0, { type: "user-message", text: "build" }),
+			userMsg(0, "build"),
 			convEvent(1, {
 				type: "tool-result",
 				toolCallId: "orphan",
@@ -178,16 +183,35 @@ describe("buildReplayMessages", () => {
 			}),
 		];
 		const msgs = buildReplayMessages(events, 1);
-		/* Orphan tool-result opens an empty assistant message but doesn't
-		 * add a part — no call to merge into. */
+		/* Orphan tool-result has no matching call AND no assistant turn
+		 * to merge into — it's silently dropped. No phantom assistant
+		 * bubble should appear in the chat. */
+		expect(msgs).toHaveLength(1);
+		expect(msgs[0].role).toBe("user");
+	});
+
+	it("tool-result without a matching call within an open assistant turn is dropped", () => {
+		/* Regression: even when an assistant message IS open (e.g. a
+		 * prior text part landed), an orphan tool-result must not
+		 * append a part — it has nothing to merge into. */
+		const events: Event[] = [
+			userMsg(0, "build"),
+			assistantText(1, "working…"),
+			convEvent(2, {
+				type: "tool-result",
+				toolCallId: "orphan",
+				toolName: "addModule",
+				output: "ok",
+			}),
+		];
+		const msgs = buildReplayMessages(events, 2);
 		expect(msgs).toHaveLength(2);
-		expect(msgs[1].role).toBe("assistant");
-		expect(msgs[1].parts).toHaveLength(0);
+		expect(msgs[1].parts).toEqual([{ type: "text", text: "working…" }]);
 	});
 
 	it("appends an error part from an error event", () => {
 		const events: Event[] = [
-			convEvent(0, { type: "user-message", text: "go" }),
+			userMsg(0, "go"),
 			convEvent(1, {
 				type: "error",
 				error: { type: "internal", message: "boom", fatal: true },
@@ -203,10 +227,10 @@ describe("buildReplayMessages", () => {
 
 	it("skips mutation events entirely without opening an assistant turn", () => {
 		const events: Event[] = [
-			convEvent(0, { type: "user-message", text: "build" }),
+			userMsg(0, "build"),
 			mutationEvent(1),
 			mutationEvent(2),
-			convEvent(3, { type: "assistant-text", text: "done" }),
+			assistantText(3, "done"),
 		];
 		const msgs = buildReplayMessages(events, 3);
 		/* Mutation events between user + assistant are invisible — the
@@ -218,10 +242,10 @@ describe("buildReplayMessages", () => {
 
 	it("a second user-message closes the prior assistant turn", () => {
 		const events: Event[] = [
-			convEvent(0, { type: "user-message", text: "first" }),
-			convEvent(1, { type: "assistant-text", text: "reply 1" }),
-			convEvent(2, { type: "user-message", text: "second" }),
-			convEvent(3, { type: "assistant-text", text: "reply 2" }),
+			userMsg(0, "first"),
+			assistantText(1, "reply 1"),
+			userMsg(2, "second"),
+			assistantText(3, "reply 2"),
 		];
 		const msgs = buildReplayMessages(events, 3);
 		expect(msgs).toHaveLength(4);
@@ -237,10 +261,10 @@ describe("buildReplayMessages", () => {
 
 	it("respects the cursor as an inclusive upper bound", () => {
 		const events: Event[] = [
-			convEvent(0, { type: "user-message", text: "first" }),
-			convEvent(1, { type: "assistant-text", text: "streaming" }),
-			convEvent(2, { type: "assistant-text", text: "more" }),
-			convEvent(3, { type: "user-message", text: "second" }),
+			userMsg(0, "first"),
+			assistantText(1, "streaming"),
+			assistantText(2, "more"),
+			userMsg(3, "second"),
 		];
 		/* Cursor=1 → only first two events visible. The pending assistant
 		 * message is flushed at the end of the walk. */
@@ -250,13 +274,29 @@ describe("buildReplayMessages", () => {
 	});
 
 	it("clamps cursor > events.length - 1 to the full log", () => {
-		const events: Event[] = [
-			convEvent(0, { type: "user-message", text: "only" }),
-			convEvent(1, { type: "assistant-text", text: "reply" }),
-		];
+		const events: Event[] = [userMsg(0, "only"), assistantText(1, "reply")];
 		const all = buildReplayMessages(events, 999);
 		const direct = buildReplayMessages(events, events.length - 1);
 		expect(all).toEqual(direct);
+	});
+
+	it("assigns stable turn-counter ids (not event indices) to messages", () => {
+		/* Mutation events between the user-message and the assistant turn
+		 * shift event indices. The turn counter is immune — the user gets
+		 * `u-0`, the assistant gets `a-1` regardless of how many mutation
+		 * events sit between them. This keeps React keys stable across
+		 * cursor scrubs and any future skipped-event topology. */
+		const events: Event[] = [
+			userMsg(0, "hi"),
+			mutationEvent(1),
+			mutationEvent(2),
+			mutationEvent(3),
+			assistantText(4, "ok"),
+		];
+		const msgs = buildReplayMessages(events, 4);
+		expect(msgs).toHaveLength(2);
+		expect(msgs[0].id).toBe("u-0");
+		expect(msgs[1].id).toBe("a-1");
 	});
 });
 
@@ -282,9 +322,9 @@ describe("useReplayMessages", () => {
 
 	it("builds progressive messages up to the seeded cursor", () => {
 		const events: Event[] = [
-			convEvent(0, { type: "user-message", text: "build me an app" }),
+			userMsg(0, "build me an app"),
 			convEvent(1, { type: "assistant-reasoning", text: "thinking…" }),
-			convEvent(2, { type: "assistant-text", text: "ok" }),
+			assistantText(2, "ok"),
 			convEvent(3, {
 				type: "tool-call",
 				toolCallId: "t1",
@@ -310,9 +350,9 @@ describe("useReplayMessages", () => {
 
 	it("re-derives when setReplayCursor advances the cursor", () => {
 		const events: Event[] = [
-			convEvent(0, { type: "user-message", text: "hi" }),
-			convEvent(1, { type: "assistant-text", text: "one" }),
-			convEvent(2, { type: "assistant-text", text: "two" }),
+			userMsg(0, "hi"),
+			assistantText(1, "one"),
+			assistantText(2, "two"),
 		];
 		const { result } = renderUseReplayMessages(events, 1);
 		/* Cursor=1: assistant has just "one". */
