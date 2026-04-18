@@ -1,16 +1,17 @@
 /**
  * Stream event dispatcher — routes server-sent generation events to the
- * appropriate handler: live doc mutation batches, legacy replay-style doc
- * mutation events, doc lifecycle transitions, or session store updates.
+ * appropriate handler: live doc mutation batches, doc lifecycle
+ * transitions, or session store updates.
  *
  * This is the Phase 4 replacement for `applyDataPart` in
  * `lib/services/builder.ts`. The key difference is that this dispatcher
  * takes explicit store references (doc store + session store) instead of
  * the legacy `{ store, docStore }` adapter object, and routes doc-mutating
- * events through the pure `toDocMutations` mapper rather than legacy store
- * setters that mixed entity writes with lifecycle state.
+ * events through fine-grained `Mutation[]` batches emitted directly by
+ * `GenerationContext.emitMutations()` — no server-to-client wire-format
+ * translation of snapshot-shaped events remains.
  *
- * Four event categories (checked in this order):
+ * Three event categories (checked in this order):
  *
  *   1. **Live doc mutation batch** — `data-mutations`. Carries a
  *      fine-grained `Mutation[]` produced server-side by
@@ -18,19 +19,11 @@
  *      wire-format translation and no doc-snapshot lookup. This is the
  *      canonical path for every doc-modifying SA emission after Phase 3.
  *
- *   2. **Legacy replay doc mutation events** — `data-schema`,
- *      `data-scaffold`, `data-module-done`, `data-form-done`,
- *      `data-form-fixed`, `data-form-updated`. Coarse snapshot-shaped
- *      events that must be mapped to `Mutation[]` via `toDocMutations`
- *      against the current doc state. Kept for backward compatibility
- *      with historical chat logs that replay through this dispatcher;
- *      the live server (Task 17+) no longer emits these.
- *
- *   3. **Doc lifecycle events** — `data-done`, `data-blueprint-updated`.
+ *   2. **Doc lifecycle events** — `data-done`, `data-blueprint-updated`.
  *      Replace the entire doc via `docStore.load()` and manage undo
  *      tracking state.
  *
- *   4. **Session-only events** — `data-start-build`, `data-phase`,
+ *   3. **Session-only events** — `data-start-build`, `data-phase`,
  *      `data-fix-attempt`, `data-partial-scaffold`, `data-error`,
  *      `data-app-saved`. Pure session store actions with no doc impact.
  *
@@ -45,62 +38,32 @@ import type { PersistableDoc } from "@/lib/domain";
 import type { BuilderSessionStoreApi } from "@/lib/session/store";
 import type { PartialScaffoldData } from "@/lib/session/types";
 import { signalGrid } from "@/lib/signalGrid/store";
-import { toDocMutations } from "./mutationMapper";
 
 // ── Signal grid energy table ────────────────────────────────────────────
 
 /**
  * Inject energy into the signal grid based on event significance.
  *
- * High-energy events (200) are structural milestones — a module or form
- * just completed. Medium-energy (100) are edit replacements. Low-energy
- * (50) are progress markers and intermediate states.
+ * High-energy events (200) are structural milestones — a fine-grained
+ * doc mutation batch just landed. Medium-energy (100) are full-doc edit
+ * replacements. Low-energy (50) are progress markers and intermediate
+ * states.
  */
 function injectSignalEnergy(type: string): void {
 	switch (type) {
-		case "data-module-done":
-		case "data-form-done":
-		case "data-form-fixed":
 		case "data-mutations":
 			signalGrid.injectEnergy(200);
 			break;
-		case "data-form-updated":
 		case "data-blueprint-updated":
 			signalGrid.injectEnergy(100);
 			break;
 		case "data-phase":
-		case "data-schema":
-		case "data-scaffold":
 		case "data-partial-scaffold":
 		case "data-fix-attempt":
 			signalGrid.injectEnergy(50);
 			break;
 	}
 }
-
-// ── Legacy doc mutation event types — REPLAY-ONLY after Phase 3 ─────────
-
-/**
- * Legacy wire-format doc-mutation events — REPLAY-ONLY after Phase 3.
- *
- * Live generation no longer emits these; the SA writes `data-mutations`
- * directly via `GenerationContext.emitMutations()`. Historical Firestore
- * emission logs predating that migration still contain these event
- * types, and `ReplayController` replays them as-is. Each is mapped to
- * `Mutation[]` on-the-fly via `lib/generation/mutationMapper.ts::toDocMutations`.
- *
- * Phase 4's log unification migrates stored logs to the new
- * `data-mutations` shape and deletes this set + its handler branch +
- * `mutationMapper.ts` entirely.
- */
-const LEGACY_REPLAY_DOC_MUTATION_EVENTS = new Set([
-	"data-schema",
-	"data-scaffold",
-	"data-module-done",
-	"data-form-done",
-	"data-form-fixed",
-	"data-form-updated",
-]);
 
 // ── Partial scaffold parser ─────────────────────────────────────────────
 
@@ -150,7 +113,7 @@ function parsePartialScaffold(
  * references so callers don't need an adapter object. Signal grid energy
  * is injected before processing so animations respond immediately.
  *
- * @param type         - stream event type (e.g. "data-scaffold")
+ * @param type         - stream event type (e.g. "data-mutations")
  * @param data         - event payload — shape varies by event type
  * @param docStore     - the BlueprintDoc Zustand store
  * @param sessionStore - the BuilderSession Zustand store
@@ -184,22 +147,7 @@ export function applyStreamEvent(
 		return;
 	}
 
-	// ── Category 2: Legacy replay doc mutation events ────────────────
-	//
-	// Snapshot-shaped events from historical logs. Mapped through
-	// `toDocMutations` against the current doc so the replay produces
-	// the same fine-grained `Mutation[]` the live path would have
-	// emitted. Kept solely for replay compatibility — the live server
-	// no longer emits these event types.
-	if (LEGACY_REPLAY_DOC_MUTATION_EVENTS.has(type)) {
-		const mutations = toDocMutations(type, data, docStore.getState());
-		if (mutations.length > 0) {
-			docStore.getState().applyMany(mutations);
-		}
-		return;
-	}
-
-	// ── Category 3: Doc lifecycle events ─────────────────────────────
+	// ── Category 2: Doc lifecycle events ─────────────────────────────
 	switch (type) {
 		case "data-done": {
 			/*
@@ -244,7 +192,7 @@ export function applyStreamEvent(
 		}
 	}
 
-	// ── Category 4: Session-only events ──────────────────────────────
+	// ── Category 3: Session-only events ──────────────────────────────
 	switch (type) {
 		case "data-start-build":
 			/* Begin an agent write stream. Pauses doc undo via the session

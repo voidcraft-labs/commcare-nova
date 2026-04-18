@@ -4,20 +4,15 @@
  *
  * Uses real stores (BlueprintDocStore + BuilderSessionStore) wired together
  * via `_setDocStore`, mirroring the runtime SyncBridge setup. Each test
- * exercises one event category: legacy replay-shape doc mutations, doc
- * lifecycle, or session-only.
+ * exercises one event category: doc lifecycle or session-only.
  *
- * The `describe("doc mutation events"...)` block below covers the
- * `LEGACY_REPLAY_DOC_MUTATION_EVENTS` bucket — historical Firestore
- * emission logs with snapshot-shaped events that must be mapped to
- * `Mutation[]` on replay. The live `data-mutations` path (the canonical
- * Phase 3+ emission) is covered in `streamDispatcher-mutations.test.ts`.
+ * The live `data-mutations` path (the canonical Phase 3+ doc-mutation
+ * emission) is covered in `streamDispatcher-mutations.test.ts`.
  */
 
 import { assert, beforeEach, describe, expect, it } from "vitest";
 import type { BlueprintDocStoreApi } from "@/lib/doc/store";
 import { asUuid, type PersistableDoc } from "@/lib/domain";
-import type { BlueprintForm } from "@/lib/schemas/blueprint";
 import type { BuilderSessionStoreApi } from "@/lib/session/store";
 import { signalGrid } from "@/lib/signalGrid/store";
 import { applyStreamEvent } from "../streamDispatcher";
@@ -123,34 +118,6 @@ const EDITED_DOC: PersistableDoc = {
 	},
 };
 
-// ── Scaffold fixture ────────────────────────────────────────────────────
-
-/** Scaffold payload with top-level keys (matches the wire format the SA
- *  emits for `data-scaffold`). This event still uses wire-style snake_case
- *  fields because it carries the SA tool's raw input — the mutation mapper
- *  translates at ingress. */
-const SCAFFOLD_DATA = {
-	app_name: "Health App",
-	description: "A health monitoring app",
-	connect_type: "",
-	modules: [
-		{
-			name: "Registration",
-			case_type: "patient",
-			case_list_only: false,
-			purpose: "Register patients",
-			forms: [
-				{
-					name: "Register",
-					type: "registration",
-					purpose: "Register a new patient",
-					formDesign: "Name, age, gender",
-				},
-			],
-		},
-	],
-};
-
 // Test helpers live in ./testHelpers — shared with other generation tests.
 
 // ── Test suite ──────────────────────────────────────────────────────────
@@ -180,121 +147,6 @@ describe("applyStreamEvent", () => {
 			/* Doc undo should be paused — `beginAgentWrite` on the session store
 			 * cascades to `docStore.beginAgentWrite()` which pauses temporal. */
 			expect(docStore.temporal.getState().isTracking).toBe(false);
-		});
-	});
-
-	// ── Category 1: Doc mutation events ─────────────────────────────────
-
-	describe("data-schema", () => {
-		it("updates doc.caseTypes via mutation mapper", () => {
-			const caseTypes = [
-				{
-					name: "patient",
-					properties: [{ name: "first_name", label: "First Name" }],
-				},
-			];
-
-			applyStreamEvent("data-schema", { caseTypes }, docStore, sessionStore);
-
-			expect(docStore.getState().caseTypes).toEqual(caseTypes);
-		});
-	});
-
-	describe("data-scaffold", () => {
-		it("creates modules and forms on the doc", () => {
-			applyStreamEvent(
-				"data-scaffold",
-				SCAFFOLD_DATA as unknown as Record<string, unknown>,
-				docStore,
-				sessionStore,
-			);
-
-			const doc = docStore.getState();
-			expect(doc.appName).toBe("Health App");
-			expect(doc.moduleOrder).toHaveLength(1);
-
-			const moduleUuid = doc.moduleOrder[0];
-			expect(doc.modules[moduleUuid].name).toBe("Registration");
-			expect(doc.formOrder[moduleUuid]).toHaveLength(1);
-		});
-	});
-
-	describe("data-module-done", () => {
-		it("updates module caseListColumns (needs scaffold first)", () => {
-			/* Apply scaffold to create the module structure. */
-			applyStreamEvent(
-				"data-scaffold",
-				SCAFFOLD_DATA as unknown as Record<string, unknown>,
-				docStore,
-				sessionStore,
-			);
-
-			const moduleUuid = docStore.getState().moduleOrder[0];
-			const columns = [
-				{ field: "name", header: "Name" },
-				{ field: "age", header: "Age" },
-			];
-
-			applyStreamEvent(
-				"data-module-done",
-				{ moduleIndex: 0, caseListColumns: columns },
-				docStore,
-				sessionStore,
-			);
-
-			expect(docStore.getState().modules[moduleUuid].caseListColumns).toEqual(
-				columns,
-			);
-		});
-	});
-
-	describe("data-form-done", () => {
-		it("replaces form with full question content (needs scaffold first)", () => {
-			/* Apply scaffold to create module + form shell. */
-			applyStreamEvent(
-				"data-scaffold",
-				SCAFFOLD_DATA as unknown as Record<string, unknown>,
-				docStore,
-				sessionStore,
-			);
-
-			const moduleUuid = docStore.getState().moduleOrder[0];
-			const formUuid = docStore.getState().formOrder[moduleUuid][0];
-
-			const incomingForm: BlueprintForm = {
-				uuid: "ignored-uuid",
-				name: "Register Patient",
-				type: "registration",
-				questions: [
-					{
-						uuid: "q-new-1",
-						id: "patient_name",
-						type: "text",
-						label: "Patient Name",
-					},
-					{
-						uuid: "q-new-2",
-						id: "patient_age",
-						type: "int",
-						label: "Age",
-					},
-				],
-			};
-
-			applyStreamEvent(
-				"data-form-done",
-				{ moduleIndex: 0, formIndex: 0, form: incomingForm },
-				docStore,
-				sessionStore,
-			);
-
-			/* The form should now have 2 fields. */
-			const doc = docStore.getState();
-			const fieldUuids = doc.fieldOrder[formUuid];
-			assert(fieldUuids);
-			expect(fieldUuids).toHaveLength(2);
-			expect(doc.fields[fieldUuids[0]].id).toBe("patient_name");
-			expect(doc.fields[fieldUuids[1]].id).toBe("patient_age");
 		});
 	});
 
@@ -511,26 +363,6 @@ describe("applyStreamEvent", () => {
 	// ── Signal grid energy injection ────────────────────────────────────
 
 	describe("signal grid energy injection", () => {
-		it("injects 200 energy for data-module-done", () => {
-			/* Scaffold first so the mutation mapper finds the module. */
-			applyStreamEvent(
-				"data-scaffold",
-				SCAFFOLD_DATA as unknown as Record<string, unknown>,
-				docStore,
-				sessionStore,
-			);
-			signalGrid.reset();
-
-			applyStreamEvent(
-				"data-module-done",
-				{ moduleIndex: 0, caseListColumns: null },
-				docStore,
-				sessionStore,
-			);
-
-			expect(signalGrid.drainEnergy()).toBe(200);
-		});
-
 		it("injects 50 energy for data-phase", () => {
 			applyStreamEvent(
 				"data-phase",

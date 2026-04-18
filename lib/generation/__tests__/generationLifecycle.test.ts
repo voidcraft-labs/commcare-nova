@@ -7,13 +7,16 @@
  * have caught the missing data-model stage, the endAgentWrite race,
  * and any future regression in the generation→builder handshake.
  *
- * Uses real stores (doc + session) wired together, no mocks.
+ * Uses real stores (doc + session) wired together, no mocks. Doc-state
+ * deltas flow through `data-mutations` — the canonical Phase 3+ live
+ * emission path — so this suite exercises the same code path the server
+ * runs in production.
  */
 
 import { assert, describe, expect, it } from "vitest";
 import { createBlueprintDocStore } from "@/lib/doc/store";
-import type { PersistableDoc } from "@/lib/domain";
-import type { BlueprintForm } from "@/lib/schemas/blueprint";
+import type { Mutation } from "@/lib/doc/types";
+import { asUuid, type PersistableDoc } from "@/lib/domain";
 import { BuilderPhase } from "@/lib/services/builder";
 import { derivePhase } from "@/lib/session/hooks";
 import { createBuilderSessionStore } from "@/lib/session/store";
@@ -65,43 +68,82 @@ function emit(
 	applyStreamEvent(type, data, docStore, sessionStore);
 }
 
+/** Emit a `data-mutations` batch — shorthand wrapper. */
+function emitMutations(
+	mutations: Mutation[],
+	docStore: ReturnType<typeof createBlueprintDocStore>,
+	sessionStore: ReturnType<typeof createBuilderSessionStore>,
+) {
+	emit("data-mutations", { mutations }, docStore, sessionStore);
+}
+
 // ── Fixture data ──────────────────────────────────────────────────────
+
+/** Stable UUIDs used across the tests so mutations target deterministic
+ *  entities and assertions can key off known ids. */
+const MOD_UUID = asUuid("mod-registration");
+const FORM_UUID = asUuid("form-register");
+const Q_NAME_UUID = asUuid("q-patient-name");
+const Q_AGE_UUID = asUuid("q-patient-age");
 
 const CASE_TYPES = [
 	{ name: "patient", properties: [{ name: "name", label: "Name" }] },
 ];
 
-const SCAFFOLD = {
-	app_name: "Health App",
-	description: "A health monitoring app",
-	connect_type: "",
-	modules: [
-		{
+/**
+ * Mutation batch equivalent to the legacy `data-scaffold` event: creates
+ * the app name, one module, and one form. The server emits these as a
+ * single atomic `data-mutations` event during the scaffold stage.
+ */
+const SCAFFOLD_MUTATIONS: Mutation[] = [
+	{ kind: "setAppName", name: "Health App" },
+	{
+		kind: "addModule",
+		module: {
+			uuid: MOD_UUID,
+			id: "registration",
 			name: "Registration",
-			case_type: "patient",
-			case_list_only: false,
-			purpose: "Register patients",
-			forms: [
-				{
-					name: "Register",
-					type: "registration" as const,
-					purpose: "Register a new patient",
-					formDesign: "Name, age, gender",
-				},
-			],
+			caseType: "patient",
 		},
-	],
-};
+	},
+	{
+		kind: "addForm",
+		moduleUuid: MOD_UUID,
+		form: {
+			uuid: FORM_UUID,
+			id: "register",
+			name: "Register",
+			type: "registration",
+		},
+	},
+];
 
-const FORM: BlueprintForm = {
-	uuid: "will-be-replaced",
-	name: "Register",
-	type: "registration",
-	questions: [
-		{ uuid: "q-1", id: "patient_name", type: "text", label: "Patient Name" },
-		{ uuid: "q-2", id: "patient_age", type: "int", label: "Age" },
-	],
-};
+/**
+ * Mutation batch equivalent to the legacy `data-form-done` event: adds
+ * two fields to the scaffolded form. Emitted during the forms stage.
+ */
+const FORM_CONTENT_MUTATIONS: Mutation[] = [
+	{
+		kind: "addField",
+		parentUuid: FORM_UUID,
+		field: {
+			uuid: Q_NAME_UUID,
+			id: "patient_name",
+			kind: "text",
+			label: "Patient Name",
+		},
+	},
+	{
+		kind: "addField",
+		parentUuid: FORM_UUID,
+		field: {
+			uuid: Q_AGE_UUID,
+			id: "patient_age",
+			kind: "int",
+			label: "Age",
+		},
+	},
+];
 
 // ── Tests ──────────────────────────────────────────────────────────────
 
@@ -127,8 +169,14 @@ describe("generation lifecycle (end-to-end)", () => {
 		// Doc undo paused during generation
 		expect(docStore.temporal.getState().isTracking).toBe(false);
 
-		// ── data-schema ──
-		emit("data-schema", { caseTypes: CASE_TYPES }, docStore, sessionStore);
+		// ── data-mutations: data-model schema ──
+		// `data-schema` is the legacy coarse shape; the live server emits a
+		// `setCaseTypes` mutation inside a `data-mutations` batch.
+		emitMutations(
+			[{ kind: "setCaseTypes", caseTypes: CASE_TYPES }],
+			docStore,
+			sessionStore,
+		);
 		expect(doc().caseTypes).toEqual(CASE_TYPES);
 		// Still in DataModel stage
 		expect(s().agentStage).toBe(GenerationStage.DataModel);
@@ -139,49 +187,47 @@ describe("generation lifecycle (end-to-end)", () => {
 		expect(s().agentStage).toBe(GenerationStage.Structure);
 		expect(s().statusMessage).toBe("Designing app structure");
 
-		// ── data-scaffold ──
-		emit(
-			"data-scaffold",
-			SCAFFOLD as unknown as Record<string, unknown>,
-			docStore,
-			sessionStore,
-		);
+		// ── data-mutations: scaffold ──
+		// The server decomposes the scaffold tool's output into an atomic
+		// batch of `setAppName` + `addModule` + `addForm` mutations.
+		emitMutations(SCAFFOLD_MUTATIONS, docStore, sessionStore);
 		// Doc now has modules and forms
-		expect(doc().moduleOrder).toHaveLength(1);
-		const moduleUuid = doc().moduleOrder[0];
-		expect(doc().modules[moduleUuid].name).toBe("Registration");
-		expect(doc().formOrder[moduleUuid]).toHaveLength(1);
-		const formUuid = doc().formOrder[moduleUuid][0];
+		expect(doc().moduleOrder).toEqual([MOD_UUID]);
+		expect(doc().modules[MOD_UUID].name).toBe("Registration");
+		expect(doc().formOrder[MOD_UUID]).toEqual([FORM_UUID]);
 
 		// ── data-phase: modules ──
 		emit("data-phase", { phase: "modules" }, docStore, sessionStore);
 		expect(s().agentStage).toBe(GenerationStage.Modules);
 		expect(s().statusMessage).toBe("Building app content");
 
-		// ── data-module-done ──
+		// ── data-mutations: module details (caseListColumns) ──
+		// Replaces legacy `data-module-done`.
 		const columns = [{ field: "name", header: "Name" }];
-		emit(
-			"data-module-done",
-			{ moduleIndex: 0, caseListColumns: columns },
+		emitMutations(
+			[
+				{
+					kind: "updateModule",
+					uuid: MOD_UUID,
+					patch: { caseListColumns: columns },
+				},
+			],
 			docStore,
 			sessionStore,
 		);
-		expect(doc().modules[moduleUuid].caseListColumns).toEqual(columns);
+		expect(doc().modules[MOD_UUID].caseListColumns).toEqual(columns);
 
 		// ── data-phase: forms ──
 		emit("data-phase", { phase: "forms" }, docStore, sessionStore);
 		expect(s().agentStage).toBe(GenerationStage.Forms);
 
-		// ── data-form-done ──
-		emit(
-			"data-form-done",
-			{ moduleIndex: 0, formIndex: 0, form: FORM },
-			docStore,
-			sessionStore,
-		);
+		// ── data-mutations: form content ──
+		// Replaces legacy `data-form-done`. Two `addField` mutations land
+		// the question content inside the scaffolded form.
+		emitMutations(FORM_CONTENT_MUTATIONS, docStore, sessionStore);
 		// Form should have questions now
-		const topQuestions = doc().fieldOrder[formUuid] ?? [];
-		expect(topQuestions.length).toBeGreaterThan(0);
+		const topQuestions = doc().fieldOrder[FORM_UUID] ?? [];
+		expect(topQuestions).toEqual([Q_NAME_UUID, Q_AGE_UUID]);
 
 		// ── data-phase: validate ──
 		emit("data-phase", { phase: "validate" }, docStore, sessionStore);
@@ -218,35 +264,23 @@ describe("generation lifecycle (end-to-end)", () => {
 		expect(s().justCompleted).toBe(false);
 	});
 
-	it("fix loop: Validate → Fix → data-fix-attempt → data-form-fixed → Validate → Done", () => {
+	it("fix loop: Validate → Fix → data-fix-attempt → fix mutation → Validate → Done", () => {
 		const { docStore, sessionStore } = createStores();
 		const s = () => sessionStore.getState();
 
-		// Fast-forward to a state with scaffold + forms
+		// Fast-forward to a state with scaffold + forms via mutation batches.
 		emit("data-start-build", {}, docStore, sessionStore);
 		emit("data-phase", { phase: "data-model" }, docStore, sessionStore);
-		emit("data-schema", { caseTypes: CASE_TYPES }, docStore, sessionStore);
+		emitMutations(
+			[{ kind: "setCaseTypes", caseTypes: CASE_TYPES }],
+			docStore,
+			sessionStore,
+		);
 		emit("data-phase", { phase: "structure" }, docStore, sessionStore);
-		emit(
-			"data-scaffold",
-			SCAFFOLD as unknown as Record<string, unknown>,
-			docStore,
-			sessionStore,
-		);
+		emitMutations(SCAFFOLD_MUTATIONS, docStore, sessionStore);
 		emit("data-phase", { phase: "modules" }, docStore, sessionStore);
-		emit(
-			"data-module-done",
-			{ moduleIndex: 0, caseListColumns: null },
-			docStore,
-			sessionStore,
-		);
 		emit("data-phase", { phase: "forms" }, docStore, sessionStore);
-		emit(
-			"data-form-done",
-			{ moduleIndex: 0, formIndex: 0, form: FORM },
-			docStore,
-			sessionStore,
-		);
+		emitMutations(FORM_CONTENT_MUTATIONS, docStore, sessionStore);
 
 		// ── Validate stage ──
 		emit("data-phase", { phase: "validate" }, docStore, sessionStore);
@@ -265,13 +299,26 @@ describe("generation lifecycle (end-to-end)", () => {
 		expect(s().statusMessage).toContain("2 errors");
 		expect(s().statusMessage).toContain("attempt 1");
 
-		// ── Fixed form ──
-		emit(
-			"data-form-fixed",
-			{ moduleIndex: 0, formIndex: 0, form: FORM },
+		// ── Fix mutation — the fix loop emits a targeted field update.
+		// Replaces the legacy `data-form-fixed` coarse replace. The
+		// mutation re-labels the first question (mimicking a validator
+		// fix). The fine-grained path is what the live server now uses.
+		emitMutations(
+			[
+				{
+					kind: "updateField",
+					uuid: Q_NAME_UUID,
+					patch: { label: "Patient Full Name" },
+				},
+			],
 			docStore,
 			sessionStore,
 		);
+		/* Narrow by kind so the discriminated field union exposes `label`
+		 * (hidden fields omit it). The fixture creates a text field. */
+		const nameField = docStore.getState().fields[Q_NAME_UUID];
+		assert(nameField && nameField.kind === "text");
+		expect(nameField.label).toBe("Patient Full Name");
 
 		// ── Back to validate ──
 		emit("data-phase", { phase: "validate" }, docStore, sessionStore);
@@ -288,14 +335,13 @@ describe("generation lifecycle (end-to-end)", () => {
 
 		emit("data-start-build", {}, docStore, sessionStore);
 		emit("data-phase", { phase: "data-model" }, docStore, sessionStore);
-		emit("data-schema", { caseTypes: CASE_TYPES }, docStore, sessionStore);
-		emit("data-phase", { phase: "structure" }, docStore, sessionStore);
-		emit(
-			"data-scaffold",
-			SCAFFOLD as unknown as Record<string, unknown>,
+		emitMutations(
+			[{ kind: "setCaseTypes", caseTypes: CASE_TYPES }],
 			docStore,
 			sessionStore,
 		);
+		emit("data-phase", { phase: "structure" }, docStore, sessionStore);
+		emitMutations(SCAFFOLD_MUTATIONS, docStore, sessionStore);
 
 		// Doc has entities from scaffold
 		expect(docStore.getState().moduleOrder).toHaveLength(1);
@@ -347,17 +393,16 @@ describe("generation lifecycle (end-to-end)", () => {
 		const { docStore, sessionStore } = createStores();
 		const s = () => sessionStore.getState();
 
-		// Set up a completed app
+		// Set up a completed app via mutation batches.
 		emit("data-start-build", {}, docStore, sessionStore);
 		emit("data-phase", { phase: "data-model" }, docStore, sessionStore);
-		emit("data-schema", { caseTypes: CASE_TYPES }, docStore, sessionStore);
-		emit("data-phase", { phase: "structure" }, docStore, sessionStore);
-		emit(
-			"data-scaffold",
-			SCAFFOLD as unknown as Record<string, unknown>,
+		emitMutations(
+			[{ kind: "setCaseTypes", caseTypes: CASE_TYPES }],
 			docStore,
 			sessionStore,
 		);
+		emit("data-phase", { phase: "structure" }, docStore, sessionStore);
+		emitMutations(SCAFFOLD_MUTATIONS, docStore, sessionStore);
 		emit("data-phase", { phase: "validate" }, docStore, sessionStore);
 		emit("data-done", { doc: snapshotDoc(docStore) }, docStore, sessionStore);
 		s().setAgentActive(false);
@@ -388,31 +433,19 @@ describe("generation lifecycle (end-to-end)", () => {
 	it("undo after generation reverses the entire build", () => {
 		const { docStore, sessionStore } = createStores();
 
-		// Full generation
+		// Full generation driven by mutation batches.
 		emit("data-start-build", {}, docStore, sessionStore);
 		emit("data-phase", { phase: "data-model" }, docStore, sessionStore);
-		emit("data-schema", { caseTypes: CASE_TYPES }, docStore, sessionStore);
+		emitMutations(
+			[{ kind: "setCaseTypes", caseTypes: CASE_TYPES }],
+			docStore,
+			sessionStore,
+		);
 		emit("data-phase", { phase: "structure" }, docStore, sessionStore);
-		emit(
-			"data-scaffold",
-			SCAFFOLD as unknown as Record<string, unknown>,
-			docStore,
-			sessionStore,
-		);
+		emitMutations(SCAFFOLD_MUTATIONS, docStore, sessionStore);
 		emit("data-phase", { phase: "modules" }, docStore, sessionStore);
-		emit(
-			"data-module-done",
-			{ moduleIndex: 0, caseListColumns: null },
-			docStore,
-			sessionStore,
-		);
 		emit("data-phase", { phase: "forms" }, docStore, sessionStore);
-		emit(
-			"data-form-done",
-			{ moduleIndex: 0, formIndex: 0, form: FORM },
-			docStore,
-			sessionStore,
-		);
+		emitMutations(FORM_CONTENT_MUTATIONS, docStore, sessionStore);
 		emit("data-phase", { phase: "validate" }, docStore, sessionStore);
 		emit("data-done", { doc: snapshotDoc(docStore) }, docStore, sessionStore);
 
