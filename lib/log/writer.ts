@@ -41,7 +41,7 @@ const defaultSink: EventSink = async (appId, events) => {
 	await batch.commit();
 };
 
-export interface LogWriterOptions {
+interface LogWriterOptions {
 	sink?: EventSink;
 	flushMs?: number;
 	maxBatch?: number;
@@ -50,6 +50,15 @@ export interface LogWriterOptions {
 export class LogWriter {
 	private buffer: Event[] = [];
 	private timer: ReturnType<typeof setTimeout> | null = null;
+	/**
+	 * Chain of all pending sink invocations. Each `flush()` appends its
+	 * own sink call onto this chain and updates the reference, so any
+	 * caller that `await`s `flush()` transitively awaits every earlier
+	 * sink call too. Cloud Run shutdown after a response cannot truncate
+	 * writes if the request handler's final `await writer.flush()`
+	 * correctly covers all in-flight persistence.
+	 */
+	private inflight: Promise<void> = Promise.resolve();
 	private readonly sink: EventSink;
 	private readonly flushMs: number;
 	private readonly maxBatch: number;
@@ -83,25 +92,37 @@ export class LogWriter {
 	}
 
 	/**
-	 * Drain the buffer immediately. Returns the sink promise so callers
-	 * that want to await the final write (e.g. request finalization) can.
-	 * Errors from the sink are logged but not rethrown.
+	 * Drain the buffer and await every pending sink call (including any
+	 * triggered by timer fires before this call). Safe to invoke from
+	 * multiple sites (onFinish, abort handler, explicit finalize) — each
+	 * caller awaits the full chain.
+	 *
+	 * Errors from the sink are logged but never rethrown. `flush()` still
+	 * returns a resolved (not rejected) promise in the failure path, so
+	 * request handlers don't need to wrap the call in try/catch.
 	 */
 	async flush(): Promise<void> {
 		if (this.timer !== null) {
 			clearTimeout(this.timer);
 			this.timer = null;
 		}
-		if (this.buffer.length === 0) return;
-		const events = this.buffer;
-		this.buffer = [];
-		try {
-			await this.sink(this.appId, events);
-		} catch (err) {
-			log.error("[LogWriter] batch flush failed", err, {
-				appId: this.appId,
-				count: String(events.length),
+		if (this.buffer.length > 0) {
+			const events = this.buffer;
+			this.buffer = [];
+			/* Chain this batch onto the pending-sink promise. Every future
+			 * `flush()` awaits the full chain, so a caller's await covers
+			 * writes scheduled by earlier timer fires too. */
+			this.inflight = this.inflight.then(async () => {
+				try {
+					await this.sink(this.appId, events);
+				} catch (err) {
+					log.error("[LogWriter] batch flush failed", err, {
+						appId: this.appId,
+						count: String(events.length),
+					});
+				}
 			});
 		}
+		await this.inflight;
 	}
 }
