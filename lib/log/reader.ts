@@ -54,11 +54,27 @@ export async function readLatestRunId(appId: string): Promise<string | null> {
 	return snap.docs[0].data().runId;
 }
 
-/** Load the per-run summary doc. Returns `null` if none was written. */
+/**
+ * Load the per-run summary doc. Returns `null` if none was written.
+ *
+ * When `snap.exists` is `true`, the Firestore converter has already run
+ * `runSummaryDocSchema.parse()` and produced a valid `RunSummaryDoc` — or
+ * thrown. `data()` cannot resolve to `undefined` in that branch. The static
+ * type is `T | undefined` only because TS can't narrow through `.exists`;
+ * we throw on the impossible case so a future converter regression surfaces
+ * loudly instead of being silently coerced to `null`.
+ */
 export async function readRunSummary(
 	appId: string,
 	runId: string,
 ): Promise<RunSummaryDoc | null> {
 	const snap = await docs.run(appId, runId).get();
-	return snap.exists ? (snap.data() ?? null) : null;
+	if (!snap.exists) return null;
+	const data = snap.data();
+	if (!data) {
+		throw new Error(
+			`Run summary doc at apps/${appId}/runs/${runId} reported exists=true but returned undefined from data() — converter contract violated.`,
+		);
+	}
+	return data;
 }

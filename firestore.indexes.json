@@ -1,23 +1,22 @@
 {
 	"indexes": [
 		{
-			"collectionGroup": "logs",
+			"collectionGroup": "events",
 			"queryScope": "COLLECTION",
 			"fields": [
 				{
-					"fieldPath": "run_id",
+					"fieldPath": "runId",
 					"order": "ASCENDING"
 				},
 				{
-					"fieldPath": "sequence",
+					"fieldPath": "ts",
 					"order": "ASCENDING"
 				},
 				{
-					"fieldPath": "__name__",
+					"fieldPath": "seq",
 					"order": "ASCENDING"
 				}
-			],
-			"density": "SPARSE_ALL"
+			]
 		},
 		{
 			"collectionGroup": "apps",
