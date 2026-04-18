@@ -33,4 +33,35 @@ describe("runSummaryDocSchema", () => {
 		const { costEstimate: _c, ...partial } = sample;
 		expect(() => runSummaryDocSchema.parse(partial)).toThrow();
 	});
+
+	it("accepts zero-valued token counts and cost", () => {
+		expect(
+			runSummaryDocSchema.parse({
+				...sample,
+				inputTokens: 0,
+				outputTokens: 0,
+				cacheReadTokens: 0,
+				cacheWriteTokens: 0,
+				costEstimate: 0,
+			}),
+		).toBeDefined();
+	});
+
+	it("rejects negative token counts", () => {
+		expect(() =>
+			runSummaryDocSchema.parse({ ...sample, inputTokens: -1 }),
+		).toThrow();
+	});
+
+	it("rejects non-integer token counts", () => {
+		expect(() =>
+			runSummaryDocSchema.parse({ ...sample, inputTokens: 1.5 }),
+		).toThrow();
+	});
+
+	it("rejects unknown promptMode values", () => {
+		expect(() =>
+			runSummaryDocSchema.parse({ ...sample, promptMode: "foo" }),
+		).toThrow();
+	});
 });

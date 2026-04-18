@@ -11,8 +11,12 @@ import type { RunSummaryDoc } from "./types";
  * Write (or overwrite) a run summary document. Safe to call multiple
  * times — the same runId maps to the same doc ID. The last call wins.
  *
- * Used by `UsageAccumulator.flush` on request end. Admin inspection
- * scripts read from here for per-run cost analytics.
+ * Fire-and-forget: returns `void` synchronously, errors log but never
+ * throw — observability is not on the request-critical path. Do not
+ * wrap in `await` expecting a promise.
+ *
+ * Called on request finalization. Admin inspection scripts read from
+ * the runs subcollection for per-run cost analytics.
  */
 export function writeRunSummary(
 	appId: string,

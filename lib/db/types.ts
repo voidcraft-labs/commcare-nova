@@ -63,10 +63,6 @@ export type UsageDoc = z.infer<typeof usageDocSchema>;
  * inspect-compare) source cost breakdowns here — the event log itself
  * intentionally does NOT carry token usage (spec §5: log is supplemental,
  * mutation + conversation only).
- *
- * All token counts are Anthropic-reported. `inputTokens` is the total
- * including `cacheReadTokens`; `cacheHitRate` is derived downstream
- * (`cacheReadTokens / inputTokens`).
  */
 export const runSummaryDocSchema = z.object({
 	runId: z.string(),
@@ -88,6 +84,15 @@ export const runSummaryDocSchema = z.object({
 	stepCount: z.number().int().nonnegative(),
 	/** SA model id (e.g. "claude-opus-4-7"). */
 	model: z.string(),
+	/**
+	 * Total input tokens for the run, INCLUDING cache_read_tokens and
+	 * cache_write_tokens. This mirrors the existing estimateCost() convention
+	 * (uncachedInput = inputTokens - cacheReadTokens - cacheWriteTokens).
+	 * If Anthropic's SDK reports `input_tokens` under a different convention,
+	 * adapters must convert to this contract before writing the summary.
+	 *
+	 * `cacheHitRate` (derived downstream) = cacheReadTokens / inputTokens.
+	 */
 	inputTokens: z.number().int().nonnegative(),
 	outputTokens: z.number().int().nonnegative(),
 	cacheReadTokens: z.number().int().nonnegative(),
