@@ -5,8 +5,8 @@
  * which calls `requireAdminAccess()` before any page renders. No additional
  * admin check needed here.
  */
-import { loadLatestRunId, loadRunEvents } from "@/lib/db/logs";
-import type { StoredEvent } from "@/lib/db/types";
+import { readEvents, readLatestRunId } from "@/lib/log/reader";
+import type { Event } from "@/lib/log/types";
 import { ReplayBuilder } from "./replay-builder";
 
 interface ReplayPageProps {
@@ -16,7 +16,7 @@ interface ReplayPageProps {
 export default async function ReplayPage({ params }: ReplayPageProps) {
 	const { id } = await params;
 
-	const runId = await loadLatestRunId(id);
+	const runId = await readLatestRunId(id);
 	if (!runId) {
 		return (
 			<div className="h-full flex items-center justify-center">
@@ -27,7 +27,7 @@ export default async function ReplayPage({ params }: ReplayPageProps) {
 		);
 	}
 
-	const events: StoredEvent[] = await loadRunEvents(id, runId);
+	const events: Event[] = await readEvents(id, runId);
 	if (events.length === 0) {
 		return (
 			<div className="h-full flex items-center justify-center">
