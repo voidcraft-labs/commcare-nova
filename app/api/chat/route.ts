@@ -17,12 +17,17 @@ import {
 	hasActiveGeneration,
 	loadAppOwner,
 } from "@/lib/db/apps";
-import { getMonthlyUsage, MONTHLY_SPEND_CAP_USD } from "@/lib/db/usage";
+import {
+	getMonthlyUsage,
+	MONTHLY_SPEND_CAP_USD,
+	UsageAccumulator,
+} from "@/lib/db/usage";
 import { rebuildFieldParent } from "@/lib/doc/fieldParent";
 import type { BlueprintDoc } from "@/lib/domain";
+import { LogWriter } from "@/lib/log/writer";
 import { log } from "@/lib/logger";
+import { SA_MODEL } from "@/lib/models";
 import { CACHE_TTL_MS, chatRequestSchema } from "@/lib/schemas/apiSchemas";
-import { EventLogger } from "@/lib/services/eventLogger";
 
 export const maxDuration = 300;
 
@@ -81,7 +86,11 @@ export async function POST(req: Request) {
 
 	const { doc, runId, lastResponseAt, appReady } = parsed.data;
 
-	const logger = new EventLogger(runId);
+	/* Stable per-request run identifier. Every event envelope (mutation or
+	 * conversation) carries this value; the client echoes it back on follow-up
+	 * requests so threads stay aligned across turns. Minted here — before any
+	 * Firestore work — so failure paths below can still surface it if needed. */
+	const effectiveRunId = runId ?? crypto.randomUUID();
 
 	/*
 	 * Resolve appId for authenticated users. Existing apps already have
@@ -96,7 +105,7 @@ export async function POST(req: Request) {
 	let appId = parsed.data.appId;
 	if (!appId) {
 		try {
-			appId = await createApp(keyResult.session.user.id, logger.runId);
+			appId = await createApp(keyResult.session.user.id, effectiveRunId);
 		} catch (err) {
 			log.error("[chat] app creation failed", err);
 			return Response.json(
@@ -133,7 +142,7 @@ export async function POST(req: Request) {
 			appId,
 		);
 		if (inFlight) {
-			if (appId && !parsed.data.appId) {
+			if (!parsed.data.appId) {
 				failApp(appId, "generation_in_progress");
 			}
 			return Response.json(
@@ -151,35 +160,54 @@ export async function POST(req: Request) {
 		// cap check above already fails closed for budget protection.
 	}
 
-	if (appId) {
-		logger.enableFirestore(appId, keyResult.session.user.id);
-	}
-
-	// Safety net on client disconnect — finalize() is idempotent, so this
-	// is a no-op if the execute finally block already ran.
-	req.signal.addEventListener("abort", () => {
-		void logger.finalize();
+	/* Two collaborators replace the legacy EventLogger:
+	 *
+	 *  - `logWriter` batches durable event envelopes to Firestore (one doc per
+	 *    mutation/conversation event). Failures never throw.
+	 *  - `usage` accumulates per-call token counts for the monthly spend cap
+	 *    and per-run summary document. Flushed on every terminal path.
+	 *
+	 * Placeholder fields (`promptMode` / `freshEdit` / `appReady` / `cacheExpired`
+	 * / `moduleCount`) are rewritten via `usage.configureRun()` inside the
+	 * execute block once we know the editing mode. See plan §Task 9. */
+	const logWriter = new LogWriter(appId);
+	const usage = new UsageAccumulator({
+		appId,
+		userId: keyResult.session.user.id,
+		runId: effectiveRunId,
+		model: SA_MODEL,
+		promptMode: "build",
+		freshEdit: false,
+		appReady: false,
+		cacheExpired: false,
+		moduleCount: 0,
 	});
 
-	logger.logConversation(messages);
+	/* Safety net on client disconnect — both flushes are idempotent, so this
+	 * is a no-op if the execute finally block already ran. Fire-and-forget is
+	 * correct: abort is asynchronous/out-of-band, no handler awaits it. */
+	req.signal.addEventListener("abort", () => {
+		void usage.flush();
+		void logWriter.flush();
+	});
 
 	const stream = createUIMessageStream({
 		execute: async ({ writer }) => {
 			// Send runId to client so it can send it back on subsequent requests
 			writer.write({
 				type: "data-run-id",
-				data: { runId: logger.runId },
+				data: { runId: effectiveRunId },
 				transient: true,
 			});
 
-			// Emit appId immediately so the client can update the URL
-			if (appId) {
-				writer.write({
-					type: "data-app-saved",
-					data: { appId },
-					transient: true,
-				});
-			}
+			// Emit appId immediately so the client can update the URL.
+			// appId is guaranteed non-null here — the createApp / ownership
+			// branch above returns on every failure path.
+			writer.write({
+				type: "data-app-saved",
+				data: { appId },
+				transient: true,
+			});
 
 			/* Build the SA's working doc. The client ships the persistable
 			 * slice (no `fieldParent`) on wire; we deep-clone so in-flight
@@ -190,7 +218,7 @@ export async function POST(req: Request) {
 			const sessionDoc: BlueprintDoc = doc
 				? structuredClone({ ...doc, fieldParent: {} })
 				: {
-						appId: appId ?? "",
+						appId,
 						appName: "",
 						connectType: null,
 						caseTypes: null,
@@ -207,18 +235,32 @@ export async function POST(req: Request) {
 			const ctx = new GenerationContext({
 				apiKey: keyResult.apiKey,
 				writer,
-				logger,
+				logWriter,
+				usage,
 				session: keyResult.session,
 				appId,
 			});
+
+			/* Persist the current request's user message as the first
+			 * conversation event of the run. Emitting through the context
+			 * (rather than directly via `logWriter.logEvent`) keeps seq
+			 * management inside a single counter — the context owns seq,
+			 * and every subsequent event (mutations, assistant text, tool
+			 * calls) naturally follows from seq=1. */
+			const lastMessage = messages.at(-1);
+			if (lastMessage?.role === "user") {
+				const text = lastMessage.parts
+					.filter((p: { type: string }) => p.type === "text")
+					.map((p: { type: string; text?: string }) => p.text ?? "")
+					.join("\n");
+				ctx.emitConversation({ type: "user-message", text });
+			}
 
 			/** Classify, emit, and persist a generation error. */
 			const handleRouteError = (error: unknown, source: string) => {
 				const classified = classifyError(error);
 				ctx.emitError(classified, source);
-				if (appId) {
-					failApp(appId, classified.type);
-				}
+				failApp(appId, classified.type);
 			};
 
 			try {
@@ -243,12 +285,16 @@ export async function POST(req: Request) {
 					!lastResponseAt ||
 					Date.now() - new Date(lastResponseAt).getTime() > CACHE_TTL_MS;
 
-				logger.logConfig({
-					prompt_mode: editing ? "edit" : "build",
-					fresh_edit: editing && cacheExpired,
-					app_ready: editing,
-					cache_expired: cacheExpired,
-					module_count: sessionDoc.moduleOrder.length,
+				/* Backfill the accumulator seed now that we know the real
+				 * editing/cache signals. These fields land on the per-run
+				 * summary doc via `usage.flush()` — replaces the deleted
+				 * `logger.logConfig` call (ConfigEvent removed in T3). */
+				usage.configureRun({
+					promptMode: editing ? "edit" : "build",
+					freshEdit: editing && cacheExpired,
+					appReady: editing,
+					cacheExpired,
+					moduleCount: sessionDoc.moduleOrder.length,
 				});
 
 				const sa = createSolutionsArchitect(ctx, sessionDoc, editing);
@@ -285,12 +331,20 @@ export async function POST(req: Request) {
 			} catch (error) {
 				handleRouteError(error, "route:init");
 			} finally {
-				await logger.finalize();
+				/* Primary flush path. Await both so the response doesn't
+				 * resolve before persistence lands — matters on Cloud Run,
+				 * where the container can be killed right after the final
+				 * byte is written. Both flushes are idempotent. */
+				await usage.flush();
+				await logWriter.flush();
 			}
 		},
 		onFinish() {
-			// Fallback finalize; see execute finally block for primary path.
-			logger.finalize();
+			/* Fallback flush — the execute finally block is the primary
+			 * path. Fire-and-forget: the stream is already closed and
+			 * nothing awaits this callback. Idempotent. */
+			void usage.flush();
+			void logWriter.flush();
 		},
 		onError: (error) => {
 			// Safety net — most errors are now caught above and emitted as data-error.
