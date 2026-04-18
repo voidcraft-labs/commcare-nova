@@ -20,17 +20,17 @@ import { toBlueprint } from "@/lib/doc/legacyBridge";
 import { applyMutations } from "@/lib/doc/mutations";
 import type { Mutation } from "@/lib/doc/types";
 import type { BlueprintDoc } from "@/lib/domain";
-import type { HqApplication } from "./commcare";
+import type { HqApplication } from "@/lib/services/commcare";
 import {
 	errorToString,
 	type ValidationError,
-} from "./commcare/validate/errors";
-import { FIX_REGISTRY } from "./commcare/validate/fixes";
-import { runValidation } from "./commcare/validate/runner";
-import { validateXFormXml } from "./commcare/validate/xformValidator";
-import { deriveConnectDefaults } from "./connectConfig";
+} from "@/lib/services/commcare/validate/errors";
+import { FIX_REGISTRY } from "@/lib/services/commcare/validate/fixes";
+import { runValidation } from "@/lib/services/commcare/validate/runner";
+import { validateXFormXml } from "@/lib/services/commcare/validate/xformValidator";
+import { deriveConnectDefaults } from "@/lib/services/connectConfig";
+import { expandBlueprint } from "@/lib/services/hqJsonExpander";
 import type { GenerationContext } from "./generationContext";
-import { expandBlueprint } from "./hqJsonExpander";
 
 // ── Post-expansion validation ────────────────────────────────────────
 
@@ -169,20 +169,20 @@ export async function validateAndFix(
 			errors: errors.map(errorToString),
 		});
 
-		// Collect all mutations from the fix registry, then apply as one
-		// atomic Immer draft so downstream listeners see a single consistent
-		// update rather than a partial-apply state.
+		// Collect all mutations from the fix registry. We apply them as one
+		// atomic Immer draft below so downstream listeners see a single
+		// consistent update rather than a partial-apply state. Per-form
+		// grouping (previously tracked via `fixedFormUuids` to drive
+		// `data-form-fixed` wire snapshots) is deliberately NOT tracked
+		// here — Phase 3 emits raw mutation batches; the Phase 4 log UI
+		// can reconstruct per-form grouping from mutation targets if
+		// needed.
 		const allMutations: Mutation[] = [];
-		const fixedFormUuids = new Set<string>();
 		for (const error of errors) {
 			const fix = FIX_REGISTRY.get(error.code);
 			if (!fix) continue;
 			const muts = fix(error, workingDoc);
-			if (muts.length > 0) {
-				allMutations.push(...muts);
-				if (error.location.formUuid)
-					fixedFormUuids.add(error.location.formUuid);
-			}
+			if (muts.length > 0) allMutations.push(...muts);
 		}
 
 		if (allMutations.length === 0) {
@@ -199,25 +199,14 @@ export async function validateAndFix(
 			applyMutations(draft, allMutations);
 		});
 
-		// Emit form-fixed events for forms that were touched. The emitter
-		// serializes each fixed form via the wire shape so stream consumers
-		// match the rest of the builder's event contract.
-		if (fixedFormUuids.size > 0) {
-			const wire = toBlueprint(workingDoc);
-			for (const formUuid of fixedFormUuids) {
-				for (let mIdx = 0; mIdx < workingDoc.moduleOrder.length; mIdx++) {
-					const moduleUuid = workingDoc.moduleOrder[mIdx];
-					const formList = workingDoc.formOrder[moduleUuid] ?? [];
-					const fIdx = formList.indexOf(formUuid as typeof moduleUuid);
-					if (fIdx === -1) continue;
-					ctx.emit("data-form-fixed", {
-						moduleIndex: mIdx,
-						formIndex: fIdx,
-						form: wire.modules[mIdx].forms[fIdx],
-					});
-				}
-			}
-		}
+		// Emit the fix mutations as a single staged batch. The client
+		// applies them via `applyMany` — same result as re-mapping the
+		// old `data-form-fixed` wire payloads through `toDocMutations`,
+		// minus the snapshot round-trip. The `fix:attempt-N` stage tag
+		// lets the Phase 4 log UI group fix passes into separate
+		// chapters, which was the only real consumer of the per-form
+		// breakdown the previous wire emission carried.
+		ctx.emitMutations(allMutations, `fix:attempt-${attempt}`);
 	}
 }
 

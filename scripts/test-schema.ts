@@ -8,7 +8,7 @@
 import "dotenv/config";
 import { createAnthropic } from "@ai-sdk/anthropic";
 import { generateText, Output } from "ai";
-import { addQuestionsSchema } from "../lib/schemas/toolSchemas";
+import { addQuestionsSchema } from "../lib/agent/toolSchemas";
 
 const apiKey = process.env.ANTHROPIC_API_KEY;
 if (!apiKey) {

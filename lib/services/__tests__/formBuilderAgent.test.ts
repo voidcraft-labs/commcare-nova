@@ -14,16 +14,16 @@
  */
 import { produce } from "immer";
 import { describe, expect, it } from "vitest";
+import {
+	addFieldMutations,
+	findFieldByBareId,
+	updateFormMutations,
+} from "@/lib/agent/blueprintHelpers";
 import { applyMutations } from "@/lib/doc/mutations";
 import type { BlueprintDoc, Uuid } from "@/lib/doc/types";
 import { asUuid } from "@/lib/doc/types";
 import type { Field, Form } from "@/lib/domain";
 import type { AppBlueprint, FormType } from "../../schemas/blueprint";
-import {
-	addFieldMutations,
-	findFieldByBareId,
-	updateFormMutations,
-} from "../blueprintHelpers";
 import { deriveCaseConfig } from "../deriveCaseConfig";
 
 // ── Fixture builders ──────────────────────────────────────────────────

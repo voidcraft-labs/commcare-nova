@@ -5,7 +5,12 @@
 		}
 	},
 	"files": {
-		"includes": ["**", "!!.*", "!!**/dist"],
+		"includes": [
+			"**",
+			"!!.*",
+			"!!**/dist",
+			"!!**/__fixtures__/*.snapshot.json"
+		],
 		"ignoreUnknown": true
 	},
 	"overrides": [

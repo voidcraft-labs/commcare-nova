@@ -1,16 +1,13 @@
 /**
  * scaffoldProgress — derive a 0..1 progress value from the session store's
- * generation lifecycle fields + the doc store's entity counts.
+ * generation lifecycle fields + the doc store's entity counts. Consumed by
+ * `ChatSidebar.tsx` to drive the progress indicator during generation.
  *
- * Pure function: callers pass in the session state slice and doc state,
- * keeping this module free of store subscriptions. The signal grid
- * controller polls this on rAF; ChatSidebar calls it for the progress
- * indicator.
- *
- * Phase 4 rewrote this to read from the session store (generation stage,
- * partial scaffold, agent lifecycle flags) instead of the legacy builder
- * store. Callers that still pass legacy store state will have type errors
- * until they migrate in T7.
+ * Pure function: callers pass in the session state slice and doc snapshot,
+ * keeping this module free of store subscriptions. Colocated with the
+ * sidebar because the derivation is sidebar-specific — it reads state that
+ * only exists on the client and renders exclusively inside the one
+ * `"use client"` component that calls it.
  */
 
 import type { BlueprintDoc } from "@/lib/doc/types";

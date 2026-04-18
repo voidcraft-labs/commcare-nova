@@ -1,21 +1,40 @@
 /**
- * Pure mutation mapper for generation stream events.
+ * HISTORICAL REPLAY mutation mapper for stored generation emission logs.
  *
- * Translates server-sent stream events into doc-layer `Mutation[]` arrays
- * that can be applied to a `BlueprintDoc` via `store.applyMany()`. No side
- * effects, no store references, no signal grid — the caller is responsible
- * for dispatching the returned mutations.
+ * Live generation no longer passes through this module — the Solutions
+ * Architect computes `Mutation[]` internally via
+ * `lib/agent/blueprintHelpers.ts` and emits them directly on the SSE
+ * stream as `data-mutations` events (see `GenerationContext.emitMutations`).
+ * Clients receive those mutations and feed them straight into
+ * `docStore.applyMany` with no translation.
  *
- * This file is the ONE legitimate wire-format ingress for SA stream
- * events: CommCare's `BlueprintForm` vocabulary (`type`, `case_property_on`,
- * `validation`, nested `children` tree, snake_case keys) is only tolerated
- * here. Everything downstream receives the normalized domain shape —
- * `Field` with `kind`, `case_property`, `validate`, and a flat entity map
- * joined by uuid-keyed `fieldOrder` maps.
+ * This file survives Phase 3 because Firestore-stored emissions written
+ * before the server-side mutation mapper migration contain the legacy
+ * wire events (`data-schema`, `data-scaffold`, `data-module-done`,
+ * `data-form-done`, `data-form-fixed`, `data-form-updated`). Replay of
+ * those logs — via `lib/services/logReplay.ts` and the `ReplayController`
+ * component — still needs a wire-event → `Mutation[]` translator, and
+ * that's what this file provides.
+ *
+ * The file stays under `lib/generation/` (not `lib/agent/`) because every
+ * consumer lives on the client side: `streamDispatcher.ts` is a client-
+ * bundled module, `ReplayController` is a client component, and
+ * `logReplay.ts` feeds the replay controller. `lib/agent/` is server-only;
+ * a client-consumed file belongs outside it.
+ *
+ * ── What the translator does ────────────────────────────────────────────
+ *
+ * Pure function: no side effects, no store references, no signal grid —
+ * the caller dispatches the returned mutations.
+ *
+ * CommCare's `BlueprintForm` vocabulary (`type`, `case_property_on`,
+ * `validation`, nested `children` tree, snake_case keys) is tolerated
+ * here. Everything the translator emits downstream is in normalized
+ * domain shape — `Field` with `kind`, `case_property`, `validate`, joined
+ * by uuid-keyed `fieldOrder` maps.
  *
  * Form-content events (`data-form-done`, `data-form-fixed`,
- * `data-form-updated`) emit a DECOMPOSED mutation sequence rather than a
- * single wholesale swap. The sequence is always:
+ * `data-form-updated`) emit a DECOMPOSED mutation sequence:
  *
  *   1. `updateForm` — form-entity metadata patch (name/type/closeCondition/…).
  *   2. `removeField × N` — one per existing top-level child of the form;
@@ -23,11 +42,16 @@
  *   3. `addField × M` — one per incoming wire question, emitted in
  *      top-down tree order so container parents land before their kids.
  *
- * The decomposition matches the fine-grained mutation surface used by the
- * interactive builder, so the SA and the user both drive the doc store
- * through the same API. Phase 4's event log captures semantic history
- * instead of opaque replacement blobs, and undo collapses cleanly per
- * user-meaningful action.
+ * ── When this goes away ────────────────────────────────────────────────
+ *
+ * Phase 4 unifies the event log (`lib/log/`), migrates historical
+ * emissions to the new `data-mutations` shape, removes the legacy
+ * `LEGACY_REPLAY_DOC_MUTATION_EVENTS` handler in `streamDispatcher.ts`,
+ * and deletes this file.
+ *
+ * Until Phase 4: no live-path code imports from this module.
+ * `streamDispatcher.ts` imports `toDocMutations` for its legacy bucket
+ * only.
  */
 
 import type { Mutation } from "@/lib/doc/types";

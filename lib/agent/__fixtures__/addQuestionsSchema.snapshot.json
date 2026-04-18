@@ -1,0 +1,105 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "id": {
+      "type": "string",
+      "description": "Unique identifier per parent level. Use alphanumeric snake_case (must start with a letter)."
+    },
+    "type": {
+      "type": "string",
+      "enum": [
+        "text",
+        "int",
+        "decimal",
+        "date",
+        "time",
+        "datetime",
+        "single_select",
+        "multi_select",
+        "geopoint",
+        "image",
+        "audio",
+        "video",
+        "barcode",
+        "signature",
+        "label",
+        "hidden",
+        "secret",
+        "group",
+        "repeat"
+      ],
+      "description": "Question type. Always pick the most specific type available: \"text\" for free text values (shape can be enforced with validation expression), \"date\"/\"time\"/\"datetime\" for temporal values, \"int\" for whole numbers (age, count, quantity), \"decimal\" for measurements (weight, height, price), \"single_select\" for any fixed single-choice (yes/no, gender, status), \"multi_select\" for multi-choice (symptoms, services), \"geopoint\" for GPS, \"image\"/\"audio\"/\"video\"/\"signature\"/\"barcode\" for media capture, \"hidden\" with \"calculate\" for any computed values, \"secret\" for passwords/PINs, \"group\"/\"repeat\" for nesting."
+    },
+    "parentId": {
+      "type": "string",
+      "description": "Parent group/repeat ID. Empty string for top-level."
+    },
+    "label": {
+      "type": "string",
+      "description": "Human-friendly label for the element. Supports hashtag references and markdown.Do NOT use {curly_brace} template syntax — it is not supported. Omit for hidden questions."
+    },
+    "required": {
+      "type": "string",
+      "description": "An XPath expression for requiring the element (can be `true()` for always required). Supports hashtag references."
+    },
+    "hint": {
+      "description": "Help text shown below the question.",
+      "type": "string"
+    },
+    "validation": {
+      "description": "XPath expression for validation (e.g. \". > 0 and . < 150\"). Supports hashtag references.",
+      "type": "string"
+    },
+    "validation_msg": {
+      "description": "Error message shown when validation fails.",
+      "type": "string"
+    },
+    "relevant": {
+      "description": "XPath expression evaluated to conditionally show or hide this element. Supports hashtag references.",
+      "type": "string"
+    },
+    "calculate": {
+      "description": "XPath expression evaluated on form load and whenever any of the calculation's dependencies update. Supports hashtag references.",
+      "type": "string"
+    },
+    "default_value": {
+      "description": "XPath expression evaluated once on form load. Supports hashtag references.",
+      "type": "string"
+    },
+    "options": {
+      "description": "Options for single_select/multi_select questions — at least 2 options. Omit for all other question types.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "value": {
+            "type": "string",
+            "description": "Option value (stored in data)"
+          },
+          "label": {
+            "type": "string",
+            "description": "Option label (shown to user)"
+          }
+        },
+        "required": [
+          "value",
+          "label"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "case_property_on": {
+      "description": "Case type name this question saves to. When this matches the module's case_type, the question is a normal case property. When different, it creates a child case of that type. The question for the case name must always have id \"case_name\". Question id must NOT be a reserved name: case_id, case_type, closed, closed_by, closed_on, date, date_modified, date_opened, doc_type, domain, external_id, index, indices, modified_on, name, opened_by, opened_on, owner_id, server_modified_on, status, type, user_id, xform_id. Must NOT be set on media questions (image, audio, video, signature).",
+      "type": "string"
+    }
+  },
+  "required": [
+    "id",
+    "type",
+    "parentId",
+    "label",
+    "required"
+  ],
+  "additionalProperties": false
+}

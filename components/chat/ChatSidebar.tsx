@@ -20,7 +20,6 @@ import {
 	type BlueprintDocStore,
 } from "@/lib/doc/provider";
 import { BuilderPhase } from "@/lib/services/builder";
-import { computeScaffoldProgress } from "@/lib/services/scaffoldProgress";
 import { useBuilderPhase, useSetSidebarOpen } from "@/lib/session/hooks";
 import type { BuilderSessionStoreApi } from "@/lib/session/provider";
 import {
@@ -34,6 +33,7 @@ import {
 	SignalGridController,
 	type SignalMode,
 } from "@/lib/signalGridController";
+import { computeScaffoldProgress } from "./scaffoldProgress";
 
 /** Sidebar panel width in pixels. Exported so siblings (e.g. cursor mode bar
  *  positioning in BuilderLayout) can derive offsets without magic numbers. */
