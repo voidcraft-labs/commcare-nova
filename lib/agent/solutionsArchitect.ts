@@ -83,7 +83,7 @@ import {
 	type FlatQuestion,
 	stripEmpty,
 } from "./contentProcessing";
-import { type GenerationContext, logWarnings } from "./generationContext";
+import type { GenerationContext } from "./generationContext";
 import { buildSolutionsArchitectPrompt } from "./prompts";
 import {
 	addQuestionQuestionSchema,
@@ -1316,68 +1316,32 @@ export function createSolutionsArchitect(
 			};
 			return { providerOptions: { anthropic } };
 		},
-		onStepFinish: ({
-			usage,
-			text,
-			reasoningText,
-			toolCalls,
-			toolResults,
-			warnings,
-		}) => {
-			logWarnings("Solutions Architect", warnings);
-			if (!usage) return;
-
-			/* Outer agent step — increments stepCount on the run summary. */
-			ctx.usage.track(
+		onStepFinish: (step) => {
+			/* Delegate step-level fan-out (usage + conversation events +
+			 * tool-call counting) to the shared handler on GenerationContext.
+			 * We map the AI SDK's step-finish argument into the normalized
+			 * AgentStep shape here so the handler stays SDK-version stable.
+			 * `toolResults` is loosely typed by the SDK — narrow at the
+			 * boundary rather than inside the shared helper. */
+			ctx.handleAgentStep(
 				{
-					inputTokens: usage.inputTokens ?? 0,
-					outputTokens: usage.outputTokens ?? 0,
-					cacheReadTokens: usage.inputTokenDetails?.cacheReadTokens,
-					cacheWriteTokens: usage.inputTokenDetails?.cacheWriteTokens,
-				},
-				{ step: true },
-			);
-
-			/* Conversation events — one per artifact produced by this step.
-			 * Ordering mirrors the model's own production order: reasoning
-			 * summary (if emitted), then visible text, then tool-call pairs. */
-			if (reasoningText) {
-				ctx.emitConversation({
-					type: "assistant-reasoning",
-					text: reasoningText,
-				});
-			}
-			if (text) {
-				ctx.emitConversation({ type: "assistant-text", text });
-			}
-			/* Pair tool results to their originating calls by toolCallId. The
-			 * AI SDK emits tool results on the same step as the call in the
-			 * current shape, so a single-pass map lookup is enough. */
-			const resultByCallId = new Map<string, unknown>();
-			for (const tr of (toolResults ?? []) as Array<{
-				toolCallId: string;
-				output: unknown;
-			}>) {
-				resultByCallId.set(tr.toolCallId, tr.output);
-			}
-			for (const tc of toolCalls ?? []) {
-				ctx.usage.noteToolCall();
-				ctx.emitConversation({
-					type: "tool-call",
-					toolCallId: tc.toolCallId,
-					toolName: tc.toolName,
-					input: tc.input,
-				});
-				const out = resultByCallId.get(tc.toolCallId);
-				if (out !== undefined) {
-					ctx.emitConversation({
-						type: "tool-result",
+					usage: step.usage,
+					text: step.text,
+					reasoningText: step.reasoningText,
+					toolCalls: step.toolCalls?.map((tc) => ({
 						toolCallId: tc.toolCallId,
 						toolName: tc.toolName,
-						output: out,
-					});
-				}
-			}
+						input: tc.input,
+					})),
+					toolResults:
+						(step.toolResults as Array<{
+							toolCallId: string;
+							output: unknown;
+						}>) ?? undefined,
+					warnings: step.warnings,
+				},
+				"Solutions Architect",
+			);
 		},
 		tools,
 	});

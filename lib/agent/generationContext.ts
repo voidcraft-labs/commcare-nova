@@ -5,9 +5,10 @@
  * produces during generation. Phase 4 splits that fan-out cleanly:
  *
  *  - **SSE (`UIMessageStreamWriter`)** — live wire to the interactive builder.
- *    `emit()` is the only way anything reaches it. Wire format is unchanged
- *    from Phase 3 — the client still consumes `data-mutations`, `data-phase`,
- *    `data-error`, `data-done`, etc.
+ *    `emit()` is a pure pass-through for lifecycle/error events (`data-phase`,
+ *    `data-fix-attempt`, `data-error`, `data-done`, …). Doc-mutating events
+ *    go through `emitMutations`, which owns both the SSE payload and the
+ *    matching event-log writes.
  *  - **Event log (`LogWriter`)** — Firestore-backed append-only event stream.
  *    `emitMutations` writes one `MutationEvent` per mutation; `emitConversation`
  *    writes one `ConversationEvent` per assistant/tool/user artifact. The log
@@ -17,6 +18,12 @@
  *    flushed once at request end. Outer agent steps carry `{ step: true }`;
  *    sub-gens (internal `generate` / `generatePlainText` / `streamGenerate`
  *    calls) accumulate tokens without stepping the counter.
+ *
+ * Sub-generation prompts/outputs (from `generate`, `generatePlainText`,
+ * `streamGenerate`) are intentionally NOT persisted in the event log — only
+ * aggregate token usage. Per spec §5 the log is supplemental and does not
+ * carry per-tool payloads. Admin inspection surfaces should rely on per-run
+ * summary docs and on agent-step-granularity conversation events.
  *
  * The context owns nothing stateful beyond a monotonic `seq` counter used to
  * preserve chronological order inside a single millisecond (multiple events
@@ -29,8 +36,7 @@ import {
 } from "@ai-sdk/anthropic";
 import type {
 	CallWarning,
-	ToolLoopAgent,
-	ToolSet,
+	LanguageModelUsage,
 	UIMessageStreamWriter,
 } from "ai";
 import { generateText, Output, streamText } from "ai";
@@ -108,6 +114,28 @@ export interface GenerationContextOptions {
 	appId?: string;
 }
 
+/**
+ * One completed agent step, normalized to the minimum surface the step
+ * handler needs. Callers (the SA's `onStepFinish`, tests) map the AI SDK's
+ * step-finish argument into this shape so `handleAgentStep` stays stable
+ * across SDK minor-version bumps.
+ */
+export interface AgentStep {
+	usage?: LanguageModelUsage;
+	text?: string;
+	reasoningText?: string;
+	toolCalls?: Array<{
+		toolCallId: string;
+		toolName: string;
+		input: unknown;
+	}>;
+	toolResults?: Array<{
+		toolCallId: string;
+		output: unknown;
+	}>;
+	warnings?: CallWarning[];
+}
+
 export class GenerationContext {
 	private anthropic: ReturnType<typeof createAnthropic>;
 	readonly writer: UIMessageStreamWriter;
@@ -158,21 +186,25 @@ export class GenerationContext {
 	/**
 	 * Fire-and-forget save of the SA's current doc snapshot to Firestore.
 	 *
-	 * Called after each doc-mutating emission so the app document's
-	 * `updated_at` advances during generation. This lets the staleness
-	 * check in `listApps()` distinguish "still actively generating" from
-	 * "process died" — without this, `updated_at === created_at` for the
-	 * entire run. The doc is pulled from the registered provider at call
-	 * time so we always pick up the latest mutation.
+	 * Called by `emitMutations` after every mutation batch so the app
+	 * document's `updated_at` advances during generation. This lets the
+	 * staleness check in `listApps()` distinguish "still actively
+	 * generating" from "process died" — without this, `updated_at ===
+	 * created_at` for the entire run. The doc is pulled from the
+	 * registered provider at call time so we always pick up the latest
+	 * mutation.
 	 */
 	private saveBlueprint() {
 		if (!this.appId || !this.docProvider) return;
 		const doc = this.docProvider();
 		if (!doc) return;
-		// `fieldParent` is a derived reverse-index; strip it before writing
-		// so the Firestore doc stays in the persistable shape the schema
-		// validates on read.
-		const { fieldParent: _fp, ...persistable } = doc;
+		// `fieldParent` is a derived reverse-index rebuilt on the client from
+		// `fieldOrder` in `docStore.load()`; strip it before writing so the
+		// Firestore doc stays in the persistable shape the schema validates
+		// on read. `void fieldParent` acknowledges the discard explicitly —
+		// cleaner than an underscore-prefixed ghost variable.
+		const { fieldParent, ...persistable } = doc;
+		void fieldParent;
 		updateApp(this.appId, persistable).catch((err) =>
 			log.error("[intermediate-save] failed", err),
 		);
@@ -215,17 +247,16 @@ export class GenerationContext {
 	}
 
 	/**
-	 * Emit a transient data part to the live SSE stream.
+	 * Emit a transient data part to the live SSE stream. Pure pass-through.
 	 *
-	 * SSE-only in Phase 4 — the event log is populated via `emitMutations`
-	 * and `emitConversation` instead. The one side-effect kept here is the
-	 * intermediate Firestore save on doc-mutating emissions: `data-mutations`
-	 * is the only event type that advances the doc, so we trigger
-	 * `saveBlueprint()` exactly on that.
+	 * This is the lifecycle/error path — `data-phase`, `data-fix-attempt`,
+	 * `data-error`, `data-done`, and friends. Doc-mutating events go
+	 * through `emitMutations`, which owns both the SSE payload and the
+	 * matching event-log write; nothing in this method touches the log
+	 * writer or the intermediate Firestore save.
 	 */
 	emit(type: `data-${string}`, data: unknown): void {
 		this.writer.write({ type, data, transient: true });
-		if (type === "data-mutations") this.saveBlueprint();
 	}
 
 	/**
@@ -272,19 +303,105 @@ export class GenerationContext {
 	 * carries it for clients that care; the event log stores it per-event
 	 * so replay chaptering can group by stage.
 	 *
-	 * Fire-and-forget Firestore intermediate save happens automatically
-	 * via the `data-mutations` branch in `emit()` — no-op for empty
-	 * batches (consumer is expected to short-circuit when appropriate).
+	 * Writes, in order:
+	 * 1. SSE — one `data-mutations` event carrying the full batch (live
+	 *    client applies the whole array in a single zundo-grouped unit).
+	 * 2. Firestore intermediate save — advances `updated_at` on the app
+	 *    doc so listApps can distinguish in-progress from orphaned runs.
+	 * 3. Event log — one `MutationEvent` per mutation, so admin tools
+	 *    and replay can reason about each change independently.
+	 *
+	 * No-op on empty batches — consumer is expected to short-circuit when
+	 * appropriate.
 	 */
 	emitMutations(mutations: Mutation[], stage?: string): void {
 		if (mutations.length === 0) return;
-		/* SSE — unchanged wire format for the live client. */
-		this.emit("data-mutations", {
-			mutations,
-			...(stage !== undefined && { stage }),
+		/* SSE — unchanged wire format for the live client. Inlined here
+		 * (not routed through `emit`) so the save + log-fanout side-effects
+		 * live in one place and `emit` stays a pure pass-through. */
+		this.writer.write({
+			type: "data-mutations",
+			data: {
+				mutations,
+				...(stage !== undefined && { stage }),
+			},
+			transient: true,
 		});
+		/* Fire-and-forget intermediate save advances `updated_at` so the
+		 * staleness detector distinguishes "still generating" from "process
+		 * died". */
+		this.saveBlueprint();
 		/* Event log — one MutationEvent per mutation. */
 		for (const m of mutations) this.queueMutation(m, stage);
+	}
+
+	/**
+	 * Process one completed agent step: track usage, emit conversation
+	 * events (reasoning, text, tool-call + tool-result pairs), and note
+	 * tool-call counts.
+	 *
+	 * This is the shared fan-in for every `ToolLoopAgent` driven by this
+	 * context — the SA's inline `onStepFinish` funnels here; any future
+	 * agent should do the same. The caller owns mapping whatever shape
+	 * the AI SDK's `onStepFinish` provides into `AgentStep`, so this
+	 * method stays stable across SDK minor-version bumps.
+	 *
+	 * Ordering mirrors the model's own production order: reasoning summary
+	 * (if emitted), then visible text, then tool-call + tool-result pairs
+	 * keyed by `toolCallId` (the SDK emits results on the same step as the
+	 * originating call in the current shape, so a single-pass map lookup
+	 * is sufficient — no cross-step bookkeeping needed).
+	 *
+	 * `label` is used only for the warning-log prefix; not persisted.
+	 */
+	handleAgentStep(step: AgentStep, label: string): void {
+		logWarnings(`runAgent:${label}`, step.warnings);
+		const { usage } = step;
+		if (!usage) return;
+
+		/* Outer agent step — increments stepCount on the run summary. */
+		this.usage.track(
+			{
+				inputTokens: usage.inputTokens ?? 0,
+				outputTokens: usage.outputTokens ?? 0,
+				cacheReadTokens: usage.inputTokenDetails?.cacheReadTokens,
+				cacheWriteTokens: usage.inputTokenDetails?.cacheWriteTokens,
+			},
+			{ step: true },
+		);
+
+		if (step.reasoningText) {
+			this.emitConversation({
+				type: "assistant-reasoning",
+				text: step.reasoningText,
+			});
+		}
+		if (step.text) {
+			this.emitConversation({ type: "assistant-text", text: step.text });
+		}
+
+		const resultByCallId = new Map<string, unknown>();
+		for (const tr of step.toolResults ?? []) {
+			resultByCallId.set(tr.toolCallId, tr.output);
+		}
+		for (const tc of step.toolCalls ?? []) {
+			this.usage.noteToolCall();
+			this.emitConversation({
+				type: "tool-call",
+				toolCallId: tc.toolCallId,
+				toolName: tc.toolName,
+				input: tc.input,
+			});
+			const out = resultByCallId.get(tc.toolCallId);
+			if (out !== undefined) {
+				this.emitConversation({
+					type: "tool-result",
+					toolCallId: tc.toolCallId,
+					toolName: tc.toolName,
+					output: out,
+				});
+			}
+		}
 	}
 
 	/**
@@ -292,8 +409,9 @@ export class GenerationContext {
 	 *
 	 * Sub-gens are the inner `generate` / `generatePlainText` /
 	 * `streamGenerate` calls the SA's tools issue. They count toward the
-	 * run summary's token totals but NOT toward `stepCount` — only the
-	 * outer `runAgent` loop produces "steps" in the run-summary sense.
+	 * run summary's token totals but NOT toward `stepCount` — only outer
+	 * agent steps (handled by `handleAgentStep`) produce "steps" in the
+	 * run-summary sense.
 	 *
 	 * Per spec §5 the event log does not carry per-tool usage; if sub-gen
 	 * prompt/output observability becomes a product requirement, it will
@@ -414,106 +532,5 @@ export class GenerationContext {
 		const usage = await result.usage;
 		if (usage) this.trackSubGeneration(model, usage);
 		return last;
-	}
-
-	/**
-	 * Run a `ToolLoopAgent` to completion, funneling every artifact of every
-	 * step onto the event log + usage accumulator.
-	 *
-	 * Per-step writes (all keyed off `onStepFinish`):
-	 * - `usage.track(..., { step: true })` — counts as one outer agent step
-	 *   and aggregates tokens (cache-aware) toward the run summary.
-	 * - `assistant-reasoning` conversation event — if the model emitted any
-	 *   summarized thinking for this step.
-	 * - `assistant-text` conversation event — the visible response chunk.
-	 * - For each `toolCall`: one `tool-call` conversation event, one
-	 *   `usage.noteToolCall()`, and (when a matching `toolResult` is on the
-	 *   same step) one paired `tool-result` event. Pairing by `toolCallId`
-	 *   handles interleaved tool responses within a step.
-	 *
-	 * Doc mutations themselves don't go through here — tool handlers call
-	 * `ctx.emitMutations(...)` directly. This loop is purely the outer
-	 * conversation + usage fan-in.
-	 */
-	async runAgent<CO, T extends ToolSet>(
-		agent: ToolLoopAgent<CO, T>,
-		opts: {
-			prompt: string;
-			label: string;
-			agentName: string;
-			model?: string;
-		},
-	): Promise<void> {
-		const result = await agent.stream({
-			prompt: opts.prompt,
-			onStepFinish: ({
-				usage,
-				text,
-				reasoningText,
-				toolCalls,
-				toolResults,
-				warnings,
-			}) => {
-				logWarnings(`runAgent:${opts.label}`, warnings);
-				if (!usage) return;
-
-				/* Usage — outer agent step; increments stepCount on the summary. */
-				this.usage.track(
-					{
-						inputTokens: usage.inputTokens ?? 0,
-						outputTokens: usage.outputTokens ?? 0,
-						cacheReadTokens: usage.inputTokenDetails?.cacheReadTokens,
-						cacheWriteTokens: usage.inputTokenDetails?.cacheWriteTokens,
-					},
-					{ step: true },
-				);
-
-				/* Conversation events — one per artifact produced by this step.
-				 * Reasoning first (what it thought), then text (what it said),
-				 * then tool-call + tool-result pairs keyed by toolCallId. */
-				if (reasoningText) {
-					this.emitConversation({
-						type: "assistant-reasoning",
-						text: reasoningText,
-					});
-				}
-				if (text) {
-					this.emitConversation({ type: "assistant-text", text });
-				}
-				/* Pair results to their originating call by toolCallId. Tool
-				 * results are emitted inline on the same step in the current
-				 * AI SDK shape, so a map lookup is enough — no cross-step
-				 * bookkeeping needed. */
-				const resultByCallId = new Map<string, unknown>();
-				for (const tr of (toolResults ?? []) as Array<{
-					toolCallId: string;
-					output: unknown;
-				}>) {
-					resultByCallId.set(tr.toolCallId, tr.output);
-				}
-				for (const tc of toolCalls ?? []) {
-					this.usage.noteToolCall();
-					this.emitConversation({
-						type: "tool-call",
-						toolCallId: tc.toolCallId,
-						toolName: tc.toolName,
-						input: tc.input,
-					});
-					const out = resultByCallId.get(tc.toolCallId);
-					if (out !== undefined) {
-						this.emitConversation({
-							type: "tool-result",
-							toolCallId: tc.toolCallId,
-							toolName: tc.toolName,
-							output: out,
-						});
-					}
-				}
-			},
-		});
-
-		// Drain the stream to drive execution to completion.
-		const reader = result.toUIMessageStream().getReader();
-		while (!(await reader.read()).done) {}
 	}
 }
