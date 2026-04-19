@@ -18,7 +18,7 @@ import { buildDoc } from "@/lib/__tests__/docHelpers";
 import { createBlueprintDocStore } from "@/lib/doc/store";
 import type { Event } from "@/lib/log/types";
 import { createBuilderSessionStore } from "../store";
-import { GenerationStage, type ReplayChapter, STAGE_LABELS } from "../types";
+import type { ReplayChapter } from "../types";
 
 describe("BuilderSession store", () => {
 	it("1. initial state: edit mode, both sidebars open, no stash", () => {
@@ -406,89 +406,68 @@ function createGenerationTestStores(withData = false) {
 }
 
 describe("generation lifecycle", () => {
-	it("beginAgentWrite(stage) pauses doc undo, sets agentActive + stage + statusMessage, clears error", () => {
+	it("beginRun pauses doc undo, sets agentActive, clears events + runCompletedAt", () => {
 		const { session, doc } = createGenerationTestStores();
 
-		session.getState().beginAgentWrite(GenerationStage.Structure);
+		/* Seed some events + a completion stamp so we can verify they clear. */
+		session.getState().pushEvents([
+			{
+				kind: "mutation",
+				runId: "prev",
+				ts: 0,
+				seq: 0,
+				actor: "agent",
+				mutation: { kind: "setAppName", name: "old" },
+			},
+		]);
+		session.getState().endRun(true); // stamps runCompletedAt
+
+		session.getState().beginRun();
 		const s = session.getState();
 
 		expect(s.agentActive).toBe(true);
-		expect(s.agentStage).toBe(GenerationStage.Structure);
-		expect(s.statusMessage).toBe(STAGE_LABELS[GenerationStage.Structure]);
-		expect(s.agentError).toBeNull();
-		/* Doc undo should be paused — changes should not enter history.
-		 * zundo's `isTracking` is false when paused. */
+		expect(s.events).toEqual([]);
+		expect(s.runCompletedAt).toBeUndefined();
+		/* Doc undo should be paused — zundo isTracking=false when paused. */
 		expect(doc.temporal.getState().isTracking).toBe(false);
 	});
 
-	it("beginAgentWrite() without stage starts with null stage and empty status", () => {
-		const { session } = createGenerationTestStores();
-
-		session.getState().beginAgentWrite();
-		const s = session.getState();
-
-		expect(s.agentActive).toBe(true);
-		expect(s.agentStage).toBeNull();
-		expect(s.statusMessage).toBe("");
-	});
-
-	it("endAgentWrite() resumes doc undo, sets justCompleted, keeps agentActive", () => {
+	it("endRun(true) resumes doc undo, stamps runCompletedAt, keeps agentActive", () => {
 		const { session, doc } = createGenerationTestStores();
 
-		/* Begin a write, then end it. */
-		session.getState().beginAgentWrite(GenerationStage.Forms);
-		session.getState().endAgentWrite();
+		session.getState().beginRun();
+		session.getState().endRun(true);
 		const s = session.getState();
 
 		/* agentActive is NOT cleared — the chat status effect owns that
-		 * lifecycle so it can read wasActive=true and stamp lastResponseAt. */
+		 * lifecycle so it can read wasActive=true and stamp
+		 * lastResponseAtRef. */
 		expect(s.agentActive).toBe(true);
-		expect(s.justCompleted).toBe(true);
-		expect(s.agentStage).toBeNull();
-		expect(s.agentError).toBeNull();
-		expect(s.statusMessage).toBe("");
-		/* Doc undo should be resumed — zundo's `isTracking` is true when active. */
+		expect(s.runCompletedAt).toEqual(expect.any(Number));
+		/* Doc undo should be resumed. */
 		expect(doc.temporal.getState().isTracking).toBe(true);
 	});
 
-	it("failAgentWrite(msg, severity) sets error + statusMessage, keeps agentActive", () => {
-		const { session } = createGenerationTestStores();
+	it("endRun(false) resumes doc undo but does NOT stamp runCompletedAt", () => {
+		const { session, doc } = createGenerationTestStores();
 
-		session.getState().beginAgentWrite(GenerationStage.Validate);
-		session.getState().failAgentWrite("timeout", "recovering");
+		session.getState().beginRun();
+		session.getState().endRun(false);
 		const s = session.getState();
 
-		expect(s.agentActive).toBe(true);
-		expect(s.agentError).toEqual({
-			message: "timeout",
-			severity: "recovering",
-		});
-		expect(s.statusMessage).toBe("timeout");
+		expect(s.runCompletedAt).toBeUndefined();
+		expect(doc.temporal.getState().isTracking).toBe(true);
 	});
 
-	it("failAgentWrite defaults severity to 'failed'", () => {
+	it("acknowledgeCompletion() clears runCompletedAt, no-ops when already cleared", () => {
 		const { session } = createGenerationTestStores();
 
-		session.getState().beginAgentWrite();
-		session.getState().failAgentWrite("fatal error");
-		const s = session.getState();
-
-		expect(s.agentError).toEqual({
-			message: "fatal error",
-			severity: "failed",
-		});
-	});
-
-	it("acknowledgeCompletion() clears justCompleted, no-ops when already false", () => {
-		const { session } = createGenerationTestStores();
-
-		/* End an agent write to get justCompleted=true. */
-		session.getState().beginAgentWrite();
-		session.getState().endAgentWrite();
-		expect(session.getState().justCompleted).toBe(true);
+		session.getState().beginRun();
+		session.getState().endRun(true);
+		expect(session.getState().runCompletedAt).toEqual(expect.any(Number));
 
 		session.getState().acknowledgeCompletion();
-		expect(session.getState().justCompleted).toBe(false);
+		expect(session.getState().runCompletedAt).toBeUndefined();
 
 		/* Second call is a no-op — verify state object identity. */
 		const prev = session.getState();
@@ -496,39 +475,21 @@ describe("generation lifecycle", () => {
 		expect(session.getState()).toBe(prev);
 	});
 
-	it("setAgentActive(true) with doc data sets postBuildEdit=true", () => {
+	it("setAgentActive(true) sets agentActive without any other bookkeeping", () => {
 		const { session } = createGenerationTestStores(true);
 
 		session.getState().setAgentActive(true);
-		const s = session.getState();
-
-		expect(s.agentActive).toBe(true);
-		expect(s.postBuildEdit).toBe(true);
+		expect(session.getState().agentActive).toBe(true);
 	});
 
-	it("setAgentActive(true) with empty doc sets postBuildEdit=false", () => {
-		const { session } = createGenerationTestStores(false);
-
-		session.getState().setAgentActive(true);
-		const s = session.getState();
-
-		expect(s.agentActive).toBe(true);
-		expect(s.postBuildEdit).toBe(false);
-	});
-
-	it("setAgentActive(false) clears agentActive, leaves postBuildEdit unchanged", () => {
+	it("setAgentActive(false) clears agentActive", () => {
 		const { session } = createGenerationTestStores(true);
 
-		/* Activate first to set postBuildEdit=true. */
-		session.getState().setAgentActive(true);
-		expect(session.getState().postBuildEdit).toBe(true);
+		session.getState().beginRun();
+		expect(session.getState().agentActive).toBe(true);
 
 		session.getState().setAgentActive(false);
-		const s = session.getState();
-
-		expect(s.agentActive).toBe(false);
-		/* postBuildEdit should NOT be cleared by deactivation. */
-		expect(s.postBuildEdit).toBe(true);
+		expect(session.getState().agentActive).toBe(false);
 	});
 
 	it("setAgentActive no-ops when value is unchanged", () => {
@@ -537,42 +498,6 @@ describe("generation lifecycle", () => {
 		const prev = session.getState();
 		session.getState().setAgentActive(false); /* already false */
 		expect(session.getState()).toBe(prev);
-	});
-
-	it("advanceStage('structure') updates agentStage + statusMessage, clears error", () => {
-		const { session } = createGenerationTestStores();
-
-		session.getState().beginAgentWrite(GenerationStage.DataModel);
-		session.getState().failAgentWrite("oops", "recovering");
-		session.getState().advanceStage("structure");
-		const s = session.getState();
-
-		expect(s.agentStage).toBe(GenerationStage.Structure);
-		expect(s.statusMessage).toBe(STAGE_LABELS[GenerationStage.Structure]);
-		expect(s.agentError).toBeNull();
-	});
-
-	it("advanceStage with unknown string is a no-op", () => {
-		const { session } = createGenerationTestStores();
-
-		session.getState().beginAgentWrite(GenerationStage.DataModel);
-		const prev = session.getState();
-		session.getState().advanceStage("unknown-stage");
-		expect(session.getState()).toBe(prev);
-	});
-
-	it("setFixAttempt updates statusMessage with error count and attempt", () => {
-		const { session } = createGenerationTestStores();
-
-		session.getState().setFixAttempt(2, 3);
-		expect(session.getState().statusMessage).toBe("Fixing 3 errors, attempt 2");
-	});
-
-	it("setFixAttempt uses singular 'error' for count of 1", () => {
-		const { session } = createGenerationTestStores();
-
-		session.getState().setFixAttempt(1, 1);
-		expect(session.getState().statusMessage).toBe("Fixing 1 error, attempt 1");
 	});
 
 	it("setAppId sets appId", () => {
@@ -794,8 +719,19 @@ describe("reset", () => {
 		const { session } = createGenerationTestStores(true);
 
 		/* Populate every new field so we can verify reset clears them all. */
-		session.getState().beginAgentWrite(GenerationStage.Forms);
-		session.getState().failAgentWrite("err", "recovering");
+		session.getState().beginRun();
+		session.getState().pushEvents([
+			{
+				kind: "mutation",
+				runId: "r",
+				ts: 0,
+				seq: 0,
+				actor: "agent",
+				stage: "schema",
+				mutation: { kind: "setAppName", name: "x" },
+			},
+		]);
+		session.getState().endRun(true);
 		session.getState().setAppId("app-123");
 		session.getState().loadReplay({
 			events: [],
@@ -815,11 +751,8 @@ describe("reset", () => {
 
 		/* Generation lifecycle */
 		expect(s.agentActive).toBe(false);
-		expect(s.agentStage).toBeNull();
-		expect(s.agentError).toBeNull();
-		expect(s.statusMessage).toBe("");
-		expect(s.postBuildEdit).toBe(false);
-		expect(s.justCompleted).toBe(false);
+		expect(s.events).toEqual([]);
+		expect(s.runCompletedAt).toBeUndefined();
 		expect(s.loading).toBe(false);
 
 		/* App identity */

@@ -16,6 +16,13 @@ import { docHasData } from "@/lib/doc/predicates";
 import type { ConnectConfig, ConnectType } from "@/lib/domain";
 import type { Event } from "@/lib/log/types";
 import { BuilderPhase } from "@/lib/services/builder";
+import {
+	deriveAgentError,
+	deriveAgentStage,
+	derivePostBuildEdit,
+	deriveStatusMessage,
+	deriveValidationAttempt,
+} from "./lifecycle";
 import { useBuilderSession, useBuilderSessionShallow } from "./provider";
 import type { SidebarKind } from "./store";
 import type { CursorMode, GenerationError, GenerationStage } from "./types";
@@ -140,31 +147,63 @@ export function useClearNewField(): () => void {
 }
 
 // ── Generation lifecycle ──────────────────────────────────────────────────
+//
+// Every public signal here derives from `session.events` (the event
+// buffer) plus the small set of fields that describe run boundaries
+// (`agentActive`, `runCompletedAt`, `loading`). No shadow state is
+// involved — live and replay feed the same buffer, so the derived
+// values are identical under identical events.
 
 /** Whether the agent is currently streaming a build or edit. */
 export function useAgentActive(): boolean {
 	return useBuilderSession((s) => s.agentActive);
 }
 
-/** Current generation stage — `null` when idle or between stages. */
+/** Latest generation stage derived from the events buffer — `null` when
+ *  the run hasn't emitted any generation-stage mutations yet (the
+ *  askQuestions / thinking window). */
 export function useAgentStage(): GenerationStage | null {
-	return useBuilderSession((s) => s.agentStage);
+	const events = useBuilderSession((s) => s.events);
+	return useMemo(() => deriveAgentStage(events), [events]);
 }
 
-/** Error metadata during generation — `null` when no error. */
+/** Latest classified error on the buffer, or null. */
 export function useAgentError(): GenerationError {
-	return useBuilderSession((s) => s.agentError);
+	const events = useBuilderSession((s) => s.events);
+	return useMemo(() => deriveAgentError(events), [events]);
 }
 
 /** Human-readable status text for the current generation stage or error. */
 export function useStatusMessage(): string {
-	return useBuilderSession((s) => s.statusMessage);
+	const events = useBuilderSession((s) => s.events);
+	return useMemo(() => {
+		const stage = deriveAgentStage(events);
+		const error = deriveAgentError(events);
+		const attempt = deriveValidationAttempt(events);
+		return deriveStatusMessage(stage, error, attempt);
+	}, [events]);
 }
 
-/** Whether the current agent activation is editing an existing app
- *  (not initial generation). */
+/** Latest validation-attempt context (attempt number + error count), or
+ *  null when no validation pass has run in the current run. */
+export function useValidationAttempt(): {
+	attempt: number;
+	errorCount: number;
+} | null {
+	const events = useBuilderSession((s) => s.events);
+	return useMemo(() => deriveValidationAttempt(events), [events]);
+}
+
+/** Whether the current run is a post-build edit (active, no
+ *  `schema` / `scaffold` mutations yet in this run, doc has data). */
 export function usePostBuildEdit(): boolean {
-	return useBuilderSession((s) => s.postBuildEdit);
+	const events = useBuilderSession((s) => s.events);
+	const agentActive = useBuilderSession((s) => s.agentActive);
+	const hasData = useBlueprintDoc(docHasData);
+	return useMemo(
+		() => derivePostBuildEdit(events, agentActive, hasData),
+		[events, agentActive, hasData],
+	);
 }
 
 /** Firestore app document ID for the current builder session.
@@ -396,6 +435,12 @@ export function buildReplayMessages(
 					error: p.error.message,
 				});
 				break;
+			case "validation-attempt":
+				/* Log-only annotation — the signal panel surfaces the
+				 * attempt + error count via deriveStatusMessage; the
+				 * chat view stays focused on user/assistant/tool
+				 * content. */
+				break;
 		}
 	}
 
@@ -420,14 +465,13 @@ export function useEditMode(): "edit" | "test" {
 
 // ── Phase derivation ─────────────────────────────────────────────────────
 
-/** Session fields consumed by `derivePhase`. Kept minimal so callers
- *  (including unit tests) don't need a full `BuilderSessionState`. */
-interface DerivePhaseSession {
-	loading?: boolean;
-	justCompleted?: boolean;
-	agentActive?: boolean;
-	postBuildEdit?: boolean;
-	agentStage?: GenerationStage | null;
+/** Session slice required by `derivePhase`. Kept as a struct so unit
+ *  tests can pass a minimal shape without a full `BuilderSessionState`. */
+export interface DerivePhaseSession {
+	loading: boolean;
+	agentActive: boolean;
+	runCompletedAt: number | undefined;
+	events: readonly Event[];
 }
 
 /**
@@ -436,16 +480,17 @@ interface DerivePhaseSession {
  * Priority chain (highest wins):
  *   Loading > Completed > Generating > Ready > Idle.
  *
- * - **Loading** — async setup in progress (initial app load, import).
- * - **Completed** — transient celebration after a successful build/edit;
- *   auto-decays to Ready when the signal grid animation settles.
- * - **Generating** — agent is streaming an initial build. Requires an
- *   explicit generation stage (`agentStage !== null`) so that the brief
- *   window between the chat status effect setting `agentActive` and the
- *   first `data-start-build` event stays in Idle (the SA might be doing
- *   askQuestions, not building). Post-build edits stay in Ready.
- * - **Ready** — a usable blueprint exists in the doc store.
- * - **Idle** — fresh builder with no data and no agent activity.
+ * - **Loading** — initial hydration (app load or replay).
+ * - **Completed** — `runCompletedAt` stamped (celebration window);
+ *   cleared by `acknowledgeCompletion()` after the signal grid's
+ *   done-animation settles.
+ * - **Generating** — run active, first generation-stage mutation
+ *   (schema/scaffold/module:N/form:M-F/fix) landed, and this is NOT a
+ *   post-build edit. The stage check keeps the askQuestions window in
+ *   Idle (centered chat) — the builder only morphs to the sidebar
+ *   layout once structural output actually starts.
+ * - **Ready** — doc has data (a usable blueprint exists).
+ * - **Idle** — otherwise (fresh builder or SA mid-askQuestions).
  *
  * Exported for unit testing — components use `useBuilderPhase()`.
  */
@@ -454,34 +499,33 @@ export function derivePhase(
 	docHasData: boolean,
 ): BuilderPhase {
 	if (session.loading) return BuilderPhase.Loading;
-	if (session.justCompleted) return BuilderPhase.Completed;
-	/* Generating requires all three: agent active, not a post-build edit,
-	 * AND an explicit generation stage. The stage is set by beginAgentWrite
-	 * or advanceStage — without it, the agent is still thinking/questioning
-	 * and the builder should stay in Idle (centered chat). */
-	if (
-		session.agentActive &&
-		!session.postBuildEdit &&
-		session.agentStage != null
-	)
+	if (session.runCompletedAt !== undefined) return BuilderPhase.Completed;
+
+	const stage = deriveAgentStage(session.events);
+	const postBuildEdit = derivePostBuildEdit(
+		session.events,
+		session.agentActive,
+		docHasData,
+	);
+	if (session.agentActive && !postBuildEdit && stage !== null) {
 		return BuilderPhase.Generating;
+	}
 	if (docHasData) return BuilderPhase.Ready;
 	return BuilderPhase.Idle;
 }
 
 /**
- * Reactive builder phase — derived from session lifecycle flags and
- * whether the doc store has any modules. Replaces the legacy store's
- * explicit `phase` field; will fully supersede `useBuilderPhase()` in
- * `hooks/useBuilder.tsx` once T8/T10 completes the migration.
+ * Reactive builder phase — derives from session run-lifecycle fields
+ * (`loading`, `agentActive`, `runCompletedAt`, `events`) plus the doc
+ * store's `docHasData` predicate. Single source of truth for live and
+ * replay.
  */
 export function useBuilderPhase(): BuilderPhase {
 	const session = useBuilderSessionShallow((s) => ({
 		loading: s.loading,
-		justCompleted: s.justCompleted,
 		agentActive: s.agentActive,
-		postBuildEdit: s.postBuildEdit,
-		agentStage: s.agentStage,
+		runCompletedAt: s.runCompletedAt,
+		events: s.events,
 	}));
 	/* Single-source predicate — see `lib/doc/predicates.ts::docHasData`.
 	 * Identical to `useDocHasData`, inlined here to avoid coupling the

@@ -20,12 +20,18 @@ import {
 	type BlueprintDocStore,
 } from "@/lib/doc/provider";
 import { BuilderPhase } from "@/lib/services/builder";
-import { useBuilderPhase, useSetSidebarOpen } from "@/lib/session/hooks";
-import type { BuilderSessionStoreApi } from "@/lib/session/provider";
 import {
-	useBuilderSessionApi,
-	useBuilderSessionShallow,
-} from "@/lib/session/provider";
+	useAgentActive,
+	useAgentError,
+	useAgentStage,
+	useBuilderPhase,
+	usePostBuildEdit,
+	useSetSidebarOpen,
+	useStatusMessage,
+} from "@/lib/session/hooks";
+import { deriveAgentStage, derivePostBuildEdit } from "@/lib/session/lifecycle";
+import type { BuilderSessionStoreApi } from "@/lib/session/provider";
+import { useBuilderSessionApi } from "@/lib/session/provider";
 import { GenerationStage } from "@/lib/session/types";
 import { signalGrid } from "@/lib/signalGrid/store";
 import {
@@ -52,15 +58,17 @@ function createGridController(
 		consumeThinkEnergy: () => signalGrid.drainThinkEnergy(),
 		consumeScaffoldProgress: () => {
 			const s = sessionRef.current.getState();
+			const doc = docStoreRef.current?.getState();
+			const hasData = (doc?.moduleOrder.length ?? 0) > 0;
 			return computeScaffoldProgress(
 				{
-					agentStage: s.agentStage,
+					agentStage: deriveAgentStage(s.events),
 					agentActive: s.agentActive,
-					postBuildEdit: s.postBuildEdit,
-					justCompleted: s.justCompleted,
+					postBuildEdit: derivePostBuildEdit(s.events, s.agentActive, hasData),
+					runCompletedAt: s.runCompletedAt,
 					loading: s.loading,
 				},
-				docStoreRef.current?.getState(),
+				doc,
 			);
 		},
 	});
@@ -101,14 +109,11 @@ export function ChatSidebar({
 	const docStore = useContext(BlueprintDocContext);
 	const phase = useBuilderPhase();
 	const setSidebarOpen = useSetSidebarOpen();
-	const { agentError, agentStage, agentActive, postBuildEdit, statusMessage } =
-		useBuilderSessionShallow((s) => ({
-			agentError: s.agentError,
-			agentStage: s.agentStage,
-			agentActive: s.agentActive,
-			postBuildEdit: s.postBuildEdit,
-			statusMessage: s.statusMessage,
-		}));
+	const agentError = useAgentError();
+	const agentStage = useAgentStage();
+	const agentActive = useAgentActive();
+	const postBuildEdit = usePostBuildEdit();
+	const statusMessage = useStatusMessage();
 	const isGenerating = phase === BuilderPhase.Generating;
 	const isLoading = status === "submitted" || status === "streaming";
 

@@ -14,12 +14,14 @@ import type { BlueprintDoc } from "@/lib/doc/types";
 import type { GenerationStage } from "@/lib/session/types";
 import { GenerationStage as Stage } from "@/lib/session/types";
 
-/** Session store fields needed for scaffold progress computation. */
+/** Session fields needed for scaffold progress computation. */
 export interface ScaffoldProgressInput {
 	agentStage: GenerationStage | null;
 	agentActive: boolean;
 	postBuildEdit: boolean;
-	justCompleted: boolean;
+	/** Timestamp of successful run end — replaces the legacy
+	 *  `justCompleted` boolean. Truthy (defined) = Completed phase. */
+	runCompletedAt: number | undefined;
 	loading: boolean;
 }
 
@@ -43,14 +45,14 @@ export function computeScaffoldProgress(
 
 	/* Not in a generation run — either idle/loading (0) or app is ready (1). */
 	if (!isGenerating) {
-		return isReady || session.justCompleted ? 1.0 : 0;
+		return isReady || session.runCompletedAt !== undefined ? 1.0 : 0;
 	}
 
-	/* Early generation: agentStage is null in the brief window between
-	 * setAgentActive(true) (chat status effect) and beginAgentWrite()
-	 * (data-start-build event). Treat identically to DataModel — without
-	 * this guard, the null stage falls through to the 1.0 return at the
-	 * bottom and the progress bar briefly shows "done". */
+	/* Early generation: `agentStage` is null in the window between
+	 * beginRun (SSE stream opens) and the first stage-tagged mutation
+	 * landing. Treat identically to DataModel — without this guard, the
+	 * null stage falls through to the 1.0 return at the bottom and the
+	 * progress bar briefly shows "done". */
 	if (session.agentStage === null || session.agentStage === Stage.DataModel) {
 		const hasCaseTypes = (doc?.caseTypes?.length ?? 0) > 0;
 		return hasCaseTypes ? 0.3 : 0.05;

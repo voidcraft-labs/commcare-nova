@@ -1,113 +1,128 @@
 /**
  * derivePhase — pure function unit tests.
  *
- * BuilderPhase is no longer stored explicitly; it's computed from session
- * store fields + whether the doc has data. These tests verify the priority
+ * `BuilderPhase` is computed from session run-lifecycle fields
+ * (`loading`, `agentActive`, `runCompletedAt`, `events`) + the doc
+ * store's `docHasData` predicate. These tests verify the priority
  * chain: Loading > Completed > Generating > Ready > Idle, and the
- * requirement that Generating needs an explicit agentStage.
+ * requirement that Generating needs a generation-stage mutation in the
+ * events buffer.
  *
  * No React, no providers — just the pure function.
  */
 
 import { describe, expect, it } from "vitest";
+import type { Event } from "@/lib/log/types";
 import { BuilderPhase } from "@/lib/services/builder";
-import { GenerationStage } from "@/lib/session/types";
 import { derivePhase } from "../hooks";
 
-describe("derivePhase", () => {
-	it("returns Loading when loading=true", () => {
-		expect(derivePhase({ loading: true }, true)).toBe(BuilderPhase.Loading);
-	});
+function mut(stage: string | undefined, seq = 0): Event {
+	return {
+		kind: "mutation",
+		runId: "r",
+		ts: 0,
+		seq,
+		actor: "agent",
+		...(stage && { stage }),
+		mutation: { kind: "setAppName", name: "x" },
+	};
+}
 
-	it("returns Completed when justCompleted=true", () => {
-		expect(derivePhase({ justCompleted: true }, true)).toBe(
-			BuilderPhase.Completed,
+/** Baseline idle-session fixture — overridable. */
+const idle = {
+	loading: false,
+	agentActive: false,
+	runCompletedAt: undefined,
+	events: [] as Event[],
+};
+
+describe("derivePhase", () => {
+	it("returns Loading when loading=true (top priority)", () => {
+		expect(derivePhase({ ...idle, loading: true }, true)).toBe(
+			BuilderPhase.Loading,
 		);
 	});
 
-	it("returns Generating when agentActive && !postBuildEdit && agentStage is set", () => {
-		expect(
-			derivePhase(
-				{
-					agentActive: true,
-					postBuildEdit: false,
-					agentStage: GenerationStage.DataModel,
-				},
-				false,
-			),
-		).toBe(BuilderPhase.Generating);
-	});
-
-	it("returns Idle (not Generating) when agentActive but agentStage is null", () => {
-		/* This is the window between the chat status effect setting agentActive
-		 * and the first data-start-build event. The SA may be doing askQuestions
-		 * or thinking — the builder should stay in the centered-chat Idle view,
-		 * not flash the generation progress UI. */
-		expect(
-			derivePhase(
-				{ agentActive: true, postBuildEdit: false, agentStage: null },
-				false,
-			),
-		).toBe(BuilderPhase.Idle);
-	});
-
-	it("returns Idle when agentActive but agentStage is undefined", () => {
-		expect(
-			derivePhase(
-				{ agentActive: true, postBuildEdit: false, agentStage: undefined },
-				false,
-			),
-		).toBe(BuilderPhase.Idle);
-	});
-
-	it("returns Ready when agentActive && postBuildEdit (post-build edit)", () => {
-		expect(
-			derivePhase(
-				{
-					agentActive: true,
-					postBuildEdit: true,
-					agentStage: GenerationStage.Forms,
-				},
-				true,
-			),
-		).toBe(BuilderPhase.Ready);
-	});
-
-	it("returns Ready when docHasData && no agent", () => {
-		expect(derivePhase({}, true)).toBe(BuilderPhase.Ready);
-	});
-
-	it("returns Idle when no data && no agent", () => {
-		expect(derivePhase({}, false)).toBe(BuilderPhase.Idle);
-	});
-
-	it("Loading takes priority over everything", () => {
+	it("Loading beats Completed, Generating, Ready", () => {
 		expect(
 			derivePhase(
 				{
 					loading: true,
 					agentActive: true,
-					justCompleted: true,
-					agentStage: GenerationStage.Modules,
+					runCompletedAt: Date.now(),
+					events: [mut("schema", 0)],
 				},
 				true,
 			),
 		).toBe(BuilderPhase.Loading);
 	});
 
-	it("Completed takes priority over Generating", () => {
-		/* After endAgentWrite: justCompleted=true, agentActive still true
-		 * (cleared later by the chat status effect). Phase should be
-		 * Completed, not Generating. */
+	it("returns Completed when runCompletedAt is stamped", () => {
+		expect(derivePhase({ ...idle, runCompletedAt: Date.now() }, true)).toBe(
+			BuilderPhase.Completed,
+		);
+	});
+
+	it("Completed beats Generating", () => {
+		/* After endRun(true): runCompletedAt is set, agentActive may still
+		 * be true (chat status effect hasn't fired ready yet). Phase must
+		 * be Completed, not Generating. */
 		expect(
 			derivePhase(
 				{
-					justCompleted: true,
+					loading: false,
 					agentActive: true,
-					agentStage: GenerationStage.Fix,
+					runCompletedAt: Date.now(),
+					events: [mut("fix:attempt-1", 0)],
 				},
 				true,
 			),
 		).toBe(BuilderPhase.Completed);
+	});
+
+	it("returns Generating when agentActive && generation-stage mutation in buffer", () => {
+		expect(
+			derivePhase(
+				{ ...idle, agentActive: true, events: [mut("schema", 0)] },
+				false,
+			),
+		).toBe(BuilderPhase.Generating);
+	});
+
+	it("returns Idle (not Generating) when agentActive but no generation-stage mutations yet", () => {
+		/* The window between `beginRun` (SSE stream opens) and the first
+		 * stage-tagged mutation — SA may be doing askQuestions. Builder
+		 * stays in centered-chat Idle, not flash the generation UI. */
+		expect(derivePhase({ ...idle, agentActive: true, events: [] }, false)).toBe(
+			BuilderPhase.Idle,
+		);
+	});
+
+	it("returns Idle (not Generating) when only edit-family mutations have landed", () => {
+		expect(
+			derivePhase(
+				{ ...idle, agentActive: true, events: [mut("edit:0-1", 0)] },
+				false,
+			),
+		).toBe(BuilderPhase.Idle);
+	});
+
+	it("returns Ready when agentActive && postBuildEdit (no schema/scaffold, doc has data)", () => {
+		/* Post-build edit: active run, doc has data, no schema/scaffold
+		 * stage tags in the buffer. Phase stays Ready. */
+		expect(
+			derivePhase(
+				{ ...idle, agentActive: true, events: [mut("edit:0-1", 0)] },
+				true,
+			),
+		).toBe(BuilderPhase.Ready);
+	});
+
+	it("returns Ready when docHasData && no agent", () => {
+		expect(derivePhase(idle, true)).toBe(BuilderPhase.Ready);
+	});
+
+	it("returns Idle when no data && no agent", () => {
+		expect(derivePhase(idle, false)).toBe(BuilderPhase.Idle);
 	});
 });

@@ -27,6 +27,7 @@ import {
 import { applyStreamEvent } from "@/lib/generation/streamDispatcher";
 import { showToast } from "@/lib/services/toastStore";
 import { useReplayMessages } from "@/lib/session/hooks";
+import { derivePostBuildEdit } from "@/lib/session/lifecycle";
 import type { BuilderSessionStoreApi } from "@/lib/session/provider";
 import {
 	BuilderSessionContext,
@@ -75,31 +76,38 @@ function createChatInstance(
 				const session = sessionStoreRef.current;
 				if (!session) return {};
 				const sessionState = session.getState();
-				const docHasData = (doc?.moduleOrder.length ?? 0) > 0;
+				const hasData = (doc?.moduleOrder.length ?? 0) > 0;
 				/* Send the normalized doc directly — the route converts to the
 				 * SA's wire format server-side. `fieldParent` is a derived,
 				 * non-persisted field, so we omit it from the wire payload
 				 * (matches Firestore's persistence contract). */
 				const wireDoc =
-					doc && docHasData
+					doc && hasData
 						? (() => {
 								const { fieldParent: _fp, ...persistable } = doc;
 								return persistable;
 							})()
 						: undefined;
+				/* appReady must be false during initial generation even after
+				 * scaffold creates modules — generation tools must not be
+				 * stripped mid-build. `derivePostBuildEdit` is true iff the
+				 * current run is an edit (no schema/scaffold mutations in
+				 * the buffer, doc has data), which is exactly when
+				 * generation tools can safely be excluded. */
+				const postBuildEdit = derivePostBuildEdit(
+					sessionState.events,
+					sessionState.agentActive,
+					hasData,
+				);
 				return {
 					doc: wireDoc,
 					runId: runIdRef.current,
 					appId: sessionState.appId,
 					lastResponseAt: lastResponseAtRef.current,
-					/* appReady must be false during initial generation even after
-					 * scaffold creates modules — generation tools must not be
-					 * stripped mid-build. The Generating check mirrors the old
-					 * selectIsReady which excluded phase === Generating. */
 					appReady:
-						docHasData &&
+						hasData &&
 						!sessionState.loading &&
-						!(sessionState.agentActive && !sessionState.postBuildEdit),
+						!(sessionState.agentActive && !postBuildEdit),
 				};
 			},
 		}),
