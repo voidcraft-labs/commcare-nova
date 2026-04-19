@@ -25,18 +25,22 @@ import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
 import type { Field, FieldPatch } from "@/lib/domain";
 import type {
 	FieldEditorComponentProps,
-	OptionalStringKeys,
+	XPathStringKeys,
 } from "@/lib/domain/kinds";
 import { useSessionFocusHint } from "@/lib/session/hooks";
 
 /**
- * `K extends OptionalStringKeys<F>` pins the key to one whose declared
- * type is exactly `string | undefined`. That makes every value written
- * through `onChange` a value-level subtype of `F[K]`; the `as F[K]`
- * casts in the handlers are tautologies that TypeScript requires only
- * because `F[K]` is an indexed access through a generic.
+ * `K extends XPathStringKeys<F>` admits both optional (`string |
+ * undefined`) and required (`string`) XPath-valued keys. Only one
+ * kind carries a required XPath key at the time of writing —
+ * `hidden.calculate` — and the reducer tolerates a removal patch on
+ * it the same way as on an optional key, so this editor treats both
+ * shapes uniformly. The `as F[K]` casts that pass through `undefined`
+ * lie at the type level for required keys; the caller-side registry
+ * invariant (every value is a string or undefined, the reducer
+ * accepts both) is the authoritative guarantee.
  */
-export function XPathEditor<F extends Field, K extends OptionalStringKeys<F>>(
+export function XPathEditor<F extends Field, K extends XPathStringKeys<F>>(
 	props: FieldEditorComponentProps<F, K>,
 ) {
 	const { field, value, onChange, label, autoFocus, keyName } = props;

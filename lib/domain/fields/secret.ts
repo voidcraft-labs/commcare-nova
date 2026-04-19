@@ -7,8 +7,7 @@
 
 import tablerLock from "@iconify-icons/tabler/lock";
 import { z } from "zod";
-import { StubField } from "@/components/builder/editor/StubField";
-import type { FieldEditorSchema, FieldKindMetadata } from "../kinds";
+import type { FieldKindMetadata } from "../kinds";
 import { inputFieldBaseSchema } from "./base";
 
 export const secretFieldSchema = inputFieldBaseSchema.extend({
@@ -30,18 +29,4 @@ export const secretFieldMetadata: FieldKindMetadata<"secret"> = {
 	isContainer: false,
 	saDocs: "Sensitive input (password, PIN).",
 	convertTargets: ["text"],
-};
-
-// Declares which property keys this kind exposes in the inspect panel and
-// binds each to the editor component that renders it.
-export const secretFieldEditorSchema: FieldEditorSchema<SecretField> = {
-	data: [{ key: "case_property", component: StubField }],
-	logic: [
-		{ key: "required", component: StubField },
-		{ key: "relevant", component: StubField },
-		{ key: "validate", component: StubField },
-		{ key: "validate_msg", component: StubField },
-		{ key: "default_value", component: StubField },
-	],
-	ui: [{ key: "hint", component: StubField }],
 };

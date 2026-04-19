@@ -6,8 +6,7 @@
 
 import tablerMicrophone from "@iconify-icons/tabler/microphone";
 import { z } from "zod";
-import { StubField } from "@/components/builder/editor/StubField";
-import type { FieldEditorSchema, FieldKindMetadata } from "../kinds";
+import type { FieldKindMetadata } from "../kinds";
 import { fieldBaseSchema } from "./base";
 
 export const audioFieldSchema = fieldBaseSchema.extend({
@@ -29,16 +28,4 @@ export const audioFieldMetadata: FieldKindMetadata<"audio"> = {
 	isContainer: false,
 	saDocs: "Audio recording. Cannot be saved to a case property.",
 	convertTargets: ["image", "video", "signature"],
-};
-
-// Declares which property keys this kind exposes in the inspect panel and
-// binds each to the editor component that renders it. No data wiring —
-// binary fields can't be written to a case property.
-export const audioFieldEditorSchema: FieldEditorSchema<AudioField> = {
-	data: [],
-	logic: [
-		{ key: "required", component: StubField },
-		{ key: "relevant", component: StubField },
-	],
-	ui: [{ key: "hint", component: StubField }],
 };

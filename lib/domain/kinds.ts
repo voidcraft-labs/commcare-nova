@@ -96,14 +96,14 @@ export type FieldEditorComponent<
 /**
  * Keys of `F` whose declared type is exactly `string | undefined`
  * (i.e. an optional-string property like `hint`, `relevant`,
- * `validate`, `default_value`, `calculate`, `required`, …).
+ * `validate`, `default_value`, or a mostly-optional `calculate`).
  *
- * Editors that write strings or `undefined` (TextEditor, XPathEditor)
- * constrain their key generic to this set so `onChange(undefined)`
- * and `onChange(someString)` type-check without casts — the
- * registry-level invariant ("only wired on optional-string keys")
- * is expressed in the type system instead of asserted at the call
- * site.
+ * TextEditor constrains its key generic to this set because its UX
+ * relies on empty commits clearing the property via
+ * `onChange(undefined)`. A key whose type was strictly `string` would
+ * silently tolerate the undefined dispatch through the generic cast
+ * but leave the field in an invalid state — forbidding that at the
+ * type level is the whole point of the narrowing.
  */
 export type OptionalStringKeys<F extends Field> = {
 	[K in keyof F]-?: string | undefined extends F[K]
@@ -111,6 +111,24 @@ export type OptionalStringKeys<F extends Field> = {
 			? K
 			: never
 		: never;
+}[keyof F] &
+	string;
+
+/**
+ * Keys of `F` whose declared type is `string` — either required (`string`)
+ * or optional (`string | undefined`). Covers every XPath-valued property
+ * the XPathEditor might be mounted on, including `hidden.calculate`
+ * which the schema declares as required.
+ *
+ * The editor's cast `next as F[K]` is sound when `F[K]` includes
+ * `undefined` and tolerated when it doesn't — the caller-side registry
+ * invariant is the authoritative guarantee that each key's runtime
+ * value is always a string or undefined, and the reducer accepts
+ * both shapes as a removal-or-replace patch regardless of the schema's
+ * optionality declaration.
+ */
+export type XPathStringKeys<F extends Field> = {
+	[K in keyof F]-?: F[K] extends string | undefined ? K : never;
 }[keyof F] &
 	string;
 

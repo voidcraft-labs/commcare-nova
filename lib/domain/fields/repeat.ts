@@ -10,8 +10,7 @@
 
 import tablerRepeat from "@iconify-icons/tabler/repeat";
 import { z } from "zod";
-import { StubField } from "@/components/builder/editor/StubField";
-import type { FieldEditorSchema, FieldKindMetadata } from "../kinds";
+import type { FieldKindMetadata } from "../kinds";
 import { fieldBaseSchema } from "./base";
 
 export const repeatFieldSchema = fieldBaseSchema.extend({
@@ -32,10 +31,4 @@ export const repeatFieldMetadata: FieldKindMetadata<"repeat"> = {
 	saDocs:
 		"Repeats its child fields N times (e.g. one set per household member).",
 	convertTargets: ["group"],
-};
-
-export const repeatFieldEditorSchema: FieldEditorSchema<RepeatField> = {
-	data: [],
-	logic: [{ key: "relevant", component: StubField }],
-	ui: [],
 };

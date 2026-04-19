@@ -6,8 +6,7 @@
 
 import tabler123 from "@iconify-icons/tabler/123";
 import { z } from "zod";
-import { StubField } from "@/components/builder/editor/StubField";
-import type { FieldEditorSchema, FieldKindMetadata } from "../kinds";
+import type { FieldKindMetadata } from "../kinds";
 import { inputFieldBaseSchema } from "./base";
 
 export const intFieldSchema = inputFieldBaseSchema.extend({
@@ -30,19 +29,4 @@ export const intFieldMetadata: FieldKindMetadata<"int"> = {
 	isContainer: false,
 	saDocs: "Whole-number input (age, count, quantity).",
 	convertTargets: ["decimal"],
-};
-
-// Declares which property keys this kind exposes in the inspect panel and
-// binds each to the editor component that renders it.
-export const intFieldEditorSchema: FieldEditorSchema<IntField> = {
-	data: [{ key: "case_property", component: StubField }],
-	logic: [
-		{ key: "required", component: StubField },
-		{ key: "relevant", component: StubField },
-		{ key: "validate", component: StubField },
-		{ key: "validate_msg", component: StubField },
-		{ key: "calculate", component: StubField },
-		{ key: "default_value", component: StubField },
-	],
-	ui: [{ key: "hint", component: StubField }],
 };

@@ -6,8 +6,7 @@
 
 import tablerPhoto from "@iconify-icons/tabler/photo";
 import { z } from "zod";
-import { StubField } from "@/components/builder/editor/StubField";
-import type { FieldEditorSchema, FieldKindMetadata } from "../kinds";
+import type { FieldKindMetadata } from "../kinds";
 import { fieldBaseSchema } from "./base";
 
 export const imageFieldSchema = fieldBaseSchema.extend({
@@ -30,16 +29,4 @@ export const imageFieldMetadata: FieldKindMetadata<"image"> = {
 	saDocs:
 		"Image capture from camera or gallery. Cannot be saved to a case property.",
 	convertTargets: ["audio", "video", "signature"],
-};
-
-// Declares which property keys this kind exposes in the inspect panel and
-// binds each to the editor component that renders it. No data wiring —
-// binary fields can't be written to a case property.
-export const imageFieldEditorSchema: FieldEditorSchema<ImageField> = {
-	data: [],
-	logic: [
-		{ key: "required", component: StubField },
-		{ key: "relevant", component: StubField },
-	],
-	ui: [{ key: "hint", component: StubField }],
 };

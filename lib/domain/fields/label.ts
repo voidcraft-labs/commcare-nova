@@ -8,8 +8,7 @@
 
 import tablerTag from "@iconify-icons/tabler/tag";
 import { z } from "zod";
-import { StubField } from "@/components/builder/editor/StubField";
-import type { FieldEditorSchema, FieldKindMetadata } from "../kinds";
+import type { FieldKindMetadata } from "../kinds";
 import { fieldBaseSchema } from "./base";
 
 export const labelFieldSchema = fieldBaseSchema.extend({
@@ -29,10 +28,4 @@ export const labelFieldMetadata: FieldKindMetadata<"label"> = {
 	isContainer: false,
 	saDocs: "Display-only text. Renders a read-only message — collects no input.",
 	convertTargets: [],
-};
-
-export const labelFieldEditorSchema: FieldEditorSchema<LabelField> = {
-	data: [],
-	logic: [{ key: "relevant", component: StubField }],
-	ui: [],
 };

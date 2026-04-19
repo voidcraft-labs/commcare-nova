@@ -10,8 +10,7 @@
 
 import tablerFolder from "@iconify-icons/tabler/folder";
 import { z } from "zod";
-import { StubField } from "@/components/builder/editor/StubField";
-import type { FieldEditorSchema, FieldKindMetadata } from "../kinds";
+import type { FieldKindMetadata } from "../kinds";
 import { fieldBaseSchema } from "./base";
 
 export const groupFieldSchema = fieldBaseSchema.extend({
@@ -32,10 +31,4 @@ export const groupFieldMetadata: FieldKindMetadata<"group"> = {
 	saDocs:
 		"Groups a set of fields under one visual header. Contents collapse and re-appear together.",
 	convertTargets: ["repeat"],
-};
-
-export const groupFieldEditorSchema: FieldEditorSchema<GroupField> = {
-	data: [],
-	logic: [{ key: "relevant", component: StubField }],
-	ui: [],
 };

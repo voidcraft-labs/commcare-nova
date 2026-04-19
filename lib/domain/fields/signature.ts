@@ -7,8 +7,7 @@
 
 import tablerSignature from "@iconify-icons/tabler/signature";
 import { z } from "zod";
-import { StubField } from "@/components/builder/editor/StubField";
-import type { FieldEditorSchema, FieldKindMetadata } from "../kinds";
+import type { FieldKindMetadata } from "../kinds";
 import { fieldBaseSchema } from "./base";
 
 export const signatureFieldSchema = fieldBaseSchema.extend({
@@ -30,16 +29,4 @@ export const signatureFieldMetadata: FieldKindMetadata<"signature"> = {
 	isContainer: false,
 	saDocs: "Signature capture.",
 	convertTargets: ["image", "audio", "video"],
-};
-
-// Declares which property keys this kind exposes in the inspect panel and
-// binds each to the editor component that renders it. No data wiring and
-// no validate/calculate — signature is a pure capture control.
-export const signatureFieldEditorSchema: FieldEditorSchema<SignatureField> = {
-	data: [],
-	logic: [
-		{ key: "required", component: StubField },
-		{ key: "relevant", component: StubField },
-	],
-	ui: [{ key: "hint", component: StubField }],
 };

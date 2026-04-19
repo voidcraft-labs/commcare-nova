@@ -11,8 +11,7 @@
 
 import tablerMapPin from "@iconify-icons/tabler/map-pin";
 import { z } from "zod";
-import { StubField } from "@/components/builder/editor/StubField";
-import type { FieldEditorSchema, FieldKindMetadata } from "../kinds";
+import type { FieldKindMetadata } from "../kinds";
 import { inputFieldBaseSchema } from "./base";
 
 export const geopointFieldSchema = inputFieldBaseSchema.extend({
@@ -33,17 +32,4 @@ export const geopointFieldMetadata: FieldKindMetadata<"geopoint"> = {
 	isContainer: false,
 	saDocs: "GPS coordinate capture.",
 	convertTargets: [],
-};
-
-// Declares which property keys this kind exposes in the inspect panel and
-// binds each to the editor component that renders it.
-export const geopointFieldEditorSchema: FieldEditorSchema<GeopointField> = {
-	data: [{ key: "case_property", component: StubField }],
-	logic: [
-		{ key: "required", component: StubField },
-		{ key: "relevant", component: StubField },
-		{ key: "calculate", component: StubField },
-		{ key: "default_value", component: StubField },
-	],
-	ui: [{ key: "hint", component: StubField }],
 };

@@ -6,8 +6,7 @@
 
 import tablerDeviceTv from "@iconify-icons/tabler/device-tv";
 import { z } from "zod";
-import { StubField } from "@/components/builder/editor/StubField";
-import type { FieldEditorSchema, FieldKindMetadata } from "../kinds";
+import type { FieldKindMetadata } from "../kinds";
 import { fieldBaseSchema } from "./base";
 
 export const videoFieldSchema = fieldBaseSchema.extend({
@@ -29,16 +28,4 @@ export const videoFieldMetadata: FieldKindMetadata<"video"> = {
 	isContainer: false,
 	saDocs: "Video recording. Cannot be saved to a case property.",
 	convertTargets: ["image", "audio", "signature"],
-};
-
-// Declares which property keys this kind exposes in the inspect panel and
-// binds each to the editor component that renders it. No data wiring —
-// binary fields can't be written to a case property.
-export const videoFieldEditorSchema: FieldEditorSchema<VideoField> = {
-	data: [],
-	logic: [
-		{ key: "required", component: StubField },
-		{ key: "relevant", component: StubField },
-	],
-	ui: [{ key: "hint", component: StubField }],
 };
