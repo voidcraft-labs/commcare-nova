@@ -23,13 +23,13 @@ import type { ReactNode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { ReplayController } from "@/components/builder/ReplayController";
 import { BlueprintDocContext } from "@/lib/doc/provider";
-import { createBlueprintDocStore } from "@/lib/doc/store";
+import { createWiredStores } from "@/lib/generation/__tests__/testHelpers";
 import type { Event } from "@/lib/log/types";
 import {
 	BuilderSessionContext,
+	type BuilderSessionStoreApi,
 	useBuilderSession,
 } from "@/lib/session/provider";
-import { createBuilderSessionStore } from "@/lib/session/store";
 import type { ReplayChapter } from "@/lib/session/types";
 
 // ── Module mocks ────────────────────────────────────────────────────────
@@ -132,8 +132,7 @@ function buildFixture(): { events: Event[]; chapters: ReplayChapter[] } {
  *  observable — the store never swaps the function reference, so the
  *  spy remains valid across re-renders. */
 function mountController(opts: { events: Event[]; initialCursor: number }) {
-	const docStore = createBlueprintDocStore();
-	const sessionStore = createBuilderSessionStore();
+	const { docStore, sessionStore } = createWiredStores();
 	const { chapters } = buildFixture();
 
 	sessionStore.getState().loadReplay({
@@ -164,10 +163,10 @@ function mountWithSession<T>(
 	hook: () => T,
 ): {
 	result: { current: T };
-	sessionStore: ReturnType<typeof createBuilderSessionStore>;
+	sessionStore: BuilderSessionStoreApi;
 } {
 	const { events, chapters } = buildFixture();
-	const sessionStore = createBuilderSessionStore();
+	const { sessionStore } = createWiredStores();
 	sessionStore.getState().loadReplay({
 		events,
 		chapters,

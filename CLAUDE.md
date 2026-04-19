@@ -109,7 +109,7 @@ Navigation is URL-owned and uses the browser History API (not Next's router) to 
 
 **Undo tracking is paused during hydration and agent writes** — the empty→populated transition must not enter history, and the entire agent write becomes one undoable unit. Do not remove the pause/resume calls.
 
-**Store boundary rules enforced by Biome.** Components and app code import from `lib/doc/hooks/`, `lib/session/hooks`, and `lib/routing/hooks` — never from the raw store modules. The `noRestrictedImports` rule in `biome.json` fails the build on violations. Internal lib code (providers, stream dispatchers, tests) is exempt.
+**Store boundary rules enforced by Biome.** Components and app code import from `lib/doc/hooks/`, `lib/session/hooks`, and `lib/routing/hooks` — never from the raw store modules. The `noRestrictedImports` rule in `biome.json` fails the build on violations.
 
 **BuilderProvider** lives at `components/builder/BuilderProvider.tsx` — mounts the full provider stack (doc store → session store → scroll registry → edit guard → form engine) and the lifecycle hydrators (SyncBridge, ReplayHydrator, LoadAppHydrator).
 
