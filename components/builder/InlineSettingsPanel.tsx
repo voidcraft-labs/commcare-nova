@@ -15,6 +15,12 @@
  * field. Drag-drop still works — the panel is inside the row wrapper
  * and moves with the field during drag.
  *
+ * Composition: `<FieldHeader>` (ID input + kebab + delete) stacked
+ * above `<FieldEditorPanel>` (Data / Logic / Appearance section
+ * cards, driven by `fieldEditorSchemas`). The panel adds no section
+ * chrome of its own — card + label come from the section chrome
+ * helpers consumed inside `FieldEditorPanel`.
+ *
  * Two visual variants:
  *
  *   - **`attached`** — flat top, rounded bottom, violet border on every
@@ -31,11 +37,8 @@
 import { useCallback } from "react";
 import type { Field } from "@/lib/domain";
 import { useSetActiveFieldId } from "@/lib/session/hooks";
-import { ContextualEditorData } from "./contextual/ContextualEditorData";
-import { ContextualEditorHeader } from "./contextual/ContextualEditorHeader";
-import { ContextualEditorLogic } from "./contextual/ContextualEditorLogic";
-import { ContextualEditorUI } from "./contextual/ContextualEditorUI";
-import { SECTION_CARD_CLASS, SectionLabel } from "./editor/sectionChrome";
+import { FieldEditorPanel } from "./editor/FieldEditorPanel";
+import { FieldHeader } from "./editor/FieldHeader";
 
 interface InlineSettingsPanelProps {
 	/** Domain field entity — all sub-editors consume the same shape. */
@@ -88,20 +91,8 @@ export function InlineSettingsPanel({
 			data-no-drag
 			onFocus={handleFocus}
 		>
-			<ContextualEditorHeader field={field} />
-
-			<div className="p-2 space-y-2">
-				{/* Data and Appearance own their own visibility — return null
-				    when the field kind has no applicable fields. */}
-				<ContextualEditorData field={field} />
-
-				<div className={SECTION_CARD_CLASS}>
-					<SectionLabel label="Logic" />
-					<ContextualEditorLogic field={field} />
-				</div>
-
-				<ContextualEditorUI field={field} />
-			</div>
+			<FieldHeader field={field} />
+			<FieldEditorPanel field={field} />
 		</div>
 	);
 }
