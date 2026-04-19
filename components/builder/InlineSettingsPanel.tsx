@@ -35,6 +35,7 @@ import { ContextualEditorData } from "./contextual/ContextualEditorData";
 import { ContextualEditorHeader } from "./contextual/ContextualEditorHeader";
 import { ContextualEditorLogic } from "./contextual/ContextualEditorLogic";
 import { ContextualEditorUI } from "./contextual/ContextualEditorUI";
+import { SECTION_CARD_CLASS, SectionLabel } from "./editor/sectionChrome";
 
 interface InlineSettingsPanelProps {
 	/** Domain field entity — all sub-editors consume the same shape. */
@@ -44,22 +45,6 @@ interface InlineSettingsPanelProps {
 	 *  flat-bottomed selected row. */
 	variant?: "attached" | "floating";
 }
-
-/** Static section label with a left accent bar for visual grouping. */
-export function SectionLabel({ label }: { label: string }) {
-	return (
-		<div className="flex items-center gap-2 mb-2">
-			<div className="w-0.5 h-3 rounded-full bg-nova-violet/40" />
-			<span className="text-[10px] font-semibold uppercase tracking-widest text-nova-text-muted/70">
-				{label}
-			</span>
-		</div>
-	);
-}
-
-/** Shared styling for each section card inside the panel. */
-export const SECTION_CARD_CLASS =
-	"rounded-md bg-nova-surface/40 border border-white/[0.04] px-3 py-2.5";
 
 export function InlineSettingsPanel({
 	field,

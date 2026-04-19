@@ -19,7 +19,7 @@
  */
 
 import { fireEvent, render, screen } from "@testing-library/react";
-import type { ReactNode } from "react";
+import { type ReactNode, useState } from "react";
 import { describe, expect, it, vi } from "vitest";
 import { BlueprintDocProvider } from "@/lib/doc/provider";
 import type { BlueprintDoc } from "@/lib/doc/types";
@@ -258,5 +258,139 @@ describe("FieldEditorSection", () => {
 			{ wrapper: wrap },
 		);
 		expect(visible.mock.calls.length).toBeGreaterThanOrEqual(1);
+	});
+
+	// ── Activation-lifecycle tests ──────────────────────────────────────
+	// The activation flag is a one-shot "just-activated, take focus"
+	// intent. Two paths satisfy it:
+	//   (a) The user types in the newly-activated editor (onChange
+	//       fires; the value lands on the field; the predicate flips
+	//       truthy; the intent is done).
+	//   (b) An independent path flips the predicate truthy without
+	//       touching onChange — undo/redo restoring a value, an LLM
+	//       mutation, a sibling-driven predicate change.
+	// Either way, the next render must pass autoFocus=false so a
+	// stray rerender can't steal keyboard focus from wherever it
+	// migrated to.
+
+	/**
+	 * Harness: wraps the section with a parent-owned `field.hint` value
+	 * so tests can simulate both the onChange path (stub's click fires
+	 * onChange → we update state) and the external path (a sibling
+	 * button flips `hint` directly → we update state).
+	 */
+	function HarnessedSection({
+		simulateExternalFlipTo,
+	}: {
+		simulateExternalFlipTo?: string;
+	}) {
+		const [hint, setHint] = useState<string | undefined>();
+		const field: TextField = { ...baseField, hint };
+		const entries = [
+			hintEntry({
+				visible: (f: TextField) => !!f.hint,
+				addable: true,
+			}),
+		];
+		return (
+			<>
+				{simulateExternalFlipTo !== undefined && (
+					<button
+						type="button"
+						data-testid="external-flip"
+						onClick={() => setHint(simulateExternalFlipTo)}
+					>
+						external flip
+					</button>
+				)}
+				{/* The stub's click fires onChange("new hint") which the
+				 *  section relays to updateField — but updateField in this
+				 *  test's provider doesn't round-trip back into our local
+				 *  `hint` state. To test the onChange-satisfies-intent
+				 *  path, we override the stub's onClick via a second
+				 *  handler on the rendered button (see test). */}
+				<TestHarness field={field} entries={entries} setHint={setHint} />
+			</>
+		);
+	}
+
+	/**
+	 * Mounts the section. `setHint` is invoked from a click handler
+	 * attached by the test (via querySelector) to simulate the
+	 * onChange path — the real mutation path writes through the doc
+	 * store, but the predicate here reads the local `hint` state.
+	 */
+	function TestHarness({
+		field,
+		entries,
+		setHint,
+	}: {
+		field: TextField;
+		entries: FieldEditorEntry<TextField>[];
+		setHint: (v: string) => void;
+	}) {
+		// Intercept the section's onChange by overriding the stub: use
+		// a different stub that forwards onChange to setHint. Simpler
+		// than routing through the doc store.
+		const interceptingEntries: FieldEditorEntry<TextField>[] = entries.map(
+			(entry) =>
+				({
+					...entry,
+					component: ((props: StubProps<"hint">) => (
+						<button
+							type="button"
+							data-testid="editor-hint"
+							data-autofocus={props.autoFocus ? "true" : "false"}
+							onClick={() => setHint("typed value")}
+						>
+							{props.label}
+						</button>
+					)) as unknown,
+				}) as unknown as FieldEditorEntry<TextField>,
+		);
+		return (
+			<FieldEditorSection
+				field={field}
+				section="ui"
+				entries={interceptingEntries}
+			/>
+		);
+	}
+
+	it("clears activation after a user edit: next render has autoFocus=false", () => {
+		render(<HarnessedSection />, { wrapper: wrap });
+		// Initially only the Add pill is shown (hint undefined → hidden,
+		// addable).
+		fireEvent.click(screen.getByRole("button", { name: /Hint/ }));
+		// Pill click activates → editor mounts with autoFocus=true.
+		expect(
+			screen.getByTestId("editor-hint").getAttribute("data-autofocus"),
+		).toBe("true");
+		// User types (stub's intercepting click) → hint becomes
+		// "typed value" → predicate flips truthy → activation is
+		// cleared by the effect → next render's autoFocus is false.
+		fireEvent.click(screen.getByTestId("editor-hint"));
+		expect(
+			screen.getByTestId("editor-hint").getAttribute("data-autofocus"),
+		).toBe("false");
+	});
+
+	it("clears activation when an external path flips the predicate truthy (no onChange)", () => {
+		// Simulates undo/redo or LLM-driven restore: the pending entry
+		// becomes independently visible without any onChange flow.
+		render(<HarnessedSection simulateExternalFlipTo="undone value" />, {
+			wrapper: wrap,
+		});
+		fireEvent.click(screen.getByRole("button", { name: /Hint/ }));
+		// Editor mounts with autoFocus=true.
+		expect(
+			screen.getByTestId("editor-hint").getAttribute("data-autofocus"),
+		).toBe("true");
+		// External flip: parent sets hint via a different code path.
+		// No onChange involved. Activation must still clear.
+		fireEvent.click(screen.getByTestId("external-flip"));
+		expect(
+			screen.getByTestId("editor-hint").getAttribute("data-autofocus"),
+		).toBe("false");
 	});
 });

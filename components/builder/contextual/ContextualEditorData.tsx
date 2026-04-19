@@ -5,7 +5,7 @@ import { OptionsEditorWidget } from "@/components/builder/editor/fields/OptionsE
 import {
 	SECTION_CARD_CLASS,
 	SectionLabel,
-} from "@/components/builder/InlineSettingsPanel";
+} from "@/components/builder/editor/sectionChrome";
 import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
 import { useCaseTypes } from "@/lib/doc/hooks/useCaseTypes";
 import { asUuid } from "@/lib/doc/types";

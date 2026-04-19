@@ -4,7 +4,7 @@ import { AddPropertyButton } from "@/components/builder/editor/AddPropertyButton
 import {
 	SECTION_CARD_CLASS,
 	SectionLabel,
-} from "@/components/builder/InlineSettingsPanel";
+} from "@/components/builder/editor/sectionChrome";
 import { useSaveField } from "@/hooks/useSaveField";
 import { useSelectedField } from "@/lib/routing/hooks";
 import {

@@ -17,18 +17,23 @@
  * parent (FieldEditorPanel) uses the null return to skip the
  * section's card chrome entirely.
  *
- * AnimatePresence wraps the visible editors so add/remove animates
- * the same way the legacy ContextualEditorLogic did. Keys are the
- * entry `key` string so React keeps editor instances stable across
- * visibility flips.
+ * AnimatePresence wraps the visible editors so add/remove transitions
+ * (opacity + height) animate smoothly when a pill is activated or an
+ * entry's `visible()` flips false. Keys are the entry `key` string so
+ * React keeps editor instances stable across visibility flips — an
+ * editor that toggles off and back on retains its internal state.
  */
 "use client";
 import { AnimatePresence, motion } from "motion/react";
-import { useCallback } from "react";
+import { useCallback, useEffect } from "react";
 import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
 import type { Field, FieldPatch } from "@/lib/domain";
 import type { FieldEditorEntry } from "@/lib/domain/kinds";
 import { AddPropertyButton } from "./AddPropertyButton";
+import {
+	type PartitionedEntries,
+	partitionEditorEntries,
+} from "./partitionEditorEntries";
 import {
 	type EditorSectionName,
 	useEntryActivation,
@@ -55,7 +60,7 @@ export function FieldEditorSection<F extends Field>({
 	// `field.uuid` is already branded `Uuid` — the activation hook
 	// scopes by the raw string so component identity persists across
 	// hover/unfocus cycles without caring about branded types.
-	const activation = useEntryActivation(field.uuid as string, section);
+	const activation = useEntryActivation(field.uuid, section);
 
 	// Generic setter: write exactly one key on this field. `FieldPatch`
 	// is the union-wide partial — the reducer merges known scalar props
@@ -71,22 +76,32 @@ export function FieldEditorSection<F extends Field>({
 		[updateField, field.uuid],
 	);
 
-	// Partition pass: walk every entry once, bucket into visible
-	// (rendered as editor) vs addable-but-hidden (rendered as pill).
-	// Pending entries force their way into the visible bucket with
-	// autoFocus so the pill click immediately swaps into an active
-	// editor.
-	const visible: { entry: FieldEditorEntry<F>; autoFocus: boolean }[] = [];
-	const pills: FieldEditorEntry<F>[] = [];
-	for (const entry of entries) {
-		const isPending = activation.pending(entry.key as string);
-		const isVisible = entry.visible ? entry.visible(field) : true;
-		if (isVisible || isPending) {
-			visible.push({ entry, autoFocus: isPending });
-		} else if (entry.addable) {
-			pills.push(entry);
-		}
-	}
+	// Partition entries via the shared helper. The panel uses the same
+	// partition (with a no-op pending predicate) to decide whether to
+	// mount the section's card at all — keeping the partition logic in
+	// one place ensures the panel's "would this render anything?" check
+	// agrees with what the section actually renders.
+	const partitioned: PartitionedEntries<F> = partitionEditorEntries(
+		field,
+		entries,
+		(key) => activation.pending(key),
+	);
+	const { visible, pills } = partitioned;
+
+	// Activation is a one-shot "just-activated, take focus" intent. As
+	// soon as the pending entry is ALSO visible by its own `visible()`
+	// predicate (value committed, undo/redo restored it, sibling
+	// predicate flipped it true), the intent is satisfied and we clear
+	// it. This avoids a stuck-pending state where a value arrives by a
+	// non-onChange path (LLM mutation, undo, parent-key flip) and the
+	// next unrelated rerender would steal keyboard focus with a stale
+	// autoFocus=true.
+	const anyVisibleAndPending = visible.some(
+		({ autoFocus, independentlyVisible }) => autoFocus && independentlyVisible,
+	);
+	useEffect(() => {
+		if (anyVisibleAndPending) activation.clear();
+	}, [anyVisibleAndPending, activation]);
 
 	// Section contributes nothing — let the panel skip the card chrome.
 	if (visible.length === 0 && pills.length === 0) return null;
@@ -130,14 +145,7 @@ export function FieldEditorSection<F extends Field>({
 								label={entry.label}
 								keyName={key}
 								autoFocus={autoFocus}
-								onChange={(next) => {
-									setKey(key, next);
-									// Clear the pending flag once the user has
-									// engaged with the newly-activated editor.
-									// Already-visible entries retain no activation
-									// state, so `clear` on them is a no-op.
-									if (autoFocus) activation.clear();
-								}}
+								onChange={(next) => setKey(key, next)}
 							/>
 						</motion.div>
 					);
