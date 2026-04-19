@@ -54,6 +54,8 @@ The chat route reads the model stream manually (not `writer.merge()`) so stream 
 
 **App ownership is explicit, not path-scoped.** Apps are root-level with an `owner` field; any route serving user data must verify ownership (admin routes skip).
 
+**Event log** at `apps/{appId}/events/` captures generation runs as a flat stream of MutationEvent + ConversationEvent; per-run cost/behavior summary at `apps/{appId}/runs/{runId}`. See `lib/log/CLAUDE.md`.
+
 **Better Auth's user collection is the single source of truth for user identity.** The admin dashboard reads it directly via Firestore SDK because Better Auth's typed user omits `additionalFields` (present at runtime). Admin gating also reads Firestore directly to bypass the 5-min session-cookie cache.
 
 **Chat threads** are one doc per conversation with messages embedded (not a subcollection) — threads are small and always loaded together. Thread id = run id. Fire-and-forget persistence on each ready transition; historical threads stream in via Suspense.
