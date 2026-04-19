@@ -74,9 +74,9 @@ export type FieldKindMetadata<K extends FieldKind> = {
  * targeting (`data-field-id`) and lets editors mounted on multiple keys
  * branch on which one they were mounted for.
  *
- * `autoFocus` asks the editor to take focus on mount — e.g. when it was
- * just activated via an Add Property affordance, or when focus is being
- * restored after an undo/redo.
+ * `autoFocus` asks the editor to take focus on mount. Consumers set it when
+ * the editor has just been made visible in response to a user action and
+ * the user would naturally expect the new input to receive keyboard focus.
  */
 export type FieldEditorComponentProps<F extends Field, K extends keyof F> = {
 	field: F;
