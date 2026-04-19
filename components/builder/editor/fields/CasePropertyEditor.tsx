@@ -8,12 +8,16 @@
  *   - the field can't write to any case type AND isn't a case_name
  *     question.
  *
- * The dropdown widget used to live at
- * `components/builder/contextual/CasePropertyDropdown.tsx`. That file
- * is folded in here as a private internal because this editor is the
- * only remaining consumer. The `MEDIA_TYPES` set also migrates here
- * for the same reason — it's only used to disable the dropdown for
- * binary kinds.
+ * This file also defines and exports `CasePropertyDropdown`, the
+ * dropdown widget the adapter composes. Exporting the widget lets
+ * other panels reuse the UI primitive without the
+ * `FieldEditorComponentProps` wrapper — the adapter is not always the
+ * right fit when callers already hold the writable-case-types list
+ * and want direct control over the save callback.
+ *
+ * `MEDIA_TYPES` is the set of binary kinds whose value can't be a
+ * case property; it lives here because the dropdown is its only
+ * consumer.
  */
 
 "use client";
@@ -23,7 +27,7 @@ import tablerCircleOff from "@iconify-icons/tabler/circle-off";
 import tablerDatabase from "@iconify-icons/tabler/database";
 import { useCallback, useId, useMemo, useRef } from "react";
 import { useCaseTypes } from "@/lib/doc/hooks/useCaseTypes";
-import type { CaseType, Field, FieldKind } from "@/lib/domain";
+import { type Field, type FieldKind, getModuleCaseTypes } from "@/lib/domain";
 import type { FieldEditorComponentProps } from "@/lib/domain/kinds";
 import { useSelectedFormContext } from "@/lib/routing/hooks";
 import {
@@ -41,22 +45,6 @@ const MEDIA_TYPES = new Set<FieldKind>([
 	"signature",
 ]);
 
-/**
- * Writable case types for a module: the module's own type plus every
- * child case type that declares the module's type as its parent.
- */
-function getModuleCaseTypes(
-	caseType: string | undefined,
-	caseTypes: CaseType[],
-): string[] {
-	if (!caseType) return [];
-	const result = [caseType];
-	for (const ct of caseTypes) {
-		if (ct.parent_type === caseType) result.push(ct.name);
-	}
-	return result;
-}
-
 interface CasePropertyDropdownProps {
 	value: string | undefined;
 	isCaseName: boolean;
@@ -69,11 +57,9 @@ interface CasePropertyDropdownProps {
 
 /**
  * Base UI menu-backed dropdown for the case-property selection.
- *
- * Exported so the legacy ContextualEditorData can reuse the widget
- * during the transition. It's the only external consumer — once
- * that file is deleted in a later task, this export can be inlined
- * as a private helper.
+ * Exposes the widget shape (`string | null` onChange, explicit
+ * `caseTypes` list) so callers with their own case-type resolution
+ * can use the dropdown without the FieldEditorComponentProps wrapper.
  */
 export function CasePropertyDropdown({
 	value,
@@ -87,13 +73,12 @@ export function CasePropertyDropdown({
 	const triggerId = useId();
 	const triggerRef = useRef<HTMLButtonElement>(null);
 
-	// Compose autoFocus — a ref callback fires once on mount, which is
-	// what we need for undo/redo focus restoration. An effect would run
-	// after the focus hint was already consumed.
+	// Compose autoFocus — a ref callback fires once on mount, which
+	// is what we need for undo/redo focus restoration. An effect
+	// would run after the focus hint was already consumed.
 	const composedTriggerRef = useCallback(
 		(el: HTMLButtonElement | null) => {
-			(triggerRef as React.MutableRefObject<HTMLButtonElement | null>).current =
-				el;
+			triggerRef.current = el;
 			if (el && autoFocus) el.focus({ preventScroll: true });
 		},
 		[autoFocus],
@@ -125,9 +110,10 @@ export function CasePropertyDropdown({
 		return result;
 	}, [caseTypes]);
 
-	// Hide entirely when no case types exist and this isn't a case_name
-	// question. CasePropertyEditor applies the same gate higher up, but
-	// keeping it here defends the widget as a standalone primitive.
+	// Hide entirely when no case types exist and this isn't a
+	// case_name question. CasePropertyEditor applies the same gate
+	// higher up, but keeping it here defends the widget as a
+	// standalone primitive.
 	if (caseTypes.length === 0 && !isCaseName) return null;
 
 	const activeKey = value ?? "__none__";
@@ -274,10 +260,11 @@ export function CasePropertyDropdown({
  * case types from the URL-selected form and marshals the generic
  * `onChange` into the dropdown's `string | null` shape (null clears).
  *
- * The `as F["case_property" & keyof F]` cast is the registry-narrowing
- * invariant: only kinds that carry `case_property` wire this component
- * in their editor schema, and on those kinds the key's type is exactly
- * `string | undefined`.
+ * The `as F["case_property" & keyof F]` cast lets a `string` flow
+ * through the generic-key-typed onChange. Every kind that declares
+ * `case_property` carries it as `string | undefined`, so the value is
+ * always valid — the cast is the syntactic form TS requires when
+ * writing through an indexed-access generic.
  */
 export function CasePropertyEditor<F extends Field>(
 	props: FieldEditorComponentProps<F, "case_property" & keyof F>,
@@ -292,9 +279,9 @@ export function CasePropertyEditor<F extends Field>(
 	const isCaseName = field.id === "case_name";
 
 	// Hide entirely when the field has no case-writing affordance at
-	// all. Case-name questions always render because the module guarantees
-	// a primary type, but for every other field the section should
-	// collapse when no writable types exist.
+	// all. Case-name questions always render because the module
+	// guarantees a primary type; for every other field the section
+	// collapses when no writable types exist.
 	if (!isCaseName && writableCaseTypes.length === 0) return null;
 
 	return (

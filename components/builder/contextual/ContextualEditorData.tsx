@@ -9,12 +9,11 @@ import {
 import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
 import { useCaseTypes } from "@/lib/doc/hooks/useCaseTypes";
 import { asUuid } from "@/lib/doc/types";
-import type { FieldKind } from "@/lib/domain";
+import { type FieldKind, getModuleCaseTypes } from "@/lib/domain";
 import { useSelectedFormContext } from "@/lib/routing/hooks";
 import {
 	type FieldEditorProps,
 	type FocusableFieldKey,
-	getModuleCaseTypes,
 	useFocusHint,
 } from "./shared";
 

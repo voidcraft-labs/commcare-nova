@@ -2,31 +2,28 @@
  * RequiredEditor — declarative editor for the `required` field's
  * tri-state lifecycle.
  *
- * The `required` value on a field encodes three states in one string:
- *   - `undefined`  → not required (toggle off)
- *   - `"true()"`   → always required (toggle on, no condition)
+ * The `required` value encodes three states in one string:
+ *   - `undefined`   → not required (toggle off)
+ *   - `"true()"`    → always required (toggle on, no condition)
  *   - any other XPath → conditionally required (toggle on + condition)
  *
- * This component encapsulates all three transitions — no other code
- * should need to know about the `"true()"` sentinel. It owns the
- * toggle, the add-condition affordance, the nested XPath editor, and
- * save semantics that either clear the property or fall back to the
- * sentinel when a condition is removed.
+ * This component owns the toggle, the add-condition affordance, the
+ * nested XPath editor, and the save semantics for every transition —
+ * no other code needs to know about the `"true()"` sentinel. Removing
+ * a condition falls back to the sentinel (keeps the toggle on); the
+ * toggle-off path clears the property entirely.
  */
 
 "use client";
 import { Icon } from "@iconify/react/offline";
 import tablerTrash from "@iconify-icons/tabler/trash";
 import { AnimatePresence, motion } from "motion/react";
-import { useCallback, useContext, useState } from "react";
+import { useCallback, useState } from "react";
 import { AddPropertyButton } from "@/components/builder/editor/AddPropertyButton";
+import { useFormLintContext } from "@/components/builder/editor/fields/useFormLintContext";
 import { SaveShortcutHint } from "@/components/builder/SaveShortcutHint";
 import { XPathField } from "@/components/builder/XPathField";
 import { Toggle } from "@/components/ui/Toggle";
-import { buildLintContext } from "@/lib/codemirror/buildLintContext";
-import type { XPathLintContext } from "@/lib/codemirror/xpath-lint";
-import { BlueprintDocContext } from "@/lib/doc/provider";
-import type { Uuid } from "@/lib/doc/types";
 import type { Field } from "@/lib/domain";
 import type { FieldEditorComponentProps } from "@/lib/domain/kinds";
 import { useSessionFocusHint } from "@/lib/session/hooks";
@@ -35,39 +32,14 @@ import { useSessionFocusHint } from "@/lib/session/hooks";
 const ALWAYS_REQUIRED = "true()";
 
 /**
- * Build a lazy lint-context getter for the form that owns the given
- * field. XPathField needs valid-paths + case properties + form entries
- * to lint references; the selected field has a parent chain ending at
- * a form, so walk `fieldParent` until a form entry matches.
+ * Props narrow `K` to the `required` key. `value` is the raw string
+ * or `undefined`; `onChange(next)` replaces it (undefined removes it).
  *
- * Returns `undefined` when no provider is mounted or when the walk
- * runs out before hitting a form — callers pass this straight to
- * XPathField which treats the undefined return as "no context".
- */
-function useFormLintContext(
-	fieldUuid: Uuid,
-): () => XPathLintContext | undefined {
-	const docStore = useContext(BlueprintDocContext);
-	return useCallback(() => {
-		if (!docStore) return undefined;
-		const s = docStore.getState();
-		let parentUuid: Uuid | undefined = s.fieldParent[fieldUuid] ?? undefined;
-		while (parentUuid && !s.forms[parentUuid]) {
-			parentUuid = s.fieldParent[parentUuid] ?? undefined;
-		}
-		if (!parentUuid) return undefined;
-		return buildLintContext(s, parentUuid);
-	}, [docStore, fieldUuid]);
-}
-
-/**
- * Props narrow K to the `required` key. `value` is the raw string
- * or undefined; `onChange(next)` replaces it (undefined removes it).
- *
- * The cast `as F["required" & keyof F]` satisfies the generic key-typed
- * setter even though every kind that carries `required` declares it as
- * `string | undefined`. The registry only wires this component to keys
- * with that exact shape.
+ * The `as F["required" & keyof F]` casts let the sentinel string and
+ * `undefined` flow through the generic-key-typed `onChange`. Every
+ * kind that declares `required` carries it as `string | undefined`,
+ * so the values are always valid — the cast is the syntactic form
+ * TS requires when writing through an indexed-access generic.
  */
 export function RequiredEditor<F extends Field>({
 	field,
@@ -77,14 +49,15 @@ export function RequiredEditor<F extends Field>({
 	autoFocus,
 }: FieldEditorComponentProps<F, "required" & keyof F>) {
 	const required = typeof value === "string" ? value : undefined;
-	const fieldUuid = field.uuid as Uuid;
 
-	const getLintContext = useFormLintContext(fieldUuid);
+	// `field.uuid` is already branded `Uuid` by the Field type — no
+	// second cast is needed before calling into the doc-store hook.
+	const getLintContext = useFormLintContext(field.uuid);
 
 	// Local state: whether the user is composing a brand-new condition.
-	// Distinct from the XPathField's own edit state — we keep a separate
-	// flag so the editor opens blank (rather than resetting to the
-	// sentinel) when the user clicks "Condition".
+	// Distinct from the XPathField's own edit state — the flag lets the
+	// editor open blank (rather than resetting to the sentinel) when
+	// the user clicks "Condition".
 	const [addingCondition, setAddingCondition] = useState(false);
 
 	// Tracks whether the nested XPath editor is active (drives the
@@ -92,8 +65,8 @@ export function RequiredEditor<F extends Field>({
 	const [editing, setEditing] = useState(false);
 
 	// Undo/redo focus-hint passthrough: restoring focus to
-	// "required_condition" scrolls to and opens the XPath editor;
-	// "required" focuses the toggle.
+	// `required_condition` scrolls to and opens the XPath editor;
+	// `required` focuses the toggle.
 	const focusHint = useSessionFocusHint();
 	const shouldFocusToggle = autoFocus || focusHint === "required";
 	const shouldOpenCondition = focusHint === "required_condition";
@@ -137,6 +110,10 @@ export function RequiredEditor<F extends Field>({
 	const showEditor =
 		isRequired && (hasCondition || addingCondition || shouldOpenCondition);
 
+	// `data-field-id` is hardcoded to `"required"` because this editor
+	// is permanently bound to that key — the registry only wires it
+	// onto `required`, and undo/redo focus hints reference the same
+	// string literal by contract.
 	return (
 		<div data-field-id="required">
 			<div className="flex items-center justify-between mb-1">

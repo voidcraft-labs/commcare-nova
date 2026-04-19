@@ -5,67 +5,48 @@
  * Wraps XPathField with a section label, the save-shortcut hint, and
  * lint-context wiring.
  *
- * Special case: when keyName === "validate", this editor also owns the
- * optional `validate_msg` text field beneath the XPath editor. The
- * validation message is conceptually a child of validate (the text a
- * user sees when the expression fails), not a sibling Logic entry, so
- * it's bundled here rather than given its own registry row. There is
- * deliberately no `validate_msg` entry in any kind's editor schema —
- * its UX is owned at this boundary.
+ * Special case: when `keyName === "validate"` this editor also owns
+ * the optional `validate_msg` text field beneath the XPath editor.
+ * The validation message is conceptually a child of `validate` (the
+ * text a user sees when the expression fails), not a sibling Logic
+ * entry, so the editor bundles both rather than giving `validate_msg`
+ * its own registry row. No kind's editor schema contains a
+ * `validate_msg` entry — its UX is owned entirely at this boundary.
  */
 
 "use client";
-import { useCallback, useContext, useState } from "react";
+import { useCallback, useState } from "react";
 import { EditableText } from "@/components/builder/EditableText";
 import { AddPropertyButton } from "@/components/builder/editor/AddPropertyButton";
+import { useFormLintContext } from "@/components/builder/editor/fields/useFormLintContext";
 import { SaveShortcutHint } from "@/components/builder/SaveShortcutHint";
 import { XPathField } from "@/components/builder/XPathField";
-import { buildLintContext } from "@/lib/codemirror/buildLintContext";
-import type { XPathLintContext } from "@/lib/codemirror/xpath-lint";
 import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
-import { BlueprintDocContext } from "@/lib/doc/provider";
-import { asUuid, type Uuid } from "@/lib/doc/types";
 import type { Field, FieldPatch } from "@/lib/domain";
-import type { FieldEditorComponentProps } from "@/lib/domain/kinds";
+import type {
+	FieldEditorComponentProps,
+	OptionalStringKeys,
+} from "@/lib/domain/kinds";
 import { useSessionFocusHint } from "@/lib/session/hooks";
 
 /**
- * Lazy getter for the XPath lint context rooted at the field's owning
- * form. Walks `fieldParent` up until a form entity matches. Returns
- * undefined when no provider is mounted or no form is found — callers
- * pass this straight to XPathField which treats undefined as "no
- * context" rather than throwing.
+ * `K extends OptionalStringKeys<F>` pins the key to one whose declared
+ * type is exactly `string | undefined`. That makes every value written
+ * through `onChange` a value-level subtype of `F[K]`; the `as F[K]`
+ * casts in the handlers are tautologies that TypeScript requires only
+ * because `F[K]` is an indexed access through a generic.
  */
-function useFormLintContext(
-	fieldUuid: Uuid,
-): () => XPathLintContext | undefined {
-	const docStore = useContext(BlueprintDocContext);
-	return useCallback(() => {
-		if (!docStore) return undefined;
-		const s = docStore.getState();
-		let parentUuid: Uuid | undefined = s.fieldParent[fieldUuid] ?? undefined;
-		while (parentUuid && !s.forms[parentUuid]) {
-			parentUuid = s.fieldParent[parentUuid] ?? undefined;
-		}
-		if (!parentUuid) return undefined;
-		return buildLintContext(s, parentUuid);
-	}, [docStore, fieldUuid]);
-}
-
-export function XPathEditor<F extends Field, K extends keyof F & string>(
+export function XPathEditor<F extends Field, K extends OptionalStringKeys<F>>(
 	props: FieldEditorComponentProps<F, K>,
 ) {
 	const { field, value, onChange, label, autoFocus, keyName } = props;
-	const fieldUuid = field.uuid as Uuid;
 	const current = typeof value === "string" ? value : "";
 
-	const getLintContext = useFormLintContext(fieldUuid);
+	// `field.uuid` is already branded `Uuid` by the Field type.
+	const getLintContext = useFormLintContext(field.uuid);
 	const focusHint = useSessionFocusHint();
 	const [editing, setEditing] = useState(false);
 
-	// Empty commit clears the property via `undefined`. The cast is the
-	// generic-key-typed form of "the registry guarantees string keys
-	// here"; non-string keys never land on this component.
 	const handleSave = useCallback(
 		(next: string) => {
 			onChange((next === "" ? undefined : next) as F[K]);
@@ -73,9 +54,9 @@ export function XPathEditor<F extends Field, K extends keyof F & string>(
 		[onChange],
 	);
 
-	// validate_msg is a nested property owned by the validate editor
-	// rather than a sibling registry entry. Reading it requires the
-	// `in` narrowing because several kinds omit it entirely.
+	// `validate_msg` is a nested property owned by the validate editor
+	// rather than a sibling registry entry. The `in` narrowing is
+	// necessary because several kinds omit the key entirely.
 	const isValidate = keyName === "validate";
 	const validateMsg =
 		isValidate && "validate_msg" in field
@@ -84,34 +65,35 @@ export function XPathEditor<F extends Field, K extends keyof F & string>(
 	const hasValidateMsg = !!validateMsg;
 	const [addingMsg, setAddingMsg] = useState(false);
 
-	// Show the nested message editor when the user opts in (pill click),
-	// when undo/redo is restoring focus to it, or when a value is
-	// already persisted.
+	// Show the nested message editor when the user opts in (pill
+	// click), when undo/redo restores focus to it, or when a value
+	// is already persisted.
 	const showValidateMsg =
 		isValidate && (hasValidateMsg || addingMsg || focusHint === "validate_msg");
 
-	// validate_msg doesn't come through the generic onChange prop (that
-	// prop is scoped to keyName). Use the doc-mutation API directly.
+	// `validate_msg` doesn't flow through the generic `onChange` (that
+	// prop is scoped to `keyName`). Dispatch via the doc-mutation API
+	// directly so the message writes to the same field entity.
 	const { updateField } = useBlueprintMutations();
 	const saveValidateMsg = useCallback(
 		(next: string) => {
-			updateField(asUuid(fieldUuid), {
+			updateField(field.uuid, {
 				validate_msg: next === "" ? undefined : next,
 			} as FieldPatch);
 			setAddingMsg(false);
 		},
-		[updateField, fieldUuid],
+		[updateField, field.uuid],
 	);
 
-	// Empty commit on the message input clears it via the same patch
-	// path. Cancelling a brand-new add also drops the pending flag so
-	// the Add pill reappears.
+	// Empty commit clears the message through the same patch path.
+	// Cancelling a brand-new add also drops the pending flag so the
+	// Add pill reappears.
 	const clearValidateMsg = useCallback(() => {
-		updateField(asUuid(fieldUuid), {
+		updateField(field.uuid, {
 			validate_msg: undefined,
 		} as FieldPatch);
 		setAddingMsg(false);
-	}, [updateField, fieldUuid]);
+	}, [updateField, field.uuid]);
 
 	return (
 		<div>

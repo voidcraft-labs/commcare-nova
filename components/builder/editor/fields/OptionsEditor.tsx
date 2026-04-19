@@ -2,14 +2,17 @@
  * OptionsEditor — declarative editor for the `options` array on
  * single-select / multi-select fields.
  *
- * Public surface:
- *   - `OptionsEditor` (default export shape for the declarative
- *     panel) — takes FieldEditorComponentProps and dispatches via
- *     `onChange`.
+ * Two exports:
+ *   - `OptionsEditor` — the FieldEditorComponent adapter. Accepts
+ *     `FieldEditorComponentProps` and enforces the schema's `min(2)`
+ *     invariant at the adapter boundary: drafts smaller than two
+ *     entries collapse to `undefined` (which the reducer treats as a
+ *     removal patch) rather than writing through a list the schema
+ *     would reject on the next validation pass.
  *   - `OptionsEditorWidget` — the underlying fieldset widget with the
- *     `{ options, onSave }` shape. Kept exported during the panel
- *     transition so the legacy contextual panel can reuse it; will
- *     be inlined as a private helper once that panel is deleted.
+ *     `{ options, onSave }` shape. Callers that already hold a
+ *     persistence strategy and simply want the label/value rows + add
+ *     button use this directly.
  */
 
 "use client";
@@ -23,7 +26,8 @@ import type { FieldEditorComponentProps } from "@/lib/domain/kinds";
 /**
  * Draft option with a stable identity for React key management.
  * The `id` is component-local and never persisted — it exists purely
- * so that reordering or editing doesn't cause React to lose input state.
+ * so that reordering or editing doesn't cause React to lose input
+ * state.
  */
 interface DraftOption extends SelectOption {
 	id: number;
@@ -39,8 +43,12 @@ interface OptionsEditorWidgetProps {
 /** Counter for generating monotonically increasing draft IDs. */
 let nextDraftId = 0;
 
-/** Stable ref callback that focuses the element on mount. Defined at module
- *  scope so React doesn't see a new function identity each render. */
+/**
+ * Stable ref callback that focuses the element on mount. Defined at
+ * module scope so React doesn't see a new function identity each
+ * render — if it did, React would unmount and remount the ref on
+ * every parent update and steal focus.
+ */
 const focusOnMount = (el: HTMLInputElement | null) =>
 	el?.focus({ preventScroll: true });
 
@@ -55,11 +63,17 @@ function toOptions(draft: DraftOption[]): SelectOption[] {
 }
 
 /**
+ * Canonical key used to compare two `SelectOption[]` values. The
+ * draft-sync gate uses it to detect external changes without
+ * regenerating draft ids on every round-trip.
+ */
+function serializeOptions(options: SelectOption[]): string {
+	return JSON.stringify(options);
+}
+
+/**
  * Low-level widget: renders the label+value inputs, add/remove row
- * affordances, and commits on group blur / Enter keypress. Kept
- * distinct from the declarative adapter so ContextualEditorData can
- * consume it with the legacy `{ options, onSave }` shape during the
- * phase-5 transition.
+ * affordances, and commits on group blur / Enter keypress.
  */
 export function OptionsEditorWidget({
 	options,
@@ -72,21 +86,39 @@ export function OptionsEditorWidget({
 	const [focusIndex, setFocusIndex] = useState<number | null>(null);
 	const groupLabelId = useId();
 
-	/* Sync draft state when props change externally (e.g. undo, tool call). */
-	const optionsKey = JSON.stringify(options);
-	const prevKeyRef = useRef(optionsKey);
-	if (optionsKey !== prevKeyRef.current) {
-		prevKeyRef.current = optionsKey;
+	// Ref on the fieldset element — used by the blur handler to check
+	// whether focus moved outside the group. Checking
+	// `fieldsetRef.current?.contains(...)` after an rAF is resilient
+	// to the element unmounting mid-blur (common when the group's
+	// last input is deleted during focus), because the ref nulls out
+	// when the DOM detaches.
+	const fieldsetRef = useRef<HTMLFieldSetElement | null>(null);
+
+	// Remember the key of the last *local* commit so we can
+	// distinguish "parent echoed our own write back" from "external
+	// mutation" (undo/redo, tool call, another editor). Only external
+	// mutations should regenerate draft ids + clear the focus index;
+	// echoes of our own commits would otherwise unmount the
+	// currently-focused input between keystrokes and drop caret/focus.
+	const lastCommittedKeyRef = useRef<string>(serializeOptions(options));
+	const currentKey = serializeOptions(options);
+	if (currentKey !== lastCommittedKeyRef.current) {
+		// External change — the prop no longer matches what we last
+		// wrote. Resync the draft and drop any pending focus hint.
+		lastCommittedKeyRef.current = currentKey;
 		setDraft(toDraftOptions(options));
 		setFocusIndex(null);
 	}
 
-	/** Commit current draft to parent, stripping empty rows. */
+	// Commit the draft to the parent, stripping empty rows. Records
+	// the committed key before dispatch so the sync block above
+	// recognizes the echoed prop as a self-write.
 	const commit = useCallback(
 		(updated: DraftOption[]) => {
 			const cleaned = toOptions(updated).filter(
 				(o) => o.label.trim() || o.value.trim(),
 			);
+			lastCommittedKeyRef.current = serializeOptions(cleaned);
 			onSave(cleaned);
 		},
 		[onSave],
@@ -123,19 +155,28 @@ export function OptionsEditorWidget({
 		setFocusIndex(next.length - 1);
 	}, [draft, commit]);
 
-	/** Commit when focus leaves the entire option group. */
-	const handleBlur = useCallback(
-		(e: React.FocusEvent) => {
-			const container = e.currentTarget;
-			requestAnimationFrame(() => {
-				if (!container.contains(document.activeElement)) {
-					commit(draft);
-					setFocusIndex(null);
-				}
-			});
-		},
-		[draft, commit],
-	);
+	/**
+	 * Commit when focus leaves the entire option group.
+	 *
+	 * The check runs in the next frame (rAF) because `blur` fires
+	 * before React processes the focus move to the new element —
+	 * without the deferral, `document.activeElement` is still `body`
+	 * even when the user is tabbing between inputs inside the same
+	 * fieldset. `fieldsetRef.current?.contains(...)` is nullable to
+	 * survive the case where the fieldset itself unmounted between
+	 * blur and the rAF callback (e.g. the options array dropped to
+	 * zero rows and a parent hid the section).
+	 */
+	const handleBlur = useCallback(() => {
+		requestAnimationFrame(() => {
+			const el = fieldsetRef.current;
+			if (!el) return;
+			if (!el.contains(document.activeElement)) {
+				commit(draft);
+				setFocusIndex(null);
+			}
+		});
+	}, [draft, commit]);
 
 	const handleKeyDown = useCallback(
 		(e: React.KeyboardEvent) => {
@@ -150,6 +191,7 @@ export function OptionsEditorWidget({
 
 	return (
 		<fieldset
+			ref={fieldsetRef}
 			onBlur={handleBlur}
 			aria-labelledby={groupLabelId}
 			className="border-none p-0 m-0"
@@ -209,14 +251,19 @@ export function OptionsEditorWidget({
 }
 
 /**
- * Declarative FieldEditorComponent adapter. Narrows the generic
- * onChange(next: F[K]) to the widget's SelectOption[] callback:
- * empty arrays become `undefined` (the reducer treats undefined as
- * removal, and `min(2)` in the schema would reject a persisted `[]`).
+ * Declarative FieldEditorComponent adapter.
  *
- * The `as F["options" & keyof F]` cast is the registry-narrowing
- * invariant — this component is only wired on kinds whose `options`
- * key is declared as `SelectOption[] | undefined`.
+ * Empties and single-option drafts collapse to `undefined`; the
+ * single-select / multi-select schemas declare `.min(2)` on
+ * `options`, so any smaller list would fail re-validation on the
+ * next write. Treating `undefined` as "not set yet" is the only
+ * round-trip-safe value for a sub-minimum draft — the reducer
+ * interprets it as a removal patch.
+ *
+ * The `as F["options" & keyof F]` cast is needed because the generic
+ * `onChange(next: F[K])` is an indexed-access write; every kind that
+ * declares `options` carries it as `SelectOption[] | undefined`, so
+ * both branches are valid values at runtime.
  */
 export function OptionsEditor<F extends Field>(
 	props: FieldEditorComponentProps<F, "options" & keyof F>,
@@ -229,9 +276,11 @@ export function OptionsEditor<F extends Field>(
 				options={current}
 				autoFocus={autoFocus}
 				onSave={(next) => {
-					onChange(
-						(next.length > 0 ? next : undefined) as F["options" & keyof F],
-					);
+					// Enforce the schema's `min(2)` at the adapter boundary —
+					// any sub-minimum draft becomes `undefined` (removal patch).
+					const persisted =
+						next.length >= 2 ? next : (undefined as SelectOption[] | undefined);
+					onChange(persisted as F["options" & keyof F]);
 				}}
 			/>
 		</div>

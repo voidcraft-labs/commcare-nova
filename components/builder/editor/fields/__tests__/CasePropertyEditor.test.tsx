@@ -16,15 +16,18 @@
  * hooks read `window.location` on mount.
  */
 
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import type { ReactNode } from "react";
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { BlueprintDocProvider } from "@/lib/doc/provider";
 import type { BlueprintDoc } from "@/lib/doc/types";
 import { asUuid } from "@/lib/doc/types";
 import type { TextField } from "@/lib/domain";
 import { BuilderSessionProvider } from "@/lib/session/provider";
-import { CasePropertyEditor } from "../CasePropertyEditor";
+import {
+	CasePropertyDropdown,
+	CasePropertyEditor,
+} from "../CasePropertyEditor";
 
 const FIELD_UUID = asUuid("q-case-0000-0000-0000-000000000000");
 const FORM_UUID = asUuid("form-case-0000-0000-0000-000000000000");
@@ -113,5 +116,82 @@ describe("CasePropertyEditor", () => {
 		// Trigger is labeled with the current state — "None" when unset.
 		const trigger = screen.getByRole("button", { name: /Saves to/i });
 		expect(trigger.textContent ?? "").toContain("None");
+	});
+
+	it("dispatches the selected case type when a menu item is clicked", () => {
+		seedFormUrl();
+		const onChange = vi.fn();
+		render(
+			<CasePropertyEditor
+				field={baseField}
+				value={undefined}
+				onChange={onChange}
+				label="Saves to"
+				keyName="case_property"
+			/>,
+			{ wrapper: wrap(makeDoc("patient")) },
+		);
+		// Open the menu, then click the "patient" item.
+		fireEvent.click(screen.getByRole("button", { name: /Saves to/i }));
+		const items = screen.getAllByRole("menuitem");
+		// items[0] = None, items[1] = patient
+		fireEvent.click(items[1]);
+		expect(onChange).toHaveBeenCalledWith("patient");
+	});
+
+	it("dispatches undefined when the None menu item is clicked", () => {
+		seedFormUrl();
+		const onChange = vi.fn();
+		render(
+			<CasePropertyEditor
+				field={baseField}
+				value="patient"
+				onChange={onChange}
+				label="Saves to"
+				keyName="case_property"
+			/>,
+			{ wrapper: wrap(makeDoc("patient")) },
+		);
+		fireEvent.click(screen.getByRole("button", { name: /Saves to/i }));
+		const items = screen.getAllByRole("menuitem");
+		fireEvent.click(items[0]);
+		expect(onChange).toHaveBeenCalledWith(undefined);
+	});
+
+	it("renders a disabled trigger for case_name fields that shows the existing value", () => {
+		seedFormUrl();
+		const caseNameField: TextField = { ...baseField, id: "case_name" };
+		render(
+			<CasePropertyEditor
+				field={caseNameField}
+				value="patient"
+				onChange={() => {}}
+				label="Saves to"
+				keyName="case_property"
+			/>,
+			{ wrapper: wrap(makeDoc("patient")) },
+		);
+		const trigger = screen.getByRole("button", { name: /Saves to/i });
+		expect(trigger).toHaveProperty("disabled", true);
+		expect(trigger.textContent ?? "").toContain("patient");
+	});
+
+	it("renders a disabled trigger when the widget is mounted with disabled=true", () => {
+		// The MEDIA_TYPES check that disables the dropdown for binary
+		// kinds is a widget-level defense — in practice media kinds
+		// don't carry `case_property` at all, so the declarative
+		// adapter wouldn't mount for them. Drive the widget directly
+		// to cover the disabled rendering path.
+		render(
+			<CasePropertyDropdown
+				value={undefined}
+				isCaseName={false}
+				disabled
+				caseTypes={["patient"]}
+				onChange={() => {}}
+			/>,
+		);
+		const trigger = screen.getByRole("button", { name: /Saves to/i });
+		expect(trigger).toHaveProperty("disabled", true);
 	});
 });

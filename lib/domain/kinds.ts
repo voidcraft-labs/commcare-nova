@@ -94,6 +94,27 @@ export type FieldEditorComponent<
 > = ComponentType<FieldEditorComponentProps<F, K>>;
 
 /**
+ * Keys of `F` whose declared type is exactly `string | undefined`
+ * (i.e. an optional-string property like `hint`, `relevant`,
+ * `validate`, `default_value`, `calculate`, `required`, …).
+ *
+ * Editors that write strings or `undefined` (TextEditor, XPathEditor)
+ * constrain their key generic to this set so `onChange(undefined)`
+ * and `onChange(someString)` type-check without casts — the
+ * registry-level invariant ("only wired on optional-string keys")
+ * is expressed in the type system instead of asserted at the call
+ * site.
+ */
+export type OptionalStringKeys<F extends Field> = {
+	[K in keyof F]-?: string | undefined extends F[K]
+		? F[K] extends string | undefined
+			? K
+			: never
+		: never;
+}[keyof F] &
+	string;
+
+/**
  * One entry in a kind's declarative editor schema.
  *
  * `label` is required — used as the editor's header text and as the

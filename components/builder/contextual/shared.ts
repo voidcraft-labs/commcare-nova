@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import type { CaseType, Field, FieldKind } from "@/lib/domain";
+import type { Field, FieldKind } from "@/lib/domain";
 import { useClearFocusHint, useSessionFocusHint } from "@/lib/session/hooks";
 
 /** Shared prop shape for all contextual editor sections (UI, Logic, Data, Footer).
@@ -199,17 +199,4 @@ export function useFocusHint(
 		if (hint) clearFocusHint();
 	}, [hint, clearFocusHint]);
 	return hint;
-}
-
-/** Returns case type names this module can write to: its own type + any child types. */
-export function getModuleCaseTypes(
-	caseType: string | undefined,
-	caseTypes: CaseType[],
-): string[] {
-	if (!caseType) return [];
-	const result = [caseType];
-	for (const ct of caseTypes) {
-		if (ct.parent_type === caseType) result.push(ct.name);
-	}
-	return result;
 }

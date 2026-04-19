@@ -15,6 +15,7 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { describe, expect, it, vi } from "vitest";
+import { EditGuardProvider } from "@/components/builder/contexts/EditGuardContext";
 import { BlueprintDocProvider } from "@/lib/doc/provider";
 import type { BlueprintDoc } from "@/lib/doc/types";
 import { asUuid } from "@/lib/doc/types";
@@ -55,14 +56,18 @@ const bp: BlueprintDoc = {
 	fieldParent: { [FIELD_UUID]: FORM_UUID },
 };
 
-// Two provider layers: the doc store seeds field/form lookups for the
-// lint-context walk; the session provider backs useSessionFocusHint.
-// RequiredEditor reads both on every render, so both must be mounted
-// for the component to render at all.
+// Three provider layers:
+//   - BlueprintDocProvider seeds field/form lookups for the
+//     lint-context walk.
+//   - BuilderSessionProvider backs useSessionFocusHint.
+//   - EditGuardProvider is required the moment the nested XPath
+//     editor activates (InlineXPathEditor calls useRegisterEditGuard).
 function wrapper({ children }: { children: ReactNode }) {
 	return (
 		<BlueprintDocProvider appId="t" initialDoc={bp}>
-			<BuilderSessionProvider>{children}</BuilderSessionProvider>
+			<BuilderSessionProvider>
+				<EditGuardProvider>{children}</EditGuardProvider>
+			</BuilderSessionProvider>
 		</BlueprintDocProvider>
 	);
 }
@@ -128,5 +133,67 @@ describe("RequiredEditor", () => {
 		);
 		// The "Condition" label is the pill's only text.
 		expect(screen.getByText("Condition").textContent).toContain("Condition");
+	});
+
+	it("mounts the XPath editor when the Condition pill is clicked", () => {
+		render(
+			<RequiredEditor
+				field={baseField}
+				value="true()"
+				onChange={() => {}}
+				label="Required"
+				keyName="required"
+			/>,
+			{ wrapper },
+		);
+		// Before the click the pill is the only control besides the toggle.
+		expect(screen.queryByText("Condition")).not.toBeNull();
+		fireEvent.click(screen.getByText("Condition"));
+		// Clicking the pill swaps it out for the XPath editor — the
+		// pill's text is gone and the condition container is mounted.
+		expect(screen.queryByText("Condition")).toBeNull();
+		const conditionContainer = document.querySelector(
+			'[data-field-id="required_condition"]',
+		);
+		expect(conditionContainer).not.toBeNull();
+	});
+
+	it("renders the condition XPath when value is a non-sentinel expression", () => {
+		// Conditional required = any string other than `"true()"`. The
+		// XPath editor mounts with the condition value; no Add pill is
+		// offered because the condition already exists.
+		render(
+			<RequiredEditor
+				field={baseField}
+				value="age > 18"
+				onChange={() => {}}
+				label="Required"
+				keyName="required"
+			/>,
+			{ wrapper },
+		);
+		expect(screen.queryByText("Condition")).toBeNull();
+		const conditionContainer = document.querySelector(
+			'[data-field-id="required_condition"]',
+		);
+		expect(conditionContainer).not.toBeNull();
+	});
+
+	it("dispatches the always-required sentinel when the condition is removed", () => {
+		// Removing a condition leaves the toggle on — the value falls
+		// back to the sentinel rather than clearing.
+		const onChange = vi.fn();
+		render(
+			<RequiredEditor
+				field={baseField}
+				value="age > 18"
+				onChange={onChange}
+				label="Required"
+				keyName="required"
+			/>,
+			{ wrapper },
+		);
+		fireEvent.click(screen.getByLabelText("Remove condition"));
+		expect(onChange).toHaveBeenCalledWith("true()");
 	});
 });
