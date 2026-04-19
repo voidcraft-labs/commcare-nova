@@ -26,6 +26,10 @@ import {
 	TreeItemRow,
 } from "@/components/builder/appTree/shared";
 import {
+	type TreeSelectHandler,
+	useAppTreeSelection,
+} from "@/components/builder/appTree/useAppTreeSelection";
+import {
 	countQuestionsFromOrder,
 	useFieldIconMap,
 } from "@/components/builder/appTree/useFieldIconMap";
@@ -33,7 +37,6 @@ import {
 	type SearchResult,
 	useSearchFilter,
 } from "@/components/builder/appTree/useSearchFilter";
-import { useScrollIntoView } from "@/components/builder/contexts/ScrollRegistryContext";
 import { ConnectLogomark } from "@/components/icons/ConnectLogomark";
 import { useBlueprintDoc } from "@/lib/doc/hooks/useBlueprintDoc";
 import { useForm as useFormDoc } from "@/lib/doc/hooks/useEntity";
@@ -51,23 +54,10 @@ import {
 	useIsFieldSelected,
 	useIsFormSelected,
 	useIsModuleSelected,
-	useNavigate,
 } from "@/lib/routing/hooks";
 import { BuilderPhase } from "@/lib/services/builder";
 import { type QuestionPath, qpath } from "@/lib/services/questionPath";
 import { useBuilderPhase } from "@/lib/session/hooks";
-
-/**
- * Handler for tree item selection — passed down through the recursive tree.
- * Uses uuid-keyed targets so selection navigates via URL, not store indices.
- */
-type TreeSelectTarget =
-	| { kind: "clear" }
-	| { kind: "module"; moduleUuid: Uuid }
-	| { kind: "form"; moduleUuid: Uuid; formUuid: Uuid }
-	| { kind: "question"; moduleUuid: Uuid; formUuid: Uuid; questionUuid: Uuid };
-
-type TreeSelectHandler = (target: TreeSelectTarget) => void;
 
 interface AppTreeProps {
 	actions?: React.ReactNode;
@@ -78,36 +68,11 @@ export function AppTree({ actions, hideHeader }: AppTreeProps) {
 	const moduleOrder = useModuleIds();
 	const appName = useBlueprintDoc((s) => s.appName);
 	const phase = useBuilderPhase();
-	const navigate = useNavigate();
-	const { setPending } = useScrollIntoView();
 
 	const locked =
 		phase !== BuilderPhase.Ready && phase !== BuilderPhase.Completed;
 
-	/** Navigate to the URL location matching the clicked tree element.
-	 *  Question clicks prime a pending scroll BEFORE the URL change so the
-	 *  target row's `useFulfillPendingScroll` has a request waiting when
-	 *  `isSelected` flips true. Reversing the order drops the scroll. */
-	const handleSelect: TreeSelectHandler = useCallback(
-		(target) => {
-			switch (target.kind) {
-				case "clear":
-					return navigate.goHome();
-				case "module":
-					return navigate.openModule(target.moduleUuid);
-				case "form":
-					return navigate.openForm(target.moduleUuid, target.formUuid);
-				case "question":
-					setPending(target.questionUuid, "instant", false);
-					return navigate.openForm(
-						target.moduleUuid,
-						target.formUuid,
-						target.questionUuid,
-					);
-			}
-		},
-		[navigate, setPending],
-	);
+	const handleSelect = useAppTreeSelection();
 	const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
 	const [searchQuery, setSearchQuery] = useState("");
 	const deferredQuery = useDeferredValue(searchQuery);
