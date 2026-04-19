@@ -67,7 +67,9 @@ interface FieldHeaderProps {
 }
 
 /** Track whether the Shift key is currently held. Resets on window blur
- *  so a tab-switch doesn't leave a phantom pressed state. */
+ *  and on `visibilitychange` → hidden so a tab-switch or OS-level
+ *  focus change doesn't leave a phantom pressed state (e.g. user
+ *  pressed Shift, cmd-tabbed away, released in another app). */
 function useShiftKey(): boolean {
 	const [shift, setShift] = useState(false);
 	useEffect(() => {
@@ -77,14 +79,19 @@ function useShiftKey(): boolean {
 		const up = (e: KeyboardEvent) => {
 			if (e.key === "Shift") setShift(false);
 		};
-		const blur = () => setShift(false);
+		const clear = () => setShift(false);
+		const onVisibility = () => {
+			if (document.visibilityState === "hidden") setShift(false);
+		};
 		window.addEventListener("keydown", down);
 		window.addEventListener("keyup", up);
-		window.addEventListener("blur", blur);
+		window.addEventListener("blur", clear);
+		document.addEventListener("visibilitychange", onVisibility);
 		return () => {
 			window.removeEventListener("keydown", down);
 			window.removeEventListener("keyup", up);
-			window.removeEventListener("blur", blur);
+			window.removeEventListener("blur", clear);
+			document.removeEventListener("visibilitychange", onVisibility);
 		};
 	}, []);
 	return shift;
@@ -118,14 +125,11 @@ export function FieldHeader({ field }: FieldHeaderProps) {
 	 * unrelated field edits (label, hint, calculate). */
 	const docApi = useBlueprintDocApi();
 
-	/* Raw session focus-hint. The header only reacts to the "id" key
-	 * (undo/redo restoring focus to the ID input); every other key is
-	 * owned by a sibling section. Reading the raw hint without clearing
-	 * it is safe because the per-key editors handle clearing when they
-	 * consume their own hint — `id` has no editor that auto-clears, so
-	 * the header reads it inline and ignores non-matching values. The
-	 * focus effect itself is what acts on the hint (focus + select the
-	 * input on mount). */
+	/* Raw session focus-hint. The hint is written by `useUndoRedo` and
+	 * read by whichever editor owns the matching data-field-id — no
+	 * editor clears it; each simply ignores non-matching values. The
+	 * header consumes `focusHint === "id"` by auto-focusing + selecting
+	 * the ID input on mount. */
 	const focusHint = useSessionFocusHint();
 	const shiftHeld = useShiftKey();
 	const deleteSelected = useDeleteSelectedField();
@@ -139,15 +143,19 @@ export function FieldHeader({ field }: FieldHeaderProps) {
 	const idInputRef = useRef<HTMLInputElement>(null);
 	const idMeasureRef = useRef<HTMLSpanElement>(null);
 
-	/** Size the ID input to its content via a hidden mirror span (same
-	 *  pattern as EditableTitle). Called on mount, value change, and draft edit. */
+	/** Size the ID input to its content by measuring a hidden mirror span
+	 *  that carries the same text + font metrics as the input, then
+	 *  copying its width back onto the input. Called on mount, value
+	 *  change, and draft edit so the field hugs its content without a
+	 *  layout jump. */
 	const syncIdWidth = useCallback(() => {
 		if (idMeasureRef.current && idInputRef.current) {
 			idInputRef.current.style.width = `${idMeasureRef.current.scrollWidth + 4}px`;
 		}
 	}, []);
 
-	/* Auto-dismiss the notice popover after 4 seconds (matches XPathField). */
+	/* Auto-dismiss the notice popover after 4 seconds so a stale error
+	 * doesn't shadow a subsequent successful rename. */
 	useEffect(() => {
 		if (!idNotice) return;
 		const timer = setTimeout(() => setIdNotice(null), 4000);
@@ -163,8 +171,11 @@ export function FieldHeader({ field }: FieldHeaderProps) {
 
 			const result = renameFieldAction(asUuid(selectedUuid), newId);
 
-			/* Store blocked the rename — sibling conflict. Show shake +
-			 * error popover matching the XPathField validation pattern. */
+			/* Store blocked the rename — two siblings would now share the
+			 * same id, which CommCare forbids. Surface the collision with
+			 * a quick shake on the input wrapper plus an error popover
+			 * anchored to it; the setTimeout drops the shake class back
+			 * to resting state once the animation finishes. */
 			if (result.conflict) {
 				setShaking(true);
 				setIdNotice({
@@ -197,12 +208,10 @@ export function FieldHeader({ field }: FieldHeaderProps) {
 			idInputRef.current = el;
 			idField.ref(el);
 			syncIdWidth();
-			/* Header-owned focus gate — the ID input is the only control
-			 * this component auto-focuses. `focusHint === "id"` covers the
-			 * undo/redo restoration path; `isNewField` covers the
-			 * just-inserted case. All other focusHint values belong to
-			 * sibling sections; reading the raw hint without clearing
-			 * here means the owning section still sees its own hint. */
+			/* Auto-focus gate. `focusHint === "id"` is the undo/redo
+			 * restoration path; `isNewField` covers the just-inserted
+			 * case where the user expects to immediately type an id
+			 * rather than clicking into the input first. */
 			const shouldAutoFocus = focusHint === "id" || isNewField;
 			if (el && shouldAutoFocus) {
 				el.focus({ preventScroll: true });
@@ -305,7 +314,10 @@ export function FieldHeader({ field }: FieldHeaderProps) {
 					ID
 				</span>
 				<div className="relative flex items-center">
-					{/* Hidden span mirror — sizes the input to its content (EditableTitle pattern). */}
+					{/* Hidden span mirror — carries the same text + font
+					 *  metrics as the input so `syncIdWidth` can copy its
+					 *  rendered width back onto the input. Keeps the field
+					 *  hugging its content without a layout jump. */}
 					<span
 						ref={(el) => {
 							idMeasureRef.current = el;
@@ -351,8 +363,11 @@ export function FieldHeader({ field }: FieldHeaderProps) {
 						size={12}
 						className="absolute right-1.5 shrink-0"
 					/>
-					{/* ID notice popover — error (conflict) or info (auto-rename).
-					 *  Matches the XPathField validation popover pattern. */}
+					{/* ID notice popover — anchored to the input wrapper, shown
+					 *  while `idNotice` is non-null. Carries either an error
+					 *  (sibling conflict) or info (auto-rename) message; the
+					 *  4-second dismissal timer upstream keeps stale notices
+					 *  from lingering past a successful retry. */}
 					<Popover.Root open={!!idNotice}>
 						<Popover.Portal>
 							<Popover.Positioner

@@ -138,14 +138,17 @@ export interface BuilderSessionState {
 
 	// ── Transient UI hints (one-shot, consumed by a single component) ────
 
-	/** Transient field key to focus after undo/redo. Set by `useUndoRedo`,
-	 *  consumed once by InlineSettingsPanel's `useFocusHintForSection` hook.
-	 *  Cleared after the matching section reads it. */
+	/** Transient field key to focus after undo/redo. Set by `useUndoRedo`;
+	 *  read by whichever editor owns the matching data-field-id (each
+	 *  editor ignores non-matching values rather than clearing the hint,
+	 *  so sibling editors still see their own hints on the same render).
+	 *  Remains set until `setFocusHint(undefined)` or `clearFocusHint()`
+	 *  is called explicitly. */
 	focusHint: string | undefined;
 
 	/** UUID of a just-added question — activates auto-focus and select-all
-	 *  on the ID input in ContextualEditorHeader. One-shot: set by
-	 *  FieldTypePicker on add, consumed once by the header on mount. */
+	 *  on the ID input in FieldHeader. One-shot: set by FieldTypePicker on
+	 *  add, consumed once by the header on mount. */
 	newQuestionUuid: string | undefined;
 
 	// ── Actions ───────────────────────────────────────────────────────────
@@ -276,16 +279,21 @@ export interface BuilderSessionState {
 
 	// ── UI hint actions ──────────────────────────────────────────────────
 
-	/** Set the transient focus hint — used by undo/redo to tell
-	 *  InlineSettingsPanel which field to focus after restoration. */
+	/** Set the transient focus hint — used by undo/redo to tell the
+	 *  field inspector which property's editor to focus after the
+	 *  doc-store restoration commits. */
 	setFocusHint: (fieldId: string | undefined) => void;
 
-	/** Clear the focus hint. Called by the consuming section after it reads
-	 *  the hint, so other sections don't see a stale value. */
+	/** Clear the focus hint. Call sites are responsible for deciding
+	 *  when the hint has served its purpose — e.g. a new undo cycle
+	 *  overwrites via `setFocusHint`, or the hint is invalidated by a
+	 *  route change. Editor components do NOT clear the hint on read;
+	 *  they simply ignore non-matching values so sibling editors can
+	 *  still see their own hints on the same render. */
 	clearFocusHint: () => void;
 
 	/** Mark a question uuid as newly added — triggers auto-focus and
-	 *  select-all on the ID input in ContextualEditorHeader. */
+	 *  select-all on the ID input in FieldHeader. */
 	markNewField: (uuid: string) => void;
 
 	/** Check whether a uuid matches the current new-question marker.

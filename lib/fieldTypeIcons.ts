@@ -1,6 +1,7 @@
 /**
- * Shared icon data and categorisation for field kinds — used by AppTree,
- * FieldTypePickerPopup, and ContextualEditorHeader.
+ * Shared icon data and categorisation for field kinds — used by
+ * AppTree, FieldTypeList, FieldPicker, FieldTypePicker, and the live
+ * preview renderers.
  * Raw icon data objects (not JSX) so consumers can render at any size.
  */
 

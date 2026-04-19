@@ -27,7 +27,7 @@ import { ScrollRegistryProvider } from "@/components/builder/contexts/ScrollRegi
 import { BlueprintDocProvider } from "@/lib/doc/provider";
 import type { BlueprintDoc } from "@/lib/doc/types";
 import { asUuid } from "@/lib/doc/types";
-import type { TextField } from "@/lib/domain";
+import { fieldRegistry, type TextField } from "@/lib/domain";
 import { BuilderSessionProvider } from "@/lib/session/provider";
 import { FieldHeader } from "../FieldHeader";
 
@@ -113,20 +113,33 @@ describe("FieldHeader", () => {
 	});
 
 	it("renders the type-icon adornment from the registry", () => {
-		// The icon comes from `fieldRegistry["text"].icon` — an
-		// IconifyIcon object. The Icon component renders it as an
-		// inline SVG. The tooltip text matches the registry label
-		// ("Text" for a text field), which is the user-visible proof
-		// that the header consulted the registry.
+		// Pin the registry — not the parallel `fieldKindIcons` map —
+		// as the truth source. `fieldRegistry["text"].icon` is an
+		// IconifyIcon object whose `body` is the inner SVG markup
+		// (`<path ...>` etc.); @iconify's `<Icon>` renders that body
+		// verbatim inside an `<svg>`. Compare by re-parsing both
+		// strings through the DOM so we don't care whether a `<path/>`
+		// self-close vs a `<path></path>` serialization came out of
+		// the renderer — the underlying element must match.
 		render(<FieldHeader field={baseField} />, { wrapper: wrap(makeDoc()) });
-		// The adornment slot holds the type icon — asserting an svg
-		// is present in the header is sufficient because the only
-		// icon inside the ID-input badge is the type icon.
 		const input = screen.getByDisplayValue("name");
 		const root = input.closest("[data-field-id='id']");
 		expect(root).not.toBeNull();
 		const svg = root?.querySelector("svg");
 		expect(svg).not.toBeNull();
+
+		// Normalise by mounting the registry's icon.body into a fresh
+		// SVG element: the resulting innerHTML is the same serializer
+		// output shape as what the Icon component produced. A
+		// regression swapping the source to `fieldKindIcons["text"]`
+		// would still pass today (identical body), but a swap to a
+		// different icon or a mis-keyed kind would diverge here.
+		const reference = document.createElementNS(
+			"http://www.w3.org/2000/svg",
+			"svg",
+		);
+		reference.innerHTML = fieldRegistry.text.icon.body;
+		expect(svg?.innerHTML).toBe(reference.innerHTML);
 	});
 
 	it("shakes + shows error popover on rename with a conflicting sibling id", () => {

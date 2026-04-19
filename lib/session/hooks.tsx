@@ -131,7 +131,7 @@ export function useClearFocusHint(): () => void {
 // ── New question marker ──────────────────────────────────────────────────
 
 /** Whether the given uuid is the just-added question. Drives auto-focus
- *  and select-all on the ID input in ContextualEditorHeader. */
+ *  and select-all on the ID input in FieldHeader. */
 export function useIsNewField(uuid: string): boolean {
 	return useBuilderSession((s) => s.newQuestionUuid === uuid);
 }

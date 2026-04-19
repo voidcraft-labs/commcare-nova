@@ -46,7 +46,7 @@ Scroll margin is adaptive: compact for non-text clicks, expanded when the click 
 
 ## Sticky selection
 
-Clicking empty space does not deselect. Deselecting would constantly dismiss the contextual editor panel. Selection only changes when the user clicks a different question or navigates away.
+Clicking empty space does not deselect. Deselecting would constantly dismiss the field inspector panel. Selection only changes when the user clicks a different question or navigates away.
 
 ## Selection + scroll flow
 
@@ -95,7 +95,7 @@ When adding a new property, add it to the map. Fields absent from the map are al
 
 Editor sub-panels own their own visibility and return `null` when the type has no applicable fields.
 
-## Contextual header — compute move targets inline
+## Field header — compute move targets inline
 
 Move targets and `isFirst` / `isLast` flags are computed in the render body, NOT in `useMemo`. After a reorder, Immer produces new entity-map references that trigger a re-render, and inline computation picks up the fresh state. Memoizing on `[selected]` alone would miss the reorder because selection doesn't change on reorder.
 
