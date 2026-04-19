@@ -8,35 +8,20 @@ import tablerSettings from "@iconify-icons/tabler/settings";
 import tablerTable from "@iconify-icons/tabler/table";
 import tablerX from "@iconify-icons/tabler/x";
 import { AnimatePresence, motion } from "motion/react";
-import {
-	useCallback,
-	useContext,
-	useId,
-	useMemo,
-	useRef,
-	useState,
-} from "react";
-import { SavedCheck } from "@/components/builder/EditableTitle";
-import { SaveShortcutHint } from "@/components/builder/SaveShortcutHint";
-import { XPathField } from "@/components/builder/XPathField";
+import { useCallback, useId, useMemo, useRef, useState } from "react";
 import { ConnectLogomark } from "@/components/icons/ConnectLogomark";
 import { FieldPicker } from "@/components/ui/FieldPicker";
 import { Toggle } from "@/components/ui/Toggle";
-import { useCommitField } from "@/hooks/useCommitField";
-import { buildLintContext } from "@/lib/codemirror/buildLintContext";
-import type { XPathLintContext } from "@/lib/codemirror/xpath-lint";
 import {
 	useBlueprintDoc,
 	useBlueprintDocShallow,
 } from "@/lib/doc/hooks/useBlueprintDoc";
 import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
 import { useForm, useModule } from "@/lib/doc/hooks/useEntity";
-import { BlueprintDocContext } from "@/lib/doc/provider";
 import { asUuid, type Uuid } from "@/lib/doc/types";
 import {
 	type ConnectConfig,
 	defaultPostSubmit,
-	type Field,
 	type PostSubmitDestination,
 } from "@/lib/domain";
 import { toSnakeId } from "@/lib/services/commcare/validate";
@@ -49,6 +34,10 @@ import {
 	POPOVER_POPUP_CLS,
 	POPOVER_POSITIONER_GLASS_CLS,
 } from "@/lib/styles";
+import { findFieldById } from "./formSettings/findFieldById";
+import { InlineField } from "./formSettings/InlineField";
+import { LabeledXPathField } from "./formSettings/LabeledXPathField";
+import { useConnectLintContext } from "./formSettings/useConnectLintContext";
 
 // ── Types ─────────────────────────────────────────────────────────────
 
@@ -150,33 +139,6 @@ function FormSettingsPanel({
 			</div>
 		</div>
 	);
-}
-
-// ── Helpers ──────────────────────────────────────────────────────────
-
-/**
- * Walk the normalized doc depth-first from `parentUuid` looking for the
- * first field whose semantic `id` matches. Used by the close-condition
- * UI to reach the referenced field's option list without round-
- * tripping through the legacy assembled-questions shape.
- */
-function findFieldById(
-	fields: Readonly<Record<string, Field>>,
-	fieldOrder: Readonly<Record<string, readonly string[]>>,
-	parentUuid: string,
-	id: string,
-): Field | undefined {
-	const childUuids = fieldOrder[parentUuid] ?? [];
-	for (const uuid of childUuids) {
-		const field = fields[uuid];
-		if (!field) continue;
-		if (field.id === id) return field;
-		if (field.kind === "group" || field.kind === "repeat") {
-			const found = findFieldById(fields, fieldOrder, uuid, id);
-			if (found) return found;
-		}
-	}
-	return undefined;
 }
 
 // ── Close Condition Section ───────────────────────────────────────────
@@ -692,42 +654,6 @@ function AfterSubmitSection({ formUuid }: FormSettingsPanelProps) {
 
 // ── Connect Configuration Section ──────────────────────────────────────
 
-/**
- * Compact labeled XPathField for settings panels. Shows the save shortcut
- * hint beside the label while the editor is active.
- */
-function LabeledXPathField({
-	label,
-	required,
-	value,
-	onSave,
-	getLintContext,
-}: {
-	label: string;
-	required?: boolean;
-	value: string;
-	onSave: (value: string) => void;
-	getLintContext: () => XPathLintContext | undefined;
-}) {
-	const [editing, setEditing] = useState(false);
-
-	return (
-		<div>
-			<span className="text-[10px] text-nova-text-muted uppercase tracking-wider mb-0.5 flex items-center gap-0.5">
-				{label}
-				{required && <span className="text-nova-rose">*</span>}
-				{editing && <SaveShortcutHint />}
-			</span>
-			<XPathField
-				value={value}
-				onSave={onSave}
-				getLintContext={getLintContext}
-				onEditingChange={setEditing}
-			/>
-		</div>
-	);
-}
-
 function ConnectSection({ moduleUuid, formUuid }: FormSettingsPanelProps) {
 	const form = useForm(formUuid);
 	const mod = useModule(moduleUuid);
@@ -867,19 +793,6 @@ interface ConnectSubConfigProps {
 	save: (c: ConnectConfig) => void;
 	moduleUuid: Uuid;
 	formUuid: Uuid;
-}
-
-/** Shared lint context getter for XPath fields in connect sub-configs.
- *  Reads from the doc store imperatively — always reflects latest state.
- *  Delegates to the shared `buildLintContext` helper that pre-collects
- *  the thin slices the CodeMirror plugin needs (valid paths, case
- *  properties, form entries). */
-function useConnectLintContext(formUuid: Uuid) {
-	const docStore = useContext(BlueprintDocContext);
-	return useCallback((): XPathLintContext | undefined => {
-		if (!docStore) return undefined;
-		return buildLintContext(docStore.getState(), formUuid);
-	}, [docStore, formUuid]);
 }
 
 // ── Learn Config Fields ────────────────────────────────────────────────
@@ -1259,101 +1172,6 @@ function DeliverConfig({
 						</motion.div>
 					)}
 				</AnimatePresence>
-			</div>
-		</div>
-	);
-}
-
-// ── Inline Field ───────────────────────────────────────────────────────
-
-/**
- * Compact text field used inside FormSettingsPanel for connect configuration.
- * Shares the same commit/cancel/checkmark model as EditableText (via
- * useCommitField): blur or Enter commits, Escape cancels with stopPropagation,
- * and an emerald checkmark animates in the label for 1.5 s after a save.
- */
-function InlineField({
-	label,
-	value,
-	onChange,
-	mono,
-	multiline,
-	placeholder,
-	suffix,
-	type = "text",
-	required,
-}: {
-	label: string;
-	value: string;
-	onChange: (value: string) => void;
-	mono?: boolean;
-	multiline?: boolean;
-	placeholder?: string;
-	suffix?: string;
-	type?: string;
-	required?: boolean;
-}) {
-	const fieldId = useId();
-	const {
-		draft,
-		setDraft,
-		focused,
-		saved,
-		ref,
-		handleFocus,
-		handleBlur,
-		handleKeyDown,
-	} = useCommitField({
-		value,
-		onSave: onChange,
-		required,
-		multiline,
-	});
-
-	const Tag = multiline ? "textarea" : "input";
-
-	return (
-		<div>
-			<label
-				htmlFor={fieldId}
-				className="text-[10px] text-nova-text-muted uppercase tracking-wider mb-0.5 flex items-center gap-0.5"
-			>
-				{label}
-				{required && <span className="text-nova-rose ml-0.5">*</span>}
-				<SavedCheck
-					visible={saved && !focused}
-					size={10}
-					className="shrink-0"
-				/>
-			</label>
-			<div className="relative">
-				<Tag
-					id={fieldId}
-					ref={ref as React.RefCallback<HTMLInputElement & HTMLTextAreaElement>}
-					type={type === "number" ? "number" : "text"}
-					value={draft}
-					onChange={(e) => setDraft(e.target.value)}
-					onFocus={handleFocus}
-					onBlur={handleBlur}
-					onKeyDown={handleKeyDown}
-					placeholder={placeholder}
-					autoComplete="off"
-					data-1p-ignore
-					rows={multiline ? 2 : undefined}
-					min={type === "number" ? 1 : undefined}
-					className={`w-full text-xs px-2 py-1.5 rounded-md border transition-colors outline-none resize-none ${
-						mono ? "font-mono text-nova-violet-bright" : "text-nova-text"
-					} ${
-						focused
-							? "bg-nova-surface border-nova-violet/50 shadow-[0_0_0_1px_rgba(139,92,246,0.1)]"
-							: "bg-nova-deep/50 border-white/[0.06] hover:border-nova-violet/30"
-					} ${suffix ? "pr-8" : ""}`}
-				/>
-				{suffix && (
-					<span className="absolute right-2 top-1/2 -translate-y-1/2 text-[10px] text-nova-text-muted pointer-events-none">
-						{suffix}
-					</span>
-				)}
 			</div>
 		</div>
 	);
