@@ -7,7 +7,7 @@ import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
 import { useForm, useModule } from "@/lib/doc/hooks/useEntity";
 import { asUuid, type Uuid } from "@/lib/doc/types";
 import { CASE_FORM_TYPES, type FormType } from "@/lib/domain";
-import { formTypeIcons } from "@/lib/fieldTypeIcons";
+import { formTypeIcons } from "@/lib/domain/formTypeIcons";
 import {
 	MENU_ITEM_BASE,
 	MENU_ITEM_CLS,
@@ -85,7 +85,7 @@ export function FormTypeButton({
 		[editable, updateForm, formUuid],
 	);
 
-	const icon = formTypeIcons[form?.type ?? "survey"] ?? formTypeIcons.survey;
+	const icon = formTypeIcons[form?.type ?? "survey"];
 	const hasCaseType = editable && !!mod?.caseType;
 	const activeType = form?.type ?? "survey";
 	const last = formTypeOptions.length - 1;
@@ -141,7 +141,7 @@ export function FormTypeButton({
 												className={`w-1.5 h-1.5 rounded-full shrink-0 ${isActive ? "bg-nova-violet" : "bg-transparent"}`}
 											/>
 											<Icon
-												icon={formTypeIcons[opt.value] ?? formTypeIcons.survey}
+												icon={formTypeIcons[opt.value]}
 												width="16"
 												height="16"
 												className={

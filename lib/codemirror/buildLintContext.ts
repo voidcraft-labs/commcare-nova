@@ -46,7 +46,7 @@ export function buildLintContext(
 	const formEntries: Array<{
 		path: string;
 		label: string;
-		kind: string;
+		kind: FieldKind;
 	}> = [];
 	function walk(parent: Uuid, prefix: string) {
 		const order = state.fieldOrder[parent] ?? [];
@@ -95,8 +95,6 @@ export function buildLintContext(
 	return {
 		validPaths,
 		caseProperties: moduleCaseType ? caseProperties : undefined,
-		formEntries: formEntries.filter((e) =>
-			VALUE_PRODUCING_TYPES.has(e.kind as FieldKind),
-		),
+		formEntries: formEntries.filter((e) => VALUE_PRODUCING_TYPES.has(e.kind)),
 	};
 }

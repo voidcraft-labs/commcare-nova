@@ -13,7 +13,6 @@
 
 import type { XPathLintContext } from "@/lib/codemirror/xpath-lint";
 import { type FieldKind, fieldKinds, fieldRegistry } from "@/lib/domain";
-import { fieldKindIcons } from "@/lib/fieldTypeIcons";
 import { type QuestionPath, qpath } from "@/lib/services/questionPath";
 import { REFERENCE_TYPES } from "./config";
 import type { Reference, ReferenceType } from "./types";
@@ -53,9 +52,9 @@ export class ReferenceProvider {
 		entries: ReadonlyArray<{
 			path: QuestionPath;
 			label: string;
-			kind: string;
+			kind: FieldKind;
 		}>;
-		byPath: Map<string, { label: string; kind: string }>;
+		byPath: Map<string, { label: string; kind: FieldKind }>;
 	} | null = null;
 
 	constructor(private getContext: () => XPathLintContext | undefined) {}
@@ -101,7 +100,7 @@ export class ReferenceProvider {
 					path: e.path,
 					label: e.label,
 					raw: `#form/${e.path}`,
-					icon: fieldKindIcons[e.kind],
+					icon: fieldRegistry[e.kind].icon,
 				}));
 		}
 
@@ -154,7 +153,7 @@ export class ReferenceProvider {
 				path: fieldPath,
 				raw,
 				label: found.label ?? path,
-				icon: fieldKindIcons[found.kind],
+				icon: fieldRegistry[found.kind].icon,
 			};
 		}
 
@@ -199,7 +198,7 @@ export class ReferenceProvider {
 			label: e.label,
 			kind: e.kind,
 		}));
-		const byPath = new Map<string, { label: string; kind: string }>();
+		const byPath = new Map<string, { label: string; kind: FieldKind }>();
 		for (const e of entries) {
 			byPath.set(e.path, { label: e.label, kind: e.kind });
 		}
@@ -211,10 +210,14 @@ export class ReferenceProvider {
 /** Minimal field projection consumed by `collectFieldEntries`. Narrow
  *  by design — the walker only needs `id`, `kind`, and optional `label`.
  *  Structural kinds (group, repeat) don't carry hint/validation data
- *  anyway, so this shape covers every domain Field variant. */
+ *  anyway, so this shape covers every domain Field variant.
+ *
+ *  `kind` is the domain `FieldKind` union so downstream consumers
+ *  (FieldPicker icon lookup, autocomplete chip rendering) can index
+ *  `fieldRegistry` without a widening cast. */
 export interface FieldEntryField {
 	readonly id: string;
-	readonly kind: string;
+	readonly kind: FieldKind;
 	readonly label?: string;
 }
 
@@ -239,11 +242,11 @@ export function collectFieldEntries(
 	src: FieldEntrySource,
 	parentUuid: string,
 	parent?: QuestionPath,
-): Array<{ path: QuestionPath; label: string; kind: string }> {
+): Array<{ path: QuestionPath; label: string; kind: FieldKind }> {
 	const entries: Array<{
 		path: QuestionPath;
 		label: string;
-		kind: string;
+		kind: FieldKind;
 	}> = [];
 	const childUuids = src.fieldOrder[parentUuid] ?? [];
 	for (const uuid of childUuids) {

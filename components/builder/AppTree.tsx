@@ -36,8 +36,14 @@ import {
 } from "@/lib/doc/hooks/useBlueprintDoc";
 import { useForm as useFormDoc } from "@/lib/doc/hooks/useEntity";
 import { useModuleIds } from "@/lib/doc/hooks/useModuleIds";
-import type { Field, Form, Module, Uuid } from "@/lib/domain";
-import { fieldKindIcons, formTypeIcons } from "@/lib/fieldTypeIcons";
+import {
+	type Field,
+	type Form,
+	fieldRegistry,
+	type Module,
+	type Uuid,
+} from "@/lib/domain";
+import { formTypeIcons } from "@/lib/domain/formTypeIcons";
 import { highlightSegments, type MatchIndices } from "@/lib/filterTree";
 import { textWithChips } from "@/lib/references/LabelContent";
 import {
@@ -668,7 +674,7 @@ const FormCard = memo(function FormCard({
 
 	if (!form) return null;
 
-	const formIcon = formTypeIcons[form.type] ?? formTypeIcons.survey;
+	const formIcon = formTypeIcons[form.type];
 
 	return (
 		<motion.div
@@ -780,10 +786,10 @@ function useFieldIconMap(formId: Uuid): Map<string, IconifyIcon> {
 				const f = fields[uuid];
 				if (!f) continue;
 				const p = qpath(f.id, parentPath);
-				// `kind` replaced `type` during the Phase 1 domain rename; keep
-				// the icon lookup keyed on the narrower Field discriminator.
-				const icon = fieldKindIcons[f.kind];
-				if (icon) map.set(p, icon);
+				// Icon comes from `fieldRegistry[kind]` — the domain-owned
+				// metadata registry. Every kind has an icon, so no defensive
+				// branch is needed; the lookup is total.
+				map.set(p, fieldRegistry[f.kind].icon);
 				walk(uuid, p);
 			}
 		}
@@ -852,7 +858,7 @@ const FieldRow = memo(function FieldRow({
 	if (!q) return null;
 
 	const questionPath = qpath(q.id, parentPath);
-	const iconData = fieldKindIcons[q.kind];
+	const iconData = fieldRegistry[q.kind].icon;
 	const hasChildren = childUuids && childUuids.length > 0;
 	const isCollapsed =
 		hasChildren &&
@@ -914,7 +920,7 @@ const FieldRow = memo(function FieldRow({
 					<span className="w-4 shrink-0" aria-hidden />
 				)}
 				<span className="w-4 text-center text-nova-text-muted shrink-0 flex items-center justify-center">
-					{iconData ? <Icon icon={iconData} width="12" height="12" /> : "?"}
+					<Icon icon={iconData} width="12" height="12" />
 				</span>
 				{showIdMatch ? (
 					<span className="flex items-center gap-1.5 min-w-0 flex-1">

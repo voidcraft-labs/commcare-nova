@@ -1,8 +1,5 @@
 "use client";
 import { Icon } from "@iconify/react/offline";
-import tablerFile from "@iconify-icons/tabler/file";
-import tablerFilePencil from "@iconify-icons/tabler/file-pencil";
-import tablerFilePlus from "@iconify-icons/tabler/file-plus";
 import { motion } from "motion/react";
 import { useCallback, useState } from "react";
 import { EditableTitle, SavedCheck } from "@/components/builder/EditableTitle";
@@ -11,15 +8,10 @@ import { useModule as useModuleEntity } from "@/lib/doc/hooks/useEntity";
 import { useOrderedForms } from "@/lib/doc/hooks/useModuleIds";
 import type { Uuid } from "@/lib/doc/types";
 import { CASE_LOADING_FORM_TYPES } from "@/lib/domain";
+import { formTypeIcons } from "@/lib/domain/formTypeIcons";
 import type { PreviewScreen } from "@/lib/preview/engine/types";
 import { useLocation, useNavigate } from "@/lib/routing/hooks";
 import { useBuilderIsReady, useEditMode } from "@/lib/session/hooks";
-
-const formTypeIcons = {
-	registration: tablerFilePlus,
-	followup: tablerFilePencil,
-	survey: tablerFile,
-} as const;
 
 interface ModuleScreenProps {
 	/** This screen's identity — which module is being displayed. Passed from
@@ -74,9 +66,7 @@ export function ModuleScreen({ screen: _screen }: ModuleScreenProps) {
 
 			<div className="space-y-2">
 				{forms.map((form, fIdx) => {
-					const icon =
-						formTypeIcons[form.type as keyof typeof formTypeIcons] ??
-						tablerFile;
+					const icon = formTypeIcons[form.type];
 
 					const handleClick = () => {
 						if (!moduleUuid) return;

@@ -113,14 +113,13 @@ describe("FieldHeader", () => {
 	});
 
 	it("renders the type-icon adornment from the registry", () => {
-		// Pin the registry — not the parallel `fieldKindIcons` map —
-		// as the truth source. `fieldRegistry["text"].icon` is an
-		// IconifyIcon object whose `body` is the inner SVG markup
+		// Pin `fieldRegistry` as the truth source. `fieldRegistry["text"].icon`
+		// is an IconifyIcon object whose `body` is the inner SVG markup
 		// (`<path ...>` etc.); @iconify's `<Icon>` renders that body
-		// verbatim inside an `<svg>`. Compare by re-parsing both
-		// strings through the DOM so we don't care whether a `<path/>`
-		// self-close vs a `<path></path>` serialization came out of
-		// the renderer — the underlying element must match.
+		// verbatim inside an `<svg>`. Compare by re-parsing both strings
+		// through the DOM so we don't care whether a `<path/>` self-close
+		// vs a `<path></path>` serialization came out of the renderer —
+		// the underlying element must match.
 		render(<FieldHeader field={baseField} />, { wrapper: wrap(makeDoc()) });
 		const input = screen.getByDisplayValue("name");
 		const root = input.closest("[data-field-id='id']");
@@ -130,9 +129,7 @@ describe("FieldHeader", () => {
 
 		// Normalise by mounting the registry's icon.body into a fresh
 		// SVG element: the resulting innerHTML is the same serializer
-		// output shape as what the Icon component produced. A
-		// regression swapping the source to `fieldKindIcons["text"]`
-		// would still pass today (identical body), but a swap to a
+		// output shape as what the Icon component produced. A swap to a
 		// different icon or a mis-keyed kind would diverge here.
 		const reference = document.createElementNS(
 			"http://www.w3.org/2000/svg",
