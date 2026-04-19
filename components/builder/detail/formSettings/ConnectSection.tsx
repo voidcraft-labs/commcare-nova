@@ -10,7 +10,7 @@ import type { ConnectConfig } from "@/lib/domain";
 import { toSnakeId } from "@/lib/services/commcare/validate";
 import { useFormConnectStash, useStashFormConnect } from "@/lib/session/hooks";
 import { DeliverConfig } from "./DeliverConfig";
-import { LearnConfig } from "./LearnConfig";
+import { DEFAULT_LEARN_TIME_ESTIMATE, LearnConfig } from "./LearnConfig";
 import type { FormSettingsSectionProps } from "./types";
 
 /**
@@ -75,7 +75,7 @@ export function ConnectSection({
 							id: modSlug,
 							name: form?.name ?? "",
 							description: form?.name ?? "",
-							time_estimate: 5,
+							time_estimate: DEFAULT_LEARN_TIME_ESTIMATE,
 						},
 						assessment: {
 							id: `${modSlug}_${formSlug}`,

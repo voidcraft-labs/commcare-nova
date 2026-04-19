@@ -25,7 +25,7 @@ import { useNavigate } from "@/lib/routing/hooks";
  * Discriminated union of every tree-selection shape. Every row
  * component produces one of these; the handler dispatches on `kind`.
  */
-export type TreeSelectTarget =
+type TreeSelectTarget =
 	| { kind: "clear" }
 	| { kind: "module"; moduleUuid: Uuid }
 	| { kind: "form"; moduleUuid: Uuid; formUuid: Uuid }

@@ -23,37 +23,6 @@ const formTypeOptions: { value: FormType; label: string }[] = [
 	{ value: "survey", label: "Survey" },
 ];
 
-interface FormDetailProps {
-	/** Module uuid to look up module-level context (case type). */
-	moduleUuid: Uuid;
-	/** Form uuid to look up the form entity. */
-	formUuid: Uuid;
-}
-
-/**
- * Read-only close condition info within FormSettingsPanel.
- * Renders only when the form is a close form — shows conditional vs unconditional.
- */
-export function FormDetail({ formUuid }: FormDetailProps) {
-	const form = useForm(formUuid);
-	if (form?.type !== "close") return null;
-
-	return (
-		<div>
-			<span className="text-xs text-nova-text-muted uppercase tracking-wider mb-1 block">
-				Close Behavior
-			</span>
-			<p className="text-sm text-nova-rose">
-				{form.closeCondition?.field
-					? `Conditional: when ${form.closeCondition.field} ${form.closeCondition.operator === "selected" ? "has selected" : "is"} "${form.closeCondition.answer}"`
-					: "Always closes case on submit"}
-			</p>
-		</div>
-	);
-}
-
-// ── Form Type Button (for FormScreen header) ──────────────────────────
-
 interface FormTypeButtonProps {
 	moduleUuid: Uuid;
 	formUuid: Uuid;

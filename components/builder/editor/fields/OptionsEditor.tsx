@@ -75,7 +75,7 @@ function serializeOptions(options: SelectOption[]): string {
  * Low-level widget: renders the label+value inputs, add/remove row
  * affordances, and commits on group blur / Enter keypress.
  */
-export function OptionsEditorWidget({
+function OptionsEditorWidget({
 	options,
 	onSave,
 	autoFocus,

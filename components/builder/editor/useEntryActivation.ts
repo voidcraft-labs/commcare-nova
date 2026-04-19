@@ -24,7 +24,7 @@ import { useCallback, useMemo, useState } from "react";
 /** The three editor sections that can each independently hold an activation. */
 export type EditorSectionName = "data" | "logic" | "ui";
 
-export type EntryActivation = {
+type EntryActivation = {
 	/** True when `key` is pending for this scope. */
 	pending: (key: string) => boolean;
 	/** Mark `key` as pending; previous pending (if any) is replaced. */

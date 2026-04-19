@@ -34,7 +34,7 @@ import type { FieldEditorEntry } from "@/lib/domain/kinds";
 
 /** A visible entry plus the flags that drive focus + activation-clear
  *  decisions in the section renderer. */
-export interface VisiblePartitionedEntry<F extends Field> {
+interface VisiblePartitionedEntry<F extends Field> {
 	/** The entry definition from the schema. */
 	entry: FieldEditorEntry<F>;
 	/** True when the entry is visible solely because of pending activation.

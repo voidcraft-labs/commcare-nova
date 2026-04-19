@@ -11,6 +11,13 @@ import { LabeledXPathField } from "./LabeledXPathField";
 import { useConnectLintContext } from "./useConnectLintContext";
 
 /**
+ * Default minutes-to-complete for a freshly enabled Connect learn module.
+ * Shared with the seed path in `ConnectSection` so the initial app-level
+ * scaffold and the subsequent learn-mode seed produce identical defaults.
+ */
+export const DEFAULT_LEARN_TIME_ESTIMATE = 5;
+
+/**
  * Shared prop contract for connect-mode sub-config components. `connect`
  * is the current ConnectConfig, `save` replaces it wholesale (callers
  * spread `connect` plus their patch), and `moduleUuid` / `formUuid`
@@ -62,7 +69,7 @@ export function LearnConfig({
 				id: learnId,
 				name: "",
 				description: "",
-				time_estimate: 5,
+				time_estimate: DEFAULT_LEARN_TIME_ESTIMATE,
 			};
 			save({ ...connect, learn_module: { ...current, [field]: value } });
 		},
@@ -85,7 +92,7 @@ export function LearnConfig({
 						id: learnId,
 						name: form?.name ?? "",
 						description: form?.name ?? "",
-						time_estimate: 5,
+						time_estimate: DEFAULT_LEARN_TIME_ESTIMATE,
 					},
 				});
 			}
