@@ -8,7 +8,7 @@ import { useBlueprintDoc } from "@/lib/doc/hooks/useBlueprintDoc";
 import { useForm } from "@/lib/doc/hooks/useEntity";
 import type { Uuid } from "@/lib/doc/types";
 import { POPOVER_POPUP_CLS, POPOVER_POSITIONER_GLASS_CLS } from "@/lib/styles";
-import { FormSettingsPanel } from "../FormSettingsPanel";
+import { FormSettingsPanel } from "./FormSettingsPanel";
 
 /** Trigger prop shape — the same `{ moduleUuid, formUuid }` pair the
  *  panel itself consumes, carried through to `FormSettingsPanel`. */

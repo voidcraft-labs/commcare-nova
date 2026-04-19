@@ -2,9 +2,9 @@
 import { Icon } from "@iconify/react/offline";
 import tablerX from "@iconify-icons/tabler/x";
 import type { Uuid } from "@/lib/doc/types";
-import { AfterSubmitSection } from "./formSettings/AfterSubmitSection";
-import { CloseConditionSection } from "./formSettings/CloseConditionSection";
-import { ConnectSection } from "./formSettings/ConnectSection";
+import { AfterSubmitSection } from "./AfterSubmitSection";
+import { CloseConditionSection } from "./CloseConditionSection";
+import { ConnectSection } from "./ConnectSection";
 
 /** Panel prop shape. The shell forwards the same `{ moduleUuid, formUuid }`
  *  pair down to every section; `onClose` is owned by the popover trigger. */
