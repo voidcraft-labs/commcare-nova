@@ -31,7 +31,10 @@ import {
 } from "@/lib/session/hooks";
 import { deriveAgentStage } from "@/lib/session/lifecycle";
 import type { BuilderSessionStoreApi } from "@/lib/session/provider";
-import { useBuilderSessionApi } from "@/lib/session/provider";
+import {
+	useBuilderSession,
+	useBuilderSessionApi,
+} from "@/lib/session/provider";
 import { GenerationStage } from "@/lib/session/types";
 import { signalGrid } from "@/lib/signalGrid/store";
 import {
@@ -247,17 +250,32 @@ export function ChatSidebar({
 	}, [desiredMode, desiredLabel, gridController]);
 
 	// Auto-decay Completed → Ready after the done celebration finishes.
-	// The 3.5s delay covers the 2s celebration burst + 1.5s of the resting emerald
-	// pulse so the transition feels unhurried. If the builder leaves Completed
-	// before the timer fires (e.g. user starts a new edit), the cleanup cancels it.
+	//
+	// The 3.5s delay covers the 2s celebration burst + 1.5s of the resting
+	// emerald pulse so the transition feels unhurried.
+	//
+	// Gate on `bufferEmpty` — the timer must not arm until the SSE stream
+	// has actually closed (endRun cleared the events buffer). `data-done`
+	// stamps `runCompletedAt` mid-stream while the agent is still
+	// streaming its final summary text. If the 3.5s timer fired during
+	// that streaming window, `acknowledgeCompletion` would clear
+	// `runCompletedAt` while the events buffer still held the run's
+	// schema/scaffold/fix mutations — `derivePhase` would then flip from
+	// Completed straight to Generating (foundation + stage) for a
+	// fraction of a second until stream-close cleared the buffer,
+	// flashing the GenerationProgress card back on screen. Waiting for
+	// the buffer to empty first means the celebration lingers until the
+	// stream is genuinely done, then a clean 3.5s delay to Ready.
+	const bufferEmpty = useBuilderSession((s) => s.events.length === 0);
 	useEffect(() => {
 		if (phase !== BuilderPhase.Completed) return;
+		if (!bufferEmpty) return;
 		const id = setTimeout(
 			() => sessionApi.getState().acknowledgeCompletion(),
 			3500,
 		);
 		return () => clearTimeout(id);
-	}, [phase, sessionApi]);
+	}, [phase, bufferEmpty, sessionApi]);
 
 	// Elapsed timer — resets when the controller's active label or mode changes.
 	// Label changes (e.g. "Building forms" → "Validating") reset the timer during
