@@ -16,8 +16,6 @@ External consumers (`app/api/chat/route.ts`, `app/api/compile/route.ts`, `compon
 - `blueprintHelpers.ts` — pure `Mutation[]` builders the SA calls from its tool handlers (`addFieldMutations`, `setScaffoldMutations`, `renameFieldMutations`, etc.).
 - `contentProcessing.ts` — flat SA-format question stripping, case-property defaulting, and tree-building. Agent-specific; moved out of `lib/schemas/`.
 
-The legacy wire-event translator (formerly `mutationMapper.ts` here) now lives at `scripts/migrate/legacy-event-translator.ts` — it has no production callers and exists only to back-fill historical log entries during the one-time logs → events migration.
-
 ## The write surface (server side)
 
 The SA computes `Mutation[]` internally (via the helpers in `blueprintHelpers.ts`), applies them to its own doc via Immer `produce`, and emits them on the SSE stream via `ctx.emitMutations(mutations, stage?)`. Clients of that stream (the interactive builder) receive `data-mutations` events and feed the payload straight into `docStore.applyMany(mutations)` — no translation, no reconstruction. The agent and the user speak the same mutation API.
