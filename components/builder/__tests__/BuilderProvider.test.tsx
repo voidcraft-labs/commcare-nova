@@ -22,8 +22,16 @@ import type { ReactNode } from "react";
 import { describe, expect, it } from "vitest";
 import { BuilderProvider } from "@/components/builder/BuilderProvider";
 import type { BlueprintDoc } from "@/lib/doc/types";
-import { useInReplayMode, useIsLoading } from "@/lib/session/hooks";
-import type { ReplayStage } from "@/lib/session/types";
+import { asUuid } from "@/lib/domain";
+import type { Event } from "@/lib/log/types";
+import { BuilderPhase } from "@/lib/services/builder";
+import {
+	useBuilderPhase,
+	useInReplayMode,
+	useIsLoading,
+} from "@/lib/session/hooks";
+import { useBuilderSession } from "@/lib/session/provider";
+import type { ReplayChapter } from "@/lib/session/types";
 
 /**
  * Minimal valid normalized doc for LoadAppHydrator tests.
@@ -47,10 +55,13 @@ const EMPTY_DOC: BlueprintDoc = {
 	fieldParent: {},
 };
 
-/** Empty replay script — `doneIndex: -1` means the dispatch loop in
- *  `ReplayHydrator` never iterates, isolating the test to the loading-flag
+/** Empty replay fixtures — no events and no chapters. `initialCursor: 0`
+ *  is the legal empty-replay position (the store clamps to `[0, events.length-1]`,
+ *  collapsing to 0 when `events` is empty). With zero events, the replay
+ *  dispatcher walks nothing, isolating the test to the loading-flag
  *  transition rather than doc-store mutation side effects. */
-const EMPTY_REPLAY_STAGES: ReplayStage[] = [];
+const EMPTY_REPLAY_EVENTS: Event[] = [];
+const EMPTY_REPLAY_CHAPTERS: ReplayChapter[] = [];
 
 describe("BuilderProvider — replay hydration", () => {
 	it("clears the loading flag after ReplayHydrator runs", () => {
@@ -63,8 +74,9 @@ describe("BuilderProvider — replay hydration", () => {
 				<BuilderProvider
 					buildId="replay"
 					replay={{
-						stages: EMPTY_REPLAY_STAGES,
-						doneIndex: -1,
+						events: EMPTY_REPLAY_EVENTS,
+						chapters: EMPTY_REPLAY_CHAPTERS,
+						initialCursor: 0,
 						exitPath: "/admin",
 					}}
 				>
@@ -114,6 +126,105 @@ describe("BuilderProvider — existing-app hydration", () => {
 
 		expect(result.current.loading).toBe(false);
 		expect(result.current.inReplayMode).toBe(false);
+	});
+});
+
+describe("BuilderProvider — replay terminal-frame phase", () => {
+	/* Regression pin: loading a replay at the terminal frame (cursor at
+	 * the last event of a completed build) must land on
+	 * `BuilderPhase.Ready`, not `BuilderPhase.Generating`. The hydrator
+	 * detects the terminal position and skips seeding the events buffer
+	 * — mirroring live's post-endRun state where the buffer is empty
+	 * and the doc has data → Ready.
+	 *
+	 * Without this guard, the final frame would render as Generating
+	 * (buffer contains schema/scaffold + later stage tags →
+	 * bufferHasBuildFoundation=true → Generating). */
+	it("renders the terminal frame as Ready, not Generating", () => {
+		const events: Event[] = [
+			{
+				kind: "conversation",
+				runId: "r",
+				ts: 0,
+				seq: 0,
+				payload: { type: "user-message", text: "build me an app" },
+			},
+			{
+				kind: "mutation",
+				runId: "r",
+				ts: 1,
+				seq: 1,
+				actor: "agent",
+				stage: "schema",
+				mutation: {
+					kind: "setCaseTypes",
+					caseTypes: [
+						{
+							name: "patient",
+							properties: [{ name: "name", label: "Name" }],
+						},
+					],
+				},
+			},
+			{
+				kind: "mutation",
+				runId: "r",
+				ts: 2,
+				seq: 2,
+				actor: "agent",
+				stage: "scaffold",
+				/* addModule is the mutation that makes the doc
+				 * `docHasData=true` (moduleOrder non-empty). Required for
+				 * the replay's final doc state to satisfy the Ready
+				 * predicate. */
+				mutation: {
+					kind: "addModule",
+					module: {
+						uuid: asUuid("mod-1"),
+						id: "registration",
+						name: "Registration",
+						caseType: "patient",
+					},
+				},
+			},
+		];
+		const chapters: ReplayChapter[] = [
+			{ header: "Conversation", startIndex: 0, endIndex: 0 },
+			{ header: "Data Model", startIndex: 1, endIndex: 1 },
+			{ header: "Scaffold", startIndex: 2, endIndex: 2 },
+		];
+
+		function wrapper({ children }: { children: ReactNode }) {
+			return (
+				<BuilderProvider
+					buildId="replay"
+					replay={{
+						events,
+						chapters,
+						/* Terminal cursor — lands on the final chapter. */
+						initialCursor: events.length - 1,
+						exitPath: "/admin",
+					}}
+				>
+					{children}
+				</BuilderProvider>
+			);
+		}
+
+		const { result } = renderHook(
+			() => ({
+				phase: useBuilderPhase(),
+				sessionEvents: useBuilderSession((s) => s.events),
+			}),
+			{ wrapper },
+		);
+
+		/* Session events buffer is empty at terminal — the hydrator's
+		 * atTerminal guard skips the pushEvents. */
+		expect(result.current.sessionEvents).toEqual([]);
+		/* Derived phase: Ready (doc has data, buffer empty, no
+		 * runCompletedAt stamp). */
+		expect(result.current.phase).toBe(BuilderPhase.Ready);
 	});
 });
 

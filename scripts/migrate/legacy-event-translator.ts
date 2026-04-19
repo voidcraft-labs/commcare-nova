@@ -1,37 +1,30 @@
 /**
- * HISTORICAL REPLAY mutation mapper for stored generation emission logs.
+ * Legacy wire-event → domain `Mutation[]` translator.
  *
- * Live generation no longer passes through this module — the Solutions
- * Architect computes `Mutation[]` internally via
- * `lib/agent/blueprintHelpers.ts` and emits them directly on the SSE
- * stream as `data-mutations` events (see `GenerationContext.emitMutations`).
- * Clients receive those mutations and feed them straight into
- * `docStore.applyMany` with no translation.
+ * Used exclusively by the one-time `scripts/migrate-logs-to-events.ts`
+ * migration to convert historical Firestore log entries (stored under
+ * `apps/{appId}/logs/` as pre-unification wire events such as
+ * `data-schema`, `data-scaffold`, `data-module-done`, `data-form-done`,
+ * `data-form-fixed`, `data-form-updated`) into the unified event-log
+ * shape under `apps/{appId}/events/`.
  *
- * This file survives Phase 3 because Firestore-stored emissions written
- * before the server-side mutation mapper migration contain the legacy
- * wire events (`data-schema`, `data-scaffold`, `data-module-done`,
- * `data-form-done`, `data-form-fixed`, `data-form-updated`). Replay of
- * those logs — via `lib/services/logReplay.ts` and the `ReplayController`
- * component — still needs a wire-event → `Mutation[]` translator, and
- * that's what this file provides.
- *
- * The file stays under `lib/generation/` (not `lib/agent/`) because every
- * consumer lives on the client side: `streamDispatcher.ts` is a client-
- * bundled module, `ReplayController` is a client component, and
- * `logReplay.ts` feeds the replay controller. `lib/agent/` is server-only;
- * a client-consumed file belongs outside it.
+ * Production code no longer reaches this file. Live emission sends
+ * fine-grained `Mutation[]` directly to the stream dispatcher and to
+ * the event log via `GenerationContext.emitMutations`; clients feed
+ * those mutations straight into `docStore.applyMany` with no
+ * translation. This translator is preserved only so pre-event-log data
+ * can be back-filled.
  *
  * ── What the translator does ────────────────────────────────────────────
  *
- * Pure function: no side effects, no store references, no signal grid —
- * the caller dispatches the returned mutations.
+ * Pure function: no side effects, no store references — the caller
+ * dispatches the returned mutations.
  *
  * CommCare's `BlueprintForm` vocabulary (`type`, `case_property_on`,
  * `validation`, nested `children` tree, snake_case keys) is tolerated
  * here. Everything the translator emits downstream is in normalized
- * domain shape — `Field` with `kind`, `case_property`, `validate`, joined
- * by uuid-keyed `fieldOrder` maps.
+ * domain shape — `Field` with `kind`, `case_property`, `validate`,
+ * joined by uuid-keyed `fieldOrder` maps.
  *
  * Form-content events (`data-form-done`, `data-form-fixed`,
  * `data-form-updated`) emit a DECOMPOSED mutation sequence:
@@ -41,17 +34,6 @@
  *      the reducer cascades each into its descendants.
  *   3. `addField × M` — one per incoming wire question, emitted in
  *      top-down tree order so container parents land before their kids.
- *
- * ── When this goes away ────────────────────────────────────────────────
- *
- * Phase 4 unifies the event log (`lib/log/`), migrates historical
- * emissions to the new `data-mutations` shape, removes the legacy
- * `LEGACY_REPLAY_DOC_MUTATION_EVENTS` handler in `streamDispatcher.ts`,
- * and deletes this file.
- *
- * Until Phase 4: no live-path code imports from this module.
- * `streamDispatcher.ts` imports `toDocMutations` for its legacy bucket
- * only.
  */
 
 import type { Mutation } from "@/lib/doc/types";
@@ -512,7 +494,7 @@ function flattenWireQuestionsToFields(
 			// the reducer's parent-existence guard anyway, and early-return
 			// here keeps the event log clean of doomed mutations.
 			console.warn(
-				`mutationMapper: dropping schema-invalid field ${q.id} (type=${q.type})`,
+				`legacy-event-translator: dropping schema-invalid field ${q.id} (type=${q.type})`,
 				{ uuid: q.uuid, issues: result.error.issues },
 			);
 			return;
@@ -577,7 +559,7 @@ function translateWireFormLinks(
 			const moduleUuid = doc.moduleOrder[target.moduleIndex];
 			if (!moduleUuid) {
 				console.warn(
-					`mutationMapper: dropping form_link with out-of-bounds moduleIndex ${target.moduleIndex}`,
+					`legacy-event-translator: dropping form_link with out-of-bounds moduleIndex ${target.moduleIndex}`,
 				);
 				continue;
 			}
@@ -596,7 +578,7 @@ function translateWireFormLinks(
 				// tidy — the module-target warn is distinguishable by
 				// message text, this one by payload discriminant.
 				console.warn(
-					`mutationMapper: dropping form_link with unresolved target`,
+					`legacy-event-translator: dropping form_link with unresolved target`,
 					{
 						targetType: "form",
 						moduleIndex: target.moduleIndex,

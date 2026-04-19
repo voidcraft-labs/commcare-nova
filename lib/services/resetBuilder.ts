@@ -1,10 +1,19 @@
 /**
- * resetBuilder — composite reset helper used when navigating between
- * replay stages.
+ * resetBuilder — composite reset for the builder's doc-adjacent surfaces.
  *
- * Each store owns its own reset, and the signal grid has a module-level
- * reset too — this helper fans out the calls so `ReplayController` doesn't
- * need to know the individual store shapes.
+ * Wipes three coupled surfaces that share a lifecycle: the form preview
+ * engine (subscribes to blueprint-store entity maps), the BlueprintDoc
+ * store itself (entity data + undo history), and the signal grid's
+ * accumulated energy baseline.
+ *
+ * Session state is a SEPARATE concern and is NOT touched here. Callers
+ * that want session cleared (e.g. exiting replay mode, returning to a
+ * clean Idle) compose `sessionStore.getState().reset()` themselves
+ * alongside this call. Replay scrub callers leave session alone so
+ * `replay.events` / `replay.chapters` / `replay.cursor` survive the
+ * reset and the transport bar stays mounted. Keeping session reset out
+ * of the pipeline makes composition explicit instead of introducing
+ * parallel variants.
  *
  * Lives in `lib/services/` (not in the React layer) so the replay
  * controller can call it imperatively from a click handler without
@@ -14,15 +23,11 @@
 import type { BlueprintDocStore } from "@/lib/doc/provider";
 import type { BlueprintDoc } from "@/lib/domain/blueprint";
 import type { EngineController } from "@/lib/preview/engine/engineController";
-import type { BuilderSessionStoreApi } from "@/lib/session/store";
 import { signalGrid } from "@/lib/signalGrid/store";
 
 // ── Inputs ──────────────────────────────────────────────────────────────
 
 export interface ResetBuilderInputs {
-	/** Ephemeral UI session store — cursor mode, sidebars, connect stash,
-	 *  generation lifecycle, replay state, appId. */
-	sessionStore: BuilderSessionStoreApi;
 	/** BlueprintDoc store — blueprint entity data + undo history. */
 	docStore: BlueprintDocStore;
 	/** Form preview engine controller — per-question runtime store. */
@@ -53,7 +58,9 @@ const EMPTY_DOC: BlueprintDoc = {
 };
 
 /**
- * Reset the entire builder session back to a clean Idle state.
+ * Reset the builder's doc + engine + signal-grid surfaces to a clean
+ * baseline. Session state is deliberately out of scope — see the module
+ * header for the composition rationale.
  *
  * Call order is significant:
  *   1. Deactivate the form engine controller FIRST so its blueprint-store
@@ -62,13 +69,11 @@ const EMPTY_DOC: BlueprintDoc = {
  *      a half-emptied store and push corrupt runtime state.
  *   2. Wipe the doc store via `load(EMPTY_DOC)`. This clears undo history
  *      and pauses temporal — session setup, not undoable.
- *   3. Reset the session store (cursor mode, sidebars, generation lifecycle,
- *      replay state, connect stash, focus hints).
- *   4. Drain any queued signal grid energy so stale accumulation from the
+ *   3. Drain any queued signal grid energy so stale accumulation from the
  *      previous lifecycle doesn't cause a spurious burst after navigation.
  */
 export function resetBuilder(inputs: ResetBuilderInputs): void {
-	const { sessionStore, docStore, engineController } = inputs;
+	const { docStore, engineController } = inputs;
 
 	/* 1. Tear down the preview controller before the doc empties. */
 	engineController.deactivate();
@@ -77,10 +82,7 @@ export function resetBuilder(inputs: ResetBuilderInputs): void {
 	 *    user can't rewind into the previous replay stage. */
 	docStore.getState().load(EMPTY_DOC);
 
-	/* 3. Session state back to defaults. */
-	sessionStore.getState().reset();
-
-	/* 4. Signal grid energy baseline — prevents a leftover burst when the
+	/* 3. Signal grid energy baseline — prevents a leftover burst when the
 	 *    next stage's emissions land. */
 	signalGrid.reset();
 }

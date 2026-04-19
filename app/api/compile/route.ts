@@ -4,7 +4,7 @@ import { AutoFixer } from "@/lib/agent";
 import { requireSession } from "@/lib/auth-utils";
 import { toBlueprint } from "@/lib/doc/legacyBridge";
 import { blueprintDocSchema } from "@/lib/domain";
-import { log } from "@/lib/log";
+import { log } from "@/lib/logger";
 import { CczCompiler } from "@/lib/services/cczCompiler";
 import { expandBlueprint } from "@/lib/services/hqJsonExpander";
 import { saveCcz } from "@/lib/store";

@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { log } from "@/lib/log";
+import { log } from "@/lib/logger";
 
 /**
  * Extract a human-readable error message from a raw error string.

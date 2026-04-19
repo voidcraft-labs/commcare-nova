@@ -18,7 +18,7 @@ import {
 	deleteCommCareSettings,
 	saveCommCareSettings,
 } from "@/lib/db/settings";
-import { log } from "@/lib/log";
+import { log } from "@/lib/logger";
 
 // ── Types ──────────────────────────────────────────────────────────
 

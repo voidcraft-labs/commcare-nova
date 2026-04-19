@@ -1,23 +1,31 @@
 /**
- * Side-by-side comparison of two app builds.
+ * Side-by-side comparison of two generation runs.
  *
- * Fetches both app documents and their log events from Firestore in
- * parallel, computes blueprint stats and run analysis for each, then
- * prints a structured comparison. Read-only — never writes to Firestore.
+ * Two modes:
+ *   - Cross-app: `inspect-compare.ts <appId1> <appId2>`
+ *                Compares the most recent run of each app (resolved via
+ *                `readLatestRunId`). Typical A/B: same prompt on two apps
+ *                generated with different model or reasoning settings.
+ *   - Same-app:  `inspect-compare.ts <appId> --runs=<runId1>,<runId2>`
+ *                Compares two explicit runs of the same app — useful for
+ *                initial-build vs edit, or for diffing two retries.
  *
- * Designed for A/B comparisons: same prompt with different models,
- * reasoning levels, or prompt versions. Surfaces differences in cost,
- * structure, quality metrics, and agent behavior.
+ * Data sources per run:
+ *   - `apps/{appId}/runs/{runId}` — `RunSummaryDoc` (cost + behavior).
+ *     The source of truth for cost deltas.
+ *   - `apps/{appId}/events/` filtered to `runId` — used for event-count
+ *     and tool-usage deltas (the summary stores total tool calls but not
+ *     per-tool breakdown).
+ *
+ * Read-only — never writes to Firestore.
  *
  * Usage:
- *   npx tsx scripts/inspect-compare.ts <appId1> <appId2>                  # compare build runs (default)
- *   npx tsx scripts/inspect-compare.ts <appId1> <appId2> --run=latest     # compare most recent run (may be edit)
- *   npx tsx scripts/inspect-compare.ts <appId1> <appId2> --run=<runId>    # compare specific run IDs (comma-separated)
- *   npx tsx scripts/inspect-compare.ts <appId1> <appId2> --verbose        # + per-module form-by-form detail
+ *   npx tsx scripts/inspect-compare.ts <appId1> <appId2>
+ *   npx tsx scripts/inspect-compare.ts <appId> --runs=<runIdA>,<runIdB>
  */
-
-import { analyzeBlueprint, type BlueprintStats } from "./lib/blueprint-stats";
-import { db } from "./lib/firestore";
+import "dotenv/config";
+import type { RunSummaryDoc } from "@/lib/db/types";
+import { readEvents, readLatestRunId, readRunSummary } from "@/lib/log/reader";
 import {
 	duration,
 	formatDelta,
@@ -26,555 +34,390 @@ import {
 	printHeader,
 	printSection,
 	tok,
-	truncate,
-	tsToISO,
 	usd,
 } from "./lib/format";
-import {
-	analyzeRun,
-	computeToolUsage,
-	type RunAnalysis,
-	type ToolUsageSummary,
-} from "./lib/log-stats";
-import type { AppBlueprint, ConfigEvent, StoredEvent } from "./lib/types";
+import { computeEventKindCounts, computeToolUsage } from "./lib/log-stats";
+import type { Event } from "./lib/types";
 
 // ── CLI argument parsing ────────────────────────────────────────────
 
-const appIdA = process.argv[2];
-const appIdB = process.argv[3];
-const verbose = process.argv.includes("--verbose");
-const runFlag =
-	process.argv.find((a) => a.startsWith("--run="))?.split("=")[1] ?? "build";
-
-if (!appIdA || !appIdB) {
-	console.error(
-		"Usage: npx tsx scripts/inspect-compare.ts <appId1> <appId2> [--run=build|latest|<id,id>] [--verbose]",
-	);
-	process.exit(1);
-}
-
 /**
- * Parse the --run flag into per-app run resolution strategy.
- *
- * - "build" (default): find the initial build run via config event
- * - "latest": use data.run_id from the app document
- * - "<idA,idB>": explicit run IDs for each app (comma-separated)
+ * Resolve the positional args + flags into a well-typed comparison target.
+ * One of two shapes:
+ *   - cross-app:  two app IDs, each resolved to their latest run
+ *   - same-app:   one app ID + `--runs=<a>,<b>` explicit run IDs
  */
-function parseRunTargets(): {
-	mode: "build" | "latest" | "explicit";
-	explicitA?: string;
-	explicitB?: string;
-} {
-	if (runFlag === "build") return { mode: "build" };
-	if (runFlag === "latest") return { mode: "latest" };
-	/* Comma-separated explicit run IDs. */
-	const parts = runFlag.split(",");
-	if (parts.length === 2 && parts[0] && parts[1]) {
-		return { mode: "explicit", explicitA: parts[0], explicitB: parts[1] };
-	}
-	console.error(
-		`Invalid --run value: "${runFlag}". Use "build", "latest", or "<runIdA>,<runIdB>".`,
-	);
-	process.exit(1);
-}
+type CompareTarget =
+	| { mode: "cross-app"; appA: string; appB: string }
+	| {
+			mode: "same-app";
+			appId: string;
+			runIdA: string;
+			runIdB: string;
+	  };
 
-const runTargets = parseRunTargets();
+function parseTarget(): CompareTarget {
+	const args = process.argv.slice(2);
+	const runsFlag = args.find((a) => a.startsWith("--runs="))?.split("=")[1];
 
-// ── Data loading ────────────────────────────────────────────────────
-
-/**
- * All the data needed for one side of the comparison.
- *
- * Fetched in parallel for both apps, then analyzed locally.
- * The separation between raw data and computed stats keeps the
- * Firestore access pattern simple (two parallel fetches).
- */
-interface AppData {
-	appId: string;
-	appName: string;
-	owner: string;
-	status: string;
-	createdAt: string;
-	updatedAt: string;
-	connectType: string | null;
-	/** Which run was selected for analysis. */
-	runId: string | null;
-	/** How the run was resolved — shown in the output header. */
-	runLabel: string;
-	blueprintStats: BlueprintStats | null;
-	runAnalysis: RunAnalysis | null;
-	toolUsage: ToolUsageSummary[];
-}
-
-/**
- * Find the initial build run for an app by scanning config events.
- *
- * The build run is identified by prompt_mode === "build" in its config
- * event. Since event.type is a nested field, Firestore can't filter on
- * it — we fetch all config-like events and filter client-side.
- *
- * Falls back to data.run_id if no build config is found (pre-logging
- * apps or apps where config events weren't recorded).
- */
-async function findBuildRunId(
-	appId: string,
-	fallbackRunId: string | null,
-): Promise<{ runId: string | null; label: string }> {
-	const logSnap = await db
-		.collection("apps")
-		.doc(appId)
-		.collection("logs")
-		.orderBy("sequence", "asc")
-		.get();
-
-	if (logSnap.empty) {
+	if (runsFlag) {
+		const appId = args[0];
+		if (!appId || appId.startsWith("--")) {
+			console.error(
+				"Usage: npx tsx scripts/inspect-compare.ts <appId> --runs=<runIdA>,<runIdB>",
+			);
+			process.exit(1);
+		}
+		const parts = runsFlag.split(",");
+		if (parts.length !== 2 || !parts[0] || !parts[1]) {
+			console.error(
+				`Invalid --runs value "${runsFlag}". Expected "<runIdA>,<runIdB>".`,
+			);
+			process.exit(1);
+		}
 		return {
-			runId: fallbackRunId,
-			label: fallbackRunId ? "latest (no logs)" : "none",
+			mode: "same-app",
+			appId,
+			runIdA: parts[0],
+			runIdB: parts[1],
 		};
 	}
 
-	/* Scan for config events with prompt_mode === "build". The first one
-	 * chronologically is the initial generation run. */
-	for (const doc of logSnap.docs) {
-		const stored = doc.data() as StoredEvent;
-		if (stored.event.type === "config") {
-			const config = stored.event as ConfigEvent;
-			if (config.prompt_mode === "build") {
-				return { runId: stored.run_id, label: "build" };
-			}
-		}
+	const appA = args[0];
+	const appB = args[1];
+	if (!appA || !appB || appA.startsWith("--") || appB.startsWith("--")) {
+		console.error(
+			"Usage:\n" +
+				"  npx tsx scripts/inspect-compare.ts <appId1> <appId2>\n" +
+				"  npx tsx scripts/inspect-compare.ts <appId> --runs=<runIdA>,<runIdB>",
+		);
+		process.exit(1);
 	}
+	return { mode: "cross-app", appA, appB };
+}
 
-	/* No build config found — fall back to the app's run_id. */
-	return {
-		runId: fallbackRunId,
-		label: fallbackRunId ? "latest (no build found)" : "none",
-	};
+const target = parseTarget();
+
+// ── Run payload loading ─────────────────────────────────────────────
+
+/**
+ * The bundle of data fetched per comparison side. `summary` is `null`
+ * when no summary doc exists (legacy runs predating Phase-4); the caller
+ * prints "—" in affected rows so the comparison still renders.
+ */
+interface RunPayload {
+	appId: string;
+	runId: string;
+	summary: RunSummaryDoc | null;
+	events: Event[];
 }
 
 /**
- * Load all data for one app: document metadata, blueprint stats, and
- * the target run's log analysis. The run is selected based on the
- * --run flag (build, latest, or explicit ID).
+ * Resolve the two comparison sides into concrete (appId, runId) pairs and
+ * fetch each side's summary + events in parallel. For cross-app mode, the
+ * "latest runId" lookup happens first — if either app has no events, the
+ * script exits with a clear error.
  */
-async function loadAppData(
-	appId: string,
-	runMode: "build" | "latest" | "explicit",
-	explicitRunId?: string,
-): Promise<AppData> {
-	/* Fetch app document. */
-	const appSnap = await db.collection("apps").doc(appId).get();
-	if (!appSnap.exists) {
-		console.error(`App ${appId} not found.`);
+async function loadPayloads(): Promise<[RunPayload, RunPayload]> {
+	if (target.mode === "same-app") {
+		const { appId, runIdA, runIdB } = target;
+		const [summaryA, summaryB, eventsA, eventsB] = await Promise.all([
+			readRunSummary(appId, runIdA),
+			readRunSummary(appId, runIdB),
+			readEvents(appId, runIdA),
+			readEvents(appId, runIdB),
+		]);
+		return [
+			{ appId, runId: runIdA, summary: summaryA, events: eventsA },
+			{ appId, runId: runIdB, summary: summaryB, events: eventsB },
+		];
+	}
+
+	const { appA, appB } = target;
+	const [runIdA, runIdB] = await Promise.all([
+		readLatestRunId(appA),
+		readLatestRunId(appB),
+	]);
+	if (!runIdA) {
+		console.error(`App ${appA} has no events — nothing to compare.`);
 		process.exit(1);
 	}
-	// biome-ignore lint/style/noNonNullAssertion: guarded by exists check
-	const data = appSnap.data()!;
-	const bp: AppBlueprint | undefined = data.blueprint;
-
-	/* Compute blueprint stats (null if no blueprint). */
-	const blueprintStats = bp ? analyzeBlueprint(bp) : null;
-
-	/* Resolve which run to analyze. */
-	let runId: string | null;
-	let runLabel: string;
-
-	if (runMode === "explicit" && explicitRunId) {
-		runId = explicitRunId;
-		runLabel = "explicit";
-	} else if (runMode === "latest") {
-		runId = data.run_id ?? null;
-		runLabel = "latest";
-	} else {
-		/* Default: find the initial build run. */
-		const resolved = await findBuildRunId(appId, data.run_id ?? null);
-		runId = resolved.runId;
-		runLabel = resolved.label;
+	if (!runIdB) {
+		console.error(`App ${appB} has no events — nothing to compare.`);
+		process.exit(1);
 	}
 
-	/* Fetch log events for the resolved run. */
-	let runAnalysis: RunAnalysis | null = null;
-	let toolUsage: ToolUsageSummary[] = [];
-
-	if (runId) {
-		const logSnap = await db
-			.collection("apps")
-			.doc(appId)
-			.collection("logs")
-			.where("run_id", "==", runId)
-			.orderBy("sequence", "asc")
-			.get();
-
-		if (!logSnap.empty) {
-			const events = logSnap.docs.map((d) => d.data() as StoredEvent);
-			runAnalysis = analyzeRun(runId, events);
-			toolUsage = computeToolUsage(events);
-		}
-	}
-
-	return {
-		appId,
-		appName: data.app_name ?? "(unnamed)",
-		owner: data.owner ?? "(unknown)",
-		status: data.status ?? "(unknown)",
-		createdAt: tsToISO(data.created_at),
-		updatedAt: tsToISO(data.updated_at),
-		connectType: data.connect_type ?? null,
-		runId,
-		runLabel,
-		blueprintStats,
-		runAnalysis,
-		toolUsage,
-	};
+	const [summaryA, summaryB, eventsA, eventsB] = await Promise.all([
+		readRunSummary(appA, runIdA),
+		readRunSummary(appB, runIdB),
+		readEvents(appA, runIdA),
+		readEvents(appB, runIdB),
+	]);
+	return [
+		{ appId: appA, runId: runIdA, summary: summaryA, events: eventsA },
+		{ appId: appB, runId: runIdB, summary: summaryB, events: eventsB },
+	];
 }
 
 // ── Comparison printing ─────────────────────────────────────────────
 
+/* Column widths used by both the row renderer and the header separator.
+ * Extracted so the `─` separator stays in sync with the rendered row width
+ * automatically — previously the separator was a hardcoded 68/54 that
+ * silently drifted if any column width changed. */
+const LABEL_W = 22;
+const COL_W = 16;
+const DELTA_W = 12;
+/* Rows are `label + valueA + valueB [+ gap + delta]`. The 2-char gap before
+ * the delta column matches the `"  "` literal in `deltaPad` below. */
+const ROW_WIDTH_WITH_DELTA = LABEL_W + COL_W * 2 + 2 + DELTA_W;
+const ROW_WIDTH_WITHOUT_DELTA = LABEL_W + COL_W * 2;
+
 /**
- * Print a comparison row with label, two values, and an optional delta.
- * Pads values for clean alignment.
+ * Print a side-by-side row: label + two values + optional delta. Widths
+ * are fixed so rows align vertically across sections without recomputing.
  */
-function printCompRow(label: string, a: string, b: string, delta?: string) {
-	const labelPad = label.padEnd(22);
-	const aPad = a.padStart(14);
-	const bPad = b.padStart(14);
-	const deltaPad = delta !== undefined ? `  ${delta.padStart(10)}` : "";
+function printCompRow(
+	label: string,
+	valueA: string,
+	valueB: string,
+	delta?: string,
+): void {
+	const labelPad = label.padEnd(LABEL_W);
+	const aPad = valueA.padStart(COL_W);
+	const bPad = valueB.padStart(COL_W);
+	const deltaPad = delta !== undefined ? `  ${delta.padStart(DELTA_W)}` : "";
 	console.log(`  ${labelPad}${aPad}${bPad}${deltaPad}`);
 }
 
-/** Print the comparison column headers (App A / App B / Delta). */
-function printCompHeader(showDelta = true) {
-	const labelPad = "".padEnd(22);
-	const aLabel = "App A".padStart(14);
-	const bLabel = "App B".padStart(14);
-	const deltaLabel = showDelta ? `  ${"Delta".padStart(10)}` : "";
+/** Column header row + separator for a comparison block. */
+function printCompHeader(labelA: string, labelB: string, showDelta = true) {
+	const labelPad = "".padEnd(LABEL_W);
+	const aLabel = labelA.padStart(COL_W);
+	const bLabel = labelB.padStart(COL_W);
+	const deltaLabel = showDelta ? `  ${"Delta".padStart(DELTA_W)}` : "";
 	console.log(`  ${labelPad}${aLabel}${bLabel}${deltaLabel}`);
-	const sep = "─".repeat(showDelta ? 62 : 50);
-	console.log(`  ${sep}`);
+	const width = showDelta ? ROW_WIDTH_WITH_DELTA : ROW_WIDTH_WITHOUT_DELTA;
+	console.log(`  ${"─".repeat(width)}`);
+}
+
+/**
+ * Compare two numeric summary fields by pulling them through a formatter.
+ * Emits "(no summary)" on either side when the corresponding run summary
+ * is missing — delta is omitted since there's nothing to subtract.
+ */
+function compareNumericField(
+	label: string,
+	a: RunSummaryDoc | null,
+	b: RunSummaryDoc | null,
+	pick: (s: RunSummaryDoc) => number,
+	format: (n: number) => string,
+): void {
+	if (!a || !b) {
+		printCompRow(label, a ? format(pick(a)) : "—", b ? format(pick(b)) : "—");
+		return;
+	}
+	const valA = pick(a);
+	const valB = pick(b);
+	printCompRow(
+		label,
+		format(valA),
+		format(valB),
+		formatDelta(valA, valB, format),
+	);
 }
 
 // ── Main ────────────────────────────────────────────────────────────
 
 async function main() {
-	/* Fetch both apps in parallel. */
-	const [appA, appB] = await Promise.all([
-		loadAppData(appIdA, runTargets.mode, runTargets.explicitA),
-		loadAppData(appIdB, runTargets.mode, runTargets.explicitB),
-	]);
+	const [sideA, sideB] = await loadPayloads();
 
-	printHeader("APP COMPARISON (read-only)");
+	const labelA =
+		target.mode === "cross-app"
+			? `${sideA.appId.slice(0, 8)}…`
+			: `run ${sideA.runId.slice(0, 8)}…`;
+	const labelB =
+		target.mode === "cross-app"
+			? `${sideB.appId.slice(0, 8)}…`
+			: `run ${sideB.runId.slice(0, 8)}…`;
 
-	/* ── Header ──────────────────────────────────────────────────── */
-	printSection("Header");
-	printCompHeader(false);
+	printHeader("RUN COMPARISON (read-only)");
+
+	/* ── Identity header ─────────────────────────────────────────── */
+	printSection("Identity");
+	printCompHeader("A", "B", false);
+	printCompRow("App ID", sideA.appId, sideB.appId);
+	printCompRow("Run ID", sideA.runId, sideB.runId);
 	printCompRow(
-		"App ID",
-		`${appA.appId.slice(0, 12)}…`,
-		`${appB.appId.slice(0, 12)}…`,
+		"Has summary",
+		sideA.summary ? "yes" : "no",
+		sideB.summary ? "yes" : "no",
 	);
-	printCompRow(
-		"App Name",
-		truncate(appA.appName, 14),
-		truncate(appB.appName, 14),
-	);
-	printCompRow("Status", appA.status, appB.status);
-	printCompRow(
-		"Created",
-		appA.createdAt.slice(0, 19),
-		appB.createdAt.slice(0, 19),
-	);
-	printCompRow(
-		"Connect Type",
-		appA.connectType ?? "(none)",
-		appB.connectType ?? "(none)",
-	);
-	printCompRow("Run", appA.runLabel, appB.runLabel);
 
-	const statsA = appA.blueprintStats;
-	const statsB = appB.blueprintStats;
+	const sumA = sideA.summary;
+	const sumB = sideB.summary;
 
-	/* ── Structure Comparison ────────────────────────────────────── */
-	if (statsA && statsB) {
-		printSection("Structure");
-		printCompHeader();
+	/* ── Run config ──────────────────────────────────────────────── */
+	if (sumA || sumB) {
+		printSection("Config");
+		printCompHeader(labelA, labelB, false);
+		printCompRow("Model", sumA?.model ?? "—", sumB?.model ?? "—");
 		printCompRow(
-			"Modules",
-			String(statsA.totals.modules),
-			String(statsB.totals.modules),
-			formatDelta(statsA.totals.modules, statsB.totals.modules),
+			"Prompt mode",
+			sumA?.promptMode ?? "—",
+			sumB?.promptMode ?? "—",
 		);
 		printCompRow(
-			"Forms",
-			String(statsA.totals.forms),
-			String(statsB.totals.forms),
-			formatDelta(statsA.totals.forms, statsB.totals.forms),
+			"Fresh edit",
+			sumA ? String(sumA.freshEdit) : "—",
+			sumB ? String(sumB.freshEdit) : "—",
 		);
 		printCompRow(
-			"Questions",
-			String(statsA.totals.questions),
-			String(statsB.totals.questions),
-			formatDelta(statsA.totals.questions, statsB.totals.questions),
-		);
-
-		/* Form type breakdown. */
-		const allFormTypes = new Set([
-			...Object.keys(statsA.totals.formsByType),
-			...Object.keys(statsB.totals.formsByType),
-		]);
-		for (const type of allFormTypes) {
-			const a = statsA.totals.formsByType[type] ?? 0;
-			const b = statsB.totals.formsByType[type] ?? 0;
-			printCompRow(`  ${type}`, String(a), String(b), formatDelta(a, b));
-		}
-
-		/* ── Quality Metrics ─────────────────────────────────────── */
-		printSection("Quality Metrics");
-		printCompHeader();
-		const la = statsA.totals.logic;
-		const lb = statsB.totals.logic;
-
-		const logicRows: Array<[string, number, number]> = [
-			["Calculates", la.calculates, lb.calculates],
-			["Show-whens", la.relevants, lb.relevants],
-			["Defaults", la.defaults, lb.defaults],
-			["Validations", la.validations, lb.validations],
-			["Required fields", la.requireds, lb.requireds],
-			["Hints", la.hints, lb.hints],
-			["Labels (info)", la.labels, lb.labels],
-			["With logic", la.questionsWithLogic, lb.questionsWithLogic],
-		];
-
-		for (const [label, a, b] of logicRows) {
-			printCompRow(label, String(a), String(b), formatDelta(a, b));
-		}
-
-		/* Logic coverage percentage (questions with logic / total questions). */
-		const covA =
-			statsA.totals.questions > 0
-				? (la.questionsWithLogic / statsA.totals.questions) * 100
-				: 0;
-		const covB =
-			statsB.totals.questions > 0
-				? (lb.questionsWithLogic / statsB.totals.questions) * 100
-				: 0;
-		printCompRow(
-			"Logic coverage",
-			`${covA.toFixed(1)}%`,
-			`${covB.toFixed(1)}%`,
-			formatPctDelta(covA, covB),
-		);
-
-		/* ── Case Design ─────────────────────────────────────────── */
-		printSection("Case Design");
-		printCompHeader();
-		printCompRow(
-			"Case types",
-			String(statsA.caseTypes.length),
-			String(statsB.caseTypes.length),
-			formatDelta(statsA.caseTypes.length, statsB.caseTypes.length),
-		);
-
-		/* Show each case type and its property count. */
-		const allCaseNames = new Set([
-			...statsA.caseTypes.map((ct) => ct.name),
-			...statsB.caseTypes.map((ct) => ct.name),
-		]);
-		for (const name of allCaseNames) {
-			const ctA = statsA.caseTypes.find((ct) => ct.name === name);
-			const ctB = statsB.caseTypes.find((ct) => ct.name === name);
-			const propsA = ctA?.propertyCount ?? 0;
-			const propsB = ctB?.propertyCount ?? 0;
-			printCompRow(
-				`  ${name}`,
-				ctA ? `${propsA} props` : "—",
-				ctB ? `${propsB} props` : "—",
-				formatDelta(propsA, propsB),
-			);
-		}
-
-		/* Total case list columns. */
-		const clColsA = statsA.modules.reduce(
-			(sum, m) => sum + m.caseListColumns,
-			0,
-		);
-		const clColsB = statsB.modules.reduce(
-			(sum, m) => sum + m.caseListColumns,
-			0,
+			"App ready",
+			sumA ? String(sumA.appReady) : "—",
+			sumB ? String(sumB.appReady) : "—",
 		);
 		printCompRow(
-			"Case list cols",
-			String(clColsA),
-			String(clColsB),
-			formatDelta(clColsA, clColsB),
+			"Cache expired",
+			sumA ? String(sumA.cacheExpired) : "—",
+			sumB ? String(sumB.cacheExpired) : "—",
+		);
+		printCompRow(
+			"Module count (in)",
+			sumA ? String(sumA.moduleCount) : "—",
+			sumB ? String(sumB.moduleCount) : "—",
 		);
 	}
 
-	/* ── Cost Comparison ─────────────────────────────────────────── */
-	const runA = appA.runAnalysis;
-	const runB = appB.runAnalysis;
-
-	if (runA && runB) {
-		printSection("Cost Comparison");
-		printCompHeader();
-
-		const cA = runA.cost;
-		const cB = runB.cost;
-
-		printCompRow(
-			"Total cost",
-			usd(cA.totalCost),
-			usd(cB.totalCost),
-			formatDelta(cA.totalCost, cB.totalCost, usd),
+	/* ── Cost / tokens ───────────────────────────────────────────── */
+	if (sumA || sumB) {
+		printSection("Cost & Tokens");
+		printCompHeader(labelA, labelB);
+		compareNumericField("Total cost", sumA, sumB, (s) => s.costEstimate, usd);
+		compareNumericField("Input tokens", sumA, sumB, (s) => s.inputTokens, tok);
+		compareNumericField(
+			"Output tokens",
+			sumA,
+			sumB,
+			(s) => s.outputTokens,
+			tok,
 		);
+		compareNumericField(
+			"Cache read",
+			sumA,
+			sumB,
+			(s) => s.cacheReadTokens,
+			tok,
+		);
+		compareNumericField(
+			"Cache write",
+			sumA,
+			sumB,
+			(s) => s.cacheWriteTokens,
+			tok,
+		);
+
+		/* Cache hit rate is derived; formatPctDelta returns percentage points. */
+		const cacheA = sumA
+			? (sumA.cacheReadTokens / Math.max(1, sumA.inputTokens)) * 100
+			: Number.NaN;
+		const cacheB = sumB
+			? (sumB.cacheReadTokens / Math.max(1, sumB.inputTokens)) * 100
+			: Number.NaN;
+		const cacheAStr = sumA ? pct(sumA.cacheReadTokens, sumA.inputTokens) : "—";
+		const cacheBStr = sumB ? pct(sumB.cacheReadTokens, sumB.inputTokens) : "—";
+		const cacheDelta =
+			sumA && sumB ? formatPctDelta(cacheA, cacheB) : undefined;
+		printCompRow("Cache hit rate", cacheAStr, cacheBStr, cacheDelta);
+
+		/* Duration is derived from ISO strings on the summary. */
+		const durA = sumA
+			? Date.parse(sumA.finishedAt) - Date.parse(sumA.startedAt)
+			: Number.NaN;
+		const durB = sumB
+			? Date.parse(sumB.finishedAt) - Date.parse(sumB.startedAt)
+			: Number.NaN;
+		/* `formatDelta` already passes `Math.abs(diff)` to the formatter and
+		 * prepends the sign itself — the `duration` formatter receives a
+		 * non-negative ms value and the sign rides on the output prefix
+		 * (e.g. "+30s" vs "−30s"). Do NOT re-absolutize inside the lambda:
+		 * that was load-bearing-looking noise that suggested a sign bug. */
 		printCompRow(
 			"Duration",
-			duration(runA.durationMs),
-			duration(runB.durationMs),
-			formatDelta(runA.durationMs, runB.durationMs, (ms) =>
-				duration(Math.abs(ms)),
-			),
+			sumA ? duration(durA) : "—",
+			sumB ? duration(durB) : "—",
+			sumA && sumB ? formatDelta(durA, durB, duration) : undefined,
 		);
-		printCompRow(
-			"Steps",
-			String(cA.stepCount),
-			String(cB.stepCount),
-			formatDelta(cA.stepCount, cB.stepCount),
-		);
-		printCompRow(
-			"Input tokens",
-			tok(cA.agentInputTokens),
-			tok(cB.agentInputTokens),
-			formatDelta(cA.agentInputTokens, cB.agentInputTokens, tok),
-		);
-		printCompRow(
-			"Output tokens",
-			tok(cA.agentOutputTokens),
-			tok(cB.agentOutputTokens),
-			formatDelta(cA.agentOutputTokens, cB.agentOutputTokens, tok),
-		);
-		printCompRow(
-			"Cache hit rate",
-			pct(cA.cacheReadTokens, cA.agentInputTokens),
-			pct(cB.cacheReadTokens, cB.agentInputTokens),
-			formatPctDelta(cA.cacheHitRate * 100, cB.cacheHitRate * 100),
-		);
+	}
 
-		/* Cost per question (if blueprints exist). */
-		if (
-			statsA &&
-			statsB &&
-			statsA.totals.questions > 0 &&
-			statsB.totals.questions > 0
-		) {
-			const cpqA = cA.totalCost / statsA.totals.questions;
-			const cpqB = cB.totalCost / statsB.totals.questions;
-			printCompRow(
-				"Cost/question",
-				usd(cpqA),
-				usd(cpqB),
-				formatDelta(cpqA, cpqB, usd),
-			);
-		}
-
-		/* ── Agent Behavior ──────────────────────────────────────── */
+	/* ── Agent behavior ─────────────────────────────────────────── */
+	if (sumA || sumB) {
 		printSection("Agent Behavior");
-		printCompHeader();
-
-		printCompRow(
-			"Prompt mode",
-			runA.config?.promptMode ?? "—",
-			runB.config?.promptMode ?? "—",
+		printCompHeader(labelA, labelB);
+		compareNumericField("Steps", sumA, sumB, (s) => s.stepCount, String);
+		compareNumericField(
+			"Tool calls",
+			sumA,
+			sumB,
+			(s) => s.toolCallCount,
+			String,
 		);
-		printCompRow(
-			"Errors",
-			String(runA.errorMessages.length),
-			String(runB.errorMessages.length),
-			formatDelta(runA.errorMessages.length, runB.errorMessages.length),
-		);
+	}
 
-		/* Tool call distribution — union of all tools used by either app. */
-		const toolMapA = new Map(appA.toolUsage.map((t) => [t.name, t]));
-		const toolMapB = new Map(appB.toolUsage.map((t) => [t.name, t]));
+	/* ── Event counts ───────────────────────────────────────────── */
+	printSection("Event Counts");
+	printCompHeader(labelA, labelB);
+
+	const kindA = computeEventKindCounts(sideA.events);
+	const kindB = computeEventKindCounts(sideB.events);
+
+	printCompRow(
+		"Total events",
+		String(kindA.total),
+		String(kindB.total),
+		formatDelta(kindA.total, kindB.total),
+	);
+	printCompRow(
+		"Mutation events",
+		String(kindA.mutation),
+		String(kindB.mutation),
+		formatDelta(kindA.mutation, kindB.mutation),
+	);
+
+	/* Conversation payload types union. */
+	const allConvTypes = new Set([
+		...Object.keys(kindA.conversation),
+		...Object.keys(kindB.conversation),
+	]);
+	for (const type of allConvTypes) {
+		const a = kindA.conversation[type] ?? 0;
+		const b = kindB.conversation[type] ?? 0;
+		printCompRow(`  ${type}`, String(a), String(b), formatDelta(a, b));
+	}
+
+	/* ── Tool usage ─────────────────────────────────────────────── */
+	const toolsA = computeToolUsage(sideA.events);
+	const toolsB = computeToolUsage(sideB.events);
+
+	if (toolsA.length > 0 || toolsB.length > 0) {
+		printSection("Tool Usage");
+		printCompHeader(labelA, labelB);
+
+		const toolMapA = new Map(toolsA.map((t) => [t.tool, t.calls]));
+		const toolMapB = new Map(toolsB.map((t) => [t.tool, t.calls]));
 		const allTools = new Set([...toolMapA.keys(), ...toolMapB.keys()]);
 
-		/* Sort by total calls descending (A + B combined). */
+		/* Sort by combined call volume so the heaviest rows surface first. */
 		const sortedTools = [...allTools].sort((x, y) => {
-			const totalX =
-				(toolMapA.get(x)?.callCount ?? 0) + (toolMapB.get(x)?.callCount ?? 0);
-			const totalY =
-				(toolMapA.get(y)?.callCount ?? 0) + (toolMapB.get(y)?.callCount ?? 0);
+			const totalX = (toolMapA.get(x) ?? 0) + (toolMapB.get(x) ?? 0);
+			const totalY = (toolMapA.get(y) ?? 0) + (toolMapB.get(y) ?? 0);
 			return totalY - totalX;
 		});
 
-		console.log();
-		console.log("  Tool Calls:");
 		for (const tool of sortedTools) {
-			const a = toolMapA.get(tool)?.callCount ?? 0;
-			const b = toolMapB.get(tool)?.callCount ?? 0;
-			printCompRow(`  ${tool}`, String(a), String(b), formatDelta(a, b));
-		}
-	}
-
-	/* ── Quality Flags ───────────────────────────────────────────── */
-	if (statsA || statsB) {
-		printSection("Quality Flags");
-
-		const flagsA = statsA?.qualityFlags ?? [];
-		const flagsB = statsB?.qualityFlags ?? [];
-
-		console.log(`  App A (${flagsA.length} flags):`);
-		if (flagsA.length === 0) {
-			console.log("    (none)");
-		} else {
-			for (const f of flagsA) {
-				const loc = [f.module, f.form].filter(Boolean).join(" > ");
-				console.log(`    [${f.severity}] ${loc ? `${loc}: ` : ""}${f.message}`);
-			}
-		}
-
-		console.log(`\n  App B (${flagsB.length} flags):`);
-		if (flagsB.length === 0) {
-			console.log("    (none)");
-		} else {
-			for (const f of flagsB) {
-				const loc = [f.module, f.form].filter(Boolean).join(" > ");
-				console.log(`    [${f.severity}] ${loc ? `${loc}: ` : ""}${f.message}`);
-			}
-		}
-	}
-
-	/* ── Verbose: per-module form-by-form comparison ──────────────── */
-	if (verbose && statsA && statsB) {
-		printSection("Per-Module Detail");
-
-		/* Show forms side-by-side for each module (by index). */
-		const maxMods = Math.max(statsA.modules.length, statsB.modules.length);
-		for (let i = 0; i < maxMods; i++) {
-			const mA = statsA.modules[i];
-			const mB = statsB.modules[i];
-			const nameA = mA?.name ?? "(none)";
-			const nameB = mB?.name ?? "(none)";
-
-			console.log(`\n  Module ${i}: ${nameA}  vs  ${nameB}`);
-			console.log(
-				`    Case type: ${mA?.caseType ?? "—"}  vs  ${mB?.caseType ?? "—"}`,
-			);
-			console.log(
-				`    Questions: ${mA?.totalQuestions ?? 0}  vs  ${mB?.totalQuestions ?? 0}`,
-			);
-			console.log(
-				`    Case list cols: ${mA?.caseListColumns ?? 0}  vs  ${mB?.caseListColumns ?? 0}`,
-			);
-
-			const maxForms = Math.max(mA?.forms.length ?? 0, mB?.forms.length ?? 0);
-			for (let j = 0; j < maxForms; j++) {
-				const fA = mA?.forms[j];
-				const fB = mB?.forms[j];
-				console.log(
-					`      Form ${j}: ${fA?.name ?? "(none)"} (${fA?.questionCount ?? 0}q)  vs  ${fB?.name ?? "(none)"} (${fB?.questionCount ?? 0}q)`,
-				);
-			}
+			const a = toolMapA.get(tool) ?? 0;
+			const b = toolMapB.get(tool) ?? 0;
+			printCompRow(tool, String(a), String(b), formatDelta(a, b));
 		}
 	}
 }

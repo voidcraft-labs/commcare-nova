@@ -22,7 +22,8 @@
  * - `/build/A` -> `/build/B`: buildId changes, fresh stores, loads B
  * - `/build/*` -> `/`: provider unmounts, stores are garbage collected
  * - `/build/new` generation: buildId stays 'new' (replaceState), no reset
- * - `/build/replay/{id}`: replay prop provided, hydrates store with stages
+ * - `/build/replay/{id}`: replay prop provided, hydrates store with the raw
+ *   event log + derived chapters, then walks events up to the initial cursor
  */
 "use client";
 
@@ -32,7 +33,7 @@ import { ScrollRegistryProvider } from "@/components/builder/contexts/ScrollRegi
 import { LocationRecoveryEffect } from "@/components/builder/LocationRecoveryEffect";
 import { BlueprintDocContext, BlueprintDocProvider } from "@/lib/doc/provider";
 import type { PersistableDoc } from "@/lib/domain/blueprint";
-import { applyStreamEvent } from "@/lib/generation/streamDispatcher";
+import { replayEventsSync } from "@/lib/log/replay";
 import { BuilderFormEngineProvider } from "@/lib/preview/engine/provider";
 import {
 	BuilderSessionContext,
@@ -115,7 +116,15 @@ function BuilderProviderInner({
 					<EditGuardProvider>
 						<BuilderFormEngineProvider>
 							<SyncBridge />
-							<LocationRecoveryEffect />
+							{/* LocationRecoveryEffect assumes a `/build/{id}/{...path}`
+							 *  URL shape (it slices the first two segments as the
+							 *  base path). Replay mounts at `/build/replay/{id}`
+							 *  where segment[1] is the literal "replay", not the
+							 *  app id — running the effect there would treat
+							 *  "replay" as the id and strip the real id on
+							 *  recovery. Replay is read-only + scoped to its own
+							 *  route, so stale-ref stripping doesn't apply. */}
+							{replay ? null : <LocationRecoveryEffect />}
 							{replay ? <ReplayHydrator replay={replay} /> : null}
 							{!replay && initialDoc ? <LoadAppHydrator /> : null}
 							{children}
@@ -130,18 +139,18 @@ function BuilderProviderInner({
 // ── Hydrators & bridge ──────────────────────────────────────────────────
 
 /**
- * ReplayHydrator — re-dispatches replay stage emissions into the doc
- * and session stores using the same `applyStreamEvent` dispatcher that
- * handles real-time streaming.
+ * ReplayHydrator — seeds the session store with the replay script and
+ * walks the event log up to the initial cursor so the user lands on the
+ * final frame of the build. Scrub navigation backward through the log
+ * is owned by `ReplayController`.
  *
  * Why a child component rather than inline in `BuilderProviderInner`?
- * Replay emissions include `data-blueprint-updated` events that call
- * `docStore.getState().load(...)`. If the hydration loop ran in
- * `BuilderProviderInner`, it would sit OUTSIDE `BlueprintDocProvider`
- * and have no way to read the doc store from context. By placing the
- * loop here, inside both `BlueprintDocContext` and
- * `BuilderSessionContext`, we can read both stores and replay
- * emissions faithfully. Edit session replays now apply correctly.
+ * Replay mutations call `docStore.getState().applyMany(...)`. If the
+ * hydration loop ran in `BuilderProviderInner`, it would sit OUTSIDE
+ * `BlueprintDocProvider` and have no way to read the doc store from
+ * context. By placing the loop here, inside both `BlueprintDocContext`
+ * and `BuilderSessionContext`, we can read both stores and dispatch
+ * mutations faithfully.
  *
  * The hydration runs once per mount (gated by `hydratedRef`) — replay
  * is immutable for the lifetime of a build session, so any later
@@ -156,23 +165,52 @@ function ReplayHydrator({ replay }: { replay: ReplayInit }) {
 		if (hydratedRef.current || !docStore || !sessionStore) return;
 		hydratedRef.current = true;
 
-		/* Load the replay script into the session store so the replay
-		 * controller can navigate between stages. */
-		sessionStore
-			.getState()
-			.loadReplay(replay.stages, replay.doneIndex, replay.exitPath);
+		/* Seed the session store with the replay script so navigation hooks
+		 * (`useReplayMessages`, `ReplayController`) have the full
+		 * events/chapters/cursor view to scrub through. */
+		sessionStore.getState().loadReplay({
+			events: replay.events,
+			chapters: replay.chapters,
+			initialCursor: replay.initialCursor,
+			exitPath: replay.exitPath,
+		});
 
-		/* Re-dispatch all emissions up to doneIndex through the standard
-		 * stream dispatcher — the same code path used during real-time
-		 * generation. This populates the doc store and updates session
-		 * lifecycle state identically to a live build. */
-		for (let i = 0; i <= replay.doneIndex; i++) {
-			const stage = replay.stages[i];
-			if (!stage) continue;
-			for (const em of stage.emissions) {
-				applyStreamEvent(em.type, em.data, docStore, sessionStore);
-			}
+		/* Mirror the replayed slice into the session events buffer so
+		 * lifecycle derivations (stage, error, status message, postBuildEdit)
+		 * reflect exactly the frame the doc store now holds.
+		 *
+		 * Exception: when the cursor lands on the terminal frame (the last
+		 * event of the log), the buffer stays empty — the run is *done*
+		 * from the UI's perspective, and `derivePhase` must return Ready,
+		 * not Generating. This mirrors live's post-`endRun` state (buffer
+		 * cleared, doc populated). Without this guard the final frame would
+		 * render as Generating with stale stage-tagged mutations in the
+		 * buffer. Scrubs back through `ReplayController.goToChapter` apply
+		 * the same rule. */
+		const eventsToReplay = replay.events.slice(0, replay.initialCursor + 1);
+		const atTerminal = replay.initialCursor >= replay.events.length - 1;
+		if (!atTerminal) {
+			sessionStore.getState().pushEvents(eventsToReplay);
 		}
+
+		/* Replay events up to the initial cursor synchronously — the user
+		 * sees the final state immediately. The transport bar then lets
+		 * them scrub backward through chapters.
+		 *
+		 * `replayEventsSync` (not `replayEvents`) so the doc store is
+		 * guaranteed fully populated by the time we call `setLoading(false)`
+		 * below. A future async variant of the paced helper could drift
+		 * here; the sync contract is load-bearing. */
+		replayEventsSync(
+			eventsToReplay,
+			(m) => docStore.getState().applyMany([m]),
+			() => {
+				/* Conversation events have no doc effect at hydrate time —
+				 * `useReplayMessages` derives chat messages from the raw
+				 * `replay.events` + cursor directly, so there's nothing for
+				 * us to push into a side channel. */
+			},
+		);
 
 		/* Finalize the session lifecycle — the session store was seeded with
 		 * `loading: true` so `derivePhase` returned `Loading` on the first

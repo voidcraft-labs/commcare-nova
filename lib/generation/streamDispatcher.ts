@@ -1,144 +1,62 @@
 /**
  * Stream event dispatcher — routes server-sent generation events to the
- * appropriate handler: live doc mutation batches, legacy replay-style doc
- * mutation events, doc lifecycle transitions, or session store updates.
+ * session events buffer, the doc store, and the signal grid.
  *
- * This is the Phase 4 replacement for `applyDataPart` in
- * `lib/services/builder.ts`. The key difference is that this dispatcher
- * takes explicit store references (doc store + session store) instead of
- * the legacy `{ store, docStore }` adapter object, and routes doc-mutating
- * events through the pure `toDocMutations` mapper rather than legacy store
- * setters that mixed entity writes with lifecycle state.
+ * Every event the server sends over SSE during a run falls into one of
+ * three categories (checked in this order):
  *
- * Four event categories (checked in this order):
+ *   1. **Doc mutation batch** — `data-mutations`. Carries a raw
+ *      `Mutation[]` for `docStore.applyMany` AND the corresponding
+ *      `MutationEvent[]` envelopes for the session events buffer. One
+ *      atomic `applyMany` (zundo-grouped undo entry); one `pushEvents`
+ *      append (lifecycle derivation sees the stage tags).
  *
- *   1. **Live doc mutation batch** — `data-mutations`. Carries a
- *      fine-grained `Mutation[]` produced server-side by
- *      `GenerationContext.emitMutations()`. Applied atomically with no
- *      wire-format translation and no doc-snapshot lookup. This is the
- *      canonical path for every doc-modifying SA emission after Phase 3.
+ *   2. **Conversation event** — `data-conversation-event`. Carries a
+ *      full `ConversationEvent` envelope (user / assistant text / tool
+ *      call+result / error / validation-attempt). Pushed onto the buffer
+ *      verbatim. `error` payloads also trigger a toast — the signal
+ *      panel will reflect the same info via the derived `agentError`,
+ *      but a toast is the right UX for a stream-level failure.
  *
- *   2. **Legacy replay doc mutation events** — `data-schema`,
- *      `data-scaffold`, `data-module-done`, `data-form-done`,
- *      `data-form-fixed`, `data-form-updated`. Coarse snapshot-shaped
- *      events that must be mapped to `Mutation[]` via `toDocMutations`
- *      against the current doc state. Kept for backward compatibility
- *      with historical chat logs that replay through this dispatcher;
- *      the live server (Task 17+) no longer emits these.
+ *   3. **Whole-build completion** — `data-done`. Reconciles the doc
+ *      against the final authoritative snapshot from `validateApp`
+ *      AND stamps `runCompletedAt` (the celebration signal).
+ *      Stream-close lifecycle is owned by ChatContainer's chat-status
+ *      effect via `endRun` — separate concern.
  *
- *   3. **Doc lifecycle events** — `data-done`, `data-blueprint-updated`.
- *      Replace the entire doc via `docStore.load()` and manage undo
- *      tracking state.
- *
- *   4. **Session-only events** — `data-start-build`, `data-phase`,
- *      `data-fix-attempt`, `data-partial-scaffold`, `data-error`,
- *      `data-app-saved`. Pure session store actions with no doc impact.
+ * `data-run-id` and `data-app-saved` are handled inline in
+ * ChatContainer's `onData` and never reach this dispatcher.
  *
  * Signal grid energy is injected BEFORE processing so the animation
- * responds immediately to the event arrival, not after the mutation
- * completes.
+ * responds to event arrival, not post-mutation.
  */
 
 import type { BlueprintDocStoreApi } from "@/lib/doc/store";
 import type { Mutation } from "@/lib/doc/types";
 import type { PersistableDoc } from "@/lib/domain";
+import type { ConversationEvent, MutationEvent } from "@/lib/log/types";
+import { showToast } from "@/lib/services/toastStore";
 import type { BuilderSessionStoreApi } from "@/lib/session/store";
-import type { PartialScaffoldData } from "@/lib/session/types";
 import { signalGrid } from "@/lib/signalGrid/store";
-import { toDocMutations } from "./mutationMapper";
 
 // ── Signal grid energy table ────────────────────────────────────────────
 
 /**
  * Inject energy into the signal grid based on event significance.
  *
- * High-energy events (200) are structural milestones — a module or form
- * just completed. Medium-energy (100) are edit replacements. Low-energy
- * (50) are progress markers and intermediate states.
+ * High-energy (200) = doc mutation batch landed (the main visual pulse).
+ * Medium (100) = full-doc edit replacement. Low (50) = conversation
+ * activity (assistant chatter, tool calls, error annotations).
  */
 function injectSignalEnergy(type: string): void {
 	switch (type) {
-		case "data-module-done":
-		case "data-form-done":
-		case "data-form-fixed":
 		case "data-mutations":
 			signalGrid.injectEnergy(200);
 			break;
-		case "data-form-updated":
-		case "data-blueprint-updated":
-			signalGrid.injectEnergy(100);
-			break;
-		case "data-phase":
-		case "data-schema":
-		case "data-scaffold":
-		case "data-partial-scaffold":
-		case "data-fix-attempt":
+		case "data-conversation-event":
 			signalGrid.injectEnergy(50);
 			break;
 	}
-}
-
-// ── Legacy doc mutation event types — REPLAY-ONLY after Phase 3 ─────────
-
-/**
- * Legacy wire-format doc-mutation events — REPLAY-ONLY after Phase 3.
- *
- * Live generation no longer emits these; the SA writes `data-mutations`
- * directly via `GenerationContext.emitMutations()`. Historical Firestore
- * emission logs predating that migration still contain these event
- * types, and `ReplayController` replays them as-is. Each is mapped to
- * `Mutation[]` on-the-fly via `lib/generation/mutationMapper.ts::toDocMutations`.
- *
- * Phase 4's log unification migrates stored logs to the new
- * `data-mutations` shape and deletes this set + its handler branch +
- * `mutationMapper.ts` entirely.
- */
-const LEGACY_REPLAY_DOC_MUTATION_EVENTS = new Set([
-	"data-schema",
-	"data-scaffold",
-	"data-module-done",
-	"data-form-done",
-	"data-form-fixed",
-	"data-form-updated",
-]);
-
-// ── Partial scaffold parser ─────────────────────────────────────────────
-
-/**
- * Parse raw partial scaffold data into the `PartialScaffoldData` shape.
- *
- * Filters modules and forms that have a `name` — partially streamed
- * scaffold data may have incomplete objects where the LLM hasn't
- * finished producing the name field yet. Returns `undefined` when no
- * valid modules survive the filter.
- */
-function parsePartialScaffold(
-	data: Record<string, unknown>,
-): PartialScaffoldData | undefined {
-	const rawModules = data.modules as Array<Record<string, unknown>> | undefined;
-	if (!rawModules?.length) return undefined;
-
-	const modules = rawModules
-		.filter((m) => m?.name)
-		.map((m) => ({
-			name: m.name as string,
-			case_type: m.case_type as string | undefined,
-			purpose: m.purpose as string | undefined,
-			forms: ((m.forms as Array<Record<string, unknown>> | undefined) ?? [])
-				.filter((f) => f?.name)
-				.map((f) => ({
-					name: f.name as string,
-					type: f.type as string,
-					purpose: f.purpose as string | undefined,
-				})),
-		}));
-
-	if (modules.length === 0) return undefined;
-
-	return {
-		appName: data.app_name as string | undefined,
-		modules,
-	};
 }
 
 // ── Public API ──────────────────────────────────────────────────────────
@@ -146,11 +64,7 @@ function parsePartialScaffold(
 /**
  * Dispatch a single server-sent stream event to the appropriate handlers.
  *
- * Replaces the legacy `applyDataPart` function. Takes explicit store
- * references so callers don't need an adapter object. Signal grid energy
- * is injected before processing so animations respond immediately.
- *
- * @param type         - stream event type (e.g. "data-scaffold")
+ * @param type         - stream event type (e.g. "data-mutations")
  * @param data         - event payload — shape varies by event type
  * @param docStore     - the BlueprintDoc Zustand store
  * @param sessionStore - the BuilderSession Zustand store
@@ -161,120 +75,78 @@ export function applyStreamEvent(
 	docStore: BlueprintDocStoreApi,
 	sessionStore: BuilderSessionStoreApi,
 ): void {
-	/* Inject signal grid energy BEFORE processing so the animation
-	 * responds to the event arrival, not after mutation completion. */
 	injectSignalEnergy(type);
 
-	// ── Category 1: Live doc mutation batch ──────────────────────────
+	// ── Doc mutation batch ───────────────────────────────────────────
 	//
-	// Server emits fine-grained `Mutation[]` directly via
-	// `GenerationContext.emitMutations()`. The client applies the batch
-	// atomically — no wire-format mapping, no doc-snapshot lookup. This
-	// is the live path for every doc-modifying SA emission after Phase 3.
-	//
-	// The optional `stage` tag on the payload is intentionally ignored
-	// here: the live path applies mutations regardless of stage. The
-	// Phase 4 generation-log UI consumes `stage` when replaying event
-	// streams for debugging.
+	// Payload now carries both the raw `mutations` (for `applyMany` — one
+	// atomic zundo-grouped undo entry) and the `events` envelopes (for
+	// the session buffer — lifecycle derivations read the stage tags).
 	if (type === "data-mutations") {
 		const mutations = data.mutations as Mutation[] | undefined;
+		const events = data.events as MutationEvent[] | undefined;
 		if (mutations && mutations.length > 0) {
 			docStore.getState().applyMany(mutations);
 		}
-		return;
-	}
-
-	// ── Category 2: Legacy replay doc mutation events ────────────────
-	//
-	// Snapshot-shaped events from historical logs. Mapped through
-	// `toDocMutations` against the current doc so the replay produces
-	// the same fine-grained `Mutation[]` the live path would have
-	// emitted. Kept solely for replay compatibility — the live server
-	// no longer emits these event types.
-	if (LEGACY_REPLAY_DOC_MUTATION_EVENTS.has(type)) {
-		const mutations = toDocMutations(type, data, docStore.getState());
-		if (mutations.length > 0) {
-			docStore.getState().applyMany(mutations);
+		if (events && events.length > 0) {
+			sessionStore.getState().pushEvents(events);
 		}
 		return;
 	}
 
-	// ── Category 3: Doc lifecycle events ─────────────────────────────
+	// ── Conversation event ───────────────────────────────────────────
+	//
+	// Full envelope from the server-side `emitConversation`. Push onto
+	// the buffer verbatim; error payloads also trigger a toast (the
+	// signal panel reflects the same info via derived `agentError`).
+	if (type === "data-conversation-event") {
+		const event = data as unknown as ConversationEvent;
+		sessionStore.getState().pushEvent(event);
+		if (event.payload.type === "error") {
+			showToast(
+				event.payload.error.fatal ? "error" : "warning",
+				"Generation error",
+				event.payload.error.message,
+			);
+		}
+		return;
+	}
+
+	// ── Doc lifecycle (full-doc replacements) ────────────────────────
 	switch (type) {
 		case "data-done": {
 			/*
-			 * Generation complete. Reconcile the doc against the final
-			 * authoritative snapshot from the SA — streaming may leave the
-			 * doc slightly diverged from the server's canonical result (e.g.
-			 * silent fix-loop mutations that never surfaced as incremental
-			 * events). `load()` replaces the entire doc and clears + pauses
-			 * undo history.
+			 * Whole-build completion — `validateApp` succeeded on the
+			 * server. Two side-effects:
 			 *
-			 * The payload carries the normalized `PersistableDoc` directly;
-			 * no wire-format translation happens on the client any more.
+			 * 1. Reconcile the doc against the final authoritative
+			 *    snapshot from the SA. Streaming may leave the doc
+			 *    slightly diverged from the server's canonical result
+			 *    (e.g. silent fix-loop mutations that never surfaced as
+			 *    incremental events). `load()` replaces the entire doc
+			 *    and clears + pauses undo history.
 			 *
-			 * `sessionStore.endAgentWrite()` cascades to `docStore.endAgentWrite()`
-			 * internally (resumes undo tracking) AND sets `justCompleted=true`
-			 * for the celebration animation.
+			 * 2. Stamp `runCompletedAt` — this, not stream-close, is the
+			 *    "a full build just finished" signal that drives the
+			 *    Completed celebration phase. askQuestions runs,
+			 *    clarifying-text runs, and post-build edits never emit
+			 *    `data-done`, so they close silently back to Idle / Ready
+			 *    without celebration.
+			 *
+			 * Stream-close is owned by ChatContainer's chat-status effect
+			 * via `endRun()` (which clears the events buffer). These two
+			 * concerns are orthogonal.
 			 */
 			const doc = data.doc as PersistableDoc | undefined;
 			if (doc) {
 				docStore.getState().load(doc);
 			}
-			sessionStore.getState().endAgentWrite();
-			return;
-		}
-		case "data-blueprint-updated": {
-			/*
-			 * Full doc replacement from a post-build edit tool. The SA's
-			 * coarse edit tools emit this with the entire new doc.
-			 *
-			 * `load()` replaces the doc and pauses undo. We resume tracking
-			 * directly on the doc store — the edit should be undoable. We do
-			 * NOT call `sessionStore.endAgentWrite()` because that would set
-			 * `justCompleted=true` and trigger a celebration animation. The
-			 * `agentActive` flag is cleared separately by the chat status effect.
-			 */
-			const doc = data.doc as PersistableDoc | undefined;
-			if (doc) {
-				docStore.getState().load(doc);
-				docStore.getState().endAgentWrite();
-			}
+			sessionStore.getState().markRunCompleted();
 			return;
 		}
 	}
 
-	// ── Category 4: Session-only events ──────────────────────────────
-	switch (type) {
-		case "data-start-build":
-			/* Begin an agent write stream. Pauses doc undo via the session
-			 * store's cascading `beginAgentWrite()` call. No stage arg —
-			 * the first `data-phase` event sets the initial stage. */
-			sessionStore.getState().beginAgentWrite();
-			break;
-		case "data-phase":
-			sessionStore.getState().advanceStage(data.phase as string);
-			break;
-		case "data-fix-attempt":
-			sessionStore
-				.getState()
-				.setFixAttempt(data.attempt as number, data.errorCount as number);
-			break;
-		case "data-partial-scaffold": {
-			const parsed = parsePartialScaffold(data);
-			sessionStore.getState().setPartialScaffold(parsed);
-			break;
-		}
-		case "data-error":
-			sessionStore
-				.getState()
-				.failAgentWrite(
-					data.message as string,
-					(data.fatal as boolean) ? "failed" : "recovering",
-				);
-			break;
-		case "data-app-saved":
-			sessionStore.getState().setAppId(data.appId as string);
-			break;
-	}
+	// `data-run-id` and `data-app-saved` are handled inline by
+	// ChatContainer's `onData` and never reach this dispatcher. Any other
+	// type is ignored.
 }

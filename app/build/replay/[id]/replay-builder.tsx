@@ -1,34 +1,40 @@
 /**
- * ReplayBuilder — client leaf that extracts replay stages from server-fetched
- * events and renders the builder in replay mode. Stage extraction is pure
- * computation (no async, no DOM) so it runs in a useState initializer.
- * Extraction failures throw and are caught by the nearest error boundary.
+ * ReplayBuilder — client leaf that seeds the builder's replay state from the
+ * server-fetched event log. Chapter derivation is pure computation (no async,
+ * no DOM) so it runs in a useState initializer. Derivation failures throw
+ * and are caught by the nearest error boundary.
  */
 "use client";
 import { useState } from "react";
 import { BuilderLayout } from "@/components/builder/BuilderLayout";
 import { BuilderProvider } from "@/components/builder/BuilderProvider";
-import type { StoredEvent } from "@/lib/db/types";
-import { extractReplayStages } from "@/lib/services/logReplay";
+import { deriveReplayChapters } from "@/lib/log/replay";
+import type { Event } from "@/lib/log/types";
 import type { ReplayInit } from "@/lib/session/types";
 
 interface ReplayBuilderProps {
-	/** Raw event log from Firestore, pre-ordered by sequence. */
-	events: StoredEvent[];
+	/** Raw event log from Firestore, pre-ordered by (ts, seq). */
+	events: Event[];
 	/** Path to navigate to when the user exits replay mode. */
 	exitPath: string;
 }
 
 export function ReplayBuilder({ events, exitPath }: ReplayBuilderProps) {
-	/* Extract once — throws on failure, caught by the error boundary. */
+	/* Derive chapters once — throws on empty log, caught by the error
+	 * boundary. The server page already filters out empty logs before
+	 * mounting us, so this guard is a last-resort invariant check. */
 	const [replay] = useState<ReplayInit>(() => {
-		const result = extractReplayStages(events);
-		if (!result.success) {
-			throw new Error(result.error);
+		if (events.length === 0) {
+			throw new Error(
+				"ReplayBuilder received empty events array; server page should have filtered this.",
+			);
 		}
+		const chapters = deriveReplayChapters(events);
 		return {
-			stages: result.stages,
-			doneIndex: result.doneIndex,
+			events,
+			chapters,
+			/* Mount at the final frame; user scrolls back through chapters. */
+			initialCursor: events.length - 1,
 			exitPath,
 		};
 	});

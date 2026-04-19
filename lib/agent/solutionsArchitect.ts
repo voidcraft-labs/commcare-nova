@@ -50,7 +50,7 @@ import type {
 	Uuid,
 } from "@/lib/domain";
 import { asUuid, isContainer } from "@/lib/domain";
-import { log } from "@/lib/log";
+import { log } from "@/lib/logger";
 import { SA_MODEL, SA_REASONING } from "@/lib/models";
 import {
 	type BlueprintForm,
@@ -83,7 +83,7 @@ import {
 	type FlatQuestion,
 	stripEmpty,
 } from "./contentProcessing";
-import { type GenerationContext, logWarnings } from "./generationContext";
+import type { GenerationContext } from "./generationContext";
 import { buildSolutionsArchitectPrompt } from "./prompts";
 import {
 	addQuestionQuestionSchema,
@@ -341,10 +341,6 @@ export function createSolutionsArchitect(
 				caseTypes: caseTypesOutputSchema.shape.case_types,
 			}),
 			strict: true,
-			onInputStart: () => {
-				ctx.emit("data-start-build", {});
-				ctx.emit("data-phase", { phase: "data-model" });
-			},
 			execute: async ({ appName, caseTypes }) => {
 				// Emit before dispatch so the client applies mutations in the same
 				// order the SA's internal doc advances. `dispatch` still runs
@@ -373,9 +369,6 @@ export function createSolutionsArchitect(
 				"Set the module and form structure for the app. Call after generateScaffold. Provide the complete scaffold directly.",
 			inputSchema: scaffoldModulesSchema,
 			strict: true,
-			onInputStart: () => {
-				ctx.emit("data-phase", { phase: "structure" });
-			},
 			execute: async (scaffold) => {
 				const muts = setScaffoldMutations(doc, scaffold);
 				ctx.emitMutations(muts, "scaffold");
@@ -406,9 +399,6 @@ export function createSolutionsArchitect(
 				case_list_columns: moduleContentSchema.shape.case_list_columns,
 				case_detail_columns: moduleContentSchema.shape.case_detail_columns,
 			}),
-			onInputStart: () => {
-				ctx.emit("data-phase", { phase: "modules" });
-			},
 			execute: async ({
 				moduleIndex,
 				case_list_columns,
@@ -527,8 +517,8 @@ export function createSolutionsArchitect(
 					// Emit the mutation batch before dispatch so client application
 					// order matches the SA's internal doc advancement. The client
 					// applies the mutations via `applyMany` — no wire-form snapshot
-					// needed; the mutations ARE the update.
-					ctx.emit("data-phase", { phase: "forms" });
+					// needed; the mutations ARE the update. The `form:M-F` stage
+					// tag on the envelopes drives lifecycle derivation (forms phase).
 					ctx.emitMutations(muts, `form:${moduleIndex}-${formIndex}`);
 					dispatch(muts);
 
@@ -1236,9 +1226,6 @@ export function createSolutionsArchitect(
 			description:
 				"Validate the app against CommCare platform rules and fix any issues. Call this when you are done building or editing. If validation fails with remaining errors, use your mutation tools (removeQuestion, editQuestion, etc.) to fix them, then call validateApp again.",
 			inputSchema: z.object({}),
-			onInputStart: () => {
-				ctx.emit("data-phase", { phase: "validate" });
-			},
 			execute: async () => {
 				// `validateAndFix` owns the XForm-compiler boundary: it takes
 				// our doc, runs CommCare-flavored validation + auto-fixes on a
@@ -1264,9 +1251,11 @@ export function createSolutionsArchitect(
 					/* Update the app with the final validated doc (fire-and-forget).
 					 * The app document was created at the start of the request by
 					 * the route handler. We persist the normalized doc shape
-					 * directly — `completeApp` accepts `PersistableDoc`. */
+					 * directly — `completeApp` accepts `PersistableDoc`. The runId
+					 * is the same value the event log uses; `UsageAccumulator`
+					 * is the single source of truth. */
 					if (ctx.appId) {
-						completeApp(ctx.appId, persistable, ctx.logger.runId).catch((err) =>
+						completeApp(ctx.appId, persistable, ctx.usage.runId).catch((err) =>
 							log.error("[validateApp] app update failed", err),
 						);
 					}
@@ -1314,41 +1303,32 @@ export function createSolutionsArchitect(
 			};
 			return { providerOptions: { anthropic } };
 		},
-		onStepFinish: ({
-			usage,
-			text,
-			reasoningText,
-			toolCalls,
-			toolResults,
-			warnings,
-		}) => {
-			logWarnings("Solutions Architect", warnings);
-			if (usage) {
-				ctx.logger.logStep({
-					text: text || undefined,
-					reasoning: reasoningText || undefined,
-					tool_calls: toolCalls?.map((tc) => ({
-						name: tc.toolName,
-						args: tc.input,
+		onStepFinish: (step) => {
+			/* Delegate step-level fan-out (usage + conversation events +
+			 * tool-call counting) to the shared handler on GenerationContext.
+			 * We map the AI SDK's step-finish argument into the normalized
+			 * AgentStep shape here so the handler stays SDK-version stable.
+			 * `toolResults` is loosely typed by the SDK — narrow at the
+			 * boundary rather than inside the shared helper. */
+			ctx.handleAgentStep(
+				{
+					usage: step.usage,
+					text: step.text,
+					reasoningText: step.reasoningText,
+					toolCalls: step.toolCalls?.map((tc) => ({
 						toolCallId: tc.toolCallId,
+						toolName: tc.toolName,
+						input: tc.input,
 					})),
-					tool_results: (
-						toolResults as Array<{ toolCallId: string; output: unknown }>
-					)?.map((tr) => ({
-						toolCallId: tr.toolCallId,
-						output: tr.output,
-					})),
-					usage: {
-						model: SA_MODEL,
-						input_tokens: usage.inputTokens ?? 0,
-						output_tokens: usage.outputTokens ?? 0,
-						cache_read_tokens:
-							usage.inputTokenDetails?.cacheReadTokens ?? undefined,
-						cache_write_tokens:
-							usage.inputTokenDetails?.cacheWriteTokens ?? undefined,
-					},
-				});
-			}
+					toolResults:
+						(step.toolResults as Array<{
+							toolCallId: string;
+							output: unknown;
+						}>) ?? undefined,
+					warnings: step.warnings,
+				},
+				"Solutions Architect",
+			);
 		},
 		tools,
 	});

@@ -1,6 +1,7 @@
 "use client";
 import type { UIMessage } from "ai";
 import { useCallback, useContext, useEffect, useRef } from "react";
+import { docHasData } from "@/lib/doc/predicates";
 import {
 	BlueprintDocContext,
 	type BlueprintDocStore,
@@ -8,6 +9,7 @@ import {
 import type { BlueprintDoc, Uuid } from "@/lib/domain";
 import type { EditScope } from "@/lib/services/builder";
 import { type QuestionPath, qpathId } from "@/lib/services/questionPath";
+import { derivePostBuildEdit } from "@/lib/session/lifecycle";
 import type { BuilderSessionStoreApi } from "@/lib/session/provider";
 import { useBuilderSessionApi } from "@/lib/session/provider";
 import { computeEditFocus } from "@/lib/signalGrid/editFocus";
@@ -149,24 +151,23 @@ export function SignalGrid({ controller, messages }: SignalGridProps) {
 		prevContentLenRef.current = contentLen;
 
 		const s = sessionApiRef.current.getState();
-		if (s.postBuildEdit && s.agentActive) {
-			/* computeEditFocus needs the blueprint's ordering maps to convert
-			 * scope indices into a 0–1 focus range; those maps live on the doc
-			 * store now, so we pass its state snapshot rather than the legacy
-			 * session store. */
-			const doc = docStoreRef.current?.getState();
-			if (doc) {
-				controller.setEditFocus(
-					computeEditFocus(
-						{
-							moduleOrder: doc.moduleOrder,
-							formOrder: doc.formOrder,
-							fieldOrder: doc.fieldOrder,
-						},
-						latestToolScope,
-					),
-				);
-			}
+		const doc = docStoreRef.current?.getState();
+		/* `derivePostBuildEdit` returns true only while a run is in
+		 * progress (events buffer non-empty), so a separate "agent
+		 * active" check would be redundant. */
+		if (doc && derivePostBuildEdit(s.events, docHasData(doc))) {
+			/* computeEditFocus needs the blueprint's ordering maps to
+			 * convert scope indices into a 0–1 focus range. */
+			controller.setEditFocus(
+				computeEditFocus(
+					{
+						moduleOrder: doc.moduleOrder,
+						formOrder: doc.formOrder,
+						fieldOrder: doc.fieldOrder,
+					},
+					latestToolScope,
+				),
+			);
 		}
 	}, [messages, controller]);
 

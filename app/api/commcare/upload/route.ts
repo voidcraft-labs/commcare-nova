@@ -15,7 +15,7 @@ import { importApp, isValidDomainSlug } from "@/lib/commcare/client";
 import { getDecryptedCredentialsWithDomain } from "@/lib/db/settings";
 import { toBlueprint } from "@/lib/doc/legacyBridge";
 import { blueprintDocSchema } from "@/lib/domain";
-import { log } from "@/lib/log";
+import { log } from "@/lib/logger";
 import { expandBlueprint } from "@/lib/services/hqJsonExpander";
 
 export async function POST(req: NextRequest) {
