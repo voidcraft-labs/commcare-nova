@@ -26,6 +26,19 @@
  * deleted by this script — deletion is a separate decision once the new
  * collection is known-good across the historical dataset.
  *
+ * Multi-model runs: the run summary's `model` field is the FINAL step's
+ * model. Tool-call sub-generations (tc.generation.model) are not tracked
+ * separately — their tokens fold into the run totals but are costed as
+ * if the outer step's model ran them. Pre-Phase-3 runs are uniform
+ * (Opus-only), so this is a faithful representation. If any historical
+ * app pre-dates Phase 3 AND used a mixed-model workflow, migrated costs
+ * for that app will be approximate.
+ *
+ * Memory: the script loads an app's entire legacy log into memory at
+ * once (typical size: sub-MB). Apps with pathological crash-loop histories
+ * (>100k log entries) may OOM on a dev machine. If encountered, move to
+ * streaming via db.collection(...).stream() with per-run bucketing.
+ *
  *   npx tsx scripts/migrate-logs-to-events.ts                   # every app
  *   npx tsx scripts/migrate-logs-to-events.ts --app=<id>        # one app
  *   npx tsx scripts/migrate-logs-to-events.ts --dry-run         # plan only
@@ -35,8 +48,7 @@
 
 import "dotenv/config";
 import { produce } from "immer";
-import { collections, getDb } from "@/lib/db/firestore";
-import { writeRunSummary } from "@/lib/db/runSummary";
+import { collections, docs, getDb } from "@/lib/db/firestore";
 import type { RunSummaryDoc } from "@/lib/db/types";
 import { estimateCost } from "@/lib/db/usage";
 import { applyMutations } from "@/lib/doc/mutations";
@@ -260,11 +272,22 @@ function translateRun(
 	let skippedBlueprintUpdated = 0;
 
 	/* Summary timestamps — ISO strings, matching the RunSummaryDoc schema.
-	 * Fall back to "now" for empty runs, which would otherwise leave these
+	 * Derived from min/max wall-clock ts across the run rather than
+	 * first/last sequence index: `sequence` is monotonic per run, but
+	 * `timestamp` is wall-clock and can move backward on retries or clock
+	 * skew. Using min/max makes the summary robust to those cases. Falls
+	 * back to "now" for empty runs, which would otherwise leave these
 	 * undefined and fail the schema's required-field validation on write. */
-	const startedAt = stored[0]?.timestamp ?? new Date().toISOString();
+	const timestamps = stored.map((s) => Date.parse(s.timestamp));
+	const nowIso = new Date().toISOString();
+	const startedAt =
+		timestamps.length > 0
+			? new Date(Math.min(...timestamps)).toISOString()
+			: nowIso;
 	const finishedAt =
-		stored[stored.length - 1]?.timestamp ?? new Date().toISOString();
+		timestamps.length > 0
+			? new Date(Math.max(...timestamps)).toISOString()
+			: nowIso;
 
 	for (const s of stored) {
 		const ts = Date.parse(s.timestamp);
@@ -311,6 +334,23 @@ function translateRun(
 		if (s.event.type === "step") {
 			stepCount++;
 			lastModel = s.event.usage.model;
+			/*
+			 * Token convention. `estimateCost` takes `inputTokens` INCLUDING
+			 * cache_read_tokens + cache_write_tokens (see lib/db/usage.ts
+			 * `uncachedInput = inputTokens - cacheReadTokens - cacheWriteTokens`).
+			 * The legacy StoredEvent.usage.input_tokens followed the same
+			 * convention per the pre-deletion writer in
+			 * `lib/services/eventLogger.ts` (see git history before commit
+			 * ef98eee). If any historical app violated that convention —
+			 * some AI SDK versions reported input_tokens as uncached-only —
+			 * the sanity check below catches it, and migrated costEstimate
+			 * will under-count for that app.
+			 */
+			if (s.event.usage.cache_read_tokens > s.event.usage.input_tokens) {
+				console.warn(
+					`[migrate] ${appId} run ${runId}: cache_read_tokens (${s.event.usage.cache_read_tokens}) > input_tokens (${s.event.usage.input_tokens}); legacy convention may differ from estimateCost — costEstimate will under-count`,
+				);
+			}
 			inputTokens += s.event.usage.input_tokens;
 			outputTokens += s.event.usage.output_tokens;
 			cacheReadTokens += s.event.usage.cache_read_tokens;
@@ -339,8 +379,15 @@ function translateRun(
 				toolCallCount++;
 				/* Fold sub-generation cost into the run totals — this is where
 				 * the old EventLogger's `pendingSubResults` / sub-result
-				 * accumulator landed its per-tool usage. */
+				 * accumulator landed its per-tool usage. Same token
+				 * convention applies: inputTokens INCLUDES cache reads;
+				 * the sanity check warns if the legacy log violated it. */
 				if (tc.generation) {
+					if (tc.generation.cache_read_tokens > tc.generation.input_tokens) {
+						console.warn(
+							`[migrate] ${appId} run ${runId}: tool_call.generation cache_read_tokens (${tc.generation.cache_read_tokens}) > input_tokens (${tc.generation.input_tokens}); legacy convention may differ from estimateCost — costEstimate will under-count`,
+						);
+					}
 					inputTokens += tc.generation.input_tokens;
 					outputTokens += tc.generation.output_tokens;
 					cacheReadTokens += tc.generation.cache_read_tokens;
@@ -398,9 +445,13 @@ function translateRun(
 			if (type === "data-mutations") {
 				const data = s.event.emission_data as {
 					mutations?: Mutation[];
-					stage?: string;
+					stage?: unknown;
 				};
-				const stage = data.stage;
+				/* Narrow `stage` at the wire boundary: MutationEvent.stage is
+				 * `string | undefined`, and a legacy payload that shipped a
+				 * non-string value (0, null, an object) must drop it rather
+				 * than install a type-violating field. */
+				const stage = typeof data.stage === "string" ? data.stage : undefined;
 				for (const m of data.mutations ?? []) {
 					const ev: MutationEvent = {
 						kind: "mutation",
@@ -512,13 +563,17 @@ function deriveLegacyStage(
 ): string | undefined {
 	if (type === "data-schema") return "schema";
 	if (type === "data-scaffold") return "scaffold";
+	/* Index fields are narrowed via `typeof` rather than cast: legacy logs
+	 * could technically have shipped a non-number (null, string) for these,
+	 * and an unchecked cast would produce a malformed stage like
+	 * `module:null` that no replay UI could match. */
 	if (type === "data-module-done") {
-		const i = data.moduleIndex as number | undefined;
+		const i = data.moduleIndex;
 		return typeof i === "number" ? `module:${i}` : "module";
 	}
 	if (type.startsWith("data-form-")) {
-		const m = data.moduleIndex as number | undefined;
-		const f = data.formIndex as number | undefined;
+		const m = data.moduleIndex;
+		const f = data.formIndex;
 		return typeof m === "number" && typeof f === "number"
 			? `form:${m}-${f}`
 			: "form";
@@ -538,10 +593,12 @@ function deriveLegacyStage(
  * so parallelism would only risk rate-limiting the same project from
  * itself for no throughput gain on a one-shot run.
  *
- * The run summary writes outside the event loop via `writeRunSummary`,
- * which is fire-and-forget. Intentional — if the events landed but the
- * summary write fails, re-running the script regenerates the summary
- * deterministically from the same input.
+ * The run summary write uses `docs.run(appId, runId).set(...)` directly
+ * (awaited) rather than the fire-and-forget `writeRunSummary` helper: the
+ * helper's `.catch() → log` pattern is right for a live request path
+ * (observability must not block generation), but wrong for a one-shot
+ * ops script where an operator needs summary-write failures to bubble up
+ * into `migrateApp`'s per-app try/catch and surface on the terminal.
  */
 async function writeRun(
 	appId: string,
@@ -571,9 +628,11 @@ async function writeRun(
 		await batch.commit();
 	}
 
-	/* Summary is a single set() outside the batch loop. Fire-and-forget
-	 * inside the helper — its errors log via `log.error` and don't throw. */
-	writeRunSummary(appId, runId, translated.summary);
+	/* Summary write is awaited so a Firestore failure throws into
+	 * `migrateApp`'s per-app catch and the operator sees the failure
+	 * inline with the other per-app logs. Re-running the script is safe:
+	 * `docs.run().set()` overwrites deterministically. */
+	await docs.run(appId, runId).set(translated.summary);
 }
 
 // ── Per-app driver ──────────────────────────────────────────────────
@@ -648,10 +707,18 @@ async function migrateApp(appId: string, flags: Flags): Promise<AppResult> {
 		`[migrate] app ${appId} — found ${allStored.length} logs across ${byRun.size} runs`,
 	);
 
+	/* Sort run entries by runId so the per-run output is stable across
+	 * invocations. Map insertion order reflects the Firestore scan order,
+	 * which is not deterministic — without this, diffing two dry-runs
+	 * against the same dataset would show spurious reordering. */
+	const sortedRuns = [...byRun.entries()].sort(([a], [b]) =>
+		a.localeCompare(b),
+	);
+
 	let runsMigrated = 0;
 	let eventsWritten = 0;
 	let blueprintUpdatedSkipped = 0;
-	for (const [runId, stored] of byRun) {
+	for (const [runId, stored] of sortedRuns) {
 		const translated = translateRun(appId, runId, stored);
 		await writeRun(appId, runId, translated, flags.dryRun);
 		runsMigrated++;
@@ -677,10 +744,15 @@ async function main(): Promise<void> {
 
 	/* App discovery: one app (explicit) or every app in the project. The
 	 * root `apps/` collection listing is a single query — scales fine for
-	 * any realistic commcare-nova dataset (tens of thousands at most). */
-	const appIds = flags.app
+	 * any realistic commcare-nova dataset (tens of thousands at most).
+	 *
+	 * Sorted lexicographically for deterministic output: the Firestore
+	 * scan returns docs in undefined order, and diff-ability across two
+	 * migration runs against the same dataset requires stable iteration. */
+	const rawAppIds = flags.app
 		? [flags.app]
 		: (await db.collection("apps").get()).docs.map((d) => d.id);
+	const appIds = [...rawAppIds].sort();
 
 	let appsMigrated = 0;
 	let totalRuns = 0;
