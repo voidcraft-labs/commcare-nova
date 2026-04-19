@@ -55,7 +55,6 @@ function createGridController(
 			return computeScaffoldProgress(
 				{
 					agentStage: s.agentStage,
-					partialScaffold: s.partialScaffold,
 					agentActive: s.agentActive,
 					postBuildEdit: s.postBuildEdit,
 					justCompleted: s.justCompleted,

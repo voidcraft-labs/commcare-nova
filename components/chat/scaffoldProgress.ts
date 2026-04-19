@@ -11,13 +11,12 @@
  */
 
 import type { BlueprintDoc } from "@/lib/doc/types";
-import type { GenerationStage, PartialScaffoldData } from "@/lib/session/types";
+import type { GenerationStage } from "@/lib/session/types";
 import { GenerationStage as Stage } from "@/lib/session/types";
 
 /** Session store fields needed for scaffold progress computation. */
 export interface ScaffoldProgressInput {
 	agentStage: GenerationStage | null;
-	partialScaffold: PartialScaffoldData | undefined;
 	agentActive: boolean;
 	postBuildEdit: boolean;
 	justCompleted: boolean;
@@ -30,8 +29,7 @@ export interface ScaffoldProgressInput {
  * Branching:
  *   - Not generating → 0 (not started / loading) or 1 (already ready).
  *   - DataModel stage → 0.05 (ramp-in) until case types arrive, then 0.3.
- *   - Structure stage → 0.35 (initial) → 0.55 (partial scaffold) → 0.85
- *     (full scaffold = doc has entities).
+ *   - Structure stage → 0.35 (initial) → 0.85 (full scaffold = doc has entities).
  *   - Later stages (Modules / Forms / Validate / Fix) → 1.0, since the
  *     signal grid's "building" mode takes over from here.
  */
@@ -58,10 +56,9 @@ export function computeScaffoldProgress(
 		return hasCaseTypes ? 0.3 : 0.05;
 	}
 
-	/* Structure stage: partial scaffold → doc entity creation. */
+	/* Structure stage: doc entity creation. */
 	if (session.agentStage === Stage.Structure) {
 		if (docHasData) return 0.85;
-		if (session.partialScaffold) return 0.55;
 		return 0.35;
 	}
 

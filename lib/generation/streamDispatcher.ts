@@ -21,7 +21,7 @@
  *      tracking state.
  *
  *   3. **Session-only events** — `data-start-build`, `data-phase`,
- *      `data-fix-attempt`, `data-partial-scaffold`, `data-error`,
+ *      `data-fix-attempt`, `data-error`,
  *      `data-app-saved`. Pure session store actions with no doc impact.
  *
  * Signal grid energy is injected BEFORE processing so the animation
@@ -33,7 +33,6 @@ import type { BlueprintDocStoreApi } from "@/lib/doc/store";
 import type { Mutation } from "@/lib/doc/types";
 import type { PersistableDoc } from "@/lib/domain";
 import type { BuilderSessionStoreApi } from "@/lib/session/store";
-import type { PartialScaffoldData } from "@/lib/session/types";
 import { signalGrid } from "@/lib/signalGrid/store";
 
 // ── Signal grid energy table ────────────────────────────────────────────
@@ -55,50 +54,10 @@ function injectSignalEnergy(type: string): void {
 			signalGrid.injectEnergy(100);
 			break;
 		case "data-phase":
-		case "data-partial-scaffold":
 		case "data-fix-attempt":
 			signalGrid.injectEnergy(50);
 			break;
 	}
-}
-
-// ── Partial scaffold parser ─────────────────────────────────────────────
-
-/**
- * Parse raw partial scaffold data into the `PartialScaffoldData` shape.
- *
- * Filters modules and forms that have a `name` — partially streamed
- * scaffold data may have incomplete objects where the LLM hasn't
- * finished producing the name field yet. Returns `undefined` when no
- * valid modules survive the filter.
- */
-function parsePartialScaffold(
-	data: Record<string, unknown>,
-): PartialScaffoldData | undefined {
-	const rawModules = data.modules as Array<Record<string, unknown>> | undefined;
-	if (!rawModules?.length) return undefined;
-
-	const modules = rawModules
-		.filter((m) => m?.name)
-		.map((m) => ({
-			name: m.name as string,
-			case_type: m.case_type as string | undefined,
-			purpose: m.purpose as string | undefined,
-			forms: ((m.forms as Array<Record<string, unknown>> | undefined) ?? [])
-				.filter((f) => f?.name)
-				.map((f) => ({
-					name: f.name as string,
-					type: f.type as string,
-					purpose: f.purpose as string | undefined,
-				})),
-		}));
-
-	if (modules.length === 0) return undefined;
-
-	return {
-		appName: data.app_name as string | undefined,
-		modules,
-	};
 }
 
 // ── Public API ──────────────────────────────────────────────────────────
@@ -205,11 +164,6 @@ export function applyStreamEvent(
 				.getState()
 				.setFixAttempt(data.attempt as number, data.errorCount as number);
 			break;
-		case "data-partial-scaffold": {
-			const parsed = parsePartialScaffold(data);
-			sessionStore.getState().setPartialScaffold(parsed);
-			break;
-		}
 		case "data-error":
 			sessionStore
 				.getState()

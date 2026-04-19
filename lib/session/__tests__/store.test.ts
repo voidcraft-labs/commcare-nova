@@ -18,12 +18,7 @@ import { buildDoc } from "@/lib/__tests__/docHelpers";
 import { createBlueprintDocStore } from "@/lib/doc/store";
 import type { Event } from "@/lib/log/types";
 import { createBuilderSessionStore } from "../store";
-import {
-	GenerationStage,
-	type PartialScaffoldData,
-	type ReplayChapter,
-	STAGE_LABELS,
-} from "../types";
+import { GenerationStage, type ReplayChapter, STAGE_LABELS } from "../types";
 
 describe("BuilderSession store", () => {
 	it("1. initial state: edit mode, both sidebars open, no stash", () => {
@@ -452,7 +447,6 @@ describe("generation lifecycle", () => {
 		expect(s.agentStage).toBeNull();
 		expect(s.agentError).toBeNull();
 		expect(s.statusMessage).toBe("");
-		expect(s.partialScaffold).toBeUndefined();
 		/* Doc undo should be resumed — zundo's `isTracking` is true when active. */
 		expect(doc.temporal.getState().isTracking).toBe(true);
 	});
@@ -611,22 +605,6 @@ describe("generation lifecycle", () => {
 		const prev = store.getState();
 		store.getState().setLoading(false);
 		expect(store.getState()).toBe(prev);
-	});
-
-	it("setPartialScaffold stores and clears scaffold data", () => {
-		const store = createBuilderSessionStore();
-		const scaffold: PartialScaffoldData = {
-			appName: "Test",
-			modules: [
-				{ name: "Mod", forms: [{ name: "Form", type: "registration" }] },
-			],
-		};
-
-		store.getState().setPartialScaffold(scaffold);
-		expect(store.getState().partialScaffold).toEqual(scaffold);
-
-		store.getState().setPartialScaffold(undefined);
-		expect(store.getState().partialScaffold).toBeUndefined();
 	});
 });
 
@@ -819,10 +797,6 @@ describe("reset", () => {
 		session.getState().beginAgentWrite(GenerationStage.Forms);
 		session.getState().failAgentWrite("err", "recovering");
 		session.getState().setAppId("app-123");
-		session.getState().setPartialScaffold({
-			appName: "X",
-			modules: [],
-		});
 		session.getState().loadReplay({
 			events: [],
 			chapters: [{ header: "S1", startIndex: 0, endIndex: 0 }],
@@ -850,9 +824,6 @@ describe("reset", () => {
 
 		/* App identity */
 		expect(s.appId).toBeUndefined();
-
-		/* Generation UI */
-		expect(s.partialScaffold).toBeUndefined();
 
 		/* Replay */
 		expect(s.replay).toBeUndefined();

@@ -30,7 +30,6 @@ import {
 	type CursorMode,
 	type GenerationError,
 	GenerationStage,
-	type PartialScaffoldData,
 	type ReplayData,
 	type ReplayInit,
 	STAGE_LABELS,
@@ -49,7 +48,6 @@ export type SidebarKind = "chat" | "structure";
  *     `statusMessage`, `postBuildEdit`, `justCompleted`, `loading`) —
  *     what mode we're in during a build or edit.
  *   - App identity (`appId`) — current app being built/edited.
- *   - Generation UI (`partialScaffold`) — transient scaffold preview.
  *   - Replay (`replay`) — build replay playback data.
  *   - Interaction (`cursorMode`, `activeFieldId`) — how the user is editing.
  *   - Chrome (`sidebars`) — layout visibility + stash for mode transitions.
@@ -93,14 +91,6 @@ export interface BuilderSessionState {
 	 *  once when the builder mounts; undefined for new builds before
 	 *  the app document is created. */
 	appId: string | undefined;
-
-	// ── Generation UI state (transient) ─────────────────────────────────
-
-	/** Intermediate scaffold data streamed before the full Scaffold arrives.
-	 *  Drives the "building..." preview showing module/form names as they
-	 *  arrive from the SA's `setScaffold` tool call. Cleared on agent
-	 *  write completion. */
-	partialScaffold: PartialScaffoldData | undefined;
 
 	// ── Replay ───────────────────────────────────────────────────────────
 
@@ -205,9 +195,6 @@ export interface BuilderSessionState {
 
 	/** Set the generic loading flag. No-ops when unchanged. */
 	setLoading: (loading: boolean) => void;
-
-	/** Set or clear the partial scaffold preview data. */
-	setPartialScaffold: (data: PartialScaffoldData | undefined) => void;
 
 	// ── Replay actions ──────────────────────────────────────────────────
 
@@ -374,9 +361,6 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 				/* App identity */
 				appId: init?.appId as string | undefined,
 
-				/* Generation UI state */
-				partialScaffold: undefined as PartialScaffoldData | undefined,
-
 				/* Replay */
 				replay: undefined as ReplayData | undefined,
 
@@ -423,7 +407,6 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 						statusMessage: stage ? STAGE_LABELS[stage] : "",
 						agentError: null,
 						justCompleted: false,
-						partialScaffold: undefined,
 					});
 				},
 
@@ -446,7 +429,6 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 						agentStage: null,
 						agentError: null,
 						statusMessage: "",
-						partialScaffold: undefined,
 					});
 				},
 
@@ -503,10 +485,6 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 				setLoading(loading: boolean) {
 					if (loading === get().loading) return;
 					set({ loading });
-				},
-
-				setPartialScaffold(data: PartialScaffoldData | undefined) {
-					set({ partialScaffold: data });
 				},
 
 				// ── Replay actions ──────────────────────────────────────
@@ -744,9 +722,6 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 
 						/* App identity */
 						appId: undefined,
-
-						/* Generation UI */
-						partialScaffold: undefined,
 
 						/* Replay */
 						replay: undefined,

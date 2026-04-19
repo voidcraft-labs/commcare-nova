@@ -18,12 +18,7 @@ import type { Event } from "@/lib/log/types";
 import { BuilderPhase } from "@/lib/services/builder";
 import { useBuilderSession, useBuilderSessionShallow } from "./provider";
 import type { SidebarKind } from "./store";
-import type {
-	CursorMode,
-	GenerationError,
-	GenerationStage,
-	PartialScaffoldData,
-} from "./types";
+import type { CursorMode, GenerationError, GenerationStage } from "./types";
 
 // ── Cursor mode ───────────────────────────────────────────────────────────
 
@@ -176,12 +171,6 @@ export function usePostBuildEdit(): boolean {
  *  `undefined` for new builds before the app document is created. */
 export function useAppId(): string | undefined {
 	return useBuilderSession((s) => s.appId);
-}
-
-/** Intermediate scaffold data streamed before the full Scaffold arrives.
- *  `undefined` when no partial scaffold is available. */
-export function usePartialScaffold(): PartialScaffoldData | undefined {
-	return useBuilderSession((s) => s.partialScaffold);
 }
 
 /** Generic loading flag for async operations outside of agent writes. */

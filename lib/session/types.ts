@@ -57,24 +57,6 @@ export const STAGE_LABELS: Record<GenerationStage, string> = {
 	[GenerationStage.Fix]: "Fixing validation errors",
 };
 
-/** Intermediate scaffold data streamed before the full Scaffold arrives.
- *  Drives the "building..." preview showing module/form names as they
- *  arrive from the SA's `setScaffold` tool call. */
-export interface PartialScaffoldData {
-	appName?: string;
-	description?: string;
-	modules: Array<{
-		name: string;
-		case_type?: string | null;
-		purpose?: string;
-		forms: Array<{
-			name: string;
-			type: string;
-			purpose?: string;
-		}>;
-	}>;
-}
-
 // ── Replay ───────────────────────────────────────────────────────────────
 
 /**
