@@ -4,6 +4,7 @@
 // Cannot be calculated, validated, or saved to a case property — extends
 // fieldBaseSchema directly rather than inputFieldBaseSchema.
 
+import tablerMicrophone from "@iconify-icons/tabler/microphone";
 import { z } from "zod";
 import { StubField } from "@/components/builder/editor/StubField";
 import type { FieldEditorSchema, FieldKindMetadata } from "../kinds";
@@ -22,7 +23,8 @@ export const audioFieldMetadata: FieldKindMetadata<"audio"> = {
 	kind: "audio",
 	xformKind: "input",
 	dataType: "binary",
-	icon: "tabler:microphone",
+	icon: tablerMicrophone,
+	label: "Audio",
 	isStructural: false,
 	isContainer: false,
 	saDocs: "Audio recording. Cannot be saved to a case property.",

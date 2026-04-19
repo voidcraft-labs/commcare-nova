@@ -8,6 +8,7 @@
 // pre-selected default the same way text inputs do. Validation and calculate
 // expressions are still valid for conditional logic.
 
+import tablerCircleDot from "@iconify-icons/tabler/circle-dot";
 import { z } from "zod";
 import { StubField } from "@/components/builder/editor/StubField";
 import type { FieldEditorSchema, FieldKindMetadata } from "../kinds";
@@ -27,7 +28,8 @@ export const singleSelectFieldMetadata: FieldKindMetadata<"single_select"> = {
 	kind: "single_select",
 	xformKind: "select1",
 	dataType: "xsd:string",
-	icon: "tabler:circle-dot",
+	icon: tablerCircleDot,
+	label: "Single Select",
 	isStructural: false,
 	isContainer: false,
 	saDocs: "Single-choice from a fixed option list.",

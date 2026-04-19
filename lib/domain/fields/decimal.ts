@@ -4,6 +4,7 @@
 // validation + calculation. Maps to CommCare <input> control with
 // xsd:decimal type. Suitable for weight, height, price, GPS coordinates.
 
+import tablerDecimal from "@iconify-icons/tabler/decimal";
 import { z } from "zod";
 import type { FieldEditorSchema, FieldKindMetadata } from "../kinds";
 import { inputFieldBaseSchema } from "./base";
@@ -22,7 +23,8 @@ export const decimalFieldMetadata: FieldKindMetadata<"decimal"> = {
 	kind: "decimal",
 	xformKind: "input",
 	dataType: "xsd:decimal",
-	icon: "tabler:decimal",
+	icon: tablerDecimal,
+	label: "Decimal",
 	isStructural: false,
 	isContainer: false,
 	saDocs: "Decimal-number input for measurements (weight, height, price).",

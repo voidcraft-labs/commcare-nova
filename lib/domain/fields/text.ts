@@ -3,6 +3,7 @@
 // Free-text single-line string field. Supports XPath validation +
 // calculation. Maps to CommCare <input> control with xsd:string type.
 
+import tablerForms from "@iconify-icons/tabler/forms";
 import { z } from "zod";
 import type { FieldEditorSchema, FieldKindMetadata } from "../kinds";
 import { inputFieldBaseSchema } from "./base";
@@ -21,7 +22,8 @@ export const textFieldMetadata: FieldKindMetadata<"text"> = {
 	kind: "text",
 	xformKind: "input",
 	dataType: "xsd:string",
-	icon: "tabler:cursor-text",
+	icon: tablerForms,
+	label: "Text",
 	isStructural: false,
 	isContainer: false,
 	saDocs:

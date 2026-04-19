@@ -4,6 +4,7 @@
 // Maps to CommCare <input> control with xsd:int type. Suitable for
 // fields like age, count, quantity, score.
 
+import tabler123 from "@iconify-icons/tabler/123";
 import { z } from "zod";
 import type { FieldEditorSchema, FieldKindMetadata } from "../kinds";
 import { inputFieldBaseSchema } from "./base";
@@ -22,7 +23,8 @@ export const intFieldMetadata: FieldKindMetadata<"int"> = {
 	kind: "int",
 	xformKind: "input",
 	dataType: "xsd:int",
-	icon: "tabler:number",
+	icon: tabler123,
+	label: "Number",
 	isStructural: false,
 	isContainer: false,
 	saDocs: "Whole-number input (age, count, quantity).",

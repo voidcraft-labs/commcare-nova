@@ -4,6 +4,7 @@
 // Maps to CommCare <input> control with xsd:date type. Renders a
 // native date picker on the device — no time component.
 
+import tablerCalendar from "@iconify-icons/tabler/calendar";
 import { z } from "zod";
 import type { FieldEditorSchema, FieldKindMetadata } from "../kinds";
 import { inputFieldBaseSchema } from "./base";
@@ -22,7 +23,8 @@ export const dateFieldMetadata: FieldKindMetadata<"date"> = {
 	kind: "date",
 	xformKind: "input",
 	dataType: "xsd:date",
-	icon: "tabler:calendar",
+	icon: tablerCalendar,
+	label: "Date",
 	isStructural: false,
 	isContainer: false,
 	saDocs: "Date-only picker.",

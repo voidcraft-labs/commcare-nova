@@ -5,6 +5,7 @@
 // secrets don't make semantic sense and would expose derived values in the
 // instance model in plain text.
 
+import tablerLock from "@iconify-icons/tabler/lock";
 import { z } from "zod";
 import { StubField } from "@/components/builder/editor/StubField";
 import type { FieldEditorSchema, FieldKindMetadata } from "../kinds";
@@ -23,7 +24,8 @@ export const secretFieldMetadata: FieldKindMetadata<"secret"> = {
 	kind: "secret",
 	xformKind: "input",
 	dataType: "xsd:string",
-	icon: "tabler:eye-off",
+	icon: tablerLock,
+	label: "Secret",
 	isStructural: false,
 	isContainer: false,
 	saDocs: "Sensitive input (password, PIN).",

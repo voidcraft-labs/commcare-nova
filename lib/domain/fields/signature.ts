@@ -5,6 +5,7 @@
 // CommCare <input> control with a binary data type. No choices, no calculate,
 // no case wiring — it is a pure capture control.
 
+import tablerSignature from "@iconify-icons/tabler/signature";
 import { z } from "zod";
 import { StubField } from "@/components/builder/editor/StubField";
 import type { FieldEditorSchema, FieldKindMetadata } from "../kinds";
@@ -23,7 +24,8 @@ export const signatureFieldMetadata: FieldKindMetadata<"signature"> = {
 	kind: "signature",
 	xformKind: "input",
 	dataType: "binary",
-	icon: "tabler:signature",
+	icon: tablerSignature,
+	label: "Signature",
 	isStructural: false,
 	isContainer: false,
 	saDocs: "Signature capture.",

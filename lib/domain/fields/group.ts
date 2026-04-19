@@ -8,6 +8,7 @@
 // Groups do not write to the case — they have no case_property, hint, or
 // required fields. Only `relevant` is meaningful at the group level.
 
+import tablerFolder from "@iconify-icons/tabler/folder";
 import { z } from "zod";
 import { StubField } from "@/components/builder/editor/StubField";
 import type { FieldEditorSchema, FieldKindMetadata } from "../kinds";
@@ -24,7 +25,8 @@ export const groupFieldMetadata: FieldKindMetadata<"group"> = {
 	kind: "group",
 	xformKind: "group",
 	dataType: "",
-	icon: "tabler:folder",
+	icon: tablerFolder,
+	label: "Group",
 	isStructural: true,
 	isContainer: true,
 	saDocs:

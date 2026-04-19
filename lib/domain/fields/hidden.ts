@@ -12,6 +12,7 @@
 // common base with the other kinds means any code that assumes "every
 // field has uuid + id" stays correct for hidden fields.
 
+import tablerEyeOff from "@iconify-icons/tabler/eye-off";
 import { z } from "zod";
 import { StubField } from "@/components/builder/editor/StubField";
 import type { FieldEditorSchema, FieldKindMetadata } from "../kinds";
@@ -34,7 +35,8 @@ export const hiddenFieldMetadata: FieldKindMetadata<"hidden"> = {
 	kind: "hidden",
 	xformKind: "input",
 	dataType: "xsd:string",
-	icon: "tabler:eye-off",
+	icon: tablerEyeOff,
+	label: "Hidden",
 	isStructural: false,
 	isContainer: false,
 	saDocs:

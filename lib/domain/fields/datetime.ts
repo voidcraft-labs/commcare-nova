@@ -3,6 +3,7 @@
 // Combined date + time picker field. Maps to CommCare <input> control with
 // xsd:dateTime type. Supports XPath validation and calculation.
 
+import tablerClock from "@iconify-icons/tabler/clock";
 import { z } from "zod";
 import type { FieldEditorSchema, FieldKindMetadata } from "../kinds";
 import { inputFieldBaseSchema } from "./base";
@@ -21,7 +22,8 @@ export const datetimeFieldMetadata: FieldKindMetadata<"datetime"> = {
 	kind: "datetime",
 	xformKind: "input",
 	dataType: "xsd:dateTime",
-	icon: "tabler:calendar-clock",
+	icon: tablerClock,
+	label: "Date/Time",
 	isStructural: false,
 	isContainer: false,
 	saDocs: "Combined date + time picker.",

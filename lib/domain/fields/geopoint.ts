@@ -9,6 +9,7 @@
 // calculate and default_value are still valid for pre-populating coordinates
 // (e.g. loading a saved location from a case property).
 
+import tablerMapPin from "@iconify-icons/tabler/map-pin";
 import { z } from "zod";
 import { StubField } from "@/components/builder/editor/StubField";
 import type { FieldEditorSchema, FieldKindMetadata } from "../kinds";
@@ -26,7 +27,8 @@ export const geopointFieldMetadata: FieldKindMetadata<"geopoint"> = {
 	kind: "geopoint",
 	xformKind: "input",
 	dataType: "geopoint",
-	icon: "tabler:map-pin",
+	icon: tablerMapPin,
+	label: "Location",
 	isStructural: false,
 	isContainer: false,
 	saDocs: "GPS coordinate capture.",

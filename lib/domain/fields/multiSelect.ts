@@ -9,6 +9,7 @@
 //
 // Note: no `default_value` — same rationale as singleSelect.
 
+import tablerSquareCheck from "@iconify-icons/tabler/square-check";
 import { z } from "zod";
 import { StubField } from "@/components/builder/editor/StubField";
 import type { FieldEditorSchema, FieldKindMetadata } from "../kinds";
@@ -28,7 +29,8 @@ export const multiSelectFieldMetadata: FieldKindMetadata<"multi_select"> = {
 	kind: "multi_select",
 	xformKind: "select",
 	dataType: "xsd:string",
-	icon: "tabler:checkbox",
+	icon: tablerSquareCheck,
+	label: "Multi Select",
 	isStructural: false,
 	isContainer: false,
 	saDocs: "Multi-choice from a fixed option list.",

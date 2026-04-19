@@ -4,6 +4,7 @@
 // Cannot be calculated, validated, or saved to a case property — extends
 // fieldBaseSchema directly rather than inputFieldBaseSchema.
 
+import tablerPhoto from "@iconify-icons/tabler/photo";
 import { z } from "zod";
 import { StubField } from "@/components/builder/editor/StubField";
 import type { FieldEditorSchema, FieldKindMetadata } from "../kinds";
@@ -22,7 +23,8 @@ export const imageFieldMetadata: FieldKindMetadata<"image"> = {
 	kind: "image",
 	xformKind: "input",
 	dataType: "binary",
-	icon: "tabler:photo",
+	icon: tablerPhoto,
+	label: "Image",
 	isStructural: false,
 	isContainer: false,
 	saDocs:

@@ -6,6 +6,7 @@
 // `relevant` (to conditionally show/hide the message). Marked isStructural
 // because it contributes to layout/presentation without producing a value.
 
+import tablerTag from "@iconify-icons/tabler/tag";
 import { z } from "zod";
 import { StubField } from "@/components/builder/editor/StubField";
 import type { FieldEditorSchema, FieldKindMetadata } from "../kinds";
@@ -22,7 +23,8 @@ export const labelFieldMetadata: FieldKindMetadata<"label"> = {
 	kind: "label",
 	xformKind: "trigger",
 	dataType: "",
-	icon: "tabler:info-circle",
+	icon: tablerTag,
+	label: "Label",
 	isStructural: true,
 	isContainer: false,
 	saDocs: "Display-only text. Renders a read-only message — collects no input.",

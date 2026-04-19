@@ -4,6 +4,7 @@
 // Cannot be calculated, validated, or saved to a case property — extends
 // fieldBaseSchema directly rather than inputFieldBaseSchema.
 
+import tablerDeviceTv from "@iconify-icons/tabler/device-tv";
 import { z } from "zod";
 import { StubField } from "@/components/builder/editor/StubField";
 import type { FieldEditorSchema, FieldKindMetadata } from "../kinds";
@@ -22,7 +23,8 @@ export const videoFieldMetadata: FieldKindMetadata<"video"> = {
 	kind: "video",
 	xformKind: "input",
 	dataType: "binary",
-	icon: "tabler:video",
+	icon: tablerDeviceTv,
+	label: "Video",
 	isStructural: false,
 	isContainer: false,
 	saDocs: "Video recording. Cannot be saved to a case property.",

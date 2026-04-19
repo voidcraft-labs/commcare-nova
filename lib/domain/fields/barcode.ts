@@ -4,6 +4,7 @@
 // Supports XPath validation and calculation. No default_value — the value is
 // always populated by the device scanner, not a user-supplied default.
 
+import tablerBarcode from "@iconify-icons/tabler/barcode";
 import { z } from "zod";
 import type { FieldEditorSchema, FieldKindMetadata } from "../kinds";
 import { inputFieldBaseSchema } from "./base";
@@ -21,7 +22,8 @@ export const barcodeFieldMetadata: FieldKindMetadata<"barcode"> = {
 	kind: "barcode",
 	xformKind: "input",
 	dataType: "xsd:string",
-	icon: "tabler:barcode",
+	icon: tablerBarcode,
+	label: "Barcode",
 	isStructural: false,
 	isContainer: false,
 	saDocs: "Barcode/QR scan.",

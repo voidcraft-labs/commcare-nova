@@ -8,6 +8,7 @@
 // is meaningful at the container level; individual child fields carry their
 // own validation/logic as usual.
 
+import tablerRepeat from "@iconify-icons/tabler/repeat";
 import { z } from "zod";
 import { StubField } from "@/components/builder/editor/StubField";
 import type { FieldEditorSchema, FieldKindMetadata } from "../kinds";
@@ -24,7 +25,8 @@ export const repeatFieldMetadata: FieldKindMetadata<"repeat"> = {
 	kind: "repeat",
 	xformKind: "repeat",
 	dataType: "",
-	icon: "tabler:repeat",
+	icon: tablerRepeat,
+	label: "Repeat",
 	isStructural: true,
 	isContainer: true,
 	saDocs:
