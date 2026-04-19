@@ -12,20 +12,13 @@
  * Search filtering operates directly on entity maps — no assembled TreeData.
  */
 "use client";
-import { Icon, type IconifyIcon } from "@iconify/react/offline";
+import { Icon } from "@iconify/react/offline";
 import tablerGridDots from "@iconify-icons/tabler/grid-dots";
 import tablerSearch from "@iconify-icons/tabler/search";
 import tablerTable from "@iconify-icons/tabler/table";
 import tablerX from "@iconify-icons/tabler/x";
 import { AnimatePresence, motion } from "motion/react";
-import {
-	memo,
-	use,
-	useCallback,
-	useDeferredValue,
-	useMemo,
-	useState,
-} from "react";
+import { memo, use, useCallback, useDeferredValue, useState } from "react";
 import {
 	CollapseChevron,
 	FormIconContext,
@@ -33,15 +26,16 @@ import {
 	TreeItemRow,
 } from "@/components/builder/appTree/shared";
 import {
+	countQuestionsFromOrder,
+	useFieldIconMap,
+} from "@/components/builder/appTree/useFieldIconMap";
+import {
 	type SearchResult,
 	useSearchFilter,
 } from "@/components/builder/appTree/useSearchFilter";
 import { useScrollIntoView } from "@/components/builder/contexts/ScrollRegistryContext";
 import { ConnectLogomark } from "@/components/icons/ConnectLogomark";
-import {
-	useBlueprintDoc,
-	useBlueprintDocShallow,
-} from "@/lib/doc/hooks/useBlueprintDoc";
+import { useBlueprintDoc } from "@/lib/doc/hooks/useBlueprintDoc";
 import { useForm as useFormDoc } from "@/lib/doc/hooks/useEntity";
 import { useModuleIds } from "@/lib/doc/hooks/useModuleIds";
 import {
@@ -526,51 +520,6 @@ const FormCard = memo(function FormCard({
 		</motion.div>
 	);
 });
-
-/** Build a field ID → type icon map for a form's fields (recursive). */
-function useFieldIconMap(formId: Uuid): Map<string, IconifyIcon> {
-	const { fields, fieldOrder } = useBlueprintDocShallow((s) => ({
-		fields: s.fields,
-		fieldOrder: s.fieldOrder,
-	}));
-
-	return useMemo(() => {
-		const map = new Map<string, IconifyIcon>();
-		function walk(parentId: Uuid, parentPath?: QuestionPath) {
-			const uuids = fieldOrder[parentId] ?? [];
-			for (const uuid of uuids) {
-				const f = fields[uuid];
-				if (!f) continue;
-				const p = qpath(f.id, parentPath);
-				// Icon comes from `fieldRegistry[kind]` — the domain-owned
-				// metadata registry. Every kind has an icon, so no defensive
-				// branch is needed; the lookup is total.
-				map.set(p, fieldRegistry[f.kind].icon);
-				walk(uuid, p);
-			}
-		}
-		walk(formId);
-		return map;
-	}, [formId, fields, fieldOrder]);
-}
-
-/** Count questions recursively from fieldOrder. Pure function —
- *  safe to call inside a Zustand selector for primitive-result memoization. */
-function countQuestionsFromOrder(
-	parentId: Uuid,
-	fieldOrder: Record<Uuid, Uuid[]>,
-): number {
-	let count = 0;
-	function walk(pid: Uuid) {
-		const uuids = fieldOrder[pid] ?? [];
-		count += uuids.length;
-		for (const uuid of uuids) {
-			walk(uuid);
-		}
-	}
-	walk(parentId);
-	return count;
-}
 
 // ── FieldRow ──────────────────────────────────────────────────────
 
