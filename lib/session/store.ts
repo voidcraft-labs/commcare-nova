@@ -301,12 +301,15 @@ export interface BuilderSessionState {
 
 	/** Reset all transient session state to the initial values.
 	 *
-	 *  Called from `resetBuilder` (the composite reset helper used by
-	 *  `ReplayController` when navigating between replay stages). Restores
-	 *  all generation lifecycle, replay, cursor mode, sidebars, connect
-	 *  stash, and one-shot UI hints to defaults. The private doc-store
-	 *  reference installed by SyncBridge is NOT cleared — the provider's
-	 *  effect owns its lifetime. */
+	 *  Composed alongside `resetBuilder` (the doc + engine + signal-grid
+	 *  reset helper) by callers that want a full clean slate — notably
+	 *  `ReplayController.handleExit`, which wipes both when the user
+	 *  leaves replay mode. Scrub callers (e.g. `goToChapter`) call
+	 *  `resetBuilder` without `reset()` so `replay.*` survives the click.
+	 *  Restores all generation lifecycle, replay, cursor mode, sidebars,
+	 *  connect stash, and one-shot UI hints to defaults. The private
+	 *  doc-store reference installed by SyncBridge is NOT cleared — the
+	 *  provider's effect owns its lifetime. */
 	reset: () => void;
 }
 

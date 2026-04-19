@@ -229,11 +229,19 @@ export function useAutoSave(): SaveState {
 		const unsub = docStore.subscribe(
 			projectSaveSlice,
 			() => {
+				const sessionState = session.getState();
+				/* Never save during replay. The doc is being rebuilt from a
+				 * historical event log; any mutation it receives is a scrub
+				 * reconstruction, not a user edit. Persisting those writes
+				 * would overwrite the app's real data with a partial playback
+				 * snapshot. Gate here before the phase check — replay now
+				 * derives to Ready (see `derivePhase`), so the phase gate
+				 * alone would let scrub writes through. */
+				if (sessionState.replay !== undefined) return;
 				/* Gate on lifecycle phase and app existence. Derive the builder
 				 * phase from session state + doc presence — only save when the
 				 * builder is in Ready or Completed (i.e. the user has a usable
 				 * blueprint and no initial generation is in progress). */
-				const sessionState = session.getState();
 				const docSnap = docStore.getState();
 				const phase = derivePhase(sessionState, docHasData(docSnap));
 				if (phase !== BuilderPhase.Ready && phase !== BuilderPhase.Completed)

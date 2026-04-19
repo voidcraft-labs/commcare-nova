@@ -28,10 +28,7 @@ import { BlueprintDocContext } from "@/lib/doc/provider";
 import { replayEventsSync } from "@/lib/log/replay";
 import type { Event } from "@/lib/log/types";
 import { useBuilderFormEngine } from "@/lib/preview/engine/provider";
-import {
-	resetBuilder,
-	resetBuilderForReplay,
-} from "@/lib/services/resetBuilder";
+import { resetBuilder } from "@/lib/services/resetBuilder";
 import {
 	BuilderSessionContext,
 	useBuilderSession,
@@ -102,14 +99,14 @@ export function ReplayController() {
 			const chapter = chapters[chapterIndex];
 			if (!chapter || !docStore || !sessionStore) return;
 			try {
-				/* Scrub-scoped reset — wipes doc + engine + signal grid, but
-				 * PRESERVES session state so `replay.events` / `replay.chapters`
-				 * / the transport bar all survive the click. Using the full
-				 * `resetBuilder` here (as an earlier iteration did) cleared
-				 * `replay: undefined`, which caused `setReplayCursor` below
-				 * to no-op and the controller to render `0/0` chapters until
-				 * unmount. */
-				resetBuilderForReplay({ docStore, engineController });
+				/* Reset the doc + engine + signal grid only. Session state
+				 * (including `replay.events` / `replay.chapters` / the
+				 * transport bar) is preserved by composition — we simply
+				 * don't call `sessionStore.reset()` here. The previous
+				 * foot-gun (a composite reset that bundled session.reset)
+				 * cleared `replay: undefined` and caused the transport bar
+				 * to render `0/0` chapters until unmount. */
+				resetBuilder({ docStore, engineController });
 				/* Cumulative replay — from event 0 through this chapter's
 				 * end. Chapters are scrub targets, not independent segments,
 				 * so every scrub reconstructs state from the beginning. The
@@ -148,11 +145,13 @@ export function ReplayController() {
 	 *  a missing value is an invariant violation — throw loudly rather
 	 *  than silently navigating somewhere unexpected.
 	 *
-	 *  Uses the FULL `resetBuilder` (not the replay-scoped variant):
-	 *  exit is the one place where wiping session state is the desired
-	 *  behaviour — the user is leaving replay mode entirely, so
-	 *  `replay.*`, cursor mode, sidebar visibility, etc. all reset
-	 *  before the route navigation fires. */
+	 *  Composes `resetBuilder` (doc + engine + signal grid) with an
+	 *  explicit `sessionStore.reset()` — exit is the one place where
+	 *  session state should also clear, so `replay.*`, cursor mode,
+	 *  sidebar visibility, etc. all zero out before navigation. The
+	 *  session reset runs BEFORE `router.push` so the next route's
+	 *  mount doesn't observe stale session state during its initial
+	 *  render. */
 	const handleExit = useCallback(() => {
 		if (!docStore || !sessionStore) {
 			throw new Error(
@@ -165,7 +164,8 @@ export function ReplayController() {
 				"ReplayController.handleExit: no exitPath in replay state",
 			);
 		}
-		resetBuilder({ sessionStore, docStore, engineController });
+		resetBuilder({ docStore, engineController });
+		sessionStore.getState().reset();
 		router.push(exitPath);
 	}, [docStore, sessionStore, engineController, router]);
 

@@ -11,7 +11,7 @@
 
 import { describe, expect, it } from "vitest";
 import { BuilderPhase } from "@/lib/services/builder";
-import { GenerationStage } from "@/lib/session/types";
+import { GenerationStage, type ReplayData } from "@/lib/session/types";
 import { derivePhase } from "../hooks";
 
 describe("derivePhase", () => {
@@ -109,5 +109,20 @@ describe("derivePhase", () => {
 				true,
 			),
 		).toBe(BuilderPhase.Completed);
+	});
+
+	it("returns Ready when session.replay is defined even if docHasData is false", () => {
+		/* Replay mounts a read-only viewer over a historical log. Even
+		 * before any modules have been applied (e.g. the Data Model
+		 * chapter, where only setCaseTypes has landed and docHasData is
+		 * false), the layout should show the sidebar chat chrome, not
+		 * the centered pre-build Idle prompt. */
+		const replay: ReplayData = {
+			events: [],
+			chapters: [],
+			cursor: 0,
+			exitPath: "/admin",
+		};
+		expect(derivePhase({ replay }, false)).toBe(BuilderPhase.Ready);
 	});
 });

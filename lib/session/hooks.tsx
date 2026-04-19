@@ -23,6 +23,7 @@ import type {
 	GenerationError,
 	GenerationStage,
 	PartialScaffoldData,
+	ReplayData,
 } from "./types";
 
 // ── Cursor mode ───────────────────────────────────────────────────────────
@@ -439,6 +440,7 @@ interface DerivePhaseSession {
 	agentActive?: boolean;
 	postBuildEdit?: boolean;
 	agentStage?: GenerationStage | null;
+	replay?: ReplayData;
 }
 
 /**
@@ -455,7 +457,8 @@ interface DerivePhaseSession {
  *   window between the chat status effect setting `agentActive` and the
  *   first `data-start-build` event stays in Idle (the SA might be doing
  *   askQuestions, not building). Post-build edits stay in Ready.
- * - **Ready** — a usable blueprint exists in the doc store.
+ * - **Ready** — a usable blueprint exists in the doc store, OR replay
+ *   mode is active (the user is watching a historical build unfold).
  * - **Idle** — fresh builder with no data and no agent activity.
  *
  * Exported for unit testing — components use `useBuilderPhase()`.
@@ -476,6 +479,16 @@ export function derivePhase(
 		session.agentStage != null
 	)
 		return BuilderPhase.Generating;
+	/* Replay mounts a read-only viewer over a historical log. Even when
+	 * the doc is empty (pre-scaffold) the user is watching a build unfold,
+	 * so treat it as Ready rather than Idle — the layout chrome should show
+	 * the chat sidebar, not the centered landing prompt. The Data Model
+	 * chapter in particular applies `setCaseTypes` without yet landing any
+	 * modules, and docHasData remains false there; without this gate the
+	 * layout would degrade to the pre-build centered-chat Idle view mid-
+	 * scrub. Replay sessions never carry agentActive / justCompleted flags,
+	 * so the two higher-priority checks above can't collide with this one. */
+	if (session.replay) return BuilderPhase.Ready;
 	if (docHasData) return BuilderPhase.Ready;
 	return BuilderPhase.Idle;
 }
@@ -493,6 +506,7 @@ export function useBuilderPhase(): BuilderPhase {
 		agentActive: s.agentActive,
 		postBuildEdit: s.postBuildEdit,
 		agentStage: s.agentStage,
+		replay: s.replay,
 	}));
 	/* Single-source predicate — see `lib/doc/predicates.ts::docHasData`.
 	 * Identical to `useDocHasData`, inlined here to avoid coupling the
